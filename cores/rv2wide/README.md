@@ -39,11 +39,12 @@ maximal RV64 preset: F/D, full V with VLEN128, Zfh/Zvfh, Zvbb/Zvkt, and the
 preset's scalar and supervisor extensions with Sv39.
 The corresponding `mini-rv2wide-rva23` and `simple-rv2wide-rva23` selections
 add H/Sha and the guest-supervisor guarantees to that same architecture.
-All four RV64 presets also have `tiled-rv2wide-<isa>` selections; TiledSoC
-currently requires RV64 for every core implementation. The default tiled
-composition instantiates eight harts with 64-set direct-mapped L1s, four shared
-LLC slices, and the ordinary coherent CHI mesh. Its RVA23 CI lane runs the same
-platform smoke, ISA smoke, eight-hart benchmarks, and litmus smoke as RV5Stage.
+All four RV64 presets also have `tiled4core-rv2wide-<isa>` and
+`tiled8core-rv2wide-<isa>` selections; TiledSoC requires RV64 for every core
+implementation. Both sizes use 64-set direct-mapped L1s, four shared LLC slices,
+and the ordinary coherent CHI mesh. Their RVA23 CI lanes run the same platform
+and ISA smoke as RV5Stage: four-core runs litmus smoke, while eight-core runs
+the eight-hart benchmarks.
 
 ## Entry point
 

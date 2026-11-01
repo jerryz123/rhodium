@@ -4,8 +4,8 @@
 
 import: "selection-data.rkt".selection_rows
 
-/* Selects compact internal RAM, single-core external memory, or tiled system topology. */
-enum SoCShape | Mini | Simple | Tiled
+/* Selects compact internal RAM, single-core external memory, or explicit four-/eight-hart tiled topologies. */
+enum SoCShape | Mini | Simple | Tiled4Core | Tiled8Core
 /* Selects a synthesizable RV5Stage/RV2Wide hart or the simulation-only Spike binding. */
 enum CoreKind | RV5Stage | RV2Wide | Spike
 /* Names the explicitly authored architectural presets independently of shape and core implementation. */
@@ -16,7 +16,8 @@ fun soc_shape_name(shape :: SoCShape) :: String:
   match shape
   | SoCShape.Mini: "mini"
   | SoCShape.Simple: "simple"
-  | SoCShape.Tiled: "tiled"
+  | SoCShape.Tiled4Core: "tiled4core"
+  | SoCShape.Tiled8Core: "tiled8core"
 
 /* Returns the canonical CLI spelling for a typed hart implementation. */
 fun core_kind_name(core :: CoreKind) :: String:
@@ -40,7 +41,8 @@ fun parse_soc_shape(name :: String) :: SoCShape:
   match name
   | "mini": SoCShape.Mini
   | "simple": SoCShape.Simple
-  | "tiled": SoCShape.Tiled
+  | "tiled4core": SoCShape.Tiled4Core
+  | "tiled8core": SoCShape.Tiled8Core
   | ~else: error(~who: #'parse_soc_shape, "unsupported SoC shape: " ++ name)
 
 /* Parses a canonical core name and rejects unsupported implementations. */

@@ -15,7 +15,8 @@ fun rv2wide_soc_profile(shape :: SoCShape, preset :: IsaPreset) :: RV2WideConfig
   def cache = match shape
   | SoCShape.Mini: CacheConfig(32, 1)
   | SoCShape.Simple: CacheConfig(64, 4)
-  | SoCShape.Tiled: CacheConfig(64, 1)
+  | SoCShape.Tiled8Core: CacheConfig(64, 1)
+  | SoCShape.Tiled4Core: CacheConfig(64, 1)
   def architecture = soc_architecture(preset)
   def has = architecture.has
   def compressed = CCompressedExtensions ++ (if has("zcb") | [CompressedExtension.Zcb] | []) ++ (if has("zcmop") | [CompressedExtension.Zcmop] | [])

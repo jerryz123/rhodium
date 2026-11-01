@@ -31,6 +31,9 @@ simple-spike-rv64imafdcb
 simple-rv5stage-rva23
 simple-spike-rva23
 simple-rv2wide-rva23
-tiled-rv5stage-rva23
-tiled-spike-rva23
-tiled-rv2wide-rva23
+tiled8core-rv5stage-rva23
+tiled8core-spike-rva23
+tiled8core-rv2wide-rva23
+tiled4core-rv5stage-rva23
+tiled4core-spike-rva23
+tiled4core-rv2wide-rva23

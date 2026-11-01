@@ -33,8 +33,9 @@ def Rva23MandatoryUdb = [
 // Matching platforms and ISA selections must describe the same component
 // behavior despite different issue, retirement, and execution timing. PMA
 // granularity remains an explicit integration choice, not component policy.
-for (shape in ["mini", "simple", "tiled"]):
-  for (isa in ["rv32int", "rv32max", "rv64imacb", "rv64imafdcb", "rv64max", "rva23"]):
+for (shape in ["mini", "simple", "tiled4core", "tiled8core"]):
+  def presets = ["rv64imacb", "rv64imafdcb", "rv64max", "rva23"]
+  for (isa in (if shape == "mini" || shape == "simple" | ["rv32int", "rv32max"] ++ presets | presets)):
     def scalar = riscv_udb_configuration(shape ++ "-rv5stage-" ++ isa)
     def dual = riscv_udb_configuration(shape ++ "-rv2wide-" ++ isa)
     def scalar_components = scalar.parameters.filter(~keep: fun (parameter): parameter.name != "PMA_GRANULARITY")
@@ -72,7 +73,7 @@ for (core in ["rv5stage", "rv2wide", "spike"]):
       check: (for any (entry in rv32.extensions): entry.name == name) ~is #false
 
 for (core in ["rv5stage", "spike", "rv2wide"]):
-  for (shape in ["mini", "simple", "tiled"]):
+  for (shape in ["mini", "simple", "tiled4core", "tiled8core"]):
     def config = resolve_soc_config(named_soc_selection(shape ++ "-" ++ core ++ "-rva23"))
     def configuration = config.udb()
     def hart = config.description.hart
@@ -135,7 +136,7 @@ for (profile in [single_core_rv5stage_soc_core_profile, mini_rv5stage_soc_core_p
     profile.isa_profile.isa_extensions.contains("zihintpause") ~is #true
     profile.isa_profile.isa_extensions.contains("zawrs") ~is #true
 
-for (name in ["simple-rv5stage-rva23", "mini-rv5stage-rva23", "tiled-rv5stage-rva23"]):
+for (name in ["simple-rv5stage-rva23", "mini-rv5stage-rva23", "tiled8core-rv5stage-rva23"]):
   check:
     riscv_udb_configuration(name).to_yaml().contains("{ name: \"Ziccif\", version: \"= 1.0.0\" }") ~is #true
     riscv_udb_configuration(name).to_yaml().contains("{ name: \"Zicclsm\", version: \"= 1.0.0\" }") ~is #true
@@ -153,16 +154,16 @@ for (profile in [single_core_rv5stage_soc_core_profile, mini_rv5stage_soc_core_p
   check:
     profile.isa_profile.isa_extensions.contains("zcmop") ~is #true
 
-for (name in ["simple-rv5stage-rva23", "mini-rv5stage-rva23", "tiled-rv5stage-rva23"]):
+for (name in ["simple-rv5stage-rva23", "mini-rv5stage-rva23", "tiled8core-rv5stage-rva23"]):
   check:
     riscv_udb_configuration(name).to_yaml().contains("{ name: \"Zcmop\", version: \"= 1.0.0\" }") ~is #true
 
-for (name in ["simple-rv5stage-rva23", "mini-rv5stage-rva23", "tiled-rv5stage-rva23"]):
+for (name in ["simple-rv5stage-rva23", "mini-rv5stage-rva23", "tiled8core-rv5stage-rva23"]):
   for (extension in ["Zcb", "Zfa", "Zicbom", "Ssnpm", "Supm"]):
     check:
       riscv_udb_configuration(name).to_yaml().contains("{ name: \"" ++ extension ++ "\", version: \"= 1.0.0\" }") ~is #true
 
-for (name in ["simple-rv5stage-rva23", "mini-rv5stage-rva23", "tiled-rv5stage-rva23"]):
+for (name in ["simple-rv5stage-rva23", "mini-rv5stage-rva23", "tiled8core-rv5stage-rva23"]):
   check:
     riscv_udb_configuration(name).to_yaml().contains("  PHYS_ADDR_WIDTH: " ++ String.from_int(rhodium_soc_flit.request_address_width)) ~is #true
 
@@ -171,16 +172,16 @@ check:
   single_core_gnu_target.march.contains("svpbmt") ~is #false
   single_core_gnu_target.march.contains("svnapot") ~is #false
   riscv_udb_configuration("simple-rv5stage-rva23").to_yaml().contains("  SUPPORTED_PMLEN_SSNPM: [0, 7, 16]") ~is #true
-  riscv_udb_configuration("tiled-rv5stage-rva23").to_yaml().contains("  SUPPORTED_PMLEN_SSNPM: [0, 7, 16]") ~is #true
+  riscv_udb_configuration("tiled8core-rv5stage-rva23").to_yaml().contains("  SUPPORTED_PMLEN_SSNPM: [0, 7, 16]") ~is #true
   riscv_udb_configuration("mini-rv5stage-rva23").to_yaml().contains("  SUPPORTED_PMLEN_SSNPM: [0, 7, 16]") ~is #true
   riscv_udb_configuration("simple-rv5stage-rva23").to_yaml().contains("{ name: \"Zvfh\", version: \"= 1.0.0\" }") ~is #true
-  riscv_udb_configuration("tiled-rv5stage-rva23").to_yaml().contains("{ name: \"Zvfh\", version: \"= 1.0.0\" }") ~is #true
+  riscv_udb_configuration("tiled8core-rv5stage-rva23").to_yaml().contains("{ name: \"Zvfh\", version: \"= 1.0.0\" }") ~is #true
   riscv_udb_configuration("simple-rv5stage-rva23").to_yaml().contains("{ name: \"Zvbb\", version: \"= 1.0.0\" }") ~is #true
-  riscv_udb_configuration("tiled-rv5stage-rva23").to_yaml().contains("{ name: \"Zvbb\", version: \"= 1.0.0\" }") ~is #true
+  riscv_udb_configuration("tiled8core-rv5stage-rva23").to_yaml().contains("{ name: \"Zvbb\", version: \"= 1.0.0\" }") ~is #true
   riscv_udb_configuration("simple-rv5stage-rva23").to_yaml().contains("{ name: \"Zvkb\", version: \"= 1.0.0\" }") ~is #true
-  riscv_udb_configuration("tiled-rv5stage-rva23").to_yaml().contains("{ name: \"Zvkb\", version: \"= 1.0.0\" }") ~is #true
+  riscv_udb_configuration("tiled8core-rv5stage-rva23").to_yaml().contains("{ name: \"Zvkb\", version: \"= 1.0.0\" }") ~is #true
   riscv_udb_configuration("simple-rv5stage-rva23").to_yaml().contains("{ name: \"Zvkt\", version: \"= 1.0.0\" }") ~is #true
-  riscv_udb_configuration("tiled-rv5stage-rva23").to_yaml().contains("{ name: \"Zvkt\", version: \"= 1.0.0\" }") ~is #true
+  riscv_udb_configuration("tiled8core-rv5stage-rva23").to_yaml().contains("{ name: \"Zvkt\", version: \"= 1.0.0\" }") ~is #true
   riscv_udb_configuration("simple-rv5stage-rva23").to_yaml().contains("{ name: \"Zvl32b\", version: \"= 1.0.0\" }") ~is #true
   riscv_udb_configuration("simple-rv5stage-rva23").to_yaml().contains("{ name: \"Zvl64b\", version: \"= 1.0.0\" }") ~is #true
   riscv_udb_configuration("mini-rv5stage-rva23").to_yaml().contains("{ name: \"Zvkt\",") ~is #true
@@ -189,7 +190,7 @@ check:
   tiled_rv5stage_soc_core_profile.isa_profile.misa_extensions ~is single_core_rv5stage_soc_core_profile.isa_profile.misa_extensions
   riscv_udb_configuration("simple-rv5stage-rva23").name ~is "rhodium-simple-rv5stage-rva23"
   riscv_udb_configuration("mini-rv5stage-rva23").name ~is "rhodium-mini-rv5stage-rva23"
-  riscv_udb_configuration("tiled-rv5stage-rva23").name ~is "rhodium-tiled-rv5stage-rva23"
+  riscv_udb_configuration("tiled8core-rv5stage-rva23").name ~is "rhodium-tiled8core-rv5stage-rva23"
   single_core_spike_soc_core_profile.hart_description.isa_profile.isa_extensions.contains("zihpm") ~is #true
   single_core_spike_soc_core_profile.pmp_regions ~is 0
   riscv_udb_configuration("unknown") ~throws "expected an explicit shape-core-isa config key"

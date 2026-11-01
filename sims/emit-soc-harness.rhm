@@ -71,7 +71,10 @@ fun selected_program(resolved :: ResolvedSoCConfig):
   | SoCShape.Mini:
       def harness = dynamic_require("sims/mini-soc-harness.rhdl", #'SoCHarness)
       elaborate(harness(config))
-  | SoCShape.Tiled:
+  | SoCShape.Tiled8Core:
+      def harness = dynamic_require("sims/tiled-soc-harness.rhdl", #'SoCHarness)
+      elaborate(harness(config))
+  | SoCShape.Tiled4Core:
       def harness = dynamic_require("sims/tiled-soc-harness.rhdl", #'SoCHarness)
       elaborate(harness(config))
 

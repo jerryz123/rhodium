@@ -102,7 +102,7 @@ def measure(text, maximum):
 def enrolled(soc, suite):
     shape, _core, isa = selections().get(soc, ('', '', ''))
     return (isa == 'rva23' and suite in SUITES
-            and (shape == 'simple' or shape == 'tiled' and suite == 'benchmark'))
+            and (shape == 'simple' or shape == 'tiled8core' and suite == 'benchmark'))
 
 
 def context(manifest, metadata):

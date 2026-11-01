@@ -23,7 +23,8 @@ fun rv5stage_soc_profile(shape :: SoCShape, preset :: IsaPreset) :: RV5StageConf
   def cache = match shape
   | SoCShape.Mini: RV5StageCacheGeometry(~instruction: CacheConfig(32, 1), ~data: CacheConfig(32, 1))
   | SoCShape.Simple: RV5StageCacheGeometry(~instruction: CacheConfig(64, 4), ~data: CacheConfig(64, 4))
-  | SoCShape.Tiled: RV5StageCacheGeometry()
+  | SoCShape.Tiled8Core: RV5StageCacheGeometry()
+  | SoCShape.Tiled4Core: RV5StageCacheGeometry()
 
   def profile = RV5StageConfig(
     ~xlen: architecture.isa.xlen,
@@ -56,7 +57,7 @@ fun rv5stage_soc_profile(shape :: SoCShape, preset :: IsaPreset) :: RV5StageConf
 
 def single_core_rv5stage_soc_core_profile = rv5stage_soc_profile(SoCShape.Simple, IsaPreset.RVA23)
 def mini_rv5stage_soc_core_profile = rv5stage_soc_profile(SoCShape.Mini, IsaPreset.RVA23)
-def tiled_rv5stage_soc_core_profile = rv5stage_soc_profile(SoCShape.Tiled, IsaPreset.RVA23)
+def tiled_rv5stage_soc_core_profile = rv5stage_soc_profile(SoCShape.Tiled8Core, IsaPreset.RVA23)
 
 export:
   rv5stage_soc_profile

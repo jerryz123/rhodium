@@ -24,6 +24,11 @@ import:
   "../harts/implementation.rhdl".RiscvHartImplementation
   "../platform/fabric-profiles.rhm".rhodium_soc_flit
 
+def tiled4core_soc_layout = tile_grid:
+  row [llc(4), memory]
+  row [host, device_home, aclint, plic, uart]
+  row [hart(4), transit]
+
 def default_tiled_soc_layout = tile_grid:
   row [llc(4), memory]
   row [host, device_home, aclint, plic, uart]
@@ -35,10 +40,11 @@ def tiled_soc_clocks = SoCClockConfig(
   ~timebase_frequency_hz: 1000000
 )
 
-/* Builds the default eight-hart, four-slice mesh with one 1-GiB external RAM channel and the shared platform devices. */
-fun tiled_soc_config(hart :: RiscvHartImplementation) :: TiledSoCConfig:
+/* Builds the supplied mesh (eight harts by default) with four LLC slices, one 1-GiB RAM channel, and shared platform devices. */
+fun tiled_soc_config(hart :: RiscvHartImplementation,
+                     ~layout: layout :: TileGrid = default_tiled_soc_layout) :: TiledSoCConfig:
   TiledSoCConfig(
-    ~layout: default_tiled_soc_layout,
+    ~layout: layout,
     ~node_ids: TiledNodeIds(
       ~hart_coherent_base: 0,
       ~hart_uncached_base: 16,
@@ -238,6 +244,7 @@ export:
   repeat_tiled_tile
   tile_grid
   default_tiled_soc_layout
+  tiled4core_soc_layout
   tiled_soc_clocks
   tiled_soc_config
   TiledSoC

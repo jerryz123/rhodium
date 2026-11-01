@@ -299,7 +299,8 @@ class Selection:
                           for config in BACKEND_SMOKE_CONFIGS for backend in BACKEND_SMOKE_VARIANTS)
         # Matching-row needs are not supported by Actions matrices. Configs
         # with downstream execution use named jobs; build-only rows stay batched.
-        pipelines = set(SINGLE_CORE_SOCS) | {row['soc'] for row in platform_configs()}
+        pipelines = (set(SINGLE_CORE_SOCS) | {row['soc'] for row in platform_configs()}
+                     | {soc for soc, shape, _core in SIMULATOR_CONFIGS if shape == 'tiled8core'})
         arch_builds = {row['configuration']: row for row in arch_configs()} if self.arch else {}
         arch_runs = arch_shards() if self.arch else ()
         config_jobs = {}

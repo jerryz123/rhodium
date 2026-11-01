@@ -151,8 +151,8 @@ ZICBOZ_SIGNATURE := $(SOC_BUILD_DIR)/zicboz.signature
 ZIHINTNTL_BINARY := $(SOC_BUILD_DIR)/zihintntl.elf
 ZIHINTNTL_SIGNATURE := $(SOC_BUILD_DIR)/zihintntl.signature
 LRSC_BINARIES := $(SOC_BUILD_DIR)/lrsc_0.elf $(SOC_BUILD_DIR)/lrsc_1.elf
-LRSC_HARTS := $(if $(filter tiled,$(SOC_SHAPE)),8,1)
-LRSC_BOOT_HARTS := $(if $(filter tiled,$(SOC_SHAPE)),+boot-harts=0-7,)
+LRSC_HARTS := $(if $(filter tiled8core,$(SOC_SHAPE)),8,$(if $(filter tiled4core,$(SOC_SHAPE)),4,1))
+LRSC_BOOT_HARTS := $(if $(filter tiled8core,$(SOC_SHAPE)),+boot-harts=0-7,$(if $(filter tiled4core,$(SOC_SHAPE)),+boot-harts=0-3,))
 LRSC_IALIGN := 2
 LRSC_PAGE_TABLE_BASE := $(if $(filter mini,$(SOC_SHAPE)),0x8000b000,0x80010000)
 LRSC_MEMORY_LIMIT := $(if $(filter mini,$(SOC_SHAPE)),0x80010000,0xc0000000)
@@ -208,7 +208,7 @@ lrsc-run: $(LRSC_BINARIES) simulator
 	  echo "LR/SC test: SOC=$(SOC) Sv39=$$mode harts=$(LRSC_HARTS)"; \
 	  signature="$(SOC_BUILD_DIR)/lrsc_$$mode.signature"; \
 	  if $(SIMULATOR_BINARY) $(LRSC_BOOT_HARTS) +max-cycles=20000000 +signature="$$signature" +signature-granularity=8 "$(SOC_BUILD_DIR)/lrsc_$$mode.elf" && \
-	    awk -v expected="$(if $(filter tiled,$(SOC_SHAPE)),0000000000000040,0000000000000008)" '{ if ($$0 != expected) exit 1 } END { if (NR != 6) exit 1 }' "$$signature"; then \
+	    awk -v expected="$(if $(filter tiled8core,$(SOC_SHAPE)),0000000000000040,$(if $(filter tiled4core,$(SOC_SHAPE)),0000000000000020,0000000000000008))" '{ if ($$0 != expected) exit 1 } END { if (NR != 6) exit 1 }' "$$signature"; then \
 	    echo "LR/SC test passed: SOC=$(SOC) Sv39=$$mode (6 placements)"; \
 	  else echo "LR/SC test FAILED: SOC=$(SOC) Sv39=$$mode"; status=1; fi; \
 	done; exit $$status
@@ -338,7 +338,7 @@ transport-test: $(FESVR_LIBRARY) | $(DPI_BUILD_DIR)
 	  sims/tests/direct-memory-htif-test.rhm
 
 tiled-lowering-test: | $(TILED_LOWERING_DIR)
-	@test "$(SOC_SHAPE)" = tiled
+	@test -n "$(filter $(SOC_SHAPE),tiled4core tiled8core)"
 	@test -x "$(CIRCT_OPT)" || \
 	  (echo "circt-opt not found; run 'make setup-circt' at the repository root or set CIRCT_OPT" >&2; exit 1)
 	cd $(REPO_DIR) && RACKET="$(RACKET)" tools/run-racket.sh -S $(REPO_DIR) \

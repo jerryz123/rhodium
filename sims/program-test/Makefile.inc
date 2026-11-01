@@ -33,8 +33,9 @@ BENCHMARK_MODE ?= target
 NATIVE_SOFTWARE_SOCS := simple
 SOFTWARE_SOC ?= simple
 SOFTWARE_CORE ?= rv5stage spike
-SMOKE_SOCS := mini simple tiled
-TILED_MT_SOCS := tiled
+SMOKE_SOCS := mini simple tiled4core tiled8core
+TILED_MT_SOCS := tiled8core
+LITMUS_SOCS := tiled4core
 COREMARK_ITERATIONS ?= 1
 COREMARK_MAX_CYCLES ?= 100000000
 EMBENCH_SCALE ?= 1
@@ -157,7 +158,7 @@ benchmark-elfs: program-target
 
 tiled-mt-benchmark-elfs: program-target
 	@test -n "$(filter $(SOC_SHAPE),$(TILED_MT_SOCS))" || \
-	  (echo 'Multihart benchmarks require a tiled SoC' >&2; exit 2)
+	  (echo 'Eight-hart benchmarks require tiled8core' >&2; exit 2)
 	@set -e; for hart_count in $(TILED_MT_HART_COUNTS); do \
 	  output="$(TILED_MT_BENCHMARK_DIR)/$$hart_count-harts"; \
 	  mkdir -p "$$output"; \
@@ -168,8 +169,8 @@ tiled-mt-benchmark-elfs: program-target
 	done
 
 litmus-elfs: program-target
-	@test -n "$(filter $(SOC_SHAPE),$(TILED_MT_SOCS))" || \
-	  (echo 'Litmus tests require a tiled SoC' >&2; exit 2)
+	@test -n "$(filter $(SOC_SHAPE),$(LITMUS_SOCS))" || \
+	  (echo 'Litmus tests require tiled4core' >&2; exit 2)
 	@test -n "$(LITMUS7)" || \
 	  (echo 'Litmus tests require an explicit pinned LITMUS7 executable' >&2; exit 2)
 	$(PYTHON) $(REPO_DIR)/sw/build/build-litmus.py --source "$(LITMUS_DIR)" \
@@ -179,8 +180,8 @@ litmus-elfs: program-target
 	  $(LITMUS_GENERATOR_ARGS)
 
 litmus-smoke-elfs litmus-full-elfs: program-target
-	@test -n "$(filter $(SOC_SHAPE),$(TILED_MT_SOCS))" || \
-	  (echo 'Litmus tests require a tiled SoC' >&2; exit 2)
+	@test -n "$(filter $(SOC_SHAPE),$(LITMUS_SOCS))" || \
+	  (echo 'Litmus tests require tiled4core' >&2; exit 2)
 	@test -n "$(LITMUS7)" || \
 	  (echo 'Litmus profiles require an explicit pinned LITMUS7 executable' >&2; exit 2)
 	$(PYTHON) $(REPO_DIR)/sw/build/build-litmus.py --source "$(LITMUS_DIR)" \
@@ -269,6 +270,8 @@ litmus-test: litmus-elfs simulator-attestation
 litmus-smoke-test: litmus-smoke-elfs
 
 litmus-smoke-test litmus-smoke-run: simulator-attestation
+	@test -n "$(filter $(SOC_SHAPE),$(LITMUS_SOCS))" || \
+	  (echo 'Litmus tests require tiled4core' >&2; exit 2)
 	$(PYTHON) program-test/run.py --manifest "$(if $(PROGRAM_MANIFEST),$(PROGRAM_MANIFEST),$(LITMUS_SMOKE_DIR)/manifest.json)" \
 	  --simulator "$(SIMULATOR_BINARY)" --simulator-metadata "$(SIMULATOR_BINARY).json" \
 	  --output "$(LITMUS_SMOKE_DIR)/results" --jobs $(PROGRAM_JOBS) \
@@ -278,6 +281,8 @@ litmus-full-test: litmus-full-elfs
 	$(MAKE) litmus-full-run
 
 litmus-full-run: simulator-attestation
+	@test -n "$(filter $(SOC_SHAPE),$(LITMUS_SOCS))" || \
+	  (echo 'Litmus tests require tiled4core' >&2; exit 2)
 	@test -f "$(LITMUS_FULL_DIR)/manifest.json" || \
 	  (echo 'Build litmus-full-elfs before running a full shard' >&2; exit 2)
 	$(PYTHON) program-test/run.py --manifest "$(LITMUS_FULL_DIR)/manifest.json" \

@@ -371,11 +371,14 @@ That workflow groups litmus builds by software requirements and OpenSBI builds
 by minimum firmware ISA and derived boot layout. Each execution supplies its
 own BootROM DTB; firmware neither embeds nor binds to a separate DTB. Litmus7 and target compilers
 belong only to build jobs, and the common ELF archive/binder feeds all compatible
-execution configs. Each tiled config runs the same bounded, model-checked
+execution configs. Each `tiled4core` config runs the same bounded, model-checked
 litmus7 selection with its independent 90-minute budget; OpenSBI retains a
 45-minute budget per single-core config. Both retain build diagnostics and
 runner results even on failure. The full litmus inventory is manual only and has
 no CI job or schedule. Do not remove smoke cases because they expose a failure.
+The `tiled8core` configs retain platform smoke, ISA smoke, and eight-hart
+benchmarks, but do not repeat litmus execution. Keep named simulator and
+consumer dependencies explicit for both tiled sizes.
 
 Core rsim coverage retains frontend, control, datapath, both functional vector
 shards, alternate vector configurations, memory, and cache selections. Compatible

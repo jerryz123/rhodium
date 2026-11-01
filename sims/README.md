@@ -17,7 +17,7 @@ including the `tests/` exemption.
 
 ## Choose a harness
 
-`SOC=mini|simple|tiled` chooses the topology; `CORE=rv5stage|rv2wide|spike` chooses
+`SOC=mini|simple|tiled4core|tiled8core` chooses the topology; `CORE=rv5stage|rv2wide|spike` chooses
 the hart implementation; `ISA=rv32int|rv32max|rv64imacb|rv64imafdcb|rv64max|rva23` is required. There is no implicit
 ISA. Alternatively pass a complete key such as `SOC=mini-rv5stage-rva23`.
 Both forms produce the same canonical artifact identity. Shape and core default to `simple` and
@@ -35,7 +35,8 @@ configuration and are rejected before execution if it differs from the simulator
 | --- | --- | --- |
 | `mini` | None; internal 64 KiB `CHIRam` | One hart and a forwarding Home |
 | `simple` | One `CHIDPIMemory` | One hart and one inclusive LLC |
-| `tiled` | One `CHIDPIMemory` | Eight harts and four LLC slices in the default mesh |
+| `tiled4core` | One `CHIDPIMemory` | Four harts and four LLC slices in a 5×3 mesh |
+| `tiled8core` | One `CHIDPIMemory` | Eight harts and four LLC slices in a 5×4 mesh |
 
 RV5Stage uses the shape-specific profiles described in the [SoC comparison](../socs/README.md#choose-a-system).
 RV64 configs select lean scalar `rv64imacb`/`rv64imafdcb`, maximal non-hypervisor
@@ -47,13 +48,13 @@ configuration generation do not imply full ACT validation. See the
 Core selection does not add a runtime mux to the RTL.
 
 RV2Wide is available on Mini and Simple with `rva23`, `rv32int`, `rv32max`,
-`rv64max`, and the lean `rv64imacb`/`rv64imafdcb` presets. Eight-hart Tiled
-supports the same four RV64 presets as the other cores:
+`rv64max`, and the lean `rv64imacb`/`rv64imafdcb` presets. Both tiled sizes
+support the same four RV64 presets as the other cores:
 
 ```sh
 make -C sims simulator SOC=mini-rv2wide-rv64imacb
 make -C sims boot-test isa-smoke SOC=simple-rv2wide-rv64imacb
-make -C sims smoke tiled-mt-benchmark-test SOC=tiled-rv2wide-rva23
+make -C sims smoke tiled-mt-benchmark-test SOC=tiled8core-rv2wide-rva23
 ```
 
 These use the same TestDriver, coherent FESVR, BootROM, and HTIF flow. CI enrolls
@@ -234,7 +235,7 @@ make -C sims setup
 make -C sims simulator SOC=simple CORE=rv5stage ISA=rva23
 make -C sims simulator SOC=simple CORE=spike ISA=rva23
 make -C sims simulator SOC=mini CORE=spike ISA=rva23
-make -C sims simulator SOC=tiled CORE=rv5stage ISA=rva23
+make -C sims simulator SOC=tiled8core CORE=rv5stage ISA=rva23
 ```
 
 The [test inventory](test-configs.txt) lists the canonical CI configs;
@@ -358,7 +359,7 @@ Test all byte values through a real external PTY client with:
 ```sh
 make -C sims uart-pty-test SOC=mini CORE=rv5stage ISA=rva23
 make -C sims uart-pty-test SOC=simple CORE=rv5stage ISA=rva23
-make -C sims uart-pty-test SOC=tiled CORE=rv5stage ISA=rva23
+make -C sims uart-pty-test SOC=tiled8core CORE=rv5stage ISA=rva23
 ```
 
 <a id="export-rv5stage-soc-events-to-perfetto"></a>
@@ -382,7 +383,7 @@ and RV2Wide on Mini, Simple, and Tiled, with an explicit supported ISA selection
 make -C sims smoke SOC=simple CORE=rv5stage ISA=rva23 RTL_BACKEND=circt TRACE=1 TRACE_FILE=/tmp/single-core-rv5stage-soc.pftrace
 make -C sims run SOC=simple CORE=rv5stage ISA=rva23 RTL_BACKEND=circt TRACE=1 TRACE_FILE=/tmp/program.pftrace BINARY=/absolute/path/to/program.elf
 make -C sims run SOC=simple CORE=rv5stage ISA=rva23 RTL_BACKEND=circt TRACE=1 TRACE_FILE=/tmp/program.pftrace.gz BINARY=/absolute/path/to/program.elf
-make -C sims run SOC=tiled CORE=rv5stage ISA=rva23 RTL_BACKEND=circt TRACE=1 TRACE_FILE=/tmp/tiled.pftrace.gz \
+make -C sims run SOC=tiled8core CORE=rv5stage ISA=rva23 RTL_BACKEND=circt TRACE=1 TRACE_FILE=/tmp/tiled.pftrace.gz \
   BINARY=/absolute/path/to/multihart.elf \
   HTIF_ARGS='+boot-harts=0,1 +permissive +max-cycles=2000000 +permissive-off'
 make -C sims run SOC=mini-rv2wide-rv64imacb RTL_BACKEND=circt TRACE=1 TRACE_FILE=/tmp/rv2wide.pftrace BINARY=/absolute/path/to/program.elf
@@ -518,7 +519,7 @@ Run any FESVR-compatible target binary through an already-built simulator:
 ```sh
 make -C sims run SOC=simple CORE=rv5stage ISA=rva23 BINARY=/absolute/path/to/program.elf
 make -C sims run SOC=mini CORE=rv5stage ISA=rva23 BINARY=/absolute/path/to/program.elf
-make -C sims run SOC=tiled CORE=rv5stage ISA=rva23 BINARY=/absolute/path/to/program.elf
+make -C sims run SOC=tiled8core CORE=rv5stage ISA=rva23 BINARY=/absolute/path/to/program.elf
 ```
 
 `HTIF_ARGS` places optional FESVR host arguments before the target binary, and
@@ -629,18 +630,18 @@ make -C sims program-test-setup
 make -C sims isa-smoke SOC=mini CORE=rv5stage ISA=rv32max
 make -C sims isa-smoke SOC=mini CORE=rv5stage ISA=rva23
 make -C sims isa-smoke SOC=mini CORE=spike ISA=rva23
-make -C sims isa-smoke SOC=tiled CORE=rv5stage ISA=rva23
-make -C sims isa-smoke SOC=tiled CORE=rv2wide ISA=rva23
-make -C sims isa-smoke SOC=tiled CORE=spike ISA=rva23
+make -C sims isa-smoke SOC=tiled8core CORE=rv5stage ISA=rva23
+make -C sims isa-smoke SOC=tiled8core CORE=rv2wide ISA=rva23
+make -C sims isa-smoke SOC=tiled8core CORE=spike ISA=rva23
 ```
 
 Run the target-capability-filtered upstream multihart benchmarks with eight
-harts on any Tiled config:
+harts on `tiled8core`:
 
 ```sh
-make -C sims tiled-mt-benchmark-test SOC=tiled-rv5stage-rva23
-make -C sims tiled-mt-benchmark-test SOC=tiled-rv2wide-rva23
-make -C sims tiled-mt-benchmark-test SOC=tiled-spike-rva23
+make -C sims tiled-mt-benchmark-test SOC=tiled8core-rv5stage-rva23
+make -C sims tiled-mt-benchmark-test SOC=tiled8core-rv2wide-rva23
+make -C sims tiled-mt-benchmark-test SOC=tiled8core-spike-rva23
 ```
 
 Each command is independently runnable. CI gives each config its own job, so
@@ -670,7 +671,8 @@ The private build overlay reports a successful HTIF exit only after every
 selected hart reaches its exit; a nonzero exit from any hart fails the run.
 ACT and the complete program suites remain restricted to Simple compositions.
 
-Run the same model-checked litmus7 path in any eight-hart tiled composition.
+Run the same model-checked litmus7 path on `tiled4core` with any core implementation.
+All litmus entrypoints use this four-hart topology; eight-hart benchmarks use `tiled8core`.
 Smoke selects a fixed 64-case subset for CI on RV5Stage, RV2Wide, and Spike;
 full selects every case supported
 by the target's ISA and hart count (3,443 at the current upstream pin). Each
@@ -678,22 +680,22 @@ case boots only the one to four harts it needs:
 
 ```sh
 make -C sims litmus-setup
-make -C sims litmus-smoke-test SOC=tiled CORE=rv5stage ISA=rva23 \
+make -C sims litmus-smoke-test SOC=tiled4core CORE=rv5stage ISA=rva23 \
   LITMUS7=/path/to/litmus7 LITMUS7_LIBDIR=/path/to/herdtools7/litmus/libdir
-make -C sims litmus-smoke-test SOC=tiled CORE=rv2wide ISA=rva23 \
+make -C sims litmus-smoke-test SOC=tiled4core CORE=rv2wide ISA=rva23 \
   LITMUS7=/path/to/litmus7 LITMUS7_LIBDIR=/path/to/herdtools7/litmus/libdir
-make -C sims litmus-smoke-test SOC=tiled CORE=spike ISA=rva23 \
+make -C sims litmus-smoke-test SOC=tiled4core CORE=spike ISA=rva23 \
   LITMUS7=/path/to/litmus7 LITMUS7_LIBDIR=/path/to/herdtools7/litmus/libdir
-make -C sims litmus-full-test SOC=tiled CORE=rv5stage ISA=rva23 \
+make -C sims litmus-full-test SOC=tiled4core CORE=rv5stage ISA=rva23 \
   LITMUS7=/path/to/litmus7 LITMUS7_LIBDIR=/path/to/herdtools7/litmus/libdir \
   LITMUS_FULL_SHARD_INDEX=0 LITMUS_FULL_SHARD_COUNT=8
-make -C sims litmus-full-test SOC=tiled CORE=spike ISA=rva23 \
+make -C sims litmus-full-test SOC=tiled4core CORE=spike ISA=rva23 \
   LITMUS7=/path/to/litmus7 LITMUS7_LIBDIR=/path/to/herdtools7/litmus/libdir \
   LITMUS_FULL_SHARD_INDEX=0 LITMUS_FULL_SHARD_COUNT=8
 ```
 
 The builder consumes the generated target descriptor, emits separate ELFs and
-a target-bound manifest under `$PROGRAM_BUILD_ROOT/tiled-<core>/litmus-smoke/`
+a target-bound manifest under `$PROGRAM_BUILD_ROOT/tiled4core-<core>-<isa>/litmus-smoke/`
 or `litmus-full/`, and checks reported histograms against the pinned upstream
 Herd RVWMO result log. `LITMUS_SMOKE_RUNS` and `LITMUS_FULL_RUNS` each default
 to one sample per case; increase them when the extra simulated time is useful.
@@ -706,7 +708,7 @@ For parallel full execution, run `litmus-full-elfs` once, then invoke
 `litmus-full-run` for shard indexes `0` through `LITMUS_FULL_SHARD_COUNT-1`
 with the same count and different indexes; `litmus-full-test` combines the
 build with one shard run. After all shards finish, run
-`make -C sims litmus-full-report SOC=tiled CORE=<core>
+`make -C sims litmus-full-report SOC=tiled4core CORE=<core>
 LITMUS_FULL_SHARD_COUNT=8`; it fails if any shard is missing, mismatched, or
 contains a failure. Shards partition the entire supported inventory.
 Each shard writes atomic `results.json` checkpoints under
@@ -723,7 +725,7 @@ For explicit subsets, `litmus-test` uses the same litmus7 builder and model
 checker. `LITMUS_CASES` selects names and `LITMUS_RUNS` controls samples:
 
 ```sh
-make -C sims litmus-test SOC=tiled CORE=spike ISA=rva23 LITMUS_CASES=MP,LB+ctrls \
+make -C sims litmus-test SOC=tiled4core CORE=spike ISA=rva23 LITMUS_CASES=MP,LB+ctrls \
   LITMUS7=/path/to/litmus7 LITMUS7_LIBDIR=/path/to/herdtools7/litmus/libdir
 ```
 
@@ -1163,10 +1165,10 @@ Run the genuine execution smoke for any system:
 make -C sims smoke SOC=simple CORE=rv5stage ISA=rva23
 make -C sims smoke SOC=simple CORE=spike ISA=rva23
 make -C sims smoke SOC=mini CORE=rv5stage ISA=rva23
-make -C sims smoke SOC=tiled CORE=rv5stage ISA=rva23
+make -C sims smoke SOC=tiled8core CORE=rv5stage ISA=rva23
 make -C sims boot-test SOC=simple CORE=rv5stage ISA=rva23
 make -C sims boot-test SOC=mini CORE=rv5stage ISA=rva23
-make -C sims boot-test SOC=tiled CORE=rv5stage ISA=rva23
+make -C sims boot-test SOC=tiled8core CORE=rv5stage ISA=rva23
 ```
 
 The ordinary smoke payload follows ISA selection, independent of core: RVA23
@@ -1182,7 +1184,7 @@ signature collection with:
 ```sh
 make -C sims lrsc-test SOC=simple CORE=rv5stage ISA=rva23
 make -C sims lrsc-test SOC=mini CORE=rv5stage ISA=rva23
-make -C sims lrsc-test SOC=tiled CORE=rv5stage ISA=rva23
+make -C sims lrsc-test SOC=tiled8core CORE=rv5stage ISA=rva23
 ```
 
 All three targets exercise word/doubleword constrained loops in Bare and Sv39

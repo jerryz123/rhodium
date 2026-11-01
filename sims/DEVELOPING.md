@@ -588,7 +588,7 @@ root Racket compilation manifest so configuration generation can reuse CI byteco
 
 ### LR/SC system validation
 
-`make -C sims lrsc-test SOC=simple-rv5stage-rva23`, `SOC=mini-rv5stage-rva23`, and `SOC=tiled-rv5stage-rva23` complement the
+`make -C sims lrsc-test SOC=simple-rv5stage-rva23`, `SOC=mini-rv5stage-rva23`, and `SOC=tiled8core-rv5stage-rva23` complement the
 [full-core progress matrix](../cores/rv5stage/DEVELOPING.md#ziccrse-progress-gate).
 `tests/programs/lrsc.S` runs six constrained-loop placements, covering
 LR.W/SC.W and LR.D/SC.D at aligned, cross-line/page, and page-boundary starts. Each
@@ -868,7 +868,9 @@ accepting that mapping. Other supervisor guarantees retain their modeled
 extension switches; preserve the exact published UDB input.
 
 The platform test matrix runs the same checked-in, litmus7-generated
-smoke selection on all three exact tiled simulators. Litmus7 and ELFs are built only
+smoke selection on all three exact `tiled4core` simulators. The `tiled8core`
+simulators retain eight-hart benchmark coverage without repeating litmus.
+Both sizes retain platform and ISA smoke. Litmus7 and ELFs are built only
 in the shared build jobs; execution retains histogram checking and its own
 90-minute job budget. OpenSBI executions retain independent 45-minute budgets
 and share firmware only when layout and generated DTB contents match.
@@ -1030,7 +1032,7 @@ make -C sims transport-test
 Check the tiled harness through CIRCT with:
 
 ```sh
-make -C sims tiled-lowering-test SOC=tiled-rv5stage-rva23
+make -C sims tiled-lowering-test SOC=tiled8core-rv5stage-rva23
 ```
 
 Run the end-to-end execution path for each supported system with:
@@ -1039,16 +1041,16 @@ Run the end-to-end execution path for each supported system with:
 make -C sims smoke SOC=simple-rv5stage-rva23
 make -C sims smoke SOC=simple-spike-rva23
 make -C sims smoke SOC=mini-rv5stage-rva23
-make -C sims smoke SOC=tiled-rv5stage-rva23
+make -C sims smoke SOC=tiled8core-rv5stage-rva23
 make -C sims host-mmio-test SOC=simple-rv5stage-rva23
 make -C sims host-mmio-test SOC=mini-rv5stage-rva23
-make -C sims host-mmio-test SOC=tiled-rv5stage-rva23
+make -C sims host-mmio-test SOC=tiled8core-rv5stage-rva23
 make -C sims boot-test SOC=simple-rv5stage-rva23
 make -C sims boot-test SOC=mini-rv5stage-rva23
-make -C sims boot-test SOC=tiled-rv5stage-rva23
+make -C sims boot-test SOC=tiled8core-rv5stage-rva23
 make -C sims uart-pty-test SOC=simple-rv5stage-rva23
 make -C sims uart-pty-test SOC=mini-rv5stage-rva23
-make -C sims uart-pty-test SOC=tiled-rv5stage-rva23
+make -C sims uart-pty-test SOC=tiled8core-rv5stage-rva23
 ```
 
 FESVR's write-data wrapper retains lane placement, masks, and packet-position

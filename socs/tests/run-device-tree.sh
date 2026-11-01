@@ -20,8 +20,8 @@ trap cleanup EXIT
 env PLTCOLLECTS="$repo_dir": "$repo_dir/tools/run-racket.sh" \
   "$repo_dir/socs/tests/write-device-trees.rhm" "$fixture_dir"
 
-hardware_names=(single-core-rv5stage-soc mini-rv5stage-soc tiled-rv5stage-soc
-                single-core-rv2wide-soc mini-rv2wide-soc tiled-rv2wide-soc)
+hardware_names=(simple-rv5stage-soc mini-rv5stage-soc tiled4core-rv5stage-soc tiled8core-rv5stage-soc
+                simple-rv2wide-soc mini-rv2wide-soc tiled4core-rv2wide-soc tiled8core-rv2wide-soc)
 for name in "${hardware_names[@]}"; do
   dtc -I dtb -O dts -o "$fixture_dir/$name-roundtrip.dts" "$fixture_dir/$name.dtb"
   dtc -I dts -O dtb -o "$fixture_dir/$name-from-dts.dtb" "$fixture_dir/$name.dts"
@@ -55,7 +55,10 @@ for name in "${hardware_names[@]}"; do
   # Resolve CPU phandles rather than assuming their numeric allocation.
   contexts=()
   hart_count=1
-  [[ "$name" != tiled-* ]] || hart_count=8
+  case "$name" in
+    tiled8core-*) hart_count=8 ;;
+    tiled4core-*) hart_count=4 ;;
+  esac
   for ((hart=0; hart<hart_count; hart++)); do
     for extension in zic64b za64rs ziccif ziccamoa zicclsm ziccrse; do
       case " $(fdtget "$fixture_dir/$name.dtb" "/cpus/cpu@$hart" riscv,isa-extensions) " in
@@ -69,15 +72,16 @@ for name in "${hardware_names[@]}"; do
   [[ "$(fdtget -t x "$fixture_dir/$name.dtb" "$plic_path" interrupts-extended)" == "${contexts[*]}" ]]
 done
 
-for name in single-core-spike-soc mini-spike-soc tiled-spike-soc; do
+for name in simple-spike-soc mini-spike-soc tiled4core-spike-soc tiled8core-spike-soc; do
   dtc -I dtb -O dts -o "$fixture_dir/$name-roundtrip.dts" "$fixture_dir/$name.dtb"
   dtc -I dts -O dtb -o "$fixture_dir/$name-from-dts.dtb" "$fixture_dir/$name.dts"
   fdtdump "$fixture_dir/$name.dtb" > "$fixture_dir/$name.dump" 2>&1
   cmp "$fixture_dir/$name.dtb" "$fixture_dir/$name-from-dts.dtb"
   case "$name" in
-    single-core-spike-soc) model='Rhodium Single-Core Spike SoC'; memory_bytes=40000000; hart_count=1 ;;
+    simple-spike-soc) model='Rhodium Single-Core Spike SoC'; memory_bytes=40000000; hart_count=1 ;;
     mini-spike-soc) model='Rhodium Mini Spike SoC'; memory_bytes=10000; hart_count=1 ;;
-    tiled-spike-soc) model='Rhodium Tiled Spike SoC'; memory_bytes=40000000; hart_count=8 ;;
+    tiled8core-spike-soc) model='Rhodium Tiled Spike SoC'; memory_bytes=40000000; hart_count=8 ;;
+    tiled4core-spike-soc) model='Rhodium Tiled Spike SoC'; memory_bytes=40000000; hart_count=4 ;;
   esac
   [[ "$(fdtget "$fixture_dir/$name.dtb" / model)" == "$model" ]]
   [[ "$(fdtget -t x "$fixture_dir/$name.dtb" /memory@80000000 reg)" == "0 80000000 0 $memory_bytes" ]]
@@ -113,32 +117,33 @@ for name in "${hardware_names[@]}"; do
     esac
   done
 done
-[[ "$(fdtget "$fixture_dir/single-core-rv5stage-soc.dtb" / model)" == "Rhodium Single-Core RV5Stage SoC" ]]
+[[ "$(fdtget "$fixture_dir/simple-rv5stage-soc.dtb" / model)" == "Rhodium Single-Core RV5Stage SoC" ]]
 [[ "$(fdtget "$fixture_dir/mini-rv5stage-soc.dtb" / model)" == "Rhodium Mini RV5Stage SoC" ]]
-[[ "$(fdtget "$fixture_dir/tiled-rv5stage-soc.dtb" / model)" == "Rhodium Tiled RV5Stage SoC" ]]
-[[ "$(fdtget -t x "$fixture_dir/single-core-rv5stage-soc.dtb" /memory@80000000 reg)" == "0 80000000 0 40000000" ]]
+[[ "$(fdtget "$fixture_dir/tiled8core-rv5stage-soc.dtb" / model)" == "Rhodium Tiled RV5Stage SoC" ]]
+[[ "$(fdtget -t x "$fixture_dir/simple-rv5stage-soc.dtb" /memory@80000000 reg)" == "0 80000000 0 40000000" ]]
 [[ "$(fdtget -t x "$fixture_dir/mini-rv5stage-soc.dtb" /memory@80000000 reg)" == "0 80000000 0 10000" ]]
-[[ "$(fdtget -t x "$fixture_dir/tiled-rv5stage-soc.dtb" /memory@80000000 reg)" == "0 80000000 0 40000000" ]]
-[[ "$(fdtget "$fixture_dir/single-core-rv5stage-soc.dtb" /cpus timebase-frequency)" == "100000000" ]]
-[[ "$(fdtget "$fixture_dir/tiled-rv5stage-soc.dtb" /cpus timebase-frequency)" == "1000000" ]]
-[[ "$(fdtget "$fixture_dir/single-core-rv5stage-soc.dtb" /cpus/cpu@0 riscv,isa-base)" == "rv64i" ]]
-[[ "$(fdtget "$fixture_dir/single-core-rv5stage-soc.dtb" /cpus/cpu@0 mmu-type)" == "riscv,sv39" ]]
+[[ "$(fdtget -t x "$fixture_dir/tiled8core-rv5stage-soc.dtb" /memory@80000000 reg)" == "0 80000000 0 40000000" ]]
+[[ "$(fdtget "$fixture_dir/simple-rv5stage-soc.dtb" /cpus timebase-frequency)" == "100000000" ]]
+[[ "$(fdtget "$fixture_dir/tiled8core-rv5stage-soc.dtb" /cpus timebase-frequency)" == "1000000" ]]
+[[ "$(fdtget "$fixture_dir/simple-rv5stage-soc.dtb" /cpus/cpu@0 riscv,isa-base)" == "rv64i" ]]
+[[ "$(fdtget "$fixture_dir/simple-rv5stage-soc.dtb" /cpus/cpu@0 mmu-type)" == "riscv,sv39" ]]
 for cache in i d; do
-  [[ "$(fdtget "$fixture_dir/single-core-rv5stage-soc.dtb" /cpus/cpu@0 "$cache-cache-size")" == "16384" ]]
-  [[ "$(fdtget "$fixture_dir/single-core-rv5stage-soc.dtb" /cpus/cpu@0 "$cache-cache-sets")" == "64" ]]
-  [[ "$(fdtget "$fixture_dir/single-core-rv5stage-soc.dtb" /cpus/cpu@0 "$cache-cache-block-size")" == "64" ]]
+  [[ "$(fdtget "$fixture_dir/simple-rv5stage-soc.dtb" /cpus/cpu@0 "$cache-cache-size")" == "16384" ]]
+  [[ "$(fdtget "$fixture_dir/simple-rv5stage-soc.dtb" /cpus/cpu@0 "$cache-cache-sets")" == "64" ]]
+  [[ "$(fdtget "$fixture_dir/simple-rv5stage-soc.dtb" /cpus/cpu@0 "$cache-cache-block-size")" == "64" ]]
 done
-[[ "$(fdtget -t x "$fixture_dir/single-core-rv5stage-soc.dtb" /soc/clint@2000000 interrupts-extended)" == "1 3 1 7" ]]
-[[ "$(fdtget -t x "$fixture_dir/tiled-rv5stage-soc.dtb" /soc/clint@2000000 interrupts-extended)" == "1 3 1 7 2 3 2 7 3 3 3 7 4 3 4 7 5 3 5 7 6 3 6 7 7 3 7 7 8 3 8 7" ]]
-[[ "$(fdtget -l "$fixture_dir/tiled-rv5stage-soc.dtb" / | grep -c '^memory@')" == "1" ]]
-grep -Fq 'Rhodium Tiled RV5Stage SoC' "$fixture_dir/tiled-rv5stage-soc.dump"
+[[ "$(fdtget -t x "$fixture_dir/simple-rv5stage-soc.dtb" /soc/clint@2000000 interrupts-extended)" == "1 3 1 7" ]]
+[[ "$(fdtget -t x "$fixture_dir/tiled8core-rv5stage-soc.dtb" /soc/clint@2000000 interrupts-extended)" == "1 3 1 7 2 3 2 7 3 3 3 7 4 3 4 7 5 3 5 7 6 3 6 7 7 3 7 7 8 3 8 7" ]]
+[[ "$(fdtget -l "$fixture_dir/tiled8core-rv5stage-soc.dtb" / | grep -c '^memory@')" == "1" ]]
+grep -Fq 'Rhodium Tiled RV5Stage SoC' "$fixture_dir/tiled8core-rv5stage-soc.dump"
 
-for shape in single-core mini tiled; do
+for shape in simple mini tiled4core tiled8core; do
   name="$shape-rv2wide-soc"
   case "$shape" in
-    single-core) model='Rhodium Single-Core RV2Wide SoC'; memory_bytes=40000000; cache_sets=64; cache_bytes=16384; harts=1 ;;
+    simple) model='Rhodium Single-Core RV2Wide SoC'; memory_bytes=40000000; cache_sets=64; cache_bytes=16384; harts=1 ;;
     mini) model='Rhodium Mini RV2Wide SoC'; memory_bytes=10000; cache_sets=32; cache_bytes=2048; harts=1 ;;
-    tiled) model='Rhodium Tiled RV2Wide SoC'; memory_bytes=40000000; cache_sets=64; cache_bytes=4096; harts=8 ;;
+    tiled8core) model='Rhodium Tiled RV2Wide SoC'; memory_bytes=40000000; cache_sets=64; cache_bytes=4096; harts=8 ;;
+    tiled4core) model='Rhodium Tiled RV2Wide SoC'; memory_bytes=40000000; cache_sets=64; cache_bytes=4096; harts=4 ;;
   esac
   [[ "$(fdtget "$fixture_dir/$name.dtb" / model)" == "$model" ]]
   [[ "$(fdtget -t x "$fixture_dir/$name.dtb" /memory@80000000 reg)" == "0 80000000 0 $memory_bytes" ]]

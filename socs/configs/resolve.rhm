@@ -42,7 +42,8 @@ class ResolvedSoCConfig(selection :: SoCSelection, hart :: RiscvHartImplementati
     match selection.shape
     | SoCShape.Mini: mini.mini_soc_config(hart)
     | SoCShape.Simple: simple.single_core_soc_config(hart)
-    | SoCShape.Tiled: tiled.tiled_soc_config(hart)
+    | SoCShape.Tiled8Core: tiled.tiled_soc_config(hart)
+    | SoCShape.Tiled4Core: tiled.tiled_soc_config(hart, ~layout: tiled.tiled4core_soc_layout)
 
   property description :: RiscvSoCDescription: configuration().description
 

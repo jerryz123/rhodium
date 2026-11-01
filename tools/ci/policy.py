@@ -110,7 +110,8 @@ SOFTWARE_TESTS = {
     ("simple", "rv64max"): ("isa-smoke",),
     ("simple", "rv64imacb"): ("isa-smoke",),
     ("simple", "rv64imafdcb"): ("isa-smoke",),
-    ("tiled", "rva23"): PLATFORM_TESTS + ("isa-smoke", "tiled-mt-benchmark-test"),
+    ("tiled4core", "rva23"): PLATFORM_TESTS + ("isa-smoke",),
+    ("tiled8core", "rva23"): PLATFORM_TESTS + ("isa-smoke", "tiled-mt-benchmark-test"),
 }
 NATIVE_SOFTWARE = {("simple", "rva23"): NATIVE_SUITES,
                    ("simple", "rv32int"): ("isa",), ("simple", "rv32max"): ("isa",)}
@@ -135,7 +136,7 @@ SINGLE_CORE_SOCS = tuple(soc for soc, shape, _core in SIMULATOR_CONFIGS
 def platform_configs():
     """Select OpenSBI and litmus tests by shape and ISA, never core identity."""
     suites = {'simple': ('opensbi', 'opensbi-smoke-run', 45),
-              'tiled': ('litmus', 'litmus-smoke-run', 90)}
+              'tiled4core': ('litmus', 'litmus-smoke-run', 90)}
     return [dict(soc=soc, suite=suites[shape][0], run_target=suites[shape][1], timeout=suites[shape][2],
                  **simulator_options(soc), backend=DEFAULT_BACKEND)
             for soc, shape, _core in SIMULATOR_CONFIGS

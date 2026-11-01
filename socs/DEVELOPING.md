@@ -140,6 +140,13 @@ in its own projection. UDB continues to own HPM event IDs and counter presence.
 | Single external memory-channel router attachment | [`tiled-soc/tiles/memory.rhdl`](tiled-soc/tiles/memory.rhdl) |
 | Focused tests | [`tests/`](tests/) and [`Makefile`](Makefile) |
 
+The public `Tiled4Core` and `Tiled8Core` selections resolve through the same
+generic `TiledSoC` entrypoint. `tiled4core_soc_layout` supplies one row of four
+harts; `default_tiled_soc_layout` supplies two. Keep the four LLC slices,
+memory map, cache policy, and device allocation identical when changing these
+presets. Tests must check both compiled layouts and all core implementations;
+the shared device-tree checks cover all twelve shape/core combinations.
+
 ## Change a composition
 
 1. Identify whether the change is reusable component behavior or concrete

@@ -42,7 +42,7 @@ cacheable coherent RAM.
 ### Typed config selection
 
 [`configs/selection.rhm`](configs/selection.rhm) defines `SoCShape`
-(`Mini`, `Simple`, `Tiled`), `CoreKind` (`RV5Stage`, `RV2Wide`, `Spike`), and `IsaPreset`.
+(`Mini`, `Simple`, `Tiled4Core`, `Tiled8Core`), `CoreKind` (`RV5Stage`, `RV2Wide`, `Spike`), and `IsaPreset`.
 [`configs/resolve.rhm`](configs/resolve.rhm) provides `resolve_soc_config`, which
 resolves a `SoCSelection` into a `ResolvedSoCConfig` containing one hart binding,
 shape configuration, architectural description, and UDB projection.
@@ -52,7 +52,7 @@ that identity under the `config` key.
 `RVA23` publishes the mandatory RVA23U64/S64 architectural capabilities with
 RV64D, VLEN=128, and Sv39 on both RTL cores and Spike. The independent
 [mandatory-requirement gate](tests/udb-test.rhm) checks versioned UDB declarations
-and required architectural parameters for all nine shape/core configs. This
+and required architectural parameters for all twelve shape/core configs. This
 includes Ssccptr, Sstvecd, Sstvala, Sscounterenw, and Ssu64xl in the hart's
 published capabilities. Declaration completeness
 is not an external certification or an exhaustive system validation;
@@ -127,7 +127,7 @@ to a compilation target; consumers needing concrete RTL select
 ### Composition choices
 
 The Make entrypoints accept three independent host-side axes:
-`mini`, `simple`, or `tiled` selects the memory/fabric topology,
+`mini`, `simple`, `tiled4core`, or `tiled8core` selects the memory/fabric topology,
 `rv5stage`, `rv2wide`, or `spike` selects the hart implementation, and `ISA` selects the
 required architectural preset. A
 [`RiscvHartImplementation`](harts/implementation.rhdl) binds its profile,
@@ -141,7 +141,7 @@ configuration and architectural description come from the same selected preset.
 | --- | ---: | --- | --- |
 | `MiniSoC` | 1 | Internal 64 KiB `CHIRam` | Forwarding HN-F, BootROM, ACLINT, PLIC, and UART on one physical router |
 | `SingleCoreSoC` | 1 | External line-capable SN-F; 1 GiB window | One 512-set, eight-way inclusive LLC, BootROM, ACLINT, PLIC, and UART on one physical router |
-| `TiledSoC` | 8 in the default 5x4 layout | One external line-capable SN-F channel; 1 GiB window | Four inclusive LLC slices plus BootROM and routed memory, device-home, ACLINT, PLIC, and UART tiles |
+| `TiledSoC` | 4 in `tiled4core` (5×3), 8 in `tiled8core` (5×4) | One external line-capable SN-F channel; 1 GiB window | Four inclusive LLC slices plus BootROM and routed memory, device-home, ACLINT, PLIC, and UART tiles |
 
 Each shape accepts RV5Stage, RV2Wide, or Spike. The selected
 profile determines its ISA, caches, MMU, and device-tree properties; the shape
@@ -453,6 +453,12 @@ second compiled configuration for authors to manage. The default
 default 5x4 RV5Stage config; other
 rectangular layouts use the same entrypoint when they satisfy the tile-count
 invariants. Exactly one `memory` tile owns the external memory channel.
+The `tiled8core` selector uses this eight-hart layout. `tiled4core` omits the
+second hart row, yielding a 5×3 mesh with four harts and one transit tile.
+Both selectors support all three core implementations and the four RV64 ISA
+presets, retaining the same four LLC slices, cache geometry, memory map, and
+device policy. Litmus testing uses `tiled4core`; eight-hart benchmarks use
+`tiled8core`.
 `StripedMemory(~base: ..., ~size_bytes: ..., ~stripe_bytes: ...)` specifies
 total architectural capacity independently of the number of LLC slices;
 striping selects the owning LLC, not separate physical memory banks.
