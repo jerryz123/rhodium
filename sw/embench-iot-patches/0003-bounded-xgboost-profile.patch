@@ -1,0 +1,42 @@
+Preserves the bounded XGBoost sample profile and exact correctness check.
+SPDX-License-Identifier: Apache-2.0
+
+Upstream source notices and GPL-3.0-or-later terms remain unchanged.
+
+diff --git a/src/xgboost/testbench.c b/src/xgboost/testbench.c
+--- a/src/xgboost/testbench.c
++++ b/src/xgboost/testbench.c
+@@ -31,16 +31,17 @@
+ static int __attribute__((noinline))
+ benchmark_body(unsigned int lsf, unsigned int gsf)
+ {
+-    // Run inference with all samples specified in xgboost.c
++    // Run Rhodium's bounded functional sample profile.
+     {
++        static const size_t functional_samples[] = {3, 2, 1, 18, 4, 8, 11, 0, 61, 7};
+         size_t correct = 0;
+ 	for (unsigned int lsf_cnt = 0; lsf_cnt < lsf; lsf_cnt++)
+ 	  for (unsigned int gsf_cnt = 0; gsf_cnt < gsf; gsf_cnt++)
+ 	    {
+-	      for (volatile size_t i = 0; i < SAMPLES_IN_FILE; i++)
++	      for (volatile size_t i = 0; i < sizeof(functional_samples) / sizeof(functional_samples[0]); i++)
+ 		{
+-		  uint8_t predicted = predict(X_test[i]);
+-		  uint8_t label = Y_test[i];
++		  uint8_t predicted = predict(X_test[functional_samples[i]]);
++		  uint8_t label = Y_test[functional_samples[i]];
+ 		  if (predicted == label)
+                     correct++;
+ 		}
+@@ -53,9 +54,9 @@
+ {
+ }
+
+-// r is the number of errors therefore if r = 0 then output a 1 for correct
++// Require the pinned model's exact correct count for this functional profile.
+
+ int verify_benchmark(int r)
+ {
+-    return r >= SAMPLES_IN_FILE * (LOCAL_SCALE_FACTOR, GLOBAL_SCALE_FACTOR / 12);
++    return r == 9 * LOCAL_SCALE_FACTOR * GLOBAL_SCALE_FACTOR;
+ }

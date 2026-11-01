@@ -1,0 +1,42 @@
+Selects multihart benchmark startup and collective exit at compilation.
+SPDX-License-Identifier: Apache-2.0
+
+Preserve the upstream RISC-V test sources and their BSD-3-Clause notices.
+
+diff --git a/benchmarks/common/crt.S b/benchmarks/common/crt.S
+--- a/benchmarks/common/crt.S
++++ b/benchmarks/common/crt.S
+@@ -122,8 +122,8 @@
+
+   # get core id
+   csrr a0, mhartid
+-  # for now, assume only 1 core
+-  li a1, 1
++  # Boot the compiler-selected multihart benchmark worker pool.
++  li a1, RHODIUM_BENCHMARK_HARTS
+ 1:bgeu a0, a1, 1b
+
+   # give each core 128KB of stack + TLS
+diff --git a/benchmarks/common/syscalls.c b/benchmarks/common/syscalls.c
+--- a/benchmarks/common/syscalls.c
++++ b/benchmarks/common/syscalls.c
+@@ -66,9 +66,18 @@
+   tohost_exit(1337);
+ }
+
++static volatile int rhodium_exit_count;
++static volatile int rhodium_exit_error;
++
++/* Exit only after every worker finishes, preserving any worker failure. */
+ void exit(int code)
+ {
+-  tohost_exit(code);
++  if (code)
++    __atomic_store_n(&rhodium_exit_error, code, __ATOMIC_RELEASE);
++  int completed = __atomic_add_fetch(&rhodium_exit_count, 1, __ATOMIC_ACQ_REL);
++  if (completed == RHODIUM_BENCHMARK_HARTS)
++    tohost_exit(__atomic_load_n(&rhodium_exit_error, __ATOMIC_ACQUIRE));
++  while (1);
+ }
+
+ void abort()

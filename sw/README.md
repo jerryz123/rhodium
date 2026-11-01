@@ -16,7 +16,7 @@ padded cache-line storage to avoid false sharing with workload data during host 
 
 | Software | Source and adaptation |
 |---|---|
-| RISC-V ISA tests and benchmarks | [`riscv-isa-tests/`](riscv-isa-tests/) and [`build/`](build/) |
+| RISC-V ISA tests and benchmarks | [`riscv-isa-tests/`](riscv-isa-tests/), [`riscv-isa-tests-patches/`](riscv-isa-tests-patches/), and [`build/`](build/) |
 | UDB-driven architectural tests | [`riscv-arch-test/`](riscv-arch-test/) and [`riscv-arch-test-patches/`](riscv-arch-test-patches/) |
 | OpenSBI firmware | [`opensbi/`](opensbi/) and [`build/opensbi.py`](build/opensbi.py) |
 | Linux boot-and-poweroff smoke | [`buildroot/`](buildroot/) and [`buildroot-riscv/`](buildroot-riscv/) (Linux build host required) |

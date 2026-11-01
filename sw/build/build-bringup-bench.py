@@ -110,13 +110,6 @@ def verify_upstream(source):
     return common, benchmarks
 
 
-def rhodium_header(text):
-    marker = 'defined(TARGET_HASPIKE) || defined(TARGET_CVA6_RV64)'
-    if text.count(marker) != 1:
-        raise ValueError('Bringup-Bench target header changed; update the Rhodium adapter')
-    return text.replace(marker, marker + ' || defined(TARGET_RHODIUM)')
-
-
 def selected_names(inventory, benchmarks=None):
     if not set(BOUNDED_HASHES) <= set(inventory):
         raise ValueError('Bringup-Bench bounded workloads are missing from upstream inventory')
@@ -186,10 +179,9 @@ def main():
     linker.write_text((port / 'link.ld.in').read_text()
                       .replace('@RAM_ORIGIN@', hex(target['ram'][0]['base']))
                       .replace('@RAM_LENGTH@', hex(target['ram'][0]['size'])))
-    (build / 'libtarg.h').write_text(rhodium_header((source / 'target/libtarg.h').read_text()))
     compiler_arch = probe_compiler(compiler, target['march'], target['mabi'], build)
     common_flags = [compiler, *COMMON_FLAGS, f'-march={target["march"]}',
-                    f'-mabi={target["mabi"]}', f'-I{build}']
+                    f'-mabi={target["mabi"]}', f'-I{build / "source/target"}']
     stamp = build / 'built.json'
     try:
         cached = json.loads(stamp.read_text())

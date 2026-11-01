@@ -5,7 +5,6 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
-import re
 import shutil
 import subprocess
 import sys
@@ -64,62 +63,22 @@ def write_linker(template, destination, region):
     destination.write_text(text)
 
 
-def xgboost_functional_source(text):
-    profile = FUNCTIONAL_PROFILES['xgboost']
-    indices = ', '.join(str(index) for index in profile['sample_indices'])
-    replacements = (
-        ('// Run inference with all samples specified in xgboost.c',
-         '// Run Rhodium\'s bounded functional sample profile.'),
-        ('        size_t correct = 0;',
-         f'        static const size_t functional_samples[] = {{{indices}}};\n'
-         '        size_t correct = 0;'),
-        ('for (volatile size_t i = 0; i < SAMPLES_IN_FILE; i++)',
-         'for (volatile size_t i = 0; i < sizeof(functional_samples) / sizeof(functional_samples[0]); i++)'),
-        ('uint8_t predicted = predict(X_test[i]);',
-         'uint8_t predicted = predict(X_test[functional_samples[i]]);'),
-        ('uint8_t label = Y_test[i];',
-         'uint8_t label = Y_test[functional_samples[i]];'),
-        ('// r is the number of errors therefore if r = 0 then output a 1 for correct',
-         '// Require the pinned model\'s exact correct count for this functional profile.'),
-        ('return r >= SAMPLES_IN_FILE * (LOCAL_SCALE_FACTOR, GLOBAL_SCALE_FACTOR / 12);',
-         f'return r == {profile["expected_correct"]} * LOCAL_SCALE_FACTOR * GLOBAL_SCALE_FACTOR;'),
-    )
-    for original, replacement in replacements:
-        count = text.count(original)
-        if count != 1:
-            raise ValueError(f'xgboost: expected one functional-profile source marker, found {count}')
-        text = text.replace(original, replacement)
-    return text
-
-
-def materialize_sources(sources, destination, local_scale):
-    generated = {}
-    upstream_scales = {}
+def upstream_local_scales(sources):
+    """Record the pristine workload defaults without modifying their sources."""
+    scales = {}
     for benchmark, paths in sources.items():
-        generated[benchmark] = []
-        replacements = 0
+        definitions = []
         for path in paths:
-            text = path.read_text()
-
-            def replace(match):
-                nonlocal replacements
-                replacements += 1
-                upstream_scales[benchmark] = int(match.group(1))
-                return f'#define LOCAL_SCALE_FACTOR {local_scale}'
-
-            text = re.sub(r'^#define LOCAL_SCALE_FACTOR\s+(\d+)\s*$', replace, text,
-                          flags=re.MULTILINE)
-            if benchmark == 'xgboost' and path.name == 'testbench.c':
-                text = xgboost_functional_source(text)
-            output = destination / benchmark / path.name
-            output.parent.mkdir(parents=True, exist_ok=True)
-            output.write_text(text)
-            generated[benchmark].append(output)
-        if replacements != 1:
-            raise ValueError(f'{benchmark}: expected one upstream LOCAL_SCALE_FACTOR, found {replacements}')
-        if benchmark == 'xgboost' and not any(path.name == 'testbench.c' for path in paths):
-            raise ValueError('xgboost: expected upstream testbench.c')
-    return generated, upstream_scales
+            for line in path.read_text().splitlines():
+                fields = line.split()
+                if fields[:2] == ['#define', 'LOCAL_SCALE_FACTOR']:
+                    if len(fields) != 3 or not fields[2].isdecimal():
+                        raise ValueError(f'{benchmark}: invalid upstream LOCAL_SCALE_FACTOR')
+                    definitions.append(int(fields[2]))
+        if len(definitions) != 1:
+            raise ValueError(f'{benchmark}: expected one upstream LOCAL_SCALE_FACTOR, found {len(definitions)}')
+        scales[benchmark] = definitions[0]
+    return scales
 
 
 def main():
@@ -144,6 +103,7 @@ def main():
     try:
         target = load_target(args.target)
         sources = verify_upstream(source)
+        upstream_scales = upstream_local_scales(sources)
         series, patches = read_series(args.patch_series)
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
         parser.error(str(error))
@@ -173,12 +133,11 @@ def main():
     write_linker(port / 'link.ld.in', linker, target['ram'][0])
     source = materialize(source, series, build / 'source')
     sources = benchmark_sources(source)
-    generated_sources, upstream_scales = materialize_sources(
-        sources, build / 'functional-sources', args.local_scale)
     compiler_arch = probe_compiler(compiler, target['march'], target['mabi'], build)
     common = [compiler, *COMMON_FLAGS, f'-march={target["march"]}', f'-mabi={target["mabi"]}',
               f'-I{source / "support"}', f'-I{port}', '-DHAVE_BOARDSUPPORT_H=1',
-              f'-DWARMUP_HEAT={args.warmup_heat}', f'-DGLOBAL_SCALE_FACTOR={args.scale}']
+              f'-DWARMUP_HEAT={args.warmup_heat}', f'-DGLOBAL_SCALE_FACTOR={args.scale}',
+              f'-DLOCAL_SCALE_FACTOR={args.local_scale}']
     names = [benchmark + '.riscv' for benchmark in BENCHMARKS]
     stamp = build / 'built.json'
     try:
@@ -200,7 +159,7 @@ def main():
             for benchmark, name in zip(BENCHMARKS, names):
                 elf = build / name
                 command = [*common, f'-I{source / "src" / benchmark}', str(port / 'start.S'),
-                           *(str(path) for path in generated_sources[benchmark]),
+                           *(str(path) for path in sources[benchmark]),
                            *(str(source / path) for path in SUPPORT_SOURCES),
                            str(port / 'boardsupport.c'), str(port / 'htif.c'), '-nostdlib',
                            '-nostartfiles', '-no-pie', f'-Wl,-T,{linker}', '-Wl,--gc-sections',

@@ -8,3 +8,4 @@
 0006-bound-bubble-sort.patch
 0007-reduce-functional-inputs.patch
 0008-precompute-packet-inputs.patch
+0009-recognize-rhodium-target.patch

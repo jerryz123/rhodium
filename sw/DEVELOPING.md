@@ -14,9 +14,9 @@ remain in [`socs/`](../socs/DEVELOPING.md),
 ## Source and build ownership
 
 The named upstream submodules are pinned at repository gitlinks. Keep their
-checkouts pristine. Apply the ordered architectural-test, Bringup-Bench, Embench,
-OpenSBI, SKL, and generated-litmus runtime patch
-series only to build-local copies through
+checkouts pristine. Apply the ordered ISA-benchmark, architectural-test,
+Bringup-Bench, Embench, OpenSBI, SKL, and generated-litmus runtime patch series
+only to build-local copies through
 [`riscv/patched_submodule.py`](../riscv/patched_submodule.py). Put Rhodium-owned
 bare-metal startup, linkers, output checks, and ports beside their corresponding
 upstream source. Preserve upstream licensing and the repository's
@@ -36,6 +36,12 @@ both fresh builds and cache reuse. ISA tests require an executable entry segment
 upstream benchmarks require the entry in a RAM load segment but do not require
 `PF_X`, matching the FESVR loader, which does not enforce segment permissions.
 Apply this same distinction during shared-artifact binding.
+
+Multihart benchmarks materialize [`riscv-isa-tests-patches/series`](riscv-isa-tests-patches/series)
+through the shared materializer. The series owns startup and collective exit;
+`RHODIUM_BENCHMARK_HARTS` is a compiler definition, not a source substitution.
+Single-hart benchmarks and ISA tests use the unmodified upstream tree. Hash the
+series, ordered patches, and materializer for every multihart build.
 
 First-party bare-metal ports align each HTIF mailbox symbol to the platform's
 64-byte cache line and pad the `.tohost` output section through its final line.
@@ -303,7 +309,15 @@ in addition to building and running every ELF. Preserve upstream license notices
 in the published archive and keep the submodule pristine.
 
 Embench's [`embench-iot-patches/series`](embench-iot-patches/series) supplies the
-exact seed-zero CRC32 input bytes before the builder applies its bounded scales.
+exact seed-zero CRC32 input bytes, guards local-scale defaults for compiler
+overrides, and owns the bounded XGBoost sample selection and exact correctness
+check. Compile directly from that patched tree with `-DLOCAL_SCALE_FACTOR`;
+the builder reads pristine scale defaults only for manifest metadata. Preserve
+the ten XGBoost sample indices and nine-correct expectation recorded in its
+functional-profile metadata when maintaining the patch. There is no second
+rewritten source tree or Python source adaptation.
+Bringup-Bench's series also recognizes `TARGET_RHODIUM` in `target/libtarg.h`;
+compile against that patched header rather than generating a shadow header.
 Bringup-Bench's packet fixture likewise preserves every seed-42 packet field and
 the existing output hash. Both kernels use opaque input pointers to retain
 target execution. Keep patch bytes and the shared materializer in builder cache

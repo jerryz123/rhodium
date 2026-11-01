@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-# Builds pinned upstream workloads without modifying their source or selecting by pass status.
+# Builds pinned upstream workloads with ordered multihart runtime patches and target-bound manifests.
 # SPDX-License-Identifier: Apache-2.0
 import argparse
 import hashlib
 import json
-import os
 from pathlib import Path
 import shutil
 import struct
@@ -12,8 +11,10 @@ import subprocess
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from program_target import (elf_architecture, elf_build_metadata, instruction_inventory, load_target, objdump_for,
                             probe_compiler, readelf_for, target_fingerprint)
+from riscv.patched_submodule import materialize, read_series
 
 SCALAR_BENCHMARKS = ('median', 'qsort', 'rsort', 'towers', 'vvadd', 'memcpy',
                      'multiply', 'mm', 'dhrystone', 'spmv')
@@ -113,42 +114,6 @@ def benchmark_selection(target, mode, selection='single-hart'):
     return SCALAR_BENCHMARKS + vector
 
 
-def materialize_multihart_source(source, destination, hart_count, benchmarks):
-    source_benchmarks = source / 'benchmarks'
-    generated = destination / 'benchmarks'
-    if destination.exists():
-        shutil.rmtree(destination)
-    generated.mkdir(parents=True)
-    os.symlink(source / 'env', destination / 'env', target_is_directory=True)
-    shutil.copytree(source_benchmarks / 'common', generated / 'common')
-    for benchmark in benchmarks:
-        os.symlink(source_benchmarks / benchmark, generated / benchmark, target_is_directory=True)
-    crt = generated / 'common/crt.S'
-    text = crt.read_text()
-    marker = '  # for now, assume only 1 core\n  li a1, 1\n'
-    if text.count(marker) != 1:
-        raise ValueError('upstream multihart runtime core-count marker changed')
-    crt.write_text(text.replace(marker,
-                                '  # Rhodium build overlay selects the target hart count\n'
-                                f'  li a1, {hart_count}\n'))
-    syscalls = generated / 'common/syscalls.c'
-    source_text = syscalls.read_text()
-    exit_marker = 'void exit(int code)\n{\n  tohost_exit(code);\n}\n'
-    if source_text.count(exit_marker) != 1:
-        raise ValueError('upstream multihart exit runtime changed')
-    collective_exit = (f'static volatile int rhodium_exit_count;\n'
-                       'static volatile int rhodium_exit_error;\n\n'
-                       'void exit(int code)\n{\n'
-                       '  if (code)\n'
-                       '    __atomic_store_n(&rhodium_exit_error, code, __ATOMIC_RELEASE);\n'
-                       '  int completed = __atomic_add_fetch(&rhodium_exit_count, 1, __ATOMIC_ACQ_REL);\n'
-                       f'  if (completed == {hart_count})\n'
-                       '    tohost_exit(__atomic_load_n(&rhodium_exit_error, __ATOMIC_ACQUIRE));\n'
-                       '  while (1);\n}\n')
-    syscalls.write_text(source_text.replace(exit_marker, collective_exit))
-    return generated
-
-
 def check_elf_memory(elf, regions, require_executable_entry=True):
     """Check the load footprint, including zero-filled BSS, and entry location.
 
@@ -203,6 +168,8 @@ def main():
     parser.add_argument('--benchmark-mode', choices=('target', 'baseline'), default='target')
     parser.add_argument('--benchmark-selection', choices=('single-hart', 'multihart'), default='single-hart')
     parser.add_argument('--benchmark-hart-count', type=int, choices=(2, 4, 8))
+    parser.add_argument('--multihart-patch-series', type=Path,
+                        default=HERE.parent / 'riscv-isa-tests-patches/series')
     args = parser.parse_args()
     try:
         target = load_target(args.target) if args.target else None
@@ -224,6 +191,10 @@ def main():
     elif args.benchmark_hart_count is not None:
         parser.error('--benchmark-hart-count applies only to multihart benchmark builds')
     source, output = args.source.resolve(), args.output.resolve()
+    patch_inputs = []
+    if args.benchmark_selection == 'multihart':
+        series, patches = read_series(args.multihart_patch_series)
+        patch_inputs = [series, *patches, HERE.parents[1] / 'riscv/patched_submodule.py']
     compiler = shutil.which(args.compiler)
     if not compiler or not (source / 'env/p/link.ld').is_file():
         parser.error('install the compiler and run make -C sims program-test-setup first')
@@ -235,13 +206,13 @@ def main():
     build_metadata = elf_build_metadata(target, args.suite, dict(
         isa_selection=args.isa_selection, benchmark_mode=args.benchmark_mode,
         benchmark_selection=args.benchmark_selection, benchmark_hart_count=args.benchmark_hart_count))
-    key = hashlib.sha256((revision + env_revision + version + str(source) + compiler
-                          + str(args.isa_selection) + args.benchmark_mode
-                          + args.benchmark_selection
-                          + str(args.benchmark_hart_count)
-                          + json.dumps(build_metadata['build_spec'], sort_keys=True)).encode()
-                         + Path(__file__).read_bytes() + (HERE / 'program_target.py').read_bytes()
-                         + (HERE / 'isa.mk').read_bytes()).hexdigest()
+    key_input = (revision + env_revision + version + str(source) + compiler
+                 + str(args.isa_selection) + args.benchmark_mode
+                 + args.benchmark_selection + str(args.benchmark_hart_count)
+                 + json.dumps(build_metadata['build_spec'], sort_keys=True)).encode()
+    for path in [Path(__file__), HERE / 'program_target.py', HERE / 'isa.mk', *patch_inputs]:
+        key_input += path.read_bytes()
+    key = hashlib.sha256(key_input).hexdigest()
     # Content-addressed directories prevent Make timestamps or restored caches
     # from retaining binaries built with another compiler or selection policy.
     build = output / 'build' / key
@@ -291,12 +262,13 @@ def main():
         mabi = target['mabi'] if args.benchmark_mode == 'target' else BASELINE_MABI
         compiler_arch = probe_compiler(compiler, march, mabi, build)
         benchmark_source = source / 'benchmarks'
+        benchmark_flags = FLAGS + f' -mabi={mabi}'
         if args.benchmark_selection == 'multihart':
-            benchmark_source = materialize_multihart_source(
-                source, build / 'multihart-source', args.benchmark_hart_count, benchmarks)
+            benchmark_source = materialize(source, series, build / 'multihart-source') / 'benchmarks'
+            benchmark_flags += f' -DRHODIUM_BENCHMARK_HARTS={args.benchmark_hart_count}'
         command = ['make', '--no-print-directory', '-f', str(source / 'benchmarks/Makefile'),
                    f'XLEN={target["xlen"]}', f'src_dir={benchmark_source}', f'RISCV_GCC={compiler}',
-                   f'RISCV_MARCH={march}', f'RISCV_VMARCH={march}', f'RISCV_GCC_OPTS={FLAGS} -mabi={mabi}',
+                   f'RISCV_MARCH={march}', f'RISCV_VMARCH={march}', f'RISCV_GCC_OPTS={benchmark_flags}',
                    f'RISCV_LINK_OPTS=-static -nostdlib -nostartfiles -lm -lgcc -T {benchmark_source / "common/test.ld"}']
         if args.benchmark_selection == 'multihart':
             exclusions = {'non-mt benchmarks': 'Outside the focused multihart benchmark selection.',
@@ -362,7 +334,7 @@ def main():
     if args.suite == 'benchmark':
         manifest.update(benchmark_mode=args.benchmark_mode, march=march, mabi=mabi,
                         benchmark_selection=args.benchmark_selection, compiler_arch=compiler_arch,
-                        compiler_flags=f'{FLAGS} -mabi={mabi}')
+                        compiler_flags=benchmark_flags)
         if args.benchmark_selection == 'multihart':
             manifest['benchmark_hart_count'] = args.benchmark_hart_count
         (output / 'instruction-report.json').write_text(json.dumps({

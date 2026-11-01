@@ -1,0 +1,3 @@
+# Adapts pristine riscv-tests copies for compiler-selected multihart benchmark execution.
+# SPDX-License-Identifier: Apache-2.0
+0001-multihart-benchmark-runtime.patch

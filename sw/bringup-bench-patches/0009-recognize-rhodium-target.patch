@@ -1,0 +1,17 @@
+Recognizes the Rhodium bare-metal target in the shared target header.
+SPDX-License-Identifier: Apache-2.0
+
+The upstream header remains under the Bringup-Bench repository license.
+
+diff --git a/target/libtarg.h b/target/libtarg.h
+--- a/target/libtarg.h
++++ b/target/libtarg.h
+@@ -14,7 +14,7 @@
+ #include <stdarg.h>
+ #include <stdint.h>
+ #include <stddef.h>
+-#elif defined(TARGET_SIMPLE) || defined(TARGET_SPIKE) || defined(TARGET_SPIKE_PK) || defined(TARGET_HASPIKE) || defined(TARGET_CVA6_RV64)
++#elif defined(TARGET_SIMPLE) || defined(TARGET_SPIKE) || defined(TARGET_SPIKE_PK) || defined(TARGET_HASPIKE) || defined(TARGET_CVA6_RV64) || defined(TARGET_RHODIUM)
+ #include <stdarg.h>
+ #include <stdint.h>
+ #include <stddef.h>

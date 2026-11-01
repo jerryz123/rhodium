@@ -70,6 +70,11 @@ Validate complete Sudoku and knight-tour solutions and a
 sorted permutation, not merely successful program exits. The knight-tour
 output hash remains unchanged because its prefix belongs to the original tour.
 
+`0009-recognize-rhodium-target.patch` adds `TARGET_RHODIUM` to the upstream
+target header's bare-metal type and varargs selection. The builder includes
+the materialized `target/` directory directly; it does not generate a separate
+header overlay.
+
 When advancing the submodule, check each patch against the new revision,
 remove fixes already upstream, and rerun the `lz-compress` functional test on
 both single-core SoCs. The build rejects patches that no longer apply.

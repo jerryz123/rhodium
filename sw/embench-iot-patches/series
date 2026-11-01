@@ -1,3 +1,5 @@
-# Applies deterministic-input adaptations to pristine Embench build-local copies.
+# Applies deterministic inputs, configurable scales, and bounded Embench workloads to build-local copies.
 # SPDX-License-Identifier: Apache-2.0
 0001-precompute-crc-inputs.patch
+0002-configurable-local-scales.patch
+0003-bounded-xgboost-profile.patch

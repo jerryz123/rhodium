@@ -82,7 +82,7 @@ class Selection:
             self.arch = True
         elif matches(path, "riscv/patched_submodule.py", "riscv/riscv-isa-sim", "riscv/riscv-isa-sim/*", "riscv/riscv-isa-sim-patches/*"):
             self.all_programs()
-        elif matches(path, "sw/riscv-isa-tests", "sw/riscv-isa-tests/*", "sw/build/build.py"):
+        elif matches(path, "sw/riscv-isa-tests", "sw/riscv-isa-tests/*", "sw/riscv-isa-tests-patches/*", "sw/build/build.py"):
             self.add_native("isa", "benchmark")
         elif matches(path, "sw/build/program_target.py", "sw/build/bind.py", "sw/tests/test_program_build.py"):
             self.all_programs()
@@ -160,7 +160,7 @@ class Selection:
                      "sw/build/build-skl.py", "sw/skl", "sw/skl/*", "sw/skl-riscv-baremetal/*", "sw/skl-patches/*",
                      "sw/build/build-highway.py", "sw/highway", "sw/highway/*", "sw/highway-riscv-baremetal/*"):
             pass
-        elif matches(path, "sims/program-test/*", "sw/build/*", "sw/coremark*", "sw/embench-iot*", "sw/bringup-bench*", "sw/litmus-*", "sw/tests/test_program_build.py", "sw/tests/test_litmus_build.py", "sw/riscv-isa-tests", "sw/riscv-isa-tests/*", "tools/install-riscv-*.sh"):
+        elif matches(path, "sims/program-test/*", "sw/build/*", "sw/coremark*", "sw/embench-iot*", "sw/bringup-bench*", "sw/litmus-*", "sw/tests/test_program_build.py", "sw/tests/test_litmus_build.py", "sw/riscv-isa-tests", "sw/riscv-isa-tests/*", "sw/riscv-isa-tests-patches/*", "tools/install-riscv-*.sh"):
             self.simulation = True
         elif matches(path, "sw/opensbi", "sw/opensbi/*", "sw/opensbi-patches/*", "sw/tests/test_opensbi_build.py", "sims/opensbi/*"):
             self.simulation = True
