@@ -142,7 +142,7 @@ def execute(test, simulator, root, output, timeout, cycles, cosim=False, expecte
                             if outside:
                                 status = 'failed'
                                 reason = (f'whole-ELF cycles {measured_cycles}, expected {expected}, '
-                                          f'change {comparison["delta_percent"]:+.2f}% exceeds ±10%')
+                                          f'change {comparison["delta_percent"]:+.2f}% exceeds ±{performance.TOLERANCE_PERCENT}%')
                 else:
                     status = 'failed'
             finally:
@@ -234,7 +234,7 @@ def main():
         manifest_sha256=manifest_sha256,
         simulator_sha256=hashlib.sha256(args.simulator.read_bytes()).hexdigest(),
         timeout=args.timeout, max_cycles=args.max_cycles, cosim=cosim,
-        performance=performance_record),
+        performance=performance_record, performance_tolerance_percent=performance.TOLERANCE_PERCENT),
         sort_keys=True).encode()).hexdigest()
     identity = hashlib.sha256(json.dumps(dict(
         run_fingerprint=run_fingerprint,

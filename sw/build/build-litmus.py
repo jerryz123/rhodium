@@ -190,7 +190,7 @@ def main():
                 key_bytes += hashlib.sha256(support.read_bytes()).digest()
     for path in (Path(__file__), runtime / 'link.ld.in',
                  runtime / 'litmus7-port.c', runtime / 'litmus7-main.c',
-                 runtime / 'litmus7-streams.h', common / 'crt.S',
+                 runtime / 'litmus7-streams.h', runtime / 'htif.h', common / 'crt.S',
                  common / 'syscalls.c', common / 'util.h',
                  riscv_tests / 'env/encoding.h', model):
         key_bytes += hashlib.sha256(path.read_bytes()).digest()
@@ -223,7 +223,8 @@ def main():
                      f'-I{riscv_tests / "env"}', f'-I{common}']
             generated = case_dir / 'litmus7'
             test_object = case_dir / 'litmus7-test.o'
-            command = flags + [f'-I{generated}', f'-DLITMUS_HARTS={hart_count}',
+            command = flags + ['-include', str(runtime / 'htif.h'),
+                               f'-I{generated}', f'-DLITMUS_HARTS={hart_count}',
                                f'-DLITMUS_CLOCK_HZ={target["clock_frequency_hz"]}',
                                str(case_dir / 'crt.S'), str(common / 'syscalls.c'),
                                str(runtime / 'litmus7-port.c'), str(runtime / 'litmus7-main.c'),

@@ -7,8 +7,8 @@
 #include <stdlib.h>
 #include <sys/stat.h>
 
-volatile uint64_t tohost __attribute__((section(".tohost"), aligned(8)));
-volatile uint64_t fromhost __attribute__((section(".tohost"), aligned(8)));
+volatile uint64_t tohost __attribute__((section(".tohost"), aligned(64)));
+volatile uint64_t fromhost __attribute__((section(".tohost"), aligned(64)));
 static volatile uint64_t console_request[8] __attribute__((aligned(64)));
 extern char __heap_start[], __heap_end[];
 static char *heap_break;

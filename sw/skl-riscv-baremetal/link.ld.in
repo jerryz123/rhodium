@@ -10,8 +10,9 @@ SECTIONS
   .text.init : { KEEP(*(.text.init)) } > ram :text
   .text : { *(.text .text.*) } > ram :text
   .rodata : { *(.rodata .rodata.*) } > ram :text
-  . = ALIGN(0x1000);
-  .tohost : { KEEP(*(.tohost)) } > ram :data
+  /* Isolate host polling from code and mutable data on both sides. */
+  .tohost ALIGN(64) : { KEEP(*(.tohost)) . = ALIGN(64); } > ram :data
+  ASSERT((tohost & 63) == 0 && (fromhost & 63) == 0, "HTIF mailboxes must be cache-line aligned")
   .data : { *(.data .data.*) } > ram :data
   .sdata :
   {

@@ -35,6 +35,17 @@ both fresh builds and cache reuse. ISA tests require an executable entry segment
 upstream benchmarks require the entry in a RAM load segment but do not require
 `PF_X`, matching the FESVR loader, which does not enforce segment permissions.
 Apply this same distinction during shared-artifact binding.
+
+First-party bare-metal ports align each HTIF mailbox symbol to the platform's
+64-byte cache line and pad the `.tohost` output section through its final line.
+Put alignment on the output section itself, not only a preceding location-counter
+assignment: `> ram` allocation must honor the actual section address. Keep normal
+data, BSS, and executable sections outside those lines so coherent FESVR polling
+cannot false-share with workload state. Linker assertions enforce symbol alignment;
+check the section bounds and neighboring allocations in real linked ELFs after
+changing a port or linker. Litmus force-includes its port's `htif.h` when compiling
+upstream syscalls so those pristine definitions inherit the same symbol alignment.
+
 Record upstream inventory gaps (currently RV32 CBO-zero) separately from target
 capability exclusions; never select by
 observed pass status. `opensbi.py` derives firmware layout from the selected

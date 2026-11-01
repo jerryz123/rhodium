@@ -4,8 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-volatile uint64_t tohost __attribute__((section(".tohost"), aligned(8)));
-volatile uint64_t fromhost __attribute__((section(".tohost"), aligned(8)));
+volatile uint64_t tohost __attribute__((section(".tohost"), aligned(64)));
+volatile uint64_t fromhost __attribute__((section(".tohost"), aligned(64)));
 
 enum
 {

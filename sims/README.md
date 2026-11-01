@@ -915,7 +915,7 @@ failures still fail CI and cannot become baselines.
 The runner reports missing config/suite baselines as **unbaselined** and
 uploads measurements without failing for missing numbers. Once a reviewed
 baseline is checked in, canonical Linux/rsim runs fail on a change greater than
-±10% for any ELF, including unexpectedly large speedups. Baselines contain only
+±5% for any ELF, including unexpectedly large speedups. Baselines contain only
 test names and expected cycles, keyed by config and suite through their file paths.
 Software, compiler, and RTL changes are compared against these expectations
 without requiring matching hashes or fingerprints. Added or renamed tests require

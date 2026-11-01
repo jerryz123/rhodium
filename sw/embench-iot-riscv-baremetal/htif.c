@@ -2,8 +2,8 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include <stdint.h>
 
-volatile uint64_t tohost __attribute__((section(".tohost"), aligned(8)));
-volatile uint64_t fromhost __attribute__((section(".tohost"), aligned(8)));
+volatile uint64_t tohost __attribute__((section(".tohost"), aligned(64)));
+volatile uint64_t fromhost __attribute__((section(".tohost"), aligned(64)));
 
 void __attribute__((noreturn)) embench_exit(int status)
 {

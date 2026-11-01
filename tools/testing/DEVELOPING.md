@@ -152,7 +152,7 @@ The existing RVA23 benchmark jobs also collect
 Native shards and Tiled multihart harness jobs upload compact `performance-…`
 artifacts and job summaries even on failure. With no checked-in config/suite
 baseline they report unbaselined results; an existing baseline enforces the
-per-ELF ±10% gate by config, suite, and test name, without baseline fingerprints.
+per-ELF ±5% gate by config, suite, and test name, without baseline fingerprints.
 This adds no benchmark runs,
 guest instrumentation, or trace jobs. Baselines are promoted explicitly from a
 successful run's complete artifacts, never written by CI; their ownership and

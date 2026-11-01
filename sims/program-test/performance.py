@@ -14,7 +14,7 @@ from selection import selections
 BASELINES = Path(__file__).with_name('performance-baselines')
 MEASUREMENT = 'reset-release-to-first-htif-exit'
 SUITES = {'benchmark', 'coremark', 'coremark_scalar', 'embench', 'bringup', 'skl', 'highway'}
-TOLERANCE_PERCENT = 10
+TOLERANCE_PERCENT = 5
 
 
 def positive(value):

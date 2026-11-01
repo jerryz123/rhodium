@@ -909,8 +909,9 @@ includes simulator commit/hash/platform/backend/variant, exact target and build
 fingerprints, and the complete suite's ELF hashes and boot-hart selections.
 Baseline comparison uses only the config/suite file path, test names, and cycle
 counts. Repository state defines the workload; never require hashes or
-fingerprints to match a prior baseline. The loaded numeric expectations
-participate in resume identity so changing them cannot reuse stale comparisons.
+fingerprints to match a prior baseline. The loaded numeric expectations and
+tolerance participate in resume identity so changing either cannot reuse stale
+comparisons.
 Import validates functionally successful complete shard coverage before writing any files;
 results from different simulator builds or input sets cannot be combined.
 
@@ -919,7 +920,7 @@ checked-in generated reference, unlike disposable simulation output. The initial
 references come from successful [CI run 41240854761](https://github.com/jerryz123/rhodium/actions/runs/41240854761).
 Files contain only a `cycles` mapping from test names to expected counts.
 Their purpose is defined here and the repository's Apache-2.0 license applies;
-do not add purpose or license fields to the data. The ±10% tolerance is
+do not add purpose or license fields to the data. The ±5% tolerance is
 centralized in the tool. Keep hashes, fingerprints, and
 simulator provenance in uploaded artifacts, not checked-in baselines.
 For new config/suite references, bootstrap
@@ -933,7 +934,7 @@ For intentional changes, inspect the always-collected delta and functional
 result, then explicitly import and review the affected
 config/suite files. The importer accepts a directory or explicit
 `performance.json` paths, so unaffected suites need not be replaced. Keep the
-±10% policy in the tool; do not widen individual expectations to hide
+±5% policy in the tool; do not widen individual expectations to hide
 regressions. Missing baselines are visibly unbaselined; malformed or name-mismatched
 existing baselines fail the performance gate after execution, so fresh numbers
 are still available for review. Functional status remains separate from the

@@ -8,8 +8,8 @@
 #error The workload must supply its checked-in expected output hash.
 #endif
 
-volatile uint64_t tohost __attribute__((section(".tohost"), aligned(8)));
-volatile uint64_t fromhost __attribute__((section(".tohost"), aligned(8)));
+volatile uint64_t tohost __attribute__((section(".tohost"), aligned(64)));
+volatile uint64_t fromhost __attribute__((section(".tohost"), aligned(64)));
 volatile uint64_t __hashval = FNV64a_INIT;
 
 extern unsigned char __heap_start[], __heap_end[];

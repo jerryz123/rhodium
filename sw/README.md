@@ -11,6 +11,8 @@ under the build roots, not in this directory.
 The RISC-V, CoreMark, Embench-IoT, Bringup-Bench, SKL, and Highway workloads use
 `-O3`. CoreMark-scalar also disables auto-vectorization. The generated manifests
 record the compiler flags and identify each binary's target and source revision.
+The first-party bare-metal ports isolate HTIF mailboxes in 64-byte-aligned,
+padded cache-line storage to avoid false sharing with workload data during host polling.
 
 | Software | Source and adaptation |
 |---|---|
