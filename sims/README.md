@@ -310,6 +310,29 @@ Zicsr/Zifencei/Zicntr, and enough writable RAM for the firmware, a 2 MiB-aligned
 next stage, and a 64 KiB FDT reservation. Other cores and SoCs are selected by
 those capabilities rather than by core name.
 
+## Run the Linux boot smoke
+
+The [Buildroot port](../sw/buildroot-riscv/README.md) supplies a static `/init`
+that reports userspace boot and powers off through Linux/OpenSBI. No BusyBox or
+shell is included. Build the image on Linux:
+
+```sh
+make -C sims linux-setup
+make -C sims linux-smoke-test SOC=simple-spike-rva23
+```
+
+Use `linux-elfs` for build-only and `linux-smoke-run` for run-only. The latter
+also runs a Linux-built bundle on macOS through the normal simulator and
+`PROGRAM_MANIFEST` flow. See the port guide for descriptor/DTB transfer and
+binding commands. Firmware owns HTIF; the kernel is an auxiliary ELF, and its
+initramfs is embedded. The profile uses one hart and 128 MiB of Linux-visible RAM.
+`LINUX_TIMEOUT=1800` and `LINUX_MAX_CYCLES=500000000` bound runs.
+
+CI publishes build-only Linux image bundles for compatible Simple RVA23 targets;
+see the [artifact contract](../sw/buildroot-riscv/README.md#qualification-limits).
+It does not boot these images. Boot qualification remains deferred, with the
+intended sequence Simple Spike, RV5Stage, then RV2Wide, each with RVA23.
+
 ## Use the UART terminal
 
 Every harness creates UART DPI model 0 and prints `UART DPI model 0 PTY: <path>`

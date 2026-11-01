@@ -1,0 +1,3 @@
+# Exposes the tiny userspace boot-and-poweroff workload to Buildroot.
+# SPDX-License-Identifier: Apache-2.0
+source "$BR2_EXTERNAL_RHODIUM_PATH/package/rhodium-init/Config.in"

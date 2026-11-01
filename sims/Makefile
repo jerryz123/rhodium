@@ -170,6 +170,7 @@ include arch-test/Makefile.inc
 include cosim/Makefile.inc
 include program-test/Makefile.inc
 include opensbi/Makefile.inc
+include linux/Makefile.inc
 
 setup:
 	PYTHON="$(PYTHON)" FESVR_PREFIX="$(FESVR_PREFIX)" $(FESVR_DIR)/install.sh

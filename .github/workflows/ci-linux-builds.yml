@@ -1,0 +1,103 @@
+# Builds and publishes compatible Buildroot Linux images without booting them.
+# SPDX-License-Identifier: Apache-2.0
+
+name: CI Linux image builds
+
+on:
+  workflow_call:
+    inputs:
+      matrix:
+        description: Compatible Linux image groups and their binding targets.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  linux-build:
+    name: Build Linux / group ${{ strategy.job-index }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(inputs.matrix) }}
+    env:
+      LINUX_OUTPUT: /tmp/rhodium-linux-builds/${{ matrix.build_id }}
+      LINUX_DOWNLOADS: /tmp/rhodium-buildroot-downloads
+    steps:
+      - name: Check out Rhodium
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes build-essential bc bison flex cpio rsync unzip \
+            file wget curl git patch perl python3 gawk xz-utils bzip2 libssl-dev libncurses-dev \
+            device-tree-compiler
+      - name: Prepare pinned sources
+        run: make -C sims linux-setup
+      - name: Download generated targets
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: targets-${{ github.sha }}
+          path: ${{ runner.temp }}/linux-targets
+      - name: Identify pinned download inputs
+        id: sources
+        run: echo "buildroot=$(git -C sw/buildroot rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Cache upstream downloads only
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.LINUX_DOWNLOADS }}
+          key: ${{ runner.os }}-${{ runner.arch }}-buildroot-downloads-${{ steps.sources.outputs.buildroot }}-${{ hashFiles('sw/buildroot-riscv/**', 'sw/build/linux.py', '.github/workflows/ci-linux-builds.yml') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-buildroot-downloads-${{ steps.sources.outputs.buildroot }}-
+      - name: Build Linux image and OpenSBI
+        env:
+          SOC: ${{ matrix.soc }}
+        run: |
+          make -C sims linux-elfs SOC="$SOC" \
+            PREBUILT_PROGRAM_TARGET="$RUNNER_TEMP/linux-targets/$SOC.json" \
+            LINUX_OUTPUT="$LINUX_OUTPUT" LINUX_DOWNLOADS="$LINUX_DOWNLOADS" LINUX_JOBS=4
+      - name: Package and check every compatible target without booting
+        env:
+          TARGETS: ${{ toJSON(matrix.targets) }}
+        run: |
+          python3 sims/program-test/archive.py --manifest "$LINUX_OUTPUT/manifest.json" \
+            --archive "$RUNNER_TEMP/linux-elfs/suite.tar.gz"
+          mkdir -p "$RUNNER_TEMP/linux-extracted"
+          tar -xzf "$RUNNER_TEMP/linux-elfs/suite.tar.gz" -C "$RUNNER_TEMP/linux-extracted"
+          for soc in $(jq -r '.[]' <<< "$TARGETS"); do
+            python3 sw/build/bind.py --manifest "$RUNNER_TEMP/linux-extracted/manifest.json" \
+              --target "$RUNNER_TEMP/linux-targets/$soc.json" \
+              --output "$RUNNER_TEMP/linux-extracted/$soc-manifest.json"
+          done
+          echo '### Linux image build (no boot test)' >> "$GITHUB_STEP_SUMMARY"
+          echo "Compatible targets: $(jq -r 'join(", ")' <<< "$TARGETS")" >> "$GITHUB_STEP_SUMMARY"
+          du -h "$RUNNER_TEMP/linux-elfs/suite.tar.gz" >> "$GITHUB_STEP_SUMMARY"
+      - name: Publish verified image bundle
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: platform-elfs-${{ matrix.build_id }}-${{ github.sha }}
+          path: ${{ runner.temp }}/linux-elfs/suite.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+      - name: Publish build diagnostics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-build-${{ matrix.build_id }}-${{ github.sha }}
+          path: |
+            ${{ env.LINUX_OUTPUT }}/manifest.json
+            ${{ env.LINUX_OUTPUT }}/build.log
+            ${{ env.LINUX_OUTPUT }}/firmware/build.log
+            ${{ env.LINUX_OUTPUT }}/firmware/build-configuration.json
+            ${{ env.LINUX_OUTPUT }}/*.config
+            ${{ env.LINUX_OUTPUT }}/build/*/defconfig
+            ${{ env.LINUX_OUTPUT }}/build/*/buildroot/.config
+            ${{ env.LINUX_OUTPUT }}/build/*/buildroot/build/linux-*/.config
+            ${{ runner.temp }}/linux-targets/*.json
+            ${{ runner.temp }}/linux-extracted/*-manifest.json
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 7

@@ -10,7 +10,9 @@ def failures(plan, results):
     required = {
         "compile-racket": plan["run_compile"],
         "sail": plan["run_sail"],
-        "targets": plan["run_simulator"],
+        "targets": plan["run_targets"],
+        "linux-plan": plan["run_linux_build"],
+        "linux-builds": plan["run_linux_build"],
         "native": plan["run_native"],
         "harness-isa": plan["run_simulation"],
         "harness-benchmark": plan["run_simulation"],

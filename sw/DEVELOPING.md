@@ -113,6 +113,47 @@ port, patch, compiler, and output paths to these builders. Keep both CoreMark
 variants and all bounded workload profiles unchanged during path-only moves;
 do not infer suite selection from prior pass status.
 
+## Buildroot Linux smoke
+
+[`build/linux.py`](build/linux.py) consumes the same target descriptor and
+OpenSBI layout as other software builders. The adjacent
+[`buildroot-riscv/`](buildroot-riscv/README.md) BR2_EXTERNAL tree owns the kernel
+configuration, static PID 1, device table, and pinned kernel hash. Keep the
+Buildroot and OpenSBI submodules pristine; Buildroot owns its Linux, musl, and
+Linux-targeting toolchain builds. Do not substitute the bare-metal Newlib runtime.
+Project the target compiler ISA into Buildroot's native RISC-V fields instead
+of maintaining a core-name allowlist. Linux and OpenSBI retain their upstream
+privileged-code ISA/ABI policies; userspace uses the projected ISA and LP64D.
+
+The builder wraps the raw Linux Image in a physical-address ELF for FESVR,
+without executable startup glue. Validate its boot-header offset, image/BSS
+extent, RAM bounds, and non-overlap with firmware and the relocated DTB.
+OpenSBI remains the only HTIF mailbox owner. The generic runner requires both
+the PID 1 marker and kernel poweroff message, rejects panic/oops/failure output,
+and requires successful simulator termination. An HTIF reset alone is not proof
+of a successful Linux boot.
+
+Build reuse hashes source pins, patches, the port, builder dependencies, target build inputs,
+host compiler identity, and build paths. Revalidate every exported artifact's
+checksum before reuse. The manifest carries configs, init, and license notices
+alongside the firmware and kernel ELFs. The simulator's BootROM supplies its
+own hardware DTB; firmware copies it to RAM and applies normal fixups. The
+kernel configuration owns the smoke command line, including its 128 MiB limit.
+
+Run `python3 -m unittest discover -s sw/tests` for target projection changes,
+and `make -C sims program-target SOC=simple-spike-rva23` for descriptor changes.
+CI's build-only Linux producer compiles on x86 Linux, packages the ordinary
+manifest archive, extracts it, and binds it to each compatible Simple RVA23
+descriptor. Buildroot owns the toolchain; the producer installs no simulator or
+bare-metal compiler. Only upstream downloads are cached, not toolchains or
+compiled output. The [CI guide](../tools/testing/DEVELOPING.md#ci-ownership)
+owns selection, gating, and artifact retention policy.
+Kernel, init, toolchain, or handoff changes require a real Linux-host build.
+Boot qualification remains deferred and has no CI execution job. Before claiming
+a qualified Linux platform, boot first on Simple Spike, then RV5Stage and
+RV2Wide. Neither a successful image build nor static archive binding is boot
+coverage.
+
 ## Shared software builds
 
 `build-skl.py` uses the adjacent SKL bare-metal CMake project to consume

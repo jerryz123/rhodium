@@ -11,7 +11,7 @@ from program_target import elf_build_spec, load_target, target_fingerprint
 from .policy import PROGRAM_SHARD_COUNTS, SHORT_PROGRAM_SUITES
 
 
-def program_matrices(matrix, targets):
+def program_matrices(matrix, targets, *, build_only=False):
     builds, runs = {}, []
     entries = matrix['include']
     if not entries or len({(entry['soc'], entry['suite']) for entry in entries}) != len(entries):
@@ -26,7 +26,10 @@ def program_matrices(matrix, targets):
         options = entry.get('options', {})
         spec = elf_build_spec(target, suite, options)
         build_id = suite + '-' + target_fingerprint(spec)
-        builds.setdefault(build_id, dict(soc=soc, suite=suite, build_id=build_id, options=options))
+        build = builds.setdefault(build_id, dict(soc=soc, suite=suite, build_id=build_id, options=options))
+        if build_only:
+            build.setdefault('targets', []).append(soc)
+            continue
         shard_count = PROGRAM_SHARD_COUNTS.get(suite, 1)
         runs.extend(entry | dict(build_id=build_id, shard=shard, shard_count=shard_count)
                     for shard in range(shard_count))
@@ -88,7 +91,10 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--harness', action='store_true', help='group the simulator matrix shared harness ELFs')
     parser.add_argument('--group-runs', action='store_true', help='bundle short native suites per execution config')
+    parser.add_argument('--build-only', action='store_true', help='group images with binding targets but no execution rows')
     args = parser.parse_args()
+    if args.build_only and (args.group_runs or args.harness):
+        parser.error('build-only selection cannot include execution or harness grouping')
     if args.group_runs and args.harness:
         parser.error('execution grouping is only for native software suites')
     try:
@@ -100,7 +106,7 @@ def main():
             return
         targets = {entry['soc']: load_target(args.targets / (entry['soc'] + '.json'))
                    for entry in matrix['include']}
-        result = program_matrices(matrix, targets)
+        result = program_matrices(matrix, targets, build_only=args.build_only)
         if args.group_runs:
             result['run'] = execution_groups(result['run'])
             result.update(pipeline_matrices(result['build'], result['run']))

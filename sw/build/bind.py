@@ -39,7 +39,7 @@ def bind(manifest_path, target, output):
         raise ValueError('invalid ELF build specification')
     if spec != elf_build_spec(target, manifest['suite'], spec['options']):
         raise ValueError('shared ELF build specification does not match the execution target')
-    if manifest['suite'] == 'opensbi':
+    if manifest['suite'] in ('opensbi', 'linux'):
         from opensbi import target_layout
         layout = target_layout(target)
     for file in manifest.get('files', []):
@@ -55,7 +55,7 @@ def bind(manifest_path, target, output):
         data = elf.read_bytes()
         if data[:5] != b'\x7fELF' + bytes([2 if target['xlen'] == 64 else 1]):
             raise ValueError('shared ELF class does not match target XLEN')
-        if manifest['suite'] == 'opensbi':
+        if manifest['suite'] in ('opensbi', 'linux'):
             from opensbi import validate_firmware, validate_smoke_layout
             validate_firmware(layout, elf)
             payload = test['payload']
@@ -65,6 +65,16 @@ def bind(manifest_path, target, output):
                 from opensbi import SMOKE_SUCCESS
                 if test.get('required_output') != [SMOKE_SUCCESS]:
                     raise ValueError('invalid OpenSBI console/reset output contract')
+            if manifest['suite'] == 'linux':
+                from linux import MEMORY_SIZE, SUCCESS, FAILURES
+                if (test.get('required_output') != [SUCCESS, 'reboot: Power down']
+                        or test.get('forbidden_output') != FAILURES):
+                    raise ValueError('invalid Linux boot-and-poweroff output contract')
+                from opensbi import elf_load_segments
+                _, segments = elf_load_segments(payload_elf, 2)
+                if any(segment['physical'] + segment['size'] > layout['ram_base'] + MEMORY_SIZE
+                       for segment in segments):
+                    raise ValueError('Linux payload exceeds the smoke memory limit')
             payload['load_segments'] = check_elf_memory(payload_elf, target['ram'], require_executable_entry=True)
         else:
             if 'payload' in test:

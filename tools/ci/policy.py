@@ -142,6 +142,12 @@ def platform_configs():
             if shape in suites and SELECTIONS[soc][2] == 'rva23']
 
 
+def linux_configs():
+    """Select build-only Linux images by shape and ISA, independently of simulation."""
+    return [dict(soc=soc, suite='linux') for soc, shape, _core in SIMULATOR_CONFIGS
+            if shape == 'simple' and SELECTIONS[soc][2] == 'rva23']
+
+
 def native_configs(suite):
     return tuple(soc for soc, shape, _core in SIMULATOR_CONFIGS
                  if suite in NATIVE_SOFTWARE.get((shape, SELECTIONS[soc][2]), ()))

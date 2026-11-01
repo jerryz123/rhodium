@@ -38,3 +38,6 @@
 [submodule "sw/highway"]
 	path = sw/highway
 	url = https://github.com/google/highway.git
+[submodule "sw/buildroot"]
+	path = sw/buildroot
+	url = https://github.com/buildroot/buildroot.git

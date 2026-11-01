@@ -27,6 +27,9 @@ FDT expansion fit within the 64 KiB reservation; revisit this bound if either gr
 OpenSBI's existing HTIF console and reset device directly, without an `/htif`
 node. The source submodule remains pristine; patch and materializer bytes
 participate in firmware build identity.
+Linux build/run targets live in `../linux/Makefile.inc`, while their target
+software owner is [`../../sw/buildroot-riscv/`](../../sw/buildroot-riscv/README.md).
+Linux smoke boot arguments belong in its kernel configuration, not the DTB.
 The validation firmware disables
 OpenSBI boot prints so the RTL test does not spend most of its runtime
 serializing a diagnostic banner.

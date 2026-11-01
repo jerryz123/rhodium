@@ -21,6 +21,7 @@ are separate works governed by the license at each pinned upstream revision;
 the repository's Apache-2.0 license does not replace those terms:
 
 - `sw/opensbi`
+- `sw/buildroot`
 - `sw/riscv-arch-test`
 - `riscv/riscv-isa-sim`
 - `riscv/sail-riscv`
@@ -111,6 +112,16 @@ OpenSBI's pinned upstream checkout remains pristine. The ordered
 only in a build-local copy. OpenSBI and the upstream-derived patch retain the
 BSD-2-Clause license, which remains in
 [`sw/opensbi/COPYING.BSD`](sw/opensbi/COPYING.BSD).
+
+## Buildroot Linux workload
+
+Buildroot is pinned under [`sw/buildroot`](sw/buildroot/) with its upstream
+GPL-2.0-or-later terms in [`COPYING`](sw/buildroot/COPYING). Its downloaded
+Linux kernel, musl, and toolchain retain their own licenses. Rhodium's external
+configuration and tiny init package under `sw/buildroot-riscv/` are Apache-2.0.
+Preserve the corresponding source and Buildroot legal information when
+redistributing Linux images; the smoke archive alone is not a complete source
+distribution.
 
 External tools, PDK collateral, libraries, and workloads downloaded or supplied
 during setup and testing are not distributed as original Rhodium content. Their

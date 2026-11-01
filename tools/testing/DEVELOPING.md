@@ -191,6 +191,27 @@ to group compatible configs, then bind each shared archive to the execution
 target. Local build-and-run targets remain available; CI uses builder-free run
 targets. Shared build failures retain diagnostics and do not cancel other groups.
 
+Linux image production is selected independently of simulator execution.
+`run_targets` and `target_configs` include both simulator and build-only software
+requirements; a Linux-only change needs bytecode and target descriptions, not
+Sail, simulators, native runtime builds, or software execution jobs.
+`linux-plan` uses `programs.py --build-only` to group Simple RVA23 descriptors by
+their Linux build specification and retain every compatible binding target.
+`ci-linux-builds.yml` builds each group on `ubuntu-24.04` through `linux-elfs`,
+using Buildroot's own Linux toolchain and the pinned OpenSBI source/patches.
+It caches only hash-verified upstream downloads, starts compilation fresh, and
+has a provisional 180-minute cold-build budget. Measure a successful cold build
+before tuning the budget or introducing compiled-output caching.
+The producer packages the common manifest archive, extracts it, and binds it
+to every group member without executing any image. Successful bundles and
+always-uploaded available build logs/configurations have seven-day retention;
+the stable gate requires both Linux planning and production when selected.
+Linux port/source/builder/workflow changes select only this producer chain;
+shared target, firmware, and build-contract inputs also retain their existing
+coverage. Full manual CI selects the producer too. No Linux boot, simulator,
+or shutdown consumer is enrolled. Compilation and static artifact checks must
+not be reported as Linux boot qualification.
+
 One native-check job owns config-independent DPI, transport, runtime, cosim-hook,
 architectural projection, and software-target tests. Spike native and ABI checks
 run once when any Spike simulator is selected. Per-config hardware elaboration
@@ -263,6 +284,7 @@ flowchart TD
     Simulators --> Simulation["Same runner: publish simulator,<br/>bind shared ELFs and run shape/ISA selection"]
     HarnessBuilds --> Simulation
     Targets --> PlatformTargets["Group compatible platform builds"]
+    Targets --> LinuxBuilds["Build compatible Linux images<br/>archive and bind only; no boot"]
     PlatformTargets --> PlatformBuilds["Shared litmus / OpenSBI build artifacts"]
     PlatformBuilds --> Platform["Per-config platform tests<br/>litmus histograms; OpenSBI handoff"]
     Simulators -->|matching config only| Platform
@@ -277,6 +299,7 @@ flowchart TD
     Checks --> Gate["Stable CI gate"]
     Native --> Gate
     Targets --> Gate
+    LinuxBuilds --> Gate
     HarnessBuilds --> Gate
     Sail --> Gate
     Simulators --> Gate
@@ -422,8 +445,9 @@ function of SoC shape and ISA, never core identity. No timeout or prior failure
 removes a workload from one core. None receives the full
 single-hart suite matrices. ACT configuration
 generation uses the exact compiled root; ISA/benchmark/CoreMark/Embench-IoT/Bringup-Bench execution needs only the
-shared ELF archive and native simulator artifact. All software builds use the same pinned
-GCC/Newlib toolchain. ACT execution consumes its shared ELF archive without installing
+shared ELF archive and native simulator artifact. Bare-metal software builds use the same pinned
+GCC/Newlib toolchain; Linux image production uses Buildroot's Linux/musl toolchain.
+ACT execution consumes its shared ELF archive without installing
 the compiler or reference-model toolchain again. Generation can reuse only an
 exact-input, checksum- and inventory-verified complete bundle; execution still
 uses the current commit's simulator and reruns every shard. The configured deterministic shards cover

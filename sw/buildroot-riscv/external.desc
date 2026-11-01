@@ -1,0 +1,4 @@
+# Names Rhodium's minimal Linux workload configuration and local init package.
+# SPDX-License-Identifier: Apache-2.0
+name: RHODIUM
+desc: Rhodium Linux boot smoke

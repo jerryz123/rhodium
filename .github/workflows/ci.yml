@@ -166,7 +166,7 @@ jobs:
   targets:
     name: Prepare targets
     needs: [plan, compile-racket]
-    if: ${{ always() && !cancelled() && needs.compile-racket.result == 'success' && fromJSON(needs.plan.outputs.plan).run_simulator }}
+    if: ${{ always() && !cancelled() && needs.compile-racket.result == 'success' && fromJSON(needs.plan.outputs.plan).run_targets }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     outputs:
@@ -191,7 +191,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/targets"
           targets=()
-          for soc in $(jq -r '[.simulator_matrix.include[].soc] | unique | .[]' <<< "$PLAN"); do
+          for soc in $(jq -r '.target_configs[]' <<< "$PLAN"); do
             targets+=("$soc" "$RUNNER_TEMP/targets/$soc.json")
           done
           tools/run-racket.sh -S "$GITHUB_WORKSPACE" sims/program-test/write-target.rhm --batch "${targets[@]}"
@@ -455,6 +455,41 @@ jobs:
     uses: ./.github/workflows/ci-program-builds.yml
     with:
       matrix: ${{ toJSON(fromJSON(needs.program-plan.outputs.build-matrices)['highway']) }}
+
+  linux-plan:
+    name: Plan Linux image builds
+    needs: [plan, targets]
+    if: ${{ always() && !cancelled() && needs.targets.result == 'success' && fromJSON(needs.plan.outputs.plan).run_linux_build }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - name: Check out Rhodium
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Download shared target descriptions
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: targets-${{ github.sha }}
+          path: ${{ runner.temp }}/linux-targets
+      - name: Check Linux target capabilities
+        run: python3 -m unittest discover -s sw/tests -p test_linux_target.py
+      - name: Group compatible images without execution jobs
+        id: plan
+        env:
+          MATRIX: ${{ toJSON(fromJSON(needs.plan.outputs.plan).linux_matrix) }}
+        run: |
+          python3 -m tools.ci.programs --build-only --matrix "$MATRIX" \
+            --targets "$RUNNER_TEMP/linux-targets" --output "$RUNNER_TEMP/linux-plan.json"
+          echo "matrix=$(jq -c .build "$RUNNER_TEMP/linux-plan.json")" >> "$GITHUB_OUTPUT"
+          cat "$RUNNER_TEMP/linux-plan.json"
+
+  linux-builds:
+    name: Linux image builds
+    needs: [linux-plan]
+    uses: ./.github/workflows/ci-linux-builds.yml
+    with:
+      matrix: ${{ needs.linux-plan.outputs.matrix }}
 
   platform-plan:
     name: Plan platform builds
@@ -1049,6 +1084,8 @@ jobs:
       - compile-racket
       - sail
       - targets
+      - linux-plan
+      - linux-builds
       - harness-isa
       - harness-benchmark
       - native

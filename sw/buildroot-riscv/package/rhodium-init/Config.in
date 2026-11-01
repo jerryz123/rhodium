@@ -1,0 +1,6 @@
+# Selects Rhodium's static PID 1 program for the Linux smoke image.
+# SPDX-License-Identifier: Apache-2.0
+config BR2_PACKAGE_RHODIUM_INIT
+	bool "rhodium-init"
+	help
+	  Report successful userspace boot and power off through Linux and SBI.

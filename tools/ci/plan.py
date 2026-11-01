@@ -9,7 +9,7 @@ import subprocess
 from dataclasses import dataclass, field
 
 from .policy import CHECKS, RSIM_CORE_CHECKS, RSIM_COMPONENT_CHECKS, CIRCT_CHECKS, CORE_CHECKS, HOST_CHECKS, NATIVE_SUITES, SIMULATOR_CONFIGS, SINGLE_CORE_SOCS, native_configs, simulation_entry, simulator_entry, BACKEND_SMOKE_CONFIGS, DEFAULT_BACKEND, BACKEND_SMOKE_VARIANTS, arch_configs, arch_shards, check_matrix, platform_configs, SHORT_PROGRAM_SUITES
-from .policy import simulator_options
+from .policy import simulator_options, linux_configs
 
 
 def matches(path, *patterns):
@@ -22,6 +22,7 @@ class Selection:
     native_suites: set[str] = field(default_factory=set)
     simulation: bool = False
     arch: bool = False
+    linux: bool = False
 
     def add_checks(self, *keys):
         self.checks.update(keys)
@@ -39,10 +40,27 @@ class Selection:
     def all(self):
         self.add_checks(*(check.key for check in CHECKS))
         self.simulation = True
+        self.linux = True
         self.all_programs()
 
     def classify(self, path):
         documentation = matches(path, "*.md", "LICENSE", "LICENSE.*", "NOTICE", "DCO", "AGENTS.md", ".gitignore", ".gitattributes")
+
+        # Linux-only inputs select image production, never simulator execution.
+        if not documentation and matches(path, "sw/buildroot", "sw/buildroot/*",
+                                          "sw/buildroot-riscv/*", "sw/build/linux.py",
+                                          "sw/tests/test_linux_target.py", "sims/linux/*",
+                                          ".github/workflows/ci-linux-builds.yml"):
+            self.linux = True
+            return
+        if not documentation and matches(path, "sw/opensbi", "sw/opensbi/*", "sw/opensbi-patches/*",
+                                          "sw/build/opensbi.py", "sw/build/build.py", "sw/build/bind.py",
+                                          "sw/build/program_target.py", "sims/opensbi/*",
+                                          "sims/program-test/*", "sims/Makefile", "sims/test-configs.txt",
+                                          "socs/*", "cores/*", "riscv/*", "rhodium/*", "flow/*",
+                                          "devices/*", "devicetree/*", "support/*",
+                                          "tools/run-racket.sh", "tools/racket-build-cache.sh"):
+            self.linux = True
 
         # Native workloads and ACT cover selected single-core configs independently
         # of host, example, and CIRCT checks.
@@ -270,6 +288,8 @@ class Selection:
         run_checks = bool(self.checks)
         run_program_native = bool(self.native_suites)
         run_simulator = self.simulation or run_program_native or self.arch
+        linux = {'include': linux_configs() if self.linux else []}
+        run_targets = run_simulator or self.linux
         configs = (SIMULATOR_CONFIGS if self.simulation else
                     tuple(config for config in SIMULATOR_CONFIGS if config[0] in SINGLE_CORE_SOCS))
         entry = simulation_entry if self.simulation else simulator_entry
@@ -300,7 +320,7 @@ class Selection:
                 key = ('cosim' if build['cosim'] else 'plain') + ('-elf' if shared_elf else '')
                 groups[key]['include'].append(build)
         return {
-            "run_compile": run_checks or run_simulator,
+            "run_compile": run_checks or run_targets,
             "run_sail": self.arch or any(build["cosim"] for build in builds),
             "run_cosim": any(build["cosim"] for build in builds),
             "run_native": run_simulator,
@@ -308,6 +328,10 @@ class Selection:
             "run_checks": run_checks,
             "checks_matrix": matrix,
             "run_simulator": run_simulator,
+            "run_targets": run_targets,
+            "target_configs": sorted({row['soc'] for row in builds + linux['include']}),
+            "run_linux_build": self.linux,
+            "linux_matrix": linux,
             "simulator_matrix": {"include": builds},
             "run_simulation": self.simulation,
             "run_program_native": run_program_native,

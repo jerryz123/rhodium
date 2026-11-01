@@ -61,12 +61,18 @@ def elf_build_spec(target, suite, options=None):
     """Project compilation and inventory inputs without simulator identity."""
     validate_target(target)
     suite = 'bringup' if suite == 'bringup-bench' else suite
-    if suite not in ('isa', 'benchmark', 'coremark', 'coremark_scalar', 'embench', 'bringup', 'skl', 'highway', 'litmus', 'opensbi'):
+    if suite not in ('isa', 'benchmark', 'coremark', 'coremark_scalar', 'embench', 'bringup', 'skl', 'highway', 'litmus', 'opensbi', 'linux'):
         raise ValueError(f'unsupported shared ELF suite: {suite}')
     options = options or {}
-    if suite == 'opensbi':
+    if suite in ('opensbi', 'linux'):
         from opensbi import target_layout
-        layout = target_layout(target)
+        if suite == 'linux':
+            from linux import linux_layout
+            layout = linux_layout(target)
+            layout.update(march=target['march'], mabi=target['mabi'],
+                          mmu_mode=target['mmu_mode'], privilege_modes=target['privilege_modes'])
+        else:
+            layout = target_layout(target)
         layout.pop('soc')
         if options:
             raise ValueError('firmware build specification does not accept suite options')

@@ -1,0 +1,4 @@
+# Creates the console needed before Linux enters the static init program.
+# SPDX-License-Identifier: Apache-2.0
+/dev d 755 0 0 - - - - -
+/dev/console c 600 0 0 5 1 - - -

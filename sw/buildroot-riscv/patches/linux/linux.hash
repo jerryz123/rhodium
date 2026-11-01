@@ -1,0 +1,4 @@
+# Pins the Linux archive using kernel.org's published SHA-256, also recorded by Buildroot's QEMU board.
+# SPDX-License-Identifier: Apache-2.0
+# https://www.kernel.org/pub/linux/kernel/v6.x/sha256sums.asc
+sha256  b726a4d15cf9ae06219b56d87820776e34d89fbc137e55fb54a9b9c3015b8f1e  linux-6.18.7.tar.xz
