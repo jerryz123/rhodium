@@ -14,7 +14,8 @@ remain in [`socs/`](../socs/DEVELOPING.md),
 ## Source and build ownership
 
 The named upstream submodules are pinned at repository gitlinks. Keep their
-checkouts pristine. Apply the ordered architectural-test, Bringup-Bench, Embench, and SKL patch
+checkouts pristine. Apply the ordered architectural-test, Bringup-Bench, Embench,
+OpenSBI, and SKL patch
 series only to build-local copies through
 [`riscv/patched_submodule.py`](../riscv/patched_submodule.py). Put Rhodium-owned
 bare-metal startup, linkers, output checks, and ports beside their corresponding
@@ -103,8 +104,8 @@ Newlib stdio's medlow-only objects at the high RAM address.
 Keep histogram-header parsing local and bounded: formatted input from Newlib
 pulls stdio and allocator objects whose medlow relocations cannot link into
 the high-address bare-metal memory image.
-OpenSBI's DTB emitter remains in `sims/opensbi/` because it projects the
-simulator's selected SoC and transport endpoint. ACT's UDB/Sail platform
+OpenSBI consumes the SoC's BootROM DTB at runtime; its build-local patch series
+initializes firmware-owned HTIF without a synthetic device-tree node. ACT's UDB/Sail platform
 configuration and its DUT runner likewise remain in `sims/arch-test/`.
 
 Simulator-owned build targets pass a generated descriptor and explicit source,
@@ -274,12 +275,11 @@ core or SoC identity. The pinned litmus7 binary, support files, model log, sourc
 revisions, compiler, and runtime bytes still invalidate the build cache.
 Histogram checking remains an execution contract, not a build-group selector.
 
-OpenSBI projects its minimum firmware ISA and firmware/jump/FDT layout and adds
-the checksum of the actual generated platform DTB. `opensbi.py manifest` records
-the relocatable firmware, S-mode validation payload, and DTB as one archive.
-Binding requires the destination's generated DTB, checks both image hashes and
-their relocated RAM ranges, and retains build provenance. Do not replace that
-DTB comparison with equality of ISA or config names. Image symbol ownership is
+OpenSBI projects its minimum firmware ISA and firmware/jump/FDT layout.
+`opensbi.py manifest` records the relocatable firmware and S-mode validation
+payload as one archive. Binding checks that projection, both image hashes and
+their relocated RAM ranges, and retains build provenance. Hardware DTB contents
+are runtime inputs from BootROM, not software compilation inputs. Image symbol ownership is
 checked during compilation; execution checks the unchanged published images.
 
 ## Change an architectural-test pin

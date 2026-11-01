@@ -106,7 +106,9 @@ own notices. The build-local model package retains those license files.
 
 ## OpenSBI
 
-OpenSBI is used unmodified from its pinned upstream checkout under its
+OpenSBI's pinned upstream checkout remains pristine. The ordered
+[`sw/opensbi-patches/series`](sw/opensbi-patches/series) adapts HTIF initialization
+only in a build-local copy. OpenSBI and the upstream-derived patch retain the
 BSD-2-Clause license, which remains in
 [`sw/opensbi/COPYING.BSD`](sw/opensbi/COPYING.BSD).
 

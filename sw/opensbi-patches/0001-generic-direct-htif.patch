@@ -1,0 +1,63 @@
+Initialize the generic platform's firmware-owned HTIF console and reset device.
+SPDX-License-Identifier: BSD-2-Clause
+
+The simulation build enables this option explicitly. Hardware discovery and
+normal FDT fixups still consume the BootROM DTB; no synthetic HTIF node or
+embedded replacement DTB is needed. Apply only to a build-local source copy.
+
+diff --git a/platform/generic/Kconfig b/platform/generic/Kconfig
+--- a/platform/generic/Kconfig
++++ b/platform/generic/Kconfig
+@@ -10,6 +10,13 @@ config PLATFORM_GENERIC
+ 
+ if PLATFORM_GENERIC
+ 
++config PLATFORM_GENERIC_HTIF
++	bool "Firmware-owned HTIF console and reset"
++	select SYS_HTIF
++	default n
++	help
++	  Use firmware mailboxes for simulation without an HTIF device-tree node.
++
+ config PLATFORM_GENERIC_NAME
+ 	string "Platform default name"
+ 	default "Generic"
+diff --git a/platform/generic/configs/defconfig b/platform/generic/configs/defconfig
+--- a/platform/generic/configs/defconfig
++++ b/platform/generic/configs/defconfig
+@@ -1,3 +1,6 @@
++# Select firmware-owned HTIF transport for Rhodium simulation.
++# SPDX-License-Identifier: BSD-2-Clause
++CONFIG_PLATFORM_GENERIC_HTIF=y
+ CONFIG_PLATFORM_ALLWINNER_D1=y
+ CONFIG_PLATFORM_ANDES_AE350=y
+ CONFIG_PLATFORM_ANDES_QILAI=y
+diff --git a/platform/generic/platform.c b/platform/generic/platform.c
+--- a/platform/generic/platform.c
++++ b/platform/generic/platform.c
+@@ -28,6 +28,7 @@
+ #include <sbi_utils/mpxy/fdt_mpxy.h>
+ #include <sbi_utils/serial/fdt_serial.h>
+ #include <sbi_utils/serial/semihosting.h>
++#include <sbi_utils/sys/htif.h>
+ #include <sbi_utils/timer/fdt_timer.h>
+ 
+ /* List of platform override modules generated at compile time */
+@@ -221,10 +222,17 @@ int generic_early_init(bool cold_boot)
+ 	int rc;
+ 
+ 	if (cold_boot) {
++#ifdef CONFIG_PLATFORM_GENERIC_HTIF
++		rc = htif_serial_init(false, 0, 0);
++		if (rc)
++			return rc;
++		rc = htif_system_reset_init(false, 0, 0);
++#else
+ 		if (semihosting_enabled())
+ 			rc = semihosting_init();
+ 		else
+ 			rc = fdt_serial_init(fdt);
++#endif
+ 		if (rc)
+ 			return rc;
+ 

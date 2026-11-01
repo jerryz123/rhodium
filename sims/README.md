@@ -275,12 +275,11 @@ make -C sims opensbi-firmware SOC=simple CORE=spike ISA=rva23
 ```
 
 The build derives the firmware, next-stage, and writable FDT addresses from the
-same target description as the simulator. It derives an OpenSBI-only DTB from
-the canonical SoC description and adds the simulator's `ucb,htif0` reset
-endpoint. FW_JUMP embeds that DTB, relocates it to RAM using
-`FW_JUMP_FDT_ADDR`, and passes the relocated address to S-mode. The
-synthesizable SoC and its BootROM retain their hardware-only DTB. Generated
-firmware, the derived DTB, and layout metadata are under
+same target description as the simulator. BootROM passes the SoC's hardware
+DTB in `a1`; FW_JUMP copies it to RAM using `FW_JUMP_FDT_ADDR`, applies normal
+OpenSBI fixups, and passes that address to S-mode. A build-local OpenSBI patch
+initializes the firmware-owned HTIF console/reset directly; no transport node
+or separate embedded DTB is required. Generated firmware and layout metadata are under
 `/tmp/rhodium-software/<soc>/opensbi/`.
 OpenSBI requires a linker capable of producing RISC-V PIEs. When the selected
 GNU cross-linker lacks that support, select a complete LLVM installation with
@@ -866,10 +865,9 @@ The usual `*-test` commands continue to build and run. For compilation using
 an existing descriptor, set `PREBUILT_PROGRAM_TARGET=/absolute/path/to/target.json`.
 Platform tests use this same artifact flow. `litmus-smoke-run` executes
 a bound litmus archive without litmus7 or a compiler. `opensbi-smoke-run`
-executes a bound firmware/payload archive; OpenSBI binding additionally requires
-`--fdt /absolute/path/to/execution-platform.dtb`, generated for that exact
-config with `sims/opensbi/write-device-tree.rhm`. Incompatible device trees or
-boot layouts cannot share firmware. Both commands accept `PROGRAM_MANIFEST`
+executes a bound firmware/payload archive. Compatible ISA and boot layouts can
+share firmware; each execution supplies its own SoC DTB from BootROM.
+Both commands accept `PROGRAM_MANIFEST`
 and `PREBUILT_SIMULATOR` as above, retain their suite-specific checks, and do
 not compile software. Their corresponding `*-test` commands build and run locally.
 Mini/Tiled ISA-smoke archives remain attached to their per-config results. The

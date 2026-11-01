@@ -24,7 +24,7 @@ def checked_file(root, name, digest):
     return path
 
 
-def bind(manifest_path, target, output, fdt=None):
+def bind(manifest_path, target, output):
     root = manifest_path.parent.resolve()
     if output.resolve() == manifest_path.resolve() or output.parent.resolve() != root:
         raise ValueError('write the execution manifest beside, separately from, the build manifest')
@@ -40,15 +40,8 @@ def bind(manifest_path, target, output, fdt=None):
     if spec != elf_build_spec(target, manifest['suite'], spec['options']):
         raise ValueError('shared ELF build specification does not match the execution target')
     if manifest['suite'] == 'opensbi':
-        from opensbi import target_layout, validate_fdt
-        if fdt is None:
-            raise ValueError('OpenSBI binding requires the execution target device tree')
+        from opensbi import target_layout
         layout = target_layout(target)
-        digest = hashlib.sha256(validate_fdt(layout, fdt)).hexdigest()
-        if digest != spec['options']['fdt_sha256']:
-            raise ValueError('OpenSBI device tree does not match the execution target')
-        if manifest.get('files') != [dict(path='platform.dtb', sha256=digest)]:
-            raise ValueError('invalid OpenSBI device tree artifact')
     for file in manifest.get('files', []):
         checked_file(root, file['path'], file['sha256'])
     tests = manifest['tests']
@@ -68,6 +61,10 @@ def bind(manifest_path, target, output, fdt=None):
             payload = test['payload']
             payload_elf = checked_file(root, payload['elf'], payload['sha256'])
             validate_smoke_layout(layout, payload_elf)
+            if manifest['suite'] == 'opensbi':
+                from opensbi import SMOKE_SUCCESS
+                if test.get('required_output') != [SMOKE_SUCCESS]:
+                    raise ValueError('invalid OpenSBI console/reset output contract')
             payload['load_segments'] = check_elf_memory(payload_elf, target['ram'], require_executable_entry=True)
         else:
             if 'payload' in test:
@@ -88,10 +85,9 @@ def main():
     parser.add_argument('--manifest', type=Path, required=True)
     parser.add_argument('--target', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--fdt', type=Path, help='execution target OpenSBI device tree')
     args = parser.parse_args()
     try:
-        bind(args.manifest, load_target(args.target), args.output, args.fdt)
+        bind(args.manifest, load_target(args.target), args.output)
     except (OSError, ValueError, KeyError) as error:
         parser.error(str(error))
 

@@ -177,8 +177,8 @@ and absolute link paths before linking. Generated runtime configuration and
 `runtime/session.cc` remain config-specific. The stable gate requires the selected
 Sail producer to succeed.
 
-One target producer emits each selected SoC descriptor once and the required
-OpenSBI DTBs. Simulator, harness, program, and platform jobs consume these shared
+One target producer emits each selected SoC descriptor once.
+Simulator, harness, program, and platform jobs consume these shared
 descriptions; none may silently regenerate a missing artifact. Harness ISA smoke
 and eight-hart benchmark builds use the existing suite-specific ELF projection
 to group compatible configs, then bind each shared archive to the execution
@@ -249,7 +249,7 @@ flowchart TD
     Selected --> Sail["Build or restore Sail model once<br/>and shared cosim runtime archives"]
     Compile --> Checks["Capability matrix<br/>host and CIRCT;<br/>auxiliary examples run only on host"]
     Compile --> Native["Config-independent native and adapter checks once"]
-    Compile --> Targets["Generate each selected target and required DTB once"]
+    Compile --> Targets["Generate each selected target descriptor once"]
     Targets --> HarnessBuilds["Compile harness ISA / multihart ELFs once per group"]
     Targets --> Simulators["Per-config simulator builds"]
     HarnessBuilds -->|only configs using shared harness ELFs| Simulators
@@ -339,7 +339,8 @@ fixtures. Each OpenSBI test has its own
 job budget and uses the matching exact-commit single-core simulator artifact,
 so firmware execution cannot consume another SoC's or the harness job's budget.
 That workflow groups litmus builds by software requirements and OpenSBI builds
-by derived boot layout and generated DTB contents. Litmus7 and target compilers
+by minimum firmware ISA and derived boot layout. Each execution supplies its
+own BootROM DTB; firmware neither embeds nor binds to a separate DTB. Litmus7 and target compilers
 belong only to build jobs, and the common ELF archive/binder feeds all compatible
 execution configs. Each tiled config runs the same bounded, model-checked
 litmus7 selection with its independent 90-minute budget; OpenSBI retains a

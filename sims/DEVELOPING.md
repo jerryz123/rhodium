@@ -175,7 +175,7 @@ the owner of runner-specific compiler, memory, and timeout validation.
 | Embedded Sail library boundary and focused host validation | [`cosim/`](cosim/README.md) |
 | Shared UDB-to-Sail architectural projection and config identity | [`sail/`](sail/README.md) |
 | ACT platform configuration and execution adapter | [`arch-test/`](arch-test/) |
-| OpenSBI DTB projection, simulator handoff, and validation | [`opensbi/`](opensbi/DEVELOPING.md) |
+| OpenSBI simulator handoff and validation | [`opensbi/`](opensbi/DEVELOPING.md) |
 | CHI simulation memory | [`../chi/subordinate/dpi-memory.rhdl`](../chi/subordinate/dpi-memory.rhdl) and [`../chi/subordinate/dpi/`](../chi/subordinate/dpi/) |
 
 ## Embedded Sail reference
@@ -747,10 +747,11 @@ upstream virtual environment owns its own stack and page tables. Keep its
 fixed `0x80000000` linker and DRAM assumptions compatible with each selected
 SoC, or adapt those assumptions before adding another RAM layout.
 
-One shared producer emits each selected target descriptor and required OpenSBI
-DTB once. The target and device-tree writers accept `--batch` followed by
+One shared producer emits each selected target descriptor once.
+The target writer accepts `--batch` followed by
 config/output pairs, loading shared dependencies once while retaining their
-single-target CLI forms. Harness ISA smoke and eight-hart benchmark ELFs are built once per
+single-target CLI form. OpenSBI consumes the SoC's BootROM DTB at runtime.
+Harness ISA smoke and eight-hart benchmark ELFs are built once per
 compatible suite projection. Only simulator jobs that consume these shared
 ELFs wait for those producers. Each simulator
 producer publishes its exact-commit simulator and shared target descriptor before
@@ -815,7 +816,7 @@ producer dependencies through `ci-program-builds.yml`. Each config's native
 execution depends on its own simulator and only its selected workload group;
 it does not wait for other simulators or long-suite builds.
 Platform tests use the same grouping/archive/binding machinery:
-the root `platform-plan` groups the shared targets and OpenSBI DTBs,
+the root `platform-plan` groups the shared targets by software requirements,
 `ci-platform-builds.yml` compiles each compatible group, and `ci-platform.yml`
 executes each config. OpenSBI and litmus have separate producer dependencies.
 ACT generation in `ci-arch-build.yml` starts independently of simulator builds;
@@ -824,8 +825,8 @@ generator. Adding a software-tested config also requires its explicit root
 dependency edges; the stable gate rejects a selected config omitted there.
 `litmus-smoke-run` and `opensbi-smoke-run` consume existing bound manifests;
 neither depends on a builder. The OpenSBI test entry carries a checksum-bearing
-auxiliary `payload`, passed through FESVR's existing `+payload` option; its DTB
-is a checksum-bearing manifest file. Keep firmware relocation validation in the
+auxiliary `payload`, passed through FESVR's existing `+payload` option; BootROM
+provides the runtime DTB. Keep firmware relocation validation in the
 software builder/binder rather than adding another ELF loader to the simulator.
 ACT retains independent implementation-specific generation and expectations.
 The ordinary `smoke` target specializes its payload by ISA: for RVA23, in addition

@@ -4,11 +4,10 @@ OPENSBI_SOURCE ?= $(REPO_DIR)/sw/opensbi
 OPENSBI_BUILD_ROOT ?= /tmp/rhodium-software
 OPENSBI_OUTPUT ?= $(OPENSBI_BUILD_ROOT)/$(SOC_ID)/opensbi
 OPENSBI_LAYOUT := $(OPENSBI_OUTPUT)/layout.json
-OPENSBI_FDT := $(OPENSBI_OUTPUT)/platform.dtb
 OPENSBI_FIRMWARE := $(OPENSBI_OUTPUT)/fw_jump.elf
 OPENSBI_SMOKE := $(OPENSBI_OUTPUT)/opensbi_smoke.elf
 OPENSBI_SCRIPT := $(REPO_DIR)/sw/build/opensbi.py
-OPENSBI_FDT_SCRIPT := $(CURDIR)/opensbi/write-device-tree.rhm
+OPENSBI_PATCHES ?= $(REPO_DIR)/sw/opensbi-patches/series
 OPENSBI_MAX_CYCLES ?= 50000000
 OPENSBI_TIMEOUT ?= 1800
 
@@ -23,22 +22,11 @@ $(OPENSBI_LAYOUT): $(PROGRAM_TARGET) $(OPENSBI_SCRIPT)
 	mkdir -p "$(OPENSBI_OUTPUT)"
 	$(PYTHON) $(OPENSBI_SCRIPT) layout --target "$(PROGRAM_TARGET)" --output "$@"
 
-ifneq ($(strip $(PREBUILT_OPENSBI_FDT)),)
-$(OPENSBI_FDT): $(PREBUILT_OPENSBI_FDT)
-	mkdir -p "$(OPENSBI_OUTPUT)"
-	cp "$<" "$@"
-else
-$(OPENSBI_FDT): $(OPENSBI_FDT_SCRIPT) $(SIMULATOR_SOURCES)
-	mkdir -p "$(OPENSBI_OUTPUT)"
-	cd "$(REPO_DIR)" && tools/run-racket.sh -S "$(REPO_DIR)" \
-	  sims/opensbi/write-device-tree.rhm $(PROGRAM_TARGET_SELECTION) "$(abspath $@)"
-endif
-
-opensbi-firmware: $(OPENSBI_LAYOUT) $(OPENSBI_FDT) $(OPENSBI_SCRIPT)
+opensbi-firmware: $(OPENSBI_LAYOUT) $(OPENSBI_SCRIPT)
 	@test -f "$(OPENSBI_SOURCE)/Makefile" || \
 	  (echo 'OpenSBI is not initialized; run make -C sims opensbi-setup' >&2; exit 2)
 	$(PYTHON) $(OPENSBI_SCRIPT) firmware --layout "$(OPENSBI_LAYOUT)" \
-	  --fdt "$(OPENSBI_FDT)" --source "$(OPENSBI_SOURCE)" \
+	  --patches "$(OPENSBI_PATCHES)" --source "$(OPENSBI_SOURCE)" \
 	  --compiler "$(RISCV_CC)" --output "$(OPENSBI_OUTPUT)" $(if $(OPENSBI_LLVM),--llvm "$(OPENSBI_LLVM)",)
 
 opensbi-smoke-elf: $(OPENSBI_SMOKE)

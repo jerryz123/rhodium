@@ -1,4 +1,4 @@
-// Tests OpenSBI's S-mode handoff, relocated FDT, and SBI system reset.
+// Tests OpenSBI's S-mode handoff, relocated ROM FDT, SBI console, and system reset.
 // SPDX-License-Identifier: Apache-2.0
 .section .text
 .globl _start
@@ -33,6 +33,19 @@ _start:
   bnez a0, fail
   beqz a1, fail
 
+  // SBI debug console uses the firmware-owned HTIF device, without a DT node.
+  la s0, message
+print:
+  lbu a0, 0(s0)
+  beqz a0, shutdown
+  li a6, 2
+  li a7, 0x4442434e
+  ecall
+  bnez a0, fail
+  addi s0, s0, 1
+  j print
+
+shutdown:
   // OpenSBI owns HTIF termination; the S-mode payload exits through SBI SRST.
   li a0, 0
   li a1, 0
@@ -43,3 +56,7 @@ _start:
 fail:
   wfi
   j fail
+
+.section .rodata
+message:
+  .asciz "RHODIUM-OPENSBI: ROM DTB and SBI console/reset\n"

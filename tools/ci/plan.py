@@ -67,7 +67,7 @@ class Selection:
             self.add_native("isa", "benchmark")
         elif matches(path, "sw/build/program_target.py", "sw/build/bind.py", "sw/tests/test_program_build.py"):
             self.all_programs()
-        elif matches(path, "sw/opensbi", "sw/opensbi/*", "sw/build/opensbi.py", "sw/tests/test_opensbi_build.py", "sims/opensbi/*"):
+        elif matches(path, "sw/opensbi", "sw/opensbi/*", "sw/opensbi-patches/*", "sw/build/opensbi.py", "sw/tests/test_opensbi_build.py", "sims/opensbi/*"):
             pass
         elif matches(path, "rhodium/core/*", "rhodium/lowering/*", "rhodium/frontend/*", "rhodium/base/*", "rhodium/std/*", "rhodium/backend/*", "rhodium/compile/*", "rhodium/language.rhm", "rhodium/main.rkt", "flow/*", "cores/*", "riscv/*", "hardfloat/*", "chi/*", "noc/*", "devices/*", "socs/*", "sims/*", "support/annotations.rhm", "devicetree/*", "tools/install-circt.sh", "tools/install-riscv-*.sh", ".github/actions/setup-riscv-toolchain/*"):
             self.all_programs()
@@ -143,7 +143,7 @@ class Selection:
             pass
         elif matches(path, "sims/program-test/*", "sw/build/*", "sw/coremark*", "sw/embench-iot*", "sw/bringup-bench*", "sw/litmus-*", "sw/tests/test_program_build.py", "sw/tests/test_litmus_build.py", "sw/riscv-isa-tests", "sw/riscv-isa-tests/*", "tools/install-riscv-*.sh"):
             self.simulation = True
-        elif matches(path, "sw/opensbi", "sw/opensbi/*", "sw/tests/test_opensbi_build.py", "sims/opensbi/*"):
+        elif matches(path, "sw/opensbi", "sw/opensbi/*", "sw/opensbi-patches/*", "sw/tests/test_opensbi_build.py", "sims/opensbi/*"):
             self.simulation = True
         elif matches(path, "sw/riscv-arch-test", "sw/riscv-arch-test/*", "sw/riscv-arch-test-patches/*", "riscv/sail-riscv", "riscv/sail-riscv/*", "riscv/sail-riscv-patches/*", "sims/arch-test/*", "sims/tests/test_arch_test.py", "sims/sail/*", "sims/tests/test_sail_config.py"):
             pass

@@ -184,8 +184,6 @@ jobs:
           racket-version: ${{ env.RACKET_VERSION }}
           rhombus-checksum: ${{ env.RHOMBUS_CHECKSUM }}
           artifact-name: rhodium-bytecode-${{ github.sha }}
-      - name: Install device-tree compiler
-        run: sudo apt-get update && sudo apt-get install --yes device-tree-compiler
       - name: Generate each selected target once
         id: targets
         env:
@@ -197,13 +195,6 @@ jobs:
             targets+=("$soc" "$RUNNER_TEMP/targets/$soc.json")
           done
           tools/run-racket.sh -S "$GITHUB_WORKSPACE" sims/program-test/write-target.rhm --batch "${targets[@]}"
-          if [[ "$(jq -r .run_simulation <<< "$PLAN")" == true ]]; then
-            trees=()
-            for soc in $(python3 -c 'from tools.ci.policy import platform_configs; print(" ".join(r["soc"] for r in platform_configs() if r["suite"] == "opensbi"))'); do
-              trees+=("$soc" "$RUNNER_TEMP/targets/$soc.dtb")
-            done
-            tools/run-racket.sh -S "$GITHUB_WORKSPACE" sims/opensbi/write-device-tree.rhm --batch "${trees[@]}"
-          fi
           python3 -m tools.ci.programs --harness --matrix "$(jq -c .simulator_matrix <<< "$PLAN")" \
             --targets "$RUNNER_TEMP/targets" --output "$RUNNER_TEMP/targets/harness-plan.json"
           echo "harness-matrices=$(jq -c '.build.include | group_by(.suite) | map({key: .[0].suite, value: {include: .}}) | from_entries' "$RUNNER_TEMP/targets/harness-plan.json")" >> "$GITHUB_OUTPUT"
@@ -487,7 +478,7 @@ jobs:
         run: |
           matrix=$(python3 -c 'import json; from tools.ci.policy import platform_configs; print(json.dumps({"include": platform_configs()}))')
           python3 -m tools.ci.programs --matrix "$matrix" \
-            --targets "$RUNNER_TEMP/platform-targets" --fdts "$RUNNER_TEMP/platform-targets" \
+            --targets "$RUNNER_TEMP/platform-targets" \
             --output "$RUNNER_TEMP/platform-plan.json"
           echo "build-matrices=$(jq -c '.build.include | group_by(.suite) | map({key: .[0].suite, value: {include: .}}) | from_entries' "$RUNNER_TEMP/platform-plan.json")" >> "$GITHUB_OUTPUT"
           echo "run-matrices=$(jq -c '.run.include | group_by(.soc) | map({key: .[0].soc, value: {include: .}}) | from_entries' "$RUNNER_TEMP/platform-plan.json")" >> "$GITHUB_OUTPUT"

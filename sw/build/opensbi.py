@@ -13,11 +13,15 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from program_target import load_target, readelf_for, elf_build_metadata, target_fingerprint  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'riscv'))
+import patched_submodule  # noqa: E402
 
 
 FDT_RESERVATION_SIZE = 64 * 1024
 NEXT_STAGE_ALIGNMENT = 2 * 1024 * 1024
 REQUIRED_EXTENSIONS = {'i', 'm', 'a', 'zicsr', 'zifencei', 'zicntr'}
+PATCH_SERIES = Path(__file__).resolve().parents[1] / 'opensbi-patches/series'
+SMOKE_SUCCESS = 'RHODIUM-OPENSBI: ROM DTB and SBI console/reset'
 
 
 def align_up(value, alignment):
@@ -86,16 +90,11 @@ def load_layout(path):
     return layout
 
 
-def validate_fdt(layout, path):
-    data = Path(path).read_bytes()
-    if len(data) < 8 or data[:4] != b'\xd0\x0d\xfe\xed':
-        raise ValueError('OpenSBI FDT is not a flattened device tree')
-    total_size = struct.unpack_from('>I', data, 4)[0]
-    if total_size < 8 or total_size > len(data):
-        raise ValueError('OpenSBI FDT has an invalid total size')
-    if total_size > layout['fdt_reservation_size']:
-        raise ValueError('OpenSBI FDT exceeds its reserved RAM range')
-    return data
+def patch_inputs(series_path=PATCH_SERIES):
+    """Include the ordered adaptations and shared materializer in build identity."""
+    series, patches = patched_submodule.read_series(series_path)
+    return {str(path): hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in [series, *patches, Path(patched_submodule.__file__)]}
 
 
 def compiler_prefix(compiler):
@@ -199,8 +198,6 @@ def llvm_tool_directory(requested, output):
 
 def build_firmware(args):
     layout = load_layout(args.layout)
-    fdt = Path(args.fdt).resolve()
-    fdt_data = validate_fdt(layout, fdt)
     source = Path(args.source).resolve()
     output = Path(args.output).resolve()
     build = output / 'build'
@@ -210,8 +207,7 @@ def build_firmware(args):
     configuration = {
         'layout': {key: value for key, value in layout.items() if key != 'soc'},
         'firmware_options': 1,
-        'fdt': str(fdt),
-        'fdt_sha256': hashlib.sha256(fdt_data).hexdigest(),
+        'patches': patch_inputs(args.patches),
         'source': str(source),
         'compiler': str(args.compiler),
         'compiler_version': subprocess.check_output([args.compiler, '--version'], text=True),
@@ -223,12 +219,15 @@ def build_firmware(args):
             ['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip(),
     }
     stamp = output / 'build-configuration.json'
-    if build.exists() and (not stamp.exists() or json.loads(stamp.read_text()) != configuration):
-        shutil.rmtree(build, ignore_errors=True)
+    patched_source = output / 'source'
+    if not stamp.exists() or json.loads(stamp.read_text()) != configuration or not patched_source.is_dir():
+        if build.exists():
+            shutil.rmtree(build)
+        patched_submodule.materialize(source, args.patches, patched_source)
     build.mkdir(parents=True, exist_ok=True)
     write_json(stamp, configuration)
     command = [
-        'make', '-C', str(source), f'O={build}', 'PLATFORM=generic',
+        'make', '-C', str(patched_source), f'O={build}', 'PLATFORM=generic',
         'READLINK=readlink',
         f'PLATFORM_RISCV_XLEN={layout["xlen"]}',
         f'PLATFORM_RISCV_ISA={layout["opensbi_isa"]}',
@@ -236,7 +235,6 @@ def build_firmware(args):
         f'FW_TEXT_START=0x{layout["firmware_link_address"]:x}',
         f'FW_JUMP_ADDR=0x{layout["next_stage_address"]:x}',
         f'FW_JUMP_FDT_ADDR=0x{layout["fdt_address"]:x}',
-        f'FW_FDT_PATH={fdt}',
         'FW_OPTIONS=0x1',
     ]
     if args.llvm:
@@ -261,25 +259,24 @@ def build_firmware(args):
 
 
 def write_manifest(args):
-    """Publish the firmware, validation payload, and embedded FDT as one checked build."""
+    """Publish shared firmware and its validation payload; BootROM supplies the DTB."""
     target = load_target(args.target)
     layout = target_layout(target)
     root = Path(args.output).resolve()
     firmware, payload = root / 'fw_jump.elf', root / 'opensbi_smoke.elf'
-    fdt = root / 'platform.dtb'
     validate_firmware(layout, firmware)
     validate_smoke(layout, payload, readelf_for(args.compiler))
-    fdt_bytes = validate_fdt(layout, fdt)
     digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
-    metadata = elf_build_metadata(target, 'opensbi', dict(fdt_sha256=hashlib.sha256(fdt_bytes).hexdigest()))
+    metadata = elf_build_metadata(target, 'opensbi')
     provenance = json.loads((root / 'build-configuration.json').read_text())
     expected_layout = {key: value for key, value in layout.items() if key != 'soc'}
-    if provenance['layout'] != expected_layout or provenance['fdt_sha256'] != metadata['build_spec']['options']['fdt_sha256']:
-        raise ValueError('OpenSBI firmware was built for another layout or device tree')
+    if provenance['layout'] != expected_layout:
+        raise ValueError('OpenSBI firmware was built for another layout')
     write_json(root / 'manifest.json', dict(
         suite='opensbi', target=target, target_fingerprint=target_fingerprint(target), **metadata,
-        files=[dict(path='platform.dtb', sha256=digest(fdt))],
+        files=[],
         tests=[dict(name='opensbi', elf='fw_jump.elf', sha256=digest(firmware),
+                    required_output=[SMOKE_SUCCESS],
                     payload=dict(elf='opensbi_smoke.elf', sha256=digest(payload)))],
         provenance=provenance))
 
@@ -312,7 +309,7 @@ def main():
 
     firmware = subparsers.add_parser('firmware')
     firmware.add_argument('--layout', required=True)
-    firmware.add_argument('--fdt', required=True)
+    firmware.add_argument('--patches', type=Path, default=PATCH_SERIES)
     firmware.add_argument('--source', required=True)
     firmware.add_argument('--compiler', required=True)
     firmware.add_argument('--llvm')

@@ -68,9 +68,8 @@ def elf_build_spec(target, suite, options=None):
         from opensbi import target_layout
         layout = target_layout(target)
         layout.pop('soc')
-        digest = options.get('fdt_sha256')
-        if not isinstance(digest, str) or not re.fullmatch('[0-9a-f]{64}', digest):
-            raise ValueError('OpenSBI build specification requires the generated FDT checksum')
+        if options:
+            raise ValueError('firmware build specification does not accept suite options')
         return dict(suite=suite, target=layout, options=options)
     projected = {field: target[field] for field in ('xlen', 'march', 'mabi', 'ram')}
     if suite in ('isa', 'benchmark', 'skl', 'highway', 'litmus'):
