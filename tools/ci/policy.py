@@ -1,4 +1,4 @@
-# Declares CI lanes and their runner requirements in one reviewable table.
+# Declares CI coverage, compatible execution groups, and runner requirements.
 # SPDX-License-Identifier: Apache-2.0
 
 from dataclasses import dataclass
@@ -13,57 +13,78 @@ from selection import selections
 @dataclass(frozen=True)
 class Check:
     key: str
-    name: str
     target: str
     timeout: int = 30
     dtc: bool = False
     circt: bool = False
     verilator: bool = False
 
-    def matrix_entry(self):
-        return {
-            "key": self.key,
-            "name": self.name,
-            "target": self.target,
-            "timeout": self.timeout,
-            "dtc": self.dtc,
-            "circt": self.circt,
-            "verilator": self.verilator,
-        }
-
 
 CHECKS = (
-    Check("host-foundation", "Host / foundation", "ci-host-foundation-test"),
-    Check("host-backend", "Host / backend", "ci-host-backend-test"),
-    Check("host-models", "Host / models", "ci-host-models-test", dtc=True),
-    Check("host-protocols", "Host / protocols", "ci-host-protocols-test"),
-    Check("host-cores", "Host / cores", "ci-host-cores-test"),
-    Check("host-socs", "Host / SoCs", "ci-host-socs-test", dtc=True),
-    Check("host-hygiene", "Host / hygiene", "ci-host-hygiene-test"),
-    Check("host-examples", "Host / auxiliary examples", "ci-host-examples-test", timeout=15),
-    Check("verilog-direct", "SystemVerilog / direct smoke", "ci-verilog-direct-test", verilator=True),
-    Check("circt-verilog-differential", "SystemVerilog / differential", "ci-backend-differential-test", circt=True, verilator=True),
-    Check("rsim-std", "Rsim / standard library", "ci-rsim-std-test"),
-    Check("rsim-core-components", "Rsim / core components", "ci-rsim-core-components-test"),
-    Check("rsim-core-execution-frontend", "Rsim / core execution frontend", "ci-rsim-core-execution-frontend-test"),
-    Check("rsim-core-execution-control", "Rsim / core execution control", "ci-rsim-core-execution-control-test"),
-    Check("rsim-core-execution-datapath", "Rsim / core execution datapath", "ci-rsim-core-execution-datapath-test"),
-    Check("rsim-core-vector-functional-1", "Rsim / core vector functional 1", "ci-rsim-core-vector-functional-1-test"),
-    Check("rsim-core-vector-functional-2", "Rsim / core vector functional 2", "ci-rsim-core-vector-functional-2-test"),
-    Check("rsim-core-vector-configurations", "Rsim / core vector configurations", "ci-rsim-core-vector-configurations-test"),
-    Check("rsim-core-memory", "Rsim / core memory", "ci-rsim-core-memory-test"),
-    Check("rsim-core-cache", "Rsim / core cache", "ci-rsim-core-cache-test"),
-    Check("rsim-protocols", "Rsim / protocols", "ci-rsim-protocols-test"),
-    Check("circt-language", "CIRCT / language", "ci-circt-language-test", circt=True, verilator=True),
-    Check("circt-std", "CIRCT / standard-library goldens", "ci-circt-std-test", circt=True),
-    Check("circt-protocols", "CIRCT / protocols", "ci-circt-protocols-test", circt=True, verilator=True),
-    Check("circt-core-components", "CIRCT / core emission and instrumentation", "ci-circt-core-components-test", circt=True, verilator=True),
-    Check("circt-core-execution-datapath", "CIRCT / core datapath", "ci-circt-core-execution-datapath-test", circt=True, verilator=True),
-    Check("rsim-hardfloat", "Rsim / HardFloat", "hardfloat-rsim-test"),
-    Check("circt-rfpl", "CIRCT / RFPL", "rfpl-circt-test", circt=True, verilator=True),
+    Check("host-foundation", "ci-host-foundation-test"),
+    Check("host-backend", "ci-host-backend-test"),
+    Check("host-models", "ci-host-models-test", dtc=True),
+    Check("host-protocols", "ci-host-protocols-test"),
+    Check("host-cores", "ci-host-cores-test"),
+    Check("host-socs", "ci-host-socs-test", dtc=True),
+    Check("host-hygiene", "ci-host-hygiene-test"),
+    Check("host-examples", "ci-host-examples-test", timeout=15),
+    Check("verilog-direct", "ci-verilog-direct-test", verilator=True),
+    Check("circt-verilog-differential", "ci-backend-differential-test", circt=True, verilator=True),
+    Check("rsim-std", "ci-rsim-std-test"),
+    Check("rsim-core-components", "ci-rsim-core-components-test"),
+    Check("rsim-core-execution-frontend", "ci-rsim-core-execution-frontend-test"),
+    Check("rsim-core-execution-control", "ci-rsim-core-execution-control-test"),
+    Check("rsim-core-execution-datapath", "ci-rsim-core-execution-datapath-test"),
+    Check("rsim-core-vector-functional-1", "ci-rsim-core-vector-functional-1-test"),
+    Check("rsim-core-vector-functional-2", "ci-rsim-core-vector-functional-2-test"),
+    Check("rsim-core-vector-configurations", "ci-rsim-core-vector-configurations-test"),
+    Check("rsim-core-memory", "ci-rsim-core-memory-test"),
+    Check("rsim-core-cache", "ci-rsim-core-cache-test"),
+    Check("rsim-protocols", "ci-rsim-protocols-test"),
+    Check("circt-language", "ci-circt-language-test", circt=True, verilator=True),
+    Check("circt-std", "ci-circt-std-test", circt=True),
+    Check("circt-protocols", "ci-circt-protocols-test", circt=True, verilator=True),
+    Check("circt-core-components", "ci-circt-core-components-test", circt=True, verilator=True),
+    Check("circt-core-execution-datapath", "ci-circt-core-execution-datapath-test", circt=True, verilator=True),
+    Check("rsim-hardfloat", "hardfloat-rsim-test"),
+    Check("circt-rfpl", "rfpl-circt-test", circt=True, verilator=True),
 )
 
 CHECK_BY_KEY = {check.key: check for check in CHECKS}
+
+# Selection remains per check; only selected members share a runner and tools.
+CHECK_GROUPS = (
+    ("host-language", "Host / language", ("host-foundation", "host-backend", "host-hygiene", "host-examples")),
+    ("host-systems", "Host / systems", ("host-models", "host-protocols", "host-cores", "host-socs")),
+    ("rsim-library", "Rsim / libraries", ("rsim-std", "rsim-hardfloat")),
+    ("rsim-memory", "Rsim / memory and protocols", ("rsim-protocols", "rsim-core-memory", "rsim-core-cache")),
+    ("rsim-components", "Rsim / core components", ("rsim-core-components",)),
+    ("rsim-execution", "Rsim / core execution", ("rsim-core-execution-frontend", "rsim-core-execution-control", "rsim-core-execution-datapath")),
+    ("rsim-vector", "Rsim / vector execution", ("rsim-core-vector-functional-1", "rsim-core-vector-functional-2")),
+    ("rsim-vector-configurations", "Rsim / vector configurations", ("rsim-core-vector-configurations",)),
+    ("verilog", "SystemVerilog / backends", ("verilog-direct", "circt-verilog-differential")),
+    ("circt", "CIRCT / emission and integration", ("circt-language", "circt-std", "circt-protocols", "circt-core-components", "circt-core-execution-datapath", "circt-rfpl")),
+)
+grouped_checks = [member for _key, _name, members in CHECK_GROUPS for member in members]
+if len(grouped_checks) != len(CHECKS) or set(grouped_checks) != set(CHECK_BY_KEY):
+    raise ValueError("CI check groups must partition the check inventory")
+
+
+def check_matrix(selected):
+    """Share setup without expanding the checks selected by changed paths."""
+    if set(selected) - CHECK_BY_KEY.keys():
+        raise ValueError("unknown CI check")
+    rows = []
+    for key, name, members in CHECK_GROUPS:
+        checks = [CHECK_BY_KEY[member] for member in members if member in selected]
+        if checks:
+            rows.append(dict(key=key, name=name, targets=[check.target for check in checks],
+                             timeout=max(check.timeout for check in checks),
+                             **{tool: any(getattr(check, tool) for check in checks)
+                                for tool in ("dtc", "circt", "verilator")}))
+    return {"include": rows}
+
 
 HOST_CHECKS = frozenset(check.key for check in CHECKS if check.key.startswith("host-"))
 CIRCT_CHECKS = frozenset(check.key for check in CHECKS if check.key.startswith("circt-"))
@@ -73,7 +94,8 @@ CORE_CHECKS = frozenset(
 RSIM_CORE_CHECKS = frozenset(key for key in CORE_CHECKS if key.startswith("rsim-"))
 RSIM_COMPONENT_CHECKS = frozenset(check.key for check in CHECKS if check.key.startswith("rsim-"))
 NATIVE_SUITES = ("isa", "benchmark", "coremark", "embench", "bringup", "skl", "highway")
-PROGRAM_SHARD_COUNTS = {"bringup": 8}
+PROGRAM_SHARD_COUNTS = {"bringup": 4}
+SHORT_PROGRAM_SUITES = frozenset(("isa", "benchmark", "coremark", "coremark_scalar", "embench"))
 PLATFORM_TESTS = ("smoke", "host-mmio-test", "boot-test", "uart-pty-test")
 # Software policy has exactly two axes. Core choice only selects the DUT.
 SOFTWARE_TESTS = {

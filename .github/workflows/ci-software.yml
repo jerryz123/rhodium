@@ -1,4 +1,4 @@
-# Shares ELF builds and publishes per-config functional results and whole-ELF performance measurements.
+# Runs grouped native suites against one ready simulator and shared ELF archives.
 # SPDX-License-Identifier: Apache-2.0
 
 name: CI software
@@ -6,32 +6,8 @@ name: CI software
 on:
   workflow_call:
     inputs:
-      run-programs:
-        description: Run the selected program suites.
-        required: true
-        type: boolean
-      program-matrix:
-        description: JSON suite matrix produced by the CI planner.
-        required: true
-        type: string
-      run-arch:
-        description: Generate and run the architectural test suite.
-        required: true
-        type: boolean
-      arch-build-matrix:
-        description: JSON ACT config matrix from the shared inventory.
-        required: true
-        type: string
-      arch-run-matrix:
-        description: JSON ACT execution shards from CI resource policy.
-        required: true
-        type: string
-      racket-version:
-        description: Installed Racket version.
-        required: true
-        type: string
-      rhombus-checksum:
-        description: Pinned Rhombus package checksum.
+      matrix:
+        description: Grouped execution rows for one exact simulator config.
         required: true
         type: string
 
@@ -39,121 +15,13 @@ permissions:
   contents: read
 
 jobs:
-  program-plan:
-    name: Plan builds
-    if: inputs.run-programs
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    outputs:
-      build-matrix: ${{ steps.plan.outputs.build-matrix }}
-      run-matrix: ${{ steps.plan.outputs.run-matrix }}
-    steps:
-      - name: Check out Rhodium
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Download shared target descriptions
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: targets-${{ github.sha }}
-          path: ${{ runner.temp }}/program-targets
-      - name: Group compatible program builds
-        id: plan
-        env:
-          PROGRAM_MATRIX: ${{ inputs.program-matrix }}
-        run: |
-          python3 -m tools.ci.programs --matrix "$PROGRAM_MATRIX" \
-            --targets "$RUNNER_TEMP/program-targets" --output "$RUNNER_TEMP/program-plan.json"
-          echo "build-matrix=$(jq -c .build "$RUNNER_TEMP/program-plan.json")" >> "$GITHUB_OUTPUT"
-          echo "run-matrix=$(jq -c .run "$RUNNER_TEMP/program-plan.json")" >> "$GITHUB_OUTPUT"
-          cat "$RUNNER_TEMP/program-plan.json"
-
-  program-build:
-    name: Build ${{ matrix.suite }} / group ${{ strategy.job-index }}
-    needs: program-plan
-    if: inputs.run-programs
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.program-plan.outputs.build-matrix) }}
-    steps:
-      - name: Check out Rhodium
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Initialize suite sources and record revisions
-        id: sources
-        env:
-          SUITE: ${{ matrix.suite }}
-        run: |
-          make -C sims "$SUITE-setup"
-          case "$SUITE" in
-            coremark|coremark_scalar) source=sw/coremark ;;
-            embench) source=sw/embench-iot ;;
-            bringup) source=sw/bringup-bench ;;
-            skl) source=sw/skl ;;
-            highway) source=sw/highway ;;
-            *) source=sw/riscv-isa-tests ;;
-          esac
-          echo "revision=$(git rev-parse "HEAD:$source")" >> "$GITHUB_OUTPUT"
-      - name: Install RISC-V software toolchain
-        uses: ./.github/actions/setup-riscv-toolchain
-      - name: Download generated program targets
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: targets-${{ github.sha }}
-          path: ${{ runner.temp }}/program-targets
-      - name: Cache program builds
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: /tmp/rhodium-program-builds/${{ matrix.build_id }}/${{ matrix.suite }}/build
-          key: "${{ runner.os }}-${{ runner.arch }}-program-v2-${{ matrix.build_id }}-${{ steps.sources.outputs.revision }}-${{ hashFiles('tools/install-riscv-*.sh', 'riscv/gnu-toolchain.rhm', 'sw/build/**', 'sw/coremark-riscv-baremetal/**', 'sw/embench-iot-riscv-baremetal/**', 'sw/bringup-bench-riscv-baremetal/**', 'sw/bringup-bench-patches/**', 'sw/skl-riscv-baremetal/**', 'sw/skl-patches/**', 'sw/highway-riscv-baremetal/**', 'riscv/patched_submodule.py', 'sims/program-test/Makefile.inc', '.github/workflows/ci-software.yml') }}"
-      - name: Build and package selected workload ELFs
-        env:
-          SUITE: ${{ matrix.suite }}
-          SOC: ${{ matrix.soc }}
-          BUILD_ID: ${{ matrix.build_id }}
-        run: |
-          set -o pipefail
-          mkdir -p "$RUNNER_TEMP/program-logs"
-          case "$SUITE" in
-            coremark|coremark_scalar) build_target="$SUITE-elf" ;;
-            *) build_target="$SUITE-elfs" ;;
-          esac
-          make -C sims "$build_target" SOC="$SOC" \
-            PREBUILT_PROGRAM_TARGET="$RUNNER_TEMP/program-targets/$SOC.json" \
-            PROGRAM_CONFIG_ROOT="/tmp/rhodium-program-builds/$BUILD_ID" \
-            2>&1 | tee "$RUNNER_TEMP/program-logs/$SUITE.log"
-          python3 sims/program-test/archive.py \
-            --manifest "/tmp/rhodium-program-builds/$BUILD_ID/$SUITE/manifest.json" \
-            --archive "$RUNNER_TEMP/program-elfs/suite.tar.gz"
-      - name: Publish shared ELF archive
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: program-elfs-${{ matrix.build_id }}-${{ github.sha }}
-          path: ${{ runner.temp }}/program-elfs/suite.tar.gz
-          if-no-files-found: error
-          retention-days: 7
-          compression-level: 0
-      - name: Publish build diagnostics
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: program-build-${{ matrix.build_id }}-${{ github.sha }}
-          path: |
-            ${{ runner.temp }}/program-logs
-            /tmp/rhodium-program-builds/${{ matrix.build_id }}/*/manifest.json
-            /tmp/rhodium-program-builds/${{ matrix.build_id }}/*/instruction-report.json
-            /tmp/rhodium-program-builds/${{ matrix.build_id }}/*/build.log
-          if-no-files-found: warn
-          retention-days: 7
-
   programs:
-    name: Run ${{ matrix.suite }} / ${{ matrix.soc }}${{ matrix.shard_count > 1 && format(' / shard {0}', matrix.shard) || '' }}
-    needs: [program-plan, program-build]
-    if: ${{ always() && !cancelled() && needs.program-plan.result == 'success' }}
+    name: Run${{ matrix.shard_count > 1 && format(' / shard {0}', matrix.shard) || '' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.program-plan.outputs.run-matrix) }}
+      matrix: ${{ fromJSON(inputs.matrix) }}
     steps:
       - name: Check out Rhodium
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -175,47 +43,60 @@ jobs:
       - name: Download shared workload ELFs
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: program-elfs-${{ matrix.build_id }}-${{ github.sha }}
+          pattern: program-elfs-${{ matrix.build_pattern }}-${{ github.sha }}
+          merge-multiple: true
           path: ${{ runner.temp }}/program-elfs
-      - name: Verify simulator and bind shared ELFs to its target
+      - name: Verify exact simulator
         env:
           SOC: ${{ matrix.soc }}
-          SUITE: ${{ matrix.suite }}
         run: |
           chmod +x "$RUNNER_TEMP/$SOC/VTestDriver"
           python3 sims/program-test/artifact.py verify --binary "$RUNNER_TEMP/$SOC/VTestDriver" --soc "$SOC" \
             --backend "${{ matrix.backend }}" --variant "${{ matrix.cosim && 'cosim' || 'normal' }}"
           ldd "$RUNNER_TEMP/$SOC/VTestDriver"
-          suite_dir="/tmp/rhodium-program-tests/$SOC/$SUITE"
-          mkdir -p "$suite_dir"
-          tar -xzf "$RUNNER_TEMP/program-elfs/suite.tar.gz" -C "$suite_dir"
-          python3 sw/build/bind.py --manifest "$suite_dir/manifest.json" \
-            --target "$RUNNER_TEMP/$SOC/program-target.json" --output "$suite_dir/run-manifest.json"
-      - name: Run selected workload shard
+      - name: Bind and run selected suites
         env:
           RTL_BACKEND: ${{ matrix.backend }}
           COSIM: ${{ matrix.cosim && '1' || '0' }}
-          SUITE: ${{ matrix.suite }}
+          SUITES: ${{ toJSON(matrix.suites) }}
           SOC: ${{ matrix.soc }}
         run: |
           set -o pipefail
           mkdir -p "$RUNNER_TEMP/program-logs"
-          make -C sims "$SUITE-run" SOC="$SOC" \
-            PREBUILT_SIMULATOR="$RUNNER_TEMP/$SOC/VTestDriver" \
-            PROGRAM_MANIFEST="/tmp/rhodium-program-tests/$SOC/$SUITE/run-manifest.json" \
-            PROGRAM_SHARD_INDEX=${{ matrix.shard }} PROGRAM_SHARD_COUNT=${{ matrix.shard_count }} \
-            PROGRAM_JOBS=2 2>&1 | tee "$RUNNER_TEMP/program-logs/$SUITE.log"
+          jq -er '.[] | [.suite, .build_id] | @tsv' <<< "$SUITES" > "$RUNNER_TEMP/selected-suites.tsv"
+          status=0
+          while IFS=$'\t' read -r suite build_id; do
+            echo "::group::$suite"
+            suite_dir="/tmp/rhodium-program-tests/$SOC/$suite"
+            archive="$RUNNER_TEMP/program-elfs/$build_id.tar.gz"
+            mkdir -p "$suite_dir"
+            if ! tar -xzf "$archive" -C "$suite_dir" ||
+               ! python3 sw/build/bind.py --manifest "$suite_dir/manifest.json" \
+                 --target "$RUNNER_TEMP/$SOC/program-target.json" --output "$suite_dir/run-manifest.json"; then
+              status=1
+              echo "::error::Could not prepare $suite for $SOC"
+              echo '::endgroup::'
+              continue
+            fi
+            make -C sims "$suite-run" SOC="$SOC" \
+              PREBUILT_SIMULATOR="$RUNNER_TEMP/$SOC/VTestDriver" \
+              PROGRAM_MANIFEST="$suite_dir/run-manifest.json" \
+              PROGRAM_SHARD_INDEX=${{ matrix.shard }} PROGRAM_SHARD_COUNT=${{ matrix.shard_count }} \
+              PROGRAM_JOBS=2 2>&1 | tee "$RUNNER_TEMP/program-logs/$suite.log" || status=1
+            echo '::endgroup::'
+          done < "$RUNNER_TEMP/selected-suites.tsv"
+          exit "$status"
       - name: Summarize whole-ELF cycles
-        if: always() && matrix.suite != 'isa'
+        if: always() && matrix.group != 'isa'
         run: |
           if [[ -d /tmp/rhodium-program-tests ]]; then
             python3 sims/program-test/performance.py summary --results /tmp/rhodium-program-tests >> "$GITHUB_STEP_SUMMARY"
           fi
       - name: Publish importable performance measurements
-        if: always() && matrix.suite != 'isa'
+        if: always() && matrix.group != 'isa'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: performance-${{ matrix.soc }}-${{ matrix.suite }}-${{ matrix.shard }}-${{ github.sha }}
+          name: performance-${{ matrix.soc }}-${{ matrix.group }}-${{ matrix.shard }}-${{ github.sha }}
           path: /tmp/rhodium-program-tests/*/*/results/**/performance.json
           if-no-files-found: warn
           retention-days: 30
@@ -223,7 +104,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ matrix.soc }}-${{ matrix.suite }}-${{ matrix.shard }}-results-${{ github.sha }}
+          name: ${{ matrix.soc }}-${{ matrix.group }}-${{ matrix.shard }}-results-${{ github.sha }}
           path: |
             ${{ runner.temp }}/program-logs
             /tmp/rhodium-program-tests/*/*/manifest.json
@@ -232,224 +113,5 @@ jobs:
             /tmp/rhodium-program-tests/*/*/build.log
             /tmp/rhodium-program-tests/*/*/results
             ${{ runner.temp }}/program-elfs
-          if-no-files-found: warn
-          retention-days: 7
-
-  arch-build:
-    name: Generate ACT / ${{ matrix.configuration }}
-    if: inputs.run-arch
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(inputs.arch-build-matrix) }}
-    steps:
-      - name: Check out Rhodium
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Initialize pinned ACT sources
-        id: sources
-        run: |
-          git submodule update --init sw/riscv-arch-test
-          echo "revision=$(git rev-parse HEAD:sw/riscv-arch-test)" >> "$GITHUB_OUTPUT"
-          echo "sail_revision=$(git rev-parse HEAD:riscv/sail-riscv)" >> "$GITHUB_OUTPUT"
-      - name: Download exact-commit Sail model
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: sail-riscv-${{ github.sha }}
-          path: ${{ runner.temp }}/sail-riscv
-      - name: Install patched Sail model
-        run: |
-          mkdir -p .tools
-          tar -xzf "$RUNNER_TEMP/sail-riscv/model.tar.gz" -C .tools
-      - name: Install RISC-V software toolchain
-        uses: ./.github/actions/setup-riscv-toolchain
-      - name: Install Racket
-        uses: ./.github/actions/setup-racket
-        with:
-          racket-version: ${{ inputs.racket-version }}
-      - name: Restore exact Rhodium bytecode
-        uses: ./.github/actions/setup-racket-artifact
-        with:
-          racket-version: ${{ inputs.racket-version }}
-          rhombus-checksum: ${{ inputs.rhombus-checksum }}
-          artifact-name: rhodium-bytecode-${{ github.sha }}
-      - name: Install ACT native dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes build-essential ruby-dev bundler libgmp-dev libyaml-dev zlib1g-dev
-      - name: Cache ACT dependencies
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            .tools/act-venv
-            .tools/act-bundle
-            .tools/act-cache
-            .tools/act-data
-          key: "${{ runner.os }}-${{ runner.arch }}-act-${{ steps.sources.outputs.revision }}-${{ hashFiles('sims/arch-test/setup.sh') }}"
-      - name: Set up ACT and generate platform configuration
-        id: act-config
-        run: |
-          make -C sims arch-test-setup arch-test-config ACT_CONFIGURATION=${{ matrix.configuration }}
-          echo "digest=$(sha256sum /tmp/rhodium-arch-test/configs/${{ matrix.configuration }}/* | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
-          riscv64-unknown-elf-gcc --version > "$RUNNER_TEMP/act-tools.txt"
-          riscv64-unknown-elf-ld --version >> "$RUNNER_TEMP/act-tools.txt"
-          riscv64-unknown-elf-objdump --version >> "$RUNNER_TEMP/act-tools.txt"
-          cat .tools/riscv-toolchain/.archive-sha256 >> "$RUNNER_TEMP/act-tools.txt"
-          .tools/act-venv/bin/python --version >> "$RUNNER_TEMP/act-tools.txt"
-          .tools/act-venv/bin/python -m pip freeze >> "$RUNNER_TEMP/act-tools.txt"
-          ruby --version >> "$RUNNER_TEMP/act-tools.txt"
-          bundle --version >> "$RUNNER_TEMP/act-tools.txt"
-          BUNDLE_GEMFILE="$PWD/sw/riscv-arch-test/framework/src/act/data/Gemfile" BUNDLE_PATH="$PWD/.tools/act-bundle" bundle list >> "$RUNNER_TEMP/act-tools.txt"
-          echo "tools=$(sha256sum "$RUNNER_TEMP/act-tools.txt" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
-      - name: Identify complete ACT payload inputs
-        id: act-inputs
-        env:
-          ACT_INPUT_KEY: "${{ runner.os }}-${{ runner.arch }}-act-elfs-v1-fast1-all-${{ steps.sources.outputs.revision }}-${{ steps.sources.outputs.sail_revision }}-${{ steps.act-config.outputs.digest }}-${{ steps.act-config.outputs.tools }}-${{ hashFiles('tools/install-riscv-*.sh', 'sims/arch-test/**', 'sims/sail/**', 'sw/riscv-arch-test-patches/**', 'riscv/sail-riscv-patches/**', 'riscv/patched_submodule.py', '!**/__pycache__/**', '!**/compiled/**') }}"
-        run: echo "key=$ACT_INPUT_KEY" >> "$GITHUB_OUTPUT"
-      - name: Restore complete ACT payload
-        id: act-payload
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ${{ runner.temp }}/act/elfs.tar.gz
-            ${{ runner.temp }}/act/elfs.sha256
-            ${{ runner.temp }}/act/configuration.json
-            ${{ runner.temp }}/act/inventory.json
-          key: ${{ steps.act-inputs.outputs.key }}
-      - name: Verify cached ACT payload
-        if: steps.act-payload.outputs.cache-hit == 'true'
-        run: |
-          python3 sims/arch-test/payload.py verify --bundle "$RUNNER_TEMP/act" \
-            --configuration /tmp/rhodium-arch-test/configs/${{ matrix.configuration }}/configuration.json \
-            --identity '${{ steps.act-inputs.outputs.key }}'
-      - name: Check GEILEN-dependent Sail CSR aliases
-        if: matrix.configuration == 'simple-rv5stage-rva23'
-        run: make -C sims arch-test-sail-test ACT_CONFIGURATION=${{ matrix.configuration }}
-      - name: Cache ACT reference outputs
-        if: steps.act-payload.outputs.cache-hit != 'true'
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            /tmp/rhodium-arch-test/work/**/build
-            /tmp/rhodium-arch-test/work/**/.act_build_cache.json
-          key: "${{ runner.os }}-${{ runner.arch }}-act-reference-${{ steps.sources.outputs.revision }}-${{ steps.sources.outputs.sail_revision }}-${{ steps.act-config.outputs.digest }}-${{ hashFiles('tools/install-riscv-*.sh', 'sims/arch-test/**', 'sims/sail/**', 'sw/riscv-arch-test-patches/**', 'riscv/sail-riscv-patches/**', 'riscv/patched_submodule.py') }}"
-      - name: Generate and package every selected ELF
-        if: steps.act-payload.outputs.cache-hit != 'true'
-        run: |
-          set -o pipefail
-          mkdir -p "$RUNNER_TEMP/act"
-          make -C sims arch-test-elfs ACT_CONFIGURATION=${{ matrix.configuration }} ACT_FAST=1 2>&1 | tee "$RUNNER_TEMP/act/generation.log"
-          python3 sims/arch-test/payload.py package --bundle "$RUNNER_TEMP/act" \
-            --elf-dir /tmp/rhodium-arch-test/work/${{ matrix.configuration }}/${{ matrix.configuration }}/elfs \
-            --configuration /tmp/rhodium-arch-test/configs/${{ matrix.configuration }}/configuration.json \
-            --identity '${{ steps.act-inputs.outputs.key }}'
-      - name: Save complete successful ACT payload
-        if: steps.act-payload.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ${{ runner.temp }}/act/elfs.tar.gz
-            ${{ runner.temp }}/act/elfs.sha256
-            ${{ runner.temp }}/act/configuration.json
-            ${{ runner.temp }}/act/inventory.json
-          key: ${{ steps.act-inputs.outputs.key }}
-      - name: Publish exact-commit ACT payloads
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: ${{ matrix.configuration }}-arch-elfs-${{ github.sha }}
-          path: |
-            ${{ runner.temp }}/act/elfs.tar.gz
-            ${{ runner.temp }}/act/elfs.sha256
-            ${{ runner.temp }}/act/configuration.json
-            ${{ runner.temp }}/act/inventory.json
-          if-no-files-found: error
-          retention-days: 3
-          compression-level: 0
-      - name: Publish generation diagnostics
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: ${{ matrix.configuration }}-arch-generation-${{ github.sha }}
-          path: |
-            ${{ runner.temp }}/act/generation.log
-            /tmp/rhodium-arch-test/configs
-            /tmp/rhodium-arch-test/work/**/*.log
-          if-no-files-found: warn
-          retention-days: 7
-
-  arch:
-    name: ACT / ${{ matrix.configuration }} / ${{ matrix.shard }}
-    if: inputs.run-arch
-    needs: arch-build
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(inputs.arch-run-matrix) }}
-    steps:
-      - name: Check out Rhodium
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Initialize upstream runner
-        run: git submodule update --init sw/riscv-arch-test
-      - name: Install Spike runtime dependencies
-        if: matrix.core == 'spike'
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes build-essential device-tree-compiler zlib1g-dev
-      - name: Restore pinned Spike runtime libraries
-        if: matrix.core == 'spike'
-        uses: ./.github/actions/setup-fesvr
-      - name: Install Sail cosim runtime dependency
-        if: matrix.cosim
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes libgmp10
-      - name: Download exact simulator
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: ${{ matrix.configuration }}-${{ github.sha }}
-          path: ${{ runner.temp }}/${{ matrix.configuration }}
-      - name: Download exact ACT payloads
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: ${{ matrix.configuration }}-arch-elfs-${{ github.sha }}
-          path: ${{ runner.temp }}/act
-      - name: Verify and unpack shared artifacts
-        run: |
-          chmod +x "$RUNNER_TEMP/${{ matrix.configuration }}/VTestDriver"
-          python3 sims/program-test/artifact.py verify --binary "$RUNNER_TEMP/${{ matrix.configuration }}/VTestDriver" --soc ${{ matrix.configuration }} \
-            --backend "${{ matrix.backend }}" --variant "${{ matrix.cosim && 'cosim' || 'normal' }}"
-          library_bindings="$(ldd "$RUNNER_TEMP/${{ matrix.configuration }}/VTestDriver")"
-          printf '%s\n' "$library_bindings"
-          if [[ "$library_bindings" == *"not found"* ]]; then
-            echo "simulator has unresolved shared libraries" >&2
-            exit 1
-          fi
-          python3 sims/arch-test/payload.py verify --bundle "$RUNNER_TEMP/act" --configuration "$RUNNER_TEMP/act/configuration.json"
-          mkdir -p /tmp/rhodium-arch-test/work/${{ matrix.configuration }}/${{ matrix.configuration }}/elfs
-          cp "$RUNNER_TEMP/act/configuration.json" /tmp/rhodium-arch-test/work/${{ matrix.configuration }}/${{ matrix.configuration }}/configuration.json
-          tar -xzf "$RUNNER_TEMP/act/elfs.tar.gz" -C /tmp/rhodium-arch-test/work/${{ matrix.configuration }}/${{ matrix.configuration }}/elfs
-      - name: Run the complete deterministic shard
-        env:
-          RTL_BACKEND: ${{ matrix.backend }}
-          COSIM: ${{ matrix.cosim && '1' || '0' }}
-          SHARD: ${{ matrix.shard }}
-        run: |
-          set -o pipefail
-          make -C sims arch-test-run ACT_CONFIGURATION=${{ matrix.configuration }} ACT_PYTHON=python3 \
-            PREBUILT_SIMULATOR="$RUNNER_TEMP/${{ matrix.configuration }}/VTestDriver" \
-            ACT_JOBS=2 ACT_SHARDS=${{ matrix.shard_count }} ACT_SHARD="$SHARD" 2>&1 | tee "$RUNNER_TEMP/act/run.log"
-      - name: Publish shard results and inventory
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: ${{ matrix.configuration }}-arch-${{ matrix.shard }}-results-${{ github.sha }}
-          path: |
-            ${{ runner.temp }}/act/run.log
-            /tmp/rhodium-arch-test/work/${{ matrix.configuration }}/${{ matrix.configuration }}/shards/${{ matrix.shard }}/inventory.json
-            /tmp/rhodium-arch-test/work/${{ matrix.configuration }}/${{ matrix.configuration }}/shards/${{ matrix.shard }}/results.json
-            /tmp/rhodium-arch-test/work/${{ matrix.configuration }}/${{ matrix.configuration }}/shards/${{ matrix.shard }}/junit.xml
-            /tmp/rhodium-arch-test/work/${{ matrix.configuration }}/${{ matrix.configuration }}/shards/${{ matrix.shard }}/summary.log
-            /tmp/rhodium-arch-test/work/${{ matrix.configuration }}/${{ matrix.configuration }}/shards/${{ matrix.shard }}/logs
           if-no-files-found: warn
           retention-days: 7

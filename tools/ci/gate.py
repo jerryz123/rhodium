@@ -8,18 +8,33 @@ import json
 
 def failures(plan, results):
     required = {
-        "compile": plan["run_compile"],
+        "compile-racket": plan["run_compile"],
         "sail": plan["run_sail"],
         "targets": plan["run_simulator"],
         "native": plan["run_native"],
-        "harness-elfs": plan["run_simulation"],
+        "harness-isa": plan["run_simulation"],
+        "harness-benchmark": plan["run_simulation"],
         "checks": plan["run_checks"],
-        "simulator": plan["run_simulator"],
-        "simulation": plan["run_simulation"],
-        "software": plan["run_program_native"] or plan["run_program_arch"],
+        "program-plan": plan["run_program_native"],
+        "platform-plan": plan["run_simulation"],
+        "platform-builds-opensbi": plan["run_simulation"],
+        "platform-builds-litmus": plan["run_simulation"],
     }
+    for group, matrix in plan['simulator_groups'].items():
+        required['sim-' + group] = bool(matrix['include'])
+    for group in plan['program_build_groups']:
+        required['program-builds-' + group] = True
+    for soc, config in plan['config_jobs'].items():
+        required['sim-' + soc] = True
+        for group in config['program_groups']:
+            required['program-' + group + '-' + soc] = True
+        if config['arch']:
+            required['act-build-' + soc] = required['act-' + soc] = True
+        if config['platform']:
+            required['platform-' + soc] = True
     problems = []
-    for job, selected in required.items():
+    for job in sorted(required.keys() | results.keys()):
+        selected = required.get(job, False)
         result = results.get(job)
         if selected and result != "success":
             problems.append(f"selected job {job} finished with {result}")
@@ -31,9 +46,9 @@ def failures(plan, results):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("plan", help="planner JSON")
-    parser.add_argument("results", nargs="+", metavar="JOB=RESULT")
+    parser.add_argument("results", help="GitHub needs JSON for every root job")
     args = parser.parse_args()
-    results = dict(result.split("=", 1) for result in args.results)
+    results = {job: value['result'] for job, value in json.loads(args.results).items()}
     problems = failures(json.loads(args.plan), results)
     if problems:
         parser.exit(1, "\n".join(problems) + "\n")

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Groups shared software builds before expanding per-config execution shards.
+# Groups compatible ELF builds and selected short suites without changing coverage.
 # SPDX-License-Identifier: Apache-2.0
 import argparse
 import hashlib
@@ -9,7 +9,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'sw/build'))
 from program_target import elf_build_spec, load_target, target_fingerprint
-from .policy import PROGRAM_SHARD_COUNTS
+from .policy import PROGRAM_SHARD_COUNTS, SHORT_PROGRAM_SUITES
 
 
 def program_matrices(matrix, targets, fdts=None):
@@ -54,6 +54,38 @@ def harness_entries(matrix):
     return {'include': entries}
 
 
+def execution_groups(matrix):
+    """Bundle short suites per exact simulator; keep long suites and shards separate."""
+    groups = {}
+    for entry in matrix['include']:
+        short = entry['suite'] in SHORT_PROGRAM_SUITES and entry['shard_count'] == 1
+        group = 'short' if short else entry['suite']
+        key = (entry['soc'], entry['backend'], entry['cosim'], group, entry['shard'])
+        row = groups.setdefault(key, dict(soc=entry['soc'], backend=entry['backend'],
+                                         cosim=entry['cosim'], group=group, shard=entry['shard'],
+                                         shard_count=entry['shard_count'], suites=[]))
+        row['suites'].append({field: entry[field] for field in ('suite', 'build_id')})
+    for row in groups.values():
+        if row['group'] == 'short' and len(row['suites']) == 1:
+            row['group'] = row['suites'][0]['suite']
+        ids = list(dict.fromkeys(suite['build_id'] for suite in row['suites']))
+        row['build_pattern'] = ids[0] if len(ids) == 1 else '{' + ','.join(ids) + '}'
+    return {'include': list(groups.values())}
+
+
+def pipeline_matrices(builds, runs):
+    """Expose independent producer families and exact-config consumer matrices."""
+    build_groups, run_groups = {}, {}
+    for row in builds['include']:
+        suite = row['suite']
+        group = 'short' if suite in SHORT_PROGRAM_SUITES and suite != 'isa' else suite
+        build_groups.setdefault(group, {'include': []})['include'].append(row)
+    for row in runs['include']:
+        group = 'short' if row['group'] in SHORT_PROGRAM_SUITES else row['group']
+        run_groups.setdefault(group, {}).setdefault(row['soc'], {'include': []})['include'].append(row)
+    return dict(build_groups=build_groups, run_groups=run_groups)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--matrix', required=True, help='selected SoC/suite matrix JSON')
@@ -61,7 +93,10 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--fdts', type=Path, help='generated per-config OpenSBI device trees')
     parser.add_argument('--harness', action='store_true', help='group the simulator matrix shared harness ELFs')
+    parser.add_argument('--group-runs', action='store_true', help='bundle short native suites per execution config')
     args = parser.parse_args()
+    if args.group_runs and (args.harness or args.fdts):
+        parser.error('execution grouping is only for native software suites')
     try:
         matrix = json.loads(args.matrix)
         if args.harness:
@@ -73,7 +108,11 @@ def main():
                    for entry in matrix['include']}
         fdts = {entry['soc']: (args.fdts / (entry['soc'] + '.dtb')).read_bytes()
                 for entry in matrix['include'] if entry['suite'] == 'opensbi'} if args.fdts else {}
-        args.output.write_text(json.dumps(program_matrices(matrix, targets, fdts), indent=2) + '\n')
+        result = program_matrices(matrix, targets, fdts)
+        if args.group_runs:
+            result['run'] = execution_groups(result['run'])
+            result.update(pipeline_matrices(result['build'], result['run']))
+        args.output.write_text(json.dumps(result, indent=2) + '\n')
     except (OSError, ValueError, KeyError) as error:
         parser.error(str(error))
 

@@ -142,7 +142,7 @@ sets its own defaults. Preserve command-line overrides, including flags with spa
 
 `tools/ci/policy.py` owns the shared simulator `opt_fast` setting and backend smoke
 variants, including per-variant cycle and wall-clock bounds.
-The simulator workflow passes the optimization override explicitly to Make; the harness workflow uses the
+The simulator workflow passes the optimization override explicitly to Make; its harness phase uses the
 attested prebuilt binary, bounds execution, and uploads per-target logs even on
 failure. Keep these variants outside `test-configs.txt` and the ACT, benchmark,
 and platform-test inventories. Validate changes by rebuilding and running the
@@ -746,10 +746,12 @@ One shared producer emits each selected target descriptor and required OpenSBI
 DTB once. The target and device-tree writers accept `--batch` followed by
 config/output pairs, loading shared dependencies once while retaining their
 single-target CLI forms. Harness ISA smoke and eight-hart benchmark ELFs are built once per
-compatible suite projection before the simulator matrix starts. Each simulator
+compatible suite projection. Only simulator jobs that consume these shared
+ELFs wait for those producers. Each simulator
 producer publishes its exact-commit simulator and shared target descriptor before
 its own harness starts; no harness waits for unrelated simulator builds.
-`ci-harness.yml` verifies the simulator and binds shared ELFs to its exact target.
+`ci-simulator.yml` runs both phases on the same runner, verifies the simulator,
+and binds shared ELFs to its exact target without downloading that simulator again.
 `isa-smoke-run` and `tiled-mt-benchmark-run` execute without a software builder;
 their original build-and-run targets remain available locally. Standalone smoke,
 MMIO, boot, and UART payloads still use the compiler. Missing prebuilt artifacts
@@ -757,8 +759,8 @@ are errors, never permission to regenerate them. Native DPI/transport,
 cosim-hook, runtime, architectural projection, software-target, and selected
 Spike native/ABI checks run once in the shared native job.
 Mapped Mini execution
-retains its separate build dependencies; Spike consumers retain their runtime
-library setup. Configs other than the three Simple smoke-only
+retains its additional build dependencies; ordinary harness execution reuses
+the producer's installed native libraries and hardware tools. Configs other than the three Simple smoke-only
 presets run platform checks; Mini
 and Tiled profiles run `isa-smoke`, and both Tiled cores run multihart
 benchmarks. `tools/ci/policy.py` selects software targets by `(shape, ISA)` only;
@@ -774,7 +776,8 @@ an optimization. Compare simulator execution on the same ELFs and configured
 hart count before accepting a build-time improvement. Keep assertions and the
 hardware configuration unchanged during these comparisons.
 
-Program suite CI consumes the shared target descriptions, then
+Program suite CI consumes the shared target descriptions without waiting for
+simulator builds, then
 `tools/ci/programs.py` groups builds by the suite-specific
 projection in `sw/build/program_target.py`. Groups use actual target fields,
 not a shape/ISA naming assumption. Each distinct suite projection produces one
@@ -788,18 +791,32 @@ and `bringup-run` run that manifest through the ordinary attested simulator
 without invoking a builder. The corresponding `*-test` targets still build and
 run for local use. Run jobs preserve all suite limits and workload coverage;
 they attempt every successfully published group even if another build failed.
+`--group-runs` bundles selected short ISA, benchmark, CoreMark, scalar CoreMark,
+and Embench suites per exact simulator. Only those suites' archives are downloaded,
+and each is bound and run independently. Later suites still run after a failure;
+the job then reports failure. Per-suite result paths and whole-ELF performance
+identities are unchanged, even when several suites share one diagnostic artifact.
 Bringup-Bench builds its entire bounded upstream inventory once per compatible
-group, then expands execution to eight deterministic shards for every eligible
+group, then expands execution to four deterministic shards for every eligible
 config. Each shard uses two workers; neither coverage nor sharding depends on
 core identity. Keep the shard count in `tools/ci/policy.py`, fan-out after build
 grouping in `tools/ci/programs.py`, and runner arguments in
 `program-test/Makefile.inc`. Separate result paths and artifact names preserve
 all shard diagnostics. Local execution defaults to one shard unless explicitly
 partitioned with `PROGRAM_SHARD_INDEX` and `PROGRAM_SHARD_COUNT`.
-Software-target and ELF-layout checks run once in the native job. Platform tests
-use the same grouping/archive/binding machinery in `ci-platform.yml`:
-`platform-plan` groups the shared targets and OpenSBI DTBs, `platform-build`
-compiles each compatible group, and `platform` executes every config.
+Software-target and ELF-layout checks run once in the native job. The root CI
+workflow exposes separate ISA, short-suite, Bringup-Bench, SKL, and Highway
+producer dependencies through `ci-program-builds.yml`. Each config's native
+execution depends on its own simulator and only its selected workload group;
+it does not wait for other simulators or long-suite builds.
+Platform tests use the same grouping/archive/binding machinery:
+the root `platform-plan` groups the shared targets and OpenSBI DTBs,
+`ci-platform-builds.yml` compiles each compatible group, and `ci-platform.yml`
+executes each config. OpenSBI and litmus have separate producer dependencies.
+ACT generation in `ci-arch-build.yml` starts independently of simulator builds;
+each `ci-arch.yml` shard matrix waits only for its matching simulator and ACT
+generator. Adding a software-tested config also requires its explicit root
+dependency edges; the stable gate rejects a selected config omitted there.
 `litmus-smoke-run` and `opensbi-smoke-run` consume existing bound manifests;
 neither depends on a builder. The OpenSBI test entry carries a checksum-bearing
 auxiliary `payload`, passed through FESVR's existing `+payload` option; its DTB

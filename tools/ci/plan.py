@@ -8,7 +8,7 @@ import json
 import subprocess
 from dataclasses import dataclass, field
 
-from .policy import CHECKS, RSIM_CORE_CHECKS, RSIM_COMPONENT_CHECKS, CIRCT_CHECKS, CORE_CHECKS, HOST_CHECKS, NATIVE_SUITES, SIMULATOR_CONFIGS, SINGLE_CORE_SOCS, COSIM_CONFIGS, native_configs, simulation_entry, simulator_entry, BACKEND_SMOKE_CONFIG, DEFAULT_BACKEND, BACKEND_SMOKE_VARIANTS, arch_configs, arch_shards
+from .policy import CHECKS, RSIM_CORE_CHECKS, RSIM_COMPONENT_CHECKS, CIRCT_CHECKS, CORE_CHECKS, HOST_CHECKS, NATIVE_SUITES, SIMULATOR_CONFIGS, SINGLE_CORE_SOCS, COSIM_CONFIGS, native_configs, simulation_entry, simulator_entry, BACKEND_SMOKE_CONFIG, DEFAULT_BACKEND, BACKEND_SMOKE_VARIANTS, arch_configs, arch_shards, check_matrix, platform_configs, SHORT_PROGRAM_SUITES
 
 
 def matches(path, *patterns):
@@ -255,7 +255,7 @@ class Selection:
             self.all()
 
     def result(self):
-        matrix = {"include": [check.matrix_entry() for check in CHECKS if check.key in self.checks]}
+        matrix = check_matrix(self.checks)
         suites = {"include": []}
         for suite in NATIVE_SUITES:
             if suite not in self.native_suites:
@@ -273,6 +273,28 @@ class Selection:
         if self.simulation:
             builds.extend(simulation_entry(*BACKEND_SMOKE_CONFIG, backend=backend, smoke_variant=True)
                           for backend in BACKEND_SMOKE_VARIANTS)
+        # Matching-row needs are not supported by Actions matrices. Configs
+        # with downstream execution use named jobs; build-only rows stay batched.
+        pipelines = set(SINGLE_CORE_SOCS) | {row['soc'] for row in platform_configs()}
+        arch_builds = {row['configuration']: row for row in arch_configs()} if self.arch else {}
+        arch_runs = arch_shards() if self.arch else ()
+        config_jobs = {}
+        groups = {key: {'include': []} for key in ('plain', 'cosim', 'plain-elf', 'cosim-elf')}
+        for build in builds:
+            if build['backend'] == DEFAULT_BACKEND and build['soc'] in pipelines:
+                soc = build['soc']
+                config_jobs[soc] = dict(simulator=build,
+                                       program_groups=list(dict.fromkeys('short' if row['suite'] in SHORT_PROGRAM_SUITES else row['suite']
+                                                                         for row in suites['include'] if row['soc'] == soc)),
+                                       arch=soc in arch_builds,
+                                       arch_config=arch_builds.get(soc),
+                                       arch_matrix={'include': [row for row in arch_runs if row['configuration'] == soc]},
+                                       platform=self.simulation and any(row['soc'] == soc for row in platform_configs()))
+            else:
+                shared_elf = any(target in build.get('software_tests', '').split()
+                                 for target in ('isa-smoke', 'tiled-mt-benchmark-test'))
+                key = ('cosim' if build['cosim'] else 'plain') + ('-elf' if shared_elf else '')
+                groups[key]['include'].append(build)
         return {
             "run_compile": run_checks or run_simulator,
             "run_sail": self.arch or any(build["cosim"] for build in builds),
@@ -287,8 +309,10 @@ class Selection:
             "run_program_native": run_program_native,
             "program_matrix": suites,
             "run_program_arch": self.arch,
-            "arch_build_matrix": {"include": list(arch_configs()) if self.arch else []},
-            "arch_run_matrix": {"include": list(arch_shards()) if self.arch else []},
+            "config_jobs": config_jobs,
+            "simulator_groups": groups,
+            "program_build_groups": list(dict.fromkeys('short' if row['suite'] in SHORT_PROGRAM_SUITES and row['suite'] != 'isa' else row['suite']
+                                                       for row in suites['include'])),
         }
 
 

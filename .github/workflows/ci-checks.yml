@@ -1,4 +1,4 @@
-# Runs the selected host, example, and CIRCT checks from one capability matrix.
+# Runs selected checks in compatible groups with shared setup and per-target logs.
 # SPDX-License-Identifier: Apache-2.0
 
 name: CI checks
@@ -54,5 +54,25 @@ jobs:
       - name: Install CIRCT
         if: matrix.circt
         uses: ./.github/actions/setup-circt
-      - name: Run ${{ matrix.target }}
-        run: make ${{ matrix.target }}
+      - name: Run selected checks
+        env:
+          CHECK_TARGETS: ${{ join(matrix.targets, ' ') }}
+        run: |
+          set -o pipefail
+          test -n "$CHECK_TARGETS"
+          mkdir -p "$RUNNER_TEMP/check-logs"
+          status=0
+          for target in $CHECK_TARGETS; do
+            echo "::group::$target"
+            make "$target" 2>&1 | tee "$RUNNER_TEMP/check-logs/$target.log" || status=1
+            echo '::endgroup::'
+          done
+          exit "$status"
+      - name: Publish check logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: checks-${{ matrix.key }}-${{ github.sha }}
+          path: ${{ runner.temp }}/check-logs
+          if-no-files-found: warn
+          retention-days: 7

@@ -1,4 +1,4 @@
-# Orchestrates focused Rhodium CI with shared bytecode and Sail model artifacts.
+# Schedules shared CI producers and config-specific consumers without global simulator barriers.
 # SPDX-License-Identifier: Apache-2.0
 
 name: CI
@@ -170,7 +170,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     outputs:
-      harness-matrix: ${{ steps.targets.outputs.harness-matrix }}
+      harness-matrices: ${{ steps.targets.outputs.harness-matrices }}
     steps:
       - name: Check out Rhodium
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -206,7 +206,7 @@ jobs:
           fi
           python3 -m tools.ci.programs --harness --matrix "$(jq -c .simulator_matrix <<< "$PLAN")" \
             --targets "$RUNNER_TEMP/targets" --output "$RUNNER_TEMP/targets/harness-plan.json"
-          echo "harness-matrix=$(jq -c .build "$RUNNER_TEMP/targets/harness-plan.json")" >> "$GITHUB_OUTPUT"
+          echo "harness-matrices=$(jq -c '.build.include | group_by(.suite) | map({key: .[0].suite, value: {include: .}}) | from_entries' "$RUNNER_TEMP/targets/harness-plan.json")" >> "$GITHUB_OUTPUT"
       - name: Publish shared target descriptions
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -215,7 +215,7 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
-  harness-elfs:
+  harness-isa:
     name: Harness ELFs / ${{ matrix.suite }} / group ${{ strategy.job-index }}
     needs: [plan, targets]
     if: ${{ always() && !cancelled() && needs.targets.result == 'success' && fromJSON(needs.plan.outputs.plan).run_simulation }}
@@ -223,7 +223,73 @@ jobs:
     timeout-minutes: 30
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.targets.outputs.harness-matrix) }}
+      matrix: ${{ fromJSON(needs.targets.outputs.harness-matrices)['isa'] }}
+    steps:
+      - name: Check out Rhodium
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Install RISC-V software toolchain
+        uses: ./.github/actions/setup-riscv-toolchain
+      - name: Download shared target descriptions
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: targets-${{ github.sha }}
+          path: ${{ runner.temp }}/targets
+      - name: Cache compatible harness builds
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /tmp/rhodium-harness-builds/${{ matrix.build_id }}
+          key: "${{ runner.os }}-${{ runner.arch }}-harness-${{ matrix.build_id }}-${{ hashFiles('sw/build/**', 'riscv/gnu-toolchain.rhm', 'sims/program-test/Makefile.inc', 'tools/install-riscv-*.sh', '.gitmodules') }}-${{ github.sha }}"
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-harness-${{ matrix.build_id }}-${{ hashFiles('sw/build/**', 'riscv/gnu-toolchain.rhm', 'sims/program-test/Makefile.inc', 'tools/install-riscv-*.sh', '.gitmodules') }}-
+      - name: Build compatible harness ELFs once
+        env:
+          SOC: ${{ matrix.soc }}
+          SUITE: ${{ matrix.suite }}
+          BUILD_ID: ${{ matrix.build_id }}
+        run: |
+          make -C sims isa-setup
+          mkdir -p "$RUNNER_TEMP/harness-elfs"
+          output="/tmp/rhodium-harness-builds/$BUILD_ID"
+          if [[ "$SUITE" == isa ]]; then
+            make -C sims isa-smoke-elfs SOC="$SOC" PROGRAM_CONFIG_ROOT="$output" \
+              PREBUILT_PROGRAM_TARGET="$RUNNER_TEMP/targets/$SOC.json"
+            manifest="$output/isa-smoke/manifest.json"
+          else
+            make -C sims tiled-mt-benchmark-elfs SOC="$SOC" PROGRAM_CONFIG_ROOT="$output" \
+              PREBUILT_PROGRAM_TARGET="$RUNNER_TEMP/targets/$SOC.json"
+            manifest="$output/mt-benchmark/8-harts/manifest.json"
+          fi
+          python3 sims/program-test/archive.py --manifest "$manifest" \
+            --archive "$RUNNER_TEMP/harness-elfs/$BUILD_ID.tar.gz"
+      - name: Publish shared harness ELFs
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: harness-elfs-${{ matrix.build_id }}-${{ github.sha }}
+          path: ${{ runner.temp }}/harness-elfs
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+      - name: Publish harness build diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: harness-build-${{ matrix.build_id }}-${{ github.sha }}
+          path: |
+            /tmp/rhodium-harness-builds/${{ matrix.build_id }}/**/manifest.json
+            /tmp/rhodium-harness-builds/${{ matrix.build_id }}/**/build.log
+            /tmp/rhodium-harness-builds/${{ matrix.build_id }}/**/instruction-report.json
+          if-no-files-found: warn
+          retention-days: 7
+
+  harness-benchmark:
+    name: Harness ELFs / ${{ matrix.suite }} / group ${{ strategy.job-index }}
+    needs: [plan, targets]
+    if: ${{ always() && !cancelled() && needs.targets.result == 'success' && fromJSON(needs.plan.outputs.plan).run_simulation }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.targets.outputs.harness-matrices)['benchmark'] }}
     steps:
       - name: Check out Rhodium
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -331,13 +397,246 @@ jobs:
       racket-version: ${{ needs.plan.outputs.racket_version }}
       rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
 
-  simulator:
+  program-plan:
+    name: Plan software builds
+    needs: [plan, targets]
+    if: ${{ always() && !cancelled() && needs.targets.result == 'success' && fromJSON(needs.plan.outputs.plan).run_program_native }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      build-matrices: ${{ steps.plan.outputs.build-matrices }}
+      run-matrices: ${{ steps.plan.outputs.run-matrices }}
+    steps:
+      - name: Check out Rhodium
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Download shared target descriptions
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: targets-${{ github.sha }}
+          path: ${{ runner.temp }}/program-targets
+      - name: Group compatible program builds
+        id: plan
+        env:
+          PROGRAM_MATRIX: ${{ toJSON(fromJSON(needs.plan.outputs.plan).program_matrix) }}
+        run: |
+          python3 -m tools.ci.programs --group-runs --matrix "$PROGRAM_MATRIX" \
+            --targets "$RUNNER_TEMP/program-targets" --output "$RUNNER_TEMP/program-plan.json"
+          echo "build-matrices=$(jq -c .build_groups "$RUNNER_TEMP/program-plan.json")" >> "$GITHUB_OUTPUT"
+          echo "run-matrices=$(jq -c .run_groups "$RUNNER_TEMP/program-plan.json")" >> "$GITHUB_OUTPUT"
+          cat "$RUNNER_TEMP/program-plan.json"
+
+  program-builds-isa:
+    name: Software builds / isa
+    needs: [plan, program-plan]
+    if: ${{ always() && !cancelled() && needs.program-plan.result == 'success' && contains(fromJSON(needs.plan.outputs.plan).program_build_groups, 'isa') }}
+    uses: ./.github/workflows/ci-program-builds.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.program-plan.outputs.build-matrices)['isa']) }}
+
+  program-builds-short:
+    name: Software builds / short
+    needs: [plan, program-plan]
+    if: ${{ always() && !cancelled() && needs.program-plan.result == 'success' && contains(fromJSON(needs.plan.outputs.plan).program_build_groups, 'short') }}
+    uses: ./.github/workflows/ci-program-builds.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.program-plan.outputs.build-matrices)['short']) }}
+
+  program-builds-bringup:
+    name: Software builds / bringup
+    needs: [plan, program-plan]
+    if: ${{ always() && !cancelled() && needs.program-plan.result == 'success' && contains(fromJSON(needs.plan.outputs.plan).program_build_groups, 'bringup') }}
+    uses: ./.github/workflows/ci-program-builds.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.program-plan.outputs.build-matrices)['bringup']) }}
+
+  program-builds-skl:
+    name: Software builds / skl
+    needs: [plan, program-plan]
+    if: ${{ always() && !cancelled() && needs.program-plan.result == 'success' && contains(fromJSON(needs.plan.outputs.plan).program_build_groups, 'skl') }}
+    uses: ./.github/workflows/ci-program-builds.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.program-plan.outputs.build-matrices)['skl']) }}
+
+  program-builds-highway:
+    name: Software builds / highway
+    needs: [plan, program-plan]
+    if: ${{ always() && !cancelled() && needs.program-plan.result == 'success' && contains(fromJSON(needs.plan.outputs.plan).program_build_groups, 'highway') }}
+    uses: ./.github/workflows/ci-program-builds.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.program-plan.outputs.build-matrices)['highway']) }}
+
+  platform-plan:
+    name: Plan platform builds
+    needs: [plan, targets]
+    if: ${{ always() && !cancelled() && needs.targets.result == 'success' && fromJSON(needs.plan.outputs.plan).run_simulation }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      build-matrices: ${{ steps.plan.outputs.build-matrices }}
+      run-matrices: ${{ steps.plan.outputs.run-matrices }}
+    steps:
+      - name: Check out Rhodium
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Download shared target descriptions
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: targets-${{ github.sha }}
+          path: ${{ runner.temp }}/platform-targets
+      - name: Group compatible platform builds
+        id: plan
+        run: |
+          matrix=$(python3 -c 'import json; from tools.ci.policy import platform_configs; print(json.dumps({"include": platform_configs()}))')
+          python3 -m tools.ci.programs --matrix "$matrix" \
+            --targets "$RUNNER_TEMP/platform-targets" --fdts "$RUNNER_TEMP/platform-targets" \
+            --output "$RUNNER_TEMP/platform-plan.json"
+          echo "build-matrices=$(jq -c '.build.include | group_by(.suite) | map({key: .[0].suite, value: {include: .}}) | from_entries' "$RUNNER_TEMP/platform-plan.json")" >> "$GITHUB_OUTPUT"
+          echo "run-matrices=$(jq -c '.run.include | group_by(.soc) | map({key: .[0].soc, value: {include: .}}) | from_entries' "$RUNNER_TEMP/platform-plan.json")" >> "$GITHUB_OUTPUT"
+          cat "$RUNNER_TEMP/platform-plan.json"
+      - name: Test platform adapters once
+        run: make -C sims litmus-setup litmus-adapter-test opensbi-adapter-test
+
+  platform-builds-opensbi:
+    name: Platform builds / opensbi
+    needs: [platform-plan]
+    uses: ./.github/workflows/ci-platform-builds.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.platform-plan.outputs.build-matrices)['opensbi']) }}
+
+  platform-builds-litmus:
+    name: Platform builds / litmus
+    needs: [platform-plan]
+    uses: ./.github/workflows/ci-platform-builds.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.platform-plan.outputs.build-matrices)['litmus']) }}
+
+  sim-simple-rv5stage-rv32int:
+    name: SoC / simple-rv5stage-rv32int
+    needs: [plan, targets, sail]
+    if: ${{ always() && !cancelled() && needs.targets.result == 'success' && needs.sail.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv5stage-rv32int'].simulator != null }}
+    uses: ./.github/workflows/ci-simulator.yml
+    with:
+      config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv5stage-rv32int'].simulator) }}
+      run-harness: ${{ fromJSON(needs.plan.outputs.plan).run_simulation }}
+      racket-version: ${{ needs.plan.outputs.racket_version }}
+      rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
+
+  sim-simple-spike-rv32int:
+    name: SoC / simple-spike-rv32int
+    needs: [plan, targets]
+    if: ${{ always() && !cancelled() && needs.targets.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['simple-spike-rv32int'].simulator != null }}
+    uses: ./.github/workflows/ci-simulator.yml
+    with:
+      config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-spike-rv32int'].simulator) }}
+      run-harness: ${{ fromJSON(needs.plan.outputs.plan).run_simulation }}
+      racket-version: ${{ needs.plan.outputs.racket_version }}
+      rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
+
+  sim-simple-rv5stage-rv32max:
+    name: SoC / simple-rv5stage-rv32max
+    needs: [plan, targets, sail]
+    if: ${{ always() && !cancelled() && needs.targets.result == 'success' && needs.sail.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv5stage-rv32max'].simulator != null }}
+    uses: ./.github/workflows/ci-simulator.yml
+    with:
+      config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv5stage-rv32max'].simulator) }}
+      run-harness: ${{ fromJSON(needs.plan.outputs.plan).run_simulation }}
+      racket-version: ${{ needs.plan.outputs.racket_version }}
+      rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
+
+  sim-simple-spike-rv32max:
+    name: SoC / simple-spike-rv32max
+    needs: [plan, targets]
+    if: ${{ always() && !cancelled() && needs.targets.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['simple-spike-rv32max'].simulator != null }}
+    uses: ./.github/workflows/ci-simulator.yml
+    with:
+      config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-spike-rv32max'].simulator) }}
+      run-harness: ${{ fromJSON(needs.plan.outputs.plan).run_simulation }}
+      racket-version: ${{ needs.plan.outputs.racket_version }}
+      rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
+
+  sim-simple-rv2wide-rv32int:
+    name: SoC / simple-rv2wide-rv32int
+    needs: [plan, targets, sail]
+    if: ${{ always() && !cancelled() && needs.targets.result == 'success' && needs.sail.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv2wide-rv32int'].simulator != null }}
+    uses: ./.github/workflows/ci-simulator.yml
+    with:
+      config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv2wide-rv32int'].simulator) }}
+      run-harness: ${{ fromJSON(needs.plan.outputs.plan).run_simulation }}
+      racket-version: ${{ needs.plan.outputs.racket_version }}
+      rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
+
+  sim-simple-rv2wide-rv32max:
+    name: SoC / simple-rv2wide-rv32max
+    needs: [plan, targets, sail]
+    if: ${{ always() && !cancelled() && needs.targets.result == 'success' && needs.sail.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv2wide-rv32max'].simulator != null }}
+    uses: ./.github/workflows/ci-simulator.yml
+    with:
+      config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv2wide-rv32max'].simulator) }}
+      run-harness: ${{ fromJSON(needs.plan.outputs.plan).run_simulation }}
+      racket-version: ${{ needs.plan.outputs.racket_version }}
+      rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
+
+  sim-simple-rv5stage-rva23:
+    name: SoC / simple-rv5stage-rva23
+    needs: [plan, targets, sail]
+    if: ${{ always() && !cancelled() && needs.targets.result == 'success' && needs.sail.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv5stage-rva23'].simulator != null }}
+    uses: ./.github/workflows/ci-simulator.yml
+    with:
+      config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv5stage-rva23'].simulator) }}
+      run-harness: ${{ fromJSON(needs.plan.outputs.plan).run_simulation }}
+      racket-version: ${{ needs.plan.outputs.racket_version }}
+      rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
+
+  sim-simple-spike-rva23:
+    name: SoC / simple-spike-rva23
+    needs: [plan, targets]
+    if: ${{ always() && !cancelled() && needs.targets.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['simple-spike-rva23'].simulator != null }}
+    uses: ./.github/workflows/ci-simulator.yml
+    with:
+      config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-spike-rva23'].simulator) }}
+      run-harness: ${{ fromJSON(needs.plan.outputs.plan).run_simulation }}
+      racket-version: ${{ needs.plan.outputs.racket_version }}
+      rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
+
+  sim-simple-rv2wide-rva23:
+    name: SoC / simple-rv2wide-rva23
+    needs: [plan, targets, sail]
+    if: ${{ always() && !cancelled() && needs.targets.result == 'success' && needs.sail.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv2wide-rva23'].simulator != null }}
+    uses: ./.github/workflows/ci-simulator.yml
+    with:
+      config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv2wide-rva23'].simulator) }}
+      run-harness: ${{ fromJSON(needs.plan.outputs.plan).run_simulation }}
+      racket-version: ${{ needs.plan.outputs.racket_version }}
+      rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
+
+  sim-tiled-rv5stage-rva23:
+    name: SoC / tiled-rv5stage-rva23
+    needs: [plan, targets, harness-isa, harness-benchmark]
+    if: ${{ always() && !cancelled() && needs.targets.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['tiled-rv5stage-rva23'].simulator != null }}
+    uses: ./.github/workflows/ci-simulator.yml
+    with:
+      config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['tiled-rv5stage-rva23'].simulator) }}
+      run-harness: ${{ fromJSON(needs.plan.outputs.plan).run_simulation }}
+      racket-version: ${{ needs.plan.outputs.racket_version }}
+      rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
+
+  sim-tiled-spike-rva23:
+    name: SoC / tiled-spike-rva23
+    needs: [plan, targets, harness-isa, harness-benchmark]
+    if: ${{ always() && !cancelled() && needs.targets.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['tiled-spike-rva23'].simulator != null }}
+    uses: ./.github/workflows/ci-simulator.yml
+    with:
+      config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['tiled-spike-rva23'].simulator) }}
+      run-harness: ${{ fromJSON(needs.plan.outputs.plan).run_simulation }}
+      racket-version: ${{ needs.plan.outputs.racket_version }}
+      rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
+
+  sim-plain:
     name: SoC / ${{ matrix.simulator_id }}
-    needs: [plan, compile-racket, sail, targets, harness-elfs]
-    if: ${{ always() && !cancelled() && needs.compile-racket.result == 'success' && needs.targets.result == 'success' && (!fromJSON(needs.plan.outputs.plan).run_sail || needs.sail.result == 'success') && fromJSON(needs.plan.outputs.plan).run_simulator }}
+    needs: [plan, targets]
+    if: ${{ always() && !cancelled() && needs.targets.result == 'success' && fromJSON(needs.plan.outputs.plan).simulator_groups['plain'].include[0] != null }}
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.plan.outputs.plan).simulator_matrix }}
+      matrix: ${{ fromJSON(needs.plan.outputs.plan).simulator_groups['plain'] }}
     uses: ./.github/workflows/ci-simulator.yml
     with:
       config: ${{ toJSON(matrix) }}
@@ -345,29 +644,470 @@ jobs:
       racket-version: ${{ needs.plan.outputs.racket_version }}
       rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
 
-  simulation:
-    name: Platform
-    needs: [plan, compile-racket, simulator]
-    if: ${{ always() && !cancelled() && needs.compile-racket.result == 'success' && needs.simulator.result == 'success' && fromJSON(needs.plan.outputs.plan).run_simulation }}
-    uses: ./.github/workflows/ci-platform.yml
-
-  software:
-    name: Software
-    needs: [plan, compile-racket, sail, simulator]
-    if: ${{ always() && !cancelled() && needs.compile-racket.result == 'success' && (!fromJSON(needs.plan.outputs.plan).run_sail || needs.sail.result == 'success') && needs.simulator.result == 'success' && (fromJSON(needs.plan.outputs.plan).run_program_native || fromJSON(needs.plan.outputs.plan).run_program_arch) }}
-    uses: ./.github/workflows/ci-software.yml
+  sim-cosim:
+    name: SoC / ${{ matrix.simulator_id }}
+    needs: [plan, targets, sail]
+    if: ${{ always() && !cancelled() && needs.targets.result == 'success' && needs.sail.result == 'success' && fromJSON(needs.plan.outputs.plan).simulator_groups['cosim'].include[0] != null }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.plan).simulator_groups['cosim'] }}
+    uses: ./.github/workflows/ci-simulator.yml
     with:
-      run-programs: ${{ fromJSON(needs.plan.outputs.plan).run_program_native }}
-      program-matrix: ${{ toJSON(fromJSON(needs.plan.outputs.plan).program_matrix) }}
-      run-arch: ${{ fromJSON(needs.plan.outputs.plan).run_program_arch }}
-      arch-build-matrix: ${{ toJSON(fromJSON(needs.plan.outputs.plan).arch_build_matrix) }}
-      arch-run-matrix: ${{ toJSON(fromJSON(needs.plan.outputs.plan).arch_run_matrix) }}
+      config: ${{ toJSON(matrix) }}
+      run-harness: ${{ fromJSON(needs.plan.outputs.plan).run_simulation }}
       racket-version: ${{ needs.plan.outputs.racket_version }}
       rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
 
+  sim-plain-elf:
+    name: SoC / ${{ matrix.simulator_id }}
+    needs: [plan, targets, harness-isa]
+    if: ${{ always() && !cancelled() && needs.targets.result == 'success' && fromJSON(needs.plan.outputs.plan).simulator_groups['plain-elf'].include[0] != null }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.plan).simulator_groups['plain-elf'] }}
+    uses: ./.github/workflows/ci-simulator.yml
+    with:
+      config: ${{ toJSON(matrix) }}
+      run-harness: ${{ fromJSON(needs.plan.outputs.plan).run_simulation }}
+      racket-version: ${{ needs.plan.outputs.racket_version }}
+      rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
+
+  sim-cosim-elf:
+    name: SoC / ${{ matrix.simulator_id }}
+    needs: [plan, targets, sail, harness-isa]
+    if: ${{ always() && !cancelled() && needs.targets.result == 'success' && needs.sail.result == 'success' && fromJSON(needs.plan.outputs.plan).simulator_groups['cosim-elf'].include[0] != null }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.plan).simulator_groups['cosim-elf'] }}
+    uses: ./.github/workflows/ci-simulator.yml
+    with:
+      config: ${{ toJSON(matrix) }}
+      run-harness: ${{ fromJSON(needs.plan.outputs.plan).run_simulation }}
+      racket-version: ${{ needs.plan.outputs.racket_version }}
+      rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
+
+  act-build-simple-rv5stage-rv32int:
+    name: ACT build / simple-rv5stage-rv32int
+    needs: [plan, compile-racket, sail]
+    if: ${{ always() && !cancelled() && needs.compile-racket.result == 'success' && needs.sail.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv5stage-rv32int'].arch }}
+    uses: ./.github/workflows/ci-arch-build.yml
+    with:
+      config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv5stage-rv32int'].arch_config) }}
+      racket-version: ${{ needs.plan.outputs.racket_version }}
+      rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
+
+  act-simple-rv5stage-rv32int:
+    name: ACT / simple-rv5stage-rv32int
+    needs: [plan, sim-simple-rv5stage-rv32int, act-build-simple-rv5stage-rv32int]
+    if: ${{ always() && !cancelled() && needs.sim-simple-rv5stage-rv32int.result == 'success' && needs.act-build-simple-rv5stage-rv32int.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv5stage-rv32int'].arch }}
+    uses: ./.github/workflows/ci-arch.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv5stage-rv32int'].arch_matrix) }}
+
+  program-short-simple-rv5stage-rv32int:
+    name: Software / simple-rv5stage-rv32int / short
+    needs: [plan, sim-simple-rv5stage-rv32int, program-plan, program-builds-isa]
+    if: ${{ always() && !cancelled() && needs.sim-simple-rv5stage-rv32int.result == 'success' && needs.program-plan.result == 'success' && contains(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv5stage-rv32int'].program_groups, 'short') }}
+    uses: ./.github/workflows/ci-software.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.program-plan.outputs.run-matrices)['short']['simple-rv5stage-rv32int']) }}
+
+  act-build-simple-spike-rv32int:
+    name: ACT build / simple-spike-rv32int
+    needs: [plan, compile-racket, sail]
+    if: ${{ always() && !cancelled() && needs.compile-racket.result == 'success' && needs.sail.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['simple-spike-rv32int'].arch }}
+    uses: ./.github/workflows/ci-arch-build.yml
+    with:
+      config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-spike-rv32int'].arch_config) }}
+      racket-version: ${{ needs.plan.outputs.racket_version }}
+      rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
+
+  act-simple-spike-rv32int:
+    name: ACT / simple-spike-rv32int
+    needs: [plan, sim-simple-spike-rv32int, act-build-simple-spike-rv32int]
+    if: ${{ always() && !cancelled() && needs.sim-simple-spike-rv32int.result == 'success' && needs.act-build-simple-spike-rv32int.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['simple-spike-rv32int'].arch }}
+    uses: ./.github/workflows/ci-arch.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-spike-rv32int'].arch_matrix) }}
+
+  program-short-simple-spike-rv32int:
+    name: Software / simple-spike-rv32int / short
+    needs: [plan, sim-simple-spike-rv32int, program-plan, program-builds-isa]
+    if: ${{ always() && !cancelled() && needs.sim-simple-spike-rv32int.result == 'success' && needs.program-plan.result == 'success' && contains(fromJSON(needs.plan.outputs.plan).config_jobs['simple-spike-rv32int'].program_groups, 'short') }}
+    uses: ./.github/workflows/ci-software.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.program-plan.outputs.run-matrices)['short']['simple-spike-rv32int']) }}
+
+  act-build-simple-rv5stage-rv32max:
+    name: ACT build / simple-rv5stage-rv32max
+    needs: [plan, compile-racket, sail]
+    if: ${{ always() && !cancelled() && needs.compile-racket.result == 'success' && needs.sail.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv5stage-rv32max'].arch }}
+    uses: ./.github/workflows/ci-arch-build.yml
+    with:
+      config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv5stage-rv32max'].arch_config) }}
+      racket-version: ${{ needs.plan.outputs.racket_version }}
+      rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
+
+  act-simple-rv5stage-rv32max:
+    name: ACT / simple-rv5stage-rv32max
+    needs: [plan, sim-simple-rv5stage-rv32max, act-build-simple-rv5stage-rv32max]
+    if: ${{ always() && !cancelled() && needs.sim-simple-rv5stage-rv32max.result == 'success' && needs.act-build-simple-rv5stage-rv32max.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv5stage-rv32max'].arch }}
+    uses: ./.github/workflows/ci-arch.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv5stage-rv32max'].arch_matrix) }}
+
+  program-short-simple-rv5stage-rv32max:
+    name: Software / simple-rv5stage-rv32max / short
+    needs: [plan, sim-simple-rv5stage-rv32max, program-plan, program-builds-isa]
+    if: ${{ always() && !cancelled() && needs.sim-simple-rv5stage-rv32max.result == 'success' && needs.program-plan.result == 'success' && contains(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv5stage-rv32max'].program_groups, 'short') }}
+    uses: ./.github/workflows/ci-software.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.program-plan.outputs.run-matrices)['short']['simple-rv5stage-rv32max']) }}
+
+  act-build-simple-spike-rv32max:
+    name: ACT build / simple-spike-rv32max
+    needs: [plan, compile-racket, sail]
+    if: ${{ always() && !cancelled() && needs.compile-racket.result == 'success' && needs.sail.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['simple-spike-rv32max'].arch }}
+    uses: ./.github/workflows/ci-arch-build.yml
+    with:
+      config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-spike-rv32max'].arch_config) }}
+      racket-version: ${{ needs.plan.outputs.racket_version }}
+      rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
+
+  act-simple-spike-rv32max:
+    name: ACT / simple-spike-rv32max
+    needs: [plan, sim-simple-spike-rv32max, act-build-simple-spike-rv32max]
+    if: ${{ always() && !cancelled() && needs.sim-simple-spike-rv32max.result == 'success' && needs.act-build-simple-spike-rv32max.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['simple-spike-rv32max'].arch }}
+    uses: ./.github/workflows/ci-arch.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-spike-rv32max'].arch_matrix) }}
+
+  program-short-simple-spike-rv32max:
+    name: Software / simple-spike-rv32max / short
+    needs: [plan, sim-simple-spike-rv32max, program-plan, program-builds-isa]
+    if: ${{ always() && !cancelled() && needs.sim-simple-spike-rv32max.result == 'success' && needs.program-plan.result == 'success' && contains(fromJSON(needs.plan.outputs.plan).config_jobs['simple-spike-rv32max'].program_groups, 'short') }}
+    uses: ./.github/workflows/ci-software.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.program-plan.outputs.run-matrices)['short']['simple-spike-rv32max']) }}
+
+  act-build-simple-rv2wide-rv32int:
+    name: ACT build / simple-rv2wide-rv32int
+    needs: [plan, compile-racket, sail]
+    if: ${{ always() && !cancelled() && needs.compile-racket.result == 'success' && needs.sail.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv2wide-rv32int'].arch }}
+    uses: ./.github/workflows/ci-arch-build.yml
+    with:
+      config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv2wide-rv32int'].arch_config) }}
+      racket-version: ${{ needs.plan.outputs.racket_version }}
+      rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
+
+  act-simple-rv2wide-rv32int:
+    name: ACT / simple-rv2wide-rv32int
+    needs: [plan, sim-simple-rv2wide-rv32int, act-build-simple-rv2wide-rv32int]
+    if: ${{ always() && !cancelled() && needs.sim-simple-rv2wide-rv32int.result == 'success' && needs.act-build-simple-rv2wide-rv32int.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv2wide-rv32int'].arch }}
+    uses: ./.github/workflows/ci-arch.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv2wide-rv32int'].arch_matrix) }}
+
+  program-short-simple-rv2wide-rv32int:
+    name: Software / simple-rv2wide-rv32int / short
+    needs: [plan, sim-simple-rv2wide-rv32int, program-plan, program-builds-isa]
+    if: ${{ always() && !cancelled() && needs.sim-simple-rv2wide-rv32int.result == 'success' && needs.program-plan.result == 'success' && contains(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv2wide-rv32int'].program_groups, 'short') }}
+    uses: ./.github/workflows/ci-software.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.program-plan.outputs.run-matrices)['short']['simple-rv2wide-rv32int']) }}
+
+  act-build-simple-rv2wide-rv32max:
+    name: ACT build / simple-rv2wide-rv32max
+    needs: [plan, compile-racket, sail]
+    if: ${{ always() && !cancelled() && needs.compile-racket.result == 'success' && needs.sail.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv2wide-rv32max'].arch }}
+    uses: ./.github/workflows/ci-arch-build.yml
+    with:
+      config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv2wide-rv32max'].arch_config) }}
+      racket-version: ${{ needs.plan.outputs.racket_version }}
+      rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
+
+  act-simple-rv2wide-rv32max:
+    name: ACT / simple-rv2wide-rv32max
+    needs: [plan, sim-simple-rv2wide-rv32max, act-build-simple-rv2wide-rv32max]
+    if: ${{ always() && !cancelled() && needs.sim-simple-rv2wide-rv32max.result == 'success' && needs.act-build-simple-rv2wide-rv32max.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv2wide-rv32max'].arch }}
+    uses: ./.github/workflows/ci-arch.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv2wide-rv32max'].arch_matrix) }}
+
+  program-short-simple-rv2wide-rv32max:
+    name: Software / simple-rv2wide-rv32max / short
+    needs: [plan, sim-simple-rv2wide-rv32max, program-plan, program-builds-isa]
+    if: ${{ always() && !cancelled() && needs.sim-simple-rv2wide-rv32max.result == 'success' && needs.program-plan.result == 'success' && contains(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv2wide-rv32max'].program_groups, 'short') }}
+    uses: ./.github/workflows/ci-software.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.program-plan.outputs.run-matrices)['short']['simple-rv2wide-rv32max']) }}
+
+  act-build-simple-rv5stage-rva23:
+    name: ACT build / simple-rv5stage-rva23
+    needs: [plan, compile-racket, sail]
+    if: ${{ always() && !cancelled() && needs.compile-racket.result == 'success' && needs.sail.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv5stage-rva23'].arch }}
+    uses: ./.github/workflows/ci-arch-build.yml
+    with:
+      config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv5stage-rva23'].arch_config) }}
+      racket-version: ${{ needs.plan.outputs.racket_version }}
+      rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
+
+  act-simple-rv5stage-rva23:
+    name: ACT / simple-rv5stage-rva23
+    needs: [plan, sim-simple-rv5stage-rva23, act-build-simple-rv5stage-rva23]
+    if: ${{ always() && !cancelled() && needs.sim-simple-rv5stage-rva23.result == 'success' && needs.act-build-simple-rv5stage-rva23.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv5stage-rva23'].arch }}
+    uses: ./.github/workflows/ci-arch.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv5stage-rva23'].arch_matrix) }}
+
+  program-short-simple-rv5stage-rva23:
+    name: Software / simple-rv5stage-rva23 / short
+    needs: [plan, sim-simple-rv5stage-rva23, program-plan, program-builds-isa, program-builds-short]
+    if: ${{ always() && !cancelled() && needs.sim-simple-rv5stage-rva23.result == 'success' && needs.program-plan.result == 'success' && contains(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv5stage-rva23'].program_groups, 'short') }}
+    uses: ./.github/workflows/ci-software.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.program-plan.outputs.run-matrices)['short']['simple-rv5stage-rva23']) }}
+
+  program-bringup-simple-rv5stage-rva23:
+    name: Software / simple-rv5stage-rva23 / bringup
+    needs: [plan, sim-simple-rv5stage-rva23, program-plan, program-builds-bringup]
+    if: ${{ always() && !cancelled() && needs.sim-simple-rv5stage-rva23.result == 'success' && needs.program-plan.result == 'success' && contains(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv5stage-rva23'].program_groups, 'bringup') }}
+    uses: ./.github/workflows/ci-software.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.program-plan.outputs.run-matrices)['bringup']['simple-rv5stage-rva23']) }}
+
+  program-skl-simple-rv5stage-rva23:
+    name: Software / simple-rv5stage-rva23 / skl
+    needs: [plan, sim-simple-rv5stage-rva23, program-plan, program-builds-skl]
+    if: ${{ always() && !cancelled() && needs.sim-simple-rv5stage-rva23.result == 'success' && needs.program-plan.result == 'success' && contains(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv5stage-rva23'].program_groups, 'skl') }}
+    uses: ./.github/workflows/ci-software.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.program-plan.outputs.run-matrices)['skl']['simple-rv5stage-rva23']) }}
+
+  program-highway-simple-rv5stage-rva23:
+    name: Software / simple-rv5stage-rva23 / highway
+    needs: [plan, sim-simple-rv5stage-rva23, program-plan, program-builds-highway]
+    if: ${{ always() && !cancelled() && needs.sim-simple-rv5stage-rva23.result == 'success' && needs.program-plan.result == 'success' && contains(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv5stage-rva23'].program_groups, 'highway') }}
+    uses: ./.github/workflows/ci-software.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.program-plan.outputs.run-matrices)['highway']['simple-rv5stage-rva23']) }}
+
+  act-build-simple-spike-rva23:
+    name: ACT build / simple-spike-rva23
+    needs: [plan, compile-racket, sail]
+    if: ${{ always() && !cancelled() && needs.compile-racket.result == 'success' && needs.sail.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['simple-spike-rva23'].arch }}
+    uses: ./.github/workflows/ci-arch-build.yml
+    with:
+      config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-spike-rva23'].arch_config) }}
+      racket-version: ${{ needs.plan.outputs.racket_version }}
+      rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
+
+  act-simple-spike-rva23:
+    name: ACT / simple-spike-rva23
+    needs: [plan, sim-simple-spike-rva23, act-build-simple-spike-rva23]
+    if: ${{ always() && !cancelled() && needs.sim-simple-spike-rva23.result == 'success' && needs.act-build-simple-spike-rva23.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['simple-spike-rva23'].arch }}
+    uses: ./.github/workflows/ci-arch.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-spike-rva23'].arch_matrix) }}
+
+  program-short-simple-spike-rva23:
+    name: Software / simple-spike-rva23 / short
+    needs: [plan, sim-simple-spike-rva23, program-plan, program-builds-isa, program-builds-short]
+    if: ${{ always() && !cancelled() && needs.sim-simple-spike-rva23.result == 'success' && needs.program-plan.result == 'success' && contains(fromJSON(needs.plan.outputs.plan).config_jobs['simple-spike-rva23'].program_groups, 'short') }}
+    uses: ./.github/workflows/ci-software.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.program-plan.outputs.run-matrices)['short']['simple-spike-rva23']) }}
+
+  program-bringup-simple-spike-rva23:
+    name: Software / simple-spike-rva23 / bringup
+    needs: [plan, sim-simple-spike-rva23, program-plan, program-builds-bringup]
+    if: ${{ always() && !cancelled() && needs.sim-simple-spike-rva23.result == 'success' && needs.program-plan.result == 'success' && contains(fromJSON(needs.plan.outputs.plan).config_jobs['simple-spike-rva23'].program_groups, 'bringup') }}
+    uses: ./.github/workflows/ci-software.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.program-plan.outputs.run-matrices)['bringup']['simple-spike-rva23']) }}
+
+  program-skl-simple-spike-rva23:
+    name: Software / simple-spike-rva23 / skl
+    needs: [plan, sim-simple-spike-rva23, program-plan, program-builds-skl]
+    if: ${{ always() && !cancelled() && needs.sim-simple-spike-rva23.result == 'success' && needs.program-plan.result == 'success' && contains(fromJSON(needs.plan.outputs.plan).config_jobs['simple-spike-rva23'].program_groups, 'skl') }}
+    uses: ./.github/workflows/ci-software.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.program-plan.outputs.run-matrices)['skl']['simple-spike-rva23']) }}
+
+  program-highway-simple-spike-rva23:
+    name: Software / simple-spike-rva23 / highway
+    needs: [plan, sim-simple-spike-rva23, program-plan, program-builds-highway]
+    if: ${{ always() && !cancelled() && needs.sim-simple-spike-rva23.result == 'success' && needs.program-plan.result == 'success' && contains(fromJSON(needs.plan.outputs.plan).config_jobs['simple-spike-rva23'].program_groups, 'highway') }}
+    uses: ./.github/workflows/ci-software.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.program-plan.outputs.run-matrices)['highway']['simple-spike-rva23']) }}
+
+  act-build-simple-rv2wide-rva23:
+    name: ACT build / simple-rv2wide-rva23
+    needs: [plan, compile-racket, sail]
+    if: ${{ always() && !cancelled() && needs.compile-racket.result == 'success' && needs.sail.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv2wide-rva23'].arch }}
+    uses: ./.github/workflows/ci-arch-build.yml
+    with:
+      config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv2wide-rva23'].arch_config) }}
+      racket-version: ${{ needs.plan.outputs.racket_version }}
+      rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
+
+  act-simple-rv2wide-rva23:
+    name: ACT / simple-rv2wide-rva23
+    needs: [plan, sim-simple-rv2wide-rva23, act-build-simple-rv2wide-rva23]
+    if: ${{ always() && !cancelled() && needs.sim-simple-rv2wide-rva23.result == 'success' && needs.act-build-simple-rv2wide-rva23.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv2wide-rva23'].arch }}
+    uses: ./.github/workflows/ci-arch.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv2wide-rva23'].arch_matrix) }}
+
+  program-short-simple-rv2wide-rva23:
+    name: Software / simple-rv2wide-rva23 / short
+    needs: [plan, sim-simple-rv2wide-rva23, program-plan, program-builds-isa, program-builds-short]
+    if: ${{ always() && !cancelled() && needs.sim-simple-rv2wide-rva23.result == 'success' && needs.program-plan.result == 'success' && contains(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv2wide-rva23'].program_groups, 'short') }}
+    uses: ./.github/workflows/ci-software.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.program-plan.outputs.run-matrices)['short']['simple-rv2wide-rva23']) }}
+
+  program-bringup-simple-rv2wide-rva23:
+    name: Software / simple-rv2wide-rva23 / bringup
+    needs: [plan, sim-simple-rv2wide-rva23, program-plan, program-builds-bringup]
+    if: ${{ always() && !cancelled() && needs.sim-simple-rv2wide-rva23.result == 'success' && needs.program-plan.result == 'success' && contains(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv2wide-rva23'].program_groups, 'bringup') }}
+    uses: ./.github/workflows/ci-software.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.program-plan.outputs.run-matrices)['bringup']['simple-rv2wide-rva23']) }}
+
+  program-skl-simple-rv2wide-rva23:
+    name: Software / simple-rv2wide-rva23 / skl
+    needs: [plan, sim-simple-rv2wide-rva23, program-plan, program-builds-skl]
+    if: ${{ always() && !cancelled() && needs.sim-simple-rv2wide-rva23.result == 'success' && needs.program-plan.result == 'success' && contains(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv2wide-rva23'].program_groups, 'skl') }}
+    uses: ./.github/workflows/ci-software.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.program-plan.outputs.run-matrices)['skl']['simple-rv2wide-rva23']) }}
+
+  program-highway-simple-rv2wide-rva23:
+    name: Software / simple-rv2wide-rva23 / highway
+    needs: [plan, sim-simple-rv2wide-rva23, program-plan, program-builds-highway]
+    if: ${{ always() && !cancelled() && needs.sim-simple-rv2wide-rva23.result == 'success' && needs.program-plan.result == 'success' && contains(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv2wide-rva23'].program_groups, 'highway') }}
+    uses: ./.github/workflows/ci-software.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.program-plan.outputs.run-matrices)['highway']['simple-rv2wide-rva23']) }}
+
+  platform-simple-rv5stage-rva23:
+    name: Platform / simple-rv5stage-rva23
+    needs: [plan, sim-simple-rv5stage-rva23, platform-plan, platform-builds-opensbi]
+    if: ${{ always() && !cancelled() && needs.sim-simple-rv5stage-rva23.result == 'success' && needs.platform-plan.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv5stage-rva23'].platform }}
+    uses: ./.github/workflows/ci-platform.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.platform-plan.outputs.run-matrices)['simple-rv5stage-rva23']) }}
+
+  platform-simple-spike-rva23:
+    name: Platform / simple-spike-rva23
+    needs: [plan, sim-simple-spike-rva23, platform-plan, platform-builds-opensbi]
+    if: ${{ always() && !cancelled() && needs.sim-simple-spike-rva23.result == 'success' && needs.platform-plan.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['simple-spike-rva23'].platform }}
+    uses: ./.github/workflows/ci-platform.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.platform-plan.outputs.run-matrices)['simple-spike-rva23']) }}
+
+  platform-simple-rv2wide-rva23:
+    name: Platform / simple-rv2wide-rva23
+    needs: [plan, sim-simple-rv2wide-rva23, platform-plan, platform-builds-opensbi]
+    if: ${{ always() && !cancelled() && needs.sim-simple-rv2wide-rva23.result == 'success' && needs.platform-plan.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv2wide-rva23'].platform }}
+    uses: ./.github/workflows/ci-platform.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.platform-plan.outputs.run-matrices)['simple-rv2wide-rva23']) }}
+
+  platform-tiled-rv5stage-rva23:
+    name: Platform / tiled-rv5stage-rva23
+    needs: [plan, sim-tiled-rv5stage-rva23, platform-plan, platform-builds-litmus]
+    if: ${{ always() && !cancelled() && needs.sim-tiled-rv5stage-rva23.result == 'success' && needs.platform-plan.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['tiled-rv5stage-rva23'].platform }}
+    uses: ./.github/workflows/ci-platform.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.platform-plan.outputs.run-matrices)['tiled-rv5stage-rva23']) }}
+
+  platform-tiled-spike-rva23:
+    name: Platform / tiled-spike-rva23
+    needs: [plan, sim-tiled-spike-rva23, platform-plan, platform-builds-litmus]
+    if: ${{ always() && !cancelled() && needs.sim-tiled-spike-rva23.result == 'success' && needs.platform-plan.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['tiled-spike-rva23'].platform }}
+    uses: ./.github/workflows/ci-platform.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.platform-plan.outputs.run-matrices)['tiled-spike-rva23']) }}
+
   gate:
     name: CI
-    needs: [plan, compile-racket, sail, targets, harness-elfs, native, checks, simulator, simulation, software]
+    needs:
+      - plan
+      - compile-racket
+      - sail
+      - targets
+      - harness-isa
+      - harness-benchmark
+      - native
+      - checks
+      - program-plan
+      - program-builds-isa
+      - program-builds-short
+      - program-builds-bringup
+      - program-builds-skl
+      - program-builds-highway
+      - platform-plan
+      - platform-builds-opensbi
+      - platform-builds-litmus
+      - sim-simple-rv5stage-rv32int
+      - sim-simple-spike-rv32int
+      - sim-simple-rv5stage-rv32max
+      - sim-simple-spike-rv32max
+      - sim-simple-rv2wide-rv32int
+      - sim-simple-rv2wide-rv32max
+      - sim-simple-rv5stage-rva23
+      - sim-simple-spike-rva23
+      - sim-simple-rv2wide-rva23
+      - sim-tiled-rv5stage-rva23
+      - sim-tiled-spike-rva23
+      - sim-plain
+      - sim-cosim
+      - sim-plain-elf
+      - sim-cosim-elf
+      - act-build-simple-rv5stage-rv32int
+      - act-simple-rv5stage-rv32int
+      - program-short-simple-rv5stage-rv32int
+      - act-build-simple-spike-rv32int
+      - act-simple-spike-rv32int
+      - program-short-simple-spike-rv32int
+      - act-build-simple-rv5stage-rv32max
+      - act-simple-rv5stage-rv32max
+      - program-short-simple-rv5stage-rv32max
+      - act-build-simple-spike-rv32max
+      - act-simple-spike-rv32max
+      - program-short-simple-spike-rv32max
+      - act-build-simple-rv2wide-rv32int
+      - act-simple-rv2wide-rv32int
+      - program-short-simple-rv2wide-rv32int
+      - act-build-simple-rv2wide-rv32max
+      - act-simple-rv2wide-rv32max
+      - program-short-simple-rv2wide-rv32max
+      - act-build-simple-rv5stage-rva23
+      - act-simple-rv5stage-rva23
+      - program-short-simple-rv5stage-rva23
+      - program-bringup-simple-rv5stage-rva23
+      - program-skl-simple-rv5stage-rva23
+      - program-highway-simple-rv5stage-rva23
+      - act-build-simple-spike-rva23
+      - act-simple-spike-rva23
+      - program-short-simple-spike-rva23
+      - program-bringup-simple-spike-rva23
+      - program-skl-simple-spike-rva23
+      - program-highway-simple-spike-rva23
+      - act-build-simple-rv2wide-rva23
+      - act-simple-rv2wide-rva23
+      - program-short-simple-rv2wide-rva23
+      - program-bringup-simple-rv2wide-rva23
+      - program-skl-simple-rv2wide-rva23
+      - program-highway-simple-rv2wide-rva23
+      - platform-simple-rv5stage-rva23
+      - platform-simple-spike-rva23
+      - platform-simple-rv2wide-rva23
+      - platform-tiled-rv5stage-rva23
+      - platform-tiled-spike-rva23
     if: always()
     runs-on: ubuntu-slim
     timeout-minutes: 5
@@ -377,24 +1117,7 @@ jobs:
       - name: Verify selected workflows passed
         env:
           PLAN: ${{ needs.plan.outputs.plan }}
-          COMPILE_RESULT: ${{ needs.compile-racket.result }}
-          SAIL_RESULT: ${{ needs.sail.result }}
-          TARGETS_RESULT: ${{ needs.targets.result }}
-          NATIVE_RESULT: ${{ needs.native.result }}
-          HARNESS_ELFS_RESULT: ${{ needs.harness-elfs.result }}
-          CHECKS_RESULT: ${{ needs.checks.result }}
-          SIMULATOR_RESULT: ${{ needs.simulator.result }}
-          SIMULATION_RESULT: ${{ needs.simulation.result }}
-          SOFTWARE_RESULT: ${{ needs.software.result }}
+          RESULTS: ${{ toJSON(needs) }}
         run: |
           test "${{ needs.plan.result }}" = success
-          python3 -m tools.ci.gate "$PLAN" \
-            "compile=$COMPILE_RESULT" \
-            "sail=$SAIL_RESULT" \
-            "targets=$TARGETS_RESULT" \
-            "native=$NATIVE_RESULT" \
-            "harness-elfs=$HARNESS_ELFS_RESULT" \
-            "checks=$CHECKS_RESULT" \
-            "simulator=$SIMULATOR_RESULT" \
-            "simulation=$SIMULATION_RESULT" \
-            "software=$SOFTWARE_RESULT"
+          python3 -m tools.ci.gate "$PLAN" "$RESULTS"
