@@ -1,0 +1,3 @@
+# Adapts generated litmus7 tests and upstream startup for the fixed-hart bare-metal port.
+# SPDX-License-Identifier: Apache-2.0
+0001-baremetal-runtime.patch

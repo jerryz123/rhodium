@@ -1,0 +1,107 @@
+Adapts pinned litmus7 output and startup for fixed-hart bare-metal execution.
+SPDX-License-Identifier: Apache-2.0
+
+Apply through the ordered series to build-local copies. Preserve generated test instructions,
+outcome collection, sampling defaults, and the existing histogram format.
+
+diff --git a/crt.S b/crt.S
+--- a/crt.S
++++ b/crt.S
+@@ -123,5 +123,5 @@
+   # get core id
+   csrr a0, mhartid
+-  # for now, assume only 1 core
+-  li a1, 1
++  # Boot the selected fixed litmus worker pool.
++  li a1, LITMUS_HARTS
+ 1:bgeu a0, a1, 1b
+diff --git a/litmus7-test.c b/litmus7-test.c
+--- a/litmus7-test.c
++++ b/litmus7-test.c
+@@ -43,34 +43,26 @@
+-typedef struct {
+-  volatile int c,sense;
+-  int n ;
+-} sense_t;
+-
+-static void barrier_init (sense_t *p,int n) {
+-  p->n = p->c = n;
+-  p->sense = 0;
+-}
+-
+-/* C coding, play it safe with mbar's */
+-
+-inline static void mbar_loc(void) {
+-  asm __volatile__ ("fence rw,rw" ::: "memory");
+-}
+-
+-__attribute__ ((noinline)) static void barrier_wait(sense_t *p) {
+-  mbar_loc() ;
+-  int sense = p->sense ;
+-  mbar_loc();
+-  int rem = __sync_add_and_fetch(&p->c,-1) ;
+-  mbar_loc() ;
+-  if (rem == 0) {
+-    p->c = p->n ;
+-    mbar_loc();
+-    p->sense = 1-sense ;
+-  } else {
+-    while (p->sense == sense) ;
+-  }
+-  mbar_loc() ;
++extern void litmus_baremetal_barrier_init(void *, int);
++extern void litmus_baremetal_barrier_wait(void *);
++
++typedef struct {
++  volatile int c,sense;
++  int n ;
++} sense_t;
++
++static void barrier_init (sense_t *p,int n) {
++  p->n = p->c = n;
++  p->sense = 0;
++  litmus_baremetal_barrier_init(p,n);
++}
++
++/* C coding, play it safe with mbar's */
++
++inline static void mbar_loc(void) {
++  asm __volatile__ ("fence rw,rw" ::: "memory");
++}
++
++__attribute__ ((noinline)) static void barrier_wait(sense_t *p) {
++  litmus_baremetal_barrier_wait(p);
+ }
+ /************/
+ /* Topology */
+ /************/
+@@ -216,3 +208,14 @@
++/* The fixed-argv port keeps these sampling defaults. Bound storage by all
++   observations, including forbidden outcomes, not by the model's state set. */
++#if SIZE_OF_TEST <= 0 || NUMBER_OF_RUN <= 0 || NEXE <= 0
++#error "Invalid litmus7 sampling dimensions"
++#endif
++#define RHODIUM_LITMUS_HASH_BOUND (2ULL * SIZE_OF_TEST * NUMBER_OF_RUN * NEXE + 1)
++#if HASHSZ > RHODIUM_LITMUS_HASH_BOUND
++#undef HASHSZ
++#define HASHSZ RHODIUM_LITMUS_HASH_BOUND
++#endif
++
+ typedef struct {
+   hashlog_t key ;
+ #ifdef STATS
+@@ -891,5 +894,5 @@
+-  fflush(out);
++  /* Bare-metal emit_char writes directly to HTIF. */
+   if (!g->hash_ok) {
+     emit_string(out,"Warning: some hash table was full, some outcomes were not collected\n");
+   }
+ }
+@@ -1001,5 +1004,7 @@
+   }
+ #ifdef OUT
++  /* Insertion and final merging both set this sticky failure flag. */
++  if (!glo_ptr->hash_ok) fatal("litmus7 histogram overflow");
+   tsc_t total = timeofday()-start;
+   count_t p_true = 0, p_false = 0;
+   for (int k = 0 ; k < HASHSZ ; k++) {

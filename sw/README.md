@@ -63,8 +63,11 @@ litmus7's static worker pool on physical harts without pthreads. Its output
 histogram is checked by the host runner against the pinned Herd states, since
 litmus7's own condition result is not a memory-model pass/fail result. The
 bare-metal port emits the test identity and complete histogram, omitting the
-unused witness footer to limit simulated HTIF traffic. The builder discovers
-model-backed candidate cases, including branches and memory outcomes. It filters
+unused witness footer to limit simulated HTIF traffic. Histogram storage is
+bounded by the requested sample count rather than all possible outcome
+combinations; overflow fails explicitly without accepting a partial histogram.
+The builder discovers model-backed candidate cases, including branches and
+memory outcomes. It filters
 Zalasr acquire/release ordinary loads and stores when the selected target lacks
 `zalasr`; a case is validated only after its ELF builds and runs on the selected
 SoC. `litmus-test` uses the same builder for explicit subsets, with

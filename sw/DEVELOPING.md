@@ -15,7 +15,7 @@ remain in [`socs/`](../socs/DEVELOPING.md),
 
 The named upstream submodules are pinned at repository gitlinks. Keep their
 checkouts pristine. Apply the ordered architectural-test, Bringup-Bench, Embench,
-OpenSBI, and SKL patch
+OpenSBI, SKL, and generated-litmus runtime patch
 series only to build-local copies through
 [`riscv/patched_submodule.py`](../riscv/patched_submodule.py). Put Rhodium-owned
 bare-metal startup, linkers, output checks, and ports beside their corresponding
@@ -90,13 +90,31 @@ generation, adaptation, compilation, and link failures in the manifest's
 nonzero if any case failed; `discovered_cases` is only a candidate count, not
 the number of runnable ELFs. Use the successful manifest entries for a separate
 simulation run and report build failures distinctly from simulator outcomes.
-The builder also replaces one recognized generated sense-barrier template with
-calls into the port's per-hart-arrival barrier, rejecting a changed template.
+The builder applies the ordered [runtime patch series](litmus-riscv-baremetal/patches/series)
+with the shared `riscv/patched_submodule.py` materializer. Each case stages the
+pristine generated test and upstream startup in `upstream-source/`; the
+materializer produces the patched `source/` tree used for compilation. The
+series, ordered patches, and materializer participate in the build identity.
+The builder does not rewrite source with regular expressions or string
+substitutions. The patch selects the startup hart count through `LITMUS_HARTS`
+and replaces the generated sense barrier with
+calls into the port's per-hart-arrival barrier, rejecting changed contexts.
 This avoids an atomic decrement on the shared counter in tiled simulation and
 removes the generated `fflush` after its directly emitted HTIF output. It does
 not rewrite generated test instructions or outcome code. The port forwards only
 the test identity and complete histogram with one HTIF write per line;
 litmus7's witness and provenance footer is not used by the model checker.
+The patch caps generated `HASHSZ` at twice the maximum observation count plus
+one, never increasing the upstream table size. The maximum observation count is
+`SIZE_OF_TEST * NUMBER_OF_RUN * NEXE`: the fixed-argv port preserves those
+generated defaults, and each instance records at most one outcome per internal
+iteration. Size by the sampling budget, not the model's allowed states, so an
+unexpected or forbidden outcome remains recordable. C preprocessor expressions
+consume the generated constants directly, without parsing their values. Check
+the sticky `hash_ok` flag after worker joins and histogram merging, before reporting any
+histogram; insertion or merge overflow must terminate as a harness error rather
+than silently omit observations. Keep barriers, generated test instructions,
+sample counts, and host histogram validation unchanged.
 Compile the generated test body with the port's `litmus7-streams.h` shim so
 its `stdout` and `stderr` identities do not evaluate Newlib's stream globals.
 The port ignores these stream arguments; do not let generated output pull in

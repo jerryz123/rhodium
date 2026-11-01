@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Builds target-bound litmus7 ELFs and manifests from pinned RISC-V model outcomes.
+# Builds target-bound litmus7 ELFs with sample-bounded histograms and pinned RISC-V model outcomes.
 # SPDX-License-Identifier: Apache-2.0
 import argparse
 import hashlib
@@ -11,9 +11,11 @@ import subprocess
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from build import check_elf_memory
 from program_target import (elf_architecture, load_target, probe_compiler, readelf_for,
                             target_fingerprint, elf_build_metadata)
+from riscv.patched_submodule import materialize, read_series
 
 # The upstream model log keys outcomes by name, not path. Resolve only the
 # duplicate names whose source variant we explicitly select here.
@@ -98,28 +100,6 @@ def supported_litmus7_cases(cases, extensions):
             if not ZALASR_INSTRUCTION.search(entry[0].read_text())}
 
 
-def adapt_litmus7_runtime(path):
-    source = path.read_text()
-    declaration = 'typedef struct {\n  volatile int c,sense;\n  int n ;\n} sense_t;'
-    initialization = '  p->n = p->c = n;\n  p->sense = 0;'
-    flush = '  fflush(out);'
-    barrier = re.compile(r'__attribute__ \(\(noinline\)\) static void barrier_wait\(sense_t \*p\) \{\n.*?\n\}', re.S)
-    matches = barrier.findall(source)
-    if (source.count(declaration) != 1 or source.count(initialization) != 1 or
-            source.count(flush) != 1 or
-            len(matches) != 1 or '  int rem = __sync_add_and_fetch(&p->c,-1) ;' not in matches[0]):
-        raise ValueError(f'{path}: unrecognized litmus7 barrier template')
-    source = source.replace(declaration,
-                            'extern void litmus_baremetal_barrier_init(void *, int);\n'
-                            'extern void litmus_baremetal_barrier_wait(void *);\n' + declaration)
-    source = source.replace(initialization,
-                            initialization + '\n  litmus_baremetal_barrier_init(p,n);')
-    source = barrier.sub('__attribute__ ((noinline)) static void barrier_wait(sense_t *p) {\n'
-                         '  litmus_baremetal_barrier_wait(p);\n}', source)
-    source = source.replace(flush, '  /* Bare-metal emit_char writes directly to HTIF. */')
-    path.write_text(source)
-
-
 def litmus7_codegen_march(extensions):
     """Keep litmus support code scalar without changing generated test instructions."""
     supported = set(extensions)
@@ -157,6 +137,7 @@ def main():
     if args.litmus7_libdir and not args.litmus7_libdir.is_dir():
         parser.error('--litmus7-libdir requires an existing directory')
     source, runtime, riscv_tests = args.source.resolve(), args.runtime.resolve(), args.riscv_tests.resolve()
+    series, patches = read_series(runtime / 'patches/series')
     revision = subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip()
     subprocess.run(['git', '-C', str(source), 'diff', '--quiet', 'HEAD'], check=True)
     riscv_tests_revision = subprocess.check_output(
@@ -189,6 +170,7 @@ def main():
                 key_bytes += support.relative_to(args.litmus7_libdir).as_posix().encode()
                 key_bytes += hashlib.sha256(support.read_bytes()).digest()
     for path in (Path(__file__), runtime / 'link.ld.in',
+                 Path(__file__).resolve().parents[2] / 'riscv/patched_submodule.py', series, *patches,
                  runtime / 'litmus7-port.c', runtime / 'litmus7-main.c',
                  runtime / 'litmus7-streams.h', runtime / 'htif.h', common / 'crt.S',
                  common / 'syscalls.c', common / 'util.h',
@@ -212,21 +194,18 @@ def main():
                               .replace('@RAM_ORIGIN@', hex(target['ram'][0]['base']))
                               .replace('@RAM_LENGTH@', hex(target['ram'][0]['size']))
                               .replace('@STACK_BYTES@', str(hart_count * 128 * 1024)))
-            crt = common.joinpath('crt.S').read_text()
-            marker = '  # for now, assume only 1 core\n  li a1, 1\n'
-            if crt.count(marker) != 1:
-                raise RuntimeError('upstream multihart startup marker changed')
-            (case_dir / 'crt.S').write_text(crt.replace(marker, f'  # Boot selected litmus harts\n  li a1, {hart_count}\n'))
             elf = case_dir / f'{name}.elf'
             flags = [compiler, '-O2', '-mcmodel=medany', '-static', '-fno-common', '-fno-pie',
                      f'-march={codegen_march}', f'-mabi={target["mabi"]}',
                      f'-I{riscv_tests / "env"}', f'-I{common}']
             generated = case_dir / 'litmus7'
+            local_source = case_dir / 'source'
+            test_source = local_source / 'litmus7-test.c'
             test_object = case_dir / 'litmus7-test.o'
             command = flags + ['-include', str(runtime / 'htif.h'),
                                f'-I{generated}', f'-DLITMUS_HARTS={hart_count}',
                                f'-DLITMUS_CLOCK_HZ={target["clock_frequency_hz"]}',
-                               str(case_dir / 'crt.S'), str(common / 'syscalls.c'),
+                               str(local_source / 'crt.S'), str(common / 'syscalls.c'),
                                str(runtime / 'litmus7-port.c'), str(runtime / 'litmus7-main.c'),
                                str(generated / 'litmus_io.c'), str(generated / 'litmus_rand.c'),
                                str(test_object), '-nostartfiles', '-no-pie',
@@ -250,17 +229,23 @@ def main():
                         raise RuntimeError(f'{name}: litmus7 generation failed; see {output / "build.log"}')
                     build_failures.append(dict(name=name, source=str(path.relative_to(source)), stage='generation'))
                     continue
+                upstream_source = case_dir / 'upstream-source'
+                upstream_source.mkdir(exist_ok=True)
+                shutil.copyfile(common / 'crt.S', upstream_source / 'crt.S')
+                shutil.copyfile(generated / f'{name}.c', upstream_source / 'litmus7-test.c')
+                log.write(f'Materializing {upstream_source} with {series} into {local_source}\n')
                 try:
-                    adapt_litmus7_runtime(generated / f'{name}.c')
-                except ValueError:
+                    materialize(upstream_source, series, local_source)
+                except (OSError, ValueError, subprocess.CalledProcessError) as error:
+                    log.write(f'{name}: runtime patch series failed: {error}\n')
                     if not args.keep_going:
-                        raise
-                    build_failures.append(dict(name=name, source=str(path.relative_to(source)), stage='runtime adaptation'))
+                        raise RuntimeError(f'{name}: runtime patch series failed; see {output / "build.log"}') from error
+                    build_failures.append(dict(name=name, source=str(path.relative_to(source)), stage='runtime patch series'))
                     continue
                 compile_test = flags + [f'-I{generated}', '-Dmain=litmus_generated_main',
                                         '-fno-builtin-fprintf', '-include',
                                         str(runtime / 'litmus7-streams.h'),
-                                        '-c', str(generated / f'{name}.c'), '-o', str(test_object)]
+                                        '-c', str(test_source), '-o', str(test_object)]
                 log.write(' '.join(compile_test) + '\n')
                 result = subprocess.run(compile_test, stdout=log, stderr=subprocess.STDOUT)
                 if result.returncode:
