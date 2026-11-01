@@ -31,7 +31,7 @@
     "fy-shuffle": 180342,
     "gcd-list": 82737,
     "gemm": 1295754,
-    "grad-descent": 454595,
+    "grad-descent": 346621,
     "graph-tests": 17490,
     "hanoi": 47698,
     "heapsort": 182907,
