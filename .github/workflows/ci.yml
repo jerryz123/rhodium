@@ -98,7 +98,7 @@ jobs:
             ${{ runner.temp }}/rhodium-project-cache
           key: ${{ runner.os }}-${{ runner.arch }}-racket-completed-v2-${{ env.RACKET_VERSION }}-rhombus-${{ env.RHOMBUS_CHECKSUM }}-${{ env.RHODIUM_BYTECODE_WORKSPACE_KEY }}-${{ hashFiles('tools/refresh-racket-project-cache.sh', 'tools/invalidate-racket-build-cache.rkt', 'tools/compile-racket-sources.sh', '.github/actions/setup-racket-cache/action.yml') }}-${{ github.sha }}
       - name: Publish exact compiled root
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: rhodium-bytecode-${{ github.sha }}
           path: ${{ runner.temp }}/rhodium-compiled
@@ -155,7 +155,7 @@ jobs:
           python3 sims/cosim/runtime/artifact.py record "$runtime"
           tar -czf "$RUNNER_TEMP/sail-riscv/runtime.tar.gz" "$runtime/artifact.json" "$runtime/link-flags.txt" "$runtime"/*.a
       - name: Publish exact-commit Sail model
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sail-riscv-${{ github.sha }}
           path: ${{ runner.temp }}/sail-riscv
@@ -208,7 +208,7 @@ jobs:
             --targets "$RUNNER_TEMP/targets" --output "$RUNNER_TEMP/targets/harness-plan.json"
           echo "harness-matrices=$(jq -c '.build.include | group_by(.suite) | map({key: .[0].suite, value: {include: .}}) | from_entries' "$RUNNER_TEMP/targets/harness-plan.json")" >> "$GITHUB_OUTPUT"
       - name: Publish shared target descriptions
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: targets-${{ github.sha }}
           path: ${{ runner.temp }}/targets
@@ -262,7 +262,7 @@ jobs:
           python3 sims/program-test/archive.py --manifest "$manifest" \
             --archive "$RUNNER_TEMP/harness-elfs/$BUILD_ID.tar.gz"
       - name: Publish shared harness ELFs
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: harness-elfs-${{ matrix.build_id }}-${{ github.sha }}
           path: ${{ runner.temp }}/harness-elfs
@@ -271,7 +271,7 @@ jobs:
           retention-days: 7
       - name: Publish harness build diagnostics
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: harness-build-${{ matrix.build_id }}-${{ github.sha }}
           path: |
@@ -328,7 +328,7 @@ jobs:
           python3 sims/program-test/archive.py --manifest "$manifest" \
             --archive "$RUNNER_TEMP/harness-elfs/$BUILD_ID.tar.gz"
       - name: Publish shared harness ELFs
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: harness-elfs-${{ matrix.build_id }}-${{ github.sha }}
           path: ${{ runner.temp }}/harness-elfs
@@ -337,7 +337,7 @@ jobs:
           retention-days: 7
       - name: Publish harness build diagnostics
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: harness-build-${{ matrix.build_id }}-${{ github.sha }}
           path: |
