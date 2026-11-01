@@ -1,0 +1,53 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("rhodium/frontend/layers/statistics.rhm").stat_count
+  lib("rhodium/compile/pipeline.rhm").rtl_pipeline_target
+  lib("rhodium/backend/rsim-target.rhm").rsim_target
+  "../pass.rhm".statistics_pass
+
+sync_circuit Counted():
+  input event: Bool
+  output value: Bits(8)
+  reg count(~init: Bits(8)(0))
+  when event:
+    count <== count + Bits(8)(1)
+  value <== count
+  stat_count("events", event)
+  stat_count("never", Bool(#false))
+
+sync_circuit StatisticsFixture():
+  input left_event: Bool
+  input right_event: Bool
+  output left_value: Bits(8)
+  output right_value: Bits(8)
+  inst left(Counted())
+  inst right(Counted())
+  left.event <== left_event
+  right.event <== right_event
+  left_value <== left.value
+  right_value <== right.value
+  stat_count("cycles", Bool(#true))
+
+sync_circuit Duplicate():
+  stat_count("same", Bool(#true))
+  stat_count("same", Bool(#false))
+
+sync_circuit BadType():
+  stat_count("bad", Bits(1)(0))
+
+sync_circuit Conditional():
+  input event: Bool
+  when event:
+    stat_count("bad", event)
+
+circuit OtherDomain():
+  input clock: Clock
+  input reset: Reset
+  input other_clock: Clock
+  inst child(Counted(), ~clock: other_clock, ~reset: reset)
+  child.event <== Bool(#true)
+
+def program = elaborate(StatisticsFixture())
+def target = rtl_pipeline_target(rsim_target, [statistics_pass()])
+export program target Duplicate BadType Conditional OtherDomain

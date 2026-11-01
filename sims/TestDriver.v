@@ -14,6 +14,7 @@ module TestDriver;
   import "DPI-C" function int rhodium_sim_end();
   import "DPI-C" function int rhodium_sim_drain();
   import "DPI-C" function int rhodium_sim_finish();
+  import "DPI-C" function int rhodium_sim_report(input longint unsigned cycles);
 
   // Compile passes may add unused observation outputs, never functional inputs.
   /* verilator lint_off PINMISSING */
@@ -79,7 +80,7 @@ module TestDriver;
       $fatal(1, "SoC harness reported target failure: exit word %0d", pending_exit);
     end else begin
       // Publish only after successful finalization; exclude post-exit drain.
-      $display("RHODIUM-PERF: cycles=%0d", completion_cycles);
+      check_runtime(rhodium_sim_report(completion_cycles));
       $display("SoC harness simulation passed");
       $finish;
     end

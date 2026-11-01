@@ -1,0 +1,25 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "fixture.rhdl" open
+  "../pass.rhm".statistics_pass
+  "../../frontend/foundation.rhm".elaborate
+  "../../core/printer.rhm".dump_ir
+  "../../compile/program.rhm".compile_program
+  "../../compile/rtl.rhm" open
+  "../../compile/pipeline.rhm" open
+
+def before = dump_ir(program.design)
+def plain = compile_program(program, rtl_target)
+def counted = compile_program(program, rtl_pipeline_target(rtl_target, [statistics_pass()]))
+check:
+  dump_ir(program.design) ~is before
+  plain.manifest.top ~is counted.manifest.top
+  plain.report.design.dpi_imports.length() ~is 0
+  counted.artifacts.length() ~is 2
+  counted.artifacts[0].content ~is "[{\"path\":[\"left\"],\"name\":\"events\"},{\"path\":[\"left\"],\"name\":\"never\"},{\"path\":[\"right\"],\"name\":\"events\"},{\"path\":[\"right\"],\"name\":\"never\"},{\"path\":[],\"name\":\"cycles\"}]\n"
+  elaborate(Duplicate()) ~throws "duplicate"
+  elaborate(BadType()) ~throws "annotation"
+  elaborate(Conditional()) ~throws "stat_count"
+  compile_program(program, rtl_pipeline_target(rtl_target, [statistics_pass(~clock: "missing")])) ~throws "clock/reset"
+  compile_program(elaborate(OtherDomain()), rtl_pipeline_target(rtl_target, [statistics_pass()])) ~throws "clock/reset"

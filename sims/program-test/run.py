@@ -74,6 +74,7 @@ def execute(test, simulator, root, output, timeout, cycles, cosim=False, expecte
     checked_records = None
     functional_status = None
     measured_cycles = None
+    statistics = None
     comparison = {}
     try:
         if hashlib.sha256(elf.read_bytes()).hexdigest() != test['sha256']:
@@ -109,7 +110,9 @@ def execute(test, simulator, root, output, timeout, cycles, cosim=False, expecte
                     status = 'timeout'
                     reason = 'cycle-timeout'
                 elif code == 0 and 'SoC harness simulation passed' in text:
-                    measured_cycles = performance.measure(text, cycles)
+                    measurement = performance.measure(text, cycles)
+                    measured_cycles = measurement['cycles']
+                    statistics = measurement['statistics']
                     if cosim:
                         completions = re.findall(r'^Sail cosim: checked ([0-9]+) scalar records$', text, re.MULTILINE)
                         if len(completions) == 1 and int(completions[0]) > 0:
@@ -160,7 +163,7 @@ def execute(test, simulator, root, output, timeout, cycles, cosim=False, expecte
     if checked_records is not None:
         result['cosim_checked_records'] = checked_records
     if measured_cycles is not None:
-        result.update(cycles=measured_cycles, **comparison)
+        result.update(cycles=measured_cycles, statistics=statistics, **comparison)
     result['functional_status'] = functional_status or status
     detail = f': {reason}' if reason else (f' ({measured_cycles} cycles)' if measured_cycles is not None else '')
     print(f'{status}: {test["name"]}{detail}', flush=True)
@@ -202,7 +205,7 @@ def main():
         if not args.simulator_metadata:
             parser.error('a target-bound manifest requires --simulator-metadata')
         simulator_metadata = json.loads(args.simulator_metadata.read_text())
-        cosim = simulator_metadata.get('variant') in ('cosim', 'trace-cosim')
+        cosim = 'cosim' in simulator_metadata.get('variant', '').split('-')
         if (simulator_metadata.get('target_fingerprint') != expected_fingerprint
                 or simulator_metadata.get('soc') != target['soc']
                 or simulator_metadata.get('sha256') != hashlib.sha256(args.simulator.read_bytes()).hexdigest()):

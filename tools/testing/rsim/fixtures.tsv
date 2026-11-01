@@ -1,5 +1,6 @@
 # Defines rsim fixtures, owner groups, program exports, drivers, and optional targets/link sources.
 # SPDX-License-Identifier: Apache-2.0
+statistics	language	rhodium/statistics/tests/fixture.rhdl	program	rhodium/statistics/tests/count.cpp	target	sims/statistics/collector.cc
 sync-memory-masked	language	examples/rtl/sync-memory-masked.rhdl	program	rhodium/backend/tests/rsim/sync-memory-masked.cpp
 counter	language	examples/rtl/counter.rhdl	program	rhodium/backend/tests/rsim/counter.cpp
 pipe	std	examples/std/flow-control.rhdl	pipe_program	flow/tests/rsim/pipe.cpp

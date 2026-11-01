@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 import resource
 import subprocess
+import sys
 
 
 def main():
@@ -12,18 +13,25 @@ def main():
     parser.add_argument("--build", type=Path, required=True)
     args = parser.parse_args()
     sims = Path(__file__).resolve().parents[1]
+    sys.path.insert(0, str(sims / 'program-test'))
+    from performance import measure
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
-    for trace, cosim in ((False, False), (True, False), (False, True), (True, True)):
-        name = f"trace{int(trace)}-cosim{int(cosim)}"
+    for trace, cosim, stats in ((False, False, False), (True, False, False), (False, True, False),
+                                (True, True, False), (False, False, True), (True, True, True)):
+        name = f"trace{int(trace)}-cosim{int(cosim)}-stats{int(stats)}"
         directory = args.build.resolve() / name
         directory.mkdir(parents=True, exist_ok=True)
         flags = "-std=c++20" + (" -DRHEG_TRACE" if trace else "") + (" -DRHODIUM_COSIM" if cosim else "")
+        if stats:
+            flags += f" -DRHODIUM_STATS -I{sims / 'tests'}"
         command = [args.verilator, "--binary", "--timing", "--vpi", "--assert", "--build-jobs", "2",
                    "--top-module", "TestDriver", "--Mdir", str(directory), "-CFLAGS", flags,
                    str(sims / "TestDriver.v"), str(sims / "tests/simulation-runtime.sv"),
                    str(sims / "verilator/simulation_runtime.cc"), str(sims / "tests/simulation-runtime.cc")]
         if trace:
             command.append("+define+TEST_TRACE")
+        if stats:
+            command.extend(["+define+TEST_STATS", str(sims / 'statistics/collector.cc')])
         result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=180)
         (directory / "build.log").write_text(result.stdout)
         if result.returncode:
@@ -39,7 +47,8 @@ def main():
             if not fail:
                 if result.stdout.count("SoC harness simulation passed") != 1 or "%Fatal" in result.stdout:
                     raise AssertionError(result.stdout)
-                if result.stdout.count("RHODIUM-PERF:") != 1 or "RHODIUM-PERF: cycles=5\n" not in result.stdout:
+                expected_stats = [dict(path=[], name='cycles', count=5), dict(path=[], name='never', count=0)] if stats else None
+                if measure(result.stdout, 100) != dict(cycles=5, statistics=expected_stats):
                     raise AssertionError(result.stdout)
             elif "SoC harness simulation passed" in result.stdout or "RHODIUM-PERF:" in result.stdout:
                 raise AssertionError(result.stdout)

@@ -179,6 +179,9 @@ class Selection:
             self.add_checks("host-examples")
         elif matches(path, ".githooks/pre-commit", "tools/check-license-headers.sh", "tools/check-parameter-annotations.rkt", "tools/parameter-annotation-scope.txt", "tools/check-boundaries.sh", "rfpl/check-boundaries.sh", "noc/check-boundaries.sh", "riscv/check-boundaries.sh", "chi/check-boundaries.sh", "cores/check-boundaries.sh", "socs/check-boundaries.sh"):
             self.add_checks("host-hygiene")
+        elif matches(path, "rhodium/statistics/*", "sims/statistics/*"):
+            self.add_checks("host-foundation", "rsim-std", "circt-verilog-differential")
+            self.simulation = True
         elif matches(path, "rhodium/event/*", "rheg/*"):
             self.add_checks("host-foundation", "host-backend", "circt-language")
             self.simulation = True

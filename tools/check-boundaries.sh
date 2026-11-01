@@ -95,6 +95,12 @@ fail_matches "frontend must not import optional diagram tooling" \
   '^[[:space:]]+"[^"]*diagram/' rhodium/frontend
 fail_matches "frontend must not import optional event tooling" \
   '^[[:space:]]+"[^"]*event/' rhodium/frontend
+for package in core lowering compile frontend backend; do
+  fail_matches "$package must not import optional statistics tooling" \
+    '^[[:space:]]+"[^"]*statistics/' "rhodium/$package"
+done
+fail_matches "statistics tooling must remain independent of backends and simulator runtimes" \
+  '^[[:space:]]+"[^"]*(backend|formal|std|sims)/' rhodium/statistics
 fail_matches "backends must not import optional diagram tooling" \
   '^[[:space:]]+"[^"]*diagram/' rhodium/backend
 fail_matches "backends must not import optional event tooling" \

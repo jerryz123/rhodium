@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Compares whole-ELF cycles by config, suite, and test name and imports numeric baselines from CI.
+# Validates whole-ELF execution statistics and compares cycle baselines by configuration.
 # SPDX-License-Identifier: Apache-2.0
 import argparse
 import json
@@ -23,12 +23,31 @@ def positive(value):
 
 def measure(text, maximum):
     lines = [line for line in text.splitlines() if line.startswith('RHODIUM-PERF:')]
-    if len(lines) != 1 or not re.fullmatch(r'RHODIUM-PERF: cycles=[1-9][0-9]*', lines[0]):
-        raise ValueError('missing, duplicate, or malformed whole-ELF cycle record')
-    cycles = int(lines[0].split('=')[1])
+    if len(lines) != 1:
+        raise ValueError('missing or duplicate execution record')
+    record = json.loads(lines[0].removeprefix('RHODIUM-PERF:'))
+    if not isinstance(record, dict) or set(record) != {'cycles', 'statistics'} or not positive(record['cycles']):
+        raise ValueError('malformed execution record')
+    cycles = record['cycles']
     if cycles > maximum:
         raise ValueError('whole-ELF cycle record exceeds max-cycles')
-    return cycles
+    stats = record['statistics']
+    if stats is not None:
+        if not isinstance(stats, list):
+            raise ValueError('malformed statistics collection')
+        seen = set()
+        for entry in stats:
+            if (not isinstance(entry, dict) or set(entry) != {'path', 'name', 'count'}
+                    or not isinstance(entry['path'], list)
+                    or not all(isinstance(part, str) and part for part in entry['path'])
+                    or not isinstance(entry['name'], str) or not entry['name']
+                    or type(entry['count']) is not int or not 0 <= entry['count'] <= min(cycles, 2**64 - 1)):
+                raise ValueError('malformed statistic')
+            identity = (tuple(entry['path']), entry['name'])
+            if identity in seen:
+                raise ValueError('duplicate statistic identity')
+            seen.add(identity)
+    return record
 
 
 def enrolled(soc, suite):
@@ -101,7 +120,7 @@ def write_record(output, record, payload):
         return
     measured = {key: payload[key] for key in ('complete', 'pending', 'shard_index', 'shard_count', 'build_failures')}
     measured.update(performance=record, tests=[{key: result[key] for key in
-                    ('name', 'status', 'functional_status', 'cycles', 'expected_cycles', 'delta_percent', 'reason') if key in result}
+                    ('name', 'status', 'functional_status', 'cycles', 'statistics', 'expected_cycles', 'delta_percent', 'reason') if key in result}
                     for result in payload['tests']])
     path = output / 'performance.json'
     temporary = path.with_suffix('.json.tmp')

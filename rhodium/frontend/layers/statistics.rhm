@@ -1,0 +1,33 @@
+#lang rhombus
+/* Declares passive, reset-suppressed per-instance cycle counters for optional instrumentation. */
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../../support/annotations.rhm".AsciiIdentifier
+  "../../core/ir.rhm" open
+  "../kernel.rhm" as kernel
+  "../support/fields.rhm".HardwareFields
+  "../support/fields.rhm".Bool
+  "../support/clocking.rhm".ambient_clock
+  "../support/clocking.rhm".ambient_reset_active
+
+export:
+  stat_count
+  StatCount
+
+/* Keeps live observations remappable through hierarchy copying and RTL passes. */
+class StatCount(name :: AsciiIdentifier, condition :: Value, clock :: Value, reset :: Value):
+  implements ModuleMetadataPayload
+  /* Rebind observations without changing the local statistic name. */
+  override method remap_ir(remap :: Function.of_arity(1)):
+    StatCount(name, remap(condition), remap(clock), remap(reset))
+
+/* Count true samples, not transitions; compilation decides whether to realize the observation. */
+fun stat_count(name :: AsciiIdentifier, condition :: HardwareFields.of(Bool)):
+  kernel.reject_unsupported_conditional_effect("stat_count", Location(), "include the hardware guard in the condition")
+  def owner = kernel.active_module()
+  when for any (entry in owner.metadata_for("rhodium.stat_count")): entry.name == name
+  | error(~who: #'stat_count, "duplicate statistic name in one module: " ++ name)
+
+  def value = kernel.read(condition)
+  unless value.module_def === owner | error(~who: #'stat_count, "condition must belong to the declaring module")
+  owner.add_metadata("rhodium.stat_count", StatCount(name, value, ambient_clock(), ambient_reset_active()))

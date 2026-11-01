@@ -26,7 +26,8 @@ def main():
     parser.add_argument('--soc', required=True)
     parser.add_argument('--target', type=Path)
     parser.add_argument('--backend', choices=('circt', 'verilog', 'rsim'), default='rsim')
-    parser.add_argument('--variant', choices=('normal', 'trace', 'cosim', 'trace-cosim'), default='normal')
+    parser.add_argument('--variant', choices=('normal', 'trace', 'cosim', 'trace-cosim',
+                                             'normal-stats', 'trace-stats', 'cosim-stats', 'trace-cosim-stats'), default='normal')
     parser.add_argument('--rtl', type=Path, help='emitted RTL (MLIR or SystemVerilog) used to build this binary (required for recording)')
     parser.add_argument('--configuration', type=Path, help='resolved configuration accompanying ACT payloads')
     args = parser.parse_args()

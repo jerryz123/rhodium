@@ -28,6 +28,7 @@ OPT_SLOW ?= $(OPT_FAST)
 OPT_GLOBAL ?= $(OPT_FAST)
 TRACE ?= 0
 COSIM ?= 0
+STATS ?= 0
 TRACE_FILE ?=
 NLOHMANN_JSON_INCLUDE_DIR ?=
 BUILD_JOBS ?= 4
@@ -97,8 +98,18 @@ COSIM_DEPENDENCIES = $(COSIM_CONFIG_DIR)/runtime-config.h $(COSIM_RUNTIME_DEPEND
 else ifneq ($(COSIM),0)
 $(error COSIM must be 0 or 1)
 endif
-HARNESS_VARIANT := $(if $(filter 1,$(TRACE)),trace$(if $(filter 1,$(COSIM)),-cosim),$(if $(filter 1,$(COSIM)),cosim,normal))
-HARNESS_FLAGS = $(if $(filter-out normal,$(HARNESS_VARIANT)),--$(HARNESS_VARIANT) "$(SOC_BUILD_DIR)")
+ifeq ($(STATS),1)
+SOC_BUILD_DIR := $(SOC_BUILD_DIR)-stats
+STATS_HEADER = $(SOC_BUILD_DIR)/soc_statistics.h
+STATS_SOURCES := $(CURDIR)/statistics/collector.cc
+STATS_DEPENDENCIES = $(STATS_HEADER) $(CURDIR)/statistics/collector.h
+STATS_CFLAGS = -DRHODIUM_STATS -I$(SOC_BUILD_DIR)
+else ifneq ($(STATS),0)
+$(error STATS must be 0 or 1)
+endif
+BASE_HARNESS_VARIANT := $(if $(filter 1,$(TRACE)),trace$(if $(filter 1,$(COSIM)),-cosim),$(if $(filter 1,$(COSIM)),cosim,normal))
+HARNESS_VARIANT := $(BASE_HARNESS_VARIANT)$(if $(filter 1,$(STATS)),-stats)
+HARNESS_FLAGS = $(if $(filter 1,$(STATS)),--stats "$(SOC_BUILD_DIR)") $(if $(filter-out normal,$(BASE_HARNESS_VARIANT)),--$(BASE_HARNESS_VARIANT) "$(SOC_BUILD_DIR)")
 DPI_BUILD_DIR := $(BUILD_ROOT)/tools
 TILED_LOWERING_DIR := $(BUILD_ROOT)/tiled-lowering
 SPIKE_LOWERING_DIR := $(BUILD_ROOT)/spike-lowering
@@ -259,6 +270,7 @@ dpi-compile-check: $(FESVR_LIBRARY) | $(DPI_BUILD_DIR)
 .PHONY: simulation-runtime-test
 simulation-runtime-test:
 	$(PYTHON) tests/check-simulation-runtime.py --verilator "$(VERILATOR)" --build "$(REPO_DIR)/.rhodium-cache/simulation-runtime-tests"
+	$(PYTHON) tests/check-statistics.py --verilator "$(VERILATOR)" --backend rsim --backend verilog --build "$(REPO_DIR)/.rhodium-cache/statistics-tests"
 
 .PHONY: branch-prediction-test
 branch-prediction-test:
@@ -400,6 +412,15 @@ endif
 
 # Regenerate the entire multi-file emission once if a required companion is
 # missing. Make shares the SV prerequisite between parallel companion targets.
+ifeq ($(STATS),1)
+ifeq ($(wildcard $(STATS_HEADER)),)
+.PHONY: statistics-missing-companion
+$(SOC_EMITTED): statistics-missing-companion
+endif
+$(STATS_HEADER): $(SOC_EMITTED)
+	@test -f "$@"
+endif
+
 ifeq ($(RTL_BACKEND),rsim)
 ifneq ($(words $(wildcard $(SOC_RSIM_SOURCES) $(SOC_RSIM_HEADERS))),3)
 .PHONY: rsim-missing-companion
@@ -420,7 +441,7 @@ $(SIMULATOR_BINARY): $(CURDIR)/Makefile $(SOC_VERILOG) $(SOC_RSIM_SOURCES) $(SOC
                      $(VERILATOR_DIR)/direct_mem_htif_dpi.h \
                      $(SOC_DPI_SOURCE) \
                      $(SOC_DPI_HEADER) \
-                     $(TRACE_SOURCES) $(TRACE_DEPENDENCIES) $(COSIM_SOURCES) $(COSIM_DEPENDENCIES) \
+                     $(TRACE_SOURCES) $(TRACE_DEPENDENCIES) $(COSIM_SOURCES) $(COSIM_DEPENDENCIES) $(STATS_SOURCES) $(STATS_DEPENDENCIES) \
                      $(FESVR_LIBRARY) $(SOC_DPI_DEPENDENCY)
 	# Direct RTL keeps legal constant comparisons that CIRCT normally folds.
 	# The outer prerequisites include libraries omitted from Verilator's link rule.
@@ -431,8 +452,8 @@ $(SIMULATOR_BINARY): $(CURDIR)/Makefile $(SOC_VERILOG) $(SOC_RSIM_SOURCES) $(SOC
 	  --top-module TestDriver --Mdir $(SOC_OBJECT_DIR) \
 	  $(SOC_VERILOG) $(SOC_RSIM_SOURCES) $(CURDIR)/TestDriver.v \
 	  $(FESVR_DIR)/direct_mem_htif.cc $(VERILATOR_DIR)/direct_mem_htif_dpi.cc \
-	  $(SOC_DPI_SOURCE) $(TRACE_SOURCES) $(COSIM_SOURCES) $(VERILATOR_DIR)/image_memory_map.cc $(VERILATOR_DIR)/simulation_runtime.cc \
-	  -CFLAGS "-I$(FESVR_PREFIX)/include -I$(FESVR_DIR) -I$(VERILATOR_DIR) -I$(CHI_DPI_DIR) -std=c++20 $(SOC_DPI_CFLAGS) $(TRACE_CFLAGS) $(COSIM_CFLAGS)" \
+	  $(SOC_DPI_SOURCE) $(TRACE_SOURCES) $(COSIM_SOURCES) $(STATS_SOURCES) $(VERILATOR_DIR)/image_memory_map.cc $(VERILATOR_DIR)/simulation_runtime.cc \
+	  -CFLAGS "-I$(FESVR_PREFIX)/include -I$(FESVR_DIR) -I$(VERILATOR_DIR) -I$(CHI_DPI_DIR) -std=c++20 $(SOC_DPI_CFLAGS) $(TRACE_CFLAGS) $(COSIM_CFLAGS) $(STATS_CFLAGS)" \
 	  -LDFLAGS "$(SOC_DPI_LDFLAGS) $(FESVR_LIBRARY) -pthread $(TRACE_LDFLAGS) $(COSIM_LDFLAGS)"
 else
 $(SIMULATOR_BINARY):

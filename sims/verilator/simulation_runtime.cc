@@ -7,6 +7,11 @@
 #ifdef RHEG_TRACE
 #include "event_trace.h"
 #endif
+#ifdef RHODIUM_STATS
+#include "../statistics/collector.h"
+#include "soc_statistics.h"
+#include <optional>
+#endif
 #include <vpi_user.h>
 #include <charconv>
 #include <cstdint>
@@ -19,6 +24,10 @@ enum class Phase { New, Idle, Sampling, Finished };
 Phase phase = Phase::New;
 bool failed = false, reset_active = true;
 std::uint64_t sample = 0;
+bool reported = false;
+#ifdef RHODIUM_STATS
+std::optional<rhodium::statistics::Collector> statistics;
+#endif
 #ifdef RHEG_TRACE
 bool trace_open = false;
 std::uint64_t trace_cycle = 0;
@@ -79,6 +88,9 @@ extern "C" int rhodium_sim_open() noexcept {
   return checked([] {
     require(phase == Phase::New, "runtime already initialized");
     [[maybe_unused]] const auto config = options();
+#ifdef RHODIUM_STATS
+    statistics.emplace(rhodium::statistics::descriptors);
+#endif
 #ifdef RHEG_TRACE
     trace_open = rhodium::simulation::open_event_trace(config.trace_path.c_str()) == 0;
     require(trace_open, "event trace initialization failed");
@@ -95,6 +107,9 @@ extern "C" int rhodium_sim_begin(svBit reset) noexcept {
   return checked([&] {
     require(phase == Phase::Idle, "sample start outside idle phase");
     reset_active = reset;
+#ifdef RHODIUM_STATS
+    statistics->begin(reset_active);
+#endif
 #ifdef RHODIUM_COSIM
     require(rhodium::cosim::begin_sample(sample) == 0, "cosimulation sample start failed");
 #endif
@@ -106,6 +121,9 @@ extern "C" int rhodium_sim_end() noexcept {
   return checked([] {
     require(phase == Phase::Sampling, "sample end without sample start");
     int status = 0;
+#ifdef RHODIUM_STATS
+    statistics->end();
+#endif
 #ifdef RHODIUM_COSIM
     status |= rhodium::cosim::end_sample();
 #endif
@@ -122,6 +140,9 @@ extern "C" int rhodium_sim_drain() noexcept {
   int ready = 1;
   const int status = checked([&] {
     require(phase == Phase::Idle, "drain outside settled sample");
+#ifdef RHODIUM_STATS
+    statistics->freeze();
+#endif
 #ifdef RHODIUM_COSIM
     ready = rhodium::cosim::drain_simulation();
     require(ready >= 0, "cosimulation drain failed");
@@ -144,3 +165,26 @@ extern "C" int rhodium_sim_finish() noexcept {
   phase = Phase::Finished;
   return failed ? 1 : 0;
 }
+
+// The driver publishes only after successful HTIF completion and finalization.
+extern "C" int rhodium_sim_report(unsigned long long cycles) noexcept {
+  return checked([&] {
+    require(phase == Phase::Finished && !reported && cycles > 0, "invalid execution report");
+    std::string counts = "null";
+#ifdef RHODIUM_STATS
+    counts = statistics->json();
+#endif
+    std::printf("RHODIUM-PERF: {\"cycles\":%llu,\"statistics\":%s}\n", cycles, counts.c_str());
+    reported = true;
+  });
+}
+
+#ifdef RHODIUM_STATS
+// Never propagate C++ exceptions through the simulator's foreign-call boundary.
+extern "C" void rhodium_stat_count(int id) noexcept {
+  checked([&] {
+    require(phase == Phase::Sampling, "statistic outside sampled edge");
+    statistics->count(static_cast<std::uint32_t>(id));
+  });
+}
+#endif

@@ -16,3 +16,4 @@ extern "C" int rhodium_sim_end() noexcept;
 // Freeze instrumentation admission; -1 is failure, 0 needs more clocks, 1 is drained.
 extern "C" int rhodium_sim_drain() noexcept;
 extern "C" int rhodium_sim_finish() noexcept;
+extern "C" int rhodium_sim_report(unsigned long long cycles) noexcept;

@@ -1,0 +1,21 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+import lib("rhodium/frontend/layers/statistics.rhm").stat_count
+
+sync_circuit StatisticsChild():
+  input event: Bool
+  stat_count("events", event)
+
+sync_circuit SoCHarness():
+  output exit: Bits(32)
+  reg cycles(~init: Bits(8)(0))
+  cycles <== cycles + Bits(8)(1)
+  exit <== mux(cycles === Bits(8)(5), Bits(32)(1), Bits(32)(0))
+  inst every(StatisticsChild())
+  inst alternate(StatisticsChild())
+  every.event <== Bool(#true)
+  alternate.event <== cycles[0].into(Bool)
+  stat_count("never", Bool(#false))
+
+def program = elaborate(SoCHarness())
+export program

@@ -1,0 +1,114 @@
+#lang rhombus
+/* Materializes passive counters as occurrence-specific DPI samples and detached descriptors. */
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("json/main.rkt").#{jsexpr->string} as json_string
+  "../core/ir.rhm" open
+  "../core/builder.rhm".Builder
+  "../compile/contracts.rhm".Artifact
+  "../compile/pipeline.rhm" open
+  "../compile/rtl.rhm".PreparedRTL
+  "../event/copy.rhm".copy_module
+  "../frontend/layers/statistics.rhm".StatCount
+
+export statistics_pass
+
+/* Select run counters for one explicit top-level clock/reset domain, with no functional ports. */
+fun statistics_pass(~clock: clock_name :: String = "clock", ~reset: reset_name :: String = "reset"):
+  /* Copy marked occurrences independently so shared definitions never share a counter ID. */
+  fun transform(prepared :: PreparedRTL):
+    def source = prepared.rtl
+    def builder = Builder(Design())
+    def imports = MutableMap.by(===){}
+    for (item in source.design.dpi_imports):
+      imports[item] := builder.dpi_import_results(item.name, item.input_names, item.input_types, item.results, item.location)
+
+    when source.design.find_dpi_import("rhodium_stat_count")
+    | error(~who: #'statistics_pass, "statistics instrumentation already present or reserved DPI name in use")
+
+    def callback = builder.dpi_import("rhodium_stat_count", ["id"], [Bits(32)])
+    def descriptors = MutableList[]
+    def prefixes = MutableList[]
+    def marked = MutableMap.by(===){}
+    def unchanged = MutableMap.by(===){}
+    def mutable serial = 0
+
+    /* Memoize whether a module or any descendant contains a declaration. */
+    fun contains_stats(owner :: Module):
+      unless marked.has_key(owner)
+      | marked[owner] := owner.metadata_for("rhodium.stat_count").length() > 0 || (for any (op in owner.operations): op.opcode == "rtl.instance" && contains_stats(op.attribute("module")))
+
+      marked[owner]
+
+    /* Resolve transparent aliases and explicitly connected parent inputs to top-level roots. */
+    fun root(value :: Value, bindings :: Map):
+      def op = value.module_def.find_operation(value.defining_op_id)
+      cond
+      | bindings.has_key(value.id): bindings[value.id]
+      | op.opcode == "rtl.cast": root(op.operands[0], bindings)
+      | op.opcode == "rtl.wire": root(op.places[0].driver, bindings)
+      | ~else: value
+
+    def top_clock = source.top.inputs.find(fun (port): port.name == clock_name)
+    def top_reset = source.top.inputs.find(fun (port): port.name == reset_name)
+    when contains_stats(source.top) && !(top_clock && top_reset)
+    | error(~who: #'statistics_pass, "statistics require explicit top clock/reset inputs")
+
+    /* Allocate private definition names while preserving all logical instance paths. */
+    fun fresh(base :: String):
+      serial := serial + 1
+      def name = base ++ "__statistics_" ++ to_string(serial)
+      if source.design.find_module_named(name) || builder.design.find_module_named(name) | fresh(base) | name
+
+    /* Copied auto-names may overlap fresh IR IDs; use a checked private value namespace. */
+    fun fresh_value(owner :: Module):
+      serial := serial + 1
+      def name = "__stat_" ++ to_string(serial)
+      if owner.hardware_name_used(name) | fresh_value(owner) | name
+
+    /* Copy a hierarchy, validating every observed domain before inserting a foreign call. */
+    fun rebuild(original :: Module, path :: List.of(String), bindings :: Map):
+      def active = contains_stats(original)
+      cond
+      | !active && unchanged.has_key(original): unchanged[original]
+      | ~else:
+          def children = MutableMap{}
+          for (op in original.operations):
+            when op.opcode == "rtl.instance"
+            | def child :: Module = op.attribute("module")
+              def child_bindings = for Map (port in child.inputs, place in op.places):
+                values(port.value.id, root(place.driver, bindings))
+
+              children[op.id] := rebuild(child, path ++ [op.attribute("name")], child_bindings)
+
+          def copied = copy_module(builder, original, if path == [] | original.name | fresh(original.name), children, imports)
+          def owner = copied.module_def
+          def names = MutableSet{}
+          for (entry :: StatCount in original.metadata_for("rhodium.stat_count")):
+            when entry.name in names | error(~who: #'statistics_pass, "duplicate local statistic name")
+            names.add(entry.name)
+            unless root(entry.clock, bindings) === top_clock.value && root(entry.reset, bindings) === top_reset.value
+            | error(~who: #'statistics_pass, "statistics must share the selected top clock/reset domain")
+
+            def id = descriptors.length()
+            def prefix = "{\"path\":[" ++ String.join(path.map(json_string), ",") ++ "],\"name\":" ++ json_string(entry.name)
+            descriptors.add(prefix ++ "}")
+            prefixes.add(json_string(prefix ++ ",\"count\":"))
+            def condition = builder.cast(owner, copied.values[entry.condition.id], Bits(1), fresh_value(owner))
+            def reset = builder.cast(owner, copied.values[entry.reset.id], Bits(1), fresh_value(owner))
+            def enabled = builder.bit_not(owner, reset, fresh_value(owner))
+            def enable = builder.bit_and(owner, condition, enabled, fresh_value(owner))
+            builder.dpi_call(owner, callback, [builder.constant(owner, Bits(32), id, fresh_value(owner))], copied.values[entry.clock.id], enable)
+
+          builder.finish(owner)
+          unless active | unchanged[original] := copied
+          copied
+
+    def result = rebuild(source.top, [], {})
+    def header = "// Generated statistic identities in numeric callback order.\n#pragma once\n#include <array>\n#include <string_view>\nnamespace rhodium::statistics {\ninline constexpr std::array<std::string_view, " ++ to_string(prefixes.length()) ++ "> descriptors = {" ++ String.join(prefixes.snapshot(), ",") ++ "};\n}\n"
+    RTLPassResult(DesignElaboration(builder.design, result.module_def), [
+      Artifact("statistics.json", "application/json", "[" ++ String.join(descriptors.snapshot(), ",") ++ "]\n"),
+      Artifact("statistics.h", "text/x-c++hdr", header)
+    ])
+
+  RTLPass("statistics", transform)

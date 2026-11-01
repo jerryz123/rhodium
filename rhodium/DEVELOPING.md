@@ -117,6 +117,7 @@ the [clocking plan](CLOCKING_PLAN.md).
 | [`../rfpl/`](../rfpl/README.md) | Physical views over existing modules: opaque hard macros and wiring-only composite floorplans with contained child coordinates | Public core IR only |
 | [`diagram/`](diagram/README.md) | Read-only logical block, hierarchy, compound-interface, and flow visualization with JSON and DOT output | Core IR and interface-owned nonsemantic metadata |
 | [`event/`](event/README.md) | Static dependency inference, immutable metadata/DPI instrumentation, and manifest/descriptor generation | Core IR, Builder, verifier, portable IR remapper and metadata certification, neutral compile contracts and RTL pipeline in `trace-pass.rhm`, logical diagrams, interface-owned instance-context metadata, other event modules, and Racket JSON string encoding |
+| [`statistics/`](statistics/README.md) | Optional per-occurrence sampled-count RTL pass and descriptors | Core IR/Builder, neutral compile contracts/pipeline/preparation, `event/copy.rhm`, statistics declaration metadata, Racket JSON string encoding |
 | [`../rheg/`](../rheg/README.md) | Independent C++ event collector, manifest-bound snapshots, and streaming/standalone Perfetto export | Runtime: C++ standard library only; exporter: runtime and private nlohmann JSON dependency |
 | [`std/`](std/README.md) | Optional host utilities, protocols, and circuit generators written in ordinary Rhodium | Public `#lang rhodium` authoring surface only |
 | [`../flow/`](../flow/README.md) | Streaming buffers, arbitration, routing, packet adapters, and configured topology stages | Public `#lang rhodium`; focused `std/` modules; other flow modules |
@@ -851,7 +852,7 @@ This table is the authoritative inventory of bundled frontend layers. Update
 it when adding, removing, or changing a layer's direct dependencies.
 
 <details>
-<summary>Show all 20 frontend-layer dependency rows</summary>
+<summary>Show all 21 frontend-layer dependency rows</summary>
 
 | Layer | Provides | Direct Rhodium dependencies |
 |---|---|---|
@@ -868,6 +869,7 @@ it when adding, removing, or changing a layer's direct dependencies.
 | `sync-memory.rhm` | Circuit-shaped synchronous memories with fixed read, write, and shared read-write ports plus optional packed-lane write masks | core IR, kernel, clocking support, field support |
 | `assertion.rhm` | Reset-suppressed clocked assertions with branch-derived guards and optional labels | kernel, clocking support |
 | `dpi.rhm` | Design-level DPI-C imports, result-less procedure calls, and explicit named DPI result registers | core IR, kernel, clocking support, field support |
+| `statistics.rhm` | Independently imported passive `stat_count` declarations | core IR, kernel, clocking support, field support, dependency-neutral `support/annotations.rhm` |
 | `interface.rhm` | Roles, directional interfaces, refinement, endpoint shapes, local links, N-to-M transforms, typed trace routes and named event captures, linear callable handles and sinks, topology static information, generic circuit boundaries, annotations, and compatible bulk connection | core IR, kernel, field support, instance-member support, variant-schema support, dependency-neutral `support/annotations.rhm` |
 | `wire.rhm` | Binding-derived forward-readable single-driver connections | kernel, field support |
 | `sequential.rhm` | Binding-derived explicit and ambient registers | kernel, clocking support, field support |

@@ -896,6 +896,28 @@ by their build inputs, but results are always rerun. Full Linux suite validation
 necessary before treating these new lanes as required branch-protection checks.
 CI also runs the focused eight-hart benchmarks on both Tiled cores.
 
+### RTL statistics
+
+Build with `STATS=1` to collect RTL `stat_count` declarations:
+
+```sh
+make -C sims run SOC=mini-rv5stage-rva23 STATS=1 BINARY=/path/to/program.elf
+```
+
+This is a compile-target option, independent of `TRACE` and `COSIM`, supported
+by rsim, direct Verilog, and CIRCT. It changes neither the SoC selection nor the
+hardware generator parameters. See the [declaration and pass API](../rhodium/statistics/README.md).
+It enables authored sites, not a predefined core counter catalog.
+
+The successful `RHODIUM-PERF:` record is JSON with `cycles` and `statistics`.
+`statistics` is `null` when disabled; otherwise it is an array of
+`{"path":["instance"],"name":"counter","count":0}` entries, including zero counts.
+Paths are relative to the compiled top. Counts exclude reset and stop on the
+first HTIF exit edge, before drain. The native program runner retains them in
+`results.json` and, for enrolled suites, `performance.json`. Cycle regression
+thresholds do not compare these counters. Failed/incomplete runs do not publish
+a successful execution record.
+
 ### Whole-ELF cycle regressions
 
 Every successful native ELF run records simulated cycles from reset release to

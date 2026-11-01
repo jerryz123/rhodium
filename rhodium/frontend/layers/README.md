@@ -44,6 +44,7 @@ you are using. The surrounding documentation has narrower ownership:
 | State and effects | [`sync-memory.rhm`](sync-memory.rhm) | [Fixed-port synchronous memories](#synchronous-memories) |
 | State and effects | [`assertion.rhm`](assertion.rhm) | [Clocked assertions](#clocked-assertions) |
 | State and effects | [`dpi.rhm`](dpi.rhm) | [Clocked DPI](#clocked-dpi) |
+| Passive observation | [`statistics.rhm`](statistics.rhm) | [Optional cycle counters](../../statistics/README.md); import explicitly |
 | Control and hierarchy | [`conditional.rhm`](conditional.rhm) | [`when`, `switch`, and guarded effects](#conditional-assignment-and-effects) |
 | Control and hierarchy | [`hierarchy.rhm`](hierarchy.rhm) | [Instances and child access](#hierarchy) |
 | Clock domains | [`sync.rhm`](sync.rhm) | [Ambient clocks and reset derivation](#registers-and-synchronous-circuits) |

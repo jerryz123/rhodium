@@ -5,12 +5,19 @@ module SoCHarness(input clock, input reset, output logic [31:0] exit
 `endif
 );
   import "DPI-C" function void runtime_test_edge(input bit reset_active);
+`ifdef TEST_STATS
+  import "DPI-C" function void rhodium_stat_count(input int id);
+`endif
   integer cycles = 0;
 `ifdef TEST_TRACE
   assign __event_activity = clock;
 `endif
   always @(posedge clock) begin
     runtime_test_edge(reset);
+`ifdef TEST_STATS
+    // Exercise reset suppression in the host too; normal generated calls gate reset.
+    rhodium_stat_count(0);
+`endif
     if (reset) begin
       cycles <= 0;
       exit <= 0;

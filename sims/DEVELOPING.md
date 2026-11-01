@@ -896,11 +896,20 @@ of reporting. Failed generation must stop before DUT execution.
 The [public measurement and bootstrap contract](README.md#whole-elf-cycle-regressions)
 owns cycle semantics, enrolled workloads, tolerances, and commands.
 `TestDriver.v` freezes its counter at the first nonzero HTIF exit and publishes
-`RHODIUM-PERF: cycles=N` only after successful runtime finish and drain. The
+`RHODIUM-PERF: {"cycles":N,"statistics":null}` only after successful runtime finish and drain. The
 common program runner requires exactly one positive, bounded record for every
 successful ELF, independently of whether its suite has performance expectations.
 Keep this metric separate from guest counters, trace timestamps, wall time,
 and per-benchmark timing regions.
+
+`STATS=1` appends `statistics_pass()` to the compile pipeline and gives the
+build/attestation a `-stats` suffix. Its `soc_statistics.h` companion binds the
+native collector to every declared occurrence, including zero-count sites.
+`simulation_runtime.cc` brackets samples and freezes the collector on the first
+drain call; `TestDriver.v` publishes the combined record only after success.
+The runner retains the structured `statistics` array without interpreting
+counter names. Keep the pass, collector, runtime, and parser contract in sync;
+see [statistics development](../rhodium/statistics/DEVELOPING.md) for focused checks.
 
 `program-test/performance.py` owns measurement parsing, baseline matching,
 per-ELF comparison, summaries, and explicit import. The runner atomically

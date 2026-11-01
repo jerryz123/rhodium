@@ -7,6 +7,7 @@
 .PHONY: setup-verilator
 export PATH := $(CURDIR)/.tools/verilator/bin:$(PATH)
 .PHONY: event-test
+.PHONY: statistics-test
 .PHONY: event-runtime-test
 .PHONY: check-license-headers
 .PHONY: check-license-headers-staged
@@ -26,6 +27,7 @@ FRONTEND_TESTS := $(sort $(wildcard rhodium/frontend/tests/*-test.rhm))
 STD_TESTS := $(sort $(wildcard rhodium/std/tests/*-test.rhm))
 FLOW_TESTS := $(sort $(wildcard flow/tests/*-test.rhm))
 EVENT_TESTS := $(sort $(wildcard rhodium/event/tests/*-test.rhm))
+STATISTICS_TESTS := $(sort $(wildcard rhodium/statistics/tests/*-test.rhm))
 DIAGRAM_TESTS := $(sort $(wildcard rhodium/diagram/tests/*-test.rhm))
 BACKEND_TESTS := $(sort $(wildcard rhodium/backend/tests/*-test.rhm))
 FORMAL_TESTS := rhodium/formal/tests/suite.rkt
@@ -57,7 +59,7 @@ CIRCT_EXAMPLES = $(shell bash tools/testing/circt/run.sh --list-example-sources)
 CI_HOST_EXAMPLES = $(filter-out $(CIRCT_EXAMPLES),$(EXAMPLES))
 RACKET_COMPILE_SOURCES := $(sort \
   $(SUPPORT_ANNOTATION_TESTS) $(CORE_TESTS) $(LOWERING_TESTS) $(ANALYSIS_TESTS) $(FRONTEND_TESTS) \
-  $(STD_TESTS) $(FLOW_TESTS) $(EVENT_TESTS) $(DIAGRAM_TESTS) $(BACKEND_TESTS) $(COMPILE_TESTS) \
+  $(STD_TESTS) $(FLOW_TESTS) $(EVENT_TESTS) $(STATISTICS_TESTS) $(DIAGRAM_TESTS) $(BACKEND_TESTS) $(COMPILE_TESTS) \
   $(RFPL_TESTS) $(DEVICETREE_TESTS) devicetree/tests/write-fixture.rhm $(NOC_TESTS) $(RISCV_TESTS) \
   $(DEVICE_TESTS) $(CHI_TESTS) $(SOC_TESTS) $(COSIM_TESTS) $(HARDFLOAT_TESTS) $(PROCESSOR_TESTS) $(EXAMPLES) \
   socs/tests/write-device-trees.rhm \
@@ -132,6 +134,9 @@ diagram-test: check-boundaries
 event-test: check-boundaries
 	tools/run-racket-tests.sh $(EVENT_TESTS)
 
+statistics-test: check-boundaries
+	tools/run-racket-tests.sh $(STATISTICS_TESTS)
+
 event-runtime-test: check-boundaries
 	python3 tools/testing/rsim/run.py --fixture event-queue --fixture event-pipeline --fixture event-arbiter --fixture event-demux --fixture event-atomic-fork --fixture event-broadcast --fixture event-join --fixture event-stall --fixture event-offer --fixture event-retained --fixture event-window --fixture event-crossbar --fixture event-feedback --fixture event-branching --fixture event-partial --fixture event-offer-register --fixture event-parents --fixture event-instance --fixture event-retained-bank --fixture event-frontend --fixture event-home --fixture event-subordinate --fixture event-fesvr --fixture event-vector
 	FIXTURES="event-runtime event-elastic" bash tools/testing/circt/run.sh
@@ -172,7 +177,7 @@ formal-test: check-boundaries
 formal-differential-test: check-boundaries
 	bash rhodium/formal/tests/run-differential.sh
 
-unit-test: frontend-test std-test flow-test event-test diagram-test backend-test
+unit-test: frontend-test std-test flow-test event-test statistics-test diagram-test backend-test
 
 lop-test: check-boundaries
 	tools/run-racket-tests.sh $(LOP_FRONTEND_TESTS) $(LOP_BACKEND_TESTS)
@@ -278,7 +283,7 @@ update-verilog-goldens:
 
 host-checks: check-license-headers check-parameter-annotations support-annotation-test devicetree-test unit-test rfpl-unit-test noc-test riscv-test device-test chi-test soc-test hardfloat-host-test rv5stage-host-test
 
-ci-host-foundation-test: support-annotation-test frontend-test std-test flow-test event-test diagram-test
+ci-host-foundation-test: support-annotation-test frontend-test std-test flow-test event-test statistics-test diagram-test
 
 ci-host-backend-test: backend-test rsim-test
 
