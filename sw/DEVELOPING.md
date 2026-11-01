@@ -106,10 +106,17 @@ substitutions. The patch selects the startup hart count through `LITMUS_HARTS`
 and replaces the generated sense barrier with
 calls into the port's per-hart-arrival barrier, rejecting changed contexts.
 This avoids an atomic decrement on the shared counter in tiled simulation and
-removes the generated `fflush` after its directly emitted HTIF output. It does
-not rewrite generated test instructions or outcome code. The port forwards only
-the test identity and complete histogram with one HTIF write per line;
-litmus7's witness and provenance footer is not used by the model checker.
+removes the generated `fflush`. It does not rewrite generated test instructions
+or outcome collection. The second patch brackets the test identity and complete
+histogram with the port's output begin/end calls, then returns from the postlude
+before computing or formatting litmus7's unused witness and provenance footer.
+The generated postlude supplies static storage of `(HASHSZ + 2) * 1024` bytes:
+one bounded line per possible state plus the two header lines. The port appends
+directly to that buffer and sends the completed batch in one HTIF write. It
+needs neither allocation nor histogram-header parsing. Reject buffer overflow,
+overlong lines, and incomplete final lines before transmitting any histogram;
+keep HTIF failure reporting explicit. The host checker still validates the
+histogram structure, samples, and allowed outcomes.
 The patch caps generated `HASHSZ` at twice the maximum observation count plus
 one, never increasing the upstream table size. The maximum observation count is
 `SIZE_OF_TEST * NUMBER_OF_RUN * NEXE`: the fixed-argv port preserves those
@@ -125,9 +132,9 @@ Compile the generated test body with the port's `litmus7-streams.h` shim so
 its `stdout` and `stderr` identities do not evaluate Newlib's stream globals.
 The port ignores these stream arguments; do not let generated output pull in
 Newlib stdio's medlow-only objects at the high RAM address.
-Keep histogram-header parsing local and bounded: formatted input from Newlib
-pulls stdio and allocator objects whose medlow relocations cannot link into
-the high-address bare-metal memory image.
+Do not introduce Newlib formatted-input or allocator dependencies for output
+batching: their medlow relocations cannot link into the high-address bare-metal
+memory image. The generated storage and bounded character appends suffice.
 OpenSBI consumes the SoC's BootROM DTB at runtime; its build-local patch series
 initializes firmware-owned HTIF without a synthetic device-tree node. ACT's UDB/Sail platform
 configuration and its DUT runner likewise remain in `sims/arch-test/`.

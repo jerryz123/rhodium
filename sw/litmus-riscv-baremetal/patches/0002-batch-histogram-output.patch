@@ -1,0 +1,23 @@
+Emits only the complete model-checked histogram through one bounded output batch.
+SPDX-License-Identifier: Apache-2.0
+
+Apply after the bare-metal runtime adaptation. Upstream CeCILL-B notices
+remain unchanged. Preserve histogram formatting, test execution, and sampling.
+
+diff --git a/litmus7-test.c b/litmus7-test.c
+--- a/litmus7-test.c
++++ b/litmus7-test.c
+@@ -804,2 +804,7 @@
+ static void postlude(FILE *out,global_t *g,count_t p_true,count_t p_false,tsc_t total) {
++  extern void litmus_baremetal_output_begin(char *, size_t);
++  extern void litmus_baremetal_output_end(void);
++  /* One maximum-length line per possible state, plus the two header lines. */
++  static char output[(HASHSZ + 2) * 1024];
++  litmus_baremetal_output_begin(output, sizeof(output));
+   hash_t *hash = &g->hash ;
+@@ -813,2 +818,5 @@
++  litmus_baremetal_output_end();
++  /* Do not compute or format the unused witness/provenance footer. */
++  return;
+   emit_string(out,cond?"Ok":"No");
+   emit_string(out,"\n");

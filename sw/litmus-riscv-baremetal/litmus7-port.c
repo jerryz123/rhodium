@@ -1,9 +1,7 @@
-// Runs litmus7's fixed thread pool on the selected physical harts without an OS.
+// Runs litmus7's fixed physical-hart workers and sends each complete histogram in one HTIF write.
 // SPDX-License-Identifier: Apache-2.0
 #include <stdint.h>
-#include <limits.h>
 #include <stdio.h>
-#include <string.h>
 #include "utils.h"
 
 // litmus7's stream arguments are identities only; emit_char ignores them.
@@ -188,34 +186,22 @@ void interval_shuffle(st_t *seed, int *values, size_t count)
   }
 }
 
-static char output_line[1024];
-static unsigned output_length;
-static unsigned histogram_lines;
-static int saw_histogram;
+static char *output_buffer;
+static size_t output_capacity;
+static size_t output_length;
+static unsigned output_line_length;
 static int output_finished;
 
-static int parse_histogram_header(const char *line, unsigned *count)
+// The generated postlude supplies static storage bounded by its histogram capacity.
+void litmus_baremetal_output_begin(char *buffer, size_t capacity)
 {
-  static const char prefix[] = "Histogram (";
-  if (strncmp(line, prefix, sizeof(prefix) - 1) != 0)
-    return 0;
-  const char *cursor = line + sizeof(prefix) - 1;
-  if (*cursor < '0' || *cursor > '9')
-    return 0;
-  unsigned value = 0;
-  while (*cursor >= '0' && *cursor <= '9') {
-    unsigned digit = (unsigned)(*cursor++ - '0');
-    if (value > (UINT_MAX - digit) / 10)
-      return 0;
-    value = value * 10 + digit;
-  }
-  if (strcmp(cursor, " states)") != 0)
-    return 0;
-  *count = value;
-  return 1;
+  if (!buffer || !capacity || output_buffer)
+    fatal("invalid litmus7 output buffer");
+  output_buffer = buffer;
+  output_capacity = capacity;
 }
 
-static void emit_buffer(const char *buffer, unsigned length)
+static void emit_buffer(const char *buffer, size_t length)
 {
   volatile uint64_t request[8] __attribute__((aligned(64))) = {
     64, 1, (uintptr_t)buffer, length
@@ -230,41 +216,27 @@ static void emit_buffer(const char *buffer, unsigned length)
     fatal("litmus7 host output failed");
 }
 
-static void emit_line(void)
+// Flush only after the complete postlude has been assembled; failures never flush a partial batch.
+void litmus_baremetal_output_end(void)
 {
-  output_line[output_length] = 0;
-  int keep = 0;
-  if (!saw_histogram && strncmp(output_line, "Test ", 5) == 0)
-    keep = 1;
-  else if (!saw_histogram && parse_histogram_header(output_line, &histogram_lines)) {
-    keep = 1;
-    saw_histogram = 1;
-    if (!histogram_lines)
-      output_finished = 1;
-  } else if (saw_histogram && histogram_lines) {
-    keep = 1;
-    if (!--histogram_lines)
-      output_finished = 1;
-  }
-  if (keep) {
-    output_line[output_length] = '\n';
-    emit_buffer(output_line, output_length + 1);
-  }
-  output_length = 0;
+  if (!output_buffer || output_finished || !output_length || output_line_length)
+    fatal("incomplete litmus7 output");
+  emit_buffer(output_buffer, output_length);
+  output_finished = 1;
 }
 
 void emit_char(FILE *stream, char character)
 {
   (void)stream;
-  if (output_finished)
+  if (!output_buffer || output_finished)
     return;
-  if (character == '\n') {
-    emit_line();
-    return;
-  }
-  if (output_length + 1 >= sizeof(output_line))
+  if (output_length >= output_capacity)
+    fatal("litmus7 output exceeds bare-metal buffer");
+  if (character == '\n')
+    output_line_length = 0;
+  else if (++output_line_length >= 1024)
     fatal("litmus7 output line exceeds bare-metal buffer");
-  output_line[output_length++] = character;
+  output_buffer[output_length++] = character;
 }
 
 int fprintf(FILE *stream, const char *format, ...)

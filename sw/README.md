@@ -62,8 +62,8 @@ also need `LITMUS7_LIBDIR=/path/to/herdtools7/litmus/libdir`. The port runs
 litmus7's static worker pool on physical harts without pthreads. Its output
 histogram is checked by the host runner against the pinned Herd states, since
 litmus7's own condition result is not a memory-model pass/fail result. The
-bare-metal port emits the test identity and complete histogram, omitting the
-unused witness footer to limit simulated HTIF traffic. Histogram storage is
+bare-metal port sends the test identity and complete histogram in one HTIF write,
+without computing or formatting the unused witness footer. Histogram storage is
 bounded by the requested sample count rather than all possible outcome
 combinations; overflow fails explicitly without accepting a partial histogram.
 The builder discovers model-backed candidate cases, including branches and
