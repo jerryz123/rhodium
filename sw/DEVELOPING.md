@@ -68,6 +68,10 @@ name against the current target-filtered inventory instead of silently
 dropping unsupported cases. Full selects that entire inventory and records all
 build failures with `--keep-going`. The smoke file is a coverage and runtime
 selection, not a pass list: preserve known failure reproducers when changing it.
+Its 64 cases cover basic ordering and dependency/fence variants, same-address
+coherence, three-/four-hart propagation, and AMO/LR-SC acquire/release behavior.
+Keep one shared selection for all tiled cores; expanding this list does not
+change the separate sample-count or hart-placement policy.
 CI checks out herdtools7 at its workflow-pinned commit, installs its separate
 `aslref` library into the pinned OCaml switch, and then builds litmus7. The Make
 targets retain an explicit executable dependency for local use.

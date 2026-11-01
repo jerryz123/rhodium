@@ -1,14 +1,76 @@
-# Names the same bounded, model-checked litmus7 selection for all three tiled core bindings.
+# Selects 64 model-checked ordering, coherence, and atomic cases for all tiled core bindings.
 # SPDX-License-Identifier: Apache-2.0
-# Two-hart load/store, dependency, fence, AMO, and acquire coverage.
-MP
-SB
+
+# Basic two-hart ordering: unfenced, address/data/control dependencies, and full fences.
+2+2W+fence.rw.rws
+2+2W+poxxs
+LB
 LB+ctrls
-MP+fence.rw.rw+amoswap-rfi-addr
-MP+po+poaqaq+NEW
-# Three- and four-hart ordering coverage.
+LB+data+ctrl
+LB+datas
+LB+fence.rw.rw+ctrl
+LB+fence.rw.rw+data
+LB+fence.rw.rws
+MP
+MP+fence.rw.rw+addr
+MP+fence.rw.rws
+MP+po+ctrl
+MP+poxxs
+R
+R+fence.rw.rws
+R+poxxs
+S
+S+fence.rw.rw+ctrl
+S+fence.rw.rw+data
+S+fence.rw.rws
+S+poxxs
+SB
+SB+fence.rw.rws
+SB+poxxs
+
+# Same-address coherence: read/read, read/write, write/read, and write/write ordering.
+CoRR
+CoRR+X
+CoRW1
+CoRW2
+CoRW2+X
+CoWR
+CoWR0
+CoWW
+
+# Three-/four-hart propagation, dependency chains, and cumulative fences.
 WRC+addrs
+WRC+fence.r.rws
+WRC+data+addr
+WRC+ctrl+addr
+RWC+addr+fence.rw.rw
+RWC+fence.rw.rws
 IRIW+addrs
+IRIW+fence.r.rws
+IRIW+fence.rw.rws
+ISA2+pos+addr+addr
+ISA2+fence.rw.rws
+Z6.0+fence.rw.rws
+
+# AMO/LR-SC ordering, failed or mismatched reservations, and acquire/release to x0.
+AMO-FENCE
+ForwardAMO
+LR-SC-NOT-FENCE
+LR-SC-diff-loc1
+LR-SC-diff-loc2
+LR-SC-diff-loc3
+ISA-MP-DEP-ADDR-LR-FAIL
+MP+fence.rw.rw+amoswap-rfi-addr
+MP+fence.rw.rw+ctrl-amoswap-rfi-addr
+MP+fence.rw.rw+data-amoswap-addr
+LB+amoadd-data-amoadds
+LB+amoadd-data-amoadd.rl+amoadd.aq-data-amoadd
+MP+po+poaqaq+NEW
+MP+po+popaq+NEW
+MP+poprl+po+NEW
+SB+popaqs+NEW
+2+2W+porlrls+NEW
+
 # Preserve two observed Spike forbidden-outcome reproducers as regressions.
 2+2W+fence.rw.rwspx+fence.rw.rwsxp
 CoRW2+fence.rw.rwspx+X

@@ -649,10 +649,10 @@ selected hart reaches its exit; a nonzero exit from any hart fails the run.
 ACT and the complete program suites remain restricted to Simple compositions.
 
 Run the same model-checked litmus7 path in any eight-hart tiled composition.
-Smoke selects a fixed nine-case subset for CI on RV5Stage, RV2Wide, and Spike;
+Smoke selects a fixed 64-case subset for CI on RV5Stage, RV2Wide, and Spike;
 full selects every case supported
 by the target's ISA and hart count (3,443 at the current upstream pin). Each
-case boots only the two to four harts it needs:
+case boots only the one to four harts it needs:
 
 ```sh
 make -C sims litmus-setup

@@ -48,7 +48,7 @@ payloads remain under [`sims/tests/`](../sims/tests/) and
 [`sims/opensbi/tests/`](../sims/opensbi/tests/) because they test harness behavior.
 
 The litmus7 profiles share one target-bound builder and port.
-`litmus-smoke-test` runs a checked-in nine-case selection on all three tiled cores
+`litmus-smoke-test` runs a checked-in 64-case selection on all three tiled cores
 in CI, while `litmus-full-test` is a local/manual run of every target-supported
 case. A source-tree litmus7 build also needs `LITMUS7_LIBDIR`; see the
 [simulator workflow](../sims/README.md) for sharding, result paths, and the
