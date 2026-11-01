@@ -51,6 +51,13 @@ speculative inputs and retains its issue/completion contract. The core instead c
 one service with ordinary Flow arbitration and owner-tag routing. Scalar/vector
 movement bypasses that service and uses the reservation/write pair above.
 
+Independent scalar FP instructions may overlap vector FP arithmetic that writes
+only the vector register file. Admission still checks FPR dependencies and
+shared execution/read-port and return-cycle reservations. A vector-to-scalar
+FPR writer retains exclusive scalar FP ownership, including while it travels
+to WB before reserving its destination. FP-status CSR reads still wait for
+older scalar and vector FP effects.
+
 Drained describes accepted execution and load reservations, not speculative
 store-operand probes. Those read-only probes may repeat while Decode waits;
 they do not delay an architectural trap or interrupt.

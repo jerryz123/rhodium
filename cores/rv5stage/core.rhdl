@@ -271,7 +271,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   wire wb_vector_integer_write_pending: Bool
   def wb_vector_reserve_link = interface_link(Valid(Bits(5)))
   wire wb_vector_stores_pending: Bool
-  wire wb_vector_fp_write_pending: Bool
+  reg wb_vector_fp_write_pending(~init: Bool(#false))
   wire ex_vector_resolved_rs1: Bits(width)
   wire ex_vector_resolved_rs2: Bits(width)
   def wb_vector_scalar_result_link = interface_link(Valid(RegisterFileWrite(xlen)))
@@ -855,7 +855,11 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   id_csr_read_wait <== id_csr_read & csr_read_wait(id_instruction[20..32], !wb_fp.drained ||| id_older_fp_reservation_pending ||| id_vector_fp_pending, wb_vector_active ||| id_vector_launch_pending)
   def id_vector_state_wait = (wb_vector_active ||| id_vector_launch_pending) & (core_serializing_operation(id_control.system, id_control.fence, id_instruction) ||| id_management)
   def id_vector_memory_wait = (wb_vector_loads_pending & id_scalar_needs_unique) ||| (wb_vector_stores_pending & id_scalar_memory)
-  def id_vector_scalar_wait = (id_vector_instruction & wb_vector_integer_write_pending) ||| ((wb_vector_fp_write_pending ||| id_vector_fp_pending) & id_control.floating_point_valid)
+  /* Only vector-to-FPR writers require exclusive scalar FP ownership. Cover the
+     pre-WB admission gap as well as the accepted reservation; VRF-only arithmetic
+     uses the ordinary shared-service bookings and need not drain first. */
+  def id_vector_fpr_write_pending = wb_vector_fp_write_pending ||| id_vector_launch_matches(fun (control :: VectorControl(), _rd): control.floating_scalar_destination)
+  def id_vector_scalar_wait = (id_vector_instruction & wb_vector_integer_write_pending) ||| (id_vector_fpr_write_pending & id_control.floating_point_valid)
   def id_vector_wait = wb_vector_certification_pending ||| wb_vector_slow_admission ||| id_vector_memory_order_pending ||| id_vector_start_pending ||| id_vector_scalar_wait ||| id_vector_state_wait ||| id_vector_memory_wait
   def id_hazard_reasons = RV5StageHazardReasons():
     deferred_dependency: id_deferred_dependency_hazard
@@ -1009,7 +1013,6 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   wb_vector_fp_pending <== wb_vector.fp_pending
   wb_vector.precheck |> vector_precheck
   wb_vector_stores_pending <== wb_vector.stores_pending
-  wb_vector_fp_write_pending <== wb_vector.fp_pending
   wb_vector.multiply_request |> wb_vector_multiply_request_link.left
   wb_vector_multiply_result_link.right |> wb_vector.multiply_result
   wb_vector.divide_request |> wb_vector_divide_request_link.left
@@ -1049,6 +1052,11 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   wb_vector_replay <== wb_vector_launch.valid & !wb_vector_sink_ready
   wb_vector_launch |> filter_valid(descriptor => wb_vector_accepted & descriptor.control.integer & descriptor.control.scalar_destination & wb_vector_vd.any()) |> map_valid(_descriptor => wb_vector_vd) |> wb_vector_reserve_link.left
   wb_vector.floating_result |> wb_fp.vector_write
+  when (wb_fp.vector_reserve.fire()):
+    wb_vector_fp_write_pending <== Bool(#true)
+  elsewhen (wb_fp.vector_write.valid):
+    wb_vector_fp_write_pending <== Bool(#false)
+
   assert(!wb_vector_accepted ||| wb_input.valid, "vector_admission_has_live_wb_instruction")
   wb_vector_retention_path |> filter_valid(operation => wb_vector_accepted & operation.vector_context.control.memory & !wb_vector_fast) |> wb_vector_retirement.update
   assert(!wb_vector.outcome.valid ||| wb_vector_retirement.egress.valid, "vector_outcome_has_retained_instruction")

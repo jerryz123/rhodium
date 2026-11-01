@@ -3,6 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/backend/rsim-target.rhm").rsim_target
+  lib("rhodium/compile/pipeline.rhm").rtl_pipeline_target
+  lib("cores/tests/rsim/port-observers.rhm").port_observer_pass
   lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../../cores/rv5stage/tests/core-fixture.rhdl" open
   "../../../../cores/rv5stage/profile.rhm" open
@@ -12,4 +15,10 @@ import:
   "../../../../riscv/isa/xlen.rhm" open
 
 def program = elaborate(RV5StageCoreFixture(RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D, ~half_precision: HalfPrecisionProfile.Zfh), ~vector: VectorProfile.V, ~vector_extensions: vector_extensions(VectorExtension.Zvfh), ~vector_length: 128), ~reset_address: 0, ~fp_timing: FpExecutionTiming(3, 4, 2)))
-export program
+def target = rtl_pipeline_target(rsim_target, [port_observer_pass([
+  ["RV5StageFpScalar", "test_scalar_fp_overlap", [
+    ["fixed_issue_in", "valid"], ["fixed_issue_in", "bits", "context"]
+  ]],
+  ["RV5StageVectorPipeline", "test_vector_fp_overlap", [["fp_pending"]]]
+])])
+export program target

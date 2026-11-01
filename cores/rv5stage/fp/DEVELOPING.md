@@ -52,6 +52,10 @@ ports as their active counterparts, so core wiring does not branch on FP support
 3. Keep vector FPR reservation/write separate from arithmetic. Reserve before
    macro admission, exclude scalar FP work until completion, and clear only
    on the authorized write. Never feed that write back into its own admission.
+   Core Decode covers pre-admission vector FPR writers in EX/MEM/WB and the
+   accepted reservation through its write. Do not substitute general vector
+   FP activity for this ownership: VRF-only work may overlap independent scalar
+   FP instructions. General FP activity still orders FP-status CSR reads.
 4. Preserve load-hit/deferred-load write exclusion, NaN boxing, and FS/flag
    updates. Speculative store probes are not accepted work and cannot hold
    architectural trap/interrupt drain.

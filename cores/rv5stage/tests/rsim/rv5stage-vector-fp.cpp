@@ -1,6 +1,7 @@
 // Preserves the rv5stage-vector-fp cycle and architectural oracle through direct rsim.
 // SPDX-License-Identifier: Apache-2.0
 #include "driver.hpp"
+#include <vector>
 using data_resp_bits_t =
     std::remove_cvref_t<decltype(data_access_in.presponse.pbits)>;
 // Executes vector FP and scalar FP together through WB, checking ordered memory-visible results and flags.
@@ -20,6 +21,20 @@ std::uint64_t expected_data[512], expected_address[512];
 int expected_width[512];
 
 int pc = 0, expected_count = 0, stores = 0, cycles = 0, load_delay = 0;
+
+std::uint64_t overlap_pc;
+std::vector<bool> scalar_overlap_launch, vector_fp_live;
+
+extern "C" void test_scalar_fp_overlap(std::uint64_t rst,
+                                      std::uint64_t valid,
+                                      std::uint64_t context) {
+  scalar_overlap_launch.push_back(!rst && valid && context == overlap_pc);
+}
+
+extern "C" void test_vector_fp_overlap(std::uint64_t rst,
+                                      std::uint64_t pending) {
+  vector_fp_live.push_back(!rst && pending);
+}
 
 data_resp_bits_t pending_load;
 
@@ -701,12 +716,17 @@ void stimulus() {
     vec(0, 8, 8, 5, 0, 4);      // vadd.vx broadcasts raw signaling NaN
     emit(UINT64_C(0x1840f1d3)); // fdiv.s f3,f1,f4,dyn
     vec(UINT64_C(36), 24, 8, 8);
+    overlap_pc = pc * 4;
+    emit(UINT64_C(0xe0008f53)); // fmv.x.w x30,f1 during older vector FP work
     emit(UINT64_C(1123));
     vec(0, 24, 8,
         8); // taken BEQ redirects without losing the older authorized FP tail
     vstore(24, UINT64_C(8704), 2);
     for (int i = 0; i < 31; i++)
       expect_store(UINT64_C(8704) + i * 4, UINT64_C(0x7fc00000), 2);
+    li(10, 11000);
+    emit(UINT64_C(0x1e53023)); // sd x30,0(x10)
+    expect_store(11000, UINT64_C(0x3f800000), 3);
     emit(UINT64_C(0xe00181d3));
     li(10, UINT64_C(8832));
     emit(UINT64_C(0x353023));
@@ -758,11 +778,17 @@ void stimulus() {
     emit(UINT64_C(0x10f2d3)); // fadd.s f5,f1,f1,dyn
     vset(2, 0);
     vec(UINT64_C(16), 9, 8, 0, 0, 1); // vfmv.f.s f9,v8
+    // Even an independent scalar writer must respect vector-to-FPR ownership.
+    emit(UINT64_C(0x10ffd3)); // fadd.s f31,f1,f1,dyn
     emit(((UINT64_C(0xe2000053) | (9 << 15) | (3 << 7)) &
           low_mask(32))); // fmv.x.d x3,f9
     li(10, UINT64_C(10144));
     emit(UINT64_C(0x353023));
     expect_store(UINT64_C(10144), UINT64_C(0xffffffff3f800000), 3);
+    emit(UINT64_C(0xe00f81d3)); // fmv.x.w x3,f31
+    li(10, 11008);
+    emit(UINT64_C(0x353023));
+    expect_store(11008, UINT64_C(0x40000000), 3);
     li(10, UINT64_C(4280));
     emit(UINT64_C(0x53307)); // fld f6,0(x10)
     vec(UINT64_C(16), 9, 8, 0, 0, 1);
@@ -981,5 +1007,10 @@ int main() {
         rising();
     } catch (const Finished &) {
     }
+    CHECK(scalar_overlap_launch.size() == vector_fp_live.size());
+    bool overlapped = false;
+    for (std::size_t i = 0; i < scalar_overlap_launch.size(); ++i)
+      overlapped |= scalar_overlap_launch[i] && vector_fp_live[i];
+    CHECK(overlapped);
   });
 }
