@@ -28,6 +28,7 @@ sync_circuit RV5StageVectorTrace(slots :: Pow2Int):
   inst vector(VectorExecution(xlen, 128, Bits(64), ~vector_completion_slots: slots))
   vector.schedule_enable <== issue_ready
   vector.scalar_writeback.ready <== Bool(#true)
+  vector.floating_writeback.ready <== Bool(#true)
   vector.packed_memory <== Bool(#false)
   inst tokens(ValidPipe(VectorToken(XLen.X64, Bits(64), slots), 3, ~flushable: #true))
   decode.instruction <== instruction

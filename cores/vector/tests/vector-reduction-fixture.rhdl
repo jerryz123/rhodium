@@ -28,6 +28,7 @@ sync_circuit VectorReductionFixture(xlen :: XLen, vlen :: VectorLength):
   inst vector(VectorExecution(xlen, vlen, Bits(32)))
   vector.schedule_enable <== issue_ready
   vector.scalar_writeback.ready <== Bool(#true)
+  vector.floating_writeback.ready <== Bool(#true)
   vector.packed_memory <== Bool(#false)
   inst tokens(ValidPipe(VectorToken(xlen, Bits(32), 8), 3, ~flushable: #true))
   inst compute_maturity(ValidPipe(Bool, 1, ~flushable: #true))

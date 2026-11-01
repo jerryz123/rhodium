@@ -119,6 +119,14 @@ architectural returns use the existing multiplier-return observation.
 Local read admission uses `prior_claims_available` for client 2, observing
 accepted scalar multiply/FP claims before promising the local return edge.
 
+Scalar-bank results join the same atomic read admission through separate
+`scalar_writeback` and `floating_writeback` claims. Both carry the computed
+sequence-to-result delay; reject a conflicting claim before any operand read
+or reservation advances. The backend forwards these claims without storage.
+RV2Wide books the GPR and FPR calendars separately. RV5Stage accepts FPR claims
+under its existing exclusive-owner policy. Keep standalone fixtures' unused
+claims explicitly ready rather than accidentally stopping their sequencer.
+
 `../mmu/vector.rhdl` owns certification/probe contracts and
 `../mmu/vector-window.rhdl` owns the pinned two-page window. The named MMU owns
 lookups, walks, permissions context, and invalidation. `VectorBackend` composes

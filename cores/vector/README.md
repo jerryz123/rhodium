@@ -126,7 +126,12 @@ no VRF write grant when their acknowledgement arrives.
 
 Fixed shared services must honor their declared return latency and reserved
 write cycle. Variable services retain tagged results until accepted. Scalar
-results similarly require the caller to honor `scalar_writeback` reservations.
+GPR and FPR results similarly require the caller to honor `scalar_writeback`
+and `floating_writeback` reservations respectively. Each claim supplies the
+sequence-to-write delay and transfers atomically with the operand read. A caller
+with an already exclusive destination port may accept its claims unconditionally;
+otherwise it must arbitrate future cycles before granting them. These claims
+add no completed-result storage.
 Completion, sequencing release, and architectural retirement are separate events.
 Packed completion slots are reclaimed in order. A completed store does not need
 a VRF write-port grant to release its slot. Complete, lane-aligned packed load

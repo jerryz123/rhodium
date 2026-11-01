@@ -9,11 +9,12 @@ import:
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/isa/fp-profile.rhm") open
   lib("riscv/isa/vector-profile.rhm") open
+  lib("cores/fp/timing.rhdl").FpExecutionTiming
   "../../core.rhdl".RV2WideCore
   "../../profile.rhm".RV2WideConfig
 
 // Scalar Zfhmin plus full Zvfh exercises the wider execution capability without scalar Zfh.
-def program = elaborate(RV2WideCore(RV2WideConfig(~floating_point: FloatingPointProfile.D, ~half_precision: HalfPrecisionProfile.Zfhmin, ~vector: VectorProfile.V, ~vector_extensions: [VectorExtension.Zvfh, VectorExtension.Zvbb], ~hypervisor: #true, ~smstateen: #true)))
+def program = elaborate(RV2WideCore(RV2WideConfig(~floating_point: FloatingPointProfile.D, ~half_precision: HalfPrecisionProfile.Zfhmin, ~vector: VectorProfile.V, ~vector_extensions: [VectorExtension.Zvfh, VectorExtension.Zvbb], ~hypervisor: #true, ~smstateen: #true), ~fp_timing: FpExecutionTiming(3, 5, 2)))
 def rv32_program = elaborate(RV2WideCore(RV2WideConfig(~xlen: XLen.X32, ~vector: VectorProfile.Zve32x, ~vector_length: 64)))
 
 fun site_header(manifest):
@@ -38,7 +39,8 @@ fun site_header(manifest):
 def target = traced_target(site_header, EventInstrumentationConfig(~partial: #true), ~before: [port_observer_pass([
   ["RV2WideVectorPipeline", "rv2wide_vector_admission", [
     ["request_in", "valid"], ["request_out", "ready"],
-    ["request_in", "bits", "pc"], ["request_in", "bits", "instruction"]
+    ["request_in", "bits", "pc"], ["request_in", "bits", "instruction"],
+    ["floating_result_out", "valid"], ["floating_result_out", "bits", "address"]
   ]],
   ["VectorSequencer", "rv2wide_vector_dispatch", [
     ["request_in", "valid"], ["request_out", "ready"],

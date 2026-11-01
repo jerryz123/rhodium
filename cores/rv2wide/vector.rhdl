@@ -54,6 +54,7 @@ sync_circuit RV2WideVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_c
   interface saturate(Pulse(), ~role: producer)
   interface scalar_result(Valid(RegisterFileWrite(xlen)), ~role: producer)
   interface scalar_writeback(Decoupled(Bits(4)), ~role: producer)
+  interface floating_writeback(Decoupled(Bits(4)), ~role: producer)
   interface floating_result(Valid(FloatingPointRegisterWrite(fp_profile)), ~role: producer)
   output(active, sequencing, pending, stores_pending, loads_pending, fp_pending, certification_pending, available): Bool
 
@@ -92,6 +93,7 @@ sync_circuit RV2WideVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_c
   backend.saturate |> saturate
   backend.scalar_result |> scalar_result
   backend.scalar_writeback |> scalar_writeback
+  backend.floating_writeback |> floating_writeback
   backend.floating_result |> floating_result
   sequencing <== backend.sequencing
   pending <== backend.pending
@@ -128,6 +130,7 @@ sync_circuit RV2WideVectorDisabled(xlen :: XLen, ~vector_completion_slots: slots
   interface saturate(Pulse(), ~role: producer)
   interface scalar_result(Valid(RegisterFileWrite(xlen)), ~role: producer)
   interface scalar_writeback(Decoupled(Bits(4)), ~role: producer)
+  interface floating_writeback(Decoupled(Bits(4)), ~role: producer)
   interface floating_result(Valid(FloatingPointRegisterWrite(fp_profile)), ~role: producer)
   output(active, sequencing, pending, stores_pending, loads_pending, fp_pending, certification_pending, available): Bool
   for (port :: Endpoint in [pipeline.request, memory.request, split.request, precheck.request, outcome, fp_request, multiply_request, divide_request, fp_update, fault_start, truncate, scalar_result, scalar_writeback, floating_result]):
@@ -136,6 +139,9 @@ sync_circuit RV2WideVectorDisabled(xlen :: XLen, ~vector_completion_slots: slots
 
   for (port :: Endpoint in [precheck.release, retire, execution_done, saturate]):
     port.valid <== Bool(#false)
+
+  floating_writeback.valid <== Bool(#false)
+  floating_writeback.bits <== Bits(4)(1)
 
   for (port :: Endpoint in [memory.response, precheck.response, fp_result, multiply_result, divide_result]):
     port.ready <== Bool(#true)

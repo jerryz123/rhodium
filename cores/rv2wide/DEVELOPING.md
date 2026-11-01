@@ -835,6 +835,33 @@ An older MEM divide prevents next-cycle fixed booking; variable FP work does
 not coissue with memory or integer long-latency work. It may pair with ordinary
 integer instructions without introducing younger side effects before acceptance.
 
+Pass the same floored `fp_timing` to the vector backend with `fixed_fp` enabled.
+Vector launch atomically books the shared return edge and the backend's VRF
+calendar. Route tagged results directly from the scheduled execution service
+to the backend, without completion storage or a Valid conversion. Fixed results
+must write on their booked edge; divide/sqrt retains its result at the numeric
+producer under backpressure and cannot consume a fixed reservation.
+
+`RV2WideFp` receives complete FP controls for RR probe/booking so its second
+calendar reserves only actual fixed FPR writers. Vector-to-FPR moves use the
+backend's `floating_writeback` claim at sequencing, before synchronous reads.
+RR probes registered occupancy and books ahead of same-edge vector claims,
+matching GPR calendar ordering without observing its own live booking.
+Neither can displace an already issued fixed write. Scalar variable FPR returns
+remain backpressured at the numerical producer on a reserved cycle. The service's existing aging
+pause also stops new FPR claims, allowing that variable result to drain.
+Scalar arithmetic and vector moves share FPR port one without a result holder;
+port zero independently serves immediate hits ahead of delayed loads.
+
+`rv2wide-fp` checks two-cycle vector returns, consecutive launches, ordered
+recurrence spacing, and a blocked divide preempted by a scheduled fixed return.
+It also checks direct FPR forwarding beside a load hit, delayed-load backpressure,
+scalar/vector reservation collisions, variable divide retention at a booked FPR
+edge, and same-address vector-owner replacement on the older owner's write.
+`rv2wide-core-vector` uses 3/5/2-cycle FP timing to exercise matching core/backend
+reservations with shared scalar/vector execution and half-precision arithmetic.
+It also checks that a pending vector-to-FPR move allows independent vector and
+scalar FP work to advance while its true FPR consumer remains interlocked.
 `rv2wide-core-fp` exercises 3/5/2-cycle execution; `rv2wide-core-fp-late`
 uses 3/5/3 cycles to collide integer-returning FP operations with multiply returns.
 Both enable Zfa; the first selects Zfh and the late fixture selects Zfhmin.
@@ -981,8 +1008,11 @@ The GPR calendar includes ordinary younger-slot writes as well as deferred
 returns; a vector scalar-result reservation must not overwrite a slot already
 promised to a scalar instruction. A waiting vector return pauses new bookings
 long enough to create a free slot, while aged scalar completions retain bounded
-priority. FPR scalar moves keep their reservation until the shared load-write
-port actually writes them, not merely until the vector engine produces them.
+priority. Vector-to-FPR ownership ends at its scheduled arithmetic-port write.
+That ownership gates only another FPR-result owner, not unrelated vector work
+or scalar FP execution. Preserve per-FPR RAW/WAW checks across pre-WB producers
+and admitted work. Same-edge replacement wins the older owner's reservation
+clear, including when the destination register is unchanged.
 
 The single vector-to-GPR owner is capacity for a nonzero scalar destination,
 not a vector dispatch barrier. RR and WB check that claim only for another

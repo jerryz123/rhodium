@@ -56,6 +56,7 @@ sync_circuit VectorBackend(xlen :: XLen, vlen :: VectorLength, Fault :: DataType
   interface saturate(Pulse(), ~role: producer)
   interface scalar_result(Valid(RegisterFileWrite(xlen)), ~role: producer)
   interface scalar_writeback(Decoupled(Bits(4)), ~role: producer)
+  interface floating_writeback(Decoupled(Bits(4)), ~role: producer)
   interface floating_result(Valid(FloatingPointRegisterWrite(fp_profile)), ~role: producer)
   output(active, sequencing, pending, stores_pending): Bool
   output(certification_pending, loads_pending, fp_pending): Bool
@@ -114,6 +115,7 @@ sync_circuit VectorBackend(xlen :: XLen, vlen :: VectorLength, Fault :: DataType
   execution.saturate |> saturate
   execution.scalar_result |> scalar_result
   execution.scalar_writeback |> scalar_writeback
+  execution.floating_writeback |> floating_writeback
   execution.floating_result |> floating_result
   active <== execution.active ||| admission.active
   sequencing <== execution.sequencing

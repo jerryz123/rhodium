@@ -67,6 +67,7 @@ sync_circuit RV2WideVectorFixture():
   def proof = vector.precheck.request |> to_valid() |> map_valid(_range => precheck_safe) |> valid_pipe(1) |> to_decoupled() |> queue(1)
   proof |> vector.precheck.response
   vector.scalar_writeback.ready <== Bool(#true)
+  vector.floating_writeback.ready <== Bool(#true)
   vector.fp_request.ready <== Bool(#false)
   vector.fp_result.valid <== Bool(#false)
   vector.fp_result.bits <== dont_care(vector.fp_result.bits.type)

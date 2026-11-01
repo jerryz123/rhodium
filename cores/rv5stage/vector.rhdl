@@ -109,6 +109,8 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   backend.saturate |> saturate
   backend.scalar_result |> scalar_result
   backend.scalar_writeback |> scalar_writeback
+  // The existing single FPR owner excludes scalar arithmetic until its direct write.
+  backend.floating_writeback.ready <== Bool(#true)
   backend.floating_result |> floating_result
   sequencing <== backend.sequencing
   pending <== backend.pending

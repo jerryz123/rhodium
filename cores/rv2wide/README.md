@@ -1039,8 +1039,15 @@ interfaces. `RV2WideCore` supplies the architectural integration:
   pure reads wait only for relevant implicit state updates.
 - Scalar EX multiply and fixed-FP reservations remain feed-forward. Vector
   operations share the same arithmetic units with retained completion tags.
-- Scalar-result writes reserve the existing younger GPR port. FPR scalar moves
-  retain their destination until the shared load-write port accepts the result.
+  Fixed vector FP results write directly on the VRF edge reserved at launch,
+  using the core's selected FP timing; no response queue adds a return cycle.
+  Variable divide/sqrt results remain backpressurable at the arithmetic unit
+  until a free write edge is available.
+- Scalar-result writes reserve the existing younger GPR port. Vector-to-FPR
+  moves reserve the arithmetic FPR port at sequencing and write directly on
+  that edge, independently of load writes. A pending FPR move does not block
+  unrelated vector descriptors or scalar arithmetic; real register dependencies
+  and another vector-to-FPR owner's capacity still interlock.
 - One nonzero vector-to-GPR result may be outstanding. Only another
   GPR-producing vector instruction waits for that owner; unrelated vector
   descriptors can enter the queue subject to ordinary dependencies, credit,

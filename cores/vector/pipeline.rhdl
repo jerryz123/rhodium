@@ -105,6 +105,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   interface saturate(Pulse(), ~role: producer)
   interface scalar_result(Valid(RegisterFileWrite(xlen)), ~role: producer)
   interface scalar_writeback(Decoupled(Bits(4)), ~role: producer)
+  interface floating_writeback(Decoupled(Bits(4)), ~role: producer)
   interface floating_result(Valid(FloatingPointRegisterWrite(fp_profile)), ~role: producer)
   input packed_memory: Bool
   input memory_drained: Bool
@@ -294,10 +295,11 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def returning_registered_lookup = operand_fetch.scheduled_return & returning_control.memory & !returning_packed_load
   def s1_lookup_available = !s1_packed_load ||| !returning_registered_lookup
   def s1_ready = s1_alignment_ready & schedule_enable & !replay & s1_slot_available & s1_serial_fold_available & s1_write_available & !splat.probe_pending & s1_memory_available & s1_lookup_available
-  def Array(s1_read, s1_scalar_reservation) = sequencer.sequence_request |> gate_flow(s1_ready) |> atomic_fork(2)
+  def Array(s1_read, s1_scalar_reservation, s1_floating_reservation) = sequencer.sequence_request |> gate_flow(s1_ready) |> atomic_fork(3)
   splat.read_started.valid <== splat.probing & sequencer.sequence_request.fire()
   s1_read |> operand_fetch.request
   s1_scalar_reservation |> filter_flow(read => read.context.instruction.descriptor.control.scalar_destination) |> map_flow(_read => s1_write_delay) |> scalar_writeback
+  s1_floating_reservation |> filter_flow(read => read.context.instruction.descriptor.control.floating_scalar_destination) |> map_flow(_read => s1_write_delay) |> floating_writeback
   when (request.fire()):
     memory_started <== Bool(#false)
   elsewhen (sequencer.sequence_request.fire() & sequencer.retained.descriptor.control.memory):

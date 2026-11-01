@@ -164,7 +164,15 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   split_guest_access <== memory_ports.split_guest_access
   pipeline_vector <== memory_ports.pipeline_vector
   request_vector <== memory_ports.request_vector
-  inst vector(if vector_enabled | RV2WideVectorPipeline(xlen, profile.vector_length, ~vector_completion_slots: vector_slots, ~dispatch_depth: profile.vector_dispatch_depth) | RV2WideVectorDisabled(xlen, ~vector_completion_slots: vector_slots))
+  inst vector(
+    if vector_enabled
+    | RV2WideVectorPipeline(
+        xlen, profile.vector_length,
+        ~vector_completion_slots: vector_slots, ~dispatch_depth: profile.vector_dispatch_depth,
+        ~fixed_fp: #true, ~fp_timing: fp_timing
+      )
+    | RV2WideVectorDisabled(xlen, ~vector_completion_slots: vector_slots)
+  )
   vector.memory <=> memory_ports.vector_memory
   vector.pipeline <=> memory_ports.vector_pipeline
   vector.split <=> memory_ports.vector_split
@@ -230,6 +238,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   wb_csrs.hart_id <== hart_id[0..xlen.width]
   wb_csrs.time_counter <== time_counter
   inst fp(if fp_enabled | RV2WideFp(xlen, fp_timing, ~half_precision: profile.execution_half_precision, ~zfa: profile.zfa, ~vector_slots: vector_slots) | RV2WideFpDisabled(xlen, ~vector_slots: vector_slots))
+  vector.floating_writeback |> fp.vector_writeback
   wb_csrs.fp_update.valid <== fp.state_update.valid ||| vector.fp_update.valid ||| vector.floating_result.valid
   wb_csrs.fp_update.bits <== mux(fp.state_update.valid, fp.state_update.bits, Bits(5)(0)) ||| mux(vector.fp_update.valid, vector.fp_update.bits, Bits(5)(0))
   if fp_enabled
@@ -414,7 +423,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   def rr_fp_lane = mux(rr_controls[0].fp.valid ||| rr_vector_frs1[0], Bits(1)(0), Bits(1)(1))
   def rr_fp_control :: FloatingPointControl() = rr_controls[rr_fp_lane].fp.bits
   fp.read_addresses <== vec(rr_rs1[rr_fp_lane], rr_rs2[rr_fp_lane], rr_head.entries[rr_fp_lane].instruction[27..32])
-  fp.probe <== rr_fp_control.execution
+  fp.probe <== rr_fp_control
   wb_gpr_calendar.query_delay[0] <== fp_timing.latency(rr_fp_control.execution, ~width: gpr_delay_width) + Bits(gpr_delay_width)(1)
   // Probe registered bookings only. Same-group collisions are checked separately,
   // keeping admission independent of either client's packed reserve handshake.
@@ -601,13 +610,12 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   def rr_vector_blocked = for List (lane in 0..2):
     def control :: RV2WideControl() = rr_controls[lane]
     def floating_source_pending = rr_vector_frs1[lane] & rr_fp_busy(rr_rs1[lane])
-    def floating_destination_blocked = control.vector.floating_point & control.vector.floating_scalar_destination & !fp.drained
+    def floating_destination_blocked = control.vector.floating_point & control.vector.floating_scalar_destination & (wb_vector_fpr_pending ||| rr_fp_busy(rr_rd[lane]))
     def integer_result_claim = control.vector.integer & control.vector.scalar_destination & control.writeback.enable & rr_rd[lane].any()
     def vector_execution_blocked = rr_vector[lane] & ((integer_result_claim & !wb_vector_scalar_available) ||| floating_source_pending ||| floating_destination_blocked)
     def integer_destination_pending = control.writeback.enable & scoreboard_busy(32, wb_vector_scoreboard.busy, rr_rd[lane])
-    def floating_result_pending = wb_vector_fpr_pending & control.fp.valid
     def memory_order_blocked = control.memory.enable & (vector.stores_pending ||| (control.memory.access.store_fault_class() & vector.loads_pending))
-    (vector.certification_pending & (rr_vector[lane] ||| rr_vector_config[lane])) ||| vector_execution_blocked ||| integer_destination_pending ||| floating_result_pending ||| memory_order_blocked
+    (vector.certification_pending & (rr_vector[lane] ||| rr_vector_config[lane])) ||| vector_execution_blocked ||| integer_destination_pending ||| memory_order_blocked
 
   def rr_capacity_blocked = for List (lane in 0..2): rr_multiply_capacity[lane] ||| rr_fp_structural_blocked[lane] ||| rr_training_blocked[lane]
   def rr_blocked = for List (lane in 0..2): rr_data_blocked[lane] ||| rr_capacity_blocked[lane] ||| rr_vector_blocked[lane]
@@ -647,7 +655,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   rr_window.consume <== issued
   def rr_fp_admitted = mux(rr_fp_lane === Bits(1)(0), rr_first, rr_second) & rr_decodable[rr_fp_lane] & rr_fp_fixed[rr_fp_lane]
   fp.book.valid <== rr_fp_admitted
-  fp.book.bits <== rr_fp_control.execution
+  fp.book.bits <== rr_fp_control
   wb_gpr_calendar.reserve[0].valid <== rr_fp_admitted & rr_fp_late_gpr[rr_fp_lane]
   wb_gpr_calendar.reserve[0].bits <== wb_gpr_calendar.query_delay[0]
   when (wb_gpr_calendar.reserve[0].valid):
@@ -1217,8 +1225,8 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   def wb_vector_offer = wb_dispatch[wb_vector_lane] & (if vector_enabled | mux(wb_vector_lane === Bits(1)(0), wb_vectors[0], wb_vectors[1]) | Bool(#false))
   def wb_vector_ordered = !wb_vector.vector.control.memory ||| (wb_prior_memory_drained & !wb_load_response.pending & !wb_ordered_memory_pending)
   def wb_vector_gpr_write = wb_vector.vector.control.integer & wb_vector.vector.control.scalar_destination & wb_vector.write
-  def wb_vector_results_available = (!wb_vector_gpr_write ||| wb_vector_scalar_available) & !wb_vector_fpr_pending
-  def wb_vector_fpr_available = !wb_vector.vector.control.floating_scalar_destination ||| !wb_vector.vector.control.floating_point ||| fp.drained
+  def wb_vector_results_available = !wb_vector_gpr_write ||| wb_vector_scalar_available
+  def wb_vector_fpr_available = !wb_vector.vector.control.floating_scalar_destination ||| !wb_vector.vector.control.floating_point ||| !wb_vector_fpr_pending ||| fp.vector_written.valid
   vector_fast.candidate <== wb_vector.vector.certificate
   def wb_vector_masking_current = wb_vector.vector.pointer_masking.as_bits() === wb_csrs.pointer_masking.as_bits()
   def wb_vector_certified = wb_vector.vector.precertified & vector_fast.candidate_current & wb_vector_masking_current

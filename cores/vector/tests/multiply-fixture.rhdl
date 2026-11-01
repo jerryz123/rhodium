@@ -70,6 +70,7 @@ sync_circuit VectorMultiplyFixture(xlen :: XLen):
 
   vector.schedule_enable <== schedule_enable
   vector.scalar_writeback.ready <== Bool(#true)
+  vector.floating_writeback.ready <== Bool(#true)
   vector.packed_memory <== Bool(#false)
   vector.memory_drained <== Bool(#true)
   vector.cancel.valid <== Bool(#false)

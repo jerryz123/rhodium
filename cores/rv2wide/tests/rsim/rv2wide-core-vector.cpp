@@ -29,6 +29,7 @@ std::set<std::uint64_t> retired_pcs;
 std::map<std::uint64_t, unsigned> memory_cycles;
 std::map<std::uint64_t, unsigned> retirement_cycles;
 std::map<std::uint64_t, unsigned> retirement_lanes;
+std::map<unsigned, unsigned> vector_fpr_write_cycles;
 std::map<std::uint64_t, std::uint64_t> retirement_values;
 struct GprCompletion { unsigned cycle, rd, instruction; std::uint64_t value; };
 std::map<std::uint64_t, std::vector<GprCompletion>> gpr_completions;
@@ -179,11 +180,13 @@ void finish() {
 }
 
 extern "C" void rv2wide_vector_admission(std::uint64_t resetting, std::uint64_t valid,
-    std::uint64_t ready, std::uint64_t pc, std::uint64_t instruction) {
+    std::uint64_t ready, std::uint64_t pc, std::uint64_t instruction,
+    std::uint64_t floating_write, std::uint64_t floating_address) {
   vector_trace::admission = {!resetting && valid && ready, pc, instruction};
   if (!resetting && valid && ready)
     vector_trace::admission_cycles.emplace(pc, cycle);
   if (!resetting && valid && !ready) ++vector_trace::rejections;
+  if (!resetting && floating_write) vector_fpr_write_cycles[floating_address] = cycle;
 }
 extern "C" void rv2wide_vector_dispatch(std::uint64_t resetting, std::uint64_t valid,
     std::uint64_t ready, std::uint64_t pc, std::uint64_t instruction, std::uint64_t released) {
@@ -1899,6 +1902,18 @@ int main() {
       send((0x61u << 25) | (3 << 15) | (7 << 7) | 0x53); // fcvt.w.d x7,f3
       run(120);
       CHECK(gprs[7] == 6);
+      // A pending vector-to-FPR move must not fence independent vector work
+      // or unrelated scalar arithmetic. True FPR consumers still wait.
+      const auto independent_pc = next_pc + 8;
+      stream({vi(32, 8, 8, 1, 10), // vfdiv.vv v10,v8,v8
+              vi(16, 10, 0, 1, 4), // vfmv.f.s f4,v10
+              vi(23, 0, 3, 4, 12), // independent vmv.v.x v12,x3
+              (1u << 25) | (1 << 20) | (1 << 15) | (6 << 7) | 0x53, // fadd.d f6,f1,f1
+              (0x61u << 25) | (4 << 15) | (7 << 7) | 0x53, // fcvt.w.d x7,f4
+              (0x61u << 25) | (6 << 15) | (9 << 7) | 0x53}); // fcvt.w.d x9,f6
+      CHECK(gprs[7] == 1 && gprs[9] == 6);
+      CHECK(vector_trace::admission_cycles.at(independent_pc) < vector_fpr_write_cycles.at(4));
+      extract(12, 7, 7);
       // Half arithmetic shares the native FP service with scalar D; scalar
       // decode remains Zfhmin while vector execution needs full half arithmetic.
       setvl(1, 8);
