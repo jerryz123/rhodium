@@ -10,7 +10,7 @@
     "skl_gemm_f16_f16_f16_zvfh": 1075608,
     "skl_gemm_f16_f16_f32_zvfh": 591112,
     "skl_gemm_f32_f32_f32_zve32f": 426426,
-    "skl_gemm_f64_f64_f64_zve64d": 456621,
+    "skl_gemm_f64_f64_f64_zve64d": 432239,
     "skl_gemm_i8_i8_i32_zve32x": 653463,
     "skl_pack_e16rc_e16rcprc_zve32x": 975416,
     "skl_pack_e32rc_e32rcprc_zve32x": 1347255,

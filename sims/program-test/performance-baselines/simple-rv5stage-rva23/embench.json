@@ -1,7 +1,7 @@
 {
   "cycles": {
     "aha-mont64": 6856,
-    "crc32": 71485,
+    "crc32": 29861,
     "depthconv": 2878,
     "edn": 54929,
     "huffbench": 326489,
@@ -12,9 +12,9 @@
     "nsichneu": 14746,
     "picojpeg": 443205,
     "qrduino": 689253,
-    "sglib-combined": 152076,
+    "sglib-combined": 128168,
     "slre": 28719,
-    "statemate": 5873,
+    "statemate": 3626,
     "tarfind": 40116,
     "ud": 7781,
     "wikisort": 402325,
