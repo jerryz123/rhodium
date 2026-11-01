@@ -67,7 +67,7 @@ jobs:
           .tools/cosim-python/bin/pip install 'ruamel.yaml==0.18.10' 'pyjson5==1.6.8'
       - name: Download exact-commit Sail model
         if: fromJSON(inputs.config).cosim
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: sail-riscv-${{ github.sha }}
           path: ${{ runner.temp }}/sail-riscv
@@ -78,7 +78,7 @@ jobs:
           tar -xzf "$RUNNER_TEMP/sail-riscv/model.tar.gz" -C .tools
           tar -xzf "$RUNNER_TEMP/sail-riscv/runtime.tar.gz" -C .
       - name: Download shared target descriptions
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: targets-${{ github.sha }}
           path: ${{ runner.temp }}/targets
@@ -152,7 +152,7 @@ jobs:
             --soc "$SOC" --backend "$RTL_BACKEND" --variant "${{ fromJSON(inputs.config).variant }}" --target "${{ steps.simulator.outputs.path }}/program-target.json"
       - name: Download shared harness ELFs
         if: inputs.run-harness && (contains(fromJSON(inputs.config).software_tests, 'isa-smoke') || contains(fromJSON(inputs.config).software_tests, 'tiled-mt-benchmark-test'))
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: harness-elfs-*-${{ github.sha }}
           merge-multiple: true
