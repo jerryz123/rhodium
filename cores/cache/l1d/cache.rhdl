@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/frontend/layers/statistics.rhm").stat_count
   "../../cache-prefetch.rhdl" open
   "../protocol.rhdl" open
   "arrays.rhdl" open
@@ -512,6 +513,7 @@ sync_circuit L1DCache(xlen :: XLen,
   s4_refill_address <== direct_refill_commands.bits.line_address
   // Gather ancestry is not yet modeled; writeback supplies its own resident owner.
   Array(direct_refill_commands, post_eviction_refills) |> arbiter() |> refill.command
+  stat_count("dcache_miss", refill.command.fire() & !refill.command.bits.context.prefetch)
   def writeback_complete = writeback.completion.fire()
 
 

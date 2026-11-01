@@ -38,8 +38,10 @@ def target = rtl_pipeline_target(backend_target, [statistics_pass()])
 The pass preserves functional ports and instance paths, and emits ordinary DPI
 calls plus `statistics.json` and `statistics.h`. Each occurrence has a separate
 numeric ID, described by its path relative to the top and local name. A repeated
-child definition does not merge counters. The header supplies JSON entry prefixes
-in ID order for the native collector; neither artifact belongs in source control.
+child definition does not merge counters. The header supplies JSON key prefixes
+in ID order for the native collector, using `rtl/<instance path>/<counter>`.
+Each path component escapes `~` as `~0` and `/` as `~1`. The collector reports a
+flat name-to-value map; neither generated artifact belongs in source control.
 
 The initial pass requires all observations to resolve through transparent aliases
 and instance bindings to the selected top inputs (`clock` and `reset` by default;

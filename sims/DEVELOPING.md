@@ -61,7 +61,8 @@ before target selection or reconstruct a program from only its design/top.
 All enrolled Mini/Simple RV5Stage and RV2Wide rsim rows build with `COSIM=1`,
 as do both cores' CIRCT and direct SystemVerilog variants. Each instrumented row publishes one
 simulator under its unchanged config artifact name; its local build directory
-retains the `-cosim` suffix.
+retains the `-cosim` suffix. RVA23 Simple/Tiled RTL builds additionally select
+`STATS=1` and append `-stats`; all consumers use the centrally selected variant.
 The shared Sail job publishes the model and config-independent cosim archives;
 simulator builds verify these archives and compile only their config-specific
 session binding. Execution consumers need only native runtime dependencies and verify the
@@ -902,7 +903,8 @@ of reporting. Failed generation must stop before DUT execution.
 The [public measurement and bootstrap contract](README.md#whole-elf-cycle-regressions)
 owns cycle semantics, enrolled workloads, tolerances, and commands.
 `TestDriver.v` freezes its counter at the first nonzero HTIF exit and publishes
-`RHODIUM-PERF: {"cycles":N,"statistics":null}` only after successful runtime finish and drain. The
+`RHODIUM-PERF: {"cycles":N}` (plus any RTL counter keys)
+only after successful runtime finish and drain. The
 common program runner requires exactly one positive, bounded record for every
 successful ELF, independently of whether its suite has performance expectations.
 Keep this metric separate from guest counters, trace timestamps, wall time,
@@ -913,8 +915,9 @@ build/attestation a `-stats` suffix. Its `soc_statistics.h` companion binds the
 native collector to every declared occurrence, including zero-count sites.
 `simulation_runtime.cc` brackets samples and freezes the collector on the first
 drain call; `TestDriver.v` publishes the combined record only after success.
-The runner retains the structured `statistics` array without interpreting
-counter names. Keep the pass, collector, runtime, and parser contract in sync;
+The runner retains the flat map in each result's `measurement` field; the
+performance owner validates the counter catalog and compares exact names.
+Keep the pass, collector, runtime, and parser contract in sync;
 see [statistics development](../rhodium/statistics/DEVELOPING.md) for focused checks.
 
 `program-test/performance.py` owns measurement parsing, baseline matching,
@@ -923,7 +926,7 @@ checkpoints self-contained `performance.json` next to `results.json`; provenance
 includes simulator commit/hash/platform/backend/variant, exact target and build
 fingerprints, and the complete suite's ELF hashes and boot-hart selections.
 Baseline comparison uses only the config/suite file path, test names, and cycle
-counts. Repository state defines the workload; never require hashes or
+counts and RTL counter identities/counts. Repository state defines the workload; never require hashes or
 fingerprints to match a prior baseline. The loaded numeric expectations and
 tolerance participate in resume identity so changing either cannot reuse stale
 comparisons.
@@ -933,24 +936,31 @@ results from different simulator builds or input sets cannot be combined.
 `program-test/performance-baselines/<config>/<suite>.json` is an explicitly
 checked-in generated reference, unlike disposable simulation output. The initial
 references come from successful [CI run 41240854761](https://github.com/jerryz123/rhodium/actions/runs/41240854761).
-Files contain only a `cycles` mapping from test names to expected counts.
+Files map workload names directly to counter-name/value maps, matching the
+runtime measurement without additional wrappers. Sort workload and counter names
+deterministically. Missing expectations are collected and reported without a
+gate; missing required simulator counters still fail. The importer populates all
+expectations only from a complete successful canonical run. Preserve existing
+values during format changes rather than manufacturing new baselines.
 Their purpose is defined here and the repository's Apache-2.0 license applies;
-do not add purpose or license fields to the data. The ±5% tolerance is
-centralized in the tool. Keep hashes, fingerprints, and
+do not add purpose or license fields to the data. Cycle tolerance remains ±5%;
+`counter_tolerances` is the sole policy source, without copies in
+baseline JSON. Retirement uses ±1%, issue uses ±5%, and miss/
+misprediction events use ±5% with a two-event floor. Keep hashes, fingerprints, and
 simulator provenance in uploaded artifacts, not checked-in baselines.
 For new config/suite references, bootstrap
 from successful Linux/rsim CI artifacts, review the complete inventory, and
 repeat representative runs to check stability. Retain the normal CI
-ELF build options and variants: `cosim` for Simple RTL, `normal` for Spike and
-Tiled. Import a single run's complete shards; do not merge repetitions or mix
+ELF build options and variants: `cosim-stats` for Simple RTL, `normal-stats` for
+Tiled RTL, and `normal` for Spike. Import a single run's complete shards; do not merge repetitions or mix
 results from different commits.
 
 For intentional changes, inspect the always-collected delta and functional
 result, then explicitly import and review the affected
 config/suite files. The importer accepts a directory or explicit
 `performance.json` paths, so unaffected suites need not be replaced. Keep the
-±5% policy in the tool; do not widen individual expectations to hide
-regressions. Missing baselines are visibly unbaselined; malformed or name-mismatched
+documented tolerance policy in the tool; do not widen individual expectations to hide
+regressions. Missing baselines are reported; malformed or name-mismatched
 existing baselines fail the performance gate after execution, so fresh numbers
 are still available for review. Functional status remains separate from the
 performance result: performance-only failures are importable, functional

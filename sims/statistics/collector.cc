@@ -1,4 +1,4 @@
-// Implements checked 64-bit cycle counts and deterministic instance-qualified JSON reporting.
+// Implements checked sampled counts and deterministic hierarchical-name JSON reporting.
 // SPDX-License-Identifier: Apache-2.0
 #include "collector.h"
 #include <limits>
@@ -37,11 +37,11 @@ void Collector::freeze() {
 
 std::string Collector::json() const {
   if (sampling_ || !frozen_) throw std::runtime_error("statistics report before completion");
-  std::string result = "[";
+  std::string result = "{";
   for (std::size_t id = 0; id < counts_.size(); ++id) {
     if (id) result += ',';
-    result += descriptors_[id] + std::to_string(counts_[id]) + '}';
+    result += descriptors_[id] + std::to_string(counts_[id]);
   }
-  return result + ']';
+  return result + '}';
 }
 }

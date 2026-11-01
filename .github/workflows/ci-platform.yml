@@ -55,7 +55,7 @@ jobs:
         run: |
           chmod +x "$RUNNER_TEMP/$SOC/VTestDriver"
           python3 sims/program-test/artifact.py verify --binary "$RUNNER_TEMP/$SOC/VTestDriver" --soc "$SOC" \
-            --backend "${{ matrix.backend }}" --variant "${{ matrix.cosim && 'cosim' || 'normal' }}"
+            --backend "${{ matrix.backend }}" --variant "${{ matrix.variant }}"
           library_bindings=$(ldd "$RUNNER_TEMP/$SOC/VTestDriver")
           printf '%s\n' "$library_bindings"
           if [[ "$library_bindings" == *"not found"* ]]; then exit 1; fi
@@ -70,6 +70,7 @@ jobs:
           SUITE: ${{ matrix.suite }}
           RTL_BACKEND: ${{ matrix.backend }}
           COSIM: ${{ matrix.cosim && '1' || '0' }}
+          STATS: ${{ matrix.stats && '1' || '0' }}
           RUN_TARGET: ${{ matrix.run_target }}
         run: |
           output="/tmp/rhodium-platform-tests/$SOC/$SUITE"

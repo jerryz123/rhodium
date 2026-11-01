@@ -152,8 +152,14 @@ The existing RVA23 benchmark jobs also collect
 [whole-ELF cycle measurements](../../sims/README.md#whole-elf-cycle-regressions).
 Native shards and Tiled multihart harness jobs upload compact `performance-…`
 artifacts and job summaries even on failure. With no checked-in config/suite
-baseline they report unbaselined results; an existing baseline enforces the
+baseline they collect and report results without comparison; an existing baseline enforces the
 per-ELF ±5% gate by config, suite, and test name, without baseline fingerprints.
+RVA23 Simple/Tiled RTL simulator rows enable statistics in that same binary;
+retirement, issue width, demand cache misses, and classified winning branch
+recoveries follow the [counter baseline contract](../../sims/README.md#rtl-statistics).
+The planner's `simulator_options` owns `cosim`, `stats`, and the exact `variant`
+for simulator, native, ACT, and firmware consumers; do not reconstruct suffixes
+independently in those consumers.
 This adds no benchmark runs,
 guest instrumentation, or trace jobs. Baselines are promoted explicitly from a
 successful run's complete artifacts, never written by CI; their ownership and

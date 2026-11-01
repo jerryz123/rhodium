@@ -2,9 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/pipeline.rhm").rtl_pipeline_target
+  lib("rhodium/backend/rsim-target.rhm").rsim_target
+  lib("rhodium/statistics/pass.rhm").statistics_pass
   lib("rhodium/frontend/foundation.rhm").elaborate
   "../../core.rhdl" open
   "../../profile.rhm".RV2WideConfig
 
 def program = elaborate(RV2WideCore(RV2WideConfig(~zicboz: #true, ~zicbom: #true, ~zicbop: #true, ~zawrs: #true, ~zihintntl: #true, ~zihintpause: #true, ~sstc: #true, ~svinval: #true, ~ssnpm: #true, ~supm: #true, ~sscofpmf: #true, ~smstateen: #true, ~hypervisor: #true)))
-export program
+def target = rtl_pipeline_target(rsim_target, [statistics_pass()])
+export program target

@@ -30,6 +30,7 @@ contract without allocating predictor state.
 | File | Responsibility |
 |---|---|
 | `protocol.rhdl` | Target/direction predictions, saved-index training, and RAS event payloads |
+| `statistics.rhdl` | Pure failure classification and passive count declarations; callers qualify the winning recovery |
 | `btb.rhdl` | Associative low-address entries, shared upper tags, local counters, discovery, and replacement |
 | `bht.rhdl` | Banked asynchronous direction counters, saved-index saturation, and lazy row initialization |
 | `tournament.rhdl` | Independent bimodal/gshare lookup ports and saved-disagreement chooser training |
@@ -49,10 +50,19 @@ exclude offsets before the cursor, then choose the first matching halfword
 position independently of entry allocation order. Four bytes remains the
 default, preserving RV5Stage timing and selection. RV2Wide selects eight bytes.
 Do not add compatibility forwarding modules under the old named-core paths.
+Keep prediction classification separate from functional recovery. The statistics
+helper partitions failure causes; core arbitration supplies the actual recovery
+event. RV5Stage retains the EX classification in its existing EX/MEM token, while
+RV2Wide classifies its selected MEM owner. No counter may influence issue or recovery.
+The public names and baseline policy live in [simulation statistics](../../sims/README.md#rtl-statistics).
 
 ## Validation
 
 Run the direct behavioral fixtures through the managed Racket/rsim runner:
+
+`prediction-statistics` exhausts classification/priority, event gating, and reset
+with the production collector. `rv2wide-core` also checks sampled retirement and
+issue counters against public ports throughout its existing behavioral streams.
 
 ```sh
 FIXTURES='bpred-btb bpred-btb-wide bpred-btb-external bpred-bht bpred-tournament bpred-ras' python3 tools/testing/rsim/run.py

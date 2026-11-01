@@ -52,9 +52,7 @@ def main():
              sv, *native, ROOT / 'sims/TestDriver.v', ROOT / 'sims/verilator/simulation_runtime.cc',
              ROOT / 'sims/statistics/collector.cc'], work / 'build.log')
         result = run([work / 'obj/VTestDriver', '+max-cycles=5'], work / 'run.log')
-        expected = dict(cycles=5, statistics=[dict(path=['every'], name='events', count=5),
-                                             dict(path=['alternate'], name='events', count=2),
-                                             dict(path=[], name='never', count=0)])
+        expected = {'cycles': 5, 'rtl/every/events': 5, 'rtl/alternate/events': 2, 'rtl/never': 0}
         assert measure(result, 5) == expected, result
         assert result.count('SoC harness simulation passed') == 1, result
         print(f'{backend}: generated statistics / DPI / TestDriver passed', flush=True)

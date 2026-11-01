@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Validates whole-ELF execution statistics and compares cycle baselines by configuration.
+# Validates named execution counters and compares plain whole-ELF baseline maps.
 # SPDX-License-Identifier: Apache-2.0
 import argparse
 import json
@@ -14,40 +14,89 @@ from selection import selections
 BASELINES = Path(__file__).with_name('performance-baselines')
 MEASUREMENT = 'reset-release-to-first-htif-exit'
 SUITES = {'benchmark', 'coremark', 'coremark_scalar', 'embench', 'bringup', 'skl', 'highway'}
-TOLERANCE_PERCENT = 5
+
+
+def counter_tolerances(soc):
+    """Own the counter catalog and tolerances independently of instance names."""
+    policy = {'cycles': dict(percent=5, absolute=0)}
+    core = selections()[soc][1]
+    if core not in ('rv5stage', 'rv2wide'):
+        return policy
+    policy.update({f'rtl/{name}': dict(percent=5, absolute=2) for name in (
+        'icache_miss', 'dcache_miss', 'mispredict_direction', 'mispredict_direct_target',
+        'mispredict_indirect_target', 'mispredict_return_target', 'mispredict_nonbranch',
+        'mispredict_ras_action')})
+    policy.update({f'rtl/issue_{n}': dict(percent=5, absolute=0)
+                   for n in range(1, 3 if core == 'rv2wide' else 2)})
+    policy.update({f'rtl/retired_slot{n}': dict(percent=1, absolute=0)
+                   for n in range(2 if core == 'rv2wide' else 1)})
+    return policy
+
+
+def counter_kind(name):
+    """Select a policy by local RTL name while keeping the full key for comparison."""
+    if name == 'cycles':
+        return name
+    if not isinstance(name, str) or not re.fullmatch(r'rtl/(?:[^/~]|~[01])+(?:/(?:[^/~]|~[01])+)*', name):
+        raise ValueError('invalid counter name')
+    return 'rtl/' + name.rsplit('/', 1)[-1]
 
 
 def positive(value):
     return type(value) is int and value > 0
 
 
+def validate_measurement(measurement, policy=None, *, complete=True):
+    """Validate counts; complete simulator reports must include every required counter kind."""
+    if not isinstance(measurement, dict):
+        raise ValueError('measurements must map counter names to values')
+    kinds = set()
+    for name, count in measurement.items():
+        kind = counter_kind(name)
+        if type(count) is not int or not 0 <= count <= 2**64 - 1:
+            raise ValueError('invalid counter value')
+        if policy is not None and kind not in policy:
+            raise ValueError(f'unexpected counter: {name}')
+        kinds.add(kind)
+    cycles = measurement.get('cycles')
+    if (complete or 'cycles' in measurement) and not positive(cycles):
+        raise ValueError('missing or invalid cycles')
+    if cycles is not None and any(count > cycles for count in measurement.values()):
+        raise ValueError('counter exceeds sampled cycles')
+    if complete and policy is not None and kinds != set(policy):
+        raise ValueError('missing required counters')
+
+
+def load_json(text):
+    """Reject duplicate names instead of silently discarding a measurement."""
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f'duplicate JSON key: {key}')
+            result[key] = value
+        return result
+    return json.loads(text, object_pairs_hook=unique)
+
+
+def baseline_expectations(baseline, inventory, policy):
+    """Read plain workload-to-measurement maps; absent values have no gate yet."""
+    if not isinstance(baseline, dict) or set(baseline) != set(inventory):
+        raise ValueError('invalid performance baseline test names')
+    for measurement in baseline.values():
+        validate_measurement(measurement, policy, complete=False)
+    return {name: dict(measurement=measurement, tolerances=policy) for name, measurement in baseline.items()}
+
+
 def measure(text, maximum):
     lines = [line for line in text.splitlines() if line.startswith('RHODIUM-PERF:')]
     if len(lines) != 1:
         raise ValueError('missing or duplicate execution record')
-    record = json.loads(lines[0].removeprefix('RHODIUM-PERF:'))
-    if not isinstance(record, dict) or set(record) != {'cycles', 'statistics'} or not positive(record['cycles']):
-        raise ValueError('malformed execution record')
-    cycles = record['cycles']
-    if cycles > maximum:
+    measurement = load_json(lines[0].removeprefix('RHODIUM-PERF:'))
+    validate_measurement(measurement)
+    if measurement['cycles'] > maximum:
         raise ValueError('whole-ELF cycle record exceeds max-cycles')
-    stats = record['statistics']
-    if stats is not None:
-        if not isinstance(stats, list):
-            raise ValueError('malformed statistics collection')
-        seen = set()
-        for entry in stats:
-            if (not isinstance(entry, dict) or set(entry) != {'path', 'name', 'count'}
-                    or not isinstance(entry['path'], list)
-                    or not all(isinstance(part, str) and part for part in entry['path'])
-                    or not isinstance(entry['name'], str) or not entry['name']
-                    or type(entry['count']) is not int or not 0 <= entry['count'] <= min(cycles, 2**64 - 1)):
-                raise ValueError('malformed statistic')
-            identity = (tuple(entry['path']), entry['name'])
-            if identity in seen:
-                raise ValueError('duplicate statistic identity')
-            seen.add(identity)
-    return record
+    return measurement
 
 
 def enrolled(soc, suite):
@@ -72,6 +121,8 @@ def context(manifest, metadata):
 def canonical(identity):
     shape, core, _ = selections().get(identity['soc'], ('', '', ''))
     variant = 'cosim' if shape == 'simple' and core != 'spike' else 'normal'
+    if core in ('rv5stage', 'rv2wide'):
+        variant += '-stats'
     return (enrolled(identity['soc'], identity['suite']) and identity['backend'] == 'rsim'
             and identity['system'] == 'Linux' and identity['variant'] == variant)
 
@@ -88,30 +139,46 @@ def expectations(record, directory):
         record['state'] = 'noncanonical'
         return {}
     path = baseline_path(directory, identity)
+    tolerances = counter_tolerances(identity['soc'])
+    record['tolerances'] = tolerances
     if not path.exists():
-        record['state'] = 'unbaselined'
-        print(f'performance: unbaselined {identity["soc"]}/{identity["suite"]}; collecting cycles', flush=True)
-        return {}
+        record['state'] = 'collecting'
+        print(f'performance: no baseline for {identity["soc"]}/{identity["suite"]}; collecting counters', flush=True)
+        return {name: dict(measurement={}, tolerances=tolerances) for name in identity['inventory']}
     try:
-        baseline = json.loads(path.read_text())
-        expected = baseline['cycles']
-        if set(expected) != set(identity['inventory']) or not all(positive(value) for value in expected.values()):
-            raise ValueError('invalid performance baseline test names or cycle counts')
+        expected = baseline_expectations(load_json(path.read_text()), identity['inventory'], tolerances)
     except (OSError, ValueError, KeyError, TypeError) as error:
         # Still execute the suite and upload fresh measurements for review.
         record.update(state='incompatible-baseline', reason=f'{path}: {error}')
-        print(f'performance: {record["reason"]}; collecting cycles before failing the gate', flush=True)
+        print(f'performance: {record["reason"]}; collecting counters before failing the gate', flush=True)
         return {}
     record['state'] = 'checked'
     # Resume identity follows the actual expectations, not a baseline fingerprint.
-    record['expected_cycles'] = expected
+    record['expected'] = {name: item['measurement'] for name, item in expected.items()}
     return expected
 
 
-def compare(cycles, expected):
-    delta = 100 * (cycles - expected) / expected
-    outside = abs(cycles - expected) * 100 > expected * TOLERANCE_PERCENT
-    return dict(expected_cycles=expected, delta_percent=delta), outside
+def compare(measurement, expected):
+    """Compare supplied expectations and report newly collected counters without a gate."""
+    comparison, failures = {}, []
+    tolerances = expected['tolerances']
+    try:
+        validate_measurement(measurement, tolerances)
+        targets = expected['measurement']
+        if not targets.keys() <= measurement.keys():
+            raise ValueError('expected counters missing from simulator output')
+        deltas = []
+        for name, count in sorted(measurement.items()):
+            value = targets.get(name)
+            policy = tolerances[counter_kind(name)]
+            outside = value is not None and abs(count - value) * 100 > max(policy['absolute'] * 100, value * policy['percent'])
+            deltas.append(dict(name=name, count=count, expected=value, tolerance=policy, outside=outside))
+            if outside:
+                failures.append(f'{name}: {count}, expected {value}, tolerance ±{policy["percent"]}% / {policy["absolute"]}')
+        comparison['comparisons'] = deltas
+    except ValueError as error:
+        failures.append(str(error))
+    return comparison, failures
 
 
 def write_record(output, record, payload):
@@ -119,7 +186,7 @@ def write_record(output, record, payload):
         return
     measured = {key: payload[key] for key in ('complete', 'pending', 'shard_index', 'shard_count', 'build_failures')}
     measured.update(performance=record, tests=[{key: result[key] for key in
-                    ('name', 'status', 'functional_status', 'cycles', 'statistics', 'expected_cycles', 'delta_percent', 'reason') if key in result}
+                    ('name', 'status', 'functional_status', 'measurement', 'comparisons', 'reason') if key in result}
                     for result in payload['tests']])
     path = output / 'performance.json'
     temporary = path.with_suffix('.json.tmp')
@@ -136,7 +203,7 @@ def load_records(paths):
             files.add(path)
         else:
             raise ValueError(f'missing results path: {path}')
-    return [(path, json.loads(path.read_text())) for path in sorted(files)]
+    return [(path, load_json(path.read_text())) for path in sorted(files)]
 
 
 def import_results(records, directory):
@@ -155,7 +222,7 @@ def import_results(records, directory):
             raise ValueError(f'{path}: invalid simulator provenance')
         commits.add(metadata['commit'])
         if (not result['complete'] or result['pending'] or result['build_failures']
-                or not result['tests'] or any(test.get('functional_status') != 'passed' or not positive(test.get('cycles'))
+                or not result['tests'] or any(test.get('functional_status') != 'passed'
                                              for test in result['tests'])):
             raise ValueError(f'{path}: cannot import failed, incomplete, or unmeasured results')
         if (any(not re.fullmatch(r'[0-9a-f]{64}', identity.get(key) or '')
@@ -178,7 +245,9 @@ def import_results(records, directory):
         if not positive(count) or len(group) != count:
             raise ValueError(f'{key}: import needs exactly one complete shard set')
         indices = set()
-        cycles = {}
+        workloads = {}
+        tolerances = counter_tolerances(identity['soc'])
+        sites = None
         names = sorted(identity['inventory'])
         for path, result in group:
             index = result['shard_index']
@@ -191,16 +260,21 @@ def import_results(records, directory):
             tests = result['tests']
             if sorted(test['name'] for test in tests) != names[index::count]:
                 raise ValueError(f'{path}: shard test inventory differs from the complete workload')
-            cycles.update({test['name']: test['cycles'] for test in tests})
-        baseline = dict(cycles=cycles)
-        updates.append((baseline_path(directory, identity), baseline))
+            for test in tests:
+                values = test.get('measurement')
+                validate_measurement(values, tolerances)
+                if sites is not None and sites != values.keys():
+                    raise ValueError(f'{path}: inconsistent counter inventory')
+                sites = values.keys()
+                workloads[test['name']] = values
+        updates.append((baseline_path(directory, identity), workloads))
     # Validate the complete input set before changing any checked-in expectations.
     for path, baseline in updates:
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_suffix('.json.tmp')
         temporary.write_text(json.dumps(baseline, indent=2, sort_keys=True) + '\n')
         temporary.replace(path)
-        print(f'imported {len(baseline["cycles"])} ELF expectations: {path}')
+        print(f'imported {len(baseline)} ELF expectations: {path}')
 
 
 def summary(records):
@@ -208,13 +282,27 @@ def summary(records):
         record = result['performance']
         identity = record['identity']
         print(f'### {identity["soc"]} / {identity["suite"]} / shard {result["shard_index"]}')
-        print(f'\nWhole-ELF cycles: {record["state"]}; tolerance ±{TOLERANCE_PERCENT}%.\n')
+        print(f'\nWhole-ELF baseline: {record["state"]}.\n')
         if 'reason' in record:
             print(record['reason'] + '\n')
-        print('| ELF | Cycles | Expected | Change | Functional | Result |\n|---|---:|---:|---:|---|---|')
+        print('| ELF | Functional | Result |\n|---|---|---|')
         for test in result['tests']:
-            delta = f'{test["delta_percent"]:+.2f}%' if 'delta_percent' in test else '—'
-            print(f'| {test["name"]} | {test.get("cycles", "—")} | {test.get("expected_cycles", "—")} | {delta} | {test.get("functional_status", "—")} | {test["status"]} |')
+            print(f'| {test["name"]} | {test.get("functional_status", "—")} | {test["status"]} |')
+        for test in result['tests']:
+            items = test.get('comparisons') or [dict(name=name, count=count, expected=None, tolerance=None, outside=False)
+                                               for name, count in sorted(test.get('measurement', {}).items())]
+            if not items:
+                continue
+            print(f'\n<details><summary>{test["name"]}: counters</summary>\n')
+            print('| Counter | Count | Expected | Change | Tolerance | Result |\n|---|---:|---:|---:|---|---|')
+            for item in items:
+                name = item['name']
+                tolerance = item['tolerance']
+                state = 'recorded' if tolerance is None else 'no expectation' if item['expected'] is None else 'outside' if item['outside'] else 'within'
+                delta = f'{100 * (item["count"] - item["expected"]) / item["expected"]:+.2f}%' if item['expected'] else '—'
+                limits = f'±{tolerance["percent"]}%, floor {tolerance["absolute"]}' if tolerance is not None else '—'
+                print(f'| {name} | {item["count"]} | {item["expected"] if item["expected"] is not None else "—"} | {delta} | {limits} | {state} |')
+            print('\n</details>\n')
         if not result['complete'] or result['build_failures']:
             print('\nIncomplete or build-failed workload; not importable.')
         print()

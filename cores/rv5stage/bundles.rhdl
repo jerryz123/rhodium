@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/bpred/statistics.rhdl").PredictionFailure
   lib("cores/fp/profile.rhm").fp_transport_profile
   lib("cores/operand.rhdl") open
   lib("cores/mmu/vector.rhdl") open
@@ -166,6 +167,7 @@ bundle ExecuteMemory(xlen :: XLen, vector_completion_slots :: Pow2Int, hyperviso
   pc: Bits(xlen.width)
   resume_pc: Bits(xlen.width)
   redirect_valid: Bool
+  prediction_failure: PredictionFailure
   branch_update: BranchUpdate(xlen)
   branch_prediction: RV5StageBranchPrediction
   raw_instruction: Bits(32)

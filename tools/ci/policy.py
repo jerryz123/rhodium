@@ -137,7 +137,7 @@ def platform_configs():
     suites = {'simple': ('opensbi', 'opensbi-smoke-run', 45),
               'tiled': ('litmus', 'litmus-smoke-run', 90)}
     return [dict(soc=soc, suite=suites[shape][0], run_target=suites[shape][1], timeout=suites[shape][2],
-                 cosim=soc in COSIM_CONFIGS, backend=DEFAULT_BACKEND)
+                 **simulator_options(soc), backend=DEFAULT_BACKEND)
             for soc, shape, _core in SIMULATOR_CONFIGS
             if shape in suites and SELECTIONS[soc][2] == 'rva23']
 
@@ -166,9 +166,18 @@ COSIM_CONFIGS = frozenset(soc for soc, shape, core in SIMULATOR_CONFIGS
                            if core in ('rv5stage', 'rv2wide') and shape in ('mini', 'simple'))
 
 
+def simulator_options(soc):
+    """Keep instrumentation and artifact identity identical for every build and consumer."""
+    shape, core, isa = SELECTIONS[soc]
+    cosim = soc in COSIM_CONFIGS
+    stats = core in ('rv5stage', 'rv2wide') and shape in ('simple', 'tiled') and isa == 'rva23'
+    return dict(cosim=cosim, stats=stats,
+                variant=('cosim' if cosim else 'normal') + ('-stats' if stats else ''))
+
+
 def simulator_entry(soc, shape, core, backend=DEFAULT_BACKEND):
     return dict(soc=soc, shape=shape, core=core, backend=backend,
-                cosim=soc in COSIM_CONFIGS,
+                **simulator_options(soc),
                 simulator_id=soc + ('' if backend == DEFAULT_BACKEND else '-' + backend),
                 opt_fast='-O2')
 
@@ -204,7 +213,7 @@ ARCH_SHARD_COUNTS = {
 
 def arch_shards():
     return tuple(dict(**config, shard=shard, shard_count=count,
-                      cosim=config['configuration'] in COSIM_CONFIGS, backend=DEFAULT_BACKEND)
+                      **simulator_options(config['configuration']), backend=DEFAULT_BACKEND)
                  for config in arch_configs()
                  for count in (ARCH_SHARD_COUNTS[config['configuration']],)
                  for shard in range(count))

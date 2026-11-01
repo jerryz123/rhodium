@@ -55,9 +55,9 @@ def execution_groups(matrix):
     for entry in matrix['include']:
         short = entry['suite'] in SHORT_PROGRAM_SUITES and entry['shard_count'] == 1
         group = 'short' if short else entry['suite']
-        key = (entry['soc'], entry['backend'], entry['cosim'], group, entry['shard'])
+        key = (entry['soc'], entry['backend'], entry['variant'], group, entry['shard'])
         row = groups.setdefault(key, dict(soc=entry['soc'], backend=entry['backend'],
-                                         cosim=entry['cosim'], group=group, shard=entry['shard'],
+                                         cosim=entry['cosim'], stats=entry['stats'], variant=entry['variant'], group=group, shard=entry['shard'],
                                          shard_count=entry['shard_count'], suites=[]))
         row['suites'].append({field: entry[field] for field in ('suite', 'build_id')})
     for row in groups.values():

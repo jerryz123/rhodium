@@ -1,32 +1,86 @@
 {
-  "cycles": {
-    "skl_depthwise_conv2d_f16_f16_f16_zvfh": 821221,
-    "skl_depthwise_conv2d_f32_f32_f32_zve32f": 925982,
-    "skl_depthwise_conv2d_i8_i8_i32_zve32x": 1383378,
-    "skl_exp_bf16_zve32f": 57484,
-    "skl_exp_f16_zvfh": 51567,
-    "skl_exp_f32_zve32f": 59060,
-    "skl_gelu_f32_zve32f": 290157,
-    "skl_gemm_f16_f16_f16_zvfh": 1040306,
-    "skl_gemm_f16_f16_f32_zvfh": 582015,
-    "skl_gemm_f32_f32_f32_zve32f": 433562,
-    "skl_gemm_f64_f64_f64_zve64d": 460727,
-    "skl_gemm_i8_i8_i32_zve32x": 773239,
-    "skl_pack_e16rc_e16rcprc_zve32x": 1018618,
-    "skl_pack_e32rc_e32rcprc_zve32x": 1414269,
-    "skl_pack_e8rc_e8rcprc_zve32x": 859437,
-    "skl_sigmoid_bf16_zve32f": 240749,
-    "skl_sigmoid_f16_zvfh": 196950,
-    "skl_sigmoid_f32_zve32f": 250006,
-    "skl_softmax_bf16_zve32f": 1088094,
-    "skl_softmax_f16_zvfh": 864813,
-    "skl_softmax_f32_zve32f": 237168,
-    "skl_softmax_f32r_zve32f": 2714293,
-    "skl_transpose_e16_zve32x": 796030,
-    "skl_transpose_e32_zve32x": 1211722,
-    "skl_transpose_e8_zve32x": 745268,
-    "skl_unpack_e16rcprc_e16rc_zve32x": 1146665,
-    "skl_unpack_e32rcprc_e32rc_zve32x": 1505411,
-    "skl_unpack_e8rcprc_e8rc_zve32x": 993031
+  "skl_depthwise_conv2d_f16_f16_f16_zvfh": {
+    "cycles": 821221
+  },
+  "skl_depthwise_conv2d_f32_f32_f32_zve32f": {
+    "cycles": 925982
+  },
+  "skl_depthwise_conv2d_i8_i8_i32_zve32x": {
+    "cycles": 1383378
+  },
+  "skl_exp_bf16_zve32f": {
+    "cycles": 57484
+  },
+  "skl_exp_f16_zvfh": {
+    "cycles": 51567
+  },
+  "skl_exp_f32_zve32f": {
+    "cycles": 59060
+  },
+  "skl_gelu_f32_zve32f": {
+    "cycles": 290157
+  },
+  "skl_gemm_f16_f16_f16_zvfh": {
+    "cycles": 1040306
+  },
+  "skl_gemm_f16_f16_f32_zvfh": {
+    "cycles": 582015
+  },
+  "skl_gemm_f32_f32_f32_zve32f": {
+    "cycles": 433562
+  },
+  "skl_gemm_f64_f64_f64_zve64d": {
+    "cycles": 460727
+  },
+  "skl_gemm_i8_i8_i32_zve32x": {
+    "cycles": 773239
+  },
+  "skl_pack_e16rc_e16rcprc_zve32x": {
+    "cycles": 1018618
+  },
+  "skl_pack_e32rc_e32rcprc_zve32x": {
+    "cycles": 1414269
+  },
+  "skl_pack_e8rc_e8rcprc_zve32x": {
+    "cycles": 859437
+  },
+  "skl_sigmoid_bf16_zve32f": {
+    "cycles": 240749
+  },
+  "skl_sigmoid_f16_zvfh": {
+    "cycles": 196950
+  },
+  "skl_sigmoid_f32_zve32f": {
+    "cycles": 250006
+  },
+  "skl_softmax_bf16_zve32f": {
+    "cycles": 1088094
+  },
+  "skl_softmax_f16_zvfh": {
+    "cycles": 864813
+  },
+  "skl_softmax_f32_zve32f": {
+    "cycles": 237168
+  },
+  "skl_softmax_f32r_zve32f": {
+    "cycles": 2714293
+  },
+  "skl_transpose_e16_zve32x": {
+    "cycles": 796030
+  },
+  "skl_transpose_e32_zve32x": {
+    "cycles": 1211722
+  },
+  "skl_transpose_e8_zve32x": {
+    "cycles": 745268
+  },
+  "skl_unpack_e16rcprc_e16rc_zve32x": {
+    "cycles": 1146665
+  },
+  "skl_unpack_e32rcprc_e32rc_zve32x": {
+    "cycles": 1505411
+  },
+  "skl_unpack_e8rcprc_e8rc_zve32x": {
+    "cycles": 993031
   }
 }

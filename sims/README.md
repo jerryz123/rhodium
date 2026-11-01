@@ -911,15 +911,47 @@ make -C sims run SOC=mini-rv5stage-rva23 STATS=1 BINARY=/path/to/program.elf
 This is a compile-target option, independent of `TRACE` and `COSIM`, supported
 by rsim, direct Verilog, and CIRCT. It changes neither the SoC selection nor the
 hardware generator parameters. See the [declaration and pass API](../rhodium/statistics/README.md).
-It enables authored sites, not a predefined core counter catalog.
+It enables authored sites. RV5Stage and RV2Wide declare the following small catalog;
+the shared L1I/L1D declare cache sites separately for each instance.
 
-The successful `RHODIUM-PERF:` record is JSON with `cycles` and `statistics`.
-`statistics` is `null` when disabled; otherwise it is an array of
-`{"path":["instance"],"name":"counter","count":0}` entries, including zero counts.
-Paths are relative to the compiled top. Counts exclude reset and stop on the
+| Counter | Sampled event | Baseline tolerance |
+|---|---|---|
+| `retired_slot0`, `retired_slot1` (RV2Wide only) | Successful architectural retirement, not delayed register writeback | ±1% |
+| `issue_1`, `issue_2` (RV2Wide only) | Cycles admitting exactly this many instructions into execution | ±5% |
+| `icache_miss` | Accepted demand refill, excluding prefetches and repeated stalled lookups | ±5%, floor 2 events |
+| `dcache_miss` | Accepted demand refill/acquisition, including ownership upgrades, excluding prefetches and uncached accesses | ±5%, floor 2 events |
+| `mispredict_direction` | Conditional taken/fallthrough disagreement | ±5%, floor 2 events |
+| `mispredict_direct_target` | Wrong direct/conditional target after direction agrees | ±5%, floor 2 events |
+| `mispredict_indirect_target` | Wrong non-return indirect-jump target | ±5%, floor 2 events |
+| `mispredict_return_target` | Wrong return/coroutine-pop target | ±5%, floor 2 events |
+| `mispredict_nonbranch` | Stale target, direction, or stack-action prediction on a nonbranch | ±5%, floor 2 events |
+| `mispredict_ras_action` | Stack-action mismatch with no earlier prediction error | ±5%, floor 2 events |
+
+Issue counters count speculative admissions, not just ultimately retired
+instructions. Zero-issue cycles are derived by subtracting the nonzero issue
+buckets from the non-reset cycle count.
+Sum retirement slots for instruction count, and weight issue buckets by width for
+issued instruction count. Neither requires a new RTL counting primitive.
+Mispredict categories partition **winning MEM recoveries**, not retirement or
+frontend-local repairs. Older faults, replays, or WB redirects suppress these
+events. Priority is nonbranch, conditional direction, return/indirect/direct
+target, then RAS-only. RV5Stage uses the effective predicted successor to infer
+taken/fallthrough; RV2Wide additionally observes its retained direction prediction.
+Thus an error corrected entirely inside Fetch is not a MEM misprediction.
+Cache counts measure physical demand transactions (including vector/PTW traffic),
+not an architectural load/store miss rate. Transaction-level CHI retries do not
+increment them again.
+
+The successful `RHODIUM-PERF:` record is a plain JSON map, such as
+`{"cycles":2509,"rtl/soc/hart/core/issue_1":296}`. The harness always reports
+`cycles`; `STATS=1` adds every RTL counter, including zero counts. RTL names use
+`rtl/<instance path>/<counter>`, relative to the compiled top; a top-level
+counter named `cycles` is `rtl/cycles`, distinct from the harness value.
+Path components escape `~` as `~0` and `/` as `~1` to keep names unambiguous.
+Counts exclude reset and stop on the
 first HTIF exit edge, before drain. The native program runner retains them in
-`results.json` and, for enrolled suites, `performance.json`. Cycle regression
-thresholds do not compare these counters. Failed/incomplete runs do not publish
+`results.json` and, for enrolled suites, `performance.json`. Enrolled RTL suites
+compare them against per-instance expectations alongside cycles. Failed/incomplete runs do not publish
 a successful execution record.
 
 ### Whole-ELF cycle regressions
@@ -938,15 +970,35 @@ jobs and shards publish compact `performance-…` artifacts containing
 `performance.json` and display the per-ELF counts in the job summary. Functional
 failures still fail CI and cannot become baselines.
 
-The runner reports missing config/suite baselines as **unbaselined** and
-uploads measurements without failing for missing numbers. Once a reviewed
+The runner reports missing config/suite baselines and uploads measurements
+without failing for missing numbers. Once a reviewed
 baseline is checked in, canonical Linux/rsim runs fail on a change greater than
-±5% for any ELF, including unexpectedly large speedups. Baselines contain only
-test names and expected cycles, keyed by config and suite through their file paths.
+±5% for cycles, including unexpectedly large speedups. Baselines map workload
+names directly to expected numbers:
+
+```json
+{
+  "dhrystone.riscv": {
+    "cycles": 411763,
+    "rtl/soc/hart/core/issue_1": 185420,
+    "rtl/soc/hart/l1i/icache_miss": 37
+  }
+}
+```
+
+This illustrates the format, not an authoritative set of expected values.
+Tolerances come from the shared policy in `program-test/performance.py`, not
+individual baseline files. The allowed delta is
+`max(expected * percent / 100, absolute)`; zero baselines never require division.
+An omitted expectation means collect and report without comparison. Required
+counter kinds must still be present in simulator output, and every counter with
+an expectation must be present at its exact instance path. The importer fills
+in all measured values from a complete successful run.
 Software, compiler, and RTL changes are compared against these expectations
 without requiring matching hashes or fingerprints. Added or renamed tests require
 a baseline inventory update. Simple RTL runs use
-the CI `cosim` variant; Spike and Tiled use `normal`. Other platforms/backends/variants
+the CI `cosim-stats` variant; Tiled RTL uses `normal-stats`, and Spike uses
+`normal`. Other platforms/backends/variants
 record measurements but do not compare them to canonical expectations.
 
 Download one CI run's compact artifacts and import them explicitly:

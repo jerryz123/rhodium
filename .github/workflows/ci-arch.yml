@@ -54,7 +54,7 @@ jobs:
         run: |
           chmod +x "$RUNNER_TEMP/${{ matrix.configuration }}/VTestDriver"
           python3 sims/program-test/artifact.py verify --binary "$RUNNER_TEMP/${{ matrix.configuration }}/VTestDriver" --soc ${{ matrix.configuration }} \
-            --backend "${{ matrix.backend }}" --variant "${{ matrix.cosim && 'cosim' || 'normal' }}"
+            --backend "${{ matrix.backend }}" --variant "${{ matrix.variant }}"
           library_bindings="$(ldd "$RUNNER_TEMP/${{ matrix.configuration }}/VTestDriver")"
           printf '%s\n' "$library_bindings"
           if [[ "$library_bindings" == *"not found"* ]]; then
@@ -69,6 +69,7 @@ jobs:
         env:
           RTL_BACKEND: ${{ matrix.backend }}
           COSIM: ${{ matrix.cosim && '1' || '0' }}
+          STATS: ${{ matrix.stats && '1' || '0' }}
           SHARD: ${{ matrix.shard }}
         run: |
           set -o pipefail

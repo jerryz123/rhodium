@@ -1,18 +1,44 @@
 {
-  "cycles": {
-    "dhrystone.riscv": 411763,
-    "median.riscv": 29055,
-    "memcpy.riscv": 85240,
-    "mm.riscv": 379348,
-    "multiply.riscv": 33754,
-    "qsort.riscv": 187159,
-    "rsort.riscv": 165846,
-    "spmv.riscv": 111859,
-    "towers.riscv": 25387,
-    "vec-daxpy.riscv": 55855,
-    "vec-memcpy.riscv": 80825,
-    "vec-sgemm.riscv": 77978,
-    "vec-strcmp.riscv": 21258,
-    "vvadd.riscv": 25323
+  "dhrystone.riscv": {
+    "cycles": 411763
+  },
+  "median.riscv": {
+    "cycles": 29055
+  },
+  "memcpy.riscv": {
+    "cycles": 85240
+  },
+  "mm.riscv": {
+    "cycles": 379348
+  },
+  "multiply.riscv": {
+    "cycles": 33754
+  },
+  "qsort.riscv": {
+    "cycles": 187159
+  },
+  "rsort.riscv": {
+    "cycles": 165846
+  },
+  "spmv.riscv": {
+    "cycles": 111859
+  },
+  "towers.riscv": {
+    "cycles": 25387
+  },
+  "vec-daxpy.riscv": {
+    "cycles": 55855
+  },
+  "vec-memcpy.riscv": {
+    "cycles": 80825
+  },
+  "vec-sgemm.riscv": {
+    "cycles": 77978
+  },
+  "vec-strcmp.riscv": {
+    "cycles": 21258
+  },
+  "vvadd.riscv": {
+    "cycles": 25323
   }
 }

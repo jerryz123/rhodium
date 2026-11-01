@@ -1,0 +1,41 @@
+#lang rhodium
+/* Classifies effective prediction recovery and declares mutually exclusive sampled counters. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/frontend/layers/statistics.rhm").stat_count
+
+/* Names the first effective prediction failure; simultaneous RAS repairs do not double count. */
+hardware_enum PredictionFailure:
+  None
+  Direction
+  DirectTarget
+  IndirectTarget
+  ReturnTarget
+  Nonbranch
+  RasAction
+
+/* Classifies a resolved prediction independently of recovery arbitration and pipeline timing.
+   Direction means a conditional taken/fallthrough disagreement; target errors retain jump kind. */
+fun prediction_failure(branch :: Bool, conditional :: Bool, direction_wrong :: Bool, next_pc_wrong :: Bool, indirect :: Bool, returning :: Bool, ras_wrong :: Bool) :~ PredictionFailure:
+  priority_mux(~default: PredictionFailure.None):
+    !branch & (direction_wrong ||| next_pc_wrong ||| ras_wrong): PredictionFailure.Nonbranch
+    branch & conditional & direction_wrong: PredictionFailure.Direction
+    next_pc_wrong & returning: PredictionFailure.ReturnTarget
+    next_pc_wrong & indirect: PredictionFailure.IndirectTarget
+    next_pc_wrong: PredictionFailure.DirectTarget
+    ras_wrong: PredictionFailure.RasAction
+
+/* Counts only the caller's winning recovery event, once in exactly one failure category. */
+fun count_prediction_failure(recovery :: Bool, failure :: PredictionFailure):
+  stat_count("mispredict_direction", recovery & (failure === PredictionFailure.Direction))
+  stat_count("mispredict_direct_target", recovery & (failure === PredictionFailure.DirectTarget))
+  stat_count("mispredict_indirect_target", recovery & (failure === PredictionFailure.IndirectTarget))
+  stat_count("mispredict_return_target", recovery & (failure === PredictionFailure.ReturnTarget))
+  stat_count("mispredict_nonbranch", recovery & (failure === PredictionFailure.Nonbranch))
+  stat_count("mispredict_ras_action", recovery & (failure === PredictionFailure.RasAction))
+
+export:
+  PredictionFailure
+  prediction_failure
+  count_prediction_failure

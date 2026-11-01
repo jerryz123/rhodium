@@ -52,12 +52,13 @@ jobs:
         run: |
           chmod +x "$RUNNER_TEMP/$SOC/VTestDriver"
           python3 sims/program-test/artifact.py verify --binary "$RUNNER_TEMP/$SOC/VTestDriver" --soc "$SOC" \
-            --backend "${{ matrix.backend }}" --variant "${{ matrix.cosim && 'cosim' || 'normal' }}"
+            --backend "${{ matrix.backend }}" --variant "${{ matrix.variant }}"
           ldd "$RUNNER_TEMP/$SOC/VTestDriver"
       - name: Bind and run selected suites
         env:
           RTL_BACKEND: ${{ matrix.backend }}
           COSIM: ${{ matrix.cosim && '1' || '0' }}
+          STATS: ${{ matrix.stats && '1' || '0' }}
           SUITES: ${{ toJSON(matrix.suites) }}
           SOC: ${{ matrix.soc }}
         run: |

@@ -1,23 +1,59 @@
 {
-  "cycles": {
-    "aha-mont64": 6856,
-    "crc32": 29861,
-    "depthconv": 2878,
-    "edn": 54929,
-    "huffbench": 326489,
-    "matmult-int": 93837,
-    "md5sum": 36760,
-    "nettle-aes": 61279,
-    "nettle-sha256": 10109,
-    "nsichneu": 14746,
-    "picojpeg": 443205,
-    "qrduino": 689253,
-    "sglib-combined": 128168,
-    "slre": 28719,
-    "statemate": 3626,
-    "tarfind": 40116,
-    "ud": 7781,
-    "wikisort": 402325,
-    "xgboost": 437809
+  "aha-mont64": {
+    "cycles": 6856
+  },
+  "crc32": {
+    "cycles": 29861
+  },
+  "depthconv": {
+    "cycles": 2878
+  },
+  "edn": {
+    "cycles": 54929
+  },
+  "huffbench": {
+    "cycles": 326489
+  },
+  "matmult-int": {
+    "cycles": 93837
+  },
+  "md5sum": {
+    "cycles": 36760
+  },
+  "nettle-aes": {
+    "cycles": 61279
+  },
+  "nettle-sha256": {
+    "cycles": 10109
+  },
+  "nsichneu": {
+    "cycles": 14746
+  },
+  "picojpeg": {
+    "cycles": 443205
+  },
+  "qrduino": {
+    "cycles": 689253
+  },
+  "sglib-combined": {
+    "cycles": 128168
+  },
+  "slre": {
+    "cycles": 28719
+  },
+  "statemate": {
+    "cycles": 3626
+  },
+  "tarfind": {
+    "cycles": 40116
+  },
+  "ud": {
+    "cycles": 7781
+  },
+  "wikisort": {
+    "cycles": 402325
+  },
+  "xgboost": {
+    "cycles": 437809
   }
 }

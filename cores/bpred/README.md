@@ -157,6 +157,23 @@ hints, including RV32-only C.JAL. These helpers classify hints rather than
 validate instruction legality. The caller supplies the length-correct return
 address and decides whether a stack head overrides a BTB target.
 
+## Prediction statistics
+
+`statistics.rhdl` exports `prediction_failure` and `count_prediction_failure`.
+The first takes resolved branch/conditional flags, direction and next-PC mismatch
+flags, indirect/return classification, and a RAS-action mismatch. It selects one
+`PredictionFailure`: nonbranch, conditional direction, return/indirect/direct
+target, RAS-only, or none, in that priority order. A return includes a coroutine
+pop-then-push. Callers define direction mismatch from their retained effective
+prediction; a taken branch whose target equals fallthrough need not be a next-PC
+error.
+
+The second takes the **winning recovery event** and that classification, and
+declares six passive `stat_count` sites. It must be called once per module.
+It neither changes predictor state nor qualifies recovery. Counts are enabled
+only by the compile target; names, measurement window, and baseline policy are
+documented in [RTL statistics](../../sims/README.md#rtl-statistics).
+
 ## Integration boundary
 
 The caller owns when to redirect, which instructions remain in a fetched

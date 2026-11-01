@@ -1,6 +1,7 @@
 # Defines rsim fixtures, owner groups, program exports, drivers, and optional targets/link sources.
 # SPDX-License-Identifier: Apache-2.0
 statistics	language	rhodium/statistics/tests/fixture.rhdl	program	rhodium/statistics/tests/count.cpp	target	sims/statistics/collector.cc
+prediction-statistics	cores-components	cores/bpred/tests/statistics-fixture.rhdl	program	cores/bpred/tests/rsim/statistics.cpp	target	sims/statistics/collector.cc
 sync-memory-masked	language	examples/rtl/sync-memory-masked.rhdl	program	rhodium/backend/tests/rsim/sync-memory-masked.cpp
 counter	language	examples/rtl/counter.rhdl	program	rhodium/backend/tests/rsim/counter.cpp
 pipe	std	examples/std/flow-control.rhdl	pipe_program	flow/tests/rsim/pipe.cpp
@@ -194,7 +195,7 @@ priority-encoder	language	examples/rtl/priority-encoder.rhdl	five_program	rhodiu
 table	language	examples/rtl/table.rhdl	program	rhodium/backend/tests/rsim/table.cpp
 vec-search	language	examples/rtl/vec-search.rhdl	program	rhodium/backend/tests/rsim/vec-search.cpp
 bundle-update	language	rhodium/backend/tests/rsim/emit-bundle-update.rhm	program	rhodium/backend/tests/rsim/bundle-update.cpp
-rv2wide-core	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-core.rhm	program	cores/rv2wide/tests/rsim/rv2wide-core.cpp
+rv2wide-core	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-core.rhm	program	cores/rv2wide/tests/rsim/rv2wide-core.cpp	target	sims/statistics/collector.cc
 rv2wide-core-vector	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-core-vector.rhm	program	cores/rv2wide/tests/rsim/rv2wide-core-vector.cpp	target	rheg/runtime/rheg.cc
 rv2wide-core-vector-rv32	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-core-vector.rhm	rv32_program	cores/rv2wide/tests/rsim/rv2wide-core-vector.cpp	target	rheg/runtime/rheg.cc
 rv2wide-vector-memory	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-vector-memory.rhm	program	cores/rv2wide/tests/rsim/rv2wide-vector-memory.cpp

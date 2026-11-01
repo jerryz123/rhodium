@@ -92,6 +92,7 @@ jobs:
           SIMULATOR_ID: ${{ fromJSON(inputs.config).simulator_id }}
           OPT_FAST: ${{ fromJSON(inputs.config).opt_fast }}
           COSIM: ${{ fromJSON(inputs.config).cosim && '1' || '0' }}
+          STATS: ${{ fromJSON(inputs.config).stats && '1' || '0' }}
           COSIM_PYTHON: ${{ github.workspace }}/.tools/cosim-python/bin/python
         run: |
           build_args=()
@@ -104,6 +105,7 @@ jobs:
           unset OPT_FAST
           build="/tmp/rhodium-sims/$SIMULATOR_ID"
           if [[ "$COSIM" == 1 ]]; then build="$build-cosim"; fi
+          if [[ "$STATS" == 1 ]]; then build="$build-stats"; fi
           mkdir -p "$build/obj"
           cp "$RUNNER_TEMP/targets/$SOC.json" "$build/obj/program-target.json"
           echo "path=$build/obj" >> "$GITHUB_OUTPUT"
@@ -147,7 +149,7 @@ jobs:
         run: |
           chmod +x "${{ steps.simulator.outputs.path }}/VTestDriver"
           python3 sims/program-test/artifact.py verify --binary "${{ steps.simulator.outputs.path }}/VTestDriver" \
-            --soc "$SOC" --backend "$RTL_BACKEND" --variant "${{ fromJSON(inputs.config).cosim && 'cosim' || 'normal' }}" --target "${{ steps.simulator.outputs.path }}/program-target.json"
+            --soc "$SOC" --backend "$RTL_BACKEND" --variant "${{ fromJSON(inputs.config).variant }}" --target "${{ steps.simulator.outputs.path }}/program-target.json"
       - name: Download shared harness ELFs
         if: inputs.run-harness && (contains(fromJSON(inputs.config).software_tests, 'isa-smoke') || contains(fromJSON(inputs.config).software_tests, 'tiled-mt-benchmark-test'))
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -164,6 +166,7 @@ jobs:
           RTL_BACKEND: ${{ fromJSON(inputs.config).backend }}
           SIMULATOR_ID: ${{ fromJSON(inputs.config).simulator_id }}
           COSIM: ${{ fromJSON(inputs.config).cosim && '1' || '0' }}
+          STATS: ${{ fromJSON(inputs.config).stats && '1' || '0' }}
           SOFTWARE_TESTS: ${{ fromJSON(inputs.config).software_tests }}
           SMOKE_MAX_CYCLES: ${{ fromJSON(inputs.config).smoke_max_cycles }}
         run: |
@@ -214,7 +217,7 @@ jobs:
           retention-days: 30
       - name: Verify RV5Stage-specific NTL cache timing
         if: inputs.run-harness && (fromJSON(inputs.config).backend == 'rsim' && fromJSON(inputs.config).soc == 'simple-rv5stage-rva23')
-        run: make -C sims zihintntl-policy-test RTL_BACKEND=rsim COSIM=1 SOC=simple-rv5stage-rva23 PREBUILT_SIMULATOR="${{ steps.simulator.outputs.path }}/VTestDriver"
+        run: make -C sims zihintntl-policy-test RTL_BACKEND=rsim COSIM=1 STATS=1 SOC=simple-rv5stage-rva23 PREBUILT_SIMULATOR="${{ steps.simulator.outputs.path }}/VTestDriver"
       - name: Execute mapped MiniRV5StageSoC through standard FESVR flow
         if: inputs.run-harness && (fromJSON(inputs.config).soc == 'mini-rv5stage-rva23')
         run: make -C vlsi/sim smoke

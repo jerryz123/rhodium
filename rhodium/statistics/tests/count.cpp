@@ -24,11 +24,8 @@ int main() {
     CHECK(left_value == 5 && right_value == 4);
     collector.freeze();
     const auto report = collector.json();
-    CHECK(report == "[{\"path\":[\"left\"],\"name\":\"events\",\"count\":5},"
-                    "{\"path\":[\"left\"],\"name\":\"never\",\"count\":0},"
-                    "{\"path\":[\"right\"],\"name\":\"events\",\"count\":4},"
-                    "{\"path\":[\"right\"],\"name\":\"never\",\"count\":0},"
-                    "{\"path\":[],\"name\":\"cycles\",\"count\":10}]");
+    CHECK(report == "{\"rtl/left/events\":5,\"rtl/left/never\":0,"
+                    "\"rtl/right/events\":4,\"rtl/right/never\":0,\"rtl/cycles\":10}");
     left_event = 1; right_event = 1;
     tick(); tick();
     CHECK(collector.json() == report);

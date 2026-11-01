@@ -1,5 +1,5 @@
 {
-  "cycles": {
-    "coremark_scalar.riscv": 295465
+  "coremark_scalar.riscv": {
+    "cycles": 295465
   }
 }

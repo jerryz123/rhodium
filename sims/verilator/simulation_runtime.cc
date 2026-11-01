@@ -170,11 +170,12 @@ extern "C" int rhodium_sim_finish() noexcept {
 extern "C" int rhodium_sim_report(unsigned long long cycles) noexcept {
   return checked([&] {
     require(phase == Phase::Finished && !reported && cycles > 0, "invalid execution report");
-    std::string counts = "null";
+    std::string report = "{\"cycles\":" + std::to_string(cycles);
 #ifdef RHODIUM_STATS
-    counts = statistics->json();
+    const auto counts = statistics->json();
+    if (counts.size() > 2) report += ',' + counts.substr(1, counts.size() - 2);
 #endif
-    std::printf("RHODIUM-PERF: {\"cycles\":%llu,\"statistics\":%s}\n", cycles, counts.c_str());
+    std::printf("RHODIUM-PERF: %s}\n", report.c_str());
     reported = true;
   });
 }

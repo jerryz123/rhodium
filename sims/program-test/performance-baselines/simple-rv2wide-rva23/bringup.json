@@ -1,112 +1,326 @@
 {
-  "cycles": {
-    "ackermann": 20821,
-    "aes": 20562,
-    "anagram": 274467,
-    "audio-codec": 12438,
-    "avl-tree": 166375,
-    "banner": 320538,
-    "bit-kernels": 67942,
-    "blake2b": 108444,
-    "bloom-filter": 339227,
-    "boyer-moore-search": 16277,
-    "bubble-sort": 504436,
-    "c-interp": 1829473,
-    "ccmac": 434203,
-    "checkers": 526525,
-    "chi-squared": 145891,
-    "cipher": 9838,
-    "congrad": 1546461,
-    "connect4-minimax": 502994,
-    "convex-hull": 42800,
-    "dhrystone": 80571,
-    "distinctness": 22292,
-    "donut": 693874,
-    "edit-distance": 181412,
-    "eulers-approx": 53671,
-    "fft-int": 488956,
-    "flood-fill": 41934,
-    "frac-calc": 35270,
-    "fuzzy-match": 297132,
-    "fy-shuffle": 180342,
-    "gcd-list": 82737,
-    "gemm": 1295754,
-    "grad-descent": 346621,
-    "graph-tests": 17490,
-    "hanoi": 47698,
-    "heapsort": 182907,
-    "heat-calc": 949141,
-    "heldkarp-tsp": 147680,
-    "highlife": 279427,
-    "huff-encode": 153537,
-    "idct-alg": 346030,
-    "indirect-test": 3506,
-    "k-means": 627382,
-    "kadane": 11579,
-    "kepler": 33638,
-    "knapsack": 219798,
-    "knights-tour": 163915,
-    "lda": 504012,
-    "life": 786538,
-    "longdiv": 56381,
-    "lu-decomp": 53226,
-    "lz-compress": 81812,
-    "mandelbrot": 724489,
-    "matmult": 1059536,
-    "max-subseq": 17074,
-    "mersenne": 188500,
-    "minspan": 97380,
-    "monte-carlo": 551947,
-    "moving-average": 156998,
-    "murmur-hash": 13968,
-    "n-queens": 676231,
-    "natlog": 303984,
-    "nbody-sim": 559001,
-    "nonlinear-nn": 431621,
-    "nr-solver": 203545,
-    "ntt-kernel": 383944,
-    "packet-filter": 445136,
-    "parrondo": 612348,
-    "partition-equal": 412728,
-    "pascal": 203114,
-    "pca-analysis": 179583,
-    "pi-calc": 267974,
-    "primal-test": 841702,
-    "priority-queue": 513865,
-    "qsort-demo": 62421,
-    "qsort-test": 150428,
-    "quartile-stats": 61445,
-    "quaternions": 11020,
-    "quine": 6185,
-    "rabinkarp-search": 51039,
-    "rad-to-deg": 319628,
-    "rand-test": 217226,
-    "randshell-sort": 795301,
-    "ransac": 561043,
-    "regex-parser": 45933,
-    "rho-factor": 68197,
-    "rle-compress": 35249,
-    "rsa-cipher": 36278,
-    "sat-solver": 28311,
-    "shortest-path": 32824,
-    "sieve": 28504,
-    "simple-grep": 421445,
-    "skeleton": 4983,
-    "spelt2num": 41767,
-    "spirograph": 542442,
-    "strange": 4526,
-    "sudoku-solver": 620889,
-    "tea-cipher": 10449,
-    "tetris-sim": 750035,
-    "tiny-NN": 1894153,
-    "topo-sort": 7308,
-    "totient": 14422,
-    "transcend": 333562,
-    "triangle-count": 40523,
-    "uniquify": 63881,
-    "variability-sample": 183877,
-    "vectors-3d": 21866,
-    "verlet": 442767,
-    "weekday": 8862
+  "ackermann": {
+    "cycles": 20821
+  },
+  "aes": {
+    "cycles": 20562
+  },
+  "anagram": {
+    "cycles": 274467
+  },
+  "audio-codec": {
+    "cycles": 12438
+  },
+  "avl-tree": {
+    "cycles": 166375
+  },
+  "banner": {
+    "cycles": 320538
+  },
+  "bit-kernels": {
+    "cycles": 67942
+  },
+  "blake2b": {
+    "cycles": 108444
+  },
+  "bloom-filter": {
+    "cycles": 339227
+  },
+  "boyer-moore-search": {
+    "cycles": 16277
+  },
+  "bubble-sort": {
+    "cycles": 504436
+  },
+  "c-interp": {
+    "cycles": 1829473
+  },
+  "ccmac": {
+    "cycles": 434203
+  },
+  "checkers": {
+    "cycles": 526525
+  },
+  "chi-squared": {
+    "cycles": 145891
+  },
+  "cipher": {
+    "cycles": 9838
+  },
+  "congrad": {
+    "cycles": 1546461
+  },
+  "connect4-minimax": {
+    "cycles": 502994
+  },
+  "convex-hull": {
+    "cycles": 42800
+  },
+  "dhrystone": {
+    "cycles": 80571
+  },
+  "distinctness": {
+    "cycles": 22292
+  },
+  "donut": {
+    "cycles": 693874
+  },
+  "edit-distance": {
+    "cycles": 181412
+  },
+  "eulers-approx": {
+    "cycles": 53671
+  },
+  "fft-int": {
+    "cycles": 488956
+  },
+  "flood-fill": {
+    "cycles": 41934
+  },
+  "frac-calc": {
+    "cycles": 35270
+  },
+  "fuzzy-match": {
+    "cycles": 297132
+  },
+  "fy-shuffle": {
+    "cycles": 180342
+  },
+  "gcd-list": {
+    "cycles": 82737
+  },
+  "gemm": {
+    "cycles": 1295754
+  },
+  "grad-descent": {
+    "cycles": 346621
+  },
+  "graph-tests": {
+    "cycles": 17490
+  },
+  "hanoi": {
+    "cycles": 47698
+  },
+  "heapsort": {
+    "cycles": 182907
+  },
+  "heat-calc": {
+    "cycles": 949141
+  },
+  "heldkarp-tsp": {
+    "cycles": 147680
+  },
+  "highlife": {
+    "cycles": 279427
+  },
+  "huff-encode": {
+    "cycles": 153537
+  },
+  "idct-alg": {
+    "cycles": 346030
+  },
+  "indirect-test": {
+    "cycles": 3506
+  },
+  "k-means": {
+    "cycles": 627382
+  },
+  "kadane": {
+    "cycles": 11579
+  },
+  "kepler": {
+    "cycles": 33638
+  },
+  "knapsack": {
+    "cycles": 219798
+  },
+  "knights-tour": {
+    "cycles": 163915
+  },
+  "lda": {
+    "cycles": 504012
+  },
+  "life": {
+    "cycles": 786538
+  },
+  "longdiv": {
+    "cycles": 56381
+  },
+  "lu-decomp": {
+    "cycles": 53226
+  },
+  "lz-compress": {
+    "cycles": 81812
+  },
+  "mandelbrot": {
+    "cycles": 724489
+  },
+  "matmult": {
+    "cycles": 1059536
+  },
+  "max-subseq": {
+    "cycles": 17074
+  },
+  "mersenne": {
+    "cycles": 188500
+  },
+  "minspan": {
+    "cycles": 97380
+  },
+  "monte-carlo": {
+    "cycles": 551947
+  },
+  "moving-average": {
+    "cycles": 156998
+  },
+  "murmur-hash": {
+    "cycles": 13968
+  },
+  "n-queens": {
+    "cycles": 676231
+  },
+  "natlog": {
+    "cycles": 303984
+  },
+  "nbody-sim": {
+    "cycles": 559001
+  },
+  "nonlinear-nn": {
+    "cycles": 431621
+  },
+  "nr-solver": {
+    "cycles": 203545
+  },
+  "ntt-kernel": {
+    "cycles": 383944
+  },
+  "packet-filter": {
+    "cycles": 445136
+  },
+  "parrondo": {
+    "cycles": 612348
+  },
+  "partition-equal": {
+    "cycles": 412728
+  },
+  "pascal": {
+    "cycles": 203114
+  },
+  "pca-analysis": {
+    "cycles": 179583
+  },
+  "pi-calc": {
+    "cycles": 267974
+  },
+  "primal-test": {
+    "cycles": 841702
+  },
+  "priority-queue": {
+    "cycles": 513865
+  },
+  "qsort-demo": {
+    "cycles": 62421
+  },
+  "qsort-test": {
+    "cycles": 150428
+  },
+  "quartile-stats": {
+    "cycles": 61445
+  },
+  "quaternions": {
+    "cycles": 11020
+  },
+  "quine": {
+    "cycles": 6185
+  },
+  "rabinkarp-search": {
+    "cycles": 51039
+  },
+  "rad-to-deg": {
+    "cycles": 319628
+  },
+  "rand-test": {
+    "cycles": 217226
+  },
+  "randshell-sort": {
+    "cycles": 795301
+  },
+  "ransac": {
+    "cycles": 561043
+  },
+  "regex-parser": {
+    "cycles": 45933
+  },
+  "rho-factor": {
+    "cycles": 68197
+  },
+  "rle-compress": {
+    "cycles": 35249
+  },
+  "rsa-cipher": {
+    "cycles": 36278
+  },
+  "sat-solver": {
+    "cycles": 28311
+  },
+  "shortest-path": {
+    "cycles": 32824
+  },
+  "sieve": {
+    "cycles": 28504
+  },
+  "simple-grep": {
+    "cycles": 421445
+  },
+  "skeleton": {
+    "cycles": 4983
+  },
+  "spelt2num": {
+    "cycles": 41767
+  },
+  "spirograph": {
+    "cycles": 542442
+  },
+  "strange": {
+    "cycles": 4526
+  },
+  "sudoku-solver": {
+    "cycles": 620889
+  },
+  "tea-cipher": {
+    "cycles": 10449
+  },
+  "tetris-sim": {
+    "cycles": 750035
+  },
+  "tiny-NN": {
+    "cycles": 1894153
+  },
+  "topo-sort": {
+    "cycles": 7308
+  },
+  "totient": {
+    "cycles": 14422
+  },
+  "transcend": {
+    "cycles": 333562
+  },
+  "triangle-count": {
+    "cycles": 40523
+  },
+  "uniquify": {
+    "cycles": 63881
+  },
+  "variability-sample": {
+    "cycles": 183877
+  },
+  "vectors-3d": {
+    "cycles": 21866
+  },
+  "verlet": {
+    "cycles": 442767
+  },
+  "weekday": {
+    "cycles": 8862
   }
 }

@@ -8,7 +8,8 @@ import json
 import subprocess
 from dataclasses import dataclass, field
 
-from .policy import CHECKS, RSIM_CORE_CHECKS, RSIM_COMPONENT_CHECKS, CIRCT_CHECKS, CORE_CHECKS, HOST_CHECKS, NATIVE_SUITES, SIMULATOR_CONFIGS, SINGLE_CORE_SOCS, COSIM_CONFIGS, native_configs, simulation_entry, simulator_entry, BACKEND_SMOKE_CONFIGS, DEFAULT_BACKEND, BACKEND_SMOKE_VARIANTS, arch_configs, arch_shards, check_matrix, platform_configs, SHORT_PROGRAM_SUITES
+from .policy import CHECKS, RSIM_CORE_CHECKS, RSIM_COMPONENT_CHECKS, CIRCT_CHECKS, CORE_CHECKS, HOST_CHECKS, NATIVE_SUITES, SIMULATOR_CONFIGS, SINGLE_CORE_SOCS, native_configs, simulation_entry, simulator_entry, BACKEND_SMOKE_CONFIGS, DEFAULT_BACKEND, BACKEND_SMOKE_VARIANTS, arch_configs, arch_shards, check_matrix, platform_configs, SHORT_PROGRAM_SUITES
+from .policy import simulator_options
 
 
 def matches(path, *patterns):
@@ -263,9 +264,9 @@ class Selection:
         for suite in NATIVE_SUITES:
             if suite not in self.native_suites:
                 continue
-            suites["include"].extend({"soc": soc, "suite": suite, "cosim": soc in COSIM_CONFIGS, "backend": DEFAULT_BACKEND} for soc in native_configs(suite))
+            suites["include"].extend({"soc": soc, "suite": suite, **simulator_options(soc), "backend": DEFAULT_BACKEND} for soc in native_configs(suite))
             if suite == "coremark":
-                suites["include"].extend({"soc": soc, "suite": "coremark_scalar", "cosim": soc in COSIM_CONFIGS, "backend": DEFAULT_BACKEND} for soc in native_configs(suite))
+                suites["include"].extend({"soc": soc, "suite": "coremark_scalar", **simulator_options(soc), "backend": DEFAULT_BACKEND} for soc in native_configs(suite))
         run_checks = bool(self.checks)
         run_program_native = bool(self.native_suites)
         run_simulator = self.simulation or run_program_native or self.arch

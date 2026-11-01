@@ -93,7 +93,11 @@ fun statistics_pass(~clock: clock_name :: String = "clock", ~reset: reset_name :
             def id = descriptors.length()
             def prefix = "{\"path\":[" ++ String.join(path.map(json_string), ",") ++ "],\"name\":" ++ json_string(entry.name)
             descriptors.add(prefix ++ "}")
-            prefixes.add(json_string(prefix ++ ",\"count\":"))
+            def key = "rtl/" ++ String.join(
+              (path ++ [entry.name]).map(fun (part): part.replace("~", "~0", ~all: #true).replace("/", "~1", ~all: #true)),
+              "/"
+            )
+            prefixes.add(json_string(json_string(key) ++ ":"))
             def condition = builder.cast(owner, copied.values[entry.condition.id], Bits(1), fresh_value(owner))
             def reset = builder.cast(owner, copied.values[entry.reset.id], Bits(1), fresh_value(owner))
             def enabled = builder.bit_not(owner, reset, fresh_value(owner))

@@ -1,5 +1,38 @@
 // Checks the complete dual-issue architectural oracle, memory ownership, and precise recovery.
 // SPDX-License-Identifier: Apache-2.0
+#include "test.hpp"
+#include "statistics.h"
+#include "collector.h"
+static rhodium::statistics::Collector statistic_collector(rhodium::statistics::descriptors);
+static std::vector<unsigned> statistic_samples(rhodium::statistics::descriptors.size());
+extern "C" void rhodium_stat_count(int id) {
+  statistic_collector.count(id);
+  ++statistic_samples.at(id);
+}
+void counted_tick() {
+  const auto issue = issued;
+  const bool retires[] = {bool(retired_0_out.pvalid), bool(retired_1_out.pvalid)};
+  const bool recovery = !reset && redirect_out.pvalid && redirect_out.pbits.presolution.pdisposition == 0;
+  std::fill(statistic_samples.begin(), statistic_samples.end(), 0);
+  statistic_collector.begin(reset);
+  tick_model();
+  statistic_collector.end();
+  unsigned recoveries = 0;
+  for (unsigned i = 0; i < statistic_samples.size(); ++i) {
+    const auto descriptor = rhodium::statistics::descriptors[i];
+    const auto value = statistic_samples[i];
+    if (reset) { CHECK(value == 0); continue; }
+    for (unsigned n = 1; n < 3; ++n)
+      if (descriptor.find("\"name\":\"issue_" + std::to_string(n) + "\"") != std::string_view::npos)
+        CHECK(value == unsigned(issue == n));
+    for (unsigned n = 0; n < 2; ++n)
+      if (descriptor.find("\"name\":\"retired_slot" + std::to_string(n) + "\"") != std::string_view::npos)
+        CHECK(value == unsigned(retires[n]));
+    if (descriptor.find("mispredict_") != std::string_view::npos) recoveries += value;
+  }
+  CHECK(recoveries == unsigned(recovery));
+}
+#define tick_model counted_tick
 #include "driver.hpp"
 using instruction_t =
     std::remove_cvref_t<decltype(instructions_in.pbits.pentries[0])>;

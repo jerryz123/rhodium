@@ -18,8 +18,9 @@ Read [README.md](README.md) for the public contract and the
   simulator lifecycle brackets samples, freezes at exit, and reports only after
   successful finalization. Callbacks latch errors rather than throwing through
   the foreign ABI.
-- `sims/program-test/performance.py` validates execution records. The ordinary
-  runner retains counts; cycle baseline comparisons remain independent.
+- `sims/program-test/performance.py` validates execution records and compares
+  harness cycles and hierarchical RTL counter names uniformly. Catalogs, tolerances, and baseline
+  policy belong there, not in the generic declaration, pass, or collector.
 
 New instrumentation must preserve functional signatures and source metadata.
 Do not derive counter identity from generated module names, merge repeated

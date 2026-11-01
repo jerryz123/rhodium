@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/frontend/layers/statistics.rhm").stat_count
   "../../cache-prefetch.rhdl" open
   "protocol.rhdl" open
   "../geometry.rhdl" open
@@ -241,6 +242,7 @@ sync_circuit L1ICache(xlen :: XLen, cache :: CacheConfig, ~chi: config :: RiscvH
   /* Refill installation data and write masks */
 
   def refill_start = refill.command.fire()
+  stat_count("icache_miss", refill_start & !refill.command.bits.context.prefetch)
   def refill_complete = refill_completed.valid
   def install = refill_complete & refill_installing & !refill_completion_discard
   def install_way_mask = cache_way_mask(cache, completion_way)

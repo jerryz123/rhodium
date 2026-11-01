@@ -47,8 +47,10 @@ def main():
             if not fail:
                 if result.stdout.count("SoC harness simulation passed") != 1 or "%Fatal" in result.stdout:
                     raise AssertionError(result.stdout)
-                expected_stats = [dict(path=[], name='cycles', count=5), dict(path=[], name='never', count=0)] if stats else None
-                if measure(result.stdout, 100) != dict(cycles=5, statistics=expected_stats):
+                expected = {'cycles': 5}
+                if stats:
+                    expected.update({'rtl/cycles': 5, 'rtl/never': 0})
+                if measure(result.stdout, 100) != expected:
                     raise AssertionError(result.stdout)
             elif "SoC harness simulation passed" in result.stdout or "RHODIUM-PERF:" in result.stdout:
                 raise AssertionError(result.stdout)

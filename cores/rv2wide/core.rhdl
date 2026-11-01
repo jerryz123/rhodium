@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/frontend/layers/statistics.rhm").stat_count
+  lib("cores/bpred/statistics.rhdl") open
   lib("cores/fp/profile.rhm").fp_transport_profile
   lib("cores/reservation-wait.rhdl") open
   lib("cores/integer-format.rhdl") open
@@ -653,6 +655,8 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   def rr_second = rr_first & !rr_vector_writeback_waiting & (rr_head.count === Bits(2)(2)) & !rr_blocked[1] & rr_younger_prefix_allowed & rr_memory_order_clear[1] & rr_second_decodable & !rr_younger_return_reserved
   issued <== rr_first.as_bits().zext(2) + rr_second.as_bits().zext(2)
   rr_window.consume <== issued
+  stat_count("issue_1", issued === Bits(2)(1))
+  stat_count("issue_2", issued === Bits(2)(2))
   def rr_fp_admitted = mux(rr_fp_lane === Bits(1)(0), rr_first, rr_second) & rr_decodable[rr_fp_lane] & rr_fp_fixed[rr_fp_lane]
   fp.book.valid <== rr_fp_admitted
   fp.book.bits <== rr_fp_control
@@ -1095,6 +1099,16 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   def mem_branch_younger = mem_younger.egress.valid & mem_resolved[1].branch.mispredicted & (mem_resolved[1].resolution.disposition === RV2WideDisposition.Continue) & (!mem_older.egress.valid ||| (mem_older_continue & !mem_resolved[0].branch.mispredicted))
   mem_branch_redirect <== (mem_branch_older ||| mem_branch_younger) & !wb_squash
   def mem_branch :: RV2WideResult(xlen) = mux(mem_branch_older, mem_resolved[0], mem_resolved[1])
+  def mem_prediction_pc = mux(mem_branch.fetched.prediction.valid, mem_branch.fetched.prediction.target, mem_branch.fetched.sequential_pc)
+  def mem_actual_pc = mux(mem_branch.branch.taken, mem_branch.branch.target, mem_branch.fetched.sequential_pc)
+  def mem_prediction_failure = prediction_failure(
+    mem_branch.branch.update.branch, mem_branch.branch.update.conditional,
+    ((mem_actual_pc =/= mem_prediction_pc) & (mem_branch.branch.taken ^ (mem_prediction_pc =/= mem_branch.fetched.sequential_pc))) ||| (mem_branch.fetched.direction.valid & (mem_branch.fetched.direction.taken ^ mem_branch.branch.taken)),
+    mem_actual_pc =/= mem_prediction_pc, mem_branch.fetched.instruction[0..7] === Bits(7)(0x67),
+    mem_branch.branch.update.ras_action.is_one_of(RasAction.Pop, RasAction.PopPush),
+    Bool(profile.ras_entries > 0) & (mem_branch.branch.update.ras_action =/= mem_branch.fetched.speculated_ras_action)
+  )
+  count_prediction_failure(mem_branch_redirect, mem_prediction_failure)
   def mem_redirect_bits = RV2WideRedirect(xlen):
     pc: mem_branch.fetched.pc
     target: mux(mem_branch.branch.taken, mem_branch.branch.target, mem_branch.fetched.sequential_pc)
@@ -1797,6 +1811,8 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
 
   retired_count <== retired[0].valid.as_bits().zext(2) + retired[1].valid.as_bits().zext(2)
   wb_csrs.retire_count <== retired_count
+  stat_count("retired_slot0", retired[0].valid)
+  stat_count("retired_slot1", retired[1].valid)
 
   /* Retired locality, PAUSE, and resume state.
      Only the successful prefix advances hints and the architectural cursor;

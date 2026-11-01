@@ -1,0 +1,17 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../statistics.rhdl" open
+  lib("rhodium/compile/pipeline.rhm").rtl_pipeline_target
+  lib("rhodium/backend/rsim-target.rhm").rsim_target
+  lib("rhodium/statistics/pass.rhm").statistics_pass
+
+sync_circuit PredictionStatistics():
+  input flags: Bits(8)
+  output failure: PredictionFailure
+  failure <== prediction_failure(flags[0].into(Bool), flags[1].into(Bool), flags[2].into(Bool), flags[3].into(Bool), flags[4].into(Bool), flags[5].into(Bool), flags[6].into(Bool))
+  count_prediction_failure(flags[7].into(Bool), failure)
+
+def program = elaborate(PredictionStatistics())
+def target = rtl_pipeline_target(rsim_target, [statistics_pass()])
+export program target

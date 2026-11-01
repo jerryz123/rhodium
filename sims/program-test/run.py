@@ -73,8 +73,7 @@ def execute(test, simulator, root, output, timeout, cycles, cosim=False, expecte
     reason = None
     checked_records = None
     functional_status = None
-    measured_cycles = None
-    statistics = None
+    measurement = None
     comparison = {}
     try:
         if hashlib.sha256(elf.read_bytes()).hexdigest() != test['sha256']:
@@ -111,8 +110,6 @@ def execute(test, simulator, root, output, timeout, cycles, cosim=False, expecte
                     reason = 'cycle-timeout'
                 elif code == 0 and 'SoC harness simulation passed' in text:
                     measurement = performance.measure(text, cycles)
-                    measured_cycles = measurement['cycles']
-                    statistics = measurement['statistics']
                     if cosim:
                         completions = re.findall(r'^Sail cosim: checked ([0-9]+) scalar records$', text, re.MULTILINE)
                         if len(completions) == 1 and int(completions[0]) > 0:
@@ -141,11 +138,10 @@ def execute(test, simulator, root, output, timeout, cycles, cosim=False, expecte
                             status = 'failed'
                             reason = performance_error
                         elif expected is not None:
-                            comparison, outside = performance.compare(measured_cycles, expected)
-                            if outside:
+                            comparison, failures = performance.compare(measurement, expected)
+                            if failures:
                                 status = 'failed'
-                                reason = (f'whole-ELF cycles {measured_cycles}, expected {expected}, '
-                                          f'change {comparison["delta_percent"]:+.2f}% exceeds ±{performance.TOLERANCE_PERCENT}%')
+                                reason = '; '.join(failures)
                 else:
                     status = 'failed'
             finally:
@@ -162,10 +158,10 @@ def execute(test, simulator, root, output, timeout, cycles, cosim=False, expecte
         result['reason'] = reason
     if checked_records is not None:
         result['cosim_checked_records'] = checked_records
-    if measured_cycles is not None:
-        result.update(cycles=measured_cycles, statistics=statistics, **comparison)
+    if measurement is not None:
+        result.update(measurement=measurement, **comparison)
     result['functional_status'] = functional_status or status
-    detail = f': {reason}' if reason else (f' ({measured_cycles} cycles)' if measured_cycles is not None else '')
+    detail = f': {reason}' if reason else (f' ({measurement["cycles"]} cycles)' if measurement is not None else '')
     print(f'{status}: {test["name"]}{detail}', flush=True)
     return result
 
@@ -225,7 +221,7 @@ def main():
             parser.error(f'{test["name"]}: harts must be a canonical nonempty subset of the target')
     try:
         performance_record = performance.context(manifest, simulator_metadata)
-        expected_cycles = performance.expectations(performance_record, args.performance_baselines)
+        expected_measurements = performance.expectations(performance_record, args.performance_baselines)
     except (OSError, ValueError, KeyError, TypeError) as error:
         parser.error(str(error))
     tests = [test for index, test in enumerate(sorted(tests, key=lambda test: test['name']))
@@ -237,7 +233,7 @@ def main():
         manifest_sha256=manifest_sha256,
         simulator_sha256=hashlib.sha256(args.simulator.read_bytes()).hexdigest(),
         timeout=args.timeout, max_cycles=args.max_cycles, cosim=cosim,
-        performance=performance_record, performance_tolerance_percent=performance.TOLERANCE_PERCENT),
+        performance=performance_record),
         sort_keys=True).encode()).hexdigest()
     identity = hashlib.sha256(json.dumps(dict(
         run_fingerprint=run_fingerprint,
@@ -297,7 +293,7 @@ def main():
             def submit(test):
                 future = executor.submit(execute, test, args.simulator.resolve(), args.manifest.parent,
                                          args.output, args.timeout, args.max_cycles, cosim,
-                                         expected_cycles.get(test['name']),
+                                         expected_measurements.get(test['name']),
                                          performance_record.get('reason') if performance_record else None)
                 futures[future] = test['name']
 

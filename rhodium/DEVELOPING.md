@@ -746,6 +746,11 @@ service, scalar FP wrapper, core, and vector composition/pipeline import it to
 share fixed return delays without introducing a named-core dependency into FP.
 
 Shared `cores/bpred/protocol.rhdl` imports architectural XLEN only.
+`cores/bpred/statistics.rhdl` imports the passive frontend statistics layer and
+classifies prediction failures without importing compilation or simulator code.
+Both named cores consume it; RV5Stage carries its classification from EX to MEM.
+Both cores and the shared L1I/L1D import `frontend/layers/statistics.rhm` for
+passive count declarations. Instrumentation remains compile-target-owned.
 `bht.rhdl` consumes that protocol, `std/bits.rhdl` for saturating counter
 steps, and `flow/main.rhdl` for training and clear inputs; PC/history hashing
 stays with its caller.

@@ -1,14 +1,32 @@
 {
-  "cycles": {
-    "highway_algo": 645540,
-    "highway_btree": 948514,
-    "highway_delta": 105948,
-    "highway_dot": 78690,
-    "highway_hash": 73682,
-    "highway_iguana": 1851641,
-    "highway_lemac": 3280794,
-    "highway_math": 653423,
-    "highway_phast": 7814813,
-    "highway_sort": 2661530
+  "highway_algo": {
+    "cycles": 645540
+  },
+  "highway_btree": {
+    "cycles": 948514
+  },
+  "highway_delta": {
+    "cycles": 105948
+  },
+  "highway_dot": {
+    "cycles": 78690
+  },
+  "highway_hash": {
+    "cycles": 73682
+  },
+  "highway_iguana": {
+    "cycles": 1851641
+  },
+  "highway_lemac": {
+    "cycles": 3280794
+  },
+  "highway_math": {
+    "cycles": 653423
+  },
+  "highway_phast": {
+    "cycles": 7814813
+  },
+  "highway_sort": {
+    "cycles": 2661530
   }
 }

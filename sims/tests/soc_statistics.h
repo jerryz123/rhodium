@@ -4,7 +4,7 @@
 #include <string_view>
 namespace rhodium::statistics {
 inline constexpr std::array<std::string_view, 2> descriptors = {
-  "{\"path\":[],\"name\":\"cycles\",\"count\":",
-  "{\"path\":[],\"name\":\"never\",\"count\":"
+  "\"rtl/cycles\":",
+  "\"rtl/never\":"
 };
 }
