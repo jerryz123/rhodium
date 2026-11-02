@@ -1,4 +1,4 @@
-// Runs litmus7's fixed physical-hart workers and sends each complete histogram in one HTIF write.
+// Runs litmus7 workers with release/acquire barriers and batched HTIF output.
 // SPDX-License-Identifier: Apache-2.0
 #include <stdint.h>
 #include <stdio.h>
@@ -71,13 +71,18 @@ void litmus_baremetal_barrier_wait(void *identity)
   for (;;) {
     unsigned count = 0;
     for (unsigned other = 0; other < LITMUS_HARTS; ++other)
-      count += __atomic_load_n(&barrier->arrived[other], __ATOMIC_ACQUIRE) == next;
+      count += __atomic_load_n(&barrier->arrived[other], __ATOMIC_RELAXED) == next;
     if (count >= barrier->participants) {
+      // Acquire every observed release arrival before publishing completion to peers.
+      __atomic_thread_fence(__ATOMIC_ACQUIRE);
       __atomic_store_n(&barrier->generation, next, __ATOMIC_RELEASE);
       return;
     }
-    if (__atomic_load_n(&barrier->generation, __ATOMIC_ACQUIRE) >= next)
+    if (__atomic_load_n(&barrier->generation, __ATOMIC_RELAXED) >= next) {
+      // The completing hart acquired all arrivals before its release generation store.
+      __atomic_thread_fence(__ATOMIC_ACQUIRE);
       return;
+    }
   }
 }
 

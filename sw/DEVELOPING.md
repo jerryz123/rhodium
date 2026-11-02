@@ -107,7 +107,15 @@ and replaces the generated sense barrier with
 calls into the port's per-hart-arrival barrier, rejecting changed contexts.
 This avoids an atomic decrement on the shared counter in tiled simulation and
 removes the generated `fflush`. It does not rewrite generated test instructions
-or outcome collection. The second patch brackets the test identity and complete
+or outcome collection. Arrivals are release stores; unsuccessful polls use
+relaxed loads. An acquire fence after observing all arrivals orders
+the completing hart before it publishes the release generation store. A peer
+that observes that generation with a relaxed load likewise executes an acquire
+fence before returning. Preserve both successful-exit ordering paths when
+changing polling; do not remove or coalesce the generated barrier calls.
+Measure layout changes over the complete selected workload before padding
+arrival counters: extra cold cache lines can outweigh reduced false sharing.
+The second patch brackets the test identity and complete
 histogram with the port's output begin/end calls, then returns from the postlude
 before computing or formatting litmus7's unused witness and provenance footer.
 The generated postlude supplies static storage of `(HASHSZ + 2) * 1024` bytes:
