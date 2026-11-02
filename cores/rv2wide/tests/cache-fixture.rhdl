@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/fetch/protocol.rhdl").InstructionGroup
   lib("riscv/isa/xlen.rhm").XLen
   "../core.rhdl" open
   "../profile.rhm".RV2WideConfig
@@ -50,7 +49,7 @@ def test_fetch_chi = RiscvHartCHIConfig(test_flit, CacheLineBytes, test_chi.regi
 sync_circuit RV2WideCacheFixture():
   input node_id: Bits(test_flit.node_id_width)
   input management_pbmt: PageMemoryType
-  interface instructions(Decoupled(InstructionGroup(XLen.X64, 2)), ~role: consumer)
+  interface instructions(Decoupled(RV2WidePacket(XLen.X64)), ~role: consumer)
   interface retired[2](Valid(RV2WideRetirement(XLen.X64)), ~role: producer)
   interface completed(Valid(RV2WideRetirement(XLen.X64)), ~role: producer)
   interface redirect(Valid(RV2WideRedirect(XLen.X64)), ~role: producer)

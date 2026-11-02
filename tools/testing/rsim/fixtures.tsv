@@ -197,10 +197,6 @@ table	language	examples/rtl/table.rhdl	program	rhodium/backend/tests/rsim/table.
 vec-search	language	examples/rtl/vec-search.rhdl	program	rhodium/backend/tests/rsim/vec-search.cpp
 bundle-update	language	rhodium/backend/tests/rsim/emit-bundle-update.rhm	program	rhodium/backend/tests/rsim/bundle-update.cpp
 rv2wide-core	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-core.rhm	program	cores/rv2wide/tests/rsim/rv2wide-core.cpp	target	sims/statistics/collector.cc
-rv3wide-admission	cores-components	cores/rv3wide/tests/rsim/emit-admission.rhm	program	cores/rv3wide/tests/rsim/admission.cpp
-fetch-window-3x3	cores-components	cores/fetch/tests/rsim/emit-wide-fetch.rhm	three	cores/fetch/tests/rsim/wide-fetch.cpp
-fetch-window-3x2	cores-components	cores/fetch/tests/rsim/emit-wide-fetch.rhm	two	cores/fetch/tests/rsim/wide-fetch.cpp
-rv3wide-register-access	cores-components	cores/rv3wide/tests/rsim/emit-register-access.rhm	program	cores/rv3wide/tests/rsim/register-access.cpp
 rv2wide-core-vector	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-core-vector.rhm	program	cores/rv2wide/tests/rsim/rv2wide-core-vector.cpp	target	rheg/runtime/rheg.cc
 rv2wide-core-vector-rv32	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-core-vector.rhm	rv32_program	cores/rv2wide/tests/rsim/rv2wide-core-vector.cpp	target	rheg/runtime/rheg.cc
 rv2wide-vector-memory	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-vector-memory.rhm	program	cores/rv2wide/tests/rsim/rv2wide-vector-memory.cpp

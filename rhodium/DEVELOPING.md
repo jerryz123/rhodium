@@ -255,15 +255,7 @@ plus shared `cache/io-mshr.rhdl` and `cache/chi/uncached.rhdl` for ordered physi
 IO. It owns PMA routing and cached/uncached exclusion; the shared engines remain
 independent of RV2Wide retirement. Its cache adapter also arbitrates data/fetch
 on the existing uncached engine and imports the neutral L1I result type.
-
-`cores/rv3wide/` currently owns only three-slot admission and register access.
-It imports the shared `cores/register-file.rhdl` storage and
-`cores/register-write.rhdl` payload, pure `riscv/isa/xlen.rhm`, and public Flow
-interfaces. It does not import RV2Wide or RV5Stage. Its test emitters consume
-the frontend's public `elaborate` boundary; no SoC or ISA-profile claim is made
-by these components.
-
-RV2Wide's `instruction-memory.rhdl` consumes RV2Wide physical-fetch bundles, the
+Its `instruction-memory.rhdl` consumes RV2Wide physical-fetch bundles, the
 neutral L1I protocol, and Flow for fixed-cycle replay and canceled-response
 ownership. Its core, bundles, frontend, MMU, and cache adapter import
 `riscv/rtl/svpbmt.rhdl` for PBMT metadata and effective attributes; bundles also
@@ -274,12 +266,9 @@ its `rv2wide.rhdl` composition uses Flow to connect the frontend, execution slic
 and shared L1I/L1D. `frontend.rhdl` consumes the neutral L1I protocol and hart
 physical map, RISC-V trap causes, `std/bits.rhdl` alignment helpers, and Flow
 pipes and forks; it imports no other named-core implementation.
-Shared `cores/fetch/instruction-assembler.rhdl` owns credited returned-block
-storage and Flow window trace metadata. It imports shared fetch predecode and
-protocol, branch prediction payloads, public Bits helpers, and Flow.
-`cores/fetch/protocol.rhdl` owns fetch blocks, counted groups and fault metadata using XLEN,
-guest fault and branch prediction types. The issue window consumes these groups
-and Flow without importing named-core policy. Canonical decode remains RV2Wide-owned. Its core, bundles, decoder,
+Its `instruction-assembler.rhdl` uses Flow's ShiftQueue for returned blocks,
+the shared `riscv/rtl/compressed.rhdl` expander, pure XLEN descriptors, and public
+Bits helpers. Canonical decode remains RV2Wide-owned. Its core, bundles, decoder,
 and MMU import `riscv/rtl/zihintntl.rhdl` for architectural locality metadata.
 Its core, bundles, decoder, MMU, cache adapter, and top consume the neutral `cores/cache-prefetch.rhdl`
 operation/request contract for WB-authorized, nonfaulting I/D hints. Its profile and UDB
@@ -340,7 +329,7 @@ and the existing WB/MMU ownership boundary.
 `cores/rv2wide/core.rhdl`
 imports it to consume the combined decoder, `std/scoreboard.rhdl` for committed
 load destinations, and `flow/main.rhdl` for typed endpoints, feed-forward
-pipeline storage, and fault retention. `bundles.rhdl`, `cores/fetch/issue-window.rhdl`,
+pipeline storage, and fault retention. `bundles.rhdl`, `issue-window.rhdl`,
 `branch-training.rhdl`, and `load-response.rhdl` import the same Flow facade for
 stream contracts, instruction/retired-training storage, owner storage, and
 atomic response/context joining.
@@ -780,15 +769,12 @@ shared BTB/RAS. Fetch sequencing and architectural recovery remain named-core
 policy, with no dependency back from predictors to their consumers.
 RV2Wide's bundles and execution consume the same protocol, its assembler and
 core use the shared prediction payloads, and its frontend instantiates eight-byte
-BTB lookup, `TournamentBht`, and RAS. Its local `predecode.rhdl` projects the named
-catalog into `FetchDecodeConfig`. Shared `cores/fetch/predecode.rhdl` imports
-the public stable parameter contract, C/FP profile types, `cores/fetch/encoding.rhdl`,
-RAS classifier, pure formats/XLEN, and public immediate adapter.
-The encoding helpers depend on the pure C/FP/XLEN types and RISC-V compressed
-expander, never named-core policy. RV5Stage's ID instruction buffer imports them
-for expansion; its S2 scanner uses only their prefix classifiers. Neither
-depends on the wide assembler, decoded issue window, or its storage contracts.
-The assembler and fresh-S2 `direction.rhdl` consume that
+BTB lookup, `TournamentBht`, and RAS. Its local `predecode.rhdl` consumes the named decode
+catalog, RAS classifier, pure formats/XLEN, public immediate adapter, and
+`cores/fetch/encoding.rhdl`. The latter owns stateless parcel classifiers and
+expansion using the architectural C/FP/XLEN types and compressed expander.
+RV5Stage uses these helpers in S2 and ID; its buffers and issue policy remain independent.
+The RV2Wide assembler and fresh-S2 `direction.rhdl` consume local
 predecode; direction also uses Bits alignment helpers. No RV5Stage fetch module
 is imported. Frontend history and core recovery remain RV2Wide-owned.
 

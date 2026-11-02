@@ -171,11 +171,11 @@ WB authorization, and the two-port writeback policy stay local.
 | `decode/long-ctrl.rhdl` | Shared multiply/divide relations, service selection, inactive care masks |
 | `decode/core-ctrl.rhdl` | Selected instruction domain, writeback column, one combined relation |
 | `bundles.rhdl` | Instruction, lookup/admission/response, stage, and retirement contracts |
-| [`../fetch/issue-window.rhdl`](../fetch/issue-window.rhdl) | Shared eight-entry compacting instruction buffer, 2/2 specialization, free-entry count, prefix consumption |
+| `issue-window.rhdl` | Sole eight-entry compacting instruction buffer, free-entry count, prefix consumption |
 | `branch-training.rhdl` | Two-entry, two-offer/one-write retirement training buffer, empty bypass, predictor clear |
 | `pairing.rhdl` | Same-group source dependencies, supported consumer routes, and unresolved RAWs |
 | `frontend.rhdl` | Credited block fetch, S1 translation/permissions, local replay, and block fault ownership |
-| [`../fetch/instruction-assembler.rhdl`](../fetch/instruction-assembler.rhdl) | Shared credited block storage, two-wide parcel assembly, C expansion, and continuation faults |
+| `instruction-assembler.rhdl` | Flow block storage, mixed-width parcel consumption, shared C expansion, and continuation faults |
 | `core.rhdl` | RR/EX/MEM/WB, forwarding, shared component/CSR instances, register state, precise traps |
 | `load-response.rhdl` | Four accepted contexts, atomic response/owner joining, shared load extraction |
 | `long-execution.rhdl` | EX multiply reservations and WB owner validation, retained divider ownership |
@@ -415,10 +415,8 @@ suppress the younger branch's retirement and predictor training.
 
 ### Predictor ownership and recovery
 
-`predecode.rhdl` projects the RV2Wide profile into the shared
-[`FetchPredecode`](../fetch/predecode.rhdl) configuration. S2 and assembly
-use the same compressed expansion, control-flow legality, RAS hints, and
-immediate offsets. `direction.rhdl` walks
+`predecode.rhdl` centralizes compressed expansion, control-flow legality, RAS
+hints, and immediate offsets for both S2 and assembly. `direction.rhdl` walks
 fresh S2 parcel boundaries, carrying a byte-six prefix independently of the
 assembler. The shared tournament component owns only counters; the frontend owns speculative
 and committed ten-bit history. S1 registers the PC/history hash, forwarding an

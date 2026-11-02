@@ -62,6 +62,8 @@ std::uint64_t word(std::uint64_t address) {
               field(UINT64_C(0x100010001), 48,
                     0)); // JAL x0,+506 prefix at byte six.
     } break;
+    case 16:
+      return UINT64_C(0x0000031342894285); // Two compressed instructions followed by one full-width instruction.
     default: {
       return (field(UINT64_C(0x100013), 32, 32) |
               field(UINT64_C(0x100013), 32, 0));
@@ -111,10 +113,17 @@ void observe() {
       target_cycle = cycles;
     if (instructions_out.pvalid && instructions_in.pready) {
       packets++;
+      if (scenario == 16 && packets == 1) {
+        CHECK(instructions_out.pbits.pcount == 2);
+        CHECK(instructions_out.pbits.pentries[0].ppc == 0x100 &&
+              instructions_out.pbits.pentries[1].ppc == 0x102);
+      }
+      if (scenario == 16 && packets == 2)
+        CHECK(instructions_out.pbits.pentries[0].ppc == 0x104);
       for (int lane = 0; lane < int(instructions_out.pbits.pcount); lane++) {
         Instruction insn;
         insn = instructions_out.pbits.pentries[lane];
-        if (insn.ppc == branch_pc && accepted_cycle < 0) {
+        if (scenario != 16 && insn.ppc == branch_pc && accepted_cycle < 0) {
           accepted_cycle = cycles;
           CHECK(insn.pprediction.pvalid &&
                 insn.pprediction.ptarget == target_pc && !insn.pfault.pvalid &&
@@ -303,5 +312,7 @@ int main() {
     falling();
     CHECK(target_cycle == source_cycle + 1 && target_cycle < accepted_cycle);
     checks++;
+    restart(16);
+    until([&] { return packets >= 2; });
   });
 }

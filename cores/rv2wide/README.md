@@ -97,8 +97,7 @@ Branch prediction corrections, memory replays, traps, and privilege returns redi
 internally. Software programs mtvec/stvec and supplies its trap handler.
 `cores/rv2wide/cache.rhdl` owns the standalone `RV2WideL1D` adapter.
 
-When using `RV2WideCore()` directly, provide `instructions: Decoupled(InstructionGroup(xlen, 2))`
-from [the shared fetch protocol](../fetch/protocol.rhdl). Each packet has a `count`
+When using `RV2WideCore()` directly, provide `instructions: Decoupled(RV2WidePacket(xlen))`. Each packet has a `count`
 of one or two and that many valid `entries`, oldest first. Entries contain a
 XLEN-wide `pc`, canonical 32-bit `instruction`, original `raw_instruction` (zero-extended
 for C), length-derived `sequential_pc`, `compressed_illegal`, and optional fetch-fault

@@ -35,11 +35,11 @@ search_shared_sources() {
   local pattern="$1"
   if command -v rg >/dev/null 2>&1; then
     rg -n "$pattern" cores --glob '*.rhm' --glob '*.rhdl' \
-      --glob '!**/tests/**' --glob '!cores/rv5stage/**' --glob '!cores/rv2wide/**' --glob '!cores/rv3wide/**' --glob '!cores/spike/**'
+      --glob '!**/tests/**' --glob '!cores/rv5stage/**' --glob '!cores/rv2wide/**' --glob '!cores/spike/**'
   else
     find cores -type f \( -name '*.rhm' -o -name '*.rhdl' \) \
       ! -path '*/tests/*' ! -path 'cores/rv5stage/*' \
-      ! -path 'cores/rv2wide/*' ! -path 'cores/rv3wide/*' ! -path 'cores/spike/*' \
+      ! -path 'cores/rv2wide/*' ! -path 'cores/spike/*' \
       -exec grep -nHE "$pattern" {} +
   fi
 }
@@ -67,7 +67,7 @@ if [[ -n "$component_domain_imports" ]]; then
 fi
 
 shared_named_core_imports="$(search_shared_sources \
-  '^[[:space:]]+(lib\()?"[^" ]*(rv5stage|rv2wide|rv3wide|spike)/' || true)"
+  '^[[:space:]]+(lib\()?"[^" ]*(rv5stage|rv2wide|spike)/' || true)"
 if [[ -n "$shared_named_core_imports" ]]; then
   echo "shared processor components must not import named-core implementation or pipeline policy" >&2
   echo "$shared_named_core_imports" >&2
@@ -75,18 +75,10 @@ if [[ -n "$shared_named_core_imports" ]]; then
 fi
 
 rv2wide_named_core_imports="$(search_sources \
-  '^[[:space:]]+(lib\()?"[^" ]*(rv5stage|rv3wide|spike)/' cores/rv2wide || true)"
+  '^[[:space:]]+(lib\()?"[^" ]*(rv5stage|spike)/' cores/rv2wide || true)"
 if [[ -n "$rv2wide_named_core_imports" ]]; then
   echo "RV2Wide must reuse shared components, not import another named core" >&2
   echo "$rv2wide_named_core_imports" >&2
-  exit 1
-fi
-
-rv3wide_named_core_imports="$(search_sources \
-  '^[[:space:]]+(lib\()?"[^" ]*(rv5stage|rv2wide|spike)/' cores/rv3wide || true)"
-if [[ -n "$rv3wide_named_core_imports" ]]; then
-  echo "RV3Wide must reuse shared components, not import another named core" >&2
-  echo "$rv3wide_named_core_imports" >&2
   exit 1
 fi
 

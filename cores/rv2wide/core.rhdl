@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/fetch/protocol.rhdl").InstructionGroup
   lib("rhodium/frontend/layers/statistics.rhm").stat_count
   lib("cores/bpred/statistics.rhdl") open
   lib("cores/fp/profile.rhm").fp_transport_profile
@@ -15,7 +14,7 @@ import:
   lib("riscv/rtl/hypervisor.rhdl") open
   "profile.rhm" open
   "bundles.rhdl" open
-  "../fetch/issue-window.rhdl".IssueWindow
+  "issue-window.rhdl" open
   "branch-training.rhdl".RV2WideBranchTrainingBuffer
   "pairing.rhdl" open
   "load-response.rhdl" open
@@ -114,7 +113,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   input interrupts: RiscvInterrupts()
   input hart_id: Bits(64)
   input time_counter: Bits(64)
-  interface instructions(Decoupled(InstructionGroup(xlen, 2)), ~role: consumer)
+  interface instructions(Decoupled(RV2WidePacket(xlen)), ~role: consumer)
   interface resolution[2](Valid(RV2WideResolution(xlen)), ~role: consumer)
   interface memory_stage[2](Valid(RV2WideInstruction(xlen)), ~role: producer)
   interface retired[2](Valid(RV2WideRetirement(xlen)), ~role: producer)
@@ -190,7 +189,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
      Flow owns feed-forward registers; the issue window owns prefix retention.
      Backward recovery links do not add pipeline storage. */
 
-  inst rr_window(IssueWindow(xlen, ~enqueue_width: 2, ~issue_width: 2))
+  inst rr_window(RV2WideIssueWindow(xlen))
   inst ex_older(ValidPipe(RV2WideExecute(xlen), 1, ~flushable: #true))
   inst ex_younger(ValidPipe(RV2WideExecute(xlen), 1, ~flushable: #true))
   inst mem_older(ValidPipe(RV2WideResult(xlen), 1, ~flushable: #true))
@@ -369,7 +368,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
      The issue window owns age and consumption; the younger lane cannot
      advance around an older blocked instruction. */
 
-  def rr_head :: InstructionGroup(xlen, 2) = rr_window.head
+  def rr_head :: RV2WidePacket(xlen) = rr_window.head
   def rr_decode = ValidDecodeGen(rv2wide_control_cases(profile))
   def rr_decoded :: Vec(2, DecodeResult(RV2WideControl())) = vec(for List (lane in 0..2): rr_decode(rr_head.entries[lane].instruction))
   def rr_controls :: Vec(2, RV2WideControl()) = vec(for List (lane in 0..2): rr_decoded[lane].value)
