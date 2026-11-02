@@ -10,6 +10,9 @@ int phase1_issue_count = 0, phase1_last_issue = 0;
 
 int phase1_launches = 0, phase1_sequences = 0;
 
+int scan_returns = 0;
+std::uint64_t expected_scan = 0;
+
 int phase5_younger_attempts = 0;
 
 int phase10_attempts = 0, phase11_attempts = 0, older_issue_count = 0,
@@ -82,6 +85,10 @@ void tick() {
   sequence_done_seen = sequencing_finished;
   issue_done_seen = issue_finished;
   if (!reset) {
+    if (phase == 31 && scalar_result_out.pvalid) {
+      CHECK(scalar_result_out.pbits.paddress == 5 && scalar_result_out.pbits.pdata == expected_scan);
+      ++scan_returns;
+    }
     if (phase == 1 && sequencing_finished && launch_seen)
       tail_handoff_seen = 1;
     if (phase == 1) {
@@ -226,6 +233,63 @@ void drive() {}
 void observe() {}
 
 void falling_update() {}
+
+void check_fold_owner_reuse() {
+  reset = 1;
+  tick();
+  reset = slow = retry_last = cancel = 0;
+  phase = 0;
+  vl = 2;
+  vtype = 24; // e64, m1: zero both words of the v7 source mask.
+  launch(UINT32_C(0x5e003057) | (7u << 7), 0, 0);
+  drain();
+
+  for (unsigned round = 0; round < 9; ++round) {
+    phase = 31;
+    vl = 1;
+    vtype = 24;
+    fp_count = 0;
+    // A one-element vfredusum owns a live completion until we return its tag.
+    launch((1u << 26) | (1u << 25) | (8u << 20) | (3u << 15) |
+               (1u << 12) | (24u << 7) | 0x57, 0, 0);
+    while (!fp_count) tick();
+
+    // Return nonzero FP data on the scan's admission edge or one edge later,
+    // after its seed is resident but before it issues. Neither may corrupt it.
+    const bool first = (round % 2 == 0);
+    vl = 128;
+    vtype = 3; // e8, m8
+    instruction = (16u << 26) | (1u << 25) | (7u << 20) | ((first ? 17u : 16u) << 15) |
+                  (2u << 12) | (5u << 7) | 0x57;
+    expected_scan = first ? UINT64_MAX : 0;
+    scan_returns = 0;
+    request_valid = 1;
+    settle();
+    CHECK(request_ready && active);
+    const std::uint64_t fp_value = UINT64_C(0x4000000000000000) + round;
+    if (first) {
+      return_fp(0, fp_value);
+      CHECK(launch_seen);
+      request_valid = 0;
+    } else {
+      tick();
+      CHECK(launch_seen);
+      request_valid = 0;
+      return_fp(0, fp_value);
+    }
+    drain();
+    CHECK(scan_returns == 1);
+
+    // Three allocations per round cycle each kind through all eight owner IDs.
+    phase = 0;
+    vl = 1;
+    vtype = 24;
+    store_count = 0;
+    launch(store_insn(24), 1024, 0);
+    drain();
+    CHECK(store_count == 1 && stores[0] == fp_value);
+  }
+}
 
 void stimulus() {
   reset = 1;
@@ -979,6 +1043,7 @@ void stimulus() {
       CHECK(fail_split != 2 || retried);
     }
 
+    check_fold_owner_reuse();
     throw Finished{};
   }
 }

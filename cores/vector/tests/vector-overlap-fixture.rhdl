@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/register-write.rhdl").RegisterFileWrite
   "../../fp/bundles.rhdl" open
   "../pipeline.rhdl" open
   "../bundles.rhdl" open
@@ -24,6 +25,7 @@ sync_circuit VectorOverlap():
   interface response(Decoupled(VectorCompletion(xlen, slots)), ~role: consumer)
   interface fp_request(Decoupled(FpExecutionRequest(xlen, FloatingPointProfile.D, Bits(3))), ~role: producer)
   interface fp_result(Decoupled(FpExecutionResult(xlen, FloatingPointProfile.D, Bits(3))), ~role: consumer)
+  interface scalar_result(Valid(RegisterFileWrite(xlen)), ~role: producer)
   interface attempt(Valid(VectorToken(XLen.X64, Bits(64), slots)), ~role: producer)
   interface resolution(Valid(VectorToken(XLen.X64, Bits(64), slots)), ~role: producer)
   output(request_ready, active, issued, issue_finished, sequencing_finished, retired): Bool
@@ -92,6 +94,7 @@ sync_circuit VectorOverlap():
   vector.memory_drained <== Bool(#true)
   vector.fp_request |> fp_request
   fp_result |> vector.fp_result
+  vector.scalar_result |> scalar_result
   vector.multiply_request.ready <== Bool(#false)
   vector.multiply_result.valid <== Bool(#false)
   vector.multiply_result.bits <== dont_care(vector.multiply_result.bits.type)
