@@ -58,9 +58,22 @@ Redirect qualification gates new transfers as well as flushing pipe state.
 
 `RV2WideResult.branch` groups comparison, recovery, and training state. FP
 requests stored alongside a fetched instruction carry only `RV2WideFpSchedule`;
-attach the complete `RV2WideFpOwner` at EX launch, WB authorization, or memory
-completion. Do not store a duplicate fetched instruction in the request tag.
+attach the complete `RV2WideFpOwner` at EX launch, WB authorization, or
+delayed-memory allocation. Do not store a duplicate fetched instruction in the request tag.
 These are ownership boundaries, not extra pipeline stages or latency assumptions.
+
+MEM and WB each retain one vector execution descriptor for the group. The
+ordinary lane pipes carry only the vector classification needed for hazards,
+retirement, and dispatch. A continuing vector owns the descriptor; its lane
+tag advances with the same surviving transfer as the scalar token. A younger
+fetch fault can bypass normal pairing but cannot claim the payload. Each stage
+also forwards one successful vset result independently: a vset and a vector
+can pair, so their state snapshots are not interchangeable.
+
+The four-entry delayed-memory FIFO retains fetched/destination identity,
+return bank, byte offset and load formatting, not the MEM/WB result. Join the
+oldest owner to the arriving beat before selecting either completion port.
+Format ordinary loads by width and offset; atomics return the raw beat.
 
 WB separates live/retained owners, the pre-dispatch prefix (`wb_dispatch`),
 service acceptance/faults, and the successful retirement prefix (`wb_retire`).

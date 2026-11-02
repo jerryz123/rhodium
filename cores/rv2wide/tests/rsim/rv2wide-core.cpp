@@ -1476,13 +1476,16 @@ int main() {
     send(UINT64_C(0x4810), imm(0, 1, 0, 3, UINT64_C(3)), imm(6, 0, 7));
     drain();
 
-    // Several accepted loads outlive WB; responses reserve younger issue while the older lane continues.
+    // Hold four differently formatted owners of the same beat across WB.
+    // Each delayed return uses its own byte offset, sign, width, and destination.
     lookup_mode = 0;
     configured_delay = 4;
     hold_responses = 1;
+    const unsigned offsets[] = {0, 0, 2, 4};
+    const unsigned formats[] = {0, 4, 1, 6};  // LB, LBU, LH, LWU
     for (int i = 0; i < 4; i++)
       send(((UINT64_C(0x4900) + i * 8) & low_mask(64)),
-           imm(10 + i, 1, i * 8, 3, UINT64_C(3)), imm(20 + i, 0, i));
+           imm(10 + i, 1, offsets[i], formats[i], UINT64_C(3)), imm(20 + i, 0, i));
     for (unsigned repeat_index = 0; repeat_index < (8); ++repeat_index)
       tick();
     CHECK(response_count == 4);

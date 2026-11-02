@@ -419,7 +419,7 @@ std::uint32_t vsetvli(unsigned rd, unsigned rs1, unsigned type) {
   return 0x7057 | type << 20 | rs1 << 15 | rd << 7;
 }
 void stream(const std::vector<std::uint32_t> &program, bool fault = false,
-            bool recover = false, bool require_recovery = true) {
+            bool recover = false, bool require_recovery = true, int fetch_fault_index = -1) {
   const auto base = next_pc;
   next_pc += 4 * program.size();
   const unsigned faults_before = fault_count, redirects_before = redirect_count;
@@ -447,6 +447,8 @@ void stream(const std::vector<std::uint32_t> &program, bool fault = false,
       entry.ppc = base + 4 * (sent + lane);
       entry.psequential_upc = entry.ppc + 4;
       entry.pinstruction = entry.praw_uinstruction = program[sent + lane];
+      if (static_cast<int>(sent + lane) == fetch_fault_index)
+        entry.pfault = {.pvalid = 1, .pcause = 1, .pvalue = entry.ppc};
     }
     settle();
     const bool accepted = instructions_in.pvalid && instructions_out.pready;
@@ -864,6 +866,18 @@ void paired_vector_arithmetic() {
   resolve_pc = next_pc;
   stream({addi(6, 0, 57), vi(23, 0, 6, 4, 20)}, false, true);
   CHECK(gprs[6] == 57);
+  extract(20, 7, 57);
+
+  // The younger fetched fault bypasses the duplicate-vector pairing check.
+  // Only the older vector owns the descriptor, even with two vector encodings in MEM.
+  run();
+  const auto pair_pc = next_pc;
+  const auto admissions = vector_trace::admissions;
+  stream({vi(23, 0, 6, 4, 19), vi(23, 0, 2, 4, 20)}, true, false, true, 1);
+  CHECK(memory_cycles.at(pair_pc) == memory_cycles.at(pair_pc + 4));
+  CHECK(last_fault_pc == pair_pc + 4 && retired_pcs.contains(pair_pc));
+  CHECK(!retired_pcs.contains(pair_pc + 4) && vector_trace::admissions == admissions + 1);
+  extract(19, 7, 57);
   extract(20, 7, 57);
 }
 void paired_scalar_configurations() {
