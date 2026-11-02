@@ -214,7 +214,7 @@ jobs:
   harness-isa:
     name: Harness ELFs / ${{ matrix.suite }} / group ${{ strategy.job-index }}
     needs: [plan, targets]
-    if: ${{ always() && !cancelled() && needs.targets.result == 'success' && fromJSON(needs.plan.outputs.plan).run_simulation }}
+    if: ${{ always() && !cancelled() && needs.targets.result == 'success' && contains(fromJSON(needs.plan.outputs.plan).harness_build_suites, 'isa') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
@@ -230,13 +230,18 @@ jobs:
         with:
           name: targets-${{ github.sha }}
           path: ${{ runner.temp }}/targets
+      - name: Identify suite build inputs
+        id: cache-inputs
+        env:
+          SUITE: ${{ matrix.suite }}
+        run: echo "key=$(python3 -m tools.ci.software --cache-inputs "$SUITE")" >> "$GITHUB_OUTPUT"
       - name: Cache compatible harness builds
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /tmp/rhodium-harness-builds/${{ matrix.build_id }}
-          key: "${{ runner.os }}-${{ runner.arch }}-harness-${{ matrix.build_id }}-${{ hashFiles('sw/build/**', 'sw/riscv-isa-tests-patches/**', 'riscv/gnu-toolchain.rhm', 'sims/program-test/Makefile.inc', 'tools/install-riscv-*.sh', '.gitmodules') }}-${{ github.sha }}"
+          key: "${{ runner.os }}-${{ runner.arch }}-harness-${{ matrix.build_id }}-${{ steps.cache-inputs.outputs.key }}-${{ hashFiles('.github/workflows/ci.yml') }}-${{ github.sha }}"
           restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-harness-${{ matrix.build_id }}-${{ hashFiles('sw/build/**', 'sw/riscv-isa-tests-patches/**', 'riscv/gnu-toolchain.rhm', 'sims/program-test/Makefile.inc', 'tools/install-riscv-*.sh', '.gitmodules') }}-
+            ${{ runner.os }}-${{ runner.arch }}-harness-${{ matrix.build_id }}-${{ steps.cache-inputs.outputs.key }}-${{ hashFiles('.github/workflows/ci.yml') }}-
       - name: Build compatible harness ELFs once
         env:
           SOC: ${{ matrix.soc }}
@@ -280,7 +285,7 @@ jobs:
   harness-benchmark:
     name: Harness ELFs / ${{ matrix.suite }} / group ${{ strategy.job-index }}
     needs: [plan, targets]
-    if: ${{ always() && !cancelled() && needs.targets.result == 'success' && fromJSON(needs.plan.outputs.plan).run_simulation }}
+    if: ${{ always() && !cancelled() && needs.targets.result == 'success' && contains(fromJSON(needs.plan.outputs.plan).harness_build_suites, 'benchmark') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
@@ -296,13 +301,18 @@ jobs:
         with:
           name: targets-${{ github.sha }}
           path: ${{ runner.temp }}/targets
+      - name: Identify suite build inputs
+        id: cache-inputs
+        env:
+          SUITE: ${{ matrix.suite }}
+        run: echo "key=$(python3 -m tools.ci.software --cache-inputs "$SUITE")" >> "$GITHUB_OUTPUT"
       - name: Cache compatible harness builds
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /tmp/rhodium-harness-builds/${{ matrix.build_id }}
-          key: "${{ runner.os }}-${{ runner.arch }}-harness-${{ matrix.build_id }}-${{ hashFiles('sw/build/**', 'sw/riscv-isa-tests-patches/**', 'riscv/gnu-toolchain.rhm', 'sims/program-test/Makefile.inc', 'tools/install-riscv-*.sh', '.gitmodules') }}-${{ github.sha }}"
+          key: "${{ runner.os }}-${{ runner.arch }}-harness-${{ matrix.build_id }}-${{ steps.cache-inputs.outputs.key }}-${{ hashFiles('.github/workflows/ci.yml') }}-${{ github.sha }}"
           restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-harness-${{ matrix.build_id }}-${{ hashFiles('sw/build/**', 'sw/riscv-isa-tests-patches/**', 'riscv/gnu-toolchain.rhm', 'sims/program-test/Makefile.inc', 'tools/install-riscv-*.sh', '.gitmodules') }}-
+            ${{ runner.os }}-${{ runner.arch }}-harness-${{ matrix.build_id }}-${{ steps.cache-inputs.outputs.key }}-${{ hashFiles('.github/workflows/ci.yml') }}-
       - name: Build compatible harness ELFs once
         env:
           SOC: ${{ matrix.soc }}
@@ -375,13 +385,40 @@ jobs:
         run: |
           verilator_root="$(verilator -V | sed -n 's/^ *VERILATOR_ROOT *= *//p' | head -1)"
           test -n "$verilator_root"
-          make -C sims dpi-compile-check transport-test arch-test-adapter-test program-test-adapter-test \
+          make -C sims dpi-compile-check transport-test arch-test-adapter-test \
             cosim-hooks-test simulation-runtime-test branch-prediction-test VERILATOR_ROOT="$verilator_root"
       - name: Test Spike DPI integration once
         if: fromJSON(needs.plan.outputs.plan).run_spike_tests
         run: |
           verilator_root="$(verilator -V | sed -n 's/^ *VERILATOR_ROOT *= *//p' | head -1)"
           make -C sims spike-core-test spike-dpi-test spike-dpi-abi-check VERILATOR_ROOT="$verilator_root"
+
+  software-checks:
+    name: Software adapters
+    needs: plan
+    if: ${{ join(fromJSON(needs.plan.outputs.plan).software_checks, ' ') != '' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out Rhodium
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Prepare selected adapter sources
+        env:
+          SETUP: ${{ join(fromJSON(needs.plan.outputs.plan).software_setup, ' ') }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes build-essential
+          read -r -a setup <<< "$SETUP"
+          if (( ${#setup[@]} )); then make -C sims "${setup[@]}"; fi
+      - name: Run selected software adapters
+        env:
+          TESTS: ${{ join(fromJSON(needs.plan.outputs.plan).software_checks, ' ') }}
+        run: |
+          status=0
+          for test in $TESTS; do
+            python3 -m unittest discover -s sw/tests -p "$test" || status=1
+          done
+          exit "$status"
 
   checks:
     name: Checks
@@ -499,7 +536,7 @@ jobs:
   platform-plan:
     name: Plan platform builds
     needs: [plan, targets]
-    if: ${{ always() && !cancelled() && needs.targets.result == 'success' && fromJSON(needs.plan.outputs.plan).run_simulation }}
+    if: ${{ always() && !cancelled() && needs.targets.result == 'success' && join(fromJSON(needs.plan.outputs.plan).platform_build_suites, ' ') != '' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     outputs:
@@ -515,27 +552,28 @@ jobs:
           path: ${{ runner.temp }}/platform-targets
       - name: Group compatible platform builds
         id: plan
+        env:
+          PLATFORM_MATRIX: ${{ toJSON(fromJSON(needs.plan.outputs.plan).platform_matrix) }}
         run: |
-          matrix=$(python3 -c 'import json; from tools.ci.policy import platform_configs; print(json.dumps({"include": platform_configs()}))')
-          python3 -m tools.ci.programs --matrix "$matrix" \
+          python3 -m tools.ci.programs --matrix "$PLATFORM_MATRIX" \
             --targets "$RUNNER_TEMP/platform-targets" \
             --output "$RUNNER_TEMP/platform-plan.json"
           echo "build-matrices=$(jq -c '.build.include | group_by(.suite) | map({key: .[0].suite, value: {include: .}}) | from_entries' "$RUNNER_TEMP/platform-plan.json")" >> "$GITHUB_OUTPUT"
           echo "run-matrices=$(jq -c '.run.include | group_by(.soc) | map({key: .[0].soc, value: {include: .}}) | from_entries' "$RUNNER_TEMP/platform-plan.json")" >> "$GITHUB_OUTPUT"
           cat "$RUNNER_TEMP/platform-plan.json"
-      - name: Test platform adapters once
-        run: make -C sims litmus-setup litmus-adapter-test opensbi-adapter-test
 
   platform-builds-opensbi:
     name: Platform builds / opensbi
-    needs: [platform-plan]
+    needs: [plan, platform-plan]
+    if: ${{ always() && !cancelled() && needs.platform-plan.result == 'success' && contains(fromJSON(needs.plan.outputs.plan).platform_build_suites, 'opensbi') }}
     uses: ./.github/workflows/ci-platform-builds.yml
     with:
       matrix: ${{ toJSON(fromJSON(needs.platform-plan.outputs.build-matrices)['opensbi']) }}
 
   platform-builds-litmus:
     name: Platform builds / litmus
-    needs: [platform-plan]
+    needs: [plan, platform-plan]
+    if: ${{ always() && !cancelled() && needs.platform-plan.result == 'success' && contains(fromJSON(needs.plan.outputs.plan).platform_build_suites, 'litmus') }}
     uses: ./.github/workflows/ci-platform-builds.yml
     with:
       matrix: ${{ toJSON(fromJSON(needs.platform-plan.outputs.build-matrices)['litmus']) }}
@@ -547,7 +585,6 @@ jobs:
     uses: ./.github/workflows/ci-simulator.yml
     with:
       config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv5stage-rv32int'].simulator) }}
-      run-harness: ${{ fromJSON(needs.plan.outputs.plan).run_simulation }}
       racket-version: ${{ needs.plan.outputs.racket_version }}
       rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
 
@@ -558,7 +595,6 @@ jobs:
     uses: ./.github/workflows/ci-simulator.yml
     with:
       config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-spike-rv32int'].simulator) }}
-      run-harness: ${{ fromJSON(needs.plan.outputs.plan).run_simulation }}
       racket-version: ${{ needs.plan.outputs.racket_version }}
       rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
 
@@ -569,7 +605,6 @@ jobs:
     uses: ./.github/workflows/ci-simulator.yml
     with:
       config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv5stage-rv32max'].simulator) }}
-      run-harness: ${{ fromJSON(needs.plan.outputs.plan).run_simulation }}
       racket-version: ${{ needs.plan.outputs.racket_version }}
       rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
 
@@ -580,7 +615,6 @@ jobs:
     uses: ./.github/workflows/ci-simulator.yml
     with:
       config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-spike-rv32max'].simulator) }}
-      run-harness: ${{ fromJSON(needs.plan.outputs.plan).run_simulation }}
       racket-version: ${{ needs.plan.outputs.racket_version }}
       rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
 
@@ -591,7 +625,6 @@ jobs:
     uses: ./.github/workflows/ci-simulator.yml
     with:
       config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv2wide-rv32int'].simulator) }}
-      run-harness: ${{ fromJSON(needs.plan.outputs.plan).run_simulation }}
       racket-version: ${{ needs.plan.outputs.racket_version }}
       rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
 
@@ -602,7 +635,6 @@ jobs:
     uses: ./.github/workflows/ci-simulator.yml
     with:
       config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv2wide-rv32max'].simulator) }}
-      run-harness: ${{ fromJSON(needs.plan.outputs.plan).run_simulation }}
       racket-version: ${{ needs.plan.outputs.racket_version }}
       rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
 
@@ -613,7 +645,6 @@ jobs:
     uses: ./.github/workflows/ci-simulator.yml
     with:
       config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv5stage-rva23'].simulator) }}
-      run-harness: ${{ fromJSON(needs.plan.outputs.plan).run_simulation }}
       racket-version: ${{ needs.plan.outputs.racket_version }}
       rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
 
@@ -624,7 +655,6 @@ jobs:
     uses: ./.github/workflows/ci-simulator.yml
     with:
       config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-spike-rva23'].simulator) }}
-      run-harness: ${{ fromJSON(needs.plan.outputs.plan).run_simulation }}
       racket-version: ${{ needs.plan.outputs.racket_version }}
       rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
 
@@ -635,7 +665,6 @@ jobs:
     uses: ./.github/workflows/ci-simulator.yml
     with:
       config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv2wide-rva23'].simulator) }}
-      run-harness: ${{ fromJSON(needs.plan.outputs.plan).run_simulation }}
       racket-version: ${{ needs.plan.outputs.racket_version }}
       rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
 
@@ -646,7 +675,6 @@ jobs:
     uses: ./.github/workflows/ci-simulator.yml
     with:
       config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['tiled8core-rv5stage-rva23'].simulator) }}
-      run-harness: ${{ fromJSON(needs.plan.outputs.plan).run_simulation }}
       racket-version: ${{ needs.plan.outputs.racket_version }}
       rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
 
@@ -657,7 +685,6 @@ jobs:
     uses: ./.github/workflows/ci-simulator.yml
     with:
       config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['tiled8core-rv2wide-rva23'].simulator) }}
-      run-harness: ${{ fromJSON(needs.plan.outputs.plan).run_simulation }}
       racket-version: ${{ needs.plan.outputs.racket_version }}
       rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
 
@@ -668,7 +695,6 @@ jobs:
     uses: ./.github/workflows/ci-simulator.yml
     with:
       config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['tiled8core-spike-rva23'].simulator) }}
-      run-harness: ${{ fromJSON(needs.plan.outputs.plan).run_simulation }}
       racket-version: ${{ needs.plan.outputs.racket_version }}
       rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
 
@@ -679,7 +705,6 @@ jobs:
     uses: ./.github/workflows/ci-simulator.yml
     with:
       config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['tiled4core-rv5stage-rva23'].simulator) }}
-      run-harness: ${{ fromJSON(needs.plan.outputs.plan).run_simulation }}
       racket-version: ${{ needs.plan.outputs.racket_version }}
       rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
 
@@ -690,7 +715,6 @@ jobs:
     uses: ./.github/workflows/ci-simulator.yml
     with:
       config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['tiled4core-rv2wide-rva23'].simulator) }}
-      run-harness: ${{ fromJSON(needs.plan.outputs.plan).run_simulation }}
       racket-version: ${{ needs.plan.outputs.racket_version }}
       rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
 
@@ -701,7 +725,6 @@ jobs:
     uses: ./.github/workflows/ci-simulator.yml
     with:
       config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['tiled4core-spike-rva23'].simulator) }}
-      run-harness: ${{ fromJSON(needs.plan.outputs.plan).run_simulation }}
       racket-version: ${{ needs.plan.outputs.racket_version }}
       rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
 
@@ -715,7 +738,6 @@ jobs:
     uses: ./.github/workflows/ci-simulator.yml
     with:
       config: ${{ toJSON(matrix) }}
-      run-harness: ${{ fromJSON(needs.plan.outputs.plan).run_simulation }}
       racket-version: ${{ needs.plan.outputs.racket_version }}
       rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
 
@@ -729,7 +751,6 @@ jobs:
     uses: ./.github/workflows/ci-simulator.yml
     with:
       config: ${{ toJSON(matrix) }}
-      run-harness: ${{ fromJSON(needs.plan.outputs.plan).run_simulation }}
       racket-version: ${{ needs.plan.outputs.racket_version }}
       rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
 
@@ -743,7 +764,6 @@ jobs:
     uses: ./.github/workflows/ci-simulator.yml
     with:
       config: ${{ toJSON(matrix) }}
-      run-harness: ${{ fromJSON(needs.plan.outputs.plan).run_simulation }}
       racket-version: ${{ needs.plan.outputs.racket_version }}
       rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
 
@@ -757,7 +777,6 @@ jobs:
     uses: ./.github/workflows/ci-simulator.yml
     with:
       config: ${{ toJSON(matrix) }}
-      run-harness: ${{ fromJSON(needs.plan.outputs.plan).run_simulation }}
       racket-version: ${{ needs.plan.outputs.racket_version }}
       rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
 
@@ -1119,6 +1138,7 @@ jobs:
     name: CI
     needs:
       - plan
+      - software-checks
       - compile-racket
       - sail
       - targets

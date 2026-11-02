@@ -18,10 +18,6 @@ on:
         description: One config selected by the CI planner.
         required: true
         type: string
-      run-harness:
-        description: Run this config's selected harness tests after publication.
-        required: true
-        type: boolean
 
 permissions:
   contents: read
@@ -48,14 +44,14 @@ jobs:
         run: |
           sudo apt-get update
           packages=(build-essential cmake device-tree-compiler zlib1g-dev)
-          if [[ "${{ inputs.run-harness }}" == true && "${{ fromJSON(inputs.config).soc }}" == mini-rv5stage-rva23 ]]; then
+          if [[ "${{ fromJSON(inputs.config).run_harness }}" == true && "${{ fromJSON(inputs.config).soc }}" == mini-rv5stage-rva23 ]]; then
             packages+=(clang lld llvm)
           fi
           sudo apt-get install --yes "${packages[@]}"
       - name: Install Verilator
         uses: ./.github/actions/setup-verilator
       - name: Install CIRCT
-        if: fromJSON(inputs.config).backend == 'circt' || (inputs.run-harness && fromJSON(inputs.config).soc == 'mini-rv5stage-rva23')
+        if: fromJSON(inputs.config).backend == 'circt' || (fromJSON(inputs.config).run_harness && fromJSON(inputs.config).soc == 'mini-rv5stage-rva23')
         uses: ./.github/actions/setup-circt
       - name: Install Spike and FESVR
         uses: ./.github/actions/setup-fesvr
@@ -136,13 +132,13 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
       - name: Install RISC-V software toolchain
-        if: inputs.run-harness && (fromJSON(inputs.config).software_tests != 'isa-smoke')
+        if: fromJSON(inputs.config).run_harness && (fromJSON(inputs.config).software_tests != 'isa-smoke')
         uses: ./.github/actions/setup-riscv-toolchain
       - name: Verify SRAM mapping package
-        if: inputs.run-harness && (fromJSON(inputs.config).soc == 'mini-rv5stage-rva23')
+        if: fromJSON(inputs.config).run_harness && (fromJSON(inputs.config).soc == 'mini-rv5stage-rva23')
         run: make -C sram test
       - name: Verify exact config and target descriptor
-        if: inputs.run-harness
+        if: fromJSON(inputs.config).run_harness
         env:
           SOC: ${{ fromJSON(inputs.config).soc }}
           RTL_BACKEND: ${{ fromJSON(inputs.config).backend }}
@@ -151,14 +147,14 @@ jobs:
           python3 sims/program-test/artifact.py verify --binary "${{ steps.simulator.outputs.path }}/VTestDriver" \
             --soc "$SOC" --backend "$RTL_BACKEND" --variant "${{ fromJSON(inputs.config).variant }}" --target "${{ steps.simulator.outputs.path }}/program-target.json"
       - name: Download shared harness ELFs
-        if: inputs.run-harness && (contains(fromJSON(inputs.config).software_tests, 'isa-smoke') || contains(fromJSON(inputs.config).software_tests, 'tiled-mt-benchmark-test'))
+        if: fromJSON(inputs.config).run_harness && (contains(fromJSON(inputs.config).software_tests, 'isa-smoke') || contains(fromJSON(inputs.config).software_tests, 'tiled-mt-benchmark-test'))
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: harness-elfs-*-${{ github.sha }}
           merge-multiple: true
           path: ${{ runner.temp }}/harness-elfs
       - name: Run shape-and-ISA software selection
-        if: inputs.run-harness
+        if: fromJSON(inputs.config).run_harness
         timeout-minutes: ${{ fromJSON(inputs.config).harness_timeout_minutes || 60 }}
         shell: bash
         env:
@@ -202,13 +198,13 @@ jobs:
           done
           exit "$status"
       - name: Summarize multihart whole-ELF cycles
-        if: always() && inputs.run-harness && contains(fromJSON(inputs.config).software_tests, 'tiled-mt-benchmark-test')
+        if: always() && fromJSON(inputs.config).run_harness && contains(fromJSON(inputs.config).software_tests, 'tiled-mt-benchmark-test')
         run: |
           if [[ -d /tmp/rhodium-program-tests ]]; then
             python3 sims/program-test/performance.py summary --results /tmp/rhodium-program-tests >> "$GITHUB_STEP_SUMMARY"
           fi
       - name: Publish importable multihart performance measurements
-        if: always() && inputs.run-harness && contains(fromJSON(inputs.config).software_tests, 'tiled-mt-benchmark-test')
+        if: always() && fromJSON(inputs.config).run_harness && contains(fromJSON(inputs.config).software_tests, 'tiled-mt-benchmark-test')
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: performance-${{ fromJSON(inputs.config).soc }}-multihart-${{ github.sha }}
@@ -216,13 +212,13 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
       - name: Verify RV5Stage-specific NTL cache timing
-        if: inputs.run-harness && (fromJSON(inputs.config).backend == 'rsim' && fromJSON(inputs.config).soc == 'simple-rv5stage-rva23')
+        if: fromJSON(inputs.config).run_harness && (fromJSON(inputs.config).backend == 'rsim' && fromJSON(inputs.config).soc == 'simple-rv5stage-rva23')
         run: make -C sims zihintntl-policy-test RTL_BACKEND=rsim COSIM=1 STATS=1 SOC=simple-rv5stage-rva23 PREBUILT_SIMULATOR="${{ steps.simulator.outputs.path }}/VTestDriver"
       - name: Execute mapped MiniRV5StageSoC through standard FESVR flow
-        if: inputs.run-harness && (fromJSON(inputs.config).soc == 'mini-rv5stage-rva23')
+        if: fromJSON(inputs.config).run_harness && (fromJSON(inputs.config).soc == 'mini-rv5stage-rva23')
         run: make -C vlsi/sim smoke
       - name: Publish config smoke and multihart results
-        if: always() && inputs.run-harness && contains(fromJSON(inputs.config).software_tests, 'isa-smoke')
+        if: always() && fromJSON(inputs.config).run_harness && contains(fromJSON(inputs.config).software_tests, 'isa-smoke')
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ fromJSON(inputs.config).soc }}-isa-smoke-${{ github.sha }}
@@ -240,7 +236,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
       - name: Publish standalone SoC smoke ELFs
-        if: always() && inputs.run-harness && steps.simulator.outputs.directory != ''
+        if: always() && fromJSON(inputs.config).run_harness && steps.simulator.outputs.directory != ''
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ fromJSON(inputs.config).simulator_id }}-smoke-elfs-${{ github.sha }}
@@ -249,7 +245,7 @@ jobs:
           retention-days: 7
 
       - name: Publish harness logs
-        if: always() && inputs.run-harness
+        if: always() && fromJSON(inputs.config).run_harness
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: harness-logs-${{ fromJSON(inputs.config).simulator_id }}-${{ github.sha }}

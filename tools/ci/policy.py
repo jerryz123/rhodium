@@ -4,6 +4,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 import sys
+from .software import NATIVE_SUITES
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "socs/configs"))
@@ -93,7 +94,6 @@ CORE_CHECKS = frozenset(
 )
 RSIM_CORE_CHECKS = frozenset(key for key in CORE_CHECKS if key.startswith("rsim-"))
 RSIM_COMPONENT_CHECKS = frozenset(check.key for check in CHECKS if check.key.startswith("rsim-"))
-NATIVE_SUITES = ("isa", "benchmark", "coremark", "embench", "bringup", "skl", "highway")
 PROGRAM_SHARD_COUNTS = {"bringup": 4}
 SHORT_PROGRAM_SUITES = frozenset(("isa", "benchmark", "coremark", "coremark_scalar", "embench"))
 PLATFORM_TESTS = ("smoke", "host-mmio-test", "boot-test", "uart-pty-test")

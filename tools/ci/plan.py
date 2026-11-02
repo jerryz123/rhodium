@@ -8,8 +8,9 @@ import json
 import subprocess
 from dataclasses import dataclass, field
 
-from .policy import CHECKS, RSIM_CORE_CHECKS, RSIM_COMPONENT_CHECKS, CIRCT_CHECKS, CORE_CHECKS, HOST_CHECKS, NATIVE_SUITES, SIMULATOR_CONFIGS, SINGLE_CORE_SOCS, native_configs, simulation_entry, simulator_entry, BACKEND_SMOKE_CONFIGS, DEFAULT_BACKEND, BACKEND_SMOKE_VARIANTS, arch_configs, arch_shards, check_matrix, platform_configs, SHORT_PROGRAM_SUITES
+from .policy import CHECKS, RSIM_CORE_CHECKS, RSIM_COMPONENT_CHECKS, CIRCT_CHECKS, CORE_CHECKS, HOST_CHECKS, NATIVE_SUITES, SIMULATOR_CONFIGS, SINGLE_CORE_SOCS, native_configs, simulation_entry, BACKEND_SMOKE_CONFIGS, DEFAULT_BACKEND, BACKEND_SMOKE_VARIANTS, arch_configs, arch_shards, check_matrix, platform_configs, SHORT_PROGRAM_SUITES
 from .policy import simulator_options, linux_configs
+from .software import ADAPTERS, affected
 
 
 def matches(path, *patterns):
@@ -19,8 +20,14 @@ def matches(path, *patterns):
 @dataclass
 class Selection:
     checks: set[str] = field(default_factory=set)
-    native_suites: set[str] = field(default_factory=set)
-    simulation: bool = False
+    programs: set[tuple[str, str]] = field(default_factory=set)
+    platforms: set[str] = field(default_factory=set)
+    harness_tests: set[str] = field(default_factory=set)
+    harness_requests: dict[str, set[str]] = field(default_factory=dict)
+    adapters: set[str] = field(default_factory=set)
+    software_reasons: dict[str, list[str]] = field(default_factory=dict)
+    full_harness: bool = False
+    build_all_simulators: bool = False
     arch: bool = False
     linux: bool = False
 
@@ -31,7 +38,10 @@ class Selection:
             self.checks.update(("circt-language", "circt-std", "circt-protocols"))
 
     def add_native(self, *suites):
-        self.native_suites.update(suites)
+        for suite in suites:
+            self.programs.update((soc, suite) for soc in native_configs(suite))
+            if suite == 'coremark':
+                self.programs.update((soc, 'coremark_scalar') for soc in native_configs(suite))
 
     def all_programs(self):
         self.add_native(*NATIVE_SUITES)
@@ -39,24 +49,59 @@ class Selection:
 
     def all(self):
         self.add_checks(*(check.key for check in CHECKS))
-        self.simulation = True
+        self.full_harness = True
         self.linux = True
+        self.adapters.update(ADAPTERS)
         self.all_programs()
+
+    def software(self, path):
+        """Select declared software consumers without turning their DUTs into harness requests."""
+        prefix = 'sims/program-test/performance-baselines/'
+        if path.startswith(prefix):
+            parts = path[len(prefix):].split('/')
+            if len(parts) != 2 or not parts[1].endswith('.json'):
+                return False
+            soc, suite = parts[0], parts[1][:-5]
+            family = 'coremark' if suite == 'coremark_scalar' else suite
+            if family in NATIVE_SUITES and soc in native_configs(family):
+                self.programs.add((soc, suite))
+            elif suite == 'benchmark' and any(key == soc and shape == 'tiled8core'
+                                              for key, shape, _core in SIMULATOR_CONFIGS):
+                self.harness_requests.setdefault(soc, set()).add('tiled-mt-benchmark-test')
+            else:
+                raise ValueError(f'performance baseline has no enrolled workload: {path}')
+            self.software_reasons[path] = [f'expectation:{soc}/{suite}']
+            return True
+        consumers = affected(path)
+        if not consumers:
+            return False
+        self.software_reasons[path] = sorted(consumers)
+        for consumer in consumers:
+            kind, _, name = consumer.partition(':')
+            if kind == 'native':
+                self.add_native(name)
+            elif kind == 'platform':
+                self.platforms.add(name)
+            elif kind == 'harness':
+                self.harness_tests.add({'isa': 'isa-smoke', 'benchmark': 'tiled-mt-benchmark-test'}[name])
+            elif kind == 'adapter':
+                self.adapters.add(name)
+            elif kind == 'image':
+                self.linux = True
+            elif kind == 'arch':
+                self.arch = True
+            elif kind == 'simulator':
+                self.build_all_simulators = True
+        return True
 
     def classify(self, path):
         documentation = matches(path, "*.md", "LICENSE", "LICENSE.*", "NOTICE", "DCO", "AGENTS.md", ".gitignore", ".gitattributes")
-
-        # Linux-only inputs select image production, never simulator execution.
-        if not documentation and matches(path, "sw/buildroot", "sw/buildroot/*",
-                                          "sw/buildroot-riscv/*", "sw/build/linux.py",
-                                          "sw/tests/test_linux_target.py", "sims/linux/*",
-                                          ".github/workflows/ci-linux-builds.yml"):
-            self.linux = True
+        # Software ownership has one graph. Shared non-software inputs also keep
+        # their host/RTL validation below; owned software inputs stop here.
+        if not documentation and self.software(path) and matches(path, 'sw/*', 'sims/program-test/*',
+                                                                 'sims/opensbi/*', 'sims/linux/*'):
             return
-        if not documentation and matches(path, "sw/opensbi", "sw/opensbi/*", "sw/opensbi-patches/*",
-                                          "sw/build/opensbi.py", "sw/build/build.py", "sw/build/bind.py",
-                                          "sw/build/program_target.py", "sims/opensbi/*",
-                                          "sims/program-test/*", "sims/Makefile", "sims/test-configs.txt",
+        if not documentation and matches(path, "sims/Makefile", "sims/test-configs.txt",
                                           "socs/*", "cores/*", "riscv/*", "rhodium/*", "flow/*",
                                           "devices/*", "devicetree/*", "support/*",
                                           "tools/run-racket.sh", "tools/racket-build-cache.sh"):
@@ -66,28 +111,10 @@ class Selection:
         # of host, example, and CIRCT checks.
         if documentation or matches(path, "tools/emacs/*"):
             pass
-        elif path == "sw/build/isa.mk":
-            self.add_native("isa")
-        elif matches(path, "sw/build/build-coremark.py", "sw/coremark-riscv-baremetal/*", "sw/coremark", "sw/coremark/*"):
-            self.add_native("coremark")
-        elif matches(path, "sw/build/build-embench.py", "sw/embench-iot-riscv-baremetal/*", "sw/embench-iot-patches/*", "sw/embench-iot", "sw/embench-iot/*"):
-            self.add_native("embench")
-        elif matches(path, "sw/build/build-bringup-bench.py", "sw/bringup-bench-riscv-baremetal/*", "sw/bringup-bench-patches/*", "sw/bringup-bench", "sw/bringup-bench/*"):
-            self.add_native("bringup")
-        elif matches(path, "sw/build/build-skl.py", "sw/skl-riscv-baremetal/*", "sw/skl-patches/*", "sw/skl", "sw/skl/*"):
-            self.add_native("skl")
-        elif matches(path, "sw/build/build-highway.py", "sw/highway-riscv-baremetal/*", "sw/highway", "sw/highway/*"):
-            self.add_native("highway")
         elif matches(path, "sims/arch-test/*", "sims/tests/test_arch_test.py", "sims/sail/*", "sims/tests/test_sail_config.py", "sw/riscv-arch-test", "sw/riscv-arch-test/*", "sw/riscv-arch-test-patches/*", "riscv/sail-riscv", "riscv/sail-riscv/*", "riscv/sail-riscv-patches/*", "tools/write-riscv-udb-config.rhm"):
             self.arch = True
         elif matches(path, "riscv/patched_submodule.py", "riscv/riscv-isa-sim", "riscv/riscv-isa-sim/*", "riscv/riscv-isa-sim-patches/*"):
             self.all_programs()
-        elif matches(path, "sw/riscv-isa-tests", "sw/riscv-isa-tests/*", "sw/riscv-isa-tests-patches/*", "sw/build/build.py"):
-            self.add_native("isa", "benchmark")
-        elif matches(path, "sw/build/program_target.py", "sw/build/bind.py", "sw/tests/test_program_build.py"):
-            self.all_programs()
-        elif matches(path, "sw/opensbi", "sw/opensbi/*", "sw/opensbi-patches/*", "sw/build/opensbi.py", "sw/tests/test_opensbi_build.py", "sims/opensbi/*"):
-            pass
         elif matches(path, "rhodium/core/*", "rhodium/lowering/*", "rhodium/frontend/*", "rhodium/base/*", "rhodium/std/*", "rhodium/backend/*", "rhodium/compile/*", "rhodium/language.rhm", "rhodium/main.rkt", "flow/*", "cores/*", "riscv/*", "hardfloat/*", "chi/*", "noc/*", "devices/*", "socs/*", "sims/*", "support/annotations.rhm", "devicetree/*", "tools/install-circt.sh", "tools/install-riscv-*.sh", ".github/actions/setup-riscv-toolchain/*"):
             self.all_programs()
 
@@ -143,35 +170,25 @@ class Selection:
         if documentation:
             return
         if matches(path, "sram/*", "vlsi/sim/*", "vlsi/designs/mini-rv5stage-soc/sky130/*"):
-            self.simulation = True
+            self.full_harness = True
         elif matches(path, "tools/emacs/*", "vlsi/*"):
             return
         elif matches(path, ".github/workflows/*", ".github/actions/*", "tools/ci/*"):
             self.all()
         elif matches(path, "sims/arch-test/*.rhm", "sims/tests/config-test.rhm"):
             self.add_checks("host-socs")
-        elif matches(path, "sims/arch-test/*", "sims/tests/test_arch_test.py", "sims/sail/*", "sims/tests/test_sail_config.py",
-                     "sw/build/build-coremark.py", "sw/build/build-embench.py",
-                     "sw/build/build-bringup-bench.py", "sw/coremark", "sw/coremark/*",
-                     "sw/coremark-riscv-baremetal/*", "sw/embench-iot", "sw/embench-iot/*",
-                     "sw/embench-iot-riscv-baremetal/*", "sw/embench-iot-patches/*", "sw/bringup-bench",
-                     "sw/bringup-bench/*", "sw/bringup-bench-riscv-baremetal/*",
-                     "sw/bringup-bench-patches/*",
-                     "sw/build/build-skl.py", "sw/skl", "sw/skl/*", "sw/skl-riscv-baremetal/*", "sw/skl-patches/*",
-                     "sw/build/build-highway.py", "sw/highway", "sw/highway/*", "sw/highway-riscv-baremetal/*"):
+        elif matches(path, "sims/arch-test/*", "sims/tests/test_arch_test.py", "sims/sail/*", "sims/tests/test_sail_config.py"):
             pass
-        elif matches(path, "sims/program-test/*", "sw/build/*", "sw/coremark*", "sw/embench-iot*", "sw/bringup-bench*", "sw/litmus-*", "sw/tests/test_program_build.py", "sw/tests/test_litmus_build.py", "sw/riscv-isa-tests", "sw/riscv-isa-tests/*", "sw/riscv-isa-tests-patches/*", "tools/install-riscv-*.sh"):
-            self.simulation = True
-        elif matches(path, "sw/opensbi", "sw/opensbi/*", "sw/opensbi-patches/*", "sw/tests/test_opensbi_build.py", "sims/opensbi/*"):
-            self.simulation = True
+        elif matches(path, "tools/install-riscv-*.sh"):
+            self.full_harness = True
         elif matches(path, "sw/riscv-arch-test", "sw/riscv-arch-test/*", "sw/riscv-arch-test-patches/*", "riscv/sail-riscv", "riscv/sail-riscv/*", "riscv/sail-riscv-patches/*", "sims/arch-test/*", "sims/tests/test_arch_test.py", "sims/sail/*", "sims/tests/test_sail_config.py"):
             pass
         elif matches(path, "riscv/patched_submodule.py"):
             self.add_checks("host-models", "host-backend", "host-hygiene")
-            self.simulation = True
+            self.full_harness = True
         elif matches(path, "riscv/riscv-isa-sim", "riscv/riscv-isa-sim/*", "riscv/riscv-isa-sim-patches/*"):
             self.add_checks("host-backend", "host-hygiene")
-            self.simulation = True
+            self.full_harness = True
         elif path == "Makefile":
             self.all()
         elif path == "tools/check-example-verilog.sh":
@@ -184,11 +201,11 @@ class Selection:
             self.add_checks(*HOST_CHECKS)
         elif path == "tools/run-racket-tests.sh":
             self.add_checks(*HOST_CHECKS, "verilog-direct")
-            self.simulation = True
+            self.full_harness = True
             self.all_programs()
         elif matches(path, "tools/run-racket.sh", "tools/racket-build-cache.sh", "tools/refresh-racket-project-cache.sh", "tools/invalidate-racket-build-cache.rkt"):
             self.add_checks(*HOST_CHECKS, "verilog-direct", *CIRCT_CHECKS)
-            self.simulation = True
+            self.full_harness = True
             self.all_programs()
         elif path == "tools/write-rv5stage-core-diagram.rhm":
             self.add_checks("host-examples")
@@ -200,18 +217,18 @@ class Selection:
             self.add_checks("host-hygiene")
         elif matches(path, "rhodium/statistics/*", "sims/statistics/*"):
             self.add_checks("host-foundation", "rsim-std", "circt-verilog-differential")
-            self.simulation = True
+            self.full_harness = True
         elif matches(path, "rhodium/event/*", "rheg/*"):
             self.add_checks("host-foundation", "host-backend", "circt-language")
-            self.simulation = True
+            self.full_harness = True
         elif matches(path, "rhodium/core/*", "rhodium/lowering/*", "rhodium/analysis/*", "rhodium/frontend/*", "rhodium/base/*", "rhodium/language.rhm", "rhodium/main.rkt"):
             self.all()
         elif matches(path, "rhodium/std/*", "flow/*"):
             self.add_checks("host-hygiene", "host-foundation", "host-backend", "host-protocols", "host-cores", "host-socs", "host-examples", "circt-language", "circt-std", "circt-protocols", *CORE_CHECKS)
-            self.simulation = True
+            self.full_harness = True
         elif matches(path, "rhodium/backend/*", "rhodium/compile/*"):
             self.add_checks("host-backend", "verilog-direct", *CIRCT_CHECKS)
-            self.simulation = True
+            self.full_harness = True
         elif matches(path, "examples/rtl/*"):
             self.add_checks("host-examples", "circt-language")
         elif matches(path, "examples/clocking/*"):
@@ -244,65 +261,71 @@ class Selection:
             self.add_checks("host-models", "host-cores", "host-socs", "host-examples", *CORE_CHECKS)
         elif matches(path, "hardfloat/*"):
             self.add_checks("host-models", *CORE_CHECKS)
-            self.simulation = True
+            self.full_harness = True
         elif matches(path, "devicetree/*"):
             self.add_checks("host-models")
         elif matches(path, "chi/subordinate/memory-controller.rhdl", "chi/subordinate/dpi-memory.rhdl", "chi/subordinate/dpi/*", "chi/tests/dpi-memory-*", "chi/tests/chi_dpi_memory_*"):
             self.add_checks("host-protocols", "host-socs", "circt-protocols", "host-examples")
-            self.simulation = True
+            self.full_harness = True
         elif matches(path, "chi/*"):
             self.add_checks("host-protocols", "host-socs", "circt-protocols", "host-examples")
         elif matches(path, "cores/*"):
             self.add_checks("host-cores", "host-socs", "host-examples", *CORE_CHECKS)
-            self.simulation = True
+            self.full_harness = True
         elif matches(path, "sims/fesvr/*.rhdl", "sims/tests/rsim/*", "sims/tests/fesvr-mmio-fixture.rhdl"):
             self.add_checks("rsim-protocols", "circt-protocols")
-            self.simulation = True
+            self.full_harness = True
         elif matches(path, "sims/cosim/*"):
             self.add_checks("host-socs", "circt-core-components", "circt-core-execution-datapath")
-            self.simulation = True
+            self.full_harness = True
         elif matches(path, "sims/*"):
-            self.simulation = True
+            self.full_harness = True
         elif matches(path, "socs/*"):
             self.add_checks("host-socs", *CORE_CHECKS)
-            self.simulation = True
+            self.full_harness = True
         elif matches(path, "support/annotations.rhm", "support/tests/*"):
             self.add_checks("host-foundation")
         elif path == "support/README.md":
             self.add_checks("host-foundation")
         elif path == "tools/install-circt.sh":
             self.add_checks(*CIRCT_CHECKS)
-            self.simulation = True
+            self.full_harness = True
         else:
             self.all()
 
     def result(self):
         matrix = check_matrix(self.checks)
-        suites = {"include": []}
-        for suite in NATIVE_SUITES:
-            if suite not in self.native_suites:
-                continue
-            suites["include"].extend({"soc": soc, "suite": suite, **simulator_options(soc), "backend": DEFAULT_BACKEND} for soc in native_configs(suite))
-            if suite == "coremark":
-                suites["include"].extend({"soc": soc, "suite": "coremark_scalar", **simulator_options(soc), "backend": DEFAULT_BACKEND} for soc in native_configs(suite))
+        suites = {'include': [dict(soc=soc, suite=suite, **simulator_options(soc), backend=DEFAULT_BACKEND)
+                              for soc, suite in sorted(self.programs)]}
+        platforms = {'include': [row for row in platform_configs()
+                                 if self.full_harness or row['suite'] in self.platforms]}
+        arch_builds = {row['configuration']: row for row in arch_configs()} if self.arch else {}
+        arch_runs = arch_shards() if self.arch else ()
+        needed = ({row['soc'] for row in suites['include'] + platforms['include']} | set(arch_builds))
+        builds = []
+        configs = [(*config, DEFAULT_BACKEND) for config in SIMULATOR_CONFIGS]
+        configs.extend((*config, backend) for config in BACKEND_SMOKE_CONFIGS for backend in BACKEND_SMOKE_VARIANTS)
+        for soc, shape, core, backend in configs:
+            row = simulation_entry(soc, shape, core, backend, smoke_variant=backend != DEFAULT_BACKEND)
+            available = row['software_tests'].split()
+            requested = self.harness_tests | self.harness_requests.get(soc, set())
+            tests = available if self.full_harness else [test for test in available if test in requested]
+            row.update(software_tests=' '.join(tests), run_harness=bool(tests))
+            if tests or self.build_all_simulators or (backend == DEFAULT_BACKEND and soc in needed):
+                builds.append(row)
         run_checks = bool(self.checks)
-        run_program_native = bool(self.native_suites)
-        run_simulator = self.simulation or run_program_native or self.arch
+        run_program_native = bool(self.programs)
+        run_simulator = bool(builds)
         linux = {'include': linux_configs() if self.linux else []}
         run_targets = run_simulator or self.linux
-        configs = (SIMULATOR_CONFIGS if self.simulation else
-                    tuple(config for config in SIMULATOR_CONFIGS if config[0] in SINGLE_CORE_SOCS))
-        entry = simulation_entry if self.simulation else simulator_entry
-        builds = [entry(*config) for config in configs] if run_simulator else []
-        if self.simulation:
-            builds.extend(simulation_entry(*config, backend=backend, smoke_variant=True)
-                          for config in BACKEND_SMOKE_CONFIGS for backend in BACKEND_SMOKE_VARIANTS)
+        harness_build_suites = sorted({{'isa-smoke': 'isa', 'tiled-mt-benchmark-test': 'benchmark'}[test]
+                                      for row in builds for test in row['software_tests'].split()
+                                      if test in ('isa-smoke', 'tiled-mt-benchmark-test')})
+        adapters = set(ADAPTERS) if self.full_harness else self.adapters
         # Matching-row needs are not supported by Actions matrices. Configs
         # with downstream execution use named jobs; build-only rows stay batched.
         pipelines = (set(SINGLE_CORE_SOCS) | {row['soc'] for row in platform_configs()}
                      | {soc for soc, shape, _core in SIMULATOR_CONFIGS if shape == 'tiled8core'})
-        arch_builds = {row['configuration']: row for row in arch_configs()} if self.arch else {}
-        arch_runs = arch_shards() if self.arch else ()
         config_jobs = {}
         groups = {key: {'include': []} for key in ('plain', 'cosim', 'plain-elf', 'cosim-elf')}
         for build in builds:
@@ -314,7 +337,7 @@ class Selection:
                                        arch=soc in arch_builds,
                                        arch_config=arch_builds.get(soc),
                                        arch_matrix={'include': [row for row in arch_runs if row['configuration'] == soc]},
-                                       platform=self.simulation and any(row['soc'] == soc for row in platform_configs()))
+                                       platform=any(row['soc'] == soc for row in platforms['include']))
             else:
                 shared_elf = any(target in build.get('software_tests', '').split()
                                  for target in ('isa-smoke', 'tiled-mt-benchmark-test'))
@@ -325,6 +348,9 @@ class Selection:
             "run_sail": self.arch or any(build["cosim"] for build in builds),
             "run_cosim": any(build["cosim"] for build in builds),
             "run_native": run_simulator,
+            "software_checks": sorted(ADAPTERS[name][0] for name in adapters),
+            "software_setup": sorted({setup for name in adapters for setup in ADAPTERS[name][1]}),
+            "software_reasons": self.software_reasons,
             "run_spike_tests": any(build["core"] == "spike" for build in builds),
             "run_checks": run_checks,
             "checks_matrix": matrix,
@@ -334,7 +360,9 @@ class Selection:
             "run_linux_build": self.linux,
             "linux_matrix": linux,
             "simulator_matrix": {"include": builds},
-            "run_simulation": self.simulation,
+            "harness_build_suites": harness_build_suites,
+            "platform_matrix": platforms,
+            "platform_build_suites": sorted({row['suite'] for row in platforms['include']}),
             "run_program_native": run_program_native,
             "program_matrix": suites,
             "run_program_arch": self.arch,

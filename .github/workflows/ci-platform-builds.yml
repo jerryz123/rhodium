@@ -58,6 +58,11 @@ jobs:
         with:
           name: targets-${{ github.sha }}
           path: ${{ runner.temp }}/platform-targets
+      - name: Identify suite build inputs
+        id: cache-inputs
+        env:
+          SUITE: ${{ matrix.suite }}
+        run: echo "key=$(python3 -m tools.ci.software --cache-inputs "$SUITE")" >> "$GITHUB_OUTPUT"
       - name: Cache platform builds
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -65,9 +70,9 @@ jobs:
             /tmp/rhodium-platform-builds/${{ matrix.build_id }}/build
             /tmp/rhodium-platform-builds/${{ matrix.build_id }}/source
             /tmp/rhodium-platform-builds/${{ matrix.build_id }}/build-configuration.json
-          key: "${{ runner.os }}-${{ runner.arch }}-platform-${{ matrix.build_id }}-${{ hashFiles('sw/build/**', 'sw/opensbi-patches/**', 'riscv/patched_submodule.py', 'sw/litmus-riscv-baremetal/**', 'sims/opensbi/**', 'sims/program-test/Makefile.inc', 'tools/install-riscv-*.sh', '.github/workflows/ci-platform-builds.yml') }}-${{ github.sha }}"
+          key: "${{ runner.os }}-${{ runner.arch }}-platform-${{ matrix.build_id }}-${{ steps.cache-inputs.outputs.key }}-${{ hashFiles('.github/workflows/ci-platform-builds.yml') }}-${{ github.sha }}"
           restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-platform-${{ matrix.build_id }}-${{ hashFiles('sw/build/**', 'sw/opensbi-patches/**', 'riscv/patched_submodule.py', 'sw/litmus-riscv-baremetal/**', 'sims/opensbi/**', 'sims/program-test/Makefile.inc', 'tools/install-riscv-*.sh', '.github/workflows/ci-platform-builds.yml') }}-
+            ${{ runner.os }}-${{ runner.arch }}-platform-${{ matrix.build_id }}-${{ steps.cache-inputs.outputs.key }}-${{ hashFiles('.github/workflows/ci-platform-builds.yml') }}-
       - name: Build and package shared ELFs
         env:
           SOC: ${{ matrix.soc }}

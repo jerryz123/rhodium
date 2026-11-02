@@ -113,11 +113,40 @@ outside the HDL-free rsim suite.
 
 CI applies the declarative policy in [`../ci/`](../ci/plan.py).
 [`plan.py`](../ci/plan.py) maps changed paths to the capability matrix declared
-by [`policy.py`](../ci/policy.py). Derive coverage from the owning inventories
+by [`policy.py`](../ci/policy.py). Software ownership and transitive build/run
+dependencies live in [`software.py`](../ci/software.py), not in ordered path
+exceptions or workflow-local file lists. Derive coverage from the owning inventories
 without duplicating fixture totals, shard counts, config catalogs, or workflow
 structure in a test inventory. Unknown paths select all lanes. The stable gate
 rejects failed, cancelled, or unexpectedly skipped selected workflows. Producers
 and consumers validate artifact integrity and compatibility during actual use.
+
+Each software build root declares its direct source inputs and shared input
+nodes. Native, platform, Linux-image, ACT, harness, and host-adapter consumers depend
+on those roots and their execution contracts. Path classification follows reverse
+dependency reachability; cache keys hash only the selected build root's forward
+input closure, including pinned gitlinks. Thus a runner or expectation change
+does not invalidate unrelated ELF builds. Add a suite's inputs and edges here
+once, rather than updating multiple classifier branches and YAML hash lists.
+The planner's `software_reasons` records the affected consumers for each changed
+software input so a surprising selection can be explained directly.
+Shared simulator-attestation and execution-evidence inputs retain their ACT and
+simulator-producer consumers explicitly, without broadening unrelated port edits.
+
+Simulator prerequisites are the union of the selected consumers' exact configs;
+needing a DUT does not request its harness. Each simulator row explicitly carries
+`run_harness` and its selected `software_tests`. Harness ELF producers and
+platform producers are selected by their own suite lists. A litmus-only change
+therefore selects only the enrolled four-hart litmus DUTs; a suite-owned benchmark
+port change selects only the configs enrolled for that suite. Performance baseline
+paths select their one config/suite, including the tiled multihart benchmark
+harness. Host adapter-test edits run only their selected Python checks and
+required source setup, without target generation or simulator builds.
+
+Inspect actual selections with `python3 -m tools.ci.plan --paths PATH... --pretty`.
+Inspect the build cache namespace with
+`python3 -m tools.ci.software --cache-inputs SUITE`. Keep unknown paths and shared
+RTL changes conservative; manual/full CI retains the complete coverage inventory.
 
 Coverage selection and runner grouping are separate. `policy.py` retains one
 entry per check and partitions those entries into compatible runner groups.
@@ -213,7 +242,9 @@ or shutdown consumer is enrolled. Compilation and static artifact checks must
 not be reported as Linux boot qualification.
 
 One native-check job owns config-independent DPI, transport, runtime, cosim-hook,
-architectural projection, and software-target tests. Spike native and ABI checks
+and architectural projection tests. A separate lightweight software-adapter job
+runs the graph-selected host checks and initializes only their required sources.
+Spike native and ABI checks
 run once when any Spike simulator is selected. Per-config hardware elaboration
 and execution remain in their own jobs. The gate requires all selected shared
 producers and native checks, including cancellation or unexpectedly skipped jobs.
@@ -418,10 +449,10 @@ config, including Spike. `policy.py` owns the suite's shard count;
 Each shard publishes separate diagnostics, and all shards are required for the
 CI gate to succeed. Do not add core-specific selections or rebuild
 the suite per shard.
-Program adapter contracts run once before the build matrix. A failed build does
+Software adapter contracts run once in their independent selected host job. A failed build does
 not prevent execution jobs from attempting other published groups.
-Platform adapters run once in the planning job. Each OpenSBI execution
-validates one single-core config under simulation change selection and
+Each selected OpenSBI execution
+validates its enrolled single-core config and
 publishes separate diagnostics. A failed platform build does not prevent
 execution jobs from attempting other published build groups.
 All six Simple RV32 configs select upstream ISA tests;

@@ -14,13 +14,14 @@ def failures(plan, results):
         "linux-plan": plan["run_linux_build"],
         "linux-builds": plan["run_linux_build"],
         "native": plan["run_native"],
-        "harness-isa": plan["run_simulation"],
-        "harness-benchmark": plan["run_simulation"],
+        "software-checks": bool(plan['software_checks']),
+        "harness-isa": 'isa' in plan['harness_build_suites'],
+        "harness-benchmark": 'benchmark' in plan['harness_build_suites'],
         "checks": plan["run_checks"],
         "program-plan": plan["run_program_native"],
-        "platform-plan": plan["run_simulation"],
-        "platform-builds-opensbi": plan["run_simulation"],
-        "platform-builds-litmus": plan["run_simulation"],
+        "platform-plan": bool(plan['platform_build_suites']),
+        "platform-builds-opensbi": 'opensbi' in plan['platform_build_suites'],
+        "platform-builds-litmus": 'litmus' in plan['platform_build_suites'],
     }
     for group, matrix in plan['simulator_groups'].items():
         required['sim-' + group] = bool(matrix['include'])
