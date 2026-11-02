@@ -67,7 +67,7 @@ and binaries for the selected fixtures so stale regions cannot enter a build.
 
 Rsim component lanes own portable language behavior, standard-library, Flow, reusable-core, HardFloat,
 and portable controller behavior. The `cores-components` group also includes
-RV5Stage register-file, FP pipeline, integer execution, writeback calendar,
+shared 2R2W/4R2W register-file, RV5Stage FP pipeline, integer execution, writeback calendar,
 memory arbiter, divider workload, and three vector-sequencer configurations.
 RV2Wide core/FP, cache, disabled-fetch, assembly and frontend prediction, BHT,
 MMU, enabled-fetch with retirement tracing, and RV32 integration also run in

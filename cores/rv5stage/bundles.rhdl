@@ -36,7 +36,6 @@ import:
   "../fp/types.rhdl" open
   "mmu/protocol.rhdl" open
   "../vector/precheck.rhdl".VectorFootprintGeometry
-  "register-file.rhdl" open
   "multiply.rhdl" open
   "divide.rhdl" open
   "fp/bundles.rhdl" open

@@ -31,7 +31,7 @@ def target = traced_target(site_header, EventInstrumentationConfig(~partial: #tr
     ["write_in", "bits", "data"],
     ["write_in", "bits", "mask"]
   ]],
-  ["RV5StageRegisterFile", "test_scalar_write", [
+  ["RegisterFile", "test_scalar_write", [
     ["writes_0_in", "valid"],
     ["writes_0_in", "bits", "address"],
     ["writes_0_in", "bits", "data"]

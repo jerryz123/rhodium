@@ -238,9 +238,15 @@ unchanged, and backpressures at the common completion arbiter. Round-robin Flow
 arbitration merges variable load and divide results and reserves the younger RR
 slot for responses requiring a GPR write.
 An unflushable three-stage Valid pipe aligns those responses with the vacant WB
-slot. Mux the completion and younger instruction before the second register-file
-write connection; do not add a third write port or backpressure WB. The
-completion-pipeline occupancy participates in precise fault drain.
+slot. The shared `RegisterFile(xlen, ~read_ports: 4)` owns exactly four physical
+reads and two physical writes. RR wires each slot's rs1/rs2 directly to its two
+read ports and retains forwarding priority. The older WB slot writes port zero;
+the younger WB slot shares port one with independent completions. Successful
+same-address normal writes suppress the older write without merging retirement.
+Independent completions reserve physical port one;
+RR still reserves the younger instruction slot on their write edge. Do not add
+a third write port or backpressure WB. The completion-pipeline occupancy
+participates in precise fault drain.
 Pre-WB producer checks bridge the interval before the scoreboard is set.
 RAW interlocks select the youngest older producer; WAW interlocks cover all
 older deferred producers. A completion forwards at arbitration and from each

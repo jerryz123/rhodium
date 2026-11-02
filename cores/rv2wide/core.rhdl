@@ -8,6 +8,8 @@ import:
   lib("cores/fp/profile.rhm").fp_transport_profile
   lib("cores/reservation-wait.rhdl") open
   lib("cores/integer-format.rhdl") open
+  lib("cores/register-file.rhdl").RegisterFile
+  lib("cores/register-write.rhdl").RegisterFileWrite
   lib("cores/operand.rhdl") open
   lib("riscv/rtl/hypervisor.rhdl") open
   "profile.rhm" open
@@ -356,7 +358,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
 
   wb_scoreboard.clear.valid <== wb_gpr_return.valid & wb_gpr_return.bits.write
   wb_scoreboard.clear.bits <== wb_gpr_return.bits.rd
-  reg rr_registers(~init: vec(for List (_ in 0..32): Bits(xlen.width)(0)))
+  inst rr_registers(RegisterFile(xlen, ~read_ports: 4))
   instructions |> rr_window.ingress
   instruction_capacity <== rr_window.available
   rr_window.clear.valid <== rr_squash
@@ -473,10 +475,10 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
 
   /* Deferred returns forward at RR admission and again at the reserved write edge.
      Each later rr_returns entry overrides earlier entries and the vector/late-FP/RF fallback. */
-  fun rr_stored(address :: Bits(5)) :: Bits(xlen.width):
+  fun rr_stored(address :: Bits(5), stored :: Bits(xlen.width)) :: Bits(xlen.width):
     def vector_match = vector.scalar_result.valid & (vector.scalar_result.bits.address === address)
     def late_fp_match = wb_fp_late_gpr.valid & (wb_fp_late_gpr.bits.tag.rd === address)
-    def initial_value = priority_mux(~default: rr_registers[address]):
+    def initial_value = priority_mux(~default: stored):
       vector_match: vector.scalar_result.bits.data
       late_fp_match: wb_fp_late_gpr.bits.integer_value
 
@@ -509,8 +511,9 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
      Selects the newest older producer and preserves explicit pairing routes;
      ordered elaboration folds encode forwarding priority. */
 
-  def rr_left :: Vec(2, RV2WideOperand(xlen)) = vec(for List (lane in 0..2): forwarded_operand(xlen, rr_rs1[lane], rr_stored(rr_rs1[lane]), rr_producers))
-  def rr_right :: Vec(2, RV2WideOperand(xlen)) = vec(for List (lane in 0..2): forwarded_operand(xlen, rr_rs2[lane], rr_stored(rr_rs2[lane]), rr_producers))
+  rr_registers.read_addresses <== vec(rr_rs1[0], rr_rs2[0], rr_rs1[1], rr_rs2[1])
+  def rr_left :: Vec(2, RV2WideOperand(xlen)) = vec(for List (lane in 0..2): forwarded_operand(xlen, rr_rs1[lane], rr_stored(rr_rs1[lane], rr_registers.read_data[2 * lane]), rr_producers))
+  def rr_right :: Vec(2, RV2WideOperand(xlen)) = vec(for List (lane in 0..2): forwarded_operand(xlen, rr_rs2[lane], rr_stored(rr_rs2[lane], rr_registers.read_data[2 * lane + 1]), rr_producers))
   def rr_older_write = rr_decodable[0] & rr_controls[0].writeback.enable & rr_rd[0].any()
   def rr_long = for List (lane in 0..2): rr_controls[lane].muldiv.service =/= RV2WideLongOperation.None
   def rr_multiply = for List (lane in 0..2): rr_decodable[lane] & (rr_controls[lane].muldiv.service === RV2WideLongOperation.Multiply) & rr_rd[lane].any()
@@ -1791,23 +1794,24 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     wb_fp_late_gpr.valid: wb_fp_late_gpr.bits.integer_value
     wb_completion_write: wb_gpr_return.bits.data
 
-  def wb_second_write = wb_completion_write ||| wb_writes[1] ||| wb_fp_late_gpr.valid ||| (vector.scalar_result.valid & vector.scalar_result.bits.address.any())
   assert(!(vector.scalar_result.valid & (wb_completion_write ||| wb_younger.egress.valid ||| wb_fp_late_gpr.valid)), "rv2wide_vector_reserved_younger_slot")
   assert(!(wb_fp_late_gpr.valid & (wb_completion_write ||| wb_younger.egress.valid)), "rv2wide_fixed_fp_reserved_younger_slot")
   assert(!(ex_multiply.completed.valid & (wb_completion.valid ||| wb_younger.egress.valid)), "rv2wide_multiply_reserved_younger_slot")
   when (ex_multiply.completed.valid):
     assert(wb_gpr_calendar.occupied[0].into(Bool), "rv2wide_multiply_booked_return")
 
-  // Coalesce successful same-group writes, not retirement. A fault/replay/deferred
-  // younger instruction must leave the older write intact; completion is not younger.
-  def wb_first_write = wb_writes[0] & !(wb_writes[1] & (wb_tokens[0].rd === wb_tokens[1].rd))
   assert(!(wb_completion_write & wb_younger.egress.valid), "rv2wide_completion_reserved_younger_slot")
-  assert(!(wb_first_write & wb_second_write & (wb_tokens[0].rd === wb_second_address)), "rv2wide_two_write_ports_distinct")
-  when (wb_first_write):
-    rr_registers[wb_tokens[0].rd] <== retired[0].bits.data
+  // A successful younger write wins within the pair; a killed/replayed younger
+  // instruction cannot erase the older write. Deferred returns are not younger.
+  rr_registers.writes[0].valid <== wb_writes[0] & !(wb_writes[1] & (wb_tokens[0].rd === wb_tokens[1].rd))
+  rr_registers.writes[0].bits <== RegisterFileWrite(xlen):
+    address: wb_tokens[0].rd
+    data: retired[0].bits.data
 
-  when wb_second_write:
-    rr_registers[wb_second_address] <== wb_second_data
+  rr_registers.writes[1].valid <== wb_completion_write ||| wb_writes[1] ||| wb_fp_late_gpr.valid ||| (vector.scalar_result.valid & vector.scalar_result.bits.address.any())
+  rr_registers.writes[1].bits <== RegisterFileWrite(xlen):
+    address: wb_second_address
+    data: wb_second_data
 
   retired_count <== retired[0].valid.as_bits().zext(2) + retired[1].valid.as_bits().zext(2)
   wb_csrs.retire_count <== retired_count

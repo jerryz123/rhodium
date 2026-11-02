@@ -66,6 +66,20 @@ result, and `integer_divide_result` selects quotient/remainder with word-result
 sign extension. `integer_word_result` exposes that sign-extension rule directly.
 RV32 values remain XLEN-wide; none of these helpers adds storage or arbitration.
 
+### Shared GPR storage
+
+[`RegisterFile(xlen, ~read_ports)`](register-file.rhdl) has an explicitly selected
+number of combinational read addresses and two `Valid(RegisterFileWrite(xlen))`
+write ports. RV5Stage selects two reads; RV2Wide selects four. Writes take
+effect at the clock edge; reads observe stored values, not live write offers.
+x1–x31 have no reset value and must be written before software relies on their
+contents. x0 always reads zero, and writes to x0 are ignored. Reset does not
+clear the stored values.
+Simultaneous nonzero writes must target different registers. Pipeline bypassing
+and write-cycle reservations belong to the caller. RV5Stage captures same-cycle
+architectural writes through its write-to-ID bypass before registering operands;
+RV2Wide keeps its own age-ordered forwarding network.
+
 ### Reservation waiting
 
 [`ReservationWaitMode`](reservation-wait.rhdl) distinguishes `None`,

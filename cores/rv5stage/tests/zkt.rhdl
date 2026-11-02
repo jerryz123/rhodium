@@ -12,7 +12,6 @@ import:
   "../multiply.rhdl" open
   "../decode/multiply-ctrl.rhdl" open
   "../../multiply-decode.rhdl" open
-  "../register-file.rhdl" open
   "../icache/protocol.rhdl" open
   "../memory-context.rhdl" open
   lib("riscv/rtl/privilege.rhdl").PrivilegeMode

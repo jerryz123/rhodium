@@ -57,6 +57,8 @@ load-store	cores-components	cores/tests/rsim/emit-load-store.rhm	program	cores/t
 load-store-rv32-word	cores-components	cores/tests/rsim/emit-load-store-rv32-word.rhm	program	cores/tests/rsim/load-store-rv32-word.cpp
 rv64i-alu-integrated	cores-components	examples/cores/decoded-alu.rhdl	program	cores/tests/rsim/rv64i-alu-integrated.cpp
 pipelined-multiplier	cores-components	cores/tests/rsim/emit-pipelined-multiplier.rhm	program	cores/tests/rsim/pipelined-multiplier.cpp
+register-file	cores-components	cores/tests/rsim/emit-register-file.rhm	program	cores/tests/rsim/register-file.cpp
+register-file-rv32	cores-components	cores/tests/rsim/emit-register-file.rhm	rv32_program	cores/tests/rsim/register-file.cpp
 simd-multiplier	cores-components	cores/tests/rsim/emit-simd-multiplier.rhm	program	cores/tests/rsim/simd-multiplier.cpp
 vector-multiply	cores-vector-functional-1	cores/vector/tests/rsim/emit-vector-multiply.rhm	program	cores/vector/tests/rsim/vector-multiply.cpp
 vector-multiply-rv32	cores-vector-functional-1	cores/vector/tests/rsim/emit-vector-multiply.rhm	rv32_program	cores/vector/tests/rsim/vector-multiply-rv32.cpp
@@ -144,7 +146,6 @@ cache-icache64	cores-components	cores/cache/tests/rsim/emit-cache-icache64.rhm	p
 cache-store-buffer	cores-components	cores/cache/tests/rsim/emit-cache-store-buffer.rhm	program	cores/cache/tests/rsim/cache-store-buffer.cpp
 fesvr-mmio	protocols	sims/tests/rsim/emit-fesvr-mmio.rhm	program	sims/tests/rsim/fesvr-mmio.cpp
 bpred-bht	cores-components	cores/bpred/tests/rsim/emit-bpred-bht.rhm	program	cores/bpred/tests/rsim/bpred-bht.cpp
-rv5stage-register-file	cores-components	cores/rv5stage/tests/rsim/emit-rv5stage-register-file.rhm	program	cores/rv5stage/tests/rsim/rv5stage-register-file.cpp
 rv5stage-fp-pipeline	cores-components	cores/rv5stage/tests/rsim/emit-rv5stage-fp-pipeline.rhm	program	cores/rv5stage/tests/rsim/rv5stage-fp-pipeline.cpp
 rv5stage-integer-execution	cores-components	cores/rv5stage/tests/rsim/emit-rv5stage-integer-execution.rhm	program	cores/rv5stage/tests/rsim/rv5stage-integer-execution.cpp
 rv5stage-writeback	cores-components	cores/rv5stage/tests/rsim/emit-rv5stage-writeback.rhm	program	cores/rv5stage/tests/rsim/rv5stage-writeback.cpp

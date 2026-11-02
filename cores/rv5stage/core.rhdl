@@ -70,7 +70,7 @@ import:
   "fetch/packet.rhdl" open
   "fetch/instruction-buffer.rhdl" open
   "../fp/types.rhdl" open
-  "register-file.rhdl" open
+  "../register-file.rhdl".RegisterFile
   "../../riscv/isa/c.rhm" open
   "../../riscv/isa/xlen.rhm" open
   "../../riscv/isa/fp-profile.rhm" open
@@ -244,7 +244,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   inst memory_response(MemoryResponseCapture(ExecuteMemory(xlen, vector_completion_slots, hypervisor), CachePipelineResult(xlen)))
 
   inst id_decoder(RV5StageInstructionDecoder(xlen, profile, half_precision, ~zfa: zfa_enabled, ~zicbop: zicbop_enabled, ~zicboz: zicboz_enabled, ~zicbom: zicbom_enabled, ~svinval: core_profile.extensions.svinval, ~zawrs: zawrs_enabled, ~zihintpause: zihintpause_enabled, ~zihintntl: zihintntl_enabled, ~vector: core_profile.vector, ~vector_extensions: vector_extensions, ~hypervisor: hypervisor))
-  inst id_registers(RV5StageRegisterFile(xlen))
+  inst id_registers(RegisterFile(xlen, ~read_ports: 2))
   inst ex_alu(ALU(xlen))
   inst ex_branch_resolver(BranchResolver(width))
   def wb_pipelined_multiplier = core_profile.multiplier == RV5StageMultiplierKind.Pipelined
@@ -551,7 +551,12 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def wb_commit_valid = wb_commit.valid & !wb_commit_bits.replay
   wire wb_vector_truncate: Bool
   def wb_macro_retire = wb_commit_valid
-  def Array(wb_commit_write :: Endpoint, wb_deferred_completion_write :: Endpoint) = id_registers.writes
+  def wb_commit_write_link = interface_link(Valid(RegisterFileWrite(xlen)))
+  def wb_deferred_completion_write_link = interface_link(Valid(RegisterFileWrite(xlen)))
+  def wb_commit_write = wb_commit_write_link.left
+  def wb_deferred_completion_write = wb_deferred_completion_write_link.left
+  wb_commit_write_link.right |> id_registers.writes[0]
+  wb_deferred_completion_write_link.right |> id_registers.writes[1]
 
   privilege <== wb_csrs.privilege
   mstatus <== wb_csrs.mstatus
@@ -709,8 +714,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def id_illegal = id_vector_fp_illegal ||| id_decode_bits.compressed_illegal ||| !id_decoder.valid ||| (id_vector_instruction & !wb_csrs.vector_enabled) ||| id_vector_config_illegal ||| id_cbo_illegal ||| id_scalar_fp_illegal
   def id_fault = id_decode_bits.instruction_page_fault ||| id_decode_bits.instruction_access_fault ||| id_illegal ||| id_guest_illegal ||| id_virtual_instruction
 
-  id_registers.read_address_1 <== id_rs1
-  id_registers.read_address_2 <== id_rs2
+  id_registers.read_addresses <== vec(id_rs1, id_rs2)
 
   /* Registered bypass selection.
      Decode selects the source present in EX next cycle; live MEM fault,
@@ -719,15 +723,19 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def id_ex_bypass_available = ex_input.valid & ex_input.bits.writeback_enable & !core_deferred_writeback(ex_input.bits.writeback_source) & (ex_input.bits.writeback_source =/= RV5StageWritebackSelect.Vector) & ((ex_input.bits.writeback_source =/= RV5StageWritebackSelect.Csr) ||| (ex_input.bits.system.action === RiscvCsrAction.VectorConfig))
   def id_mem_bypass_available = mem_input.valid & mem_input.bits.writeback_enable & (!core_deferred_writeback(mem_input.bits.writeback_source) ||| mem_load_hit) & (mem_input.bits.writeback_source =/= RV5StageWritebackSelect.Vector) & ((mem_input.bits.writeback_source =/= RV5StageWritebackSelect.Csr) ||| (mem_input.bits.system.action === RiscvCsrAction.VectorConfig))
 
-  /* Captures the registered bypass source expected in EX, giving the nearer older producer
-     priority. */
-  fun id_operand(index :: Bits(5), register_value :: Bits(width)):
+  /* Captures current architectural writes over pre-edge storage, then selects the registered
+     EX source. Nearer EX/MEM producers override this fallback; x0 never forwards. */
+  fun id_operand(index :: Bits(5), register_value :: Bits(width)) :: RV5StageOperand(xlen):
+    def captured = priority_mux(~default: register_value):
+      wb_deferred_completion_write_link.right.valid & (wb_deferred_completion_write_link.right.bits.address === index): wb_deferred_completion_write_link.right.bits.data
+      wb_commit_write_link.right.valid & (wb_commit_write_link.right.bits.address === index): wb_commit_write_link.right.bits.data
+
     def id_from_memory = index.any() & id_ex_bypass_available & (ex_input.bits.rd === index)
     def id_from_writeback = index.any() & id_mem_bypass_available & (mem_input.bits.rd === index)
     def id_bypass_winner = priority_encoder_oh(id_from_writeback ++ id_from_memory)
     RV5StageOperand(xlen):
       stage_sel: id_bypass_winner.mux([RV5StageBypassStage.Memory, RV5StageBypassStage.Writeback], ~default: RV5StageBypassStage.RegisterFile)
-      value: register_value
+      value: mux(index.any(), captured, Bits(width)(0))
 
   /* Checks older pre-admission vector tokens across EX, MEM, and WB against a dependency
      predicate. Their deferred destinations are not reserved until WB admission;
@@ -762,7 +770,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     deferred_valid & deferred_destination.any() & (reads_rs1 ||| reads_rs2 ||| overwrites)
 
   // Ordinary CSR values are unavailable to the registered EX/MEM bypass.
-  // Their consumers wait for WB's same-cycle register-file forwarding.
+  // Their consumers wait for WB's same-cycle write-to-ID forwarding.
   def id_ex_csr_pending = ex_input.valid & ex_input.bits.writeback_enable & (ex_input.bits.writeback_source === RV5StageWritebackSelect.Csr) & (ex_input.bits.system.action =/= RiscvCsrAction.VectorConfig)
   def id_mem_csr_pending = mem_input.valid & mem_input.bits.writeback_enable & (mem_input.bits.writeback_source === RV5StageWritebackSelect.Csr) & (mem_input.bits.system.action =/= RiscvCsrAction.VectorConfig)
   def id_deferred_dependency_hazard = id_decode_valid & (id_conflicts_with_deferred(id_ex_deferred ||| id_ex_csr_pending, ex_input.bits.rd) ||| id_conflicts_with_deferred(id_mem_deferred ||| id_mem_csr_pending, mem_input.bits.rd))
@@ -950,8 +958,8 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
       operation.immediate <== id_immediate
       operation.rs1 <== id_rs1
       operation.rs2 <== id_rs2
-      operation.operand_rs1 <== id_operand(id_rs1, id_registers.read_data_1)
-      operation.operand_rs2 <== id_operand(id_rs2, id_registers.read_data_2)
+      operation.operand_rs1 <== id_operand(id_rs1, id_registers.read_data[0])
+      operation.operand_rs2 <== id_operand(id_rs2, id_registers.read_data[1])
       operation.rd <== id_rd
       operation.frs3 <== id_frs3
       if hypervisor

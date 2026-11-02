@@ -359,6 +359,11 @@ unit distinguishes raw ordinary beats from already-normalized atomic values.
 Reservation and RMW implementation remain in the shared L1D.
 The slice uses public language register/vector operations and shared execution
 components; it imports no named core or compiler implementation.
+`cores/register-file.rhdl` directly imports `std/ready-valid.rhdl`, architectural
+XLEN, and the shared `RegisterFileWrite` payload. It owns configurable-read,
+two-write storage without named-core dependencies or port-allocation policy.
+RV5Stage selects 2R2W and owns write-to-ID forwarding; RV2Wide selects 4R2W
+while retaining forwarding, admission, and write-cycle reservations.
 `cores/writeback-calendar.rhdl` owns the shared fixed-return reservation calendar
 and directly imports Flow. RV5Stage scalar/vector and RV2Wide consumers own
 port policy and latency selection. RV2Wide's `fp.rhdl` directly imports the

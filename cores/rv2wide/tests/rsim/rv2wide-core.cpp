@@ -76,6 +76,7 @@ Queue<retirement_t> expected;
 Queue<redirect_t> expected_redirects;
 std::uint64_t model[32];
 int cycles = 0, commits = 0, dual_commits = 0, single_issues = 0, stops = 0;
+int gpr_initialization_cycles = 0;
 int dual_run = 0, longest_dual_run = 0;
 int pause_commits = 0, pause_dual = 0, pause_cycle = 0;
 bool saw_repacked = 0;
@@ -1124,6 +1125,14 @@ void reset_core() {
   for (unsigned repeat_index = 0; repeat_index < (2); ++repeat_index)
     tick();
   reset = 0;
+  // GPRs have no reset value. Establish the oracle's initial state through
+  // architectural writes, including registers read by randomized workloads.
+  const int initialization_start = cycles;
+  for (int rd = 1; rd < 31; rd += 2)
+    send(UINT64_C(0x100000) + 4 * rd, imm(rd, 0, 0), imm(rd + 1, 0, 0));
+  send(UINT64_C(0x10007c), imm(31, 0, 0), 0, 1);
+  drain();
+  gpr_initialization_cycles += cycles - initialization_start;
 }
 
 std::uint32_t csr(int f3, int rd, int rs1, int address) {
@@ -2417,6 +2426,8 @@ int main() {
     // WFI retires once, blocks younger effects, and wakes on locally enabled
     // pending interrupts even with global MIE clear. With MIE set it traps.
     reset_core();
+    // Exclude the fixture's GPR initialization from this retirement count.
+    csr_access(UINT64_C(0x65fc), 1, 0, 0, UINT64_C(0xb02), 0);
     csr_access(UINT64_C(0x6600), 5, 0, 8, UINT64_C(0x304), 0);
     expect_system(UINT64_C(0x6604), UINT64_C(0x10500073));
     send(UINT64_C(0x6604), UINT64_C(0x10500073), imm(11, 0, 11), 2, 0, 0);
@@ -5163,7 +5174,8 @@ void observe() {
             (one_of(memory_stage(0).pbits.pinstruction & 127, {19, 27}) &&
              sv_slice(memory_stage(0).pbits.pinstruction, 12, 3) == 0 &&
              sv_slice(memory_stage(0).pbits.pinstruction, 15, 5) == 0));
-      if (cycles > 80000)
+      // Preserve the workload budget; completed GPR setup is fixture overhead.
+      if (cycles - gpr_initialization_cycles > 80000)
         fail(1,
              "watchdog: commits=%0d pending=%0d next_pc=%h "
              "conditional_pairs=%0d mop_pairs=%0d split=%0d/%b offer=%b "
@@ -5268,9 +5280,16 @@ void observe() {
                      4))
               response_owners.push_back(want);
           }
-          if (want.pwrite && !retired(lane).pbits.pdeferred)
+          if (want.pwrite && !retired(lane).pbits.pdeferred) {
+            if (retired(lane).pbits.prd != want.prd || retired(lane).pbits.pdata != want.pdata)
+              std::cerr << "writeback mismatch at PC 0x" << std::hex << want.pfetched.ppc
+                        << ": x" << std::dec << unsigned(retired(lane).pbits.prd)
+                        << " = 0x" << std::hex << retired(lane).pbits.pdata
+                        << ", expected x" << std::dec << unsigned(want.prd)
+                        << " = 0x" << std::hex << want.pdata << std::dec << '\n';
             CHECK(retired(lane).pbits.prd == want.prd &&
                   retired(lane).pbits.pdata == want.pdata);
+          }
           commits++;
         }
       }

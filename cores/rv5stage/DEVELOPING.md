@@ -37,7 +37,7 @@ completion adaptation and instruction/uncached integration.
 | [`../../rhodium/std/plru.rhdl`](../../rhodium/std/plru.rhdl) | Protocol-neutral invalid-first padded tree-PLRU selection and state update |
 | [`fetch/DEVELOPING.md`](fetch/DEVELOPING.md) | Fetch protocols, frontend sequencing, instruction assembly, BTB, and RAS |
 | [`decode/DEVELOPING.md`](decode/DEVELOPING.md) | Structured integer and FP control generation |
-| [`register-file.rhdl`](register-file.rhdl) | Two-read, two-write integer register bank |
+| [`../register-file.rhdl`](../register-file.rhdl) | Shared pre-edge GPR storage, selected as 2R2W; write-to-ID bypass remains in `core.rhdl` |
 | [`vector.rhdl`](vector.rhdl) | WB macro allocation, autonomous vector execution/memory paths, and macro retirement outcomes |
 | [`integer-execution.rhdl`](integer-execution.rhdl) | Tagged shared multiply/divide services and separate scheduled/buffered product-return adapters |
 | [`memory-arbiter.rhdl`](memory-arbiter.rhdl) | Scalar/vector LSU lookup ownership, store-commit timing, transaction arbitration, and tagged response routing |
@@ -72,7 +72,7 @@ the reusable numeric service.
 CSR read intent and implicit-writer dependencies come from `cores/csr/protocol.rhdl`.
 Pure reads bypass global serialization, but Decode includes older pre-admission
 FP/vector writers when applying that dependency policy. Their GPR consumers
-wait through EX/MEM for WB's register-file forwarding; never route a placeholder
+wait through EX/MEM for WB's write-to-ID forwarding; never route a placeholder
 ALU result through the registered bypass. The shared bank's side-effect-free
 `command_fault` feeds precise exception retention before authorizing trap entry.
 Suppress younger Memory progress on that detection edge, not only after the
@@ -147,6 +147,12 @@ from a DPI-result register in the observed design.
    operands. `RV5StageBypassStage` is an exactly-one-hot enum selecting captured
    register-file data, MEM, or normal WB. Resolve newest-producer priority and
    the register-file fallback in Decode; EX uses the enum's typed `.mux`.
+   The shared `RegisterFile(xlen, ~read_ports: 2)` returns pre-edge storage.
+   `id_operand` captures either architectural write port over that value in
+   the write cycle, including CSR results and deferred completions. These
+   writes must be qualified before forwarding; x0 remains zero. The registered
+   EX/MEM source selection still overrides this captured fallback when a nearer
+   producer exists. Do not move live writeback controls onto EX's operand mux.
    Selectors remain legal during bubbles and are asserted outside token validity.
    Do not gate forwarding with live MEM fault/replay/kill results;
    those cancel younger token validity, independently of payload capture.
@@ -592,7 +598,11 @@ modules by name instead of flattening them.
 
 ## Focused validation
 
-Standalone register-file, FP pipeline, integer execution, writeback calendar,
+Shared register-file fixtures live under `../tests/rsim/` and exercise both
+2R2W and 4R2W storage. The integrated `rv5stage-core` fixture checks WB-to-ID
+capture, younger-producer priority, x0, and deferred-load forwarding;
+`rv5stage-multiply` checks same-cycle completion and dependent issue.
+Standalone FP pipeline, integer execution, writeback calendar,
 memory arbiter, divider workload, and vector-sequencer fixtures drive emitted
 rsim C++ directly. Their sources and independent scoreboards live under
 `tests/rsim/`, except reusable vector fixtures under `../vector/tests/rsim/`,

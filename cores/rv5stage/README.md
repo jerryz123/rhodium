@@ -725,8 +725,9 @@ accepted refills and uncached reads still drain.
 
 Decode holds an instruction in the packet queue/IBuf until its operands and locally reserved
 execution resources are available. Once admitted, its ID/EX token advances on
-the next edge. Decode captures register-file operands (including same-cycle
-architectural writes) and chooses the MEM/WB sources that will be present in
+the next edge. Decode reads shared 2R2W storage and applies an explicit bypass
+from both architectural write ports before capturing operands. It also chooses
+the MEM/WB sources that will be present in
 Execute's next cycle. The youngest eligible writer wins; x0 never bypasses.
 Load hits use the normal WB bypass; an immediately dependent integer instruction
 waits one cycle while the load is in EX. Multiply/divide, missed loads, and CSR
@@ -799,7 +800,7 @@ set and clear a destination without an extra busy cycle.
 An admitted scalar pipelined multiply reaches the arithmetic unit in its EX
 cycle and returns three cycles later, without request or completion buffering.
 The dependent instruction may leave Decode in that return cycle through
-same-cycle register-file forwarding. Independent scalar multiplies can launch
+same-cycle write-to-ID forwarding. Independent scalar multiplies can launch
 on consecutive cycles. Shared-unit contention is resolved before scalar Decode
 admission; waiting vector work receives launch opportunities without displacing
 an already admitted scalar instruction.
@@ -960,7 +961,7 @@ order at WB after EX computes and bypasses its resulting state to following
 vector instructions or configurations, without draining older vector execution.
 Pure reads use the [shared CSR ordering policy](../csr/README.md#pure-reads-and-ordering):
 they sample at WB without draining unrelated memory or restarting Fetch.
-Consumers wait for WB register-file forwarding, while status reads wait only
+Consumers wait for WB write-to-ID forwarding, while status reads wait only
 for relevant older implicit FP/vector updates. Denied reads, even with `rd=x0`,
 retain their exception until older authorized work drains before trap entry.
 Execute-detected exceptions cross EX/MEM before Memory
