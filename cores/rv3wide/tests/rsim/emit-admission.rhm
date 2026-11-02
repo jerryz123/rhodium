@@ -1,0 +1,48 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../issue.rhdl" open
+  "../../writeback.rhdl".RV3WideWriteback
+  lib("cores/register-write.rhdl").RegisterFileWrite
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("rhodium/frontend/foundation.rhm").elaborate
+
+sync_circuit RV3WideAdmissionFixture():
+  input candidates: Vec(3, RV3WideIssueCandidate())
+  input normal_write_ports: Bits(2)
+  input drained: Bool
+  output count: Bits(2)
+  output read_addresses: Vec(4, Bits(5))
+  output first_is_rs2: Vec(3, Bool)
+  output second_read: Vec(3, Bool)
+  input retiring_valid: Vec(3, Bool)
+  input retiring_data: Vec(3, RegisterFileWrite(XLen.X64))
+  input completion_valid: Bool
+  input completion_data: RegisterFileWrite(XLen.X64)
+  output write_valid: Vec(2, Bool)
+  output write_data: Vec(2, RegisterFileWrite(XLen.X64))
+  output surviving: Vec(3, Bool)
+
+  inst issue(RV3WideIssue())
+  issue.candidates <== candidates
+  issue.normal_write_ports <== normal_write_ports
+  issue.drained <== drained
+  count <== issue.count
+  read_addresses <== issue.read_addresses
+  first_is_rs2 <== issue.first_is_rs2
+  second_read <== issue.second_read
+  inst writeback(RV3WideWriteback())
+  for (lane in 0..3):
+    writeback.retiring[lane].valid <== retiring_valid[lane]
+    writeback.retiring[lane].bits <== retiring_data[lane]
+
+  writeback.completed.valid <== completion_valid
+  writeback.completed.bits <== completion_data
+  surviving <== writeback.surviving
+  for (port in 0..2):
+    write_valid[port] <== writeback.writes[port].valid
+    write_data[port] <== writeback.writes[port].bits
+
+def program = elaborate(RV3WideAdmissionFixture())
+export program

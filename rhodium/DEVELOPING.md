@@ -255,7 +255,15 @@ plus shared `cache/io-mshr.rhdl` and `cache/chi/uncached.rhdl` for ordered physi
 IO. It owns PMA routing and cached/uncached exclusion; the shared engines remain
 independent of RV2Wide retirement. Its cache adapter also arbitrates data/fetch
 on the existing uncached engine and imports the neutral L1I result type.
-Its `instruction-memory.rhdl` consumes RV2Wide physical-fetch bundles, the
+
+`cores/rv3wide/` currently owns only three-slot admission and register access.
+It imports the shared `cores/register-file.rhdl` storage and
+`cores/register-write.rhdl` payload, pure `riscv/isa/xlen.rhm`, and public Flow
+interfaces. It does not import RV2Wide or RV5Stage. Its test emitters consume
+the frontend's public `elaborate` boundary; no SoC or ISA-profile claim is made
+by these components.
+
+RV2Wide's `instruction-memory.rhdl` consumes RV2Wide physical-fetch bundles, the
 neutral L1I protocol, and Flow for fixed-cycle replay and canceled-response
 ownership. Its core, bundles, frontend, MMU, and cache adapter import
 `riscv/rtl/svpbmt.rhdl` for PBMT metadata and effective attributes; bundles also
