@@ -119,6 +119,8 @@ Buildroot is pinned under [`sw/buildroot`](sw/buildroot/) with its upstream
 GPL-2.0-or-later terms in [`COPYING`](sw/buildroot/COPYING). Its downloaded
 Linux kernel, musl, and toolchain retain their own licenses. Rhodium's external
 configuration and tiny init package under `sw/buildroot-riscv/` are Apache-2.0.
+The [GCC 15.3.0 patch](sw/buildroot-riscv/patches/gcc/15.3.0/0005-riscv-add-h-to-the-canonical-order.patch)
+backports GCC PR target/121312 under GPL-3.0-or-later.
 Preserve the corresponding source and Buildroot legal information when
 redistributing Linux images; the smoke archive alone is not a complete source
 distribution.

@@ -1,0 +1,28 @@
+From da88f9bd9e30eb743132734d71c62ebb9c42b11e Mon Sep 17 00:00:00 2001
+From: Kito Cheng <kito.cheng@sifive.com>
+Date: Thu, 31 Jul 2025 11:02:45 +0800
+Subject: [PATCH] RISC-V: Adding H to the canonical order [PR121312]
+
+We added H into canonical order before, but forgot to add it to
+arch-canonicalize as well...
+
+Upstream: https://gcc.gnu.org/g:da88f9bd9e30eb743132734d71c62ebb9c42b11e
+SPDX-License-Identifier: GPL-3.0-or-later
+
+gcc/ChangeLog:
+
+	PR target/121312
+	* config/riscv/arch-canonicalize: Add H extension to the
+	canonical order.
+---
+ gcc/config/riscv/arch-canonicalize | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/gcc/config/riscv/arch-canonicalize b/gcc/config/riscv/arch-canonicalize
+--- a/gcc/config/riscv/arch-canonicalize
++++ b/gcc/config/riscv/arch-canonicalize
+@@ -34,3 +34,3 @@
+ SUPPORTED_ISA_SPEC = ["2.2", "20190608", "20191213"]
+-CANONICAL_ORDER = "imafdgqlcbkjtpvn"
++CANONICAL_ORDER = "imafdqlcbkjtpvnh"
+ LONG_EXT_PREFIXES = ['z', 's', 'h', 'x']

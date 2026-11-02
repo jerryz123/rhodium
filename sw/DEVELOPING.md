@@ -160,6 +160,9 @@ OpenSBI layout as other software builders. The adjacent
 configuration, static PID 1, device table, and pinned kernel hash. Keep the
 Buildroot and OpenSBI submodules pristine; Buildroot owns its Linux, musl, and
 Linux-targeting toolchain builds. Do not substitute the bare-metal Newlib runtime.
+Buildroot applies its version-specific [GCC 15.3.0 backport](buildroot-riscv/patches/gcc/15.3.0/0005-riscv-add-h-to-the-canonical-order.patch)
+to the initial and final compiler sources. It lets configure accept the target's
+`h` extension. Retire it when the selected GCC release contains PR target/121312.
 Project the target compiler ISA into Buildroot's native RISC-V fields instead
 of maintaining a core-name allowlist. Linux and OpenSBI retain their upstream
 privileged-code ISA/ABI policies; userspace uses the projected ISA and LP64D.
