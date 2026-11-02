@@ -1,44 +1,184 @@
 {
   "dhrystone.riscv": {
-    "cycles": 455197
+    "cycles": 454158,
+    "rtl/soc/hart/core/issue_1": 187714,
+    "rtl/soc/hart/core/mispredict_direct_target": 0,
+    "rtl/soc/hart/core/mispredict_direction": 3684,
+    "rtl/soc/hart/core/mispredict_indirect_target": 11,
+    "rtl/soc/hart/core/mispredict_nonbranch": 0,
+    "rtl/soc/hart/core/mispredict_ras_action": 0,
+    "rtl/soc/hart/core/mispredict_return_target": 1,
+    "rtl/soc/hart/core/retired_slot0": 173075,
+    "rtl/soc/hart/l1d/dcache_miss": 1046,
+    "rtl/soc/hart/l1i/icache_miss": 70
   },
   "median.riscv": {
-    "cycles": 31811
+    "cycles": 31790,
+    "rtl/soc/hart/core/issue_1": 15012,
+    "rtl/soc/hart/core/mispredict_direct_target": 1,
+    "rtl/soc/hart/core/mispredict_direction": 371,
+    "rtl/soc/hart/core/mispredict_indirect_target": 7,
+    "rtl/soc/hart/core/mispredict_nonbranch": 0,
+    "rtl/soc/hart/core/mispredict_ras_action": 0,
+    "rtl/soc/hart/core/mispredict_return_target": 0,
+    "rtl/soc/hart/core/retired_slot0": 13620,
+    "rtl/soc/hart/l1d/dcache_miss": 295,
+    "rtl/soc/hart/l1i/icache_miss": 34
   },
   "memcpy.riscv": {
-    "cycles": 92588
+    "cycles": 92562,
+    "rtl/soc/hart/core/issue_1": 46795,
+    "rtl/soc/hart/core/mispredict_direct_target": 1,
+    "rtl/soc/hart/core/mispredict_direction": 61,
+    "rtl/soc/hart/core/mispredict_indirect_target": 7,
+    "rtl/soc/hart/core/mispredict_nonbranch": 0,
+    "rtl/soc/hart/core/mispredict_ras_action": 0,
+    "rtl/soc/hart/core/mispredict_return_target": 0,
+    "rtl/soc/hart/core/retired_slot0": 34209,
+    "rtl/soc/hart/l1d/dcache_miss": 1235,
+    "rtl/soc/hart/l1i/icache_miss": 30
   },
   "mm.riscv": {
-    "cycles": 396581
+    "cycles": 395902,
+    "rtl/soc/hart/core/issue_1": 285415,
+    "rtl/soc/hart/core/mispredict_direct_target": 0,
+    "rtl/soc/hart/core/mispredict_direction": 571,
+    "rtl/soc/hart/core/mispredict_indirect_target": 2,
+    "rtl/soc/hart/core/mispredict_nonbranch": 0,
+    "rtl/soc/hart/core/mispredict_ras_action": 0,
+    "rtl/soc/hart/core/mispredict_return_target": 1,
+    "rtl/soc/hart/core/retired_slot0": 266859,
+    "rtl/soc/hart/l1d/dcache_miss": 1236,
+    "rtl/soc/hart/l1i/icache_miss": 73
   },
   "multiply.riscv": {
-    "cycles": 36440
+    "cycles": 36416,
+    "rtl/soc/hart/core/issue_1": 17185,
+    "rtl/soc/hart/core/mispredict_direct_target": 0,
+    "rtl/soc/hart/core/mispredict_direction": 61,
+    "rtl/soc/hart/core/mispredict_indirect_target": 7,
+    "rtl/soc/hart/core/mispredict_nonbranch": 0,
+    "rtl/soc/hart/core/mispredict_ras_action": 0,
+    "rtl/soc/hart/core/mispredict_return_target": 1,
+    "rtl/soc/hart/core/retired_slot0": 12508,
+    "rtl/soc/hart/l1d/dcache_miss": 252,
+    "rtl/soc/hart/l1i/icache_miss": 36
   },
   "qsort.riscv": {
-    "cycles": 219803
+    "cycles": 219777,
+    "rtl/soc/hart/core/issue_1": 155412,
+    "rtl/soc/hart/core/mispredict_direct_target": 1,
+    "rtl/soc/hart/core/mispredict_direction": 9992,
+    "rtl/soc/hart/core/mispredict_indirect_target": 7,
+    "rtl/soc/hart/core/mispredict_nonbranch": 0,
+    "rtl/soc/hart/core/mispredict_ras_action": 0,
+    "rtl/soc/hart/core/mispredict_return_target": 0,
+    "rtl/soc/hart/core/retired_slot0": 143498,
+    "rtl/soc/hart/l1d/dcache_miss": 641,
+    "rtl/soc/hart/l1i/icache_miss": 38
   },
   "rsort.riscv": {
-    "cycles": 221651
+    "cycles": 221617,
+    "rtl/soc/hart/core/issue_1": 179167,
+    "rtl/soc/hart/core/mispredict_direct_target": 0,
+    "rtl/soc/hart/core/mispredict_direction": 84,
+    "rtl/soc/hart/core/mispredict_indirect_target": 7,
+    "rtl/soc/hart/core/mispredict_nonbranch": 0,
+    "rtl/soc/hart/core/mispredict_ras_action": 0,
+    "rtl/soc/hart/core/mispredict_return_target": 1,
+    "rtl/soc/hart/core/retired_slot0": 163062,
+    "rtl/soc/hart/l1d/dcache_miss": 1158,
+    "rtl/soc/hart/l1i/icache_miss": 36
   },
   "spmv.riscv": {
-    "cycles": 116538
+    "cycles": 115529,
+    "rtl/soc/hart/core/issue_1": 53889,
+    "rtl/soc/hart/core/mispredict_direct_target": 0,
+    "rtl/soc/hart/core/mispredict_direction": 661,
+    "rtl/soc/hart/core/mispredict_indirect_target": 7,
+    "rtl/soc/hart/core/mispredict_nonbranch": 0,
+    "rtl/soc/hart/core/mispredict_ras_action": 0,
+    "rtl/soc/hart/core/mispredict_return_target": 1,
+    "rtl/soc/hart/core/retired_slot0": 39973,
+    "rtl/soc/hart/l1d/dcache_miss": 948,
+    "rtl/soc/hart/l1i/icache_miss": 36
   },
   "towers.riscv": {
-    "cycles": 26005
+    "cycles": 25993,
+    "rtl/soc/hart/core/issue_1": 11496,
+    "rtl/soc/hart/core/mispredict_direct_target": 1,
+    "rtl/soc/hart/core/mispredict_direction": 112,
+    "rtl/soc/hart/core/mispredict_indirect_target": 7,
+    "rtl/soc/hart/core/mispredict_nonbranch": 0,
+    "rtl/soc/hart/core/mispredict_ras_action": 0,
+    "rtl/soc/hart/core/mispredict_return_target": 0,
+    "rtl/soc/hart/core/retired_slot0": 10520,
+    "rtl/soc/hart/l1d/dcache_miss": 228,
+    "rtl/soc/hart/l1i/icache_miss": 46
   },
   "vec-daxpy.riscv": {
-    "cycles": 58665
+    "cycles": 58642,
+    "rtl/soc/hart/core/issue_1": 16982,
+    "rtl/soc/hart/core/mispredict_direct_target": 0,
+    "rtl/soc/hart/core/mispredict_direction": 60,
+    "rtl/soc/hart/core/mispredict_indirect_target": 7,
+    "rtl/soc/hart/core/mispredict_nonbranch": 0,
+    "rtl/soc/hart/core/mispredict_ras_action": 0,
+    "rtl/soc/hart/core/mispredict_return_target": 1,
+    "rtl/soc/hart/core/retired_slot0": 13743,
+    "rtl/soc/hart/l1d/dcache_miss": 787,
+    "rtl/soc/hart/l1i/icache_miss": 30
   },
   "vec-memcpy.riscv": {
-    "cycles": 88622
+    "cycles": 88592,
+    "rtl/soc/hart/core/issue_1": 31104,
+    "rtl/soc/hart/core/mispredict_direct_target": 0,
+    "rtl/soc/hart/core/mispredict_direction": 60,
+    "rtl/soc/hart/core/mispredict_indirect_target": 7,
+    "rtl/soc/hart/core/mispredict_nonbranch": 0,
+    "rtl/soc/hart/core/mispredict_ras_action": 0,
+    "rtl/soc/hart/core/mispredict_return_target": 1,
+    "rtl/soc/hart/core/retired_slot0": 27867,
+    "rtl/soc/hart/l1d/dcache_miss": 1228,
+    "rtl/soc/hart/l1i/icache_miss": 32
   },
   "vec-sgemm.riscv": {
-    "cycles": 166456
+    "cycles": 82412,
+    "rtl/soc/hart/core/issue_1": 54432,
+    "rtl/soc/hart/core/mispredict_direct_target": 0,
+    "rtl/soc/hart/core/mispredict_direction": 136,
+    "rtl/soc/hart/core/mispredict_indirect_target": 7,
+    "rtl/soc/hart/core/mispredict_nonbranch": 0,
+    "rtl/soc/hart/core/mispredict_ras_action": 0,
+    "rtl/soc/hart/core/mispredict_return_target": 1,
+    "rtl/soc/hart/core/retired_slot0": 46494,
+    "rtl/soc/hart/l1d/dcache_miss": 492,
+    "rtl/soc/hart/l1i/icache_miss": 41
   },
   "vec-strcmp.riscv": {
-    "cycles": 21332
+    "cycles": 21316,
+    "rtl/soc/hart/core/issue_1": 7296,
+    "rtl/soc/hart/core/mispredict_direct_target": 0,
+    "rtl/soc/hart/core/mispredict_direction": 58,
+    "rtl/soc/hart/core/mispredict_indirect_target": 7,
+    "rtl/soc/hart/core/mispredict_nonbranch": 0,
+    "rtl/soc/hart/core/mispredict_ras_action": 0,
+    "rtl/soc/hart/core/mispredict_return_target": 1,
+    "rtl/soc/hart/core/retired_slot0": 6595,
+    "rtl/soc/hart/l1d/dcache_miss": 210,
+    "rtl/soc/hart/l1i/icache_miss": 30
   },
   "vvadd.riscv": {
-    "cycles": 25944
+    "cycles": 25929,
+    "rtl/soc/hart/core/issue_1": 10623,
+    "rtl/soc/hart/core/mispredict_direct_target": 1,
+    "rtl/soc/hart/core/mispredict_direction": 59,
+    "rtl/soc/hart/core/mispredict_indirect_target": 7,
+    "rtl/soc/hart/core/mispredict_nonbranch": 0,
+    "rtl/soc/hart/core/mispredict_ras_action": 0,
+    "rtl/soc/hart/core/mispredict_return_target": 0,
+    "rtl/soc/hart/core/retired_slot0": 9008,
+    "rtl/soc/hart/l1d/dcache_miss": 289,
+    "rtl/soc/hart/l1i/icache_miss": 30
   }
 }

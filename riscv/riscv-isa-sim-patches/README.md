@@ -32,6 +32,7 @@ The queue is ordered so each change can be reviewed and removed independently:
 14. `0019-implement-sscofpmf-counter.patch` implements counter 3, mode filters, precise inhibit/write suppression, overflow and local interrupts.
 15. `0022-mask-unimplemented-guest-interrupt-enable.patch` keeps both SGEIE aliases zero while preserving VS interrupt enables.
 16. `0024-keep-hedeleg-fault-bits-writable.patch` keeps H-mandated software-check and hardware-error delegation writable.
+17. `0025-scope-store-conditional.patch` prepares coherent SC ownership before reservation matching and ends the scope on every exit.
 
 At upstream pin `2c300cd90eb74bb79f3fcdd58596a6f8d842d01c`, ISA profile
 properties, RV32 delegation CSRs, P1P13 gating, CSRIND gating, and overflow

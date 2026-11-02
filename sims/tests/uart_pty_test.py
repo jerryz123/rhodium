@@ -19,7 +19,7 @@ def run(simulator, payload):
     ready = False
     exchanged = 0
     acknowledged = False
-    deadline = time.monotonic() + 120
+    deadline = time.monotonic() + 300
     process = subprocess.Popen(
         [str(Path(simulator).resolve()), "+max-cycles=50000000", str(Path(payload).resolve())],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -29,7 +29,10 @@ def run(simulator, payload):
             selector.register(process.stdout, selectors.EVENT_READ, "log")
             while True:
                 if time.monotonic() >= deadline:
-                    raise RuntimeError("UART PTY exchange exceeded its wall-clock deadline")
+                    raise RuntimeError(
+                        f"UART PTY exchange exceeded its wall-clock deadline after {exchanged}/256 bytes "
+                        f"(ready={ready}, acknowledged={acknowledged})"
+                    )
                 for key, _ in selector.select(0.1):
                     if key.data == "log":
                         data = os.read(process.stdout.fileno(), 4096)

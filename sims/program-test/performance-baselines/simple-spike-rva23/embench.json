@@ -1,59 +1,59 @@
 {
   "aha-mont64": {
-    "cycles": 1139
+    "cycles": 1142
   },
   "crc32": {
-    "cycles": 2118
+    "cycles": 2301
   },
   "depthconv": {
-    "cycles": 1320
+    "cycles": 1321
   },
   "edn": {
-    "cycles": 5061
+    "cycles": 5072
   },
   "huffbench": {
-    "cycles": 17904
+    "cycles": 17870
   },
   "matmult-int": {
-    "cycles": 15557
+    "cycles": 15586
   },
   "md5sum": {
-    "cycles": 4220
+    "cycles": 4119
   },
   "nettle-aes": {
-    "cycles": 8436
+    "cycles": 8472
   },
   "nettle-sha256": {
-    "cycles": 3291
+    "cycles": 3303
   },
   "nsichneu": {
-    "cycles": 8550
+    "cycles": 8483
   },
   "picojpeg": {
-    "cycles": 13064
+    "cycles": 12916
   },
   "qrduino": {
-    "cycles": 20819
+    "cycles": 20831
   },
   "sglib-combined": {
     "cycles": 9123
   },
   "slre": {
-    "cycles": 3122
+    "cycles": 3131
   },
   "statemate": {
     "cycles": 2162
   },
   "tarfind": {
-    "cycles": 5611
+    "cycles": 5600
   },
   "ud": {
-    "cycles": 3647
+    "cycles": 3528
   },
   "wikisort": {
-    "cycles": 12224
+    "cycles": 12236
   },
   "xgboost": {
-    "cycles": 101849
+    "cycles": 101871
   }
 }

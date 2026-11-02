@@ -39,8 +39,8 @@ make -C sims skl-test SOC=simple-rv5stage-rva23 COSIM=1
 make -C sims highway-test SOC=simple-rv5stage-rva23 COSIM=1
 make -C sims arch-test ACT_CONFIGURATION=simple-rv5stage-rva23
 make -C sims opensbi-test SOC=simple CORE=rv5stage ISA=rva23
-make -C sims litmus-smoke-test SOC=tiled4core CORE=rv2wide ISA=rva23 LITMUS7=/path/to/litmus7
-make -C sims litmus-smoke-test SOC=tiled4core CORE=spike ISA=rva23 LITMUS7=/path/to/litmus7
+make -C sims litmus-smoke-test SOC=tiled4core CORE=rv2wide ISA=rva23 LITMUS7=/path/to/litmus7 HERD7=/path/to/herd7
+make -C sims litmus-smoke-test SOC=tiled4core CORE=spike ISA=rva23 LITMUS7=/path/to/litmus7 HERD7=/path/to/herd7
 ```
 
 The Spike/FESVR upstream under [`riscv/riscv-isa-sim`](../riscv/riscv-isa-sim/)
@@ -51,16 +51,19 @@ payloads remain under [`sims/tests/`](../sims/tests/) and
 The litmus7 profiles share one target-bound builder and port.
 `litmus-smoke-test` runs a checked-in 64-case selection on `tiled4core` with all three core implementations
 in CI, while `litmus-full-test` is a local/manual run of every target-supported
-case. A source-tree litmus7 build also needs `LITMUS7_LIBDIR`; see the
+case. Source-tree builds also need `LITMUS7_LIBDIR` and `HERD7_LIBDIR`; see the
 [simulator workflow](../sims/README.md) for sharding, result paths, and the
-CI-pinned herdtools7 revision. Neither Make target installs litmus7.
+CI-pinned herdtools7 revision. Neither Make target installs these tools.
 
 All litmus builds use upstream's RISC-V litmus7 code generator. Supply an
 installed executable with
-`LITMUS7=/path/to/litmus7` to a profile target; source-tree builds
-also need `LITMUS7_LIBDIR=/path/to/herdtools7/litmus/libdir`. The port runs
+`LITMUS7=/path/to/litmus7` and `HERD7=/path/to/herd7` to a profile target;
+source-tree builds also need `LITMUS7_LIBDIR=/path/to/herdtools7/litmus/libdir`
+and `HERD7_LIBDIR=/path/to/herdtools7/herd/libdir`. The port runs
 litmus7's static worker pool on physical harts without pthreads. Its output
-histogram is checked by the host runner against the pinned Herd states, since
+histogram is checked against independently enumerated Herd RVWMO states with
+`lrscdiffok`, allowing SC to another address in the LR reservation set. The
+model abstracts reservation-set layout; it does not check physical granule bounds.
 litmus7's own condition result is not a memory-model pass/fail result. The
 bare-metal port sends the test identity and complete histogram in one HTIF write,
 without computing or formatting the unused witness footer. Histogram storage is

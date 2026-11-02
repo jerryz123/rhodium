@@ -1,5 +1,15 @@
 {
   "coremark_scalar.riscv": {
-    "cycles": 425596
+    "cycles": 425495,
+    "rtl/soc/hart/core/issue_1": 339053,
+    "rtl/soc/hart/core/mispredict_direct_target": 3,
+    "rtl/soc/hart/core/mispredict_direction": 4790,
+    "rtl/soc/hart/core/mispredict_indirect_target": 19,
+    "rtl/soc/hart/core/mispredict_nonbranch": 0,
+    "rtl/soc/hart/core/mispredict_ras_action": 0,
+    "rtl/soc/hart/core/mispredict_return_target": 0,
+    "rtl/soc/hart/core/retired_slot0": 333747,
+    "rtl/soc/hart/l1d/dcache_miss": 180,
+    "rtl/soc/hart/l1i/icache_miss": 140
   }
 }

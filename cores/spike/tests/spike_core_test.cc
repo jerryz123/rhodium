@@ -2,12 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "spike_core.h"
 
+#include <algorithm>
 #include <cassert>
 #include <array>
 #include <cstdint>
 #include <cstring>
 #include <memory>
 #include <stdexcept>
+#include <vector>
 
 using rhodium::spike::Configuration;
 using rhodium::spike::Inputs;
@@ -102,7 +104,126 @@ static std::unique_ptr<SpikeCoreModel> check_vector_restart(bool rv64) {
   return model;
 }
 
+static std::unique_ptr<SpikeCoreModel> check_store_conditional(bool rv64, bool doubleword,
+                                                            bool grants, bool invalidate,
+                                                            bool translated = false) {
+  Configuration config;
+  config.reset_vector = 0x1000;
+  config.xlen_is_64 = rv64;
+  config.isa = rv64 ? "rv64ima_zicsr" : "rv32ima_zicsr";
+  config.privilege = "msu";
+  config.max_vaddr_bits = translated ? 39 : 0;
+  config.pmp_regions = 0;
+  auto model = std::make_unique<SpikeCoreModel>(config);
+  std::vector<std::uint32_t> code = {
+      0x000020b7,                          // lui x1, 2
+      doubleword ? 0x1000b1afu : 0x1000a1afu, // lr.d/w x3, (x1)
+      0x02a00113,                          // li x2, 42
+      doubleword ? 0x1820b22fu : 0x1820a22fu, // sc.d/w x4, x2, (x1)
+      0x000032b7,                          // lui x5, 3
+      0x0042a023,                          // sw x4, (x5): report SC status
+      0x03700113,                          // li x2, 55
+      doubleword ? 0x0020b423u : 0x0020a423u, // sd/sw x2, 8(x1): scope must have ended
+      0x0000006f,                          // j .
+  };
+  if (translated) {
+    // A one-entry Sv39 root maps the low GiB; MPRV exercises translated data in M mode.
+    code.insert(code.begin(), {0x00400313, 0x00100393, 0x03f39393, 0x00736333,
+                              0x18031073, 0x00020337, 0x000013b7, 0x80038393,
+                              0x00736333, 0x30031073});
+  }
+  Inputs inputs;
+  bool upgrade_pending = false, snoop_accepted = false;
+  unsigned wait = 0, acquires = 0, reports = 0;
+  std::uint64_t status = ~std::uint64_t{0};
+  for (unsigned cycle = 0; cycle < 128; ++cycle) {
+    const auto out = model->tick(inputs);
+    snoop_accepted |= out.snoop_response_valid;
+    Inputs next;
+    next.snoop_response_ready = true;
+    if (out.address_request_valid) {
+      assert(out.address_request_address != 0);
+      next.address_request_ready = next.address_response_valid = true;
+      next.address_response_grant_valid = grants;
+      next.address_response_grant_base = out.address_request_address & ~std::uint64_t{63};
+      next.address_response_grant_limit = next.address_response_grant_base + 63;
+      next.address_response_readable = next.address_response_writable = true;
+      next.address_response_executable = out.address_request_execute;
+      next.address_response_cacheable = out.address_request_address != 0x3000;
+      next.address_response_instruction_cacheable = true;
+      next.address_response_atomic = true;
+    }
+    if (out.instruction_request_valid) {
+      assert(out.instruction_request_address == 0x1000 ||
+             (translated && out.instruction_request_address == 0x1040));
+      next.instruction_request_ready = next.instruction_response_valid = true;
+      const std::size_t offset = (out.instruction_request_address - 0x1000) / 4;
+      const std::size_t count = std::min<std::size_t>(16, code.size() - offset);
+      std::memcpy(next.instruction_response_line.data(), code.data() + offset, count * 4);
+    }
+    if (out.acquire_request_valid) {
+      if (out.acquire_request_address == 0x4000) {
+        assert(translated && !out.acquire_request_unique);
+        next.acquire_request_ready = next.acquire_response_valid = true;
+        next.acquire_response_state = 1;
+        next.acquire_response_line[0] = 0xcf; // Valid R/W/X leaf with A/D already set.
+      } else {
+        assert(out.acquire_request_address == 0x2000);
+        ++acquires;
+        next.acquire_request_ready = true;
+        if (out.acquire_request_unique) {
+          upgrade_pending = true;
+          wait = 3;
+        } else {
+          next.acquire_response_valid = true;
+          next.acquire_response_state = 1;
+          next.acquire_response_line[0] = 7;
+        }
+      }
+    }
+    if (upgrade_pending) {
+      if (wait == 2 && invalidate) {
+        next.snoop_valid = next.snoop_invalidate = true;
+        next.snoop_address = 0x2000;
+      }
+      if (wait-- == 0) {
+        next.acquire_response_valid = true;
+        next.acquire_response_state = 2;
+        next.acquire_response_line[0] = invalidate ? 99 : 7;
+        upgrade_pending = false;
+      }
+    }
+    if (out.uncached_request_valid) {
+      assert(out.uncached_request_write && out.uncached_request_address == 0x3000);
+      status = out.uncached_request_data;
+      ++reports;
+      next.uncached_request_ready = next.uncached_response_valid = true;
+    }
+    inputs = next;
+  }
+  assert(reports == 1 && acquires == 2 && snoop_accepted == invalidate);
+  assert(invalidate ? status != 0 : status == 0);
+  Inputs probe;
+  probe.snoop_valid = probe.snoop_invalidate = probe.snoop_return_to_source = true;
+  probe.snoop_address = 0x2000;
+  const auto final = model->tick(probe);
+  assert(final.snoop_response_valid && final.snoop_response_has_data);
+  assert(final.snoop_response_line[0] == (invalidate ? 99 : 42));
+  assert(final.snoop_response_line[1] == 55);
+  return model;
+}
+
 int main() {
+  std::vector<std::unique_ptr<SpikeCoreModel>> sc_models;
+  for (bool rv64 : {false, true})
+    for (bool doubleword : {false, true})
+      if (rv64 || !doubleword)
+        for (bool grants : {false, true})
+          for (bool invalidate : {false, true})
+            sc_models.push_back(check_store_conditional(rv64, doubleword, grants, invalidate));
+  for (bool grants : {false, true})
+    for (bool invalidate : {false, true})
+      sc_models.push_back(check_store_conditional(true, true, grants, invalidate, true));
   const auto restart32 = check_vector_restart(false);
   const auto restart64 = check_vector_restart(true);
   Configuration configuration;

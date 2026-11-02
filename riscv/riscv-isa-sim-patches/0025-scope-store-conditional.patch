@@ -1,0 +1,50 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jerry Zhao <jerryz123@berkeley.edu>
+Subject: [PATCH] Scope embedded SC ownership before reservation matching
+Purpose: Let coherent embeddings finish blocking SC preparation before checking the reservation.
+SPDX-License-Identifier: Apache-2.0
+
+An embedded store may suspend while acquiring exclusive ownership. Checking
+the reservation before that wait lets an invalidating snoop clear it without
+preventing the already-approved store. Enter an embedding-owned scope after
+physical access validation but before reservation matching, and leave it on
+success, failure, or exception. Default hooks preserve standalone behavior.
+
+diff --git a/riscv/mmu.h b/riscv/mmu.h
+--- a/riscv/mmu.h
++++ b/riscv/mmu.h
+@@ -315,7 +315,8 @@ public:
+     if (!tlb_hit)
+       paddr = translate(generate_access_info(vaddr, STORE, {}), size);
+ 
+-    if (sim->lrsc_accessible(paddr, size, true))
++    if (sim->lrsc_accessible(paddr, size, true) &&
++        sim->store_conditional_begin(paddr, size))
+       // Checked reservation set subsumes paddr
+       return !((load_reservation_address ^ paddr) & load_reservation_set_mask);
+ 
+@@ -327,6 +328,10 @@ public:
+   template<typename T>
+   bool store_conditional(reg_t addr, T val)
+   {
++    struct sc_guard_t {
++      simif_t* sim;
++      ~sc_guard_t() { sim->store_conditional_end(); }
++    } guard{sim};
+     bool have_reservation = check_load_reservation(addr, sizeof(T));
+ 
+     if (have_reservation)
+diff --git a/riscv/simif.h b/riscv/simif.h
+--- a/riscv/simif.h
++++ b/riscv/simif.h
+@@ -27,6 +27,10 @@ public:
+   // Embedded coherent models may hold ownership across an AMO's load and store.
+   virtual bool amo_begin(reg_t, size_t) { return true; }
+   virtual void amo_end() {}
++  // Prepare SC ownership before reservation matching; do not suspend afterward.
++  virtual bool store_conditional_begin(reg_t, size_t) { return true; }
++  // Also called when access validation fails before the scope could begin.
++  virtual void store_conditional_end() {}
+   virtual bool mmio_fetch(reg_t paddr, size_t len, uint8_t* bytes) { return mmio_load(paddr, len, bytes); }
+   virtual bool mmio_load(reg_t paddr, size_t len, uint8_t* bytes) = 0;
+   virtual bool mmio_store(reg_t paddr, size_t len, const uint8_t* bytes) = 0;

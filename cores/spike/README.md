@@ -108,6 +108,9 @@ through the ordinary transport; coherent snoop invalidation remains independent.
 LR/SC checks the complete RTL-owned physical-memory range for atomic support
 and the operation's read or write permission before testing reservation state.
 An SC to a faulting region therefore traps even when its reservation has failed.
+SC obtains unique coherent ownership before its final reservation check, then
+performs the conditional write without yielding. A snoop accepted while waiting
+for ownership causes SC failure rather than a stale successful write.
 Cacheable AMOs acquire unique coherent ownership before reading and complete
 their read-modify-write without yielding the model; accesses outside the atomic
 PMA or to uncached regions trap rather than silently losing atomicity.

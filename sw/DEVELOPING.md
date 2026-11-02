@@ -64,11 +64,21 @@ helpers with `litmus7-port.c` and `litmus7-main.c` against the existing RISC-V
 benchmark startup/HTIF support. The port implements only the
 fixed-hart worker and option interfaces exercised by that build mode; generated
 files stay in the content-addressed build directory. The simulator result
-runner checks the complete histogram against the pinned Herd states and requires
-at least the requested number of samples. Source-identical duplicate names
+runner checks the complete histogram against independently enumerated Herd states
+and requires at least the requested number of samples. Source-identical duplicate names
 may share one case; the builder explicitly selects the namespaced MP, SB, and LB
 variants, and other distinct ambiguous sources remain excluded. Keep the tool
 binary, support directory, suite build specification, and port in the cache identity.
+The upstream `herd.logs` selects the model-backed inventory, but is not the
+execution oracle: it assumes exact-address LR/SC pairing. Enumerate each selected
+source with the pinned `herd7`, `riscv.cat`, and `lrscdiffok`, retaining all states
+with `-speedcheck false`. RISC-V allows SC to a different address within the LR
+reservation set. This model intentionally abstracts physical reservation layout;
+it is not a check of granule bounds. Do not whitelist observed
+states or weaken RVWMO ordering axioms. Retain `herd.log` for diagnosis and record
+the model, variant, and tool provenance in the manifest. Hash both tool binaries,
+their support/model directories, and the enumerated states into the build identity;
+do not hash the nondeterministic Herd timing lines.
 The tiled smoke and full profiles both require this litmus7 path. Smoke names
 live in `litmus-riscv-baremetal/smoke-cases.txt`; the builder validates every
 name against the current target-filtered inventory instead of silently
@@ -80,8 +90,8 @@ coherence, three-/four-hart propagation, and AMO/LR-SC acquire/release behavior.
 Keep one shared selection for all tiled cores; expanding this list does not
 change the separate sample-count or hart-placement policy.
 CI checks out herdtools7 at its workflow-pinned commit, installs its separate
-`aslref` library into the pinned OCaml switch, and then builds litmus7. The Make
-targets retain an explicit executable dependency for local use.
+`aslref` library into the pinned OCaml switch, and then builds litmus7 and herd7.
+The Make targets require explicit executables for local use.
 Compile litmus7 support code for the selected target's scalar base extensions,
 plus Zalasr when advertised, so compiler-generated vector or other optional
 instructions do not confound the memory-model workload. This changes neither
@@ -362,8 +372,9 @@ attestation and execution remain owned by `sims/program-test/`.
 
 Litmus uses this same boundary: its compilation specification includes hart IDs,
 ISA/ABI, RAM, clock frequency, case selection, and embedded sample count, but not
-core or SoC identity. The pinned litmus7 binary, support files, model log, source
-revisions, compiler, and runtime bytes still invalidate the build cache.
+core or SoC identity. The pinned litmus7/herd7 binaries, support/model files,
+enumerated oracle, source revisions, compiler, and runtime bytes still invalidate
+the build cache.
 Histogram checking remains an execution contract, not a build-group selector.
 
 OpenSBI projects its minimum firmware ISA and firmware/jump/FDT layout.

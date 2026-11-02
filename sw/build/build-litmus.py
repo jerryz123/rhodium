@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Builds target-bound litmus7 ELFs with sample-bounded histograms and pinned RISC-V model outcomes.
+# Builds target-bound litmus7 ELFs and reservation-set-aware Herd RVWMO oracles.
 # SPDX-License-Identifier: Apache-2.0
 import argparse
 import hashlib
@@ -45,8 +45,9 @@ def listed_cases(source):
     yield from expand(source / 'tests/non-mixed-size/@all', set())
 
 
-def discover_litmus7_cases(source, model, available_harts):
-    lines = model.read_text().splitlines()
+def model_outcomes(text):
+    """Read complete state sets, not just the existential condition's verdict."""
+    lines = text.splitlines()
     outcomes = {}
     index = 0
     while index < len(lines):
@@ -56,15 +57,20 @@ def discover_litmus7_cases(source, model, available_harts):
             continue
         count = re.fullmatch(r'States (\d+)', lines[index + 1])
         if not count:
-            raise ValueError(f'{match[1]}: malformed pinned Herd state inventory')
+            raise ValueError(f'{match[1]}: malformed Herd state inventory')
         amount = int(count[1])
         states = lines[index + 2:index + 2 + amount]
         if len(states) != amount or index + 2 + amount >= len(lines) or lines[index + 2 + amount] not in ('Ok', 'No'):
-            raise ValueError(f'{match[1]}: incomplete pinned Herd state inventory')
+            raise ValueError(f'{match[1]}: incomplete Herd state inventory')
         if match[1] in outcomes:
-            raise ValueError(f'{match[1]}: duplicate pinned Herd state inventory')
+            raise ValueError(f'{match[1]}: duplicate Herd state inventory')
         outcomes[match[1]] = states
         index += 3 + amount
+    return outcomes
+
+
+def discover_litmus7_cases(source, model, available_harts):
+    outcomes = model_outcomes(model.read_text())
     candidates = {}
     for path in listed_cases(source):
         text = path.read_text()
@@ -121,6 +127,8 @@ def main():
     selection.add_argument('--tests-file', type=Path, help='newline-delimited names for a fixed suite selection')
     parser.add_argument('--litmus7', required=True, help='explicit litmus7 executable for generated C tests')
     parser.add_argument('--litmus7-libdir', type=Path, help='litmus7 source-build support directory')
+    parser.add_argument('--herd7', required=True, help='explicit herd7 executable for RVWMO state enumeration')
+    parser.add_argument('--herd7-libdir', type=Path, help='herd7 source-build model directory')
     parser.add_argument('--keep-going', action='store_true', help='record case build failures and continue the batch build')
     args = parser.parse_args()
     if args.runs <= 0:
@@ -136,6 +144,11 @@ def main():
         parser.error(f'litmus7 not found: {args.litmus7}')
     if args.litmus7_libdir and not args.litmus7_libdir.is_dir():
         parser.error('--litmus7-libdir requires an existing directory')
+    herd7 = shutil.which(args.herd7)
+    if not herd7:
+        parser.error(f'herd7 not found: {args.herd7}')
+    if args.herd7_libdir and not args.herd7_libdir.is_dir():
+        parser.error('--herd7-libdir requires an existing directory')
     source, runtime, riscv_tests = args.source.resolve(), args.runtime.resolve(), args.riscv_tests.resolve()
     series, patches = read_series(runtime / 'patches/series')
     revision = subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip()
@@ -155,6 +168,21 @@ def main():
     common = riscv_tests / 'benchmarks/common'
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
+    # RISC-V permits an SC to another address within the LR reservation set.
+    # This architectural oracle deliberately does not check physical granule bounds.
+    oracle_command = [herd7, '-model', 'riscv.cat', '-variant', 'lrscdiffok',
+                      '-speedcheck', 'false', '-exit', 'true']
+    if args.herd7_libdir:
+        oracle_command[1:1] = ['-set-libdir', str(args.herd7_libdir.resolve())]
+    oracle_log = output / 'herd.log'
+    oracle_tests = output / '@herd-tests'
+    oracle_tests.write_text(''.join(str(cases[name][0]) + '\n' for name in selected))
+    with oracle_log.open('w') as log:
+        subprocess.run(oracle_command + [str(oracle_tests)],
+                       stdout=log, stderr=subprocess.STDOUT, check=True)
+    allowed = model_outcomes(oracle_log.read_text())
+    if set(allowed) != set(selected) or any(not states for states in allowed.values()):
+        raise ValueError(f'incomplete Herd oracle; see {oracle_log}')
     version = subprocess.check_output([compiler, '--version'], text=True)
     codegen_march = litmus7_codegen_march(target['extensions'])
     compiler_arch = probe_compiler(compiler, codegen_march, target['mabi'], output)
@@ -162,12 +190,13 @@ def main():
     key_bytes = (revision + riscv_tests_revision + version + compiler + metadata['build_spec_fingerprint']
                  + codegen_march).encode()
     litmus7_digest = hashlib.sha256(Path(litmus7).read_bytes()).hexdigest()
-    key_bytes += litmus7_digest.encode()
-    key_bytes += str(args.litmus7_libdir or '').encode()
-    if args.litmus7_libdir:
-        for support in sorted(args.litmus7_libdir.rglob('*')):
+    herd7_digest = hashlib.sha256(Path(herd7).read_bytes()).hexdigest()
+    key_bytes += (litmus7_digest + herd7_digest + json.dumps(allowed, sort_keys=True)).encode()
+    for executable, libdir in ((litmus7, args.litmus7_libdir), (herd7, args.herd7_libdir)):
+        support_dir = libdir or Path(subprocess.check_output([executable, '-libdir'], text=True).strip())
+        for support in sorted(support_dir.rglob('*')):
             if support.is_file():
-                key_bytes += support.relative_to(args.litmus7_libdir).as_posix().encode()
+                key_bytes += support.relative_to(support_dir).as_posix().encode()
                 key_bytes += hashlib.sha256(support.read_bytes()).digest()
     for path in (Path(__file__), runtime / 'link.ld.in',
                  Path(__file__).resolve().parents[2] / 'riscv/patched_submodule.py', series, *patches,
@@ -186,7 +215,7 @@ def main():
     build_failures = []
     with (output / 'build.log').open('w') as log:
         for name in selected:
-            path, hart_count, model_outcomes = cases[name]
+            path, hart_count, _ = cases[name]
             case_dir = build / name
             case_dir.mkdir(exist_ok=True)
             linker = case_dir / 'link.ld'
@@ -272,11 +301,13 @@ def main():
                               harts=list(range(hart_count)),
                               required_output=[f'Test {name} ', 'Histogram ('],
                               forbidden_output=['LITMUS_HARNESS_ERROR'],
-                              litmus_allowed_states=model_outcomes,
+                              litmus_allowed_states=allowed[name],
                               litmus_min_samples=args.runs)
             tests.append(entry)
     manifest = dict(suite='litmus', revision=revision, riscv_tests_revision=riscv_tests_revision,
-                    model='pinned upstream herd.logs', generator='litmus7',
+                    model='riscv.cat', model_variants=['lrscdiffok'], generator='litmus7',
+                    herd7_version=subprocess.check_output([herd7, '-version'], text=True).strip(),
+                    herd7_sha256=herd7_digest,
                     compiler=version, codegen_march=codegen_march, cache_key=key, runs=args.runs,
                     inventory_cases=len(candidates),
                     discovered_cases=len(cases),

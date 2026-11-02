@@ -220,40 +220,26 @@ class SpikeCoreModel::Implementation final : public simif_t {
     return !attributes.fault && attributes.atomic;
   }
 
-  /*
-   * Validate the physical atomic range and obtain unique cache-line ownership before entering the
-   * non-yielding load/store scope.
-   */
+  /* Validate both AMO directions and retain ownership across its non-yielding load/store pair. */
   bool amo_begin(reg_t address, std::size_t length) override {
-    assert(!amo_active_);
-    if ((length != 1 && length != 2 && length != 4 && length != 8 && length != 16) ||
-        (address & (kLineBytes - 1)) + length > kLineBytes)
-      return false;
-    for (std::size_t offset = 0; offset < length; offset += 8) {
-      const std::size_t chunk = std::min<std::size_t>(length - offset, 8);
-      const AddressResponse readable = classify(address + offset, chunk, false, false);
-      const AddressResponse writable = classify(address + offset, chunk, true, false);
-      if (readable.fault || writable.fault || !readable.atomic || !writable.atomic ||
-          !readable.cacheable || !writable.cacheable) return false;
-    }
-    CacheLine* line = acquire_data_line(address & ~(kLineBytes - 1), true);
-    if (line == nullptr || (line->state != CacheState::kUniqueClean &&
-                            line->state != CacheState::kUniqueDirty)) return false;
-    amo_line_ = line;
-    amo_address_ = address;
-    amo_length_ = length;
-    amo_active_ = true;
-    return true;
+    return begin_atomic_access(address, length, true);
   }
+
+  /* Finish SC write permission and ownership waits before Spike checks the live reservation. */
+  bool store_conditional_begin(reg_t address, std::size_t length) override {
+    return begin_atomic_access(address, length, false);
+  }
+
+  /* Discard a prepared SC scope after success, failed reservation, or an architectural trap. */
+  void store_conditional_end() override { end_atomic_access(); }
 
   /*
    * Leave the atomic scope and discard its pinned line pointer after the enclosed operation
    * completes.
    */
   void amo_end() override {
-    assert(amo_active_);
-    amo_active_ = false;
-    amo_line_ = nullptr;
+    assert(atomic_active_);
+    end_atomic_access();
   }
 
   /*
@@ -269,13 +255,13 @@ class SpikeCoreModel::Implementation final : public simif_t {
   }
 
   /*
-   * Serve an active AMO directly from its pinned line; otherwise classify and select coherent or
-   * uncached reads.
+   * Serve an active atomic scope directly from its pinned line; otherwise classify and select
+   * coherent or uncached reads.
    */
   bool mmio_load(reg_t address, std::size_t length, std::uint8_t* bytes) override {
-    if (amo_active_) {
-      if (!amo_contains(address, length)) throw std::logic_error("AMO accessed another physical range");
-      std::memcpy(bytes, amo_line_->bytes.data() + (address & (kLineBytes - 1)), length);
+    if (atomic_active_) {
+      if (!atomic_contains(address, length)) throw std::logic_error("Atomic accessed another physical range");
+      std::memcpy(bytes, atomic_line_->bytes.data() + (address & (kLineBytes - 1)), length);
       return true;
     }
     const AddressResponse attributes = classify(address, length, false, false);
@@ -285,14 +271,14 @@ class SpikeCoreModel::Implementation final : public simif_t {
   }
 
   /*
-   * Update an active AMO's pinned line without yielding; otherwise classify and obtain coherent
-   * writable ownership or issue uncached stores.
+   * Update an active atomic scope's pinned line without yielding; otherwise classify and obtain
+   * coherent writable ownership or issue uncached stores.
    */
   bool mmio_store(reg_t address, std::size_t length, const std::uint8_t* bytes) override {
-    if (amo_active_) {
-      if (!amo_contains(address, length)) throw std::logic_error("AMO accessed another physical range");
-      std::memcpy(amo_line_->bytes.data() + (address & (kLineBytes - 1)), bytes, length);
-      amo_line_->state = CacheState::kUniqueDirty;
+    if (atomic_active_) {
+      if (!atomic_contains(address, length)) throw std::logic_error("Atomic accessed another physical range");
+      std::memcpy(atomic_line_->bytes.data() + (address & (kLineBytes - 1)), bytes, length);
+      atomic_line_->state = CacheState::kUniqueDirty;
       return true;
     }
     const AddressResponse attributes = classify(address, length, true, false);
@@ -347,7 +333,7 @@ class SpikeCoreModel::Implementation final : public simif_t {
    */
   void yield() {
     assert(host_ != nullptr);
-    assert(!amo_active_);
+    assert(!atomic_active_);
     host_->switch_to();
   }
 
@@ -365,10 +351,42 @@ class SpikeCoreModel::Implementation final : public simif_t {
            uncached_request_valid_ || uncached_response_waiting_;
   }
 
-  /* Check that an enclosed byte access remains wholly inside the pinned AMO physical range. */
-  bool amo_contains(std::uint64_t address, std::size_t length) const {
-    return length <= amo_length_ && address >= amo_address_ &&
-           address - amo_address_ <= amo_length_ - length;
+  /* Validate the required PMA directions, then pin a uniquely owned physical operand. */
+  bool begin_atomic_access(reg_t address, std::size_t length, bool read_modify_write) {
+    assert(!atomic_active_);
+    if ((length != 1 && length != 2 && length != 4 && length != 8 && length != 16) ||
+        (address & (kLineBytes - 1)) + length > kLineBytes)
+      return false;
+    for (std::size_t offset = 0; offset < length; offset += 8) {
+      const std::size_t chunk = std::min<std::size_t>(length - offset, 8);
+      const AddressResponse readable = read_modify_write
+                                           ? classify(address + offset, chunk, false, false)
+                                           : AddressResponse{};
+      const AddressResponse writable = classify(address + offset, chunk, true, false);
+      if (writable.fault || !writable.atomic || !writable.cacheable ||
+          (read_modify_write && (readable.fault || !readable.atomic || !readable.cacheable)))
+        return false;
+    }
+    CacheLine* line = acquire_data_line(address & ~(kLineBytes - 1), true);
+    if (line == nullptr || (line->state != CacheState::kUniqueClean &&
+                            line->state != CacheState::kUniqueDirty)) return false;
+    atomic_line_ = line;
+    atomic_address_ = address;
+    atomic_length_ = length;
+    atomic_active_ = true;
+    return true;
+  }
+
+  /* Clear transient atomic ownership metadata, including when preparation failed before pinning. */
+  void end_atomic_access() {
+    atomic_active_ = false;
+    atomic_line_ = nullptr;
+  }
+
+  /* Check that an enclosed byte access remains wholly inside the pinned atomic physical range. */
+  bool atomic_contains(std::uint64_t address, std::size_t length) const {
+    return length <= atomic_length_ && address >= atomic_address_ &&
+           address - atomic_address_ <= atomic_length_ - length;
   }
 
   /*
@@ -819,10 +837,10 @@ class SpikeCoreModel::Implementation final : public simif_t {
   std::vector<CacheLine> data_cache_;
   std::vector<std::size_t> instruction_next_way_;
   std::vector<std::size_t> data_next_way_;
-  CacheLine* amo_line_ = nullptr;
-  std::uint64_t amo_address_ = 0;
-  std::size_t amo_length_ = 0;
-  bool amo_active_ = false;
+  CacheLine* atomic_line_ = nullptr;
+  std::uint64_t atomic_address_ = 0;
+  std::size_t atomic_length_ = 0;
+  bool atomic_active_ = false;
 
   bool address_request_valid_ = false;
   std::uint64_t address_request_address_ = 0;

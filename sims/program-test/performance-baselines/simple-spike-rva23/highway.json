@@ -1,32 +1,32 @@
 {
   "highway_algo": {
-    "cycles": 59251
+    "cycles": 59449
   },
   "highway_btree": {
-    "cycles": 93286
+    "cycles": 93407
   },
   "highway_delta": {
-    "cycles": 19651
+    "cycles": 18880
   },
   "highway_dot": {
-    "cycles": 17718
+    "cycles": 16539
   },
   "highway_hash": {
-    "cycles": 15365
+    "cycles": 15383
   },
   "highway_iguana": {
-    "cycles": 888394
+    "cycles": 887599
   },
   "highway_lemac": {
-    "cycles": 114962
+    "cycles": 114943
   },
   "highway_math": {
-    "cycles": 71002
+    "cycles": 71124
   },
   "highway_phast": {
-    "cycles": 2867232
+    "cycles": 2862756
   },
   "highway_sort": {
-    "cycles": 175592
+    "cycles": 176046
   }
 }

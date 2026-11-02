@@ -681,25 +681,29 @@ case boots only the one to four harts it needs:
 ```sh
 make -C sims litmus-setup
 make -C sims litmus-smoke-test SOC=tiled4core CORE=rv5stage ISA=rva23 \
-  LITMUS7=/path/to/litmus7 LITMUS7_LIBDIR=/path/to/herdtools7/litmus/libdir
+  LITMUS7=/path/to/litmus7 HERD7=/path/to/herd7
 make -C sims litmus-smoke-test SOC=tiled4core CORE=rv2wide ISA=rva23 \
-  LITMUS7=/path/to/litmus7 LITMUS7_LIBDIR=/path/to/herdtools7/litmus/libdir
+  LITMUS7=/path/to/litmus7 HERD7=/path/to/herd7
 make -C sims litmus-smoke-test SOC=tiled4core CORE=spike ISA=rva23 \
-  LITMUS7=/path/to/litmus7 LITMUS7_LIBDIR=/path/to/herdtools7/litmus/libdir
+  LITMUS7=/path/to/litmus7 HERD7=/path/to/herd7
 make -C sims litmus-full-test SOC=tiled4core CORE=rv5stage ISA=rva23 \
-  LITMUS7=/path/to/litmus7 LITMUS7_LIBDIR=/path/to/herdtools7/litmus/libdir \
+  LITMUS7=/path/to/litmus7 HERD7=/path/to/herd7 \
   LITMUS_FULL_SHARD_INDEX=0 LITMUS_FULL_SHARD_COUNT=8
 make -C sims litmus-full-test SOC=tiled4core CORE=spike ISA=rva23 \
-  LITMUS7=/path/to/litmus7 LITMUS7_LIBDIR=/path/to/herdtools7/litmus/libdir \
+  LITMUS7=/path/to/litmus7 HERD7=/path/to/herd7 \
   LITMUS_FULL_SHARD_INDEX=0 LITMUS_FULL_SHARD_COUNT=8
 ```
 
 The builder consumes the generated target descriptor, emits separate ELFs and
 a target-bound manifest under `$PROGRAM_BUILD_ROOT/tiled4core-<core>-<isa>/litmus-smoke/`
 or `litmus-full/`, and checks reported histograms against the pinned upstream
-Herd RVWMO result log. `LITMUS_SMOKE_RUNS` and `LITMUS_FULL_RUNS` each default
+Herd RVWMO model with `lrscdiffok`, which permits SC to another address within
+the LR reservation set. The model abstracts physical reservation layout, without
+checking granule bounds. `LITMUS_SMOKE_RUNS` and `LITMUS_FULL_RUNS` each default
 to one sample per case; increase them when the extra simulated time is useful.
-The explicit `LITMUS7` executable is required. CI builds herdtools7 from
+The explicit `LITMUS7` and `HERD7` executables are required. For source-tree tools,
+also supply `LITMUS7_LIBDIR=/path/to/herdtools7/litmus/libdir` and
+`HERD7_LIBDIR=/path/to/herdtools7/herd/libdir`. CI builds herdtools7 from
 commit `7a64d9d8480ae02d9065b2778b4f2d473c6595ae`; local runs should use
 the same revision for comparable results. No tool is downloaded by the Make
 targets. The full profile is manual only; CI runs smoke for all three cores.
@@ -726,7 +730,7 @@ checker. `LITMUS_CASES` selects names and `LITMUS_RUNS` controls samples:
 
 ```sh
 make -C sims litmus-test SOC=tiled4core CORE=spike ISA=rva23 LITMUS_CASES=MP,LB+ctrls \
-  LITMUS7=/path/to/litmus7 LITMUS7_LIBDIR=/path/to/herdtools7/litmus/libdir
+  LITMUS7=/path/to/litmus7 HERD7=/path/to/herd7
 ```
 
 Scalar benchmarks are `median`, `qsort`, `rsort`, `towers`, `vvadd`, `memcpy`,

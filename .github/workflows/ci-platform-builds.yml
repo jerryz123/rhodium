@@ -31,7 +31,7 @@ jobs:
           sudo apt-get install --yes build-essential clang libgmp-dev lld llvm opam
       - name: Install RISC-V software toolchain
         uses: ./.github/actions/setup-riscv-toolchain
-      - name: Build pinned litmus7
+      - name: Build pinned litmus7 and herd7
         if: matrix.suite == 'litmus'
         env:
           HERDTOOLS7_REVISION: 7a64d9d8480ae02d9065b2778b4f2d473c6595ae
@@ -47,8 +47,12 @@ jobs:
           opam exec --switch=litmus -- make -C "$RUNNER_TEMP/herdtools7" build-release
           test -x "$RUNNER_TEMP/herdtools7/_build/default/litmus/litmus.exe"
           test "$("$RUNNER_TEMP/herdtools7/_build/default/litmus/litmus.exe" -version)" = '7.58+1'
+          test -x "$RUNNER_TEMP/herdtools7/_build/default/herd/herd.exe"
+          test "$("$RUNNER_TEMP/herdtools7/_build/default/herd/herd.exe" -version)" = "7.58+1, Rev: $HERDTOOLS7_REVISION"
           echo "LITMUS7=$RUNNER_TEMP/herdtools7/_build/default/litmus/litmus.exe" >> "$GITHUB_ENV"
           echo "LITMUS7_LIBDIR=$RUNNER_TEMP/herdtools7/litmus/libdir" >> "$GITHUB_ENV"
+          echo "HERD7=$RUNNER_TEMP/herdtools7/_build/default/herd/herd.exe" >> "$GITHUB_ENV"
+          echo "HERD7_LIBDIR=$RUNNER_TEMP/herdtools7/herd/libdir" >> "$GITHUB_ENV"
       - name: Prepare pinned sources
         env:
           SUITE: ${{ matrix.suite }}
@@ -105,6 +109,7 @@ jobs:
           path: |
             /tmp/rhodium-platform-builds/${{ matrix.build_id }}/manifest.json
             /tmp/rhodium-platform-builds/${{ matrix.build_id }}/build.log
+            /tmp/rhodium-platform-builds/${{ matrix.build_id }}/herd.log
             /tmp/rhodium-platform-builds/${{ matrix.build_id }}/build-configuration.json
           if-no-files-found: warn
           retention-days: 7

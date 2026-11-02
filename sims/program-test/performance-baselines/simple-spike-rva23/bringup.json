@@ -1,153 +1,153 @@
 {
   "ackermann": {
-    "cycles": 4358
+    "cycles": 4309
   },
   "aes": {
-    "cycles": 4291
+    "cycles": 4273
   },
   "anagram": {
-    "cycles": 42072
+    "cycles": 41888
   },
   "audio-codec": {
-    "cycles": 2272
+    "cycles": 2274
   },
   "avl-tree": {
-    "cycles": 10951
+    "cycles": 10969
   },
   "banner": {
-    "cycles": 10552
+    "cycles": 10490
   },
   "bit-kernels": {
-    "cycles": 5632
+    "cycles": 5638
   },
   "blake2b": {
-    "cycles": 6298
+    "cycles": 6209
   },
   "bloom-filter": {
-    "cycles": 9069
+    "cycles": 8996
   },
   "boyer-moore-search": {
-    "cycles": 4822
+    "cycles": 4878
   },
   "bubble-sort": {
-    "cycles": 11999
+    "cycles": 11965
   },
   "c-interp": {
-    "cycles": 851552
+    "cycles": 851500
   },
   "ccmac": {
-    "cycles": 8530
+    "cycles": 8500
   },
   "checkers": {
-    "cycles": 22923
+    "cycles": 22313
   },
   "chi-squared": {
-    "cycles": 13059
+    "cycles": 12986
   },
   "cipher": {
-    "cycles": 2019
+    "cycles": 2082
   },
   "congrad": {
-    "cycles": 307429
+    "cycles": 307424
   },
   "connect4-minimax": {
-    "cycles": 21724
+    "cycles": 21707
   },
   "convex-hull": {
     "cycles": 4044
   },
   "dhrystone": {
-    "cycles": 9454
+    "cycles": 9458
   },
   "distinctness": {
-    "cycles": 3130
+    "cycles": 3112
   },
   "donut": {
-    "cycles": 16689
+    "cycles": 16635
   },
   "edit-distance": {
-    "cycles": 51195
+    "cycles": 51101
   },
   "eulers-approx": {
-    "cycles": 5077
+    "cycles": 5043
   },
   "fft-int": {
-    "cycles": 15829
+    "cycles": 15834
   },
   "flood-fill": {
-    "cycles": 4025
+    "cycles": 4001
   },
   "frac-calc": {
-    "cycles": 5804
+    "cycles": 5832
   },
   "fuzzy-match": {
-    "cycles": 11813
+    "cycles": 11845
   },
   "fy-shuffle": {
-    "cycles": 7449
+    "cycles": 7116
   },
   "gcd-list": {
-    "cycles": 4549
+    "cycles": 4551
   },
   "gemm": {
-    "cycles": 213486
+    "cycles": 213426
   },
   "grad-descent": {
-    "cycles": 5497
+    "cycles": 5490
   },
   "graph-tests": {
-    "cycles": 3670
+    "cycles": 3642
   },
   "hanoi": {
-    "cycles": 4402
+    "cycles": 4344
   },
   "heapsort": {
-    "cycles": 13864
+    "cycles": 13859
   },
   "heat-calc": {
-    "cycles": 13600
+    "cycles": 13574
   },
   "heldkarp-tsp": {
     "cycles": 61498
   },
   "highlife": {
-    "cycles": 12623
+    "cycles": 12635
   },
   "huff-encode": {
-    "cycles": 55417
+    "cycles": 55408
   },
   "idct-alg": {
-    "cycles": 12523
+    "cycles": 12471
   },
   "indirect-test": {
-    "cycles": 1835
+    "cycles": 1786
   },
   "k-means": {
-    "cycles": 16815
+    "cycles": 16830
   },
   "kadane": {
-    "cycles": 3305
+    "cycles": 3267
   },
   "kepler": {
-    "cycles": 4561
+    "cycles": 4549
   },
   "knapsack": {
-    "cycles": 40774
+    "cycles": 40883
   },
   "knights-tour": {
-    "cycles": 6128
+    "cycles": 6148
   },
   "lda": {
-    "cycles": 99434
+    "cycles": 100190
   },
   "life": {
-    "cycles": 19720
+    "cycles": 19719
   },
   "longdiv": {
-    "cycles": 4819
+    "cycles": 4905
   },
   "lu-decomp": {
-    "cycles": 4668
+    "cycles": 4702
   },
   "lz-compress": {
     "cycles": 4605
@@ -156,49 +156,49 @@
     "cycles": 9999
   },
   "matmult": {
-    "cycles": 40171
+    "cycles": 40955
   },
   "max-subseq": {
-    "cycles": 6153
+    "cycles": 6083
   },
   "mersenne": {
-    "cycles": 5925
+    "cycles": 5937
   },
   "minspan": {
-    "cycles": 6346
+    "cycles": 6358
   },
   "monte-carlo": {
-    "cycles": 7444
+    "cycles": 7425
   },
   "moving-average": {
-    "cycles": 6951
+    "cycles": 6953
   },
   "murmur-hash": {
-    "cycles": 2367
+    "cycles": 2402
   },
   "n-queens": {
     "cycles": 14514
   },
   "natlog": {
-    "cycles": 7073
+    "cycles": 7062
   },
   "nbody-sim": {
-    "cycles": 13741
+    "cycles": 13764
   },
   "nonlinear-nn": {
-    "cycles": 12376
+    "cycles": 12427
   },
   "nr-solver": {
-    "cycles": 5482
+    "cycles": 5511
   },
   "ntt-kernel": {
-    "cycles": 11949
+    "cycles": 11890
   },
   "packet-filter": {
-    "cycles": 10114
+    "cycles": 6932
   },
   "parrondo": {
-    "cycles": 10107
+    "cycles": 10097
   },
   "partition-equal": {
     "cycles": 14187
@@ -207,120 +207,120 @@
     "cycles": 7927
   },
   "pca-analysis": {
-    "cycles": 11175
+    "cycles": 11214
   },
   "pi-calc": {
-    "cycles": 3329
+    "cycles": 3357
   },
   "primal-test": {
-    "cycles": 7561
+    "cycles": 7571
   },
   "priority-queue": {
-    "cycles": 17093
+    "cycles": 17126
   },
   "qsort-demo": {
-    "cycles": 5452
+    "cycles": 5381
   },
   "qsort-test": {
-    "cycles": 8383
+    "cycles": 8343
   },
   "quartile-stats": {
-    "cycles": 4450
+    "cycles": 4373
   },
   "quaternions": {
-    "cycles": 4011
+    "cycles": 3994
   },
   "quine": {
     "cycles": 1134
   },
   "rabinkarp-search": {
-    "cycles": 7090
+    "cycles": 7123
   },
   "rad-to-deg": {
-    "cycles": 9765
+    "cycles": 9732
   },
   "rand-test": {
-    "cycles": 8835
+    "cycles": 8851
   },
   "randshell-sort": {
     "cycles": 16095
   },
   "ransac": {
-    "cycles": 16612
+    "cycles": 16552
   },
   "regex-parser": {
-    "cycles": 5739
+    "cycles": 5778
   },
   "rho-factor": {
     "cycles": 5436
   },
   "rle-compress": {
-    "cycles": 3640
+    "cycles": 3652
   },
   "rsa-cipher": {
-    "cycles": 3352
+    "cycles": 3381
   },
   "sat-solver": {
-    "cycles": 4333
+    "cycles": 4310
   },
   "shortest-path": {
-    "cycles": 3056
+    "cycles": 3055
   },
   "sieve": {
     "cycles": 6041
   },
   "simple-grep": {
-    "cycles": 15235
+    "cycles": 15229
   },
   "skeleton": {
-    "cycles": 2721
+    "cycles": 2692
   },
   "spelt2num": {
-    "cycles": 2422
+    "cycles": 2417
   },
   "spirograph": {
-    "cycles": 14422
+    "cycles": 14407
   },
   "strange": {
     "cycles": 1799
   },
   "sudoku-solver": {
-    "cycles": 12914
+    "cycles": 12886
   },
   "tea-cipher": {
-    "cycles": 2210
+    "cycles": 2219
   },
   "tetris-sim": {
     "cycles": 19164
   },
   "tiny-NN": {
-    "cycles": 17084
+    "cycles": 17141
   },
   "topo-sort": {
-    "cycles": 2660
+    "cycles": 2656
   },
   "totient": {
-    "cycles": 1849
+    "cycles": 1863
   },
   "transcend": {
-    "cycles": 9391
+    "cycles": 9393
   },
   "triangle-count": {
-    "cycles": 6311
+    "cycles": 6323
   },
   "uniquify": {
-    "cycles": 4516
+    "cycles": 4531
   },
   "variability-sample": {
-    "cycles": 9505
+    "cycles": 9500
   },
   "vectors-3d": {
-    "cycles": 4271
+    "cycles": 4262
   },
   "verlet": {
-    "cycles": 11140
+    "cycles": 11091
   },
   "weekday": {
-    "cycles": 2445
+    "cycles": 2349
   }
 }

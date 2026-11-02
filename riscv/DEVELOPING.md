@@ -104,7 +104,7 @@ and retain regression coverage for that behavior.
 At pin `2c300cd90eb74bb79f3fcdd58596a6f8d842d01c`, upstream supplies ISA-profile
 properties, RV32 `medelegh`, CSRIND state-enable gating, the RV32-only P1P13
 guard, and HS overflow-interrupt priority. Their downstream patches are retired.
-The 16-patch series preserves embedding hooks and advertised architectural
+The 17-patch series preserves embedding hooks and advertised architectural
 contracts. P1P13 controls the
 [`hedelegh` CSR](https://docs.riscv.org/reference/isa/priv/hypervisor), which is RV32-only.
 Keep native regression coverage for RV32/RV64 with and without H, and for
@@ -119,6 +119,10 @@ otherwise 128 bytes with Za128rs, otherwise exact-address matching. Keep its
 UDB reservation strategy and the Sail projection aligned with that selection.
 The native LR/SC regression checks region boundaries and physical permissions
 before matching a failed reservation in both execution paths and XLENs.
+The SC ownership hook runs after physical-access validation and before matching
+the reservation. Its scope ends on all returns and exceptions; the embedding
+must finish blocking work before returning from preparation and keep the
+conditional write non-yielding. Standalone simulators retain no-op defaults.
 The H-mandated `hedeleg` software-check and hardware-error bits remain writable
 independently of optional exception sources; `spike_arch_test.cc` exercises
 their set/clear behavior without CFI or counters.

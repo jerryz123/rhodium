@@ -972,6 +972,9 @@ results from different simulator builds or input sets cannot be combined.
 `program-test/performance-baselines/<config>/<suite>.json` is an explicitly
 checked-in generated reference, unlike disposable simulation output. The initial
 references come from successful [CI run 41240854761](https://github.com/jerryz123/rhodium/actions/runs/41240854761).
+The complete Simple RTL counter maps and refreshed cycles come from the
+functionally successful native suites in [CI run 41350443194](https://github.com/jerryz123/rhodium/actions/runs/41350443194),
+covering 543 workloads across the three cores and seven suites.
 Files map workload names directly to counter-name/value maps, matching the
 runtime measurement without additional wrappers. Sort workload and counter names
 deterministically. Missing expectations are collected and reported without a
@@ -1111,7 +1114,10 @@ Technology-mapped simulation remains owned by
 and exchanges all 256 byte values with a polling UART payload. Each byte is
 checked by both the target and the external Python client, with transformed
 replies, a final acknowledgement before process exit, and bounded cycle/wall
-timeouts. It exercises the actual core, CHI MMIO, UART FIFOs, serial engines,
+timeouts. The wall deadline is 300 seconds: the eight-hart CI model projects to
+about 126 seconds for the full exchange at its measured simulation rate. Keep all
+256 bytes and the existing cycle bound; timeout diagnostics report byte progress.
+It exercises the actual core, CHI MMIO, UART FIFOs, serial engines,
 and PTY; no test-only DPI transport bypasses that path. Simulation CI runs it
 on all three SoCs. Keep the UART C++ source/header in both ordinary and mapped
 simulator link prerequisites when changing this shared harness dependency.

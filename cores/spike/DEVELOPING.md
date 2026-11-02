@@ -49,6 +49,12 @@ state separate from these immutable attributes.
 The patched Spike `lrsc_accessible` hook supplies the full access size and
 read/write direction before reservation matching; keep its physical-map
 classification and atomic support bit aligned with the typed DPI response.
+The SC scope begins only after that permission check. Finish its remaining PMA
+and exclusive-line acquisition waits before returning to Spike's reservation
+comparison; keep the subsequent store non-yielding, including when RTL returns
+no reusable attribute grant. A snoop during preparation must invalidate the live
+reservation before comparison. End the scope on success, failed reservation, or
+exception without requiring an ordinary store to consume a prepared token.
 The patched AMO scope supplies a translated full-width physical operand before
 Spike's load/store pair. The DPI model must finish all classification and
 exclusive-line acquisition before activating that scope, then serve every
@@ -138,6 +144,11 @@ separation and Bare-only `medeleg` all-ones, walking-one, and zero readback in
 cached and logged execution. `tests/udb-test.rhm` checks the matching delegation
 masks for RV32Int, RV32Max, and the Sv39 scalar fixture. `tests/spike_core_test.cc` checks
 that SFENCE.VMA retains an external instruction line and FENCE.I refills it.
+Its SC regression covers RV32 word and RV64 word/doubleword stores, with and
+without reusable attribute grants, both with and without an invalidating snoop
+during the ownership wait. It checks failure status, preservation of the newer
+line contents, and a later ordinary store after either SC outcome.
+The RV64 doubleword cases also run through Sv39 translation with MPRV set.
 
 Run the focused host contract check with:
 
