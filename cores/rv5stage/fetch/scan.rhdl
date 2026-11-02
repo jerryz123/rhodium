@@ -3,13 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../../fetch/encoding.rhdl" open
   lib("cores/bpred/protocol.rhdl") open
   lib("cores/bpred/ras.rhdl").riscv_compressed_ras_action
   lib("cores/bpred/ras.rhdl").riscv_ras_action
   "packet.rhdl" open
   "../profile.rhm".RV5StageConfig
   "../../../riscv/isa/c.rhm" open
-  "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/model/formats.rhm" as riscv_fields
   "../../../riscv/rtl/instruction-fields.rhdl".instruction_immediate
   lib("rhodium/std/bits.rhdl") open
@@ -48,19 +48,17 @@ sync_circuit RV5StageFetchScan(core_profile :: RV5StageConfig):
   reg partial_return_prediction(BranchPrediction(xlen))
   def packet = ingress.bits
   def packet_clean = !packet.page_fault & !packet.access_fault
-  def lower_compressed = if compressed_enabled | packet.word[0..2] =/= Bits(2)(3) | Bool(#false)
-  def upper_compressed = if compressed_enabled | packet.word[16..18] =/= Bits(2)(3) | Bool(#false)
+  def lower_half = packet.word[0..16]
+  def upper_half = packet.word[16..32]
+  def lower_compressed = parcel_is_compressed(compressed_enabled, lower_half)
+  def upper_compressed = parcel_is_compressed(compressed_enabled, upper_half)
+  def lower_control = fetch_parcel_control(xlen, lower_half, lower_compressed)
+  def upper_control = fetch_parcel_control(xlen, upper_half, upper_compressed)
   def lower_start = packet.mask[0].into(Bool) & !partial
   def upper_start = packet.pc[1].into(Bool) ||| partial ||| lower_compressed
   def predicted_upper = packet.prediction.pc[1].into(Bool)
-  def predicted_half = mux(predicted_upper, packet.word[16..32], packet.word[0..16])
   def predicted_compressed = mux(predicted_upper, upper_compressed, lower_compressed)
-  def compressed_jump_function = predicted_half[13..16].is_one_of(Bits(3)(5), Bits(3)(6), Bits(3)(7)) ||| (
-    Bool(xlen == XLen.X32) & (predicted_half[13..16] === Bits(3)(1))
-  )
-  def compressed_jump = (predicted_half[0..2] === Bits(2)(1)) & compressed_jump_function
-  def compressed_indirect = (predicted_half[0..2] === Bits(2)(2)) & (predicted_half[13..16] === Bits(3)(4)) & (predicted_half[2..7] === Bits(5)(0)) & predicted_half[7..12].any()
-  def control_flow = mux(predicted_compressed, compressed_jump ||| compressed_indirect, predicted_half[0..7].is_one_of(Bits(7)(0x63), Bits(7)(0x6f), Bits(7)(0x67)))
+  def control_flow = mux(predicted_upper, upper_control.possible(), lower_control.possible())
   def boundary = mux(predicted_upper, upper_start, lower_start)
   def prediction_shape_mismatch = !boundary ||| (packet.prediction.compressed ^ predicted_compressed) ||| !control_flow
   def bad_prediction = packet.prediction.valid & packet_clean & prediction_shape_mismatch
@@ -73,31 +71,29 @@ sync_circuit RV5StageFetchScan(core_profile :: RV5StageConfig):
   def first_upper = !partial & packet.pc[1].into(Bool)
   def first_halfword :: Bits(16) = priority_mux(~default: packet.word[0..16]):
     partial: partial_halfword
-    first_upper: packet.word[16..32]
+    first_upper: upper_half
 
-  def first_compressed = if compressed_enabled | first_halfword[0..2] =/= Bits(2)(3) | Bool(#false)
+  // A retained prefix is always the first half of a full-width instruction.
+  def first_compressed = !partial & mux(first_upper, upper_compressed, lower_compressed)
+  def first_control :: FetchControlShape() = priority_mux(~default: lower_control):
+    partial: fetch_opcode_control(partial_halfword[0..7])
+    first_upper: upper_control
+
   def first_complete = first_compressed ||| partial ||| !first_upper
   def first_instruction = mux(partial, packet.word[0..16] ++ partial_halfword, packet.word)
   def first_action = mux(first_compressed, riscv_compressed_ras_action(xlen, first_halfword), riscv_ras_action(first_instruction))
   def first_valid = mux(!partial & first_upper, packet.mask[1].into(Bool), packet.mask[0].into(Bool))
   def first_pc = mux(partial, packet.pc - Bits(xlen.width)(2), packet.pc)
   def first_return = first_valid & first_complete & first_action.is_one_of(RasAction.Pop, RasAction.PopPush)
-  def first_compressed_direct = (first_halfword[0..2] === Bits(2)(1)) & ((first_halfword[13..16] === Bits(3)(5)) ||| (Bool(xlen == XLen.X32) & (first_halfword[13..16] === Bits(3)(1))))
-  def first_compressed_conditional = (first_halfword[0..2] === Bits(2)(1)) & first_halfword[13..16].is_one_of(Bits(3)(6), Bits(3)(7))
-  def first_compressed_indirect = (first_halfword[0..2] === Bits(2)(2)) & (first_halfword[13..16] === Bits(3)(4)) & (first_halfword[2..7] === Bits(5)(0)) & first_halfword[7..12].any()
-  def first_compressed_control_flow = first_compressed & (first_compressed_direct ||| first_compressed_conditional ||| first_compressed_indirect)
-  def first_full_control_flow = !first_compressed & first_instruction[0..7].is_one_of(Bits(7)(0x63), Bits(7)(0x6f), Bits(7)(0x67))
-  def first_full_jump = !first_compressed & (first_instruction[0..7] === Bits(7)(0x6f))
-  def first_direct_jump = first_valid & first_complete & ((first_compressed & first_compressed_direct) ||| first_full_jump)
+  def first_direct_jump = first_valid & first_complete & first_control.direct
   def first_direct_target = first_pc + mux(first_compressed, compressed_jump_offset(first_halfword, xlen.width), instruction_immediate(riscv_fields.JImmediate, first_instruction, xlen.width))
-  def second_follows = mux(partial, !first_full_control_flow, !first_upper & first_compressed & !first_compressed_control_flow)
+  def second_follows = (partial ||| (!first_upper & first_compressed)) & !first_control.possible()
   def second_valid = packet.mask[1].into(Bool) & upper_compressed & second_follows
   def second_pc = packet.pc.align_down(4) + Bits(xlen.width)(2)
-  def second_action = riscv_compressed_ras_action(xlen, packet.word[16..32])
+  def second_action = riscv_compressed_ras_action(xlen, upper_half)
   def second_return = second_valid & second_action.is_one_of(RasAction.Pop, RasAction.PopPush)
-  def second_compressed_direct = (packet.word[16..18] === Bits(2)(1)) & ((packet.word[29..32] === Bits(3)(5)) ||| (Bool(xlen == XLen.X32) & (packet.word[29..32] === Bits(3)(1))))
-  def second_direct_jump = second_valid & second_compressed_direct
-  def second_direct_target = second_pc + compressed_jump_offset(packet.word[16..32], xlen.width)
+  def second_direct_jump = second_valid & upper_control.direct
+  def second_direct_target = second_pc + compressed_jump_offset(upper_half, xlen.width)
   def first_fallback = first_direct_jump ||| (first_return & ras_head_valid)
   def second_fallback = second_direct_jump ||| (second_return & ras_head_valid)
   def prediction_missing = !packet.prediction.valid & (!partial ||| !partial_prediction_seen)

@@ -66,6 +66,31 @@ result, and `integer_divide_result` selects quotient/remainder with word-result
 sign extension. `integer_word_result` exposes that sign-extension rule directly.
 RV32 values remain XLEN-wide; none of these helpers adds storage or arbitration.
 
+### Shared fetch assembly and issue window
+
+[`InstructionAssembler(config, lanes)`](fetch/instruction-assembler.rhdl)
+accepts 8-byte [`FetchBlock`](fetch/protocol.rhdl) transfers and emits counted
+groups of up to `lanes` complete instructions (one to four).
+`pc` identifies the first requested byte; `data` covers the aligned block
+starting at `pc.align_down(8)`. A group can span two adjacent blocks or consume
+only part of one block. The assembler retains leftover parcels and waits for a
+missing continuation without delaying earlier complete instructions. A fault
+or taken prediction ends the group; at most one RAS action is emitted per transfer.
+
+[`expand_fetched_instruction`](fetch/encoding.rhdl) returns canonical bits,
+compressed length status, and compressed illegality for a complete candidate.
+Without C it passes the raw word through. The separate low-parcel classifiers
+identify *possible* control flow; they neither validate a complete instruction
+nor authorize a redirect. RV5Stage uses these helpers without the wide assembler or window.
+
+Connect its output to [`IssueWindow(xlen, ~enqueue_width, ~issue_width)`](fetch/issue-window.rhdl)
+with `enqueue_width` equal to the assembly width. The eight-entry window presents
+the oldest `issue_width` instructions, and removes only the prefix the caller
+consumes. It accepts input when a full enqueue group fits after that removal,
+independent of the offered group's contents. Admission hazards and write-port reservations remain core policy.
+RV2Wide uses 2/2. With 3/3, consecutive 4+2+2-byte groups can supply three
+instructions every cycle to a ready consumer without a wider cache port.
+
 ### Shared GPR storage
 
 [`RegisterFile(xlen, ~read_ports)`](register-file.rhdl) has an explicitly selected

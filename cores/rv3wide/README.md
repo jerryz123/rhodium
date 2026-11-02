@@ -54,7 +54,9 @@ destination. Capacity and deferred-destination collisions are asserted.
 
 ## Integration status
 
-These components do not yet implement instruction fetch, decode, EX/MEM/WB
+The shared [assembler and issue window](../README.md#shared-fetch-assembly-and-issue-window)
+support a three-wide consumer of 8-byte fetch blocks, but are not yet connected
+to an RV3Wide hart. These components do not yet implement a fetch frontend, decode, EX/MEM/WB
 storage, precise traps, memory dispatch, or service reservations. The intended
 `mini-rv3wide-rv64imacb` and `simple-rv3wide-rv64imacb` selections are therefore
 not registered or advertised yet. RV2Wide and RV5Stage are unchanged.

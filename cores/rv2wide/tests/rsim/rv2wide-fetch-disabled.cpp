@@ -1147,7 +1147,7 @@ int main() {
     for (int p = UINT64_C(0x608); p < UINT64_C(0x638); p += 2)
       parcel(p, c_imm(2, 10 + ((p / 2) & 1), (p / 2) & 31));
     parcel(UINT64_C(0x638), c_imm(0, 31, -1));
-    insn(UINT64_C(0x63a), addi(0, 0, 0));
+    insn(UINT64_C(0x63a), addi(20, 0, 0)); // Initialize the post-loop operand without moving the straddling branch.
     insn(
         UINT64_C(0x63e),
         bne(31, 0,

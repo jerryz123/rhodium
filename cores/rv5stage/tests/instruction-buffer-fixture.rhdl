@@ -11,11 +11,13 @@ import:
   "../../../riscv/isa/xlen.rhm" open
   lib("flow/main.rhdl") open
 
-sync_circuit RV5StageInstructionBufferFixture():
+sync_circuit RV5StageInstructionBufferFixture(compressed :: Boolean = #true):
   interface packets(Decoupled(RV5StageFetchPacket(XLen.X64, #false)), ~role: consumer)
   interface clear(Pulse(), ~role: consumer)
   interface fetched(Decoupled(FetchDecode(XLen.X64, #false)), ~role: producer)
-  inst buffer(RV5StageInstructionBuffer(RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~compressed: CCompressedExtensions))))
+  output with_c: Bool
+  with_c <== Bool(compressed)
+  inst buffer(RV5StageInstructionBuffer(RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~compressed: if compressed | CCompressedExtensions | []))))
   packets |> buffer.packets
   clear |> buffer.clear
   buffer.fetched |> fetched

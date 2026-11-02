@@ -22,7 +22,13 @@ instruction storage, refill, and coherence rather than fetch sequencing.
 
 ## Dependency direction
 
-The fetch pipeline consumes the shared `cores/bpred/` components and protocols.
+The fetch pipeline consumes the shared `cores/bpred/` components and protocols,
+and [stateless instruction encoding helpers](../../fetch/encoding.rhdl).
+S2 uses only parcel shape: a 32-bit prefix can identify a possible branch
+without supplying its target. Keep the complete-instruction gate on fallback
+targets. ID uses the expander for its own ISA catalog (raw passthrough without C);
+it retains ownership of head and continuation faults, the residual parcel and Decode backpressure.
+Neither path instantiates the wide assembler or issue window.
 Keep cursor selection, prediction validation, fallback discovery, and RAS update
 qualification here; shared predictors must not import fetch consumers.
 Keep `FetchDecode` in `fetch/protocol.rhdl` rather than the scalar
@@ -53,6 +59,9 @@ of retained predictor/halfword state. No manual event edge or extra checkpoint
 is needed. `rv5stage-fetch-prediction` checks exact S2-to-S0 parent occurrences
 for direct/compressed jumps, returns, straddles, and blocked redirect issuance
 alongside ordinary S0-to-S0 successor ancestry and functional prediction checks.
+The `rv5stage-instruction-buffer` and `rv5stage-instruction-buffer-no-c` fixtures
+distinguish illegal compressed expansion from a head fault and from a raw
+word left for ordinary instruction decode.
 
 After changing layout or imports, run `make check-boundaries` and confirm no old
 paths remain. Direct predictor behavior is covered by the shared `bpred-btb`

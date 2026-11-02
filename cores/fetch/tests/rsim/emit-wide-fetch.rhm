@@ -1,0 +1,49 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../instruction-assembler.rhdl" open
+  "../../issue-window.rhdl".IssueWindow
+  "../../protocol.rhdl" open
+  "../../predecode.rhdl".FetchDecodeConfig
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/isa/c.rhm").CCompressedExtensions
+  lib("riscv/isa/fp-profile.rhm").FloatingPointProfile
+  lib("riscv/isa/rv64i.rhm").RV64IInstructions
+  lib("flow/main.rhdl") open
+  lib("rhodium/frontend/foundation.rhm").elaborate
+
+sync_circuit WideFetchFixture(issue_width :: PosInt):
+  def xlen = XLen.X64
+  interface blocks(Decoupled(FetchBlock(xlen)), ~role: consumer)
+  input clear: Bool
+  input consume: Bits(index_width(issue_width + 1))
+  output assembly_count: Bits(2)
+  output head: InstructionGroup(xlen, issue_width)
+  output valid: Vec(issue_width, Bool)
+  output repair_target: Bits(64)
+  output repairing: Bool
+  output speculating: Bool
+  output return_address: Bits(64)
+  def config = FetchDecodeConfig(xlen, FloatingPointProfile.None, CCompressedExtensions, RV64IInstructions.map(fun (instruction): instruction.name), #true, #true)
+  inst assembly(InstructionAssembler(config, 3))
+  inst window(IssueWindow(xlen, ~enqueue_width: 3, ~issue_width: issue_width))
+  blocks |> assembly.blocks
+  assembly.instructions |> window.ingress
+  assembly.ras_head_valid <== Bool(#false)
+  assembly.ras_head <== Bits(64)(0)
+  assembly.clear.valid <== clear
+  assembly.pause <== Bool(#false)
+  window.clear.valid <== clear
+  window.consume <== consume
+  assembly_count <== mux(assembly.instructions.fire(), assembly.instructions.bits.count, Bits(2)(0))
+  head <== window.head
+  valid <== vec(for List (lane in 0..issue_width): window.candidates[lane].valid)
+  repairing <== assembly.repair.valid
+  repair_target <== assembly.repair.bits.target
+  speculating <== assembly.speculate.valid
+  return_address <== assembly.speculate.bits.return_address
+
+def three = elaborate(WideFetchFixture(3))
+def two = elaborate(WideFetchFixture(2))
+export three two

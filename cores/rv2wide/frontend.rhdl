@@ -3,10 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/fetch/protocol.rhdl").InstructionGroup
+  lib("cores/fetch/protocol.rhdl").FetchBlock
   lib("riscv/rtl/hypervisor.rhdl") open
   "bundles.rhdl" open
   "profile.rhm".RV2WideConfig
-  "instruction-assembler.rhdl" open
+  "../fetch/instruction-assembler.rhdl" open
+  "predecode.rhdl".rv2wide_fetch_config
   "direction.rhdl" open
   "../cache/l1i/protocol.rhdl" open
   "../chi-hart.rhdl" open
@@ -51,7 +54,7 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig, profile :: RV2WideCon
   interface invalidate(Pulse(), ~role: consumer)
   interface virtual_lookup(Decoupled(Bits(64)), ~role: producer)
   interface translation(RV2WideInstructionTranslation(xlen), ~role: requester)
-  interface instructions(Decoupled(RV2WidePacket(xlen)), ~role: producer)
+  interface instructions(Decoupled(InstructionGroup(xlen, 2)), ~role: producer)
   interface branch_update(Valid(BranchUpdate(xlen)), ~role: consumer)
   interface predictor_restore(Pulse(), ~role: consumer)
   interface predictor_clear(Pulse(), ~role: consumer)
@@ -75,7 +78,7 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig, profile :: RV2WideCon
   wire direction_repair: Bool
   inst s1(ValidPipeAlwaysCapture(RV2WideFetchCursor(xlen), 1, ~flushable: #true))
   inst s2(ValidPipeAlwaysCapture(RV2WideFetchAttempt(xlen), 1, ~flushable: #true))
-  inst assembler(RV2WideInstructionAssembler(profile))
+  inst assembler(InstructionAssembler(rv2wide_fetch_config(profile), 2))
 
 
   /* Predictor control and S1 target selection.
@@ -300,7 +303,7 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig, profile :: RV2WideCon
       cause: mux(attempt.fault.valid, attempt.fault.cause, exception_cause_bits(ExceptionCause.InstructionAccessFault, xlen.width))
       value: mux(attempt.fault.valid, attempt.fault.value, attempt.cursor.pc)
 
-    RV2WideFetchBlock(xlen):
+    FetchBlock(xlen):
       pc: attempt.cursor.pc
       data: memory.response.bits.data
       fault: fetch_fault

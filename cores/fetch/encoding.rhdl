@@ -1,0 +1,71 @@
+#lang rhodium
+/* Interprets fetched instruction bits without owning parcel boundaries, prediction, or fault policy. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/isa/c.rhm") open
+  lib("riscv/isa/fp-profile.rhm").FloatingPointProfile
+  lib("riscv/rtl/compressed.rhdl").RiscvCompressedExpander
+
+/* Tests a first parcel's length only when the core accepts compressed instructions. */
+fun parcel_is_compressed(enabled :: Boolean, parcel :: Bits(16)) :~ Bool:
+  if enabled | parcel[0..2] =/= Bits(2)(3) | Bool(#false)
+
+/* Carries the canonical encoding and only the illegality discovered during compressed expansion. */
+bundle FetchedEncoding():
+  canonical: Bits(32)
+  compressed: Bool
+  compressed_illegal: Bool
+
+/* Expands a candidate against the caller's ISA domain. A buffer that already resolved its length
+   may supply its qualified compressed bit; with C disabled, no expander is built. */
+fun expand_fetched_instruction(xlen :: XLen, fp :: FloatingPointProfile, extensions :: List.of(CompressedExtension), instructions :: List.of(String), raw :: Bits(32),
+                               ~compressed: compressed :: Bool = parcel_is_compressed(compressed_extensions_enabled(extensions), raw[0..16])) :~ FetchedEncoding():
+  if compressed_extensions_enabled(extensions)
+  | block:
+      inst expander(RiscvCompressedExpander(xlen, fp, extensions, ~supported_instructions: instructions))
+      expander.compressed <== raw[0..16]
+      FetchedEncoding():
+        canonical: mux(compressed, expander.expansion.instruction, raw)
+        compressed: compressed
+        compressed_illegal: compressed & !expander.expansion.valid
+  | FetchedEncoding():
+      canonical: raw
+      compressed: Bool(#false)
+      compressed_illegal: Bool(#false)
+
+/* Describes possible control flow from the low parcel; it does not certify a complete encoding or target. */
+bundle FetchControlShape():
+  direct: Bool
+  conditional: Bool
+  indirect: Bool
+  /* True when this parcel could belong to a jump or branch. */
+  method possible(control) :: Bool:
+    control.direct ||| control.conditional ||| control.indirect
+
+/* Recognizes the JAL, branch and JALR opcode families without checking funct3 or needing a second parcel. */
+fun fetch_opcode_control(opcode :: Bits(7)) :~ FetchControlShape():
+  FetchControlShape():
+    direct: opcode === Bits(7)(0x6f)
+    conditional: opcode === Bits(7)(0x63)
+    indirect: opcode === Bits(7)(0x67)
+
+/* Classifies C.J, RV32 C.JAL, C.BEQZ/BNEZ and C.JR/JALR, or the opcode of a full-width prefix. */
+fun fetch_parcel_control(xlen :: XLen, parcel :: Bits(16), compressed :: Bool) :~ FetchControlShape():
+  def q1 = parcel[0..2] === Bits(2)(1)
+  def funct3 = parcel[13..16]
+  def short_control = FetchControlShape():
+    direct: q1 & ((funct3 === Bits(3)(5)) ||| (Bool(xlen == XLen.X32) & (funct3 === Bits(3)(1))))
+    conditional: q1 & funct3.is_one_of(Bits(3)(6), Bits(3)(7))
+    indirect: (parcel[0..2] === Bits(2)(2)) & (funct3 === Bits(3)(4)) & !parcel[2..7].any() & parcel[7..12].any()
+
+  mux(compressed, short_control, fetch_opcode_control(parcel[0..7]))
+
+export:
+  FetchedEncoding
+  parcel_is_compressed
+  expand_fetched_instruction
+  FetchControlShape
+  fetch_opcode_control
+  fetch_parcel_control

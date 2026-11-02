@@ -9,9 +9,8 @@ import:
   "../profile.rhm".RV5StageConfig
   "../decode/core-ctrl.rhdl".rv5stage_instructions
   "../../../riscv/isa/c.rhm" open
-  "../../../riscv/isa/fp-profile.rhm" open
   "../../../riscv/isa/xlen.rhm" open
-  "../../../riscv/rtl/compressed.rhdl" open
+  "../../fetch/encoding.rhdl" open
   lib("riscv/rtl/hypervisor.rhdl") open
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
@@ -57,7 +56,7 @@ sync_circuit RV5StageInstructionBuffer(core_profile :: RV5StageConfig):
     residual_valid: residual.halfword
     upper: packets.bits.word[16..32]
 
-  def compressed = if compressed_enabled | halfword[0..2] =/= Bits(2)(3) | Bool(#false)
+  def compressed = parcel_is_compressed(compressed_enabled, halfword)
   def packet_fault = packets.bits.page_fault ||| packets.bits.access_fault
   def head_fault = !residual_valid & packet_fault
   def straddle = upper & !compressed & !head_fault
@@ -69,17 +68,7 @@ sync_circuit RV5StageInstructionBuffer(core_profile :: RV5StageConfig):
     straddle: packets.bits.word[0..16] ++ halfword
 
   def instruction_is_compressed = compressed & !head_fault
-  wire expanded_instruction: Bits(32)
-  wire compressed_legal: Bool
-  if compressed_enabled
-  | block:
-      inst expander(RiscvCompressedExpander(xlen, profile, compressed_extensions, ~supported_instructions: supported_instruction_names))
-      expander.compressed <== raw[0..16]
-      expanded_instruction <== mux(instruction_is_compressed, expander.expansion.instruction, raw)
-      compressed_legal <== expander.expansion.valid
-  | block:
-      expanded_instruction <== raw
-      compressed_legal <== Bool(#true)
+  def encoding = expand_fetched_instruction(xlen, profile, compressed_extensions, supported_instruction_names, raw, ~compressed: instruction_is_compressed)
 
 
   /* Fetch-to-Decode payload and precise faults.
@@ -93,15 +82,15 @@ sync_circuit RV5StageInstructionBuffer(core_profile :: RV5StageConfig):
     continuation_prediction: packets.bits.prediction
     residual_valid: residual.prediction
 
-  def predicted_taken = prediction.valid & (prediction.pc === pc) & !page_fault & !access_fault & !(instruction_is_compressed & !compressed_legal)
+  def predicted_taken = prediction.valid & (prediction.pc === pc) & !page_fault & !access_fault & !encoding.compressed_illegal
   fetched.valid <== available & !clear.valid
   fetched.bits.pc <== pc
-  fetched.bits.instruction <== expanded_instruction
+  fetched.bits.instruction <== encoding.canonical
   fetched.bits.raw_instruction <== raw
   fetched.bits.sequential_pc <== sequential_pc
   fetched.bits.predicted_next_pc <== mux(predicted_taken, prediction.target, sequential_pc)
   fetched.bits.predicted_ras_action <== mux(predicted_taken, prediction.ras_action, RasAction.None)
-  fetched.bits.compressed_illegal <== instruction_is_compressed & !compressed_legal
+  fetched.bits.compressed_illegal <== encoding.compressed_illegal
   fetched.bits.instruction_page_fault <== page_fault
   fetched.bits.instruction_access_fault <== access_fault
   def continuation_fault = straddle & packet_fault

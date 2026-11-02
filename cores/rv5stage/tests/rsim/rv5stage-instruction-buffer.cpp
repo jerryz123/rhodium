@@ -34,6 +34,29 @@ void stimulus() {
       edge_step();
     falling();
     reset = 0;
+    if (!with_c) {
+      // The same first parcel would be C.ADDI with C enabled. Here it is one
+      // unexpanded word: normal instruction decode, not expansion, decides legality.
+      offer(252, 0x850085);
+      expect_instruction(252, 0x850085);
+      CHECK(fetched_out.pbits.pinstruction == 0x850085 &&
+            fetched_out.pbits.psequential_upc == 256 && !fetched_out.pbits.pcompressed_uillegal);
+      edge_step();
+      falling();
+      packets_in.pvalid = 0;
+      settle();
+      CHECK(!fetched_out.pvalid);
+      throw Finished{};
+    }
+
+    offer(248, 0, 1); // Reserved compressed encoding.
+    expect_instruction(248, 0);
+    CHECK(fetched_out.pbits.pcompressed_uillegal && fetched_out.pbits.psequential_upc == 250);
+    packets_in.pbits.ppage_ufault = 1;
+    settle();
+    CHECK(fetched_out.pbits.pinstruction_upage_ufault && !fetched_out.pbits.pcompressed_uillegal &&
+          fetched_out.pbits.psequential_upc == 252 && fetched_out.pbits.pinstruction == 0);
+    edge_step();
     offer(UINT64_C(256), UINT64_C(0x100093));
     expect_instruction(UINT64_C(256),
                        UINT64_C(0x100093)); // No capture edge before Decode.

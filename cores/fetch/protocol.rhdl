@@ -1,0 +1,60 @@
+#lang rhodium
+/* Defines 8-byte fetch blocks, expanded instruction groups, and fault and predictor repair metadata. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/rtl/hypervisor.rhdl").RiscvGuestFault
+  lib("cores/bpred/protocol.rhdl") open
+
+/* Retains the architectural cause and faulting address independently of instruction data. */
+bundle FetchFault(xlen :: XLen):
+  valid: Bool
+  cause: Bits(xlen.width)
+  value: Bits(xlen.width)
+  guest: RiscvGuestFault()
+
+/* Carries one aligned block's contents, first requested byte, and any block admission/read fault. */
+bundle FetchBlock(xlen :: XLen):
+  pc: Bits(xlen.width)
+  data: Bits(64)
+  fault: FetchFault(xlen)
+  prediction: BranchPrediction(xlen)
+  directions: Vec(4, TournamentPrediction(10))
+  prefix_direction: TournamentPrediction(10)
+
+/* Retains canonical decode bits, original encoding, and the length-derived successor through retirement. */
+bundle FetchedInstruction(xlen :: XLen):
+  pc: Bits(xlen.width)
+  instruction: Bits(32)
+  raw_instruction: Bits(32)
+  sequential_pc: Bits(xlen.width)
+  compressed_illegal: Bool
+  fault: FetchFault(xlen)
+  prediction: BranchPrediction(xlen)
+  speculated_ras_action: RasAction
+  direction: TournamentPrediction(10)
+
+/* Carries a counted prefix of complete instructions, independent of transport block size. */
+bundle InstructionGroup(xlen :: XLen, lanes :: PosInt):
+  count: Bits(index_width(lanes + 1))
+  entries: Vec(lanes, FetchedInstruction(xlen))
+
+/* Restarts unassembled fetch work without discarding already accepted instructions. */
+bundle FetchRepair(xlen :: XLen):
+  target: Bits(xlen.width)
+  invalidate: Bool
+  entry: Bits(xlen.width)
+  history: Bits(10)
+
+/* Appends a conditional outcome while leaving nonbranch history checkpoints unchanged. */
+fun fetch_history_after(prediction :: TournamentPrediction(10), taken :: Bool) :~ Bits(10):
+  mux(prediction.valid, prediction.history[0..9] ++ taken.as_bits(), prediction.history)
+
+export:
+  FetchFault
+  FetchBlock
+  FetchedInstruction
+  InstructionGroup
+  FetchRepair
+  fetch_history_after

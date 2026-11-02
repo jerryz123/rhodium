@@ -198,6 +198,8 @@ vec-search	language	examples/rtl/vec-search.rhdl	program	rhodium/backend/tests/r
 bundle-update	language	rhodium/backend/tests/rsim/emit-bundle-update.rhm	program	rhodium/backend/tests/rsim/bundle-update.cpp
 rv2wide-core	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-core.rhm	program	cores/rv2wide/tests/rsim/rv2wide-core.cpp	target	sims/statistics/collector.cc
 rv3wide-admission	cores-components	cores/rv3wide/tests/rsim/emit-admission.rhm	program	cores/rv3wide/tests/rsim/admission.cpp
+fetch-window-3x3	cores-components	cores/fetch/tests/rsim/emit-wide-fetch.rhm	three	cores/fetch/tests/rsim/wide-fetch.cpp
+fetch-window-3x2	cores-components	cores/fetch/tests/rsim/emit-wide-fetch.rhm	two	cores/fetch/tests/rsim/wide-fetch.cpp
 rv3wide-register-access	cores-components	cores/rv3wide/tests/rsim/emit-register-access.rhm	program	cores/rv3wide/tests/rsim/register-access.cpp
 rv2wide-core-vector	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-core-vector.rhm	program	cores/rv2wide/tests/rsim/rv2wide-core-vector.cpp	target	rheg/runtime/rheg.cc
 rv2wide-core-vector-rv32	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-core-vector.rhm	rv32_program	cores/rv2wide/tests/rsim/rv2wide-core-vector.cpp	target	rheg/runtime/rheg.cc
@@ -239,6 +241,7 @@ rv5stage-sscofpmf-core	cores-execution-control	cores/rv5stage/tests/rsim/emit-rv
 rv5stage-access-fault	cores-execution-frontend	cores/rv5stage/tests/rsim/emit-rv5stage-access-fault.rhm	program	cores/rv5stage/tests/rsim/rv5stage-access-fault.cpp
 rv5stage-return-prediction	cores-execution-frontend	cores/rv5stage/tests/rsim/emit-rv5stage-return-prediction.rhm	program	cores/rv5stage/tests/rsim/rv5stage-return-prediction.cpp
 rv5stage-instruction-buffer	cores-execution-frontend	cores/rv5stage/tests/rsim/emit-rv5stage-instruction-buffer.rhm	program	cores/rv5stage/tests/rsim/rv5stage-instruction-buffer.cpp
+rv5stage-instruction-buffer-no-c	cores-execution-frontend	cores/rv5stage/tests/rsim/emit-rv5stage-instruction-buffer.rhm	no_c	cores/rv5stage/tests/rsim/rv5stage-instruction-buffer.cpp
 rv5stage-branch-prediction	cores-execution-frontend	cores/rv5stage/tests/rsim/emit-rv5stage-branch-prediction.rhm	program	cores/rv5stage/tests/rsim/rv5stage-branch-prediction.cpp
 rv5stage-core	cores-execution-datapath	cores/rv5stage/tests/rsim/emit-rv5stage-core.rhm	program	cores/rv5stage/tests/rsim/rv5stage-core.cpp
 rv5stage-zcb	cores-execution-frontend	cores/rv5stage/tests/rsim/emit-rv5stage-zcb.rhm	program	cores/rv5stage/tests/rsim/rv5stage-zcb.cpp

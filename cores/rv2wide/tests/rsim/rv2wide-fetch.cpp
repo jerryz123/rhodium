@@ -1608,7 +1608,7 @@ void stimulus() {
     for (int p = UINT64_C(1544); p < UINT64_C(1592); p += 2)
       parcel(p, c_imm(2, 10 + ((p / 2) & 1), (p / 2) & 31));
     parcel(UINT64_C(1592), c_imm(0, 31, -1));
-    insn(UINT64_C(1594), addi(0, 0, 0));
+    insn(UINT64_C(1594), addi(20, 0, 0)); // x20 is read after the loop; GPRs retain state across reset.
     insn(UINT64_C(1598),
          bne(31, 0,
              -54)); // warm predicted branch crosses the eight-byte boundary

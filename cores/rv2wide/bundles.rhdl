@@ -3,6 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../fetch/protocol.rhdl".FetchFault as RV2WideFetchFault
+  "../fetch/protocol.rhdl".FetchedInstruction as RV2WideInstruction
+  "../fetch/protocol.rhdl".FetchRepair as RV2WideFetchRepair
+  "../fetch/protocol.rhdl".fetch_history_after as rv2wide_history_after
   lib("cores/fp/profile.rhm").fp_transport_profile
   "pairing.rhdl".RV2WidePairRoute
   "pairing.rhdl".rv2wide_pair_immediate_width
@@ -84,30 +88,6 @@ interface RV2WideUncachedInstruction():
 
   responder -> requester:
     response: Decoupled(InstructionCacheResult(64))
-
-/* Retains the architectural cause and faulting address independently of instruction data. */
-bundle RV2WideFetchFault(xlen :: XLen):
-  valid: Bool
-  cause: Bits(xlen.width)
-  value: Bits(xlen.width)
-  guest: RiscvGuestFault()
-
-/* Retains canonical decode bits, original encoding, and the length-derived successor through retirement. */
-bundle RV2WideInstruction(xlen :: XLen):
-  pc: Bits(xlen.width)
-  instruction: Bits(32)
-  raw_instruction: Bits(32)
-  sequential_pc: Bits(xlen.width)
-  compressed_illegal: Bool
-  fault: RV2WideFetchFault(xlen)
-  prediction: BranchPrediction(xlen)
-  speculated_ras_action: RasAction
-  direction: TournamentPrediction(10)
-
-/* Offers a nonempty prefix of up to two instructions to the issue window. */
-bundle RV2WidePacket(xlen :: XLen):
-  count: Bits(2)
-  entries: Vec(2, RV2WideInstruction(xlen))
 
 /* Keeps a retired branch's BTB outcome and saved tournament predictions together during training. */
 bundle RV2WideBranchTraining(xlen :: XLen):
@@ -237,17 +217,6 @@ bundle RV2WideResult(xlen :: XLen):
   vector_fast_eligible: Bool
   vector: VectorDescriptor(xlen)
 
-/* Restarts unassembled fetch work without discarding already accepted instructions. */
-bundle RV2WideFetchRepair(xlen :: XLen):
-  target: Bits(xlen.width)
-  invalidate: Bool
-  entry: Bits(xlen.width)
-  history: Bits(10)
-
-/* Appends a conditional outcome while leaving nonbranch history checkpoints unchanged. */
-fun rv2wide_history_after(prediction :: TournamentPrediction(10), taken :: Bool) :~ Bits(10):
-  mux(prediction.valid, prediction.history[0..9] ++ taken.as_bits(), prediction.history)
-
 /* Carries exact byte addresses and XLEN beats; VA uses XLEN, while PA width is independent. */
 bundle RV2WideMemoryReq(xlen :: XLen, address_width :: PosInt):
   address: Bits(address_width)
@@ -346,7 +315,6 @@ export:
   RV2WideUncachedInstruction
   RV2WideFetchFault
   RV2WideInstruction
-  RV2WidePacket
   RV2WideBranchTraining
   RV2WideHistoryCommit
   RV2WideDisposition

@@ -1,35 +1,14 @@
 #lang rhodium
-/* Shares length, legality, control-flow classification, and immediate expansion across fetch consumers. */
+/* Projects RV2Wide’s decode domain and predictor choices into the shared fetch assembler. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "profile.rhm".RV2WideConfig
   "decode/core-ctrl.rhdl".rv2wide_instructions
-  lib("cores/bpred/protocol.rhdl") open
-  lib("cores/bpred/ras.rhdl").riscv_ras_action
-  lib("riscv/isa/xlen.rhm").XLen
-  lib("riscv/rtl/compressed.rhdl") open
-  lib("riscv/model/formats.rhm") as fields
-  lib("riscv/rtl/instruction-fields.rhdl").instruction_immediate
+  "../fetch/predecode.rhdl".FetchDecodeConfig
 
-/* Expands one candidate encoding without asserting that it lies at an instruction boundary. */
-circuit RV2WidePredecode(profile :: RV2WideConfig):
-  def xlen = profile.xlen
-  input raw: Bits(32)
-  output canonical: Bits(32)
-  output(compressed, legal, control_flow, conditional, immediate): Bool
-  output offset: Bits(xlen.width)
-  output action: RasAction
-  inst expander(RiscvCompressedExpander(xlen, profile.floating_point, profile.compressed, ~supported_instructions: rv2wide_instructions(profile).map(fun (instruction): instruction.name)))
-  expander.compressed <== raw[0..16]
-  compressed <== raw[0..2] =/= Bits(2)(3)
-  canonical <== mux(compressed, expander.expansion.instruction, raw)
-  legal <== !compressed ||| expander.expansion.valid
-  conditional <== legal & (canonical[0..7] === Bits(7)(0x63)) & !canonical[12..15].is_one_of(Bits(3)(2), Bits(3)(3))
-  def direct = legal & (canonical[0..7] === Bits(7)(0x6f))
-  immediate <== direct ||| conditional
-  control_flow <== immediate ||| (legal & (canonical[0..7] === Bits(7)(0x67)) & (canonical[12..15] === Bits(3)(0)))
-  offset <== mux(direct, instruction_immediate(fields.JImmediate, canonical, xlen.width), instruction_immediate(fields.BImmediate, canonical, xlen.width))
-  action <== mux(control_flow, riscv_ras_action(canonical), RasAction.None)
+/* Selects exactly the compressed expansions supported by the core’s canonical decoder. */
+fun rv2wide_fetch_config(profile :: RV2WideConfig) :: FetchDecodeConfig:
+  FetchDecodeConfig(profile.xlen, profile.floating_point, profile.compressed, rv2wide_instructions(profile).map(fun (instruction): instruction.name), profile.btb_entries > 0, profile.ras_entries > 0)
 
-export RV2WidePredecode
+export rv2wide_fetch_config

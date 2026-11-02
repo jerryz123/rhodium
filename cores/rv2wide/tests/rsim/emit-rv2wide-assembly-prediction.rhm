@@ -5,7 +5,8 @@ import:
   lib("rhodium/frontend/foundation.rhm").elaborate
   lib("riscv/isa/fp-profile.rhm").FloatingPointProfile
   "../../profile.rhm".RV2WideConfig
-  "../../instruction-assembler.rhdl".RV2WideInstructionAssembler
+  "../../predecode.rhdl".rv2wide_fetch_config
+  lib("cores/fetch/instruction-assembler.rhdl").InstructionAssembler
 
-def program = elaborate(RV2WideInstructionAssembler(RV2WideConfig(~floating_point: FloatingPointProfile.D)))
+def program = elaborate(InstructionAssembler(rv2wide_fetch_config(RV2WideConfig(~floating_point: FloatingPointProfile.D)), 2))
 export program
