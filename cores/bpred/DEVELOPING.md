@@ -32,7 +32,8 @@ contract without allocating predictor state.
 | `protocol.rhdl` | Target/direction predictions, saved-index training, and RAS event payloads |
 | `statistics.rhdl` | Pure failure classification and passive count declarations; callers qualify the winning recovery |
 | `btb.rhdl` | Associative low-address entries, shared upper tags, local counters, discovery, and replacement |
-| `bht.rhdl` | Banked asynchronous direction counters, saved-index saturation, and lazy row initialization |
+| `counter-table.rhdl` | Single-write-port banked counter storage and reset-only row sweep shared by the direction predictors |
+| `bht.rhdl` | Standalone BHT with its own reset sweep and saved-index training |
 | `tournament.rhdl` | Independent bimodal/gshare lookup ports and saved-disagreement chooser training |
 | `ras.rhdl` | Canonical/compressed RISC-V hints and speculative/resolved bounded stacks |
 | `tests/ras-fixture.rhdl` | Direct stack and classification test boundary |
@@ -73,7 +74,11 @@ shared-page replacement, training/discovery/invalidation priority, call/return
 classification, stack overflow/underflow, and speculative reconciliation.
 The tournament oracle independently models all three tables, including chooser
 saturation, agreement, delayed predictions, aliased consecutive updates, and
-clear priority. External-direction BTB tests cover every bank, earliest-target
+training suppression through the final scrub edge. Keep **one** sweep per
+tournament, not one per table. Use the existing memory write port for both
+scrubbing and training; table contents have no reset or valid bits. Pair the
+table fixtures with `rv2wide-bht` when changing initialization or context
+recovery. External-direction BTB tests cover every bank, earliest-target
 selection, unconditional entries, and disagreement with local counters.
 
 For changes to shared payloads or extraction boundaries, also run the RV5Stage

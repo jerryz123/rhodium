@@ -92,9 +92,9 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig, profile :: RV2WideCon
   | btb.conditional_taken <== mux(s1.egress.bits.hashed, s1.egress.bits.base_taken, bht.base_taken)
   | #void
 
-  btb.invalidate_all.valid <== start.valid ||| invalidate.valid ||| predictor_clear.valid
-  ras.clear.valid <== btb.invalidate_all.valid
-  bht.clear.valid <== btb.invalidate_all.valid
+  def clear_prediction_context = start.valid ||| invalidate.valid ||| predictor_clear.valid
+  btb.invalidate_all.valid <== clear_prediction_context
+  ras.clear.valid <== clear_prediction_context
   direction_update |> bht.update
   ras.restore.valid <== restore
   branch_update |> btb.update
@@ -158,7 +158,7 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig, profile :: RV2WideCon
     committed_next := mux(history_commit.valid & history_commit.bits.enable[lane], history[0..9] ++ history_commit.bits.taken[lane].as_bits(), history)
 
   def s1_history = mux(direction_updates_history, direction.history_after, speculative_history)
-  when (bht.clear.valid):
+  when clear_prediction_context:
     speculative_history <== Bits(10)(0)
     committed_history <== Bits(10)(0)
   otherwise:

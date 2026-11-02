@@ -77,17 +77,19 @@ less than XLEN; `page_count` must be at least two. BTB matching has no address-s
 ## Direction table
 
 `Bht(row_bits = 10)` stores four two-bit saturating counters per row. Its
-default 1,024 rows provide 4,096 counters (1 KiB of counter data), plus row-valid
-bits. `row` selects four halfword banks combinationally; `prefix_row` independently
+default 1,024 rows provide 4,096 counters (1 KiB of counter data), with no
+row-valid map. `row` selects four halfword banks combinationally; `prefix_row` independently
 reads bank three for an unfinished byte-six instruction. Cold counters are
 weakly not-taken. Asynchronous reads do not guarantee SRAM mapping.
 
 `update: Valid(BhtUpdate(row_bits))` supplies a saved index and actual `taken`
 outcome. Index bits 1:0 select the bank; upper bits select the row. Training
 saturates the current counter, so consecutive aliased updates are not lost.
-Reset and `clear: Pulse()` invalidate rows; the next write initializes the
-remaining banks in that row. Clear overrides training and exposes cold lookup
-values immediately. `DisabledBht` retains these ports without table state.
+After reset deasserts, the table initializes one whole row per clock. For the
+first `2 ** row_bits` edges, all lookup ports return cold counters and training
+offers are discarded, including on the final scrub edge. Training resumes on
+the following edge. Another hardware reset restarts the sweep; there is no
+runtime clear input. `DisabledBht` retains the lookup/update ports without table state.
 
 Callers own PC/history hashing, speculative history, instruction boundaries,
 training authorization, and recovery. `BhtPrediction(row_bits)` carries a
@@ -96,9 +98,9 @@ outcome; a not-taken prediction is still valid metadata.
 
 ## Tournament direction tables
 
-`TournamentBht(row_bits = 10)` layers two `Bht` instances with a PC-indexed
-two-bit chooser. All three tables have four banks per row: 3 KiB of counter
-data and 384 bytes of row-valid bits at the default size. Bimodal and gshare
+`TournamentBht(row_bits = 10)` combines bimodal and gshare direction tables
+with a PC-indexed two-bit chooser. All three tables have four banks per row:
+3 KiB of counter data at the default size. Bimodal and gshare
 counters start weakly not-taken; choosers start strongly preferring bimodal.
 One winning gshare disagreement does not switch a cold chooser; two consecutive
 winning disagreements do. Alternating winners from the cold state retain the
@@ -113,12 +115,14 @@ The caller snapshots early bimodal bits, selects the later result, and owns
 hashing, speculative history, instruction boundaries, and recovery.
 
 `update: Valid(TournamentUpdate(row_bits))` carries saved gshare and bimodal
-indices, their observed predictions, and the actual outcome. Both direction
-tables always train. The chooser trains only on component disagreement,
+indices, their observed predictions, and the actual outcome. After warm-up,
+both direction tables train on every update. The chooser trains only on component disagreement,
 toward the component that was correct. All updates saturate current counters,
 not saved counter values; delayed and consecutive aliased updates remain valid.
-The chooser uses the saved bimodal index. Reset and `clear` invalidate all
-three tables; clear wins over training and masks lookup immediately.
+The chooser uses the saved bimodal index. One reset sweep initializes the same
+row of all three tables in parallel: 1,024 post-reset cycles by default. During
+the sweep fetch can continue with not-taken directions and bimodal selection;
+no training is queued or applied. Runtime invalidations do not restart it.
 `DisabledTournamentBht` retains the same ports with no predictor state.
 
 `TournamentPrediction` retains the selected prediction, both component bits,

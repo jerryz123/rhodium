@@ -1,45 +1,31 @@
 #lang rhodium
-/* Stores banked two-bit direction counters with caller-owned indices and lazy initialization. */
+/* Stores banked two-bit direction counters with caller-owned indices and reset-only scrubbing. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("rhodium/std/bits.rhdl") open
+  "counter-table.rhdl" open
   "protocol.rhdl" open
   lib("flow/main.rhdl") open
 
 /* Reads four halfword banks plus a retained byte-six prefix; training uses the current counter. */
 sync_circuit Bht(row_bits :: PosInt = 10):
   input(row, prefix_row): Bits(row_bits)
-  interface clear(Pulse(), ~role: consumer)
   interface update(Valid(BhtUpdate(row_bits)), ~role: consumer)
   output counters: Vec(4, Bits(2))
   output prefix_counter: Bits(2)
-  def rows = 1 << row_bits
-  def cold = vec(for List (_ in 0..4): Bits(2)(1))
-  mem storage(rows, Vec(4, Bits(2)))
-  reg valid_rows(~init: literal(Vec(rows, Bool), 0))
-  counters <== mux(valid_rows[row] & !clear.valid, storage[row], cold)
-  prefix_counter <== mux(valid_rows[prefix_row] & !clear.valid, storage[prefix_row][3], Bits(2)(1))
-  def write_row = update.bits.index[2..row_bits + 2]
-  def bank = update.bits.index[0..2]
-  def previous = mux(valid_rows[write_row], storage[write_row], cold)
-  def counter = previous[bank]
-  def incremented = saturating_increment(counter, 3)
-  def decremented = saturating_decrement(counter)
-  def written = vec(for List (lane in 0..4): mux(bank === Bits(2)(lane), mux(update.bits.taken, incremented, decremented), previous[lane]))
-  when (!clear.valid & update.valid):
-    storage.write(write_row, written)
 
-  for (index in 0..rows):
-    when (clear.valid):
-      valid_rows[index] <== Bool(#false)
-    elsewhen (update.valid & (write_row === Bits(row_bits)(index))):
-      valid_rows[index] <== Bool(#true)
+  inst sweep(BhtResetSweep(row_bits))
+  inst table(BhtCounterTable(row_bits, 1))
+  sweep.scrub |> table.scrub
+  update |> table.update
+  table.row <== row
+  table.prefix_row <== prefix_row
+  counters <== table.counters
+  prefix_counter <== table.prefix_counter
 
 /* Retains the BHT port shape without allocating counter state. */
 sync_circuit DisabledBht(row_bits :: PosInt = 10):
   input(row, prefix_row): Bits(row_bits)
-  interface clear(Pulse(), ~role: consumer)
   interface update(Valid(BhtUpdate(row_bits)), ~role: consumer)
   output counters: Vec(4, Bits(2))
   output prefix_counter: Bits(2)

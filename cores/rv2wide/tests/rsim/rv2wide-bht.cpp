@@ -59,7 +59,7 @@ void observe() {
     defer(response_replay, 0);
   } else {
     cycles++;
-    if (cycles > 150)
+    if (cycles > 1024 + 150)
       fail(1, "BHT frontend timeout scenario=%0d", scenario);
     defer(response_valid, memory_out.prequest.pvalid && !memory_out.ps1_ukill &&
                               !memory_out.pflush);
@@ -97,8 +97,10 @@ void observe() {
                 (!taken || insn.pprediction.ptarget == target_pc));
           CHECK(insn.pdirection.pbase_uindex == ((branch_pc >> 1) & 4095));
           if (scenario == 1 || scenario == 12 || scenario == 13 ||
-              scenario == 14 || scenario == 15)
+              scenario == 14 || scenario == 15 || scenario == 16)
             CHECK(insn.pdirection.pbase_utaken && !insn.pdirection.pgshare_utaken);
+          if (scenario == 17)
+            CHECK(insn.pdirection.pbase_utaken && insn.pdirection.pgshare_utaken);
           if (taken)
             CHECK(int(instructions_out.pbits.pcount) == lane + 1);
         }
@@ -124,12 +126,14 @@ void observe() {
   }
 }
 void begin_case(int which, std::uint8_t want_taken = 1,
-                std::uint8_t btb_taken = 0, int history = 0) {
+                std::uint8_t btb_taken = 0, int history = 0, bool warm = true) {
   falling();
   reset = 1;
   start_in = {};
   redirect_in = {};
   flush_in = {};
+  invalidate_in = {};
+  predictor_clear_in = {};
   branch_update_in = {};
   direction_update_in = {};
   history_restore_in = {};
@@ -165,6 +169,8 @@ void begin_case(int which, std::uint8_t want_taken = 1,
   for (int repeat_index = 0; repeat_index < (3); ++repeat_index)
     falling();
   reset = 0;
+  if (warm)
+    for (int r = 0; r < 1024; ++r) falling();
   start_in = {UINT64_C(1), UINT64_C(0x100)};
   falling();
   start_in = {};
@@ -215,6 +221,40 @@ int main() {
     reset = 1;
     instructions_in.pready = 1;
     virtual_lookup_in.pready = 1;
+    // Fetch and resolve a cold conditional while the reset sweep is still busy.
+    begin_case(0, 0, 0, 0, false);
+    direction_update_in = {1, expected_index, std::uint16_t(branch_pc >> 1), 0, 1, 1};
+    falling();
+    direction_update_in = {};
+    virtual_lookup_in.pready = 1;
+    finish_case();
+    CHECK(cycles < 1024);
+
+    // Train with lookups held, then independently exercise each context-clear
+    // source. History must go cold; bimodal, gshare and chooser must not.
+    for (int event = 0; event < 3; ++event) {
+      for (int which : {16, 17}) {
+        begin_case(which, which == 17, which == 16);
+        history_restore_in = {1, 7};
+        history_commit_in = {1, {{1, 1}, {1, 1}}};
+        falling();
+        history_restore_in = {};
+        history_commit_in = {};
+        start_in = {std::uint8_t(event == 0), 0x100};
+        invalidate_in.pvalid = event == 1;
+        predictor_clear_in.pvalid = event == 2;
+        // Instruction invalidation accompanies the retiring fence's restart.
+        redirect_in.pvalid = event == 1;
+        redirect_in.pbits.ptarget = 0x100;
+        falling();
+        start_in = {};
+        invalidate_in = {};
+        predictor_clear_in = {};
+        redirect_in = {};
+        virtual_lookup_in.pready = 1;
+        finish_case();
+      }
+    }
     // Miss -> taken redirects at fresh S2, even with the entire assembler stalled.
     begin_case(0);
     instructions_in.pready = 0;

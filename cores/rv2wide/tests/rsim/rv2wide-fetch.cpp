@@ -30,6 +30,7 @@ bool svinval_remapped = 0;
 int wrong_path_reads = 0, detached_refills = 0, completions_seen = 0;
 int reset_canceled_refills = 0;
 int predicted_branches = 0, predicted_conditional = 0, predicted_straddles = 0;
+constexpr int prediction_training_iterations = 128;
 int compressed_retired = 0, straddled_retired = 0, compressed_dual_run = 0;
 int zc_pairs = 0;
 int instruction_prefetch_reads = 0;
@@ -1126,8 +1127,9 @@ void stimulus() {
       model_bytes[b] = backing[b];
     for (int r = 0; r < 32; r++)
       registers[r] = 0;
-    // Run long enough to warm the ten-bit history as well as the BTB.
-    insn(0, addi(31, 0, 20));
+    // Fetch through the 1,024-cycle reset scrub, then train the same loop
+    // long enough to observe a taken direction prediction at retirement.
+    insn(0, addi(31, 0, prediction_training_iterations));
     insn(4, addi(1, 0, 2047));
     insn(8, addi(1, 1, 1));
     insn(12, jal(0, 52));
@@ -1602,7 +1604,7 @@ void stimulus() {
       backing[b] = ((b)&low_mask(8));
       model_bytes[b] = ((b)&low_mask(8));
     }
-    insn(UINT64_C(1536), addi(31, 0, 20));
+    insn(UINT64_C(1536), addi(31, 0, prediction_training_iterations));
     parcel(UINT64_C(1540), c_imm(2, 8, 7));
     parcel(UINT64_C(1542), c_imm(2, 9, 9));
     for (int p = UINT64_C(1544); p < UINT64_C(1592); p += 2)

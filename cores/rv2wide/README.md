@@ -469,12 +469,15 @@ Direction mismatches reconcile history even when target and fallthrough coincide
 The speculative stack changes once per accepted complete
 call/return; two actions are emitted in separate packets. Recovery restores the
 resolved stack and reconciles through the surviving branch's WB retirement.
-Instruction invalidation and translation/context invalidation clear predictors.
+Frontend start, instruction invalidation, and predictor context invalidation
+clear the BTB, RAS, and history, not the learned direction counters.
 With tournament prediction enabled, S1 uses bimodal bits instead of BTB-local
 counters; `~bht: #false` restores local-counter BTB-only behavior. Each of the
-three tables has 1,024 rows of four two-bit counters: 3 KiB of counter data plus
-384 bytes of validity. Cold directions are weakly not-taken and cold choosers
-weakly prefer bimodal. The predictor has ten-bit speculative history and no
+three tables has 1,024 rows of four two-bit counters: 3 KiB of counter data and
+no per-row validity. Only hardware reset starts their shared 1,024-cycle scrub.
+Fetch continues with weakly not-taken direction counters and a strongly bimodal
+chooser during warm-up; training offers in that interval are discarded. The
+predictor has ten-bit speculative history and no
 ASID tags. Its asynchronous tables are an
 initial implementation, not a physical SRAM guarantee.
 

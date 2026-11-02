@@ -767,11 +767,11 @@ classifies prediction failures without importing compilation or simulator code.
 Both named cores consume it; RV5Stage carries its classification from EX to MEM.
 Both cores and the shared L1I/L1D import `frontend/layers/statistics.rhm` for
 passive count declarations. Instrumentation remains compile-target-owned.
-`bht.rhdl` consumes that protocol, `std/bits.rhdl` for saturating counter
-steps, and `flow/main.rhdl` for training and clear inputs; PC/history hashing
-stays with its caller.
-`tournament.rhdl` layers two `Bht` instances with chooser state and consumes
-the shared protocol plus `std/bits.rhdl` and `flow/main.rhdl`; it does not own pipeline history.
+`cores/bpred/counter-table.rhdl` consumes that protocol, `std/bits.rhdl` for
+saturating steps, and `std/ready-valid.rhdl` for training and scrub interfaces.
+`bht.rhdl` and `tournament.rhdl` compose these tables and a reset sweep using
+the shared protocol and Flow. The tournament shares one sweep across three
+memories; PC/history hashing and pipeline history stay with the caller.
 `btb.rhdl` and `ras.rhdl` consume that protocol, XLEN, `std/bits.rhdl`, and
 `flow/main.rhdl`; RAS hint classification also imports pure RISC-V formats and
 the public instruction-field adapter. RV5Stage's fetch and execution consume

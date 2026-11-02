@@ -26,6 +26,16 @@ void check_rows() {
     CHECK(prefix_use_gshare == (choice_model[(r + 4) % 8][3] >= 2));
   }
 }
+void finish_scrub() {
+  // Offer a disagreement every cycle, including the final scrub write.
+  for (unsigned i = 0; i < base_model.size(); ++i) {
+    update_in = {1, {11, 3, false, true, true}};
+    check_rows();
+    tick_model();
+  }
+  update_in = {};
+  check_rows();
+}
 void step(unsigned &counter, bool increment) {
   counter = increment ? std::min(counter + 1, 3u) : (counter ? counter - 1 : 0);
 }
@@ -44,11 +54,10 @@ int main() {
   return run_test([] {
     reset = 1;
     update_in = {};
-    clear_in = {};
     cold_model();
     tick_model(); tick_model();
     reset = 0;
-    check_rows();
+    finish_scrub();
     // SLRE-like alternating winners must retain the cold bimodal preference.
     // Bank three also exercises the independent retained-prefix chooser read.
     for (unsigned iteration = 0; iteration < 46; ++iteration) {
@@ -79,21 +88,16 @@ int main() {
       for (unsigned index = 0; index < 32; ++index)
         train(index, (index * 13 + pass) % 32, pass % 2, (index + pass) % 3 == 0,
               (index ^ pass) % 5 != 0);
-    // Clear masks lookup immediately, wins over training, and leaves no stale rows.
-    clear_in.pvalid = 1;
+    // Reset must scrub all three previously trained memories.
+    reset = 1;
     update_in = {1, {7, 7, false, true, true}};
     cold_model();
-    check_rows();
-    tick_model();
-    update_in = {};
-    clear_in = {};
-    check_rows();
-    train(7, 19, false, true, true);
-    CHECK(choice_model[1][3] == 1);
-    reset = 1;
     tick_model();
     reset = 0;
-    cold_model();
-    check_rows();
+    finish_scrub();
+    train(7, 19, false, true, true);
+    CHECK(choice_model[1][3] == 1);
+    train(7, 19, false, true, true);
+    CHECK(choice_model[1][3] == 2);
   });
 }

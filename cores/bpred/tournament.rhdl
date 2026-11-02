@@ -3,89 +3,67 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("rhodium/std/bits.rhdl") open
-  "bht.rhdl".Bht
+  "counter-table.rhdl" open
   "protocol.rhdl" open
   lib("flow/main.rhdl") open
 
 /* Reads S1 bimodal and S2 history/choice banks independently; retired disagreements train the chooser. */
 sync_circuit TournamentBht(row_bits :: PosInt = 10):
   input(base_row, gshare_row, choice_row, prefix_gshare_row, prefix_choice_row): Bits(row_bits)
-  interface clear(Pulse(), ~role: consumer)
   interface update(Valid(TournamentUpdate(row_bits)), ~role: consumer)
   output(base_taken, gshare_taken, use_gshare): Vec(4, Bool)
   output(prefix_gshare_taken, prefix_use_gshare): Bool
 
 
-  /* Independent direction tables.
-     Both train on every update; the caller supplies each saved lookup index. */
+  /* One reset sweep initializes the three memories in parallel. Lookups and
+     training addresses remain independent; no instruction restarts the sweep. */
 
-  inst base(Bht(row_bits))
-  inst gshare(Bht(row_bits))
+  inst sweep(BhtResetSweep(row_bits))
+  inst base(BhtCounterTable(row_bits, 1))
+  inst gshare(BhtCounterTable(row_bits, 1))
+  inst chooser(BhtCounterTable(row_bits, 0))
+  def Array(base_scrub, gshare_scrub, chooser_scrub) = sweep.scrub |> fork_valid(3)
+  base_scrub |> base.scrub
+  gshare_scrub |> gshare.scrub
+  chooser_scrub |> chooser.scrub
   base.row <== base_row
   base.prefix_row <== base_row
   gshare.row <== gshare_row
   gshare.prefix_row <== prefix_gshare_row
-  clear |> base.clear
-  clear |> gshare.clear
-  (update |> map_valid(result => BhtUpdate(row_bits)):
+  chooser.row <== choice_row
+  chooser.prefix_row <== prefix_choice_row
+
+
+  /* Both direction tables train on each update. Only a disagreement trains
+     the chooser, using the saved bimodal index and the observed predictions. */
+
+  def Array(base_update, gshare_update, chooser_update) = update |> fork_valid(3)
+  (base_update |> map_valid(result => BhtUpdate(row_bits)):
     index: result.base_index
     taken: result.taken
   ) |> base.update
 
-  (update |> map_valid(result => BhtUpdate(row_bits)):
+  (gshare_update |> map_valid(result => BhtUpdate(row_bits)):
     index: result.index
     taken: result.taken
   ) |> gshare.update
 
+  (chooser_update |> filter_valid(result => result.base_taken =/= result.gshare_taken) |> map_valid(result => BhtUpdate(row_bits)):
+    index: result.base_index
+    taken: result.gshare_taken === result.taken
+  ) |> chooser.update
+
   for (bank in 0..4):
     base_taken[bank] <== base.counters[bank][1].into(Bool)
     gshare_taken[bank] <== gshare.counters[bank][1].into(Bool)
+    use_gshare[bank] <== chooser.counters[bank][1].into(Bool)
 
   prefix_gshare_taken <== gshare.prefix_counter[1].into(Bool)
-
-
-  /* Chooser lookup and lazy row initialization.
-     Cold rows strongly prefer bimodal so one disagreement cannot switch predictors. */
-
-  def rows = 1 << row_bits
-  def cold = vec(for List (_ in 0..4): Bits(2)(0))
-  mem choices(rows, Vec(4, Bits(2)))
-  reg valid_rows(~init: literal(Vec(rows, Bool), 0))
-  def counters = mux(valid_rows[choice_row] & !clear.valid, choices[choice_row], cold)
-  for (bank in 0..4):
-    use_gshare[bank] <== counters[bank][1].into(Bool)
-
-  def prefix_counter = mux(valid_rows[prefix_choice_row] & !clear.valid, choices[prefix_choice_row][3], Bits(2)(0))
-  prefix_use_gshare <== prefix_counter[1].into(Bool)
-
-
-  /* Disagreement training.
-     Saturate the current chooser toward the correct component; clear wins. */
-
-  def write_row = update.bits.base_index[2..row_bits + 2]
-  def bank = update.bits.base_index[0..2]
-  def previous = mux(valid_rows[write_row], choices[write_row], cold)
-  def counter = previous[bank]
-  def incremented = saturating_increment(counter, 3)
-  def decremented = saturating_decrement(counter)
-  def history_wins = update.bits.gshare_taken === update.bits.taken
-  def trained_counter = mux(history_wins, incremented, decremented)
-  def written = vec(for List (lane in 0..4): mux(bank === Bits(2)(lane), trained_counter, previous[lane]))
-  def train_choice = update.valid & (update.bits.base_taken =/= update.bits.gshare_taken)
-  when (!clear.valid & train_choice):
-    choices.write(write_row, written)
-
-  for (index in 0..rows):
-    when (clear.valid):
-      valid_rows[index] <== Bool(#false)
-    elsewhen (train_choice & (write_row === Bits(row_bits)(index))):
-      valid_rows[index] <== Bool(#true)
+  prefix_use_gshare <== chooser.prefix_counter[1].into(Bool)
 
 /* Retains the tournament port contract without allocating prediction or chooser state. */
 sync_circuit DisabledTournamentBht(row_bits :: PosInt = 10):
   input(base_row, gshare_row, choice_row, prefix_gshare_row, prefix_choice_row): Bits(row_bits)
-  interface clear(Pulse(), ~role: consumer)
   interface update(Valid(TournamentUpdate(row_bits)), ~role: consumer)
   output(base_taken, gshare_taken, use_gshare): Vec(4, Bool)
   output(prefix_gshare_taken, prefix_use_gshare): Bool

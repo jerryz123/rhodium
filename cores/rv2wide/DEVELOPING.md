@@ -426,7 +426,8 @@ saved-index training. Repeated RAS restoration must not reset gshare history.
 Successful nonflushing vector configuration must not restore history: its
 younger fetch stream remains live. In particular it cannot override a
 simultaneous MEM branch correction. Only a configuration fault recovers history.
-Context/code invalidation clears both counter validity and history.
+Start and context/code invalidation clear history, BTB, and RAS, but never
+the direction tables. Their reset scrub is autonomous and must not gate fetch.
 
 Run `bpred-tournament`, `bpred-btb-external`, `rv2wide-bht`, the existing assembly/frontend baseline fixtures,
 and the production core/fetch fixtures for changes across this path. The BHT
@@ -491,7 +492,7 @@ per group; conditional branches do not consume this restriction.
 WB branches in age order and emitting one BTB/tournament update each cycle, bypassing
 the oldest incoming update when empty. A training record retains the branch
 outcome, both saved table indices, and the observed component bits together.
-Both components train every conditional outcome; the chooser trains only saved
+After reset warm-up, both components train every conditional outcome; the chooser trains only saved
 disagreements toward the correct component. Use current counters, not saved
 counter values, so delayed aliased records compose. RR projects occupancy through the
 WB, MEM, and EX branch groups, subtracting one training write at each edge
@@ -499,8 +500,9 @@ and saturating at zero. It admits a new pair only if its projected WB update
 fits; WB never waits for training capacity. Faults and flushes only reduce
 the projected arrivals. Projection and capacity assertions enforce this booking.
 Speculative recovery preserves retired training; predictor clear cancels
-the queue. RAS resolution and the two-lane conditional history commit bypass
-this FIFO and reach the frontend on the retirement edge. The frontend folds
+queued training, not previously learned direction counters. RAS resolution and
+the two-lane conditional history commit bypass this FIFO and reach the frontend
+on the retirement edge. The frontend folds
 history in lane order before command recovery, independently of counter writes.
 Core tests compare emitted training against an ordered retirement oracle,
 exercise sustained dual-branch pressure and oldest-stop prefixes, and verify
@@ -511,7 +513,8 @@ MEM flush restores through current WB, and the surviving corrected
 branch restores again at WB with its actual action included. Pause assembly
 speculation on this reconciliation edge because RAS restore wins speculation.
 WB faults/replays restore without training rejected branches. Architectural
-translation invalidation and FENCE.I clear both predictors, not merely fetch state.
+translation invalidation and FENCE.I clear target, RAS, and history state without
+restarting direction-table warm-up.
 
 A pending fault squashes younger pipeline/window work immediately, but its
 CSR trap command and public redirect wait for both the owner FIFO and memory service to drain.

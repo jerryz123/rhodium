@@ -1,0 +1,46 @@
+#lang rhodium
+/* Implements a reset-only row sweep and the banked counter memory it initializes. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "protocol.rhdl".BhtUpdate
+  lib("rhodium/std/bits.rhdl") open
+  lib("rhodium/std/ready-valid.rhdl").Valid
+
+/* Broadcasts one row per post-reset edge, then stops until the next hardware reset. */
+sync_circuit BhtResetSweep(row_bits :: PosInt):
+  interface scrub(Valid(Bits(row_bits)), ~role: producer)
+  reg active(~init: Bool(#true))
+  reg row(~init: Bits(row_bits)(0))
+  scrub.valid <== active ||| reset_active().into(Bool)
+  scrub.bits <== row
+  when active:
+    row <== row + Bits(row_bits)(1)
+    when (row.all()):
+      active <== Bool(#false)
+
+/* Reads four counters and an independent prefix bank. The single write port
+   either initializes a whole row or trains one bank from its current counter. */
+sync_circuit BhtCounterTable(row_bits :: PosInt, cold_value :: Nat):
+  input(row, prefix_row): Bits(row_bits)
+  interface scrub(Valid(Bits(row_bits)), ~role: consumer)
+  interface update(Valid(BhtUpdate(row_bits)), ~role: consumer)
+  output counters: Vec(4, Bits(2))
+  output prefix_counter: Bits(2)
+
+  def cold = vec(for List (_ in 0..4): Bits(2)(cold_value))
+  mem storage(1 << row_bits, Vec(4, Bits(2)))
+  counters <== mux(scrub.valid, cold, storage[row])
+  prefix_counter <== mux(scrub.valid, Bits(2)(cold_value), storage[prefix_row][3])
+
+  def update_row = update.bits.index[2..row_bits + 2]
+  def bank = update.bits.index[0..2]
+  def previous = storage[update_row]
+  def counter = previous[bank]
+  def trained = mux(update.bits.taken, saturating_increment(counter, 3), saturating_decrement(counter))
+  when (scrub.valid ||| update.valid):
+    storage.write(mux(scrub.valid, scrub.bits, update_row), mux(scrub.valid, cold, previous.updated(bank, trained)))
+
+export:
+  BhtCounterTable
+  BhtResetSweep
