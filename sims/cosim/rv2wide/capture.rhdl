@@ -77,7 +77,7 @@ sync_circuit RV2WideCosimObserver(profile :: RV2WideConfig, tap_types :: Map, in
   def multiply :: Bool = taps["wb_multiply_accepted"]
   def command :: RV2WideResult(xlen) = taps["wb_command"]
   def completion_valid :: Vec(4, Bool) = taps["completion_fire"]
-  def completions :: Vec(4, RV2WideRetirement(xlen)) = taps["completion"]
+  def completions :: Vec(4, RV2WideCompletion(xlen)) = taps["completion"]
   def privilege :: PrivilegeMode = taps["csr_privilege"]
   def mret :: Bool = taps["csr_mret"]
   def sret :: Bool = taps["csr_sret"]
@@ -109,7 +109,7 @@ sync_circuit RV2WideCosimObserver(profile :: RV2WideConfig, tap_types :: Map, in
       mux(token.fp.valid, mux(token.memory.enable, mux(token.fp.bits.registers.destination === FloatDestination.FloatingPoint, Bits(64)(2), Bits(64)(3)), Bits(64)(1)), Bits(64)(0)),
       mux(token.fp.valid, lane(token.fp.bits.registers.destination.as_bits()), Bits(64)(0)),
       mux(token.fp.bits.execution.unit === FloatUnit.DivideSquareRoot, !Bits(64)(0), timing.latency(token.fp.bits.execution, ~width: 64) - Bits(64)(2)),
-      lane((token.vector.control.memory ||| token.vector.control.integer ||| token.vector.control.multiply_divide ||| token.vector.control.floating_point).as_bits()), ~enable: active
+      lane(token.vector.operation.as_bits()), ~enable: active
     )
 
   rhodium_rv2wide_boundary.call(
@@ -122,13 +122,13 @@ sync_circuit RV2WideCosimObserver(profile :: RV2WideConfig, tap_types :: Map, in
   )
 
   for (index in 0..4):
-    def result :: RV2WideRetirement(xlen) = completions[index]
-    rhodium_rv2wide_completion.call(instance_id, Bits(64)(index), lane(completion_valid[index].as_bits()), lane(result.fetched.pc), lane(result.rd), lane(result.write.as_bits()), lane(result.data), ~enable: active)
+    def result :: RV2WideCompletion(xlen) = completions[index]
+    rhodium_rv2wide_completion.call(instance_id, Bits(64)(index), lane(completion_valid[index].as_bits()), lane(result.identity.pc), lane(result.rd), lane(result.write.as_bits()), lane(result.data), ~enable: active)
 
   def fp_result :: FpExecutionResult(xlen, fp_transport_profile(xlen), RV2WideFpOwner(xlen)) = taps["fp_completion"]
   def fp_load :: RV2WideFpLoad(xlen) = taps["fp_load"]
-  rhodium_rv2wide_fp.call(instance_id, Bits(64)(0), tap_lane("fp_valid"), lane(fp_result.tag.fetched.pc), lane(fp_result.tag.rd), lane(fp_result.tag.destination.as_bits()), mux(fp_result.tag.destination === FloatDestination.Integer, lane(fp_result.integer_value), lane(fp_result.fp_value)), lane(fp_result.exception_flags_valid.as_bits()), lane(fp_result.exception_flags), Bits(64)(floating_point_register_width(fp_transport_profile(xlen))), ~enable: active)
-  rhodium_rv2wide_fp.call(instance_id, Bits(64)(1), tap_lane("fp_load_valid"), lane(fp_load.owner.fetched.pc), lane(fp_load.owner.rd), Bits(64)(2), lane(fp_load_value(fp_transport_profile(xlen), fp_load.precision, fp_load.data)), Bits(64)(0), Bits(64)(0), Bits(64)(floating_point_register_width(fp_transport_profile(xlen))), ~enable: active)
+  rhodium_rv2wide_fp.call(instance_id, Bits(64)(0), tap_lane("fp_valid"), lane(fp_result.tag.identity.pc), lane(fp_result.tag.rd), lane(fp_result.tag.destination.as_bits()), mux(fp_result.tag.destination === FloatDestination.Integer, lane(fp_result.integer_value), lane(fp_result.fp_value)), lane(fp_result.exception_flags_valid.as_bits()), lane(fp_result.exception_flags), Bits(64)(floating_point_register_width(fp_transport_profile(xlen))), ~enable: active)
+  rhodium_rv2wide_fp.call(instance_id, Bits(64)(1), tap_lane("fp_load_valid"), lane(fp_load.owner.identity.pc), lane(fp_load.owner.rd), Bits(64)(2), lane(fp_load_value(fp_transport_profile(xlen), fp_load.precision, fp_load.data)), Bits(64)(0), Bits(64)(0), Bits(64)(floating_point_register_width(fp_transport_profile(xlen))), ~enable: active)
   def vector_request :: Bool = if vectors | taps["lsu_request_vector"] | Bool(#false)
   def vector_pipeline :: Bool = if vectors | taps["lsu_pipeline_vector"] | Bool(#false)
   def vector_split :: Bool = if vectors | taps["lsu_split_vector"] | Bool(#false)

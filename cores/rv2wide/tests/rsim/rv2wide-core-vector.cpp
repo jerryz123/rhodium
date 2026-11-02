@@ -304,8 +304,8 @@ void step() {
       ++deferred_count;
       const auto &result = completed_out.pbits;
       gprs[result.prd] = result.pdata;
-      gpr_completions[result.pfetched.ppc].push_back(
-          {cycle, unsigned(result.prd), unsigned(result.pfetched.praw_uinstruction), result.pdata});
+      gpr_completions[result.pidentity.ppc].push_back(
+          {cycle, unsigned(result.prd), unsigned(result.pidentity.praw_uinstruction), result.pdata});
     }
     if (branch_update_out.pvalid) {
       CHECK(retired_pcs.contains(branch_update_out.pbits.ppc));
@@ -1386,6 +1386,7 @@ void conflict_based_pairing() {
     entry.pdirection.pvalid = sent == 1;
     entry.pdirection.ptaken = sent == 1;
     entry.pprediction.pvalid = sent == 1;
+    entry.pprediction.ppc = entry.ppc;
     entry.pprediction.ptarget = history_base + 12;
     settle();
     const bool accepted = instructions_in.pvalid && instructions_out.pready;
@@ -1616,6 +1617,7 @@ void vector_memory_branch_pairs() {
               entry.pinstruction = entry.praw_uinstruction = program[index];
               if (index == 1) {
                 entry.pprediction.pvalid = predicted;
+                entry.pprediction.ppc = entry.ppc;
                 entry.pprediction.ptarget = base + 12;
                 entry.pdirection.pvalid = 1;
                 entry.pdirection.ptaken = predicted;
@@ -1890,6 +1892,34 @@ void pc_region_pairing() {
   CHECK(!retired_pcs.contains(fault_pair + 4) && gprs[10] == 31 && gprs[11] == 22);
 }
 
+void faulted_window_length() {
+  run();
+  const std::uint64_t pc = bytes == 4 ? UINT32_MAX - 1u : UINT64_MAX - 1;
+  const auto faults = fault_count;
+  instructions_in = {};
+  instructions_in.pvalid = instructions_in.pbits.pcount = 1;
+  auto &entry = instructions_in.pbits.pentries[0];
+  entry.ppc = pc;
+  entry.pinstruction = entry.praw_uinstruction = 0x00000013; // Looks four bytes long.
+  entry.psequential_upc = 0; // Faulted first parcel: +2 wraps at XLEN.
+  entry.pfault = {.pvalid = 1, .pcause = 1, .pvalue = pc};
+  bool saw_mem = false;
+  for (unsigned wait = 0; fault_count == faults; ++wait) {
+    CHECK(wait < 100);
+    settle();
+    const bool accepted = instructions_in.pvalid && instructions_out.pready;
+    if (memory_stage_0_out.pvalid && memory_stage_0_out.pbits.ppc == pc) {
+      const auto &token = memory_stage_0_out.pbits;
+      CHECK(token.psequential_upc == 0 && token.pprediction.ppc == pc &&
+            token.praw_uinstruction == 0x13 && token.pfault.pvalue == pc);
+      saw_mem = true;
+    }
+    step();
+    if (accepted) instructions_in.pvalid = 0;
+  }
+  CHECK(saw_mem && last_fault_pc == pc && last_tval == pc);
+}
+
 int main() {
   return run_test([] {
     rheg::graph().bind_manifest(rheg_generated::manifest());
@@ -2042,6 +2072,7 @@ int main() {
     vector_memory_branch_pairs();
     speculative_scalar_authorization();
     pc_region_pairing();
+    faulted_window_length();
     run(100);
     vector_trace::finish();
   });

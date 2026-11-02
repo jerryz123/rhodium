@@ -83,10 +83,18 @@ fetch fault can bypass normal pairing but cannot claim the payload. Each stage
 also forwards one successful vset result independently: a vset and a vector
 can pair, so their state snapshots are not interchangeable.
 
-The four-entry delayed-memory FIFO retains fetched/destination identity,
+The four-entry delayed-memory FIFO retains PC/raw encoding, destination identity,
 return bank, byte offset and load formatting, not the MEM/WB result. Join the
 oldest owner to the arriving beat before selecting either completion port.
 Format ordinary loads by width and offset; atomics return the raw beat.
+Multiply, divide, FP and vector GPR returns use the same compact instruction
+identity. Keep the full fetch record on retirement, not in these return tags.
+
+The issue window stores one length bit instead of the sequential PC and omits
+the prediction PC. Expand only the two visible head entries. Use the assembler's
+actual halfword count, including when a fetch faults. Preserve the prediction
+target, direction checkpoint, RAS actions, and full fault provenance even when
+an instruction crosses a block or region.
 
 WB separates live/retained owners, the pre-dispatch prefix (`wb_dispatch`),
 service acceptance/faults, and the successful retirement prefix (`wb_retire`).

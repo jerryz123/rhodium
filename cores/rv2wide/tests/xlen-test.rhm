@@ -20,6 +20,19 @@ for (xlen in [XLen.X32, XLen.X64]):
   def memory = design.modules.find(fun (module_def): module_def.name == "RV2WideBareMemory")
   def execution = design.modules.find(fun (module_def): module_def.name == "RV2WideCore")
   def retired = core.find_output("retired_0_out").type.field("bits").type
+  def completed = core.find_output("completed_out").type.field("bits").type
+  def window = child(execution, "rr_window")
+  def entries = window.operations.find(fun (op): op.opcode == "rtl.register" && op.attribute("name") == "entries")
+  def fetched_width = retired.field("fetched").type.packed_width()
+  def fifo = child(child(execution, "wb_load_response"), "owners")
+  def queue_storage = fifo.memories.find(fun (mem): mem.name == "storage")
+  check:
+    entries.results[0].type.packed_width() ~is 8 * (fetched_width - 2 * xlen.width + 1)
+    completed.field("identity").type.packed_width() ~is xlen.width + 32
+    completed.packed_width() ~is 2 * xlen.width + 38
+    queue_storage.depth ~is 4
+    queue_storage.element_type.field("destination").type.field("identity").type.packed_width() ~is xlen.width + 32
+
   for (stage in ["ex", "mem", "wb"]):
     def prefix_name = stage ++ "_pc_region"
     def prefix = execution.operations.find(fun (op): op.opcode == "rtl.register" && op.attribute("name") == prefix_name)

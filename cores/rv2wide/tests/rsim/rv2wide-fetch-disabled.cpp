@@ -1790,12 +1790,12 @@ void observe() {
       index = -1;
       CHECK(completions.size() > 0);
       for (std::size_t i = 0; i < completions.size(); ++i)
-        if (completions[i].pfetched.ppc == completed_out.pbits.pfetched.ppc)
+        if (completions[i].pfetched.ppc == completed_out.pbits.pidentity.ppc)
           index = i;
       CHECK(index >= 0);
       expected = completions[index];
       completions.erase(completions.begin() + index);
-      CHECK(same_instruction(completed_out.pbits.pfetched, expected.pfetched) &&
+      CHECK(same_completion_identity(completed_out.pbits.pidentity, expected.pfetched) &&
             completed_out.pbits.pwrite == expected.pwrite &&
             completed_out.pbits.prd == expected.prd);
       if (expected.pwrite) {

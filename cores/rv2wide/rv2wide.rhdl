@@ -39,7 +39,7 @@ sync_circuit RV2Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~
   trace_instance("hart", hart_id)
   interface start(Valid(Bits(64)), ~role: consumer)
   interface retired[2](Valid(RV2WideRetirement(xlen)), ~role: producer)
-  interface completed(Valid(RV2WideRetirement(xlen)), ~role: producer)
+  interface completed(Valid(RV2WideCompletion(xlen)), ~role: producer)
   interface redirect(Valid(RV2WideRedirect(xlen)), ~role: producer)
   interface instruction_chi(CHIRNIChannels(config.flit), ~role: node)
   interface data_chi(CHIRNChannels(config.flit), ~role: node)

@@ -135,6 +135,10 @@ inline bool one_of(std::uint64_t value,
                    std::initializer_list<std::uint64_t> choices) {
   return std::find(choices.begin(), choices.end(), value) != choices.end();
 }
+template <class I, class T> bool same_completion_identity(const I &id, const T &fetched) {
+  return id.ppc == fetched.ppc && id.praw_uinstruction == fetched.praw_uinstruction;
+}
+
 template <class T> bool same_instruction(const T &x, const T &y) {
   return x.ppc == y.ppc && x.pinstruction == y.pinstruction &&
          x.praw_uinstruction == y.praw_uinstruction &&
@@ -149,7 +153,7 @@ template <class T> bool same_instruction(const T &x, const T &y) {
              y.pfault.pguest.pguest_uphysical_uaddress &&
          x.pfault.pguest.paccess == y.pfault.pguest.paccess &&
          x.pprediction.pvalid == y.pprediction.pvalid &&
-         x.pprediction.ppc == y.pprediction.ppc &&
+         x.pprediction.ppc == y.ppc &&
          x.pprediction.ptarget == y.pprediction.ptarget &&
          x.pprediction.pcompressed == y.pprediction.pcompressed &&
          x.pprediction.pras_uaction == y.pprediction.pras_uaction &&

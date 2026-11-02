@@ -51,7 +51,7 @@ sync_circuit RV2WideCacheFixture():
   input management_pbmt: PageMemoryType
   interface instructions(Decoupled(RV2WidePacket(XLen.X64)), ~role: consumer)
   interface retired[2](Valid(RV2WideRetirement(XLen.X64)), ~role: producer)
-  interface completed(Valid(RV2WideRetirement(XLen.X64)), ~role: producer)
+  interface completed(Valid(RV2WideCompletion(XLen.X64)), ~role: producer)
   interface redirect(Valid(RV2WideRedirect(XLen.X64)), ~role: producer)
   interface chi(CHIRNChannels(test_flit), ~role: node)
   interface uncached_chi(CHIRNIChannels(test_flit), ~role: node)

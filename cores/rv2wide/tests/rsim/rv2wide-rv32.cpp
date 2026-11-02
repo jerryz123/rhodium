@@ -5,7 +5,6 @@ struct Finished {};
 auto &retired(unsigned i) { return i ? retired_1_out : retired_0_out; }
 inline auto &completed = completed_out;
 inline auto &redirect = redirect_out;
-using retirement_t = std::remove_cvref_t<decltype(retired_0_out.pbits)>;
 using CHIReqFlit =
     std::remove_cvref_t<decltype(instruction_chi_out.preq.pbits)>;
 // Exercises RV32 scalar execution, Bare PMAs, split accesses, and precise traps through the production fetching top.
@@ -70,8 +69,8 @@ void emit(std::uint32_t word, std::uint8_t writes = 0,
   expected[pc] = value;
   pc += 4;
 }
-void check_result(retirement_t result, std::uint8_t completion) {
-  int address = int(result.pfetched.ppc);
+template <class T> void check_result(const T &result, std::uint64_t pc, bool deferred) {
+  int address = int(pc);
   if (address == UINT64_C(2048) || address == UINT64_C(2052) ||
       address == UINT64_C(2056)) {
     CHECK(result.pwrite &&
@@ -80,7 +79,7 @@ void check_result(retirement_t result, std::uint8_t completion) {
                                                        : trap_pc + 4));
     return;
   }
-  if (result.pwrite && (completion || !result.pdeferred)) {
+  if (result.pwrite && !deferred) {
     CHECK(expected_write[address] && result.pdata == expected[address]);
     CHECK(!seen[address]);
     seen[address] = 1;
@@ -178,10 +177,11 @@ void observe() {
     for (int lane = 0; lane < 2; lane++)
       if (retired(lane).pvalid) {
         commits++;
-        check_result(retired(lane).pbits, 0);
+        const auto &result = retired(lane).pbits;
+        check_result(result, result.pfetched.ppc, result.pdeferred);
       }
     if (completed.pvalid) {
-      check_result(completed.pbits, 1);
+      check_result(completed.pbits, completed.pbits.pidentity.ppc, false);
       completed_count++;
     }
     if (redirect.pvalid && redirect.pbits.presolution.pdisposition == 1) {

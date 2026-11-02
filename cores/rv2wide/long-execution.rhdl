@@ -20,13 +20,13 @@ import:
 bundle RV2WideMultiplyIssue(xlen :: XLen):
   request: MultiplierRequest(xlen.width)
   control: RiscvMultiplyControl()
-  owner: RV2WideRetirement(xlen)
+  owner: RV2WideCompletion(xlen)
 
 /* Attaches WB authorization and architectural result selection to divide operands. */
 bundle RV2WideDivideIssue(xlen :: XLen):
   request: DividerRequest(xlen.width)
   control: RiscvDivideControl()
-  owner: RV2WideRetirement(xlen)
+  owner: RV2WideCompletion(xlen)
 
 /* Launches a feed-forward multiply in EX and gates its aligned owner at WB two cycles later.
    RR books the EX slot and RF write cycle; a squash cannot change vector admission combinationally.
@@ -36,7 +36,7 @@ sync_circuit RV2WideMultiply(xlen :: XLen = XLen.X64, ~vector_slots: slots :: Po
   interface book(Pulse(), ~role: consumer)
   interface issue(Valid(RV2WideMultiplyIssue(xlen)), ~role: consumer)
   input authorize: Bool
-  interface completed(Valid(RV2WideRetirement(xlen)), ~role: producer)
+  interface completed(Valid(RV2WideCompletion(xlen)), ~role: producer)
   output drained: Bool
   interface vector_request(Decoupled(IntegerExecutionRequest(MultiplierRequest(xlen.width), VectorMultiplyTag(slots))), ~role: consumer)
   interface vector_result(Irrevocable(IntegerExecutionResult(Bits(xlen.width * 2), VectorMultiplyTag(slots))), ~role: producer)
@@ -82,7 +82,7 @@ sync_circuit RV2WideMultiply(xlen :: XLen = XLen.X64, ~vector_slots: slots :: Po
   def returned = wb_owner |> filter_valid(_operation => authorize) |> valid_pipe(PipelinedMultiplierStages - 2)
   (returned |> map_valid(operation):
     def result = integer_multiply_result(xlen, execution.result.bits.value, operation.control.high_result, operation.control.word_result)
-    operation.owner.updated(~data: result, ~deferred: Bool(#false))
+    operation.owner.updated(~data: result)
   ) |> completed
 
   def count_width = index_width(PipelinedMultiplierStages + 1)
@@ -100,7 +100,7 @@ sync_circuit RV2WideMultiply(xlen :: XLen = XLen.X64, ~vector_slots: slots :: Po
 /* Holds one authorized divider owner until its backpressured result enters the completion arbiter. */
 sync_circuit RV2WideDivide(xlen :: XLen = XLen.X64, ~vector_slots: slots :: Pow2Int = 8):
   interface issue(Decoupled(RV2WideDivideIssue(xlen)), ~role: consumer)
-  interface completed(Decoupled(RV2WideRetirement(xlen)), ~role: producer)
+  interface completed(Decoupled(RV2WideCompletion(xlen)), ~role: producer)
   output drained: Bool
   interface vector_request(Decoupled(IntegerExecutionRequest(DividerRequest(xlen.width), VectorDivideTag(slots))), ~role: consumer)
   interface vector_result(Irrevocable(IntegerExecutionResult(DividerResponse(xlen.width), VectorDivideTag(slots))), ~role: producer)
@@ -128,7 +128,7 @@ sync_circuit RV2WideDivide(xlen :: XLen = XLen.X64, ~vector_slots: slots :: Pow2
   (scalar_response |> map_flow(response):
     def owner = response.tag.view(Owner().Scalar).payload
     def result = integer_divide_result(xlen, response.value, owner.control.remainder, owner.control.word_result)
-    owner.owner.updated(~data: result, ~deferred: Bool(#false))
+    owner.owner.updated(~data: result)
   ) |> completed
 
   when (issue.fire()):

@@ -607,19 +607,19 @@ void observe() {
       retirement_t expected;
       CHECK(completion_queue.size() > 0);
       expected = completion_queue.take();
-      CHECK(same_instruction(completed_out.pbits.pfetched, expected.pfetched) &&
+      CHECK(same_completion_identity(completed_out.pbits.pidentity, expected.pfetched) &&
             completed_out.pbits.prd == expected.prd &&
             completed_out.pbits.pwrite == expected.pwrite);
       if (expected.pwrite) {
         CHECK(completed_out.pbits.pdata == expected.pdata);
       }
       if (check_maintenance_completion &&
-          completed_out.pbits.pfetched.ppc == maintenance_load_pc) {
+          completed_out.pbits.pidentity.ppc == maintenance_load_pc) {
         CHECK(reads == after_maintenance_reads + after_maintenance_misses);
         check_maintenance_completion = 0;
       }
       completions++;
-      if (completed_out.pbits.pfetched.ppc == ((probe_lr_pc)&low_mask(64)))
+      if (completed_out.pbits.pidentity.ppc == ((probe_lr_pc)&low_mask(64)))
         defer(probe_pending, 1);
     }
     if (redirect_out.pvalid) {

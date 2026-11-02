@@ -133,7 +133,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   interface split(RiscvSplitAccess(xlen, Bool), ~role: requester)
   output split_guest_access: RiscvGuestMemoryAccess
   interface pipeline(RV2WidePipelineAccess(xlen), ~role: requester)
-  interface completed(Valid(RV2WideRetirement(xlen)), ~role: producer)
+  interface completed(Valid(RV2WideCompletion(xlen)), ~role: producer)
   output issued: Bits(2)
   output retired_count: Bits(2)
   output instruction_capacity: Bits(4)
@@ -290,7 +290,8 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   vector.fault_start |> wb_csrs.vector_fault_start
   vector.truncate |> wb_csrs.vector_truncate
   reg wb_vector_scalar_pending(~init: Bool(#false))
-  reg wb_vector_scalar_owner(RV2WideInstruction(xlen))
+  reg wb_vector_scalar_owner(RV2WideInstructionIdentity(xlen))
+  reg wb_vector_scalar_rd(Bits(5))
   def wb_vector_scalar_return = vector.scalar_result.valid & vector.scalar_result.bits.address.any()
   def wb_vector_scalar_available = !wb_vector_scalar_pending ||| wb_vector_scalar_return
   reg rr_vector_writeback_waiting(~init: Bool(#false))
@@ -315,7 +316,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   ex_multiply.vector_result |> vector.multiply_result
   vector.divide_request |> wb_divide.vector_request
   wb_divide.vector_result |> vector.divide_result
-  inst rr_completions(RRArbiter(RV2WideRetirement(xlen), 2))
+  inst rr_completions(RRArbiter(RV2WideCompletion(xlen), 2))
   inst wb_scoreboard(Scoreboard(32))
   wire wb_management_response: Bool
   def Array(wb_ordinary_response, wb_management_return) = scalar_memory.response |> demux_flow(2, _data => wb_management_response)
@@ -340,32 +341,30 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
 
   wb_completion_priority <== rr_completion_age.all()
   wb_gpr_calendar.pause <== Bool(#false)
-  inst ex_completion_pipe(ValidPipe(RV2WideRetirement(xlen), 1))
-  inst mem_completion_pipe(ValidPipe(RV2WideRetirement(xlen), 1))
-  inst wb_completion_pipe(ValidPipe(RV2WideRetirement(xlen), 1))
+  inst ex_completion_pipe(ValidPipe(RV2WideCompletion(xlen), 1))
+  inst mem_completion_pipe(ValidPipe(RV2WideCompletion(xlen), 1))
+  inst wb_completion_pipe(ValidPipe(RV2WideCompletion(xlen), 1))
   rr_completion |> ex_completion_pipe.ingress
   ex_completion_pipe.egress |> mem_completion_pipe.ingress
   mem_completion_pipe.egress |> wb_completion_pipe.ingress
   def wb_completion = wb_completion_pipe.egress
   def wb_gpr_return = Array(wb_completion, ex_multiply.completed) |> valid_arbiter()
-  def wb_vector_return = vector.scalar_result |> filter_valid(result => result.address.any()) |> map_valid(result => RV2WideRetirement(xlen)):
-    fetched: wb_vector_scalar_owner
+  def wb_vector_return = vector.scalar_result |> filter_valid(result => result.address.any()) |> map_valid(result => RV2WideCompletion(xlen)):
+    identity: wb_vector_scalar_owner
     rd: result.address
     write: result.address.any()
     data: result.data
-    deferred: Bool(#false)
 
   def rr_returns :: List.of(Endpoint) = [wb_gpr_return, mem_completion_pipe.egress, ex_completion_pipe.egress, rr_completion]
   reg wb_completion_count(~init: Bits(2)(0))
   when (rr_completion.valid ^ wb_completion.valid):
     wb_completion_count <== mux(rr_completion.valid, wb_completion_count + Bits(2)(1), wb_completion_count - Bits(2)(1))
 
-  def wb_fp_return = wb_fp_late_gpr |> map_valid(result => RV2WideRetirement(xlen)):
-    fetched: result.tag.fetched
+  def wb_fp_return = wb_fp_late_gpr |> map_valid(result => RV2WideCompletion(xlen)):
+    identity: result.tag.identity
     rd: result.tag.rd
     write: Bool(#true)
     data: result.integer_value
-    deferred: Bool(#false)
 
   Array(wb_gpr_return, wb_fp_return, wb_vector_return) |> valid_arbiter() |> completed
 
@@ -498,7 +497,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
 
     def mutable value = initial_value
     for (source in rr_returns):
-      def returned :: RV2WideRetirement(xlen) = source.bits
+      def returned :: RV2WideCompletion(xlen) = source.bits
       value := mux(source.valid & returned.write & (returned.rd === address), returned.data, value)
 
     value
@@ -514,7 +513,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   /* A returned value satisfies reads immediately; younger writes still wait for its RF update. */
   fun rr_source_busy(address :: Bits(5)) :: Bool:
     def return_matches = for List (source in rr_returns):
-      def owner :: RV2WideRetirement(xlen) = source.bits
+      def owner :: RV2WideCompletion(xlen) = source.bits
       source.valid & owner.write & (owner.rd === address)
 
     def returned = any(return_matches)
@@ -1027,12 +1026,11 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
         right: operation.rs2
         mode: operation.control.muldiv.multiply.mode
 
-      def owner = RV2WideRetirement(xlen):
-        fetched: operation.fetched
+      def owner = RV2WideCompletion(xlen):
+        identity: rv2wide_instruction_identity(xlen, operation.fetched)
         rd: operation.rd
         write: Bool(#true)
         data: dont_care(Bits(xlen.width))
-        deferred: Bool(#false)
 
       RV2WideMultiplyIssue(xlen):
         request: request
@@ -1375,12 +1373,13 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   // Only a nonzero GPR writer claims this owner; unrelated vector descriptors
   // may pass it. A returning result still observes the old owner on replacement.
   when (wb_vector_scalar_return):
-    assert(wb_vector_scalar_pending & (vector.scalar_result.bits.address === instruction_field(fields.rd, wb_vector_scalar_owner.instruction)), "rv2wide_vector_scalar_return_owner")
+    assert(wb_vector_scalar_pending & (vector.scalar_result.bits.address === wb_vector_scalar_rd), "rv2wide_vector_scalar_return_owner")
 
   when (wb_vector_accepted & wb_vector_gpr_write):
     assert(wb_vector_scalar_available, "rv2wide_vector_scalar_owner_available")
     wb_vector_scalar_pending <== Bool(#true)
-    wb_vector_scalar_owner <== wb_vector.fetched
+    wb_vector_scalar_owner <== rv2wide_instruction_identity(xlen, wb_vector.fetched)
+    wb_vector_scalar_rd <== wb_vector.rd
   elsewhen (wb_vector_scalar_return):
     wb_vector_scalar_pending <== Bool(#false)
 
@@ -1547,12 +1546,11 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
       divisor: integer_word_operand(xlen, operation.right, control.signed_mode, control.word_result)
       signed_mode: control.signed_mode
 
-    def owner = RV2WideRetirement(xlen):
-      fetched: operation.fetched
+    def owner = RV2WideCompletion(xlen):
+      identity: rv2wide_instruction_identity(xlen, operation.fetched)
       rd: operation.rd
       write: operation.write
       data: dont_care(Bits(xlen.width))
-      deferred: Bool(#false)
 
     RV2WideDivideIssue(xlen):
       request: request

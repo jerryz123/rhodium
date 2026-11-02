@@ -31,7 +31,7 @@ bundle RV2WideLoadReturn(xlen :: XLen):
 sync_circuit RV2WideLoadResponse(xlen :: XLen = XLen.X64):
   interface allocate(Valid(RV2WideResult(xlen)), ~role: consumer)
   interface response(Decoupled(Bits(xlen.width)), ~role: consumer)
-  interface completed(Decoupled(RV2WideRetirement(xlen)), ~role: producer)
+  interface completed(Decoupled(RV2WideCompletion(xlen)), ~role: producer)
   interface fp_completed(Decoupled(RV2WideFpLoad(xlen)), ~role: producer)
   output available: Bool
   output pending: Bool
@@ -72,12 +72,11 @@ sync_circuit RV2WideLoadResponse(xlen :: XLen = XLen.X64):
     data: if xlen == XLen.X64 | load.value | load.value.zext(64)
   ) |> fp_completed
 
-  def completion = integer_return |> map_flow(beat => RV2WideRetirement(xlen)):
-    fetched: beat.owner.destination.fetched
+  def completion = integer_return |> map_flow(beat => RV2WideCompletion(xlen)):
+    identity: beat.owner.destination.identity
     rd: beat.owner.destination.rd
     write: beat.owner.write
     data: mux(beat.owner.access === CacheOperation.Load, load.value, beat.data)
-    deferred: Bool(#false)
 
   completion |> completed
 

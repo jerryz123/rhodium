@@ -5327,32 +5327,31 @@ void observe() {
       if (completed_out.pvalid) {
         retirement_t want;
         int index;
-        if (completed_out.pbits.pfetched.ppc >= UINT64_C(0xac08) &&
-            completed_out.pbits.pfetched.ppc < UINT64_C(0xac48)) {
+        if (completed_out.pbits.pidentity.ppc >= UINT64_C(0xac08) &&
+            completed_out.pbits.pidentity.ppc < UINT64_C(0xac48)) {
           if (multiply_stream_count != 0)
             CHECK(cycles == multiply_stream_cycle + 1);
           multiply_stream_cycle = cycles;
           multiply_stream_count++;
         }
         if (multiply_authorized_cycle.contains(
-                completed_out.pbits.pfetched.ppc)) {
+                completed_out.pbits.pidentity.ppc)) {
           CHECK(cycles ==
-                multiply_authorized_cycle[completed_out.pbits.pfetched.ppc] +
+                multiply_authorized_cycle[completed_out.pbits.pidentity.ppc] +
                     1);
-          multiply_authorized_cycle.erase(completed_out.pbits.pfetched.ppc);
+          multiply_authorized_cycle.erase(completed_out.pbits.pidentity.ppc);
         }
         index = -1;
         CHECK(expected_completions.size() > 0);
         for (unsigned i = 0; i < expected_completions.size(); ++i)
           if (expected_completions[i].pfetched.ppc ==
-              completed_out.pbits.pfetched.ppc)
+              completed_out.pbits.pidentity.ppc)
             index = i;
         CHECK(index >= 0);
         want = expected_completions[index];
         expected_completions.erase(expected_completions.begin() + index);
-        CHECK(same_instruction(completed_out.pbits.pfetched, want.pfetched) &&
-              completed_out.pbits.pwrite == want.pwrite &&
-              !completed_out.pbits.pdeferred);
+        CHECK(same_completion_identity(completed_out.pbits.pidentity, want.pfetched) &&
+              completed_out.pbits.pwrite == want.pwrite );
         if (want.pwrite)
           CHECK(completed_out.pbits.prd == want.prd &&
                 completed_out.pbits.pdata == want.pdata);

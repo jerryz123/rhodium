@@ -886,12 +886,12 @@ void observe() {
       index = -1;
       CHECK(!completions.empty());
       for (int i = 0; i < completions.size(); i++)
-        if (completions[i].pfetched.ppc == completed.pbits.pfetched.ppc)
+        if (completions[i].pfetched.ppc == completed.pbits.pidentity.ppc)
           index = i;
       CHECK(index >= 0);
       expected = completions[index];
       completions.erase(completions.begin() + index);
-      CHECK(same_instruction(completed.pbits.pfetched, expected.pfetched) &&
+      CHECK(same_completion_identity(completed.pbits.pidentity, expected.pfetched) &&
             completed.pbits.pwrite == expected.pwrite &&
             completed.pbits.prd == expected.prd);
       if (expected.pwrite) {

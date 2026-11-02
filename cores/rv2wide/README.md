@@ -103,6 +103,10 @@ XLEN-wide `pc`, canonical 32-bit `instruction`, original `raw_instruction` (zero
 for C), length-derived `sequential_pc`, `compressed_illegal`, and optional fetch-fault
 cause/address. Direct packet producers supply all of this metadata; a 32-bit
 instruction normally uses the same raw/canonical bits and `sequential_pc = pc + 4`.
+Every accepted entry, including a fault, must supply `pc + 2` or `pc + 4`
+modulo XLEN. A valid prediction must name that instruction's PC; an invalid
+prediction's input PC is ignored. The PC reported in either case is the
+instruction PC itself.
 Clear `fault.valid` and `compressed_illegal` for successful fetches; instruction
 bits are ignored for fetch faults.
 Each entry also supplies `prediction: BranchPrediction(xlen)` and
@@ -363,7 +367,8 @@ IF1: PC / L1I array admission -> IF2: ITLB / physical permission / tag resolutio
 Each aligned eight-byte block supplies two to four mixed 16/32-bit instructions,
 low address first. Restart may select any halfword. The shared compressed expander
 supplies canonical instructions to the ordinary composed decoder, while original
-bits and sequential PCs remain attached through retirement and delayed completion.
+bits and sequential PCs remain attached through retirement. Delayed completion
+retains the original PC and raw encoding, not the entire fetch record.
 An instruction may cross a block, cache line, or page; each block is independently
 translated and checked. The assembler retains a lone unfinished halfword until
 the following block arrives, including across a fetch replay.
@@ -601,9 +606,11 @@ and `retired_count` report counts of zero, one, or two for the current edge.
 Outputs have no backpressure. `deferred` means a memory or multiply/divide operation was
 accepted at WB and its response will arrive on `completed`, rather than being
 reissued or retired again. For a deferred GPR result, `write` describes the eventual
-GPR write and retirement `data` is unspecified. `completed` preserves the
-instruction identity and reports the returned value; store acknowledgements
-have `write` false. Non-writing data is unspecified on either interface.
+GPR write and retirement `data` is unspecified. The unbackpressured
+`completed: Valid(RV2WideCompletion(xlen))` reports `identity.pc`,
+`identity.raw_instruction`, `rd`, `write`, and `data`. It is not another retirement;
+there is no `deferred` flag, fault record, or predictor checkpoint on this port.
+Store acknowledgements have `write` false. Non-writing data is unspecified on either interface.
 
 ## Multiply and divide
 

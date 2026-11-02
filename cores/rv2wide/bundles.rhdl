@@ -141,9 +141,20 @@ bundle RV2WideFpSchedule():
   speculative: Bool
   direct: Bool
 
+/* Identifies the instruction producing a delayed result without retaining frontend recovery state. */
+bundle RV2WideInstructionIdentity(xlen :: XLen):
+  pc: Bits(xlen.width)
+  raw_instruction: Bits(32)
+
+/* Projects the accepted instruction, not the live lane at completion time. */
+fun rv2wide_instruction_identity(xlen :: XLen, fetched :: RV2WideInstruction(xlen)) :~ RV2WideInstructionIdentity(xlen):
+  RV2WideInstructionIdentity(xlen):
+    pc: fetched.pc
+    raw_instruction: fetched.raw_instruction
+
 /* Keeps age-slot identity and result bank with speculative or authorized numerical work. */
 bundle RV2WideFpOwner(xlen :: XLen):
-  fetched: RV2WideInstruction(xlen)
+  identity: RV2WideInstructionIdentity(xlen)
   lane: Bits(1)
   rd: Bits(5)
   destination: FloatDestination
@@ -153,7 +164,7 @@ bundle RV2WideFpOwner(xlen :: XLen):
 /* Reconstructs an FP owner from its one pipeline instruction and compact scheduling tag. */
 fun rv2wide_fp_owner(xlen :: XLen, fetched :: RV2WideInstruction(xlen), rd :: Bits(5), request :: FpExecutionRequest(xlen, fp_transport_profile(xlen), RV2WideFpSchedule())) :~ RV2WideFpOwner(xlen):
   RV2WideFpOwner(xlen):
-    fetched: fetched
+    identity: rv2wide_instruction_identity(xlen, fetched)
     lane: request.tag.lane
     rd: rd
     destination: request.control.registers.destination
@@ -332,6 +343,13 @@ bundle RV2WideRetirement(xlen :: XLen):
   data: Bits(xlen.width)
   deferred: Bool
 
+/* Reports the eventual result of an already authorized operation, not a second retirement. */
+bundle RV2WideCompletion(xlen :: XLen):
+  identity: RV2WideInstructionIdentity(xlen)
+  rd: Bits(5)
+  write: Bool
+  data: Bits(xlen.width)
+
 /* Reports MEM branch recovery or the older WB fault/replay override; Continue is not retirement. */
 bundle RV2WideRedirect(xlen :: XLen):
   pc: Bits(xlen.width)
@@ -373,6 +391,9 @@ export:
   RV2WidePipelineAccess
   RV2WideMemory
   RV2WideRetirement
+  RV2WideCompletion
+  RV2WideInstructionIdentity
+  rv2wide_instruction_identity
   RV2WideRedirect
   RV2WideFetchRepair
   RV2WideOperand
