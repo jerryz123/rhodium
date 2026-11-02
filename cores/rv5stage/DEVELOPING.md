@@ -408,12 +408,16 @@ always-capture payload registers or derive controls from generated signal names.
 EX's payload is still computed unconditionally; its flow filter gates only
 token validity, preserving the feed-forward datapath and cancellation timing.
 
-The inline retirement flows in `core.rhdl` preserve WRS-over-maintenance-over-live WB payload
-selection, even before a resident completes and while the output is invalid.
-Generic `OfferRegister` instances own pending payloads and their intrinsic
-lineage contracts. Capture comes from the original MEM/WB token;
-completion gates acceptance and releases that same owner. The retained memory owner
-also holds misaligned scalar accesses while the MMU sequences independent
+One `OfferRegister(RetainedScalarWriteback)` in `core.rhdl` holds a WRS,
+cache-maintenance, or split scalar instruction. Capture comes from the original
+MEM/WB token; the non-`None` wait mode identifies WRS, and memory capture clears
+that mode. A resident is selected ahead of live WB even before it can complete.
+Only its own completion releases it; capture must not replace a pending owner.
+Keep PC/instruction, prediction metadata, scalar result, the observed physical
+request, and optional guest context. Do not retain new arithmetic/vector issue
+operands or a pre-existing replay/exception: neither admission path accepts
+those operations. Construct inactive controls when joining the common retirement
+path. This same slot holds misaligned scalar accesses while the MMU sequences independent
 fragments. Admission squashes younger work; success restarts at the next PC,
 and fault enters the trap path with the retained instruction and fragment VA.
 No split load reserves a deferred destination: successful completion uses normal

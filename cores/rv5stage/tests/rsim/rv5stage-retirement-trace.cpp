@@ -141,6 +141,16 @@ int main() {
     retirement_trace_pending(0);
     respond(1);
     retirement_trace_pending(0);
+    // Reuse the scalar slot for a wait after a faulted maintenance response.
+    // The old memory completion cannot release this instruction or own its trace.
+    reservation = 1;
+    retirement_trace_expect(UINT64_C(0xb8), UINT64_C(13631603), 0, 0);
+    packet(UINT64_C(0xb8), UINT64_C(13631603));
+    idle(12);
+    retirement_trace_pending(1);
+    reservation = 0;
+    idle();
+    retirement_trace_pending(0);
     retire(UINT64_C(0xc0), UINT64_C(1048851));
     retire(UINT64_C(0xc4), UINT64_C(2097555));
     retire(UINT64_C(0xc8), UINT64_C(3146259));

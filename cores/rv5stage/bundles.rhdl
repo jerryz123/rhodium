@@ -231,6 +231,29 @@ bundle MemoryWriteback(xlen :: XLen, vector_completion_slots :: Pow2Int, hypervi
   exception_cause: Bits(xlen.width)
   exception_value: Bits(xlen.width)
 
+/* Retains an accepted scalar memory operation or WRS until it can retire.
+   The wait mode discriminates WRS from memory. Keep the original request for
+   precise split faults, FP load routing and cosim, but no deferred issue operands. */
+bundle RetainedScalarWriteback(xlen :: XLen, vector_completion_slots :: Pow2Int, hypervisor :: Boolean):
+  if hypervisor:
+    guest: RiscvGuestException()
+    guest_access: RiscvGuestMemoryAccess
+
+  pc: Bits(xlen.width)
+  resume_pc: Bits(xlen.width)
+  raw_instruction: Bits(32)
+  branch_prediction: RV5StageBranchPrediction
+  ras_mismatch: Bool
+  data_request_valid: Bool
+  data_request: PhysicalMemoryReq(xlen, RV5StageMemoryContext(vector_completion_slots))
+  writeback_source: RV5StageWritebackSelect
+  write_enable: Bool
+  rd: Bits(5)
+  value: Bits(xlen.width)
+  system: RV5StageSystemControl()
+  fence: RV5StageFenceControl()
+  hint: RV5StageHintOperation
+
 /* Stores instruction/control and the ALU value while LSU outcome/data capture runs in parallel. */
 fun MemoryWritebackContext(xlen :: XLen, vector_completion_slots :: Pow2Int, hypervisor :: Boolean) :: RecordType:
   RecordType(MemoryWriteback(xlen, vector_completion_slots, hypervisor).fields.filter(~keep: fun (field): !(field.name in ["load_hit", "cache_outcome"])))
@@ -247,4 +270,5 @@ export:
   RV5StageException
   ExecuteMemory
   MemoryWriteback
+  RetainedScalarWriteback
   MemoryWritebackContext

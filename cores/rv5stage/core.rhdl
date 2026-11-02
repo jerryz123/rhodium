@@ -418,12 +418,14 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def mem_cache_outcome = mux(scalar_pipeline.response.valid & mem_input.bits.data_request_valid, scalar_pipeline.response.bits.outcome, CachePipelineOutcome.Slow)
   def mem_load_hit = mem_cache_outcome === CachePipelineOutcome.LoadHit
   def mem_cache_replay = mem_cache_outcome === CachePipelineOutcome.Replay
-  // Maintenance and split accesses retain retirement context outside the feed-forward
-  // pipeline. Only its completion can retire it; it is never reissued.
-  inst wb_memory_retirement(OfferRegister(MemoryWriteback(xlen, vector_completion_slots, hypervisor)))
-  inst wb_reservation_wait(OfferRegister(MemoryWriteback(xlen, vector_completion_slots, hypervisor)))
-  inst wb_selection(GrantMerge(MemoryWriteback(xlen, vector_completion_slots, hypervisor), 4))
-  def wb_memory_pending = wb_memory_retirement.egress.valid
+  def RetainedWB = RetainedScalarWriteback(xlen, vector_completion_slots, hypervisor)
+  inst wb_scalar_retirement(OfferRegister(RetainedWB))
+  inst wb_selection(GrantMerge(MemoryWriteback(xlen, vector_completion_slots, hypervisor), 3))
+  def wb_scalar_pending = wb_scalar_retirement.egress.valid
+  def wb_scalar_owner = wb_scalar_retirement.egress.bits
+  def wb_wait_owner = wb_scalar_owner.system.wait =/= ReservationWaitMode.None
+  def wb_memory_pending = wb_scalar_pending & !wb_wait_owner
+  def wb_reservation_wait_pending = wb_scalar_pending & wb_wait_owner
   wire wb_retained_memory_accepted: Bool
   wire wb_split_accepted: Bool
   // The two parallel captures rejoin without storage or a live-control bypass.
@@ -471,24 +473,22 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
 
   def wb_input = wb_captured |> to_valid()
   def Array(wb_retirement_path, wb_fp_path, wb_memory_path) = wb_input |> fork_valid(3)
-  def Array(wb_live_path, wb_memory_retention_path, wb_wait_path, wb_vector_retention_path) = wb_retirement_path |> fork_valid(4)
+  def Array(wb_live_path, wb_scalar_retention_path, wb_vector_retention_path) = wb_retirement_path |> fork_valid(3)
 
   /* Reservation-wait owner.
      Wake levels beat timeout, including reservation loss on entry;
      NTO shares a TW/VTW bound, with TW's illegal-instruction trap first. */
 
-  def wb_reservation_wait_pending = wb_reservation_wait.egress.valid
-  def wb_reservation_wait_instruction = wb_reservation_wait.egress.bits
   inst wb_wait(ReservationWait())
   wb_wait.active <== wb_reservation_wait_pending
   wb_wait.reservation_valid <== scalar_data.reservation_valid
   wb_wait.interrupt_wake <== wb_csrs.wfi_wake
-  wb_wait.short_timeout <== wb_reservation_wait_instruction.system.wait === ReservationWaitMode.ShortTimeout
+  wb_wait.short_timeout <== wb_scalar_owner.system.wait === ReservationWaitMode.ShortTimeout
   wb_wait.trap_on_timeout <== (wb_csrs.privilege =/= PrivilegeMode.Machine) & csr_flag(wb_csrs.mstatus, MstatusTW)
   wb_wait.virtual_trap_on_timeout <== if hypervisor | wb_csrs.guest_translation.virtualized & csr_flag(wb_csrs.guest_translation.hstatus, HstatusVTW) | Bool(#false)
   def wb_reservation_wait_done = wb_wait.completion.valid
   def wb_reservation_wait_exception = wb_wait.completion.valid & wb_wait.completion.bits.as_bits().any()
-  def wb_reservation_wait_accept = Bool(zawrs_enabled) & wb_input.valid & !wb_memory_pending & !wb_reservation_wait_pending & !wb_pending_exception_valid & !wb_input.bits.replay & !wb_input.bits.exception_valid & (wb_input.bits.system.wait =/= ReservationWaitMode.None)
+  def wb_reservation_wait_accept = Bool(zawrs_enabled) & wb_input.valid & !wb_scalar_pending & !wb_pending_exception_valid & !wb_input.bits.replay & !wb_input.bits.exception_valid & (wb_input.bits.system.wait =/= ReservationWaitMode.None)
   wb_wait.capture.valid <== wb_reservation_wait_accept
 
   def Array(wb_integer_responses, wb_fp_responses, wb_other_responses) = scalar_data.response |> demux_flow(3, response):
@@ -498,7 +498,8 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
 
   def wb_fp_response = wb_fp_responses |> to_valid()
   def wb_other_response = wb_other_responses |> to_valid()
-  def wb_split_pending = wb_memory_pending & wb_memory_retirement.egress.bits.data_request.access.into(CacheOperation).is_one_of(CacheOperation.Load, CacheOperation.Store) & !wb_memory_retirement.egress.bits.data_request.width.is_aligned(wb_memory_retirement.egress.bits.data_request.address)
+  def wb_scalar_request = wb_scalar_owner.data_request
+  def wb_split_pending = wb_memory_pending & wb_scalar_request.access.into(CacheOperation).is_one_of(CacheOperation.Load, CacheOperation.Store) & !wb_scalar_request.width.is_aligned(wb_scalar_request.address)
   def wb_split_done = wb_split_pending & split_completion.valid & !split_completion.bits.response.context.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).Vector).into(Bool)
   def wb_split_fault = wb_split_done & (split_completion.bits.page_fault ||| split_completion.bits.response.access_fault)
   def wb_memory_done = wb_split_done ||| (wb_memory_pending & !wb_split_pending & wb_other_response.valid)
@@ -507,22 +508,60 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
 
   assert(!wb_retained_memory_accepted ||| wb_input.valid, "maintenance_capture_has_wb")
   assert(!wb_reservation_wait_accept ||| wb_input.valid, "wait_capture_has_wb")
-  wb_memory_retention_path |> filter_valid(_instruction => wb_retained_memory_accepted) |> wb_memory_retirement.update
-  wb_wait_path |> filter_valid(_instruction => wb_reservation_wait_accept) |> wb_reservation_wait.update
-  // Select the pending owner before gating completion, preserving its payload
-  // while unfinished. Acceptance releases that OfferRegister at the edge.
-  wb_selection.grants <== vec([!wb_memory_pending & !wb_reservation_wait_pending & !wb_vector_retirement_link.right.valid, wb_memory_pending & !wb_reservation_wait_pending, wb_reservation_wait_pending, wb_vector_retirement_link.right.valid & !wb_memory_pending & !wb_reservation_wait_pending]).into(MaybeOneHot(4))
-  wb_live_path |> filter_valid(_instruction => !wb_reservation_wait_accept) |> offer_decoupled() |> wb_selection.ingress[0]
-  wb_memory_retirement.egress |> map_flow(operation => operation.updated(
-    ~value: mux(wb_split_pending, split_completion.bits.response.data, operation.value),
-    ~load_hit: wb_split_pending & operation.data_request.access.into(CacheOperation).is_load(),
-    ~writeback_source: mux(wb_split_pending, RV5StageWritebackSelect.Alu, operation.writeback_source)
-  )) |> wb_selection.ingress[1]
+  def wb_scalar_capture = wb_retained_memory_accepted ||| wb_reservation_wait_accept
+  assert(!(wb_retained_memory_accepted & wb_reservation_wait_accept), "rv5stage_scalar_retirement_capture_exclusive")
+  assert(!(wb_scalar_pending & wb_scalar_capture), "rv5stage_scalar_retirement_no_replacement")
 
-  wb_reservation_wait.egress |> wb_selection.ingress[2]
-  wb_vector_retirement_link.right |> offer_decoupled() |> wb_selection.ingress[3]
+  (wb_scalar_retention_path |> filter_valid(_operation => wb_scalar_capture) |> map_valid(operation):
+    wire owner: RetainedWB
+    owner.pc <== operation.pc
+    owner.resume_pc <== operation.resume_pc
+    owner.raw_instruction <== operation.raw_instruction
+    owner.branch_prediction <== operation.branch_prediction
+    owner.ras_mismatch <== operation.ras_mismatch
+    owner.data_request_valid <== operation.data_request_valid
+    owner.data_request <== operation.data_request
+    owner.writeback_source <== operation.writeback_source
+    owner.write_enable <== operation.write_enable
+    owner.rd <== operation.rd
+    owner.value <== operation.value
+    owner.system <== operation.system.updated(~wait: mux(wb_reservation_wait_accept, operation.system.wait, ReservationWaitMode.None))
+    owner.fence <== operation.fence
+    owner.hint <== operation.hint
+    if hypervisor
+    | block:
+        owner.guest <== operation.guest
+        owner.guest_access <== operation.guest_access
+    | #void
+
+    owner
+  ) |> wb_scalar_retirement.update
+
+  // Select a resident even before completion; the grant never falls through
+  // to a younger instruction. Only the completed transfer releases its owner.
+  wb_selection.grants <== vec([!wb_scalar_pending & !wb_vector_retirement_link.right.valid, wb_scalar_pending, !wb_scalar_pending & wb_vector_retirement_link.right.valid]).into(MaybeOneHot(3))
+  wb_live_path |> filter_valid(_instruction => !wb_reservation_wait_accept) |> offer_decoupled() |> wb_selection.ingress[0]
+  (wb_scalar_retirement.egress |> map_flow(owner):
+    // A retained scalar cannot issue arithmetic, launch a vector, replay, or
+    // carry an earlier exception. Its completion can still report a new fault.
+    wire inactive: MemoryWriteback(xlen, vector_completion_slots, hypervisor)
+    inactive <== literal(MemoryWriteback(xlen, vector_completion_slots, hypervisor), 0)
+    def retired = inactive.updated(
+      ~pc: owner.pc, ~resume_pc: owner.resume_pc, ~raw_instruction: owner.raw_instruction,
+      ~branch_prediction: owner.branch_prediction, ~ras_mismatch: owner.ras_mismatch,
+      ~data_request_valid: owner.data_request_valid, ~data_request: owner.data_request,
+      ~write_enable: owner.write_enable, ~rd: owner.rd,
+      ~value: mux(wb_split_pending, split_completion.bits.response.data, owner.value),
+      ~load_hit: wb_split_pending & owner.data_request.access.into(CacheOperation).is_load(),
+      ~writeback_source: mux(wb_split_pending, RV5StageWritebackSelect.Alu, owner.writeback_source),
+      ~system: owner.system, ~fence: owner.fence, ~hint: owner.hint
+    )
+    if hypervisor | retired.updated(~guest: owner.guest, ~guest_access: owner.guest_access) | retired
+  ) |> wb_selection.ingress[1]
+
+  wb_vector_retirement_link.right |> offer_decoupled() |> wb_selection.ingress[2]
   when (wb_vector_retirement_link.right.valid):
-    assert(!wb_input.valid & !wb_memory_pending & !wb_reservation_wait_pending, "vector_outcome_has_retirement_port")
+    assert(!wb_input.valid & !wb_scalar_pending, "vector_outcome_has_retirement_port")
 
   def wb_owner_complete = priority_mux(~default: Bool(#true)):
     wb_reservation_wait_pending: wb_reservation_wait_done
@@ -807,7 +846,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def id_mem_serializing = mem_input.valid & (core_serializing_operation(mem_input.bits.system, mem_input.bits.fence, mem_input.bits.raw_instruction) ||| mem_input.bits.data_request.access.into(CacheOperation).is_cache_management())
   def id_wb_serializing = wb_commit_valid & core_serializing_operation(wb_offer_bits.system, wb_offer_bits.fence, wb_offer_bits.raw_instruction)
   def id_pause_in_flight = (ex_input.valid & (ex_input.bits.hint === RV5StageHintOperation.Pause)) ||| (mem_input.valid & (mem_input.bits.hint === RV5StageHintOperation.Pause)) ||| (wb.valid & (wb_offer_bits.hint === RV5StageHintOperation.Pause))
-  def id_serializing_in_flight = id_ex_serializing ||| id_mem_serializing ||| id_wb_serializing ||| wb_memory_pending ||| wb_reservation_wait_pending ||| wb_reservation_wait_accept ||| (wb_input.valid & wb_input.bits.data_request.access.into(CacheOperation).is_cache_management())
+  def id_serializing_in_flight = id_ex_serializing ||| id_mem_serializing ||| id_wb_serializing ||| wb_scalar_pending ||| wb_reservation_wait_accept ||| (wb_input.valid & wb_input.bits.data_request.access.into(CacheOperation).is_cache_management())
   def id_wb_commit_deferred = wb_commit_valid & core_deferred_writeback(wb_commit_bits.writeback_source) & wb_commit_bits.write_enable
   def wb_deferred_results_pending = wb_scoreboard.busy.any() ||| wb_fp_integer_scoreboard.busy.any() ||| !wb_fp.drained
   def id_deferred_state_pending = id_ex_deferred ||| id_mem_deferred ||| id_wb_commit_deferred ||| wb_deferred_results_pending ||| wb_to_id_scoreboard_set_link.right.valid ||| (ex_input.valid & ex_input.bits.floating_point_valid) ||| (mem_input.valid & mem_input.bits.fp_compute) ||| (wb.valid & wb_offer_bits.fp_compute)
@@ -1486,7 +1525,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   elsewhen (wb_macro_retire & !wb_commit_bits.exception_valid):
     wb_pending_locality <== wb_retiring_locality
 
-  def wb_attempt = wb_input.valid & !wb_memory_pending & !wb_reservation_wait_pending & !wb_reservation_wait_accept & !wb_pending_exception_valid & !wb_offer_bits.replay & !wb_offer_bits.exception_valid
+  def wb_attempt = wb_input.valid & !wb_scalar_pending & !wb_reservation_wait_accept & !wb_pending_exception_valid & !wb_offer_bits.replay & !wb_offer_bits.exception_valid
   def wb_memory_attempt = wb_attempt & wb_offer_bits.data_request_valid
   def wb_store_attempt = wb_attempt & (wb_offer_bits.cache_outcome === CachePipelineOutcome.StoreHit)
   scalar_pipeline.commit <== wb_store_attempt
@@ -1626,7 +1665,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def wb_current_exception_wait = wb_commit_valid & wb_csrs.command_fault.valid & (wb_deferred_results_pending ||| wb_vector_active ||| !scalar_data.drained)
   def wb_architectural_commit = mux(wb_pending_exception_valid, wb_pending_exception, wb_commit_bits)
   def wb_pending_exception_ready = wb_pending_exception_valid & !wb_deferred_results_pending & !wb_vector_active & scalar_data.drained
-  wb_csrs.interrupt_boundary <== !wb_vector_active & !wb_memory_pending & !wb_reservation_wait_pending & !wb_reservation_wait_accept & !wb_pending_exception_valid & !ex_input.valid & !mem_input.valid & !wb.valid & !wb_deferred_results_pending & scalar_data.drained
+  wb_csrs.interrupt_boundary <== !wb_vector_active & !wb_scalar_pending & !wb_reservation_wait_accept & !wb_pending_exception_valid & !ex_input.valid & !mem_input.valid & !wb.valid & !wb_deferred_results_pending & scalar_data.drained
   wb_csrs.interrupt_pc <== priority_mux(~default: if_architectural_pc):
     wb_commit_replay: wb_commit_bits.pc
     wb_commit_valid: wb_commit_bits.resume_pc
