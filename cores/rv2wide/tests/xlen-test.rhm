@@ -10,6 +10,9 @@ import:
   "../profile.rhm".RV2WideConfig
   "cache-fixture.rhdl" open
 
+fun child(parent, name):
+  parent.operations.find(fun (op): op.opcode == "rtl.instance" && op.attribute("name") == name).attribute("module")
+
 for (xlen in [XLen.X32, XLen.X64]):
   def profile = RV2WideConfig(~xlen: xlen, ~mmu_type: RiscvMmuType.Bare, ~instruction_cache: test_cache, ~data_cache: test_cache, ~ssnpm: xlen == XLen.X64, ~supm: xlen == XLen.X64, ~btb_entries: 0, ~ras_entries: 0, ~bht: #false)
   def design = compile_program(elaborate(RV2Wide(test_cache, ~chi: test_fetch_chi, ~profile: profile)), rtl_target).report.design
@@ -17,6 +20,22 @@ for (xlen in [XLen.X32, XLen.X64]):
   def memory = design.modules.find(fun (module_def): module_def.name == "RV2WideBareMemory")
   def execution = design.modules.find(fun (module_def): module_def.name == "RV2WideCore")
   def retired = core.find_output("retired_0_out").type.field("bits").type
+  for (stage in ["ex", "mem", "wb"]):
+    def prefix_name = stage ++ "_pc_region"
+    def prefix = execution.operations.find(fun (op): op.opcode == "rtl.register" && op.attribute("name") == prefix_name)
+    check:
+      prefix.results[0].type.packed_width() ~is xlen.width - 12
+
+    for (slot in ["older", "younger"]):
+      def lane = child(execution, stage ++ "_" ++ slot)
+      def full = lane.find_output("egress_out").type.field("bits").type
+      def storage = child(lane, "storage")
+      def payload = storage.operations.find(fun (op): op.opcode == "rtl.register" && op.attribute("name") == "stage_bits")
+      def aliases = if stage == "ex" | 1 | 2
+      check:
+        payload.results[0].type.element_type.field("fetched").type.field("pc").type.width ~is 12
+        payload.results[0].type.packed_width() ~is full.packed_width() - (xlen.width - 12) - aliases * xlen.width
+
   check:
     retired.field("data").type.width ~is xlen.width
     retired.field("fetched").type.field("pc").type.width ~is xlen.width

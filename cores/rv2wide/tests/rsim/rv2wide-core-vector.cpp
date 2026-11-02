@@ -1858,6 +1858,38 @@ void extract(unsigned vector_register, unsigned rd, std::uint64_t value,
               << ": got " << gprs[rd] << ", expected " << value << std::dec << '\n';
   CHECK(gprs[rd] == value);
 }
+void pc_region_pairing() {
+  const auto boundary = (next_pc + 0x2000) & ~UINT64_C(0xfff);
+  next_pc = boundary - 8;
+  issue_pair(addi(10, 0, 11), addi(11, 0, 12)); // Both start below the boundary.
+  CHECK(gprs[10] == 11 && gprs[11] == 12);
+
+  // A 32-bit instruction starting in the final halfword still owns the old region.
+  next_pc = boundary + 0xffe;
+  const auto older = next_pc;
+  stream({addi(10, 0, 21), addi(11, 0, 22)});
+  CHECK(memory_cycles.at(older) < memory_cycles.at(older + 4));
+  CHECK(gprs[10] == 21 && gprs[11] == 22);
+
+  // Reuse the first pair's offsets in new regions. Single issue must advance
+  // the prefix, as must an older branch whose paired younger lane is killed.
+  const auto single = boundary + 0x1ff8;
+  next_pc = single;
+  send(0x00000617); // auipc x12, 0
+  CHECK(retirement_lanes.at(single) == 0 && gprs[12] == single);
+  const auto branch = boundary + 0x3ff8;
+  next_pc = branch;
+  kill_younger(addi(12, 0, 99));
+  CHECK(memory_cycles.at(branch) == memory_cycles.at(branch + 4) && gprs[12] == single);
+
+  next_pc = boundary + 0x2ffc;
+  const auto fault_pair = next_pc;
+  stream({addi(10, 0, 31), addi(11, 0, 32)}, true, false, true, 1);
+  CHECK(memory_cycles.at(fault_pair) < memory_cycles.at(fault_pair + 4));
+  CHECK(last_fault_pc == fault_pair + 4 && retired_pcs.contains(fault_pair));
+  CHECK(!retired_pcs.contains(fault_pair + 4) && gprs[10] == 31 && gprs[11] == 22);
+}
+
 int main() {
   return run_test([] {
     rheg::graph().bind_manifest(rheg_generated::manifest());
@@ -2009,6 +2041,7 @@ int main() {
     conflict_based_pairing();
     vector_memory_branch_pairs();
     speculative_scalar_authorization();
+    pc_region_pairing();
     run(100);
     vector_trace::finish();
   });

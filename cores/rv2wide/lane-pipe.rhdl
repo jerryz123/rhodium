@@ -1,0 +1,87 @@
+#lang rhodium
+/* Stores either RV2Wide lane's payload with a 12-bit PC offset into its registered issue-group region. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("flow/main.rhdl") open
+  lib("rhodium/frontend/kernel.rhm") as kernel
+  lib("riscv/isa/xlen.rhm").XLen
+  "bundles.rhdl" open
+
+def RV2WidePcOffsetBits = 12
+
+/* Derives a storage record from its logical type, retaining every field not explicitly changed. */
+fun storage_shape(T :: RecordType, replacements :: Map, omitted :: List = []) :: RecordType:
+  def kept = T.fields.filter(~keep: fun (field): !(field.name in omitted))
+  def fields = for List (field in kept):
+    RecordField(field.name, if replacements.has_key(field.name) | replacements[field.name] | field.type)
+
+  RecordType(fields)
+
+/* Copies unchanged named fields in either direction; the caller supplies only derived values. */
+fun copy_fields(T :: RecordType, source :: Hardware.packable, replacements :: Map):
+  def fields = for List (field in T.fields):
+    [field.name, if replacements.has_key(field.name) | replacements[field.name] | kernel.project(source, field.name)]
+
+  kernel.record_create(T, fields)
+
+/* EX's vector PC aliases the fetched PC. MEM/WB branch updates also alias the captured successor.
+   Predictor metadata, including its PC and target, remains a verbatim copy. */
+fun lane_shape(Full :: RecordType, execute :: Boolean) :: RecordType:
+  def fetched = storage_shape(Full.field("fetched").type, {"pc": Bits(RV2WidePcOffsetBits)})
+  if execute
+  | storage_shape(Full, {"fetched": fetched, "vector": storage_shape(Full.field("vector").type, {}, ["pc"])})
+  | block:
+      def Branch = Full.field("branch").type
+      def update = storage_shape(Branch.field("update").type, {}, ["pc", "return_address"])
+      storage_shape(Full, {"fetched": fetched, "branch": storage_shape(Branch, {"update": update})})
+
+/* Projects into the compact or full schema. Only the starting PC uses the group
+   prefix; the sequential PC can cross a region boundary. */
+fun recode_lane(T :: RecordType, source :: Hardware.packable, pc :: Hardware.packable, execute :: Boolean):
+  def fetched = copy_fields(T.field("fetched").type, kernel.project(source, "fetched"), {"pc": pc})
+  if execute
+  | block:
+      def vector = copy_fields(T.field("vector").type, kernel.project(source, "vector"), {"pc": pc})
+      copy_fields(T, source, {"fetched": fetched, "vector": vector})
+  | block:
+      def Branch = T.field("branch").type
+      def branch = kernel.project(source, "branch")
+      def update = copy_fields(Branch.field("update").type, kernel.project(branch, "update"),
+                               {"pc": pc, "return_address": kernel.project(fetched, "sequential_pc")})
+      copy_fields(T, source, {"fetched": fetched, "branch": copy_fields(Branch, branch, {"update": update})})
+
+/* Preserves the full lane interface and the one-cycle flushable pipe contract. Both
+   lanes reconstruct their PC from the group prefix registered at this same stage. */
+sync_circuit RV2WideLanePipe(xlen :: XLen, Full :: RecordType):
+  def execute = Full.type_equal(RV2WideExecute(xlen))
+  unless execute || Full.type_equal(RV2WideResult(xlen))
+  | error(~who: #'RV2WideLanePipe, "expected this core's execute or result payload")
+
+  interface ingress(Valid(Full), ~role: consumer)
+  interface egress(Valid(Full), ~role: producer)
+  input flush: Bool
+  input pc_region: Bits(xlen.width - RV2WidePcOffsetBits)
+
+  def Stored = lane_shape(Full, execute)
+  inst storage(ValidPipe(Stored, 1, ~flushable: #true))
+  storage.flush <== flush
+
+  // These aliases are not stored; guard their producer contract at capture.
+  if execute
+  | block:
+      def token :: RV2WideExecute(xlen) = ingress.bits
+      when (ingress.valid):
+        assert(token.vector.pc === token.fetched.pc, "rv2wide_lane_vector_pc")
+  | block:
+      def token :: RV2WideResult(xlen) = ingress.bits
+      when (ingress.valid):
+        assert(token.branch.update.pc === token.fetched.pc, "rv2wide_lane_branch_pc")
+        assert(token.branch.update.return_address === token.fetched.sequential_pc, "rv2wide_lane_branch_return")
+
+  ingress |> map_valid(token => recode_lane(Stored, token, token.fetched.pc[0..RV2WidePcOffsetBits], execute)) |> storage.ingress
+  storage.egress |> map_valid(token => recode_lane(Full, token, pc_region ++ token.fetched.pc, execute)) |> egress
+
+export:
+  RV2WidePcOffsetBits
+  RV2WideLanePipe

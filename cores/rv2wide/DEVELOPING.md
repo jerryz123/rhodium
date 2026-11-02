@@ -62,6 +62,19 @@ attach the complete `RV2WideFpOwner` at EX launch, WB authorization, or
 delayed-memory allocation. Do not store a duplicate fetched instruction in the request tag.
 These are ownership boundaries, not extra pipeline stages or latency assumptions.
 
+At RR→EX, EX→MEM, and MEM→WB, [both lane pipes](lane-pipe.rhdl) store only
+the low 12 bits of their starting PCs. Each stage owns one shared upper-PC
+register, captured on the older lane's transfer even when it issues alone.
+Both lanes reconstruct their PCs from that stage's prefix. Recovery may kill
+the younger lane alone, so it must not gate prefix advancement. A bubble or
+flush needs no prefix reset or separate valid bit. EX's vector PC and the
+MEM/WB branch-update PC and return address are aliases; the pipe reconstructs
+them from the starting and sequential PCs. The sequential PC, predictor
+metadata, and targets are independent of the prefix and pass through unchanged.
+Use the reconstructed PC for traces and before handing work to any independently
+retained owner. The issue window and a merged WB retirement group do not have
+this prefix invariant.
+
 MEM and WB each retain one vector execution descriptor for the group. The
 ordinary lane pipes carry only the vector classification needed for hazards,
 retirement, and dispatch. A continuing vector owns the descriptor; its lane

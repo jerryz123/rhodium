@@ -496,8 +496,12 @@ instruction packets -> eight-entry buffer -> RR -> EX -> MEM -> WB
                                             +-----+------+-----+ forwarding
 ```
 
-RR consumes zero, one, or two instructions. Independent ALU operations can
-issue and retire two per cycle. Immediate-only integer producers such as LUI
+RR consumes zero, one, or two instructions. Two instructions may issue together
+only if their starting virtual PCs are in the same aligned 4 KiB region. They
+need not be consecutive. Across a region boundary the older instruction can
+issue alone; the younger stays in the window, even if it carries a fetch fault.
+Independent ALU operations can issue and retire two per cycle.
+Immediate-only integer producers such as LUI
 and ADDI from x0 can supply either younger GPR source directly at RR. This
 includes LUI+ADDI/ADDIW constant construction, binary ALU inputs, store data,
 and scalar operands captured by FP/vector work. Both architectural instructions

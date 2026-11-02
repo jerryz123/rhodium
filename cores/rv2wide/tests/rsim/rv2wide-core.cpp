@@ -1332,6 +1332,11 @@ int main() {
     send_predicted(UINT64_C(0x2600), jump(0, 32), UINT64_C(0x2620),
                    UINT64_C(0x2620));
     drain();
+    CHECK(memory_cycles.at(0x2600) == memory_cycles.at(0x2620));
+    // The same byte offset in a different 4 KiB region is not a pairing match.
+    send_predicted(0x4200, jump(0, 0x2000), 0x6200, 0x6200);
+    drain();
+    CHECK(memory_cycles.at(0x4200) < memory_cycles.at(0x6200));
     send_predicted(UINT64_C(0x2640), jump(1, 32), UINT64_C(0x2660),
                    UINT64_C(0x2660), 1, UINT64_C(1));
     drain();
@@ -1483,12 +1488,22 @@ int main() {
     hold_responses = 1;
     const unsigned offsets[] = {0, 0, 2, 4};
     const unsigned formats[] = {0, 4, 1, 6};  // LB, LBU, LH, LWU
-    for (int i = 0; i < 4; i++)
-      send(((UINT64_C(0x4900) + i * 8) & low_mask(64)),
-           imm(10 + i, 1, offsets[i], formats[i], UINT64_C(3)), imm(20 + i, 0, i));
+    // Each younger load begins at the final word of a different PC region.
+    // Its deferred owner must keep that full PC and the cross-region successor
+    // independently of the subsequent groups moving through the same pipes.
+    constexpr auto first_pc = UINT64_C(0x100004ff8);
+    for (int i = 0; i < 4; i++) {
+      const auto pc = first_pc + i * 0x1000;
+      send(pc, imm(20 + i, 0, i),
+           imm(10 + i, 1, offsets[i], formats[i], UINT64_C(3)));
+    }
     for (unsigned repeat_index = 0; repeat_index < (8); ++repeat_index)
       tick();
     CHECK(response_count == 4);
+    for (int i = 0; i < 4; i++) {
+      const auto pc = first_pc + i * 0x1000;
+      CHECK(memory_cycles.at(pc) == memory_cycles.at(pc + 4));
+    }
     for (int i = 0; i < 16; i++) {
       if (i == 8)
         hold_responses = 0;
@@ -3494,8 +3509,11 @@ int main() {
                  imm(rd, 3, lower));
             send(pc + 8, imm(5, 3, 0), imm(6, rd, 0));
             drain();
-            CHECK(auipc_addi_pairs == before_pairs + 1 &&
-                  dual_commits >= before_dual + 1);
+            if (pc_case == 0) { // 0xffe and 0x1002 must execute separately.
+              CHECK(auipc_addi_pairs == before_pairs && memory_cycles.at(pc) < memory_cycles.at(pc + 4));
+            } else {
+              CHECK(auipc_addi_pairs == before_pairs + 1 && dual_commits >= before_dual + 1);
+            }
             send(pc + 16, imm(7, 3, 0), imm(8, rd, 0));
             drain();
           }
