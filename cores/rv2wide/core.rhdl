@@ -212,6 +212,12 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
 
     assert(!stage[1].egress.valid ||| stage[0].egress.valid, "rv2wide_" ++ name ++ "_younger_has_older")
 
+  // Each lane's ValidPipe captures the original window tag with that lane's transfer.
+  for (lane in 0..2):
+    ex_pipe[lane].ingress_step <== rr_window.head_steps[lane]
+    mem_pipe[lane].ingress_step <== ex_pipe[lane].egress_step
+    wb_pipe[lane].ingress_step <== mem_pipe[lane].egress_step
+
   // Retired training survives speculative recovery; RR books its future WB occupancy.
   inst branch_training(RV2WideBranchTrainingBuffer(xlen))
   wire wb_squash: Bool
@@ -929,7 +935,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
               branch: ex_executable & ex.control.branch.resolver.enable
               conditional: ex.fetched.instruction[0..7] === Bits(7)(0x63)
               taken: Bool(#false)
-              compressed: ex.fetched.sequential_pc === (ex.fetched.pc + Bits(xlen.width)(2))
+              compressed: ex_pipe[lane].egress_step.short_step
               ras_action: ex_actual_action
               predicted_ras_action: ex.fetched.speculated_ras_action
               return_address: ex.fetched.sequential_pc

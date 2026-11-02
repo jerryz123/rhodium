@@ -14,7 +14,7 @@ bundle RV2WideWindowEntry(xlen :: XLen, hypervisor :: Boolean):
   pc: Bits(xlen.width)
   instruction: Bits(32)
   raw_instruction: Bits(32)
-  short_step: Bool
+  step: RV2WidePcStep(xlen)
   compressed_illegal: Bool
   fault: RV2WidePackedFetchFault(xlen, hypervisor)
   predicted: Bool
@@ -24,14 +24,13 @@ bundle RV2WideWindowEntry(xlen :: XLen, hypervisor :: Boolean):
   speculated_ras_action: RasAction
   direction: TournamentPrediction(10)
 
-/* Projects the assembler's actual successor, not the low encoding bits: +2 toggles
-   PC bit 1 and +4 preserves it, including across XLEN wrap. */
+/* Capture the assembler's actual successor once, independently of the instruction bits. */
 fun pack_entry(xlen :: XLen, hypervisor :: Boolean, token :: RV2WideInstruction(xlen)) :~ RV2WideWindowEntry(xlen, hypervisor):
   RV2WideWindowEntry(xlen, hypervisor):
     pc: token.pc
     instruction: token.instruction
     raw_instruction: token.raw_instruction
-    short_step: token.pc[1] =/= token.sequential_pc[1]
+    step: encode_pc_step(xlen, token.pc, token.sequential_pc)
     compressed_illegal: token.compressed_illegal
     fault: pack_fetch_fault(xlen, hypervisor, token.fault)
     predicted: token.prediction.valid
@@ -47,7 +46,7 @@ fun expand_entry(xlen :: XLen, hypervisor :: Boolean, entry :: RV2WideWindowEntr
     pc: entry.pc
     instruction: entry.instruction
     raw_instruction: entry.raw_instruction
-    sequential_pc: entry.pc + mux(entry.short_step, Bits(xlen.width)(2), Bits(xlen.width)(4))
+    sequential_pc: expand_pc_step(xlen, entry.pc, entry.step)
     compressed_illegal: entry.compressed_illegal
     fault: expand_fetch_fault(xlen, hypervisor, entry.fault)
     prediction:
@@ -65,6 +64,7 @@ sync_circuit RV2WideIssueWindow(xlen :: XLen = XLen.X64, ~hypervisor: hypervisor
   interface ingress(Decoupled(RV2WidePacket(xlen)), ~role: consumer)
   interface clear(Pulse(), ~role: consumer)
   output head: RV2WidePacket(xlen)
+  output head_steps: Vec(2, RV2WidePcStep(xlen))
   interface candidates[2](Valid(RV2WideInstruction(xlen)), ~role: producer)
   output available: Bits(4)
   input consume: Bits(2)
@@ -77,6 +77,7 @@ sync_circuit RV2WideIssueWindow(xlen :: XLen = XLen.X64, ~hypervisor: hypervisor
   head.count <== mux(count >= Bits(4)(2), Bits(2)(2), count[0..2])
   def visible = vec(for List (lane in 0..2): expand_entry(xlen, hypervisor, entries[lane]))
   head.entries <== visible
+  head_steps <== vec(for List (lane in 0..2): entries[lane].step)
   def packed :: Vec(2, RV2WideWindowEntry(xlen, hypervisor)) = vec(for List (lane in 0..2): pack_entry(xlen, hypervisor, ingress.bits.entries[lane]))
   def added = mux(ingress.fire(), ingress.bits.count.zext(4), Bits(4)(0))
   // Observe accepted packets without changing their independent ingress readiness.

@@ -151,6 +151,27 @@ fun expand_fetch_fault(xlen :: XLen, hypervisor :: Boolean, packed :: RV2WidePac
   def guest = if hypervisor | packed.guest | literal(RiscvGuestFault(), 0)
   observed_fetch_fault(xlen, packed.kind =/= RV2WideFetchFaultKind.None, cause, packed.value, guest)
 
+/* A +2 or +4 successor toggles one contiguous run, starting at bit 1 or 2.
+   The tag names its last changed bit, not a displacement from the PC. */
+bundle RV2WidePcStep(xlen :: XLen):
+  last: Bits(index_width(xlen.width))
+  short_step: Bool
+
+/* Restore bits 2..last and, for a two-byte step, bit 1. Bit 0 never changes. */
+fun expand_pc_step(xlen :: XLen, pc :: Bits(xlen.width), step :: RV2WidePcStep(xlen)) :~ Bits(xlen.width):
+  def below_last = Mask(xlen.width - 1).prefix(step.last).as_bits()
+  def changed = below_last[1..xlen.width - 1] ++ step.short_step.as_bits() ++ Bits(1)(0)
+  pc ^ changed
+
+/* The accepted PC pair already contains the carry result, including XLEN wrap.
+   Isolate the upper edge of its changed run for a parallel one-hot index encode. */
+fun encode_pc_step(xlen :: XLen, pc :: Bits(xlen.width), successor :: Bits(xlen.width)) :~ RV2WidePcStep(xlen):
+  def changed = pc ^ successor
+  def edge = (changed & !(changed >> 1)).into(MaybeOneHot(xlen.width))
+  RV2WidePcStep(xlen):
+    last: edge.index
+    short_step: changed[1].into(Bool)
+
 /* Retains canonical decode bits, original encoding, and the length-derived successor through retirement. */
 bundle RV2WideInstruction(xlen :: XLen):
   pc: Bits(xlen.width)
@@ -463,6 +484,9 @@ export:
   pack_fetch_fault
   expand_fetch_fault
   observed_fetch_fault
+  RV2WidePcStep
+  encode_pc_step
+  expand_pc_step
   RV2WideInstruction
   RV2WidePacket
   RV2WideBranchTraining

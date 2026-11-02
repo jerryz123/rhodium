@@ -67,10 +67,10 @@ the low 12 bits of their starting PCs. Each stage owns one shared upper-PC
 register, captured on the older lane's transfer even when it issues alone.
 Both lanes reconstruct their PCs from that stage's prefix. Recovery may kill
 the younger lane alone, so it must not gate prefix advancement. A bubble or
-flush needs no prefix reset or separate valid bit. EX's vector PC and the
-MEM/WB branch-update PC and return address are aliases; the pipe reconstructs
-them from the starting and sequential PCs. The sequential PC, predictor
-metadata, and targets are independent of the prefix and pass through unchanged.
+flush needs no prefix reset or separate valid bit. The prediction PC, EX's
+vector PC, and the MEM/WB branch-update PC all alias the starting PC. The
+branch return address aliases the sequential PC. Prediction targets are
+independent; never reconstruct them from the group prefix.
 Use the reconstructed PC for traces and before handing work to any independently
 retained owner. The issue window and a merged WB retirement group do not have
 this prefix invariant.
@@ -90,11 +90,15 @@ Format ordinary loads by width and offset; atomics return the raw beat.
 Multiply, divide, FP and vector GPR returns use the same compact instruction
 identity. Keep the full fetch record on retirement, not in these return tags.
 
-The issue window stores one length bit instead of the sequential PC and omits
-the prediction PC. Expand only the two visible head entries. Use the assembler's
-actual halfword count, including when a fetch faults. Preserve the prediction
-target, direction checkpoint, and RAS actions even when an instruction crosses
-a block or region.
+The issue window encodes the supplied sequential PC once at ingress. Adding
+two or four toggles a contiguous run of bits, starting at bit 1 or 2.
+Store the highest toggled bit and whether bit 1 toggled (six bits on RV32,
+seven on RV64). Forward this tag unchanged through the lane registers. The
+window heads and stage outputs apply the toggles to their own PC; they need
+neither a second offset nor a PC adder. This also handles 4 KiB crossings,
+XLEN wrap, and faulting instructions whose raw bits do not identify their
+length. Preserve the prediction target, direction checkpoint, and RAS actions
+even when an instruction crosses a block or region.
 
 The window and EX retain a per-instruction fetch-fault kind, the full fault
 address, and guest details only with H. MEM and WB retain just the fetch-fault

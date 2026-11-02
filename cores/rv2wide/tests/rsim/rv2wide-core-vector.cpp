@@ -1892,9 +1892,11 @@ void pc_region_pairing() {
   CHECK(!retired_pcs.contains(fault_pair + 4) && gprs[10] == 31 && gprs[11] == 22);
 }
 
-void fetch_fault_roundtrip(unsigned cause, bool valid = true) {
-  run();
-  const std::uint64_t pc = bytes == 4 ? UINT32_MAX - 1u : UINT64_MAX - 1;
+void fetch_fault_roundtrip(unsigned cause, bool valid = true,
+                           std::uint64_t pc = bytes == 4 ? UINT32_MAX - 1u : UINT64_MAX - 1,
+                           unsigned length = 2) {
+  using pc_t = decltype(instructions_in.pbits.pentries[0].ppc);
+  const pc_t successor = pc_t(pc + length);
   const auto faults = fault_count;
   instructions_in = {};
   instructions_in.pvalid = instructions_in.pbits.pcount = 1;
@@ -1902,7 +1904,9 @@ void fetch_fault_roundtrip(unsigned cause, bool valid = true) {
   entry.ppc = pc;
   entry.pinstruction = 0x13;
   entry.praw_uinstruction = valid ? 0x13 : 0x1; // Faulting raw word looks four bytes long.
-  entry.psequential_upc = 0; // +2 wraps at XLEN.
+  entry.psequential_upc = successor;
+  entry.pprediction.ppc = ~pc_t(pc); // Ignored on an invalid prediction; its target is not a PC alias.
+  entry.pprediction.ptarget = ~successor;
   const auto fault_address = cause == 1 ? pc : 0x345678u;
   constexpr std::uint64_t gpa = UINT64_C(0x123400006789000);
   entry.pfault.pvalid = valid;
@@ -1917,7 +1921,8 @@ void fetch_fault_roundtrip(unsigned cause, bool valid = true) {
     if (memory_stage_0_out.pvalid && memory_stage_0_out.pbits.ppc == pc) {
       const auto &token = memory_stage_0_out.pbits;
       const auto &f = token.pfault;
-      CHECK(token.psequential_upc == 0 && token.pprediction.ppc == pc &&
+      CHECK(token.psequential_upc == successor && token.pprediction.ppc == pc &&
+            token.pprediction.ptarget == pc_t(~successor) &&
             token.praw_uinstruction == entry.praw_uinstruction && f.pvalid == valid);
       CHECK(f.pcause == (valid ? cause : 0) && f.pvalue == (valid ? fault_address : 0));
       const bool guest = valid && bytes == 8;
@@ -1927,6 +1932,9 @@ void fetch_fault_roundtrip(unsigned cause, bool valid = true) {
     }
     if (retired_0_out.pvalid && retired_0_out.pbits.pfetched.ppc == pc) {
       const auto &f = retired_0_out.pbits.pfetched.pfault;
+      const auto &fetched = retired_0_out.pbits.pfetched;
+      CHECK(fetched.psequential_upc == successor && fetched.pprediction.ppc == pc &&
+            fetched.pprediction.ptarget == pc_t(~successor));
       CHECK(!valid && !f.pvalid && !f.pcause && !f.pvalue && !f.pguest.pguest_uvirtual_uaddress &&
             !f.pguest.pguest_uphysical_uaddress && !f.pguest.paccess);
       saw_retire = true;
@@ -1941,6 +1949,19 @@ void fetch_fault_roundtrip(unsigned cause, bool valid = true) {
     send(0x34a025f3); // csrr x11, mtinst
     CHECK(gprs[10] == (gpa >> 2) && gprs[11] == 0x3000);
   }
+}
+
+void successor_carry_boundaries() {
+  // Exercise each possible end of the changed run. Faults let us reuse PCs
+  // without retiring the same address twice in the fixture's instruction stream.
+  for (unsigned length : {2u, 4u}) {
+    for (unsigned bit = length == 2 ? 1 : 2; bit < bytes * 8; ++bit) {
+      const auto boundary = UINT64_C(1) << bit;
+      fetch_fault_roundtrip(1, true, boundary - length, length);
+    }
+  }
+  // A four-byte step may preserve a set bit 1 even across XLEN wrap.
+  fetch_fault_roundtrip(1, true, bytes == 4 ? UINT32_MAX - 1u : UINT64_MAX - 1, 4);
 }
 
 int main() {
@@ -2095,6 +2116,8 @@ int main() {
     vector_memory_branch_pairs();
     speculative_scalar_authorization();
     pc_region_pairing();
+    run();
+    successor_carry_boundaries();
     for (unsigned cause : {0u, 1u, 12u}) fetch_fault_roundtrip(cause);
     if constexpr (bytes == 8) fetch_fault_roundtrip(20);
     fetch_fault_roundtrip(0xff, false);
