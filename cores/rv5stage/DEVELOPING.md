@@ -77,6 +77,10 @@ ALU result through the registered bypass. The shared bank's side-effect-free
 `command_fault` feeds precise exception retention before authorizing trap entry.
 Suppress younger Memory progress on that detection edge, not only after the
 pending-exception register becomes valid. No CSR result queue or WB stall is added.
+When older work must drain, retain the faulting PC, observed resume PC, and
+resolved cause/value, plus guest-fault provenance on H profiles. Deliver that
+record as an explicit exception to the CSR bank; do not reissue the faulting
+operation or decide trap delegation in the pending slot.
 
 Follow the [source documentation requirements](../../AGENTS.md#source-documentation),
 including the exemption for files under `tests/`.
@@ -1137,9 +1141,13 @@ cache's independent snoop service.
 For WB authorization and scalar/FP integration, run:
 
 ```sh
-FIXTURES='rv5stage-core rv5stage-data-fault rv5stage-zicboz rv5stage-interrupt rv5stage-wfi' python3 tools/testing/rsim/run.py
+FIXTURES='rv5stage-core rv5stage-access-fault rv5stage-data-fault rv5stage-zicboz rv5stage-interrupt rv5stage-wfi' python3 tools/testing/rsim/run.py
 FIXTURES='rv5stage-core-rv32f rv5stage-core-rv64d' python3 tools/testing/rsim/run.py
 ```
+
+`rv5stage-access-fault` checks immediate fetch faults and held fetch/CSR faults:
+no handler fetch before the data port drains, no younger store, and the original
+PC, cause, and trap value visible in the handler.
 
 The RV32F/RV64D benches exercise rejected memory dispatch, committed prefetches,
 deferred FP and atomic completion, FP stores/loads, CSR flags, and suppression of younger

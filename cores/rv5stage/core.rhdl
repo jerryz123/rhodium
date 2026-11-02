@@ -37,6 +37,7 @@ import:
   "../../riscv/isa/csr.rhm" open
   "../../riscv/rtl/privilege.rhdl".effective_data_privilege
   "../../riscv/rtl/csr.rhdl".csr_flag
+  "../../riscv/rtl/csr.rhdl".RiscvCsrOperation
   "../../riscv/rtl/vector.rhdl" open
   "../../riscv/rtl/zihintntl.rhdl" open
   "decode/branch-ctrl.rhdl" open
@@ -230,7 +231,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
      backward control is declared before the forward stage bodies. */
 
   reg wb_pending_exception_valid(~init: Bool(#false))
-  reg wb_pending_exception(MemoryWriteback(xlen, vector_completion_slots, hypervisor))
+  reg wb_pending_exception(RV5StagePendingTrap(xlen, hypervisor))
 
 
   /* Pipeline storage and scalar execution units.
@@ -1663,7 +1664,6 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
      pipeline occupancy is not outstanding architectural work. */
 
   def wb_current_exception_wait = wb_commit_valid & wb_csrs.command_fault.valid & (wb_deferred_results_pending ||| wb_vector_active ||| !scalar_data.drained)
-  def wb_architectural_commit = mux(wb_pending_exception_valid, wb_pending_exception, wb_commit_bits)
   def wb_pending_exception_ready = wb_pending_exception_valid & !wb_deferred_results_pending & !wb_vector_active & scalar_data.drained
   wb_csrs.interrupt_boundary <== !wb_vector_active & !wb_scalar_pending & !wb_reservation_wait_accept & !wb_pending_exception_valid & !ex_input.valid & !mem_input.valid & !wb.valid & !wb_deferred_results_pending & scalar_data.drained
   wb_csrs.interrupt_pc <== priority_mux(~default: if_architectural_pc):
@@ -1675,18 +1675,29 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   // The shared bank consumes this event but owns no pipeline-retirement policy.
   wb_csrs.retire_count <== wb_csrs.command_success.as_bits().zext(2)
   stat_count("retired_slot0", wb_csrs.command_success)
-  wb_csrs.commit.bits <== RiscvCsrCommand(xlen):
-    pc: wb_architectural_commit.pc
-    instruction: wb_architectural_commit.raw_instruction
-    rd: wb_architectural_commit.rd
-    csr_operation: wb_architectural_commit.system.csr
-    action: wb_architectural_commit.system.action
-    csr_address: wb_architectural_commit.csr_address
-    csr_source: wb_architectural_commit.csr_source
-    vector_config: wb_architectural_commit.vector_config
-    exception_valid: wb_architectural_commit.exception_valid
-    exception_cause: wb_architectural_commit.exception_cause
-    exception_value: wb_architectural_commit.exception_value
+  def wb_live_command = RiscvCsrCommand(xlen):
+    pc: wb_commit_bits.pc
+    instruction: wb_commit_bits.raw_instruction
+    rd: wb_commit_bits.rd
+    csr_operation: wb_commit_bits.system.csr
+    action: wb_commit_bits.system.action
+    csr_address: wb_commit_bits.csr_address
+    csr_source: wb_commit_bits.csr_source
+    vector_config: wb_commit_bits.vector_config
+    exception_valid: wb_commit_bits.exception_valid
+    exception_cause: wb_commit_bits.exception_cause
+    exception_value: wb_commit_bits.exception_value
+
+  // The CSR bank classified the fault at capture. Deliver it as an explicit
+  // exception, without reissuing the original CSR, return, or vset operation.
+  def wb_inactive_command :: RiscvCsrCommand(xlen) = literal(RiscvCsrCommand(xlen), 0)
+  def wb_trap_command = wb_inactive_command.updated(
+    ~pc: wb_pending_exception.pc, ~csr_operation: RiscvCsrOperation.None, ~action: RiscvCsrAction.None,
+    ~exception_valid: Bool(#true), ~exception_cause: wb_pending_exception.cause, ~exception_value: wb_pending_exception.value
+  )
+
+  def wb_architectural_command :: RiscvCsrCommand(xlen) = mux(wb_pending_exception_valid, wb_trap_command, wb_live_command)
+  wb_csrs.commit.bits <== wb_architectural_command
 
   if hypervisor
   | block:
@@ -1694,17 +1705,19 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
       // before trap/return can switch context; no per-result guest tag is needed.
       assert(!wb_csrs.redirect.valid ||| wb_fp.drained, "rv5stage_guest_transition_drains_fp")
       assert(!wb_csrs.redirect.valid ||| !wb_vector_active, "rv5stage_guest_transition_drains_vector")
-      wb_csrs.guest_fault.valid <== wb_csrs.commit.valid & wb_architectural_commit.exception_valid
-      wb_csrs.guest_fault.bits <== wb_architectural_commit.guest.details
+      wb_csrs.guest_fault.valid <== wb_csrs.commit.valid & wb_architectural_command.exception_valid
+      wb_csrs.guest_fault.bits <== mux(wb_pending_exception_valid, wb_pending_exception.guest, wb_commit_bits.guest.details)
   | #void
 
   when wb_current_exception_wait:
     wb_pending_exception_valid <== Bool(#true)
-    wb_pending_exception <== wb_commit_bits.updated(
-      ~exception_valid: Bool(#true),
-      ~exception_cause: wb_csrs.command_fault.cause,
-      ~exception_value: wb_csrs.command_fault.value
-    )
+    wb_pending_exception.pc <== wb_commit_bits.pc
+    wb_pending_exception.resume_pc <== wb_commit_bits.resume_pc
+    wb_pending_exception.cause <== wb_csrs.command_fault.cause
+    wb_pending_exception.value <== wb_csrs.command_fault.value
+    if hypervisor
+    | wb_pending_exception.guest <== wb_commit_bits.guest.details
+    | #void
   elsewhen (wb_pending_exception_valid & wb_csrs.redirect.valid):
     wb_pending_exception_valid <== Bool(#false)
 
@@ -1907,7 +1920,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     "wb_offer_bits": wb_offer_bits,
     "wb_commit_bits": wb_commit_bits,
     "wb_input_bits": wb_input.bits,
-    "resume_pc": wb_architectural_commit.resume_pc,
+    "resume_pc": mux(wb_pending_exception_valid, wb_pending_exception.resume_pc, wb_commit_bits.resume_pc),
     "response_fire": scalar_data.response.fire(),
     "memory_request": scalar_data.request.bits,
     "memory_response": scalar_data.response.bits,
