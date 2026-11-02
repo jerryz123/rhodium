@@ -10,13 +10,13 @@ import:
 
 /* Holds the independent fetch fields; the prediction PC is the instruction PC and
    the assembler's length decision determines the sequential successor, including on faults. */
-bundle RV2WideWindowEntry(xlen :: XLen):
+bundle RV2WideWindowEntry(xlen :: XLen, hypervisor :: Boolean):
   pc: Bits(xlen.width)
   instruction: Bits(32)
   raw_instruction: Bits(32)
   short_step: Bool
   compressed_illegal: Bool
-  fault: RV2WideFetchFault(xlen)
+  fault: RV2WidePackedFetchFault(xlen, hypervisor)
   predicted: Bool
   target: Bits(xlen.width)
   predicted_compressed: Bool
@@ -26,14 +26,14 @@ bundle RV2WideWindowEntry(xlen :: XLen):
 
 /* Projects the assembler's actual successor, not the low encoding bits: +2 toggles
    PC bit 1 and +4 preserves it, including across XLEN wrap. */
-fun pack_entry(xlen :: XLen, token :: RV2WideInstruction(xlen)) :~ RV2WideWindowEntry(xlen):
-  RV2WideWindowEntry(xlen):
+fun pack_entry(xlen :: XLen, hypervisor :: Boolean, token :: RV2WideInstruction(xlen)) :~ RV2WideWindowEntry(xlen, hypervisor):
+  RV2WideWindowEntry(xlen, hypervisor):
     pc: token.pc
     instruction: token.instruction
     raw_instruction: token.raw_instruction
     short_step: token.pc[1] =/= token.sequential_pc[1]
     compressed_illegal: token.compressed_illegal
-    fault: token.fault
+    fault: pack_fetch_fault(xlen, hypervisor, token.fault)
     predicted: token.prediction.valid
     target: token.prediction.target
     predicted_compressed: token.prediction.compressed
@@ -42,14 +42,14 @@ fun pack_entry(xlen :: XLen, token :: RV2WideInstruction(xlen)) :~ RV2WideWindow
     direction: token.direction
 
 /* Expands only the two visible head entries; compaction moves the narrow records. */
-fun expand_entry(xlen :: XLen, entry :: RV2WideWindowEntry(xlen)) :~ RV2WideInstruction(xlen):
+fun expand_entry(xlen :: XLen, hypervisor :: Boolean, entry :: RV2WideWindowEntry(xlen, hypervisor)) :~ RV2WideInstruction(xlen):
   RV2WideInstruction(xlen):
     pc: entry.pc
     instruction: entry.instruction
     raw_instruction: entry.raw_instruction
     sequential_pc: entry.pc + mux(entry.short_step, Bits(xlen.width)(2), Bits(xlen.width)(4))
     compressed_illegal: entry.compressed_illegal
-    fault: entry.fault
+    fault: expand_fetch_fault(xlen, hypervisor, entry.fault)
     prediction:
       BranchPrediction(xlen):
         valid: entry.predicted
@@ -61,7 +61,7 @@ fun expand_entry(xlen :: XLen, entry :: RV2WideWindowEntry(xlen)) :~ RV2WideInst
     direction: entry.direction
 
 /* Coalesces packet boundaries after partial issue; clear discards resident and live offers. */
-sync_circuit RV2WideIssueWindow(xlen :: XLen = XLen.X64):
+sync_circuit RV2WideIssueWindow(xlen :: XLen = XLen.X64, ~hypervisor: hypervisor :: Boolean = #false):
   interface ingress(Decoupled(RV2WidePacket(xlen)), ~role: consumer)
   interface clear(Pulse(), ~role: consumer)
   output head: RV2WidePacket(xlen)
@@ -70,14 +70,14 @@ sync_circuit RV2WideIssueWindow(xlen :: XLen = XLen.X64):
   input consume: Bits(2)
 
   reg count(~init: Bits(4)(0))
-  reg entries(Vec(8, RV2WideWindowEntry(xlen)))
+  reg entries(Vec(8, RV2WideWindowEntry(xlen, hypervisor)))
   def remaining = count - consume.zext(4)
   available <== Bits(4)(8) - count
   ingress.ready <== !clear.valid & (remaining <= Bits(4)(6))
   head.count <== mux(count >= Bits(4)(2), Bits(2)(2), count[0..2])
-  def visible = vec(for List (lane in 0..2): expand_entry(xlen, entries[lane]))
+  def visible = vec(for List (lane in 0..2): expand_entry(xlen, hypervisor, entries[lane]))
   head.entries <== visible
-  def packed = vec(for List (lane in 0..2): pack_entry(xlen, ingress.bits.entries[lane]))
+  def packed :: Vec(2, RV2WideWindowEntry(xlen, hypervisor)) = vec(for List (lane in 0..2): pack_entry(xlen, hypervisor, ingress.bits.entries[lane]))
   def added = mux(ingress.fire(), ingress.bits.count.zext(4), Bits(4)(0))
   // Observe accepted packets without changing their independent ingress readiness.
   def accepted = interface_link(Valid(RV2WidePacket(xlen)))
@@ -92,6 +92,7 @@ sync_circuit RV2WideIssueWindow(xlen :: XLen = XLen.X64):
       def token :: RV2WideInstruction(xlen) = ingress.bits.entries[lane]
       assert(token.sequential_pc.is_one_of(token.pc + Bits(xlen.width)(2), token.pc + Bits(xlen.width)(4)), "rv2wide_window_instruction_length")
       assert(!token.prediction.valid ||| (token.prediction.pc === token.pc), "rv2wide_window_prediction_pc")
+      assert(!token.fault.valid ||| (packed[lane].fault.kind =/= RV2WideFetchFaultKind.None), "rv2wide_supported_fetch_fault")
 
     def name = "head" ++ to_string(lane)
     describe_interface_window_storage(8, ingress.fire(), consume.zext(4), count, clear.valid, for List (index in 0..2): Bool(index == lane), ~name: name, ~append_count: ingress.bits.count.zext(4))

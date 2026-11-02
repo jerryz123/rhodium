@@ -24,10 +24,13 @@ for (xlen in [XLen.X32, XLen.X64]):
   def window = child(execution, "rr_window")
   def entries = window.operations.find(fun (op): op.opcode == "rtl.register" && op.attribute("name") == "entries")
   def fetched_width = retired.field("fetched").type.packed_width()
+  def full_fault_width = retired.field("fetched").type.field("fault").type.packed_width()
+  def compact_fault_width = 3 + xlen.width // Non-H: kind and full fault address.
   def fifo = child(child(execution, "wb_load_response"), "owners")
   def queue_storage = fifo.memories.find(fun (mem): mem.name == "storage")
   check:
-    entries.results[0].type.packed_width() ~is 8 * (fetched_width - 2 * xlen.width + 1)
+    entries.results[0].type.element_type.field("fault").type.packed_width() ~is compact_fault_width
+    entries.results[0].type.packed_width() ~is 8 * (fetched_width - 2 * xlen.width + 1 - full_fault_width + compact_fault_width)
     completed.field("identity").type.packed_width() ~is xlen.width + 32
     completed.packed_width() ~is 2 * xlen.width + 38
     queue_storage.depth ~is 4
@@ -45,11 +48,17 @@ for (xlen in [XLen.X32, XLen.X64]):
       def storage = child(lane, "storage")
       def payload = storage.operations.find(fun (op): op.opcode == "rtl.register" && op.attribute("name") == "stage_bits")
       def aliases = if stage == "ex" | 1 | 2
+      def fault_width = if stage == "ex" | compact_fault_width | 1
+      unless stage == "ex"
+      | check: payload.results[0].type.element_type.field("resolution").type.field("cause").type.width ~is 5
+
       check:
         payload.results[0].type.element_type.field("fetched").type.field("pc").type.width ~is 12
-        payload.results[0].type.packed_width() ~is full.packed_width() - (xlen.width - 12) - aliases * xlen.width
+        payload.results[0].type.element_type.field("fetched").type.field("fault").type.packed_width() ~is fault_width
+        payload.results[0].type.packed_width() ~is full.packed_width() - (xlen.width - 12) - aliases * xlen.width - full_fault_width + fault_width
 
   check:
+    execution.find_output("redirect_out").type.field("bits").type.field("resolution").type.field("cause").type.width ~is xlen.width
     retired.field("data").type.width ~is xlen.width
     retired.field("fetched").type.field("pc").type.width ~is xlen.width
     core.find_input("start_in").type.field("bits").type.width ~is 64

@@ -20,6 +20,9 @@ import:
   lib("cores/bpred/protocol.rhdl") open
   lib("cores/branch-resolver.rhdl").BranchResolverControl
   lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/isa/trap.rhm").exception_code
+  lib("riscv/isa/trap.rhm").ExceptionCause
+  lib("riscv/rtl/trap.rhdl").exception_cause_bits
   lib("riscv/rtl/atomic.rhdl").RiscvAtomicOperation
   lib("riscv/rtl/zihintntl.rhdl").RiscvMemoryLocality
   lib("riscv/rtl/privilege.rhdl").PrivilegeMode
@@ -93,6 +96,61 @@ bundle RV2WideFetchFault(xlen :: XLen):
   value: Bits(xlen.width)
   guest: RiscvGuestFault()
 
+/* Encodes only synchronous exceptions produced by instruction fetch; None carries no payload. */
+hardware_enum RV2WideFetchFaultKind:
+  None
+  Misaligned
+  Access
+  Page
+  GuestPage
+
+/* Retains the exact faulting address (which may belong to a continuation parcel).
+   Only an H-enabled core needs guest-address and page-walk provenance. */
+bundle RV2WidePackedFetchFault(xlen :: XLen, hypervisor :: Boolean):
+  kind: RV2WideFetchFaultKind
+  value: Bits(xlen.width)
+  if hypervisor:
+    guest: RiscvGuestFault()
+
+/* Encodes an admitted fetch exception. The window rejects a valid input that maps to None. */
+fun pack_fetch_fault(xlen :: XLen, hypervisor :: Boolean, fault :: RV2WideFetchFault(xlen)) :~ RV2WidePackedFetchFault(xlen, hypervisor):
+  def kind = mux_lookup(fault.cause, ~default: RV2WideFetchFaultKind.None):
+    exception_code(ExceptionCause.InstructionAddressMisaligned): RV2WideFetchFaultKind.Misaligned
+    exception_code(ExceptionCause.InstructionAccessFault): RV2WideFetchFaultKind.Access
+    exception_code(ExceptionCause.InstructionPageFault): RV2WideFetchFaultKind.Page
+    exception_code(ExceptionCause.InstructionGuestPageFault): if hypervisor | RV2WideFetchFaultKind.GuestPage | RV2WideFetchFaultKind.None
+
+  def encoded = mux(fault.valid, kind, RV2WideFetchFaultKind.None)
+  if hypervisor
+  | RV2WidePackedFetchFault(xlen, #true):
+      kind: encoded
+      value: fault.value
+      guest: fault.guest
+  | RV2WidePackedFetchFault(xlen, #false):
+      kind: encoded
+      value: fault.value
+
+/* Presents an exact fault when valid and a canonical all-zero record when absent. */
+fun observed_fetch_fault(xlen :: XLen, valid :: Bool, cause :: Bits(xlen.width), value :: Bits(xlen.width), guest :: RiscvGuestFault()) :~ RV2WideFetchFault(xlen):
+  def fault = RV2WideFetchFault(xlen):
+    valid: valid
+    cause: cause
+    value: value
+    guest: guest
+
+  mux(valid, fault, literal(RV2WideFetchFault(xlen), 0))
+
+/* Reconstructs the public fault fields before EX classifies the instruction. */
+fun expand_fetch_fault(xlen :: XLen, hypervisor :: Boolean, packed :: RV2WidePackedFetchFault(xlen, hypervisor)) :~ RV2WideFetchFault(xlen):
+  def cause = mux_lookup(packed.kind, ~default: Bits(xlen.width)(0)):
+    RV2WideFetchFaultKind.Misaligned: exception_cause_bits(ExceptionCause.InstructionAddressMisaligned, xlen.width)
+    RV2WideFetchFaultKind.Access: exception_cause_bits(ExceptionCause.InstructionAccessFault, xlen.width)
+    RV2WideFetchFaultKind.Page: exception_cause_bits(ExceptionCause.InstructionPageFault, xlen.width)
+    RV2WideFetchFaultKind.GuestPage: exception_cause_bits(ExceptionCause.InstructionGuestPageFault, xlen.width)
+
+  def guest = if hypervisor | packed.guest | literal(RiscvGuestFault(), 0)
+  observed_fetch_fault(xlen, packed.kind =/= RV2WideFetchFaultKind.None, cause, packed.value, guest)
+
 /* Retains canonical decode bits, original encoding, and the length-derived successor through retirement. */
 bundle RV2WideInstruction(xlen :: XLen):
   pc: Bits(xlen.width)
@@ -134,6 +192,32 @@ bundle RV2WideResolution(xlen :: XLen):
   cause: Bits(xlen.width)
   value: Bits(xlen.width)
   guest: RiscvGuestFault()
+
+/* Pipeline owners carry synchronous exception numbers (currently 0..23), never interrupts. */
+def RV2WideCauseWidth = 5
+
+/* Carries a precise trap value and guest provenance alongside the compact synchronous cause. */
+bundle RV2WideSyncResolution(xlen :: XLen):
+  disposition: RV2WideDisposition
+  cause: Bits(RV2WideCauseWidth)
+  value: Bits(xlen.width)
+  guest: RiscvGuestFault()
+
+/* Narrows a stage or memory-service outcome; its producer must supply a representable fault. */
+fun compact_resolution(xlen :: XLen, source :: RV2WideResolution(xlen)) :~ RV2WideSyncResolution(xlen):
+  RV2WideSyncResolution(xlen):
+    disposition: source.disposition
+    cause: source.cause[0..RV2WideCauseWidth]
+    value: source.value
+    guest: source.guest
+
+/* Reconstructs the XLEN public observation without introducing an interrupt bit. */
+fun expand_resolution(xlen :: XLen, source :: RV2WideSyncResolution(xlen)) :~ RV2WideResolution(xlen):
+  RV2WideResolution(xlen):
+    disposition: source.disposition
+    cause: source.cause.zext(xlen.width)
+    value: source.value
+    guest: source.guest
 
 /* Stores only scheduling decisions; instruction ownership is attached at service boundaries. */
 bundle RV2WideFpSchedule():
@@ -253,7 +337,7 @@ bundle RV2WideResult(xlen :: XLen):
   muldiv: RV2WideLongControl()
   left: Bits(xlen.width)
   right: Bits(xlen.width)
-  resolution: RV2WideResolution(xlen)
+  resolution: RV2WideSyncResolution(xlen)
   fp: RV2WideFpControl()
   fp_request: FpExecutionRequest(xlen, fp_transport_profile(xlen), RV2WideFpSchedule())
   vector_fast_eligible: Bool
@@ -374,12 +458,21 @@ export:
   RV2WideInstructionLookup
   RV2WideUncachedInstruction
   RV2WideFetchFault
+  RV2WideFetchFaultKind
+  RV2WidePackedFetchFault
+  pack_fetch_fault
+  expand_fetch_fault
+  observed_fetch_fault
   RV2WideInstruction
   RV2WidePacket
   RV2WideBranchTraining
   RV2WideHistoryCommit
   RV2WideDisposition
   RV2WideResolution
+  RV2WideSyncResolution
+  RV2WideCauseWidth
+  compact_resolution
+  expand_resolution
   RV2WideExecute
   RV2WideResult
   RV2WideVectorLane

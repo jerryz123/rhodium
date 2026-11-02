@@ -1892,7 +1892,7 @@ void pc_region_pairing() {
   CHECK(!retired_pcs.contains(fault_pair + 4) && gprs[10] == 31 && gprs[11] == 22);
 }
 
-void faulted_window_length() {
+void fetch_fault_roundtrip(unsigned cause, bool valid = true) {
   run();
   const std::uint64_t pc = bytes == 4 ? UINT32_MAX - 1u : UINT64_MAX - 1;
   const auto faults = fault_count;
@@ -1900,24 +1900,47 @@ void faulted_window_length() {
   instructions_in.pvalid = instructions_in.pbits.pcount = 1;
   auto &entry = instructions_in.pbits.pentries[0];
   entry.ppc = pc;
-  entry.pinstruction = entry.praw_uinstruction = 0x00000013; // Looks four bytes long.
-  entry.psequential_upc = 0; // Faulted first parcel: +2 wraps at XLEN.
-  entry.pfault = {.pvalid = 1, .pcause = 1, .pvalue = pc};
-  bool saw_mem = false;
-  for (unsigned wait = 0; fault_count == faults; ++wait) {
+  entry.pinstruction = 0x13;
+  entry.praw_uinstruction = valid ? 0x13 : 0x1; // Faulting raw word looks four bytes long.
+  entry.psequential_upc = 0; // +2 wraps at XLEN.
+  const auto fault_address = cause == 1 ? pc : 0x345678u;
+  constexpr std::uint64_t gpa = UINT64_C(0x123400006789000);
+  entry.pfault.pvalid = valid;
+  entry.pfault.pcause = cause;
+  entry.pfault.pvalue = fault_address;
+  entry.pfault.pguest = {1, gpa, 1}; // Page-table read; ignored without H or when invalid.
+  bool saw_mem = false, saw_retire = false;
+  for (unsigned wait = 0; valid ? fault_count == faults : !saw_retire; ++wait) {
     CHECK(wait < 100);
     settle();
     const bool accepted = instructions_in.pvalid && instructions_out.pready;
     if (memory_stage_0_out.pvalid && memory_stage_0_out.pbits.ppc == pc) {
       const auto &token = memory_stage_0_out.pbits;
+      const auto &f = token.pfault;
       CHECK(token.psequential_upc == 0 && token.pprediction.ppc == pc &&
-            token.praw_uinstruction == 0x13 && token.pfault.pvalue == pc);
+            token.praw_uinstruction == entry.praw_uinstruction && f.pvalid == valid);
+      CHECK(f.pcause == (valid ? cause : 0) && f.pvalue == (valid ? fault_address : 0));
+      const bool guest = valid && bytes == 8;
+      CHECK(f.pguest.pguest_uvirtual_uaddress == guest &&
+            f.pguest.pguest_uphysical_uaddress == (guest ? gpa : 0) && f.pguest.paccess == guest);
       saw_mem = true;
+    }
+    if (retired_0_out.pvalid && retired_0_out.pbits.pfetched.ppc == pc) {
+      const auto &f = retired_0_out.pbits.pfetched.pfault;
+      CHECK(!valid && !f.pvalid && !f.pcause && !f.pvalue && !f.pguest.pguest_uvirtual_uaddress &&
+            !f.pguest.pguest_uphysical_uaddress && !f.pguest.paccess);
+      saw_retire = true;
     }
     step();
     if (accepted) instructions_in.pvalid = 0;
   }
-  CHECK(saw_mem && last_fault_pc == pc && last_tval == pc);
+  CHECK(saw_mem && (valid ? (last_fault_pc == pc && last_cause == cause && last_tval == fault_address)
+                          : (saw_retire && fault_count == faults)));
+  if (valid && cause == 20) {
+    send(0x34b02573); // csrr x10, mtval2
+    send(0x34a025f3); // csrr x11, mtinst
+    CHECK(gprs[10] == (gpa >> 2) && gprs[11] == 0x3000);
+  }
 }
 
 int main() {
@@ -2072,8 +2095,11 @@ int main() {
     vector_memory_branch_pairs();
     speculative_scalar_authorization();
     pc_region_pairing();
-    faulted_window_length();
+    for (unsigned cause : {0u, 1u, 12u}) fetch_fault_roundtrip(cause);
+    if constexpr (bytes == 8) fetch_fault_roundtrip(20);
+    fetch_fault_roundtrip(0xff, false);
     run(100);
     vector_trace::finish();
+    expect_failure("rv2wide_supported_fetch_fault", [] { fetch_fault_roundtrip(bytes == 4 ? 20 : 5); });
   });
 }

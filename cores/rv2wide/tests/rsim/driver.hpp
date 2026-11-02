@@ -145,13 +145,13 @@ template <class T> bool same_instruction(const T &x, const T &y) {
          x.psequential_upc == y.psequential_upc &&
          x.pcompressed_uillegal == y.pcompressed_uillegal &&
          x.pfault.pvalid == y.pfault.pvalid &&
-         x.pfault.pcause == y.pfault.pcause &&
-         x.pfault.pvalue == y.pfault.pvalue &&
+         x.pfault.pcause == (y.pfault.pvalid ? y.pfault.pcause : 0) &&
+         x.pfault.pvalue == (y.pfault.pvalid ? y.pfault.pvalue : 0) &&
          x.pfault.pguest.pguest_uvirtual_uaddress ==
-             y.pfault.pguest.pguest_uvirtual_uaddress &&
+             (y.pfault.pvalid ? y.pfault.pguest.pguest_uvirtual_uaddress : 0) &&
          x.pfault.pguest.pguest_uphysical_uaddress ==
-             y.pfault.pguest.pguest_uphysical_uaddress &&
-         x.pfault.pguest.paccess == y.pfault.pguest.paccess &&
+             (y.pfault.pvalid ? y.pfault.pguest.pguest_uphysical_uaddress : 0) &&
+         x.pfault.pguest.paccess == (y.pfault.pvalid ? y.pfault.pguest.paccess : 0) &&
          x.pprediction.pvalid == y.pprediction.pvalid &&
          x.pprediction.ppc == y.ppc &&
          x.pprediction.ptarget == y.pprediction.ptarget &&

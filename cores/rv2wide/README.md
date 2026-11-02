@@ -108,7 +108,12 @@ modulo XLEN. A valid prediction must name that instruction's PC; an invalid
 prediction's input PC is ignored. The PC reported in either case is the
 instruction PC itself.
 Clear `fault.valid` and `compressed_illegal` for successful fetches; instruction
-bits are ignored for fetch faults.
+bits are ignored for fetch faults. Valid fetch faults accept only instruction
+address misalignment, access fault, page fault, or (with H) guest-page fault.
+Supply the actual fault address, which can differ from the starting PC for a
+straddling instruction. Guest provenance is preserved with H and ignored
+without H. Absent fetch faults are reported as all zero on the core's MEM
+observation and retirement ports, regardless of the input's invalid payload.
 Each entry also supplies `prediction: BranchPrediction(xlen)` and
 `speculated_ras_action: RasAction`. A nonpredicting packet source clears
 `prediction.valid`, uses `RasAction.None`, and zeroes `direction: TournamentPrediction(10)`.
@@ -908,6 +913,9 @@ replayed or rolled back. LR/SC/AMO still require natural alignment.
 The corresponding `resolution[2]: Valid(RV2WideResolution(xlen))` may qualify it in
 the same cycle with Continue, Fault, or Replay. This is a synchronous stage
 qualification boundary, **not** an asynchronous memory response interface.
+A Fault supplies a synchronous exception number in the low five bits of the
+XLEN-wide cause port; upper bits must be zero. Interrupts are selected by the
+CSR unit and reported with the architectural interrupt bit set on redirect.
 Absent qualification means Continue. Inputs for nonexistent or WB-squashed
 tokens have no architectural effect. This cut uses the boundary to exercise
 ordering before connecting a real memory subsystem.

@@ -1381,8 +1381,9 @@ int main() {
     drain();
     inject_enable = 1;
     inject_pc = UINT64_C(0x2550);
+    // An earlier EX exception wins; an unselected external cause is not validated.
     inject_result = {.pdisposition = UINT64_C(1),
-                     .pcause = UINT64_C(5),
+                     .pcause = UINT64_MAX,
                      .pvalue = UINT64_C(0xdead)};
     stop_at(UINT64_C(0x2550), UINT64_C(0x2550), 1, 2, UINT64_C(0xffffffff));
     send(UINT64_C(0x2550), UINT64_C(0xffffffff), {}, 1, 0, 0);
@@ -4807,10 +4808,10 @@ int main() {
       inject_enable = 1;
       inject_pc = UINT64_C(0x1b000) + ((lane * 4) & low_mask(64));
       inject_result = {.pdisposition = UINT64_C(1),
-                       .pcause = UINT64_C(21),
+                       .pcause = lane ? UINT64_C(23) : UINT64_C(21),
                        .pvalue = UINT64_C(0x500008),
                        .pguest = {1, 131072, 1}};
-      stop_at(inject_pc, 0, 1, 21, UINT64_C(0x500008));
+      stop_at(inject_pc, 0, 1, inject_result.pcause, UINT64_C(0x500008));
       if (lane == 0)
         send(UINT64_C(0x1b000), imm(5, 0, 7), imm(6, 0, 8), 2, 0, 0);
       else
@@ -4824,6 +4825,16 @@ int main() {
 
     CHECK(branch_updates > 0);
     CHECK(direction_updates > 0 && history_recoveries > 0);
+
+    // Interrupt causes belong to the CSR path, not the synchronous MEM input.
+    reset_core();
+    inject_enable = 1;
+    inject_pc = UINT64_C(0x1c000);
+    inject_result = {.pdisposition = 1, .pcause = (UINT64_C(1) << 63) | 5};
+    expect_failure("rv2wide_external_sync_cause", [] {
+      send(inject_pc, imm(5, 0, 7), 0, 1, 0, 0);
+      drain();
+    });
   });
 }
 

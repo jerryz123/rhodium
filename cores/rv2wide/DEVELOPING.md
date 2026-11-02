@@ -93,8 +93,22 @@ identity. Keep the full fetch record on retirement, not in these return tags.
 The issue window stores one length bit instead of the sequential PC and omits
 the prediction PC. Expand only the two visible head entries. Use the assembler's
 actual halfword count, including when a fetch faults. Preserve the prediction
-target, direction checkpoint, RAS actions, and full fault provenance even when
-an instruction crosses a block or region.
+target, direction checkpoint, and RAS actions even when an instruction crosses
+a block or region.
+
+The window and EX retain a per-instruction fetch-fault kind, the full fault
+address, and guest details only with H. MEM and WB retain just the fetch-fault
+origin bit beside the resolved outcome. Preserve EX's fetch-fault priority
+and MEM's earlier-fault priority: the observed fetch fault is reconstructed
+from that resolution when the bit is set, otherwise it is all zero. Do not
+label a later data or CSR fault as a fetch fault. The vector core fixtures
+exercise fault-address wrap, canonical absence, and H guest-page-fault CSRs;
+the fetching fixture covers continuation-page faults.
+
+Store the five-bit architectural exception number in MEM/WB lanes and retained
+WB owners. Widen it at CSR and public observation boundaries. Memory admission
+and vector fault producers must not supply an interrupt or a cause outside
+that field; adding a larger synchronous code requires revisiting the width.
 
 WB separates live/retained owners, the pre-dispatch prefix (`wb_dispatch`),
 service acceptance/faults, and the successful retirement prefix (`wb_retire`).

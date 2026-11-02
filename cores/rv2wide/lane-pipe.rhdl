@@ -27,8 +27,8 @@ fun copy_fields(T :: RecordType, source :: Hardware.packable, replacements :: Ma
 
 /* EX's vector PC aliases the fetched PC. MEM/WB branch updates also alias the captured successor.
    Predictor metadata, including its PC and target, remains a verbatim copy. */
-fun lane_shape(Full :: RecordType, execute :: Boolean) :: RecordType:
-  def fetched = storage_shape(Full.field("fetched").type, {"pc": Bits(RV2WidePcOffsetBits)})
+fun lane_shape(Full :: RecordType, execute :: Boolean, Fault :: DataType) :: RecordType:
+  def fetched = storage_shape(Full.field("fetched").type, {"pc": Bits(RV2WidePcOffsetBits), "fault": Fault})
   if execute
   | storage_shape(Full, {"fetched": fetched, "vector": storage_shape(Full.field("vector").type, {}, ["pc"])})
   | block:
@@ -38,8 +38,8 @@ fun lane_shape(Full :: RecordType, execute :: Boolean) :: RecordType:
 
 /* Projects into the compact or full schema. Only the starting PC uses the group
    prefix; the sequential PC can cross a region boundary. */
-fun recode_lane(T :: RecordType, source :: Hardware.packable, pc :: Hardware.packable, execute :: Boolean):
-  def fetched = copy_fields(T.field("fetched").type, kernel.project(source, "fetched"), {"pc": pc})
+fun recode_lane(T :: RecordType, source :: Hardware.packable, pc :: Hardware.packable, fault :: Hardware.packable, execute :: Boolean):
+  def fetched = copy_fields(T.field("fetched").type, kernel.project(source, "fetched"), {"pc": pc, "fault": fault})
   if execute
   | block:
       def vector = copy_fields(T.field("vector").type, kernel.project(source, "vector"), {"pc": pc})
@@ -53,7 +53,7 @@ fun recode_lane(T :: RecordType, source :: Hardware.packable, pc :: Hardware.pac
 
 /* Preserves the full lane interface and the one-cycle flushable pipe contract. Both
    lanes reconstruct their PC from the group prefix registered at this same stage. */
-sync_circuit RV2WideLanePipe(xlen :: XLen, Full :: RecordType):
+sync_circuit RV2WideLanePipe(xlen :: XLen, Full :: RecordType, ~hypervisor: hypervisor :: Boolean = #false):
   def execute = Full.type_equal(RV2WideExecute(xlen))
   unless execute || Full.type_equal(RV2WideResult(xlen))
   | error(~who: #'RV2WideLanePipe, "expected this core's execute or result payload")
@@ -63,7 +63,7 @@ sync_circuit RV2WideLanePipe(xlen :: XLen, Full :: RecordType):
   input flush: Bool
   input pc_region: Bits(xlen.width - RV2WidePcOffsetBits)
 
-  def Stored = lane_shape(Full, execute)
+  def Stored = lane_shape(Full, execute, if execute | RV2WidePackedFetchFault(xlen, hypervisor) | Bool)
   inst storage(ValidPipe(Stored, 1, ~flushable: #true))
   storage.flush <== flush
 
@@ -78,9 +78,30 @@ sync_circuit RV2WideLanePipe(xlen :: XLen, Full :: RecordType):
       when (ingress.valid):
         assert(token.branch.update.pc === token.fetched.pc, "rv2wide_lane_branch_pc")
         assert(token.branch.update.return_address === token.fetched.sequential_pc, "rv2wide_lane_branch_return")
+        when (token.fetched.fault.valid):
+          assert(token.resolution.disposition === RV2WideDisposition.Fault, "rv2wide_fetch_fault_disposition")
+          assert(token.resolution.cause.zext(xlen.width) === token.fetched.fault.cause, "rv2wide_fetch_fault_cause")
+          assert(token.resolution.value === token.fetched.fault.value, "rv2wide_fetch_fault_value")
+          assert(token.resolution.guest.as_bits() === token.fetched.fault.guest.as_bits(), "rv2wide_fetch_fault_guest")
 
-  ingress |> map_valid(token => recode_lane(Stored, token, token.fetched.pc[0..RV2WidePcOffsetBits], execute)) |> storage.ingress
-  storage.egress |> map_valid(token => recode_lane(Full, token, pc_region ++ token.fetched.pc, execute)) |> egress
+  // EX still needs the fault payload. Later stages need only its origin bit:
+  // resolution owns the surviving cause, value, and guest provenance.
+  (ingress |> map_valid(token):
+    def fault :: RV2WideFetchFault(xlen) = token.fetched.fault
+    def encoded = if execute | pack_fetch_fault(xlen, hypervisor, fault) | fault.valid
+    recode_lane(Stored, token, token.fetched.pc[0..RV2WidePcOffsetBits], encoded, execute)
+  ) |> storage.ingress
+
+  (storage.egress |> map_valid(token):
+    def fault:
+      if execute
+      | expand_fetch_fault(xlen, hypervisor, token.fetched.fault)
+      | block:
+          def resolution :: RV2WideSyncResolution(xlen) = token.resolution
+          observed_fetch_fault(xlen, token.fetched.fault, resolution.cause.zext(xlen.width), resolution.value, resolution.guest)
+
+    recode_lane(Full, token, pc_region ++ token.fetched.pc, fault, execute)
+  ) |> egress
 
 export:
   RV2WidePcOffsetBits
