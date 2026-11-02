@@ -111,15 +111,21 @@ outside the HDL-free rsim suite.
 
 ## CI ownership
 
-CI applies the declarative policy in [`../ci/`](../ci/plan.py).
-[`plan.py`](../ci/plan.py) maps changed paths to the capability matrix declared
-by [`policy.py`](../ci/policy.py). Software ownership and transitive build/run
-dependencies live in [`software.py`](../ci/software.py), not in ordered path
-exceptions or workflow-local file lists. Derive coverage from the owning inventories
-without duplicating fixture totals, shard counts, config catalogs, or workflow
-structure in a test inventory. Unknown paths select all lanes. The stable gate
-rejects failed, cancelled, or unexpectedly skipped selected workflows. Producers
-and consumers validate artifact integrity and compatibility during actual use.
+[`products.py`](../ci/products.py) declares products, direct inputs and consumers.
+[`policy.py`](../ci/policy.py) defines which public configurations, checks and
+workloads CI enrolls. [`plan.py`](../ci/plan.py) projects selected products onto
+the Actions jobs; it does not maintain a second classifier. Core, shape, backend,
+and instrumentation are distinct inputs. Keep incidental runner setup and
+intentional test coverage out of build/cache identities.
+
+For a change, walk towards consumers, select enrolled products, then walk back
+to collect their prerequisites. Do not walk back out to siblings: a baseline
+needs a simulator, but doesn't invalidate that simulator or select its other
+workloads. Required inputs propagate changes; order-only prerequisites just
+schedule work (for example, the mapped smoke runs on the Mini simulator job).
+Coverage patterns select checks without making them prerequisites of a build.
+Unknown paths select full CI. The stable gate rejects failed, cancelled or
+unexpectedly skipped selected workflows.
 
 Each software build root declares its direct source inputs and shared input
 nodes. Native, platform, Linux-image, ACT, harness, and host-adapter consumers depend
@@ -128,8 +134,9 @@ dependency reachability; cache keys hash only the selected build root's forward
 input closure, including pinned gitlinks. Thus a runner or expectation change
 does not invalidate unrelated ELF builds. Add a suite's inputs and edges here
 once, rather than updating multiple classifier branches and YAML hash lists.
-The planner's `software_reasons` records the affected consumers for each changed
-software input so a surprising selection can be explained directly.
+ELF requests are per config/suite; their actual shared artifact identity is
+determined by [`programs.py`](../ci/programs.py) from the generated target
+descriptors. Never assume that config names prove or disprove compatibility.
 Shared simulator-attestation and execution-evidence inputs retain their ACT and
 simulator-producer consumers explicitly, without broadening unrelated port edits.
 
@@ -143,10 +150,34 @@ paths select their one config/suite, including the tiled multihart benchmark
 harness. Host adapter-test edits run only their selected Python checks and
 required source setup, without target generation or simulator builds.
 
-Inspect actual selections with `python3 -m tools.ci.plan --paths PATH... --pretty`.
-Inspect the build cache namespace with
-`python3 -m tools.ci.software --cache-inputs SUITE`. Keep unknown paths and shared
-RTL changes conservative; manual/full CI retains the complete coverage inventory.
+Use the same graph locally, without bootstrapping a hardware toolchain:
+
+```sh
+python3 -m tools.ci.plan --paths cores/rv2wide/core.rhdl --pretty
+python3 -m tools.ci.plan --affected sw/build/build-litmus.py --pretty
+python3 -m tools.ci.plan --requires program:simple-rv5stage-rva23:coremark --pretty
+python3 -m tools.ci.plan --products
+python3 -m tools.ci.plan --make-dir vlsi --requires make:gds --pretty
+python3 -m tools.ci.plan --make-dir sims --soc simple-rv2wide-rva23 --backend circt --trace --requires make:simulator
+```
+
+`--affected` gives an input-to-consumer chain; `--requires` distinguishes
+inputs, coverage, prerequisites, and ordering. Local Make queries additionally
+read GNU Make's *evaluated* explicit rules for that directory/configuration,
+without running build recipes. They include phony targets, generated files
+and order-only dependencies. Recipe-internal commands are not discovered this
+way; declare cross-tool product handoffs explicitly. Make retains ownership
+of timestamps, implicit rules and execution. Optional formal, physical, trace,
+and other local flows are queryable without adding jobs to CI. Racket retains
+ownership of its own incremental compilation and worktree cache.
+
+Inspect the tracked source portion of a cache key with, for example,
+`python3 -m tools.ci.plan --fingerprint build:coremark`. The same operation
+supplies CI's installer, bytecode seed, Sail, ACT, software and Linux source
+digests. It follows build inputs, not coverage or ordering edges. Runner ABI,
+tool versions, workspace constraints, generated target digests, and actual
+artifact integrity checks still belong to their producers. Manual/full CI
+retains the complete coverage inventory.
 
 Coverage selection and runner grouping are separate. `policy.py` retains one
 entry per check and partitions those entries into compatible runner groups.
@@ -244,8 +275,10 @@ not be reported as Linux boot qualification.
 One native-check job owns config-independent DPI, transport, runtime, cosim-hook,
 and architectural projection tests. A separate lightweight software-adapter job
 runs the graph-selected host checks and initializes only their required sources.
-Spike native and ABI checks
-run once when any Spike simulator is selected. Per-config hardware elaboration
+Native checks run their selected Make targets once and install tools from their
+prerequisites. A branch-analysis edit runs its Python check without Racket,
+FESVR, Verilator, or simulator construction; Spike ABI checks still use the
+native toolchain, Racket, CIRCT and Verilator. Per-config hardware elaboration
 and execution remain in their own jobs. The gate requires all selected shared
 producers and native checks, including cancellation or unexpectedly skipped jobs.
 
@@ -345,9 +378,9 @@ flowchart TD
 
 Known dependency paths can select several branches. For example, NoC, RISC-V,
 CHI, core, and shared standard/flow library changes also select the SoC host shard
-when their behavior feeds system composition. Backend implementation or fixture
-changes select the backend host shard, direct SystemVerilog simulation, and every
-external CIRCT group, including the backend differential route. The direct lane
+when their behavior feeds system composition. Backend implementation changes
+retain differential coverage; fixture ownership comes from the runner inventories.
+The direct lane
 requires Verilator without CIRCT and runs the independent memory oracle; the
 differential lane installs both and owns the full compiler behavioral families. Its
 Builder fixtures, oracle, and runner live under

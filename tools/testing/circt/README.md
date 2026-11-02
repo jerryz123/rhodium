@@ -14,7 +14,7 @@ The [backend guide](../../../rhodium/backend/README.md) owns lowering architectu
 and operation contracts. The [example guide](../../../examples/README.md) owns the
 canonical example catalog. This guide owns the cross-package CIRCT workflow;
 each package owns its fixtures and benches, while the fixture manifest in
-[`run.sh`](run.sh) remains authoritative for
+[`fixtures.txt`](fixtures.txt) remains authoritative for
 fixture names, groups, exports, and available simulations.
 
 Contributors changing the manifest, fixtures, benches, or exact references

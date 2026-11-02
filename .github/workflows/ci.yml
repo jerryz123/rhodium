@@ -79,7 +79,10 @@ jobs:
           racket-version: ${{ env.RACKET_VERSION }}
           rhombus-checksum: ${{ env.RHOMBUS_CHECKSUM }}
       - name: Locate bytecode cache
-        run: echo "RHODIUM_BYTECODE_WORKSPACE_KEY=$(printf '%s' "$GITHUB_WORKSPACE" | sha256sum | cut -d ' ' -f 1)" >> "$GITHUB_ENV"
+        run: |
+          fingerprint=$(python3 -m tools.ci.plan --fingerprint bytecode)
+          echo "RHODIUM_BYTECODE_INPUTS=$fingerprint" >> "$GITHUB_ENV"
+          echo "RHODIUM_BYTECODE_WORKSPACE_KEY=$(printf '%s' "$GITHUB_WORKSPACE" | sha256sum | cut -d ' ' -f 1)" >> "$GITHUB_ENV"
       - name: Restore completed bytecode
         id: completed-bytecode
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -87,9 +90,9 @@ jobs:
           path: |
             ${{ runner.temp }}/rhodium-compiled
             ${{ runner.temp }}/rhodium-project-cache
-          key: ${{ runner.os }}-${{ runner.arch }}-racket-completed-v2-${{ env.RACKET_VERSION }}-rhombus-${{ env.RHOMBUS_CHECKSUM }}-${{ env.RHODIUM_BYTECODE_WORKSPACE_KEY }}-${{ hashFiles('tools/refresh-racket-project-cache.sh', 'tools/invalidate-racket-build-cache.rkt', 'tools/compile-racket-sources.sh', '.github/actions/setup-racket-cache/action.yml') }}-${{ github.sha }}
+          key: ${{ runner.os }}-${{ runner.arch }}-racket-completed-v2-${{ env.RACKET_VERSION }}-rhombus-${{ env.RHOMBUS_CHECKSUM }}-${{ env.RHODIUM_BYTECODE_WORKSPACE_KEY }}-${{ env.RHODIUM_BYTECODE_INPUTS }}-${{ github.sha }}
           restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-racket-completed-v2-${{ env.RACKET_VERSION }}-rhombus-${{ env.RHOMBUS_CHECKSUM }}-${{ env.RHODIUM_BYTECODE_WORKSPACE_KEY }}-${{ hashFiles('tools/refresh-racket-project-cache.sh', 'tools/invalidate-racket-build-cache.rkt', 'tools/compile-racket-sources.sh', '.github/actions/setup-racket-cache/action.yml') }}-
+            ${{ runner.os }}-${{ runner.arch }}-racket-completed-v2-${{ env.RACKET_VERSION }}-rhombus-${{ env.RHOMBUS_CHECKSUM }}-${{ env.RHODIUM_BYTECODE_WORKSPACE_KEY }}-${{ env.RHODIUM_BYTECODE_INPUTS }}-
       - name: Refresh restored project bytecode
         run: tools/refresh-racket-project-cache.sh "$GITHUB_WORKSPACE" "$PLTCOMPILEDROOTS" "$RUNNER_TEMP/rhodium-project-cache"
       - name: Compile positive CI entrypoints
@@ -101,7 +104,7 @@ jobs:
           path: |
             ${{ runner.temp }}/rhodium-compiled
             ${{ runner.temp }}/rhodium-project-cache
-          key: ${{ runner.os }}-${{ runner.arch }}-racket-completed-v2-${{ env.RACKET_VERSION }}-rhombus-${{ env.RHOMBUS_CHECKSUM }}-${{ env.RHODIUM_BYTECODE_WORKSPACE_KEY }}-${{ hashFiles('tools/refresh-racket-project-cache.sh', 'tools/invalidate-racket-build-cache.rkt', 'tools/compile-racket-sources.sh', '.github/actions/setup-racket-cache/action.yml') }}-${{ github.sha }}
+          key: ${{ runner.os }}-${{ runner.arch }}-racket-completed-v2-${{ env.RACKET_VERSION }}-rhombus-${{ env.RHOMBUS_CHECKSUM }}-${{ env.RHODIUM_BYTECODE_WORKSPACE_KEY }}-${{ env.RHODIUM_BYTECODE_INPUTS }}-${{ github.sha }}
       - name: Publish exact compiled root
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -123,7 +126,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Record pinned Sail source
         id: source
-        run: echo "revision=$(git rev-parse HEAD:riscv/sail-riscv)" >> "$GITHUB_OUTPUT"
+        run: |
+          fingerprint=$(python3 -m tools.ci.plan --fingerprint sail)
+          echo "inputs=$fingerprint" >> "$GITHUB_OUTPUT"
       - name: Install Sail model build dependencies
         run: |
           sudo apt-get update
@@ -135,7 +140,7 @@ jobs:
           path: |
             .tools/sail-compiler-0.20.3
             .tools/sail-riscv-0.16-sail-0.20.3-*
-          key: "${{ runner.os }}-${{ runner.arch }}-sail-0.20.3-${{ steps.source.outputs.revision }}-${{ hashFiles('riscv/sail-riscv-patches/**', 'riscv/patched_submodule.py', 'sims/arch-test/install-sail.sh', 'sims/sail/SailModelConfig.cmake') }}"
+          key: "${{ runner.os }}-${{ runner.arch }}-sail-0.20.3-${{ steps.source.outputs.inputs }}"
       - name: Build or verify patched Sail model
         run: make -C sims arch-test-sail-setup
       - name: Save completed Sail model and compiler
@@ -232,9 +237,9 @@ jobs:
           path: ${{ runner.temp }}/targets
       - name: Identify suite build inputs
         id: cache-inputs
-        env:
-          SUITE: ${{ matrix.suite }}
-        run: echo "key=$(python3 -m tools.ci.software --cache-inputs "$SUITE")" >> "$GITHUB_OUTPUT"
+        uses: ./.github/actions/product-input
+        with:
+          product: build:${{ matrix.suite }}
       - name: Cache compatible harness builds
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -303,9 +308,9 @@ jobs:
           path: ${{ runner.temp }}/targets
       - name: Identify suite build inputs
         id: cache-inputs
-        env:
-          SUITE: ${{ matrix.suite }}
-        run: echo "key=$(python3 -m tools.ci.software --cache-inputs "$SUITE")" >> "$GITHUB_OUTPUT"
+        uses: ./.github/actions/product-input
+        with:
+          product: build:${{ matrix.suite }}
       - name: Cache compatible harness builds
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -356,42 +361,48 @@ jobs:
   native:
     name: Native checks
     needs: [plan, compile-racket]
-    if: ${{ always() && !cancelled() && needs.compile-racket.result == 'success' && fromJSON(needs.plan.outputs.plan).run_native }}
+    if: ${{ always() && !cancelled() && fromJSON(needs.plan.outputs.plan).run_native && (!contains(fromJSON(needs.plan.outputs.plan).native_setup, 'bytecode') || needs.compile-racket.result == 'success') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - name: Check out Rhodium
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Install Racket
+        if: contains(fromJSON(needs.plan.outputs.plan).native_setup, 'bytecode')
         uses: ./.github/actions/setup-racket
         with:
           racket-version: ${{ env.RACKET_VERSION }}
       - name: Restore exact Rhodium bytecode
+        if: contains(fromJSON(needs.plan.outputs.plan).native_setup, 'bytecode')
         uses: ./.github/actions/setup-racket-artifact
         with:
           racket-version: ${{ env.RACKET_VERSION }}
           rhombus-checksum: ${{ env.RHOMBUS_CHECKSUM }}
           artifact-name: rhodium-bytecode-${{ github.sha }}
       - name: Install native build dependencies
+        if: contains(fromJSON(needs.plan.outputs.plan).native_setup, 'native-toolchain')
         run: sudo apt-get update && sudo apt-get install --yes build-essential cmake device-tree-compiler zlib1g-dev
       - name: Install Spike and FESVR
+        if: contains(fromJSON(needs.plan.outputs.plan).native_setup, 'fesvr')
         uses: ./.github/actions/setup-fesvr
       - name: Install Verilator
+        if: contains(fromJSON(needs.plan.outputs.plan).native_setup, 'verilator')
         uses: ./.github/actions/setup-verilator
       - name: Install CIRCT
-        if: fromJSON(needs.plan.outputs.plan).run_spike_tests
+        if: contains(fromJSON(needs.plan.outputs.plan).native_setup, 'circt-tool')
         uses: ./.github/actions/setup-circt
-      - name: Test native adapters once
+      - name: Run selected native checks
+        env:
+          NEED_VERILATOR: ${{ contains(fromJSON(needs.plan.outputs.plan).native_setup, 'verilator') }}
+          CHECKS: ${{ join(fromJSON(needs.plan.outputs.plan).native_checks, ' ') }}
         run: |
-          verilator_root="$(verilator -V | sed -n 's/^ *VERILATOR_ROOT *= *//p' | head -1)"
-          test -n "$verilator_root"
-          make -C sims dpi-compile-check transport-test arch-test-adapter-test \
-            cosim-hooks-test simulation-runtime-test branch-prediction-test VERILATOR_ROOT="$verilator_root"
-      - name: Test Spike DPI integration once
-        if: fromJSON(needs.plan.outputs.plan).run_spike_tests
-        run: |
-          verilator_root="$(verilator -V | sed -n 's/^ *VERILATOR_ROOT *= *//p' | head -1)"
-          make -C sims spike-core-test spike-dpi-test spike-dpi-abi-check VERILATOR_ROOT="$verilator_root"
+          verilator_root=
+          if [[ "$NEED_VERILATOR" == true ]]; then
+            verilator_root="$(verilator -V | sed -n 's/^ *VERILATOR_ROOT *= *//p' | head -1)"
+            test -n "$verilator_root"
+          fi
+          read -ra targets <<< "$CHECKS"
+          make -k -C sims "${targets[@]}" VERILATOR_ROOT="$verilator_root"
 
   software-checks:
     name: Software adapters
@@ -514,8 +525,6 @@ jobs:
         with:
           name: targets-${{ github.sha }}
           path: ${{ runner.temp }}/linux-targets
-      - name: Check Linux target capabilities
-        run: python3 -m unittest discover -s sw/tests -p test_linux_target.py
       - name: Group compatible images without execution jobs
         id: plan
         env:

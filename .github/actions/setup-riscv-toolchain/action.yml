@@ -5,11 +5,16 @@ description: Install the pinned RV64 GCC/G++ Newlib toolchain for ISA, benchmark
 runs:
   using: composite
   steps:
+    - name: Identify cache inputs
+      id: inputs
+      uses: ./.github/actions/product-input
+      with:
+        product: compiler
     - name: Cache RISC-V toolchain
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: .tools/riscv-toolchain
-        key: "${{ runner.os }}-${{ runner.arch }}-riscv-toolchain-${{ hashFiles('tools/install-riscv-*.sh') }}"
+        key: "${{ runner.os }}-${{ runner.arch }}-riscv-toolchain-${{ steps.inputs.outputs.key }}"
     - name: Install and verify toolchain
       shell: bash
       run: |

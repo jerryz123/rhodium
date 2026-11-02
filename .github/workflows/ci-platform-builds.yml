@@ -60,9 +60,9 @@ jobs:
           path: ${{ runner.temp }}/platform-targets
       - name: Identify suite build inputs
         id: cache-inputs
-        env:
-          SUITE: ${{ matrix.suite }}
-        run: echo "key=$(python3 -m tools.ci.software --cache-inputs "$SUITE")" >> "$GITHUB_OUTPUT"
+        uses: ./.github/actions/product-input
+        with:
+          product: build:${{ matrix.suite }}
       - name: Cache platform builds
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:

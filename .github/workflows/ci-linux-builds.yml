@@ -43,12 +43,15 @@ jobs:
           path: ${{ runner.temp }}/linux-targets
       - name: Identify pinned download inputs
         id: sources
-        run: echo "buildroot=$(git -C sw/buildroot rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "buildroot=$(git -C sw/buildroot rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          fingerprint=$(python3 -m tools.ci.plan --fingerprint build:linux)
+          echo "inputs=$fingerprint" >> "$GITHUB_OUTPUT"
       - name: Cache upstream downloads only
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ env.LINUX_DOWNLOADS }}
-          key: ${{ runner.os }}-${{ runner.arch }}-buildroot-downloads-${{ steps.sources.outputs.buildroot }}-${{ hashFiles('sw/buildroot-riscv/**', 'sw/build/linux.py', '.github/workflows/ci-linux-builds.yml') }}-${{ github.sha }}
+          key: ${{ runner.os }}-${{ runner.arch }}-buildroot-downloads-${{ steps.sources.outputs.buildroot }}-${{ steps.sources.outputs.inputs }}-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-buildroot-downloads-${{ steps.sources.outputs.buildroot }}-
       - name: Build Linux image and OpenSBI

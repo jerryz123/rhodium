@@ -44,14 +44,14 @@ jobs:
         run: |
           sudo apt-get update
           packages=(build-essential cmake device-tree-compiler zlib1g-dev)
-          if [[ "${{ fromJSON(inputs.config).run_harness }}" == true && "${{ fromJSON(inputs.config).soc }}" == mini-rv5stage-rva23 ]]; then
+          if [[ "${{ fromJSON(inputs.config).run_mapped }}" == true ]]; then
             packages+=(clang lld llvm)
           fi
           sudo apt-get install --yes "${packages[@]}"
       - name: Install Verilator
         uses: ./.github/actions/setup-verilator
       - name: Install CIRCT
-        if: fromJSON(inputs.config).backend == 'circt' || (fromJSON(inputs.config).run_harness && fromJSON(inputs.config).soc == 'mini-rv5stage-rva23')
+        if: fromJSON(inputs.config).backend == 'circt' || fromJSON(inputs.config).run_mapped
         uses: ./.github/actions/setup-circt
       - name: Install Spike and FESVR
         uses: ./.github/actions/setup-fesvr
@@ -132,10 +132,10 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
       - name: Install RISC-V software toolchain
-        if: fromJSON(inputs.config).run_harness && (fromJSON(inputs.config).software_tests != 'isa-smoke')
+        if: fromJSON(inputs.config).run_mapped || (fromJSON(inputs.config).run_harness && fromJSON(inputs.config).software_tests != 'isa-smoke')
         uses: ./.github/actions/setup-riscv-toolchain
       - name: Verify SRAM mapping package
-        if: fromJSON(inputs.config).run_harness && (fromJSON(inputs.config).soc == 'mini-rv5stage-rva23')
+        if: fromJSON(inputs.config).run_mapped
         run: make -C sram test
       - name: Verify exact config and target descriptor
         if: fromJSON(inputs.config).run_harness
@@ -212,10 +212,10 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
       - name: Verify RV5Stage-specific NTL cache timing
-        if: fromJSON(inputs.config).run_harness && (fromJSON(inputs.config).backend == 'rsim' && fromJSON(inputs.config).soc == 'simple-rv5stage-rva23')
+        if: contains(fromJSON(inputs.config).software_tests, 'zihintntl-test') && fromJSON(inputs.config).backend == 'rsim' && fromJSON(inputs.config).soc == 'simple-rv5stage-rva23'
         run: make -C sims zihintntl-policy-test RTL_BACKEND=rsim COSIM=1 STATS=1 SOC=simple-rv5stage-rva23 PREBUILT_SIMULATOR="${{ steps.simulator.outputs.path }}/VTestDriver"
       - name: Execute mapped MiniRV5StageSoC through standard FESVR flow
-        if: fromJSON(inputs.config).run_harness && (fromJSON(inputs.config).soc == 'mini-rv5stage-rva23')
+        if: fromJSON(inputs.config).run_mapped
         run: make -C vlsi/sim smoke
       - name: Publish config smoke and multihart results
         if: always() && fromJSON(inputs.config).run_harness && contains(fromJSON(inputs.config).software_tests, 'isa-smoke')

@@ -13,13 +13,14 @@ architecture and operation contracts. The
 
 ## Architecture and implementation map
 
-The manifest in [`run.sh`](run.sh) is authoritative for fixture
+The manifest in [`fixtures.txt`](fixtures.txt) is authoritative for fixture
 names, groups, example exports, direct emitters, Verilator tops, reference
 eligibility, and expected failures.
 
 | Path | Maintenance responsibility |
 |---|---|
-| [`run.sh`](run.sh) | Fixture manifest, selection, package-owned artifact resolution, CIRCT pipeline, exact diff, and Verilator orchestration |
+| [`fixtures.txt`](fixtures.txt) | Shared runner and CI inventory: group, kind, then the kind-specific fixture fields |
+| [`run.sh`](run.sh) | Selection, package-owned artifact resolution, CIRCT pipeline, exact diff, and Verilator orchestration |
 | [`load-example.rhm`](load-example.rhm) | Compiling selected program exports through the CIRCT target in one process |
 | `<package>/tests/circt/emit-*.rhm` | Package-owned program exports or custom compilation drivers without an example-owned reference |
 | `<package>/tests/circt/verilog/` | Package-owned behavioral benches and optional local DPI companions |
@@ -169,7 +170,7 @@ diff disappear.
 1. Keep the canonical program and its `verilog_reference` export together in
    the owning example source.
 2. Add the fixture, group, export names, optional top, and expected behavior to
-   the manifest in [`run.sh`](run.sh).
+   the manifest in [`fixtures.txt`](fixtures.txt).
 3. Put portable component behavior in the [rsim inventory](../rsim/README.md).
    Add `<package>/tests/circt/verilog/<fixture>_tb.sv` and an optional matching
    `<fixture>_dpi.cpp` only for an HDL-specific or retained integration contract.

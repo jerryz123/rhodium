@@ -173,13 +173,19 @@ COSIM_CONFIGS = frozenset(soc for soc, shape, core in SIMULATOR_CONFIGS
                            if core in ('rv5stage', 'rv2wide') and shape in ('mini', 'simple'))
 
 
+def model_variant(*, trace=False, cosim=False, stats=False):
+    """Canonical identity for instrumentation built into the model."""
+    mode = 'trace-cosim' if trace and cosim else 'trace' if trace else 'cosim' if cosim else 'normal'
+    return mode + ('-stats' if stats else '')
+
+
 def simulator_options(soc):
     """Keep instrumentation and artifact identity identical for every build and consumer."""
     shape, core, isa = SELECTIONS[soc]
     cosim = soc in COSIM_CONFIGS
     stats = core in ('rv5stage', 'rv2wide') and shape in ('simple', 'tiled') and isa == 'rva23'
     return dict(cosim=cosim, stats=stats,
-                variant=('cosim' if cosim else 'normal') + ('-stats' if stats else ''))
+                variant=model_variant(cosim=cosim, stats=stats))
 
 
 def simulator_entry(soc, shape, core, backend=DEFAULT_BACKEND):

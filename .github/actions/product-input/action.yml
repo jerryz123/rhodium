@@ -1,0 +1,22 @@
+# Exposes the tracked source-input digest of a repository product to workflow cache keys.
+# SPDX-License-Identifier: Apache-2.0
+name: Identify product inputs
+description: Hash the selected product's semantic inputs from the checked-out repository.
+inputs:
+  product:
+    description: Product key in the repository build graph.
+    required: true
+outputs:
+  key:
+    description: Source digest (not a runtime tool or artifact identity).
+    value: ${{ steps.digest.outputs.key }}
+runs:
+  using: composite
+  steps:
+    - id: digest
+      shell: bash
+      env:
+        PRODUCT: ${{ inputs.product }}
+      run: |
+        digest=$(python3 -m tools.ci.plan --fingerprint "$PRODUCT")
+        echo "key=$digest" >> "$GITHUB_OUTPUT"

@@ -12,12 +12,17 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Identify cache inputs
+      id: inputs
+      uses: ./.github/actions/product-input
+      with:
+        product: racket-installer
     - name: Restore Racket installer
       id: installer
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ runner.temp }}/rhodium-racket-installer
-        key: ${{ runner.os }}-${{ runner.arch }}-racket-installer-${{ inputs.racket-version }}-${{ hashFiles('tools/ci/install-racket.sh') }}
+        key: ${{ runner.os }}-${{ runner.arch }}-racket-installer-${{ inputs.racket-version }}-${{ steps.inputs.outputs.key }}
     - name: Verify and install Racket
       shell: bash
       env:

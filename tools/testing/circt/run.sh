@@ -199,46 +199,15 @@ example_fixture_selected() {
 }
 
 fixture_in_group() {
-  local wanted="$1"
-  local group="$2"
-  local spec fixture top example program_export reference_export
-
-  if [[ "$group" == cores ]]; then
-    for core_group in cores-components cores-execution; do
-      fixture_in_group "$wanted" "$core_group" && return 0
-    done
-    return 1
-  fi
-
-  if [[ "$group" == cores-execution ]]; then
-    for execution_group in cores-execution-datapath; do
-      fixture_in_group "$wanted" "$execution_group" && return 0
-    done
-    return 1
-  fi
-
-
-
-  for spec in "${fixture_specs[@]}"; do
-    IFS='|' read -r fixture top example program_export reference_export <<< "$spec"
-    if [[ "$fixture" == "$wanted" ]]; then
-      case "$group:$example" in
-        language:examples/rtl/*|language:examples/lop/*|language:examples/clocking/*|std:examples/std/*|protocols:examples/noc/*|protocols:examples/chi/*|cores-components:examples/riscv/*|cores-components:examples/cores/decoded-alu.rhdl|cores-execution-datapath:examples/cores/rv5stage.rhdl|rfpl:examples/rfpl/*)
-          return 0
-          ;;
-        *)
-          return 1
-          ;;
-      esac
-    fi
-  done
-
-  case "$group:$wanted" in
-    cores-execution-datapath:rv5stage-cosim*|cores-components:cosim-hooks|language:nested-bundle|language:aggregate-memory|language:one-hot-aggregate|language:formal-differential|language:event-runtime|language:event-elastic|protocols:uart-dpi|protocols:chi-full-flits|protocols:chi-router-composition)
-      return 0
-      ;;
-    *) return 1 ;;
+  local wanted="$1" group="$2" member
+  case "$group" in
+    cores) fixture_in_group "$wanted" cores-components || fixture_in_group "$wanted" cores-execution-datapath; return ;;
+    cores-execution) group=cores-execution-datapath ;;
   esac
+  for member in "${group_members[@]}"; do
+    [[ "$member" == "$group|$wanted" ]] && return 0
+  done
+  return 1
 }
 
 direct_fixture_selected() {
@@ -550,189 +519,18 @@ verify_fixture() {
   fi
 }
 
-fixture_specs=(
-  'adder||examples/lop/adder-standard.rhdl|program|verilog_reference'
-  'adder4||examples/rtl/adder4.rhdl|program|verilog_reference'
-  'generated-adder||examples/rtl/generated-adder.rhdl|program|verilog_reference'
-  'alu||examples/rtl/alu.rhdl|program|verilog_reference'
-  'enum-state||examples/rtl/enum-state.rhdl|program|verilog_reference'
-  'enum-state-lookup||examples/rtl/enum-state.rhdl|lookup_program|lookup_verilog_reference'
-  'enum-opcode||examples/rtl/enum-state.rhdl|opcode_program|opcode_verilog_reference'
-  'one-hot||examples/rtl/one-hot.rhdl|program|verilog_reference'
-  'one-hot-enum||examples/rtl/one-hot-enum.rhdl|program|verilog_reference'
-  'masks||examples/rtl/masks.rhdl|program|verilog_reference'
-  'shifts||examples/rtl/shifts.rhdl|program|verilog_reference'
-  'width-ops||examples/rtl/width-ops.rhdl|program|verilog_reference'
-  'vector||examples/rtl/vector.rhdl|program|verilog_reference'
-  'vector-carry||examples/rtl/vector.rhdl|carry_program|carry_verilog_reference'
-  'vector-map||examples/rtl/vector.rhdl|map_program|map_verilog_reference'
-  'vector-update||examples/rtl/vector-update.rhdl|program|verilog_reference'
-  'vector-register-update||examples/rtl/vector-update.rhdl|register_program|register_verilog_reference'
-  'vec-shift-register||examples/rtl/vec-shift-register.rhdl|program|verilog_reference'
-  'vec-shift-register-param||examples/rtl/vec-shift-register-param.rhdl|program|verilog_reference'
-  'predicate-filter||examples/rtl/predicate-filter.rhdl|program|verilog_reference'
-  'wire||examples/rtl/wire.rhdl|program|verilog_reference'
-  'async-read-memory||examples/rtl/async-read-memory.rhdl|program|verilog_reference'
-  'sync-memory||examples/rtl/sync-memory.rhdl|program|verilog_reference'
-  'sync-memory-1rw||examples/rtl/sync-memory-1rw.rhdl|program|verilog_reference'
-  'sync-memory-masked||examples/rtl/sync-memory-masked.rhdl|program|verilog_reference'
-  'multi-write-memory||examples/rtl/multi-write-memory.rhdl|program|verilog_reference'
-  'clocked-dpi|clocked_dpi_tb|examples/rtl/clocked-dpi.rhdl|program|verilog_reference'
-  'clocked-dpi-always||examples/rtl/clocked-dpi.rhdl|always_program|always_verilog_reference'
-  'clocked-dpi-explicit||examples/rtl/clocked-dpi.rhdl|explicit_program|explicit_verilog_reference'
-  'assertions||examples/rtl/assertions.rhdl|program|verilog_reference'
-  'tiny-simd||examples/rtl/tiny-simd.rhdl|program|verilog_reference'
-  'tiny-simd-no-multiply||examples/rtl/tiny-simd.rhdl|no_multiply_program|no_multiply_verilog_reference'
-  'stack||examples/rtl/stack.rhdl|program|verilog_reference'
-  'counter||examples/rtl/counter.rhdl|program|verilog_reference'
-  'standard-counter||examples/std/standard-counter.rhdl|program|verilog_reference'
-  'multiply||examples/rtl/multiply.rhdl|program|verilog_reference'
-  'expanding-arithmetic||examples/rtl/expanding-arithmetic.rhdl|program|verilog_reference'
-  'fir-filter||examples/rtl/fir-filter.rhdl|program|verilog_reference'
-  'unsigned-comparisons||examples/rtl/unsigned-comparisons.rhdl|program|verilog_reference'
-  'signed-integers||examples/rtl/signed-integers.rhdl|program|verilog_reference'
-  'sync-counter||examples/rtl/sync-counter.rhdl|program|verilog_reference'
-  'sync-counter-resetless||examples/rtl/sync-counter.rhdl|resetless_program|resetless_verilog_reference'
-  'sync-counter-explicit-clock||examples/rtl/sync-counter.rhdl|explicit_clock_program|explicit_clock_verilog_reference'
-  'enable-shift-register||examples/rtl/enable-shift-register.rhdl|program|verilog_reference'
-  'reset-shift-register||examples/rtl/reset-shift-register.rhdl|program|verilog_reference'
-  'clocking-environment||examples/clocking/frontend-environment.rhdl|clocked_program|verilog_reference'
-  'clocking-missing-crossings-broken||examples/clocking/missing-crossings.rhdl|broken_program|broken_verilog_reference'
-  'clocking-missing-crossings-fixed||examples/clocking/missing-crossings.rhdl|clocked_program|verilog_reference'
-  'clocking-reconvergence||examples/clocking/reconvergence.rhdl|clocked_program|verilog_reference'
-  'clocking-sync-level||examples/clocking/sync-level.rhdl|clocked_program|verilog_reference'
-  'hierarchy||examples/rtl/hierarchy.rhdl|program|verilog_reference'
-  'rfpl-circuit-pair||examples/rfpl/circuit-pair.rhdl|program|verilog_reference'
-  'nested-circuit||examples/rtl/nested-circuit.rhdl|program|verilog_reference'
-  'bundle||examples/rtl/bundle.rhdl|program|verilog_reference'
-  'record-cast||examples/rtl/bundle.rhdl|cast_program|cast_verilog_reference'
-  'bundle-specialization-types||examples/rtl/bundle.rhdl|specialization_program|specialization_verilog_reference'
-  'bundle-conditional-specialization||examples/rtl/bundle.rhdl|conditional_specialization_program|conditional_specialization_verilog_reference'
-  'bundle-nested-swap||examples/rtl/bundle.rhdl|nested_swap_program|nested_swap_verilog_reference'
-  'bundle-hierarchy||examples/rtl/bundle.rhdl|hierarchy_program|hierarchy_verilog_reference'
-  'tagged-union||examples/rtl/tagged-union.rhdl|program|verilog_reference'
-  'nested-tagged-union||examples/rtl/nested-tagged-union.rhdl|program|verilog_reference'
-  'interface||examples/rtl/interface.rhdl|program|verilog_reference'
-  'interface-hierarchy||examples/rtl/interface.rhdl|hierarchy_program|hierarchy_verilog_reference'
-  'interface-specialization||examples/rtl/interface-specialization.rhdl|program|verilog_reference'
-  'interface-specialization-reversed||examples/rtl/interface-specialization.rhdl|reversed_program|reversed_verilog_reference'
-  'interface-specialization-nested||examples/rtl/interface-specialization.rhdl|nested_program|nested_verilog_reference'
-  'interface-specialization-width-adapter||examples/rtl/interface-specialization.rhdl|width_adapter_program|width_adapter_verilog_reference'
-  'ready-valid-compatibility||examples/std/ready-valid-compatibility.rhdl|program|verilog_reference'
-  'interface-array||examples/rtl/interface-array.rhdl|program|verilog_reference'
-  'interface-generic-handle||examples/rtl/interface-array.rhdl|generic_handle_program|generic_handle_verilog_reference'
-  'interface-parallel-handle||examples/rtl/interface-array.rhdl|parallel_handle_program|parallel_handle_verilog_reference'
-  'interface-parallel-sink||examples/rtl/interface-array.rhdl|parallel_sink_program|parallel_sink_verilog_reference'
-  'interface-array-hierarchy||examples/rtl/interface-array.rhdl|hierarchy_program|hierarchy_verilog_reference'
-  'interface-array-sequence||examples/rtl/interface-array.rhdl|sequence_program|sequence_verilog_reference'
-  'nested-interface||examples/rtl/nested-interface.rhdl|program|verilog_reference'
-  'nested-interface-member||examples/rtl/nested-interface.rhdl|member_program|member_verilog_reference'
-  'nested-interface-deep||examples/rtl/nested-interface.rhdl|deep_program|deep_verilog_reference'
-  'nested-interface-hierarchy||examples/rtl/nested-interface.rhdl|hierarchy_program|hierarchy_verilog_reference'
-  'interface-monitor||examples/rtl/interface-monitor.rhdl|program|verilog_reference'
-  'interface-transform||examples/rtl/interface-transform.rhdl|program|verilog_reference'
-  'interface-transform-boundary||examples/rtl/interface-transform.rhdl|boundary_program|boundary_verilog_reference'
-  'interface-transform-terminal||examples/rtl/interface-transform.rhdl|detached_terminal_program|detached_terminal_verilog_reference'
-  'pipe||examples/std/flow-control.rhdl|pipe_program|pipe_verilog_reference'
-  'queue||examples/std/flow-control.rhdl|queue_program|queue_verilog_reference'
-  'queue-one||examples/std/flow-control.rhdl|queue_one_program|queue_one_verilog_reference'
-  'queue-options||examples/std/flow-control.rhdl|queue_options_program|queue_options_verilog_reference'
-  'arbiter||examples/std/flow-control.rhdl|arbiter_program|arbiter_verilog_reference'
-  'flow-chain||examples/std/flow-control.rhdl|chain_program|chain_verilog_reference'
-  'rr-arbiter||examples/std/flow-topology.rhdl|rr_arbiter_program|rr_arbiter_verilog_reference'
-  'packet-rr-arbiter||examples/std/packet-arbitration.rhdl|program|verilog_reference'
-  'demux||examples/std/flow-topology.rhdl|demux_program|demux_verilog_reference'
-  'join||examples/std/flow-topology.rhdl|join_program|join_verilog_reference'
-  'selective-join||examples/std/selective-join.rhdl|program|verilog_reference'
-  'broadcast||examples/std/flow-topology.rhdl|broadcast_program|broadcast_verilog_reference'
-  'atomic-fork||examples/std/flow-topology.rhdl|atomic_fork_program|atomic_fork_verilog_reference'
-  'selective-atomic-fork||examples/std/selective-atomic-fork.rhdl|program|verilog_reference'
-  'flow-map||examples/std/flow-topology.rhdl|flow_map_program|flow_map_verilog_reference'
-  'flow-filter||examples/std/flow-topology.rhdl|filter_flow_program|filter_flow_verilog_reference'
-  'flow-gate||examples/std/flow-topology.rhdl|gate_flow_program|gate_flow_verilog_reference'
-  'flow-endpoint-first||examples/std/flow-topology.rhdl|endpoint_first_program|endpoint_first_verilog_reference'
-  'flow-fan-in-project||examples/std/flow-topology.rhdl|fan_in_project_program|fan_in_project_verilog_reference'
-  'flow-zip-route||examples/std/flow-topology.rhdl|zip_route_program|zip_route_verilog_reference'
-  'ctrl-pipe||examples/std/ctrl-flow.rhdl|ctrl_pipe_program|ctrl_pipe_verilog_reference'
-  'ctrl-queue||examples/std/ctrl-flow.rhdl|ctrl_queue_program|ctrl_queue_verilog_reference'
-  'ctrl-queue-options||examples/std/ctrl-flow.rhdl|ctrl_queue_options_program|ctrl_queue_options_verilog_reference'
-  'ctrl-arbiter||examples/std/ctrl-flow.rhdl|ctrl_arbiter_program|ctrl_arbiter_verilog_reference'
-  'ctrl-rr-arbiter||examples/std/ctrl-flow.rhdl|ctrl_rr_arbiter_program|ctrl_rr_arbiter_verilog_reference'
-  'ctrl-demux||examples/std/ctrl-flow.rhdl|ctrl_demux_program|ctrl_demux_verilog_reference'
-  'ctrl-join||examples/std/ctrl-flow.rhdl|ctrl_join_program|ctrl_join_verilog_reference'
-  'ctrl-broadcast||examples/std/ctrl-flow.rhdl|ctrl_broadcast_program|ctrl_broadcast_verilog_reference'
-  'ctrl-chain||examples/std/ctrl-flow.rhdl|ctrl_chain_program|ctrl_chain_verilog_reference'
-  'valid-map-fork||examples/std/valid-flow.rhdl|program|verilog_reference'
-  'valid-filter||examples/std/valid-flow.rhdl|accepted_program|accepted_verilog_reference'
-  'valid-to-decoupled||examples/std/valid-flow.rhdl|decoupled_program|decoupled_verilog_reference'
-  'completion-queue||examples/std/completion-queue.rhdl|program|verilog_reference'
-  'completion-queue-one||examples/std/completion-queue.rhdl|single_program|single_verilog_reference'
-  'credited-flow||examples/std/credited-transport.rhdl|program|verilog_reference'
-  'credited-flow-chained||examples/std/credited-transport.rhdl|chained_program|chained_verilog_reference'
-  'credited-monitor||examples/std/credited-transport.rhdl|monitor_program|monitor_verilog_reference'
-  'flit-formats||examples/std/flit-formats.rhdl|program|verilog_reference'
-  'state-flow||examples/std/state-flow.rhdl|program|-'
-  'scoreboard||examples/std/scoreboard.rhdl|program|verilog_reference'
-  'full-adder||examples/rtl/full-adder.rhdl|program|verilog_reference'
-  'adder-core||examples/lop/adder-core.rhm|program|verilog_reference'
-  'adder-kernel||examples/lop/adder-kernel.rhm|program|verilog_reference'
-  'adder-composed||examples/lop/adder-composed.rhdl|program|verilog_reference'
-  'counter-composed||examples/lop/counter-composed.rhdl|program|verilog_reference'
-  'bundle-kernel||examples/lop/bundle-kernel.rhdl|program|verilog_reference'
-  'bundle-standard||examples/lop/bundle-standard.rhdl|program|verilog_reference'
-  'interface-records||examples/lop/interface-records.rhdl|program|verilog_reference'
-  'width-ops-kernel||examples/lop/width-ops-kernel.rhm|program|verilog_reference'
-  'layered-adder||examples/rtl/layered-adder.rhdl|program|verilog_reference'
-  'host-parameters||examples/rtl/host-parameters.rhdl|program|verilog_reference'
-  'fresh-generators||examples/rtl/fresh-generators.rhdl|program|verilog_reference'
-  'dont-care||examples/std/dont-care.rhdl|program|verilog_reference'
-  'decode||examples/std/decode.rhdl|program|verilog_reference'
-  'decode-composition||examples/std/decode-composition.rhdl|program|verilog_reference'
-  'noc-crossbar||examples/noc/noc-crossbar.rhdl|program|-'
-  'noc-route-computer||examples/noc/noc-route-computer.rhdl|program|verilog_reference'
-  'noc-router||examples/noc/noc-router.rhdl|program|-'
-  'noc-network||examples/noc/noc-network.rhdl|program|-'
-  'generator-ordinary-defaults||examples/rtl/generator-parameters.rhdl|ordinary_defaults_program|ordinary_defaults_verilog_reference'
-  'generator-ordinary-overrides||examples/rtl/generator-parameters.rhdl|ordinary_overrides_program|ordinary_overrides_verilog_reference'
-  'generator-ordinary-typed-defaults||examples/rtl/generator-parameters.rhdl|ordinary_typed_defaults_program|ordinary_typed_defaults_verilog_reference'
-  'generator-ordinary-required-keyword||examples/rtl/generator-parameters.rhdl|ordinary_required_keyword_program|ordinary_required_keyword_verilog_reference'
-  'generator-sync-defaults||examples/rtl/generator-parameters.rhdl|sync_defaults_program|sync_defaults_verilog_reference'
-  'generator-sync-overrides||examples/rtl/generator-parameters.rhdl|sync_overrides_program|sync_overrides_verilog_reference'
-  'generator-sync-typed-defaults||examples/rtl/generator-parameters.rhdl|sync_typed_defaults_program|sync_typed_defaults_verilog_reference'
-  'register-forms||examples/rtl/register-forms.rhdl|program|verilog_reference'
-  'priority-encoder||examples/rtl/priority-encoder.rhdl|five_program|five_verilog_reference'
-  'priority-encoder-shapes||examples/rtl/priority-encoder.rhdl|shapes_program|shapes_verilog_reference'
-  'bit-negation||examples/rtl/bit-utilities.rhdl|negation_program|negation_verilog_reference'
-  'bit-reductions||examples/rtl/bit-utilities.rhdl|reduction_program|reduction_verilog_reference'
-  'bit-membership||examples/rtl/bit-utilities.rhdl|membership_program|membership_verilog_reference'
-  'enum-validity||examples/rtl/bit-utilities.rhdl|enum_validity_program|enum_validity_verilog_reference'
-  'sync-ram||examples/std/sync-ram.rhdl|program|verilog_reference'
-  'table||examples/rtl/table.rhdl|program|verilog_reference'
-  'valid-pipe||examples/std/valid-pipe.rhdl|program|verilog_reference'
-  'valid-pipe-capture-always||examples/std/valid-pipe.rhdl|capture_always_program|-'
-  'vec-search||examples/rtl/vec-search.rhdl|program|verilog_reference'
-  'riscv-instruction-fields||examples/riscv/instruction-fields.rhdl|program|verilog_reference'
-  'rv64i-alu-integrated||examples/cores/decoded-alu.rhdl|program|-'
-  'chi-ram||examples/chi/ram.rhdl|ram_program|-'
-  'chi-home||examples/chi/home.rhdl|home_program|-'
-  'rv5stage||examples/cores/rv5stage.rhdl|program|-'
-)
-
-direct_fixture_specs=(
-  'rv5stage-cosim|rv5stage_cosim_tb'
-  'rv5stage-cosim32|rv5stage_cosim_tb'
-  'rv5stage-cosim-vector|rv5stage_cosim_vector_tb'
-  'event-runtime|event_runtime_tb'
-  'cosim-hooks|cosim_hooks_tb||program'
-  'event-elastic|event_elastic_tb'
-  'uart-dpi|uart_dpi_tb||program'
-  'nested-bundle|||program'
-  'aggregate-memory|'
-  'one-hot-aggregate|||program'
-  'formal-differential|formal_differential_tb||program'
-  'chi-full-flits|||program'
-  'chi-router-composition|||program'
-)
+fixture_specs=()
+direct_fixture_specs=()
+group_members=()
+while IFS='|' read -r group kind spec; do
+  [[ -n "$group" && "${group:0:1}" != "#" ]] || continue
+  case "$kind" in
+    example) fixture_specs+=("$spec") ;;
+    direct) direct_fixture_specs+=("$spec") ;;
+    *) echo "invalid CIRCT fixture kind: $kind" >&2; exit 1 ;;
+  esac
+  group_members+=("$group|${spec%%|*}")
+done < tools/testing/circt/fixtures.txt
 
 fixture_declared() {
   local wanted="$1"
