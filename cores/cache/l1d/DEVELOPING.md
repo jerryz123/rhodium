@@ -103,6 +103,13 @@ for an example of caller-owned result capture and translation-fault observations
 
 ### Behavioral invariants
 
+The shared gather FSM owns the read index and returned word's destination,
+not a line buffer. Route each response to exactly one engine. Publish the
+eviction command or snoop result on the existing Ready-state boundary, after
+all words have arrived. Neither engine may overwrite an active DAT payload.
+The RV64 D-cache fixture checks both grant orderings with two different dirty
+lines; the copyback fixture also covers 128-, 256-, and 512-bit DAT.
+
 1. Preserve ordered Decoupled requests and backpressurable slow responses,
    including completion metadata for stores, atomics, and deferred writeback.
    Carry the opaque caller context unchanged through retained requests and replies.

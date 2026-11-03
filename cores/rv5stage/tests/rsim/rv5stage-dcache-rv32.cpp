@@ -79,6 +79,40 @@ void observe() {}
 
 void falling_update() {}
 
+// A 128-bit DAT beat contains four RV32 gather words. Check all sixteen
+// positions, including the word that arrives immediately before publication.
+void check_dirty_snoop_words() {
+  constexpr std::uint32_t pattern = 0x12345600;
+  for (unsigned word = 0; word < 16; ++word) {
+    send_request(4096 + word * 4, 2, 0, 2, 0, pattern + word);
+    expect_response(0);
+  }
+  chi_in.psnoops.pbits.popcode = 9; // SnpCleanInvalid
+  chi_in.psnoops.pbits.psrc_uid = 1;
+  chi_in.psnoops.pbits.paddress = 4096 >> 3;
+  chi_in.psnoops.pvalid = 1;
+  settle();
+  for (int cycle = 0; cycle < 100 && !chi_out.psnoops.pready; ++cycle)
+    tick();
+  CHECK(chi_out.psnoops.pready);
+  tick();
+  chi_in.psnoops = {};
+  for (unsigned packet = 0; packet < 4; ++packet) {
+    for (int cycle = 0; cycle < 100 && !chi_out.prequest_udata.pvalid; ++cycle)
+      tick();
+    CHECK(chi_out.prequest_udata.pvalid);
+    const auto &beat = chi_out.prequest_udata.pbits;
+    CHECK(beat.popcode == 1 && beat.pdata_uid == packet &&
+          beat.presp == 4 && beat.pbyte_uenable == UINT16_MAX);
+    for (unsigned word = 0; word < 4; ++word)
+      CHECK(read_bits(beat.pdata, word * 32, 32) == pattern + packet * 4 + word);
+    chi_in.prequest_udata.pready = 1;
+    tick();
+    chi_in.prequest_udata.pready = 0;
+  }
+  CHECK(requests == 6);
+}
+
 void stimulus() {
   reset = 1;
   node_id = UINT64_C(3);
@@ -328,6 +362,7 @@ void stimulus() {
       CHECK(requests == 6);
     }
 
+    check_dirty_snoop_words();
     reset = 1;
     tick();
     CHECK(!core_out.preservation_uvalid);

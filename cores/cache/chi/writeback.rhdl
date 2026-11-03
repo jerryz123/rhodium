@@ -5,6 +5,7 @@
 import:
   "../geometry.rhdl" open
   "flits.rhdl" open
+  lib("riscv/isa/xlen.rhm").XLen
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
   lib("chi/protocol/flits.rhdl") open
@@ -13,10 +14,9 @@ import:
   lib("chi/protocol/messages.rhdl").chi_rn_copyback_data
   lib("chi/transactions/retryable-transaction.rhdl") open
 
-/* Captures the victim line/address and opaque caller context for full-line copyback. */
+/* Publishes a fully gathered victim for copyback with its address and caller context. */
 bundle CacheLineWritebackCommand(Context :: DataType, address_width :: PosInt):
   line_address: Bits(address_width)
-  line: Vec(CacheLineBytes / 8, Bits(64))
   context: Context
 
 /* Returns the retained context after all copyback data packets are handed off. */
@@ -26,7 +26,7 @@ bundle CacheLineWritebackResult(Context :: DataType):
 /* Retries WriteBackFull while the victim remains snoop-visible; freezes its latest state at
    grant.
    After CompDBIDResp, sends every line packet and retains completion until accepted. */
-sync_circuit CacheLineWriteback(Context :: DataType, address_width :: PosInt, config :: RiscvHartCHIConfig, txn_id :: Nat):
+sync_circuit CacheLineWriteback(Context :: DataType, address_width :: PosInt, config :: RiscvHartCHIConfig, txn_id :: Nat, ~gather_xlen: xlen :: XLen):
   def p = config.flit
   def packets = CacheLineBytes / p.data_bytes
   def packet_width = index_width(packets)
@@ -35,6 +35,7 @@ sync_circuit CacheLineWriteback(Context :: DataType, address_width :: PosInt, co
   input victim_state: CHICacheState
   input snoop_pending: Bool
   output granted: Bool
+  interface gather(Valid(CacheGatherWord(xlen)), ~role: consumer)
   interface command(Decoupled(CacheLineWritebackCommand(Context, address_width)), ~role: consumer)
   interface completion(Irrevocable(CacheLineWritebackResult(Context)), ~role: producer)
   interface requests(Decoupled(CHIReqFlit(p)), ~role: producer)
@@ -47,7 +48,7 @@ sync_circuit CacheLineWriteback(Context :: DataType, address_width :: PosInt, co
 
   inst control(CHIRetryableTransactionControl(p, CacheCopyBackResponses))
   reg line_address(Bits(address_width))
-  reg line(Vec(packets, Bits(p.data_width)))
+  reg line(Vec(cache_line_words(xlen), Bits(xlen.width)))
   reg context(Context)
   reg home_id(Bits(p.node_id_width))
   reg dbid(Bits(12))
@@ -60,12 +61,15 @@ sync_circuit CacheLineWriteback(Context :: DataType, address_width :: PosInt, co
   returning.ready <== !control.active
   def command_fire = command.fire()
   def command_home = config.home_map.lookup(cache_chi_address(command.bits.line_address, p))
+  when (gather.valid):
+    assert(!control.active, "copyback_gather_before_command")
+    line[gather.bits.index] <== gather.bits.data
+
   when command_fire:
     assert(command_home.valid, "copyback_address_has_home")
     assert(command.bits.line_address.is_aligned(CacheLineBytes), "copyback_line_aligned")
     assert(cache_chi_address_fits(command.bits.line_address, p), "copyback_address_fits_chi")
     line_address <== command.bits.line_address
-    line <== command.bits.line.as_bits().as_vec(Bits(p.data_width))
     context <== command.bits.context
     home_id <== command_home.node_id
 
@@ -113,7 +117,8 @@ sync_circuit CacheLineWriteback(Context :: DataType, address_width :: PosInt, co
 
   data.valid <== granted & !data_sent
   def packet_number = if packet_width == 2 | packet_index | packet_index.zext(2)
-  data.bits <== chi_rn_copyback_data(p, node_id, home_id, dbid, chi_transfer_data_id(packet_number, p), line[packet_index], response_state)
+  def packet_data = line.as_bits().as_vec(Bits(p.data_width))[packet_index]
+  data.bits <== chi_rn_copyback_data(p, node_id, home_id, dbid, chi_transfer_data_id(packet_number, p), packet_data, response_state)
   def final_packet = packet_index === Bits(packet_width)(packets - 1)
   def final_data = data.fire() & final_packet
   completion.valid <== control.active & data_sent

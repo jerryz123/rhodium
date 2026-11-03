@@ -7,6 +7,8 @@ import:
   lib("rhodium/compile/rtl.rhm").rtl_target
   "../chi/writeback.rhdl" open
   "../chi/flits.rhdl" open
+  "../geometry.rhdl".CacheGatherWord
+  lib("riscv/isa/xlen.rhm").XLen
   lib("rhodium/std/interconnect.rhdl").AddressSet
   lib("chi/protocol/link.rhdl").CHINodeKind
   lib("chi/protocol/fabric.rhdl") open
@@ -49,20 +51,26 @@ sync_circuit CacheCopyBackFixture():
   input data_ready: Bool
   input completion_ready: Bool
   input line: Bits(512)
+  input gather_valid: Bool
+  input gather_index: Bits(3)
   output observed: Vec(3, CopyBackObservation())
   for (data_width in [128, 256, 512], index in 0..3):
     def p = CHIFlitParams(~data_width: data_width)
     def home = CHIHomeParams("copyback-test-home", 1, CHINodeKind.HNF, ~max_outstanding: 2)
     def attributes = RiscvPhysicalMemoryAttributes(#true, #true, #true, #true, #true, #false, #true)
     def physical = RiscvPhysicalMemoryRegion(AddressSet(0, (1 << p.request_address_width) - 1), attributes)
-    inst engine(CacheLineWriteback(Bits(8), 64, RiscvHartCHIConfig(p, 64, [RiscvHartCHIRegion(physical, home)]), 1))
+    inst engine(CacheLineWriteback(Bits(8), 64, RiscvHartCHIConfig(p, 64, [RiscvHartCHIRegion(physical, home)]), 1, ~gather_xlen: XLen.X64))
     engine.node_id <== Bits(7)(3)
     engine.victim_state <== state
     engine.snoop_pending <== snoop_pending
+    engine.gather.valid <== enabled[index] & gather_valid
+    engine.gather.bits <== CacheGatherWord(XLen.X64):
+      index: gather_index
+      data: line.as_vec(Bits(64))[gather_index]
+
     engine.command.valid <== enabled[index] & command_valid
     engine.command.bits <== CacheLineWritebackCommand(Bits(8), 64):
       line_address: Bits(64)(0x80001240)
-      line: line.as_vec(Bits(64))
       context: Bits(8)(0xa5)
 
     def requests = engine.requests |> trace_event("request/" ++ to_string(index))

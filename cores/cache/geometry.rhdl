@@ -1,10 +1,19 @@
 #lang rhodium
-/* Defines way and lane selection for shared fixed-line cache geometry. */
+/* Defines word positions and way/lane selection for shared fixed-line caches. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/bits.rhdl") open
+  lib("riscv/isa/xlen.rhm").XLen
   "config.rhm" open
+
+/* Counts XLEN-sized words in one complete cache line. */
+fun cache_line_words(xlen :: XLen) :: PosInt: CacheLineBytes * 8 / xlen.width
+
+/* One returned cache-array word and its position within the owner's dirty line. */
+bundle CacheGatherWord(xlen :: XLen):
+  index: Bits(index_width(cache_line_words(xlen)))
+  data: Bits(xlen.width)
 
 /* Selects real ways matching a binary index; an unused encoded index selects no way. */
 fun cache_way_mask(config :: CacheConfig,
@@ -28,5 +37,7 @@ fun cache_lane_mask(config :: CacheConfig,
 export:
   CacheLineBytes
   CacheConfig
+  CacheGatherWord
+  cache_line_words
   cache_way_mask
   cache_lane_mask

@@ -208,8 +208,9 @@ flowchart LR
   Mutate --> Response
 
   Resolved -->|miss or ownership acquisition| Victim{"Dirty allocated victim?"}
-  Victim -->|yes| Gather["Gather 64-byte line"]
-  Gather --> Writeback["One 64-byte WriteBackFull<br/>packet-complete copyback"]
+  Victim -->|yes| Gather["Shared gather reader"]
+  Arrays -->|"one XLEN word per return"| Gather
+  Gather -->|"victim words"| Writeback["Writeback line register<br/>one WriteBackFull"]
   Writeback --> Refill["ReadClean or ReadUnique<br/>retry-aware refill"]
   Victim -->|no| Refill
   Refill -->|retained copy| Install["Install one XLEN word/cycle<br/>publish metadata last"]
@@ -218,7 +219,8 @@ flowchart LR
   Install --> Response
 
   Snoop["Snoop engine"] -->|"lookup / update request"| Arrays
-  Arrays -->|"metadata / gathered line"| Snoop
+  Arrays -->|"hit and state"| Snoop
+  Gather -->|"dirty snoop words"| Snoop
   Snoop --> CHI["CHI SnpResp / SnpRespData"]
 ```
 
@@ -323,9 +325,10 @@ behavior. This uses coherent `ReadClean`, not uncached `ReadNoSnp` or `ReadOnce`
 Home still obtains current data from dirty peers. It may clean those peers and
 allocate in outer caches. No outer-cache allocation policy is claimed.
 
-For a dirty allocation victim, L1D first gathers all XLEN words into a line
-buffer. The shared [writeback engine](../chi/writeback.rhdl) captures that buffer
-and issues one retryable `WriteBackFull`. The victim remains resident and
+For a dirty allocation victim, the shared array reader writes each returning
+XLEN word directly into the [writeback engine](../chi/writeback.rhdl)'s line
+register. Only after the last word is present can the engine accept the command
+and issue a retryable `WriteBackFull`. The victim remains resident and
 snoop-visible while awaiting `CompDBIDResp`; its set remains reserved against
 local accesses. A preceding snoop may consume its dirty data and invalidate
 it, in which case copyback reports Invalid without enabled bytes. The grant
@@ -370,8 +373,10 @@ refill keeps the ports through the final word.
 | Make-invalid hit | `SnpResp` reporting Invalid, no data | Discard the copy, including dirty data |
 | Two-packet `SnpDVMOp` | One `SnpResp` after the second packet | No array access |
 
-A dirty response first gathers every XLEN word from the selected way. Home then
-receives the authoritative reconstructed line; L1D does not retain a dirty copy.
+A dirty snoop uses the same array reader, but its words go into the snoop
+engine's own line register. A pending copyback and a snoop can therefore hold
+different dirty lines even when DAT is stalled. The snoop publishes the lookup
+result after its last word arrives; Home then receives the authoritative line.
 Reset clears lookup, pending mutation, refill installation, line gather,
 reservation, valid-line, replacement, and child transaction-engine state.
 

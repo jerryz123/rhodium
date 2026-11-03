@@ -823,6 +823,62 @@ void observe() {}
 
 void falling_update() {}
 
+// Exercise a snoop of a different dirty way both before the copyback grant and
+// while its first DAT beat is stalled. Cycle offsets are the pre-refactor trace.
+void check_overlapping_dirty_lines(bool grant_before_snoop) {
+  prepare_hit_under_miss();
+  auto victim = LINE;
+  auto probed = EVICT_LINE;
+  bit_slice(victim, 0, 64) = STORE_DATA;
+  bit_slice(probed, 128, 64) = STORE_DATA_2;
+  send_core_request(ADDRESS, MEMORY_STORE, ATOMIC_SWAP, STORE_DATA, 0);
+  expect_core_response(0, WRITEBACK_ACK_KIND, 0);
+  send_core_request(EVICT_ADDRESS + 16, MEMORY_STORE, ATOMIC_SWAP, STORE_DATA_2, 0);
+  expect_core_response(0, WRITEBACK_ACK_KIND, 0);
+
+  const auto start = test_cycles;
+  send_core_request(THIRD_ADDRESS, MEMORY_LOAD, ATOMIC_SWAP, 0, 2);
+  accept_request(WRITE_BACK_FULL, ADDRESS, 1, 6, 1, 0);
+  CHECK(test_cycles - start == 14);
+  chi_in.prequest_udata.pready = 0;
+  if (grant_before_snoop) {
+    send_response(COMP_DBID_RESP, 1, 85, 0);
+    settle();
+    CHECK(chi_out.prequest_udata.pvalid);
+    const auto stalled = chi_out.prequest_udata.pbits;
+    send_snoop(EVICT_ADDRESS, 122);
+    for (int i = 0; i < 16; ++i) {
+      CHECK(chi_out.prequest_udata.pvalid &&
+            same_dat(chi_out.prequest_udata.pbits, stalled));
+      tick();
+    }
+  } else {
+    send_snoop(EVICT_ADDRESS, 122);
+    for (int packet = 0; packet < 4; ++packet) {
+      accept_snoop_data(packet, probed, 122);
+      CHECK(test_cycles - start == 30u + 4 * packet);
+    }
+    send_response(COMP_DBID_RESP, 1, 85, 0);
+  }
+
+  grant_dat_credit();
+  tx_dat_pending = 0;
+  for (int packet = 0; packet < 4; ++packet) {
+    accept_copyback_data(packet, victim);
+    CHECK(test_cycles - start == (grant_before_snoop ? 33u : 44u) + packet);
+  }
+  if (grant_before_snoop) {
+    for (int packet = 0; packet < 4; ++packet) {
+      accept_snoop_data(packet, probed, 122);
+      CHECK(test_cycles - start == 40u + 4 * packet);
+    }
+  }
+  accept_request(READ_CLEAN, THIRD_ADDRESS, 0, 6, 1, 0);
+  return_line(THIRD_ADDRESS, THIRD_LINE, 1);
+  accept_comp_ack();
+  expect_core_response(bit_slice(THIRD_LINE, 0, 64), WRITEBACK_INTEGER_KIND, 2);
+}
+
 void stimulus() {
   reset = UINT64_C(1);
   node_id = CACHE_ID;
@@ -2154,6 +2210,8 @@ void stimulus() {
                          2);
     check_pipeline_load(ADDRESS, 1, 0);
 
+    check_overlapping_dirty_lines(false);
+    check_overlapping_dirty_lines(true);
     throw Finished{};
   }
 }

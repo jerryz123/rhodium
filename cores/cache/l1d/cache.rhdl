@@ -100,7 +100,7 @@ sync_circuit L1DCache(xlen :: XLen,
   def sets = cache.sets
   def ways = cache.ways
   def word_bytes = width / 8
-  def words_per_line = CacheLineBytes / word_bytes
+  def words_per_line = cache_line_words(xlen)
   def data_depth = sets * words_per_line
   def data_lanes = ways * word_bytes
   def offset_width = alignment_bits(CacheLineBytes)
@@ -144,8 +144,8 @@ sync_circuit L1DCache(xlen :: XLen,
   inst refill_store_gen(StoreGen(xlen, word_bytes))
   inst refill_atomic_alu(RiscvAtomicALU(xlen))
   inst refill(CacheLineRefill(L1DTransactionContext(xlen, way_width, Context), width, config))
-  inst snoop(CacheDataSnoop(snoop_width, config))
-  inst writeback(CacheLineWriteback(L1DTransactionContext(xlen, way_width, Context), width, config, 1))
+  inst snoop(CacheDataSnoop(snoop_width, config, ~gather_xlen: xlen))
+  inst writeback(CacheLineWriteback(L1DTransactionContext(xlen, way_width, Context), width, config, 1, ~gather_xlen: xlen))
   inst maintenance(CHICacheMaintenance(p, PhysicalMemoryReq(xlen, Context)))
   maintenance.node_id <== node_id
   maintenance.txn_id <== Bits(12)(2)
@@ -206,7 +206,6 @@ sync_circuit L1DCache(xlen :: XLen,
   reg gather_response_pending(~init: Bool(#false))
   reg gather_response_index(~init: Bits(word_index_width)(0))
   reg gather_last_issued(~init: Bool(#false))
-  reg gathered_line(~init: Bits(CacheLineBytes * 8)(0))
   reg gather_set(Bits(set_width))
   reg gather_way(Bits(way_width))
   reg eviction_line_address(Bits(width))
@@ -496,7 +495,6 @@ sync_circuit L1DCache(xlen :: XLen,
   def eviction_gather_start = eviction_start.valid
   def eviction_command = CacheLineWritebackCommand(L1DTransactionContext(xlen, way_width, Context), width):
     line_address: eviction_line_address
-    line: gathered_line.as_vec(Bits(64))
     context: eviction_context
 
   def eviction_command_valid = gather_state === L1DGatherState.EvictionReady
@@ -652,7 +650,6 @@ sync_circuit L1DCache(xlen :: XLen,
   def snoop_result = CacheDataSnoopLookupResult():
     hit: mux(snoop_gather_result, Bool(#true), snoop_line_hit)
     state: mux(snoop_gather_result, gathered_snoop_state, snoop_lookup_state)
-    line: mux(snoop_gather_result, gathered_line, Bits(CacheLineBytes * 8)(0)).as_vec(Bits(64))
 
   inject_interface(Valid(CacheDataSnoopLookupResult()), ~valid: snoop_direct_result ||| snoop_gather_result, ~bits: snoop_result) |> snoop.lookup_result
 
@@ -965,10 +962,18 @@ sync_circuit L1DCache(xlen :: XLen,
      Eviction and dirty snoops share the reader, but retain separate owners;
      issued reads and returning words can progress on the same edge. */
 
-  def gathered_words = gathered_line.as_vec(Bits(width))
+  // Every word is written before publication. The two owners retain separate
+  // snapshots so gathering for one never disturbs the other's stalled DAT.
   def gathered_response_words = arrays.data.response.bits.as_bits().as_vec(Bits(width))
-  def gathered_response_word = gathered_response_words[gather_way]
-  def next_gathered_line = gathered_words.updated(gather_response_index, gathered_response_word).as_bits()
+  def word = CacheGatherWord(xlen):
+    index: gather_response_index
+    data: gathered_response_words[gather_way]
+
+  def returning_word = inject_interface(Valid(CacheGatherWord(xlen)), ~valid: gather_response_pending, ~bits: word)
+  def Array(eviction_words, snoop_words) = returning_word |> fork_valid(2)
+  eviction_words |> filter_valid(_word => gather_state === L1DGatherState.EvictionRead) |> writeback.gather
+  snoop_words |> filter_valid(_word => gather_state === L1DGatherState.SnoopRead) |> snoop.gather
+
   // Both captures initialize the same reader. Eviction wins a simultaneous
   // start; the inactive owner's payload remains unchanged.
   when (eviction_gather_start ||| snoop_gather_start):
@@ -976,7 +981,6 @@ sync_circuit L1DCache(xlen :: XLen,
     gather_issue_index <== Bits(word_index_width)(0)
     gather_response_pending <== Bool(#false)
     gather_last_issued <== Bool(#false)
-    gathered_line <== Bits(CacheLineBytes * 8)(0)
     gather_set <== mux(eviction_gather_start, eviction_start.bits.lookup.into(L1DLookup(xlen, Context)).request.address[offset_width..(offset_width + set_width)], snoop_set)
     gather_way <== mux(eviction_gather_start, eviction_start.bits.allocation_way, snoop_selection.index)
     when eviction_gather_start:
@@ -994,7 +998,6 @@ sync_circuit L1DCache(xlen :: XLen,
 
     when gather_response_pending:
       assert(arrays.data.response.valid, "l1d_gather_read_response_valid")
-      gathered_line <== next_gathered_line
       when gather_response_final:
         gather_state <== mux(gather_state === L1DGatherState.EvictionRead, L1DGatherState.EvictionReady, L1DGatherState.SnoopReady)
   elsewhen writeback_command_fire:
