@@ -1,16 +1,16 @@
 {
   "coremark.riscv": {
-    "cycles": 384756,
-    "rtl/soc/hart/core/core/issue_1": 84803,
-    "rtl/soc/hart/core/core/issue_2": 142435,
+    "cycles": 384776,
+    "rtl/soc/hart/core/core/issue_1": 84858,
+    "rtl/soc/hart/core/core/issue_2": 142409,
     "rtl/soc/hart/core/core/mispredict_direct_target": 0,
     "rtl/soc/hart/core/core/mispredict_direction": 3145,
     "rtl/soc/hart/core/core/mispredict_indirect_target": 19,
     "rtl/soc/hart/core/core/mispredict_nonbranch": 0,
     "rtl/soc/hart/core/core/mispredict_ras_action": 0,
     "rtl/soc/hart/core/core/mispredict_return_target": 0,
-    "rtl/soc/hart/core/core/retired_slot0": 197041,
-    "rtl/soc/hart/core/core/retired_slot1": 123448,
+    "rtl/soc/hart/core/core/retired_slot0": 197067,
+    "rtl/soc/hart/core/core/retired_slot1": 123422,
     "rtl/soc/hart/core/data/storage/dcache_miss": 179,
     "rtl/soc/hart/core/instruction/icache_miss": 143
   }

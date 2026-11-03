@@ -975,9 +975,11 @@ references come from successful [CI run 41240854761](https://github.com/jerryz12
 The complete Simple RTL counter maps and refreshed cycles come from the
 functionally successful native suites in [CI run 41350443194](https://github.com/jerryz123/rhodium/actions/runs/41350443194),
 covering 543 workloads across the three cores and seven suites.
-RV2Wide Bringup and Embench references were refreshed from all 127 functionally
-successful workloads in [CI run 41505963948](https://github.com/jerryz123/rhodium/actions/runs/41505963948)
-after direction-table initialization changed to a reset-only sweep.
+All seven Simple RV2Wide suites were refreshed from the 181 functionally
+successful workloads in [CI run 41542137712](https://github.com/jerryz123/rhodium/actions/runs/41542137712)
+after reset-only predictor initialization and shared-PC-region pairing changed
+their counter distributions. Every counter map also matches the independent
+post-refactor measurements in [CI run 41536091557](https://github.com/jerryz123/rhodium/actions/runs/41536091557).
 Files map workload names directly to counter-name/value maps, matching the
 runtime measurement without additional wrappers. Sort workload and counter names
 deterministically. Missing expectations are collected and reported without a
