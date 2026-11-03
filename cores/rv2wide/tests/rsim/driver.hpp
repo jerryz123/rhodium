@@ -151,7 +151,7 @@ template <class T> bool same_instruction(const T &x, const T &y) {
                         : fetch_guest_is(x.pfault, false, 0, 0)) &&
          x.pprediction.pvalid == y.pprediction.pvalid &&
          x.pprediction.ppc == y.ppc &&
-         x.pprediction.ptarget == y.pprediction.ptarget &&
+         (!y.pprediction.pvalid || x.pprediction.ptarget == y.pprediction.ptarget) &&
          x.pprediction.pcompressed == y.pprediction.pcompressed &&
          x.pprediction.pras_uaction == y.pprediction.pras_uaction &&
          x.pspeculated_uras_uaction == y.pspeculated_uras_uaction &&

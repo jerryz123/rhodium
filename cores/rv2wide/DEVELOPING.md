@@ -100,8 +100,21 @@ seven on RV64). Forward this tag unchanged through the lane registers. The
 window heads and stage outputs apply the toggles to their own PC; they need
 neither a second offset nor a PC adder. This also handles 4 KiB crossings,
 XLEN wrap, and faulting instructions whose raw bits do not identify their
-length. Preserve the prediction target, direction checkpoint, and RAS actions
+length. Preserve the valid prediction target, direction checkpoint, and RAS actions
 even when an instruction crosses a block or region.
+
+Each window entry stores its own compact PC, not an offset from a shared base:
+resident instructions can span unrelated predicted targets. Successful PCs
+sign-extend from `min(XLEN, max(39, physical_address_width + 1))` in the integrated
+hart. The extra physical bit preserves zero-extended Bare PCs, including guest
+Bare addresses within Sv39x4's range. Standalone cores default to XLEN-wide
+storage unless their producer supplies the narrower-PC contract.
+`RV2WideWindowOutcome` overlays the normal valid/target fields with the complete
+fetch fault and exceptional PC upper bits. Faulting instructions cannot predict;
+their original PC, fault VA, and optional guest details remain exact. Normal
+entries report an absent fault as zero; invalid prediction targets are zeroed.
+Do not narrow valid indirect targets, derive fault addresses from PCs, or share
+a global fault sidecar: all eight entries must retain independent ownership.
 
 The frontend, assembler's three resident blocks, window, and EX use the same
 `RV2WideFetchFault(xlen, hypervisor)`: a three-bit kind, the full fault address,
@@ -132,6 +145,17 @@ squashing the scalar pipes; only blocking retained operations retain that policy
 The retained lifecycle is `Idle -> Draining -> Ready -> Accepted -> Idle`;
 completion can exit an earlier phase for a reservation wake or admission fault.
 Keep capture/completion priority and the registered drain edge unchanged.
+`RV2WideServiceOwner` retains only the instruction/observation metadata,
+destination, memory operands/control, guest-access mode, wait selector, FP-load
+schedule, and vector classification. It carries the selected lane's existing
+successor tag rather than a second full PC or newly encoded offset. Capture
+requires a continuing, nonbranch service with no CSR, arithmetic, hint, or
+non-memory FP operation. Completion supplies fresh data and fault resolution
+and reconstructs inactive execution controls; it never reissues those units.
+Preserve the saved prediction-repair bit and metadata even for nonbranches,
+including stale predictions. Split FP loads still need their original FPR
+destination, precision, and scheduling tag. The functional lifecycle and
+passive retirement/event interfaces remain unchanged.
 Use Flow maps/filters for combinational stage transfers; explicit selection and
 retained-storage contracts remain where core policy chooses or retains owners.
 
@@ -1248,6 +1272,7 @@ Run the focused production-core fixture:
 
 ```sh
 python3 tools/testing/rsim/run.py --fixture rv2wide-core --fixture rv2wide-core-fp --fixture rv2wide-core-fp-late
+python3 tools/testing/rsim/run.py --fixture rv2wide-issue-window --fixture rv2wide-issue-window-h --fixture rv2wide-issue-window-rv32
 python3 tools/testing/rsim/run.py --fixture rv2wide-cache --fixture rv2wide-fetch-disabled
 python3 tools/testing/rsim/run.py --fixture rv2wide-assembly-prediction --fixture rv2wide-frontend-prediction --fixture rv2wide-bht
 python3 tools/testing/rsim/run.py --fixture rv2wide-mmu
@@ -1262,6 +1287,15 @@ old-response sampling; falling-edge drivers prepare the next cycle. The
 enabled-fetch fixture compiles with event tracing and links the production RHEG
 collector directly. Its independent instruction model and trace oracle check both
 retirement lanes after their clocked callbacks complete.
+
+The issue-window fixtures check RV32 and compact RV64 with and without H.
+They fill all eight entries, retain mixed normal/fault owners under backpressure,
+consume one/two entries while appending, and clear live offers. An independent
+queue checks raw/canonical encodings, exact PC/successor and fault addresses,
+guest provenance, full-width predicted targets, and direction/RAS checkpoints.
+Directed values exercise noncanonical fault PCs, sign-extended PCs, physical
+upper bits, continuation faults, and XLEN wrap; invalid compact successful PCs
+must trigger the ingress assertion.
 
 The core fixture checks sustained dual
 retirement, packet coalescing, age-ordered same-destination pairing, RAW/WAW and x0, youngest-producer forwarding,
@@ -1340,6 +1374,9 @@ uses nonadjacent physical pages, reads fault VA/EPC/cause from the trap handler,
 and verifies a completed store prefix remains visible after a second-page fault.
 The core fixture checks retained completion in either WB position and preserves
 natural-alignment faults for LR/SC/AMO.
+It also holds retained loads across changing live inputs at 4 KiB, high-address,
+and XLEN-wrap boundaries, checking exact successor, prediction metadata, one
+request/retirement, and a subsequent GPR consumer.
 
 `rv2wide-fetch` executes the production fetching top against a byte-addressed
 CHI backing-memory oracle. It checks sustained warm dual retirement, upper-only

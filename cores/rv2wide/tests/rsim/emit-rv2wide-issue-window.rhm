@@ -1,0 +1,11 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("riscv/isa/xlen.rhm").XLen
+  "../../issue-window.rhdl".RV2WideIssueWindow
+
+def program = elaborate(RV2WideIssueWindow(~pc_width: 45))
+def guest_program = elaborate(RV2WideIssueWindow(~hypervisor: #true, ~pc_width: 45))
+def rv32_program = elaborate(RV2WideIssueWindow(XLen.X32))
+export program guest_program rv32_program

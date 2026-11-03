@@ -108,8 +108,12 @@ all of this metadata; a 32-bit instruction normally uses the same raw/canonical
 bits and `sequential_pc = pc + 4`.
 Every accepted entry, including a fault, must supply `pc + 2` or `pc + 4`
 modulo XLEN. A valid prediction must name that instruction's PC; an invalid
-prediction's input PC is ignored. The PC reported in either case is the
-instruction PC itself.
+prediction's input PC and target are ignored. The PC reported in either case is the
+instruction PC itself; an invalid prediction's target is reported as zero.
+Faulting entries must not predict. Direct `RV2WideCore` producers default to
+full-XLEN PCs. With `~instruction_pc_width: n`, every successful PC must equal
+the sign extension of its low `n` bits; faulting PCs remain unrestricted.
+The integrated hart selects this width from its physical-address and Sv39 bounds.
 Set `fault.kind` to `RV2WideFetchFaultKind.None` and clear `compressed_illegal`
 for successful fetches; instruction bits are ignored for fetch faults. The
 other supported kinds are `Misaligned`, `Access`, `Page`, and (with H)

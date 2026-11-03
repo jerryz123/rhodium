@@ -17,6 +17,7 @@ import:
   lib("cores/cache/l1i/protocol.rhdl").InstructionCacheResult
   lib("riscv/rtl/svpbmt.rhdl").PageMemoryType
   lib("cores/cache-prefetch.rhdl").CachePrefetchOperation
+  lib("cores/reservation-wait.rhdl").ReservationWaitMode
   lib("cores/bpred/protocol.rhdl") open
   lib("cores/branch-resolver.rhdl").BranchResolverControl
   lib("riscv/isa/xlen.rhm").XLen
@@ -361,6 +362,96 @@ bundle RV2WideResult(xlen :: XLen, hypervisor :: Boolean):
       fp: result.fp
       vector: result.vector.operation
 
+  /* Captures only a continuing split/maintenance/wait/vector-memory owner.
+     The lane's existing successor tag avoids recoding or adding a PC adder. */
+  method service_owner(result, step :: RV2WidePcStep(xlen)) :: RV2WideServiceOwner(xlen, hypervisor):
+    RV2WideServiceOwner(xlen, hypervisor):
+      identity: result.fetched.identity()
+      instruction: result.fetched.instruction
+      step: step
+      predicted: result.fetched.prediction.valid
+      target: result.fetched.prediction.target
+      predicted_compressed: result.fetched.prediction.compressed
+      predicted_ras_action: result.fetched.prediction.ras_action
+      speculated_ras_action: result.fetched.speculated_ras_action
+      direction: result.fetched.direction
+      prediction_repair: result.branch.mispredicted
+      rd: result.rd
+      write: result.write
+      memory: result.memory
+      guest_access: result.guest_access
+      address: result.address
+      store_data: result.store_data
+      wait: result.system.wait
+      fp: result.fp
+      fp_schedule: result.fp_request.tag
+      vector: result.vector
+
+/* Owns accepted WB services, never a branch, CSR operation, or arithmetic launch.
+   Faults and data arrive at completion; frontend observation metadata survives,
+   but fetch-fault state, execution operands, and inactive controls do not. */
+bundle RV2WideServiceOwner(xlen :: XLen, hypervisor :: Boolean):
+  identity: RV2WideInstructionIdentity(xlen)
+  instruction: Bits(32)
+  step: RV2WidePcStep(xlen)
+  predicted: Bool
+  target: Bits(xlen.width)
+  predicted_compressed: Bool
+  predicted_ras_action: RasAction
+  speculated_ras_action: RasAction
+  direction: TournamentPrediction(10)
+  prediction_repair: Bool
+  rd: Bits(5)
+  write: Bool
+  memory: RV2WideMemoryControl()
+  guest_access: RiscvGuestMemoryAccess
+  address: Bits(xlen.width)
+  store_data: Bits(xlen.width)
+  wait: ReservationWaitMode
+  fp: RV2WideFpControl()
+  fp_schedule: RV2WideFpSchedule()
+  vector: RV2WideVectorLane()
+
+  /* Rejoins the completed service with ordinary WB retirement and observation.
+     Inactive execution controls are zero; no service can relaunch those units. */
+  method completed(owner, data :: Bits(xlen.width), resolution :: RV2WideSyncResolution(xlen)) :: RV2WideResult(xlen, hypervisor):
+    def successor = owner.step.apply(owner.identity.pc)
+    def fetched = RV2WideInstruction(xlen, hypervisor):
+      pc: owner.identity.pc
+      instruction: owner.instruction
+      raw_instruction: owner.identity.raw_instruction
+      sequential_pc: successor
+      compressed_illegal: Bool(#false)
+      fault: literal(RV2WideFetchFault(xlen, hypervisor), 0)
+      prediction:
+        BranchPrediction(xlen):
+          valid: owner.predicted
+          pc: owner.identity.pc
+          target: owner.target
+          compressed: owner.predicted_compressed
+          ras_action: owner.predicted_ras_action
+
+      speculated_ras_action: owner.speculated_ras_action
+      direction: owner.direction
+
+    def inactive_update :: BranchUpdate(xlen) = literal(BranchUpdate(xlen), 0)
+    def update = inactive_update.updated(
+      ~pc: owner.identity.pc, ~return_address: successor,
+      ~compressed: owner.step.short_step, ~predicted_ras_action: owner.speculated_ras_action
+    )
+    def inactive_branch :: RV2WideBranchResult(xlen) = literal(RV2WideBranchResult(xlen), 0)
+    def inactive_system :: RV2WideSystemControl() = literal(RV2WideSystemControl(), 0)
+    def inactive_fp :: FpExecutionRequest(xlen, fp_transport_profile(xlen), RV2WideFpSchedule()) = literal(FpExecutionRequest(xlen, fp_transport_profile(xlen), RV2WideFpSchedule()), 0)
+    def inactive_result :: RV2WideResult(xlen, hypervisor) = literal(RV2WideResult(xlen, hypervisor), 0)
+    inactive_result.updated(
+      ~fetched: fetched, ~rd: owner.rd, ~write: owner.write, ~data: data, ~result_ready: Bool(#true),
+      ~branch: inactive_branch.updated(~update: update, ~mispredicted: owner.prediction_repair),
+      ~memory: owner.memory, ~guest_access: owner.guest_access, ~address: owner.address, ~store_data: owner.store_data,
+      ~system: inactive_system.updated(~wait: owner.wait), ~resolution: resolution,
+      ~fp: owner.fp, ~fp_request: inactive_fp.updated(~tag: owner.fp_schedule, ~control: owner.fp.bits),
+      ~vector: owner.vector
+    )
+
 /* The instruction fields sampled by the passive WB observer. Only identity
    is needed by the trap datapath; the remaining fields need no physical
    storage in a build without that observer. */
@@ -514,6 +605,7 @@ export:
   RV2WideCauseWidth
   RV2WideExecute
   RV2WideResult
+  RV2WideServiceOwner
   RV2WidePendingTrap
   RV2WideBoundaryInstruction
   RV2WideVectorLane

@@ -108,7 +108,7 @@ fun rv2wide_serializing_operation(system :: RV2WideSystemControl(), instruction 
 
 /* Executes RV32/RV64 integer, optional RV64 F/D, and system operations with precise WB-owned state.
    Resolution inputs qualify the corresponding live MEM token in the same cycle. */
-sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing: selected_fp_timing :: FpExecutionTiming = FpExecutionTiming()):
+sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing: selected_fp_timing :: FpExecutionTiming = FpExecutionTiming(), ~instruction_pc_width: instruction_pc_width :: PosInt = profile.xlen.width):
   def xlen = profile.xlen
   def hypervisor = profile.hypervisor
 
@@ -191,7 +191,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
      Flow owns feed-forward registers; the issue window owns prefix retention.
      Backward recovery links do not add pipeline storage. */
 
-  inst rr_window(RV2WideIssueWindow(xlen, ~hypervisor: profile.hypervisor))
+  inst rr_window(RV2WideIssueWindow(xlen, ~hypervisor: profile.hypervisor, ~pc_width: instruction_pc_width))
   inst ex_older(RV2WideLanePipe(xlen, RV2WideExecute(xlen, hypervisor), ~hypervisor: profile.hypervisor))
   inst ex_younger(RV2WideLanePipe(xlen, RV2WideExecute(xlen, hypervisor), ~hypervisor: profile.hypervisor))
   inst mem_older(RV2WideLanePipe(xlen, RV2WideResult(xlen, hypervisor), ~hypervisor: hypervisor))
@@ -1242,12 +1242,12 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   def wb_retained_pending = wb_retained_state =/= RV2WideRetainedState.Idle
   def wb_retained_sent = wb_retained_state === RV2WideRetainedState.Accepted
   def wb_retained_ready = wb_retained_state === RV2WideRetainedState.Ready
-  reg wb_retained_owner(RV2WideResult(xlen, hypervisor))
+  reg wb_retained_owner(RV2WideServiceOwner(xlen, hypervisor))
   reg wb_retained_vector(~init: Bool(#false))
   reg wb_retained_locality(RiscvMemoryLocality)
   reg wb_pending_locality(~init: RiscvMemoryLocality.Default)
   def wb_management = wb_retained_pending & wb_retained_owner.memory.enable & wb_retained_owner.memory.access.is_cache_management()
-  wb_reservation_waiting <== wb_retained_pending & (wb_retained_owner.system.wait =/= ReservationWaitMode.None)
+  wb_reservation_waiting <== wb_retained_pending & (wb_retained_owner.wait =/= ReservationWaitMode.None)
 
   /* Reservation-wait completion uses retained instruction context.
      Wake wins over timeout faults; the counter saturates until completion. */
@@ -1256,7 +1256,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   wb_wait.active <== wb_reservation_waiting
   wb_wait.reservation_valid <== scalar_memory.reservation_valid
   wb_wait.interrupt_wake <== wb_csrs.wfi_wake
-  wb_wait.short_timeout <== wb_retained_owner.system.wait === ReservationWaitMode.ShortTimeout
+  wb_wait.short_timeout <== wb_retained_owner.wait === ReservationWaitMode.ShortTimeout
   wb_wait.trap_on_timeout <== (wb_csrs.privilege =/= PrivilegeMode.Machine) & csr_flag(wb_csrs.mstatus, MstatusTW)
   wb_wait.virtual_trap_on_timeout <== guest_state.virtualized & csr_flag(guest_state.hstatus, HstatusVTW)
   def wb_wait_complete = wb_wait.completion.valid
@@ -1265,7 +1265,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     guest: literal(RiscvGuestFault(), 0)
     disposition: mux(wb_wait_fault, RV2WideDisposition.Fault, RV2WideDisposition.Continue)
     cause: mux(wb_wait.completion.bits.illegal_instruction, exception_cause_bits(ExceptionCause.IllegalInstruction, RV2WideCauseWidth), exception_cause_bits(ExceptionCause.VirtualInstruction, RV2WideCauseWidth))
-    value: if xlen == XLen.X32 | wb_retained_owner.fetched.raw_instruction | wb_retained_owner.fetched.raw_instruction.zext(64)
+    value: if xlen == XLen.X32 | wb_retained_owner.identity.raw_instruction | wb_retained_owner.identity.raw_instruction.zext(64)
 
   /* Split, management, and vector completion resolve the captured owner, not live WB.
      Completion may precede acceptance for a wait or local admission fault. */
@@ -1295,13 +1295,9 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   def wb_retained_resolution = priority_mux(~default: wb_split_resolution):
     wb_retained_vector: wb_vector_resolution
     wb_reservation_waiting: wb_wait_resolution
-    wb_management: mux(wb_management_fault, wb_admission_resolution, wb_retained_owner.resolution)
+    wb_management: mux(wb_management_fault, wb_admission_resolution, literal(RV2WideSyncResolution(xlen), 0))
 
-  def wb_retained_result = wb_retained_owner.updated(
-    ~data: scalar_split.response.bits.response.data,
-    ~result_ready: Bool(#true),
-    ~resolution: wb_retained_resolution
-  )
+  def wb_retained_result = wb_retained_owner.completed(scalar_split.response.bits.response.data, wb_retained_resolution)
 
 
   /* Precise fault and interrupt retention.
@@ -1438,6 +1434,13 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   def wb_retained_capture = wb_split_capture ||| wb_management_capture ||| wb_wait_capture ||| wb_vector_capture
   def wb_retained_lane = mux(wb_vector_capture, wb_vector_lane, mux(wb_wait_capture, Bits(1)(0), wb_memory_lane))
   def wb_retained_candidate :: RV2WideResult(xlen, hypervisor) = wb_live_group[wb_retained_lane]
+  def wb_retained_step = mux(wb_retained_lane === Bits(1)(0), wb_pipe[0].egress_step, wb_pipe[1].egress_step)
+  when wb_retained_capture:
+    assert((wb_retained_candidate.resolution.disposition === RV2WideDisposition.Continue) & !wb_retained_candidate.fetched.fault.valid(), "rv2wide_service_capture_continuing")
+    assert(!wb_retained_candidate.branch.update.branch & (wb_retained_candidate.muldiv.service === RV2WideLongOperation.None) & !wb_retained_candidate.prefetch.is_prefetch() & !wb_retained_candidate.pause, "rv2wide_service_capture_not_execution")
+    assert((wb_retained_candidate.system.csr === RiscvCsrOperation.None) & (wb_retained_candidate.system.action === RiscvCsrAction.None) & (wb_retained_candidate.system.fence === RV2WideFence.None), "rv2wide_service_capture_not_command")
+    assert(!wb_retained_candidate.fp.valid ||| (wb_retained_candidate.fp.bits.execution.unit === FloatUnit.Memory), "rv2wide_service_capture_fp_memory")
+    assert(!wb_retained_candidate.fp.valid ||| (wb_retained_candidate.fp_request.control.registers.destination === wb_retained_candidate.fp.bits.registers.destination), "rv2wide_service_capture_fp_destination")
 
   /* Retained lineage follows capture and final completion.
      Normal retirement selects between the live oldest and returned owner. */
@@ -1491,7 +1494,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   def wb_retained_drained = (wb_retained_state === RV2WideRetainedState.Draining) & wb_prior_drained
   when wb_retained_capture:
     wb_retained_state <== mux(wb_vector_capture, RV2WideRetainedState.Accepted, RV2WideRetainedState.Draining)
-    wb_retained_owner <== wb_retained_candidate
+    wb_retained_owner <== wb_retained_candidate.service_owner(wb_retained_step)
     wb_retained_locality <== wb_memory_locality
     wb_retained_vector <== wb_vector_capture
   elsewhen wb_retained_complete:
@@ -1510,7 +1513,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
      Request offers depend on pre-dispatch owners, not final retirement;
      successful acceptance, admission faults, and replay remain distinct. */
 
-  def wb_request_owner :: RV2WideResult(xlen, hypervisor) = mux(wb_management, wb_retained_owner, wb_memory)
+  def wb_request_owner :: RV2WideResult(xlen, hypervisor) = mux(wb_management, wb_retained_result, wb_memory)
   inst wb_store(StoreGen(xlen, xlen.width / 8))
   wb_store.address <== wb_request_owner.address
   wb_store.value <== wb_request_owner.store_data
@@ -1902,6 +1905,9 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     owner: rv2wide_fp_owner(xlen, hypervisor, wb_fp_token.fetched, wb_fp_token.rd, wb_fp_token.fp_request)
     precision: wb_fp_token.fp.bits.execution.destination_precision
     data: if xlen == XLen.X64 | wb_fp_token.data | wb_fp_token.data.zext(64)
+
+  when (fp.load_hit.valid):
+    assert(fp.load_hit.bits.owner.destination === FloatDestination.FloatingPoint, "rv2wide_load_hit_fpr_destination")
 
   when wb_vector_pending:
     assert(!scalar_memory.request.valid & !scalar_pipeline.commit & !fp.variable_issue.valid & !fp.authorize.valid & !wb_multiply_accepted & !wb_divide_accepted & !vector.request.valid & !wb_csrs.commit.valid, "rv2wide_vector_authorization_blocks_younger_effects")

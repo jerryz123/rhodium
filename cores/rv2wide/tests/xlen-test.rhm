@@ -21,9 +21,6 @@ for (xlen in [XLen.X32, XLen.X64]):
   def execution = design.modules.find(fun (module_def): module_def.name == "RV2WideCore")
   def retired = core.find_output("retired_0_out").type.field("bits").type
   def completed = core.find_output("completed_out").type.field("bits").type
-  def window = child(execution, "rr_window")
-  def entries = window.operations.find(fun (op): op.opcode == "rtl.register" && op.attribute("name") == "entries")
-  def fetched_width = retired.field("fetched").type.packed_width()
   def compact_fault_width = 3 + xlen.width // Non-H: kind and full fault address.
   def step_width = if xlen == XLen.X32 | 6 | 7 // Last changed bit and short-step flag.
   def fifo = child(child(execution, "wb_load_response"), "owners")
@@ -38,9 +35,6 @@ for (xlen in [XLen.X32, XLen.X64]):
     retired.field("fetched").type.field("fault").type.packed_width() ~is compact_fault_width
     blocks.results[0].type.element_type.field("fault").type.packed_width() ~is compact_fault_width
     attempt.field("fault").type.packed_width() ~is compact_fault_width
-    entries.results[0].type.element_type.field("fault").type.packed_width() ~is compact_fault_width
-    entries.results[0].type.element_type.field("step").type.packed_width() ~is step_width
-    entries.results[0].type.packed_width() ~is 8 * (fetched_width - 2 * xlen.width + step_width)
     completed.field("identity").type.packed_width() ~is xlen.width + 32
     completed.packed_width() ~is 2 * xlen.width + 38
     queue_storage.depth ~is 4

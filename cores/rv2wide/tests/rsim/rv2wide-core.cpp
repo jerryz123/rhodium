@@ -3289,6 +3289,39 @@ int main() {
       drain();
     }
 
+    // Retained services preserve their own successor and prediction metadata,
+    // even across region/XLEN wrap after the live instruction offer is withdrawn.
+    for (auto service_pc : {UINT64_C(0x10ffc), UINT64_C(0x123456789abcfffc),
+                            UINT64_C(0xfffffffffffffffc)}) {
+      for (int lane = 0; lane < 2; ++lane) {
+        reset_core();
+        send(UINT64_C(0x10100), imm(1, 0, 0x301), 0, 1);
+        drain();
+        hold_split = 1;
+        const auto load = imm(10, 1, 0, 3, 3);
+        const prediction_t prediction = {0, service_pc,
+                                        service_pc ^ UINT64_C(0x5a5a123456789abc),
+                                        1, 0};
+        const int before = split_requests;
+        stop_at(service_pc, service_pc + 4, 3);
+        if (lane == 0)
+          send(service_pc, load, 0, 1, 1, 0, -1, {}, prediction);
+        else
+          send(service_pc - 4, imm(9, 0, 37), load, 2, 1, 1, -1, prediction);
+        until([&] { return split_active; });
+        for (unsigned cycle = 0; cycle < 20; ++cycle) {
+          instructions_in.pbits = {};
+          tick();
+        }
+        CHECK(expected.size() == 1 && split_requests == before + 1);
+        hold_split = 0;
+        drain();
+        CHECK(split_requests == before + 1);
+        send(UINT64_C(0x10110), imm(11, 10, 0), 0, 1);
+        drain();
+      }
+    }
+
     // Younger lookup/admission faults and replay preserve the older RF value.
     for (int scenario = 0; scenario < 5; scenario++) {
       std::uint64_t pc;

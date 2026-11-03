@@ -1954,7 +1954,7 @@ void fetch_fault_roundtrip(unsigned cause, bool valid = true,
   entry.pinstruction = 0x13;
   entry.praw_uinstruction = valid ? 0x13 : 0x1; // Faulting raw word looks four bytes long.
   entry.psequential_upc = successor;
-  entry.pprediction.ppc = ~pc_t(pc); // Ignored on an invalid prediction; its target is not a PC alias.
+  entry.pprediction.ppc = ~pc_t(pc); // Invalid prediction inputs canonicalize to the instruction PC and zero target.
   entry.pprediction.ptarget = ~successor;
   const auto fault_address = cause == 1 ? pc : 0x345678u;
   constexpr std::uint64_t gpa = UINT64_C(0x123400006789000);
@@ -1970,7 +1970,7 @@ void fetch_fault_roundtrip(unsigned cause, bool valid = true,
       const auto &token = memory_stage_0_out.pbits;
       const auto &f = token.pfault;
       CHECK(token.psequential_upc == successor && token.pprediction.ppc == pc &&
-            token.pprediction.ptarget == pc_t(~successor) &&
+            !token.pprediction.pvalid && token.pprediction.ptarget == 0 &&
             token.praw_uinstruction == entry.praw_uinstruction && (f.pkind != 0) == valid);
       CHECK(f.pkind == (valid ? fetch_kind(cause) : 0) && f.pvalue == (valid ? fault_address : 0));
       const bool guest = valid && bytes == 8;
@@ -1981,7 +1981,7 @@ void fetch_fault_roundtrip(unsigned cause, bool valid = true,
       const auto &f = retired_0_out.pbits.pfetched.pfault;
       const auto &fetched = retired_0_out.pbits.pfetched;
       CHECK(fetched.psequential_upc == successor && fetched.pprediction.ppc == pc &&
-            fetched.pprediction.ptarget == pc_t(~successor));
+            !fetched.pprediction.pvalid && fetched.pprediction.ptarget == 0);
       CHECK(!valid && !f.pkind && !f.pvalue && fetch_guest_is(f, false, 0, 0));
       saw_retire = true;
     }
