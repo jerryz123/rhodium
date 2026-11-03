@@ -1,5 +1,5 @@
 #lang rhodium
-/* Implements a PTY-backed DPI model for device-level UART simulation. */
+/* Bridges UART serial engines to selectable host PTY or log output through DPI. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -20,7 +20,7 @@ dpi_import function uart_pty_tick(
   return status: Bits(8)
 )
 
-/* Deserializes a device's TX into PTY output and serializes PTY input onto its RX.
+/* Deserializes TX into host output and serializes PTY input (idle in log mode) onto RX.
    Its oversample divisor must match the device's divisor; reset suppresses hardware
    byte transfers without discarding queued host input. */
 sync_circuit UartDPI(

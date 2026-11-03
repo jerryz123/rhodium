@@ -27,7 +27,8 @@ def main():
         command = [args.verilator, "--binary", "--timing", "--vpi", "--assert", "--build-jobs", "2",
                    "--top-module", "TestDriver", "--Mdir", str(directory), "-CFLAGS", flags,
                    str(sims / "TestDriver.v"), str(sims / "tests/simulation-runtime.sv"),
-                   str(sims / "verilator/simulation_runtime.cc"), str(sims / "tests/simulation-runtime.cc")]
+                   str(sims / "verilator/simulation_runtime.cc"), str(sims / "tests/simulation-runtime.cc"),
+                   str(sims.parent / "devices/uart/dpi/uart_dpi.cc")]
         if trace:
             command.append("+define+TEST_TRACE")
         if stats:
@@ -62,6 +63,15 @@ def main():
             return result.stdout
 
         run(cycles=5)
+        uart_log = directory / 'uart.log'
+        run([f'+uart-log={uart_log}', '+runtime-test-uart'], cycles=5)
+        assert uart_log.read_bytes() == b'ABCD\n'
+        output = run(['+uart-log=-', '+runtime-test-uart'], cycles=5)
+        assert 'ABCD\n' in output
+        assert 'PTY:' not in output
+        run(['+uart-log='], fail=True)
+        run(['+uart-log=-', '+uart-log=-'], fail=True)
+        run([f'+uart-log={directory}'], fail=True)
         run(["+max-cycles=5"], cycles=5)
         run(["+max-cycles=2"], fail=True, cycles=2)
         run(["+runtime-test-target-fail"], fail=True, cycles=5)

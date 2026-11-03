@@ -1,6 +1,7 @@
-// Owns optional native instrumentation outside RTL callback ordering and the generic clock driver.
+// Configures host UART output and optional instrumentation around the generic simulator lifecycle.
 // SPDX-License-Identifier: Apache-2.0
 #include "simulation_runtime.h"
+#include "../../devices/uart/dpi/uart_dpi.h"
 #ifdef RHODIUM_COSIM
 #include "../cosim/runtime/session.h"
 #endif
@@ -50,16 +51,22 @@ template<class F> int checked(F&& action) noexcept {
 
 struct Options {
   std::string trace_path;
+  std::string uart_log_path;
   std::int64_t corrupt_order = -1;
 };
 Options options() {
   s_vpi_vlog_info info;
   require(vpi_get_vlog_info(&info), "cannot read simulator arguments");
   Options result;
-  bool saw_trace = false, saw_corrupt = false;
+  bool saw_trace = false, saw_corrupt = false, saw_uart_log = false;
   for (int i = 1; i < info.argc; ++i) {
     const std::string_view arg(info.argv[i]);
-    if (arg.starts_with("+rheg-trace=")) {
+    if (arg.starts_with("+uart-log=")) {
+      require(!saw_uart_log, "duplicate +uart-log");
+      saw_uart_log = true;
+      result.uart_log_path = arg.substr(std::string_view("+uart-log=").size());
+      require(!result.uart_log_path.empty(), "+uart-log requires a path or - for stdout");
+    } else if (arg.starts_with("+rheg-trace=")) {
       require(!saw_trace, "duplicate +rheg-trace");
       saw_trace = true;
       result.trace_path = arg.substr(std::string_view("+rheg-trace=").size());
@@ -88,6 +95,10 @@ extern "C" int rhodium_sim_open() noexcept {
   return checked([] {
     require(phase == Phase::New, "runtime already initialized");
     [[maybe_unused]] const auto config = options();
+    if (!config.uart_log_path.empty()) {
+      require(uart_set_log_file(0, config.uart_log_path.c_str()) == 0,
+              "UART log initialization failed");
+    }
 #ifdef RHODIUM_STATS
     statistics.emplace(rhodium::statistics::descriptors);
 #endif

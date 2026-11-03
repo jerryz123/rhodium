@@ -154,7 +154,8 @@ Do not introduce Newlib formatted-input or allocator dependencies for output
 batching: their medlow relocations cannot link into the high-address bare-metal
 memory image. The generated storage and bounded character appends suffice.
 OpenSBI consumes the SoC's BootROM DTB at runtime; its build-local patch series
-initializes firmware-owned HTIF without a synthetic device-tree node. ACT's UDB/Sail platform
+initializes firmware-owned HTIF reset without a synthetic device-tree node, while
+console selection discovers the DT-described UART. ACT's UDB/Sail platform
 configuration and its DUT runner likewise remain in `sims/arch-test/`.
 
 Simulator-owned build targets pass a generated descriptor and explicit source,

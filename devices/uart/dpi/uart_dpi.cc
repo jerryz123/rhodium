@@ -1,4 +1,4 @@
-/* Bridges each UART DPI model to a nonblocking raw pseudo-terminal. */
+/* Bridges UART bytes to an interactive raw PTY or an output-only log file. */
 // SPDX-License-Identifier: Apache-2.0
 #define _DEFAULT_SOURCE
 #define _XOPEN_SOURCE 600
@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <deque>
 #include <memory>
 #include <string>
@@ -24,12 +25,13 @@ namespace {
 
 constexpr std::size_t kIoChunkBytes = 256;
 
-/* Owns one PTY and independent byte queues for a model ID. Hardware reset does
+/* Owns one host transport and independent byte queues for a model ID. Hardware reset does
    not destroy host state; the DPI tick gates only new hardware transfers. */
 struct UartModel {
   int model_id;
   int master_fd = -1;
   int configuration_fd = -1;
+  int log_fd = -1;
   std::string slave_path;
   std::deque<std::uint8_t> pty_to_uart;
   std::deque<std::uint8_t> uart_to_pty;
@@ -38,8 +40,11 @@ struct UartModel {
   /* Records the identity; terminal allocation remains lazy until first use. */
   explicit UartModel(int id) : model_id(id) {}
 
-  /* Releases both the configuration-held slave and nonblocking master. */
+  /* Releases the selected log or both PTY descriptors. */
   ~UartModel() {
+    if (log_fd >= 0) {
+      close(log_fd);
+    }
     if (configuration_fd >= 0) {
       close(configuration_fd);
     }
@@ -48,10 +53,10 @@ struct UartModel {
     }
   }
 
-  /* Opens and configures one raw PTY, holding the slave open across client
+  /* Opens a raw PTY unless a log is selected, holding the slave open across
      reconnects. Returns 2 for allocation/open errors or 3 for termios errors. */
   int open_pty() {
-    if (master_fd >= 0) {
+    if (master_fd >= 0 || log_fd >= 0) {
       return 0;
     }
 
@@ -108,6 +113,9 @@ struct UartModel {
   /* Drains currently available host bytes into the UART-input queue. Retries
      EINTR, tolerates would-block/disconnect, and returns 4 for other I/O errors. */
   int read_pty() {
+    if (log_fd >= 0) {
+      return 0;
+    }
     std::array<char, kIoChunkBytes> bytes{};
     while (true) {
       const ssize_t count = read(master_fd, bytes.data(), bytes.size());
@@ -131,8 +139,8 @@ struct UartModel {
     }
   }
 
-  /* Flushes queued UART output in order, removing only successfully written
-     bytes. Would-block/disconnect preserves the suffix for a later tick. */
+  /* Writes queued UART bytes to the selected output in order. PTY disconnects
+     preserve pending bytes; log write errors fail instead of dropping output. */
   int write_pty() {
     std::array<char, kIoChunkBytes> bytes{};
     while (!uart_to_pty.empty()) {
@@ -140,7 +148,7 @@ struct UartModel {
       for (std::size_t index = 0; index < chunk; ++index) {
         bytes[index] = static_cast<char>(uart_to_pty[index]);
       }
-      const ssize_t count = write(master_fd, bytes.data(), chunk);
+      const ssize_t count = write(log_fd >= 0 ? log_fd : master_fd, bytes.data(), chunk);
       if (count > 0) {
         for (ssize_t index = 0; index < count; ++index) {
           uart_to_pty.pop_front();
@@ -148,12 +156,12 @@ struct UartModel {
         continue;
       }
       if (count == 0) {
-        return 0;
+        return log_fd >= 0 ? 4 : 0;
       }
       if (errno == EINTR) {
         continue;
       }
-      if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EIO) {
+      if (log_fd < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EIO)) {
         return 0;
       }
       return 4;
@@ -177,8 +185,26 @@ UartModel& model(int model_id) {
 
 }  // namespace
 
-/* Polls host I/O and exchanges at most one byte in each hardware direction.
-   Reset suppresses new UART transfers but retains queues and polls the PTY;
+/* Selects file output before any PTY allocation or byte transfer. */
+int uart_set_log_file(int model_id, const char* path) {
+  auto& uart = model(model_id);
+  if (path == nullptr || *path == '\0' || uart.master_fd >= 0 || uart.log_fd >= 0) {
+    return 1;
+  }
+  const int descriptor = std::strcmp(path, "-") == 0
+      ? dup(STDOUT_FILENO)
+      : open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+  if (descriptor < 0) {
+    std::fprintf(stderr, "UART DPI model %d log %s: %s\n", model_id, path, std::strerror(errno));
+    return 2;
+  }
+  uart.log_fd = descriptor;
+  std::fprintf(stderr, "UART DPI model %d log: %s\n", model_id, path);
+  return 0;
+}
+
+/* Exchanges at most one byte in each hardware direction; log mode has no input.
+   Reset suppresses new UART transfers but retains queues and polls a selected PTY;
    framing errors are counted/logged without discarding the byte. Returns zero
    on success, 1 for null outputs, or the PTY helper's error code. */
 char uart_pty_tick(int model_id,
@@ -232,7 +258,7 @@ char uart_pty_tick(int model_id,
 /* Lazily opens the PTY and returns a model-lifetime slave path, or null on error. */
 const char* uart_pty_path(int model_id) {
   auto& uart = model(model_id);
-  if (uart.open_pty() != 0) {
+  if (uart.log_fd >= 0 || uart.open_pty() != 0) {
     return nullptr;
   }
   return uart.slave_path.c_str();

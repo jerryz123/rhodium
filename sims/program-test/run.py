@@ -108,7 +108,7 @@ def execute(test, simulator, root, output, timeout, cycles, cosim=False, expecte
     started = time.monotonic()
     elf = (root / test['elf']).resolve()
     log_path = output / (test['name'] + '.log')
-    command = [str(simulator)]
+    command = [str(simulator), '+uart-log=-']
     if 'harts' in test:
         command.append('+boot-harts=' + ','.join(str(hart) for hart in test['harts']))
     command += ['+permissive', f'+max-cycles={cycles}', '+permissive-off', str(elf)]
@@ -131,7 +131,8 @@ def execute(test, simulator, root, output, timeout, cycles, cosim=False, expecte
         eligible = 'litmus_allowed_states' not in test and len(test.get('harts', [0])) == 1
         if evidence and eligible:
             files.update(auxiliary_files or {})
-            key = evidence.key(dict(test=test, timeout=timeout, max_cycles=cycles, cosim=cosim), files)
+            key = evidence.key(dict(test=test, timeout=timeout, max_cycles=cycles, cosim=cosim,
+                                    uart_output='log'), files)
             cached = evidence.read(key)
         if cached:
             shutil.copyfile(cached[1], log_path)
@@ -251,7 +252,7 @@ def main():
     run_fingerprint = hashlib.sha256(json.dumps(dict(
         manifest_sha256=manifest_sha256,
         simulator_sha256=hashlib.sha256(args.simulator.read_bytes()).hexdigest(),
-        timeout=args.timeout, max_cycles=args.max_cycles, cosim=cosim,
+        timeout=args.timeout, max_cycles=args.max_cycles, cosim=cosim, uart_output='log',
         performance=performance_record),
         sort_keys=True).encode()).hexdigest()
     identity = hashlib.sha256(json.dumps(dict(

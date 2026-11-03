@@ -50,6 +50,7 @@ def main():
              '--top-module', 'TestDriver', '--Mdir', work / 'obj',
              '-CFLAGS', f'-std=c++20 -DRHODIUM_STATS -I{work}',
              sv, *native, ROOT / 'sims/TestDriver.v', ROOT / 'sims/verilator/simulation_runtime.cc',
+             ROOT / 'devices/uart/dpi/uart_dpi.cc',
              ROOT / 'sims/statistics/collector.cc'], work / 'build.log')
         result = run([work / 'obj/VTestDriver', '+max-cycles=5'], work / 'run.log')
         expected = {'cycles': 5, 'rtl/every/events': 5, 'rtl/alternate/events': 2, 'rtl/never': 0}

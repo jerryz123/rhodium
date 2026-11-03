@@ -51,7 +51,7 @@ opensbi-run: simulator-attestation
 	  (echo 'NEXT_STAGE is required and must be linked at the address in $(OPENSBI_LAYOUT)' >&2; exit 2)
 	@test -f "$(abspath $(NEXT_STAGE))" || \
 	  (echo 'OpenSBI next-stage ELF does not exist: $(abspath $(NEXT_STAGE))' >&2; exit 2)
-	$(SIMULATOR_BINARY) +max-cycles=$(OPENSBI_MAX_CYCLES) \
+	$(SIMULATOR_BINARY) $(UART_RUN_ARGS) +max-cycles=$(OPENSBI_MAX_CYCLES) \
 	  +payload="$(abspath $(NEXT_STAGE))" \
 	  "$(OPENSBI_FIRMWARE)"
 

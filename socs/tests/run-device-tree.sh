@@ -48,6 +48,7 @@ for name in "${hardware_names[@]}"; do
   [[ "$(fdtget "$fixture_dir/$name.dtb" "$uart_path" compatible)" == "ns16550a" ]]
   [[ "$(fdtget -t x "$fixture_dir/$name.dtb" "$uart_path" reg)" == "0 10000000 0 8" ]]
   [[ "$(fdtget "$fixture_dir/$name.dtb" "$uart_path" clock-frequency)" == "100000000" ]]
+  [[ "$(fdtget "$fixture_dir/$name.dtb" "$uart_path" current-speed)" == "6250000" ]]
   [[ "$(fdtget "$fixture_dir/$name.dtb" "$uart_path" reg-shift)" == "0" ]]
   [[ "$(fdtget "$fixture_dir/$name.dtb" "$uart_path" reg-io-width)" == "1" ]]
   [[ "$(fdtget "$fixture_dir/$name.dtb" "$uart_path" interrupts)" == "1" ]]
@@ -73,6 +74,7 @@ for name in "${hardware_names[@]}"; do
 done
 
 for name in simple-spike-soc mini-spike-soc tiled4core-spike-soc tiled8core-spike-soc; do
+  [[ "$(fdtget "$fixture_dir/$name.dtb" /soc/serial@10000000 current-speed)" == "6250000" ]]
   dtc -I dtb -O dts -o "$fixture_dir/$name-roundtrip.dts" "$fixture_dir/$name.dtb"
   dtc -I dts -O dtb -o "$fixture_dir/$name-from-dts.dtb" "$fixture_dir/$name.dts"
   fdtdump "$fixture_dir/$name.dtb" > "$fixture_dir/$name.dump" 2>&1

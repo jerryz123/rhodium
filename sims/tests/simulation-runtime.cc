@@ -2,6 +2,7 @@
 #include "../verilator/simulation_runtime.h"
 #include "../verilator/event_trace.h"
 #include "../cosim/runtime/session.h"
+#include "../../devices/uart/dpi/uart_dpi.h"
 #include <vpi_user.h>
 #include <cassert>
 #include <cstdio>
@@ -30,6 +31,13 @@ extern "C" void runtime_test_edge(svBit reset) {
   ++edges;
   if (reset) { assert(active_edges == 0); ++reset_edges; }
   else { assert(reset_edges == 3); ++active_edges; }
+  if (option("+runtime-test-uart")) {
+    unsigned char valid = 0;
+    char byte = 0;
+    const char output = active_edges == 5 ? '\n' : 'A' + active_edges - 1;
+    assert(uart_pty_tick(0, reset, 1, output, 0, 1, &valid, &byte) == 0);
+    assert(valid == 0);
+  }
 #ifdef RHODIUM_COSIM
   assert(cosim_started && sample_open && sample_index + 1 == edges);
 #endif

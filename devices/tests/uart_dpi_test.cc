@@ -1,4 +1,4 @@
-// Exercises PTY creation, raw I/O, reset buffering, and model isolation.
+// Exercises selectable UART logs, PTY I/O, reset buffering, and model isolation.
 // SPDX-License-Identifier: Apache-2.0
 #include "uart_dpi.h"
 
@@ -9,6 +9,8 @@
 #include <cassert>
 #include <cerrno>
 #include <cstdint>
+#include <csignal>
+#include <cstdlib>
 #include <string>
 
 namespace {
@@ -128,4 +130,45 @@ int main() {
                        &value) == 1);
   close(first_slave);
   close(second_slave);
+
+  char log_path[] = "/tmp/uart-dpi-log.XXXXXX";
+  const int log_reader = mkstemp(log_path);
+  assert(log_reader >= 0);
+  assert(write(log_reader, "old", 3) == 3);
+  constexpr int kLogModel = 7003;
+  assert(uart_set_log_file(kLogModel, log_path) == 0);
+  assert(uart_pty_path(kLogModel) == nullptr);
+  assert(uart_set_log_file(kLogModel, log_path) == 1);
+  assert(uart_set_log_file(kFirstModel, log_path) == 1);
+  assert(tick(kLogModel, true, true, 0x44, false, true, &valid, &value) == 0);
+  for (unsigned byte = 0; byte < 256; ++byte) {
+    assert(tick(kLogModel, false, true, byte, byte == 255, true, &valid, &value) == 0);
+    assert(valid == 0);
+  }
+  assert(uart_pty_framing_errors(kLogModel) == 1);
+  assert(lseek(log_reader, 0, SEEK_SET) == 0);
+  for (unsigned byte = 0; byte < 256; ++byte) {
+    assert(read_byte(log_reader) == byte);
+  }
+  char extra;
+  assert(read(log_reader, &extra, 1) == 0);
+  close(log_reader);
+  unlink(log_path);
+  assert(uart_set_log_file(7004, nullptr) == 1);
+  assert(uart_set_log_file(7004, "") == 1);
+  assert(uart_set_log_file(7004, "/") == 2);
+
+  int broken_pipe[2];
+  assert(pipe(broken_pipe) == 0);
+  const int saved_stdout = dup(STDOUT_FILENO);
+  assert(saved_stdout >= 0);
+  assert(dup2(broken_pipe[1], STDOUT_FILENO) >= 0);
+  assert(uart_set_log_file(7005, "-") == 0);
+  assert(dup2(saved_stdout, STDOUT_FILENO) >= 0);
+  close(saved_stdout);
+  close(broken_pipe[0]);
+  close(broken_pipe[1]);
+  const auto previous_sigpipe = std::signal(SIGPIPE, SIG_IGN);
+  assert(tick(7005, false, true, 0x55, false, false, &valid, &value) == 4);
+  std::signal(SIGPIPE, previous_sigpipe);
 }

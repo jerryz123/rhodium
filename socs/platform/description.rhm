@@ -274,7 +274,7 @@ fun plic_node(plic :: RiscvPlicDescription):
     ~label: plic_interrupt_label(plic.region)
   )
 
-/* Builds the enabled byte-register ns16550a-compatible UART node with clock and PLIC interrupt binding. */
+/* Describes the ns16550a UART at its reset divisor of one, with clock and PLIC interrupt binding. */
 fun uart_node(uart :: RiscvUartDescription,
               clocks :: SoCClockConfig):
   DeviceTreeNode(
@@ -282,6 +282,7 @@ fun uart_node(uart :: RiscvUartDescription,
     [DeviceTreeProperty("compatible", DeviceTreeString("ns16550a")),
      DeviceTreeProperty("reg", uart.region.to_device_tree_cells()),
      DeviceTreeProperty("clock-frequency", DeviceTreeU32(clocks.clock_frequency_hz)),
+     DeviceTreeProperty("current-speed", DeviceTreeU32(clocks.clock_frequency_hz / 16)),
      DeviceTreeProperty("reg-shift", DeviceTreeU32(0)),
      DeviceTreeProperty("reg-io-width", DeviceTreeU32(1)),
      DeviceTreeProperty("interrupt-parent", DeviceTreePhandle(plic_interrupt_label(uart.interrupt.controller))),

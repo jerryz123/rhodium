@@ -30,6 +30,8 @@ TRACE ?= 0
 COSIM ?= 0
 STATS ?= 0
 TRACE_FILE ?=
+UART_LOG ?=
+UART_RUN_ARGS = $(if $(strip $(UART_LOG)),+uart-log=$(call config_quote,$(UART_LOG)))
 NLOHMANN_JSON_INCLUDE_DIR ?=
 BUILD_JOBS ?= 4
 BUILD_ROOT ?= /tmp/rhodium-sims
@@ -189,7 +191,7 @@ endif
 	  (echo "BINARY is required; use 'make -C sims run BINARY=/path/to/program.elf'" >&2; exit 2)
 	@test -f "$(abspath $(BINARY))" || \
 	  (echo "target binary does not exist: $(abspath $(BINARY))" >&2; exit 2)
-	$(SIMULATOR_BINARY) $(TRACE_RUN_ARGS) $(HTIF_ARGS) "$(abspath $(BINARY))" $(TARGET_ARGS)
+	$(SIMULATOR_BINARY) $(TRACE_RUN_ARGS) $(UART_RUN_ARGS) $(HTIF_ARGS) "$(abspath $(BINARY))" $(TARGET_ARGS)
 
 smoke: $(SMOKE_BINARY)
 	$(MAKE) run SOC=$(SOC_ID) BINARY=$(SMOKE_BINARY)

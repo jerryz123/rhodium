@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Compiles and runs the standalone UART DPI pseudo-terminal model test.
+# Compiles and checks UART DPI PTY transport, binary logs, and host I/O failures.
 # SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 

@@ -23,9 +23,11 @@ to the hardware tree. The current 8 KiB BootROM window and OpenSBI's 4 KiB
 FDT expansion fit within the 64 KiB reservation; revisit this bound if either grows.
 
 [`../../sw/opensbi-patches/series`](../../sw/opensbi-patches/series) enables
-`PLATFORM_GENERIC_HTIF` in a build-local generic-platform copy. It initializes
-OpenSBI's existing HTIF console and reset device directly, without an `/htif`
-node. The source submodule remains pristine; patch and materializer bytes
+`PLATFORM_GENERIC_HTIF_RESET` in a build-local generic-platform copy. It initializes
+OpenSBI's existing HTIF reset device directly, without an `/htif` node. Console
+selection retains upstream FDT discovery of the SoC UART. Its `current-speed`
+selects divisor one, matching the default simulation UART receiver.
+The source submodule remains pristine; patch and materializer bytes
 participate in firmware build identity.
 Linux build/run targets live in `../linux/Makefile.inc`, while their target
 software owner is [`../../sw/buildroot-riscv/`](../../sw/buildroot-riscv/README.md).
@@ -50,6 +52,11 @@ make -C sims opensbi-setup
 make -C sims opensbi-test SOC=simple CORE=rv5stage ISA=rva23
 make -C sims opensbi-test SOC=simple CORE=spike ISA=rva23
 ```
+
+The generic workload runner selects `+uart-log=-`, capturing UART console bytes
+in its ordinary process log before checking the complete marker. Check the
+final newline as well as HTIF exit when changing console or shutdown timing;
+host logging cannot recover bytes still inside the UART at simulation exit.
 
 Keep generated firmware, layouts, logs, and payload ELFs under
 `/tmp/rhodium-software`. When changing layout policy, retain explicit checks

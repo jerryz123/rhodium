@@ -205,8 +205,9 @@ same description directly into its BootROM at offset `0x100`; the reset program
 passes the resulting eight-byte-aligned address to hart zero in `a1`.
 
 The projection emits a `sifive,plic-1.0.0` interrupt controller and enables the
-16550-compatible UART with its input clock, byte-wide registers, and PLIC
-interrupt binding. `RiscvPlicInterrupt` explicitly references a controller region
+16550-compatible UART with its input clock, reset-divisor-one `current-speed`
+(6.25 Mbaud at 100 MHz), byte-wide registers, and PLIC interrupt binding.
+`RiscvPlicInterrupt` explicitly references a controller region
 and source ID; construction rejects missing controllers, mismatched regions,
 and undeclared sources. PLIC contexts retain their description order as MMIO
 context indices, and `riscv,ndev` is the highest supported source ID, including

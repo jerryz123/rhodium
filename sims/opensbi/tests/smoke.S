@@ -33,7 +33,7 @@ _start:
   bnez a0, fail
   beqz a1, fail
 
-  // SBI debug console uses the firmware-owned HTIF device, without a DT node.
+  // SBI debug console uses the firmware's DT-discovered UART.
   la s0, message
 print:
   lbu a0, 0(s0)

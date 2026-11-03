@@ -279,8 +279,9 @@ The build derives the firmware, next-stage, and writable FDT addresses from the
 same target description as the simulator. BootROM passes the SoC's hardware
 DTB in `a1`; FW_JUMP copies it to RAM using `FW_JUMP_FDT_ADDR`, applies normal
 OpenSBI fixups, and passes that address to S-mode. A build-local OpenSBI patch
-initializes the firmware-owned HTIF console/reset directly; no transport node
-or separate embedded DTB is required. Generated firmware and layout metadata are under
+initializes firmware-owned HTIF reset directly; the console uses the DT-discovered
+UART at its advertised speed. No transport node or separate embedded DTB is
+required. Generated firmware and layout metadata are under
 `/tmp/rhodium-software/<soc>/opensbi/`.
 OpenSBI requires a linker capable of producing RISC-V PIEs. When the selected
 GNU cross-linker lacks that support, select a complete LLVM installation with
@@ -298,8 +299,7 @@ FESVR loads the next-stage ELF with its existing auxiliary-payload facility
 and boots from `fw_jump.elf`. OpenSBI owns the firmware's `tohost` and
 `fromhost`; an S-mode next stage terminates through SBI system reset rather
 than defining a second HTIF mailbox. OpenSBI itself contains no embedded
-application. The repository's tiny S-mode SBI test image is available
-only through:
+application. Run the repository's tiny S-mode SBI test image with:
 
 ```sh
 make -C sims opensbi-test SOC=simple CORE=rv5stage ISA=rva23
@@ -310,6 +310,11 @@ The initial test requires one bootable RV64 hart, IMA,
 Zicsr/Zifencei/Zicntr, and enough writable RAM for the firmware, a 2 MiB-aligned
 next stage, and a 64 KiB FDT reservation. Other cores and SoCs are selected by
 those capabilities rather than by core name.
+
+The generic workload runner selects UART logging to stdout, so OpenSBI and
+Linux console messages appear in the ordinary test log and output checks.
+Caller-selected `opensbi-run` uses the [UART output selection](#use-the-uart-terminal)
+below.
 
 ## Run the Linux boot smoke
 
@@ -336,11 +341,31 @@ intended sequence Simple Spike, RV5Stage, then RV2Wide, each with RVA23.
 
 ## Use the UART terminal
 
-Every harness creates UART DPI model 0 and prints `UART DPI model 0 PTY: <path>`
+By default, every harness creates UART DPI model 0 and prints `UART DPI model 0 PTY: <path>`
 to stderr on startup. Open that slave path in a terminal client while the
 simulator is running. The PTY is raw and byte-transparent, independent of the
 FESVR console; firmware accesses the actual UART MMIO registers and serial pins.
 The path is process-local and goes away when the simulator exits.
+
+Select output-only logging at runtime with `+uart-log=/absolute/path/uart.log`,
+or `+uart-log=-` for stdout. This creates no PTY and leaves UART RX idle.
+The log preserves decoded UART bytes exactly and is created or truncated for
+each run. Open/write failures fail the simulation. Serial timing, FIFOs, and
+framing checks still run normally; logging does not bypass the UART hardware.
+The selection applies to model 0 and requires no simulator rebuild.
+
+The normal `run` and `opensbi-run` Make targets expose this as `UART_LOG`:
+
+```sh
+make -C sims run SOC=simple-rv5stage-rva23 BINARY=/absolute/path/program.elf \
+  UART_LOG=/tmp/uart.log
+make -C sims opensbi-run SOC=simple-rv5stage-rva23 \
+  NEXT_STAGE=/absolute/path/next-stage.elf UART_LOG=-
+```
+
+Omit `UART_LOG` for an interactive PTY. Automated workload runs use
+`+uart-log=-` and capture UART output in each test's existing `.log` file,
+including it in required/forbidden output checks and cached execution evidence.
 
 Each `SoCHarness` accepts an elaboration parameter `uart_oversample_divisor`
 (1–65535, default 1). Program the same divisor into the target UART; reset

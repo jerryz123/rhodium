@@ -6,7 +6,7 @@
 
 namespace rhodium::simulation {
 inline bool runtime_argument(std::string_view argument) {
-  return argument.starts_with("+rheg-trace=") || argument.starts_with("+cosim-corrupt-order=") || argument.starts_with("+max-cycles=");
+  return argument.starts_with("+rheg-trace=") || argument.starts_with("+cosim-corrupt-order=") || argument.starts_with("+max-cycles=") || argument.starts_with("+uart-log=");
 }
 }
 

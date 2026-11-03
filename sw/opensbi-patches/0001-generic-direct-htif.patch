@@ -1,4 +1,4 @@
-Initialize the generic platform's firmware-owned HTIF console and reset device.
+Initialize firmware-owned HTIF reset while retaining DT-discovered console selection.
 SPDX-License-Identifier: BSD-2-Clause
 
 The simulation build enables this option explicitly. Hardware discovery and
@@ -12,12 +12,12 @@ diff --git a/platform/generic/Kconfig b/platform/generic/Kconfig
  
  if PLATFORM_GENERIC
  
-+config PLATFORM_GENERIC_HTIF
-+	bool "Firmware-owned HTIF console and reset"
++config PLATFORM_GENERIC_HTIF_RESET
++	bool "Firmware-owned HTIF reset"
 +	select SYS_HTIF
 +	default n
 +	help
-+	  Use firmware mailboxes for simulation without an HTIF device-tree node.
++	  Use firmware reset mailboxes without an HTIF device-tree node.
 +
  config PLATFORM_GENERIC_NAME
  	string "Platform default name"
@@ -26,9 +26,9 @@ diff --git a/platform/generic/configs/defconfig b/platform/generic/configs/defco
 --- a/platform/generic/configs/defconfig
 +++ b/platform/generic/configs/defconfig
 @@ -1,3 +1,6 @@
-+# Select firmware-owned HTIF transport for Rhodium simulation.
++# Select firmware-owned HTIF reset for Rhodium simulation.
 +# SPDX-License-Identifier: BSD-2-Clause
-+CONFIG_PLATFORM_GENERIC_HTIF=y
++CONFIG_PLATFORM_GENERIC_HTIF_RESET=y
  CONFIG_PLATFORM_ALLWINNER_D1=y
  CONFIG_PLATFORM_ANDES_AE350=y
  CONFIG_PLATFORM_ANDES_QILAI=y
@@ -43,21 +43,16 @@ diff --git a/platform/generic/platform.c b/platform/generic/platform.c
  #include <sbi_utils/timer/fdt_timer.h>
  
  /* List of platform override modules generated at compile time */
-@@ -221,10 +222,17 @@ int generic_early_init(bool cold_boot)
- 	int rc;
- 
- 	if (cold_boot) {
-+#ifdef CONFIG_PLATFORM_GENERIC_HTIF
-+		rc = htif_serial_init(false, 0, 0);
-+		if (rc)
-+			return rc;
-+		rc = htif_system_reset_init(false, 0, 0);
-+#else
- 		if (semihosting_enabled())
- 			rc = semihosting_init();
- 		else
- 			rc = fdt_serial_init(fdt);
-+#endif
+@@ -230,6 +231,12 @@ int generic_early_init(bool cold_boot)
  		if (rc)
  			return rc;
+ 
++#ifdef CONFIG_PLATFORM_GENERIC_HTIF_RESET
++		rc = htif_system_reset_init(false, 0, 0);
++		if (rc)
++			return rc;
++#endif
++
+ 		fdt_driver_init_all(fdt, fdt_early_drivers);
+ 	}
  

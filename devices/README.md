@@ -278,7 +278,7 @@ device's `tx` pin and serialize PTY input onto its `rx` pin. Instantiate
 range from 0 through `0xffffffff`; the oversample divisor ranges from 1 through
 `0xffff`.
 
-The C++ companion creates one nonblocking raw PTY per model ID, prints its
+By default, the C++ companion creates one nonblocking raw PTY per model ID, prints its
 slave path on first use, and exposes that path through `uart_pty_path`. It
 queues host input across hardware reset but suppresses transfers while reset
 is active. A byte held in the DPI result register reserves the transmitter until
@@ -286,6 +286,13 @@ consumed, preserving queued byte order while the transmitter is busy. A received
 byte with a bad stop bit still reaches the PTY because
 the terminal stream has no framing-error sideband; the model logs and counts
 the error for diagnostics.
+
+Before the first tick, `uart_set_log_file(model_id, path)` selects output-only
+logging instead: the path is created or truncated, and `-` sends bytes to
+stdout. No PTY is allocated and RX stays idle. Decoded bytes are written without
+text conversion or userspace buffering, including bytes with framing errors;
+write failures propagate through the DPI status. `uart_pty_path` returns null
+for a model in log mode. Selection is fixed once the transport is opened.
 
 The [SoC simulator harnesses](../sims/README.md#use-the-uart-terminal) attach
 this model without adding DPI or host policy to synthesizable SoCs. Standalone

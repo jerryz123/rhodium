@@ -1126,6 +1126,15 @@ and PTY; no test-only DPI transport bypasses that path. Simulation CI runs it
 on all three SoCs. Keep the UART C++ source/header in both ordinary and mapped
 simulator link prerequisites when changing this shared harness dependency.
 
+The native runtime owns `+uart-log` parsing and configures UART model 0 before
+the first clock edge. Keep the reusable UART host model independent of VPI:
+it owns PTY/file I/O, while the simulator owns argument policy. The generic
+workload runner selects stdout logging so UART bytes enter its existing log,
+output checks, and execution evidence. Include this output mode in run/evidence
+identities. Validate transport changes with `devices/tests/run-uart-dpi-cpp.sh`,
+`make -C sims simulation-runtime-test`, and a real UART/OpenSBI run. Runtime
+fixtures link the production UART model, including the statistics-only harness.
+
 `transport-test` exercises the pinned FESVR `memif_t` path, exact-width and zero
 writes, backpressure, idle yields, and target errors. `DirectMemoryHtif::tick`
 advances request/response handshakes every cycle, but resumes the host context
