@@ -20,12 +20,97 @@ bundle RV2WideFetchBlock(xlen :: XLen, hypervisor :: Boolean):
   directions: Vec(4, TournamentPrediction(10))
   prefix_direction: TournamentPrediction(10)
 
+/* Retains the normal block's predicted target without narrowing indirect destinations. */
+bundle RV2WideBlockPrediction(xlen :: XLen):
+  valid: Bool
+  target: Bits(xlen.width)
+
+/* Sizes the exceptional PC upper bits, omitted when storage already spans XLEN. */
+fun block_pc_high_width(xlen :: XLen, pc_width :: PosInt):
+  xlen.width - pc_width
+
+/* Keeps a faulting block's exact PC independently of its fault VA and guest provenance. */
+bundle RV2WideBlockFault(xlen :: XLen, hypervisor :: Boolean, pc_width :: PosInt):
+  if pc_width < xlen.width:
+    pc_high: Bits(block_pc_high_width(xlen, pc_width))
+
+  fault: RV2WideFetchFault(xlen, hypervisor)
+
+/* Faulting blocks cannot contribute a taken prediction; their details reuse target storage. */
+tagged_union RV2WideBlockOutcome(xlen :: XLen, hypervisor :: Boolean, pc_width :: PosInt):
+  Normal(RV2WideBlockPrediction(xlen))
+  Fault(RV2WideBlockFault(xlen, hypervisor, pc_width))
+
+/* Stores one block with independent compact PC and outcome ownership. Prediction PCs
+   and all direction checkpoints remain intact, including preceding-block prefixes. */
+bundle RV2WideRetainedBlock(xlen :: XLen, hypervisor :: Boolean, pc_width :: PosInt):
+  pc_low: Bits(pc_width)
+  data: Bits(64)
+  outcome: RV2WideBlockOutcome(xlen, hypervisor, pc_width)
+  prediction_pc: Bits(xlen.width)
+  prediction_compressed: Bool
+  prediction_ras_action: RasAction
+  directions: Vec(4, TournamentPrediction(10))
+  prefix_direction: TournamentPrediction(10)
+
+  /* Restores a selected block without a PC adder; invalid fault/target payloads become zero. */
+  method expanded(block) :: RV2WideFetchBlock(xlen, hypervisor):
+    def Outcome = RV2WideBlockOutcome(xlen, hypervisor, pc_width)
+    def fault = block.outcome.is(Outcome.Fault).into(Bool)
+    def details :: RV2WideBlockFault(xlen, hypervisor, pc_width) = block.outcome.view(Outcome.Fault).payload
+    def normal :: RV2WideBlockPrediction(xlen) = block.outcome.view(Outcome.Normal).payload
+    def normal_pc = if pc_width < xlen.width | block.pc_low.into(SInt(pc_width)).sext(xlen.width).as_bits() | block.pc_low
+    def fault_pc = if pc_width < xlen.width | details.pc_high ++ block.pc_low | block.pc_low
+    def predicted = !fault & normal.valid
+    RV2WideFetchBlock(xlen, hypervisor):
+      pc: mux(fault, fault_pc, normal_pc)
+      data: block.data
+      fault: mux(fault, details.fault, literal(RV2WideFetchFault(xlen, hypervisor), 0))
+      prediction:
+        BranchPrediction(xlen):
+          valid: predicted
+          pc: block.prediction_pc
+          target: mux(predicted, normal.target, Bits(xlen.width)(0))
+          compressed: block.prediction_compressed
+          ras_action: block.prediction_ras_action
+
+      directions: block.directions
+      prefix_direction: block.prefix_direction
+
+/* Normalizes both retained and bypassed blocks to the same mutually exclusive outcome. */
+fun retain_fetch_block(xlen :: XLen, hypervisor :: Boolean, pc_width :: PosInt, block :: RV2WideFetchBlock(xlen, hypervisor)) :~ RV2WideRetainedBlock(xlen, hypervisor, pc_width):
+  def Outcome = RV2WideBlockOutcome(xlen, hypervisor, pc_width)
+  def details:
+    if pc_width < xlen.width
+    | RV2WideBlockFault(xlen, hypervisor, pc_width):
+        pc_high: block.pc[pc_width..xlen.width]
+        fault: block.fault
+    | RV2WideBlockFault(xlen, hypervisor, pc_width):
+        fault: block.fault
+
+  def prediction = RV2WideBlockPrediction(xlen):
+    valid: block.prediction.valid
+    target: mux(block.prediction.valid, block.prediction.target, Bits(xlen.width)(0))
+
+  RV2WideRetainedBlock(xlen, hypervisor, pc_width):
+    pc_low: block.pc[0..pc_width]
+    data: block.data
+    outcome: mux(block.fault.valid(), Outcome.Fault(details), Outcome.Normal(prediction))
+    prediction_pc: block.prediction.pc
+    prediction_compressed: block.prediction.compressed
+    prediction_ras_action: block.prediction.ras_action
+    directions: block.directions
+    prefix_direction: block.prefix_direction
+
 /* Decodes a two-block parcel window into an ordered one/two-instruction packet.
    Three retained blocks plus live bypass cover fixed-cycle fetch reservations.
    Accepted packets release exhausted blocks; a missing continuation retains its original block. */
-sync_circuit RV2WideInstructionAssembler(profile :: RV2WideConfig = RV2WideConfig()):
+sync_circuit RV2WideInstructionAssembler(profile :: RV2WideConfig = RV2WideConfig(), ~pc_width: pc_width :: PosInt = profile.xlen.width):
   def xlen = profile.xlen
   def hypervisor = profile.hypervisor
+  unless pc_width <= xlen.width
+  | error(~who: #'RV2WideInstructionAssembler, "PC storage width must not exceed XLEN")
+
   interface blocks(Decoupled(RV2WideFetchBlock(xlen, hypervisor)), ~role: consumer)
   interface clear(Pulse(), ~role: consumer)
   interface instructions(Decoupled(RV2WidePacket(xlen, hypervisor)), ~role: producer)
@@ -42,12 +127,13 @@ sync_circuit RV2WideInstructionAssembler(profile :: RV2WideConfig = RV2WideConfi
      Retained blocks precede live bypass; incomplete continuations keep their owner. */
 
   reg count(~init: Bits(2)(0))
-  reg retained(Vec(3, RV2WideFetchBlock(xlen, hypervisor)))
+  reg retained(Vec(3, RV2WideRetainedBlock(xlen, hypervisor, pc_width)))
+  def incoming = retain_fetch_block(xlen, hypervisor, pc_width, blocks.bits)
   // Input admission is independent of current instruction readiness: every S2 result is reserved.
   blocks.ready <== count < Bits(2)(3)
   def first_present = count.any() ||| blocks.valid
-  def first_block :: RV2WideFetchBlock(xlen, hypervisor) = mux(count.any(), retained[0], blocks.bits)
-  def second_block :: RV2WideFetchBlock(xlen, hypervisor) = mux(count > Bits(2)(1), retained[1], blocks.bits)
+  def first_block = mux(count.any(), retained[0], incoming).expanded()
+  def second_block = mux(count > Bits(2)(1), retained[1], incoming).expanded()
   def second_present = ((count > Bits(2)(1)) ||| ((count === Bits(2)(1)) & blocks.valid)) & (second_block.pc === (first_block.pc.align_down(8) + Bits(xlen.width)(8)))
   reg repairing(~init: Bool(#false))
   def discard = clear.valid ||| repairing
@@ -211,7 +297,7 @@ sync_circuit RV2WideInstructionAssembler(profile :: RV2WideConfig = RV2WideConfi
     for (index in 0..3):
       def position = Bits(2)(index)
       when (enqueue & (position === remaining)):
-        retained[index] <== blocks.bits
+        retained[index] <== incoming
       elsewhen (position < remaining):
         retained[index] <== retained[(position + resident_release)[0..2]]
 
@@ -228,6 +314,8 @@ sync_circuit RV2WideInstructionAssembler(profile :: RV2WideConfig = RV2WideConfi
   when (blocks.fire()):
     def offered :: RV2WideFetchBlock(xlen, hypervisor) = blocks.bits
     assert(offered.fault.supported(), "rv2wide_assembly_supported_fetch_fault")
+    def pc_fits = if pc_width < xlen.width | offered.pc === offered.pc[0..pc_width].into(SInt(pc_width)).sext(xlen.width).as_bits() | Bool(#true)
+    assert(offered.fault.valid() ||| pc_fits, "rv2wide_assembly_success_pc_fits")
 
 export:
   RV2WideFetchBlock

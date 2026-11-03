@@ -27,13 +27,10 @@ for (xlen in [XLen.X32, XLen.X64]):
   def queue_storage = fifo.memories.find(fun (mem): mem.name == "storage")
   def multiply = child(execution, "ex_multiply")
   def frontend = child(core, "frontend")
-  def assembler = child(frontend, "assembler")
-  def blocks = assembler.operations.find(fun (op): op.opcode == "rtl.register" && op.attribute("name") == "retained")
   def s2 = child(frontend, "s2")
   def attempt = s2.find_output("egress_out").type.field("bits").type
   check:
     retired.field("fetched").type.field("fault").type.packed_width() ~is compact_fault_width
-    blocks.results[0].type.element_type.field("fault").type.packed_width() ~is compact_fault_width
     attempt.field("fault").type.packed_width() ~is compact_fault_width
     completed.field("identity").type.packed_width() ~is xlen.width + 32
     completed.packed_width() ~is 2 * xlen.width + 38

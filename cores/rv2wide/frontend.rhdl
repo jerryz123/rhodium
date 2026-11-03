@@ -73,7 +73,10 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig, profile :: RV2WideCon
   wire direction_repair: Bool
   inst s1(ValidPipeAlwaysCapture(RV2WideFetchCursor(xlen), 1, ~flushable: #true))
   inst s2(ValidPipeAlwaysCapture(RV2WideFetchAttempt(xlen, hypervisor), 1, ~flushable: #true))
-  inst assembler(RV2WideInstructionAssembler(profile))
+  // Sign-extended Sv39 and zero-extended physical/Bare PCs fit this width.
+  // Faulting blocks retain the original upper bits in their tagged payload.
+  def pc_width = math.min(xlen.width, math.max(39, config.flit.request_address_width + 1))
+  inst assembler(RV2WideInstructionAssembler(profile, ~pc_width: pc_width))
 
 
   /* Predictor control and S1 target selection.

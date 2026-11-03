@@ -15,7 +15,7 @@ void falling_update() {}
 bool same_packet(const Packet &a, const Packet &b) {
   if (a.pcount != b.pcount)
     return false;
-  for (unsigned i = 0; i < 2; ++i) {
+  for (unsigned i = 0; i < a.pcount; ++i) {
     const auto &x = a.pentries[i];
     const auto &y = b.pentries[i];
     if (x.ppc != y.ppc || x.pinstruction != y.pinstruction ||
@@ -215,9 +215,77 @@ void offer_fault(std::uint64_t pc, const Fault &fault) {
   blocks_in.pvalid = true;
   blocks_in.pbits.ppc = pc;
   blocks_in.pbits.pfault = fault;
+  // A cache/translation fault can arrive alongside a speculative BTB prediction.
+  blocks_in.pbits.pprediction = {true, pc, ~pc, true, 0};
   accept([&] { return blocks_out.pready; });
   falling();
   blocks_in = {};
+}
+
+void compact_storage_tests() {
+  for (auto base : {UINT64_C(0x00000ffffffff000), UINT64_C(0xffffffc012345000),
+                    UINT64_C(0xfffffffffffff000)}) {
+    clear();
+    instructions_in.pready = false;
+    const auto first = base + 6;
+    const auto last = base + 0x104;
+    const auto exceptional = UINT64_C(0x123456789abc0001);
+    const auto target = UINT64_C(0xdeadbeef12345678);
+    Fault fault{};
+    fault.pkind = TEST_HYPERVISOR ? fetch_kind(20) : fetch_kind(1);
+    fault.pvalue = UINT64_C(0xfedcba9876543210);
+    if (TEST_HYPERVISOR) set_fetch_guest(fault, true, UINT64_C(0x123456789abc), 1);
+    expected_pc.push_back(first);
+    expected_pc.push_back(exceptional);
+    expected_pc.push_back(last);
+
+    // Observe the same normal owner before and after empty-window bypass capture.
+    falling();
+    blocks_in = {};
+    blocks_in.pvalid = true;
+    blocks_in.pbits.ppc = first;
+    blocks_in.pbits.pdata = UINT64_C(1) << 48; // C.NOP at the last parcel.
+    blocks_in.pbits.pfault.pvalue = ~first; // Absent fault payload canonicalizes to zero.
+    blocks_in.pbits.pprediction = {false, ~first, target, false, 0};
+    blocks_in.pbits.pdirections[3] = {true, 0xabc, 0x125, false, 0x789, true, false};
+    settle();
+    CHECK(blocks_out.pready && instructions_out.pvalid);
+    const Packet bypass = instructions_out.pbits;
+    CHECK(bypass.pcount == 1 && bypass.pentries[0].ppc == first &&
+          bypass.pentries[0].pfault.pvalue == 0);
+    rising();
+    falling();
+    blocks_in = {};
+    settle();
+    CHECK(same_packet(instructions_out.pbits, bypass));
+    offer_fault(exceptional, fault);
+    offer(last, UINT64_C(0x00010067) << 32, last, target); // JALR x0,x2,0: no RAS action.
+    CHECK(available == 0 && !blocks_out.pready);
+    for (unsigned cycle = 0; cycle < 5; ++cycle) {
+      blocks_in.pbits.ppc = ~first;
+      settle();
+      CHECK(same_packet(instructions_out.pbits, bypass));
+      rising();
+      falling();
+    }
+    instructions_in.pready = true;
+    rising();
+    falling();
+    instructions_in.pready = false;
+    check_fault(fault, exceptional);
+    instructions_in.pready = true;
+    rising();
+    falling();
+    instructions_in.pready = false;
+    settle();
+    CHECK(instructions_out.pvalid && instructions_out.pbits.pcount == 1);
+    const auto &predicted = instructions_out.pbits.pentries[0];
+    CHECK(predicted.ppc == last && predicted.pprediction.pvalid &&
+          predicted.pprediction.ppc == last && predicted.pprediction.ptarget == target);
+    instructions_in.pready = true;
+    drain();
+    CHECK(available == 3);
+  }
 }
 
 void fault_storage_tests() {
@@ -307,6 +375,13 @@ void fault_storage_tests() {
   expect_failure("rv2wide_assembly_supported_fetch_fault", [&] {
     offer_fault(pcs[1], unsupported);
   });
+  blocks_in = {};
+  if (TEST_HYPERVISOR) {
+    // The H fixture selects compact PCs; only faulting blocks may escape that range.
+    expect_failure("rv2wide_assembly_success_pc_fits", [&] {
+      offer_fault(pcs[1], Fault{});
+    });
+  }
 }
 
 int main() {
@@ -653,6 +728,7 @@ int main() {
     instructions_in.pready = 0;
     clear();
     instructions_in.pready = 1;
+    compact_storage_tests();
     fault_storage_tests();
   });
 }

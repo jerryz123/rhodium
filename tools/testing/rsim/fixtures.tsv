@@ -214,6 +214,7 @@ rv2wide-cache	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-cache.rhm	p
 rv2wide-fetch-disabled	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-fetch-disabled.rhm	program	cores/rv2wide/tests/rsim/rv2wide-fetch-disabled.cpp
 rv2wide-assembly-prediction	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-assembly-prediction.rhm	program	cores/rv2wide/tests/rsim/rv2wide-assembly-prediction.cpp
 rv2wide-assembly-prediction-h	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-assembly-prediction.rhm	guest_program	cores/rv2wide/tests/rsim/rv2wide-assembly-prediction-h.cpp
+rv2wide-assembly-prediction-full-width	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-assembly-prediction.rhm	full_width_program	cores/rv2wide/tests/rsim/rv2wide-assembly-prediction.cpp
 rv2wide-frontend-prediction	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-frontend-prediction.rhm	program	cores/rv2wide/tests/rsim/rv2wide-frontend-prediction.cpp
 rv2wide-bht	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-bht.rhm	program	cores/rv2wide/tests/rsim/rv2wide-bht.cpp
 rv2wide-mmu	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-mmu.rhm	program	cores/rv2wide/tests/rsim/rv2wide-mmu.cpp

@@ -395,6 +395,9 @@ instructions per cycle to the existing eight-entry issue window; downstream stal
 retain both blocks and parcel position. Admission uses registered block credits,
 not the current issue decision. The execution slice still exposes
 `instruction_capacity: Bits(4)` for direct packet producers.
+Compact block storage preserves exact faulting PCs, continuation fault addresses,
+and full-width predicted targets. Faulting blocks ignore speculative predictions;
+live bypass and retained delivery use the same normalized metadata.
 
 L1I misses restart the failed fetch attempt and discard younger attempts,
 preserving older buffered instructions. A MEM prediction correction or WB redirect clears speculative fetch

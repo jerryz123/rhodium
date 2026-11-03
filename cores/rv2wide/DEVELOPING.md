@@ -118,7 +118,7 @@ a global fault sidecar: all eight entries must retain independent ownership.
 
 The frontend, assembler's three resident blocks, window, and EX use the same
 `RV2WideFetchFault(xlen, hypervisor)`: a three-bit kind, the full fault address,
-and guest details only with H. Pass it unchanged through storage and live
+and guest details only with H. Pass present faults unchanged through storage and live
 bypass; classify architectural causes only at translation admission and
 produce the architectural cause at EX resolution. Preserve each block's own fault VA
 and guest provenance across compaction and straddles; do not infer them from
@@ -632,6 +632,20 @@ Keep canonical decode bits separate from raw encoding and sequential PC. Link an
 system recovery use the sequential PC; illegal trap values use the raw encoding.
 A faulting continuation uses the instruction's original PC and the next
 block's fault address. The CSR bank's C configuration must agree with this IALIGN.
+
+The resident `RV2WideRetainedBlock` keeps a compact PC and a normal/fault tagged
+outcome. The normal valid/target fields share storage with the complete fault and
+exceptional PC upper bits. The frontend selects the same physical/Sv39 PC bound
+as the issue window; standalone assemblers default to XLEN unless `~pc_width`
+sets an explicit successful-PC sign-extension contract. Normalize incoming blocks
+through the same packing/expansion for live bypass and retained selection, so a
+stall that captures the bypass cannot change the visible packet. Absent fault
+payloads and invalid targets become zero, and a fault suppresses any provisional
+BTB prediction. Keep prediction PCs and all five direction checkpoints intact:
+the prediction can name a preceding-block prefix, and its recovery history is
+not interchangeable with another parcel's checkpoint. Do not change the three
+credits, release rules, or ready path when changing this representation.
+
 `RV2WideConfig.compressed` retains C as the mandatory base and accepts optional
 Zcb/Zcmop additions, validated through the shared architectural catalog. Pass
 both that list and the FP profile into the shared expander; C includes Zcd when
@@ -1275,6 +1289,7 @@ python3 tools/testing/rsim/run.py --fixture rv2wide-core --fixture rv2wide-core-
 python3 tools/testing/rsim/run.py --fixture rv2wide-issue-window --fixture rv2wide-issue-window-h --fixture rv2wide-issue-window-rv32
 python3 tools/testing/rsim/run.py --fixture rv2wide-cache --fixture rv2wide-fetch-disabled
 python3 tools/testing/rsim/run.py --fixture rv2wide-assembly-prediction --fixture rv2wide-frontend-prediction --fixture rv2wide-bht
+python3 tools/testing/rsim/run.py --fixture rv2wide-assembly-prediction-h --fixture rv2wide-assembly-prediction-full-width
 python3 tools/testing/rsim/run.py --fixture rv2wide-mmu
 python3 tools/testing/rsim/run.py --fixture rv2wide-fetch
 make check-boundaries
@@ -1420,10 +1435,14 @@ also checks all four compressed FP load/store expansions and raw encodings.
 Cross-block cases cover every halfword start and instruction-length pair, stalled
 packet retention, source-block history, immediate credit reuse, complete-first
 progress without lookahead, and a second-slot continuation fault.
-The `rv2wide-assembly-prediction-h` variant runs the same stream with H enabled.
-Both variants fill all three slots with independent faults and exercise stalls,
-live bypass, continuation ownership, and recovery. The H variant additionally
-checks explicit guest accesses and implicit page-table-read provenance.
+The primary and `rv2wide-assembly-prediction-h` variants select compact 45-bit
+PCs, with the latter enabling H. `rv2wide-assembly-prediction-full-width` checks
+the standalone XLEN-wide default with the same stream. All variants fill three
+slots with independent faults or mixed normal/fault owners and exercise stalls,
+live-bypass capture, continuation ownership, and recovery. They check physical
+upper bits, sign-extended PCs, full-width targets, exceptional PC/address escape
+bits, and fault suppression of speculative predictions. The H variant also
+checks guest provenance and rejection of an out-of-range successful compact PC.
 Local repair clears block ownership on the following cycle; it must
 not clear the lineage of the same edge's accepted packet.
 `rv2wide-frontend-prediction` supplies fixed-cycle instruction-cache responses

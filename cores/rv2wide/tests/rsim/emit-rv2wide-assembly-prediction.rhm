@@ -7,6 +7,7 @@ import:
   "../../profile.rhm".RV2WideConfig
   "../../instruction-assembler.rhdl".RV2WideInstructionAssembler
 
-def program = elaborate(RV2WideInstructionAssembler(RV2WideConfig(~floating_point: FloatingPointProfile.D)))
-def guest_program = elaborate(RV2WideInstructionAssembler(RV2WideConfig(~floating_point: FloatingPointProfile.D, ~hypervisor: #true)))
-export program guest_program
+def program = elaborate(RV2WideInstructionAssembler(RV2WideConfig(~floating_point: FloatingPointProfile.D), ~pc_width: 45))
+def guest_program = elaborate(RV2WideInstructionAssembler(RV2WideConfig(~floating_point: FloatingPointProfile.D, ~hypervisor: #true), ~pc_width: 45))
+def full_width_program = elaborate(RV2WideInstructionAssembler(RV2WideConfig(~floating_point: FloatingPointProfile.D)))
+export program guest_program full_width_program
