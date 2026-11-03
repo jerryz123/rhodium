@@ -43,11 +43,9 @@ sync_circuit RV5StageRetirementTrace():
     page_fault: Bool(#false)
     access_fault: Bool(#false)
     prediction:
-      BranchPrediction(XLen.X64):
-        valid: predicted
-        pc: pc
+      RV5StagePacketPrediction(XLen.X64):
+        owner: mux(predicted, mux(pc[1].into(Bool), RV5StagePredictionOwner.Upper, RV5StagePredictionOwner.Lower), RV5StagePredictionOwner.None)
         target: target
-        compressed: instruction[0..2] =/= Bits(2)(3)
         ras_action: ras
 
   packet_ready <== core.packets.ready

@@ -24,6 +24,85 @@ void observe() {}
 
 void falling_update() {}
 
+enum ParcelOwner : unsigned { None, Lower, Upper, Previous };
+
+void predict(ParcelOwner owner, std::uint64_t target, unsigned action) {
+  packets_in.pbits.pprediction = {static_cast<std::uint8_t>(owner), target,
+                                  static_cast<std::uint8_t>(action)};
+  settle();
+}
+
+void expect_prediction(std::uint64_t target, unsigned action) {
+  CHECK(fetched_out.pvalid && fetched_out.pbits.ppredicted_unext_upc == target &&
+        fetched_out.pbits.ppredicted_uras_uaction == action);
+}
+
+void check_parcel_ownership() {
+  // A prediction for the upper compressed instruction survives the lower
+  // instruction's transfer, Decode backpressure, and a different live prediction.
+  offer(64, 0x80820085); // C.ADDI then C.JR x1.
+  predict(Upper, 0x180, 2);
+  expect_prediction(66, 0);
+  edge_step();
+  offer(0x180, 0x00859082); // C.JALR x1 then C.ADDI.
+  predict(Lower, 0x240, 1);
+  fetched_in.pready = 0;
+  settle();
+  for (int i = 0; i < 3; ++i) {
+    expect_instruction(66, 0x8082);
+    expect_prediction(0x180, 2);
+    CHECK(!packets_out.pready);
+    edge_step();
+  }
+  falling();
+  fetched_in.pready = 1;
+  settle();
+  edge_step();
+  expect_prediction(0x240, 1);
+  edge_step();
+  falling();
+  packets_in.pvalid = 0;
+  settle();
+  expect_prediction(0x184, 0); // Lower prediction cannot apply to retained upper.
+  edge_step();
+
+  // The next fetch can revisit the very same PC. A new hint at that address
+  // belongs to the new occurrence, not to the older buffered instruction.
+  offer(64, 0xa0010085);
+  predict(Upper, 66, 0);
+  edge_step();
+  offer(66, 0xa0010085, 2);
+  predict(Upper, 0x1c0, 0);
+  expect_prediction(66, 0);
+  CHECK(!packets_out.pready);
+  edge_step();
+  expect_prediction(0x1c0, 0);
+  CHECK(packets_out.pready);
+  edge_step();
+
+  // A page-crossing branch can first be predicted on its continuation.
+  // A faulting continuation must still report the second address and ignore the hint.
+  for (bool fault : {false, true}) {
+    offer(4094, 0x00ef0001, 2); // JAL x1 starts at the page's last halfword.
+    predict(None, 0, 0);
+    edge_step();
+    offer(4096, 0, 1);
+    predict(Previous, 0x380, 1);
+    packets_in.pbits.paccess_ufault = fault;
+    fetched_in.pready = 0;
+    settle();
+    expect_instruction(4094, 0xef);
+    expect_prediction(fault ? 4098 : 0x380, fault ? 0 : 1);
+    CHECK(fetched_out.pbits.pinstruction_uaccess_ufault == fault);
+    if (fault) CHECK(fetched_out.pbits.pinstruction_ufault_uaddress == 4096);
+    edge_step();
+    falling();
+    fetched_in.pready = 1;
+    settle();
+    edge_step();
+  }
+}
+
 void stimulus() {
   reset = 1;
   packets_in = {};
@@ -123,6 +202,7 @@ void stimulus() {
     settle();
     CHECK(!fetched_out.pvalid);
 
+    check_parcel_ownership();
     throw Finished{};
   }
 }

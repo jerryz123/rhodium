@@ -128,7 +128,10 @@ sync_circuit RV5Stage(profile :: RV5StageConfig,
   interface umem(CHIRNIChannels(p), ~role: node)
 
   inst core(RV5StageCore(profile, ~reset_address: reset_address))
-  inst frontend(RV5StageFrontend(profile, ~btb_entries: btb_entries, ~ras_entries: ras_entries))
+  inst frontend(RV5StageFrontend(
+    profile, ~btb_entries: btb_entries, ~ras_entries: ras_entries,
+    ~physical_address_width: config.physical_map.address_width
+  ))
   inst mmu(RV5StageMmu(xlen, profile.mmu_mode, config.physical_map, ~svnapot: profile.extensions.svnapot, ~vector_completion_slots: vector_completion_slots, ~hypervisor: hypervisor))
   describe_cosim_context(core, {"mmu": mmu})
   if hypervisor

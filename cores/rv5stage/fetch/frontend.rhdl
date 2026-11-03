@@ -9,6 +9,7 @@ import:
   "scan.rhdl" open
   "protocol.rhdl" open
   "../profile.rhm".RV5StageConfig
+  lib("riscv/isa/sv39.rhm").Sv39VirtualBits
   "../icache/protocol.rhdl" open
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
@@ -16,10 +17,15 @@ import:
 /* Reserves capacity from registered queue/S1/S2 occupancy and pairs fixed-cycle
    memory outcomes with scanned packets. Recovery clears the epoch; replay and
    late repair discard only younger attempts. */
-sync_circuit RV5StageFrontend(core_profile :: RV5StageConfig, ~btb_entries: btb_entries :: Nat = 32, ~ras_entries: ras_entries :: Nat = 6):
+sync_circuit RV5StageFrontend(core_profile :: RV5StageConfig, ~btb_entries: btb_entries :: Nat = 32, ~ras_entries: ras_entries :: Nat = 6,
+                              ~physical_address_width: physical_address_width :: PosInt = core_profile.xlen.width):
   def hypervisor = core_profile.extensions.hypervisor
   def xlen = core_profile.xlen
   def packet_capacity :: PosInt = 5
+  // One extra bit zero-extends Bare addresses; the same sign bit extends Sv39.
+  def pc_width = math.max(Sv39VirtualBits, physical_address_width + 1)
+  def compact = (xlen.width == 64) && (!hypervisor) && (pc_width < xlen.width)
+  def QueuePacket = if compact | RV5StageCompactFetchPacket(pc_width) | RV5StageFetchPacket(xlen, hypervisor)
   interface control(RV5StageFrontendControl(xlen), ~role: frontend)
   interface memory(RV5StageFetchAccess(xlen, hypervisor), ~role: requester)
   interface packets(Decoupled(RV5StageFetchPacket(xlen, hypervisor)), ~role: producer)
@@ -43,7 +49,7 @@ sync_circuit RV5StageFrontend(core_profile :: RV5StageConfig, ~btb_entries: btb_
 
   inst source(RV5StageFetchSource(xlen, btb_entries, ras_entries))
   inst scan(RV5StageFetchScan(core_profile))
-  inst queue(ShiftQueue(RV5StageFetchPacket(xlen, hypervisor), packet_capacity, ~flow: #true, ~flushable: #true))
+  inst queue(ShiftQueue(QueuePacket, packet_capacity, ~flow: #true, ~flushable: #true))
   inst s2(ValidPipeAlwaysCapture(RV5StageFetchAttempt(xlen), 1, ~flushable: #true))
   queue.flush <== recovery
 
@@ -64,7 +70,8 @@ sync_circuit RV5StageFrontend(core_profile :: RV5StageConfig, ~btb_entries: btb_
   scan.clear.valid <== recovery ||| fallback_redirect.valid
   scan.ras_head_valid <== source.ras_head_valid
   scan.ras_head <== source.ras_head
-  queue.egress |> filter_flow(_packet => !recovery) |> packets
+  def queued = queue.egress |> filter_flow(_packet => !recovery)
+  (if compact | queued |> map_flow(packet => expand_fetch_packet(pc_width, packet)) | queued) |> packets
   def accepted_fallback = scan.fallback |> filter_valid(_prediction => !command & queue.ingress.ready)
   accepted_fallback |> late_return.ingress
   def Array(fallback_target, fallback_discovery) = fallback_redirect |> fork_valid(2)
@@ -112,35 +119,31 @@ sync_circuit RV5StageFrontend(core_profile :: RV5StageConfig, ~btb_entries: btb_
 
   (packet_outcomes |> filter_valid(_attempt => admitted)
     |> map_valid(attempt):
-         wire packet: RV5StageFetchPacket(xlen, hypervisor)
+         wire packet: RV5StageScanWord(xlen, hypervisor)
          packet.pc <== attempt.pc
-         packet.word <== memory.response.bits.response.word
+         packet.response <== memory.response.bits.response
+         packet.prediction <== attempt.prediction
          packet.mask <== priority_mux(~default: Bits(2)(3)):
            attempt.continuation: Bits(2)(1)
            attempt.pc[1].into(Bool): Bits(2)(2)
 
-         packet.page_fault <== memory.response.bits.response.page_fault
-         packet.access_fault <== memory.response.bits.response.access_fault
-         packet.prediction <== attempt.prediction
-         if hypervisor
-         | packet.guest <== memory.response.bits.response.guest
-         | #void
-
          packet
   ) |> scan.ingress
 
-  scan.egress |> to_decoupled() |> queue.ingress
+  def scanned = scan.egress |> to_decoupled()
+  (if compact | scanned |> map_flow(packet => compact_fetch_packet(pc_width, packet)) | scanned) |> queue.ingress
+  if compact
+  | block:
+      def packet = scan.egress.bits
+      when (scan.egress.valid & !packet.page_fault & !packet.access_fault):
+        assert(packet.pc === packet.pc[0..pc_width].into(SInt(pc_width)).sext(64).as_bits(), "fetch_success_pc_fits_queue")
+  | #void
 
 
   /* Speculative RAS updates and memory-side cancellation.
      Apply hints only when the nonfaulting scanned packet can enter the queue. */
 
-  (scan.egress
-    |> filter_valid(packet => queue.ingress.ready & !packet.page_fault & !packet.access_fault & packet.prediction.valid & (packet.prediction.ras_action =/= RasAction.None))
-    |> map_valid(packet => RasUpdate(xlen)):
-         action: packet.prediction.ras_action
-         return_address: packet.prediction.pc + mux(packet.prediction.compressed, Bits(xlen.width)(2), Bits(xlen.width)(4))
-  ) |> source.ras_speculate
+  scan.speculate |> filter_valid(_hint => queue.ingress.ready) |> source.ras_speculate
 
   memory.flush <== command
   memory.invalidate_all <== control.invalidate_all.valid

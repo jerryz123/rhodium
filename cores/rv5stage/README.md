@@ -808,7 +808,8 @@ an already admitted scalar instruction.
 [`fetch/frontend.rhdl`](fetch/frontend.rhdl) connects a
 [`RV5StageFetchSource`](fetch/source.rhdl), fixed-latency S1/S2 stages, and a
 five-entry flow-through packet queue. Raw packets carry PC, word, halfword mask,
-faults, and occurrence-specific prediction metadata. Mask bits 0 and 1 select
+faults, and a [parcel-owned prediction](fetch/README.md#fetch-and-prediction-flow).
+Mask bits 0 and 1 select
 the lower and upper halfwords; PC identifies the first selected halfword.
 Packets remain ordered, and a split instruction's continuation is contiguous
 even when its predicted target is elsewhere. The core's

@@ -372,6 +372,15 @@ void stimulus() {
   reset = 1;
   {
     fallback_trace_bind();
+    // The Success variant must preserve the target's own high bits, not the PC's.
+    constexpr auto high_target = UINT64_C(0xffffffc000000200);
+    initialize(0);
+    train(256, high_target, 0);
+    train(high_target, 256, 0);
+    start(256);
+    expect_pc(256, high_target);
+    expect_pc(high_target, 256);
+
     initialize(0);
     train(UINT64_C(256), UINT64_C(512), 0);
     train(UINT64_C(512), UINT64_C(256), 0);

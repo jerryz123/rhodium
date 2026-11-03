@@ -49,6 +49,10 @@ int stalled_requests;
 
 std::uint64_t held_request_address;
 
+// Five adjacent faulting words spanning two different upper-PC patterns.
+constexpr std::uint64_t fault_run = UINT64_C(0x5a5a1ffffffffff8);
+constexpr std::uint64_t bare_limit = UINT64_C(1) << 44;
+
 std::uint32_t word_at(std::uint64_t address) {
   switch (address) {
   case UINT64_C(0): {
@@ -72,6 +76,8 @@ std::uint32_t word_at(std::uint64_t address) {
   case UINT64_C(4092): {
     return UINT64_C(51576833);
   } break;
+  case bare_limit - 4:
+    return UINT32_C(0x03130001); // 32-bit instruction prefix in the upper parcel.
   default: {
     return UINT64_C(19);
   } break;
@@ -128,8 +134,12 @@ void observe() {
         defer(response_valid, UINT64_C(1));
         defer(response_bits.pword, word_at(memory_out.prequest.pbits.paddress));
         defer(response_bits.ppage_ufault,
-              memory_out.prequest.pbits.paddress == UINT64_C(4096));
-        defer(response_bits.paccess_ufault, UINT64_C(0));
+              memory_out.prequest.pbits.paddress == UINT64_C(4096) ||
+              (memory_out.prequest.pbits.paddress >= bare_limit &&
+               memory_out.prequest.pbits.paddress < bare_limit + 64));
+        defer(response_bits.paccess_ufault,
+              memory_out.prequest.pbits.paddress >= fault_run &&
+              memory_out.prequest.pbits.paddress < fault_run + 64);
         CHECK(bit_slice(memory_out.prequest.pbits.paddress, 0, (1) - (0) + 1) ==
               UINT64_C(0));
       }
@@ -138,6 +148,49 @@ void observe() {
 }
 
 void falling_update() {}
+
+void start_stalled(std::uint64_t pc) {
+  fetched_ready = false;
+  restart_pc = pc;
+  restart_valid = true;
+  rising();
+  restart_valid = false;
+  for (int i = 0; i < 12; ++i)
+    rising();
+  settle();
+  CHECK(fetched_out.pvalid && !memory_out.prequest.pvalid);
+}
+
+void check_queue_addresses() {
+  // Both the highest Bare address bit and the Sv39 negative half survive a stall.
+  for (auto pc : {bare_limit / 2 + 256, UINT64_C(0xffffffc000000100)}) {
+    start_stalled(pc);
+    fetched_ready = true;
+    for (int i = 0; i < 5; ++i)
+      expect_instruction(pc + 4 * i, pc + 4 * i + 4, 19, 19);
+  }
+
+  start_stalled(fault_run);
+  fetched_ready = true;
+  for (int i = 0; i < 5; ++i) {
+    settle();
+    const auto pc = fault_run + 4 * i;
+    CHECK(fetched_out.pvalid && fetched_out.pbits.ppc == pc &&
+          fetched_out.pbits.pinstruction_ufault_uaddress == pc &&
+          fetched_out.pbits.pinstruction_uaccess_ufault &&
+          !fetched_out.pbits.pinstruction_upage_ufault &&
+          fetched_out.pbits.ppredicted_unext_upc == pc + 4);
+    rising();
+  }
+
+  // The instruction starts inside Bare memory; its second parcel faults beyond it.
+  start_stalled(bare_limit - 2);
+  CHECK(fetched_out.pbits.ppc == bare_limit - 2 &&
+        fetched_out.pbits.pinstruction_upage_ufault &&
+        fetched_out.pbits.pinstruction_ufault_uaddress == bare_limit);
+  fetched_ready = true;
+  rising();
+}
 
 void stimulus() {
   reset = UINT64_C(1);
@@ -255,6 +308,7 @@ void stimulus() {
     restart_valid = UINT64_C(0);
     expect_instruction(UINT64_C(256), UINT64_C(260), UINT64_C(19),
                        UINT64_C(19));
+    check_queue_addresses();
     throw Finished{};
   }
 }

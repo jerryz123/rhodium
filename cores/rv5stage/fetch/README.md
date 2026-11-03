@@ -46,3 +46,15 @@ redirects younger fetch work without invalidating the return entry. A straddling
 return retains its corrected target until its continuation arrives; the prefix's
 stack action is not repeated. Faults suppress corrections, and an empty stack
 preserves the BTB target.
+
+Each nonfaulting packet carries its full predicted target and return-stack action,
+but identifies the predicted instruction by parcel, not by a second PC.
+`Lower` and `Upper` name the halfwords in this word. `Previous` names the
+upper halfword of the preceding word: its 32-bit instruction finishes in this
+packet, so its prediction may only become known here. `None` means no prediction.
+The instruction buffer applies a hint only to its owner, including while Decode
+is stalled. A fault suppresses the hint without changing the fault address.
+
+The five-entry queue may store fewer PC bits than XLEN. Decode still sees the
+exact instruction PC and, if a straddling fetch faults, the address of its
+failing parcel. Neither case requires an extra cycle or queue entry.

@@ -19,7 +19,9 @@ import:
 bundle RV5StageFetchParcel(xlen :: XLen):
   pc: Bits(xlen.width)
   halfword: Bits(16)
-  prediction: BranchPrediction(xlen)
+  predicted: Bool
+  target: Bits(xlen.width)
+  ras_action: RasAction
 
 /* Assembles word-aligned and straddling instructions directly into Decode, expanding enabled C
    forms.
@@ -77,19 +79,21 @@ sync_circuit RV5StageInstructionBuffer(core_profile :: RV5StageConfig):
   def page_fault = (!residual_valid ||| straddle) & packets.bits.page_fault
   def access_fault = (!residual_valid ||| straddle) & packets.bits.access_fault
   def sequential_pc = pc + mux(instruction_is_compressed, Bits(width)(2), Bits(width)(4))
-  def continuation_prediction = residual_valid & packets.bits.prediction.valid & (packets.bits.prediction.pc === pc)
-  def prediction :: BranchPrediction(xlen) = priority_mux(~default: packets.bits.prediction):
-    continuation_prediction: packets.bits.prediction
-    residual_valid: residual.prediction
-
-  def predicted_taken = prediction.valid & (prediction.pc === pc) & !page_fault & !access_fault & !encoding.compressed_illegal
+  def prediction = packets.bits.prediction
+  def continuation_prediction = straddle & packets.valid & (prediction.owner === RV5StagePredictionOwner.Previous)
+  def use_residual = residual_valid & !continuation_prediction
+  def head_owner = mux(upper, RV5StagePredictionOwner.Upper, RV5StagePredictionOwner.Lower)
+  def predicted = mux(residual_valid, continuation_prediction ||| residual.predicted, prediction.owner === head_owner)
+  def predicted_taken = predicted & !page_fault & !access_fault & !encoding.compressed_illegal
+  def target = mux(use_residual, residual.target, prediction.target)
+  def ras_action = mux(use_residual, residual.ras_action, prediction.ras_action)
   fetched.valid <== available & !clear.valid
   fetched.bits.pc <== pc
   fetched.bits.instruction <== encoding.canonical
   fetched.bits.raw_instruction <== raw
   fetched.bits.sequential_pc <== sequential_pc
-  fetched.bits.predicted_next_pc <== mux(predicted_taken, prediction.target, sequential_pc)
-  fetched.bits.predicted_ras_action <== mux(predicted_taken, prediction.ras_action, RasAction.None)
+  fetched.bits.predicted_next_pc <== mux(predicted_taken, target, sequential_pc)
+  fetched.bits.predicted_ras_action <== mux(predicted_taken, ras_action, RasAction.None)
   fetched.bits.compressed_illegal <== encoding.compressed_illegal
   fetched.bits.instruction_page_fault <== page_fault
   fetched.bits.instruction_access_fault <== access_fault
@@ -132,7 +136,9 @@ sync_circuit RV5StageInstructionBuffer(core_profile :: RV5StageConfig):
     residual <== RV5StageFetchParcel(xlen):
       pc: packets.bits.pc.align_down(4) + Bits(width)(2)
       halfword: packets.bits.word[16..32]
-      prediction: packets.bits.prediction
+      predicted: prediction.owner === RV5StagePredictionOwner.Upper
+      target: prediction.target
+      ras_action: prediction.ras_action
   elsewhen (fetched.fire()):
     residual_valid <== Bool(#false)
 

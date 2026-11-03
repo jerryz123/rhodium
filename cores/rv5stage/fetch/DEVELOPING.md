@@ -49,6 +49,21 @@ retain the pending redirect until the continuation is admitted. Redirecting at
 the prefix would kill the continuation, and re-reading the stack afterward
 would use the already-popped head. Faults and epoch clears suppress that redirect.
 
+Keep full prediction PCs in scan, repair, and RAS feedback. Encode parcel ownership
+on the packet branch only: the scanner knows whether a newly discovered fallback
+starts in its retained prefix. On transfer to residual storage, keep only whether
+the upper parcel owns the prediction. A live continuation can supply the hint
+for that prefix; it cannot override a standalone compressed residual.
+
+Only the internal queue format narrows the PC. The integrated non-H RV64 hart
+passes its PMA address width to the frontend; a successful PC sign-extends
+from `max(39, physical_address_width + 1)` bits, covering both Sv39 and Bare.
+A tagged outcome shares storage between the full prediction and the fault
+flags plus original upper PC bits. Do not rely on one outstanding fault:
+each entry must reconstruct its own address while Decode is stalled. Keep
+the ordinary packet for H, RV32, or when the width would not save bits.
+A standalone frontend with no declared physical bound defaults to XLEN.
+
 ## Focused validation
 
 Scanner packet, repair, and fallback outputs derive from explicit ingress

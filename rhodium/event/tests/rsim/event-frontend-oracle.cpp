@@ -100,7 +100,9 @@ extern "C" void event_frontend_sample(unsigned reset, unsigned clear, unsigned r
       live_straddles += live && following;
       for (auto parent : parents) if (!consumed.insert(parent).second) ++shared;
       const bool predicted = predicted_next_pc != sequential_pc;
-      const unsigned release = compressed && !upper && !predicted ? 0 : predicted && following ? 2 : 1;
+      // A faulting continuation cannot leave its upper parcel in the buffer.
+      const bool consumed_continuation = following && (predicted || words[1].fault);
+      const unsigned release = compressed && !upper && !predicted ? 0 : consumed_continuation ? 2 : 1;
       for (unsigned i = 0; i < release; ++i) words.pop_front();
       cursor = predicted_next_pc;
     }

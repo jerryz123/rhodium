@@ -8,8 +8,10 @@ import:
   lib("cores/bpred/ras.rhdl").riscv_compressed_ras_action
   lib("cores/bpred/ras.rhdl").riscv_ras_action
   "packet.rhdl" open
+  "../icache/protocol.rhdl".RV5StageInstructionResp
   "../profile.rhm".RV5StageConfig
   "../../../riscv/isa/c.rhm" open
+  "../../../riscv/isa/xlen.rhm".XLen
   "../../../riscv/model/formats.rhm" as riscv_fields
   "../../../riscv/rtl/instruction-fields.rhdl".instruction_immediate
   lib("rhodium/std/bits.rhdl") open
@@ -23,16 +25,24 @@ fun compressed_jump_offset(instruction :: Bits(16), output_width :: PosInt) :~ B
   )
   immediate.into(SInt(12)).sext(output_width).as_bits()
 
+/* Pairs a returned fetch word with its full S1 prediction for repair and discovery. */
+bundle RV5StageScanWord(xlen :: XLen, hypervisor :: Boolean):
+  pc: Bits(xlen.width)
+  mask: Bits(2)
+  response: RV5StageInstructionResp(hypervisor)
+  prediction: BranchPrediction(xlen)
+
 /* Validates predicted boundaries, refreshes warm RAS targets, and discovers direct jumps/returns.
    Its private partial-word state supports straddles independently of Decode's residual storage. */
 sync_circuit RV5StageFetchScan(core_profile :: RV5StageConfig):
   def hypervisor = core_profile.extensions.hypervisor
   def xlen = core_profile.xlen
   def compressed_enabled = compressed_extensions_enabled(core_profile.extensions.compressed)
-  interface ingress(Valid(RV5StageFetchPacket(xlen, hypervisor)), ~role: consumer)
+  interface ingress(Valid(RV5StageScanWord(xlen, hypervisor)), ~role: consumer)
   interface egress(Valid(RV5StageFetchPacket(xlen, hypervisor)), ~role: producer)
   interface repair(Valid(RV5StageFetchRepair(xlen)), ~role: producer)
   interface fallback(Valid(BranchPrediction(xlen)), ~role: producer)
+  interface speculate(Valid(RasUpdate(xlen)), ~role: producer)
   interface clear(Pulse(), ~role: consumer)
   input ras_head_valid: Bool
   input ras_head: Bits(xlen.width)
@@ -47,9 +57,9 @@ sync_circuit RV5StageFetchScan(core_profile :: RV5StageConfig):
   reg partial_return_repair(~init: Bool(#false))
   reg partial_return_prediction(BranchPrediction(xlen))
   def packet = ingress.bits
-  def packet_clean = !packet.page_fault & !packet.access_fault
-  def lower_half = packet.word[0..16]
-  def upper_half = packet.word[16..32]
+  def packet_clean = !packet.response.page_fault & !packet.response.access_fault
+  def lower_half = packet.response.word[0..16]
+  def upper_half = packet.response.word[16..32]
   def lower_compressed = parcel_is_compressed(compressed_enabled, lower_half)
   def upper_compressed = parcel_is_compressed(compressed_enabled, upper_half)
   def lower_control = fetch_parcel_control(xlen, lower_half, lower_compressed)
@@ -69,7 +79,7 @@ sync_circuit RV5StageFetchScan(core_profile :: RV5StageConfig):
      A retained prefix completes from this packet before a following upper instruction is considered. */
 
   def first_upper = !partial & packet.pc[1].into(Bool)
-  def first_halfword :: Bits(16) = priority_mux(~default: packet.word[0..16]):
+  def first_halfword :: Bits(16) = priority_mux(~default: lower_half):
     partial: partial_halfword
     first_upper: upper_half
 
@@ -80,7 +90,7 @@ sync_circuit RV5StageFetchScan(core_profile :: RV5StageConfig):
     first_upper: upper_control
 
   def first_complete = first_compressed ||| partial ||| !first_upper
-  def first_instruction = mux(partial, packet.word[0..16] ++ partial_halfword, packet.word)
+  def first_instruction = mux(partial, lower_half ++ partial_halfword, packet.response.word)
   def first_action = mux(first_compressed, riscv_compressed_ras_action(xlen, first_halfword), riscv_ras_action(first_instruction))
   def first_valid = mux(!partial & first_upper, packet.mask[1].into(Bool), packet.mask[0].into(Bool))
   def first_pc = mux(partial, packet.pc - Bits(xlen.width)(2), packet.pc)
@@ -137,8 +147,37 @@ sync_circuit RV5StageFetchScan(core_profile :: RV5StageConfig):
   def cut_upper = effective_prediction.valid & !effective_prediction.pc[1].into(Bool) & effective_prediction.compressed
   def cut_after_straddle = continued_return_repair ||| (fallback_prediction.valid & partial & first_fallback)
   def mask = mux(cut_upper ||| cut_after_straddle, Bits(2)(1), packet.mask)
-  def Array(packets, repairs, fallbacks) = ingress |> fork_valid(3)
-  (packets |> filter_valid(_packet => !clear.valid) |> map_valid(packet => packet.updated(~mask: mask, ~prediction: effective_prediction))) |> egress
+  // A BTB hit names a parcel in this word. Only the first fallback on a
+  // continuation can name the preceding prefix.
+  def owner = priority_mux(~default: RV5StagePredictionOwner.Lower):
+    !effective_prediction.valid: RV5StagePredictionOwner.None
+    fallback_prediction.valid & partial & first_fallback: RV5StagePredictionOwner.Previous
+    effective_prediction.pc[1].into(Bool): RV5StagePredictionOwner.Upper
+
+  def Array(packets, repairs, fallbacks, hints) = ingress |> fork_valid(4)
+  (packets |> filter_valid(_packet => !clear.valid) |> map_valid(raw):
+    wire scanned: RV5StageFetchPacket(xlen, hypervisor)
+    scanned.pc <== raw.pc
+    scanned.word <== raw.response.word
+    scanned.mask <== mask
+    scanned.page_fault <== raw.response.page_fault
+    scanned.access_fault <== raw.response.access_fault
+    scanned.prediction <== RV5StagePacketPrediction(xlen):
+      owner: owner
+      target: effective_prediction.target
+      ras_action: effective_prediction.ras_action
+
+    if hypervisor
+    | scanned.guest <== raw.response.guest
+    | #void
+
+    scanned
+  ) |> egress
+  (hints |> filter_valid(_packet => !clear.valid & packet_clean & effective_prediction.valid & (effective_prediction.ras_action =/= RasAction.None))
+    |> map_valid(_packet => RasUpdate(xlen)):
+         action: effective_prediction.ras_action
+         return_address: effective_prediction.pc + mux(effective_prediction.compressed, Bits(xlen.width)(2), Bits(xlen.width)(4))
+  ) |> speculate
   (fallbacks |> filter_valid(_packet => fallback_valid & packet_clean & !clear.valid) |> map_valid(_packet => redirect_prediction)) |> fallback
   (repairs |> filter_valid(_packet => !clear.valid & bad_prediction) |> map_valid(packet => RV5StageFetchRepair(xlen)):
     pc: packet.pc.align_down(4) + Bits(xlen.width)(4)
@@ -155,10 +194,11 @@ sync_circuit RV5StageFetchScan(core_profile :: RV5StageConfig):
     partial_return_repair <== Bool(#false)
   elsewhen (ingress.valid):
     partial <== mask[1].into(Bool) & upper_start & !upper_compressed & packet_clean
-    partial_halfword <== packet.word[16..32]
+    partial_halfword <== upper_half
     partial_prediction_seen <== packet.prediction.valid
     partial_return_repair <== return_repair & return_prefix
     partial_return_prediction <== refreshed_prediction
 
 export:
+  RV5StageScanWord
   RV5StageFetchScan
