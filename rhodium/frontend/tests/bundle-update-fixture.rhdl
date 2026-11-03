@@ -21,11 +21,38 @@ bundle UpdatePayload(width :: PosInt, tagged :: Boolean):
 
   state: UpdateState
 
+  method active(payload) :: Bool:
+    payload.state.active()
+
+  method identity(payload) :: UpdatePayload(width, tagged):
+    payload
+
+  method plus(payload, other :: Bits(width), ~bias: bias :: Nat = width) :: Bits(width):
+    payload.data + other + Bits(width)(bias)
+
+  method tag_value(payload) :: Bits(4):
+    if tagged | payload.tag | Bits(4)(0)
+
+  method widened(payload) :: Bits(width + 1):
+    payload.data.zext(width + 1)
+
+  method nonzero(payload):
+    payload.data.any()
+
 bundle UpdateEnvelope():
   payload: UpdatePayload(8, #true)
   valid: Bool
   method active(envelope) :: Bool:
     envelope.valid & envelope.payload.state.active()
+
+bundle UpdateBox(Tag :: DataType):
+  tag: Tag
+  data: Bits(8)
+
+  method with_tag(box, To :: DataType, tag :: Hardware.of(To)) :: UpdateBox(To):
+    UpdateBox(To):
+      tag: tag
+      data: box.data
 
 def Structural = RecordType([RecordField("data", Bits(8)), RecordField("tag", Bits(4))])
 def initial = UpdateEnvelope():
@@ -69,6 +96,12 @@ sync_circuit BundleUpdateFixture():
   output inferred: UpdateEnvelope()
   output remembered: UpdateEnvelope()
   output observed: UpdateEnvelope()
+  output payload_methods: Vec(17, Bool)
+  output parameter_values: Vec(6, Bits(8))
+  output widened: Bits(9)
+  output retagged: UpdateBox(UpdatePayload(8, #true))
+  output retagged_active: Bool
+  output retagged_state: Bool
 
   wire connected: UpdateEnvelope()
   connected <== source
@@ -76,6 +109,7 @@ sync_circuit BundleUpdateFixture():
   saved <== source.updated(~valid: Bool(#true))
   reg inferred_saved(~init: initial)
   inferred_saved <== source
+  reg inferred_next(~next: source)
   mem storage(2, UpdateEnvelope())
   storage.write(Bits(1)(0), source, ~enable: Bool(#true))
   inst echo(UpdateEcho())
@@ -114,6 +148,59 @@ sync_circuit BundleUpdateFixture():
     echo.result.updated(~valid: Bool(#true)).payload.state.active(),
     source.as_bits().into(UpdateEnvelope()).updated(~valid: Bool(#true)).active()
   )
+
+  def bound = source.payload.active
+  def bound_plus = source.payload.plus
+  def bound_identity = source.payload.identity
+  def mutable receiver_evaluations = 0
+  fun counted_receiver() :: UpdatePayload(8, #true):
+    receiver_evaluations := receiver_evaluations + 1
+    source.payload
+
+  def counted = counted_receiver().active
+  def narrow = UpdatePayload(4, #false):
+    data: data[0..4]
+    state: source.payload.state
+
+  parameter_values <== vec(
+    source.payload.plus(data),
+    bound_plus(data, ~bias: 1),
+    narrow.plus(data[4..8]).zext(8),
+    narrow.tag_value().zext(8),
+    source.payload.tag_value().zext(8),
+    source.payload.identity().data
+  )
+  widened <== source.payload.widened()
+  def boxed = UpdateBox(Bits(4)):
+    tag: tag
+    data: data
+
+  def retag = boxed.with_tag
+  retagged <== retag(UpdatePayload(8, #true), source.payload)
+  retagged_active <== retag(UpdatePayload(8, #true), source.payload).tag.active()
+  retagged_state <== boxed.with_tag(UpdateState, source.payload.state).tag.active()
+  payload_methods <== vec(
+    source.payload.active(),
+    connected.payload.active(),
+    saved.payload.active(),
+    inferred_saved.payload.active(),
+    selected.payload.active(),
+    choices[0].payload.active(),
+    storage[Bits(1)(0)].payload.active(),
+    storage.read(Bits(1)(0)).payload.active(),
+    echo.result.payload.active(),
+    source.payload.as_bits().into(UpdatePayload(8, #true)).active(),
+    bound(),
+    source.payload.identity().active(),
+    source.payload.nonzero(),
+    counted(),
+    counted(),
+    inferred_next.payload.active(),
+    bound_identity().active()
+  )
+
+  unless receiver_evaluations == 1
+  | error("method extraction must evaluate its receiver exactly once")
 
 circuit InvalidRecordUpdate(kind :: String):
   input source: UpdatePayload(8, #false)

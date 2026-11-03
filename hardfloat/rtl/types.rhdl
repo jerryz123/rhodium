@@ -166,6 +166,10 @@ bundle RawFloat(exponent_width :: PosInt, significand_width :: PosInt):
   signed_exponent: SInt(exponent_width + 2)
   significand: Bits(significand_width + 1)
 
+  /* Detects a signaling NaN from a raw value's NaN tag and clear quiet bit. */
+  method is_signaling_nan(raw) :: Bool:
+    raw.is_nan & !raw.significand[significand_width - 2].into(Bool)
+
 /* Constructs a floating-point status bundle with every exception deasserted. */
 fun no_exception_flags() :~ ExceptionFlags():
   ExceptionFlags():

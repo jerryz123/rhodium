@@ -343,8 +343,14 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     Vector(wb_vector_multiply_tag)
 
   inst wb_multiply_execution(RV5StageMultiplyService(core_profile.multiplier, width, MultiplyOwner(), ~scheduled_writeback: #true))
-  def wb_scalar_multiply_request = wb_multiplier.execution_request |> map_flow(request => integer_request_with_tag(MultiplierRequest(width), RV5StageMultiplyTag(), MultiplyOwner(), request, MultiplyOwner().Scalar(request.tag)))
-  def wb_vector_multiply_request = wb_vector_multiply_request_link.right |> map_flow(request => integer_request_with_tag(MultiplierRequest(width), wb_vector_multiply_tag, MultiplyOwner(), request, MultiplyOwner().Vector(request.tag)))
+  def wb_scalar_multiply_request = wb_multiplier.execution_request |> map_flow(payload):
+    def request :: IntegerExecutionRequest(MultiplierRequest(width), RV5StageMultiplyTag()) = payload
+    request.with_tag(MultiplyOwner(), MultiplyOwner().Scalar(request.tag))
+
+  def wb_vector_multiply_request = wb_vector_multiply_request_link.right |> map_flow(payload):
+    def request :: IntegerExecutionRequest(MultiplierRequest(width), wb_vector_multiply_tag) = payload
+    request.with_tag(MultiplyOwner(), MultiplyOwner().Vector(request.tag))
+
   wire id_multiply_admitted: Bool
   wire id_multiply_available: Bool
   if wb_pipelined_multiplier
@@ -374,8 +380,12 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   (
     wb_multiply_execution.result |> demux_flow(2, ~stable: #true, result => result.tag.is(MultiplyOwner().Vector).into(Bool))
       |> parallel(
-           map_flow(~stable: #true, result => integer_result_with_tag(Bits(width * 2), MultiplyOwner(), RV5StageMultiplyTag(), result, result.tag.view(MultiplyOwner().Scalar).payload)),
-           map_flow(~stable: #true, result => integer_result_with_tag(Bits(width * 2), MultiplyOwner(), wb_vector_multiply_tag, result, result.tag.view(MultiplyOwner().Vector).payload))
+           (map_flow(~stable: #true, payload):
+              def result :: IntegerExecutionResult(Bits(width * 2), MultiplyOwner()) = payload
+              result.with_tag(RV5StageMultiplyTag(), result.tag.view(MultiplyOwner().Scalar).payload)),
+           (map_flow(~stable: #true, payload):
+              def result :: IntegerExecutionResult(Bits(width * 2), MultiplyOwner()) = payload
+              result.with_tag(wb_vector_multiply_tag, result.tag.view(MultiplyOwner().Vector).payload))
          )
   ) <=> Array(wb_multiplier.execution_result, wb_vector_multiply_result_link.left)
 
@@ -398,14 +408,22 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   reg id_vector_divide_turn(~init: Bool(#false))
   def wb_vector_divide_request = wb_vector_divide_request_link.right |> gate_flow(!id_divide_reserved)
   Array(
-    wb_divider.execution_request |> map_flow(request => integer_request_with_tag(DividerRequest(width), RV5StageDivideTag(), DivideOwner(), request, DivideOwner().Scalar(request.tag))),
-    wb_vector_divide_request |> map_flow(request => integer_request_with_tag(DividerRequest(width), wb_vector_divide_tag, DivideOwner(), request, DivideOwner().Vector(request.tag)))
+    (wb_divider.execution_request |> map_flow(payload):
+       def request :: IntegerExecutionRequest(DividerRequest(width), RV5StageDivideTag()) = payload
+       request.with_tag(DivideOwner(), DivideOwner().Scalar(request.tag))),
+    (wb_vector_divide_request |> map_flow(payload):
+       def request :: IntegerExecutionRequest(DividerRequest(width), wb_vector_divide_tag) = payload
+       request.with_tag(DivideOwner(), DivideOwner().Vector(request.tag)))
   ) |> rr_arbiter() |> wb_divide_execution.request
   (
     wb_divide_execution.result |> demux_flow(2, ~stable: #true, result => result.tag.is(DivideOwner().Vector).into(Bool))
       |> parallel(
-           map_flow(~stable: #true, result => integer_result_with_tag(DividerResponse(width), DivideOwner(), RV5StageDivideTag(), result, result.tag.view(DivideOwner().Scalar).payload)),
-           map_flow(~stable: #true, result => integer_result_with_tag(DividerResponse(width), DivideOwner(), wb_vector_divide_tag, result, result.tag.view(DivideOwner().Vector).payload))
+           (map_flow(~stable: #true, payload):
+              def result :: IntegerExecutionResult(DividerResponse(width), DivideOwner()) = payload
+              result.with_tag(RV5StageDivideTag(), result.tag.view(DivideOwner().Scalar).payload)),
+           (map_flow(~stable: #true, payload):
+              def result :: IntegerExecutionResult(DividerResponse(width), DivideOwner()) = payload
+              result.with_tag(wb_vector_divide_tag, result.tag.view(DivideOwner().Vector).payload))
          )
   ) <=> Array(wb_divider.execution_result, wb_vector_divide_result_link.left)
 

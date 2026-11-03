@@ -120,11 +120,6 @@ fun to_ieee(value :: RecFloat) :~ IEEEFloat(value.type.format):
   )
   concat(raw.sign, exponent, fraction).into(IEEEFloat(format))
 
-/* Detects a signaling NaN from a raw value's NaN tag and clear quiet bit. */
-fun is_signaling_nan(raw :: Hardware.packable) :~ Bool:
-  def significand_width = raw.significand.type.packed_width() - 1
-  raw.is_nan & !raw.significand[significand_width - 2].into(Bool)
-
 /* Constructs the format's positive canonical quiet NaN in recoded form. */
 fun canonical_recoded_nan(format :: FloatFormat) :~ RecFloat(format):
   concat(Bits(1)(0), Bits(format.exponent_width + 1)(7 << (format.exponent_width - 2)), Bits(format.significand_width - 1)(1 << (format.significand_width - 2))).into(RecFloat(format))
@@ -133,5 +128,4 @@ export:
   to_raw
   to_recoded
   to_ieee
-  is_signaling_nan
   canonical_recoded_nan

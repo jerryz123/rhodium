@@ -31,19 +31,6 @@ bundle CHIDataReceipt():
   method complete(receipt) :: Bool:
     receipt.received_ids === receipt.expected_ids
 
-/*
- * Size and NumReq share REQ storage. These accessors expose both views so a
- * caller can select the one appropriate for the request opcode.
- */
-fun chi_req_size(p :: CHIFlitParams,
-                 request :: CHIReqFlit(p)) :~ CHITransferSize:
-  request.size_or_num_req[0..3].into(CHITransferSize)
-
-/* Return the full six-bit NumReq view without truncating the overlapping REQ field. */
-fun chi_req_num_req(p :: CHIFlitParams,
-                    request :: CHIReqFlit(p)) :~ Bits(6):
-  request.size_or_num_req
-
 /* Reject reserved transfer Size encodings beyond the supported one- through 64-byte sizes. */
 fun chi_size_valid(size :: CHITransferSize) :~ Bool:
   enum_valid(size)
@@ -130,8 +117,6 @@ fun chi_data_address(address :: Bits, data_id :: Bits(2), p :: CHIFlitParams) :~
 
 export:
   CHIDataReceipt
-  chi_req_size
-  chi_req_num_req
   chi_size_valid
   chi_data_beats_minus_one
   chi_data_id_valid

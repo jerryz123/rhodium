@@ -48,7 +48,7 @@ set with `chi_transfer_data_ids` so address offsets and DAT width remain explici
 
 ```rhombus
 def receipt = CHIDataReceipt():
-  expected_ids: chi_transfer_data_ids(request.address, chi_req_size(p, request), p)
+  expected_ids: chi_transfer_data_ids(request.address, request.size(), p)
   received_ids: received_data_ids
 
 def next_receipt = receipt.record(data.data_id)

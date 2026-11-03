@@ -40,6 +40,24 @@ int main() {
                           (current_bit << 4) | ((choose & current_bit) << 3) |
                           (old_bit << 2) | (current_bit << 1) | current_bit;
       CHECK(pack_bits(methods) == expected);
+      unsigned current = value >> 6;
+      CHECK(parameter_values[0] == ((current + data + 8) & 255));
+      CHECK(parameter_values[1] == ((current + data + 1) & 255));
+      CHECK(parameter_values[2] == (((data & 15) + (data >> 4) + 4) & 15));
+      CHECK(parameter_values[3] == 0 && parameter_values[4] == (value >> 2 & 15));
+      CHECK(parameter_values[5] == current && widened == current);
+      CHECK(retagged.pdata == data);
+      CHECK(retagged.ptag.pdata == current);
+      CHECK(retagged.ptag.ptag == (value >> 2 & 15));
+      CHECK(retagged.ptag.pstate == current_bit);
+      CHECK(retagged_active == current_bit && retagged_state == current_bit);
+      const unsigned expected_payloads[] = {
+          current_bit, current_bit, old_bit, old_bit,
+          choose ? current_bit : 0, current_bit, old_bit, old_bit,
+          current_bit, current_bit, current_bit, current_bit,
+          current != 0, current_bit, current_bit, old_bit, current_bit};
+      for (unsigned lane = 0; lane < 17; ++lane)
+        CHECK(payload_methods[lane] == expected_payloads[lane]);
       tick_model();
       previous = value;
     }

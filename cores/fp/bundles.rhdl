@@ -22,6 +22,21 @@ bundle FpExecutionRequest(xlen :: XLen, profile :: FloatingPointProfile, Tag :: 
   immediate_index: Bits(5)
   rounding_mode: RoundingMode
 
+  /* Replaces request ownership metadata without changing numerical controls or operands. */
+  method with_tag(request, To :: DataType, tag :: Hardware.of(To)) :: FpExecutionRequest(xlen, profile, To):
+    FpExecutionRequest(xlen, profile, To):
+      tag: tag
+      control: request.control
+      left: request.left
+      left_precision: request.left_precision
+      right: request.right
+      right_precision: request.right_precision
+      third: request.third
+      third_precision: request.third_precision
+      integer_operand: request.integer_operand
+      immediate_index: request.immediate_index
+      rounding_mode: request.rounding_mode
+
 /* Returns integer and FP values plus exception flags without interpreting the caller's tag. */
 bundle FpExecutionResult(xlen :: XLen, profile :: FloatingPointProfile, Tag :: DataType):
   tag: Tag
@@ -30,32 +45,15 @@ bundle FpExecutionResult(xlen :: XLen, profile :: FloatingPointProfile, Tag :: D
   exception_flags: Bits(5)
   exception_flags_valid: Bool
 
-/* Replaces request ownership metadata without changing numerical controls or operands. */
-fun fp_request_with_tag(xlen :: XLen, profile :: FloatingPointProfile, From :: DataType, To :: DataType, request :: FpExecutionRequest(xlen, profile, From), tag :: Hardware.of(To)) :~ FpExecutionRequest(xlen, profile, To):
-  FpExecutionRequest(xlen, profile, To):
-    tag: tag
-    control: request.control
-    left: request.left
-    left_precision: request.left_precision
-    right: request.right
-    right_precision: request.right_precision
-    third: request.third
-    third_precision: request.third_precision
-    integer_operand: request.integer_operand
-    immediate_index: request.immediate_index
-    rounding_mode: request.rounding_mode
-
-/* Replaces result ownership metadata without changing values or exception flags. */
-fun fp_result_with_tag(xlen :: XLen, profile :: FloatingPointProfile, From :: DataType, To :: DataType, result :: FpExecutionResult(xlen, profile, From), tag :: Hardware.of(To)) :~ FpExecutionResult(xlen, profile, To):
-  FpExecutionResult(xlen, profile, To):
-    tag: tag
-    integer_value: result.integer_value
-    fp_value: result.fp_value
-    exception_flags: result.exception_flags
-    exception_flags_valid: result.exception_flags_valid
+  /* Replaces result ownership metadata without changing values or exception flags. */
+  method with_tag(result, To :: DataType, tag :: Hardware.of(To)) :: FpExecutionResult(xlen, profile, To):
+    FpExecutionResult(xlen, profile, To):
+      tag: tag
+      integer_value: result.integer_value
+      fp_value: result.fp_value
+      exception_flags: result.exception_flags
+      exception_flags_valid: result.exception_flags_valid
 
 export:
   FpExecutionRequest
   FpExecutionResult
-  fp_request_with_tag
-  fp_result_with_tag

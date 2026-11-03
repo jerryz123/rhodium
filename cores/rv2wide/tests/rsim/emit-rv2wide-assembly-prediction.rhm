@@ -8,4 +8,5 @@ import:
   "../../instruction-assembler.rhdl".RV2WideInstructionAssembler
 
 def program = elaborate(RV2WideInstructionAssembler(RV2WideConfig(~floating_point: FloatingPointProfile.D)))
-export program
+def guest_program = elaborate(RV2WideInstructionAssembler(RV2WideConfig(~floating_point: FloatingPointProfile.D, ~hypervisor: #true)))
+export program guest_program

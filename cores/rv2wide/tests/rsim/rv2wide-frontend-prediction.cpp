@@ -126,7 +126,7 @@ void observe() {
         if (scenario != 16 && insn.ppc == branch_pc && accepted_cycle < 0) {
           accepted_cycle = cycles;
           CHECK(insn.pprediction.pvalid &&
-                insn.pprediction.ptarget == target_pc && !insn.pfault.pvalid &&
+                insn.pprediction.ptarget == target_pc && insn.pfault.pkind == 0 &&
                 int(instructions_out.pbits.pcount) == lane + 1);
           CHECK(memory_out.ps1_ukill == (scenario != 11 && scenario < 14) &&
                 !memory_out.pflush);

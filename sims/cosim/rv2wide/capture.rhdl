@@ -53,6 +53,7 @@ fun rv2wide_cosim_adapter(configuration :: Map, types :: Map, parameters :: Map,
 /* Reports pre-edge facts only; all instruction identities and completion retention live in C++. */
 sync_circuit RV2WideCosimObserver(profile :: RV2WideConfig, tap_types :: Map, instance :: Nat, timing :: FpExecutionTiming):
   def xlen = profile.xlen
+  def hypervisor = profile.hypervisor
   def vectors = vector_profile_enabled(profile.vector)
   def taps = for Map (name in tap_types.keys(#true).filter(~keep: fun (name): (!name.starts_with("vector_")) && name != "clock" && name != "reset")):
     values(name, observer_input(name, tap_types[name]))
@@ -66,8 +67,8 @@ sync_circuit RV2WideCosimObserver(profile :: RV2WideConfig, tap_types :: Map, in
 
   /* Standalone core observations have no sibling physical-memory provenance. */
   fun mmu_lane(name :: String) :~ Bits(64): if tap_types.has_key(name) | tap_lane(name) | Bits(64)(0)
-  def tokens :: Vec(2, RV2WideResult(xlen)) = taps["wb_tokens"]
-  def retirement :: Vec(2, RV2WideRetirement(xlen)) = taps["wb_retirement"]
+  def tokens :: Vec(2, RV2WideResult(xlen, hypervisor)) = taps["wb_tokens"]
+  def retirement :: Vec(2, RV2WideRetirement(xlen, hypervisor)) = taps["wb_retirement"]
   def retired :: Vec(2, Bool) = taps["wb_retired"]
   def writes :: Vec(2, Bool) = taps["wb_writes"]
   def split_capture :: Bool = taps["wb_split_capture"]
@@ -91,8 +92,8 @@ sync_circuit RV2WideCosimObserver(profile :: RV2WideConfig, tap_types :: Map, in
   def trap_target :: RiscvTrapTarget = taps["csr_trap_target"]
   def trap_cause :: Bits(xlen.width) = taps["csr_trap_cause"]
   for (index in 0..3):
-    def token :: RV2WideBoundaryInstruction(xlen) = if index < 2 | rv2wide_boundary_instruction(xlen, tokens[index]) | boundary_instruction
-    def result :: RV2WideRetirement(xlen) = if index < 2 | retirement[index] | literal(RV2WideRetirement(xlen), 0)
+    def token :: RV2WideBoundaryInstruction(xlen) = if index < 2 | tokens[index].boundary_instruction() | boundary_instruction
+    def result :: RV2WideRetirement(xlen, hypervisor) = if index < 2 | retirement[index] | literal(RV2WideRetirement(xlen, hypervisor), 0)
     def deferred = if index < 2 | result.deferred | Bool(#false)
     def write = if index < 2 | mux(deferred, result.write, writes[index]) | Bool(#false)
     def next_pc = mux(mret ||| sret, taps["csr_redirect"], token.next_pc)

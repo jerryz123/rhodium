@@ -49,8 +49,6 @@ export:
   CHIRspFlit
   CHISnpFlit
   CHIDatFlit
-  chi_req_size
-  chi_req_num_req
   chi_size_valid
   chi_data_beats_minus_one
   chi_data_id_valid

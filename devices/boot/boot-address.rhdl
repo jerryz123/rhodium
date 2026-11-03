@@ -89,7 +89,7 @@ sync_circuit CHIBootAddressRegister(config :: BootAddressConfig):
   inst transaction(CHISingleBeatSubordinate(p, "boot_address"))
   port <=> transaction.port
   transaction.node_id <== identity.node_id
-  def request = transaction.request
+  def request :: CHIReqFlit(p) = transaction.request
 
   def incoming = port.req.bits
   def relative = incoming.address - identity.base_address
@@ -103,7 +103,7 @@ sync_circuit CHIBootAddressRegister(config :: BootAddressConfig):
   // The register occupies the first eight byte lanes of its aligned window.
   // Read data is captured on acceptance and remains stable under backpressure.
   def incoming_data = port.dat.request.bits
-  def requested_mask = transfer_byte_mask(request.address[0..lane_width], chi_req_size(p, request).as_bits(), p.data_bytes).as_bits()
+  def requested_mask = transfer_byte_mask(request.address[0..lane_width], request.size().as_bits(), p.data_bytes).as_bits()
   def full_write = request.opcode === CHIReqOpcode.WriteNoSnpFull
   def mask_supported = (incoming_data.byte_enable & !requested_mask) === Bits(p.data_bytes)(0)
   transaction.write_supported <== (incoming_data.data_id === chi_line_data_id(request.address, p)) & mask_supported & (!full_write ||| (incoming_data.byte_enable === requested_mask))

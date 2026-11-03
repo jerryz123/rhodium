@@ -60,7 +60,7 @@ fun chi_initial_single_flit_size(size :: CHITransferSize,
 /* Assert the delivered non-coherent request framing and inactive ordering/tag fields. */
 fun chi_initial_request_fields(p :: CHIFlitParams, request :: CHIReqFlit(p), label_prefix :: String):
   assert(!request.multi_req, label_prefix ++ "_single_request")
-  assert(chi_size_valid(chi_req_size(p, request)), label_prefix ++ "_size_valid")
+  assert(chi_size_valid(request.size()), label_prefix ++ "_size_valid")
   assert(request.order === CHIOrder.NoOrder, label_prefix ++ "_order_none")
   assert(request.pcrd_type === Bits(4)(0), label_prefix ++ "_pcrd_type_zero")
   assert(!request.exp_comp_ack, label_prefix ++ "_no_comp_ack")
@@ -198,7 +198,7 @@ fun requester_transaction_monitor(p :: CHIFlitParams,
       dbid: Bits(12)(0)
       receipt:
         CHIDataReceipt():
-          expected_ids: chi_transfer_data_ids(req.address, chi_req_size(p, req), p)
+          expected_ids: chi_transfer_data_ids(req.address, req.size(), p)
           received_ids: Mask(4)(0)
 
   def allocate = req_event & req_opcode.supports_initial_transaction() & (!duplicate_txn & allocation_available)
@@ -349,7 +349,7 @@ fun subordinate_transaction_monitor(p :: CHIFlitParams,
       dbid: Bits(12)(0)
       receipt:
         CHIDataReceipt():
-          expected_ids: chi_transfer_data_ids(req.address, chi_req_size(p, req), p)
+          expected_ids: chi_transfer_data_ids(req.address, req.size(), p)
           received_ids: Mask(4)(0)
 
   def allocate = req_event & req_opcode.supports_initial_transaction() & (!duplicate_txn & allocation_available)
@@ -541,7 +541,7 @@ fun home_transaction_monitor(p :: CHIFlitParams,
             subordinate_dbid: Bits(12)(0)
             receipt:
               CHIDataReceipt():
-                expected_ids: chi_transfer_data_ids(upstream_request.address, chi_req_size(p, upstream_request), p)
+                expected_ids: chi_transfer_data_ids(upstream_request.address, upstream_request.size(), p)
                 received_ids: Mask(4)(0)
 
         def after_dbid = entry.updated(~phase: CHIInitialTransactionPhase.WriteAwaitData, ~subordinate_dbid: downstream_response.dbid_or_group_id)

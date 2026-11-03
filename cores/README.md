@@ -58,6 +58,9 @@ Valid input/output with no completion storage. `IterativeMultiplyService` and
 writeback, where every result must be consumed on its return cycle.
 Callers retain launch arbitration, scalar authorization, result projection,
 and destination/write-port scheduling.
+The request and result bundles in [`integer-execution.rhdl`](integer-execution.rhdl)
+provide `.with_tag(To, tag)` to replace ownership without changing operands or
+values. The new tag's hardware type is checked against `To`.
 
 [`integer-format.rhdl`](integer-format.rhdl) provides combinational scalar
 M-extension formatting: `integer_word_operand` normalizes signed/unsigned RV64

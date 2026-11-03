@@ -13,7 +13,6 @@ import:
   lib("cores/vector-layout.rhm").vector_word_bytes
   lib("rhodium/std/bits.rhdl").Pow2Int
   "bundles.rhdl" open
-  "geometry.rhdl".vector_zero_stride_load
   "geometry.rhdl".vector_packed_multiply
   "../simd-multiplier.rhdl" open
   "instructions.rhdl" open
@@ -185,7 +184,8 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def memory_accepted = element_memory_decision.valid & (element_memory_decision.bits.disposition === VectorDisposition.Authorized)
   sequencer.sequencing_done |> sequencing_done
   wire issue_tail: Bool
-  def current_detached = sequencer.retained.descriptor.precertified & !vector_zero_stride_load(xlen, sequencer.retained.descriptor)
+  def current_descriptor :: VectorDescriptor(xlen) = sequencer.retained.descriptor
+  def current_detached = current_descriptor.precertified & !current_descriptor.zero_stride_load()
   def serialized_done = sequencer.sequencing_done.valid & ((!current_detached & instructions.memory[current_owner]) ||| instructions.serial[current_owner] ||| cancel.valid)
   issue_done.valid <== issue_tail ||| serialized_done
   def finished_owner = mux(issue_tail, operand_fetch.issue.bits.context.owner, current_owner)
@@ -197,8 +197,9 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
      Both memory geometries follow older scheduled reads: older compute beats
      issue before a younger memory beat can reach a replay decision. */
 
-  def splat_request = vector_zero_stride_load(xlen, request.bits.descriptor) & !packed_memory
-  def stateful_request = request.bits.descriptor.control.reduction ||| (request.bits.descriptor.control.scan & !request.bits.descriptor.control.scan_control.index) ||| request.bits.descriptor.control.compress
+  def requested_descriptor :: VectorDescriptor(xlen) = request.bits.descriptor
+  def splat_request = requested_descriptor.zero_stride_load() & !packed_memory
+  def stateful_request = requested_descriptor.control.reduction ||| (requested_descriptor.control.scan & !requested_descriptor.control.scan_control.index) ||| requested_descriptor.control.compress
   available <== sequencer.request.ready & instructions.available & (!splat_request ||| !splat.active) & (!stateful_request ||| !operand_fetch.active)
   def admitted = request |> gate_flow(available)
   describe_interface_retained_storage(admitted.fire(), sequencer.sequencing_done.valid, sequencer.active, ~name: "sequencer")
@@ -259,7 +260,8 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def s1_packed_load = s1_packed & !s1_control.store
   def s1_descriptor = sequencer.sequence_request.bits.context.instruction.descriptor
   def s1_segmented = s1_control.memory_nf.any() & !s1_control.memory_mode.is_one_of(VectorMemoryMode.WholeRegister, VectorMemoryMode.Mask)
-  def s1_direct_packed = s1_packed & !s1_control.store & !s1_segmented & vector_packed_direct_row(xlen, vlen, sequencer.sequence_request.bits.context.packed_layout, sequencer.sequence_request.bits.context.packed_mask)
+  def s1_packed_layout :: VectorPackedLayout(xlen, vlen) = sequencer.sequence_request.bits.context.packed_layout
+  def s1_direct_packed = s1_packed & !s1_control.store & !s1_segmented & s1_packed_layout.direct_row(sequencer.sequence_request.bits.context.packed_mask)
   def s1_local_result = !s1_service ||| s1_control.memory ||| s1_descriptor.masked ||| sequencer.sequence_request.bits.context.beat_control.empty
   def s1_simd_multiply = vector_packed_multiply(xlen, s1_control, s1_descriptor.state.vtype[3..5], packed_multiply)
   def s1_local_write = !s1_simd_multiply & !s1_packed & !(s1_control.memory & s1_descriptor.precertified) & s1_local_result
@@ -634,7 +636,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
     packed_layout: dont_care(VectorPackedLayout(xlen, vlen))
 
   def feedback_matches_current = (feedback_owner === current_owner) & (instructions.memory[feedback_owner] ||| instructions.serial[feedback_owner])
-  def current_needs_feedback = !sequencer.retained.descriptor.precertified ||| vector_zero_stride_load(xlen, sequencer.retained.descriptor)
+  def current_needs_feedback = !current_descriptor.precertified ||| current_descriptor.zero_stride_load()
   def relevant_memory_feedback = memory_feedback |> filter_valid(_event => feedback_matches_current & current_needs_feedback)
   def splat_skip_feedback = splat_skip |> map_valid(operation => VectorFeedback(xlen, vlen, Bits(xlen.width))):
     context: operation.context.pc

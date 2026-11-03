@@ -71,7 +71,14 @@ sync_circuit RV5StageFrontend(core_profile :: RV5StageConfig, ~btb_entries: btb_
   scan.ras_head_valid <== source.ras_head_valid
   scan.ras_head <== source.ras_head
   def queued = queue.egress |> filter_flow(_packet => !recovery)
-  (if compact | queued |> map_flow(packet => expand_fetch_packet(pc_width, packet)) | queued) |> packets
+  def expanded:
+    if compact
+    | queued |> map_flow(payload):
+        def packet :: RV5StageCompactFetchPacket(pc_width) = payload
+        packet.expanded()
+    | queued
+
+  expanded |> packets
   def accepted_fallback = scan.fallback |> filter_valid(_prediction => !command & queue.ingress.ready)
   accepted_fallback |> late_return.ingress
   def Array(fallback_target, fallback_discovery) = fallback_redirect |> fork_valid(2)

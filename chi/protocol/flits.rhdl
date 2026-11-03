@@ -358,6 +358,17 @@ bundle CHIReqFlit(p :: CHIFlitParams):
   tgt_id: Bits(p.node_id_width)
   qos: Bits(4)
 
+  /*
+   * Size and NumReq share REQ storage. These accessors expose both views so a
+   * caller can select the one appropriate for the request opcode.
+   */
+  method size(request) :: CHITransferSize:
+    request.size_or_num_req[0..3].into(CHITransferSize)
+
+  /* Return the full six-bit NumReq view without truncating the overlapping REQ field. */
+  method num_req(request) :: Bits(6):
+    request.size_or_num_req
+
 /* Pack an exact RSP payload, retaining the opcode-dependent shared wire fields. */
 bundle CHIRspFlit(p :: CHIFlitParams):
   cache_line_id: Bits(6)

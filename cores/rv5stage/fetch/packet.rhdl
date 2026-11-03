@@ -58,20 +58,20 @@ bundle RV5StageCompactFetchPacket(pc_width :: PosInt):
   word: Bits(32)
   mask: Bits(2)
 
-/* Restores Decode's full-width PC without an adder. A fault cannot predict,
-   but its original instruction word and exact faulting address survive. */
-fun expand_fetch_packet(pc_width :: PosInt, packet :: RV5StageCompactFetchPacket(pc_width)) :~ RV5StageFetchPacket(XLen.X64, #false):
-  def Outcome = RV5StageQueueOutcome(pc_width)
-  def fault = packet.outcome.is(Outcome.Fault).into(Bool)
-  def details = packet.outcome.view(Outcome.Fault).payload
-  def normal_pc = packet.pc_low.into(SInt(pc_width)).sext(64).as_bits()
-  RV5StageFetchPacket(XLen.X64, #false):
-    pc: mux(fault, details.pc_high ++ packet.pc_low, normal_pc)
-    word: packet.word
-    mask: packet.mask
-    page_fault: fault & details.page_fault
-    access_fault: fault & details.access_fault
-    prediction: mux(fault, literal(RV5StagePacketPrediction(XLen.X64), 0), packet.outcome.view(Outcome.Success).payload)
+  /* Restores Decode's full-width PC without an adder. A fault cannot predict,
+     but its original instruction word and exact faulting address survive. */
+  method expanded(packet) :: RV5StageFetchPacket(XLen.X64, #false):
+    def Outcome = RV5StageQueueOutcome(pc_width)
+    def fault = packet.outcome.is(Outcome.Fault).into(Bool)
+    def details = packet.outcome.view(Outcome.Fault).payload
+    def normal_pc = packet.pc_low.into(SInt(pc_width)).sext(64).as_bits()
+    RV5StageFetchPacket(XLen.X64, #false):
+      pc: mux(fault, details.pc_high ++ packet.pc_low, normal_pc)
+      word: packet.word
+      mask: packet.mask
+      page_fault: fault & details.page_fault
+      access_fault: fault & details.access_fault
+      prediction: mux(fault, literal(RV5StagePacketPrediction(XLen.X64), 0), packet.outcome.view(Outcome.Success).payload)
 
 /* Packs one scanner occurrence independently, including a fault on a speculative
    or noncanonical target whose upper bits cannot be recovered by sign extension. */
@@ -95,5 +95,4 @@ export:
   RV5StageFetchPacket
   RV5StageCompactFetchPacket
   compact_fetch_packet
-  expand_fetch_packet
   RV5StageFetchRepair

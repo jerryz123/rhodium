@@ -16,7 +16,7 @@ bundle RV2WideWindowEntry(xlen :: XLen, hypervisor :: Boolean):
   raw_instruction: Bits(32)
   step: RV2WidePcStep(xlen)
   compressed_illegal: Bool
-  fault: RV2WidePackedFetchFault(xlen, hypervisor)
+  fault: RV2WideFetchFault(xlen, hypervisor)
   predicted: Bool
   target: Bits(xlen.width)
   predicted_compressed: Bool
@@ -24,15 +24,34 @@ bundle RV2WideWindowEntry(xlen :: XLen, hypervisor :: Boolean):
   speculated_ras_action: RasAction
   direction: TournamentPrediction(10)
 
+  /* Expands only the two visible head entries; compaction moves the narrow records. */
+  method expanded(entry) :: RV2WideInstruction(xlen, hypervisor):
+    RV2WideInstruction(xlen, hypervisor):
+      pc: entry.pc
+      instruction: entry.instruction
+      raw_instruction: entry.raw_instruction
+      sequential_pc: entry.step.apply(entry.pc)
+      compressed_illegal: entry.compressed_illegal
+      fault: entry.fault
+      prediction:
+        BranchPrediction(xlen):
+          valid: entry.predicted
+          pc: entry.pc
+          target: entry.target
+          compressed: entry.predicted_compressed
+          ras_action: entry.predicted_ras_action
+      speculated_ras_action: entry.speculated_ras_action
+      direction: entry.direction
+
 /* Capture the assembler's actual successor once, independently of the instruction bits. */
-fun pack_entry(xlen :: XLen, hypervisor :: Boolean, token :: RV2WideInstruction(xlen)) :~ RV2WideWindowEntry(xlen, hypervisor):
+fun pack_entry(xlen :: XLen, hypervisor :: Boolean, token :: RV2WideInstruction(xlen, hypervisor)) :~ RV2WideWindowEntry(xlen, hypervisor):
   RV2WideWindowEntry(xlen, hypervisor):
     pc: token.pc
     instruction: token.instruction
     raw_instruction: token.raw_instruction
     step: encode_pc_step(xlen, token.pc, token.sequential_pc)
     compressed_illegal: token.compressed_illegal
-    fault: pack_fetch_fault(xlen, hypervisor, token.fault)
+    fault: token.fault
     predicted: token.prediction.valid
     target: token.prediction.target
     predicted_compressed: token.prediction.compressed
@@ -40,32 +59,13 @@ fun pack_entry(xlen :: XLen, hypervisor :: Boolean, token :: RV2WideInstruction(
     speculated_ras_action: token.speculated_ras_action
     direction: token.direction
 
-/* Expands only the two visible head entries; compaction moves the narrow records. */
-fun expand_entry(xlen :: XLen, hypervisor :: Boolean, entry :: RV2WideWindowEntry(xlen, hypervisor)) :~ RV2WideInstruction(xlen):
-  RV2WideInstruction(xlen):
-    pc: entry.pc
-    instruction: entry.instruction
-    raw_instruction: entry.raw_instruction
-    sequential_pc: expand_pc_step(xlen, entry.pc, entry.step)
-    compressed_illegal: entry.compressed_illegal
-    fault: expand_fetch_fault(xlen, hypervisor, entry.fault)
-    prediction:
-      BranchPrediction(xlen):
-        valid: entry.predicted
-        pc: entry.pc
-        target: entry.target
-        compressed: entry.predicted_compressed
-        ras_action: entry.predicted_ras_action
-    speculated_ras_action: entry.speculated_ras_action
-    direction: entry.direction
-
 /* Coalesces packet boundaries after partial issue; clear discards resident and live offers. */
 sync_circuit RV2WideIssueWindow(xlen :: XLen = XLen.X64, ~hypervisor: hypervisor :: Boolean = #false):
-  interface ingress(Decoupled(RV2WidePacket(xlen)), ~role: consumer)
+  interface ingress(Decoupled(RV2WidePacket(xlen, hypervisor)), ~role: consumer)
   interface clear(Pulse(), ~role: consumer)
-  output head: RV2WidePacket(xlen)
+  output head: RV2WidePacket(xlen, hypervisor)
   output head_steps: Vec(2, RV2WidePcStep(xlen))
-  interface candidates[2](Valid(RV2WideInstruction(xlen)), ~role: producer)
+  interface candidates[2](Valid(RV2WideInstruction(xlen, hypervisor)), ~role: producer)
   output available: Bits(4)
   input consume: Bits(2)
 
@@ -75,13 +75,13 @@ sync_circuit RV2WideIssueWindow(xlen :: XLen = XLen.X64, ~hypervisor: hypervisor
   available <== Bits(4)(8) - count
   ingress.ready <== !clear.valid & (remaining <= Bits(4)(6))
   head.count <== mux(count >= Bits(4)(2), Bits(2)(2), count[0..2])
-  def visible = vec(for List (lane in 0..2): expand_entry(xlen, hypervisor, entries[lane]))
+  def visible = vec(for List (lane in 0..2): entries[lane].expanded())
   head.entries <== visible
   head_steps <== vec(for List (lane in 0..2): entries[lane].step)
   def packed :: Vec(2, RV2WideWindowEntry(xlen, hypervisor)) = vec(for List (lane in 0..2): pack_entry(xlen, hypervisor, ingress.bits.entries[lane]))
   def added = mux(ingress.fire(), ingress.bits.count.zext(4), Bits(4)(0))
   // Observe accepted packets without changing their independent ingress readiness.
-  def accepted = interface_link(Valid(RV2WidePacket(xlen)))
+  def accepted = interface_link(Valid(RV2WidePacket(xlen, hypervisor)))
   accepted.left.valid <== ingress.fire()
   accepted.left.bits <== ingress.bits
   describe_interface_contract(ingress, accepted.left, "packet-acceptance", ~trace_model: interface_trace_combinational())
@@ -90,10 +90,10 @@ sync_circuit RV2WideIssueWindow(xlen :: XLen = XLen.X64, ~hypervisor: hypervisor
     candidates[lane].valid <== (count > Bits(4)(lane)) & !clear.valid
     candidates[lane].bits <== visible[lane]
     when (ingress.fire() & (ingress.bits.count > Bits(2)(lane))):
-      def token :: RV2WideInstruction(xlen) = ingress.bits.entries[lane]
+      def token :: RV2WideInstruction(xlen, hypervisor) = ingress.bits.entries[lane]
       assert(token.sequential_pc.is_one_of(token.pc + Bits(xlen.width)(2), token.pc + Bits(xlen.width)(4)), "rv2wide_window_instruction_length")
       assert(!token.prediction.valid ||| (token.prediction.pc === token.pc), "rv2wide_window_prediction_pc")
-      assert(!token.fault.valid ||| (packed[lane].fault.kind =/= RV2WideFetchFaultKind.None), "rv2wide_supported_fetch_fault")
+      assert(token.fault.supported(), "rv2wide_supported_fetch_fault")
 
     def name = "head" ++ to_string(lane)
     describe_interface_window_storage(8, ingress.fire(), consume.zext(4), count, clear.valid, for List (index in 0..2): Bool(index == lane), ~name: name, ~append_count: ingress.bits.count.zext(4))

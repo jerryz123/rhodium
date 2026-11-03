@@ -83,7 +83,7 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
   def sew = vector_data_width(descriptor.control, geometry.sew)
   def mask_word = vector_mask_word(descriptor.control)
   def format = mux(mask_word, (if xlen == XLen.X32 | SimdElementWidth.E32 | SimdElementWidth.E64), sew.into(SimdElementWidth))
-  def limit = vector_beat_limit(xlen, vlen, descriptor)
+  def limit = descriptor.beat_limit(vlen)
   def simd_multiply = vector_packed_multiply(xlen, descriptor.control, sew, packed_multiply)
   def simd_widening = simd_multiply & descriptor.control.widening
   def lanes = vector_beat_lanes(xlen, vlen, descriptor.control, sew, ~packed_multiply: simd_multiply)
@@ -91,7 +91,7 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
   def index_sew = vector_index_width(descriptor.control, sew)
   def gather = descriptor.control.integer & descriptor.control.gather
   def gather_vector = !packed & gather & (descriptor.control.operand === VectorOperandMode.Vector)
-  def scalar_index = vector_scalar_index(xlen, descriptor)
+  def scalar_index = descriptor.scalar_index()
   def widening = descriptor.control.integer & descriptor.control.widening
   def narrowing = descriptor.control.integer & descriptor.control.narrowing
   def width_change = widening ||| narrowing
@@ -153,7 +153,7 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
      Chunk-aligned destination cursors make the byte offset constant across the macro. */
 
   def row_base_width = index_width(VectorRegisterLayout(vlen, xlen.width).depth)
-  def slide_distance = vector_slide_distance(xlen, descriptor)
+  def slide_distance = descriptor.slide_distance()
   def slide_delta = mux(descriptor.control.slide_up, -slide_distance.zext(xlen.width + 2), slide_distance.zext(xlen.width + 2))
   def slide_offset = slide_delta[0..vector_byte_offset_width(xlen)] << sew
   def slide_base = vs2.zext(row_base_width) << bits.length(VectorRegisterLayout(vlen, xlen.width).rows_per_register - 1)

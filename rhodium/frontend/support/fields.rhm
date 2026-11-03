@@ -198,6 +198,31 @@ annot.macro 'AnyBitsHardware':
 // Extends the broad HardwareFields annotation with an exact-type form. The
 // foundation renames this root to the public Hardware annotation namespace.
 namespace HardwareFields:
+  // Selects an annotation-safe surface without parsing host generator arguments
+  // as expressions before their bindings enter scope.
+  export annot.macro 'from_annotation($type)':
+    match type
+    | '$(name :: Identifier) $tail ...' when syntax_meta.value(name, annot_meta.space, #false):
+        '$type'
+    | '$(name :: Identifier)':
+        def infos = statinfo_meta.lookup(name, 'value_surface_static_info_key')
+        if infos
+        | annot_meta.pack_predicate('fun (_value): #true', statinfo_meta.unpack(infos))
+        | 'HardwareFields'
+    | ~else:
+        'HardwareFields'
+
+  // A non-evaluated descriptor placeholder carries an eventual method argument's
+  // surface through annotation constructors without parsing out-of-scope values.
+  export expr.macro 'argument_surface($(infos :: Term))':
+    statinfo_meta.wrap('#false', statinfo_meta.unpack(infos))
+
+  export annot.macro 'argument_surface($(infos :: Term))':
+    def surface = statinfo_meta.find(statinfo_meta.unpack(infos), 'value_surface_static_info_key')
+    if surface
+    | annot_meta.pack_predicate('fun (_value): #true', statinfo_meta.unpack(surface))
+    | 'HardwareFields'
+
   // Describes any hardware value whose descriptor satisfies a generated
   // nominal-family predicate while retaining the generic hardware surface.
   export annot.macro 'family($(matches_type :: expr_meta.Parsed))':
@@ -236,6 +261,16 @@ namespace HardwareFields:
         statinfo_meta.unpack(value_infos)
       )
     | 'HardwareFields'
+
+  // Transfers a readable value's member surface to storage inferred from it.
+  // The producer still owns inference and runtime hardware-type validation.
+  export annot.macro 'from_value($(source :: expr_meta.Parsed))':
+    let '$(base :: annot_meta.Parsed)' = 'HardwareFields'
+    def (predicate, base_infos) = annot_meta.unpack_predicate(base)
+    annot_meta.pack_predicate(
+      predicate,
+      statinfo_meta.and(statinfo_meta.gather(source), base_infos)
+    )
 
   export annot.macro 'of($expected_type)':
     let '$(base :: annot_meta.Parsed)' = 'HardwareFields'
@@ -743,8 +778,47 @@ meta:
         | values(expansion, remainder)
         | #false
 
-// Exact receiver-owned annotations use a distinct provider identity so their
-// full method pipeline precedes conservative surfaces such as observations.
+// Reconstructs a method's advertised result surface using the eventual call's
+// argument information. The placeholder expressions are never evaluated: the
+// bound implementation still checks the actual argument and result descriptors.
+meta.bridge hardware_bound_method_result_static_infos:
+  fun (data, dependencies :: annot_meta.Dependencies):
+    let '(($argument_position, ...), $result)' = data
+    /* Substitutes argument surfaces inside result constructors and width expressions. */
+    fun substitute(form :: Syntax):
+      match form
+      | '$(identifier :: Identifier)':
+          def mutable replacement = form
+          for (entry in [argument_position, ...]):
+            let '($binding, $position)' = entry
+            when identifier.to_source_string() == binding.to_source_string()
+            | block:
+                def index = position.unwrap()
+                def infos:
+                  cond
+                  | index is_a Keyword:
+                      dependencies.keyword_arguments.get(index, statinfo_meta.pack('()'))
+                  | index < dependencies.arguments.length(): dependencies.arguments[index]
+                  | ~else: statinfo_meta.pack('()')
+
+                replacement := 'HardwareFields.argument_surface($infos)'
+
+          replacement
+      | '$constructor($item, ...)':
+          def head = substitute(constructor)
+          let [part, ...] = for List (item in [item, ...]): substitute(item)
+          '$head($part, ...)'
+      | '$left $(operator :: Operator) $right':
+          def lhs = substitute(left)
+          def rhs = substitute(right)
+          '$lhs $operator $rhs'
+      | ~else: form
+
+    def substituted = substitute(result)
+    annot_meta.parse_to_packed_statinfo('HardwareFields.from_annotation($substituted)')
+
+// Exact receiver-owned annotations precede conservative surfaces. Unclaimed
+// names fall through to declared fields before common methods such as lookup.
 dot.macro 'hardware_value_method_dot $left $dot $right':
   ~tail: '$tail ...'
   def packed_methods = statinfo_meta.find(
@@ -756,6 +830,21 @@ dot.macro 'hardware_value_method_dot $left $dot $right':
   | let '($method_entry, ...)' = packed_methods
     for (entry in [method_entry, ...]):
       match entry
+      | '($(method_name :: Identifier), $binder, bound, ($argument_position, ...), $result)':
+          when !expansion && right.to_source_string() == method_name.to_source_string()
+          | block:
+              def dependent_result = statinfo_meta.pack_dependent_result(
+                'hardware_bound_method_result_static_infos',
+                '(($argument_position, ...), $result)',
+                {}
+              )
+              def call_result = statinfo_meta.pack(
+                '(($(statinfo_meta.dependent_result_key), $dependent_result))'
+              )
+              expansion := statinfo_meta.wrap(
+                '$binder($left)',
+                '(($(statinfo_meta.call_result_key), $call_result))'
+              )
       | '($(method_name :: Identifier), $method_function, ($argument, ...), untyped)':
           when !expansion && right.to_source_string() == method_name.to_source_string()
           | expansion := 'fun ($argument, ...) :~ HardwareFields:
@@ -767,9 +856,7 @@ dot.macro 'hardware_value_method_dot $left $dot $right':
       | ~else:
           syntax_meta.error("invalid hardware method static information", entry)
 
-  if expansion
-  | expansion
-  | common_hardware_method(left, right, '$right $tail ...', '$tail ...')
+  expansion
 
 // Generic hardware-capable surfaces use the same common method implementation
 // after their specialized providers decline the call.

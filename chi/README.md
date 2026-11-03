@@ -162,7 +162,7 @@ four-bit `CHIMemAttr`. Opcode-dependent aliases retain one physical record
 field rather than allocating duplicate storage. For example,
 `return_nid_or_stash_nid_or_data_target`, `dbid_or_group_id`, and
 `dbid_or_mecid` name shared wire locations. The six-bit `size_or_num_req`
-location likewise has typed `chi_req_size` and full-width `chi_req_num_req`
+location likewise has typed `request.size()` and full-width `request.num_req()`
 views.
 
 [`protocol/protocol.rhdl`](protocol/protocol.rhdl) owns Size validation and derives physical DAT

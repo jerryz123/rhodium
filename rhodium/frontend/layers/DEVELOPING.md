@@ -176,6 +176,25 @@ For dependent return types, attach the exact result annotation so chained field
 and method access survives expansion. Test dispatch precedence, invalid
 receivers, method/field collisions, and propagation through all producers that
 claim to preserve the nominal surface.
+Receiver-owned dispatch must decline unclaimed names, allowing declared fields
+to resolve before the common method provider. Do not turn a field such as
+`lookup` into a generic operation merely by attaching unrelated owned methods.
+
+Parameterized bundle methods use a generated receiver binder. It checks the
+receiver's `BundleFamily`, obtains its normalized specialization arguments,
+and closes over them before defining the authored method function. Dependent
+argument/result checks and host conditionals therefore use the same concrete
+parameters as the receiver, including absent conditional fields. The method
+metadata carries a specialization-substituted result annotation. A dependent
+result resolver supplies the eventual call's argument surfaces, including type
+arguments that select a new specialization, without evaluating those arguments
+again. This works for direct calls and extracted methods; the binder's function
+still checks the actual result. Keep both halves: a permissive static surface is
+not a runtime type check. Inferred registers transfer the initial/next value's
+member surface without evaluating it again. Bundle fields and annotated vector elements use
+the shared annotation-safe surface resolver: host generator arguments must not
+be parsed as expressions before entering scope. These mechanisms must not add
+hardware state or change the bundle's packed representation.
 
 Immutable `.updated` dispatch lives in `support/fields.rhm`: vectors retain
 selected-element replacement, while records take named replacements and reuse

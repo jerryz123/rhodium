@@ -1,8 +1,13 @@
 // Checks assembly credits, cross-block prediction ownership, repairs, and compressed expansion.
 // SPDX-License-Identifier: Apache-2.0
 #include "driver.hpp"
+#include "fetch-fault.hpp"
 using Direction = std::remove_cvref_t<decltype(blocks_in.pbits.pdirections[0])>;
 using Packet = std::remove_cvref_t<decltype(instructions_out.pbits)>;
+using Fault = std::remove_cvref_t<decltype(blocks_in.pbits.pfault)>;
+#ifndef TEST_HYPERVISOR
+#define TEST_HYPERVISOR 0
+#endif
 Queue<std::uint64_t> expected_pc;
 int repairs = 0, speculations = 0, retired = 0, return_speculations = 0;
 void drive() {}
@@ -17,9 +22,8 @@ bool same_packet(const Packet &a, const Packet &b) {
         x.praw_uinstruction != y.praw_uinstruction ||
         x.psequential_upc != y.psequential_upc ||
         x.pcompressed_uillegal != y.pcompressed_uillegal ||
-        x.pfault.pvalid != y.pfault.pvalid ||
-        x.pfault.pcause != y.pfault.pcause ||
-        x.pfault.pvalue != y.pfault.pvalue ||
+        x.pfault.pkind != y.pfault.pkind ||
+        x.pfault.pvalue != y.pfault.pvalue || !same_fetch_guest(x.pfault, y.pfault) ||
         x.pprediction.pvalid != y.pprediction.pvalid ||
         x.pprediction.ppc != y.pprediction.ppc ||
         x.pprediction.ptarget != y.pprediction.ptarget ||
@@ -47,7 +51,7 @@ void observe() {
       want = expected_pc.take();
       CHECK(instructions_out.pbits.pentries[lane].ppc == want);
       if (want == UINT64_C(0x706))
-        CHECK(instructions_out.pbits.pentries[lane].pfault.pvalid &&
+        CHECK((instructions_out.pbits.pentries[lane].pfault.pkind != 0) &&
               instructions_out.pbits.pentries[lane].pfault.pvalue ==
                   UINT64_C(0x708));
       if (want == UINT64_C(0x406))
@@ -174,7 +178,7 @@ void offer(std::uint64_t pc, std::uint64_t data, std::uint64_t pred_pc = 0,
   blocks_in = {UINT64_C(1),
                {pc,
                 data,
-                {fault, UINT64_C(1), pc, {}},
+                {std::uint8_t(fault ? 2 : 0), pc},
                 {pred_pc != 0, pred_pc, pred_target, compressed, UINT64_C(0)},
                 directions,
                 prefix}};
@@ -193,6 +197,118 @@ void clear() {
   falling();
   clear_in.pvalid = 0;
 }
+
+void check_fault(const Fault &expected, std::uint64_t pc) {
+  settle();
+  CHECK(instructions_out.pvalid && instructions_out.pbits.pcount == 1);
+  const auto &instruction = instructions_out.pbits.pentries[0];
+  const auto &fault = instruction.pfault;
+  CHECK(instruction.ppc == pc && fault.pkind == expected.pkind && fault.pvalue == expected.pvalue &&
+        same_fetch_guest(fault, expected) &&
+        !instruction.pprediction.pvalid && !repair_out.pvalid &&
+        !discover_out.pvalid && !speculate_out.pvalid);
+}
+
+void offer_fault(std::uint64_t pc, const Fault &fault) {
+  falling();
+  blocks_in = {};
+  blocks_in.pvalid = true;
+  blocks_in.pbits.ppc = pc;
+  blocks_in.pbits.pfault = fault;
+  accept([&] { return blocks_out.pready; });
+  falling();
+  blocks_in = {};
+}
+
+void fault_storage_tests() {
+  const std::array<std::uint64_t, 3> pcs{
+      UINT64_C(0xffffffc012345001), UINT64_C(0x8000000000002000),
+      UINT64_C(0x4000000000003000)};
+  std::array<Fault, 3> faults{};
+  for (unsigned i = 0; i < 3; ++i) {
+    faults[i].pkind = i + 1;
+    faults[i].pvalue = pcs[i] ^ UINT64_C(0x1234000000000000);
+    if (TEST_HYPERVISOR) {
+      set_fetch_guest(faults[i], true, UINT64_C(0x123456780000) + i * 8, i & 1);
+    }
+  }
+
+  // Independent fault owners fill every slot while the oldest is stalled.
+  clear();
+  instructions_in.pready = false;
+  for (unsigned i = 0; i < 3; ++i) {
+    expected_pc.push_back(pcs[i]);
+    offer_fault(pcs[i], faults[i]);
+  }
+  CHECK(available == 0 && !blocks_out.pready);
+  for (unsigned i = 0; i < 3; ++i) {
+    for (unsigned stall = 0; stall < 3; ++stall) {
+      blocks_in.pbits.pfault = faults[(i + 1) % 3]; // Invalid live noise must not replace an owner.
+      check_fault(faults[i], pcs[i]);
+      rising();
+      falling();
+    }
+    instructions_in.pready = true;
+    rising();
+    falling();
+    instructions_in.pready = false;
+  }
+  blocks_in = {};
+  CHECK(available == 3 && expected_pc.size() == 0);
+
+  for (unsigned guest_walk = 0; guest_walk < (TEST_HYPERVISOR ? 2U : 1U); ++guest_walk) {
+    auto fault = faults[2];
+    if (TEST_HYPERVISOR) {
+      fault.pkind = fetch_kind(20);
+      set_fetch_guest(fault, true, UINT64_C(0x123456780010), guest_walk);
+    }
+
+    // Empty-window bypass and retained paths preserve the same exact record.
+    clear();
+    instructions_in.pready = true;
+    expected_pc.push_back(pcs[2]);
+    falling();
+    blocks_in = {};
+    blocks_in.pvalid = true;
+    blocks_in.pbits.ppc = pcs[2];
+    blocks_in.pbits.pfault = fault;
+    check_fault(fault, pcs[2]);
+    rising();
+    falling();
+    blocks_in = {};
+
+    // The continuation's fault address/GPA is independent of the prefix's PC.
+    clear();
+    instructions_in.pready = false;
+    expected_pc.push_back(UINT64_C(0x123fe));
+    offer(UINT64_C(0x123fe), UINT64_C(0x0013000000000000));
+    offer_fault(UINT64_C(0x12400), fault);
+    for (unsigned stall = 0; stall < 3; ++stall) {
+      check_fault(fault, UINT64_C(0x123fe));
+      rising();
+      falling();
+    }
+    instructions_in.pready = true;
+    rising();
+    falling();
+    CHECK(available == 3 && expected_pc.size() == 0);
+  }
+
+  // Recovery discards resident fault payloads together with their validity.
+  clear();
+  instructions_in.pready = false;
+  offer_fault(pcs[0], faults[0]);
+  clear();
+  settle();
+  CHECK(!instructions_out.pvalid && available == 3);
+  // An unused kind encoding is not a supported fetch exception.
+  auto unsupported = faults[1];
+  unsupported.pkind = 7;
+  expect_failure("rv2wide_assembly_supported_fetch_fault", [&] {
+    offer_fault(pcs[1], unsupported);
+  });
+}
+
 int main() {
   return run_test([] {
     reset = 1;
@@ -459,8 +575,8 @@ int main() {
            field(UINT64_C(0x10001), 32, 0)));
     offer(UINT64_C(0x11108), 0, 0, 0, 0, 1);
     CHECK(instructions_out.pvalid && instructions_out.pbits.pcount == 2 &&
-          !instructions_out.pbits.pentries[0].pfault.pvalid &&
-          instructions_out.pbits.pentries[1].pfault.pvalid &&
+          instructions_out.pbits.pentries[0].pfault.pkind == 0 &&
+          (instructions_out.pbits.pentries[1].pfault.pkind != 0) &&
           instructions_out.pbits.pentries[1].pfault.pvalue ==
               UINT64_C(0x11108));
     instructions_in.pready = 1;
@@ -537,5 +653,6 @@ int main() {
     instructions_in.pready = 0;
     clear();
     instructions_in.pready = 1;
+    fault_storage_tests();
   });
 }

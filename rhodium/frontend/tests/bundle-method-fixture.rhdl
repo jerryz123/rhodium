@@ -34,8 +34,56 @@ bundle SizedCacheEnvelope(width :: PosInt):
   state: CacheState
   payload: Bits(width)
 
+  method is_shared(envelope) :: Bool:
+    envelope.state.is_shared()
+
+  method payload_value(envelope) :: Bits(width):
+    envelope.payload
+
+  method identity(envelope) :: SizedCacheEnvelope(width):
+    envelope
+
+  method plus(envelope, other :: Bits(width), ~extra: extra :: Nat = width) :: Bits(width):
+    envelope.payload + other + Bits(width)(extra)
+
+  method bad_result(envelope) :: Bits(width):
+    envelope.payload.zext(width + 1)
+
 bundle GenericCacheEnvelope(T :: DataType):
   nested: T
+
+  method value(envelope) :: T:
+    envelope.nested
+
+  method choose(envelope, other :: T, select :: Bool) :: T:
+    mux(select, other, envelope.nested)
+
+  method replaced(envelope, To :: DataType, value :: Hardware.of(To)) :: GenericCacheEnvelope(To):
+    GenericCacheEnvelope(To):
+      nested: value
+
+  method keyword_replaced(envelope, value, ~type: To :: DataType) :: GenericCacheEnvelope(To):
+    GenericCacheEnvelope(To):
+      nested: value
+
+  method widened(envelope, width :: PosInt = 12) :: Bits(width):
+    envelope.nested.as_bits().zext(width)
+
+bundle OtherSizedEnvelope(width :: PosInt):
+  state: CacheState
+  payload: Bits(width)
+
+bundle EnvelopeGroup(width :: PosInt):
+  members: Vec(2, SizedCacheEnvelope(width))
+
+bundle LookupEnvelope(width :: PosInt):
+  lookup: SizedCacheEnvelope(width)
+
+  method is_shared(envelope) :: Bool:
+    envelope.lookup.is_shared()
+
+fun first_shared(width :: PosInt, members :: Vec(2, SizedCacheEnvelope(width))) :: Bool:
+  members[0].is_shared()
 
 // A lexical extension with the same name must not shadow exact type-owned
 // methods carried by CacheEnvelope and CacheState values.
@@ -119,11 +167,28 @@ def design = compile_program(elaborate(BundleMethodPropagation()), rtl_target).r
 sync_circuit ParameterizedMethodPropagation():
   input envelope: SizedCacheEnvelope(8)
   input generic_envelope: GenericCacheEnvelope(CacheEnvelope())
+  input group: EnvelopeGroup(8)
+  input lookup_envelope: LookupEnvelope(8)
   output bundle_method: Bool
   output generic_bundle_method: Bool
   output instance_interface_method: Bool
   output cast_method: Bool
   output into_method: Bool
+  output own_method: Bool
+  output bound_method: Bool
+  output chained_method: Bool
+  output data: Bits(8)
+  output sum: Bits(8)
+  output generic_result: Bool
+  output nested_vector: Bool
+  output annotated_vector: Bool
+  output argument_vector: Bool
+  output field_collision: Bool
+  output registered_field_collision: Bool
+  output retagged_method: Bool
+  output extracted_retagged_method: Bool
+  output keyword_retagged_method: Bool
+  output default_width: Bits(12)
 
   inst source(CacheEnvelopeSource(SizedCacheEnvelope(8)))
   source.payload <== envelope
@@ -132,6 +197,39 @@ sync_circuit ParameterizedMethodPropagation():
   instance_interface_method <== source.egress.bits.state.is_shared()
   cast_method <== envelope.into(Bits(10)).into(SizedCacheEnvelope(8)).state.is_shared()
   into_method <== envelope.into(Bits(10)).into(SizedCacheEnvelope(8)).state.is_shared()
+  own_method <== envelope.is_shared()
+  def captured = envelope.is_shared
+  bound_method <== captured()
+  chained_method <== envelope.identity().is_shared()
+  data <== envelope.payload_value()
+  sum <== envelope.plus(Bits(8)(2), ~extra: 1)
+  generic_result <== generic_envelope.choose(generic_envelope.value(), Bool(#true)).is_shared()
+  def members :: Vec(2, SizedCacheEnvelope(8)) = group.members
+  nested_vector <== group.members[0].is_shared()
+  annotated_vector <== members[1].is_shared()
+  argument_vector <== first_shared(8, group.members)
+  reg saved_lookup(~next: lookup_envelope)
+  field_collision <== lookup_envelope.lookup.into(SizedCacheEnvelope(8)).is_shared() & lookup_envelope.is_shared()
+  registered_field_collision <== saved_lookup.lookup.into(SizedCacheEnvelope(8)).is_shared()
+  retagged_method <== generic_envelope.replaced(CacheEnvelope(), generic_envelope.nested).value().is_shared()
+  def replace = generic_envelope.replaced
+  extracted_retagged_method <== replace(SizedCacheEnvelope(8), envelope).value().is_shared()
+  keyword_retagged_method <== generic_envelope.keyword_replaced(envelope, ~type: SizedCacheEnvelope(8)).value().is_shared()
+  default_width <== generic_envelope.widened()
+
+circuit InvalidParameterizedMethod(kind :: String):
+  input envelope: SizedCacheEnvelope(8)
+  input other: OtherSizedEnvelope(8)
+  input generic: GenericCacheEnvelope(Bits(8))
+  output result: Bits(8)
+  cond
+  | kind == "argument": result <== envelope.plus(Bits(4)(0))
+  | kind == "generic-argument": result <== generic.choose(Bits(4)(0), Bool(#true))
+  | kind == "dependent-argument": result <== generic.replaced(Bits(8), Bits(4)(0)).nested
+  | kind == "result": result <== envelope.bad_result()
+  | ~else:
+      def wrong_family :: SizedCacheEnvelope(8) = other
+      result <== wrong_family.payload_value()
 
 def parameterized_design = compile_program(elaborate(ParameterizedMethodPropagation()), rtl_target).report.design
 
@@ -156,6 +254,7 @@ export:
   BundleMethodPropagation
   ParameterizedMethodPropagation
   DirectInterfaceMethodPropagation
+  InvalidParameterizedMethod
   design
   parameterized_design
   direct_interface_design

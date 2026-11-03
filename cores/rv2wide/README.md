@@ -97,23 +97,29 @@ Branch prediction corrections, memory replays, traps, and privilege returns redi
 internally. Software programs mtvec/stvec and supplies its trap handler.
 `cores/rv2wide/cache.rhdl` owns the standalone `RV2WideL1D` adapter.
 
-When using `RV2WideCore()` directly, provide `instructions: Decoupled(RV2WidePacket(xlen))`. Each packet has a `count`
-of one or two and that many valid `entries`, oldest first. Entries contain a
+When using `RV2WideCore()` directly, provide
+`instructions: Decoupled(RV2WidePacket(xlen, hypervisor))`, matching the core
+profile. Each packet has a `count` of one or two and that many valid `entries`,
+oldest first. Entries contain an
 XLEN-wide `pc`, canonical 32-bit `instruction`, original `raw_instruction` (zero-extended
-for C), length-derived `sequential_pc`, `compressed_illegal`, and optional fetch-fault
-cause/address. Direct packet producers supply all of this metadata; a 32-bit
-instruction normally uses the same raw/canonical bits and `sequential_pc = pc + 4`.
+for C), length-derived `sequential_pc`, `compressed_illegal`, and
+`fault: RV2WideFetchFault(xlen, hypervisor)`. Direct packet producers supply
+all of this metadata; a 32-bit instruction normally uses the same raw/canonical
+bits and `sequential_pc = pc + 4`.
 Every accepted entry, including a fault, must supply `pc + 2` or `pc + 4`
 modulo XLEN. A valid prediction must name that instruction's PC; an invalid
 prediction's input PC is ignored. The PC reported in either case is the
 instruction PC itself.
-Clear `fault.valid` and `compressed_illegal` for successful fetches; instruction
-bits are ignored for fetch faults. Valid fetch faults accept only instruction
-address misalignment, access fault, page fault, or (with H) guest-page fault.
-Supply the actual fault address, which can differ from the starting PC for a
-straddling instruction. Guest provenance is preserved with H and ignored
-without H. Absent fetch faults are reported as all zero on the core's MEM
-observation and retirement ports, regardless of the input's invalid payload.
+Set `fault.kind` to `RV2WideFetchFaultKind.None` and clear `compressed_illegal`
+for successful fetches; instruction bits are ignored for fetch faults. The
+other supported kinds are `Misaligned`, `Access`, `Page`, and (with H)
+`GuestPage`. `fault.valid()` reports presence; `fault.cause()`
+returns the five-bit architectural exception number for a present fault.
+Supply the actual fault address in `fault.value`, which can differ from the
+starting PC for a straddling instruction. The `guest` field exists only with
+H and preserves guest provenance. Absent fetch faults are reported as all zero
+on the core's MEM observation and retirement ports, regardless of the input's
+invalid payload.
 Each entry also supplies `prediction: BranchPrediction(xlen)` and
 `speculated_ras_action: RasAction`. A nonpredicting packet source clears
 `prediction.valid`, uses `RasAction.None`, and zeroes `direction: TournamentPrediction(10)`.
@@ -607,7 +613,7 @@ If the younger instruction faults, replays, or defers its write, the older write
 still updates the register file. Outstanding older deferred writes remain WAW
 interlocked until their RF write edge.
 
-`retired[2]: Valid(RV2WideRetirement(xlen))` reports the successful ordered prefix
+`retired[2]: Valid(RV2WideRetirement(xlen, hypervisor))` reports the successful ordered prefix
 at WB, including PC, encoding, destination, write enable, and value. `issued`
 and `retired_count` report counts of zero, one, or two for the current edge.
 Outputs have no backpressure. `deferred` means a memory or multiply/divide operation was
@@ -912,7 +918,7 @@ replayed or rolled back. LR/SC/AMO still require natural alignment.
 
 ## Resolution and restart boundary
 
-`memory_stage[2]: Valid(RV2WideInstruction(xlen))` identifies each current MEM token.
+`memory_stage[2]: Valid(RV2WideInstruction(xlen, hypervisor))` identifies each current MEM token.
 The corresponding `resolution[2]: Valid(RV2WideResolution(xlen))` may qualify it in
 the same cycle with Continue, Fault, or Replay. This is a synchronous stage
 qualification boundary, **not** an asynchronous memory response interface.

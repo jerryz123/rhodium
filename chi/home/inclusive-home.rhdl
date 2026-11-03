@@ -623,7 +623,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def requester_write_data_fire = requester_data_fire & receiving_requester_data
   def snoop_data_fire = requester_data_fire & awaiting_snoop
   def requester_receipt = CHIDataReceipt():
-    expected_ids: chi_transfer_data_ids(request.address, chi_req_size(p, request), p)
+    expected_ids: chi_transfer_data_ids(request.address, request.size(), p)
     received_ids: received_requester_ids
 
   def next_requester_receipt = requester_receipt.record(requester_data.bits.data_id)
@@ -819,7 +819,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
     assert(fill_response.bits.txn_id === slot_txn_id(work_slot), "chi_inclusive_hnf_fill_data_txn")
     assert(!fill_receipt.duplicate(fill_response.bits.data_id), "chi_inclusive_hnf_fill_data_id_unique")
 
-  def request_response_data_ids = chi_transfer_data_ids(request.address, chi_req_size(p, request), p)
+  def request_response_data_ids = chi_transfer_data_ids(request.address, request.size(), p)
 
 
   /* Requester DAT output
@@ -1189,7 +1189,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
         phases[index] <== CHIInclusiveHNFPhase.SendSnoop
       otherwise:
         victim_data_beats[index] <== Bits(2)(0)
-        remaining_response_data_ids[index] <== chi_transfer_data_ids(lookup_request.address, chi_req_size(p, lookup_request), p)
+        remaining_response_data_ids[index] <== chi_transfer_data_ids(lookup_request.address, lookup_request.size(), p)
         when lookup_maintenance:
           phases[index] <== mux(directory.response[lookup_way].dirty & !lookup_maintenance_discard, CHIInclusiveHNFPhase.SendVictimWriteRequest, CHIInclusiveHNFPhase.FinishMaintenance)
         elsewhen lookup_snoop_victim:

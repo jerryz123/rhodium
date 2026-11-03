@@ -70,7 +70,7 @@ sync_circuit CHISNTransactionSlots(p :: CHIFlitParams, limit :: PosInt):
   def data_slot_valid = incoming_data.txn_id < Bits(12)(limit)
   def selected_request = write_requests[data_slot]
   def receipt = CHIDataReceipt():
-    expected_ids: chi_transfer_data_ids(selected_request.address, chi_req_size(p, selected_request), p)
+    expected_ids: chi_transfer_data_ids(selected_request.address, selected_request.size(), p)
     received_ids: received_write_data_ids[data_slot]
 
   def next_receipt = receipt.record(incoming_data.data_id)

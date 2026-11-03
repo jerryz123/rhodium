@@ -6,6 +6,7 @@ import:
   lib("flow/main.rhdl") open
   lib("rhodium/frontend/kernel.rhm") as kernel
   lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/rtl/hypervisor.rhdl").RiscvGuestFault
   "bundles.rhdl" open
 
 def RV2WidePcOffsetBits = 12
@@ -59,8 +60,8 @@ fun recode_lane(T :: RecordType, source :: Hardware.packable, pc :: Hardware.pac
 /* Preserves the full lane interface and the one-cycle flushable pipe contract. Both
    lanes reconstruct their PC from the group prefix registered at this same stage. */
 sync_circuit RV2WideLanePipe(xlen :: XLen, Full :: RecordType, ~hypervisor: hypervisor :: Boolean = #false):
-  def execute = Full.type_equal(RV2WideExecute(xlen))
-  unless execute || Full.type_equal(RV2WideResult(xlen))
+  def execute = Full.type_equal(RV2WideExecute(xlen, hypervisor))
+  unless execute || Full.type_equal(RV2WideResult(xlen, hypervisor))
   | error(~who: #'RV2WideLanePipe, "expected this core's execute or result payload")
 
   interface ingress(Valid(Full), ~role: consumer)
@@ -70,7 +71,7 @@ sync_circuit RV2WideLanePipe(xlen :: XLen, Full :: RecordType, ~hypervisor: hype
   input ingress_step: RV2WidePcStep(xlen)
   output egress_step: RV2WidePcStep(xlen)
 
-  def Fault = if execute | RV2WidePackedFetchFault(xlen, hypervisor) | Bool
+  def Fault = if execute | RV2WideFetchFault(xlen, hypervisor) | Bool
   def Stored = lane_shape(Full, execute, Fault, RV2WidePcStep(xlen))
   inst storage(ValidPipe(Stored, 1, ~flushable: #true))
   storage.flush <== flush
@@ -78,25 +79,27 @@ sync_circuit RV2WideLanePipe(xlen :: XLen, Full :: RecordType, ~hypervisor: hype
   // These aliases are not stored; guard their producer contract at capture.
   if execute
   | block:
-      def token :: RV2WideExecute(xlen) = ingress.bits
+      def token :: RV2WideExecute(xlen, hypervisor) = ingress.bits
       when (ingress.valid):
         assert(token.vector.pc === token.fetched.pc, "rv2wide_lane_vector_pc")
   | block:
-      def token :: RV2WideResult(xlen) = ingress.bits
+      def token :: RV2WideResult(xlen, hypervisor) = ingress.bits
       when (ingress.valid):
         assert(token.branch.update.pc === token.fetched.pc, "rv2wide_lane_branch_pc")
         assert(token.branch.update.return_address === token.fetched.sequential_pc, "rv2wide_lane_branch_return")
-        when (token.fetched.fault.valid):
+        when (token.fetched.fault.valid()):
           assert(token.resolution.disposition === RV2WideDisposition.Fault, "rv2wide_fetch_fault_disposition")
-          assert(token.resolution.cause.zext(xlen.width) === token.fetched.fault.cause, "rv2wide_fetch_fault_cause")
+          assert(token.resolution.cause === token.fetched.fault.cause(), "rv2wide_fetch_fault_cause")
           assert(token.resolution.value === token.fetched.fault.value, "rv2wide_fetch_fault_value")
-          assert(token.resolution.guest.as_bits() === token.fetched.fault.guest.as_bits(), "rv2wide_fetch_fault_guest")
+          if hypervisor
+          | assert(token.resolution.guest.as_bits() === token.fetched.fault.guest.as_bits(), "rv2wide_fetch_fault_guest")
+          | #void
 
   // EX still needs the fault payload. Later stages need only its origin bit:
   // resolution owns the surviving cause, value, and guest provenance.
   (ingress |> map_valid(token):
-    def fault :: RV2WideFetchFault(xlen) = token.fetched.fault
-    def encoded = if execute | pack_fetch_fault(xlen, hypervisor, fault) | fault.valid
+    def fault :: RV2WideFetchFault(xlen, hypervisor) = token.fetched.fault
+    def encoded = if execute | fault | fault.valid()
     recode_lane(Stored, token, token.fetched.pc[0..RV2WidePcOffsetBits], ingress_step, encoded, execute)
   ) |> storage.ingress
 
@@ -104,14 +107,21 @@ sync_circuit RV2WideLanePipe(xlen :: XLen, Full :: RecordType, ~hypervisor: hype
   (storage.egress |> map_valid(token):
     def fault:
       if execute
-      | expand_fetch_fault(xlen, hypervisor, token.fetched.fault)
+      | token.fetched.fault
       | block:
           def resolution :: RV2WideSyncResolution(xlen) = token.resolution
-          observed_fetch_fault(xlen, token.fetched.fault, resolution.cause.zext(xlen.width), resolution.value, resolution.guest)
+          wire observed: RV2WideFetchFault(xlen, hypervisor)
+          observed.kind <== mux(token.fetched.fault, fetch_fault_kind(resolution.cause), RV2WideFetchFaultKind.None)
+          observed.value <== mux(token.fetched.fault, resolution.value, Bits(xlen.width)(0))
+          if hypervisor
+          | observed.guest <== mux(token.fetched.fault, resolution.guest, literal(RiscvGuestFault(), 0))
+          | #void
+
+          observed
 
     def pc = pc_region ++ token.fetched.pc
     def step :: RV2WidePcStep(xlen) = token.fetched.sequential_pc
-    recode_lane(Full, token, pc, expand_pc_step(xlen, pc, step), fault, execute)
+    recode_lane(Full, token, pc, step.apply(pc), fault, execute)
   ) |> egress
 
 export:

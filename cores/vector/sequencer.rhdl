@@ -86,7 +86,7 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def geometry = vector_type(xlen, vlen, descriptor.state.vtype)
   def sew = vector_data_width(descriptor.control, geometry.sew)
   def mask_word = vector_mask_word(descriptor.control)
-  def limit = vector_beat_limit(xlen, vlen, descriptor)
+  def limit = descriptor.beat_limit(vlen)
   def simd_multiply = vector_packed_multiply(xlen, descriptor.control, sew, packed_multiply)
   def lanes = vector_beat_lanes(xlen, vlen, descriptor.control, sew, ~packed_multiply: simd_multiply)
   def element_move = descriptor.control.element_move
@@ -99,10 +99,10 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def destination_width = vector_destination_width(descriptor.control, sew)
   def indexed_memory = vector_indexed_memory(descriptor.control)
   def memory_data_eew = mux(indexed_memory, geometry.sew, descriptor.control.memory_data_eew)
-  def slide_distance = vector_slide_distance(xlen, descriptor)
+  def slide_distance = descriptor.slide_distance()
   def slide_delta = mux(descriptor.control.slide_up, -slide_distance.zext(xlen.width + 2), slide_distance.zext(xlen.width + 2))
   def index_sew = vector_index_width(descriptor.control, sew)
-  def scalar_index = vector_scalar_index(xlen, descriptor)
+  def scalar_index = descriptor.scalar_index()
   def extension = descriptor.control.integer & descriptor.control.extension
   def wide_vs2 = (descriptor.control.integer ||| descriptor.control.fp_service) & descriptor.control.wide_vs2
   def fp_narrowing = descriptor.control.fp_service & descriptor.control.narrowing
@@ -113,7 +113,7 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def reduction = (descriptor.control.integer ||| descriptor.control.fp_service) & descriptor.control.reduction
   def second_source = vector_reads_second(descriptor.control)
   def destination_source = vector_reads_destination(descriptor.control)
-  def serialized = (descriptor.control.memory & (!descriptor.precertified ||| vector_zero_stride_load(xlen, descriptor))) ||| (scan & !descriptor.control.scan_control.index) ||| compress
+  def serialized = (descriptor.control.memory & (!descriptor.precertified ||| descriptor.zero_stride_load())) ||| (scan & !descriptor.control.scan_control.index) ||| compress
   def singleton = vector_single_element(descriptor.control, ~packed_multiply: simd_multiply)
   def widening = descriptor.control.integer & descriptor.control.widening
   def narrowing = descriptor.control.integer & descriptor.control.narrowing

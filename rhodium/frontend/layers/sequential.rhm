@@ -79,7 +79,7 @@ defn.macro
            ...
          )'
     | ~else:
-        'def $name :: HardwareFields = declare_register(
+        'def $name :: HardwareFields.from_value($initial) = declare_register(
            $register_name,
            ~init: $initial,
            $argument,
@@ -96,7 +96,7 @@ defn.macro
            ...
          )'
     | ~else:
-        'def $name :: HardwareFields = declare_register(
+        'def $name :: HardwareFields.from_value($next_value) = declare_register(
            $register_name,
            ~next: $next_value,
            $argument,

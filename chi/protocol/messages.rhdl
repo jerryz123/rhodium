@@ -64,7 +64,7 @@ fun chi_sn_read_completion(p :: CHIFlitParams,
                            request :: CHIReqFlit(p),
                            data_id :: Bits(2),
                            data :: Bits(p.data_width)) :~ CHIDatFlit(p):
-  def multi_packet = chi_data_beats_minus_one(chi_req_size(p, request), p) =/= Bits(2)(0)
+  def multi_packet = chi_data_beats_minus_one(request.size(), p) =/= Bits(2)(0)
   // Zero is the existing inactive-field policy for this successful subordinate
   // response, including optional DAT fields; it is not a generic CHI default.
   def inactive :: CHIDatFlit(p) = literal(CHIDatFlit(p), 0)

@@ -1,5 +1,5 @@
 #lang rhombus/and_meta
-/* Defines bundle declarations, type-named record construction, and field access. */
+/* Defines bundle declarations, specialization-bound methods, record construction, and field access. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,7 +8,7 @@ import:
   "../../core/ir.rhm" open
   "../kernel.rhm" as kernel
   "../support/fields.rhm".HardwareFields
-  "../support/fields.rhm".value_surface_static_info_key
+  "../support/fields.rhm".hardware_value_type
   "../support/generator-parameters.rhm".GeneratorParameter
   "../support/generator-parameters.rhm".substitute_generator_parameters
   "../support/hardware-methods.rhm".HardwareMethods
@@ -195,21 +195,6 @@ annot.macro 'BundleStaticFields($(field_name :: Identifier): $field_annotation, 
 annot.macro 'BundleTypeDescriptor':
   annot_meta.pack_predicate('fun (value): value is_a RecordType')
 
-// Function argument annotations expand before earlier host arguments are bound.
-// Recover declared type annotations without parsing those arguments as expressions;
-// a host type parameter supplies only the surface statically known at the use site.
-annot.macro 'BundleAnnotationField($type)':
-  match type
-  | '$(name :: Identifier) $tail ...' when syntax_meta.value(name, annot_meta.space, #false):
-      '$type'
-  | '$(name :: Identifier)':
-      def infos = statinfo_meta.lookup(name, 'value_surface_static_info_key')
-      if infos
-      | annot_meta.pack_predicate('fun (_value): #true', statinfo_meta.unpack(infos))
-      | 'HardwareFields'
-  | ~else:
-      'HardwareFields'
-
 defn.macro 'bundle $(name :: Identifier)($(parameter :: GeneratorParameter), ...): $clause; ...':
   def type_constructor = Syntax.make_id(
     name.to_source_string() ++ "_bundle_type",
@@ -233,6 +218,7 @@ defn.macro 'bundle $(name :: Identifier)($(parameter :: GeneratorParameter), ...
   def mutable method_names = []
   def mutable method_entries = []
   def mutable method_definitions = []
+  def mutable specialized_method_entries = []
   /* Substitutes call-site generator arguments into a field's type syntax. */
   fun substitute_bundle_parameters(field_type :: Syntax):
     substitute_generator_parameters(field_type, [parameter.binding, ...])
@@ -247,7 +233,65 @@ defn.macro 'bundle $(name :: Identifier)($(parameter :: GeneratorParameter), ...
       '$field_name: HardwareFields.from_type($substituted_type)'
     ]
     annotation_static_fields := annotation_static_fields ++ [
-      '$field_name: BundleAnnotationField($substituted_type)'
+      '$field_name: HardwareFields.from_annotation($substituted_type)'
+    ]
+
+  /* Binds one receiver's concrete family arguments before creating a method
+     closure, so dependent argument/result checks and host branches share them. */
+  fun retain_specialized_method(method_name :: Syntax,
+                                receiver :: Syntax,
+                                arguments :: List.of(Syntax),
+                                body :: List.of(Syntax),
+                                result :: maybe(Syntax)):
+    when method_names.find(fun (declared): declared == method_name.to_source_string())
+    | syntax_meta.error("bundle method names must be unique", method_name)
+
+    method_names := method_names ++ [method_name.to_source_string()]
+    def binder = Syntax.make_id(bundle_name ++ "_" ++ method_name.to_source_string(), method_name)
+    let [binding, ...] = [parameter.binding, ...]
+    let [argument, ...] = arguments
+    let [method_body, ...] = body
+    let [parameter_annotation, ...]:
+      for List (binding in [parameter.binding, ...]):
+        'annot.def $binding = HardwareFields.of($binding)'
+
+    def result_surface = if result | substitute_bundle_parameters(result) | 'HardwareFields'
+    def mutable position = 0
+    let [argument_position, ...]:
+      for List (argument in arguments):
+        match argument
+        | '$(keyword :: Keyword): $(binding :: Identifier) $_ ...':
+            '($binding, $keyword)'
+        | '$(binding :: Identifier) $_ ...':
+            def index = position
+            position := position + 1
+            '($binding, $index)'
+
+    specialized_method_entries := specialized_method_entries ++ [
+      '($method_name, $binder, bound, ($argument_position, ...), $result_surface)'
+    ]
+    def implementation:
+      if result
+      | '/* Checks specialization-dependent arguments and the authored hardware result. */
+         fun invoke($argument, ...) :: $result:
+           $method_body
+           ...'
+      | '/* Evaluates the authored method with the captured receiver and parameters. */
+         fun invoke($argument, ...) :~ HardwareFields:
+           $method_body
+           ...'
+
+    method_definitions := method_definitions ++ [
+      '/* Captures one bundle specialization and returns its receiver-bound method. */
+       fun $binder(method_receiver :: HardwareFields):
+         let [$binding, ...] = ($family_name).require_specialization(hardware_value_type(method_receiver))
+         // A nested scope lets type-valued parameters also serve as annotations.
+         block:
+           $parameter_annotation
+           ...
+           def $receiver :: $name($binding, ...) = method_receiver
+           $implementation
+           invoke'
     ]
 
   for (item in [clause, ...]):
@@ -289,6 +333,15 @@ defn.macro 'bundle $(name :: Identifier)($(parameter :: GeneratorParameter), ...
              fun (): [$conditional_field, ...]
            )'
         ]
+    | 'method $(method_name :: Identifier)($(receiver :: Identifier), $(argument :: GeneratorParameter), ...) :: $(result_constructor :: Identifier)($result_argument, ...):
+         $method_body; ...' when parameter_count > 0:
+        retain_specialized_method(method_name, receiver, [argument, ...], [method_body, ...], '$result_constructor($result_argument, ...)')
+    | 'method $(method_name :: Identifier)($(receiver :: Identifier), $(argument :: GeneratorParameter), ...) :: $(result_type :: Identifier):
+         $method_body; ...' when parameter_count > 0:
+        retain_specialized_method(method_name, receiver, [argument, ...], [method_body, ...], result_type)
+    | 'method $(method_name :: Identifier)($(receiver :: Identifier), $(argument :: GeneratorParameter), ...):
+         $method_body; ...' when parameter_count > 0:
+        retain_specialized_method(method_name, receiver, [argument, ...], [method_body, ...], #false)
     | 'method $(method_name :: Identifier)($(receiver :: Identifier), $(argument :: GeneratorParameter), ...) :: $(result_constructor :: Identifier)($result_argument, ...):
          $method_body; ...':
         when method_names.find(fun (declared): declared == method_name.to_source_string())
@@ -359,9 +412,6 @@ defn.macro 'bundle $(name :: Identifier)($(parameter :: GeneratorParameter), ...
   when field_groups.length() == 0
   | syntax_meta.error("bundle requires at least one field clause", name)
 
-  when parameter_count > 0 && method_entries.length() > 0
-  | syntax_meta.error("bundle methods currently require a zero-parameter bundle", name)
-
   for (method_name in method_names):
     when field_names.find(fun (field_name): field_name == method_name)
     | syntax_meta.error("bundle fields and methods must have distinct names", name)
@@ -372,6 +422,7 @@ defn.macro 'bundle $(name :: Identifier)($(parameter :: GeneratorParameter), ...
   let [annotation_static_field, ...] = annotation_static_fields
   let [method_entry, ...] = method_entries
   let [method_definition, ...] = method_definitions
+  let [specialized_method_entry, ...] = specialized_method_entries
   let [parameter_binding, ...] = [parameter.binding, ...]
   if parameter_count == 0
   | block:
@@ -412,7 +463,7 @@ defn.macro 'bundle $(name :: Identifier)($(parameter :: GeneratorParameter), ...
          build_bundle_type($bundle_name,
                            [$field_group, ...],
                            $identity_name,
-                           [$parameter, ...])
+                           [$parameter.binding, ...])
        def $family_name = BundleFamily($bundle_name,
                                        $identity_name,
                                        $type_constructor)
@@ -428,12 +479,14 @@ defn.macro 'bundle $(name :: Identifier)($(parameter :: GeneratorParameter), ...
               ...
               $type_constructor($parameter_binding, ...)) :: HardwareFields.describes(
                 BundleTypeDescriptor,
-                BundleStaticFields($descriptor_static_field, ...)
+                HardwareMethods(BundleStaticFields($descriptor_static_field, ...),
+                                $specialized_method_entry, ...)
               )'
        | '$name': '$family_name'
        annot.macro '$name($('$')$parameter_binding, ...)':
-         'BundleFields($type_constructor($('$')$parameter_binding, ...),
-                       $annotation_static_field, ...)'
+         'HardwareMethods(BundleFields($type_constructor($('$')$parameter_binding, ...), $annotation_static_field, ...), $specialized_method_entry, ...)'
+       $method_definition
+       ...
      »'
 
 expr.macro 'record($type):

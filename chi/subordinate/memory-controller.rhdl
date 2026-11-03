@@ -174,7 +174,7 @@ fun monitor_chi_ram_write_data(p :: CHIFlitParams,
     request.size_or_num_req[0..3],
     p.data_bytes
   )
-  def multi_packet = chi_data_beats_minus_one(chi_req_size(p, request), p) =/= Bits(2)(0)
+  def multi_packet = chi_data_beats_minus_one(request.size(), p) =/= Bits(2)(0)
   def packet_mask = mux(multi_packet,
                         Mask(p.data_bytes)((1 << p.data_bytes) - 1),
                         expected_mask)
@@ -366,9 +366,10 @@ fun build_chi_ram_controller(config :: CHIRamConfig,
   def allocated_read_fire = allocated_reads.fire()
   def read_operation_fire = read_operations.ingress.fire()
   when allocated_read_fire:
+    def request :: CHIReqFlit(p) = allocated_reads.bits.request
     read_active <== Bool(#true)
     read_allocation <== allocated_reads.bits
-    pending_read_data_ids <== chi_transfer_data_ids(allocated_reads.bits.request.address, chi_req_size(p, allocated_reads.bits.request), p)
+    pending_read_data_ids <== chi_transfer_data_ids(request.address, request.size(), p)
   elsewhen read_operation_fire:
     read_active <== !final_read_data
     pending_read_data_ids <== pending_read_data_ids & !selected_read_data_id_mask

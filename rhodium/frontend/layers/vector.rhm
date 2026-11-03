@@ -20,9 +20,8 @@ export:
 fun build_vector_type(length :: PosInt, element_type :: DataType):
   VectorType(length, element_type)
 
-annot.macro 'VectorFields($expected_type, $(element_type :: expr_meta.Parsed))':
+annot.macro 'VectorFields($expected_type, $(element :: annot_meta.Parsed))':
   let '$(base :: annot_meta.Parsed)' = 'HardwareFields.of($expected_type)'
-  let '$(element :: annot_meta.Parsed)' = 'HardwareFields.from_type($element_type)'
   def (predicate, base_infos) = annot_meta.unpack_predicate(base)
   def (_element_predicate, element_infos) = annot_meta.unpack_predicate(element)
   def result_infos = statinfo_meta.and(
@@ -47,12 +46,12 @@ annot.macro 'VectorElementFields($(element :: expr_meta.Parsed))':
   annot_meta.pack_predicate(predicate, result_infos)
 
 annot.macro 'Vec($length, $element_type)':
-  'HardwareFields.of(build_vector_type($length, $element_type))'
+  'VectorFields(build_vector_type($length, $element_type), HardwareFields.from_annotation($element_type))'
 
 expr.macro 'Vec($(length :: expr_meta.Parsed), $(element_type :: expr_meta.Parsed))':
   'build_vector_type($length, $element_type) :: HardwareFields.describes(
      VectorTypeDescriptor,
-     VectorFields(build_vector_type($length, $element_type), $element_type)
+     VectorFields(build_vector_type($length, $element_type), HardwareFields.from_type($element_type))
    )'
 
 /*

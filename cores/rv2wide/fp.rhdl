@@ -94,14 +94,17 @@ sync_circuit RV2WideFp(xlen :: XLen, timing :: FpExecutionTiming, ~half_precisio
      An unreserved slot fairly chooses scalar variable or vector work. A killed
      fixed scalar issue does not donate its already booked slot to vector work. */
 
-  def scalar_fixed = fixed_issue |> to_decoupled() |> map_flow(request):
-    fp_request_with_tag(xlen, fp_transport_profile(xlen), RV2WideFpOwner(xlen), Owner(), request, Owner().Scalar(request.tag))
+  def scalar_fixed = fixed_issue |> to_decoupled() |> map_flow(payload):
+    def request :: FpExecutionRequest(xlen, fp_transport_profile(xlen), RV2WideFpOwner(xlen)) = payload
+    request.with_tag(Owner(), Owner().Scalar(request.tag))
 
-  def scalar_variable = variable_issue |> map_flow(request):
-    fp_request_with_tag(xlen, fp_transport_profile(xlen), RV2WideFpOwner(xlen), Owner(), request, Owner().Scalar(request.tag))
+  def scalar_variable = variable_issue |> map_flow(payload):
+    def request :: FpExecutionRequest(xlen, fp_transport_profile(xlen), RV2WideFpOwner(xlen)) = payload
+    request.with_tag(Owner(), Owner().Scalar(request.tag))
 
-  def vector = vector_request |> map_flow(request):
-    fp_request_with_tag(xlen, fp_transport_profile(xlen), Bits(index_width(slots)), Owner(), request, Owner().Vector(request.tag))
+  def vector = vector_request |> map_flow(payload):
+    def request :: FpExecutionRequest(xlen, fp_transport_profile(xlen), Bits(index_width(slots))) = payload
+    request.with_tag(Owner(), Owner().Vector(request.tag))
 
   def unreserved = Array(scalar_variable, vector) |> rr_arbiter()
   inst selection(GrantMerge(SharedRequest, 2))
@@ -122,11 +125,13 @@ sync_circuit RV2WideFp(xlen :: XLen, timing :: FpExecutionTiming, ~half_precisio
   launch_calendar.vector_accepted <== vector_request.fire()
 
   def Array(scalar_return, vector_return) = execution.result |> demux_flow(2, result => result.tag.is(Owner().Vector).into(Bool))
-  vector_return
-    |> map_flow(result => fp_result_with_tag(xlen, fp_transport_profile(xlen), Owner(), Bits(index_width(slots)), result, result.tag.view(Owner().Vector).payload))
-    |> vector_result
-  def scalar_result = scalar_return |> map_flow(result):
-    fp_result_with_tag(xlen, fp_transport_profile(xlen), Owner(), RV2WideFpOwner(xlen), result, result.tag.view(Owner().Scalar).payload)
+  (vector_return |> map_flow(payload):
+     def result :: FpExecutionResult(xlen, fp_transport_profile(xlen), Owner()) = payload
+     result.with_tag(Bits(index_width(slots)), result.tag.view(Owner().Vector).payload)
+  ) |> vector_result
+  def scalar_result = scalar_return |> map_flow(payload):
+    def result :: FpExecutionResult(xlen, fp_transport_profile(xlen), Owner()) = payload
+    result.with_tag(RV2WideFpOwner(xlen), result.tag.view(Owner().Scalar).payload)
 
   when (fixed_issue.valid):
     assert(launch_calendar.reserved & selection.ingress[0].ready, "rv2wide_fp_ex_launch_reserved")

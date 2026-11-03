@@ -1030,7 +1030,7 @@ void send(std::uint64_t pc, std::uint32_t first, std::uint32_t second,
   }
   if (fetch_fault_lane >= 0)
     instructions_in.pbits.pentries[fetch_fault_lane].pfault = {
-        1, 1, pc + 4 * std::uint64_t(fetch_fault_lane), {}};
+        2, pc + 4 * std::uint64_t(fetch_fault_lane), {}};
   settle();
   while (!instructions_out.pready)
     tick();

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 #include "test.hpp"
+#include "fetch-fault.hpp"
 #include <bit>
 #include <deque>
 #include <functional>
@@ -144,14 +145,10 @@ template <class T> bool same_instruction(const T &x, const T &y) {
          x.praw_uinstruction == y.praw_uinstruction &&
          x.psequential_upc == y.psequential_upc &&
          x.pcompressed_uillegal == y.pcompressed_uillegal &&
-         x.pfault.pvalid == y.pfault.pvalid &&
-         x.pfault.pcause == (y.pfault.pvalid ? y.pfault.pcause : 0) &&
-         x.pfault.pvalue == (y.pfault.pvalid ? y.pfault.pvalue : 0) &&
-         x.pfault.pguest.pguest_uvirtual_uaddress ==
-             (y.pfault.pvalid ? y.pfault.pguest.pguest_uvirtual_uaddress : 0) &&
-         x.pfault.pguest.pguest_uphysical_uaddress ==
-             (y.pfault.pvalid ? y.pfault.pguest.pguest_uphysical_uaddress : 0) &&
-         x.pfault.pguest.paccess == (y.pfault.pvalid ? y.pfault.pguest.paccess : 0) &&
+         x.pfault.pkind == y.pfault.pkind &&
+         x.pfault.pvalue == (y.pfault.pkind ? y.pfault.pvalue : 0) &&
+         (y.pfault.pkind ? same_fetch_guest(x.pfault, y.pfault)
+                        : fetch_guest_is(x.pfault, false, 0, 0)) &&
          x.pprediction.pvalid == y.pprediction.pvalid &&
          x.pprediction.ppc == y.ppc &&
          x.pprediction.ptarget == y.pprediction.ptarget &&

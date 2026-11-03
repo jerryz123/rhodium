@@ -44,7 +44,6 @@ export:
   to_raw
   to_recoded
   to_ieee
-  is_signaling_nan
   canonical_recoded_nan
   resize_raw_float
   RoundAnyRawFNToRecFN

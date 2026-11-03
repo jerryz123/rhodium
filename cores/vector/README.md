@@ -49,6 +49,14 @@ and vector half-precision execution needs. That execution capability does not
 enable additional scalar ISA instructions. Named cores still choose VLEN,
 queue capacities, scheduling, and their advertised ISA profile.
 
+Captured [`VectorDescriptor(xlen)`](bundles.rhdl) values expose
+`.zero_stride_load()`, `.slide_distance()`, `.scalar_index()`, and
+`.beat_limit(vlen)`. These queries use the captured instruction and state;
+VLEN remains explicit because it is not part of the descriptor's type.
+[`VectorPackedLayout(xlen, vlen)`](packed-bundles.rhdl) exposes `.direct_row(mask)`
+to recognize complete lane-aligned rows. These are combinational queries and
+do not grant admission or completion permission.
+
 ## Ownership and timing
 
 The current implementation has the following structure:

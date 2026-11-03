@@ -104,7 +104,7 @@ class CHIHNIParams(home :: CHIHomeParams,
 fun chi_hni_subordinate_supported(p :: CHIFlitParams,
                                   request :: CHIReqFlit(p),
                                   services :: NonemptyList.of(CHISubordinateServiceParams)):
-  def size = chi_req_size(p, request)
+  def size = request.size()
   any(vec(
     for List (service in services):
       address_sets_match(request.address, service.address_sets) & any(vec(
@@ -263,7 +263,7 @@ sync_circuit CHIHNI(params :: CHIHNIParams):
   def write_data_slot_valid = upstream_write_data.txn_id < Bits(12)(limit)
   def write_data_request = requests[write_data_slot]
   def write_receipt = CHIDataReceipt():
-    expected_ids: chi_transfer_data_ids(write_data_request.address, chi_req_size(p, write_data_request), p)
+    expected_ids: chi_transfer_data_ids(write_data_request.address, write_data_request.size(), p)
     received_ids: received_write_data_ids[write_data_slot]
 
   def next_write_receipt = write_receipt.record(upstream_write_data.data_id)
@@ -306,7 +306,7 @@ sync_circuit CHIHNI(params :: CHIHNIParams):
   def read_data_slot_valid = downstream_read_data.txn_id < Bits(12)(limit)
   def read_data_request = requests[read_data_slot]
   def read_receipt = CHIDataReceipt():
-    expected_ids: chi_transfer_data_ids(read_data_request.address, chi_req_size(p, read_data_request), p)
+    expected_ids: chi_transfer_data_ids(read_data_request.address, read_data_request.size(), p)
     received_ids: received_read_data_ids[read_data_slot]
 
   def next_read_receipt = read_receipt.record(downstream_read_data.data_id)

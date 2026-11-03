@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "test.hpp"
+#include "fetch-fault.hpp"
 #include "../../../../rheg/runtime/rheg.h"
 #include "test-sites.h"
 #include <array>
@@ -448,7 +449,7 @@ void stream(const std::vector<std::uint32_t> &program, bool fault = false,
       entry.psequential_upc = entry.ppc + 4;
       entry.pinstruction = entry.praw_uinstruction = program[sent + lane];
       if (static_cast<int>(sent + lane) == fetch_fault_index)
-        entry.pfault = {.pvalid = 1, .pcause = 1, .pvalue = entry.ppc};
+        entry.pfault = {.pkind = 2, .pvalue = entry.ppc};
     }
     settle();
     const bool accepted = instructions_in.pvalid && instructions_out.pready;
@@ -1957,10 +1958,9 @@ void fetch_fault_roundtrip(unsigned cause, bool valid = true,
   entry.pprediction.ptarget = ~successor;
   const auto fault_address = cause == 1 ? pc : 0x345678u;
   constexpr std::uint64_t gpa = UINT64_C(0x123400006789000);
-  entry.pfault.pvalid = valid;
-  entry.pfault.pcause = cause;
+  entry.pfault.pkind = valid ? fetch_kind(cause) : 0;
   entry.pfault.pvalue = fault_address;
-  entry.pfault.pguest = {1, gpa, 1}; // Page-table read; ignored without H or when invalid.
+  set_fetch_guest(entry.pfault, true, gpa, 1); // Ignored when the kind is None.
   bool saw_mem = false, saw_retire = false;
   for (unsigned wait = 0; valid ? fault_count == faults : !saw_retire; ++wait) {
     CHECK(wait < 100);
@@ -1971,11 +1971,10 @@ void fetch_fault_roundtrip(unsigned cause, bool valid = true,
       const auto &f = token.pfault;
       CHECK(token.psequential_upc == successor && token.pprediction.ppc == pc &&
             token.pprediction.ptarget == pc_t(~successor) &&
-            token.praw_uinstruction == entry.praw_uinstruction && f.pvalid == valid);
-      CHECK(f.pcause == (valid ? cause : 0) && f.pvalue == (valid ? fault_address : 0));
+            token.praw_uinstruction == entry.praw_uinstruction && (f.pkind != 0) == valid);
+      CHECK(f.pkind == (valid ? fetch_kind(cause) : 0) && f.pvalue == (valid ? fault_address : 0));
       const bool guest = valid && bytes == 8;
-      CHECK(f.pguest.pguest_uvirtual_uaddress == guest &&
-            f.pguest.pguest_uphysical_uaddress == (guest ? gpa : 0) && f.pguest.paccess == guest);
+      CHECK(fetch_guest_is(f, guest, guest ? gpa : 0, guest));
       saw_mem = true;
     }
     if (retired_0_out.pvalid && retired_0_out.pbits.pfetched.ppc == pc) {
@@ -1983,8 +1982,7 @@ void fetch_fault_roundtrip(unsigned cause, bool valid = true,
       const auto &fetched = retired_0_out.pbits.pfetched;
       CHECK(fetched.psequential_upc == successor && fetched.pprediction.ppc == pc &&
             fetched.pprediction.ptarget == pc_t(~successor));
-      CHECK(!valid && !f.pvalid && !f.pcause && !f.pvalue && !f.pguest.pguest_uvirtual_uaddress &&
-            !f.pguest.pguest_uphysical_uaddress && !f.pguest.paccess);
+      CHECK(!valid && !f.pkind && !f.pvalue && fetch_guest_is(f, false, 0, 0));
       saw_retire = true;
     }
     step();

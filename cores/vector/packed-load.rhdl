@@ -151,7 +151,7 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
 
   def direct_rows = vec(
     for List (slot in 0..slots):
-      !entries[slot].store & !entries[slot].segmented & vector_packed_direct_row(xlen, vlen, entries[slot].layout, entries[slot].mask)
+      !entries[slot].store & !entries[slot].segmented & entries[slot].layout.direct_row(entries[slot].mask)
   )
   def immediate_direct = loads.completed[0].valid & direct_rows[loads.completed[0].bits.tag]
   def returned = completion |> gate_flow(!direct_rows[completion.bits.tag] ||| (direct_write_available & !immediate_direct)) |> to_valid()

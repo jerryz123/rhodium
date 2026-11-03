@@ -938,7 +938,7 @@ result.left <== source.right
 result.right <== source.left
 ```
 
-A concrete zero-parameter bundle may also own multiple hardware methods:
+A bundle may also own multiple hardware methods:
 
 ```rhombus
 bundle CacheEnvelope():
@@ -955,11 +955,39 @@ state_shared <== envelope.state_value().is_shared()
 
 The receiver is omitted at the call site, just as for enum methods. Exact
 bundle methods follow values through typed ports, literals, wires, explicit
-registers, `mux`, vectors, memories, and child-instance ports. A typed method
-result retains enum or bundle methods for further dot calls. Field and method
-names share one dot namespace and must be distinct. Parameterized bundles do
-not yet support method declarations because their specialization-dependent
-field surfaces are not available to method bodies.
+and inferred registers, `mux`, vectors, memories, and child-instance ports. A
+typed method result retains enum or bundle methods for further dot calls.
+Field and method names share one dot namespace and must be distinct.
+Declared fields still take precedence over generic operations with the same
+name, such as a record field named `lookup`.
+
+Parameterized methods use the receiver's concrete specialization. Parameters
+are in scope in the body, argument annotations/defaults, and result annotation:
+
+```rhombus
+bundle Counter(width :: PosInt):
+  value: Bits(width)
+
+  method plus(counter, other :: Bits(width), ~bias: bias :: Nat = 0) :: Bits(width):
+    counter.value + other + Bits(width)(bias)
+
+def add = counter.plus
+result <== add(increment, ~bias: 1)
+```
+
+Extraction captures the receiver once; positional and keyword arguments keep
+their declared checks and defaults. Host conditionals can select fields that
+exist only in a particular specialization. A type parameter can itself be used
+as an argument or result annotation (`:: T`). Chained calls retain the result
+surface known at the call site; they cannot recover a nominal surface already
+erased by a generic host annotation. Method binding checks declaration identity,
+even when another bundle has the same structural hardware layout.
+
+Methods can also return a specialization selected by an explicit type argument.
+For an authored retagging method, `request.with_tag(NewTag, tag)` retains the new
+tag's field and method surface, including after extracting
+`def retag = request.with_tag`.
+Runtime annotations still check the supplied tag and the complete result type.
 
 Calling the declared name with its parameters and no field block produces a
 `RecordType`; attaching a field block constructs a value of that type. Fields

@@ -5,6 +5,7 @@
 import:
   "../../../rhodium/core/main.rhm" open
   "../../../rhodium/frontend/layers/bool.rhm" as bool
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "bundle-method-fixture.rhdl" as fixture
 
 def module_def = fixture.design.modules[0]
@@ -27,3 +28,8 @@ check:
   verify_design(fixture.design) ~is #void
   verify_design(fixture.parameterized_design) ~is #void
   verify_design(fixture.direct_interface_design) ~is #void
+  elaborate(fixture.InvalidParameterizedMethod("argument")) ~throws "annotation"
+  elaborate(fixture.InvalidParameterizedMethod("generic-argument")) ~throws "annotation"
+  elaborate(fixture.InvalidParameterizedMethod("dependent-argument")) ~throws "annotation"
+  elaborate(fixture.InvalidParameterizedMethod("result")) ~throws "annotation"
+  elaborate(fixture.InvalidParameterizedMethod("family")) ~throws "expected a SizedCacheEnvelope specialization"

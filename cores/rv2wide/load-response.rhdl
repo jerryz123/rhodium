@@ -28,8 +28,8 @@ bundle RV2WideLoadReturn(xlen :: XLen):
   data: Bits(xlen.width)
 
 /* Reserves one context per accepted request; pipeline flushes cannot discard committed owners. */
-sync_circuit RV2WideLoadResponse(xlen :: XLen = XLen.X64):
-  interface allocate(Valid(RV2WideResult(xlen)), ~role: consumer)
+sync_circuit RV2WideLoadResponse(xlen :: XLen = XLen.X64, ~hypervisor: hypervisor :: Boolean = #false):
+  interface allocate(Valid(RV2WideResult(xlen, hypervisor)), ~role: consumer)
   interface response(Decoupled(Bits(xlen.width)), ~role: consumer)
   interface completed(Decoupled(RV2WideCompletion(xlen)), ~role: producer)
   interface fp_completed(Decoupled(RV2WideFpLoad(xlen)), ~role: producer)
@@ -40,7 +40,7 @@ sync_circuit RV2WideLoadResponse(xlen :: XLen = XLen.X64):
 
   inst owners(Queue(RV2WideLoadOwner(xlen), 4))
   (allocate |> map_valid(token => RV2WideLoadOwner(xlen)):
-    destination: rv2wide_fp_owner(xlen, token.fetched, token.rd, token.fp_request)
+    destination: rv2wide_fp_owner(xlen, hypervisor, token.fetched, token.rd, token.fp_request)
     fp_load: token.fp.valid & (token.fp.bits.registers.destination === FloatDestination.FloatingPoint)
     write: token.write
     precision: token.fp.bits.execution.destination_precision

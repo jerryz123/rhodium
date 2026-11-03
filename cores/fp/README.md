@@ -95,7 +95,7 @@ bookings from starving a waiting vector client. Callers still choose arbitration
 completion buffering, architectural authorization, and physical register ports.
 
 Results may reorder across fixed latencies and variable paths. Use
-[`fp_request_with_tag` and `fp_result_with_tag`](bundles.rhdl) with ordinary
+[`request.with_tag(To, tag)` and `result.with_tag(To, tag)`](bundles.rhdl) with ordinary
 Flow arbitration and tag-based routing to share the service. Tags remain
 opaque; the service has no client count, destination scoreboard, or
 architectural cancellation. Accepted work survives younger redirects.

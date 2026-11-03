@@ -12,10 +12,10 @@ import:
   lib("flow/main.rhdl") open
 
 /* Carries one aligned block's contents, first requested byte, and any block admission/read fault. */
-bundle RV2WideFetchBlock(xlen :: XLen):
+bundle RV2WideFetchBlock(xlen :: XLen, hypervisor :: Boolean):
   pc: Bits(xlen.width)
   data: Bits(64)
-  fault: RV2WideFetchFault(xlen)
+  fault: RV2WideFetchFault(xlen, hypervisor)
   prediction: BranchPrediction(xlen)
   directions: Vec(4, TournamentPrediction(10))
   prefix_direction: TournamentPrediction(10)
@@ -25,9 +25,10 @@ bundle RV2WideFetchBlock(xlen :: XLen):
    Accepted packets release exhausted blocks; a missing continuation retains its original block. */
 sync_circuit RV2WideInstructionAssembler(profile :: RV2WideConfig = RV2WideConfig()):
   def xlen = profile.xlen
-  interface blocks(Decoupled(RV2WideFetchBlock(xlen)), ~role: consumer)
+  def hypervisor = profile.hypervisor
+  interface blocks(Decoupled(RV2WideFetchBlock(xlen, hypervisor)), ~role: consumer)
   interface clear(Pulse(), ~role: consumer)
-  interface instructions(Decoupled(RV2WidePacket(xlen)), ~role: producer)
+  interface instructions(Decoupled(RV2WidePacket(xlen, hypervisor)), ~role: producer)
   interface repair(Valid(RV2WideFetchRepair(xlen)), ~role: producer)
   interface discover(Valid(BranchPrediction(xlen)), ~role: producer)
   interface speculate(Valid(RasUpdate(xlen)), ~role: producer)
@@ -41,12 +42,12 @@ sync_circuit RV2WideInstructionAssembler(profile :: RV2WideConfig = RV2WideConfi
      Retained blocks precede live bypass; incomplete continuations keep their owner. */
 
   reg count(~init: Bits(2)(0))
-  reg retained(Vec(3, RV2WideFetchBlock(xlen)))
+  reg retained(Vec(3, RV2WideFetchBlock(xlen, hypervisor)))
   // Input admission is independent of current instruction readiness: every S2 result is reserved.
   blocks.ready <== count < Bits(2)(3)
   def first_present = count.any() ||| blocks.valid
-  def first_block = mux(count.any(), retained[0], blocks.bits)
-  def second_block = mux(count > Bits(2)(1), retained[1], blocks.bits)
+  def first_block :: RV2WideFetchBlock(xlen, hypervisor) = mux(count.any(), retained[0], blocks.bits)
+  def second_block :: RV2WideFetchBlock(xlen, hypervisor) = mux(count > Bits(2)(1), retained[1], blocks.bits)
   def second_present = ((count > Bits(2)(1)) ||| ((count === Bits(2)(1)) & blocks.valid)) & (second_block.pc === (first_block.pc.align_down(8) + Bits(xlen.width)(8)))
   reg repairing(~init: Bool(#false))
   def discard = clear.valid ||| repairing
@@ -56,15 +57,15 @@ sync_circuit RV2WideInstructionAssembler(profile :: RV2WideConfig = RV2WideConfi
   def parcels = Bits(4)(4) - start + mux(second_present, Bits(4)(4), Bits(4)(0))
   def first_pc = first_block.pc + (consumed.zext(xlen.width) << 1)
   def first_compressed = window[0..2] =/= Bits(2)(3)
-  def first_size = mux(first_compressed ||| first_block.fault.valid, Bits(4)(1), Bits(4)(2))
+  def first_size = mux(first_compressed ||| first_block.fault.valid(), Bits(4)(1), Bits(4)(2))
   def first_crosses = (start + first_size) > Bits(4)(4)
-  def first_fault = first_block.fault.valid ||| (first_crosses & second_present & second_block.fault.valid)
-  def first_valid = first_present & (first_block.fault.valid ||| (parcels >= first_size))
+  def first_fault = first_block.fault.valid() ||| (first_crosses & second_present & second_block.fault.valid())
+  def first_valid = first_present & (first_block.fault.valid() ||| (parcels >= first_size))
   def second_window = window >> (first_size ++ Bits(4)(0))
   def second_compressed = second_window[0..2] =/= Bits(2)(3)
   def second_start = start + first_size
-  def second_size = mux(second_compressed ||| ((second_start >= Bits(4)(4)) & second_block.fault.valid), Bits(4)(1), Bits(4)(2))
-  wire fetched: Vec(2, RV2WideInstruction(xlen))
+  def second_size = mux(second_compressed ||| ((second_start >= Bits(4)(4)) & second_block.fault.valid()), Bits(4)(1), Bits(4)(2))
+  wire fetched: Vec(2, RV2WideInstruction(xlen, hypervisor))
   wire actions: Vec(2, RasAction)
   wire known_predictions: Vec(2, Bool)
   wire target_repairs: Vec(2, Bool)
@@ -94,12 +95,12 @@ sync_circuit RV2WideInstructionAssembler(profile :: RV2WideConfig = RV2WideConfi
     def crosses = (position < Bits(4)(4)) & ((position + size) > Bits(4)(4))
     def owner = mux(in_second, second_block, first_block)
     def fetch_fault = mux(in_second ||| crosses, second_block.fault, first_block.fault)
-    def fault = mux(first_block.fault.valid, first_block.fault, fetch_fault)
+    def fault :: RV2WideFetchFault(xlen, hypervisor) = mux(first_block.fault.valid(), first_block.fault, fetch_fault)
     inst decoded(RV2WidePredecode(profile))
     decoded.raw <== raw
     def canonical = decoded.canonical
-    def legal = !fault.valid & decoded.legal
-    def control_flow = !fault.valid & decoded.control_flow
+    def legal = !fault.valid() & decoded.legal
+    def control_flow = !fault.valid() & decoded.control_flow
     def action = mux(control_flow, decoded.action, RasAction.None)
     def predicted :: BranchPrediction(xlen) = mux(crosses & !owner.prediction.valid, second_block.prediction, owner.prediction)
     def direction :: TournamentPrediction(10) = mux(crosses, second_block.prefix_direction, owner.directions[pc[1..3]])
@@ -121,7 +122,7 @@ sync_circuit RV2WideInstructionAssembler(profile :: RV2WideConfig = RV2WideConfi
     known_predictions[lane] <== known ||| bht_branch
     entry_repairs[lane] <== known & !bht_branch & immediate_control_flow & (predicted.target =/= immediate_target)
     target_repairs[lane] <== entry_repairs[lane] ||| (known & returning & (predicted.target =/= ras_head))
-    fetched[lane] <== RV2WideInstruction(xlen):
+    fetched[lane] <== RV2WideInstruction(xlen, hypervisor):
       pc: pc
       instruction: canonical
       raw_instruction: mux(compressed, raw[0..16].zext(32), raw)
@@ -151,15 +152,15 @@ sync_circuit RV2WideInstructionAssembler(profile :: RV2WideConfig = RV2WideConfi
     def owner = if index == 0 | first_block | second_block
     def known = ((owner.prediction.pc === fetched[0].pc) & known_predictions[0]) ||| (second_valid & (owner.prediction.pc === fetched[1].pc) & known_predictions[1])
     def visited = if index == 0 | first_present | second_present & uses_second
-    visited & owner.prediction.valid & (owner.prediction.pc >= first_pc) & (owner.prediction.pc < tail_pc) & !known & !owner.fault.valid
+    visited & owner.prediction.valid & (owner.prediction.pc >= first_pc) & (owner.prediction.pc < tail_pc) & !known & !owner.fault.valid()
 
-  def packet_fault = fetched[0].fault.valid ||| (second_valid & fetched[1].fault.valid)
+  def packet_fault = fetched[0].fault.valid() ||| (second_valid & fetched[1].fault.valid())
   def bad_entry = (bad_entries[0] ||| bad_entries[1]) & !packet_fault
-  def selected :: RV2WideInstruction(xlen) = mux(first_cut, fetched[0], fetched[1])
+  def selected :: RV2WideInstruction(xlen, hypervisor) = mux(first_cut, fetched[0], fetched[1])
   def fallback = cut & !mux(first_cut, known_predictions[0], known_predictions[1])
   def target_repair = cut & mux(first_cut, target_repairs[0], target_repairs[1])
   def entry_repair = cut & mux(first_cut, entry_repairs[0], entry_repairs[1])
-  def accepted_tail :: RV2WideInstruction(xlen) = mux(second_valid, fetched[1], fetched[0])
+  def accepted_tail :: RV2WideInstruction(xlen, hypervisor) = mux(second_valid, fetched[1], fetched[0])
   def repair_entry :: Bits(xlen.width) = priority_mux(~default: second_block.prediction.pc):
     target_repair: selected.pc
     bad_entries[0]: first_block.prediction.pc
@@ -224,6 +225,9 @@ sync_circuit RV2WideInstructionAssembler(profile :: RV2WideConfig = RV2WideConfi
       consumed <== Bits(3)(0)
 
   assert(count <= Bits(2)(3), "rv2wide_assembly_capacity")
+  when (blocks.fire()):
+    def offered :: RV2WideFetchBlock(xlen, hypervisor) = blocks.bits
+    assert(offered.fault.supported(), "rv2wide_assembly_supported_fetch_fault")
 
 export:
   RV2WideFetchBlock

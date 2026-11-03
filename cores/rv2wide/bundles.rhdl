@@ -89,14 +89,10 @@ interface RV2WideUncachedInstruction():
   responder -> requester:
     response: Decoupled(InstructionCacheResult(64))
 
-/* Retains the architectural cause and faulting address independently of instruction data. */
-bundle RV2WideFetchFault(xlen :: XLen):
-  valid: Bool
-  cause: Bits(xlen.width)
-  value: Bits(xlen.width)
-  guest: RiscvGuestFault()
+/* Pipeline owners carry synchronous exception numbers (currently 0..23), never interrupts. */
+def RV2WideCauseWidth = 5
 
-/* Encodes only synchronous exceptions produced by instruction fetch; None carries no payload. */
+/* Names only instruction-fetch exceptions; None also represents absence of a fault. */
 hardware_enum RV2WideFetchFaultKind:
   None
   Misaligned
@@ -104,52 +100,43 @@ hardware_enum RV2WideFetchFaultKind:
   Page
   GuestPage
 
-/* Retains the exact faulting address (which may belong to a continuation parcel).
-   Only an H-enabled core needs guest-address and page-walk provenance. */
-bundle RV2WidePackedFetchFault(xlen :: XLen, hypervisor :: Boolean):
+  /* Rejects unused encodings and guest faults on a core without H. */
+  method supported(kind, hypervisor :: Boolean) :: Bool:
+    kind.is_one_of(RV2WideFetchFaultKind.None, RV2WideFetchFaultKind.Misaligned, RV2WideFetchFaultKind.Access, RV2WideFetchFaultKind.Page)
+      ||| (Bool(hypervisor) & (kind === RV2WideFetchFaultKind.GuestPage))
+
+/* Carries the canonical fetch fault unchanged through frontend, assembly, and EX.
+   The exact fault VA may name a continuation; only H carries guest provenance. */
+bundle RV2WideFetchFault(xlen :: XLen, hypervisor :: Boolean):
   kind: RV2WideFetchFaultKind
   value: Bits(xlen.width)
   if hypervisor:
     guest: RiscvGuestFault()
 
-/* Encodes an admitted fetch exception. The window rejects a valid input that maps to None. */
-fun pack_fetch_fault(xlen :: XLen, hypervisor :: Boolean, fault :: RV2WideFetchFault(xlen)) :~ RV2WidePackedFetchFault(xlen, hypervisor):
-  def kind = mux_lookup(fault.cause, ~default: RV2WideFetchFaultKind.None):
+  /* Reports whether this instruction carries a fetch exception. */
+  method valid(fault) :: Bool:
+    fault.kind =/= RV2WideFetchFaultKind.None
+
+  /* Returns the architectural synchronous exception number at the resolution boundary. */
+  method cause(fault) :: Bits(RV2WideCauseWidth):
+    mux_lookup(fault.kind, ~default: Bits(RV2WideCauseWidth)(0)):
+      RV2WideFetchFaultKind.Misaligned: Bits(RV2WideCauseWidth)(exception_code(ExceptionCause.InstructionAddressMisaligned))
+      RV2WideFetchFaultKind.Access: Bits(RV2WideCauseWidth)(exception_code(ExceptionCause.InstructionAccessFault))
+      RV2WideFetchFaultKind.Page: Bits(RV2WideCauseWidth)(exception_code(ExceptionCause.InstructionPageFault))
+      RV2WideFetchFaultKind.GuestPage: Bits(RV2WideCauseWidth)(exception_code(ExceptionCause.InstructionGuestPageFault))
+
+  /* Rejects unused encodings and guest faults when this specialization omits H. */
+  method supported(fault) :: Bool:
+    fault.kind.supported(hypervisor)
+
+/* Classifies an architectural translation/resolution cause at the fetch boundary.
+   The caller rejects a fault whose cause maps to None. */
+fun fetch_fault_kind(cause :: Bits) :~ RV2WideFetchFaultKind:
+  mux_lookup(cause, ~default: RV2WideFetchFaultKind.None):
     exception_code(ExceptionCause.InstructionAddressMisaligned): RV2WideFetchFaultKind.Misaligned
     exception_code(ExceptionCause.InstructionAccessFault): RV2WideFetchFaultKind.Access
     exception_code(ExceptionCause.InstructionPageFault): RV2WideFetchFaultKind.Page
-    exception_code(ExceptionCause.InstructionGuestPageFault): if hypervisor | RV2WideFetchFaultKind.GuestPage | RV2WideFetchFaultKind.None
-
-  def encoded = mux(fault.valid, kind, RV2WideFetchFaultKind.None)
-  if hypervisor
-  | RV2WidePackedFetchFault(xlen, #true):
-      kind: encoded
-      value: fault.value
-      guest: fault.guest
-  | RV2WidePackedFetchFault(xlen, #false):
-      kind: encoded
-      value: fault.value
-
-/* Presents an exact fault when valid and a canonical all-zero record when absent. */
-fun observed_fetch_fault(xlen :: XLen, valid :: Bool, cause :: Bits(xlen.width), value :: Bits(xlen.width), guest :: RiscvGuestFault()) :~ RV2WideFetchFault(xlen):
-  def fault = RV2WideFetchFault(xlen):
-    valid: valid
-    cause: cause
-    value: value
-    guest: guest
-
-  mux(valid, fault, literal(RV2WideFetchFault(xlen), 0))
-
-/* Reconstructs the public fault fields before EX classifies the instruction. */
-fun expand_fetch_fault(xlen :: XLen, hypervisor :: Boolean, packed :: RV2WidePackedFetchFault(xlen, hypervisor)) :~ RV2WideFetchFault(xlen):
-  def cause = mux_lookup(packed.kind, ~default: Bits(xlen.width)(0)):
-    RV2WideFetchFaultKind.Misaligned: exception_cause_bits(ExceptionCause.InstructionAddressMisaligned, xlen.width)
-    RV2WideFetchFaultKind.Access: exception_cause_bits(ExceptionCause.InstructionAccessFault, xlen.width)
-    RV2WideFetchFaultKind.Page: exception_cause_bits(ExceptionCause.InstructionPageFault, xlen.width)
-    RV2WideFetchFaultKind.GuestPage: exception_cause_bits(ExceptionCause.InstructionGuestPageFault, xlen.width)
-
-  def guest = if hypervisor | packed.guest | literal(RiscvGuestFault(), 0)
-  observed_fetch_fault(xlen, packed.kind =/= RV2WideFetchFaultKind.None, cause, packed.value, guest)
+    exception_code(ExceptionCause.InstructionGuestPageFault): RV2WideFetchFaultKind.GuestPage
 
 /* A +2 or +4 successor toggles one contiguous run, starting at bit 1 or 2.
    The tag names its last changed bit, not a displacement from the PC. */
@@ -157,11 +144,11 @@ bundle RV2WidePcStep(xlen :: XLen):
   last: Bits(index_width(xlen.width))
   short_step: Bool
 
-/* Restore bits 2..last and, for a two-byte step, bit 1. Bit 0 never changes. */
-fun expand_pc_step(xlen :: XLen, pc :: Bits(xlen.width), step :: RV2WidePcStep(xlen)) :~ Bits(xlen.width):
-  def below_last = Mask(xlen.width - 1).prefix(step.last).as_bits()
-  def changed = below_last[1..xlen.width - 1] ++ step.short_step.as_bits() ++ Bits(1)(0)
-  pc ^ changed
+  /* Restore bits 2..last and, for a two-byte step, bit 1. Bit 0 never changes. */
+  method apply(step, pc :: Bits(xlen.width)) :: Bits(xlen.width):
+    def below_last = Mask(xlen.width - 1).prefix(step.last).as_bits()
+    def changed = below_last[1..xlen.width - 1] ++ step.short_step.as_bits() ++ Bits(1)(0)
+    pc ^ changed
 
 /* The accepted PC pair already contains the carry result, including XLEN wrap.
    Isolate the upper edge of its changed run for a parallel one-hot index encode. */
@@ -173,21 +160,27 @@ fun encode_pc_step(xlen :: XLen, pc :: Bits(xlen.width), successor :: Bits(xlen.
     short_step: changed[1].into(Bool)
 
 /* Retains canonical decode bits, original encoding, and the length-derived successor through retirement. */
-bundle RV2WideInstruction(xlen :: XLen):
+bundle RV2WideInstruction(xlen :: XLen, hypervisor :: Boolean):
   pc: Bits(xlen.width)
   instruction: Bits(32)
   raw_instruction: Bits(32)
   sequential_pc: Bits(xlen.width)
   compressed_illegal: Bool
-  fault: RV2WideFetchFault(xlen)
+  fault: RV2WideFetchFault(xlen, hypervisor)
   prediction: BranchPrediction(xlen)
   speculated_ras_action: RasAction
   direction: TournamentPrediction(10)
 
+  /* Projects the accepted instruction, not the live lane at completion time. */
+  method identity(fetched) :: RV2WideInstructionIdentity(xlen):
+    RV2WideInstructionIdentity(xlen):
+      pc: fetched.pc
+      raw_instruction: fetched.raw_instruction
+
 /* Offers a nonempty prefix of up to two instructions to the issue window. */
-bundle RV2WidePacket(xlen :: XLen):
+bundle RV2WidePacket(xlen :: XLen, hypervisor :: Boolean):
   count: Bits(2)
-  entries: Vec(2, RV2WideInstruction(xlen))
+  entries: Vec(2, RV2WideInstruction(xlen, hypervisor))
 
 /* Keeps a retired branch's BTB outcome and saved tournament predictions together during training. */
 bundle RV2WideBranchTraining(xlen :: XLen):
@@ -214,8 +207,13 @@ bundle RV2WideResolution(xlen :: XLen):
   value: Bits(xlen.width)
   guest: RiscvGuestFault()
 
-/* Pipeline owners carry synchronous exception numbers (currently 0..23), never interrupts. */
-def RV2WideCauseWidth = 5
+  /* Narrows a stage or memory-service outcome; its producer must supply a representable fault. */
+  method compact(source) :: RV2WideSyncResolution(xlen):
+    RV2WideSyncResolution(xlen):
+      disposition: source.disposition
+      cause: source.cause[0..RV2WideCauseWidth]
+      value: source.value
+      guest: source.guest
 
 /* Carries a precise trap value and guest provenance alongside the compact synchronous cause. */
 bundle RV2WideSyncResolution(xlen :: XLen):
@@ -224,21 +222,13 @@ bundle RV2WideSyncResolution(xlen :: XLen):
   value: Bits(xlen.width)
   guest: RiscvGuestFault()
 
-/* Narrows a stage or memory-service outcome; its producer must supply a representable fault. */
-fun compact_resolution(xlen :: XLen, source :: RV2WideResolution(xlen)) :~ RV2WideSyncResolution(xlen):
-  RV2WideSyncResolution(xlen):
-    disposition: source.disposition
-    cause: source.cause[0..RV2WideCauseWidth]
-    value: source.value
-    guest: source.guest
-
-/* Reconstructs the XLEN public observation without introducing an interrupt bit. */
-fun expand_resolution(xlen :: XLen, source :: RV2WideSyncResolution(xlen)) :~ RV2WideResolution(xlen):
-  RV2WideResolution(xlen):
-    disposition: source.disposition
-    cause: source.cause.zext(xlen.width)
-    value: source.value
-    guest: source.guest
+  /* Reconstructs the XLEN public observation without introducing an interrupt bit. */
+  method expanded(source) :: RV2WideResolution(xlen):
+    RV2WideResolution(xlen):
+      disposition: source.disposition
+      cause: source.cause.zext(xlen.width)
+      value: source.value
+      guest: source.guest
 
 /* Stores only scheduling decisions; instruction ownership is attached at service boundaries. */
 bundle RV2WideFpSchedule():
@@ -251,12 +241,6 @@ bundle RV2WideInstructionIdentity(xlen :: XLen):
   pc: Bits(xlen.width)
   raw_instruction: Bits(32)
 
-/* Projects the accepted instruction, not the live lane at completion time. */
-fun rv2wide_instruction_identity(xlen :: XLen, fetched :: RV2WideInstruction(xlen)) :~ RV2WideInstructionIdentity(xlen):
-  RV2WideInstructionIdentity(xlen):
-    pc: fetched.pc
-    raw_instruction: fetched.raw_instruction
-
 /* Keeps age-slot identity and result bank with speculative or authorized numerical work. */
 bundle RV2WideFpOwner(xlen :: XLen):
   identity: RV2WideInstructionIdentity(xlen)
@@ -267,9 +251,9 @@ bundle RV2WideFpOwner(xlen :: XLen):
   direct: Bool
 
 /* Reconstructs an FP owner from its one pipeline instruction and compact scheduling tag. */
-fun rv2wide_fp_owner(xlen :: XLen, fetched :: RV2WideInstruction(xlen), rd :: Bits(5), request :: FpExecutionRequest(xlen, fp_transport_profile(xlen), RV2WideFpSchedule())) :~ RV2WideFpOwner(xlen):
+fun rv2wide_fp_owner(xlen :: XLen, hypervisor :: Boolean, fetched :: RV2WideInstruction(xlen, hypervisor), rd :: Bits(5), request :: FpExecutionRequest(xlen, fp_transport_profile(xlen), RV2WideFpSchedule())) :~ RV2WideFpOwner(xlen):
   RV2WideFpOwner(xlen):
-    identity: rv2wide_instruction_identity(xlen, fetched)
+    identity: fetched.identity()
     lane: request.tag.lane
     rd: rd
     destination: request.control.registers.destination
@@ -277,8 +261,8 @@ fun rv2wide_fp_owner(xlen :: XLen, fetched :: RV2WideInstruction(xlen), rd :: Bi
     direct: request.tag.direct
 
 /* Attaches architectural ownership only when numerical work enters a shared service. */
-fun rv2wide_fp_request(xlen :: XLen, fetched :: RV2WideInstruction(xlen), rd :: Bits(5), request :: FpExecutionRequest(xlen, fp_transport_profile(xlen), RV2WideFpSchedule())) :~ FpExecutionRequest(xlen, fp_transport_profile(xlen), RV2WideFpOwner(xlen)):
-  fp_request_with_tag(xlen, fp_transport_profile(xlen), RV2WideFpSchedule(), RV2WideFpOwner(xlen), request, rv2wide_fp_owner(xlen, fetched, rd, request))
+fun rv2wide_fp_request(xlen :: XLen, hypervisor :: Boolean, fetched :: RV2WideInstruction(xlen, hypervisor), rd :: Bits(5), request :: FpExecutionRequest(xlen, fp_transport_profile(xlen), RV2WideFpSchedule())) :~ FpExecutionRequest(xlen, fp_transport_profile(xlen), RV2WideFpOwner(xlen)):
+  request.with_tag(RV2WideFpOwner(xlen), rv2wide_fp_owner(xlen, hypervisor, fetched, rd, request))
 
 /* Carries an already extracted FP memory value to the architectural FPR write port. */
 bundle RV2WideFpLoad(xlen :: XLen):
@@ -288,8 +272,8 @@ bundle RV2WideFpLoad(xlen :: XLen):
 
 
 /* Holds RR operands, controls, composed immediates, and same-pair consumer routes. */
-bundle RV2WideExecute(xlen :: XLen):
-  fetched: RV2WideInstruction(xlen)
+bundle RV2WideExecute(xlen :: XLen, hypervisor :: Boolean):
+  fetched: RV2WideInstruction(xlen, hypervisor)
   control: RV2WideControl()
   rs1: Bits(xlen.width)
   rs2: Bits(xlen.width)
@@ -338,8 +322,8 @@ bundle RV2WideVectorLane():
   configure: VectorConfigMode
 
 /* Retains one scalar lane's result, control transfer, and fault/replay outcome through MEM and WB. */
-bundle RV2WideResult(xlen :: XLen):
-  fetched: RV2WideInstruction(xlen)
+bundle RV2WideResult(xlen :: XLen, hypervisor :: Boolean):
+  fetched: RV2WideInstruction(xlen, hypervisor)
   rd: Bits(5)
   write: Bool
   data: Bits(xlen.width)
@@ -364,6 +348,19 @@ bundle RV2WideResult(xlen :: XLen):
   vector_fast_eligible: Bool
   vector: RV2WideVectorLane()
 
+  /* Project the instruction before a capture or from a live retirement slot. */
+  method boundary_instruction(result) :: RV2WideBoundaryInstruction(xlen):
+    RV2WideBoundaryInstruction(xlen):
+      identity: result.fetched.identity()
+      next_pc: mux(result.branch.taken, result.branch.target, result.fetched.sequential_pc)
+      fetch_fault: result.fetched.fault.valid()
+      rd: result.rd
+      memory: result.memory
+      address: result.address
+      store_data: result.store_data
+      fp: result.fp
+      vector: result.vector.operation
+
 /* The instruction fields sampled by the passive WB observer. Only identity
    is needed by the trap datapath; the remaining fields need no physical
    storage in a build without that observer. */
@@ -377,19 +374,6 @@ bundle RV2WideBoundaryInstruction(xlen :: XLen):
   store_data: Bits(xlen.width)
   fp: RV2WideFpControl()
   vector: Bool
-
-/* Project the instruction before a capture or from a live retirement slot. */
-fun rv2wide_boundary_instruction(xlen :: XLen, result :: RV2WideResult(xlen)) :~ RV2WideBoundaryInstruction(xlen):
-  RV2WideBoundaryInstruction(xlen):
-    identity: rv2wide_instruction_identity(xlen, result.fetched)
-    next_pc: mux(result.branch.taken, result.branch.target, result.fetched.sequential_pc)
-    fetch_fault: result.fetched.fault.valid
-    rd: result.rd
-    memory: result.memory
-    address: result.address
-    store_data: result.store_data
-    fp: result.fp
-    vector: result.vector.operation
 
 /* Holds a precise exception or an interrupt boundary, not an executable CSR
    command. Interrupt selection and delegation remain live in the CSR bank. */
@@ -478,8 +462,8 @@ interface RV2WideMemory(xlen :: XLen, address_width :: PosInt):
     reservation_valid: Bool
 
 /* Reports one successfully retired instruction and its optional architectural GPR write. */
-bundle RV2WideRetirement(xlen :: XLen):
-  fetched: RV2WideInstruction(xlen)
+bundle RV2WideRetirement(xlen :: XLen, hypervisor :: Boolean):
+  fetched: RV2WideInstruction(xlen, hypervisor)
   rd: Bits(5)
   write: Bool
   data: Bits(xlen.width)
@@ -517,13 +501,9 @@ export:
   RV2WideUncachedInstruction
   RV2WideFetchFault
   RV2WideFetchFaultKind
-  RV2WidePackedFetchFault
-  pack_fetch_fault
-  expand_fetch_fault
-  observed_fetch_fault
+  fetch_fault_kind
   RV2WidePcStep
   encode_pc_step
-  expand_pc_step
   RV2WideInstruction
   RV2WidePacket
   RV2WideBranchTraining
@@ -532,13 +512,10 @@ export:
   RV2WideResolution
   RV2WideSyncResolution
   RV2WideCauseWidth
-  compact_resolution
-  expand_resolution
   RV2WideExecute
   RV2WideResult
   RV2WidePendingTrap
   RV2WideBoundaryInstruction
-  rv2wide_boundary_instruction
   RV2WideVectorLane
   RV2WideBranchResult
   RV2WideMemoryReq
@@ -550,7 +527,6 @@ export:
   RV2WideRetirement
   RV2WideCompletion
   RV2WideInstructionIdentity
-  rv2wide_instruction_identity
   RV2WideRedirect
   RV2WideFetchRepair
   RV2WideOperand

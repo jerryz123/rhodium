@@ -103,8 +103,13 @@ XLEN wrap, and faulting instructions whose raw bits do not identify their
 length. Preserve the prediction target, direction checkpoint, and RAS actions
 even when an instruction crosses a block or region.
 
-The window and EX retain a per-instruction fetch-fault kind, the full fault
-address, and guest details only with H. MEM and WB retain just the fetch-fault
+The frontend, assembler's three resident blocks, window, and EX use the same
+`RV2WideFetchFault(xlen, hypervisor)`: a three-bit kind, the full fault address,
+and guest details only with H. Pass it unchanged through storage and live
+bypass; classify architectural causes only at translation admission and
+produce the architectural cause at EX resolution. Preserve each block's own fault VA
+and guest provenance across compaction and straddles; do not infer them from
+the instruction PC. MEM and WB retain just the fetch-fault
 origin bit beside the resolved outcome. Preserve EX's fetch-fault priority
 and MEM's earlier-fault priority: the observed fetch fault is reconstructed
 from that resolution when the bit is set, otherwise it is all zero. Do not
@@ -188,7 +193,7 @@ both VS/G roots, SUM/MXR/PBMT controls, effective privilege, and HLVX intent.
 Keep ordinary MPRV/MPV separate from explicit HLV/HSV context. Full invalidation
 serializes at WB; never cancel an accepted physical response owner.
 
-Fetch faults and resolution payloads carry `RiscvGuestFault` through either
+With H, fetch faults and resolution payloads carry `RiscvGuestFault` through either
 age slot. Preserve second-fragment VAs and implicit-PTE GPAs. Physical faults
 also retain whether the address was guest virtual. The cosim adapter consumes
 shared passive virtual-context, trap-provenance, and HPM timing observations;
@@ -1378,6 +1383,10 @@ also checks all four compressed FP load/store expansions and raw encodings.
 Cross-block cases cover every halfword start and instruction-length pair, stalled
 packet retention, source-block history, immediate credit reuse, complete-first
 progress without lookahead, and a second-slot continuation fault.
+The `rv2wide-assembly-prediction-h` variant runs the same stream with H enabled.
+Both variants fill all three slots with independent faults and exercise stalls,
+live bypass, continuation ownership, and recovery. The H variant additionally
+checks explicit guest accesses and implicit page-table-read provenance.
 Local repair clears block ownership on the following cycle; it must
 not clear the lineage of the same edge's accepted packet.
 `rv2wide-frontend-prediction` supplies fixed-cycle instruction-cache responses

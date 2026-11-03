@@ -5,26 +5,15 @@
 
 import:
   lib("cores/vector-layout.rhm") open
-  "bundles.rhdl".VectorDescriptor
   "decode.rhdl" open
   "../fp/types.rhdl".FloatUnit
   "../../riscv/isa/vector.rhm" open
   "../../riscv/isa/xlen.rhm" open
-  "../../riscv/model/formats.rhm" as riscv_fields
-  "../../riscv/rtl/instruction-fields.rhdl".instruction_field
   lib("rhodium/std/bits.rhdl") open
 
 /* Recognizes indexed addressing so data EEW and index EEW remain independent. */
 fun vector_indexed_memory(control :: VectorControl()) :~ Bool:
   control.memory & control.memory_addressing.is_one_of(VectorMemoryAddressing.IndexedUnordered, VectorMemoryAddressing.IndexedOrdered)
-
-/* Recognizes an encoded rs2=x0 nonsegmented strided load eligible for single-read splatting. */
-fun vector_zero_stride_load_parts(control :: VectorControl(), instruction :: Bits(32)) :~ Bool:
-  control.memory & !control.store & (control.memory_addressing === VectorMemoryAddressing.Strided) & !control.memory_nf.any() & !instruction_field(riscv_fields.rs2, instruction).any()
-
-/* Tests a captured descriptor for encoded-zero-stride load execution. */
-fun vector_zero_stride_load(xlen :: XLen, descriptor :: VectorDescriptor(xlen)) :~ Bool:
-  vector_zero_stride_load_parts(descriptor.control, descriptor.instruction)
 
 /* Selects physical mask-bit beats for mask logic and nonelement scan results. */
 fun vector_mask_word(control :: VectorControl()) :~ Bool:
@@ -64,27 +53,6 @@ fun vector_index_width(control :: VectorControl(), sew :: Bits(2)) :~ Bits(2):
     vector_indexed_memory(control): control.memory_index_eew
     control.gather_index16: Bits(2)(1)
 
-/* Computes exclusive element progress, including VL-independent whole-register and byte-based
-   mask modes. */
-fun vector_beat_limit(xlen :: XLen, vlen :: VectorLength, descriptor :: VectorDescriptor(xlen)) :~ Bits(index_width(vlen + 1)):
-  def control = descriptor.control
-  // Whole-register transfers ignore vl and vtype; encoded EEW counts their elements.
-  def whole_register_memory = control.memory & (control.memory_mode === VectorMemoryMode.WholeRegister)
-  def whole_register_group_shift = mux_lookup(control.memory_nf, ~default: Bits(2)(0), [[1, Bits(2)(1)], [3, Bits(2)(2)], [7, Bits(2)(3)]])
-  def whole_register_elements = Bits(index_width(vlen + 1))(vlen / 8) >> control.memory_data_eew
-  def whole_register_limit = whole_register_elements << whole_register_group_shift
-  def whole_register_move = control.integer & control.whole_register_move
-  def whole_register_move_shift = mux_lookup(control.whole_register_count, ~default: Bits(2)(0), [[2, Bits(2)(1)], [4, Bits(2)(2)], [8, Bits(2)(3)]])
-  def whole_register_move_limit = (Bits(index_width(vlen + 1))(vlen / 8) >> descriptor.state.vtype[3..5]) << whole_register_move_shift
-  def mask_memory = control.memory & (control.memory_mode === VectorMemoryMode.Mask)
-  def mask_memory_limit = (descriptor.state.vl[0..index_width(vlen + 1)] + Bits(index_width(vlen + 1))(7)) >> 3
-  // Element moves have one bookkeeping beat, not a VL-sized iteration space.
-  priority_mux(~default: descriptor.state.vl[0..index_width(vlen + 1)]):
-    control.element_move: Bits(index_width(vlen + 1))(1)
-    whole_register_move: whole_register_move_limit
-    whole_register_memory: whole_register_limit
-    mask_memory: mask_memory_limit
-
 /* Selects physical packed, half-row, mask-bit, or singleton progress for one beat. */
 fun vector_beat_lanes(xlen :: XLen, vlen :: VectorLength, control :: VectorControl(), sew :: Bits(2), ~packed_multiply: packed_multiply :: Bool = Bool(#false)) :~ Bits(index_width(vlen + 1)):
   def width_change = (control.integer & (control.widening ||| control.narrowing)) ||| (packed_multiply & control.widening)
@@ -93,26 +61,12 @@ fun vector_beat_lanes(xlen :: XLen, vlen :: VectorLength, control :: VectorContr
     vector_mask_word(control): Bits(index_width(vlen + 1))(xlen.width)
     vector_single_element(control, ~packed_multiply: packed_multiply): Bits(index_width(vlen + 1))(1)
 
-/* Selects full-XLEN scalar, immediate, or fixed-one slide displacement before bounds checking. */
-fun vector_slide_distance(xlen :: XLen, descriptor :: VectorDescriptor(xlen)) :~ Bits(xlen.width):
-  def immediate = instruction_field(riscv_fields.rs1, descriptor.instruction)
-  priority_mux(~default: descriptor.scalar):
-    descriptor.control.slide_one: Bits(xlen.width)(1)
-    descriptor.control.operand === VectorOperandMode.Immediate: immediate.zext(xlen.width)
-
-/* Selects an unsigned immediate or full-XLEN scalar gather index. */
-fun vector_scalar_index(xlen :: XLen, descriptor :: VectorDescriptor(xlen)) :~ Bits(xlen.width):
-  def immediate = instruction_field(riscv_fields.rs1, descriptor.instruction)
-  mux(descriptor.control.operand === VectorOperandMode.Immediate, immediate.zext(xlen.width), descriptor.scalar)
-
 /* Rounds an element cursor down to its containing physical data row. */
 fun vector_aligned_first(xlen :: XLen, vlen :: VectorLength, first :: Bits(index_width(vlen + 1)), sew :: Bits(2)) :~ Bits(index_width(vlen + 1)):
   first & !(Bits(index_width(vlen + 1))(vector_word_bytes(xlen) - 1) >> sew)
 
 export:
-  vector_zero_stride_load_parts
   vector_indexed_memory
-  vector_zero_stride_load
   vector_mask_word
   vector_single_element
   vector_packed_multiply
@@ -121,8 +75,5 @@ export:
   vector_data_width
   vector_destination_width
   vector_index_width
-  vector_beat_limit
   vector_beat_lanes
-  vector_slide_distance
-  vector_scalar_index
   vector_aligned_first

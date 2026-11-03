@@ -126,7 +126,7 @@ sync_circuit CHIHNF(config :: CHIHNFConfig):
   def write_data_fire = requester_data_fire & receiving_write_data
   def snoop_data_fire = requester_data_fire & receiving_snoop_data
   def write_receipt = CHIDataReceipt():
-    expected_ids: chi_transfer_data_ids(request.address, chi_req_size(p, request), p)
+    expected_ids: chi_transfer_data_ids(request.address, request.size(), p)
     received_ids: received_data_ids
 
   def next_write_receipt = write_receipt.record(requester.request_data.bits.data_id)
@@ -308,7 +308,7 @@ sync_circuit CHIHNF(config :: CHIHNFConfig):
 
   def read_data_fire = subordinate.dat.response.fire()
   def read_receipt = CHIDataReceipt():
-    expected_ids: chi_transfer_data_ids(request.address, chi_req_size(p, request), p)
+    expected_ids: chi_transfer_data_ids(request.address, request.size(), p)
     received_ids: received_data_ids
 
   def next_read_receipt = read_receipt.record(subordinate.dat.response.bits.data_id)

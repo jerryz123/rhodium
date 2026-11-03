@@ -35,8 +35,14 @@ sync_circuit RV5StageFpService(xlen :: XLen, profile :: FloatingPointProfile, Sc
   launch_calendar.book.bits <== id_execution
   launch_calendar.fixed_available <== wb_fp_execution.fixed_admission_available & gpr_available
   ex_granted <== launch_calendar.reserved
-  def tagged_scalar_request = scalar_request |> map_flow(request => fp_request_with_tag(xlen, profile, ScalarTag, FpOwner(), request, FpOwner().Scalar(request.tag)))
-  def tagged_vector_request = vector_request |> map_flow(request => fp_request_with_tag(xlen, profile, VectorTag, FpOwner(), request, FpOwner().Vector(request.tag)))
+  def tagged_scalar_request = scalar_request |> map_flow(payload):
+    def request :: FpExecutionRequest(xlen, profile, ScalarTag) = payload
+    request.with_tag(FpOwner(), FpOwner().Scalar(request.tag))
+
+  def tagged_vector_request = vector_request |> map_flow(payload):
+    def request :: FpExecutionRequest(xlen, profile, VectorTag) = payload
+    request.with_tag(FpOwner(), FpOwner().Vector(request.tag))
+
   def vector_waiting = tagged_vector_request.valid & !tagged_vector_request.ready
   launch_calendar.vector_waiting <== vector_waiting
   id_available <== launch_calendar.available
@@ -52,8 +58,12 @@ sync_circuit RV5StageFpService(xlen :: XLen, profile :: FloatingPointProfile, Sc
   (
     wb_fp_execution.result |> demux_flow(2, ~stable: #true, result => result.tag.is(FpOwner().Vector).into(Bool))
       |> parallel(
-           map_flow(~stable: #true, result => fp_result_with_tag(xlen, profile, FpOwner(), ScalarTag, result, result.tag.view(FpOwner().Scalar).payload)),
-           map_flow(~stable: #true, result => fp_result_with_tag(xlen, profile, FpOwner(), VectorTag, result, result.tag.view(FpOwner().Vector).payload))
+           (map_flow(~stable: #true, payload):
+              def result :: FpExecutionResult(xlen, profile, FpOwner()) = payload
+              result.with_tag(ScalarTag, result.tag.view(FpOwner().Scalar).payload)),
+           (map_flow(~stable: #true, payload):
+              def result :: FpExecutionResult(xlen, profile, FpOwner()) = payload
+              result.with_tag(VectorTag, result.tag.view(FpOwner().Vector).payload))
          )
   ) <=> Array(scalar_result, vector_result)
 

@@ -125,7 +125,7 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
 
   when copyback_request:
     assert(free_copybacks.any(), label_prefix ++ "_copyback_capacity")
-    def full_line = req.address.is_aligned(64) & (chi_req_size(p, req) === CHITransferSize.Bytes64)
+    def full_line = req.address.is_aligned(64) & (req.size() === CHITransferSize.Bytes64)
     def copyback_framing = !req.multi_req & !req.exp_comp_ack
     assert(full_line & copyback_framing, label_prefix ++ "_copyback_request")
 
@@ -222,7 +222,7 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
 
   when req_event:
     assert(!req.multi_req, label_prefix ++ "_read_single_request")
-    assert(chi_size_valid(chi_req_size(p, req)),
+    assert(chi_size_valid(req.size()),
            label_prefix ++ "_read_size_valid")
     assert(req.exp_comp_ack, label_prefix ++ "_read_expects_comp_ack")
     assert(!duplicate_read_txn ||| !req.allow_retry,
@@ -254,7 +254,7 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
       comp_ack_txn_id: Bits(12)(0)
       receipt:
         CHIDataReceipt():
-          expected_ids: chi_transfer_data_ids(req.address, chi_req_size(p, req), p)
+          expected_ids: chi_transfer_data_ids(req.address, req.size(), p)
           received_ids: Mask(4)(0)
 
       comp_ack_seen: Bool(#false)

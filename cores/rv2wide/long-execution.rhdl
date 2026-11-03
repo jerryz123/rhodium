@@ -124,7 +124,10 @@ sync_circuit RV2WideDivide(xlen :: XLen = XLen.X64, ~vector_slots: slots :: Pow2
     operands: operation.request
     tag: Owner().Scalar(operation)
 
-  def vector = vector_request |> map_flow(operation => integer_request_with_tag(DividerRequest(xlen.width), VectorDivideTag(slots), Owner(), operation, Owner().Vector(operation.tag)))
+  def vector = vector_request |> map_flow(payload):
+    def operation :: IntegerExecutionRequest(DividerRequest(xlen.width), VectorDivideTag(slots)) = payload
+    operation.with_tag(Owner(), Owner().Vector(operation.tag))
+
   def selected = Array(scalar, vector) |> rr_arbiter()
   selected |> execution.request
   def Array(scalar_response, vector_response) = execution.result |> demux_flow(2, ~stable: #true, result => result.tag.is(Owner().Vector).into(Bool))

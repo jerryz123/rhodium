@@ -82,7 +82,7 @@ new payload buffers or instruction-ID reconstruction.
 | `completion.rhdl`, `slots.rhdl` | Result writeback, accepted ownership, and ordered metadata reclamation |
 | `register-file.rhdl`, `packing.rhdl`, `mask.rhdl`, `execute.rhdl` | VRF/mask shadow and packed SIMD operand/result shaping |
 | `packed-prepare.rhdl`, `packed-load.rhdl`, `splat-load.rhdl`, `load-response.rhdl` | Packed and splat transport preparation, response assembly, and retained carry |
-| `geometry.rhdl`, `precheck.rhdl` | Beat geometry and conservative certification footprints |
+| `geometry.rhdl`, `precheck.rhdl` | Scheduling geometry and conservative certification footprints; captured-descriptor queries live on `VectorDescriptor` in `bundles.rhdl` |
 | `backend.rhdl` | Common admission/execution composition, service forwarding, and precise fault transport; no named LSU protocol |
 | `admission.rhdl` | Descriptor credit, head certification, pinned-window release, queued-kind summaries, and registered outcomes |
 | `memory-issue.rhdl` | Shared LSU issue selection, packed-load bypass, ordinary lookup register, and durable capture feedback |
