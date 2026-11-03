@@ -46,15 +46,14 @@ hardware_enum L1DArrayOwner:
   Gather
   StoreDrain
 
-/* Retains the complete request plus selected way, install/allocation disposition, and hint
-   intent. */
-bundle L1DTransactionContext(xlen :: XLen, way_width :: PosInt, Context :: DataType):
+/* Owns the originating S4 request and install policy until the single miss completes,
+   including any intervening dirty-victim copyback. */
+bundle L1DMissRecord(xlen :: XLen, way_width :: PosInt, Context :: DataType):
   request: PhysicalMemoryReq(xlen, Context)
   way: Bits(way_width)
   allocation: Bool
   install: Bool
   prefetch: Bool
-  prefetch_write: Bool
 
 /* Pairs an authorized physical request with demand or best-effort prefetch intent. */
 bundle L1DLookup(xlen :: XLen, Context :: DataType):
@@ -143,9 +142,9 @@ sync_circuit L1DCache(xlen :: XLen,
   inst refill_load_gen(LoadGen(xlen, word_bytes))
   inst refill_store_gen(StoreGen(xlen, word_bytes))
   inst refill_atomic_alu(RiscvAtomicALU(xlen))
-  inst refill(CacheLineRefill(L1DTransactionContext(xlen, way_width, Context), width, config))
+  inst refill(CacheLineRefill(Bool, width, config))
   inst snoop(CacheDataSnoop(snoop_width, config, ~gather_xlen: xlen))
-  inst writeback(CacheLineWriteback(L1DTransactionContext(xlen, way_width, Context), width, config, 1, ~gather_xlen: xlen))
+  inst writeback(CacheLineWriteback(Bool, width, config, 1, ~gather_xlen: xlen))
   inst maintenance(CHICacheMaintenance(p, PhysicalMemoryReq(xlen, Context)))
   maintenance.node_id <== node_id
   maintenance.txn_id <== Bits(12)(2)
@@ -199,8 +198,9 @@ sync_circuit L1DCache(xlen :: XLen,
   // Only ordinary demand loads/stores permit independent pipeline load hits.
   reg miss_active(~init: Bool(#false))
   reg miss_allows_hits(~init: Bool(#false))
-  reg miss_set(Bits(set_width))
-  reg miss_line_address(Bits(width))
+  reg miss_record(L1DMissRecord(xlen, way_width, Context))
+  def miss_set = miss_record.request.address[offset_width..(offset_width + set_width)]
+  def miss_line_address = miss_record.request.address.align_down(CacheLineBytes)
   reg gather_state(~init: L1DGatherState.Idle)
   reg gather_issue_index(~init: Bits(word_index_width)(0))
   reg gather_response_pending(~init: Bool(#false))
@@ -210,7 +210,6 @@ sync_circuit L1DCache(xlen :: XLen,
   reg gather_way(Bits(way_width))
   reg eviction_line_address(Bits(width))
   reg eviction_state(~init: CHICacheState.Invalid)
-  reg eviction_context(L1DTransactionContext(xlen, way_width, Context))
   reg gathered_snoop_state(~init: CHICacheState.Invalid)
   reg snoop_metadata_pending(~init: Bool(#false))
 
@@ -462,40 +461,30 @@ sync_circuit L1DCache(xlen :: XLen,
   def Array(s4_refill_path, s4_eviction_path) = s4_transaction_path |> demux_flow(2, _result => s4_dirty_victim.as_bits())
   def s4_local = s4_hit_path |> gate_flow(service_responses.ingress.ready) |> to_valid()
 
-  /* Captures request, hit/replacement way, installation policy, and prefetch intent for
-     retained CHI work. */
-  fun transaction_context(result :: L1DResolved(xlen, way_width, Context), allocation :: Bool, install :: Bool) :~ L1DTransactionContext(xlen, way_width, Context):
-    def lookup = result.lookup.into(L1DLookup(xlen, Context))
-    L1DTransactionContext(xlen, way_width, Context):
-      request: lookup.request
-      way: mux(result.hit, result.hit_way, result.allocation_way)
-      allocation: allocation
-      install: install
-      prefetch: lookup.prefetch
-      prefetch_write: lookup.prefetch_write
-
-
   /* Refill and victim-writeback commands.
-     Direct and post-eviction paths capture complete transaction context;
-     fixed-priority arbitration preserves the existing command order. */
+     Direct acquisition uses live S4 data; a completed eviction resumes the
+     same miss from its L1D record. Neither engine owns a copy of that record. */
+
+  /* Selects the acquisition and supplies the prefetch flag for launch accounting. */
+  fun refill_command(request :: PhysicalMemoryReq(xlen, Context), prefetch :: Bool, prefetch_write :: Bool) :~ CacheLineRefillCommand(Bool, width):
+    CacheLineRefillCommand(Bool, width):
+      line_address: request.address.as_bits().align_down(CacheLineBytes)
+      opcode: mux(prefetch_write ||| request.access.into(CacheOperation).needs_unique() ||| (request.access === CacheOperation.LoadReserved), CHIReqOpcode.ReadUnique, CHIReqOpcode.ReadClean)
+      context: prefetch
 
   def direct_refill_commands = (
     s4_refill_path
       |> map_flow(result):
         def lookup = result.lookup.into(L1DLookup(xlen, Context))
-        def bypass = bypass_allocation(result)
-        CacheLineRefillCommand(L1DTransactionContext(xlen, way_width, Context), width):
-          line_address: lookup.request.address.as_bits().align_down(CacheLineBytes)
-          opcode: mux(lookup.prefetch_write ||| lookup.request.access.into(CacheOperation).needs_unique() ||| (lookup.request.access === CacheOperation.LoadReserved), CHIReqOpcode.ReadUnique, CHIReqOpcode.ReadClean)
-          context: transaction_context(result, !result.hit & !bypass, !bypass)
+        refill_command(lookup.request, lookup.prefetch, lookup.prefetch_write)
   )
 
   def s4_victim_address = s4_result.egress.bits.victim_address
   def eviction_start = s4_eviction_path |> gate_flow(gather_idle & !refill_installing) |> to_valid()
   def eviction_gather_start = eviction_start.valid
-  def eviction_command = CacheLineWritebackCommand(L1DTransactionContext(xlen, way_width, Context), width):
+  def eviction_command = CacheLineWritebackCommand(Bool, width):
     line_address: eviction_line_address
-    context: eviction_context
+    context: Bool(#false)
 
   def eviction_command_valid = gather_state === L1DGatherState.EvictionReady
   wire eviction_command_ready: Bool
@@ -508,13 +497,8 @@ sync_circuit L1DCache(xlen :: XLen,
   elsewhen (snoop.update.valid & (snoop.update.bits.address.align_down(CacheLineBytes) === pad_address(eviction_line_address, snoop_width))):
     eviction_state <== mux(snoop.update.bits.invalidate, CHICacheState.Invalid, snoop.update.bits.state)
 
-  def post_eviction_refills = (
-    writeback.completion
-      |> map_flow(result => CacheLineRefillCommand(L1DTransactionContext(xlen, way_width, Context), width)):
-        line_address: result.context.request.address.as_bits().align_down(CacheLineBytes)
-        opcode: mux(result.context.prefetch_write ||| result.context.request.access.into(CacheOperation).needs_unique() ||| (result.context.request.access === CacheOperation.LoadReserved), CHIReqOpcode.ReadUnique, CHIReqOpcode.ReadClean)
-        context: result.context
-  )
+  // Only a demand can evict a dirty victim. Resume the requested line, not the victim.
+  def post_eviction_refills = writeback.completion |> map_flow(_done => refill_command(miss_record.request, Bool(#false), Bool(#false)))
 
   // Direct launch is an S4 decision, not another pipeline stage. The command
   // fields are meaningful when accepted; the refill contract retains ancestry.
@@ -523,34 +507,38 @@ sync_circuit L1DCache(xlen :: XLen,
   s4_refill_address <== direct_refill_commands.bits.line_address
   // Gather ancestry is not yet modeled; writeback supplies its own resident owner.
   Array(direct_refill_commands, post_eviction_refills) |> arbiter() |> refill.command
-  stat_count("dcache_miss", refill.command.fire() & !refill.command.bits.context.prefetch)
+  stat_count("dcache_miss", refill.command.fire() & !refill.command.bits.context)
   def writeback_complete = writeback.completion.fire()
+  when (writeback.completion.valid):
+    assert(miss_active, "l1d_copyback_retains_miss")
 
 
   /* Refill completion and installation.
      Finishes accepted snoops before installing. New probes wait through the
      acknowledged grant and word-at-a-time installation interval. */
 
-  def refill_context = refill.completion.bits.context
   def refill_can_complete = !snoop_pending & gather_idle & !refill_installing & !pending_mutation_valid
-  def refill_install_start = refill.completion.valid & refill_context.install & refill_can_complete
+  def refill_install_start = refill.completion.valid & miss_record.install & refill_can_complete
   def refill_install_final = refill_install_index === Bits(word_index_width)(words_per_line - 1)
   def refill_install_word = refill_installing
   // ReadClean returns a clean copy, which CHI permits us to silently discard.
   // A bypass consumes the acknowledged transaction buffer without touching
   // arrays, replacement state, or any resident line's reservation.
-  refill.completion.ready <== mux(refill_context.install, refill_installing & refill_install_final, refill_can_complete) & (refill_context.prefetch ||| service_responses.ingress.ready)
+  refill.completion.ready <== mux(miss_record.install, refill_installing & refill_install_final, refill_can_complete) & (miss_record.prefetch ||| service_responses.ingress.ready)
   def complete_refill = refill.completion.fire()
-  def install_refill = complete_refill & refill_context.install
+  def install_refill = complete_refill & miss_record.install
+  when (refill.completion.valid):
+    assert(miss_active & (refill.completion.bits.line_address === miss_line_address), "l1d_refill_matches_miss")
+
   when complete_refill:
     assert(!refill.completion.bits.pass_dirty, "l1d_refill_not_dirty")
-    assert(!refill_context.request.access.into(CacheOperation).is_store_conditional(), "l1d_sc_never_refills")
-    when (refill_context.request.access === CacheOperation.LoadReserved):
+    assert(!miss_record.request.access.into(CacheOperation).is_store_conditional(), "l1d_sc_never_refills")
+    when (miss_record.request.access === CacheOperation.LoadReserved):
       assert(refill.completion.bits.state === CHIResponseState.Unique, "l1d_lr_refill_owned")
 
-  def refill_request = refill_context.request
-  def refill_prefetch = refill_context.prefetch
-  def refill_way = refill_context.way
+  def refill_request = miss_record.request
+  def refill_prefetch = miss_record.prefetch
+  def refill_way = miss_record.way
   def refill_access = refill_request.access
   def refill_set = refill_request.address[offset_width..(offset_width + set_width)]
   def refill_tag = refill_request.address[(offset_width + set_width)..physical_width]
@@ -943,8 +931,13 @@ sync_circuit L1DCache(xlen :: XLen,
     assert(!miss_active, "l1d_single_miss_owner")
     miss_active <== Bool(#true)
     miss_allows_hits <== !s4_prefetch & s4_access.is_one_of(CacheOperation.Load, CacheOperation.Store)
-    miss_set <== s4_set
-    miss_line_address <== s4_request.address.align_down(CacheLineBytes)
+    miss_record <== L1DMissRecord(xlen, way_width, Context):
+      request: s4_request
+      way: mux(s4_hit, s4_result.egress.bits.hit_way, s4_result.egress.bits.allocation_way)
+      allocation: !s4_hit & !s4_bypass_refill
+      install: !s4_bypass_refill
+      prefetch: s4_prefetch
+
   elsewhen complete_refill:
     miss_active <== Bool(#false)
     miss_allows_hits <== Bool(#false)
@@ -985,7 +978,6 @@ sync_circuit L1DCache(xlen :: XLen,
     gather_way <== mux(eviction_gather_start, eviction_start.bits.allocation_way, snoop_selection.index)
     when eviction_gather_start:
       eviction_line_address <== eviction_start.bits.victim_address
-      eviction_context <== transaction_context(eviction_start.bits, Bool(#true), Bool(#true))
 
     when (!eviction_gather_start):
       gathered_snoop_state <== snoop_lookup_state
@@ -1058,7 +1050,7 @@ sync_circuit L1DCache(xlen :: XLen,
   def snooped_valid_lines = mux(snoop_invalidates, valid_lines.updated(snoop_update_set, snooped_set_valids), valid_lines)
   def eviction_set = eviction_line_address[offset_width..(offset_width + set_width)]
   when writeback_complete:
-    valid_lines <== snooped_valid_lines.updated(eviction_set, snooped_valid_lines[eviction_set].updated(eviction_context.way, Bool(#false)))
+    valid_lines <== snooped_valid_lines.updated(eviction_set, snooped_valid_lines[eviction_set].updated(miss_record.way, Bool(#false)))
   elsewhen snoop_invalidates:
     valid_lines <== snooped_valid_lines
   elsewhen install_refill:
@@ -1072,7 +1064,7 @@ sync_circuit L1DCache(xlen :: XLen,
   assert(!(replacement_touch & install_refill), "l1d_replacement_update_unique")
   when replacement_touch:
     replacement_state <== replacement_state.updated(replacement_touch_set, plru_touch(ways, replacement_state[replacement_touch_set], replacement_touch_way))
-  elsewhen (install_refill & refill_context.allocation):
+  elsewhen (install_refill & miss_record.allocation):
     replacement_state <== replacement_state.updated(refill_set, plru_touch(ways, replacement_state[refill_set], refill_way))
 
 

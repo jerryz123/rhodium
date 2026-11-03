@@ -823,6 +823,53 @@ void observe() {}
 
 void falling_update() {}
 
+// The miss owns a byte store across both CHI transactions. A waiting load
+// must not replace that record, even with the refill's final response stalled.
+void check_store_miss_across_copyback() {
+  prepare_hit_under_miss();
+  auto victim = LINE;
+  bit_slice(victim, 0, 64) = STORE_DATA;
+  send_core_request(ADDRESS, MEMORY_STORE, ATOMIC_SWAP, STORE_DATA, 0);
+  expect_core_response(0, WRITEBACK_ACK_KIND, 0);
+
+  // Touch the other way last and fill both response slots before the miss.
+  core_in.presponse.pready = 0;
+  send_core_request(EVICT_ADDRESS, MEMORY_LOAD, ATOMIC_SWAP, 0, 1);
+  send_core_request(EVICT_ADDRESS + 8, MEMORY_LOAD, ATOMIC_SWAP, 0, 2);
+  send_core_request(THIRD_ADDRESS + 19, MEMORY_STORE, ATOMIC_SWAP, 0x5a, 0,
+                    0, 3, 0);
+  accept_request(WRITE_BACK_FULL, ADDRESS, 1, 6, 1, 0);
+  send_core_request(THIRD_ADDRESS + 16, MEMORY_LOAD, ATOMIC_SWAP, 0, 17);
+  send_response(RETRY_ACK, 1, 0, 5);
+  send_response(PCRD_GRANT, 1, 0, 5);
+  accept_request(WRITE_BACK_FULL, ADDRESS, 1, 6, 0, 5);
+  send_response(COMP_DBID_RESP, 1, 85, 0);
+  for (int packet = 0; packet < 4; ++packet)
+    accept_copyback_data(packet, victim);
+
+  accept_request(READ_UNIQUE, THIRD_ADDRESS, 0, 6, 1, 0);
+  send_response(RETRY_ACK, 0, 0, 3);
+  send_response(PCRD_GRANT, 0, 0, 3);
+  accept_request(READ_UNIQUE, THIRD_ADDRESS, 0, 6, 0, 3);
+  return_line(THIRD_ADDRESS, THIRD_LINE, 2);
+  accept_comp_ack();
+  for (int i = 0; i < 16; ++i) {
+    CHECK(!core_out.pdrained && core_out.presponse.pvalid &&
+          core_out.presponse.pbits.pcontext.pwriteback == memory_integer(1));
+    tick();
+  }
+  core_in.presponse.pready = 1;
+  expect_core_response(bit_slice(EVICT_LINE, 0, 64), WRITEBACK_INTEGER_KIND, 1);
+  expect_core_response(bit_slice(EVICT_LINE, 64, 64), WRITEBACK_INTEGER_KIND, 2);
+  expect_core_response(0, WRITEBACK_ACK_KIND, 0);
+  auto installed = THIRD_LINE;
+  bit_slice(installed, 19 * 8, 8) = 0x5a;
+  expect_core_response(bit_slice(installed, 16 * 8, 64), WRITEBACK_INTEGER_KIND, 17);
+  check_pipeline_load(THIRD_ADDRESS + 16, 1, 1, bit_slice(installed, 16 * 8, 64));
+  check_pipeline_load(EVICT_ADDRESS, 1, 1, bit_slice(EVICT_LINE, 0, 64));
+  check_pipeline_load(ADDRESS, 1, 0);
+}
+
 // Exercise a snoop of a different dirty way both before the copyback grant and
 // while its first DAT beat is stalled. Cycle offsets are the pre-refactor trace.
 void check_overlapping_dirty_lines(bool grant_before_snoop) {
@@ -2212,6 +2259,7 @@ void stimulus() {
 
     check_overlapping_dirty_lines(false);
     check_overlapping_dirty_lines(true);
+    check_store_miss_across_copyback();
     throw Finished{};
   }
 }

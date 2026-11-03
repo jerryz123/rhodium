@@ -142,16 +142,18 @@ lines; the copyback fixture also covers 128-, 256-, and 512-bit DAT.
    S3 request once its outstanding read and S4 have drained.
 3. Publish refill metadata only after the last word, and invalidate a dirty
    victim before reusing its way. Capture the cache's install disposition in
-   transaction context separately from architectural locality and new-way
+   the L1D miss record separately from architectural locality and new-way
    allocation. A non-allocating load must complete from the acknowledged clean
    transaction buffer without SRAM writes, victim handling, replacement-state
    movement, or reservation invalidation.
 4. Preserve explicit SRAM ownership and priority among core lookup, line
    gather, refill installation, and snoop service.
-   Keep transaction capacity separate from array availability. `miss_active`,
-   `miss_allows_hits`, `miss_set`, and `miss_line_address` span direct
-   acquisition or victim gather through final refill completion, including CHI
-   retries and writeback. Only ordinary demand load/store contexts enable
+   Keep transaction capacity separate from array availability. Capture
+   `miss_record` once, on direct refill acceptance or eviction gather start,
+   and hold it through final refill completion, including retries and stalls.
+   Derive the reserved set and line from its request. Keep the victim address
+   and snoop ownership separate; copyback completion resumes the active miss,
+   not a new S4 request. Only ordinary demand load/store contexts enable
    hit-under-miss. Protect the whole set in S0 admission and S1 classification.
    An ordinary load or store matching `miss_line_address` may resolve as Slow
    and wait in the authorized request queue; it must perform a fresh lookup
@@ -222,7 +224,10 @@ For hit-under-miss changes, `rv5stage-dcache` also checks sustained independent
 hits during delayed/retried refills and dirty writeback, both ways of a reserved
 set, a second miss, blocked stores and atomics, gapped packet assembly,
 installation progress, concurrent non-allocating completion, queued older
-stores, invalidating snoops, and reset. Run `rv5stage-load-hit` at the real
+stores, invalidating snoops, and reset. Its byte-store regression retries
+both victim copyback and replacement refill, stalls final completion, and
+checks that a same-line waiter sees the merged bytes in the selected way.
+Run `rv5stage-load-hit` at the real
 core/MMU/router/cache boundary for hits during delayed load/store misses,
 deferred-result use, and fence ordering. Include `rv5stage-dcache-rv32` and
 `rv5stage-lrsc-progress` for width and coherence regression coverage, then rerun

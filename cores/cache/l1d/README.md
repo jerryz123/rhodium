@@ -137,8 +137,9 @@ receiving data directly from the refill engine, and no independent second miss
 can become outstanding.
 
 Requests carry `locality: RiscvMemoryLocality` (`Default`, `P1`, `Pall`,
-`S1`, `All`). Lookup, retained mutation, dirty-victim eviction, and refill
-context retain the complete request. This is architectural intent, independent
+`S1`, `All`). L1D retains the complete request, including locality, in one
+miss record from S4 admission through refill completion, even when a dirty
+victim must first be written back. Locality is architectural intent, independent
 of cache policy. Non-default selectors bypass L1 allocation on ordinary integer
 and FP load misses; all hits and other operations keep their existing behavior.
 Prefetch requests use `Default`.
@@ -208,11 +209,13 @@ flowchart LR
   Mutate --> Response
 
   Resolved -->|miss or ownership acquisition| Victim{"Dirty allocated victim?"}
+  Resolved -->|"accepted miss"| Record["One miss record<br/>request, way, install policy"]
   Victim -->|yes| Gather["Shared gather reader"]
   Arrays -->|"one XLEN word per return"| Gather
   Gather -->|"victim words"| Writeback["Writeback line register<br/>one WriteBackFull"]
   Writeback --> Refill["ReadClean or ReadUnique<br/>retry-aware refill"]
   Victim -->|no| Refill
+  Record -->|"request and destination way"| Install
   Refill -->|retained copy| Install["Install one XLEN word/cycle<br/>publish metadata last"]
   Refill -->|non-allocating load| Load
   Install --> Arrays
@@ -297,10 +300,14 @@ victim is dirty, avoiding nonbinding writeback traffic.
 | Failed SC | Return one without CHI traffic or a data-array update | Unchanged |
 | Dirty allocation victim | Gather the line, complete writeback, then issue the refill | Victim invalidated before replacement installation |
 
-The shared [refill engine](../chi/refill.rhdl) retains the aligned line address
-and complete request context across retry, accepts unique `CompData` packets,
-sends `CompAck`, and exposes the completed line only afterward. Shared cache lines
-are fixed at 64 bytes, and L1D rejects a refill carrying `PassDirty`. With the
+The shared [refill engine](../chi/refill.rhdl) retains the aligned address and
+CHI transaction state across retry, accepts unique `CompData` packets, sends
+`CompAck`, and exposes the completed line only afterward. L1D's miss record
+supplies the destination way, allocation policy, and original response context.
+A direct miss starts the refill on its S4 acceptance edge; after a dirty
+eviction the refill uses the original request address, not the victim address.
+
+Shared cache lines are fixed at 64 bytes, and L1D rejects a refill carrying `PassDirty`. With the
 repository's default 128-bit DAT width, four packets form a line. Installation
 writes one XLEN word per cycle—eight writes for RV64 or sixteen for RV32—and
 publishes the tag, coherence state, and valid bit only on the final word. A
