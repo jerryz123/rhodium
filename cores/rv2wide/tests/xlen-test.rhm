@@ -44,8 +44,11 @@ for (xlen in [XLen.X32, XLen.X64]):
   for (stage in ["ex", "mem", "wb"]):
     def prefix_name = stage ++ "_pc_region"
     def prefix = execution.operations.find(fun (op): op.opcode == "rtl.register" && op.attribute("name") == prefix_name)
+    def relative_name = stage ++ "_younger_next_region"
+    def relative = execution.operations.find(fun (op): op.opcode == "rtl.register" && op.attribute("name") == relative_name)
     check:
       prefix.results[0].type.packed_width() ~is xlen.width - 12
+      relative.results[0].type.packed_width() ~is 1
 
     for (slot in ["older", "younger"]):
       def lane = child(execution, stage ++ "_" ++ slot)

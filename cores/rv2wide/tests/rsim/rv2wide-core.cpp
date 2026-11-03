@@ -1337,6 +1337,18 @@ int main() {
     send_predicted(0x4200, jump(0, 0x2000), 0x6200, 0x6200);
     drain();
     CHECK(memory_cycles.at(0x4200) < memory_cycles.at(0x6200));
+    // A next-region target can share the group, including a carry through
+    // several prefix bits and the modular wrap at the top of the address space.
+    for (const auto pc : {UINT64_C(0x7200), UINT64_C(0xfffff200),
+                          UINT64_C(0xfffffffffffff200)}) {
+      const auto target = pc + UINT64_C(0x1000);
+      send_predicted(pc, jump(0, 0x1000), target, target);
+      drain();
+      CHECK(memory_cycles.at(pc) == memory_cycles.at(target));
+    }
+    send_predicted(0xb200, jump(0, -0x1000), 0xa200, 0xa200);
+    drain();
+    CHECK(memory_cycles.at(0xb200) < memory_cycles.at(0xa200));
     send_predicted(UINT64_C(0x2640), jump(1, 32), UINT64_C(0x2660),
                    UINT64_C(0x2660), 1, UINT64_C(1));
     drain();
@@ -3526,11 +3538,7 @@ int main() {
                  imm(rd, 3, lower));
             send(pc + 8, imm(5, 3, 0), imm(6, rd, 0));
             drain();
-            if (pc_case == 0) { // 0xffe and 0x1002 must execute separately.
-              CHECK(auipc_addi_pairs == before_pairs && memory_cycles.at(pc) < memory_cycles.at(pc + 4));
-            } else {
-              CHECK(auipc_addi_pairs == before_pairs + 1 && dual_commits >= before_dual + 1);
-            }
+            CHECK(auipc_addi_pairs == before_pairs + 1 && dual_commits >= before_dual + 1);
             send(pc + 16, imm(7, 3, 0), imm(8, rd, 0));
             drain();
           }

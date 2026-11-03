@@ -206,9 +206,12 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   reg ex_pc_region(Region)
   reg mem_pc_region(Region)
   reg wb_pc_region(Region)
-  for (stage in [ex_pipe, mem_pipe, wb_pipe], region in [ex_pc_region, mem_pc_region, wb_pc_region], name in ["ex", "mem", "wb"]):
-    for (lane in stage):
-      lane.pc_region <== region
+  reg ex_younger_next_region(Bool)
+  reg mem_younger_next_region(Bool)
+  reg wb_younger_next_region(Bool)
+  for (stage in [ex_pipe, mem_pipe, wb_pipe], region in [ex_pc_region, mem_pc_region, wb_pc_region], next_region in [ex_younger_next_region, mem_younger_next_region, wb_younger_next_region], name in ["ex", "mem", "wb"]):
+    stage[0].pc_region <== region
+    stage[1].pc_region <== region + next_region.as_bits().zext(Region.width)
 
     assert(!stage[1].egress.valid ||| stage[0].egress.valid, "rv2wide_" ++ name ++ "_younger_has_older")
 
@@ -665,7 +668,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   def rr_structural_blocked = for List (lane in 0..2): rr_vector_retry_wait ||| rr_capacity_blocked[lane] ||| !rr_serialization_clear[lane] ||| !rr_memory_order_clear[lane]
 
   /* The oldest lane owns the admission prefix. A younger fetch fault bypasses
-     ordinary decode/pair checks, but not the common 4 KiB instruction-PC region. */
+     ordinary decode/pair checks, but its PC must use the same or next 4 KiB region. */
 
   def rr_first = (rr_head.count =/= Bits(2)(0)) & !rr_blocked[0] & !rr_squash & !rr_vector_retry_wait & !rr_pause_blocked & rr_serialization_clear[0] & rr_memory_order_clear[0]
   def rr_pair_resource_conflict = rr_pair_ras ||| rr_pair_wb_admission ||| rr_pair_csr ||| rr_pair_fpr_reads ||| rr_pair_fixed_collision
@@ -674,11 +677,15 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   def rr_younger_return_reserved = (rr_completion.valid & rr_completion.bits.write) ||| !wb_gpr_calendar.registered_free[2]
   def rr_second_decodable = rr_head.entries[1].fault.valid ||| (rr_decodable[1] & !rr_pair_conflict)
   def rr_younger_prefix_allowed = rr_decodable[0] & !rr_controls[0].pause & !rr_system[0] & !rr_system[1] & !rr_csr_access[0] & !rr_csr_access[1]
-  def rr_same_pc_region = rr_head.entries[0].pc[RV2WidePcOffsetBits..xlen.width] === rr_head.entries[1].pc[RV2WidePcOffsetBits..xlen.width]
-  def rr_second = rr_first & !rr_vector_writeback_waiting & (rr_head.count === Bits(2)(2)) & rr_same_pc_region & !rr_blocked[1] & rr_younger_prefix_allowed & rr_memory_order_clear[1] & rr_second_decodable & !rr_younger_return_reserved
+  def rr_older_region = rr_head.entries[0].pc[RV2WidePcOffsetBits..xlen.width]
+  def rr_younger_region = rr_head.entries[1].pc[RV2WidePcOffsetBits..xlen.width]
+  def rr_next_pc_region = rr_younger_region === (rr_older_region + Region(1))
+  def rr_pair_pc_region = (rr_older_region === rr_younger_region) ||| rr_next_pc_region
+  def rr_second = rr_first & !rr_vector_writeback_waiting & (rr_head.count === Bits(2)(2)) & rr_pair_pc_region & !rr_blocked[1] & rr_younger_prefix_allowed & rr_memory_order_clear[1] & rr_second_decodable & !rr_younger_return_reserved
   issued <== rr_first.as_bits().zext(2) + rr_second.as_bits().zext(2)
   when rr_first:
-    ex_pc_region <== rr_head.entries[0].pc[RV2WidePcOffsetBits..xlen.width]
+    ex_pc_region <== rr_older_region
+    ex_younger_next_region <== rr_next_pc_region
 
   rr_window.consume <== issued
   stat_count("issue_1", issued === Bits(2)(1))
@@ -741,7 +748,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     def data_hazard = rr_data_blocked[lane] ||| (if lane == 0 | Bool(#false) | rr_data_blocked[0] ||| (rr_decodable[0] & rr_decodable[1] & rr_pair_data_conflict))
     def older_structural_hazard = if lane == 0
     | Bool(#false)
-    | rr_structural_blocked[0] ||| !rr_same_pc_region ||| rr_younger_prefix_excluded ||| rr_pair_resources_blocked ||| rr_younger_return_reserved
+    | rr_structural_blocked[0] ||| !rr_pair_pc_region ||| rr_younger_prefix_excluded ||| rr_pair_resources_blocked ||| rr_younger_return_reserved
 
     def structural_hazard = rr_structural_blocked[lane] ||| older_structural_hazard
     def rr_observed = rr_window.candidates[lane] |> offer_decoupled() |> trace_event("core/s1.rr.slot" ++ to_string(lane), ~stalls: #true, ~fields: fetched):
@@ -978,6 +985,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
 
   when (ex_results[0].valid):
     mem_pc_region <== ex_pc_region
+    mem_younger_next_region <== ex_younger_next_region
 
 
   /* EX to MEM: a group has at most one live vector operation and one live vset.
@@ -1159,12 +1167,13 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
 
   when (mem_results[0].valid):
     wb_pc_region <== mem_pc_region
+    wb_younger_next_region <== mem_younger_next_region
 
   for (stage in [ex_pipe, mem_pipe, wb_pipe], name in ["ex", "mem", "wb"]):
     when (stage[1].ingress.valid):
       def older_region = stage[0].ingress.bits.fetched.pc[RV2WidePcOffsetBits..xlen.width]
       def younger_region = stage[1].ingress.bits.fetched.pc[RV2WidePcOffsetBits..xlen.width]
-      assert(stage[0].ingress.valid & (older_region === younger_region), "rv2wide_" ++ name ++ "_paired_pc_region")
+      assert(stage[0].ingress.valid & ((older_region === younger_region) ||| (younger_region === (older_region + Region(1)))), "rv2wide_" ++ name ++ "_paired_pc_region")
 
 
   /* MEM to WB: only surviving lanes advance. A redirect can kill the younger

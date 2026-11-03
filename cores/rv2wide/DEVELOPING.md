@@ -64,8 +64,9 @@ These are ownership boundaries, not extra pipeline stages or latency assumptions
 
 At RR→EX, EX→MEM, and MEM→WB, [both lane pipes](lane-pipe.rhdl) store only
 the low 12 bits of their starting PCs. Each stage owns one shared upper-PC
-register, captured on the older lane's transfer even when it issues alone.
-Both lanes reconstruct their PCs from that stage's prefix. Recovery may kill
+register and one younger-next-region bit, captured on the older lane's transfer
+even when it issues alone. The younger lane selects that prefix or its modular
+successor; the older lane always uses the unmodified prefix. Recovery may kill
 the younger lane alone, so it must not gate prefix advancement. A bubble or
 flush needs no prefix reset or separate valid bit. The prediction PC, EX's
 vector PC, and the MEM/WB branch-update PC all alias the starting PC. The
@@ -73,7 +74,9 @@ branch return address aliases the sequential PC. Prediction targets are
 independent; never reconstruct them from the group prefix.
 Use the reconstructed PC for traces and before handing work to any independently
 retained owner. The issue window and a merged WB retirement group do not have
-this prefix invariant.
+this prefix invariant. RR admits only same-region or next-region pairs; backward
+and more distant regions remain separate issues. The relative bit advances with
+the shared prefix through EX/MEM/WB, not with a potentially killed younger lane.
 
 MEM and WB each retain one vector execution descriptor for the group. The
 ordinary lane pipes carry only the vector classification needed for hazards,

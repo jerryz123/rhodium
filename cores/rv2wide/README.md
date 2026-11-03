@@ -507,9 +507,11 @@ instruction packets -> eight-entry buffer -> RR -> EX -> MEM -> WB
 ```
 
 RR consumes zero, one, or two instructions. Two instructions may issue together
-only if their starting virtual PCs are in the same aligned 4 KiB region. They
-need not be consecutive. Across a region boundary the older instruction can
-issue alone; the younger stays in the window, even if it carries a fetch fault.
+only if their starting virtual PCs are in the same aligned 4 KiB region or the
+younger starts in its immediate successor, modulo XLEN. They need not be
+consecutive. A backward or more distant region leaves the younger in the window,
+even if it carries a fetch fault. These are virtual PC regions, independent of
+physical mapping or translation permissions; fault and redirect rules still apply.
 Independent ALU operations can issue and retire two per cycle.
 Immediate-only integer producers such as LUI
 and ADDI from x0 can supply either younger GPR source directly at RR. This

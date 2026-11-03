@@ -1870,7 +1870,8 @@ void pc_region_pairing() {
   next_pc = boundary + 0xffe;
   const auto older = next_pc;
   stream({addi(10, 0, 21), addi(11, 0, 22)});
-  CHECK(memory_cycles.at(older) < memory_cycles.at(older + 4));
+  CHECK(memory_cycles.at(older) == memory_cycles.at(older + 4));
+  CHECK(retirement_lanes.at(older + 4) == 1);
   CHECK(gprs[10] == 21 && gprs[11] == 22);
 
   // Reuse the first pair's offsets in new regions. Single issue must advance
@@ -1879,7 +1880,7 @@ void pc_region_pairing() {
   next_pc = single;
   send(0x00000617); // auipc x12, 0
   CHECK(retirement_lanes.at(single) == 0 && gprs[12] == single);
-  const auto branch = boundary + 0x3ff8;
+  const auto branch = boundary + 0x3ffc;
   next_pc = branch;
   kill_younger(addi(12, 0, 99));
   CHECK(memory_cycles.at(branch) == memory_cycles.at(branch + 4) && gprs[12] == single);
@@ -1887,9 +1888,56 @@ void pc_region_pairing() {
   next_pc = boundary + 0x2ffc;
   const auto fault_pair = next_pc;
   stream({addi(10, 0, 31), addi(11, 0, 32)}, true, false, true, 1);
-  CHECK(memory_cycles.at(fault_pair) < memory_cycles.at(fault_pair + 4));
+  CHECK(memory_cycles.at(fault_pair) == memory_cycles.at(fault_pair + 4));
   CHECK(last_fault_pc == fault_pair + 4 && retired_pcs.contains(fault_pair));
   CHECK(!retired_pcs.contains(fault_pair + 4) && gprs[10] == 31 && gprs[11] == 22);
+
+  // Mixed instruction lengths exercise both sides of a region boundary, a
+  // long prefix carry, and XLEN wrap. PC arithmetic follows the actual port width.
+  using Pc = decltype(instructions_in.pbits.pentries[0].ppc);
+  for (const Pc page : {Pc(boundary + 0x5000), Pc(0x10000000), Pc(0)}) {
+    for (const unsigned length : {2u, 4u}) {
+      const Pc first = Pc(page - length), second = page;
+      instructions_in = {};
+      instructions_in.pvalid = 1;
+      instructions_in.pbits.pcount = 2;
+      for (unsigned lane = 0; lane < 2; ++lane) {
+        auto &entry = instructions_in.pbits.pentries[lane];
+        entry.ppc = lane ? second : first;
+        entry.psequential_upc = Pc(entry.ppc + (lane ? 4 : length));
+        entry.pinstruction = addi(10 + lane, 0, 21 + lane);
+        entry.praw_uinstruction = !lane && length == 2
+            ? 0x4001u | 10u << 7 | 21u << 2 // c.li x10, 21
+            : entry.pinstruction;
+      }
+      for (unsigned wait = 0; ; ++wait) {
+        CHECK(wait < 100);
+        settle();
+        const bool accepted = instructions_out.pready;
+        step();
+        if (accepted) break;
+      }
+      instructions_in.pvalid = 0;
+      for (unsigned wait = 0; !retired_pcs.contains(second); ++wait) {
+        CHECK(wait < 100 && !replay_pc);
+        step();
+      }
+      CHECK(retired_pcs.contains(first));
+      CHECK(memory_cycles.at(first) == memory_cycles.at(second));
+      CHECK(retirement_cycles.at(first) == retirement_cycles.at(second));
+      CHECK(retirement_lanes.at(first) == 0 && retirement_lanes.at(second) == 1);
+      CHECK(gprs[10] == 21 && gprs[11] == 22);
+      // These PCs recur in the next length case and the fault round-trip suite.
+      for (auto pc : {first, second}) {
+        retired_pcs.erase(pc);
+        memory_cycles.erase(pc);
+        retirement_cycles.erase(pc);
+        retirement_lanes.erase(pc);
+        retirement_values.erase(pc);
+      }
+    }
+  }
+  next_pc = boundary + 0x6000;
 }
 
 void fetch_fault_roundtrip(unsigned cause, bool valid = true,
