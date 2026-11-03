@@ -48,6 +48,9 @@ Preserve these invariants when extending the components:
   Drain separate from Idle; zero-latency responses are valid on acceptance.
 - Invalidation wins over refill at the edge. Core-owned flush/retirement
   controls must not feed back through combinational demand-hit qualification.
+- Select the compact host bank only when root writes invalidate both banks
+  and cancel outstanding walks. Test a root change while an old PTE response
+  is in flight; the next walk of the same VA must start at the new root.
 - Vector fallback probes use only the window's registered state and captured
   range. Do not restore admission-to-probe bypass: a live descriptor offer may
   itself depend on scalar WB/MMU acceptance. Preserve the independent MEM

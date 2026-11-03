@@ -32,9 +32,10 @@ the positive service-queue depth bounds authorized requests and same-line
 waiters, while the required CHI configuration supplies flit geometry and the
 Home map. A separate
 `node_id` input supplies the occurrence's RN-F identity. Core addresses use
-XLEN, while emitted CHI requests use the configured CHI request-address width
-and assert that the original physical address fits. Geometry validation also
-requires XLEN to leave at least one tag bit above the line offset and set index.
+XLEN; resident tags use the smaller of XLEN and the CHI request-address width,
+less line-offset and set bits. At least one tag bit must remain. An address
+outside that width cannot hit a low line: demand faults, prefetch drops, and
+a snoop above the hart address space returns a miss.
 
 ## Core-facing protocol
 
@@ -150,7 +151,7 @@ Prefetch requests use `Default`.
 | Requester → cache | `virtual_lookup: Valid(Bits(XLEN))` | Early virtual byte address, paired with a permitted physical request at the same edge; no backpressure |
 | Requester → cache | `prefetch: Valid(CachePrefetchReq)` | Best-effort aligned physical read/write hint; no acceptance or completion |
 | Cache → requester | `response: Decoupled(PhysicalMemoryResp)` | Ordered, backpressurable completion with `access_fault`, XLEN load/atomic/SC result, and the unchanged caller context |
-| Cache → requester | `request_fault`, `request_access_fault` | Always false in this physical cache; translation and PMA routing own architectural faults |
+| Cache → requester | `request_fault`, `request_access_fault` | No page faults; an address too wide for CHI raises an access fault before admission. Translation and PMA checks remain upstream. |
 | Cache → requester | `drained` | Combinational quiescence observation used by architectural serialization |
 
 The authorized request is `Decoupled`; an unaccepted attempt may be withdrawn

@@ -378,6 +378,7 @@ void finish_detached_walk(int flush_at, std::uint8_t fault = 0) {
 }
 
 void check_canceled_pte_reply() {
+  const auto old_satp = satp;
   int accepted_before;
   accepted_before = manual_pte_requests;
   falling();
@@ -398,6 +399,7 @@ void check_canceled_pte_reply() {
   falling();
   memory_ready = 0;
   CHECK(manual_pte_requests == accepted_before + 1);
+  satp = SATP_SV39_ROOT_1 + 1;
   invalidate_all = 1;
   tick();
   falling();
@@ -423,8 +425,9 @@ void check_canceled_pte_reply() {
   falling();
   instruction_request_valid = 0;
   until([&] { return data_memory_out.prequest.pvalid; });
-  CHECK(data_memory_out.prequest.pbits.pmemory.paddress == UINT64_C(4096) &&
+  CHECK(data_memory_out.prequest.pbits.pmemory.paddress == UINT64_C(8192) &&
         manual_pte_requests == accepted_before + 1);
+  satp = old_satp;
   invalidate_all = 1; // Cancel the new, still-unaccepted offer.
   tick();
   falling();
@@ -1118,6 +1121,8 @@ void stimulus() {
     // This address hits only DTLB: an instruction hint must not borrow it.
     check_isolated_hint(VIRTUAL_ADDRESS, UINT64_C(1), 0);
     check_isolated_hint(VIRTUAL_ADDRESS, UINT64_C(0), 0);
+    // Bits above VA[38:0] still participate in the Sv39 canonicality check.
+    check_isolated_hint(VIRTUAL_ADDRESS | (UINT64_C(1) << 39), UINT64_C(2), 0);
     falling();
     privilege = PRIVILEGE_U;
     tick();

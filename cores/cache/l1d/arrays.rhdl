@@ -12,10 +12,9 @@ import:
 
 /* Provides independent synchronous tag, coherent-state, and byte-masked data SRAMs.
    The cache scheduler owns arbitration and way-major lane masks. */
-sync_circuit CacheDCacheArrays(xlen :: XLen, cache :: CacheConfig):
+sync_circuit CacheDCacheArrays(xlen :: XLen, cache :: CacheConfig, tag_width :: PosInt):
   def word_bytes = xlen.width / 8
   def depth = cache.sets * (CacheLineBytes / word_bytes)
-  def tag_width = xlen.width - alignment_bits(CacheLineBytes) - cache.set_width
   interface tags(ReadWritePort(cache.set_width, Bits(tag_width), cache.ways), ~role: responder)
   interface states(ReadWritePort(cache.set_width, CHICacheState, cache.ways), ~role: responder)
   interface data(ReadWritePort(index_width(depth), Bits(8), cache.ways * word_bytes), ~role: responder)

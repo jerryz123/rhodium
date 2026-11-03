@@ -364,6 +364,43 @@ bundle RV2WideResult(xlen :: XLen):
   vector_fast_eligible: Bool
   vector: RV2WideVectorLane()
 
+/* The instruction fields sampled by the passive WB observer. Only identity
+   is needed by the trap datapath; the remaining fields need no physical
+   storage in a build without that observer. */
+bundle RV2WideBoundaryInstruction(xlen :: XLen):
+  identity: RV2WideInstructionIdentity(xlen)
+  next_pc: Bits(xlen.width)
+  fetch_fault: Bool
+  rd: Bits(5)
+  memory: RV2WideMemoryControl()
+  address: Bits(xlen.width)
+  store_data: Bits(xlen.width)
+  fp: RV2WideFpControl()
+  vector: Bool
+
+/* Project the instruction before a capture or from a live retirement slot. */
+fun rv2wide_boundary_instruction(xlen :: XLen, result :: RV2WideResult(xlen)) :~ RV2WideBoundaryInstruction(xlen):
+  RV2WideBoundaryInstruction(xlen):
+    identity: rv2wide_instruction_identity(xlen, result.fetched)
+    next_pc: mux(result.branch.taken, result.branch.target, result.fetched.sequential_pc)
+    fetch_fault: result.fetched.fault.valid
+    rd: result.rd
+    memory: result.memory
+    address: result.address
+    store_data: result.store_data
+    fp: result.fp
+    vector: result.vector.operation
+
+/* Holds a precise exception or an interrupt boundary, not an executable CSR
+   command. Interrupt selection and delegation remain live in the CSR bank. */
+bundle RV2WidePendingTrap(xlen :: XLen, hypervisor :: Boolean):
+  interrupt: Bool
+  instruction: RV2WideBoundaryInstruction(xlen)
+  cause: Bits(RV2WideCauseWidth)
+  value: Bits(xlen.width)
+  if hypervisor:
+    guest: RiscvGuestFault()
+
 /* Restarts unassembled fetch work without discarding already accepted instructions. */
 bundle RV2WideFetchRepair(xlen :: XLen):
   target: Bits(xlen.width)
@@ -499,6 +536,9 @@ export:
   expand_resolution
   RV2WideExecute
   RV2WideResult
+  RV2WidePendingTrap
+  RV2WideBoundaryInstruction
+  rv2wide_boundary_instruction
   RV2WideVectorLane
   RV2WideBranchResult
   RV2WideMemoryReq

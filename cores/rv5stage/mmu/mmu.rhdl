@@ -87,8 +87,8 @@ sync_circuit RV5StageMmu(xlen :: XLen,
         guest_translation
     | literal(RiscvHypervisorTranslation(), 0)
 
-  inst itlb(RiscvTranslationTlb(tlb_entries))
-  inst dtlb(RiscvTranslationTlb(tlb_entries))
+  inst itlb(RiscvTranslationTlb(tlb_entries, ~host_root_epoch: !hypervisor))
+  inst dtlb(RiscvTranslationTlb(tlb_entries, ~host_root_epoch: !hypervisor))
   inst walker(RiscvTranslationWalker(~svnapot: svnapot))
   def itlb_result = riscv_host_result(itlb.translation)
   // A detached fetch must not trap, but a completed page fault is reusable

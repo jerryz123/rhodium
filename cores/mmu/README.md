@@ -67,6 +67,14 @@ SUM/MXR, access class, and A/D permissions; VS denial precedes G denial.
 HS MXR changes miss because entries do not retain implicit-PTE permission proofs.
 Bare translation bypasses the bank and reports address overflow separately.
 
+The non-H RV5Stage and RV2Wide harts select
+`RiscvTranslationTlb(~host_root_epoch: #true)`. This mode accepts host Sv39
+fills only. It checks the full incoming VA for canonicality, but stores only
+its 27 VPN bits, not a root tag or guest translation. The caller must invalidate
+both banks on every SATP root write and prevent an older walk from filling
+after invalidation. H-enabled harts and the default reusable bank retain the
+full root-tagged behavior.
+
 Successful fills update a matching entry or replace cyclically. Faults never
 allocate. Whole-bank invalidation wins over a simultaneous fill, removes global
 entries, and resets replacement state. Demand lookup observes pre-edge state;

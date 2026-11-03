@@ -853,8 +853,15 @@ CHI-snoop wakeup; the fetch fixture checks real LR/STO/SC reservation retention
 and event-trace ownership. Profile and cosim-pass tests cover publication and
 instrumented elaboration. No WRS-specific SoC or CI lane is needed.
 
-The WB retention register holds a faulting token or interrupt boundary independently
-of the speculative pipes. An older accepted load paired with a younger fault
+The pending-trap register holds the boundary instruction identity, an interrupt
+flag, and the resolved synchronous cause/value independently of the speculative
+pipes. Only H profiles carry guest fault details. Do not retain a CSR operation,
+source operand, or branch execution record: a held exception enters the CSR bank
+as an explicit fault, never as a reissued instruction. The passive observation
+projection preserves the faulting instruction's next PC, fetch, memory, FP, and
+vector provenance without retaining those fields in an unobserved netlist.
+The separate service record still owns delayed operations that can retire.
+An older accepted load paired with a younger fault
 retires once, preserves its completion owner, and delays trap entry until the
 owner FIFO, service, and unflushable completion pipe are all empty. Interrupts
 inhibit new WB memory acceptance before retaining the oldest unretired PC.

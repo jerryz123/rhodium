@@ -7,7 +7,7 @@ using RiscvSplitResult =
     std::remove_cvref_t<decltype(split_completion_in.pbits)>;
 // Checks forwarding, replay, branch-over-deferred-load hazards, and retained split completion.
 
-bool split_pending, split_load_done, split_store_done;
+bool split_pending, split_load_done, split_store_done, saw_split_restart;
 
 std::uint8_t split_delay;
 
@@ -49,6 +49,7 @@ std::uint8_t fetch_flushes;
 constexpr std::uint8_t MEMORY_LOAD = UINT64_C(1);
 constexpr std::uint8_t WRITEBACK_ACK_KIND = UINT64_C(0);
 constexpr std::uint8_t WRITEBACK_INTEGER_KIND = UINT64_C(1);
+constexpr std::uint32_t vector_words[] = {0x0000f057, 0x02218257}; // vsetvli; vadd.vv
 
 std::uint32_t instruction_at(std::uint64_t address) {
   switch (address) {
@@ -153,6 +154,17 @@ std::uint32_t instruction_at(std::uint64_t address) {
     return UINT64_C(
         78657699); // sd x11, 81(x0), retained until split completion
   } break;
+  case UINT64_C(0x1000000ac): return vector_words[0];
+  case UINT64_C(0x1000000b0): return vector_words[1];
+  case 0: return 0x34202af3; // mtvec=0: csrr x21, mcause
+  case 4: return 0x34302b73; // csrr x22, mtval
+  case 8: return 0x34102bf3; // csrr x23, mepc
+  case 12: return 0x07503023; // sd x21, 96(x0)
+  case 16: return 0x07603423; // sd x22, 104(x0)
+  case 20: return 0x07703823; // sd x23, 112(x0)
+  case 24: return 0x004b8b93; // addi x23, x23, 4
+  case 28: return 0x341b9073; // csrw mepc, x23
+  case 32: return 0x30200073; // mret
   default: {
     return UINT64_C(19);
   } break;
@@ -161,6 +173,11 @@ std::uint32_t instruction_at(std::uint64_t address) {
 
 void drive() {
   {
+    // A scalar hart must not capture or echo even an unsolicited certificate.
+    vector_fast_in.presponse.pvalid = 1;
+    vector_fast_in.presponse.pbits.pppn = 0xabc;
+    vector_fast_in.presponse.pbits.prange.pfirst = 0x1234;
+    vector_fast_in.pcandidate_ucurrent = 1;
     instruction_access_in.prequest.pready =
         instruction_access_out.pflush || !instruction_response_valid;
     instruction_access_in.presponse.pvalid = instruction_response_valid;
@@ -213,7 +230,12 @@ void observe() {
       defer(split_delay, std::remove_cvref_t<decltype(split_delay)>{});
       defer(split_load_done, 0);
       defer(split_store_done, 0);
+      defer(saw_split_restart, false);
     } else {
+      CHECK(!vector_fast_out.prequest.pvalid && !vector_fast_out.prequest.pbits.pfirst &&
+            !vector_fast_out.prequest.pbits.plast && !vector_fast_out.prequest.pbits.pstore &&
+            !vector_fast_out.pcandidate.pppn && !vector_fast_out.pcandidate.prange.pfirst &&
+            !vector_fast_out.ppipeline_uphysical && !vector_fast_out.prequest_uphysical);
       defer(split_completion_in.pvalid, 0);
       if (split_completion_in.pvalid) {
         defer(split_pending, 0);
@@ -268,8 +290,7 @@ void observe() {
                         7, 2) == WRITEBACK_ACK_KIND))) {
           CHECK(instruction_access_out.pflush && split_load_done &&
                 stores_seen == 10 && load_requests == 3);
-
-          throw Finished{};
+          defer(saw_split_restart, true);
         }
       }
 
@@ -422,6 +443,17 @@ void observe() {
                     std::remove_cvref_t<decltype(split_completion_in.pbits)>{});
                 defer(split_completion_in.pbits.presponse.pcontext.pwriteback,
                       data_access_out.prequest.pbits.pcontext.pwriteback);
+              }
+            } break;
+            case 10: case 11: case 12: case 13: case 14: case 15: {
+              const auto index = (stores_seen - 10) / 3;
+              const auto field = (stores_seen - 10) % 3;
+              const std::uint64_t expected[] = {2, vector_words[index], UINT64_C(0x1000000ac) + 4 * index};
+              CHECK(data_access_out.prequest.pbits.paddress == unsigned(96 + 8 * field) &&
+                    data_access_out.prequest.pbits.pdata == expected[field]);
+              if (stores_seen == 15) {
+                CHECK(saw_split_restart);
+                throw Finished{};
               }
             } break;
             default: {

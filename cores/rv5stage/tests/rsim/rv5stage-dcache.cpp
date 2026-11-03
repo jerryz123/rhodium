@@ -395,6 +395,9 @@ void check_pipeline_load(std::uint64_t address, std::uint8_t permitted,
         expected_hit);
   if (expected_hit)
     CHECK(pipeline_out.presponse.pbits.pdata == value);
+  if (address >> 44)
+    CHECK(pipeline_out.presponse.pvalid &&
+          pipeline_out.presponse.pbits.poutcome == PIPE_ACCESS_FAULT);
   tick();
   pipeline_in = {};
   tick();
@@ -877,6 +880,17 @@ void stimulus() {
     expect_core_response(UINT64_C(0x123456789abcdef), WRITEBACK_INTEGER_KIND,
                          UINT64_C(3));
 
+    check_pipeline_load(PREFETCH_READ_ADDRESS, 1, 1,
+                        UINT64_C(0x8877665544332211));
+    const auto high_alias = PREFETCH_READ_ADDRESS | (UINT64_C(1) << 44);
+    check_pipeline_load(high_alias, 1, 0);
+    core_in.prequest.pbits.paddress = high_alias;
+    core_in.prequest.pbits.paccess = MEMORY_LOAD;
+    core_in.prequest.pvalid = 1;
+    settle();
+    CHECK(core_out.prequest_uaccess_ufault && !core_out.prequest.pready);
+    tick();
+    core_in.prequest.pvalid = 0;
     check_pipeline_load(PREFETCH_READ_ADDRESS, 1, 1,
                         UINT64_C(0x8877665544332211));
     check_pipeline_load(PREFETCH_READ_ADDRESS + 8, 1, 1,

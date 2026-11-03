@@ -1280,9 +1280,9 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
      New dispatch observes live owners before ready/fault feedback;
      synchronous faults precede interrupts at the oldest unretired boundary. */
 
-  inst wb_fault_retention(OfferRegister(RV2WideResult(xlen)))
-  reg wb_pending_interrupt(~init: Bool(#false))
+  inst wb_fault_retention(OfferRegister(RV2WidePendingTrap(xlen, profile.hypervisor)))
   def wb_fault_pending = wb_fault_retention.egress.valid
+  def wb_held_trap :: RV2WidePendingTrap(xlen, profile.hypervisor) = wb_fault_retention.egress.bits
   // Vector authorization retains the older instruction, not the scalar pipes.
   // On success its retirement may share the second slot with a simple scalar
   // result; service/CSR work instead replays to its original physical WB lane.
@@ -1633,24 +1633,29 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   // Existing fault retention carries that trap across the single-command boundary.
   def wb_defer_fault = wb_system & wb_vector_config & wb_explicit_fault
   def wb_hold_fault = (wb_explicit_fault ||| wb_interrupt_stop) & (!wb_drained ||| wb_defer_fault)
+  def wb_trap_owner :: RV2WideResult(xlen) = mux(wb_interrupt_stop, wb_group[0], wb_selected)
+  def wb_trap_instruction = rv2wide_boundary_instruction(xlen, wb_trap_owner)
   wb_fault_retention.update.valid <== wb_hold_fault
-  wb_fault_retention.update.bits <== mux(wb_interrupt_stop, wb_group[0].updated(~fetched: wb_group[0].fetched.updated(~pc: wb_interrupt_pc)), wb_selected)
-  when wb_hold_fault:
-    wb_pending_interrupt <== wb_interrupt_stop
+  wb_fault_retention.update.bits.interrupt <== wb_interrupt_stop
+  wb_fault_retention.update.bits.instruction <== wb_trap_instruction.updated(
+    ~identity: wb_trap_instruction.identity.updated(~pc: mux(wb_interrupt_stop, wb_interrupt_pc, wb_trap_instruction.identity.pc))
+  )
+  wb_fault_retention.update.bits.cause <== wb_trap_owner.resolution.cause
+  wb_fault_retention.update.bits.value <== wb_trap_owner.resolution.value
+  if profile.hypervisor
+  | wb_fault_retention.update.bits.guest <== wb_trap_owner.resolution.guest
+  | #void
 
   wb_fault_retention.egress.ready <== wb_drained & !wb_defer_fault
-  def wb_fault :: RV2WideResult(xlen) = mux(wb_fault_pending, wb_fault_retention.egress.bits, wb_selected)
-  def wb_fault_command = wb_drained & !wb_defer_fault & (wb_explicit_fault ||| (wb_fault_pending & !wb_pending_interrupt))
+  def wb_fault_command = wb_drained & !wb_defer_fault & (wb_explicit_fault ||| (wb_fault_pending & !wb_held_trap.interrupt))
   def wb_configuration_before_fault = wb_valid[0] & (wb_group[0].system.action === RiscvCsrAction.VectorConfig) & !wb_service_stop[0]
-  def wb_command :: RV2WideResult(xlen) = priority_mux(~default: wb_system_token):
-    wb_fault_pending: wb_fault_retention.egress.bits
-    any(wb_service_stop) & !wb_configuration_before_fault: wb_service_selected
-
-  def wb_command_exception = wb_command.resolution.disposition === RV2WideDisposition.Fault
+  def wb_command :: RV2WideResult(xlen) = mux(any(wb_service_stop) & !wb_configuration_before_fault, wb_service_selected, wb_system_token)
+  def wb_boundary_instruction = mux(wb_fault_pending, wb_held_trap.instruction, rv2wide_boundary_instruction(xlen, wb_command))
+  def wb_command_exception = mux(wb_fault_pending, !wb_held_trap.interrupt, wb_command.resolution.disposition === RV2WideDisposition.Fault)
   wb_csrs.commit.valid <== wb_fault_command ||| wb_system
   wb_csrs.commit.bits <== RiscvCsrCommand(xlen):
-    pc: wb_command.fetched.pc
-    instruction: wb_command.fetched.raw_instruction
+    pc: wb_boundary_instruction.identity.pc
+    instruction: wb_boundary_instruction.identity.raw_instruction
     rd: wb_command.rd
     csr_operation: mux(wb_command_exception, RiscvCsrOperation.None, wb_command.system.csr)
     action: mux(wb_command_exception, RiscvCsrAction.None, wb_command.system.action)
@@ -1658,8 +1663,8 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     csr_source: wb_command.csr_source
     vector_config: vector_configuration_request(xlen, wb_command.vector.configure, wb_command.fetched.instruction, wb_command.left, wb_command.right)
     exception_valid: wb_command_exception
-    exception_cause: wb_command.resolution.cause.zext(xlen.width)
-    exception_value: wb_command.resolution.value
+    exception_cause: mux(wb_fault_pending, wb_held_trap.cause, wb_command.resolution.cause).zext(xlen.width)
+    exception_value: mux(wb_fault_pending, wb_held_trap.value, wb_command.resolution.value)
 
   when (wb_system & wb_vector_config):
     assert(wb_csrs.command_success, "rv2wide_ex_validated_vector_configuration")
@@ -1667,16 +1672,16 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   if profile.hypervisor
   | block:
       wb_csrs.guest_fault.valid <== wb_fault_command
-      wb_csrs.guest_fault.bits <== wb_fault.resolution.guest
+      wb_csrs.guest_fault.bits <== mux(wb_fault_pending, wb_held_trap.guest, wb_selected.resolution.guest)
   | #void
 
   /* Architectural redirects and recovery.
      Selects trap, interrupt, wake, and replay targets without canceling
      already accepted services or changing their completion ownership. */
 
-  def wb_interrupt_boundary = wb_drained & (wb_interrupt_stop ||| (wb_fault_pending & wb_pending_interrupt))
+  def wb_interrupt_boundary = wb_drained & (wb_interrupt_stop ||| (wb_fault_pending & wb_held_trap.interrupt))
   wb_csrs.interrupt_boundary <== wb_interrupt_boundary
-  wb_csrs.interrupt_pc <== mux(wb_fault_pending, wb_fault.fetched.pc, wb_interrupt_pc)
+  wb_csrs.interrupt_pc <== mux(wb_fault_pending, wb_held_trap.instruction.identity.pc, wb_interrupt_pc)
   def wb_replay = (wb_stop_valid & (wb_selected.resolution.disposition === RV2WideDisposition.Replay)) ||| wb_vector_scalar_replay
   def wb_replay_owner = mux(wb_vector_scalar_replay, wb_vector_replay_owner, wb_selected)
   def wb_wake = wb_sleeping & wb_csrs.wfi_wake
@@ -1691,7 +1696,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
 
   def wb_redirect_bits = RV2WideRedirect(xlen):
     pc:
-      priority_mux(~default: wb_command.fetched.pc):
+      priority_mux(~default: wb_boundary_instruction.identity.pc):
         wb_interrupt_boundary: wb_csrs.interrupt_pc
         wb_wake: wb_resume_pc
         wb_replay: wb_replay_owner.fetched.pc
@@ -1969,7 +1974,7 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
     "fp_completion": fp.completion.bits,
     "fp_load_valid": fp.load_write.valid,
     "fp_load": fp.load_write.bits,
-    "wb_command": wb_command,
+    "wb_boundary_instruction": wb_boundary_instruction,
     "completion_fire": vec(wb_load_response.completed.fire(), ex_multiply.completed.valid, wb_divide.completed.fire(), completed.valid & !wb_vector_return.valid),
     "completion": vec(wb_load_response.completed.bits, ex_multiply.completed.bits, wb_divide.completed.bits, completed.bits)
   }, (if vector_enabled | {"csr": wb_csrs, "vector": vector, "lsu": memory_ports} | {"csr": wb_csrs}))

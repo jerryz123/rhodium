@@ -303,6 +303,29 @@ void stimulus() {
         send_request(UINT64_C(4156), UINT64_C(1));
         expect_response(expected);
       }
+
+      // CHI carries more PA bits than this RV32 cache. The dirty low line
+      // must neither supply data nor be invalidated by its high-address alias.
+      chi_in.psnoops.pvalid = 1;
+      chi_in.psnoops.pbits.popcode = 9; // SnpCleanInvalid
+      chi_in.psnoops.pbits.psrc_uid = 1;
+      chi_in.psnoops.pbits.paddress = ((UINT64_C(1) << 32) | 4096) >> 3;
+      settle();
+      for (int cycle = 0; cycle < 100 && !chi_out.psnoops.pready; ++cycle)
+        tick();
+      CHECK(chi_out.psnoops.pready);
+      tick();
+      chi_in.psnoops = {};
+      for (int cycle = 0; cycle < 100 && !chi_out.prequester_uresponses.pvalid; ++cycle) {
+        CHECK(!chi_out.prequest_udata.pvalid);
+        tick();
+      }
+      CHECK(chi_out.prequester_uresponses.pvalid &&
+            chi_out.prequester_uresponses.pbits.presp == 0);
+      tick();
+      send_request(4156, 1);
+      expect_response(expected);
+      CHECK(requests == 6);
     }
 
     reset = 1;

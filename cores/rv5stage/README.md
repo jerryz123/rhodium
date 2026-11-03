@@ -1063,6 +1063,11 @@ runs the same cross-field validation as direct construction.
 | `profile.multiplier` | `Iterative` by default, or a three-stage feed-forward `Pipelined` implementation; both provide operand-independent timing |
 | `~chi` | Required physical flit, address-region, and Home-routing policy |
 
+With `VectorProfile.None`, vector instructions (including `vset*`) trap as
+illegal. The execution core keeps the same MMU fast-check interface, but its
+request is invalid, its range and candidate certificate are zero, and it
+ignores incoming certificates.
+
 All supported compressed-extension selections include Zca and permit two-byte
 instruction alignment. A Zca-only integer core may advertise `misa.C`; once F
 or D is present, `misa.C` is advertised only by the complete C composition

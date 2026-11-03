@@ -26,6 +26,16 @@ bundle RiscvTlbEntry():
   vs_leaf: Sv39Pte()
   g_leaf: Sv39Pte()
 
+/* Host Sv39 translations within one root epoch. The integrating MMU invalidates
+   on every root write and suppresses stale fills; privilege and A/D checks stay live. */
+bundle RiscvHostTlbEntry():
+  valid: Bool
+  vpn: Bits(27)
+  page_size: Sv39PageSize
+  ppn: Bits(44)
+  pbmte: Bool
+  vs_leaf: Sv39Pte()
+
 /* Matches page and captured translation identity; current privilege, SUM, and VS MXR are
    rechecked. */
 fun riscv_tlb_matches(entry :: RiscvTlbEntry(), request :: RiscvTlbLookup()) :~ Bool:
@@ -43,7 +53,7 @@ fun riscv_tlb_matches(entry :: RiscvTlbEntry(), request :: RiscvTlbLookup()) :~ 
 
 /* Provides combinational demand and nonfaulting probe lookups over one associative bank.
    Successful fills replace round-robin; invalidation wins over a simultaneous fill. */
-sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8):
+sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8, ~host_root_epoch: host_root_epoch :: Boolean = #false):
   input lookup: RiscvTlbLookup()
   input probe: RiscvTlbLookup()
   input invalidate_all: Bool
@@ -62,9 +72,22 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8):
   /* Associative storage and demand match */
 
   def index_bits = index_width(entry_count)
-  reg entries(Vec(entry_count, RiscvTlbEntry()), ~init: literal(Vec(entry_count, RiscvTlbEntry()), 0))
+  def Entry = if host_root_epoch | RiscvHostTlbEntry() | RiscvTlbEntry()
+  def Bank = Vec(entry_count, Entry)
+  reg entries(Bank, ~init: literal(Bank, 0))
   reg replacement(~init: Bits(index_bits)(0))
-  def matches = vec(for List (index in 0..entry_count): riscv_tlb_matches(entries[index], lookup))
+
+  /* Matches all three lookup paths against the same resident identity. Only a
+     host Sv39 request can match a compact entry, even when high VA bits alias. */
+  fun entry_matches(index :: Nat, request :: RiscvTlbLookup()) :~ Bool:
+    if host_root_epoch
+    | block:
+        def entry = entries[index].into(RiscvHostTlbEntry())
+        def same_page = sv39_same_page(entry.vpn ++ Bits(12)(0), request.virtual_address[0..39], entry.page_size)
+        entry.valid & !request.virtualized & (request.context.vs_mode === RiscvVSMode.Sv39) & (entry.pbmte === request.context.vs_pbmte) & request.virtual_address.sv39_canonical() & same_page
+    | riscv_tlb_matches(entries[index], request)
+
+  def matches = vec(for List (index in 0..entry_count): entry_matches(index, lookup))
   def selected = entries[priority_encoder(matches)]
 
 
@@ -74,10 +97,11 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8):
   def vs_enabled = lookup.context.vs_mode === RiscvVSMode.Sv39
   def g_enabled = lookup.virtualized & (lookup.context.g_mode === RiscvGMode.Sv39x4)
   def vs_fault = vs_enabled & !sv39_permission_valid(selected.vs_leaf, lookup.access, lookup.context.privilege === PrivilegeMode.User, lookup.context.privilege === PrivilegeMode.Supervisor, lookup.context.vs_sum, lookup.context.vs_mxr ||| lookup.context.hs_mxr, lookup.execute_read)
-  def g_fault = g_enabled & !sv39_permission_valid(selected.g_leaf, lookup.access, Bool(#true), Bool(#false), Bool(#false), lookup.context.hs_mxr, lookup.execute_read)
+  def g_leaf = if host_root_epoch | literal(Sv39Pte(), 0) | selected.g_leaf
+  def g_fault = g_enabled & !sv39_permission_valid(g_leaf, lookup.access, Bool(#true), Bool(#false), Bool(#false), lookup.context.hs_mxr, lookup.execute_read)
   def bare = !vs_enabled & !g_enabled
   def translated = sv39_physical_address(lookup.virtual_address, selected.ppn, selected.page_size)
-  def guest_address = mux(lookup.virtualized, selected.guest_ppn ++ lookup.virtual_address[0..12], translated.zext(64))
+  def guest_address = if host_root_epoch | translated.zext(64) | mux(lookup.virtualized, selected.guest_ppn ++ lookup.virtual_address[0..12], translated.zext(64))
   def details = RiscvGuestFault():
     guest_virtual_address: lookup.virtualized
     guest_physical_address: mux(vs_fault, Bits(64)(0), guest_address)
@@ -98,20 +122,21 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8):
     page_size: mux(bare, Sv39PageSize.Page4KiB, selected.page_size)
     guest_physical_address: mux(bare, lookup.virtual_address, guest_address)
     vs_leaf: mux(vs_enabled, selected.vs_leaf, literal(Sv39Pte(), 0))
-    g_leaf: mux(g_enabled, selected.g_leaf, literal(Sv39Pte(), 0))
+    g_leaf: mux(g_enabled, g_leaf, literal(Sv39Pte(), 0))
     fault: demand_fault
     fault_details: details
 
 
   /* Prefetch shares the bank but deliberately does not require A/D bits. */
 
-  def probe_matches = vec(for List (index in 0..entry_count): riscv_tlb_matches(entries[index], probe))
+  def probe_matches = vec(for List (index in 0..entry_count): entry_matches(index, probe))
   def probe_entry = entries[priority_encoder(probe_matches)]
   def probe_vs = probe.context.vs_mode === RiscvVSMode.Sv39
   def probe_g = probe.virtualized & (probe.context.g_mode === RiscvGMode.Sv39x4)
   def probe_bare = !probe_vs & !probe_g
   def probe_vs_pte :: Sv39Pte() = probe_entry.vs_leaf.updated(~accessed: Bool(#true), ~dirty: Bool(#true))
-  def probe_g_pte :: Sv39Pte() = probe_entry.g_leaf.updated(~accessed: Bool(#true), ~dirty: Bool(#true))
+  def probe_g_leaf :: Sv39Pte() = if host_root_epoch | literal(Sv39Pte(), 0) | probe_entry.g_leaf
+  def probe_g_pte :: Sv39Pte() = probe_g_leaf.updated(~accessed: Bool(#true), ~dirty: Bool(#true))
 
   /* Checks the same access class against both stages while ignoring A/D bits for prefetch. */
   fun probe_allowed(kind :: Sv39Access) :~ Bool:
@@ -131,10 +156,10 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8):
      The nonfaulting prefetch union is separate from the requested access class's architectural fault. */
 
   def probe_vs_demand_fault = probe_vs & !sv39_permission_valid(probe_entry.vs_leaf, probe.access, probe.context.privilege === PrivilegeMode.User, probe.context.privilege === PrivilegeMode.Supervisor, probe.context.vs_sum, probe.context.vs_mxr ||| probe.context.hs_mxr, probe.execute_read)
-  def probe_g_demand_fault = probe_g & !sv39_permission_valid(probe_entry.g_leaf, probe.access, Bool(#true), Bool(#false), Bool(#false), probe.context.hs_mxr, probe.execute_read)
+  def probe_g_demand_fault = probe_g & !sv39_permission_valid(probe_g_leaf, probe.access, Bool(#true), Bool(#false), Bool(#false), probe.context.hs_mxr, probe.execute_read)
   probe_demand_fault <== probe_hit & (probe_vs_demand_fault ||| probe_g_demand_fault)
   def probe_physical = mux(probe_bare, probe.virtual_address[0..56], sv39_physical_address(probe.virtual_address, probe_entry.ppn, probe_entry.page_size))
-  def probe_guest_address = mux(probe.virtualized, probe_entry.guest_ppn ++ probe.virtual_address[0..12], probe_physical.zext(64))
+  def probe_guest_address = if host_root_epoch | probe_physical.zext(64) | mux(probe.virtualized, probe_entry.guest_ppn ++ probe.virtual_address[0..12], probe_physical.zext(64))
   def probe_fault_details = RiscvGuestFault():
     guest_virtual_address: probe.virtualized
     guest_physical_address: mux(probe_vs_demand_fault, Bits(64)(0), probe_guest_address)
@@ -152,36 +177,49 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8):
     page_size: mux(probe_bare, Sv39PageSize.Page4KiB, probe_entry.page_size)
     guest_physical_address: mux(probe_bare, probe.virtual_address, probe_guest_address)
     vs_leaf: mux(probe_vs, probe_entry.vs_leaf, literal(Sv39Pte(), 0))
-    g_leaf: mux(probe_g, probe_entry.g_leaf, literal(Sv39Pte(), 0))
+    g_leaf: mux(probe_g, probe_g_leaf, literal(Sv39Pte(), 0))
     fault: probe_mapping_fault
     fault_details: probe_fault_details
 
   probe_physical_address <== probe_physical
   // Svpbmt applies the G override first, then a non-PMA stage-one override.
-  def probe_intermediate_pbmt = mux(probe_g, probe_entry.g_leaf.pbmt, PageMemoryType.PMA)
+  def probe_intermediate_pbmt = mux(probe_g, probe_g_leaf.pbmt, PageMemoryType.PMA)
   probe_pbmt <== compose_page_memory_type(mux(probe_vs, probe_entry.vs_leaf.pbmt, PageMemoryType.PMA), probe_intermediate_pbmt)
 
 
   /* Fill replacement and invalidation
      Only successful mappings enter the bank; invalidation wins at the state-update edge. */
 
-  def fill_matches = vec(for List (index in 0..entry_count): riscv_tlb_matches(entries[index], fill.bits.request))
+  def fill_matches = vec(for List (index in 0..entry_count): entry_matches(index, fill.bits.request))
   def fill_index = mux(fill_matches.any(), priority_encoder(fill_matches), replacement)
-  def next_entry = RiscvTlbEntry():
-    valid: Bool(#true)
-    virtualized: fill.bits.request.virtualized
-    page_size: fill.bits.result.page_size
-    vpn: fill.bits.request.virtual_address[12..64]
-    ppn: sv39_base_ppn(fill.bits.result.physical_address[12..56], fill.bits.result.page_size)
-    guest_ppn: fill.bits.result.guest_physical_address[12..64]
-    context: fill.bits.request.context
-    vs_leaf: fill.bits.result.vs_leaf
-    g_leaf: fill.bits.result.g_leaf
+  def base_ppn = sv39_base_ppn(fill.bits.result.physical_address[12..56], fill.bits.result.page_size)
+  def next_entry = if host_root_epoch
+  | RiscvHostTlbEntry():
+      valid: Bool(#true)
+      vpn: fill.bits.request.virtual_address[12..39]
+      page_size: fill.bits.result.page_size
+      ppn: base_ppn
+      pbmte: fill.bits.request.context.vs_pbmte
+      vs_leaf: fill.bits.result.vs_leaf
+  | RiscvTlbEntry():
+      valid: Bool(#true)
+      virtualized: fill.bits.request.virtualized
+      page_size: fill.bits.result.page_size
+      vpn: fill.bits.request.virtual_address[12..64]
+      ppn: base_ppn
+      guest_ppn: fill.bits.result.guest_physical_address[12..64]
+      context: fill.bits.request.context
+      vs_leaf: fill.bits.result.vs_leaf
+      g_leaf: fill.bits.result.g_leaf
 
   when invalidate_all:
-    entries <== literal(Vec(entry_count, RiscvTlbEntry()), 0)
+    entries <== literal(Bank, 0)
     replacement <== Bits(index_bits)(0)
   elsewhen (fill.valid & (fill.bits.result.fault === RiscvTranslationFault.None)):
+    if host_root_epoch
+    | assert(!fill.bits.request.virtualized & (fill.bits.request.context.vs_mode === RiscvVSMode.Sv39), "host_tlb_fills_only_host_sv39")
+    | #void
+
     entries <== entries.updated(fill_index, next_entry)
     replacement <== mux(fill_matches.any(), replacement, wrap_increment(replacement, entry_count))
 

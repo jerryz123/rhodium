@@ -33,9 +33,10 @@ its non-allocating RN-I path. The cache accepts `XLen.X32` or
 `XLen.X64`. The cache configuration supplies set/way geometry; the required
 CHI configuration supplies flit geometry and the Home map. A separate
 `node_id` input supplies the occurrence's RN-I identity. Core addresses use
-XLEN, while emitted CHI requests use the configured CHI request-address width
-and assert that the original physical address fits. Geometry validation also
-requires XLEN to leave at least one tag bit above the line offset and set index.
+XLEN; resident tags use the smaller of XLEN and the CHI request-address width,
+less line-offset and set bits. At least one tag bit must remain. An out-of-range
+demand produces an S2 access fault, even when its low address is resident;
+neither it nor an out-of-range hint starts a refill.
 
 ```rhdl
 import:

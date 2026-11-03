@@ -2407,6 +2407,20 @@ int main() {
     stop_at(UINT64_C(0x70c), UINT64_C(0x651c), 3);
     send(UINT64_C(0x70c), UINT64_C(0x30200073), 0, 1, 0, 0);
     drain();
+    // A withdrawn interrupt restarts at the captured boundary; it must not
+    // take a trap or replace the previous architectural mepc.
+    hold_responses = 1;
+    send(0x68000, imm(3, 0, 0, 3, 3), 0, 1);
+    until([&] { return response_count == 1; });
+    stop_at(0x68004, 0x68004, 3);
+    set_interrupts(16);
+    for (int i = 0; i < 10; ++i) tick();
+    set_interrupts(0);
+    CHECK(expected_redirects.size() == 1);
+    hold_responses = 0;
+    drain();
+    csr_access(0x68004, 2, 10, 0, 0x341, 0x651c);
+
     send(UINT64_C(0x651c), imm(8, 0, 8), imm(9, 0, 9), 2, 0, 0);
     until([&] { return memory_stage(0).pvalid; });
     falling();
@@ -4804,9 +4818,13 @@ int main() {
       CHECK(commits == before_commits + lane && requests == before_requests);
       csr_access(0, 2, 6, 0, UINT64_C(0x342), 22);
     }
-    // Either fault slot retains implicit-PTE provenance into the architectural trap CSRs.
+    // Hold either slot's guest fault behind an outstanding load. Its implicit
+    // PTE provenance must survive even after the external fault bus changes.
     for (int lane = 0; lane < 2; lane++) {
       reset_core();
+      hold_responses = 1;
+      send(0x1affc, imm(3, 0, 0, 3, 3), 0, 1);
+      until([&] { return response_count == 1; });
       inject_enable = 1;
       inject_pc = UINT64_C(0x1b000) + ((lane * 4) & low_mask(64));
       inject_result = {.pdisposition = UINT64_C(1),
@@ -4818,8 +4836,12 @@ int main() {
         send(UINT64_C(0x1b000), imm(5, 0, 7), imm(6, 0, 8), 2, 0, 0);
       else
         send(UINT64_C(0x1b000), imm(5, 0, 7), imm(6, 0, 8), 2, 1, 0);
-      drain();
+      for (int i = 0; i < 10; ++i) tick();
+      CHECK(expected_redirects.size() == 1 && response_count == 1);
       inject_enable = 0;
+      inject_result = {};
+      hold_responses = 0;
+      drain();
       csr_access(0, 2, 7, 0, UINT64_C(0x34b), UINT64_C(0x8000));
       csr_access(4, 2, 8, 0, UINT64_C(0x34a), UINT64_C(0x3000));
       csr_access(8, 2, 9, 0, UINT64_C(0x343), UINT64_C(0x500008));

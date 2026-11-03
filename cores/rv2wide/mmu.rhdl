@@ -51,7 +51,7 @@ bundle RV2WidePhysicalResponse():
    Instruction walks survive replay, pending WB walks have priority, and physical
    requests arbitrate core-first without locking the cache for a walk's lifetime.
    Optional Svnapot enables shared 64 KiB mappings in both translation banks. */
-sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boolean = #false):
+sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boolean = #false, ~hypervisor: hypervisor :: Boolean = #true):
   input state: RV2WideTranslationState(XLen.X64)
   input invalidate: Bool
   input split_guest_access: RiscvGuestMemoryAccess
@@ -71,8 +71,8 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
 
   /* Translation and split-access owners */
 
-  inst itlb(RiscvTranslationTlb())
-  inst dtlb(RiscvTranslationTlb())
+  inst itlb(RiscvTranslationTlb(~host_root_epoch: !hypervisor))
+  inst dtlb(RiscvTranslationTlb(~host_root_epoch: !hypervisor))
   inst walker(RiscvTranslationWalker(~svnapot: svnapot))
   inst misaligned(RiscvMisalignedEngine(XLen.X64, Bool))
   inst vector_window(VectorWindow(config.physical_map))
@@ -120,9 +120,9 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
   /* Effective data context and TLB request selection
      Authorized split/WB demand takes the DTLB ahead of speculative MEM lookup. */
 
-  def guest_state :: RiscvHypervisorTranslation() = state.guest
+  def guest_state :: RiscvHypervisorTranslation() = if hypervisor | state.guest | literal(RiscvHypervisorTranslation(), 0)
   def data_privilege = effective_data_privilege(XLen.X64, state.privilege, state.mstatus)
-  def normal_data_guest = mux((state.privilege === PrivilegeMode.Machine) & csr_flag(state.mstatus, MstatusMPRV), csr_flag(state.mstatus, MstatusMPV) & (data_privilege =/= PrivilegeMode.Machine), guest_state.virtualized)
+  def normal_data_guest = if !hypervisor | Bool(#false) | mux((state.privilege === PrivilegeMode.Machine) & csr_flag(state.mstatus, MstatusMPRV), csr_flag(state.mstatus, MstatusMPV) & (data_privilege =/= PrivilegeMode.Machine), guest_state.virtualized)
 
   /* Captures both translation stages and their independent permission controls in each lookup owner. */
   fun lookup(address :: Bits(64), access :: Sv39Access, privilege :: PrivilegeMode, guest :: Bool) :~ RiscvTlbLookup():
@@ -155,8 +155,8 @@ sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boole
   vector_window.addresses <== vec(mem.address, memory.request.bits.address)
   def window_hit = !split_request.valid & !vector_probe & !certified_physical & mux(memory.request.valid, request_vector & vector_window.hits[1], mem_vector & vector_window.hits[0])
   def window_address = mux(memory.request.valid, vector_window.physical_addresses[1], vector_window.physical_addresses[0])
-  def explicit_guest = data_request.guest_access =/= RiscvGuestMemoryAccess.Normal
-  def execute_read = data_request.guest_access === RiscvGuestMemoryAccess.GuestExecuteRead
+  def explicit_guest = Bool(hypervisor) & (data_request.guest_access =/= RiscvGuestMemoryAccess.Normal)
+  def execute_read = Bool(hypervisor) & (data_request.guest_access === RiscvGuestMemoryAccess.GuestExecuteRead)
   def data_guest = explicit_guest ||| normal_data_guest
   def data_access = priority_mux(~default: Sv39Access.Load):
     data_request.access.is_cache_management(): Sv39Access.CacheManagement

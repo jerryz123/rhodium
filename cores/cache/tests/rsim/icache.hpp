@@ -376,6 +376,10 @@ void run_case() {
   expect_instruction(UINT64_C(286331153));
 
   virtual_page_xor = UINT64_C(2147483648);
+  send_core_request(PREFETCH_ADDRESS | (UINT64_C(1) << 44));
+  CHECK(core_out.presponse.pvalid && core_out.presponse.pbits.paccess_ufault &&
+        !core_out.presponse.pbits.preplay && !chi_out.preq.pvalid);
+  cache_tick();
   send_core_request(PREFETCH_ADDRESS);
   expect_instruction(UINT64_C(286331153));
 

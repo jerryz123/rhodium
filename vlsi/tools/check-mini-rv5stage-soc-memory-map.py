@@ -40,7 +40,7 @@ EXPECTED_SITES = {
     },
     "hart/l1d/arrays/tag_storage/storage": {
         "decision": "infer",
-        "source_suffix": "_32x53",
+        "source_suffix": "_32x33",
     },
     "hart/l1i/lines/storage": {
         "decision": "macro",
@@ -55,7 +55,7 @@ EXPECTED_SITES = {
     },
     "hart/l1i/tags/storage": {
         "decision": "infer",
-        "source_suffix": "_32x53",
+        "source_suffix": "_32x33",
     },
 }
 EXPECTED_TOTALS = {

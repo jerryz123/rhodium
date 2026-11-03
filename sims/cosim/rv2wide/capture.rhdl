@@ -75,7 +75,7 @@ sync_circuit RV2WideCosimObserver(profile :: RV2WideConfig, tap_types :: Map, in
   def vector_capture :: Bool = taps["wb_vector_capture"]
   def vector_lane :: Bits(1) = taps["wb_vector_lane"]
   def multiply :: Bool = taps["wb_multiply_accepted"]
-  def command :: RV2WideResult(xlen) = taps["wb_command"]
+  def boundary_instruction :: RV2WideBoundaryInstruction(xlen) = taps["wb_boundary_instruction"]
   def completion_valid :: Vec(4, Bool) = taps["completion_fire"]
   def completions :: Vec(4, RV2WideCompletion(xlen)) = taps["completion"]
   def privilege :: PrivilegeMode = taps["csr_privilege"]
@@ -91,15 +91,15 @@ sync_circuit RV2WideCosimObserver(profile :: RV2WideConfig, tap_types :: Map, in
   def trap_target :: RiscvTrapTarget = taps["csr_trap_target"]
   def trap_cause :: Bits(xlen.width) = taps["csr_trap_cause"]
   for (index in 0..3):
-    def token :: RV2WideResult(xlen) = if index < 2 | tokens[index] | command
+    def token :: RV2WideBoundaryInstruction(xlen) = if index < 2 | rv2wide_boundary_instruction(xlen, tokens[index]) | boundary_instruction
     def result :: RV2WideRetirement(xlen) = if index < 2 | retirement[index] | literal(RV2WideRetirement(xlen), 0)
     def deferred = if index < 2 | result.deferred | Bool(#false)
     def write = if index < 2 | mux(deferred, result.write, writes[index]) | Bool(#false)
-    def next_pc = mux(mret ||| sret, taps["csr_redirect"], mux(token.branch.taken, token.branch.target, token.fetched.sequential_pc))
+    def next_pc = mux(mret ||| sret, taps["csr_redirect"], token.next_pc)
     rhodium_rv2wide_lane.call(
       instance_id, Bits(64)(index), lane((if index < 2 | retired[index] | Bool(#false)).as_bits()),
       lane((if index < 2 | (split_capture & (memory_lane === Bits(1)(index))) ||| (vector_capture & (vector_lane === Bits(1)(index))) | Bool(#false)).as_bits()),
-      lane(token.fetched.pc), lane(token.fetched.raw_instruction), lane(next_pc), lane(token.fetched.fault.valid.as_bits()),
+      lane(token.identity.pc), lane(token.identity.raw_instruction), lane(next_pc), lane(token.fetch_fault.as_bits()),
       lane(token.rd), lane(write.as_bits()), lane(result.data), lane(deferred.as_bits()),
       lane(mux(token.memory.enable, Bits(2)(0), mux(multiply, Bits(2)(1), Bits(2)(2)))),
       // Maintenance has no architectural byte effect. Its retained retirement
@@ -109,7 +109,7 @@ sync_circuit RV2WideCosimObserver(profile :: RV2WideConfig, tap_types :: Map, in
       mux(token.fp.valid, mux(token.memory.enable, mux(token.fp.bits.registers.destination === FloatDestination.FloatingPoint, Bits(64)(2), Bits(64)(3)), Bits(64)(1)), Bits(64)(0)),
       mux(token.fp.valid, lane(token.fp.bits.registers.destination.as_bits()), Bits(64)(0)),
       mux(token.fp.bits.execution.unit === FloatUnit.DivideSquareRoot, !Bits(64)(0), timing.latency(token.fp.bits.execution, ~width: 64) - Bits(64)(2)),
-      lane(token.vector.operation.as_bits()), ~enable: active
+      lane(token.vector.as_bits()), ~enable: active
     )
 
   rhodium_rv2wide_boundary.call(

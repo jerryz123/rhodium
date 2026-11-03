@@ -62,7 +62,12 @@ pipeline's disabled implementation owns inactive service outputs; scalar WB
 launch qualification, FPR reservation, and retained retirement context remain
 in `core.rhdl` and use the same connections for either specialization. Preserve
 the active vector instance's passive observation boundary when changing this
-selection. The GPR writeback calendar uses `prior_claims_available` for younger
+selection. Specialize the EX configuration forwarding, launch snapshot, and
+footprint logic as well as the WB engine. On a scalar core the MEM/WB context
+and certificate inputs are constant, not snapshots of unused operands or MMU
+responses. Leave the scalar LSU and CSR operand paths independent.
+
+The GPR writeback calendar uses `prior_claims_available` for younger
 ID bookings after WB vector claims, and `registered_free` at delay zero for
 current-cycle variable completions. The latter must ignore the fixed-booking
 pause so a starving variable return can still drain.

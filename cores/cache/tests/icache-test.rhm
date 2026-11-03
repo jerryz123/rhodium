@@ -34,7 +34,13 @@ def instruction_response_member = instruction_access_type.members.find(
   fun (member): member.name == "response"
 )
 
+fun tag_row_width(cache):
+  def ram = cache.find_instance("tags").attribute("module")
+  ram.find_output("port_out").type.field("response").type.field("bits").type.packed_width()
+
 check:
+  tag_row_width(instruction_cache) ~is 44 - 6 - 3
+  tag_row_width(rv32_instruction_cache) ~is 32 - 6 - 3
   wide_cache.find_output("core_out").type.field("response").type.field("bits").type.field("data").type.width ~is 64
   elaborate(l1i.L1ICache(XLen.X64, direct_cache, ~chi: config, ~fetch_bits: 48)) ~throws "fetch block"
   RiscvHartCHIConfig(

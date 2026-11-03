@@ -60,7 +60,7 @@ sync_circuit RV2Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~
   inst frontend(RV2WideFrontend(config, profile))
   inst instruction(L1ICache(XLen.X64, instruction_cache, ~chi: config, ~fetch_bits: 64))
   inst data(RV2WideL1D(cache, ~chi: config, ~xlen: xlen))
-  inst mmu(if profile.mmu_type == RiscvMmuType.Bare | RV2WideBareMemory(xlen, config) | RV2WideMmu(config, ~svnapot: profile.svnapot))
+  inst mmu(if profile.mmu_type == RiscvMmuType.Bare | RV2WideBareMemory(xlen, config) | RV2WideMmu(config, ~svnapot: profile.svnapot, ~hypervisor: profile.hypervisor))
   describe_cosim_context(core, {"mmu": mmu})
 
 
