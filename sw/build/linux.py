@@ -195,6 +195,7 @@ def main():
             require_config(kernels[0], dict(CONFIG_MMU='y', CONFIG_RISCV_SBI='y',
                            CONFIG_RISCV_ISA_V='y', CONFIG_FPU='y', CONFIG_HVC_RISCV_SBI='y',
                            CONFIG_BLK_DEV_INITRD='y', CONFIG_BINFMT_ELF='y', CONFIG_SMP='n',
+                           CONFIG_LEGACY_PTYS='n',
                            CONFIG_CMDLINE_FORCE='y',
                            CONFIG_CMDLINE='"console=hvc0 earlycon=sbi rdinit=/init mem=128M loglevel=4"'))
             shutil.copyfile(kernels[0], root / 'linux.config')
