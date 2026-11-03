@@ -195,7 +195,8 @@ def run_suite(work, run):
             if mode == 'rsim':
                 native += [work / (model + '.cpp'), work / (model + '_bridge.cpp')]
             if top == 'TestDriver':
-                sources += [str(ROOT / 'sims/TestDriver.v'), str(ROOT / 'sims/verilator/simulation_runtime.cc')]
+                sources += [str(ROOT / 'sims/TestDriver.v'), str(ROOT / 'sims/verilator/simulation_runtime.cc'),
+                            str(ROOT / 'devices/uart/dpi/uart_dpi.cc')]
                 flags += ['-std=c++20']
             # Keep generated ABI checks local to native sources, before their
             # definitions; global forced includes prevent GCC from loading PCHs.
