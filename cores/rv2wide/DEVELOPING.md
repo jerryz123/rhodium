@@ -153,10 +153,11 @@ replicating a packet owner for its one/two appended instructions. The assembler
 selects the one/two retained or live block owners contributing bytes to each packet.
 EX/MEM mapping and lane grants certify manually authored combinational regions.
 Split ownership uses its actual capture/release/pending controls. Successful WB
-parents accepted load/divide requests; EX parents the multiply's existing owner
-path, whose WB authorization filter discards killed products. Vector admission
-has its own live-WB fork branch and pending-safe lane-selection contract, so
-stalls retain the offered owner's ancestry too. Its descriptor queue
+parents accepted load/divide requests; EX parents the multiply launch marker.
+WB authorization filters killed launches and attaches the surviving instruction's
+completion metadata. Vector admission has its own live-WB fork branch and
+pending-safe lane-selection contract, so stalls retain the offered owner's
+ancestry too. Its descriptor queue
 and sequencer retain that MEM occurrence, independently of eventual retirement;
 never qualify vector admission with final WB retirement feedback. Do not add a whole
 module trace contract across already contracted Flow children. The shared divider
@@ -420,9 +421,12 @@ decoder. Only one memory-or-M deferred destination may issue per group, matching
 the one scoreboard set port. Long operations disable ALU forwarding until their
 completion is available for forwarding. x0 M results need no service owner.
 
-EX launches the three-stage multiplier. An unflushable two-stage owner path reaches
-WB at the same time as its instruction; WB retirement authorizes a one-stage
-continuation to the product. RR books EX+3 (RR+4) in the shared fixed GPR calendar.
+EX launches the three-stage multiplier. Only scalar launch validity travels
+beside the arithmetic for the two cycles to WB; do not duplicate the instruction
+identity there. WB supplies PC/raw encoding, destination, and high/word result
+selection from the surviving instruction. Capture them only on authorization,
+for the one remaining cycle. Vector tags still accompany the arithmetic result.
+RR books EX+3 (RR+4) in the shared fixed GPR calendar.
 The authorized product writes and forwards directly on that edge. A killed,
 replayed, or faulted owner drains without publishing the speculative product;
 its unused booking simply ages out. Keep the multiplier feed-forward, with no

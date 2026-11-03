@@ -1026,22 +1026,10 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   describe_interface_selection([ex_multiply_lane === Bits(1)(0), ex_multiply_lane === Bits(1)(1)], ~name: "multiply")
   describe_interface_contract(Array(ex_paths[0][1], ex_paths[1][1]), ex_multiply_link.left, "multiply-lane", ~trace_model: interface_trace_selection(~name: "multiply"))
   (ex_multiply_link.right |> filter_valid(operation => !rr_squash & !operation.illegal & !operation.fetched.fault.valid & !operation.fetched.pc[0].into(Bool) & operation.rd.any() & (operation.control.muldiv.service === RV2WideLongOperation.Multiply))
-    |> map_valid(operation):
-      def request = MultiplierRequest(xlen.width):
-        left: operation.rs1
-        right: operation.rs2
-        mode: operation.control.muldiv.multiply.mode
-
-      def owner = RV2WideCompletion(xlen):
-        identity: rv2wide_instruction_identity(xlen, operation.fetched)
-        rd: operation.rd
-        write: Bool(#true)
-        data: dont_care(Bits(xlen.width))
-
-      RV2WideMultiplyIssue(xlen):
-        request: request
-        control: operation.control.muldiv.multiply
-        owner: owner
+    |> map_valid(operation => MultiplierRequest(xlen.width)):
+      left: operation.rs1
+      right: operation.rs2
+      mode: operation.control.muldiv.multiply.mode
   ) |> ex_multiply.issue
 
   /* Speculative memory lookup.
@@ -1552,7 +1540,13 @@ sync_circuit RV2WideCore(profile :: RV2WideConfig = RV2WideConfig(), ~fp_timing:
   def wb_long :: RV2WideResult(xlen) = wb_group[wb_long_lane]
   def wb_long_active = wb_dispatch[wb_long_lane] & wb_long.write & (wb_long.muldiv.service =/= RV2WideLongOperation.None) & wb_scalar_prefix
   def wb_multiply_accepted = wb_long_active & (wb_long.muldiv.service === RV2WideLongOperation.Multiply)
-  ex_multiply.authorize <== wb_multiply_accepted
+  ex_multiply.authorize.valid <== wb_multiply_accepted
+  ex_multiply.authorize.bits <== RV2WideMultiplyWriteback(xlen):
+    identity: rv2wide_instruction_identity(xlen, wb_long.fetched)
+    rd: wb_long.rd
+    high_result: wb_long.muldiv.multiply.high_result
+    word_result: wb_long.muldiv.multiply.word_result
+
   def wb_divide_link = interface_link(Decoupled(RV2WideResult(xlen)))
   wb_divide_link.left.valid <== wb_long_active & (wb_long.muldiv.service === RV2WideLongOperation.Divide)
   wb_divide_link.left.bits <== wb_long

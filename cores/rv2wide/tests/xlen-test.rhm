@@ -29,6 +29,7 @@ for (xlen in [XLen.X32, XLen.X64]):
   def step_width = if xlen == XLen.X32 | 6 | 7 // Last changed bit and short-step flag.
   def fifo = child(child(execution, "wb_load_response"), "owners")
   def queue_storage = fifo.memories.find(fun (mem): mem.name == "storage")
+  def multiply = child(execution, "ex_multiply")
   check:
     entries.results[0].type.element_type.field("fault").type.packed_width() ~is compact_fault_width
     entries.results[0].type.element_type.field("step").type.packed_width() ~is step_width
@@ -37,6 +38,8 @@ for (xlen in [XLen.X32, XLen.X64]):
     completed.packed_width() ~is 2 * xlen.width + 38
     queue_storage.depth ~is 4
     queue_storage.element_type.field("destination").type.field("identity").type.packed_width() ~is xlen.width + 32
+    multiply.find_input("issue_in").type.field("bits").type.packed_width() ~is 2 * xlen.width + 2
+    multiply.find_input("authorize_in").type.field("bits").type.packed_width() ~is xlen.width + 32 + 5 + 2
 
   for (stage in ["ex", "mem", "wb"]):
     def prefix_name = stage ++ "_pc_region"

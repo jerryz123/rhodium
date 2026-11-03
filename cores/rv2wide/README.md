@@ -631,10 +631,11 @@ may pair with independent ALU or branch work. Memory and M instructions split
 the group so WB allocates at most one deferred destination per cycle.
 
 The three-stage shared multiplier launches from EX at one operation per cycle.
-Its owner reaches WB with the instruction, where retirement authorizes the
-result. RR books the shared younger GPR write port for EX+3, alongside fixed FP
-returns. The product writes and forwards directly on that edge, without a result
-queue or deferred-return pipeline. Conflicting fixed returns wait at issue,
+WB authorizes the surviving instruction and supplies the identity, destination,
+and product selection for its write one cycle later. RR books the shared younger
+GPR write port for EX+3, alongside fixed FP returns. The product writes and
+forwards directly on that edge, without a result queue or deferred-return
+pipeline. Conflicting fixed returns wait at issue,
 before execution. Rejected owners leave a harmless unused booking; the physical
 product continues without an architectural write. The iterative divider
 accepts only at WB; a busy divider causes replay before acceptance. Word divide
@@ -981,8 +982,8 @@ fetch S0 → S1 → S2 → assembly packets → issue window → RR[0/1] → EX[
 
 This illustrates the current implementation. Packet ownership survives compacting,
 one/two-slot consumption, compressed assembly, and flush. Load owners survive in
-their queue, multiply owners traverse the feed-forward authorization path, and
-divide owners remain with the shared divider until accepted completion.
+their queue, authorized multiplies retain their WB identity until the scheduled
+write, and divide owners remain with the shared divider until accepted completion.
 Scalar pipeline trace checkpoints end at architectural retirement. Later GPR
 writes still appear on the functional `completed` interface and passive cosim
 observations, without a separate scalar completion trace checkpoint.

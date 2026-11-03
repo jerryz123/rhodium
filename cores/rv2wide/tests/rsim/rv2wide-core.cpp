@@ -2910,14 +2910,16 @@ int main() {
     drain();
     CHECK(multiply_mem_cycle >= 0 &&
           dependent_mem_cycle - multiply_mem_cycle <= 4);
-    // More independent work than the arithmetic depth must still sustain one
-    // direct write per cycle, without completion-buffer capacity admission.
+    // Vary identity and high/low/word selection on consecutive WB edges;
+    // each booked write must use its own owner's projection of the product.
     reset_core();
-    send(UINT64_C(0xac00), imm(1, 0, 17), imm(2, 0, 3));
+    std::uint64_t multiply_setup_pc = UINT64_C(0xaa00);
+    constant64(multiply_setup_pc, 1, UINT64_C(0x180000001));
+    send(multiply_setup_pc, imm(2, 0, -3), 0, 1);
     drain();
     for (int pair = 0; pair < 8; pair++)
-      send(UINT64_C(0xac08) + ((pair * 8) & low_mask(64)),
-           m_insn(3 + 2 * pair, 1, 2, 0), m_insn(4 + 2 * pair, 1, 2, 0));
+      send(UINT64_C(0xac08) + pair * 8, m_insn(3 + 2 * pair, 1, 2, 0, pair % 2),
+           m_insn(4 + 2 * pair, 1, 2, 1 + pair % 3));
     drain();
     CHECK(multiply_stream_count == 16);
     send(UINT64_C(0xac48), imm(20, 3, 1), imm(21, 18, 2));
