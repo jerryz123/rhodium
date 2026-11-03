@@ -288,6 +288,99 @@ void compact_storage_tests() {
   }
 }
 
+void prediction_owner_tests() {
+  const auto target = UINT64_C(0xdeadbeef12345678);
+  for (auto base : {UINT64_C(0x00000ffffffff000), UINT64_C(0xffffffc012345000),
+                    UINT64_C(0xfffffffffffff000)}) {
+    // Every parcel owner survives bypass capture and backpressure, without
+    // treating a high/negative PC as an offset or narrowing an indirect target.
+    for (unsigned parcel = 0; parcel < 4; ++parcel) {
+      clear();
+      instructions_in.pready = false;
+      const auto pc = base + 2 * parcel;
+      expected_pc.push_back(pc);
+      falling();
+      blocks_in = {};
+      blocks_in.pvalid = true;
+      blocks_in.pbits.ppc = pc;
+      blocks_in.pbits.pdata = UINT64_C(0x8102) << (16 * parcel); // C.JR x2.
+      blocks_in.pbits.pprediction = {true, pc, target, true, 0};
+      settle();
+      CHECK(instructions_out.pvalid && instructions_out.pbits.pcount == 1);
+      const Packet bypass = instructions_out.pbits;
+      const auto &prediction = bypass.pentries[0].pprediction;
+      CHECK(prediction.pvalid && prediction.ppc == pc && prediction.ptarget == target);
+      rising();
+      falling();
+      blocks_in = {};
+      for (unsigned stall = 0; stall < 3; ++stall) {
+        blocks_in.pbits.pprediction.ppc = ~pc;
+        settle();
+        CHECK(same_packet(instructions_out.pbits, bypass) && !repair_out.pvalid);
+        rising();
+        falling();
+      }
+      instructions_in.pready = true;
+      drain();
+      CHECK(available == 3);
+    }
+
+    // Invalidating a stale entry must still name its full original address.
+    clear();
+    instructions_in.pready = false;
+    const auto pc = base + 6;
+    expected_pc.push_back(pc);
+    offer(pc, UINT64_C(1) << 48, pc, target, true); // C.NOP is not control flow.
+    instructions_in.pready = true;
+    settle();
+    CHECK(repair_out.pvalid && repair_out.pbits.pinvalidate &&
+          repair_out.pbits.pentry == pc && repair_out.pbits.ptarget == pc + 2);
+    drain();
+  }
+
+  // Only the continuation predicts this JALR. Previous must reconstruct the
+  // prefix across pages, negative addresses, and unsigned XLEN wraparound.
+  for (auto base : {UINT64_C(0x123ff8), UINT64_C(0xffffffc012345ff8),
+                    UINT64_C(0xfffffffffffffff8)}) {
+    clear();
+    instructions_in.pready = false;
+    const auto pc = base + 6;
+    expected_pc.push_back(pc);
+    offer(pc, UINT64_C(0x0067) << 48);
+    CHECK(!instructions_out.pvalid);
+    falling();
+    blocks_in = {};
+    blocks_in.pvalid = true;
+    blocks_in.pbits.ppc = base + 8;
+    blocks_in.pbits.pdata = 1; // Upper halfword of JALR x0,x2,0.
+    blocks_in.pbits.pprediction = {true, pc, target, false, 0};
+    settle();
+    CHECK(instructions_out.pvalid && instructions_out.pbits.pcount == 1);
+    const Packet bypass = instructions_out.pbits;
+    CHECK(bypass.pentries[0].ppc == pc && bypass.pentries[0].pprediction.pvalid &&
+          bypass.pentries[0].pprediction.ppc == pc &&
+          bypass.pentries[0].pprediction.ptarget == target);
+    rising();
+    falling();
+    blocks_in = {};
+    settle();
+    CHECK(same_packet(instructions_out.pbits, bypass) && !repair_out.pvalid);
+    instructions_in.pready = true;
+    drain();
+    CHECK(available == 3);
+  }
+
+  clear();
+  instructions_in.pready = false;
+  for (auto invalid_pc : {UINT64_C(0x123001), UINT64_C(0x124000)}) {
+    expect_failure("rv2wide_assembly_prediction_owner", [&] {
+      offer(UINT64_C(0x123000), 1, invalid_pc, target, true);
+    });
+    blocks_in = {};
+    clear();
+  }
+}
+
 void fault_storage_tests() {
   const std::array<std::uint64_t, 3> pcs{
       UINT64_C(0xffffffc012345001), UINT64_C(0x8000000000002000),
@@ -729,6 +822,7 @@ int main() {
     clear();
     instructions_in.pready = 1;
     compact_storage_tests();
+    prediction_owner_tests();
     fault_storage_tests();
   });
 }

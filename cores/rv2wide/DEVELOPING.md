@@ -641,8 +641,12 @@ sets an explicit successful-PC sign-extension contract. Normalize incoming block
 through the same packing/expansion for live bypass and retained selection, so a
 stall that captures the bypass cannot change the visible packet. Absent fault
 payloads and invalid targets become zero, and a fault suppresses any provisional
-BTB prediction. Keep prediction PCs and all five direction checkpoints intact:
-the prediction can name a preceding-block prefix, and its recovery history is
+BTB prediction. Store prediction ownership as one of four current-block parcels
+or the preceding block's final parcel, not another XLEN-wide PC. Admission checks
+that a valid non-fault prediction names an aligned halfword in that domain.
+Expansion concatenates current-block PCs and decrements the block number for a
+preceding prefix, preserving full-width stale-entry invalidation and XLEN wrap.
+Keep all five direction checkpoints intact: a prefix's recovery history is
 not interchangeable with another parcel's checkpoint. Do not change the three
 credits, release rules, or ready path when changing this representation.
 
@@ -1435,6 +1439,9 @@ also checks all four compressed FP load/store expansions and raw encodings.
 Cross-block cases cover every halfword start and instruction-length pair, stalled
 packet retention, source-block history, immediate credit reuse, complete-first
 progress without lookahead, and a second-slot continuation fault.
+Relative prediction ownership checks every parcel at high/negative addresses,
+exact stale-entry invalidation, continuation-only predictions crossing pages and
+XLEN wrap, and rejection of unaligned or unrelated-block prediction owners.
 The primary and `rv2wide-assembly-prediction-h` variants select compact 45-bit
 PCs, with the latter enabling H. `rv2wide-assembly-prediction-full-width` checks
 the standalone XLEN-wide default with the same stream. All variants fill three

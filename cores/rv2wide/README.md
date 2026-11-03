@@ -398,6 +398,9 @@ not the current issue decision. The execution slice still exposes
 Compact block storage preserves exact faulting PCs, continuation fault addresses,
 and full-width predicted targets. Faulting blocks ignore speculative predictions;
 live bypass and retained delivery use the same normalized metadata.
+Block producers identify a valid prediction by an aligned halfword in the current
+block or the final halfword of the preceding block (a straddling instruction).
+The assembler retains this relative ownership without another full-width PC.
 
 L1I misses restart the failed fetch attempt and discard younger attempts,
 preserving older buffered instructions. A MEM prediction correction or WB redirect clears speculative fetch
