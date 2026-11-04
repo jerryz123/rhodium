@@ -35,8 +35,8 @@ concurrency:
 jobs:
   select:
     name: Select affected tasks
-    runs-on: ubuntu-slim
-    timeout-minutes: 5
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     outputs:
       selection: ${{ steps.select.outputs.selection }}
       racket_version: ${{ steps.select.outputs.racket_version }}

@@ -5,10 +5,6 @@ tasks:
     command: bash tools/build/local.sh model
     inputs: ["tools/build/local.sh"]
     options: { cache: false }
-  local-act-config:
-    command: bash tools/build/local.sh act-config
-    inputs: ["tools/build/local.sh"]
-    options: { cache: false }
   chi-dpi-memory-test:
     script: |
       set -e

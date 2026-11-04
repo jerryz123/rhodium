@@ -9,7 +9,6 @@ case "$kind" in
   simulator) task="publish--$soc--$backend--$variant" ;;
   model) task="model--$soc--$backend--$variant" ;;
   act) task="act-elf--${ACT_CONFIGURATION:-$soc}" ;;
-  act-config) task="act-config--${ACT_CONFIGURATION:-$soc}" ;;
   *) echo "Unknown local build family: $kind" >&2; exit 2 ;;
 esac
 options=()

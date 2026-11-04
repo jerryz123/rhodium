@@ -2,6 +2,7 @@
 # Materializes patched submodules and computes identities for their ordered patch series.
 # SPDX-License-Identifier: Apache-2.0
 import argparse
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -58,10 +59,17 @@ def materialize(source_path, series_path, output_path, git="git"):
     staged = temporary_root / "source"
     try:
         shutil.copytree(source, staged, symlinks=True, ignore=shutil.ignore_patterns(".git"))
+        # --no-index does not disable repository discovery. Without this boundary,
+        # a copy beneath .rhodium-cache can silently skip every patch as out of scope.
+        patch_env = dict(os.environ)
+        for name in subprocess.check_output([git, "rev-parse", "--local-env-vars"], text=True).splitlines():
+            patch_env.pop(name, None)
+        patch_env["GIT_CEILING_DIRECTORIES"] = str(temporary_root)
         for patch in patches:
             subprocess.run(
                 [git, "apply", "--no-index", "--whitespace=error-all", str(patch)],
                 cwd=staged,
+                env=patch_env,
                 check=True,
             )
         if output.is_symlink() or output.is_file():

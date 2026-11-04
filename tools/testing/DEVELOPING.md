@@ -149,12 +149,16 @@ refresh only the input groups before querying task metadata. The selector does n
 run selection regression tests or start an outer Moon task to invoke itself.
 The lightweight receipt-gate check runs directly in Python. The checked-in
 [workflow](../../.github/workflows/ci.yml) owns static jobs, matching producer/consumer
-dependencies, and fixed worker matrices. Mapped Mini
-smoke has its own job: it consumes bytecode, SRAM mapping and native tools, not an
+dependencies, and fixed worker matrices. Selection uses `ubuntu-24.04` with a
+ten-minute budget; each Moon query reports start and elapsed time on stderr so
+the selection JSON stays machine-readable and a timeout identifies the active query.
+Mapped Mini smoke has its own job: it consumes bytecode, SRAM mapping and native tools, not an
 ordinary simulator, target descriptor, or Sail build.
 ACT coverage follows the model and ACT's own platform/ELFs. Its execution
 also requires the attested simulator: changing only the native descriptor writer
 can require new simulator attestations, but does not select ACT shards.
+The RV5Stage RVA23 Sail alias check depends directly on its configured ACT task;
+hosted dependencies must not invoke local selector wrappers or start nested Moon runs.
 Moon queries changed files between explicit revisions. CI uses a direct Git tree diff when
 histories diverge or gitlinks change: the former needs both sides of the divergence, and the
 latter needs the submodule path, independent of whether the runner populated its checkout. Unavailable revisions

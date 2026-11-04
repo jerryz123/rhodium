@@ -3,6 +3,8 @@
 
 import json
 import subprocess
+import sys
+import time
 
 from .catalog import task_id
 from .policy import ROOT
@@ -13,8 +15,14 @@ def target(product):
 
 
 def query(*args, data=None):
-    p = subprocess.run(['moon', *args], cwd=ROOT, input=json.dumps(data) if data is not None else None,
-                       text=True, stdout=subprocess.PIPE, check=True)
+    label = ' '.join(args[:2]) if args[0] == 'query' else args[0]
+    start = time.monotonic()
+    print(f'moon: starting {label}', file=sys.stderr, flush=True)
+    try:
+        p = subprocess.run(['moon', *args], cwd=ROOT, input=json.dumps(data) if data is not None else None,
+                           text=True, stdout=subprocess.PIPE, check=True)
+    finally:
+        print(f'moon: {label} finished after {time.monotonic() - start:.1f}s', file=sys.stderr, flush=True)
     return json.loads(p.stdout)
 
 

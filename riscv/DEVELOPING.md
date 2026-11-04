@@ -94,8 +94,12 @@ The `riscv-isa-sim` submodule supplies the shared Spike disassembler and FESVR
 source; it is a host dependency, not a pure-model dependency or target
 software. Keep it pristine and express downstream changes through its adjacent
 ordered patch series and the shared materializer. Rebase or remove patches
-when advancing the gitlink, then validate embedded Spike, RHEG export, and
-FESVR execution. Stage the new gitlink before running `moon run rhodium:setup-fesvr`:
+when advancing the gitlink. The materializer clears inherited repository-local
+Git environment variables and stops repository discovery at its staging boundary:
+`git apply --no-index` alone can silently skip patches inside a parent checkout.
+Keep this isolation for both repository-local and external build directories.
+Validate embedded Spike, RHEG export, and FESVR execution. Stage the new gitlink
+before running `moon run rhodium:setup-fesvr`:
 the materializer identifies the revision from the Git index and the ordered
 patch contents. Keep native consumers on C++20, including the independently
 compiled RHEG parser. Remove a patch only when upstream implements its contract,

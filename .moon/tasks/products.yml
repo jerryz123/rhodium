@@ -389,5 +389,6 @@ tasks:
         --sail "${ACT_SAIL:-$PWD/.tools/sail-riscv-0.16-sail-0.20.3-$identity/bin/sail_riscv_sim}" \
         --config "${ACT_BUILD_ROOT:-/tmp/rhodium-arch-test}/configs/$config/sail.json" --compiler "${RISCV_CC:-riscv64-unknown-elf-gcc}"
     inputs: []
-    deps: [local-act-config]
+    env: { ACT_CONFIGURATION: simple-rv5stage-rva23 }
+    deps: [act-config--simple-rv5stage-rva23]
     options: { cache: false }
