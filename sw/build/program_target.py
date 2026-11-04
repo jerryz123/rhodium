@@ -60,7 +60,6 @@ def target_fingerprint(target):
 def elf_build_spec(target, suite, options=None):
     """Project compilation and inventory inputs without simulator identity."""
     validate_target(target)
-    suite = 'bringup' if suite == 'bringup-bench' else suite
     if suite not in ('isa', 'benchmark', 'coremark', 'coremark_scalar', 'embench', 'bringup', 'skl', 'highway', 'litmus', 'opensbi', 'linux'):
         raise ValueError(f'unsupported shared ELF suite: {suite}')
     options = options or {}

@@ -106,7 +106,7 @@ def enrolled(soc, suite):
 
 
 def context(manifest, metadata):
-    suite = 'bringup' if manifest['suite'] == 'bringup-bench' else manifest['suite']
+    suite = manifest['suite']
     if not enrolled(metadata.get('soc'), suite):
         return None
     identity = dict(measurement=MEASUREMENT, soc=metadata['soc'], suite=suite,

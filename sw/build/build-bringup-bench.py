@@ -251,7 +251,7 @@ def main():
                           expected_hash=f'0x{expected_hash(inventory, name):016x}',
                           load_segments=check_elf_memory(elf, target['ram'])))
         report.append(dict(name=name, elf_arch=elf_arch, **instruction_inventory(objdump, elf)))
-    manifest = dict(suite='bringup-bench', revision=revision, compiler=version, cache_key=key,
+    manifest = dict(suite='bringup', revision=revision, compiler=version, cache_key=key,
                     compiler_flags=' '.join((*COMMON_FLAGS, f'-march={target["march"]}',
                                              f'-mabi={target["mabi"]}')),
                     patch_series_sha256=hashlib.sha256(series.read_bytes()).hexdigest(),
