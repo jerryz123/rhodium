@@ -1,5 +1,5 @@
 #lang rhodium
-/* Assembles two instructions across credited fetch blocks while preserving prediction and fault ownership. */
+/* Assembles configurable instruction groups across eight-byte blocks, preserving prediction and fault ownership. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -175,10 +175,10 @@ fun retain_fetch_block(xlen :: XLen, hypervisor :: Boolean, pc_width :: PosInt, 
     directions: vec(for List (parcel in 0..4): retain_direction(block.directions[parcel]))
     prefix_direction: retain_direction(block.prefix_direction)
 
-/* Decodes a two-block parcel window into an ordered one/two-instruction packet.
+/* Decodes a two-block parcel window into an ordered two- or three-lane packet.
    Three retained blocks plus live bypass cover fixed-cycle fetch reservations.
    Accepted packets release exhausted blocks; a missing continuation retains its original block. */
-sync_circuit SuperscalarInstructionAssembler(profile :: SuperscalarPipelineConfig = SuperscalarPipelineConfig(), ~pc_width: pc_width :: PosInt = profile.xlen.width, ~target_width: target_width :: PosInt = profile.xlen.width):
+sync_circuit SuperscalarInstructionAssembler(profile :: SuperscalarPipelineConfig = SuperscalarPipelineConfig(), ~group_width: group_width :: matching(2) || matching(3) = 2, ~pc_width: pc_width :: PosInt = profile.xlen.width, ~target_width: target_width :: PosInt = profile.xlen.width):
   def xlen = profile.xlen
   def hypervisor = profile.hypervisor
   unless pc_width <= xlen.width
@@ -189,7 +189,7 @@ sync_circuit SuperscalarInstructionAssembler(profile :: SuperscalarPipelineConfi
 
   interface blocks(Decoupled(SuperscalarFetchBlock(xlen, hypervisor)), ~role: consumer)
   interface clear(Pulse(), ~role: consumer)
-  interface instructions(Decoupled(SuperscalarPacket(xlen, hypervisor)), ~role: producer)
+  interface instructions(Decoupled(SuperscalarPacket(xlen, hypervisor, group_width)), ~role: producer)
   interface repair(Valid(SuperscalarFetchRepair(xlen)), ~role: producer)
   interface discover(Valid(BranchPrediction(xlen)), ~role: producer)
   interface speculate(Valid(RasUpdate(xlen)), ~role: producer)
@@ -218,44 +218,37 @@ sync_circuit SuperscalarInstructionAssembler(profile :: SuperscalarPipelineConfi
   def window = (second_block.data ++ first_block.data) >> (start ++ Bits(4)(0))
   def parcels = Bits(4)(4) - start + mux(second_present, Bits(4)(4), Bits(4)(0))
   def first_pc = first_block.pc + (consumed.zext(xlen.width) << 1)
-  def first_compressed = window[0..2] =/= Bits(2)(3)
-  def first_size = mux(first_compressed ||| first_block.fault.valid(), Bits(4)(1), Bits(4)(2))
-  def first_crosses = (start + first_size) > Bits(4)(4)
-  def first_fault = first_block.fault.valid() ||| (first_crosses & second_present & second_block.fault.valid())
-  def first_valid = first_present & (first_block.fault.valid() ||| (parcels >= first_size))
-  def second_window = window >> (first_size ++ Bits(4)(0))
-  def second_compressed = second_window[0..2] =/= Bits(2)(3)
-  def second_start = start + first_size
-  def second_size = mux(second_compressed ||| ((second_start >= Bits(4)(4)) & second_block.fault.valid()), Bits(4)(1), Bits(4)(2))
-  wire fetched: Vec(2, SuperscalarInstruction(xlen, hypervisor))
-  wire actions: Vec(2, RasAction)
-  wire known_predictions: Vec(2, Bool)
-  wire target_repairs: Vec(2, Bool)
-  wire entry_repairs: Vec(2, Bool)
-  def first_cut = first_valid & fetched[0].prediction.valid
-  def both_update_ras = actions[0].is_one_of(RasAction.Push, RasAction.Pop, RasAction.PopPush) & actions[1].is_one_of(RasAction.Push, RasAction.Pop, RasAction.PopPush)
-  def second_complete = parcels >= (first_size + second_size)
-  def second_valid = first_valid & !first_fault & second_complete & !first_cut & !both_update_ras
-  def used = first_size + mux(second_valid, second_size, Bits(4)(0))
-  def end = start + used
-  def uses_second = end > Bits(4)(4)
-  def cut = first_cut ||| (second_valid & fetched[1].prediction.valid)
-  instructions.valid <== first_valid & !discard & !pause
-  instructions.bits.count <== mux(second_valid, Bits(2)(2), Bits(2)(1))
+  wire fetched: Vec(group_width, SuperscalarInstruction(xlen, hypervisor))
+  wire included: Vec(group_width, Bool)
+  wire known_predictions: Vec(group_width, Bool)
+  wire target_repairs: Vec(group_width, Bool)
+  wire entry_repairs: Vec(group_width, Bool)
 
 
-  /* Per-lane predecode and prediction validation.
-     Preserve block/fault ownership across a straddling instruction. */
+  /* Ordered parcel scan and prediction validation.
+     Each lane advances by the preceding instruction's length. Stop the prefix at
+     a fault, taken prediction, missing continuation, or second RAS action. */
 
-  for (lane in 0..2):
-    def raw = if lane == 0 | window[0..32] | second_window[0..32]
-    def compressed = if lane == 0 | first_compressed | second_compressed
-    def size = if lane == 0 | first_size | second_size
-    def pc = if lane == 0 | first_pc | first_pc + (first_size.zext(xlen.width) << 1)
-    def position = if lane == 0 | start | second_start
+  def mutable offset = Bits(4)(0)
+  def mutable prefix = first_present
+  def mutable ras_used = Bool(#false)
+  def mutable packet_count = Bits(2)(0)
+  def mutable used_parcels = Bits(4)(0)
+  def mutable any_fault = Bool(#false)
+  def mutable any_cut = Bool(#false)
+  def mutable tail_lane = Bits(index_width(group_width))(0)
+  def mutable ras_lane = Bits(index_width(group_width))(0)
+  for (lane in 0..group_width):
+    def lane_offset :: Bits(4) = offset
+    def raw = (window >> (lane_offset ++ Bits(4)(0)))[0..32]
+    def compressed = raw[0..2] =/= Bits(2)(3)
+    def pc = first_pc + (lane_offset.zext(xlen.width) << 1)
+    def position = start + lane_offset
     def in_second = position >= Bits(4)(4)
-    def crosses = (position < Bits(4)(4)) & ((position + size) > Bits(4)(4))
     def owner = mux(in_second, second_block, first_block)
+    def size = mux(compressed ||| owner.fault.valid(), Bits(4)(1), Bits(4)(2))
+    def next_offset = lane_offset + size
+    def crosses = !in_second & ((position + size) > Bits(4)(4))
     def fetch_fault = mux(in_second ||| crosses, second_block.fault, first_block.fault)
     def fault :: SuperscalarFetchFault(xlen, hypervisor) = mux(first_block.fault.valid(), first_block.fault, fetch_fault)
     inst decoded(SuperscalarPredecode(profile))
@@ -280,7 +273,18 @@ sync_circuit SuperscalarInstructionAssembler(profile :: SuperscalarPipelineConfi
       returning: return_target
       known: predicted.target
 
-    actions[lane] <== action
+    def updates_ras = action =/= RasAction.None
+    def lane_valid = prefix & (parcels >= next_offset) & !(ras_used & updates_ras)
+    included[lane] <== lane_valid
+    packet_count := mux(lane_valid, Bits(2)(lane + 1), packet_count)
+    used_parcels := mux(lane_valid, next_offset, used_parcels)
+    any_fault := any_fault ||| (lane_valid & fault.valid())
+    any_cut := any_cut ||| (lane_valid & (known ||| fallback))
+    tail_lane := mux(lane_valid, Bits(index_width(group_width))(lane), tail_lane)
+    ras_lane := mux(lane_valid & updates_ras, Bits(index_width(group_width))(lane), ras_lane)
+    ras_used := ras_used ||| (lane_valid & updates_ras)
+    prefix := lane_valid & !fault.valid() & !(known ||| fallback)
+    offset := next_offset
     // Fresh direction metadata recognizes a not-taken conditional too; it is not a stale BTB entry.
     known_predictions[lane] <== known ||| bht_branch
     entry_repairs[lane] <== known & !bht_branch & immediate_control_flow & (predicted.target =/= immediate_target)
@@ -305,6 +309,14 @@ sync_circuit SuperscalarInstructionAssembler(profile :: SuperscalarPipelineConfi
 
     instructions.bits.entries[lane] <== fetched[lane]
 
+  def used :: Bits(4) = used_parcels
+  def end = start + used
+  def uses_second = end > Bits(4)(4)
+  def cut :: Bool = any_cut
+  def packet_fault :: Bool = any_fault
+  instructions.valid <== included[0] & !discard & !pause
+  instructions.bits.count <== packet_count
+
 
   /* Accepted-prefix repair and predictor updates.
      This edge's packet survives repair; only the queued suffix is discarded next edge. */
@@ -313,17 +325,17 @@ sync_circuit SuperscalarInstructionAssembler(profile :: SuperscalarPipelineConfi
   def tail_pc = first_pc + (used.zext(xlen.width) << 1)
   def bad_entries = for List (index in 0..2):
     def owner = if index == 0 | first_block | second_block
-    def known = ((owner.prediction.pc === fetched[0].pc) & known_predictions[0]) ||| (second_valid & (owner.prediction.pc === fetched[1].pc) & known_predictions[1])
+    def mutable known = Bool(#false)
+    for (lane in 0..group_width):
+      known := known ||| (included[lane] & (owner.prediction.pc === fetched[lane].pc) & known_predictions[lane])
     def visited = if index == 0 | first_present | second_present & uses_second
     visited & owner.prediction.valid & (owner.prediction.pc >= first_pc) & (owner.prediction.pc < tail_pc) & !known & !owner.fault.valid()
 
-  def packet_fault = fetched[0].fault.valid() ||| (second_valid & fetched[1].fault.valid())
   def bad_entry = (bad_entries[0] ||| bad_entries[1]) & !packet_fault
-  def selected :: SuperscalarInstruction(xlen, hypervisor) = mux(first_cut, fetched[0], fetched[1])
-  def fallback = cut & !mux(first_cut, known_predictions[0], known_predictions[1])
-  def target_repair = cut & mux(first_cut, target_repairs[0], target_repairs[1])
-  def entry_repair = cut & mux(first_cut, entry_repairs[0], entry_repairs[1])
-  def accepted_tail :: SuperscalarInstruction(xlen, hypervisor) = mux(second_valid, fetched[1], fetched[0])
+  def selected :: SuperscalarInstruction(xlen, hypervisor) = fetched[tail_lane]
+  def fallback = cut & !known_predictions[tail_lane]
+  def target_repair = cut & target_repairs[tail_lane]
+  def entry_repair = cut & entry_repairs[tail_lane]
   def repair_entry :: Bits(xlen.width) = priority_mux(~default: second_block.prediction.pc):
     target_repair: selected.pc
     bad_entries[0]: first_block.prediction.pc
@@ -333,18 +345,17 @@ sync_circuit SuperscalarInstructionAssembler(profile :: SuperscalarPipelineConfi
     target: mux(cut, selected.prediction.target, tail_pc)
     invalidate: bad_entry ||| entry_repair
     entry: repair_entry
-    history: superscalar_history_after(accepted_tail.direction, accepted_tail.direction.taken)
+    history: superscalar_history_after(selected.direction, selected.direction.taken)
 
   // A local repair preserves this edge's accepted prefix; discard its queued
   // suffix on the following edge, not during the transfer that owns the repair.
   repairing <== repair.valid
   discover.valid <== instructions.fire() & fallback & !bad_entry
   discover.bits <== selected.prediction
-  def action_lane = mux(actions[0] =/= RasAction.None, Bits(1)(0), Bits(1)(1))
-  speculate.valid <== instructions.fire() & Bool(profile.ras_entries > 0) & (fetched[action_lane].speculated_ras_action =/= RasAction.None) & ((action_lane === Bits(1)(0)) ||| second_valid)
+  speculate.valid <== instructions.fire() & Bool(profile.ras_entries > 0) & ras_used
   speculate.bits <== RasUpdate(xlen):
-    action: fetched[action_lane].speculated_ras_action
-    return_address: fetched[action_lane].sequential_pc
+    action: fetched[ras_lane].speculated_ras_action
+    return_address: fetched[ras_lane].sequential_pc
 
 
   /* Block credits and causal parents.

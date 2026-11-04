@@ -9,9 +9,10 @@ This package owns one fixed two-wide pipeline, used by both
 `pipeline` fields contain a `SuperscalarPipelineConfig`, which owns shared
 parameters, defaults, validation, and architectural descriptions. The named
 wrappers do not duplicate those fields or reconstruct the pipeline config.
-RV3Wide is also two-wide for now. There is no issue-width parameter; existing
-two-lane scheduling, eight-byte fetch, and 4R2W register-file behavior are
-unchanged. The examples below use RV2Wide; replacing `rv2wide` with `rv3wide` selects
+RV3Wide is also two-wide for now. There is no backend issue-width parameter;
+standalone frontend components can form two- or three-instruction groups while
+fetching eight bytes per cycle. Both integrated cores retain two-lane scheduling
+and 4R2W register-file behavior. The examples below use RV2Wide; replacing `rv2wide` with `rv3wide` selects
 the corresponding independently named hart with the same CI workload policy.
 
 Superscalar is an in-order dual-issue processor under construction. `Superscalar`
@@ -109,7 +110,7 @@ internally. Software programs mtvec/stvec and supplies its trap handler.
 `cores/superscalar/cache.rhdl` owns the standalone `SuperscalarL1D` adapter.
 
 When using `SuperscalarCore()` directly, provide
-`instructions: Decoupled(SuperscalarPacket(xlen, hypervisor))`, matching the core
+`instructions: Decoupled(SuperscalarPacket(xlen, hypervisor, 2))`, matching the core
 profile. Each packet has a `count` of one or two and that many valid `entries`,
 oldest first. Entries contain an
 XLEN-wide `pc`, canonical 32-bit `instruction`, original `raw_instruction` (zero-extended
@@ -146,7 +147,7 @@ unspecified, but histories and all prediction flags remain intact. Prediction me
 the instruction, not its packet position, and remains attached after compaction.
 The eight-entry instruction buffer retains
 unconsumed instructions and coalesces adjacent packets after partial issue.
-The fetch assembler can form a two-instruction packet across adjacent 8-byte
+The integrated fetch assembler can form a two-instruction packet across adjacent 8-byte
 blocks, including a 32-bit instruction spanning their boundary. If only one
 complete instruction is available, it emits that instruction without waiting
 for the next block. Predicted-taken cuts and the single-RAS-action restriction
@@ -162,6 +163,35 @@ from a speculative fetch flush.
 The standalone core exports successfully retired `branch_update` records,
 `predictor_restore` recovery pulses, and `predictor_clear` context-invalidation
 pulses for a connected predictor; `Superscalar` connects these internally.
+
+### Standalone frontend group width
+
+`SuperscalarFrontend`, `SuperscalarInstructionAssembler`, and
+`SuperscalarIssueWindow` accept `~group_width: 2` (the default) or
+`~group_width: 3`. Connect components with the same width; their packet type is
+`SuperscalarPacket(xlen, hypervisor, group_width)`. For example:
+
+```rhdl
+inst assembler(SuperscalarInstructionAssembler(profile, ~group_width: 3))
+inst window(SuperscalarIssueWindow(profile.xlen, ~hypervisor: profile.hypervisor, ~group_width: 3))
+assembler.instructions |> window.ingress
+```
+
+The width counts instructions, not fetch bytes. The assembler scans two adjacent
+eight-byte blocks and offers up to that many complete mixed 16/32-bit instructions.
+It emits a shorter prefix rather than waiting for an unavailable continuation.
+A fetch fault or taken prediction ends the packet after its owning instruction;
+a second RAS action starts a later packet. Prediction repair and RAS updates occur
+only when the packet transfers. The existing three-block storage and credits are
+independent of group width.
+
+The issue window still stores eight compact entries. It exposes up to
+`group_width` oldest candidates and accepts a `consume` count from zero through
+`head.count`, coalescing retained suffixes with later packets. Ingress readiness
+reserves space for a full group after same-cycle consumption, independently of
+the offered count. Clear suppresses admission/candidates and discards retained
+entries. These standalone options do not enable three-wide execution in either
+named core; retirement-history inputs still match the two-wide backend.
 
 ## Floating point
 

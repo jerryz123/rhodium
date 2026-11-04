@@ -4,6 +4,7 @@
 using Instruction =
     std::remove_cvref_t<decltype(instructions_out.pbits.pentries[0])>;
 using Packet = std::remove_cvref_t<decltype(instructions_out.pbits)>;
+constexpr unsigned group_width = Packet{}.pentries.size();
 int scenario = 0, cycles = 0, source_cycle = -1, accepted_cycle = -1,
     target_cycle = -1, checks = 0, packets = 0;
 bool response_valid = 0, response_error = 0, response_replay = 0,
@@ -116,12 +117,15 @@ void observe() {
     if (instructions_out.pvalid && instructions_in.pready) {
       packets++;
       if (scenario == 16 && packets == 1) {
-        CHECK(instructions_out.pbits.pcount == 2);
+        CHECK(instructions_out.pbits.pcount == group_width);
         CHECK(instructions_out.pbits.pentries[0].ppc == 0x100 &&
               instructions_out.pbits.pentries[1].ppc == 0x102);
+        if constexpr (group_width == 3)
+          CHECK(instructions_out.pbits.pentries[2].ppc == 0x104 &&
+                instructions_out.pbits.pentries[2].pinstruction == 0x313);
       }
       if (scenario == 16 && packets == 2)
-        CHECK(instructions_out.pbits.pentries[0].ppc == 0x104);
+        CHECK(instructions_out.pbits.pentries[0].ppc == (group_width == 3 ? 0x108 : 0x104));
       for (int lane = 0; lane < int(instructions_out.pbits.pcount); lane++) {
         Instruction insn;
         insn = instructions_out.pbits.pentries[lane];

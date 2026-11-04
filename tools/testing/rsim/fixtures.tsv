@@ -206,6 +206,8 @@ rv2wide-core	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-core.rhm
 rv2wide-issue-window	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-issue-window.rhm	program	cores/superscalar/tests/rsim/rv2wide-issue-window.cpp
 rv2wide-issue-window-h	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-issue-window.rhm	guest_program	cores/superscalar/tests/rsim/rv2wide-issue-window.cpp
 rv2wide-issue-window-rv32	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-issue-window.rhm	rv32_program	cores/superscalar/tests/rsim/rv2wide-issue-window.cpp
+superscalar-issue-window-three	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-issue-window.rhm	three_program	cores/superscalar/tests/rsim/three-issue-window.cpp
+superscalar-issue-window-three-h	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-issue-window.rhm	three_guest_program	cores/superscalar/tests/rsim/three-issue-window.cpp
 rv2wide-core-vector	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-core-vector.rhm	program	cores/superscalar/tests/rsim/rv2wide-core-vector.cpp	target	rheg/runtime/rheg.cc
 rv2wide-core-vector-rv32	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-core-vector.rhm	rv32_program	cores/superscalar/tests/rsim/rv2wide-core-vector.cpp	target	rheg/runtime/rheg.cc
 rv2wide-vector-memory	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-vector-memory.rhm	program	cores/superscalar/tests/rsim/rv2wide-vector-memory.cpp
@@ -221,6 +223,8 @@ rv2wide-fetch-disabled	cores-components	cores/superscalar/tests/rsim/emit-rv2wid
 rv2wide-assembly-prediction	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-assembly-prediction.rhm	program	cores/superscalar/tests/rsim/rv2wide-assembly-prediction.cpp
 rv2wide-assembly-prediction-h	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-assembly-prediction.rhm	guest_program	cores/superscalar/tests/rsim/rv2wide-assembly-prediction-h.cpp
 rv2wide-assembly-prediction-full-width	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-assembly-prediction.rhm	full_width_program	cores/superscalar/tests/rsim/rv2wide-assembly-prediction.cpp
+superscalar-assembly-three	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-assembly-prediction.rhm	three_program	cores/superscalar/tests/rsim/three-assembly.cpp
+superscalar-frontend-three	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-frontend-prediction.rhm	three_program	cores/superscalar/tests/rsim/rv2wide-frontend-prediction.cpp
 rv2wide-frontend-prediction	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-frontend-prediction.rhm	program	cores/superscalar/tests/rsim/rv2wide-frontend-prediction.cpp
 rv2wide-frontend-retention	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-frontend-prediction.rhm	program	cores/superscalar/tests/rsim/rv2wide-frontend-retention.cpp
 rv2wide-frontend-retention-h	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-frontend-prediction.rhm	guest_program	cores/superscalar/tests/rsim/rv2wide-frontend-retention.cpp

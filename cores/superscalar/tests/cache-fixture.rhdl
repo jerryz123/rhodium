@@ -49,7 +49,7 @@ def test_fetch_chi = RiscvHartCHIConfig(test_flit, CacheLineBytes, test_chi.regi
 sync_circuit SuperscalarCacheFixture():
   input node_id: Bits(test_flit.node_id_width)
   input management_pbmt: PageMemoryType
-  interface instructions(Decoupled(SuperscalarPacket(XLen.X64, #false)), ~role: consumer)
+  interface instructions(Decoupled(SuperscalarPacket(XLen.X64, #false, 2)), ~role: consumer)
   interface retired[2](Valid(SuperscalarRetirement(XLen.X64, #false)), ~role: producer)
   interface completed(Valid(SuperscalarCompletion(XLen.X64)), ~role: producer)
   interface redirect(Valid(SuperscalarRedirect(XLen.X64)), ~role: producer)

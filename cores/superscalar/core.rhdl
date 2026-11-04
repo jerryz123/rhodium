@@ -115,7 +115,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   input interrupts: RiscvInterrupts()
   input hart_id: Bits(64)
   input time_counter: Bits(64)
-  interface instructions(Decoupled(SuperscalarPacket(xlen, hypervisor)), ~role: consumer)
+  interface instructions(Decoupled(SuperscalarPacket(xlen, hypervisor, 2)), ~role: consumer)
   interface resolution[2](Valid(SuperscalarResolution(xlen)), ~role: consumer)
   interface memory_stage[2](Valid(SuperscalarInstruction(xlen, hypervisor)), ~role: producer)
   interface retired[2](Valid(SuperscalarRetirement(xlen, hypervisor)), ~role: producer)
@@ -390,7 +390,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
      The issue window owns age and consumption; the younger lane cannot
      advance around an older blocked instruction. */
 
-  def rr_head :: SuperscalarPacket(xlen, hypervisor) = rr_window.head
+  def rr_head :: SuperscalarPacket(xlen, hypervisor, 2) = rr_window.head
   def rr_decode = ValidDecodeGen(superscalar_control_cases(profile))
   def rr_decoded :: Vec(2, DecodeResult(SuperscalarControl())) = vec(for List (lane in 0..2): rr_decode(rr_head.entries[lane].instruction))
   def rr_controls :: Vec(2, SuperscalarControl()) = vec(for List (lane in 0..2): rr_decoded[lane].value)

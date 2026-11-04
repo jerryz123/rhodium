@@ -10,4 +10,5 @@ import:
 def program = elaborate(SuperscalarInstructionAssembler(SuperscalarPipelineConfig(~floating_point: FloatingPointProfile.D), ~pc_width: 45))
 def guest_program = elaborate(SuperscalarInstructionAssembler(SuperscalarPipelineConfig(~floating_point: FloatingPointProfile.D, ~hypervisor: #true), ~pc_width: 45))
 def full_width_program = elaborate(SuperscalarInstructionAssembler(SuperscalarPipelineConfig(~floating_point: FloatingPointProfile.D)))
-export program guest_program full_width_program
+def three_program = elaborate(SuperscalarInstructionAssembler(SuperscalarPipelineConfig(~floating_point: FloatingPointProfile.D, ~hypervisor: #true), ~group_width: 3, ~pc_width: 45))
+export program guest_program full_width_program three_program

@@ -212,10 +212,10 @@ bundle SuperscalarInstruction(xlen :: XLen, hypervisor :: Boolean):
       pc: fetched.pc
       raw_instruction: fetched.raw_instruction
 
-/* Offers a nonempty prefix of up to two instructions to the issue window. */
-bundle SuperscalarPacket(xlen :: XLen, hypervisor :: Boolean):
+/* Offers a nonempty instruction prefix with an explicit two- or three-entry capacity. */
+bundle SuperscalarPacket(xlen :: XLen, hypervisor :: Boolean, group_width :: matching(2) || matching(3)):
   count: Bits(2)
-  entries: Vec(2, SuperscalarInstruction(xlen, hypervisor))
+  entries: Vec(group_width, SuperscalarInstruction(xlen, hypervisor))
 
 /* Keeps a retired branch's BTB outcome and saved tournament predictions together during training. */
 bundle SuperscalarBranchTraining(xlen :: XLen):

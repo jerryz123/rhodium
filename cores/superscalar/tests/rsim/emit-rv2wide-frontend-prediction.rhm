@@ -9,4 +9,5 @@ import:
 
 def program = elaborate(SuperscalarFrontend(test_chi, SuperscalarPipelineConfig(~bht: #false)))
 def guest_program = elaborate(SuperscalarFrontend(test_chi, SuperscalarPipelineConfig(~bht: #false, ~hypervisor: #true)))
-export program guest_program
+def three_program = elaborate(SuperscalarFrontend(test_chi, SuperscalarPipelineConfig(~bht: #false), ~group_width: 3))
+export program guest_program three_program

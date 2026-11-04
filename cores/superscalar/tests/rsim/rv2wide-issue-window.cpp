@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "driver.hpp"
+#ifndef GROUP_WIDTH
+#define GROUP_WIDTH 2
+#endif
+constexpr unsigned group_width = GROUP_WIDTH;
 using Instruction = std::remove_cvref_t<decltype(ingress_in.pbits.pentries[0])>;
 using Fault = decltype(Instruction{}.pfault);
 template <class T> constexpr bool has_guest = requires(T t) { t.pguest; };
@@ -55,14 +59,19 @@ void cycle(unsigned remove, unsigned append, bool clear = false) {
   clear_in.pvalid = clear;
   ingress_in.pvalid = append != 0;
   ingress_in.pbits.pcount = append ? append : 1;
-  for (unsigned lane = 0; lane < 2; ++lane)
+  for (unsigned lane = 0; lane < group_width; ++lane)
     ingress_in.pbits.pentries[lane] = token(sequence + lane);
   eval();
   CHECK(available == 8 - expected.size());
-  CHECK(head.pcount == std::min<std::size_t>(2, expected.size()));
-  CHECK(bool(ingress_out.pready) == (!clear && expected.size() - remove <= 6));
-  for (unsigned lane = 0; lane < 2; ++lane) {
-    const auto &candidate = lane ? candidates_1_out : candidates_0_out;
+  CHECK(head.pcount == std::min<std::size_t>(group_width, expected.size()));
+  CHECK(bool(ingress_out.pready) == (!clear && expected.size() - remove <= 8 - group_width));
+  const auto candidates = std::array{candidates_0_out, candidates_1_out
+#if GROUP_WIDTH == 3
+      , candidates_2_out
+#endif
+  };
+  for (unsigned lane = 0; lane < group_width; ++lane) {
+    const auto &candidate = candidates[lane];
     CHECK(bool(candidate.pvalid) == (!clear && lane < expected.size()));
     if (lane < expected.size()) {
       check_entry(head.pentries[lane], expected[lane]);
@@ -93,16 +102,19 @@ int main() {
     tick_model();
     reset = 0;
     // Fill all eight entries, hold the heads, then append while consuming a prefix.
-    for (unsigned i = 0; i < 4; ++i) cycle(0, 2);
-    for (unsigned i = 0; i < 12; ++i) cycle(0, 2);
-    cycle(1, 2);
-    cycle(2, 2);
-    while (!expected.empty()) cycle(std::min<std::size_t>(2, expected.size()), 0);
+    while (expected.size() <= 8 - group_width) {
+      const unsigned append = expected.size() == 0 ? 8 % group_width : group_width;
+      cycle(0, append ? append : group_width);
+    }
+    CHECK(expected.size() == 8);
+    for (unsigned i = 0; i < 12; ++i) cycle(0, group_width);
+    for (unsigned remove = 1; remove <= group_width; ++remove) cycle(remove, group_width);
+    while (!expected.empty()) cycle(std::min<std::size_t>(group_width, expected.size()), 0);
     unsigned random = 0x43a09b1;
     for (unsigned i = 0; i < 1500; ++i) {
       random = random * 1664525 + 1013904223;
-      const unsigned remove = std::min<std::size_t>((random >> 16) % 3, expected.size());
-      cycle(remove, (random >> 24) % 3, i % 97 == 96);
+      const unsigned remove = std::min<std::size_t>((random >> 16) % (group_width + 1), expected.size());
+      cycle(remove, (random >> 24) % (group_width + 1), i % 97 == 96);
     }
     while (!expected.empty()) cycle(1, 0);
     cycle(0, 0);

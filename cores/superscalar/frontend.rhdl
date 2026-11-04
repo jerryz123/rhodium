@@ -1,5 +1,5 @@
 #lang rhodium
-/* Fetches credited mixed-width blocks with S1 bimodal targets and fresh-S2 tournament correction. */
+/* Fetches eight-byte blocks into configurable instruction groups with S1 targets and fresh-S2 correction. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -53,11 +53,12 @@ bundle SuperscalarFetchAttempt(xlen :: XLen, hypervisor :: Boolean, prediction_w
   replay: Bool
   fault: SuperscalarFetchFault(xlen, hypervisor)
 
-/* Issues one block per cycle on hits, reserving returned-block storage before each lookup.
+/* Issues one eight-byte block per cycle on hits and emits up to group_width instructions.
+   Reserves returned-block storage before each lookup.
    Replay kills younger attempts but not older packets. Faults stop fetch until WB recovery.
    Invalidation stops old attempts until a restart; simultaneous redirect supplies the new PC.
    Physical PMA checks precede cache resolution; no rejected address reaches CHI. */
-sync_circuit SuperscalarFrontend(config :: RiscvHartCHIConfig, profile :: SuperscalarPipelineConfig = SuperscalarPipelineConfig()):
+sync_circuit SuperscalarFrontend(config :: RiscvHartCHIConfig, profile :: SuperscalarPipelineConfig = SuperscalarPipelineConfig(), ~group_width: group_width :: matching(2) || matching(3) = 2):
   def xlen = profile.xlen
   def hypervisor = profile.hypervisor
   interface start(Valid(Bits(64)), ~role: consumer)
@@ -67,7 +68,7 @@ sync_circuit SuperscalarFrontend(config :: RiscvHartCHIConfig, profile :: Supers
   interface invalidate(Pulse(), ~role: consumer)
   interface virtual_lookup(Decoupled(Bits(64)), ~role: producer)
   interface translation(SuperscalarInstructionTranslation(xlen), ~role: requester)
-  interface instructions(Decoupled(SuperscalarPacket(xlen, hypervisor)), ~role: producer)
+  interface instructions(Decoupled(SuperscalarPacket(xlen, hypervisor, group_width)), ~role: producer)
   interface branch_update(Valid(BranchUpdate(xlen)), ~role: consumer)
   interface predictor_restore(Pulse(), ~role: consumer)
   interface predictor_clear(Pulse(), ~role: consumer)
@@ -104,7 +105,7 @@ sync_circuit SuperscalarFrontend(config :: RiscvHartCHIConfig, profile :: Supers
   inst s2(ValidPipeAlwaysCapture(SuperscalarFetchAttempt(xlen, hypervisor, pc_width), 1, ~flushable: #true))
   // Sign-extended Sv39 and zero-extended physical/Bare PCs fit this width.
   // Faulting blocks retain the original upper bits in their tagged payload.
-  inst assembler(SuperscalarInstructionAssembler(profile, ~pc_width: pc_width, ~target_width: pc_width))
+  inst assembler(SuperscalarInstructionAssembler(profile, ~group_width: group_width, ~pc_width: pc_width, ~target_width: pc_width))
 
 
   /* Predictor control and S1 target selection.

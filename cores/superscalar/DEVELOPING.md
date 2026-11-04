@@ -20,9 +20,11 @@ All shared parameters, defaults, validation, and derived descriptions live here,
 not in copied named-core constructors. Never import named-core policy from production sources
 here. Shared fixtures may instantiate the named entry points.
 
-The implementation is intentionally fixed at two lanes. Keep pair-shaped
+The backend is intentionally fixed at two lanes. Keep pair-shaped
 admission, older/younger stage state, and two-slot retirement unchanged;
-there is no issue-width configuration. Both entry points generate the same
+there is no backend issue-width configuration. The frontend, assembler, and
+issue window independently accept a two- or three-instruction `group_width`,
+defaulting to two. Both entry points continue to select two and generate the same
 hardware for the same profile, including FP/vector resources when selected.
 
 The moved fixtures retain their `rv2wide-*` runner IDs and C++ filenames to
@@ -124,6 +126,20 @@ XLEN wrap, and faulting instructions whose raw bits do not identify their
 length. Preserve the valid prediction target, direction checkpoint, and RAS actions
 even when an instruction crosses a block or region.
 
+Frontend group width changes only packet capacity, assembler prefix scanning,
+and visible/consumable window entries. Fetch blocks remain eight bytes, assembler
+storage remains three blocks, and the issue window remains eight entries. The
+assembler examines at most two contiguous blocks; if a third instruction needs
+a third block, emit the complete prefix and retain its suffix for the next cycle.
+The ordered scan ends after a fault or taken prediction and before a second RAS
+action. Select repair history from the accepted tail, and qualify all prediction
+and RAS effects with the packet transfer. Keep block trace ancestry separate
+from instruction count: a three-instruction packet still has at most two block
+parents. Window trace views replicate accepted packet ownership for each of its
+appended instructions and consume only the caller-selected oldest prefix.
+Do not widen two-operand bundles, retirement feedback, or backend stage state
+when changing frontend group width.
+
 The issue window and each EX/MEM/WB lane store `SuperscalarDirectionCheckpoint`,
 not complete tournament indices. Its ten-bit saved lookup row, ten-bit recovery
 history, and four flags are independent. Reconstruct `index` by concatenating the
@@ -213,7 +229,7 @@ serialization. Both extensions retain the normal writeback/destination policy.
 Event annotations live on functional Flow boundaries, independently of the cosim
 source contract. The issue window exposes Valid candidates; each lane's named
 window contract observes the actual compacting count and prefix consumption,
-replicating a packet owner for its one/two appended instructions. The assembler
+replicating a packet owner for each appended instruction. The assembler
 selects the one/two retained or live block owners contributing bytes to each packet.
 EX/MEM mapping and lane grants certify manually authored combinational regions.
 Split ownership uses its actual capture/release/pending controls. Successful WB
@@ -1381,6 +1397,7 @@ python3 tools/testing/rsim/run.py --fixture rv2wide-issue-window --fixture rv2wi
 python3 tools/testing/rsim/run.py --fixture rv2wide-cache --fixture rv2wide-fetch-disabled
 python3 tools/testing/rsim/run.py --fixture rv2wide-assembly-prediction --fixture rv2wide-frontend-prediction --fixture rv2wide-bht
 python3 tools/testing/rsim/run.py --fixture rv2wide-assembly-prediction-h --fixture rv2wide-assembly-prediction-full-width
+python3 tools/testing/rsim/run.py --fixture superscalar-issue-window-three --fixture superscalar-issue-window-three-h --fixture superscalar-assembly-three --fixture superscalar-frontend-three
 python3 tools/testing/rsim/run.py --fixture rv2wide-mmu
 python3 tools/testing/rsim/run.py --fixture rv2wide-fetch
 make check-boundaries
@@ -1394,9 +1411,9 @@ enabled-fetch fixture compiles with event tracing and links the production RHEG
 collector directly. Its independent instruction model and trace oracle check both
 retirement lanes after their clocked callbacks complete.
 
-The issue-window fixtures check RV32 and compact RV64 with and without H.
+The issue-window fixtures check two-entry RV32 and two/three-entry compact RV64 with and without H.
 They fill all eight entries, retain mixed normal/fault owners under backpressure,
-consume one/two entries while appending, and clear live offers. An independent
+consume every supported prefix length while appending, and clear live offers. An independent
 queue checks raw/canonical encodings, exact PC/successor and fault addresses,
 guest provenance, full-width predicted targets, and direction/RAS checkpoints.
 Distinct saved rows and histories check PC-derived training indices through
@@ -1547,6 +1564,12 @@ pairs must fail admission. The H variant also
 checks guest provenance and rejection of an out-of-range successful compact PC.
 Local repair clears block ownership on the following cycle; it must
 not clear the lineage of the same edge's accepted packet.
+`superscalar-assembly-three` checks all eight instruction-length triples at every
+halfword start, compact high PCs and XLEN wrap, source-block direction ownership,
+backpressure, third-position prediction repair and continuation faults (including
+guest provenance), single-RAS-action prefixes, and clear over live bypass.
+`superscalar-frontend-three` runs the existing frontend recovery oracle with
+three-entry output and checks three instructions returned from one eight-byte block.
 `rv2wide-frontend-prediction` supplies fixed-cycle instruction-cache responses
 through public ports. It checks same-cycle S1 prediction and S2 target offers
 for both slots,
