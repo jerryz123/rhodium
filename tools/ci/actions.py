@@ -9,8 +9,8 @@ import os
 import subprocess
 
 from .policy import ROOT, COREMARK_SUITES
-from .catalog import act_model, materialize
-from .inputs import gitlinks, pin_file, pin_stamp
+from .catalog import act_model, read_catalog, write_catalog
+from .inputs import catalog_groups, gitlinks, pin_file, pin_stamp
 from .gate import receipt_id
 from .moon import closure, query
 
@@ -32,12 +32,17 @@ def expected_receipts(selected):
                   if key in selected and 'ci-receipt' in task['tags'])
 
 
-def enrollment():
-    """Read selectable tasks and require an enrolled consumer for each fixture group."""
-    fixtures = materialize()
-    ci_tasks.cache_clear()
+def enrollment(paths=()):
+    """Use the prepared catalog, including removed inputs, and validate fixture ownership."""
+    catalog = read_catalog()
+    missing = [p for p in paths or () if not ignored(p) and not (ROOT / p).exists()]
+    if missing:
+        catalog['fileGroups'] = catalog_groups(missing)
+        write_catalog(catalog['tasks'], catalog['fileGroups'])
     hosted = ci_tasks()
-    for name in fixtures:
+    for name in catalog['fileGroups']:
+        if not name.startswith('fixtures--'):
+            continue
         owner = hosted.get('check:' + name[len('fixtures--'):], {})
         if '@group(' + name + ')' not in owner.get('inputs', []):
             raise ValueError('fixture group without an enrolled consumer: ' + name)
@@ -59,9 +64,6 @@ def select(paths, enrolled):
                       ('actions', 'catalog', 'inputs', 'moon', 'policy', 'gate', 'receipts'))}
     if any(p in global_files or p.startswith(('.moon/', '.github/actions/setup-moon/')) for p in paths):
         return enrolled
-    missing = [p for p in paths if not (ROOT / p).exists()]
-    if missing:
-        materialize(paths=missing)
     pins = gitlinks()
     # A gitlink affects consumers of its revision and checks that cover its tree.
     probes = {p: {str(pin_stamp(p)), pin_file(p)} if p in pins else {p} for p in paths}
@@ -144,9 +146,10 @@ def main():
     src.add_argument('--revisions', nargs=2)
     parser.add_argument('--pretty', action='store_true')
     args = parser.parse_args()
-    enrolled = enrollment()
+    paths = changed_paths(*args.revisions) if args.revisions else args.paths
+    enrolled = enrollment(paths)
     roots = ({k for k in enrolled if k.startswith('program:') and k.rpartition(':')[2] in COREMARK_SUITES}
-             if args.coremark else select(changed_paths(*args.revisions) if args.revisions else args.paths, enrolled))
+             if args.coremark else select(paths, enrolled))
     selected = closure(roots)
     result = selection(selected)
     print(json.dumps(result, indent=2 if args.pretty else None, separators=None if args.pretty else (',', ':')))

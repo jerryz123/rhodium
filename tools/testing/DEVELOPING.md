@@ -143,7 +143,11 @@ it has no execution wrapper or command-line entry point.
 [policy.py](../ci/policy.py) owns hardware/software enrollment, not GitHub jobs or worker assignment.
 [actions.py](../ci/actions.py) asks Moon which endpoints a diff affects, then uses
 Moon's action graph to collect their prerequisites. It returns task IDs, tags, and
-expected receipts, never job matrices or dependency edges. The checked-in
+expected receipts, never job matrices or dependency edges. Setup prepares the catalog
+once; selection reads it without regenerating task families. Removed diff paths
+refresh only the input groups before querying task metadata. The selector does not
+run selection regression tests or start an outer Moon task to invoke itself.
+The lightweight receipt-gate check runs directly in Python. The checked-in
 [workflow](../../.github/workflows/ci.yml) owns static jobs, matching producer/consumer
 dependencies, and fixed worker matrices. Mapped Mini
 smoke has its own job: it consumes bytecode, SRAM mapping and native tools, not an
@@ -238,8 +242,8 @@ multiple configurations. Catalog generation only reads the descriptors already
 produced by Moon, resolves workload recipes, and embeds the immutable snapshot
 location in archive and binding commands. Missing descriptors are an error;
 refresh them through Moon before preparing the catalog after configuration changes.
-Hosted planning queries prepare the base catalog; use Moon's native affected query
-to inspect a prepared local graph without replacing it.
+Prepare the base catalog with `python3 -m tools.ci.catalog` before hosted selection
+queries. Use Moon's native affected query to inspect a prepared local graph.
 Use Moon for first-party stage prerequisites and cached outputs. Use the managed
 Racket cache for all elaboration. Formal, trace, diagram, SRAM and physical-design tasks
 are available locally without enrolling new CI coverage; golden updates are explicit.

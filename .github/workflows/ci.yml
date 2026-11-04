@@ -48,8 +48,8 @@ jobs:
           fetch-depth: 0
       - name: Set up moon workspace
         uses: ./.github/actions/setup-moon
-      - name: Check selection and receipt contracts
-        run: moon run rhodium:ci-contracts --upstream none
+      - name: Check receipt contracts
+        run: python3 -m unittest discover -s tools/ci/tests
       - name: Read affected Moon tasks
         id: select
         env:

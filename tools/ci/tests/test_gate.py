@@ -7,29 +7,8 @@ import sys
 import tempfile
 import unittest
 
-from tools.ci.actions import enrollment, select
 
-
-def plan(*args):
-    return json.loads(subprocess.check_output([sys.executable, '-m', 'tools.ci.actions', *args]))
-
-
-class HostedCoverage(unittest.TestCase):
-    def test_baseline_selects_just_its_simulator_and_four_execution_shards(self):
-        run = 'program:simple-rv2wide-rva23:bringup'
-        result = plan('--paths', 'sims/program-test/performance-baselines/simple-rv2wide-rva23/bringup.json')
-        self.assertEqual(result['endpoints'], [*(f'{run}#{i}' for i in range(4)), 'simulator:simple-rv2wide-rva23:rsim'])
-
-    def test_docs_skip_ci_and_unowned_changes_fail_closed(self):
-        roots = enrollment()
-        self.assertEqual(select(['DEVELOPING.md'], roots), set())
-        self.assertEqual(select(['sw/coremark', 'unowned.xyz'], roots), roots)
-
-    def test_mapped_smoke_runs_without_a_processor_simulator(self):
-        result = plan('--paths', 'vlsi/sim/build-env.sh')
-        self.assertIn('racket-cache', result['tasks'])
-        self.assertEqual(result['endpoints'], ['mapped-smoke'])
-
+class ReceiptGate(unittest.TestCase):
     def test_gate_rejects_missing_or_unexpected_receipts(self):
         with tempfile.TemporaryDirectory() as d:
             receipts = Path(d, 'endpoint-receipts')

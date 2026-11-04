@@ -462,6 +462,14 @@ def write_catalog(tasks, groups):
     os.replace(f.name, CATALOG)
 
 
+def read_catalog():
+    """Read the prepared JSON catalog beneath its YAML comment header."""
+    if not CATALOG.exists():
+        raise ValueError('prepare the Moon catalog first: python3 -m tools.ci.catalog')
+    return json.loads('\n'.join(line for line in CATALOG.read_text().splitlines()
+                                if not line.startswith('#')))
+
+
 def main():
     parser = argparse.ArgumentParser(description='Generate Moon configuration without executing build tasks.')
     parser.add_argument('--soc', action='append', metavar='SOC', choices=[s for s, _, _ in software_configs(True)],

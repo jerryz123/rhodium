@@ -347,11 +347,6 @@ tasks:
     inputs:
       - "sims/program-test/write-target.rhm"
     options: *racket-options
-  ci-contracts:
-    command: "python3 -m unittest discover -s tools/ci/tests"
-    inputs:
-      - "tools/ci/tests/**/*"
-    options: { cache: false }
   sram-check:
     script: |
       set -e
