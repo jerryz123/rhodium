@@ -318,10 +318,16 @@ circuit FpFormatDatapath(
     FloatUnit.IntegerModulo
   )
 
+  def boxed_value = riscv_nan_box(format, arithmetic_fp, flen)
+  def selected_value = mux(
+    fp_destination,
+    if flen < xlen.width | boxed_value.zext(xlen.width) | boxed_value,
+    if xlen.width < flen | integer_value.zext(flen) | integer_value
+  )
+
   completion <== FpExecutionResult(xlen, profile, Tag):
     tag: request.tag
-    integer_value: integer_value
-    fp_value: riscv_nan_box(format, arithmetic_fp, flen)
+    value: selected_value
     exception_flags: exception_flags
     exception_flags_valid: exception_flags_valid
 
@@ -333,10 +339,15 @@ circuit FpHalfMinimalDatapath(xlen :: XLen, profile :: FloatingPointProfile, Tag
 
   def format = FloatFormat.F16
   def source = request.left[0..format.ieee_width].into(IEEEFloat(format))
+  def integer_value = fp_move_to_integer(xlen, format, source)
+  def boxed_value = riscv_nan_box(format, integer_move_to_fp(xlen, format, request.integer_operand), flen)
   completion <== FpExecutionResult(xlen, profile, Tag):
     tag: request.tag
-    integer_value: fp_move_to_integer(xlen, format, source)
-    fp_value: riscv_nan_box(format, integer_move_to_fp(xlen, format, request.integer_operand), flen)
+    value: mux(
+      request.control.registers.destination === FloatDestination.FloatingPoint,
+      if flen < xlen.width | boxed_value.zext(xlen.width) | boxed_value,
+      if xlen.width < flen | integer_value.zext(flen) | integer_value
+    )
     exception_flags: Bits(5)(0)
     exception_flags_valid: Bool(#false)
 
@@ -449,7 +460,7 @@ circuit FpFixedD(xlen :: XLen,
   def arithmetic_flags = ordinary.exception_flags ||| mux(widening_arithmetic, widening_flags, Bits(5)(0))
   def completion_flags = mux(cross_precision, converted_flags, arithmetic_flags)
   completion <== ordinary.updated(
-    ~fp_value: mux(cross_precision, converted_value, ordinary.fp_value),
+    ~value: mux(cross_precision, converted_value, ordinary.value),
     ~exception_flags: completion_flags
   )
 
@@ -527,7 +538,7 @@ circuit FpFixedFHalf(xlen :: XLen,
   def arithmetic_flags = ordinary.exception_flags ||| mux(widening_arithmetic, widening_flags, Bits(5)(0))
   def completion_flags = mux(cross_precision, converted_flags, arithmetic_flags)
   completion <== ordinary.updated(
-    ~fp_value: mux(cross_precision, converted_value, ordinary.fp_value),
+    ~value: mux(cross_precision, converted_value, ordinary.value),
     ~exception_flags: completion_flags,
     ~exception_flags_valid: mux(cross_precision, Bool(#true), ordinary.exception_flags_valid)
   )
@@ -620,7 +631,7 @@ circuit FpFixedDHalf(xlen :: XLen,
   def arithmetic_flags = ordinary.exception_flags ||| mux(widening_arithmetic, widening_flags, Bits(5)(0))
   def completion_flags = mux(half_cross, converted_flags, arithmetic_flags)
   completion <== ordinary.updated(
-    ~fp_value: mux(half_cross, converted_value, ordinary.fp_value),
+    ~value: mux(half_cross, converted_value, ordinary.value),
     ~exception_flags: completion_flags,
     ~exception_flags_valid: mux(half_cross, Bool(#true), ordinary.exception_flags_valid)
   )

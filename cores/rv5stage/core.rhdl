@@ -1778,7 +1778,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
 
   def wb_fp_integer_write = wb_fp_direct_completion |> filter_flow(result => result.rd.any()) |> map_flow(result => RegisterFileWrite(xlen)):
     address: result.rd
-    data: result.integer_value
+    data: result.value
 
   // Direct FP-to-GPR returns belong to the current WB instruction and use
   // the ordinary write port; later returns retain the deferred port.
@@ -1858,7 +1858,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
       |> filter_flow(completion => (completion.destination === FloatDestination.Integer) & completion.rd.any())
       |> map_flow(completion => RegisterFileWrite(xlen)):
           address: completion.rd
-          data: completion.integer_value
+          data: completion.value
   ) |> gate_flow(wb_fp_fixed_integer_return ||| wb_gpr_calendar.registered_free[1]) |> wb_tag_completion(RV5StageCompletionSource.FpInteger) |> wb_completion_arbiter.ingress[2]
 
   // Vector scalar results reserve their one-cycle write before private issue.

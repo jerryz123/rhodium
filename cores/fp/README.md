@@ -38,9 +38,12 @@ See the repository [quick start](../../README.md) for setup.
 [`FpExecutionService`](execute.rhdl) accepts explicit FP operands, an integer
 operand, `FloatingPointControl`, an immediate index, a resolved rounding mode,
 and a caller-selected `Tag` type. A `Decoupled` transfer authorizes execution.
-The default `Irrevocable` result retains its unchanged tag, integer and FP
-result lanes, exception flags, and flag-update enable until consumed. Only the
-selected operation's result lane is meaningful.
+The default `Irrevocable` result retains its unchanged tag, one `value`,
+exception flags, and flag-update enable until consumed. `value` holds the
+selected integer result or NaN-boxed FP result in `max(XLEN, FLEN)` bits;
+the caller's retained destination metadata determines its interpretation.
+The numerical datapath selects that value before result storage, so integer
+and FP results share the same pipeline and completion-queue payload bits.
 
 The register-use and destination fields select numeric conversion direction;
 they never name, read, reserve, or write a register. Per-operand precision tags

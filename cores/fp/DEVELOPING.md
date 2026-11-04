@@ -88,6 +88,14 @@ variable-result aging; the buffered adapter owns completion credits and held
 arbitration. Neither mode duplicates the arithmetic datapath or adds latency
 to the other mode.
 
+`FpExecutionResult.value` is selected by the decoded destination at the numeric
+boundary, before the fixed delays and buffered-return queue. Keep integer
+normalization, FP boxing, cross-precision selection, and flags there; retagging
+and caller adapters forward the one value without duplicating result banks.
+The opaque tag remains unchanged, with destination interpretation owned by the
+caller. Preserve fixed latency, initiation interval, queue credits, and held
+variable-result behavior when changing the representation.
+
 ## Validation
 
 From the repository root:

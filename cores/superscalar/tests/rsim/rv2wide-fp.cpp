@@ -33,7 +33,7 @@ void initialize() {
 void check_result(unsigned tag) {
   CHECK(vector_result_out.pvalid);
   CHECK(vector_result_out.pbits.ptag == tag);
-  CHECK(vector_result_out.pbits.pfp_uvalue == three);
+  CHECK(vector_result_out.pbits.pvalue == three);
   CHECK(vector_result_out.pbits.pexception_uflags == 0);
 }
 
@@ -211,7 +211,7 @@ void fpr_calendar_collisions() {
   authorize_in.pbits = scalar;
   eval();
   CHECK((busy & (1u << 5)) && completion_out.pvalid);
-  CHECK(completion_out.pbits.pfp_uvalue == three);
+  CHECK(completion_out.pbits.pvalue == three);
   tick_model();
 
   authorize_in.pvalid = 0;
@@ -242,7 +242,7 @@ unsigned scalar_divide_latency() {
   for (unsigned cycle = 1; cycle < 200; ++cycle) {
     eval();
     if (completion_out.pvalid) {
-      CHECK(completion_out.pbits.pfp_uvalue == three);
+      CHECK(completion_out.pbits.pvalue == three);
       tick_model();
       return cycle;
     }
@@ -275,7 +275,7 @@ void variable_fpr_collision(unsigned due) {
     if (vector_writeback_in.pvalid) CHECK(vector_writeback_out.pready);
     CHECK(bool(completion_out.pvalid) == (cycle == due + 1));
     CHECK(bool(vector_written_out.pvalid) == (cycle == due));
-    if (completion_out.pvalid) CHECK(completion_out.pbits.pfp_uvalue == three);
+    if (completion_out.pvalid) CHECK(completion_out.pbits.pvalue == three);
     tick_model();
   }
   CHECK(drained && !busy);

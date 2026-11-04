@@ -151,8 +151,7 @@ sync_circuit RV5StageFpScalar(
         context: completed.tag.context
         destination: completed.tag.destination
         rd: completed.tag.rd
-        integer_value: completed.integer_value
-        fp_value: completed.fp_value
+        value: completed.value
         exception_flags: completed.exception_flags
         exception_flags_valid: completed.exception_flags_valid
   ) |> completion
@@ -167,7 +166,7 @@ sync_circuit RV5StageFpScalar(
   )
   def scalar_execution_write = FloatingPointRegisterWrite(profile):
     address: execution_completion.rd
-    data: execution_completion.fp_value
+    data: execution_completion.value[0..flen]
 
   assert(!(execution_write_valid & vector_write.valid), "rv5stage_fp_execution_and_vector_writes_exclusive")
   execution_write.valid <== execution_write_valid ||| vector_write.valid

@@ -95,8 +95,7 @@ sync_circuit VectorMultiplyFixture(xlen :: XLen):
   vector.fp_result.valid <== fp_return_valid
   fp_return_ready <== vector.fp_result.ready
   vector.fp_result.bits.tag <== fp_return_tag
-  vector.fp_result.bits.fp_value <== fp_return_value
-  vector.fp_result.bits.integer_value <== Bits(xlen.width)(0)
+  vector.fp_result.bits.value <== fp_return_value
   vector.fp_result.bits.exception_flags <== Bits(5)(0)
   vector.fp_result.bits.exception_flags_valid <== Bool(#true)
   request_ready <== vector.request.ready

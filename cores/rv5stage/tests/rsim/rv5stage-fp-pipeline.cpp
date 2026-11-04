@@ -135,7 +135,7 @@ int main() {
     CHECK(completion_out.pbits.pcontext == UINT64_C(0xa5));
     CHECK(completion_out.pbits.pdestination == 2);
     CHECK(completion_out.pbits.prd == 3);
-    CHECK(completion_out.pbits.pfp_uvalue == UINT64_C(0x3ff0000000000000));
+    CHECK(completion_out.pbits.pvalue == UINT64_C(0x3ff0000000000000));
     CHECK(completion_out.pbits.pexception_uflags == 1);
     CHECK(completion_out.pbits.pexception_uflags_uvalid);
     CHECK(((busy >> 3) & 1));
@@ -143,7 +143,7 @@ int main() {
       tick_model();
     eval();
     CHECK(completion_out.pvalid);
-    CHECK(completion_out.pbits.pfp_uvalue == UINT64_C(0x3ff0000000000000));
+    CHECK(completion_out.pbits.pvalue == UINT64_C(0x3ff0000000000000));
     consume_completion();
     eval();
     CHECK(!((busy >> 3) & 1));
@@ -173,14 +173,14 @@ int main() {
     await_value([&] { return completion_out.pvalid; });
     eval();
     CHECK(completion_out.pbits.pcontext == UINT64_C(0xd1));
-    CHECK(completion_out.pbits.pfp_uvalue == UINT64_C(0x4000000000000000));
+    CHECK(completion_out.pbits.pvalue == UINT64_C(0x4000000000000000));
     CHECK(completion_out.pbits.pexception_uflags == 0);
     CHECK(((busy >> 6) & 1));
     for (unsigned i = 0; i < 4; ++i) {
       tick_model();
       CHECK(completion_out.pvalid &&
             completion_out.pbits.pcontext == UINT64_C(0xd1) &&
-            completion_out.pbits.pfp_uvalue == UINT64_C(0x4000000000000000) &&
+            completion_out.pbits.pvalue == UINT64_C(0x4000000000000000) &&
             completion_out.pbits.pexception_uflags == 0 && ((busy >> 6) & 1));
     }
     consume_completion();
@@ -221,7 +221,7 @@ int main() {
     await_value([&] { return completion_out.pvalid; });
     eval();
     CHECK(completion_out.pbits.pcontext == UINT64_C(0xc1));
-    CHECK(completion_out.pbits.pfp_uvalue == UINT64_C(0x4000000000000000));
+    CHECK(completion_out.pbits.pvalue == UINT64_C(0x4000000000000000));
     CHECK(completion_out.pbits.pexception_uflags == 0);
     consume_completion();
 
@@ -240,7 +240,7 @@ int main() {
     await_value([&] { return completion_out.pvalid; });
     eval();
     CHECK(completion_out.pbits.pcontext == UINT64_C(0xc2));
-    CHECK(completion_out.pbits.pfp_uvalue == UINT64_C(0x3ff0000000000000));
+    CHECK(completion_out.pbits.pvalue == UINT64_C(0x3ff0000000000000));
     CHECK(completion_out.pbits.pexception_uflags == 0);
     consume_completion();
 
@@ -263,7 +263,7 @@ int main() {
     await_value([&] { return completion_out.pvalid; });
     eval();
     CHECK(completion_out.pbits.pcontext == UINT64_C(0xc3));
-    CHECK(completion_out.pbits.pinteger_uvalue == UINT64_C(0xffffffff80000000));
+    CHECK(completion_out.pbits.pvalue == UINT64_C(0xffffffff80000000));
     CHECK(completion_out.pbits.pexception_uflags == 16);
     CHECK(completion_out.pbits.pexception_uflags_uvalid);
     completion_in.pready = 1;
@@ -290,7 +290,7 @@ int main() {
     await_value([&] { return completion_out.pvalid; });
     eval();
     CHECK(completion_out.pbits.pcontext == UINT64_C(0xc4));
-    CHECK(completion_out.pbits.pinteger_uvalue == UINT64_C(0x0000000011111111));
+    CHECK(completion_out.pbits.pvalue == UINT64_C(0x0000000011111111));
     CHECK(!completion_out.pbits.pexception_uflags_uvalid);
     consume_completion();
 
@@ -316,7 +316,7 @@ int main() {
     await_value([&] { return completion_out.pvalid; });
     eval();
     CHECK(completion_out.pbits.pcontext == 22);
-    CHECK(completion_out.pbits.pfp_uvalue == UINT64_C(0xffffffffffff4000));
+    CHECK(completion_out.pbits.pvalue == UINT64_C(0xffffffffffff4000));
     CHECK(completion_out.pbits.pexception_uflags == 0);
     consume_completion();
 
@@ -339,7 +339,7 @@ int main() {
     await_value([&] { return completion_out.pvalid; });
     eval();
     CHECK(completion_out.pbits.pcontext == 23);
-    CHECK(completion_out.pbits.pfp_uvalue == UINT64_C(0x3ff0000000000000));
+    CHECK(completion_out.pbits.pvalue == UINT64_C(0x3ff0000000000000));
     CHECK(completion_out.pbits.pexception_uflags == 0);
     consume_completion();
 
@@ -373,7 +373,7 @@ int main() {
     issue_in.pvalid = 0;
     await_value([&] { return completion_out.pvalid; });
     eval();
-    CHECK(completion_out.pbits.pfp_uvalue == UINT64_C(0x3ff8000000000000));
+    CHECK(completion_out.pbits.pvalue == UINT64_C(0x3ff8000000000000));
     CHECK(!completion_out.pbits.pexception_uflags_uvalid);
     consume_completion();
 
@@ -396,7 +396,7 @@ int main() {
     issue_in.pvalid = 0;
     await_value([&] { return completion_out.pvalid; });
     eval();
-    CHECK(completion_out.pbits.pfp_uvalue == UINT64_C(0x4000000000000000));
+    CHECK(completion_out.pbits.pvalue == UINT64_C(0x4000000000000000));
     CHECK(completion_out.pbits.pexception_uflags == 0);
     CHECK(completion_out.pbits.pexception_uflags_uvalid);
     consume_completion();
@@ -419,7 +419,7 @@ int main() {
     issue_in.pvalid = 0;
     await_value([&] { return completion_out.pvalid; });
     eval();
-    CHECK(completion_out.pbits.pfp_uvalue == UINT64_C(0x4000000000000000));
+    CHECK(completion_out.pbits.pvalue == UINT64_C(0x4000000000000000));
     CHECK(completion_out.pbits.pexception_uflags == 1);
     consume_completion();
 
@@ -444,7 +444,7 @@ int main() {
     issue_in.pvalid = 0;
     await_value([&] { return completion_out.pvalid; });
     eval();
-    CHECK(completion_out.pbits.pfp_uvalue == UINT64_C(0x7ff8000000000000));
+    CHECK(completion_out.pbits.pvalue == UINT64_C(0x7ff8000000000000));
     CHECK(completion_out.pbits.pexception_uflags == 0);
     consume_completion();
 
@@ -466,7 +466,7 @@ int main() {
     issue_in.pvalid = 0;
     await_value([&] { return completion_out.pvalid; });
     eval();
-    CHECK(completion_out.pbits.pinteger_uvalue == 0);
+    CHECK(completion_out.pbits.pvalue == 0);
     CHECK(completion_out.pbits.pexception_uflags == 0);
     consume_completion();
 
@@ -489,7 +489,7 @@ int main() {
       issue_in.pvalid = 0;
       await_value([&] { return completion_out.pvalid; });
       eval();
-      CHECK(completion_out.pbits.pinteger_uvalue == 1);
+      CHECK(completion_out.pbits.pvalue == 1);
       CHECK(completion_out.pbits.pexception_uflags == 16);
       consume_completion();
     }
@@ -514,7 +514,7 @@ int main() {
       issue_in.pvalid = 0;
       await_value([&] { return completion_out.pvalid; });
       eval();
-      CHECK(completion_out.pbits.pfp_uvalue == UINT64_C(0xffffffffc0600000));
+      CHECK(completion_out.pbits.pvalue == UINT64_C(0xffffffffc0600000));
       CHECK(completion_out.pbits.pexception_uflags == 0);
       consume_completion();
     }

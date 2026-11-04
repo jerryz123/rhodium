@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../../fp/profile.rhm".fp_result_width
   "../../fp/types.rhdl" open
   "../../../riscv/isa/fp-profile.rhm" open
   "../../../riscv/isa/xlen.rhm" open
@@ -26,13 +27,12 @@ bundle RV5StageFpScalarTag(Context :: DataType):
   rd: Bits(5)
   speculative: Bool
 
-/* Returns scalar destination metadata alongside values and optional accrued exception flags. */
+/* Returns scalar destination metadata alongside the selected value and optional exception flags. */
 bundle RV5StageFpCompletion(xlen :: XLen, profile :: FloatingPointProfile, Context :: DataType):
   context: Context
   destination: FloatDestination
   rd: Bits(5)
-  integer_value: Bits(xlen.width)
-  fp_value: Bits(floating_point_register_width(profile))
+  value: Bits(fp_result_width(xlen, profile))
   exception_flags: Bits(5)
   exception_flags_valid: Bool
 

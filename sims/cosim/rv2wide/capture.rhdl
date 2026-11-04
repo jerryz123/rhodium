@@ -128,7 +128,7 @@ sync_circuit SuperscalarCosimObserver(profile :: SuperscalarPipelineConfig, tap_
 
   def fp_result :: FpExecutionResult(xlen, fp_transport_profile(xlen), SuperscalarFpOwner(xlen)) = taps["fp_completion"]
   def fp_load :: SuperscalarFpLoad(xlen) = taps["fp_load"]
-  rhodium_rv2wide_fp.call(instance_id, Bits(64)(0), tap_lane("fp_valid"), lane(fp_result.tag.identity.pc), lane(fp_result.tag.rd), lane(fp_result.tag.destination.as_bits()), mux(fp_result.tag.destination === FloatDestination.Integer, lane(fp_result.integer_value), lane(fp_result.fp_value)), lane(fp_result.exception_flags_valid.as_bits()), lane(fp_result.exception_flags), Bits(64)(floating_point_register_width(fp_transport_profile(xlen))), ~enable: active)
+  rhodium_rv2wide_fp.call(instance_id, Bits(64)(0), tap_lane("fp_valid"), lane(fp_result.tag.identity.pc), lane(fp_result.tag.rd), lane(fp_result.tag.destination.as_bits()), lane(fp_result.value), lane(fp_result.exception_flags_valid.as_bits()), lane(fp_result.exception_flags), Bits(64)(floating_point_register_width(fp_transport_profile(xlen))), ~enable: active)
   rhodium_rv2wide_fp.call(instance_id, Bits(64)(1), tap_lane("fp_load_valid"), lane(fp_load.owner.identity.pc), lane(fp_load.owner.rd), Bits(64)(2), lane(fp_load_value(fp_transport_profile(xlen), fp_load.precision, fp_load.data)), Bits(64)(0), Bits(64)(0), Bits(64)(floating_point_register_width(fp_transport_profile(xlen))), ~enable: active)
   def vector_request :: Bool = if vectors | taps["lsu_request_vector"] | Bool(#false)
   def vector_pipeline :: Bool = if vectors | taps["lsu_pipeline_vector"] | Bool(#false)

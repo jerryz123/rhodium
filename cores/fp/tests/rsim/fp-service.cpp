@@ -217,8 +217,9 @@ void check_result(int client, result_t value) {
 
   break;
   }
-  CHECK((integer_result ? value.pinteger_uvalue : value.pfp_uvalue) ==
-        expected);
+  CHECK(value.pvalue == expected);
+  CHECK(accepted[client][value.ptag].pcontrol.pregisters.pdestination ==
+        (integer_result ? 1 : 2));
   CHECK(value.pexception_uflags == flags &&
         value.pexception_uflags_uvalid == flags_valid);
   if (!throughput_mode && client == 0 && value.ptag == 0) {
@@ -263,9 +264,7 @@ void sample() {
     if (stalled[client]) {
       CHECK(replies[client].pvalid == held[client].pvalid &&
             replies[client].pbits.ptag == held[client].pbits.ptag &&
-            replies[client].pbits.pinteger_uvalue ==
-                held[client].pbits.pinteger_uvalue &&
-            replies[client].pbits.pfp_uvalue == held[client].pbits.pfp_uvalue &&
+            replies[client].pbits.pvalue == held[client].pbits.pvalue &&
             replies[client].pbits.pexception_uflags ==
                 held[client].pbits.pexception_uflags &&
             replies[client].pbits.pexception_uflags_uvalid ==

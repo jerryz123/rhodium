@@ -18,9 +18,9 @@ check:
     XLen.X32,
     FloatingPointProfile.F,
     Bits(8)
-  ).field("fp_value").type.type_equal(Bits(32)) ~is #true
+  ).field("value").type.type_equal(Bits(32)) ~is #true
   bundles.RV5StageFpCompletion(
     XLen.X64,
     FloatingPointProfile.D,
     Bits(8)
-  ).field("fp_value").type.type_equal(Bits(64)) ~is #true
+  ).field("value").type.type_equal(Bits(64)) ~is #true

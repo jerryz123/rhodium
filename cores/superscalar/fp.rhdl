@@ -172,7 +172,7 @@ sync_circuit SuperscalarFp(xlen :: XLen, timing :: FpExecutionTiming, ~half_prec
   def arithmetic_write = completed[1] |> filter_valid(result => result.tag.destination === FloatDestination.FloatingPoint)
   def arithmetic_port = arithmetic_write |> map_valid(result => FloatingPointRegisterWrite(fp_transport_profile(xlen))):
     address: result.tag.rd
-    data: result.fp_value
+    data: result.value
 
   Array(arithmetic_port, vector_write) |> valid_arbiter() |> registers.writes[1]
   vector_write |> vector_written

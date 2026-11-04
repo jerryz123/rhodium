@@ -374,7 +374,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     identity: result.tag.identity
     rd: result.tag.rd
     write: Bool(#true)
-    data: result.integer_value
+    data: result.value
 
   Array(wb_gpr_return, wb_fp_return, wb_vector_return) |> valid_arbiter() |> completed
 
@@ -439,7 +439,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     def returned = wb_fp_gpr.valid & wb_fp_gpr.bits.tag.direct & (wb_fp_gpr.bits.tag.lane === Bits(1)(lane))
     def csr_returned = wb_csr_return[lane]
     wb_pipe[lane].egress |> map_valid(token => token.updated(
-      ~data: mux(csr_returned, wb_csrs.writeback_value, mux(returned, wb_fp_gpr.bits.integer_value, token.data)),
+      ~data: mux(csr_returned, wb_csrs.writeback_value, mux(returned, wb_fp_gpr.bits.value, token.data)),
       ~result_ready: token.result_ready ||| returned ||| csr_returned
     ))
 
@@ -507,7 +507,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     def late_fp_match = wb_fp_late_gpr.valid & (wb_fp_late_gpr.bits.tag.rd === address)
     def initial_value = priority_mux(~default: stored):
       vector_match: vector.scalar_result.bits.data
-      late_fp_match: wb_fp_late_gpr.bits.integer_value
+      late_fp_match: wb_fp_late_gpr.bits.value
 
     def mutable value = initial_value
     for (source in rr_returns):
@@ -1799,7 +1799,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     def wb_lane_system = wb_system & (wb_system_lane === Bits(1)(lane))
     def wb_data = priority_mux(~default: wb.data):
       wb_lane_system: wb_csrs.writeback_value
-      wb_fp_direct & wb.write: fp.completion.bits.integer_value
+      wb_fp_direct & wb.write: fp.completion.bits.value
 
     def retirement = wb_retirement_links[lane].left
     retirement.valid <== wb_eligible
@@ -1936,7 +1936,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
 
   def wb_second_data = priority_mux(~default: retired[1].bits.data):
     vector.scalar_result.valid: vector.scalar_result.bits.data
-    wb_fp_late_gpr.valid: wb_fp_late_gpr.bits.integer_value
+    wb_fp_late_gpr.valid: wb_fp_late_gpr.bits.value
     wb_completion_write: wb_gpr_return.bits.data
 
   assert(!(vector.scalar_result.valid & (wb_completion_write ||| wb_younger.egress.valid ||| wb_fp_late_gpr.valid)), "superscalar_vector_reserved_younger_slot")

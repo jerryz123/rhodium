@@ -47,8 +47,7 @@ sync_circuit FpServiceFixture(~scheduled_writeback: scheduled_writeback :: Boole
     map_flow(~stable: #true, completed):
       FpExecutionResult(xlen, profile, Bits(8)):
         tag: completed.tag.token
-        integer_value: completed.integer_value
-        fp_value: completed.fp_value
+        value: completed.value
         exception_flags: completed.exception_flags
         exception_flags_valid: completed.exception_flags_valid
 

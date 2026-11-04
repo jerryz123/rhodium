@@ -208,7 +208,7 @@ void return_fp(int index, std::uint64_t value) {
   fp_result_in = {};
   fp_result_in.pvalid = 1;
   fp_result_in.pbits.ptag = ((fp_tags[index]) & low_mask(3));
-  fp_result_in.pbits.pfp_uvalue = value;
+  fp_result_in.pbits.pvalue = value;
   fp_result_in.pbits.pexception_uflags_uvalid = 1;
   settle();
   CHECK(fp_result_out.pready);

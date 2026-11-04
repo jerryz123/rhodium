@@ -53,13 +53,13 @@ sync_circuit FpDivSqrtLane(xlen :: XLen, profile :: FloatingPointProfile, format
 
   def result_valid = operation.division_valid ||| operation.square_root_valid
   def result = riscv_canonicalize_nan(format, operation.out.to_ieee())
+  def boxed_value = riscv_nan_box(format, result, flen)
   // HardFloat's terminal arithmetic registers remain unchanged until the next
   // input. Retain only completion validity and ownership, never copy its data.
   completion.valid <== busy & (done ||| result_valid)
   completion.bits <== FpExecutionResult(xlen, profile, Tag):
     tag: tag
-    integer_value: Bits(xlen.width)(0)
-    fp_value: riscv_nan_box(format, result, flen)
+    value: if flen < xlen.width | boxed_value.zext(xlen.width) | boxed_value
     exception_flags: riscv_exception_flags(operation.exception_flags)
     exception_flags_valid: Bool(#true)
 
