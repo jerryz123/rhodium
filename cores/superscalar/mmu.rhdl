@@ -47,6 +47,27 @@ bundle SuperscalarPhysicalResponse():
   data: Bits(64)
   origin: SuperscalarPhysicalOwner
 
+/* Retains an exact failed lookup and trap provenance, never successful mapping
+   addresses or leaf permissions. The original lookup also owns the access class. */
+bundle SuperscalarTranslationFailure():
+  request: RiscvTlbLookup()
+  kind: RiscvTranslationFault
+  details: RiscvGuestFault()
+
+  /* Projects a matched failure onto the common result path. Failed walks have
+     no physical destination; zero leaves cannot authorize memory or a window. */
+  method mapping(failure) :: RiscvTlbMapping():
+    RiscvTlbMapping():
+      virtual_address: failure.request.virtual_address
+      access: failure.request.access
+      physical_address: Bits(56)(0)
+      page_size: Sv39PageSize.Page4KiB
+      guest_physical_address: Bits(64)(0)
+      vs_leaf: literal(Sv39Pte(), 0)
+      g_leaf: literal(Sv39Pte(), 0)
+      fault: failure.kind
+      fault_details: failure.details
+
 /* Resolves speculative hits without allocation; only WB data misses request walks.
    Instruction walks survive replay, pending WB walks have priority, and physical
    requests arbitrate core-first without locking the cache for a walk's lifetime.
@@ -216,14 +237,14 @@ sync_circuit SuperscalarMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: B
 
   reg instruction_fault_valid(~init: Bool(#false))
   reg data_fault_valid(~init: Bool(#false))
-  reg instruction_fault(RiscvTlbFill())
-  reg data_fault(RiscvTlbFill())
+  reg instruction_fault(SuperscalarTranslationFailure())
+  reg data_fault(SuperscalarTranslationFailure())
   def instruction_failed = instruction_fault_valid & (instruction_fault.request.as_bits() === instruction_lookup.as_bits())
   def data_failed = data_fault_valid & (data_fault.request.as_bits() === data_lookup.as_bits())
   def instruction_known = itlb.hit ||| instruction_failed
   def data_known = dtlb.hit ||| data_failed ||| window_hit ||| certified_physical
-  def instruction_result = mux(instruction_failed, instruction_fault.result, itlb.translation)
-  def translated_result = mux(data_failed, data_fault.result, dtlb.translation)
+  def instruction_result = mux(instruction_failed, instruction_fault.mapping(), itlb.translation)
+  def translated_result = mux(data_failed, data_fault.mapping(), dtlb.translation)
   def data_result = priority_mux(~default: translated_result):
     certified_physical: translated_result.updated(~physical_address: data_virtual_address[0..56], ~fault: RiscvTranslationFault.None)
     window_hit: translated_result.updated(~physical_address: window_address[0..56], ~fault: RiscvTranslationFault.None)
@@ -316,6 +337,11 @@ sync_circuit SuperscalarMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: B
     request: walk_lookup
     result: walker.completion.bits
 
+  def failure = SuperscalarTranslationFailure():
+    request: walk_lookup
+    kind: walker.completion.bits.fault
+    details: walker.completion.bits.fault_details
+
   itlb.fill.valid <== walker.completion.valid & walk_live & !walk_data & !invalidate
   dtlb.fill.valid <== walker.completion.valid & walk_live & walk_data & !invalidate
   itlb.fill.bits <== fill
@@ -339,13 +365,13 @@ sync_circuit SuperscalarMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: B
     instruction_fault_valid <== Bool(#false)
   elsewhen (walker.completion.valid & walk_live & !walk_data):
     instruction_fault_valid <== walker.completion.bits.fault =/= RiscvTranslationFault.None
-    instruction_fault <== fill
+    instruction_fault <== failure
 
   when invalidate:
     data_fault_valid <== Bool(#false)
   elsewhen (walker.completion.valid & walk_live & walk_data):
     data_fault_valid <== walker.completion.bits.fault =/= RiscvTranslationFault.None
-    data_fault <== fill
+    data_fault <== failure
 
 
   /* The owner FIFO tracks accepted physical transactions, not live walks.

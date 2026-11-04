@@ -773,6 +773,19 @@ Only WB data misses enter the retained pending-walk slot. An instruction walk
 already in progress finishes first, and the pending WB lookup wins next admission.
 The walker captures its request context, independent of subsequent live CSRs.
 
+Each port retains failed walks as `SuperscalarTranslationFailure`: the exact
+lookup/context, fault kind, and guest provenance, not a complete TLB fill.
+Replay matches the entire lookup, including access class and permission controls.
+The lookup supplies the original access for cause selection; a matched failure
+projects a zero physical address and zero leaves onto the common result path.
+Successful completions invalidate that port's cached failure, while architectural
+invalidation suppresses publication and clears both ports. Preserve these edges
+and the independent instruction/data owners. Vector fallback probes cannot use
+window/certificate bypass, and failed translations cannot certify a window;
+physical vector retries supply their own address and PMA attributes.
+The MMU fixture covers delayed simultaneous fault replay, exact address/access/
+context matching, invalidation, stale NC mappings, and implicit guest-PTE provenance.
+
 Optional `profile.svnapot` passes through the production top and MMU to the
 shared walker's structural PTE validation. Keep the shared mapping's page size
 intact through fill and lookup; do not implement another NAPOT decoder or expand

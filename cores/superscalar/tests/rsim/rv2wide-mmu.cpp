@@ -1109,5 +1109,128 @@ int main() {
     eval();
     CHECK(!vector_fast_out.presponse.pvalid && !physical_valid);
     vector_fast_in.prequest.pvalid = 0;
+
+    // Retained failures belong to exact requests, independently on both ports.
+    // Seed successful NC translations first so stale mapping fields cannot leak.
+    fence();
+    fetch_address = 0x400008;
+    fetch_valid = 1;
+    walk_at(fetch_address, (UINT64_C(1) << 61) | (UINT64_C(20) << 10) | 0xcb);
+    CHECK(fetch_resolution.pdisposition == 0 && fetch_pbmt == 1);
+    fetch_address = 0x401008;
+    walk_at(fetch_address, 0);
+    fetch_valid = 0;
+    offer_wb(0x501038);
+    walk_at(0x501038, 0);
+    for (unsigned wait = 0; wait < 8; ++wait) {
+      tick_model();
+      CHECK(!physical_valid);
+    }
+    fetch_valid = wb_valid = 1;
+    eval();
+    CHECK(fetch_resolution.pdisposition == 1 && fetch_resolution.pcause == 12 &&
+          fetch_resolution.pvalue == 0x401008 && fetch_physical == 0 && fetch_pbmt == 0);
+    CHECK(wb_fault && wb_fault_bits.pcause == 13 && wb_fault_bits.pvalue == 0x501038 &&
+          !wb_ready && !physical_valid);
+    for (unsigned wait = 0; wait < 3; ++wait) {
+      tick_model();
+      CHECK(fetch_resolution.pdisposition == 1 && wb_fault && !physical_valid);
+    }
+
+    // A new byte address, access class, or context cannot reuse a cached fault.
+    // Combinational probes leave the original records live for the next replay.
+    fetch_address += 2;
+    address += 8;
+    eval();
+    CHECK(fetch_resolution.pdisposition == 2 && !wb_fault);
+    fetch_address -= 2;
+    address -= 8;
+    access = 2;
+    eval();
+    CHECK(!wb_fault);
+    access = 1;
+    for (unsigned context = 0; context < 4; ++context) {
+      if (context == 0) satp += 1;
+      if (context == 1) pbmte = 0;
+      if (context == 2) mstatus = UINT64_C(1) << 19;
+      if (context == 3) privilege = 0;
+      eval();
+      CHECK(fetch_resolution.pdisposition == 2 && !wb_fault && !physical_valid);
+      if (context == 0) satp -= 1;
+      if (context == 1) pbmte = 1;
+      if (context == 2) mstatus = 0;
+      if (context == 3) privilege = 1;
+      eval();
+      CHECK(fetch_resolution.pdisposition == 1 && wb_fault && !physical_valid);
+    }
+    fetch_valid = wb_valid = 0;
+
+    // A cached translation failure cannot certify a vector range, even when
+    // its zero placeholder address lies in ordinary physical RAM.
+    vector_precheck_in.prequest = {1, {0x501038, 0x50103f, 0}};
+    eval();
+    CHECK(vector_precheck_out.prequest.pready);
+    tick_model();
+    vector_precheck_in.prequest.pvalid = 0;
+    for (unsigned wait = 0; !vector_precheck_out.presponse.pvalid && wait < 20; ++wait) {
+      tick_model();
+      CHECK(!physical_valid);
+    }
+    CHECK(vector_precheck_out.presponse.pvalid && !vector_precheck_out.presponse.pbits);
+    vector_precheck_in.presponse.pready = 1;
+    tick_model();
+    vector_precheck_in.presponse.pready = 0;
+    vector_precheck_in.prelease.pvalid = 1;
+    tick_model();
+    vector_precheck_in.prelease.pvalid = 0;
+
+    // A successful walk replaces only its own port's fault. The other port
+    // still replays its retained failure without another PTE read.
+    offer_wb(0x502008);
+    walk_at(0x502008, (UINT64_C(23) << 10) | 0xc7);
+    data_hit(0x502008, 0x17008);
+    address = 0x501038;
+    fetch_valid = wb_valid = 1;
+    eval();
+    CHECK(fetch_resolution.pdisposition == 1 && !wb_fault && !physical_valid);
+    fetch_valid = wb_valid = 0;
+    fence();
+    fetch_valid = wb_valid = 1;
+    eval();
+    CHECK(fetch_resolution.pdisposition == 2 && !wb_fault && !physical_valid);
+    fetch_valid = wb_valid = 0;
+
+    // Failed implicit guest PTE reads retain independent fetch/data provenance.
+    pbmte = 0;
+    satp = 0;
+    guest_state.pvirtualized = 1;
+    guest_state.phgatp = UINT64_C(0x8000000000000010);
+    guest_state.pvsatp = UINT64_C(0x8000000000000020);
+    fetch_address = 0x400008;
+    fetch_valid = 1;
+    reply(0x10000, 0);
+    for (unsigned wait = 0; wait < 5; ++wait) tick_model();
+    fetch_valid = 0;
+    offer_wb(0x500038);
+    reply(0x10000, 0);
+    for (unsigned wait = 0; wait < 8; ++wait) tick_model();
+    fetch_valid = wb_valid = 1;
+    eval();
+    CHECK(fetch_resolution.pdisposition == 1 && fetch_resolution.pcause == 20 &&
+          fetch_resolution.pvalue == 0x400008 && fetch_pbmt == 0 && fetch_physical == 0);
+    CHECK(fetch_resolution.pguest.pguest_uvirtual_uaddress &&
+          fetch_resolution.pguest.pguest_uphysical_uaddress == 0x20000 &&
+          fetch_resolution.pguest.paccess == 1);
+    CHECK(wb_fault && wb_fault_bits.pcause == 21 && wb_fault_bits.pvalue == 0x500038 &&
+          wb_fault_bits.pguest.pguest_uvirtual_uaddress &&
+          wb_fault_bits.pguest.pguest_uphysical_uaddress == 0x20000 &&
+          wb_fault_bits.pguest.paccess == 1 && !physical_valid);
+    guest_state.phgatp += 4;
+    eval();
+    CHECK(fetch_resolution.pdisposition == 2 && !wb_fault);
+    guest_state.phgatp -= 4;
+    eval();
+    CHECK(fetch_resolution.pdisposition == 1 && wb_fault);
+    fetch_valid = wb_valid = 0;
   });
 }
