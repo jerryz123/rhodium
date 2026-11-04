@@ -150,7 +150,7 @@ circuit FpFormatDatapath(
      Numerical operations consume checked operands; raw moves retain their separate bit path. */
 
   def control = request.control.execution
-  def left = riscv_unbox(format, flen, request.left)
+  def left = riscv_unbox(format, flen, request.left[0..flen])
   def right = riscv_unbox(format, flen, request.right)
   def third = riscv_unbox(format, flen, request.third)
   def left_recoded = left.to_recoded()
@@ -220,7 +220,7 @@ circuit FpFormatDatapath(
   /* Integer conversion lanes
      Keep narrow-width saturation and sign extension distinct from XLEN conversion. */
 
-  def normalized_integer = fp_integer_narrow_input(xlen, request.integer_operand, control.integer_width, control.integer_unsigned)
+  def normalized_integer = fp_integer_narrow_input(xlen, request.left[0..xlen.width], control.integer_width, control.integer_unsigned)
   inst integer_to_fp(IntegerToRecFN(width, format))
   integer_to_fp.signed_input <== !control.integer_unsigned
   integer_to_fp.value <== normalized_integer
@@ -257,7 +257,7 @@ circuit FpFormatDatapath(
   def sign_value = riscv_sign_inject(format, left, right, control.sign_operation)
   def move_source = request.left[0..format.ieee_width].into(IEEEFloat(format))
   def integer_move_value = fp_move_to_integer(xlen, format, move_source)
-  def fp_move_value = integer_move_to_fp(xlen, format, request.integer_operand)
+  def fp_move_value = integer_move_to_fp(xlen, format, request.left[0..xlen.width])
   def class_value = riscv_classify(format, left).zext(width)
   def fp_destination = request.control.registers.destination === FloatDestination.FloatingPoint
   def converted_fp = riscv_canonicalize_nan(format, integer_to_fp.out.to_ieee())
@@ -340,7 +340,7 @@ circuit FpHalfMinimalDatapath(xlen :: XLen, profile :: FloatingPointProfile, Tag
   def format = FloatFormat.F16
   def source = request.left[0..format.ieee_width].into(IEEEFloat(format))
   def integer_value = fp_move_to_integer(xlen, format, source)
-  def boxed_value = riscv_nan_box(format, integer_move_to_fp(xlen, format, request.integer_operand), flen)
+  def boxed_value = riscv_nan_box(format, integer_move_to_fp(xlen, format, request.left[0..xlen.width]), flen)
   completion <== FpExecutionResult(xlen, profile, Tag):
     tag: request.tag
     value: mux(

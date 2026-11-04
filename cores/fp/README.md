@@ -35,9 +35,15 @@ See the repository [quick start](../../README.md) for setup.
 
 ## Operand execution
 
-[`FpExecutionService`](execute.rhdl) accepts explicit FP operands, an integer
-operand, `FloatingPointControl`, an immediate index, a resolved rounding mode,
+[`FpExecutionService`](execute.rhdl) accepts three operand words,
+`FloatingPointControl`, an immediate index, a resolved rounding mode,
 and a caller-selected `Tag` type. A `Decoupled` transfer authorizes execution.
+`left` is `max(XLEN, FLEN)` bits: supply the first boxed FP source when
+`control.registers.uses_frs1` is true, otherwise the raw integer source for
+integer-to-FP conversions and moves. Select it before buffering the request.
+`right` and `third` remain independent FLEN-wide operands. Precision tags apply
+to FP sources, not to the raw integer interpretation of `left`.
+
 The default `Irrevocable` result retains its unchanged tag, one `value`,
 exception flags, and flag-update enable until consumed. `value` holds the
 selected integer result or NaN-boxed FP result in `max(XLEN, FLEN)` bits;

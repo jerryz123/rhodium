@@ -41,7 +41,7 @@ request_t operation(int client, int token, bool fixed_only) {
   req.pright = UINT64_C(4611686018427387904);
 
   if (!fixed_only)
-    switch ((token + client * 5) % 12) {
+    switch ((token + client * 5) % 16) {
     case 0: {
       req.pcontrol.pexecution.punit = UINT64_C(4);
       req.pleft = UINT64_C(4618441417868443648);
@@ -129,6 +129,26 @@ request_t operation(int client, int token, bool fixed_only) {
     }
 
     break;
+    case 12:
+    case 13:
+    case 14:
+    case 15: {
+      const int kind = (token + client * 5) % 16;
+      req.pcontrol.pregisters.puses_ufrs1 = 0;
+      req.pcontrol.pregisters.puses_ufrs2 = 0;
+      req.pcontrol.pregisters.puses_uinteger_urs1 = 1;
+      req.pcontrol.pexecution.punit = kind == 14 ? 9 : 8;
+      req.pcontrol.pexecution.pinteger_uwidth = kind == 15 ? 2 : 3;
+      req.pcontrol.pexecution.pinteger_uunsigned = kind == 13;
+      req.pcontrol.pexecution.pdestination_uprecision = kind >= 14 ? 1 : 2;
+      // Raw integers must never be unboxed or promoted as floating operands.
+      req.pleft = kind == 12 ? UINT64_C(0xfffffffffffffffe)
+                : kind == 13 ? UINT64_C(0x8000000000000000)
+                : kind == 14 ? UINT64_C(0x123456787fc01234)
+                             : UINT64_C(0xdeadbeef80000001);
+    }
+
+    break;
     }
   return req;
 
@@ -159,7 +179,7 @@ void check_result(int client, result_t value) {
   integer_result = 0;
   op = (throughput_mode || (fixed_stream && client == 1))
            ? 1
-           : (int(value.ptag) + client * 5) % 12;
+           : (int(value.ptag) + client * 5) % 16;
   switch (op) {
   case 2:
     expected = UINT64_C(4618441417868443648);
@@ -212,6 +232,20 @@ void check_result(int client, result_t value) {
   }
 
   break;
+  case 12:
+    expected = UINT64_C(0xc000000000000000); // signed -2 -> double
+    break;
+  case 13:
+    expected = UINT64_C(0x43e0000000000000); // unsigned 2^63 -> double
+    break;
+  case 14:
+    expected = UINT64_C(0xffffffff7fc01234); // raw move preserves NaN payload
+    flags_valid = 0;
+    break;
+  case 15:
+    expected = UINT64_C(0xffffffffcf000000); // signed word rounds to -2^31
+    flags = 1;
+    break;
   default: {
   }
 

@@ -42,7 +42,7 @@ sync_circuit FpDivSqrtLane(xlen :: XLen, profile :: FloatingPointProfile, format
   request.ready <== !busy & operation.input_ready
   operation.input_valid <== request.fire()
   operation.square_root <== request.bits.control.execution.divide_operation === FloatDivideOperation.SquareRoot
-  operation.a <== riscv_unbox(format, flen, request.bits.left).to_recoded()
+  operation.a <== riscv_unbox(format, flen, request.bits.left[0..flen]).to_recoded()
   operation.b <== riscv_unbox(format, flen, request.bits.right).to_recoded()
   operation.rounding_mode <== request.bits.rounding_mode
   operation.tininess_mode <== TininessMode.AfterRounding

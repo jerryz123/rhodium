@@ -39,7 +39,6 @@ sync_circuit FpServiceFixture(~scheduled_writeback: scheduled_writeback :: Boole
         right_precision: issued.right_precision
         third: issued.third
         third_precision: issued.third_precision
-        integer_operand: issued.integer_operand
         immediate_index: issued.immediate_index
         rounding_mode: issued.rounding_mode
 

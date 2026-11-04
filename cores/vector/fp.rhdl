@@ -83,13 +83,12 @@ fun vector_fp_request(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, beat
   FpExecutionRequest(xlen, profile, Bits(index_width(slots))):
     tag: tag
     control: control
-    left: mux(beat.control.multiply_destination, destination_operand, ordered_left)
+    left: mux(fp_source, mux(beat.control.multiply_destination, destination_operand, ordered_left), beat.left)
     left_precision: request_left_precision
     right: ordered_right
     right_precision: mux(beat.control.swap_operands, left_precision, right_precision)
     third: mux(beat.control.multiply_destination, vector_left, destination_operand)
     third_precision: mux(beat.control.multiply_destination, left_precision, result_precision)
-    integer_operand: beat.left[0..xlen.width]
     immediate_index: dont_care(Bits(5))
     rounding_mode: mux_lookup(beat.control.fp_rounding, ~default: beat.fp_rounding_mode, [[VectorFloatRounding.TowardZero, RoundingMode.MinMagnitude], [VectorFloatRounding.RoundToOdd, RoundingMode.Odd]])
 

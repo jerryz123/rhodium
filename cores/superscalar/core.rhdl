@@ -734,13 +734,12 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
         direct: fp_timing.latency(rr_fp_control.execution) === Bits(fp_timing.width)(2)
 
     control: rr_fp_control
-    left: fp.read_values[0]
+    left: mux(rr_fp_control.registers.uses_frs1, fp.read_values[0], rr_left_data[rr_fp_lane])
     right: fp.read_values[1]
     third: fp.read_values[2]
     left_precision: rr_fp_control.execution.source_precision
     right_precision: rr_fp_control.execution.source_precision
     third_precision: rr_fp_control.execution.source_precision
-    integer_operand: rr_left_data[rr_fp_lane]
     immediate_index: rr_rs1[rr_fp_lane]
     rounding_mode: mux(rr_fp_lane === Bits(1)(0), rr_rounding[0].mode, rr_rounding[1].mode)
 

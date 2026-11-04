@@ -10,8 +10,8 @@ import:
 fun fp_transport_profile(xlen :: XLen) :: FloatingPointProfile:
   if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D
 
-/* Sizes one selected result to hold either an integer or a boxed FP value. */
-fun fp_result_width(xlen :: XLen, profile :: FloatingPointProfile) :: PosInt:
+/* Sizes a selected operand or result to hold either an integer or a boxed FP value. */
+fun fp_value_width(xlen :: XLen, profile :: FloatingPointProfile) :: PosInt:
   math.max(xlen.width, floating_point_register_width(profile))
 
 /* Tests supported disabled, RV32F, and RV64D scalar FP/half-precision combinations. */
@@ -38,6 +38,6 @@ fun check_fp_profile(xlen :: XLen,
 
 export:
   fp_transport_profile
-  fp_result_width
+  fp_value_width
   fp_profile_supported
   check_fp_profile

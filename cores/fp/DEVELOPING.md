@@ -88,6 +88,14 @@ variable-result aging; the buffered adapter owns completion credits and held
 arbitration. Neither mode duplicates the arithmetic datapath or adds latency
 to the other mode.
 
+`FpExecutionRequest.left` shares integer-source and first-FP-source storage.
+Scalar/vector adapters select it using `registers.uses_frs1` before their
+request registers or queues. Integer conversion and moves consume its raw XLEN
+bits; FP operations use its FLEN view with the existing boxing rules. Keep
+mixed-precision promotion restricted to FP arithmetic, not integer inputs, and
+preserve independent second/third operands for fused operations. Request
+retagging must copy the selected word without reconstructing a second bank.
+
 `FpExecutionResult.value` is selected by the decoded destination at the numeric
 boundary, before the fixed delays and buffered-return queue. Keep integer
 normalization, FP boxing, cross-precision selection, and flags there; retagging
