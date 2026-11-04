@@ -1366,8 +1366,8 @@ without adding software or CI config rows:
 
 ```sh
 python3 tools/testing/rsim/run.py --fixture event-window
-make -C sims trace-smoke SOC=mini-rv2wide-rv64imacb COSIM=1 TRACE_FILE=/tmp/rv2wide-mini.pftrace TRACE_PROCESSOR=/path/to/trace_processor_shell
-make -C sims trace-smoke SOC=simple-rv2wide-rv64imacb TRACE_FILE=/tmp/rv2wide-simple.pftrace TRACE_PROCESSOR=/path/to/trace_processor_shell
+SOC=mini-rv2wide-rv64imacb COSIM=1 TRACE_FILE=/tmp/rv2wide-mini.pftrace TRACE_PROCESSOR=/path/to/trace_processor_shell moon run rhodium:sim-trace-smoke
+SOC=simple-rv2wide-rv64imacb TRACE_FILE=/tmp/rv2wide-simple.pftrace TRACE_PROCESSOR=/path/to/trace_processor_shell moon run rhodium:sim-trace-smoke
 ```
 
 `core.rhdl` declares the passive `rv2wide` adapter contract. Numerical observations
@@ -1396,10 +1396,10 @@ For observation changes, run the native adapter and optional-pass tests, then
 the existing software path on both shapes:
 
 ```sh
-make -C sims cosim-hooks-test
+moon run rhodium:native-check--cosim-hooks-test
 tools/run-racket-tests.sh sims/cosim/tests/pass/pass-test.rhm
-make -C sims boot-test isa-smoke cosim-smoke SOC=mini-rv2wide-rv64imacb COSIM=1
-make -C sims boot-test isa-smoke cosim-smoke SOC=simple-rv2wide-rv64imacb COSIM=1
+SOC=mini-rv2wide-rv64imacb COSIM=1 moon run rhodium:sim-boot-test rhodium:sim-isa-smoke-test rhodium:sim-cosim-smoke
+SOC=simple-rv2wide-rv64imacb COSIM=1 moon run rhodium:sim-boot-test rhodium:sim-isa-smoke-test rhodium:sim-cosim-smoke
 ```
 
 Run the focused production-core fixture:
@@ -1413,7 +1413,7 @@ python3 tools/testing/rsim/run.py --fixture rv2wide-assembly-prediction-h --fixt
 python3 tools/testing/rsim/run.py --fixture superscalar-issue-window-three --fixture superscalar-issue-window-three-h --fixture superscalar-assembly-three --fixture superscalar-frontend-three
 python3 tools/testing/rsim/run.py --fixture rv2wide-mmu
 python3 tools/testing/rsim/run.py --fixture rv2wide-fetch
-make check-boundaries
+moon run rhodium:check-boundaries
 ```
 
 The rsim fixtures belong to `cores-components`. Their C++ scoreboards sample

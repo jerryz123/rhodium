@@ -1,4 +1,4 @@
-# Compiles one shared native ELF family independently of other workload families.
+# Builds one descriptor-compatible native or harness ELF archive in a fixed slot.
 # SPDX-License-Identifier: Apache-2.0
 
 name: CI program builds
@@ -6,40 +6,34 @@ name: CI program builds
 on:
   workflow_call:
     inputs:
-      matrix:
-        description: Compatible build groups for one native workload family.
+      build:
+        description: Resolved ELF recipe for this fixed slot, or null when unused.
         required: true
         type: string
-
+      kind:
+        description: native or harness ELF producer.
+        required: true
+        type: string
 permissions:
   contents: read
 
 jobs:
   program-build:
-    name: Build ${{ matrix.suite }} / group ${{ strategy.job-index }}
+    name: ${{ format('Build {0} / {1}', fromJSON(inputs.build).suite, fromJSON(inputs.build).soc) }}
+    if: ${{ inputs.build != 'null' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(inputs.matrix) }}
     steps:
       - name: Check out Rhodium
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Initialize suite sources and record revisions
-        id: sources
+      - name: Set up moon workspace
+        uses: ./.github/actions/setup-moon
+      - name: Initialize pinned suite sources
         env:
-          SUITE: ${{ matrix.suite }}
+          SUITE: ${{ fromJSON(inputs.build).suite }}
+          SETUP: ${{ inputs.kind == 'harness' && 'isa' || fromJSON(inputs.build).suite }}
         run: |
-          make -C sims "$SUITE-setup"
-          case "$SUITE" in
-            coremark|coremark_scalar) source=sw/coremark ;;
-            embench) source=sw/embench-iot ;;
-            bringup) source=sw/bringup-bench ;;
-            skl) source=sw/skl ;;
-            highway) source=sw/highway ;;
-            *) source=sw/riscv-isa-tests ;;
-          esac
-          echo "revision=$(git rev-parse "HEAD:$source")" >> "$GITHUB_OUTPUT"
+          moon run "rhodium:$SETUP-setup"
       - name: Install RISC-V software toolchain
         uses: ./.github/actions/setup-riscv-toolchain
       - name: Download generated program targets
@@ -47,40 +41,41 @@ jobs:
         with:
           name: targets-${{ github.sha }}
           path: ${{ runner.temp }}/program-targets
-      - name: Identify suite build inputs
-        id: cache-inputs
-        uses: ./.github/actions/product-input
+      - name: Restore portable moon output archives
+        id: moon-cache
+        continue-on-error: true
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          product: build:${{ matrix.suite }}
-      - name: Cache program builds
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: /tmp/rhodium-program-builds/${{ matrix.build_id }}/${{ matrix.suite }}/build
-          key: "${{ runner.os }}-${{ runner.arch }}-program-${{ matrix.build_id }}-${{ steps.sources.outputs.revision }}-${{ steps.cache-inputs.outputs.key }}-${{ hashFiles('.github/workflows/ci-program-builds.yml') }}"
-      - name: Build and package selected workload ELFs
+          path: .moon/cache/outputs
+          key: ${{ runner.os }}-${{ runner.arch }}-moon-2.6.5-${{ fromJSON(inputs.build).build_id }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-moon-2.6.5-${{ fromJSON(inputs.build).build_id }}-
+      - name: Build or restore compatible workload archive
         env:
-          SUITE: ${{ matrix.suite }}
-          SOC: ${{ matrix.soc }}
-          BUILD_ID: ${{ matrix.build_id }}
+          SOC: ${{ fromJSON(inputs.build).soc }}
+          SUITE: ${{ fromJSON(inputs.build).suite }}
+          BUILD_ID: ${{ fromJSON(inputs.build).build_id }}
+          PROGRAM_TARGETS: ${{ runner.temp }}/program-targets
         run: |
-          set -o pipefail
-          mkdir -p "$RUNNER_TEMP/program-logs"
-          case "$SUITE" in
-            coremark|coremark_scalar) build_target="$SUITE-elf" ;;
-            *) build_target="$SUITE-elfs" ;;
-          esac
-          make -C sims "$build_target" SOC="$SOC" \
-            PREBUILT_PROGRAM_TARGET="$RUNNER_TEMP/program-targets/$SOC.json" \
-            PROGRAM_CONFIG_ROOT="/tmp/rhodium-program-builds/$BUILD_ID" \
-            2>&1 | tee "$RUNNER_TEMP/program-logs/$SUITE.log"
-          python3 sims/program-test/archive.py \
-            --manifest "/tmp/rhodium-program-builds/$BUILD_ID/$SUITE/manifest.json" \
-            --archive "$RUNNER_TEMP/program-elfs/$BUILD_ID.tar.gz"
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/program-logs" "$RUNNER_TEMP/program-elfs"
+          python3 -m tools.ci.archives check-source "$BUILD_ID"
+          python3 -m tools.ci.catalog
+          moon run "rhodium:archive--$BUILD_ID" 2>&1 | tee "$RUNNER_TEMP/program-logs/$SUITE.log"
+          python3 -m tools.ci.archives verify "$BUILD_ID" --archive ".rhodium-cache/moon/archives/$BUILD_ID.tar.gz"
+          cp ".rhodium-cache/moon/archives/$BUILD_ID.tar.gz" "$RUNNER_TEMP/program-elfs/"
+      - name: Save trusted ELF outputs
+        if: steps.moon-cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .moon/cache/outputs
+          key: ${{ runner.os }}-${{ runner.arch }}-moon-2.6.5-${{ fromJSON(inputs.build).build_id }}-${{ github.sha }}
       - name: Publish shared ELF archive
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: program-elfs-${{ matrix.build_id }}-${{ github.sha }}
-          path: ${{ runner.temp }}/program-elfs/${{ matrix.build_id }}.tar.gz
+          name: ${{ inputs.kind == 'harness' && 'harness' || 'program' }}-elfs-${{ fromJSON(inputs.build).build_id }}-${{ github.sha }}
+          path: ${{ runner.temp }}/program-elfs/${{ fromJSON(inputs.build).build_id }}.tar.gz
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
@@ -88,11 +83,12 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: program-build-${{ matrix.build_id }}-${{ github.sha }}
+          name: ${{ inputs.kind }}-build-${{ fromJSON(inputs.build).build_id }}-${{ github.sha }}
+          include-hidden-files: true
           path: |
             ${{ runner.temp }}/program-logs
-            /tmp/rhodium-program-builds/${{ matrix.build_id }}/*/manifest.json
-            /tmp/rhodium-program-builds/${{ matrix.build_id }}/*/instruction-report.json
-            /tmp/rhodium-program-builds/${{ matrix.build_id }}/*/build.log
+            .rhodium-cache/moon/build/${{ fromJSON(inputs.build).build_id }}/*/build.log
+            .rhodium-cache/moon/build/${{ fromJSON(inputs.build).build_id }}/*/manifest.json
+            .rhodium-cache/moon/build/${{ fromJSON(inputs.build).build_id }}/*/instruction-report.json
           if-no-files-found: warn
           retention-days: 7

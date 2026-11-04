@@ -74,14 +74,14 @@ some bits.
 Run the solver-backed API and semantic suite:
 
 ```sh
-make formal-test
+moon run rhodium:formal-test
 ```
 
 When operation interpretation, packing, replay, or assumptions change, also run
 the independent CIRCT/Verilator differential check:
 
 ```sh
-make formal-differential-test
+moon run rhodium:formal-differential-test
 ```
 
 The differential test exercises all 128 reduced-width unequal-shift inputs, 80

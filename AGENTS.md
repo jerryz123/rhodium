@@ -48,7 +48,7 @@ For first-party `.rhdl`, `.rhm`, and `.rkt` files outside any `tests/` directory
   `compiled/` fallbacks.
 - Add `-y` when invoking `racket` outside the repository wrapper. Treat an
   `instantiate-linklet` mismatch or reference to a moved module as stale
-  bytecode first; run `make clean-racket-cache` and reproduce it before
+  bytecode first; run `moon run rhodium:clean-racket-cache` and reproduce it before
   diagnosing the source. Exact CI bytecode remains valid only after
   `tools/racket-artifact.sh` verifies its commit, Racket and Rhombus versions,
   platform, and workspace path.
@@ -71,7 +71,7 @@ there. The source-comment and verification requirements above still apply.
 
 - Treat [`rhodium/DEVELOPING.md`](rhodium/DEVELOPING.md) as the authoritative
   package-dependency contract. Update its dependency inventory when direct
-  Rhodium imports change, and run `make check-boundaries` after moving or adding
+  Rhodium imports change, and run `moon run rhodium:check-boundaries` after moving or adding
   modules or changing dependency direction.
 - Follow [`cores/DEVELOPING.md`](cores/DEVELOPING.md) for reusable-versus-named
   processor ownership and [`tools/testing/DEVELOPING.md`](tools/testing/DEVELOPING.md) for test

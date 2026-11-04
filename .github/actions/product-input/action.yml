@@ -1,10 +1,10 @@
-# Exposes the tracked source-input digest of a repository product to workflow cache keys.
+# Exposes a successful Moon ci-hash task's input digest to workflow cache keys.
 # SPDX-License-Identifier: Apache-2.0
 name: Identify product inputs
-description: Hash the selected product's semantic inputs from the checked-out repository.
+description: Run an explicit Moon cache-key task and read its source digest.
 inputs:
-  product:
-    description: Product key in the repository build graph.
+  task:
+    description: 'Full rhodium: target tagged ci-hash, with no command or dependencies.'
     required: true
 outputs:
   key:
@@ -16,7 +16,26 @@ runs:
     - id: digest
       shell: bash
       env:
-        PRODUCT: ${{ inputs.product }}
+        HASH_TASK: ${{ inputs.task }}
       run: |
-        digest=$(python3 -m tools.ci.plan --fingerprint "$PRODUCT")
+        set -euo pipefail
+        moon task "$HASH_TASK" --json | jq -e '
+          .command == "noop" and ((.deps // []) | length == 0)
+          and ((.tags // []) | index("ci-hash") != null)
+        ' >/dev/null
+        rm -f .moon/cache/runReport.json
+        moon run "$HASH_TASK" --upstream none
+        digest=$(jq -er --arg target "$HASH_TASK" '
+          if .context.primaryTargets != [$target] then
+            error("Moon report does not match the requested hash task")
+          else
+            [.actions[]
+             | select(.node.action == "run-task" and .node.params.target == $target)
+             | select(.status == "passed" or .status == "cached")
+             | .operations[].meta
+             | select(.type == "hash-generation") | .hash] | unique
+            | if length == 1 and (.[0] | type == "string" and length > 0) then .[0]
+              else error("Moon did not produce one successful task hash") end
+          end
+        ' .moon/cache/runReport.json)
         echo "key=$digest" >> "$GITHUB_OUTPUT"

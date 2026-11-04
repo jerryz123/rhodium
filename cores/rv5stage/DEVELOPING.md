@@ -583,7 +583,7 @@ configuration, and validate it with the UDB version pinned by the ACT4 checkout:
 
 ```sh
 tools/run-racket-tests.sh riscv/tests/udb-test.rhm cores/rv5stage/tests/udb-test.rhm
-make riscv-udb-config RISCV_UDB_CONFIGURATION=simple-rv5stage-rva23
+RISCV_UDB_CONFIGURATION=simple-rv5stage-rva23 moon run rhodium:riscv-udb-config
 bundle exec --gemfile sw/riscv-arch-test/framework/src/act/data/Gemfile \
   udb validate cfg /tmp/rhodium-udb/simple-rv5stage-rva23.yaml --custom sims/arch-test/udb-overlay
 ```
@@ -716,7 +716,7 @@ Queues must never supply functional readiness. Sample CSR contributions after
 the owning edge and before the next edge; exclude autonomous counter and input
 changes. The generic hook/collector contract belongs to
 [`sims/cosim/`](../../sims/cosim/README.md); transport changes also require
-`cosim-hooks` and `make -C sims cosim-hooks-test`.
+`cosim-hooks` and `moon run rhodium:native-check--cosim-hooks-test`.
 
 Svinval's pure catalog is `riscv/isa/svinval.rhm`. The optional decode rows
 reuse the corresponding SFENCE/HFENCE actions, with no register sources because
@@ -1182,10 +1182,10 @@ Run host checks only when decode, configuration, specialization, or public
 elaboration-time validation changes:
 
 ```sh
-make rv5stage-host-test
+moon run rhodium:rv5stage-host-test
 ```
 
-For datapath, cache, pipeline, and state behavior, run `make rv5stage-test` or
+For datapath, cache, pipeline, and state behavior, run `moon run rhodium:rv5stage-test` or
 select the narrowest backend fixture. Exercise WB-stage fault classification
 or WFI control flow specifically with:
 

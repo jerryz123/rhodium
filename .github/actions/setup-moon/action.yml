@@ -1,0 +1,39 @@
+# Installs the checksum-pinned moon CLI for CI selection and execution.
+# SPDX-License-Identifier: Apache-2.0
+name: Set up moon
+description: Install the qualified Linux x86-64 moon release into runner temporary storage.
+runs:
+  using: composite
+  steps:
+    - name: Restore pinned moon archive
+      id: archive
+      continue-on-error: true
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/rhodium-moon/moon.tar.xz
+        key: moon-2.6.5-linux-x86_64-29b4bae3
+    - shell: bash
+      run: |
+        set -euo pipefail
+        test "$(uname -sm)" = "Linux x86_64"
+        dest="$RUNNER_TEMP/rhodium-moon"
+        mkdir -p "$dest"
+        cd "$dest"
+        checksum='29b4bae3242c7bb65232227ae21a9996dba2d2d21871fe5bb946cbc88695ef20  moon.tar.xz'
+        if ! echo "$checksum" | sha256sum -c --status 2>/dev/null; then
+          curl --retry 3 -fsSLo moon.tar.xz https://github.com/moonrepo/moon/releases/download/v2.6.5/moon_cli-x86_64-unknown-linux-gnu.tar.xz
+        fi
+        echo "$checksum" | sha256sum -c -
+        tar -xf moon.tar.xz moon_cli-x86_64-unknown-linux-gnu/moon
+        test "$(moon_cli-x86_64-unknown-linux-gnu/moon --version)" = "moon 2.6.5"
+        echo "$dest/moon_cli-x86_64-unknown-linux-gnu" >> "$GITHUB_PATH"
+    - name: Materialize configured task families
+      shell: bash
+      run: python3 -m tools.ci.catalog
+    - name: Save verified moon archive
+      if: steps.archive.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+      continue-on-error: true
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/rhodium-moon/moon.tar.xz
+        key: moon-2.6.5-linux-x86_64-29b4bae3

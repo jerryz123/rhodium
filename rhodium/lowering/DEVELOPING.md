@@ -54,10 +54,10 @@ ownership, deferred whole-design verification, destination sealing, and source p
 checks Flow storage, shared controls, independent endpoint caches, diagrams,
 event manifests, and instrumentation across shared ordinary children.
 Frontend and backend program tests cover all four authoring paths and CIRCT
-compilation. `make frontend-test` includes the lowering tests, and the compile
+compilation. `moon run rhodium:frontend-test` includes the lowering tests, and the compile
 manifest includes them for CI.
 
 Run focused tests through `tools/run-racket-tests.sh`; run
-`make check-boundaries` after import or ownership changes. Shared elaboration
-changes also require `make frontend-test lop-test` and the focused backend
+`moon run rhodium:check-boundaries` after import or ownership changes. Shared elaboration
+changes also require `moon run rhodium:frontend-test rhodium:lop-test` and the focused backend
 program test, following the [test workflow](../../tools/testing/DEVELOPING.md).

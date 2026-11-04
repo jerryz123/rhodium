@@ -88,7 +88,7 @@ is a dual-clock implementation.
 
 Use focused core, analysis, frontend, standard-library, backend, and external
 CIRCT/Verilator checks according to the boundary changed. Run Racket and
-Rhombus commands through the repository wrappers and `make check-boundaries`
+Rhombus commands through the repository wrappers and `moon run rhodium:check-boundaries`
 when modules or dependency direction change. Compare any emitted timing
 collateral against verified relationships and crossing evidence.
 

@@ -3,6 +3,38 @@
 # SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
+repo_dir="$(cd "$(dirname "$0")/../../.." && pwd)"
+cd "$repo_dir"
+export PATH="$repo_dir/.tools/verilator/bin:$PATH"
+fixture_specs=()
+direct_fixture_specs=()
+group_members=()
+while IFS='|' read -r group kind spec; do
+  [[ -n "$group" && "${group:0:1}" != "#" ]] || continue
+  case "$kind" in
+    example) fixture_specs+=("$spec") ;;
+    direct) direct_fixture_specs+=("$spec") ;;
+    *) echo "invalid CIRCT fixture kind: $kind" >&2; exit 1 ;;
+  esac
+  IFS='|' read -r fixture top source program reference <<< "$spec"
+  group_members+=("$group|$fixture")
+  if [[ "${1:-}" == --list-inputs ]]; then
+    # Report ownership patterns without requiring the paths to still exist.
+    if [[ "$kind" == direct ]]; then source="*/tests/circt/emit-$fixture.rhm"; fi
+    printf '%s\t%s\n' "$group" "$source"
+    if [[ -n "$top" ]]; then
+      printf '%s\t%s\n' "$group" "*/tests/circt/verilog/${fixture}_tb.sv" \
+        "$group" "*/tests/circt/verilog/${fixture}_dpi.cpp"
+    fi
+  elif [[ "${1:-}" == --list-example-exports && "$kind" == example ]]; then
+    printf '%s|%s|%s\n' "$source" "$program" "$reference"
+  fi
+done < tools/testing/circt/fixtures.txt
+if [[ "${1:-}" == --list-inputs || "${1:-}" == --list-example-exports ]]; then
+  [[ $# == 1 ]] || { echo "$1 takes no arguments" >&2; exit 2; }
+  exit 0
+fi
+
 mode=run
 fixture_group="${FIXTURE_GROUP:-}"
 while (( $# > 0 )); do
@@ -105,7 +137,6 @@ integration_fixtures=(
   uart-dpi chi-full-flits chi-router-composition
   )
 
-repo_dir="$(cd "$(dirname "$0")/../../.." && pwd)"
 test_tmp_dir="$(mktemp -d /tmp/rhodium-circt.XXXXXX)"
 trap 'rm -rf "$test_tmp_dir"' EXIT
 
@@ -115,7 +146,7 @@ if [[ "$mode" != --list-fixtures && "$mode" != --list-example-sources ]]; then
     if command -v circt-opt >/dev/null 2>&1; then
       circt_opt="$(command -v circt-opt)"
     else
-      echo "circt-opt not found; run 'make setup-circt' or set CIRCT_OPT" >&2
+      echo "circt-opt not found; run 'moon run rhodium:setup-circt' or set CIRCT_OPT" >&2
       exit 1
     fi
   fi
@@ -131,8 +162,6 @@ if [[ "$mode" != --list-fixtures && "$mode" != --list-example-sources ]]; then
     echo "CIRCT ${circt_version:-version unknown}: skipping version-specific Verilog golden comparisons"
   fi
 fi
-
-cd "$repo_dir"
 
 owned_fixture_file() {
   local relative_path="$1"
@@ -518,19 +547,6 @@ verify_fixture() {
     time_phase "$fixture" simulation "$object_dir/V$top" "${run_args[@]+"${run_args[@]}"}"
   fi
 }
-
-fixture_specs=()
-direct_fixture_specs=()
-group_members=()
-while IFS='|' read -r group kind spec; do
-  [[ -n "$group" && "${group:0:1}" != "#" ]] || continue
-  case "$kind" in
-    example) fixture_specs+=("$spec") ;;
-    direct) direct_fixture_specs+=("$spec") ;;
-    *) echo "invalid CIRCT fixture kind: $kind" >&2; exit 1 ;;
-  esac
-  group_members+=("$group|${spec%%|*}")
-done < tools/testing/circt/fixtures.txt
 
 fixture_declared() {
   local wanted="$1"

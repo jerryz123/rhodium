@@ -9,7 +9,7 @@ runs:
       id: inputs
       uses: ./.github/actions/product-input
       with:
-        product: verilator
+        task: rhodium:hash--verilator
     - name: Cache Verilator
       id: cache
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -25,5 +25,5 @@ runs:
     - name: Install and verify Verilator
       shell: bash
       run: |
-        make setup-verilator
+        moon run rhodium:setup-verilator
         echo "$GITHUB_WORKSPACE/.tools/verilator/bin" >> "$GITHUB_PATH"

@@ -11,7 +11,7 @@ runs:
       id: inputs
       uses: ./.github/actions/product-input
       with:
-        product: circt-tool
+        task: rhodium:hash--circt-tool
     - name: Cache CIRCT
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
@@ -19,4 +19,4 @@ runs:
         key: "${{ runner.os }}-${{ runner.arch }}-circt-${{ steps.inputs.outputs.key }}"
     - name: Install and verify CIRCT
       shell: bash
-      run: make setup-circt
+      run: moon run rhodium:setup-circt

@@ -41,5 +41,5 @@ def model_defaults(sail, xlen):
             or not {"independent_context_csrs", "scontext_writable_mask", "mcontext_writable_mask"} <= default.get("base", {}).keys()
             or not {"restricted", "supported"} <= default.get("base", {}).get("hpm_events", {}).keys()
             or type(default.get("base", {}).get("pmm_unsupported_write_to_disabled")) is not bool):
-        raise ValueError("Sail lacks pinned CSR/transformed-instruction controls; rebuild with arch-test-sail-setup")
+        raise ValueError("Sail lacks pinned CSR/transformed-instruction controls; rebuild with build-sail")
     return default

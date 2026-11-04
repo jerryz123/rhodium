@@ -30,8 +30,8 @@ For complete BootROM/FESVR execution, select `mini-rv2wide-rv64imacb` or
 `simple-rv2wide-rv64imacb` through the existing [simulation harness](../../sims/README.md):
 
 ```sh
-make -C sims simulator SOC=mini-rv2wide-rv64imacb
-make -C sims isa-smoke SOC=simple-rv2wide-rv64imacb
+SOC=mini-rv2wide-rv64imacb moon run rhodium:local-simulator
+SOC=simple-rv2wide-rv64imacb moon run rhodium:sim-isa-smoke-test
 ```
 
 Both use the exact lean RV64IMACB preset, M/S/U, and Sv39. Mini has 32-set,

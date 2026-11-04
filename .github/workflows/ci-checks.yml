@@ -1,4 +1,4 @@
-# Runs selected checks in compatible groups with shared setup and per-target logs.
+# Runs compatible check pools using Moon's native worker partitioning and per-target receipts.
 # SPDX-License-Identifier: Apache-2.0
 
 name: CI checks
@@ -6,10 +6,6 @@ name: CI checks
 on:
   workflow_call:
     inputs:
-      matrix:
-        description: JSON include matrix produced by the CI planner.
-        required: true
-        type: string
       racket-version:
         description: Installed Racket version.
         required: true
@@ -19,20 +15,50 @@ on:
         required: true
         type: string
 
+      pool:
+        description: Compatible fixed worker pool.
+        required: true
+        type: string
+      worker:
+        description: Zero-based worker slot.
+        required: true
+        type: number
+      targets:
+        description: Selected Moon task IDs for this pool.
+        required: true
+        type: string
+      metadata:
+        description: Selected task tags.
+        required: true
+        type: string
 permissions:
   contents: read
 
 jobs:
   checks:
-    name: ${{ matrix.name }}
+    name: ${{ format('{0} / shard {1}', inputs.pool, inputs.worker) }}
+    if: ${{ inputs.targets != 'null' && (inputs.worker == 0 || fromJSON(inputs.targets)[1] != null) }}
     runs-on: ubuntu-24.04
-    timeout-minutes: ${{ matrix.timeout }}
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(inputs.matrix) }}
+    timeout-minutes: ${{ inputs.pool == 'rsim' && 60 || 30 }}
     steps:
+      - name: Read pool requirements
+        id: work
+        env:
+          TARGETS: ${{ inputs.targets }}
+          METADATA: ${{ inputs.metadata }}
+        run: |
+          count=$(jq 'length' <<< "$TARGETS")
+          test "$count" -gt 0
+          echo "workers=$(( count < 2 ? 1 : 2 ))" >> "$GITHUB_OUTPUT"
+          for tool in dtc circt verilator; do
+            value=$(jq -r --arg tag "needs-$tool" --argjson targets "$TARGETS" '
+              any(.[$tag][]?; . as $task | $targets | index($task))' <<< "$METADATA")
+            echo "$tool=$value" >> "$GITHUB_OUTPUT"
+          done
       - name: Check out Rhodium
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Set up moon workspace
+        uses: ./.github/actions/setup-moon
       - name: Install Racket
         uses: ./.github/actions/setup-racket
         with:
@@ -44,35 +70,43 @@ jobs:
           rhombus-checksum: ${{ inputs.rhombus-checksum }}
           artifact-name: rhodium-bytecode-${{ github.sha }}
       - name: Install device-tree compiler
-        if: matrix.dtc
+        if: ${{ steps.work.outputs.dtc == 'true' }}
         run: |
           sudo apt-get update
           sudo apt-get install --yes device-tree-compiler
       - name: Install Verilator
-        if: matrix.verilator
+        if: ${{ steps.work.outputs.verilator == 'true' }}
         uses: ./.github/actions/setup-verilator
       - name: Install CIRCT
-        if: matrix.circt
+        if: ${{ steps.work.outputs.circt == 'true' }}
         uses: ./.github/actions/setup-circt
       - name: Run selected checks
         env:
-          CHECK_TARGETS: ${{ join(matrix.targets, ' ') }}
+          CHECK_TARGETS: ${{ join(fromJSON(inputs.targets), ' ') }}
+          UPSTREAM: ${{ (inputs.pool == 'host' && 'direct' || 'none') }}
+          JOB_INDEX: ${{ inputs.worker }}
+          JOB_TOTAL: ${{ steps.work.outputs.workers }}
         run: |
-          set -o pipefail
-          test -n "$CHECK_TARGETS"
-          mkdir -p "$RUNNER_TEMP/check-logs"
+          read -ra checks <<< "$CHECK_TARGETS"
+          checks=("${checks[@]//:/--}")
+          checks=("${checks[@]/#/rhodium:}")
+          rm -f .moon/cache/runReport.json
           status=0
-          for target in $CHECK_TARGETS; do
-            echo "::group::$target"
-            make "$target" 2>&1 | tee "$RUNNER_TEMP/check-logs/$target.log" || status=1
-            echo '::endgroup::'
-          done
+          # Selection already includes fail-closed cases; do not filter it again or bypass caches.
+          moon exec "${checks[@]}" --ci --job "$JOB_INDEX" --job-total "$JOB_TOTAL" \
+            --upstream "$UPSTREAM" --downstream none --on-failure continue --concurrency 1 || status=$?
+          python3 -m tools.ci.receipts --sharded "${checks[@]}" || status=1
           exit "$status"
       - name: Publish check logs
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: checks-${{ matrix.key }}-${{ github.sha }}
-          path: ${{ runner.temp }}/check-logs
+          name: checks-${{ inputs.pool }}-${{ inputs.worker }}-${{ github.sha }}
+          path: |
+            .moon/cache/states/rhodium/*/std*.log
+          include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
+
+      - uses: ./.github/actions/upload-endpoints
+        if: always()

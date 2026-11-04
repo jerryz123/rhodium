@@ -29,7 +29,9 @@ Neither path may imply physical signoff beyond the exact stage that ran.
 
 | Concern | Owner |
 |---|---|
-| Build graph, tool selection, staged targets, and artifact assertions | [`Makefile`](Makefile) |
+| Artifact stages and prerequisites | [`physical-build.yml`](../.moon/tasks/physical-build.yml) |
+| Explicit CIRCT and PDK installation | [Moon setup](../.moon/tasks/setup.yml) |
+| Standalone lint and execution; prerequisites for hardening and LVS | [Moon products](../.moon/tasks/products.yml), [native checks](../.moon/tasks/native.yml) |
 | Rhodium smoke leaf | [`src/rhodium-top.rhdl`](src/rhodium-top.rhdl) |
 | Smoke-leaf and MiniRV5StageSoC emitters | [`tools/emit-top.rhm`](tools/emit-top.rhm), [`tools/emit-mini-rv5stage-soc.rhm`](tools/emit-mini-rv5stage-soc.rhm) |
 | OpenFrame boundary checker | [`tools/check-openframe-contract.py`](tools/check-openframe-contract.py) |
@@ -50,8 +52,9 @@ Do not edit or regenerate those assets from this integration layer.
 1. Identify whether the change belongs to the reusable SRAM mapper, a
    technology catalog, design/technology policy, a physical profile, or the
    external harness contract.
-2. Add a Make target at one clear proof boundary and assert its expected
-   artifacts. Keep cheap checks ahead of synthesis, hardening, or integration.
+2. Add a Moon task in [`physical-build.yml`](../.moon/tasks/physical-build.yml)
+   for an artifact-producing stage and declare its expected outputs. Put cheap checks
+   ahead of synthesis, hardening, or integration.
 3. Record the exact top, scope, policy, PDK, tool, and macro assumptions needed
    to reproduce the stage.
 4. Keep physical-only choices out of synthesizable SoCs and generic mapping
@@ -69,9 +72,7 @@ LibreLane runs, and exported views remain untracked under `vlsi/build/` or
 wrappers, emitters, checkers, and documentation. Never review a generated file
 as though it were the source of design or technology policy.
 
-The public README documents `make -C vlsi clean`; it intentionally removes only
-flow-owned build artifacts and run directories. Keep new outputs beneath those
-owned roots so cleanup remains bounded.
+Keep new outputs beneath these owned roots so cleanup remains bounded.
 
 ## Focused validation
 
@@ -80,18 +81,18 @@ change:
 
 | Change | Focused target |
 |---|---|
-| Rhodium leaf, wrapper, or boundary checker | `make -C vlsi rtl-check` |
-| Generic SRAM mapper | `make -C sram test` |
-| MiniRV5StageSoC policy or manifest assertions | `make -C vlsi mini-rv5stage-soc-memory-map` |
-| Macro wrapper and installed Verilog handoff | `make -C vlsi mini-rv5stage-soc-macro-rtl-check` |
-| Slang compatibility | `make -C vlsi mini-rv5stage-soc-slang-check` |
-| Synthesis configuration | `make -C vlsi mini-rv5stage-soc-synth` |
-| Targeted arithmetic post-mapping repair | `make -C vlsi mini-rv5stage-soc-post-synth` against a completed MiniRV5StageSoC synthesis; also exercise the opt-in multiplier repair described in the README; check each SAT proof, unchanged outside RTLIL, structural checks, and 36-macro handoff |
-| Compact physical/LVS fixture | `make -C vlsi lvs-smoke` |
-| Sparse wrapper hardening | `make -C vlsi harden` |
-| Padframe integration | `make -C vlsi integrate` |
-| Complete current OpenFrame smoke | `make -C vlsi gds` |
-| Mapped logical behavior | `make -C vlsi/sim smoke` |
+| Rhodium leaf, wrapper, or boundary checker | `moon run rhodium:wrapper-lint` |
+| Generic SRAM mapper | `moon run rhodium:sram-check` |
+| MiniRV5StageSoC policy or manifest assertions | `moon run rhodium:generate-physical-memory-wrappers` |
+| Macro wrapper and installed Verilog handoff | `moon run rhodium:macro-rtl-lint` |
+| Slang compatibility | `moon run rhodium:physical-slang` |
+| Synthesis configuration | `moon run rhodium:synthesis` |
+| Targeted arithmetic post-mapping repair | `moon run rhodium:physical-post-synth` against a completed MiniRV5StageSoC synthesis; also exercise the opt-in multiplier repair described in the README; check each SAT proof, unchanged outside RTLIL, structural checks, and 36-macro handoff |
+| Compact physical/LVS fixture, including prerequisite lint | `moon run rhodium:lvs` |
+| Sparse wrapper hardening, including prerequisite lint | `moon run rhodium:harden` |
+| Padframe integration | `moon run rhodium:physical-integrate` |
+| Complete current OpenFrame smoke | `moon run rhodium:gds` |
+| Mapped logical behavior | `moon run rhodium:mapped-smoke` |
 
 Report unavailable PDK, Nix, LibreLane, Magic, FESVR, cross-compiler, CIRCT, or
 Verilator dependencies as validation limits. Do not substitute a cheaper stage

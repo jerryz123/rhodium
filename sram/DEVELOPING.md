@@ -39,7 +39,8 @@ SoCs, the generic pass, or the generic adapter renderer.
 | Occurrence discovery, policy lookup, extern retargeting, and inventory emission | [`circt/MemorySitePass.cpp`](circt/MemorySitePass.cpp) |
 | Pass build and registration | [`circt/CMakeLists.txt`](circt/CMakeLists.txt) |
 | FIRRTLMem parsing, eligibility, catalog matching, tiling, wrappers, and manifests | [`map-memories.py`](map-memories.py) |
-| Plugin and regression entrypoints | [`Makefile`](Makefile) |
+| Plugin configure/build stages | [`native-build.yml`](../.moon/tasks/native-build.yml) |
+| Regression execution | `sram-check` in [Moon products](../.moon/tasks/products.yml) |
 | Synthetic mapping fixtures | [`tests/fixtures/`](tests/fixtures/) |
 | Mapper, selection, wrapper, and Verilator coverage | [`tests/test_mapper.py`](tests/test_mapper.py) |
 | Sky130 catalog and model | [`sky130/DEVELOPING.md`](sky130/DEVELOPING.md) |
@@ -83,7 +84,7 @@ Build the plugin and run the complete mapper regression from the repository
 root:
 
 ```sh
-make -C sram test
+moon run rhodium:sram-check
 ```
 
 The target uses the repository-pinned CIRCT by default. Set matching
@@ -95,8 +96,8 @@ unknown-site rejection, scoped wrapper stability, and unsupported ports.
 Use the consuming guides for design-specific validation:
 
 ```sh
-make -C vlsi mini-rv5stage-soc-memory-map
-make -C vlsi/sim mapping
+moon run rhodium:generate-physical-memory-wrappers
+moon run rhodium:memory-map
 ```
 
 Those checks validate direct-top and harness-scoped policy use respectively;

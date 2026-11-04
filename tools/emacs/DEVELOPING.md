@@ -49,7 +49,7 @@ longest-prefix selection among registered configurations.
 Run the ERT suite from the repository root:
 
 ```sh
-make emacs-test
+moon run rhodium:emacs-test
 ```
 
 The tests cover file association, checkout discovery, command construction,

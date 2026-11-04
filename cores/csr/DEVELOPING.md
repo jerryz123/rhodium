@@ -67,7 +67,7 @@ Use `riscv-zihpm-rv32`/`riscv-zihpm-rv64` for zero-counter aliases and
 filters, and overflow. `rv5stage-vector-control`, `rv5stage-core`,
 `rv5stage-interrupt`, and `rv5stage-wfi` cover adapter/precise-WB integration.
 Run cosim pass tests if observation metadata changes, and
-`make check-boundaries` after moving modules or changing imports.
+`moon run rhodium:check-boundaries` after moving modules or changing imports.
 `rv2wide-core` covers dual-retire accounting and the precise shared-bank WB cut;
 `rv2wide-fetch` executes a trap handler through the production fetching top.
 The two `rv5stage-core-rv32f`/`rv5stage-core-rv64d` fixtures check pure reads

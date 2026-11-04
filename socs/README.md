@@ -133,7 +133,7 @@ to a compilation target; consumers needing concrete RTL select
 
 ### Composition choices
 
-The Make entrypoints accept three independent host-side axes:
+The local Moon entry points accept three independent host-side axes:
 `mini`, `simple`, `tiled4core`, or `tiled8core` selects the memory/fabric topology,
 `rv5stage`, `rv2wide`, `rv3wide`, or `spike` selects the hart implementation, and `ISA` selects the
 required architectural preset. A
@@ -234,14 +234,14 @@ projection with platform facts. All three core bindings disable PMP in SoC confi
 RV32 Bare configs use 32-bit physical addresses; both RV64 RTL cores project the
 CHI fabric width and Spike projects its model's 56-bit physical limit, even
 though its SoC fabric has a narrower mapped address range. The
-generic writer and Make target know only the catalog key, so a
+generic writer and Moon task know only the catalog key, so a
 future processor adds its own projection and a catalog entry rather than a new
 command.
 
 Generate one entry from the repository root:
 
 ```sh
-make riscv-udb-config RISCV_UDB_CONFIGURATION=simple-rv5stage-rva23
+RISCV_UDB_CONFIGURATION=simple-rv5stage-rva23 moon run rhodium:riscv-udb-config
 ```
 
 Keys are explicit `<shape>-<core>-<isa>` selections, with the same support

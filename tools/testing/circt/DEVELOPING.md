@@ -79,7 +79,7 @@ compilation, while a traced emitter that exports scoreboard constants owns its
 compilation. An expected-failure fixture passes only when its bench fails with
 the declared label. Use separate emitters for independent compilation
 roots rather than collecting uninstantiated circuit references in a suite.
-`make examples` and `make check-example-verilog` check every elaborated program's
+`moon run rhodium:examples` and `moon run rhodium:check-example-verilog` check every elaborated program's
 manifest coverage and validate only declared golden exports without running
 CIRCT or Verilator.
 
@@ -89,6 +89,13 @@ example inventory to select its auxiliary host examples; the owning CIRCT
 lane already executes each declared source's top-level checks and elaboration.
 Keep example checks at top level so materialization exercises them. Local
 example targets still run complete groups independently.
+
+The same runner exposes `--list-inputs` (group and source pattern) for Moon and
+`--list-example-exports` (source, program, reference) for the example checker.
+These inventory queries do not require tools or existing fixture files: a deleted
+source must still identify its owner. Execution resolves required files normally.
+The Moon language, std, protocols, and core-components checks validate their
+example roots before running their CIRCT fixture group.
 
 Behavioral benches live under the owning package's `tests/circt/verilog/`.
 An example fixture with a top uses `verilog/<fixture>_tb.sv`. The runner
@@ -154,7 +161,7 @@ When a backend change intentionally changes generated SystemVerilog, update
 only the affected reference and review the example-source diff:
 
 ```sh
-FIXTURE=bundle make update-verilog-goldens
+FIXTURE=bundle moon run rhodium:update-verilog-goldens
 ```
 
 Without `FIXTURE`, that target rewrites every example-owned reference. The
@@ -174,7 +181,7 @@ diff disappear.
 3. Put portable component behavior in the [rsim inventory](../rsim/README.md).
    Add `<package>/tests/circt/verilog/<fixture>_tb.sv` and an optional matching
    `<fixture>_dpi.cpp` only for an HDL-specific or retained integration contract.
-4. Run `make check-example-verilog`, then the narrow selector from the
+4. Run `moon run rhodium:check-example-verilog`, then the narrow selector from the
    [CIRCT test guide](README.md#choose-the-smallest-useful-run).
 5. If the reference changed intentionally, update only that fixture with the
    pinned CIRCT tool and review the example-source diff.

@@ -1,0 +1,15 @@
+# Compiles harness payloads independently from simulator builds and execution.
+# SPDX-License-Identifier: Apache-2.0
+tasks:
+  compile-payload:
+    command: bash sims/build-payload.sh
+    inputs: ["sims/build-payload.sh", "sims/build-env.sh", "sims/tests/programs/*.h", "@group(compiler)", "$RISCV_CC", "$NTL_CPPFLAGS"]
+    checks:
+      - check: fingerprint
+        script: '${RISCV_CC:-riscv64-unknown-elf-gcc} --version'
+    options: { cache: true }
+  payload-ntl-policy:
+    extends: compile-payload
+    env: { SOC: simple-rv5stage-rva23, TRACE: '0', COSIM: '1', STATS: '1', RHODIUM_PAYLOAD: zihintntl-policy }
+    inputs: ["sims/tests/programs/zihintntl.*"]
+    outputs: [.rhodium-cache/moon/payloads/simple-rv5stage-rva23/cosim-stats/zihintntl-policy.elf]

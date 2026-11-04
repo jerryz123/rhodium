@@ -1148,7 +1148,7 @@ Generate the configuration for one checked-in SoC composition from the
 repository root:
 
 ```sh
-make riscv-udb-config RISCV_UDB_CONFIGURATION=simple-rv5stage-rva23
+RISCV_UDB_CONFIGURATION=simple-rv5stage-rva23 moon run rhodium:riscv-udb-config
 ```
 
 The [SoC UDB configuration catalog](../../socs/README.md#risc-v-udb-configuration-catalog)

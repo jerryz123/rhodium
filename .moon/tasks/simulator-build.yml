@@ -1,0 +1,107 @@
+# Separates descriptor emission, RTL lowering, compiler builds, and publication into Moon stages.
+# SPDX-License-Identifier: Apache-2.0
+tasks:
+  emit-program-target:
+    script: |
+      source sims/build-env.sh
+      canonical="$PWD/.rhodium-cache/program-targets/$soc.json"
+      if [[ -n ${PREBUILT_PROGRAM_TARGET:-} || -n ${PREBUILT_SIMULATOR:-} ]]; then
+        test -f "$descriptor"
+        copy_changed "$descriptor" "$canonical"
+      else
+        mkdir -p "$(dirname "$descriptor")"
+        temporary=$(mktemp "$descriptor.XXXXXX")
+        trap 'rm -f "$temporary"' EXIT
+        tools/run-racket.sh -S "$PWD" sims/program-test/write-target.rhm "$soc" "$temporary"
+        copy_changed "$temporary" "$descriptor"
+        copy_changed "$temporary" "$canonical"
+      fi
+    inputs: ["sims/build-env.sh", "$PROGRAM_TARGET", "$PREBUILT_PROGRAM_TARGET", "$PREBUILT_SIMULATOR"]
+    checks:
+      - check: fingerprint
+        script: |
+          if [[ -n ${PREBUILT_PROGRAM_TARGET:-} ]]; then cksum "$PREBUILT_PROGRAM_TARGET"; fi
+          if [[ -n ${PREBUILT_SIMULATOR:-} ]]; then cksum "$(dirname "$PREBUILT_SIMULATOR")/program-target.json"; fi
+    options: { cache: true, mutex: racket-cache }
+  emit-model:
+    script: |
+      source sims/build-env.sh
+      mkdir -p "$model_dir"
+      flags=(--backend "$backend")
+      if [[ $backend == rsim ]]; then flags+=(--output-directory "$model_dir"); fi
+      if [[ ${STATS:-0} == 1 ]]; then flags+=(--stats "$model_dir"); fi
+      base_variant="${variant%-stats}"
+      if [[ $base_variant != normal ]]; then flags+=(--"$base_variant" "$model_dir"); fi
+      emitted="$model_dir/SoCHarness.sv"
+      if [[ $backend == circt ]]; then emitted="$model_dir/soc_harness.mlir"; fi
+      temporary=$(mktemp "$emitted.XXXXXX")
+      trap 'rm -f "$temporary"' EXIT
+      tools/run-racket.sh -S "$PWD" sims/emit-soc-harness.rhm "${flags[@]}" "$shape" "$core" "$isa" > "$temporary"
+      copy_changed "$temporary" "$emitted"
+    inputs: ["sims/build-env.sh", "sims/emit-soc-harness.rhm"]
+    options: { cache: true, mutex: racket-cache }
+  lower-model:
+    script: |
+      source sims/build-env.sh
+      temporary=$(mktemp "$model_dir/SoCHarness.sv.XXXXXX")
+      trap 'rm -f "$temporary"' EXIT
+      "$circt_opt" --canonicalize --cse --prettify-verilog \
+        --lower-seq-hlmem --lower-sim-to-sv --lower-verif-to-sv \
+        --lower-seq-to-sv='disable-mem-randomization=true disable-reg-randomization=true' \
+        --lower-seq-firmem \
+        --hw-memory-sim='disable-mem-randomization=true disable-reg-randomization=true read-enable-mode=undefined' \
+        --sv-mask-non-synthesizable='mode=ifdef macro=SYNTHESIS' \
+        --export-verilog "$model_dir/soc_harness.mlir" -o /dev/null > "$temporary"
+      copy_changed "$temporary" "$model_dir/SoCHarness.sv"
+    inputs: ["sims/build-env.sh", "$CIRCT_OPT", "@group(circt-tool)"]
+    checks:
+      - check: fingerprint
+        script: '"${CIRCT_OPT:-$PWD/.tools/firtool-1.155.0/bin/circt-opt}" --version'
+  configure-model-cosim:
+    script: |
+      source sims/build-env.sh
+      mkdir -p "$cosim_config"
+      tools/run-racket.sh -S "$PWD" sims/cosim/runtime/write-config.rhm "$soc" "$cosim_config/config.json"
+      "${COSIM_PYTHON:-${ACT_PYTHON:-$PWD/.tools/act-venv/bin/python}}" sims/cosim/runtime/configure.py \
+        --config "$cosim_config/config.json" --name "$soc" --sail "$sail_prefix/bin/sail_riscv_sim" \
+        --output "$cosim_config" --observations "$model_dir/soc_cosim.json"
+    inputs: ["sims/build-env.sh", "sims/cosim/runtime/configure.py", "sims/cosim/runtime/write-config.rhm", "sims/sail/**/*"]
+    options: { cache: true, mutex: racket-cache }
+  compile-model:
+    command: bash sims/compile-model.sh
+    inputs: ["sims/build-env.sh", "sims/compile-model.sh", "tools/build/native-env.sh", "$BUILD_ROOT", "$OPT_FAST", "$OPT_SLOW", "$OPT_GLOBAL", "$CXX", "$VERILATOR", "$FESVR_PREFIX", "$COSIM_BUILD_DIR", "$PREBUILT_COSIM_DIR"]
+    checks:
+      - check: fingerprint
+        script: |
+          source tools/build/native-env.sh
+          "${CXX:-c++}" --version
+          read -r -a verilator <<< "${VERILATOR:-verilator}"
+          "${verilator[@]}" --version
+          cksum "$fesvr_prefix/lib/libfesvr.a"
+    options: { cache: true }
+  publish-simulator:
+    script: |
+      source sims/build-env.sh
+      if [[ -n ${PREBUILT_SIMULATOR:-} ]]; then
+        python3 sims/program-test/artifact.py verify --binary "$PREBUILT_SIMULATOR" --soc "$soc" --target "$descriptor" --backend "$backend" --variant "$variant"
+      else
+        copy_changed "$model_dir/VTestDriver" "$work_dir/obj/VTestDriver"
+        copy_changed "$descriptor" "$work_dir/obj/program-target.json"
+        # Restore inspectable generated sources and instrumentation sidecars even
+        # when the binary was hydrated without invoking the compiler work tree.
+        for generated in "$model_dir"/*; do
+          if [[ -f $generated && $(basename "$generated") != VTestDriver ]]; then
+            copy_changed "$generated" "$work_dir/$(basename "$generated")"
+          fi
+        done
+        if [[ -d $model_dir/cosim ]]; then
+          for generated in "$model_dir/cosim"/*; do
+            if [[ -f $generated ]]; then copy_changed "$generated" "$work_dir/cosim/$(basename "$generated")"; fi
+          done
+        fi
+        emitted="$model_dir/SoCHarness.sv"
+        if [[ $backend == circt ]]; then emitted="$model_dir/soc_harness.mlir"; fi
+        python3 sims/program-test/artifact.py record --binary "$work_dir/obj/VTestDriver" --soc "$soc" --target "$descriptor" --backend "$backend" --variant "$variant" --rtl "$emitted"
+      fi
+    inputs: ["sims/build-env.sh", "$PREBUILT_SIMULATOR", "$PREBUILT_PROGRAM_TARGET", "$BUILD_ROOT"]
+    options: { cache: false }

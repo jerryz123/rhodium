@@ -15,7 +15,8 @@ ROOT = Path(__file__).resolve().parents[3]
 HERE = Path(__file__).resolve().parent
 
 
-def inventory():
+def inventory(*, check_files=True):
+    """Read the manifest; selection may describe paths deleted by the current change."""
     rows = []
     for line in (HERE / 'fixtures.tsv').read_text().splitlines():
         if line and not line.startswith('#'):
@@ -27,9 +28,10 @@ def inventory():
             sources = fields[6].split() if len(fields) > 6 else []
             if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", name):
                 raise ValueError(f"invalid fixture name: {name}")
-            for path in (source, driver, *sources):
-                if not (ROOT / path).is_file():
-                    raise ValueError(f"{name}: missing fixture file: {path}")
+            if check_files:
+                for path in (source, driver, *sources):
+                    if not (ROOT / path).is_file():
+                        raise ValueError(f"{name}: missing fixture file: {path}")
             rows.append(dict(name=name, group=group, source=source, export=export, driver=driver, target=target, sources=sources))
     if len({r['name'] for r in rows}) != len(rows):
         raise ValueError('duplicate rsim fixture name')

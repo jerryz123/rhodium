@@ -93,7 +93,7 @@ Run device host contracts and the standalone C++ PTY test from the repository
 root:
 
 ```sh
-make device-test
+moon run rhodium:device-test
 ```
 
 The target runs package-boundary checks, every `devices/tests/*-test.rhm`, and

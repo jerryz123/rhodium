@@ -28,7 +28,7 @@ HDL-specific benches and DPI companions. Canonical valid authoring programs belo
 frontend or domain suite that owns their diagnostics.
 
 When moving or adding implementation, move its tests with it and run
-`make check-boundaries`. Do not create a new top-level `tests/` directory or
+`moon run rhodium:check-boundaries`. Do not create a new top-level `tests/` directory or
 move package fixtures into `tools/testing/` merely because one runner consumes
 them.
 
@@ -42,7 +42,7 @@ Rsim behavioral fixtures are selected from `rsim/fixtures.tsv`. The
 CI lanes cover standard-library/Flow and portable language behavior,
 reusable and standalone named-core components, protocols/controllers, and HardFloat. They require a
 C++20 compiler but neither CIRCT nor Verilator. Package changes select their
-rsim owners; shared rsim or orchestration changes select all rsim lanes. HDL golden
+rsim owners; shared rsim or orchestration changes select all rsim checks. HDL golden
 and instrumentation lanes remain independently selected. Language behavior
 includes arithmetic, aggregates, hierarchy, synchronous clocking, memories,
 and assertion enable/reset behavior; the same examples retain their HDL
@@ -111,85 +111,197 @@ outside the HDL-free rsim suite.
 
 ## CI ownership
 
-[`products.py`](../ci/products.py) declares products, direct inputs and consumers.
-[`policy.py`](../ci/policy.py) defines which public configurations, checks and
-workloads CI enrolls. [`plan.py`](../ci/plan.py) projects selected products onto
-the Actions jobs; it does not maintain a second classifier. Core, shape, backend,
-and instrumentation are distinct inputs. Keep incidental runner setup and
-intentional test coverage out of build/cache identities.
+Moon is the sole product graph. [Shared file groups](../../.moon/tasks/inputs.yml),
+[executable products](../../.moon/tasks/products.yml)
+and [static checks](../../.moon/tasks/checks.yml) are native moon declarations.
+[Tests and suites](../../.moon/tasks/tests.yml) own the executable test
+commands, positive-test/example file groups, and suite dependencies formerly
+kept in the root Makefile. The CI bytecode task passes Moon-expanded file groups
+directly to the compiler wrapper; it does not query Make for another manifest.
+Moon's `*-build.yml` tasks own first-party stage dependencies; upstream and generated
+compiler builds retain their native Make/Ninja engines.
+[Configured execution](../../.moon/tasks/execution.yml) invokes the native and
+ACT runners directly, preserving simulator attestation, suite bounds, shards,
+resume behavior, and failure reports. [Native checks](../../.moon/tasks/native.yml)
+and products declare their binary producers as Moon dependencies. Hosted execution
+options are environment variables. Build jobs request upstream execution; staged
+consumer jobs explicitly use `--upstream none`, and harness jobs run direct payload
+dependencies only when they are not consuming a downloaded ELF archive.
+[catalog.py](../ci/catalog.py) declares each configured task family's command, inputs,
+and prerequisites together. With resolved ELF requests it declares archive producers
+and bindings first, so a consumer can use its final manifest directly. Normal and
+instrumented models instantiate the same stage templates; an instrumented model
+does not build a normal model as a prerequisite.
+[inputs.py](../ci/inputs.py) expands source and fixture groups from the owning inventories.
+It reads rsim's validated manifest records without requiring the source paths to
+exist, and asks the CIRCT runner for its input patterns; neither manifest format
+is parsed a second time by CI. Hardware source selection comes from
+[the simulator inventory](../../sims/model_inputs.py).
+[catalog.py](../ci/catalog.py) also exposes configuration generation as a CLI.
+[moon.py](../ci/moon.py) is a query-only library for reading Moon's task metadata and graph;
+it has no execution wrapper or command-line entry point.
+[policy.py](../ci/policy.py) owns hardware/software enrollment, not GitHub jobs or worker assignment.
+[actions.py](../ci/actions.py) asks Moon which endpoints a diff affects, then uses
+Moon's action graph to collect their prerequisites. It returns task IDs, tags, and
+expected receipts, never job matrices or dependency edges. The checked-in
+[workflow](../../.github/workflows/ci.yml) owns static jobs, matching producer/consumer
+dependencies, and fixed worker matrices. Mapped Mini
+smoke has its own job: it consumes bytecode, SRAM mapping and native tools, not an
+ordinary simulator, target descriptor, or Sail build.
+ACT coverage follows the model and ACT's own platform/ELFs. Its execution
+also requires the attested simulator: changing only the native descriptor writer
+can require new simulator attestations, but does not select ACT shards.
+Moon queries changed files between explicit revisions. CI uses a direct Git tree diff when
+histories diverge or gitlinks change: the former needs both sides of the divergence, and the
+latter needs the submodule path, independent of whether the runner populated its checkout. Unavailable revisions
+and unowned paths select full CI, even when mixed with known changes. Docs-only edits are inert.
 
-For a change, walk towards consumers, select enrolled products, then walk back
-to collect their prerequisites. Do not walk back out to siblings: a baseline
-needs a simulator, but doesn't invalidate that simulator or select its other
-workloads. Required inputs propagate changes; order-only prerequisites just
-schedule work (for example, the mapped smoke runs on the Mini simulator job).
-Coverage patterns select checks without making them prerequisites of a build.
-Unknown paths select full CI. The stable gate rejects failed, cancelled or
-unexpectedly skipped selected workflows.
+Moon tasks declare two independent CI roles: `ci-root` makes a task selectable;
+`ci-receipt` requires evidence when it is in the selected execution graph. Program and
+ACT suites are roots only; their executable shards produce receipts only. A hosted simulator
+does both. Workers collect receipts for their explicitly selected endpoints from Moon's
+execution report; the gate checks them against the tagged, selected graph and rejects
+missing or unexpected receipts. Local-only targets need neither tag.
 
-Each software build root declares its direct source inputs and shared input
-nodes. Native, platform, Linux-image, ACT, harness, and host-adapter consumers depend
-on those roots and their execution contracts. Path classification follows reverse
-dependency reachability; cache keys hash only the selected build root's forward
-input closure, including pinned gitlinks. Thus a runner or expectation change
-does not invalidate unrelated ELF builds. Add a suite's inputs and edges here
-once, rather than updating multiple classifier branches and YAML hash lists.
-ELF requests are per config/suite; their actual shared artifact identity is
-determined by [`programs.py`](../ci/programs.py) from the generated target
-descriptors. Never assume that config names prove or disprove compatibility.
-Shared simulator-attestation and execution-evidence inputs retain their ACT and
-simulator-producer consumers explicitly, without broadening unrelated port edits.
+Declare each hosted check once. In `checks.yml`, give it both roles, tag it `ci-check`, assign one `pool-<key>`,
+and add the required `needs-dtc`, `needs-circt`,
+or `needs-verilator` tags. Worker timeout budgets live in `ci-checks.yml`, not task
+tags. The four pools are host, rsim, SystemVerilog, and CIRCT. Selected
+members determine each pool's tool setup; rsim has a 60-minute budget for its wider
+pool. YAML declares two worker slots per pool. Each receives the same selected
+target list; Moon assigns targets to workers. An unaffected pool skips at job
+level. A singleton pool skips its second worker before allocating a runner.
 
-Simulator prerequisites are the union of the selected consumers' exact configs;
-needing a DUT does not request its harness. Each simulator row explicitly carries
-`run_harness` and its selected `software_tests`. Harness ELF producers and
-platform producers are selected by their own suite lists. A litmus-only change
-therefore selects only the enrolled four-hart litmus DUTs; a suite-owned benchmark
-port change selects only the configs enrolled for that suite. Performance baseline
-paths select their one config/suite, including the tiled multihart benchmark
-harness. Host adapter-test edits run only their selected Python checks and
-required source setup, without target generation or simulator builds.
+Each worker invokes `moon exec --ci --job INDEX --job-total COUNT` with that list.
+This uses Moon's native CI partitioning without running affected selection again:
+the plan already includes dependency closure and fail-closed handling for unknown
+paths and revision failures. Do not use `--force`, which would also disable caches,
+or include downstream tasks outside the selected pool. Checks in the same pool
+must not depend on another pool member. Moon runs assigned tasks serially and
+continues after failures. Each check retains its logs and successful-task receipt.
 
-Use the same graph locally, without bootstrapping a hardware toolchain:
+Use two workers for pools with at least two selected targets and one otherwise.
+Moon 2.6.5 leaves the full target list in place when an automatic partition starts
+past its end: five targets over four workers reruns all five on worker three.
+The two-worker limit avoids empty partitions. Requalify this behavior before
+increasing the limit or upgrading Moon; do not reproduce its partition algorithm
+in Python. The receipt collector rejects a multi-target shard that ran the entire
+pool, and the final gate still requires every selected endpoint.
+
+The simulator, shared ELF, ACT, and platform producer/consumer workflows retain
+their artifact boundaries. Native checks and software adapters remain single-worker
+batches; this change does not duplicate their shared setup/build dependencies.
+Host check receipts belong to aggregates. Hosted host shards run their direct
+test leaves (with per-leaf logs) against verified bytecode; local Moon runs the
+full dependency graph. The rsim checks invoke the component fixture runner directly.
+Host aggregates also include the common boundary check where required, so
+direct-upstream hosted execution retains it without repeating it per leaf within
+a worker. Shared prerequisites may run once on each worker that needs them.
+Program and ACT hosted matrices declare fixed shard slots matching the executable
+Moon children. Keep those slots aligned when changing enrollment or shard counts;
+the receipt gate rejects omitted selected shards. Unselected program slots run
+only a shell preflight, before checkout, Moon installation, toolchain setup,
+submodule initialization, or artifact downloads. Unselected ACT slots skip at job
+level. Do not filter a selected graph a second time with a different Git diff.
+Native checks and software adapters in `products.yml` use `ci-native-check` and `ci-adapter`
+with their own `needs-*` setup tags; those tags do not create build dependencies. Each of
+these two jobs also batches its selected tasks serially after setup. Native checks share
+the configured Verilator root when needed.
+For each fixture group, reference `@group(fixtures--<key>)` on its enrolled check. Planning
+rejects fixture groups without that owner.
+
+Install moon 2.6.5 and run these commands at the repository root:
 
 ```sh
-python3 -m tools.ci.plan --paths cores/superscalar/core.rhdl --pretty
-python3 -m tools.ci.plan --affected sw/build/build-litmus.py --pretty
-python3 -m tools.ci.plan --requires program:simple-rv5stage-rva23:coremark --pretty
-python3 -m tools.ci.plan --products
-python3 -m tools.ci.plan --make-dir vlsi --requires make:gds --pretty
-python3 -m tools.ci.plan --make-dir sims --soc simple-rv2wide-rva23 --backend circt --trace --requires make:simulator
+python3 -m tools.ci.catalog
+moon query tasks --tags ci-check
+moon task rhodium:check--host-hygiene
+moon action-graph rhodium:program--simple-rv2wide-rva23--coremark --json
+moon run rhodium:check--host-hygiene
+python3 -m tools.ci.actions --paths cores/superscalar/core.rhdl --pretty
+python3 -m tools.ci.actions --all --pretty
 ```
 
-`--affected` gives an input-to-consumer chain; `--requires` distinguishes
-inputs, coverage, prerequisites, and ordering. Local Make queries additionally
-read GNU Make's *evaluated* explicit rules for that directory/configuration,
-without running build recipes. They include phony targets, generated files
-and order-only dependencies. Recipe-internal commands are not discovered this
-way; declare cross-tool product handoffs explicitly. Make retains ownership
-of timestamps, implicit rules and execution. Optional formal, physical, trace,
-and other local flows are queryable without adding jobs to CI. Racket retains
-ownership of its own incremental compilation and worktree cache.
+The workspace enforces the same exact Moon version as the CI installer; update both
+when qualifying a new release. Regenerate the ignored catalog after changing configuration,
+fixture inventories, or submodule revisions. After setup has generated the catalog,
+hosted cache-key steps use the `product-input` composite action with a full
+`rhodium:hash--...` task ID. The action verifies its `ci-hash` contract, invokes
+`moon run` directly, and reads the successful task's hash from the fresh report
+with `jq`. It never regenerates the catalog or translates product names.
+Jobs that receive resolved target descriptors explicitly regenerate configuration
+with `PROGRAM_TARGETS`.
 
-Inspect the tracked source portion of a cache key with, for example,
-`python3 -m tools.ci.plan --fingerprint build:coremark`. The same operation
-supplies CI's installer, bytecode seed, Sail, ACT, software and Linux source
-digests. It follows build inputs, not coverage or ordering edges. Runner ABI,
-tool versions, workspace constraints, generated target digests, and actual
-artifact integrity checks still belong to their producers. Manual/full CI
-retains the complete coverage inventory.
+Locally, run `moon run rhodium:target--SOC` first, then
+`python3 -m tools.ci.catalog --soc SOC`. Repeat both targets and `--soc` for
+multiple configurations. Catalog generation only reads the descriptors already
+produced by Moon, resolves workload recipes, and embeds the immutable snapshot
+location in archive and binding commands. Missing descriptors are an error;
+refresh them through Moon before preparing the catalog after configuration changes.
+Hosted planning queries prepare the base catalog; use Moon's native affected query
+to inspect a prepared local graph without replacing it.
+Use Moon for first-party stage prerequisites and cached outputs. Use the managed
+Racket cache for all elaboration. Formal, trace, diagram, SRAM and physical-design tasks
+are available locally without enrolling new CI coverage; golden updates are explicit.
 
-Coverage selection and runner grouping are separate. `policy.py` retains one
-entry per check and partitions those entries into compatible runner groups.
-The planner includes only selected members, with tool requirements derived from
-those members, so grouping never expands path-selected coverage. Each group
-attempts all selected Make targets, retains a log per target, and fails if any
-target fails. Heavy core-component and vector-configuration checks retain their
-own jobs; related shorter host, rsim, and HDL checks share setup.
+Use task dependencies for commands that must execute first and file groups or direct inputs
+for source ownership. The commandless program and ACT suites collect their executable
+shards. Only the `hash--*` tasks requested by CI exist solely to produce a cache key;
+they are tagged `ci-hash` and have no task dependencies. [Fixed keys](../../.moon/tasks/cache-keys.yml) share inputs with their preparation tasks;
+keys that share generated recipe inputs stay with those recipes. Indexed gitlink revisions enter the key as explicit file
+inputs even before submodule checkout. Software adapters and ELF producers use the same
+`build--<suite>` file groups: [inputs.yml](../../.moon/tasks/inputs.yml) declares the suite
+sources and [inputs.py](../ci/inputs.py) adds their shared tools and pins. The Linux recipe
+includes the full OpenSBI recipe and its Buildroot inputs. FESVR consumers use
+`fesvr-runtime`; the installer key uses `fesvr-library` so runtime-only edits do not invalidate it.
+[Scoped source groups](../ci/inputs.py) keep
+implementation exclusions local: a shared-core rule must not suppress a fixture that a
+check owns separately. The same groups account for removed files when planning a diff.
 
-The config rows come from the single
+To diagnose a cache miss, run `moon hash OLD NEW` at the workspace root, replacing
+`OLD` and `NEW` with full Moon task hashes for the two runs (not Git SHAs or GitHub
+cache keys). Both hash records must be available in the local Moon cache. Use
+`moon hash HASH` to inspect a single record.
+
+In the `targets` job, [archives.py](../ci/archives.py) groups selected ELF requests once
+by actual descriptor and recipe. That grouping produces archive identities and
+consumer bindings, not job matrices. Each fixed SoC/suite build slot receives its
+resolved recipe or null. Only the representative of a compatible group builds;
+the other slots skip at job level without starting a runner. This preserves one
+shared archive per compatible recipe without constructing GitHub jobs at runtime.
+The resulting `elf-requests.json` and `elf-bindings.json` travel with the target
+descriptors; set `PROGRAM_TARGETS` to that artifact directory when materializing the resolved
+catalog. Portable native build outputs are cacheable. Platform and Linux builds keep
+tool-specific caches and mandatory artifact checks. [Shared harness recipes](../ci/harness.py)
+own the harness test, ELF suite and build options, Moon builder, and output subdirectory.
+The simulator binds the selected archive from `harness-plan.json` to its own SoC; a missing
+or ambiguous shared binding is an error, and ordinary harness tests need no archive.
+A hosted worker invokes `moon run` or `moon exec` directly, using full target IDs,
+ordinary environment variables, and explicit `--upstream` depth. Run-only consumers use
+`none` against staged artifacts; host aggregates and local harness payloads use `direct`;
+builders and native checks follow their declared graphs. Shards are explicit Moon targets,
+not launcher arguments. Local `moon run` follows ordinary dependencies.
+
+Before an endpoint invocation, remove `.moon/cache/runReport.json`. Afterwards, run
+`python3 -m tools.ci.receipts` with exactly the same target IDs, including after a batch
+failure. The collector validates the report's primary targets and records only successful
+or cached endpoint actions; it neither launches Moon nor translates arguments. Preserve
+Moon's exit status as well as collector failures. Do not collect receipts for setup or
+build-only tasks without `ci-receipt`. Never treat a Moon cache hit as a performance or
+simulation verdict: run tasks retain their uncached execution policy. The gate compares
+receipts against expected endpoints in addition to checking job status; it consumes the
+selection and receipts without installing Moon.
+
+For sharded static-check pools, pass `--sharded` and the full pool target list to
+the collector. It validates `initialTargets` against the pool and records only
+Moon's assigned `primaryTargets`, never receipts for unassigned candidates.
+`moon exec --ci` still writes `runReport.json`; a direct `moon ci` invocation writes
+`ciReport.json`, which the collector can read with `--report`.
+
+The Moon catalog enrolls configs from the
 [`simulator inventory`](../../sims/test-configs.txt); policy selects workloads
-by shape and ISA, independently of core. Simulator matrices additionally carry
+by shape and ISA, independently of core. Static workflow slots must cover that
+inventory. Simulator job configuration additionally carries
 backend, cosim selection, and artifact identity. rsim is the default for every
 enrolled config; the full shape/ISA workloads remain unchanged.
 `BACKEND_SMOKE_VARIANTS` in `policy.py` adds a Simple RVA23 direct-SV variant
@@ -218,17 +330,17 @@ per-ELF ±5% gate by config, suite, and test name, without baseline fingerprints
 RVA23 Simple/Tiled RTL simulator rows enable statistics in that same binary;
 retirement, issue width, demand cache misses, and classified winning branch
 recoveries follow the [counter baseline contract](../../sims/README.md#rtl-statistics).
-The planner's `simulator_options` owns `cosim`, `stats`, and the exact `variant`
-for simulator, native, ACT, and firmware consumers; do not reconstruct suffixes
-independently in those consumers.
+The catalog's `simulator_options` owns `cosim`, `stats`, and the exact `variant`.
+Keep static simulator, native, ACT, and firmware job settings aligned with that
+contract; consumers still verify the exact artifact rather than reconstructing suffixes.
 This adds no benchmark runs,
 guest instrumentation, or trace jobs. Baselines are promoted explicitly from a
 successful run's complete artifacts, never written by CI; their ownership and
 qualification live in the [simulator contributor guide](../../sims/DEVELOPING.md#whole-elf-performance-baseline-maintenance).
 When the plan selects any downstream work, CI
 compiles the positive Racket entrypoint manifest once for reuse by the selected
-jobs. Pull requests and pushes classify changed paths; manual dispatch selects
-every matrix shard.
+jobs. Pull requests and pushes classify changed paths; a full manual dispatch
+selects every matrix shard.
 
 When any selected simulator enables cosim or ACT generation is selected, one
 shared Sail producer runs alongside Racket compilation. It restores an exact-input
@@ -253,10 +365,10 @@ target. Local build-and-run targets remain available; CI uses builder-free run
 targets. Shared build failures retain diagnostics and do not cancel other groups.
 
 Linux image production is selected independently of simulator execution.
-`run_targets` and `target_configs` include both simulator and build-only software
+Selected `target:*` tasks include both simulator and build-only software
 requirements; a Linux-only change needs bytecode and target descriptions, not
 Sail, simulators, native runtime builds, or software execution jobs.
-`linux-plan` uses `programs.py --build-only` to group Simple RVA23 descriptors by
+`targets` groups Simple RVA23 descriptors by
 their Linux build specification and retain every compatible binding target.
 `ci-linux-builds.yml` builds each group on `ubuntu-24.04` through `linux-elfs`,
 using Buildroot's own Linux toolchain and the pinned OpenSBI source/patches.
@@ -266,7 +378,7 @@ before tuning the budget or introducing compiled-output caching.
 The producer packages the common manifest archive, extracts it, and binds it
 to every group member without executing any image. Successful bundles and
 always-uploaded available build logs/configurations have seven-day retention;
-the stable gate requires both Linux planning and production when selected.
+the stable gate requires targets and Linux image production when selected.
 Linux port/source/builder/workflow changes select only this producer chain;
 shared target, firmware, and build-contract inputs also retain their existing
 coverage. Full manual CI selects the producer too. No Linux boot, simulator,
@@ -276,7 +388,7 @@ not be reported as Linux boot qualification.
 One native-check job owns config-independent DPI, transport, runtime, cosim-hook,
 and architectural projection tests. A separate lightweight software-adapter job
 runs the graph-selected host checks and initializes only their required sources.
-Native checks run their selected Make targets once and install tools from their
+Native checks run their selected Moon dependency graphs once and install tools from their
 prerequisites. A branch-analysis edit runs its Python check without Racket,
 FESVR, Verilator, or simulator construction; Spike ABI checks still use the
 native toolchain, Racket, CIRCT and Verilator. Per-config hardware elaboration
@@ -315,6 +427,13 @@ Unix-style `/usr` paths; the runtime cache is separate from Rhombus packages and
 project bytecode. Update the version, official checksum, and installer script
 together when upgrading Racket; its content hash scopes the installer cache.
 
+Local Moon checks depend on `racket-cache`, which prepares the worktree cache;
+the test wrappers compile what they need. Give tasks that use that cache the
+`racket-cache` Moon mutex so independent elaborations wait in the scheduler
+instead of timing out on the worktree lock. The hosted plan maps that prerequisite
+to a dedicated `compile-racket` job. Only that job compiles the whole manifest
+and publishes attested bytecode; downstream hosted checks still verify it.
+
 CI caches the entire completed compiled root and source manifests across runs,
 including external bytecode updated by project compilation. The key scopes
 reuse to the Racket/Rhombus environment, absolute workspace path, and cache
@@ -330,11 +449,11 @@ package-cache paths, and verify its environment and absolute workspace path.
 
 ```mermaid
 flowchart TD
-    Changes["Pull request or push paths"] --> Classifier["Declarative CI planner"]
+    Changes["Pull request or push paths"] --> Classifier["Moon affected-task selection"]
     Manual["Manual dispatch"] --> All["Select every shard"]
     Unknown["Unknown path or unavailable base"] --> All
     Classifier --> Docs{"Documentation or<br/>repository metadata only?"}
-    Docs -->|yes| None["No functional test matrix"]
+    Docs -->|yes| None["Static functional jobs skip"]
     Docs -->|no| Selected["Dependency-aware selection"]
     All --> Selected
     Selected --> Compile["Compile positive Racket entrypoint manifest once"]
@@ -342,19 +461,18 @@ flowchart TD
     Compile --> Checks["Capability matrix<br/>host and CIRCT;<br/>auxiliary examples run only on host"]
     Compile --> Native["Config-independent native and adapter checks once"]
     Compile --> Targets["Generate each selected target descriptor once"]
+    Compile --> Mapped["Mapped Mini smoke: SRAM check, mapped simulator and test"]
     Targets --> HarnessBuilds["Compile harness ISA / multihart ELFs once per group"]
     Targets --> Simulators["Per-config simulator builds"]
     HarnessBuilds -->|only configs using shared harness ELFs| Simulators
     Sail -->|only cosim configs| Simulators
     Simulators --> Simulation["Same runner: publish simulator,<br/>bind shared ELFs and run shape/ISA selection"]
     HarnessBuilds --> Simulation
-    Targets --> PlatformTargets["Group compatible platform builds"]
     Targets --> LinuxBuilds["Build compatible Linux images<br/>archive and bind only; no boot"]
-    PlatformTargets --> PlatformBuilds["Shared litmus / OpenSBI build artifacts"]
+    Targets --> PlatformBuilds["Shared litmus / OpenSBI build artifacts"]
     PlatformBuilds --> Platform["Per-config platform tests<br/>litmus histograms; OpenSBI handoff"]
     Simulators -->|matching config only| Platform
-    Targets --> ProgramTargets["Group identical program ELF build requirements"]
-    ProgramTargets --> ProgramBuilds["Compile program suites once per compatible group"]
+    Targets --> ProgramBuilds["Compile program suites once per compatible group"]
     ProgramBuilds -->|matching workload group only| Programs["Bind shared ELFs to each exact target<br/>per-config execution shards"]
     Simulators -->|matching config only| Programs
     Compile --> ActBuild["Generate ACT ELFs per single-core profile"]
@@ -397,28 +515,29 @@ the frontend and backend host owners execute their equivalence tests once.
 
 CI uses the display groups `Checks`, `SoC / <config>`, `Platform / <config>`, and
 `Software / <config> / <group>`, with short build and run names beneath each group. ACT execution
-names include the config and shard. Shared ELF builds name the suite and matrix
-group rather than implying ownership by the representative SoC. The final `CI`
+names include the config and shard. Shared ELF builds identify their suite and
+representative slot; all compatible targets still consume one archive. The final `CI`
 gate name remains stable.
 
-The root workflow calls `ci-simulator.yml` once per config. Each job
+The root workflow statically calls `ci-simulator.yml` once per config. Each job
 publishes its simulator, then runs that config's harness on the same runner,
 reusing installed tools, native libraries, bytecode, and target descriptions.
 Build and harness execution retain separate step budgets; the job result covers
 both phases for the stable gate. Configs with downstream software or platform
 tests have named root jobs so each consumer depends on its own simulator,
-not the entire simulator matrix. Other simulator rows remain grouped by their
-actual Sail and shared-harness-ELF dependencies. Non-cosim builds do not wait
+not an entire simulator matrix. All other simulator slots also have explicit
+Sail and shared-harness-ELF dependencies. Non-cosim builds do not wait
 for Sail; configs without shared harness software do not wait for harness ELFs.
 Named dependency edges are necessary because Actions cannot express a
-matching-row dependency between matrices. `plan.py` still derives config
-selection and workload matrices from the owning inventory; when adding a
-downstream config, add its named edges in `ci.yml`. The gate requires each
-selected named producer and consumer, so a missing edge cannot silently omit it.
+matching-row dependency between matrices. Edit the checked-in jobs and fixed
+matrices when changing enrollment; there is no workflow generator. Update the
+gate's static dependency list and result collection together. The gate rejects
+failed or canceled jobs and requires one successful receipt per selected endpoint
+and shard, even when a mistakenly skipped job otherwise looks successful.
 
 Native and platform planning/builds start from the target descriptions,
 independently of simulator completion. Native producers are separated into
-ISA, short suites, Bringup-Bench, SKL, and Highway; short RVA23 runs wait only
+ISA, short suites, CoreMark, Bringup-Bench, SKL, and Highway; short RVA23 runs wait only
 for ISA and short-suite producers, while RV32 runs wait only for ISA.
 OpenSBI and litmus have separate producer dependencies. Shared compatible ELF
 groups within a producer still finish before that producer's consumers start;
@@ -469,7 +588,7 @@ execution consumes the ordinary checksum-bearing ELF archive and bound manifest.
 configs. Each run binds the archive to its own full target fingerprint and
 checks its simulator attestation. Compiler installation and ELF caches belong
 only to the build jobs; execution shards retain every selected test.
-Short ISA, benchmark, CoreMark, scalar CoreMark, and Embench suites share one
+Short ISA, benchmark, and Embench suites share one
 execution job per exact config. Each suite still consumes its own shared ELF
 archive and retains its manifest, runner limits, results, logs, and performance
 identity. A preparation or execution failure does not skip later suites; the
@@ -477,9 +596,46 @@ group fails after all selected suites have been attempted. SKL, Highway, and
 Bringup-Bench keep independent execution jobs. Grouped artifact names identify
 the config and group; their directory trees retain the separate suite records.
 
+**CoreMark qualification.** Dispatch CI with `scope: coremark` to run
+both CoreMark variants on the four Simple RVA23 simulators, with the normal
+Sail/cosim and statistics prerequisites for the RTL cores. Inspect that
+selection offline with `python3 -m tools.ci.actions --coremark --pretty`.
+The same jobs run for affected changes and full CI. Group actual descriptors
+by ELF build specification (including the iteration count) before starting
+producers. Ordinary and archived builds inherit the same
+[Moon software recipes](../../.moon/tasks/software.yml). The
+[build-option contract](../ci/programs.py) translates canonical manifest options
+into recipe environment values, not commands or Make goals. Interactive Moon
+tasks retain their environment defaults. Python validates and packages completed
+artifacts; it does not dispatch software builds.
+A producer checks the pinned source with `tools.ci.archives check-source`, materializes
+the resolved catalog, then invokes `moon run rhodium:archive--BUILD_ID` directly. It builds
+or restores its portable archive, checks the suite and build ID with
+`tools.ci.archives verify`, and uploads the archive as a required Actions artifact.
+Only trusted main builds publish moon's
+portable output cache. A cache miss does not prevent a cold build.
+
+Before portable archive lookup, a Moon fingerprint check probes the current
+toolchain for the actual producer descriptor. For SKL and Highway this is the
+same identity used by their builders, including CMake and target-selected runtime
+library hashes (and G++ for Highway). Do not capture it at catalog generation:
+a warm checkout must notice a changed runtime without regenerating the graph.
+
+Each selected core/variant has a separate execution row: its evidence key
+must not depend on whether its sibling variant was selected. Consumers verify
+the exact simulator, check the archive identity and bind to their own target
+before running the existing software runner through moon. Consumer tasks
+are deliberately uncached: Rhodium may reuse verified raw execution evidence,
+but always evaluates the current expectations, reports cosim/statistics and
+uploads results. `force_fresh` still forces new simulation. No shared ELF
+producer waits for an implementation-specific simulator. Simulator builds and
+exact-commit attestations remain with the existing workflow; moon's portable
+cache for native software contains portable ELFs, not simulator binaries or verdicts.
+
 Bringup-Bench uses four shards and two workers per shard on every eligible
 config, including Spike. `policy.py` owns the suite's shard count;
-`programs.py` expands execution only after grouping compatible ELF builds.
+The static workflow declares its four execution slots; artifact grouping does not
+create or change execution shards.
 Each shard publishes separate diagnostics, and all shards are required for the
 CI gate to succeed. Do not add core-specific selections or rebuild
 the suite per shard.
@@ -501,7 +657,7 @@ configs receive capability-filtered ISA smoke. The `rv64max`, `rv64imacb`, and
 `rv64imafdcb` presets enroll their paired Simple configs; all RTL cores also
 enroll Mini for the two lean presets. These run only ISA smoke, without ACT,
 benchmarks, or platform tests. All RTL cores use the same shape/ISA inventory,
-enforced by the planner, with cosim enabled on Mini/Simple. All Tiled cores run the
+enforced by the enrollment policy, with cosim enabled on Mini/Simple. All Tiled cores run the
 eight-hart benchmark manifests in CI. Harness execution reuses the simulator
 producer's hardware tools and native libraries; only standalone platform payloads
 need the RISC-V compiler on that runner. ISA smoke consumes shared ELF archives
@@ -544,21 +700,21 @@ functional CI lane; Rhodium sources there still receive source hygiene, while
 `vlsi/sim/` and the mapped MiniRV5StageSoC flow select simulation. Unrecognized
 paths fail closed by selecting every lane; tracked executable inputs must select
 their affected owners. The root workflow owns only triggers,
-planning, the shared Racket and Sail artifacts, reusable-workflow calls, and the stable
+affected selection, the shared Racket and Sail artifacts, reusable-workflow calls, and the stable
 `CI` gate. The reusable workflows separately own capability checks, simulator
 construction, simulation, and bare-metal software. Composite actions own only
 repeated toolchain setup, so test steps and their failures remain visible as
 workflow jobs.
 
-The hygiene lane runs `make check-license-headers` over the complete tracked
+The hygiene lane runs `moon run rhodium:check-license-headers` over the complete tracked
 source, test, script, configuration, and documentation inventory. It requires
 Apache-2.0 identifiers for original Rhodium material and BSD-3-Clause
 identifiers within `hardfloat/`, while exempting exact legal texts and external
 submodule contents.
 
-When adding or moving executable source, update the planner if its existing
+When adding or moving executable source, update the moon catalog if its existing
 dependency rules do not select every affected owner. Inspect the plan with
-`python3 -m tools.ci.plan --paths PATH... --pretty` and run the affected build
+`python3 -m tools.ci.actions --paths PATH... --pretty` and run the affected build
 and behavioral tests.
 
 ## Change workflow
@@ -572,7 +728,7 @@ and behavioral tests.
 4. Add external lowering or simulation coverage through the
    [CIRCT fixture workflow](circt/DEVELOPING.md) only when the change crosses
    that toolchain boundary.
-5. Confirm `python3 -m tools.ci.plan --paths PATH... --pretty` selects every
+5. Confirm `python3 -m tools.ci.actions --paths PATH... --pretty` selects every
    affected package, example, CIRCT, simulation, or software lane.
 6. Run the smallest owner target first, then the broader target required by the
    changed dependency surface. The [test-running guide](README.md) lists those

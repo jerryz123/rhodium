@@ -15,7 +15,7 @@ python3 tools/testing/rsim/run.py --fixture rv64i-alu
 python3 tools/testing/rsim/run.py --fixture queue --fixture sync-memory-masked
 python3 tools/testing/rsim/run.py --group std
 python3 tools/testing/rsim/run.py --fixture event-queue
-make rsim-component-test
+moon run rhodium:rsim-component-test
 ```
 
 Use `--list` with any selection to inspect it without compilation. Repeat

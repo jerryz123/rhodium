@@ -22,8 +22,8 @@ inst core(RV2Wide(CacheConfig(64, 2), ~chi: config))
 Existing SoC selections remain unchanged:
 
 ```sh
-make -C sims simulator SOC=mini-rv2wide-rv64imacb
-make -C sims isa-smoke SOC=simple-rv2wide-rv64imacb
+SOC=mini-rv2wide-rv64imacb moon run rhodium:local-simulator
+SOC=simple-rv2wide-rv64imacb moon run rhodium:sim-isa-smoke-test
 ```
 
 ## Public contract

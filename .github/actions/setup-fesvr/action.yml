@@ -11,7 +11,7 @@ runs:
       id: inputs
       uses: ./.github/actions/product-input
       with:
-        product: fesvr-library
+        task: rhodium:hash--fesvr-library
     - name: Cache Spike and FESVR
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
@@ -19,4 +19,4 @@ runs:
         key: "${{ runner.os }}-${{ runner.arch }}-fesvr-${{ steps.inputs.outputs.key }}"
     - name: Install and verify Spike and FESVR
       shell: bash
-      run: make -C sims setup
+      run: moon run rhodium:setup-fesvr

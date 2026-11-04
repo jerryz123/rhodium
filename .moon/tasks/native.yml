@@ -1,0 +1,172 @@
+# Owns focused native execution and local checks over Moon-produced artifacts.
+# SPDX-License-Identifier: Apache-2.0
+tasks:
+  local-model:
+    command: bash tools/build/local.sh model
+    inputs: ["tools/build/local.sh"]
+    options: { cache: false }
+  local-act-config:
+    command: bash tools/build/local.sh act-config
+    inputs: ["tools/build/local.sh"]
+    options: { cache: false }
+  chi-dpi-memory-test:
+    script: |
+      set -e
+      "$PWD/.rhodium-cache/moon/native/chi_dpi_memory_dpi_test"
+    deps: [build-chi-dpi-test]
+    inputs: ["chi/tests/chi_dpi_memory_dpi_test.cc", "chi/subordinate/dpi/**/*"]
+    options: &native-options { cache: false, unixShell: bash, runInCI: false }
+  tiled-lowering-test:
+    script: |
+      set -e
+      "${CIRCT_OPT:-$PWD/.tools/firtool-1.155.0/bin/circt-opt}" --canonicalize --cse "$PWD/.rhodium-cache/moon/tiled/soc_harness.mlir" -o /dev/null
+    deps: [emit-tiled]
+    inputs: ["socs/tiled-soc/**/*"]
+    options: &racket-options { cache: false, unixShell: bash, mutex: racket-cache }
+  spike-lowering-test:
+    script: |
+      set -e
+      "${CIRCT_OPT:-$PWD/.tools/firtool-1.155.0/bin/circt-opt}" --canonicalize --cse "$PWD/.rhodium-cache/moon/spike/spike.mlir" -o /dev/null
+    deps: [emit-spike]
+    inputs: ["cores/spike/tests/emit.rhm", "@group(core--spike)", "@group(backend--circt)"]
+    options: *racket-options
+  sail-cosim-test:
+    script: |
+      set -e
+      identity=$(python3 riscv/patched_submodule.py identity --repository "$PWD" --submodule riscv/sail-riscv --series "${SAIL_PATCH_SERIES:-riscv/sail-riscv-patches/series}")
+      build="${COSIM_BUILD_DIR:-${PREBUILT_COSIM_DIR:-$PWD/.rhodium-cache/sail-cosim/sail-0.20.3-$identity}}"
+      ctest --test-dir "$build" --output-on-failure
+    deps: [build-cosim-tests]
+    inputs: ["@group(cosim)", "@group(patches)", "@group(fesvr-runtime)"]
+    options: *native-options
+  sail-cosim-vector-test:
+    script: |
+      set -e
+      identity=$(python3 riscv/patched_submodule.py identity --repository "$PWD" --submodule riscv/sail-riscv --series "${SAIL_PATCH_SERIES:-riscv/sail-riscv-patches/series}")
+      build="${COSIM_BUILD_DIR:-${PREBUILT_COSIM_DIR:-$PWD/.rhodium-cache/sail-cosim/sail-0.20.3-$identity}}"
+      COSIM_VECTOR_RECORDS="$build/vector-records.txt" FIXTURE=rv5stage-cosim-vector bash tools/testing/circt/run.sh --simulate-only
+      "$build/vector_checker_test" "$build/vector-records.txt"
+    deps: [build-cosim-vector-test, racket-cache]
+    inputs: ["@group(cosim)", "@group(patches)", "@group(fesvr-runtime)", "@group(core--rv5stage)", "@group(backend--circt)"]
+    options: *racket-options
+  sail-cosim-config-test:
+    script: |
+      set -e
+      config="${COSIM_CONFIG_DIR:-$PWD/.rhodium-cache/sail-config-test}"
+      identity=$(python3 riscv/patched_submodule.py identity --repository "$PWD" --submodule riscv/sail-riscv --series "${SAIL_PATCH_SERIES:-riscv/sail-riscv-patches/series}")
+      build="${COSIM_BUILD_DIR:-${PREBUILT_COSIM_DIR:-$PWD/.rhodium-cache/sail-cosim/sail-0.20.3-$identity}}"
+      "$build/sail_soc_config_test" "$config/sail.json" "$config/manifest.json"
+    deps: [build-cosim-config-test]
+    inputs: ["@group(cosim)", "@group(patches)", "@group(soc-config)"]
+    options: *racket-options
+  sail-config-adapter-test:
+    command: python3 -m unittest discover -s sims/tests -p test_sail_config.py
+    inputs: ["sims/sail/**/*", "sims/tests/test_sail_config.py"]
+    options: *native-options
+  soc-config-test:
+    script: |
+      set -e
+      tools/run-racket-tests.sh socs/tests/boot-test.rhm socs/tests/description-test.rhm \
+        socs/tests/single-core-system-params-test.rhm socs/tests/single-core-rv5stage-soc-test.rhm \
+        socs/tests/single-core-spike-soc-test.rhm socs/tests/soc-selection-test.rhm \
+        socs/tests/config-test.rhm socs/tests/udb-test.rhm socs/tests/mini-rv5stage-soc-test.rhm \
+        socs/tests/main-memory-test.rhm socs/tests/tiled-rv5stage-soc-layout-test.rhm \
+        socs/tests/tiled-rv5stage-soc-compile-test.rhm
+      bash socs/tests/run-device-tree.sh
+    deps: ["racket-cache"]
+    inputs: ["socs/**/*", "@group(language)", "@group(library)"]
+    options: *racket-options
+  perfetto-native-test:
+    script: |
+      set -e
+      mkdir -p "${BUILD_DIR:-/tmp/rhodium-perfetto-build}"
+      "$PWD/.rhodium-cache/moon/trace/event-perfetto-test" "${BUILD_DIR:-/tmp/rhodium-perfetto-build}"
+    deps: [trace-test-binaries]
+    inputs: ["rheg/**/*", "@group(patches)"]
+    options: *native-options
+  wrapper-lint:
+    script: |
+      set -e
+      "${VERILATOR:-verilator}" --lint-only --top-module double_wide_openframe_project_wrapper -DUSE_POWER_PINS \
+        -Wno-fatal -Wno-DECLFILENAME -Wno-UNUSEDSIGNAL -Wno-PINCONNECTEMPTY \
+        vlsi/build/rhodium-top.sv vlsi/verilog/rtl/double_wide_openframe_project_wrapper.v
+    deps: ["wrapper-contract"]
+    inputs: ["vlsi/verilog/**/*"]
+    options: *native-options
+  lvs-wrapper-lint:
+    script: |
+      set -e
+      "${VERILATOR:-verilator}" --lint-only --top-module rhodium_lvs_smoke -DUSE_POWER_PINS \
+        -Wno-fatal -Wno-DECLFILENAME -Wno-UNUSEDSIGNAL -Wno-PINCONNECTEMPTY \
+        vlsi/build/rhodium-top.sv vlsi/verilog/rtl/rhodium_lvs_smoke.v
+    deps: ["wrapper-rtl"]
+    inputs: ["vlsi/verilog/**/*"]
+    options: *native-options
+  macro-rtl-lint:
+    script: |
+      set -e
+      model="${SKY130_SRAM_MODEL:-${PDK_ROOT:-$HOME/.ciel}/${PDK:-sky130A}/libs.ref/sky130_sram_macros/verilog/sky130_sram_2kbyte_1rw1r_32x512_8.v}"
+      test -f "$model"
+      "${VERILATOR:-verilator}" --lint-only --timing --top-module MiniRV5StageSoC \
+        -Wno-fatal -Wno-DECLFILENAME -Wno-UNUSEDSIGNAL -Wno-PINCONNECTEMPTY -Wno-UNOPTFLAT \
+        vlsi/build/mini-rv5stage-soc/mini-rv5stage-soc.sv vlsi/build/mini-rv5stage-soc/memory-wrappers.sv "$model"
+    inputs: ["vlsi/**/*", "sram/**/*"]
+    deps: [physical-macro-rtl]
+    options: *racket-options
+  mapped-run:
+    script: |
+      set -eo pipefail
+      source vlsi/sim/build-env.sh
+      test -f "${BINARY:?BINARY must name an ELF}"
+      read -r -a htif <<< "${HTIF_ARGS:-}"
+      read -r -a args <<< "${TARGET_ARGS:-}"
+      "$build/obj/VTestDriver" "${htif[@]}" "$BINARY" "${args[@]}"
+    deps: [compile-mapped-simulator]
+    inputs: ["vlsi/sim/**/*", "@group(harness-runtime)"]
+    options: *native-options
+  sim-trace-smoke:
+    script: |
+      set -eo pipefail
+      export TRACE=1 RTL_BACKEND=circt
+      : "${TRACE_PROCESSOR:?TRACE_PROCESSOR must name the native Perfetto importer}"
+      : "${TRACE_FILE:?}"
+      bash tools/build/local.sh simulator
+      source sims/run-env.sh
+      case "$RHODIUM_SOC" in
+        *-rv2wide-*|*-rv3wide-*)
+          RHODIUM_PAYLOAD=cosim-smoke moon run rhodium:local-payload--cosim-smoke
+          "$simulator" "${trace_args[@]}" "${htif_args[@]}" "$payload_dir/cosim-smoke.elf"
+          bash sims/tests/check-rv2wide-trace.sh "$TRACE_FILE"
+          ;;
+        simple-rv5stage-rva23)
+          RHODIUM_PAYLOAD=smoke moon run rhodium:local-payload--smoke
+          "$simulator" "${trace_args[@]}" "${htif_args[@]}" "$payload_dir/smoke.elf"
+          bash sims/tests/check-event-trace.sh "$TRACE_FILE"
+          bash sims/tests/check-event-driver.sh "$simulator" "$payload_dir/smoke.elf"
+          ;;
+        *) echo 'Unsupported trace smoke selection' >&2; exit 2 ;;
+      esac
+    inputs: ["sims/run-env.sh", "sims/tests/*trace*", "sims/tests/*.sql"]
+    options: *native-options
+  sim-opensbi-run:
+    script: |
+      source sims/run-env.sh
+      firmware="${OPENSBI_OUTPUT:-${OPENSBI_BUILD_ROOT:-/tmp/rhodium-software}/$RHODIUM_SOC/opensbi}/fw_jump.elf"
+      test -f "$firmware"
+      test -f "${NEXT_STAGE:?NEXT_STAGE must be linked at the OpenSBI handoff address}"
+      "$simulator" "${uart_args[@]}" "+max-cycles=${OPENSBI_MAX_CYCLES:-50000000}" "+payload=$NEXT_STAGE" "$firmware"
+    deps: ["local-simulator"]
+    inputs: ["sims/run-env.sh", "sims/opensbi/**/*"]
+    options: *native-options
+  litmus-full-report:
+    script: |
+      set -e
+      selection=(--soc "${SOC:-tiled4core}" --isa "${ISA:-}")
+      if [[ -n ${CORE:-} ]]; then selection+=(--core "$CORE"); fi
+      axes=$(python3 socs/configs/selection.py "${selection[@]}")
+      read -r shape core isa <<< "$axes"
+      output="${LITMUS_FULL_DIR:-${PROGRAM_BUILD_ROOT:-/tmp/rhodium-program-tests}/$shape-$core-$isa/litmus-full}"
+      python3 sims/program-test/report-shards.py --manifest "$output/manifest.json" \
+        --results-dir "$output/results" --shard-count "${LITMUS_FULL_SHARD_COUNT:-1}" --output "$output/full-summary.json"
+    inputs: ["sims/program-test/report-shards.py", "socs/configs/selection.py"]
+    options: *native-options

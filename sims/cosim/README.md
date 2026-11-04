@@ -13,7 +13,7 @@ See [DEVELOPING.md](DEVELOPING.md) for ownership and maintenance.
 The hook collector needs only CMake and a C++20 compiler:
 
 ```sh
-make -C sims cosim-hooks-test
+moon run rhodium:native-check--cosim-hooks-test
 ```
 
 Use the repository's [simulation prerequisites](../README.md), plus CMake,
@@ -22,8 +22,8 @@ Linux hosts the installer downloads the compiler; elsewhere set
 `SAIL_COMPILER` to its executable.
 
 ```sh
-make -C sims setup arch-test-sail-setup
-make -C sims sail-cosim-test
+moon run rhodium:setup-fesvr rhodium:build-sail
+moon run rhodium:sail-cosim-test
 ```
 
 These targets do not require a SoC or ISA selection. They validate the library
@@ -33,11 +33,11 @@ Sail configurations and retain compact scalar/vector checker regressions.
 Build and run the first end-to-end scalar workload through the normal FESVR loader:
 
 ```sh
-make -C sims cosim-smoke SOC=mini-rv5stage-rv64imacb
-make -C sims cosim-smoke SOC=simple-rv5stage-rv64imacb
-make -C sims isa-smoke SOC=mini-rv5stage-rv64imacb COSIM=1 PROGRAM_BUILD_ROOT=/tmp/rhodium-cosim-programs
-make -C sims isa-smoke SOC=simple-rv5stage-rv64imacb COSIM=1 PROGRAM_BUILD_ROOT=/tmp/rhodium-cosim-programs
-make -C sims run SOC=mini-rv5stage-rv64imacb COSIM=1 BINARY=/absolute/path/to/program.elf
+SOC=mini-rv5stage-rv64imacb moon run rhodium:sim-cosim-smoke
+SOC=simple-rv5stage-rv64imacb moon run rhodium:sim-cosim-smoke
+SOC=mini-rv5stage-rv64imacb COSIM=1 PROGRAM_BUILD_ROOT=/tmp/rhodium-cosim-programs moon run rhodium:sim-isa-smoke-test
+SOC=simple-rv5stage-rv64imacb COSIM=1 PROGRAM_BUILD_ROOT=/tmp/rhodium-cosim-programs moon run rhodium:sim-isa-smoke-test
+SOC=mini-rv5stage-rv64imacb COSIM=1 BINARY=/absolute/path/to/program.elf moon run rhodium:sim-run
 ```
 
 `COSIM=1` selects the observation pass and native checker, not an HDL-generator
@@ -145,7 +145,7 @@ remain visible as failures in those existing lanes.
 
 Mini/Simple RV2Wide's `rva23`, `rv32int`, `rv32max`, `rv64max`, `rv64imacb`, and `rv64imafdcb` configurations reuse the same Sail
 configuration, collector, and FESVR lifecycle. Enable a local checked build with
-`make -C sims boot-test isa-smoke SOC=mini-rv2wide-rv64imacb COSIM=1`.
+`SOC=mini-rv2wide-rv64imacb COSIM=1 moon run rhodium:sim-boot-test rhodium:sim-isa-smoke-test`.
 The observer admits both successful WB slots in age order. Accepted load,
 multiply, and divide owners retain their identities until their actual RF
 writes; completion does not retire the instruction again. Replays and
@@ -362,8 +362,8 @@ ACT and co-simulation use identical hart settings with separate environments.
 Generate and initialize a real config with:
 
 ```sh
-make -C sims sail-cosim-config-test SOC=mini-rv5stage-rv32int
-make -C sims sail-cosim-config-test SOC=simple-rv5stage-rva23
+SOC=mini-rv5stage-rv32int moon run rhodium:sail-cosim-config-test
+SOC=simple-rv5stage-rva23 moon run rhodium:sail-cosim-config-test
 ```
 
 `sail-cosim-config` generates artifacts without building the adapter. Both targets

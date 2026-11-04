@@ -79,7 +79,7 @@ def origin():
 def runtime(binary, kind, metadata):
     binary = Path(binary).resolve()
     files = ['sims/program-test/execution.py', f'sims/{"program-test" if kind == "native" else "arch-test"}/run.py',
-             'sims/Makefile', 'sims/config.mk', f'sims/{"program-test" if kind == "native" else "arch-test"}/Makefile.inc',
+             '.moon/tasks/execution.yml', 'sims/run-env.sh',
              f'.github/workflows/ci-{"software" if kind == "native" else "arch"}.yml']
     if kind == 'arch':
         files += ['sw/riscv-arch-test/run_tests.py', 'sims/arch-test/shard.py']

@@ -30,7 +30,7 @@ package README defines the public contract; the example demonstrates it.
 2. Give every modified documentation or source file its required purpose
    comment and keep the example import path public.
 3. Add the example to the matching catalog section in [README.md](README.md)
-   and to the owning example target in the root [`Makefile`](../Makefile).
+   and to the owning example group in [Moon tests](../.moon/tasks/tests.yml).
 4. If the example exports an elaborated program, add or update its manifest entry
    in [`../tools/testing/circt/run.sh`](../tools/testing/circt/run.sh). Generic
    circuit generators need an explicit elaboration before they can own one exact
@@ -66,13 +66,13 @@ Run the narrow group named in the [example guide](README.md#run-the-examples).
 Useful maintenance checks are:
 
 ```sh
-make check-example-verilog
-make examples
+moon run rhodium:check-example-verilog
+moon run rhodium:examples
 ```
 
-`make check-example-verilog` checks reference exports and backend-manifest
-coverage without invoking CIRCT. `make examples` runs every non-formal example;
-the Rosette-backed group remains separate as `make examples-formal`.
+`moon run rhodium:check-example-verilog` checks reference exports and backend-manifest
+coverage without invoking CIRCT. `moon run rhodium:examples` runs every non-formal example;
+the Rosette-backed group remains separate as `moon run rhodium:examples-formal`.
 
 When author-visible compiler behavior changes, run its owning frontend or core
 test. When emitted hardware behavior changes, run the smallest applicable

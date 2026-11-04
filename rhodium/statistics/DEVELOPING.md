@@ -32,9 +32,9 @@ and consumers together rather than adding format versions or compatibility paths
 ```sh
 tools/run-racket-tests.sh rhodium/statistics/tests/statistics-test.rhm
 python3 tools/testing/rsim/run.py --fixture statistics
-make -C sims simulation-runtime-test
+moon run rhodium:native-check--simulation-runtime-test
 python3 sims/tests/check-statistics.py --backend circt --build .rhodium-cache/statistics-tests
-make check-boundaries
+moon run rhodium:check-boundaries
 ```
 
 The host checks cover immutable source metadata, descriptors, and rejected uses;

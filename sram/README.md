@@ -127,7 +127,7 @@ python3 sram/map-memories.py selected.mlir \
 Add `--pdk-root /path/to/pdk` when the mapper should verify that every selected
 macro's catalogued Verilog, LEF, GDS, Liberty, and SPICE path exists. The
 checked-in [MiniRV5StageSoC policy](../vlsi/designs/mini-rv5stage-soc/sky130/sram-map.yaml) and
-its Makefile-owned pipelines are concrete examples; use them instead of
+its [Moon pipelines](../.moon/tasks/physical-build.yml) are concrete examples; use them instead of
 copying their site or macro lists here.
 
 ## Inputs and artifacts
@@ -179,9 +179,9 @@ Contributor plugin, mapper, wrapper, and schema validation is documented in
 
 Consumer-specific validation belongs with each consumer:
 
-- [`make -C vlsi mini-rv5stage-soc-memory-map`](../vlsi/README.md#stage-2-map-and-synthesize-minisoc-memories)
+- [`moon run rhodium:generate-physical-memory-wrappers`](../vlsi/README.md#stage-2-map-and-synthesize-minisoc-memories)
   verifies the direct-top MiniRV5StageSoC manifest and installed PDK collateral.
-- [`make -C vlsi/sim mapping`](../vlsi/sim/README.md)
+- [`moon run rhodium:memory-map`](../vlsi/sim/README.md)
   verifies the same logical policy when scoped through `SoCHarness` and uses
   checked-in functional models rather than signoff views.
 

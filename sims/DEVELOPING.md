@@ -45,8 +45,8 @@ owns the public entry-point contract.
 
 Each `(SOC, CORE, ISA)` selection has an isolated default rsim build directory.
 Explicit CIRCT and direct SV append `-circt` and `-verilog`; instrumentation
-adds its existing suffix afterward. CI publishes an exact-commit simulator and
-target descriptor for each build variant. All enrolled configs use rsim with
+adds its suffix afterward. CI publishes an exact-commit simulator with a copy
+of the SoC's target descriptor for each variant. All enrolled configs use rsim with
 their existing workload selection. Each RTL core's Simple RVA23 CIRCT variant runs smoke,
 boot, host MMIO, UART, and ISA smoke; the direct-SV variant runs smoke, host MMIO,
 and UART. Backend variants stay outside the architectural inventory.
@@ -77,7 +77,7 @@ not a second config inventory or a separate cosim build/test loop.
 The host selection layer now uses `socs/configs/resolve.rhm` for hardware,
 software target descriptions, and UDB. `emit-soc-harness.rhm` and
 `program-test/write-target.rhm` require an explicit third ISA selector (the
-target writer also accepts a complete config key). `config.mk` delegates Make selector validation to the shared dependency-light
+target writer also accepts a complete config key). Moon's local build entry points delegate selector validation to the shared dependency-light
 `socs/configs/selection.py` and gives hardware, software, and attestations the same canonical
 shape-core-ISA identity. There is no ISA default. Spike runtime configuration
 includes exact vector geometry, and its ACT/UDB projection preserves its own
@@ -109,9 +109,37 @@ never in circuit definitions. CI uses `simulator_id` for artifact identity and b
 `soc` for the unchanged hardware/software target, and `backend` to select
 backend-specific tests. Backend variants stay out of architectural
 config, ACT, benchmark, and OpenSBI inventories. Every software, ACT, and platform
-consumer carries the default backend explicitly through attestation and Make;
+consumer carries the default backend explicitly through attestation and Moon;
 changing the default must not silently alter its workload or co-sim selection. Direct event tracing is not
 supported.
+
+[model_inputs.py](model_inputs.py) owns the source groups selected by a shape,
+core, backend, and instrumentation mode. Moon consumes these groups.
+When adding an emitter, dynamically loaded harness, or non-module file read during
+emission (such as the rsim bits header), update its selection here. Scope by what
+can change the emitted hardware, not every core imported by the config dispatcher.
+Moon tracks individual emission inputs and their membership; adding or removing
+an input invalidates a warm model. Native compilation and linker dependencies
+belong to their Moon stages. To inspect the selection,
+run `moon task rhodium:emit--simple-rv2wide-rva23--rsim--cosim-stats --json`
+and inspect its expanded `inputFiles` and `inputGlobs`.
+
+Moon owns software-builder invocation and explicit installation in
+[`software.yml`](../.moon/tasks/software.yml) and
+[`setup.yml`](../.moon/tasks/setup.yml), plus execution and suite prerequisites in
+[`execution.yml`](../.moon/tasks/execution.yml),
+[`native.yml`](../.moon/tasks/native.yml), and the configured families in
+[`catalog.py`](../tools/ci/catalog.py).
+`run-env.sh` resolves the selected artifact paths and verifies the exact simulator
+identity; it never builds or substitutes a missing artifact. The build graph is in
+[`simulator-build.yml`](../.moon/tasks/simulator-build.yml),
+[`native-build.yml`](../.moon/tasks/native-build.yml), and the configured catalog.
+Keep Make/Ninja only inside generated compiler trees or upstream projects.
+Hosted build jobs execute upstream Moon stages; consumer jobs skip their already
+staged producers. Harness jobs execute only their direct payload and simulator
+verification tasks, or no prerequisites when consuming a shared bound ELF.
+Pass execution overrides through the environment, not trailing Make arguments.
+
 Direct RTL can retain unsigned comparisons against zero and type bounds after
 parameter specialization. Permit the additional `UNSIGNED` and `CMPCONST`
 Verilator warnings for that route, retaining the existing simulator lint policy
@@ -121,7 +149,7 @@ The default `RTL_BACKEND=rsim` route selects `rsim_sv_target` without
 changing harness elaboration. `emit-soc-harness.rhm --backend rsim` requires
 `--output-directory <dir>` for `SoCHarness.hpp`, `SoCHarness.cpp`,
 `SoCHarness_bridge.cpp`, and optional `rsim-bits.hpp`; stdout remains the SV
-wrapper with config provenance. The Make rule passes both generated C++
+wrapper with config provenance. The Moon compilation stage passes both generated C++
 sources to Verilator alongside the unchanged `TestDriver.v` and native adapters.
 Missing required model/bridge companions trigger a fresh emission. Tracing
 remains CIRCT-only. CI keeps the full existing workload selection on rsim.
@@ -149,7 +177,7 @@ sets its own defaults. Preserve command-line overrides, including flags with spa
 
 `tools/ci/policy.py` owns the shared simulator `opt_fast` setting and backend smoke
 variants, including per-variant cycle and wall-clock bounds.
-The simulator workflow passes the optimization override explicitly to Make; its harness phase uses the
+The simulator workflow passes the optimization override through Moon's environment; its harness phase uses the
 attested prebuilt binary, bounds execution, and uploads per-target logs even on
 failure. Keep these variants outside `test-configs.txt` and the ACT, benchmark,
 and platform-test inventories. Validate changes by rebuilding and running the
@@ -160,8 +188,8 @@ the owner of runner-specific compiler, memory, and timeout validation.
 
 | Concern | Owner |
 |---|---|
-| Build graph, tools, variants, and artifacts | [`Makefile`](Makefile) |
-| Required ISA selection and canonical Make artifact identity | [`config.mk`](config.mk) |
+| Build graph, tools, variants, and artifacts | [Moon stages](../.moon/tasks/simulator-build.yml) and [configured families](../tools/ci/catalog.py) |
+| Required ISA selection and compiler work paths | [`build-env.sh`](build-env.sh), backed by [`selection.py`](../socs/configs/selection.py) |
 | Shared dynamic harness emitter | [`emit-soc-harness.rhm`](emit-soc-harness.rhm) |
 | Shared external-memory single-core execution harness | [`single-core-soc-harness.rhdl`](single-core-soc-harness.rhdl) |
 | Distinct internal-RAM and tiled harness circuits | [`mini-soc-harness.rhdl`](mini-soc-harness.rhdl), [`tiled-soc-harness.rhdl`](tiled-soc-harness.rhdl) |
@@ -256,7 +284,7 @@ ranking PCs. Use full descriptor labels, not visual leaf names or decoded
 mnemonics, to select retirement. Reject explicit shared tracks mixing retirement
 with other transfers because the importer cannot recover that distinction.
 Keep effective next-PC accuracy separate from RAS-action mismatches and raw BTB
-hit rate. `make -C sims branch-prediction-test` exercises the query and reporting
+hit rate. `moon run rhodium:native-check--branch-prediction-test` exercises the query and reporting
 contracts with standard-library SQLite/CSV fixtures and runs in native CI.
 For RTL capture changes, run the instrumented `rv2wide-fetch` oracle and real
 `trace-smoke` with native Perfetto; the RV5Stage retirement-trace fixture owns
@@ -306,8 +334,7 @@ an absent model archive and an archive-only library update when changing this ru
 Run the real smoke with native importer validation:
 
 ```sh
-make -C sims trace-smoke SOC=simple-rv5stage-rva23 TRACE_FILE=/tmp/single-core-rv5stage-soc.pftrace \
-  TRACE_PROCESSOR=/path/to/native/trace_processor_shell
+SOC=simple-rv5stage-rva23 TRACE_FILE=/tmp/single-core-rv5stage-soc.pftrace TRACE_PROCESSOR=/path/to/native/trace_processor_shell moon run rhodium:sim-trace-smoke
 ```
 
 `tests/check-event-trace.sh` requires request and returned-data traffic and checks
@@ -428,7 +455,7 @@ transaction distinction when checking expected traffic.
 
 ### Other simulation contracts
 
-The ACT flow is included from `arch-test/Makefile.inc`.
+The ACT flow is declared in [act-build.yml](../.moon/tasks/act-build.yml).
 `arch-test/write-platform.rhm` resolves the selected config once and writes its
 implementation-specific UDB alongside generated `platform.json`.
 `arch-test/platform.rhm` derives the payload RAM window and entry point from
@@ -450,11 +477,11 @@ tests for the upstream runner; preserve cached reference intermediates.
 Reference/harness limitations remain distinct from core extension support;
 extend and validate the projection as newly selected suites expose gaps.
 
-`arch-test-source` copies the clean upstream checkout into the build root and
+`act-source` copies the clean upstream checkout into the build root and
 applies the ordered series under
 [`../sw/riscv-arch-test-patches/`](../sw/riscv-arch-test-patches/) with
 the shared RISC-V patched-submodule materializer.
-`arch-test-sail-setup` uses the same materializer for the pristine
+`build-sail` uses the same materializer for the pristine
 [`../riscv/sail-riscv/`](../riscv/sail-riscv/) gitlink and its
 [`patch series`](../riscv/sail-riscv-patches/series). The Sail 0.16 emulator
 is built locally with compiler 0.20.3 and installed under an identity-keyed
@@ -464,7 +491,7 @@ submodule, and changing its gitlink or patch bytes changes the emulator path.
 Cache and package identity use the gitlink, ordered patches, and compiler
 version, not the emulator's release string alone. The installed executable and
 embedded library must come from the same source identity.
-`arch-test-tests` copies the handwritten inventory from that materialized tree
+`act-generate` copies the handwritten inventory from that materialized tree
 and populates it with the canonical `testgen` command. Vector assembly is not
 checked into the upstream test tree, so it must be generated through this same
 path instead of a separate generator or manual prerequisite. Keep the pinned
@@ -499,7 +526,7 @@ optional LR/SC exception encoding and clears H-only delegation bits when H is
 disabled in UDB.
 Upstream Sail gates writes through both `mie.SGEIE` and its `hie.SGEIE` alias
 when GEILEN is zero, matching the forced-zero `mideleg.SGEIP` bit. Keep the
-positive GEILEN case writable. `arch-test-sail-test` compiles a small CSR probe
+positive GEILEN case writable. `sail-alias-check` compiles a small CSR probe
 and checks both configurations against the patched model; the RVA23 ACT shards
 then exercise generated reference signatures against the DUT.
 The shared projection now maps `MCOUNTINHIBIT_IMPLEMENTED` and the exact
@@ -572,14 +599,14 @@ selection and required Sail 0.16 check unchanged; refresh dependencies against
 ACT's lockfile before generation. The platform provides both external-interrupt
 macro aliases used by the native M-mode helpers.
 
-Run `make -C sims arch-test-adapter-test program-test-adapter-test` for
+Run `moon run rhodium:native-check--arch-test-adapter-test rhodium:adapter--program` for
 architectural projection, target configuration, and ELF memory-range checks
 using system Python without ACT dependencies. Run
-`make -C sims litmus-setup litmus-adapter-test` separately for pinned memory-model
-outcomes, and `make -C sims opensbi-adapter-test` for firmware layout checks.
+`moon run rhodium:litmus-setup rhodium:adapter--litmus` separately for pinned memory-model
+outcomes, and `moon run rhodium:adapter--opensbi` for firmware layout checks.
 Validate generation, caching, artifact handoff, and runner changes through the
 actual build and execution path, not mocked tools or workflow-text tests. With ACT
-installed, run `make -C sims arch-test SOC=simple-rv5stage-rva23` to generate and execute all applicable
+installed, run `SOC=simple-rv5stage-rva23 moon run rhodium:sim-arch-test` to generate and execute all applicable
 tests; the architecture-test CI lane uses this same target. When changing the driver, also run the existing smoke
 and exercise a small `+max-cycles` timeout. See the
 [operator guide](README.md#architectural-certification-tests) for setup and
@@ -591,7 +618,7 @@ root Racket compilation manifest so configuration generation can reuse CI byteco
 
 ### LR/SC system validation
 
-`make -C sims lrsc-test SOC=simple-rv5stage-rva23`, `SOC=mini-rv5stage-rva23`, and `SOC=tiled8core-rv5stage-rva23` complement the
+`SOC=simple-rv5stage-rva23 moon run rhodium:sim-lrsc-test`, `SOC=mini-rv5stage-rva23`, and `SOC=tiled8core-rv5stage-rva23` complement the
 [full-core progress matrix](../cores/rv5stage/DEVELOPING.md#ziccrse-progress-gate).
 `tests/programs/lrsc.S` runs six constrained-loop placements, covering
 LR.W/SC.W and LR.D/SC.D at aligned, cross-line/page, and page-boundary starts. Each
@@ -685,8 +712,8 @@ library sources. No upstream benchmark-source patches are used. The complete
 bounded native-RVV inventory follows the SKL shape/ISA policy, shared ELF build,
 archive/binding, normal attested runner, and cosim flow. Keep workload selection,
 single-worker adaptation, and C++/TLS startup in `sw/`; this layer owns only the
-generated target and execution limits. Use `highway-elfs`, `highway-test`, and
-`highway-run` rather than a separate benchmark execution path.
+generated target and execution limits. Use `highway-elfs`, `sim-highway-test`, and
+`sim-highway-run` rather than a separate benchmark execution path.
 
 Target-native benchmark builds are the default. `baseline` is an explicit
 comparison mode, not an alternative hardware capability claim. Keep the target
@@ -724,7 +751,7 @@ shape/ISA so every core exercises the same capability-filtered selection.
 All RTL cores' enrolled Mini/Simple configs enable Sail cosimulation on the
 ordinary simulator; Tiled remains non-cosim for both.
 All Tiled configs additionally own the focused upstream multihart benchmark selection. The
-Make targets and CI select only eight participating harts, retaining all three
+Moon tasks and CI select only eight participating harts, retaining all three
 workloads without repeating them at smaller hart counts. The
 adapter materializes a private build-tree view of the pinned benchmark sources
 for each supported two-, four-, or eight-hart run, changes only the copied
@@ -762,7 +789,7 @@ producer publishes its exact-commit simulator and shared target descriptor befor
 its own harness starts; no harness waits for unrelated simulator builds.
 `ci-simulator.yml` runs both phases on the same runner, verifies the simulator,
 and binds shared ELFs to its exact target without downloading that simulator again.
-`isa-smoke-run` and `tiled-mt-benchmark-run` execute without a software builder;
+`sim-isa-smoke-run` and `sim-tiled-mt-benchmark-run` execute without a software builder;
 their original build-and-run targets remain available locally. Standalone smoke,
 MMIO, boot, and UART payloads still use the compiler. Missing prebuilt artifacts
 are errors, never permission to regenerate them. Native DPI/transport,
@@ -796,38 +823,50 @@ build group while every selected SoC/suite retains its execution shards. Build j
 archives; their caches are keyed by the group and software inputs rather than
 the simulator config. `sw/build/bind.py` validates each archive against the
 execution job's downloaded target and writes its separate run manifest.
-`isa-run`, `benchmark-run`, `coremark-run`, `coremark_scalar-run`, `embench-run`,
-and `bringup-run` run that manifest through the ordinary attested simulator
+`sim-isa-run`, `sim-benchmark-run`, `sim-coremark-run`, `sim-coremark_scalar-run`, `sim-embench-run`,
+and `sim-bringup-run` run that manifest through the ordinary attested simulator
 without invoking a builder. The corresponding `*-test` targets still build and
 run for local use. Run jobs preserve all suite limits and workload coverage;
 they attempt every successfully published group even if another build failed.
-`--group-runs` bundles selected short ISA, benchmark, CoreMark, scalar CoreMark,
-and Embench suites per exact simulator. Only those suites' archives are downloaded,
+The `targets` job bundles selected short ISA, benchmark, and Embench suites per
+exact simulator. Only those suites' archives are downloaded,
 and each is bound and run independently. Later suites still run after a failure;
 the job then reports failure. Per-suite result paths and whole-ELF performance
 identities are unchanged, even when several suites share one diagnostic artifact.
+CoreMark and scalar CoreMark each have an independent run per selected simulator;
+their shared ELF producers and moon execution are described in the
+[CI guide](../tools/testing/DEVELOPING.md).
 Bringup-Bench builds its entire bounded upstream inventory once per compatible
 group, then expands execution to four deterministic shards for every eligible
 config. Each shard uses two workers; neither coverage nor sharding depends on
 core identity. Keep the shard count in `tools/ci/policy.py`, fan-out after build
 grouping in `tools/ci/programs.py`, and runner arguments in
-`program-test/Makefile.inc`. Separate result paths and artifact names preserve
+the [Moon execution recipes](../.moon/tasks/execution.yml). Separate result paths and artifact names preserve
 all shard diagnostics. Local execution defaults to one shard unless explicitly
 partitioned with `PROGRAM_SHARD_INDEX` and `PROGRAM_SHARD_COUNT`.
 Software-target and ELF-layout checks run once in the native job. The root CI
-workflow exposes separate ISA, short-suite, Bringup-Bench, SKL, and Highway
+workflow exposes separate ISA, short-suite, CoreMark, Bringup-Bench, SKL, and Highway
 producer dependencies through `ci-program-builds.yml`. Each config's native
 execution depends on its own simulator and only its selected workload group;
 it does not wait for other simulators or long-suite builds.
 Platform tests use the same grouping/archive/binding machinery:
-the root `platform-plan` groups the shared targets by software requirements,
+the same `targets` job groups platform requests by software requirements,
 `ci-platform-builds.yml` compiles each compatible group, and `ci-platform.yml`
 executes each config. OpenSBI and litmus have separate producer dependencies.
-ACT generation in `ci-arch-build.yml` starts independently of simulator builds;
+The native descriptor writer and ACT platform writer depend on the same
+[configuration inputs](../socs/configs/inputs.py), including mixed modules that
+define configuration values. Moon generates one descriptor per SoC in
+`.rhodium-cache/program-targets/<soc>.json`, independent of backend, instrumentation
+and simulator build root. Local archive preparation copies it into an ELF
+snapshot; simulator publication stages it beside the binary. Neither runs a second writer for an
+up-to-date descriptor. Prebuilt simulators consume their staged descriptor without
+modifying it. Datapath-only edits do not invalidate the producer. ACT produces its own platform, UDB
+and Sail configuration without reading a native descriptor. ACT generation in
+`ci-arch-build.yml` starts independently of simulator builds;
 each `ci-arch.yml` shard matrix waits only for its matching simulator and ACT
 generator. Adding a software-tested config also requires its explicit root
 dependency edges; the stable gate rejects a selected config omitted there.
-`litmus-smoke-run` and `opensbi-smoke-run` consume existing bound manifests;
+`sim-litmus-smoke-run` and `sim-opensbi-run-suite` consume existing bound manifests;
 neither depends on a builder. The OpenSBI test entry carries a checksum-bearing
 auxiliary `payload`, passed through FESVR's existing `+payload` option; BootROM
 provides the runtime DTB. Keep firmware relocation validation in the
@@ -851,7 +890,7 @@ boot, host MMIO, UART PTY, and ISA smoke.
 
 Simple RV32Int/RV32Max use these same width-selected platform payloads on every core,
 but the external-memory shape runs the full applicable upstream ISA inventory
-with `isa-test`. Keep architectural selection identical while preserving
+with `sim-isa-test`. Keep architectural selection identical while preserving
 RV5Stage's pipelined multiplier and larger queues/caches. The core-independent
 CI inventory includes all eight configs. Their ISA and ACT lanes retain
 the same shape/ISA selection policy; selecting a lane does not claim ACT validation.
@@ -1013,7 +1052,7 @@ performance result: performance-only failures are importable, functional
 failures and incomplete results are not. CI uploads measurements on failure as
 well as success, with no separate collection mode.
 
-Validate counter changes with `make -C sims simulation-runtime-test`, including
+Validate counter changes with `moon run rhodium:native-check--simulation-runtime-test`, including
 delayed drain, transient exit, and failed finalization. Validate execution and
 baseline-policy changes through a real affected ELF run, not synthetic runner
 or workflow-text tests. Run `git diff --check` after baseline/doc changes.
@@ -1067,35 +1106,33 @@ Execution evidence is separate from generated ELF caching and follows the
 Run host binding checks with:
 
 ```sh
-make -C sims dpi-compile-check \
-  VERILATOR_ROOT="$(verilator -V | sed -n 's/^ *VERILATOR_ROOT *= *//p' | head -1)"
-make -C sims chi-dpi-memory-test \
-  VERILATOR_ROOT="$(verilator -V | sed -n 's/^ *VERILATOR_ROOT *= *//p' | head -1)"
-make -C sims transport-test
+VERILATOR_ROOT="$(verilator -V | sed -n 's/^ *VERILATOR_ROOT *= *//p' | head -1)" moon run rhodium:build-dpi-objects
+VERILATOR_ROOT="$(verilator -V | sed -n 's/^ *VERILATOR_ROOT *= *//p' | head -1)" moon run rhodium:chi-dpi-memory-test
+moon run rhodium:native-check--transport-test
 ```
 
 Check the tiled harness through CIRCT with:
 
 ```sh
-make -C sims tiled-lowering-test SOC=tiled8core-rv5stage-rva23
+SOC=tiled8core-rv5stage-rva23 moon run rhodium:tiled-lowering-test
 ```
 
 Run the end-to-end execution path for each supported system with:
 
 ```sh
-make -C sims smoke SOC=simple-rv5stage-rva23
-make -C sims smoke SOC=simple-spike-rva23
-make -C sims smoke SOC=mini-rv5stage-rva23
-make -C sims smoke SOC=tiled8core-rv5stage-rva23
-make -C sims host-mmio-test SOC=simple-rv5stage-rva23
-make -C sims host-mmio-test SOC=mini-rv5stage-rva23
-make -C sims host-mmio-test SOC=tiled8core-rv5stage-rva23
-make -C sims boot-test SOC=simple-rv5stage-rva23
-make -C sims boot-test SOC=mini-rv5stage-rva23
-make -C sims boot-test SOC=tiled8core-rv5stage-rva23
-make -C sims uart-pty-test SOC=simple-rv5stage-rva23
-make -C sims uart-pty-test SOC=mini-rv5stage-rva23
-make -C sims uart-pty-test SOC=tiled8core-rv5stage-rva23
+SOC=simple-rv5stage-rva23 moon run rhodium:sim-smoke
+SOC=simple-spike-rva23 moon run rhodium:sim-smoke
+SOC=mini-rv5stage-rva23 moon run rhodium:sim-smoke
+SOC=tiled8core-rv5stage-rva23 moon run rhodium:sim-smoke
+SOC=simple-rv5stage-rva23 moon run rhodium:sim-host-mmio-test
+SOC=mini-rv5stage-rva23 moon run rhodium:sim-host-mmio-test
+SOC=tiled8core-rv5stage-rva23 moon run rhodium:sim-host-mmio-test
+SOC=simple-rv5stage-rva23 moon run rhodium:sim-boot-test
+SOC=mini-rv5stage-rva23 moon run rhodium:sim-boot-test
+SOC=tiled8core-rv5stage-rva23 moon run rhodium:sim-boot-test
+SOC=simple-rv5stage-rva23 moon run rhodium:sim-uart-pty-test
+SOC=mini-rv5stage-rva23 moon run rhodium:sim-uart-pty-test
+SOC=tiled8core-rv5stage-rva23 moon run rhodium:sim-uart-pty-test
 ```
 
 FESVR's write-data wrapper retains lane placement, masks, and packet-position
@@ -1135,7 +1172,7 @@ it owns PTY/file I/O, while the simulator owns argument policy. The generic
 workload runner selects stdout logging so UART bytes enter its existing log,
 output checks, and execution evidence. Include this output mode in run/evidence
 identities. Validate transport changes with `devices/tests/run-uart-dpi-cpp.sh`,
-`make -C sims simulation-runtime-test`, and a real UART/OpenSBI run. Runtime
+`moon run rhodium:native-check--simulation-runtime-test`, and a real UART/OpenSBI run. Runtime
 fixtures link the production UART model, including the statistics-only harness.
 
 `transport-test` exercises the pinned FESVR `memif_t` path, exact-width and zero
@@ -1176,7 +1213,7 @@ normal FESVR flow. Its final signature also lets FESVR read the dirty cache
 line coherently after the program exits:
 
 ```sh
-make -C sims zicboz-test SOC=simple-rv5stage-rva23
+SOC=simple-rv5stage-rva23 moon run rhodium:sim-zicboz-test
 ```
 
 `zihintntl-test` runs `tests/programs/zihintntl.S` through the RV5Stage

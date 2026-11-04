@@ -138,7 +138,7 @@ public commands and completions at all DAT widths. `cache-compack` checks
 exact refill residency boundaries and last-packet event ownership in both
 line engines through stalls, reordered packets, ROM reads, and pending reset.
 Include the composed RV5Stage or SoC owner when configuration or
-external endpoint integration changes. Run `make check-boundaries` after
+external endpoint integration changes. Run `moon run rhodium:check-boundaries` after
 moving modules or changing dependency direction. The [rsim guide](../../../tools/testing/rsim/README.md)
 owns direct C++ invocation; the [HDL guide](../../../tools/testing/circt/DEVELOPING.md)
 owns emission-sensitive fixture modes.

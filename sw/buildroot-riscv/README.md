@@ -15,11 +15,11 @@ the [upstream manual](https://buildroot.org/downloads/manual/manual.html#require
 Use the repository's usual simulator setup, then:
 
 ```sh
-make -C sims linux-setup
-make -C sims linux-elfs SOC=simple-spike-rva23
+moon run rhodium:linux-setup
+SOC=simple-spike-rva23 moon run rhodium:linux-elfs
 ```
 
-`linux-elfs` builds without running; `linux-smoke-run` runs an existing manifest
+`linux-elfs` builds without running; `sim-linux-run` runs an existing manifest
 without building software. Select `simple-rv5stage-rva23` or
 `simple-rv2wide-rva23` for RTL, using the normal simulator options. The intended
 initial qualification order is Spike, RV5Stage, then RV2Wide.
@@ -54,7 +54,7 @@ macOS can generate descriptors and simulate a Linux-built bundle. On
 the Mac, generate the execution inputs:
 
 ```sh
-make -C sims program-target SOC=simple-spike-rva23
+SOC=simple-spike-rva23 moon run rhodium:local-target
 ```
 
 Transfer the generated descriptor to the Linux build host and use
@@ -74,8 +74,7 @@ Bind and run with the existing artifact flow:
 python3 sw/build/bind.py --manifest /absolute/path/bundle/manifest.json \
   --target /absolute/path/execution/program-target.json \
   --output /absolute/path/bundle/run-manifest.json
-make -C sims linux-smoke-run SOC=simple-spike-rva23 \
-  PROGRAM_MANIFEST=/absolute/path/bundle/run-manifest.json
+SOC=simple-spike-rva23 PROGRAM_MANIFEST=/absolute/path/bundle/run-manifest.json moon run rhodium:sim-linux-run
 ```
 
 Each simulator provides its own canonical hardware DTB at boot.

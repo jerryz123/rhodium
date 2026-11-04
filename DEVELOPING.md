@@ -17,7 +17,7 @@ boundary. Install the pinned CIRCT release when backend lowering or generated
 SystemVerilog is in scope:
 
 ```sh
-make setup-circt
+moon run rhodium:setup-circt
 ```
 
 Keep generated Racket bytecode, CIRCT output, SystemVerilog, Verilator builds,
@@ -111,10 +111,10 @@ New original source and documentation files must carry
 after any mandatory first line and the file-specific purpose comment. Preserve
 a different SPDX identifier and its notices when modifying separately licensed
 material. Exact license and notice texts without a comment syntax are exempt
-from the source-header requirement. Run `make check-license-headers` to check
+from the source-header requirement. Run `moon run rhodium:check-license-headers` to check
 the tracked-file inventory. CI runs that complete check, while the supplied
 pre-commit hook checks the exact staged contents through
-`make check-license-headers-staged`.
+`moon run rhodium:check-license-headers-staged`.
 
 ## Preserve the architecture
 
@@ -126,7 +126,7 @@ semantics must be preserved by verification and every backend.
 The authoritative implementation graph, package responsibilities, and audited
 direct-dependency inventories are in
 [`rhodium/DEVELOPING.md`](rhodium/DEVELOPING.md). Do not add a reverse import to
-avoid designing the correct public boundary. Run `make check-boundaries` after
+avoid designing the correct public boundary. Run `moon run rhodium:check-boundaries` after
 moving a module or changing dependency direction.
 
 ## Make one owned change
@@ -156,9 +156,65 @@ and explains when CIRCT, Verilator, formal, or aggregate checks are useful. The
 [test developer guide](tools/testing/DEVELOPING.md) owns test placement, managed
 compiled roots, CI classification, fixtures, and checked-in artifacts.
 
-Start with the smallest owning target. Add `make check-boundaries` for package
+Start with the smallest owning target. Add `moon run rhodium:check-boundaries` for package
 movement or import changes, and use broader targets only when the change spans
 their scope.
+
+Use [Moon 2.6.5](https://github.com/moonrepo/moon/releases/tag/v2.6.5) for repository
+tests, examples, suites, and named build products.
+From a fresh checkout, generate the
+ignored catalog before invoking Moon; it constructs its graph before running a task.
+
+```sh
+python3 -m tools.ci.catalog
+moon run rhodium:check--host-hygiene
+moon run rhodium:frontend-test
+echo '{"files":["cores/superscalar/core.rhdl"]}' | moon query affected --downstream deep
+```
+
+For a configured benchmark, install the [simulator prerequisites](sims/README.md#build-a-simulator)
+and put `riscv64-unknown-elf-gcc` on `PATH`. Then prepare its software sources
+and run the named product:
+
+```sh
+moon run rhodium:coremark-setup rhodium:target--simple-rv2wide-rva23
+python3 -m tools.ci.catalog --soc simple-rv2wide-rva23
+moon run rhodium:program--simple-rv2wide-rva23--coremark
+```
+
+Repeat `--soc` to share compatible ELF builds across configurations, running each
+`rhodium:target--SOC` first. The catalog command only reads those descriptors; it
+does not build them. Refresh the descriptors and catalog after changing branches,
+inputs, pins, or SoC configuration. `python3 -m tools.ci.catalog` without options
+returns to the base graph; it needs neither descriptors nor a guest
+toolchain for host checks. Local runs need no CI environment variables.
+Invoke Moon directly from the repository root, with configuration options in the
+environment. Multiple targets enter one Moon graph. Moon owns test inventories,
+commands, and suite dependencies in
+[`.moon/tasks/tests.yml`](.moon/tasks/tests.yml), while
+[`.moon/tasks/checks.yml`](.moon/tasks/checks.yml) assigns hosted coverage.
+Setup commands live in [`.moon/tasks/setup.yml`](.moon/tasks/setup.yml), and
+software-builder recipes live in [`.moon/tasks/software.yml`](.moon/tasks/software.yml).
+Use the managed Racket wrappers or fixture runners for individual files or fixtures.
+Simulator execution templates
+live in [`.moon/tasks/execution.yml`](.moon/tasks/execution.yml); native binary
+checks and local physical lint live in
+[`.moon/tasks/native.yml`](.moon/tasks/native.yml). Moon owns descriptor emission,
+RTL lowering, native objects/archives/links, firmware stages, SRAM mapping, physical
+flows, and test aggregation. The `*-build.yml` task files declare those stages;
+[`catalog.py`](tools/ci/catalog.py) instantiates configured model and workload families.
+Make/Ninja remain only inside upstream builds and compiler-generated Verilator/CMake
+trees. Build-time artifact integrity checks remain with their producer.
+
+Moon caches portable stage outputs beneath `.rhodium-cache/moon/`. Simulator
+compiler work directories retain the existing `BUILD_ROOT` (default
+`/tmp/rhodium-sims`): cache misses reuse their object files, and cached emission is
+copied only when bytes differ. Publication verifies or records the exact simulator
+identity and stages its descriptor. Do not cache entire compiler trees or place
+Moon output declarations at absolute external paths. Physical outputs remain under
+`vlsi/build/`; CMake retains its incremental SRAM and co-simulation build trees.
+The [CI ownership guide](tools/testing/DEVELOPING.md#ci-ownership)
+explains how hosted selection and artifact handoffs differ.
 
 Documentation-only changes require, at minimum, purpose-header, path, anchor,
 code-fence, Mermaid-structure, and `git diff --check` validation. Confirm every

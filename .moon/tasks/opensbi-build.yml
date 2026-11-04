@@ -1,0 +1,34 @@
+# Builds OpenSBI layout, upstream firmware, and smoke payload as independent Moon tasks.
+# SPDX-License-Identifier: Apache-2.0
+tasks:
+  opensbi-layout:
+    script: |
+      source sw/build/opensbi-env.sh
+      "$python" sw/build/opensbi.py layout --target "$software_target" --output "$stage/layout.json"
+    env: { RHODIUM_BUILD_SUBDIR: opensbi }
+    inputs: ["sw/build/opensbi-env.sh", "sw/build/moon-env.sh", "sw/build/opensbi.py"]
+    # Descriptor resolution also supports external archives and runtime-selected
+    # local targets. This cheap stage always refreshes the layout; consumers hash it.
+    options: { cache: false }
+  opensbi-firmware:
+    script: |
+      source sw/build/opensbi-env.sh
+      extra=()
+      if [[ -n ${OPENSBI_LLVM:-} ]]; then extra=(--llvm "$OPENSBI_LLVM"); fi
+      "$python" sw/build/opensbi.py firmware --layout "$stage/layout.json" \
+        --patches "${OPENSBI_PATCHES:-$repo_dir/sw/opensbi-patches/series}" --source "${OPENSBI_SOURCE:-$repo_dir/sw/opensbi}" \
+        --compiler "$compiler" --output "$output" "${extra[@]}"
+    env: { RHODIUM_BUILD_SUBDIR: opensbi }
+    inputs: ["@group(build--opensbi)", "sw/build/opensbi-env.sh"]
+    options: { cache: false }
+  opensbi-smoke-elf:
+    script: |
+      source sw/build/opensbi-env.sh
+      "$python" sw/build/opensbi.py smoke --layout "$stage/layout.json" --source sims/opensbi/tests/smoke.S \
+        --linker sims/opensbi/tests/smoke.ld --compiler "$compiler" --output "$stage/opensbi_smoke.elf"
+    env: { RHODIUM_BUILD_SUBDIR: opensbi }
+    inputs: ["sw/build/opensbi-env.sh", "sw/build/opensbi.py", "sims/opensbi/tests/smoke.*", "@group(compiler)", "${RHODIUM_OPENSBI_STAGE}/layout.json"]
+    checks:
+      - check: fingerprint
+        script: '${RISCV_CC:-riscv64-unknown-elf-gcc} --version'
+    options: { cache: false }

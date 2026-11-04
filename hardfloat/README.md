@@ -281,7 +281,7 @@ are documented in
 From the repository root, run the complete focused package validation with:
 
 ```sh
-make hardfloat-test
+moon run rhodium:hardfloat-test
 ```
 
 This target uses rsim and the C++20 compiler used by the repository test

@@ -82,7 +82,10 @@ do not hash the nondeterministic Herd timing lines.
 The tiled smoke and full profiles both require this litmus7 path. Smoke names
 live in `litmus-riscv-baremetal/smoke-cases.txt`; the builder validates every
 name against the current target-filtered inventory instead of silently
-dropping unsupported cases. Full selects that entire inventory and records all
+dropping unsupported cases. The hosted archive request uses the same
+[smoke profile](build/litmus_smoke.py) as the builder. Before packaging or
+binding, check the actual case names and each case's requested samples, not
+only the declared build fingerprint. Full selects that entire inventory and records all
 build failures with `--keep-going`. The smoke file is a coverage and runtime
 selection, not a pass list: preserve known failure reproducers when changing it.
 Its 64 cases cover basic ordering and dependency/fence variants, same-address
@@ -91,7 +94,7 @@ Keep one shared selection for all tiled cores; expanding this list does not
 change the separate sample-count or hart-placement policy.
 CI checks out herdtools7 at its workflow-pinned commit, installs its separate
 `aslref` library into the pinned OCaml switch, and then builds litmus7 and herd7.
-The Make targets require explicit executables for local use.
+Moon's software recipes require explicit executable paths for local use.
 Compile litmus7 support code for the selected target's scalar base extensions,
 plus Zalasr when advertised, so compiler-generated vector or other optional
 instructions do not confound the memory-model workload. This changes neither
@@ -158,8 +161,19 @@ initializes firmware-owned HTIF reset without a synthetic device-tree node, whil
 console selection discovers the DT-described UART. ACT's UDB/Sail platform
 configuration and its DUT runner likewise remain in `sims/arch-test/`.
 
-Simulator-owned build targets pass a generated descriptor and explicit source,
-port, patch, compiler, and output paths to these builders. Keep both CoreMark
+The [Moon software recipes](../.moon/tasks/software.yml) pass a generated descriptor
+and explicit source, port, patch, compiler, and output paths to these builders.
+Local tasks and shared-archive producers inherit the same recipe. Named CI
+products fix their build options; interactive tasks retain environment overrides.
+[`build/moon-env.sh`](build/moon-env.sh) resolves paths and validates archive
+requests before compilation, then packages the builder's completed manifest.
+It does not choose commands or dependencies. Moon owns descriptor emission, ACT
+preparation/generation/configuration, and the OpenSBI layout/firmware/payload
+pipeline. Make remains inside upstream software builds; compiler-generated
+Make/Ninja trees retain their incremental object compilation. Setup and checkout
+initialization live in [Moon setup](../.moon/tasks/setup.yml)
+and are explicit operations, not implicit dependencies of every build.
+Keep both CoreMark
 variants and all bounded workload profiles unchanged during path-only moves;
 do not infer suite selection from prior pass status.
 
@@ -194,7 +208,7 @@ own hardware DTB; firmware copies it to RAM and applies normal fixups. The
 kernel configuration owns the smoke command line, including its 128 MiB limit.
 
 Run `python3 -m unittest discover -s sw/tests` for target projection changes,
-and `make -C sims program-target SOC=simple-spike-rva23` for descriptor changes.
+and `SOC=simple-spike-rva23 moon run rhodium:local-target` for descriptor changes.
 CI's build-only Linux producer compiles on x86 Linux, packages the ordinary
 manifest archive, extracts it, and binds it to each compatible Simple RVA23
 descriptor. Buildroot owns the toolchain; the producer installs no simulator or
@@ -236,9 +250,11 @@ rebuilding the compiler. GCC and G++ must match the pinned runtime source versio
 The existing toolchain cache owns the installed result.
 Do not change the SoC RAM map or add libc symbol overrides to accommodate
 medlow archives.
-All toolchain-dependent CI caches include both installer scripts. SKL also
-records and hashes the compiler-selected `libc.a`, `libm.a`, and `libgcc.a`, so
-replacing a runtime without changing the GCC version invalidates its ELF cache.
+All toolchain-dependent CI caches include both installer scripts. SKL and Highway use
+[`native_toolchain`](build/program_target.py) for both their build keys and Moon's
+archive lookup. It probes CMake and hashes the compiler-selected `libc.a`, `libm.a`,
+and `libgcc.a`. Highway also probes G++ and its two C++ runtime libraries. Replacing
+a runtime without changing the compiler version invalidates both cache layers.
 Keep upstream sources pristine. The manifest declares execution-only mode;
 Sail cosim checks architectural execution in the RTL CI jobs, not SKL numerical
 accuracy. Plain Spike and non-cosim RTL runs provide execution smoke coverage.
@@ -391,7 +407,7 @@ Follow the repository's [source documentation requirements](../AGENTS.md#source-
 including the exemption for files under `tests/`.
 
 Advance `riscv-arch-test` on upstream's `act4` development branch and stage
-the new gitlink before `make -C sims arch-test-setup`, which initializes the
+the new gitlink before `moon run rhodium:arch-test-setup`, which initializes the
 index-recorded revision. Keep its checkout pristine. Rebase only the remaining
 downstream contracts in `riscv-arch-test-patches/`; prefer landed upstream
 generators and fixes over retaining a second implementation.
@@ -417,15 +433,15 @@ Run the focused software-target, ELF-layout, and architectural-projection checks
 
 ```sh
 python3 -m unittest discover -s sw/tests
-make -C sims program-test-adapter-test arch-test-adapter-test opensbi-adapter-test
-make check-license-headers check-boundaries
+moon run rhodium:adapter--program rhodium:native-check--arch-test-adapter-test rhodium:adapter--opensbi
+moon run rhodium:check-license-headers rhodium:check-boundaries
 ```
 
 Build recipes, caches, artifact reuse, and runner orchestration have no separate
 test suites. Validate those changes through the actual affected build and
 execution path. For moved upstreams or ports, initialize their new submodule
-paths and build representative ELFs with the existing `make -C sims ...-elfs` or
-`...-firmware` targets. Execute at least one workload and OpenSBI validation
+paths and build representative ELFs with the Moon software producers such as `rhodium:coremark-elf` or
+`rhodium:opensbi-elfs--firmware`. Execute at least one workload and OpenSBI validation
 on each affected SoC to validate the load and completion boundary. The
 [simulator guide](../sims/README.md) owns those commands and generated-artifact
 locations. Keep source, patch, port, compiler, and target identity in each

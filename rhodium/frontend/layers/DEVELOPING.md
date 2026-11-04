@@ -300,10 +300,10 @@ Then select the checks required by the change:
 
 - Run `bash rhodium/frontend/tests/run-negative.sh` after changing diagnostics,
   annotations, or static-information rejection.
-- Run `make check-boundaries` after changing imports, moving machinery, adding a
+- Run `moon run rhodium:check-boundaries` after changing imports, moving machinery, adding a
   layer, or changing profile composition.
-- Run `make lop-test` after changing the curated or base profile surface.
-- Run `make frontend-test` for changes to shared layer or support machinery.
+- Run `moon run rhodium:lop-test` after changing the curated or base profile surface.
+- Run `moon run rhodium:frontend-test` for changes to shared layer or support machinery.
 - Run the focused backend fixture when the elaborated core operation sequence or
   type shape changes.
 

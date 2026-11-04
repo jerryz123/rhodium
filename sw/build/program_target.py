@@ -106,6 +106,40 @@ def readelf_for(compiler):
     return readelf
 
 
+def native_toolchain(suite, cc, target):
+    """Identify the tools and target-selected runtimes that build a native ELF."""
+    def tool(name):
+        path = shutil.which(name)
+        if not path:
+            raise ValueError(f'{suite}: executable not found: {name}')
+        return path, subprocess.check_output([path, '--version'], text=True)
+
+    compiler, version = tool(cc)
+    identity = dict(compiler=compiler, compiler_version=version)
+    stamp = Path(compiler).parent.parent / '.archive-sha256'
+    if stamp.is_file():
+        identity['toolchain_archive'] = stamp.read_text().strip()
+    if suite not in ('skl', 'highway'):
+        return identity
+    identity['cmake'], identity['cmake_version'] = tool('cmake')
+    flags = ['-O3', '-mcmodel=medany', '-ffunction-sections', '-fdata-sections', '-fno-common', '-fno-pie',
+             f'-march={target["march"]}', f'-mabi={target["mabi"]}']
+    driver = compiler
+    libraries = ['libc.a', 'libm.a', 'libgcc.a']
+    if suite == 'highway':
+        driver, identity['cxx_version'] = tool(compiler.removesuffix('gcc') + 'g++')
+        identity['cxx'] = driver
+        libraries += ['libstdc++.a', 'libsupc++.a']
+    runtimes = {}
+    for name in libraries:
+        path = Path(subprocess.check_output([driver, *flags, f'-print-file-name={name}'], text=True).strip())
+        if not path.is_absolute() or not path.is_file():
+            raise ValueError(f'{suite}: the selected compiler has no {name} runtime library')
+        path = path.resolve()
+        runtimes[name] = dict(path=str(path), sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+    return dict(identity, flags=flags, runtime_libraries=runtimes)
+
+
 def objdump_for(compiler):
     candidate = str(compiler).removesuffix('gcc') + 'objdump'
     objdump = shutil.which(candidate)

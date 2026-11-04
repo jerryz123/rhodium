@@ -15,7 +15,7 @@ Linux uses SBI services, not the HTIF mailboxes. The UART's DT `current-speed`
 matches its reset divisor of one (6.25 Mbaud at 100 MHz) and the default
 simulation receiver. No DTB is embedded in firmware.
 
-Use `make -C sims opensbi-test SOC=simple-spike-rva23` from the repository
+Use `SOC=simple-spike-rva23 moon run rhodium:sim-opensbi-test` from the repository
 root. The ordinary workload runner selects UART logging to capture console
 bytes in its test log and validate the console marker. Interactive runs can
 use the default host PTY instead. See [software development](../DEVELOPING.md) and the

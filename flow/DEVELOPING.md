@@ -224,8 +224,8 @@ compiled root automatically:
 
 ```sh
 tools/run-racket-tests.sh flow/tests/std-flow-test.rhm flow/tests/std-flow-chain-test.rhm flow/tests/std-flow-static-test.rhm
-make examples-std
-make check-boundaries
+moon run rhodium:examples-std
+moon run rhodium:check-boundaries
 ```
 
 For cycle-visible behavior, select the relevant existing fixtures:
@@ -237,7 +237,7 @@ FIXTURES='queue-options shift-queue rr-arbiter packet-rr-arbiter selective-atomi
 The [rsim test guide](../tools/testing/rsim/README.md) owns component fixture selection and
 toolchain requirements. Credited, flit, control-only, valid-only, and event
 fixtures provide additional coverage when those contracts change.
-Use `make ci-rsim-std-test` for shared-library behavior and `make ci-circt-std-test` for example Verilog references.
+Use `moon run rhodium:check--rsim-std` for shared-library behavior and `moon run rhodium:check--circt-std` for example Verilog references.
 Use `FIXTURE=event-offer bash tools/testing/circt/run.sh` for best-effort offer
 conversion and observation-gated transfer/stall lineage; its scoreboard checks exact
 current-attempt parents, rejected/replayed offers, reset, and unchanged wiring.
@@ -245,7 +245,7 @@ Preserve example-owned Verilog references unless generated hardware changes
 intentionally; a path migration should not require new references.
 
 When adding or moving source, update the dependency inventory and ensure the
-[`tools/ci/`](../tools/ci/plan.py) policy selects affected consumers.
+[moon catalog](../tools/ci/catalog.py) policy selects affected consumers.
 Compilation discovers flow transitively through the existing test and example
 entrypoints; source annotation hygiene covers the repository root. Do not add
 a second source manifest or silently drop downstream coverage.

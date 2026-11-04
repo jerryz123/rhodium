@@ -5,8 +5,14 @@
 
 Choose validation in two steps: start with the package that owns the change,
 then add only the deeper toolchain stage needed to test its observable effect.
-The root [`Makefile`](../../Makefile) defines the aggregate targets; package guides
-own narrower workflows and evolving fixture details.
+Use [the Moon quick start](../../DEVELOPING.md#validate-at-the-owning-boundary)
+to run a named check, simulator, or benchmark, or to inspect affected products.
+For CI artifact and selection rules, see [CI ownership](DEVELOPING.md#ci-ownership).
+[`tests.yml`](../../.moon/tasks/tests.yml) defines test commands and suites;
+[`checks.yml`](../../.moon/tasks/checks.yml) defines their hosted coverage.
+Package guides own narrower workflows and evolving fixture details.
+Run `moon run rhodium:<test-name>` from the repository root. Supply configuration
+options as environment variables before the command.
 
 Contributors adding or reorganizing tests should read
 [`DEVELOPING.md`](DEVELOPING.md) for placement, CI ownership, and maintenance
@@ -19,8 +25,8 @@ Rsim is the default for portable component behavior:
 ```sh
 python3 tools/testing/rsim/run.py --fixture queue
 python3 tools/testing/rsim/run.py --group cores-components
-make hardfloat-rsim-test
-make rsim-component-test
+moon run rhodium:hardfloat-rsim-test
+moon run rhodium:rsim-component-test
 ```
 
 The [rsim guide](rsim/README.md) describes fixture selection, compiler
@@ -37,36 +43,36 @@ maps those owners to aggregate commands:
 
 | Owner | Focused target |
 |---|---|
-| Rhodium core, analysis, and frontend | `make frontend-test` |
-| Standard library | `make std-test` |
-| Flow library | `make flow-test` |
-| Rhodium backend | `make backend-test` |
-| Optional formal engine | `make formal-test` |
-| Emacs mode | `make emacs-test` |
+| Rhodium core, analysis, and frontend | `moon run rhodium:frontend-test` |
+| Standard library | `moon run rhodium:std-test` |
+| Flow library | `moon run rhodium:flow-test` |
+| Rhodium backend | `moon run rhodium:backend-test` |
+| Optional formal engine | `moon run rhodium:formal-test` |
+| Emacs mode | `moon run rhodium:emacs-test` |
 
-`make frontend-test` deliberately combines core, analysis, and frontend tests,
+`moon run rhodium:frontend-test` deliberately combines core, analysis, and frontend tests,
 then exercises the intentional failures in `rhodium/frontend/tests/invalid/`. Use
-`make analysis-test` when an analysis-only change does not need that wider
-surface. `make backend-test` runs Rhombus tests for emission, diagnostics, and
+`moon run rhodium:analysis-test` when an analysis-only change does not need that wider
+surface. `moon run rhodium:backend-test` runs Rhombus tests for emission, diagnostics, and
 backend policy; it does not invoke CIRCT or Verilator.
 
 Other libraries and systems use their owning package targets:
 
 | Change area | Host or package target | Owning guide |
 |---|---|---|
-| Language-layer equivalence | `make lop-test` | [Frontend](../../rhodium/frontend/README.md) |
-| Logical diagrams | `make diagram-test` | [Diagrams](../../rhodium/diagram/README.md) |
-| Event inference and instrumentation | `make event-test` | [Event graphs](../../rhodium/event/README.md) |
-| Runtime event lineage (CIRCT/Verilator) | `make event-runtime-test` | [Event graphs](../../rhodium/event/README.md) |
-| Device-tree model and encoders | `make devicetree-test` | [Device trees](../../devicetree/README.md) |
-| RFPL views and constraints | `make rfpl-test` | [RFPL](../../rfpl/README.md) |
-| Pure NoC model and hardware planning | `make noc-test` | [NoC](../../noc/README.md) |
-| RISC-V model and instruction catalogs | `make riscv-test` | [RISC-V](../../riscv/README.md) |
-| Platform devices | `make device-test` | [Devices](../../devices/README.md) |
-| CHI protocol and invalid connections | `make chi-test` | [CHI](../../chi/README.md) |
-| SoC composition and planning | `make soc-test` | [SoCs](../../socs/README.md) |
-| HardFloat host semantics | `make hardfloat-host-test` | [HardFloat](../../hardfloat/README.md) |
-| Reusable processor components and RV5Stage | `make rv5stage-host-test` | [Cores](../../cores/README.md) and [RV5Stage](../../cores/rv5stage/README.md) |
+| Language-layer equivalence | `moon run rhodium:lop-test` | [Frontend](../../rhodium/frontend/README.md) |
+| Logical diagrams | `moon run rhodium:diagram-test` | [Diagrams](../../rhodium/diagram/README.md) |
+| Event inference and instrumentation | `moon run rhodium:event-test` | [Event graphs](../../rhodium/event/README.md) |
+| Runtime event lineage (CIRCT/Verilator) | `moon run rhodium:event-runtime-test` | [Event graphs](../../rhodium/event/README.md) |
+| Device-tree model and encoders | `moon run rhodium:devicetree-test` | [Device trees](../../devicetree/README.md) |
+| RFPL views and constraints | `moon run rhodium:rfpl-test` | [RFPL](../../rfpl/README.md) |
+| Pure NoC model and hardware planning | `moon run rhodium:noc-test` | [NoC](../../noc/README.md) |
+| RISC-V model and instruction catalogs | `moon run rhodium:riscv-test` | [RISC-V](../../riscv/README.md) |
+| Platform devices | `moon run rhodium:device-test` | [Devices](../../devices/README.md) |
+| CHI protocol and invalid connections | `moon run rhodium:chi-test` | [CHI](../../chi/README.md) |
+| SoC composition and planning | `moon run rhodium:soc-test` | [SoCs](../../socs/README.md) |
+| HardFloat host semantics | `moon run rhodium:hardfloat-host-test` | [HardFloat](../../hardfloat/README.md) |
+| Reusable processor components and RV5Stage | `moon run rhodium:rv5stage-host-test` | [Cores](../../cores/README.md) and [RV5Stage](../../cores/rv5stage/README.md) |
 
 Canonical valid authoring programs live under
 [`../examples/`](../../examples/README.md). Select the matching example group
@@ -74,19 +80,19 @@ instead of sweeping every example:
 
 | Area | Target |
 |---|---|
-| Built-in language | `make examples-rhodium` |
-| Clocking analysis | `make examples-clocking` |
-| Standard library | `make examples-std` |
-| NoC | `make examples-noc` |
-| Authoring-layer comparisons | `make examples-lop` |
-| RFPL | `make examples-rfpl` |
-| RISC-V | `make examples-riscv` |
-| CHI | `make examples-chi` |
-| Processor components | `make examples-cores` |
-| RV5Stage | `make examples-rv5stage` |
+| Built-in language | `moon run rhodium:examples-rhodium` |
+| Clocking analysis | `moon run rhodium:examples-clocking` |
+| Standard library | `moon run rhodium:examples-std` |
+| NoC | `moon run rhodium:examples-noc` |
+| Authoring-layer comparisons | `moon run rhodium:examples-lop` |
+| RFPL | `moon run rhodium:examples-rfpl` |
+| RISC-V | `moon run rhodium:examples-riscv` |
+| CHI | `moon run rhodium:examples-chi` |
+| Processor components | `moon run rhodium:examples-cores` |
+| RV5Stage | `moon run rhodium:examples-rv5stage` |
 
-`make examples` runs every non-formal example. The optional Rosette example has
-its own `make examples-formal` target. Use `make check-example-verilog` when the
+`moon run rhodium:examples` runs every non-formal example. The optional Rosette example has
+its own `moon run rhodium:examples-formal` target. Use `moon run rhodium:check-example-verilog` when the
 only question is whether example designs have valid reference exports and
 backend-manifest coverage; that check does not invoke CIRCT or Verilator.
 
@@ -117,12 +123,12 @@ published. Supplying `PLTCOMPILEDROOTS` explicitly is reserved for an external
 harness that deliberately owns and bypasses the managed cache. Cache setup and
 lock failures stop before the requested command; they never retry against an
 uncached root. Use `tools/racket-build-cache.sh status` to inspect a lock and
-`make clean-racket-cache` to discard the current worktree's project bytecode.
+`moon run rhodium:clean-racket-cache` to discard the current worktree's project bytecode.
 
 Then move to the owning target from the tables above. Add
-`make check-boundaries` after moving modules or changing dependency direction.
+`moon run rhodium:check-boundaries` after moving modules or changing dependency direction.
 These checks do not require CIRCT or Verilator. Some package targets can still
-exercise ordinary native helpers; for example, `make device-test` includes the
+exercise ordinary native helpers; for example, `moon run rhodium:device-test` includes the
 standalone UART DPI C++ check.
 
 ### External CIRCT and Verilator checks
@@ -135,14 +141,14 @@ emitters and benches. See the [CIRCT test guide](circt/README.md).
 
 | Target | External work |
 |---|---|
-| `make circt-verify-test` | Lower the curated backend spine through CIRCT without golden comparison or simulation |
-| `make circt-test` | Lower the curated spine, compare eligible references, and run available Verilator simulations |
-| `make verilator-test` | Lower and simulate the curated fixtures that have benches, without golden comparison |
-| `make verilog-golden-test` | Compare every example-backed fixture with its exact reference using the pinned CIRCT version |
-| `make circt-full-test` | Lower every backend-manifest fixture, compare all eligible references, and run every available backend-manifest simulation |
-| `make rfpl-circt-test` | Run RFPL's separately owned CIRCT and Verilog-reference fixture |
-| `make hardfloat-rsim-test` | Run HardFloat's rsim C++ fixtures |
-| `make rv5stage-test` | Run RV5Stage host checks, then its focused backend fixture set |
+| `moon run rhodium:circt-verify-test` | Lower the curated backend spine through CIRCT without golden comparison or simulation |
+| `moon run rhodium:circt-test` | Lower the curated spine, compare eligible references, and run available Verilator simulations |
+| `moon run rhodium:verilator-test` | Lower and simulate the curated fixtures that have benches, without golden comparison |
+| `moon run rhodium:verilog-golden-test` | Compare every example-backed fixture with its exact reference using the pinned CIRCT version |
+| `moon run rhodium:circt-full-test` | Lower every backend-manifest fixture, compare all eligible references, and run every available backend-manifest simulation |
+| `moon run rhodium:rfpl-circt-test` | Run RFPL's separately owned CIRCT and Verilog-reference fixture |
+| `moon run rhodium:hardfloat-rsim-test` | Run HardFloat's rsim C++ fixtures |
+| `moon run rhodium:rv5stage-test` | Run RV5Stage host checks, then its focused backend fixture set |
 
 For one backend fixture, use `FIXTURE=name`; for a small batch, use the
 space-separated `FIXTURES` selector:
@@ -163,13 +169,13 @@ MiniRV5StageSoC smoke tests are a separate external-toolchain boundary owned by 
 ### Optional formal checks
 
 Formal validation is solver-backed and remains outside ordinary host and
-the broad `make test` aggregate:
+the broad `moon run rhodium:test` aggregate:
 
 | Target | Work performed |
 |---|---|
-| `make formal-test` | Probe Rosette and Z3, then run the formal API, semantics, reachability, property, witness, and fail-closed suite |
-| `make examples-formal` | Run the optional formal example |
-| `make formal-differential-test` | Replay selected formal models independently through CIRCT and Verilator |
+| `moon run rhodium:formal-test` | Probe Rosette and Z3, then run the formal API, semantics, reachability, property, witness, and fail-closed suite |
+| `moon run rhodium:examples-formal` | Run the optional formal example |
+| `moon run rhodium:formal-differential-test` | Replay selected formal models independently through CIRCT and Verilator |
 
 The [formal guide](../../rhodium/formal/README.md) owns supported semantics,
 dependency versions, and troubleshooting.
@@ -180,12 +186,12 @@ Use aggregate targets only when the change spans their full scope:
 
 | Target | Scope |
 |---|---|
-| `make unit-test` | Core, analysis, frontend, invalid-frontend, and backend host tests |
-| `make host-checks` | Host tests, package models, protocols, cores, SoCs, and repository hygiene without the explicit example sweep |
-| `make host-test` | `host-checks` plus every non-formal example |
-| `make test` | `host-test`, all rsim component suites, the curated backend CIRCT spine, and RFPL CIRCT checks |
+| `moon run rhodium:unit-test` | Core, analysis, frontend, invalid-frontend, and backend host tests |
+| `moon run rhodium:host-checks` | Host tests, package models, protocols, cores, SoCs, and repository hygiene without the explicit example sweep |
+| `moon run rhodium:host-test` | `host-checks` plus every non-formal example |
+| `moon run rhodium:test` | `host-test`, all rsim component suites, the curated backend CIRCT spine, and RFPL CIRCT checks |
 
-`make test` is the broad repository aggregate, not an exhaustive superset. It
+`moon run rhodium:test` is the broad repository aggregate, not an exhaustive superset. It
 excludes the optional formal and Emacs suites, the full backend manifest, and
 executable SoC simulation. Run those owners explicitly when the change requires
 them.

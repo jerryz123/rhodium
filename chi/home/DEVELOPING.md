@@ -257,4 +257,4 @@ establish complete NoC or memory-controller graph coverage; consult the
 [event compiler limits](../../rhodium/event/README.md#deliberate-limits)
 when selecting partial instrumentation.
 For source moves, update direct consumers, docs, and build/CI paths, then run
-`make check-boundaries` and affected checks through repository wrappers.
+`moon run rhodium:check-boundaries` and affected checks through repository wrappers.

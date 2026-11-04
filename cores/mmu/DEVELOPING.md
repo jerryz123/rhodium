@@ -81,7 +81,7 @@ tools/run-racket-tests.sh cores/mmu/tests/mmu-test.rhm cores/rv5stage/tests/mmu-
 FIXTURES='riscv-guest-translation riscv-nested-walker riscv-svnapot riscv-svpbmt' python3 tools/testing/rsim/run.py
 FIXTURES='rv5stage-mmu-replay' python3 tools/testing/rsim/run.py
 FIXTURES='riscv-walk-trace' python3 tools/testing/rsim/run.py
-make check-boundaries
+moon run rhodium:check-boundaries
 ```
 
 Use the smallest affected subset. `riscv-guest-translation` covers cold/warm

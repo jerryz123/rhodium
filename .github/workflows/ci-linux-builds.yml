@@ -6,28 +6,27 @@ name: CI Linux image builds
 on:
   workflow_call:
     inputs:
-      matrix:
-        description: Compatible Linux image groups and their binding targets.
+      build:
+        description: Resolved ELF recipe for this fixed slot, or null when unused.
         required: true
         type: string
-
 permissions:
   contents: read
 
 jobs:
   linux-build:
-    name: Build Linux / group ${{ strategy.job-index }}
+    name: Build Linux / group ${{ fromJSON(inputs.build).soc }}
+    if: ${{ inputs.build != 'null' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 180
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(inputs.matrix) }}
     env:
-      LINUX_OUTPUT: /tmp/rhodium-linux-builds/${{ matrix.build_id }}
+      LINUX_OUTPUT: /tmp/rhodium-linux-builds/${{ fromJSON(inputs.build).build_id }}
       LINUX_DOWNLOADS: /tmp/rhodium-buildroot-downloads
     steps:
       - name: Check out Rhodium
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Set up moon workspace
+        uses: ./.github/actions/setup-moon
       - name: Install Linux build dependencies
         run: |
           sudo apt-get update
@@ -35,7 +34,7 @@ jobs:
             file wget curl git patch perl python3 gawk xz-utils bzip2 libssl-dev libncurses-dev \
             device-tree-compiler
       - name: Prepare pinned sources
-        run: make -C sims linux-setup
+        run: moon run rhodium:linux-setup
       - name: Download generated targets
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -45,42 +44,52 @@ jobs:
         id: sources
         run: |
           echo "buildroot=$(git -C sw/buildroot rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          fingerprint=$(python3 -m tools.ci.plan --fingerprint build:linux)
-          echo "inputs=$fingerprint" >> "$GITHUB_OUTPUT"
+      - name: Hash Linux build inputs
+        id: linux-inputs
+        uses: ./.github/actions/product-input
+        with:
+          task: rhodium:hash--build--linux
       - name: Cache upstream downloads only
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ env.LINUX_DOWNLOADS }}
-          key: ${{ runner.os }}-${{ runner.arch }}-buildroot-downloads-${{ steps.sources.outputs.buildroot }}-${{ steps.sources.outputs.inputs }}-${{ github.sha }}
+          key: ${{ runner.os }}-${{ runner.arch }}-buildroot-downloads-${{ steps.sources.outputs.buildroot }}-${{ steps.linux-inputs.outputs.key }}-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-buildroot-downloads-${{ steps.sources.outputs.buildroot }}-
       - name: Build Linux image and OpenSBI
         env:
-          SOC: ${{ matrix.soc }}
+          SOC: ${{ fromJSON(inputs.build).soc }}
         run: |
-          make -C sims linux-elfs SOC="$SOC" \
-            PREBUILT_PROGRAM_TARGET="$RUNNER_TEMP/linux-targets/$SOC.json" \
-            LINUX_OUTPUT="$LINUX_OUTPUT" LINUX_DOWNLOADS="$LINUX_DOWNLOADS" LINUX_JOBS=4
+          export PROGRAM_TARGETS="$RUNNER_TEMP/linux-targets"
+          python3 -m tools.ci.archives check-source "${{ fromJSON(inputs.build).build_id }}"
+          python3 -m tools.ci.catalog
+          moon run "rhodium:archive--${{ fromJSON(inputs.build).build_id }}"
+          python3 -m tools.ci.archives verify "${{ fromJSON(inputs.build).build_id }}" --archive ".rhodium-cache/moon/archives/${{ fromJSON(inputs.build).build_id }}.tar.gz"
       - name: Package and check every compatible target without booting
         env:
-          TARGETS: ${{ toJSON(matrix.targets) }}
+          TARGETS: ${{ toJSON(fromJSON(inputs.build).targets) }}
         run: |
-          python3 sims/program-test/archive.py --manifest "$LINUX_OUTPUT/manifest.json" \
-            --archive "$RUNNER_TEMP/linux-elfs/suite.tar.gz"
+          mkdir -p "$RUNNER_TEMP/linux-elfs"
+          cp ".rhodium-cache/moon/archives/${{ fromJSON(inputs.build).build_id }}.tar.gz" "$RUNNER_TEMP/linux-elfs/suite.tar.gz"
           mkdir -p "$RUNNER_TEMP/linux-extracted"
-          tar -xzf "$RUNNER_TEMP/linux-elfs/suite.tar.gz" -C "$RUNNER_TEMP/linux-extracted"
           for soc in $(jq -r '.[]' <<< "$TARGETS"); do
-            python3 sw/build/bind.py --manifest "$RUNNER_TEMP/linux-extracted/manifest.json" \
-              --target "$RUNNER_TEMP/linux-targets/$soc.json" \
-              --output "$RUNNER_TEMP/linux-extracted/$soc-manifest.json"
+            target="rhodium:linux--$soc"
+            rm -f .moon/cache/runReport.json
+            status=0
+            PROGRAM_TARGETS="$RUNNER_TEMP/linux-targets" moon run "$target" --upstream none -- \
+              --archive "$RUNNER_TEMP/linux-elfs/suite.tar.gz" \
+              --output "$RUNNER_TEMP/linux-extracted/$soc-manifest.json" || status=$?
+            python3 -m tools.ci.receipts "$target" || status=1
+            if [[ "$status" != 0 ]]; then exit "$status"; fi
           done
           echo '### Linux image build (no boot test)' >> "$GITHUB_STEP_SUMMARY"
           echo "Compatible targets: $(jq -r 'join(", ")' <<< "$TARGETS")" >> "$GITHUB_STEP_SUMMARY"
           du -h "$RUNNER_TEMP/linux-elfs/suite.tar.gz" >> "$GITHUB_STEP_SUMMARY"
+      - uses: ./.github/actions/upload-endpoints
       - name: Publish verified image bundle
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: platform-elfs-${{ matrix.build_id }}-${{ github.sha }}
+          name: platform-elfs-${{ fromJSON(inputs.build).build_id }}-${{ github.sha }}
           path: ${{ runner.temp }}/linux-elfs/suite.tar.gz
           if-no-files-found: error
           compression-level: 0
@@ -89,7 +98,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: linux-build-${{ matrix.build_id }}-${{ github.sha }}
+          name: linux-build-${{ fromJSON(inputs.build).build_id }}-${{ github.sha }}
           path: |
             ${{ env.LINUX_OUTPUT }}/manifest.json
             ${{ env.LINUX_OUTPUT }}/build.log

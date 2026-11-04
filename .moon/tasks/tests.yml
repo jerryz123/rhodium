@@ -1,0 +1,566 @@
+# Owns repository test commands, example inventories, and suite aggregation.
+# SPDX-License-Identifier: Apache-2.0
+fileGroups:
+  test-compile:
+    - "rhodium/compile/tests/*-test.rhm"
+  test-lowering:
+    - "rhodium/lowering/tests/*-test.rhm"
+  test-core:
+    - "rhodium/core/tests/*-test.rhm"
+  test-analysis:
+    - "rhodium/analysis/tests/*-test.rhm"
+  test-support:
+    - "support/tests/*-test.rhm"
+  test-devicetree:
+    - "devicetree/tests/*-test.rhm"
+  test-frontend:
+    - "rhodium/frontend/tests/*-test.rhm"
+  test-std:
+    - "rhodium/std/tests/*-test.rhm"
+  test-flow:
+    - "flow/tests/*-test.rhm"
+  test-event:
+    - "rhodium/event/tests/*-test.rhm"
+  test-statistics:
+    - "rhodium/statistics/tests/*-test.rhm"
+  test-diagram:
+    - "rhodium/diagram/tests/*-test.rhm"
+  test-backend:
+    - "rhodium/backend/tests/*-test.rhm"
+  test-formal:
+    - "rhodium/formal/tests/suite.rkt"
+  test-lop-frontend:
+    - "rhodium/frontend/tests/*equivalence-test.rhm"
+  test-lop-backend:
+    - "rhodium/backend/tests/*equivalence-test.rhm"
+  test-noc:
+    - "noc/tests/**/*-test.rhm"
+    - "noc/rtl/tests/**/*-test.rhm"
+  test-riscv:
+    - "riscv/tests/**/*-test.rhm"
+    - "riscv/rtl/tests/**/*-test.rhm"
+  test-device:
+    - "devices/tests/*-test.rhm"
+  test-chi:
+    - "chi/tests/*-test.rhm"
+  test-soc:
+    - "socs/tests/*-test.rhm"
+  test-cosim:
+    - "sims/cosim/tests/*/*-test.rhm"
+  test-hardfloat:
+    - "hardfloat/tests/*-test.rhm"
+  test-processor:
+    - "cores/**/tests/**/*-test.rhm"
+  test-rfpl:
+    - "rfpl/tests/*-test.rhm"
+  examples-rfpl-physical:
+    - "examples/rfpl/*.rfpl"
+  examples-rhodium:
+    - "examples/rtl/**/*.{rhm,rhdl}"
+  examples-clocking:
+    - "examples/clocking/**/*.{rhm,rhdl}"
+  examples-std:
+    - "examples/std/**/*.{rhm,rhdl}"
+  examples-noc:
+    - "examples/noc/**/*.{rhm,rhdl}"
+  examples-lop:
+    - "examples/lop/**/*.{rhm,rhdl}"
+  examples-rfpl-logical:
+    - "examples/rfpl/**/*.{rhm,rhdl}"
+  examples-riscv:
+    - "examples/riscv/**/*.{rhm,rhdl}"
+  examples-chi:
+    - "examples/chi/**/*.{rhm,rhdl}"
+  examples-cores:
+    - "examples/cores/**/*.{rhm,rhdl}"
+  examples-formal:
+    - "examples/formal/**/*.{rhm,rhdl}"
+  examples-rv5stage:
+    - "examples/rv5stage/**/*.{rhm,rhdl}"
+  examples:
+    - "examples/**/*.{rhm,rhdl}"
+    - "!examples/formal/**/*"
+    - "examples/rfpl/*.rfpl"
+  compile-fixtures:
+    - "devicetree/tests/write-fixture.rhm"
+    - "socs/tests/write-device-trees.rhm"
+    - "tools/write-riscv-udb-config.rhm"
+    - "**/tests/circt/emit-*.rhm"
+    - "**/tests/rsim/emit-*.rhm"
+    - "rhodium/backend/tests/verilog/emit-*.rhm"
+    - "sims/tests/*.{rhm,rhdl}"
+    - "sims/emit-*.rhm"
+    - "sims/program-test/*.rhm"
+    - "sims/arch-test/*.rhm"
+    - "tools/testing/rsim/emit.rhm"
+    - "tools/testing/circt/load-example.rhm"
+    - "tools/testing/run-negative.rkt"
+    - "noc/tests/language/run-negative.rkt"
+    - "tools/check-parameter-annotations.rkt"
+
+tasks:
+  check-boundaries:
+    script: |
+      set -e
+      bash tools/check-boundaries.sh
+      bash rfpl/check-boundaries.sh
+      bash noc/check-boundaries.sh
+      bash riscv/check-boundaries.sh
+      bash chi/check-boundaries.sh
+      bash hardfloat/check-boundaries.sh
+      bash cores/check-boundaries.sh
+      bash socs/check-boundaries.sh
+    inputs: []
+    options: { cache: false }
+  check-example-verilog:
+    command: "bash tools/check-example-verilog.sh"
+    inputs: []
+    options: { cache: false }
+  check-license-headers:
+    command: "bash tools/check-license-headers.sh"
+    inputs: []
+    options: { cache: false }
+  check-license-headers-staged:
+    command: "bash tools/check-license-headers.sh --cached"
+    inputs: []
+    options: { cache: false }
+  check-parameter-annotations:
+    command: "tools/run-racket.sh tools/check-parameter-annotations.rkt --named-only --reject-any --files-from tools/parameter-annotation-scope.txt"
+    inputs: []
+    deps: ["racket-cache"]
+    env: &test-env { PATH: "$workspaceRoot/.tools/verilator/bin:$PATH" }
+    options: &racket-options { cache: false, mutex: racket-cache, unixShell: bash }
+  support-annotation-test:
+    command: "tools/run-racket-tests.sh @files(test-support)"
+    inputs: []
+    deps: ["racket-cache"]
+    env: *test-env
+    options: *racket-options
+  devicetree-test:
+    script: |
+      set -e
+      tools/run-racket-tests.sh @files(test-devicetree)
+      bash devicetree/tests/run-dtc.sh
+    inputs: []
+    deps: ["racket-cache"]
+    env: *test-env
+    options: *racket-options
+  frontend-test:
+    script: |
+      set -e
+      tools/run-racket-tests.sh @files(test-core) @files(test-lowering) @files(test-analysis) @files(test-frontend)
+      bash rhodium/frontend/tests/run-negative.sh
+    inputs: []
+    deps: ["check-boundaries", "racket-cache"]
+    env: *test-env
+    options: *racket-options
+  analysis-test:
+    command: "tools/run-racket-tests.sh @files(test-analysis)"
+    inputs: []
+    deps: ["check-boundaries", "racket-cache"]
+    env: *test-env
+    options: *racket-options
+  std-test:
+    command: "tools/run-racket-tests.sh @files(test-std)"
+    inputs: []
+    deps: ["check-boundaries", "racket-cache"]
+    env: *test-env
+    options: *racket-options
+  flow-test:
+    command: "tools/run-racket-tests.sh @files(test-flow)"
+    inputs: []
+    deps: ["check-boundaries", "racket-cache"]
+    env: *test-env
+    options: *racket-options
+  diagram-test:
+    command: "tools/run-racket-tests.sh @files(test-diagram)"
+    inputs: []
+    deps: ["check-boundaries", "racket-cache"]
+    env: *test-env
+    options: *racket-options
+  event-test:
+    command: "tools/run-racket-tests.sh @files(test-event)"
+    inputs: []
+    deps: ["check-boundaries", "racket-cache"]
+    env: *test-env
+    options: *racket-options
+  statistics-test:
+    command: "tools/run-racket-tests.sh @files(test-statistics)"
+    inputs: []
+    deps: ["check-boundaries", "racket-cache"]
+    env: *test-env
+    options: *racket-options
+  event-runtime-test:
+    script: |
+      set -e
+      python3 tools/testing/rsim/run.py --fixture event-queue --fixture event-pipeline --fixture event-arbiter --fixture event-demux --fixture event-atomic-fork --fixture event-broadcast --fixture event-join --fixture event-stall --fixture event-offer --fixture event-retained --fixture event-window --fixture event-crossbar --fixture event-feedback --fixture event-branching --fixture event-partial --fixture event-offer-register --fixture event-parents --fixture event-instance --fixture event-retained-bank --fixture event-frontend --fixture event-home --fixture event-subordinate --fixture event-fesvr --fixture event-vector
+      FIXTURES="event-runtime event-elastic" bash tools/testing/circt/run.sh
+    inputs: []
+    deps: ["check-boundaries", "racket-cache"]
+    env: *test-env
+    options: *racket-options
+  backend-test:
+    command: "tools/run-racket-tests.sh @files(test-compile) @files(test-backend)"
+    inputs: []
+    deps: ["check-boundaries", "racket-cache"]
+    env: *test-env
+    options: *racket-options
+  rsim-test:
+    command: "python3 rhodium/backend/tests/rsim/run.py"
+    inputs: []
+    deps: ["check-boundaries", "racket-cache"]
+    env: *test-env
+    options: *racket-options
+  rsim-differential-test:
+    command: "python3 rhodium/backend/tests/rsim/run.py --differential"
+    inputs: []
+    deps: ["check-boundaries", "racket-cache"]
+    env: *test-env
+    options: *racket-options
+  verilog-test:
+    script: |
+      set -e
+      python3 rhodium/backend/tests/verilog/run.py
+      python3 rhodium/backend/tests/verilog/run-integration.py
+    inputs: []
+    deps: ["check-boundaries", "racket-cache"]
+    env: *test-env
+    options: *racket-options
+  backend-differential-test:
+    script: |
+      set -e
+      python3 rhodium/backend/tests/verilog/run.py --differential
+      python3 rhodium/backend/tests/verilog/run-integration.py --differential
+      python3 rhodium/backend/tests/rsim/run.py --differential
+    inputs: []
+    deps: ["check-boundaries", "racket-cache"]
+    env: *test-env
+    options: *racket-options
+  ci-verilog-direct-test:
+    command: noop
+    deps: ["check--verilog-direct"]
+    inputs: []
+    options: { cache: false }
+  ci-backend-differential-test:
+    command: noop
+    deps: ["check--circt-verilog-differential"]
+    inputs: []
+    options: { cache: false }
+  formal-test:
+    script: |
+      set -e
+      if ! env PLTCOLLECTS="$PWD": tools/run-racket.sh -e '(require rosette) (unless (sat? (solve (assert #t))) (error '\''formal-test "Rosette solver probe failed"))'; then
+        echo 'formal-test requires Rosette 4.0 and its Z3 4.8.8 solver; see rhodium/formal/README.md' >&2
+        exit 1
+      fi
+      tools/run-racket-tests.sh @files(test-formal)
+    inputs: []
+    deps: ["check-boundaries", "racket-cache"]
+    env: *test-env
+    options: *racket-options
+  formal-differential-test:
+    command: "bash rhodium/formal/tests/run-differential.sh"
+    inputs: []
+    deps: ["check-boundaries", "racket-cache"]
+    env: *test-env
+    options: *racket-options
+  unit-test:
+    command: noop
+    inputs: []
+    deps: ["frontend-test", "std-test", "flow-test", "event-test", "statistics-test", "diagram-test", "backend-test"]
+    options: { cache: false }
+  lop-test:
+    command: "tools/run-racket-tests.sh @files(test-lop-frontend) @files(test-lop-backend)"
+    inputs: []
+    deps: ["check-boundaries", "racket-cache"]
+    env: *test-env
+    options: *racket-options
+  rfpl-unit-test:
+    script: |
+      set -e
+      bash rfpl/check-boundaries.sh
+      tools/run-racket-tests.sh @files(test-rfpl)
+      bash rfpl/tests/run-negative.sh
+    inputs: []
+    deps: ["racket-cache"]
+    env: *test-env
+    options: *racket-options
+  rfpl-test:
+    command: noop
+    inputs: []
+    deps: ["rfpl-unit-test", "examples-rfpl"]
+    options: { cache: false }
+  rfpl-circt-test:
+    command: "bash rfpl/tests/run-circt.sh"
+    inputs: []
+    deps: ["racket-cache"]
+    env: *test-env
+    options: *racket-options
+  noc-test:
+    script: |
+      set -e
+      bash noc/check-boundaries.sh
+      tools/run-racket-tests.sh @files(test-noc)
+      bash noc/tests/language/run-negative.sh
+    inputs: []
+    deps: ["racket-cache"]
+    env: *test-env
+    options: *racket-options
+  riscv-test:
+    script: |
+      set -e
+      bash riscv/check-boundaries.sh
+      tools/run-racket-tests.sh @files(test-riscv)
+    inputs: []
+    deps: ["racket-cache"]
+    env: *test-env
+    options: *racket-options
+  device-test:
+    script: |
+      set -e
+      tools/run-racket-tests.sh @files(test-device)
+      bash devices/tests/run-uart-dpi-cpp.sh
+    inputs: []
+    deps: ["check-boundaries", "racket-cache"]
+    env: *test-env
+    options: *racket-options
+  chi-test:
+    script: |
+      set -e
+      tools/run-racket-tests.sh @files(test-chi)
+      bash chi/tests/run-negative.sh
+    inputs: []
+    deps: ["check-boundaries", "racket-cache"]
+    env: *test-env
+    options: *racket-options
+  soc-test:
+    script: |
+      set -e
+      tools/run-racket-tests.sh @files(test-soc) @files(test-cosim) sims/tests/config-test.rhm
+      bash socs/tests/run-device-tree.sh
+    inputs: []
+    deps: ["check-boundaries", "racket-cache"]
+    env: *test-env
+    options: *racket-options
+  hardfloat-host-test:
+    command: "tools/run-racket-tests.sh @files(test-hardfloat)"
+    inputs: []
+    deps: ["check-boundaries", "racket-cache"]
+    env: *test-env
+    options: *racket-options
+  hardfloat-rsim-test:
+    command: noop
+    deps: ["check--rsim-hardfloat"]
+    inputs: []
+    options: { cache: false }
+  hardfloat-test:
+    command: noop
+    inputs: []
+    deps: ["hardfloat-host-test", "hardfloat-rsim-test"]
+    options: { cache: false }
+  emacs-test:
+    command: "emacs -Q --batch -L tools/emacs -l tools/emacs/tests/rhodium-mode-test.el -f ert-run-tests-batch-and-exit"
+    inputs: []
+    options: { cache: false }
+  rv5stage-host-test:
+    command: "tools/run-racket-tests.sh @files(test-processor)"
+    inputs: []
+    deps: ["check-boundaries", "racket-cache"]
+    env: *test-env
+    options: *racket-options
+  rv5stage-test:
+    script: |
+      set -e
+      FIXTURES='rv32i-alu rv64i-alu rv64i-alu-integrated load-store load-store-rv32-word bit-manip bit-manip-rv32 iterative-multiplier iterative-divider scoreboard riscv-compressed riscv-atomic riscv-csr riscv-zihpm-rv32 riscv-zihpm-rv64 bpred-btb cache-icache fp-register-file rv5stage-fp-pipeline register-file register-file-rv32 rv5stage-divide' python3 tools/testing/rsim/run.py
+      FIXTURES='rv5stage-branch-prediction rv5stage-core rv5stage-zcb rv5stage-mop rv5stage-data-fault rv5stage-mmu-replay rv5stage-interrupt rv5stage-pause rv5stage-instruction-memory-router rv5stage-memory-router rv5stage-uncached rv5stage-io-mshr rv5stage-io-boot rv5stage-dcache rv5stage-dcache-rv32' python3 tools/testing/rsim/run.py
+      FIXTURES='rv5stage-fetch rv5stage-fetch-source rv5stage-fetch-prediction rv5stage-fetch-throughput rv5stage-multiply' python3 tools/testing/rsim/run.py
+      FIXTURES='rv5stage-retirement-trace rv5stage-load-hit rv5stage-core-rv32f rv5stage-core-rv64d rv5stage-vector-config rv5stage-vector-memory rv5stage-vector-memory-one-slot' python3 tools/testing/rsim/run.py
+    inputs: []
+    deps: ["rv5stage-host-test", "racket-cache"]
+    env: *test-env
+    options: *racket-options
+  circt-test:
+    command: "bash tools/testing/circt/run.sh"
+    inputs: []
+    deps: ["check-example-verilog", "racket-cache"]
+    env: *test-env
+    options: *racket-options
+  circt-verify-test:
+    command: "bash tools/testing/circt/run.sh --verify-only"
+    inputs: []
+    deps: ["check-example-verilog", "racket-cache"]
+    env: *test-env
+    options: *racket-options
+  verilator-test:
+    command: "bash tools/testing/circt/run.sh --simulate-only"
+    inputs: []
+    deps: ["check-example-verilog", "racket-cache"]
+    env: *test-env
+    options: *racket-options
+  circt-full-test:
+    command: "bash tools/testing/circt/run.sh --full"
+    inputs: []
+    deps: ["check-example-verilog", "racket-cache"]
+    env: *test-env
+    options: *racket-options
+  verilog-golden-test:
+    command: "bash tools/testing/circt/run.sh --golden-only"
+    inputs: []
+    deps: ["check-example-verilog", "racket-cache"]
+    env: *test-env
+    options: *racket-options
+  update-verilog-goldens:
+    script: |
+      set -e
+      bash tools/check-example-verilog.sh --allow-empty
+      bash tools/testing/circt/run.sh --update-goldens
+    inputs: []
+    deps: ["racket-cache"]
+    env: *test-env
+    options: *racket-options
+  host-checks:
+    command: noop
+    inputs: []
+    deps: ["check-license-headers", "check-parameter-annotations", "support-annotation-test", "devicetree-test", "unit-test", "rfpl-unit-test", "noc-test", "riscv-test", "device-test", "chi-test", "soc-test", "hardfloat-host-test", "rv5stage-host-test"]
+    options: { cache: false }
+  ci-host-examples-test:
+    script: |
+      set -e
+      covered=$(bash tools/testing/circt/run.sh --list-example-sources)
+      sources=()
+      for source in @files(examples); do
+        source="${source#./}"
+        case $'\n'"$covered"$'\n' in
+          *$'\n'"$source"$'\n'*) ;;
+          *) sources+=("$source") ;;
+        esac
+      done
+      tools/run-racket-tests.sh "${sources[@]}"
+    inputs: []
+    deps: ["racket-cache"]
+    env: *test-env
+    options: *racket-options
+  host-test:
+    command: noop
+    inputs: []
+    deps: ["host-checks", "examples"]
+    options: { cache: false }
+  test:
+    command: noop
+    inputs: []
+    deps: ["host-test", "rsim-component-test", "circt-test", "rfpl-circt-test"]
+    options: { cache: false }
+  sram-test:
+    command: noop
+    deps: ["sram-check"]
+    inputs: []
+    options: { cache: false }
+  examples:
+    command: "tools/run-racket-tests.sh @files(examples)"
+    inputs: []
+    deps: ["check-example-verilog", "racket-cache"]
+    env: *test-env
+    options: *racket-options
+  examples-rhodium:
+    script: |
+      set -e
+      bash tools/check-example-verilog.sh examples/rtl
+      tools/run-racket-tests.sh @files(examples-rhodium)
+    inputs: []
+    deps: ["racket-cache"]
+    env: *test-env
+    options: *racket-options
+  examples-clocking:
+    script: |
+      set -e
+      bash tools/check-example-verilog.sh examples/clocking
+      tools/run-racket-tests.sh @files(examples-clocking)
+    inputs: []
+    deps: ["racket-cache"]
+    env: *test-env
+    options: *racket-options
+  examples-std:
+    script: |
+      set -e
+      bash tools/check-example-verilog.sh examples/std
+      tools/run-racket-tests.sh @files(examples-std)
+    inputs: []
+    deps: ["racket-cache"]
+    env: *test-env
+    options: *racket-options
+  examples-noc:
+    script: |
+      set -e
+      bash tools/check-example-verilog.sh examples/noc
+      tools/run-racket-tests.sh @files(examples-noc)
+    inputs: []
+    deps: ["racket-cache"]
+    env: *test-env
+    options: *racket-options
+  examples-lop:
+    script: |
+      set -e
+      bash tools/check-example-verilog.sh examples/lop
+      tools/run-racket-tests.sh @files(examples-lop)
+    inputs: []
+    deps: ["racket-cache"]
+    env: *test-env
+    options: *racket-options
+  examples-rfpl:
+    script: |
+      set -e
+      bash tools/check-example-verilog.sh examples/rfpl
+      tools/run-racket-tests.sh @files(examples-rfpl-logical) @files(examples-rfpl-physical)
+    inputs: []
+    deps: ["racket-cache"]
+    env: *test-env
+    options: *racket-options
+  examples-riscv:
+    script: |
+      set -e
+      bash tools/check-example-verilog.sh examples/riscv
+      tools/run-racket-tests.sh @files(examples-riscv)
+    inputs: []
+    deps: ["racket-cache"]
+    env: *test-env
+    options: *racket-options
+  examples-chi:
+    script: |
+      set -e
+      bash tools/check-example-verilog.sh examples/chi
+      tools/run-racket-tests.sh @files(examples-chi)
+    inputs: []
+    deps: ["racket-cache"]
+    env: *test-env
+    options: *racket-options
+  examples-cores:
+    script: |
+      set -e
+      bash tools/check-example-verilog.sh examples/cores
+      tools/run-racket-tests.sh @files(examples-cores)
+    inputs: []
+    deps: ["racket-cache"]
+    env: *test-env
+    options: *racket-options
+  examples-formal:
+    script: |
+      if ! env PLTCOLLECTS="$PWD": tools/run-racket.sh -e '(require rosette) (unless (sat? (solve (assert #t))) (error '\''examples-formal "Rosette solver probe failed"))'; then echo 'examples-formal requires Rosette 4.0 and its Z3 4.8.8 solver; see rhodium/formal/README.md' >&2; exit 1; fi; tools/run-racket-tests.sh @files(examples-formal)
+    inputs: []
+    deps: ["check-boundaries", "racket-cache"]
+    env: *test-env
+    options: *racket-options
+  examples-rv5stage:
+    script: |
+      set -e
+      bash tools/check-example-verilog.sh examples/rv5stage
+      tools/run-racket-tests.sh @files(examples-rv5stage)
+    inputs: []
+    deps: ["racket-cache"]
+    env: *test-env
+    options: *racket-options
+  rsim-component-test:
+    command: "python3 tools/testing/rsim/run.py"
+    inputs: []
+    deps: ["racket-cache"]
+    env: *test-env
+    options: *racket-options

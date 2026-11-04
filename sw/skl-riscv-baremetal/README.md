@@ -13,14 +13,14 @@ copy. The upstream submodule stays pristine. This port supplies only the
 bare-metal CMake integration, startup, linker, and syscall boundary.
 
 ```sh
-make -C sims skl-setup
-make -C sims skl-test SOC=simple-rv5stage-rva23 COSIM=1
-make -C sims skl-test SOC=simple-rv2wide-rva23 COSIM=1
-make -C sims skl-test SOC=simple-spike-rva23
+moon run rhodium:skl-setup
+SOC=simple-rv5stage-rva23 COSIM=1 moon run rhodium:sim-skl-test
+SOC=simple-rv2wide-rva23 COSIM=1 moon run rhodium:sim-skl-test
+SOC=simple-spike-rva23 moon run rhodium:sim-skl-test
 ```
 
 Use the repository's GCC/Newlib toolchain and CMake 3.23 or newer. `skl-elfs`
-builds without simulation; `skl-run` executes an existing manifest through the
+builds without simulation; `sim-skl-run` executes an existing manifest through the
 normal simulator flow. `PROGRAM_JOBS`, `SKL_TIMEOUT` (900 seconds per suite), and `SKL_MAX_CYCLES`
 bound execution; `BUILD_JOBS` controls compilation.
 

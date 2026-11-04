@@ -25,8 +25,9 @@ supported matrix is deliberately one point: `SOC=mini-rv5stage-soc`, `TECH=sky13
 
 ## Implementation map
 
-[`Makefile`](Makefile) owns the complete implementation. Its principal stages
-are:
+[`physical-build.yml`](../../.moon/tasks/physical-build.yml) owns artifact production.
+Moon's `mapped-smoke` and `mapped-run` tasks own execution. The
+principal stages are:
 
 ```mermaid
 flowchart LR
@@ -42,8 +43,9 @@ flowchart LR
   Build --> Run["ELF execution"]
 ```
 
-The Makefile must keep the generated inventory, wrappers, manifest, RTL,
-simulator object tree, and smoke binary beneath the selected `BUILD_ROOT`.
+Keep the generated inventory, wrappers, manifest, RTL,
+cached inputs beneath `vlsi/build/sim/mini-rv5stage-soc/sky130`. The compiler
+work tree and staged smoke ELF respect `BUILD_ROOT`; unchanged inputs are not rewritten.
 Link `sims/verilator/simulation_runtime.cc` with the shared `TestDriver.v`, even
 without optional instrumentation. It supplies the generic driver lifecycle; do
 not fork the driver or duplicate cosim/tracing feature decisions here.
@@ -59,8 +61,7 @@ not fork the driver or duplicate cosim/tracing feature decisions here.
    PDK timing or physical views as a substitute for cycle semantics.
 4. Keep target loading and execution in the shared simulator stack and keep
    physical assertions in the parent VLSI flow.
-5. Add early configuration rejection, isolated artifacts, and mapping-stage
-   stamps for any expanded matrix.
+5. Add isolated artifacts and explicit Moon stage outputs for any expanded matrix.
 6. Update [README.md](README.md) when operators gain a supported configuration,
    command, variable, artifact, or debugging path.
 
@@ -69,22 +70,22 @@ not fork the driver or duplicate cosim/tracing feature decisions here.
 Validate selection, wrappers, and manifest without building the simulator:
 
 ```sh
-make -C vlsi/sim mapping
+moon run rhodium:memory-map
 ```
 
 Include CIRCT RTL lowering with:
 
 ```sh
-make -C vlsi/sim mapped-rtl
+moon run rhodium:mapped-rtl
 ```
 
 Validate the complete compiled execution path with:
 
 ```sh
-make -C vlsi/sim smoke
+moon run rhodium:mapped-smoke
 ```
 
-Compare against `make -C sims smoke SOC=mini-rv5stage-rva23` when diagnosing whether a failure
+Compare against `SOC=mini-rv5stage-rva23 moon run rhodium:sim-smoke` when diagnosing whether a failure
 belongs to shared simulation or mapping. Mapping requires CIRCT, the SRAM pass,
 Python, and Verilator; execution additionally requires FESVR and the RISC-V
 cross compiler. Generated artifacts are not checked in.

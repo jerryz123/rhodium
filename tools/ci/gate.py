@@ -1,58 +1,43 @@
 #!/usr/bin/env python3
-# Validates the stable CI gate against the planner and reusable-workflow results.
+# Validates the stable CI gate against selected Moon endpoints and static workflow results.
 # SPDX-License-Identifier: Apache-2.0
 
 import argparse
 import json
+import os
+from pathlib import Path
 
 
-def failures(plan, results):
-    required = {
-        "compile-racket": plan["run_compile"],
-        "sail": plan["run_sail"],
-        "targets": plan["run_targets"],
-        "linux-plan": plan["run_linux_build"],
-        "linux-builds": plan["run_linux_build"],
-        "native": plan["run_native"],
-        "software-checks": bool(plan['software_checks']),
-        "harness-isa": 'isa' in plan['harness_build_suites'],
-        "harness-benchmark": 'benchmark' in plan['harness_build_suites'],
-        "checks": plan["run_checks"],
-        "program-plan": plan["run_program_native"],
-        "platform-plan": bool(plan['platform_build_suites']),
-        "platform-builds-opensbi": 'opensbi' in plan['platform_build_suites'],
-        "platform-builds-litmus": 'litmus' in plan['platform_build_suites'],
-    }
-    for group, matrix in plan['simulator_groups'].items():
-        required['sim-' + group] = bool(matrix['include'])
-    for group in plan['program_build_groups']:
-        required['program-builds-' + group] = True
-    for soc, config in plan['config_jobs'].items():
-        required['sim-' + soc] = True
-        for group in config['program_groups']:
-            required['program-' + group + '-' + soc] = True
-        if config['arch']:
-            required['act-build-' + soc] = required['act-' + soc] = True
-        if config['platform']:
-            required['platform-' + soc] = True
-    problems = []
-    for job in sorted(required.keys() | results.keys()):
-        selected = required.get(job, False)
-        result = results.get(job)
-        if selected and result != "success":
-            problems.append(f"selected job {job} finished with {result}")
-        elif not selected and result not in ("success", "skipped"):
-            problems.append(f"unselected job {job} finished with {result}")
-    return problems
+def receipt_id(key):
+    # Keep hosted evidence independent of the Moon shard target spelling.
+    parent, separator, shard = key.rpartition(':shard-')
+    return f'{parent}#{shard}' if separator and shard.isdecimal() else key
+
+
+def failures(results):
+    # Static jobs may intentionally skip. Selected execution cannot disappear:
+    # receipts independently require every endpoint in Moon's selected graph.
+    return [f"job {job} finished with {result}" for job, result in sorted(results.items())
+            if result not in ('success', 'skipped') or job == 'select' and result != 'success']
+
+
+def receipt_failures(endpoints, directory):
+    actual = {json.loads(p.read_text()) for p in directory.glob("*.json")}
+    required = set(endpoints)
+    return (["missing endpoint: " + k for k in sorted(required - actual)] +
+            ["unexpected endpoint: " + k for k in sorted(actual - required)])
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("plan", help="planner JSON")
-    parser.add_argument("results", help="GitHub needs JSON for every root job")
+    parser.add_argument("selection", help="selected Moon tasks and expected receipts")
+    parser.add_argument("results", help="one job and result per line")
     args = parser.parse_args()
-    results = {job: value['result'] for job, value in json.loads(args.results).items()}
-    problems = failures(json.loads(args.plan), results)
+    results = dict(line.split() for line in args.results.splitlines() if line.strip())
+    selection = json.loads(args.selection)
+    problems = failures(results)
+    receipts = Path(os.environ["RUNNER_TEMP"]) / "endpoint-receipts"
+    problems += receipt_failures(selection["endpoints"], receipts)
     if problems:
         parser.exit(1, "\n".join(problems) + "\n")
 

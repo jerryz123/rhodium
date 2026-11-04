@@ -69,7 +69,7 @@ intended to denote the same network.
 From the repository root, run:
 
 ```sh
-make noc-test
+moon run rhodium:noc-test
 ```
 
 This target checks package boundaries, the pure model, authoring and embedded

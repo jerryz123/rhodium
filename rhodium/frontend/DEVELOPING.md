@@ -212,11 +212,11 @@ bash rhodium/frontend/tests/run-negative.sh
 
 Also run:
 
-- `make check-boundaries` after changing imports, package placement, or profile
+- `moon run rhodium:check-boundaries` after changing imports, package placement, or profile
   composition;
-- `make lop-test` after changing the foundation, standard aggregation, or a
+- `moon run rhodium:lop-test` after changing the foundation, standard aggregation, or a
   profile reader;
-- `make frontend-test` when shared kernel, support, or layer machinery changes
+- `moon run rhodium:frontend-test` when shared kernel, support, or layer machinery changes
   broadly.
 
 If a frontend change alters the core operations or types produced by existing

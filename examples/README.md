@@ -37,29 +37,29 @@ Run every non-formal example and validate the exact Verilog references selected
 for compact lowering examples:
 
 ```sh
-make examples
+moon run rhodium:examples
 ```
 
 Use an ownership target for a focused run:
 
 | Target | Directory |
 |---|---|
-| `make examples-rhodium` | [`rtl/`](rtl/) |
-| `make examples-clocking` | [`clocking/`](clocking/) |
-| `make examples-std` | [`std/`](std/) |
-| `make examples-noc` | [`noc/`](noc/) |
-| `make examples-lop` | [`lop/`](lop/) |
-| `make examples-rfpl` | [`rfpl/`](rfpl/) |
-| `make examples-riscv` | [`riscv/`](riscv/) |
-| `make examples-chi` | [`chi/`](chi/) |
-| `make examples-cores` | [`cores/`](cores/) |
-| `make examples-rv5stage` | [`rv5stage/`](rv5stage/) |
+| `moon run rhodium:examples-rhodium` | [`rtl/`](rtl/) |
+| `moon run rhodium:examples-clocking` | [`clocking/`](clocking/) |
+| `moon run rhodium:examples-std` | [`std/`](std/) |
+| `moon run rhodium:examples-noc` | [`noc/`](noc/) |
+| `moon run rhodium:examples-lop` | [`lop/`](lop/) |
+| `moon run rhodium:examples-rfpl` | [`rfpl/`](rfpl/) |
+| `moon run rhodium:examples-riscv` | [`riscv/`](riscv/) |
+| `moon run rhodium:examples-chi` | [`chi/`](chi/) |
+| `moon run rhodium:examples-cores` | [`cores/`](cores/) |
+| `moon run rhodium:examples-rv5stage` | [`rv5stage/`](rv5stage/) |
 
 The Rosette-backed formal example is intentionally separate so ordinary use
 does not require Rosette:
 
 ```sh
-make examples-formal
+moon run rhodium:examples-formal
 ```
 
 ## Compare the authoring layers
@@ -86,7 +86,7 @@ flowchart TB
 Check their structural equivalence with:
 
 ```sh
-make lop-test
+moon run rhodium:lop-test
 ```
 
 The remaining layer-of-programming examples compare specific surfaces:
@@ -197,7 +197,7 @@ syntax and semantic contracts demonstrated here.
 This example group covers both `rhodium/std` and the root-level `flow/` library.
 See the [standard-library guide](../rhodium/std/README.md) for foundations,
 decode, and storage, and the [flow guide](../flow/README.md) for streaming
-component contracts. Both remain under `examples/std` and `make examples-std`.
+component contracts. Both remain under `examples/std` and `moon run rhodium:examples-std`.
 
 #### Utilities, decode, and storage
 
@@ -312,7 +312,7 @@ for supported properties, solver setup, and limits.
 Compact examples may colocate generated-Verilog references so their readable
 output acts as part of the example. Integration-scale examples instead rely on
 elaboration, CIRCT lowering, and behavioral tests without carrying large exact
-snapshots. `make examples` checks manifest coverage and validates the references
+snapshots. `moon run rhodium:examples` checks manifest coverage and validates the references
 explicitly selected by the backend fixture manifest; it does not run CIRCT or
 Verilator.
 

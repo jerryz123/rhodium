@@ -42,7 +42,7 @@ accepts one immutable config that owns its hart binding. The contract in
 `configs/selection.rhm` owns typed shape/core/ISA selectors, canonical keys,
 and conversion from complete CLI keys. `configs/selections.tsv` is the shared
 key-to-axis contract consumed by the typed selector and dependency-light Python
-CLI. Make delegates validation to that CLI; it does not parse combined names. `configs/isa-profiles.rhm` authors pure
+CLI. Moon's local entry points delegate validation to that CLI; they do not parse combined names. `configs/isa-profiles.rhm` authors pure
 architectural presets without importing a named core. The core-profile
 factories apply independent implementation policy and reject a request they
 cannot implement exactly. `configs/resolve.rhm` supplies the selected hart,
@@ -96,7 +96,7 @@ it also narrows hart uncached endpoints to nonsnooping opcodes for the device
 Home. The memory Home includes the complete uncached endpoint so coherent
 nonallocating accesses can reach normal memory without bypassing coherence.
 Exact ICN peers are derived through CHI's `node.icn_peer()` method. Home
-parameters obtain subordinate endpoints from their services. `make check-boundaries` rejects config imports from shared code, imports between peer shapes, and named-core imports from neutral modules.
+parameters obtain subordinate endpoints from their services. `moon run rhodium:check-boundaries` rejects config imports from shared code, imports between peer shapes, and named-core imports from neutral modules.
 
 Resolved snapshots belong in `configs/metadata.rhm`: serialize architecture,
 the complete implementation profile, platform parameters, device-tree source,
@@ -121,6 +121,7 @@ in its own projection. UDB continues to own HPM event IDs and counter presence.
 | RV2Wide shape-owned scalar and RV32/RV64 vector policy | [`rv2wide-core-profile.rhm`](configs/rv2wide-core-profile.rhm), [`rv2wide.rhdl`](harts/rv2wide.rhdl) |
 | RV3Wide shape-owned policy and named hart binding | [`rv3wide-core-profile.rhm`](configs/rv3wide-core-profile.rhm), [`rv3wide.rhdl`](harts/rv3wide.rhdl) |
 | Typed config selection, architectural presets, and shared resolution | [`selection.rhm`](configs/selection.rhm), [`isa-profiles.rhm`](configs/isa-profiles.rhm), [`resolve.rhm`](configs/resolve.rhm) |
+| Source inputs that affect native and ACT configuration snapshots | [`inputs.py`](configs/inputs.py); update the appropriate shared, shape, or core group when changing how host configuration is derived. Include mixed config/RTL files conservatively, but not datapaths used only when a circuit factory is elaborated. |
 | Spike processor profile | [`spike-core-profile.rhm`](configs/spike-core-profile.rhm) |
 | Shared CHI flit profile | [`fabric-profiles.rhm`](platform/fabric-profiles.rhm) |
 | Concrete RISC-V UDB configurations | [`udb.rhm`](configs/udb.rhm) |
@@ -139,7 +140,7 @@ in its own projection. UDB continues to own HPM event IDs and counter presence.
 | Tiled time and interrupt distribution plan and RTL | [`tiled-soc/distribution-plan.rhdl`](tiled-soc/distribution-plan.rhdl), [`tiled-soc/distribution.rhdl`](tiled-soc/distribution.rhdl) |
 | Concrete tile implementations | [`tiled-soc/tiles/`](tiled-soc/tiles/) |
 | Single external memory-channel router attachment | [`tiled-soc/tiles/memory.rhdl`](tiled-soc/tiles/memory.rhdl) |
-| Focused tests | [`tests/`](tests/) and [`Makefile`](Makefile) |
+| Focused tests | [`tests/`](tests/) and `soc-config-test` in [Moon native checks](../.moon/tasks/native.yml) |
 
 The public `Tiled4Core` and `Tiled8Core` selections resolve through the same
 generic `TiledSoC` entrypoint. `tiled4core_soc_layout` supplies one row of four
@@ -193,7 +194,7 @@ its DPI memory configuration from that service and the architectural capacity.
 Run SoC configuration and topology-compilation tests from the repository root:
 
 ```sh
-make soc-test
+moon run rhodium:soc-test
 ```
 
 This target also generates native DTBs for the Mini, Single, and Tiled shapes
@@ -211,7 +212,7 @@ external interrupt inputs, M/S claim arbitration, completion, and rearming.
 
 The DTB subprocess uses `tools/run-racket.sh`: local runs rebuild changed
 dependencies, while CI reuses its verified exact-commit bytecode artifact.
-Keep this entrypoint in the root Makefile's compilation manifest.
+Keep this entrypoint in Moon's `compile-fixtures` file group.
 
 `tests/main-memory-test.rhm` checks Ziccif/Ziccamoa/Ziccrse memory-map preconditions in
 MiniRV5StageSoC, SingleCoreRV5StageSoC, and TiledSoC. Cacheable regions must be coherent HN-F RAM
@@ -230,7 +231,7 @@ owns the fetch, AMO, and coherence datapath checks and their coverage limits.
 Use the package-local target while iterating:
 
 ```sh
-make -C socs config-test
+moon run rhodium:soc-config-test
 ```
 
 For tiled streaming adapters, run the focused behavioral fixtures:

@@ -77,7 +77,7 @@ tools/run-racket-tests.sh cores/rv5stage/tests/dcache-test.rhm
 python3 tools/testing/rsim/run.py --fixture rv2wide-cache
 FIXTURES='rv5stage-dcache rv5stage-dcache-rv32' python3 tools/testing/rsim/run.py
 FIXTURES='rv5stage-load-hit' python3 tools/testing/rsim/run.py
-make check-boundaries
+moon run rhodium:check-boundaries
 ```
 
 The RV5Stage cache fixtures specialize L1D with architectural context and

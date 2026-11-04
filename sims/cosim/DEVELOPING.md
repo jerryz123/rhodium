@@ -190,9 +190,9 @@ several adapters without collapsing them into the same object-file target.
    its hart adapter and architectural comparison in Sail helpers.
 2. Keep DPI symbols and argument order synchronized between capture and C++.
    Never infer architectural ownership from callback invocation order.
-3. Update imports, includes, CMake sources, Make prerequisites, fixture source
-   lists, and CI routing together when moving files. `runtime.stamp` tracks all
-   four native source directories; don't restore a root-only source wildcard.
+3. Update imports, includes, CMake sources, Moon inputs, fixture source
+   lists, and CI routing together when moving files. Runtime inputs cover all
+   native source directories; don't restore a root-only source wildcard.
 4. Keep the public README current and internal rules here. The parent guide
    links here rather than duplicating a second source map.
 5. Run the focused checks below. Generated model libraries, RTL, records,
@@ -203,7 +203,7 @@ the `cosim_runtime` CMake target produces only the reference/checker, hart
 adapter libraries, and link flags consumed by the simulator. `sail-cosim-build`
 configures with `BUILD_TESTING=OFF` and selects that target, not CMake's default
 build of all test executables. CI builds these archives in the shared Sail job.
-The Make targets apply the simulator's `OPT_FAST` policy (default `-O2`) to the
+The Moon stages apply the simulator's `OPT_FAST` policy (default `-O2`) to the
 native runtime and hook tests, retaining debug symbols and assertions through
 explicit Debug flags. Use `OPT_FAST=-O0` for an unoptimized diagnostic build;
 do not use a release preset that disables the native test assertions.
@@ -211,7 +211,7 @@ do not use a release preset that disables the native test assertions.
 `runtime/artifact.py` checksum manifest against native source content, commit,
 platform, workspace, and absolute link paths. Missing or incompatible libraries
 fail before linking; this mode never falls back to compilation. Verification is
-an order-only prerequisite so it does not force otherwise unnecessary relinking.
+a prerequisite of compilation; unchanged validated inputs can reuse Moon's compiled output.
 `sail-cosim-test` builds and runs the full native test suite; the vector and
 configuration test targets build only their respective executables. These test
 targets explicitly re-enable `BUILD_TESTING` in the incremental CMake cache.
@@ -229,18 +229,18 @@ like low-half writes.
 Use the minimum set covering the modified boundary:
 
 ```sh
-make -C sims cosim-hooks-test
-make -C sims sail-cosim-test
+moon run rhodium:native-check--cosim-hooks-test
+moon run rhodium:sail-cosim-test
 tools/run-racket-tests.sh sims/cosim/tests/pass/pass-test.rhm
-make -C sims simulation-runtime-test sail-config-adapter-test
+moon run rhodium:native-check--simulation-runtime-test rhodium:sail-config-adapter-test
 FIXTURES='cosim-hooks rv5stage-cosim32 rv5stage-cosim-vector' bash tools/testing/circt/run.sh --simulate-only
-make check-boundaries
+moon run rhodium:check-boundaries
 ```
 
 Native tests cover callback order, ownership, replay/tag reuse, epochs, malformed
 streams, mismatch detection, and reference independence. Representative RTL
 fixtures check passivity and real callback transport, not a second ISA inventory.
-`make -C sims sail-cosim-vector-test` compares its real vector stream with Sail.
+`moon run rhodium:sail-cosim-vector-test` compares its real vector stream with Sail.
 For exporter/environment changes, use `sail-cosim-config-test SOC=<config>`.
 
 Instruction coverage belongs to the unchanged ISA/ACT/platform/benchmark suites

@@ -232,9 +232,8 @@ artifact and is not checked into Rhodium.
 
 Repository configurations are selected through the
 [core-neutral SoC catalog](../socs/README.md#risc-v-udb-configuration-catalog).
-Generate one with `make
-riscv-udb-config RISCV_UDB_CONFIGURATION=<name>`; adding another processor does
-not require a new Make target or writer.
+Generate one with `RISCV_UDB_CONFIGURATION=<name> moon run rhodium:riscv-udb-config`; adding another processor does
+not require a new Moon task or writer.
 
 ## Timing-contract metadata
 
@@ -492,7 +491,7 @@ Run the focused model, catalog, adapter, expansion, and package-boundary checks
 from the repository root:
 
 ```sh
-make riscv-test
+moon run rhodium:riscv-test
 ```
 
 Test ownership, package-boundary enforcement, and the workflow for extending

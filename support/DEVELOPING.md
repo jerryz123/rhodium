@@ -44,7 +44,7 @@ implementation-specific policy.
 |---|---|
 | [`annotations.rhm`](annotations.rhm) | Public exports plus the private predicates and ASCII identifier pattern |
 | [`tests/annotations-test.rhm`](tests/annotations-test.rhm) | Direct acceptance and rejection checks |
-| [`../Makefile`](../Makefile) | Discovers `support/tests/*-test.rhm` and exposes `support-annotation-test` |
+| [Moon tests](../.moon/tasks/tests.yml) | Discovers `support/tests/*-test.rhm` and exposes `support-annotation-test` |
 | [`../tools/check-boundaries.sh`](../tools/check-boundaries.sh) | Enforces the dependency-neutral import boundary |
 
 ## Focused validation
@@ -52,8 +52,8 @@ implementation-specific policy.
 From the repository root, run:
 
 ```sh
-make support-annotation-test
-make check-boundaries
+moon run rhodium:support-annotation-test
+moon run rhodium:check-boundaries
 ```
 
 The test wrapper supplies the persistent worktree-specific `PLTCOMPILEDROOTS`

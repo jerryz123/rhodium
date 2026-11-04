@@ -122,7 +122,7 @@ Choose the smallest test file or files matching the contract changed:
   `verify-test.rhm` when the shared verifier changes.
 - State or resource behavior: `memory-test.rhm`, `sync-memory-test.rhm`,
   `assert-test.rhm`, `cdc-test.rhm`, or `dpi-test.rhm` as applicable.
-- Package imports or module movement: `make check-boundaries` in addition to
+- Package imports or module movement: `moon run rhodium:check-boundaries` in addition to
   the focused semantic test.
 
 Run Rhombus tests with the repository test runner and its persistent

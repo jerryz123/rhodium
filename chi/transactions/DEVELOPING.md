@@ -106,5 +106,5 @@ behavioral benches in [`../tests/circt/`](../tests/circt/).
   `chi-cache-maintenance`, and RV5Stage D-cache fixture.
 
 For source moves, update direct consumers, docs, and build/CI paths together.
-Run `make check-boundaries` after module or dependency changes and use the
+Run `moon run rhodium:check-boundaries` after module or dependency changes and use the
 repository wrappers for affected checks.

@@ -13,6 +13,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from build import check_elf_memory
+from sw.build.litmus_smoke import read_case_names, smoke_options
 from program_target import (elf_architecture, load_target, probe_compiler, readelf_for,
                             target_fingerprint, elf_build_metadata)
 from riscv.patched_submodule import materialize, read_series
@@ -121,16 +122,20 @@ def main():
     parser.add_argument('--target', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--compiler', required=True)
-    parser.add_argument('--runs', type=int, default=10)
+    parser.add_argument('--runs', type=int)
     selection = parser.add_mutually_exclusive_group()
     selection.add_argument('--tests', default='all')
     selection.add_argument('--tests-file', type=Path, help='newline-delimited names for a fixed suite selection')
+    selection.add_argument('--smoke', action='store_true', help='use the smoke inventory and its default run count')
     parser.add_argument('--litmus7', required=True, help='explicit litmus7 executable for generated C tests')
     parser.add_argument('--litmus7-libdir', type=Path, help='litmus7 source-build support directory')
     parser.add_argument('--herd7', required=True, help='explicit herd7 executable for RVWMO state enumeration')
     parser.add_argument('--herd7-libdir', type=Path, help='herd7 source-build model directory')
     parser.add_argument('--keep-going', action='store_true', help='record case build failures and continue the batch build')
     args = parser.parse_args()
+    smoke = smoke_options(args.runtime) if args.smoke else None
+    if args.runs is None:
+        args.runs = smoke['runs'] if smoke else 10
     if args.runs <= 0:
         parser.error('--runs must be positive')
     target = load_target(args.target)
@@ -158,9 +163,10 @@ def main():
     model = source / 'model-results/herd.logs'
     candidates = discover_litmus7_cases(source, model, len(target['harts']))
     cases = supported_litmus7_cases(candidates, target['extensions'])
-    if args.tests_file:
-        selected = [line.strip() for line in args.tests_file.read_text().splitlines()
-                    if line.strip() and not line.lstrip().startswith('#')]
+    if smoke:
+        selected = smoke['tests']
+    elif args.tests_file:
+        selected = read_case_names(args.tests_file)
     else:
         selected = sorted(cases) if args.tests == 'all' else args.tests.split(',')
     if not selected or len(set(selected)) != len(selected) or any(name not in cases for name in selected):

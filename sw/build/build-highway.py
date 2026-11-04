@@ -6,17 +6,15 @@ import hashlib
 import json
 from pathlib import Path
 import re
-import shutil
 import subprocess
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from build import check_elf_memory
-from program_target import (elf_architecture, elf_build_metadata, instruction_inventory, load_target,
+from program_target import (elf_architecture, elf_build_metadata, instruction_inventory, load_target, native_toolchain,
                             objdump_for, probe_compiler, readelf_for, target_fingerprint)
 
-FLAGS = ('-O3', '-mcmodel=medany', '-ffunction-sections', '-fdata-sections', '-fno-common', '-fno-pie')
 PORT_FILES = ('CMakeLists.txt', 'start.S', 'runtime.c', 'memory.c', 'link.ld.in', 'driver.cc',
               'benchmark.h', 'serial-pool.h', 'platform.cc')
 FUNCTIONAL_PROFILE = dict(repetitions=1, warmups=0, execution='native-rvv-only',
@@ -79,37 +77,23 @@ def main():
     parser.add_argument('--jobs', type=int, default=2)
     args = parser.parse_args()
     source, port, output = args.source.resolve(), args.port.resolve(), args.output.resolve()
-    compiler, cmake = shutil.which(args.compiler), shutil.which('cmake')
-    cxx = shutil.which(str(compiler).removesuffix('gcc') + 'g++') if compiler else None
-    if not compiler or not cxx or not cmake or args.jobs < 1:
-        parser.error('Highway requires GNU C/C++ cross compilers, CMake, and a positive job count')
+    if args.jobs < 1:
+        parser.error('jobs must be positive')
     try:
         target = load_target(args.target)
         validate_highway_target(target)
+        tools = native_toolchain('highway', args.compiler, target)
         revision = verify_upstream(source)
         port_inputs = sorted(path for path in port.rglob('*') if path.is_file() and path.name != 'README.md')
         if any(not (port / name).is_file() for name in PORT_FILES) or not list((port / 'benchmarks').glob('*.cc')):
             raise ValueError('Highway bare-metal port is incomplete')
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
         parser.error(str(error))
-    version = subprocess.check_output([compiler, '--version'], text=True)
-    cxx_version = subprocess.check_output([cxx, '--version'], text=True)
-    cmake_version = subprocess.check_output([cmake, '--version'], text=True)
+    compiler, cmake, flags = tools['compiler'], tools['cmake'], tools['flags']
+    cxx = tools['cxx']
     metadata = elf_build_metadata(target, 'highway', FUNCTIONAL_PROFILE)
-    flags = (*FLAGS, f'-march={target["march"]}', f'-mabi={target["mabi"]}')
-    runtime_libraries = {}
-    for name in ('libc.a', 'libm.a', 'libgcc.a', 'libstdc++.a', 'libsupc++.a'):
-        path = Path(subprocess.check_output(
-            [cxx, *flags, f'-print-file-name={name}'], text=True).strip()).resolve()
-        if not path.is_file():
-            parser.error(f'the selected compiler has no {name} runtime library')
-        runtime_libraries[name] = dict(path=str(path), sha256=hashlib.sha256(path.read_bytes()).hexdigest())
-    key_input = json.dumps(dict(revision=revision, source=str(source), compiler=compiler,
-                               compiler_version=version, cxx=cxx,
-                               cxx_version=cxx_version,
-                               cmake_version=cmake_version,
-                               flags=flags, runtime_libraries=runtime_libraries,
-                               build_spec=metadata['build_spec']), sort_keys=True).encode()
+    key_input = json.dumps(dict(revision=revision, source=str(source), toolchain=tools,
+                                build_spec=metadata['build_spec']), sort_keys=True).encode()
     for path in [Path(__file__), Path(__file__).with_name('program_target.py'),
                  Path(__file__).with_name('build.py'),
                  *port_inputs]:
@@ -167,9 +151,9 @@ def main():
         data = path.read_bytes()
         (output / name).write_bytes(data)
         files.append(dict(path=name, sha256=hashlib.sha256(data).hexdigest()))
-    manifest = dict(suite='highway', revision=revision, compiler=version, cxx_compiler=cxx_version, cmake=cmake_version,
+    manifest = dict(suite='highway', revision=revision, compiler=tools['compiler_version'], cxx_compiler=tools['cxx_version'], cmake=tools['cmake_version'],
                     compiler_flags=list(flags), compiler_arch=compiler_arch, cache_key=key,
-                    runtime_libraries=runtime_libraries,
+                    runtime_libraries=tools['runtime_libraries'],
                     mode='execution-only', scoring=False,
                     march=target['march'], mabi=target['mabi'], target=target,
                     target_fingerprint=target_fingerprint(target), tests=tests, files=files, **metadata)

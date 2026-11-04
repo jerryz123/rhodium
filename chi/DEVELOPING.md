@@ -93,7 +93,7 @@ Run host-side CHI checks and invalid-connection fixtures from the repository
 root:
 
 ```sh
-make chi-test
+moon run rhodium:chi-test
 ```
 
 This target includes package-boundary checking, every

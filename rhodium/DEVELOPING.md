@@ -977,7 +977,7 @@ frontend types or operations to the public core IR.
 [`../tools/check-boundaries.sh`](../tools/check-boundaries.sh) enforces these
 directions, prevents sibling-layer imports, keeps `standard.rhm` aggregation
 only, and restricts reader shims and `.rhdl` files to their intended
-locations. Run `make check-boundaries` after moving or adding modules.
+locations. Run `moon run rhodium:check-boundaries` after moving or adding modules.
 
 `.rhdl` is reserved for Rhodium-profile programs, public adapters, concrete core
 designs, simulation adapters, physical-design integration fixtures, and

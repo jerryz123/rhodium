@@ -62,12 +62,12 @@ metadata.
 From the repository root, run:
 
 ```sh
-make rfpl-test
-make rfpl-circt-test
+moon run rhodium:rfpl-test
+moon run rhodium:rfpl-circt-test
 ```
 
 The first target runs RFPL boundaries, structural checks, invalid fixtures, and
 examples. The second runs the RFPL-owned CIRCT fixture and compares its
 example-owned normalized Verilog reference. It requires `circt-opt`; run
-`make setup-circt` or set `CIRCT_OPT` when needed. Repository wrappers provide
+`moon run rhodium:setup-circt` or set `CIRCT_OPT` when needed. Repository wrappers provide
 the persistent worktree-specific `PLTCOMPILEDROOTS` unless one is supplied.

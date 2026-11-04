@@ -5,6 +5,7 @@ import struct
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 BUILD_SCRIPTS = Path(__file__).resolve().parents[1] / 'build'
 
@@ -62,6 +63,35 @@ class ProgramTargetTest(unittest.TestCase):
             target['harts'] = harts
             with self.assertRaisesRegex(ValueError, 'invalid program target descriptor'):
                 self.target.validate_target(target)
+
+    def test_toolchain_identity_tracks_the_selected_c_and_cxx_runtimes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name in ('libc.a', 'libm.a', 'libgcc.a', 'libstdc++.a', 'libsupc++.a'):
+                (root / name).write_bytes(b'original')
+            versions = {'gcc': 'gcc 1', 'cmake': 'cmake 1', 'g++': 'g++ 1'}
+
+            def probe(command, **_):
+                if command[-1] == '--version':
+                    return versions[Path(command[0]).name]
+                self.assertIn('-march=rv64im', command)
+                self.assertIn('-mabi=lp64', command)
+                return str(root / command[-1].split('=', 1)[1])
+
+            def fingerprint(suite):
+                return self.target.target_fingerprint(self.target.native_toolchain(suite, 'gcc', program_target()))
+
+            with patch('shutil.which', side_effect=lambda name: str(root / 'bin' / name)), \
+                 patch('subprocess.check_output', side_effect=probe):
+                skl, highway = fingerprint('skl'), fingerprint('highway')
+                (root / 'libsupc++.a').write_bytes(b'replaced')
+                self.assertNotEqual(fingerprint('highway'), highway)
+                self.assertEqual(fingerprint('skl'), skl)
+                versions['cmake'] = 'cmake 2'
+                self.assertNotEqual(fingerprint('skl'), skl)
+                (root / 'libm.a').unlink()
+                with self.assertRaisesRegex(ValueError, 'libm.a'):
+                    fingerprint('skl')
 
 
 class ELFMemoryTest(unittest.TestCase):

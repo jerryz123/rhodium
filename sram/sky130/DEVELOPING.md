@@ -49,20 +49,20 @@ the generic mapper first.
 Run the owning catalog and mapper regression:
 
 ```sh
-make -C sram test
+moon run rhodium:sram-check
 ```
 
 With the pinned PDK installed, validate collateral and the current direct-top
 consumer manifest:
 
 ```sh
-make -C vlsi mini-rv5stage-soc-memory-map
+moon run rhodium:generate-physical-memory-wrappers
 ```
 
 After changing functional-model behavior, run the mapped MiniRV5StageSoC smoke:
 
 ```sh
-make -C vlsi/sim smoke
+moon run rhodium:mapped-smoke
 ```
 
 These checks cover metadata consistency, wrapper behavior, consumer handoff,

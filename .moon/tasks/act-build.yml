@@ -1,0 +1,50 @@
+# Declares ACT source preparation, generation, configuration, and upstream compilation stages.
+# SPDX-License-Identifier: Apache-2.0
+tasks:
+  act-source:
+    script: |
+      set -e
+      python3 riscv/patched_submodule.py materialize --source "${ACT_DIR:-$PWD/sw/riscv-arch-test}" \
+        --series "${ACT_PATCH_SERIES:-$PWD/sw/riscv-arch-test-patches/series}" \
+        --output .rhodium-cache/moon/act/source
+    inputs: ["@group(act-source)", "@group(act-tools)", "@group(pin--sw--riscv-arch-test)", "riscv/patched_submodule.py", "$ACT_DIR", "$ACT_PATCH_SERIES"]
+    outputs: [.rhodium-cache/moon/act/source]
+  act-generate:
+    script: |
+      set -e
+      act_source="$PWD/.rhodium-cache/moon/act/source"
+      act_tests="$PWD/.rhodium-cache/moon/act/tests"
+      act_testgen="${ACT_TESTGEN:-${ACT_VENV:-$PWD/.tools/act-venv}/bin/testgen}"
+      # Only this generator-owned directory is replaced; compiler trees remain warm.
+      rm -rf .rhodium-cache/moon/act/tests
+      cp -R "$act_source/tests" "$act_tests"
+      cd "$act_source"
+      PYTHONPATH="$act_source/generators/testgen/src" "$act_testgen" testplans -o "$act_tests" --extensions all --jobs "${ACT_TESTGEN_JOBS:-0}"
+    inputs: ["sims/arch-test/build-env.sh", "@group(act-tools)", "$ACT_TESTGEN", "$ACT_VENV"]
+    deps: [act-source]
+    outputs: [.rhodium-cache/moon/act/tests]
+  configure-act:
+    script: |
+      source sims/arch-test/build-env.sh
+      mkdir -p "$act_config"
+      tools/run-racket.sh -S "$PWD" sims/arch-test/write-platform.rhm "$act_configuration" "$act_config"
+      "$act_python" sims/arch-test/configure.py --udb "$act_config/udb.yaml" --output "$act_config" \
+        --name "$act_configuration" --compiler "${RISCV_CC:-riscv64-unknown-elf-gcc}" --objdump "${ACT_OBJDUMP:-riscv64-unknown-elf-objdump}" \
+        --sail "$act_sail" --platform "$act_config/platform.json"
+    inputs: ["sims/arch-test/build-env.sh"]
+    options: { cache: false, mutex: racket-cache }
+  compile-act:
+    script: |
+      source sims/arch-test/build-env.sh
+      repo="$PWD"
+      extra=()
+      if [[ ${ACT_FAST:-0} == 1 ]]; then extra=(--fast); fi
+      if [[ -d "$act_work/$act_configuration/elfs" ]]; then find "$act_work/$act_configuration/elfs" -type f -name '*.elf' -delete; fi
+      cd "$act_source"
+      XDG_CACHE_HOME="$repo/.tools/act-cache" XDG_DATA_HOME="$repo/.tools/act-data" \
+        BUNDLE_PATH="${ACT_BUNDLE_PATH:-$repo/.tools/act-bundle}" "$act_python" "$repo/sims/arch-test/build.py" \
+        "$act_config/test_config.yaml" --workdir "$act_work" --test-dir "$act_tests" --extensions all --keep-going \
+        --jobs "${ACT_BUILD_JOBS:-2}" "${extra[@]}"
+      cp "$act_config/configuration.json" "$act_work/$act_configuration/configuration.json"
+    inputs: ["sims/arch-test/build-env.sh", "sims/arch-test/build.py", "@group(act-source)"]
+    options: { cache: false }

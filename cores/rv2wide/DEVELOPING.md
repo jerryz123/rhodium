@@ -18,5 +18,5 @@ Neither RV2Wide nor RV3Wide imports the other; both depend on
 
 Keep core factories, hart elaboration, and UDB on the same projection. API changes
 must be exercised through the existing shared behavioral fixtures; the enabled
-fetch fixture uses the RV2Wide entry point. Run `make check-boundaries` after
+fetch fixture uses the RV2Wide entry point. Run `moon run rhodium:check-boundaries` after
 changing imports, and follow the shared guide for behavior-specific checks.

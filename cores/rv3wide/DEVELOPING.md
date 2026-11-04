@@ -22,5 +22,5 @@ oracle or new CI lane. Preserve that fixture ID as the established baseline.
 SoC profile/binding adapters live in `socs/configs/rv3wide-core-profile.rhm` and
 `socs/harts/rv3wide.rhdl`. Keep CI shape/ISA enrollment paired with RV2Wide;
 software policy remains shape/ISA-owned.
-Follow the shared guide for focused commands and run `make check-boundaries`
+Follow the shared guide for focused commands and run `moon run rhodium:check-boundaries`
 when changing package dependencies.

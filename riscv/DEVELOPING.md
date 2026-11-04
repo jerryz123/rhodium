@@ -95,7 +95,7 @@ source; it is a host dependency, not a pure-model dependency or target
 software. Keep it pristine and express downstream changes through its adjacent
 ordered patch series and the shared materializer. Rebase or remove patches
 when advancing the gitlink, then validate embedded Spike, RHEG export, and
-FESVR execution. Stage the new gitlink before running `make -C sims setup`:
+FESVR execution. Stage the new gitlink before running `moon run rhodium:setup-fesvr`:
 the materializer identifies the revision from the Git index and the ordered
 patch contents. Keep native consumers on C++20, including the independently
 compiled RHEG parser. Remove a patch only when upstream implements its contract,
@@ -128,7 +128,7 @@ independently of optional exception sources; `spike_arch_test.cc` exercises
 their set/clear behavior without CFI or counters.
 Execution-loop rebases must preserve pre-instruction counter controls, trap accounting,
 WFI retirement/idle/wakeup, and both fast and logged paths. Run
-`make -C sims spike-core-test transport-test spike-dpi-compile-check spike-dpi-abi-check`
+`moon run rhodium:native-check--spike-core-test rhodium:native-check--transport-test rhodium:build-spike-dpi-object rhodium:native-check--spike-dpi-abi-check`
 and the [RHEG exporter checks](../rheg/DEVELOPING.md#focused-validation) before
 the platform/software matrix in the [simulator guide](../sims/DEVELOPING.md).
 
@@ -168,7 +168,7 @@ resolved static policy supplies its writable masks without changing RTL harts.
 PTW callbacks include translation stage and level. Adapt these signatures in
 the embedding without inferring guest state from a host physical address.
 Keep the executable and embedded library in one identity-scoped package.
-Validate `arch-test-sail-test`, `sail-cosim-test`, representative
+Validate `sail-alias-check`, `sail-cosim-test`, representative
 `sail-cosim-config-test` configs, both supported scalar `cosim-smoke` configs,
 and freshly generated full ACT inventories after changing the pin or patch stack.
 
@@ -177,7 +177,7 @@ and freshly generated full ACT inventories after changing the pin or patch stack
 From the repository root, run:
 
 ```sh
-make riscv-test
+moon run rhodium:riscv-test
 ```
 
 This target checks the pure model, ISA catalogs, compressed host and hardware

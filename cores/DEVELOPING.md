@@ -350,7 +350,7 @@ For changes crossing reusable components and RV5Stage integration, run the
 end-to-end core fixture set:
 
 ```sh
-make rv5stage-test
+moon run rhodium:rv5stage-test
 ```
 
 Use [`rv5stage/DEVELOPING.md`](rv5stage/DEVELOPING.md) for narrower ownership

@@ -197,7 +197,7 @@ def main():
         patch_inputs = [series, *patches, HERE.parents[1] / 'riscv/patched_submodule.py']
     compiler = shutil.which(args.compiler)
     if not compiler or not (source / 'env/p/link.ld').is_file():
-        parser.error('install the compiler and run make -C sims program-test-setup first')
+        parser.error('install the compiler and run moon run rhodium:program-test-setup first')
     revision = subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip()
     env_revision = subprocess.check_output(['git', '-C', str(source / 'env'), 'rev-parse', 'HEAD'], text=True).strip()
     version = subprocess.check_output([compiler, '--version'], text=True)
@@ -210,7 +210,10 @@ def main():
                  + str(args.isa_selection) + args.benchmark_mode
                  + args.benchmark_selection + str(args.benchmark_hart_count)
                  + json.dumps(build_metadata['build_spec'], sort_keys=True)).encode()
-    for path in [Path(__file__), HERE / 'program_target.py', HERE / 'isa.mk', *patch_inputs]:
+    recipe_inputs = [Path(__file__), HERE / 'program_target.py', *patch_inputs]
+    if args.suite == 'isa':
+        recipe_inputs.append(HERE / 'isa.mk')
+    for path in recipe_inputs:
         key_input += path.read_bytes()
     key = hashlib.sha256(key_input).hexdigest()
     # Content-addressed directories prevent Make timestamps or restored caches

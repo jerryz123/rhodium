@@ -1,0 +1,117 @@
+# Compiles independent trace objects and archives; Moon owns every first-party build edge.
+# SPDX-License-Identifier: Apache-2.0
+tasks:
+  trace-source:
+    script: |
+      set -e
+      python3 riscv/patched_submodule.py materialize --source riscv/riscv-isa-sim \
+        --series riscv/riscv-isa-sim-patches/series --output .rhodium-cache/moon/trace/spike
+      mkdir -p .rhodium-cache/moon/trace/config
+      printf '%s\n' '// Standalone disassembly has no simulator configuration.' > .rhodium-cache/moon/trace/config/config.h
+    inputs: ["riscv/patched_submodule.py", "riscv/riscv-isa-sim-patches/**/*", "@group(pin--riscv--riscv-isa-sim)"]
+    outputs: [".rhodium-cache/moon/trace/spike", ".rhodium-cache/moon/trace/config/config.h"]
+  trace-object:
+    script: |
+      set -e
+      source tools/build/native-env.sh
+      includes=(-I"$PWD/rheg/runtime" -I"$PWD/rheg/perfetto")
+      if [[ ${TRACE_SPIKE:-0} == 1 ]]; then
+        includes+=(-isystem "$PWD/.rhodium-cache/moon/trace/spike/riscv" -isystem "$PWD/.rhodium-cache/moon/trace/spike/softfloat" -I"$PWD/.rhodium-cache/moon/trace/config")
+      fi
+      if [[ ${TRACE_JSON:-0} == 1 ]]; then
+        json_include="${NLOHMANN_JSON_INCLUDE_DIR:-$(pkg-config --variable=includedir nlohmann_json 2>/dev/null || true)}"
+        if [[ -n $json_include ]]; then includes+=(-isystem "$json_include"); fi
+      fi
+      mkdir -p "$(dirname "$OBJECT")"
+      "${CXX:-c++}" "${cppflags[@]}" "${cxxflags[@]}" -std=c++20 "${includes[@]}" -c "$SOURCE" -o "$OBJECT"
+    inputs: ["tools/build/native-env.sh", "$CXX", "$CPPFLAGS", "$CXXFLAGS", "$NLOHMANN_JSON_INCLUDE_DIR"]
+    outputs: ["${OBJECT}"]
+    checks:
+      - check: fingerprint
+        script: '${CXX:-c++} --version'
+  trace-object-runtime:
+    extends: trace-object
+    env: { SOURCE: rheg/runtime/rheg.cc, OBJECT: .rhodium-cache/moon/trace/objects/runtime.o }
+    inputs: ["rheg/runtime/**/*"]
+  trace-object-exporter:
+    extends: trace-object
+    env: { SOURCE: rheg/perfetto/rheg_perfetto.cc, OBJECT: .rhodium-cache/moon/trace/objects/exporter.o, TRACE_SPIKE: '1', TRACE_JSON: '1' }
+    inputs: ["rheg/runtime/*.h", "rheg/perfetto/rheg_perfetto.*"]
+    deps: [trace-source]
+    checks:
+      - check: fingerprint
+        script: |
+          set -eo pipefail
+          json_include="${NLOHMANN_JSON_INCLUDE_DIR:-$(pkg-config --variable=includedir nlohmann_json 2>/dev/null || true)}"
+          includes=()
+          if [[ -n $json_include ]]; then includes=(-isystem "$json_include"); fi
+          printf '#include <nlohmann/json.hpp>\n' | "${CXX:-c++}" -std=c++20 "${includes[@]}" -E -x c++ - | cksum
+  trace-object-disasm:
+    extends: trace-object
+    env: { SOURCE: .rhodium-cache/moon/trace/spike/disasm/disasm.cc, OBJECT: .rhodium-cache/moon/trace/objects/disasm.o, TRACE_SPIKE: '1' }
+    deps: [trace-source]
+  trace-object-regnames:
+    extends: trace-object
+    env: { SOURCE: .rhodium-cache/moon/trace/spike/disasm/regnames.cc, OBJECT: .rhodium-cache/moon/trace/objects/regnames.o, TRACE_SPIKE: '1' }
+    deps: [trace-source]
+  trace-object-isa-parser:
+    extends: trace-object
+    env: { SOURCE: .rhodium-cache/moon/trace/spike/disasm/isa_parser.cc, OBJECT: .rhodium-cache/moon/trace/objects/isa-parser.o, TRACE_SPIKE: '1' }
+    deps: [trace-source]
+  trace-runtime-archive:
+    script: |
+      set -e
+      archive=.rhodium-cache/moon/trace/librheg_runtime.a
+      rm -f "${archive}"
+      "${AR:-ar}" rcs "${archive}" .rhodium-cache/moon/trace/objects/runtime.o
+    inputs: ["$AR"]
+    deps: [trace-object-runtime]
+    outputs: [".rhodium-cache/moon/trace/librheg_runtime.a"]
+  trace-exporter-archive:
+    script: |
+      set -e
+      archive=.rhodium-cache/moon/trace/librheg_perfetto.a
+      rm -f "${archive}"
+      "${AR:-ar}" rcs "${archive}" .rhodium-cache/moon/trace/objects/{exporter,disasm,regnames,isa-parser}.o
+    inputs: ["$AR"]
+    deps: [trace-object-exporter, trace-object-disasm, trace-object-regnames, trace-object-isa-parser]
+    outputs: [".rhodium-cache/moon/trace/librheg_perfetto.a"]
+  trace-object-main:
+    extends: trace-object
+    env: { SOURCE: rheg/perfetto/main.cc, OBJECT: .rhodium-cache/moon/trace/objects/main.o }
+    inputs: ["rheg/perfetto/main.cc", "rheg/perfetto/*.h", "rheg/runtime/*.h"]
+  trace-object-event-test:
+    extends: trace-object
+    env: { SOURCE: rheg/tests/event-perfetto-test.cpp, OBJECT: .rhodium-cache/moon/trace/objects/event-test.o }
+    inputs: ["rheg/tests/event-perfetto-test.cpp", "rheg/perfetto/*.h", "rheg/runtime/*.h"]
+  trace-object-stream-test:
+    extends: trace-object
+    env: { SOURCE: rheg/tests/event-stream-test.cpp, OBJECT: .rhodium-cache/moon/trace/objects/stream-test.o }
+    inputs: ["rheg/tests/event-stream-test.cpp", "rheg/perfetto/*.h", "rheg/runtime/*.h"]
+  trace-link:
+    script: |
+      source tools/build/native-env.sh
+      "${CXX:-c++}" "${ldflags[@]}" -o "$EXECUTABLE" "$OBJECT" \
+        .rhodium-cache/moon/trace/librheg_perfetto.a .rhodium-cache/moon/trace/librheg_runtime.a -lz "${ldlibs[@]}"
+    inputs: ["tools/build/native-env.sh", "$CXX", "$LDFLAGS", "$LDLIBS"]
+    deps: [trace-runtime-archive, trace-exporter-archive]
+    outputs: ["${EXECUTABLE}"]
+    checks:
+      - check: fingerprint
+        script: '${CXX:-c++} --version'
+  trace-converter:
+    extends: trace-link
+    env: { OBJECT: .rhodium-cache/moon/trace/objects/main.o, EXECUTABLE: .rhodium-cache/moon/trace/rheg-perfetto }
+    deps: [trace-object-main]
+  trace-event-test-binary:
+    extends: trace-link
+    env: { OBJECT: .rhodium-cache/moon/trace/objects/event-test.o, EXECUTABLE: .rhodium-cache/moon/trace/event-perfetto-test }
+    deps: [trace-object-event-test]
+  trace-stream-test-binary:
+    extends: trace-link
+    env: { OBJECT: .rhodium-cache/moon/trace/objects/stream-test.o, EXECUTABLE: .rhodium-cache/moon/trace/event-stream-test }
+    deps: [trace-object-stream-test]
+  trace-test-binaries:
+    command: noop
+    inputs: []
+    deps: [trace-converter, trace-event-test-binary, trace-stream-test-binary]

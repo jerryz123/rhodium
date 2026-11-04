@@ -10,7 +10,7 @@ if [[ ! -x "$circt_opt" ]]; then
   if command -v circt-opt >/dev/null 2>&1; then
     circt_opt="$(command -v circt-opt)"
   else
-    echo "circt-opt not found; run 'make setup-circt' or set CIRCT_OPT" >&2
+    echo "circt-opt not found; run 'moon run rhodium:setup-circt' or set CIRCT_OPT" >&2
     exit 1
   fi
 fi

@@ -30,14 +30,19 @@ jobs:
     steps:
       - name: Check out Rhodium
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Set up moon workspace
+        uses: ./.github/actions/setup-moon
       - name: Initialize pinned ACT sources
         id: sources
         run: |
           git submodule update --init sw/riscv-arch-test
           echo "revision=$(git rev-parse HEAD:sw/riscv-arch-test)" >> "$GITHUB_OUTPUT"
           echo "sail_revision=$(git rev-parse HEAD:riscv/sail-riscv)" >> "$GITHUB_OUTPUT"
-          fingerprint=$(python3 -m tools.ci.plan --fingerprint act-source)
-          echo "act_inputs=$fingerprint" >> "$GITHUB_OUTPUT"
+      - name: Hash ACT source inputs
+        id: act-source-inputs
+        uses: ./.github/actions/product-input
+        with:
+          task: rhodium:hash--act-source
       - name: Download exact-commit Sail model
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -67,7 +72,7 @@ jobs:
         id: act-tools
         uses: ./.github/actions/product-input
         with:
-          product: act-tools
+          task: rhodium:hash--act-tools
       - name: Cache ACT dependencies
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -80,7 +85,8 @@ jobs:
       - name: Set up ACT and generate platform configuration
         id: act-config
         run: |
-          make -C sims arch-test-setup arch-test-config ACT_CONFIGURATION=${{ fromJSON(inputs.config).configuration }}
+          moon run rhodium:arch-test-setup
+          moon run "rhodium:act-config--${{ fromJSON(inputs.config).configuration }}" --upstream none
           echo "digest=$(sha256sum /tmp/rhodium-arch-test/configs/${{ fromJSON(inputs.config).configuration }}/* | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
           riscv64-unknown-elf-gcc --version > "$RUNNER_TEMP/act-tools.txt"
           riscv64-unknown-elf-ld --version >> "$RUNNER_TEMP/act-tools.txt"
@@ -95,7 +101,7 @@ jobs:
       - name: Identify complete ACT payload inputs
         id: act-inputs
         env:
-          ACT_INPUT_KEY: "${{ runner.os }}-${{ runner.arch }}-act-elfs-v1-fast1-all-${{ steps.sources.outputs.revision }}-${{ steps.sources.outputs.sail_revision }}-${{ steps.act-config.outputs.digest }}-${{ steps.act-config.outputs.tools }}-${{ steps.sources.outputs.act_inputs }}"
+          ACT_INPUT_KEY: "${{ runner.os }}-${{ runner.arch }}-act-elfs-v1-fast1-all-${{ steps.sources.outputs.revision }}-${{ steps.sources.outputs.sail_revision }}-${{ steps.act-config.outputs.digest }}-${{ steps.act-config.outputs.tools }}-${{ steps.act-source-inputs.outputs.key }}"
         run: echo "key=$ACT_INPUT_KEY" >> "$GITHUB_OUTPUT"
       - name: Restore complete ACT payload
         id: act-payload
@@ -115,7 +121,7 @@ jobs:
             --identity '${{ steps.act-inputs.outputs.key }}'
       - name: Check GEILEN-dependent Sail CSR aliases
         if: fromJSON(inputs.config).configuration == 'simple-rv5stage-rva23'
-        run: make -C sims arch-test-sail-test ACT_CONFIGURATION=${{ fromJSON(inputs.config).configuration }}
+        run: moon run rhodium:sail-alias-check --upstream none
       - name: Cache ACT reference outputs
         if: steps.act-payload.outputs.cache-hit != 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -123,13 +129,13 @@ jobs:
           path: |
             /tmp/rhodium-arch-test/work/**/build
             /tmp/rhodium-arch-test/work/**/.act_build_cache.json
-          key: "${{ runner.os }}-${{ runner.arch }}-act-reference-${{ steps.sources.outputs.revision }}-${{ steps.sources.outputs.sail_revision }}-${{ steps.act-config.outputs.digest }}-${{ steps.sources.outputs.act_inputs }}"
+          key: "${{ runner.os }}-${{ runner.arch }}-act-reference-${{ steps.sources.outputs.revision }}-${{ steps.sources.outputs.sail_revision }}-${{ steps.act-config.outputs.digest }}-${{ steps.act-inputs.outputs.key }}"
       - name: Generate and package every selected ELF
         if: steps.act-payload.outputs.cache-hit != 'true'
         run: |
           set -o pipefail
           mkdir -p "$RUNNER_TEMP/act"
-          make -C sims arch-test-elfs ACT_CONFIGURATION=${{ fromJSON(inputs.config).configuration }} ACT_FAST=1 2>&1 | tee "$RUNNER_TEMP/act/generation.log"
+          ACT_FAST=1 moon run "rhodium:act-elf--${{ fromJSON(inputs.config).configuration }}" --upstream deep 2>&1 | tee "$RUNNER_TEMP/act/generation.log"
           python3 sims/arch-test/payload.py package --bundle "$RUNNER_TEMP/act" \
             --elf-dir /tmp/rhodium-arch-test/work/${{ fromJSON(inputs.config).configuration }}/${{ fromJSON(inputs.config).configuration }}/elfs \
             --configuration /tmp/rhodium-arch-test/configs/${{ fromJSON(inputs.config).configuration }}/configuration.json \

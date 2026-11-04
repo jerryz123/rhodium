@@ -14,10 +14,10 @@ Use CMake 3.23+ and the repository's GCC 15+ Newlib toolchain, including its
 matching `riscv64-unknown-elf-g++` and libstdc++:
 
 ```sh
-make -C sims highway-setup
-make -C sims highway-test SOC=simple-spike-rva23
-make -C sims highway-test SOC=simple-rv5stage-rva23 COSIM=1
-make -C sims highway-test SOC=simple-rv2wide-rva23 COSIM=1
+moon run rhodium:highway-setup
+SOC=simple-spike-rva23 moon run rhodium:sim-highway-test
+SOC=simple-rv5stage-rva23 COSIM=1 moon run rhodium:sim-highway-test
+SOC=simple-rv2wide-rva23 COSIM=1 moon run rhodium:sim-highway-test
 ```
 
 The C/C++ runtime libraries must support the target's high RAM addresses. CI
@@ -26,7 +26,7 @@ toolchains must provide compatible libraries too. Application flags do not
 change precompiled runtime archives. Highway records their hashes in its manifest
 and build cache identity.
 
-`highway-elfs` builds without execution; `highway-run` consumes a prebuilt shared
+`highway-elfs` builds without execution; `sim-highway-run` consumes a prebuilt shared
 manifest. Build grouping, archives, target binding, attestation, JSON/JUnit
 results, and CI use the same paths as the other software suites. All Simple
 RVA23 core bindings select the same complete profile. No benchmark-source patch

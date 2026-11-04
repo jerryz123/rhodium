@@ -1,0 +1,99 @@
+# Shares software, tools and runtime input patterns between executable moon tasks.
+# SPDX-License-Identifier: Apache-2.0
+fileGroups:
+  bundle:
+    - "sw/build/bind.py"
+    - "sims/program-test/archive.py"
+  build-groups:
+    - "tools/ci/programs.py"
+    - "tools/ci/archives.py"
+  evidence:
+    - "sims/program-test/execution.py"
+  simulator-artifact:
+    - "sims/program-test/artifact.py"
+  native-runner:
+    - "sims/program-test/run.py"
+    - "sims/program-test/performance.py"
+  # Moon merges these suite sources with tools and pins from tools/ci/inputs.py.
+  build--isa:
+    - "sw/build/isa.mk"
+  build--benchmark:
+    - "sw/riscv-isa-tests-patches/**/*"
+  build--coremark:
+    - "sw/build/build-coremark.py"
+    - "sw/coremark"
+    - "sw/coremark/**/*"
+    - "sw/coremark-riscv-baremetal/**/*"
+  build--embench:
+    - "sw/build/build-embench.py"
+    - "sw/embench-iot"
+    - "sw/embench-iot/**/*"
+    - "sw/embench-iot-patches/**/*"
+    - "sw/embench-iot-riscv-baremetal/**/*"
+  build--bringup:
+    - "sw/build/build-bringup-bench.py"
+    - "sw/bringup-bench"
+    - "sw/bringup-bench/**/*"
+    - "sw/bringup-bench-patches/**/*"
+    - "sw/bringup-bench-riscv-baremetal/**/*"
+  build--skl:
+    - "sw/build/build-skl.py"
+    - "sw/skl"
+    - "sw/skl/**/*"
+    - "sw/skl-patches/**/*"
+    - "sw/skl-riscv-baremetal/**/*"
+  build--highway:
+    - "sw/build/build-highway.py"
+    - "sw/highway"
+    - "sw/highway/**/*"
+    - "sw/highway-riscv-baremetal/**/*"
+  build--litmus:
+    - "sw/build/build-litmus.py"
+    - "sw/build/litmus_smoke.py"
+    - "sw/litmus-tests-riscv"
+    - "sw/litmus-tests-riscv/**/*"
+    - "sw/litmus-riscv-baremetal/**/*"
+  # The catalog adds the OpenSBI recipe to the Linux-specific sources below.
+  build--linux:
+    - "sw/build/linux.py"
+    - "sw/buildroot"
+    - "sw/buildroot/**/*"
+    - "sw/buildroot-riscv/**/*"
+    - "sims/linux/**/*"
+  racket-installer:
+    - "tools/ci/install-racket.sh"
+    - ".github/actions/setup-racket/**/*"
+  bytecode:
+    - "tools/*racket*.sh"
+    - "tools/invalidate-racket-build-cache.rkt"
+    - ".github/actions/setup-racket*/**/*"
+  circt-tool:
+    - "tools/install-circt.sh"
+    - ".github/actions/setup-circt/**/*"
+  sail:
+    - "sims/sail/**/*"
+    - "sims/arch-test/install-sail.sh"
+    - "riscv/sail-riscv"
+    - "riscv/sail-riscv-patches/**/*"
+  fesvr-library: &fesvr-library-sources
+    - "riscv/riscv-isa-sim"
+    - "riscv/riscv-isa-sim-patches/**/*"
+    - "sims/fesvr/install.sh"
+    - ".github/actions/setup-fesvr/**/*"
+  fesvr-runtime: *fesvr-library-sources
+  verilator:
+    - "tools/install-verilator.sh"
+    - ".github/actions/setup-verilator/**/*"
+  harness-runtime:
+    - "sims/verilator/**/*"
+    - "sims/TestDriver.v"
+    - "sims/emit-soc-harness.rhm"
+  act-tools:
+    - "sims/arch-test/setup.sh"
+    - "sw/riscv-arch-test"
+    - "sw/riscv-arch-test-patches/**/*"
+  act-source:
+    - "sims/arch-test/**/*"
+    - "tools/write-riscv-udb-config.rhm"
+  mini-harness:
+    - "sims/mini-soc-harness.rhdl"

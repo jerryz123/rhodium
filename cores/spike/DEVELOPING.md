@@ -156,11 +156,11 @@ Run the focused host contract check with:
 tools/run-racket-tests.sh cores/spike/tests/profile-test.rhm
 tools/run-racket-tests.sh cores/spike/tests/udb-test.rhm
 tools/run-racket-tests.sh cores/spike/tests/elaboration-test.rhm
-make -C sims spike-core-test
+moon run rhodium:native-check--spike-core-test
 FIXTURE=spike-attributes python3 tools/testing/rsim/run.py
-make -C sims spike-dpi-test VERILATOR_ROOT=/path/to/verilator/share
-make -C sims spike-dpi-compile-check VERILATOR_ROOT=/path/to/verilator/share
-make -C sims spike-dpi-abi-check VERILATOR_ROOT=/path/to/verilator/share
+VERILATOR_ROOT=/path/to/verilator/share moon run rhodium:native-check--spike-dpi-test
+VERILATOR_ROOT=/path/to/verilator/share moon run rhodium:build-spike-dpi-object
+VERILATOR_ROOT=/path/to/verilator/share moon run rhodium:native-check--spike-dpi-abi-check
 ```
 
 `tests/spike_attribute_test.cc` executes real load/store/fetch instructions with
@@ -170,7 +170,7 @@ model classification, and coherent reacquisition after a snoop. The
 and noncontiguous regions, device/normal permissions, address-width overflow,
 and full-block requests. Keep both sides of the grant/DPI contract covered.
 
-Run `make -C sims smoke SOC=mini-spike-rva23` for the complete BootROM/FESVR
+Run `SOC=mini-spike-rva23 moon run rhodium:sim-smoke` for the complete BootROM/FESVR
 path. The shared RVA23 smoke also checks VLEN, ELEN=64 execution, vector memory,
 Zvbb, and binary64/binary16 vector FP results. Repeat with
 `HTIF_ARGS=+load-through-chi` to cover both loader paths. This bounded smoke

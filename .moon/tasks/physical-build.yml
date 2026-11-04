@@ -1,0 +1,151 @@
+# Owns physical RTL, SRAM mapping, synthesis, and layout stage dependencies.
+# SPDX-License-Identifier: Apache-2.0
+tasks:
+  mapped-rtl:
+    command: noop
+    inputs: []
+    deps: [generate-memory-wrappers, lower-mapped-rtl]
+  emit-wrapper:
+    script: |
+      set -e
+      mkdir -p vlsi/build
+      tools/run-racket.sh -S "$PWD" vlsi/tools/emit-top.rhm > vlsi/build/rhodium-top.mlir
+    inputs: ["vlsi/src/**/*", "vlsi/tools/emit-top.rhm", "@group(language)", "@group(library)", "@group(backend--circt)"]
+    outputs: [vlsi/build/rhodium-top.mlir]
+    deps: [racket-cache]
+    options: { mutex: racket-cache }
+  lower-wrapper:
+    script: |
+      set -e
+      "${CIRCT_OPT:-$PWD/.tools/firtool-1.155.0/bin/circt-opt}" \
+        --strip-debuginfo-with-pred='drop-suffix=.mlir' --canonicalize --cse --prettify-verilog \
+        --lower-sim-to-sv --lower-verif-to-sv \
+        --lower-seq-to-sv='disable-mem-randomization=true disable-reg-randomization=true' \
+        --sv-mask-non-synthesizable='mode=ifdef macro=SYNTHESIS' --export-verilog \
+        vlsi/build/rhodium-top.mlir -o /dev/null > vlsi/build/rhodium-top.sv
+    deps: [emit-wrapper]
+    inputs: ["@group(circt-tool)", "$CIRCT_OPT"]
+    outputs: [vlsi/build/rhodium-top.sv]
+  emit-mapped-harness:
+    script: |
+      set -e
+      source vlsi/sim/build-env.sh
+      mkdir -p "$MAP_DIR"
+      tools/run-racket.sh -S "$PWD" sims/emit-soc-harness.rhm --backend circt sims/mini-rv5stage-soc-harness.rhdl > "$MAP_DIR/$MAP_MLIR"
+    env: &mapped-env { MAP_DIR: vlsi/build/sim/mini-rv5stage-soc/sky130, MAP_TOP: SoCHarness, MAP_SCOPE: soc, MAP_MLIR: soc-harness.mlir, MAP_MAPPED: soc-harness-mapped.mlir }
+    inputs: ["vlsi/sim/build-env.sh", "sims/mini-rv5stage-soc-harness.rhdl", "sims/emit-soc-harness.rhm", "@group(mini-harness)", "@group(language)", "@group(library)", "@group(architecture)", "@group(soc-config)", "@group(soc-hardware)", "@group(hart-interface)", "@group(shape--mini)", "@group(core--rv5stage)", "@group(shared-core)", "@group(config-common)", "@group(config-shape-mini)", "@group(config-core-rv5stage)", "@group(compilation)", "@group(backend--circt)"]
+    outputs: ["${MAP_DIR}/${MAP_MLIR}"]
+    deps: [racket-cache]
+    options: { mutex: racket-cache }
+  emit-physical-mini:
+    extends: emit-mapped-harness
+    script: |
+      set -e
+      mkdir -p "$MAP_DIR"
+      tools/run-racket.sh -S "$PWD" vlsi/tools/emit-mini-rv5stage-soc.rhm > "$MAP_DIR/$MAP_MLIR"
+    env: &physical-env { MAP_DIR: vlsi/build/mini-rv5stage-soc, MAP_TOP: MiniRV5StageSoC, MAP_SCOPE: '', MAP_MLIR: mini-rv5stage-soc.mlir, MAP_MAPPED: mini-rv5stage-soc-firmem.mlir }
+    inputs: ["vlsi/tools/emit-mini-rv5stage-soc.rhm"]
+  select-memory-sites:
+    script: |
+      set -e
+      scope=""
+      if [[ -n $MAP_SCOPE ]]; then scope=" scope-prefix=$MAP_SCOPE"; fi
+      "${CIRCT_OPT:-$PWD/.tools/firtool-1.155.0/bin/circt-opt}" \
+        --load-pass-plugin="${MEMORY_SITE_PLUGIN:-${SRAM_BUILD_DIR:-$PWD/sram/build}/circt/rhodium-memory-sites.so}" \
+        --pass-pipeline="builtin.module(strip-debuginfo-with-pred{drop-suffix=.mlir},canonicalize,cse,rhodium-select-hw-top{top=$MAP_TOP},hw-flatten-modules{hw-inline-all=true hw-inline-with-state=true},symbol-dce,lower-seq-firmem,rhodium-map-memory-sites{policy=$PWD/vlsi/designs/mini-rv5stage-soc/sky130/sram-map.yaml inventory=$MAP_DIR/memory-sites.json top=$MAP_TOP$scope},symbol-dce)" \
+        "$MAP_DIR/$MAP_MLIR" -o "$MAP_DIR/$MAP_MAPPED"
+    env: *mapped-env
+    deps: [sram, emit-mapped-harness]
+    inputs: ["vlsi/designs/mini-rv5stage-soc/sky130/sram-map.yaml", "@group(circt-tool)", "$CIRCT_OPT", "$MEMORY_SITE_PLUGIN", "$SRAM_BUILD_DIR"]
+    outputs: ["${MAP_DIR}/${MAP_MAPPED}", "${MAP_DIR}/memory-sites.json"]
+  select-physical-memory-sites:
+    extends: select-memory-sites
+    env: *physical-env
+    deps: [sram, emit-physical-mini]
+    options: { mergeDeps: replace }
+  generate-memory-wrappers:
+    script: |
+      set -e
+      extra=()
+      if [[ -z $MAP_SCOPE ]]; then extra=(--pdk-root "${PDK_ROOT:-$HOME/.ciel}/${PDK:-sky130A}"); fi
+      python3 sram/map-memories.py "$MAP_DIR/$MAP_MAPPED" --catalog sram/sky130/macros.ini \
+        --site-inventory "$MAP_DIR/memory-sites.json" --output-verilog "$MAP_DIR/memory-wrappers.sv" \
+        --output-manifest "$MAP_DIR/memory-manifest.json" "${extra[@]}"
+      scope=()
+      if [[ -n $MAP_SCOPE ]]; then scope=(--scope-prefix "$MAP_SCOPE"); fi
+      python3 vlsi/tools/check-mini-rv5stage-soc-memory-map.py "$MAP_DIR/memory-manifest.json" --top "$MAP_TOP" "${scope[@]}"
+    env: *mapped-env
+    deps: [select-memory-sites]
+    inputs: ["sram/map-memories.py", "sram/sky130/**/*", "vlsi/tools/check-mini-rv5stage-soc-memory-map.py", "$PDK_ROOT", "$PDK"]
+    outputs: ["${MAP_DIR}/memory-wrappers.sv", "${MAP_DIR}/memory-manifest.json"]
+  generate-physical-memory-wrappers:
+    extends: generate-memory-wrappers
+    env: *physical-env
+    deps: [select-physical-memory-sites]
+    options: { mergeDeps: replace, cache: false }
+  lower-mapped-rtl:
+    script: |
+      set -e
+      "${CIRCT_OPT:-$PWD/.tools/firtool-1.155.0/bin/circt-opt}" --lower-seq-hlmem --prettify-verilog \
+        --lower-sim-to-sv --lower-verif-to-sv \
+        --lower-seq-to-sv='disable-mem-randomization=true disable-reg-randomization=true' \
+        --hw-memory-sim='disable-mem-randomization=true disable-reg-randomization=true read-enable-mode=undefined' \
+        --symbol-dce --sv-mask-non-synthesizable='mode=ifdef macro=SYNTHESIS' --export-verilog \
+        "$MAP_DIR/$MAP_MAPPED" -o /dev/null > "$MAP_DIR/$MAP_RTL"
+    env: { <<: *mapped-env, MAP_RTL: SoCHarness.sv }
+    deps: [select-memory-sites]
+    inputs: ["@group(circt-tool)", "$CIRCT_OPT"]
+    outputs: ["${MAP_DIR}/${MAP_RTL}"]
+  lower-physical-rtl:
+    extends: lower-mapped-rtl
+    env: { <<: *physical-env, MAP_RTL: mini-rv5stage-soc.sv }
+    deps: [select-physical-memory-sites]
+    options: { mergeDeps: replace }
+  physical-macro-rtl:
+    command: noop
+    inputs: []
+    deps: [generate-physical-memory-wrappers, lower-physical-rtl]
+  compile-mapped-simulator:
+    script: |
+      source tools/build/native-env.sh
+      source vlsi/sim/build-env.sh
+      mkdir -p "$build/obj"
+      for name in SoCHarness.sv memory-wrappers.sv memory-manifest.json memory-sites.json; do
+        if ! cmp -s "$mapped_source/$name" "$build/$name"; then cp "$mapped_source/$name" "$build/$name"; fi
+      done
+      "${VERILATOR:-verilator}" --binary --timing --vpi --assert --Wno-UNOPTFLAT --Wno-SYMRSVDWORD --build-jobs "${BUILD_JOBS:-4}" \
+        --top-module TestDriver --Mdir "$build/obj" "$build/SoCHarness.sv" "$build/memory-wrappers.sv" "$PWD"/sram/sky130/models/*.functional.sv \
+        "$PWD/sims/TestDriver.v" "$PWD/sims/fesvr/direct_mem_htif.cc" "$PWD/sims/verilator/direct_mem_htif_dpi.cc" \
+        "$PWD/devices/uart/dpi/uart_dpi.cc" "$PWD/sims/verilator/image_memory_map.cc" "$PWD/sims/verilator/simulation_runtime.cc" \
+        -CFLAGS "-I$fesvr_prefix/include -I$PWD/sims/fesvr -I$PWD/sims/verilator -std=c++20" -LDFLAGS "$fesvr_prefix/lib/libfesvr.a -pthread"
+    deps: [generate-memory-wrappers, lower-mapped-rtl]
+    inputs: ["tools/build/native-env.sh", "vlsi/sim/build-env.sh", "@group(harness-runtime)", "@group(fesvr-runtime)", "@group(verilator)"]
+    options: { cache: false }
+  mapped-smoke-elf:
+    script: |
+      set -e
+      mkdir -p vlsi/build/sim/mini-rv5stage-soc/sky130
+      "${RISCV_CC:-riscv64-unknown-elf-gcc}" -march=rv64i_zicsr -mabi=lp64 -nostdlib -nostartfiles \
+        -Wl,--build-id=none -Wl,-T,sims/tests/programs/smoke.ld sims/tests/programs/smoke.S -o vlsi/build/sim/mini-rv5stage-soc/sky130/smoke.elf
+    inputs: ["sims/tests/programs/smoke.*", "sims/tests/programs/xlen.h", "@group(compiler)", "$RISCV_CC"]
+    outputs: [vlsi/build/sim/mini-rv5stage-soc/sky130/smoke.elf]
+  physical-slang:
+    command: bash vlsi/tools/run-physical.sh slang
+    deps: [physical-macro-rtl]
+    inputs: ["vlsi/tools/run-physical.sh", "vlsi/openlane/mini_rv5stage_soc/**/*"]
+    options: { cache: false, runInCI: false }
+  physical-synth:
+    command: bash vlsi/tools/run-physical.sh synth
+    deps: [physical-macro-rtl]
+    inputs: ["vlsi/tools/run-physical.sh", "vlsi/openlane/mini_rv5stage_soc/**/*"]
+    options: { cache: false, runInCI: false }
+  physical-post-synth:
+    command: bash vlsi/tools/run-physical.sh post-synth
+    deps: [physical-synth]
+    inputs: ["vlsi/tools/run-physical.sh", "vlsi/openlane/mini_rv5stage_soc/post-synth.tcl"]
+    options: { cache: false, runInCI: false }
+  physical-integrate:
+    command: bash vlsi/tools/run-physical.sh integrate
+    deps: [harden]
+    inputs: ["vlsi/tools/run-physical.sh", "@group(pin--vlsi--double_wide_openframe)"]
+    options: { cache: false, runInCI: false }

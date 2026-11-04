@@ -402,8 +402,8 @@ Use the persistent worktree-specific compiled root through the repository
 wrappers:
 
 ```sh
-make event-test
-make event-runtime-test
+moon run rhodium:event-test
+moon run rhodium:event-runtime-test
 python3 tools/testing/rsim/run.py --fixture event-queue
 ```
 
@@ -573,8 +573,8 @@ manifest validation every cycle. Standalone runtime/export tests are owned by
 [RV5Stage](../../cores/rv5stage/DEVELOPING.md#pipeline-event-annotations) and
 [the simulator](../../sims/DEVELOPING.md#event-export-integration).
 
-Run `make diagram-test` after changes to shared logical extraction and
-`make check-boundaries` after package/dependency changes. Generated artifacts
+Run `moon run rhodium:diagram-test` after changes to shared logical extraction and
+`moon run rhodium:check-boundaries` after package/dependency changes. Generated artifacts
 stay outside version control.
 
 ## Future work

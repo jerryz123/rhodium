@@ -1,101 +1,20 @@
-# Declares CI coverage, compatible execution groups, and runner requirements.
+# Declares hardware/software coverage and the enrolled Moon workload configurations.
 # SPDX-License-Identifier: Apache-2.0
 
-from dataclasses import dataclass
 from pathlib import Path
 import sys
-from .software import NATIVE_SUITES
+
+NATIVE_SUITES = ('isa', 'benchmark', 'coremark', 'embench', 'bringup', 'skl', 'highway')
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "socs/configs"))
 from selection import selections
 
 
-@dataclass(frozen=True)
-class Check:
-    key: str
-    target: str
-    timeout: int = 30
-    dtc: bool = False
-    circt: bool = False
-    verilator: bool = False
-
-
-CHECKS = (
-    Check("host-foundation", "ci-host-foundation-test"),
-    Check("host-backend", "ci-host-backend-test"),
-    Check("host-models", "ci-host-models-test", dtc=True),
-    Check("host-protocols", "ci-host-protocols-test"),
-    Check("host-cores", "ci-host-cores-test"),
-    Check("host-socs", "ci-host-socs-test", dtc=True),
-    Check("host-hygiene", "ci-host-hygiene-test"),
-    Check("host-examples", "ci-host-examples-test", timeout=15),
-    Check("verilog-direct", "ci-verilog-direct-test", verilator=True),
-    Check("circt-verilog-differential", "ci-backend-differential-test", circt=True, verilator=True),
-    Check("rsim-std", "ci-rsim-std-test"),
-    Check("rsim-core-components", "ci-rsim-core-components-test"),
-    Check("rsim-core-execution-frontend", "ci-rsim-core-execution-frontend-test"),
-    Check("rsim-core-execution-control", "ci-rsim-core-execution-control-test"),
-    Check("rsim-core-execution-datapath", "ci-rsim-core-execution-datapath-test"),
-    Check("rsim-core-vector-functional-1", "ci-rsim-core-vector-functional-1-test"),
-    Check("rsim-core-vector-functional-2", "ci-rsim-core-vector-functional-2-test"),
-    Check("rsim-core-vector-configurations", "ci-rsim-core-vector-configurations-test"),
-    Check("rsim-core-memory", "ci-rsim-core-memory-test"),
-    Check("rsim-core-cache", "ci-rsim-core-cache-test"),
-    Check("rsim-protocols", "ci-rsim-protocols-test"),
-    Check("circt-language", "ci-circt-language-test", circt=True, verilator=True),
-    Check("circt-std", "ci-circt-std-test", circt=True),
-    Check("circt-protocols", "ci-circt-protocols-test", circt=True, verilator=True),
-    Check("circt-core-components", "ci-circt-core-components-test", circt=True, verilator=True),
-    Check("circt-core-execution-datapath", "ci-circt-core-execution-datapath-test", circt=True, verilator=True),
-    Check("rsim-hardfloat", "hardfloat-rsim-test"),
-    Check("circt-rfpl", "rfpl-circt-test", circt=True, verilator=True),
-)
-
-CHECK_BY_KEY = {check.key: check for check in CHECKS}
-
-# Selection remains per check; only selected members share a runner and tools.
-CHECK_GROUPS = (
-    ("host-language", "Host / language", ("host-foundation", "host-backend", "host-hygiene", "host-examples")),
-    ("host-systems", "Host / systems", ("host-models", "host-protocols", "host-cores", "host-socs")),
-    ("rsim-library", "Rsim / libraries", ("rsim-std", "rsim-hardfloat")),
-    ("rsim-memory", "Rsim / memory and protocols", ("rsim-protocols", "rsim-core-memory", "rsim-core-cache")),
-    ("rsim-components", "Rsim / core components", ("rsim-core-components",)),
-    ("rsim-execution", "Rsim / core execution", ("rsim-core-execution-frontend", "rsim-core-execution-control", "rsim-core-execution-datapath")),
-    ("rsim-vector", "Rsim / vector execution", ("rsim-core-vector-functional-1", "rsim-core-vector-functional-2")),
-    ("rsim-vector-configurations", "Rsim / vector configurations", ("rsim-core-vector-configurations",)),
-    ("verilog", "SystemVerilog / backends", ("verilog-direct", "circt-verilog-differential")),
-    ("circt", "CIRCT / emission and integration", ("circt-language", "circt-std", "circt-protocols", "circt-core-components", "circt-core-execution-datapath", "circt-rfpl")),
-)
-grouped_checks = [member for _key, _name, members in CHECK_GROUPS for member in members]
-if len(grouped_checks) != len(CHECKS) or set(grouped_checks) != set(CHECK_BY_KEY):
-    raise ValueError("CI check groups must partition the check inventory")
-
-
-def check_matrix(selected):
-    """Share setup without expanding the checks selected by changed paths."""
-    if set(selected) - CHECK_BY_KEY.keys():
-        raise ValueError("unknown CI check")
-    rows = []
-    for key, name, members in CHECK_GROUPS:
-        checks = [CHECK_BY_KEY[member] for member in members if member in selected]
-        if checks:
-            rows.append(dict(key=key, name=name, targets=[check.target for check in checks],
-                             timeout=max(check.timeout for check in checks),
-                             **{tool: any(getattr(check, tool) for check in checks)
-                                for tool in ("dtc", "circt", "verilator")}))
-    return {"include": rows}
-
-
-HOST_CHECKS = frozenset(check.key for check in CHECKS if check.key.startswith("host-"))
-CIRCT_CHECKS = frozenset(check.key for check in CHECKS if check.key.startswith("circt-"))
-CORE_CHECKS = frozenset(
-    check.key for check in CHECKS if check.key.startswith("circt-core-") or check.key.startswith("rsim-core-") or check.key == "rsim-hardfloat"
-)
-RSIM_CORE_CHECKS = frozenset(key for key in CORE_CHECKS if key.startswith("rsim-"))
-RSIM_COMPONENT_CHECKS = frozenset(check.key for check in CHECKS if check.key.startswith("rsim-"))
 PROGRAM_SHARD_COUNTS = {"bringup": 4}
-SHORT_PROGRAM_SUITES = frozenset(("isa", "benchmark", "coremark", "coremark_scalar", "embench"))
+COREMARK_SUITES = frozenset(("coremark", "coremark_scalar"))
+
+
 PLATFORM_TESTS = ("smoke", "host-mmio-test", "boot-test", "uart-pty-test")
 # Software policy has exactly two axes. Core choice only selects the DUT.
 SOFTWARE_TESTS = {
@@ -129,18 +48,22 @@ paired_selections = {
 if any(selected != paired_selections['rv5stage'] for selected in paired_selections.values()):
     raise ValueError("RV5Stage, RV2Wide, and RV3Wide CI shape/ISA selections must match")
 SIMULATOR_CONFIGS = tuple((key, *SELECTIONS[key][:2]) for key in TEST_CONFIGS)
-SINGLE_CORE_SOCS = tuple(soc for soc, shape, _core in SIMULATOR_CONFIGS
-                         if (shape, SELECTIONS[soc][2]) in NATIVE_SOFTWARE)
+def software_configs(local):
+    yield from SIMULATOR_CONFIGS
+    if local:
+        for soc, (shape, core, _) in SELECTIONS.items():
+            if shape == 'simple' and soc not in TEST_CONFIGS:
+                yield soc, shape, core
 
 
-def platform_configs():
+def platform_configs(*, local=False):
     """Select OpenSBI and litmus tests by shape and ISA, never core identity."""
     suites = {'simple': ('opensbi', 'opensbi-smoke-run', 45),
               'tiled4core': ('litmus', 'litmus-smoke-run', 90)}
     return [dict(soc=soc, suite=suites[shape][0], run_target=suites[shape][1], timeout=suites[shape][2],
                  **simulator_options(soc), backend=DEFAULT_BACKEND)
-            for soc, shape, _core in SIMULATOR_CONFIGS
-            if shape in suites and SELECTIONS[soc][2] == 'rva23']
+            for soc, shape, _ in software_configs(local)
+            if shape in suites and (SELECTIONS[soc][2] == 'rva23' or local and shape == 'simple')]
 
 
 def linux_configs():
@@ -149,9 +72,25 @@ def linux_configs():
             if shape == 'simple' and SELECTIONS[soc][2] == 'rva23']
 
 
-def native_configs(suite):
-    return tuple(soc for soc, shape, _core in SIMULATOR_CONFIGS
-                 if suite in NATIVE_SOFTWARE.get((shape, SELECTIONS[soc][2]), ()))
+def simple_software():
+    """The local Simple full suite, independent of the smaller hosted enrollment."""
+    for soc, (shape, _, isa) in SELECTIONS.items():
+        if shape == 'simple':
+            yield soc, tuple(s for s in (*NATIVE_SUITES, 'coremark_scalar')
+                             if isa == 'rva23' or s not in ('skl', 'highway'))
+
+
+def native_programs(*, local=False):
+    if local:
+        for soc, suites in simple_software():
+            for suite in suites:
+                yield soc, suite
+        return
+    for suite in (*NATIVE_SUITES, 'coremark_scalar'):
+        family = 'coremark' if suite == 'coremark_scalar' else suite
+        for soc, shape, _core in SIMULATOR_CONFIGS:
+            if family in NATIVE_SOFTWARE.get((shape, SELECTIONS[soc][2]), ()):
+                yield soc, suite
 
 
 # Backend variants reuse the architectural config and software target descriptor.
@@ -206,9 +145,9 @@ def simulation_entry(soc, shape, core, backend=DEFAULT_BACKEND, *, smoke_variant
                 harness_timeout_minutes=policy.get('harness_timeout_minutes', 60))
 
 
-def arch_configs():
-    return tuple(dict(configuration=key, core=core) for key, shape, core in SIMULATOR_CONFIGS
-                 if shape == 'simple' and SELECTIONS[key][2] in ('rv32int', 'rv32max', 'rva23'))
+def arch_configs(*, local=False):
+    return tuple(dict(configuration=key, core=core) for key, shape, core in software_configs(local)
+                 if shape == 'simple' and (local or SELECTIONS[key][2] in ('rv32int', 'rv32max', 'rva23')))
 
 
 # Resource partitioning may depend on implementation speed; test coverage does not.
@@ -228,9 +167,22 @@ ARCH_SHARD_COUNTS = {
 }
 
 
-def arch_shards():
-    return tuple(dict(**config, shard=shard, shard_count=count,
-                      **simulator_options(config['configuration']), backend=DEFAULT_BACKEND)
-                 for config in arch_configs()
-                 for count in (ARCH_SHARD_COUNTS[config['configuration']],)
-                 for shard in range(count))
+def workload_requests(include, *, local=False):
+    """Select domain workload requests; GitHub owns jobs, workers, and matrices."""
+    programs = [dict(soc=soc, suite=suite, **simulator_options(soc), backend=DEFAULT_BACKEND)
+                for soc, suite in sorted(native_programs(local=local)) if include('program', soc, suite)]
+    configs = [(*cfg, DEFAULT_BACKEND) for cfg in SIMULATOR_CONFIGS]
+    configs.extend((*cfg, backend) for cfg in BACKEND_SMOKE_CONFIGS for backend in BACKEND_SMOKE_VARIANTS)
+    builds = []
+    for soc, shape, core, backend in configs:
+        if include('simulator', soc, backend):
+            row = simulation_entry(soc, shape, core, backend, smoke_variant=backend != DEFAULT_BACKEND)
+            tests = [t for t in row['software_tests'].split() if include('harness', soc, backend, t)]
+            row.update(software_tests=' '.join(tests), run_harness=bool(tests))
+            builds.append(row)
+    return dict(targets=sorted(soc for soc in SELECTIONS if include('target', soc)),
+                programs=programs, simulators=builds,
+                # Share firmware archives only on qualified platform targets. Other local
+                # OpenSBI checks keep their own target-layout validation at execution.
+                platforms=[r for r in platform_configs() if include('platform', r['soc'], r['suite'])],
+                linux=[r for r in linux_configs() if include('linux', r['soc'])])

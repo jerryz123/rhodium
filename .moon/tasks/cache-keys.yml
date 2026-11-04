@@ -1,0 +1,72 @@
+# Shares installer cache inputs with their executable preparation tasks.
+# SPDX-License-Identifier: Apache-2.0
+tasks:
+  racket-cache:
+    command: "tools/racket-build-cache.sh path"
+    inputs: &bytecode-inputs
+      - "@group(bytecode)"
+      - "@group(racket-installer)"
+    options: { cache: false }
+  # Only the CI artifact producer compiles the whole manifest and attests it.
+  compile-racket:
+    command: "tools/compile-racket-sources.sh"
+    args:
+      - "@files(test-support)"
+      - "@files(test-core)"
+      - "@files(test-lowering)"
+      - "@files(test-analysis)"
+      - "@files(test-frontend)"
+      - "@files(test-std)"
+      - "@files(test-flow)"
+      - "@files(test-event)"
+      - "@files(test-statistics)"
+      - "@files(test-diagram)"
+      - "@files(test-backend)"
+      - "@files(test-compile)"
+      - "@files(test-rfpl)"
+      - "@files(test-devicetree)"
+      - "@files(test-noc)"
+      - "@files(test-riscv)"
+      - "@files(test-device)"
+      - "@files(test-chi)"
+      - "@files(test-soc)"
+      - "@files(test-cosim)"
+      - "@files(test-hardfloat)"
+      - "@files(test-processor)"
+      - "@files(examples)"
+      - "@files(compile-fixtures)"
+    inputs: *bytecode-inputs
+    options: { cache: false }
+  build-sail:
+    command: "bash sims/arch-test/install-sail.sh"
+    inputs: &sail-inputs
+      - "@group(sail)"
+      - "@group(patches)"
+      - "@group(pin--riscv--sail-riscv)"
+    options: { cache: false }
+
+  # These fixed cache-key tasks do not execute their corresponding producer.
+  hash--compiler:
+    command: noop
+    tags: [ci-hash]
+    inputs: ["@group(compiler)"]
+  hash--circt-tool:
+    command: noop
+    tags: [ci-hash]
+    inputs: ["@group(circt-tool)"]
+  hash--verilator:
+    command: noop
+    tags: [ci-hash]
+    inputs: ["@group(verilator)"]
+  hash--racket-installer:
+    command: noop
+    tags: [ci-hash]
+    inputs: ["@group(racket-installer)"]
+  hash--bytecode:
+    command: noop
+    tags: [ci-hash]
+    inputs: *bytecode-inputs
+  hash--sail:
+    command: noop
+    tags: [ci-hash]
+    inputs: *sail-inputs

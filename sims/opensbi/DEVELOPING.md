@@ -29,7 +29,8 @@ selection retains upstream FDT discovery of the SoC UART. Its `current-speed`
 selects divisor one, matching the default simulation UART receiver.
 The source submodule remains pristine; patch and materializer bytes
 participate in firmware build identity.
-Linux build/run targets live in `../linux/Makefile.inc`, while their target
+Linux build/run tasks live in the [Moon software](../../.moon/tasks/software.yml)
+and [execution recipes](../../.moon/tasks/execution.yml), while their target
 software owner is [`../../sw/buildroot-riscv/`](../../sw/buildroot-riscv/README.md).
 Linux smoke boot arguments belong in its kernel configuration, not the DTB.
 The validation firmware disables
@@ -47,10 +48,10 @@ is only an end-to-end validation fixture, not part of the OpenSBI target.
 Run the adapter tests before the real firmware test:
 
 ```sh
-make -C sims opensbi-adapter-test
-make -C sims opensbi-setup
-make -C sims opensbi-test SOC=simple CORE=rv5stage ISA=rva23
-make -C sims opensbi-test SOC=simple CORE=spike ISA=rva23
+moon run rhodium:adapter--opensbi
+moon run rhodium:opensbi-setup
+SOC=simple-rv5stage-rva23 moon run rhodium:sim-opensbi-test
+SOC=simple-spike-rva23 moon run rhodium:sim-opensbi-test
 ```
 
 The generic workload runner selects `+uart-log=-`, capturing UART console bytes
@@ -58,20 +59,21 @@ in its ordinary process log before checking the complete marker. Check the
 final newline as well as HTIF exit when changing console or shutdown timing;
 host logging cannot recover bytes still inside the UART at simulation exit.
 
-Keep generated firmware, layouts, logs, and payload ELFs under
-`/tmp/rhodium-software`. When changing layout policy, retain explicit checks
+Keep the upstream firmware build tree and published artifacts under
+`/tmp/rhodium-software`; Moon stages layouts and payload ELFs under
+`.rhodium-cache/moon/opensbi/`. When changing layout policy, retain explicit checks
 that firmware, the next stage, the FDT reservation, and all loaded ELF segments
 fit the selected architectural RAM without overlap.
 
-`opensbi-elfs` builds firmware and the validation payload and writes the
-shared manifest. CI supplies `PREBUILT_PROGRAM_TARGET` from its planning
+`moon run rhodium:opensbi-elfs` runs the Moon layout, firmware, payload, and manifest
+stages. Only upstream OpenSBI compilation uses Make. CI supplies the target descriptor from its planning
 artifact, so firmware compilation does not elaborate Rhodium. The common
 archive includes both ELFs; the common binder checks the target-derived ISA,
 boot layout, image hashes, and relocated firmware/payload ranges without
 compiler tools. Compatible configs share firmware and use their own ROM DTB at boot.
-`opensbi-smoke-run` runs that bound manifest through the ordinary workload
+`sim-opensbi-run-suite` runs that bound manifest through the ordinary workload
 runner with bounded process-group execution and JSON/JUnit diagnostics.
-`opensbi-test` composes build and run locally. `opensbi-run` remains the
+`sim-opensbi-test` composes build and run locally. `sim-opensbi-run` remains the
 caller-selected next-stage path but no longer builds firmware implicitly;
-build `opensbi-firmware` first. Firmware build
+build `opensbi-elfs--firmware` first. Firmware build
 identity stays in `sw/build/opensbi.py`.

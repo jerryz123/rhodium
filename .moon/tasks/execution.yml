@@ -1,0 +1,151 @@
+# Runs configured simulator workloads over Moon-built software and simulators.
+# SPDX-License-Identifier: Apache-2.0
+tasks:
+  native-program-run:
+    script: |
+      source sims/run-env.sh
+      output="${PROGRAM_CONFIG_ROOT:-${PROGRAM_BUILD_ROOT:-/tmp/rhodium-program-tests}/$RHODIUM_SOC}/$RHODIUM_SUITE_DIR"
+      case "$RHODIUM_SUITE_DIR" in
+        isa-smoke) output="${ISA_SMOKE_DIR:-$output}" ;;
+        mt-benchmark/8-harts) if [[ -n ${TILED_MT_BENCHMARK_DIR:-} ]]; then output="$TILED_MT_BENCHMARK_DIR/8-harts"; fi ;;
+        opensbi) output="${OPENSBI_OUTPUT:-${OPENSBI_BUILD_ROOT:-/tmp/rhodium-software}/$RHODIUM_SOC/opensbi}" ;;
+        linux) output="${LINUX_OUTPUT:-$output}" ;;
+        litmus) output="${LITMUS_BUILD_DIR:-$output}" ;;
+        litmus-smoke) output="${LITMUS_SMOKE_DIR:-$output}" ;;
+        litmus-full) output="${LITMUS_FULL_DIR:-$output}" ;;
+      esac
+      if [[ $RHODIUM_SUITE_DIR == litmus* && $RHODIUM_SOC != tiled4core-* ]]; then
+        echo 'Litmus tests require tiled4core' >&2; exit 2
+      fi
+      manifest="${PROGRAM_MANIFEST:-${RHODIUM_MANIFEST:-$output/manifest.json}}"
+      results="$output/results"
+      index="${PROGRAM_SHARD_INDEX:-${RHODIUM_SHARD_INDEX:-0}}"
+      count="${PROGRAM_SHARD_COUNT:-${RHODIUM_SHARD_COUNT:-1}}"
+      extra=()
+      if [[ $RHODIUM_SUITE_DIR == litmus-full ]]; then
+        index="${LITMUS_FULL_SHARD_INDEX:-0}"
+        count="${LITMUS_FULL_SHARD_COUNT:-1}"
+        extra+=(--resume)
+      fi
+      if [[ $count != 1 || $RHODIUM_SUITE_DIR == litmus-full ]]; then
+        results+="/shard-$index-of-$count"
+      fi
+      timeout_var="$RHODIUM_TIMEOUT_VAR"
+      cycles_var="$RHODIUM_CYCLES_VAR"
+      python3 sims/program-test/run.py --manifest "$manifest" \
+        --simulator "$simulator" --simulator-metadata "$simulator.json" \
+        --output "$results" --shard-index "$index" --shard-count "$count" \
+        --performance-baselines "${PROGRAM_PERFORMANCE_BASELINES:-sims/program-test/performance-baselines}" \
+        --jobs "${PROGRAM_JOBS:-1}" --timeout "${!timeout_var:-$RHODIUM_TIMEOUT}" \
+        --max-cycles "${!cycles_var:-$RHODIUM_MAX_CYCLES}" "${extra[@]}"
+    inputs: ["sims/run-env.sh"]
+    options: &execution-options { cache: false, unixShell: bash }
+  simulator-run:
+    script: |
+      source sims/run-env.sh
+      test -f "${BINARY:?BINARY must name an ELF}"
+      "$simulator" "${trace_args[@]}" "${uart_args[@]}" "${htif_args[@]}" "$BINARY" "${target_args[@]}"
+    inputs: ["sims/run-env.sh"]
+    options: *execution-options
+  harness-smoke:
+    script: |
+      source sims/run-env.sh
+      "$simulator" "${trace_args[@]}" "${htif_args[@]}" "$payload_dir/smoke.elf" "${target_args[@]}"
+    inputs: ["sims/run-env.sh"]
+    options: *execution-options
+  harness-boot-test:
+    script: |
+      source sims/run-env.sh
+      for address in 2000 3000; do
+        "$simulator" "${htif_args[@]}" "$payload_dir/boot_$address.elf"
+      done
+    inputs: ["sims/run-env.sh"]
+    options: *execution-options
+  harness-uart-pty-test:
+    script: |
+      source sims/run-env.sh
+      python3 sims/tests/uart_pty_test.py "$simulator" "$payload_dir/uart_pty.elf"
+    inputs: ["sims/run-env.sh"]
+    options: *execution-options
+  harness-host-mmio-test:
+    script: |
+      source sims/run-env.sh
+      "$simulator" "${htif_args[@]}" "+signature=$sim_dir/host_mmio.signature" +signature-granularity=8 "$payload_dir/host_mmio.elf"
+      awk '{ if ($0 != "123456789abcdef0") exit 1 } END { if (NR != 1) exit 1 }' "$sim_dir/host_mmio.signature"
+    inputs: ["sims/run-env.sh"]
+    options: *execution-options
+  harness-zicboz-test:
+    script: |
+      source sims/run-env.sh
+      "$simulator" "+signature=$sim_dir/zicboz.signature" +signature-granularity=16 "$payload_dir/zicboz.elf"
+      awk '{ expected = (NR > 4 && NR <= 8) ? "00000000000000000000000000000000" : "ffffffffffffffffffffffffffffffff"; if ($0 != expected) exit 1 } END { if (NR != 12) exit 1 }' "$sim_dir/zicboz.signature"
+    inputs: ["sims/run-env.sh"]
+    options: *execution-options
+  harness-zihintntl-test:
+    script: |
+      source sims/run-env.sh
+      [[ $RHODIUM_SOC == simple-*-rva23 ]] || { echo 'Zihintntl requires a single-core RVA23 platform' >&2; exit 2; }
+      payload="${RHODIUM_PAYLOAD_NAME:-zihintntl}"
+      "$simulator" "+signature=$sim_dir/$payload.signature" +signature-granularity=8 "$payload_dir/$payload.elf"
+      awk 'NR == 1 && $0 != "123456789abcdef0" { exit 1 } NR == 2 && $0 != "0000000000000008" { exit 1 } NR == 8 && $0 != "0000000000000001" { exit 1 } END { if (NR != 8) exit 1 }' "$sim_dir/$payload.signature"
+    inputs: ["sims/run-env.sh"]
+    options: *execution-options
+  harness-lrsc-test:
+    script: |
+      source sims/run-env.sh
+      [[ $RHODIUM_SOC == *-rva23 ]] || { echo 'LR/SC test requires RVA23' >&2; exit 2; }
+      boot=()
+      expected=0000000000000008
+      case "$RHODIUM_SOC" in
+        tiled8core-*) boot=(+boot-harts=0-7); expected=0000000000000040 ;;
+        tiled4core-*) boot=(+boot-harts=0-3); expected=0000000000000020 ;;
+      esac
+      status=0
+      for mode in 0 1; do
+        signature="$sim_dir/lrsc_$mode.signature"
+        if "$simulator" "${boot[@]}" +max-cycles=20000000 "+signature=$signature" +signature-granularity=8 "$payload_dir/lrsc_$mode.elf" &&
+          awk -v expected="$expected" '{ if ($0 != expected) exit 1 } END { if (NR != 6) exit 1 }' "$signature"; then
+          echo "LR/SC passed: $RHODIUM_SOC Sv39=$mode (6 placements)"
+        else status=1; fi
+      done
+      exit "$status"
+    inputs: ["sims/run-env.sh"]
+    options: *execution-options
+  harness-cosim-smoke:
+    script: |
+      source sims/run-env.sh
+      "$simulator" "${trace_args[@]}" "${htif_args[@]}" "$payload_dir/cosim-smoke.elf" "${target_args[@]}"
+      corruption=()
+      if [[ $RHODIUM_VARIANT == trace* ]]; then corruption=("+rheg-trace=$TRACE_FILE.corruption"); fi
+      python3 sims/cosim/tests/runtime/check-corruption.py "$simulator" "$payload_dir/cosim-smoke.elf" "${corruption[@]}"
+    inputs: ["sims/run-env.sh"]
+    options: *execution-options
+  arch-program-run:
+    script: |
+      source sims/run-env.sh
+      [[ $RHODIUM_SOC == simple-* ]] || { echo 'ACT requires the Simple shape' >&2; exit 2; }
+      configuration="${ACT_CONFIGURATION:-$RHODIUM_SOC}"
+      test "$configuration" = "$RHODIUM_SOC"
+      root="${ACT_WORKDIR:-${ACT_BUILD_ROOT:-/tmp/rhodium-arch-test}/work/$configuration}/$configuration"
+      elfs="${ACT_ELF_DIR:-$root/elfs}"
+      test -d "$elfs" && test -n "$(find "$elfs" -name '*.elf' -type f -print -quit)" || { echo 'No ACT ELFs' >&2; exit 2; }
+      python3 sims/program-test/artifact.py verify --binary "$simulator" --soc "$RHODIUM_SOC" \
+        --configuration "$root/configuration.json" --variant "$RHODIUM_VARIANT" --backend "$RHODIUM_BACKEND"
+      index="${ACT_SHARD:-${RHODIUM_SHARD_INDEX:-0}}"
+      count="${ACT_SHARDS:-${RHODIUM_SHARD_COUNT:-1}}"
+      if [[ $count != 1 ]]; then
+        shard="$root/shards/$index/elfs"
+        python3 sims/arch-test/shard.py --elf-dir "$elfs" --output "$shard" --index "$index" --count "$count"
+        elfs="$shard"
+      fi
+      rm -f "$elfs/../summary.log"
+      act_python="${ACT_PYTHON:-${ACT_VENV:-$PWD/.tools/act-venv}/bin/python}"
+      runner=("$act_python" "$PWD/sims/arch-test/run.py" --simulator "$simulator" --max-cycles "${ACT_MAX_CYCLES:-10000000}" --timeout "${ACT_TIMEOUT:-300}")
+      if [[ $RHODIUM_VARIANT == *cosim* ]]; then runner+=(--cosim); fi
+      printf -v invocation '%q ' "${runner[@]}"
+      status=0
+      "$act_python" "${ACT_DIR:-$PWD/sw/riscv-arch-test}/run_tests.py" --jobs "${ACT_JOBS:-1}" --timeout "${ACT_TIMEOUT:-300}" "$invocation" "$elfs" || status=$?
+      python3 sims/arch-test/report.py "$elfs" || status=1
+      exit "$status"
+    inputs: ["sims/run-env.sh"]
+    options: *execution-options

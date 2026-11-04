@@ -60,7 +60,7 @@ def program = elaborate(Adder(8))
 The standard profile adds the curated layers without changing the resulting
 IR. The four programs under [`../../examples/lop/`](../../examples/lop/)
 express one adder through the public core, kernel, explicit base composition,
-and standard profile. `make lop-test` checks that all four produce identical
+and standard profile. `moon run rhodium:lop-test` checks that all four produce identical
 public IR and CIRCT representations.
 
 Library code may use `hardware_value_type(value)` to recover the Rhodium type of

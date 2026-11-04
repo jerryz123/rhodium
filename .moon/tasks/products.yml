@@ -1,0 +1,398 @@
+# Declares executable host and local products.
+# SPDX-License-Identifier: Apache-2.0
+tasks:
+  adapter--program:
+    tags: [ci-adapter, ci-root, ci-receipt]
+    command: "python3 -m unittest discover -s sw/tests -p test_program_build.py"
+    inputs:
+      - "sw/tests/test_program_build.py"
+      - "@group(elf)"
+      - "@group(native-runner)"
+      - "@group(bundle)"
+      - "@group(evidence)"
+      - "@group(simulator-artifact)"
+    options: { cache: false }
+  adapter--litmus:
+    tags: [ci-adapter, ci-root, ci-receipt, needs-litmus-setup]
+    command: "python3 -m unittest discover -s sw/tests -p test_litmus_build.py"
+    inputs:
+      - "sw/tests/test_litmus_build.py"
+      - "@group(build--litmus)"
+    options: { cache: false }
+  adapter--opensbi:
+    tags: [ci-adapter, ci-root, ci-receipt]
+    command: "python3 -m unittest discover -s sw/tests -p test_opensbi_build.py"
+    inputs:
+      - "sw/tests/test_opensbi_build.py"
+      - "@group(build--opensbi)"
+    options: { cache: false }
+  adapter--linux:
+    tags: [ci-adapter, ci-root, ci-receipt]
+    command: "python3 -m unittest discover -s sw/tests -p test_linux_target.py"
+    inputs:
+      - "sw/tests/test_linux_target.py"
+      - "@group(build--linux)"
+    options: { cache: false }
+  adapter--inputs:
+    tags: [ci-adapter, ci-root, ci-receipt, needs-bringup-setup, needs-embench-setup, needs-skl-setup]
+    command: "python3 -m unittest discover -s sw/tests -p test_benchmark_inputs.py"
+    inputs:
+      - "sw/tests/test_benchmark_inputs.py"
+      - "@group(build--bringup)"
+      - "@group(build--embench)"
+      - "@group(build--skl)"
+      - "@group(build--highway)"
+    options: { cache: false }
+  native-check--dpi-compile-check:
+    tags: [ci-native-check, ci-root, ci-receipt, needs-native-toolchain, needs-fesvr, needs-verilator]
+    command: noop
+    deps: [build-dpi-objects]
+    inputs:
+      - "devices/uart/dpi/**/*"
+      - "chi/subordinate/dpi/**/*"
+      - "sims/verilator/direct_mem_htif*"
+      - "sims/verilator/direct_mem_htif*/**/*"
+      - "@group(fesvr-runtime)"
+      - "@group(verilator)"
+    options: { cache: false }
+  native-check--transport-test:
+    tags: [ci-native-check, ci-root, ci-receipt, needs-bytecode, needs-native-toolchain, needs-fesvr]
+    script: |
+      set -e
+      "$PWD/.rhodium-cache/moon/native/direct_mem_htif_test"
+      tools/run-racket-tests.sh sims/tests/direct-memory-htif-test.rhm
+    inputs:
+      - "sims/tests/direct*"
+      - "sims/tests/direct*/**/*"
+      - "@group(fesvr-runtime)"
+      - "@group(language)"
+      - "@group(library)"
+    deps: ["racket-cache", build-transport-test]
+    options: &racket-options { cache: false, mutex: racket-cache }
+  native-check--arch-test-adapter-test:
+    tags: [ci-native-check, ci-root, ci-receipt]
+    script: |
+      set -e
+      python3 -m unittest discover -s sims/tests -p test_sail_config.py
+      python3 -m unittest discover -s sims/tests -p test_arch_test.py
+    inputs:
+      - "sims/arch-test/**/*"
+      - "sims/sail/**/*"
+      - "sims/tests/test_arch_test.py"
+      - "sims/tests/test_sail_config.py"
+    options: { cache: false }
+  native-check--cosim-hooks-test:
+    tags: [ci-native-check, ci-root, ci-receipt, needs-native-toolchain]
+    script: |
+      set -e
+      ctest --test-dir "${COSIM_HOOK_BUILD_DIR:-$PWD/.rhodium-cache/cosim-hooks}" --output-on-failure
+    inputs:
+      - "@group(cosim)"
+    deps: [build-cosim-hooks]
+    options: { cache: false }
+  native-check--simulation-runtime-test:
+    tags: [ci-native-check, ci-root, ci-receipt, needs-bytecode, needs-native-toolchain, needs-verilator]
+    script: |
+      set -e
+      python3 sims/tests/check-simulation-runtime.py --verilator "${VERILATOR:-verilator}" --build "$PWD/.rhodium-cache/simulation-runtime-tests"
+      python3 sims/tests/check-statistics.py --verilator "${VERILATOR:-verilator}" --backend rsim --backend verilog --build "$PWD/.rhodium-cache/statistics-tests"
+    inputs:
+      - "sims/verilator/**/*"
+      - "sims/tests/*simulation-runtime*"
+      - "sims/tests/*simulation-runtime*/**/*"
+      - "sims/tests/*statistics*"
+      - "sims/tests/*statistics*/**/*"
+      - "sims/emit-soc-harness.rhm"
+      - "@group(statistics)"
+      - "@group(language)"
+      - "@group(library)"
+      - "@group(compilation)"
+      - "@group(backend--rsim)"
+      - "@group(backend--verilog)"
+      - "@group(verilator)"
+    deps: ["racket-cache"]
+    options: *racket-options
+  native-check--branch-prediction-test:
+    tags: [ci-native-check, ci-root, ci-receipt]
+    command: "python3 -m unittest discover -s sims/tests -p test_branch_prediction.py"
+    inputs:
+      - "sims/branch-prediction.py"
+      - "sims/tests/test_branch_prediction.py"
+    options: { cache: false }
+  native-check--spike-core-test:
+    tags: [ci-native-check, ci-root, ci-receipt, needs-native-toolchain, needs-fesvr]
+    script: |
+      set -e
+      for test in spike_core spike_hpm spike_arch spike_attribute; do
+        "$PWD/.rhodium-cache/moon/native/${test}_test"
+      done
+    inputs:
+      - "cores/spike/tests/*.cc"
+      - "@group(core--spike)"
+      - "@group(fesvr-runtime)"
+    deps: [build-spike-core-tests]
+    options: { cache: false }
+  native-check--spike-dpi-test:
+    tags: [ci-native-check, ci-root, ci-receipt, needs-native-toolchain, needs-fesvr, needs-verilator]
+    script: |
+      set -e
+      "$PWD/.rhodium-cache/moon/native/spike_dpi_test"
+    inputs:
+      - "cores/spike/tests/*.cc"
+      - "@group(core--spike)"
+      - "@group(fesvr-runtime)"
+      - "@group(verilator)"
+    deps: [build-spike-dpi-test]
+    options: { cache: false }
+  native-check--spike-dpi-abi-check:
+    tags: [ci-native-check, ci-root, ci-receipt, needs-bytecode, needs-native-toolchain, needs-fesvr, needs-verilator, needs-circt-tool]
+    script: |
+      set -e
+      "${CXX:-c++}" -std=c++20 -I"${VERILATOR_ROOT:?}/include/vltstd" \
+        -include "$PWD/cores/spike/dpi/spike_dpi.h" \
+        -include "$PWD/.rhodium-cache/moon/spike/obj/VSpikeCore__Dpi.h" \
+        -x c++ -fsyntax-only /dev/null
+    inputs:
+      - "cores/spike/tests/emit.rhm"
+      - "@group(core--spike)"
+      - "@group(fesvr-runtime)"
+      - "@group(backend--circt)"
+      - "@group(circt-tool)"
+      - "@group(language)"
+      - "@group(library)"
+      - "@group(verilator)"
+    deps: [spike-dpi-header]
+    options: *racket-options
+  formal:
+    command: noop
+    deps: ["formal-test"]
+    inputs:
+      - "rhodium/formal/**/*"
+      - "examples/formal/**/*"
+      - "@group(language)"
+      - "@group(library)"
+    options: &local-racket-options { cache: false, mutex: racket-cache, runInCI: false }
+  formal-differential:
+    command: noop
+    inputs:
+      - "rhodium/formal/tests/**/*"
+      - "@group(backend--circt)"
+      - "@group(circt-tool)"
+      - "@group(verilator)"
+    deps: ["formal-differential-test", "formal"]
+    options: *local-racket-options
+  trace-runtime:
+    command: noop
+    deps: [trace-runtime-archive, trace-exporter-archive]
+    inputs:
+      - "rheg/**/*"
+      - "sims/tests/*trace*"
+      - "sims/tests/*trace*/**/*"
+      - "sims/tests/*.sql"
+      - "@group(compilation)"
+    options: { cache: false }
+  emacs:
+    command: noop
+    deps: ["emacs-test"]
+    inputs:
+      - "tools/emacs/**/*"
+    options: { cache: false, runInCI: false }
+  diagram--rv5stage:
+    command: "tools/run-racket.sh -S . tools/write-rv5stage-core-diagram.rhm .rhodium-cache"
+    inputs:
+      - "tools/write-rv5stage-core-diagram.rhm"
+      - "examples/rv5stage/**/*"
+      - "@group(language)"
+      - "@group(library)"
+      - "@group(compilation)"
+      - "@group(core--rv5stage)"
+      - "@group(shared-core)"
+    options: *local-racket-options
+  diagram--noc:
+    command: "tools/run-racket.sh -S . tools/write-noc-router-diagram.rhm .rhodium-cache"
+    inputs:
+      - "tools/write-noc-router-diagram.rhm"
+      - "examples/noc/**/*"
+      - "noc/rtl/wormhole-router.rhdl"
+      - "@group(language)"
+      - "@group(library)"
+      - "@group(compilation)"
+      - "@group(soc-hardware)"
+    options: *local-racket-options
+  sram:
+    command: noop
+    deps: [compile-sram]
+    inputs:
+      - "sram/**/*"
+      - "@group(backend--circt)"
+      - "@group(circt-tool)"
+    options: { cache: false }
+  memory-map:
+    command: noop
+    inputs:
+      - "vlsi/designs/mini-rv5stage-soc/**/*"
+      - "vlsi/tools/check-mini-rv5stage-soc-memory-map.py"
+      - "vlsi/tools/emit-mini-rv5stage-soc.rhm"
+      - "sims/mini-rv5stage-soc-harness.rhdl"
+      - "@group(mini-harness)"
+      - "@group(language)"
+      - "@group(library)"
+      - "@group(architecture)"
+      - "@group(soc-config)"
+      - "@group(soc-hardware)"
+      - "@group(hart-interface)"
+      - "@group(shape--mini)"
+      - "@group(core--rv5stage)"
+      - "@group(shared-core)"
+      - "@group(config-common)"
+      - "@group(config-shape-mini)"
+      - "@group(config-core-rv5stage)"
+      - "@group(compilation)"
+    deps: [generate-memory-wrappers]
+    options: *racket-options
+  mapped-smoke:
+    tags: [ci-mapped-smoke, ci-root, ci-receipt]
+    script: |
+      set -e
+      source vlsi/sim/build-env.sh
+      if ! cmp -s "$mapped_source/smoke.elf" "$build/smoke.elf"; then cp "$mapped_source/smoke.elf" "$build/smoke.elf"; fi
+      read -r -a htif <<< "${HTIF_ARGS:-}"
+      read -r -a args <<< "${TARGET_ARGS:-}"
+      "$build/obj/VTestDriver" "${htif[@]}" "$build/smoke.elf" "${args[@]}"
+    inputs:
+      - "vlsi/sim/**/*"
+      - "sims/tests/programs/smoke.*"
+      - "sims/tests/programs/smoke.*/**/*"
+      - "@group(harness-runtime)"
+      - "@group(fesvr-runtime)"
+      - "@group(verilator)"
+      - "@group(compiler)"
+    deps: [compile-mapped-simulator, mapped-smoke-elf, memory-map, sram-check]
+    options: { cache: false }
+  synthesis:
+    command: noop
+    inputs:
+      - "vlsi/openlane/mini_rv5stage_soc/**/*"
+      - "vlsi/tools/**/*"
+    deps: [physical-post-synth]
+    options: { cache: false, runInCI: false }
+  wrapper-rtl:
+    command: noop
+    deps: [lower-wrapper]
+    inputs:
+      - "vlsi/src/**/*"
+      - "vlsi/verilog/**/*"
+      - "vlsi/tools/emit-top.rhm"
+      - "@group(language)"
+      - "@group(library)"
+      - "@group(backend--circt)"
+      - "@group(circt-tool)"
+    options: *local-racket-options
+  wrapper-contract:
+    command: >-
+      python3 vlsi/tools/check-openframe-contract.py
+      --wrapper vlsi/verilog/rtl/double_wide_openframe_project_wrapper.v
+      --harness-wrapper vlsi/double_wide_openframe/verilog/rtl/double_wide_openframe_project_wrapper.v
+      --pin-template vlsi/double_wide_openframe/librelane/wrapper/pin_template.def
+    inputs:
+      - "vlsi/tools/check-openframe-contract.py"
+      - "vlsi/double_wide_openframe"
+      - "@group(pin--vlsi--double_wide_openframe)"
+    deps: ["wrapper-rtl"]
+    options: { cache: false, runInCI: false }
+  harden:
+    command: bash vlsi/tools/run-physical.sh harden
+    inputs:
+      - "vlsi/openlane/double_wide_openframe_project_wrapper/**/*"
+    deps: [wrapper-lint]
+    options: { cache: false, runInCI: false }
+  gds:
+    command: noop
+    inputs: []
+    deps: [physical-integrate]
+    options: { cache: false, runInCI: false }
+  lvs:
+    command: bash vlsi/tools/run-physical.sh lvs
+    inputs:
+      - "vlsi/openlane/rhodium_lvs_smoke/**/*"
+    deps: [wrapper-lint, lvs-wrapper-lint]
+    options: { cache: false, runInCI: false }
+  goldens:
+    command: noop
+    deps: ["verilog-golden-test"]
+    inputs:
+      - "examples/**/*"
+      - "tools/testing/circt/**/*"
+      - "@group(language)"
+      - "@group(library)"
+      - "@group(compilation)"
+      - "@group(backend--circt)"
+      - "@group(circt-tool)"
+    options: *local-racket-options
+  update-goldens:
+    command: noop
+    deps: ["update-verilog-goldens"]
+    inputs:
+      - "tools/testing/circt/**/*"
+    options: *local-racket-options
+  build-cosim-runtime:
+    command: noop
+    inputs:
+      - "@group(cosim)"
+      - "@group(patches)"
+    deps: [compile-cosim-runtime]
+    options: { cache: false }
+  describe-targets:
+    command: "tools/run-racket.sh -S . sims/program-test/write-target.rhm --batch"
+    inputs:
+      - "sims/program-test/write-target.rhm"
+    options: *racket-options
+  ci-contracts:
+    command: "python3 -m unittest discover -s tools/ci/tests"
+    inputs:
+      - "tools/ci/tests/**/*"
+    options: { cache: false }
+  sram-check:
+    script: |
+      set -e
+      export PYTHONDONTWRITEBYTECODE=1
+      export CIRCT_OPT="${CIRCT_OPT:-$PWD/.tools/firtool-1.155.0/bin/circt-opt}"
+      export MEMORY_SITE_PLUGIN="${MEMORY_SITE_PLUGIN:-${SRAM_BUILD_DIR:-${BUILD_DIR:-$PWD/sram/build}}/circt/rhodium-memory-sites.so}"
+      "${PYTHON:-python3}" -m unittest discover -s sram/tests -p 'test_*.py'
+    inputs: []
+    deps: ["sram"]
+    options: { cache: false }
+  ntl-policy:
+    extends: harness-zihintntl-test
+    env:
+      SOC: simple-rv5stage-rva23
+      RTL_BACKEND: rsim
+      COSIM: '1'
+      STATS: '1'
+      TRACE: '0'
+      RHODIUM_SOC: simple-rv5stage-rva23
+      RHODIUM_BACKEND: rsim
+      RHODIUM_VARIANT: cosim-stats
+      RHODIUM_HARNESS: zihintntl-test
+      RHODIUM_PAYLOAD_NAME: zihintntl-policy
+      NTL_CPPFLAGS: -DRHODIUM_NTL_CACHE_POLICY=1
+    inputs:
+      - "sims/tests/programs/zihintntl.S"
+      - "@group(compiler)"
+    deps: [simulator--simple-rv5stage-rva23--rsim, payload-ntl-policy]
+    options: { cache: false }
+  sail-alias-check:
+    script: |
+      set -e
+      selection=(--soc "${ACT_CONFIGURATION:-${SOC:-simple-rv5stage-rva23}}" --isa "${ISA:-}")
+      if [[ -n ${CORE:-} ]]; then selection+=(--core "$CORE"); fi
+      axes=$(python3 socs/configs/selection.py "${selection[@]}")
+      read -r shape core isa <<< "$axes"
+      config="$shape-$core-$isa"
+      identity=$(python3 riscv/patched_submodule.py identity --repository "$PWD" --submodule riscv/sail-riscv --series riscv/sail-riscv-patches/series)
+      "${ACT_PYTHON:-${ACT_VENV:-$PWD/.tools/act-venv}/bin/python}" sims/arch-test/check-sail-sgeie.py \
+        --sail "${ACT_SAIL:-$PWD/.tools/sail-riscv-0.16-sail-0.20.3-$identity/bin/sail_riscv_sim}" \
+        --config "${ACT_BUILD_ROOT:-/tmp/rhodium-arch-test}/configs/$config/sail.json" --compiler "${RISCV_CC:-riscv64-unknown-elf-gcc}"
+    inputs: []
+    deps: [local-act-config]
+    options: { cache: false }

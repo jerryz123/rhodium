@@ -130,4 +130,4 @@ checks for the contract changed:
 
 Consumer benches must compare complete packets, not just payloads. For source
 moves, update direct consumers, docs, and build/CI paths together, then run
-`make check-boundaries` and affected checks through the repository wrappers.
+`moon run rhodium:check-boundaries` and affected checks through the repository wrappers.

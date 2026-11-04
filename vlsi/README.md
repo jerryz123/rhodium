@@ -19,6 +19,9 @@ integrates it into the OpenFrame wrapper.
 
 Contributors changing a physical profile, handoff, or flow target should read
 [`DEVELOPING.md`](DEVELOPING.md).
+Prepare Moon using the [repository workflow](../DEVELOPING.md#validate-at-the-owning-boundary)
+before running named checks or complete flows. Moon owns artifact production,
+checks, and execution; run commands from the repository root.
 
 ```mermaid
 flowchart TD
@@ -83,19 +86,19 @@ default. Install it once if it is absent, or point at a compatible existing
 installation:
 
 ```sh
-make -C vlsi setup-circt
-make -C vlsi rtl-check CIRCT_OPT=/path/to/circt-opt
+moon run rhodium:setup-circt
+CIRCT_OPT=/path/to/circt-opt moon run rhodium:wrapper-lint
 ```
 
 The MiniRV5StageSoC collateral-validating mapping target and every LibreLane physical
 stage require the pinned PDK collateral. Enable it once:
 
 ```sh
-make -C vlsi enable-pdk
+moon run rhodium:enable-pdk
 ```
 
 `PDK_ROOT` defaults to `$HOME/.ciel` and `PDK` defaults to `sky130A`. The
-Makefile uses `librelane`, `ciel`, or `magic` directly when the needed tool is
+Moon task uses `librelane`, `ciel`, or `magic` directly when the needed tool is
 on `PATH`; otherwise it enters the harness's pinned Nix flake. The flake pins
 the physical-design tool environment, including LibreLane 3.1.0.dev2 and the
 matching PDK commit. A standard multi-user Nix installation may need the user
@@ -105,7 +108,7 @@ the initial tool build can take substantially longer.
 ## Stage 1: bring up the OpenFrame RTL boundary
 
 ```sh
-make -C vlsi rtl-check
+moon run rhodium:wrapper-lint
 ```
 
 Inputs are the Rhodium smoke leaf, its emitter, the local
@@ -126,16 +129,16 @@ wrapper.
 Generic mapper behavior is tested in its owning package:
 
 ```sh
-make -C sram test
+moon run rhodium:sram-check
 ```
 
 Then exercise the design-specific policy in increasing order of cost:
 
 ```sh
-make -C vlsi mini-rv5stage-soc-memory-map
-make -C vlsi mini-rv5stage-soc-macro-rtl-check
-make -C vlsi mini-rv5stage-soc-slang-check
-make -C vlsi mini-rv5stage-soc-synth
+moon run rhodium:generate-physical-memory-wrappers
+moon run rhodium:macro-rtl-lint
+moon run rhodium:physical-slang
+moon run rhodium:synthesis
 ```
 
 `mini-rv5stage-soc-memory-map` selects `MiniRV5StageSoC`, flattens occurrence paths, applies the
@@ -171,12 +174,12 @@ verified synthesis handoff is `build/mini-rv5stage-soc/synthesis/MiniRV5StageSoC
 companion JSON netlist). LibreLane's raw netlist and metrics remain unchanged
 under `openlane/mini_rv5stage_soc/runs/RHODIUM_SLANG_SYNTH/`; those metrics describe the
 pre-repair design, not the final handoff. Direct LibreLane invocations bypass
-this Make-owned post-synthesis step.
+this Moon-owned post-synthesis step.
 
 To rerun just the post-synthesis step against an existing completed synthesis:
 
 ```sh
-make -C vlsi mini-rv5stage-soc-post-synth
+moon run rhodium:physical-post-synth
 ```
 
 An experimental multiplier operand-capture repair uses the same local balancing
@@ -185,8 +188,7 @@ improved the multiplier path but regressed overall worst setup slack through
 shared side outputs. Keep its handoff separate when comparing timing:
 
 ```sh
-make -C vlsi mini-rv5stage-soc-post-synth MINI_RV5STAGE_SOC_REPAIR_MULTIPLIER=1 \
-  MINI_RV5STAGE_SOC_POST_SYNTH_DIR="$PWD/vlsi/build/mini-rv5stage-soc/synthesis-multiplier"
+MINI_RV5STAGE_SOC_REPAIR_MULTIPLIER=1 MINI_RV5STAGE_SOC_POST_SYNTH_DIR="$PWD/vlsi/build/mini-rv5stage-soc/synthesis-multiplier" moon run rhodium:physical-post-synth
 ```
 
 This does not change RTL or add pipeline stages. Compare full-design STA, not
@@ -215,7 +217,7 @@ carries inputs for those later stages but is not evidence that they passed.
 Cycle-level behavior for the same policy is a separate consumer check:
 
 ```sh
-make -C vlsi/sim smoke
+moon run rhodium:mapped-smoke
 ```
 
 That target scopes the MiniRV5StageSoC-relative policy through `SoCHarness.soc` and
@@ -226,7 +228,7 @@ see the [mapped simulation guide](sim/README.md) for setup and custom binaries.
 ## Stage 3: run the focused LVS fixture
 
 ```sh
-make -C vlsi lvs-smoke
+moon run rhodium:lvs
 ```
 
 The full OpenFrame user area contains roughly 32 mm² of standard-cell rows.
@@ -245,12 +247,12 @@ wrapper, any SRAM macro, the padframe, or the post-integration GDS.
 ## Stage 4: harden and integrate the sparse OpenFrame wrapper
 
 ```sh
-make -C vlsi gds
+moon run rhodium:gds
 ```
 
 `gds` depends on two independently useful stages:
 
-1. `harden` runs `rtl-check`, then LibreLane hardens the local user-wrapper
+1. Moon's `harden` task runs wrapper lint, then LibreLane hardens the local user-wrapper
    implementation with the harness-owned DEF template. It exports
    `build/views/gds/double_wide_openframe_project_wrapper.gds`.
 2. `integrate` invokes the harness-owned `scripts/integrate_openframe.tcl` with
@@ -258,8 +260,9 @@ make -C vlsi gds
    `gds/double_wide_chip_io.gds` padframe and writes
    `build/integrated/double_wide_openframe.gds`.
 
-Use `make -C vlsi harden` or `make -C vlsi integrate` directly when debugging
-one side of the handoff. The `vlsi/` layer owns the user-wrapper GDS passed to
+Use `moon run rhodium:harden` or `moon run rhodium:physical-integrate` directly when debugging
+one side of the handoff. Moon stages produce artifacts and declare their
+lint prerequisites. The `vlsi/` layer owns the user-wrapper GDS passed to
 the swap; the submodule owns the padframe GDS, physical boundary template,
 integration script, and tool environment.
 
@@ -282,5 +285,5 @@ fixture cannot substitute for any of those checks.
 
 Generated MLIR, RTL, manifests, LibreLane runs, and exported views are ignored
 by Git. They live under `vlsi/build/` or `vlsi/openlane/*/runs/` and may be
-absent in a clean checkout. `make -C vlsi clean` removes `vlsi/build/` and the
+absent in a clean checkout. `moon run rhodium:clean-vlsi` removes `vlsi/build/` and the
 OpenFrame-wrapper and LVS-fixture run directories.

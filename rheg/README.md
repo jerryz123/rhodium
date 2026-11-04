@@ -292,10 +292,10 @@ indistinguishable from continuously held reset and share an epoch ID.
 The optional [`rheg_perfetto`](perfetto/rheg_perfetto.h) C++
 library writes native `.pftrace` packets as settled batches arrive. The same
 encoder powers the standalone `rheg-perfetto` snapshot converter.
-Build with Make, Python 3.9+, and a C++20 Clang/GCC compiler on macOS or Linux:
+Build with Moon, Python 3.9+, and a C++20 Clang/GCC compiler on macOS or Linux:
 
 ```sh
-make -C rheg/perfetto BUILD_DIR=/tmp/rhodium-perfetto-build -j 4
+moon run rhodium:trace-converter
 ```
 
 The exporter requires system zlib development headers/libraries and nlohmann
@@ -310,13 +310,14 @@ during the build; no Python participates in conversion or at runtime.
 No LLVM, external disassembler process, Perfetto SDK, or protobuf runtime is
 required.
 
-The Makefile discovers the installed header through `pkg-config` when available,
+The build discovers the installed header through `pkg-config` when available,
 then falls back to the compiler's normal include search path. To select a
 specific installation, pass `NLOHMANN_JSON_INCLUDE_DIR=/path/to/include` to
-Make, the test runner, or the simulator build. A missing header produces an
+the task environment, test runner, or simulator build. A missing header produces an
 actionable build error; no dependency is downloaded automatically.
 
-For integration, build the `libraries` Make target and link
+Outputs live under `.rhodium-cache/moon/trace/`. For integration, run
+`moon run rhodium:trace-runtime` and link
 `librheg_perfetto.a`, `librheg_runtime.a`, and system zlib in that order. Do not
 also compile another copy of the collector. After binding a manifest and timing,
 begin a stream on an empty graph:
@@ -336,8 +337,8 @@ writer.finish(); // Flush final framing and report output errors.
 ```
 
 ```sh
-/tmp/rhodium-perfetto-build/rheg-perfetto snapshot.json > replay.pftrace
-/tmp/rhodium-perfetto-build/rheg-perfetto --gzip snapshot.json > replay.pftrace.gz
+.rhodium-cache/moon/trace/rheg-perfetto snapshot.json > replay.pftrace
+.rhodium-cache/moon/trace/rheg-perfetto --gzip snapshot.json > replay.pftrace.gz
 ```
 
 The binary reads a complete timed `rhodium-event-trace` snapshot emitted by
@@ -406,7 +407,7 @@ stalls, reject the entire batch without advancing the writer. Sharing a track
 asserts exclusivity; it does not arbitrate or suppress events.
 
 ```sh
-/tmp/rhodium-perfetto-build/rheg-perfetto --gzip --tracks vector-tracks.json snapshot.json > replay.pftrace.gz
+.rhodium-cache/moon/trace/rheg-perfetto --gzip --tracks vector-tracks.json snapshot.json > replay.pftrace.gz
 ```
 
 Shared-track descriptions contain `label` plus a `sites` array with every

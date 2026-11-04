@@ -58,7 +58,7 @@ def main():
     if args.differential:
         circt = os.environ.get("CIRCT_OPT") or shutil.which("circt-opt") or str(ROOT / ".tools/firtool-1.155.0/bin/circt-opt")
         if not Path(circt).is_file():
-            parser.error("circt-opt is required for --differential; set CIRCT_OPT or run make setup-circt")
+            parser.error("circt-opt is required for --differential; set CIRCT_OPT or run moon run rhodium:setup-circt")
     work = Path(tempfile.mkdtemp(prefix="rhodium-backend-integration-"))
     try:
         for fixture in args.fixture or CASES:

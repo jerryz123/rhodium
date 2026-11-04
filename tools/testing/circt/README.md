@@ -43,7 +43,7 @@ behavior:
 tools/run-racket-tests.sh rhodium/backend/tests/circt-test.rhm
 ```
 
-Replace `circt-test.rhm` with the relevant `*-test.rhm`. `make backend-test`
+Replace `circt-test.rhm` with the relevant `*-test.rhm`. `moon run rhodium:backend-test`
 runs every backend host test after package-boundary checks; it does not run
 CIRCT or Verilator.
 
@@ -91,11 +91,11 @@ The main targets differ in scope and stage:
 
 | Command | Selection and work performed |
 |---|---|
-| `make circt-test` | Curated semantic spine; lower with CIRCT, compare example references when the CIRCT version permits it, and run available simulations |
-| `make circt-verify-test` | Curated spine; materialize and lower only, with no golden comparison or simulation |
-| `make verilator-test` | Curated fixtures that have simulations; lower, build, and run them without golden comparison |
-| `make verilog-golden-test` | Every explicitly golden example fixture; require the pinned CIRCT version and compare each exact reference, with no simulation |
-| `make circt-full-test` | Every declared example and package-local fixture; compare selected simple-example references with the pinned tool and run every available simulation |
+| `moon run rhodium:circt-test` | Curated semantic spine; lower with CIRCT, compare example references when the CIRCT version permits it, and run available simulations |
+| `moon run rhodium:circt-verify-test` | Curated spine; materialize and lower only, with no golden comparison or simulation |
+| `moon run rhodium:verilator-test` | Curated fixtures that have simulations; lower, build, and run them without golden comparison |
+| `moon run rhodium:verilog-golden-test` | Every explicitly golden example fixture; require the pinned CIRCT version and compare each exact reference, with no simulation |
+| `moon run rhodium:circt-full-test` | Every declared example and package-local fixture; compare selected simple-example references with the pinned tool and run every available simulation |
 
 The default curated spine covers representative external behavior across the
 lowering families while avoiding every frontend and parameter variation.
@@ -120,7 +120,7 @@ installation by OS, architecture, and installer contents.
 Install the repository's pinned CIRCT release with:
 
 ```sh
-make setup-circt
+moon run rhodium:setup-circt
 ```
 
 The runner prefers `.tools/firtool-1.155.0/bin/circt-opt`, then a `circt-opt`
@@ -132,7 +132,7 @@ Everything else is compared exactly.
 
 With another CIRCT version, a normal, full, group, or explicit run still
 verifies lowering and runs selected simulations, but announces that it is
-skipping version-specific reference comparisons. `make verilog-golden-test`
+skipping version-specific reference comparisons. `moon run rhodium:verilog-golden-test`
 instead fails on a version mismatch so a golden-only run cannot silently pass
 without comparing text.
 

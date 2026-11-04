@@ -3,6 +3,8 @@
 
 compiled/
 .rhodium-cache/
+.moon/cache/
+.moon/tasks/rhodium-generated.yml
 __pycache__/
 obj_dir/
 .tools/

@@ -1,0 +1,12 @@
+# Hosts the task catalog materialized from Rhodium's check and workload inventories.
+# SPDX-License-Identifier: Apache-2.0
+versionConstraint: '=2.6.5'
+projects:
+  rhodium: '.'
+vcs:
+  client: git
+  defaultBranch: main
+hasher:
+  # Hash each task's expanded inputs (including its gitlink stamps), not
+  # the inventory of every other task and file group in the repository.
+  ignorePatterns: ['.moon/tasks/rhodium-generated.yml', '.moon/tasks/cache-keys.yml']

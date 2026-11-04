@@ -27,10 +27,16 @@ Contributors should start with [`DEVELOPING.md`](DEVELOPING.md).
 
 ## Quick start
 
+For repository checks, simulators, and benchmarks, start with the
+[Moon contributor quick start](DEVELOPING.md#validate-at-the-owning-boundary).
+Moon is not required to elaborate a circuit or run a focused fixture.
+
 ### Requirements
 
 - Racket 9.2 or a compatible current release
 - Rhombus 1.1
+- Moon 2.6.5 for named repository tests and build products; individual fixture
+  runners do not require it
 - Device Tree Compiler for DTB interoperability tests and FESVR simulations
 - CIRCT for the CIRCT-to-SystemVerilog route; direct SystemVerilog emission
   does not require it
@@ -49,7 +55,7 @@ For the CIRCT route on x86-64 Linux or Apple Silicon macOS, install the pinned
 release into the ignored `.tools` directory:
 
 ```sh
-make setup-circt
+moon run rhodium:setup-circt
 ```
 
 For Verilator-based simulation, build the pinned Verilator 5.048 (requires a C++
@@ -57,11 +63,11 @@ toolchain, Autoconf, Bison, Flex, Make, Perl, Python 3, and zlib/LZ4 development
 libraries):
 
 ```sh
-make setup-verilator
+moon run rhodium:setup-verilator
 export PATH="$PWD/.tools/verilator/bin:$PATH"
 ```
 
-Root Make targets also prefer this installation automatically.
+Moon test tasks prefer this installation automatically.
 
 On other platforms, install CIRCT separately and set `CIRCT_OPT` to the path of
 `circt-opt` when using the CIRCT route. See the
@@ -94,7 +100,7 @@ Run all canonical examples, including CIRCT-backed SystemVerilog reference check
 (requires the CIRCT setup above):
 
 ```sh
-make examples
+moon run rhodium:examples
 ```
 
 The [test runner guide](tools/testing/README.md) explains the available validation

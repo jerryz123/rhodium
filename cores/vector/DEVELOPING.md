@@ -219,7 +219,7 @@ For extraction or service-boundary changes, run the existing focused fixtures:
 ```sh
 tools/run-racket-tests.sh cores/rv5stage/tests/vector-ctrl-test.rhm cores/rv5stage/tests/core-ctrl-test.rhm
 FIXTURES='rv5stage-vector-overlap rv5stage-vector-packed rv5stage-vector-sequencer-rv32 rv5stage-vector-admission' python3 tools/testing/rsim/run.py
-make check-boundaries
+moon run rhodium:check-boundaries
 ```
 
 The overlap fixture covers persistent response ownership across sequencer

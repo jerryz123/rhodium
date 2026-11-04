@@ -109,6 +109,6 @@ selection, unconditional entries, and disagreement with local counters.
 For changes to shared payloads or extraction boundaries, also run the RV5Stage
 `rv5stage-fetch-prediction`, `rv5stage-return-prediction`, and
 `rv5stage-branch-prediction` fixtures. Include `event-frontend` when changing
-fetch Flow contracts. After moves or import changes run `make check-boundaries`;
+fetch Flow contracts. After moves or import changes run `moon run rhodium:check-boundaries`;
 fixture names and shared-component CI ownership live in the
 [rsim inventory](../../tools/testing/rsim/fixtures.tsv).

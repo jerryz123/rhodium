@@ -14,7 +14,7 @@ trees are never committed.
 
 Each patch must apply cleanly to the pinned submodule revision. When advancing
 the submodule, remove changes that have landed upstream, rebase the remaining
-patches, and run `make -C sims arch-test-tests` before updating this document.
+patches, and run `moon run rhodium:act-generate` before updating this document.
 The current queue contains independent fixes:
 
 1. `0005-avoid-reserved-vsetvl-when-forcing-vill.patch` makes the
@@ -45,7 +45,7 @@ the measured handler body. Keep platform interrupt latency and profiles intact.
 To inspect the patched source without generating tests, run:
 
 ```sh
-make -C sims arch-test-source
+moon run rhodium:act-source
 ```
 
 The materialized source defaults to

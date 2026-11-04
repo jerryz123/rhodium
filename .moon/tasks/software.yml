@@ -1,0 +1,174 @@
+# Owns direct software-builder recipes shared by local tasks and hosted archive producers.
+# SPDX-License-Identifier: Apache-2.0
+tasks:
+  software-coremark:
+    script: |
+      source sw/build/moon-env.sh
+      require_software_shape simple
+      "$python" sw/build/build-coremark.py --source "${COREMARK_DIR:-$repo_dir/sw/coremark}" \
+        --port "${COREMARK_PORT_DIR:-$repo_dir/sw/coremark-riscv-baremetal}" \
+        --target "$software_target" --output "$output" --compiler "$compiler" \
+        --iterations "${COREMARK_ITERATIONS:-1}" --variant "$RHODIUM_BUILD_SUBDIR"
+      finish_software_build
+    env: { RHODIUM_BUILD_SUBDIR: coremark }
+    inputs: ["@group(build--coremark)", "sw/build/moon-env.sh"]
+    options: { cache: false, unixShell: bash }
+  software-coremark_scalar:
+    extends: software-coremark
+    env: { RHODIUM_BUILD_SUBDIR: coremark_scalar }
+  software-isa:
+    script: |
+      source sw/build/moon-env.sh
+      require_software_shape simple
+      "$python" sw/build/build.py --suite isa --source "${RISCV_TESTS_DIR:-$repo_dir/sw/riscv-isa-tests}" \
+        --target "$software_target" --output "$output" --compiler "$compiler" --isa-selection full
+      finish_software_build
+    env: { RHODIUM_BUILD_SUBDIR: isa }
+    inputs: ["@group(build--isa)", "sw/build/moon-env.sh"]
+    options: { cache: false, unixShell: bash }
+  software-isa-smoke:
+    script: |
+      source sw/build/moon-env.sh
+      require_software_shape mini simple tiled4core tiled8core
+      if [[ -z ${RHODIUM_ARCHIVE_KEY:-} ]]; then output="${ISA_SMOKE_DIR:-$output}"; fi
+      mkdir -p "$output"
+      cp "$software_target" "$output/target.json"
+      "$python" sw/build/build.py --suite isa --source "${RISCV_TESTS_DIR:-$repo_dir/sw/riscv-isa-tests}" \
+        --target "$output/target.json" --output "$output" --compiler "$compiler" --isa-selection smoke
+      finish_software_build
+    env: { RHODIUM_BUILD_SUBDIR: isa-smoke }
+    inputs: ["@group(build--isa)", "sw/build/moon-env.sh"]
+    options: { cache: false, unixShell: bash }
+  software-benchmark:
+    script: |
+      source sw/build/moon-env.sh
+      require_software_shape simple
+      "$python" sw/build/build.py --suite benchmark --source "${RISCV_TESTS_DIR:-$repo_dir/sw/riscv-isa-tests}" \
+        --target "$software_target" --output "$output" --compiler "$compiler" --benchmark-mode "${BENCHMARK_MODE:-target}"
+      finish_software_build
+    env: { RHODIUM_BUILD_SUBDIR: benchmark }
+    inputs: ["@group(build--benchmark)", "sw/build/moon-env.sh"]
+    options: { cache: false, unixShell: bash }
+  software-tiled-mt-benchmark:
+    script: |
+      source sw/build/moon-env.sh
+      require_software_shape tiled8core
+      if [[ -z ${RHODIUM_ARCHIVE_KEY:-} && -n ${TILED_MT_BENCHMARK_DIR:-} ]]; then output="$TILED_MT_BENCHMARK_DIR/8-harts"; fi
+      "$python" sw/build/build.py --suite benchmark --source "${RISCV_TESTS_DIR:-$repo_dir/sw/riscv-isa-tests}" \
+        --target "$software_target" --output "$output" --compiler "$compiler" --benchmark-mode target \
+        --benchmark-selection multihart --benchmark-hart-count 8
+      finish_software_build
+    env: { RHODIUM_BUILD_SUBDIR: mt-benchmark/8-harts }
+    inputs: ["@group(build--benchmark)", "sw/build/moon-env.sh"]
+    options: { cache: false, unixShell: bash }
+  software-embench:
+    script: |
+      source sw/build/moon-env.sh
+      require_software_shape simple
+      "$python" sw/build/build-embench.py --source "${EMBENCH_DIR:-$repo_dir/sw/embench-iot}" \
+        --port "${EMBENCH_PORT_DIR:-$repo_dir/sw/embench-iot-riscv-baremetal}" \
+        --target "$software_target" --output "$output" --compiler "$compiler" \
+        --scale "${EMBENCH_SCALE:-1}" --local-scale "${EMBENCH_LOCAL_SCALE:-1}" --warmup-heat "${EMBENCH_WARMUP_HEAT:-0}"
+      finish_software_build
+    env: { RHODIUM_BUILD_SUBDIR: embench }
+    inputs: ["@group(build--embench)", "sw/build/moon-env.sh"]
+    options: { cache: false, unixShell: bash }
+  software-bringup:
+    script: |
+      source sw/build/moon-env.sh
+      require_software_shape simple
+      selection=()
+      if [[ -n ${BRINGUP_BENCHMARKS:-} ]]; then selection=(--benchmarks "$BRINGUP_BENCHMARKS"); fi
+      "$python" sw/build/build-bringup-bench.py --source "${BRINGUP_DIR:-$repo_dir/sw/bringup-bench}" \
+        --patch-series "${BRINGUP_PATCH_SERIES:-$repo_dir/sw/bringup-bench-patches/series}" \
+        --port "${BRINGUP_PORT_DIR:-$repo_dir/sw/bringup-bench-riscv-baremetal}" \
+        --target "$software_target" --output "$output" --compiler "$compiler" "${selection[@]}"
+      finish_software_build
+    env: { RHODIUM_BUILD_SUBDIR: bringup }
+    inputs: ["@group(build--bringup)", "sw/build/moon-env.sh"]
+    options: { cache: false, unixShell: bash }
+  software-skl:
+    script: |
+      source sw/build/moon-env.sh
+      require_software_shape simple
+      [[ $isa == rva23 ]] || { echo 'SKL requires ISA=rva23' >&2; exit 2; }
+      "$python" sw/build/build-skl.py --source "${SKL_DIR:-$repo_dir/sw/skl}" \
+        --patch-series "${SKL_PATCH_SERIES:-$repo_dir/sw/skl-patches/series}" \
+        --port "${SKL_PORT_DIR:-$repo_dir/sw/skl-riscv-baremetal}" \
+        --target "$software_target" --output "$output" --compiler "$compiler" --jobs "${BUILD_JOBS:-4}"
+      finish_software_build
+    env: { RHODIUM_BUILD_SUBDIR: skl }
+    inputs: ["@group(build--skl)", "sw/build/moon-env.sh"]
+    options: { cache: false, unixShell: bash }
+  software-highway:
+    script: |
+      source sw/build/moon-env.sh
+      require_software_shape simple
+      [[ $isa == rva23 ]] || { echo 'Highway requires ISA=rva23' >&2; exit 2; }
+      "$python" sw/build/build-highway.py --source "${HIGHWAY_DIR:-$repo_dir/sw/highway}" \
+        --port "${HIGHWAY_PORT_DIR:-$repo_dir/sw/highway-riscv-baremetal}" \
+        --target "$software_target" --output "$output" --compiler "$compiler" --jobs "${BUILD_JOBS:-4}"
+      finish_software_build
+    env: { RHODIUM_BUILD_SUBDIR: highway }
+    inputs: ["@group(build--highway)", "sw/build/moon-env.sh"]
+    options: { cache: false, unixShell: bash }
+  software-litmus:
+    script: |
+      source sw/build/moon-env.sh
+      require_software_shape tiled4core
+      selection=()
+      case "$RHODIUM_BUILD_SUBDIR" in
+        litmus-smoke)
+          if [[ -z ${RHODIUM_ARCHIVE_KEY:-} ]]; then output="${LITMUS_SMOKE_DIR:-$output}"; fi
+          selection=(--smoke)
+          if [[ -n ${LITMUS_SMOKE_RUNS:-} ]]; then selection+=(--runs "$LITMUS_SMOKE_RUNS"); fi ;;
+        litmus-full)
+          output="${LITMUS_FULL_DIR:-$output}"
+          selection=(--tests all --runs "${LITMUS_FULL_RUNS:-1}" --keep-going) ;;
+        litmus)
+          output="${LITMUS_BUILD_DIR:-$output}"
+          selection=(--tests "${LITMUS_CASES:-all}" --runs "${LITMUS_RUNS:-10}") ;;
+      esac
+      if [[ -n ${LITMUS7_LIBDIR:-} ]]; then selection+=(--litmus7-libdir "$LITMUS7_LIBDIR"); fi
+      if [[ -n ${HERD7_LIBDIR:-} ]]; then selection+=(--herd7-libdir "$HERD7_LIBDIR"); fi
+      "$python" sw/build/build-litmus.py --source "${LITMUS_DIR:-$repo_dir/sw/litmus-tests-riscv}" \
+        --runtime "${LITMUS_PORT_DIR:-$repo_dir/sw/litmus-riscv-baremetal}" \
+        --riscv-tests "${RISCV_TESTS_DIR:-$repo_dir/sw/riscv-isa-tests}" \
+        --target "$software_target" --output "$output" --compiler "$compiler" \
+        --litmus7 "${LITMUS7:?Litmus requires an explicit pinned LITMUS7 executable}" \
+        --herd7 "${HERD7:?Litmus requires an explicit pinned HERD7 executable}" "${selection[@]}"
+      finish_software_build
+    env: { RHODIUM_BUILD_SUBDIR: litmus }
+    inputs: ["@group(build--litmus)", "sw/build/moon-env.sh"]
+    options: { cache: false, unixShell: bash }
+  software-litmus-smoke:
+    extends: software-litmus
+    env: { RHODIUM_BUILD_SUBDIR: litmus-smoke }
+  software-litmus-full:
+    extends: software-litmus
+    env: { RHODIUM_BUILD_SUBDIR: litmus-full }
+  software-opensbi:
+    script: |
+      source sw/build/opensbi-env.sh
+      for name in layout.json opensbi_smoke.elf; do
+        if ! cmp -s "$stage/$name" "$output/$name"; then cp "$stage/$name" "$output/$name"; fi
+      done
+      "$python" sw/build/opensbi.py manifest --target "$software_target" --compiler "$compiler" --output "$output"
+      finish_software_build
+    env: { RHODIUM_BUILD_SUBDIR: opensbi }
+    inputs: ["@group(build--opensbi)", "sw/build/moon-env.sh"]
+    options: { cache: false, unixShell: bash }
+  software-linux:
+    script: |
+      source sw/build/moon-env.sh
+      output="${LINUX_OUTPUT:-$output}"
+      "$python" sw/build/linux.py --source "${LINUX_SOURCE:-$repo_dir/sw/buildroot}" \
+        --port "${LINUX_PORT:-$repo_dir/sw/buildroot-riscv}" \
+        --opensbi-source "${OPENSBI_SOURCE:-$repo_dir/sw/opensbi}" \
+        --opensbi-patches "${OPENSBI_PATCHES:-$repo_dir/sw/opensbi-patches/series}" \
+        --target "$software_target" --output "$output" \
+        --downloads "${LINUX_DOWNLOADS:-$build_root/buildroot-downloads}" --jobs "${LINUX_JOBS:-4}"
+      finish_software_build
+    env: { RHODIUM_BUILD_SUBDIR: linux }
+    inputs: ["@group(build--linux)", "sw/build/moon-env.sh"]
+    options: { cache: false, unixShell: bash }

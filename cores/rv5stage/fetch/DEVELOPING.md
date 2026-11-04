@@ -91,7 +91,7 @@ The `rv5stage-instruction-buffer` and `rv5stage-instruction-buffer-no-c` fixture
 distinguish illegal compressed expansion from a head fault and from a raw
 word left for ordinary instruction decode.
 
-After changing layout or imports, run `make check-boundaries` and confirm no old
+After changing layout or imports, run `moon run rhodium:check-boundaries` and confirm no old
 paths remain. Direct predictor behavior is covered by the shared `bpred-btb`
 and `bpred-ras` fixtures. Fetch integration is covered by `rv5stage-instruction-buffer`, `rv5stage-fetch-prediction`,
 `rv5stage-fetch-throughput`, `rv5stage-return-prediction`,

@@ -62,7 +62,7 @@ strings, out-of-width integers, and invalid reservations.
 Run the package tests with:
 
 ```sh
-make devicetree-test
+moon run rhodium:devicetree-test
 ```
 
 That target runs host-model tests and cross-checks a representative native DTB

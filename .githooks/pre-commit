@@ -4,5 +4,5 @@
 set -euo pipefail
 
 repo_dir="$(git rev-parse --show-toplevel)"
-make -C "$repo_dir" check-license-headers-staged
-make -C "$repo_dir" check-parameter-annotations
+cd "$repo_dir"
+moon run rhodium:check-license-headers-staged rhodium:check-parameter-annotations

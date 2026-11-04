@@ -14,7 +14,7 @@ XGBoost sample profile with its exact correctness check. The builder passes
 the requested local scale through `-DLOCAL_SCALE_FACTOR` and compiles directly
 from the patched tree. No generated source overlay is needed.
 
-Use `make -C sims embench-elfs SOC=simple CORE=rv2wide ISA=rva23` to build the
+Use `SOC=simple CORE=rv2wide ISA=rva23 moon run rhodium:embench-elfs` to build the
 suite. See the [software contributor guide](../DEVELOPING.md) for maintenance
 and validation. Preserve the workload selection, sample indices, and checks
 when refreshing upstream pins.

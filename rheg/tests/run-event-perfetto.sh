@@ -6,12 +6,13 @@ repo_dir="$(cd "$(dirname "$0")/../.." && pwd)"
 stream_test_dir="$(mktemp -d /tmp/rheg-perfetto.XXXXXX)"
 trap 'rm -rf "$stream_test_dir"' EXIT
 : "${TRACE_PROCESSOR:?Set TRACE_PROCESSOR to the native trace_processor_shell executable}"
-make_options=(-C "$repo_dir/rheg/perfetto" "BUILD_DIR=$stream_test_dir/build" \
-  'CXXFLAGS=-Wall -Wextra -Werror')
-if [[ -n "${NLOHMANN_JSON_INCLUDE_DIR:-}" ]]; then
-  make_options+=("NLOHMANN_JSON_INCLUDE_DIR=$NLOHMANN_JSON_INCLUDE_DIR")
-fi
-make "${make_options[@]}" -j 4 test
+cd "$repo_dir"
+CXXFLAGS='-Wall -Wextra -Werror' moon run rhodium:trace-test-binaries
+mkdir -p "$stream_test_dir/build"
+for binary in event-perfetto-test event-stream-test rheg-perfetto; do
+  cp "$repo_dir/.rhodium-cache/moon/trace/$binary" "$stream_test_dir/build/$binary"
+done
+"$stream_test_dir/build/event-perfetto-test" "$stream_test_dir/build"
 "$stream_test_dir/build/rheg-perfetto" "$stream_test_dir/build/instances.pftrace.json" > "$stream_test_dir/instances-replay.pftrace"
 cmp "$stream_test_dir/build/instances.pftrace" "$stream_test_dir/instances-replay.pftrace"
 "$stream_test_dir/build/rheg-perfetto" --tracks "$stream_test_dir/build/shared-tracks.pftrace.tracks.json" "$stream_test_dir/build/shared-tracks.pftrace.json" > "$stream_test_dir/shared-replay.pftrace"

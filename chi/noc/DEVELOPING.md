@@ -56,5 +56,5 @@ covers transform metadata used by diagram/event tooling. Include the SNP,
 subordinate, family-NoC, and router-composition fixtures. The SN fixture
 checks fixed attachments under stalls; the family fixture checks an asymmetric
 three-router path. Validate Mini/Single fixed RN-F/HN attachments and Tiled
-coherent family attachments when integration changes. Run `make check-boundaries`
+coherent family attachments when integration changes. Run `moon run rhodium:check-boundaries`
 after module or dependency changes.

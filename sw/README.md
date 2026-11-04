@@ -32,15 +32,16 @@ generate its target descriptor, build software, and run the resulting ELFs.
 For example:
 
 ```sh
-make -C sims program-test-setup
-make -C sims isa-test SOC=simple CORE=rv5stage ISA=rva23
-make -C sims bringup-test SOC=simple CORE=spike ISA=rva23
-make -C sims skl-test SOC=simple-rv5stage-rva23 COSIM=1
-make -C sims highway-test SOC=simple-rv5stage-rva23 COSIM=1
-make -C sims arch-test ACT_CONFIGURATION=simple-rv5stage-rva23
-make -C sims opensbi-test SOC=simple CORE=rv5stage ISA=rva23
-make -C sims litmus-smoke-test SOC=tiled4core CORE=rv2wide ISA=rva23 LITMUS7=/path/to/litmus7 HERD7=/path/to/herd7
-make -C sims litmus-smoke-test SOC=tiled4core CORE=spike ISA=rva23 LITMUS7=/path/to/litmus7 HERD7=/path/to/herd7
+moon run rhodium:program-test-setup
+SOC=simple-rv5stage-rva23 moon run rhodium:isa-elfs
+SOC=simple-rv5stage-rva23 moon run rhodium:coremark-elf
+SOC=simple-rv5stage-rva23 moon run rhodium:sim-isa-test
+SOC=simple-spike-rva23 moon run rhodium:sim-bringup-test
+SOC=simple-rv5stage-rva23 COSIM=1 moon run rhodium:sim-skl-test rhodium:sim-highway-test
+ACT_CONFIGURATION=simple-rv5stage-rva23 moon run rhodium:sim-arch-test
+SOC=simple-rv5stage-rva23 moon run rhodium:sim-opensbi-test
+SOC=tiled4core-rv2wide-rva23 LITMUS7=/path/to/litmus7 HERD7=/path/to/herd7 moon run rhodium:sim-litmus-smoke-test
+SOC=tiled4core-spike-rva23 LITMUS7=/path/to/litmus7 HERD7=/path/to/herd7 moon run rhodium:sim-litmus-smoke-test
 ```
 
 The Spike/FESVR upstream under [`riscv/riscv-isa-sim`](../riscv/riscv-isa-sim/)
@@ -49,11 +50,12 @@ payloads remain under [`sims/tests/`](../sims/tests/) and
 [`sims/opensbi/tests/`](../sims/opensbi/tests/) because they test harness behavior.
 
 The litmus7 profiles share one target-bound builder and port.
-`litmus-smoke-test` runs a checked-in 64-case selection on `tiled4core` with all three core implementations
-in CI, while `litmus-full-test` is a local/manual run of every target-supported
+`sim-litmus-smoke-test` runs a checked-in 64-case selection on `tiled4core` with all three core implementations
+in CI, while `sim-litmus-full-test` is a local/manual run of every target-supported
 case. Source-tree builds also need `LITMUS7_LIBDIR` and `HERD7_LIBDIR`; see the
 [simulator workflow](../sims/README.md) for sharding, result paths, and the
-CI-pinned herdtools7 revision. Neither Make target installs these tools.
+CI-pinned herdtools7 revision. Neither profile installs these tools. Run Moon
+directly from the repository root, with options in the environment.
 
 All litmus builds use upstream's RISC-V litmus7 code generator. Supply an
 installed executable with
@@ -73,7 +75,7 @@ The builder discovers model-backed candidate cases, including branches and
 memory outcomes. It filters
 Zalasr acquire/release ordinary loads and stores when the selected target lacks
 `zalasr`; a case is validated only after its ELF builds and runs on the selected
-SoC. `litmus-test` uses the same builder for explicit subsets, with
+SoC. `sim-litmus-test` uses the same builder for explicit subsets, with
 `LITMUS_CASES=MP,LB+ctrls` and `LITMUS_RUNS` controlling selection and samples.
 A passing run means no forbidden state was observed, not that every allowed
 state appeared or that the full upstream corpus is covered. The builder

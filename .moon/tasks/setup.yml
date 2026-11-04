@@ -1,0 +1,116 @@
+# Owns explicit tool installation and pinned software checkout setup, separate from builds.
+# SPDX-License-Identifier: Apache-2.0
+tasks:
+  clean-vlsi:
+    script: rm -rf vlsi/build vlsi/openlane/double_wide_openframe_project_wrapper/runs vlsi/openlane/rhodium_lvs_smoke/runs
+    inputs: []
+    options: { cache: false }
+  clean-sram:
+    command: rm -rf sram/build
+    inputs: []
+    options: { cache: false }
+  clean-racket-cache:
+    command: tools/racket-build-cache.sh clean
+    inputs: []
+    options: { cache: false }
+  riscv-udb-config:
+    script: |
+      set -e
+      : "${RISCV_UDB_CONFIGURATION:?select a shape-core-isa key}"
+      output="${RISCV_UDB_OUTPUT:-/tmp/rhodium-udb/$RISCV_UDB_CONFIGURATION.yaml}"
+      mkdir -p "$(dirname "$output")"
+      tools/run-racket.sh -S "$PWD" tools/write-riscv-udb-config.rhm "$RISCV_UDB_CONFIGURATION" "$output"
+    inputs: ["tools/write-riscv-udb-config.rhm", "@group(soc-config)"]
+    deps: [racket-cache]
+    options: { cache: false, mutex: racket-cache }
+  setup-circt:
+    command: "bash tools/install-circt.sh"
+    inputs: ["@group(circt-tool)"]
+    options: { cache: false, unixShell: bash }
+  setup-verilator:
+    command: "bash tools/install-verilator.sh"
+    inputs: ["@group(verilator)"]
+    options: { cache: false, unixShell: bash }
+  setup-fesvr:
+    command: "bash sims/fesvr/install.sh"
+    inputs: ["@group(fesvr-runtime)"]
+    options: { cache: false, unixShell: bash }
+  arch-test-setup:
+    command: "bash sims/arch-test/setup.sh"
+    inputs: ["@group(act-tools)", "@group(sail)", "@group(patches)"]
+    options: { cache: false, unixShell: bash }
+  install-git-hooks:
+    command: "git config core.hooksPath .githooks"
+    inputs: [".githooks/**/*"]
+    options: { cache: false, unixShell: bash }
+  isa-setup:
+    script: |
+      set -e
+      git submodule update --init sw/riscv-isa-tests
+      git -C "${RISCV_TESTS_DIR:-sw/riscv-isa-tests}" submodule update --init env
+    inputs: []
+    options: { cache: false, unixShell: bash }
+  benchmark-setup:
+    extends: isa-setup
+  coremark-setup:
+    command: "git submodule update --init sw/coremark"
+    inputs: []
+    options: { cache: false, unixShell: bash }
+  coremark_scalar-setup:
+    extends: coremark-setup
+  embench-setup:
+    command: "git submodule update --init sw/embench-iot"
+    inputs: []
+    options: { cache: false, unixShell: bash }
+  bringup-setup:
+    command: "git submodule update --init sw/bringup-bench"
+    inputs: []
+    options: { cache: false, unixShell: bash }
+  skl-setup:
+    command: "git submodule update --init sw/skl"
+    inputs: []
+    options: { cache: false, unixShell: bash }
+  highway-setup:
+    command: "git submodule update --init sw/highway"
+    inputs: []
+    options: { cache: false, unixShell: bash }
+  litmus-setup:
+    command: "git submodule update --init sw/litmus-tests-riscv"
+    deps: [isa-setup]
+    inputs: []
+    options: { cache: false, unixShell: bash }
+  program-test-setup:
+    command: noop
+    deps: [isa-setup, coremark-setup, embench-setup, bringup-setup, skl-setup, highway-setup, litmus-setup]
+    inputs: []
+    options: { cache: false, unixShell: bash }
+  opensbi-setup:
+    command: "git submodule update --init sw/opensbi"
+    inputs: []
+    options: { cache: false, unixShell: bash }
+  linux-setup:
+    command: "git submodule update --init sw/buildroot sw/opensbi"
+    inputs: []
+    options: { cache: false, unixShell: bash }
+  enable-pdk:
+    script: |
+      set -e
+      pdk="${PDK:-sky130A}"
+      revision="${PDK_COMMIT:-74c0e6b118a67d94c24172143d3bd597473fa63d}"
+      nix="${NIX:-nix}"
+      if [[ -z ${NIX:-} && -x /nix/var/nix/profiles/default/bin/nix ]]; then nix=/nix/var/nix/profiles/default/bin/nix; fi
+      if command -v ciel >/dev/null 2>&1; then
+        ciel enable "$revision" --pdk-family "$pdk"
+      elif command -v "$nix" >/dev/null 2>&1; then
+        flags=(--extra-experimental-features 'nix-command flakes' --accept-flake-config)
+        if [[ -n ${NIX_FLAGS:-} ]]; then
+          flags=()
+          while IFS= read -r flag; do flags+=("$flag"); done < <(python3 -c 'import os, shlex; print("\n".join(shlex.split(os.environ["NIX_FLAGS"])))')
+        fi
+        "$nix" "${flags[@]}" develop "${HARNESS_DIR:-vlsi/double_wide_openframe}" --command ciel enable "$revision" --pdk-family "$pdk"
+      else
+        echo 'enable-pdk requires either ciel or Nix; see vlsi/README.md' >&2
+        exit 1
+      fi
+    inputs: []
+    options: { cache: false, unixShell: bash }

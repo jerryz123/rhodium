@@ -121,7 +121,7 @@ guest environment storage and precise denied-operation behavior. Use the
 From the repository root, run:
 
 ```sh
-make riscv-test
+moon run rhodium:riscv-test
 ```
 
 The aggregate package target covers the model and catalogs that define the

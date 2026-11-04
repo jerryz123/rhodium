@@ -1,0 +1,16 @@
+# Publishes successful moon endpoint receipts independently of diagnostic artifacts.
+# SPDX-License-Identifier: Apache-2.0
+name: Publish endpoint receipts
+description: Supply the stable gate with the exact tasks this runner completed.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      id: batch
+      run: echo "name=endpoints-$(cat /proc/sys/kernel/random/uuid)" >> "$GITHUB_OUTPUT"
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: ${{ steps.batch.outputs.name }}
+        path: ${{ runner.temp }}/endpoint-receipts/*.json
+        if-no-files-found: error
+        retention-days: 3

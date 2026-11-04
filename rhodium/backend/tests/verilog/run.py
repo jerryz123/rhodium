@@ -28,7 +28,7 @@ def main():
     if args.differential:
         circt = os.environ.get("CIRCT_OPT") or shutil.which("circt-opt") or str(ROOT / ".tools/firtool-1.155.0/bin/circt-opt")
         if not Path(circt).is_file():
-            parser.error("circt-opt is required for --differential; run make setup-circt or set CIRCT_OPT")
+            parser.error("circt-opt is required for --differential; run moon run rhodium:setup-circt or set CIRCT_OPT")
     work = Path(tempfile.mkdtemp(prefix="rhodium-direct-verilog-"))
     try:
         wrapper = ROOT / "tools/run-racket.sh"

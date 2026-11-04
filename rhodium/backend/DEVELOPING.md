@@ -756,13 +756,13 @@ cache. The root targets below already do so.
 
 | Scope | Command |
 |---|---|
-| Compiler/backend host contracts | `make backend-test` |
-| Standalone C++ simulator, with undefined-behavior sanitization | `make rsim-test` |
-| C++ simulator and direct SV against the same oracle | `make rsim-differential-test` |
-| Direct SV and authored integrations, without CIRCT | `make verilog-test` |
-| Both backends against oracles and each other | `make backend-differential-test` |
-| CI no-CIRCT smoke | `make ci-verilog-direct-test` |
-| CI compiler comparison and authored direct behavior/manifests | `make ci-backend-differential-test` |
+| Compiler/backend host contracts | `moon run rhodium:backend-test` |
+| Standalone C++ simulator, with undefined-behavior sanitization | `moon run rhodium:rsim-test` |
+| C++ simulator and direct SV against the same oracle | `moon run rhodium:rsim-differential-test` |
+| Direct SV and authored integrations, without CIRCT | `moon run rhodium:verilog-test` |
+| Both backends against oracles and each other | `moon run rhodium:backend-differential-test` |
+| CI no-CIRCT smoke | `moon run rhodium:ci-verilog-direct-test` |
+| CI compiler comparison and authored direct behavior/manifests | `moon run rhodium:ci-backend-differential-test` |
 | One family | `python3 rhodium/backend/tests/verilog/run.py --family sync-memory --differential` |
 | One authored integration | `python3 rhodium/backend/tests/verilog/run-integration.py --fixture uart-dpi --differential` |
 

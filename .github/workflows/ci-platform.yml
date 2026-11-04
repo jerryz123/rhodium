@@ -6,84 +6,103 @@ name: CI platform
 on:
   workflow_call:
     inputs:
-      matrix:
-        description: Platform execution rows for one exact simulator.
+      config:
+        description: Fixed platform configuration.
         required: true
         type: string
-
+      build:
+        description: Resolved shared ELF identity.
+        required: true
+        type: string
 permissions:
   contents: read
 
 jobs:
   platform:
-    name: Run ${{ matrix.suite }}
+    name: Run ${{ fromJSON(inputs.config).suite }}
     runs-on: ubuntu-24.04
-    timeout-minutes: ${{ matrix.timeout }}
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(inputs.matrix) }}
+    timeout-minutes: ${{ fromJSON(inputs.config).timeout }}
     steps:
       - name: Check out Rhodium
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Set up moon workspace
+        uses: ./.github/actions/setup-moon
       - name: Install Spike runtime dependencies
-        if: contains(matrix.soc, '-spike-')
+        if: contains(fromJSON(inputs.config).soc, '-spike-')
         run: |
           sudo apt-get update
           sudo apt-get install --yes build-essential device-tree-compiler zlib1g-dev
       - name: Install Sail cosim runtime dependency
-        if: matrix.cosim
+        if: fromJSON(inputs.config).cosim
         run: |
           sudo apt-get update
           sudo apt-get install --yes libgmp10
       - name: Restore pinned Spike runtime libraries
-        if: contains(matrix.soc, '-spike-')
+        if: contains(fromJSON(inputs.config).soc, '-spike-')
         uses: ./.github/actions/setup-fesvr
       - name: Download exact config simulator
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: ${{ matrix.soc }}-${{ github.sha }}
-          path: ${{ runner.temp }}/${{ matrix.soc }}
+          name: ${{ fromJSON(inputs.config).soc }}-${{ github.sha }}
+          path: ${{ runner.temp }}/${{ fromJSON(inputs.config).soc }}
       - name: Download shared ELFs
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: platform-elfs-${{ matrix.build_id }}-${{ github.sha }}
+          name: platform-elfs-${{ inputs.build }}-${{ github.sha }}
           path: ${{ runner.temp }}/platform-elfs
+      - name: Download resolved workload requests
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: targets-${{ github.sha }}
+          path: ${{ runner.temp }}/resolved-targets
+      - name: Activate the resolved moon catalog
+        run: |
+          echo "PROGRAM_TARGETS=$RUNNER_TEMP/resolved-targets" >> "$GITHUB_ENV"
+          PROGRAM_TARGETS="$RUNNER_TEMP/resolved-targets" python3 -m tools.ci.catalog
       - name: Verify simulator and bind shared ELFs
         env:
-          SOC: ${{ matrix.soc }}
-          SUITE: ${{ matrix.suite }}
+          SOC: ${{ fromJSON(inputs.config).soc }}
+          SUITE: ${{ fromJSON(inputs.config).suite }}
         run: |
           chmod +x "$RUNNER_TEMP/$SOC/VTestDriver"
           python3 sims/program-test/artifact.py verify --binary "$RUNNER_TEMP/$SOC/VTestDriver" --soc "$SOC" \
-            --backend "${{ matrix.backend }}" --variant "${{ matrix.variant }}"
+            --backend "${{ fromJSON(inputs.config).backend }}" --variant "${{ fromJSON(inputs.config).variant }}"
           library_bindings=$(ldd "$RUNNER_TEMP/$SOC/VTestDriver")
           printf '%s\n' "$library_bindings"
           if [[ "$library_bindings" == *"not found"* ]]; then exit 1; fi
           output="/tmp/rhodium-platform-tests/$SOC/$SUITE"
           mkdir -p "$output"
-          tar -xzf "$RUNNER_TEMP/platform-elfs/suite.tar.gz" -C "$output"
-          python3 sw/build/bind.py --manifest "$output/manifest.json" \
-            --target "$RUNNER_TEMP/$SOC/program-target.json" --output "$output/run-manifest.json"
+          python3 -m tools.ci.archives bind "${{ inputs.build }}" --soc "$SOC" \
+            --archive "$RUNNER_TEMP/platform-elfs/suite.tar.gz" --output "$output/run-manifest.json"
       - name: Run platform tests
         env:
-          SOC: ${{ matrix.soc }}
-          SUITE: ${{ matrix.suite }}
-          RTL_BACKEND: ${{ matrix.backend }}
-          COSIM: ${{ matrix.cosim && '1' || '0' }}
-          STATS: ${{ matrix.stats && '1' || '0' }}
-          RUN_TARGET: ${{ matrix.run_target }}
+          SOC: ${{ fromJSON(inputs.config).soc }}
+          SUITE: ${{ fromJSON(inputs.config).suite }}
+          RTL_BACKEND: ${{ fromJSON(inputs.config).backend }}
+          COSIM: ${{ fromJSON(inputs.config).cosim && '1' || '0' }}
+          STATS: ${{ fromJSON(inputs.config).stats && '1' || '0' }}
+          RUN_TARGET: ${{ fromJSON(inputs.config).run_target }}
         run: |
           output="/tmp/rhodium-platform-tests/$SOC/$SUITE"
-          make -C sims "$RUN_TARGET" SOC="$SOC" PROGRAM_JOBS=2 \
+          target="rhodium:platform--$SOC--$SUITE"
+          rm -f .moon/cache/runReport.json
+          status=0
+          PROGRAM_JOBS=2 \
             PREBUILT_SIMULATOR="$RUNNER_TEMP/$SOC/VTestDriver" PROGRAM_MANIFEST="$output/run-manifest.json" \
-            LITMUS_SMOKE_DIR="$output" OPENSBI_OUTPUT="$output"
+            LITMUS_SMOKE_DIR="$output" OPENSBI_OUTPUT="$output" \
+            moon run "$target" --upstream none || status=$?
+          python3 -m tools.ci.receipts "$target" || status=1
+          exit "$status"
       - name: Publish platform diagnostics
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: ${{ matrix.soc }}-${{ matrix.suite }}-platform-${{ github.sha }}
+          name: ${{ fromJSON(inputs.config).soc }}-${{ fromJSON(inputs.config).suite }}-platform-${{ github.sha }}
           path: |
-            /tmp/rhodium-platform-tests/${{ matrix.soc }}/${{ matrix.suite }}
+            /tmp/rhodium-platform-tests/${{ fromJSON(inputs.config).soc }}/${{ fromJSON(inputs.config).suite }}
             ${{ runner.temp }}/platform-elfs
           if-no-files-found: warn
           retention-days: 7
+
+      - uses: ./.github/actions/upload-endpoints
+        if: always()

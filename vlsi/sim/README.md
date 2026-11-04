@@ -51,7 +51,7 @@ The neighboring packages own the contracts behind this orchestration:
 | MiniRV5StageSoC/Sky130 site choices and design-specific manifest assertions | [`vlsi/`](../README.md#stage-2-map-and-synthesize-minisoc-memories) |
 | Combining those inputs into a mapped simulator and keeping its artifacts isolated | This directory |
 
-The Makefile elaborates the normal MiniRV5StageSoC harness, then scopes the
+The Moon pipeline elaborates the normal MiniRV5StageSoC harness, then scopes the
 MiniRV5StageSoC-relative policy through its `soc` instance. Policy-selected memory
 occurrences become generated SRAM-wrapper instances; all other occurrences
 remain inferred and are lowered into simulator RTL by CIRCT. Verilator compiles
@@ -65,8 +65,8 @@ for the current site selection and physical-flow interpretation.
 Install the repository-pinned CIRCT build and the shared pinned FESVR library:
 
 ```sh
-make setup-circt
-make -C vlsi/sim setup
+moon run rhodium:setup-circt
+moon run rhodium:setup-fesvr
 ```
 
 `setup` delegates to `sims/`, so one FESVR installation serves both inferred
@@ -75,7 +75,7 @@ and `riscv64-unknown-elf-gcc` for the smoke program; follow the repository
 [quick-start requirements](../../README.md#requirements). To use existing tool
 installations, set `CIRCT_OPT` (and the matching `CIRCT_ROOT` when the SRAM pass
 must be rebuilt), `FESVR_PREFIX`, `RACKET`, `VERILATOR`, `PYTHON`, or `RISCV_CC`
-on the `make` command.
+in the environment before `moon run`.
 
 ## Validate the mapping
 
@@ -83,7 +83,7 @@ Generate the selected MLIR, site inventory, SRAM wrappers, and manifest without
 building Verilator:
 
 ```sh
-make -C vlsi/sim mapping
+moon run rhodium:memory-map
 ```
 
 This target also runs the MiniRV5StageSoC manifest checker with `top=SoCHarness` and
@@ -103,7 +103,7 @@ schemas belong to the [SRAM mapping guide](../../sram/README.md).
 To emit the complete mixed mapped/inferred SystemVerilog as well, run:
 
 ```sh
-make -C vlsi/sim mapped-rtl
+moon run rhodium:mapped-rtl
 ```
 
 ## Build and run
@@ -111,20 +111,20 @@ make -C vlsi/sim mapped-rtl
 Build the mapped simulator without embedding a target program:
 
 ```sh
-make -C vlsi/sim simulator
+moon run rhodium:compile-mapped-simulator
 ```
 
 Run the focused RV64I execution smoke, which builds any missing prerequisites
 and then uses the shared FESVR run path:
 
 ```sh
-make -C vlsi/sim smoke
+moon run rhodium:mapped-smoke
 ```
 
 Run another FESVR-compatible ELF with:
 
 ```sh
-make -C vlsi/sim run BINARY=/absolute/path/to/program.elf
+BINARY=/absolute/path/to/program.elf moon run rhodium:mapped-run
 ```
 
 As in `sims/`, `HTIF_ARGS` precedes the binary and `TARGET_ARGS` follows it.
@@ -132,7 +132,8 @@ See the [simulator guide](../../sims/README.md#run-a-target) for the host
 transport and execution contract.
 
 `SOC=mini-rv5stage-soc` and `TECH=sky130` are the only supported configuration; other values
-fail immediately. Override `BUILD_ROOT` to isolate an experiment. By default,
+fail immediately. Override `BUILD_ROOT` to isolate the compiler work tree; cached
+mapping inputs remain workspace-owned. By default,
 all generated files stay under `vlsi/build/sim/mini-rv5stage-soc/sky130/`:
 
 | Stage | Generated artifacts |
@@ -149,15 +150,15 @@ build artifacts, not checked-in inputs.
 First compare the technology-independent MiniRV5StageSoC smoke with this mapped one:
 
 ```sh
-make -C sims smoke SOC=mini-rv5stage-rva23
-make -C vlsi/sim smoke
+SOC=mini-rv5stage-rva23 moon run rhodium:sim-smoke
+moon run rhodium:mapped-smoke
 ```
 
 If both fail, investigate the shared harness, FESVR path, target, or SoC. If
 only the mapped run fails, rerun `mapping`, inspect `memory-sites.json` for the
 selected occurrence paths, inspect `memory-manifest.json` for the final tiling,
 and then compare `SoCHarness.sv` with `memory-wrappers.sv`. A missing
-`circt-opt` is repaired with `make setup-circt` or an explicit `CIRCT_OPT`; a
-missing FESVR library is repaired with `make -C vlsi/sim setup` or an explicit
+`circt-opt` is repaired with `moon run rhodium:setup-circt` or an explicit `CIRCT_OPT`; a
+missing FESVR library is repaired with `moon run rhodium:setup-fesvr` or an explicit
 `FESVR_PREFIX`. Mapping diagnostics and the generated inventory should be used
 instead of guessing flattened hierarchy paths.

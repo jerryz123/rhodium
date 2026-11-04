@@ -29,17 +29,15 @@ done
 # Check declared program exports, not every circuit declared in the source:
 # target compilation emits only the selected top and its reachable definitions.
 status=0
+example_exports="$(bash tools/testing/circt/run.sh --list-example-exports)"
 while IFS= read -r source_file; do
   while IFS= read -r program_export; do
-    manifest_prefix="|$source_file|$program_export|"
-    manifest_count="$(grep -Fc "$manifest_prefix" tools/testing/circt/fixtures.txt || true)"
-    manifest_entry="$(grep -F "$manifest_prefix" tools/testing/circt/fixtures.txt || true)"
-    if [[ "$manifest_count" != 1 ]]; then
+    if ! reference_export="$(awk -F '|' -v source="$source_file" -v program="$program_export" \
+        '$1 == source && $2 == program { print $3; n++ } END { exit n != 1 }' <<< "$example_exports")"; then
       echo "$source_file: $program_export requires exactly one backend manifest entry" >&2
       status=1
       continue
     fi
-    reference_export="${manifest_entry##*|}"
     [[ "$reference_export" != - ]] || continue
 
     if ! grep -Fq "def $reference_export = @str|<<{" "$source_file"; then
@@ -64,7 +62,7 @@ while IFS= read -r source_file; do
   while IFS= read -r reference_export; do
     reference_manifest_count="$(
       awk -F '|' -v source="$source_file" -v reference="$reference_export" \
-        '$5 == source && $NF == reference { count++ } END { print count+0 }' tools/testing/circt/fixtures.txt
+        '$1 == source && $3 == reference { count++ } END { print count+0 }' <<< "$example_exports"
     )"
     if [[ "$reference_manifest_count" != 1 ]]; then
       echo "$source_file: $reference_export requires exactly one golden manifest entry" >&2

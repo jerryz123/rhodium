@@ -33,8 +33,7 @@ and authorization range arithmetic at their independently defined widths.
 For physical-width changes, run the RV32 and RV64 sequencer and packed-memory
 fixtures, plus overlap, reduction, and shared mul/div fixtures. Check layout,
 profile, and config host tests with the repository Racket wrappers. The
-integrated minimum-geometry check is `make -C sims smoke
-SOC=mini-rv5stage-rv32int`: it executes integer-vector load/store, arithmetic,
+integrated minimum-geometry check is `SOC=mini-rv5stage-rv32int moon run rhodium:sim-smoke`: it executes integer-vector load/store, arithmetic,
 reduction, Zvbb, mul/div, and widening multiply through the normal FESVR flow
 with VLEN64 and 32-bit rows. Also run `SOC=mini-rv5stage-rv32max` when changing
 RV32 FP integration: its capability-selected smoke covers scalar F producer
@@ -914,7 +913,7 @@ Run from the repository root through the persistent worktree-specific cache:
 ```sh
 tools/run-racket-tests.sh riscv/tests/vector-test.rhm
 FIXTURES='rv5stage-vector' python3 tools/testing/rsim/run.py
-make check-boundaries
+moon run rhodium:check-boundaries
 ```
 
 For configuration, run `riscv/tests/vector-isa-test.rhm`,

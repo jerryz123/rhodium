@@ -32,7 +32,7 @@ Run the focused formal suite. It first probes Rosette and its solver under the
 persistent isolated build cache, then runs the Rhodium formal tests:
 
 ```sh
-make formal-test
+moon run rhodium:formal-test
 ```
 
 Rosette is optional: ordinary Rhodium host and backend targets do not require
@@ -40,7 +40,7 @@ it. When CIRCT and Verilator are also available, run the independent backend
 differential check:
 
 ```sh
-make formal-differential-test
+moon run rhodium:formal-differential-test
 ```
 
 ## Formal API
@@ -199,8 +199,8 @@ combinational contract.
 
 | Command | Coverage |
 |---|---|
-| `make formal-test` | Focused public-API, assumption, operation, hierarchy, aggregate, decode, replay, reachability, property, and fail-closed tests after a live Rosette/Z3 probe |
-| `make formal-differential-test` | Independent CIRCT/Verilator replay for structurally different shifts, aggregates, hierarchy, fully cared decode, and assumption-constrained one-hot implementations, including defect counterexamples and output-query witnesses |
+| `moon run rhodium:formal-test` | Focused public-API, assumption, operation, hierarchy, aggregate, decode, replay, reachability, property, and fail-closed tests after a live Rosette/Z3 probe |
+| `moon run rhodium:formal-differential-test` | Independent CIRCT/Verilator replay for structurally different shifts, aggregates, hierarchy, fully cared decode, and assumption-constrained one-hot implementations, including defect counterexamples and output-query witnesses |
 
 Detailed test ownership and the differential oracle matrix are in
 [`DEVELOPING.md`](DEVELOPING.md#validation). Set
@@ -217,7 +217,7 @@ checkout's `.tools/` directory.
 
 Other compatible Racket releases have not been exercised by this target.
 
-If `make formal-test` fails before running tests, first run the install command
+If `moon run rhodium:formal-test` fails before running tests, first run the install command
 again in the same Racket installation. The target deliberately performs a live
 solver probe, so a successful package import without a working solver is still
 a setup failure. The repository does not vendor Rosette or its transitive

@@ -221,7 +221,7 @@ Follow the repository's [source documentation requirements](../AGENTS.md#source-
 including the exemption for files under `tests/`, when changing this decoder.
 Keep Spike headers private. The exporter build requires C++20 for the pinned
 parser; the independent collector remains C++17. The repository gitlink pins its
-source, and the Perfetto Makefile builds the three disassembler sources into the
+source, and [Moon trace tasks](../.moon/tasks/trace-build.yml) build the three disassembler sources into the
 archive, not the simulator or FESVR.
 The ordered patch series under
 [`../riscv/riscv-isa-sim-patches/`](../riscv/riscv-isa-sim-patches/)
@@ -274,5 +274,5 @@ Use the real native importer for wire-format changes, not just a matching local
 decoder. After ABI or descriptor changes, run the
 [compiler/RTL fixtures](../rhodium/event/DEVELOPING.md#focused-validation). For
 simulator integration, run the [trace smoke](../sims/DEVELOPING.md#event-export-integration).
-Run `make check-boundaries` and review CI path selection after package or
+Run `moon run rhodium:check-boundaries` and review CI path selection after package or
 dependency changes. Keep traces, downloaded tools, and build artifacts untracked.

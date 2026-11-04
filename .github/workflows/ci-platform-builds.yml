@@ -6,25 +6,24 @@ name: CI platform builds
 on:
   workflow_call:
     inputs:
-      matrix:
-        description: Compatible build groups for one platform workload family.
+      build:
+        description: Resolved ELF recipe for this fixed slot, or null when unused.
         required: true
         type: string
-
 permissions:
   contents: read
 
 jobs:
   platform-build:
-    name: Build ${{ matrix.suite }} / group ${{ strategy.job-index }}
+    name: Build ${{ fromJSON(inputs.build).suite }} / group ${{ fromJSON(inputs.build).soc }}
+    if: ${{ inputs.build != 'null' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(inputs.matrix) }}
     steps:
       - name: Check out Rhodium
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Set up moon workspace
+        uses: ./.github/actions/setup-moon
       - name: Install build dependencies
         run: |
           sudo apt-get update
@@ -32,7 +31,7 @@ jobs:
       - name: Install RISC-V software toolchain
         uses: ./.github/actions/setup-riscv-toolchain
       - name: Build pinned litmus7 and herd7
-        if: matrix.suite == 'litmus'
+        if: fromJSON(inputs.build).suite == 'litmus'
         env:
           HERDTOOLS7_REVISION: 7a64d9d8480ae02d9065b2778b4f2d473c6595ae
         run: |
@@ -55,8 +54,8 @@ jobs:
           echo "HERD7_LIBDIR=$RUNNER_TEMP/herdtools7/herd/libdir" >> "$GITHUB_ENV"
       - name: Prepare pinned sources
         env:
-          SUITE: ${{ matrix.suite }}
-        run: make -C sims "$SUITE-setup"
+          SUITE: ${{ fromJSON(inputs.build).suite }}
+        run: moon run "rhodium:$SUITE-setup"
       - name: Download generated targets
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -66,37 +65,34 @@ jobs:
         id: cache-inputs
         uses: ./.github/actions/product-input
         with:
-          product: build:${{ matrix.suite }}
+          task: rhodium:hash--build--${{ fromJSON(inputs.build).suite }}
       - name: Cache platform builds
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
-            /tmp/rhodium-platform-builds/${{ matrix.build_id }}/build
-            /tmp/rhodium-platform-builds/${{ matrix.build_id }}/source
-            /tmp/rhodium-platform-builds/${{ matrix.build_id }}/build-configuration.json
-          key: "${{ runner.os }}-${{ runner.arch }}-platform-${{ matrix.build_id }}-${{ steps.cache-inputs.outputs.key }}-${{ hashFiles('.github/workflows/ci-platform-builds.yml') }}-${{ github.sha }}"
+            /tmp/rhodium-platform-builds/${{ fromJSON(inputs.build).build_id }}/build
+            /tmp/rhodium-platform-builds/${{ fromJSON(inputs.build).build_id }}/source
+            /tmp/rhodium-platform-builds/${{ fromJSON(inputs.build).build_id }}/build-configuration.json
+          key: "${{ runner.os }}-${{ runner.arch }}-platform-${{ fromJSON(inputs.build).build_id }}-${{ steps.cache-inputs.outputs.key }}-${{ hashFiles('.github/workflows/ci-platform-builds.yml') }}-${{ github.sha }}"
           restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-platform-${{ matrix.build_id }}-${{ steps.cache-inputs.outputs.key }}-${{ hashFiles('.github/workflows/ci-platform-builds.yml') }}-
+            ${{ runner.os }}-${{ runner.arch }}-platform-${{ fromJSON(inputs.build).build_id }}-${{ steps.cache-inputs.outputs.key }}-${{ hashFiles('.github/workflows/ci-platform-builds.yml') }}-
       - name: Build and package shared ELFs
         env:
-          SOC: ${{ matrix.soc }}
-          SUITE: ${{ matrix.suite }}
-          BUILD_ID: ${{ matrix.build_id }}
+          SOC: ${{ fromJSON(inputs.build).soc }}
+          SUITE: ${{ fromJSON(inputs.build).suite }}
+          BUILD_ID: ${{ fromJSON(inputs.build).build_id }}
         run: |
-          output="/tmp/rhodium-platform-builds/$BUILD_ID"
-          if [[ "$SUITE" == litmus ]]; then
-            make -C sims litmus-smoke-elfs SOC="$SOC" \
-              PREBUILT_PROGRAM_TARGET="$RUNNER_TEMP/platform-targets/$SOC.json" LITMUS_SMOKE_DIR="$output"
-          else
-            make -C sims opensbi-elfs SOC="$SOC" OPENSBI_LLVM=/usr/bin OPENSBI_OUTPUT="$output" \
-              PREBUILT_PROGRAM_TARGET="$RUNNER_TEMP/platform-targets/$SOC.json"
-          fi
-          python3 sims/program-test/archive.py --manifest "$output/manifest.json" \
-            --archive "$RUNNER_TEMP/platform-elfs/suite.tar.gz"
+          export PROGRAM_TARGETS="$RUNNER_TEMP/platform-targets"
+          python3 -m tools.ci.archives check-source "$BUILD_ID"
+          python3 -m tools.ci.catalog
+          moon run "rhodium:archive--$BUILD_ID"
+          python3 -m tools.ci.archives verify "$BUILD_ID" --archive ".rhodium-cache/moon/archives/$BUILD_ID.tar.gz"
+          mkdir -p "$RUNNER_TEMP/platform-elfs"
+          cp ".rhodium-cache/moon/archives/$BUILD_ID.tar.gz" "$RUNNER_TEMP/platform-elfs/suite.tar.gz"
       - name: Publish shared ELFs
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: platform-elfs-${{ matrix.build_id }}-${{ github.sha }}
+          name: platform-elfs-${{ fromJSON(inputs.build).build_id }}-${{ github.sha }}
           path: ${{ runner.temp }}/platform-elfs/suite.tar.gz
           if-no-files-found: error
           compression-level: 0
@@ -105,11 +101,11 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: platform-build-${{ matrix.build_id }}-${{ github.sha }}
+          name: platform-build-${{ fromJSON(inputs.build).build_id }}-${{ github.sha }}
           path: |
-            /tmp/rhodium-platform-builds/${{ matrix.build_id }}/manifest.json
-            /tmp/rhodium-platform-builds/${{ matrix.build_id }}/build.log
-            /tmp/rhodium-platform-builds/${{ matrix.build_id }}/herd.log
-            /tmp/rhodium-platform-builds/${{ matrix.build_id }}/build-configuration.json
+            /tmp/rhodium-platform-builds/${{ fromJSON(inputs.build).build_id }}/manifest.json
+            /tmp/rhodium-platform-builds/${{ fromJSON(inputs.build).build_id }}/build.log
+            /tmp/rhodium-platform-builds/${{ fromJSON(inputs.build).build_id }}/herd.log
+            /tmp/rhodium-platform-builds/${{ fromJSON(inputs.build).build_id }}/build-configuration.json
           if-no-files-found: warn
           retention-days: 7

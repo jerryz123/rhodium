@@ -252,17 +252,17 @@ Validate all standard-library examples after changing a public import or
 composition surface:
 
 ```sh
-make examples-std
+moon run rhodium:examples-std
 ```
 
-Run `make check-boundaries` after adding or moving a module or changing direct
-imports. Use `make frontend-test` when a change spans several standard-library
+Run `moon run rhodium:check-boundaries` after adding or moving a module or changing direct
+imports. Use `moon run rhodium:frontend-test` when a change spans several standard-library
 families or shared interface semantics. For backend-sensitive changes, select
 the corresponding fixture through [rsim runner](../../tools/testing/rsim/README.md);
 the CI grouping for the complete standard-library backend set is:
 
 ```sh
-make ci-rsim-std-test
+moon run rhodium:check--rsim-std
 ```
 
 That final target requires a C++20 compiler and runs without HDL tools. State

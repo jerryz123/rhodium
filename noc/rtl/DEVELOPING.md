@@ -55,7 +55,7 @@ wiring. NoC RTL owns only reusable realization of the supplied plan.
 Run the pure-model, proof, and hardware-plan NoC suite from the repository root:
 
 ```sh
-make noc-test
+moon run rhodium:noc-test
 ```
 
 The backend protocol group owns route-computer, router, assembled-network,

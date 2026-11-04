@@ -1,0 +1,202 @@
+# Defines native compilation leaves and compiler-generated CMake build stages.
+# SPDX-License-Identifier: Apache-2.0
+tasks:
+  native-binary:
+    script: |
+      source tools/build/native-env.sh
+      read -r -a sources <<< "$SOURCES"
+      includes=("${native_includes[@]}" "${spike_includes[@]}")
+      read -r -a flags <<< "${CXXFLAGS:-}"
+      if [[ ${COMPILE_ONLY:-0} == 1 ]]; then flags+=(-c); fi
+      libraries=()
+      if [[ ${NEEDS_DPI:-0} == 1 ]]; then includes+=(-I"${VERILATOR_ROOT:?}/include/vltstd"); fi
+      case "${LINK_RUNTIME:-none}" in
+        spike) libraries=("${spike_libs[@]}") ;;
+        fesvr) libraries=("$fesvr_prefix/lib/libfesvr.a" -pthread) ;;
+      esac
+      "${CXX:-c++}" "${cppflags[@]}" "${flags[@]}" -std=c++20 -Wall -Wextra -Werror "${includes[@]}" \
+        "${sources[@]}" "${libraries[@]}" -o "$native_dir/$EXECUTABLE"
+    inputs: ["tools/build/native-env.sh", "$CXX", "$CXXFLAGS", "$CPPFLAGS", "$FESVR_PREFIX", "$VERILATOR_ROOT"]
+    outputs: [".rhodium-cache/moon/native/${EXECUTABLE}"]
+    checks:
+      - check: fingerprint
+        script: |
+          source tools/build/native-env.sh
+          "${CXX:-c++}" --version
+          if [[ -d $fesvr_prefix/lib ]]; then find "$fesvr_prefix/lib" -maxdepth 1 -type f -exec cksum {} + | sort; fi
+  build-transport-test:
+    extends: native-binary
+    env: { SOURCES: 'sims/fesvr/direct_mem_htif.cc sims/tests/direct_mem_htif_test.cc', EXECUTABLE: direct_mem_htif_test, LINK_RUNTIME: fesvr }
+    inputs: ["sims/fesvr/**/*", "sims/tests/direct_mem_htif_test.cc", "@group(fesvr-library)"]
+  build-spike-core-test:
+    extends: native-binary
+    env: { SOURCES: 'cores/spike/dpi/spike_core.cc cores/spike/tests/spike_core_test.cc', EXECUTABLE: spike_core_test, LINK_RUNTIME: spike }
+    inputs: ["cores/spike/dpi/**/*", "cores/spike/tests/spike_core_test.cc", "@group(fesvr-library)"]
+  build-spike-hpm-test:
+    extends: native-binary
+    env: { SOURCES: cores/spike/tests/spike_hpm_test.cc, EXECUTABLE: spike_hpm_test, LINK_RUNTIME: spike }
+    inputs: ["cores/spike/tests/spike_hpm_test.cc", "@group(fesvr-library)"]
+  build-spike-arch-test:
+    extends: native-binary
+    env: { SOURCES: cores/spike/tests/spike_arch_test.cc, EXECUTABLE: spike_arch_test, LINK_RUNTIME: spike }
+    inputs: ["cores/spike/tests/spike_arch_test.cc", "@group(fesvr-library)"]
+  build-spike-attribute-test:
+    extends: native-binary
+    env: { SOURCES: 'cores/spike/dpi/spike_core.cc cores/spike/tests/spike_attribute_test.cc', EXECUTABLE: spike_attribute_test, LINK_RUNTIME: spike }
+    inputs: ["cores/spike/dpi/**/*", "cores/spike/tests/spike_attribute_test.cc", "@group(fesvr-library)"]
+  build-spike-dpi-test:
+    extends: native-binary
+    env: { SOURCES: 'cores/spike/dpi/spike_core.cc cores/spike/dpi/spike_dpi.cc cores/spike/tests/spike_dpi_test.cc', EXECUTABLE: spike_dpi_test, LINK_RUNTIME: spike, NEEDS_DPI: '1' }
+    inputs: ["cores/spike/dpi/**/*", "cores/spike/tests/spike_dpi_test.cc", "@group(fesvr-library)", "@group(verilator)"]
+  build-chi-dpi-test:
+    extends: native-binary
+    env: { SOURCES: 'chi/subordinate/dpi/chi_dpi_memory_dpi.cc chi/subordinate/dpi/chi_memory.cc chi/tests/chi_dpi_memory_dpi_test.cc', EXECUTABLE: chi_dpi_memory_dpi_test, NEEDS_DPI: '1' }
+    inputs: ["chi/subordinate/dpi/**/*", "chi/tests/chi_dpi_memory_dpi_test.cc", "@group(verilator)"]
+  build-spike-core-tests:
+    command: noop
+    inputs: []
+    deps: [build-spike-core-test, build-spike-hpm-test, build-spike-arch-test, build-spike-attribute-test]
+  build-dpi-objects:
+    command: noop
+    inputs: []
+    deps: [build-direct-memory-dpi-object, build-chi-dpi-object, build-uart-dpi-object]
+  build-direct-memory-dpi-object:
+    extends: native-binary
+    env: { SOURCES: sims/verilator/direct_mem_htif_dpi.cc, EXECUTABLE: direct_mem_htif_dpi.o, COMPILE_ONLY: '1', NEEDS_DPI: '1' }
+    inputs: ["sims/verilator/direct_mem_htif*", "@group(fesvr-runtime)", "@group(verilator)"]
+  build-chi-dpi-object:
+    extends: native-binary
+    env: { SOURCES: chi/subordinate/dpi/chi_dpi_memory_dpi.cc, EXECUTABLE: chi_dpi_memory_dpi.o, COMPILE_ONLY: '1', NEEDS_DPI: '1' }
+    inputs: ["chi/subordinate/dpi/**/*", "@group(fesvr-runtime)", "@group(verilator)"]
+  build-uart-dpi-object:
+    extends: native-binary
+    env: { SOURCES: devices/uart/dpi/uart_dpi.cc, EXECUTABLE: uart_dpi.o, COMPILE_ONLY: '1' }
+    inputs: ["devices/uart/dpi/**/*"]
+  build-spike-core-object:
+    extends: native-binary
+    env: { SOURCES: cores/spike/dpi/spike_core.cc, EXECUTABLE: spike_core.o, COMPILE_ONLY: '1' }
+    inputs: ["cores/spike/dpi/**/*", "@group(fesvr-runtime)"]
+  build-spike-dpi-object:
+    extends: native-binary
+    env: { SOURCES: cores/spike/dpi/spike_dpi.cc, EXECUTABLE: spike_dpi.o, COMPILE_ONLY: '1', NEEDS_DPI: '1' }
+    inputs: ["cores/spike/dpi/**/*", "@group(fesvr-runtime)", "@group(verilator)"]
+    deps: [build-spike-core-object]
+  configure-cosim-hooks:
+    script: |
+      cmake -S sims/cosim -B "${COSIM_HOOK_BUILD_DIR:-$PWD/.rhodium-cache/cosim-hooks}" \
+        -DCMAKE_BUILD_TYPE=Debug "-DCMAKE_CXX_FLAGS_DEBUG=${OPT_FAST:--O2} -g" -DBUILD_TESTING=ON -DCOSIM_WITH_SAIL=OFF
+    inputs: ["sims/cosim/CMakeLists.txt", "$COSIM_HOOK_BUILD_DIR", "$OPT_FAST"]
+    options: { cache: false }
+  build-cosim-hooks:
+    script: 'cmake --build "${COSIM_HOOK_BUILD_DIR:-$PWD/.rhodium-cache/cosim-hooks}" --parallel "${BUILD_JOBS:-4}"'
+    inputs: ["@group(cosim)"]
+    deps: [configure-cosim-hooks]
+    options: { cache: false }
+  configure-cosim-runtime:
+    script: |
+      set -e
+      identity=$(python3 riscv/patched_submodule.py identity --repository "$PWD" --submodule riscv/sail-riscv --series "${SAIL_PATCH_SERIES:-riscv/sail-riscv-patches/series}")
+      build="${COSIM_BUILD_DIR:-${PREBUILT_COSIM_DIR:-$PWD/.rhodium-cache/sail-cosim/sail-0.20.3-$identity}}"
+      if [[ -n ${PREBUILT_COSIM_DIR:-} ]]; then
+        python3 sims/cosim/runtime/artifact.py verify "$build"
+      else
+        cmake -S sims/cosim -B "$build" -DCMAKE_BUILD_TYPE=Debug "-DCMAKE_CXX_FLAGS_DEBUG=${OPT_FAST:--O2} -g" \
+          -DBUILD_TESTING=OFF -DCOSIM_WITH_SAIL=ON \
+          -DSailModel_DIR="${COSIM_SAIL_PREFIX:-$PWD/.tools/sail-riscv-0.16-sail-0.20.3-$identity}/lib/cmake/SailModel"
+      fi
+    inputs: ["sims/cosim/CMakeLists.txt", "@group(patches)"]
+    options: { cache: false }
+  compile-cosim-runtime:
+    script: |
+      set -e
+      identity=$(python3 riscv/patched_submodule.py identity --repository "$PWD" --submodule riscv/sail-riscv --series "${SAIL_PATCH_SERIES:-riscv/sail-riscv-patches/series}")
+      build="${COSIM_BUILD_DIR:-${PREBUILT_COSIM_DIR:-$PWD/.rhodium-cache/sail-cosim/sail-0.20.3-$identity}}"
+      if [[ -z ${PREBUILT_COSIM_DIR:-} ]]; then
+        cmake --build "$build" --target cosim_runtime --parallel "${BUILD_JOBS:-4}"
+        python3 sims/cosim/runtime/artifact.py record "$build"
+      fi
+      python3 sims/cosim/runtime/artifact.py verify "$build"
+    deps: [configure-cosim-runtime]
+    inputs: ["@group(cosim)"]
+    options: { cache: false }
+  configure-sram:
+    script: |
+      set -e
+      circt_opt="${CIRCT_OPT:-$PWD/.tools/firtool-1.155.0/bin/circt-opt}"
+      circt_root="${CIRCT_ROOT:-$(dirname "$(dirname "$circt_opt")")}"
+      "${CMAKE:-cmake}" -S sram/circt -B "${SRAM_BUILD_DIR:-${BUILD_DIR:-$PWD/sram/build}}/circt" \
+        -DCIRCT_DIR="${CIRCT_CMAKE_DIR:-$circt_root/lib/cmake/circt}" -DCMAKE_BUILD_TYPE=Release
+    inputs: ["sram/circt/CMakeLists.txt", "@group(circt-tool)"]
+    options: { cache: false }
+  compile-sram:
+    script: |
+      set -e
+      "${CMAKE:-cmake}" --build "${SRAM_BUILD_DIR:-${BUILD_DIR:-$PWD/sram/build}}/circt" --parallel "${BUILD_JOBS:-4}"
+      test -s "${SRAM_BUILD_DIR:-${BUILD_DIR:-$PWD/sram/build}}/circt/rhodium-memory-sites.so"
+    inputs: ["sram/circt/**/*"]
+    deps: [configure-sram]
+    options: { cache: false }
+  emit-spike:
+    script: |
+      set -e
+      mkdir -p .rhodium-cache/moon/spike
+      tools/run-racket.sh -S "$PWD" cores/spike/tests/emit.rhm > .rhodium-cache/moon/spike/spike.mlir
+    inputs: ["cores/spike/tests/emit.rhm", "@group(core--spike)", "@group(language)", "@group(library)", "@group(backend--circt)"]
+    deps: [racket-cache]
+    outputs: [.rhodium-cache/moon/spike/spike.mlir]
+    options: { mutex: racket-cache }
+  lower-spike:
+    script: |
+      set -e
+      "${CIRCT_OPT:-$PWD/.tools/firtool-1.155.0/bin/circt-opt}" --canonicalize --cse --prettify-verilog \
+        --lower-seq-hlmem --lower-sim-to-sv --lower-verif-to-sv \
+        --lower-seq-to-sv='disable-mem-randomization=true disable-reg-randomization=true' \
+        --export-verilog .rhodium-cache/moon/spike/spike.mlir -o /dev/null > .rhodium-cache/moon/spike/SpikeCore.sv
+    deps: [emit-spike]
+    inputs: ["@group(circt-tool)", "$CIRCT_OPT"]
+    outputs: [.rhodium-cache/moon/spike/SpikeCore.sv]
+  spike-dpi-header:
+    script: |
+      "${VERILATOR:-verilator}" --cc -Wno-fatal --top-module SpikeCore --Mdir .rhodium-cache/moon/spike/obj .rhodium-cache/moon/spike/SpikeCore.sv
+    deps: [lower-spike]
+    inputs: ["@group(verilator)", "$VERILATOR"]
+    outputs: [.rhodium-cache/moon/spike/obj/VSpikeCore__Dpi.h]
+  emit-tiled:
+    script: |
+      source sims/build-env.sh
+      [[ $shape == tiled4core || $shape == tiled8core ]]
+      mkdir -p .rhodium-cache/moon/tiled
+      tools/run-racket.sh -S "$PWD" sims/emit-soc-harness.rhm "$shape" "$core" "$isa" > .rhodium-cache/moon/tiled/soc_harness.mlir
+    deps: [racket-cache]
+    inputs: ["sims/build-env.sh", "sims/emit-soc-harness.rhm", "socs/tiled-soc/**/*"]
+    options: { cache: false, mutex: racket-cache }
+  build-cosim-tests:
+    script: |
+      source tools/build/native-env.sh
+      identity=$(python3 riscv/patched_submodule.py identity --repository "$PWD" --submodule riscv/sail-riscv --series "${SAIL_PATCH_SERIES:-riscv/sail-riscv-patches/series}")
+      build="${COSIM_BUILD_DIR:-${PREBUILT_COSIM_DIR:-$PWD/.rhodium-cache/sail-cosim/sail-0.20.3-$identity}}"
+      cmake -S sims/cosim -B "$build" -DBUILD_TESTING=ON -DFESVR_PREFIX="$fesvr_prefix"
+      targets=()
+      if [[ -n ${COSIM_TEST_TARGET:-} ]]; then targets=(--target "$COSIM_TEST_TARGET"); fi
+      cmake --build "$build" "${targets[@]}" --parallel "${BUILD_JOBS:-4}"
+    deps: [build-cosim-runtime]
+    inputs: ["tools/build/native-env.sh", "@group(cosim)", "@group(fesvr-runtime)"]
+    options: { cache: false }
+  build-cosim-vector-test:
+    extends: build-cosim-tests
+    env: { COSIM_TEST_TARGET: vector_checker_test }
+  build-cosim-config-test:
+    extends: build-cosim-tests
+    env: { COSIM_TEST_TARGET: sail_soc_config_test }
+    deps: [local-cosim-config]
+  local-cosim-config:
+    script: |
+      source sims/build-env.sh
+      config="${COSIM_CONFIG_DIR:-$PWD/.rhodium-cache/sail-config-test}"
+      mkdir -p "$config"
+      tools/run-racket.sh -S "$PWD" sims/cosim/runtime/write-config.rhm "$soc" "$config/config.json"
+      "${COSIM_PYTHON:-${ACT_PYTHON:-$PWD/.tools/act-venv/bin/python}}" sims/cosim/runtime/configure.py \
+        --config "$config/config.json" --name "$soc" --sail "$sail_prefix/bin/sail_riscv_sim" --output "$config"
+    inputs: ["sims/build-env.sh", "@group(cosim)", "@group(soc-config)"]
+    deps: [racket-cache]
+    options: { cache: false, mutex: racket-cache }

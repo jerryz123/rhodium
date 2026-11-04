@@ -13,7 +13,7 @@ to finish before signaling HTIF exit, preserving any worker's failure code.
 The builder passes the hart count with `-D`, including for assembly startup.
 Single-hart benchmarks and ISA tests do not apply this series.
 
-Use the normal `make -C sims tiled-mt-benchmark-elfs SOC=tiled8core CORE=rv2wide ISA=rva23`
+Use the normal `SOC=tiled8core CORE=rv2wide ISA=rva23 moon run rhodium:tiled-mt-benchmark-elfs`
 workflow. The [software contributor guide](../DEVELOPING.md) owns validation
 and cache-input requirements. Keep runtime adaptations in patches, not source
 rewriting code in the builder.

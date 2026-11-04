@@ -15,10 +15,14 @@ on:
         required: true
         type: string
       config:
-        description: One config selected by the CI planner.
+        description: One statically declared simulator configuration.
         required: true
         type: string
 
+      selection:
+        description: Selected Moon graph.
+        required: true
+        type: string
 permissions:
   contents: read
 
@@ -28,8 +32,23 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
+      - name: Select harness work for this simulator
+        id: work
+        env:
+          CONFIG: ${{ inputs.config }}
+          SELECTION: ${{ inputs.selection }}
+        run: |
+          config=$(jq -c --argjson selected "$SELECTION" '
+            . as $config |
+            .software_tests = ([.software_tests | split(" ")[] | . as $test |
+              select($selected.tasks | index("harness:" + $config.soc + ":" + $config.backend + ":" + $test))] | join(" ")) |
+            .run_harness = (.software_tests != "")
+          ' <<< "$CONFIG")
+          echo "config=$config" >> "$GITHUB_OUTPUT"
       - name: Check out Rhodium
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Set up moon workspace
+        uses: ./.github/actions/setup-moon
       - name: Install Racket
         uses: ./.github/actions/setup-racket
         with:
@@ -43,32 +62,28 @@ jobs:
       - name: Install native build dependencies
         run: |
           sudo apt-get update
-          packages=(build-essential cmake device-tree-compiler zlib1g-dev)
-          if [[ "${{ fromJSON(inputs.config).run_mapped }}" == true ]]; then
-            packages+=(clang lld llvm)
-          fi
-          sudo apt-get install --yes "${packages[@]}"
+          sudo apt-get install --yes build-essential cmake device-tree-compiler zlib1g-dev
       - name: Install Verilator
         uses: ./.github/actions/setup-verilator
       - name: Install CIRCT
-        if: fromJSON(inputs.config).backend == 'circt' || fromJSON(inputs.config).run_mapped
+        if: fromJSON(steps.work.outputs.config).backend == 'circt'
         uses: ./.github/actions/setup-circt
       - name: Install Spike and FESVR
         uses: ./.github/actions/setup-fesvr
       - name: Prepare Sail cosim dependencies
-        if: fromJSON(inputs.config).cosim
+        if: fromJSON(steps.work.outputs.config).cosim
         run: |
           sudo apt-get install --yes libgmp-dev z3 python3-venv
           python3 -m venv .tools/cosim-python
           .tools/cosim-python/bin/pip install 'ruamel.yaml==0.18.10' 'pyjson5==1.6.8'
       - name: Download exact-commit Sail model
-        if: fromJSON(inputs.config).cosim
+        if: fromJSON(steps.work.outputs.config).cosim
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: sail-riscv-${{ github.sha }}
           path: ${{ runner.temp }}/sail-riscv
       - name: Install patched Sail model
-        if: fromJSON(inputs.config).cosim
+        if: fromJSON(steps.work.outputs.config).cosim
         run: |
           mkdir -p .tools
           tar -xzf "$RUNNER_TEMP/sail-riscv/model.tar.gz" -C .tools
@@ -78,42 +93,47 @@ jobs:
         with:
           name: targets-${{ github.sha }}
           path: ${{ runner.temp }}/targets
+      - name: Activate resolved harness requests
+        run: |
+          echo "PROGRAM_TARGETS=$RUNNER_TEMP/targets" >> "$GITHUB_ENV"
+          PROGRAM_TARGETS="$RUNNER_TEMP/targets" python3 -m tools.ci.catalog
       - name: Build and attest simulator
         timeout-minutes: 60
         id: simulator
         shell: bash
         env:
-          SOC: ${{ fromJSON(inputs.config).soc }}
-          RTL_BACKEND: ${{ fromJSON(inputs.config).backend }}
-          SIMULATOR_ID: ${{ fromJSON(inputs.config).simulator_id }}
-          OPT_FAST: ${{ fromJSON(inputs.config).opt_fast }}
-          COSIM: ${{ fromJSON(inputs.config).cosim && '1' || '0' }}
-          STATS: ${{ fromJSON(inputs.config).stats && '1' || '0' }}
+          SOC: ${{ fromJSON(steps.work.outputs.config).soc }}
+          RTL_BACKEND: ${{ fromJSON(steps.work.outputs.config).backend }}
+          SIMULATOR_ID: ${{ fromJSON(steps.work.outputs.config).simulator_id }}
+          OPT_FAST: ${{ fromJSON(steps.work.outputs.config).opt_fast }}
+          COSIM: ${{ fromJSON(steps.work.outputs.config).cosim && '1' || '0' }}
+          STATS: ${{ fromJSON(steps.work.outputs.config).stats && '1' || '0' }}
           COSIM_PYTHON: ${{ github.workspace }}/.tools/cosim-python/bin/python
         run: |
-          build_args=()
-          if [[ -n "$OPT_FAST" ]]; then build_args+=("OPT_FAST=$OPT_FAST"); fi
+          # An empty override must leave the simulator compiler defaults intact.
+          if [[ -z "$OPT_FAST" ]]; then unset OPT_FAST; fi
           if [[ "$COSIM" == 1 ]]; then
             identity=$(python3 riscv/patched_submodule.py identity --repository . --submodule riscv/sail-riscv --series riscv/sail-riscv-patches/series)
-            build_args+=("PREBUILT_COSIM_DIR=$GITHUB_WORKSPACE/.rhodium-cache/sail-cosim/sail-0.20.3-$identity")
+            export PREBUILT_COSIM_DIR="$GITHUB_WORKSPACE/.rhodium-cache/sail-cosim/sail-0.20.3-$identity"
           fi
-          # An empty override must leave the simulator Makefile defaults intact.
-          unset OPT_FAST
           build="/tmp/rhodium-sims/$SIMULATOR_ID"
           if [[ "$COSIM" == 1 ]]; then build="$build-cosim"; fi
           if [[ "$STATS" == 1 ]]; then build="$build-stats"; fi
-          mkdir -p "$build/obj"
-          cp "$RUNNER_TEMP/targets/$SOC.json" "$build/obj/program-target.json"
           echo "path=$build/obj" >> "$GITHUB_OUTPUT"
           echo "directory=$build" >> "$GITHUB_OUTPUT"
-          make -C sims simulator program-target SOC="$SOC" "${build_args[@]}" \
-            PREBUILT_PROGRAM_TARGET="$build/obj/program-target.json" VERILATOR='verilator --stats' 2>&1 | tee "$RUNNER_TEMP/$SIMULATOR_ID-build.log"
+          target="rhodium:simulator--$SOC--$RTL_BACKEND"
+          rm -f .moon/cache/runReport.json
+          status=0
+          PREBUILT_PROGRAM_TARGET="$RUNNER_TEMP/targets/$SOC.json" VERILATOR='verilator --stats' \
+            moon run "$target" --upstream deep 2>&1 | tee "$RUNNER_TEMP/$SIMULATOR_ID-build.log" || status=1
+          python3 -m tools.ci.receipts "$target" || status=1
+          if [[ "$status" != 0 ]]; then exit "$status"; fi
           ldd "$build/obj/VTestDriver" | tee "$RUNNER_TEMP/simulator-libraries.txt"
           ! grep -q 'not found' "$RUNNER_TEMP/simulator-libraries.txt"
       - name: Publish exact simulator and target descriptor
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: ${{ fromJSON(inputs.config).simulator_id }}-${{ github.sha }}
+          name: ${{ fromJSON(steps.work.outputs.config).simulator_id }}-${{ github.sha }}
           path: |
             ${{ steps.simulator.outputs.path }}/VTestDriver
             ${{ steps.simulator.outputs.path }}/VTestDriver.json
@@ -125,46 +145,53 @@ jobs:
         if: always() && steps.simulator.outputs.path != ''
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: simulator-build-${{ fromJSON(inputs.config).simulator_id }}-${{ github.sha }}
+          name: simulator-build-${{ fromJSON(steps.work.outputs.config).simulator_id }}-${{ github.sha }}
           path: |
-            ${{ runner.temp }}/${{ fromJSON(inputs.config).simulator_id }}-build.log
+            ${{ runner.temp }}/${{ fromJSON(steps.work.outputs.config).simulator_id }}-build.log
             ${{ steps.simulator.outputs.path }}/VTestDriver__stats*.txt
           if-no-files-found: warn
           retention-days: 7
       - name: Install RISC-V software toolchain
-        if: fromJSON(inputs.config).run_mapped || (fromJSON(inputs.config).run_harness && fromJSON(inputs.config).software_tests != 'isa-smoke')
+        if: fromJSON(steps.work.outputs.config).run_harness && fromJSON(steps.work.outputs.config).software_tests != 'isa-smoke'
         uses: ./.github/actions/setup-riscv-toolchain
-      - name: Verify SRAM mapping package
-        if: fromJSON(inputs.config).run_mapped
-        run: make -C sram test
       - name: Verify exact config and target descriptor
-        if: fromJSON(inputs.config).run_harness
+        if: fromJSON(steps.work.outputs.config).run_harness
         env:
-          SOC: ${{ fromJSON(inputs.config).soc }}
-          RTL_BACKEND: ${{ fromJSON(inputs.config).backend }}
+          SOC: ${{ fromJSON(steps.work.outputs.config).soc }}
+          RTL_BACKEND: ${{ fromJSON(steps.work.outputs.config).backend }}
         run: |
           chmod +x "${{ steps.simulator.outputs.path }}/VTestDriver"
           python3 sims/program-test/artifact.py verify --binary "${{ steps.simulator.outputs.path }}/VTestDriver" \
-            --soc "$SOC" --backend "$RTL_BACKEND" --variant "${{ fromJSON(inputs.config).variant }}" --target "${{ steps.simulator.outputs.path }}/program-target.json"
+            --soc "$SOC" --backend "$RTL_BACKEND" --variant "${{ fromJSON(steps.work.outputs.config).variant }}" --target "${{ steps.simulator.outputs.path }}/program-target.json"
+      - name: Locate selected shared harness archives
+        id: harness
+        if: fromJSON(steps.work.outputs.config).run_harness
+        env:
+          SOC: ${{ fromJSON(steps.work.outputs.config).soc }}
+          SOFTWARE_TESTS: ${{ fromJSON(steps.work.outputs.config).software_tests }}
+        run: |
+          bindings=$(python3 -m tools.ci.harness "$RUNNER_TEMP/targets/harness-plan.json" "$SOC" $SOFTWARE_TESTS)
+          echo "bindings=$bindings" >> "$GITHUB_OUTPUT"
       - name: Download shared harness ELFs
-        if: fromJSON(inputs.config).run_harness && (contains(fromJSON(inputs.config).software_tests, 'isa-smoke') || contains(fromJSON(inputs.config).software_tests, 'tiled-mt-benchmark-test'))
+        if: fromJSON(steps.work.outputs.config).run_harness && steps.harness.outputs.bindings != '{}'
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: harness-elfs-*-${{ github.sha }}
           merge-multiple: true
           path: ${{ runner.temp }}/harness-elfs
       - name: Run shape-and-ISA software selection
-        if: fromJSON(inputs.config).run_harness
-        timeout-minutes: ${{ fromJSON(inputs.config).harness_timeout_minutes || 60 }}
+        if: fromJSON(steps.work.outputs.config).run_harness
+        timeout-minutes: ${{ fromJSON(steps.work.outputs.config).harness_timeout_minutes || 60 }}
         shell: bash
         env:
-          SOC: ${{ fromJSON(inputs.config).soc }}
-          RTL_BACKEND: ${{ fromJSON(inputs.config).backend }}
-          SIMULATOR_ID: ${{ fromJSON(inputs.config).simulator_id }}
-          COSIM: ${{ fromJSON(inputs.config).cosim && '1' || '0' }}
-          STATS: ${{ fromJSON(inputs.config).stats && '1' || '0' }}
-          SOFTWARE_TESTS: ${{ fromJSON(inputs.config).software_tests }}
-          SMOKE_MAX_CYCLES: ${{ fromJSON(inputs.config).smoke_max_cycles }}
+          SOC: ${{ fromJSON(steps.work.outputs.config).soc }}
+          RTL_BACKEND: ${{ fromJSON(steps.work.outputs.config).backend }}
+          SIMULATOR_ID: ${{ fromJSON(steps.work.outputs.config).simulator_id }}
+          COSIM: ${{ fromJSON(steps.work.outputs.config).cosim && '1' || '0' }}
+          STATS: ${{ fromJSON(steps.work.outputs.config).stats && '1' || '0' }}
+          SOFTWARE_TESTS: ${{ fromJSON(steps.work.outputs.config).software_tests }}
+          HARNESS_BINDINGS: ${{ steps.harness.outputs.bindings }}
+          SMOKE_MAX_CYCLES: ${{ fromJSON(steps.work.outputs.config).smoke_max_cycles }}
         run: |
           mkdir -p "$RUNNER_TEMP/harness-logs"
           simulator="${{ steps.simulator.outputs.path }}/VTestDriver"
@@ -175,80 +202,80 @@ jobs:
           status=0
           for target in $SOFTWARE_TESTS; do
             manifest_args=()
-            run_target="$target"
-            case "$target" in
-              isa-smoke) run_target=isa-smoke-run; output="/tmp/rhodium-program-tests/$SOC/isa-smoke" ;;
-              tiled-mt-benchmark-test) run_target=tiled-mt-benchmark-run; output="/tmp/rhodium-program-tests/$SOC/mt-benchmark/8-harts" ;;
-            esac
-            if [[ "$run_target" != "$target" ]]; then
-              build_id=$(jq -er --arg soc "$SOC" --arg run "$run_target" \
-                '.run.include[] | select(.soc == $soc and .run_target == $run) | .build_id' \
-                "$RUNNER_TEMP/targets/harness-plan.json") || { status=1; continue; }
+            upstream=direct
+            if jq -e --arg test "$target" 'has($test)' <<< "$HARNESS_BINDINGS" >/dev/null; then
+              build_id=$(jq -er --arg test "$target" '.[$test].build_id' <<< "$HARNESS_BINDINGS")
+              subdir=$(jq -er --arg test "$target" '.[$test].subdir' <<< "$HARNESS_BINDINGS")
+              output="/tmp/rhodium-program-tests/$SOC/$subdir"
               mkdir -p "$output"
-              if ! tar -xzf "$RUNNER_TEMP/harness-elfs/$build_id.tar.gz" -C "$output" ||
-                 ! python3 sw/build/bind.py --manifest "$output/manifest.json" \
-                   --target "${{ steps.simulator.outputs.path }}/program-target.json" --output "$output/run-manifest.json"; then
+              if ! python3 -m tools.ci.archives bind "$build_id" --soc "$SOC" \
+                   --archive "$RUNNER_TEMP/harness-elfs/$build_id.tar.gz" --output "$output/run-manifest.json"; then
                 status=1
                 continue
               fi
               manifest_args=("PROGRAM_MANIFEST=$output/run-manifest.json")
+              upstream=none
             fi
-            make -C sims "$run_target" SOC="$SOC" PROGRAM_JOBS=2 \
-              PREBUILT_SIMULATOR="$simulator" "${run_args[@]}" "${manifest_args[@]}" 2>&1 | tee "$RUNNER_TEMP/harness-logs/$SIMULATOR_ID-$target.log" || status=1
+            task="rhodium:harness--$SOC--$RTL_BACKEND--$target"
+            rm -f .moon/cache/runReport.json
+            env PROGRAM_JOBS=2 PREBUILT_SIMULATOR="$simulator" "${run_args[@]}" "${manifest_args[@]}" \
+              moon run "$task" --upstream "$upstream" 2>&1 | tee "$RUNNER_TEMP/harness-logs/$SIMULATOR_ID-$target.log" || status=1
+            python3 -m tools.ci.receipts "$task" || status=1
           done
           exit "$status"
       - name: Summarize multihart whole-ELF cycles
-        if: always() && fromJSON(inputs.config).run_harness && contains(fromJSON(inputs.config).software_tests, 'tiled-mt-benchmark-test')
+        if: always() && fromJSON(steps.work.outputs.config).run_harness && contains(fromJSON(steps.work.outputs.config).software_tests, 'tiled-mt-benchmark-test')
         run: |
           if [[ -d /tmp/rhodium-program-tests ]]; then
             python3 sims/program-test/performance.py summary --results /tmp/rhodium-program-tests >> "$GITHUB_STEP_SUMMARY"
           fi
       - name: Publish importable multihart performance measurements
-        if: always() && fromJSON(inputs.config).run_harness && contains(fromJSON(inputs.config).software_tests, 'tiled-mt-benchmark-test')
+        if: always() && fromJSON(steps.work.outputs.config).run_harness && contains(fromJSON(steps.work.outputs.config).software_tests, 'tiled-mt-benchmark-test')
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: performance-${{ fromJSON(inputs.config).soc }}-multihart-${{ github.sha }}
+          name: performance-${{ fromJSON(steps.work.outputs.config).soc }}-multihart-${{ github.sha }}
           path: /tmp/rhodium-program-tests/*/mt-benchmark/*-harts/results/performance.json
           if-no-files-found: warn
           retention-days: 30
       - name: Verify RV5Stage-specific NTL cache timing
-        if: contains(fromJSON(inputs.config).software_tests, 'zihintntl-test') && fromJSON(inputs.config).backend == 'rsim' && fromJSON(inputs.config).soc == 'simple-rv5stage-rva23'
-        run: make -C sims zihintntl-policy-test RTL_BACKEND=rsim COSIM=1 STATS=1 SOC=simple-rv5stage-rva23 PREBUILT_SIMULATOR="${{ steps.simulator.outputs.path }}/VTestDriver"
-      - name: Execute mapped MiniRV5StageSoC through standard FESVR flow
-        if: fromJSON(inputs.config).run_mapped
-        run: make -C vlsi/sim smoke
+        if: contains(fromJSON(steps.work.outputs.config).software_tests, 'zihintntl-test') && fromJSON(steps.work.outputs.config).backend == 'rsim' && fromJSON(steps.work.outputs.config).soc == 'simple-rv5stage-rva23'
+        run: PREBUILT_SIMULATOR="${{ steps.simulator.outputs.path }}/VTestDriver" moon run rhodium:ntl-policy --upstream direct
       - name: Publish config smoke and multihart results
-        if: always() && fromJSON(inputs.config).run_harness && contains(fromJSON(inputs.config).software_tests, 'isa-smoke')
+        if: always() && fromJSON(steps.work.outputs.config).run_harness && contains(fromJSON(steps.work.outputs.config).software_tests, 'isa-smoke')
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: ${{ fromJSON(inputs.config).soc }}-isa-smoke-${{ github.sha }}
+          name: ${{ fromJSON(steps.work.outputs.config).soc }}-isa-smoke-${{ github.sha }}
           path: |
-            /tmp/rhodium-program-tests/${{ fromJSON(inputs.config).soc }}/isa-smoke/target.json
-            /tmp/rhodium-program-tests/${{ fromJSON(inputs.config).soc }}/isa-smoke/manifest.json
-            /tmp/rhodium-program-tests/${{ fromJSON(inputs.config).soc }}/isa-smoke/run-manifest.json
-            /tmp/rhodium-program-tests/${{ fromJSON(inputs.config).soc }}/isa-smoke/build.log
-            /tmp/rhodium-program-tests/${{ fromJSON(inputs.config).soc }}/isa-smoke/results
-            /tmp/rhodium-program-tests/${{ fromJSON(inputs.config).soc }}/mt-benchmark/*-harts/manifest.json
-            /tmp/rhodium-program-tests/${{ fromJSON(inputs.config).soc }}/mt-benchmark/*-harts/run-manifest.json
-            /tmp/rhodium-program-tests/${{ fromJSON(inputs.config).soc }}/mt-benchmark/*-harts/instruction-report.json
-            /tmp/rhodium-program-tests/${{ fromJSON(inputs.config).soc }}/mt-benchmark/*-harts/build.log
-            /tmp/rhodium-program-tests/${{ fromJSON(inputs.config).soc }}/mt-benchmark/*-harts/results
+            /tmp/rhodium-program-tests/${{ fromJSON(steps.work.outputs.config).soc }}/isa-smoke/target.json
+            /tmp/rhodium-program-tests/${{ fromJSON(steps.work.outputs.config).soc }}/isa-smoke/manifest.json
+            /tmp/rhodium-program-tests/${{ fromJSON(steps.work.outputs.config).soc }}/isa-smoke/run-manifest.json
+            /tmp/rhodium-program-tests/${{ fromJSON(steps.work.outputs.config).soc }}/isa-smoke/build.log
+            /tmp/rhodium-program-tests/${{ fromJSON(steps.work.outputs.config).soc }}/isa-smoke/results
+            /tmp/rhodium-program-tests/${{ fromJSON(steps.work.outputs.config).soc }}/mt-benchmark/*-harts/manifest.json
+            /tmp/rhodium-program-tests/${{ fromJSON(steps.work.outputs.config).soc }}/mt-benchmark/*-harts/run-manifest.json
+            /tmp/rhodium-program-tests/${{ fromJSON(steps.work.outputs.config).soc }}/mt-benchmark/*-harts/instruction-report.json
+            /tmp/rhodium-program-tests/${{ fromJSON(steps.work.outputs.config).soc }}/mt-benchmark/*-harts/build.log
+            /tmp/rhodium-program-tests/${{ fromJSON(steps.work.outputs.config).soc }}/mt-benchmark/*-harts/results
           if-no-files-found: warn
           retention-days: 7
       - name: Publish standalone SoC smoke ELFs
-        if: always() && fromJSON(inputs.config).run_harness && steps.simulator.outputs.directory != ''
+        if: always() && fromJSON(steps.work.outputs.config).run_harness && steps.simulator.outputs.directory != ''
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: ${{ fromJSON(inputs.config).simulator_id }}-smoke-elfs-${{ github.sha }}
-          path: ${{ steps.simulator.outputs.directory }}/*.elf
+          name: ${{ fromJSON(steps.work.outputs.config).simulator_id }}-smoke-elfs-${{ github.sha }}
+          path: .rhodium-cache/moon/payloads/${{ fromJSON(steps.work.outputs.config).soc }}/${{ fromJSON(steps.work.outputs.config).variant }}/*.elf
+          include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
 
       - name: Publish harness logs
-        if: always() && fromJSON(inputs.config).run_harness
+        if: always() && fromJSON(steps.work.outputs.config).run_harness
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: harness-logs-${{ fromJSON(inputs.config).simulator_id }}-${{ github.sha }}
+          name: harness-logs-${{ fromJSON(steps.work.outputs.config).simulator_id }}-${{ github.sha }}
           path: ${{ runner.temp }}/harness-logs
           if-no-files-found: warn
           retention-days: 7
+
+      - uses: ./.github/actions/upload-endpoints
+        if: always()

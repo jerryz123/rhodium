@@ -43,6 +43,6 @@ test for service configuration and invalid transfer limits,
 `chi-fragmenter-metadata` for complete packets at all DAT widths and optional
 field settings under reordering/stalls, and `chi-transfer-fragmenter` for
 RAM-backed writes and reads. Metadata randomization checks transparency, not
-additional protocol-profile support. Run `make check-boundaries` after source
+additional protocol-profile support. Run `moon run rhodium:check-boundaries` after source
 or dependency changes; use the [parent guide](../DEVELOPING.md#focused-validation)
 for broader CHI checks.

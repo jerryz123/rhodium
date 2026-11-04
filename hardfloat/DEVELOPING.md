@@ -77,7 +77,7 @@ From the repository root, run host representation, type, and boundary checks
 with:
 
 ```sh
-make hardfloat-host-test
+moon run rhodium:hardfloat-host-test
 ```
 
 The four fixture sources export elaborated `program` values. The package runner
@@ -87,13 +87,13 @@ select a backend or extract artifacts.
 Run the four permanent C++ behavior fixtures directly against rsim with:
 
 ```sh
-make hardfloat-rsim-test
+moon run rhodium:hardfloat-rsim-test
 ```
 
 Run both slices with:
 
 ```sh
-make hardfloat-test
+moon run rhodium:hardfloat-test
 ```
 
 Repository wrappers manage the persistent worktree-specific

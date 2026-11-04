@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Times incremental compilation of the positive CI entrypoints and attests the completed root.
+# Compiles Moon's positive-entrypoint arguments incrementally and attests the completed root.
 # SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
@@ -11,10 +11,7 @@ if [[ -z "$compiled_root" || "$compiled_root" == *:* ]]; then
   exit 2
 fi
 
-sources=()
-while IFS= read -r source; do
-  sources+=("$source")
-done < <(make -C "$repo_dir" --no-print-directory print-racket-compile-sources)
+sources=("$@")
 if (( ${#sources[@]} == 0 )); then
   echo "Rhodium compilation source manifest is empty" >&2
   exit 1

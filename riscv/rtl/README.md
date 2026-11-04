@@ -378,7 +378,7 @@ From the repository root, run the focused pure-model, catalog, adapter,
 compressed-expansion, and boundary checks with:
 
 ```sh
-make riscv-test
+moon run rhodium:riscv-test
 ```
 
 The focused test inventory and adapter-change workflow are in

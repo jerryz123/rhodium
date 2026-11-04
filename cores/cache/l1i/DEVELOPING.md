@@ -94,7 +94,7 @@ Use the host check for geometry and public protocol contracts:
 tools/run-racket-tests.sh cores/cache/tests/icache-test.rhm
 FIXTURES='cache-icache cache-icache64' python3 tools/testing/rsim/run.py
 FIXTURES='cache-compack' python3 tools/testing/rsim/run.py
-make check-boundaries
+moon run rhodium:check-boundaries
 ```
 
 Test 32-bit snapshots, refill, invalidation, and access-error behavior in

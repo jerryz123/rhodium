@@ -1,0 +1,492 @@
+# Owns static CI checks and their file groups, fixtures, and executable prerequisites.
+# SPDX-License-Identifier: Apache-2.0
+fileGroups:
+  circt-inventory:
+    - "tools/testing/circt/run.sh"
+    - "tools/testing/circt/fixtures.txt"
+  host-check-runner:
+    - ".github/workflows/ci-checks.yml"
+    - "tools/run-racket-tests.sh"
+    - "tools/testing/run-negative.rkt"
+  host-riscv-model-sources:
+    - "hardfloat/**/*"
+    - "riscv/**/*"
+    - "tools/write-riscv-udb-config.rhm"
+  protocol-sources:
+    - "chi/**/*"
+    - "devices/**/*"
+    - "noc/**/*"
+
+  rsim-check-runner:
+    - ".github/workflows/ci-checks.yml"
+    - "rhodium/backend/**/*"
+    - "rhodium/compile/**/*"
+    - "tools/testing/rsim/**/*"
+  rsim-core-check-sources:
+    - "chi/**/*"
+    - "cores/tests/**/*"
+    - "examples/cores/**/*"
+    - "examples/riscv/**/*"
+    - "rheg/**/*"
+    - "rhodium/diagram/**/*"
+    - "rhodium/event/**/*"
+    - "riscv/**/*"
+    - "socs/**/*"
+
+  hdl-check-runner:
+    - ".github/workflows/ci-checks.yml"
+    - "rhodium/backend/**/*"
+    - "rhodium/compile/**/*"
+    - "tools/check-example-verilog.sh"
+    - "tools/testing/circt/**/*"
+  hdl-simulation-sources:
+    - "chi/protocol/**/*"
+    - "chi/subordinate/**/*"
+    - "devices/tests/*uart*"
+    - "devices/tests/*uart*/**/*"
+    - "devices/uart/**/*"
+    - "examples/std/sync-ram.rhdl"
+    - "rheg/**/*"
+    - "rhodium/event/**/*"
+    - "rhodium/statistics/**/*"
+    - "sims/TestDriver.v"
+    - "sims/statistics/**/*"
+    - "sims/verilator/simulation_runtime.*"
+    - "sims/verilator/simulation_runtime.*/**/*"
+  circt-core-check-sources:
+    - "cores/**/*"
+    - "examples/cores/**/*"
+    - "hardfloat/**/*"
+    - "riscv/**/*"
+    - "sims/cosim/**/*"
+    - "socs/**/*"
+
+tasks:
+  check--host-foundation:
+    tags: [ci-check, ci-root, ci-receipt, pool-host]
+    command: noop
+    inputs:
+      - "@group(host-check-runner)"
+      - "examples/formal/**/*"
+      - "examples/lop/**/*"
+      - "flow/tests/**/*"
+      - "rheg/**/*"
+      - "rhodium/analysis/**/*"
+      - "rhodium/core/tests/**/*"
+      - "rhodium/diagram/**/*"
+      - "rhodium/event/**/*"
+      - "rhodium/frontend/tests/**/*"
+      - "rhodium/lowering/tests/**/*"
+      - "rhodium/statistics/**/*"
+      - "rhodium/std/tests/**/*"
+      - "support/**/*"
+      - "@group(language)"
+      - "@group(library)"
+    deps: ["check-boundaries", "support-annotation-test", "frontend-test", "std-test", "flow-test", "event-test", "statistics-test", "diagram-test"]
+    options: { cache: false }
+  check--host-backend:
+    tags: [ci-check, ci-root, ci-receipt, pool-host]
+    command: noop
+    inputs:
+      - "@group(host-check-runner)"
+      - "devices/tests/*uart*"
+      - "devices/tests/*uart*/**/*"
+      - "devices/uart/**/*"
+      - "examples/lop/**/*"
+      - "rheg/**/*"
+      - "rhodium/backend/**/*"
+      - "rhodium/compile/**/*"
+      - "rhodium/event/**/*"
+      - "riscv/patched_submodule.py"
+      - "riscv/riscv-isa-sim*"
+      - "riscv/riscv-isa-sim*/**/*"
+      - "@group(language)"
+      - "@group(library)"
+    deps: ["check-boundaries", "backend-test", "rsim-test"]
+    options: { cache: false }
+  check--host-models:
+    tags: [ci-check, ci-root, ci-receipt, pool-host, needs-dtc]
+    command: noop
+    inputs:
+      - "@group(host-check-runner)"
+      - "@group(host-riscv-model-sources)"
+      - "devicetree/**/*"
+      - "noc/**/*"
+      - "@group(language)"
+      - "@group(library)"
+    deps: ["check-boundaries", "devicetree-test", "noc-test", "riscv-test", "hardfloat-host-test"]
+    options: { cache: false }
+  check--host-protocols:
+    tags: [ci-check, ci-root, ci-receipt, pool-host]
+    command: noop
+    inputs:
+      - "@group(host-check-runner)"
+      - "@group(protocol-sources)"
+      - "rfpl/**/*"
+      - "@group(language)"
+      - "@group(library)"
+    deps: ["check-boundaries", "rfpl-unit-test", "device-test", "chi-test"]
+    options: { cache: false }
+  check--host-cores:
+    tags: [ci-check, ci-root, ci-receipt, pool-host]
+    command: noop
+    inputs:
+      - "@group(host-check-runner)"
+      - "@group(host-riscv-model-sources)"
+      - "cores/**/*"
+      - "@group(language)"
+      - "@group(library)"
+    deps: ["check-boundaries", "rv5stage-host-test"]
+    options: { cache: false }
+  check--host-socs:
+    tags: [ci-check, ci-root, ci-receipt, pool-host, needs-dtc]
+    command: noop
+    inputs:
+      - "@group(host-check-runner)"
+      - "@group(host-riscv-model-sources)"
+      - "@group(protocol-sources)"
+      - "cores/**/*"
+      - "devicetree/**/*"
+      - "sims/**/*.rhm"
+      - "@group(cosim)"
+      - "socs/**/*"
+      - "@group(language)"
+      - "@group(library)"
+    deps: ["check-boundaries", "soc-test"]
+    options: { cache: false }
+  check--host-hygiene:
+    tags: [ci-check, ci-root, ci-receipt, pool-host]
+    command: noop
+    inputs:
+      - "@group(host-check-runner)"
+      - "@group(circt-inventory)"
+      - "**/*.rhdl"
+      - "**/*.rhm"
+      - "**/*.rkt"
+      - "**/check-boundaries.sh"
+      - ".githooks/**/*"
+      - "examples/**/*"
+      - "tools/check-*"
+      - "tools/check-*/**/*"
+      - "tools/parameter-*"
+      - "tools/parameter-*/**/*"
+      - "@group(language)"
+      - "@group(library)"
+    deps: ["check-boundaries", "check-example-verilog", "check-license-headers", "check-parameter-annotations"]
+    options: { cache: false }
+  check--host-examples:
+    tags: [ci-check, ci-root, ci-receipt, pool-host]
+    command: noop
+    inputs:
+      - "@group(host-check-runner)"
+      - "@group(circt-inventory)"
+      - "@group(protocol-sources)"
+      - "cores/**/*"
+      - "examples/**/*"
+      - "hardfloat/**/*"
+      - "rfpl/**/*"
+      - "riscv/**/*"
+      - "tools/check-example-verilog.sh"
+      - "tools/write-*-diagram.rhm"
+      - "@group(language)"
+      - "@group(library)"
+    deps: ["ci-host-examples-test"]
+    options: { cache: false }
+  check--verilog-direct:
+    tags: [ci-check, ci-root, ci-receipt, pool-verilog, needs-verilator]
+    command: "CIRCT_OPT=/nonexistent python3 rhodium/backend/tests/verilog/run.py --family sync-memory"
+    env: &root-test-env { PATH: "$workspaceRoot/.tools/verilator/bin:$PATH" }
+    inputs:
+      - "@group(hdl-check-runner)"
+      - "@group(hdl-simulation-sources)"
+      - "@group(language)"
+      - "@group(library)"
+      - "@group(backend--verilog)"
+      - "@group(verilator)"
+    deps: ["check-boundaries", "racket-cache"]
+    options: &racket-options { cache: false, mutex: racket-cache, unixShell: bash }
+  check--circt-verilog-differential:
+    tags: [ci-check, ci-root, ci-receipt, pool-verilog, needs-circt, needs-verilator]
+    env: *root-test-env
+    script: |
+      set -e
+      python3 rhodium/backend/tests/verilog/run.py --differential
+      python3 rhodium/backend/tests/verilog/run-integration.py --check-manifests
+      python3 rhodium/backend/tests/rsim/run.py --differential
+    inputs:
+      - "@group(hdl-check-runner)"
+      - "@group(hdl-simulation-sources)"
+      - "@group(language)"
+      - "@group(library)"
+      - "@group(backend--circt)"
+      - "@group(circt-tool)"
+      - "@group(verilator)"
+    deps: ["check-boundaries", "racket-cache"]
+    options: *racket-options
+  check--rsim-std:
+    tags: [ci-check, ci-root, ci-receipt, pool-rsim]
+    command: "python3 tools/testing/rsim/run.py --group std --group language"
+    inputs:
+      - "@group(rsim-check-runner)"
+      - "examples/clocking/**/*"
+      - "examples/rtl/**/*"
+      - "examples/std/**/*"
+      - "rheg/**/*"
+      - "rhodium/diagram/**/*"
+      - "rhodium/event/**/*"
+      - "@group(statistics)"
+      - "@group(language)"
+      - "@group(library)"
+      - "@group(fixtures--rsim-std)"
+    deps: ["racket-cache"]
+    options: *racket-options
+  check--rsim-core-components:
+    tags: [ci-check, ci-root, ci-receipt, pool-rsim]
+    command: "python3 tools/testing/rsim/run.py --group cores-components"
+    inputs:
+      - "@group(rsim-check-runner)"
+      - "@group(rsim-core-check-sources)"
+      - "@group(language)"
+      - "@group(library)"
+      - "@group(shared-core)"
+      - "@group(architecture)"
+      - "@group(fixtures--rsim-core-components)"
+    deps: ["racket-cache"]
+    options: *racket-options
+  check--rsim-core-execution-frontend:
+    tags: [ci-check, ci-root, ci-receipt, pool-rsim]
+    command: "python3 tools/testing/rsim/run.py --group cores-execution-frontend"
+    inputs:
+      - "@group(rsim-check-runner)"
+      - "@group(rsim-core-check-sources)"
+      - "@group(language)"
+      - "@group(library)"
+      - "@group(shared-core)"
+      - "@group(architecture)"
+      - "@group(fixtures--rsim-core-execution-frontend)"
+    deps: ["racket-cache"]
+    options: *racket-options
+  check--rsim-core-execution-control:
+    tags: [ci-check, ci-root, ci-receipt, pool-rsim]
+    command: "python3 tools/testing/rsim/run.py --group cores-execution-control"
+    inputs:
+      - "@group(rsim-check-runner)"
+      - "@group(rsim-core-check-sources)"
+      - "@group(language)"
+      - "@group(library)"
+      - "@group(shared-core)"
+      - "@group(architecture)"
+      - "@group(fixtures--rsim-core-execution-control)"
+    deps: ["racket-cache"]
+    options: *racket-options
+  check--rsim-core-execution-datapath:
+    tags: [ci-check, ci-root, ci-receipt, pool-rsim]
+    command: "python3 tools/testing/rsim/run.py --group cores-execution-datapath"
+    inputs:
+      - "@group(rsim-check-runner)"
+      - "@group(rsim-core-check-sources)"
+      - "@group(language)"
+      - "@group(library)"
+      - "@group(shared-core)"
+      - "@group(architecture)"
+      - "@group(fixtures--rsim-core-execution-datapath)"
+    deps: ["racket-cache"]
+    options: *racket-options
+  check--rsim-core-vector-functional-1:
+    tags: [ci-check, ci-root, ci-receipt, pool-rsim]
+    command: "python3 tools/testing/rsim/run.py --group cores-vector-functional-1"
+    inputs:
+      - "@group(rsim-check-runner)"
+      - "@group(rsim-core-check-sources)"
+      - "@group(language)"
+      - "@group(library)"
+      - "@group(shared-core)"
+      - "@group(architecture)"
+      - "@group(fixtures--rsim-core-vector-functional-1)"
+    deps: ["racket-cache"]
+    options: *racket-options
+  check--rsim-core-vector-functional-2:
+    tags: [ci-check, ci-root, ci-receipt, pool-rsim]
+    command: "python3 tools/testing/rsim/run.py --group cores-vector-functional-2"
+    inputs:
+      - "@group(rsim-check-runner)"
+      - "@group(rsim-core-check-sources)"
+      - "@group(language)"
+      - "@group(library)"
+      - "@group(shared-core)"
+      - "@group(architecture)"
+      - "@group(fixtures--rsim-core-vector-functional-2)"
+    deps: ["racket-cache"]
+    options: *racket-options
+  check--rsim-core-vector-configurations:
+    tags: [ci-check, ci-root, ci-receipt, pool-rsim]
+    command: "python3 tools/testing/rsim/run.py --group cores-vector-configurations"
+    inputs:
+      - "@group(rsim-check-runner)"
+      - "@group(rsim-core-check-sources)"
+      - "@group(language)"
+      - "@group(library)"
+      - "@group(shared-core)"
+      - "@group(architecture)"
+      - "@group(fixtures--rsim-core-vector-configurations)"
+    deps: ["racket-cache"]
+    options: *racket-options
+  check--rsim-core-memory:
+    tags: [ci-check, ci-root, ci-receipt, pool-rsim]
+    command: "python3 tools/testing/rsim/run.py --group cores-memory"
+    inputs:
+      - "@group(rsim-check-runner)"
+      - "@group(rsim-core-check-sources)"
+      - "@group(language)"
+      - "@group(library)"
+      - "@group(shared-core)"
+      - "@group(architecture)"
+      - "@group(fixtures--rsim-core-memory)"
+    deps: ["racket-cache"]
+    options: *racket-options
+  check--rsim-core-cache:
+    tags: [ci-check, ci-root, ci-receipt, pool-rsim]
+    command: "python3 tools/testing/rsim/run.py --group cores-cache"
+    inputs:
+      - "@group(rsim-check-runner)"
+      - "@group(rsim-core-check-sources)"
+      - "@group(language)"
+      - "@group(library)"
+      - "@group(shared-core)"
+      - "@group(architecture)"
+      - "@group(fixtures--rsim-core-cache)"
+    deps: ["racket-cache"]
+    options: *racket-options
+  check--rsim-protocols:
+    tags: [ci-check, ci-root, ci-receipt, pool-rsim]
+    command: "python3 tools/testing/rsim/run.py --group protocols"
+    inputs:
+      - "@group(rsim-check-runner)"
+      - "@group(protocol-sources)"
+      - "examples/chi/**/*"
+      - "examples/noc/**/*"
+      - "rheg/**/*"
+      - "rhodium/diagram/**/*"
+      - "rhodium/event/**/*"
+      - "sims/tests/fesvr-mmio-fixture.rhdl"
+      - "sims/tests/rsim/**/*"
+      - "socs/**/*"
+      - "@group(language)"
+      - "@group(library)"
+      - "@group(fixtures--rsim-protocols)"
+    deps: ["racket-cache"]
+    options: *racket-options
+  check--circt-language:
+    tags: [ci-check, ci-root, ci-receipt, pool-circt, needs-circt, needs-verilator]
+    script: |
+      bash tools/check-example-verilog.sh examples/rtl examples/lop &&
+        bash tools/testing/circt/run.sh --group language
+    inputs:
+      - "@group(hdl-check-runner)"
+      - "@group(hdl-simulation-sources)"
+      - "examples/clocking/**/*"
+      - "examples/lop/**/*"
+      - "examples/rtl/**/*"
+      - "rhodium/formal/**/*"
+      - "@group(language)"
+      - "@group(library)"
+      - "@group(backend--circt)"
+      - "@group(circt-tool)"
+      - "@group(verilator)"
+      - "@group(fixtures--circt-language)"
+    deps: ["racket-cache"]
+    options: *racket-options
+  check--circt-std:
+    tags: [ci-check, ci-root, ci-receipt, pool-circt, needs-circt]
+    script: |
+      bash tools/check-example-verilog.sh examples/std &&
+        bash tools/testing/circt/run.sh --group std
+    inputs:
+      - "@group(hdl-check-runner)"
+      - "@group(hdl-simulation-sources)"
+      - "examples/std/**/*"
+      - "@group(language)"
+      - "@group(library)"
+      - "@group(backend--circt)"
+      - "@group(circt-tool)"
+      - "@group(fixtures--circt-std)"
+    deps: ["racket-cache"]
+    options: *racket-options
+  check--circt-protocols:
+    tags: [ci-check, ci-root, ci-receipt, pool-circt, needs-circt, needs-verilator]
+    script: |
+      bash tools/check-example-verilog.sh examples/noc examples/chi &&
+        bash tools/testing/circt/run.sh --group protocols
+    inputs:
+      - "@group(hdl-check-runner)"
+      - "@group(hdl-simulation-sources)"
+      - "@group(protocol-sources)"
+      - "examples/chi/**/*"
+      - "examples/noc/**/*"
+      - "sims/fesvr/**/*"
+      - "@group(language)"
+      - "@group(library)"
+      - "@group(backend--circt)"
+      - "@group(circt-tool)"
+      - "@group(verilator)"
+      - "@group(fixtures--circt-protocols)"
+    deps: ["racket-cache"]
+    options: *racket-options
+  check--circt-core-components:
+    tags: [ci-check, ci-root, ci-receipt, pool-circt, needs-circt, needs-verilator]
+    script: |
+      bash tools/check-example-verilog.sh examples/riscv examples/cores &&
+        bash tools/testing/circt/run.sh --group cores-components
+    inputs:
+      - "@group(hdl-check-runner)"
+      - "@group(circt-core-check-sources)"
+      - "examples/riscv/**/*"
+      - "@group(language)"
+      - "@group(library)"
+      - "@group(backend--circt)"
+      - "@group(circt-tool)"
+      - "@group(verilator)"
+      - "@group(fixtures--circt-core-components)"
+    deps: ["racket-cache"]
+    options: *racket-options
+  check--circt-core-execution-datapath:
+    tags: [ci-check, ci-root, ci-receipt, pool-circt, needs-circt, needs-verilator]
+    command: "bash tools/testing/circt/run.sh --group cores-execution-datapath"
+    inputs:
+      - "@group(hdl-check-runner)"
+      - "@group(circt-core-check-sources)"
+      - "@group(language)"
+      - "@group(library)"
+      - "@group(backend--circt)"
+      - "@group(circt-tool)"
+      - "@group(verilator)"
+      - "@group(fixtures--circt-core-execution-datapath)"
+    deps: ["racket-cache"]
+    options: *racket-options
+  check--rsim-hardfloat:
+    tags: [ci-check, ci-root, ci-receipt, pool-rsim]
+    command: "python3 tools/testing/rsim/run.py --group hardfloat"
+    env: *root-test-env
+    inputs:
+      - "@group(rsim-check-runner)"
+      - "hardfloat/**/*"
+      - "@group(language)"
+      - "@group(library)"
+      - "@group(fixtures--rsim-hardfloat)"
+    deps: ["check-boundaries", "racket-cache"]
+    options: *racket-options
+  check--circt-rfpl:
+    tags: [ci-check, ci-root, ci-receipt, pool-circt, needs-circt, needs-verilator]
+    command: "bash rfpl/tests/run-circt.sh"
+    inputs:
+      - "@group(hdl-check-runner)"
+      - "examples/rfpl/**/*"
+      - "rfpl/**/*"
+      - "@group(language)"
+      - "@group(library)"
+      - "@group(backend--circt)"
+      - "@group(circt-tool)"
+      - "@group(verilator)"
+      - "@group(fixtures--circt-rfpl)"
+    deps: ["racket-cache"]
+    options: *racket-options

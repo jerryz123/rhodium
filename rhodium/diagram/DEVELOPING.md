@@ -110,7 +110,7 @@ renderer whose visual layout is a public contract.
 Run the focused diagram target:
 
 ```sh
-make diagram-test
+moon run rhodium:diagram-test
 ```
 
 When metadata ownership or backend isolation changes, also run:

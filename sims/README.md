@@ -15,6 +15,25 @@ Contributors changing a harness, binding, or build rule should read
 [source documentation requirements](../AGENTS.md#source-documentation),
 including the `tests/` exemption.
 
+Named setup, software builds, and execution use Moon; prepare its catalog as described in the
+[repository workflow](../DEVELOPING.md#validate-at-the-owning-boundary). For example:
+
+```sh
+moon run rhodium:setup-fesvr rhodium:coremark-setup
+SOC=simple-rv2wide-rva23 moon run rhodium:coremark-elf
+SOC=simple-rv2wide-rva23 COSIM=1 moon run rhodium:sim-smoke
+SOC=simple-rv2wide-rva23 COSIM=1 BINARY=/path/to/program.elf moon run rhodium:sim-run
+```
+
+Run all commands from the repository root, with options in the environment.
+Moon owns simulator/native compilation stages, descriptor generation, the ACT
+artifact pipeline, and OpenSBI layout/firmware/payload builds. Configured
+`program--<soc>--<suite>` tasks use the standard CI instrumentation and shared
+ELF graph; `sim-<suite>-test` accepts local `SOC`, instrumentation, and build
+options. Use `sim-<suite>-run` to consume previously built ELFs. With staged,
+attested prerequisites, `moon run ... --upstream none` executes without building
+the simulator or suite.
+
 ## Choose a harness
 
 `SOC=mini|simple|tiled4core|tiled8core` chooses the topology; `CORE=rv5stage|rv2wide|rv3wide|spike` chooses
@@ -22,7 +41,7 @@ the hart implementation; `ISA=rv32int|rv32max|rv64imacb|rv64imafdcb|rv64max|rva2
 ISA. Alternatively pass a complete key such as `SOC=mini-rv5stage-rva23`.
 Both forms produce the same canonical artifact identity. Shape and core default to `simple` and
 `rv5stage` only when not supplied; ISA must always be explicit. The [canonical selector table](../socs/configs/selections.tsv)
-serves both Make and typed host selection; the [CI inventory](test-configs.txt)
+serves both Moon entry points and typed host selection; the [CI inventory](test-configs.txt)
 is an explicit subset, not a Cartesian-product test matrix.
 
 Each simulator includes a resolved configuration fingerprint covering its hart,
@@ -52,9 +71,9 @@ RV2Wide is available on Mini and Simple with `rva23`, `rv32int`, `rv32max`,
 support the same four RV64 presets as the other cores:
 
 ```sh
-make -C sims simulator SOC=mini-rv2wide-rv64imacb
-make -C sims boot-test isa-smoke SOC=simple-rv2wide-rv64imacb
-make -C sims smoke tiled-mt-benchmark-test SOC=tiled8core-rv2wide-rva23
+SOC=mini-rv2wide-rv64imacb moon run rhodium:local-simulator
+SOC=simple-rv2wide-rv64imacb moon run rhodium:sim-boot-test rhodium:sim-isa-smoke-test
+SOC=tiled8core-rv2wide-rva23 moon run rhodium:sim-smoke rhodium:sim-tiled-mt-benchmark-test
 ```
 
 RV3Wide supports the same selections: replace `rv2wide` with `rv3wide` in
@@ -73,8 +92,8 @@ capabilities including Sv39, but omits H and Sha/Sh* guarantees. It is not an RV
 For its minimal capability-filtered ISA smoke suite:
 
 ```sh
-make -C sims isa-smoke SOC=simple-rv5stage-rv64max
-make -C sims isa-smoke SOC=simple-spike-rv64max
+SOC=simple-rv5stage-rv64max moon run rhodium:sim-isa-smoke-test
+SOC=simple-spike-rv64max moon run rhodium:sim-isa-smoke-test
 ```
 
 The CI enrollment and workload policy are documented in
@@ -86,8 +105,8 @@ lists their fixed system capabilities and deliberately disabled optional feature
 Both use the same minimal ISA-smoke command on either implementation:
 
 ```sh
-make -C sims isa-smoke SOC=simple-rv5stage-rv64imacb
-make -C sims isa-smoke SOC=simple-spike-rv64imafdcb
+SOC=simple-rv5stage-rv64imacb moon run rhodium:sim-isa-smoke-test
+SOC=simple-spike-rv64imafdcb moon run rhodium:sim-isa-smoke-test
 ```
 
 Mini supports `rv32int` and `rv32max` on both Spike and RV5Stage.
@@ -98,10 +117,10 @@ Zvbb with VLEN64. RV32Max additionally exercises scalar F and Zve32f;
 RV32Int has no floating point. For example:
 
 ```sh
-make -C sims smoke SOC=mini-spike-rv32max
-make -C sims smoke SOC=mini-rv5stage-rv32max
-make -C sims smoke SOC=mini-spike-rv32max HTIF_ARGS=+load-through-chi
-make -C sims boot-test host-mmio-test uart-pty-test SOC=mini-spike-rv32max
+SOC=mini-spike-rv32max moon run rhodium:sim-smoke
+SOC=mini-rv5stage-rv32max moon run rhodium:sim-smoke
+SOC=mini-spike-rv32max HTIF_ARGS=+load-through-chi moon run rhodium:sim-smoke
+SOC=mini-spike-rv32max moon run rhodium:sim-boot-test rhodium:sim-host-mmio-test rhodium:sim-uart-pty-test
 ```
 
 Substitute `rv32int` to run the integer-only preset. This is bounded platform
@@ -113,10 +132,10 @@ external memory. Validate the platform and complete applicable upstream ISA
 inventory through the same FESVR path:
 
 ```sh
-make -C sims smoke boot-test host-mmio-test uart-pty-test SOC=simple CORE=rv5stage ISA=rv32max
-make -C sims smoke boot-test host-mmio-test uart-pty-test SOC=simple CORE=spike ISA=rv32max
-make -C sims isa-test SOC=simple CORE=rv5stage ISA=rv32max
-make -C sims isa-test SOC=simple CORE=spike ISA=rv32max
+SOC=simple CORE=rv5stage ISA=rv32max moon run rhodium:sim-smoke rhodium:sim-boot-test rhodium:sim-host-mmio-test rhodium:sim-uart-pty-test
+SOC=simple CORE=spike ISA=rv32max moon run rhodium:sim-smoke rhodium:sim-boot-test rhodium:sim-host-mmio-test rhodium:sim-uart-pty-test
+SOC=simple CORE=rv5stage ISA=rv32max moon run rhodium:sim-isa-test
+SOC=simple CORE=spike ISA=rv32max moon run rhodium:sim-isa-test
 ```
 
 Both cores and both RV32 presets are selected in CI with platform tests, the full
@@ -140,9 +159,9 @@ UART, and lifecycle callbacks. Builds live under `$(BUILD_ROOT)/<config>/`.
 `-cosim` to the build directory.
 
 ```sh
-make -C sims smoke SOC=simple-rv5stage-rva23 COSIM=1
-make -C sims smoke SOC=simple-rv5stage-rva23 RTL_BACKEND=circt COSIM=1
-make -C sims smoke SOC=simple-rv5stage-rva23 RTL_BACKEND=verilog
+SOC=simple-rv5stage-rva23 COSIM=1 moon run rhodium:sim-smoke
+SOC=simple-rv5stage-rva23 RTL_BACKEND=circt COSIM=1 moon run rhodium:sim-smoke
+SOC=simple-rv5stage-rva23 RTL_BACKEND=verilog moon run rhodium:sim-smoke
 ```
 
 Explicit CIRCT and direct SystemVerilog builds use `<config>-circt/` and
@@ -180,7 +199,7 @@ top is `SoCHarness`. It is passed directly to the selected compilation target.
 Both use the [shared config resolver](../socs/README.md#typed-config-selection).
 The [paired-config inventory](test-configs.rhm) describes the enrolled test
 configs. Workload selection depends on shape and ISA, not core implementation.
-Make, software targets, simulator
+Moon tasks, software targets, simulator
 attestations, and ACT configurations include ISA in their config keys.
 Setup and config-independent adapter tests do not require an ISA.
 
@@ -232,20 +251,32 @@ The directory owns:
 
 ## Build a simulator
 
-Install the pinned FESVR dependency once, then build any system-specific
-simulator:
+For a named configuration, use the repository's Moon catalog after installing
+the simulator toolchain. For example, the Simple RV2Wide RVA23 product uses
+Rsim with statistics and [Sail cosimulation](cosim/README.md):
 
 ```sh
-make -C sims setup
-make -C sims simulator SOC=simple CORE=rv5stage ISA=rva23
-make -C sims simulator SOC=simple CORE=spike ISA=rva23
-make -C sims simulator SOC=mini CORE=spike ISA=rva23
-make -C sims simulator SOC=tiled8core CORE=rv5stage ISA=rva23
+python3 -m tools.ci.catalog
+moon run rhodium:setup-fesvr rhodium:build-sail
+moon run rhodium:simulator--simple-rv2wide-rva23--rsim
+```
+
+To build software and run it on the same simulator, see the
+[local CoreMark example](../DEVELOPING.md#validate-at-the-owning-boundary).
+For custom configurations or low-level flags, use the parameterized local task:
+
+```sh
+moon run rhodium:setup-fesvr
+SOC=simple CORE=rv5stage ISA=rva23 moon run rhodium:local-simulator
+SOC=simple CORE=spike ISA=rva23 moon run rhodium:local-simulator
+SOC=mini CORE=spike ISA=rva23 moon run rhodium:local-simulator
+SOC=tiled8core CORE=rv5stage ISA=rva23 moon run rhodium:local-simulator
 ```
 
 The [test inventory](test-configs.txt) lists the canonical CI configs;
-each has its own target descriptor, simulator attestation,
-and build directory. The `SOC`/`CORE` selectors above remain available locally;
+each SoC has one target descriptor, shared across simulator variants.
+Each variant has its own build directory and attestation, and carries a copy
+of the descriptor beside its binary. The `SOC`/`CORE` selectors above remain available locally;
 all artifact identities include the explicit ISA for software and ACT consumers.
 
 Setup requires Python 3.9+, initializes the shared
@@ -263,7 +294,7 @@ crosses the PTY inside the harness. Set
 `BUILD_ROOT` when a different artifact root is required. Building a simulator
 does not require or embed a target program.
 
-The Makefile passes `SOC` and `CORE` to the host-side emitter. The emitter
+The Moon task passes `SOC` and `CORE` to the host-side emitter. The emitter
 selects one hart binding and elaborates it inside the chosen shape's harness.
 Test specializations may still provide a harness module path. Every selection emits the
 same parameterless `SoCHarness` Verilog top contract, allowing `TestDriver.v`
@@ -275,9 +306,9 @@ Initialize the pinned OpenSBI source and build generic `FW_JUMP` firmware for
 either single-core SoC:
 
 ```sh
-make -C sims opensbi-setup
-make -C sims opensbi-firmware SOC=simple CORE=rv5stage ISA=rva23
-make -C sims opensbi-firmware SOC=simple CORE=spike ISA=rva23
+moon run rhodium:opensbi-setup
+SOC=simple CORE=rv5stage ISA=rva23 moon run rhodium:opensbi-elfs--firmware
+SOC=simple CORE=spike ISA=rva23 moon run rhodium:opensbi-elfs--firmware
 ```
 
 The build derives the firmware, next-stage, and writable FDT addresses from the
@@ -293,11 +324,10 @@ GNU cross-linker lacks that support, select a complete LLVM installation with
 `OPENSBI_LLVM=/path/to/llvm/bin`.
 
 Run a caller-provided S-mode ELF linked at the `next_stage_address` recorded in
-`layout.json` after building `opensbi-firmware`:
+`layout.json` after building `opensbi-elfs--firmware`:
 
 ```sh
-make -C sims opensbi-run SOC=simple-rv5stage-rva23 \
-  NEXT_STAGE=/absolute/path/to/next-stage.elf
+SOC=simple-rv5stage-rva23 NEXT_STAGE=/absolute/path/to/next-stage.elf moon run rhodium:sim-opensbi-run
 ```
 
 FESVR loads the next-stage ELF with its existing auxiliary-payload facility
@@ -307,8 +337,8 @@ than defining a second HTIF mailbox. OpenSBI itself contains no embedded
 application. Run the repository's tiny S-mode SBI test image with:
 
 ```sh
-make -C sims opensbi-test SOC=simple CORE=rv5stage ISA=rva23
-make -C sims opensbi-test SOC=simple CORE=spike ISA=rva23
+SOC=simple CORE=rv5stage ISA=rva23 moon run rhodium:sim-opensbi-test
+SOC=simple CORE=spike ISA=rva23 moon run rhodium:sim-opensbi-test
 ```
 
 The initial test requires one bootable RV64 hart, IMA,
@@ -328,11 +358,11 @@ that reports userspace boot and powers off through Linux/OpenSBI. No BusyBox or
 shell is included. Build the image on Linux:
 
 ```sh
-make -C sims linux-setup
-make -C sims linux-smoke-test SOC=simple-spike-rva23
+moon run rhodium:linux-setup
+SOC=simple-spike-rva23 moon run rhodium:sim-linux-test
 ```
 
-Use `linux-elfs` for build-only and `linux-smoke-run` for run-only. The latter
+Use `linux-elfs` for build-only and `sim-linux-run` for run-only. The latter
 also runs a Linux-built bundle on macOS through the normal simulator and
 `PROGRAM_MANIFEST` flow. See the port guide for descriptor/DTB transfer and
 binding commands. Firmware owns HTIF; the kernel is an auxiliary ELF, and its
@@ -359,13 +389,13 @@ each run. Open/write failures fail the simulation. Serial timing, FIFOs, and
 framing checks still run normally; logging does not bypass the UART hardware.
 The selection applies to model 0 and requires no simulator rebuild.
 
-The normal `run` and `opensbi-run` Make targets expose this as `UART_LOG`:
+The `sim-run` and `sim-opensbi-run` Moon tasks expose this as `UART_LOG`:
 
 ```sh
-make -C sims run SOC=simple-rv5stage-rva23 BINARY=/absolute/path/program.elf \
-  UART_LOG=/tmp/uart.log
-make -C sims opensbi-run SOC=simple-rv5stage-rva23 \
-  NEXT_STAGE=/absolute/path/next-stage.elf UART_LOG=-
+SOC=simple-rv5stage-rva23 BINARY=/absolute/path/program.elf \
+  UART_LOG=/tmp/uart.log moon run rhodium:sim-run
+SOC=simple-rv5stage-rva23 NEXT_STAGE=/absolute/path/next-stage.elf \
+  UART_LOG=- moon run rhodium:sim-opensbi-run
 ```
 
 Omit `UART_LOG` for an interactive PTY. Automated workload runs use
@@ -387,9 +417,9 @@ set `HTIF_ARGS=+max-cycles=...` appropriately for interactive programs.
 Test all byte values through a real external PTY client with:
 
 ```sh
-make -C sims uart-pty-test SOC=mini CORE=rv5stage ISA=rva23
-make -C sims uart-pty-test SOC=simple CORE=rv5stage ISA=rva23
-make -C sims uart-pty-test SOC=tiled8core CORE=rv5stage ISA=rva23
+SOC=mini CORE=rv5stage ISA=rva23 moon run rhodium:sim-uart-pty-test
+SOC=simple CORE=rv5stage ISA=rva23 moon run rhodium:sim-uart-pty-test
+SOC=tiled8core CORE=rv5stage ISA=rva23 moon run rhodium:sim-uart-pty-test
 ```
 
 <a id="export-rv5stage-soc-events-to-perfetto"></a>
@@ -410,14 +440,12 @@ Tracing is opt-in on the normal simulator and run targets. It supports RV5Stage
 and RV2Wide on Mini, Simple, and Tiled, with an explicit supported ISA selection:
 
 ```sh
-make -C sims smoke SOC=simple CORE=rv5stage ISA=rva23 RTL_BACKEND=circt TRACE=1 TRACE_FILE=/tmp/single-core-rv5stage-soc.pftrace
-make -C sims run SOC=simple CORE=rv5stage ISA=rva23 RTL_BACKEND=circt TRACE=1 TRACE_FILE=/tmp/program.pftrace BINARY=/absolute/path/to/program.elf
-make -C sims run SOC=simple CORE=rv5stage ISA=rva23 RTL_BACKEND=circt TRACE=1 TRACE_FILE=/tmp/program.pftrace.gz BINARY=/absolute/path/to/program.elf
-make -C sims run SOC=tiled8core CORE=rv5stage ISA=rva23 RTL_BACKEND=circt TRACE=1 TRACE_FILE=/tmp/tiled.pftrace.gz \
-  BINARY=/absolute/path/to/multihart.elf \
-  HTIF_ARGS='+boot-harts=0,1 +permissive +max-cycles=2000000 +permissive-off'
-make -C sims run SOC=mini-rv2wide-rv64imacb RTL_BACKEND=circt TRACE=1 TRACE_FILE=/tmp/rv2wide.pftrace BINARY=/absolute/path/to/program.elf
-make -C sims trace-smoke SOC=simple-rv2wide-rv64imacb TRACE_FILE=/tmp/rv2wide-smoke.pftrace TRACE_PROCESSOR=/path/to/trace_processor_shell
+SOC=simple CORE=rv5stage ISA=rva23 RTL_BACKEND=circt TRACE=1 TRACE_FILE=/tmp/single-core-rv5stage-soc.pftrace moon run rhodium:sim-smoke
+SOC=simple CORE=rv5stage ISA=rva23 RTL_BACKEND=circt TRACE=1 TRACE_FILE=/tmp/program.pftrace BINARY=/absolute/path/to/program.elf moon run rhodium:sim-run
+SOC=simple CORE=rv5stage ISA=rva23 RTL_BACKEND=circt TRACE=1 TRACE_FILE=/tmp/program.pftrace.gz BINARY=/absolute/path/to/program.elf moon run rhodium:sim-run
+SOC=tiled8core CORE=rv5stage ISA=rva23 RTL_BACKEND=circt TRACE=1 TRACE_FILE=/tmp/tiled.pftrace.gz BINARY=/absolute/path/to/multihart.elf HTIF_ARGS='+boot-harts=0,1 +permissive +max-cycles=2000000 +permissive-off' moon run rhodium:sim-run
+SOC=mini-rv2wide-rv64imacb RTL_BACKEND=circt TRACE=1 TRACE_FILE=/tmp/rv2wide.pftrace BINARY=/absolute/path/to/program.elf moon run rhodium:sim-run
+SOC=simple-rv2wide-rv64imacb TRACE_FILE=/tmp/rv2wide-smoke.pftrace TRACE_PROCESSOR=/path/to/trace_processor_shell moon run rhodium:sim-trace-smoke
 ```
 
 Choose a fresh trace path: the exporter overwrites the selected output file.
@@ -476,7 +504,7 @@ header additionally includes the selected SoC clock frequency.
 Direct invocation of a traced binary requires `+rheg-trace=/absolute/path`.
 The same binary can run different target programs and trace destinations.
 Optionally set `RHEG_PERFETTO_TRACKS=/absolute/path/to/vector-tracks.json`
-when running the traced binary or `make ... TRACE=1`. The binding passes the
+when running the traced binary or `TRACE=1 moon run rhodium:sim-run`. The binding passes the
 [shared-track configuration](../rheg/README.md#shared-tracks)
 to the common exporter; it never infers grouping from labels. Use exact site IDs
 from that build's descriptor. This combines mutually exclusive mode sites without
@@ -538,7 +566,7 @@ metadata, and SQL queries. Only the initial reset epoch is supported by this
 driver. Exit and timeout flush the final settled cycle. A timeout returns failure
 but leaves an importable prefix; output after an export/I/O failure is incomplete.
 
-The optional build requires Make and the [RHEG exporter dependencies](../rheg/README.md#streaming-to-perfetto).
+The optional build uses Moon and the [RHEG exporter dependencies](../rheg/README.md#streaming-to-perfetto).
 That guide also lists the offline source-tree variables for JSON and the Spike
 disassembler. Set `BUILD_JOBS` to bound native compilation (default 4).
 
@@ -547,16 +575,16 @@ disassembler. Set `BUILD_JOBS` to bound native compilation (default 4).
 Run any FESVR-compatible target binary through an already-built simulator:
 
 ```sh
-make -C sims run SOC=simple CORE=rv5stage ISA=rva23 BINARY=/absolute/path/to/program.elf
-make -C sims run SOC=mini CORE=rv5stage ISA=rva23 BINARY=/absolute/path/to/program.elf
-make -C sims run SOC=tiled8core CORE=rv5stage ISA=rva23 BINARY=/absolute/path/to/program.elf
+SOC=simple CORE=rv5stage ISA=rva23 BINARY=/absolute/path/to/program.elf moon run rhodium:sim-run
+SOC=mini CORE=rv5stage ISA=rva23 BINARY=/absolute/path/to/program.elf moon run rhodium:sim-run
+SOC=tiled8core CORE=rv5stage ISA=rva23 BINARY=/absolute/path/to/program.elf moon run rhodium:sim-run
 ```
 
 `HTIF_ARGS` places optional FESVR host arguments before the target binary, and
 `TARGET_ARGS` places arguments after it. The simulator passes this process
 argument vector through VPI to `DirectMemoryHtif`. FESVR owns ELF parsing,
 segment loading, entry-point discovery, `tohost`/`fromhost` polling, and exit
-status; the Makefile and RTL do not implement a separate binary loader.
+status; the Moon task and RTL do not implement a separate binary loader.
 The Verilator binding removes the simulator-owned `+rheg-trace=`,
 `+cosim-corrupt-order=`, `+max-cycles=`, and `+load-through-chi` options before
 passing arguments to FESVR. The native runtime validates instrumentation options;
@@ -621,24 +649,30 @@ can access platform devices, including the boot-address register and UART.
 
 Run the complete profile-selected upstream ISA suite, benchmarks, both CoreMark
 variants, Embench-IoT, SKL vector suites, the bounded Bringup-Bench suite,
-configuration-exact ACT, and OpenSBI validation on
-both single-core SoCs:
+configuration-exact ACT, and OpenSBI validation on selected Simple SoCs.
+After installing the [Moon prerequisites](../DEVELOPING.md#validate-at-the-owning-boundary)
+and the ACT dependencies below:
 
 ```sh
-make -C sims program-test-setup
-make -C sims opensbi-setup
-make -C sims single-core-software-test ISA=rva23
+python3 -m tools.ci.catalog
+moon run rhodium:program-test-setup rhodium:opensbi-setup
+moon run rhodium:target--simple-rv5stage-rva23 rhodium:target--simple-spike-rva23
+python3 -m tools.ci.catalog --soc simple-rv5stage-rva23 --soc simple-spike-rva23
+moon exec rhodium:software--simple-rv5stage-rva23 rhodium:software--simple-spike-rva23 --upstream deep --on-failure continue --concurrency 1
 ```
 
-`SOFTWARE_SOC` defaults to `simple` and `SOFTWARE_CORE` defaults to
-`rv5stage spike`; set `SOFTWARE_CORE=rv5stage` or `SOFTWARE_CORE=spike` to
-select one implementation. The aggregate target requires the ACT dependencies
-described below. The individual
-`isa-test`, `benchmark-test`, `coremark-test`, `coremark_scalar-test`,
-`embench-test`, `bringup-test`, `skl-test`, and `highway-test` targets remain available for
+Use one target to run one implementation, or substitute `software--simple-rv2wide-rva23`.
+Every Simple configuration includes the six general native suites, ACT, and OpenSBI;
+RVA23 also includes SKL and Highway. This local inventory is deliberately broader
+than hosted enrollment: for example, the CoreMark port and OpenSBI still reject
+RV32 targets. An unsupported suite does not
+prevent catalog preparation or running other suites. Serial execution bounds simulator and compiler load;
+`--on-failure continue` still exercises independent suites after a failure. The individual
+`sim-isa-test`, `sim-benchmark-test`, `sim-coremark-test`, `sim-coremark_scalar-test`,
+`sim-embench-test`, `sim-bringup-test`, `sim-skl-test`, and `sim-highway-test` targets remain available for
 focused execution. SKL and Highway require Simple RVA23. CI schedules these program suites and
 ACT independently for Spike, RV5Stage, RV2Wide, and RV3Wide; Bringup-Bench runs the full
-bounded inventory in eight shards per config, with two workers per shard.
+bounded inventory in four shards per config, with two workers per shard.
 CI also validates OpenSBI on these configs. Each ACT lane uses its own UDB projection and
 generated test inventory.
 
@@ -656,22 +690,22 @@ Makefrag inventories, so additions to selected groups are included automatically
 Run the smaller, single-hart ISA selections on any core in Mini, Simple, or Tiled:
 
 ```sh
-make -C sims program-test-setup
-make -C sims isa-smoke SOC=mini CORE=rv5stage ISA=rv32max
-make -C sims isa-smoke SOC=mini CORE=rv5stage ISA=rva23
-make -C sims isa-smoke SOC=mini CORE=spike ISA=rva23
-make -C sims isa-smoke SOC=tiled8core CORE=rv5stage ISA=rva23
-make -C sims isa-smoke SOC=tiled8core CORE=rv2wide ISA=rva23
-make -C sims isa-smoke SOC=tiled8core CORE=spike ISA=rva23
+moon run rhodium:program-test-setup
+SOC=mini CORE=rv5stage ISA=rv32max moon run rhodium:sim-isa-smoke-test
+SOC=mini CORE=rv5stage ISA=rva23 moon run rhodium:sim-isa-smoke-test
+SOC=mini CORE=spike ISA=rva23 moon run rhodium:sim-isa-smoke-test
+SOC=tiled8core CORE=rv5stage ISA=rva23 moon run rhodium:sim-isa-smoke-test
+SOC=tiled8core CORE=rv2wide ISA=rva23 moon run rhodium:sim-isa-smoke-test
+SOC=tiled8core CORE=spike ISA=rva23 moon run rhodium:sim-isa-smoke-test
 ```
 
 Run the target-capability-filtered upstream multihart benchmarks with eight
 harts on `tiled8core`:
 
 ```sh
-make -C sims tiled-mt-benchmark-test SOC=tiled8core-rv5stage-rva23
-make -C sims tiled-mt-benchmark-test SOC=tiled8core-rv2wide-rva23
-make -C sims tiled-mt-benchmark-test SOC=tiled8core-spike-rva23
+SOC=tiled8core-rv5stage-rva23 moon run rhodium:sim-tiled-mt-benchmark-test
+SOC=tiled8core-rv2wide-rva23 moon run rhodium:sim-tiled-mt-benchmark-test
+SOC=tiled8core-spike-rva23 moon run rhodium:sim-tiled-mt-benchmark-test
 ```
 
 Each command is independently runnable. CI gives each config its own job, so
@@ -709,19 +743,12 @@ by the target's ISA and hart count (3,443 at the current upstream pin). Each
 case boots only the one to four harts it needs:
 
 ```sh
-make -C sims litmus-setup
-make -C sims litmus-smoke-test SOC=tiled4core CORE=rv5stage ISA=rva23 \
-  LITMUS7=/path/to/litmus7 HERD7=/path/to/herd7
-make -C sims litmus-smoke-test SOC=tiled4core CORE=rv2wide ISA=rva23 \
-  LITMUS7=/path/to/litmus7 HERD7=/path/to/herd7
-make -C sims litmus-smoke-test SOC=tiled4core CORE=spike ISA=rva23 \
-  LITMUS7=/path/to/litmus7 HERD7=/path/to/herd7
-make -C sims litmus-full-test SOC=tiled4core CORE=rv5stage ISA=rva23 \
-  LITMUS7=/path/to/litmus7 HERD7=/path/to/herd7 \
-  LITMUS_FULL_SHARD_INDEX=0 LITMUS_FULL_SHARD_COUNT=8
-make -C sims litmus-full-test SOC=tiled4core CORE=spike ISA=rva23 \
-  LITMUS7=/path/to/litmus7 HERD7=/path/to/herd7 \
-  LITMUS_FULL_SHARD_INDEX=0 LITMUS_FULL_SHARD_COUNT=8
+moon run rhodium:litmus-setup
+SOC=tiled4core CORE=rv5stage ISA=rva23 LITMUS7=/path/to/litmus7 HERD7=/path/to/herd7 LITMUS7_LIBDIR=/path/to/herdtools7/litmus/libdir moon run rhodium:sim-litmus-smoke-test
+SOC=tiled4core CORE=rv2wide ISA=rva23 LITMUS7=/path/to/litmus7 HERD7=/path/to/herd7 LITMUS7_LIBDIR=/path/to/herdtools7/litmus/libdir moon run rhodium:sim-litmus-smoke-test
+SOC=tiled4core CORE=spike ISA=rva23 LITMUS7=/path/to/litmus7 HERD7=/path/to/herd7 LITMUS7_LIBDIR=/path/to/herdtools7/litmus/libdir moon run rhodium:sim-litmus-smoke-test
+SOC=tiled4core CORE=rv5stage ISA=rva23 LITMUS7=/path/to/litmus7 HERD7=/path/to/herd7 LITMUS7_LIBDIR=/path/to/herdtools7/litmus/libdir LITMUS_FULL_SHARD_INDEX=0 LITMUS_FULL_SHARD_COUNT=8 moon run rhodium:sim-litmus-full-test
+SOC=tiled4core CORE=spike ISA=rva23 LITMUS7=/path/to/litmus7 HERD7=/path/to/herd7 LITMUS7_LIBDIR=/path/to/herdtools7/litmus/libdir LITMUS_FULL_SHARD_INDEX=0 LITMUS_FULL_SHARD_COUNT=8 moon run rhodium:sim-litmus-full-test
 ```
 
 The builder consumes the generated target descriptor, emits separate ELFs and
@@ -735,15 +762,14 @@ The explicit `LITMUS7` and `HERD7` executables are required. For source-tree too
 also supply `LITMUS7_LIBDIR=/path/to/herdtools7/litmus/libdir` and
 `HERD7_LIBDIR=/path/to/herdtools7/herd/libdir`. CI builds herdtools7 from
 commit `7a64d9d8480ae02d9065b2778b4f2d473c6595ae`; local runs should use
-the same revision for comparable results. No tool is downloaded by the Make
-targets. The full profile is manual only; CI runs smoke for all three cores.
+the same revision for comparable results. No tool is downloaded by the workload
+tasks. The full profile is manual only; CI runs smoke for all three cores.
 
 For parallel full execution, run `litmus-full-elfs` once, then invoke
-`litmus-full-run` for shard indexes `0` through `LITMUS_FULL_SHARD_COUNT-1`
-with the same count and different indexes; `litmus-full-test` combines the
+`sim-litmus-full-run` for shard indexes `0` through `LITMUS_FULL_SHARD_COUNT-1`
+with the same count and different indexes; `sim-litmus-full-test` combines the
 build with one shard run. After all shards finish, run
-`make -C sims litmus-full-report SOC=tiled4core CORE=<core>
-LITMUS_FULL_SHARD_COUNT=8`; it fails if any shard is missing, mismatched, or
+`SOC=tiled4core CORE=<core> LITMUS_FULL_SHARD_COUNT=8 moon run rhodium:litmus-full-report`; it fails if any shard is missing, mismatched, or
 contains a failure. Shards partition the entire supported inventory.
 Each shard writes atomic `results.json` checkpoints under
 `litmus-full/results/shard-<index>-of-<count>/`; rerunning an interrupted shard
@@ -755,12 +781,11 @@ nonempty `pending` list; only complete shards count toward full coverage.
 No forbidden observation is a bounded test result, not a proof of memory-model
 compliance or of observing every allowed outcome.
 
-For explicit subsets, `litmus-test` uses the same litmus7 builder and model
+For explicit subsets, `sim-litmus-test` uses the same litmus7 builder and model
 checker. `LITMUS_CASES` selects names and `LITMUS_RUNS` controls samples:
 
 ```sh
-make -C sims litmus-test SOC=tiled4core CORE=spike ISA=rva23 LITMUS_CASES=MP,LB+ctrls \
-  LITMUS7=/path/to/litmus7 HERD7=/path/to/herd7
+SOC=tiled4core CORE=spike ISA=rva23 LITMUS_CASES=MP,LB+ctrls LITMUS7=/path/to/litmus7 HERD7=/path/to/herd7 LITMUS7_LIBDIR=/path/to/herdtools7/litmus/libdir moon run rhodium:sim-litmus-test
 ```
 
 Scalar benchmarks are `median`, `qsort`, `rsort`, `towers`, `vvadd`, `memcpy`,
@@ -777,7 +802,7 @@ requires capabilities outside this platform.
 These are compatibility selections, not a list of tests proven to pass. Any
 selected workload failure fails its suite; there are no expected-failure masks.
 
-`coremark-test` builds the pristine pinned EEMBC sources for the concrete RV64
+`sim-coremark-test` builds the pristine pinned EEMBC sources for the concrete RV64
 target and produces one `coremark.riscv` using the standard performance seeds.
 It defaults to one iteration and requires the known list, matrix, and state
 CRCs. CoreMark reports that this is shorter than its scoring duration; that is
@@ -787,7 +812,7 @@ score. Override `COREMARK_ITERATIONS` to exercise a longer run. The port reads
 the concrete SoC target descriptor. The upstream benchmark sources remain
 unmodified in the submodule.
 
-`coremark_scalar-test` uses the same upstream sources, 32-bit types, seeds, and
+`sim-coremark_scalar-test` uses the same upstream sources, 32-bit types, seeds, and
 CRC requirements, but compiles with GCC auto-vectorization disabled via
 `-fno-tree-vectorize`. It produces a separate `coremark_scalar.riscv` and
 manifest. Both variants run in CI and use separate build caches and results.
@@ -795,7 +820,7 @@ Use `coremark_scalar-elf` to build without running the simulator. Compare their
 instruction reports to isolate the effect of auto-vectorization; neither
 one-iteration functional run is a CoreMark score.
 
-`embench-test` builds all 19 workloads from the recorded upstream Embench-IoT
+`sim-embench-test` builds all 19 workloads from the recorded upstream Embench-IoT
 development-tree revision for the concrete RV64 target. Each executable uses
 the upstream lifecycle and result-verification path, then returns that result
 through HTIF without adding an output stream. The default `EMBENCH_SCALE=1`
@@ -812,7 +837,7 @@ a standards-conforming Embench performance score. Score publication
 additionally requires the unmodified upstream sample set, scale, warmup,
 timing, normalization, and reporting methodology.
 
-`bringup-test` builds the pinned Bringup-Bench inventory for the concrete RV64
+`sim-bringup-test` builds the pinned Bringup-Bench inventory for the concrete RV64
 target, one bounded ELF per workload. The pinned submodule remains pristine; the
 ordered [Bringup-Bench patch series](../sw/bringup-bench-patches/) is
 applied to a build-local copy and participates in the ELF cache key. Its
@@ -821,17 +846,17 @@ output and checks its expected hash before writing the ordinary
 HTIF completion word; a normal return from `main` without `libmin_success`
 fails. The default includes every benchmark in upstream `BMARKS`; a build or
 runtime failure is not an exclusion. For a short local port check, set
-`BRINGUP_BENCHMARKS=bubble-sort,blake2b,fft-int` with `bringup-test`, or use
+`BRINGUP_BENCHMARKS=bubble-sort,blake2b,fft-int` with `sim-bringup-test`, or use
 `bringup-elfs` to build without execution. The manifest records the full
 upstream count, exact selection, expected hashes, target fingerprint, and ELF
-metadata. CI and `single-core-software-test` include all 108 workloads from this
+metadata. CI and the local Simple software aggregate include all 108 workloads from this
 same bounded suite and report any failures or timeouts. CI uses eight
 deterministic shards and two workers per shard for each of
 `simple-spike-rva23`, `simple-rv5stage-rva23`, `simple-rv2wide-rva23`, and
 `simple-rv3wide-rva23`, with
 one shared ELF build for compatible targets. `BRINGUP_TIMEOUT` defaults to
 600 seconds per workload; `BRINGUP_MAX_CYCLES` remains 100 million cycles.
-Local `bringup-run` and `bringup-test` accept `PROGRAM_SHARD_INDEX` (zero-based) and
+Local `sim-bringup-run` and `sim-bringup-test` accept `PROGRAM_SHARD_INDEX` (zero-based) and
 `PROGRAM_SHARD_COUNT`; the default remains one unsharded run. Sharded results
 are saved under `results/shard-INDEX-of-COUNT` without overwriting other shards.
 The expensive workloads use patched, bounded input sizes and their own pinned
@@ -841,7 +866,7 @@ compresses and decompresses 256 bytes once, pi-calc generates 100 digits, and
 rho-factor samples 4- through 8-bit inputs. These are functional integration tests, not equivalent benchmark
 scores or substitutes for running the original upstream workloads.
 
-`skl-test` runs the [SiFive Kernel Library port](../sw/skl-riscv-baremetal/)
+`sim-skl-test` runs the [SiFive Kernel Library port](../sw/skl-riscv-baremetal/)
 on Simple RV5Stage, RV2Wide, RV3Wide, and Spike with `ISA=rva23`. Upstream's CMake
 catalog selects every target-supported suite except X390 variants and standalone
 scalar-reference suites (28 at the pinned revision). All test-input and benchmark
@@ -850,7 +875,7 @@ marker with workload/benchmark counts is required in addition to HTIF pass.
 Use `COSIM=1` on RTL to check architectural execution against Sail, as CI does;
 this does not check SKL's mathematical accuracy. Spike and non-cosim runs are
 execution smoke tests. Use `skl-elfs` for build-only execution or
-`skl-run` for an existing shared manifest; the normal cache, simulator,
+`sim-skl-run` for an existing shared manifest; the normal cache, simulator,
 cosim, JSON/JUnit, and CI artifact flows apply. CMake 3.23+ is required to build.
 Pack/unpack/transpose use cheap deterministic source patterns and do not pre-fill
 write-only destinations; other input generation is unchanged. Benchmark output
@@ -858,11 +883,11 @@ contains integer cycle/instruction counters without floating-point throughput
 formatting. See the [port contract](../sw/skl-riscv-baremetal/README.md) for details.
 
 ```sh
-make -C sims skl-setup
-make -C sims skl-test SOC=simple-rv5stage-rva23 COSIM=1
+moon run rhodium:skl-setup
+SOC=simple-rv5stage-rva23 COSIM=1 moon run rhodium:sim-skl-test
 ```
 
-`highway-test` builds the [Highway vector workloads](../sw/highway-riscv-baremetal/)
+`sim-highway-test` builds the [Highway vector workloads](../sw/highway-riscv-baremetal/)
 from repository-owned benchmark drivers linked with the pristine Highway
 submodule. It neither patches nor compiles upstream's hosted benchmark sources.
 The single bounded profile covers algorithms, dot/delta, all 28 benchmark math
@@ -874,10 +899,10 @@ guest counters are diagnostic, not official performance scores. CI runs the
 same profile on every Simple RVA23 core with Sail cosim on RTL.
 
 ```sh
-make -C sims highway-setup
-make -C sims highway-test SOC=simple-spike-rva23
-make -C sims highway-test SOC=simple-rv5stage-rva23 COSIM=1
-make -C sims highway-test SOC=simple-rv2wide-rva23 COSIM=1
+moon run rhodium:highway-setup
+SOC=simple-spike-rva23 moon run rhodium:sim-highway-test
+SOC=simple-rv5stage-rva23 COSIM=1 moon run rhodium:sim-highway-test
+SOC=simple-rv2wide-rva23 COSIM=1 moon run rhodium:sim-highway-test
 ```
 
 Use a bare-metal compiler with C headers and `libm`, not only an assembler.
@@ -912,19 +937,17 @@ archive to an empty directory and bind it to the intended simulator target:
 python3 sw/build/bind.py --manifest /absolute/path/to/suite/manifest.json \
   --target /absolute/path/to/simulator/program-target.json \
   --output /absolute/path/to/suite/run-manifest.json
-make -C sims bringup-run SOC=simple-spike-rva23 \
-  PREBUILT_SIMULATOR=/absolute/path/to/simulator/VTestDriver \
-  PROGRAM_MANIFEST=/absolute/path/to/suite/run-manifest.json
+SOC=simple-spike-rva23 PREBUILT_SIMULATOR=/absolute/path/to/simulator/VTestDriver PROGRAM_MANIFEST=/absolute/path/to/suite/run-manifest.json moon run rhodium:sim-bringup-run
 ```
 
-Use the matching `isa-run`, `benchmark-run`, `coremark-run`, `coremark_scalar-run`,
-or `embench-run` target for other program suites. These targets execute existing
+Use the matching `sim-isa-run`, `sim-benchmark-run`, `sim-coremark-run`, `sim-coremark_scalar-run`,
+or `sim-embench-run` target for other program suites. These targets execute existing
 ELFs without compiling them; binding rejects incompatible build inputs or
 modified ELFs, and execution still requires the exact simulator attestation.
 The usual `*-test` commands continue to build and run. For compilation using
 an existing descriptor, set `PREBUILT_PROGRAM_TARGET=/absolute/path/to/target.json`.
-Platform tests use this same artifact flow. `litmus-smoke-run` executes
-a bound litmus archive without litmus7 or a compiler. `opensbi-smoke-run`
+Platform tests use this same artifact flow. `sim-litmus-smoke-run` executes
+a bound litmus archive without litmus7 or a compiler. `sim-opensbi-run-suite`
 executes a bound firmware/payload archive. Compatible ISA and boot layouts can
 share firmware; each execution supplies its own SoC DTB from BootROM.
 Both commands accept `PROGRAM_MANIFEST`
@@ -975,10 +998,10 @@ Local reuse is opt-in:
 
 ```sh
 RHODIUM_EXECUTION_CACHE=/tmp/rhodium-execution-evidence \
-  make -C sims coremark-run SOC=simple-rv5stage-rva23 COSIM=1 STATS=1
+  SOC=simple-rv5stage-rva23 COSIM=1 STATS=1 moon run rhodium:sim-coremark-run
 ```
 
-Use the same environment variable with `arch-test-run` for ACT. Set
+Use the same environment variable with `sim-arch-test-run` for ACT. Set
 `RHODIUM_FORCE_FRESH_EXECUTION=1` to execute again, or select **force_fresh**
 when manually dispatching CI. The Python runners also accept `--execution-cache`
 and `--force-fresh`. Forced fresh execution cannot be combined with the native
@@ -996,7 +1019,7 @@ trace, platform, and harness jobs remain fresh.
 Build with `STATS=1` to collect RTL `stat_count` declarations:
 
 ```sh
-make -C sims run SOC=mini-rv5stage-rva23 STATS=1 BINARY=/path/to/program.elf
+SOC=mini-rv5stage-rva23 STATS=1 BINARY=/path/to/program.elf moon run rhodium:sim-run
 ```
 
 This is a compile-target option, independent of `TRACE` and `COSIM`, supported
@@ -1124,11 +1147,11 @@ and set `SAIL_COMPILER` to its executable path; Linux setup downloads
 a checksum-pinned compiler automatically:
 
 ```sh
-make -C sims arch-test-setup
-make -C sims arch-test SOC=simple-rv5stage-rva23
-make -C sims arch-test SOC=simple-spike-rva23
-make -C sims arch-test SOC=simple-rv5stage-rv32max
-make -C sims arch-test SOC=simple-spike-rv32max
+moon run rhodium:arch-test-setup
+SOC=simple-rv5stage-rva23 moon run rhodium:sim-arch-test
+SOC=simple-spike-rva23 moon run rhodium:sim-arch-test
+SOC=simple-rv5stage-rv32max moon run rhodium:sim-arch-test
+SOC=simple-spike-rv32max moon run rhodium:sim-arch-test
 ```
 
 Spike ACT retains the full selected ISA and reports known Sail reference-model
@@ -1144,27 +1167,27 @@ simulator dependencies are still required; see [Build a simulator](#build-a-simu
 On Apple Silicon it also installs native Z3 5.0.0 in the local UDB cache,
 working around the pinned UDB installer's Linux-only library download.
 
-`arch-test-config` only prepares and validates the Sail/platform files.
+`local-act-config` only prepares and validates the Sail/platform files.
 The selected config supplies its core-specific UDB and a generated
 `platform.json`; RAM bounds and the entry point come from the shared SoC
 description, not per-core Make files. Both cores use the same platform policy
 for a given shape and ISA, while reference expectations retain implementation
 choices such as writable CSRs and ASID width. ACT currently supports the
 Simple shape. Configuration and ELF outputs remain keyed by the full config.
-`arch-test-source` copies the clean pinned ACT checkout into the build root and
+`act-source` copies the clean pinned ACT checkout into the build root and
 applies Rhodium's adjacent
 [`riscv-arch-test-patches`](../sw/riscv-arch-test-patches/) series there.
-`arch-test-tests` stages the
+`act-generate` stages the
 handwritten tests from that materialized tree and runs ACT's canonical generator
 into the same build-root tree, including vector suites whose generated assembly
 is intentionally not tracked. The upstream submodule remains unmodified.
-`arch-test-elfs` does both before validating UDB through ACT and generating
+`local-act-elfs` does both before validating UDB through ACT and generating
 self-checking ELFs for every test matching the generated UDB configuration. It
 replaces the configuration's generated ELF files before building, so an older
 core profile cannot leave stale tests in the suite; reference intermediates
 remain cached.
-`arch-test` builds the selected simulator and executes those ELFs through ACT's
-upstream runner. After a successful build, `arch-test-run` reruns the existing
+`sim-arch-test` builds the selected simulator and executes those ELFs through ACT's
+upstream runner. After a successful build, `sim-arch-test-run` reruns the existing
 ELFs without regenerating the bundle. An empty ELF directory is an error.
 Outputs and per-test logs live under
 `/tmp/rhodium-arch-test`; set `ACT_BUILD_ROOT` to change that location.
@@ -1172,11 +1195,11 @@ Outputs and per-test logs live under
 `ACT_BUNDLE_PATH` select installed tool locations or inputs.
 `SAIL_COMPILER` selects a locally installed Sail 0.20.3 compiler, and
 `SAIL_BUILD_JOBS` controls model build parallelism. After setup,
-`make -C sims arch-test-sail-test SOC=simple-rv5stage-rva23` checks the
+`SOC=simple-rv5stage-rva23 moon run rhodium:sail-alias-check` checks the
 GEILEN-dependent `mideleg`/`mie`/`hie` SGEIE alias in the configured model.
 The adapter also writes `results.json` and `junit.xml` beside ACT's `summary.log`,
 accounting for every generated ELF and rejecting missing results.
-For distributed execution, `arch-test-run ACT_SHARDS=4 ACT_SHARD=0` runs the
+For distributed execution, `ACT_SHARDS=4 ACT_SHARD=0 moon run rhodium:sim-arch-test-run` runs the
 first of four deterministic, disjoint partitions. Run indices 0 through 3 to
 cover the full suite. Each shard writes its inventory and results under
 `shards/<index>/`; the default `ACT_SHARDS=1` runs the complete inventory.
@@ -1185,7 +1208,7 @@ Partitioning never filters by extension or prior test results.
 
 Generation always considers all extensions. ACT selects applicable tests using
 UDB's implemented (including implied) extensions and each test's parameter
-constraints; there is no separate extension list or selection wrapper in Make.
+constraints; Moon does not maintain a separate extension filter.
 The reference configuration maps UDB's `ASID_WIDTH` to Sail's `memory.asidlen`,
 so `satp.ASID` expectations match the configured core's implemented width.
 
@@ -1195,7 +1218,7 @@ universal UDB-to-Sail projection. ACT's `include_priv_tests` is always true: pri
 tests are selected by the same UDB extension and parameter constraints as all
 other tests, without a separate harness exclusion.
 Generation attempts all selected tests even if some fail, and reports an overall
-failure in that case. `arch-test-run` can exercise the ELFs that did build.
+failure in that case. `sim-arch-test-run` can exercise the ELFs that did build.
 The full DUT device and PMA map is not modeled for this stage. Sail retains its
 reference interrupt devices, while the DUT macros use the shared Simple SoC's ACLINT and
 direct UART/PLIC MMIO; the selected zero-PMP configurations permit those
@@ -1228,13 +1251,13 @@ certification. Upstream documents the framework in the
 Run the genuine execution smoke for any system:
 
 ```sh
-make -C sims smoke SOC=simple CORE=rv5stage ISA=rva23
-make -C sims smoke SOC=simple CORE=spike ISA=rva23
-make -C sims smoke SOC=mini CORE=rv5stage ISA=rva23
-make -C sims smoke SOC=tiled8core CORE=rv5stage ISA=rva23
-make -C sims boot-test SOC=simple CORE=rv5stage ISA=rva23
-make -C sims boot-test SOC=mini CORE=rv5stage ISA=rva23
-make -C sims boot-test SOC=tiled8core CORE=rv5stage ISA=rva23
+SOC=simple CORE=rv5stage ISA=rva23 moon run rhodium:sim-smoke
+SOC=simple CORE=spike ISA=rva23 moon run rhodium:sim-smoke
+SOC=mini CORE=rv5stage ISA=rva23 moon run rhodium:sim-smoke
+SOC=tiled8core CORE=rv5stage ISA=rva23 moon run rhodium:sim-smoke
+SOC=simple CORE=rv5stage ISA=rva23 moon run rhodium:sim-boot-test
+SOC=mini CORE=rv5stage ISA=rva23 moon run rhodium:sim-boot-test
+SOC=tiled8core CORE=rv5stage ISA=rva23 moon run rhodium:sim-boot-test
 ```
 
 The ordinary smoke payload follows ISA selection, independent of core: RVA23
@@ -1248,9 +1271,9 @@ Run the LR/SC progress validation through normal FESVR loading and coherent
 signature collection with:
 
 ```sh
-make -C sims lrsc-test SOC=simple CORE=rv5stage ISA=rva23
-make -C sims lrsc-test SOC=mini CORE=rv5stage ISA=rva23
-make -C sims lrsc-test SOC=tiled8core CORE=rv5stage ISA=rva23
+SOC=simple CORE=rv5stage ISA=rva23 moon run rhodium:sim-lrsc-test
+SOC=mini CORE=rv5stage ISA=rva23 moon run rhodium:sim-lrsc-test
+SOC=tiled8core CORE=rv5stage ISA=rva23 moon run rhodium:sim-lrsc-test
 ```
 
 All three targets exercise word/doubleword constrained loops in Bare and Sv39
@@ -1275,15 +1298,15 @@ The Simple RVA23 software lane checks Zihintntl on both core implementations
 through the normal ELF loader and coherent HTIF path:
 
 ```sh
-make -C sims zihintntl-test SOC=simple CORE=rv5stage ISA=rva23
-make -C sims zihintntl-test SOC=simple CORE=spike ISA=rva23
+SOC=simple CORE=rv5stage ISA=rva23 moon run rhodium:sim-zihintntl-test
+SOC=simple CORE=spike ISA=rva23 moon run rhodium:sim-zihintntl-test
 ```
 
 The payload uses Sv39-translated data accesses, checks all four hints and
 compressed aliases when C is available, and tests a hinted FP load when D is
 available. It accepts architecturally valid no-op hints and verifies that dirty
 data remains authoritative after coherent transactions. Separately,
-`make -C sims zihintntl-policy-test SOC=simple CORE=rv5stage ISA=rva23` enables
+`SOC=simple CORE=rv5stage ISA=rva23 moon run rhodium:ntl-policy` enables
 relative hit/miss timing assertions for RV5Stage's non-allocating policy.
 The inclusive outer
 cache may invalidate that L1 copy while allocating the hinted line, so the
@@ -1304,6 +1327,6 @@ see the component's supported-event limits before running other software.
 
 These simulators always use CIRCT-inferred memories. To validate a
 design-and-technology SRAM mapping while reusing this harness, driver, FESVR
-transport, and smoke payload, run `make -C vlsi/sim smoke`; see the
+transport, and smoke payload, run `moon run rhodium:mapped-smoke`; see the
 [`vlsi/sim` guide](../vlsi/sim/README.md). Keeping mapped simulation there
 prevents technology policy from entering this package or the SoCs.
