@@ -43,6 +43,10 @@ bool continuous_requests = 0, continuous_outputs = 0;
 std::deque<std::uint64_t> expected_requests;
 
 std::uint32_t word_at(std::uint64_t address) {
+  if (mode == 16)
+    return 0x00010067; // JALR x0,x2,0: no direct fallback or RAS substitution.
+  if (mode == 17)
+    return address == (UINT64_C(1) << 44) - 4 ? 0x0080006f : 19; // JAL x0,+8.
   switch (mode) {
   case 0: {
     return UINT64_C(111); // JAL at each word boundary.
@@ -677,6 +681,27 @@ void stimulus() {
       falling();
     output_ready = 1;
     for (int repeat_index = 0; repeat_index < (5); ++repeat_index)
+      falling();
+    initialize(16);
+    const auto actual = (UINT64_C(1) << 45) + 0x300;
+    train(0x100, actual, 0);
+    expected_requests = {0x100, 0x300};
+    start(0x100);
+    expect_pc(0x100, 0x300);
+    CHECK(expected_requests.empty());
+    // Architectural recovery still fetches the exact invalid destination and
+    // delivers that address in the fault, without predicting it away.
+    fault_address = actual;
+    start(actual);
+    expect_pc(actual, actual + 4, 1, 0, actual);
+
+    initialize(17);
+    const auto edge = (UINT64_C(1) << 44) - 4;
+    const auto aliased = UINT64_C(0xfffff00000000004);
+    fallback_trace_expect(edge, aliased, 1);
+    start(edge);
+    expect_pc(edge, aliased);
+    for (unsigned repeat = 0; repeat < 4; ++repeat)
       falling();
     fallback_trace_finish();
     ;

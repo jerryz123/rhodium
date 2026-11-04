@@ -19,6 +19,12 @@ Fetch and execution pipelines own update qualification, prediction propagation,
 packet truncation, recovery priority, and architectural context changes. RAS
 resolved state is not intrinsically retirement state: callers choose the
 resolution boundary. Keep those choices outside this package.
+Target-width policy belongs to those callers too. `prediction_target` normalizes
+speculative destinations; BTB writes use it before shared-page allocation, while
+both RAS copies physically store the selected width. Never narrow BTB source
+tags or architectural branch-update payloads. Default XLEN keeps standalone
+predictors lossless. Named frontends select a width covering their successful
+Sv39/Bare PCs and normalize every fallback before steering and recording it.
 
 Keep active BTB/RAS implementations separate from `DisabledBtb` and `DisabledRas`.
 The caller selects the circuit from its entry-count configuration; active
@@ -66,12 +72,17 @@ with the production collector. `rv2wide-core` also checks sampled retirement and
 issue counters against public ports throughout its existing behavioral streams.
 
 ```sh
-FIXTURES='bpred-btb bpred-btb-wide bpred-btb-external bpred-bht bpred-tournament bpred-ras' python3 tools/testing/rsim/run.py
+FIXTURES='bpred-btb bpred-btb-compact bpred-btb-wide bpred-btb-external bpred-bht bpred-tournament bpred-ras bpred-ras-compact' python3 tools/testing/rsim/run.py
 ```
 
 They cover counter saturation, address ordering and halfword cursors, entry and
 shared-page replacement, training/discovery/invalidation priority, call/return
 classification, stack overflow/underflow, and speculative reconciliation.
+The compact variants use 45-bit destinations and the same independent oracle,
+including positive/negative aliases, source-tag isolation, discovery, and RAS
+restoration. Named-core prediction fixtures check that the followed destination
+matches the retained hint and that full-width recovery still wins; the RV5Stage
+branch fixture checks exact fault PC/value after an aliased poison-store stream.
 The tournament oracle independently models all three tables, including chooser
 saturation, agreement, delayed predictions, aliased consecutive updates, and
 training suppression through the final scrub edge. Keep **one** sweep per

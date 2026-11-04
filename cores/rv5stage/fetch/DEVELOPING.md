@@ -64,6 +64,16 @@ each entry must reconstruct its own address while Decode is stalled. Keep
 the ordinary packet for H, RV32, or when the width would not save bits.
 A standalone frontend with no declared physical bound defaults to XLEN.
 
+BTB/RAS targets use `min(XLEN, max(39, physical_address_width + 1))` bits.
+The source uses their normalized hints, and the scanner normalizes direct-jump
+and live-return fallbacks before publishing both packet metadata and redirects.
+Do not truncate a retained prediction independently of the address fetch followed.
+EX still compares against the full architectural next PC; restart, repair PCs,
+and fault addresses remain exact. RAS resolved entries are compact predictor
+state, not the architectural link registers. The branch-prediction fixture
+warms an indirect destination then changes only its discarded high bits, follows
+the old valid alias, rejects a wrong-path store, and checks full-width mepc/mtval/cause.
+
 ## Focused validation
 
 Scanner packet, repair, and fallback outputs derive from explicit ingress

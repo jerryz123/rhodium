@@ -64,6 +64,8 @@ std::uint64_t word(std::uint64_t address) {
     } break;
     case 16:
       return UINT64_C(0x0000031342894285); // Two compressed instructions followed by one full-width instruction.
+    case 17:
+      return UINT64_C(0x0000001300010067); // JALR x0,x2,0: retain the lossy BTB hint.
     default: {
       return (field(UINT64_C(0x100013), 32, 32) |
               field(UINT64_C(0x100013), 32, 0));
@@ -90,7 +92,7 @@ void observe() {
     if (memory_out.prequest.pvalid &&
         memory_out.prequest.pbits.paddress == UINT64_C(0x100) &&
         (scenario == 2 || scenario == 3 || scenario == 7 || scenario == 11 ||
-         scenario == 14 || scenario == 15) &&
+         scenario == 14 || scenario == 15 || scenario == 17) &&
         accepted_cycle < 0)
       CHECK(cycles == source_cycle + 1 && virtual_lookup_out.pvalid &&
             virtual_lookup_out.pbits == ((scenario == 11 || scenario >= 14)
@@ -177,6 +179,7 @@ void restart(int test_case, std::uint8_t predicted = 0) {
     branch_update_in = {
         UINT64_C(1),
         {branch_pc,
+         test_case == 17 ? (UINT64_C(1) << 45) + target_pc :
          (test_case == 11 || test_case == 14) ? target_pc : UINT64_C(0x700),
          UINT64_C(1), test_case == 2, UINT64_C(1), test_case == 7, UINT64_C(0),
          UINT64_C(0), branch_pc + (test_case == 7 ? 2 : 4)}};
@@ -314,5 +317,25 @@ int main() {
     checks++;
     restart(16);
     until([&] { return packets >= 2; });
+    restart(17, 1);
+    instructions_in.pready = 0;
+    until([&] { return instructions_out.pvalid; });
+    // Fetch follows the compact target, and stalled packet storage records
+    // that same target rather than the full address supplied by training.
+    for (unsigned stall = 0; stall < 4; ++stall) {
+      CHECK(instructions_out.pbits.pentries[0].pprediction.ptarget == 0x300);
+      falling();
+    }
+    instructions_in.pready = 1;
+    until([&] { return accepted_cycle >= 0; });
+    CHECK(target_cycle == source_cycle + 1);
+    // Execution recovery is not a prediction: it must preserve every bit.
+    falling();
+    const auto actual = (UINT64_C(1) << 45) + 0x300;
+    redirect_in = {1, {branch_pc, actual, {0, 0, 0, {}}}};
+    settle();
+    CHECK(virtual_lookup_out.pvalid && virtual_lookup_out.pbits == actual);
+    falling();
+    redirect_in = {};
   });
 }

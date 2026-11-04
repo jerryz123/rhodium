@@ -2,6 +2,7 @@
 // invalidation.
 // SPDX-License-Identifier: Apache-2.0
 #include "test.hpp"
+#include "target-oracle.hpp"
 
 void train(std::uint64_t pc, std::uint64_t target, bool conditional, bool taken,
            bool compressed = 0, bool branch = 1, std::uint8_t ras_action = 0) {
@@ -18,7 +19,7 @@ void check(std::uint64_t pc, bool valid, std::uint64_t target = 0,
   eval();
   CHECK(prediction.pvalid == valid &&
         (!valid || (slice(prediction.ppc, 63, 2) == slice(pc, 63, 2) &&
-                    prediction.ptarget == target &&
+                    prediction.ptarget == expected_target(target) &&
                     prediction.pras_uaction == ras_action)));
 }
 void discover(std::uint64_t pc, std::uint64_t target, bool compressed,
@@ -127,5 +128,26 @@ int main() {
     check(UINT64_C(0x104), 0);
     check(UINT64_C(0x8100), 0);
     check(UINT64_C(0xc100), 1, UINT64_C(0x8100));
+    // Destinations may alias, but source tags and invalidation stay exact.
+    for (auto target : {UINT64_C(0x8000000000000202), UINT64_C(0x0000100000000300),
+                        UINT64_C(0xffffffc012345000), UINT64_C(0xfffffffffffffffE)}) {
+      invalidate_all_in.pvalid = 1;
+      tick_model();
+      invalidate_all_in.pvalid = 0;
+      const auto pc = UINT64_C(0x8000000000000100);
+      train(pc, target, false, true);
+      check(pc, true, target);
+      check(0x100, false);
+      invalidate_in = {1, 0x100};
+      tick_model();
+      invalidate_in = {};
+      check(pc, true, target);
+      invalidate_in = {1, pc};
+      tick_model();
+      invalidate_in = {};
+      check(pc, false);
+      discover(pc, target, false, 0);
+      check(pc, true, target);
+    }
   });
 }

@@ -76,8 +76,10 @@ riscv-floating-point	cores-components	riscv/rtl/tests/rsim/emit-riscv-floating-p
 riscv-compressed	cores-components	riscv/rtl/tests/rsim/emit-riscv-compressed.rhm	program	riscv/rtl/tests/rsim/riscv-compressed.cpp
 riscv-atomic	cores-components	riscv/rtl/tests/rsim/emit-riscv-atomic.rhm	program	riscv/rtl/tests/rsim/riscv-atomic.cpp
 bpred-btb	cores-components	cores/bpred/tests/rsim/emit-bpred-btb.rhm	program	cores/bpred/tests/rsim/bpred-btb.cpp
+bpred-btb-compact	cores-components	cores/bpred/tests/rsim/emit-bpred-btb.rhm	compact_program	cores/bpred/tests/rsim/bpred-btb-compact.cpp
 bpred-btb-wide	cores-components	cores/bpred/tests/rsim/emit-bpred-btb-wide.rhm	program	cores/bpred/tests/rsim/bpred-btb-wide.cpp
 bpred-ras	cores-components	cores/bpred/tests/rsim/emit-bpred-ras.rhm	program	cores/bpred/tests/rsim/bpred-ras.cpp
+bpred-ras-compact	cores-components	cores/bpred/tests/rsim/emit-bpred-ras.rhm	compact_program	cores/bpred/tests/rsim/bpred-ras-compact.cpp
 fp-register-file	cores-components	cores/fp/tests/rsim/emit-fp-register-file.rhm	program	cores/fp/tests/rsim/fp-register-file.cpp
 riscv-svpbmt	cores-components	cores/mmu/tests/rsim/emit-riscv-svpbmt.rhm	program	cores/mmu/tests/rsim/riscv-svpbmt.cpp
 riscv-svnapot	cores-components	cores/mmu/tests/rsim/emit-riscv-svnapot.rhm	program	cores/mmu/tests/rsim/riscv-svnapot.cpp

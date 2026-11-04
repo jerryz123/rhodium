@@ -46,6 +46,13 @@ redirects younger fetch work without invalidating the return entry. A straddling
 return retains its corrected target until its continuation arrives; the prefix's
 stack action is not repeated. Faults suppress corrections, and an empty stack
 preserves the BTB target.
+Integrated frontends compact speculative destinations to the configured
+successful-PC width, covering Sv39 and Bare physical addresses. The BTB, RAS,
+and S2 fallback paths use the same normalization before fetch steering and
+prediction capture. Out-of-range targets can alias valid addresses; execution
+checks the exact architectural next PC and squashes a mistaken path. Recovery
+PCs and fault addresses are never truncated. Standalone frontends without a
+physical-address bound retain XLEN-wide predictions.
 
 Each nonfaulting packet carries its full predicted target and return-stack action,
 but identifies the predicted instruction by parcel, not by a second PC.

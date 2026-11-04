@@ -11,7 +11,7 @@ import:
   lib("rhodium/std/bits.rhdl") open
 
 /* Walks a fresh block once, independently of downstream assembly readiness. */
-sync_circuit RV2WideDirection(profile :: RV2WideConfig):
+sync_circuit RV2WideDirection(profile :: RV2WideConfig, ~target_width: target_width :: PosInt = profile.xlen.width):
   def xlen = profile.xlen
   input(valid, clear, fault): Bool
   input pc: Bits(xlen.width)
@@ -84,17 +84,18 @@ sync_circuit RV2WideDirection(profile :: RV2WideConfig):
     | prefix_direction <== metadata
     | directions[parcel] <== metadata
 
+    def immediate_target = prediction_target(xlen, target_width, address + decoded.offset)
     def selected = BranchPrediction(xlen):
       valid: Bool(#true)
       pc: address
-      target: mux(decoded.immediate, address + decoded.offset, candidate.target)
+      target: mux(decoded.immediate, immediate_target, candidate.target)
       compressed: decoded.compressed
       ras_action: decoded.action
 
     effective := mux(live & complete & decoded.control_flow & taken, selected, effective)
     checkpoint := mux(live & complete, rv2wide_history_after(metadata, taken), checkpoint)
     matched := matched ||| known ||| (live & !complete & candidate.valid & (candidate.pc === address) & !candidate.compressed)
-    stale_target := stale_target ||| (known & decoded.immediate & (candidate.target =/= (address + decoded.offset)))
+    stale_target := stale_target ||| (known & decoded.immediate & (candidate.target =/= immediate_target))
     cut := cut ||| (live & complete & decoded.control_flow & taken)
     pending := pending ||| (live & !complete)
     if slot > 0

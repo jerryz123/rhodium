@@ -28,7 +28,7 @@ themselves to a fetch pipeline. Shared setup is in the
 
 ## Branch-target buffer
 
-`Btb(xlen, entry_count = 32, match_bits = 14, page_count = 8, ~fetch_bytes: 4, ~external_direction: #false)` has a
+`Btb(xlen, entry_count = 32, match_bits = 14, page_count = 8, ~fetch_bytes: 4, ~external_direction: #false, ~target_width: xlen.width)` has a
 combinational `cursor` input and `BranchPrediction(xlen)` output. Lookup selects
 the earliest predicted-taken instruction at or after the cursor **within its
 aligned fetch block**. `fetch_bytes` supports four (the default) or eight bytes.
@@ -69,6 +69,16 @@ and `ras_action`. `BranchUpdate` adds conditional/taken classification and
 actual/predicted RAS actions plus the return address. The caller qualifies
 updates against its own squash and resolution rules. Invalid prediction
 payload fields must not be observed.
+
+`target_width` may be any positive width up to XLEN. Training and discovery keep
+that many low destination bits and sign-extend them before prediction. This is
+deliberately lossy: a nonrepresentable destination can predict an unrelated valid
+address. Source-PC lookup and invalidation still compare every address bit.
+Callers must steer fetch and record the same normalized prediction, then compare
+against the exact architectural next PC at resolution. Never apply this
+normalization to architectural recovery or exception addresses.
+`prediction_target(xlen, target_width, address)` supplies the same normalization
+for caller-generated direct-jump and return predictions.
 
 `entry_count` is positive. Select `DisabledBtb(xlen)` instead to disable prediction
 with the same ports and no predictor state. `match_bits` must include the fetch offset and
@@ -133,7 +143,7 @@ asynchronous reads, not a guaranteed physical SRAM implementation.
 
 ## Return-address stack
 
-`Ras(xlen, entry_count = 6)` maintains separate speculative and resolved bounded
+`Ras(xlen, entry_count = 6, ~target_width: xlen.width)` maintains separate speculative and resolved bounded
 stacks. `head_valid` and `head` expose the speculative top combinationally.
 Overflow wraps and replaces the oldest address; underflow is a no-op.
 `entry_count` is positive; `DisabledRas(xlen)` exposes the same ports with an
@@ -153,6 +163,9 @@ entries to select these disabled circuits at instantiation.
 `RasAction` is `None`, `Push`, `Pop`, or `PopPush`; `PopPush` replaces the
 current top, making an empty stack nonempty. `RasUpdate` carries `action` and
 `return_address`; `RasResolution` carries `actual` and `predicted_action`.
+Both stacks store only `target_width` low address bits; `head` sign-extends them
+to XLEN. Resolved stack state is still predictor state, not architectural link
+register storage. Its width has the same range and aliasing contract as the BTB.
 
 `riscv_ras_action(instruction)` classifies canonical JAL/JALR `x1`/`x5`
 call/return hints, including coroutine behavior.

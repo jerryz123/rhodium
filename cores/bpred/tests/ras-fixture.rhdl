@@ -8,7 +8,7 @@ import:
   "../../../riscv/isa/xlen.rhm".XLen
   lib("flow/main.rhdl") open
 
-sync_circuit RasFixture():
+sync_circuit RasFixture(target_width :: PosInt = 64):
   input instruction: Bits(32)
   input compressed_instruction: Bits(16)
   interface speculate(Valid(RasUpdate(XLen.X64)), ~role: consumer)
@@ -21,7 +21,7 @@ sync_circuit RasFixture():
   output head_valid: Bool
   output head: Bits(64)
 
-  inst ras(Ras(XLen.X64, 3))
+  inst ras(Ras(XLen.X64, 3, ~target_width: target_width))
   speculate |> ras.speculate
   resolve |> ras.resolve
   restore |> ras.restore
@@ -33,6 +33,8 @@ sync_circuit RasFixture():
   head <== ras.head
 
 def program = elaborate(RasFixture())
+def compact_program = elaborate(RasFixture(45))
 
 export:
   program
+  compact_program

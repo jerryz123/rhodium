@@ -34,7 +34,7 @@ bundle RV5StageScanWord(xlen :: XLen, hypervisor :: Boolean):
 
 /* Validates predicted boundaries, refreshes warm RAS targets, and discovers direct jumps/returns.
    Its private partial-word state supports straddles independently of Decode's residual storage. */
-sync_circuit RV5StageFetchScan(core_profile :: RV5StageConfig):
+sync_circuit RV5StageFetchScan(core_profile :: RV5StageConfig, ~target_width: target_width :: PosInt = core_profile.xlen.width):
   def hypervisor = core_profile.extensions.hypervisor
   def xlen = core_profile.xlen
   def compressed_enabled = compressed_extensions_enabled(core_profile.extensions.compressed)
@@ -58,6 +58,9 @@ sync_circuit RV5StageFetchScan(core_profile :: RV5StageConfig):
   reg partial_return_prediction(BranchPrediction(xlen))
   def packet = ingress.bits
   def packet_clean = !packet.response.page_fault & !packet.response.access_fault
+  when (ingress.valid & packet_clean & packet.prediction.valid):
+    assert(packet.prediction.target === prediction_target(xlen, target_width, packet.prediction.target), "fetch_scan_prediction_target")
+
   def lower_half = packet.response.word[0..16]
   def upper_half = packet.response.word[16..32]
   def lower_compressed = parcel_is_compressed(compressed_enabled, lower_half)
@@ -114,7 +117,8 @@ sync_circuit RV5StageFetchScan(core_profile :: RV5StageConfig):
      but its redirect waits for the continuation and retains the pre-action target. */
 
   def predicted_return = prediction.ras_action.is_one_of(RasAction.Pop, RasAction.PopPush)
-  def return_repair = prediction.valid & predicted_return & ras_head_valid & (prediction.target =/= ras_head) & packet_clean
+  def return_target = prediction_target(xlen, target_width, ras_head)
+  def return_repair = prediction.valid & predicted_return & ras_head_valid & (prediction.target =/= return_target) & packet_clean
   def return_prefix = prediction.pc[1].into(Bool) & !prediction.compressed
   def continued_return_repair = partial & partial_return_repair & first_complete & packet_clean
   def missing_fallback = prediction_missing & (first_fallback ||| second_fallback)
@@ -122,7 +126,7 @@ sync_circuit RV5StageFetchScan(core_profile :: RV5StageConfig):
   def fallback_pc = mux(first_fallback, first_pc, second_pc)
   def first_fallback_target = mux(first_direct_jump, first_direct_target, ras_head)
   def second_fallback_target = mux(second_direct_jump, second_direct_target, ras_head)
-  def fallback_target = mux(first_fallback, first_fallback_target, second_fallback_target)
+  def fallback_target = prediction_target(xlen, target_width, mux(first_fallback, first_fallback_target, second_fallback_target))
   def fallback_prediction = BranchPrediction(xlen):
     valid: ingress.valid & missing_fallback & packet_clean
     pc: fallback_pc
@@ -130,7 +134,7 @@ sync_circuit RV5StageFetchScan(core_profile :: RV5StageConfig):
     compressed: mux(first_fallback, first_compressed, Bool(#true))
     ras_action: mux(first_fallback, first_action, second_action)
 
-  def refreshed_prediction = prediction.updated(~target: ras_head)
+  def refreshed_prediction = prediction.updated(~target: return_target)
   def effective_prediction :: BranchPrediction(xlen) = priority_mux(~default: prediction):
     return_repair: refreshed_prediction
     fallback_prediction.valid: fallback_prediction

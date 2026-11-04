@@ -95,7 +95,7 @@ sync_circuit RV5StageTestInstructionMemory(xlen :: XLen):
     elsewhen (frontend_admitted & completed_match):
       completed <== Bool(#false)
 
-sync_circuit RV5StageCoreFixture(profile :: RV5StageConfig, ~reset_address: reset_address :: Nat, ~btb_entries: btb_entries :: Nat = 32, ~ras_entries: ras_entries :: Nat = 6, ~vector_translation: vector_translation :: Boolean = #false, ~split_memory: split_memory :: Boolean = #false, ~fp_timing: fp_timing :: FpExecutionTiming = FpExecutionTiming()):
+sync_circuit RV5StageCoreFixture(profile :: RV5StageConfig, ~reset_address: reset_address :: Nat, ~btb_entries: btb_entries :: Nat = 32, ~ras_entries: ras_entries :: Nat = 6, ~vector_translation: vector_translation :: Boolean = #false, ~split_memory: split_memory :: Boolean = #false, ~fp_timing: fp_timing :: FpExecutionTiming = FpExecutionTiming(), ~physical_address_width: physical_address_width :: PosInt = profile.xlen.width):
   def xlen = profile.xlen
   input interrupts: RiscvInterrupts()
   input hart_id: Bits(xlen.width)
@@ -109,7 +109,7 @@ sync_circuit RV5StageCoreFixture(profile :: RV5StageConfig, ~reset_address: rese
   output satp: Bits(xlen.width)
   output translation_flush: Bool
   inst core(RV5StageCore(profile, ~reset_address: reset_address, ~fp_timing: fp_timing))
-  inst frontend(RV5StageFrontend(profile, ~btb_entries: btb_entries, ~ras_entries: ras_entries))
+  inst frontend(RV5StageFrontend(profile, ~btb_entries: btb_entries, ~ras_entries: ras_entries, ~physical_address_width: physical_address_width))
   inst memory(RV5StageTestInstructionMemory(xlen))
   core.frontend_control |> frontend.control
   frontend.packets |> core.packets

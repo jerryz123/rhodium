@@ -62,12 +62,14 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig, profile :: RV2WideCon
   /* Fetch ownership and fixed-cycle context.
      Each S1/S2 context reserves one eventual block in the assembler. */
 
+  // Covers successful Sv39 and Bare PCs; only speculative destinations may alias.
+  def pc_width = math.min(xlen.width, math.max(39, config.flit.request_address_width + 1))
   reg active(~init: Bool(#false))
   reg cursor(~init: literal(RV2WideFetchCursor(xlen), 0))
-  inst btb(if profile.btb_entries == 0 | DisabledBtb(xlen, ~fetch_bytes: 8, ~external_direction: profile.bht) | Btb(xlen, profile.btb_entries, ~fetch_bytes: 8, ~external_direction: profile.bht))
-  inst ras(if profile.ras_entries == 0 | DisabledRas(xlen) | Ras(xlen, profile.ras_entries))
+  inst btb(if profile.btb_entries == 0 | DisabledBtb(xlen, ~fetch_bytes: 8, ~external_direction: profile.bht) | Btb(xlen, profile.btb_entries, ~fetch_bytes: 8, ~external_direction: profile.bht, ~target_width: pc_width))
+  inst ras(if profile.ras_entries == 0 | DisabledRas(xlen) | Ras(xlen, profile.ras_entries, ~target_width: pc_width))
   inst bht(if profile.bht | TournamentBht() | DisabledTournamentBht())
-  inst direction(if profile.bht | RV2WideDirection(profile) | DisabledRV2WideDirection(profile))
+  inst direction(if profile.bht | RV2WideDirection(profile, ~target_width: pc_width) | DisabledRV2WideDirection(profile))
   reg speculative_history(~init: Bits(10)(0))
   reg committed_history(~init: Bits(10)(0))
   wire direction_repair: Bool
@@ -75,8 +77,7 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig, profile :: RV2WideCon
   inst s2(ValidPipeAlwaysCapture(RV2WideFetchAttempt(xlen, hypervisor), 1, ~flushable: #true))
   // Sign-extended Sv39 and zero-extended physical/Bare PCs fit this width.
   // Faulting blocks retain the original upper bits in their tagged payload.
-  def pc_width = math.min(xlen.width, math.max(39, config.flit.request_address_width + 1))
-  inst assembler(RV2WideInstructionAssembler(profile, ~pc_width: pc_width))
+  inst assembler(RV2WideInstructionAssembler(profile, ~pc_width: pc_width, ~target_width: pc_width))
 
 
   /* Predictor control and S1 target selection.

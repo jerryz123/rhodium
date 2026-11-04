@@ -3,5 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../ras-fixture.rhdl".program
+  "../ras-fixture.rhdl".compact_program
 
-export program
+export program compact_program

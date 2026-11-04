@@ -116,10 +116,11 @@ entries report an absent fault as zero; invalid prediction targets are zeroed.
 Do not narrow valid indirect targets, derive fault addresses from PCs, or share
 a global fault sidecar: all eight entries must retain independent ownership.
 
-The frontend, assembler's three resident blocks, window, and EX use the same
+The frontend, assembler's public block interface, window, and EX use the same
 `RV2WideFetchFault(xlen, hypervisor)`: a three-bit kind, the full fault address,
-and guest details only with H. Pass present faults unchanged through storage and live
-bypass; classify architectural causes only at translation admission and
+and guest details only with H. The assembler's private storage derives the fault
+VA from the exact fetch PC, not the assembled instruction PC. Preserve present
+faults through storage and live bypass; classify architectural causes only at translation admission and
 produce the architectural cause at EX resolution. Preserve each block's own fault VA
 and guest provenance across compaction and straddles; do not infer them from
 the instruction PC. MEM and WB retain just the fetch-fault
@@ -634,8 +635,12 @@ A faulting continuation uses the instruction's original PC and the next
 block's fault address. The CSR bank's C configuration must agree with this IALIGN.
 
 The resident `RV2WideRetainedBlock` keeps a compact PC and a normal/fault tagged
-outcome. The normal valid/target fields share storage with the complete fault and
-exceptional PC upper bits. The frontend selects the same physical/Sv39 PC bound
+outcome. The normal valid/compact-target fields share storage with the fault kind,
+exceptional PC upper bits, and optional guest provenance. A failed fetch reports
+its own PC as its fault VA; admission asserts that equality, so storage need not
+duplicate it. Reconstruct the full fault before assembly selects an instruction's
+owner: a straddle retains the continuation's VA, not the prefix's PC. Guest
+provenance remains independent. The frontend selects the same physical/Sv39 PC bound
 as the issue window; standalone assemblers default to XLEN unless `~pc_width`
 sets an explicit successful-PC sign-extension contract. Normalize incoming blocks
 through the same packing/expansion for live bypass and retained selection, so a
@@ -646,9 +651,24 @@ or the preceding block's final parcel, not another XLEN-wide PC. Admission check
 that a valid non-fault prediction names an aligned halfword in that domain.
 Expansion concatenates current-block PCs and decrements the block number for a
 preceding prefix, preserving full-width stale-entry invalidation and XLEN wrap.
-Keep all five direction checkpoints intact: a prefix's recovery history is
-not interchangeable with another parcel's checkpoint. Do not change the three
+Retain one ten-bit gshare row for the four current-block parcels and a separate
+prefix row. Reconstruct the low two index bits from parcel position, and the
+bimodal/chooser index from that instruction's PC. Admission asserts these indices
+for valid predictions; parcel zero supplies the main row even when its prediction
+is invalid. Invalid indices are not an observable training contract. Never derive
+a lookup row from the per-parcel recovery history: S1 captured the row before S2
+walked the conditional branches. Keep all five ten-bit histories and their four
+flags intact; the prefix checkpoint is independent. Do not change the three
 credits, release rules, or ready path when changing this representation.
+
+The frontend also selects this PC width for speculative BTB/RAS destinations.
+Direction correction and assembler direct/return fallbacks normalize targets
+before both steering and metadata publication; stale-target comparisons use
+the same representation. The assembler checks that incoming predictions already
+obey it. Do not normalize architectural redirects, resolved branch targets, or
+fault addresses. MEM compares the reconstructed hint with the exact next PC and
+squashes younger aliases. Normal/fault unions remain sized by their larger
+alternative, so narrowing a target alone need not shrink a queue entry.
 
 `RV2WideConfig.compressed` retains C as the mandatory base and accepts optional
 Zcb/Zcmop additions, validated through the shared architectural catalog. Pass
@@ -1447,8 +1467,11 @@ PCs, with the latter enabling H. `rv2wide-assembly-prediction-full-width` checks
 the standalone XLEN-wide default with the same stream. All variants fill three
 slots with independent faults or mixed normal/fault owners and exercise stalls,
 live-bypass capture, continuation ownership, and recovery. They check physical
-upper bits, sign-extended PCs, full-width targets, exceptional PC/address escape
-bits, and fault suppression of speculative predictions. The H variant also
+upper bits, sign-extended PCs, full-width standalone targets, exceptional PC escape
+bits, and fault suppression of speculative predictions. Distinct saved lookup
+rows and per-parcel histories check reconstructed training indices through stalls,
+straddles, and XLEN wrap. Invalid producer indices and mismatched fetch-PC/fault-VA
+pairs must fail admission. The H variant also
 checks guest provenance and rejection of an out-of-range successful compact PC.
 Local repair clears block ownership on the following cycle; it must
 not clear the lineage of the same edge's accepted packet.

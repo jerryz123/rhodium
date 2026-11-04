@@ -29,8 +29,9 @@ bundle BtbEntry(match_bits :: PosInt, page_count :: PosInt):
 /* Predicts the earliest taken branch in the configured fetch block using full-address matches via shared
    pages.
    Optional caller directions replace local counters before selecting a conditional target.
+   target_width sign-extends speculative destinations while source matching stays exact.
    Resolved training precedes discovery; page replacement invalidates all dependent entries. */
-sync_circuit Btb(xlen :: XLen, entry_count :: PosInt = 32, match_bits :: PosInt = 14, page_count :: PosInt = 8, ~fetch_bytes: fetch_bytes :: PosInt = 4, ~external_direction: external_direction :: Boolean = #false):
+sync_circuit Btb(xlen :: XLen, entry_count :: PosInt = 32, match_bits :: PosInt = 14, page_count :: PosInt = 8, ~fetch_bytes: fetch_bytes :: PosInt = 4, ~external_direction: external_direction :: Boolean = #false, ~target_width: target_width :: PosInt = xlen.width):
   // Lookup is combinational; only predictor state changes are event flows.
   unless fetch_bytes == 4 || fetch_bytes == 8
   | error(~who: #'Btb, "fetch bytes must be four or eight")
@@ -104,7 +105,9 @@ sync_circuit Btb(xlen :: XLen, entry_count :: PosInt = 32, match_bits :: PosInt 
   prediction <== BranchPrediction(xlen):
     valid: candidates.any() & !invalidate_all.valid
     pc: pages[selected.pc_page].tag ++ selected.pc_low
-    target: pages[selected.target_page].tag ++ selected.target_low
+    // Shared pages can also contain full source PCs. Normalize the lookup
+    // even when invalid, keeping downstream speculative storage width-bounded.
+    target: prediction_target(xlen, target_width, pages[selected.target_page].tag ++ selected.target_low)
     compressed: selected.compressed
     ras_action: selected.ras_action
 
@@ -114,7 +117,8 @@ sync_circuit Btb(xlen :: XLen, entry_count :: PosInt = 32, match_bits :: PosInt 
 
   def discovering = discover.valid & discover.bits.valid & !update.valid
   def write_pc = mux(update.valid, update.bits.pc, discover.bits.pc)
-  def write_target = mux(update.valid, update.bits.target, discover.bits.target)
+  // Source tags remain exact; only the speculative destination may alias.
+  def write_target = prediction_target(xlen, target_width, mux(update.valid, update.bits.target, discover.bits.target))
   def write_compressed = mux(update.valid, update.bits.compressed, discover.bits.compressed)
   def write_ras_action = mux(update.valid, update.bits.ras_action, discover.bits.ras_action)
   def write_pc_pages = page_matches(write_pc)

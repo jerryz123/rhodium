@@ -1348,6 +1348,14 @@ int main() {
     }
     send_predicted(0xb200, jump(0, -0x1000), 0xa200, 0xa200);
     drain();
+    // A lossy target hint can name valid code while the actual destination
+    // escapes the compact range. Full-width resolution must kill that peer.
+    const auto edge_pc = (UINT64_C(1) << 44) - 0x100;
+    const auto actual_target = edge_pc + 0x200;
+    const auto aliased_target = UINT64_C(0xfffff00000000100);
+    stop_at(edge_pc, actual_target);
+    send_predicted(edge_pc, jump(0, 0x200), aliased_target, aliased_target, 0);
+    drain();
     CHECK(memory_cycles.at(0xb200) < memory_cycles.at(0xa200));
     send_predicted(UINT64_C(0x2640), jump(1, 32), UINT64_C(0x2660),
                    UINT64_C(0x2660), 1, UINT64_C(1));
@@ -1452,7 +1460,7 @@ int main() {
     drain();
     send(UINT64_C(0x3000), imm(22, 20, 0), imm(23, 21, 0));
     drain();
-    CHECK(single_issues > 10 && stops == 23);
+    CHECK(single_issues > 10 && stops == 24);
 
     // Warm loads use the normal MEM/WB path and sustain one LSU plus one ALU each cycle.
     reset_core();

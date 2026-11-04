@@ -233,7 +233,7 @@ void compact_storage_tests() {
     const auto target = UINT64_C(0xdeadbeef12345678);
     Fault fault{};
     fault.pkind = TEST_HYPERVISOR ? fetch_kind(20) : fetch_kind(1);
-    fault.pvalue = UINT64_C(0xfedcba9876543210);
+    fault.pvalue = exceptional;
     if (TEST_HYPERVISOR) set_fetch_guest(fault, true, UINT64_C(0x123456789abc), 1);
     expected_pc.push_back(first);
     expected_pc.push_back(exceptional);
@@ -247,7 +247,8 @@ void compact_storage_tests() {
     blocks_in.pbits.pdata = UINT64_C(1) << 48; // C.NOP at the last parcel.
     blocks_in.pbits.pfault.pvalue = ~first; // Absent fault payload canonicalizes to zero.
     blocks_in.pbits.pprediction = {false, ~first, target, false, 0};
-    blocks_in.pbits.pdirections[3] = {true, 0xabc, 0x125, false, 0x789, true, false};
+    blocks_in.pbits.pdirections[0].pindex = 0xabc;
+    blocks_in.pbits.pdirections[3] = {true, 0xabf, 0x125, false, std::uint16_t((first >> 1) & 0xfff), true, false};
     settle();
     CHECK(blocks_out.pready && instructions_out.pvalid);
     const Packet bypass = instructions_out.pbits;
@@ -305,11 +306,17 @@ void prediction_owner_tests() {
       blocks_in.pbits.ppc = pc;
       blocks_in.pbits.pdata = UINT64_C(0x8102) << (16 * parcel); // C.JR x2.
       blocks_in.pbits.pprediction = {true, pc, target, true, 0};
+      blocks_in.pbits.pdirections[0].pindex = 0x554;
+      blocks_in.pbits.pdirections[parcel] = {true, std::uint16_t(0x554 + parcel), std::uint16_t(0x299 + parcel),
+                                           false, std::uint16_t((pc >> 1) & 0xfff), true, false};
       settle();
       CHECK(instructions_out.pvalid && instructions_out.pbits.pcount == 1);
       const Packet bypass = instructions_out.pbits;
       const auto &prediction = bypass.pentries[0].pprediction;
       CHECK(prediction.pvalid && prediction.ppc == pc && prediction.ptarget == target);
+      CHECK(bypass.pentries[0].pdirection.pindex == 0x554 + parcel &&
+            bypass.pentries[0].pdirection.pbase_uindex == ((pc >> 1) & 0xfff) &&
+            bypass.pentries[0].pdirection.phistory == 0x299 + parcel);
       rising();
       falling();
       blocks_in = {};
@@ -354,12 +361,16 @@ void prediction_owner_tests() {
     blocks_in.pbits.ppc = base + 8;
     blocks_in.pbits.pdata = 1; // Upper halfword of JALR x0,x2,0.
     blocks_in.pbits.pprediction = {true, pc, target, false, 0};
+    blocks_in.pbits.pprefix_udirection = {true, 0xe97, 0x2ac, false, std::uint16_t((pc >> 1) & 0xfff), false, true};
     settle();
     CHECK(instructions_out.pvalid && instructions_out.pbits.pcount == 1);
     const Packet bypass = instructions_out.pbits;
     CHECK(bypass.pentries[0].ppc == pc && bypass.pentries[0].pprediction.pvalid &&
           bypass.pentries[0].pprediction.ppc == pc &&
           bypass.pentries[0].pprediction.ptarget == target);
+    CHECK(bypass.pentries[0].pdirection.pindex == 0xe97 &&
+          bypass.pentries[0].pdirection.pbase_uindex == ((pc >> 1) & 0xfff) &&
+          bypass.pentries[0].pdirection.phistory == 0x2ac);
     rising();
     falling();
     blocks_in = {};
@@ -381,6 +392,27 @@ void prediction_owner_tests() {
   }
 }
 
+void direction_contract_tests() {
+  for (unsigned mutation = 0; mutation < 5; ++mutation) {
+    clear();
+    instructions_in.pready = false;
+    std::array<Direction, 4> directions{};
+    directions[0].pindex = 0x554;
+    directions[2] = {true, 0x556, 0x321, false, 0x802, true, false};
+    Direction prefix{true, 0xe97, 0x125, false, 0x7ff, false, true};
+    if (mutation == 0) directions[2].pindex ^= 4; // Row differs from the saved main row.
+    if (mutation == 1) directions[2].pindex ^= 1; // Wrong parcel.
+    if (mutation == 2) directions[2].pbase_uindex ^= 0x100; // Wrong PC-derived base.
+    if (mutation == 3) prefix.pindex ^= 1;
+    if (mutation == 4) prefix.pbase_uindex ^= 0x100;
+    expect_failure(mutation < 3 ? "rv2wide_assembly_direction_indices" : "rv2wide_assembly_prefix_indices", [&] {
+      offer(0x123000, 1, 0, 0, 0, 0, directions, prefix);
+    });
+    blocks_in = {};
+  }
+  clear();
+}
+
 void fault_storage_tests() {
   const std::array<std::uint64_t, 3> pcs{
       UINT64_C(0xffffffc012345001), UINT64_C(0x8000000000002000),
@@ -388,7 +420,7 @@ void fault_storage_tests() {
   std::array<Fault, 3> faults{};
   for (unsigned i = 0; i < 3; ++i) {
     faults[i].pkind = i + 1;
-    faults[i].pvalue = pcs[i] ^ UINT64_C(0x1234000000000000);
+    faults[i].pvalue = pcs[i];
     if (TEST_HYPERVISOR) {
       set_fetch_guest(faults[i], true, UINT64_C(0x123456780000) + i * 8, i & 1);
     }
@@ -443,6 +475,7 @@ void fault_storage_tests() {
     instructions_in.pready = false;
     expected_pc.push_back(UINT64_C(0x123fe));
     offer(UINT64_C(0x123fe), UINT64_C(0x0013000000000000));
+    fault.pvalue = UINT64_C(0x12400);
     offer_fault(UINT64_C(0x12400), fault);
     for (unsigned stall = 0; stall < 3; ++stall) {
       check_fault(fault, UINT64_C(0x123fe));
@@ -469,6 +502,14 @@ void fault_storage_tests() {
     offer_fault(pcs[1], unsupported);
   });
   blocks_in = {};
+  clear();
+  auto mismatched = faults[1];
+  mismatched.pvalue ^= UINT64_C(0x1234000000000000);
+  expect_failure("rv2wide_assembly_fault_address", [&] {
+    offer_fault(pcs[1], mismatched);
+  });
+  blocks_in = {};
+  clear();
   if (TEST_HYPERVISOR) {
     // The H fixture selects compact PCs; only faulting blocks may escape that range.
     expect_failure("rv2wide_assembly_success_pc_fits", [&] {
@@ -676,12 +717,12 @@ int main() {
           if (second_c != 0)
             write_bits(bytes, (second_parcel + 1) * 16, 16, UINT64_C(1));
           for (int parcel = 0; parcel < 4; parcel++) {
-            first_directions[parcel] = {UINT64_C(1), std::uint16_t(parcel),
-                                        UINT64_C(17), UINT64_C(0), std::uint16_t(parcel + 8), 1, 0};
-            second_directions[parcel] = {UINT64_C(1), std::uint16_t(4 + parcel),
-                                         UINT64_C(29), UINT64_C(0), std::uint16_t(parcel + 12), 0, 1};
+            first_directions[parcel] = {UINT64_C(1), std::uint16_t(0x554 + parcel),
+                                        std::uint16_t(17 + parcel), UINT64_C(0), std::uint16_t(((base >> 1) + parcel) & 0xfff), 1, 0};
+            second_directions[parcel] = {UINT64_C(1), std::uint16_t(0xaa8 + parcel),
+                                         std::uint16_t(29 + parcel), UINT64_C(0), std::uint16_t(((base >> 1) + 4 + parcel) & 0xfff), 0, 1};
           }
-          prefix = {UINT64_C(1), UINT64_C(3), UINT64_C(17), UINT64_C(0), 11, 1, 0};
+          prefix = {UINT64_C(1), UINT64_C(0xe97), UINT64_C(0x355), UINT64_C(0), std::uint16_t(((base >> 1) + 3) & 0xfff), 1, 0};
           expected_pc.push_back(pc);
           expected_pc.push_back(second_pc);
           offer(pc, bits(bytes, 63, 0), 0, 0, 0, 0, first_directions);
@@ -696,11 +737,12 @@ int main() {
             int parcel, size;
             parcel = lane == 0 ? offset : second_parcel;
             size = lane == 0 ? first_bytes : second_bytes;
+            const bool straddles = parcel == 3 && size == 4;
             CHECK(instructions_out.pbits.pentries[lane].pdirection.phistory ==
-                  (parcel < 4 ? UINT64_C(17) : UINT64_C(29)));
+                  (straddles ? 0x355 : parcel < 4 ? 17 + parcel : 29 + parcel - 4));
             CHECK(instructions_out.pbits.pentries[lane].pdirection.pindex ==
-                  std::uint16_t(parcel));
-            CHECK(instructions_out.pbits.pentries[lane].pdirection.pbase_uindex == std::uint16_t(parcel + 8) &&
+                  (straddles ? 0xe97 : parcel < 4 ? 0x554 + parcel : 0xaa8 + parcel - 4));
+            CHECK(instructions_out.pbits.pentries[lane].pdirection.pbase_uindex == (((base >> 1) + parcel) & 0xfff) &&
                   instructions_out.pbits.pentries[lane].pdirection.pbase_utaken == (parcel < 4) &&
                   instructions_out.pbits.pentries[lane].pdirection.pgshare_utaken == (parcel >= 4));
             CHECK(instructions_out.pbits.pentries[lane].psequential_upc ==
@@ -810,7 +852,7 @@ int main() {
         UINT64_C(0x12108),
         (field(UINT64_C(0x100010001), 48, 16) | field(UINT64_C(0x2000), 16, 0)),
         0, 0, 0, 0, {},
-        {UINT64_C(1), UINT64_C(0x123), UINT64_C(0x29), UINT64_C(0), 0x456, 1, 0});
+        {UINT64_C(1), UINT64_C(0x123), UINT64_C(0x29), UINT64_C(0), 0x83, 1, 0});
     CHECK(instructions_out.pvalid && instructions_out.pbits.pcount == 2 &&
           !instructions_out.pbits.pentries[0].pprediction.pvalid &&
           instructions_out.pbits.pentries[0].pdirection.pvalid &&
@@ -823,6 +865,7 @@ int main() {
     instructions_in.pready = 1;
     compact_storage_tests();
     prediction_owner_tests();
+    direction_contract_tests();
     fault_storage_tests();
   });
 }

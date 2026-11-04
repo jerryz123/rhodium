@@ -1,0 +1,14 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("riscv/isa/xlen.rhm").XLen
+  "../btb.rhdl".Btb
+  "../ras.rhdl".Ras
+
+for (xlen in [XLen.X32, XLen.X64]):
+  check:
+    elaborate(Btb(xlen, ~target_width: xlen.width + 1)) ~throws "must not exceed XLEN"
+    elaborate(Ras(xlen, ~target_width: xlen.width + 1)) ~throws "must not exceed XLEN"
+    elaborate(Btb(xlen, ~target_width: 0)) ~throws "PosInt"
+    elaborate(Ras(xlen, ~target_width: 0)) ~throws "PosInt"

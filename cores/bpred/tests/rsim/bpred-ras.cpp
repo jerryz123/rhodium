@@ -2,6 +2,7 @@
 // coroutine replacement.
 // SPDX-License-Identifier: Apache-2.0
 #include "test.hpp"
+#include "target-oracle.hpp"
 constexpr std::uint8_t NONE = 0, PUSH = 1, POP = 2, POP_PUSH = 3;
 
 std::uint32_t jal(std::uint8_t rd) {
@@ -67,7 +68,7 @@ void pulse_clear() {
 }
 void check(bool valid, std::uint64_t address = 0) {
   eval();
-  CHECK(head_valid == valid && (!valid || head == address));
+  CHECK(head_valid == valid && (!valid || head == expected_target(address)));
 }
 void push_and_resolve(std::uint64_t address) {
   speculate(PUSH, address);
@@ -238,5 +239,17 @@ int main() {
     check(0);
     pulse_restore();
     check(0);
+    for (auto address : {UINT64_C(0x8000000000000202), UINT64_C(0x0000100000000300),
+                         UINT64_C(0xffffffc012345000), UINT64_C(0xfffffffffffffffE)}) {
+      pulse_clear();
+      push_and_resolve(address);
+      check(true, address);
+      speculate(PUSH, address ^ UINT64_C(0x1234));
+      check(true, address ^ UINT64_C(0x1234));
+      pulse_restore();
+      check(true, address);
+      resolve(POP_PUSH, NONE, address ^ UINT64_C(0x2468));
+      check(true, address ^ UINT64_C(0x2468));
+    }
   });
 }
