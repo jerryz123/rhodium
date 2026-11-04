@@ -8,4 +8,6 @@ import:
 
 def program = elaborate(Btb(XLen.X64, 3, 14, 2))
 def compact_program = elaborate(Btb(XLen.X64, 3, 14, 2, ~target_width: 45))
-export program compact_program
+def bounded_program = elaborate(Btb(XLen.X64, 3, 14, 2, ~pc_width: 45, ~target_width: 45))
+def bounded_source_program = elaborate(Btb(XLen.X64, 3, 14, 2, ~pc_width: 45))
+export program compact_program bounded_program bounded_source_program

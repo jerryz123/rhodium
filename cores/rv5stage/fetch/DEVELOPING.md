@@ -55,7 +55,7 @@ starts in its retained prefix. On transfer to residual storage, keep only whethe
 the upper parcel owns the prediction. A live continuation can supply the hint
 for that prefix; it cannot override a standalone compressed residual.
 
-Only the internal queue format narrows the PC. The integrated non-H RV64 hart
+Only the internal queue format narrows retained architectural fetch PCs. The integrated non-H RV64 hart
 passes its PMA address width to the frontend; a successful PC sign-extends
 from `max(39, physical_address_width + 1)` bits, covering both Sv39 and Bare.
 A tagged outcome shares storage between the full prediction and the fault
@@ -64,7 +64,10 @@ each entry must reconstruct its own address while Decode is stalled. Keep
 the ordinary packet for H, RV32, or when the width would not save bits.
 A standalone frontend with no declared physical bound defaults to XLEN.
 
-BTB/RAS targets use `min(XLEN, max(39, physical_address_width + 1))` bits.
+BTB source admission and BTB/RAS targets use
+`min(XLEN, max(39, physical_address_width + 1))` bits. Source queries outside
+that bound miss rather than alias; they continue through the full-width
+architectural fetch/fault path. Only speculative destinations may alias.
 The source uses their normalized hints, and the scanner normalizes direct-jump
 and live-return fallbacks before publishing both packet metadata and redirects.
 Do not truncate a retained prediction independently of the address fetch followed.

@@ -29,16 +29,20 @@ bundle BtbEntry(match_bits :: PosInt, page_count :: PosInt):
 /* Predicts the earliest taken branch in the configured fetch block using full-address matches via shared
    pages.
    Optional caller directions replace local counters before selecting a conditional target.
-   target_width sign-extends speculative destinations while source matching stays exact.
+   pc_width admits only sign-extendable source PCs; target_width normalizes speculative destinations.
+   Shared tags span both widths, while source lookup and invalidation remain exact.
    Resolved training precedes discovery; page replacement invalidates all dependent entries. */
-sync_circuit Btb(xlen :: XLen, entry_count :: PosInt = 32, match_bits :: PosInt = 14, page_count :: PosInt = 8, ~fetch_bytes: fetch_bytes :: PosInt = 4, ~external_direction: external_direction :: Boolean = #false, ~target_width: target_width :: PosInt = xlen.width):
+sync_circuit Btb(xlen :: XLen, entry_count :: PosInt = 32, match_bits :: PosInt = 14, page_count :: PosInt = 8, ~fetch_bytes: fetch_bytes :: PosInt = 4, ~external_direction: external_direction :: Boolean = #false, ~pc_width: pc_width :: PosInt = xlen.width, ~target_width: target_width :: PosInt = xlen.width):
   // Lookup is combinational; only predictor state changes are event flows.
   unless fetch_bytes == 4 || fetch_bytes == 8
   | error(~who: #'Btb, "fetch bytes must be four or eight")
 
   def offset_bits = if fetch_bytes == 4 | 2 | 3
-  unless match_bits >= offset_bits && match_bits < xlen.width
-  | error(~who: #'Btb, "match bits must include the fetch-word offset and leave an upper address tag")
+  unless pc_width <= xlen.width && target_width <= xlen.width
+  | error(~who: #'Btb, "PC and target storage widths must not exceed XLEN")
+
+  unless match_bits >= offset_bits && match_bits < pc_width
+  | error(~who: #'Btb, "match bits must include the fetch-word offset and leave an upper source-address tag")
 
   unless page_count >= 2
   | error(~who: #'Btb, "shared page count must be at least two")
@@ -58,7 +62,8 @@ sync_circuit Btb(xlen :: XLen, entry_count :: PosInt = 32, match_bits :: PosInt 
 
   def index_bits = index_width(entry_count)
   def page_index_bits = index_width(page_count)
-  def Page = BtbPage(xlen.width - match_bits)
+  def address_width = math.max(pc_width, target_width)
+  def Page = BtbPage(address_width - match_bits)
   def Entry = BtbEntry(match_bits, page_count)
 
 
@@ -69,11 +74,21 @@ sync_circuit Btb(xlen :: XLen, entry_count :: PosInt = 32, match_bits :: PosInt 
   reg entries(~init: vec(for List (_index in 0..entry_count): literal(Entry, 0)))
   reg replacement(~init: Bits(index_bits)(0))
   reg page_replacement(~init: Bits(page_index_bits)(0))
-  /* Extracts upper address bits shared by PC and target page entries. */
-  fun page_tag(address :: Bits(xlen.width)) :~ Bits(xlen.width - match_bits):
-    address[match_bits..xlen.width]
+  /* Rejects nonrepresentable source addresses instead of matching or modifying a low-bit alias. */
+  fun source_fits(address :: Bits(xlen.width)) :~ Bool:
+    if pc_width < xlen.width
+    | address === address[0..pc_width].into(SInt(pc_width)).sext(xlen.width).as_bits()
+    | Bool(#true)
 
-  /* Compares an address against every valid shared upper-address page. */
+  /* Restores exact stored source addresses and normalized destinations without an address adder. */
+  fun expand_address(address :: Bits(address_width)) :~ Bits(xlen.width):
+    if address_width < xlen.width | address.into(SInt(address_width)).sext(xlen.width).as_bits() | address
+
+  /* Extracts the common-width upper bits of an admitted source or normalized target. */
+  fun page_tag(address :: Bits(xlen.width)) :~ Bits(address_width - match_bits):
+    address[match_bits..address_width]
+
+  /* Compares stored upper bits; source users separately qualify representability before any effect. */
   fun page_matches(address :: Bits(xlen.width)) :~ Vec(page_count, Bool):
     vec(for List (index in 0..page_count): pages[index].valid & (pages[index].tag === page_tag(address)))
 
@@ -83,6 +98,7 @@ sync_circuit Btb(xlen :: XLen, entry_count :: PosInt = 32, match_bits :: PosInt 
      allocation order; equal-offset matches retain priority-encoder order. */
 
   def cursor_pages = page_matches(cursor)
+  def cursor_fits = source_fits(cursor)
   def candidates = vec(
     for List (index in 0..entry_count):
       def entry = entries[index]
@@ -90,7 +106,7 @@ sync_circuit Btb(xlen :: XLen, entry_count :: PosInt = 32, match_bits :: PosInt 
       def at_or_after_cursor = entry.pc_low[0..offset_bits] >= cursor[0..offset_bits]
       def direction = if external_direction | caller_taken[entry.pc_low[1..offset_bits]] | entry.counter[1].into(Bool)
       def predicted_taken = !entry.conditional ||| direction
-      entry.valid & pages[entry.target_page].valid & block_matches & at_or_after_cursor & predicted_taken
+      cursor_fits & entry.valid & pages[entry.target_page].valid & block_matches & at_or_after_cursor & predicted_taken
   )
 
   def offsets = for List (offset in 0..(fetch_bytes / 2)):
@@ -104,10 +120,10 @@ sync_circuit Btb(xlen :: XLen, entry_count :: PosInt = 32, match_bits :: PosInt 
   def selected = entries[priority_encoder(earliest)]
   prediction <== BranchPrediction(xlen):
     valid: candidates.any() & !invalidate_all.valid
-    pc: pages[selected.pc_page].tag ++ selected.pc_low
+    pc: expand_address(pages[selected.pc_page].tag ++ selected.pc_low)
     // Shared pages can also contain full source PCs. Normalize the lookup
     // even when invalid, keeping downstream speculative storage width-bounded.
-    target: prediction_target(xlen, target_width, pages[selected.target_page].tag ++ selected.target_low)
+    target: prediction_target(xlen, target_width, expand_address(pages[selected.target_page].tag ++ selected.target_low))
     compressed: selected.compressed
     ras_action: selected.ras_action
 
@@ -134,7 +150,7 @@ sync_circuit Btb(xlen :: XLen, entry_count :: PosInt = 32, match_bits :: PosInt 
   def incremented = saturating_increment(previous.counter, 3)
   def decremented = saturating_decrement(previous.counter)
   def write = (update.valid & (matched ||| (update.bits.branch & update.bits.taken))) ||| discovering
-  def commit_write = write & !invalidate.valid
+  def commit_write = write & !invalidate.valid & source_fits(write_pc)
   def write_valid = mux(update.valid, update.bits.branch, Bool(#true))
 
 
@@ -173,9 +189,10 @@ sync_circuit Btb(xlen :: XLen, entry_count :: PosInt = 32, match_bits :: PosInt 
   )
 
   def invalidate_pages = page_matches(invalidate.bits)
+  def invalidate_fits = source_fits(invalidate.bits)
   def invalidate_matches = vec(
     for List (index in 0..entry_count):
-      entries[index].valid & invalidate_pages[entries[index].pc_page] & (entries[index].pc_low === invalidate.bits[0..match_bits])
+      invalidate_fits & entries[index].valid & invalidate_pages[entries[index].pc_page] & (entries[index].pc_low === invalidate.bits[0..match_bits])
   )
 
 
@@ -197,11 +214,11 @@ sync_circuit Btb(xlen :: XLen, entry_count :: PosInt = 32, match_bits :: PosInt 
     when (invalidate_all.valid):
       pages[index] <== literal(Page, 0)
     elsewhen (allocate_pages & !pc_page_found & (pc_page === Bits(page_index_bits)(index))):
-      pages[index] <== BtbPage(xlen.width - match_bits):
+      pages[index] <== BtbPage(address_width - match_bits):
         valid: Bool(#true)
         tag: page_tag(write_pc)
     elsewhen (allocate_pages & !same_page & !target_page_found & (target_page === Bits(page_index_bits)(index))):
-      pages[index] <== BtbPage(xlen.width - match_bits):
+      pages[index] <== BtbPage(address_width - match_bits):
         valid: Bool(#true)
         tag: page_tag(write_target)
 

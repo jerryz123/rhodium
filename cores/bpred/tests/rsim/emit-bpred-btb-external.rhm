@@ -6,4 +6,5 @@ import:
   lib("riscv/isa/xlen.rhm").XLen
 
 def program = elaborate(Btb(XLen.X64, 8, ~fetch_bytes: 8, ~external_direction: #true))
-export program
+def bounded_program = elaborate(Btb(XLen.X64, 8, ~fetch_bytes: 8, ~external_direction: #true, ~pc_width: 45, ~target_width: 45))
+export program bounded_program

@@ -21,10 +21,16 @@ resolved state is not intrinsically retirement state: callers choose the
 resolution boundary. Keep those choices outside this package.
 Target-width policy belongs to those callers too. `prediction_target` normalizes
 speculative destinations; BTB writes use it before shared-page allocation, while
-both RAS copies physically store the selected width. Never narrow BTB source
-tags or architectural branch-update payloads. Default XLEN keeps standalone
-predictors lossless. Named frontends select a width covering their successful
-Sv39/Bare PCs and normalize every fallback before steering and recording it.
+both RAS copies physically store the selected width. BTB `pc_width` independently
+bounds source admission without aliasing: qualify lookup, write commit, and
+invalidation with exact sign-extendability. Shared tags span the larger source
+and target width, so target-only compaction cannot discard source bits.
+Out-of-range writes must not advance either replacement cursor or evict pages;
+they retain update-over-discovery priority. Preserve invalidation-over-write
+priority even on an out-of-range invalidation. Never narrow architectural
+branch-update payloads. Default XLEN keeps standalone predictors lossless.
+Named frontends select widths covering their successful Sv39/Bare PCs and
+normalize every fallback before steering and recording it.
 
 Keep active BTB/RAS implementations separate from `DisabledBtb` and `DisabledRas`.
 The caller selects the circuit from its entry-count configuration; active
@@ -83,6 +89,14 @@ including positive/negative aliases, source-tag isolation, discovery, and RAS
 restoration. Named-core prediction fixtures check that the followed destination
 matches the retained hint and that full-width recovery still wins; the RV5Stage
 branch fixture checks exact fault PC/value after an aliased poison-store stream.
+The `bpred-btb-bounded` and `bpred-btb-source-bounded` fixtures reuse the entry/page
+replacement oracle with bounded sources and either bounded or full-width targets.
+They check both sign boundaries, the final halfword before XLEN wrap, every
+discarded source bit on lookup/update/discovery/invalidation, ignored-write
+priority, and unchanged replacement after rejected writes. The `wide-bounded`
+and `external-bounded` variants retain eight-byte earliest-branch ordering and
+caller-supplied direction behavior. Run `tests/target-width-test.rhm` through the
+repository test wrapper for invalid source/target width combinations.
 The tournament oracle independently models all three tables, including chooser
 saturation, agreement, delayed predictions, aliased consecutive updates, and
 training suppression through the final scrub edge. Keep **one** sweep per

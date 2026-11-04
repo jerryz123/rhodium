@@ -45,8 +45,8 @@ sync_circuit RV5StageFetchOffer(xlen :: XLen):
 
 /* Selects restart, late redirect, replay, predicted successor, or saved cursor
    in priority order. Accepted offers own S1; BTB/RAS lookup and continuation
-   drive the next S0 candidate. */
-sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: Nat = 32, ras_entries :: Nat = 6, ~target_width: target_width :: PosInt = xlen.width):
+   drive the next S0 candidate. pc_width bounds BTB source admission, not architectural PCs. */
+sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: Nat = 32, ras_entries :: Nat = 6, ~pc_width: pc_width :: PosInt = xlen.width, ~target_width: target_width :: PosInt = xlen.width):
   def width = xlen.width
   input active: Bool
   input space: Bool
@@ -73,7 +73,7 @@ sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: Nat = 32, ras_entr
   reg running(~init: Bool(#true))
   inst cursor(RV5StageFetchCursor(xlen))
   inst offer(RV5StageFetchOffer(xlen))
-  inst btb(if btb_entries == 0 | DisabledBtb(xlen) | Btb(xlen, btb_entries, ~target_width: target_width))
+  inst btb(if btb_entries == 0 | DisabledBtb(xlen) | Btb(xlen, btb_entries, ~pc_width: pc_width, ~target_width: target_width))
   inst ras(if btb_entries == 0 || ras_entries == 0 | DisabledRas(xlen) | Ras(xlen, ras_entries, ~target_width: target_width))
   def command = clear.valid ||| restart.valid ||| redirect.valid
   inst s1(ValidPipeAlwaysCapture(RV5StageFetchAttempt(xlen), 1, ~flushable: #true))

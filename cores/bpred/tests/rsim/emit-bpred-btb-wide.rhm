@@ -7,4 +7,5 @@ import:
   lib("cores/bpred/btb.rhdl").Btb
 
 def program = elaborate(Btb(XLen.X64, 8, ~fetch_bytes: 8))
-export program
+def bounded_program = elaborate(Btb(XLen.X64, 8, ~fetch_bytes: 8, ~pc_width: 45, ~target_width: 45))
+export program bounded_program

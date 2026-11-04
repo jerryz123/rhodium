@@ -574,7 +574,10 @@ target repair, distinct lookup/history checkpoints, sign boundaries, and XLEN
 wrap. The compact variant also rejects out-of-range captured PCs and targets.
 
 The frontend instantiates shared `Btb` with `fetch_bytes = 8` and external
-directions when enabled, shared `Ras`, and independently disableable
+directions when enabled. Its source-PC and target widths use the successful-PC
+bound: out-of-range source queries miss, while targets retain speculative
+normalization. Architectural fetch, recovery, and fault addresses remain exact.
+The frontend also instantiates shared `Ras` and independently disableable
 `TournamentBht`. S0 admits a PC into the registered S1 lookup. S1's combinational BTB/RAS result
 selects the next S0 request directly and travels with its original lookup into S2.
 Byte-six continuations retain their prefix prediction instead of looking up a

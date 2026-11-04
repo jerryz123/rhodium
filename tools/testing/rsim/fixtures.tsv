@@ -77,6 +77,10 @@ riscv-compressed	cores-components	riscv/rtl/tests/rsim/emit-riscv-compressed.rhm
 riscv-atomic	cores-components	riscv/rtl/tests/rsim/emit-riscv-atomic.rhm	program	riscv/rtl/tests/rsim/riscv-atomic.cpp
 bpred-btb	cores-components	cores/bpred/tests/rsim/emit-bpred-btb.rhm	program	cores/bpred/tests/rsim/bpred-btb.cpp
 bpred-btb-compact	cores-components	cores/bpred/tests/rsim/emit-bpred-btb.rhm	compact_program	cores/bpred/tests/rsim/bpred-btb-compact.cpp
+bpred-btb-bounded	cores-components	cores/bpred/tests/rsim/emit-bpred-btb.rhm	bounded_program	cores/bpred/tests/rsim/bpred-btb-bounded.cpp
+bpred-btb-source-bounded	cores-components	cores/bpred/tests/rsim/emit-bpred-btb.rhm	bounded_source_program	cores/bpred/tests/rsim/bpred-btb-source-bounded.cpp
+bpred-btb-wide-bounded	cores-components	cores/bpred/tests/rsim/emit-bpred-btb-wide.rhm	bounded_program	cores/bpred/tests/rsim/bpred-btb-wide.cpp
+bpred-btb-external-bounded	cores-components	cores/bpred/tests/rsim/emit-bpred-btb-external.rhm	bounded_program	cores/bpred/tests/rsim/bpred-btb-external.cpp
 bpred-btb-wide	cores-components	cores/bpred/tests/rsim/emit-bpred-btb-wide.rhm	program	cores/bpred/tests/rsim/bpred-btb-wide.cpp
 bpred-ras	cores-components	cores/bpred/tests/rsim/emit-bpred-ras.rhm	program	cores/bpred/tests/rsim/bpred-ras.cpp
 bpred-ras-compact	cores-components	cores/bpred/tests/rsim/emit-bpred-ras.rhm	compact_program	cores/bpred/tests/rsim/bpred-ras-compact.cpp

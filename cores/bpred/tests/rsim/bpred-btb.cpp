@@ -3,6 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "test.hpp"
 #include "target-oracle.hpp"
+#ifndef BTB_PC_WIDTH
+#define BTB_PC_WIDTH 64
+#endif
 
 void train(std::uint64_t pc, std::uint64_t target, bool conditional, bool taken,
            bool compressed = 0, bool branch = 1, std::uint8_t ras_action = 0) {
@@ -134,7 +137,7 @@ int main() {
       invalidate_all_in.pvalid = 1;
       tick_model();
       invalidate_all_in.pvalid = 0;
-      const auto pc = UINT64_C(0x8000000000000100);
+      const auto pc = BTB_PC_WIDTH == 64 ? UINT64_C(0x8000000000000100) : UINT64_C(0xfffff00000000100);
       train(pc, target, false, true);
       check(pc, true, target);
       check(0x100, false);
@@ -149,5 +152,69 @@ int main() {
       discover(pc, target, false, 0);
       check(pc, true, target);
     }
+
+#if BTB_PC_WIDTH < 64
+    // Both signs, the representable limits, and the final halfword before XLEN wrap.
+    constexpr auto sign = UINT64_C(1) << (BTB_PC_WIDTH - 1);
+    for (auto pc : {UINT64_C(0x100), sign - 2, UINT64_C(0) - sign, UINT64_MAX - 1}) {
+      invalidate_all_in.pvalid = 1;
+      tick_model();
+      invalidate_all_in = {};
+      train(pc, 0x300, false, true, true, true, 2);
+      check(pc, true, 0x300, 2);
+      CHECK(prediction.ppc == pc);
+
+      // Flipping the stored sign bit or any discarded bit must fail source matching.
+      for (unsigned bit = BTB_PC_WIDTH - 1; bit < 64; ++bit) {
+        const auto alias = pc ^ (UINT64_C(1) << bit);
+        check(alias, false);
+        invalidate_in = {1, alias};
+        tick_model();
+        invalidate_in = {};
+        train(alias, 0x8000, false, true);
+        train(alias, 0, false, false, false, false);
+        discover(alias, 0xc000, false, 0);
+        check(alias, false);
+        check(pc, true, 0x300, 2);
+
+        // An ignored update still suppresses discovery; any invalidation still suppresses writes.
+        update_in = {1, {alias, 0x8000, 1, 0, 1, 0, 0, 0, alias + 4}};
+        discover_in = {1, {1, pc, 0xc000, 0, 0}};
+        tick_model();
+        update_in = {}; discover_in = {};
+        check(pc, true, 0x300, 2);
+        invalidate_in = {1, alias};
+        update_in = {1, {pc, 0x8000, 1, 0, 1, 0, 0, 0, pc + 4}};
+        tick_model();
+        update_in = {}; invalidate_in = {};
+        check(pc, true, 0x300, 2);
+      }
+
+      invalidate_in = {1, pc};
+      tick_model(); invalidate_in = {};
+      check(pc, false);
+      discover(pc, 0x300, true, 2);
+      check(pc, true, 0x300, 2);
+    }
+
+    // Rejected source writes must not advance the entry or page replacement cursors.
+    invalidate_all_in.pvalid = 1; tick_model(); invalidate_all_in = {};
+    for (auto pc : {0x100u, 0x104u, 0x108u}) train(pc, pc + 0x100, false, true);
+    for (unsigned i = 0; i < 7; ++i) {
+      train((UINT64_C(1) << BTB_PC_WIDTH) | (0x200 + i * 4), 0x8000, false, true);
+      discover((UINT64_C(1) << BTB_PC_WIDTH) | (0x300 + i * 4), 0xc000, false, 0);
+    }
+    train(0x10c, 0x20c, false, true);
+    check(0x100, false);
+    check(0x104, true, 0x204);
+    check(0x108, true, 0x208);
+    check(0x10c, true, 0x20c);
+
+    // The target may span more bits than the source contract; it is not a source alias.
+    invalidate_all_in.pvalid = 1; tick_model(); invalidate_all_in = {};
+    train(0x100, UINT64_C(0x8000000000000100), false, true);
+    check(0x100, true, UINT64_C(0x8000000000000100));
+    check(UINT64_C(0x8000000000000100), false);
+#endif
   });
 }

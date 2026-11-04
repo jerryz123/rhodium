@@ -28,7 +28,7 @@ themselves to a fetch pipeline. Shared setup is in the
 
 ## Branch-target buffer
 
-`Btb(xlen, entry_count = 32, match_bits = 14, page_count = 8, ~fetch_bytes: 4, ~external_direction: #false, ~target_width: xlen.width)` has a
+`Btb(xlen, entry_count = 32, match_bits = 14, page_count = 8, ~fetch_bytes: 4, ~external_direction: #false, ~pc_width: xlen.width, ~target_width: xlen.width)` has a
 combinational `cursor` input and `BranchPrediction(xlen)` output. Lookup selects
 the earliest predicted-taken instruction at or after the cursor **within its
 aligned fetch block**. `fetch_bytes` supports four (the default) or eight bytes.
@@ -37,7 +37,7 @@ the caller validates instruction boundaries and predicted lengths against
 fetched data. `prediction.valid` is false on a miss or full invalidation.
 
 Entries store low PC/target bits and indices into shared upper-address tags.
-Matching still checks the complete address. Page replacement invalidates every
+Matching still checks the complete admitted source address. Page replacement invalidates every
 entry using that page as either a source or target. Empty entry slots are used
 before round-robin replacement. Conditional branches have two-bit saturating
 counters; the upper two states predict taken. Unconditional entries predict
@@ -80,9 +80,19 @@ normalization to architectural recovery or exception addresses.
 `prediction_target(xlen, target_width, address)` supplies the same normalization
 for caller-generated direct-jump and return predictions.
 
+`pc_width` instead defines an exact source-address domain: a PC must equal the
+sign extension of its low `pc_width` bits. Outside that domain, lookup misses,
+training/discovery makes no state change, and invalidation cannot remove an
+in-range alias. An ignored update still suppresses simultaneous discovery;
+any invalidation still suppresses simultaneous writes. The default XLEN admits
+every source address. Shared page tags span `max(pc_width, target_width)` bits
+minus the low `match_bits`; source PCs are never truncated into aliases.
+This bounds predictor storage only, not architectural PCs or fault addresses.
+
 `entry_count` is positive. Select `DisabledBtb(xlen)` instead to disable prediction
 with the same ports and no predictor state. `match_bits` must include the fetch offset and
-less than XLEN; `page_count` must be at least two. BTB matching has no address-space tag.
+be less than `pc_width`, which must not exceed XLEN; `page_count` must be at least two.
+BTB matching has no address-space tag.
 
 ## Direction table
 

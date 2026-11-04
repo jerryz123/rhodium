@@ -446,7 +446,10 @@ misaligned faults.
 ## Branch prediction
 
 The frontend uses the shared 32-entry BTB, a six-entry RAS, and a bimodal/gshare
-tournament predictor. S1 reads the PC-indexed bimodal table alongside the BTB
+tournament predictor. BTB source admission uses the configured successful-PC
+bound: out-of-range lookups miss, and source writes or invalidations never
+alias an in-range entry. Architectural fetch and fault addresses remain exact.
+S1 reads the PC-indexed bimodal table alongside the BTB
 and selects the earliest predicted-taken
 instruction at or after the cursor. Its combinational result selects the next
 S0 cache request in that same cycle, without an intervening PC register. A 32-bit

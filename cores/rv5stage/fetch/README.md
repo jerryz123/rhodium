@@ -53,6 +53,8 @@ prediction capture. Out-of-range targets can alias valid addresses; execution
 checks the exact architectural next PC and squashes a mistaken path. Recovery
 PCs and fault addresses are never truncated. Standalone frontends without a
 physical-address bound retain XLEN-wide predictions.
+BTB source PCs use the same bound without aliasing: out-of-range lookups miss,
+and training or invalidation cannot modify an in-range entry with matching low bits.
 
 Each nonfaulting packet carries its full predicted target and return-stack action,
 but identifies the predicted instruction by parcel, not by a second PC.

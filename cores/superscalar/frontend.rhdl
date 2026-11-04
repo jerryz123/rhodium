@@ -66,7 +66,7 @@ sync_circuit SuperscalarFrontend(config :: RiscvHartCHIConfig, profile :: Supers
   def pc_width = math.min(xlen.width, math.max(39, config.flit.request_address_width + 1))
   reg active(~init: Bool(#false))
   reg cursor(~init: literal(SuperscalarFetchCursor(xlen), 0))
-  inst btb(if profile.btb_entries == 0 | DisabledBtb(xlen, ~fetch_bytes: 8, ~external_direction: profile.bht) | Btb(xlen, profile.btb_entries, ~fetch_bytes: 8, ~external_direction: profile.bht, ~target_width: pc_width))
+  inst btb(if profile.btb_entries == 0 | DisabledBtb(xlen, ~fetch_bytes: 8, ~external_direction: profile.bht) | Btb(xlen, profile.btb_entries, ~fetch_bytes: 8, ~external_direction: profile.bht, ~pc_width: pc_width, ~target_width: pc_width))
   inst ras(if profile.ras_entries == 0 | DisabledRas(xlen) | Ras(xlen, profile.ras_entries, ~target_width: pc_width))
   inst bht(if profile.bht | TournamentBht() | DisabledTournamentBht())
   inst direction(if profile.bht | SuperscalarDirection(profile, ~pc_width: pc_width, ~target_width: pc_width) | DisabledSuperscalarDirection(profile))

@@ -48,7 +48,7 @@ sync_circuit RV5StageFrontend(core_profile :: RV5StageConfig, ~btb_entries: btb_
   /* Fixed S1/S2 attempts and reserved packet queue.
      Only architectural recovery flushes older queued packets. */
 
-  inst source(RV5StageFetchSource(xlen, btb_entries, ras_entries, ~target_width: target_width))
+  inst source(RV5StageFetchSource(xlen, btb_entries, ras_entries, ~pc_width: math.min(xlen.width, pc_width), ~target_width: target_width))
   inst scan(RV5StageFetchScan(core_profile, ~target_width: target_width))
   inst queue(ShiftQueue(QueuePacket, packet_capacity, ~flow: #true, ~flushable: #true))
   inst s2(ValidPipeAlwaysCapture(RV5StageFetchAttempt(xlen), 1, ~flushable: #true))
