@@ -38,7 +38,7 @@ leave DPI memory to the simulator. See the
 Mini, Single, and Tiled are independent host-selected SoC shapes. Each circuit
 accepts one immutable config that owns its hart binding. The contract in
 `harts/implementation.rhdl` contains no named-core import; adapters in
-`harts/rv5stage.rhdl`, `harts/rv2wide.rhdl`, and `harts/spike.rhdl` supply their implementations.
+`harts/rv5stage.rhdl`, `harts/rv2wide.rhdl`, `harts/rv3wide.rhdl`, and `harts/spike.rhdl` supply their implementations.
 `configs/selection.rhm` owns typed shape/core/ISA selectors, canonical keys,
 and conversion from complete CLI keys. `configs/selections.tsv` is the shared
 key-to-axis contract consumed by the typed selector and dependency-light Python
@@ -119,6 +119,7 @@ in its own projection. UDB continues to own HPM event IDs and counter presence.
 | Architectural host description and device-tree projection | [`description.rhm`](platform/description.rhm) |
 | RV5Stage processor profiles | [`core-profiles.rhm`](configs/core-profiles.rhm) |
 | RV2Wide shape-owned scalar and RV32/RV64 vector policy | [`rv2wide-core-profile.rhm`](configs/rv2wide-core-profile.rhm), [`rv2wide.rhdl`](harts/rv2wide.rhdl) |
+| RV3Wide shape-owned policy and named hart binding | [`rv3wide-core-profile.rhm`](configs/rv3wide-core-profile.rhm), [`rv3wide.rhdl`](harts/rv3wide.rhdl) |
 | Typed config selection, architectural presets, and shared resolution | [`selection.rhm`](configs/selection.rhm), [`isa-profiles.rhm`](configs/isa-profiles.rhm), [`resolve.rhm`](configs/resolve.rhm) |
 | Spike processor profile | [`spike-core-profile.rhm`](configs/spike-core-profile.rhm) |
 | Shared CHI flit profile | [`fabric-profiles.rhm`](platform/fabric-profiles.rhm) |
@@ -145,7 +146,7 @@ generic `TiledSoC` entrypoint. `tiled4core_soc_layout` supplies one row of four
 harts; `default_tiled_soc_layout` supplies two. Keep the four LLC slices,
 memory map, cache policy, and device allocation identical when changing these
 presets. Tests must check both compiled layouts and all core implementations;
-the shared device-tree checks cover all twelve shape/core combinations.
+the shared device-tree checks cover all sixteen shape/core combinations.
 
 ## Change a composition
 
@@ -196,7 +197,7 @@ make soc-test
 ```
 
 This target also generates native DTBs for the Mini, Single, and Tiled shapes
-with RV5Stage, RV2Wide, and Spike harts,
+with RV5Stage, RV2Wide, RV3Wide, and Spike harts,
 round-trips their inspection DTS through `dtc`, and checks architectural
 properties with `fdtdump` and `fdtget`. It also checks that the same native DTB
 bytes are finalized into each SoC's BootROM image. Generated artifacts remain

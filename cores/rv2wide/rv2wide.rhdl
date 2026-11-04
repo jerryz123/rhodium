@@ -1,159 +1,18 @@
 #lang rhodium
-/* Composes translated instruction fetching, dual-issue execution, and shared TLB/PTW and caches. */
+/* Selects the shared fetching pipeline from RV2Wide's independent configuration. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "profile.rhm" open
-  "core.rhdl" open
-  "frontend.rhdl" open
-  "cache.rhdl" open
-  "mmu.rhdl" open
-  "bare-memory.rhdl".RV2WideBareMemory
-  lib("riscv/isa/hart.rhm").RiscvMmuType
-  "instruction-memory.rhdl" open
-  "bundles.rhdl" open
-  "../cache/config.rhm" open
-  "../cache-prefetch.rhdl" open
-  "../cache/l1i/cache.rhdl" open
-  "../chi-hart.rhdl" open
-  "../cosim-source.rhm".describe_cosim_context
-  lib("riscv/isa/xlen.rhm") open
-  lib("riscv/rtl/interrupt.rhdl").RiscvInterrupts
-  lib("flow/main.rhdl") open
-  lib("chi/protocol/channels.rhdl") open
+  "../superscalar/profile.rhm".SuperscalarPipelineConfig
+  "profile.rhm".RV2WideConfig
+  "../superscalar/superscalar.rhdl".Superscalar
+  "../cache/config.rhm".CacheConfig
+  "../chi-hart.rhdl".RiscvHartCHIConfig
+  lib("rhodium/frontend/foundation.rhm").CircuitDefinition
 
-/* Starts from a physical PC and reports ordered retirement and architectural redirects.
-   Faults enter the programmed trap vector; only reset permits a new start pulse.
-   Distinct instruction, data, and uncached identities separate retained transactions. */
-sync_circuit RV2Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~instruction_cache: instruction_cache :: CacheConfig = cache, ~profile: profile :: RV2WideConfig = RV2WideConfig(~instruction_cache: instruction_cache, ~data_cache: cache)):
-  def xlen = profile.xlen
-  def hypervisor = profile.hypervisor
-  unless config.cache_line_bytes == CacheLineBytes
-  | error(~who: #'RV2Wide, "RV2Wide requires 64-byte CHI cache lines")
-
-  unless profile.instruction_cache == instruction_cache && profile.data_cache == cache
-  | error(~who: #'RV2Wide, "private caches must match the architectural description")
-
-  input(instruction_node_id, data_node_id, uncached_node_id): Bits(config.flit.node_id_width)
-  input interrupts: RiscvInterrupts()
-  input(hart_id, time_counter): Bits(64)
-  trace_instance("hart", hart_id)
-  interface start(Valid(Bits(64)), ~role: consumer)
-  interface retired[2](Valid(RV2WideRetirement(xlen, hypervisor)), ~role: producer)
-  interface completed(Valid(RV2WideCompletion(xlen)), ~role: producer)
-  interface redirect(Valid(RV2WideRedirect(xlen)), ~role: producer)
-  interface instruction_chi(CHIRNIChannels(config.flit), ~role: node)
-  interface data_chi(CHIRNChannels(config.flit), ~role: node)
-  interface uncached_chi(CHIRNIChannels(config.flit), ~role: node)
-  output halted: Bool
-  output sleeping: Bool
-  output(issued, retired_count): Bits(2)
-
-
-  /* Execution and selected cache/translation services.
-     Scalar width follows the profile; fetch and physical transport remain 64-bit. */
-
-  // Cover sign-extended Sv39 VAs and zero-extended physical/Bare addresses.
-  // CHI's minimum 44-bit physical width also covers Bare guest Sv39x4 GPAs.
-  def instruction_pc_width = math.min(xlen.width, math.max(39, config.flit.request_address_width + 1))
-  inst core(RV2WideCore(profile, ~instruction_pc_width: instruction_pc_width))
-  core.interrupts <== interrupts
-  core.hart_id <== hart_id
-  core.time_counter <== time_counter
-  sleeping <== core.sleeping
-  inst frontend(RV2WideFrontend(config, profile))
-  inst instruction(L1ICache(XLen.X64, instruction_cache, ~chi: config, ~fetch_bits: 64))
-  inst data(RV2WideL1D(cache, ~chi: config, ~xlen: xlen))
-  inst mmu(if profile.mmu_type == RiscvMmuType.Bare | RV2WideBareMemory(xlen, config) | RV2WideMmu(config, ~svnapot: profile.svnapot, ~hypervisor: profile.hypervisor))
-  describe_cosim_context(core, {"mmu": mmu})
-
-
-  /* Translation context, instruction delivery, and predictor recovery.
-     The core owns architectural context and cancellation of speculative fetch work. */
-
-  mmu.split_guest_access <== core.split_guest_access
-  mmu.state <== core.translation_state
-  mmu.invalidate <== core.translation_flush
-  core.vector_precheck <=> mmu.vector_precheck
-  core.vector_fast |> mmu.vector_fast
-  mmu.pipeline_vector <== core.pipeline_vector
-  mmu.request_vector <== core.request_vector
-  frontend.translation <=> mmu.instruction
-  start |> frontend.start
-  frontend.instructions |> core.instructions
-  core.fetch_flush |> frontend.flush
-  core.instruction_invalidate |> frontend.invalidate
-  core.branch_update |> frontend.branch_update
-  core.predictor_restore |> frontend.predictor_restore
-  core.predictor_clear |> frontend.predictor_clear
-  core.direction_update |> frontend.direction_update
-  core.ras_resolution |> frontend.ras_resolution
-  core.history_commit |> frontend.history_commit
-  core.history_restore |> frontend.history_restore
-
-
-  /* Cached and nonallocating fetch share one frontend response path.
-     Noncacheable fetch uses the data adapter's ordered uncached transport. */
-
-  inst instruction_memory(RV2WideInstructionMemory())
-  frontend.memory <=> instruction_memory.core
-  instruction_memory.cache <=> instruction.core
-  instruction_memory.uncached <=> data.instruction
-  frontend.virtual_lookup |> instruction.virtual_lookup
-
-
-  /* Best-effort physical prefetch splits by instruction/data operation.
-     Translation precedes routing to either private cache. */
-
-  core.prefetch |> mmu.prefetch
-  def Array(instruction_prefetch, data_prefetch) = mmu.physical_prefetch |> fork_valid(2)
-  instruction_prefetch |> filter_valid(request => request.into(CachePrefetchReq(64)).operation === CachePrefetchOperation.Instruction) |> instruction.prefetch
-  data_prefetch |> filter_valid(request => request.into(CachePrefetchReq(64)).operation.is_one_of(CachePrefetchOperation.Read, CachePrefetchOperation.Write)) |> data.prefetch
-
-
-  /* Instruction CHI identity and architectural reporting.
-     Redirects both recover the frontend and remain externally observable. */
-
-  instruction.chi <=> instruction_chi
-  instruction.node_id <== instruction_node_id
-  core.retired <=> retired
-  core.completed |> completed
-  def Array(fetch_redirect, reported_redirect) = core.redirect |> fork_valid(2)
-  fetch_redirect |> frontend.redirect
-  reported_redirect |> redirect
-
-
-  /* Committed LSU and speculative cache lookup share translation and L1D.
-     Coherent data and uncached services retain distinct CHI identities. */
-
-  core.memory <=> mmu.memory
-  core.split <=> mmu.split
-  core.pipeline <=> mmu.pipeline
-  mmu.physical_memory <=> data.memory
-  mmu.physical_pipeline <=> data.pipeline
-  mmu.pipeline_lookup |> data.pipeline_lookup
-  data.chi <=> data_chi
-  data.node_id <== data_node_id
-  data.uncached_node_id <== uncached_node_id
-  data.uncached_chi <=> uncached_chi
-
-
-  /* Reset-only startup and composition invariants.
-     Starting requires quiescent data services; this wrapper supplies no external resolutions. */
-
-  reg stopped(~init: Bool(#true))
-  when (start.valid):
-    stopped <== Bool(#false)
-    assert(stopped & data.memory.drained, "rv2wide_start_at_quiescent_boundary")
-
-  halted <== stopped
-  assert(instruction_node_id =/= data_node_id, "rv2wide_distinct_cache_identities")
-  assert((instruction_node_id =/= uncached_node_id) & (data_node_id =/= uncached_node_id), "rv2wide_distinct_uncached_identity")
-  issued <== core.issued
-  retired_count <== core.retired_count
-  for (slot in 0..2):
-    core.resolution[slot].valid <== Bool(#false)
-    core.resolution[slot].bits <== dont_care(RV2WideResolution(xlen))
+/* Projects configuration without inserting an RTL wrapper or changing pipeline timing. */
+fun RV2Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~instruction_cache: instruction_cache :: CacheConfig = cache, ~profile: profile :: RV2WideConfig = RV2WideConfig(SuperscalarPipelineConfig(~instruction_cache: instruction_cache, ~data_cache: cache))) :: CircuitDefinition:
+  Superscalar(cache, ~chi: config, ~instruction_cache: instruction_cache, ~profile: profile.pipeline)
 
 export:
   RV2Wide

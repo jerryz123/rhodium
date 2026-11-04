@@ -12,6 +12,7 @@ import:
   "selection.rhm".CoreKind
   lib("cores/spike/udb.rhm").spike_csr_warl_policy
   lib("cores/rv2wide/profile.rhm").RV2WideConfig
+  lib("cores/rv3wide/profile.rhm").RV3WideConfig
 
 /*
  * Snapshots public fabric parameters in expression notation and replaces factory closures with
@@ -42,6 +43,9 @@ fun config_metadata(resolved :: ResolvedSoCConfig,
   | CoreKind.Spike: spike_csr_warl_policy(config.hart.profile)
   | CoreKind.RV2Wide:
       def profile :: RV2WideConfig = config.hart.profile
+      profile.csr_config.warl_policy()
+  | CoreKind.RV3Wide:
+      def profile :: RV3WideConfig = config.hart.profile
       profile.csr_config.warl_policy()
 
   def platform = cond

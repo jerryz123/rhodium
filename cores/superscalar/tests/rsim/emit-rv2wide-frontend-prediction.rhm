@@ -1,0 +1,11 @@
+#lang rhombus
+// Elaborates the production frontend for public-port redirect timing and cancellation checks.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  "../../frontend.rhdl".SuperscalarFrontend
+  "../cache-fixture.rhdl".test_chi
+  "../../profile.rhm".SuperscalarPipelineConfig
+
+def program = elaborate(SuperscalarFrontend(test_chi, SuperscalarPipelineConfig(~bht: #false)))
+export program

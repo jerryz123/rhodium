@@ -343,7 +343,9 @@ The package is organized by component, not by ISA namespace:
 | [`fp/`](fp/README.md) | FP instruction/control mappings, opaque-tag arithmetic service, and 3R2W FPR storage |
 | [`bpred/`](bpred/README.md) | Core-neutral BTB, speculative/resolved RAS, prediction payloads, and call/return hints |
 | Root integration helpers | CHI placement, split accesses, vector row layout, and passive observations |
-| `rv5stage/`, `rv2wide/`, `spike/` | Named-core configuration, pipeline policy, and integration |
+| `superscalar/` | One fixed-two-wide pipeline, configuration, and integration shared by RV2Wide and RV3Wide |
+| `rv2wide/`, `rv3wide/` | Separate configurations and hart wrappers projecting into the shared superscalar implementation; both are currently two-wide |
+| `rv5stage/`, `spike/` | Named-core configuration, pipeline policy, and integration |
 
 These shared components may be RISC-V-specific. Architectural encodings and
 stateless architectural helpers remain in [`../riscv/`](../riscv/README.md);
@@ -414,6 +416,13 @@ the [shared physical L1D](cache/README.md), both also used by RV5Stage. It has
 shared CSR/trap and translation machinery, precise faults, and Mini/Simple SoC
 selection. See its [README](rv2wide/README.md) for the current ISA, memory,
 retirement, cosim, and tracing contracts.
+
+RV2Wide and the experimental [RV3Wide](rv3wide/README.md) have independent
+configuration classes and hart wrappers selecting one [superscalar implementation](superscalar/README.md).
+RV3Wide currently has the identical two-wide microarchitecture; it adds no
+third lane. Its SoC selections and CI workloads mirror RV2Wide. Both share decode, frontend, MMU/cache
+integration and the existing behavioral fixtures; named configs project into
+the shared implementation configuration.
 
 [`spike/spike.rhdl`](spike/spike.rhdl) is the standalone simulator-backed named
 core. It projects the shared architectural hart description, runs Spike through

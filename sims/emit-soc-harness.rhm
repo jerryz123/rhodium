@@ -51,11 +51,11 @@ def resolved = if selectors.length() == 1
 | #false
 | resolve_soc_config(SoCSelection(parse_soc_shape(selectors[0]), parse_core_kind(selectors[1]), parse_isa_preset(selectors[2])))
 
-when tracing && ![CoreKind.RV5Stage, CoreKind.RV2Wide].contains(resolved.selection.core)
-| error(~who: #'emit_soc_harness, "tracing requires RV5Stage or RV2Wide")
+when tracing && ![CoreKind.RV5Stage, CoreKind.RV2Wide, CoreKind.RV3Wide].contains(resolved.selection.core)
+| error(~who: #'emit_soc_harness, "tracing requires RV5Stage, RV2Wide, or RV3Wide")
 
-when cosim && (![CoreKind.RV5Stage, CoreKind.RV2Wide].contains(resolved.selection.core) || ![SoCShape.Mini, SoCShape.Simple].contains(resolved.selection.shape))
-| error(~who: #'emit_soc_harness, "cosimulation supports Mini/Simple RV5Stage and RV2Wide only")
+when cosim && (![CoreKind.RV5Stage, CoreKind.RV2Wide, CoreKind.RV3Wide].contains(resolved.selection.core) || ![SoCShape.Mini, SoCShape.Simple].contains(resolved.selection.shape))
+| error(~who: #'emit_soc_harness, "cosimulation supports Mini/Simple RV5Stage, RV2Wide, and RV3Wide only")
 
 def resolved_config = if resolved | resolved.configuration() | #false
 

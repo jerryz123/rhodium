@@ -52,7 +52,7 @@ fun missing_rva23_extensions(extensions :: List.of(UdbExtension)) :: List.of(Str
   def missing = Rva23MandatoryUdb.filter(~keep: absent)
   missing.map(fun (requirement): requirement[0])
 
-for (core in ["rv5stage", "rv2wide", "spike"]):
+for (core in ["rv5stage", "rv2wide", "rv3wide", "spike"]):
   for (isa in ["rv32int", "rv32max"]):
     def rv32 = riscv_udb_configuration("simple-" ++ core ++ "-" ++ isa)
     def yaml = rv32.to_yaml()
@@ -72,7 +72,7 @@ for (core in ["rv5stage", "rv2wide", "spike"]):
     for (name in ["D", "V", "Zfh", "Zfa", "Zvfh", "H", "Sha", "Smstateen", "Ssstateen", "Sstc", "Svinval", "Svpbmt", "Svnapot"]):
       check: (for any (entry in rv32.extensions): entry.name == name) ~is #false
 
-for (core in ["rv5stage", "spike", "rv2wide"]):
+for (core in ["rv5stage", "spike", "rv2wide", "rv3wide"]):
   for (shape in ["mini", "simple", "tiled4core", "tiled8core"]):
     def config = resolve_soc_config(named_soc_selection(shape ++ "-" ++ core ++ "-rva23"))
     def configuration = config.udb()

@@ -1,13 +1,13 @@
 #lang rhodium
-/* Captures RV2Wide's dual WB slots, actual deferred writes, CSR boundaries, and translated fragments. */
+/* Captures Superscalar's dual WB slots, actual deferred writes, CSR boundaries, and translated fragments. */
 // SPDX-License-Identifier: Apache-2.0
 import:
   lib("cores/fp/profile.rhm").fp_transport_profile
   lib("rhodium/compile/program.rhm").compile_program
   lib("rhodium/compile/rtl.rhm").rtl_target
   lib("rhodium/frontend/kernel.rhm").input as observer_input
-  "../../../cores/rv2wide/bundles.rhdl" open
-  "../../../cores/rv2wide/profile.rhm" open
+  "../../../cores/superscalar/bundles.rhdl" open
+  "../../../cores/superscalar/profile.rhm" open
   lib("cores/fp/bundles.rhdl") open
   lib("cores/fp/types.rhdl") open
   lib("cores/fp/timing.rhdl") open
@@ -45,13 +45,13 @@ dpi_import procedure rhodium_rv2wide_physical(
   fragment_response: Bits(64), fragment_response_data: Bits(64)
 )
 
-/* Compiles the stateless adapter selected by the RV2Wide observation contract. */
+/* Compiles the shared two-wide capture selected by the existing rv2wide observation contract. */
 fun rv2wide_cosim_adapter(configuration :: Map, types :: Map, parameters :: Map, instance :: Nat):
-  def profile :: RV2WideConfig = configuration["profile"]
-  compile_program(elaborate(RV2WideCosimObserver(profile, types, instance, configuration["fp_timing"])), rtl_target).report.elaboration
+  def profile :: SuperscalarPipelineConfig = configuration["profile"]
+  compile_program(elaborate(SuperscalarCosimObserver(profile, types, instance, configuration["fp_timing"])), rtl_target).report.elaboration
 
 /* Reports pre-edge facts only; all instruction identities and completion retention live in C++. */
-sync_circuit RV2WideCosimObserver(profile :: RV2WideConfig, tap_types :: Map, instance :: Nat, timing :: FpExecutionTiming):
+sync_circuit SuperscalarCosimObserver(profile :: SuperscalarPipelineConfig, tap_types :: Map, instance :: Nat, timing :: FpExecutionTiming):
   def xlen = profile.xlen
   def hypervisor = profile.hypervisor
   def vectors = vector_profile_enabled(profile.vector)
@@ -67,8 +67,8 @@ sync_circuit RV2WideCosimObserver(profile :: RV2WideConfig, tap_types :: Map, in
 
   /* Standalone core observations have no sibling physical-memory provenance. */
   fun mmu_lane(name :: String) :~ Bits(64): if tap_types.has_key(name) | tap_lane(name) | Bits(64)(0)
-  def tokens :: Vec(2, RV2WideResult(xlen, hypervisor)) = taps["wb_tokens"]
-  def retirement :: Vec(2, RV2WideRetirement(xlen, hypervisor)) = taps["wb_retirement"]
+  def tokens :: Vec(2, SuperscalarResult(xlen, hypervisor)) = taps["wb_tokens"]
+  def retirement :: Vec(2, SuperscalarRetirement(xlen, hypervisor)) = taps["wb_retirement"]
   def retired :: Vec(2, Bool) = taps["wb_retired"]
   def writes :: Vec(2, Bool) = taps["wb_writes"]
   def split_capture :: Bool = taps["wb_split_capture"]
@@ -76,9 +76,9 @@ sync_circuit RV2WideCosimObserver(profile :: RV2WideConfig, tap_types :: Map, in
   def vector_capture :: Bool = taps["wb_vector_capture"]
   def vector_lane :: Bits(1) = taps["wb_vector_lane"]
   def multiply :: Bool = taps["wb_multiply_accepted"]
-  def boundary_instruction :: RV2WideBoundaryInstruction(xlen) = taps["wb_boundary_instruction"]
+  def boundary_instruction :: SuperscalarBoundaryInstruction(xlen) = taps["wb_boundary_instruction"]
   def completion_valid :: Vec(4, Bool) = taps["completion_fire"]
-  def completions :: Vec(4, RV2WideCompletion(xlen)) = taps["completion"]
+  def completions :: Vec(4, SuperscalarCompletion(xlen)) = taps["completion"]
   def privilege :: PrivilegeMode = taps["csr_privilege"]
   def mret :: Bool = taps["csr_mret"]
   def sret :: Bool = taps["csr_sret"]
@@ -92,8 +92,8 @@ sync_circuit RV2WideCosimObserver(profile :: RV2WideConfig, tap_types :: Map, in
   def trap_target :: RiscvTrapTarget = taps["csr_trap_target"]
   def trap_cause :: Bits(xlen.width) = taps["csr_trap_cause"]
   for (index in 0..3):
-    def token :: RV2WideBoundaryInstruction(xlen) = if index < 2 | tokens[index].boundary_instruction() | boundary_instruction
-    def result :: RV2WideRetirement(xlen, hypervisor) = if index < 2 | retirement[index] | literal(RV2WideRetirement(xlen, hypervisor), 0)
+    def token :: SuperscalarBoundaryInstruction(xlen) = if index < 2 | tokens[index].boundary_instruction() | boundary_instruction
+    def result :: SuperscalarRetirement(xlen, hypervisor) = if index < 2 | retirement[index] | literal(SuperscalarRetirement(xlen, hypervisor), 0)
     def deferred = if index < 2 | result.deferred | Bool(#false)
     def write = if index < 2 | mux(deferred, result.write, writes[index]) | Bool(#false)
     def next_pc = mux(mret ||| sret, taps["csr_redirect"], token.next_pc)
@@ -123,11 +123,11 @@ sync_circuit RV2WideCosimObserver(profile :: RV2WideConfig, tap_types :: Map, in
   )
 
   for (index in 0..4):
-    def result :: RV2WideCompletion(xlen) = completions[index]
+    def result :: SuperscalarCompletion(xlen) = completions[index]
     rhodium_rv2wide_completion.call(instance_id, Bits(64)(index), lane(completion_valid[index].as_bits()), lane(result.identity.pc), lane(result.rd), lane(result.write.as_bits()), lane(result.data), ~enable: active)
 
-  def fp_result :: FpExecutionResult(xlen, fp_transport_profile(xlen), RV2WideFpOwner(xlen)) = taps["fp_completion"]
-  def fp_load :: RV2WideFpLoad(xlen) = taps["fp_load"]
+  def fp_result :: FpExecutionResult(xlen, fp_transport_profile(xlen), SuperscalarFpOwner(xlen)) = taps["fp_completion"]
+  def fp_load :: SuperscalarFpLoad(xlen) = taps["fp_load"]
   rhodium_rv2wide_fp.call(instance_id, Bits(64)(0), tap_lane("fp_valid"), lane(fp_result.tag.identity.pc), lane(fp_result.tag.rd), lane(fp_result.tag.destination.as_bits()), mux(fp_result.tag.destination === FloatDestination.Integer, lane(fp_result.integer_value), lane(fp_result.fp_value)), lane(fp_result.exception_flags_valid.as_bits()), lane(fp_result.exception_flags), Bits(64)(floating_point_register_width(fp_transport_profile(xlen))), ~enable: active)
   rhodium_rv2wide_fp.call(instance_id, Bits(64)(1), tap_lane("fp_load_valid"), lane(fp_load.owner.identity.pc), lane(fp_load.owner.rd), Bits(64)(2), lane(fp_load_value(fp_transport_profile(xlen), fp_load.precision, fp_load.data)), Bits(64)(0), Bits(64)(0), Bits(64)(floating_point_register_width(fp_transport_profile(xlen))), ~enable: active)
   def vector_request :: Bool = if vectors | taps["lsu_request_vector"] | Bool(#false)

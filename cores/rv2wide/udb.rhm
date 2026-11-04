@@ -1,21 +1,16 @@
 #lang rhombus
-/* Projects RV2Wide's selected architecture and shared CSR, vector, and MMU behavior into UDB. */
+/* Projects RV2Wide's configuration through the shared superscalar UDB contract. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../udb.rhm" open
   "profile.rhm".RV2WideConfig
-  lib("riscv/udb.rhm") open
+  "../superscalar/udb.rhm".superscalar_udb_configuration
+  lib("riscv/udb.rhm").UdbConfiguration
   lib("support/annotations.rhm").NonemptyString
 
-/* Publishes the selected architecture, Bare/Sv39 translation policy, and cache-management choices. */
+/* Uses the same projected configuration for architectural publication and RTL. */
 fun rv2wide_udb_configuration(profile :: RV2WideConfig, name :: NonemptyString, description :: NonemptyString, physical_address_width :: PosInt) :: UdbConfiguration:
-  unless physical_address_width <= profile.xlen.width
-  | error(~who: #'rv2wide_udb_configuration, "physical address width must fit XLEN")
-
-  def pma_granularity_log2 = if profile.xlen.width == 32 | 2 | 3
-  UdbConfiguration(name, description, core_udb_extensions(profile.hart_description),
-                   core_udb_parameters(profile.hart_description, profile.csr_config, physical_address_width, pma_granularity_log2))
+  superscalar_udb_configuration(profile.pipeline, name, description, physical_address_width)
 
 export:
   rv2wide_udb_configuration

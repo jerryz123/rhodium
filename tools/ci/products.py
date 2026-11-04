@@ -36,20 +36,23 @@ def build_graph():
     source('architecture', 'riscv/isa/*', 'riscv/model/*', 'riscv/rtl/*', 'riscv/udb*',
            'cores/profile.rhm', 'cores/udb.rhm', 'devicetree/*')
     profiles = {'rv5stage': 'core-profiles.rhm', 'rv2wide': 'rv2wide-core-profile.rhm',
-                'spike': 'spike-core-profile.rhm'}
+                'rv3wide': 'rv3wide-core-profile.rhm', 'spike': 'spike-core-profile.rhm'}
     source('soc-config', 'socs/configs/*', 'socs/platform/*', 'socs/harts/implementation.rhdl',
            'sims/config.mk', 'sims/test-config*', 'sims/program-test/*target*.rhm',
            exclude=tuple('socs/configs/' + p for p in profiles.values()))
     source('soc-hardware', 'chi/*', 'noc/*', 'devices/*')
     source('hart-interface', 'cores/chi-hart.rhdl', 'cores/cosim-source.rhm')
     source('shared-core', 'cores/*', 'hardfloat/*',
-           exclude=('cores/rv2wide/*', 'cores/rv5stage/*', 'cores/spike/*'))
+           exclude=('cores/rv2wide/*', 'cores/rv3wide/*', 'cores/superscalar/*', 'cores/rv5stage/*', 'cores/spike/*'))
+    source('superscalar', 'cores/superscalar/*')
     for core in sorted({core for _, core, _ in SELECTIONS.values()}):
-        source('core:' + core, f'cores/{core}/*', f'socs/harts/{core}.rhdl')
+        source('core:' + core, f'cores/{core}/*', f'socs/harts/{core}.rhdl',
+               requires=('superscalar',) if core in ('rv2wide', 'rv3wide') else ())
         source('profile:' + core, 'socs/configs/' + profiles[core], f'cores/{core}/profile.rhm',
                f'cores/{core}/udb.rhm', f'socs/harts/{core}.rhdl',
                *(('cores/vector/profile.rhm', 'cores/fp/profile.rhm', 'cores/cache/config.rhm',
-                  'cores/csr/config.rhm') if core != 'spike' else ()))
+                  'cores/csr/config.rhm') if core != 'spike' else ()),
+               *(('cores/superscalar/profile.rhm', 'cores/superscalar/udb.rhm') if core in ('rv2wide', 'rv3wide') else ()))
     source('shape:mini', 'socs/mini-soc/*', 'socs/one-hart/*')
     source('shape:simple', 'socs/single-core-soc/*', 'socs/one-hart/*')
     source('shape:tiled', 'socs/tiled-soc/*')
@@ -264,10 +267,13 @@ def checks(graph):
                 deps += ['shared-core', 'architecture']
                 # A named implementation selects the groups that exercise it.
                 # Shared harts/units retain conservative cross-core coverage.
-                for c in ('rv2wide', 'rv5stage', 'spike'):
+                for c in ('rv2wide', 'rv3wide', 'rv5stage', 'spike'):
                     if any(p.startswith('cores/' + c + '/') for p in owned):
                         deps.append('core:' + c)
                         paths += (f'cores/{c}/tests/*',)
+                if any(p.startswith('cores/superscalar/') for p in owned):
+                    deps += ['superscalar', 'core:rv2wide', 'core:rv3wide']
+                    paths += ('cores/superscalar/tests/*',)
                 paths += ('cores/tests/*', 'riscv/*', 'examples/cores/*', 'examples/riscv/*', 'chi/*', 'rheg/*', 'rhodium/event/*',
                           'rhodium/diagram/*', 'socs/*')
             elif name == 'protocols':

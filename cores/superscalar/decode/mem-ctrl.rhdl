@@ -1,0 +1,58 @@
+#lang rhodium
+/* Maps scalar, atomic, and cache-block instructions to shared physical cache controls. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("riscv/isa/xlen.rhm").XLen
+  "../../memory-decode.rhdl" open
+  lib("cores/load-store.rhdl") open
+  lib("cores/cache/operation.rhdl") open
+  lib("riscv/rtl/atomic.rhdl") open
+  lib("riscv/isa/a.rhm") open
+  lib("riscv/isa/rv64i.rhm") open
+  lib("riscv/isa/zicboz.rhm") open
+  lib("riscv/isa/zicbom.rhm") open
+  lib("riscv/rtl/decode.rhdl") open
+  lib("rhodium/std/decode.rhdl") open
+
+/* Enables one memory operation with its ownership class, AMO function, and result projection. */
+bundle SuperscalarMemoryControl():
+  enable: Bool
+  access: CacheOperation
+  atomic: RiscvAtomicOperation
+  width: MemoryWidth
+  unsigned: Bool
+
+/* Adds the caller's validity bit without constraining inactive physical controls. */
+fun enabled_cases(cases :: List.of(DecodeCase)) :: List.of(DecodeCase):
+  for List (entry in cases):
+    DecodeCase(entry.input, entry.output.intersection(partial_pattern(SuperscalarMemoryControl()): enable: Bool(#true)).terms[0])
+
+def block_cases = cache_block_memory_cases(SuperscalarMemoryControl())
+/* Keeps the two-wide whole-line token's width while reusing operation mappings. */
+fun block_cases_for(instructions :: List.of(InstructionSpec)) :: List.of(DecodeCase):
+  def cases = for List (instruction in instructions):
+    DecodeCase(instruction_pattern(instruction), component_output(block_cases, instruction_pattern(instruction)).intersection(partial_pattern(SuperscalarMemoryControl()): width: MemoryWidth.Double).terms[0])
+
+  enabled_cases(cases)
+
+def SuperscalarZeroCases = block_cases_for(ZicbozInstructions)
+def SuperscalarManagementCases = block_cases_for(ZicbomInstructions)
+def SuperscalarLoads = RiscvWordLoads ++ RiscvDoubleLoads
+def SuperscalarStores = RiscvWordStores ++ RiscvDoubleStores
+def SuperscalarMemoryCases = enabled_cases(scalar_memory_cases(SuperscalarMemoryControl(), ~xlen: XLen.X64)) ++ instruction_cases(
+  excluding_instructions(RV64IInstructions, SuperscalarLoads ++ SuperscalarStores),
+  partial_pattern(SuperscalarMemoryControl()): enable: Bool(#false)
+)
+
+def SuperscalarAtomicCases = enabled_cases(atomic_memory_cases(SuperscalarMemoryControl(), ~xlen: XLen.X64))
+
+export:
+  enabled_cases
+  SuperscalarMemoryControl
+  SuperscalarMemoryCases
+  SuperscalarAtomicCases
+  SuperscalarZeroCases
+  SuperscalarManagementCases
+  SuperscalarLoads
+  SuperscalarStores

@@ -1,0 +1,41 @@
+#lang rhodium
+/* Adapts the reset-started RV3Wide processor to the core-neutral SoC hart ports. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "profile.rhm" open
+  "../superscalar/superscalar.rhdl".Superscalar
+  "../chi-hart.rhdl" open
+  lib("riscv/rtl/interrupt.rhdl").RiscvInterrupts
+  lib("flow/main.rhdl") open
+  lib("chi/protocol/channels.rhdl") open
+
+/* Starts once at the platform reset vector after each reset epoch and exposes the three CHI identities. */
+sync_circuit RV3WideHart(profile :: RV3WideConfig, ~reset_address: reset_address :: Nat, ~chi: config :: RiscvHartCHIConfig):
+  unless bits.length(reset_address) <= profile.pipeline.xlen.width
+  | error(~who: #'RV3WideHart, "reset address must fit XLEN")
+
+  input chi_identity: RiscvHartCHIIdentity(config.flit)
+  input interrupts: RiscvInterrupts()
+  input hart_id: Bits(profile.pipeline.xlen.width)
+  input time_counter: Bits(64)
+  interface imem(CHIRNIChannels(config.flit), ~role: node)
+  interface dmem(CHIRNChannels(config.flit), ~role: node)
+  interface umem(CHIRNIChannels(config.flit), ~role: node)
+  inst core(Superscalar(profile.pipeline.data_cache, ~chi: config, ~instruction_cache: profile.pipeline.instruction_cache, ~profile: profile.pipeline))
+  core.instruction_node_id <== chi_identity.instruction_node_id
+  core.data_node_id <== chi_identity.data_node_id
+  core.uncached_node_id <== chi_identity.uncached_node_id
+  core.interrupts <== interrupts
+  core.hart_id <== (if profile.pipeline.xlen.width == 64 | hart_id | hart_id.zext(64))
+  core.time_counter <== time_counter
+  core.instruction_chi <=> imem
+  core.data_chi <=> dmem
+  core.uncached_chi <=> umem
+  reg started(~init: Bool(#false))
+  started <== Bool(#true)
+  core.start.valid <== !started
+  core.start.bits <== Bits(64)(reset_address)
+
+export:
+  RV3WideHart

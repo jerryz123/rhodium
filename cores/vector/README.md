@@ -24,7 +24,7 @@ inst execution(VectorExecution(xlen, vlen, Context, ~vector_completion_slots: 8)
 connects decoded descriptor admission, memory decisions and completions, shared
 FP/multiply/divide services, scalar write reservations, and architectural update
 outputs. [RV5Stage's adapter](../rv5stage/vector.rhdl) and
-[RV2Wide's adapter](../rv2wide/vector.rhdl) connect this service to their
+[the superscalar adapter](../superscalar/vector.rhdl) connect this service to their
 respective scalar WB and LSU boundaries through `VectorBackend`.
 
 [`backend.rhdl`](backend.rhdl) composes `VectorAdmission` with `VectorExecution`

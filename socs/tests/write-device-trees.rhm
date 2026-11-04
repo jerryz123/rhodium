@@ -13,7 +13,7 @@ unless arguments.length() == 1
 
 def output_directory = arguments[0]
 for (shape in [SoCShape.Mini, SoCShape.Simple, SoCShape.Tiled4Core, SoCShape.Tiled8Core]):
-  for (core in [CoreKind.RV5Stage, CoreKind.RV2Wide, CoreKind.Spike]):
+  for (core in [CoreKind.RV5Stage, CoreKind.RV2Wide, CoreKind.RV3Wide, CoreKind.Spike]):
     def config = resolve_soc_config(SoCSelection(shape, core, IsaPreset.RVA23))
     def name = soc_shape_name(shape) ++ "-" ++ core_kind_name(core) ++ "-soc"
     def tree = config.description.to_device_tree()

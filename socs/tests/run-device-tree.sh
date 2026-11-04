@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Cross-checks all three RVA23 hart bindings and shapes against standard device-tree tools.
+# Cross-checks all RVA23 hart bindings and shapes against standard device-tree tools.
 # SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
@@ -21,7 +21,8 @@ env PLTCOLLECTS="$repo_dir": "$repo_dir/tools/run-racket.sh" \
   "$repo_dir/socs/tests/write-device-trees.rhm" "$fixture_dir"
 
 hardware_names=(simple-rv5stage-soc mini-rv5stage-soc tiled4core-rv5stage-soc tiled8core-rv5stage-soc
-                simple-rv2wide-soc mini-rv2wide-soc tiled4core-rv2wide-soc tiled8core-rv2wide-soc)
+                simple-rv2wide-soc mini-rv2wide-soc tiled4core-rv2wide-soc tiled8core-rv2wide-soc
+                simple-rv3wide-soc mini-rv3wide-soc tiled4core-rv3wide-soc tiled8core-rv3wide-soc)
 for name in "${hardware_names[@]}"; do
   dtc -I dtb -O dts -o "$fixture_dir/$name-roundtrip.dts" "$fixture_dir/$name.dtb"
   dtc -I dts -O dtb -o "$fixture_dir/$name-from-dts.dtb" "$fixture_dir/$name.dts"
@@ -139,23 +140,27 @@ done
 [[ "$(fdtget -l "$fixture_dir/tiled8core-rv5stage-soc.dtb" / | grep -c '^memory@')" == "1" ]]
 grep -Fq 'Rhodium Tiled RV5Stage SoC' "$fixture_dir/tiled8core-rv5stage-soc.dump"
 
-for shape in simple mini tiled4core tiled8core; do
-  name="$shape-rv2wide-soc"
-  case "$shape" in
-    simple) model='Rhodium Single-Core RV2Wide SoC'; memory_bytes=40000000; cache_sets=64; cache_bytes=16384; harts=1 ;;
-    mini) model='Rhodium Mini RV2Wide SoC'; memory_bytes=10000; cache_sets=32; cache_bytes=2048; harts=1 ;;
-    tiled8core) model='Rhodium Tiled RV2Wide SoC'; memory_bytes=40000000; cache_sets=64; cache_bytes=4096; harts=8 ;;
-    tiled4core) model='Rhodium Tiled RV2Wide SoC'; memory_bytes=40000000; cache_sets=64; cache_bytes=4096; harts=4 ;;
-  esac
-  [[ "$(fdtget "$fixture_dir/$name.dtb" / model)" == "$model" ]]
-  [[ "$(fdtget -t x "$fixture_dir/$name.dtb" /memory@80000000 reg)" == "0 80000000 0 $memory_bytes" ]]
-  [[ "$(fdtget -l "$fixture_dir/$name.dtb" /cpus | grep -c '^cpu@')" == "$harts" ]]
-  for ((hart=0; hart<harts; hart++)); do
-    [[ "$(fdtget "$fixture_dir/$name.dtb" "/cpus/cpu@$hart" riscv,isa-base)" == rv64i ]]
-    [[ "$(fdtget "$fixture_dir/$name.dtb" "/cpus/cpu@$hart" mmu-type)" == riscv,sv39 ]]
-    for cache in i d; do
-      [[ "$(fdtget "$fixture_dir/$name.dtb" "/cpus/cpu@$hart" "$cache-cache-sets")" == "$cache_sets" ]]
-      [[ "$(fdtget "$fixture_dir/$name.dtb" "/cpus/cpu@$hart" "$cache-cache-size")" == "$cache_bytes" ]]
+for core in rv2wide rv3wide; do
+  core_name=RV2Wide
+  [[ "$core" != rv3wide ]] || core_name=RV3Wide
+  for shape in simple mini tiled4core tiled8core; do
+    name="$shape-$core-soc"
+    case "$shape" in
+      simple) model="Rhodium Single-Core $core_name SoC"; memory_bytes=40000000; cache_sets=64; cache_bytes=16384; harts=1 ;;
+      mini) model="Rhodium Mini $core_name SoC"; memory_bytes=10000; cache_sets=32; cache_bytes=2048; harts=1 ;;
+      tiled8core) model="Rhodium Tiled $core_name SoC"; memory_bytes=40000000; cache_sets=64; cache_bytes=4096; harts=8 ;;
+      tiled4core) model="Rhodium Tiled $core_name SoC"; memory_bytes=40000000; cache_sets=64; cache_bytes=4096; harts=4 ;;
+    esac
+    [[ "$(fdtget "$fixture_dir/$name.dtb" / model)" == "$model" ]]
+    [[ "$(fdtget -t x "$fixture_dir/$name.dtb" /memory@80000000 reg)" == "0 80000000 0 $memory_bytes" ]]
+    [[ "$(fdtget -l "$fixture_dir/$name.dtb" /cpus | grep -c '^cpu@')" == "$harts" ]]
+    for ((hart=0; hart<harts; hart++)); do
+      [[ "$(fdtget "$fixture_dir/$name.dtb" "/cpus/cpu@$hart" riscv,isa-base)" == rv64i ]]
+      [[ "$(fdtget "$fixture_dir/$name.dtb" "/cpus/cpu@$hart" mmu-type)" == riscv,sv39 ]]
+      for cache in i d; do
+        [[ "$(fdtget "$fixture_dir/$name.dtb" "/cpus/cpu@$hart" "$cache-cache-sets")" == "$cache_sets" ]]
+        [[ "$(fdtget "$fixture_dir/$name.dtb" "/cpus/cpu@$hart" "$cache-cache-size")" == "$cache_bytes" ]]
+      done
     done
   done
 done

@@ -1,0 +1,660 @@
+#lang rhodium
+/* Defines instruction, pipeline, memory transaction, and retirement payloads for Superscalar. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("cores/fp/profile.rhm").fp_transport_profile
+  "pairing.rhdl".SuperscalarPairRoute
+  "pairing.rhdl".superscalar_pair_immediate_width
+  "decode/core-ctrl.rhdl" open
+  "decode/mem-ctrl.rhdl" open
+  "decode/system-ctrl.rhdl" open
+  "decode/long-ctrl.rhdl" open
+  lib("flow/main.rhdl") open
+  lib("cores/load-store.rhdl").MemoryWidth
+  lib("cores/load-store.rhdl").memory_word_bytes
+  lib("cores/cache/operation.rhdl").CacheOperation
+  lib("cores/cache/l1i/protocol.rhdl").InstructionCacheResult
+  lib("riscv/rtl/svpbmt.rhdl").PageMemoryType
+  lib("cores/cache-prefetch.rhdl").CachePrefetchOperation
+  lib("cores/reservation-wait.rhdl").ReservationWaitMode
+  lib("cores/bpred/protocol.rhdl") open
+  lib("cores/branch-resolver.rhdl").BranchResolverControl
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/isa/trap.rhm").exception_code
+  lib("riscv/isa/trap.rhm").ExceptionCause
+  lib("riscv/rtl/trap.rhdl").exception_cause_bits
+  lib("riscv/rtl/atomic.rhdl").RiscvAtomicOperation
+  lib("riscv/rtl/zihintntl.rhdl").RiscvMemoryLocality
+  lib("riscv/rtl/privilege.rhdl").PrivilegeMode
+  lib("riscv/rtl/hypervisor.rhdl") open
+  lib("riscv/rtl/pointer-masking.rhdl").PointerMaskControl
+  lib("cores/fp/bundles.rhdl") open
+  lib("cores/fp/types.rhdl") open
+  lib("cores/vector/bundles.rhdl").VectorDescriptor
+  lib("cores/vector/decode.rhdl").VectorConfigMode
+
+
+/* Exposes WB-owned architectural translation controls without pipeline payload coupling. */
+bundle SuperscalarTranslationState(xlen :: XLen):
+  privilege: PrivilegeMode
+  mstatus: Bits(xlen.width)
+  satp: Bits(xlen.width)
+  pbmte: Bool
+  guest: RiscvHypervisorTranslation()
+  pointer_masking: PointerMaskControl()
+  guest_pointer_masking: PointerMaskControl()
+
+/* Resolves an S1 virtual PC combinationally; a miss requests local fetch replay. */
+interface SuperscalarInstructionTranslation(xlen :: XLen):
+  role requester
+  role responder
+  provider requester
+  requester -> responder:
+    request: Valid(Bits(xlen.width))
+
+  responder -> requester:
+    address: Bits(64)
+    resolution: SuperscalarResolution(xlen)
+    pbmt: PageMemoryType
+
+/* Carries resolved physical fetch attributes without granting physical permission. */
+bundle SuperscalarPhysicalInstructionReq():
+  address: Bits(64)
+  cacheable: Bool
+  device: Bool
+
+/* Resolves physical S1 fetches into fixed-cycle S2 cache, fault, or replay outcomes. */
+interface SuperscalarInstructionLookup():
+  role requester
+  role responder
+  provider requester
+  requester -> responder:
+    flush: Bool
+    invalidate_all: Bool
+    s1_kill: Bool
+    request: Valid(SuperscalarPhysicalInstructionReq())
+
+  responder -> requester:
+    response: Valid(InstructionCacheResult(64))
+
+/* Cancels a fetch consumer while retaining accepted transport response ownership. */
+interface SuperscalarUncachedInstruction():
+  role requester
+  role responder
+  provider requester
+  requester -> responder:
+    flush: Bool
+    request: Decoupled(SuperscalarPhysicalInstructionReq())
+
+  responder -> requester:
+    response: Decoupled(InstructionCacheResult(64))
+
+/* Pipeline owners carry synchronous exception numbers (currently 0..23), never interrupts. */
+def SuperscalarCauseWidth = 5
+
+/* Names only instruction-fetch exceptions; None also represents absence of a fault. */
+hardware_enum SuperscalarFetchFaultKind:
+  None
+  Misaligned
+  Access
+  Page
+  GuestPage
+
+  /* Rejects unused encodings and guest faults on a core without H. */
+  method supported(kind, hypervisor :: Boolean) :: Bool:
+    kind.is_one_of(SuperscalarFetchFaultKind.None, SuperscalarFetchFaultKind.Misaligned, SuperscalarFetchFaultKind.Access, SuperscalarFetchFaultKind.Page)
+      ||| (Bool(hypervisor) & (kind === SuperscalarFetchFaultKind.GuestPage))
+
+/* Carries the canonical fetch fault unchanged through frontend, assembly, and EX.
+   The exact fault VA may name a continuation; only H carries guest provenance. */
+bundle SuperscalarFetchFault(xlen :: XLen, hypervisor :: Boolean):
+  kind: SuperscalarFetchFaultKind
+  value: Bits(xlen.width)
+  if hypervisor:
+    guest: RiscvGuestFault()
+
+  /* Reports whether this instruction carries a fetch exception. */
+  method valid(fault) :: Bool:
+    fault.kind =/= SuperscalarFetchFaultKind.None
+
+  /* Returns the architectural synchronous exception number at the resolution boundary. */
+  method cause(fault) :: Bits(SuperscalarCauseWidth):
+    mux_lookup(fault.kind, ~default: Bits(SuperscalarCauseWidth)(0)):
+      SuperscalarFetchFaultKind.Misaligned: Bits(SuperscalarCauseWidth)(exception_code(ExceptionCause.InstructionAddressMisaligned))
+      SuperscalarFetchFaultKind.Access: Bits(SuperscalarCauseWidth)(exception_code(ExceptionCause.InstructionAccessFault))
+      SuperscalarFetchFaultKind.Page: Bits(SuperscalarCauseWidth)(exception_code(ExceptionCause.InstructionPageFault))
+      SuperscalarFetchFaultKind.GuestPage: Bits(SuperscalarCauseWidth)(exception_code(ExceptionCause.InstructionGuestPageFault))
+
+  /* Rejects unused encodings and guest faults when this specialization omits H. */
+  method supported(fault) :: Bool:
+    fault.kind.supported(hypervisor)
+
+/* Classifies an architectural translation/resolution cause at the fetch boundary.
+   The caller rejects a fault whose cause maps to None. */
+fun fetch_fault_kind(cause :: Bits) :~ SuperscalarFetchFaultKind:
+  mux_lookup(cause, ~default: SuperscalarFetchFaultKind.None):
+    exception_code(ExceptionCause.InstructionAddressMisaligned): SuperscalarFetchFaultKind.Misaligned
+    exception_code(ExceptionCause.InstructionAccessFault): SuperscalarFetchFaultKind.Access
+    exception_code(ExceptionCause.InstructionPageFault): SuperscalarFetchFaultKind.Page
+    exception_code(ExceptionCause.InstructionGuestPageFault): SuperscalarFetchFaultKind.GuestPage
+
+/* A +2 or +4 successor toggles one contiguous run, starting at bit 1 or 2.
+   The tag names its last changed bit, not a displacement from the PC. */
+bundle SuperscalarPcStep(xlen :: XLen):
+  last: Bits(index_width(xlen.width))
+  short_step: Bool
+
+  /* Restore bits 2..last and, for a two-byte step, bit 1. Bit 0 never changes. */
+  method apply(step, pc :: Bits(xlen.width)) :: Bits(xlen.width):
+    def below_last = Mask(xlen.width - 1).prefix(step.last).as_bits()
+    def changed = below_last[1..xlen.width - 1] ++ step.short_step.as_bits() ++ Bits(1)(0)
+    pc ^ changed
+
+/* The accepted PC pair already contains the carry result, including XLEN wrap.
+   Isolate the upper edge of its changed run for a parallel one-hot index encode. */
+fun encode_pc_step(xlen :: XLen, pc :: Bits(xlen.width), successor :: Bits(xlen.width)) :~ SuperscalarPcStep(xlen):
+  def changed = pc ^ successor
+  def edge = (changed & !(changed >> 1)).into(MaybeOneHot(xlen.width))
+  SuperscalarPcStep(xlen):
+    last: edge.index
+    short_step: changed[1].into(Bool)
+
+/* Retains the lookup row independently of recovery history; parcel/base indices come from the PC. */
+bundle SuperscalarDirectionCheckpoint():
+  row: Bits(10)
+  history: Bits(10)
+  valid: Bool
+  taken: Bool
+  base_taken: Bool
+  gshare_taken: Bool
+
+  /* Restores training indices by wiring, without recomputing the earlier lookup's history hash. */
+  method expanded(checkpoint, pc :: Bits) :: TournamentPrediction(10):
+    TournamentPrediction(10):
+      valid: checkpoint.valid
+      index: checkpoint.row ++ pc[1..3]
+      history: checkpoint.history
+      taken: checkpoint.taken
+      base_index: pc[1..13]
+      base_taken: checkpoint.base_taken
+      gshare_taken: checkpoint.gshare_taken
+
+/* Retains canonical decode bits, original encoding, and the length-derived successor through retirement. */
+bundle SuperscalarInstruction(xlen :: XLen, hypervisor :: Boolean):
+  pc: Bits(xlen.width)
+  instruction: Bits(32)
+  raw_instruction: Bits(32)
+  sequential_pc: Bits(xlen.width)
+  compressed_illegal: Bool
+  fault: SuperscalarFetchFault(xlen, hypervisor)
+  prediction: BranchPrediction(xlen)
+  speculated_ras_action: RasAction
+  direction: TournamentPrediction(10)
+
+  /* Checks the PC-derived portions of observable training indices; invalid indices are unspecified. */
+  method direction_indices_valid(fetched) :: Bool:
+    !fetched.direction.valid ||| ((fetched.direction.index[0..2] === fetched.pc[1..3]) & (fetched.direction.base_index === fetched.pc[1..13]))
+
+  /* Removes redundant indices while retaining all history and chooser observations, even when invalid. */
+  method retained_direction(fetched) :: SuperscalarDirectionCheckpoint():
+    SuperscalarDirectionCheckpoint():
+      row: fetched.direction.index[2..12]
+      history: fetched.direction.history
+      valid: fetched.direction.valid
+      taken: fetched.direction.taken
+      base_taken: fetched.direction.base_taken
+      gshare_taken: fetched.direction.gshare_taken
+
+  /* Projects the accepted instruction, not the live lane at completion time. */
+  method identity(fetched) :: SuperscalarInstructionIdentity(xlen):
+    SuperscalarInstructionIdentity(xlen):
+      pc: fetched.pc
+      raw_instruction: fetched.raw_instruction
+
+/* Offers a nonempty prefix of up to two instructions to the issue window. */
+bundle SuperscalarPacket(xlen :: XLen, hypervisor :: Boolean):
+  count: Bits(2)
+  entries: Vec(2, SuperscalarInstruction(xlen, hypervisor))
+
+/* Keeps a retired branch's BTB outcome and saved tournament predictions together during training. */
+bundle SuperscalarBranchTraining(xlen :: XLen):
+  branch: BranchUpdate(xlen)
+  direction_valid: Bool
+  direction: TournamentUpdate(10)
+
+/* Advances committed conditional history in retirement order, independently of table training. */
+bundle SuperscalarHistoryCommit():
+  enable: Vec(2, Bool)
+  taken: Vec(2, Bool)
+
+/* Distinguishes MEM continuation, synchronous trap, preacceptance replay, and WB system recovery. */
+hardware_enum SuperscalarDisposition:
+  Continue
+  Fault
+  Replay
+  System
+
+/* Supplies a same-cycle MEM outcome; fault payload is observed only for Fault. */
+bundle SuperscalarResolution(xlen :: XLen):
+  disposition: SuperscalarDisposition
+  cause: Bits(xlen.width)
+  value: Bits(xlen.width)
+  guest: RiscvGuestFault()
+
+  /* Narrows a stage or memory-service outcome; its producer must supply a representable fault. */
+  method compact(source) :: SuperscalarSyncResolution(xlen):
+    SuperscalarSyncResolution(xlen):
+      disposition: source.disposition
+      cause: source.cause[0..SuperscalarCauseWidth]
+      value: source.value
+      guest: source.guest
+
+/* Carries a precise trap value and guest provenance alongside the compact synchronous cause. */
+bundle SuperscalarSyncResolution(xlen :: XLen):
+  disposition: SuperscalarDisposition
+  cause: Bits(SuperscalarCauseWidth)
+  value: Bits(xlen.width)
+  guest: RiscvGuestFault()
+
+  /* Reconstructs the XLEN public observation without introducing an interrupt bit. */
+  method expanded(source) :: SuperscalarResolution(xlen):
+    SuperscalarResolution(xlen):
+      disposition: source.disposition
+      cause: source.cause.zext(xlen.width)
+      value: source.value
+      guest: source.guest
+
+/* Stores only scheduling decisions; instruction ownership is attached at service boundaries. */
+bundle SuperscalarFpSchedule():
+  lane: Bits(1)
+  speculative: Bool
+  direct: Bool
+
+/* Identifies the instruction producing a delayed result without retaining frontend recovery state. */
+bundle SuperscalarInstructionIdentity(xlen :: XLen):
+  pc: Bits(xlen.width)
+  raw_instruction: Bits(32)
+
+/* Keeps age-slot identity and result bank with speculative or authorized numerical work. */
+bundle SuperscalarFpOwner(xlen :: XLen):
+  identity: SuperscalarInstructionIdentity(xlen)
+  lane: Bits(1)
+  rd: Bits(5)
+  destination: FloatDestination
+  speculative: Bool
+  direct: Bool
+
+/* Reconstructs an FP owner from its one pipeline instruction and compact scheduling tag. */
+fun superscalar_fp_owner(xlen :: XLen, hypervisor :: Boolean, fetched :: SuperscalarInstruction(xlen, hypervisor), rd :: Bits(5), request :: FpExecutionRequest(xlen, fp_transport_profile(xlen), SuperscalarFpSchedule())) :~ SuperscalarFpOwner(xlen):
+  SuperscalarFpOwner(xlen):
+    identity: fetched.identity()
+    lane: request.tag.lane
+    rd: rd
+    destination: request.control.registers.destination
+    speculative: request.tag.speculative
+    direct: request.tag.direct
+
+/* Attaches architectural ownership only when numerical work enters a shared service. */
+fun superscalar_fp_request(xlen :: XLen, hypervisor :: Boolean, fetched :: SuperscalarInstruction(xlen, hypervisor), rd :: Bits(5), request :: FpExecutionRequest(xlen, fp_transport_profile(xlen), SuperscalarFpSchedule())) :~ FpExecutionRequest(xlen, fp_transport_profile(xlen), SuperscalarFpOwner(xlen)):
+  request.with_tag(SuperscalarFpOwner(xlen), superscalar_fp_owner(xlen, hypervisor, fetched, rd, request))
+
+/* Carries an already extracted FP memory value to the architectural FPR write port. */
+bundle SuperscalarFpLoad(xlen :: XLen):
+  owner: SuperscalarFpOwner(xlen)
+  precision: FloatPrecision
+  data: Bits(64)
+
+
+/* Holds RR operands, controls, composed immediates, and same-pair consumer routes. */
+bundle SuperscalarExecute(xlen :: XLen, hypervisor :: Boolean):
+  fetched: SuperscalarInstruction(xlen, hypervisor)
+  control: SuperscalarControl()
+  rs1: Bits(xlen.width)
+  rs2: Bits(xlen.width)
+  pair_routes: Vec(2, SuperscalarPairRoute)
+  pair_immediate: Bits(superscalar_pair_immediate_width(xlen))
+  rd: Bits(5)
+  illegal: Bool
+  virtual_instruction: Bool
+  fp_request: FpExecutionRequest(xlen, fp_transport_profile(xlen), SuperscalarFpSchedule())
+  vector: VectorDescriptor(xlen)
+
+/* Distinguishes a fixed-latency hit, retry, authorized slow service, or translation fault. */
+hardware_enum SuperscalarCacheOutcome:
+  Slow
+  LoadHit
+  StoreHit
+  Replay
+  PageFault
+  AccessFault
+  GuestPageFault
+
+/* Classifies effective next-PC accuracy independently of RAS-action repair. */
+hardware_enum SuperscalarBranchPrediction:
+  NotBranch
+  Correct
+  Mispredicted
+
+/* Carries the EX comparison inputs and the MEM-resolved control transfer through WB. */
+bundle SuperscalarBranchResult(xlen :: XLen):
+  taken: Bool
+  target: Bits(xlen.width)
+  update: BranchUpdate(xlen)
+  control: BranchResolverControl()
+  operands_from_older: Vec(2, Bool)
+  mispredicted: Bool
+
+/* Per-lane hazards and retirement policy survive even when a fault kills vector dispatch.
+   The operands, state snapshot, and translation certificate belong to the shared descriptor. */
+bundle SuperscalarVectorLane():
+  operation: Bool
+  floating_point: Bool
+  floating_scalar_destination: Bool
+  integer_destination: Bool
+  memory: Bool
+  store: Bool
+  configure: VectorConfigMode
+
+/* Retains one scalar lane's result, control transfer, and fault/replay outcome through MEM and WB. */
+bundle SuperscalarResult(xlen :: XLen, hypervisor :: Boolean):
+  fetched: SuperscalarInstruction(xlen, hypervisor)
+  rd: Bits(5)
+  write: Bool
+  data: Bits(xlen.width)
+  result_ready: Bool
+  branch: SuperscalarBranchResult(xlen)
+  memory: SuperscalarMemoryControl()
+  guest_access: RiscvGuestMemoryAccess
+  prefetch: CachePrefetchOperation
+  pause: Bool
+  locality_hint: RiscvMemoryLocality
+  address: Bits(xlen.width)
+  store_data: Bits(xlen.width)
+  cache_outcome: SuperscalarCacheOutcome
+  system: SuperscalarSystemControl()
+  csr_source: Bits(xlen.width)
+  muldiv: SuperscalarLongControl()
+  left: Bits(xlen.width)
+  right: Bits(xlen.width)
+  resolution: SuperscalarSyncResolution(xlen)
+  fp: SuperscalarFpControl()
+  fp_request: FpExecutionRequest(xlen, fp_transport_profile(xlen), SuperscalarFpSchedule())
+  vector_fast_eligible: Bool
+  vector: SuperscalarVectorLane()
+
+  /* Project the instruction before a capture or from a live retirement slot. */
+  method boundary_instruction(result) :: SuperscalarBoundaryInstruction(xlen):
+    SuperscalarBoundaryInstruction(xlen):
+      identity: result.fetched.identity()
+      next_pc: mux(result.branch.taken, result.branch.target, result.fetched.sequential_pc)
+      fetch_fault: result.fetched.fault.valid()
+      rd: result.rd
+      memory: result.memory
+      address: result.address
+      store_data: result.store_data
+      fp: result.fp
+      vector: result.vector.operation
+
+  /* Captures only a continuing split/maintenance/wait/vector-memory owner.
+     The lane's existing successor tag avoids recoding or adding a PC adder. */
+  method service_owner(result, step :: SuperscalarPcStep(xlen)) :: SuperscalarServiceOwner(xlen, hypervisor):
+    SuperscalarServiceOwner(xlen, hypervisor):
+      identity: result.fetched.identity()
+      instruction: result.fetched.instruction
+      step: step
+      predicted: result.fetched.prediction.valid
+      target: result.fetched.prediction.target
+      predicted_compressed: result.fetched.prediction.compressed
+      predicted_ras_action: result.fetched.prediction.ras_action
+      speculated_ras_action: result.fetched.speculated_ras_action
+      direction: result.fetched.direction
+      prediction_repair: result.branch.mispredicted
+      rd: result.rd
+      write: result.write
+      memory: result.memory
+      guest_access: result.guest_access
+      address: result.address
+      store_data: result.store_data
+      wait: result.system.wait
+      fp: result.fp
+      fp_schedule: result.fp_request.tag
+      vector: result.vector
+
+/* Owns accepted WB services, never a branch, CSR operation, or arithmetic launch.
+   Faults and data arrive at completion; frontend observation metadata survives,
+   but fetch-fault state, execution operands, and inactive controls do not. */
+bundle SuperscalarServiceOwner(xlen :: XLen, hypervisor :: Boolean):
+  identity: SuperscalarInstructionIdentity(xlen)
+  instruction: Bits(32)
+  step: SuperscalarPcStep(xlen)
+  predicted: Bool
+  target: Bits(xlen.width)
+  predicted_compressed: Bool
+  predicted_ras_action: RasAction
+  speculated_ras_action: RasAction
+  direction: TournamentPrediction(10)
+  prediction_repair: Bool
+  rd: Bits(5)
+  write: Bool
+  memory: SuperscalarMemoryControl()
+  guest_access: RiscvGuestMemoryAccess
+  address: Bits(xlen.width)
+  store_data: Bits(xlen.width)
+  wait: ReservationWaitMode
+  fp: SuperscalarFpControl()
+  fp_schedule: SuperscalarFpSchedule()
+  vector: SuperscalarVectorLane()
+
+  /* Rejoins the completed service with ordinary WB retirement and observation.
+     Inactive execution controls are zero; no service can relaunch those units. */
+  method completed(owner, data :: Bits(xlen.width), resolution :: SuperscalarSyncResolution(xlen)) :: SuperscalarResult(xlen, hypervisor):
+    def successor = owner.step.apply(owner.identity.pc)
+    def fetched = SuperscalarInstruction(xlen, hypervisor):
+      pc: owner.identity.pc
+      instruction: owner.instruction
+      raw_instruction: owner.identity.raw_instruction
+      sequential_pc: successor
+      compressed_illegal: Bool(#false)
+      fault: literal(SuperscalarFetchFault(xlen, hypervisor), 0)
+      prediction:
+        BranchPrediction(xlen):
+          valid: owner.predicted
+          pc: owner.identity.pc
+          target: owner.target
+          compressed: owner.predicted_compressed
+          ras_action: owner.predicted_ras_action
+
+      speculated_ras_action: owner.speculated_ras_action
+      direction: owner.direction
+
+    def inactive_update :: BranchUpdate(xlen) = literal(BranchUpdate(xlen), 0)
+    def update = inactive_update.updated(
+      ~pc: owner.identity.pc, ~return_address: successor,
+      ~compressed: owner.step.short_step, ~predicted_ras_action: owner.speculated_ras_action
+    )
+    def inactive_branch :: SuperscalarBranchResult(xlen) = literal(SuperscalarBranchResult(xlen), 0)
+    def inactive_system :: SuperscalarSystemControl() = literal(SuperscalarSystemControl(), 0)
+    def inactive_fp :: FpExecutionRequest(xlen, fp_transport_profile(xlen), SuperscalarFpSchedule()) = literal(FpExecutionRequest(xlen, fp_transport_profile(xlen), SuperscalarFpSchedule()), 0)
+    def inactive_result :: SuperscalarResult(xlen, hypervisor) = literal(SuperscalarResult(xlen, hypervisor), 0)
+    inactive_result.updated(
+      ~fetched: fetched, ~rd: owner.rd, ~write: owner.write, ~data: data, ~result_ready: Bool(#true),
+      ~branch: inactive_branch.updated(~update: update, ~mispredicted: owner.prediction_repair),
+      ~memory: owner.memory, ~guest_access: owner.guest_access, ~address: owner.address, ~store_data: owner.store_data,
+      ~system: inactive_system.updated(~wait: owner.wait), ~resolution: resolution,
+      ~fp: owner.fp, ~fp_request: inactive_fp.updated(~tag: owner.fp_schedule, ~control: owner.fp.bits),
+      ~vector: owner.vector
+    )
+
+/* The instruction fields sampled by the passive WB observer. Only identity
+   is needed by the trap datapath; the remaining fields need no physical
+   storage in a build without that observer. */
+bundle SuperscalarBoundaryInstruction(xlen :: XLen):
+  identity: SuperscalarInstructionIdentity(xlen)
+  next_pc: Bits(xlen.width)
+  fetch_fault: Bool
+  rd: Bits(5)
+  memory: SuperscalarMemoryControl()
+  address: Bits(xlen.width)
+  store_data: Bits(xlen.width)
+  fp: SuperscalarFpControl()
+  vector: Bool
+
+/* Holds a precise exception or an interrupt boundary, not an executable CSR
+   command. Interrupt selection and delegation remain live in the CSR bank. */
+bundle SuperscalarPendingTrap(xlen :: XLen, hypervisor :: Boolean):
+  interrupt: Bool
+  instruction: SuperscalarBoundaryInstruction(xlen)
+  cause: Bits(SuperscalarCauseWidth)
+  value: Bits(xlen.width)
+  if hypervisor:
+    guest: RiscvGuestFault()
+
+/* Restarts unassembled fetch work without discarding already accepted instructions. */
+bundle SuperscalarFetchRepair(xlen :: XLen):
+  target: Bits(xlen.width)
+  invalidate: Bool
+  entry: Bits(xlen.width)
+  history: Bits(10)
+
+/* Appends a conditional outcome while leaving nonbranch history checkpoints unchanged. */
+fun superscalar_history_after(prediction :: TournamentPrediction(10), taken :: Bool) :~ Bits(10):
+  mux(prediction.valid, prediction.history[0..9] ++ taken.as_bits(), prediction.history)
+
+/* Carries exact byte addresses and XLEN beats; VA uses XLEN, while PA width is independent. */
+bundle SuperscalarMemoryReq(xlen :: XLen, address_width :: PosInt):
+  address: Bits(address_width)
+  access: CacheOperation
+  atomic: RiscvAtomicOperation
+  width: MemoryWidth
+  data: Bits(xlen.width)
+  mask: Bits(memory_word_bytes(xlen))
+  locality: RiscvMemoryLocality
+  pbmt: PageMemoryType
+  guest_access: RiscvGuestMemoryAccess
+
+/* Crosses the translation boundary without changing access size or positioned store lanes. */
+fun superscalar_physical_request(xlen :: XLen, request :: SuperscalarMemoryReq(xlen, xlen.width), address :: Bits(64), pbmt :: PageMemoryType) :~ SuperscalarMemoryReq(xlen, 64):
+  SuperscalarMemoryReq(xlen, 64):
+    address: address
+    access: request.access
+    atomic: request.atomic
+    width: request.width
+    data: request.data
+    mask: request.mask
+    locality: request.locality
+    pbmt: pbmt
+    guest_access: request.guest_access
+
+/* Returns the MEM decision and raw aligned load beat; no allocation or mutation occurs here. */
+bundle SuperscalarLookupResult(xlen :: XLen):
+  outcome: SuperscalarCacheOutcome
+  data: Bits(xlen.width)
+  guest: RiscvGuestFault()
+
+/* Pairs an EX lookup with next-cycle MEM feedback and a one-cycle WB store candidate. */
+interface SuperscalarPipelineAccess(xlen :: XLen):
+  role requester
+  role responder
+  provider requester
+  requester -> responder:
+    request: Valid(SuperscalarMemoryReq(xlen, xlen.width))
+    commit: Bool
+
+  responder -> requester:
+    response: Valid(SuperscalarLookupResult(xlen))
+    commit_ready: Bool
+
+/* Authorizes slow transactions at WB. Admission resolves all synchronous faults;
+   accepted responses are successful and ordered: ordinary loads return raw aligned
+   beats, atomics return their architectural value/status, and stores return acknowledgements.
+   A fault prevents request acceptance. Drained also covers committed hit stores;
+   registered ordered_busy prevents younger memory effects, including earlier lookup hits.
+   Reservation validity is live shared-cache state for WB wait-on-reservation.
+   Reset must reset both participants together. */
+interface SuperscalarMemory(xlen :: XLen, address_width :: PosInt):
+  role requester
+  role responder
+  provider requester
+  requester -> responder:
+    request: Decoupled(SuperscalarMemoryReq(xlen, address_width))
+
+  responder -> requester:
+    fault: Valid(SuperscalarResolution(xlen))
+    response: Decoupled(Bits(xlen.width))
+    drained: Bool
+    ordered_busy: Bool
+    reservation_valid: Bool
+
+/* Reports one successfully retired instruction and its optional architectural GPR write. */
+bundle SuperscalarRetirement(xlen :: XLen, hypervisor :: Boolean):
+  fetched: SuperscalarInstruction(xlen, hypervisor)
+  rd: Bits(5)
+  write: Bool
+  data: Bits(xlen.width)
+  deferred: Bool
+
+/* Reports the eventual result of an already authorized operation, not a second retirement. */
+bundle SuperscalarCompletion(xlen :: XLen):
+  identity: SuperscalarInstructionIdentity(xlen)
+  rd: Bits(5)
+  write: Bool
+  data: Bits(xlen.width)
+
+/* Reports MEM branch recovery or the older WB fault/replay override; Continue is not retirement. */
+bundle SuperscalarRedirect(xlen :: XLen):
+  pc: Bits(xlen.width)
+  target: Bits(xlen.width)
+  resolution: SuperscalarResolution(xlen)
+
+/* Describes a youngest-older operand match, including results not yet usable. */
+bundle SuperscalarOperand(xlen :: XLen):
+  blocked: Bool
+  data: Bits(xlen.width)
+
+export:
+  SuperscalarFpSchedule
+  superscalar_fp_owner
+  superscalar_fp_request
+  superscalar_physical_request
+  SuperscalarFpOwner
+  SuperscalarFpLoad
+  SuperscalarTranslationState
+  SuperscalarInstructionTranslation
+  SuperscalarPhysicalInstructionReq
+  SuperscalarInstructionLookup
+  SuperscalarUncachedInstruction
+  SuperscalarFetchFault
+  SuperscalarFetchFaultKind
+  fetch_fault_kind
+  SuperscalarPcStep
+  encode_pc_step
+  SuperscalarInstruction
+  SuperscalarDirectionCheckpoint
+  SuperscalarPacket
+  SuperscalarBranchTraining
+  SuperscalarHistoryCommit
+  SuperscalarDisposition
+  SuperscalarResolution
+  SuperscalarSyncResolution
+  SuperscalarCauseWidth
+  SuperscalarExecute
+  SuperscalarResult
+  SuperscalarServiceOwner
+  SuperscalarPendingTrap
+  SuperscalarBoundaryInstruction
+  SuperscalarVectorLane
+  SuperscalarBranchResult
+  SuperscalarMemoryReq
+  SuperscalarCacheOutcome
+  SuperscalarBranchPrediction
+  SuperscalarLookupResult
+  SuperscalarPipelineAccess
+  SuperscalarMemory
+  SuperscalarRetirement
+  SuperscalarCompletion
+  SuperscalarInstructionIdentity
+  SuperscalarRedirect
+  SuperscalarFetchRepair
+  SuperscalarOperand
+  superscalar_history_after

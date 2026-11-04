@@ -1,0 +1,21 @@
+#lang rhombus
+/* Projects Superscalar's selected architecture and shared CSR, vector, and MMU behavior into UDB. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../udb.rhm" open
+  "profile.rhm".SuperscalarPipelineConfig
+  lib("riscv/udb.rhm") open
+  lib("support/annotations.rhm").NonemptyString
+
+/* Publishes the selected architecture, Bare/Sv39 translation policy, and cache-management choices. */
+fun superscalar_udb_configuration(profile :: SuperscalarPipelineConfig, name :: NonemptyString, description :: NonemptyString, physical_address_width :: PosInt) :: UdbConfiguration:
+  unless physical_address_width <= profile.xlen.width
+  | error(~who: #'superscalar_udb_configuration, "physical address width must fit XLEN")
+
+  def pma_granularity_log2 = if profile.xlen.width == 32 | 2 | 3
+  UdbConfiguration(name, description, core_udb_extensions(profile.hart_description),
+                   core_udb_parameters(profile.hart_description, profile.csr_config, physical_address_width, pma_granularity_log2))
+
+export:
+  superscalar_udb_configuration

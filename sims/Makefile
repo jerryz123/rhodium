@@ -69,8 +69,8 @@ ifeq ($(TRACE),1)
 ifneq ($(RTL_BACKEND),circt)
 $(error TRACE=1 currently requires RTL_BACKEND=circt)
 endif
-ifeq ($(filter $(SOC_CORE),rv5stage rv2wide),)
-$(error TRACE=1 requires RV5Stage or RV2Wide)
+ifeq ($(filter $(SOC_CORE),rv5stage rv2wide rv3wide),)
+$(error TRACE=1 requires RV5Stage, RV2Wide, or RV3Wide)
 endif
 SOC_BUILD_DIR := $(SOC_BUILD_DIR)-trace
 TRACE_HEADER = $(SOC_BUILD_DIR)/soc_events.h
@@ -85,8 +85,8 @@ else ifneq ($(TRACE),0)
 $(error TRACE must be 0 or 1)
 endif
 ifeq ($(COSIM),1)
-ifeq ($(filter $(SOC_CORE),rv5stage rv2wide),)
-$(error COSIM=1 requires RV5Stage or RV2Wide)
+ifeq ($(filter $(SOC_CORE),rv5stage rv2wide rv3wide),)
+$(error COSIM=1 requires RV5Stage, RV2Wide, or RV3Wide)
 endif
 ifeq ($(filter $(SOC_SHAPE),mini simple),)
 $(error COSIM=1 currently requires Mini or Simple)
@@ -218,7 +218,7 @@ lrsc-run: $(LRSC_BINARIES) simulator
 trace-smoke:
 	@test -n "$(TRACE_PROCESSOR)" || (echo "TRACE_PROCESSOR must name the native Perfetto importer" >&2; exit 2)
 	@test -n "$(TRACE_FILE)" || (echo "TRACE_FILE is required" >&2; exit 2)
-ifeq ($(SOC_CORE),rv2wide)
+ifneq ($(filter $(SOC_CORE),rv2wide rv3wide),)
 	$(MAKE) "$(BUILD_ROOT)/$(SOC_ID)-circt-trace$(if $(filter 1,$(COSIM)),-cosim)/cosim-smoke.elf" SOC=$(SOC_ID) RTL_BACKEND=circt TRACE=1
 	$(MAKE) run SOC=$(SOC_ID) RTL_BACKEND=circt TRACE=1 BINARY="$(BUILD_ROOT)/$(SOC_ID)-circt-trace$(if $(filter 1,$(COSIM)),-cosim)/cosim-smoke.elf"
 	TRACE_PROCESSOR="$(TRACE_PROCESSOR)" bash tests/check-rv2wide-trace.sh "$(TRACE_FILE)"

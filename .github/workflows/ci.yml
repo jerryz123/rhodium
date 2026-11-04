@@ -637,6 +637,16 @@ jobs:
       racket-version: ${{ needs.plan.outputs.racket_version }}
       rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
 
+  sim-simple-rv3wide-rv32int:
+    name: SoC / simple-rv3wide-rv32int
+    needs: [plan, targets, sail]
+    if: ${{ always() && !cancelled() && needs.targets.result == 'success' && needs.sail.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv3wide-rv32int'].simulator != null }}
+    uses: ./.github/workflows/ci-simulator.yml
+    with:
+      config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv3wide-rv32int'].simulator) }}
+      racket-version: ${{ needs.plan.outputs.racket_version }}
+      rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
+
   sim-simple-rv2wide-rv32max:
     name: SoC / simple-rv2wide-rv32max
     needs: [plan, targets, sail]
@@ -644,6 +654,16 @@ jobs:
     uses: ./.github/workflows/ci-simulator.yml
     with:
       config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv2wide-rv32max'].simulator) }}
+      racket-version: ${{ needs.plan.outputs.racket_version }}
+      rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
+
+  sim-simple-rv3wide-rv32max:
+    name: SoC / simple-rv3wide-rv32max
+    needs: [plan, targets, sail]
+    if: ${{ always() && !cancelled() && needs.targets.result == 'success' && needs.sail.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv3wide-rv32max'].simulator != null }}
+    uses: ./.github/workflows/ci-simulator.yml
+    with:
+      config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv3wide-rv32max'].simulator) }}
       racket-version: ${{ needs.plan.outputs.racket_version }}
       rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
 
@@ -677,6 +697,16 @@ jobs:
       racket-version: ${{ needs.plan.outputs.racket_version }}
       rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
 
+  sim-simple-rv3wide-rva23:
+    name: SoC / simple-rv3wide-rva23
+    needs: [plan, targets, sail]
+    if: ${{ always() && !cancelled() && needs.targets.result == 'success' && needs.sail.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv3wide-rva23'].simulator != null }}
+    uses: ./.github/workflows/ci-simulator.yml
+    with:
+      config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv3wide-rva23'].simulator) }}
+      racket-version: ${{ needs.plan.outputs.racket_version }}
+      rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
+
   sim-tiled8core-rv5stage-rva23:
     name: SoC / tiled8core-rv5stage-rva23
     needs: [plan, targets, harness-isa, harness-benchmark]
@@ -694,6 +724,16 @@ jobs:
     uses: ./.github/workflows/ci-simulator.yml
     with:
       config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['tiled8core-rv2wide-rva23'].simulator) }}
+      racket-version: ${{ needs.plan.outputs.racket_version }}
+      rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
+
+  sim-tiled8core-rv3wide-rva23:
+    name: SoC / tiled8core-rv3wide-rva23
+    needs: [plan, targets, harness-isa, harness-benchmark]
+    if: ${{ always() && !cancelled() && needs.targets.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['tiled8core-rv3wide-rva23'].simulator != null }}
+    uses: ./.github/workflows/ci-simulator.yml
+    with:
+      config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['tiled8core-rv3wide-rva23'].simulator) }}
       racket-version: ${{ needs.plan.outputs.racket_version }}
       rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
 
@@ -724,6 +764,16 @@ jobs:
     uses: ./.github/workflows/ci-simulator.yml
     with:
       config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['tiled4core-rv2wide-rva23'].simulator) }}
+      racket-version: ${{ needs.plan.outputs.racket_version }}
+      rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
+
+  sim-tiled4core-rv3wide-rva23:
+    name: SoC / tiled4core-rv3wide-rva23
+    needs: [plan, targets, harness-isa]
+    if: ${{ always() && !cancelled() && needs.targets.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['tiled4core-rv3wide-rva23'].simulator != null }}
+    uses: ./.github/workflows/ci-simulator.yml
+    with:
+      config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['tiled4core-rv3wide-rva23'].simulator) }}
       racket-version: ${{ needs.plan.outputs.racket_version }}
       rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
 
@@ -903,6 +953,16 @@ jobs:
       racket-version: ${{ needs.plan.outputs.racket_version }}
       rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
 
+  act-build-simple-rv3wide-rv32int:
+    name: ACT build / simple-rv3wide-rv32int
+    needs: [plan, compile-racket, sail]
+    if: ${{ always() && !cancelled() && needs.compile-racket.result == 'success' && needs.sail.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv3wide-rv32int'].arch }}
+    uses: ./.github/workflows/ci-arch-build.yml
+    with:
+      config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv3wide-rv32int'].arch_config) }}
+      racket-version: ${{ needs.plan.outputs.racket_version }}
+      rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
+
   act-simple-rv2wide-rv32int:
     name: ACT / simple-rv2wide-rv32int
     needs: [plan, sim-simple-rv2wide-rv32int, act-build-simple-rv2wide-rv32int]
@@ -911,6 +971,14 @@ jobs:
     with:
       matrix: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv2wide-rv32int'].arch_matrix) }}
 
+  act-simple-rv3wide-rv32int:
+    name: ACT / simple-rv3wide-rv32int
+    needs: [plan, sim-simple-rv3wide-rv32int, act-build-simple-rv3wide-rv32int]
+    if: ${{ always() && !cancelled() && needs.sim-simple-rv3wide-rv32int.result == 'success' && needs.act-build-simple-rv3wide-rv32int.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv3wide-rv32int'].arch }}
+    uses: ./.github/workflows/ci-arch.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv3wide-rv32int'].arch_matrix) }}
+
   program-short-simple-rv2wide-rv32int:
     name: Software / simple-rv2wide-rv32int / short
     needs: [plan, sim-simple-rv2wide-rv32int, program-plan, program-builds-isa]
@@ -918,6 +986,14 @@ jobs:
     uses: ./.github/workflows/ci-software.yml
     with:
       matrix: ${{ toJSON(fromJSON(needs.program-plan.outputs.run-matrices)['short']['simple-rv2wide-rv32int']) }}
+
+  program-short-simple-rv3wide-rv32int:
+    name: Software / simple-rv3wide-rv32int / short
+    needs: [plan, sim-simple-rv3wide-rv32int, program-plan, program-builds-isa]
+    if: ${{ always() && !cancelled() && needs.sim-simple-rv3wide-rv32int.result == 'success' && needs.program-plan.result == 'success' && contains(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv3wide-rv32int'].program_groups, 'short') }}
+    uses: ./.github/workflows/ci-software.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.program-plan.outputs.run-matrices)['short']['simple-rv3wide-rv32int']) }}
 
   act-build-simple-rv2wide-rv32max:
     name: ACT build / simple-rv2wide-rv32max
@@ -929,6 +1005,16 @@ jobs:
       racket-version: ${{ needs.plan.outputs.racket_version }}
       rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
 
+  act-build-simple-rv3wide-rv32max:
+    name: ACT build / simple-rv3wide-rv32max
+    needs: [plan, compile-racket, sail]
+    if: ${{ always() && !cancelled() && needs.compile-racket.result == 'success' && needs.sail.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv3wide-rv32max'].arch }}
+    uses: ./.github/workflows/ci-arch-build.yml
+    with:
+      config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv3wide-rv32max'].arch_config) }}
+      racket-version: ${{ needs.plan.outputs.racket_version }}
+      rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
+
   act-simple-rv2wide-rv32max:
     name: ACT / simple-rv2wide-rv32max
     needs: [plan, sim-simple-rv2wide-rv32max, act-build-simple-rv2wide-rv32max]
@@ -937,6 +1023,14 @@ jobs:
     with:
       matrix: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv2wide-rv32max'].arch_matrix) }}
 
+  act-simple-rv3wide-rv32max:
+    name: ACT / simple-rv3wide-rv32max
+    needs: [plan, sim-simple-rv3wide-rv32max, act-build-simple-rv3wide-rv32max]
+    if: ${{ always() && !cancelled() && needs.sim-simple-rv3wide-rv32max.result == 'success' && needs.act-build-simple-rv3wide-rv32max.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv3wide-rv32max'].arch }}
+    uses: ./.github/workflows/ci-arch.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv3wide-rv32max'].arch_matrix) }}
+
   program-short-simple-rv2wide-rv32max:
     name: Software / simple-rv2wide-rv32max / short
     needs: [plan, sim-simple-rv2wide-rv32max, program-plan, program-builds-isa]
@@ -944,6 +1038,14 @@ jobs:
     uses: ./.github/workflows/ci-software.yml
     with:
       matrix: ${{ toJSON(fromJSON(needs.program-plan.outputs.run-matrices)['short']['simple-rv2wide-rv32max']) }}
+
+  program-short-simple-rv3wide-rv32max:
+    name: Software / simple-rv3wide-rv32max / short
+    needs: [plan, sim-simple-rv3wide-rv32max, program-plan, program-builds-isa]
+    if: ${{ always() && !cancelled() && needs.sim-simple-rv3wide-rv32max.result == 'success' && needs.program-plan.result == 'success' && contains(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv3wide-rv32max'].program_groups, 'short') }}
+    uses: ./.github/workflows/ci-software.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.program-plan.outputs.run-matrices)['short']['simple-rv3wide-rv32max']) }}
 
   act-build-simple-rv5stage-rva23:
     name: ACT build / simple-rv5stage-rva23
@@ -1055,6 +1157,16 @@ jobs:
       racket-version: ${{ needs.plan.outputs.racket_version }}
       rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
 
+  act-build-simple-rv3wide-rva23:
+    name: ACT build / simple-rv3wide-rva23
+    needs: [plan, compile-racket, sail]
+    if: ${{ always() && !cancelled() && needs.compile-racket.result == 'success' && needs.sail.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv3wide-rva23'].arch }}
+    uses: ./.github/workflows/ci-arch-build.yml
+    with:
+      config: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv3wide-rva23'].arch_config) }}
+      racket-version: ${{ needs.plan.outputs.racket_version }}
+      rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
+
   act-simple-rv2wide-rva23:
     name: ACT / simple-rv2wide-rva23
     needs: [plan, sim-simple-rv2wide-rva23, act-build-simple-rv2wide-rva23]
@@ -1062,6 +1174,14 @@ jobs:
     uses: ./.github/workflows/ci-arch.yml
     with:
       matrix: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv2wide-rva23'].arch_matrix) }}
+
+  act-simple-rv3wide-rva23:
+    name: ACT / simple-rv3wide-rva23
+    needs: [plan, sim-simple-rv3wide-rva23, act-build-simple-rv3wide-rva23]
+    if: ${{ always() && !cancelled() && needs.sim-simple-rv3wide-rva23.result == 'success' && needs.act-build-simple-rv3wide-rva23.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv3wide-rva23'].arch }}
+    uses: ./.github/workflows/ci-arch.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv3wide-rva23'].arch_matrix) }}
 
   program-short-simple-rv2wide-rva23:
     name: Software / simple-rv2wide-rva23 / short
@@ -1071,6 +1191,14 @@ jobs:
     with:
       matrix: ${{ toJSON(fromJSON(needs.program-plan.outputs.run-matrices)['short']['simple-rv2wide-rva23']) }}
 
+  program-short-simple-rv3wide-rva23:
+    name: Software / simple-rv3wide-rva23 / short
+    needs: [plan, sim-simple-rv3wide-rva23, program-plan, program-builds-isa, program-builds-short]
+    if: ${{ always() && !cancelled() && needs.sim-simple-rv3wide-rva23.result == 'success' && needs.program-plan.result == 'success' && contains(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv3wide-rva23'].program_groups, 'short') }}
+    uses: ./.github/workflows/ci-software.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.program-plan.outputs.run-matrices)['short']['simple-rv3wide-rva23']) }}
+
   program-bringup-simple-rv2wide-rva23:
     name: Software / simple-rv2wide-rva23 / bringup
     needs: [plan, sim-simple-rv2wide-rva23, program-plan, program-builds-bringup]
@@ -1078,6 +1206,14 @@ jobs:
     uses: ./.github/workflows/ci-software.yml
     with:
       matrix: ${{ toJSON(fromJSON(needs.program-plan.outputs.run-matrices)['bringup']['simple-rv2wide-rva23']) }}
+
+  program-bringup-simple-rv3wide-rva23:
+    name: Software / simple-rv3wide-rva23 / bringup
+    needs: [plan, sim-simple-rv3wide-rva23, program-plan, program-builds-bringup]
+    if: ${{ always() && !cancelled() && needs.sim-simple-rv3wide-rva23.result == 'success' && needs.program-plan.result == 'success' && contains(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv3wide-rva23'].program_groups, 'bringup') }}
+    uses: ./.github/workflows/ci-software.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.program-plan.outputs.run-matrices)['bringup']['simple-rv3wide-rva23']) }}
 
   program-skl-simple-rv2wide-rva23:
     name: Software / simple-rv2wide-rva23 / skl
@@ -1087,6 +1223,14 @@ jobs:
     with:
       matrix: ${{ toJSON(fromJSON(needs.program-plan.outputs.run-matrices)['skl']['simple-rv2wide-rva23']) }}
 
+  program-skl-simple-rv3wide-rva23:
+    name: Software / simple-rv3wide-rva23 / skl
+    needs: [plan, sim-simple-rv3wide-rva23, program-plan, program-builds-skl]
+    if: ${{ always() && !cancelled() && needs.sim-simple-rv3wide-rva23.result == 'success' && needs.program-plan.result == 'success' && contains(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv3wide-rva23'].program_groups, 'skl') }}
+    uses: ./.github/workflows/ci-software.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.program-plan.outputs.run-matrices)['skl']['simple-rv3wide-rva23']) }}
+
   program-highway-simple-rv2wide-rva23:
     name: Software / simple-rv2wide-rva23 / highway
     needs: [plan, sim-simple-rv2wide-rva23, program-plan, program-builds-highway]
@@ -1094,6 +1238,14 @@ jobs:
     uses: ./.github/workflows/ci-software.yml
     with:
       matrix: ${{ toJSON(fromJSON(needs.program-plan.outputs.run-matrices)['highway']['simple-rv2wide-rva23']) }}
+
+  program-highway-simple-rv3wide-rva23:
+    name: Software / simple-rv3wide-rva23 / highway
+    needs: [plan, sim-simple-rv3wide-rva23, program-plan, program-builds-highway]
+    if: ${{ always() && !cancelled() && needs.sim-simple-rv3wide-rva23.result == 'success' && needs.program-plan.result == 'success' && contains(fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv3wide-rva23'].program_groups, 'highway') }}
+    uses: ./.github/workflows/ci-software.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.program-plan.outputs.run-matrices)['highway']['simple-rv3wide-rva23']) }}
 
   platform-simple-rv5stage-rva23:
     name: Platform / simple-rv5stage-rva23
@@ -1119,6 +1271,14 @@ jobs:
     with:
       matrix: ${{ toJSON(fromJSON(needs.platform-plan.outputs.run-matrices)['simple-rv2wide-rva23']) }}
 
+  platform-simple-rv3wide-rva23:
+    name: Platform / simple-rv3wide-rva23
+    needs: [plan, sim-simple-rv3wide-rva23, platform-plan, platform-builds-opensbi]
+    if: ${{ always() && !cancelled() && needs.sim-simple-rv3wide-rva23.result == 'success' && needs.platform-plan.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['simple-rv3wide-rva23'].platform }}
+    uses: ./.github/workflows/ci-platform.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.platform-plan.outputs.run-matrices)['simple-rv3wide-rva23']) }}
+
   platform-tiled4core-rv5stage-rva23:
     name: Platform / tiled4core-rv5stage-rva23
     needs: [plan, sim-tiled4core-rv5stage-rva23, platform-plan, platform-builds-litmus]
@@ -1134,6 +1294,14 @@ jobs:
     uses: ./.github/workflows/ci-platform.yml
     with:
       matrix: ${{ toJSON(fromJSON(needs.platform-plan.outputs.run-matrices)['tiled4core-rv2wide-rva23']) }}
+
+  platform-tiled4core-rv3wide-rva23:
+    name: Platform / tiled4core-rv3wide-rva23
+    needs: [plan, sim-tiled4core-rv3wide-rva23, platform-plan, platform-builds-litmus]
+    if: ${{ always() && !cancelled() && needs.sim-tiled4core-rv3wide-rva23.result == 'success' && needs.platform-plan.result == 'success' && fromJSON(needs.plan.outputs.plan).config_jobs['tiled4core-rv3wide-rva23'].platform }}
+    uses: ./.github/workflows/ci-platform.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.platform-plan.outputs.run-matrices)['tiled4core-rv3wide-rva23']) }}
 
   platform-tiled4core-spike-rva23:
     name: Platform / tiled4core-spike-rva23
@@ -1171,15 +1339,20 @@ jobs:
       - sim-simple-rv5stage-rv32max
       - sim-simple-spike-rv32max
       - sim-simple-rv2wide-rv32int
+      - sim-simple-rv3wide-rv32int
       - sim-simple-rv2wide-rv32max
+      - sim-simple-rv3wide-rv32max
       - sim-simple-rv5stage-rva23
       - sim-simple-spike-rva23
       - sim-simple-rv2wide-rva23
+      - sim-simple-rv3wide-rva23
       - sim-tiled8core-rv5stage-rva23
       - sim-tiled8core-rv2wide-rva23
+      - sim-tiled8core-rv3wide-rva23
       - sim-tiled8core-spike-rva23
       - sim-tiled4core-rv5stage-rva23
       - sim-tiled4core-rv2wide-rva23
+      - sim-tiled4core-rv3wide-rva23
       - sim-tiled4core-spike-rva23
       - sim-plain
       - sim-cosim
@@ -1198,11 +1371,17 @@ jobs:
       - act-simple-spike-rv32max
       - program-short-simple-spike-rv32max
       - act-build-simple-rv2wide-rv32int
+      - act-build-simple-rv3wide-rv32int
       - act-simple-rv2wide-rv32int
+      - act-simple-rv3wide-rv32int
       - program-short-simple-rv2wide-rv32int
+      - program-short-simple-rv3wide-rv32int
       - act-build-simple-rv2wide-rv32max
+      - act-build-simple-rv3wide-rv32max
       - act-simple-rv2wide-rv32max
+      - act-simple-rv3wide-rv32max
       - program-short-simple-rv2wide-rv32max
+      - program-short-simple-rv3wide-rv32max
       - act-build-simple-rv5stage-rva23
       - act-simple-rv5stage-rva23
       - program-short-simple-rv5stage-rva23
@@ -1216,16 +1395,24 @@ jobs:
       - program-skl-simple-spike-rva23
       - program-highway-simple-spike-rva23
       - act-build-simple-rv2wide-rva23
+      - act-build-simple-rv3wide-rva23
       - act-simple-rv2wide-rva23
+      - act-simple-rv3wide-rva23
       - program-short-simple-rv2wide-rva23
+      - program-short-simple-rv3wide-rva23
       - program-bringup-simple-rv2wide-rva23
+      - program-bringup-simple-rv3wide-rva23
       - program-skl-simple-rv2wide-rva23
+      - program-skl-simple-rv3wide-rva23
       - program-highway-simple-rv2wide-rva23
+      - program-highway-simple-rv3wide-rva23
       - platform-simple-rv5stage-rva23
       - platform-simple-spike-rva23
       - platform-simple-rv2wide-rva23
+      - platform-simple-rv3wide-rva23
       - platform-tiled4core-rv5stage-rva23
       - platform-tiled4core-rv2wide-rva23
+      - platform-tiled4core-rv3wide-rva23
       - platform-tiled4core-spike-rva23
     if: always()
     runs-on: ubuntu-slim

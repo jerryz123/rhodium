@@ -1,0 +1,16 @@
+#lang rhombus
+/* Projects RV3Wide's configuration through the shared superscalar UDB contract. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "profile.rhm".RV3WideConfig
+  "../superscalar/udb.rhm".superscalar_udb_configuration
+  lib("riscv/udb.rhm").UdbConfiguration
+  lib("support/annotations.rhm").NonemptyString
+
+/* Uses the same projected configuration for architectural publication and RTL. */
+fun rv3wide_udb_configuration(profile :: RV3WideConfig, name :: NonemptyString, description :: NonemptyString, physical_address_width :: PosInt) :: UdbConfiguration:
+  superscalar_udb_configuration(profile.pipeline, name, description, physical_address_width)
+
+export:
+  rv3wide_udb_configuration

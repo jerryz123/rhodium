@@ -277,18 +277,18 @@ privilege helpers for its WB reservation-wait timeout policy. Its profile and UD
 projection import the pure `riscv/isa/c.rhm` compressed-extension descriptors;
 the profile supplies the same selected C/Zcb/Zcmop list to the assembler and
 shared CSR bank, preserving IALIGN and architectural publication consistency.
-`cores/rv2wide/mmu.rhdl` imports the shared `cores/mmu/` TLB/walker,
+`cores/superscalar/mmu.rhdl` imports the shared `cores/mmu/` TLB/walker,
 shared cache protocol/operation/geometry and hart CHI-map definitions, and architectural
 CSR, privilege, Sv39, and XLEN helpers. Its MMU and physical cache adapter use
 `riscv/rtl/cmo.rhdl` for read-or-write whole-block maintenance permissions.
-`cores/rv2wide/bare-memory.rhdl` consumes the named-core bundles, shared cache
+`cores/superscalar/bare-memory.rhdl` consumes the named-core bundles, shared cache
 protocol/map, split engine, Flow, passive observation helpers, and architectural
 XLEN, guest-fault, pointer-masking, PBMT, and CMO descriptors plus `std/bits.rhdl`
 alignment helpers, without importing the TLB/walker.
 The top selects Bare or Sv39 via `riscv/isa/hart.rhm`. XLEN-specialized pipeline
 and service payloads consume `riscv/isa/xlen.rhm`; operand and combined decode
 also import the canonical `riscv/isa/rv32i.rhm` catalog.
-`cores/rv2wide/pairing.rhdl` consumes that catalog through
+`cores/superscalar/pairing.rhdl` consumes that catalog through
 `riscv/rtl/instruction-pattern.rhdl` and `std/decode.rhdl` to recognize
 AUIPC+ADDI without duplicating instruction encodings.
 The Sv39 adapter owns EX/MEM translation alignment and
@@ -297,7 +297,30 @@ and core also consume `cores/misaligned-access.rhdl`: the neutral split
 request/result contract and retained fragment engine. This shared module imports
 the physical cache protocol, cache operations, load/store shaping, architectural
 XLEN/guest-fault types, Bits helpers, and Flow, never a named core's payload.
-RV2Wide's `vector.rhdl`/`vector-memory.rhdl` adapters consume shared
+The `cores/superscalar/` family owns the single fixed-two-wide implementation
+behind RV2Wide and RV3Wide. Each named core owns its config class and hart
+circuit. Configs import the shared `SuperscalarPipelineConfig` and retain it as
+their sole `pipeline` field. Shared defaults and validation remain in the family.
+Named configs additionally import architectural ISA/hart and shared CSR types
+for their three derived metadata properties. Hart and host entry-point factories
+consume the contained value when instantiating the shared fetching top;
+execution-slice consumers call `SuperscalarCore` directly with it.
+UDB adapters pass it to the shared publication function. Neither named
+core imports the other. Named hart circuits import Flow and CHI channels plus
+the neutral hart identity and interrupt descriptors; no shared hart wrapper
+remains. Internal generators and payloads use the `Superscalar` prefix.
+The RV2Wide integration dependencies below now belong to this shared family,
+including its implementation configuration and decode. Its production sources never import
+the named facades. `socs/configs/rv2wide-core-profile.rhm` and
+`socs/configs/rv3wide-core-profile.rhm` construct the shared pipeline config from
+pure architectural presets and wrap it in their respective named config;
+`socs/harts/rv3wide.rhdl` binds
+its hart through the same neutral implementation and cache CHI attachment
+contracts as RV2Wide. The resolver and metadata projection select each named
+profile without adding a dependency between cores. Existing `rv2wide` cosim contract/DPI identities are unchanged;
+the simulation-owned capture imports the shared bundles and configuration.
+
+The family's `vector.rhdl`/`vector-memory.rhdl` adapters consume shared
 `cores/vector/`, `cores/mmu/vector.rhdl`, integer/FP service contracts, and the
 public Flow and `std/bits.rhdl` APIs. The adapters use architectural XLEN,
 vector-state, pointer-mask, trap, guest-fault, PBMT, atomic, and locality helpers
@@ -317,7 +340,7 @@ integer-service and vector completion tags, without importing another core.
 RV2Wide bundles
 also consume the architectural privilege type, and its core selects Sv39 through
 the shared hart MMU-type descriptor.
-`cores/rv2wide/decode/` also imports `std/decode.rhdl` for exact-pattern column
+`cores/superscalar/decode/` also imports `std/decode.rhdl` for exact-pattern column
 composition and one hardware decoder per issue slot, plus the architectural
 XLEN descriptor to select the shared F/D/Zfa instruction/control relations.
 Its combined relation consumes the named core's `profile.rhm` configuration;
@@ -326,7 +349,7 @@ feature arguments. The pure configuration has no reverse dependency on RTL.
 Its system and combined control relations also import the pure
 `riscv/isa/svinval.rhm` catalog; optional invalidation reuses shared CSR actions
 and the existing WB/MMU ownership boundary.
-`cores/rv2wide/core.rhdl`
+`cores/superscalar/core.rhdl`
 imports it to consume the combined decoder, `std/scoreboard.rhdl` for committed
 load destinations, and `flow/main.rhdl` for typed endpoints, feed-forward
 pipeline storage, and fault retention. `bundles.rhdl`, `issue-window.rhdl`,
@@ -479,9 +502,9 @@ both named decoders emit the shared CSR action directly; each `core.rhdl` owns r
 `socs/configs/metadata.rhm` consumes that static specialization and Spike's
 implementation-owned WARL projection for reference configuration. No live CSR
 state or simulator dependency crosses back into the core packages.
-`cores/rv2wide/core.rhdl` also consumes this shared bank, architectural ISA/CSR/
+`cores/superscalar/core.rhdl` also consumes this shared bank, architectural ISA/CSR/
 interrupt descriptors, and the neutral command/action protocol. Its composed
-system decode remains in `cores/rv2wide/decode/`; single-slot serialization,
+system decode remains in `cores/superscalar/decode/`; single-slot serialization,
 dual retirement counts, deferred-memory drain, and precise interrupt boundaries
 remain RV2Wide policy, without imports from another named core. RV2Wide also
 imports architectural pointer-masking and hypervisor RTL definitions for address

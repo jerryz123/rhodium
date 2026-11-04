@@ -124,10 +124,10 @@ if len(TEST_CONFIGS) != len(set(TEST_CONFIGS)):
 paired_selections = {
     core: {(SELECTIONS[soc][0], SELECTIONS[soc][2]) for soc in TEST_CONFIGS
            if SELECTIONS[soc][1] == core}
-    for core in ('rv5stage', 'rv2wide')
+    for core in ('rv5stage', 'rv2wide', 'rv3wide')
 }
-if paired_selections['rv5stage'] != paired_selections['rv2wide']:
-    raise ValueError("RV5Stage and RV2Wide CI shape/ISA selections must match")
+if any(selected != paired_selections['rv5stage'] for selected in paired_selections.values()):
+    raise ValueError("RV5Stage, RV2Wide, and RV3Wide CI shape/ISA selections must match")
 SIMULATOR_CONFIGS = tuple((key, *SELECTIONS[key][:2]) for key in TEST_CONFIGS)
 SINGLE_CORE_SOCS = tuple(soc for soc, shape, _core in SIMULATOR_CONFIGS
                          if (shape, SELECTIONS[soc][2]) in NATIVE_SOFTWARE)
@@ -159,6 +159,7 @@ def native_configs(suite):
 BACKEND_SMOKE_CONFIGS = (
     ('simple-rv5stage-rva23', 'simple', 'rv5stage'),
     ('simple-rv2wide-rva23', 'simple', 'rv2wide'),
+    ('simple-rv3wide-rva23', 'simple', 'rv3wide'),
 )
 DEFAULT_BACKEND = 'rsim'
 BACKEND_SMOKE_VARIANTS = {
@@ -170,7 +171,7 @@ BACKEND_SMOKE_VARIANTS = {
 # These existing configs publish one cosim-enabled simulator, not another lane.
 # Enrolled single-hart RTL cores use the checker without changing software selection.
 COSIM_CONFIGS = frozenset(soc for soc, shape, core in SIMULATOR_CONFIGS
-                           if core in ('rv5stage', 'rv2wide') and shape in ('mini', 'simple'))
+                           if core in ('rv5stage', 'rv2wide', 'rv3wide') and shape in ('mini', 'simple'))
 
 
 def model_variant(*, trace=False, cosim=False, stats=False):
@@ -183,7 +184,7 @@ def simulator_options(soc):
     """Keep instrumentation and artifact identity identical for every build and consumer."""
     shape, core, isa = SELECTIONS[soc]
     cosim = soc in COSIM_CONFIGS
-    stats = core in ('rv5stage', 'rv2wide') and shape in ('simple', 'tiled') and isa == 'rva23'
+    stats = core in ('rv5stage', 'rv2wide', 'rv3wide') and shape in ('simple', 'tiled') and isa == 'rva23'
     return dict(cosim=cosim, stats=stats,
                 variant=model_variant(cosim=cosim, stats=stats))
 
@@ -218,6 +219,9 @@ ARCH_SHARD_COUNTS = {
     'simple-rv2wide-rv32int': 8,
     'simple-rv2wide-rv32max': 8,
     'simple-rv2wide-rva23': 16,
+    'simple-rv3wide-rv32int': 8,
+    'simple-rv3wide-rv32max': 8,
+    'simple-rv3wide-rva23': 16,
     'simple-spike-rva23': 8,
     'simple-spike-rv32int': 4,
     'simple-spike-rv32max': 4,

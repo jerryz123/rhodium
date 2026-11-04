@@ -1,0 +1,13 @@
+#lang rhombus
+// Exercises the RV3Wide entry point's shared two-wide pipeline with prediction disabled.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../profile.rhm".SuperscalarPipelineConfig
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("cores/rv3wide/rv3wide.rhdl").RV3Wide
+  lib("cores/rv3wide/profile.rhm").RV3WideConfig
+  "../cache-fixture.rhdl" open
+
+def profile = RV3WideConfig(SuperscalarPipelineConfig(~instruction_cache: test_cache, ~data_cache: test_cache, ~btb_entries: 0, ~ras_entries: 0, ~bht: #false))
+def program = elaborate(RV3Wide(test_cache, ~chi: test_fetch_chi, ~profile: profile))
+export program

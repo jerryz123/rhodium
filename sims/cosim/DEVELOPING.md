@@ -29,6 +29,11 @@ adapter, elaborates it separately, checks its input/domain contract and absence
 of outputs, then imports it into selected occurrences. Capture has no functional
 feedback or bookkeeping registers. Keep eligibility policy in the adapter.
 
+The existing `rv2wide` capture/reconstruction contract also serves the RV3Wide
+entry point: both instantiate the same fixed-two-wide implementation in
+`cores/superscalar/`. Capture imports that family's bundles and configuration;
+the named facade does not add hierarchy, taps, or a second native adapter.
+
 The event package has no named-core, Sail, or session dependency. Hart adapters
 understand microarchitectural ownership, not reference-model semantics. The
 checker consumes architectural records, never named-core raw callbacks. Only

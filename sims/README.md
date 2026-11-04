@@ -17,7 +17,7 @@ including the `tests/` exemption.
 
 ## Choose a harness
 
-`SOC=mini|simple|tiled4core|tiled8core` chooses the topology; `CORE=rv5stage|rv2wide|spike` chooses
+`SOC=mini|simple|tiled4core|tiled8core` chooses the topology; `CORE=rv5stage|rv2wide|rv3wide|spike` chooses
 the hart implementation; `ISA=rv32int|rv32max|rv64imacb|rv64imafdcb|rv64max|rva23` is required. There is no implicit
 ISA. Alternatively pass a complete key such as `SOC=mini-rv5stage-rva23`.
 Both forms produce the same canonical artifact identity. Shape and core default to `simple` and
@@ -57,9 +57,14 @@ make -C sims boot-test isa-smoke SOC=simple-rv2wide-rv64imacb
 make -C sims smoke tiled-mt-benchmark-test SOC=tiled8core-rv2wide-rva23
 ```
 
+RV3Wide supports the same selections: replace `rv2wide` with `rv3wide` in
+these commands. Its separate config and hart binding currently select the same
+two-wide implementation. CI mirrors RV2Wide's ISA profiles and software suites,
+including both tiled sizes.
+
 These use the same TestDriver, coherent FESVR, BootROM, and HTIF flow. CI enrolls
 the scalar RV64 presets and Simple RV64Max with only ISA smoke; RVA23 and both RV32 presets follow the normal
-shape/ISA software policy. All have Sail cosimulation enabled. Set `COSIM=1` for local
+shape/ISA software policy. Mini/Simple RTL CI builds have Sail cosimulation enabled; tiled builds do not. Set `COSIM=1` for local
 checked builds; see [cosim setup](cosim/README.md). Both also support optional
 [flow event tracing](#export-soc-events-to-perfetto), independently or alongside cosim.
 
@@ -86,7 +91,7 @@ make -C sims isa-smoke SOC=simple-spike-rv64imafdcb
 ```
 
 Mini supports `rv32int` and `rv32max` on both Spike and RV5Stage.
-Mini and Simple also support both RV32 presets on RV2Wide.
+Mini and Simple also support both RV32 presets on RV2Wide and RV3Wide.
 The `smoke`, `boot-test`, `host-mmio-test`, and `uart-pty-test` payloads select
 ELF32/ILP32 for both ISAs. Both smoke variants exercise integer vectors and
 Zvbb with VLEN64. RV32Max additionally exercises scalar F and Zve32f;
@@ -423,7 +428,7 @@ trace flag selects an event compilation pass on the same SoC elaboration used by
 it does not select a different hardware configuration. `TRACE=0`
 (the default) neither instruments RTL nor links the optional exporter.
 
-RV2Wide's [pipeline tracing contract](../cores/rv2wide/README.md#pipeline-event-tracing)
+RV2Wide's [pipeline tracing contract](../cores/superscalar/README.md#pipeline-event-tracing)
 includes separate age-slot tracks and delayed load/multiply/divide completion.
 Its trace smoke uses the existing scalar cosim ELF even when `COSIM=0`; no Sail
 installation is required for tracing alone. It checks both lane identities,
@@ -632,7 +637,7 @@ described below. The individual
 `isa-test`, `benchmark-test`, `coremark-test`, `coremark_scalar-test`,
 `embench-test`, `bringup-test`, `skl-test`, and `highway-test` targets remain available for
 focused execution. SKL and Highway require Simple RVA23. CI schedules these program suites and
-ACT independently for Spike, RV5Stage, and RV2Wide; Bringup-Bench runs the full
+ACT independently for Spike, RV5Stage, RV2Wide, and RV3Wide; Bringup-Bench runs the full
 bounded inventory in eight shards per config, with two workers per shard.
 CI also validates OpenSBI on these configs. Each ACT lane uses its own UDB projection and
 generated test inventory.
@@ -698,7 +703,7 @@ ACT and the complete program suites remain restricted to Simple compositions.
 
 Run the same model-checked litmus7 path on `tiled4core` with any core implementation.
 All litmus entrypoints use this four-hart topology; eight-hart benchmarks use `tiled8core`.
-Smoke selects a fixed 64-case subset for CI on RV5Stage, RV2Wide, and Spike;
+Smoke selects a fixed 64-case subset for CI on RV5Stage, RV2Wide, RV3Wide, and Spike;
 full selects every case supported
 by the target's ISA and hart count (3,443 at the current upstream pin). Each
 case boots only the one to four harts it needs:
@@ -822,7 +827,8 @@ upstream count, exact selection, expected hashes, target fingerprint, and ELF
 metadata. CI and `single-core-software-test` include all 108 workloads from this
 same bounded suite and report any failures or timeouts. CI uses eight
 deterministic shards and two workers per shard for each of
-`simple-spike-rva23`, `simple-rv5stage-rva23`, and `simple-rv2wide-rva23`, with
+`simple-spike-rva23`, `simple-rv5stage-rva23`, `simple-rv2wide-rva23`, and
+`simple-rv3wide-rva23`, with
 one shared ELF build for compatible targets. `BRINGUP_TIMEOUT` defaults to
 600 seconds per workload; `BRINGUP_MAX_CYCLES` remains 100 million cycles.
 Local `bringup-run` and `bringup-test` accept `PROGRAM_SHARD_INDEX` (zero-based) and
@@ -836,7 +842,7 @@ rho-factor samples 4- through 8-bit inputs. These are functional integration tes
 scores or substitutes for running the original upstream workloads.
 
 `skl-test` runs the [SiFive Kernel Library port](../sw/skl-riscv-baremetal/)
-on Simple RV5Stage, RV2Wide, and Spike with `ISA=rva23`. Upstream's CMake
+on Simple RV5Stage, RV2Wide, RV3Wide, and Spike with `ISA=rva23`. Upstream's CMake
 catalog selects every target-supported suite except X390 variants and standalone
 scalar-reference suites (28 at the pinned revision). All test-input and benchmark
 cases run without numerical/reference or clobber checking. A suite-completion
@@ -996,13 +1002,13 @@ make -C sims run SOC=mini-rv5stage-rva23 STATS=1 BINARY=/path/to/program.elf
 This is a compile-target option, independent of `TRACE` and `COSIM`, supported
 by rsim, direct Verilog, and CIRCT. It changes neither the SoC selection nor the
 hardware generator parameters. See the [declaration and pass API](../rhodium/statistics/README.md).
-It enables authored sites. RV5Stage and RV2Wide declare the following small catalog;
+It enables authored sites. RV5Stage and the shared RV2Wide/RV3Wide implementation declare the following small catalog;
 the shared L1I/L1D declare cache sites separately for each instance.
 
 | Counter | Sampled event | Baseline tolerance |
 |---|---|---|
-| `retired_slot0`, `retired_slot1` (RV2Wide only) | Successful architectural retirement, not delayed register writeback | ±1% |
-| `issue_1`, `issue_2` (RV2Wide only) | Cycles admitting exactly this many instructions into execution | ±5% |
+| `retired_slot0`, `retired_slot1` (RV2Wide/RV3Wide) | Successful architectural retirement, not delayed register writeback | ±1% |
+| `issue_1`, `issue_2` (RV2Wide/RV3Wide) | Cycles admitting exactly this many instructions into execution | ±5% |
 | `icache_miss` | Accepted demand refill, excluding prefetches and repeated stalled lookups | ±5%, floor 2 events |
 | `dcache_miss` | Accepted demand refill/acquisition, including ownership upgrades, excluding prefetches and uncached accesses | ±5%, floor 2 events |
 | `mispredict_direction` | Conditional taken/fallthrough disagreement | ±5%, floor 2 events |

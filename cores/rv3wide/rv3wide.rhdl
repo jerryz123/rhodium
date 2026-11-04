@@ -1,0 +1,18 @@
+#lang rhodium
+/* Selects the shared fetching pipeline from RV3Wide's independent configuration. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../superscalar/profile.rhm".SuperscalarPipelineConfig
+  "profile.rhm".RV3WideConfig
+  "../superscalar/superscalar.rhdl".Superscalar
+  "../cache/config.rhm".CacheConfig
+  "../chi-hart.rhdl".RiscvHartCHIConfig
+  lib("rhodium/frontend/foundation.rhm").CircuitDefinition
+
+/* Projects configuration without inserting an RTL wrapper or changing pipeline timing. */
+fun RV3Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~instruction_cache: instruction_cache :: CacheConfig = cache, ~profile: profile :: RV3WideConfig = RV3WideConfig(SuperscalarPipelineConfig(~instruction_cache: instruction_cache, ~data_cache: cache))) :: CircuitDefinition:
+  Superscalar(cache, ~chi: config, ~instruction_cache: instruction_cache, ~profile: profile.pipeline)
+
+export:
+  RV3Wide

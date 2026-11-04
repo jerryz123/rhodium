@@ -143,6 +143,7 @@ Architectural instruction descriptions and stateless FP helpers remain in
 [`riscv/`](../../riscv/README.md); numeric primitives remain in
 [`hardfloat/`](../../hardfloat/README.md). RV5Stage's
 [scalar wrapper](../rv5stage/fp/README.md) owns its FPR scoreboard, scalar/vector
-reservations, LSU adaptation, and retirement policy. RV2Wide\'s
-[wrapper](../rv2wide/fp.rhdl) owns its two-wide scheduling and authorization.
+reservations, LSU adaptation, and retirement policy. The superscalar
+[wrapper](../superscalar/fp.rhdl) owns two-wide scheduling and authorization
+for RV2Wide and RV3Wide.
 Both reuse the same execution, storage, and fixed-owner alignment components.

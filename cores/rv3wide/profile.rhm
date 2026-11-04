@@ -1,0 +1,30 @@
+#lang rhombus
+/* Wraps shared pipeline parameters in RV3Wide's distinct named-core configuration. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../superscalar/profile.rhm".SuperscalarPipelineConfig
+  lib("rhodium/frontend/foundation.rhm").StableCircuitParam
+  lib("riscv/isa/profile.rhm").RiscvIsaProfile
+  lib("riscv/isa/hart.rhm").RiscvHartDescription
+  "../csr/config.rhm".RiscvCsrConfig
+
+/* Retains one validated pipeline configuration; named-core policy can extend this wrapper without duplicating pipeline fields. */
+class RV3WideConfig(pipeline :: SuperscalarPipelineConfig):
+  implements StableCircuitParam
+
+  /* Uses the shared pipeline defaults unless an explicit specialization is supplied. */
+  constructor (pipeline :: SuperscalarPipelineConfig = SuperscalarPipelineConfig()):
+    super(pipeline)
+
+  /* Publishes the architecture implemented by the contained pipeline. */
+  property isa_profile :: RiscvIsaProfile: pipeline.isa_profile
+
+  /* Supplies the same CSR specialization to hardware and SoC metadata. */
+  property csr_config :: RiscvCsrConfig: pipeline.csr_config
+
+  /* Describes the architectural resources used by the contained pipeline. */
+  property hart_description :: RiscvHartDescription: pipeline.hart_description
+
+export:
+  RV3WideConfig

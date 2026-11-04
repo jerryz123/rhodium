@@ -198,29 +198,29 @@ priority-encoder	language	examples/rtl/priority-encoder.rhdl	five_program	rhodiu
 table	language	examples/rtl/table.rhdl	program	rhodium/backend/tests/rsim/table.cpp
 vec-search	language	examples/rtl/vec-search.rhdl	program	rhodium/backend/tests/rsim/vec-search.cpp
 bundle-update	language	rhodium/backend/tests/rsim/emit-bundle-update.rhm	program	rhodium/backend/tests/rsim/bundle-update.cpp
-rv2wide-core	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-core.rhm	program	cores/rv2wide/tests/rsim/rv2wide-core.cpp	target	sims/statistics/collector.cc
-rv2wide-issue-window	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-issue-window.rhm	program	cores/rv2wide/tests/rsim/rv2wide-issue-window.cpp
-rv2wide-issue-window-h	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-issue-window.rhm	guest_program	cores/rv2wide/tests/rsim/rv2wide-issue-window.cpp
-rv2wide-issue-window-rv32	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-issue-window.rhm	rv32_program	cores/rv2wide/tests/rsim/rv2wide-issue-window.cpp
-rv2wide-core-vector	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-core-vector.rhm	program	cores/rv2wide/tests/rsim/rv2wide-core-vector.cpp	target	rheg/runtime/rheg.cc
-rv2wide-core-vector-rv32	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-core-vector.rhm	rv32_program	cores/rv2wide/tests/rsim/rv2wide-core-vector.cpp	target	rheg/runtime/rheg.cc
-rv2wide-vector-memory	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-vector-memory.rhm	program	cores/rv2wide/tests/rsim/rv2wide-vector-memory.cpp
-rv2wide-vector-memory-rv32	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-vector-memory-rv32.rhm	program	cores/rv2wide/tests/rsim/rv2wide-vector-memory.cpp
-rv2wide-vector	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-vector.rhm	program	cores/rv2wide/tests/rsim/rv2wide-vector.cpp
-rv2wide-fp	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-fp.rhm	program	cores/rv2wide/tests/rsim/rv2wide-fp.cpp
-rv2wide-core-fp	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-core-fp.rhm	program	cores/rv2wide/tests/rsim/rv2wide-core-fp.cpp
-rv2wide-core-fp-rv32	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-core-fp.rhm	rv32_program	cores/rv2wide/tests/rsim/rv2wide-core-fp.cpp
-rv2wide-core-fp-late	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-core-fp-late.rhm	program	cores/rv2wide/tests/rsim/rv2wide-core-fp-late.cpp
-rv2wide-core-fp-late-rv32	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-core-fp-late.rhm	rv32_program	cores/rv2wide/tests/rsim/rv2wide-core-fp-late.cpp
-rv2wide-cache	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-cache.rhm	program	cores/rv2wide/tests/rsim/rv2wide-cache.cpp
-rv2wide-fetch-disabled	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-fetch-disabled.rhm	program	cores/rv2wide/tests/rsim/rv2wide-fetch-disabled.cpp
-rv2wide-assembly-prediction	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-assembly-prediction.rhm	program	cores/rv2wide/tests/rsim/rv2wide-assembly-prediction.cpp
-rv2wide-assembly-prediction-h	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-assembly-prediction.rhm	guest_program	cores/rv2wide/tests/rsim/rv2wide-assembly-prediction-h.cpp
-rv2wide-assembly-prediction-full-width	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-assembly-prediction.rhm	full_width_program	cores/rv2wide/tests/rsim/rv2wide-assembly-prediction.cpp
-rv2wide-frontend-prediction	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-frontend-prediction.rhm	program	cores/rv2wide/tests/rsim/rv2wide-frontend-prediction.cpp
-rv2wide-bht	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-bht.rhm	program	cores/rv2wide/tests/rsim/rv2wide-bht.cpp
-rv2wide-mmu	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-mmu.rhm	program	cores/rv2wide/tests/rsim/rv2wide-mmu.cpp
-rv2wide-bare-memory	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-mmu.rhm	bare_program	cores/rv2wide/tests/rsim/rv2wide-bare-memory.cpp
+rv2wide-core	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-core.rhm	program	cores/superscalar/tests/rsim/rv2wide-core.cpp	target	sims/statistics/collector.cc
+rv2wide-issue-window	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-issue-window.rhm	program	cores/superscalar/tests/rsim/rv2wide-issue-window.cpp
+rv2wide-issue-window-h	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-issue-window.rhm	guest_program	cores/superscalar/tests/rsim/rv2wide-issue-window.cpp
+rv2wide-issue-window-rv32	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-issue-window.rhm	rv32_program	cores/superscalar/tests/rsim/rv2wide-issue-window.cpp
+rv2wide-core-vector	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-core-vector.rhm	program	cores/superscalar/tests/rsim/rv2wide-core-vector.cpp	target	rheg/runtime/rheg.cc
+rv2wide-core-vector-rv32	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-core-vector.rhm	rv32_program	cores/superscalar/tests/rsim/rv2wide-core-vector.cpp	target	rheg/runtime/rheg.cc
+rv2wide-vector-memory	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-vector-memory.rhm	program	cores/superscalar/tests/rsim/rv2wide-vector-memory.cpp
+rv2wide-vector-memory-rv32	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-vector-memory-rv32.rhm	program	cores/superscalar/tests/rsim/rv2wide-vector-memory.cpp
+rv2wide-vector	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-vector.rhm	program	cores/superscalar/tests/rsim/rv2wide-vector.cpp
+rv2wide-fp	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-fp.rhm	program	cores/superscalar/tests/rsim/rv2wide-fp.cpp
+rv2wide-core-fp	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-core-fp.rhm	program	cores/superscalar/tests/rsim/rv2wide-core-fp.cpp
+rv2wide-core-fp-rv32	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-core-fp.rhm	rv32_program	cores/superscalar/tests/rsim/rv2wide-core-fp.cpp
+rv2wide-core-fp-late	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-core-fp-late.rhm	program	cores/superscalar/tests/rsim/rv2wide-core-fp-late.cpp
+rv2wide-core-fp-late-rv32	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-core-fp-late.rhm	rv32_program	cores/superscalar/tests/rsim/rv2wide-core-fp-late.cpp
+rv2wide-cache	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-cache.rhm	program	cores/superscalar/tests/rsim/rv2wide-cache.cpp
+rv2wide-fetch-disabled	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-fetch-disabled.rhm	program	cores/superscalar/tests/rsim/rv2wide-fetch-disabled.cpp
+rv2wide-assembly-prediction	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-assembly-prediction.rhm	program	cores/superscalar/tests/rsim/rv2wide-assembly-prediction.cpp
+rv2wide-assembly-prediction-h	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-assembly-prediction.rhm	guest_program	cores/superscalar/tests/rsim/rv2wide-assembly-prediction-h.cpp
+rv2wide-assembly-prediction-full-width	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-assembly-prediction.rhm	full_width_program	cores/superscalar/tests/rsim/rv2wide-assembly-prediction.cpp
+rv2wide-frontend-prediction	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-frontend-prediction.rhm	program	cores/superscalar/tests/rsim/rv2wide-frontend-prediction.cpp
+rv2wide-bht	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-bht.rhm	program	cores/superscalar/tests/rsim/rv2wide-bht.cpp
+rv2wide-mmu	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-mmu.rhm	program	cores/superscalar/tests/rsim/rv2wide-mmu.cpp
+rv2wide-bare-memory	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-mmu.rhm	bare_program	cores/superscalar/tests/rsim/rv2wide-bare-memory.cpp
 rv5stage-chi-requests	cores-memory	cores/rv5stage/tests/rsim/emit-rv5stage-chi-requests.rhm	program	cores/rv5stage/tests/rsim/rv5stage-chi-requests.cpp
 rv5stage-vector	cores-vector-functional-1	cores/vector/tests/rsim/emit-rv5stage-vector.rhm	program	cores/vector/tests/rsim/rv5stage-vector.cpp
 rv5stage-vector-control	cores-vector-functional-1	cores/rv5stage/tests/rsim/emit-rv5stage-vector-control.rhm	program	cores/rv5stage/tests/rsim/rv5stage-vector-control.cpp
@@ -311,8 +311,8 @@ rv5stage-load-hit	cores-cache	cores/rv5stage/tests/rsim/emit-rv5stage-load-hit.r
 rv5stage-vector-config	cores-vector-functional-1	cores/rv5stage/tests/rsim/emit-rv5stage-vector-config.rhm	program	cores/rv5stage/tests/rsim/rv5stage-vector-config.cpp	target	cores/rv5stage/tests/rsim/rv5stage-vector-config-oracle.cpp rheg/runtime/rheg.cc
 rv5stage-vector-memory	cores-vector-functional-2	cores/rv5stage/tests/rsim/emit-rv5stage-vector-memory.rhm	program	cores/rv5stage/tests/rsim/rv5stage-vector-memory.cpp	target
 rv5stage-vector-memory-one-slot	cores-vector-configurations	cores/rv5stage/tests/rsim/emit-rv5stage-vector-memory-one-slot.rhm	program	cores/rv5stage/tests/rsim/rv5stage-vector-memory-one-slot.cpp	target
-rv2wide-rv32	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-rv32.rhm	program	cores/rv2wide/tests/rsim/rv2wide-rv32.cpp	-
-rv2wide-fetch	cores-components	cores/rv2wide/tests/rsim/emit-rv2wide-fetch.rhm	program	cores/rv2wide/tests/rsim/rv2wide-fetch.cpp	target	cores/rv2wide/tests/rsim/rv2wide-fetch-oracle.cpp rheg/runtime/rheg.cc
+rv2wide-rv32	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-rv32.rhm	program	cores/superscalar/tests/rsim/rv2wide-rv32.cpp	-
+rv2wide-fetch	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-fetch.rhm	program	cores/superscalar/tests/rsim/rv2wide-fetch.cpp	target	cores/superscalar/tests/rsim/rv2wide-fetch-oracle.cpp rheg/runtime/rheg.cc
 rv5stage-core-rv32f	cores-execution-datapath	cores/rv5stage/tests/rsim/emit-rv5stage-core-rv32f.rhm	program	cores/rv5stage/tests/rsim/rv5stage-core-rv32f.cpp	target
 rv5stage-core-rv64d	cores-execution-datapath	cores/rv5stage/tests/rsim/emit-rv5stage-core-rv64d.rhm	program	cores/rv5stage/tests/rsim/rv5stage-core-rv64d.cpp	target
 tiled-distribution	protocols	socs/tests/tiled-distribution-fixture.rhdl	distribution_program	socs/tests/rsim/tiled-distribution.cpp

@@ -1,109 +1,30 @@
 #lang rhombus
-/* Defines RV2Wide's optional ISA subsets, private caches, and predictor/vector capacities. */
+/* Wraps shared pipeline parameters in RV2Wide's distinct named-core configuration. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../profile.rhm" open
-  "../fp/profile.rhm".check_fp_profile
-  "../vector/profile.rhm" open
+  "../superscalar/profile.rhm".SuperscalarPipelineConfig
   lib("rhodium/frontend/foundation.rhm").StableCircuitParam
-  lib("riscv/isa/profile.rhm") open
-  lib("riscv/isa/hart.rhm") open
-  lib("riscv/isa/xlen.rhm").XLen
-  lib("riscv/isa/c.rhm") open
-  lib("riscv/isa/fp-profile.rhm") open
-  lib("riscv/isa/vector-profile.rhm") open
-  lib("riscv/isa/vector.rhm").VectorLength
-  lib("rhodium/std/bits.rhdl").Pow2Int
+  lib("riscv/isa/profile.rhm").RiscvIsaProfile
+  lib("riscv/isa/hart.rhm").RiscvHartDescription
   "../csr/config.rhm".RiscvCsrConfig
-  "../cache/config.rhm" open
 
-/* Selects implementation resources and optional scalar, supervisor, and hypervisor features with RV32/RV64 scalar widths, mandatory C, and Bare or RV64 Sv39 translation. */
-class RV2WideConfig(xlen :: XLen, mmu_type :: RiscvMmuType, instruction_cache :: CacheConfig, data_cache :: CacheConfig, btb_entries :: Nat, ras_entries :: Nat, bht :: Boolean, floating_point :: FloatingPointProfile, half_precision :: HalfPrecisionProfile, zfa :: Boolean, compressed :: List.of(CompressedExtension), zicboz :: Boolean, zicbom :: Boolean, zicbop :: Boolean, zawrs :: Boolean, zihintpause :: Boolean, zihintntl :: Boolean, sstc :: Boolean, svnapot :: Boolean, svpbmt :: Boolean, svinval :: Boolean, ssnpm :: Boolean, supm :: Boolean, sscofpmf :: Boolean, smstateen :: Boolean, hypervisor :: Boolean, vector :: VectorProfile, vector_extensions :: List.of(VectorExtension), ziccif :: Boolean, ziccamoa :: Boolean, ziccrse :: Boolean, vector_length :: VectorLength, vector_completion_slots :: Pow2Int, vector_dispatch_depth :: PosInt):
+/* Retains one validated pipeline configuration; named-core policy can extend this wrapper without duplicating pipeline fields. */
+class RV2WideConfig(pipeline :: SuperscalarPipelineConfig):
   implements StableCircuitParam
 
-  /* Defaults to four-way 64-set caches, a 32-entry BTB, a six-entry RAS, and three 4K-counter tournament tables. */
-  constructor (~xlen: xlen :: XLen = XLen.X64,
-               ~mmu_type: mmu_type :: RiscvMmuType = if xlen == XLen.X32 | RiscvMmuType.Bare | RiscvMmuType.Sv39,
-               ~instruction_cache: instruction_cache :: CacheConfig = CacheConfig(64, 4),
-               ~data_cache: data_cache :: CacheConfig = CacheConfig(64, 4),
-               ~btb_entries: btb_entries :: Nat = 32,
-               ~ras_entries: ras_entries :: Nat = 6,
-               ~bht: bht :: Boolean = #true,
-               ~floating_point: floating_point :: FloatingPointProfile = FloatingPointProfile.None,
-               ~half_precision: half_precision :: HalfPrecisionProfile = HalfPrecisionProfile.None,
-               ~zfa: zfa :: Boolean = #false,
-               ~compressed: compressed :: List.of(CompressedExtension) = CCompressedExtensions,
-               ~zicboz: zicboz :: Boolean = #false,
-               ~zicbom: zicbom :: Boolean = #false,
-               ~zicbop: zicbop :: Boolean = #false,
-               ~zawrs: zawrs :: Boolean = #false,
-               ~zihintpause: zihintpause :: Boolean = #false,
-               ~zihintntl: zihintntl :: Boolean = #false,
-               ~sstc: sstc :: Boolean = #false,
-               ~svnapot: svnapot :: Boolean = #false,
-               ~svpbmt: svpbmt :: Boolean = #false,
-               ~svinval: svinval :: Boolean = #false,
-               ~ssnpm: ssnpm :: Boolean = #false,
-               ~supm: supm :: Boolean = #false,
-               ~sscofpmf: sscofpmf :: Boolean = #false,
-               ~smstateen: smstateen :: Boolean = #false,
-               ~hypervisor: hypervisor :: Boolean = #false,
-               ~vector: vector :: VectorProfile = VectorProfile.None,
-               ~vector_extensions: vector_extensions :: List.of(VectorExtension) = DefaultVectorExtensions,
-               ~ziccif: ziccif :: Boolean = #false,
-               ~ziccamoa: ziccamoa :: Boolean = #false,
-               ~ziccrse: ziccrse :: Boolean = #false,
-               ~vector_length: vector_length :: VectorLength = 128,
-               ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8,
-               ~vector_dispatch_depth: vector_dispatch_depth :: PosInt = 6):
-    unless mmu_type == RiscvMmuType.Bare || (xlen == XLen.X64 && mmu_type == RiscvMmuType.Sv39)
-    | error(~who: #'RV2WideConfig, "RV2Wide supports Bare or RV64 Sv39")
+  /* Uses the shared pipeline defaults unless an explicit specialization is supplied. */
+  constructor (pipeline :: SuperscalarPipelineConfig = SuperscalarPipelineConfig()):
+    super(pipeline)
 
-    when xlen == XLen.X32 && (hypervisor || ssnpm || supm)
-    | error(~who: #'RV2WideConfig, "RV32 supports Bare execution without H or pointer masking")
+  /* Publishes the architecture implemented by the contained pipeline. */
+  property isa_profile :: RiscvIsaProfile: pipeline.isa_profile
 
-    when mmu_type == RiscvMmuType.Bare && (svnapot || svpbmt || hypervisor)
-    | error(~who: #'RV2WideConfig, "translation extensions require Sv39")
+  /* Supplies the same CSR specialization to hardware and SoC metadata. */
+  property csr_config :: RiscvCsrConfig: pipeline.csr_config
 
-    check_fp_profile(xlen, floating_point, half_precision, ~zfa: zfa)
-    unless compressed_extensions_report_misa_c(xlen, floating_point, compressed) && compressed.contains(CompressedExtension.C)
-    | error(~who: #'RV2WideConfig, "RV2Wide requires C as its compressed base")
-
-    when supm && !ssnpm
-    | error(~who: #'RV2WideConfig, "Supm requires Ssnpm hardware")
-
-    when vector_profile_enabled(vector) && vector_length < 2 * xlen.width
-    | error(~who: #'RV2WideConfig, "vectors require at least two XLEN rows per register")
-
-    check_vector_profile(xlen, floating_point, half_precision, vector, vector_extensions)
-
-    super(xlen, mmu_type, instruction_cache, data_cache, btb_entries, ras_entries, bht, floating_point, half_precision, zfa, compressed, zicboz, zicbom, zicbop, zawrs, zihintpause, zihintntl, sstc, svnapot, svpbmt, svinval, ssnpm, supm, sscofpmf, smstateen, hypervisor, vector, vector_extensions, ziccif, ziccamoa, ziccrse, vector_length, vector_completion_slots, vector_dispatch_depth)
-
-  /* Sizes the shared FP datapath for scalar and vector operations without enabling additional scalar instructions. */
-  property execution_half_precision :: HalfPrecisionProfile:
-    vector_execution_half_precision(half_precision, vector_extensions)
-
-  property isa_profile :: RiscvIsaProfile:
-    def scalar = core_scalar_extensions(floating_point, compressed, hypervisor) ++ core_fp_extensions(half_precision, zfa)
-    def memory = core_memory_extensions(~zicbop: zicbop, ~zicboz: zicboz, ~zicbom: zicbom, ~ziccamoa: ziccamoa, ~ziccif: ziccif, ~ziccrse: ziccrse)
-    def masking = (if ssnpm | ["ssnpm"] | []) ++ (if supm | ["supm"] | [])
-    def privileged = core_privileged_extensions(~sstc: sstc, ~svinval: svinval, ~svpbmt: svpbmt, ~svnapot: svnapot, ~smstateen: smstateen, ~hypervisor: hypervisor, ~sscofpmf: sscofpmf)
-    def supervisor = if xlen == XLen.X64 | core_supervisor_extensions(~page_tables: mmu_type != RiscvMmuType.Bare) | []
-    def names = scalar ++ memory ++ masking ++ core_hint_extensions(zawrs, zihintpause, zihintntl) ++ CoreSystemExtensions ++ privileged ++ supervisor ++ vector_profile_isa_extensions(vector, vector_length, vector_extensions) ++ (if vector_profile_enabled(vector) | ["zvkt"] | [])
-    def misa = core_misa_extensions(floating_point, #true, vector, hypervisor)
-    RiscvIsaProfile(xlen, names, misa)
-
-  /* Uses one shared-bank specialization for RTL and architectural WARL metadata. */
-  property csr_config :: RiscvCsrConfig: RiscvCsrConfig(isa_profile, ~mmu_type: mmu_type, ~compressed: compressed, ~floating_point: floating_point, ~zicboz: zicboz, ~zicbom: zicbom, ~sstc: sstc, ~svpbmt: svpbmt, ~ssnpm: ssnpm, ~sscofpmf: sscofpmf, ~smstateen: smstateen, ~hypervisor: hypervisor, ~vector: vector, ~vector_length: vector_length)
-  property hart_description :: RiscvHartDescription:
-    RiscvHartDescription(
-      isa_profile, mmu_type,
-      RiscvCacheDescription(CacheLineBytes, instruction_cache.sets, instruction_cache.capacity_bytes),
-      RiscvCacheDescription(CacheLineBytes, data_cache.sets, data_cache.capacity_bytes),
-      ~cbo_block_bytes: CacheLineBytes,
-      ~vector: if vector_profile_enabled(vector) | RiscvVectorDescription(vector_length, vector_profile_elen_bits(vector)) | #false
-    )
+  /* Describes the architectural resources used by the contained pipeline. */
+  property hart_description :: RiscvHartDescription: pipeline.hart_description
 
 export:
   RV2WideConfig

@@ -1,0 +1,168 @@
+#lang rhodium
+/* Compacts fetch packets into one eight-entry instruction buffer with ordered prefix consumption. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("cores/bpred/protocol.rhdl") open
+  "bundles.rhdl" open
+  lib("flow/main.rhdl") open
+
+/* Retains a normal instruction's prediction without narrowing indirect targets. */
+bundle SuperscalarWindowPrediction(xlen :: XLen):
+  valid: Bool
+  target: Bits(xlen.width)
+
+/* Sizes the exceptional PC upper bits; their field is omitted for full-width storage. */
+fun window_pc_high_width(xlen :: XLen, pc_width :: PosInt):
+  xlen.width - pc_width
+
+/* Preserves an exceptional PC and the independent fault VA and optional guest provenance. */
+bundle SuperscalarWindowFault(xlen :: XLen, hypervisor :: Boolean, pc_width :: PosInt):
+  if pc_width < xlen.width:
+    pc_high: Bits(window_pc_high_width(xlen, pc_width))
+
+  fault: SuperscalarFetchFault(xlen, hypervisor)
+
+/* A fault never predicts, so its details reuse the normal prediction's storage. */
+tagged_union SuperscalarWindowOutcome(xlen :: XLen, hypervisor :: Boolean, pc_width :: PosInt):
+  Normal(SuperscalarWindowPrediction(xlen))
+  Fault(SuperscalarWindowFault(xlen, hypervisor, pc_width))
+
+/* Successful PCs sign-extend independently; faults retain exact high bits in the
+   outcome. Direction training indices are reconstructed from the instruction PC;
+   the lookup row, history, and assembler's length decision retain independent ownership. */
+bundle SuperscalarWindowEntry(xlen :: XLen, hypervisor :: Boolean, pc_width :: PosInt):
+  pc_low: Bits(pc_width)
+  instruction: Bits(32)
+  raw_instruction: Bits(32)
+  step: SuperscalarPcStep(xlen)
+  compressed_illegal: Bool
+  outcome: SuperscalarWindowOutcome(xlen, hypervisor, pc_width)
+  predicted_compressed: Bool
+  predicted_ras_action: RasAction
+  speculated_ras_action: RasAction
+  direction: SuperscalarDirectionCheckpoint()
+
+  /* Expands only the two visible head entries; compaction moves the narrow records. */
+  method expanded(entry) :: SuperscalarInstruction(xlen, hypervisor):
+    def Outcome = SuperscalarWindowOutcome(xlen, hypervisor, pc_width)
+    def fault = entry.outcome.is(Outcome.Fault).into(Bool)
+    def details :: SuperscalarWindowFault(xlen, hypervisor, pc_width) = entry.outcome.view(Outcome.Fault).payload
+    def normal :: SuperscalarWindowPrediction(xlen) = entry.outcome.view(Outcome.Normal).payload
+    def normal_pc = if pc_width < xlen.width | entry.pc_low.into(SInt(pc_width)).sext(xlen.width).as_bits() | entry.pc_low
+    def fault_pc = if pc_width < xlen.width | details.pc_high ++ entry.pc_low | entry.pc_low
+    def pc = mux(fault, fault_pc, normal_pc)
+    def predicted = !fault & normal.valid
+    SuperscalarInstruction(xlen, hypervisor):
+      pc: pc
+      instruction: entry.instruction
+      raw_instruction: entry.raw_instruction
+      sequential_pc: entry.step.apply(pc)
+      compressed_illegal: entry.compressed_illegal
+      fault: mux(fault, details.fault, literal(SuperscalarFetchFault(xlen, hypervisor), 0))
+      prediction:
+        BranchPrediction(xlen):
+          valid: predicted
+          pc: pc
+          target: mux(predicted, normal.target, Bits(xlen.width)(0))
+          compressed: entry.predicted_compressed
+          ras_action: entry.predicted_ras_action
+      speculated_ras_action: entry.speculated_ras_action
+      direction: entry.direction.expanded(pc)
+
+/* Captures the actual successor and selects mutually exclusive fault/prediction payloads. */
+fun pack_entry(xlen :: XLen, hypervisor :: Boolean, pc_width :: PosInt, token :: SuperscalarInstruction(xlen, hypervisor)) :~ SuperscalarWindowEntry(xlen, hypervisor, pc_width):
+  def Outcome = SuperscalarWindowOutcome(xlen, hypervisor, pc_width)
+  def details:
+    if pc_width < xlen.width
+    | SuperscalarWindowFault(xlen, hypervisor, pc_width):
+        pc_high: token.pc[pc_width..xlen.width]
+        fault: token.fault
+    | SuperscalarWindowFault(xlen, hypervisor, pc_width):
+        fault: token.fault
+
+  def prediction = SuperscalarWindowPrediction(xlen):
+    valid: token.prediction.valid
+    target: mux(token.prediction.valid, token.prediction.target, Bits(xlen.width)(0))
+
+  SuperscalarWindowEntry(xlen, hypervisor, pc_width):
+    pc_low: token.pc[0..pc_width]
+    instruction: token.instruction
+    raw_instruction: token.raw_instruction
+    step: encode_pc_step(xlen, token.pc, token.sequential_pc)
+    compressed_illegal: token.compressed_illegal
+    outcome: mux(token.fault.valid(), Outcome.Fault(details), Outcome.Normal(prediction))
+    predicted_compressed: token.prediction.compressed
+    predicted_ras_action: token.prediction.ras_action
+    speculated_ras_action: token.speculated_ras_action
+    direction: token.retained_direction()
+
+/* Coalesces packet boundaries after partial issue; clear discards resident and live offers. */
+sync_circuit SuperscalarIssueWindow(xlen :: XLen = XLen.X64, ~hypervisor: hypervisor :: Boolean = #false, ~pc_width: pc_width :: PosInt = xlen.width):
+  unless pc_width <= xlen.width
+  | error(~who: #'SuperscalarIssueWindow, "PC storage width must not exceed XLEN")
+
+  interface ingress(Decoupled(SuperscalarPacket(xlen, hypervisor)), ~role: consumer)
+  interface clear(Pulse(), ~role: consumer)
+  output head: SuperscalarPacket(xlen, hypervisor)
+  output head_steps: Vec(2, SuperscalarPcStep(xlen))
+  interface candidates[2](Valid(SuperscalarInstruction(xlen, hypervisor)), ~role: producer)
+  output available: Bits(4)
+  input consume: Bits(2)
+
+  reg count(~init: Bits(4)(0))
+  reg entries(Vec(8, SuperscalarWindowEntry(xlen, hypervisor, pc_width)))
+  def remaining = count - consume.zext(4)
+  available <== Bits(4)(8) - count
+  ingress.ready <== !clear.valid & (remaining <= Bits(4)(6))
+  head.count <== mux(count >= Bits(4)(2), Bits(2)(2), count[0..2])
+  def visible = vec(for List (lane in 0..2): entries[lane].expanded())
+  head.entries <== visible
+  head_steps <== vec(for List (lane in 0..2): entries[lane].step)
+  def packed :: Vec(2, SuperscalarWindowEntry(xlen, hypervisor, pc_width)) = vec(for List (lane in 0..2): pack_entry(xlen, hypervisor, pc_width, ingress.bits.entries[lane]))
+  def added = mux(ingress.fire(), ingress.bits.count.zext(4), Bits(4)(0))
+  // Observe accepted packets without changing their independent ingress readiness.
+  def accepted = interface_link(Valid(SuperscalarPacket(xlen, hypervisor)))
+  accepted.left.valid <== ingress.fire()
+  accepted.left.bits <== ingress.bits
+  describe_interface_contract(ingress, accepted.left, "packet-acceptance", ~trace_model: interface_trace_combinational())
+  def parents = accepted.right |> fork_valid(2)
+  for (lane in 0..2):
+    candidates[lane].valid <== (count > Bits(4)(lane)) & !clear.valid
+    candidates[lane].bits <== visible[lane]
+    when (ingress.fire() & (ingress.bits.count > Bits(2)(lane))):
+      def token :: SuperscalarInstruction(xlen, hypervisor) = ingress.bits.entries[lane]
+      assert(token.sequential_pc.is_one_of(token.pc + Bits(xlen.width)(2), token.pc + Bits(xlen.width)(4)), "superscalar_window_instruction_length")
+      assert(!token.prediction.valid ||| (token.prediction.pc === token.pc), "superscalar_window_prediction_pc")
+      assert(token.direction_indices_valid(), "superscalar_window_direction_indices")
+      assert(token.fault.supported(), "superscalar_supported_fetch_fault")
+      assert(!token.fault.valid() ||| !token.prediction.valid, "superscalar_fault_does_not_predict")
+      def pc_fits = if pc_width < xlen.width | token.pc === token.pc[0..pc_width].into(SInt(pc_width)).sext(xlen.width).as_bits() | Bool(#true)
+      assert(token.fault.valid() ||| pc_fits, "superscalar_window_success_pc_fits")
+
+    def name = "head" ++ to_string(lane)
+    describe_interface_window_storage(8, ingress.fire(), consume.zext(4), count, clear.valid, for List (index in 0..2): Bool(index == lane), ~name: name, ~append_count: ingress.bits.count.zext(4))
+    describe_interface_contract(parents[lane], candidates[lane], "instruction-window-" ++ name, ~trace_model: interface_trace_window(~name: name))
+
+  when (clear.valid):
+    count <== Bits(4)(0)
+  otherwise:
+    count <== remaining + added
+    for (index in 0..8):
+      def position = Bits(4)(index)
+      def append = ingress.fire() & (position >= remaining) & (position < (remaining + added))
+      def shifted = position + consume.zext(4)
+      def incoming = position - remaining
+      when append:
+        entries[index] <== packed[incoming[0..1]]
+      elsewhen ((consume =/= Bits(2)(0)) & (position < remaining)):
+        entries[index] <== entries[shifted[0..3]]
+
+  assert(count <= Bits(4)(8), "superscalar_instruction_capacity")
+  assert(consume <= head.count, "superscalar_issue_prefix")
+  when (ingress.valid):
+    assert((ingress.bits.count === Bits(2)(1)) ||| (ingress.bits.count === Bits(2)(2)), "superscalar_packet_count")
+
+export:
+  SuperscalarIssueWindow

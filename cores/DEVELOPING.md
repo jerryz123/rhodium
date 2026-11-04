@@ -28,6 +28,9 @@ Before adding a component, decide who owns its policy:
   [`fetch/encoding.rhdl`](fetch/encoding.rhdl) shares stateless instruction expansion
   and parcel classification. Frontend stages, parcel buffering and issue windows
   stay in the owning cores.
+  [`superscalar/`](superscalar/DEVELOPING.md) owns the complete, currently
+  fixed-two-wide pipeline shared by the RV2Wide and RV3Wide named entry points,
+  including its frontend, decode, configuration, and integration tests.
   Organize by responsibility, not by a second ISA namespace. Shared does not
   mean ISA-independent: these families may depend on architectural `riscv/`
   definitions, but never a named core's configuration or pipeline payloads.
@@ -54,6 +57,16 @@ flowchart LR
   Consumers["backends, examples,<br/>and tests"] --> Named["named cores<br/>cores/name/"]
   Consumers --> Reusable["reusable components<br/>cores/*.rhdl"]
   Named --> Reusable
+  Named --> Superscalar["shared superscalar pipeline"]
+  Superscalar --> Reusable
+  Superscalar --> Cache
+  Superscalar --> State
+  Superscalar --> FP
+  Superscalar --> Vector
+  Superscalar --> Bpred
+  Superscalar --> Riscv
+  Superscalar --> Protocols
+  Superscalar --> Rhodium
   Named --> Cache["shared physical caches<br/>cores/cache/"]
   Cache --> Protocols
   Cache --> Riscv
@@ -203,6 +216,11 @@ import compiler passes, simulators, or reference models.
 When adding a named core, create `cores/<name>/` and keep its decode, datapath,
 architectural state, adapters, documentation, and tests together. Give it a
 public README and companion DEVELOPING guide before adding system integration.
+When named cores use one implementation family, keep that implementation and
+its tests in the family instead: RV2Wide and RV3Wide own separate configuration
+classes containing `SuperscalarPipelineConfig` and hart wrappers that use it
+directly, with no cross-import
+between the named directories. Pipeline behavior remains shared.
 
 ## Packed SIMD implementation
 

@@ -21,16 +21,20 @@ import:
   lib("riscv/gnu-toolchain.rhm").gnu_isa_target
 
 def rv32 = soc_architecture(IsaPreset.RV32Int)
-// Every supported RV2Wide selection retains the exact architecture and shape-owned resources.
-for (key in ["mini-rv2wide-rv32int", "simple-rv2wide-rv32int", "mini-rv2wide-rv32max", "simple-rv2wide-rv32max", "mini-rv2wide-rv64imacb", "simple-rv2wide-rv64imacb", "mini-rv2wide-rv64imafdcb", "simple-rv2wide-rv64imafdcb", "mini-rv2wide-rv64max", "simple-rv2wide-rv64max", "mini-rv2wide-rva23", "simple-rv2wide-rva23", "tiled8core-rv2wide-rv64imacb", "tiled8core-rv2wide-rv64imafdcb", "tiled8core-rv2wide-rv64max", "tiled8core-rv2wide-rva23", "tiled4core-rv2wide-rv64imacb", "tiled4core-rv2wide-rv64imafdcb", "tiled4core-rv2wide-rv64max", "tiled4core-rv2wide-rva23"]):
+// Both named superscalar selections retain the exact architecture and shape-owned resources.
+def superscalar_keys = ["mini-rv2wide-rv32int", "simple-rv2wide-rv32int", "mini-rv2wide-rv32max", "simple-rv2wide-rv32max", "mini-rv2wide-rv64imacb", "simple-rv2wide-rv64imacb", "mini-rv2wide-rv64imafdcb", "simple-rv2wide-rv64imafdcb", "mini-rv2wide-rv64max", "simple-rv2wide-rv64max", "mini-rv2wide-rva23", "simple-rv2wide-rva23", "tiled8core-rv2wide-rv64imacb", "tiled8core-rv2wide-rv64imafdcb", "tiled8core-rv2wide-rv64max", "tiled8core-rv2wide-rva23", "tiled4core-rv2wide-rv64imacb", "tiled4core-rv2wide-rv64imafdcb", "tiled4core-rv2wide-rv64max", "tiled4core-rv2wide-rva23"]
+for (key in superscalar_keys ++ superscalar_keys.map(fun (key): key.replace("rv2wide", "rv3wide"))):
   def selection = named_soc_selection(key)
   def shape = selection.shape
   def isa = selection.isa
   def resolved = resolve_soc_config(selection)
+  def paired = resolve_soc_config(named_soc_selection(key.replace("rv3wide", "rv2wide")))
   def expected = soc_architecture(isa)
   def cache_sets = if shape == SoCShape.Mini | 32 | 64
   def cache_ways = if shape == SoCShape.Simple | 4 | 1
   check:
+    resolved.hart.key ~is core_kind_name(selection.core)
+    resolved.hart.profile.pipeline ~is paired.hart.profile.pipeline
     named_soc_selection(selection.key) ~is selection
     resolved.description.hart.isa_profile ~is expected.isa
     resolved.description.hart.mmu_type ~is expected.mmu
@@ -151,7 +155,7 @@ check:
   riscv_soc_boot_config(~payload_address: 0x100000000).image_for(rv32_description) ~throws "XLEN"
 
 // Simple keeps its full external memory and fabric widths with either RV32 hart.
-for (core in [CoreKind.RV5Stage, CoreKind.Spike, CoreKind.RV2Wide]):
+for (core in [CoreKind.RV5Stage, CoreKind.Spike, CoreKind.RV2Wide, CoreKind.RV3Wide]):
   def selection = SoCSelection(SoCShape.Simple, core, IsaPreset.RV32Int)
   def resolved = resolve_soc_config(selection)
   def config = resolved.configuration()

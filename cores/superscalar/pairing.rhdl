@@ -1,0 +1,94 @@
+#lang rhodium
+/* Selects implemented same-group operand routes and retains unsatisfied RAW dependencies. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "decode/core-ctrl.rhdl".SuperscalarControl
+  lib("cores/operand.rhdl") open
+  lib("cores/alu.rhdl").AluResultSelect
+  "decode/system-ctrl.rhdl" open
+  lib("cores/cache/operation.rhdl").CacheOperation
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/isa/rv32i.rhm") as rv32
+  lib("riscv/model/formats.rhm") as fields
+  lib("riscv/rtl/instruction-fields.rhdl").instruction_field
+  lib("riscv/rtl/instruction-pattern.rhdl").instruction_pattern
+  lib("rhodium/std/decode.rhdl") open
+
+/* Names operand rewrites and physical consumer muxes, not a general EX-to-EX bypass. */
+hardware_enum SuperscalarPairRoute:
+  Register
+  Constant
+  MemoryAddress
+  StoreData
+  BranchOperand
+  ImmediateAdd
+  VectorScalar
+
+/* Sizes a signed sum of two instruction immediates without losing RV64 U-immediate carry. */
+fun superscalar_pair_immediate_width(xlen :: XLen) :: PosInt:
+  if xlen == XLen.X32 | 32 | 33
+
+/* Shares one route decision between source interlocks and pipeline mux controls. */
+bundle SuperscalarPairing():
+  routes: Vec(2, SuperscalarPairRoute)
+  unresolved: Vec(2, Bool)
+  /* Only a selected physical bypass may waive a younger source's ordinary readiness check. */
+  method replaced(pairing) :: Vec(2, Bool):
+    vec(for List (source in 0..2): pairing.routes[source] =/= SuperscalarPairRoute.Register)
+
+/* Resolves each younger RAW against an eligible older ALU writer without changing either instruction's resource admission. */
+fun superscalar_pairing(controls :: Vec(2, SuperscalarControl()), valid :: Vec(2, Bool), destination :: Bits(5), sources :: Vec(2, Bits(5)), instructions :: Vec(2, Bits(32)), older_deferred :: Bool, ~xlen: xlen :: XLen = XLen.X64) :: SuperscalarPairing():
+  def older :: SuperscalarControl() = controls[0]
+  def younger :: SuperscalarControl() = controls[1]
+  def immediate :: OperandImmediate = younger.operand.immediate
+  def writes = valid[0] & older.writeback.enable & destination.any()
+  def used = vec(younger.operand.uses_rs1, younger.operand.uses_rs2)
+  def dependency = vec(for List (source in 0..2): valid[1] & writes & used[source] & (destination === sources[source]))
+  def producer = writes & !older_deferred & !older.fp.valid & !older.system.uses_command() & !older.branch.resolver.enable
+  def scalar_memory = younger.memory.enable & younger.memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store)
+  def memory_address = scalar_memory & !immediate.decode(instructions[1], xlen.width).any()
+  def store_data = !younger.fp.valid & younger.memory.enable & (younger.memory.access === CacheOperation.Store)
+  def branch_operand = younger.branch.resolver.enable & !younger.branch.resolver.unconditional
+  def vector_scalar = !younger.vector.memory & (younger.vector.integer ||| younger.vector.floating_point ||| younger.vector.multiply_divide) & younger.operand.uses_rs1
+  def is_auipc = DecodeGen([DecodeCase(instruction_pattern(rv32.AUIPC), Bool(#true))], ~default: Bool(#false))
+  def is_addi = DecodeGen([DecodeCase(instruction_pattern(rv32.ADDI), Bool(#true))], ~default: Bool(#false))
+  def auipc_addi = is_auipc(instructions[0]) & is_addi(instructions[1])
+
+  /* Early operands and composed addresses.
+     A zero-based immediate adder supplies its constant directly at RR. Full-width
+     register/PC-based immediate adders compose with the younger memory offset. */
+
+  def immediate_adder = (older.operand.right === OperandBSelect.Immediate) & !older.operand.uses_rs2 & (older.alu.result_select === AluResultSelect.Adder) & !older.alu.subtract & !older.alu.unsigned_word & !older.alu.shift_add_amount.any()
+  def register_base = older.operand.left === OperandASelect.Register
+  def pc_base = older.operand.left === OperandASelect.Pc
+  def constant = immediate_adder & ((older.operand.left === OperandASelect.Zero) ||| (register_base & !instruction_field(fields.rs1, instructions[0]).any()))
+  def composed_address = scalar_memory & immediate_adder & !older.alu.word & (register_base ||| pc_base)
+
+  /* Source-specific physical routes.
+     Constants replace ordinary operand capture; only rs1 has immediate composition
+     or the address bypass. An ineligible producer retains every ordinary interlock. */
+
+  def routes = vec(
+    for List (source in 0..2):
+      def consumer = if source == 0 | memory_address | store_data
+      def memory_route = if source == 0 | SuperscalarPairRoute.MemoryAddress | SuperscalarPairRoute.StoreData
+      def selected = priority_mux(~default: SuperscalarPairRoute.Register):
+        constant: SuperscalarPairRoute.Constant
+        Bool(source == 0) & (auipc_addi ||| composed_address): SuperscalarPairRoute.ImmediateAdd
+        consumer: memory_route
+        branch_operand: SuperscalarPairRoute.BranchOperand
+        Bool(source == 0) & vector_scalar: SuperscalarPairRoute.VectorScalar
+
+      mux(producer & dependency[source], selected, SuperscalarPairRoute.Register)
+  )
+
+  SuperscalarPairing():
+    routes: routes
+    unresolved: vec(for List (source in 0..2): dependency[source] & (routes[source] === SuperscalarPairRoute.Register))
+
+export:
+  SuperscalarPairRoute
+  superscalar_pair_immediate_width
+  SuperscalarPairing
+  superscalar_pairing

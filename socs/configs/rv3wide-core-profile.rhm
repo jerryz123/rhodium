@@ -1,0 +1,48 @@
+#lang rhombus
+/* Applies shape-owned cache resources to RV3Wide's exact scalar and RV32/RV64 vector presets. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("cores/superscalar/profile.rhm").SuperscalarPipelineConfig
+  lib("cores/rv3wide/profile.rhm") open
+  lib("cores/cache/config.rhm").CacheConfig
+  lib("riscv/isa/fp-profile.rhm") open
+  lib("riscv/isa/c.rhm") open
+  "selection.rhm" open
+  "isa-profiles.rhm".soc_architecture
+
+/* Applies Mini/Simple/Tiled cache geometry and rejects an inexact architectural projection. */
+fun rv3wide_soc_profile(shape :: SoCShape, preset :: IsaPreset) :: RV3WideConfig:
+  def cache = match shape
+  | SoCShape.Mini: CacheConfig(32, 1)
+  | SoCShape.Simple: CacheConfig(64, 4)
+  | SoCShape.Tiled8Core: CacheConfig(64, 1)
+  | SoCShape.Tiled4Core: CacheConfig(64, 1)
+  def architecture = soc_architecture(preset)
+  def has = architecture.has
+  def compressed = CCompressedExtensions ++ (if has("zcb") | [CompressedExtension.Zcb] | []) ++ (if has("zcmop") | [CompressedExtension.Zcmop] | [])
+  def pipeline = SuperscalarPipelineConfig(
+    ~xlen: architecture.isa.xlen, ~mmu_type: architecture.mmu,
+    ~instruction_cache: cache, ~data_cache: cache,
+    ~floating_point: if has("d") | FloatingPointProfile.D | (if has("f") | FloatingPointProfile.F | FloatingPointProfile.None),
+    ~half_precision: if has("zfh") | HalfPrecisionProfile.Zfh | HalfPrecisionProfile.None,
+    ~zfa: has("zfa"),
+    ~compressed: compressed,
+    ~ziccif: has("ziccif"), ~ziccamoa: has("ziccamoa"), ~ziccrse: has("ziccrse"),
+    ~zicbop: has("zicbop"), ~zicbom: has("zicbom"), ~zicboz: has("zicboz"),
+    ~zawrs: has("zawrs"), ~zihintpause: has("zihintpause"), ~zihintntl: has("zihintntl"),
+    ~sscofpmf: has("sscofpmf"),
+    ~sstc: has("sstc"), ~svnapot: has("svnapot"), ~svpbmt: has("svpbmt"), ~svinval: has("svinval"),
+    ~ssnpm: has("ssnpm"), ~supm: has("supm"), ~smstateen: has("smstateen"),
+    ~hypervisor: has("h"),
+    ~vector: architecture.vector, ~vector_extensions: architecture.vector_extensions,
+    ~vector_length: architecture.vector_length
+  )
+
+  unless pipeline.isa_profile == architecture.isa
+  | error(~who: #'rv3wide_soc_profile, "RV3Wide cannot implement the exact requested architecture")
+
+  RV3WideConfig(pipeline)
+
+export:
+  rv3wide_soc_profile

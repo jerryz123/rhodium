@@ -1,0 +1,39 @@
+#lang rhodium
+/* Composes Superscalar operand columns while leaving dedicated multiply routing unconstrained. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("cores/operand.rhdl") open
+  lib("cores/operand-decode.rhdl") open
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/isa/zimop.rhm") open
+  lib("riscv/isa/zicsr.rhm") open
+  lib("riscv/isa/zifencei.rhm") open
+  lib("riscv/isa/privileged.rhm") open
+  lib("riscv/rtl/decode.rhdl") open
+  lib("rhodium/std/decode.rhdl") open
+
+/* Uses canonical XLEN-specific encodings and constrains only observed operand fields. */
+fun superscalar_operand_cases(xlen :: XLen):
+  def base = if xlen == XLen.X32 | RV32IOperandCases | RV64IOperandCases
+  def bitmanip = if xlen == XLen.X32 | RV32BOperandCases | RV64BOperandCases
+  def atomic = if xlen == XLen.X32 | RV32AOperandCases | RV64AOperandCases
+  def multiply = if xlen == XLen.X32 | RV32MOperandCases | RV64MOperandCases
+  def mop_operands = pattern(OperandControl()):
+    uses_rs1: Bool(#false)
+    uses_rs2: Bool(#false)
+    left: OperandASelect.Zero
+    right: OperandBSelect.Immediate
+    immediate: OperandImmediate.Zero
+
+  base ++ bitmanip ++ atomic ++ ZicondOperandCases ++ multiply ++ combine_case_groups([
+    instruction_cases(ZimopInstructions, mop_operands),
+    instruction_cases([CSRRW, CSRRS, CSRRC], csr_register_operands),
+    instruction_cases([CSRRWI, CSRRSI, CSRRCI, MRET, SRET, WFI, SFENCE_VMA, FENCE_I], no_operands)
+  ])
+
+def SuperscalarOperandCases = superscalar_operand_cases(XLen.X64)
+
+export:
+  SuperscalarOperandCases
+  superscalar_operand_cases

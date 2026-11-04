@@ -153,7 +153,7 @@ required source setup, without target generation or simulator builds.
 Use the same graph locally, without bootstrapping a hardware toolchain:
 
 ```sh
-python3 -m tools.ci.plan --paths cores/rv2wide/core.rhdl --pretty
+python3 -m tools.ci.plan --paths cores/superscalar/core.rhdl --pretty
 python3 -m tools.ci.plan --affected sw/build/build-litmus.py --pretty
 python3 -m tools.ci.plan --requires program:simple-rv5stage-rva23:coremark --pretty
 python3 -m tools.ci.plan --products
@@ -202,8 +202,9 @@ through software, ACT, platform, and harness jobs. Preserve optimization
 propagation, bounded arguments, and nonzero status through log capture in the
 actual build and run commands. CI retains build and harness logs.
 
-Both RTL cores receive both variants with the same selection.
-All Mini/Simple RV5Stage and RV2Wide rsim rows, plus their four HDL
+All RTL cores receive both variants with the same selection. RV3Wide mirrors
+RV2Wide enrollment and ACT shard counts; software still depends only on shape/ISA.
+All Mini/Simple RV5Stage, RV2Wide, and RV3Wide rsim rows, plus their HDL
 variants, publish a cosim-enabled simulator under their config artifact name. Propagate
 that selection to native ISA, ACT, and firmware consumers; verify the variant
 and install GMP. Native and ACT runners require nonempty successful checking.
@@ -457,7 +458,7 @@ benchmarks, both CoreMark variants, Embench-IoT, SKL and Highway vector executio
 and the complete bounded Bringup-Bench inventory. SKL uses the upstream capability-filtered
 catalog without X390 or standalone scalar suites. SKL retains all test-input and
 benchmark cases but disables numerical verification and reference-buffer setup.
-Both RTL jobs require Sail cosim for architectural checking; Spike is an
+All RTL jobs require Sail cosim for architectural checking; Spike is an
 execution smoke test, not an independent numerical oracle.
 Highway uses repository-owned bounded drivers linked with the pristine upstream
 library, not modified hosted benchmarks. All benchmark families use the same
@@ -488,7 +489,7 @@ Each selected OpenSBI execution
 validates its enrolled single-core config and
 publishes separate diagnostics. A failed platform build does not prevent
 execution jobs from attempting other published build groups.
-All six Simple RV32 configs select upstream ISA tests;
+All Simple RV32 configs select upstream ISA tests;
 the existing RV64-only benchmark ports remain outside their coverage.
 Selected Simple RV32/RVA23 configs retain their own ACT generation and execution.
 ACT shard counts are unchanged by runner grouping. Counts live in `tools/ci/policy.py` and
@@ -497,10 +498,10 @@ builds one simulator. Shared SoC dependencies
 (including CHI, NoC, devices, and RISC-V support) select these lanes; suite-only
 adapter/source changes select the owning lane. Enrolled Mini and Tiled
 configs receive capability-filtered ISA smoke. The `rv64max`, `rv64imacb`, and
-`rv64imafdcb` presets enroll their paired Simple configs; both RTL cores also
+`rv64imafdcb` presets enroll their paired Simple configs; all RTL cores also
 enroll Mini for the two lean presets. These run only ISA smoke, without ACT,
-benchmarks, or platform tests. Both RTL cores use the same shape/ISA inventory,
-enforced by the planner, with cosim enabled on Mini/Simple. All three Tiled cores run the
+benchmarks, or platform tests. All RTL cores use the same shape/ISA inventory,
+enforced by the planner, with cosim enabled on Mini/Simple. All Tiled cores run the
 eight-hart benchmark manifests in CI. Harness execution reuses the simulator
 producer's hardware tools and native libraries; only standalone platform payloads
 need the RISC-V compiler on that runner. ISA smoke consumes shared ELF archives

@@ -14,6 +14,7 @@ Start with the comparison below, then read the section for the selected system.
 For component internals, follow the owning guides for
 [RV5Stage](../cores/rv5stage/README.md),
 [RV2Wide](../cores/rv2wide/README.md),
+[RV3Wide](../cores/rv3wide/README.md),
 [Spike](../cores/spike/README.md), [CHI](../chi/README.md),
 [NoC planning](../noc/README.md), and [platform devices](../devices/README.md)
 instead of treating this page as a component catalog.
@@ -42,7 +43,7 @@ cacheable coherent RAM.
 ### Typed config selection
 
 [`configs/selection.rhm`](configs/selection.rhm) defines `SoCShape`
-(`Mini`, `Simple`, `Tiled4Core`, `Tiled8Core`), `CoreKind` (`RV5Stage`, `RV2Wide`, `Spike`), and `IsaPreset`.
+(`Mini`, `Simple`, `Tiled4Core`, `Tiled8Core`), `CoreKind` (`RV5Stage`, `RV2Wide`, `RV3Wide`, `Spike`), and `IsaPreset`.
 [`configs/resolve.rhm`](configs/resolve.rhm) provides `resolve_soc_config`, which
 resolves a `SoCSelection` into a `ResolvedSoCConfig` containing one hart binding,
 shape configuration, architectural description, and UDB projection.
@@ -50,9 +51,9 @@ Canonical identities are `<shape>-<core>-<isa>`; exported metadata records
 that identity under the `config` key.
 
 `RVA23` publishes the mandatory RVA23U64/S64 architectural capabilities with
-RV64D, VLEN=128, and Sv39 on both RTL cores and Spike. The independent
+RV64D, VLEN=128, and Sv39 on all RTL cores and Spike. The independent
 [mandatory-requirement gate](tests/udb-test.rhm) checks versioned UDB declarations
-and required architectural parameters for all twelve shape/core configs. This
+and required architectural parameters for all sixteen shape/core configs. This
 includes Ssccptr, Sstvecd, Sstvala, Sscounterenw, and Ssu64xl in the hart's
 published capabilities. Declaration completeness
 is not an external certification or an exhaustive system validation;
@@ -61,7 +62,7 @@ firmware and the execution environment retain their own obligations.
 integer RV32/Zve32x architecture; `RV32Max` adds scalar F and Zve32f, without D,
 Zfa, or half precision. Both use VLEN=64, ELEN=32 and Bare translation and retain
 the same integer/system extensions. RV5Stage uses a 32-bit SIMD lane for both.
-All three hart implementations bind these exact profiles on Mini and Simple; their common BootROM
+All four hart implementations bind these exact profiles on Mini and Simple; their common BootROM
 detects XLEN at runtime using shared RV32/RV64 reset code, while the boot-entry
 register stays 64 bits and the CHI fabric retains its existing widths.
 Mini RAM and reset-program addresses must fit the hart's
@@ -104,6 +105,12 @@ eight RV2Wide harts sharing the same four LLC slices and CHI mesh.
 These bindings use the same BootROM, devices,
 host interface, and harness as the other harts. See [RV2Wide](../cores/rv2wide/README.md).
 
+RV3Wide exposes the same shape/ISA selections through `rv3wide` keys and an
+independent `RV3WideConfig`/`RV3WideHart` binding. It currently uses the same
+fixed-two-wide superscalar pipeline as RV2Wide, not a three-lane backend.
+Its CI enrollment and software selection mirror RV2Wide; see
+[RV3Wide](../cores/rv3wide/README.md) for the current implementation boundary.
+
 The presets are `RV32Int`, `RV32Max`, `RV64IMACB`, `RV64IMAFDCB`, `RV64Max`,
 and `RVA23`. Config selection requires an
 explicit ISA, either in a complete key or as a typed selector; there is no
@@ -128,7 +135,7 @@ to a compilation target; consumers needing concrete RTL select
 
 The Make entrypoints accept three independent host-side axes:
 `mini`, `simple`, `tiled4core`, or `tiled8core` selects the memory/fabric topology,
-`rv5stage`, `rv2wide`, or `spike` selects the hart implementation, and `ISA` selects the
+`rv5stage`, `rv2wide`, `rv3wide`, or `spike` selects the hart implementation, and `ISA` selects the
 required architectural preset. A
 [`RiscvHartImplementation`](harts/implementation.rhdl) binds its profile,
 architectural description, 64-byte CHI cache-line contract, attachment
@@ -143,7 +150,7 @@ configuration and architectural description come from the same selected preset.
 | `SingleCoreSoC` | 1 | External line-capable SN-F; 1 GiB window | One 512-set, eight-way inclusive LLC, BootROM, ACLINT, PLIC, and UART on one physical router |
 | `TiledSoC` | 4 in `tiled4core` (5×3), 8 in `tiled8core` (5×4) | One external line-capable SN-F channel; 1 GiB window | Four inclusive LLC slices plus BootROM and routed memory, device-home, ACLINT, PLIC, and UART tiles |
 
-Each shape accepts RV5Stage, RV2Wide, or Spike. The selected
+Each shape accepts RV5Stage, RV2Wide, RV3Wide, or Spike. The selected
 profile determines its ISA, caches, MMU, and device-tree properties; the shape
 determines the fabric and memory topology. All configurations expose the same
 [`SoCHostInterface`](platform/host-interface.rhdl): a

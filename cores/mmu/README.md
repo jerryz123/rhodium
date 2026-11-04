@@ -155,5 +155,5 @@ PTE's permissions without scanning aliases.
 Architectural helpers remain in [`riscv/rtl`](../../riscv/rtl/README.md).
 RV5Stage's [`mmu/`](../rv5stage/mmu/README.md) owns ITLB/DTLB arbitration,
 fetch recovery, physical dispatch, split accesses, and vector certificates.
-RV2Wide's [`mmu.rhdl`](../rv2wide/mmu.rhdl) composes the same shared banks and
+The superscalar [`mmu.rhdl`](../superscalar/mmu.rhdl) composes the same shared banks and
 walker with its own issue, retirement, replay, and memory-response policy.
