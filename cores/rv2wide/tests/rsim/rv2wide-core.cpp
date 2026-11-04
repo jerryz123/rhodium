@@ -159,7 +159,7 @@ int direction_updates = 0, history_recoveries = 0;
 direction_t direction_metadata(std::uint64_t pc, std::uint32_t word,
                                std::uint8_t taken = 0) {
   return {sv_slice(word, 0, (6) - (0) + 1) == UINT64_C(0x63),
-          std::uint16_t(((pc >> 1) ^ 725) & 4095),
+          std::uint16_t(((((pc >> 3) ^ 725) & 1023) << 2) | ((pc >> 1) & 3)),
           std::uint16_t(((pc >> 1) ^ 341) & 1023), taken,
           std::uint16_t((pc >> 1) & 4095), taken, std::uint8_t(!taken)};
 }
@@ -1337,6 +1337,14 @@ int main() {
     send_predicted(0x4200, jump(0, 0x2000), 0x6200, 0x6200);
     drain();
     CHECK(memory_cycles.at(0x4200) < memory_cycles.at(0x6200));
+    // The younger conditional's base index includes bit 12 from its own PC
+    // region, not just its stored low bits or the older instruction's region.
+    for (const auto pc : {UINT64_C(0xffe), UINT64_C(0xffffffe), UINT64_MAX - 1}) {
+      send(pc, imm(0, 0, 0), branch(0, 0, 8, 1)); // BNE x0,x0: correctly not taken.
+      drain();
+      CHECK(memory_cycles.at(pc) == memory_cycles.at(pc + 4));
+    }
+
     // A next-region target can share the group, including a carry through
     // several prefix bits and the modular wrap at the top of the address space.
     for (const auto pc : {UINT64_C(0x7200), UINT64_C(0xfffff200),

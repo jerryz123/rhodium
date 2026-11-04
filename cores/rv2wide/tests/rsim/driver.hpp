@@ -156,9 +156,12 @@ template <class T> bool same_instruction(const T &x, const T &y) {
          x.pprediction.pras_uaction == y.pprediction.pras_uaction &&
          x.pspeculated_uras_uaction == y.pspeculated_uras_uaction &&
          x.pdirection.pvalid == y.pdirection.pvalid &&
-         x.pdirection.pindex == y.pdirection.pindex &&
+         (!y.pdirection.pvalid || (x.pdirection.pindex == y.pdirection.pindex &&
+                                  x.pdirection.pbase_uindex == y.pdirection.pbase_uindex)) &&
          x.pdirection.phistory == y.pdirection.phistory &&
-         x.pdirection.ptaken == y.pdirection.ptaken;
+         x.pdirection.ptaken == y.pdirection.ptaken &&
+         x.pdirection.pbase_utaken == y.pdirection.pbase_utaken &&
+         x.pdirection.pgshare_utaken == y.pdirection.pgshare_utaken;
 }
 
 // Insert one explicitly sized field into an instruction or packed oracle value.

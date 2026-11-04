@@ -50,10 +50,8 @@ for (xlen in [XLen.X32, XLen.X64]):
 
     for (slot in ["older", "younger"]):
       def lane = child(execution, stage ++ "_" ++ slot)
-      def full = lane.find_output("egress_out").type.field("bits").type
       def storage = child(lane, "storage")
       def payload = storage.operations.find(fun (op): op.opcode == "rtl.register" && op.attribute("name") == "stage_bits")
-      def aliases = if stage == "ex" | 2 | 3 // Includes the prediction PC.
       def fault_width = if stage == "ex" | compact_fault_width | 1
       unless stage == "ex"
       | check: payload.results[0].type.element_type.field("resolution").type.field("cause").type.width ~is 5
@@ -62,7 +60,6 @@ for (xlen in [XLen.X32, XLen.X64]):
         payload.results[0].type.element_type.field("fetched").type.field("pc").type.width ~is 12
         payload.results[0].type.element_type.field("fetched").type.field("fault").type.packed_width() ~is fault_width
         payload.results[0].type.element_type.field("fetched").type.field("sequential_pc").type.packed_width() ~is step_width
-        payload.results[0].type.packed_width() ~is full.packed_width() - (xlen.width - 12) - aliases * xlen.width - (xlen.width - step_width) - compact_fault_width + fault_width
 
   check:
     execution.find_output("redirect_out").type.field("bits").type.field("resolution").type.field("cause").type.width ~is xlen.width

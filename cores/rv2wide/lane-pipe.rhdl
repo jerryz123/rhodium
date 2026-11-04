@@ -1,5 +1,5 @@
 #lang rhodium
-/* Stores RV2Wide lane payloads with a shared PC region and a compact, precomputed successor tag. */
+/* Stores RV2Wide lane payloads with shared PC regions, successor tags, and compact direction checkpoints. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -26,12 +26,12 @@ fun copy_fields(T :: RecordType, source :: Hardware.packable, replacements :: Ma
 
   kernel.record_create(T, fields)
 
-/* Omit PC aliases and replace the full successor by its tag. The prediction target
-   and recovery metadata remain independent even when the prediction is invalid. */
+/* Omit PC aliases and redundant training indices, and replace the successor by its tag.
+   Prediction targets, lookup rows, and recovery histories remain independent. */
 fun lane_shape(Full :: RecordType, execute :: Boolean, Fault :: DataType, Step :: DataType) :: RecordType:
   def Fetched = Full.field("fetched").type
   def prediction = storage_shape(Fetched.field("prediction").type, {}, ["pc"])
-  def fetched = storage_shape(Fetched, {"pc": Bits(RV2WidePcOffsetBits), "sequential_pc": Step, "prediction": prediction, "fault": Fault})
+  def fetched = storage_shape(Fetched, {"pc": Bits(RV2WidePcOffsetBits), "sequential_pc": Step, "prediction": prediction, "fault": Fault, "direction": RV2WideDirectionCheckpoint()})
   if execute
   | storage_shape(Full, {"fetched": fetched, "vector": storage_shape(Full.field("vector").type, {}, ["pc"])})
   | block:
@@ -41,11 +41,11 @@ fun lane_shape(Full :: RecordType, execute :: Boolean, Fault :: DataType, Step :
 
 /* Project into storage or back into a full lane. The target schema determines
    which aliases are present; they all use the same reconstructed addresses. */
-fun recode_lane(T :: RecordType, source :: Hardware.packable, pc :: Hardware.packable, successor :: Hardware.packable, fault :: Hardware.packable, execute :: Boolean):
+fun recode_lane(T :: RecordType, source :: Hardware.packable, pc :: Hardware.packable, successor :: Hardware.packable, fault :: Hardware.packable, direction :: Hardware.packable, execute :: Boolean):
   def Fetched = T.field("fetched").type
   def original = kernel.project(source, "fetched")
   def prediction = copy_fields(Fetched.field("prediction").type, kernel.project(original, "prediction"), {"pc": pc})
-  def fetched = copy_fields(Fetched, original, {"pc": pc, "sequential_pc": successor, "prediction": prediction, "fault": fault})
+  def fetched = copy_fields(Fetched, original, {"pc": pc, "sequential_pc": successor, "prediction": prediction, "fault": fault, "direction": direction})
   if execute
   | block:
       def vector = copy_fields(T.field("vector").type, kernel.project(source, "vector"), {"pc": pc})
@@ -77,6 +77,10 @@ sync_circuit RV2WideLanePipe(xlen :: XLen, Full :: RecordType, ~hypervisor: hype
   storage.flush <== flush
 
   // These aliases are not stored; guard their producer contract at capture.
+  when (ingress.valid):
+    def fetched :: RV2WideInstruction(xlen, hypervisor) = ingress.bits.fetched
+    assert(fetched.direction_indices_valid(), "rv2wide_lane_direction_indices")
+
   if execute
   | block:
       def token :: RV2WideExecute(xlen, hypervisor) = ingress.bits
@@ -98,9 +102,10 @@ sync_circuit RV2WideLanePipe(xlen :: XLen, Full :: RecordType, ~hypervisor: hype
   // EX still needs the fault payload. Later stages need only its origin bit:
   // resolution owns the surviving cause, value, and guest provenance.
   (ingress |> map_valid(token):
-    def fault :: RV2WideFetchFault(xlen, hypervisor) = token.fetched.fault
+    def fetched :: RV2WideInstruction(xlen, hypervisor) = token.fetched
+    def fault = fetched.fault
     def encoded = if execute | fault | fault.valid()
-    recode_lane(Stored, token, token.fetched.pc[0..RV2WidePcOffsetBits], ingress_step, encoded, execute)
+    recode_lane(Stored, token, fetched.pc[0..RV2WidePcOffsetBits], ingress_step, encoded, fetched.retained_direction(), execute)
   ) |> storage.ingress
 
   egress_step <== storage.egress.bits.fetched.sequential_pc
@@ -121,7 +126,8 @@ sync_circuit RV2WideLanePipe(xlen :: XLen, Full :: RecordType, ~hypervisor: hype
 
     def pc = pc_region ++ token.fetched.pc
     def step :: RV2WidePcStep(xlen) = token.fetched.sequential_pc
-    recode_lane(Full, token, pc, step.apply(pc), fault, execute)
+    def direction :: RV2WideDirectionCheckpoint() = token.fetched.direction
+    recode_lane(Full, token, pc, step.apply(pc), fault, direction.expanded(pc), execute)
   ) |> egress
 
 export:

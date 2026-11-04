@@ -128,7 +128,10 @@ Each entry also supplies `prediction: BranchPrediction(xlen)` and
 `speculated_ras_action: RasAction`. A nonpredicting packet source clears
 `prediction.valid`, uses `RasAction.None`, and zeroes `direction: TournamentPrediction(10)`.
 Predicting sources retain the saved direction index and pre-instruction history
-even for not-taken conditional branches. Prediction metadata belongs to
+even for not-taken conditional branches. For valid direction metadata, the low
+two `index` bits must equal `pc[1..3]`, and `base_index` must equal `pc[1..13]`;
+inconsistent indices are rejected at admission. Invalid training indices are
+unspecified, but histories and all prediction flags remain intact. Prediction metadata belongs to
 the instruction, not its packet position, and remains attached after compaction.
 The eight-entry instruction buffer retains
 unconsumed instructions and coalesces adjacent packets after partial issue.

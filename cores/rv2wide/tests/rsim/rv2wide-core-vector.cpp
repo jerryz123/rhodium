@@ -1385,6 +1385,8 @@ void conflict_based_pairing() {
     entry.pinstruction = entry.praw_uinstruction = sent == 0 ? configure : 0x00001463;
     entry.pdirection.phistory = sent == 0 ? 3 : 5;
     entry.pdirection.pvalid = sent == 1;
+    entry.pdirection.pindex = 0x554 | ((entry.ppc >> 1) & 3);
+    entry.pdirection.pbase_uindex = (entry.ppc >> 1) & 4095;
     entry.pdirection.ptaken = sent == 1;
     entry.pprediction.pvalid = sent == 1;
     entry.pprediction.ppc = entry.ppc;
@@ -1621,6 +1623,8 @@ void vector_memory_branch_pairs() {
                 entry.pprediction.ppc = entry.ppc;
                 entry.pprediction.ptarget = base + 12;
                 entry.pdirection.pvalid = 1;
+                entry.pdirection.pindex = 0xaa8 | ((entry.ppc >> 1) & 3);
+                entry.pdirection.pbase_uindex = (entry.ppc >> 1) & 4095;
                 entry.pdirection.ptaken = predicted;
                 entry.pdirection.phistory = 5;
               }

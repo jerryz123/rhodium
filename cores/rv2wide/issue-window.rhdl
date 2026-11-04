@@ -30,7 +30,8 @@ tagged_union RV2WideWindowOutcome(xlen :: XLen, hypervisor :: Boolean, pc_width 
   Fault(RV2WideWindowFault(xlen, hypervisor, pc_width))
 
 /* Successful PCs sign-extend independently; faults retain exact high bits in the
-   outcome. The assembler's length decision also survives faulting instructions. */
+   outcome. Direction training indices are reconstructed from the instruction PC;
+   the lookup row, history, and assembler's length decision retain independent ownership. */
 bundle RV2WideWindowEntry(xlen :: XLen, hypervisor :: Boolean, pc_width :: PosInt):
   pc_low: Bits(pc_width)
   instruction: Bits(32)
@@ -41,7 +42,7 @@ bundle RV2WideWindowEntry(xlen :: XLen, hypervisor :: Boolean, pc_width :: PosIn
   predicted_compressed: Bool
   predicted_ras_action: RasAction
   speculated_ras_action: RasAction
-  direction: TournamentPrediction(10)
+  direction: RV2WideDirectionCheckpoint()
 
   /* Expands only the two visible head entries; compaction moves the narrow records. */
   method expanded(entry) :: RV2WideInstruction(xlen, hypervisor):
@@ -68,7 +69,7 @@ bundle RV2WideWindowEntry(xlen :: XLen, hypervisor :: Boolean, pc_width :: PosIn
           compressed: entry.predicted_compressed
           ras_action: entry.predicted_ras_action
       speculated_ras_action: entry.speculated_ras_action
-      direction: entry.direction
+      direction: entry.direction.expanded(pc)
 
 /* Captures the actual successor and selects mutually exclusive fault/prediction payloads. */
 fun pack_entry(xlen :: XLen, hypervisor :: Boolean, pc_width :: PosInt, token :: RV2WideInstruction(xlen, hypervisor)) :~ RV2WideWindowEntry(xlen, hypervisor, pc_width):
@@ -95,7 +96,7 @@ fun pack_entry(xlen :: XLen, hypervisor :: Boolean, pc_width :: PosInt, token ::
     predicted_compressed: token.prediction.compressed
     predicted_ras_action: token.prediction.ras_action
     speculated_ras_action: token.speculated_ras_action
-    direction: token.direction
+    direction: token.retained_direction()
 
 /* Coalesces packet boundaries after partial issue; clear discards resident and live offers. */
 sync_circuit RV2WideIssueWindow(xlen :: XLen = XLen.X64, ~hypervisor: hypervisor :: Boolean = #false, ~pc_width: pc_width :: PosInt = xlen.width):
@@ -134,6 +135,7 @@ sync_circuit RV2WideIssueWindow(xlen :: XLen = XLen.X64, ~hypervisor: hypervisor
       def token :: RV2WideInstruction(xlen, hypervisor) = ingress.bits.entries[lane]
       assert(token.sequential_pc.is_one_of(token.pc + Bits(xlen.width)(2), token.pc + Bits(xlen.width)(4)), "rv2wide_window_instruction_length")
       assert(!token.prediction.valid ||| (token.prediction.pc === token.pc), "rv2wide_window_prediction_pc")
+      assert(token.direction_indices_valid(), "rv2wide_window_direction_indices")
       assert(token.fault.supported(), "rv2wide_supported_fetch_fault")
       assert(!token.fault.valid() ||| !token.prediction.valid, "rv2wide_fault_does_not_predict")
       def pc_fits = if pc_width < xlen.width | token.pc === token.pc[0..pc_width].into(SInt(pc_width)).sext(xlen.width).as_bits() | Bool(#true)

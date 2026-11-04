@@ -103,6 +103,16 @@ XLEN wrap, and faulting instructions whose raw bits do not identify their
 length. Preserve the valid prediction target, direction checkpoint, and RAS actions
 even when an instruction crosses a block or region.
 
+The issue window and each EX/MEM/WB lane store `RV2WideDirectionCheckpoint`,
+not complete tournament indices. Its ten-bit saved lookup row, ten-bit recovery
+history, and four flags are independent. Reconstruct `index` by concatenating the
+row with `pc[1..3]`, and `base_index` from `pc[1..13]`. Use the lane's full
+reconstructed PC, including the shared region bit needed at a 4 KiB boundary.
+No index adder or history hash is needed. Window and lane admission check valid
+index/PC agreement; invalid indices have no training meaning. Preserve histories
+and flags even when direction validity is false, since recovery still consumes
+nonbranch checkpoints. Public instruction and training payloads remain unchanged.
+
 Each window entry stores its own compact PC, not an offset from a shared base:
 resident instructions can span unrelated predicted targets. Successful PCs
 sign-extend from `min(XLEN, max(39, physical_address_width + 1))` in the integrated
@@ -1332,6 +1342,11 @@ They fill all eight entries, retain mixed normal/fault owners under backpressure
 consume one/two entries while appending, and clear live offers. An independent
 queue checks raw/canonical encodings, exact PC/successor and fault addresses,
 guest provenance, full-width predicted targets, and direction/RAS checkpoints.
+Distinct saved rows and histories check PC-derived training indices through
+compaction and wrap, including nonzero histories with prediction disabled.
+Invalid valid-index/PC combinations fail admission; invalid training-index bits
+are ignored. The core's retirement/training and recovery oracles check the same
+metadata through both lanes and retained service/replay paths.
 Directed values exercise noncanonical fault PCs, sign-extended PCs, physical
 upper bits, continuation faults, and XLEN wrap; invalid compact successful PCs
 must trigger the ingress assertion.

@@ -160,6 +160,26 @@ fun encode_pc_step(xlen :: XLen, pc :: Bits(xlen.width), successor :: Bits(xlen.
     last: edge.index
     short_step: changed[1].into(Bool)
 
+/* Retains the lookup row independently of recovery history; parcel/base indices come from the PC. */
+bundle RV2WideDirectionCheckpoint():
+  row: Bits(10)
+  history: Bits(10)
+  valid: Bool
+  taken: Bool
+  base_taken: Bool
+  gshare_taken: Bool
+
+  /* Restores training indices by wiring, without recomputing the earlier lookup's history hash. */
+  method expanded(checkpoint, pc :: Bits) :: TournamentPrediction(10):
+    TournamentPrediction(10):
+      valid: checkpoint.valid
+      index: checkpoint.row ++ pc[1..3]
+      history: checkpoint.history
+      taken: checkpoint.taken
+      base_index: pc[1..13]
+      base_taken: checkpoint.base_taken
+      gshare_taken: checkpoint.gshare_taken
+
 /* Retains canonical decode bits, original encoding, and the length-derived successor through retirement. */
 bundle RV2WideInstruction(xlen :: XLen, hypervisor :: Boolean):
   pc: Bits(xlen.width)
@@ -171,6 +191,20 @@ bundle RV2WideInstruction(xlen :: XLen, hypervisor :: Boolean):
   prediction: BranchPrediction(xlen)
   speculated_ras_action: RasAction
   direction: TournamentPrediction(10)
+
+  /* Checks the PC-derived portions of observable training indices; invalid indices are unspecified. */
+  method direction_indices_valid(fetched) :: Bool:
+    !fetched.direction.valid ||| ((fetched.direction.index[0..2] === fetched.pc[1..3]) & (fetched.direction.base_index === fetched.pc[1..13]))
+
+  /* Removes redundant indices while retaining all history and chooser observations, even when invalid. */
+  method retained_direction(fetched) :: RV2WideDirectionCheckpoint():
+    RV2WideDirectionCheckpoint():
+      row: fetched.direction.index[2..12]
+      history: fetched.direction.history
+      valid: fetched.direction.valid
+      taken: fetched.direction.taken
+      base_taken: fetched.direction.base_taken
+      gshare_taken: fetched.direction.gshare_taken
 
   /* Projects the accepted instruction, not the live lane at completion time. */
   method identity(fetched) :: RV2WideInstructionIdentity(xlen):
@@ -596,6 +630,7 @@ export:
   RV2WidePcStep
   encode_pc_step
   RV2WideInstruction
+  RV2WideDirectionCheckpoint
   RV2WidePacket
   RV2WideBranchTraining
   RV2WideHistoryCommit

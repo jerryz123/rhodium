@@ -29,19 +29,23 @@ Instruction token(unsigned id) {
   result.pprediction.pras_uaction = id % 4;
   result.pspeculated_uras_uaction = (id + 1) % 4;
   result.pdirection.pvalid = id & 1;
-  result.pdirection.pindex = id % 4096;
-  result.pdirection.phistory = id % 1024;
+  result.pdirection.pindex = (((id * 37 + 0x155) & 1023) << 2) | ((result.ppc >> 1) & 3);
+  result.pdirection.phistory = (id * 13 + 0x2aa) & 1023;
   result.pdirection.ptaken = id & 1;
-  result.pdirection.pbase_uindex = (id + 7) % 4096;
+  result.pdirection.pbase_uindex = (result.ppc >> 1) & 4095;
   result.pdirection.pbase_utaken = (id >> 1) & 1;
   result.pdirection.pgshare_utaken = (id >> 2) & 1;
+  if (!result.pdirection.pvalid) {
+    result.pdirection.pindex ^= 3;
+    result.pdirection.pbase_uindex ^= 0x5a5;
+  }
   return result;
 }
 
 void check_entry(const Instruction &actual, const Instruction &want) {
   CHECK(same_instruction(actual, want));
   CHECK(actual.pprediction.ptarget == (want.pprediction.pvalid ? want.pprediction.ptarget : 0));
-  CHECK(actual.pdirection.pbase_uindex == want.pdirection.pbase_uindex);
+  CHECK(!want.pdirection.pvalid || actual.pdirection.pbase_uindex == want.pdirection.pbase_uindex);
   CHECK(actual.pdirection.pbase_utaken == want.pdirection.pbase_utaken);
   CHECK(actual.pdirection.pgshare_utaken == want.pdirection.pgshare_utaken);
 }
@@ -102,6 +106,21 @@ int main() {
     }
     while (!expected.empty()) cycle(1, 0);
     cycle(0, 0);
+    // Reject inconsistent valid indices; arbitrary invalid index bits remain irrelevant.
+    for (unsigned mutation = 0; mutation < 2; ++mutation) {
+      auto invalid = token(3);
+      if (mutation == 0) invalid.pdirection.pindex ^= 1;
+      else invalid.pdirection.pbase_uindex ^= 0x100;
+      ingress_in.pbits.pentries[0] = invalid;
+      ingress_in.pbits.pcount = 1;
+      ingress_in.pvalid = 1;
+      expect_failure("rv2wide_window_direction_indices", [] { eval(); tick_model(); });
+      ingress_in = {};
+      reset = 1;
+      tick_model();
+      reset = 0;
+    }
+
     auto invalid_prediction = token(1);
     invalid_prediction.pprediction.pvalid = 1;
     invalid_prediction.pprediction.ppc = invalid_prediction.ppc;
