@@ -1021,6 +1021,10 @@ All seven Simple RV2Wide suites were refreshed from the 181 functionally
 successful workloads in [CI run 41568576507](https://github.com/jerryz123/rhodium/actions/runs/41568576507)
 after reset-only predictor initialization and same-or-next-PC-region pairing
 changed their counter distributions.
+The Simple RV2Wide and RV5Stage SKL expectations were refreshed from all 28
+functionally successful workloads per config in
+[CI run 41897832705](https://github.com/jerryz123/rhodium/actions/runs/41897832705),
+including the reviewed transpose-e8 and GEMM-f16 counter changes.
 Files map workload names directly to counter-name/value maps, matching the
 runtime measurement without additional wrappers. Sort workload and counter names
 deterministically. Missing expectations are collected and reported without a
