@@ -141,8 +141,8 @@ bundle VectorMicroOp(xlen :: XLen, vlen :: VectorLength, Context :: DataType):
   packed_layout: VectorPackedLayout(xlen, vlen)
   byte_mask: Bits(vector_word_bytes(xlen))
 
-/* Retains destination, recurrence, service-route, and memory metadata until the result matures. */
-bundle VectorResultBeat(xlen :: XLen, vlen :: VectorLength):
+/* Carries result metadata with a caller-selected physical or retained write representation. */
+bundle VectorResultBeat(xlen :: XLen, vlen :: VectorLength, Write :: DataType):
   sequence: Bits(vector_sequence_width(vlen))
   first: Bits(index_width(vlen + 1))
   end: Bits(index_width(vlen + 1))
@@ -167,8 +167,38 @@ bundle VectorResultBeat(xlen :: XLen, vlen :: VectorLength):
   store: Bool
   saturated: Bool
   shift: Bits(vector_bit_offset_width(xlen))
-  write: VectorRegisterWrite(xlen, vlen)
+  write: Write
   compress_state: VectorCompressState(xlen, vlen)
+
+  /* Changes write representation without changing the result's owner, routing, or progress. */
+  method with_write(beat, To :: DataType, write :: Hardware.of(To)) :: VectorResultBeat(xlen, vlen, To):
+    VectorResultBeat(xlen, vlen, To):
+      sequence: beat.sequence
+      first: beat.first
+      end: beat.end
+      last: beat.last
+      reduction: beat.reduction
+      scan: beat.scan
+      scan_carry: beat.scan_carry
+      scalar_destination: beat.scalar_destination
+      floating_scalar_destination: beat.floating_scalar_destination
+      destination: beat.destination
+      element_width: beat.element_width
+      memory: beat.memory
+      floating_point: beat.floating_point
+      fp_execute: beat.fp_execute
+      mask_destination: beat.mask_destination
+      fp_result: beat.fp_result
+      multiply_divide: beat.multiply_divide
+      multiply_execute: beat.multiply_execute
+      divide: beat.divide
+      multiply_accumulate: beat.multiply_accumulate
+      multiply_subtract: beat.multiply_subtract
+      store: beat.store
+      saturated: beat.saturated
+      shift: beat.shift
+      write: write
+      compress_state: beat.compress_state
 
 /* Reports one slot-tagged LSU attempt's disposition and precise fault information. */
 bundle VectorCommit(xlen :: XLen, vector_completion_slots :: Pow2Int):
@@ -245,7 +275,7 @@ bundle VectorSequenceRequest(xlen :: XLen, vlen :: VectorLength, Context :: Data
 /* Pairs a mature beat with distinct persistent instruction-owner and completion-slot
    identities. */
 bundle VectorOwnedResult(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int):
-  beat: VectorResultBeat(xlen, vlen)
+  beat: VectorResultBeat(xlen, vlen, VectorRegisterWrite(xlen, vlen))
   tag: Bits(index_width(slots))
   owner: Bits(index_width(slots))
   pc: Bits(xlen.width)
@@ -259,7 +289,7 @@ bundle VectorSlotAllocation(slots :: Pow2Int):
 /* Returns the retained result beat and unshifted service data to owner-indexed recurrence
    state. */
 bundle VectorDrained(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int):
-  beat: VectorResultBeat(xlen, vlen)
+  beat: VectorResultBeat(xlen, vlen, VectorRegisterWrite(xlen, vlen))
   owner: Bits(index_width(slots))
   data: Bits(xlen.width)
 

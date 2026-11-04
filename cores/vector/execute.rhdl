@@ -24,7 +24,7 @@ circuit VectorExecute(xlen :: XLen, vlen :: VectorLength, ~packed_multiply: pack
   input scan_carry: Bits(xlen.width)
   interface alignment(Valid(VectorAlignment(xlen)), ~role: consumer)
   output aligned: Bits(xlen.width)
-  output result: VectorResultBeat(xlen, vlen)
+  output result: VectorResultBeat(xlen, vlen, VectorRegisterWrite(xlen, vlen))
 
 
   /* Shared execution resources
@@ -223,7 +223,7 @@ circuit VectorExecute(xlen :: XLen, vlen :: VectorLength, ~packed_multiply: pack
     fp_mask_destination: beat.first[0..vector_bit_offset_width(xlen)]
     reduction: Bits(vector_bit_offset_width(xlen))(0)
 
-  result <== VectorResultBeat(xlen, vlen):
+  result <== VectorResultBeat(xlen, vlen, VectorRegisterWrite(xlen, vlen)):
     sequence: beat.sequence
     first: beat.first
     end: beat.end

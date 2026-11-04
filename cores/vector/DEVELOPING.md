@@ -123,9 +123,13 @@ Packed multiplication reserves calendar client 2 before its synchronous reads,
 with a six-cycle delay through operand capture, EX, and the four-stage numeric
 pipeline. Ordinary local writes continue using that client's shorter delay;
 scalar multiply and FP retain clients 0 and 1. Even empty/masked beats finish
-on the reserved edge. Completion retains the slot's bit mask and qualifies the
-numeric byte saturation against it. Passive cosim reports packed launch at
-allocation separately from queued scalar launch; their mutually exclusive
+on the reserved edge. Completion retains byte enables and a singleton FP-mask
+enable rather than a full bit mask. The beat's existing mask-destination flag
+and shift select the reconstructed mask; an assertion checks lossless capture.
+Immediate arbitrary mask writes bypass this representation. Reconstruct the
+physical mask without adding a stage or changing result arbitration, and retain
+numeric byte saturation qualification against that mask. Passive cosim reports
+packed launch at allocation separately from queued scalar launch; their mutually exclusive
 architectural returns use the existing multiplier-return observation.
 Local read admission uses `prior_claims_available` for client 2, observing
 accepted scalar multiply/FP claims before promising the local return edge.

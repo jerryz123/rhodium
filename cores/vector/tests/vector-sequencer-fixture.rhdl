@@ -29,7 +29,7 @@ sync_circuit VectorSequencerFixture(xlen :: XLen, vlen :: VectorLength, vector_e
   input retry_first: Bits(index_width(vlen + 1))
   interface initialize(Valid(VectorRegisterWrite(xlen, vlen)), ~role: consumer)
   output(active, request_ready, legal, issued, committed, retried): Bool
-  output result: VectorResultBeat(xlen, vlen)
+  output result: VectorResultBeat(xlen, vlen, VectorRegisterWrite(xlen, vlen))
   def profile = if xlen == XLen.X32 | VectorProfile.Zve32x | VectorProfile.V
   inst decode(VectorTestDecoder(profile, vector_extensions, ~uncared_ones: #true))
   inst operation_legality(VectorOperationLegality(xlen, vlen, profile, vector_extensions))
@@ -46,7 +46,7 @@ sync_circuit VectorSequencerFixture(xlen :: XLen, vlen :: VectorLength, vector_e
   inst execute(VectorExecute(xlen, vlen))
   execute.alignment.valid <== Bool(#false)
   execute.alignment.bits <== dont_care(VectorAlignment(xlen))
-  inst pipeline(ValidPipe(VectorResultBeat(xlen, vlen), 3, ~flushable: #true))
+  inst pipeline(ValidPipe(VectorResultBeat(xlen, vlen, VectorRegisterWrite(xlen, vlen)), 3, ~flushable: #true))
   decode.instruction <== instruction
   operation_legality.instruction <== instruction
   operation_legality.control <== decode.control

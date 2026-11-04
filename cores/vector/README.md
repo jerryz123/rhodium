@@ -40,6 +40,9 @@ execution themselves; scalar retirement policy and LSU staging remain outside.
 `VectorOperationLegality`. A named core composes those relations with its scalar
 source, writeback, and system columns. `register-file.rhdl`, `packing.rhdl`, and
 `execute.rhdl` can also be used independently.
+Its result is `VectorResultBeat(xlen, vlen, VectorRegisterWrite(xlen, vlen))`.
+`VectorResultBeat` parameterizes the write representation; `.with_write(Type, value)`
+replaces that representation while preserving the other result metadata.
 `instruction-metadata.rhm` provides the selected base vector instruction domain
 and scalar source/configuration/destination roles without choosing core controls.
 

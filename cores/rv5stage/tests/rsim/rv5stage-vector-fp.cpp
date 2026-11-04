@@ -982,6 +982,39 @@ void stimulus() {
     expect_store(UINT64_C(10513), UINT64_C(254), 0);
     expect_store(UINT64_C(10514), 3, 0);
     expect_store(UINT64_C(10515), UINT64_C(252), 0);
+    // Delayed FP comparisons cross mask-byte boundaries and the completion
+    // ring while preserving pre-vstart, masked-off, and upper destination bits.
+    const std::uint64_t old_mask = UINT64_C(0xfedcba9876543210);
+    const std::uint64_t active_mask = UINT64_C(0xa55aa55aa55aa55a);
+    const std::uint64_t upper_mask = UINT64_C(0x123456789abcdef0);
+    std::uint64_t compared_mask = old_mask;
+    for (int element = 0; element < 64; ++element) {
+      const auto left = UINT64_C(0x3c00);
+      const auto right = element % 3 == 0 ? left : UINT64_C(0x4000);
+      memory_words[96 + element / 4] |= left << (16 * (element % 4));
+      memory_words[112 + element / 4] |= right << (16 * (element % 4));
+      if (element >= 5 && ((active_mask >> element) & 1)) {
+        compared_mask &= ~(UINT64_C(1) << element);
+        compared_mask |= std::uint64_t(left == right) << element;
+      }
+    }
+    memory_words[128] = old_mask;
+    memory_words[129] = upper_mask;
+    memory_words[130] = active_mask;
+    memory_words[131] = 0;
+    vset(3, 2);
+    vload(4, 5120, 3);
+    vload(0, 5136, 3);
+    li(5, 64);
+    emit((11u << 20) | (5u << 15) | 0x7057u); // vsetvli x0,x5,e16,m8
+    vload(8, 4864, 1);
+    vload(16, 4992, 1);
+    emit((8u << 20) | (5u << 15) | (5u << 12) | 0x73u); // csrwi vstart,5
+    vec(24, 4, 8, 16, 1);
+    vset(3, 2);
+    vstore(4, 10528, 3);
+    expect_store(10528, compared_mask, 3);
+    expect_store(10536, upper_mask, 3);
     // Empty macro clears vstart without executing or modifying flags.
     vset(2, 0);
     emit(UINT64_C(0x83d073));
