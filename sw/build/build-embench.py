@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from riscv.patched_submodule import materialize, read_series
 from build import check_elf_memory
+from program_target import COMPILER_PATHS, compilation_flags
 from program_target import (elf_architecture, elf_build_metadata, instruction_inventory, load_target, objdump_for,
                             probe_compiler, readelf_for, target_fingerprint)
 
@@ -120,7 +121,7 @@ def main():
     key_input = (revision + version + str(source) + compiler + str(args.scale)
                  + str(args.local_scale)
                  + str(args.warmup_heat) + json.dumps(build_metadata['build_spec'], sort_keys=True)).encode()
-    for path in [Path(__file__), Path(__file__).with_name('program_target.py'),
+    for path in [Path(__file__), Path(__file__).with_name('program_target.py'), COMPILER_PATHS,
                  Path(__file__).resolve().parents[2] / 'riscv/patched_submodule.py',
                  series, *patches, *port_inputs]:
         key_input += path.read_bytes()
@@ -134,7 +135,10 @@ def main():
     source = materialize(source, series, build / 'source')
     sources = benchmark_sources(source)
     compiler_arch = probe_compiler(compiler, target['march'], target['mabi'], build)
-    common = [compiler, *COMMON_FLAGS, f'-march={target["march"]}', f'-mabi={target["mabi"]}',
+    common = [compiler, *COMMON_FLAGS,
+              *compilation_flags(compiler, build, sources=[(source, '/rhodium/sw/embench'),
+                                                          (port, '/rhodium/sw/embench-port')]),
+              f'-march={target["march"]}', f'-mabi={target["mabi"]}',
               f'-I{source / "support"}', f'-I{port}', '-DHAVE_BOARDSUPPORT_H=1',
               f'-DWARMUP_HEAT={args.warmup_heat}', f'-DGLOBAL_SCALE_FACTOR={args.scale}',
               f'-DLOCAL_SCALE_FACTOR={args.local_scale}']

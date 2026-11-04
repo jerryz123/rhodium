@@ -11,6 +11,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from build import check_elf_memory
+from program_target import COMPILER_PATHS, compilation_flags
 from program_target import (elf_architecture, elf_build_metadata, instruction_inventory, load_target, objdump_for,
                             probe_compiler, readelf_for, target_fingerprint)
 
@@ -76,7 +77,7 @@ def main():
     build_metadata = elf_build_metadata(target, args.variant, dict(iterations=args.iterations))
     key_input = (revision + version + str(source) + compiler + str(args.iterations) + args.variant
                  + json.dumps(build_metadata['build_spec'], sort_keys=True)).encode()
-    for path in [Path(__file__), Path(__file__).with_name('program_target.py'), *port_inputs]:
+    for path in [Path(__file__), Path(__file__).with_name('program_target.py'), COMPILER_PATHS, *port_inputs]:
         key_input += path.read_bytes()
     key = hashlib.sha256(key_input).hexdigest()
     build = output / 'build' / key
@@ -89,7 +90,10 @@ def main():
     variant_flags = SCALAR_FLAGS if scalar else ()
     flag_text = ' '.join((*COMMON_FLAGS, f'-march={target["march"]}', f'-mabi={target["mabi"]}',
                           *variant_flags))
-    common = [compiler, *COMMON_FLAGS, f'-march={target["march"]}', f'-mabi={target["mabi"]}',
+    common = [compiler, *COMMON_FLAGS,
+              *compilation_flags(compiler, build, sources=[(source, '/rhodium/sw/coremark'),
+                                                          (port, '/rhodium/sw/coremark-port')]),
+              f'-march={target["march"]}', f'-mabi={target["mabi"]}',
               *variant_flags,
               f'-I{port}', f'-I{source}', f'-DITERATIONS={args.iterations}', '-DTOTAL_DATA_SIZE=2000',
               f'-DRHODIUM_CLOCK_FREQUENCY_HZ={target["clock_frequency_hz"]}',

@@ -7,12 +7,14 @@ import json
 from pathlib import Path
 import re
 import shutil
+import shlex
 import struct
 import subprocess
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from program_target import load_target, readelf_for, elf_build_metadata, target_fingerprint  # noqa: E402
+from program_target import COMPILER_PATHS, compilation_flags
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'riscv'))
 import patched_submodule  # noqa: E402
 
@@ -215,6 +217,7 @@ def build_firmware(args):
         'llvm_versions': {name: subprocess.check_output([llvm + name, '--version'], text=True)
                          for name in ('clang', 'ld.lld')} if llvm else None,
         'builder_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        'compiler_paths_sha256': hashlib.sha256(COMPILER_PATHS.read_bytes()).hexdigest(),
         'source_revision': subprocess.check_output(
             ['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip(),
     }
@@ -236,6 +239,8 @@ def build_firmware(args):
         f'FW_JUMP_ADDR=0x{layout["next_stage_address"]:x}',
         f'FW_JUMP_FDT_ADDR=0x{layout["fdt_address"]:x}',
         'FW_OPTIONS=0x1',
+        'REPRODUCIBLE_FLAGS=' + shlex.join(compilation_flags(args.compiler, output, sources=[
+            (patched_source, '/rhodium/sw/opensbi')], cwd=patched_source)),
     ]
     if args.llvm:
         command.append(f'LLVM={llvm}')
@@ -286,7 +291,8 @@ def build_smoke(args):
     output = Path(args.output).resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     command = [
-        str(args.compiler), '-march=rv64ima_zicsr_zicntr', '-mabi=lp64', '-nostdlib', '-nostartfiles',
+        str(args.compiler), *compilation_flags(args.compiler, output.parent),
+        '-march=rv64ima_zicsr_zicntr', '-mabi=lp64', '-nostdlib', '-nostartfiles',
         '-Wl,--build-id=none', f'-Wl,--defsym,smoke_entry=0x{layout["next_stage_address"]:x}',
         f'-Wl,--defsym,expected_fdt=0x{layout["fdt_address"]:x}',
         f'-Wl,-T,{Path(args.linker).resolve()}', str(Path(args.source).resolve()), '-o', str(output),

@@ -7,11 +7,13 @@ import json
 from pathlib import Path
 import re
 import subprocess
+import shlex
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from build import check_elf_memory
+from program_target import COMPILER_PATHS, compilation_flags
 from program_target import (elf_architecture, elf_build_metadata, instruction_inventory, load_target, native_toolchain,
                             objdump_for, probe_compiler, readelf_for, target_fingerprint)
 
@@ -97,7 +99,7 @@ def main():
     metadata = elf_build_metadata(target, 'skl', FUNCTIONAL_PROFILE)
     key_input = json.dumps(dict(revision=revision, source=str(source), toolchain=tools,
                                 build_spec=metadata['build_spec']), sort_keys=True).encode()
-    for path in [Path(__file__), Path(__file__).with_name('program_target.py'),
+    for path in [Path(__file__), Path(__file__).with_name('program_target.py'), COMPILER_PATHS,
                  Path(__file__).with_name('build.py'),
                  Path(__file__).resolve().parents[2] / 'riscv/patched_submodule.py',
                  series, *patches, *port_inputs]:
@@ -106,6 +108,8 @@ def main():
     build = output / 'build' / key
     build.mkdir(parents=True, exist_ok=True)
     local_source = build / 'source'
+    flags = [*flags, *compilation_flags(compiler, build, sources=[
+        (local_source, '/rhodium/sw/skl'), (port, '/rhodium/sw/skl-port')], cwd=build)]
     for name in ('manifest.json', 'instruction-report.json'):
         (output / name).unlink(missing_ok=True)
     linker = build / 'link.ld'
@@ -126,7 +130,7 @@ def main():
             command = [cmake, '-S', str(port), '-B', str(build), '-DCMAKE_SYSTEM_NAME=Generic',
                        '-DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY', f'-DCMAKE_C_COMPILER={compiler}',
                        f'-DCMAKE_ASM_COMPILER={compiler}', '-DCMAKE_BUILD_TYPE=Release',
-                       f'-DCMAKE_C_FLAGS={" ".join(flags)}', f'-DCMAKE_ASM_FLAGS={" ".join(flags)}',
+                       f'-DCMAKE_C_FLAGS={shlex.join(flags)}', f'-DCMAKE_ASM_FLAGS={shlex.join(flags)}',
                        f'-DSKL_SOURCE={local_source}', f'-DSKL_LINKER={linker}']
             subprocess.run(command, check=True, stdout=log, stderr=subprocess.STDOUT)
             entries = read_inventory(build / 'inventory.tsv', build)

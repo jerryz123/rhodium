@@ -73,7 +73,7 @@ def group(*names):
 
 # Common recipe inputs, also published individually for consumers that need a subset.
 BUILD_TOOLS = {
-    'compiler': ('tools/install-riscv-*.sh', 'riscv/gnu-toolchain.rhm', '.github/actions/setup-riscv-toolchain/**/*'),
+    'compiler': ('tools/install-riscv-*.sh', 'tools/build/paths.*', 'riscv/gnu-toolchain.rhm', '.github/actions/setup-riscv-toolchain/**/*'),
     'elf': ('sw/build/build.py', 'sw/build/program_target.py'),
     'patches': ('riscv/patched_submodule.py',),
     'build-driver': ('.moon/tasks/software.yml', 'sw/build/moon-env.sh'),

@@ -1,0 +1,31 @@
+From: Jerry Zhao <jerryz123@berkeley.edu>
+Subject: [PATCH] Accept explicit compiler flags for reproducible source filenames
+Purpose: Pass platform-owned filename mappings to signature and final ELF builds.
+SPDX-License-Identifier: Apache-2.0
+
+Keep the upstream compiler executable and ISA selection intact. The platform
+configuration supplies filename prefix maps without a compiler wrapper or
+runtime monkey-patching of ACT's build planner.
+
+diff --git a/framework/src/act/config.py b/framework/src/act/config.py
+--- a/framework/src/act/config.py
++++ b/framework/src/act/config.py
+@@ -48,6 +48,7 @@
+     compiler_exe: Path
+     objdump_exe: Path | None = None
+     compiler_type: CompilerType  # Inferred from compiler_exe by model validator
++    compiler_flags: tuple[str, ...] = ()
+     ref_model_exe: Path
+     ref_model_type: RefModelType  # Inferred from ref_model_exe by model validator
+     include_priv_tests: bool = True
+diff --git a/framework/src/act/build_plan.py b/framework/src/act/build_plan.py
+--- a/framework/src/act/build_plan.py
++++ b/framework/src/act/build_plan.py
+@@ -162,6 +162,7 @@
+     compile_prefix = [
+         *toolchain.compile_prefix(xlen),
++        *config.compiler_flags,
+         f"-I{config.dut_include_dir.absolute()}",
+         f"-T{config.linker_script.absolute()}",
+         "-O0",
+         "-g",

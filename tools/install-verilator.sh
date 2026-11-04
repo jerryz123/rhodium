@@ -7,6 +7,8 @@ repo_dir="$(cd "$(dirname "$0")/.." && pwd)"
 version=5.048
 archive_sha256=02d934b3f972c6d9b792350634d81eadfc9e61f347e3f3bdcaad40960b9fcb53
 install_dir="$repo_dir/.tools/verilator"
+source "$repo_dir/tools/build/paths.sh"
+path_policy=$(shasum -a 256 "$repo_dir/tools/build/paths.py" "$repo_dir/tools/build/paths.sh" "$0" | shasum -a 256 | cut -d' ' -f1)
 
 verify_install() {
   local actual
@@ -20,7 +22,7 @@ verify_install() {
 }
 
 if [[ -x "$install_dir/bin/verilator" ]]; then
-  if verify_install; then exit 0; fi
+  if verify_install && [[ -f "$install_dir/.path-policy" && "$(< "$install_dir/.path-policy")" == "$path_policy" ]]; then exit 0; fi
   echo "Rebuilding the pinned Verilator in $install_dir" >&2
 fi
 
@@ -42,8 +44,10 @@ tar -xzf "$build_dir/source.tar.gz" -C "$build_dir"
 cd "$build_dir/verilator-$version"
 unset VERILATOR_ROOT
 autoconf
-./configure --prefix="$install_dir"
+compilation_path_flags --build "$build_dir" --map "$build_dir/verilator-$version=/rhodium/verilator"
+./configure --prefix="$install_dir" CFLAGS="${CFLAGS:--g -O2} $path_flags_shell" CXXFLAGS="${CXXFLAGS:--g -O2} $path_flags_shell"
 # The simulator needs binaries and headers, not generated manual pages.
 make -j"${VERILATOR_BUILD_JOBS:-4}" VL_INST_MAN_FILES=
 make install VL_INST_MAN_FILES=
+printf '%s\n' "$path_policy" > "$install_dir/.path-policy"
 verify_install

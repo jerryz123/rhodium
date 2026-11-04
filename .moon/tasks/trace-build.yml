@@ -24,7 +24,7 @@ tasks:
       fi
       mkdir -p "$(dirname "$OBJECT")"
       "${CXX:-c++}" "${cppflags[@]}" "${cxxflags[@]}" -std=c++20 "${includes[@]}" -c "$SOURCE" -o "$OBJECT"
-    inputs: ["tools/build/native-env.sh", "$CXX", "$CPPFLAGS", "$CXXFLAGS", "$NLOHMANN_JSON_INCLUDE_DIR"]
+    inputs: ["tools/build/native-env.sh", "@group(compiler-paths)", "$CXX", "$CPPFLAGS", "$CXXFLAGS", "$NLOHMANN_JSON_INCLUDE_DIR"]
     outputs: ["${OBJECT}"]
     checks:
       - check: fingerprint

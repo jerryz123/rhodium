@@ -5,6 +5,10 @@ from pathlib import Path
 import resource
 import subprocess
 import sys
+import shlex
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from tools.build.paths import prefix_flags
 
 
 def main():
@@ -21,7 +25,7 @@ def main():
         name = f"trace{int(trace)}-cosim{int(cosim)}-stats{int(stats)}"
         directory = args.build.resolve() / name
         directory.mkdir(parents=True, exist_ok=True)
-        flags = "-std=c++20" + (" -DRHEG_TRACE" if trace else "") + (" -DRHODIUM_COSIM" if cosim else "")
+        flags = shlex.join(prefix_flags(directory)) + " -std=c++20" + (" -DRHEG_TRACE" if trace else "") + (" -DRHODIUM_COSIM" if cosim else "")
         if stats:
             flags += f" -DRHODIUM_STATS -I{sims / 'tests'}"
         command = [args.verilator, "--binary", "--timing", "--vpi", "--assert", "--build-jobs", "2",

@@ -37,6 +37,17 @@ upstream benchmarks require the entry in a RAM load segment but do not require
 `PF_X`, matching the FESVR loader, which does not enforce segment permissions.
 Apply this same distinction during shared-artifact binding.
 
+Use `build/program_target.py:compilation_flags` for target compilation. It extends
+the repository's [compiler filename policy](../DEVELOPING.md) with a stable
+`/rhodium/toolchain` root. Give each upstream source and port a distinct logical
+name under `/rhodium/sw/`, including patched build-local copies. Apply mappings
+to C, C++, and preprocessed assembly; pass them through supported upstream flags
+(or an ordered patch), not source rewriting. Runtime libraries are compiled with
+the same policy by `tools/install-riscv-runtime.sh`: remapping only the final ELF
+cannot repair paths already embedded in archives. Real build paths remain in
+manifests for diagnosis. Include the mapping helper in content keys so older
+unmapped outputs cannot be reused.
+
 Multihart benchmarks materialize [`riscv-isa-tests-patches/series`](riscv-isa-tests-patches/series)
 through the shared materializer. The series owns startup and collective exit;
 `RHODIUM_BENCHMARK_HARTS` is a compiler definition, not a source substitution.

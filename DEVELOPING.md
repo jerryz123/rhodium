@@ -216,6 +216,17 @@ Moon output declarations at absolute external paths. Physical outputs remain und
 The [CI ownership guide](tools/testing/DEVELOPING.md#ci-ownership)
 explains how hosted selection and artifact handoffs differ.
 
+Compilation must not embed physical checkout or temporary build roots in
+`__FILE__`, assertions, or debug filenames. Use
+[`tools/build/paths.py`](tools/build/paths.py), its shell adapter, or its CMake
+include at the owning compiler invocation. Repository files map to `/rhodium`,
+generated files to `/rhodium/build`, and separately staged upstream sources to
+explicit stable names. Add the helper to the producer's inputs and local cache
+identity. Keep real paths in build manifests and operational linker search paths;
+filename mapping is not a claim of byte-for-byte reproducibility across different
+toolchains. Validate changes by compiling the same inputs under two differently
+named roots, including a source that embeds its filename.
+
 Documentation-only changes require, at minimum, purpose-header, path, anchor,
 code-fence, Mermaid-structure, and `git diff --check` validation. Confirm every
 documented command and source path against the current repository rather than

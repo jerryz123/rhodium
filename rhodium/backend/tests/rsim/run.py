@@ -9,6 +9,7 @@ import shlex
 import shutil
 import subprocess
 import tempfile
+import sys
 import arithmetic
 import aggregate
 import dynamic
@@ -30,6 +31,8 @@ import chi_memory
 import wide
 
 ROOT = Path(__file__).resolve().parents[4]
+sys.path.insert(0, str(ROOT))
+from tools.build.paths import prefix_flags
 HERE = Path(__file__).resolve().parent
 WIDTHS = (1, 5, 8, 9, 16, 17, 32, 33, 63, 64)
 SCALAR = ("sum", "inverted", "difference", "product", "both", "either",
@@ -43,6 +46,12 @@ def encoded(name):
 
 
 def run(command, work, label, stdin=None):
+    command = list(command)
+    compiler = shlex.split(os.environ.get("CXX", "c++"))
+    if command[:len(compiler)] == compiler:
+        command[len(compiler):len(compiler)] = prefix_flags(work, cwd=ROOT)
+    elif "--binary" in command or "--cc" in command:
+        command += ["-CFLAGS", shlex.join(prefix_flags(work, cwd=ROOT))]
     env = dict(os.environ, PLTCOLLECTS=str(ROOT) + os.pathsep)
     result = subprocess.run(command, cwd=ROOT, env=env, input=stdin, text=True,
                             capture_output=True, timeout=300)

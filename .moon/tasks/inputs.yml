@@ -1,6 +1,8 @@
 # Shares software, tools and runtime input patterns between executable moon tasks.
 # SPDX-License-Identifier: Apache-2.0
 fileGroups:
+  compiler-paths:
+    - "tools/build/paths.*"
   bundle:
     - "sw/build/bind.py"
     - "sims/program-test/archive.py"
@@ -71,17 +73,20 @@ fileGroups:
     - "tools/install-circt.sh"
     - ".github/actions/setup-circt/**/*"
   sail:
+    - "tools/build/paths.*"
     - "sims/sail/**/*"
     - "sims/arch-test/install-sail.sh"
     - "riscv/sail-riscv"
     - "riscv/sail-riscv-patches/**/*"
   fesvr-library: &fesvr-library-sources
+    - "tools/build/paths.*"
     - "riscv/riscv-isa-sim"
     - "riscv/riscv-isa-sim-patches/**/*"
     - "sims/fesvr/install.sh"
     - ".github/actions/setup-fesvr/**/*"
   fesvr-runtime: *fesvr-library-sources
   verilator:
+    - "tools/build/paths.*"
     - "tools/install-verilator.sh"
     - ".github/actions/setup-verilator/**/*"
   harness-runtime:

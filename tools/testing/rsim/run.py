@@ -10,9 +10,12 @@ import shlex
 import shutil
 import subprocess
 import tempfile
+import sys
 
 ROOT = Path(__file__).resolve().parents[3]
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(ROOT))
+from tools.build.paths import prefix_flags
 
 
 def inventory(*, check_files=True):
@@ -93,7 +96,7 @@ def main():
 
         def test(row):
             directory = work / row['name']
-            command = shlex.split(os.environ.get('CXX', 'c++')) + ['-std=c++20', '-O2', '-I' + str(HERE), '-I' + str(directory)]
+            command = shlex.split(os.environ.get('CXX', 'c++')) + prefix_flags(directory) + ['-std=c++20', '-O2', '-I' + str(HERE), '-I' + str(directory)]
             command += ['-I' + str(parent) for parent in dict.fromkeys((ROOT / source).parent for source in row['sources'])]
             command += list(directory.glob('*.cpp')) + [ROOT / row['driver']] + [ROOT / source for source in row['sources']] + ['-o', directory / 'test']
             run(command, directory / 'build.log')

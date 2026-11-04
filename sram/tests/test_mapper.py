@@ -6,13 +6,17 @@ import os
 from pathlib import Path
 import re
 import shutil
+import shlex
 import subprocess
+import sys
 import tempfile
 import unittest
 
 
 TEST_DIR = Path(__file__).resolve().parent
 SRAM_DIR = TEST_DIR.parent
+sys.path.insert(0, str(SRAM_DIR.parent))
+from tools.build.paths import prefix_flags
 SKY130_DIR = SRAM_DIR / "sky130"
 MAPPER = SRAM_DIR / "map-memories.py"
 CATALOG = SKY130_DIR / "macros.ini"
@@ -149,6 +153,7 @@ class MapperTest(unittest.TestCase):
                 [
                     str(verilator),
                     "--binary",
+                    "-CFLAGS", shlex.join(prefix_flags(output_dir)),
                     "--timing",
                     "--top-module",
                     "mapper_tb",

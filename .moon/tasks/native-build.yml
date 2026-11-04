@@ -16,7 +16,7 @@ tasks:
       esac
       "${CXX:-c++}" "${cppflags[@]}" "${flags[@]}" -std=c++20 -Wall -Wextra -Werror "${includes[@]}" \
         "${sources[@]}" "${libraries[@]}" -o "$native_dir/$EXECUTABLE"
-    inputs: ["tools/build/native-env.sh", "$CXX", "$CXXFLAGS", "$CPPFLAGS", "$FESVR_PREFIX", "$VERILATOR_ROOT"]
+    inputs: ["tools/build/native-env.sh", "@group(compiler-paths)", "$CXX", "$CXXFLAGS", "$CPPFLAGS", "$FESVR_PREFIX", "$VERILATOR_ROOT"]
     outputs: [".rhodium-cache/moon/native/${EXECUTABLE}"]
     checks:
       - check: fingerprint
@@ -85,7 +85,7 @@ tasks:
     script: |
       cmake -S sims/cosim -B "${COSIM_HOOK_BUILD_DIR:-$PWD/.rhodium-cache/cosim-hooks}" \
         -DCMAKE_BUILD_TYPE=Debug "-DCMAKE_CXX_FLAGS_DEBUG=${OPT_FAST:--O2} -g" -DBUILD_TESTING=ON -DCOSIM_WITH_SAIL=OFF
-    inputs: ["sims/cosim/CMakeLists.txt", "$COSIM_HOOK_BUILD_DIR", "$OPT_FAST"]
+    inputs: ["sims/cosim/CMakeLists.txt", "@group(compiler-paths)", "$COSIM_HOOK_BUILD_DIR", "$OPT_FAST"]
     options: { cache: false }
   build-cosim-hooks:
     script: 'cmake --build "${COSIM_HOOK_BUILD_DIR:-$PWD/.rhodium-cache/cosim-hooks}" --parallel "${BUILD_JOBS:-4}"'
@@ -104,7 +104,7 @@ tasks:
           -DBUILD_TESTING=OFF -DCOSIM_WITH_SAIL=ON \
           -DSailModel_DIR="${COSIM_SAIL_PREFIX:-$PWD/.tools/sail-riscv-0.16-sail-0.20.3-$identity}/lib/cmake/SailModel"
       fi
-    inputs: ["sims/cosim/CMakeLists.txt", "@group(patches)"]
+    inputs: ["sims/cosim/CMakeLists.txt", "@group(compiler-paths)", "@group(patches)"]
     options: { cache: false }
   compile-cosim-runtime:
     script: |
@@ -126,7 +126,7 @@ tasks:
       circt_root="${CIRCT_ROOT:-$(dirname "$(dirname "$circt_opt")")}"
       "${CMAKE:-cmake}" -S sram/circt -B "${SRAM_BUILD_DIR:-${BUILD_DIR:-$PWD/sram/build}}/circt" \
         -DCIRCT_DIR="${CIRCT_CMAKE_DIR:-$circt_root/lib/cmake/circt}" -DCMAKE_BUILD_TYPE=Release
-    inputs: ["sram/circt/CMakeLists.txt", "@group(circt-tool)"]
+    inputs: ["sram/circt/CMakeLists.txt", "@group(compiler-paths)", "@group(circt-tool)"]
     options: { cache: false }
   compile-sram:
     script: |

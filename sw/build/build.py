@@ -6,6 +6,7 @@ import hashlib
 import json
 from pathlib import Path
 import shutil
+import shlex
 import struct
 import subprocess
 import sys
@@ -15,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from program_target import (elf_architecture, elf_build_metadata, instruction_inventory, load_target, objdump_for,
                             probe_compiler, readelf_for, target_fingerprint)
 from riscv.patched_submodule import materialize, read_series
+from program_target import COMPILER_PATHS, compilation_flags
 
 SCALAR_BENCHMARKS = ('median', 'qsort', 'rsort', 'towers', 'vvadd', 'memcpy',
                      'multiply', 'mm', 'dhrystone', 'spmv')
@@ -210,7 +212,7 @@ def main():
                  + str(args.isa_selection) + args.benchmark_mode
                  + args.benchmark_selection + str(args.benchmark_hart_count)
                  + json.dumps(build_metadata['build_spec'], sort_keys=True)).encode()
-    recipe_inputs = [Path(__file__), HERE / 'program_target.py', *patch_inputs]
+    recipe_inputs = [Path(__file__), HERE / 'program_target.py', COMPILER_PATHS, *patch_inputs]
     if args.suite == 'isa':
         recipe_inputs.append(HERE / 'isa.mk')
     for path in recipe_inputs:
@@ -224,10 +226,13 @@ def main():
     for generated in ('manifest.json', 'instruction-report.json'):
         (output / generated).unlink(missing_ok=True)
     compiler_arch = None
+    path_flags = shlex.join(compilation_flags(compiler, build, sources=[
+        (source, '/rhodium/sw/riscv-tests'),
+        (build / 'multihart-source', '/rhodium/sw/riscv-tests')], cwd=build))
     if args.suite == 'isa':
         command = ['make', '--no-print-directory', '-s', '-f', str(HERE / 'isa.mk'),
                    f'XLEN={target["xlen"]}', f'src_dir={source / "isa"}', f'RISCV_GCC={compiler}',
-                   'RISCV_GCC_OPTS=-static -mcmodel=medany -fvisibility=hidden -nostdlib -nostartfiles',
+                   'RISCV_GCC_OPTS=-static -mcmodel=medany -fvisibility=hidden -nostdlib -nostartfiles ' + path_flags,
                    f'RISCV_PREFIX={compiler.removesuffix("gcc")}']
         groups = isa_groups(target)
         command += ['program_groups=' + ' '.join(groups)]
@@ -265,7 +270,7 @@ def main():
         mabi = target['mabi'] if args.benchmark_mode == 'target' else BASELINE_MABI
         compiler_arch = probe_compiler(compiler, march, mabi, build)
         benchmark_source = source / 'benchmarks'
-        benchmark_flags = FLAGS + f' -mabi={mabi}'
+        benchmark_flags = FLAGS + f' -mabi={mabi} ' + path_flags
         if args.benchmark_selection == 'multihart':
             benchmark_source = materialize(source, series, build / 'multihart-source') / 'benchmarks'
             benchmark_flags += f' -DRHODIUM_BENCHMARK_HARTS={args.benchmark_hart_count}'

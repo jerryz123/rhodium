@@ -4,8 +4,11 @@ import argparse
 from pathlib import Path
 import subprocess
 import sys
+import shlex
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+from tools.build.paths import prefix_flags
 sys.path.insert(0, str(ROOT / 'sims/program-test'))
 from performance import measure
 
@@ -48,7 +51,7 @@ def main():
         native = [work / 'SoCHarness.cpp', work / 'SoCHarness_bridge.cpp'] if backend == 'rsim' else []
         run([args.verilator, '--binary', '--timing', '--vpi', '--assert', '--build-jobs', '2',
              '--top-module', 'TestDriver', '--Mdir', work / 'obj',
-             '-CFLAGS', f'-std=c++20 -DRHODIUM_STATS -I{work}',
+             '-CFLAGS', shlex.join([*prefix_flags(work), '-std=c++20', '-DRHODIUM_STATS', f'-I{work}']),
              sv, *native, ROOT / 'sims/TestDriver.v', ROOT / 'sims/verilator/simulation_runtime.cc',
              ROOT / 'devices/uart/dpi/uart_dpi.cc',
              ROOT / 'sims/statistics/collector.cc'], work / 'build.log')

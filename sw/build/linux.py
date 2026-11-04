@@ -9,6 +9,7 @@ from pathlib import Path
 import platform
 import re
 import shutil
+import shlex
 import struct
 import subprocess
 import sys
@@ -19,6 +20,7 @@ from build import check_elf_memory
 from opensbi import (build_firmware, target_layout, patch_inputs, PATCH_SERIES, validate_firmware,
                      validate_smoke, validate_smoke_layout, write_json)
 from program_target import elf_build_metadata, load_target, readelf_for, target_fingerprint
+from program_target import COMPILER_PATHS, prefix_flags
 
 
 SUCCESS = 'RHODIUM-LINUX: userspace boot complete; powering off'
@@ -146,7 +148,7 @@ def main():
                       host_cc=subprocess.check_output(['cc', '--version'], text=True),
                       source=str(source), port=str(port), output=str(root))
         inputs['sources'] = {str(path): digest(path) for path in [
-            Path(__file__), Path(__file__).with_name('opensbi.py'),
+            Path(__file__), COMPILER_PATHS, Path(__file__).with_name('opensbi.py'),
             Path(__file__).with_name('program_target.py'), Path(__file__).with_name('build.py'),
             *sorted(path for path in port.rglob('*') if path.is_file())]}
         key = target_fingerprint(inputs)
@@ -164,7 +166,9 @@ def main():
             config = build / 'defconfig'
             config.write_text((port / 'configs/linux_smoke_defconfig').read_text() + buildroot_architecture(target))
             command = ['make', '-C', str(source), f'O={build / "buildroot"}',
-                       f'BR2_EXTERNAL={port}', f'BR2_DL_DIR={args.downloads.resolve()}']
+                       f'BR2_EXTERNAL={port}', f'BR2_DL_DIR={args.downloads.resolve()}',
+                       'RHODIUM_PATH_FLAGS=' + shlex.join(prefix_flags(build, sources=[
+                           (source, '/rhodium/sw/buildroot'), (port, '/rhodium/sw/buildroot-port')], cwd=source))]
             # Never inherit a bare-metal cross prefix or flags from the simulator build.
             env = {k: v for k, v in os.environ.items()
                    if k not in ('CROSS_COMPILE', 'ARCH', 'CFLAGS', 'CXXFLAGS', 'LDFLAGS')}

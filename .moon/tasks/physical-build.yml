@@ -109,6 +109,7 @@ tasks:
     script: |
       source tools/build/native-env.sh
       source vlsi/sim/build-env.sh
+      compilation_path_flags --build "$build" --map "$fesvr_prefix=/rhodium/fesvr"
       mkdir -p "$build/obj"
       for name in SoCHarness.sv memory-wrappers.sv memory-manifest.json memory-sites.json; do
         if ! cmp -s "$mapped_source/$name" "$build/$name"; then cp "$mapped_source/$name" "$build/$name"; fi
@@ -117,7 +118,7 @@ tasks:
         --top-module TestDriver --Mdir "$build/obj" "$build/SoCHarness.sv" "$build/memory-wrappers.sv" "$PWD"/sram/sky130/models/*.functional.sv \
         "$PWD/sims/TestDriver.v" "$PWD/sims/fesvr/direct_mem_htif.cc" "$PWD/sims/verilator/direct_mem_htif_dpi.cc" \
         "$PWD/devices/uart/dpi/uart_dpi.cc" "$PWD/sims/verilator/image_memory_map.cc" "$PWD/sims/verilator/simulation_runtime.cc" \
-        -CFLAGS "-I$fesvr_prefix/include -I$PWD/sims/fesvr -I$PWD/sims/verilator -std=c++20" -LDFLAGS "$fesvr_prefix/lib/libfesvr.a -pthread"
+        -CFLAGS "$path_flags_shell -I$fesvr_prefix/include -I$PWD/sims/fesvr -I$PWD/sims/verilator -std=c++20" -LDFLAGS "$fesvr_prefix/lib/libfesvr.a -pthread"
     deps: [generate-memory-wrappers, lower-mapped-rtl]
     inputs: ["tools/build/native-env.sh", "vlsi/sim/build-env.sh", "@group(harness-runtime)", "@group(fesvr-runtime)", "@group(verilator)"]
     options: { cache: false }
@@ -125,8 +126,10 @@ tasks:
     script: |
       set -e
       mkdir -p vlsi/build/sim/mini-rv5stage-soc/sky130
+      source tools/build/paths.sh
+      compilation_path_flags --build "$PWD/vlsi/build/sim/mini-rv5stage-soc/sky130"
       "${RISCV_CC:-riscv64-unknown-elf-gcc}" -march=rv64i_zicsr -mabi=lp64 -nostdlib -nostartfiles \
-        -Wl,--build-id=none -Wl,-T,sims/tests/programs/smoke.ld sims/tests/programs/smoke.S -o vlsi/build/sim/mini-rv5stage-soc/sky130/smoke.elf
+        "${path_flags[@]}" -Wl,--build-id=none -Wl,-T,sims/tests/programs/smoke.ld sims/tests/programs/smoke.S -o vlsi/build/sim/mini-rv5stage-soc/sky130/smoke.elf
     inputs: ["sims/tests/programs/smoke.*", "sims/tests/programs/xlen.h", "@group(compiler)", "$RISCV_CC"]
     outputs: [vlsi/build/sim/mini-rv5stage-soc/sky130/smoke.elf]
   physical-slang:

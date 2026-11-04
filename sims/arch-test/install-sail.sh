@@ -8,6 +8,8 @@ source_dir="$repo_dir/riscv/sail-riscv"
 series="${SAIL_PATCH_SERIES:-$repo_dir/riscv/sail-riscv-patches/series}"
 materializer="$repo_dir/riscv/patched_submodule.py"
 python="${PYTHON:-python3}"
+source "$repo_dir/tools/build/paths.sh"
+path_policy=$(shasum -a 256 "$repo_dir/tools/build/paths.py" "$repo_dir/tools/build/paths.sh" "$0" | shasum -a 256 | cut -d' ' -f1)
 compiler_version=0.20.3
 identity="$("$python" "$materializer" identity --repository "$repo_dir" --submodule riscv/sail-riscv --series "$series")"
 install_dir="$repo_dir/.tools/sail-riscv-0.16-sail-$compiler_version-$identity"
@@ -16,11 +18,12 @@ if [[ -f "$install_dir/.complete" ]] && [[ "$(< "$install_dir/.complete")" == "$
    [[ -x "$install_dir/bin/sail_riscv_sim" ]] && \
    [[ -f "$install_dir/lib/cmake/SailModel/SailModelConfig.cmake" ]] && \
    [[ -f "$install_dir/lib/libsail_riscv_model.a" ]] && \
-   [[ "$("$install_dir/bin/sail_riscv_sim" --version)" == 0.16 ]]; then
+   [[ "$("$install_dir/bin/sail_riscv_sim" --version)" == 0.16 ]] && \
+   [[ -f "$install_dir/.path-policy" && "$(< "$install_dir/.path-policy")" == "$path_policy" ]]; then
   echo "Patched Sail RISC-V $identity is already installed at $install_dir"
   exit 0
 fi
-if [[ -e "$install_dir" ]]; then
+if [[ -e "$install_dir" ]] && ! [[ -f "$install_dir/.complete" && "$(< "$install_dir/.complete")" == "$identity" ]]; then
   echo "Sail install path contains an incomplete or different build: $install_dir" >&2
   exit 1
 fi
@@ -79,7 +82,11 @@ if [[ ! "$compiler_report" =~ (^|[^0-9])0\.20\.3([^0-9]|$) ]]; then
 fi
 
 "$python" "$materializer" materialize --source "$source_dir" --series "$series" --output "$work_dir/source"
+compiler_library="$("$compiler" --dir)"
+compilation_path_flags --build "$work_dir" --map "$work_dir/source=/rhodium/sail-riscv" \
+  --map "$compiler_library=/rhodium/sail-runtime"
 cmake -S "$work_dir/source" -B "$work_dir/build" -DSAIL_BIN="$compiler" \
+  "-DCMAKE_C_FLAGS=$path_flags_shell" "-DCMAKE_CXX_FLAGS=$path_flags_shell" \
   -DCMAKE_BUILD_TYPE=Release -DDOWNLOAD_GMP=OFF -DENABLE_RISCV_TESTS=OFF \
   -DFIRST_PARTY_TESTS=OFF -DSTATIC=OFF -DBUILD_SHARED_LIBS=OFF
 cmake --build "$work_dir/build" --target sail_riscv_sim --parallel "${SAIL_BUILD_JOBS:-2}"
@@ -92,7 +99,6 @@ install -m 644 "$work_dir/build/sail_runtime/libsail_runtime.a" "$work_dir/insta
 install -m 644 "$work_dir/build/dependencies/softfloat/libsoftfloat.a" "$work_dir/install/lib/libsail_softfloat.a"
 install -m 644 "$work_dir/build/sail_riscv_model.h" "$work_dir/source/c_emulator/riscv_platform_if.h" \
   "$work_dir/source/c_emulator/config_utils.h" "$model_include/"
-compiler_library="$("$compiler" --dir)"
 cp "$compiler_library"/lib/*.h "$model_include/"
 cp -R "$work_dir/build/_deps/jsoncons-src/include/jsoncons" "$model_include/"
 cp -R "$work_dir/build/_deps/jsoncons-src/include/jsoncons_ext" "$model_include/"
@@ -108,5 +114,10 @@ while IFS= read -r licence; do
 done < <(find "$source_dir/dependencies" -type f \( -iname 'LICENSE*' -o -iname 'LICENCE*' -o -iname 'COPYING*' \))
 [[ "$("$work_dir/install/bin/sail_riscv_sim" --version)" == 0.16 ]]
 printf '%s\n' "$identity" > "$work_dir/install/.complete"
-mv "$work_dir/install" "$install_dir"
+printf '%s\n' "$path_policy" > "$work_dir/install/.path-policy"
+if [[ -d "$install_dir" ]]; then
+  cp -R "$work_dir/install/." "$install_dir/"
+else
+  mv "$work_dir/install" "$install_dir"
+fi
 echo "Installed patched Sail RISC-V $identity at $install_dir"

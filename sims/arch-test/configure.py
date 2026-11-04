@@ -12,6 +12,8 @@ import subprocess
 
 # Script and runpy callers share the simulation-owned projection package.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from sw.build.program_target import compilation_flags
 from sail.configuration import bits, encoded_integer, project_architecture, reference_model_differences
 from sail.soc_config import fingerprint, model_defaults, config_architecture
 
@@ -120,6 +122,9 @@ def main():
     parser.add_argument("--objdump", required=True)
     parser.add_argument("--sail", required=True)
     parser.add_argument("--platform", type=Path, required=True)
+    parser.add_argument("--build-root", type=Path, required=True)
+    parser.add_argument("--act-source", type=Path, required=True)
+    parser.add_argument("--act-tests", type=Path, required=True)
     args = parser.parse_args()
     for key, value in platform_settings(json.loads(args.platform.read_text()), args.name).items():
         setattr(args, key, value)
@@ -156,6 +161,9 @@ def main():
         output.write(f"# Rhodium configuration SHA-256: {configuration_fingerprint}\n")
         YAML().dump(act_udb_configuration(udb, source / "udb-overlay"), output)
     act = test_config(args.name, args.compiler, args.objdump, sail, act_udb)
+    act['compiler_flags'] = compilation_flags(args.compiler, args.build_root, sources=[
+        (args.act_source, '/rhodium/sw/act'), (args.act_tests, '/rhodium/sw/act/tests'),
+        (args.output, '/rhodium/act-config')], cwd=args.act_source)
     with (args.output / "test_config.yaml").open("w") as output:
         output.write("# Connects generated UDB and platform files to ACT4.\n")
         YAML().dump(act, output)

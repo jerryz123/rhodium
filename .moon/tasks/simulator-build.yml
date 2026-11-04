@@ -69,7 +69,7 @@ tasks:
     options: { cache: true, mutex: racket-cache }
   compile-model:
     command: bash sims/compile-model.sh
-    inputs: ["sims/build-env.sh", "sims/compile-model.sh", "tools/build/native-env.sh", "$BUILD_ROOT", "$OPT_FAST", "$OPT_SLOW", "$OPT_GLOBAL", "$CXX", "$VERILATOR", "$FESVR_PREFIX", "$COSIM_BUILD_DIR", "$PREBUILT_COSIM_DIR"]
+    inputs: ["sims/build-env.sh", "sims/compile-model.sh", "tools/build/native-env.sh", "@group(compiler-paths)", "$BUILD_ROOT", "$OPT_FAST", "$OPT_SLOW", "$OPT_GLOBAL", "$CXX", "$VERILATOR", "$FESVR_PREFIX", "$COSIM_BUILD_DIR", "$PREBUILT_COSIM_DIR"]
     checks:
       - check: fingerprint
         script: |

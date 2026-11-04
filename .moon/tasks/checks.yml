@@ -18,6 +18,7 @@ fileGroups:
     - "noc/**/*"
 
   rsim-check-runner:
+    - "tools/build/paths.*"
     - ".github/workflows/ci-checks.yml"
     - "rhodium/backend/**/*"
     - "rhodium/compile/**/*"
@@ -34,6 +35,7 @@ fileGroups:
     - "socs/**/*"
 
   hdl-check-runner:
+    - "tools/build/paths.*"
     - ".github/workflows/ci-checks.yml"
     - "rhodium/backend/**/*"
     - "rhodium/compile/**/*"
@@ -88,6 +90,7 @@ tasks:
     tags: [ci-check, ci-root, ci-receipt, pool-host]
     command: noop
     inputs:
+      - "@group(compiler-paths)"
       - "@group(host-check-runner)"
       - "devices/tests/*uart*"
       - "devices/tests/*uart*/**/*"

@@ -13,6 +13,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from build import check_elf_memory
+from program_target import COMPILER_PATHS, compilation_flags
 from program_target import (elf_architecture, elf_build_metadata, instruction_inventory, load_target, objdump_for,
                             probe_compiler, readelf_for, target_fingerprint)
 from riscv.patched_submodule import materialize, read_series
@@ -166,7 +167,7 @@ def main():
     build_metadata = elf_build_metadata(target, 'bringup', dict(benchmarks=names))
     key_input = (revision + version + str(source) + compiler + json.dumps(build_metadata['build_spec'], sort_keys=True)
                  + json.dumps(names)).encode()
-    for path in [Path(__file__), Path(__file__).with_name('program_target.py'),
+    for path in [Path(__file__), Path(__file__).with_name('program_target.py'), COMPILER_PATHS,
                  Path(__file__).resolve().parents[2] / 'riscv/patched_submodule.py',
                  series, *patches, *port_inputs]:
         key_input += path.read_bytes()
@@ -180,7 +181,10 @@ def main():
                       .replace('@RAM_ORIGIN@', hex(target['ram'][0]['base']))
                       .replace('@RAM_LENGTH@', hex(target['ram'][0]['size'])))
     compiler_arch = probe_compiler(compiler, target['march'], target['mabi'], build)
-    common_flags = [compiler, *COMMON_FLAGS, f'-march={target["march"]}',
+    common_flags = [compiler, *COMMON_FLAGS,
+                    *compilation_flags(compiler, build, sources=[(build / 'source', '/rhodium/sw/bringup'),
+                                                                (port, '/rhodium/sw/bringup-port')]),
+                    f'-march={target["march"]}',
                     f'-mabi={target["mabi"]}', f'-I{build / "source/target"}']
     stamp = build / 'built.json'
     try:

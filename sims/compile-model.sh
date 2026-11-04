@@ -5,6 +5,7 @@ source sims/build-env.sh
 source tools/build/native-env.sh
 mkdir -p "$work_dir/obj"
 sources=("$work_dir/SoCHarness.sv" "$PWD/sims/TestDriver.v" "$PWD/sims/fesvr/direct_mem_htif.cc" "$PWD/sims/verilator/direct_mem_htif_dpi.cc" "$PWD/devices/uart/dpi/uart_dpi.cc" "$PWD/sims/verilator/image_memory_map.cc" "$PWD/sims/verilator/simulation_runtime.cc")
+compilation_path_flags --build "$work_dir" --map "$fesvr_prefix=/rhodium/fesvr"
 includes=("${native_includes[@]}" -std=c++20)
 libraries=("$fesvr_prefix/lib/libfesvr.a" -pthread)
 files=(SoCHarness.sv)
@@ -47,5 +48,5 @@ read -r -a verilator <<< "${VERILATOR:-verilator}"
 "${verilator[@]}" --binary --timing --vpi --assert --Wno-UNOPTFLAT --Wno-SYMRSVDWORD "${warnings[@]}" --build-jobs "${BUILD_JOBS:-4}" \
   -MAKEFLAGS "-f $PWD/sims/verilator/relink.mk OPT_FAST='${OPT_FAST:--O2}' OPT_SLOW='${OPT_SLOW:-${OPT_FAST:--O2}}' OPT_GLOBAL='${OPT_GLOBAL:-${OPT_FAST:--O2}}'" \
   --top-module TestDriver --Mdir "$work_dir/obj" "${sources[@]}" \
-  -CFLAGS "${includes[*]}" -LDFLAGS "${libraries[*]}"
+  -CFLAGS "$path_flags_shell ${includes[*]}" -LDFLAGS "${libraries[*]}"
 copy_changed "$work_dir/obj/VTestDriver" "$model_dir/VTestDriver"

@@ -30,7 +30,8 @@ tasks:
       tools/run-racket.sh -S "$PWD" sims/arch-test/write-platform.rhm "$act_configuration" "$act_config"
       "$act_python" sims/arch-test/configure.py --udb "$act_config/udb.yaml" --output "$act_config" \
         --name "$act_configuration" --compiler "${RISCV_CC:-riscv64-unknown-elf-gcc}" --objdump "${ACT_OBJDUMP:-riscv64-unknown-elf-objdump}" \
-        --sail "$act_sail" --platform "$act_config/platform.json"
+        --sail "$act_sail" --platform "$act_config/platform.json" \
+        --build-root "$act_root" --act-source "$act_source" --act-tests "$act_tests"
     inputs: ["sims/arch-test/build-env.sh"]
     options: { cache: false, mutex: racket-cache }
   compile-act:

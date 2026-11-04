@@ -2,6 +2,8 @@
 # Builds pinned C/C++ runtime libraries for RV64GC/LP64D medany without rebuilding GCC.
 # SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
+repo_dir="$(cd "$(dirname "$0")/.." && pwd)"
+source "$repo_dir/tools/build/paths.sh"
 cc="$(command -v "${1:?usage: install-riscv-runtime.sh COMPILER PREFIX}")"
 cxx="${cc%gcc}g++"
 prefix="${2:?usage: install-riscv-runtime.sh COMPILER PREFIX}"
@@ -24,7 +26,7 @@ if command -v sha256sum >/dev/null 2>&1; then
 else
   checksum=(shasum -a 256)
 fi
-identity="$( { cat "$0"; "$cc" --version; "$cxx" --version; } | "${checksum[@]}" | awk '{print $1}')"
+identity="$( { cat "$0" "$repo_dir/tools/build/paths.py" "$repo_dir/tools/build/paths.sh"; "$cc" --version; "$cxx" --version; } | "${checksum[@]}" | awk '{print $1}')"
 stamp="$prefix/.runtime-medany-sha256"
 if [[ -f "$stamp" && "$(<"$stamp")" == "$identity" &&
       -f "$prefix/$target/lib/libc.a" && -f "$prefix/$target/lib/libm.a" &&
@@ -35,6 +37,10 @@ if [[ -f "$stamp" && "$(<"$stamp")" == "$identity" &&
   exit 0
 fi
 work="$(mktemp -d /tmp/rhodium-runtime.XXXXXX)"
+compilation_path_flags --build "$work" --toolchain "$prefix" \
+  --map "$work/install=/rhodium/toolchain" \
+  --map "$work/source=/rhodium/toolchain/newlib" --map "$work/gcc-source=/rhodium/toolchain/gcc"
+runtime_flags="-O2 -march=rv64gc -mabi=lp64d -mcmodel=medany $path_flags_shell"
 trap 'rm -rf "$work"' EXIT
 curl --fail --location --retry 3 \
   "https://github.com/cygwin/cygwin/archive/$revision.tar.gz" -o "$work/source.tar.gz"
@@ -51,7 +57,7 @@ if command -v gmake >/dev/null 2>&1; then make_command=gmake; fi
     --enable-newlib-io-long-double --enable-newlib-io-long-long \
     --enable-newlib-io-c99-formats --enable-newlib-register-fini \
     CC_FOR_TARGET="$cc" \
-    CFLAGS_FOR_TARGET='-O2 -D_POSIX_MODE -ffunction-sections -fdata-sections -march=rv64gc -mabi=lp64d -mcmodel=medany'
+    CFLAGS_FOR_TARGET="$runtime_flags -D_POSIX_MODE -ffunction-sections -fdata-sections"
   "$make_command" --jobs="${BUILD_JOBS:-4}"
   "$make_command" install
 )
@@ -80,7 +86,7 @@ printf '%s\n' 'GCC_CFLAGS = -DIN_GCC -DCROSS_DIRECTORY_STRUCTURE' \
   "$work/gcc-source/libgcc/configure" --host="$target" --target="$target" \
     --with-cross-host="$("$work/gcc-source/config.guess")" --with-target-subdir="$target" \
     --prefix="$work/install" --disable-shared --disable-multilib \
-    CC="$cc" CFLAGS='-O2 -march=rv64gc -mabi=lp64d -mcmodel=medany'
+    CC="$cc" CFLAGS="$runtime_flags"
   "$make_command" --jobs="${BUILD_JOBS:-4}" libgcc.a
 )
 mkdir -p "$work/install/lib/gcc/$target/$gcc_version"
@@ -94,8 +100,8 @@ mkdir "$work/libstdcxx-build"
     --with-newlib --disable-shared --disable-multilib --disable-nls \
     --disable-threads --disable-libstdcxx-pch \
     CC="$cc" CXX="$cxx" \
-    CFLAGS='-O2 -march=rv64gc -mabi=lp64d -mcmodel=medany' \
-    CXXFLAGS='-O2 -march=rv64gc -mabi=lp64d -mcmodel=medany' \
+    CFLAGS="$runtime_flags" \
+    CXXFLAGS="$runtime_flags" \
     CPPFLAGS="-isystem $work/install/$target/include" \
     LDFLAGS="-B$work/install/lib/gcc/$target/$gcc_version/ -B$work/install/$target/lib/"
   "$make_command" --jobs="${BUILD_JOBS:-4}"

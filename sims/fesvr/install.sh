@@ -8,6 +8,8 @@ spike_dir="$repo_dir/riscv/riscv-isa-sim"
 patch_dir="$repo_dir/riscv/riscv-isa-sim-patches"
 patched_submodule_tool="$repo_dir/riscv/patched_submodule.py"
 python_command="${PYTHON:-python3}"
+source "$repo_dir/tools/build/paths.sh"
+path_policy=$(shasum -a 256 "$repo_dir/tools/build/paths.py" "$repo_dir/tools/build/paths.sh" "$0" | shasum -a 256 | cut -d' ' -f1)
 
 for tool in "$python_command" git make dtc; do
   if ! command -v "$tool" >/dev/null 2>&1; then
@@ -29,7 +31,8 @@ fix_shared_library_paths() {
   fi
 }
 
-if [[ -f "$install_dir/.complete" ]] && [[ "$(< "$install_dir/.complete")" == "$identity" ]] && [[ -f "$install_dir/lib/libriscv.so" ]]; then
+if [[ -f "$install_dir/.complete" ]] && [[ "$(< "$install_dir/.complete")" == "$identity" ]] && [[ -f "$install_dir/lib/libriscv.so" ]] &&
+   [[ -f "$install_dir/.path-policy" && "$(< "$install_dir/.path-policy")" == "$path_policy" ]]; then
   fix_shared_library_paths
   echo "Spike and FESVR $identity are already installed at $install_dir"
   exit 0
@@ -64,10 +67,13 @@ fi
 mkdir -p "$build_dir" "$staged_install_dir/lib/pkgconfig"
 (
   cd "$build_dir"
-  "$source_dir/configure" --prefix="$staged_install_dir" --with-boost=no
+  compilation_path_flags --build "$work_dir" --map "$source_dir=/rhodium/spike"
+  "$source_dir/configure" --prefix="$staged_install_dir" --with-boost=no \
+    CFLAGS="${CFLAGS:--g -O2} $path_flags_shell" CXXFLAGS="${CXXFLAGS:--g -O2} $path_flags_shell"
   make -j"$build_jobs" install-hdrs install-config-hdrs install-libs install-pc
 )
 printf '%s\n' "$identity" > "$staged_install_dir/.complete"
+printf '%s\n' "$path_policy" > "$staged_install_dir/.path-policy"
 mkdir -p "$(dirname "$install_dir")"
 if [[ "$upgrade_existing" == true ]]; then
   cp -R "$staged_install_dir/." "$install_dir/"

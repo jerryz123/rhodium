@@ -3,9 +3,13 @@
 import json
 import os
 import subprocess
+import shlex
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[4]
+sys.path.insert(0, str(ROOT))
+from tools.build.paths import prefix_flags
 FIXTURES = Path(__file__).resolve().parent
 WIDTHS = (1, 5, 65)
 
@@ -57,6 +61,9 @@ def vector_table(work, label, inputs, outputs, vectors, offset, masked=False):
     return declarations, statements, len(rows)
 
 def run(command, log, timeout=300):
+    command = list(command)
+    if "--binary" in command or "--cc" in command:
+        command += ["-CFLAGS", shlex.join(prefix_flags(log.parent, cwd=ROOT))]
     env = dict(os.environ, PLTCOLLECTS=str(ROOT) + os.pathsep)
     result = subprocess.run([str(arg) for arg in command], cwd=ROOT, env=env,
                             text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)

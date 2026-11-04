@@ -7,6 +7,18 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from tools.build.paths import prefix_flags
+
+COMPILER_PATHS = Path(__file__).resolve().parents[2] / 'tools/build/paths.py'
+
+
+def compilation_flags(compiler, build, *, sources=(), cwd=None):
+    """Map guest sources, generated files, and installed runtime headers consistently."""
+    executable = Path(shutil.which(str(compiler)) or compiler).absolute()
+    return prefix_flags(build, sources=sources, toolchain=executable.parent.parent, cwd=cwd)
 
 
 def validate_target(target):

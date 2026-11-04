@@ -266,7 +266,9 @@ build_verilator() {
   local build_log="$2"
   shift 2
   local TIMEFORMAT="[circt] $fixture build: %3Rs"
-  if ! { time verilator "$@" > "$build_log" 2>&1; }; then
+  source "$repo_dir/tools/build/paths.sh"
+  compilation_path_flags --build "$test_tmp_dir"
+  if ! { time verilator "$@" -CFLAGS "$path_flags_shell" > "$build_log" 2>&1; }; then
     cat "$build_log" >&2
     return 1
   fi

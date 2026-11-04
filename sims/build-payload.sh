@@ -38,5 +38,7 @@ case "$name" in
   *) echo "Unknown payload: $name" >&2; exit 2 ;;
 esac
 mkdir -p "$(dirname "$out")"
+source tools/build/paths.sh
+compilation_path_flags --build "$(dirname "$out")"
 "${RISCV_CC:-riscv64-unknown-elf-gcc}" -march="$march" -mabi="$abi" -nostdlib -nostartfiles \
-  "${flags[@]}" -Wl,--build-id=none -Wl,-T,"$linker" "$source" -o "$out"
+  "${flags[@]}" "${path_flags[@]}" -Wl,--build-id=none -Wl,-T,"$linker" "$source" -o "$out"

@@ -7,9 +7,12 @@ from pathlib import Path
 import random
 import shlex
 import subprocess
+import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+from tools.build.paths import prefix_flags
 
 
 def run(command, work, label, stdin=None):
@@ -136,11 +139,12 @@ def main():
             source.write_text(driver(reference))
             if reference:
                 run(['verilator', '--cc', '--exe', '--build', '--assert', '-Wno-CMPCONST', '-j', '2', '--top-module', 'CHIDirectoryFixture',
+                     '-CFLAGS', shlex.join(prefix_flags(case)),
                      '--Mdir', str(case/('obj-' + label)), str(case/('circt.sv' if label == 'circt' else 'CHIDirectoryFixture.sv')), str(source)], case, 'build-' + label)
                 binary = case/('obj-' + label)/'VCHIDirectoryFixture'
             else:
                 binary = case/'native'
-                run(shlex.split(os.environ.get('CXX', 'c++')) + ['-std=c++17', '-O2', '-Wall', '-Wextra', '-Werror',
+                run(shlex.split(os.environ.get('CXX', 'c++')) + prefix_flags(case) + ['-std=c++17', '-O2', '-Wall', '-Wextra', '-Werror',
                     '-fsanitize=address,undefined', '-fno-sanitize-recover=all', str(case/'CHIDirectoryFixture.cpp'),
                     str(source), '-o', str(binary)], case, 'build-' + label)
             observed = [[int(v, 16) for v in line.split()] for line in run([str(binary)], case, label, vectors).splitlines()]

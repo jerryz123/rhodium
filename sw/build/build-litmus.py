@@ -13,6 +13,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from build import check_elf_memory
+from program_target import COMPILER_PATHS, compilation_flags
 from sw.build.litmus_smoke import read_case_names, smoke_options
 from program_target import (elf_architecture, load_target, probe_compiler, readelf_for,
                             target_fingerprint, elf_build_metadata)
@@ -204,7 +205,7 @@ def main():
             if support.is_file():
                 key_bytes += support.relative_to(support_dir).as_posix().encode()
                 key_bytes += hashlib.sha256(support.read_bytes()).digest()
-    for path in (Path(__file__), runtime / 'link.ld.in',
+    for path in (Path(__file__), COMPILER_PATHS, Path(__file__).with_name('program_target.py'), runtime / 'link.ld.in',
                  Path(__file__).resolve().parents[2] / 'riscv/patched_submodule.py', series, *patches,
                  runtime / 'litmus7-port.c', runtime / 'litmus7-main.c',
                  runtime / 'litmus7-streams.h', runtime / 'htif.h', common / 'crt.S',
@@ -230,7 +231,9 @@ def main():
                               .replace('@RAM_LENGTH@', hex(target['ram'][0]['size']))
                               .replace('@STACK_BYTES@', str(hart_count * 128 * 1024)))
             elf = case_dir / f'{name}.elf'
-            flags = [compiler, '-O2', '-mcmodel=medany', '-static', '-fno-common', '-fno-pie',
+            flags = [compiler, *compilation_flags(compiler, build, sources=[
+                         (riscv_tests, '/rhodium/sw/riscv-tests'), (runtime, '/rhodium/sw/litmus-port')]),
+                     '-O2', '-mcmodel=medany', '-static', '-fno-common', '-fno-pie',
                      f'-march={codegen_march}', f'-mabi={target["mabi"]}',
                      f'-I{riscv_tests / "env"}', f'-I{common}']
             generated = case_dir / 'litmus7'

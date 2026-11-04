@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 cmake_minimum_required(VERSION 3.20)
 project(rhodium_sail_cosim LANGUAGES CXX)
+include("${CMAKE_CURRENT_LIST_DIR}/../../tools/build/paths.cmake")
 include(CTest)
 add_library(cosim_observation STATIC events/collector.cc events/dpi.cc vector/vector-adapter.cc)
 target_compile_features(cosim_observation PUBLIC cxx_std_20)

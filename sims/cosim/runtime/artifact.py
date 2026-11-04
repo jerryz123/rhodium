@@ -17,7 +17,7 @@ FILES = ('link-flags.txt', 'libsail_checker.a', 'libsail_reference.a',
 def environment(directory):
     """Bind ABI, checkout, source content, and absolute link paths to the producer."""
     source = ROOT / 'sims/cosim'
-    inputs = [source / 'CMakeLists.txt']
+    inputs = [source / 'CMakeLists.txt', ROOT / 'tools/build/paths.cmake', ROOT / 'tools/build/paths.py']
     inputs += sorted(path for owner in ('events', 'sail', 'rv5stage', 'rv2wide', 'vector')
                      for path in (source / owner).iterdir() if path.suffix in ('.cc', '.h'))
     digest = hashlib.sha256()

@@ -6,9 +6,13 @@ import json
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tempfile
 
 import pyjson5
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'sw/build'))
+from program_target import compilation_flags
 
 
 CSR_READ = re.compile(r"^CSR \S+ \((0x[0-9a-f]+)\) -> (0x[0-9a-f]+)$", re.MULTILINE | re.IGNORECASE)
@@ -32,7 +36,8 @@ def check_model(sail, compiler, config_path):
         directory = Path(directory)
         elf = directory / "sgeie-probe.elf"
         subprocess.run([
-            compiler, "-march=rv64im_zicsr", "-mabi=lp64", "-nostdlib", "-nostartfiles",
+            compiler, *compilation_flags(compiler, directory),
+            "-march=rv64im_zicsr", "-mabi=lp64", "-nostdlib", "-nostartfiles",
             f"-Wl,-Ttext-segment={hex(ram_origin)}", "-Wl,-e,_start", str(source), "-o", str(elf),
         ], check=True)
         for geilen in (0, 1):
