@@ -219,6 +219,9 @@ rv2wide-assembly-prediction-h	cores-components	cores/superscalar/tests/rsim/emit
 rv2wide-assembly-prediction-full-width	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-assembly-prediction.rhm	full_width_program	cores/superscalar/tests/rsim/rv2wide-assembly-prediction.cpp
 rv2wide-frontend-prediction	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-frontend-prediction.rhm	program	cores/superscalar/tests/rsim/rv2wide-frontend-prediction.cpp
 rv2wide-bht	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-bht.rhm	program	cores/superscalar/tests/rsim/rv2wide-bht.cpp
+rv2wide-direction-prefix	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-bht.rhm	compact_prefix	cores/superscalar/tests/rsim/rv2wide-direction-prefix.cpp
+rv2wide-direction-prefix-full	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-bht.rhm	full_prefix	cores/superscalar/tests/rsim/rv2wide-direction-prefix-full.cpp
+rv2wide-direction-prefix-rv32	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-bht.rhm	rv32_prefix	cores/superscalar/tests/rsim/rv2wide-direction-prefix-rv32.cpp
 rv2wide-mmu	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-mmu.rhm	program	cores/superscalar/tests/rsim/rv2wide-mmu.cpp
 rv2wide-bare-memory	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-mmu.rhm	bare_program	cores/superscalar/tests/rsim/rv2wide-bare-memory.cpp
 rv5stage-chi-requests	cores-memory	cores/rv5stage/tests/rsim/emit-rv5stage-chi-requests.rhm	program	cores/rv5stage/tests/rsim/rv5stage-chi-requests.cpp

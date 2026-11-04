@@ -10,9 +10,16 @@ import:
   lib("riscv/isa/xlen.rhm").XLen
   lib("rhodium/std/bits.rhdl") open
 
-/* Walks a fresh block once, independently of downstream assembly readiness. */
-sync_circuit SuperscalarDirection(profile :: SuperscalarPipelineConfig, ~target_width: target_width :: PosInt = profile.xlen.width):
+/* Walks a fresh block once, independently of downstream assembly readiness.
+   Successful retained prefix PCs sign-extend from pc_width; speculative targets use target_width. */
+sync_circuit SuperscalarDirection(profile :: SuperscalarPipelineConfig, ~pc_width: pc_width :: PosInt = profile.xlen.width, ~target_width: target_width :: PosInt = profile.xlen.width):
   def xlen = profile.xlen
+  unless 3 < pc_width && pc_width <= xlen.width
+  | error(~who: #'SuperscalarDirection, "PC storage width must exceed the block offset and not exceed XLEN")
+
+  unless target_width <= xlen.width
+  | error(~who: #'SuperscalarDirection, "target storage width must not exceed XLEN")
+
   input(valid, clear, fault): Bool
   input pc: Bits(xlen.width)
   input data: Bits(64)
@@ -31,14 +38,26 @@ sync_circuit SuperscalarDirection(profile :: SuperscalarPipelineConfig, ~target_
 
   /* Retained prefix ownership.
      A byte-six instruction keeps its first parcel and original prediction
-     context until the next block supplies its second parcel. */
+     context until the next block supplies its second parcel. Qualifying the prediction
+     at capture removes its duplicate PC and length; the prefix offset is always six. */
 
   reg partial_valid(~init: Bool(#false))
-  reg partial_pc(Bits(xlen.width))
+  reg partial_block(Bits(pc_width - 3))
   reg partial_word(Bits(16))
   reg partial_row(Bits(10))
   reg partial_base_taken(Bool)
-  reg partial_prediction(BranchPrediction(xlen))
+  reg partial_predicted(Bool)
+  reg partial_target(Bits(target_width))
+  def compact_pc = partial_block ++ Bits(3)(6)
+  def partial_pc = if pc_width < xlen.width | compact_pc.into(SInt(pc_width)).sext(xlen.width).as_bits() | compact_pc
+  def target = if target_width < xlen.width | partial_target.into(SInt(target_width)).sext(xlen.width).as_bits() | partial_target
+  def partial_prediction = BranchPrediction(xlen):
+    valid: partial_predicted
+    pc: partial_pc
+    target: target
+    compressed: Bool(#false)
+    ras_action: RasAction.None
+
   prefix_row <== partial_row
   prefix_choice_row <== partial_pc[3..13]
   def prefix = partial_valid & (pc === (partial_pc + Bits(xlen.width)(2)))
@@ -122,11 +141,15 @@ sync_circuit SuperscalarDirection(profile :: SuperscalarPipelineConfig, ~target_
   elsewhen valid:
     partial_valid <== pending
     when pending:
-      partial_pc <== pc.align_down(8) + Bits(xlen.width)(6)
+      def pc_fits = if pc_width < xlen.width | pc === pc[0..pc_width].into(SInt(pc_width)).sext(xlen.width).as_bits() | Bool(#true)
+      assert(pc_fits, "rv2wide_direction_prefix_pc_fits")
+      assert(!provisional_prefix ||| (prediction.target === prediction_target(xlen, target_width, prediction.target)), "rv2wide_direction_prefix_target_fits")
+      partial_block <== pc[3..pc_width]
       partial_word <== data[48..64]
       partial_row <== row
       partial_base_taken <== base_taken[3]
-      partial_prediction <== prediction
+      partial_predicted <== provisional_prefix
+      partial_target <== prediction.target[0..target_width]
 
 /* Passes provisional BTB metadata without allocating predecode or history-prefix state. */
 sync_circuit DisabledSuperscalarDirection(profile :: SuperscalarPipelineConfig):

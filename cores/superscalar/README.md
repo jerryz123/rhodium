@@ -451,6 +451,9 @@ and selects the earliest predicted-taken
 instruction at or after the cursor. Its combinational result selects the next
 S0 cache request in that same cycle, without an intervening PC register. A 32-bit
 instruction at byte six requests its continuation block before the target.
+The retained prefix preserves the exact successful PC and accepts a saved target
+only when its prediction names that uncompressed prefix. A mismatched continuation
+address cannot reuse the prefix merely because its low address bits match.
 
 S1 hashes `PC[12:3] XOR history[9:0]` and registers that row and the observed
 bimodal bits with the lookup. The bimodal and chooser rows use `PC[12:3]`.

@@ -533,6 +533,19 @@ reuses its saved row and bimodal bits. A byte-six prefix retains its own bimodal
 bit across continuation lookup and table training.
 Rows are block-based; intra-block checkpoints still append outcomes in order.
 
+The direction walk retains a byte-six prefix as its first halfword, saved row,
+bimodal bit, and compact block address. `~pc_width` uses the frontend's
+successful-PC bound; restore the fixed `110` byte offset and sign extension
+before comparing the full XLEN continuation address. Faulting blocks cannot
+allocate this state. Standalone direction walks default to full-width PCs.
+Qualify a retained prediction at capture with the existing `provisional_prefix`
+predicate: it must name this prefix and be uncompressed. Store only that valid
+bit and `~target_width` target bits; its PC comes from the prefix and its RAS
+action is decoded from the completed instruction. Width assertions apply only
+to captured successful prefixes and qualified targets. Replay holds all prefix
+state, while clear wins a simultaneous capture. Do not narrow continuation
+comparisons or architectural fault/redirect addresses.
+
 Direction corrections preserve the fresh S2 block and cancel only younger
 lookup contexts. Do not gate current block publication with its own correction.
 Metadata for each halfword start travels through block storage; the assembler
@@ -553,6 +566,12 @@ fixture checks public replacement timing under blocked assembly, direction
 overrides, compressed/straddled branches, replay, and history metadata. The core
 bench checks saved-index training and recovery checkpoints against offered
 instruction metadata.
+The `rv2wide-direction-prefix`, `rv2wide-direction-prefix-full`, and
+`rv2wide-direction-prefix-rv32` fixtures check direct prefix ownership with
+compact RV64, full-width RV64, and RV32 ports. They cover stale PC/length hints,
+idle/replay bubbles, continuation faults, clear/capture collisions, immediate
+target repair, distinct lookup/history checkpoints, sign boundaries, and XLEN
+wrap. The compact variant also rejects out-of-range captured PCs and targets.
 
 The frontend instantiates shared `Btb` with `fetch_bytes = 8` and external
 directions when enabled, shared `Ras`, and independently disableable
