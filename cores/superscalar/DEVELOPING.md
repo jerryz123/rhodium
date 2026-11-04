@@ -587,6 +587,20 @@ successor when array admission or block credits prevent a request.
 Instruction metadata survives issue-window compaction and every pipeline stage.
 Do not infer prediction ownership from a lane or an aligned block PC.
 
+The cursor and S1/S2 attempts retain `SuperscalarCursorPrediction`, with both
+prediction addresses bounded by the frontend's predictor width. BTB source
+admission and BTB/RAS target normalization establish that bound before capture;
+assert it on valid S1 predictions. Restore public prediction metadata by sign
+extension, not offsets from the current fetch PC: a continuation or replay can
+carry an earlier instruction's hint. Keep the requested PC and complete fault
+payload at XLEN, including noncanonical redirects and continuation-page faults.
+Preserve all valid, length, RAS, direction-row, and replay fields and the existing
+capture/clear priorities. Compaction must not add a stage or change block credits.
+The `rv2wide-frontend-retention`, `rv2wide-frontend-retention-h`, and
+`rv2wide-bht-retention` fixtures hold continuations across BTB retraining and
+replay, check negative and wraparound PCs/targets under packet backpressure,
+and verify exact full-width redirect and continuation fault addresses.
+
 Assembly validates predictions while expanding the existing two candidate
 instructions. J/B immediate targets override matching taken BTB targets; target
 mismatches invalidate the stale entry. Only JAL/C.J and RAS returns discover

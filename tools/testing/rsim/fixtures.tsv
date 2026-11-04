@@ -222,6 +222,9 @@ rv2wide-assembly-prediction	cores-components	cores/superscalar/tests/rsim/emit-r
 rv2wide-assembly-prediction-h	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-assembly-prediction.rhm	guest_program	cores/superscalar/tests/rsim/rv2wide-assembly-prediction-h.cpp
 rv2wide-assembly-prediction-full-width	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-assembly-prediction.rhm	full_width_program	cores/superscalar/tests/rsim/rv2wide-assembly-prediction.cpp
 rv2wide-frontend-prediction	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-frontend-prediction.rhm	program	cores/superscalar/tests/rsim/rv2wide-frontend-prediction.cpp
+rv2wide-frontend-retention	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-frontend-prediction.rhm	program	cores/superscalar/tests/rsim/rv2wide-frontend-retention.cpp
+rv2wide-frontend-retention-h	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-frontend-prediction.rhm	guest_program	cores/superscalar/tests/rsim/rv2wide-frontend-retention.cpp
+rv2wide-bht-retention	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-bht.rhm	program	cores/superscalar/tests/rsim/rv2wide-frontend-retention.cpp
 rv2wide-bht	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-bht.rhm	program	cores/superscalar/tests/rsim/rv2wide-bht.cpp
 rv2wide-direction-prefix	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-bht.rhm	compact_prefix	cores/superscalar/tests/rsim/rv2wide-direction-prefix.cpp
 rv2wide-direction-prefix-full	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-bht.rhm	full_prefix	cores/superscalar/tests/rsim/rv2wide-direction-prefix-full.cpp

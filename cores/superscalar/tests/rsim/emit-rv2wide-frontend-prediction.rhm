@@ -8,4 +8,5 @@ import:
   "../../profile.rhm".SuperscalarPipelineConfig
 
 def program = elaborate(SuperscalarFrontend(test_chi, SuperscalarPipelineConfig(~bht: #false)))
-export program
+def guest_program = elaborate(SuperscalarFrontend(test_chi, SuperscalarPipelineConfig(~bht: #false, ~hypervisor: #true)))
+export program guest_program
