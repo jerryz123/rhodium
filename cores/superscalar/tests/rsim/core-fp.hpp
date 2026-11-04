@@ -10,7 +10,7 @@ const auto &retired(unsigned i) { return i ? retired_1_out : retired_0_out; }
 constexpr unsigned xlen = 8 * sizeof(memory_in.presponse.pbits);
 constexpr unsigned native_precision = xlen == 32 ? 0 : 1;
 constexpr unsigned native_width = xlen == 32 ? 2 : 3;
-int cycles = 0, commits = 0, expected_traps = 0, traps = 0, fp_pairs = 0;
+int cycles = 0, commits = 0, expected_traps = 0, traps = 0, fp_pairs = 0, redirects = 0;
 std::map<std::uint64_t, int> memory_cycles;
 std::array<std::uint64_t, 32> gprs{};
 std::uint64_t next_pc = 0x8000, load_data = xlen == 32 ? 0x40400000 : 0x4008000000000000, stored_data = 0,
@@ -92,6 +92,8 @@ void observe() {
     }
   if (completed_out.pvalid && completed_out.pbits.pwrite)
     gprs[completed_out.pbits.prd] = completed_out.pbits.pdata;
+  if (redirect_out.pvalid)
+    redirects++;
   if (redirect_out.pvalid && redirect_out.pbits.presolution.pdisposition == 1) {
     traps++;
     CHECK(traps <= expected_traps &&
@@ -163,6 +165,29 @@ int main() {
     expect_gpr(7, 7);
     expect_gpr(8, 11);
     CHECK(fp_pairs >= 2);
+
+    // The branch compares x1=16 against x6=9; the divide uses f1=16
+    // and f2=32. Substituting the FP pair into both lanes reverses BLT.
+    {
+      const auto half = xlen == 32 ? UINT64_C(0x3f000000) : UINT64_C(0x3fe0000000000000);
+      const auto untaken = (6u << 20) | (1u << 15) | 0x4463u; // blt x1,x6,+8
+      for (bool divide_first : {false, true}) {
+        const auto pc = next_pc;
+        const int before = redirects, rd = divide_first ? 25 : 24;
+        const auto divide = fp(12 + native_precision, rd, 1, 2);
+        send(divide_first ? divide : untaken, divide_first ? untaken : divide, 1);
+        drain();
+        CHECK(memory_cycles.at(pc) == memory_cycles.at(pc + 4));
+        CHECK(redirects == before);
+        expect_fpr(rd, half);
+      }
+      const auto taken = (1u << 20) | (6u << 15) | 0x4463u; // blt x6,x1,+8
+      const int before = redirects;
+      send(taken, fp(12 + native_precision, 24, 2, 1), 1);
+      drain();
+      CHECK(redirects == before + 1);
+      expect_fpr(24, half); // canceled younger divide must not overwrite with 2
+    }
 
     // Deferred native-width requests retain sqrt selection and exact rounding
     // independently of adjacent fixed work and the unused third-operand path.

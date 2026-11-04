@@ -1475,7 +1475,9 @@ void conflict_based_pairing() {
     send(addi(14, 0, 3));
     send((0x69u << 25) | (14 << 15) | (4 << 7) | 0x53); // fcvt.d.w f4,x14
     const auto fp_divide = (0x0du << 25) | (4 << 20) | (3 << 15) | (5 << 7) | 0x53;
-    const auto retry_divide = (fp_divide & ~(31u << 7)) | (6 << 7);
+    // Reverse both operands on the replaying owner; reusing either word from
+    // the in-flight 7/3 divide must not produce the requested 3/7 result.
+    const auto retry_divide = (0x0du << 25) | (3 << 20) | (4 << 15) | (6 << 7) | 0x53;
     for (bool vector_first : {false, true}) {
       run(80);
       issue_pair(vector_first ? vector_move : fp_divide, vector_first ? fp_divide : vector_move);
@@ -1483,8 +1485,8 @@ void conflict_based_pairing() {
       stream({retry_divide, vector_move}, false, true);
       CHECK(vector_trace::admission_counts.at(retry + 4) == 1);
       run(80);
-      send((0x61u << 25) | (6 << 15) | (12 << 7) | 0x53);
-      CHECK(gprs[12] == 2);
+      send((0x71u << 25) | (6 << 15) | (12 << 7) | 0x53); // fmv.x.d x12,f6
+      CHECK(gprs[12] == UINT64_C(0x3fdb6db6db6db6db));
     }
 
     setvl(3, 2);

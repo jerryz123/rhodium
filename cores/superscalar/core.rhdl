@@ -221,7 +221,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
      Pair admission selects one FP owner. Capture its request on the older
      transfer even when the owner is younger; lane validity still gates every
      consumer after squash. EX keeps the full numeric request; MEM/WB retain
-     only authorization metadata and deferred divide/sqrt operands. */
+     only authorization and divide/sqrt metadata in the group register. */
 
   def FpRequest = FpExecutionRequest(xlen, fp_transport_profile(xlen), SuperscalarFpSchedule())
   reg ex_fp_request(FpRequest)
@@ -940,8 +940,10 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
       ex.pair_routes[1] === SuperscalarPairRoute.StoreData: ex_alu_older.result
 
     /* EX/MEM payload capture.
-       Cancellation filters the lane's validity without inserting a new
-       operand, fault, or memory-response stage. */
+       Only a scalar divide/sqrt substitutes FP data into its own operand pair.
+       A branch or integer operation in the other lane keeps its GPR operands. */
+
+    def ex_fp_divide = ex.control.fp.valid & (ex.control.fp.bits.execution.unit === FloatUnit.DivideSquareRoot)
 
     ex_descriptors[lane] <== ex.vector.updated(
       ~scalar: mux(ex.pair_routes[0] === SuperscalarPairRoute.VectorScalar, ex_alu_older.result, ex.vector.scalar),
@@ -984,8 +986,8 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
       system: ex.control.system
       csr_source: mux(ex.control.system.immediate, instruction_field(fields.rs1, ex.fetched.instruction).zext(xlen.width), ex.rs1)
       muldiv: ex.control.muldiv
-      left: ex.rs1
-      right: ex.rs2
+      left: mux(ex_fp_divide, ex.fp_request.left, ex.rs1)
+      right: mux(ex_fp_divide, ex.fp_request.right, ex.rs2)
       fp: ex.control.fp
       fp_request: superscalar_fp_retirement(xlen, ex.fp_request)
       vector_fast_eligible: ex_vector_footprint.eligible & !ex_vector_footprint.empty
@@ -1577,7 +1579,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   def wb_fp_lane = mux(wb_valid[0] & wb_group[0].fp.valid, Bits(1)(0), Bits(1)(1))
   def wb_fp_token :: SuperscalarResult(xlen, hypervisor) = wb_group[wb_fp_lane]
   fp.variable_issue.valid <== wb_dispatch[wb_fp_lane] & wb_fp_token.fp.valid & (wb_fp_token.fp.bits.execution.unit === FloatUnit.DivideSquareRoot) & wb_scalar_prefix
-  fp.variable_issue.bits <== wb_fp_token.fp_request.division_request(wb_fp_token.fetched.identity(), wb_fp_token.rd)
+  fp.variable_issue.bits <== wb_fp_token.fp_request.division_request(wb_fp_token.fetched.identity(), wb_fp_token.rd, wb_fp_token.left, wb_fp_token.right)
   wb_fp_variable_accepted <== fp.variable_issue.fire()
   def wb_fp_replay = fp.variable_issue.valid & !fp.variable_issue.ready
 

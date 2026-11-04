@@ -300,8 +300,8 @@ fun superscalar_fp_owner(xlen :: XLen, hypervisor :: Boolean, fetched :: Supersc
 fun superscalar_fp_request(xlen :: XLen, hypervisor :: Boolean, fetched :: SuperscalarInstruction(xlen, hypervisor), rd :: Bits(5), request :: FpExecutionRequest(xlen, fp_transport_profile(xlen), SuperscalarFpSchedule())) :~ FpExecutionRequest(xlen, fp_transport_profile(xlen), SuperscalarFpOwner(xlen)):
   request.with_tag(SuperscalarFpOwner(xlen), superscalar_fp_owner(xlen, hypervisor, fetched, rd, request))
 
-/* Retains WB ownership/timing and the only operands not consumed at EX: divide
-   and square-root inputs. Fixed operations never execute from this record. */
+/* Retains WB ownership, timing, and divide/sqrt controls. Operand words stay
+   in the owning instruction's result record, not in this group metadata. */
 bundle SuperscalarFpRetirement(xlen :: XLen):
   tag: SuperscalarFpSchedule()
   destination: FloatDestination
@@ -309,8 +309,6 @@ bundle SuperscalarFpRetirement(xlen :: XLen):
   source_precision: FloatPrecision
   destination_precision: FloatPrecision
   divide_operation: FloatDivideOperation
-  left: Bits(xlen.width)
-  right: Bits(xlen.width)
   rounding_mode: RoundingMode
 
   /* Joins scheduling metadata to the surviving instruction's architectural identity. */
@@ -339,17 +337,16 @@ bundle SuperscalarFpRetirement(xlen :: XLen):
       )
     )
 
-  /* Launches only deferred divide/sqrt, with no third operand or fixed-operation
-     controls. The caller must qualify admission with the surviving divide owner. */
-  method division_request(context, identity :: SuperscalarInstructionIdentity(xlen), rd :: Bits(5)) :: FpExecutionRequest(xlen, fp_transport_profile(xlen), SuperscalarFpOwner(xlen)):
+  /* Joins deferred divide/sqrt controls to the surviving WB instruction's operand pair. */
+  method division_request(context, identity :: SuperscalarInstructionIdentity(xlen), rd :: Bits(5), left :: Bits(xlen.width), right :: Bits(xlen.width)) :: FpExecutionRequest(xlen, fp_transport_profile(xlen), SuperscalarFpOwner(xlen)):
     def retained :: SuperscalarFpRetirement(xlen) = context
     def request = retained.authorization(identity, rd)
     request.updated(
       ~control: request.control.updated(~execution: request.control.execution.updated(~unit: FloatUnit.DivideSquareRoot)),
-      ~left: context.left, ~right: context.right, ~rounding_mode: context.rounding_mode
+      ~left: left, ~right: right, ~rounding_mode: context.rounding_mode
     )
 
-/* Drops EX-only fixed operands and controls before the first retirement-stage register. */
+/* Selects only group metadata before the first retirement-stage register. */
 fun superscalar_fp_retirement(xlen :: XLen, request :: FpExecutionRequest(xlen, fp_transport_profile(xlen), SuperscalarFpSchedule())) :~ SuperscalarFpRetirement(xlen):
   SuperscalarFpRetirement(xlen):
     tag: request.tag
@@ -358,8 +355,6 @@ fun superscalar_fp_retirement(xlen :: XLen, request :: FpExecutionRequest(xlen, 
     source_precision: request.control.execution.source_precision
     destination_precision: request.control.execution.destination_precision
     divide_operation: request.control.execution.divide_operation
-    left: request.left
-    right: request.right
     rounding_mode: request.rounding_mode
 
 /* Carries an already extracted FP memory value to the architectural FPR write port. */

@@ -95,14 +95,14 @@ the older instruction. Bubbles need no payload reset or extra valid bit. Keep
 the three stage banks independent so adjacent FP groups retain full throughput.
 
 Only EX stores the full `FpExecutionRequest`. The canonical MEM/WB record is
-`SuperscalarFpRetirement`: scheduling/destination and latency-selection metadata,
-two divide/sqrt operands, precision, operation, and rounding mode. Fixed numeric
-work has already launched at EX; its third operand, immediate, and other numeric
-controls do not survive into these registers. WB authorization supplies metadata
-with constant unused operands. Only the qualified variable launch reconstructs
-a divide/sqrt numeric request; it cannot select a fixed unit. FP loads keep their
-architectural owner separately from these unused arithmetic fields, including
-retained and split-load completion.
+`SuperscalarFpRetirement`: scheduling/destination, precision, operation, and
+rounding metadata, with no numeric operands. A scalar divide/sqrt captures its
+FP inputs into its own `SuperscalarResult.left/right` at EX. Select on the
+individual instruction's decoded operation, not the group's FP request: a
+paired branch still needs its integer inputs in MEM. WB takes both words from
+the surviving divide owner; replay must reacquire them on reissue. Fixed work
+already launched at EX and needs only authorization. Delayed and split FP loads
+retain their architectural owner independently of either operand word.
 
 At RR→EX, EX→MEM, and MEM→WB, [both lane pipes](lane-pipe.rhdl) store only
 the low 12 bits of their starting PCs. Each stage owns one shared upper-PC
@@ -1130,6 +1130,10 @@ FP partner at MEM; a faulting older peer suppresses a younger native-width
 divide before a subsequent group replaces its shared request.
 Native sqrt and RTZ/dynamic-RUP divide cases check the compact retirement
 record's operation, precision, rounding, and NX contribution in both XLENs.
+Branch/divide pairs compare integer and FP inputs with opposite orderings,
+checking both issue positions and cancellation of the younger divide.
+The core-vector busy-divider case reverses operands on the replaying divide
+and checks the raw FP result after reissue.
 Zfa cases cover both precisions, static/dynamic rounding, NaNs, modulo conversion,
 dependent GPR returns, and suppression of killed destination/flag/FS updates.
 Half cases cover boxing, conversions, every aligned halfword lane, delayed and
