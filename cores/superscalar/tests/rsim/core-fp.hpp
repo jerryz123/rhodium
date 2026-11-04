@@ -164,6 +164,34 @@ int main() {
     expect_gpr(8, 11);
     CHECK(fp_pairs >= 2);
 
+    // Alternate the selected FP owner across adjacent groups, a single issue,
+    // and a bubble. All three operands must stay with their own instruction.
+    {
+      const auto first = next_pc;
+      send(fp(native_precision, 10, 1, 2), 0x00100a93, 1); // f10=48; x21=1
+      const auto second = next_pc;
+      send(0x00200b13, fp(4 + native_precision, 11, 2, 1), 1); // x22=2; f11=16
+      send(fp(native_precision, 12, 1, 3)); // f12=18
+      falling();
+      const auto fourth = next_pc;
+      const auto fused = (2u << 27) | (native_precision << 25) |
+                         (3u << 20) | (1u << 15) | (13u << 7) | 0x43u;
+      send(0x00300b93, fused, 1); // x23=3; f13=f1*f3+f2=64
+      drain();
+      for (auto pc : {first, second, fourth})
+        CHECK(memory_cycles.at(pc) == memory_cycles.at(pc + 4));
+      for (int i = 0; i < 4; i++)
+        send(fp(0x60 + native_precision, 10 + i, 10 + i, 0));
+      drain();
+      expect_gpr(10, 48);
+      expect_gpr(11, 16);
+      expect_gpr(12, 18);
+      expect_gpr(13, 64);
+      expect_gpr(21, 1);
+      expect_gpr(22, 2);
+      expect_gpr(23, 3);
+    }
+
     // Early GPR constants must reach the FP request's integer snapshot, not stale RF.
     {
       const auto pc = next_pc;
@@ -254,9 +282,16 @@ int main() {
     drain();
     CHECK(split_count == 2 && stored_data == load_data);
 
-    // Kill already-launched younger arithmetic with an older same-group fault.
+    // Neither MEM branch recovery nor an older fault may commit younger FP work.
     send(fp(0x68 + native_precision, 20, 1, 0));
     drain();
+    // MEM recovery kills only the younger owner; the group payload still advances.
+    send(0x00000463, fp(native_precision, 20, 1, 1), 1); // taken beq x0,x0,+8
+    drain();
+    send(fp(0x60 + native_precision, 21, 20, 0));
+    drain();
+    expect_gpr(21, 16);
+
     inject_fault = 1;
     inject_pc = next_pc;
     expected_traps = 2;
@@ -299,6 +334,26 @@ int main() {
     send(fp(native_precision, 20, 1, 1, 5));
     drain();
     CHECK(traps == 3);
+
+    // A younger divide keeps its operands through WB but cannot launch after
+    // its older peer faults. The next group must replace that canceled owner.
+    send(fp(0x68 + native_precision, 26, 1, 0)); // preserve 16
+    drain();
+    inject_fault = 1;
+    inject_pc = next_pc;
+    expected_traps++;
+    send(0x00100c93, fp(12 + native_precision, 26, 1, 1), 1);
+    drain();
+    inject_fault = 0;
+    CHECK(traps == expected_traps);
+    send(fp(0x60 + native_precision, 26, 26, 0));
+    drain();
+    expect_gpr(26, 16);
+    send(0x00200c93, fp(12 + native_precision, 26, 2, 1), 1);
+    send(fp(0x60 + native_precision, 26, 26, 0));
+    drain();
+    expect_gpr(26, 2);
+
     if constexpr (xlen == 32) return; // The RV32Max fixture selects F, without Zfa or half precision.
     // Zfa uses the same EX launch, WB authorization and variable-latency return paths.
     // FLI's rs1 field is an immediate index, not an integer or FP source register.

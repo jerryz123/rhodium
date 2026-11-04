@@ -1,5 +1,5 @@
 #lang rhodium
-/* Stores Superscalar lane payloads with shared PC regions, successor tags, and compact direction checkpoints. */
+/* Stores Superscalar lane payloads with shared PC regions and FP requests, successor tags, and compact direction checkpoints. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -26,22 +26,22 @@ fun copy_fields(T :: RecordType, source :: Hardware.packable, replacements :: Ma
 
   kernel.record_create(T, fields)
 
-/* Omit PC aliases and redundant training indices, and replace the successor by its tag.
-   Prediction targets, lookup rows, and recovery histories remain independent. */
+/* Omit group-owned FP requests, PC aliases, and redundant training indices, and
+   replace the successor by its tag. Prediction targets and histories stay independent. */
 fun lane_shape(Full :: RecordType, execute :: Boolean, Fault :: DataType, Step :: DataType) :: RecordType:
   def Fetched = Full.field("fetched").type
   def prediction = storage_shape(Fetched.field("prediction").type, {}, ["pc"])
   def fetched = storage_shape(Fetched, {"pc": Bits(SuperscalarPcOffsetBits), "sequential_pc": Step, "prediction": prediction, "fault": Fault, "direction": SuperscalarDirectionCheckpoint()})
   if execute
-  | storage_shape(Full, {"fetched": fetched, "vector": storage_shape(Full.field("vector").type, {}, ["pc"])})
+  | storage_shape(Full, {"fetched": fetched, "vector": storage_shape(Full.field("vector").type, {}, ["pc"])}, ["fp_request"])
   | block:
       def Branch = Full.field("branch").type
       def update = storage_shape(Branch.field("update").type, {}, ["pc", "return_address"])
-      storage_shape(Full, {"fetched": fetched, "branch": storage_shape(Branch, {"update": update})})
+      storage_shape(Full, {"fetched": fetched, "branch": storage_shape(Branch, {"update": update})}, ["fp_request"])
 
 /* Project into storage or back into a full lane. The target schema determines
-   which aliases are present; they all use the same reconstructed addresses. */
-fun recode_lane(T :: RecordType, source :: Hardware.packable, pc :: Hardware.packable, successor :: Hardware.packable, fault :: Hardware.packable, direction :: Hardware.packable, execute :: Boolean):
+   which aliases are present; addresses and FP requests come from the owning group. */
+fun recode_lane(T :: RecordType, source :: Hardware.packable, pc :: Hardware.packable, successor :: Hardware.packable, fault :: Hardware.packable, direction :: Hardware.packable, fp_request :: Hardware.packable, execute :: Boolean):
   def Fetched = T.field("fetched").type
   def original = kernel.project(source, "fetched")
   def prediction = copy_fields(Fetched.field("prediction").type, kernel.project(original, "prediction"), {"pc": pc})
@@ -49,16 +49,16 @@ fun recode_lane(T :: RecordType, source :: Hardware.packable, pc :: Hardware.pac
   if execute
   | block:
       def vector = copy_fields(T.field("vector").type, kernel.project(source, "vector"), {"pc": pc})
-      copy_fields(T, source, {"fetched": fetched, "vector": vector})
+      copy_fields(T, source, {"fetched": fetched, "vector": vector, "fp_request": fp_request})
   | block:
       def Branch = T.field("branch").type
       def branch = kernel.project(source, "branch")
       def update = copy_fields(Branch.field("update").type, kernel.project(branch, "update"),
                                {"pc": pc, "return_address": kernel.project(fetched, "sequential_pc")})
-      copy_fields(T, source, {"fetched": fetched, "branch": copy_fields(Branch, branch, {"update": update})})
+      copy_fields(T, source, {"fetched": fetched, "branch": copy_fields(Branch, branch, {"update": update}), "fp_request": fp_request})
 
-/* Preserves the full lane interface and the one-cycle flushable pipe contract. Both
-   lanes reconstruct their PC from the group prefix registered at this same stage. */
+/* Preserves the full lane interface and one-cycle flushable pipe contract. Both
+   lanes rejoin the PC prefix and FP request registered once for this stage's group. */
 sync_circuit SuperscalarLanePipe(xlen :: XLen, Full :: RecordType, ~hypervisor: hypervisor :: Boolean = #false):
   def execute = Full.type_equal(SuperscalarExecute(xlen, hypervisor))
   unless execute || Full.type_equal(SuperscalarResult(xlen, hypervisor))
@@ -68,6 +68,7 @@ sync_circuit SuperscalarLanePipe(xlen :: XLen, Full :: RecordType, ~hypervisor: 
   interface egress(Valid(Full), ~role: producer)
   input flush: Bool
   input pc_region: Bits(xlen.width - SuperscalarPcOffsetBits)
+  input fp_request: Full.field("fp_request").type
   input ingress_step: SuperscalarPcStep(xlen)
   output egress_step: SuperscalarPcStep(xlen)
 
@@ -105,7 +106,7 @@ sync_circuit SuperscalarLanePipe(xlen :: XLen, Full :: RecordType, ~hypervisor: 
     def fetched :: SuperscalarInstruction(xlen, hypervisor) = token.fetched
     def fault = fetched.fault
     def encoded = if execute | fault | fault.valid()
-    recode_lane(Stored, token, fetched.pc[0..SuperscalarPcOffsetBits], ingress_step, encoded, fetched.retained_direction(), execute)
+    recode_lane(Stored, token, fetched.pc[0..SuperscalarPcOffsetBits], ingress_step, encoded, fetched.retained_direction(), token.fp_request, execute)
   ) |> storage.ingress
 
   egress_step <== storage.egress.bits.fetched.sequential_pc
@@ -127,7 +128,7 @@ sync_circuit SuperscalarLanePipe(xlen :: XLen, Full :: RecordType, ~hypervisor: 
     def pc = pc_region ++ token.fetched.pc
     def step :: SuperscalarPcStep(xlen) = token.fetched.sequential_pc
     def direction :: SuperscalarDirectionCheckpoint() = token.fetched.direction
-    recode_lane(Full, token, pc, step.apply(pc), fault, direction.expanded(pc), execute)
+    recode_lane(Full, token, pc, step.apply(pc), fault, direction.expanded(pc), fp_request, execute)
   ) |> egress
 
 export:

@@ -80,10 +80,19 @@ its accepted deferred owners later write through the shared younger-slot port.
 Redirect qualification gates new transfers as well as flushing pipe state.
 
 `SuperscalarResult.branch` groups comparison, recovery, and training state. FP
-requests stored alongside a fetched instruction carry only `SuperscalarFpSchedule`;
+requests associated with a fetched instruction carry only `SuperscalarFpSchedule`;
 attach the complete `SuperscalarFpOwner` at EX launch, WB authorization, or
 delayed-memory allocation. Do not store a duplicate fetched instruction in the request tag.
 These are ownership boundaries, not extra pipeline stages or latency assumptions.
+
+EX, MEM, and WB each store one selected FP request for the group, not one per
+instruction. Pair admission allows only one scalar FP operand/control owner.
+The older transfer captures the shared request even when its owner is younger;
+both lane views rejoin it without local payload storage. Lane validity and the
+existing dispatch prefix still control launch and authorization. Killing a
+younger owner does not stall the group register or make its request valid for
+the older instruction. Bubbles need no payload reset or extra valid bit. Keep
+the three stage banks independent so adjacent FP groups retain full throughput.
 
 At RR→EX, EX→MEM, and MEM→WB, [both lane pipes](lane-pipe.rhdl) store only
 the low 12 bits of their starting PCs. Each stage owns one shared upper-PC
@@ -1104,8 +1113,12 @@ scalar FP work to advance while its true FPR consumer remains interlocked.
 uses 3/5/3 cycles to collide integer-returning FP operations with multiply returns.
 Both enable Zfa; the first selects Zfh and the late fixture selects Zfhmin.
 They share a public-interface bench covering both age slots, FPR dependencies,
-loads/stores, killed EX arithmetic, divide, flags, and illegal FS/rm. Zfa cases
-cover both precisions, static/dynamic rounding, NaNs, modulo conversion,
+loads/stores, killed EX arithmetic, divide, flags, and illegal FS/rm. Alternating
+FP owners across paired and single issues, bubbles, and a fused operation check
+the group-owned operand snapshots. An older taken branch discards its younger
+FP partner at MEM; a faulting older peer suppresses a younger native-width
+divide before a subsequent group replaces its shared request.
+Zfa cases cover both precisions, static/dynamic rounding, NaNs, modulo conversion,
 dependent GPR returns, and suppression of killed destination/flag/FS updates.
 Half cases cover boxing, conversions, every aligned halfword lane, delayed and
 split memory completion, dynamic rounding, and FS/rm legality. The full subset

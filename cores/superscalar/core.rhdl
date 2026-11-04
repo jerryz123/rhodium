@@ -216,6 +216,20 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
 
     assert(!stage[1].egress.valid ||| stage[0].egress.valid, "superscalar_" ++ name ++ "_younger_has_older")
 
+
+  /* One FP request per group.
+     Pair admission selects one FP owner. Capture its request on the older
+     transfer even when the owner is younger; lane validity still gates every
+     consumer after squash. Each stage owns an independent payload bank. */
+
+  def FpRequest = FpExecutionRequest(xlen, fp_transport_profile(xlen), SuperscalarFpSchedule())
+  reg ex_fp_request(FpRequest)
+  reg mem_fp_request(FpRequest)
+  reg wb_fp_request(FpRequest)
+  for (stage in [ex_pipe, mem_pipe, wb_pipe], request in [ex_fp_request, mem_fp_request, wb_fp_request]):
+    for (lane in 0..2):
+      stage[lane].fp_request <== request
+
   // Each lane's ValidPipe captures the original window tag with that lane's transfer.
   for (lane in 0..2):
     ex_pipe[lane].ingress_step <== rr_window.head_steps[lane]
@@ -1186,11 +1200,15 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     wb_pc_region <== mem_pc_region
     wb_younger_next_region <== mem_younger_next_region
 
-  for (stage in [ex_pipe, mem_pipe, wb_pipe], name in ["ex", "mem", "wb"]):
+  for (stage in [ex_pipe, mem_pipe, wb_pipe], request in [ex_fp_request, mem_fp_request, wb_fp_request], name in ["ex", "mem", "wb"]):
+    when (stage[0].ingress.valid):
+      request <== stage[0].ingress.bits.fp_request
+
     when (stage[1].ingress.valid):
       def older_region = stage[0].ingress.bits.fetched.pc[SuperscalarPcOffsetBits..xlen.width]
       def younger_region = stage[1].ingress.bits.fetched.pc[SuperscalarPcOffsetBits..xlen.width]
       assert(stage[0].ingress.valid & ((older_region === younger_region) ||| (younger_region === (older_region + Region(1)))), "superscalar_" ++ name ++ "_paired_pc_region")
+      assert(stage[0].ingress.bits.fp_request.as_bits() === stage[1].ingress.bits.fp_request.as_bits(), "superscalar_" ++ name ++ "_shared_fp_request")
 
 
   /* MEM to WB: only surviving lanes advance. A redirect can kill the younger
