@@ -164,6 +164,24 @@ int main() {
     expect_gpr(8, 11);
     CHECK(fp_pairs >= 2);
 
+    // Deferred native-width requests retain sqrt selection and exact rounding
+    // independently of adjacent fixed work and the unused third-operand path.
+    send(fp(0x2c + native_precision, 27, 1, 0)); // sqrt(16)=4
+    expect_fpr(27, xlen == 32 ? UINT64_C(0x40800000) : UINT64_C(0x4010000000000000));
+    send(0x00300e13); // x28=3
+    send(fp(0x68 + native_precision, 28, 28, 0));
+    send(fp(12 + native_precision, 29, 1, 28, 1)); // 16/3, RTZ
+    expect_fpr(29, xlen == 32 ? UINT64_C(0x40aaaaaa) : UINT64_C(0x4015555555555555));
+    send(0x0021d073); // csrwi frm,3 (RUP)
+    drain();
+    send(fp(12 + native_precision, 29, 1, 28, 7)); // dynamic RUP
+    expect_fpr(29, xlen == 32 ? UINT64_C(0x40aaaaab) : UINT64_C(0x4015555555555556));
+    send(0x00102e73); // csrr x28,fflags
+    drain();
+    expect_gpr(28, 1); // NX
+    send(0x00301073); // clear fcsr before subsequent independent cases
+    drain();
+
     // Alternate the selected FP owner across adjacent groups, a single issue,
     // and a bubble. All three operands must stay with their own instruction.
     {

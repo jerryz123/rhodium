@@ -31,6 +31,7 @@ import:
   lib("riscv/rtl/pointer-masking.rhdl").PointerMaskControl
   lib("cores/fp/bundles.rhdl") open
   lib("cores/fp/types.rhdl") open
+  lib("hardfloat/main.rhdl").RoundingMode
   lib("cores/vector/bundles.rhdl").VectorDescriptor
   lib("cores/vector/decode.rhdl").VectorConfigMode
 
@@ -299,6 +300,68 @@ fun superscalar_fp_owner(xlen :: XLen, hypervisor :: Boolean, fetched :: Supersc
 fun superscalar_fp_request(xlen :: XLen, hypervisor :: Boolean, fetched :: SuperscalarInstruction(xlen, hypervisor), rd :: Bits(5), request :: FpExecutionRequest(xlen, fp_transport_profile(xlen), SuperscalarFpSchedule())) :~ FpExecutionRequest(xlen, fp_transport_profile(xlen), SuperscalarFpOwner(xlen)):
   request.with_tag(SuperscalarFpOwner(xlen), superscalar_fp_owner(xlen, hypervisor, fetched, rd, request))
 
+/* Retains WB ownership/timing and the only operands not consumed at EX: divide
+   and square-root inputs. Fixed operations never execute from this record. */
+bundle SuperscalarFpRetirement(xlen :: XLen):
+  tag: SuperscalarFpSchedule()
+  destination: FloatDestination
+  unit: FloatUnit
+  source_precision: FloatPrecision
+  destination_precision: FloatPrecision
+  divide_operation: FloatDivideOperation
+  left: Bits(xlen.width)
+  right: Bits(xlen.width)
+  rounding_mode: RoundingMode
+
+  /* Joins scheduling metadata to the surviving instruction's architectural identity. */
+  method owner(context, identity :: SuperscalarInstructionIdentity(xlen), rd :: Bits(5)) :: SuperscalarFpOwner(xlen):
+    SuperscalarFpOwner(xlen):
+      identity: identity
+      lane: context.tag.lane
+      rd: rd
+      destination: context.destination
+      speculative: context.tag.speculative
+      direct: context.tag.direct
+
+  /* Supplies ownership and latency selection to the existing authorization port;
+     unused arithmetic operands and controls are constants, not retained state. */
+  method authorization(context, identity :: SuperscalarInstructionIdentity(xlen), rd :: Bits(5)) :: FpExecutionRequest(xlen, fp_transport_profile(xlen), SuperscalarFpOwner(xlen)):
+    def retained :: SuperscalarFpRetirement(xlen) = context
+    def inactive :: FpExecutionRequest(xlen, fp_transport_profile(xlen), SuperscalarFpOwner(xlen)) = literal(FpExecutionRequest(xlen, fp_transport_profile(xlen), SuperscalarFpOwner(xlen)), 0)
+    inactive.updated(
+      ~tag: retained.owner(identity, rd),
+      ~control: inactive.control.updated(
+        ~registers: inactive.control.registers.updated(~destination: context.destination),
+        ~execution: inactive.control.execution.updated(
+          ~unit: context.unit, ~source_precision: context.source_precision,
+          ~destination_precision: context.destination_precision, ~divide_operation: context.divide_operation
+        )
+      )
+    )
+
+  /* Launches only deferred divide/sqrt, with no third operand or fixed-operation
+     controls. The caller must qualify admission with the surviving divide owner. */
+  method division_request(context, identity :: SuperscalarInstructionIdentity(xlen), rd :: Bits(5)) :: FpExecutionRequest(xlen, fp_transport_profile(xlen), SuperscalarFpOwner(xlen)):
+    def retained :: SuperscalarFpRetirement(xlen) = context
+    def request = retained.authorization(identity, rd)
+    request.updated(
+      ~control: request.control.updated(~execution: request.control.execution.updated(~unit: FloatUnit.DivideSquareRoot)),
+      ~left: context.left, ~right: context.right, ~rounding_mode: context.rounding_mode
+    )
+
+/* Drops EX-only fixed operands and controls before the first retirement-stage register. */
+fun superscalar_fp_retirement(xlen :: XLen, request :: FpExecutionRequest(xlen, fp_transport_profile(xlen), SuperscalarFpSchedule())) :~ SuperscalarFpRetirement(xlen):
+  SuperscalarFpRetirement(xlen):
+    tag: request.tag
+    destination: request.control.registers.destination
+    unit: request.control.execution.unit
+    source_precision: request.control.execution.source_precision
+    destination_precision: request.control.execution.destination_precision
+    divide_operation: request.control.execution.divide_operation
+    left: request.left
+    right: request.right
+    rounding_mode: request.rounding_mode
+
 /* Carries an already extracted FP memory value to the architectural FPR write port. */
 bundle SuperscalarFpLoad(xlen :: XLen):
   owner: SuperscalarFpOwner(xlen)
@@ -379,7 +442,7 @@ bundle SuperscalarResult(xlen :: XLen, hypervisor :: Boolean):
   right: Bits(xlen.width)
   resolution: SuperscalarSyncResolution(xlen)
   fp: SuperscalarFpControl()
-  fp_request: FpExecutionRequest(xlen, fp_transport_profile(xlen), SuperscalarFpSchedule())
+  fp_request: SuperscalarFpRetirement(xlen)
   vector_fast_eligible: Bool
   vector: SuperscalarVectorLane()
 
@@ -475,14 +538,14 @@ bundle SuperscalarServiceOwner(xlen :: XLen, hypervisor :: Boolean):
     )
     def inactive_branch :: SuperscalarBranchResult(xlen) = literal(SuperscalarBranchResult(xlen), 0)
     def inactive_system :: SuperscalarSystemControl() = literal(SuperscalarSystemControl(), 0)
-    def inactive_fp :: FpExecutionRequest(xlen, fp_transport_profile(xlen), SuperscalarFpSchedule()) = literal(FpExecutionRequest(xlen, fp_transport_profile(xlen), SuperscalarFpSchedule()), 0)
+    def inactive_fp :: SuperscalarFpRetirement(xlen) = literal(SuperscalarFpRetirement(xlen), 0)
     def inactive_result :: SuperscalarResult(xlen, hypervisor) = literal(SuperscalarResult(xlen, hypervisor), 0)
     inactive_result.updated(
       ~fetched: fetched, ~rd: owner.rd, ~write: owner.write, ~data: data, ~result_ready: Bool(#true),
       ~branch: inactive_branch.updated(~update: update, ~mispredicted: owner.prediction_repair),
       ~memory: owner.memory, ~guest_access: owner.guest_access, ~address: owner.address, ~store_data: owner.store_data,
       ~system: inactive_system.updated(~wait: owner.wait), ~resolution: resolution,
-      ~fp: owner.fp, ~fp_request: inactive_fp.updated(~tag: owner.fp_schedule, ~control: owner.fp.bits),
+      ~fp: owner.fp, ~fp_request: inactive_fp.updated(~tag: owner.fp_schedule, ~destination: owner.fp.bits.registers.destination),
       ~vector: owner.vector
     )
 
@@ -614,6 +677,8 @@ bundle SuperscalarOperand(xlen :: XLen):
 
 export:
   SuperscalarFpSchedule
+  SuperscalarFpRetirement
+  superscalar_fp_retirement
   superscalar_fp_owner
   superscalar_fp_request
   superscalar_physical_request

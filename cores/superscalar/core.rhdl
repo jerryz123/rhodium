@@ -220,12 +220,13 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   /* One FP request per group.
      Pair admission selects one FP owner. Capture its request on the older
      transfer even when the owner is younger; lane validity still gates every
-     consumer after squash. Each stage owns an independent payload bank. */
+     consumer after squash. EX keeps the full numeric request; MEM/WB retain
+     only authorization metadata and deferred divide/sqrt operands. */
 
   def FpRequest = FpExecutionRequest(xlen, fp_transport_profile(xlen), SuperscalarFpSchedule())
   reg ex_fp_request(FpRequest)
-  reg mem_fp_request(FpRequest)
-  reg wb_fp_request(FpRequest)
+  reg mem_fp_request(SuperscalarFpRetirement(xlen))
+  reg wb_fp_request(SuperscalarFpRetirement(xlen))
   for (stage in [ex_pipe, mem_pipe, wb_pipe], request in [ex_fp_request, mem_fp_request, wb_fp_request]):
     for (lane in 0..2):
       stage[lane].fp_request <== request
@@ -986,7 +987,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
       left: ex.rs1
       right: ex.rs2
       fp: ex.control.fp
-      fp_request: ex.fp_request
+      fp_request: superscalar_fp_retirement(xlen, ex.fp_request)
       vector_fast_eligible: ex_vector_footprint.eligible & !ex_vector_footprint.empty
       vector:
         SuperscalarVectorLane():
@@ -1457,7 +1458,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     assert(!wb_retained_candidate.branch.update.branch & (wb_retained_candidate.muldiv.service === SuperscalarLongOperation.None) & !wb_retained_candidate.prefetch.is_prefetch() & !wb_retained_candidate.pause, "superscalar_service_capture_not_execution")
     assert((wb_retained_candidate.system.csr === RiscvCsrOperation.None) & (wb_retained_candidate.system.action === RiscvCsrAction.None) & (wb_retained_candidate.system.fence === SuperscalarFence.None), "superscalar_service_capture_not_command")
     assert(!wb_retained_candidate.fp.valid ||| (wb_retained_candidate.fp.bits.execution.unit === FloatUnit.Memory), "superscalar_service_capture_fp_memory")
-    assert(!wb_retained_candidate.fp.valid ||| (wb_retained_candidate.fp_request.control.registers.destination === wb_retained_candidate.fp.bits.registers.destination), "superscalar_service_capture_fp_destination")
+    assert(!wb_retained_candidate.fp.valid ||| (wb_retained_candidate.fp_request.destination === wb_retained_candidate.fp.bits.registers.destination), "superscalar_service_capture_fp_destination")
 
   /* Retained lineage follows capture and final completion.
      Normal retirement selects between the live oldest and returned owner. */
@@ -1576,7 +1577,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   def wb_fp_lane = mux(wb_valid[0] & wb_group[0].fp.valid, Bits(1)(0), Bits(1)(1))
   def wb_fp_token :: SuperscalarResult(xlen, hypervisor) = wb_group[wb_fp_lane]
   fp.variable_issue.valid <== wb_dispatch[wb_fp_lane] & wb_fp_token.fp.valid & (wb_fp_token.fp.bits.execution.unit === FloatUnit.DivideSquareRoot) & wb_scalar_prefix
-  fp.variable_issue.bits <== superscalar_fp_request(xlen, hypervisor, wb_fp_token.fetched, wb_fp_token.rd, wb_fp_token.fp_request)
+  fp.variable_issue.bits <== wb_fp_token.fp_request.division_request(wb_fp_token.fetched.identity(), wb_fp_token.rd)
   wb_fp_variable_accepted <== fp.variable_issue.fire()
   def wb_fp_replay = fp.variable_issue.valid & !fp.variable_issue.ready
 
@@ -1912,14 +1913,14 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   def wb_fp_success = wb_valid[wb_fp_lane] & wb_retirement_unblocked & (!wb_system ||| wb_vector_config) & (wb_tokens[wb_fp_lane].resolution.disposition === SuperscalarDisposition.Continue) & wb_fp_older_allows & wb_fp_not_displaced
   fp.authorize.valid <== wb_fp_success & wb_fp_token.fp.valid & !wb_fp_token.fp.bits.execution.unit.is_one_of(FloatUnit.Memory, FloatUnit.DivideSquareRoot)
   wb_fp_fixed_authorized <== fp.authorize.valid
-  fp.authorize.bits <== superscalar_fp_request(xlen, hypervisor, wb_fp_token.fetched, wb_fp_token.rd, wb_fp_token.fp_request)
+  fp.authorize.bits <== wb_fp_token.fp_request.authorization(wb_fp_token.fetched.identity(), wb_fp_token.rd)
   wb_fp_gpr_scoreboard.set.valid <== fp.authorize.valid & !fp.authorize.bits.tag.direct & (fp.authorize.bits.tag.destination === FloatDestination.Integer) & fp.authorize.bits.tag.rd.any()
   wb_fp_gpr_scoreboard.set.bits <== fp.authorize.bits.tag.rd
   fp.load_reserve.valid <== wb_accepted & wb_memory.fp.valid & (wb_memory.fp.bits.registers.destination === FloatDestination.FloatingPoint)
-  fp.load_reserve.bits <== superscalar_fp_owner(xlen, hypervisor, wb_memory.fetched, wb_memory.rd, wb_memory.fp_request)
+  fp.load_reserve.bits <== wb_memory.fp_request.owner(wb_memory.fetched.identity(), wb_memory.rd)
   fp.load_hit.valid <== mux(wb_fp_lane === Bits(1)(0), retired[0].valid, retired[1].valid) & wb_fp_token.fp.valid & wb_fp_token.memory.enable & (wb_fp_token.memory.access === CacheOperation.Load) & !wb_accepted
   fp.load_hit.bits <== SuperscalarFpLoad(xlen):
-    owner: superscalar_fp_owner(xlen, hypervisor, wb_fp_token.fetched, wb_fp_token.rd, wb_fp_token.fp_request)
+    owner: wb_fp_token.fp_request.owner(wb_fp_token.fetched.identity(), wb_fp_token.rd)
     precision: wb_fp_token.fp.bits.execution.destination_precision
     data: if xlen == XLen.X64 | wb_fp_token.data | wb_fp_token.data.zext(64)
 
