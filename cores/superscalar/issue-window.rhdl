@@ -35,7 +35,7 @@ tagged_union SuperscalarWindowOutcome(xlen :: XLen, hypervisor :: Boolean, pc_wi
 bundle SuperscalarWindowEntry(xlen :: XLen, hypervisor :: Boolean, pc_width :: PosInt):
   pc_low: Bits(pc_width)
   instruction: Bits(32)
-  raw_instruction: Bits(32)
+  raw_parcel: Bits(16)
   step: SuperscalarPcStep(xlen)
   compressed_illegal: Bool
   outcome: SuperscalarWindowOutcome(xlen, hypervisor, pc_width)
@@ -58,7 +58,7 @@ bundle SuperscalarWindowEntry(xlen :: XLen, hypervisor :: Boolean, pc_width :: P
     SuperscalarInstruction(xlen, hypervisor):
       pc: pc
       instruction: entry.instruction
-      raw_instruction: entry.raw_instruction
+      raw_instruction: superscalar_raw_instruction(entry.instruction, entry.raw_parcel)
       sequential_pc: entry.step.apply(pc)
       compressed_illegal: entry.compressed_illegal
       fault: mux(fault, details.fault, literal(SuperscalarFetchFault(xlen, hypervisor), 0))
@@ -90,7 +90,7 @@ fun pack_entry(xlen :: XLen, hypervisor :: Boolean, pc_width :: PosInt, token ::
   SuperscalarWindowEntry(xlen, hypervisor, pc_width):
     pc_low: token.pc[0..pc_width]
     instruction: token.instruction
-    raw_instruction: token.raw_instruction
+    raw_parcel: token.raw_instruction[0..16]
     step: encode_pc_step(xlen, token.pc, token.sequential_pc)
     compressed_illegal: token.compressed_illegal
     outcome: mux(token.fault.valid(), Outcome.Fault(details), Outcome.Normal(prediction))
@@ -134,6 +134,7 @@ sync_circuit SuperscalarIssueWindow(xlen :: XLen = XLen.X64, ~group_width: group
     candidates[lane].bits <== visible[lane]
     when (ingress.fire() & (ingress.bits.count > Bits(2)(lane))):
       def token :: SuperscalarInstruction(xlen, hypervisor) = ingress.bits.entries[lane]
+      assert(token.raw_instruction === superscalar_raw_instruction(token.instruction, token.raw_instruction[0..16]), "superscalar_window_raw_encoding")
       assert(token.sequential_pc.is_one_of(token.pc + Bits(xlen.width)(2), token.pc + Bits(xlen.width)(4)), "superscalar_window_instruction_length")
       assert(!token.prediction.valid ||| (token.prediction.pc === token.pc), "superscalar_window_prediction_pc")
       assert(!token.prediction.valid ||| (token.prediction.target === prediction_target(xlen, pc_width, token.prediction.target)), "superscalar_window_prediction_target")
@@ -154,12 +155,19 @@ sync_circuit SuperscalarIssueWindow(xlen :: XLen = XLen.X64, ~group_width: group
     for (index in 0..8):
       def position = Bits(4)(index)
       def append = ingress.fire() & (position >= remaining) & (position < (remaining + added))
-      def shifted = position + consume.zext(4)
       def incoming = position - remaining
       when append:
         entries[index] <== packed[incoming[0..index_width(group_width)]]
       elsewhen ((consume =/= Bits(2)(0)) & (position < remaining)):
-        entries[index] <== entries[shifted[0..3]]
+        // Only a consumed prefix can move a survivor. Wire the reachable
+        // neighbors at elaboration; no tail row ever wraps to the head.
+        def reach = math.min(group_width, 7 - index)
+        if reach > 0
+        | block:
+            def first = entries[index + 1]
+            def others = for List (distance in 2 .. (reach + 1)): [distance, entries[index + distance]]
+            entries[index] <== (if reach == 1 | first | mux_lookup(consume, ~default: first, others))
+        | #void
 
   assert(count <= Bits(4)(8), "superscalar_instruction_capacity")
   assert(consume <= head.count, "superscalar_issue_prefix")

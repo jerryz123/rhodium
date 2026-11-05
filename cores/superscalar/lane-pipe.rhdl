@@ -31,7 +31,7 @@ fun copy_fields(T :: RecordType, source :: Hardware.packable, replacements :: Ma
 fun lane_shape(Full :: RecordType, execute :: Boolean, Fault :: DataType, Step :: DataType, target_width :: PosInt) :: RecordType:
   def Fetched = Full.field("fetched").type
   def prediction = storage_shape(Fetched.field("prediction").type, {"target": Bits(target_width)}, ["pc"])
-  def fetched = storage_shape(Fetched, {"pc": Bits(SuperscalarPcOffsetBits), "sequential_pc": Step, "prediction": prediction, "fault": Fault, "direction": SuperscalarDirectionCheckpoint()})
+  def fetched = storage_shape(Fetched, {"raw_instruction": Bits(16), "pc": Bits(SuperscalarPcOffsetBits), "sequential_pc": Step, "prediction": prediction, "fault": Fault, "direction": SuperscalarDirectionCheckpoint()})
   if execute
   | storage_shape(Full, {"fetched": fetched, "vector": storage_shape(Full.field("vector").type, {}, ["pc"])}, ["fp_request"])
   | block:
@@ -42,11 +42,11 @@ fun lane_shape(Full :: RecordType, execute :: Boolean, Fault :: DataType, Step :
 /* Project into storage or back into a full lane. The target schema determines
    which aliases are present. Both branch target views use the lane's address
    word; the predicted target is independent. */
-fun recode_lane(T :: RecordType, source :: Hardware.packable, pc :: Hardware.packable, successor :: Hardware.packable, target :: Hardware.packable, fault :: Hardware.packable, direction :: Hardware.packable, fp_request :: Hardware.packable, execute :: Boolean):
+fun recode_lane(T :: RecordType, source :: Hardware.packable, pc :: Hardware.packable, successor :: Hardware.packable, raw :: Bits, target :: Hardware.packable, fault :: Hardware.packable, direction :: Hardware.packable, fp_request :: Hardware.packable, execute :: Boolean):
   def Fetched = T.field("fetched").type
   def original = kernel.project(source, "fetched")
   def prediction = copy_fields(Fetched.field("prediction").type, kernel.project(original, "prediction"), {"pc": pc, "target": target})
-  def fetched = copy_fields(Fetched, original, {"pc": pc, "sequential_pc": successor, "prediction": prediction, "fault": fault, "direction": direction})
+  def fetched = copy_fields(Fetched, original, {"raw_instruction": raw, "pc": pc, "sequential_pc": successor, "prediction": prediction, "fault": fault, "direction": direction})
   if execute
   | block:
       def vector = copy_fields(T.field("vector").type, kernel.project(source, "vector"), {"pc": pc})
@@ -123,7 +123,7 @@ sync_circuit SuperscalarLanePipe(xlen :: XLen, Full :: RecordType, ~target_width
         def result :: SuperscalarResult(xlen, hypervisor) = token
         result.updated(~address: mux(result.branch.control.enable, result.branch.target, result.address))
 
-    recode_lane(Stored, captured, fetched.pc[0..SuperscalarPcOffsetBits], ingress_step, fetched.prediction.target[0..target_width], encoded, fetched.retained_direction(), token.fp_request, execute)
+    recode_lane(Stored, captured, fetched.pc[0..SuperscalarPcOffsetBits], ingress_step, fetched.raw_instruction[0..16], fetched.prediction.target[0..target_width], encoded, fetched.retained_direction(), token.fp_request, execute)
   ) |> storage.ingress
 
   egress_step <== storage.egress.bits.fetched.sequential_pc
@@ -148,7 +148,8 @@ sync_circuit SuperscalarLanePipe(xlen :: XLen, Full :: RecordType, ~target_width
     def direction :: SuperscalarDirectionCheckpoint() = token.fetched.direction
     def stored_target = token.fetched.prediction.target
     def target = if target_width < xlen.width | stored_target.into(SInt(target_width)).sext(xlen.width).as_bits() | stored_target
-    recode_lane(Full, token, pc, step.apply(pc), target, fault, direction.expanded(pc), fp_request, execute)
+    def raw = superscalar_raw_instruction(token.fetched.instruction, token.fetched.raw_instruction)
+    recode_lane(Full, token, pc, step.apply(pc), raw, target, fault, direction.expanded(pc), fp_request, execute)
   ) |> egress
 
 export:

@@ -186,6 +186,17 @@ The window and EX/MEM/WB lane registers retain the frontend's configured
 target width and sign-extend it for consumers. Never narrow architectural
 redirects or the resolved target. Each window entry owns its metadata.
 
+Window and lane registers retain the canonical instruction and the raw low
+halfword. Decode uses the canonical word directly. Restore the original upper
+half from the canonical word only when the raw low bits are `11`; otherwise
+it is zero. Use the raw parcel, not the successor distance or legality, for
+this decision so traces and illegal-instruction trap values stay exact.
+
+On consume, a surviving window entry moves at most `group_width` rows toward
+the head. Wire only the in-bounds neighbors for each destination. Appends
+start at the remaining count, clear discards the old owners, and zero consume
+holds every survivor. The oldest entries remain directly wired to decode.
+
 At the assembler input, `SuperscalarFetchBlockFault` reports the exact failed
 block VA. At packet formation the assembler asserts that it matches the
 instruction PC, or PC+2 modulo XLEN when a straddle's second parcel failed.

@@ -116,8 +116,10 @@ oldest first. Entries contain an
 XLEN-wide `pc`, canonical 32-bit `instruction`, original `raw_instruction` (zero-extended
 for C), length-derived `sequential_pc`, `compressed_illegal`, and
 `fault: SuperscalarFetchFault(xlen, hypervisor)`. Direct packet producers supply
-all of this metadata; a 32-bit instruction normally uses the same raw/canonical
-bits and `sequential_pc = pc + 4`.
+all of this metadata. For a 32-bit encoding the raw word is the canonical
+instruction; for a compressed encoding the raw word contains only the original
+low halfword, even when expansion is illegal. The low two bits of that halfword
+identify the encoding independently of the fetch-fault or successor fields.
 Every accepted entry, including a fault, must supply `pc + 2` or `pc + 4`
 modulo XLEN. A valid prediction must name that instruction's PC; an invalid
 prediction's input PC and target are ignored. The PC reported in either case is the

@@ -18,8 +18,10 @@ Instruction token(unsigned id) {
   const bool fault = id % 3 == 1;
   result.ppc = fault ? UINT64_C(0x123456789abc0000) + id * 2 : pcs[id % 4];
   if (fault && id % 4 >= 2) result.ppc = UINT64_MAX - 1;
-  result.pinstruction = 0x13 + (id << 7);
-  result.praw_uinstruction = id & 1 ? 1 : result.pinstruction;
+  result.pinstruction = (id * 0x9e3779b9u & ~127u) | 0x13;
+  // Vary the canonical upper half independently of a compressed raw parcel.
+  result.praw_uinstruction = id & 1 ? ((id * 17u & 0xfffcu) | ((id >> 1) % 3))
+                                     : result.pinstruction;
   result.psequential_upc = result.ppc + (id & 1 ? 2 : 4);
   result.pcompressed_uillegal = id & 1;
   result.pfault.pkind = fault ? 1 + (id / 3) % (has_guest<Fault> ? 4 : 3) : 0;
@@ -110,6 +112,17 @@ int main() {
     for (unsigned i = 0; i < 12; ++i) cycle(0, group_width);
     for (unsigned remove = 1; remove <= group_width; ++remove) cycle(remove, group_width);
     while (!expected.empty()) cycle(std::min<std::size_t>(group_width, expected.size()), 0);
+    // Exercise every legal survivor distance and append length at every
+    // occupancy. Draining exposes ordering mistakes even at the last row.
+    for (unsigned occupancy = 0; occupancy <= 8; ++occupancy)
+      for (unsigned remove = 0; remove <= std::min(group_width, occupancy); ++remove)
+        for (unsigned append = 0; append <= group_width; ++append) {
+          if (const auto prefix = occupancy % group_width) cycle(0, prefix);
+          while (expected.size() < occupancy) cycle(0, group_width);
+          cycle(remove, append);
+          while (!expected.empty()) cycle(std::min<std::size_t>(group_width, expected.size()), 0);
+        }
+
     unsigned random = 0x43a09b1;
     for (unsigned i = 0; i < 1500; ++i) {
       random = random * 1664525 + 1013904223;
@@ -118,6 +131,19 @@ int main() {
     }
     while (!expected.empty()) cycle(1, 0);
     cycle(0, 0);
+    // A producer cannot supply an independent high parcel for either length.
+    for (unsigned id : {2u, 3u}) {
+      auto invalid = token(id);
+      invalid.praw_uinstruction ^= 0x80000000u;
+      ingress_in.pbits.pentries[0] = invalid;
+      ingress_in.pbits.pcount = ingress_in.pvalid = 1;
+      expect_failure("superscalar_window_raw_encoding", [] { eval(); tick_model(); });
+      ingress_in = {};
+      reset = 1;
+      tick_model();
+      reset = 0;
+    }
+
     // Reject inconsistent valid indices; arbitrary invalid index bits remain irrelevant.
     for (unsigned mutation = 0; mutation < 2; ++mutation) {
       auto invalid = token(3);

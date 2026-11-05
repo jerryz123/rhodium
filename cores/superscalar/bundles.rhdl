@@ -214,6 +214,11 @@ bundle SuperscalarDirectionCheckpoint():
       base_taken: checkpoint.base_taken
       gshare_taken: checkpoint.gshare_taken
 
+/* Restore the fetched word without decompressing again: long encodings retain
+   their canonical upper half; compressed encodings have no upper parcel. */
+fun superscalar_raw_instruction(instruction :: Bits(32), raw_parcel :: Bits(16)) :: Bits(32):
+  mux(raw_parcel[0..2].all(), instruction[16..32], Bits(16)(0)) ++ raw_parcel
+
 /* Retains canonical decode bits, original encoding, and the length-derived successor through retirement. */
 bundle SuperscalarInstruction(xlen :: XLen, hypervisor :: Boolean):
   pc: Bits(xlen.width)
@@ -729,6 +734,7 @@ export:
   SuperscalarPcStep
   encode_pc_step
   SuperscalarInstruction
+  superscalar_raw_instruction
   SuperscalarDirectionCheckpoint
   SuperscalarPacket
   SuperscalarBranchTraining
