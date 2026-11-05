@@ -32,7 +32,7 @@ the caller rather than adding a dependency back toward a core.
 | [`register-file.rhdl`](register-file.rhdl) | Three-read, two-write FPR storage and forwarding |
 | [`load-store.rhdl`](load-store.rhdl) | FP load boxing and raw low-precision store shaping without LSU policy |
 | [`datapath.rhdl`](datapath.rhdl) | Fixed F/D/half/Zfa execution and exact per-operand promotion |
-| [`div-sqrt.rhdl`](div-sqrt.rhdl) | One active variable operation with retained terminal state/tag |
+| [`div-sqrt.rhdl`](div-sqrt.rhdl) | One variable owner/tag across formats; HardFloat retains each numerical result |
 | [`timing.rhdl`](timing.rhdl) | Shared fixed-operation return-delay descriptor |
 | [`authorization.rhdl`](authorization.rhdl) | Opaque Valid-owner alignment to fixed returns, without admission or retirement policy |
 | [`launch-calendar.rhdl`](launch-calendar.rhdl) | Next-cycle launch bookings, fixed-return reservations, and vector booking fairness |
@@ -87,6 +87,12 @@ sharing the numeric lanes and timing pipeline. The scheduled adapter owns
 variable-result aging; the buffered adapter owns completion credits and held
 arbitration. Neither mode duplicates the arithmetic datapath or adds latency
 to the other mode.
+
+The divide/sqrt bank admits one request across all enabled precisions. Capture
+its opaque tag and format on the request transfer and select terminal data and
+flags with that saved format until completion transfers. A stalled offer for a
+different format must not replace either field. Do not copy HardFloat's held
+result or add a cycle to its first completion pulse.
 
 `FpExecutionRequest.left` shares integer-source and first-FP-source storage.
 Scalar/vector adapters select it using `registers.uses_frs1` before their

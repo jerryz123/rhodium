@@ -379,8 +379,71 @@ void run_batch(int count, bool fixed_only) {
   }
 }
 
+// Hold one precision's terminal result while the other client offers the next
+// operation. A waiting tag must not replace the owner, even on the release edge.
+void check_div_sqrt_owner(bool single_first) {
+  clear_epoch();
+  auto request = [](bool single, unsigned tag) {
+    auto req = operation(0, 0, false); // FDIV.D 6/2
+    req.ptag = tag;
+    if (single) {
+      req.pcontrol.pexecution.pdivide_uoperation = 1; // FSQRT.S -4: canonical NaN, NV
+      req.pcontrol.pexecution.psource_uprecision = req.pcontrol.pexecution.pdestination_uprecision = 1;
+      req.pleft_uprecision = req.pright_uprecision = req.pthird_uprecision = 1;
+      req.pleft = UINT64_C(0xffffffffc0800000);
+    }
+    return req;
+  };
+  auto check = [](const result_port_t &out, bool single, unsigned tag) {
+    CHECK(out.pvalid && out.pbits.ptag == tag);
+    CHECK(out.pbits.pvalue == (single ? UINT64_C(0xffffffff7fc00000) : UINT64_C(0x4008000000000000)));
+    CHECK(out.pbits.pexception_uflags_uvalid && out.pbits.pexception_uflags == (single ? 16 : 0));
+  };
+
+  first_in.pvalid = 1;
+  first_in.pbits = request(single_first, 0xa5);
+  eval();
+  CHECK(first_out.pready);
+  tick_model();
+  first_in = {};
+  second_in.pvalid = 1;
+  second_in.pbits = request(!single_first, 0x5a);
+  for (unsigned wait = 0;; ++wait) {
+    eval();
+    CHECK(wait < 150 && !second_out.pready && !second_result_out.pvalid);
+    if (first_result_out.pvalid) break;
+    tick_model();
+  }
+  for (int stall = 0; stall < 8; ++stall) {
+    check(first_result_out, single_first, 0xa5);
+    CHECK(!second_out.pready && !second_result_out.pvalid);
+    tick_model();
+    eval();
+  }
+  first_result_in.pready = 1;
+  eval();
+  check(first_result_out, single_first, 0xa5);
+  CHECK(!second_out.pready);
+  tick_model();
+  eval();
+  CHECK(!first_result_out.pvalid && second_out.pready);
+  tick_model();
+  second_in = {};
+  second_result_in.pready = 1;
+  for (unsigned wait = 0;; ++wait) {
+    eval();
+    CHECK(wait < 150 && !first_result_out.pvalid);
+    if (second_result_out.pvalid) break;
+    tick_model();
+  }
+  check(second_result_out, !single_first, 0x5a);
+  tick_model();
+}
+
 int main() {
   return run_test([] {
+    check_div_sqrt_owner(false);
+    check_div_sqrt_owner(true);
     clear_epoch();
     run_batch(48, 1);
     CHECK(best_run >= 32 && overlap_cycles >= 32);

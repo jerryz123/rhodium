@@ -71,10 +71,14 @@ decoded operands + opaque tag
          completion arbitration -> tagged result
 ```
 
+Divide/sqrt accepts one outstanding operation across all supported precisions.
+It holds the result and its tag through backpressure; a waiting request of
+another precision cannot launch on the edge that releases the current result.
+
 [`FpExecutionTiming`](timing.rhdl) supplies the execution and scheduling contract:
 single/half arithmetic, double arithmetic, and other fixed operations have
 independently configurable delays. Defaults preserve the current two-cycle
-return. Each lane has initiation interval one. These are nonstallable delays around combinational arithmetic,
+return. Each fixed lane has initiation interval one. These are nonstallable delays around combinational arithmetic,
 not a claim of balanced arithmetic stages. Launch arbitration prevents two
 different-latency operations from claiming the same return cycle.
 The default service reserves `timing.maximum + 2` fixed-response slots and fairly merges

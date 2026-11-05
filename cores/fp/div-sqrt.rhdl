@@ -1,204 +1,132 @@
 #lang rhodium
-/* Holds variable-latency FP completion in the arithmetic lane until writeback accepts it. */
+/* Holds one divide/sqrt owner across precisions; numerical data stays in HardFloat. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "bundles.rhdl" open
+  "profile.rhm".fp_value_width
   "types.rhdl" open
   "../../riscv/isa/fp-profile.rhm" open
   "../../riscv/isa/xlen.rhm" open
   "../../riscv/rtl/floating-point.rhdl" open
   lib("hardfloat/main.rhdl") open
   lib("rhodium/std/ready-valid.rhdl") open
-  lib("flow/rr-arbiter.rhdl").RRArbiter
-  lib("flow/demux.rhdl").demux_flow
-  lib("flow/gate.rhdl").gate_flow
 
-/* Retains one divide or square-root owner until its result transfers, NaN-boxing the output.
-   HardFloat's terminal registers hold the data; this wrapper retains validity and tag. */
-sync_circuit FpDivSqrtLane(xlen :: XLen, profile :: FloatingPointProfile, format :: FloatFormat, Tag :: DataType):
+/* Issues to one format at a time. The last format is the profile's fallback.
+   The accepted tag and format stay paired until the terminal result transfers. */
+sync_circuit FpDivSqrtBank(xlen :: XLen, profile :: FloatingPointProfile, formats :: List.of(FloatFormat), Tag :: DataType):
+  interface request(Decoupled(FpExecutionRequest(xlen, profile, Tag)), ~role: consumer)
+  interface completion(Irrevocable(FpExecutionResult(xlen, profile, Tag)), ~role: producer)
   def flen = floating_point_register_width(profile)
-  unless flen >= format.ieee_width
-  | error(~who: #'FpDivSqrtLane,
-          "floating-point register width must cover the selected format")
+  def n = formats.length()
+  def Index = Bits(index_width(n))
+  def cases = for List (i in 0..(n - 1)):
+    [if formats[i] == FloatFormat.F16 | FloatPrecision.Half | FloatPrecision.Single, Index(i)]
 
-  interface request(Decoupled(FpExecutionRequest(
-    xlen,
-    profile,
-    Tag
-  )), ~role: consumer)
-
-  interface completion(Irrevocable(FpExecutionResult(
-    xlen,
-    profile,
-    Tag
-  )), ~role: producer)
-
-  def Request = FpExecutionRequest(xlen, profile, Tag)
-  def Completion = FpExecutionResult(xlen, profile, Tag)
-  inst operation(DivSqrtRecFN(format))
+  def selected = if n == 1 | Index(0) | mux_lookup(request.bits.control.execution.source_precision, ~default: Index(n - 1), cases)
   reg busy(~init: Bool(#false))
   reg done(~init: Bool(#false))
-  request.ready <== !busy & operation.input_ready
-  operation.input_valid <== request.fire()
-  operation.square_root <== request.bits.control.execution.divide_operation === FloatDivideOperation.SquareRoot
-  operation.a <== riscv_unbox(format, flen, request.bits.left[0..flen]).to_recoded()
-  operation.b <== riscv_unbox(format, flen, request.bits.right).to_recoded()
-  operation.rounding_mode <== request.bits.rounding_mode
-  operation.tininess_mode <== TininessMode.AfterRounding
-  assert(!request.fire() ||| operation.input_ready,
-         "fp_div_sqrt_issue_available")
+  reg owner_format(Index)
+  reg owner_tag(Tag)
 
-  reg tag(Tag)
 
-  def result_valid = operation.division_valid ||| operation.square_root_valid
-  def result = riscv_canonicalize_nan(format, operation.out.to_ieee())
-  def boxed_value = riscv_nan_box(format, result, flen)
-  // HardFloat's terminal arithmetic registers remain unchanged until the next
-  // input. Retain only completion validity and ownership, never copy its data.
-  completion.valid <== busy & (done ||| result_valid)
+  /* Each format keeps its existing numerical datapath and terminal registers.
+     Only the selected unit sees the accepted request; no unit stores its tag. */
+
+  wire launch: Bool
+  wire ready: Vec(n, Bool)
+  wire finished: Vec(n, Bool)
+  wire terminal_values: Vec(n, Bits(fp_value_width(xlen, profile)))
+  wire flags: Vec(n, Bits(5))
+  for (format in formats, i in 0..n):
+    unless flen >= format.ieee_width
+    | error(~who: #'FpDivSqrtLane, "floating-point register width must cover the selected format")
+
+    inst operation(DivSqrtRecFN(format))
+    ready[i] <== operation.input_ready
+    operation.input_valid <== launch & (selected === Index(i))
+    operation.square_root <== request.bits.control.execution.divide_operation === FloatDivideOperation.SquareRoot
+    operation.a <== riscv_unbox(format, flen, request.bits.left[0..flen]).to_recoded()
+    operation.b <== riscv_unbox(format, flen, request.bits.right).to_recoded()
+    operation.rounding_mode <== request.bits.rounding_mode
+    operation.tininess_mode <== TininessMode.AfterRounding
+    def result = riscv_canonicalize_nan(format, operation.out.to_ieee())
+    def boxed = riscv_nan_box(format, result, flen)
+    terminal_values[i] <== if flen < xlen.width | boxed.zext(xlen.width) | boxed
+    finished[i] <== operation.division_valid ||| operation.square_root_valid
+    flags[i] <== riscv_exception_flags(operation.exception_flags)
+
+  request.ready <== !busy & ready[selected]
+  launch <== request.fire()
+
+
+  /* The first terminal pulse can transfer immediately. Under backpressure
+     latch only its validity; the owner and its terminal registers remain stable. */
+
+  completion.valid <== busy & (done ||| finished[owner_format])
   completion.bits <== FpExecutionResult(xlen, profile, Tag):
-    tag: tag
-    value: if flen < xlen.width | boxed_value.zext(xlen.width) | boxed_value
-    exception_flags: riscv_exception_flags(operation.exception_flags)
+    tag: owner_tag
+    value: terminal_values[owner_format]
+    exception_flags: flags[owner_format]
     exception_flags_valid: Bool(#true)
 
-  when (request.fire()):
-    tag <== request.bits.tag
+  when (launch):
+    owner_tag <== request.bits.tag
+    owner_format <== selected
     busy <== Bool(#true)
     done <== Bool(#false)
   elsewhen (completion.fire()):
     busy <== Bool(#false)
     done <== Bool(#false)
-  elsewhen (operation.division_valid ||| operation.square_root_valid):
+  elsewhen (busy & finished[owner_format]):
     done <== Bool(#true)
 
-  describe_interface_retained_storage(request.fire(), completion.fire(), busy, ~name: "arithmetic")
+  describe_interface_retained_storage(launch, completion.fire(), busy, ~name: "arithmetic")
   describe_interface_contract(request, completion, "arithmetic", ~trace_model: interface_trace_retained(~name: "arithmetic"))
 
-/* Connects the F profile to one single-precision variable arithmetic lane. */
+/* Runs a single selected HardFloat format with one opaque completion owner. */
+sync_circuit FpDivSqrtLane(xlen :: XLen, profile :: FloatingPointProfile, format :: FloatFormat, Tag :: DataType):
+  interface request(Decoupled(FpExecutionRequest(xlen, profile, Tag)), ~role: consumer)
+  interface completion(Irrevocable(FpExecutionResult(xlen, profile, Tag)), ~role: producer)
+  inst bank(FpDivSqrtBank(xlen, profile, [format], Tag))
+  request |> bank.request
+  bank.completion |> completion
+
+/* Services single-precision variable arithmetic. */
 sync_circuit FpDivSqrtF(xlen :: XLen, Tag :: DataType):
-  interface request(Decoupled(FpExecutionRequest(
-    xlen,
-    FloatingPointProfile.F,
-    Tag
-  )), ~role: consumer)
+  def profile = FloatingPointProfile.F
+  interface request(Decoupled(FpExecutionRequest(xlen, profile, Tag)), ~role: consumer)
+  interface completion(Irrevocable(FpExecutionResult(xlen, profile, Tag)), ~role: producer)
+  inst bank(FpDivSqrtBank(xlen, profile, [FloatFormat.F32], Tag))
+  request |> bank.request
+  bank.completion |> completion
 
-  interface completion(Irrevocable(FpExecutionResult(
-    xlen,
-    FloatingPointProfile.F,
-    Tag
-  )), ~role: producer)
-
-  inst lane(FpDivSqrtLane(
-    xlen,
-    FloatingPointProfile.F,
-    FloatFormat.F32,
-    Tag
-  ))
-  request |> lane.request
-  lane.completion |> completion
-
-/* Selects single or double arithmetic while permitting only one active request across both
-   lanes. */
+/* Shares one variable owner across the single and double arithmetic units. */
 sync_circuit FpDivSqrtD(xlen :: XLen, Tag :: DataType):
-  def Request = FpExecutionRequest(xlen, FloatingPointProfile.D, Tag)
-  def Completion = FpExecutionResult(xlen, FloatingPointProfile.D, Tag)
-  interface request(Decoupled(Request), ~role: consumer)
-  interface completion(Irrevocable(Completion), ~role: producer)
+  def profile = FloatingPointProfile.D
+  interface request(Decoupled(FpExecutionRequest(xlen, profile, Tag)), ~role: consumer)
+  interface completion(Irrevocable(FpExecutionResult(xlen, profile, Tag)), ~role: producer)
+  inst bank(FpDivSqrtBank(xlen, profile, [FloatFormat.F32, FloatFormat.F64], Tag))
+  request |> bank.request
+  bank.completion |> completion
 
-  inst single(FpDivSqrtLane(
-    xlen,
-    FloatingPointProfile.D,
-    FloatFormat.F32,
-    Tag
-  ))
-  inst double(FpDivSqrtLane(
-    xlen,
-    FloatingPointProfile.D,
-    FloatFormat.F64,
-    Tag
-  ))
-  reg active(~init: Bool(#false))
-  def Array(double_request, single_request) = request |> gate_flow(!active) |> demux_flow(
-    2,
-    issued => issued.control.execution.source_precision === FloatPrecision.Single
-  )
-  single_request |> single.request
-  double_request |> double.request
-
-  inst merge(RRArbiter(Completion, 2))
-  single.completion |> merge.ingress[0]
-  double.completion |> merge.ingress[1]
-  // Only one precision owns the shared variable lane at a time.
-  merge.egress.ready <== completion.ready
-  completion.valid <== merge.egress.valid
-  completion.bits <== merge.egress.bits
-  describe_interface_contract(merge.egress, completion, "data", ~trace_model: interface_trace_combinational())
-  when (request.fire()):
-    active <== Bool(#true)
-  elsewhen (completion.fire()):
-    active <== Bool(#false)
-
-/* Adds half-precision arithmetic to the F path with one shared outstanding owner. */
+/* Shares one variable owner across the half and single arithmetic units. */
 sync_circuit FpDivSqrtFHalf(xlen :: XLen, Tag :: DataType):
   def profile = FloatingPointProfile.F
-  def Request = FpExecutionRequest(xlen, profile, Tag)
-  def Completion = FpExecutionResult(xlen, profile, Tag)
-  interface request(Decoupled(Request), ~role: consumer)
-  interface completion(Irrevocable(Completion), ~role: producer)
+  interface request(Decoupled(FpExecutionRequest(xlen, profile, Tag)), ~role: consumer)
+  interface completion(Irrevocable(FpExecutionResult(xlen, profile, Tag)), ~role: producer)
+  inst bank(FpDivSqrtBank(xlen, profile, [FloatFormat.F16, FloatFormat.F32], Tag))
+  request |> bank.request
+  bank.completion |> completion
 
-  inst half(FpDivSqrtLane(xlen, profile, FloatFormat.F16, Tag))
-  inst base(FpDivSqrtF(xlen, Tag))
-  reg active(~init: Bool(#false))
-  def Array(base_request, half_request) = request |> gate_flow(!active) |> demux_flow(
-    2,
-    issued => issued.control.execution.source_precision === FloatPrecision.Half
-  )
-  half_request |> half.request
-  base_request |> base.request
-  inst merge(RRArbiter(Completion, 2))
-  half.completion |> merge.ingress[0]
-  base.completion |> merge.ingress[1]
-  // Only one precision owns the shared variable lane at a time.
-  merge.egress.ready <== completion.ready
-  completion.valid <== merge.egress.valid
-  completion.bits <== merge.egress.bits
-  describe_interface_contract(merge.egress, completion, "data", ~trace_model: interface_trace_combinational())
-  when (request.fire()):
-    active <== Bool(#true)
-  elsewhen (completion.fire()):
-    active <== Bool(#false)
-
-/* Adds half-precision arithmetic to the D path with one shared outstanding owner. */
+/* Shares one variable owner across the half, single, and double arithmetic units. */
 sync_circuit FpDivSqrtDHalf(xlen :: XLen, Tag :: DataType):
   def profile = FloatingPointProfile.D
-  def Request = FpExecutionRequest(xlen, profile, Tag)
-  def Completion = FpExecutionResult(xlen, profile, Tag)
-  interface request(Decoupled(Request), ~role: consumer)
-  interface completion(Irrevocable(Completion), ~role: producer)
-
-  inst half(FpDivSqrtLane(xlen, profile, FloatFormat.F16, Tag))
-  inst base(FpDivSqrtD(xlen, Tag))
-  reg active(~init: Bool(#false))
-  def Array(base_request, half_request) = request |> gate_flow(!active) |> demux_flow(
-    2,
-    issued => issued.control.execution.source_precision === FloatPrecision.Half
-  )
-  half_request |> half.request
-  base_request |> base.request
-  inst merge(RRArbiter(Completion, 2))
-  half.completion |> merge.ingress[0]
-  base.completion |> merge.ingress[1]
-  // Only one precision owns the shared variable lane at a time.
-  merge.egress.ready <== completion.ready
-  completion.valid <== merge.egress.valid
-  completion.bits <== merge.egress.bits
-  describe_interface_contract(merge.egress, completion, "data", ~trace_model: interface_trace_combinational())
-  when (request.fire()):
-    active <== Bool(#true)
-  elsewhen (completion.fire()):
-    active <== Bool(#false)
+  interface request(Decoupled(FpExecutionRequest(xlen, profile, Tag)), ~role: consumer)
+  interface completion(Irrevocable(FpExecutionResult(xlen, profile, Tag)), ~role: producer)
+  inst bank(FpDivSqrtBank(xlen, profile, [FloatFormat.F16, FloatFormat.F32, FloatFormat.F64], Tag))
+  request |> bank.request
+  bank.completion |> completion
 
 export:
   FpDivSqrtLane
