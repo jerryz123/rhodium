@@ -3941,6 +3941,21 @@ int main() {
     drain();
     send(UINT64_C(0x11518), imm(4, 3, 0), 0, 1);
     drain();
+    // A branch and store share an issue group, not each other's operand words.
+    reset_core();
+    lookup_mode = 1;
+    send(0x11a00, imm(1, 0, 0x300), imm(2, 0, 6));
+    send(0x11a08, imm(3, 0, 0x39), 0, 1);
+    drain();
+    {
+      const int before = dual_commits;
+      const auto not_taken = branch(2, 2, 32, 1);
+      send(0x11a0c, not_taken, store(3, 1, 0, 0));
+      send(0x11a14, store(3, 1, 1, 0), not_taken);
+      drain();
+      CHECK(dual_commits == before + 2);
+      CHECK(memory_bytes[0x300] == 0x39 && memory_bytes[0x301] == 0x39);
+    }
     // Every store width/lane consumes the selected ALU result, not the stale rs2.
     for (int slow = 0; slow < 2; slow++) {
       reset_core();

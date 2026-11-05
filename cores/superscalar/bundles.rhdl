@@ -414,6 +414,13 @@ bundle SuperscalarVectorLane():
   store: Bool
   configure: VectorConfigMode
 
+/* Two words owned by this instruction, not the issue group. A CSR uses left
+   for its source; scalar memory uses right for its unshifted write data.
+   Branch comparison, divide and vector configuration consume the pair. */
+bundle SuperscalarLaneOperands(xlen :: XLen):
+  left: Bits(xlen.width)
+  right: Bits(xlen.width)
+
 /* Retains one scalar lane's result, control transfer, and fault/replay outcome through MEM and WB. */
 bundle SuperscalarResult(xlen :: XLen, hypervisor :: Boolean):
   fetched: SuperscalarInstruction(xlen, hypervisor)
@@ -428,13 +435,10 @@ bundle SuperscalarResult(xlen :: XLen, hypervisor :: Boolean):
   pause: Bool
   locality_hint: RiscvMemoryLocality
   address: Bits(xlen.width)
-  store_data: Bits(xlen.width)
   cache_outcome: SuperscalarCacheOutcome
   system: SuperscalarSystemControl()
-  csr_source: Bits(xlen.width)
   muldiv: SuperscalarLongControl()
-  left: Bits(xlen.width)
-  right: Bits(xlen.width)
+  operands: SuperscalarLaneOperands(xlen)
   resolution: SuperscalarSyncResolution(xlen)
   fp: SuperscalarFpControl()
   fp_request: SuperscalarFpRetirement(xlen)
@@ -450,7 +454,7 @@ bundle SuperscalarResult(xlen :: XLen, hypervisor :: Boolean):
       rd: result.rd
       memory: result.memory
       address: result.address
-      store_data: result.store_data
+      store_data: result.operands.right
       fp: result.fp
       vector: result.vector.operation
 
@@ -473,7 +477,7 @@ bundle SuperscalarResult(xlen :: XLen, hypervisor :: Boolean):
       memory: result.memory
       guest_access: result.guest_access
       address: result.address
-      store_data: result.store_data
+      store_data: result.operands.right
       wait: result.system.wait
       fp: result.fp
       fp_schedule: result.fp_request.tag
@@ -538,7 +542,8 @@ bundle SuperscalarServiceOwner(xlen :: XLen, hypervisor :: Boolean):
     inactive_result.updated(
       ~fetched: fetched, ~rd: owner.rd, ~write: owner.write, ~data: data, ~result_ready: Bool(#true),
       ~branch: inactive_branch.updated(~update: update, ~mispredicted: owner.prediction_repair),
-      ~memory: owner.memory, ~guest_access: owner.guest_access, ~address: owner.address, ~store_data: owner.store_data,
+      ~memory: owner.memory, ~guest_access: owner.guest_access, ~address: owner.address,
+      ~operands: inactive_result.operands.updated(~right: owner.store_data),
       ~system: inactive_system.updated(~wait: owner.wait), ~resolution: resolution,
       ~fp: owner.fp, ~fp_request: inactive_fp.updated(~tag: owner.fp_schedule, ~destination: owner.fp.bits.registers.destination),
       ~vector: owner.vector
@@ -699,6 +704,7 @@ export:
   SuperscalarSyncResolution
   SuperscalarCauseWidth
   SuperscalarExecute
+  SuperscalarLaneOperands
   SuperscalarResult
   SuperscalarServiceOwner
   SuperscalarPendingTrap

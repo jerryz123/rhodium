@@ -96,13 +96,18 @@ the three stage banks independent so adjacent FP groups retain full throughput.
 
 Only EX stores the full `FpExecutionRequest`. The canonical MEM/WB record is
 `SuperscalarFpRetirement`: scheduling/destination, precision, operation, and
-rounding metadata, with no numeric operands. A scalar divide/sqrt captures its
-FP inputs into its own `SuperscalarResult.left/right` at EX. Select on the
-individual instruction's decoded operation, not the group's FP request: a
-paired branch still needs its integer inputs in MEM. WB takes both words from
-the surviving divide owner; replay must reacquire them on reissue. Fixed work
-already launched at EX and needs only authorization. Delayed and split FP loads
-retain their architectural owner independently of either operand word.
+rounding metadata, with no numeric operands. Fixed work already launched at EX
+and needs only authorization. Delayed and split FP loads retain their
+architectural owner independently.
+
+Each MEM and WB lane owns one two-word `SuperscalarResult.operands` record.
+Branches, integer divide, and vector configuration use the GPR pair; FP
+divide/sqrt takes the FP pair. A CSR uses the left word (rs1 or zero-extended
+immediate), and scalar memory uses the right word (including FPR data for an FP
+store). Select on the individual instruction, not the group's FP request:
+a paired branch still needs its integer operands in MEM. WB takes both words
+from the surviving divide owner; replay reacquires them on reissue. Retained
+memory owners and the passive memory observer take the same unshifted right word.
 
 At RR→EX, EX→MEM, and MEM→WB, [both lane pipes](lane-pipe.rhdl) store only
 the low 12 bits of their starting PCs. Each stage owns one shared upper-PC
@@ -456,7 +461,7 @@ Every other source and destination hazard retains its ordinary interlock.
 The same ordinary ALU producer may supply a younger integer store's rs2.
 Waive only that source's RAW/read interlock and carry its `StoreData` route
 through EX. Select the older ALU result before StoreGen and retain the raw value
-in the existing MEM/WB `store_data` payload, including slow and split accesses.
+in the lane's right operand word, including for slow and split accesses.
 The store's rs1 dependency needs its own constant, composition, or address route;
 store-data forwarding alone does not waive it or restrict its immediate offset.
 Producer admission, WB store authorization, and oldest fault/replay priority
