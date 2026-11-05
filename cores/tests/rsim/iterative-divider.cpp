@@ -133,6 +133,24 @@ int main() {
     CHECK(!response_out.pvalid);
     expect_result_after(7, UINT64_C(7), UINT64_C(2));
 
+    // Stall an iterative result while a signed divide-by-zero request waits.
+    // Both result words must hold, then be replaced together on release.
+    response_in.pready = 0;
+    request_in = {.pvalid = 1, .pbits = {0xed, 0, 1}};
+    for (int stall = 0; stall < 4; ++stall) {
+      eval();
+      CHECK(!request_out.pready);
+      expect_result_after(0, 7, 2);
+      tick_model();
+    }
+    response_in.pready = 1;
+    eval();
+    CHECK(request_out.pready);
+    expect_result_after(0, 7, 2);
+    tick_model();
+    request_in.pvalid = 0;
+    expect_result_after(0, 0xff, 0xed);
+
     for (int signed_mode = 0; signed_mode < 2; signed_mode++) {
       for (int dividend = 0; dividend < 256; dividend++) {
         for (int divisor = 0; divisor < 256; divisor++) {

@@ -290,6 +290,12 @@ full-width oracle checks every valid cycle, including bubbles and reset with
 work in flight. Preserve the raw partial-product, carry-save, final-add boundary;
 do not reintroduce operand-dependent shortcuts or completed-product storage.
 
+`iterative-divider` exhausts all eight-bit operand pairs in both signed modes,
+checking the quotient, remainder, and exact response cycle. Keep the trial
+subtraction one bit wider than the operands. Finalization corrects signs in
+the working registers themselves; a blocked response holds both words until
+transfer, including when a new request replaces it on that same edge.
+
 ```sh
 tools/run-racket-tests.sh cores/tests/branch-resolver-test.rhm
 FIXTURES='rv32i-alu rv64i-alu load-store iterative-multiplier pipelined-multiplier iterative-divider' python3 tools/testing/rsim/run.py

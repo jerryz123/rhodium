@@ -1,5 +1,5 @@
 #lang rhodium
-/* Implements a width-generic iterative signed or unsigned integer divider. */
+/* Implements iterative integer division with in-place quotient and remainder writeback. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -33,17 +33,20 @@ sync_circuit IterativeDivider(width :: PosInt):
   reg active(~init: Bool(#false))
   reg finalizing(~init: Bool(#false))
   reg count(~init: Bits(count_width)(0))
-  reg dividend(Bits(width))
+  // The quotient word shifts out dividend bits and shifts in quotient bits.
+  // Once valid, these same two registers hold the signed or unsigned response.
+  reg quotient_word(Bits(width))
+  reg remainder_word(Bits(width))
   reg divisor(Bits(width))
-  reg partial_remainder(Bits(remainder_width))
   reg negate_quotient(Bool)
   reg negate_remainder(Bool)
   reg response_valid(~init: Bool(#false))
-  reg response_bits(DividerResponse(width))
 
   request.ready <== !active & !finalizing & (!response_valid ||| response.ready)
   response.valid <== response_valid
-  response.bits <== response_bits
+  response.bits <== DividerResponse(width):
+    quotient: quotient_word
+    remainder: remainder_word
 
   def request_fire = request.fire()
   def response_fire = response.fire()
@@ -71,49 +74,47 @@ sync_circuit IterativeDivider(width :: PosInt):
   def dividend_leading_zeros = count_leading_zeros(dividend_magnitude)
   def initial_count = dividend_leading_zeros[0..count_width]
   def aligned_dividend = dividend_magnitude << dividend_leading_zeros
-  def shifted_remainder :: Bits(remainder_width) = (partial_remainder[0..width] ++ dividend[width - 1])
+  // Only the trial shift and subtraction need a guard bit.
+  def shifted_remainder :: Bits(remainder_width) = remainder_word ++ quotient_word[width - 1]
   def extended_divisor = divisor.zext(remainder_width)
   def difference :: Bits(remainder_width) = shifted_remainder - extended_divisor
   def quotient_bit :: Bool = !difference[width].into(Bool)
-  def next_remainder :: Bits(remainder_width) = mux(quotient_bit, difference, shifted_remainder)
-  def next_dividend :: Bits(width) = (dividend << 1) ||| quotient_bit.as_bits().zext(width)
-  def quotient_value = mux(negate_quotient, -dividend, dividend)
-  def remainder_magnitude :: Bits(width) = partial_remainder[0..width]
-  def remainder_value = mux(negate_remainder, -remainder_magnitude, remainder_magnitude)
+  def next_remainder = mux(quotient_bit, difference[0..width], shifted_remainder[0..width])
+  def next_quotient_word = (quotient_word << 1) ||| quotient_bit.as_bits().zext(width)
+  def quotient_value = mux(negate_quotient, -quotient_word, quotient_word)
+  def remainder_value = mux(negate_remainder, -remainder_word, remainder_word)
   def last_iteration = count === Bits(count_width)(width - 1)
 
   when (request_fire & direct_result):
     active <== Bool(#false)
     finalizing <== Bool(#false)
     response_valid <== Bool(#true)
-    response_bits <== DividerResponse(width):
-      quotient: direct_quotient
-      remainder: direct_remainder
+    quotient_word <== direct_quotient
+    remainder_word <== direct_remainder
   elsewhen request_fire:
     active <== Bool(#true)
     finalizing <== Bool(#false)
     count <== initial_count
-    dividend <== aligned_dividend
+    quotient_word <== aligned_dividend
     divisor <== divisor_magnitude
-    partial_remainder <== Bits(remainder_width)(0)
+    remainder_word <== Bits(width)(0)
     negate_quotient <== request_negate_quotient
     negate_remainder <== request_negate_remainder
     response_valid <== Bool(#false)
   elsewhen (active & last_iteration):
     active <== Bool(#false)
     finalizing <== Bool(#true)
-    dividend <== next_dividend
-    partial_remainder <== next_remainder
+    quotient_word <== next_quotient_word
+    remainder_word <== next_remainder
   elsewhen finalizing:
     finalizing <== Bool(#false)
     response_valid <== Bool(#true)
-    response_bits <== DividerResponse(width):
-      quotient: quotient_value
-      remainder: remainder_value
+    quotient_word <== quotient_value
+    remainder_word <== remainder_value
   elsewhen active:
     count <== count + Bits(count_width)(1)
-    dividend <== next_dividend
-    partial_remainder <== next_remainder
+    quotient_word <== next_quotient_word
+    remainder_word <== next_remainder
   elsewhen response_fire:
     response_valid <== Bool(#false)
 
