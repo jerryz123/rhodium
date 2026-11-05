@@ -44,5 +44,44 @@ int main() {
     for (unsigned port : {0u, 1u, 3u}) {
       read_blocked[port] = 1; expect(port == 0 ? 0 : 2); read_blocked[port] = 0;
     }
+    // Adjacent ALU -> zero-offset load bypasses address capture and coalesces
+    // either older destination without losing that prefix's write reservation.
+    for (unsigned destination : {13u, 14u}) {
+      clear(); instructions[0] = addi(13, 14); instructions[1] = add(14, 15, 19);
+      instructions[2] = load(destination, 14); read_blocked[1] = 1; expect(3);
+      CHECK(operands[2].prewrite.pmemory_uaddress);
+      CHECK(!decision.pdata_uhazard[2] && !decision.pstructural_uhazard[2]);
+      CHECK(decision.pwrites.pports[2] == (destination == 13 ? 0 : 1));
+      CHECK(decision.preserve[0] && decision.preserve[1]);
+      read_blocked[2] = 1; expect(1); // Producer's own operands still interlock.
+      read_blocked[2] = 0; instructions[2] |= 4u << 20; expect(2);
+      CHECK(!operands[2].prewrite.pmemory_uaddress); // Nonzero displacement adds a dependency.
+    }
+    // No free address read path is necessary when the adjacent ALU supplies it.
+    clear(); instructions[0] = add(0, 10, 11); instructions[1] = add(14, 15, 19);
+    instructions[2] = load(14, 14); expect(3);
+    CHECK(!reads.pgranted[2][0] && operands[2].prewrite.pmemory_uaddress);
+    // The nearest writer supersedes an older same-register producer for rs1.
+    clear(); instructions[0] = addi(14, 10); instructions[1] = add(14, 15, 19);
+    instructions[2] = load(14, 14); expect(3);
+    // Same-destination load coalescing is independent of address forwarding.
+    clear(); instructions[0] = addi(13); instructions[1] = addi(14);
+    instructions[2] = load(14, 15); expect(3); CHECK(!operands[2].prewrite.pmemory_uaddress);
+    instructions[2] = load(16, 15); expect(2); // Three distinct destinations still need 3W.
+    // A middle load can defer while the third writer succeeds: its older write
+    // must not be restored onto the third lane's statically borrowed port.
+    clear(); instructions[0] = addi(13); instructions[1] = load(13, 15);
+    instructions[2] = addi(14); expect(2);
+    CHECK(decision.pstructural_uhazard[2]);
+    instructions[2] = addi(13); expect(2); // Deferred WAW still orders a younger overwrite.
+    // Store data remains independently captured; address bypass cannot waive rs2.
+    clear(); instructions[0] = addi(13, 10); instructions[1] = add(14, 15, 19);
+    instructions[2] = (12u << 20) | (14u << 15) | 0x2023; expect(3);
+    CHECK(operands[2].prewrite.pmemory_uaddress && operands[2].prs2 == read_data[1]);
+    read_blocked[1] = 1; expect(2);
+    read_blocked[1] = 0; instructions[2] = (14u << 20) | (14u << 15) | 0x2023; expect(2);
+    // Deferred ALU substitutes are not eligible address producers.
+    clear(); instructions[1] = multiply(14); instructions[2] = load(14, 14); expect(2);
+    CHECK(!operands[2].prewrite.pmemory_uaddress);
   });
 }

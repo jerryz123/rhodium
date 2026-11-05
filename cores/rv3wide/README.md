@@ -52,8 +52,13 @@ for rs2, only when those donor operands are unused or x0. A sole required operan
 can fall back to the other free donor; two required operands keep fixed routes. Issue selects
 an older move's captured read path when a same-group copy
 dependency permits sharing; this works even when the usual donor is occupied.
+Zero-offset scalar loads/stores in lane 3 may select lane 2's ALU result as their
+address without a register-read path or a second dependent addition. Other
+operands keep their normal interlocks.
 Issue assigns the write port from the two existing ports. Three distinct direct GPR writes cannot
 coissue; same-destination overwrites can share capacity without merging retirements.
+Loads may share that capacity on a hit; a faulting, replayed, or delayed load
+preserves the older write instead of suppressing it.
 
 All three lanes can execute branches, loads/stores, FP, vector, and multiply/divide
 operations. This does not add execution-service bandwidth: same-group conflicts,

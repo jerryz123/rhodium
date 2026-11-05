@@ -6,6 +6,9 @@
 using Request = std::remove_cvref_t<decltype(pipeline_out.prequest.pbits)>;
 Request lookup{}, commit_owner{};
 bool lookup_valid = false, slow = false, accepting = true, proof = false;
+bool split_active = false, split_fault = false;
+unsigned split_due = 0;
+std::remove_cvref_t<decltype(split_in.presponse.pbits)> split_reply{};
 std::map<std::uint64_t, std::uint64_t> words, values;
 std::map<std::uint64_t, std::uint32_t> original_instructions;
 std::map<std::uint64_t, unsigned> lanes, training;
@@ -47,6 +50,9 @@ void step() {
   memory_in.pdrained = responses.empty();
   memory_in.presponse.pvalid = !responses.empty() && responses.front().second <= cycle;
   memory_in.presponse.pbits = responses.empty() ? 0 : responses.front().first;
+  split_in.prequest.pready = !split_active;
+  split_in.presponse.pvalid = split_active && cycle >= split_due;
+  split_in.presponse.pbits = split_reply;
   vector_precheck_in.prequest.pready = !proof;
   vector_precheck_in.presponse.pvalid = proof;
   vector_precheck_in.presponse.pbits = 1;
@@ -87,6 +93,25 @@ void step() {
       const auto &r = memory_out.prequest.pbits;
       if (r.paccess == 2) store(r);
       responses.push_back({words[r.paddress & ~UINT64_C(7)], cycle + 8});
+    }
+    if (split_in.presponse.pvalid) split_active = false;
+    if (split_out.prequest.pvalid && split_in.prequest.pready) {
+      const auto &r = split_out.prequest.pbits;
+      CHECK(r.paccess == 1);
+      const unsigned bytes = 1u << r.pwidth;
+      std::uint64_t data = 0;
+      for (unsigned byte = 0; byte < bytes; ++byte) {
+        const auto address = r.paddress + byte;
+        data |= ((words[address & ~UINT64_C(7)] >> (8 * (address & 7))) & 255) << (8 * byte);
+      }
+      if (!r.punsigned && bytes < 8 && (data & (UINT64_C(1) << (8 * bytes - 1))))
+        data |= UINT64_MAX << (8 * bytes);
+      split_reply = {};
+      split_reply.presponse.pdata = data;
+      split_reply.ppage_ufault = split_fault;
+      split_reply.pfault_uaddress = r.paddress;
+      split_active = true;
+      split_due = cycle + 12;
     }
   }
   const bool next_proof = (proof && !vector_precheck_out.presponse.pready) ||
@@ -249,6 +274,65 @@ int main() {
     const auto configured = send({0x13, 0xc0007057 | 2u << 15, vi(23, 0, 7, 3, 2)});
     drain(); CHECK(lanes.at(configured + 8) == 2);
     third(vi(16, 2, 0, 2, 15)); drain(); CHECK(gprs[15] == 7);
+    // Three-wide address forwarding and load coalescing must agree with real RF
+    // contents, not just retirement data. Exercise both borrowed write ports and
+    // restore the older value when the load does not write at this WB boundary.
+    for (unsigned destination : {13u, 14u}) for (unsigned mode = 0; mode < 8; ++mode) {
+      const bool split = mode >= 6, success = mode < 2 || mode == 6;
+      const auto address = split ? 0x111u : 0x110u;
+      send({addi(14, 0, 0x777), addi(15, 0, 4), addi(19, 0, split ? 0x101 : 0x100)}); drain();
+      words[0x110] = split ? UINT64_C(0xffffff8000002a00) : UINT64_C(0xffffffff8000002a);
+      slow = mode == 1 || mode == 2;
+      accepting = mode != 2;
+      split_fault = mode == 7;
+      if (mode >= 3 && mode < 6) {
+        fault_pc = pc + (mode == 5 ? 4 : 8);
+        fault_disposition = mode == 4 ? 2 : 1;
+      }
+      const auto before = triples;
+      const auto before_requests = requests;
+      const auto base = send({addi(13, 14, 0), (19u << 20) | (15u << 15) | (4u << 12) | (14u << 7) | 0x2000003b,
+                              (14u << 15) | (destination << 7) | 0x2003}); // SH2ADD.UW then LW.
+      drain();
+      CHECK(triples == before + 1 && lanes.at(base) == 0);
+      CHECK(values.at(base) == 0x777);
+      if (mode == 5) CHECK(!lanes.contains(base + 4));
+      else CHECK(lanes.at(base + 4) == 1 && values.at(base + 4) == address);
+      if (success) CHECK(lanes.at(base + 8) == (split ? 0 : 2));
+      else CHECK(!lanes.contains(base + 8) && redirect_pc == base + (mode == 5 ? 4 : 8));
+      CHECK(requests == before_requests + (mode == 1 ? 1 : 0));
+      const auto want13 = success && destination == 13 ? UINT64_C(0xffffffff8000002a) : 0x777;
+      const auto want14 = success && destination == 14 ? UINT64_C(0xffffffff8000002a) : mode == 5 ? 0x777 : address;
+      slow = false; accepting = true; fault_pc = 0;
+      send({addi(20, 13, 0), addi(21, 14, 0)}); drain();
+      CHECK(gprs[20] == want13 && gprs[21] == want14);
+      if (mode == 2 || mode == 4) {
+        // Replay only the load suffix, with its older address producer in the RF.
+        const auto next = pc; pc = base + 8;
+        send({(14u << 15) | (destination << 7) | 0x2003}); drain(); pc = next;
+        send({addi(22, destination, 0)}); drain();
+        CHECK(gprs[22] == UINT64_C(0xffffffff8000002a));
+      }
+    }
+    // A zero-offset store uses the adjacent address but retains its own data.
+    send({addi(14, 0, 9), addi(15, 0, 4), addi(19, 0, 0x100)}); drain();
+    send({addi(12, 0, 73)}); drain();
+    const auto address_store = send({addi(13, 14, 0), (19u << 20) | (15u << 15) | (4u << 12) | (14u << 7) | 0x2000003b,
+                                     (12u << 20) | (14u << 15) | 0x2023});
+    drain(); CHECK(lanes.at(address_store + 8) == 2 && (words[0x110] & 0xffffffff) == 73);
+    // A middle-lane miss restores the first write while a later distinct write
+    // remains independent. It cannot lend that restored port to lane three.
+    for (bool delayed : {false, true}) {
+      send({addi(10, 0, 0x110)}); drain();
+      words[0x110] = 91; slow = delayed;
+      const auto before = triples;
+      const auto middle = send({addi(13, 0, 17), (10u << 15) | (13u << 7) | 0x2003, addi(14, 0, 19)});
+      drain(); slow = false;
+      CHECK(triples == before && lanes.at(middle) == 0 && lanes.at(middle + 4) == 1);
+      CHECK(lanes.at(middle + 8) != 2 && values.at(middle) == 17);
+      send({addi(20, 13, 0), addi(21, 14, 0)}); drain();
+      CHECK(gprs[20] == 91 && gprs[21] == 19);
+    }
     CHECK(triples >= 15);
   });
 }

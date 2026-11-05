@@ -10,7 +10,8 @@ import:
 
 /* Selects up to three instructions without skipping an older blocked candidate.
    Lane 3 shares the two older rs2 paths, retaining fixed routes for two operands; it has no
-   general same-group EX forwarding route and may borrow either unused physical write port.
+   general same-group EX forwarding route, but zero-offset memory may use lane 2's ALU result.
+   Lane 3 may borrow either unused physical write port.
    Move consumers may share the older move's captured physical read path. */
 circuit RV3WideIssue(xlen :: XLen):
   input candidates: Vec(3, SuperscalarIssueCandidate(xlen))
@@ -24,11 +25,18 @@ circuit RV3WideIssue(xlen :: XLen):
   def traits :: Vec(3, SuperscalarIssueTraits()) = vec(for List (lane in 0..3): superscalar_issue_traits(xlen, candidates[lane]))
   reads <== superscalar_issue_reads(xlen, 3, candidates)
   def pairing = superscalar_pairing(vec(candidates[0].control, candidates[1].control), vec(candidates[0].decodable, candidates[1].decodable), candidates[0].rd, vec(candidates[1].rs1, candidates[1].rs2), vec(candidates[0].instruction, candidates[1].instruction), traits[0].deferred, ~forwarded: reads.forwarded[1])
-  instructions <== superscalar_issue_instructions(xlen, 3, candidates, pairing)
+  def adjacent_producer = superscalar_pair_producer(candidates[1].control, candidates[1].decodable, candidates[1].rd, traits[1].deferred)
+  def third_base_match = candidates[2].decodable & candidates[2].control.operand.uses_rs1 & (candidates[1].rd === candidates[2].rs1)
+  def third_address = adjacent_producer & third_base_match & superscalar_zero_offset_memory(candidates[2].control, candidates[2].instruction)
+  def prepared = superscalar_issue_instructions(xlen, 3, candidates, pairing)
+  instructions <== vec(prepared[0], prepared[1], prepared[2].updated(~pair: prepared[2].pair.updated(~memory_address: third_address)))
+  // The adjacent writer is newer than either earlier source. Its address route
+  // replaces the entire rs1 dependence, but never a store's independent rs2.
+  def third_forwarded = vec(reads.forwarded[2][0] ||| third_address, reads.forwarded[2][1])
   def first_pair = superscalar_issue_pair_hazards(xlen, candidates[0], candidates[1], traits[0], traits[1], pairing.unresolved.any(), resources.fixed_returns_collide)
   def third_pairs = vec(
     for List (older in 0..2):
-      superscalar_issue_pair_hazards(xlen, candidates[older], candidates[2], traits[older], traits[2], superscalar_issue_raw(xlen, candidates[older], candidates[2], traits[older], reads.forwarded[2]), resources.fixed_returns_collide)
+      superscalar_issue_pair_hazards(xlen, candidates[older], candidates[2], traits[older], traits[2], superscalar_issue_raw(xlen, candidates[older], candidates[2], traits[older], third_forwarded), resources.fixed_returns_collide)
   )
   def pair_data = vec(Bool(#false), first_pair.data, third_pairs[0].data ||| third_pairs[1].data)
   def pair_structural = vec(Bool(#false), first_pair.structural, third_pairs[0].structural ||| third_pairs[1].structural)
@@ -46,18 +54,22 @@ circuit RV3WideIssue(xlen :: XLen):
   def mutable prior_structural :: Bool = Bool(#false)
   def mutable branches :: Bits(4) = resources.training_pending
   def results :: List.of(Vec(3, Bool)) = for List (lane in 0..3):
-    def read_unallocated = any(for List (source in 0..2): reads.needed[lane][source] & !reads.granted[lane][source])
+    def replaced = if lane == 1 | pairing.replaced() | vec(Bool(lane == 2) & third_address, Bool(#false))
+    def read_unallocated = any(for List (source in 0..2): reads.needed[lane][source] & !replaced[source] & !reads.granted[lane][source])
     def blocked = any(
       for List (source in 0..2):
         def port = reads.ports[lane][source]
-        def replaced = if lane == 1 | pairing.replaced()[source] | Bool(#false)
-        reads.needed[lane][source] & reads.granted[lane][source] & !replaced & read_blocked[port]
+        reads.needed[lane][source] & reads.granted[lane][source] & !replaced[source] & read_blocked[port]
     )
     def hazards = superscalar_issue_lane_hazards(xlen, candidates[lane], traits[lane], status[lane], resources, blocked, branches)
     branches := branches + traits[lane].branch.as_bits().zext(4)
     def excluded = any(for List (older in 0..lane): superscalar_issue_pair_excluded(xlen, candidates[older], traits[older], traits[lane]))
     def younger_blocked = Bool(lane > 0) & (resources.younger_slot_reserved ||| resources.vector_waiting ||| excluded ||| !superscalar_issue_pc_allowed(xlen, candidates[0].pc, candidates[lane].pc) ||| (!candidates[lane].fetch_fault & !candidates[lane].decodable))
-    def proposed = superscalar_write_routing(3, destinations, vec(for List (index in 0..3): Bool(index <= lane) & traits[index].direct), coalescible, resources.write_available)
+    // A load may defer without killing a younger writer. Only a tail load may
+    // free its predecessor's port; otherwise that restored write could collide
+    // with the younger lane's fixed port even though every prefix fits.
+    def prefix_coalescible = vec(for List (index in 0..3): coalescible[index] & (!traits[index].deferred ||| Bool(index == lane)))
+    def proposed = superscalar_write_routing(3, destinations, vec(for List (index in 0..3): Bool(index <= lane) & traits[index].direct), prefix_coalescible, resources.write_available)
     def local_data = hazards.data ||| pair_data[lane]
     def local_structural = hazards.structural ||| read_unallocated ||| younger_blocked ||| pair_structural[lane] ||| !proposed.fits
     prefix := prefix & candidates[lane].present & !local_data & !local_structural & !status[lane].vector_blocked

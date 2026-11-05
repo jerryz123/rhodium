@@ -85,23 +85,29 @@ bundle SuperscalarPairing():
   method replaced(pairing) :: Vec(2, Bool):
     vec(for List (source in 0..2): pairing.routes[source] =/= SuperscalarPairRoute.Register)
 
+/* Identifies ordinary ALU writers whose result can feed a same-group consumer. */
+fun superscalar_pair_producer(older :: SuperscalarControl(), valid :: Bool, destination :: Bits(5), deferred :: Bool) :~ Bool:
+  valid & older.writeback.enable & destination.any() & !deferred & !older.fp.valid & !older.system.uses_command() & !older.branch.resolver.enable
+
+/* Recognizes ordinary load/store addresses that need no addition after a bypass. */
+fun superscalar_zero_offset_memory(control :: SuperscalarControl(), instruction :: Bits(32)) :~ Bool:
+  def zero_displacement = mux_lookup(control.operand.immediate, ~default: Bool(#false)):
+    OperandImmediate.Zero: Bool(#true)
+    OperandImmediate.I: !instruction_field(fields.immediate12, instruction).any()
+    OperandImmediate.S: all(for List (piece in fields.SImmediate.pieces): !instruction_field(piece.source, instruction).any())
+
+  control.memory.enable & control.memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store) & zero_displacement
+
 /* Resolves each younger RAW against an eligible older ALU writer without changing either instruction's resource admission. */
 fun superscalar_pairing(controls :: Vec(2, SuperscalarControl()), valid :: Vec(2, Bool), destination :: Bits(5), sources :: Vec(2, Bits(5)), instructions :: Vec(2, Bits(32)), older_deferred :: Bool, ~forwarded: forwarded :: Vec(2, Bool) = vec(Bool(#false), Bool(#false))) :: SuperscalarPairing():
   def older :: SuperscalarControl() = controls[0]
   def younger :: SuperscalarControl() = controls[1]
-  def immediate :: OperandImmediate = younger.operand.immediate
   def writes = valid[0] & older.writeback.enable & destination.any()
   def used = vec(younger.operand.uses_rs1, younger.operand.uses_rs2)
   def dependency = vec(for List (source in 0..2): valid[1] & writes & used[source] & (destination === sources[source]))
-  def producer = writes & !older_deferred & !older.fp.valid & !older.system.uses_command() & !older.branch.resolver.enable
+  def producer = superscalar_pair_producer(older, valid[0], destination, older_deferred)
   def scalar_memory = younger.memory.enable & younger.memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store)
-  // Test encoded displacement bits; do not build an XLEN immediate datapath in issue.
-  def zero_displacement = mux_lookup(immediate, ~default: Bool(#false)):
-    OperandImmediate.Zero: Bool(#true)
-    OperandImmediate.I: !instruction_field(fields.immediate12, instructions[1]).any()
-    OperandImmediate.S: all(for List (piece in fields.SImmediate.pieces): !instruction_field(piece.source, instructions[1]).any())
-
-  def memory_address = scalar_memory & zero_displacement
+  def memory_address = superscalar_zero_offset_memory(younger, instructions[1])
   def store_data = !younger.fp.valid & younger.memory.enable & (younger.memory.access === CacheOperation.Store)
   def branch_operand = younger.branch.resolver.enable & !younger.branch.resolver.unconditional
   def vector_scalar = !younger.vector.memory & (younger.vector.integer ||| younger.vector.floating_point ||| younger.vector.multiply_divide) & younger.operand.uses_rs1
@@ -164,6 +170,8 @@ export:
   superscalar_pair_immediate_width
   SuperscalarPairing
   superscalar_pairing
+  superscalar_pair_producer
+  superscalar_zero_offset_memory
   SuperscalarReadSource
   SuperscalarPairControl
   SuperscalarIssueInstruction

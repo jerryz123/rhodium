@@ -878,7 +878,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
        Mask after the selected address bypass. Explicit guest execute-reads
        disable guest masking; ordinary MPRV/MPV applies only to data privilege. */
 
-    def ex_raw_address = if lane == 1 | mux(ex.operands.rewrite.memory_address, ex_alu_older.result, ex_alu.result) | ex_alu.result
+    def ex_raw_address = if lane > 0 | mux(ex.operands.rewrite.memory_address, ex_alus[lane - 1].result, ex_alu.result) | ex_alu.result
     def ex_explicit_guest = ex.control.guest_access =/= RiscvGuestMemoryAccess.Normal
     // Serialized CSR updates flush younger work before a new masking mode is observed.
     def ex_mask :: PointerMaskControl():

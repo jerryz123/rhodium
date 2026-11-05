@@ -10,8 +10,8 @@ This package owns one shared pipeline, used by both
 parameters, defaults, validation, and architectural descriptions. The named
 wrappers do not duplicate those fields or reconstruct the pipeline config.
 The supplied issue module selects two or three instruction lanes. RV3Wide adds
-an ordinary integer ALU lane; shared-service and branch operations execute in
-the first two lanes after window compaction. Both cores fetch eight bytes per
+an integer ALU lane that can also own the existing shared services and branches.
+Both cores fetch eight bytes per
 cycle and retain a 4R2W register file. The examples below use RV2Wide; replacing `rv2wide` with `rv3wide` selects
 the corresponding independently named hart with the same CI workload policy.
 
@@ -285,8 +285,11 @@ Read ownership depends on candidate source demand, never the final issue count.
 The module combines that readiness with same-group RAW/WAW checks, the existing
 first-pair operand rewrites, shared scalar/FP/vector resource limits, ordered
 memory, serialization, PAUSE, and PC-region constraints. A third candidate can
-consume older move sources, but other same-group result dependencies block it;
-there is no general ALU-to-ALU chain.
+consume older move sources. Its zero-offset scalar load/store can also use lane
+2's ALU result directly as the address, just as lane 2 can use lane 1's result.
+This route needs no address read port and bypasses the consumer's address adder;
+unrelated operands still require their allocated paths. Other third-lane
+same-group result dependencies block it; there is no general ALU-to-ALU chain.
 
 Every admitted lane can own the existing shared memory, FP, vector, or integer
 arithmetic service. Service bandwidth is unchanged; issue prevents conflicting
@@ -307,8 +310,12 @@ and x0 need no port. Successful same-destination direct writes may share capacit
 by suppressing older physical writes, without merging architectural retirement.
 The reservation envelope covers every possible successful retirement prefix:
 a younger fault cannot restore an older write onto an unreserved port. Deferred
-writers do not suppress older direct writes, and potentially direct load-hit
-results still require capacity.
+writers do not suppress older direct writes. A potentially direct load-hit
+result may share an older same-destination writer's capacity, but suppresses
+that write only when it actually completes directly. Faults, replays, and
+deferred or retained loads preserve the older value and its retirement record.
+A middle-lane load cannot free a port for a distinct younger writer: its miss
+could require both the restored older write and that younger write together.
 
 The named hart/factory supplies its issue module through `~issue`; shared
 pipeline configuration remains parameter data, not an implementation selector.
@@ -317,10 +324,6 @@ through RR/EX/MEM/WB. Issue assigns fixed write-port selectors and younger-alias
 masks; WB qualifies them against successful writes without reallocating ports.
 A killed younger overwrite cannot suppress its older writer. Shared-service
 completion calendars and younger-slot reservations remain conservative.
-Lane 3 currently accepts ordinary integer ALU work and fetch-fault tokens, not
-branches, memory, FP/vector, or system-service operations; those instructions
-remain in the window until they reach an implemented lane. A group containing
-vector execution or configuration also remains at most two-wide.
 
 ## Floating point
 

@@ -141,12 +141,15 @@ fun superscalar_issue_traits(xlen :: XLen, candidate :: SuperscalarIssueCandidat
   def long = control.muldiv.service =/= SuperscalarLongOperation.None
   def variable_fp = control.fp.valid & (control.fp.bits.execution.unit === FloatUnit.DivideSquareRoot)
   def deferred = control.memory.enable ||| long ||| candidate.late_gpr ||| vector
+  // A load may write directly on a hit. WB restores the older write on a fault,
+  // replay, or deferred completion instead of treating the reservation as success.
+  def load = control.memory.enable & (control.memory.access === CacheOperation.Load)
   def writes = candidate.decodable & control.writeback.enable & candidate.rd.any()
   def vector_frs1 = vector & control.vector.floating_point & (control.vector.operand === VectorOperandMode.FloatingScalar)
   SuperscalarIssueTraits():
     deferred: deferred
     direct: writes & !long & !candidate.late_gpr & !vector & !variable_fp
-    coalescible: !deferred & !variable_fp
+    coalescible: (!deferred ||| load) & !variable_fp
     writes: writes
     multiply: writes & (control.muldiv.service === SuperscalarLongOperation.Multiply)
     vector: vector

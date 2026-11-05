@@ -125,9 +125,13 @@ projection, vector ordering state, and actual calendar bookings in the core.
 The physical 2W RF interface stays unchanged as the instruction group widens.
 
 Write routing keeps normal lanes 1/2 on ports 0/1 and lets lane 3 borrow either
-unused port. Admission includes potentially direct load-hit writers; only
-known direct younger writers can coalesce away older physical writes. Scan
-every prefix before accepting the full group, retaining the union of occupied
+unused port. Admission includes potentially direct load-hit writers, which may
+coalesce with older same-destination writes just like known direct writers. Use
+a prefix-local eligibility mask: a potentially deferred load can release
+capacity only at the tail of that prefix. A middle load can defer without
+killing a younger writer; restoring its predecessor must not collide with that
+younger writer's fixed port. Successful-prefix checks alone do not cover this case.
+Scan every prefix before accepting the full group, retaining the union of occupied
 ports: all-success coalescing must not hide a port needed when a younger lane
 faults. Issue's port selectors and younger-destination alias masks advance with
 the group through EX/MEM/WB. WB qualifies suppression with actual direct-write
@@ -546,9 +550,13 @@ For scalar memory, RR may waive the younger rs1 RAW/read interlock for a zero-di
 load/store (including FP memory and HLV/HLVX) whose base is the same-pair older non-memory,
 non-M, non-FP, non-system, non-branch writer. The older writer still passes every
 ordinary admission interlock.
-Carry `rewrite.memory_address` across the existing EX register; select slot zero's
-ALU result directly as the younger address, after rather than before the younger
-ALU. Never route this bypass through another dependent addition. Keep normal
+Carry `rewrite.memory_address` across the existing EX register; select the
+immediately preceding lane's ALU result directly as the younger address, after
+rather than before the younger ALU. RV3Wide recognizes the lane 2→3 route
+independently of the full lane 1→2 pairing machinery. It replaces only rs1's
+RAW/read-allocation/readiness checks; the nearest writer supersedes earlier
+rs1 matches. Do not waive store-data or destination hazards. Never route this
+bypass through another dependent addition. Keep normal
 MEM checks, WB authorization, split-access ownership, and fault/replay priority.
 Every other source and destination hazard retains its ordinary interlock.
 
@@ -1585,7 +1593,12 @@ aliases, qualified-write masks, coalescing eligibility, and reserved ports,
 including shortened retirement prefixes. Directed groups cover first-pair
 rewrites, third-lane RAWs, deferred WAWs, scalar/FP/vector service collisions,
 serialization, fetch faults, PAUSE, ordered memory, PC wrap and branch-training
-capacity. Operand checks cover every selected physical path, first-pair constants,
+capacity. Third-lane address tests cover both blocked and unavailable address
+read paths, producer readiness, nonzero offsets, unrelated store data, and
+nearest-writer priority. Integrated service tests check address forwarding and
+both coalesced load write ports on hits, deferred returns, rejected admission,
+fault/replay, older faults, retained split success/fault, and subsequent RF consumers.
+Operand checks cover every selected physical path, first-pair constants,
 PC/register bases, signed immediate sums, later-stage mux controls, and blocked
 sources/donors. They also check emitted instruction bits, decoded controls,
 and source selectors independently of register data. Pair these fixtures with the four core integration fixtures above
