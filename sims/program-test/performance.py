@@ -22,14 +22,15 @@ def counter_tolerances(soc):
     core = selections()[soc][1]
     if core not in ('rv5stage', 'rv2wide', 'rv3wide'):
         return policy
+    width = {'rv5stage': 1, 'rv2wide': 2, 'rv3wide': 3}[core]
     policy.update({f'rtl/{name}': dict(percent=5, absolute=2) for name in (
         'icache_miss', 'dcache_miss', 'mispredict_direction', 'mispredict_direct_target',
         'mispredict_indirect_target', 'mispredict_return_target', 'mispredict_nonbranch',
         'mispredict_ras_action')})
     policy.update({f'rtl/issue_{n}': dict(percent=5, absolute=0)
-                   for n in range(1, 3 if core in ('rv2wide', 'rv3wide') else 2)})
+                   for n in range(1, width + 1)})
     policy.update({f'rtl/retired_slot{n}': dict(percent=1, absolute=0)
-                   for n in range(2 if core in ('rv2wide', 'rv3wide') else 1)})
+                   for n in range(width)})
     return policy
 
 

@@ -1021,6 +1021,10 @@ All seven Simple RV2Wide suites were refreshed from the 181 functionally
 successful workloads in [CI run 41568576507](https://github.com/jerryz123/rhodium/actions/runs/41568576507)
 after reset-only predictor initialization and same-or-next-PC-region pairing
 changed their counter distributions.
+The Simple RV2Wide Bringup and Embench expectations were subsequently refreshed
+from all 127 functionally successful workloads in
+[CI run 41996597433](https://github.com/jerryz123/rhodium/actions/runs/41996597433)
+after same-group source forwarding changed issue and retirement-slot distributions.
 The Simple RV2Wide and RV5Stage SKL expectations were refreshed from all 28
 functionally successful workloads per config in
 [CI run 41927971684](https://github.com/jerryz123/rhodium/actions/runs/41927971684)

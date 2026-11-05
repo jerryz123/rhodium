@@ -1030,8 +1030,8 @@ the shared L1I/L1D declare cache sites separately for each instance.
 
 | Counter | Sampled event | Baseline tolerance |
 |---|---|---|
-| `retired_slot0`, `retired_slot1` (RV2Wide/RV3Wide) | Successful architectural retirement, not delayed register writeback | ±1% |
-| `issue_1`, `issue_2` (RV2Wide/RV3Wide) | Cycles admitting exactly this many instructions into execution | ±5% |
+| `retired_slotN` | Successful architectural retirement in slot N, not delayed register writeback | ±1% |
+| `issue_N` | Cycles admitting exactly N instructions into execution | ±5% |
 | `icache_miss` | Accepted demand refill, excluding prefetches and repeated stalled lookups | ±5%, floor 2 events |
 | `dcache_miss` | Accepted demand refill/acquisition, including ownership upgrades, excluding prefetches and uncached accesses | ±5%, floor 2 events |
 | `mispredict_direction` | Conditional taken/fallthrough disagreement | ±5%, floor 2 events |
@@ -1040,6 +1040,10 @@ the shared L1I/L1D declare cache sites separately for each instance.
 | `mispredict_return_target` | Wrong return/coroutine-pop target | ±5%, floor 2 events |
 | `mispredict_nonbranch` | Stale target, direction, or stack-action prediction on a nonbranch | ±5%, floor 2 events |
 | `mispredict_ras_action` | Stack-action mismatch with no earlier prediction error | ±5%, floor 2 events |
+
+RV5Stage reports `retired_slot0` and `issue_1`. RV2Wide adds `retired_slot1`
+and `issue_2`; RV3Wide additionally reports `retired_slot2` and `issue_3`.
+All slots are required even when their measured count is zero.
 
 Issue counters count speculative admissions, not just ultimately retired
 instructions. Zero-issue cycles are derived by subtracting the nonzero issue
