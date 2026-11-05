@@ -83,12 +83,16 @@ older blocked instruction. WB is the only transaction and retirement authority;
 its accepted deferred owners later write through the shared younger-slot port.
 Redirect qualification gates new transfers as well as flushing pipe state.
 
-`read-operands.rhdl` owns fixed four-path scalar read routing, forwarding,
+`read-operands.rhdl` owns bounded four-path scalar read routing, forwarding,
 operand selection, and immediate computation, not admission or register-file storage.
 Feed its read-routing helper candidate presence and
 decoded source-use bits, never final issue grants or forwarding availability.
-In the three-candidate specialization, only lane 3 rs1 may borrow lane 2 rs2's
-path, and only lane 3 rs2 may borrow lane 1 rs2's path (one-based numbering).
+In the three-candidate specialization, lane 3 prefers lane 2 rs2's path for rs1
+and lane 1 rs2's path for rs2 (one-based numbering). A sole required operand
+can fall back to the other unused rs2 donor. Two required operands keep their
+fixed routes; neither older rs1 path participates. Express this small demand-only
+choice directly, without serial allocation or readiness feedback. Read denial
+is a structural hazard, separate from unavailable data on an allocated path.
 Do not free a donor for a same-group replacement route in this first cut.
 `superscalar_issue_reads` may instead select an older move's existing physical
 path, including for either third-lane operand. This is source sharing, not a new
@@ -1556,7 +1560,7 @@ retirement lanes after their clocked callbacks complete.
 
 The read-path fixtures use the real 4R2W register file and the same forwarding
 function as RR. They exhaust candidate-valid/source-use/x0 combinations, check
-both fixed borrowers and donor priority, and exercise each of nine producer
+both preferred and fallback borrowers and donor priority, and exercise each of nine producer
 positions with available, unavailable, and replaying results. An independent
 youngest-first oracle checks simultaneous matching producers, randomized pending
 scoreboards and writes, pre-edge RF reads, and reset retention. These checks

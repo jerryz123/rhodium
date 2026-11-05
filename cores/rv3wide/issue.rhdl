@@ -9,7 +9,7 @@ import:
   lib("riscv/isa/xlen.rhm").XLen
 
 /* Selects up to three instructions without skipping an older blocked candidate.
-   Lane 3 borrows only lane 2 rs2 for rs1 and lane 1 rs2 for rs2; it has no
+   Lane 3 shares the two older rs2 paths, retaining fixed routes for two operands; it has no
    general same-group EX forwarding route and may borrow either unused physical write port.
    Move consumers may share the older move's captured physical read path. */
 circuit RV3WideIssue(xlen :: XLen):
@@ -46,11 +46,12 @@ circuit RV3WideIssue(xlen :: XLen):
   def mutable prior_structural :: Bool = Bool(#false)
   def mutable branches :: Bits(4) = resources.training_pending
   def results :: List.of(Vec(3, Bool)) = for List (lane in 0..3):
+    def read_unallocated = any(for List (source in 0..2): reads.needed[lane][source] & !reads.granted[lane][source])
     def blocked = any(
       for List (source in 0..2):
         def port = reads.ports[lane][source]
         def replaced = if lane == 1 | pairing.replaced()[source] | Bool(#false)
-        reads.needed[lane][source] & (!reads.granted[lane][source] ||| (!replaced & read_blocked[port]))
+        reads.needed[lane][source] & reads.granted[lane][source] & !replaced & read_blocked[port]
     )
     def hazards = superscalar_issue_lane_hazards(xlen, candidates[lane], traits[lane], status[lane], resources, blocked, branches)
     branches := branches + traits[lane].branch.as_bits().zext(4)
@@ -58,7 +59,7 @@ circuit RV3WideIssue(xlen :: XLen):
     def younger_blocked = Bool(lane > 0) & (resources.younger_slot_reserved ||| resources.vector_waiting ||| excluded ||| !superscalar_issue_pc_allowed(xlen, candidates[0].pc, candidates[lane].pc) ||| (!candidates[lane].fetch_fault & !candidates[lane].decodable))
     def proposed = superscalar_write_routing(3, destinations, vec(for List (index in 0..3): Bool(index <= lane) & traits[index].direct), coalescible, resources.write_available)
     def local_data = hazards.data ||| pair_data[lane]
-    def local_structural = hazards.structural ||| younger_blocked ||| pair_structural[lane] ||| !proposed.fits
+    def local_structural = hazards.structural ||| read_unallocated ||| younger_blocked ||| pair_structural[lane] ||| !proposed.fits
     prefix := prefix & candidates[lane].present & !local_data & !local_structural & !status[lane].vector_blocked
     count := count + prefix.as_bits().zext(2)
     allocation := mux(prefix, proposed, allocation)

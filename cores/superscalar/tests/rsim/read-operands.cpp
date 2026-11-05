@@ -26,15 +26,22 @@ void check() {
   eval();
   std::array<unsigned, 4> addresses{requests[0].paddresses[0], requests[0].paddresses[1],
                                      requests[1].paddresses[0], requests[1].paddresses[1]};
+  std::array<unsigned, 2> third_ports{3, 1};
   if constexpr (lanes == 3) {
-    if (!needed(1, 1) && needed(2, 0)) addresses[3] = requests[2].paddresses[0];
-    if (!needed(0, 1) && needed(2, 1)) addresses[1] = requests[2].paddresses[1];
+    for (unsigned source = 0; source < 2; ++source) {
+      if (!needed(2, source)) continue;
+      auto &port = third_ports[source];
+      if (!needed(2, 1 - source) && needed(port / 2, 1) && !needed((4 - port) / 2, 1)) port = 4 - port;
+      if (!needed(port / 2, 1)) addresses[port] = requests[2].paddresses[source];
+    }
   }
   for (unsigned port = 0; port < 4; ++port) CHECK(routing.paddresses[port] == addresses[port]);
   for (unsigned lane = 0; lane < lanes; ++lane) {
     for (unsigned operand = 0; operand < 2; ++operand) {
       const bool demand = needed(lane, operand);
-      const bool grant = lane < 2 || !demand || !needed(operand == 0 ? 1 : 0, 1);
+      const unsigned port = lane < 2 ? 2 * lane + operand : third_ports[operand];
+      const bool grant = lane < 2 || !demand || !needed(port / 2, 1);
+      CHECK(routing.pports[lane][operand] == port);
       CHECK(bool(routing.pneeded[lane][operand]) == demand);
       CHECK(bool(routing.pgranted[lane][operand]) == grant);
       Word want = 0;
@@ -88,7 +95,7 @@ int main() {
     clear_sources();
 
     // Exhaust demand, x0, and validity combinations; third-lane ownership must
-    // not depend on data availability, producer matches, or the other spare path.
+    // not depend on data availability or producer matches.
     for (unsigned valid = 0; valid < (1u << lanes); ++valid) {
       for (unsigned uses = 0; uses < (1u << (2 * lanes)); ++uses) {
         for (unsigned zeros = 0; zeros < (1u << (2 * lanes)); ++zeros) {
@@ -134,6 +141,31 @@ int main() {
       check();
       CHECK(!operands[2][0].pblocked && operands[2][1].pblocked);
       requests[0].paddresses[1] = 0;
+
+      // Each sole operand falls back, but never escapes a blocked preferred path.
+      for (unsigned source = 0; source < 2; ++source) {
+        requests[0].paddresses[1] = requests[1].paddresses[1] = 11;
+        requests[2].pused = {source == 0, source == 1};
+        requests[source ? 0 : 1].pused[1] = true;
+        requests[source ? 1 : 0].pused[1] = false;
+        check();
+        CHECK(!operands[2][source].pblocked);
+        CHECK(routing.pports[2][source] == (source ? 3 : 1));
+        for (unsigned owner = 0; owner < producers.size(); ++owner) {
+          for (unsigned ready = 0; ready < 2; ++ready) {
+            clear_sources();
+            producers[owner] = {1, 1, requests[2].paddresses[source], Word(0x123 + owner), std::uint8_t(ready), 1};
+            check();
+            CHECK(bool(operands[2][source].pblocked) == !ready);
+          }
+        }
+        clear_sources();
+        pending = 1u << requests[2].paddresses[source];
+        check(); CHECK(operands[2][source].pblocked);
+      }
+      clear_sources();
+      requests[2].pused = {true, true};
+      requests[0].pused[1] = requests[1].pused[1] = false;
     }
 
     // Each physical producer position can supply or block a borrowed operand.

@@ -13,7 +13,7 @@ that same value. Shared parameter defaults and validation belong in
 `superscalar/profile.rhm`, not duplicated constructors or forwarding fields here.
 The hart independently owns reset/start and CHI wiring and supplies
 `RV3WideIssue(xlen)` through `~issue`. `issue.rhdl` owns the three-candidate
-prefix, fixed read borrowing, and two-write-port contention. Shared contracts
+prefix, bounded read borrowing, and two-write-port contention. Shared contracts
 and predicates remain under superscalar; neither family imports this policy.
 Do not copy decode or create an independent pipeline. Shared execution derives
 its lane count from the supplied issue signature. Service selectors, FP ownership,

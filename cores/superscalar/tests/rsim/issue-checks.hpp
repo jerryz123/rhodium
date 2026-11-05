@@ -126,9 +126,14 @@ void ordinary(const std::array<unsigned, lanes> &destinations,
       addresses[2 * lane + 1] = uses[lane] & 2 ? 11 : 0;
     }
   }
+  std::array<unsigned, 2> third_ports{3, 1};
   if constexpr (lanes == 3) {
-    if (needed[2][0] && !needed[1][1]) addresses[3] = 10;
-    if (needed[2][1] && !needed[0][1]) addresses[1] = 11;
+    for (unsigned source = 0; source < 2; ++source) {
+      if (!needed[2][source]) continue;
+      auto &port = third_ports[source];
+      if (!needed[2][1 - source] && needed[port / 2][1] && !needed[(4 - port) / 2][1]) port = 4 - port;
+      if (!needed[port / 2][1]) addresses[port] = source ? 11 : 10;
+    }
   }
   const std::array<bool, 2> available{bool(resources.pwrite_uavailable[0]), bool(resources.pwrite_uavailable[1])};
   std::array<bool, lanes> coalescible{}, writes{};
@@ -144,8 +149,8 @@ void ordinary(const std::array<unsigned, lanes> &destinations,
       if (lane && (resources.pyounger_uslot_ureserved || resources.pvector_uwaiting)) break;
       bool blocked = false;
       for (unsigned source = 0; source < 2; ++source) {
-        const unsigned port = lane < 2 ? 2 * lane + source : (source ? 1 : 3);
-        const bool granted = lane < 2 || !needed[lane][source] || !needed[source ? 0 : 1][1];
+        const unsigned port = lane < 2 ? 2 * lane + source : third_ports[source];
+        const bool granted = lane < 2 || !needed[lane][source] || !needed[port / 2][1];
         blocked |= needed[lane][source] && (!granted || read_blocked[port]);
       }
       if (blocked) break;
@@ -168,8 +173,8 @@ void ordinary(const std::array<unsigned, lanes> &destinations,
     CHECK(issued_instructions[lane].ppair.psources[0] == Register);
     CHECK(issued_instructions[lane].ppair.psources[1] == Register);
     for (unsigned source = 0; source < 2; ++source) {
-      const unsigned port = lane < 2 ? 2 * lane + source : (source ? 1 : 3);
-      const bool granted = lane < 2 || !needed[lane][source] || !needed[source ? 0 : 1][1];
+      const unsigned port = lane < 2 ? 2 * lane + source : third_ports[source];
+      const bool granted = lane < 2 || !needed[lane][source] || !needed[port / 2][1];
       const Pc expected_data = needed[lane][source] && granted ? read_data[port] : 0;
       CHECK((source ? operands[lane].prs2 : operands[lane].prs1) == expected_data);
     }
@@ -300,9 +305,10 @@ void check_prepared_operands() {
   if constexpr (lanes == 3) {
     // Resolving a dependency does not release the donor's physical read path.
     clear(); instructions[0] = addi(1, 0, 7); instructions[1] = add(2, 10, 1);
-    instructions[2] = addi(0, 11); expect(2);
+    instructions[2] = addi(0, 11); expect(3);
     CHECK(operands[1].prs2 == 7);
-    CHECK(!reads.pgranted[2][0]);
+    CHECK(reads.pgranted[2][0] && reads.pports[2][0] == 1);
+    CHECK(reads.paddresses[3] == 1); // Pair rewriting did not free its path.
   }
 }
 

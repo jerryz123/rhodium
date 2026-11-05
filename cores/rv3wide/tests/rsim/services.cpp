@@ -141,6 +141,12 @@ int main() {
     CHECK(lanes.at(st) == 2 && words[0x100] == 42);
     const auto ld = third(0x0000b183); drain();
     CHECK(lanes.at(ld) == 2 && gprs[3] == 42);
+    // CoreMark's li / bge / load group needs the alternate rs1 donor.
+    send({addi(15, 0, 0x100), addi(21, 0, 42)}); drain();
+    const auto borrowed = send({addi(18, 0, 0), (21u << 20) | (18u << 15) | 0x5063, (15u << 15) | (15u << 7) | 0x3003});
+    drain();
+    CHECK(lanes.at(borrowed) == 0 && lanes.at(borrowed + 4) == 1 && lanes.at(borrowed + 8) == 2);
+    CHECK(gprs[15] == 42);
     slow = true;
     const auto miss = third(0x0000b203); drain();
     CHECK(lanes.at(miss) == 2 && gprs[4] == 42 && requests == 1);

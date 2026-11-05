@@ -201,7 +201,7 @@ the offered count. Clear suppresses admission/candidates and discards retained
 entries. These standalone options do not enable three-wide execution in either
 named core; retirement-history inputs cover the first two branch-capable lanes.
 
-### Fixed scalar read-path borrowing
+### Bounded scalar read-path borrowing
 
 [`read-operands.rhdl`](read-operands.rhdl) supplies combinational read routing
 for two or three candidate instructions with four RF/forwarding paths. Using
@@ -210,17 +210,22 @@ one-based lane numbering:
 | Physical path | Normal owner | Borrower when unused |
 |---|---|---|
 | 0 | Lane 1 rs1 | None |
-| 1 | Lane 1 rs2 | Lane 3 rs2 |
+| 1 | Lane 1 rs2 | Lane 3 rs2, or its sole rs1 |
 | 2 | Lane 2 rs1 | None |
-| 3 | Lane 2 rs2 | Lane 3 rs1 |
+| 3 | Lane 2 rs2 | Lane 3 rs1, or its sole rs2 |
 
 `superscalar_read_routing(group_width, requests)` selects addresses from decoded
 `SuperscalarReadRequest()` validity, source-use bits, and register numbers.
 Unused operands and x0 release their path; an operand supplied by forwarding
-still occupies it. There is no fallback to a different spare path or sharing
-of an occupied path just because register numbers match.
+still occupies it. A sole required lane-3 operand prefers its original donor,
+then falls back to the other free rs2 path. Two required operands retain their
+fixed assignment. Paths 0 and 2 are never borrowed, and matching register
+numbers do not permit sharing an occupied donor. Allocation does not depend on
+forwarding readiness: a blocked preferred path does not trigger fallback.
+Denied read allocation reports a structural hazard; unavailable data on an
+allocated path reports a data hazard.
 
-`superscalar_issue_reads` adds same-group move-source forwarding over this fixed
+`superscalar_issue_reads` adds same-group move-source forwarding over this bounded
 allocation. A younger consumer, including lane 3, may select the older move's
 already-resolved physical path instead of its normal path. Full-XLEN `ADDI` with
 zero immediate and `ADD` with either source x0 qualify, including expanded `C.MV`;
