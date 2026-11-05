@@ -1,4 +1,4 @@
-<!-- Documents RV3Wide's three-lane specialization and shared execution services on a 4R2W pipeline. -->
+<!-- Documents RV3Wide's three-lane specialization and shared execution services on a 4R3W pipeline. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # RV3Wide
@@ -43,10 +43,10 @@ use `SuperscalarCore(profile.pipeline, ~issue: RV3WideIssue(profile.pipeline.xle
 same contained pipeline config; there is still only one execution implementation.
 
 Fetch remains eight bytes per cycle, issue/retirement support three lanes, and the
-GPR file remains 4R2W. Pipeline payloads come from `cores/superscalar/bundles.rhdl`.
+GPR file is 4R3W. Pipeline payloads come from `cores/superscalar/bundles.rhdl`.
 There is no backend lane-count parameter. `issue.rhdl` exports
 `RV3WideIssue(xlen)`, a three-candidate scheduling policy with bounded read-path
-borrowing and two-write-port contention. The factory supplies it to the shared
+borrowing and fixed per-lane write ports. The factory supplies it to the shared
 core. Lane 3 prefers lane 2 rs2's read/bypass path for rs1 and lane 1 rs2's path
 for rs2, only when those donor operands are unused or x0. A sole required operand
 can fall back to the other free donor; two required operands keep fixed routes. Issue selects
@@ -55,10 +55,11 @@ dependency permits sharing; this works even when the usual donor is occupied.
 Zero-offset scalar loads/stores in lane 3 may select lane 2's ALU result as their
 address without a register-read path or a second dependent addition. Other
 operands keep their normal interlocks.
-Issue assigns the write port from the two existing ports. Three distinct direct GPR writes cannot
-coissue; same-destination overwrites can share capacity without merging retirements.
-Loads may share that capacity on a hit; a faulting, replayed, or delayed load
-preserves the older write instead of suppressing it.
+Three distinct direct GPR writers can coissue. WB suppresses an older
+same-destination write only when the younger instruction actually writes;
+retirement records remain separate. A faulting, replayed, or delayed load
+preserves the older write. Deferred returns share lane 3's port, reserving that
+lane ahead of time while lanes 1 and 2 can continue issuing and writing.
 
 All three lanes can execute branches, loads/stores, FP, vector, and multiply/divide
 operations. This does not add execution-service bandwidth: same-group conflicts,

@@ -13,6 +13,6 @@ import:
 
 def program = elaborate(SuperscalarCore(
   SuperscalarPipelineConfig(~floating_point: FloatingPointProfile.D, ~vector: VectorProfile.V),
-  ~fp_timing: FpExecutionTiming(3, 5, 2), ~issue: RV3WideIssue(XLen.X64)
+  ~fp_timing: FpExecutionTiming(3, 5, 3), ~issue: RV3WideIssue(XLen.X64)
 ))
 export program

@@ -134,7 +134,7 @@ feed-forward multiplication, with explicit scheduled or buffered return adapters
 `register-write.rhdl` supplies a GPR destination/value payload independent of
 physical register-file ports. Named-core adapters retain service selection,
 launch/authorization timing, and architectural writeback scheduling.
-`register-file.rhdl` owns explicitly read-port-sized, two-write storage.
+`register-file.rhdl` owns explicitly read/write-port-sized storage (two writes by default).
 Named cores wire physical ports directly and retain forwarding, same-destination
 write policy, and completion reservations. Reads are pre-edge; the storage
 does not allocate ports or select architectural winners. GPR storage has no
@@ -142,7 +142,7 @@ reset value; fixture scoreboards track written registers instead of assuming
 zero initialization. Validate retention across reset with idle writes, x0,
 read/write timing, independent writes, and invalid write collisions with the
 `register-file` and `register-file-rv32`
-rsim fixtures, each exercising both 2R2W and 4R2W storage. RV5Stage owns its
+rsim fixtures, each exercising 2R2W, 4R2W, and 4R3W storage. RV5Stage owns its
 write-to-ID forwarding in `core.rhdl`; the shared storage never bypasses writes.
 Use `rv5stage-core`, `rv5stage-multiply`, and CSR/FP completion fixtures for
 that timing boundary. RV2Wide integration additionally uses `rv2wide-core`

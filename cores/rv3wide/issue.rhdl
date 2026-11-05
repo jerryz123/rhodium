@@ -1,5 +1,5 @@
 #lang rhodium
-/* Owns RV3Wide's three-candidate admission, control-only operand routing, and borrowed 4R2W paths. */
+/* Owns RV3Wide's three-candidate admission and borrowed read paths with fixed 4R3W storage. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -11,7 +11,7 @@ import:
 /* Selects up to three instructions without skipping an older blocked candidate.
    Lane 3 shares the two older rs2 paths, retaining fixed routes for two operands; it has no
    general same-group EX forwarding route, but zero-offset memory may use lane 2's ALU result.
-   Lane 3 may borrow either unused physical write port.
+   Each lane owns a write port; delayed returns reserve only the last lane.
    Move consumers may share the older move's captured physical read path. */
 circuit RV3WideIssue(xlen :: XLen):
   input candidates: Vec(3, SuperscalarIssueCandidate(xlen))
@@ -41,15 +41,8 @@ circuit RV3WideIssue(xlen :: XLen):
   def pair_data = vec(Bool(#false), first_pair.data, third_pairs[0].data ||| third_pairs[1].data)
   def pair_structural = vec(Bool(#false), first_pair.structural, third_pairs[0].structural ||| third_pairs[1].structural)
 
-  /* Reserve the union of ports needed by each admitted prefix. Re-evaluating
-     actual writes at WB may restore an older write after a younger fault. */
-
-  def destinations = vec(for List (lane in 0..3): candidates[lane].rd)
-  def coalescible = vec(for List (lane in 0..3): traits[lane].coalescible)
   def mutable prefix :: Bool = !resources.stop & !resources.retry_wait & !resources.pause_blocked
   def mutable count :: Bits(2) = Bits(2)(0)
-  def mutable reserved :: Vec(2, Bool) = vec(Bool(#false), Bool(#false))
-  def mutable allocation :: SuperscalarWriteRouting(3) = superscalar_write_routing(3, destinations, vec(Bool(#false), Bool(#false), Bool(#false)), coalescible, resources.write_available)
   def mutable prior_data :: Bool = Bool(#false)
   def mutable prior_structural :: Bool = Bool(#false)
   def mutable branches :: Bits(4) = resources.training_pending
@@ -64,18 +57,12 @@ circuit RV3WideIssue(xlen :: XLen):
     def hazards = superscalar_issue_lane_hazards(xlen, candidates[lane], traits[lane], status[lane], resources, blocked, branches)
     branches := branches + traits[lane].branch.as_bits().zext(4)
     def excluded = any(for List (older in 0..lane): superscalar_issue_pair_excluded(xlen, candidates[older], traits[older], traits[lane]))
-    def younger_blocked = Bool(lane > 0) & (resources.younger_slot_reserved ||| resources.vector_waiting ||| excluded ||| !superscalar_issue_pc_allowed(xlen, candidates[0].pc, candidates[lane].pc) ||| (!candidates[lane].fetch_fault & !candidates[lane].decodable))
-    // A load may defer without killing a younger writer. Only a tail load may
-    // free its predecessor's port; otherwise that restored write could collide
-    // with the younger lane's fixed port even though every prefix fits.
-    def prefix_coalescible = vec(for List (index in 0..3): coalescible[index] & (!traits[index].deferred ||| Bool(index == lane)))
-    def proposed = superscalar_write_routing(3, destinations, vec(for List (index in 0..3): Bool(index <= lane) & traits[index].direct), prefix_coalescible, resources.write_available)
+    def younger_blocked = Bool(lane > 0) & (excluded ||| !superscalar_issue_pc_allowed(xlen, candidates[0].pc, candidates[lane].pc) ||| (!candidates[lane].fetch_fault & !candidates[lane].decodable))
+    def return_reserved = Bool(lane == 2) & (resources.last_slot_reserved ||| resources.vector_waiting)
     def local_data = hazards.data ||| pair_data[lane]
-    def local_structural = hazards.structural ||| read_unallocated ||| younger_blocked ||| pair_structural[lane] ||| !proposed.fits
+    def local_structural = hazards.structural ||| read_unallocated ||| younger_blocked ||| return_reserved ||| pair_structural[lane]
     prefix := prefix & candidates[lane].present & !local_data & !local_structural & !status[lane].vector_blocked
     count := count + prefix.as_bits().zext(2)
-    allocation := mux(prefix, proposed, allocation)
-    reserved := vec(for List (port in 0..2): reserved[port] ||| (prefix & proposed.occupied[port]))
     prior_data := prior_data ||| local_data
     prior_structural := prior_structural ||| local_structural
     vec(prefix, prior_data, prior_structural ||| resources.pause_blocked)
@@ -86,7 +73,5 @@ circuit RV3WideIssue(xlen :: XLen):
     admitted: vec(for List (lane in 0..3): results[lane][0])
     data_hazard: vec(for List (lane in 0..3): results[lane][1])
     structural_hazard: vec(for List (lane in 0..3): results[lane][2])
-    writes: allocation
-    reserve: reserved
 
 export RV3WideIssue

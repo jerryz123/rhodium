@@ -39,67 +39,17 @@ void clear() {
   resources.pserialization_uready = 1;
   resources.pmemory_uorder_uready = 1;
   resources.pmultiply_uavailable = 1;
-  resources.pwrite_uavailable = {1, 1};
   read_blocked = {};
   for (auto &data : read_data) data = random_value();
   faults = {};
   illegal = {};
   ras = {};
   late_gpr = {};
-  wb_writes = {};
-  wb_available = {1, 1};
   for (unsigned lane = 0; lane < lanes; ++lane) {
     instructions[lane] = addi(0);
     pcs[lane] = 0x1000 + 4 * lane;
     present[lane] = 1;
-    wb_coalescible[lane] = 1;
   }
-}
-
-struct Allocation {
-  std::array<bool, lanes> writes{};
-  std::array<unsigned, lanes> ports{};
-  std::array<std::array<bool, lanes>, lanes> shadowed_by{};
-  std::array<bool, 2> occupied{};
-  bool fits = true;
-};
-
-// Architectural youngest-writer selection followed by the physical fixed-owner mapping.
-Allocation allocate(const std::array<unsigned, lanes> &destinations,
-                    const std::array<bool, lanes> &writes,
-                    const std::array<bool, lanes> &coalescible,
-                    const std::array<bool, 2> &available) {
-  Allocation result;
-  std::array<bool, 32> shadowed{};
-  for (int lane = lanes - 1; lane >= 0; --lane) {
-    const auto rd = destinations[lane];
-    result.writes[lane] = writes[lane] && rd && !shadowed[rd];
-    if (writes[lane] && coalescible[lane]) shadowed[rd] = true;
-  }
-  for (unsigned lane = 0; lane < lanes; ++lane) {
-    for (unsigned younger = lane + 1; younger < lanes; ++younger)
-      result.shadowed_by[lane][younger] = writes[younger] && destinations[lane] == destinations[younger];
-    const unsigned port = lane < 2 ? lane : (!result.writes[0] && available[0] ? 0 : 1);
-    result.ports[lane] = port;
-    if (result.writes[lane]) {
-      result.fits &= available[port] && !result.occupied[port];
-      result.occupied[port] = true;
-    }
-  }
-  return result;
-}
-
-template<class Routing>
-void check_allocation(const Routing &actual, const Allocation &expected) {
-  CHECK(bool(actual.pfits) == expected.fits);
-  for (unsigned lane = 0; lane < lanes; ++lane) {
-    CHECK(bool(actual.pwrites[lane]) == expected.writes[lane]);
-    CHECK(actual.pports[lane] == expected.ports[lane]);
-    for (unsigned younger = 0; younger < lanes; ++younger)
-      CHECK(bool(actual.pshadowed_uby[lane][younger]) == expected.shadowed_by[lane][younger]);
-  }
-  for (unsigned port = 0; port < 2; ++port)
-    CHECK(bool(actual.poccupied[port]) == expected.occupied[port]);
 }
 
 void expect(unsigned count) {
@@ -141,18 +91,13 @@ void ordinary(const std::array<unsigned, lanes> &destinations,
       if (!needed[port / 2][1]) addresses[port] = (normalize_move(instructions[2]) >> (source ? 20 : 15)) & 31;
     }
   }
-  const std::array<bool, 2> available{bool(resources.pwrite_uavailable[0]), bool(resources.pwrite_uavailable[1])};
-  std::array<bool, lanes> coalescible{}, writes{};
-  coalescible.fill(true);
-  auto expected = allocate(destinations, writes, coalescible, available);
-  std::array<bool, 2> reserved{};
   unsigned count = 0;
   if (!resources.pstop && !resources.pretry_uwait && !resources.ppause_ublocked) {
     for (unsigned lane = 0; lane < lanes; ++lane) {
       if (!present[lane]) break;
       if (status[lane].pexecution_ublocked || status[lane].pdestination_ublocked || status[lane].pfp_udata_ublocked ||
           status[lane].pfp_ucapacity_ublocked || status[lane].pvector_ublocked || status[lane].pcsr_uread_uwait) break;
-      if (lane && (resources.pyounger_uslot_ureserved || resources.pvector_uwaiting)) break;
+      if (lane == lanes - 1 && (resources.plast_uslot_ureserved || resources.pvector_uwaiting)) break;
       bool blocked = false;
       for (unsigned source = 0; source < 2; ++source) {
         const unsigned port = lane < 2 ? 2 * lane + source : third_ports[source];
@@ -160,18 +105,11 @@ void ordinary(const std::array<unsigned, lanes> &destinations,
         blocked |= needed[lane][source] && (!granted || read_blocked[port]);
       }
       if (blocked) break;
-      writes[lane] = destinations[lane] != 0;
-      const auto next = allocate(destinations, writes, coalescible, available);
-      if (!next.fits) break;
-      expected = next;
-      for (unsigned port = 0; port < 2; ++port) reserved[port] |= next.occupied[port];
       ++count;
     }
   }
   expect(count);
-  check_allocation(decision.pwrites, expected);
   for (unsigned port = 0; port < 4; ++port) CHECK(reads.paddresses[port] == addresses[port]);
-  for (unsigned port = 0; port < 2; ++port) CHECK(bool(decision.preserve[port]) == reserved[port]);
   // Prepared ordinary operands follow the four selected paths, independent of admission.
   for (unsigned lane = 0; lane < lanes; ++lane) {
     CHECK(issued_instructions[lane].pcontrol.poperand.puses_urs1 == (uses[lane] != 0));
@@ -339,8 +277,6 @@ void check_move_sources() {
     CHECK(operands[1].prs1 == read_data[port]);
     CHECK(operands[1].prs2 == read_data[port]);
     CHECK(reads.pforwarded[1][0] && reads.pforwarded[1][1]);
-    CHECK(decision.pwrites.pwrites[0] && decision.pwrites.pwrites[1]);
-    CHECK(decision.pwrites.pports[0] == 0 && decision.pwrites.pports[1] == 1);
     read_blocked[port] = 1; expect(0);
     read_blocked[port] = 0;
     instructions[1] = load(2, 1) | (20 << 20); expect(lanes);
@@ -358,13 +294,11 @@ void check_move_sources() {
       expect(3);
       CHECK(operands[2].prs1 == read_data[port] && operands[2].prs2 == read_data[port]);
       CHECK(reads.pforwarded[2][0] && reads.pforwarded[2][1]);
-      CHECK(decision.pwrites.pports[2] == 1);
       read_blocked[port] = 1; expect(0);
 
       clear(); instructions[1] = move; instructions[2] = add(2, 1, 1);
       expect(3);
       CHECK(operands[2].prs1 == read_data[port + 2] && operands[2].prs2 == read_data[port + 2]);
-      CHECK(decision.pwrites.pports[2] == 0);
       read_blocked[port + 2] = 1; expect(1);
     }
   }
@@ -382,8 +316,7 @@ void check_move_sources() {
     // Chains share the original captured operand but retain all architectural writers.
     clear(); instructions[0] = addi(1, 10); instructions[1] = add(2, 0, 1); instructions[2] = addi(1, 2, 5);
     expect(3); CHECK(operands[1].prs1 == read_data[0]); CHECK(operands[2].prs1 == read_data[0]);
-    CHECK(!decision.pwrites.pwrites[0] && decision.pwrites.pwrites[1] && decision.pwrites.pwrites[2]);
-    instructions[2] = addi(3, 2, 5); expect(2); // Still only two physical write ports.
+    instructions[2] = addi(3, 2, 5); expect(3); // Each lane has its own physical write port.
     clear(); instructions[0] = addi(1, 10); instructions[1] = addi(10, 11, 1); instructions[2] = addi(1, 1, 2);
     expect(3); CHECK(operands[2].prs1 == read_data[0]); // Not the intervening replacement of x10.
     clear(); instructions[0] = addi(1, 10); instructions[1] = add(1, 11, 12); instructions[2] = addi(0, 1, 1);
@@ -402,38 +335,18 @@ void check_issue_contract() {
     check_prepared_operands();
     clear();
     expect(lanes);
-    // Exhaust destinations, source demand, and both physical write-port reservations.
+    // Exhaust destinations, source demand, and the shared last-port reservation.
     for (unsigned dest = 0; dest < (1u << (2 * lanes)); ++dest) {
       for (unsigned use = 0; use < (1u << (2 * lanes)); ++use) {
-        for (unsigned free = 0; free < 4; ++free) {
+        for (unsigned reserved = 0; reserved < 2; ++reserved) {
           std::array<unsigned, lanes> destinations{}, uses{};
           clear();
           for (unsigned lane = 0; lane < lanes; ++lane) {
             destinations[lane] = (dest >> (2 * lane)) & 3;
             uses[lane] = (use >> (2 * lane)) & 3;
           }
-          resources.pwrite_uavailable = {std::uint8_t(free & 1), std::uint8_t((free >> 1) & 1)};
+          resources.plast_uslot_ureserved = reserved;
           ordinary(destinations, uses);
-        }
-      }
-    }
-    // Every possible successful WB prefix, including a killed/deferred youngest writer.
-    for (unsigned dest = 0; dest < (1u << (2 * lanes)); ++dest) {
-      for (unsigned mask = 0; mask < (1u << lanes); ++mask) {
-        for (unsigned eligible = 0; eligible < (1u << lanes); ++eligible) {
-          for (unsigned free = 0; free < 4; ++free) {
-            std::array<unsigned, lanes> destinations{};
-            std::array<bool, lanes> writes{}, coalescible{};
-            for (unsigned lane = 0; lane < lanes; ++lane) {
-              destinations[lane] = (dest >> (2 * lane)) & 3;
-              instructions[lane] = addi(destinations[lane]);
-              wb_writes[lane] = writes[lane] = (mask >> lane) & 1;
-              wb_coalescible[lane] = coalescible[lane] = (eligible >> lane) & 1;
-            }
-            wb_available = {std::uint8_t(free & 1), std::uint8_t((free >> 1) & 1)};
-            eval();
-            check_allocation(write_routing, allocate(destinations, writes, coalescible, {bool(free & 1), bool(free & 2)}));
-          }
         }
       }
     }
@@ -452,11 +365,10 @@ void check_issue_contract() {
         status[lane].pcsr_uread_uwait = (random_value() & 15) == 0;
       }
       for (auto &blocked : read_blocked) blocked = (random_value() & 3) == 0;
-      for (auto &free : resources.pwrite_uavailable) free = (random_value() & 3) != 0;
       resources.pstop = (random_value() & 15) == 0;
       resources.pretry_uwait = (random_value() & 15) == 0;
       resources.ppause_ublocked = (random_value() & 15) == 0;
-      resources.pyounger_uslot_ureserved = (random_value() & 7) == 0;
+      resources.plast_uslot_ureserved = (random_value() & 7) == 0;
       resources.pvector_uwaiting = (random_value() & 7) == 0;
       ordinary(destinations, uses);
     }

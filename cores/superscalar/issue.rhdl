@@ -1,5 +1,5 @@
 #lang rhodium
-/* Defines shared issue contracts, dependency predicates, and physical write-coalescing helpers. */
+/* Defines shared issue contracts, dependency predicates, and service ownership. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -55,36 +55,8 @@ bundle SuperscalarIssueResources():
   multiply_available: Bool
   fixed_returns_collide: Bool
   training_pending: Bits(4)
-  younger_slot_reserved: Bool
+  last_slot_reserved: Bool
   vector_waiting: Bool
-  write_available: Vec(2, Bool)
-
-/* Describes physical writes after same-destination suppression, independent of retirement records. */
-bundle SuperscalarWriteRouting(group_width :: matching(2) || matching(3)):
-  writes: Vec(group_width, Bool)
-  ports: Vec(group_width, Bits(1))
-  shadowed_by: Vec(group_width, Vec(group_width, Bool))
-  occupied: Vec(2, Bool)
-  fits: Bool
-
-/* Keeps the first two writers on ports 0/1; the third borrows an unused port, preferring 0.
-   Admission includes all potentially direct writers. The resulting selectors and
-   destination-alias masks travel with the group; WB only qualifies successful writes. */
-fun superscalar_write_routing(group_width :: matching(2) || matching(3), destinations :: Vec(group_width, Bits(5)), writes :: Vec(group_width, Bool), coalescible :: Vec(group_width, Bool), available :: Vec(2, Bool)) :~ SuperscalarWriteRouting(group_width):
-  def surviving = vec(
-    for List (lane in 0..group_width):
-      def shadowed = any(for List (younger in lane + 1..group_width): writes[younger] & coalescible[younger] & (destinations[lane] === destinations[younger]))
-      writes[lane] & destinations[lane].any() & !shadowed
-  )
-  def third = if group_width == 3 | surviving[2] | Bool(#false)
-  def borrow_first = !surviving[0] & available[0]
-  def borrow_second = !surviving[1] & available[1]
-  SuperscalarWriteRouting(group_width):
-    writes: surviving
-    ports: vec(for List (lane in 0..group_width): if lane < 2 | Bits(1)(lane) | mux(borrow_first, Bits(1)(0), Bits(1)(1)))
-    shadowed_by: vec(for List (lane in 0..group_width): vec(for List (younger in 0..group_width): Bool(younger > lane) & writes[younger] & (destinations[lane] === destinations[younger])))
-    occupied: vec(surviving[0] ||| (third & borrow_first), surviving[1] ||| (third & !borrow_first))
-    fits: (!surviving[0] ||| available[0]) & (!surviving[1] ||| available[1]) & (!third ||| borrow_first ||| borrow_second)
 
 /* Names unqualified service probe owners without depending on their readiness. */
 bundle SuperscalarServiceOwners():
@@ -108,8 +80,6 @@ bundle SuperscalarIssueDecision(group_width :: matching(2) || matching(3)):
   admitted: Vec(group_width, Bool)
   data_hazard: Vec(group_width, Bool)
   structural_hazard: Vec(group_width, Bool)
-  writes: SuperscalarWriteRouting(group_width)
-  reserve: Vec(2, Bool)
 
 /* Classifies WB commands that require an empty pipeline rather than ordinary CSR-read ordering. */
 fun superscalar_serializing_operation(system :: SuperscalarSystemControl(), instruction :: Bits(32)) :: Bool:
@@ -120,8 +90,6 @@ fun superscalar_serializing_operation(system :: SuperscalarSystemControl(), inst
 /* Classifies each decoded instruction once for dependency and shared-service checks. */
 bundle SuperscalarIssueTraits():
   deferred: Bool
-  direct: Bool
-  coalescible: Bool
   writes: Bool
   multiply: Bool
   vector: Bool
@@ -141,15 +109,10 @@ fun superscalar_issue_traits(xlen :: XLen, candidate :: SuperscalarIssueCandidat
   def long = control.muldiv.service =/= SuperscalarLongOperation.None
   def variable_fp = control.fp.valid & (control.fp.bits.execution.unit === FloatUnit.DivideSquareRoot)
   def deferred = control.memory.enable ||| long ||| candidate.late_gpr ||| vector
-  // A load may write directly on a hit. WB restores the older write on a fault,
-  // replay, or deferred completion instead of treating the reservation as success.
-  def load = control.memory.enable & (control.memory.access === CacheOperation.Load)
   def writes = candidate.decodable & control.writeback.enable & candidate.rd.any()
   def vector_frs1 = vector & control.vector.floating_point & (control.vector.operand === VectorOperandMode.FloatingScalar)
   SuperscalarIssueTraits():
     deferred: deferred
-    direct: writes & !long & !candidate.late_gpr & !vector & !variable_fp
-    coalescible: (!deferred ||| load) & !variable_fp
     writes: writes
     multiply: writes & (control.muldiv.service === SuperscalarLongOperation.Multiply)
     vector: vector
@@ -299,8 +262,6 @@ export:
   SuperscalarIssueCandidate
   SuperscalarIssueStatus
   SuperscalarIssueResources
-  SuperscalarWriteRouting
-  superscalar_write_routing
   SuperscalarIssueDecision
   SuperscalarServiceOwners
   superscalar_service_lane

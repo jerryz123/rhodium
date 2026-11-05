@@ -133,22 +133,23 @@ int main() {
     // Standalone backend groups sustain three expanded instructions per cycle.
     // The integrated fetch fixture separately checks the byte-oriented frontend.
     for (unsigned n = 0; n < 32; ++n)
-      send(0x1000 + 12*n, {addi(1, 0, n), addi(2, 0, -int(n)), addi(1, 0, n+1)});
+      send(0x1000 + 12*n, {addi(1, 0, n), addi(2, 0, -int(n)), addi(3, 0, n+1)});
     drain(); CHECK(triples >= 28); CHECK(issues3 >= 28);
     send(0x2000, {addi(3, 1, 9), addi(4, 2, 8)}); drain();
-    // Borrow port one instead, then consume both values after RF writeback.
+    // A younger same-destination write wins without merging retirement records.
     send(0x2040, {addi(1, 0, 21), addi(2, 0, 22), addi(2, 0, 23)}); drain();
     send(0x2080, {add(3, 1, 2)}); drain();
-    // Both read paths are borrowed; one older no-write leaves a physical write port.
+    // Both read paths are borrowed; each lane retains its own write port.
     send(0x20c0, {addi(0, 0, 0), addi(5, 0, 9), add(6, 1, 2)}); drain();
     send(0x2100, {add(7, 5, 6)}); drain();
     // All three alias: each retires its own value, only the youngest updates storage.
     send(0x2140, {addi(8, 0, 11), addi(8, 0, 12), addi(8, 0, 13)}); drain();
     send(0x2180, {addi(9, 8, 1)}); drain();
-    // Three distinct writers must split; the third remains in the issue window.
+    // Three distinct writers retire together and persist through all three ports.
     const auto before = issues3;
     send(0x2200, {addi(10, 0, 1), addi(11, 0, 2), addi(12, 0, 3)}); drain();
-    CHECK(issues3 == before);
+    CHECK(issues3 == before + 1);
+    send(0x2220, {addi(13, 10, 4), addi(14, 11, 5), addi(15, 12, 6)}); drain();
     // A dependent third cannot bypass either older instruction in its group.
     send(0x2240, {addi(10, 0, 5), addi(11, 0, 6), add(10, 10, 11)}); drain();
     send(0x2280, {addi(12, 10, 0)}); drain();
@@ -173,7 +174,7 @@ int main() {
     send(0x24c0, {add(3, 1, 10)}); drain();
     send(0x2500, {addi(1, 10, 0), add(1, 10, 11), addi(0, 1, 1)}); drain();
     send(0x2540, {addi(3, 1, 0)}); drain();
-    // Shortened successful prefixes must restore the issue-assigned older write.
+    // Shortened successful prefixes preserve older writes on their fixed ports.
     for (unsigned failed = 0; failed < 3; ++failed) {
       for (unsigned disposition : {1u, 2u}) {
         reset_core();

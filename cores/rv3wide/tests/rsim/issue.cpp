@@ -4,13 +4,13 @@
 int main() {
   return run_test([] {
     check_issue_contract();
-    clear(); instructions[0] = addi(1); instructions[1] = addi(2); instructions[2] = addi(3); expect(2);
-    instructions[0] = addi(0); expect(3); CHECK(decision.pwrites.pports[2] == 0);
-    instructions[0] = addi(1); instructions[1] = addi(0); expect(3); CHECK(decision.pwrites.pports[2] == 1);
-    instructions[1] = addi(2); instructions[2] = addi(1); expect(3); CHECK(!decision.pwrites.pwrites[0]);
-    // The successful prefix ending at lane 2 still needs port 1, even if all three write x1.
-    instructions[1] = addi(1); expect(3); CHECK(decision.preserve[0] && decision.preserve[1]);
-    resources.pwrite_uavailable[1] = 0; expect(1);
+    clear(); instructions[0] = addi(1); instructions[1] = addi(2); instructions[2] = addi(3); expect(3);
+    // A return owns only the last port, leaving two independent writers available.
+    resources.plast_uslot_ureserved = 1; expect(2);
+    CHECK(!decision.pstructural_uhazard[1] && decision.pstructural_uhazard[2]);
+    resources.plast_uslot_ureserved = 0; resources.pvector_uwaiting = 1; expect(2);
+    resources.pvector_uwaiting = 0;
+    instructions[1] = instructions[2] = addi(1); expect(3);
     clear(); instructions[0] = addi(1, 10, 1); instructions[2] = addi(2, 1); expect(2);
     clear(); instructions[1] = addi(1, 10, 1); instructions[2] = addi(2, 1); expect(2);
     clear(); instructions[0] = load(1); instructions[2] = load(2); expect(2);
@@ -44,15 +44,13 @@ int main() {
     for (unsigned port : {0u, 1u, 3u}) {
       read_blocked[port] = 1; expect(port == 0 ? 0 : 2); read_blocked[port] = 0;
     }
-    // Adjacent ALU -> zero-offset load bypasses address capture and coalesces
-    // either older destination without losing that prefix's write reservation.
+    // Adjacent ALU -> zero-offset load bypasses address capture even when its
+    // destination aliases either older writer; WB resolves actual writes.
     for (unsigned destination : {13u, 14u}) {
       clear(); instructions[0] = addi(13, 14); instructions[1] = add(14, 15, 19);
       instructions[2] = load(destination, 14); read_blocked[1] = 1; expect(3);
       CHECK(operands[2].prewrite.pmemory_uaddress);
       CHECK(!decision.pdata_uhazard[2] && !decision.pstructural_uhazard[2]);
-      CHECK(decision.pwrites.pports[2] == (destination == 13 ? 0 : 1));
-      CHECK(decision.preserve[0] && decision.preserve[1]);
       read_blocked[2] = 1; expect(1); // Producer's own operands still interlock.
       read_blocked[2] = 0; instructions[2] |= 4u << 20; expect(2);
       CHECK(!operands[2].prewrite.pmemory_uaddress); // Nonzero displacement adds a dependency.
@@ -64,15 +62,14 @@ int main() {
     // The nearest writer supersedes an older same-register producer for rs1.
     clear(); instructions[0] = addi(14, 10); instructions[1] = add(14, 15, 19);
     instructions[2] = load(14, 14); expect(3);
-    // Same-destination load coalescing is independent of address forwarding.
+    // Load destinations do not impose physical write capacity constraints.
     clear(); instructions[0] = addi(13); instructions[1] = addi(14);
     instructions[2] = load(14, 15); expect(3); CHECK(!operands[2].prewrite.pmemory_uaddress);
-    instructions[2] = load(16, 15); expect(2); // Three distinct destinations still need 3W.
-    // A middle load can defer while the third writer succeeds: its older write
-    // must not be restored onto the third lane's statically borrowed port.
+    instructions[2] = load(16, 15); expect(3);
+    // A middle load can defer while both independent fixed ports still write.
     clear(); instructions[0] = addi(13); instructions[1] = load(13, 15);
-    instructions[2] = addi(14); expect(2);
-    CHECK(decision.pstructural_uhazard[2]);
+    instructions[2] = addi(14); expect(3);
+    CHECK(!decision.pstructural_uhazard[2]);
     instructions[2] = addi(13); expect(2); // Deferred WAW still orders a younger overwrite.
     // Store data remains independently captured; address bypass cannot waive rs2.
     clear(); instructions[0] = addi(13, 10); instructions[1] = add(14, 15, 19);

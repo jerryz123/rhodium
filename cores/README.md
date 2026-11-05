@@ -107,9 +107,9 @@ belongs to the core profile, not this type.
 
 ### Shared GPR storage
 
-[`RegisterFile(xlen, ~read_ports)`](register-file.rhdl) has an explicitly selected
-number of combinational read addresses and two `Valid(RegisterFileWrite(xlen))`
-write ports. RV5Stage selects two reads; RV2Wide selects four. Writes take
+[`RegisterFile(xlen, ~read_ports, ~write_ports: 2)`](register-file.rhdl) has explicitly selected
+combinational read and `Valid(RegisterFileWrite(xlen))` write ports; write count
+defaults to two. RV5Stage selects 2R2W, RV2Wide 4R2W, and RV3Wide 4R3W. Writes take
 effect at the clock edge; reads observe stored values, not live write offers.
 x1–x31 have no reset value and must be written before software relies on their
 contents. x0 always reads zero, and writes to x0 are ignored. Reset does not
@@ -117,7 +117,7 @@ clear the stored values.
 Simultaneous nonzero writes must target different registers. Pipeline bypassing
 and write-cycle reservations belong to the caller. RV5Stage captures same-cycle
 architectural writes through its write-to-ID bypass before registering operands;
-RV2Wide keeps its own age-ordered forwarding network.
+The superscalar pipeline keeps its own age-ordered forwarding network.
 
 ### Reservation waiting
 
@@ -379,7 +379,7 @@ The package is organized by component, not by ISA namespace:
 | [`fp/`](fp/README.md) | FP instruction/control mappings, opaque-tag arithmetic service, and 3R2W FPR storage |
 | [`bpred/`](bpred/README.md) | Core-neutral BTB, speculative/resolved RAS, prediction payloads, and call/return hints |
 | Root integration helpers | CHI placement, split accesses, vector row layout, and passive observations |
-| `superscalar/` | One fixed-two-wide pipeline, configuration, and integration shared by RV2Wide and RV3Wide |
+| `superscalar/` | One two/three-lane pipeline, configuration, and integration shared by RV2Wide and RV3Wide |
 | `rv2wide/`, `rv3wide/` | Separate configurations and hart wrappers projecting into the shared superscalar implementation; both are currently two-wide |
 | `rv5stage/`, `spike/` | Named-core configuration, pipeline policy, and integration |
 
@@ -455,8 +455,8 @@ retirement, cosim, and tracing contracts.
 
 RV2Wide and the experimental [RV3Wide](rv3wide/README.md) have independent
 configuration classes and hart wrappers selecting one [superscalar implementation](superscalar/README.md).
-RV3Wide currently has the identical two-wide microarchitecture; it adds no
-third lane. Its SoC selections and CI workloads mirror RV2Wide. Both share decode, frontend, MMU/cache
+RV3Wide has three execution lanes and 4R3W GPR storage; RV2Wide has two lanes
+and 4R2W storage. Its SoC selections and CI workloads mirror RV2Wide. Both share decode, frontend, MMU/cache
 integration and the existing behavioral fixtures; named configs project into
 the shared implementation configuration.
 

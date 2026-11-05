@@ -1,5 +1,5 @@
 #lang rhodium
-/* Implements shared two/three-lane integer execution with issue-owned 4R2W routing and precise WB retirement. */
+/* Implements shared two/three-lane execution with four read paths, per-lane GPR write ports, and precise WB retirement. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -93,13 +93,14 @@ fun pending_destination(xlen :: XLen, hypervisor :: Boolean, address :: Bits(5),
   address.any() & any(matches)
 
 /* Executes RV32/RV64 integer, optional RV64 F/D, and system operations with precise WB-owned state.
-   The supplied issue circuit owns admission and physical write allocation.
+   The supplied issue circuit owns admission; each lane has a fixed GPR write port.
    Every lane can own a shared service; issue preserves the existing shared bandwidth.
    Resolution inputs qualify the corresponding live MEM token in the same cycle. */
 sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarPipelineConfig(), ~issue: issue :: Module || CircuitDefinition, ~fp_timing: selected_fp_timing :: FpExecutionTiming = FpExecutionTiming(), ~instruction_pc_width: instruction_pc_width :: PosInt = profile.xlen.width):
   def xlen = profile.xlen
   def hypervisor = profile.hypervisor
   def issue_width = superscalar_issue_width(xlen, issue)
+  def return_port = issue_width - 1
 
   /* Adapts the three-lane owner encoding to this specialization's vector index. */
   fun service_index(index :: Bits(2)) :~ Bits(index_width(issue_width)):
@@ -198,14 +199,8 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     stage
 
   def ex_older = ex_pipe[0]
-  def ex_younger = ex_pipe[1]
   def mem_older = mem_pipe[0]
-  def mem_younger = mem_pipe[1]
   def wb_older = wb_pipe[0]
-  def wb_younger = wb_pipe[1]
-  reg ex_write_routing(SuperscalarWriteRouting(issue_width))
-  reg mem_write_routing(SuperscalarWriteRouting(issue_width))
-  reg wb_write_routing(SuperscalarWriteRouting(issue_width))
 
   // Group payload has no separate validity: every live group has an older lane.
   def Region = Bits(xlen.width - SuperscalarPcOffsetBits)
@@ -303,7 +298,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
       fp.vector_write.valid <== Bool(#false)
       fp.vector_write.bits <== dont_care(fp.vector_write.bits.type)
 
-  // Fixed FP and multiply share the younger RF port, booked at RR before EX launch.
+  // Fixed FP and multiply share the last RF port, booked at RR before EX launch.
   inst wb_gpr_calendar(WritebackCalendar(4, gpr_span, ~queries: 3))
   wb_gpr_calendar.query_client <== vec(Bits(2)(0), Bits(2)(1), Bits(2)(3))
   wb_gpr_calendar.query_delay[1] <== Bits(gpr_delay_width)(PipelinedMultiplierStages + 1)
@@ -329,7 +324,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   vector.scalar_result |> filter_valid(result => result.address.any()) |> map_valid(result => result.address) |> wb_vector_scoreboard.clear
   reg wb_vector_fpr_pending(~init: Bool(#false))
   vector.scalar_writeback |> gate_flow(!wb_completion_priority) |> map_flow(delay => if gpr_delay_width <= 4 | delay[0..gpr_delay_width] | delay.zext(gpr_delay_width)) |> wb_gpr_calendar.reserve[2]
-  // Stop new younger-port bookings long enough to create a return slot.
+  // Stop new last-port bookings long enough to create a return slot.
   // A starving scalar completion retains its existing bounded-age priority.
   rr_vector_writeback_waiting <== vector.scalar_writeback.valid & !vector.scalar_writeback.ready
   reg wb_sleeping(~init: Bool(#false))
@@ -356,7 +351,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
 
 
   /* Committed completion transport.
-     Deferred results reserve the younger issue slot and travel to its WB
+     Deferred results reserve the last issue slot and travel to its WB
      write port. Already committed responses never take speculative flush. */
 
   for (source in [wb_load_response.completed, wb_divide.completed], index in 0..2):
@@ -418,7 +413,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
 
   wb_scoreboard.clear.valid <== wb_gpr_return.valid & wb_gpr_return.bits.write
   wb_scoreboard.clear.bits <== wb_gpr_return.bits.rd
-  inst rr_registers(RegisterFile(xlen, ~read_ports: 4))
+  inst rr_registers(RegisterFile(xlen, ~read_ports: 4, ~write_ports: issue_width))
   instructions |> rr_window.ingress
   instruction_capacity <== rr_window.available
   rr_window.clear.valid <== rr_squash
@@ -663,7 +658,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     (ex_pipe[lane].egress.valid & ex_pipe[lane].egress.bits.control.pause) ||| (mem_pipe[lane].egress.valid & mem_pipe[lane].egress.bits.pause) ||| (wb_pipe[lane].egress.valid & wb_pipe[lane].egress.bits.pause)
 
   def rr_pause_blocked = vec(rr_pause_lanes).any() ||| rr_pause_cycles.any()
-  def rr_younger_return_reserved = (rr_completion.valid & rr_completion.bits.write) ||| !wb_gpr_calendar.registered_free[2]
+  def rr_last_return_reserved = rr_completion.valid ||| !wb_gpr_calendar.registered_free[2]
 
   /* The issue module owns all same-group checks and prefix selection. The core
      supplies service/scoreboard probes and applies only the returned grants.
@@ -703,19 +698,16 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     multiply_available: rr_multiply_available
     fixed_returns_collide: wb_gpr_calendar.query_delay[0] === Bits(gpr_delay_width)(PipelinedMultiplierStages + 1)
     training_pending: rr_training_projected
-    younger_slot_reserved: rr_younger_return_reserved
+    last_slot_reserved: rr_last_return_reserved
     vector_waiting: rr_vector_writeback_waiting
-    write_available: vec(Bool(#true), !rr_younger_return_reserved)
 
   def rr_first = rr_decision.admitted[0]
-  def rr_second = rr_decision.admitted[1]
   def rr_older_region = rr_head.entries[0].pc[SuperscalarPcOffsetBits..xlen.width]
   def rr_next_pc_region = vec(for List (lane in 1..issue_width): rr_head.entries[lane].pc[SuperscalarPcOffsetBits..xlen.width] === (rr_older_region + Region(1)))
   issued <== rr_decision.count
   when rr_first:
     ex_pc_region <== rr_older_region
     ex_younger_next_region <== rr_next_pc_region
-    ex_write_routing <== rr_decision.writes
 
   rr_window.consume <== issued
   stat_count("issue_1", issued === Bits(2)(1))
@@ -737,11 +729,11 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   elsewhen (wb_gpr_calendar.reserve[1].fire()):
     rr_vector_multiply_turn <== Bool(#true)
 
-  // Ordinary younger writes and deferred ingress also occupy this same physical port.
-  wb_gpr_calendar.reserve[3].valid <== rr_second ||| rr_completion.valid
+  // Reserve the last lane even for nonwriters; earlier lanes have independent ports.
+  wb_gpr_calendar.reserve[3].valid <== rr_decision.admitted[return_port] ||| rr_completion.valid
   wb_gpr_calendar.reserve[3].bits <== Bits(gpr_delay_width)(3)
   when (wb_gpr_calendar.reserve[3].valid):
-    assert(wb_gpr_calendar.reserve[3].ready, "superscalar_younger_write_port_reserved")
+    assert(wb_gpr_calendar.reserve[3].ready, "superscalar_last_write_port_reserved")
 
   when (wb_gpr_calendar.reserve[1].valid):
     assert(wb_gpr_calendar.reserve[1].ready, "superscalar_multiply_booked_writeback")
@@ -1015,7 +1007,6 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   when (ex_results[0].valid):
     mem_pc_region <== ex_pc_region
     mem_younger_next_region <== ex_younger_next_region
-    mem_write_routing <== ex_write_routing
 
 
   /* EX to MEM: a group has at most one live vector operation and one live vset.
@@ -1208,7 +1199,6 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   when (mem_results[0].valid):
     wb_pc_region <== mem_pc_region
     wb_younger_next_region <== mem_younger_next_region
-    wb_write_routing <== mem_write_routing
 
   for (stage in [ex_pipe, mem_pipe, wb_pipe], request in [ex_fp_request, mem_fp_request, wb_fp_request], name in ["ex", "mem", "wb"]):
     when (stage[0].ingress.valid):
@@ -1350,7 +1340,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   def wb_scalar_vector = wb_scalar.vector.operation
   def wb_scalar_simple = !wb_scalar_vector & !wb_scalar.memory.enable & !wb_scalar.fp.valid & (wb_scalar.muldiv.service === SuperscalarLongOperation.None) & !wb_scalar.system.uses_command() & !wb_scalar.pause
   // Return eligibility must not depend on the FP completion it authorizes.
-  def wb_scalar_port_available = !wb_gpr_calendar.occupied[0].into(Bool)
+  def wb_scalar_port_available = Bool(return_port != 1) ||| !wb_gpr_calendar.occupied[0].into(Bool)
   def wb_vector_merge = wb_vector_success & wb_live_valid.any() & wb_scalar_simple & wb_scalar_port_available & (wb_scalar.resolution.disposition === SuperscalarDisposition.Continue)
   def wb_valid :: Vec(issue_width, Bool) = vec(for List (lane in 0..issue_width): if lane == 0 | mux(wb_retained_pending, wb_retained_complete, wb_older.egress.valid) | (Bool(lane == 1) & wb_vector_merge) ||| (!wb_retained_pending & wb_pipe[lane].egress.valid))
   def wb_group :: Vec(issue_width, SuperscalarResult(xlen, hypervisor)) = vec(for List (lane in 0..issue_width): if lane == 0 | mux(wb_retained_pending, wb_retained_result, wb_older.egress.bits) | mux(Bool(lane == 1) & wb_vector_merge, wb_scalar, wb_pipe[lane].egress.bits))
@@ -1957,34 +1947,33 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
 
 
   /* Architectural GPR write ports.
-     Fixed FP, deferred completion, and normal younger WB share the second
-     port; successful same-group writes coalesce without merging retirement. */
+     Each lane owns its port; fixed FP and deferred completions share the last.
+     Only actual successful younger writes suppress an older same-rd write.
+     Retirement records remain separate, including fault/replay/deferred cases. */
 
   def wb_completion_write = wb_gpr_return.valid & wb_gpr_return.bits.write
-  def wb_second_address = priority_mux(~default: wb_tokens[1].rd):
+  def wb_return_address = priority_mux(~default: Bits(5)(0)):
     vector.scalar_result.valid: vector.scalar_result.bits.address
     wb_fp_late_gpr.valid: wb_fp_late_gpr.bits.tag.rd
     wb_completion_write: wb_gpr_return.bits.rd
 
-  def wb_second_data = priority_mux(~default: retired[1].bits.data):
+  def wb_return_data = priority_mux(~default: Bits(xlen.width)(0)):
     vector.scalar_result.valid: vector.scalar_result.bits.data
     wb_fp_late_gpr.valid: wb_fp_late_gpr.bits.value
     wb_completion_write: wb_gpr_return.bits.data
 
-  assert(!(vector.scalar_result.valid & (wb_completion_write ||| wb_younger.egress.valid ||| wb_fp_late_gpr.valid)), "superscalar_vector_reserved_younger_slot")
-  assert(!(wb_fp_late_gpr.valid & (wb_completion_write ||| wb_younger.egress.valid)), "superscalar_fixed_fp_reserved_younger_slot")
-  assert(!(ex_multiply.completed.valid & (wb_completion.valid ||| wb_younger.egress.valid)), "superscalar_multiply_reserved_younger_slot")
+  def wb_last_valid = wb_pipe[return_port].egress.valid
+  assert(!(vector.scalar_result.valid & (wb_completion_write ||| wb_last_valid ||| wb_fp_late_gpr.valid)), "superscalar_vector_reserved_last_slot")
+  assert(!(wb_fp_late_gpr.valid & (wb_completion_write ||| wb_last_valid)), "superscalar_fixed_fp_reserved_last_slot")
+  assert(!(ex_multiply.completed.valid & (wb_completion.valid ||| wb_last_valid)), "superscalar_multiply_reserved_last_slot")
   when (ex_multiply.completed.valid):
     assert(wb_gpr_calendar.occupied[0].into(Bool), "superscalar_multiply_booked_return")
 
-  assert(!(wb_completion_write & wb_younger.egress.valid), "superscalar_completion_reserved_younger_slot")
-  // Issue owns all live-group selectors and alias comparisons. WB only suppresses
-  // writes shadowed by actual successful younger writes. Retained service returns
-  // retain their existing dedicated port-zero/merged-port-one completion contract.
+  assert(!(wb_completion_write & wb_last_valid), "superscalar_completion_reserved_last_slot")
   def wb_physical_writes = vec(
     for List (lane in 0..issue_width):
-      def suppressed = any(for List (younger in lane + 1..issue_width): wb_write_routing.shadowed_by[lane][younger] & wb_writes[younger])
-      wb_writes[lane] & (wb_retained_pending ||| !suppressed)
+      def suppressed = any(for List (younger in lane + 1..issue_width): (wb_tokens[lane].rd === wb_tokens[younger].rd) & wb_writes[younger])
+      wb_writes[lane] & !suppressed
   )
   def wb_write_values = for List (lane in 0..issue_width):
     RegisterFileWrite(xlen):
@@ -1992,18 +1981,14 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
       data: retired[lane].bits.data
 
   def wb_return_value = RegisterFileWrite(xlen):
-    address: wb_second_address
-    data: wb_second_data
+    address: wb_return_address
+    data: wb_return_data
 
-  for (port in 0..2):
-    def selected = vec(for List (lane in 0..issue_width): wb_physical_writes[lane] & (mux(wb_retained_pending, Bits(1)(lane % 2), wb_write_routing.ports[lane]) === Bits(1)(port)))
-    def value = priority_mux((for List (lane in 0..issue_width): [selected[lane], wb_write_values[lane]]), ~default: literal(RegisterFileWrite(xlen), 0))
-    def completion = Bool(port == 1) & (wb_completion_write ||| wb_fp_late_gpr.valid ||| (vector.scalar_result.valid & vector.scalar_result.bits.address.any()))
-    for (lane in 0..issue_width):
-      assert(!(selected[lane] & (completion ||| any(for List (other in lane + 1..issue_width): selected[other]))), "superscalar_write_port_exclusive_" ++ to_string(port) ++ "_" ++ to_string(lane))
-
-    rr_registers.writes[port].valid <== selected.any() ||| completion
-    rr_registers.writes[port].bits <== mux(completion, wb_return_value, value)
+  for (port in 0..issue_width):
+    def completion = Bool(port == return_port) & (wb_completion_write ||| wb_fp_late_gpr.valid ||| (vector.scalar_result.valid & vector.scalar_result.bits.address.any()))
+    assert(!(wb_physical_writes[port] & completion), "superscalar_write_port_exclusive_" ++ to_string(port))
+    rr_registers.writes[port].valid <== wb_physical_writes[port] ||| completion
+    rr_registers.writes[port].bits <== mux(completion, wb_return_value, wb_write_values[port])
 
   def mutable wb_retired_count = Bits(2)(0)
   for (lane in 0..issue_width):

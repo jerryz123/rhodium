@@ -12,7 +12,7 @@ wrappers do not duplicate those fields or reconstruct the pipeline config.
 The supplied issue module selects two or three instruction lanes. RV3Wide adds
 an integer ALU lane that can also own the existing shared services and branches.
 Both cores fetch eight bytes per
-cycle and retain a 4R2W register file. The examples below use RV2Wide; replacing `rv2wide` with `rv3wide` selects
+cycle; RV2Wide uses a 4R2W register file and RV3Wide uses 4R3W. The examples below use RV2Wide; replacing `rv2wide` with `rv3wide` selects
 the corresponding independently named hart with the same CI workload policy.
 
 Superscalar is an in-order, two/three-issue processor under construction. `Superscalar`
@@ -253,7 +253,7 @@ producer instead of exposing an older value.
 
 The integrated backend supplies two or three active candidates. These helpers do
 not independently grant issue: the issue module below combines their constraints
-with dependencies and all other resources. The register file remains 4R2W.
+with dependencies and all other resources. Both keep four read paths; each lane has its own write port.
 
 ### Unified issue decision
 
@@ -262,7 +262,7 @@ with dependencies and all other resources. The register file remains 4R2W.
 [issue contract and dependency helpers](issue.rhdl), not a width-switched
 admission circuit. Each combines candidates with external scoreboard/service
 readiness and returns one largest legal oldest-first prefix: `decision.count`, its per-lane
-admission mask, stall reasons, write routing, and write-port reservation envelope.
+admission mask and stall reasons. Each lane has a fixed write port, so issue needs no write-port allocator.
 There are no independent per-lane grants that can bypass a blocked predecessor.
 The separate `instructions` output carries unchanged instruction bits, decoded
 controls, and RR/EX/MEM mux selectors. No register values, selected operands,
@@ -304,26 +304,22 @@ ALU result, store data, vector scalar, and branch operands. The signed composed
 immediate retains 33 bits on RV64 and wraps at 32 bits on RV32. Both instructions
 keep independent execution and retirement records.
 
-Normal lane-1 and lane-2 GPR writes use ports 0 and 1. Lane 3 borrows either unused
-port, preferring port 0. Three distinct direct writes split the group; nonwriters
-and x0 need no port. Successful same-destination direct writes may share capacity
-by suppressing older physical writes, without merging architectural retirement.
-The reservation envelope covers every possible successful retirement prefix:
-a younger fault cannot restore an older write onto an unreserved port. Deferred
-writers do not suppress older direct writes. A potentially direct load-hit
-result may share an older same-destination writer's capacity, but suppresses
-that write only when it actually completes directly. Faults, replays, and
-deferred or retained loads preserve the older value and its retirement record.
-A middle-lane load cannot free a port for a distinct younger writer: its miss
-could require both the restored older write and that younger write together.
+Each lane writes through its own fixed port: RV2Wide has two and RV3Wide has
+three. Three independent writers can issue together when their read paths and
+other resources permit. At WB, the youngest actual successful write to a shared
+destination wins, without merging retirement records. A faulting, replaying,
+deferred, or retained younger load does not suppress an older write.
+
+Delayed load, integer arithmetic, late FP-to-GPR, and vector scalar returns share
+the last physical port. The completion calendar reserves that lane ahead of the
+write edge, leaving the older prefix available: one lane on RV2Wide and two on
+RV3Wide. The booking conservatively excludes the last lane even for nonwriters.
+Scoreboarding still orders later writes against accepted deferred owners.
 
 The named hart/factory supplies its issue module through `~issue`; shared
 pipeline configuration remains parameter data, not an implementation selector.
 RV3Wide supplies three real candidates and carries each admitted instruction
-through RR/EX/MEM/WB. Issue assigns fixed write-port selectors and younger-alias
-masks; WB qualifies them against successful writes without reallocating ports.
-A killed younger overwrite cannot suppress its older writer. Shared-service
-completion calendars and younger-slot reservations remain conservative.
+through RR/EX/MEM/WB. No write-port routing metadata advances with the group.
 
 ## Floating point
 
@@ -364,8 +360,8 @@ independent ordinary integer work can still pair.
 declared latencies, floored to the two-cycle EX-to-WB distance. It does not assume
 all FP returns take two cycles. RR reserves a fixed return slot before launch.
 An FP-to-GPR result at its own WB uses that instruction's ordinary write port;
-a later result reserves the younger slot's GPR write edge and forwards directly
-to RR. GPR storage remains two-write-port. Unpredictable integer returns retain
+a later result reserves the last slot's GPR write edge and forwards directly
+to RR. The earlier lanes retain their independent write ports. Unpredictable integer returns retain
 their existing completion pipeline.
 
 FPR arithmetic and loads use separate write ports with same-cycle forwarding.
@@ -853,11 +849,11 @@ accepts only at WB; a busy divider causes replay before acceptance. Word divide
 operands are sign- or zero-extended independently of final word sign extension.
 
 Only unpredictable load and divide completions use the round-robin Flow arbiter
-and younger-slot reservation pipeline; their admission waits for a cycle not
+and last-slot reservation pipeline; their admission waits for a cycle not
 already booked by fixed multiply/FP work. Completion order may differ from
 retirement order; each result carries its original instruction identity. The
 scoreboard blocks reads until the result returns and younger writes until the
-reserved second-port write. Independent instructions continue. Accepted work survives redirects, and precise
+reserved last-port write. Independent instructions continue. Accepted work survives redirects, and precise
 trap/interrupt entry drains all accepted results and completion-pipeline writes.
 Division by zero and signed overflow return the architectural M results.
 
@@ -1013,12 +1009,12 @@ older requests. Accepted loads, including x0 loads, and store acknowledgements
 continue draining across younger branch/replay redirects. `memory.drained`
 must also include internally buffered committed hit stores.
 
-A returned load needing a GPR write reserves the younger issue slot at RR.
-The older instruction may still issue; the unconsumed younger instruction stays
+A returned load needing a GPR write reserves the last issue slot at RR.
+The older prefix may still issue; the unconsumed last instruction stays
 in the window. The response follows an unflushable three-cycle Valid pipeline
-to the reserved younger WB write port. Thus WB never needs to backpressure
+to the reserved last WB write port. Thus WB never needs to backpressure
 instructions, and a delayed response cannot collide with a previously issued
-younger-slot write. Store acknowledgements and x0 loads do not reserve a write
+last-slot write. Store acknowledgements and x0 loads do not reserve a write
 slot. LR/AMO/SC use the same reservation rules for their optional GPR result.
 The scoreboard remains set until the actual WB write, and fault drain
 includes completions already in this pipeline.

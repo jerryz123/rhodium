@@ -14,7 +14,7 @@ std::map<std::uint64_t, std::uint32_t> original_instructions;
 std::map<std::uint64_t, unsigned> lanes, training;
 std::array<std::uint64_t, 32> gprs{};
 std::deque<std::pair<std::uint64_t, unsigned>> responses;
-unsigned cycle = 0, stores = 0, requests = 0, triples = 0;
+unsigned cycle = 0, stores = 0, requests = 0, triples = 0, paired_returns = 0;
 std::uint64_t pc = 0x8000, fault_pc = 0, redirect_pc = 0, redirect_target = 0;
 unsigned fault_disposition = 1;
 auto &resolution(unsigned lane) {
@@ -81,6 +81,12 @@ void step() {
     CHECK(count == retired_count);
     if (completed_out.pvalid && completed_out.pbits.pwrite)
       gprs[completed_out.pbits.prd] = completed_out.pbits.pdata;
+    if (completed_out.pvalid && completed_out.pbits.pwrite &&
+        retired(0).pvalid && retired(0).pbits.pwrite && !retired(0).pbits.pdeferred &&
+        retired(1).pvalid && retired(1).pbits.pwrite && !retired(1).pbits.pdeferred) {
+      CHECK(!retired(2).pvalid);
+      ++paired_returns;
+    }
     if (redirect_out.pvalid) {
       redirect_pc = redirect_out.pbits.ppc;
       redirect_target = redirect_out.pbits.ptarget;
@@ -233,7 +239,7 @@ int main() {
     const auto batch = send({0x00001463, 0x00001463, 0x00001463}); drain();
     CHECK(lanes.at(batch + 8) == 2);
     for (unsigned i = 0; i < 3; ++i) CHECK(training.at(batch + 4*i) == 1);
-    // FP fixed, variable, direct-GPR and deferred-GPR returns retain lane-three ownership.
+    // FP fixed, variable, and late-GPR returns retain lane-three ownership.
     const auto cvt = third(fp(0x69, 1, 2, 0)); drain(); CHECK(lanes.at(cvt) == 2);
     const auto sum = third(fp(1, 2, 1, 1)); drain(); CHECK(lanes.at(sum) == 2);
     const auto toint = third(fp(0x61, 7, 2, 0)); drain(); CHECK(lanes.at(toint) == 2 && gprs[7] == 84);
@@ -241,8 +247,8 @@ int main() {
     third(fp(0x61, 8, 3, 0)); drain(); CHECK(gprs[8] == 2);
     words[0x100] = UINT64_C(0x4008000000000000);
     const auto fld = third(0x0000b207); drain(); CHECK(lanes.at(fld) == 2);
-    const auto direct = third(fp(0x71, 16, 4, 0)); drain();
-    CHECK(lanes.at(direct) == 2 && gprs[16] == words[0x100]);
+    const auto moved = third(fp(0x71, 16, 4, 0)); drain();
+    CHECK(lanes.at(moved) == 2 && gprs[16] == words[0x100]);
     const auto fsd = third(0x0040b427); drain();
     CHECK(lanes.at(fsd) == 2 && words[0x108] == words[0x100]);
     const auto mul = third(0x022105b3); drain(); CHECK(lanes.at(mul) == 2 && gprs[11] == 1764);
@@ -274,9 +280,9 @@ int main() {
     const auto configured = send({0x13, 0xc0007057 | 2u << 15, vi(23, 0, 7, 3, 2)});
     drain(); CHECK(lanes.at(configured + 8) == 2);
     third(vi(16, 2, 0, 2, 15)); drain(); CHECK(gprs[15] == 7);
-    // Three-wide address forwarding and load coalescing must agree with real RF
-    // contents, not just retirement data. Exercise both borrowed write ports and
-    // restore the older value when the load does not write at this WB boundary.
+    // Three-wide address forwarding and same-rd priority must agree with real RF
+    // contents, not just retirement data. Preserve the older value when the
+    // younger load does not write at this WB boundary.
     for (unsigned destination : {13u, 14u}) for (unsigned mode = 0; mode < 8; ++mode) {
       const bool split = mode >= 6, success = mode < 2 || mode == 6;
       const auto address = split ? 0x111u : 0x110u;
@@ -320,18 +326,40 @@ int main() {
     const auto address_store = send({addi(13, 14, 0), (19u << 20) | (15u << 15) | (4u << 12) | (14u << 7) | 0x2000003b,
                                      (12u << 20) | (14u << 15) | 0x2023});
     drain(); CHECK(lanes.at(address_store + 8) == 2 && (words[0x110] & 0xffffffff) == 73);
-    // A middle-lane miss restores the first write while a later distinct write
-    // remains independent. It cannot lend that restored port to lane three.
+    // A middle-lane miss preserves the first write while the third fixed port
+    // writes independently. A hit instead suppresses only the older same-rd write.
     for (bool delayed : {false, true}) {
       send({addi(10, 0, 0x110)}); drain();
       words[0x110] = 91; slow = delayed;
       const auto before = triples;
       const auto middle = send({addi(13, 0, 17), (10u << 15) | (13u << 7) | 0x2003, addi(14, 0, 19)});
       drain(); slow = false;
-      CHECK(triples == before && lanes.at(middle) == 0 && lanes.at(middle + 4) == 1);
-      CHECK(lanes.at(middle + 8) != 2 && values.at(middle) == 17);
+      CHECK(triples == before + 1 && lanes.at(middle) == 0 && lanes.at(middle + 4) == 1);
+      CHECK(lanes.at(middle + 8) == 2 && values.at(middle) == 17);
       send({addi(20, 13, 0), addi(21, 14, 0)}); drain();
       CHECK(gprs[20] == 91 && gprs[21] == 19);
+    }
+    // Keep three independent writers queued across load/multiply/late-FP/vector
+    // returns. Each return takes the last port while the older two lanes proceed.
+    for (unsigned service = 0; service < 4; ++service) {
+      send({addi(10, 0, 0x110), addi(2, 0, 42)}); drain();
+      words[0x110] = 91;
+      const auto before_returns = paired_returns;
+      slow = service == 0;
+      const auto operation = service == 0 ? (10u << 15) | (17u << 7) | 0x3003 :
+          service == 1 ? 0x022108b3u : // MUL x17,x2,x2
+          service == 2 ? fp(0x61, 17, 2, 0) : vi(16, 2, 0, 2, 17);
+      third(operation);
+      for (unsigned group = 0; group < 32; ++group)
+        send({addi(20, 0, group), addi(21, 0, group + 1), addi(22, 0, group + 2)});
+      drain(); slow = false;
+      if (paired_returns == before_returns)
+        std::cerr << "no paired return for service " << service << " at cycle " << cycle << '\n';
+      CHECK(paired_returns > before_returns);
+      send({addi(23, 20, 0), addi(24, 21, 0), addi(25, 22, 0)}); drain();
+      CHECK(gprs[23] == 31 && gprs[24] == 32 && gprs[25] == 33);
+      send({addi(26, 17, 0)}); drain();
+      CHECK(gprs[26] == (service == 0 ? 91 : service == 1 ? 1764 : service == 2 ? 84 : 7));
     }
     CHECK(triples >= 15);
   });

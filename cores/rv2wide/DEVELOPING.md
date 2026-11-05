@@ -23,7 +23,7 @@ fetch fixture uses the RV2Wide entry point. Run `moon run rhodium:check-boundari
 changing imports, and follow the shared guide for behavior-specific checks.
 
 Keep the complete oldest-first grant in `RV2WideIssue`; reuse the shared issue
-contracts and dependency/write-routing helpers. The hart and factory pass this
+contracts and dependency helpers. Each lane owns a fixed write port. The hart and factory pass this
 circuit through `~issue`, never through the pipeline config. Validate policy
 changes with `python3 tools/testing/rsim/run.py --fixture rv2wide-issue`;
 its driver shares the common issue oracle under superscalar tests.

@@ -28,7 +28,7 @@ unqualified probe owners so service readiness cannot feed back into probe select
 the admitted prefix qualifies actual launches. WB checks every older lane before
 dispatch, retaining age-directed scalar/vector admission to avoid ready loops.
 The issue module remains the only prefix-admission authority. Never widen
-two-operand bundles, physical 4R2W storage, or single-service inputs mechanically.
+two-operand bundles, the four physical read paths, or single-service inputs mechanically.
 
 The moved fixtures retain their `rv2wide-*` runner IDs and C++ filenames to
 preserve the existing coverage inventory. Enabled fetch exercises `RV2Wide`;
@@ -80,7 +80,7 @@ storage; the issue window owns retention and compaction. The supplied named
 issue circuit owns prefix admission; `issue.rhdl` owns its shared contract and predicates.
 No independent lane handshake may allow a younger instruction to pass an
 older blocked instruction. WB is the only transaction and retirement authority;
-its accepted deferred owners later write through the shared younger-slot port.
+its accepted deferred owners later write through the shared last-lane port.
 Redirect qualification gates new transfers as well as flushing pipe state.
 
 `read-operands.rhdl` owns bounded four-path scalar read routing, forwarding,
@@ -117,32 +117,26 @@ or construct six independent forwarding networks. Preserve oldest-to-youngest
 producer priority, including unavailable/replaying writers hiding older data.
 Named `RV2WideIssue` and `RV3WideIssue` use these helpers and shared dependency
 predicates, but each owns its complete prefix grant. RV2Wide explicitly checks
-one pair; RV3Wide scans three candidates and arbitrates borrowed reads and writes.
+one pair; RV3Wide scans three candidates and arbitrates borrowed reads. Each lane owns a fixed write port.
 Core RR supplies decoded candidates, registered service views, and
 physical-path readiness; it applies the returned mux controls and grants without another issue
 policy. Keep scoreboard state, FP latency queries, branch-training occupancy
 projection, vector ordering state, and actual calendar bookings in the core.
-The physical 2W RF interface stays unchanged as the instruction group widens.
+The GPR file has four read ports and one write port per lane: 2W on RV2Wide,
+3W on RV3Wide. Issue carries no write routing or coalescing metadata. WB compares
+destinations and suppresses an older write only when a younger lane actually
+writes successfully. Fault/replay/deferred younger owners never suppress older
+state, and retirement records preserve every instruction's own result.
 
-Write routing keeps normal lanes 1/2 on ports 0/1 and lets lane 3 borrow either
-unused port. Admission includes potentially direct load-hit writers, which may
-coalesce with older same-destination writes just like known direct writers. Use
-a prefix-local eligibility mask: a potentially deferred load can release
-capacity only at the tail of that prefix. A middle load can defer without
-killing a younger writer; restoring its predecessor must not collide with that
-younger writer's fixed port. Successful-prefix checks alone do not cover this case.
-Scan every prefix before accepting the full group, retaining the union of occupied
-ports: all-success coalescing must not hide a port needed when a younger lane
-faults. Issue's port selectors and younger-destination alias masks advance with
-the group through EX/MEM/WB. WB qualifies suppression with actual direct-write
-enables and does not run an allocator. Killed/replayed/deferred younger owners
-never suppress older state. Independently retained service completion preserves
-its existing port-zero/merged-scalar-port-one contract outside the live group.
-Retirement records and their values remain independent of physical coalescing.
-The existing completion transport still reserves the entire younger pipeline
-slot, even for nonwriters, in the production two-lane specialization. Preserve
-that stronger booking and its fairness/ownership assertions; the issue module's
-physical reservation envelope is not permission to relax transport ownership.
+The last port also serves accepted delayed load/divide, multiply, late FP, and
+vector scalar returns. The completion calendar reserves the last issue lane
+before its WB edge, including nonwriters; the earlier prefix can continue.
+Book ordinary last-lane admission, not lane 2 unconditionally in the three-lane
+specialization. Preserve response fairness, scoreboard ordering, and accepted
+owners across speculative flush. Retained retirement still normalizes its owner
+to slot zero and may merge one scalar into slot one; on RV3Wide that merge does
+not compete with the return port. Keep this normalization separate from live
+pipeline lane identity and check write-port exclusion at actual WB.
 
 `SuperscalarResult.branch` groups comparison, recovery, and training state. FP
 requests associated with a fetched instruction carry only `SuperscalarFpSchedule`;
@@ -406,7 +400,7 @@ WB authorization, and the two-port writeback policy stay local.
 | `decode/core-ctrl.rhdl` | Selected instruction domain, writeback column, one combined relation |
 | `bundles.rhdl` | Instruction, lookup/admission/response, stage, and retirement contracts |
 | `issue-window.rhdl` | Sole eight-entry compacting instruction buffer, free-entry count, prefix consumption |
-| `issue.rhdl` | Shared issue contracts, signature validation, dependency/resource predicates, and two-write-port routing |
+| `issue.rhdl` | Shared issue contracts, signature validation, and dependency/resource predicates |
 | `branch-training.rhdl` | Two-entry, two-offer/one-write retirement training buffer, empty bypass, predictor clear |
 | `pairing.rhdl` | Same-group recognition and control-only RR/EX/MEM mux selections |
 | `read-operands.rhdl` | Four physical read/bypass paths, issue-controlled operand muxes, and immediate computation |
@@ -509,7 +503,7 @@ Normal-WB older writes may pair with normal-WB or deferred younger
 writes. Keep both architectural retirement records and per-instruction values;
 coalesce RF writes only when both normal-WB write enables are qualified and the
 destinations match. A faulting, replaying, split, or deferred younger instruction
-must not suppress the older write. The second port can carry an older completion,
+must not suppress the older write. The last port can carry an older completion,
 so never infer younger-write priority from the port number. Insert direct FP
 returns into their WB lane's forwarding payload; late FP returns precede the
 pipeline's age-ordered producers. An older FP bypass must not override a younger writer.
@@ -642,9 +636,9 @@ same-group multiply/FP claims for the same edge split at RR before either
 executes. Other fixed pairs can book independently. RR uses the calendar's
 `registered_free` queries for FP, multiply, and delay-three ordinary returns;
 these must not depend on live reserve handshakes. The delay-three query blocks
-younger-slot issue and variable-return admission for their future WB edge.
-Pause new fixed bookings after bounded variable-return starvation. No third
-write port or WB backpressure is permitted.
+last-slot issue and variable-return admission for their future WB edge.
+Pause new fixed bookings after bounded variable-return starvation. Returns share
+the last lane's write port without an extra completion port or WB backpressure.
 
 Division captures its operands and owner only after WB acceptance. A busy service
 causes preacceptance replay, while an accepted operation survives all speculative
@@ -1390,7 +1384,7 @@ permission at the first sequencing transfer rather than descriptor dispatch.
 
 Scalar multiply and fixed FP reserve their EX slots at RR; squashing an EX
 request must not combinationally change vector shared-service admission.
-The GPR calendar includes ordinary younger-slot writes as well as deferred
+The GPR calendar includes ordinary last-slot writes as well as deferred
 returns; a vector scalar-result reservation must not overwrite a slot already
 promised to a scalar instruction. A waiting vector return pauses new bookings
 long enough to create a free slot, while aged scalar completions retain bounded
@@ -1587,17 +1581,18 @@ core wiring, also run `rv2wide-core`, `rv2wide-rv32`, `rv2wide-core-fp-late`, an
 
 The issue fixtures compose the production decoder, issue module, and separate
 register-read datapath. An independent C++ oracle exhausts ordinary source-use/destination
-combinations and write-port availability, then randomizes presence, physical
-readiness and external blockers. Write-routing checks enumerate destination
-aliases, qualified-write masks, coalescing eligibility, and reserved ports,
-including shortened retirement prefixes. Directed groups cover first-pair
+combinations and last-lane return reservations, then randomizes presence, physical
+readiness and external blockers. Integrated core tests cover three independent
+writes, destination aliases, and shortened retirement prefixes. Directed groups cover first-pair
 rewrites, third-lane RAWs, deferred WAWs, scalar/FP/vector service collisions,
 serialization, fetch faults, PAUSE, ordered memory, PC wrap and branch-training
 capacity. Third-lane address tests cover both blocked and unavailable address
 read paths, producer readiness, nonzero offsets, unrelated store data, and
 nearest-writer priority. Integrated service tests check address forwarding and
-both coalesced load write ports on hits, deferred returns, rejected admission,
+same-destination load priority on hits, deferred returns, rejected admission,
 fault/replay, older faults, retained split success/fault, and subsequent RF consumers.
+They also require two ordinary writers to complete alongside load, multiply,
+late FP, and vector scalar returns on the three-port specialization.
 Operand checks cover every selected physical path, first-pair constants,
 PC/register bases, signed immediate sums, later-stage mux controls, and blocked
 sources/donors. They also check emitted instruction bits, decoded controls,

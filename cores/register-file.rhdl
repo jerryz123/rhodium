@@ -1,5 +1,5 @@
 #lang rhodium
-/* Provides shared GPR storage with configurable read ports and two synchronous write ports. */
+/* Provides shared GPR storage with configurable read and synchronous write ports. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -7,20 +7,21 @@ import:
   lib("riscv/isa/xlen.rhm").XLen
   lib("rhodium/std/ready-valid.rhdl") open
 
-/* Stores unreset GPRs with the selected combinational pre-edge reads and two synchronous writes.
+/* Stores unreset GPRs with the selected combinational pre-edge reads and synchronous writes.
    Reads do not bypass live writes: pipeline forwarding belongs to the caller. x0 is hardwired
    to zero; simultaneous nonzero writes must have distinct destinations. */
-sync_circuit RegisterFile(xlen :: XLen, ~read_ports: read_ports :: PosInt):
+sync_circuit RegisterFile(xlen :: XLen, ~read_ports: read_ports :: PosInt, ~write_ports: write_ports :: PosInt = 2):
   input read_addresses: Vec(read_ports, Bits(5))
   output read_data: Vec(read_ports, Bits(xlen.width))
-  interface writes[2](Valid(RegisterFileWrite(xlen)), ~role: consumer)
+  interface writes[write_ports](Valid(RegisterFileWrite(xlen)), ~role: consumer)
 
   reg registers(Vec(32, Bits(xlen.width)))
   read_data <== vec(for List (port in 0..read_ports): mux(read_addresses[port].any(), registers[read_addresses[port]], Bits(xlen.width)(0)))
-  for (port in 0..2):
+  for (port in 0..write_ports):
     when (writes[port].valid & writes[port].bits.address.any()):
       registers[writes[port].bits.address] <== writes[port].bits.data
 
-  assert(!(writes[0].valid & writes[1].valid & writes[0].bits.address.any() & (writes[0].bits.address === writes[1].bits.address)), "register_file_distinct_writes")
+    for (other in port + 1..write_ports):
+      assert(!(writes[port].valid & writes[other].valid & writes[port].bits.address.any() & (writes[port].bits.address === writes[other].bits.address)), "register_file_distinct_writes_" ++ to_string(port) ++ "_" ++ to_string(other))
 
 export RegisterFile

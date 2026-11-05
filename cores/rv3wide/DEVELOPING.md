@@ -13,12 +13,12 @@ that same value. Shared parameter defaults and validation belong in
 `superscalar/profile.rhm`, not duplicated constructors or forwarding fields here.
 The hart independently owns reset/start and CHI wiring and supplies
 `RV3WideIssue(xlen)` through `~issue`. `issue.rhdl` owns the three-candidate
-prefix, bounded read borrowing, and two-write-port contention. Shared contracts
+prefix, bounded read borrowing, and last-lane completion reservations. Shared contracts
 and predicates remain under superscalar; neither family imports this policy.
 Do not copy decode or create an independent pipeline. Shared execution derives
 its lane count from the supplied issue signature. Service selectors, FP ownership,
-vector descriptors, and predictor training cover every lane without widening
-physical register ports or adding service instances.
+vector descriptors, and predictor training cover every lane. GPR storage has
+four read ports and three fixed write ports; shared service bandwidth is unchanged.
 
 The shared profile tests cover configuration and UDB agreement. The existing
 `rv2wide-fetch-disabled` behavioral fixture uses `RV3Wide`, so it tests real
@@ -34,9 +34,10 @@ Run `python3 tools/testing/rsim/run.py --fixture rv3wide-issue --fixture rv3wide
 for standalone three-candidate admission changes. These fixtures share the
 common issue oracle and add third-candidate checks. The integrated backend
 supplies three candidates. Run `rv3wide-core` for three retirements, borrowed
-operands, fixed issue-assigned write ports, shortened fault/replay prefixes,
+operands, three independent fixed write ports, shortened fault/replay prefixes,
 RF consumers, and PC-region crossings. Pair it with `rv2wide-core`, FP/vector
 integration, and the existing production `rv2wide-fetch-disabled` fixture.
 Run `rv3wide-services` for third-lane load/store hits, deferred returns and replay,
 all-older fault suppression, branches and ordered training, fixed/variable FP,
-multiply/divide, vector configuration and retained vector memory.
+multiply/divide, vector configuration and retained vector memory. It also checks
+two ordinary writes alongside a delayed load, multiply, FP, or vector GPR return.
