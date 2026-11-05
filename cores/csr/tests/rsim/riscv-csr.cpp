@@ -494,6 +494,11 @@ int main() {
     reset_dut();
     enter_supervisor(UINT64_C(0));
     csr_read_legal(CSR_SATP);
+    // The Sv39 specialization still accepts a root; unsupported modes preserve it.
+    constexpr auto sv39_root = UINT64_C(0x8000000000000123);
+    csr_access(CSR_WRITE, CSR_SATP, sv39_root, 0, true);
+    csr_access(CSR_WRITE, CSR_SATP, UINT64_C(0x9000000000000456), sv39_root, true);
+    csr_access(CSR_SET, CSR_SATP, 0, sv39_root);
     privileged_action(SYSTEM_NONE, FENCE_ADDRESS_TRANSLATION, UINT64_C(516),
                       UINT64_C(301990003), UINT64_C(0), UINT64_C(1));
     privileged_action(SYSTEM_WFI, FENCE_NONE, UINT64_C(520),

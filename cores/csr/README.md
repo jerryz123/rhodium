@@ -14,12 +14,14 @@ Import `cores/csr/config.rhm`, `cores/csr/protocol.rhdl`, and
 instantiate `RiscvCsrFile(config)` in the caller's clock/reset domain.
 The supplied `RiscvIsaProfile` determines XLEN and MISA; optional bank choices
 are explicit. The caller must keep those choices consistent with its ISA.
+In a Bare-only configuration, privileged software may access `satp`, but it
+reads zero and writes do not install a translation root.
 
 ## Authorization contract
 
 ```text
 core's precise boundary -> Valid(RiscvCsrCommand) -> CSR/trap bank
-core's retirement count (0, 1, or 2) ------------> counters
+core's retirement count (0 through 3) ----------> counters
 core's interrupt boundary + next PC ------------> interrupt entry
                          <- result, redirect, live architectural state
 ```
@@ -36,7 +38,7 @@ core's interrupt boundary + next PC ------------> interrupt entry
   `commit.valid`. It reports a candidate synchronous fault without changing
   state. A caller may inspect it, retain a denied read while older work drains,
   and authorize trap entry later using the retained exception context.
-- `retire_count: Bits(2)` independently counts zero, one, or two architectural
+- `retire_count: Bits(2)` independently counts zero through three architectural
   retirements in `minstret` and the optional retirement HPM event. Ordinary instructions need not send
   commands. Command success does not itself increment counters. Counter CSR
   writes retain priority over increments.

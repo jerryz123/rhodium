@@ -458,7 +458,8 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
       write value:
         def satp_replacement = value.as_bits()
         def satp_mode = if xlen == XLen.X32 | Bits(Satp64Mode.width)(0) | csr_field(satp_replacement, Satp64Mode)
-        def satp_mode_supported = if xlen == XLen.X32 | Bool(#false) | satp_mode.is_one_of(Bits(Satp64Mode.width)(0), Bits(Satp64Mode.width)(Sv39Mode))
+        // A Bare-only hart exposes a legal, hardwired-zero satp at either XLEN.
+        def satp_mode_supported = if paged_memory | satp_mode.is_one_of(Bits(Satp64Mode.width)(0), Bits(Satp64Mode.width)(Sv39Mode)) | Bool(#false)
         def satp_ppn = if xlen == XLen.X32 | Bits(Satp64PPN.width)(0) | csr_field(satp_replacement, Satp64PPN)
         def satp_value = if xlen == XLen.X32 | zero | csr_field_value(Satp64Mode, satp_mode, width) ||| csr_field_value(Satp64PPN, satp_ppn, width)
         when satp_mode_supported:

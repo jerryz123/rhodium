@@ -13,7 +13,7 @@ bundle RiscvCounterWrite(xlen :: XLen):
   address: Bits(12)
   value: Bits(xlen.width)
 
-/* Counts cycles and zero/one/two retirements with explicit CSR writes taking precedence over increments. */
+/* Counts cycles and zero through three retirements, with CSR writes taking precedence over increments. */
 sync_circuit RiscvBaseCounters(xlen :: XLen):
   input retire_count: Bits(2)
   interface machine_write(Valid(RiscvCounterWrite(xlen)), ~role: consumer)
