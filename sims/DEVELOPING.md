@@ -1023,8 +1023,10 @@ after reset-only predictor initialization and same-or-next-PC-region pairing
 changed their counter distributions.
 The Simple RV2Wide and RV5Stage SKL expectations were refreshed from all 28
 functionally successful workloads per config in
-[CI run 41897832705](https://github.com/jerryz123/rhodium/actions/runs/41897832705),
-including the reviewed transpose-e8 and GEMM-f16 counter changes.
+[CI run 41927971684](https://github.com/jerryz123/rhodium/actions/runs/41927971684)
+after stable compiler filename mappings changed the ELF layout and counter
+distributions. This supersedes the pre-normalization SKL measurements from
+[CI run 41897832705](https://github.com/jerryz123/rhodium/actions/runs/41897832705).
 Files map workload names directly to counter-name/value maps, matching the
 runtime measurement without additional wrappers. Sort workload and counter names
 deterministically. Missing expectations are collected and reported without a
@@ -1063,9 +1065,13 @@ or workflow-text tests. Run `git diff --check` after baseline/doc changes.
 
 ### Shared Sail artifacts
 
-CI builds the patched Sail model once in `arch-sail`, caches it by gitlink,
+CI builds the patched Sail model once in `sail`, caches it by gitlink,
 patch series, compiler version, and installer, then distributes the exact-commit
-model artifact to the ACT generation matrix. Each single-core configuration's
+model artifact to the ACT generation matrix. Installer path-policy stamps hash
+contents under fixed repository-relative filenames so a consumer's absolute
+installer invocation or relocated checkout cannot invalidate the producer's
+stamp. A genuine Sail rebuild requires Z3 on `PATH`; artifact reuse does not.
+Each single-core configuration's
 generation job restores only an exact-input completed ELF bundle, separately
 from the native simulator builds. On a miss it runs full ACT generation; on a
 hit it verifies the bundle before republishing it for the current commit. It

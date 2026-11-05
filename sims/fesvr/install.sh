@@ -9,7 +9,11 @@ patch_dir="$repo_dir/riscv/riscv-isa-sim-patches"
 patched_submodule_tool="$repo_dir/riscv/patched_submodule.py"
 python_command="${PYTHON:-python3}"
 source "$repo_dir/tools/build/paths.sh"
-path_policy=$(shasum -a 256 "$repo_dir/tools/build/paths.py" "$repo_dir/tools/build/paths.sh" "$0" | shasum -a 256 | cut -d' ' -f1)
+path_policy=$(
+  cd "$repo_dir"
+  shasum -a 256 tools/build/paths.py tools/build/paths.sh sims/fesvr/install.sh |
+    shasum -a 256 | cut -d' ' -f1
+)
 
 for tool in "$python_command" git make dtc; do
   if ! command -v "$tool" >/dev/null 2>&1; then

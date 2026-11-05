@@ -8,7 +8,11 @@ version=5.048
 archive_sha256=02d934b3f972c6d9b792350634d81eadfc9e61f347e3f3bdcaad40960b9fcb53
 install_dir="$repo_dir/.tools/verilator"
 source "$repo_dir/tools/build/paths.sh"
-path_policy=$(shasum -a 256 "$repo_dir/tools/build/paths.py" "$repo_dir/tools/build/paths.sh" "$0" | shasum -a 256 | cut -d' ' -f1)
+path_policy=$(
+  cd "$repo_dir"
+  shasum -a 256 tools/build/paths.py tools/build/paths.sh tools/install-verilator.sh |
+    shasum -a 256 | cut -d' ' -f1
+)
 
 verify_install() {
   local actual

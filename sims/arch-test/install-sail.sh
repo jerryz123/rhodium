@@ -9,7 +9,11 @@ series="${SAIL_PATCH_SERIES:-$repo_dir/riscv/sail-riscv-patches/series}"
 materializer="$repo_dir/riscv/patched_submodule.py"
 python="${PYTHON:-python3}"
 source "$repo_dir/tools/build/paths.sh"
-path_policy=$(shasum -a 256 "$repo_dir/tools/build/paths.py" "$repo_dir/tools/build/paths.sh" "$0" | shasum -a 256 | cut -d' ' -f1)
+path_policy=$(
+  cd "$repo_dir"
+  shasum -a 256 tools/build/paths.py tools/build/paths.sh sims/arch-test/install-sail.sh |
+    shasum -a 256 | cut -d' ' -f1
+)
 compiler_version=0.20.3
 identity="$("$python" "$materializer" identity --repository "$repo_dir" --submodule riscv/sail-riscv --series "$series")"
 install_dir="$repo_dir/.tools/sail-riscv-0.16-sail-$compiler_version-$identity"
@@ -28,7 +32,7 @@ if [[ -e "$install_dir" ]] && ! [[ -f "$install_dir/.complete" && "$(< "$install
   exit 1
 fi
 
-for tool in "$python" git cmake; do
+for tool in "$python" git cmake z3; do
   command -v "$tool" >/dev/null || { echo "$tool is required to build Sail RISC-V" >&2; exit 1; }
 done
 if [[ ! -e "$source_dir/.git" ]]; then
