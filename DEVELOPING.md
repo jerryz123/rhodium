@@ -195,7 +195,6 @@ commands, and suite dependencies in
 [`.moon/tasks/checks.yml`](.moon/tasks/checks.yml) assigns hosted coverage.
 Setup commands live in [`.moon/tasks/setup.yml`](.moon/tasks/setup.yml), and
 software-builder recipes live in [`.moon/tasks/software.yml`](.moon/tasks/software.yml).
-Use the managed Racket wrappers or fixture runners for individual files or fixtures.
 Simulator execution templates
 live in [`.moon/tasks/execution.yml`](.moon/tasks/execution.yml); native binary
 checks and local physical lint live in
@@ -231,6 +230,25 @@ Documentation-only changes require, at minimum, purpose-header, path, anchor,
 code-fence, Mermaid-structure, and `git diff --check` validation. Confirm every
 documented command and source path against the current repository rather than
 copying a stale catalog.
+
+### Debug an individual file or fixture
+
+Use direct runners when isolating a failure or validating a narrowly scoped
+change. They are debugging entry points beneath the standard Moon workflow,
+not a replacement for its build dependencies and suite selection. From the
+repository root:
+
+```sh
+tools/run-racket-tests.sh examples/lop/adder-standard.rhdl
+python3 tools/testing/rsim/run.py --fixture queue
+```
+
+The first command needs Racket/Rhombus; the Rsim fixture also needs a C++
+toolchain. Keep Racket execution behind `tools/run-racket.sh` or
+`tools/run-racket-tests.sh` so it uses the managed incremental compiled root.
+See the [Rsim runner guide](tools/testing/rsim/README.md) and
+[CIRCT fixture contributor guide](tools/testing/circt/DEVELOPING.md) for
+selection options, prerequisites, and failure artifacts.
 
 ## Maintain documentation ownership
 

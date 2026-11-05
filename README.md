@@ -27,16 +27,17 @@ Contributors should start with [`DEVELOPING.md`](DEVELOPING.md).
 
 ## Quick start
 
-For repository checks, simulators, and benchmarks, start with the
-[Moon contributor quick start](DEVELOPING.md#validate-at-the-owning-boundary).
-Moon is not required to elaborate a circuit or run a focused fixture.
+Moon is the standard entry point for repository builds, examples, and tests.
+Rhodium itself runs on Racket/Rhombus. See the
+[contributor quick start](DEVELOPING.md#validate-at-the-owning-boundary)
+for change validation and configured simulator or benchmark workflows.
 
 ### Requirements
 
 - Racket 9.2 or a compatible current release
 - Rhombus 1.1
-- Moon 2.6.5 for named repository tests and build products; individual fixture
-  runners do not require it
+- [Moon 2.6.5](https://github.com/moonrepo/moon/releases/tag/v2.6.5)
+  for repository builds and tests
 - Device Tree Compiler for DTB interoperability tests and FESVR simulations
 - CIRCT for the CIRCT-to-SystemVerilog route; direct SystemVerilog emission
   does not require it
@@ -49,6 +50,12 @@ On a Homebrew-based macOS setup:
 ```sh
 brew install minimal-racket dtc
 raco pkg install --auto rhombus
+```
+
+Put Moon on `PATH`, then prepare its task catalog from the checkout root:
+
+```sh
+python3 -m tools.ci.catalog
 ```
 
 For the CIRCT route on x86-64 Linux or Apple Silicon macOS, install the pinned
@@ -90,10 +97,11 @@ export:
   program
 ```
 
-Run the standard adder example from the checkout:
+Run the language-oriented programming examples, including the standard adder
+(requires the CIRCT setup above):
 
 ```sh
-tools/run-racket-tests.sh examples/lop/adder-standard.rhdl
+moon run rhodium:examples-lop
 ```
 
 Run all canonical examples, including CIRCT-backed SystemVerilog reference checks
