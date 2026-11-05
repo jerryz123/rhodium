@@ -1027,6 +1027,9 @@ functionally successful workloads per config in
 after stable compiler filename mappings changed the ELF layout and counter
 distributions. This supersedes the pre-normalization SKL measurements from
 [CI run 41897832705](https://github.com/jerryz123/rhodium/actions/runs/41897832705).
+The Simple Spike SKL expectations use all 28 functionally successful workloads
+from [CI run 41926781165](https://github.com/jerryz123/rhodium/actions/runs/41926781165),
+which contains the same normalized ELFs as the refreshed RTL SKL suites.
 Files map workload names directly to counter-name/value maps, matching the
 runtime measurement without additional wrappers. Sort workload and counter names
 deterministically. Missing expectations are collected and reported without a

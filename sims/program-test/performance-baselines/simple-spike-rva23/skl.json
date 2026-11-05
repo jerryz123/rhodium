@@ -1,86 +1,86 @@
 {
   "skl_depthwise_conv2d_f16_f16_f16_zvfh": {
-    "cycles": 29399
+    "cycles": 29372
   },
   "skl_depthwise_conv2d_f32_f32_f32_zve32f": {
-    "cycles": 46873
+    "cycles": 47011
   },
   "skl_depthwise_conv2d_i8_i8_i32_zve32x": {
-    "cycles": 21830
+    "cycles": 21918
   },
   "skl_exp_bf16_zve32f": {
-    "cycles": 9940
+    "cycles": 9942
   },
   "skl_exp_f16_zvfh": {
-    "cycles": 9835
+    "cycles": 9808
   },
   "skl_exp_f32_zve32f": {
-    "cycles": 10198
+    "cycles": 10196
   },
   "skl_gelu_f32_zve32f": {
-    "cycles": 16579
+    "cycles": 16553
   },
   "skl_gemm_f16_f16_f16_zvfh": {
-    "cycles": 53430
+    "cycles": 54969
   },
   "skl_gemm_f16_f16_f32_zvfh": {
-    "cycles": 28290
+    "cycles": 27689
   },
   "skl_gemm_f32_f32_f32_zve32f": {
-    "cycles": 31110
+    "cycles": 30987
   },
   "skl_gemm_f64_f64_f64_zve64d": {
-    "cycles": 25906
+    "cycles": 28064
   },
   "skl_gemm_i8_i8_i32_zve32x": {
-    "cycles": 28586
+    "cycles": 27023
   },
   "skl_pack_e16rc_e16rcprc_zve32x": {
-    "cycles": 223240
+    "cycles": 224002
   },
   "skl_pack_e32rc_e32rcprc_zve32x": {
-    "cycles": 467313
+    "cycles": 469370
   },
   "skl_pack_e8rc_e8rcprc_zve32x": {
-    "cycles": 76425
+    "cycles": 77314
   },
   "skl_sigmoid_bf16_zve32f": {
-    "cycles": 16445
+    "cycles": 16446
   },
   "skl_sigmoid_f16_zvfh": {
-    "cycles": 14881
+    "cycles": 14880
   },
   "skl_sigmoid_f32_zve32f": {
-    "cycles": 16889
+    "cycles": 16922
   },
   "skl_softmax_bf16_zve32f": {
-    "cycles": 27160
+    "cycles": 27183
   },
   "skl_softmax_f16_zvfh": {
-    "cycles": 24954
+    "cycles": 25155
   },
   "skl_softmax_f32_zve32f": {
-    "cycles": 22323
+    "cycles": 22247
   },
   "skl_softmax_f32r_zve32f": {
-    "cycles": 91050
+    "cycles": 91338
   },
   "skl_transpose_e16_zve32x": {
-    "cycles": 164541
+    "cycles": 170849
   },
   "skl_transpose_e32_zve32x": {
-    "cycles": 454528
+    "cycles": 453756
   },
   "skl_transpose_e8_zve32x": {
-    "cycles": 75306
+    "cycles": 77002
   },
   "skl_unpack_e16rcprc_e16rc_zve32x": {
-    "cycles": 244764
+    "cycles": 243353
   },
   "skl_unpack_e32rcprc_e32rc_zve32x": {
-    "cycles": 484129
+    "cycles": 483752
   },
   "skl_unpack_e8rcprc_e8rc_zve32x": {
-    "cycles": 85088
+    "cycles": 83655
   }
 }
