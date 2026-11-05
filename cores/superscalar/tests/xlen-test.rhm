@@ -21,7 +21,7 @@ for (xlen in [XLen.X32, XLen.X64]):
   def execution = design.modules.find(fun (module_def): module_def.name == "SuperscalarCore")
   def retired = core.find_output("retired_0_out").type.field("bits").type
   def completed = core.find_output("completed_out").type.field("bits").type
-  def compact_fault_width = 3 + xlen.width // Non-H: kind and full fault address.
+  def compact_fault_width = 4 // Non-H instruction: kind and second-parcel flag.
   def step_width = if xlen == XLen.X32 | 6 | 7 // Last changed bit and short-step flag.
   def fifo = child(child(execution, "wb_load_response"), "owners")
   def queue_storage = fifo.memories.find(fun (mem): mem.name == "storage")
@@ -31,7 +31,7 @@ for (xlen in [XLen.X32, XLen.X64]):
   def attempt = s2.find_output("egress_out").type.field("bits").type
   check:
     retired.field("fetched").type.field("fault").type.packed_width() ~is compact_fault_width
-    attempt.field("fault").type.packed_width() ~is compact_fault_width
+    attempt.field("fault").type.packed_width() ~is 3 + xlen.width
     completed.field("identity").type.packed_width() ~is xlen.width + 32
     completed.packed_width() ~is 2 * xlen.width + 38
     queue_storage.depth ~is 4
@@ -59,6 +59,7 @@ for (xlen in [XLen.X32, XLen.X64]):
       check:
         payload.results[0].type.element_type.field("fetched").type.field("pc").type.width ~is 12
         payload.results[0].type.element_type.field("fetched").type.field("fault").type.packed_width() ~is fault_width
+        payload.results[0].type.element_type.field("fetched").type.field("prediction").type.field("target").type.width ~is math.min(xlen.width, math.max(39, test_fetch_chi.flit.request_address_width + 1))
         payload.results[0].type.element_type.field("fetched").type.field("sequential_pc").type.packed_width() ~is step_width
 
   check:

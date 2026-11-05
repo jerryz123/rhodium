@@ -107,13 +107,46 @@ hardware_enum SuperscalarFetchFaultKind:
     kind.is_one_of(SuperscalarFetchFaultKind.None, SuperscalarFetchFaultKind.Misaligned, SuperscalarFetchFaultKind.Access, SuperscalarFetchFaultKind.Page)
       ||| (Bool(hypervisor) & (kind === SuperscalarFetchFaultKind.GuestPage))
 
-/* Carries the canonical fetch fault unchanged through frontend, assembly, and EX.
-   The exact fault VA may name a continuation; only H carries guest provenance. */
-bundle SuperscalarFetchFault(xlen :: XLen, hypervisor :: Boolean):
+/* Translation reports the exact block VA. Assembly checks this against the
+   instruction and converts it to parcel ownership before issuing the packet. */
+bundle SuperscalarFetchBlockFault(xlen :: XLen, hypervisor :: Boolean):
   kind: SuperscalarFetchFaultKind
   value: Bits(xlen.width)
   if hypervisor:
     guest: RiscvGuestFault()
+
+  /* A failed block has no executable parcels. */
+  method valid(fault) :: Bool:
+    fault.kind =/= SuperscalarFetchFaultKind.None
+
+  /* Only H-enabled translation may report a guest-page fault. */
+  method supported(fault) :: Bool:
+    fault.kind.supported(hypervisor)
+
+  /* Preserve the winning block's cause and guest provenance; a crossing
+     instruction owns its second parcel only if that block actually failed. */
+  method at_parcel(fault, second :: Bool) :: SuperscalarFetchFault(xlen, hypervisor):
+    def continuation = fault.valid() & second
+    if hypervisor
+    | SuperscalarFetchFault(xlen, hypervisor):
+        kind: fault.kind
+        continuation: continuation
+        guest: fault.guest
+    | SuperscalarFetchFault(xlen, hypervisor):
+        kind: fault.kind
+        continuation: continuation
+
+/* Instruction-relative fetch fault. The originating PC travels with the
+   instruction; only a failed second parcel needs a nonzero displacement. */
+bundle SuperscalarFetchFault(xlen :: XLen, hypervisor :: Boolean):
+  kind: SuperscalarFetchFaultKind
+  continuation: Bool
+  if hypervisor:
+    guest: RiscvGuestFault()
+
+  /* Recover the exact trap VA modulo XLEN, including a straddle across zero. */
+  method address(fault, pc :: Bits(xlen.width)) :: Bits(xlen.width):
+    mux(fault.continuation, pc + Bits(xlen.width)(2), pc)
 
   /* Reports whether this instruction carries a fetch exception. */
   method valid(fault) :: Bool:
@@ -690,6 +723,7 @@ export:
   SuperscalarInstructionLookup
   SuperscalarUncachedInstruction
   SuperscalarFetchFault
+  SuperscalarFetchBlockFault
   SuperscalarFetchFaultKind
   fetch_fault_kind
   SuperscalarPcStep

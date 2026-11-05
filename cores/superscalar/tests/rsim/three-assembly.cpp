@@ -183,7 +183,7 @@ void continuation_faults() {
     enqueue(continuation);
     CHECK(instructions_out.pbits.pcount == 3);
     const auto &faulting = instructions_out.pbits.pentries[2];
-    CHECK(faulting.ppc == 0x5ffe && faulting.pfault.pvalue == 0x6000);
+    CHECK(faulting.ppc == 0x5ffe && parcel_fault_address(faulting) == 0x6000);
     CHECK(faulting.pfault.pkind == kind && same_fetch_guest(faulting.pfault, continuation.pfault));
     CHECK(!instructions_out.pbits.pentries[0].pfault.pkind && !instructions_out.pbits.pentries[1].pfault.pkind);
     instructions_in.pready = true;

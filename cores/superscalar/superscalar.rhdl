@@ -53,9 +53,7 @@ sync_circuit Superscalar(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfi
   /* Execution and selected cache/translation services.
      Scalar width follows the profile; fetch and physical transport remain 64-bit. */
 
-  // Cover sign-extended Sv39 VAs and zero-extended physical/Bare addresses.
-  // CHI's minimum 44-bit physical width also covers Bare guest Sv39x4 GPAs.
-  def instruction_pc_width = math.min(xlen.width, math.max(39, config.flit.request_address_width + 1))
+  def instruction_pc_width = profile.fetch_address_width(config.flit.request_address_width)
   inst core(SuperscalarCore(profile, ~instruction_pc_width: instruction_pc_width))
   core.interrupts <== interrupts
   core.hart_id <== hart_id

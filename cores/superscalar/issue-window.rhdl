@@ -8,16 +8,16 @@ import:
   "bundles.rhdl" open
   lib("flow/main.rhdl") open
 
-/* Retains a normal instruction's prediction without narrowing indirect targets. */
-bundle SuperscalarWindowPrediction(xlen :: XLen):
+/* Stores a normalized frontend hint at the frontend's configured width. */
+bundle SuperscalarWindowPrediction(target_width :: PosInt):
   valid: Bool
-  target: Bits(xlen.width)
+  target: Bits(target_width)
 
 /* Sizes the exceptional PC upper bits; their field is omitted for full-width storage. */
 fun window_pc_high_width(xlen :: XLen, pc_width :: PosInt):
   xlen.width - pc_width
 
-/* Preserves an exceptional PC and the independent fault VA and optional guest provenance. */
+/* Preserves exceptional PC bits, the failed parcel, and optional guest provenance. */
 bundle SuperscalarWindowFault(xlen :: XLen, hypervisor :: Boolean, pc_width :: PosInt):
   if pc_width < xlen.width:
     pc_high: Bits(window_pc_high_width(xlen, pc_width))
@@ -26,7 +26,7 @@ bundle SuperscalarWindowFault(xlen :: XLen, hypervisor :: Boolean, pc_width :: P
 
 /* A fault never predicts, so its details reuse the normal prediction's storage. */
 tagged_union SuperscalarWindowOutcome(xlen :: XLen, hypervisor :: Boolean, pc_width :: PosInt):
-  Normal(SuperscalarWindowPrediction(xlen))
+  Normal(SuperscalarWindowPrediction(pc_width))
   Fault(SuperscalarWindowFault(xlen, hypervisor, pc_width))
 
 /* Successful PCs sign-extend independently; faults retain exact high bits in the
@@ -49,11 +49,12 @@ bundle SuperscalarWindowEntry(xlen :: XLen, hypervisor :: Boolean, pc_width :: P
     def Outcome = SuperscalarWindowOutcome(xlen, hypervisor, pc_width)
     def fault = entry.outcome.is(Outcome.Fault).into(Bool)
     def details :: SuperscalarWindowFault(xlen, hypervisor, pc_width) = entry.outcome.view(Outcome.Fault).payload
-    def normal :: SuperscalarWindowPrediction(xlen) = entry.outcome.view(Outcome.Normal).payload
+    def normal :: SuperscalarWindowPrediction(pc_width) = entry.outcome.view(Outcome.Normal).payload
     def normal_pc = if pc_width < xlen.width | entry.pc_low.into(SInt(pc_width)).sext(xlen.width).as_bits() | entry.pc_low
     def fault_pc = if pc_width < xlen.width | details.pc_high ++ entry.pc_low | entry.pc_low
     def pc = mux(fault, fault_pc, normal_pc)
     def predicted = !fault & normal.valid
+    def target = if pc_width < xlen.width | normal.target.into(SInt(pc_width)).sext(xlen.width).as_bits() | normal.target
     SuperscalarInstruction(xlen, hypervisor):
       pc: pc
       instruction: entry.instruction
@@ -65,7 +66,7 @@ bundle SuperscalarWindowEntry(xlen :: XLen, hypervisor :: Boolean, pc_width :: P
         BranchPrediction(xlen):
           valid: predicted
           pc: pc
-          target: mux(predicted, normal.target, Bits(xlen.width)(0))
+          target: mux(predicted, target, Bits(xlen.width)(0))
           compressed: entry.predicted_compressed
           ras_action: entry.predicted_ras_action
       speculated_ras_action: entry.speculated_ras_action
@@ -82,9 +83,9 @@ fun pack_entry(xlen :: XLen, hypervisor :: Boolean, pc_width :: PosInt, token ::
     | SuperscalarWindowFault(xlen, hypervisor, pc_width):
         fault: token.fault
 
-  def prediction = SuperscalarWindowPrediction(xlen):
+  def prediction = SuperscalarWindowPrediction(pc_width):
     valid: token.prediction.valid
-    target: mux(token.prediction.valid, token.prediction.target, Bits(xlen.width)(0))
+    target: token.prediction.target[0..pc_width]
 
   SuperscalarWindowEntry(xlen, hypervisor, pc_width):
     pc_low: token.pc[0..pc_width]
@@ -135,6 +136,7 @@ sync_circuit SuperscalarIssueWindow(xlen :: XLen = XLen.X64, ~group_width: group
       def token :: SuperscalarInstruction(xlen, hypervisor) = ingress.bits.entries[lane]
       assert(token.sequential_pc.is_one_of(token.pc + Bits(xlen.width)(2), token.pc + Bits(xlen.width)(4)), "superscalar_window_instruction_length")
       assert(!token.prediction.valid ||| (token.prediction.pc === token.pc), "superscalar_window_prediction_pc")
+      assert(!token.prediction.valid ||| (token.prediction.target === prediction_target(xlen, pc_width, token.prediction.target)), "superscalar_window_prediction_target")
       assert(token.direction_indices_valid(), "superscalar_window_direction_indices")
       assert(token.fault.supported(), "superscalar_supported_fetch_fault")
       assert(!token.fault.valid() ||| !token.prediction.valid, "superscalar_fault_does_not_predict")

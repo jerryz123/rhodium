@@ -180,21 +180,18 @@ sign-extend from `min(XLEN, max(39, physical_address_width + 1))` in the integra
 hart. The extra physical bit preserves zero-extended Bare PCs, including guest
 Bare addresses within Sv39x4's range. Standalone cores default to XLEN-wide
 storage unless their producer supplies the narrower-PC contract.
-`SuperscalarWindowOutcome` overlays the normal valid/target fields with the complete
-fetch fault and exceptional PC upper bits. Faulting instructions cannot predict;
-their original PC, fault VA, and optional guest details remain exact. Normal
-entries report an absent fault as zero; invalid prediction targets are zeroed.
-Do not narrow valid indirect targets, derive fault addresses from PCs, or share
-a global fault sidecar: all eight entries must retain independent ownership.
+`SuperscalarWindowOutcome` overlays a valid/target prediction with a parcel
+fault and exceptional PC upper bits. Faulting instructions cannot predict.
+The window and EX/MEM/WB lane registers retain the frontend's configured
+target width and sign-extend it for consumers. Never narrow architectural
+redirects or the resolved target. Each window entry owns its metadata.
 
-The frontend, assembler's public block interface, window, and EX use the same
-`SuperscalarFetchFault(xlen, hypervisor)`: a three-bit kind, the full fault address,
-and guest details only with H. The assembler's private storage derives the fault
-VA from the exact fetch PC, not the assembled instruction PC. Preserve present
-faults through storage and live bypass; classify architectural causes only at translation admission and
-produce the architectural cause at EX resolution. Preserve each block's own fault VA
-and guest provenance across compaction and straddles; do not infer them from
-the instruction PC. MEM and WB retain just the fetch-fault
+At the assembler input, `SuperscalarFetchBlockFault` reports the exact failed
+block VA. At packet formation the assembler asserts that it matches the
+instruction PC, or PC+2 modulo XLEN when a straddle's second parcel failed.
+From there `SuperscalarFetchFault` carries only kind, continuation, and (with H)
+guest provenance. EX reconstructs the VA from the instruction's exact PC when
+forming the trap value. MEM and WB retain just the fetch-fault
 origin bit beside the resolved outcome. Preserve EX's fetch-fault priority
 and MEM's earlier-fault priority: the observed fetch fault is reconstructed
 from that resolution when the bit is set, otherwise it is all zero. Do not
@@ -1469,7 +1466,7 @@ The issue-window fixtures check two-entry RV32 and two/three-entry compact RV64 
 They fill all eight entries, retain mixed normal/fault owners under backpressure,
 consume every supported prefix length while appending, and clear live offers. An independent
 queue checks raw/canonical encodings, exact PC/successor and fault addresses,
-guest provenance, full-width predicted targets, and direction/RAS checkpoints.
+guest provenance, sign-extended predicted targets, and direction/RAS checkpoints.
 Distinct saved rows and histories check PC-derived training indices through
 compaction and wrap, including nonzero histories with prediction disabled.
 Invalid valid-index/PC combinations fail admission; invalid training-index bits

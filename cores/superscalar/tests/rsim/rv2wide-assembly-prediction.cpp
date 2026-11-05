@@ -23,7 +23,7 @@ bool same_packet(const Packet &a, const Packet &b) {
         x.psequential_upc != y.psequential_upc ||
         x.pcompressed_uillegal != y.pcompressed_uillegal ||
         x.pfault.pkind != y.pfault.pkind ||
-        x.pfault.pvalue != y.pfault.pvalue || !same_fetch_guest(x.pfault, y.pfault) ||
+        x.pfault.pcontinuation != y.pfault.pcontinuation || !same_fetch_guest(x.pfault, y.pfault) ||
         x.pprediction.pvalid != y.pprediction.pvalid ||
         x.pprediction.ppc != y.pprediction.ppc ||
         x.pprediction.ptarget != y.pprediction.ptarget ||
@@ -52,7 +52,7 @@ void observe() {
       CHECK(instructions_out.pbits.pentries[lane].ppc == want);
       if (want == UINT64_C(0x706))
         CHECK((instructions_out.pbits.pentries[lane].pfault.pkind != 0) &&
-              instructions_out.pbits.pentries[lane].pfault.pvalue ==
+              parcel_fault_address(instructions_out.pbits.pentries[lane]) ==
                   UINT64_C(0x708));
       if (want == UINT64_C(0x406))
         CHECK(instructions_out.pbits.pentries[lane].pprediction.pvalid &&
@@ -203,7 +203,7 @@ void check_fault(const Fault &expected, std::uint64_t pc) {
   CHECK(instructions_out.pvalid && instructions_out.pbits.pcount == 1);
   const auto &instruction = instructions_out.pbits.pentries[0];
   const auto &fault = instruction.pfault;
-  CHECK(instruction.ppc == pc && fault.pkind == expected.pkind && fault.pvalue == expected.pvalue &&
+  CHECK(instruction.ppc == pc && fault.pkind == expected.pkind && parcel_fault_address(instruction) == expected.pvalue &&
         same_fetch_guest(fault, expected) &&
         !instruction.pprediction.pvalid && !repair_out.pvalid &&
         !discover_out.pvalid && !speculate_out.pvalid);
@@ -253,7 +253,7 @@ void compact_storage_tests() {
     CHECK(blocks_out.pready && instructions_out.pvalid);
     const Packet bypass = instructions_out.pbits;
     CHECK(bypass.pcount == 1 && bypass.pentries[0].ppc == first &&
-          bypass.pentries[0].pfault.pvalue == 0);
+          !bypass.pentries[0].pfault.pcontinuation);
     rising();
     falling();
     blocks_in = {};
@@ -470,22 +470,24 @@ void fault_storage_tests() {
     falling();
     blocks_in = {};
 
-    // The continuation's fault address/GPA is independent of the prefix's PC.
-    clear();
-    instructions_in.pready = false;
-    expected_pc.push_back(UINT64_C(0x123fe));
-    offer(UINT64_C(0x123fe), UINT64_C(0x0013000000000000));
-    fault.pvalue = UINT64_C(0x12400);
-    offer_fault(UINT64_C(0x12400), fault);
-    for (unsigned stall = 0; stall < 3; ++stall) {
-      check_fault(fault, UINT64_C(0x123fe));
+    // The failed parcel is PC+2 even when XLEN wraps; its GPA is independent.
+    for (auto pc : {UINT64_C(0x123fe), UINT64_MAX - 1}) {
+      clear();
+      instructions_in.pready = false;
+      expected_pc.push_back(pc);
+      offer(pc, UINT64_C(0x0013000000000000));
+      fault.pvalue = pc + 2;
+      offer_fault(pc + 2, fault);
+      for (unsigned stall = 0; stall < 3; ++stall) {
+        check_fault(fault, pc);
+        rising();
+        falling();
+      }
+      instructions_in.pready = true;
       rising();
       falling();
+      CHECK(available == 3 && expected_pc.size() == 0);
     }
-    instructions_in.pready = true;
-    rising();
-    falling();
-    CHECK(available == 3 && expected_pc.size() == 0);
   }
 
   // Recovery discards resident fault payloads together with their validity.
@@ -787,7 +789,7 @@ int main() {
     CHECK(instructions_out.pvalid && instructions_out.pbits.pcount == 2 &&
           instructions_out.pbits.pentries[0].pfault.pkind == 0 &&
           (instructions_out.pbits.pentries[1].pfault.pkind != 0) &&
-          instructions_out.pbits.pentries[1].pfault.pvalue ==
+          parcel_fault_address(instructions_out.pbits.pentries[1]) ==
               UINT64_C(0x11108));
     instructions_in.pready = 1;
     rising();

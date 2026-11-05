@@ -192,12 +192,12 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
      Backward recovery links do not add pipeline storage. */
 
   inst rr_window(SuperscalarIssueWindow(xlen, ~hypervisor: profile.hypervisor, ~pc_width: instruction_pc_width))
-  inst ex_older(SuperscalarLanePipe(xlen, SuperscalarExecute(xlen, hypervisor), ~hypervisor: profile.hypervisor))
-  inst ex_younger(SuperscalarLanePipe(xlen, SuperscalarExecute(xlen, hypervisor), ~hypervisor: profile.hypervisor))
-  inst mem_older(SuperscalarLanePipe(xlen, SuperscalarResult(xlen, hypervisor), ~hypervisor: hypervisor))
-  inst mem_younger(SuperscalarLanePipe(xlen, SuperscalarResult(xlen, hypervisor), ~hypervisor: hypervisor))
-  inst wb_older(SuperscalarLanePipe(xlen, SuperscalarResult(xlen, hypervisor), ~hypervisor: hypervisor))
-  inst wb_younger(SuperscalarLanePipe(xlen, SuperscalarResult(xlen, hypervisor), ~hypervisor: hypervisor))
+  inst ex_older(SuperscalarLanePipe(xlen, SuperscalarExecute(xlen, hypervisor), ~target_width: instruction_pc_width, ~hypervisor: profile.hypervisor))
+  inst ex_younger(SuperscalarLanePipe(xlen, SuperscalarExecute(xlen, hypervisor), ~target_width: instruction_pc_width, ~hypervisor: profile.hypervisor))
+  inst mem_older(SuperscalarLanePipe(xlen, SuperscalarResult(xlen, hypervisor), ~target_width: instruction_pc_width, ~hypervisor: hypervisor))
+  inst mem_younger(SuperscalarLanePipe(xlen, SuperscalarResult(xlen, hypervisor), ~target_width: instruction_pc_width, ~hypervisor: hypervisor))
+  inst wb_older(SuperscalarLanePipe(xlen, SuperscalarResult(xlen, hypervisor), ~target_width: instruction_pc_width, ~hypervisor: hypervisor))
+  inst wb_younger(SuperscalarLanePipe(xlen, SuperscalarResult(xlen, hypervisor), ~target_width: instruction_pc_width, ~hypervisor: hypervisor))
   def ex_pipe = [ex_older, ex_younger]
   def mem_pipe = [mem_older, mem_younger]
   def wb_pipe = [wb_older, wb_younger]
@@ -931,7 +931,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
       ex.virtual_instruction: exception_cause_bits(ExceptionCause.VirtualInstruction, SuperscalarCauseWidth)
 
     def ex_fault_value = priority_mux(~default: if xlen == XLen.X32 | ex.fetched.raw_instruction | ex.fetched.raw_instruction.zext(64)):
-      ex_fetch_fault.valid(): ex.fetched.fault.value
+      ex_fetch_fault.valid(): ex_fetch_fault.address(ex.fetched.pc)
       ex_bad_pc: ex.fetched.pc
       ex_bad_address: ex_address
 

@@ -958,7 +958,7 @@ std::uint32_t b_insn(int operation, int rd, int rs1, int rs2, int shift = 0) {
 void send(std::uint64_t pc, std::uint32_t first, std::uint32_t second,
           int count = 2, std::uint8_t keep0 = 1, std::uint8_t keep1 = 1,
           int fetch_fault_lane = -1, prediction_t second_prediction = {},
-          prediction_t first_prediction = {});
+          prediction_t first_prediction = {}, bool fault_continuation = false);
 // Construct arbitrary architectural operands through real instructions_in.
 void constant64(std::uint64_t &pc, int rd, std::uint64_t value) {
   send(pc, imm(rd, 0, 0), 0, 1);
@@ -977,7 +977,7 @@ void tick() {
 void send(std::uint64_t pc, std::uint32_t first, std::uint32_t second,
           int count, std::uint8_t keep0, std::uint8_t keep1,
           int fetch_fault_lane, prediction_t second_prediction,
-          prediction_t first_prediction) {
+          prediction_t first_prediction, bool fault_continuation) {
   int expected_index = expected.size();
   if (keep0)
     expect_instruction(pc, first);
@@ -1031,7 +1031,7 @@ void send(std::uint64_t pc, std::uint32_t first, std::uint32_t second,
   }
   if (fetch_fault_lane >= 0)
     instructions_in.pbits.pentries[fetch_fault_lane].pfault = {
-        2, pc + 4 * std::uint64_t(fetch_fault_lane), {}};
+        .pkind = 2, .pcontinuation = fault_continuation};
   settle();
   while (!instructions_out.pready)
     tick();
@@ -1828,6 +1828,18 @@ int main() {
 
     // Fetch faults ignore even valid memory encodings and preserve both age slots.
     // In particular, a younger fault must wait for its older accepted load.
+    // A correct older prediction delivers the younger continuation fault;
+    // a misprediction squashes it without stealing the branch's target.
+    for (bool correct : {true, false}) {
+      const std::uint64_t pc = correct ? 0x52fa : 0x53fa;
+      if (correct)
+        stop_at(pc + 4, 0, 1, 1, pc + 6);
+      else
+        stop_at(pc, pc + 64);
+      send(pc, jump(0, correct ? 4 : 64), imm(0, 0, 0), 2, 1, 0, 1, {},
+           {1, pc, pc + 4, 0, 0}, true);
+      drain();
+    }
     {
       int before_lookups;
       before_lookups = lookups;

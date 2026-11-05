@@ -146,7 +146,7 @@ template <class T> bool same_instruction(const T &x, const T &y) {
          x.psequential_upc == y.psequential_upc &&
          x.pcompressed_uillegal == y.pcompressed_uillegal &&
          x.pfault.pkind == y.pfault.pkind &&
-         x.pfault.pvalue == (y.pfault.pkind ? y.pfault.pvalue : 0) &&
+         x.pfault.pcontinuation == (y.pfault.pkind && y.pfault.pcontinuation) &&
          (y.pfault.pkind ? same_fetch_guest(x.pfault, y.pfault)
                         : fetch_guest_is(x.pfault, false, 0, 0)) &&
          x.pprediction.pvalid == y.pprediction.pvalid &&

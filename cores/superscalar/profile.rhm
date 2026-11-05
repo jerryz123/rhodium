@@ -80,6 +80,11 @@ class SuperscalarPipelineConfig(xlen :: XLen, mmu_type :: RiscvMmuType, instruct
 
     super(xlen, mmu_type, instruction_cache, data_cache, btb_entries, ras_entries, bht, floating_point, half_precision, zfa, compressed, zicboz, zicbom, zicbop, zawrs, zihintpause, zihintntl, sstc, svnapot, svpbmt, svinval, ssnpm, supm, sscofpmf, smstateen, hypervisor, vector, vector_extensions, ziccif, ziccamoa, ziccrse, vector_length, vector_completion_slots, vector_dispatch_depth)
 
+  /* Stored fetch PCs and predicted destinations cover Sv39 and unsigned Bare
+     addresses. The extra physical bit makes zero extension a sign extension. */
+  method fetch_address_width(physical_bits :: PosInt) :: PosInt:
+    math.min(xlen.width, math.max(39, physical_bits + 1))
+
   /* Sizes the shared FP datapath for scalar and vector operations without enabling additional scalar instructions. */
   property execution_half_precision :: HalfPrecisionProfile:
     vector_execution_half_precision(half_precision, vector_extensions)

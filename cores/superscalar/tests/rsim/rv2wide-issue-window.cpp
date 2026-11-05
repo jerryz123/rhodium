@@ -23,12 +23,12 @@ Instruction token(unsigned id) {
   result.psequential_upc = result.ppc + (id & 1 ? 2 : 4);
   result.pcompressed_uillegal = id & 1;
   result.pfault.pkind = fault ? 1 + (id / 3) % (has_guest<Fault> ? 4 : 3) : 0;
-  // Fault addresses need not be the PC or PC+2, including a straddling wrap.
-  result.pfault.pvalue = id & 1 ? result.ppc + 2 : UINT64_C(0xfedcba9876543210) + id;
+  result.pfault.pcontinuation = id & 1;
   set_fetch_guest(result.pfault, true, UINT64_C(0x123456780) + id, id % 3);
   result.pprediction.pvalid = !fault && id % 4 != 0;
   result.pprediction.ppc = result.pprediction.pvalid ? result.ppc : 0xdead;
-  result.pprediction.ptarget = UINT64_C(0x1234fedcba987654) ^ id;
+  result.pprediction.ptarget = sign_extend((UINT64_C(0x1234fedcba987654) ^ id) ^
+                                          (std::uint64_t(id & 1) << 44), xlen == 64 ? 45 : 32);
   result.pprediction.pcompressed = id & 1;
   result.pprediction.pras_uaction = id % 4;
   result.pspeculated_uras_uaction = (id + 1) % 4;
@@ -141,6 +141,11 @@ int main() {
     ingress_in.pvalid = 1;
     expect_failure("superscalar_fault_does_not_predict", [] { eval(); tick_model(); });
     if constexpr (xlen == 64) {
+      auto bad_target = token(3);
+      bad_target.pprediction.ptarget ^= UINT64_C(1) << 50;
+      ingress_in.pbits.pentries[0] = bad_target;
+      expect_failure("superscalar_window_prediction_target", [] { eval(); tick_model(); });
+
       // A compact successful PC must be representable; faults use the escape bits.
       auto invalid = token(0);
       invalid.ppc = UINT64_C(0x123456789abc0000);

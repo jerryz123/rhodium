@@ -51,7 +51,7 @@ bundle SuperscalarFetchCursor(xlen :: XLen, prediction_width :: PosInt):
 bundle SuperscalarFetchAttempt(xlen :: XLen, hypervisor :: Boolean, prediction_width :: PosInt):
   cursor: SuperscalarFetchCursor(xlen, prediction_width)
   replay: Bool
-  fault: SuperscalarFetchFault(xlen, hypervisor)
+  fault: SuperscalarFetchBlockFault(xlen, hypervisor)
 
 /* Issues one eight-byte block per cycle on hits and emits up to group_width instructions.
    Reserves returned-block storage before each lookup.
@@ -82,7 +82,7 @@ sync_circuit SuperscalarFrontend(config :: RiscvHartCHIConfig, profile :: Supers
      Each S1/S2 context reserves one eventual block in the assembler. */
 
   // Covers successful Sv39 and Bare PCs; only speculative destinations may alias.
-  def pc_width = math.min(xlen.width, math.max(39, config.flit.request_address_width + 1))
+  def pc_width = profile.fetch_address_width(config.flit.request_address_width)
   /* Captures only predictor-owned address bits; fetch PCs and fault payloads remain full width. */
   fun retain_prediction(prediction :: BranchPrediction(xlen)) :~ SuperscalarCursorPrediction(xlen, pc_width):
     SuperscalarCursorPrediction(xlen, pc_width):
@@ -332,7 +332,7 @@ sync_circuit SuperscalarFrontend(config :: RiscvHartCHIConfig, profile :: Supers
 
   (outcome |> map_valid(payload):
     def attempt :: SuperscalarFetchAttempt(xlen, hypervisor, pc_width) = payload
-    wire fetch_fault: SuperscalarFetchFault(xlen, hypervisor)
+    wire fetch_fault: SuperscalarFetchBlockFault(xlen, hypervisor)
     fetch_fault.kind <== mux(result_fault, mux(attempt.fault.valid(), attempt.fault.kind, SuperscalarFetchFaultKind.Access), SuperscalarFetchFaultKind.None)
     fetch_fault.value <== mux(attempt.fault.valid(), attempt.fault.value, attempt.cursor.pc)
     if hypervisor

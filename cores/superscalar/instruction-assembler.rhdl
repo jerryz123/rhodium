@@ -19,7 +19,7 @@ import:
 bundle SuperscalarFetchBlock(xlen :: XLen, hypervisor :: Boolean):
   pc: Bits(xlen.width)
   data: Bits(64)
-  fault: SuperscalarFetchFault(xlen, hypervisor)
+  fault: SuperscalarFetchBlockFault(xlen, hypervisor)
   prediction: BranchPrediction(xlen)
   directions: Vec(4, TournamentPrediction(10))
   prefix_direction: TournamentPrediction(10)
@@ -110,11 +110,11 @@ bundle SuperscalarRetainedBlock(xlen :: XLen, hypervisor :: Boolean, pc_width ::
     def full_pc = mux(fault, fault_pc, normal_pc)
     def fault_details:
       if hypervisor
-      | SuperscalarFetchFault(xlen, hypervisor):
+      | SuperscalarFetchBlockFault(xlen, hypervisor):
           kind: details.kind
           value: fault_pc
           guest: details.guest
-      | SuperscalarFetchFault(xlen, hypervisor):
+      | SuperscalarFetchBlockFault(xlen, hypervisor):
           kind: details.kind
           value: fault_pc
 
@@ -130,7 +130,7 @@ bundle SuperscalarRetainedBlock(xlen :: XLen, hypervisor :: Boolean, pc_width ::
     SuperscalarFetchBlock(xlen, hypervisor):
       pc: full_pc
       data: block.data
-      fault: mux(fault, fault_details, literal(SuperscalarFetchFault(xlen, hypervisor), 0))
+      fault: mux(fault, fault_details, literal(SuperscalarFetchBlockFault(xlen, hypervisor), 0))
       prediction:
         BranchPrediction(xlen):
           valid: predicted
@@ -250,7 +250,7 @@ sync_circuit SuperscalarInstructionAssembler(profile :: SuperscalarPipelineConfi
     def next_offset = lane_offset + size
     def crosses = !in_second & ((position + size) > Bits(4)(4))
     def fetch_fault = mux(in_second ||| crosses, second_block.fault, first_block.fault)
-    def fault :: SuperscalarFetchFault(xlen, hypervisor) = mux(first_block.fault.valid(), first_block.fault, fetch_fault)
+    def fault :: SuperscalarFetchBlockFault(xlen, hypervisor) = mux(first_block.fault.valid(), first_block.fault, fetch_fault)
     inst decoded(SuperscalarPredecode(profile))
     decoded.raw <== raw
     def canonical = decoded.canonical
@@ -275,6 +275,10 @@ sync_circuit SuperscalarInstructionAssembler(profile :: SuperscalarPipelineConfi
 
     def updates_ras = action =/= RasAction.None
     def lane_valid = prefix & (parcels >= next_offset) & !(ras_used & updates_ras)
+    def parcel_fault = fault.at_parcel(crosses & !first_block.fault.valid())
+    when (lane_valid & fault.valid()):
+      assert(parcel_fault.address(pc) === fault.value, "superscalar_assembly_fault_parcel")
+
     included[lane] <== lane_valid
     packet_count := mux(lane_valid, Bits(2)(lane + 1), packet_count)
     used_parcels := mux(lane_valid, next_offset, used_parcels)
@@ -295,7 +299,7 @@ sync_circuit SuperscalarInstructionAssembler(profile :: SuperscalarPipelineConfi
       raw_instruction: mux(compressed, raw[0..16].zext(32), raw)
       sequential_pc: sequential_pc
       compressed_illegal: !decoded.legal
-      fault: fault
+      fault: parcel_fault
       prediction:
         BranchPrediction(xlen):
           valid: known ||| fallback

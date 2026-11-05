@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "test.hpp"
+#include "fetch-fault.hpp"
 
 std::uint64_t prefix_pc = 0, target_pc = 0, fault_pc = 0;
 bool inject_fault = false, replay_once = false;
@@ -92,7 +93,7 @@ void run_prefix(std::uint64_t pc, std::uint64_t target, bool replay, bool fault)
     const auto instruction = instructions_out.pbits.pentries[0];
     CHECK(instructions_out.pbits.pcount == 1 && instruction.ppc == pc);
     if (fault) {
-      CHECK(instruction.pfault.pkind == 3 && instruction.pfault.pvalue == std::uint64_t(pc + 2));
+      CHECK(instruction.pfault.pkind == 3 && parcel_fault_address(instruction) == std::uint64_t(pc + 2));
       CHECK(!instruction.pprediction.pvalid);
     } else {
       CHECK(instruction.pfault.pkind == 0 && instruction.praw_uinstruction == 0x00010067);
@@ -132,7 +133,7 @@ int main() {
     CHECK(instructions_out.pvalid);
     for (unsigned i = 0; i < 4; ++i) {
       const auto instruction = instructions_out.pbits.pentries[0];
-      CHECK(instruction.ppc == fault_pc && instruction.pfault.pvalue == fault_pc &&
+      CHECK(instruction.ppc == fault_pc && parcel_fault_address(instruction) == fault_pc &&
             instruction.pfault.pkind == 3 && !instruction.pprediction.pvalid);
       cycle();
     }

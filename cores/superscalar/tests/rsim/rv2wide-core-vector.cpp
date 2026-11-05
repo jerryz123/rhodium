@@ -449,7 +449,7 @@ void stream(const std::vector<std::uint32_t> &program, bool fault = false,
       entry.psequential_upc = entry.ppc + 4;
       entry.pinstruction = entry.praw_uinstruction = program[sent + lane];
       if (static_cast<int>(sent + lane) == fetch_fault_index)
-        entry.pfault = {.pkind = 2, .pvalue = entry.ppc};
+        entry.pfault = {.pkind = 2};
     }
     settle();
     const bool accepted = instructions_in.pvalid && instructions_out.pready;
@@ -1962,10 +1962,11 @@ void fetch_fault_roundtrip(unsigned cause, bool valid = true,
   entry.psequential_upc = successor;
   entry.pprediction.ppc = ~pc_t(pc); // Invalid prediction inputs canonicalize to the instruction PC and zero target.
   entry.pprediction.ptarget = ~successor;
-  const auto fault_address = cause == 1 ? pc : 0x345678u;
+  const bool continuation = cause == 12 || cause == 20;
+  const auto fault_address = pc_t(pc + (continuation ? 2 : 0));
   constexpr std::uint64_t gpa = UINT64_C(0x123400006789000);
   entry.pfault.pkind = valid ? fetch_kind(cause) : 0;
-  entry.pfault.pvalue = fault_address;
+  entry.pfault.pcontinuation = continuation;
   set_fetch_guest(entry.pfault, true, gpa, 1); // Ignored when the kind is None.
   bool saw_mem = false, saw_retire = false;
   for (unsigned wait = 0; valid ? fault_count == faults : !saw_retire; ++wait) {
@@ -1978,7 +1979,7 @@ void fetch_fault_roundtrip(unsigned cause, bool valid = true,
       CHECK(token.psequential_upc == successor && token.pprediction.ppc == pc &&
             !token.pprediction.pvalid && token.pprediction.ptarget == 0 &&
             token.praw_uinstruction == entry.praw_uinstruction && (f.pkind != 0) == valid);
-      CHECK(f.pkind == (valid ? fetch_kind(cause) : 0) && f.pvalue == (valid ? fault_address : 0));
+      CHECK(f.pkind == (valid ? fetch_kind(cause) : 0) && f.pcontinuation == (valid && continuation));
       const bool guest = valid && bytes == 8;
       CHECK(fetch_guest_is(f, guest, guest ? gpa : 0, guest));
       saw_mem = true;
@@ -1988,7 +1989,7 @@ void fetch_fault_roundtrip(unsigned cause, bool valid = true,
       const auto &fetched = retired_0_out.pbits.pfetched;
       CHECK(fetched.psequential_upc == successor && fetched.pprediction.ppc == pc &&
             !fetched.pprediction.pvalid && fetched.pprediction.ptarget == 0);
-      CHECK(!valid && !f.pkind && !f.pvalue && fetch_guest_is(f, false, 0, 0));
+      CHECK(!valid && !f.pkind && !f.pcontinuation && fetch_guest_is(f, false, 0, 0));
       saw_retire = true;
     }
     step();

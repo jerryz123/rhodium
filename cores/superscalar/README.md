@@ -123,16 +123,19 @@ modulo XLEN. A valid prediction must name that instruction's PC; an invalid
 prediction's input PC and target are ignored. The PC reported in either case is the
 instruction PC itself; an invalid prediction's target is reported as zero.
 Faulting entries must not predict. Direct `SuperscalarCore` producers default to
-full-XLEN PCs. With `~instruction_pc_width: n`, every successful PC must equal
-the sign extension of its low `n` bits; faulting PCs remain unrestricted.
+full-XLEN PCs. With `~instruction_pc_width: n`, every successful PC and every
+valid predicted target must equal the sign extension of its low `n` bits;
+faulting PCs remain unrestricted.
 The integrated hart selects this width from its physical-address and Sv39 bounds.
 Set `fault.kind` to `SuperscalarFetchFaultKind.None` and clear `compressed_illegal`
 for successful fetches; instruction bits are ignored for fetch faults. The
 other supported kinds are `Misaligned`, `Access`, `Page`, and (with H)
 `GuestPage`. `fault.valid()` reports presence; `fault.cause()`
 returns the five-bit architectural exception number for a present fault.
-Supply the actual fault address in `fault.value`, which can differ from the
-starting PC for a straddling instruction. The `guest` field exists only with
+Set `fault.continuation` only when the second 16-bit parcel failed.
+`fault.address(pc)` then yields `pc + 2` modulo XLEN; for a first-parcel fault
+it yields `pc`. For example, an instruction at `0xffe` that faults fetching
+its second half reports `0x1000`, not `0xffe`. The `guest` field exists only with
 H and preserves guest provenance. Absent fetch faults are reported as all zero
 on the core's MEM observation and retirement ports, regardless of the input's
 invalid payload.
