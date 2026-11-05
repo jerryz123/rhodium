@@ -16,8 +16,9 @@ The hart independently owns reset/start and CHI wiring and supplies
 prefix, fixed read borrowing, and two-write-port contention. Shared contracts
 and predicates remain under superscalar; neither family imports this policy.
 Do not copy decode or create an independent pipeline. Shared execution derives
-its lane count from the supplied issue signature; single shared-service selectors
-remain two-lane until their ownership is extended separately.
+its lane count from the supplied issue signature. Service selectors, FP ownership,
+vector descriptors, and predictor training cover every lane without widening
+physical register ports or adding service instances.
 
 The shared profile tests cover configuration and UDB agreement. The existing
 `rv2wide-fetch-disabled` behavioral fixture uses `RV3Wide`, so it tests real
@@ -36,3 +37,6 @@ supplies three candidates. Run `rv3wide-core` for three retirements, borrowed
 operands, fixed issue-assigned write ports, shortened fault/replay prefixes,
 RF consumers, and PC-region crossings. Pair it with `rv2wide-core`, FP/vector
 integration, and the existing production `rv2wide-fetch-disabled` fixture.
+Run `rv3wide-services` for third-lane load/store hits, deferred returns and replay,
+all-older fault suppression, branches and ordered training, fixed/variable FP,
+multiply/divide, vector configuration and retained vector memory.

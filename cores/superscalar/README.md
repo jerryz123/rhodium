@@ -276,6 +276,11 @@ memory, serialization, PAUSE, and PC-region constraints. A third candidate can
 consume older move sources, but other same-group result dependencies block it;
 there is no general ALU-to-ALU chain.
 
+Every admitted lane can own the existing shared memory, FP, vector, or integer
+arithmetic service. Service bandwidth is unchanged; issue prevents conflicting
+owners in one group. WB permits side effects only after the entire older prefix
+succeeds. Branch resolution and age-ordered predictor training cover every lane.
+
 Issue selects the constant/register/PC mux routes and immediate-composition
 enable. The RR datapath extracts constants, adds immediates, and selects
 operands according to those controls, without recognizing pairs or deciding

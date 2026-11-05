@@ -75,7 +75,7 @@ sync_circuit SuperscalarFrontend(config :: RiscvHartCHIConfig, profile :: Supers
   interface predictor_clear(Pulse(), ~role: consumer)
   interface direction_update(Valid(TournamentUpdate(10)), ~role: consumer)
   interface ras_resolution(Valid(RasResolution(xlen)), ~role: consumer)
-  interface history_commit(Valid(SuperscalarHistoryCommit()), ~role: consumer)
+  interface history_commit(Valid(SuperscalarHistoryCommit(group_width)), ~role: consumer)
   interface history_restore(Valid(Bits(10)), ~role: consumer)
 
 
@@ -185,7 +185,7 @@ sync_circuit SuperscalarFrontend(config :: RiscvHartCHIConfig, profile :: Supers
      Commit folds lanes in program order; speculative history follows recovery priority. */
 
   def mutable committed_next = committed_history
-  for (lane in 0..2):
+  for (lane in 0..group_width):
     def history :: Bits(10) = committed_next
     committed_next := mux(history_commit.valid & history_commit.bits.enable[lane], history[0..9] ++ history_commit.bits.taken[lane].as_bits(), history)
 

@@ -73,9 +73,9 @@ sync_circuit SuperscalarCosimObserver(profile :: SuperscalarPipelineConfig, tap_
   def retired :: Vec(slots, Bool) = taps["wb_retired"]
   def writes :: Vec(slots, Bool) = taps["wb_writes"]
   def split_capture :: Bool = taps["wb_split_capture"]
-  def memory_lane :: Bits(1) = taps["wb_memory_lane"]
+  def memory_lane :: Bits(2) = taps["wb_memory_lane"]
   def vector_capture :: Bool = taps["wb_vector_capture"]
-  def vector_lane :: Bits(1) = taps["wb_vector_lane"]
+  def vector_lane :: Bits(2) = taps["wb_vector_lane"]
   def multiply :: Bool = taps["wb_multiply_accepted"]
   def boundary_instruction :: SuperscalarBoundaryInstruction(xlen) = taps["wb_boundary_instruction"]
   def completion_valid :: Vec(4, Bool) = taps["completion_fire"]
@@ -100,7 +100,7 @@ sync_circuit SuperscalarCosimObserver(profile :: SuperscalarPipelineConfig, tap_
     def next_pc = mux(mret ||| sret, taps["csr_redirect"], token.next_pc)
     rhodium_rv2wide_lane.call(
       instance_id, Bits(64)(index), lane((if index < slots | retired[index] | Bool(#false)).as_bits()),
-      lane((if index < 2 | (split_capture & (memory_lane === Bits(1)(index))) ||| (vector_capture & (vector_lane === Bits(1)(index))) | Bool(#false)).as_bits()),
+      lane((if index < slots | (split_capture & (memory_lane === Bits(2)(index))) ||| (vector_capture & (vector_lane === Bits(2)(index))) | Bool(#false)).as_bits()),
       lane(token.identity.pc), lane(token.identity.raw_instruction), lane(next_pc), lane(token.fetch_fault.as_bits()),
       lane(token.rd), lane(write.as_bits()), lane(result.data), lane(deferred.as_bits()),
       lane(mux(token.memory.enable, Bits(2)(0), mux(multiply, Bits(2)(1), Bits(2)(2)))),

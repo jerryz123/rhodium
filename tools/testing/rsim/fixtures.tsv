@@ -205,6 +205,7 @@ vec-search	language	examples/rtl/vec-search.rhdl	program	rhodium/backend/tests/r
 bundle-update	language	rhodium/backend/tests/rsim/emit-bundle-update.rhm	program	rhodium/backend/tests/rsim/bundle-update.cpp
 rv2wide-core	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-core.rhm	program	cores/superscalar/tests/rsim/rv2wide-core.cpp	target	sims/statistics/collector.cc
 rv3wide-core	cores-components	cores/rv3wide/tests/rsim/emit-core.rhm	program	cores/rv3wide/tests/rsim/core.cpp
+rv3wide-services	cores-components	cores/rv3wide/tests/rsim/emit-services.rhm	program	cores/rv3wide/tests/rsim/services.cpp
 rv2wide-issue-window	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-issue-window.rhm	program	cores/superscalar/tests/rsim/rv2wide-issue-window.cpp
 rv2wide-issue-window-h	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-issue-window.rhm	guest_program	cores/superscalar/tests/rsim/rv2wide-issue-window.cpp
 rv2wide-issue-window-rv32	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-issue-window.rhm	rv32_program	cores/superscalar/tests/rsim/rv2wide-issue-window.cpp

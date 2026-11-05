@@ -1,5 +1,5 @@
 #lang rhodium
-/* Serializes two retirement-lane predictor updates through a two-entry ordered buffer. */
+/* Serializes age-ordered retirement updates through a two-entry predictor-training buffer. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -9,8 +9,8 @@ import:
 
 /* Accepts age-ordered Valid offers and emits one update every cycle, bypassing when empty.
    The caller must reserve capacity before issue; clear discards both queued and live offers. */
-sync_circuit SuperscalarBranchTrainingBuffer(xlen :: XLen = XLen.X64):
-  interface incoming[2](Valid(SuperscalarBranchTraining(xlen)), ~role: consumer)
+sync_circuit SuperscalarBranchTrainingBuffer(xlen :: XLen = XLen.X64, ~group_width: group_width :: matching(2) || matching(3) = 2):
+  interface incoming[group_width](Valid(SuperscalarBranchTraining(xlen)), ~role: consumer)
   interface training(Valid(SuperscalarBranchTraining(xlen)), ~role: producer)
   interface clear(Pulse(), ~role: consumer)
   output pending: Bits(2)
@@ -22,37 +22,36 @@ sync_circuit SuperscalarBranchTrainingBuffer(xlen :: XLen = XLen.X64):
   /* Output selection and occupancy accounting.
      A queued head wins; when empty the oldest incoming offer bypasses storage. */
 
-  def queued = count.any()
-  def offered = incoming[0].valid ||| incoming[1].valid
-  def first = mux(incoming[0].valid, incoming[0].bits, incoming[1].bits)
-  def added = incoming[0].valid.as_bits().zext(3) + incoming[1].valid.as_bits().zext(3)
-  def bypass = !queued & offered
-  def remaining = count.zext(3) - queued.as_bits().zext(3)
-  def next_count = remaining + added - bypass.as_bits().zext(3)
+  def offers :: List.of(Bool) = [count > Bits(2)(0), count > Bits(2)(1)] ++ (for List (lane in 0..group_width): incoming[lane].valid)
+  def payloads :: List.of(SuperscalarBranchTraining(xlen)) = [entries[0], entries[1]] ++ (for List (lane in 0..group_width): incoming[lane].bits)
+  def mutable total :: Bits(3) = Bits(3)(0)
+  def ranks :: List.of(Bits(3)) = for List (offer :: Bool in offers):
+    def rank = total
+    total := total + offer.as_bits().zext(3)
+    rank
+
+  def next_count = total - total.any().as_bits().zext(3)
+  def compacted = for List (rank in 0..3):
+    priority_mux((for List (index in 0..offers.length()): [offers[index] & (ranks[index] === Bits(3)(rank)), payloads[index]]), ~default: entries[0])
+
   pending <== count
-  training.valid <== (queued ||| offered) & !clear.valid
-  training.bits <== mux(queued, entries[0], first)
+  training.valid <== total.any() & !clear.valid
+  training.bits <== compacted[0]
   assert(clear.valid ||| (next_count <= Bits(3)(2)), "superscalar_branch_training_capacity")
 
 
   /* Ordered compaction after the one emitted update.
      A retained tail stays ahead of incoming updates. Clear discards all owners. */
 
-  def retained_tail = remaining.any()
-  def next_head = priority_mux(~default: first):
-    retained_tail: entries[1]
-    bypass: incoming[1].bits
-
-  def next_tail = mux(retained_tail, first, incoming[1].bits)
   when (clear.valid):
     count <== Bits(2)(0)
   otherwise:
     count <== next_count[0..2]
     when (next_count > Bits(3)(0)):
-      entries[0] <== next_head
+      entries[0] <== compacted[1]
 
     when (next_count === Bits(3)(2)):
-      entries[1] <== next_tail
+      entries[1] <== compacted[2]
 
 export:
   SuperscalarBranchTrainingBuffer

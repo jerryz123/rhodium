@@ -48,6 +48,7 @@ circuit RV2WideIssue(xlen :: XLen):
   def first :: Bool = candidates[0].present & !resources.stop & !resources.retry_wait & !resources.pause_blocked & !hazards[0].data & !first_structural & !status[0].vector_blocked
   def second :: Bool = first & candidates[1].present & !second_data & !second_structural & !status[1].vector_blocked
   decision <== SuperscalarIssueDecision(2):
+    owners: superscalar_service_owners(xlen, 2, candidates, traits)
     count: first.as_bits().zext(2) + second.as_bits().zext(2)
     admitted: vec(first, second)
     data_hazard: vec(hazards[0].data, second_data)

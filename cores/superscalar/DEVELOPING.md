@@ -22,9 +22,12 @@ here. Shared fixtures may instantiate the named entry points.
 
 The named issue circuit's signature selects two or three backend lanes, and the
 integrated frontend/window uses the same width while keeping eight-byte fetch.
-Shared-service lane identifiers and launch selectors remain two-lane in this cut.
-The core supplies `execution_blocked` for unavailable third-lane operations;
-the issue module remains the only prefix-admission authority. Never widen
+All lanes can own shared services; FP tags and retained descriptor selectors
+encode instruction positions independently of physical write ports. Issue emits
+unqualified probe owners so service readiness cannot feed back into probe selection;
+the admitted prefix qualifies actual launches. WB checks every older lane before
+dispatch, retaining age-directed scalar/vector admission to avoid ready loops.
+The issue module remains the only prefix-admission authority. Never widen
 two-operand bundles, physical 4R2W storage, or single-service inputs mechanically.
 
 The moved fixtures retain their `rv2wide-*` runner IDs and C++ filenames to
@@ -769,7 +772,7 @@ prefix. Each MEM lane resolves independently, with the oldest correction
 retaining priority. RR permits at most one actual or speculative RAS action
 per group; conditional branches do not consume this restriction.
 
-`branch-training.rhdl` owns the two-entry training FIFO, accepting both successful
+`branch-training.rhdl` owns the two-entry training FIFO, accepting all successful
 WB branches in age order and emitting one BTB/tournament update each cycle, bypassing
 the oldest incoming update when empty. A training record retains the branch
 outcome, both saved table indices, and the observed component bits together.
@@ -777,12 +780,12 @@ After reset warm-up, both components train every conditional outcome; the choose
 disagreements toward the correct component. Use current counters, not saved
 counter values, so delayed aliased records compose. RR projects occupancy through the
 WB, MEM, and EX branch groups, subtracting one training write at each edge
-and saturating at zero. It admits a new pair only if its projected WB update
+and saturating at zero. It admits a new prefix only if its projected WB update
 fits; WB never waits for training capacity. Faults and flushes only reduce
 the projected arrivals. Projection and capacity assertions enforce this booking.
 Speculative recovery preserves retired training; predictor clear cancels
 queued training, not previously learned direction counters. RAS resolution and
-the two-lane conditional history commit bypass this FIFO and reach the frontend
+the group-width conditional history commit bypass this FIFO and reach the frontend
 on the retirement edge. The frontend folds
 history in lane order before command recovery, independently of counter writes.
 Core tests compare emitted training against an ordered retirement oracle,

@@ -263,9 +263,9 @@ bundle SuperscalarBranchTraining(xlen :: XLen):
   direction: TournamentUpdate(10)
 
 /* Advances committed conditional history in retirement order, independently of table training. */
-bundle SuperscalarHistoryCommit():
-  enable: Vec(2, Bool)
-  taken: Vec(2, Bool)
+bundle SuperscalarHistoryCommit(group_width :: matching(2) || matching(3) = 2):
+  enable: Vec(group_width, Bool)
+  taken: Vec(group_width, Bool)
 
 /* Distinguishes MEM continuation, synchronous trap, preacceptance replay, and WB system recovery. */
 hardware_enum SuperscalarDisposition:
@@ -304,9 +304,9 @@ bundle SuperscalarSyncResolution(xlen :: XLen):
       value: source.value
       guest: source.guest
 
-/* Stores only scheduling decisions; instruction ownership is attached at service boundaries. */
+/* Keeps the instruction's position independent of the two physical GPR write ports. */
 bundle SuperscalarFpSchedule():
-  lane: Bits(1)
+  lane: Bits(2)
   speculative: Bool
   direct: Bool
 
@@ -336,7 +336,7 @@ bundle SuperscalarCompactIdentity(xlen :: XLen, width :: PosInt):
 /* Keeps age-slot identity and result bank with speculative or authorized numerical work. */
 bundle SuperscalarFpOwner(xlen :: XLen):
   identity: SuperscalarInstructionIdentity(xlen)
-  lane: Bits(1)
+  lane: Bits(2)
   rd: Bits(5)
   destination: FloatDestination
   speculative: Bool
@@ -356,7 +356,7 @@ bundle SuperscalarFpOwner(xlen :: XLen):
 /* Carries successful scalar ownership through shared fixed and variable FP execution. */
 bundle SuperscalarCompactFpOwner(xlen :: XLen, width :: PosInt):
   identity: SuperscalarCompactIdentity(xlen, width)
-  lane: Bits(1)
+  lane: Bits(2)
   rd: Bits(5)
   destination: FloatDestination
   speculative: Bool

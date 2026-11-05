@@ -68,6 +68,7 @@ circuit RV3WideIssue(xlen :: XLen):
     vec(prefix, prior_data, prior_structural ||| resources.pause_blocked)
 
   decision <== SuperscalarIssueDecision(3):
+    owners: superscalar_service_owners(xlen, 3, candidates, traits)
     count: count
     admitted: vec(for List (lane in 0..3): results[lane][0])
     data_hazard: vec(for List (lane in 0..3): results[lane][1])

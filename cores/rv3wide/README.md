@@ -1,12 +1,12 @@
-<!-- Documents RV3Wide's three-lane integer specialization of the shared 4R2W superscalar pipeline. -->
+<!-- Documents RV3Wide's three-lane specialization and shared execution services on a 4R2W pipeline. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # RV3Wide
 
 RV3Wide is an experimental named entry point to the
 [shared superscalar pipeline](../superscalar/README.md). It can issue and retire
-three instructions per cycle, with an ordinary integer third lane and the
-existing two shared-service-capable lanes. Contributor
+three instructions per cycle; all three lanes can use the existing shared
+memory, FP, vector, and integer arithmetic services. Contributor
 ownership and validation are in [DEVELOPING.md](DEVELOPING.md).
 
 ## Get started
@@ -54,10 +54,14 @@ dependency permits sharing; this works even when the usual donor is occupied.
 Issue assigns the write port from the two existing ports. Three distinct direct GPR writes cannot
 coissue; same-destination overwrites can share capacity without merging retirements.
 
-The third lane currently executes ordinary integer ALU operations. Branches,
-memory, FP/vector, and system-service operations compact into the first two
-lanes; groups containing vector execution/configuration stay at most two-wide.
-Fault/replay in the third lane preserves both older successful retirements.
+All three lanes can execute branches, loads/stores, FP, vector, and multiply/divide
+operations. This does not add execution-service bandwidth: same-group conflicts,
+operand borrowing, destination hazards, and write-port availability still limit
+admission. Serializing system commands still issue alone. Fixed arithmetic can
+launch speculatively in EX; WB authorizes architectural effects after every older
+lane succeeds. Fault/replay in any lane preserves its successful older prefix
+and suppresses younger effects. Vector memory retains its own owner when needed;
+only its unretired younger suffix is replayed.
 
 RV3Wide has the same supported shape/ISA selections and CI enrollment as RV2Wide:
 Mini enrolls `rv32int`, `rv32max`, `rv64imacb`, `rv64imafdcb`, and `rva23`;

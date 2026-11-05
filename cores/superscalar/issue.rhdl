@@ -86,8 +86,24 @@ fun superscalar_write_routing(group_width :: matching(2) || matching(3), destina
     occupied: vec(surviving[0] ||| (third & borrow_first), surviving[1] ||| (third & !borrow_first))
     fits: (!surviving[0] ||| available[0]) & (!surviving[1] ||| available[1]) & (!third ||| borrow_first ||| borrow_second)
 
-/* Reports the sole admitted prefix, its write booking envelope, and per-candidate stall reasons. */
+/* Names unqualified service probe owners without depending on their readiness. */
+bundle SuperscalarServiceOwners():
+  scalar: Bits(2)
+  fp: Bits(2)
+
+/* Returns the oldest claimant; an empty selection names lane zero but never grants validity. */
+fun superscalar_service_lane(claims :: List.of(Bool)) :~ Bits(2):
+  priority_mux((for List (claim in claims, lane in 0..claims.length()): [claim, Bits(2)(lane)]), ~default: Bits(2)(0))
+
+/* Selects service probes independently of readiness; the admitted prefix later qualifies launches. */
+fun superscalar_service_owners(xlen :: XLen, group_width :: matching(2) || matching(3), candidates :: Vec(group_width, SuperscalarIssueCandidate(xlen)), traits :: Vec(group_width, SuperscalarIssueTraits())) :~ SuperscalarServiceOwners():
+  SuperscalarServiceOwners():
+    scalar: superscalar_service_lane(for List (lane in 0..group_width): candidates[lane].present & traits[lane].scalar_service)
+    fp: superscalar_service_lane(for List (lane in 0..group_width): candidates[lane].present & traits[lane].fpr_reads)
+
+/* Reports issue grants separately from the unqualified service-probe owners. */
 bundle SuperscalarIssueDecision(group_width :: matching(2) || matching(3)):
+  owners: SuperscalarServiceOwners()
   count: Bits(2)
   admitted: Vec(group_width, Bool)
   data_hazard: Vec(group_width, Bool)
@@ -283,6 +299,9 @@ export:
   SuperscalarWriteRouting
   superscalar_write_routing
   SuperscalarIssueDecision
+  SuperscalarServiceOwners
+  superscalar_service_lane
+  superscalar_service_owners
   SuperscalarIssueTraits
   SuperscalarIssueHazards
   superscalar_issue_traits
