@@ -4,6 +4,7 @@
 
 import:
   lib("cores/bpred/protocol.rhdl") open
+  lib("cores/pc.rhdl") open
   "source.rhdl" open
   "packet.rhdl" open
   "scan.rhdl" open
@@ -26,7 +27,7 @@ sync_circuit RV5StageFrontend(core_profile :: RV5StageConfig, ~btb_entries: btb_
   def pc_width = math.max(Sv39VirtualBits, physical_address_width + 1)
   def target_width = math.min(xlen.width, pc_width)
   def compact = (xlen.width == 64) && (!hypervisor) && (pc_width < xlen.width)
-  def QueuePacket = if compact | RV5StageCompactFetchPacket(pc_width) | RV5StageFetchPacket(xlen, hypervisor)
+  def QueuePacket = if compact | RV5StageCompactFetchPacket(xlen, pc_width) | RV5StageFetchPacket(xlen, hypervisor)
   interface control(RV5StageFrontendControl(xlen), ~role: frontend)
   interface memory(RV5StageFetchAccess(xlen, hypervisor), ~role: requester)
   interface packets(Decoupled(RV5StageFetchPacket(xlen, hypervisor)), ~role: producer)
@@ -75,7 +76,7 @@ sync_circuit RV5StageFrontend(core_profile :: RV5StageConfig, ~btb_entries: btb_
   def expanded:
     if compact
     | queued |> map_flow(payload):
-        def packet :: RV5StageCompactFetchPacket(pc_width) = payload
+        def packet :: RV5StageCompactFetchPacket(xlen, pc_width) = payload
         packet.expanded()
     | queued
 
@@ -139,12 +140,12 @@ sync_circuit RV5StageFrontend(core_profile :: RV5StageConfig, ~btb_entries: btb_
   ) |> scan.ingress
 
   def scanned = scan.egress |> to_decoupled()
-  (if compact | scanned |> map_flow(packet => compact_fetch_packet(pc_width, packet)) | scanned) |> queue.ingress
+  (if compact | scanned |> map_flow(packet => compact_fetch_packet(xlen, pc_width, packet)) | scanned) |> queue.ingress
   if compact
   | block:
       def packet = scan.egress.bits
       when (scan.egress.valid & !packet.page_fault & !packet.access_fault):
-        assert(packet.pc === packet.pc[0..pc_width].into(SInt(pc_width)).sext(64).as_bits(), "fetch_success_pc_fits_queue")
+        assert(CompactPc.fits(xlen, pc_width, packet.pc), "fetch_success_pc_fits_queue")
   | #void
 
 

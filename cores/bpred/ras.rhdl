@@ -4,6 +4,7 @@
 
 import:
   "protocol.rhdl" open
+  "../pc.rhdl" open
   "../../riscv/isa/xlen.rhm" open
   "../../riscv/model/formats.rhm" as riscv_fields
   "../../riscv/rtl/instruction-fields.rhdl".instruction_field
@@ -67,12 +68,13 @@ sync_circuit Ras(xlen :: XLen, entry_count :: PosInt = 6, ~target_width: target_
 
   def index_bits = index_width(entry_count)
   def count_bits = index_width(entry_count + 1)
-  def empty_entries = vec(for List (_index in 0..entry_count): Bits(target_width)(0))
-  reg speculative_entries(Vec(entry_count, Bits(target_width)), ~init: empty_entries)
+  def Target = CompactPc(xlen, target_width)
+  def empty_entries = vec(for List (_index in 0..entry_count): literal(Target, 0))
+  reg speculative_entries(Vec(entry_count, Target), ~init: empty_entries)
   reg speculative_top(~init: Bits(index_bits)(0))
   reg speculative_count(~init: Bits(count_bits)(0))
 
-  reg committed_entries(Vec(entry_count, Bits(target_width)), ~init: empty_entries)
+  reg committed_entries(Vec(entry_count, Target), ~init: empty_entries)
   reg committed_top(~init: Bits(index_bits)(0))
   reg committed_count(~init: Bits(count_bits)(0))
 
@@ -103,16 +105,16 @@ sync_circuit Ras(xlen :: XLen, entry_count :: PosInt = 6, ~target_width: target_
      these expressions add no pipeline or capture stage. */
 
   def speculative_write_index = write_index(speculative_top, speculative_count, speculate.bits.action)
-  def speculative_next_entries = speculative_entries.updated(speculative_write_index, speculate.bits.return_address[0..target_width])
+  def speculative_next_entries = speculative_entries.updated(speculative_write_index, CompactPc.prediction(xlen, target_width, speculate.bits.return_address))
   def resolved_write_index = write_index(committed_top, committed_count, resolve.bits.actual.action)
-  def committed_next_entries = committed_entries.updated(resolved_write_index, resolve.bits.actual.return_address[0..target_width])
+  def committed_next_entries = committed_entries.updated(resolved_write_index, CompactPc.prediction(xlen, target_width, resolve.bits.actual.return_address))
   def committed_next_top = updated_top(committed_top, committed_count, resolve.bits.actual.action)
   def committed_next_count = updated_count(committed_count, resolve.bits.actual.action)
   def reconcile = resolve.valid & (resolve.bits.actual.action =/= resolve.bits.predicted_action)
 
   head_valid <== speculative_count =/= Bits(count_bits)(0)
-  def stored_head = speculative_entries[speculative_top]
-  head <== (if target_width < xlen.width | stored_head.into(SInt(target_width)).sext(xlen.width).as_bits() | stored_head)
+  def stored_head :: CompactPc(xlen, target_width) = speculative_entries[speculative_top]
+  head <== stored_head.expanded()
 
   /* Stack publication and recovery.
      Clear resets both copies. Otherwise resolved progress is independent of

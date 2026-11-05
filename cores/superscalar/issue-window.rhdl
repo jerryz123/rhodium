@@ -5,13 +5,14 @@
 import:
   lib("riscv/isa/xlen.rhm").XLen
   lib("cores/bpred/protocol.rhdl") open
+  lib("cores/pc.rhdl") open
   "bundles.rhdl" open
   lib("flow/main.rhdl") open
 
 /* Stores a normalized frontend hint at the frontend's configured width. */
-bundle SuperscalarWindowPrediction(target_width :: PosInt):
+bundle SuperscalarWindowPrediction(xlen :: XLen, target_width :: PosInt):
   valid: Bool
-  target: Bits(target_width)
+  target: CompactPc(xlen, target_width)
 
 /* Sizes the exceptional PC upper bits; their field is omitted for full-width storage. */
 fun window_pc_high_width(xlen :: XLen, pc_width :: PosInt):
@@ -26,14 +27,14 @@ bundle SuperscalarWindowFault(xlen :: XLen, hypervisor :: Boolean, pc_width :: P
 
 /* A fault never predicts, so its details reuse the normal prediction's storage. */
 tagged_union SuperscalarWindowOutcome(xlen :: XLen, hypervisor :: Boolean, pc_width :: PosInt):
-  Normal(SuperscalarWindowPrediction(pc_width))
+  Normal(SuperscalarWindowPrediction(xlen, pc_width))
   Fault(SuperscalarWindowFault(xlen, hypervisor, pc_width))
 
 /* Successful PCs sign-extend independently; faults retain exact high bits in the
    outcome. Direction training indices are reconstructed from the instruction PC;
    the lookup row, history, and assembler's length decision retain independent ownership. */
 bundle SuperscalarWindowEntry(xlen :: XLen, hypervisor :: Boolean, pc_width :: PosInt):
-  pc_low: Bits(pc_width)
+  pc: CompactPc(xlen, pc_width)
   instruction: Bits(32)
   raw_parcel: Bits(16)
   step: SuperscalarPcStep(xlen)
@@ -49,12 +50,12 @@ bundle SuperscalarWindowEntry(xlen :: XLen, hypervisor :: Boolean, pc_width :: P
     def Outcome = SuperscalarWindowOutcome(xlen, hypervisor, pc_width)
     def fault = entry.outcome.is(Outcome.Fault).into(Bool)
     def details :: SuperscalarWindowFault(xlen, hypervisor, pc_width) = entry.outcome.view(Outcome.Fault).payload
-    def normal :: SuperscalarWindowPrediction(pc_width) = entry.outcome.view(Outcome.Normal).payload
-    def normal_pc = if pc_width < xlen.width | entry.pc_low.into(SInt(pc_width)).sext(xlen.width).as_bits() | entry.pc_low
-    def fault_pc = if pc_width < xlen.width | details.pc_high ++ entry.pc_low | entry.pc_low
+    def normal :: SuperscalarWindowPrediction(xlen, pc_width) = entry.outcome.view(Outcome.Normal).payload
+    def normal_pc = entry.pc.expanded()
+    def fault_pc = if pc_width < xlen.width | details.pc_high ++ entry.pc.low | entry.pc.low
     def pc = mux(fault, fault_pc, normal_pc)
     def predicted = !fault & normal.valid
-    def target = if pc_width < xlen.width | normal.target.into(SInt(pc_width)).sext(xlen.width).as_bits() | normal.target
+    def target = normal.target.expanded()
     SuperscalarInstruction(xlen, hypervisor):
       pc: pc
       instruction: entry.instruction
@@ -83,12 +84,12 @@ fun pack_entry(xlen :: XLen, hypervisor :: Boolean, pc_width :: PosInt, token ::
     | SuperscalarWindowFault(xlen, hypervisor, pc_width):
         fault: token.fault
 
-  def prediction = SuperscalarWindowPrediction(pc_width):
+  def prediction = SuperscalarWindowPrediction(xlen, pc_width):
     valid: token.prediction.valid
-    target: token.prediction.target[0..pc_width]
+    target: CompactPc.prediction(xlen, pc_width, token.prediction.target)
 
   SuperscalarWindowEntry(xlen, hypervisor, pc_width):
-    pc_low: token.pc[0..pc_width]
+    pc: CompactPc.capture(xlen, pc_width, token.pc)
     instruction: token.instruction
     raw_parcel: token.raw_instruction[0..16]
     step: encode_pc_step(xlen, token.pc, token.sequential_pc)
@@ -137,11 +138,11 @@ sync_circuit SuperscalarIssueWindow(xlen :: XLen = XLen.X64, ~group_width: group
       assert(token.raw_instruction === superscalar_raw_instruction(token.instruction, token.raw_instruction[0..16]), "superscalar_window_raw_encoding")
       assert(token.sequential_pc.is_one_of(token.pc + Bits(xlen.width)(2), token.pc + Bits(xlen.width)(4)), "superscalar_window_instruction_length")
       assert(!token.prediction.valid ||| (token.prediction.pc === token.pc), "superscalar_window_prediction_pc")
-      assert(!token.prediction.valid ||| (token.prediction.target === prediction_target(xlen, pc_width, token.prediction.target)), "superscalar_window_prediction_target")
+      assert(!token.prediction.valid ||| CompactPc.fits(xlen, pc_width, token.prediction.target), "superscalar_window_prediction_target")
       assert(token.direction_indices_valid(), "superscalar_window_direction_indices")
       assert(token.fault.supported(), "superscalar_supported_fetch_fault")
       assert(!token.fault.valid() ||| !token.prediction.valid, "superscalar_fault_does_not_predict")
-      def pc_fits = if pc_width < xlen.width | token.pc === token.pc[0..pc_width].into(SInt(pc_width)).sext(xlen.width).as_bits() | Bool(#true)
+      def pc_fits = CompactPc.fits(xlen, pc_width, token.pc)
       assert(token.fault.valid() ||| pc_fits, "superscalar_window_success_pc_fits")
 
     def name = "head" ++ to_string(lane)

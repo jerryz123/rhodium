@@ -1,0 +1,13 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../pc.rhdl".CompactPc
+  lib("riscv/isa/xlen.rhm").XLen
+
+for (xlen in [XLen.X32, XLen.X64]):
+  for (width in 1..(xlen.width + 1)):
+    check: CompactPc(xlen, width).packed_width() ~is width
+
+  check:
+    CompactPc(xlen, 0) ~throws "PosInt"
+    CompactPc(xlen, xlen.width + 1) ~throws "must not exceed XLEN"

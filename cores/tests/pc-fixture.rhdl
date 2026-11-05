@@ -1,0 +1,51 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../pc.rhdl" open
+  lib("riscv/isa/xlen.rhm").XLen
+
+sync_circuit CompactPcCase(xlen :: XLen, width :: PosInt):
+  input address: Bits(xlen.width)
+  input capture: Bool
+  output fits: Bool
+  output(exact_address, predicted_address): Bits(xlen.width)
+  fits <== CompactPc.fits(xlen, width, address)
+  reg exact(CompactPc(xlen, width), ~init: literal(CompactPc(xlen, width), 0))
+  reg predicted(CompactPc(xlen, width), ~init: literal(CompactPc(xlen, width), 0))
+  when capture:
+    predicted <== CompactPc.prediction(xlen, width, address)
+    when fits:
+      exact <== CompactPc.capture(xlen, width, address)
+
+  exact_address <== exact.expanded()
+  predicted_address <== predicted.expanded()
+
+sync_circuit CompactPcFixture():
+  input address: Bits(64)
+  input capture: Bool
+  output fits64: Vec(5, Bool)
+  output fits32: Vec(4, Bool)
+  output predicted64: Vec(5, Bits(64))
+  output predicted32: Vec(4, Bits(32))
+  output exact64: Vec(5, Bits(64))
+  output exact32: Vec(4, Bits(32))
+
+  for (xlen in [XLen.X32, XLen.X64]):
+    def widths = if xlen == XLen.X32 | [1, 16, 31, 32] | [1, 32, 39, 45, 64]
+    for (width in widths, index in 0..widths.length()):
+      inst entry(CompactPcCase(xlen, width))
+      entry.address <== address[0..xlen.width]
+      entry.capture <== capture
+
+      if xlen == XLen.X32
+      | block:
+          fits32[index] <== entry.fits
+          predicted32[index] <== entry.predicted_address
+          exact32[index] <== entry.exact_address
+      | block:
+          fits64[index] <== entry.fits
+          predicted64[index] <== entry.predicted_address
+          exact64[index] <== entry.exact_address
+
+def program = elaborate(CompactPcFixture())
+export program

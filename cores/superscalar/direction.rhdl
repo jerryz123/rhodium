@@ -7,6 +7,7 @@ import:
   "profile.rhm".SuperscalarPipelineConfig
   "bundles.rhdl" open
   lib("cores/bpred/protocol.rhdl") open
+  lib("cores/pc.rhdl") open
   lib("riscv/isa/xlen.rhm").XLen
   lib("rhodium/std/bits.rhdl") open
 
@@ -47,10 +48,12 @@ sync_circuit SuperscalarDirection(profile :: SuperscalarPipelineConfig, ~pc_widt
   reg partial_row(Bits(10))
   reg partial_base_taken(Bool)
   reg partial_predicted(Bool)
-  reg partial_target(Bits(target_width))
-  def compact_pc = partial_block ++ Bits(3)(6)
-  def partial_pc = if pc_width < xlen.width | compact_pc.into(SInt(pc_width)).sext(xlen.width).as_bits() | compact_pc
-  def target = if target_width < xlen.width | partial_target.into(SInt(target_width)).sext(xlen.width).as_bits() | partial_target
+  reg partial_target(CompactPc(xlen, target_width))
+  def compact_pc = CompactPc(xlen, pc_width):
+    low: partial_block ++ Bits(3)(6)
+
+  def partial_pc = compact_pc.expanded()
+  def target = partial_target.expanded()
   def partial_prediction = BranchPrediction(xlen):
     valid: partial_predicted
     pc: partial_pc
@@ -141,15 +144,15 @@ sync_circuit SuperscalarDirection(profile :: SuperscalarPipelineConfig, ~pc_widt
   elsewhen valid:
     partial_valid <== pending
     when pending:
-      def pc_fits = if pc_width < xlen.width | pc === pc[0..pc_width].into(SInt(pc_width)).sext(xlen.width).as_bits() | Bool(#true)
+      def pc_fits = CompactPc.fits(xlen, pc_width, pc)
       assert(pc_fits, "rv2wide_direction_prefix_pc_fits")
-      assert(!provisional_prefix ||| (prediction.target === prediction_target(xlen, target_width, prediction.target)), "rv2wide_direction_prefix_target_fits")
+      assert(!provisional_prefix ||| CompactPc.fits(xlen, target_width, prediction.target), "rv2wide_direction_prefix_target_fits")
       partial_block <== pc[3..pc_width]
       partial_word <== data[48..64]
       partial_row <== row
       partial_base_taken <== base_taken[3]
       partial_predicted <== provisional_prefix
-      partial_target <== prediction.target[0..target_width]
+      partial_target <== CompactPc.prediction(xlen, target_width, prediction.target)
 
 /* Passes provisional BTB metadata without allocating predecode or history-prefix state. */
 sync_circuit DisabledSuperscalarDirection(profile :: SuperscalarPipelineConfig):

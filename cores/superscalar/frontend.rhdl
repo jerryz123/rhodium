@@ -15,6 +15,7 @@ import:
   lib("cores/bpred/ras.rhdl").Ras
   lib("cores/bpred/ras.rhdl").DisabledRas
   lib("cores/bpred/protocol.rhdl") open
+  lib("cores/pc.rhdl") open
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/rtl/svpbmt.rhdl") open
   lib("rhodium/std/bits.rhdl") open
@@ -24,8 +25,8 @@ import:
    Both addresses are already sign-extended by BTB/RAS before entering this feedback path. */
 bundle SuperscalarCursorPrediction(xlen :: XLen, prediction_width :: PosInt):
   valid: Bool
-  pc: Bits(prediction_width)
-  target: Bits(prediction_width)
+  pc: CompactPc(xlen, prediction_width)
+  target: CompactPc(xlen, prediction_width)
   compressed: Bool
   ras_action: RasAction
 
@@ -33,8 +34,8 @@ bundle SuperscalarCursorPrediction(xlen :: XLen, prediction_width :: PosInt):
   method expanded(prediction) :: BranchPrediction(xlen):
     BranchPrediction(xlen):
       valid: prediction.valid
-      pc: if prediction_width < xlen.width | prediction.pc.into(SInt(prediction_width)).sext(xlen.width).as_bits() | prediction.pc
-      target: if prediction_width < xlen.width | prediction.target.into(SInt(prediction_width)).sext(xlen.width).as_bits() | prediction.target
+      pc: prediction.pc.expanded()
+      target: prediction.target.expanded()
       compressed: prediction.compressed
       ras_action: prediction.ras_action
 
@@ -87,8 +88,8 @@ sync_circuit SuperscalarFrontend(config :: RiscvHartCHIConfig, profile :: Supers
   fun retain_prediction(prediction :: BranchPrediction(xlen)) :~ SuperscalarCursorPrediction(xlen, pc_width):
     SuperscalarCursorPrediction(xlen, pc_width):
       valid: prediction.valid
-      pc: prediction.pc[0..pc_width]
-      target: prediction.target[0..pc_width]
+      pc: CompactPc.capture(xlen, pc_width, prediction.pc)
+      target: CompactPc.prediction(xlen, pc_width, prediction.target)
       compressed: prediction.compressed
       ras_action: prediction.ras_action
 
@@ -135,8 +136,8 @@ sync_circuit SuperscalarFrontend(config :: RiscvHartCHIConfig, profile :: Supers
   def ordinary_prediction = btb.prediction.updated(~target: mux(use_ras_target, ras.head, btb.prediction.target))
   def prediction :: BranchPrediction(xlen) = mux(s1.egress.bits.continuation, s1.egress.bits.prediction.expanded(), ordinary_prediction)
   when (s1.egress.valid & prediction.valid):
-    assert(prediction.pc === prediction_target(xlen, pc_width, prediction.pc), "superscalar_cursor_prediction_pc_fits")
-    assert(prediction.target === prediction_target(xlen, pc_width, prediction.target), "superscalar_cursor_prediction_target_fits")
+    assert(CompactPc.fits(xlen, pc_width, prediction.pc), "superscalar_cursor_prediction_pc_fits")
+    assert(CompactPc.fits(xlen, pc_width, prediction.target), "superscalar_cursor_prediction_target_fits")
 
 
   /* S2 outcome classification and direction correction.

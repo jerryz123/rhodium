@@ -174,7 +174,7 @@ index/PC agreement; invalid indices have no training meaning. Preserve histories
 and flags even when direction validity is false, since recovery still consumes
 nonbranch checkpoints. Public instruction and training payloads remain unchanged.
 
-Each window entry stores its own compact PC, not an offset from a shared base:
+Each window entry stores its own `CompactPc`, not an offset from a shared base:
 resident instructions can span unrelated predicted targets. Successful PCs
 sign-extend from `min(XLEN, max(39, physical_address_width + 1))` in the integrated
 hart. The extra physical bit preserves zero-extended Bare PCs, including guest
@@ -185,6 +185,12 @@ fault and exceptional PC upper bits. Faulting instructions cannot predict.
 The window and EX/MEM/WB lane registers retain the frontend's configured
 target width and sign-extend it for consumers. Never narrow architectural
 redirects or the resolved target. Each window entry owns its metadata.
+The assembler, window, retained cursor predictions, and lane prediction targets
+use shared `cores/pc.rhdl` capture/expansion semantics. Exact-PC admission uses
+`CompactPc.fits`; speculative destinations use `CompactPc.prediction`.
+Fault unions retain their exceptional upper bits. Direction-prefix block tags
+and the lane pipes' shared-region PC suffixes keep their existing widths and
+ownership; join a direction block's fixed byte offset before sign expansion.
 
 Window and lane registers retain the canonical instruction and the raw low
 halfword. Decode uses the canonical word directly. Restore the original upper

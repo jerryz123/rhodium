@@ -773,7 +773,11 @@ Valid owners; named wrappers retain issue permission, authorization, and collisi
 service, scalar FP wrapper, core, and vector composition/pipeline import it to
 share fixed return delays without introducing a named-core dependency into FP.
 
-Shared `cores/bpred/protocol.rhdl` imports architectural XLEN only.
+Shared `cores/pc.rhdl` imports architectural XLEN and uses public bundles and
+hardware methods for compact PC storage; it adds no Rhodium implementation import.
+Predictor protocol/BTB/RAS, superscalar retained fetch/prediction storage, and the
+RV5Stage fetch queue consume it without changing package direction.
+Shared `cores/bpred/protocol.rhdl` imports architectural XLEN and that PC type.
 `cores/bpred/statistics.rhdl` imports the passive frontend statistics layer and
 classifies prediction failures without importing compilation or simulator code.
 Both named cores consume it; RV5Stage carries its classification from EX to MEM.

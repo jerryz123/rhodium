@@ -1,0 +1,41 @@
+#lang rhodium
+/* Represents independently sign-extended PCs and explicitly normalized speculative destinations. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("riscv/isa/xlen.rhm").XLen
+
+/* Checks the storage domain before constructing any hardware fields. */
+fun compact_pc_width(xlen :: XLen, width :: PosInt) :: PosInt:
+  unless width <= xlen.width
+  | error(~who: #'CompactPc, "PC storage width must not exceed XLEN")
+
+  width
+
+/* Stores every low address bit, including alignment bits. The enclosing owner
+   either proves exact representability or deliberately accepts a prediction alias. */
+bundle CompactPc(xlen :: XLen, width :: PosInt):
+  low: Bits(compact_pc_width(xlen, width))
+
+  /* Restores the sign-extended address without arithmetic or additional state. */
+  method expanded(pc) :: Bits(xlen.width):
+    if width < xlen.width | pc.low.into(SInt(width)).sext(xlen.width).as_bits() | pc.low
+
+namespace CompactPc:
+  /* Tests exact representability; callers qualify admission or lookup themselves. */
+  export fun fits(xlen :: XLen, width :: PosInt, address :: Bits(xlen.width)) :~ Bool:
+    def stored = capture(xlen, width, address)
+    address === stored.expanded()
+
+  /* Captures low bits under the caller's exact-PC contract. On a fault, the
+     enclosing outcome must retain the original upper bits instead of discarding them. */
+  export fun capture(xlen :: XLen, width :: PosInt, address :: Bits(xlen.width)) :~ CompactPc(xlen, width):
+    CompactPc(xlen, width):
+      low: address[0..width]
+
+  /* Deliberately permits aliases for predictor state only, never architectural recovery. */
+  export fun prediction(xlen :: XLen, width :: PosInt, address :: Bits(xlen.width)) :~ CompactPc(xlen, width):
+    capture(xlen, width, address)
+
+export:
+  CompactPc

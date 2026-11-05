@@ -4,16 +4,12 @@
 
 import:
   "../../riscv/isa/xlen.rhm" open
+  "../pc.rhdl" open
 
 /* Canonicalizes only a speculative destination before both fetch steering and
    prediction capture. Architectural targets and exception addresses must not use this. */
 fun prediction_target(xlen :: XLen, target_width :: PosInt, address :: Bits(xlen.width)) :~ Bits(xlen.width):
-  unless target_width <= xlen.width
-  | error(~who: #'prediction_target, "prediction target width must not exceed XLEN")
-
-  if target_width < xlen.width
-  | address[0..target_width].into(SInt(target_width)).sext(xlen.width).as_bits()
-  | address
+  CompactPc.prediction(xlen, target_width, address).expanded()
 
 /* Trains a saved direction-table address independently of the caller's current history. */
 bundle BhtUpdate(row_bits :: PosInt):

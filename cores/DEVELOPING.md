@@ -193,6 +193,15 @@ authorization in the caller, and keep the physical cache response combinational.
 For its RV5Stage integration, run the EX/MEM/WB load-path fixtures listed in
 [`rv5stage/DEVELOPING.md`](rv5stage/DEVELOPING.md#focused-validation).
 
+`pc.rhdl` owns the compact-PC representation and type-family capture, prediction,
+and representability operations described in the [public contract](README.md#compact-pc-storage).
+It depends only on XLEN and the public authoring surface. Predictors and fetch
+owners choose widths and qualify admission; the type must not import their
+policies or allocate exception escape storage. Keep fault upper bits in their
+existing mutually exclusive outcomes and shared pipeline prefixes stage-owned.
+For changes, run the `compact-pc` rsim fixture and `tests/pc-test.rhm`, then
+the affected [predictor](bpred/DEVELOPING.md#validation) and fetch/window fixtures.
+
 `cosim-source.rhm` bridges public core metadata and frontend read/domain APIs.
 Its adapter contracts, local taps, explicit child views, and sibling contexts
 are remappable read-only declarations, not capture hardware. All selected

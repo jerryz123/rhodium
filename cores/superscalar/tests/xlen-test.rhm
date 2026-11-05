@@ -59,7 +59,7 @@ for (xlen in [XLen.X32, XLen.X64]):
       check:
         payload.results[0].type.element_type.field("fetched").type.field("pc").type.width ~is 12
         payload.results[0].type.element_type.field("fetched").type.field("fault").type.packed_width() ~is fault_width
-        payload.results[0].type.element_type.field("fetched").type.field("prediction").type.field("target").type.width ~is math.min(xlen.width, math.max(39, test_fetch_chi.flit.request_address_width + 1))
+        payload.results[0].type.element_type.field("fetched").type.field("prediction").type.field("target").type.packed_width() ~is math.min(xlen.width, math.max(39, test_fetch_chi.flit.request_address_width + 1))
         payload.results[0].type.element_type.field("fetched").type.field("sequential_pc").type.packed_width() ~is step_width
 
   check:

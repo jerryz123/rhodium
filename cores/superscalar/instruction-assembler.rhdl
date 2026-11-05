@@ -7,6 +7,7 @@ import:
   "predecode.rhdl".SuperscalarPredecode
   "profile.rhm".SuperscalarPipelineConfig
   lib("cores/bpred/protocol.rhdl") open
+  lib("cores/pc.rhdl") open
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/rtl/hypervisor.rhdl").RiscvGuestFault
   lib("rhodium/std/bits.rhdl") open
@@ -25,9 +26,9 @@ bundle SuperscalarFetchBlock(xlen :: XLen, hypervisor :: Boolean):
   prefix_direction: TournamentPrediction(10)
 
 /* Retains only the configured speculative destination bits; expansion restores their sign. */
-bundle SuperscalarBlockPrediction(target_width :: PosInt):
+bundle SuperscalarBlockPrediction(xlen :: XLen, target_width :: PosInt):
   valid: Bool
-  target: Bits(target_width)
+  target: CompactPc(xlen, target_width)
 
 /* Sizes the exceptional PC upper bits, omitted when storage already spans XLEN. */
 fun block_pc_high_width(xlen :: XLen, pc_width :: PosInt):
@@ -44,7 +45,7 @@ bundle SuperscalarBlockFault(xlen :: XLen, hypervisor :: Boolean, pc_width :: Po
 
 /* Faulting blocks cannot contribute a taken prediction; their details reuse target storage. */
 tagged_union SuperscalarBlockOutcome(xlen :: XLen, hypervisor :: Boolean, pc_width :: PosInt, target_width :: PosInt):
-  Normal(SuperscalarBlockPrediction(target_width))
+  Normal(SuperscalarBlockPrediction(xlen, target_width))
   Fault(SuperscalarBlockFault(xlen, hypervisor, pc_width))
 
 /* Keeps each parcel's independent recovery history and chooser observations, not redundant indices. */
@@ -87,7 +88,7 @@ hardware_enum SuperscalarBlockPredictionOwner:
 /* Stores one block with independent compact PC and outcome ownership. Relative prediction
    ownership avoids duplicating the PC; all direction checkpoints remain independent. */
 bundle SuperscalarRetainedBlock(xlen :: XLen, hypervisor :: Boolean, pc_width :: PosInt, target_width :: PosInt):
-  pc_low: Bits(pc_width)
+  pc: CompactPc(xlen, pc_width)
   data: Bits(64)
   outcome: SuperscalarBlockOutcome(xlen, hypervisor, pc_width, target_width)
   prediction_owner: SuperscalarBlockPredictionOwner
@@ -104,9 +105,9 @@ bundle SuperscalarRetainedBlock(xlen :: XLen, hypervisor :: Boolean, pc_width ::
     def Outcome = SuperscalarBlockOutcome(xlen, hypervisor, pc_width, target_width)
     def fault = block.outcome.is(Outcome.Fault).into(Bool)
     def details :: SuperscalarBlockFault(xlen, hypervisor, pc_width) = block.outcome.view(Outcome.Fault).payload
-    def normal :: SuperscalarBlockPrediction(target_width) = block.outcome.view(Outcome.Normal).payload
-    def normal_pc = if pc_width < xlen.width | block.pc_low.into(SInt(pc_width)).sext(xlen.width).as_bits() | block.pc_low
-    def fault_pc = if pc_width < xlen.width | details.pc_high ++ block.pc_low | block.pc_low
+    def normal :: SuperscalarBlockPrediction(xlen, target_width) = block.outcome.view(Outcome.Normal).payload
+    def normal_pc = block.pc.expanded()
+    def fault_pc = if pc_width < xlen.width | details.pc_high ++ block.pc.low | block.pc.low
     def full_pc = mux(fault, fault_pc, normal_pc)
     def fault_details:
       if hypervisor
@@ -118,7 +119,7 @@ bundle SuperscalarRetainedBlock(xlen :: XLen, hypervisor :: Boolean, pc_width ::
           kind: details.kind
           value: fault_pc
 
-    def target = if target_width < xlen.width | normal.target.into(SInt(target_width)).sext(xlen.width).as_bits() | normal.target
+    def target = normal.target.expanded()
     def predicted = !fault & normal.valid
     def Owner = SuperscalarBlockPredictionOwner
     def prediction_block = mux(block.prediction_owner === Owner.Previous, normal_pc[3..xlen.width] - Bits(xlen.width - 3)(1), normal_pc[3..xlen.width])
@@ -152,9 +153,9 @@ fun retain_fetch_block(xlen :: XLen, hypervisor :: Boolean, pc_width :: PosInt, 
     | empty_fault.updated(~kind: block.fault.kind)
 
   def details = if pc_width < xlen.width | fault_kind.updated(~pc_high: block.pc[pc_width..xlen.width]) | fault_kind
-  def prediction = SuperscalarBlockPrediction(target_width):
+  def prediction = SuperscalarBlockPrediction(xlen, target_width):
     valid: block.prediction.valid
-    target: mux(block.prediction.valid, block.prediction.target[0..target_width], Bits(target_width)(0))
+    target: CompactPc.prediction(xlen, target_width, mux(block.prediction.valid, block.prediction.target, Bits(xlen.width)(0)))
 
   def Owner = SuperscalarBlockPredictionOwner
   def parcel = mux_lookup(block.prediction.pc[1..3], ~default: Owner.Parcel3):
@@ -164,7 +165,7 @@ fun retain_fetch_block(xlen :: XLen, hypervisor :: Boolean, pc_width :: PosInt, 
 
   def same_block = block.prediction.pc[3..xlen.width] === block.pc[3..xlen.width]
   SuperscalarRetainedBlock(xlen, hypervisor, pc_width, target_width):
-    pc_low: block.pc[0..pc_width]
+    pc: CompactPc.capture(xlen, pc_width, block.pc)
     data: block.data
     outcome: mux(block.fault.valid(), Outcome.Fault(details), Outcome.Normal(prediction))
     prediction_owner: mux(same_block, parcel, Owner.Previous)
@@ -416,13 +417,13 @@ sync_circuit SuperscalarInstructionAssembler(profile :: SuperscalarPipelineConfi
     def prefix = offered.prefix_direction
     def prefix_base = (offered.pc[3..13] - Bits(10)(1)) ++ Bits(2)(3)
     assert(!prefix.valid ||| ((prefix.index[0..2] === Bits(2)(3)) & (prefix.base_index === prefix_base)), "superscalar_assembly_prefix_indices")
-    def pc_fits = if pc_width < xlen.width | offered.pc === offered.pc[0..pc_width].into(SInt(pc_width)).sext(xlen.width).as_bits() | Bool(#true)
+    def pc_fits = CompactPc.fits(xlen, pc_width, offered.pc)
     assert(offered.fault.valid() ||| pc_fits, "superscalar_assembly_success_pc_fits")
     def same_block = offered.prediction.pc.align_down(8) === offered.pc.align_down(8)
     def previous_prefix = offered.prediction.pc === (offered.pc.align_down(8) - Bits(xlen.width)(2))
     def prediction_fits = !offered.prediction.pc[0].into(Bool) & (same_block ||| previous_prefix)
     assert(offered.fault.valid() ||| !offered.prediction.valid ||| prediction_fits, "superscalar_assembly_prediction_owner")
-    assert(offered.fault.valid() ||| !offered.prediction.valid ||| (offered.prediction.target === prediction_target(xlen, target_width, offered.prediction.target)), "superscalar_assembly_prediction_target")
+    assert(offered.fault.valid() ||| !offered.prediction.valid ||| CompactPc.fits(xlen, target_width, offered.prediction.target), "superscalar_assembly_prediction_target")
 
 export:
   SuperscalarFetchBlock

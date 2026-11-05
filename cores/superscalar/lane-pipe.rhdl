@@ -7,6 +7,7 @@ import:
   lib("rhodium/frontend/kernel.rhm") as kernel
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/rtl/hypervisor.rhdl").RiscvGuestFault
+  lib("cores/pc.rhdl") open
   "bundles.rhdl" open
 
 def SuperscalarPcOffsetBits = 12
@@ -28,9 +29,9 @@ fun copy_fields(T :: RecordType, source :: Hardware.packable, replacements :: Ma
 
 /* Omit group-owned FP requests, PC aliases, and redundant training indices, and
    replace the successor by its tag. Prediction targets and histories stay independent. */
-fun lane_shape(Full :: RecordType, execute :: Boolean, Fault :: DataType, Step :: DataType, target_width :: PosInt) :: RecordType:
+fun lane_shape(xlen :: XLen, Full :: RecordType, execute :: Boolean, Fault :: DataType, Step :: DataType, target_width :: PosInt) :: RecordType:
   def Fetched = Full.field("fetched").type
-  def prediction = storage_shape(Fetched.field("prediction").type, {"target": Bits(target_width)}, ["pc"])
+  def prediction = storage_shape(Fetched.field("prediction").type, {"target": CompactPc(xlen, target_width)}, ["pc"])
   def fetched = storage_shape(Fetched, {"raw_instruction": Bits(16), "pc": Bits(SuperscalarPcOffsetBits), "sequential_pc": Step, "prediction": prediction, "fault": Fault, "direction": SuperscalarDirectionCheckpoint()})
   if execute
   | storage_shape(Full, {"fetched": fetched, "vector": storage_shape(Full.field("vector").type, {}, ["pc"])}, ["fp_request"])
@@ -75,7 +76,7 @@ sync_circuit SuperscalarLanePipe(xlen :: XLen, Full :: RecordType, ~target_width
   output egress_step: SuperscalarPcStep(xlen)
 
   def Fault = if execute | SuperscalarFetchFault(xlen, hypervisor) | Bool
-  def Stored = lane_shape(Full, execute, Fault, SuperscalarPcStep(xlen), target_width)
+  def Stored = lane_shape(xlen, Full, execute, Fault, SuperscalarPcStep(xlen), target_width)
   inst storage(ValidPipe(Stored, 1, ~flushable: #true))
   storage.flush <== flush
 
@@ -123,7 +124,7 @@ sync_circuit SuperscalarLanePipe(xlen :: XLen, Full :: RecordType, ~target_width
         def result :: SuperscalarResult(xlen, hypervisor) = token
         result.updated(~address: mux(result.branch.control.enable, result.branch.target, result.address))
 
-    recode_lane(Stored, captured, fetched.pc[0..SuperscalarPcOffsetBits], ingress_step, fetched.raw_instruction[0..16], fetched.prediction.target[0..target_width], encoded, fetched.retained_direction(), token.fp_request, execute)
+    recode_lane(Stored, captured, fetched.pc[0..SuperscalarPcOffsetBits], ingress_step, fetched.raw_instruction[0..16], CompactPc.prediction(xlen, target_width, fetched.prediction.target), encoded, fetched.retained_direction(), token.fp_request, execute)
   ) |> storage.ingress
 
   egress_step <== storage.egress.bits.fetched.sequential_pc
@@ -146,8 +147,8 @@ sync_circuit SuperscalarLanePipe(xlen :: XLen, Full :: RecordType, ~target_width
     def pc = pc_region ++ token.fetched.pc
     def step :: SuperscalarPcStep(xlen) = token.fetched.sequential_pc
     def direction :: SuperscalarDirectionCheckpoint() = token.fetched.direction
-    def stored_target = token.fetched.prediction.target
-    def target = if target_width < xlen.width | stored_target.into(SInt(target_width)).sext(xlen.width).as_bits() | stored_target
+    def stored_target :: CompactPc(xlen, target_width) = token.fetched.prediction.target
+    def target = stored_target.expanded()
     def raw = superscalar_raw_instruction(token.fetched.instruction, token.fetched.raw_instruction)
     recode_lane(Full, token, pc, step.apply(pc), raw, target, fault, direction.expanded(pc), fp_request, execute)
   ) |> egress

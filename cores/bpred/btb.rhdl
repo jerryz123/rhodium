@@ -4,6 +4,7 @@
 
 import:
   "protocol.rhdl" open
+  "../pc.rhdl" open
   "../../riscv/isa/xlen.rhm" open
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
@@ -76,13 +77,14 @@ sync_circuit Btb(xlen :: XLen, entry_count :: PosInt = 32, match_bits :: PosInt 
   reg page_replacement(~init: Bits(page_index_bits)(0))
   /* Rejects nonrepresentable source addresses instead of matching or modifying a low-bit alias. */
   fun source_fits(address :: Bits(xlen.width)) :~ Bool:
-    if pc_width < xlen.width
-    | address === address[0..pc_width].into(SInt(pc_width)).sext(xlen.width).as_bits()
-    | Bool(#true)
+    CompactPc.fits(xlen, pc_width, address)
 
   /* Restores exact stored source addresses and normalized destinations without an address adder. */
   fun expand_address(address :: Bits(address_width)) :~ Bits(xlen.width):
-    if address_width < xlen.width | address.into(SInt(address_width)).sext(xlen.width).as_bits() | address
+    def stored = CompactPc(xlen, address_width):
+      low: address
+
+    stored.expanded()
 
   /* Extracts the common-width upper bits of an admitted source or normalized target. */
   fun page_tag(address :: Bits(xlen.width)) :~ Bits(address_width - match_bits):

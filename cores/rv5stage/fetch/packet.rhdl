@@ -5,7 +5,8 @@
 import:
   lib("riscv/rtl/hypervisor.rhdl") open
   lib("cores/bpred/protocol.rhdl") open
-  "../../../riscv/isa/xlen.rhm" open
+  lib("cores/pc.rhdl") open
+  "../../../riscv/isa/xlen.rhm".XLen
 
 /* Names the predicted instruction relative to this word. Previous is the
    upper parcel of the preceding word, completed by this word's lower parcel. */
@@ -39,52 +40,56 @@ bundle RV5StageFetchRepair(xlen :: XLen):
   pc: Bits(xlen.width)
   entry: Bits(xlen.width)
 
+/* Sizes the exceptional upper-PC field outside the independently retained low bits. */
+fun queue_pc_high_width(xlen :: XLen, pc_width :: PosInt) :: PosInt:
+  xlen.width - pc_width
+
 /* Preserves the bits missing from a faulting PC and the memory response's fault flags. */
-bundle RV5StageQueueFault(pc_width :: PosInt):
-  pc_high: Bits(64 - pc_width)
+bundle RV5StageQueueFault(xlen :: XLen, pc_width :: PosInt):
+  pc_high: Bits(queue_pc_high_width(xlen, pc_width))
   page_fault: Bool
   access_fault: Bool
 
 /* Faults never predict, so the prediction and fault details share queue storage. */
-tagged_union RV5StageQueueOutcome(pc_width :: PosInt):
-  Success(RV5StagePacketPrediction(XLen.X64))
-  Fault(RV5StageQueueFault(pc_width))
+tagged_union RV5StageQueueOutcome(xlen :: XLen, pc_width :: PosInt):
+  Success(RV5StagePacketPrediction(xlen))
+  Fault(RV5StageQueueFault(xlen, pc_width))
 
-/* Internal RV64 queue entry. Successful PCs sign-extend; a fault carries
+/* Internal queue entry, selected for compact non-H RV64 frontends. Successful PCs sign-extend; a fault carries
    the original high bits in the same entry, independent of any other packet. */
-bundle RV5StageCompactFetchPacket(pc_width :: PosInt):
-  pc_low: Bits(pc_width)
-  outcome: RV5StageQueueOutcome(pc_width)
+bundle RV5StageCompactFetchPacket(xlen :: XLen, pc_width :: PosInt):
+  pc: CompactPc(xlen, pc_width)
+  outcome: RV5StageQueueOutcome(xlen, pc_width)
   word: Bits(32)
   mask: Bits(2)
 
   /* Restores Decode's full-width PC without an adder. A fault cannot predict,
      but its original instruction word and exact faulting address survive. */
-  method expanded(packet) :: RV5StageFetchPacket(XLen.X64, #false):
-    def Outcome = RV5StageQueueOutcome(pc_width)
+  method expanded(packet) :: RV5StageFetchPacket(xlen, #false):
+    def Outcome = RV5StageQueueOutcome(xlen, pc_width)
     def fault = packet.outcome.is(Outcome.Fault).into(Bool)
     def details = packet.outcome.view(Outcome.Fault).payload
-    def normal_pc = packet.pc_low.into(SInt(pc_width)).sext(64).as_bits()
-    RV5StageFetchPacket(XLen.X64, #false):
-      pc: mux(fault, details.pc_high ++ packet.pc_low, normal_pc)
+    def normal_pc = packet.pc.expanded()
+    RV5StageFetchPacket(xlen, #false):
+      pc: mux(fault, details.pc_high ++ packet.pc.low, normal_pc)
       word: packet.word
       mask: packet.mask
       page_fault: fault & details.page_fault
       access_fault: fault & details.access_fault
-      prediction: mux(fault, literal(RV5StagePacketPrediction(XLen.X64), 0), packet.outcome.view(Outcome.Success).payload)
+      prediction: mux(fault, literal(RV5StagePacketPrediction(xlen), 0), packet.outcome.view(Outcome.Success).payload)
 
 /* Packs one scanner occurrence independently, including a fault on a speculative
    or noncanonical target whose upper bits cannot be recovered by sign extension. */
-fun compact_fetch_packet(pc_width :: PosInt, packet :: RV5StageFetchPacket(XLen.X64, #false)) :~ RV5StageCompactFetchPacket(pc_width):
+fun compact_fetch_packet(xlen :: XLen, pc_width :: PosInt, packet :: RV5StageFetchPacket(xlen, #false)) :~ RV5StageCompactFetchPacket(xlen, pc_width):
   def fault = packet.page_fault ||| packet.access_fault
-  def Outcome = RV5StageQueueOutcome(pc_width)
-  def details = RV5StageQueueFault(pc_width):
-    pc_high: packet.pc[pc_width..64]
+  def Outcome = RV5StageQueueOutcome(xlen, pc_width)
+  def details = RV5StageQueueFault(xlen, pc_width):
+    pc_high: packet.pc[pc_width..xlen.width]
     page_fault: packet.page_fault
     access_fault: packet.access_fault
 
-  RV5StageCompactFetchPacket(pc_width):
-    pc_low: packet.pc[0..pc_width]
+  RV5StageCompactFetchPacket(xlen, pc_width):
+    pc: CompactPc.capture(xlen, pc_width, packet.pc)
     outcome: mux(fault, Outcome.Fault(details), Outcome.Success(packet.prediction))
     word: packet.word
     mask: packet.mask

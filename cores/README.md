@@ -69,6 +69,42 @@ result, and `integer_divide_result` selects quotient/remainder with word-result
 sign extension. `integer_word_result` exposes that sign-extension rule directly.
 RV32 values remain XLEN-wide; none of these helpers adds storage or arbitration.
 
+### Compact PC storage
+
+Import [`pc.rhdl`](pc.rhdl) for `CompactPc(xlen, width)`: a parameterized bundle
+with exactly `width` low address bits, including alignment bits. Its
+`.expanded()` method sign-extends to XLEN without an adder or extra state.
+`width` must be positive and no greater than XLEN.
+
+```rhdl
+import:
+  lib("cores/pc.rhdl") open
+  lib("riscv/isa/xlen.rhm").XLen
+
+def fits = CompactPc.fits(XLen.X64, 45, address)
+def saved = CompactPc.capture(XLen.X64, 45, address)
+def restored = saved.expanded()
+```
+
+The type-family operations distinguish ownership:
+
+- `CompactPc.fits(xlen, width, address)` checks whether expansion reproduces
+  the exact XLEN address. It does not check translation, permissions, or alignment.
+- `CompactPc.capture(xlen, width, address)` retains the low bits under the
+  caller's exact-PC contract. Assert `fits` at the owning valid/fire boundary,
+  or reject the operation when it is false. For faulting PCs, retain exceptional
+  upper bits in the owner's existing fault union and concatenate them back;
+  do not use sign extension to reconstruct that fault.
+- `CompactPc.prediction(xlen, width, address)` intentionally allows lossy
+  normalization for speculative targets. Fetch steering and saved predictions
+  must use the same expanded hint; architectural resolution remains exact.
+
+Construction adds no implicit assertion, validity flag, arithmetic, or storage.
+Keep architectural redirects, resolved targets, and exception addresses
+full-width. A pipeline suffix joined to a shared upper-PC register is a different
+representation and must not be expanded by sign extension. Width selection
+belongs to the core profile, not this type.
+
 ### Shared GPR storage
 
 [`RegisterFile(xlen, ~read_ports)`](register-file.rhdl) has an explicitly selected

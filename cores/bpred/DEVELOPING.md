@@ -10,7 +10,7 @@ the [repository package graph](../../rhodium/DEVELOPING.md).
 
 ## Architecture and ownership
 
-`protocol.rhdl` depends only on architectural XLEN and the public authoring
+`protocol.rhdl` depends on architectural XLEN, shared `cores/pc.rhdl`, and the public authoring
 surface. BTB and RAS implementations consume that protocol; protocols must not
 import implementations. No shared predictor imports a named core, fetch
 consumer, backend, or simulator.
@@ -21,10 +21,12 @@ resolved state is not intrinsically retirement state: callers choose the
 resolution boundary. Keep those choices outside this package.
 Target-width policy belongs to those callers too. `prediction_target` normalizes
 speculative destinations; BTB writes use it before shared-page allocation, while
-both RAS copies physically store the selected width. BTB `pc_width` independently
+both RAS copies physically store `CompactPc` at the selected width. BTB `pc_width` independently
 bounds source admission without aliasing: qualify lookup, write commit, and
 invalidation with exact sign-extendability. Shared tags span the larger source
 and target width, so target-only compaction cannot discard source bits.
+Use `CompactPc.fits` for source admission and `.expanded()` after joining BTB
+page tags and low bits; retain the shared-page representation itself.
 Out-of-range writes must not advance either replacement cursor or evict pages;
 they retain update-over-discovery priority. Preserve invalidation-over-write
 priority even on an out-of-range invalidation. Never narrow architectural

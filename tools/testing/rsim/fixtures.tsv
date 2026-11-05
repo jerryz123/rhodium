@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 statistics	language	rhodium/statistics/tests/fixture.rhdl	program	rhodium/statistics/tests/count.cpp	target	sims/statistics/collector.cc
 prediction-statistics	cores-components	cores/bpred/tests/statistics-fixture.rhdl	program	cores/bpred/tests/rsim/statistics.cpp	target	sims/statistics/collector.cc
+compact-pc	cores-components	cores/tests/pc-fixture.rhdl	program	cores/tests/rsim/pc.cpp
 sync-memory-masked	language	examples/rtl/sync-memory-masked.rhdl	program	rhodium/backend/tests/rsim/sync-memory-masked.cpp
 counter	language	examples/rtl/counter.rhdl	program	rhodium/backend/tests/rsim/counter.cpp
 pipe	std	examples/std/flow-control.rhdl	pipe_program	flow/tests/rsim/pipe.cpp

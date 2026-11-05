@@ -58,7 +58,8 @@ for that prefix; it cannot override a standalone compressed residual.
 Only the internal queue format narrows retained architectural fetch PCs. The integrated non-H RV64 hart
 passes its PMA address width to the frontend; a successful PC sign-extends
 from `max(39, physical_address_width + 1)` bits, covering both Sv39 and Bare.
-A tagged outcome shares storage between the full prediction and the fault
+The queue stores successful PCs with shared `CompactPc` capture/expansion and
+checks `CompactPc.fits` at admission. A tagged outcome shares storage between the full prediction and the fault
 flags plus original upper PC bits. Do not rely on one outstanding fault:
 each entry must reconstruct its own address while Decode is stalled. Keep
 the ordinary packet for H, RV32, or when the width would not save bits.
