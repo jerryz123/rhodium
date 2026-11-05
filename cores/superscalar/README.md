@@ -225,6 +225,13 @@ forwarding readiness: a blocked preferred path does not trigger fallback.
 Denied read allocation reports a structural hazard; unavailable data on an
 allocated path reports a data hazard.
 
+Before decode, full-XLEN moves normalize internally to `ADDI rd, source, 0`.
+This includes expanded `C.MV` and either zero-source `ADD` spelling, keeping
+their only read on rs1 and freeing the rs2 donor. `ADDW` and `ADDIW` retain
+their sign-extension semantics and are not normalized. Writes to x0 also remain
+unchanged, preserving architectural hints such as NTL. Raw fetched encodings,
+instruction length, PCs, tracing, and trap instruction values remain unchanged.
+
 `superscalar_issue_reads` adds same-group move-source forwarding over this bounded
 allocation. A younger consumer, including lane 3, may select the older move's
 already-resolved physical path instead of its normal path. Full-XLEN `ADDI` with
@@ -239,12 +246,12 @@ Use the four selected addresses for both RF reads and forwarding comparisons,
 then pass the four resolved `SuperscalarOperand(xlen)` values to
 `superscalar_prepare_operands` in the datapath. Issue receives only their
 `blocked` flags through `read_blocked`.
-A needed operand without its fixed path reports
+A needed operand without an allocated path reports
 `blocked`; unused/x0 operands report ready zero. Forwarding selects the youngest
 matching older producer, including blocking on an unavailable or replaying
 producer instead of exposing an older value.
 
-The integrated backend supplies two active candidates. These helpers do
+The integrated backend supplies two or three active candidates. These helpers do
 not independently grant issue: the issue module below combines their constraints
 with dependencies and all other resources. The register file remains 4R2W.
 

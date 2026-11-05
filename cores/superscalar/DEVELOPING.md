@@ -85,6 +85,14 @@ Redirect qualification gates new transfers as well as flushing pipe state.
 
 `read-operands.rhdl` owns bounded four-path scalar read routing, forwarding,
 operand selection, and immediate computation, not admission or register-file storage.
+RR applies `superscalar_normalize_move` before decode and source extraction;
+issue candidates and execution controls must describe the same normalized word.
+Keep the original expanded word, `raw_instruction`, and sequential PC untouched
+in fetched identity for retirement, cosimulation, tracing, and trap values.
+Compact lane storage reconstructs the raw upper half from that expanded word.
+RR captures `OperandImmediate.Zero` for rewritten copies so EX never interprets
+the original ADD source bits as an ADDI immediate. This local
+superscalar optimization does not change architectural compressed expansion.
 Feed its read-routing helper candidate presence and
 decoded source-use bits, never final issue grants or forwarding availability.
 In the three-candidate specialization, lane 3 prefers lane 2 rs2's path for rs1

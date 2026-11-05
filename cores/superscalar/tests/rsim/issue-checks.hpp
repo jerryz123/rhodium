@@ -20,6 +20,11 @@ unsigned addi(unsigned rd, unsigned rs1 = 0, unsigned imm = 0) {
 unsigned add(unsigned rd, unsigned rs1, unsigned rs2) {
   return (rs2 << 20) | (rs1 << 15) | (rd << 7) | 0x33;
 }
+unsigned normalize_move(unsigned instruction) {
+  const auto rd = (instruction >> 7) & 31, a = (instruction >> 15) & 31, b = (instruction >> 20) & 31;
+  if (rd && (instruction & 0xfe00707f) == 0x33 && (!a || !b)) return addi(rd, a ? a : b);
+  return instruction;
+}
 unsigned load(unsigned rd, unsigned rs1 = 10) {
   return (rs1 << 15) | (rd << 7) | 0x2003;
 }
@@ -107,7 +112,7 @@ void expect(unsigned count) {
   CHECK(decision.pcount == count);
   for (unsigned lane = 0; lane < lanes; ++lane) {
     CHECK(bool(decision.padmitted[lane]) == (lane < count));
-    CHECK(issued_instructions[lane].pinstruction == instructions[lane]);
+    CHECK(issued_instructions[lane].pinstruction == normalize_move(instructions[lane]));
   }
 }
 
@@ -120,10 +125,11 @@ void ordinary(const std::array<unsigned, lanes> &destinations,
     const unsigned rd = destinations[lane];
     instructions[lane] = uses[lane] == 0 ? ((rd << 7) | 0x37) :
       uses[lane] == 1 ? addi(rd, 10) : add(rd, uses[lane] & 1 ? 10 : 0, 11);
-    needed[lane] = {bool(present[lane] && (uses[lane] & 1)), bool(present[lane] && (uses[lane] & 2))};
+    const auto normalized = normalize_move(instructions[lane]);
+    needed[lane] = {bool(present[lane] && ((normalized >> 15) & 31)), bool(present[lane] && (normalized & 127) == 0x33 && ((normalized >> 20) & 31))};
     if (lane < 2) {
-      addresses[2 * lane] = uses[lane] & 1 ? 10 : 0;
-      addresses[2 * lane + 1] = uses[lane] & 2 ? 11 : 0;
+      addresses[2 * lane] = (normalize_move(instructions[lane]) >> 15) & 31;
+      addresses[2 * lane + 1] = (normalize_move(instructions[lane]) >> 20) & 31;
     }
   }
   std::array<unsigned, 2> third_ports{3, 1};
@@ -132,7 +138,7 @@ void ordinary(const std::array<unsigned, lanes> &destinations,
       if (!needed[2][source]) continue;
       auto &port = third_ports[source];
       if (!needed[2][1 - source] && needed[port / 2][1] && !needed[(4 - port) / 2][1]) port = 4 - port;
-      if (!needed[port / 2][1]) addresses[port] = source ? 11 : 10;
+      if (!needed[port / 2][1]) addresses[port] = (normalize_move(instructions[2]) >> (source ? 20 : 15)) & 31;
     }
   }
   const std::array<bool, 2> available{bool(resources.pwrite_uavailable[0]), bool(resources.pwrite_uavailable[1])};
@@ -169,7 +175,7 @@ void ordinary(const std::array<unsigned, lanes> &destinations,
   // Prepared ordinary operands follow the four selected paths, independent of admission.
   for (unsigned lane = 0; lane < lanes; ++lane) {
     CHECK(issued_instructions[lane].pcontrol.poperand.puses_urs1 == (uses[lane] != 0));
-    CHECK(issued_instructions[lane].pcontrol.poperand.puses_urs2 == bool(uses[lane] & 2));
+    CHECK(issued_instructions[lane].pcontrol.poperand.puses_urs2 == (uses[lane] == 3 || (uses[lane] == 2 && !destinations[lane])));
     CHECK(issued_instructions[lane].ppair.psources[0] == Register);
     CHECK(issued_instructions[lane].ppair.psources[1] == Register);
     for (unsigned source = 0; source < 2; ++source) {
@@ -313,9 +319,20 @@ void check_prepared_operands() {
 }
 
 void check_move_sources() {
+  // Exhaust source/destination fields, including x0; only exact XLEN copies normalize.
+  for (unsigned rd = 0; rd < 32; ++rd) for (unsigned source = 0; source < 32; ++source) {
+    for (auto instruction : {add(rd, 0, source), add(rd, source, 0), addi(rd, source)}) {
+      clear(); instructions[0] = instruction; expect(lanes);
+      const auto normalized = normalize_move(instruction);
+      CHECK(issued_instructions[0].pinstruction == normalized);
+      CHECK(reads.paddresses[0] == ((normalized >> 15) & 31));
+      if (rd) CHECK(!reads.pneeded[0][1]);
+      CHECK(operands[0].prs1 == (((normalized >> 15) & 31) ? read_data[0] : 0));
+    }
+  }
   for (unsigned form = 0; form < 3; ++form) {
     const auto move = form == 0 ? addi(1, 10) : form == 1 ? add(1, 0, 10) : add(1, 10, 0);
-    const unsigned port = form == 1 ? 1 : 0;
+    const unsigned port = 0;
     clear(); instructions[0] = move; instructions[1] = add(2, 1, 1);
     read_blocked[2] = read_blocked[3] = 1;
     expect(lanes);
@@ -354,13 +371,17 @@ void check_move_sources() {
   if constexpr (sizeof(Pc) == 8) {
     clear(); instructions[0] = addi(1, 10) | 8; // ADDIW is not a full-width copy.
     instructions[1] = add(2, 1, 1); expect(1); CHECK(!reads.pforwarded[1][0]);
+    clear(); instructions[0] = add(1, 0, 10) | 8; expect(lanes); // ADDW must sign extend.
+    CHECK(issued_instructions[0].pinstruction == instructions[0] && reads.pneeded[0][1]);
   }
+  clear(); instructions[0] = add(1, 0, 10) | 0x40000000; expect(lanes); // SUB is negation, not a copy.
+  CHECK(issued_instructions[0].pinstruction == instructions[0] && reads.pneeded[0][1]);
   clear(); instructions[0] = addi(0, 10); instructions[1] = add(2, 0, 0);
   expect(lanes); CHECK(!reads.pforwarded[1][0]); CHECK(operands[1].prs1 == 0);
   if constexpr (lanes == 3) {
     // Chains share the original captured operand but retain all architectural writers.
     clear(); instructions[0] = addi(1, 10); instructions[1] = add(2, 0, 1); instructions[2] = addi(1, 2, 5);
-    expect(3); CHECK(operands[1].prs2 == read_data[0]); CHECK(operands[2].prs1 == read_data[0]);
+    expect(3); CHECK(operands[1].prs1 == read_data[0]); CHECK(operands[2].prs1 == read_data[0]);
     CHECK(!decision.pwrites.pwrites[0] && decision.pwrites.pwrites[1] && decision.pwrites.pwrites[2]);
     instructions[2] = addi(3, 2, 5); expect(2); // Still only two physical write ports.
     clear(); instructions[0] = addi(1, 10); instructions[1] = addi(10, 11, 1); instructions[2] = addi(1, 1, 2);

@@ -7,6 +7,7 @@ using Request = std::remove_cvref_t<decltype(pipeline_out.prequest.pbits)>;
 Request lookup{}, commit_owner{};
 bool lookup_valid = false, slow = false, accepting = true, proof = false;
 std::map<std::uint64_t, std::uint64_t> words, values;
+std::map<std::uint64_t, std::uint32_t> original_instructions;
 std::map<std::uint64_t, unsigned> lanes, training;
 std::array<std::uint64_t, 32> gprs{};
 std::deque<std::pair<std::uint64_t, unsigned>> responses;
@@ -65,6 +66,7 @@ void step() {
     for (unsigned lane = 0; lane < 3; ++lane) if (retired(lane).pvalid) {
       const auto &r = retired(lane).pbits;
       CHECK(!lanes.contains(r.pfetched.ppc));
+      CHECK(r.pfetched.praw_uinstruction == original_instructions.at(r.pfetched.ppc));
       lanes[r.pfetched.ppc] = lane;
       values[r.pfetched.ppc] = r.pdata;
       if (r.pwrite && !r.pdeferred) gprs[r.prd] = r.pdata;
@@ -107,6 +109,7 @@ std::uint64_t send(std::initializer_list<std::uint32_t> instructions) {
     auto &entry = instructions_in.pbits.pentries[index++];
     entry.ppc = pc;
     entry.pinstruction = entry.praw_uinstruction = instruction;
+    original_instructions[pc] = instruction;
     entry.psequential_upc = pc + 4;
     pc += 4;
   }
@@ -147,6 +150,30 @@ int main() {
     drain();
     CHECK(lanes.at(borrowed) == 0 && lanes.at(borrowed + 4) == 1 && lanes.at(borrowed + 8) == 2);
     CHECK(gprs[15] == 42);
+    // Expanded C.MV / C.J / ADDW executes as three lanes, retaining raw parcels.
+    send({addi(13, 0, 123), addi(14, 0, 7), addi(17, 0, 9)}); drain();
+    const auto move_group = pc;
+    instructions_in = {};
+    instructions_in.pvalid = 1;
+    instructions_in.pbits.pcount = 3;
+    const std::array<std::uint32_t, 3> expanded{(13u << 20) | (12u << 7) | 0x33, 0x0040006f, (17u << 20) | (14u << 15) | (13u << 7) | 0x3b};
+    const std::array<std::uint32_t, 3> raw{0x8636, 0xa011, expanded[2]};
+    for (unsigned lane = 0; lane < 3; ++lane) {
+      auto &entry = instructions_in.pbits.pentries[lane];
+      entry.ppc = pc;
+      entry.pinstruction = expanded[lane];
+      entry.praw_uinstruction = original_instructions[pc] = raw[lane];
+      entry.psequential_upc = pc + (lane < 2 ? 2 : 4);
+      if (lane == 1) { entry.pprediction.pvalid = 1; entry.pprediction.ppc = pc; entry.pprediction.ptarget = pc + 4; }
+      pc = lane == 1 ? pc + 4 : entry.psequential_upc;
+    }
+    for (unsigned wait = 0;; ++wait) {
+      CHECK(wait < 200); eval(); const bool accepted = instructions_out.pready; step();
+      if (accepted) break;
+    }
+    instructions_in.pvalid = 0; drain();
+    CHECK(lanes.at(move_group) == 0 && lanes.at(move_group + 2) == 1 && lanes.at(move_group + 6) == 2);
+    CHECK(gprs[12] == 123 && gprs[13] == 16);
     slow = true;
     const auto miss = third(0x0000b203); drain();
     CHECK(lanes.at(miss) == 2 && gprs[4] == 42 && requests == 1);

@@ -432,7 +432,8 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   inst rr_issue(issue)
   def rr_decision :: SuperscalarIssueDecision(issue_width) = rr_issue.decision
   def rr_decode = ValidDecodeGen(superscalar_control_cases(profile))
-  def rr_decoded :: Vec(issue_width, DecodeResult(SuperscalarControl())) = vec(for List (lane in 0..issue_width): rr_decode(rr_head.entries[lane].instruction))
+  def rr_normalized = vec(for List (lane in 0..issue_width): superscalar_normalize_move(rr_head.entries[lane].instruction))
+  def rr_decoded :: Vec(issue_width, DecodeResult(SuperscalarControl())) = vec(for List (lane in 0..issue_width): rr_decode(rr_normalized[lane]))
   def rr_controls :: Vec(issue_width, SuperscalarControl()) = vec(for List (lane in 0..issue_width): rr_decoded[lane].value)
   def rr_vector = for List (lane in 0..issue_width):
     def control = rr_controls[lane].vector
@@ -471,8 +472,8 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   )
 
   def rr_decodable :: Vec(issue_width, Bool) = vec(for List (lane in 0..issue_width): rr_decoded[lane].valid & !rr_fetch_faults[lane] & !rr_head.entries[lane].compressed_illegal & !rr_fp_illegal[lane] & !rr_vector_illegal[lane] & !rr_cbo_illegal[lane] & !rr_guest_illegal[lane] & !rr_virtual_instruction[lane])
-  def rr_rs1 :: Vec(issue_width, Bits(5)) = vec(for List (lane in 0..issue_width): instruction_field(fields.rs1, rr_head.entries[lane].instruction))
-  def rr_rs2 :: Vec(issue_width, Bits(5)) = vec(for List (lane in 0..issue_width): instruction_field(fields.rs2, rr_head.entries[lane].instruction))
+  def rr_rs1 :: Vec(issue_width, Bits(5)) = vec(for List (lane in 0..issue_width): instruction_field(fields.rs1, rr_normalized[lane]))
+  def rr_rs2 :: Vec(issue_width, Bits(5)) = vec(for List (lane in 0..issue_width): instruction_field(fields.rs2, rr_normalized[lane]))
   def rr_rd :: Vec(issue_width, Bits(5)) = vec(for List (lane in 0..issue_width): instruction_field(fields.rd, rr_head.entries[lane].instruction))
   def rr_wb_producers = for List (lane in 0..issue_width):
     def returned = wb_fp_gpr.valid & wb_fp_gpr.bits.tag.direct & (wb_fp_gpr.bits.tag.lane === Bits(2)(lane))
@@ -674,7 +675,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
           present: rr_head.count > Bits(2)(lane)
           decodable: rr_decodable[lane]
           fetch_fault: rr_fetch_faults[lane]
-          instruction: rr_head.entries[lane].instruction
+          instruction: rr_normalized[lane]
           pc: rr_head.entries[lane].pc
           control: rr_controls[lane]
           rs1: rr_rs1[lane]
@@ -777,8 +778,11 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
       structural_hazard: rr_decision.structural_hazard[lane]
 
     (rr_observed |> gate_flow(rr_decision.admitted[lane]) |> to_valid() |> map_valid(fetched => SuperscalarExecute(xlen, hypervisor)):
-      fetched: fetched.updated(~instruction: rr_instructions[lane].instruction)
+      // Compact lane storage reconstructs raw upper bits from the original expanded word.
+      // A normalized ADD copy needs a zero immediate, not those original rs2 bits.
+      fetched: fetched
       control: rr_instructions[lane].control.updated(
+        ~operand: rr_instructions[lane].control.operand.updated(~immediate: mux(rr_normalized[lane] =/= fetched.instruction, OperandImmediate.Zero, rr_instructions[lane].control.operand.immediate)),
         ~memory: rr_instructions[lane].control.memory.updated(~access: mux(rr_access.is_cache_management() & (wb_csrs.cbo_permission.operation === CboManagementOperation.Flush), CacheOperation.CacheBlockFlush, rr_access))
       )
 

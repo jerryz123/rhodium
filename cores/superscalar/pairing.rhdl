@@ -1,5 +1,5 @@
 #lang rhodium
-/* Recognizes same-group rewrites and emits control-only selectors for the RR/EX/MEM datapaths. */
+/* Normalizes copies and recognizes same-group rewrites for the RR/EX/MEM datapaths. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -50,6 +50,16 @@ fun superscalar_move_source(instruction :: Bits(32)) :~ SuperscalarMoveSource:
   priority_mux(~default: SuperscalarMoveSource.None):
     (is_addi(instruction) & !instruction_field(fields.immediate12, instruction).any()) ||| (is_add(instruction) & !instruction_field(fields.rs2, instruction).any()): SuperscalarMoveSource.Rs1
     is_add(instruction) & !instruction_field(fields.rs1, instruction).any(): SuperscalarMoveSource.Rs2
+
+/* Canonicalizes full-XLEN copies before decode and physical read allocation.
+   Callers retain the fetched raw encoding separately for traps and observation;
+   Writes to x0 remain unchanged because ADD encodings include NTL hints.
+   ADDW/ADDIW and all other operations remain unchanged. */
+fun superscalar_normalize_move(instruction :: Bits(32)) :~ Bits(32):
+  def move = superscalar_move_source(instruction)
+  def source = mux(move === SuperscalarMoveSource.Rs2, instruction_field(fields.rs2, instruction), instruction_field(fields.rs1, instruction))
+  def normalized = Bits(32)(rv32.ADDI.encoding.value) ||| (source.zext(32) << fields.rs1.low) ||| (instruction_field(fields.rd, instruction).zext(32) << fields.rd.low)
+  mux((move =/= SuperscalarMoveSource.None) & instruction_field(fields.rd, instruction).any(), normalized, instruction)
 
 /* Controls RR source selection and the existing stage-local forwarding paths. */
 bundle SuperscalarPairControl():
@@ -149,6 +159,7 @@ fun superscalar_pair_control(pairing :: SuperscalarPairing(), older :: Superscal
 export:
   SuperscalarMoveSource
   superscalar_move_source
+  superscalar_normalize_move
   SuperscalarPairRoute
   superscalar_pair_immediate_width
   SuperscalarPairing

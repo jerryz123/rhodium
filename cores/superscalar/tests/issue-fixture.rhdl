@@ -50,16 +50,17 @@ circuit SuperscalarIssueFixture(xlen :: XLen, group_width :: matching(2) || matc
   inst issue(implementation)
   issue.candidates <== vec(
     for List (lane in 0..group_width):
-      def decoded :: DecodeResult(SuperscalarControl()) = decode(instructions[lane])
+      def normalized = superscalar_normalize_move(instructions[lane])
+      def decoded :: DecodeResult(SuperscalarControl()) = decode(normalized)
       SuperscalarIssueCandidate(xlen):
         present: present[lane]
         decodable: decoded.valid & !faults[lane] & !illegal[lane]
         fetch_fault: faults[lane]
-        instruction: instructions[lane]
+        instruction: normalized
         pc: pcs[lane]
         control: decoded.value
-        rs1: instructions[lane][15..20]
-        rs2: instructions[lane][20..25]
+        rs1: normalized[15..20]
+        rs2: normalized[20..25]
         rd: instructions[lane][7..12]
         ras: ras[lane]
         late_gpr: late_gpr[lane]

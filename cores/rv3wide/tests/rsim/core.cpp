@@ -2,7 +2,7 @@
 #include "test.hpp"
 #include <deque>
 
-struct Expected { std::uint64_t pc; unsigned rd; std::uint64_t value; };
+struct Expected { std::uint64_t pc; unsigned rd; std::uint64_t value; std::uint32_t raw; };
 std::deque<Expected> expected;
 std::array<std::uint64_t, 32> registers{};
 unsigned triples = 0, issues3 = 0, redirects = 0;
@@ -54,6 +54,7 @@ void step() {
       const auto want = expected.front(); expected.pop_front();
       const auto &got = retired(lane).pbits;
       CHECK(got.pfetched.ppc == want.pc);
+      CHECK(got.pfetched.praw_uinstruction == want.raw);
       CHECK(!got.pdeferred);
       CHECK(got.prd == want.rd);
       CHECK(bool(got.pwrite) == bool(want.rd));
@@ -78,7 +79,7 @@ void expect(std::uint64_t pc, std::uint32_t insn) {
   const auto value = (insn & 127) == 0x13
       ? registers[a] + std::int64_t(std::int32_t(insn) >> 20)
       : registers[a] + registers[b];
-  expected.push_back({pc, rd, value});
+  expected.push_back({pc, rd, value, insn});
   if (rd) registers[rd] = value;
 }
 void send(std::uint64_t pc, std::initializer_list<std::uint32_t> insns,

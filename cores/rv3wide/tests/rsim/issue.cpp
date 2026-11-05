@@ -28,12 +28,21 @@ int main() {
     CHECK(!decision.pdata_uhazard[2] && decision.pstructural_uhazard[2]);
     // The symmetric rs2 fallback preserves its value and readiness.
     clear(); instructions[0] = add(0, 10, 11); instructions[1] = addi(2);
-    instructions[2] = add(3, 0, 12); expect(3);
+    instructions[2] = (12 << 20) | 0x2023; expect(3); // SW x12,0(x0) has only an rs2 demand.
     CHECK(reads.pports[2][1] == 3 && operands[2].prs2 == read_data[3]);
     read_blocked[3] = 1; expect(2);
     CHECK(decision.pdata_uhazard[2] && !decision.pstructural_uhazard[2]);
     // Readiness never reallocates an operand when both donors are free.
     clear(); instructions[2] = load(15, 15); read_blocked[3] = 1; expect(2);
     CHECK(reads.pports[2][0] == 3 && decision.pdata_uhazard[2] && !decision.pstructural_uhazard[2]);
+    // Expanded C.MV / C.J / ADDW now leaves both donors available.
+    clear(); instructions[0] = add(12, 0, 13); instructions[1] = 0x0080006f;
+    instructions[2] = add(13, 14, 17) | (sizeof(Pc) == 8 ? 8 : 0); expect(3);
+    CHECK(issued_instructions[0].pinstruction == addi(12, 13));
+    CHECK(reads.paddresses[0] == 13 && reads.paddresses[1] == 17 && reads.paddresses[3] == 14);
+    CHECK(operands[0].prs1 == read_data[0] && operands[2].prs1 == read_data[3] && operands[2].prs2 == read_data[1]);
+    for (unsigned port : {0u, 1u, 3u}) {
+      read_blocked[port] = 1; expect(port == 0 ? 0 : 2); read_blocked[port] = 0;
+    }
   });
 }
