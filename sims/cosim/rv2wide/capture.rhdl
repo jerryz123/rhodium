@@ -1,5 +1,5 @@
 #lang rhodium
-/* Captures Superscalar's dual WB slots, actual deferred writes, CSR boundaries, and translated fragments. */
+/* Captures two/three Superscalar WB slots, deferred writes, precise boundaries, and translated fragments. */
 // SPDX-License-Identifier: Apache-2.0
 import:
   lib("cores/fp/profile.rhm").fp_transport_profile
@@ -45,7 +45,7 @@ dpi_import procedure rhodium_rv2wide_physical(
   fragment_response: Bits(64), fragment_response_data: Bits(64)
 )
 
-/* Compiles the shared two-wide capture selected by the existing rv2wide observation contract. */
+/* Compiles width-derived capture for the shared superscalar observation contract. */
 fun rv2wide_cosim_adapter(configuration :: Map, types :: Map, parameters :: Map, instance :: Nat):
   def profile :: SuperscalarPipelineConfig = configuration["profile"]
   compile_program(elaborate(SuperscalarCosimObserver(profile, types, instance, configuration["fp_timing"])), rtl_target).report.elaboration
@@ -67,10 +67,11 @@ sync_circuit SuperscalarCosimObserver(profile :: SuperscalarPipelineConfig, tap_
 
   /* Standalone core observations have no sibling physical-memory provenance. */
   fun mmu_lane(name :: String) :~ Bits(64): if tap_types.has_key(name) | tap_lane(name) | Bits(64)(0)
-  def tokens :: Vec(2, SuperscalarResult(xlen, hypervisor)) = taps["wb_tokens"]
-  def retirement :: Vec(2, SuperscalarRetirement(xlen, hypervisor)) = taps["wb_retirement"]
-  def retired :: Vec(2, Bool) = taps["wb_retired"]
-  def writes :: Vec(2, Bool) = taps["wb_writes"]
+  def slots = tap_types["wb_retired"].length
+  def tokens :: Vec(slots, SuperscalarResult(xlen, hypervisor)) = taps["wb_tokens"]
+  def retirement :: Vec(slots, SuperscalarRetirement(xlen, hypervisor)) = taps["wb_retirement"]
+  def retired :: Vec(slots, Bool) = taps["wb_retired"]
+  def writes :: Vec(slots, Bool) = taps["wb_writes"]
   def split_capture :: Bool = taps["wb_split_capture"]
   def memory_lane :: Bits(1) = taps["wb_memory_lane"]
   def vector_capture :: Bool = taps["wb_vector_capture"]
@@ -91,14 +92,14 @@ sync_circuit SuperscalarCosimObserver(profile :: SuperscalarPipelineConfig, tap_
   def interrupt_inputs :: RiscvInterrupts() = taps["csr_interrupt_inputs"]
   def trap_target :: RiscvTrapTarget = taps["csr_trap_target"]
   def trap_cause :: Bits(xlen.width) = taps["csr_trap_cause"]
-  for (index in 0..3):
-    def token :: SuperscalarBoundaryInstruction(xlen) = if index < 2 | tokens[index].boundary_instruction() | boundary_instruction
-    def result :: SuperscalarRetirement(xlen, hypervisor) = if index < 2 | retirement[index] | literal(SuperscalarRetirement(xlen, hypervisor), 0)
-    def deferred = if index < 2 | result.deferred | Bool(#false)
-    def write = if index < 2 | mux(deferred, result.write, writes[index]) | Bool(#false)
+  for (index in 0..4):
+    def token :: SuperscalarBoundaryInstruction(xlen) = if index < slots | tokens[index].boundary_instruction() | boundary_instruction
+    def result :: SuperscalarRetirement(xlen, hypervisor) = if index < slots | retirement[index] | literal(SuperscalarRetirement(xlen, hypervisor), 0)
+    def deferred = if index < slots | result.deferred | Bool(#false)
+    def write = if index < slots | mux(deferred, result.write, writes[index]) | Bool(#false)
     def next_pc = mux(mret ||| sret, taps["csr_redirect"], token.next_pc)
     rhodium_rv2wide_lane.call(
-      instance_id, Bits(64)(index), lane((if index < 2 | retired[index] | Bool(#false)).as_bits()),
+      instance_id, Bits(64)(index), lane((if index < slots | retired[index] | Bool(#false)).as_bits()),
       lane((if index < 2 | (split_capture & (memory_lane === Bits(1)(index))) ||| (vector_capture & (vector_lane === Bits(1)(index))) | Bool(#false)).as_bits()),
       lane(token.identity.pc), lane(token.identity.raw_instruction), lane(next_pc), lane(token.fetch_fault.as_bits()),
       lane(token.rd), lane(write.as_bits()), lane(result.data), lane(deferred.as_bits()),

@@ -1,6 +1,9 @@
 #lang rhombus
 // SPDX-License-Identifier: Apache-2.0
 import:
+  lib("cores/rv2wide/issue.rhdl").RV2WideIssue
+  lib("cores/rv3wide/issue.rhdl").RV3WideIssue
+  "../issue.rhdl".superscalar_issue_width
   lib("rhodium/frontend/foundation.rhm").elaborate
   lib("rhodium/compile/program.rhm").compile_program
   lib("rhodium/compile/rtl.rhm").rtl_target
@@ -14,8 +17,15 @@ fun child(parent, name):
   parent.operations.find(fun (op): op.opcode == "rtl.instance" && op.attribute("name") == name).attribute("module")
 
 for (xlen in [XLen.X32, XLen.X64]):
+  def two_issue = compile_program(elaborate(RV2WideIssue(xlen)), rtl_target).report.design.modules.find(fun (module_def): module_def.name == "RV2WideIssue")
+  def three_issue = compile_program(elaborate(RV3WideIssue(xlen)), rtl_target).report.design.modules.find(fun (module_def): module_def.name == "RV3WideIssue")
+  check:
+    superscalar_issue_width(xlen, two_issue) ~is 2
+    superscalar_issue_width(xlen, three_issue) ~is 3
+    superscalar_issue_width((if xlen == XLen.X32 | XLen.X64 | XLen.X32), two_issue) ~throws "superscalar issue contract"
+
   def profile = SuperscalarPipelineConfig(~xlen: xlen, ~mmu_type: RiscvMmuType.Bare, ~instruction_cache: test_cache, ~data_cache: test_cache, ~ssnpm: xlen == XLen.X64, ~supm: xlen == XLen.X64, ~btb_entries: 0, ~ras_entries: 0, ~bht: #false)
-  def design = compile_program(elaborate(Superscalar(test_cache, ~chi: test_fetch_chi, ~profile: profile)), rtl_target).report.design
+  def design = compile_program(elaborate(Superscalar(test_cache, ~chi: test_fetch_chi, ~profile: profile, ~issue: RV2WideIssue(profile.xlen))), rtl_target).report.design
   def core = design.modules.find(fun (module_def): module_def.name == "Superscalar")
   def memory = design.modules.find(fun (module_def): module_def.name == "SuperscalarBareMemory")
   def execution = design.modules.find(fun (module_def): module_def.name == "SuperscalarCore")

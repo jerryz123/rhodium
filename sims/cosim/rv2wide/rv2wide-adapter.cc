@@ -1,4 +1,4 @@
-// Reconstructs RV2Wide WB admissions, deferred services, and precise split/trap outcomes.
+// Reconstructs two/three-slot Superscalar admissions, deferred services, and precise split/trap outcomes.
 // SPDX-License-Identifier: Apache-2.0
 #include "adapter.h"
 #include "../events/atomic.h"
@@ -90,7 +90,7 @@ void HartAdapter::resolve(Collector& c, Word instance, Hart& h, const Frame& f) 
   if (b.hpm_enabled) environment.hpm_counters.emplace(3,b.hpm_counter);
   environment.hpm_overflows = h.hpm_overflows;
   c.sampled_environment(instance,std::move(environment));
-  if (b.trap || b.interrupt || f.lanes[0]->retired || f.lanes[0]->split || f.lanes[1]->retired || f.lanes[1]->split) h.hpm_overflows = 0;
+  if (b.trap || b.interrupt || std::any_of(f.lanes.begin(), f.lanes.begin()+3, [](const auto& lane) { return lane->retired || lane->split; })) h.hpm_overflows = 0;
   h.hpm_previous_overflow = b.hpm_overflow ? Word{8} : 0;
 
   // Old returns resolve before new admissions, permitting same-edge destination reuse.
@@ -150,7 +150,7 @@ void HartAdapter::resolve(Collector& c, Word instance, Hart& h, const Frame& f) 
     return Owner{id,lane,false,0};
   };
   std::optional<Owner> inline_fp_load;
-  for (unsigned slot = 0; slot < 2; ++slot) {
+  for (unsigned slot = 0; slot < 3; ++slot) {
     const auto& lane = *f.lanes[slot];
     require(!(lane.split && lane.retired), "split owner retired at capture");
     if (!lane.retired && !lane.split) continue;
@@ -225,7 +225,7 @@ void HartAdapter::resolve(Collector& c, Word instance, Hart& h, const Frame& f) 
   const Trap trap{b.cause & cause_mask,b.epc,b.tval,b.target,{b.target_privilege,bool(b.target_virtualized)},bool(b.guest_valid),b.htval,b.htinst};
   require(!(b.interrupt && b.trap), "interrupt and synchronous trap coincide");
   if (b.trap) {
-    const auto& fault = *f.lanes[2];
+    const auto& fault = *f.lanes[3];
     require(!h.split || h.split->lane.pc == fault.pc, "trap bypassed a split owner");
     const auto owner = h.split ? *h.split : allocate(fault);
     c.exception(instance,owner.id,trap);

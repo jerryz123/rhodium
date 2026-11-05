@@ -30,7 +30,7 @@ of outputs, then imports it into selected occurrences. Capture has no functional
 feedback or bookkeeping registers. Keep eligibility policy in the adapter.
 
 The existing `rv2wide` capture/reconstruction contract also serves the RV3Wide
-entry point: both instantiate the same fixed-two-wide implementation in
+entry point: both instantiate the shared two/three-lane integer implementation in
 `cores/superscalar/`. Capture imports that family's bundles and configuration;
 the named facade does not add hierarchy, taps, or a second native adapter.
 
@@ -153,16 +153,18 @@ to help the checker. Warm reset requires resetting both reference and collection
 | Compilation | `pass.rhm`: occurrence selection, tap export/remapping, adapter lookup, descriptor emission |
 | Generic events | `events/record.h`: event schema; `collector.*`: delayed assembly; `dpi.*`: binding/error barrier; `hooks.rhdl`: typed producer; `transport.rhdl`: lane widening |
 | RV5Stage | `rv5stage/capture.rhdl`, `vector.rhdl`: raw capture and physical provenance; `rv5stage/rv5stage-adapter.cc`, `adapter.h`: hart reconstruction |
-| RV2Wide | `rv2wide/capture.rhdl`: stateless dual-slot capture; `rv2wide/rv2wide-adapter.cc`, `adapter.h`: WB age, deferred services, and split-prefix ownership |
+| Superscalar | `rv2wide/capture.rhdl`: stateless two/three-slot capture; `rv2wide/rv2wide-adapter.cc`, `adapter.h`: WB age, deferred services, and split-prefix ownership |
 | Shared vector | `vector/capture.rhdl`: passive execution taps; `vector/vector-adapter.cc`, `adapter.h`: owner, service, VRF, and memory-effect reconstruction |
 | Sail | `sail/reference.*`: embedding; `checker.*`: ordered comparison; `memory.*`, `vector.*`: comparison helpers; `diagnostic.h`: record-scoped errors |
 | Simulator session | `runtime/session.*`: lifecycle; `write-config.rhm`, `configure.py`: exact environment and embedded configuration |
 | Tests | `tests/events`, `rv5stage`, `rv2wide`, `sail`, `runtime`, `pass`: owning contracts; `tests/circt`: transport integration following repository fixture discovery |
 
 RV2Wide allocates identities only at successful WB admission or split capture,
-never at speculative EX multiply launch. It assigns two slots in age order and
+never at speculative EX multiply launch. It assigns up to three slots in age order and
 retains a split owner through its final retirement/trap, including completed
-store prefixes. Three native service FIFOs correspond to accepted memory,
+store prefixes. Each cycle reports three slot callbacks (the third is inactive
+for RV2Wide) and a separate boundary instruction at callback index three.
+Three native service FIFOs correspond to accepted memory,
 WB-authorized multiply, and divide. Variable-return arbitration schedules load
 and divide owners through three feed-forward stages; multiply writes directly
 on its authorized WB+1 edge. The `rv2wide` source contract consumes

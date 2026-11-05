@@ -10,13 +10,13 @@ using namespace rhodium::cosim::observation;
 using namespace rhodium::cosim::rv2wide;
 void require(bool value) { if (!value) throw std::runtime_error("RV2Wide adapter test failed"); }
 struct Sample {
-  std::array<LaneSample,3> lanes{};
+  std::array<LaneSample,4> lanes{};
   std::array<CompletionSample,4> completions{};
   std::array<FpSample,2> fp{};
   BoundarySample boundary{}; PhysicalSample physical{};
   Sample() {
     boundary.privilege=3; boundary.next_privilege=3; boundary.target_privilege=3;
-    for (unsigned i=0;i<3;++i) { lanes[i].index=i; lanes[i].encoding=0x13; }
+    for (unsigned i=0;i<4;++i) { lanes[i].index=i; lanes[i].encoding=0x13; }
     for (unsigned i=0;i<4;++i) completions[i].index=i;
     for (unsigned i=0;i<2;++i) fp[i].index=i;
   }
@@ -133,7 +133,7 @@ void rv32_boundaries() {
   s.physical.fragment_virtual=0xfffffffd; s.physical.fragment_mask=14; s.physical.fragment_data=0x33221100;
   sample(c,binding,2,s,random);
   s=Sample(); s.physical.fragment_response=1; sample(c,binding,3,s,random);
-  s=Sample(); s.lanes[2].pc=0x9000; s.boundary.trap=1; s.boundary.cause=7;
+  s=Sample(); s.lanes[3].pc=0x9000; s.boundary.trap=1; s.boundary.cause=7;
   s.boundary.epc=0x9000; s.boundary.tval=0;
   records=sample(c,binding,4,s,random);
   require(records.size()==1);
@@ -159,7 +159,7 @@ void vector_fault(unsigned seed) {
       calls.push_back([]{ rhodium_vector_drain(0,0); });
     }
     if (cycle==4) {
-      s.lanes[2].pc=0x8000; s.boundary.trap=1; s.boundary.cause=5;
+      s.lanes[3].pc=0x8000; s.boundary.trap=1; s.boundary.cause=5;
       s.boundary.epc=0x8000; s.boundary.tval=0x1000; s.boundary.target=0x9000;
     }
     auto emitted=sample(c,binding,cycle,s,random,std::move(calls));
@@ -189,7 +189,7 @@ std::string run(unsigned seed) {
     if (cycle==6) s.completions[3]={3,1,0x8008,3,1,33};
     if (cycle==8) {
       s.retire(0,0x8018,6,66);
-      s.lanes[2].pc=0x801c; s.lanes[2].encoding=0;
+      s.lanes[3].pc=0x801c; s.lanes[3].encoding=0;
       s.boundary.trap=1; s.boundary.cause=2; s.boundary.epc=0x801c; s.boundary.target=0x9000;
     }
     if (cycle==9) {
@@ -205,7 +205,7 @@ std::string run(unsigned seed) {
     }
     if (cycle==12) s.physical.fragment_response=1;
     if (cycle==13) {
-      s.lanes[2].pc=0xa000;
+      s.lanes[3].pc=0xa000;
       s.boundary.trap=1; s.boundary.cause=15; s.boundary.epc=0xa000; s.boundary.tval=0x2000;
     }
     // A replay/idle edge cannot allocate a record, even with stale slot payloads.
@@ -317,7 +317,7 @@ void block_zero(bool fault) {
   for (Word cycle=0;cycle<5;++cycle) {
     Sample s;
     if (cycle==0) {
-      auto& l=fault ? s.lanes[2] : s.retire(0,0x8000);
+      auto& l=fault ? s.lanes[3] : s.retire(0,0x8000);
       l.pc=0x8000; l.encoding=0x0040a00f; l.memory=1; l.access=6; l.width=3; l.address=0x103f;
       if (fault) { s.boundary.trap=1; s.boundary.cause=15; s.boundary.epc=l.pc; s.boundary.tval=l.address; }
       else { l.deferred=1; s.physical.request_valid=1; s.physical.request_address=0x903f; }
@@ -356,7 +356,7 @@ void guest_context_and_hpm() {
   s=Sample(); s.boundary.privilege=1; s.boundary.virtualized=1; s.boundary.trap=1;
   s.boundary.cause=21; s.boundary.epc=0x8008; s.boundary.tval=0x1234; s.boundary.target=0x100;
   s.boundary.target_privilege=1; s.boundary.guest_valid=1; s.boundary.htval=0x800; s.boundary.htinst=0x3000;
-  s.lanes[2].pc=0x8008; s.lanes[2].encoding=0x3023;
+  s.lanes[3].pc=0x8008; s.lanes[3].encoding=0x3023;
   auto fault=sample(c,binding,3,s,random);
   require(fault.size()==1);
   const auto& trap=std::get<Trap>(fault[0].outcome);
@@ -364,7 +364,26 @@ void guest_context_and_hpm() {
   require(fault[0].environment.hpm_overflows==0);
   c.finish();
 }
+void three_slot_retirement(unsigned seed) {
+  Collector c; c.reset(0,0,{0,0x8000,{3,false},64,0}); DpiBinding binding(c); std::mt19937 random(seed);
+  Sample s;
+  s.retire(0,0x8000,1,11); s.retire(1,0x8004,2,22); s.retire(2,0x8008,1,33);
+  auto records=sample(c,binding,0,s,random);
+  require(records.size()==3);
+  for (unsigned i=0;i<3;++i) {
+    require(records[i].id.order==i);
+    require(std::get<RegisterWrite>(records[i].effects.at({0,0})).value==Word(11*(i+1)));
+  }
+  s=Sample();
+  s.retire(0,0x800c,3,44); s.retire(1,0x8010,4,55);
+  s.lanes[3].pc=0x8014; s.boundary.trap=1; s.boundary.epc=0x8014; s.boundary.cause=2;
+  records=sample(c,binding,1,s,random);
+  require(records.size()==3 && records[0].id.order==3 && records[2].id.order==5);
+  require(std::holds_alternative<Trap>(records[2].outcome));
+  c.finish();
+}
 int main() {
+  for (unsigned seed=0;seed<100;++seed) three_slot_retirement(seed);
   rv32_boundaries();
   for (Word depth : {1,2,3,4,7}) {
     for (unsigned seed=0;seed<20;++seed) for (unsigned xlen : {32,64}) vector_admission_depth(seed,depth,xlen);

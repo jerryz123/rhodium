@@ -39,7 +39,9 @@ selects a smaller BTB. Import the pipeline type from `cores/superscalar/profile.
 The wrapper exposes `isa_profile`, `csr_config`, and `hart_description` for
 SoC integration. Hardware consumers use `profile.pipeline` directly.
 `RV2Wide` passes that contained value without adding RTL hierarchy.
-For the execution slice alone, use `SuperscalarCore(profile.pipeline)`
+The factory supplies `RV2WideIssue(xlen)` from `issue.rhdl`, which owns the
+two-candidate admission decision. For the execution slice alone, use
+`SuperscalarCore(profile.pipeline, ~issue: RV2WideIssue(profile.pipeline.xlen))`
 from `cores/superscalar/core.rhdl` directly.
 `RV2WideHart` owns reset/start and CHI wiring around the shared fetching top.
 UDB consumes the same contained config. Two-lane interfaces, timing, ISA

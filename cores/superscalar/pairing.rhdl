@@ -1,5 +1,5 @@
 #lang rhodium
-/* Selects implemented same-group operand routes and retains unsatisfied RAW dependencies. */
+/* Recognizes same-group rewrites and emits control-only selectors for the RR/EX/MEM datapaths. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -29,6 +29,29 @@ hardware_enum SuperscalarPairRoute:
 fun superscalar_pair_immediate_width(xlen :: XLen) :: PosInt:
   if xlen == XLen.X32 | 32 | 33
 
+/* Selects an RR mux source without carrying the register, PC, or immediate value. */
+hardware_enum SuperscalarReadSource:
+  Register
+  OlderConstant
+  OlderRegister
+  OlderPc
+
+/* Controls RR source selection and the existing stage-local forwarding paths. */
+bundle SuperscalarPairControl():
+  sources: Vec(2, SuperscalarReadSource)
+  composed: Bool
+  memory_address: Bool
+  store_data: Bool
+  branch_operands: Vec(2, Bool)
+  vector_scalar: Bool
+
+/* Carries instruction bits and decoded mux controls, never computed operand values.
+   The separate admission mask qualifies which candidate records enter execution. */
+bundle SuperscalarIssueInstruction():
+  instruction: Bits(32)
+  control: SuperscalarControl()
+  pair: SuperscalarPairControl()
+
 /* Shares one route decision between source interlocks and pipeline mux controls. */
 bundle SuperscalarPairing():
   routes: Vec(2, SuperscalarPairRoute)
@@ -38,7 +61,7 @@ bundle SuperscalarPairing():
     vec(for List (source in 0..2): pairing.routes[source] =/= SuperscalarPairRoute.Register)
 
 /* Resolves each younger RAW against an eligible older ALU writer without changing either instruction's resource admission. */
-fun superscalar_pairing(controls :: Vec(2, SuperscalarControl()), valid :: Vec(2, Bool), destination :: Bits(5), sources :: Vec(2, Bits(5)), instructions :: Vec(2, Bits(32)), older_deferred :: Bool, ~xlen: xlen :: XLen = XLen.X64) :: SuperscalarPairing():
+fun superscalar_pairing(controls :: Vec(2, SuperscalarControl()), valid :: Vec(2, Bool), destination :: Bits(5), sources :: Vec(2, Bits(5)), instructions :: Vec(2, Bits(32)), older_deferred :: Bool) :: SuperscalarPairing():
   def older :: SuperscalarControl() = controls[0]
   def younger :: SuperscalarControl() = controls[1]
   def immediate :: OperandImmediate = younger.operand.immediate
@@ -47,7 +70,13 @@ fun superscalar_pairing(controls :: Vec(2, SuperscalarControl()), valid :: Vec(2
   def dependency = vec(for List (source in 0..2): valid[1] & writes & used[source] & (destination === sources[source]))
   def producer = writes & !older_deferred & !older.fp.valid & !older.system.uses_command() & !older.branch.resolver.enable
   def scalar_memory = younger.memory.enable & younger.memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store)
-  def memory_address = scalar_memory & !immediate.decode(instructions[1], xlen.width).any()
+  // Test encoded displacement bits; do not build an XLEN immediate datapath in issue.
+  def zero_displacement = mux_lookup(immediate, ~default: Bool(#false)):
+    OperandImmediate.Zero: Bool(#true)
+    OperandImmediate.I: !instruction_field(fields.immediate12, instructions[1]).any()
+    OperandImmediate.S: all(for List (piece in fields.SImmediate.pieces): !instruction_field(piece.source, instructions[1]).any())
+
+  def memory_address = scalar_memory & zero_displacement
   def store_data = !younger.fp.valid & younger.memory.enable & (younger.memory.access === CacheOperation.Store)
   def branch_operand = younger.branch.resolver.enable & !younger.branch.resolver.unconditional
   def vector_scalar = !younger.vector.memory & (younger.vector.integer ||| younger.vector.floating_point ||| younger.vector.multiply_divide) & younger.operand.uses_rs1
@@ -87,8 +116,27 @@ fun superscalar_pairing(controls :: Vec(2, SuperscalarControl()), valid :: Vec(2
     routes: routes
     unresolved: vec(for List (source in 0..2): dependency[source] & (routes[source] === SuperscalarPairRoute.Register))
 
+/* Projects the recognized rewrite into datapath mux controls; no operand data enters issue. */
+fun superscalar_pair_control(pairing :: SuperscalarPairing(), older :: SuperscalarControl()) :~ SuperscalarPairControl():
+  def composed = pairing.routes[0] === SuperscalarPairRoute.ImmediateAdd
+  def base = mux(older.operand.left === OperandASelect.Pc, SuperscalarReadSource.OlderPc, SuperscalarReadSource.OlderRegister)
+  SuperscalarPairControl():
+    sources: vec(
+      mux(composed, base, mux(pairing.routes[0] === SuperscalarPairRoute.Constant, SuperscalarReadSource.OlderConstant, SuperscalarReadSource.Register)),
+      mux(pairing.routes[1] === SuperscalarPairRoute.Constant, SuperscalarReadSource.OlderConstant, SuperscalarReadSource.Register)
+    )
+    composed: composed
+    memory_address: pairing.routes[0] === SuperscalarPairRoute.MemoryAddress
+    store_data: pairing.routes[1] === SuperscalarPairRoute.StoreData
+    branch_operands: vec(for List (source in 0..2): pairing.routes[source] === SuperscalarPairRoute.BranchOperand)
+    vector_scalar: pairing.routes[0] === SuperscalarPairRoute.VectorScalar
+
 export:
   SuperscalarPairRoute
   superscalar_pair_immediate_width
   SuperscalarPairing
   superscalar_pairing
+  SuperscalarReadSource
+  SuperscalarPairControl
+  SuperscalarIssueInstruction
+  superscalar_pair_control

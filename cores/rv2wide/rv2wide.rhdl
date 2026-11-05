@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "issue.rhdl".RV2WideIssue
   "../superscalar/profile.rhm".SuperscalarPipelineConfig
   "profile.rhm".RV2WideConfig
   "../superscalar/superscalar.rhdl".Superscalar
@@ -12,7 +13,7 @@ import:
 
 /* Projects configuration without inserting an RTL wrapper or changing pipeline timing. */
 fun RV2Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~instruction_cache: instruction_cache :: CacheConfig = cache, ~profile: profile :: RV2WideConfig = RV2WideConfig(SuperscalarPipelineConfig(~instruction_cache: instruction_cache, ~data_cache: cache))) :: CircuitDefinition:
-  Superscalar(cache, ~chi: config, ~instruction_cache: instruction_cache, ~profile: profile.pipeline)
+  Superscalar(cache, ~chi: config, ~instruction_cache: instruction_cache, ~profile: profile.pipeline, ~issue: RV2WideIssue(profile.pipeline.xlen))
 
 export:
   RV2Wide

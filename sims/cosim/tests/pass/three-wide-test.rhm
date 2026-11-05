@@ -1,0 +1,40 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("cores/rv3wide/issue.rhdl").RV3WideIssue
+  lib("cores/superscalar/core.rhdl").SuperscalarCore
+  lib("cores/superscalar/profile.rhm").SuperscalarPipelineConfig
+  lib("rhodium/core/main.rhm") open
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/pipeline.rhm") open
+  lib("rhodium/backend/verilog-target.rhm").verilog_target
+  "../../pass.rhm".cosim_pass
+
+def profile = SuperscalarPipelineConfig()
+def source = elaborate(SuperscalarCore(profile, ~issue: RV3WideIssue(profile.xlen)))
+def before = dump_ir(source.design)
+def normal = compile_program(source, verilog_target)
+fun check_capture(prepared):
+  def mutable indices = []
+  for (module_def in prepared.rtl.design.modules):
+    for (operation in module_def.operations.filter(~keep: fun (operation): operation.opcode == "sim.dpi_call" && operation.attribute("dpi_import").name == "rhodium_rv2wide_lane")):
+      def index = module_def.find_operation(operation.operands[3].defining_op_id)
+      indices := indices ++ [index.attribute("value")]
+      check:
+        operation.attribute("dpi_import").input_names[1] ~is "index"
+        index.opcode ~is "rtl.constant"
+      when index.attribute("value") == 2
+      | block:
+          def retired = module_def.find_operation(operation.operands[4].defining_op_id)
+          check:
+            retired.opcode == "rtl.constant" ~is #false
+  check:
+    indices ~is [0, 1, 2, 3]
+  RTLPassResult(prepared.rtl)
+
+def observed = compile_program(source, rtl_pipeline_target(verilog_target, [cosim_pass(), RTLPass("check-three-slot-capture", check_capture)]))
+check:
+  observed.manifest.signature ~is normal.manifest.signature
+  observed.artifacts[0].content.contains("rhodium_rv2wide_lane") ~is #true
+  dump_ir(source.design) ~is before

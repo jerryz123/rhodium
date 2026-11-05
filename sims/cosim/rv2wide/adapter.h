@@ -1,4 +1,4 @@
-// Reconstructs dual-slot WB order and deferred RV2Wide effects from unordered passive samples.
+// Reconstructs up to three ordered Superscalar WB slots and deferred effects from unordered samples.
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 #include "../events/dpi.h"
@@ -30,7 +30,7 @@ struct PhysicalSample {
 };
 
 // No callback resolves an owner. The settled-sample barrier orders completions,
-// both WB slots, and traps explicitly; state is scoped to the generic DPI binding.
+// all WB slots, and traps explicitly; state is scoped to the generic DPI binding.
 class HartAdapter final : public DpiAdapter {
  public:
   vector::VectorAdapter& vector = vector::vector_adapter();
@@ -39,7 +39,7 @@ class HartAdapter final : public DpiAdapter {
     if (!frame.sample) { frame.sample = sample; frame.epoch = epoch; }
     require(*frame.sample == sample && frame.epoch == epoch, "mixed or unflushed sample");
     if constexpr (std::is_same_v<Event, LaneSample>) {
-      require(event.index < 3 && !frame.lanes[event.index], "duplicate WB lane");
+      require(event.index < 4 && !frame.lanes[event.index], "duplicate WB lane");
       frame.lanes[event.index] = event;
     } else if constexpr (std::is_same_v<Event, CompletionSample>) {
       require(event.index < 4 && !frame.completions[event.index], "duplicate completion lane");
@@ -57,7 +57,7 @@ class HartAdapter final : public DpiAdapter {
  private:
   struct Frame {
     std::optional<Word> sample; Word epoch = 0;
-    std::array<std::optional<LaneSample>, 3> lanes;
+    std::array<std::optional<LaneSample>, 4> lanes;
     std::array<std::optional<CompletionSample>, 4> completions;
     std::array<std::optional<FpSample>, 2> fp;
     std::tuple<std::optional<BoundarySample>, std::optional<PhysicalSample>> events;

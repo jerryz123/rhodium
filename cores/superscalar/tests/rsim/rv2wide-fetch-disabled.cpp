@@ -1,10 +1,14 @@
-// Checks fetching, compressed execution, memory and trap recovery with prediction disabled.
+// Checks RV3Wide fetching, compressed execution, memory and trap recovery with prediction disabled.
 // SPDX-License-Identifier: Apache-2.0
 #include "driver.hpp"
 using retirement_t = std::remove_cvref_t<decltype(retired_0_out.pbits)>;
 using CHIReqFlit =
     std::remove_cvref_t<decltype(instruction_chi_out.preq.pbits)>;
-const auto &retired(unsigned i) { return i ? retired_1_out : retired_0_out; }
+const auto &retired(unsigned i) {
+  if (i == 0) return retired_0_out;
+  if (i == 1) return retired_1_out;
+  return retired_2_out;
+}
 std::uint8_t backing[131072], model_bytes[131072];
 std::uint64_t registers[32];
 Queue<retirement_t> completions;
@@ -1771,7 +1775,7 @@ void observe() {
         zc_pairs++;
     } else
       dual_run = 0;
-    for (int lane = 0; lane < 2; lane++)
+    for (int lane = 0; lane < 3; lane++)
       if (retired(lane).pvalid) {
         if (retired(lane).pbits.pfetched.pprediction.pvalid) {
           predicted_branches++;

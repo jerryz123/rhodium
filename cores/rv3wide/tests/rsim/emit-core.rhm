@@ -1,0 +1,12 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("cores/superscalar/core.rhdl").SuperscalarCore
+  lib("cores/superscalar/profile.rhm").SuperscalarPipelineConfig
+  "../../issue.rhdl".RV3WideIssue
+
+def program = elaborate(SuperscalarCore(SuperscalarPipelineConfig(), ~issue: RV3WideIssue(XLen.X64)))
+export program

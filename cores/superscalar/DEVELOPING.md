@@ -20,19 +20,19 @@ All shared parameters, defaults, validation, and derived descriptions live here,
 not in copied named-core constructors. Never import named-core policy from production sources
 here. Shared fixtures may instantiate the named entry points.
 
-The backend is intentionally fixed at two lanes. Keep pair-shaped
-admission, older/younger stage state, and two-slot retirement unchanged;
-there is no backend issue-width configuration. The frontend, assembler, and
-issue window independently accept a two- or three-instruction `group_width`,
-defaulting to two. Both entry points continue to select two and generate the same
-hardware for the same profile, including FP/vector resources when selected.
+The named issue circuit's signature selects two or three backend lanes, and the
+integrated frontend/window uses the same width while keeping eight-byte fetch.
+Shared-service lane identifiers and launch selectors remain two-lane in this cut.
+The core supplies `execution_blocked` for unavailable third-lane operations;
+the issue module remains the only prefix-admission authority. Never widen
+two-operand bundles, physical 4R2W storage, or single-service inputs mechanically.
 
 The moved fixtures retain their `rv2wide-*` runner IDs and C++ filenames to
 preserve the existing coverage inventory. Enabled fetch exercises `RV2Wide`;
 disabled fetch exercises `RV3Wide` with the same instruction oracle. Both use
 the existing `rv2wide` cosim observation contract and native reconstruction
-adapter because their microarchitecture is identical. Changing that contract
-is not part of moving source ownership.
+adapter because they share pipeline and service ownership. The capture derives
+its retirement width from the selected core's taps.
 
 `SuperscalarPipelineConfig.xlen` selects scalar width through decode, pipeline payloads,
 prediction addresses, register state, load/store shaping, and integer services.
@@ -73,11 +73,51 @@ RV32 pipeline tokens. The raw FP-load transport remains 64 bits because the
 shared boxing helper consumes a width-independent load image.
 
 Keep stage logic in one pipeline-ordered `core.rhdl`. Flow owns feed-forward
-storage; the issue window owns prefix admission, retention, and coalescing.
+storage; the issue window owns retention and compaction. The supplied named
+issue circuit owns prefix admission; `issue.rhdl` owns its shared contract and predicates.
 No independent lane handshake may allow a younger instruction to pass an
 older blocked instruction. WB is the only transaction and retirement authority;
 its accepted deferred owners later write through the shared younger-slot port.
 Redirect qualification gates new transfers as well as flushing pipe state.
+
+`read-operands.rhdl` owns fixed four-path scalar read routing, forwarding,
+operand selection, and immediate computation, not admission or register-file storage.
+Feed its read-routing helper candidate presence and
+decoded source-use bits, never final issue grants or forwarding availability.
+In the three-candidate specialization, only lane 3 rs1 may borrow lane 2 rs2's
+path, and only lane 3 rs2 may borrow lane 1 rs2's path (one-based numbering).
+Do not free a donor for a same-group replacement route in this first cut.
+The core evaluates deferred-return forwarding, interstage forwarding, and
+scoreboard readiness once for each selected physical address. Only the four
+readiness flags feed issue; data stays in the register-read datapath.
+`superscalar_prepare_operands` applies issue's instruction bits and mux controls.
+Do not move bypass comparison ahead of address selection
+or construct six independent forwarding networks. Preserve oldest-to-youngest
+producer priority, including unavailable/replaying writers hiding older data.
+Named `RV2WideIssue` and `RV3WideIssue` use these helpers and shared dependency
+predicates, but each owns its complete prefix grant. RV2Wide explicitly checks
+one pair; RV3Wide scans three candidates and arbitrates borrowed reads and writes.
+Core RR supplies decoded candidates, registered service views, and
+physical-path readiness; it applies the returned mux controls and grants without another issue
+policy. Keep scoreboard state, FP latency queries, branch-training occupancy
+projection, vector ordering state, and actual calendar bookings in the core.
+The physical 2W RF interface stays unchanged as the instruction group widens.
+
+Write routing keeps normal lanes 1/2 on ports 0/1 and lets lane 3 borrow either
+unused port. Admission includes potentially direct load-hit writers; only
+known direct younger writers can coalesce away older physical writes. Scan
+every prefix before accepting the full group, retaining the union of occupied
+ports: all-success coalescing must not hide a port needed when a younger lane
+faults. Issue's port selectors and younger-destination alias masks advance with
+the group through EX/MEM/WB. WB qualifies suppression with actual direct-write
+enables and does not run an allocator. Killed/replayed/deferred younger owners
+never suppress older state. Independently retained service completion preserves
+its existing port-zero/merged-scalar-port-one contract outside the live group.
+Retirement records and their values remain independent of physical coalescing.
+The existing completion transport still reserves the entire younger pipeline
+slot, even for nonwriters, in the production two-lane specialization. Preserve
+that stronger booking and its fairness/ownership assertions; the issue module's
+physical reservation envelope is not permission to relax transport ownership.
 
 `SuperscalarResult.branch` groups comparison, recovery, and training state. FP
 requests associated with a fetched instruction carry only `SuperscalarFpSchedule`;
@@ -109,10 +149,10 @@ a paired branch still needs its integer operands in MEM. WB takes both words
 from the surviving divide owner; replay reacquires them on reissue. Retained
 memory owners and the passive memory observer take the same unshifted right word.
 
-At RR→EX, EX→MEM, and MEM→WB, [both lane pipes](lane-pipe.rhdl) store only
+At RR→EX, EX→MEM, and MEM→WB, [all lane pipes](lane-pipe.rhdl) store only
 the low 12 bits of their starting PCs. Each stage owns one shared upper-PC
-register and one younger-next-region bit, captured on the older lane's transfer
-even when it issues alone. The younger lane selects that prefix or its modular
+register and one next-region bit per younger lane, captured on the oldest lane's transfer
+even when it issues alone. Each younger lane selects that prefix or its modular
 successor; the older lane always uses the unmodified prefix. Recovery may kill
 the younger lane alone, so it must not gate prefix advancement. A bubble or
 flush needs no prefix reset or separate valid bit. The prediction PC, EX's
@@ -121,7 +161,7 @@ branch return address aliases the sequential PC. Prediction targets are
 independent; never reconstruct them from the group prefix.
 Use the reconstructed PC for traces and before handing work to any independently
 retained owner. The issue window and a merged WB retirement group do not have
-this prefix invariant. RR admits only same-region or next-region pairs; backward
+this prefix invariant. RR admits only same-region or next-region groups; backward
 and more distant regions remain separate issues. The relative bit advances with
 the shared prefix through EX/MEM/WB, not with a potentially killed younger lane.
 
@@ -341,8 +381,10 @@ WB authorization, and the two-port writeback policy stay local.
 | `decode/core-ctrl.rhdl` | Selected instruction domain, writeback column, one combined relation |
 | `bundles.rhdl` | Instruction, lookup/admission/response, stage, and retirement contracts |
 | `issue-window.rhdl` | Sole eight-entry compacting instruction buffer, free-entry count, prefix consumption |
+| `issue.rhdl` | Shared issue contracts, signature validation, dependency/resource predicates, and two-write-port routing |
 | `branch-training.rhdl` | Two-entry, two-offer/one-write retirement training buffer, empty bypass, predictor clear |
-| `pairing.rhdl` | Same-group source dependencies, supported consumer routes, and unresolved RAWs |
+| `pairing.rhdl` | Same-group recognition and control-only RR/EX/MEM mux selections |
+| `read-operands.rhdl` | Four physical read/bypass paths, issue-controlled operand muxes, and immediate computation |
 | `frontend.rhdl` | Credited block fetch, S1 translation/permissions, local replay, and block fault ownership |
 | `instruction-assembler.rhdl` | Flow block storage, mixed-width parcel consumption, shared C expansion, and continuation faults |
 | `core.rhdl` | RR/EX/MEM/WB, forwarding, shared component/CSR instances, register state, precise traps |
@@ -421,8 +463,8 @@ arbitration merges variable load and divide results and reserves the younger RR
 slot for responses requiring a GPR write.
 An unflushable three-stage Valid pipe aligns those responses with the vacant WB
 slot. The shared `RegisterFile(xlen, ~read_ports: 4)` owns exactly four physical
-reads and two physical writes. RR wires each slot's rs1/rs2 directly to its two
-read ports and retains forwarding priority. The older WB slot writes port zero;
+reads and two physical writes. RR uses the issue module's four selected physical
+addresses and retains forwarding priority. The older WB slot writes port zero;
 the younger WB slot shares port one with independent completions. Successful
 same-address normal writes suppress the older write without merging retirement.
 Independent completions reserve physical port one;
@@ -447,7 +489,7 @@ so never infer younger-write priority from the port number. Insert direct FP
 returns into their WB lane's forwarding payload; late FP returns precede the
 pipeline's age-ordered producers. An older FP bypass must not override a younger writer.
 
-RR forwards an immediate-only ordinary adder's constant to either replaced GPR
+The RR datapath forwards an immediate-only ordinary adder's constant to either replaced GPR
 source. LUI and ADDI/ADDIW from x0 need no EX result. Use the substituted capture
 values consistently for scalar operands, the FP integer request, and vector
 scalar/stride snapshots; no consumer may bypass its interlock yet capture stale RF
@@ -455,21 +497,27 @@ data. Keep the ordinary producer eligibility, destination reservations, and
 unrelated source checks. Nonconstant ALU chains still interlock.
 
 For AUIPC+ADDI or a full-width immediate adder feeding a scalar load/store base,
-RR folds the producer and consumer immediates and captures the producer's
-original register base or PC in younger rs1. `pair_immediate` carries the folded
+The RR datapath folds the producer and consumer immediates and selects the producer's
+original register base or PC for younger rs1. `operands.rewrite.immediate` carries the folded
 sum separately from rs2: a store still needs its original data operand. The sum
-uses 33 signed bits on RV64 and wraps at 32 bits on RV32. `ImmediateAdd` selects
+uses 33 signed bits on RV64 and wraps at 32 bits on RV32. `rewrite.composed` selects
 that immediate at EX; the two ordinary ALUs remain independent. Preserve both
 architectural instruction records and the older prefix on a younger rejection.
 Nonconstant word-result producers cannot compose addresses because their
 intermediate truncation/sign-extension is observable.
 
 
-`pairing.rhdl` selects one `SuperscalarPairRoute` per younger source and returns
-unresolved dependencies in `SuperscalarPairing`. Its selected routes are the sole
-authority for both RAW/readiness exemptions and the pipeline consumer muxes.
-Keep resource conflicts, deferred WAW checks, and admission state in `core.rhdl`;
-a route never overrides those interlocks. Classify consumers with decoded
+`pairing.rhdl` selects one internal `SuperscalarPairRoute` per younger source.
+Its `SuperscalarPairing` value is the sole authority for readiness exemptions,
+unresolved dependencies, and mux controls inside each named issue circuit.
+`SuperscalarIssueInstruction` carries unchanged instruction bits, decoded controls,
+and `SuperscalarPairControl` selectors. No register data or computed immediates
+cross this boundary. `read-operands.rhdl` applies the selectors without pair
+recognition; its `SuperscalarOperands` result is captured in EX. Only later-stage
+controls and the composed immediate survive in `SuperscalarExecutionRewrite`.
+Keep resource conflicts, deferred WAW checks, and prefix admission in the named
+issue module; resource state and bookings remain in `core.rhdl`.
+A route never overrides those interlocks. Classify consumers with decoded
 controls and displacement. Immediate-adder classification checks the physical
 adder transforms; the retained AUIPC/ADDI rewrite checks its exact forms.
 
@@ -477,14 +525,14 @@ For scalar memory, RR may waive the younger rs1 RAW/read interlock for a zero-di
 load/store (including FP memory and HLV/HLVX) whose base is the same-pair older non-memory,
 non-M, non-FP, non-system, non-branch writer. The older writer still passes every
 ordinary admission interlock.
-Carry the `MemoryAddress` route across the existing EX register; select slot zero's
+Carry `rewrite.memory_address` across the existing EX register; select slot zero's
 ALU result directly as the younger address, after rather than before the younger
 ALU. Never route this bypass through another dependent addition. Keep normal
 MEM checks, WB authorization, split-access ownership, and fault/replay priority.
 Every other source and destination hazard retains its ordinary interlock.
 
 The same ordinary ALU producer may supply a younger integer store's rs2.
-Waive only that source's RAW/read interlock and carry its `StoreData` route
+Waive only that source's RAW/read interlock and carry `rewrite.store_data`
 through EX. Select the older ALU result before StoreGen and retain the raw value
 in the lane's right operand word, including for slow and split accesses.
 The store's rs1 dependency needs its own constant, composition, or address route;
@@ -494,8 +542,8 @@ remain unchanged; FP stores, atomics, and deferred producers do not use this pat
 
 For a younger conditional branch, RR may waive either comparison source's
 RAW/read interlock when the same eligible older ALU writer replaces it. Carry
-the selected `BranchOperand` routes through EX and project their two mux enables
-into MEM, alongside the original operands and shared `BranchResolverControl`. MEM selects slot
+the selected `rewrite.branch_operands` mux enables through EX and into
+MEM, alongside the original operands and shared `BranchResolverControl`. MEM selects slot
 zero's registered ALU result before the younger slot's comparator. Do not add
 an EX ALU-to-comparator path, waive an unrelated source, or extend the selection
 to deferred/FP/system/control-transfer producers or a dependent JALR base.
@@ -579,7 +627,8 @@ A MEM prediction correction clears the instruction buffer, RR, and EX, including
 lookup admission, while preserving its own MEM-to-WB transfer and older WB work.
 An older mispredicted instruction suppresses its same-group younger MEM transfer;
 a correctly predicted taken branch preserves its target-stream peer.
-Branch selection observes both lanes' resolved MEM outcomes. WB faults/replays
+Recovery selection observes all lanes' resolved MEM outcomes, including stale
+predictions on an ordinary third-lane instruction. WB faults/replays
 and retained faults override MEM recovery; branches never redirect twice.
 An older same-group memory instruction may reject WB authorization after MEM
 branch recovery; its WB redirect must override that speculative target and
@@ -1481,6 +1530,8 @@ python3 tools/testing/rsim/run.py --fixture rv2wide-cache --fixture rv2wide-fetc
 python3 tools/testing/rsim/run.py --fixture rv2wide-assembly-prediction --fixture rv2wide-frontend-prediction --fixture rv2wide-bht
 python3 tools/testing/rsim/run.py --fixture rv2wide-assembly-prediction-h --fixture rv2wide-assembly-prediction-full-width
 python3 tools/testing/rsim/run.py --fixture superscalar-issue-window-three --fixture superscalar-issue-window-three-h --fixture superscalar-assembly-three --fixture superscalar-frontend-three
+python3 tools/testing/rsim/run.py --fixture superscalar-read-two --fixture superscalar-read-three --fixture superscalar-read-three-rv32
+python3 tools/testing/rsim/run.py --fixture rv2wide-issue --fixture rv3wide-issue --fixture rv3wide-issue-rv32
 python3 tools/testing/rsim/run.py --fixture rv2wide-mmu
 python3 tools/testing/rsim/run.py --fixture rv2wide-fetch
 moon run rhodium:check-boundaries
@@ -1493,6 +1544,31 @@ old-response sampling; falling-edge drivers prepare the next cycle. The
 enabled-fetch fixture compiles with event tracing and links the production RHEG
 collector directly. Its independent instruction model and trace oracle check both
 retirement lanes after their clocked callbacks complete.
+
+The read-path fixtures use the real 4R2W register file and the same forwarding
+function as RR. They exhaust candidate-valid/source-use/x0 combinations, check
+both fixed borrowers and donor priority, and exercise each of nine producer
+positions with available, unavailable, and replaying results. An independent
+youngest-first oracle checks simultaneous matching producers, randomized pending
+scoreboards and writes, pre-edge RF reads, and reset retention. These checks
+cover two-candidate RV64 and three-candidate RV32/RV64; they do not model
+write-port allocation or treat read availability as an issue grant. When changing
+core wiring, also run `rv2wide-core`, `rv2wide-rv32`, `rv2wide-core-fp-late`, and
+`rv2wide-core-vector` for scalar, delayed FP, and vector-GPR return integration.
+
+The issue fixtures compose the production decoder, issue module, and separate
+register-read datapath. An independent C++ oracle exhausts ordinary source-use/destination
+combinations and write-port availability, then randomizes presence, physical
+readiness and external blockers. Write-routing checks enumerate destination
+aliases, qualified-write masks, coalescing eligibility, and reserved ports,
+including shortened retirement prefixes. Directed groups cover first-pair
+rewrites, third-lane RAWs, deferred WAWs, scalar/FP/vector service collisions,
+serialization, fetch faults, PAUSE, ordered memory, PC wrap and branch-training
+capacity. Operand checks cover every selected physical path, first-pair constants,
+PC/register bases, signed immediate sums, later-stage mux controls, and blocked
+sources/donors. They also check emitted instruction bits, decoded controls,
+and source selectors independently of register data. Pair these fixtures with the four core integration fixtures above
+when changing admission or WB routing.
 
 The issue-window fixtures check two-entry RV32 and two/three-entry compact RV64 with and without H.
 They fill all eight entries, retain mixed normal/fault owners under backpressure,

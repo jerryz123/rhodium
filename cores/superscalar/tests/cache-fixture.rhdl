@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/rv2wide/issue.rhdl").RV2WideIssue
   lib("riscv/isa/xlen.rhm").XLen
   "../core.rhdl" open
   "../profile.rhm".SuperscalarPipelineConfig
@@ -57,7 +58,7 @@ sync_circuit SuperscalarCacheFixture():
   interface uncached_chi(CHIRNIChannels(test_flit), ~role: node)
   output(issued, retired_count): Bits(2)
   output uncached_activity: Bool
-  inst core(SuperscalarCore(SuperscalarPipelineConfig(~zicboz: #true, ~zicbom: #true, ~zicbop: #true, ~zawrs: #true, ~zihintntl: #true)))
+  inst core(SuperscalarCore(SuperscalarPipelineConfig(~zicboz: #true, ~zicbom: #true, ~zicbop: #true, ~zawrs: #true, ~zihintntl: #true), ~issue: RV2WideIssue(XLen.X64)))
   core.interrupts <== literal(core.interrupts.type, 0)
   core.hart_id <== Bits(64)(0)
   core.time_counter <== Bits(64)(0)

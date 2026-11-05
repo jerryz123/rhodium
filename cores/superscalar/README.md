@@ -1,24 +1,24 @@
-<!-- Documents Superscalar's translated fetch frontend, dual-issue execution, and precise retirement interfaces. -->
+<!-- Documents Superscalar's byte-oriented fetch, two/three-lane execution, and precise retirement interfaces. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Shared superscalar pipeline
 
-This package owns one fixed two-wide pipeline, used by both
+This package owns one shared pipeline, used by both
 [RV2Wide](../rv2wide/README.md) and the experimental
 [RV3Wide](../rv3wide/README.md) entry points. Each has its own configuration class and hart wrapper. Their
 `pipeline` fields contain a `SuperscalarPipelineConfig`, which owns shared
 parameters, defaults, validation, and architectural descriptions. The named
 wrappers do not duplicate those fields or reconstruct the pipeline config.
-RV3Wide is also two-wide for now. There is no backend issue-width parameter;
-standalone frontend components can form two- or three-instruction groups while
-fetching eight bytes per cycle. Both integrated cores retain two-lane scheduling
-and 4R2W register-file behavior. The examples below use RV2Wide; replacing `rv2wide` with `rv3wide` selects
+The supplied issue module selects two or three instruction lanes. RV3Wide adds
+an ordinary integer ALU lane; shared-service and branch operations execute in
+the first two lanes after window compaction. Both cores fetch eight bytes per
+cycle and retain a 4R2W register file. The examples below use RV2Wide; replacing `rv2wide` with `rv3wide` selects
 the corresponding independently named hart with the same CI workload policy.
 
-Superscalar is an in-order dual-issue processor under construction. `Superscalar`
+Superscalar is an in-order, two/three-issue processor under construction. `Superscalar`
 fetches instructions through a shared L1I and executes through the shared L1D;
 it supports Bare/Sv39 addressing with shared M/S/U CSR/trap state and optional
-H/Sha guest execution with Sv39x4 translation. `SuperscalarCore()` remains the
+H/Sha guest execution with Sv39x4 translation. `SuperscalarCore` remains the
 independently usable RR-through-WB execution slice. It executes scalar RV32IMACB or RV64IMACB, optionally RV32IMAFCB or RV64IMAFDCB:
 integer arithmetic, word arithmetic, LUI/AUIPC, branches, JAL/JALR, and scalar
 loads/stores, including retained misaligned accesses in cacheable normal memory.
@@ -64,8 +64,10 @@ the eight-hart benchmarks.
 import:
   lib("cores/superscalar/core.rhdl") open
   lib("cores/superscalar/bundles.rhdl") open
+  lib("cores/rv2wide/issue.rhdl").RV2WideIssue
+  lib("riscv/isa/xlen.rhm").XLen
 
-inst core(SuperscalarCore())
+inst core(SuperscalarCore(~issue: RV2WideIssue(XLen.X64)))
 ```
 
 Select `SuperscalarPipelineConfig(~xlen: XLen.X32)` for scalar RV32 with Bare translation.
@@ -90,7 +92,8 @@ store byte lanes, or response ordering.
 
 For the fetching core with both shared caches, import
 `cores/superscalar/superscalar.rhdl` and `cores/cache/config.rhm`, then instantiate
-`Superscalar(CacheConfig(64, 2), ~chi: config)`. Optional `~instruction_cache`
+`Superscalar(CacheConfig(64, 2), ~chi: config, ~issue: RV2WideIssue(XLen.X64))`.
+The supplied issue circuit must match the selected profile's XLEN. Optional `~instruction_cache`
 selects different L1I geometry; otherwise both use the supplied geometry.
 `SuperscalarPipelineConfig(~btb_entries: 32, ~ras_entries: 6, ~bht: #true)` selects predictor
 capacities and enables three 4,096-counter tournament tables. Set both capacities
@@ -109,9 +112,9 @@ Branch prediction corrections, memory replays, traps, and privilege returns redi
 internally. Software programs mtvec/stvec and supplies its trap handler.
 `cores/superscalar/cache.rhdl` owns the standalone `SuperscalarL1D` adapter.
 
-When using `SuperscalarCore()` directly, provide
-`instructions: Decoupled(SuperscalarPacket(xlen, hypervisor, 2))`, matching the core
-profile. Each packet has a `count` of one or two and that many valid `entries`,
+When using `SuperscalarCore` directly, provide
+`instructions: Decoupled(SuperscalarPacket(xlen, hypervisor, issue_width))`, matching the supplied issue module.
+Each packet has a `count` of one through `issue_width` and that many valid `entries`,
 oldest first. Entries contain an
 XLEN-wide `pc`, canonical 32-bit `instruction`, original `raw_instruction` (zero-extended
 for C), length-derived `sequential_pc`, `compressed_illegal`, and
@@ -196,7 +199,100 @@ The issue window still stores eight compact entries. It exposes up to
 reserves space for a full group after same-cycle consumption, independently of
 the offered count. Clear suppresses admission/candidates and discards retained
 entries. These standalone options do not enable three-wide execution in either
-named core; retirement-history inputs still match the two-wide backend.
+named core; retirement-history inputs cover the first two branch-capable lanes.
+
+### Fixed scalar read-path borrowing
+
+[`read-operands.rhdl`](read-operands.rhdl) supplies combinational read routing
+for two or three candidate instructions with four RF/forwarding paths. Using
+one-based lane numbering:
+
+| Physical path | Normal owner | Borrower when unused |
+|---|---|---|
+| 0 | Lane 1 rs1 | None |
+| 1 | Lane 1 rs2 | Lane 3 rs2 |
+| 2 | Lane 2 rs1 | None |
+| 3 | Lane 2 rs2 | Lane 3 rs1 |
+
+`superscalar_read_routing(group_width, requests)` selects addresses from decoded
+`SuperscalarReadRequest()` validity, source-use bits, and register numbers.
+Unused operands and x0 release their path; an operand supplied by forwarding
+still occupies it. There is no fallback to a different spare path or sharing
+of an occupied path just because register numbers match.
+
+Use the four selected addresses for both RF reads and forwarding comparisons,
+then pass the four resolved `SuperscalarOperand(xlen)` values to
+`superscalar_prepare_operands` in the datapath. Issue receives only their
+`blocked` flags through `read_blocked`.
+A needed operand without its fixed path reports
+`blocked`; unused/x0 operands report ready zero. Forwarding selects the youngest
+matching older producer, including blocking on an unavailable or replaying
+producer instead of exposing an older value.
+
+The integrated backend supplies two active candidates. These helpers do
+not independently grant issue: the issue module below combines their constraints
+with dependencies and all other resources. The register file remains 4R2W.
+
+### Unified issue decision
+
+[`RV2WideIssue(xlen)`](../rv2wide/issue.rhdl) takes two decoded candidates;
+[`RV3WideIssue(xlen)`](../rv3wide/issue.rhdl) takes three. They share the
+[issue contract and dependency helpers](issue.rhdl), not a width-switched
+admission circuit. Each combines candidates with external scoreboard/service
+readiness and returns one largest legal oldest-first prefix: `decision.count`, its per-lane
+admission mask, stall reasons, write routing, and write-port reservation envelope.
+There are no independent per-lane grants that can bypass a blocked predecessor.
+The separate `instructions` output carries unchanged instruction bits, decoded
+controls, and RR/EX/MEM mux selectors. No register values, selected operands,
+constants, or composed-immediate values cross the issue boundary. The admission
+mask qualifies which records are captured.
+
+The current combinational path is:
+
+```text
+decoded candidates + service state --> Issue --> decision / bookings
+                                        |
+                        reads / instructions + mux controls
+                                        |
+                                  RR datapath --> EX/MEM
+                                        |
+                                  read_blocked --> Issue
+```
+
+Read ownership depends on candidate source demand, never the final issue count.
+The module combines that readiness with same-group RAW/WAW checks, the existing
+first-pair operand rewrites, shared scalar/FP/vector resource limits, ordered
+memory, serialization, PAUSE, and PC-region constraints. A third candidate has
+no new same-group forwarding route; dependencies on either older writer block it.
+
+Issue selects the constant/register/PC mux routes and immediate-composition
+enable. The RR datapath extracts constants, adds immediates, and selects
+operands according to those controls, without recognizing pairs or deciding
+eligibility. EX/MEM apply only local mux controls for the later
+ALU result, store data, vector scalar, and branch operands. The signed composed
+immediate retains 33 bits on RV64 and wraps at 32 bits on RV32. Both instructions
+keep independent execution and retirement records.
+
+Normal lane-1 and lane-2 GPR writes use ports 0 and 1. Lane 3 borrows either unused
+port, preferring port 0. Three distinct direct writes split the group; nonwriters
+and x0 need no port. Successful same-destination direct writes may share capacity
+by suppressing older physical writes, without merging architectural retirement.
+The reservation envelope covers every possible successful retirement prefix:
+a younger fault cannot restore an older write onto an unreserved port. Deferred
+writers do not suppress older direct writes, and potentially direct load-hit
+results still require capacity.
+
+The named hart/factory supplies its issue module through `~issue`; shared
+pipeline configuration remains parameter data, not an implementation selector.
+RV3Wide supplies three real candidates and carries each admitted instruction
+through RR/EX/MEM/WB. Issue assigns fixed write-port selectors and younger-alias
+masks; WB qualifies them against successful writes without reallocating ports.
+A killed younger overwrite cannot suppress its older writer. Shared-service
+completion calendars and younger-slot reservations remain conservative.
+Lane 3 currently accepts ordinary integer ALU work and fetch-fault tokens, not
+branches, memory, FP/vector, or system-service operations; those instructions
+remain in the window until they reach an implemented lane. A group containing
+vector execution or configuration also remains at most two-wide.
 
 ## Floating point
 
@@ -667,7 +763,7 @@ Each slot uses one composed structured decoder, with the shared component
 relations joined to Superscalar operand/writeback controls.
 
 The complete B extension (Zba, Zbb, and Zbs) uses that same ALU and EX timing in
-either slot. Independent B instructions can dual-issue, and their results forward
+any integer lane. Independent B instructions can coissue, and their results forward
 through the ordinary integer paths. Unary/immediate instructions do not create a
 false dependency on their encoded subopcode or shift amount. `.UW` instructions
 zero-extend rs1's low word before full-width arithmetic; word rotates and counts
@@ -675,23 +771,23 @@ have their own word-result semantics. There is no separate bit-manipulation unit
 or additional execution stage. The CSR bank declares Zba/Zbb/Zbs and the MISA B bit.
 
 EX, MEM, and WB use feed-forward Flow `ValidPipe` registers. Forwarding searches
-both lanes, preferring the youngest older producer. A matching unavailable
+all integer lanes, preferring the youngest older producer. A matching unavailable
 result blocks instead of exposing stale register data. There are four GPR reads
 and two GPR write ports. A shared scoreboard
 reserves accepted slow-load and multiply/divide destinations at WB. RAW and WAW interlocks cover
-both older pipeline lanes and outstanding destinations. Returned values forward
+all older pipeline lanes and outstanding destinations. Returned values forward
 from completion arbitration through the reserved write edge. Independent work
 continues while results are outstanding.
-Register state resets to zero; x0 ignores writes but does not suppress memory
+GPR storage is not reset; x0 reads as zero and ignores writes but does not suppress memory
 accesses or their faults. Successful same-group writes to one register preserve
-both retirement records, but only the younger value updates the register file.
+all retirement records, but only the youngest successful value updates the register file.
 If the younger instruction faults, replays, or defers its write, the older write
 still updates the register file. Outstanding older deferred writes remain WAW
 interlocked until their RF write edge.
 
-`retired[2]: Valid(SuperscalarRetirement(xlen, hypervisor))` reports the successful ordered prefix
+`retired[issue_width]: Valid(SuperscalarRetirement(xlen, hypervisor))` reports the successful ordered prefix
 at WB, including PC, encoding, destination, write enable, and value. `issued`
-and `retired_count` report counts of zero, one, or two for the current edge.
+and `retired_count` report counts from zero through the selected issue width for the current edge.
 Outputs have no backpressure. `deferred` means a memory or multiply/divide operation was
 accepted at WB and its response will arrive on `completed`, rather than being
 reissued or retired again. For a deferred GPR result, `write` describes the eventual

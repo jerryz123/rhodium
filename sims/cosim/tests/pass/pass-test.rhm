@@ -1,6 +1,7 @@
 #lang rhombus
 // SPDX-License-Identifier: Apache-2.0
 import:
+  lib("cores/rv2wide/issue.rhdl").RV2WideIssue
   lib("rhodium/compile/rtl.rhm").prepare_rtl
   "pass-fixture.rhdl".make_fixture
   "pass-fixture.rhdl".recipe
@@ -66,7 +67,7 @@ for (backend in [circt_target, verilog_target]):
 // The production contract must preserve the authored graph and public ports on
 // both targets, rather than adding functional observation ports during elaboration.
 for (profile in [rv2wide_soc_profile(SoCShape.Simple, IsaPreset.RV64Max).pipeline, SuperscalarPipelineConfig(~xlen: XLen.X32, ~floating_point: FloatingPointProfile.F, ~vector: VectorProfile.Zve32f, ~vector_length: 64, ~vector_dispatch_depth: 3)] ++ (for List (fp in [FloatingPointProfile.None, FloatingPointProfile.D]): SuperscalarPipelineConfig(~floating_point: fp, ~hypervisor: fp == FloatingPointProfile.D, ~ssnpm: #true, ~sscofpmf: #true, ~smstateen: #true, ~zicbom: #true, ~zawrs: #true, ~zihintntl: #true, ~zihintpause: #true, ~sstc: #true))):
-  def rv2wide = elaborate(SuperscalarCore(profile))
+  def rv2wide = elaborate(SuperscalarCore(profile, ~issue: RV2WideIssue(profile.xlen)))
   def rv2wide_before = dump_ir(rv2wide.design)
   def rv2wide_program = rv2wide
   fun check_vector_depth(prepared):

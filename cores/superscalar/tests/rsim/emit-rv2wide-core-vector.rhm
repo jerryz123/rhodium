@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/rv2wide/issue.rhdl").RV2WideIssue
   lib("rhodium/frontend/foundation.rhm").elaborate
   lib("rhodium/event/main.rhm") open
   lib("rhodium/event/tests/rsim/trace-sites.rhm").traced_target
@@ -14,8 +15,8 @@ import:
   "../../profile.rhm".SuperscalarPipelineConfig
 
 // Scalar Zfhmin plus full Zvfh exercises the wider execution capability without scalar Zfh.
-def program = elaborate(SuperscalarCore(SuperscalarPipelineConfig(~floating_point: FloatingPointProfile.D, ~half_precision: HalfPrecisionProfile.Zfhmin, ~vector: VectorProfile.V, ~vector_extensions: [VectorExtension.Zvfh, VectorExtension.Zvbb], ~hypervisor: #true, ~smstateen: #true), ~fp_timing: FpExecutionTiming(3, 5, 2)))
-def rv32_program = elaborate(SuperscalarCore(SuperscalarPipelineConfig(~xlen: XLen.X32, ~vector: VectorProfile.Zve32x, ~vector_length: 64)))
+def program = elaborate(SuperscalarCore(SuperscalarPipelineConfig(~floating_point: FloatingPointProfile.D, ~half_precision: HalfPrecisionProfile.Zfhmin, ~vector: VectorProfile.V, ~vector_extensions: [VectorExtension.Zvfh, VectorExtension.Zvbb], ~hypervisor: #true, ~smstateen: #true), ~fp_timing: FpExecutionTiming(3, 5, 2), ~issue: RV2WideIssue(XLen.X64)))
+def rv32_program = elaborate(SuperscalarCore(SuperscalarPipelineConfig(~xlen: XLen.X32, ~vector: VectorProfile.Zve32x, ~vector_length: 64), ~issue: RV2WideIssue(XLen.X32)))
 
 fun site_header(manifest):
   def sequence = manifest.sites.find(fun (site): site.label == "vector/s1.sequence")

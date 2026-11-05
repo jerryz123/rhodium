@@ -1,0 +1,243 @@
+#lang rhodium
+/* Defines shared issue contracts, dependency predicates, and physical write-coalescing helpers. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/core/ir.rhm").Module
+  lib("rhodium/frontend/foundation.rhm").CircuitDefinition
+  lib("rhodium/frontend/foundation.rhm").circuit_signature
+  lib("rhodium/core/signature.rhm").signature_equal
+  lib("rhodium/core/types.rhm").VectorType
+  "lane-pipe.rhdl".SuperscalarPcOffsetBits
+  "read-operands.rhdl" open
+  "pairing.rhdl" open
+  "decode/core-ctrl.rhdl".SuperscalarControl
+  "decode/system-ctrl.rhdl" open
+  "decode/long-ctrl.rhdl".SuperscalarLongOperation
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/rtl/csr.rhdl") open
+  lib("cores/csr/protocol.rhdl").RiscvCsrAction
+  lib("cores/csr/protocol.rhdl").csr_pure_read
+  lib("cores/cache/operation.rhdl").CacheOperation
+  lib("cores/fp/types.rhdl") open
+  lib("cores/vector/decode.rhdl").VectorOperandMode
+
+/* Carries decoded candidates, not granted instructions; presence must not depend on readiness. */
+bundle SuperscalarIssueCandidate(xlen :: XLen):
+  present: Bool
+  decodable: Bool
+  fetch_fault: Bool
+  instruction: Bits(32)
+  pc: Bits(xlen.width)
+  control: SuperscalarControl()
+  rs1: Bits(5)
+  rs2: Bits(5)
+  rd: Bits(5)
+  ras: Bool
+  late_gpr: Bool
+
+/* Summarizes external scoreboard/service probes without making any admission decision. */
+bundle SuperscalarIssueStatus():
+  execution_blocked: Bool
+  destination_blocked: Bool
+  fp_data_blocked: Bool
+  fp_capacity_blocked: Bool
+  vector_blocked: Bool
+  csr_read_wait: Bool
+
+/* Registered resource views and flush/drain state; never feed current bookings back into these probes. */
+bundle SuperscalarIssueResources():
+  stop: Bool
+  retry_wait: Bool
+  pause_blocked: Bool
+  serialization_ready: Bool
+  memory_order_ready: Bool
+  multiply_available: Bool
+  fixed_returns_collide: Bool
+  training_pending: Bits(4)
+  younger_slot_reserved: Bool
+  vector_waiting: Bool
+  write_available: Vec(2, Bool)
+
+/* Describes physical writes after same-destination suppression, independent of retirement records. */
+bundle SuperscalarWriteRouting(group_width :: matching(2) || matching(3)):
+  writes: Vec(group_width, Bool)
+  ports: Vec(group_width, Bits(1))
+  shadowed_by: Vec(group_width, Vec(group_width, Bool))
+  occupied: Vec(2, Bool)
+  fits: Bool
+
+/* Keeps the first two writers on ports 0/1; the third borrows an unused port, preferring 0.
+   Admission includes all potentially direct writers. The resulting selectors and
+   destination-alias masks travel with the group; WB only qualifies successful writes. */
+fun superscalar_write_routing(group_width :: matching(2) || matching(3), destinations :: Vec(group_width, Bits(5)), writes :: Vec(group_width, Bool), coalescible :: Vec(group_width, Bool), available :: Vec(2, Bool)) :~ SuperscalarWriteRouting(group_width):
+  def surviving = vec(
+    for List (lane in 0..group_width):
+      def shadowed = any(for List (younger in lane + 1..group_width): writes[younger] & coalescible[younger] & (destinations[lane] === destinations[younger]))
+      writes[lane] & destinations[lane].any() & !shadowed
+  )
+  def third = if group_width == 3 | surviving[2] | Bool(#false)
+  def borrow_first = !surviving[0] & available[0]
+  def borrow_second = !surviving[1] & available[1]
+  SuperscalarWriteRouting(group_width):
+    writes: surviving
+    ports: vec(for List (lane in 0..group_width): if lane < 2 | Bits(1)(lane) | mux(borrow_first, Bits(1)(0), Bits(1)(1)))
+    shadowed_by: vec(for List (lane in 0..group_width): vec(for List (younger in 0..group_width): Bool(younger > lane) & writes[younger] & (destinations[lane] === destinations[younger])))
+    occupied: vec(surviving[0] ||| (third & borrow_first), surviving[1] ||| (third & !borrow_first))
+    fits: (!surviving[0] ||| available[0]) & (!surviving[1] ||| available[1]) & (!third ||| borrow_first ||| borrow_second)
+
+/* Reports the sole admitted prefix, its write booking envelope, and per-candidate stall reasons. */
+bundle SuperscalarIssueDecision(group_width :: matching(2) || matching(3)):
+  count: Bits(2)
+  admitted: Vec(group_width, Bool)
+  data_hazard: Vec(group_width, Bool)
+  structural_hazard: Vec(group_width, Bool)
+  writes: SuperscalarWriteRouting(group_width)
+  reserve: Vec(2, Bool)
+
+/* Classifies WB commands that require an empty pipeline rather than ordinary CSR-read ordering. */
+fun superscalar_serializing_operation(system :: SuperscalarSystemControl(), instruction :: Bits(32)) :: Bool:
+  def csr_read = csr_pure_read(system.csr, instruction[15..20])
+  system.uses_command() & !csr_read & (system.action =/= RiscvCsrAction.VectorConfig)
+
+
+/* Classifies each decoded instruction once for dependency and shared-service checks. */
+bundle SuperscalarIssueTraits():
+  deferred: Bool
+  direct: Bool
+  coalescible: Bool
+  writes: Bool
+  multiply: Bool
+  vector: Bool
+  scalar_service: Bool
+  vector_config: Bool
+  vector_frs1: Bool
+  fpr_reads: Bool
+  fpr_writes: Bool
+  system: Bool
+  csr: Bool
+  branch: Bool
+
+/* Extracts common decoded properties without choosing any instruction's admission. */
+fun superscalar_issue_traits(xlen :: XLen, candidate :: SuperscalarIssueCandidate(xlen)) :~ SuperscalarIssueTraits():
+  def control = candidate.control
+  def vector = control.vector.integer ||| control.vector.memory ||| control.vector.floating_point ||| control.vector.multiply_divide
+  def long = control.muldiv.service =/= SuperscalarLongOperation.None
+  def variable_fp = control.fp.valid & (control.fp.bits.execution.unit === FloatUnit.DivideSquareRoot)
+  def deferred = control.memory.enable ||| long ||| candidate.late_gpr ||| vector
+  def writes = candidate.decodable & control.writeback.enable & candidate.rd.any()
+  def vector_frs1 = vector & control.vector.floating_point & (control.vector.operand === VectorOperandMode.FloatingScalar)
+  SuperscalarIssueTraits():
+    deferred: deferred
+    direct: writes & !long & !candidate.late_gpr & !vector & !variable_fp
+    coalescible: !deferred & !variable_fp
+    writes: writes
+    multiply: writes & (control.muldiv.service === SuperscalarLongOperation.Multiply)
+    vector: vector
+    scalar_service: control.memory.enable ||| long ||| variable_fp
+    vector_config: control.system.action === RiscvCsrAction.VectorConfig
+    vector_frs1: vector_frs1
+    fpr_reads: control.fp.valid ||| vector_frs1
+    fpr_writes: (control.fp.valid & (control.fp.bits.registers.destination === FloatDestination.FloatingPoint)) ||| (vector & control.vector.floating_point & control.vector.floating_scalar_destination)
+    system: candidate.decodable & superscalar_serializing_operation(control.system, candidate.instruction)
+    csr: candidate.decodable & (control.system.csr =/= RiscvCsrOperation.None)
+    branch: candidate.decodable & control.branch.resolver.enable
+
+/* Separates data and structural blockers for the named policy and its trace outputs. */
+bundle SuperscalarIssueHazards():
+  data: Bool
+  structural: Bool
+
+/* Detects an unforwarded GPR dependence on one older group member. */
+fun superscalar_issue_raw(xlen :: XLen, older :: SuperscalarIssueCandidate(xlen), younger :: SuperscalarIssueCandidate(xlen), older_traits :: SuperscalarIssueTraits()) :: Bool:
+  older_traits.writes & ((younger.control.operand.uses_rs1 & (older.rd === younger.rs1)) ||| (younger.control.operand.uses_rs2 & (older.rd === younger.rs2)))
+
+/* Checks WAW/FPR dependencies and common service conflicts for one ordered pair.
+   The caller supplies unresolved GPR RAWs after any physically implemented pair rewrite. */
+fun superscalar_issue_pair_hazards(xlen :: XLen, older :: SuperscalarIssueCandidate(xlen), younger :: SuperscalarIssueCandidate(xlen), a :: SuperscalarIssueTraits(), b :: SuperscalarIssueTraits(), raw :: Bool, fixed_returns_collide :: Bool) :~ SuperscalarIssueHazards():
+  def waw = a.writes & a.deferred & younger.control.writeback.enable & (older.rd === younger.rd)
+  def floating = younger.control.fp
+  def fpr_raw1 = ((floating.valid & floating.bits.registers.uses_frs1) ||| b.vector_frs1) & (older.rd === younger.rs1)
+  def fpr_raw2 = floating.valid & floating.bits.registers.uses_frs2 & (older.rd === younger.rs2)
+  def fpr_raw3 = floating.valid & floating.bits.registers.uses_frs3 & (older.rd === younger.instruction[27..32])
+  def fpr_raw = a.fpr_writes & (fpr_raw1 ||| fpr_raw2 ||| fpr_raw3)
+  def fpr_waw = a.fpr_writes & b.fpr_writes & (older.rd === younger.rd)
+  def fixed_collision = fixed_returns_collide & ((a.multiply & younger.late_gpr) ||| (older.late_gpr & b.multiply))
+  def service_conflict = (a.scalar_service & b.scalar_service) ||| (a.vector & b.vector)
+  def control_conflict = (older.ras & younger.ras) ||| (a.vector_config & b.vector_config)
+  def qualified = older.decodable & younger.decodable
+  SuperscalarIssueHazards():
+    data: qualified & (raw ||| waw ||| fpr_raw ||| fpr_waw)
+    structural: qualified & (service_conflict ||| control_conflict ||| (a.fpr_reads & b.fpr_reads) ||| fixed_collision)
+
+/* Tests one candidate against external readiness and the projected branch-training occupancy. */
+fun superscalar_issue_lane_hazards(xlen :: XLen, candidate :: SuperscalarIssueCandidate(xlen), traits :: SuperscalarIssueTraits(), status :: SuperscalarIssueStatus(), resources :: SuperscalarIssueResources(), operands_blocked :: Bool, training_pending :: Bits(4)) :~ SuperscalarIssueHazards():
+  def control = candidate.control
+  def data = candidate.decodable & (operands_blocked ||| status.fp_data_blocked ||| (control.writeback.enable & status.destination_blocked))
+  def capacity = (traits.multiply & !resources.multiply_available) ||| status.fp_capacity_blocked ||| (traits.branch & (training_pending >= Bits(4)(3)))
+  def ordered_memory = candidate.decodable & control.memory.enable & !control.memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store)
+  SuperscalarIssueHazards():
+    data: data
+    structural: status.execution_blocked ||| resources.retry_wait ||| capacity ||| (traits.system & !resources.serialization_ready) ||| status.csr_read_wait ||| (ordered_memory & !resources.memory_order_ready)
+
+/* Checks pair ordering restrictions independently of resource and operand readiness. */
+fun superscalar_issue_pair_excluded(xlen :: XLen, older :: SuperscalarIssueCandidate(xlen), a :: SuperscalarIssueTraits(), b :: SuperscalarIssueTraits()) :: Bool:
+  !older.decodable ||| older.control.pause ||| a.system ||| a.csr ||| b.system ||| b.csr
+
+/* Checks whether compact pipeline PCs can represent a candidate relative to the group's oldest PC. */
+fun superscalar_issue_pc_allowed(xlen :: XLen, first_pc :: Bits(xlen.width), pc :: Bits(xlen.width)) :: Bool:
+  def first_region = first_pc[SuperscalarPcOffsetBits..xlen.width]
+  def region = pc[SuperscalarPcOffsetBits..xlen.width]
+  (region === first_region) ||| (region === (first_region + Bits(xlen.width - SuperscalarPcOffsetBits)(1)))
+
+/* Validates a supplied issue component's detached contract and derives its candidate width.
+   No named-core import or implementation materialization is needed to inspect the boundary. */
+fun superscalar_issue_width(xlen :: XLen, implementation :: Module || CircuitDefinition) :: matching(2) || matching(3):
+  def signature = circuit_signature(implementation)
+  def candidates = signature.input("candidates")
+  unless candidates && candidates.type is_a VectorType
+  | error(~who: #'superscalar_issue_width, "issue component requires a candidate vector")
+
+  def width :: matching(2) || matching(3) = candidates.type.length
+  def expected = ModuleSignature(
+    [PortSignature("candidates", Vec(width, SuperscalarIssueCandidate(xlen))),
+     PortSignature("status", Vec(width, SuperscalarIssueStatus())),
+     PortSignature("resources", SuperscalarIssueResources()),
+     PortSignature("read_blocked", Vec(4, Bool))],
+    [PortSignature("reads", SuperscalarReadRouting(width)),
+     PortSignature("instructions", Vec(width, SuperscalarIssueInstruction())),
+     PortSignature("decision", SuperscalarIssueDecision(width))]
+  )
+  unless signature_equal(signature, expected)
+  | error(~who: #'superscalar_issue_width, "issue component does not match the superscalar issue contract")
+
+  width
+
+/* Emits unchanged instruction bits and controls with the selected first-pair mux settings.
+   Other candidates use ordinary datapath routes; no third-lane rewrite is introduced. */
+fun superscalar_issue_instructions(xlen :: XLen, group_width :: matching(2) || matching(3), candidates :: Vec(group_width, SuperscalarIssueCandidate(xlen)), pairing :: SuperscalarPairing()) :~ Vec(group_width, SuperscalarIssueInstruction()):
+  vec(
+    for List (lane in 0..group_width):
+      SuperscalarIssueInstruction():
+        instruction: candidates[lane].instruction
+        control: candidates[lane].control
+        pair: if lane == 1 | superscalar_pair_control(pairing, candidates[0].control) | literal(SuperscalarPairControl(), 0)
+  )
+
+export:
+  SuperscalarIssueCandidate
+  SuperscalarIssueStatus
+  SuperscalarIssueResources
+  SuperscalarWriteRouting
+  superscalar_write_routing
+  SuperscalarIssueDecision
+  SuperscalarIssueTraits
+  SuperscalarIssueHazards
+  superscalar_issue_traits
+  superscalar_issue_raw
+  superscalar_issue_pair_hazards
+  superscalar_issue_lane_hazards
+  superscalar_issue_pair_excluded
+  superscalar_issue_pc_allowed
+  superscalar_issue_width
+  superscalar_issue_instructions

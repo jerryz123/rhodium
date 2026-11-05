@@ -8,7 +8,8 @@ Read [README.md](README.md) for the named API and
 source ownership, and focused validation.
 
 This directory owns the `RV2WideConfig` wrapper and `RV2WideHart` reset/start and
-CHI wiring. The wrapper contains one `SuperscalarPipelineConfig` in `pipeline`;
+CHI wiring, plus `issue.rhdl`'s fixed-two-candidate admission policy.
+The wrapper contains one `SuperscalarPipelineConfig` in `pipeline`;
 shared parameters, defaults, and validation belong in `superscalar/profile.rhm`.
 Keep only genuinely named-core policy here, without copying pipeline fields or
 adding private decode, frontend, execution, memory, or retirement implementations.
@@ -20,3 +21,9 @@ Keep core factories, hart elaboration, and UDB on the same projection. API chang
 must be exercised through the existing shared behavioral fixtures; the enabled
 fetch fixture uses the RV2Wide entry point. Run `moon run rhodium:check-boundaries` after
 changing imports, and follow the shared guide for behavior-specific checks.
+
+Keep the complete oldest-first grant in `RV2WideIssue`; reuse the shared issue
+contracts and dependency/write-routing helpers. The hart and factory pass this
+circuit through `~issue`, never through the pipeline config. Validate policy
+changes with `python3 tools/testing/rsim/run.py --fixture rv2wide-issue`;
+its driver shares the common issue oracle under superscalar tests.

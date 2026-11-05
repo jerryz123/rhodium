@@ -1,0 +1,83 @@
+#lang rhodium
+/* Owns RV3Wide's three-candidate admission, control-only operand routing, and borrowed 4R2W paths. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../superscalar/issue.rhdl" open
+  "../superscalar/read-operands.rhdl" open
+  "../superscalar/pairing.rhdl" open
+  lib("riscv/isa/xlen.rhm").XLen
+
+/* Selects up to three instructions without skipping an older blocked candidate.
+   Lane 3 borrows only lane 2 rs2 for rs1 and lane 1 rs2 for rs2; it has no
+   same-group forwarding route and may borrow either unused physical write port. */
+circuit RV3WideIssue(xlen :: XLen):
+  input candidates: Vec(3, SuperscalarIssueCandidate(xlen))
+  input status: Vec(3, SuperscalarIssueStatus())
+  input resources: SuperscalarIssueResources()
+  input read_blocked: Vec(4, Bool)
+  output reads: SuperscalarReadRouting(3)
+  output instructions: Vec(3, SuperscalarIssueInstruction())
+  output decision: SuperscalarIssueDecision(3)
+
+  def traits :: Vec(3, SuperscalarIssueTraits()) = vec(for List (lane in 0..3): superscalar_issue_traits(xlen, candidates[lane]))
+  reads <== superscalar_read_routing(3, vec(
+    for List (lane in 0..3):
+      SuperscalarReadRequest():
+        valid: candidates[lane].present & candidates[lane].decodable
+        addresses: vec(candidates[lane].rs1, candidates[lane].rs2)
+        used: vec(candidates[lane].control.operand.uses_rs1, candidates[lane].control.operand.uses_rs2)
+  ))
+  def pairing = superscalar_pairing(vec(candidates[0].control, candidates[1].control), vec(candidates[0].decodable, candidates[1].decodable), candidates[0].rd, vec(candidates[1].rs1, candidates[1].rs2), vec(candidates[0].instruction, candidates[1].instruction), traits[0].deferred)
+  instructions <== superscalar_issue_instructions(xlen, 3, candidates, pairing)
+  def first_pair = superscalar_issue_pair_hazards(xlen, candidates[0], candidates[1], traits[0], traits[1], pairing.unresolved.any(), resources.fixed_returns_collide)
+  def third_pairs = vec(
+    for List (older in 0..2):
+      superscalar_issue_pair_hazards(xlen, candidates[older], candidates[2], traits[older], traits[2], superscalar_issue_raw(xlen, candidates[older], candidates[2], traits[older]), resources.fixed_returns_collide)
+  )
+  def pair_data = vec(Bool(#false), first_pair.data, third_pairs[0].data ||| third_pairs[1].data)
+  def pair_structural = vec(Bool(#false), first_pair.structural, third_pairs[0].structural ||| third_pairs[1].structural)
+
+  /* Reserve the union of ports needed by each admitted prefix. Re-evaluating
+     actual writes at WB may restore an older write after a younger fault. */
+
+  def destinations = vec(for List (lane in 0..3): candidates[lane].rd)
+  def coalescible = vec(for List (lane in 0..3): traits[lane].coalescible)
+  def mutable prefix :: Bool = !resources.stop & !resources.retry_wait & !resources.pause_blocked
+  def mutable count :: Bits(2) = Bits(2)(0)
+  def mutable reserved :: Vec(2, Bool) = vec(Bool(#false), Bool(#false))
+  def mutable allocation :: SuperscalarWriteRouting(3) = superscalar_write_routing(3, destinations, vec(Bool(#false), Bool(#false), Bool(#false)), coalescible, resources.write_available)
+  def mutable prior_data :: Bool = Bool(#false)
+  def mutable prior_structural :: Bool = Bool(#false)
+  def mutable branches :: Bits(4) = resources.training_pending
+  def results :: List.of(Vec(3, Bool)) = for List (lane in 0..3):
+    def blocked = any(
+      for List (source in 0..2):
+        def port = if lane < 2 | 2 * lane + source | (if source == 0 | 3 | 1)
+        def replaced = if lane == 1 | pairing.replaced()[source] | Bool(#false)
+        reads.needed[lane][source] & (!reads.granted[lane][source] ||| (!replaced & read_blocked[port]))
+    )
+    def hazards = superscalar_issue_lane_hazards(xlen, candidates[lane], traits[lane], status[lane], resources, blocked, branches)
+    branches := branches + traits[lane].branch.as_bits().zext(4)
+    def excluded = any(for List (older in 0..lane): superscalar_issue_pair_excluded(xlen, candidates[older], traits[older], traits[lane]))
+    def younger_blocked = Bool(lane > 0) & (resources.younger_slot_reserved ||| resources.vector_waiting ||| excluded ||| !superscalar_issue_pc_allowed(xlen, candidates[0].pc, candidates[lane].pc) ||| (!candidates[lane].fetch_fault & !candidates[lane].decodable))
+    def proposed = superscalar_write_routing(3, destinations, vec(for List (index in 0..3): Bool(index <= lane) & traits[index].direct), coalescible, resources.write_available)
+    def local_data = hazards.data ||| pair_data[lane]
+    def local_structural = hazards.structural ||| younger_blocked ||| pair_structural[lane] ||| !proposed.fits
+    prefix := prefix & candidates[lane].present & !local_data & !local_structural & !status[lane].vector_blocked
+    count := count + prefix.as_bits().zext(2)
+    allocation := mux(prefix, proposed, allocation)
+    reserved := vec(for List (port in 0..2): reserved[port] ||| (prefix & proposed.occupied[port]))
+    prior_data := prior_data ||| local_data
+    prior_structural := prior_structural ||| local_structural
+    vec(prefix, prior_data, prior_structural ||| resources.pause_blocked)
+
+  decision <== SuperscalarIssueDecision(3):
+    count: count
+    admitted: vec(for List (lane in 0..3): results[lane][0])
+    data_hazard: vec(for List (lane in 0..3): results[lane][1])
+    structural_hazard: vec(for List (lane in 0..3): results[lane][2])
+    writes: allocation
+    reserve: reserved
+
+export RV3WideIssue

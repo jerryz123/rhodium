@@ -204,11 +204,18 @@ table	language	examples/rtl/table.rhdl	program	rhodium/backend/tests/rsim/table.
 vec-search	language	examples/rtl/vec-search.rhdl	program	rhodium/backend/tests/rsim/vec-search.cpp
 bundle-update	language	rhodium/backend/tests/rsim/emit-bundle-update.rhm	program	rhodium/backend/tests/rsim/bundle-update.cpp
 rv2wide-core	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-core.rhm	program	cores/superscalar/tests/rsim/rv2wide-core.cpp	target	sims/statistics/collector.cc
+rv3wide-core	cores-components	cores/rv3wide/tests/rsim/emit-core.rhm	program	cores/rv3wide/tests/rsim/core.cpp
 rv2wide-issue-window	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-issue-window.rhm	program	cores/superscalar/tests/rsim/rv2wide-issue-window.cpp
 rv2wide-issue-window-h	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-issue-window.rhm	guest_program	cores/superscalar/tests/rsim/rv2wide-issue-window.cpp
 rv2wide-issue-window-rv32	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-issue-window.rhm	rv32_program	cores/superscalar/tests/rsim/rv2wide-issue-window.cpp
 superscalar-issue-window-three	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-issue-window.rhm	three_program	cores/superscalar/tests/rsim/three-issue-window.cpp
 superscalar-issue-window-three-h	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-issue-window.rhm	three_guest_program	cores/superscalar/tests/rsim/three-issue-window.cpp
+superscalar-read-two	cores-components	cores/superscalar/tests/read-operands-fixture.rhdl	two_program	cores/superscalar/tests/rsim/read-operands.cpp
+superscalar-read-three	cores-components	cores/superscalar/tests/read-operands-fixture.rhdl	three_program	cores/superscalar/tests/rsim/read-operands.cpp
+superscalar-read-three-rv32	cores-components	cores/superscalar/tests/read-operands-fixture.rhdl	rv32_program	cores/superscalar/tests/rsim/read-operands.cpp
+rv2wide-issue	cores-components	cores/rv2wide/tests/issue-fixture.rhdl	program	cores/rv2wide/tests/rsim/issue.cpp
+rv3wide-issue	cores-components	cores/rv3wide/tests/issue-fixture.rhdl	program	cores/rv3wide/tests/rsim/issue.cpp
+rv3wide-issue-rv32	cores-components	cores/rv3wide/tests/issue-fixture.rhdl	rv32_program	cores/rv3wide/tests/rsim/issue.cpp
 rv2wide-core-vector	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-core-vector.rhm	program	cores/superscalar/tests/rsim/rv2wide-core-vector.cpp	target	rheg/runtime/rheg.cc
 rv2wide-core-vector-rv32	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-core-vector.rhm	rv32_program	cores/superscalar/tests/rsim/rv2wide-core-vector.cpp	target	rheg/runtime/rheg.cc
 rv2wide-vector-memory	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-vector-memory.rhm	program	cores/superscalar/tests/rsim/rv2wide-vector-memory.cpp

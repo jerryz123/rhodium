@@ -297,14 +297,15 @@ and core also consume `cores/misaligned-access.rhdl`: the neutral split
 request/result contract and retained fragment engine. This shared module imports
 the physical cache protocol, cache operations, load/store shaping, architectural
 XLEN/guest-fault types, Bits helpers, and Flow, never a named core's payload.
-The `cores/superscalar/` family owns the single fixed-two-wide implementation
+The `cores/superscalar/` family owns the shared two/three-lane integer implementation
 behind RV2Wide and RV3Wide. Each named core owns its config class and hart
 circuit. Configs import the shared `SuperscalarPipelineConfig` and retain it as
 their sole `pipeline` field. Shared defaults and validation remain in the family.
 Named configs additionally import architectural ISA/hart and shared CSR types
 for their three derived metadata properties. Hart and host entry-point factories
 consume the contained value when instantiating the shared fetching top;
-execution-slice consumers call `SuperscalarCore` directly with it.
+execution-slice consumers call `SuperscalarCore` directly with it and an explicit
+`~issue` circuit supplied by the named core.
 UDB adapters pass it to the shared publication function. Neither named
 core imports the other. Named hart circuits import Flow and CHI channels plus
 the neutral hart identity and interrupt descriptors; no shared hart wrapper
@@ -356,11 +357,27 @@ pipeline storage, and fault retention. `bundles.rhdl`, `issue-window.rhdl`,
 `branch-training.rhdl`, and `load-response.rhdl` import the same Flow facade for
 stream contracts, instruction/retired-training storage, owner storage, and
 atomic response/context joining.
+`cores/superscalar/read-operands.rhdl` imports the family's operand/result
+bundles, pairing control types, shared immediate extraction, architectural XLEN,
+and the Flow endpoint annotation. It owns fixed four-path read routing,
+interstage forwarding, operand muxes, and composed-immediate arithmetic;
+the core retains register-file
+storage and deferred-return/scoreboard policy. `cores/superscalar/issue.rhdl`
+imports the read-routing and pairing helpers, decoded controls, lane PC geometry, XLEN,
+CSR command classification, cache operations, and FP/vector control types.
+It also imports core IR/signature/types and frontend circuit-reference APIs to
+validate the supplied component's interface. It owns shared contracts, dependency
+predicates, control-only instruction records, and write allocation. Named `cores/rv2wide/issue.rhdl` and
+`cores/rv3wide/issue.rhdl` depend on these shared helpers and own their complete
+prefix decisions. Their harts/factories pass the selected circuit through
+`~issue`; shared core/top consume a Module or CircuitDefinition, with no
+named-core import. The core retains resource state, bookings and retirement.
 RV2Wide's `pairing.rhdl` imports its composed control, shared ALU/operand types,
 system-control types, cache-operation enum, and canonical instruction fields/patterns.
-`core.rhdl` consumes its combinational pairing
-result; `bundles.rhdl` imports its operand-route type and folded-immediate width
-for EX storage. No shared
+The named issue circuits use its recognition and mux-control helpers internally;
+`bundles.rhdl` defines datapath operand storage and imports the folded-immediate
+width. `core.rhdl` applies the emitted controls through `read-operands.rhdl`,
+captures its result, and applies EX/MEM forwarding controls. No shared
 component or architectural catalog depends on this named-core policy.
 RV2Wide's bundles also import the shared `cores/branch-resolver.rhdl` control
 payload for registered MEM comparison; operand bypass and recovery remain core policy.

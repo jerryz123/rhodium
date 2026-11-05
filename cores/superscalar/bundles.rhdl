@@ -5,7 +5,6 @@
 import:
   lib("cores/pc.rhdl").CompactPc
   lib("cores/fp/profile.rhm").fp_transport_profile
-  "pairing.rhdl".SuperscalarPairRoute
   "pairing.rhdl".superscalar_pair_immediate_width
   "decode/core-ctrl.rhdl" open
   "decode/mem-ctrl.rhdl" open
@@ -452,14 +451,26 @@ bundle SuperscalarFpLoad(xlen :: XLen):
   data: Bits(64)
 
 
-/* Holds RR operands, controls, composed immediates, and same-pair consumer routes. */
+/* Carries the RR-computed immediate and only the forwarding controls still needed in EX/MEM. */
+bundle SuperscalarExecutionRewrite(xlen :: XLen):
+  composed: Bool
+  immediate: Bits(superscalar_pair_immediate_width(xlen))
+  memory_address: Bool
+  store_data: Bool
+  branch_operands: Vec(2, Bool)
+  vector_scalar: Bool
+
+/* Captures selected register-read datapath values, not issue-policy state. */
+bundle SuperscalarOperands(xlen :: XLen):
+  rs1: Bits(xlen.width)
+  rs2: Bits(xlen.width)
+  rewrite: SuperscalarExecutionRewrite(xlen)
+
+/* Holds datapath operands and execution rewrites beside decoded pipeline controls. */
 bundle SuperscalarExecute(xlen :: XLen, hypervisor :: Boolean):
   fetched: SuperscalarInstruction(xlen, hypervisor)
   control: SuperscalarControl()
-  rs1: Bits(xlen.width)
-  rs2: Bits(xlen.width)
-  pair_routes: Vec(2, SuperscalarPairRoute)
-  pair_immediate: Bits(superscalar_pair_immediate_width(xlen))
+  operands: SuperscalarOperands(xlen)
   rd: Bits(5)
   illegal: Bool
   virtual_instruction: Bool
@@ -789,6 +800,8 @@ bundle SuperscalarOperand(xlen :: XLen):
   data: Bits(xlen.width)
 
 export:
+  SuperscalarExecutionRewrite
+  SuperscalarOperands
   SuperscalarFpSchedule
   SuperscalarFpRetirement
   superscalar_fp_retirement

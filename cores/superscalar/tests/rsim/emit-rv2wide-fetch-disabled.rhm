@@ -1,5 +1,5 @@
 #lang rhombus
-// Exercises the RV3Wide entry point's shared two-wide pipeline with prediction disabled.
+// Exercises RV3Wide's three-lane integer pipeline through real fetching and caches.
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../../profile.rhm".SuperscalarPipelineConfig

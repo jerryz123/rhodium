@@ -1,0 +1,64 @@
+#lang rhodium
+/* Owns RV2Wide's two-candidate admission, control-only operand routing, and fixed 4R2W allocation. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../superscalar/issue.rhdl" open
+  "../superscalar/read-operands.rhdl" open
+  "../superscalar/pairing.rhdl" open
+  lib("riscv/isa/xlen.rhm").XLen
+
+/* Admits an oldest instruction and an optional younger peer as one ordered group.
+   Candidate demand determines reads before readiness; first-pair rewrites alone
+   may waive ordinary operand readiness. Delayed completions retain their bookings. */
+circuit RV2WideIssue(xlen :: XLen):
+  input candidates: Vec(2, SuperscalarIssueCandidate(xlen))
+  input status: Vec(2, SuperscalarIssueStatus())
+  input resources: SuperscalarIssueResources()
+  input read_blocked: Vec(4, Bool)
+  output reads: SuperscalarReadRouting(2)
+  output instructions: Vec(2, SuperscalarIssueInstruction())
+  output decision: SuperscalarIssueDecision(2)
+
+  def traits :: Vec(2, SuperscalarIssueTraits()) = vec(for List (lane in 0..2): superscalar_issue_traits(xlen, candidates[lane]))
+  reads <== superscalar_read_routing(2, vec(
+    for List (lane in 0..2):
+      SuperscalarReadRequest():
+        valid: candidates[lane].present & candidates[lane].decodable
+        addresses: vec(candidates[lane].rs1, candidates[lane].rs2)
+        used: vec(candidates[lane].control.operand.uses_rs1, candidates[lane].control.operand.uses_rs2)
+  ))
+  def pairing = superscalar_pairing(vec(candidates[0].control, candidates[1].control), vec(candidates[0].decodable, candidates[1].decodable), candidates[0].rd, vec(candidates[1].rs1, candidates[1].rs2), vec(candidates[0].instruction, candidates[1].instruction), traits[0].deferred)
+  instructions <== superscalar_issue_instructions(xlen, 2, candidates, pairing)
+  def pair = superscalar_issue_pair_hazards(xlen, candidates[0], candidates[1], traits[0], traits[1], pairing.unresolved.any(), resources.fixed_returns_collide)
+  def hazards = vec(
+    for List (lane in 0..2):
+      def blocked = any(for List (source in 0..2): reads.needed[lane][source] & !(Bool(lane == 1) & pairing.replaced()[source]) & read_blocked[2 * lane + source])
+      def training = resources.training_pending + (if lane == 0 | Bits(4)(0) | traits[0].branch.as_bits().zext(4))
+      superscalar_issue_lane_hazards(xlen, candidates[lane], traits[lane], status[lane], resources, blocked, training)
+  )
+
+  /* Both possible retirement prefixes must fit, even when the younger writer
+     would hide the older write in the all-success case. */
+
+  def destinations = vec(candidates[0].rd, candidates[1].rd)
+  def coalescible = vec(traits[0].coalescible, traits[1].coalescible)
+  def empty = superscalar_write_routing(2, destinations, vec(Bool(#false), Bool(#false)), coalescible, resources.write_available)
+  def first_writes = superscalar_write_routing(2, destinations, vec(traits[0].direct, Bool(#false)), coalescible, resources.write_available)
+  def pair_writes = superscalar_write_routing(2, destinations, vec(traits[0].direct, traits[1].direct), coalescible, resources.write_available)
+  def first_structural = hazards[0].structural ||| !first_writes.fits
+  def pair_excluded = superscalar_issue_pair_excluded(xlen, candidates[0], traits[0], traits[1])
+  def younger_blocked = resources.younger_slot_reserved ||| resources.vector_waiting ||| pair_excluded ||| !superscalar_issue_pc_allowed(xlen, candidates[0].pc, candidates[1].pc) ||| (!candidates[1].fetch_fault & !candidates[1].decodable)
+  def second_structural = first_structural ||| hazards[1].structural ||| younger_blocked ||| pair.structural ||| !pair_writes.fits
+  def second_data = hazards[0].data ||| hazards[1].data ||| pair.data
+  def first :: Bool = candidates[0].present & !resources.stop & !resources.retry_wait & !resources.pause_blocked & !hazards[0].data & !first_structural & !status[0].vector_blocked
+  def second :: Bool = first & candidates[1].present & !second_data & !second_structural & !status[1].vector_blocked
+  decision <== SuperscalarIssueDecision(2):
+    count: first.as_bits().zext(2) + second.as_bits().zext(2)
+    admitted: vec(first, second)
+    data_hazard: vec(hazards[0].data, second_data)
+    structural_hazard: vec(first_structural ||| resources.pause_blocked, second_structural ||| resources.pause_blocked)
+    writes: mux(second, pair_writes, mux(first, first_writes, empty))
+    reserve: vec(for List (port in 0..2): (first & first_writes.occupied[port]) ||| (second & pair_writes.occupied[port]))
+
+export RV2WideIssue

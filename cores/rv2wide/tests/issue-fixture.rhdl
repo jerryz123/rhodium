@@ -1,0 +1,9 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../issue.rhdl".RV2WideIssue
+  "../../superscalar/tests/issue-fixture.rhdl".SuperscalarIssueFixture
+  lib("riscv/isa/xlen.rhm").XLen
+
+def program = elaborate(SuperscalarIssueFixture(XLen.X64, 2, ~issue: RV2WideIssue(XLen.X64)))
+export program

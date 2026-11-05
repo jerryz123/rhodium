@@ -29,8 +29,11 @@ Before adding a component, decide who owns its policy:
   and parcel classification. Frontend stages, parcel buffering and issue windows
   stay in the owning cores.
   [`superscalar/`](superscalar/DEVELOPING.md) owns the complete, currently
-  fixed-two-wide pipeline shared by the RV2Wide and RV3Wide named entry points,
+  two/three-lane pipeline shared by the RV2Wide and RV3Wide named entry points,
   including its frontend, decode, configuration, and integration tests.
+  Named RV2Wide/RV3Wide issue modules supply their admission policies through
+  an elaboration-time circuit parameter; shared issue contracts and predicates
+  stay in superscalar without reverse imports.
   Organize by responsibility, not by a second ISA namespace. Shared does not
   mean ISA-independent: these families may depend on architectural `riscv/`
   definitions, but never a named core's configuration or pipeline payloads.

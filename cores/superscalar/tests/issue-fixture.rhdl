@@ -1,0 +1,82 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/core/ir.rhm").Module
+  lib("rhodium/frontend/foundation.rhm").CircuitDefinition
+  "../issue.rhdl" open
+  "../read-operands.rhdl" open
+  "../pairing.rhdl" open
+  "../bundles.rhdl" open
+  "../profile.rhm".SuperscalarPipelineConfig
+  "../decode/core-ctrl.rhdl" open
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/isa/fp-profile.rhm").FloatingPointProfile
+  lib("riscv/isa/vector-profile.rhm").VectorProfile
+  lib("rhodium/std/decode.rhdl") open
+
+circuit SuperscalarIssueFixture(xlen :: XLen, group_width :: matching(2) || matching(3), ~issue: implementation :: Module || CircuitDefinition):
+  input instructions: Vec(group_width, Bits(32))
+  input pcs: Vec(group_width, Bits(xlen.width))
+  input present: Vec(group_width, Bool)
+  input faults: Vec(group_width, Bool)
+  input illegal: Vec(group_width, Bool)
+  input ras: Vec(group_width, Bool)
+  input late_gpr: Vec(group_width, Bool)
+  input status: Vec(group_width, SuperscalarIssueStatus())
+  input resources: SuperscalarIssueResources()
+  input read_blocked: Vec(4, Bool)
+  input read_data: Vec(4, Bits(xlen.width))
+  input wb_writes: Vec(group_width, Bool)
+  input wb_coalescible: Vec(group_width, Bool)
+  input wb_available: Vec(2, Bool)
+  output decision: SuperscalarIssueDecision(group_width)
+  output reads: SuperscalarReadRouting(group_width)
+  output issued_instructions: Vec(group_width, SuperscalarIssueInstruction())
+  output operands: Vec(group_width, SuperscalarOperands(xlen))
+  output write_routing: SuperscalarWriteRouting(group_width)
+
+  def profile = SuperscalarPipelineConfig(
+    ~xlen: xlen,
+    ~floating_point: if xlen == XLen.X64 | FloatingPointProfile.D | FloatingPointProfile.F,
+    ~vector: if xlen == XLen.X64 | VectorProfile.V | VectorProfile.Zve32f,
+    ~vector_length: 128,
+    ~zihintpause: #true
+  )
+  def decode = ValidDecodeGen(superscalar_control_cases(profile))
+  unless superscalar_issue_width(xlen, implementation) == group_width
+  | error("fixture candidate width must match its supplied issue component")
+
+  inst issue(implementation)
+  issue.candidates <== vec(
+    for List (lane in 0..group_width):
+      def decoded :: DecodeResult(SuperscalarControl()) = decode(instructions[lane])
+      SuperscalarIssueCandidate(xlen):
+        present: present[lane]
+        decodable: decoded.valid & !faults[lane] & !illegal[lane]
+        fetch_fault: faults[lane]
+        instruction: instructions[lane]
+        pc: pcs[lane]
+        control: decoded.value
+        rs1: instructions[lane][15..20]
+        rs2: instructions[lane][20..25]
+        rd: instructions[lane][7..12]
+        ras: ras[lane]
+        late_gpr: late_gpr[lane]
+  )
+  issue.status <== status
+  issue.resources <== resources
+  issue.read_blocked <== read_blocked
+  def read_paths = vec(
+    for List (port in 0..4):
+      SuperscalarOperand(xlen):
+        blocked: read_blocked[port]
+        data: read_data[port]
+  )
+  decision <== issue.decision
+  reads <== issue.reads
+  issued_instructions <== issue.instructions
+  operands <== superscalar_prepare_operands(xlen, group_width, issued_instructions, pcs, reads, read_paths)
+  write_routing <== superscalar_write_routing(group_width, vec(for List (lane in 0..group_width): instructions[lane][7..12]), wb_writes, wb_coalescible, wb_available)
+
+export SuperscalarIssueFixture

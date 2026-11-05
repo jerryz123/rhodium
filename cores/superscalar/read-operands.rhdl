@@ -1,0 +1,114 @@
+#lang rhodium
+/* Implements four scalar RF/bypass paths and issue-controlled operand muxes and immediate arithmetic. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "bundles.rhdl" open
+  "pairing.rhdl" open
+  lib("cores/operand.rhdl").OperandImmediate
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("flow/main.rhdl") open
+
+/* Describes decoded GPR demand before readiness or issue grants; operand order is rs1, rs2. */
+bundle SuperscalarReadRequest():
+  valid: Bool
+  addresses: Vec(2, Bits(5))
+  used: Vec(2, Bool)
+
+/* Selects four physical addresses and records per-operand demand and path ownership. */
+bundle SuperscalarReadRouting(group_width :: matching(2) || matching(3)):
+  addresses: Vec(4, Bits(5))
+  needed: Vec(group_width, Vec(2, Bool))
+  granted: Vec(group_width, Vec(2, Bool))
+
+/* Keeps lanes 1/2's paths fixed. Lane 3 rs1 borrows lane 2 rs2, and lane 3 rs2
+   borrows lane 1 rs2. Only unused/x0 operands release a path, never bypass readiness.
+   This allocation does not grant issue or resolve dependencies within the candidate group. */
+fun superscalar_read_routing(group_width :: matching(2) || matching(3), requests :: Vec(group_width, SuperscalarReadRequest())) :~ SuperscalarReadRouting(group_width):
+  def needed = vec(
+    for List (lane in 0..group_width):
+      vec(for List (operand in 0..2): requests[lane].valid & requests[lane].used[operand] & requests[lane].addresses[operand].any())
+  )
+  def borrow_rs1 = if group_width == 3 | needed[2][0] & !needed[1][1] | Bool(#false)
+  def borrow_rs2 = if group_width == 3 | needed[2][1] & !needed[0][1] | Bool(#false)
+  def lane1_rs2 = if group_width == 3 | mux(borrow_rs2, requests[2].addresses[1], requests[0].addresses[1]) | requests[0].addresses[1]
+  def lane2_rs2 = if group_width == 3 | mux(borrow_rs1, requests[2].addresses[0], requests[1].addresses[1]) | requests[1].addresses[1]
+  SuperscalarReadRouting(group_width):
+    addresses: vec(requests[0].addresses[0], lane1_rs2, requests[1].addresses[0], lane2_rs2)
+    needed: needed
+    granted: vec(
+      for List (lane in 0..group_width):
+        if lane < 2
+        | vec(Bool(#true), Bool(#true))
+        | vec(!needed[lane][0] ||| borrow_rs1, !needed[lane][1] ||| borrow_rs2)
+    )
+
+/* Routes four already-resolved paths back to operands without duplicating forwarding.
+   Unused/x0 operands are ready zero; a required operand denied its fixed path is blocked. */
+fun superscalar_read_results(xlen :: XLen, group_width :: matching(2) || matching(3), routing :: SuperscalarReadRouting(group_width), paths :: Vec(4, SuperscalarOperand(xlen))) :~ Vec(group_width, Vec(2, SuperscalarOperand(xlen))):
+  vec(
+    for List (lane in 0..group_width):
+      vec(
+        for List (operand in 0..2):
+          def port = if lane < 2 | 2 * lane + operand | (if operand == 0 | 3 | 1)
+          def needed = routing.needed[lane][operand]
+          def granted = routing.granted[lane][operand]
+          SuperscalarOperand(xlen):
+            data: mux(needed & granted, paths[port].data, Bits(xlen.width)(0))
+            blocked: needed & (!granted ||| paths[port].blocked)
+      )
+  )
+
+/* Applies issue's selectors to physical read values and instruction bits.
+   This datapath does not recognize pairs or waive hazards. Its U+I/S adder
+   keeps a signed 33-bit result on RV64 and wraps at 32 bits on RV32. */
+fun superscalar_prepare_operands(xlen :: XLen, group_width :: matching(2) || matching(3), instructions :: Vec(group_width, SuperscalarIssueInstruction()), pcs :: Vec(group_width, Bits(xlen.width)), routing :: SuperscalarReadRouting(group_width), paths :: Vec(4, SuperscalarOperand(xlen))) :~ Vec(group_width, SuperscalarOperands(xlen)):
+  def resolved = superscalar_read_results(xlen, group_width, routing, paths)
+  def width = superscalar_pair_immediate_width(xlen)
+  def older_immediate :: OperandImmediate = instructions[0].control.operand.immediate
+  def younger_immediate :: OperandImmediate = instructions[1].control.operand.immediate
+  def constant = older_immediate.decode(instructions[0].instruction, xlen.width)
+  def offset = older_immediate.decode(instructions[0].instruction, width) + younger_immediate.decode(instructions[1].instruction, width)
+  vec(
+    for List (lane in 0..group_width):
+      def select = instructions[lane].pair
+      def left = mux_lookup(select.sources[0], ~default: resolved[lane][0].data):
+        SuperscalarReadSource.OlderConstant: constant
+        SuperscalarReadSource.OlderRegister: resolved[0][0].data
+        SuperscalarReadSource.OlderPc: pcs[0]
+
+      SuperscalarOperands(xlen):
+        rs1: left
+        rs2: mux(select.sources[1] === SuperscalarReadSource.OlderConstant, constant, resolved[lane][1].data)
+        rewrite:
+          SuperscalarExecutionRewrite(xlen):
+            composed: select.composed
+            immediate: if lane == 1 | offset | Bits(width)(0)
+            memory_address: select.memory_address
+            store_data: select.store_data
+            branch_operands: select.branch_operands
+            vector_scalar: select.vector_scalar
+  )
+
+/* Resolves oldest-to-youngest candidates so a nearer unavailable producer blocks stale data.
+   Call once per physical path, using its selected address for both RF and bypass lookup. */
+fun forwarded_operand(xlen :: XLen, hypervisor :: Boolean, address :: Bits(5), stored :: Bits(xlen.width), producers :: List.of(Endpoint)) :: SuperscalarOperand(xlen):
+  def mutable value = stored
+  def mutable blocked = Bool(#false)
+  for (producer in producers):
+    def token :: SuperscalarResult(xlen, hypervisor) = producer.bits
+    def matched = producer.valid & token.write & (token.rd === address)
+    value := mux(matched, token.data, value)
+    blocked := mux(matched, (token.resolution.disposition =/= SuperscalarDisposition.Continue) ||| !token.result_ready, blocked)
+
+  SuperscalarOperand(xlen):
+    data: mux(address.any(), value, Bits(xlen.width)(0))
+    blocked: address.any() & blocked
+
+export:
+  SuperscalarReadRequest
+  SuperscalarReadRouting
+  superscalar_read_routing
+  superscalar_read_results
+  superscalar_prepare_operands
+  forwarded_operand

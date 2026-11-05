@@ -1,12 +1,12 @@
-<!-- Documents RV3Wide as an experimental entry point to the fixed two-wide superscalar implementation. -->
+<!-- Documents RV3Wide's three-lane integer specialization of the shared 4R2W superscalar pipeline. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # RV3Wide
 
 RV3Wide is an experimental named entry point to the
-[shared superscalar pipeline](../superscalar/README.md). **It is currently
-microarchitecturally two-wide**, identical to RV2Wide for the same configuration.
-It does not yet issue or retire three instructions per cycle. Contributor
+[shared superscalar pipeline](../superscalar/README.md). It can issue and retire
+three instructions per cycle, with an ordinary integer third lane and the
+existing two shared-service-capable lanes. Contributor
 ownership and validation are in [DEVELOPING.md](DEVELOPING.md).
 
 ## Get started
@@ -38,13 +38,24 @@ selects a smaller BTB. Import the pipeline type from `cores/superscalar/profile.
 `RV3WideHart` independently
 owns reset/start and CHI wiring. `RV3Wide` is a host factory that projects
 configuration without adding pipeline hierarchy. For the execution slice alone,
-use `SuperscalarCore(profile.pipeline)` from
+use `SuperscalarCore(profile.pipeline, ~issue: RV3WideIssue(profile.pipeline.xlen))` from
 `cores/superscalar/core.rhdl` directly. UDB uses the
 same contained pipeline config; there is still only one execution implementation.
 
-Fetch remains eight bytes per cycle, issue/retirement remain two-wide, and the
+Fetch remains eight bytes per cycle, issue/retirement support three lanes, and the
 GPR file remains 4R2W. Pipeline payloads come from `cores/superscalar/bundles.rhdl`.
-There is no lane-count parameter or third-lane scheduling policy.
+There is no backend lane-count parameter. `issue.rhdl` exports
+`RV3WideIssue(xlen)`, a three-candidate scheduling policy with fixed read-path
+borrowing and two-write-port contention. The factory supplies it to the shared
+core. Lane 3 borrows lane 2 rs2's read/bypass path for rs1 and lane 1 rs2's path
+for rs2, only when those donor operands are unused or x0. Issue assigns its
+write port from the two existing ports. Three distinct direct GPR writes cannot
+coissue; same-destination overwrites can share capacity without merging retirements.
+
+The third lane currently executes ordinary integer ALU operations. Branches,
+memory, FP/vector, and system-service operations compact into the first two
+lanes; groups containing vector execution/configuration stay at most two-wide.
+Fault/replay in the third lane preserves both older successful retirements.
 
 RV3Wide has the same supported shape/ISA selections and CI enrollment as RV2Wide:
 Mini enrolls `rv32int`, `rv32max`, `rv64imacb`, `rv64imafdcb`, and `rva23`;

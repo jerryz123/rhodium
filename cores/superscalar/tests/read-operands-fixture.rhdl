@@ -1,0 +1,54 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../read-operands.rhdl" open
+  "../bundles.rhdl" open
+  lib("cores/register-file.rhdl").RegisterFile
+  lib("cores/register-write.rhdl").RegisterFileWrite
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("flow/main.rhdl") open
+
+bundle TestReadProducer(xlen :: XLen):
+  valid: Bool
+  write: Bool
+  address: Bits(5)
+  data: Bits(xlen.width)
+  ready: Bool
+  continuing: Bool
+
+sync_circuit SuperscalarReadFixture(xlen :: XLen, group_width :: matching(2) || matching(3)):
+  input requests: Vec(group_width, SuperscalarReadRequest())
+  input producers: Vec(9, TestReadProducer(xlen))
+  input pending: Bits(32)
+  interface writes[2](Valid(RegisterFileWrite(xlen)), ~role: consumer)
+  output routing: SuperscalarReadRouting(group_width)
+  output operands: Vec(group_width, Vec(2, SuperscalarOperand(xlen)))
+
+  inst registers(RegisterFile(xlen, ~read_ports: 4))
+  writes <=> registers.writes
+  routing <== superscalar_read_routing(group_width, requests)
+  registers.read_addresses <== routing.addresses
+  def sources :: List.of(Endpoint) = for List (index in 0..9):
+    def source = producers[index]
+    def link = interface_link(Valid(SuperscalarResult(xlen, #false)))
+    def empty :: SuperscalarResult(xlen, #false) = literal(SuperscalarResult(xlen, #false), 0)
+    link.left.valid <== source.valid
+    link.left.bits <== empty.updated(
+      ~rd: source.address, ~write: source.write, ~data: source.data, ~result_ready: source.ready,
+      ~resolution: empty.resolution.updated(~disposition: mux(source.continuing, SuperscalarDisposition.Continue, SuperscalarDisposition.Replay))
+    )
+    link.right
+
+  def paths = vec(
+    for List (port in 0..4):
+      def address = routing.addresses[port]
+      def forwarded = forwarded_operand(xlen, #false, address, registers.read_data[port], sources)
+      forwarded.updated(~blocked: forwarded.blocked ||| (address.any() & (pending >> address)[0].into(Bool)))
+  )
+  operands <== superscalar_read_results(xlen, group_width, routing, paths)
+
+def two_program = elaborate(SuperscalarReadFixture(XLen.X64, 2))
+def three_program = elaborate(SuperscalarReadFixture(XLen.X64, 3))
+def rv32_program = elaborate(SuperscalarReadFixture(XLen.X32, 3))
+export two_program three_program rv32_program

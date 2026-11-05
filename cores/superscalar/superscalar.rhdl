@@ -1,10 +1,13 @@
 #lang rhodium
-/* Composes translated instruction fetching, dual-issue execution, and shared TLB/PTW and caches. */
+/* Composes eight-byte fetch, issue-selected execution width, and shared translation and caches. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/core/ir.rhm").Module
+  lib("rhodium/frontend/foundation.rhm").CircuitDefinition
   "profile.rhm" open
   "core.rhdl" open
+  "issue.rhdl".superscalar_issue_width
   "frontend.rhdl" open
   "cache.rhdl" open
   "mmu.rhdl" open
@@ -25,9 +28,10 @@ import:
 /* Starts from a physical PC and reports ordered retirement and architectural redirects.
    Faults enter the programmed trap vector; only reset permits a new start pulse.
    Distinct instruction, data, and uncached identities separate retained transactions. */
-sync_circuit Superscalar(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~instruction_cache: instruction_cache :: CacheConfig = cache, ~profile: profile :: SuperscalarPipelineConfig = SuperscalarPipelineConfig(~instruction_cache: instruction_cache, ~data_cache: cache)):
+sync_circuit Superscalar(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~issue: issue :: Module || CircuitDefinition, ~instruction_cache: instruction_cache :: CacheConfig = cache, ~profile: profile :: SuperscalarPipelineConfig = SuperscalarPipelineConfig(~instruction_cache: instruction_cache, ~data_cache: cache)):
   def xlen = profile.xlen
   def hypervisor = profile.hypervisor
+  def issue_width = superscalar_issue_width(xlen, issue)
   unless config.cache_line_bytes == CacheLineBytes
   | error(~who: #'Superscalar, "Superscalar requires 64-byte CHI cache lines")
 
@@ -39,7 +43,7 @@ sync_circuit Superscalar(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfi
   input(hart_id, time_counter): Bits(64)
   trace_instance("hart", hart_id)
   interface start(Valid(Bits(64)), ~role: consumer)
-  interface retired[2](Valid(SuperscalarRetirement(xlen, hypervisor)), ~role: producer)
+  interface retired[issue_width](Valid(SuperscalarRetirement(xlen, hypervisor)), ~role: producer)
   interface completed(Valid(SuperscalarCompletion(xlen)), ~role: producer)
   interface redirect(Valid(SuperscalarRedirect(xlen)), ~role: producer)
   interface instruction_chi(CHIRNIChannels(config.flit), ~role: node)
@@ -54,12 +58,12 @@ sync_circuit Superscalar(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfi
      Scalar width follows the profile; fetch and physical transport remain 64-bit. */
 
   def instruction_pc_width = profile.fetch_address_width(config.flit.request_address_width)
-  inst core(SuperscalarCore(profile, ~instruction_pc_width: instruction_pc_width))
+  inst core(SuperscalarCore(profile, ~issue: issue, ~instruction_pc_width: instruction_pc_width))
   core.interrupts <== interrupts
   core.hart_id <== hart_id
   core.time_counter <== time_counter
   sleeping <== core.sleeping
-  inst frontend(SuperscalarFrontend(config, profile))
+  inst frontend(SuperscalarFrontend(config, profile, ~group_width: issue_width))
   inst instruction(L1ICache(XLen.X64, instruction_cache, ~chi: config, ~fetch_bits: 64))
   inst data(SuperscalarL1D(cache, ~chi: config, ~xlen: xlen))
   inst mmu(if profile.mmu_type == RiscvMmuType.Bare | SuperscalarBareMemory(xlen, config) | SuperscalarMmu(config, ~svnapot: profile.svnapot, ~hypervisor: profile.hypervisor))
@@ -149,7 +153,7 @@ sync_circuit Superscalar(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfi
   assert((instruction_node_id =/= uncached_node_id) & (data_node_id =/= uncached_node_id), "superscalar_distinct_uncached_identity")
   issued <== core.issued
   retired_count <== core.retired_count
-  for (slot in 0..2):
+  for (slot in 0..issue_width):
     core.resolution[slot].valid <== Bool(#false)
     core.resolution[slot].bits <== dont_care(SuperscalarResolution(xlen))
 

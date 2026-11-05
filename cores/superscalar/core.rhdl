@@ -1,9 +1,11 @@
 #lang rhodium
-/* Implements pipeline-ordered dual issue with explicit WB dispatch, retention, and retirement authority. */
+/* Implements shared two/three-lane integer execution with issue-owned 4R2W routing and precise WB retirement. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("cores/pc.rhdl").CompactPc
+  lib("rhodium/core/ir.rhm").Module
+  lib("rhodium/frontend/foundation.rhm").CircuitDefinition
   lib("rhodium/frontend/layers/statistics.rhm").stat_count
   lib("cores/bpred/statistics.rhdl") open
   lib("cores/fp/profile.rhm").fp_transport_profile
@@ -16,9 +18,11 @@ import:
   "profile.rhm" open
   "bundles.rhdl" open
   "issue-window.rhdl" open
+  "issue.rhdl" open
   "lane-pipe.rhdl" open
   "branch-training.rhdl".SuperscalarBranchTrainingBuffer
   "pairing.rhdl" open
+  "read-operands.rhdl" open
   "load-response.rhdl" open
   "long-execution.rhdl" open
   "fp.rhdl" open
@@ -80,20 +84,6 @@ hardware_enum SuperscalarRetainedState:
   Ready
   Accepted
 
-/* Resolves oldest-to-youngest candidates so a nearer unavailable producer blocks stale data. */
-fun forwarded_operand(xlen :: XLen, hypervisor :: Boolean, address :: Bits(5), stored :: Bits(xlen.width), producers :: List.of(Endpoint)) :: SuperscalarOperand(xlen):
-  def mutable value = stored
-  def mutable blocked = Bool(#false)
-  for (producer in producers):
-    def token :: SuperscalarResult(xlen, hypervisor) = producer.bits
-    def matched = producer.valid & token.write & (token.rd === address)
-    value := mux(matched, token.data, value)
-    blocked := mux(matched, (token.resolution.disposition =/= SuperscalarDisposition.Continue) ||| !token.result_ready, blocked)
-
-  SuperscalarOperand(xlen):
-    data: mux(address.any(), value, Bits(xlen.width)(0))
-    blocked: address.any() & blocked
-
 /* Interlocks a younger write against every older result that may complete after WB. */
 fun pending_destination(xlen :: XLen, hypervisor :: Boolean, address :: Bits(5), producers :: List.of(Endpoint)) :: Bool:
   def matches = for List (producer in producers):
@@ -102,24 +92,26 @@ fun pending_destination(xlen :: XLen, hypervisor :: Boolean, address :: Bits(5),
 
   address.any() & any(matches)
 
-/* Orders state-changing commands while pure CSR reads and vector configuration pipeline normally. */
-fun superscalar_serializing_operation(system :: SuperscalarSystemControl(), instruction :: Bits(32)) :: Bool:
-  system.uses_command() & (system.action =/= RiscvCsrAction.VectorConfig) & !csr_pure_read(system.csr, instruction[15..20])
-
-
 /* Executes RV32/RV64 integer, optional RV64 F/D, and system operations with precise WB-owned state.
+   The supplied issue circuit owns admission and physical write allocation.
+   The optional third lane executes ordinary integer work; shared services stay in lanes 0/1.
    Resolution inputs qualify the corresponding live MEM token in the same cycle. */
-sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarPipelineConfig(), ~fp_timing: selected_fp_timing :: FpExecutionTiming = FpExecutionTiming(), ~instruction_pc_width: instruction_pc_width :: PosInt = profile.xlen.width):
+sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarPipelineConfig(), ~issue: issue :: Module || CircuitDefinition, ~fp_timing: selected_fp_timing :: FpExecutionTiming = FpExecutionTiming(), ~instruction_pc_width: instruction_pc_width :: PosInt = profile.xlen.width):
   def xlen = profile.xlen
   def hypervisor = profile.hypervisor
+  def issue_width = superscalar_issue_width(xlen, issue)
+
+  /* Extends a shared-service owner to index the wider instruction group. */
+  fun service_index(index :: Bits(1)) :~ Bits(index_width(issue_width)):
+    if issue_width == 2 | index | index.zext(2)
 
   input interrupts: RiscvInterrupts()
   input hart_id: Bits(64)
   input time_counter: Bits(64)
-  interface instructions(Decoupled(SuperscalarPacket(xlen, hypervisor, 2)), ~role: consumer)
-  interface resolution[2](Valid(SuperscalarResolution(xlen)), ~role: consumer)
-  interface memory_stage[2](Valid(SuperscalarInstruction(xlen, hypervisor)), ~role: producer)
-  interface retired[2](Valid(SuperscalarRetirement(xlen, hypervisor)), ~role: producer)
+  interface instructions(Decoupled(SuperscalarPacket(xlen, hypervisor, issue_width)), ~role: consumer)
+  interface resolution[issue_width](Valid(SuperscalarResolution(xlen)), ~role: consumer)
+  interface memory_stage[issue_width](Valid(SuperscalarInstruction(xlen, hypervisor)), ~role: producer)
+  interface retired[issue_width](Valid(SuperscalarRetirement(xlen, hypervisor)), ~role: producer)
   interface prefetch(Valid(CachePrefetchReq(64)), ~role: producer)
   interface redirect(Valid(SuperscalarRedirect(xlen)), ~role: producer)
   interface fetch_flush(Pulse(), ~role: producer)
@@ -192,30 +184,42 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
      Flow owns feed-forward registers; the issue window owns prefix retention.
      Backward recovery links do not add pipeline storage. */
 
-  inst rr_window(SuperscalarIssueWindow(xlen, ~hypervisor: profile.hypervisor, ~pc_width: instruction_pc_width))
-  inst ex_older(SuperscalarLanePipe(xlen, SuperscalarExecute(xlen, hypervisor), ~target_width: instruction_pc_width, ~hypervisor: profile.hypervisor))
-  inst ex_younger(SuperscalarLanePipe(xlen, SuperscalarExecute(xlen, hypervisor), ~target_width: instruction_pc_width, ~hypervisor: profile.hypervisor))
-  inst mem_older(SuperscalarLanePipe(xlen, SuperscalarResult(xlen, hypervisor), ~target_width: instruction_pc_width, ~hypervisor: hypervisor))
-  inst mem_younger(SuperscalarLanePipe(xlen, SuperscalarResult(xlen, hypervisor), ~target_width: instruction_pc_width, ~hypervisor: hypervisor))
-  inst wb_older(SuperscalarLanePipe(xlen, SuperscalarResult(xlen, hypervisor), ~target_width: instruction_pc_width, ~hypervisor: hypervisor))
-  inst wb_younger(SuperscalarLanePipe(xlen, SuperscalarResult(xlen, hypervisor), ~target_width: instruction_pc_width, ~hypervisor: hypervisor))
-  def ex_pipe = [ex_older, ex_younger]
-  def mem_pipe = [mem_older, mem_younger]
-  def wb_pipe = [wb_older, wb_younger]
+  inst rr_window(SuperscalarIssueWindow(xlen, ~hypervisor: profile.hypervisor, ~pc_width: instruction_pc_width, ~group_width: issue_width))
+  def ex_pipe = for InstanceArray (lane in 0..issue_width):
+    inst stage(SuperscalarLanePipe(xlen, SuperscalarExecute(xlen, hypervisor), ~target_width: instruction_pc_width, ~hypervisor: hypervisor))
+    stage
+
+  def mem_pipe = for InstanceArray (lane in 0..issue_width):
+    inst stage(SuperscalarLanePipe(xlen, SuperscalarResult(xlen, hypervisor), ~target_width: instruction_pc_width, ~hypervisor: hypervisor))
+    stage
+
+  def wb_pipe = for InstanceArray (lane in 0..issue_width):
+    inst stage(SuperscalarLanePipe(xlen, SuperscalarResult(xlen, hypervisor), ~target_width: instruction_pc_width, ~hypervisor: hypervisor))
+    stage
+
+  def ex_older = ex_pipe[0]
+  def ex_younger = ex_pipe[1]
+  def mem_older = mem_pipe[0]
+  def mem_younger = mem_pipe[1]
+  def wb_older = wb_pipe[0]
+  def wb_younger = wb_pipe[1]
+  reg ex_write_routing(SuperscalarWriteRouting(issue_width))
+  reg mem_write_routing(SuperscalarWriteRouting(issue_width))
+  reg wb_write_routing(SuperscalarWriteRouting(issue_width))
 
   // Group payload has no separate validity: every live group has an older lane.
   def Region = Bits(xlen.width - SuperscalarPcOffsetBits)
   reg ex_pc_region(Region)
   reg mem_pc_region(Region)
   reg wb_pc_region(Region)
-  reg ex_younger_next_region(Bool)
-  reg mem_younger_next_region(Bool)
-  reg wb_younger_next_region(Bool)
+  reg ex_younger_next_region(Vec(issue_width - 1, Bool))
+  reg mem_younger_next_region(Vec(issue_width - 1, Bool))
+  reg wb_younger_next_region(Vec(issue_width - 1, Bool))
   for (stage in [ex_pipe, mem_pipe, wb_pipe], region in [ex_pc_region, mem_pc_region, wb_pc_region], next_region in [ex_younger_next_region, mem_younger_next_region, wb_younger_next_region], name in ["ex", "mem", "wb"]):
     stage[0].pc_region <== region
-    stage[1].pc_region <== region + next_region.as_bits().zext(Region.width)
-
-    assert(!stage[1].egress.valid ||| stage[0].egress.valid, "superscalar_" ++ name ++ "_younger_has_older")
+    for (lane in 1..issue_width):
+      stage[lane].pc_region <== region + next_region[lane - 1].as_bits().zext(Region.width)
+      assert(!stage[lane].egress.valid ||| stage[lane - 1].egress.valid, "superscalar_" ++ name ++ "_younger_has_older_" ++ to_string(lane))
 
 
   /* One FP request per group.
@@ -229,11 +233,11 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   reg mem_fp_request(SuperscalarFpRetirement(xlen))
   reg wb_fp_request(SuperscalarFpRetirement(xlen))
   for (stage in [ex_pipe, mem_pipe, wb_pipe], request in [ex_fp_request, mem_fp_request, wb_fp_request]):
-    for (lane in 0..2):
+    for (lane in 0..issue_width):
       stage[lane].fp_request <== request
 
   // Each lane's ValidPipe captures the original window tag with that lane's transfer.
-  for (lane in 0..2):
+  for (lane in 0..issue_width):
     ex_pipe[lane].ingress_step <== rr_window.head_steps[lane]
     mem_pipe[lane].ingress_step <== ex_pipe[lane].egress_step
     wb_pipe[lane].ingress_step <== mem_pipe[lane].egress_step
@@ -243,21 +247,21 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   wire wb_squash: Bool
   wire rr_squash: Bool
   reg rr_vector_retry_wait(~init: Bool(#false))
-  def ex_paths :: List.of(InterfaceArrayFields) = for List (lane in 0..2):
+  def ex_paths :: List.of(InterfaceArrayFields) = for List (lane in 0..issue_width):
     def observed = ex_pipe[lane].egress |> filter_valid(_token => !rr_squash) |> trace_valid_event("core/s2.ex.slot" ++ to_string(lane), ~fields: token):
       pc: token.fetched.pc
       instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): token.fetched.raw_instruction
 
     observed |> fork_valid(4)
 
-  def wb_paths :: List.of(InterfaceArrayFields) = for List (lane in 0..2): wb_pipe[lane].egress |> fork_valid(4)
-  def ex_links :: List.of(Handle) = for List (_ in 0..2): interface_link(Valid(SuperscalarResult(xlen, hypervisor)))
-  def mem_links :: List.of(Handle) = for List (_ in 0..2): interface_link(Valid(SuperscalarResult(xlen, hypervisor)))
+  def wb_paths :: List.of(InterfaceArrayFields) = for List (lane in 0..issue_width): wb_pipe[lane].egress |> fork_valid(4)
+  def ex_links :: List.of(Handle) = for List (_ in 0..issue_width): interface_link(Valid(SuperscalarResult(xlen, hypervisor)))
+  def mem_links :: List.of(Handle) = for List (_ in 0..issue_width): interface_link(Valid(SuperscalarResult(xlen, hypervisor)))
   def ex_results :: List.of(Endpoint) = for List (link in ex_links): link.right
   def mem_results :: List.of(Endpoint) = for List (link in mem_links): link.right
   wire mem_branch_redirect: Bool
   wire wb_drained: Bool
-  wire wb_csr_return: Vec(2, Bool)
+  wire wb_csr_return: Vec(issue_width, Bool)
 
 
   /* Shared architectural and floating-point services.
@@ -424,69 +428,69 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
      The issue window owns age and consumption; the younger lane cannot
      advance around an older blocked instruction. */
 
-  def rr_head :: SuperscalarPacket(xlen, hypervisor, 2) = rr_window.head
+  def rr_head :: SuperscalarPacket(xlen, hypervisor, issue_width) = rr_window.head
   def rr_decode = ValidDecodeGen(superscalar_control_cases(profile))
-  def rr_decoded :: Vec(2, DecodeResult(SuperscalarControl())) = vec(for List (lane in 0..2): rr_decode(rr_head.entries[lane].instruction))
-  def rr_controls :: Vec(2, SuperscalarControl()) = vec(for List (lane in 0..2): rr_decoded[lane].value)
-  def rr_vector = for List (lane in 0..2):
+  def rr_decoded :: Vec(issue_width, DecodeResult(SuperscalarControl())) = vec(for List (lane in 0..issue_width): rr_decode(rr_head.entries[lane].instruction))
+  def rr_controls :: Vec(issue_width, SuperscalarControl()) = vec(for List (lane in 0..issue_width): rr_decoded[lane].value)
+  def rr_vector = for List (lane in 0..issue_width):
     def control = rr_controls[lane].vector
     control.integer ||| control.memory ||| control.floating_point ||| control.multiply_divide
 
-  def rr_vector_illegal = for List (lane in 0..2):
+  def rr_vector_illegal = for List (lane in 0..issue_width):
     def control = rr_controls[lane].vector
     def vector_state_disabled = (rr_vector[lane] ||| (control.configure =/= VectorConfigMode.None)) & !wb_csrs.vector_enabled
     def rounding_illegal = control.fp_service & control.fp_execution.uses_rounding_mode & (wb_csrs.frm > Bits(3)(4))
     def floating_point_illegal = control.floating_point & (!wb_csrs.fp_enabled ||| rounding_illegal)
     vector_state_disabled ||| (rr_vector[lane] & floating_point_illegal)
 
-  def rr_vector_config = for List (lane in 0..2): rr_controls[lane].system.action === RiscvCsrAction.VectorConfig
+  def rr_vector_config = for List (lane in 0..issue_width): rr_controls[lane].system.action === RiscvCsrAction.VectorConfig
 
   // At most one memory instruction issues per group; the older CMO owns the
   // shared permission probe. A retained younger candidate is probed again.
   def rr_cbo_older_access :: CacheOperation = rr_controls[0].memory.access
   def rr_cbo_lane = mux(rr_controls[0].memory.enable & rr_cbo_older_access.is_cache_management(), Bits(1)(0), Bits(1)(1))
-  wb_csrs.cbo_operation <== mux_lookup(rr_controls[rr_cbo_lane].memory.access, ~default: CboManagementOperation.Clean):
+  wb_csrs.cbo_operation <== mux_lookup(rr_controls[service_index(rr_cbo_lane)].memory.access, ~default: CboManagementOperation.Clean):
     CacheOperation.CacheBlockInvalidate: CboManagementOperation.Invalidate
     CacheOperation.CacheBlockFlush: CboManagementOperation.Flush
 
-  def rr_rounding :: Vec(2, RiscvRoundingMode()) = vec(for List (lane in 0..2): riscv_rounding_mode(rr_head.entries[lane].instruction[12..15], wb_csrs.frm))
-  def rr_fp_illegal = for List (lane in 0..2): rr_controls[lane].fp.valid & (!wb_csrs.fp_enabled ||| (rr_controls[lane].fp.bits.execution.uses_rounding_mode & !rr_rounding[lane].valid))
-  def rr_cbo_illegal = for List (lane in 0..2):
+  def rr_rounding :: Vec(issue_width, RiscvRoundingMode()) = vec(for List (lane in 0..issue_width): riscv_rounding_mode(rr_head.entries[lane].instruction[12..15], wb_csrs.frm))
+  def rr_fp_illegal = for List (lane in 0..issue_width): rr_controls[lane].fp.valid & (!wb_csrs.fp_enabled ||| (rr_controls[lane].fp.bits.execution.uses_rounding_mode & !rr_rounding[lane].valid))
+  def rr_cbo_illegal = for List (lane in 0..issue_width):
     def access :: CacheOperation = rr_controls[lane].memory.access
     rr_controls[lane].memory.enable & ((access.is_cache_block_zero() & (wb_csrs.cbo_zero_access =/= CboAccess.Allowed)) ||| (access.is_cache_management() & (wb_csrs.cbo_permission.access =/= CboAccess.Allowed)))
 
-  def rr_explicit_guest = for List (lane in 0..2): rr_controls[lane].guest_access =/= RiscvGuestMemoryAccess.Normal
-  def rr_guest_illegal = for List (lane in 0..2): rr_explicit_guest[lane] & !guest_state.virtualized & (wb_csrs.privilege === PrivilegeMode.User) & !csr_flag(guest_state.hstatus, HstatusHU)
-  def rr_virtual_instruction = for List (lane in 0..2):
+  def rr_explicit_guest = for List (lane in 0..issue_width): rr_controls[lane].guest_access =/= RiscvGuestMemoryAccess.Normal
+  def rr_guest_illegal = for List (lane in 0..issue_width): rr_explicit_guest[lane] & !guest_state.virtualized & (wb_csrs.privilege === PrivilegeMode.User) & !csr_flag(guest_state.hstatus, HstatusHU)
+  def rr_virtual_instruction = for List (lane in 0..issue_width):
     def access :: CacheOperation = rr_controls[lane].memory.access
     (rr_explicit_guest[lane] & guest_state.virtualized) ||| (rr_controls[lane].memory.enable & ((access.is_cache_block_zero() & (wb_csrs.cbo_zero_access === CboAccess.VirtualInstruction)) ||| (access.is_cache_management() & (wb_csrs.cbo_permission.access === CboAccess.VirtualInstruction))))
 
-  def rr_fetch_faults :: Vec(2, Bool) = vec(
-    for List (lane in 0..2): rr_head.entries[lane].fault.valid()
+  def rr_fetch_faults :: Vec(issue_width, Bool) = vec(
+    for List (lane in 0..issue_width): rr_head.entries[lane].fault.valid()
   )
 
-  def rr_decodable :: Vec(2, Bool) = vec(for List (lane in 0..2): rr_decoded[lane].valid & !rr_fetch_faults[lane] & !rr_head.entries[lane].compressed_illegal & !rr_fp_illegal[lane] & !rr_vector_illegal[lane] & !rr_cbo_illegal[lane] & !rr_guest_illegal[lane] & !rr_virtual_instruction[lane])
-  def rr_rs1 :: Vec(2, Bits(5)) = vec(for List (lane in 0..2): instruction_field(fields.rs1, rr_head.entries[lane].instruction))
-  def rr_rs2 :: Vec(2, Bits(5)) = vec(for List (lane in 0..2): instruction_field(fields.rs2, rr_head.entries[lane].instruction))
-  def rr_rd :: Vec(2, Bits(5)) = vec(for List (lane in 0..2): instruction_field(fields.rd, rr_head.entries[lane].instruction))
-  def rr_wb_producers = for List (lane in 0..2):
-    def returned = wb_fp_gpr.valid & wb_fp_gpr.bits.tag.direct & (wb_fp_gpr.bits.tag.lane === Bits(1)(lane))
+  def rr_decodable :: Vec(issue_width, Bool) = vec(for List (lane in 0..issue_width): rr_decoded[lane].valid & !rr_fetch_faults[lane] & !rr_head.entries[lane].compressed_illegal & !rr_fp_illegal[lane] & !rr_vector_illegal[lane] & !rr_cbo_illegal[lane] & !rr_guest_illegal[lane] & !rr_virtual_instruction[lane])
+  def rr_rs1 :: Vec(issue_width, Bits(5)) = vec(for List (lane in 0..issue_width): instruction_field(fields.rs1, rr_head.entries[lane].instruction))
+  def rr_rs2 :: Vec(issue_width, Bits(5)) = vec(for List (lane in 0..issue_width): instruction_field(fields.rs2, rr_head.entries[lane].instruction))
+  def rr_rd :: Vec(issue_width, Bits(5)) = vec(for List (lane in 0..issue_width): instruction_field(fields.rd, rr_head.entries[lane].instruction))
+  def rr_wb_producers = for List (lane in 0..issue_width):
+    def returned = Bool(lane < 2) & wb_fp_gpr.valid & wb_fp_gpr.bits.tag.direct & (wb_fp_gpr.bits.tag.lane === Bits(1)(lane % 2))
     def csr_returned = wb_csr_return[lane]
     wb_pipe[lane].egress |> map_valid(token => token.updated(
       ~data: mux(csr_returned, wb_csrs.writeback_value, mux(returned, wb_fp_gpr.bits.value, token.data)),
       ~result_ready: token.result_ready ||| returned ||| csr_returned
     ))
 
-  def rr_producers :: List.of(Endpoint) = [rr_wb_producers[0], rr_wb_producers[1], mem_results[0], mem_results[1], ex_results[0], ex_results[1]]
+  def rr_producers :: List.of(Endpoint) = rr_wb_producers ++ mem_results ++ ex_results
 
   /* Floating-point reads and destination interlocks.
      Read probes may repeat while RR waits; future fixed return capacity
      is reserved only when its instruction is admitted. */
 
-  def rr_vector_frs1 = for List (lane in 0..2): rr_vector[lane] & rr_controls[lane].vector.floating_point & (rr_controls[lane].vector.operand === VectorOperandMode.FloatingScalar)
+  def rr_vector_frs1 = for List (lane in 0..issue_width): rr_vector[lane] & rr_controls[lane].vector.floating_point & (rr_controls[lane].vector.operand === VectorOperandMode.FloatingScalar)
   def rr_fp_lane = mux(rr_controls[0].fp.valid ||| rr_vector_frs1[0], Bits(1)(0), Bits(1)(1))
-  def rr_fp_control :: FloatingPointControl() = rr_controls[rr_fp_lane].fp.bits
-  fp.read_addresses <== vec(rr_rs1[rr_fp_lane], rr_rs2[rr_fp_lane], rr_head.entries[rr_fp_lane].instruction[27..32])
+  def rr_fp_control :: FloatingPointControl() = rr_controls[service_index(rr_fp_lane)].fp.bits
+  fp.read_addresses <== vec(rr_rs1[service_index(rr_fp_lane)], rr_rs2[service_index(rr_fp_lane)], rr_head.entries[service_index(rr_fp_lane)].instruction[27..32])
   fp.probe <== rr_fp_control
   wb_gpr_calendar.query_delay[0] <== fp_timing.latency(rr_fp_control.execution, ~width: gpr_delay_width) + Bits(gpr_delay_width)(1)
   // Probe registered bookings only. Same-group collisions are checked separately,
@@ -507,9 +511,9 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     def load_returned = fp.load_write.valid & (fp.load_write.bits.owner.rd === address)
     pending & !(execution_returned ||| load_returned)
 
-  def rr_fp_fixed :: Vec(2, Bool) = vec(for List (lane in 0..2): rr_controls[lane].fp.valid & !rr_controls[lane].fp.bits.execution.unit.is_one_of(FloatUnit.Memory, FloatUnit.DivideSquareRoot))
-  def rr_fp_late_gpr :: Vec(2, Bool) = vec(
-    for List (lane in 0..2):
+  def rr_fp_fixed :: Vec(issue_width, Bool) = vec(for List (lane in 0..issue_width): rr_controls[lane].fp.valid & !rr_controls[lane].fp.bits.execution.unit.is_one_of(FloatUnit.Memory, FloatUnit.DivideSquareRoot))
+  def rr_fp_late_gpr :: Vec(issue_width, Bool) = vec(
+    for List (lane in 0..issue_width):
       def control :: FloatingPointControl() = rr_controls[lane].fp.bits
       def integer_destination = (control.registers.destination === FloatDestination.Integer) & rr_rd[lane].any()
       def late_return = fp_timing.latency(control.execution) > Bits(fp_timing.width)(2)
@@ -518,13 +522,13 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
 
   // An older MEM divide owns next cycle's shared request input at WB.
   def rr_fp_wb_reserved = any(
-    for List (lane in 0..2):
+    for List (lane in 0..issue_width):
       def producer :: Endpoint = mem_pipe[lane].egress
       def token :: SuperscalarResult(xlen, hypervisor) = producer.bits
       producer.valid & token.fp.valid & (token.fp.bits.execution.unit === FloatUnit.DivideSquareRoot)
   )
 
-  def rr_fp_data_blocked = for List (lane in 0..2):
+  def rr_fp_data_blocked = for List (lane in 0..issue_width):
     def control :: FloatingPointControl() = rr_controls[lane].fp.bits
     def source1_pending = control.registers.uses_frs1 & rr_fp_busy(rr_rs1[lane])
     def source2_pending = control.registers.uses_frs2 & rr_fp_busy(rr_rs2[lane])
@@ -532,7 +536,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     def destination_pending = (control.registers.destination === FloatDestination.FloatingPoint) & rr_fp_busy(rr_rd[lane])
     rr_controls[lane].fp.valid & (source1_pending ||| source2_pending ||| source3_pending ||| destination_pending)
 
-  def rr_fp_structural_blocked = for List (lane in 0..2): rr_decodable[lane] & rr_fp_fixed[lane] & (!fp.available ||| rr_fp_wb_reserved ||| (rr_fp_late_gpr[lane] & !rr_fp_gpr_available))
+  def rr_fp_structural_blocked = for List (lane in 0..issue_width): rr_decodable[lane] & rr_fp_fixed[lane] & (!fp.available ||| rr_fp_wb_reserved ||| (rr_fp_late_gpr[lane] & !rr_fp_gpr_available))
 
   /* Deferred returns forward at RR admission and again at the reserved write edge.
      Each later rr_returns entry overrides earlier entries and the vector/late-FP/RF fallback. */
@@ -572,21 +576,25 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
      Selects the newest older producer and preserves explicit pairing routes;
      ordered elaboration folds encode forwarding priority. */
 
-  rr_registers.read_addresses <== vec(rr_rs1[0], rr_rs2[0], rr_rs1[1], rr_rs2[1])
-  def rr_left :: Vec(2, SuperscalarOperand(xlen)) = vec(for List (lane in 0..2): forwarded_operand(xlen, hypervisor, rr_rs1[lane], rr_stored(rr_rs1[lane], rr_registers.read_data[2 * lane]), rr_producers))
-  def rr_right :: Vec(2, SuperscalarOperand(xlen)) = vec(for List (lane in 0..2): forwarded_operand(xlen, hypervisor, rr_rs2[lane], rr_stored(rr_rs2[lane], rr_registers.read_data[2 * lane + 1]), rr_producers))
-  def rr_older_write = rr_decodable[0] & rr_controls[0].writeback.enable & rr_rd[0].any()
-  def rr_long = for List (lane in 0..2): rr_controls[lane].muldiv.service =/= SuperscalarLongOperation.None
-  def rr_multiply = for List (lane in 0..2): rr_decodable[lane] & (rr_controls[lane].muldiv.service === SuperscalarLongOperation.Multiply) & rr_rd[lane].any()
+  inst rr_issue(issue)
+  def rr_read_routing :: SuperscalarReadRouting(issue_width) = rr_issue.reads
+  def rr_decision :: SuperscalarIssueDecision(issue_width) = rr_issue.decision
+  rr_registers.read_addresses <== rr_read_routing.addresses
+  def rr_read_paths = vec(
+    for List (port in 0..4):
+      def address = rr_read_routing.addresses[port]
+      def forwarded = forwarded_operand(xlen, hypervisor, address, rr_stored(address, rr_registers.read_data[port]), rr_producers)
+      forwarded.updated(~blocked: forwarded.blocked ||| rr_source_busy(address))
+  )
+  rr_issue.read_blocked <== vec(for List (port in 0..4): rr_read_paths[port].blocked)
+  def rr_instructions :: Vec(issue_width, SuperscalarIssueInstruction()) = rr_issue.instructions
+  def rr_operand_pcs = vec(for List (lane in 0..issue_width): rr_head.entries[lane].pc)
+  def rr_prepared = superscalar_prepare_operands(xlen, issue_width, rr_instructions, rr_operand_pcs, rr_read_routing, rr_read_paths)
+  def rr_operands :: Vec(issue_width, SuperscalarOperands(xlen)) = vec(for List (lane in 0..issue_width): rr_prepared[lane])
+  def rr_multiply = for List (lane in 0..issue_width): rr_decodable[lane] & (rr_controls[lane].muldiv.service === SuperscalarLongOperation.Multiply) & rr_rd[lane].any()
   reg rr_vector_multiply_turn(~init: Bool(#false))
   def rr_multiply_available = !wb_completion_priority & !rr_vector_writeback_waiting & wb_gpr_calendar.registered_free[1] & !rr_vector_multiply_turn
-  // Two independent fixed operations may pair unless their numerical returns coincide.
-  def rr_pair_fixed_collision = ((rr_multiply[0] & rr_fp_late_gpr[1]) ||| (rr_fp_late_gpr[0] & rr_multiply[1])) & (wb_gpr_calendar.query_delay[0] === Bits(gpr_delay_width)(PipelinedMultiplierStages + 1))
-  // Normal WB writes precede every younger write; a deferred older writer may return later.
-  def rr_older_deferred = rr_controls[0].memory.enable ||| rr_long[0] ||| rr_fp_late_gpr[0] ||| rr_vector[0]
-  def rr_pair_waw = rr_older_write & rr_older_deferred & rr_controls[1].writeback.enable & (rr_rd[0] === rr_rd[1])
-  def rr_ras = for List (lane in 0..2): rr_controls[lane].branch.resolver.enable & ((riscv_ras_action(rr_head.entries[lane].instruction) =/= RasAction.None) ||| (rr_head.entries[lane].speculated_ras_action =/= RasAction.None))
-  def rr_pair_ras = rr_ras[0] & rr_ras[1]
+  def rr_ras = for List (lane in 0..issue_width): rr_controls[lane].branch.resolver.enable & ((riscv_ras_action(rr_head.entries[lane].instruction) =/= RasAction.None) ||| (rr_head.entries[lane].speculated_ras_action =/= RasAction.None))
 
   /* Branch-training capacity projection.
      Accounts for each fixed-latency retirement group and one write per cycle;
@@ -596,7 +604,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   for (stage_index in 0..3):
     def stage = [wb_pipe, mem_pipe, ex_pipe][stage_index]
     def mutable arrivals = Bits(4)(0)
-    for (lane in 0..2):
+    for (lane in 0..issue_width):
       def branch :: Bool:
         if stage_index == 2
         | block:
@@ -610,44 +618,16 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     rr_training_projected := mux(offered.any(), offered - Bits(4)(1), Bits(4)(0))
     assert(rr_training_projected <= Bits(4)(2), "superscalar_branch_training_projection")
 
-  def rr_branch :: Vec(2, Bool) = vec(for List (lane in 0..2): rr_decodable[lane] & rr_controls[lane].branch.resolver.enable)
-  def rr_training_blocked = [rr_branch[0] & (rr_training_projected >= Bits(4)(3)), rr_branch[1] & (rr_training_projected + rr_branch[0].as_bits().zext(4) >= Bits(4)(3))]
-  def rr_variable_fp = for List (lane in 0..2): rr_controls[lane].fp.valid & (rr_controls[lane].fp.bits.execution.unit === FloatUnit.DivideSquareRoot)
-  // Scalar services share one deferred-admission path; vector descriptors
-  // have their own input. Only duplicate claims conflict at RR.
-  def rr_scalar_service = for List (lane in 0..2): rr_controls[lane].memory.enable ||| rr_long[lane] ||| rr_variable_fp[lane]
-  def rr_pair_wb_admission = (rr_scalar_service[0] & rr_scalar_service[1]) ||| (rr_vector[0] & rr_vector[1])
-  def rr_pair_csr = rr_vector_config[0] & rr_vector_config[1]
-  // Scalar FP control/operands and a vector scalar-FPR snapshot share one
-  // selected read bundle; two independent FP owners cannot use it together.
-  def rr_fpr_reads = for List (lane in 0..2): rr_controls[lane].fp.valid ||| rr_vector_frs1[lane]
-  def rr_pair_fpr_reads = rr_fpr_reads[0] & rr_fpr_reads[1]
-  def rr_fpr_writes = for List (lane in 0..2):
-    def control :: SuperscalarControl() = rr_controls[lane]
-    (control.fp.valid & (control.fp.bits.registers.destination === FloatDestination.FloatingPoint)) ||| (rr_vector[lane] & control.vector.floating_point & control.vector.floating_scalar_destination)
-
-  def rr_younger_fpr_sources = vec(
-    (rr_controls[1].fp.valid & rr_controls[1].fp.bits.registers.uses_frs1) ||| rr_vector_frs1[1],
-    rr_controls[1].fp.valid & rr_controls[1].fp.bits.registers.uses_frs2,
-    rr_controls[1].fp.valid & rr_controls[1].fp.bits.registers.uses_frs3
-  )
-  def rr_fpr_source_addresses = vec(rr_rs1[1], rr_rs2[1], rr_head.entries[1].instruction[27..32])
-  def rr_pair_fpr_raw = rr_fpr_writes[0] & any(for List (source in 0..3): rr_younger_fpr_sources[source] & (rr_rd[0] === rr_fpr_source_addresses[source]))
-  def rr_pair_fpr_waw = rr_fpr_writes[0] & rr_fpr_writes[1] & (rr_rd[0] === rr_rd[1])
-  def rr_system = for List (lane in 0..2):
-    def system :: SuperscalarSystemControl() = rr_controls[lane].system
-    rr_decodable[lane] & superscalar_serializing_operation(system, rr_head.entries[lane].instruction)
-
   // Pending summaries include pre-WB owners, before service busy state is set.
   def rr_fp_updates_pending = !fp.drained ||| vector.fp_pending ||| any(
-    for List (lane in 0..2):
+    for List (lane in 0..issue_width):
       def ex_fp = ex_pipe[lane].egress.valid & (ex_pipe[lane].egress.bits.control.fp.valid ||| ex_pipe[lane].egress.bits.control.vector.floating_point)
       def mem_fp = mem_pipe[lane].egress.valid & (mem_pipe[lane].egress.bits.fp.valid ||| mem_pipe[lane].egress.bits.vector.floating_point)
       def wb_fp = wb_pipe[lane].egress.valid & (wb_pipe[lane].egress.bits.fp.valid ||| wb_pipe[lane].egress.bits.vector.floating_point)
       ex_fp ||| mem_fp ||| wb_fp
   )
   def rr_vector_updates_pending = vector.active ||| any(
-    for List (lane in 0..2):
+    for List (lane in 0..issue_width):
       def ex_control = ex_pipe[lane].egress.bits.control.vector
       def mem_control :: SuperscalarVectorLane() = mem_pipe[lane].egress.bits.vector
       def wb_control :: SuperscalarVectorLane() = wb_pipe[lane].egress.bits.vector
@@ -657,29 +637,8 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
       ex_vector ||| mem_vector ||| wb_vector
   )
 
-  def rr_csr_read_wait = for List (lane in 0..2): csr_pure_read(rr_controls[lane].system.csr, rr_rs1[lane]) & csr_read_wait(rr_head.entries[lane].instruction[20..32], rr_fp_updates_pending, rr_vector_updates_pending)
-  def rr_csr_access = for List (lane in 0..2): rr_decodable[lane] & (rr_controls[lane].system.csr =/= RiscvCsrOperation.None)
-
-  def rr_pairing = superscalar_pairing(rr_controls, rr_decodable, rr_rd[0], vec(rr_rs1[1], rr_rs2[1]), vec(rr_head.entries[0].instruction, rr_head.entries[1].instruction), rr_older_deferred, ~xlen: xlen)
-  def rr_replaced = rr_pairing.replaced()
-  def rr_pair_raw = rr_pairing.unresolved.any()
-  def rr_data_blocked = for List (lane in 0..2):
-    def rs1_blocked = rr_controls[lane].operand.uses_rs1 & !(Bool(lane == 1) & rr_replaced[0]) & (rr_left[lane].blocked ||| rr_source_busy(rr_rs1[lane]))
-    def rs2_blocked = rr_controls[lane].operand.uses_rs2 & !(Bool(lane == 1) & rr_replaced[1]) & (rr_right[lane].blocked ||| rr_source_busy(rr_rs2[lane]))
-    def destination_blocked = rr_controls[lane].writeback.enable & (rr_busy(rr_rd[lane]) ||| pending_destination(xlen, hypervisor, rr_rd[lane], rr_producers))
-    rr_decodable[lane] & (rr_fp_data_blocked[lane] ||| rs1_blocked ||| rs2_blocked ||| destination_blocked)
-
-  // A U+I/S sum needs 33 signed bits on RV64; RV32 sums wrap at XLEN.
-  def rr_pair_width = superscalar_pair_immediate_width(xlen)
-  def rr_older_immediate :: OperandImmediate = rr_controls[0].operand.immediate
-  def rr_younger_immediate :: OperandImmediate = rr_controls[1].operand.immediate
-  def rr_pair_constant = rr_older_immediate.decode(rr_head.entries[0].instruction, xlen.width)
-  def rr_pair_offset = rr_older_immediate.decode(rr_head.entries[0].instruction, rr_pair_width) + rr_younger_immediate.decode(rr_head.entries[1].instruction, rr_pair_width)
-  def rr_pair_base = mux(rr_controls[0].operand.left === OperandASelect.Pc, rr_head.entries[0].pc, rr_left[0].data)
-  def rr_left_data = vec(for List (lane in 0..2): mux(Bool(lane == 1) & (rr_pairing.routes[0] === SuperscalarPairRoute.Constant), rr_pair_constant, rr_left[lane].data))
-  def rr_right_data = vec(for List (lane in 0..2): mux(Bool(lane == 1) & (rr_pairing.routes[1] === SuperscalarPairRoute.Constant), rr_pair_constant, rr_right[lane].data))
-  def rr_multiply_capacity = for List (lane in 0..2): rr_multiply[lane] & !rr_multiply_available
-  def rr_vector_blocked = for List (lane in 0..2):
+  def rr_csr_read_wait = for List (lane in 0..issue_width): csr_pure_read(rr_controls[lane].system.csr, rr_rs1[lane]) & csr_read_wait(rr_head.entries[lane].instruction[20..32], rr_fp_updates_pending, rr_vector_updates_pending)
+  def rr_vector_blocked = for List (lane in 0..issue_width):
     def control :: SuperscalarControl() = rr_controls[lane]
     def floating_source_pending = rr_vector_frs1[lane] & rr_fp_busy(rr_rs1[lane])
     def floating_destination_blocked = control.vector.floating_point & control.vector.floating_scalar_destination & (wb_vector_fpr_pending ||| rr_fp_busy(rr_rd[lane]))
@@ -689,9 +648,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     def memory_order_blocked = control.memory.enable & (vector.stores_pending ||| (control.memory.access.store_fault_class() & vector.loads_pending))
     (vector.certification_pending & (rr_vector[lane] ||| rr_vector_config[lane])) ||| vector_execution_blocked ||| integer_destination_pending ||| memory_order_blocked
 
-  def rr_capacity_blocked = for List (lane in 0..2): rr_multiply_capacity[lane] ||| rr_fp_structural_blocked[lane] ||| rr_training_blocked[lane]
-  def rr_blocked = for List (lane in 0..2): rr_data_blocked[lane] ||| rr_capacity_blocked[lane] ||| rr_vector_blocked[lane]
-  def rr_pipeline_empty = !(ex_older.egress.valid ||| ex_younger.egress.valid ||| mem_older.egress.valid ||| mem_younger.egress.valid ||| wb_older.egress.valid ||| wb_younger.egress.valid)
+  def rr_pipeline_empty = !any(for List (lane in 0..issue_width): ex_pipe[lane].egress.valid ||| mem_pipe[lane].egress.valid ||| wb_pipe[lane].egress.valid)
 
   /* Ordering barriers and issue prefix.
      Atomics and CBO.ZERO drain older memory and hold younger memory through
@@ -699,46 +656,76 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
 
   def rr_memory_in_pipeline = (ex_older.egress.valid & ex_older.egress.bits.control.memory.enable) ||| (ex_younger.egress.valid & ex_younger.egress.bits.control.memory.enable) ||| (mem_older.egress.valid & mem_older.egress.bits.memory.enable) ||| (mem_younger.egress.valid & mem_younger.egress.bits.memory.enable) ||| (wb_older.egress.valid & wb_older.egress.bits.memory.enable) ||| (wb_younger.egress.valid & wb_younger.egress.bits.memory.enable)
   def rr_ordered_memory_ready = !rr_memory_in_pipeline & scalar_memory.drained & wb_load_response.drained & !wb_ordered_memory_pending
-  def rr_ordered_memory = for List (lane in 0..2): rr_decodable[lane] & rr_controls[lane].memory.enable & !rr_controls[lane].memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store)
   // A PAUSE may follow an older peer, but no younger issue crosses it. Its
   // post-retirement cooldown never blocks accepted service completions.
   reg rr_pause_cycles(~init: Bits(5)(0))
-  def rr_pause_lanes = for List (lane in 0..2):
+  def rr_pause_lanes = for List (lane in 0..issue_width):
     (ex_pipe[lane].egress.valid & ex_pipe[lane].egress.bits.control.pause) ||| (mem_pipe[lane].egress.valid & mem_pipe[lane].egress.bits.pause) ||| (wb_pipe[lane].egress.valid & wb_pipe[lane].egress.bits.pause)
 
   def rr_pause_blocked = vec(rr_pause_lanes).any() ||| rr_pause_cycles.any()
-  def rr_serialization_ready = rr_pipeline_empty & wb_drained
-  def rr_serialization_clear = for List (lane in 0..2): (!rr_system[lane] ||| rr_serialization_ready) & !rr_csr_read_wait[lane]
-  def rr_memory_order_clear = for List (lane in 0..2): !rr_ordered_memory[lane] ||| rr_ordered_memory_ready
-  def rr_structural_blocked = for List (lane in 0..2): rr_vector_retry_wait ||| rr_capacity_blocked[lane] ||| !rr_serialization_clear[lane] ||| !rr_memory_order_clear[lane]
-
-  /* The oldest lane owns the admission prefix. A younger fetch fault bypasses
-     ordinary decode/pair checks, but its PC must use the same or next 4 KiB region. */
-
-  def rr_first = (rr_head.count =/= Bits(2)(0)) & !rr_blocked[0] & !rr_squash & !rr_vector_retry_wait & !rr_pause_blocked & rr_serialization_clear[0] & rr_memory_order_clear[0]
-  def rr_pair_resource_conflict = rr_pair_ras ||| rr_pair_wb_admission ||| rr_pair_csr ||| rr_pair_fpr_reads ||| rr_pair_fixed_collision
-  def rr_pair_data_conflict = rr_pair_raw ||| rr_pair_waw ||| rr_pair_fpr_raw ||| rr_pair_fpr_waw
-  def rr_pair_conflict = rr_pair_data_conflict ||| rr_pair_resource_conflict
   def rr_younger_return_reserved = (rr_completion.valid & rr_completion.bits.write) ||| !wb_gpr_calendar.registered_free[2]
-  def rr_second_decodable = rr_fetch_faults[1] ||| (rr_decodable[1] & !rr_pair_conflict)
-  def rr_younger_prefix_allowed = rr_decodable[0] & !rr_controls[0].pause & !rr_system[0] & !rr_system[1] & !rr_csr_access[0] & !rr_csr_access[1]
+
+  /* The issue module owns all same-group checks and prefix selection. The core
+     supplies service/scoreboard probes and applies only the returned grants.
+     The third execution lane has no shared-service launch path in this cut;
+     an unavailable operation stays in the window and compacts into lanes 0/1. */
+
+  rr_issue.candidates <== vec(
+    for List (lane in 0..issue_width):
+      SuperscalarIssueCandidate(xlen):
+          present: rr_head.count > Bits(2)(lane)
+          decodable: rr_decodable[lane]
+          fetch_fault: rr_fetch_faults[lane]
+          instruction: rr_head.entries[lane].instruction
+          pc: rr_head.entries[lane].pc
+          control: rr_controls[lane]
+          rs1: rr_rs1[lane]
+          rs2: rr_rs2[lane]
+          rd: rr_rd[lane]
+          ras: rr_ras[lane]
+          late_gpr: rr_fp_late_gpr[lane]
+  )
+  rr_issue.status <== vec(
+    for List (lane in 0..issue_width):
+      SuperscalarIssueStatus():
+          execution_blocked: Bool(lane >= 2) & (rr_controls[lane].memory.enable ||| rr_controls[lane].branch.resolver.enable ||| rr_controls[lane].fp.valid ||| rr_vector[lane] ||| rr_controls[lane].system.uses_command() ||| (rr_controls[lane].muldiv.service =/= SuperscalarLongOperation.None) ||| rr_controls[lane].pause ||| rr_controls[lane].prefetch.is_prefetch() ||| rr_vector[0] ||| rr_vector[1] ||| rr_vector_config[0] ||| rr_vector_config[1])
+          destination_blocked: rr_busy(rr_rd[lane]) ||| pending_destination(xlen, hypervisor, rr_rd[lane], rr_producers)
+          fp_data_blocked: rr_fp_data_blocked[lane]
+          fp_capacity_blocked: rr_fp_structural_blocked[lane]
+          vector_blocked: rr_vector_blocked[lane]
+          csr_read_wait: rr_csr_read_wait[lane]
+  )
+  rr_issue.resources <== SuperscalarIssueResources():
+    stop: rr_squash
+    retry_wait: rr_vector_retry_wait
+    pause_blocked: rr_pause_blocked
+    serialization_ready: rr_pipeline_empty & wb_drained
+    memory_order_ready: rr_ordered_memory_ready
+    multiply_available: rr_multiply_available
+    fixed_returns_collide: wb_gpr_calendar.query_delay[0] === Bits(gpr_delay_width)(PipelinedMultiplierStages + 1)
+    training_pending: rr_training_projected
+    younger_slot_reserved: rr_younger_return_reserved
+    vector_waiting: rr_vector_writeback_waiting
+    write_available: vec(Bool(#true), !rr_younger_return_reserved)
+
+  def rr_first = rr_decision.admitted[0]
+  def rr_second = rr_decision.admitted[1]
   def rr_older_region = rr_head.entries[0].pc[SuperscalarPcOffsetBits..xlen.width]
-  def rr_younger_region = rr_head.entries[1].pc[SuperscalarPcOffsetBits..xlen.width]
-  def rr_next_pc_region = rr_younger_region === (rr_older_region + Region(1))
-  def rr_pair_pc_region = (rr_older_region === rr_younger_region) ||| rr_next_pc_region
-  def rr_second = rr_first & !rr_vector_writeback_waiting & (rr_head.count === Bits(2)(2)) & rr_pair_pc_region & !rr_blocked[1] & rr_younger_prefix_allowed & rr_memory_order_clear[1] & rr_second_decodable & !rr_younger_return_reserved
-  issued <== rr_first.as_bits().zext(2) + rr_second.as_bits().zext(2)
+  def rr_next_pc_region = vec(for List (lane in 1..issue_width): rr_head.entries[lane].pc[SuperscalarPcOffsetBits..xlen.width] === (rr_older_region + Region(1)))
+  issued <== rr_decision.count
   when rr_first:
     ex_pc_region <== rr_older_region
     ex_younger_next_region <== rr_next_pc_region
+    ex_write_routing <== rr_decision.writes
 
   rr_window.consume <== issued
   stat_count("issue_1", issued === Bits(2)(1))
   stat_count("issue_2", issued === Bits(2)(2))
-  def rr_fp_admitted = mux(rr_fp_lane === Bits(1)(0), rr_first, rr_second) & rr_decodable[rr_fp_lane] & rr_fp_fixed[rr_fp_lane]
+  if issue_width == 3 | stat_count("issue_3", issued === Bits(2)(3)) | #void
+  def rr_fp_admitted = mux(rr_fp_lane === Bits(1)(0), rr_first, rr_second) & rr_decodable[service_index(rr_fp_lane)] & rr_fp_fixed[service_index(rr_fp_lane)]
   fp.book.valid <== rr_fp_admitted
   fp.book.bits <== rr_fp_control
-  wb_gpr_calendar.reserve[0].valid <== rr_fp_admitted & rr_fp_late_gpr[rr_fp_lane]
+  wb_gpr_calendar.reserve[0].valid <== rr_fp_admitted & rr_fp_late_gpr[service_index(rr_fp_lane)]
   wb_gpr_calendar.reserve[0].bits <== wb_gpr_calendar.query_delay[0]
   when (wb_gpr_calendar.reserve[0].valid):
     assert(wb_gpr_calendar.reserve[0].ready, "superscalar_fp_booked_gpr_writeback")
@@ -764,53 +751,40 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     tag:
       SuperscalarFpSchedule():
         lane: rr_fp_lane
-        speculative: rr_fp_fixed[rr_fp_lane]
+        speculative: rr_fp_fixed[service_index(rr_fp_lane)]
         direct: fp_timing.latency(rr_fp_control.execution) === Bits(fp_timing.width)(2)
 
     control: rr_fp_control
-    left: mux(rr_fp_control.registers.uses_frs1, fp.read_values[0], rr_left_data[rr_fp_lane])
+    left: mux(rr_fp_control.registers.uses_frs1, fp.read_values[0], rr_operands[service_index(rr_fp_lane)].rs1)
     right: fp.read_values[1]
     third: fp.read_values[2]
     left_precision: rr_fp_control.execution.source_precision
     right_precision: rr_fp_control.execution.source_precision
     third_precision: rr_fp_control.execution.source_precision
-    immediate_index: rr_rs1[rr_fp_lane]
+    immediate_index: rr_rs1[service_index(rr_fp_lane)]
     rounding_mode: mux(rr_fp_lane === Bits(1)(0), rr_rounding[0].mode, rr_rounding[1].mode)
 
   /* RR/EX capture and issue observations.
      Each lane reports its actual blockers, but only the shared admitted
      prefix consumes instructions and enters the execution pipes. */
 
-  def rr_younger_prefix_excluded = rr_system[0] ||| rr_system[1] ||| rr_csr_access[0] ||| rr_csr_access[1] ||| !rr_decodable[0] ||| (!rr_fetch_faults[1] & !rr_decodable[1])
-  def rr_pair_resources_blocked = rr_decodable[0] & rr_decodable[1] & rr_pair_resource_conflict
-  for (lane in 0..2):
+  for (lane in 0..issue_width):
     def ex_ingress = ex_pipe[lane].ingress
     def rr_access :: CacheOperation = rr_controls[lane].memory.access
-    def rr_composed = Bool(lane == 1) & (rr_pairing.routes[0] === SuperscalarPairRoute.ImmediateAdd)
     ex_pipe[lane].flush <== rr_squash
-    // Younger offers inherit the older offer's blockers, not a generic age hazard.
-    def data_hazard = rr_data_blocked[lane] ||| (if lane == 0 | Bool(#false) | rr_data_blocked[0] ||| (rr_decodable[0] & rr_decodable[1] & rr_pair_data_conflict))
-    def older_structural_hazard = if lane == 0
-    | Bool(#false)
-    | rr_structural_blocked[0] ||| !rr_pair_pc_region ||| rr_younger_prefix_excluded ||| rr_pair_resources_blocked ||| rr_younger_return_reserved
-
-    def structural_hazard = rr_structural_blocked[lane] ||| older_structural_hazard
     def rr_observed = rr_window.candidates[lane] |> offer_decoupled() |> trace_event("core/s1.rr.slot" ++ to_string(lane), ~stalls: #true, ~fields: fetched):
       pc: fetched.pc
       instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): fetched.raw_instruction
-      data_hazard: data_hazard
-      structural_hazard: structural_hazard ||| rr_pause_blocked ||| (Bool(lane == 1) & rr_decodable[0] & rr_controls[0].pause)
+      data_hazard: rr_decision.data_hazard[lane]
+      structural_hazard: rr_decision.structural_hazard[lane]
 
-    (rr_observed |> gate_flow(if lane == 0 | rr_first | rr_second) |> to_valid() |> map_valid(fetched => SuperscalarExecute(xlen, hypervisor)):
-      fetched: fetched
-      control: rr_controls[lane].updated(
-        ~memory: rr_controls[lane].memory.updated(~access: mux(rr_access.is_cache_management() & (wb_csrs.cbo_permission.operation === CboManagementOperation.Flush), CacheOperation.CacheBlockFlush, rr_access))
+    (rr_observed |> gate_flow(rr_decision.admitted[lane]) |> to_valid() |> map_valid(fetched => SuperscalarExecute(xlen, hypervisor)):
+      fetched: fetched.updated(~instruction: rr_instructions[lane].instruction)
+      control: rr_instructions[lane].control.updated(
+        ~memory: rr_instructions[lane].control.memory.updated(~access: mux(rr_access.is_cache_management() & (wb_csrs.cbo_permission.operation === CboManagementOperation.Flush), CacheOperation.CacheBlockFlush, rr_access))
       )
 
-      rs1: mux(rr_composed, rr_pair_base, rr_left_data[lane])
-      rs2: rr_right_data[lane]
-      pair_routes: if lane == 1 | rr_pairing.routes | vec(SuperscalarPairRoute.Register, SuperscalarPairRoute.Register)
-      pair_immediate: rr_pair_offset
+      operands: rr_operands[lane]
       rd: rr_rd[lane]
       illegal: !rr_decoded[lane].valid ||| fetched.compressed_illegal ||| rr_fp_illegal[lane] ||| rr_vector_illegal[lane] ||| (rr_cbo_illegal[lane] & !rr_virtual_instruction[lane]) ||| rr_guest_illegal[lane]
       virtual_instruction: rr_decoded[lane].valid & rr_virtual_instruction[lane]
@@ -820,12 +794,12 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
           pc: fetched.pc
           precertified: Bool(#false)
           certificate: dont_care(VectorFastCertificate(xlen))
-          instruction: fetched.instruction
+          instruction: rr_instructions[lane].instruction
           state: dont_care(RiscvVectorState(xlen))
-          control: rr_controls[lane].vector
-          scalar: rr_left_data[lane]
+          control: rr_instructions[lane].control.vector
+          scalar: rr_operands[lane].rs1
           floating_scalar: fp.read_values[0][0..xlen.width]
-          stride: rr_right_data[lane]
+          stride: rr_operands[lane].rs2
           masked: !fetched.instruction[25].into(Bool)
           rounding_mode: wb_csrs.frm.into(RoundingMode)
           pointer_masking: wb_csrs.pointer_masking
@@ -833,12 +807,12 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
 
 
   /* EX: Operand execution and speculative lookup.
-     Two common ALUs and independent target calculations produce registered
+     One common ALU per integer lane and independent target calculations produce registered
      results; launch validity remains separate from payload computation. */
 
-  def ex_tokens :: Vec(2, SuperscalarExecute(xlen, hypervisor)) = vec(for List (lane in 0..2): ex_pipe[lane].egress.bits)
-  wire ex_descriptors: Vec(2, VectorDescriptor(xlen))
-  wire ex_config_states: Vec(2, RiscvVectorState(xlen))
+  def ex_tokens :: Vec(issue_width, SuperscalarExecute(xlen, hypervisor)) = vec(for List (lane in 0..issue_width): ex_pipe[lane].egress.bits)
+  wire ex_descriptors: Vec(issue_width, VectorDescriptor(xlen))
+  wire ex_config_states: Vec(issue_width, RiscvVectorState(xlen))
   reg mem_config_state(RiscvVectorState(xlen))
   reg wb_config_state(RiscvVectorState(xlen))
   reg mem_descriptor(VectorDescriptor(xlen))
@@ -861,10 +835,12 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     mem_forwards_config: mem_config_state
     wb_forwards_config: wb_config_state
 
-  inst ex_alu_older(ALU(xlen))
-  inst ex_alu_younger(ALU(xlen))
-  def ex_alus = [ex_alu_older, ex_alu_younger]
-  for (lane in 0..2):
+  def ex_alus = for InstanceArray (lane in 0..issue_width):
+    inst alu(ALU(xlen))
+    alu
+
+  def ex_alu_older = ex_alus[0]
+  for (lane in 0..issue_width):
     def ex :: SuperscalarExecute(xlen, hypervisor) = ex_tokens[lane]
     def ex_fetch_fault :: SuperscalarFetchFault(xlen, hypervisor) = ex.fetched.fault
     def ex_input = ex_paths[lane][0]
@@ -873,7 +849,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     def ex_system :: SuperscalarSystemControl() = ex.control.system
     def ex_is_vector_config = ex_system.action === RiscvCsrAction.VectorConfig
     def ex_vector_base_state :: RiscvVectorState(xlen) = if lane == 0 | ex_prior_vector_state | mux(ex_older.egress.valid & forwards_config(ex_results[0].bits), ex_config_states[0], ex_prior_vector_state)
-    def ex_vector_config = vector_configuration_request(xlen, ex.control.vector.configure, ex.fetched.instruction, ex.rs1, ex.rs2)
+    def ex_vector_config = vector_configuration_request(xlen, ex.control.vector.configure, ex.fetched.instruction, ex.operands.rs1, ex.operands.rs2)
     def ex_configuration = vector_configure(xlen, profile.vector_length, ex_vector_config, ex_vector_base_state.vtype, ex_vector_base_state.vl[0..index_width(profile.vector_length + 1)], ~elen: vector_elen)
     def ex_configured_state = ex_vector_base_state.updated(~vl: ex_configuration.vl.zext(xlen.width), ~vtype: ex_configuration.vtype, ~vstart: Bits(xlen.width)(0))
     def ex_vector_state = mux(ex_is_vector_config, ex_configured_state, ex_vector_base_state)
@@ -886,20 +862,20 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     def ex_is_vector = ex.control.vector.integer ||| ex.control.vector.memory ||| ex.control.vector.floating_point ||| ex.control.vector.multiply_divide
     def ex_vector_illegal = (ex_is_vector & !ex_vector_legality.legal) ||| (ex_is_vector_config & ex_configuration.illegal)
     def ex_executable = !ex.illegal & !ex_vector_illegal & !ex.virtual_instruction & !ex_fetch_fault.valid()
-    def ex_pair_immediate = if xlen == XLen.X32 | ex.pair_immediate | ex.pair_immediate.into(SInt(rr_pair_width)).sext(xlen.width).as_bits()
-    def ex_immediate = mux(ex.pair_routes[0] === SuperscalarPairRoute.ImmediateAdd, ex_pair_immediate, ex.control.operand.immediate.decode(ex.fetched.instruction, xlen.width))
-    ex_alu.left <== mux_lookup(ex.control.operand.left, ~default: ex.rs1):
+    def ex_pair_immediate = if xlen == XLen.X32 | ex.operands.rewrite.immediate | ex.operands.rewrite.immediate.into(SInt(superscalar_pair_immediate_width(xlen))).sext(xlen.width).as_bits()
+    def ex_immediate = mux(ex.operands.rewrite.composed, ex_pair_immediate, ex.control.operand.immediate.decode(ex.fetched.instruction, xlen.width))
+    ex_alu.left <== mux_lookup(ex.control.operand.left, ~default: ex.operands.rs1):
       OperandASelect.Pc: ex.fetched.pc
       OperandASelect.Zero: Bits(xlen.width)(0)
 
-    ex_alu.right <== mux(ex.control.operand.right === OperandBSelect.Immediate, ex_immediate, ex.rs2)
+    ex_alu.right <== mux(ex.control.operand.right === OperandBSelect.Immediate, ex_immediate, ex.operands.rs2)
     ex_alu.control <== ex.control.alu
 
     /* Effective data address and guest context.
        Mask after the selected address bypass. Explicit guest execute-reads
        disable guest masking; ordinary MPRV/MPV applies only to data privilege. */
 
-    def ex_raw_address = if lane == 1 | mux(ex.pair_routes[0] === SuperscalarPairRoute.MemoryAddress, ex_alu_older.result, ex_alu.result) | ex_alu.result
+    def ex_raw_address = if lane == 1 | mux(ex.operands.rewrite.memory_address, ex_alu_older.result, ex_alu.result) | ex_alu.result
     def ex_explicit_guest = ex.control.guest_access =/= RiscvGuestMemoryAccess.Normal
     // Serialized CSR updates flush younger work before a new masking mode is observed.
     def ex_mask :: PointerMaskControl():
@@ -915,8 +891,8 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
 
     def ex_address = apply_pointer_mask(xlen, ex_raw_address, ex_mask)
     // Only the proposed range is meaningful before MEM supplies a certificate.
-    def ex_vector_geometry = vector_fast_footprint_geometry(xlen, profile.vector_length, ex.control.vector, ex.fetched.instruction, ex_vector_state, ex.rs2)
-    def ex_vector_start = vector_fast_start(xlen, ex.rs1, ex_vector_geometry, ex_mask)
+    def ex_vector_geometry = vector_fast_footprint_geometry(xlen, profile.vector_length, ex.control.vector, ex.fetched.instruction, ex_vector_state, ex.operands.rs2)
+    def ex_vector_start = vector_fast_start(xlen, ex.operands.rs1, ex_vector_geometry, ex_mask)
     def ex_vector_footprint = vector_fast_range(xlen, ex_vector_start, ex_vector_geometry, ex.control.vector.store)
     def ex_data_guest:
       if profile.hypervisor
@@ -929,7 +905,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     /* Branch target and local fault classification are combinational payloads;
        recovery suppresses lane validity rather than these calculations. */
 
-    def ex_target_sum = mux(ex.control.branch.target_from_rs1, ex.rs1, ex.fetched.pc) + ex_immediate
+    def ex_target_sum = mux(ex.control.branch.target_from_rs1, ex.operands.rs1, ex.fetched.pc) + ex_immediate
     def ex_target = mux(ex.control.branch.target_from_rs1, ex_target_sum & !Bits(xlen.width)(1), ex_target_sum)
     def ex_actual_action = mux(ex_executable & ex.control.branch.resolver.enable, riscv_ras_action(ex.fetched.instruction), RasAction.None)
     def ex_bad_pc = ex.fetched.pc[0].into(Bool)
@@ -958,16 +934,16 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
        owns the immediate source mode; other decode rows may leave it unspecified.
        The right word also feeds the live lookup before byte-lane shaping. */
     def ex_fp_divide = ex.control.fp.valid & (ex.control.fp.bits.execution.unit === FloatUnit.DivideSquareRoot)
-    def ex_left = priority_mux(~default: ex.rs1):
+    def ex_left = priority_mux(~default: ex.operands.rs1):
       ex_fp_divide: ex.fp_request.left
       (ex_system.csr =/= RiscvCsrOperation.None) & ex_system.immediate: instruction_field(fields.rs1, ex.fetched.instruction).zext(xlen.width)
 
-    def ex_right = priority_mux(~default: ex.rs2):
+    def ex_right = priority_mux(~default: ex.operands.rs2):
       ex.control.fp.valid: ex.fp_request.right[0..xlen.width]
-      ex.pair_routes[1] === SuperscalarPairRoute.StoreData: ex_alu_older.result
+      ex.operands.rewrite.store_data: ex_alu_older.result
 
     ex_descriptors[lane] <== ex.vector.updated(
-      ~scalar: mux(ex.pair_routes[0] === SuperscalarPairRoute.VectorScalar, ex_alu_older.result, ex.vector.scalar),
+      ~scalar: mux(ex.operands.rewrite.vector_scalar, ex_alu_older.result, ex.vector.scalar),
       ~state: ex_vector_state, ~certificate: ex.vector.certificate.updated(~range: ex_vector_footprint.range)
     )
 
@@ -983,7 +959,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
           target: ex_target
           mispredicted: Bool(#false)
           control: ex.control.branch.resolver
-          operands_from_older: vec(for List (source in 0..2): ex.pair_routes[source] === SuperscalarPairRoute.BranchOperand)
+          operands_from_older: ex.operands.rewrite.branch_operands
           update:
             BranchUpdate(xlen):
               pc: ex.fetched.pc
@@ -1036,6 +1012,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   when (ex_results[0].valid):
     mem_pc_region <== ex_pc_region
     mem_younger_next_region <== ex_younger_next_region
+    mem_write_routing <== ex_write_routing
 
 
   /* EX to MEM: a group has at most one live vector operation and one live vset.
@@ -1061,7 +1038,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
      through the existing fixed-latency service. */
 
   def ex_fp_lane = ex_tokens[0].fp_request.tag.lane
-  def ex_fp :: SuperscalarExecute(xlen, hypervisor) = ex_tokens[ex_fp_lane]
+  def ex_fp :: SuperscalarExecute(xlen, hypervisor) = ex_tokens[service_index(ex_fp_lane)]
   def ex_fp_link = interface_link(Valid(SuperscalarExecute(xlen, hypervisor)))
   ex_fp_link.left.valid <== mux(ex_fp_lane === Bits(1)(0), ex_older.egress.valid, ex_younger.egress.valid) & !rr_squash
   ex_fp_link.left.bits <== ex_fp
@@ -1073,17 +1050,17 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
 
   ex_fp_admitted |> map_valid(operation => superscalar_fp_request(xlen, hypervisor, operation.fetched, operation.rd, operation.fp_request)) |> fp.fixed_issue
   def ex_memory_lane = mux(ex_older.egress.valid & !ex_tokens[0].illegal & !ex_tokens[0].fetched.fault.valid() & ex_tokens[0].control.memory.enable, Bits(1)(0), Bits(1)(1))
-  def ex_result_tokens :: Vec(2, SuperscalarResult(xlen, hypervisor)) = vec(
-    for List (lane in 0..2):
+  def ex_result_tokens :: Vec(issue_width, SuperscalarResult(xlen, hypervisor)) = vec(
+    for List (lane in 0..issue_width):
       def result = ex_results[lane]
       result.bits
   )
 
-  def ex_lookup :: SuperscalarResult(xlen, hypervisor) = ex_result_tokens[ex_memory_lane]
+  def ex_lookup :: SuperscalarResult(xlen, hypervisor) = ex_result_tokens[service_index(ex_memory_lane)]
   def ex_multiply_lane = mux(ex_older.egress.valid & (ex_tokens[0].control.muldiv.service === SuperscalarLongOperation.Multiply), Bits(1)(0), Bits(1)(1))
   def ex_multiply_link = interface_link(Valid(SuperscalarExecute(xlen, hypervisor)))
   ex_multiply_link.left.valid <== mux(ex_multiply_lane === Bits(1)(0), ex_older.egress.valid, ex_younger.egress.valid)
-  ex_multiply_link.left.bits <== ex_tokens[ex_multiply_lane]
+  ex_multiply_link.left.bits <== ex_tokens[service_index(ex_multiply_lane)]
   describe_interface_selection([ex_multiply_lane === Bits(1)(0), ex_multiply_lane === Bits(1)(1)], ~name: "multiply")
   describe_interface_contract(Array(ex_paths[0][1], ex_paths[1][1]), ex_multiply_link.left, "multiply-lane", ~trace_model: interface_trace_selection(~name: "multiply"))
   def ex_multiply_admitted = ex_multiply_link.right |> filter_valid(payload):
@@ -1091,8 +1068,8 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     !rr_squash & !operation.illegal & !operation.fetched.fault.valid() & !operation.fetched.pc[0].into(Bool) & operation.rd.any() & (operation.control.muldiv.service === SuperscalarLongOperation.Multiply)
 
   (ex_multiply_admitted |> map_valid(operation => MultiplierRequest(xlen.width)):
-    left: operation.rs1
-    right: operation.rs2
+    left: operation.operands.rs1
+    right: operation.operands.rs2
     mode: operation.control.muldiv.multiply.mode
   ) |> ex_multiply.issue
 
@@ -1139,8 +1116,8 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   mem_load.width <== mem_memory.memory.width
   mem_load.unsigned_load <== mem_memory.memory.unsigned
   mem_load.data <== scalar_pipeline.response.bits.data
-  wire mem_resolved: Vec(2, SuperscalarResult(xlen, hypervisor))
-  for (lane in 0..2):
+  wire mem_resolved: Vec(issue_width, SuperscalarResult(xlen, hypervisor))
+  for (lane in 0..issue_width):
     def Array(mem_input, mem_context, mem_branch_input) = mem_pipe[lane].egress |> fork_valid(3)
     def mem_output = mem_links[lane].left
     def mem :: SuperscalarResult(xlen, hypervisor) = mem_pipe[lane].egress.bits
@@ -1207,7 +1184,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
       ~cache_outcome: mem_outcome
     )
 
-    mem_input |> filter_valid(_operation => !wb_squash & (if lane == 0 | Bool(#true) | !(mem_branch_redirect & mem_resolved[0].branch.mispredicted & mem_older.egress.valid))) |> map_valid(_operation => mem_resolved[lane]) |> mem_output
+    mem_input |> filter_valid(_operation => !wb_squash & !any(for List (older in 0..lane): mem_branch_redirect & mem_resolved[older].branch.mispredicted & mem_pipe[older].egress.valid)) |> map_valid(_operation => mem_resolved[lane]) |> mem_output
     (mem_results[lane] |> trace_valid_event("core/s3.mem.slot" ++ to_string(lane), ~fields: token):
       pc: token.fetched.pc
       instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): token.fetched.raw_instruction
@@ -1224,16 +1201,18 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   when (mem_results[0].valid):
     wb_pc_region <== mem_pc_region
     wb_younger_next_region <== mem_younger_next_region
+    wb_write_routing <== mem_write_routing
 
   for (stage in [ex_pipe, mem_pipe, wb_pipe], request in [ex_fp_request, mem_fp_request, wb_fp_request], name in ["ex", "mem", "wb"]):
     when (stage[0].ingress.valid):
       request <== stage[0].ingress.bits.fp_request
 
-    when (stage[1].ingress.valid):
-      def older_region = stage[0].ingress.bits.fetched.pc[SuperscalarPcOffsetBits..xlen.width]
-      def younger_region = stage[1].ingress.bits.fetched.pc[SuperscalarPcOffsetBits..xlen.width]
-      assert(stage[0].ingress.valid & ((older_region === younger_region) ||| (younger_region === (older_region + Region(1)))), "superscalar_" ++ name ++ "_paired_pc_region")
-      assert(stage[0].ingress.bits.fp_request.as_bits() === stage[1].ingress.bits.fp_request.as_bits(), "superscalar_" ++ name ++ "_shared_fp_request")
+    for (lane in 1..issue_width):
+      when (stage[lane].ingress.valid):
+        def older_region = stage[0].ingress.bits.fetched.pc[SuperscalarPcOffsetBits..xlen.width]
+        def younger_region = stage[lane].ingress.bits.fetched.pc[SuperscalarPcOffsetBits..xlen.width]
+        assert(stage[0].ingress.valid & ((older_region === younger_region) ||| (younger_region === (older_region + Region(1)))), "superscalar_" ++ name ++ "_paired_pc_region_" ++ to_string(lane))
+        assert(stage[0].ingress.bits.fp_request.as_bits() === stage[lane].ingress.bits.fp_request.as_bits(), "superscalar_" ++ name ++ "_shared_fp_request_" ++ to_string(lane))
 
 
   /* MEM to WB: only surviving lanes advance. A redirect can kill the younger
@@ -1255,11 +1234,12 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
      Correct predictions preserve target-stream work. A correction keeps its
      resolving token and older peers; older WB recovery still wins. */
 
-  def mem_older_continue = mem_resolved[0].resolution.disposition === SuperscalarDisposition.Continue
-  def mem_branch_older = mem_older.egress.valid & mem_resolved[0].branch.mispredicted & mem_older_continue
-  def mem_branch_younger = mem_younger.egress.valid & mem_resolved[1].branch.mispredicted & (mem_resolved[1].resolution.disposition === SuperscalarDisposition.Continue) & (!mem_older.egress.valid ||| (mem_older_continue & !mem_resolved[0].branch.mispredicted))
-  mem_branch_redirect <== (mem_branch_older ||| mem_branch_younger) & !wb_squash
-  def mem_branch :: SuperscalarResult(xlen, hypervisor) = mux(mem_branch_older, mem_resolved[0], mem_resolved[1])
+  def mem_corrections = for List (lane in 0..issue_width):
+    def older_stops = any(for List (older in 0..lane): mem_pipe[older].egress.valid & ((mem_resolved[older].resolution.disposition =/= SuperscalarDisposition.Continue) ||| mem_resolved[older].branch.mispredicted))
+    mem_pipe[lane].egress.valid & mem_resolved[lane].branch.mispredicted & (mem_resolved[lane].resolution.disposition === SuperscalarDisposition.Continue) & !older_stops
+
+  mem_branch_redirect <== any(mem_corrections) & !wb_squash
+  def mem_branch :: SuperscalarResult(xlen, hypervisor) = priority_mux((for List (lane in 0..issue_width - 1): [mem_corrections[lane], mem_resolved[lane]]), ~default: mem_resolved[issue_width - 1])
   def mem_prediction_pc = mux(mem_branch.fetched.prediction.valid, mem_branch.fetched.prediction.target, mem_branch.fetched.sequential_pc)
   def mem_actual_pc = mux(mem_branch.branch.taken, mem_branch.branch.target, mem_branch.fetched.sequential_pc)
   def mem_prediction_failure = prediction_failure(
@@ -1362,13 +1342,13 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   // Return eligibility must not depend on the FP completion it authorizes.
   def wb_scalar_port_available = !wb_gpr_calendar.occupied[0].into(Bool)
   def wb_vector_merge = wb_vector_success & (wb_older.egress.valid ||| wb_younger.egress.valid) & wb_scalar_simple & wb_scalar_port_available & (wb_scalar.resolution.disposition === SuperscalarDisposition.Continue)
-  def wb_valid :: Vec(2, Bool) = vec(mux(wb_retained_pending, wb_retained_complete, wb_older.egress.valid), wb_vector_merge ||| (!wb_retained_pending & wb_younger.egress.valid))
-  def wb_group :: Vec(2, SuperscalarResult(xlen, hypervisor)) = vec(mux(wb_retained_pending, wb_retained_result, wb_older.egress.bits), mux(wb_vector_merge, wb_scalar, wb_younger.egress.bits))
+  def wb_valid :: Vec(issue_width, Bool) = vec(for List (lane in 0..issue_width): if lane == 0 | mux(wb_retained_pending, wb_retained_complete, wb_older.egress.valid) | (Bool(lane == 1) & wb_vector_merge) ||| (!wb_retained_pending & wb_pipe[lane].egress.valid))
+  def wb_group :: Vec(issue_width, SuperscalarResult(xlen, hypervisor)) = vec(for List (lane in 0..issue_width): if lane == 0 | mux(wb_retained_pending, wb_retained_result, wb_older.egress.bits) | mux(Bool(lane == 1) & wb_vector_merge, wb_scalar, wb_pipe[lane].egress.bits))
   // New dispatch observes the live WB pipes, never the returned retained owner.
   // In particular, admission faults cannot feed back into their own request.
-  def wb_live_valid :: Vec(2, Bool) = vec(wb_older.egress.valid, wb_younger.egress.valid)
-  def wb_live_group :: Vec(2, SuperscalarResult(xlen, hypervisor)) = vec(wb_older.egress.bits, wb_younger.egress.bits)
-  def wb_raw_fault = (wb_live_valid[0] & (wb_live_group[0].resolution.disposition === SuperscalarDisposition.Fault)) ||| (wb_live_valid[1] & (wb_live_group[1].resolution.disposition === SuperscalarDisposition.Fault))
+  def wb_live_valid :: Vec(issue_width, Bool) = vec(for List (stage in wb_pipe): stage.egress.valid)
+  def wb_live_group :: Vec(issue_width, SuperscalarResult(xlen, hypervisor)) = vec(for List (stage in wb_pipe): stage.egress.bits)
+  def wb_raw_fault = any(for List (lane in 0..issue_width): wb_live_valid[lane] & (wb_live_group[lane].resolution.disposition === SuperscalarDisposition.Fault))
   // Interrupts precede the oldest unretired WB instruction, or use the saved
   // next PC at an empty-pipeline/sleep boundary. A synchronous fault wins.
   def wb_idle_boundary = rr_pipeline_empty & wb_pc_known
@@ -1382,8 +1362,8 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
      Final retirement cannot qualify requests without creating feedback.
      Retained completion may retire, but cannot dispatch a new live owner. */
 
-  def wb_dispatch :: Vec(2, Bool) = vec(
-    for List (lane in 0..2):
+  def wb_dispatch :: Vec(issue_width, Bool) = vec(
+    for List (lane in 0..issue_width):
       wb_live_valid[lane] & (wb_live_group[lane].resolution.disposition === SuperscalarDisposition.Continue) & (if lane == 0 | Bool(#true) | !wb_older_stop) & wb_dispatch_unblocked
   )
 
@@ -1391,12 +1371,12 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
      Registered descriptor credit and a sampled memory-drain boundary prevent
      requests from depending on their own LSU acceptance or fault outcomes. */
 
-  def wb_vectors = for List (lane in 0..2): wb_live_group[lane].vector.operation
+  def wb_vectors = for List (lane in 0..issue_width): wb_live_group[lane].vector.operation
 
   wire wb_scalar_stop: Bool
   def wb_vector_lane = mux(wb_live_valid[0] & wb_vectors[0], Bits(1)(0), Bits(1)(1))
-  def wb_vector = wb_live_group[wb_vector_lane]
-  def wb_vector_offer = wb_dispatch[wb_vector_lane] & (if vector_enabled | mux(wb_vector_lane === Bits(1)(0), wb_vectors[0], wb_vectors[1]) | Bool(#false))
+  def wb_vector = wb_live_group[service_index(wb_vector_lane)]
+  def wb_vector_offer = wb_dispatch[service_index(wb_vector_lane)] & (if vector_enabled | mux(wb_vector_lane === Bits(1)(0), wb_vectors[0], wb_vectors[1]) | Bool(#false))
   def wb_vector_ordered = !wb_vector.vector.memory ||| (wb_prior_memory_drained & !wb_load_response.pending & !wb_ordered_memory_pending)
   def wb_vector_gpr_write = wb_vector.vector.integer_destination & wb_vector.write
   def wb_vector_results_available = !wb_vector_gpr_write ||| wb_vector_scalar_available
@@ -1423,7 +1403,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   // A merged scalar consumes the remaining retirement slot; any second live
   // instruction must replay. The capture edge applies the same age rule.
   def wb_vector_scalar_lane = mux(wb_vector_pending & !wb_vector_merge, wb_scalar_lane, Bits(1)(1))
-  def wb_vector_replay_owner = wb_live_group[wb_vector_scalar_lane]
+  def wb_vector_replay_owner = wb_live_group[service_index(wb_vector_scalar_lane)]
   def wb_vector_live_suffix = mux(wb_vector_merge, !wb_scalar_lane.into(Bool) & wb_live_valid[1], wb_live_valid.as_bits().any())
   def wb_vector_scalar_replay = (wb_vector_pending & !(wb_retained_complete & !wb_vector_success) & wb_vector_live_suffix) ||| (wb_vector_capture & (wb_vector_lane === Bits(1)(0)) & wb_live_valid[1])
   // Let scalars speculate once. After rejection, retain only a retry interlock,
@@ -1464,18 +1444,18 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
      neither direction depends on final retirement feedback. */
 
   def wb_memory_lane = mux(wb_live_valid[0] & wb_live_group[0].memory.enable, Bits(1)(0), Bits(1)(1))
-  def wb_memory :: SuperscalarResult(xlen, hypervisor) = wb_live_group[wb_memory_lane]
+  def wb_memory :: SuperscalarResult(xlen, hypervisor) = wb_live_group[service_index(wb_memory_lane)]
   // A younger request consumes its older peer's hint on this same WB edge.
   // This selection must not depend on request readiness or retirement feedback.
   def wb_memory_locality = mux(wb_memory_lane === Bits(1)(0), wb_pending_locality, wb_live_group[0].locality_hint)
-  def wb_memory_active = wb_dispatch[wb_memory_lane] & wb_memory.memory.enable & wb_scalar_prefix
+  def wb_memory_active = wb_dispatch[service_index(wb_memory_lane)] & wb_memory.memory.enable & wb_scalar_prefix
   def wb_split_capture = wb_memory_active & wb_memory.memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store) & !wb_memory.memory.width.is_aligned(wb_memory.address)
   def wb_management_capture = wb_memory_active & wb_memory.memory.access.is_cache_management()
   def wb_memory_capture = wb_split_capture ||| wb_management_capture
   def wb_wait_capture = wb_dispatch[0] & (wb_live_group[0].system.wait =/= ReservationWaitMode.None)
   def wb_retained_capture = wb_split_capture ||| wb_management_capture ||| wb_wait_capture ||| wb_vector_capture
   def wb_retained_lane = mux(wb_vector_capture, wb_vector_lane, mux(wb_wait_capture, Bits(1)(0), wb_memory_lane))
-  def wb_retained_candidate :: SuperscalarResult(xlen, hypervisor) = wb_live_group[wb_retained_lane]
+  def wb_retained_candidate :: SuperscalarResult(xlen, hypervisor) = wb_live_group[service_index(wb_retained_lane)]
   def wb_retained_step = mux(wb_retained_lane === Bits(1)(0), wb_pipe[0].egress_step, wb_pipe[1].egress_step)
   when wb_retained_capture:
     assert((wb_retained_candidate.resolution.disposition === SuperscalarDisposition.Continue) & !wb_retained_candidate.fetched.fault.valid(), "superscalar_service_capture_continuing")
@@ -1599,8 +1579,8 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     value: dont_care(Bits(xlen.width))
 
   def wb_fp_lane = mux(wb_valid[0] & wb_group[0].fp.valid, Bits(1)(0), Bits(1)(1))
-  def wb_fp_token :: SuperscalarResult(xlen, hypervisor) = wb_group[wb_fp_lane]
-  fp.variable_issue.valid <== wb_dispatch[wb_fp_lane] & wb_fp_token.fp.valid & (wb_fp_token.fp.bits.execution.unit === FloatUnit.DivideSquareRoot) & wb_scalar_prefix
+  def wb_fp_token :: SuperscalarResult(xlen, hypervisor) = wb_group[service_index(wb_fp_lane)]
+  fp.variable_issue.valid <== wb_dispatch[service_index(wb_fp_lane)] & wb_fp_token.fp.valid & (wb_fp_token.fp.bits.execution.unit === FloatUnit.DivideSquareRoot) & wb_scalar_prefix
   fp.variable_issue.bits <== wb_fp_token.fp_request.division_request(wb_fp_token.fetched.identity(), wb_fp_token.rd, wb_fp_token.operands.left, wb_fp_token.operands.right)
   wb_fp_variable_accepted <== fp.variable_issue.fire()
   def wb_fp_replay = fp.variable_issue.valid & !fp.variable_issue.ready
@@ -1610,8 +1590,8 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
      accepted services reserve their architectural destination. */
 
   def wb_long_lane = mux(wb_valid[0] & (wb_group[0].muldiv.service =/= SuperscalarLongOperation.None), Bits(1)(0), Bits(1)(1))
-  def wb_long :: SuperscalarResult(xlen, hypervisor) = wb_group[wb_long_lane]
-  def wb_long_active = wb_dispatch[wb_long_lane] & wb_long.write & (wb_long.muldiv.service =/= SuperscalarLongOperation.None) & wb_scalar_prefix
+  def wb_long :: SuperscalarResult(xlen, hypervisor) = wb_group[service_index(wb_long_lane)]
+  def wb_long_active = wb_dispatch[service_index(wb_long_lane)] & wb_long.write & (wb_long.muldiv.service =/= SuperscalarLongOperation.None) & wb_scalar_prefix
   def wb_multiply_accepted = wb_long_active & (wb_long.muldiv.service === SuperscalarLongOperation.Multiply)
   ex_multiply.authorize.valid <== wb_multiply_accepted
   ex_multiply.authorize.bits <== SuperscalarMultiplyWriteback(xlen):
@@ -1657,11 +1637,11 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
      Folds service faults and replay into each owner's resolution before
      choosing the successful retirement prefix or a retained precise trap. */
 
-  def wb_service_tokens :: Vec(2, SuperscalarResult(xlen, hypervisor)) = vec(
-    for List (lane in 0..2):
+  def wb_service_tokens :: Vec(issue_width, SuperscalarResult(xlen, hypervisor)) = vec(
+    for List (lane in 0..issue_width):
       def token :: SuperscalarResult(xlen, hypervisor) = wb_group[lane]
-      def selected = wb_memory_active & (wb_memory_lane === Bits(1)(lane))
-      def replay = (selected & wb_memory_replay) ||| (wb_divide_replay & (wb_long_lane === Bits(1)(lane))) ||| (wb_fp_replay & (wb_fp_lane === Bits(1)(lane))) ||| (wb_vector_replay & (wb_vector_lane === Bits(1)(lane)))
+      def selected = Bool(lane < 2) & wb_memory_active & (wb_memory_lane === Bits(1)(lane % 2))
+      def replay = Bool(lane < 2) & ((selected & wb_memory_replay) ||| (wb_divide_replay & (wb_long_lane === Bits(1)(lane % 2))) ||| (wb_fp_replay & (wb_fp_lane === Bits(1)(lane % 2))) ||| (wb_vector_replay & (wb_vector_lane === Bits(1)(lane % 2))))
       def resolved = priority_mux(~default: token.resolution):
         selected & wb_admission_fault: wb_admission_resolution
         replay: wb_memory_resolution
@@ -1673,16 +1653,16 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
 
   // Select the command candidate before consulting its fault result. This
   // keeps side-effect-free CSR validation independent of authorization.
-  def wb_service_stop = for List (lane in 0..2): wb_valid[lane] & (wb_service_tokens[lane].resolution.disposition =/= SuperscalarDisposition.Continue)
-  def wb_service_selected = mux(wb_service_stop[0], wb_service_tokens[0], wb_service_tokens[1])
+  def wb_service_stop = for List (lane in 0..issue_width): wb_valid[lane] & (wb_service_tokens[lane].resolution.disposition =/= SuperscalarDisposition.Continue)
+  def wb_service_selected = priority_mux((for List (lane in 0..issue_width - 1): [wb_service_stop[lane], wb_service_tokens[lane]]), ~default: wb_service_tokens[issue_width - 1])
   def wb_system_lane = mux(wb_valid[1] & (wb_group[1].system.action === RiscvCsrAction.VectorConfig), Bits(1)(1), Bits(1)(0))
-  def wb_system_token :: SuperscalarResult(xlen, hypervisor) = wb_group[wb_system_lane]
+  def wb_system_token :: SuperscalarResult(xlen, hypervisor) = wb_group[service_index(wb_system_lane)]
   def wb_system_control :: SuperscalarSystemControl() = wb_system_token.system
   def wb_csr_read = csr_pure_read(wb_system_control.csr, wb_system_token.fetched.instruction[15..20])
-  def wb_tokens :: Vec(2, SuperscalarResult(xlen, hypervisor)) = vec(
-    for List (lane in 0..2):
+  def wb_tokens :: Vec(issue_width, SuperscalarResult(xlen, hypervisor)) = vec(
+    for List (lane in 0..issue_width):
       def token :: SuperscalarResult(xlen, hypervisor) = wb_service_tokens[lane]
-      def fault = wb_csr_read & (wb_system_lane === Bits(1)(lane)) & !any(wb_service_stop) & wb_csrs.command_fault.valid
+      def fault = Bool(lane < 2) & wb_csr_read & (wb_system_lane === Bits(1)(lane % 2)) & !any(wb_service_stop) & wb_csrs.command_fault.valid
       def denied = SuperscalarSyncResolution(xlen):
         guest: literal(RiscvGuestFault(), 0)
         disposition: SuperscalarDisposition.Fault
@@ -1692,17 +1672,17 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
       token.updated(~resolution: mux(fault, denied, token.resolution))
   )
 
-  def wb_stop = for List (lane in 0..2):
-    wb_retirement_unblocked & wb_valid[lane] & (wb_tokens[lane].resolution.disposition =/= SuperscalarDisposition.Continue) & !(wb_retained_capture & (wb_retained_lane === Bits(1)(0)))
+  def wb_stop = for List (lane in 0..issue_width):
+    wb_retirement_unblocked & wb_valid[lane] & (wb_tokens[lane].resolution.disposition =/= SuperscalarDisposition.Continue) & !(wb_retained_capture & (wb_retained_lane.zext(2) <= Bits(2)(lane)))
 
-  def wb_selected :: SuperscalarResult(xlen, hypervisor) = mux(wb_stop[0], wb_tokens[0], wb_tokens[1])
-  def wb_stop_valid = wb_stop[0] ||| wb_stop[1]
+  def wb_selected :: SuperscalarResult(xlen, hypervisor) = priority_mux((for List (lane in 0..issue_width - 1): [wb_stop[lane], wb_tokens[lane]]), ~default: wb_tokens[issue_width - 1])
+  def wb_stop_valid = any(wb_stop)
   wb_drained <== wb_prior_drained & !wb_accepted & !wb_divide_accepted & !wb_retained_pending & !wb_retained_capture & !wb_fp_variable_accepted & !wb_fp_fixed_authorized & !wb_vector_accepted
   def wb_explicit_fault = wb_stop_valid & (wb_selected.resolution.disposition === SuperscalarDisposition.Fault)
   def wb_vector_config = wb_system_control.action === RiscvCsrAction.VectorConfig
   def wb_system_prefix = !wb_stop[0] & (!wb_stop[1] ||| (wb_vector_config & (wb_system_lane === Bits(1)(0)))) & !(wb_retained_capture & (wb_retained_lane === Bits(1)(0)))
-  def wb_system = wb_valid[wb_system_lane] & wb_system_control.uses_command() & !wb_wait_capture & !wb_fault_pending & !wb_interrupt_stop & wb_system_prefix
-  wb_csr_return <== vec(for List (lane in 0..2): wb_system & (wb_system_lane === Bits(1)(lane)) & wb_csrs.writeback_valid)
+  def wb_system = wb_valid[service_index(wb_system_lane)] & wb_system_control.uses_command() & !wb_wait_capture & !wb_fault_pending & !wb_interrupt_stop & wb_system_prefix
+  wb_csr_return <== vec(for List (lane in 0..issue_width): Bool(lane < 2) & wb_system & (wb_system_lane === Bits(1)(lane % 2)) & wb_csrs.writeback_valid)
   // The CSR port commits an older configuration before taking its younger peer's trap.
   // Existing fault retention carries that trap across the single-command boundary.
   def wb_defer_fault = wb_system & wb_vector_config & wb_explicit_fault
@@ -1801,20 +1781,20 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
      Per-lane success controls register writes and predictor observations;
      retirement remains distinct from deferred result completion. */
 
-  wire wb_writes: Vec(2, Bool)
-  wire wb_recover_ras: Vec(2, Bool)
-  wire wb_train: Vec(2, Bool)
-  def wb_retirement_links :: List.of(Handle) = for List (_ in 0..2): interface_link(Valid(SuperscalarRetirement(xlen, hypervisor)))
+  wire wb_writes: Vec(issue_width, Bool)
+  wire wb_recover_ras: Vec(issue_width, Bool)
+  wire wb_train: Vec(issue_width, Bool)
+  def wb_retirement_links :: List.of(Handle) = for List (_ in 0..issue_width): interface_link(Valid(SuperscalarRetirement(xlen, hypervisor)))
   // Publish only the successful retirement prefix; architectural writes and
   // predictor updates below all consume these per-lane decisions.
-  def wb_retire = for List (lane in 0..2):
+  def wb_retire = for List (lane in 0..issue_width):
     def token :: SuperscalarResult(xlen, hypervisor) = wb_tokens[lane]
     def retained = wb_retained_capture & (if lane == 0 | wb_retained_lane === Bits(1)(0) | Bool(#true))
-    def system_success = !(wb_system & (wb_system_lane === Bits(1)(lane))) ||| wb_csrs.command_success
-    def prefix_success = if lane == 0 | Bool(#true) | !wb_stop[0] & (!wb_system ||| (wb_vector_config & wb_csrs.command_success))
+    def system_success = !(Bool(lane < 2) & wb_system & (wb_system_lane === Bits(1)(lane % 2))) ||| wb_csrs.command_success
+    def prefix_success = !any(for List (older in 0..lane): wb_stop[older]) & (if lane == 0 | Bool(#true) | !wb_system ||| (wb_vector_config & wb_csrs.command_success))
     !retained & wb_retirement_unblocked & wb_valid[lane] & (token.resolution.disposition === SuperscalarDisposition.Continue) & system_success & prefix_success
 
-  def wb_retirement_paths :: List.of(InterfaceArrayFields) = for List (lane in 0..2):
+  def wb_retirement_paths :: List.of(InterfaceArrayFields) = for List (lane in 0..issue_width):
     def wb :: SuperscalarResult(xlen, hypervisor) = wb_tokens[lane]
     def next_pc = mux(wb.branch.taken, wb.branch.target, wb.fetched.sequential_pc)
     def predicted_pc = mux(wb.fetched.prediction.valid, wb.fetched.prediction.target, wb.fetched.sequential_pc)
@@ -1832,13 +1812,13 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
 
     observed |> fork_valid(4)
 
-  for (lane in 0..2):
+  for (lane in 0..issue_width):
     def wb :: SuperscalarResult(xlen, hypervisor) = wb_tokens[lane]
     def wb_eligible = wb_retire[lane]
     def wb_fp_compute = wb.fp.valid & (wb.fp.bits.execution.unit =/= FloatUnit.Memory)
     def wb_fp_direct = wb_fp_compute & wb.fp_request.tag.speculative & wb.fp_request.tag.direct
-    def wb_deferred = (wb_accepted & (wb_memory_lane === Bits(1)(lane))) ||| (wb_long_accepted & (wb_long_lane === Bits(1)(lane))) ||| (wb_fp_compute & !wb_fp_direct) ||| (wb_vector_accepted & (wb_vector_lane === Bits(1)(lane)))
-    def wb_lane_system = wb_system & (wb_system_lane === Bits(1)(lane))
+    def wb_deferred = Bool(lane < 2) & ((wb_accepted & (wb_memory_lane === Bits(1)(lane % 2))) ||| (wb_long_accepted & (wb_long_lane === Bits(1)(lane % 2))) ||| (wb_fp_compute & !wb_fp_direct) ||| (wb_vector_accepted & (wb_vector_lane === Bits(1)(lane % 2))))
+    def wb_lane_system = Bool(lane < 2) & wb_system & (wb_system_lane === Bits(1)(lane % 2))
     def wb_data = priority_mux(~default: wb.data):
       wb_lane_system: wb_csrs.writeback_value
       wb_fp_direct & wb.write: fp.completion.bits.value
@@ -1855,7 +1835,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
       data: wb_data
       deferred: wb_deferred
 
-    describe_interface_contract(if lane == 0 | wb_owners.right | wb_second_owner.right, retirement, "retirement-" ++ to_string(lane), ~trace_model: interface_trace_combinational())
+    describe_interface_contract(if lane == 0 | wb_owners.right | (if lane == 1 | wb_second_owner.right | wb_paths[lane][0]), retirement, "retirement-" ++ to_string(lane), ~trace_model: interface_trace_combinational())
     wb_retirement_paths[lane][0] |> retired[lane]
     wb_writes[lane] <== wb_eligible & wb.write & !wb_deferred & (!wb_lane_system ||| wb_csrs.writeback_valid)
     wb_train[lane] <== wb_eligible & wb.branch.update.branch
@@ -1865,15 +1845,15 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
      Hints are best-effort and never stall a lane. Retired branch training
      is buffered, while architectural history and RAS recovery stay immediate. */
 
-  def wb_prefetch_paths = for List (lane in 0..2):
+  def wb_prefetch_paths = for List (lane in 0..issue_width):
     def token :: SuperscalarResult(xlen, hypervisor) = wb_tokens[lane]
     wb_retirement_paths[lane][2] |> filter_valid(_retired => token.prefetch.is_prefetch()) |> map_valid(_retired => CachePrefetchReq(64)):
       address: if xlen == XLen.X64 | token.address | token.address.zext(64)
       operation: token.prefetch
 
   Array(wb_prefetch_paths[0], wb_prefetch_paths[1]) |> valid_arbiter() |> prefetch
-  def wb_training :: Vec(2, SuperscalarBranchTraining(xlen)) = vec(
-    for List (lane in 0..2):
+  def wb_training :: Vec(issue_width, SuperscalarBranchTraining(xlen)) = vec(
+    for List (lane in 0..issue_width):
       SuperscalarBranchTraining(xlen):
         branch: wb_tokens[lane].branch.update
         direction_valid: wb_tokens[lane].branch.update.conditional & wb_tokens[lane].fetched.direction.valid
@@ -1896,7 +1876,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   direction_update.valid <== branch_update.valid & wb_training_head.direction_valid
   direction_update.bits <== wb_training_head.direction
   // Architectural history and RAS reconciliation are never delayed behind table writes.
-  def wb_ras :: Vec(2, Bool) = vec(for List (lane in 0..2): wb_train[lane] & ((wb_tokens[lane].branch.update.ras_action =/= RasAction.None) ||| (wb_tokens[lane].branch.update.predicted_ras_action =/= RasAction.None)))
+  def wb_ras :: Vec(issue_width, Bool) = vec(for List (lane in 0..issue_width): wb_train[lane] & ((wb_tokens[lane].branch.update.ras_action =/= RasAction.None) ||| (wb_tokens[lane].branch.update.predicted_ras_action =/= RasAction.None)))
   def wb_ras_branch = mux(wb_ras[0], wb_tokens[0].branch.update, wb_tokens[1].branch.update)
   ras_resolution.valid <== wb_ras.any()
   ras_resolution.bits <== RasResolution(xlen):
@@ -1934,7 +1914,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   // EX-validated vset may commit beside FP; other system commands serialize.
   def wb_fp_older_allows = (wb_fp_lane === Bits(1)(0)) ||| !wb_stop[0]
   def wb_fp_not_displaced = !wb_retained_capture ||| ((wb_fp_lane === Bits(1)(0)) & (wb_retained_lane === Bits(1)(1)))
-  def wb_fp_success = wb_valid[wb_fp_lane] & wb_retirement_unblocked & (!wb_system ||| wb_vector_config) & (wb_tokens[wb_fp_lane].resolution.disposition === SuperscalarDisposition.Continue) & wb_fp_older_allows & wb_fp_not_displaced
+  def wb_fp_success = wb_valid[service_index(wb_fp_lane)] & wb_retirement_unblocked & (!wb_system ||| wb_vector_config) & (wb_tokens[service_index(wb_fp_lane)].resolution.disposition === SuperscalarDisposition.Continue) & wb_fp_older_allows & wb_fp_not_displaced
   fp.authorize.valid <== wb_fp_success & wb_fp_token.fp.valid & !wb_fp_token.fp.bits.execution.unit.is_one_of(FloatUnit.Memory, FloatUnit.DivideSquareRoot)
   wb_fp_fixed_authorized <== fp.authorize.valid
   fp.authorize.bits <== wb_fp_token.fp_request.authorization(wb_fp_token.fetched.identity(), wb_fp_token.rd)
@@ -1988,22 +1968,42 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     assert(wb_gpr_calendar.occupied[0].into(Bool), "superscalar_multiply_booked_return")
 
   assert(!(wb_completion_write & wb_younger.egress.valid), "superscalar_completion_reserved_younger_slot")
-  // A successful younger write wins within the pair; a killed/replayed younger
-  // instruction cannot erase the older write. Deferred returns are not younger.
-  rr_registers.writes[0].valid <== wb_writes[0] & !(wb_writes[1] & (wb_tokens[0].rd === wb_tokens[1].rd))
-  rr_registers.writes[0].bits <== RegisterFileWrite(xlen):
-    address: wb_tokens[0].rd
-    data: retired[0].bits.data
+  // Issue owns all live-group selectors and alias comparisons. WB only suppresses
+  // writes shadowed by actual successful younger writes. Retained service returns
+  // retain their existing dedicated port-zero/merged-port-one completion contract.
+  def wb_physical_writes = vec(
+    for List (lane in 0..issue_width):
+      def suppressed = any(for List (younger in lane + 1..issue_width): wb_write_routing.shadowed_by[lane][younger] & wb_writes[younger])
+      wb_writes[lane] & (wb_retained_pending ||| !suppressed)
+  )
+  def wb_write_values = for List (lane in 0..issue_width):
+    RegisterFileWrite(xlen):
+      address: wb_tokens[lane].rd
+      data: retired[lane].bits.data
 
-  rr_registers.writes[1].valid <== wb_completion_write ||| wb_writes[1] ||| wb_fp_late_gpr.valid ||| (vector.scalar_result.valid & vector.scalar_result.bits.address.any())
-  rr_registers.writes[1].bits <== RegisterFileWrite(xlen):
+  def wb_return_value = RegisterFileWrite(xlen):
     address: wb_second_address
     data: wb_second_data
 
-  retired_count <== retired[0].valid.as_bits().zext(2) + retired[1].valid.as_bits().zext(2)
+  for (port in 0..2):
+    def selected = vec(for List (lane in 0..issue_width): wb_physical_writes[lane] & (mux(wb_retained_pending, Bits(1)(lane % 2), wb_write_routing.ports[lane]) === Bits(1)(port)))
+    def value = priority_mux((for List (lane in 0..issue_width): [selected[lane], wb_write_values[lane]]), ~default: literal(RegisterFileWrite(xlen), 0))
+    def completion = Bool(port == 1) & (wb_completion_write ||| wb_fp_late_gpr.valid ||| (vector.scalar_result.valid & vector.scalar_result.bits.address.any()))
+    for (lane in 0..issue_width):
+      assert(!(selected[lane] & (completion ||| any(for List (other in lane + 1..issue_width): selected[other]))), "superscalar_write_port_exclusive_" ++ to_string(port) ++ "_" ++ to_string(lane))
+
+    rr_registers.writes[port].valid <== selected.any() ||| completion
+    rr_registers.writes[port].bits <== mux(completion, wb_return_value, value)
+
+  def mutable wb_retired_count = Bits(2)(0)
+  for (lane in 0..issue_width):
+    wb_retired_count := wb_retired_count + retired[lane].valid.as_bits().zext(2)
+
+  retired_count <== wb_retired_count
   wb_csrs.retire_count <== retired_count
   stat_count("retired_slot0", retired[0].valid)
   stat_count("retired_slot1", retired[1].valid)
+  if issue_width == 3 | stat_count("retired_slot2", retired[2].valid) | #void
 
   /* Retired locality, PAUSE, and resume state.
      Only the successful prefix advances hints and the architectural cursor;
@@ -2012,7 +2012,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   when (wb_csrs.redirect.valid):
     wb_pending_locality <== RiscvMemoryLocality.Default
   elsewhen (retired[0].valid):
-    wb_pending_locality <== mux(retired[1].valid, wb_tokens[1].locality_hint, wb_tokens[0].locality_hint)
+    wb_pending_locality <== priority_mux((for List (index in 1..issue_width): [retired[issue_width - index].valid, wb_tokens[issue_width - index].locality_hint]), ~default: wb_tokens[0].locality_hint)
 
   def wb_pause_commit = (retired[0].valid & wb_tokens[0].pause) ||| (retired[1].valid & wb_tokens[1].pause)
   when (rr_squash ||| wb_csrs.interrupt_request):
@@ -2027,7 +2027,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     wb_pc_known <== Bool(#true)
     wb_sleeping <== Bool(#false)
   elsewhen (retired[0].valid):
-    def last :: SuperscalarResult(xlen, hypervisor) = mux(retired[1].valid, wb_tokens[1], wb_tokens[0])
+    def last :: SuperscalarResult(xlen, hypervisor) = priority_mux((for List (index in 1..issue_width): [retired[issue_width - index].valid, wb_tokens[issue_width - index]]), ~default: wb_tokens[0])
     wb_resume_pc <== mux(last.branch.taken, last.branch.target, last.fetched.sequential_pc)
     wb_pc_known <== Bool(#true)
     wb_sleeping <== wb_csrs.wfi
@@ -2039,8 +2039,8 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
 
   describe_cosim_hart("rv2wide", {"profile": profile, "fp_timing": fp_timing}, {
     "wb_tokens": wb_tokens,
-    "wb_retired": vec(retired[0].valid, retired[1].valid),
-    "wb_retirement": vec(retired[0].bits, retired[1].bits),
+    "wb_retired": vec(for List (lane in 0..issue_width): retired[lane].valid),
+    "wb_retirement": vec(for List (lane in 0..issue_width): retired[lane].bits),
     "wb_writes": wb_writes,
     "wb_split_capture": wb_split_capture,
     "wb_vector_capture": wb_vector_capture,
