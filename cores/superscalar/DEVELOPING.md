@@ -674,7 +674,14 @@ The same path handles stale boundaries and direct-jump/RAS fallbacks.
 Speculative RAS actions occur only on instruction packet acceptance, with at
 most one action per packet; fetch replay and local repair preserve older actions.
 
-EX carries the target, comparison controls/operands, and update metadata into MEM.
+At EX→MEM each lane captures one XLEN address word: the resolved target for a
+branch or jump (even if not taken), otherwise the effective data address after
+pointer masking. Select with decoded branch enable, not fault-qualified training
+enable: legality gates the consumer, not the word captured. The live EX cache
+lookup uses the data address before this selection. MEM and WB expose the stored
+word to the owning consumer: resolution and BTB training for a branch, or memory
+and prefetch for a data address.
+The predicted target and the trap value remain independent.
 MEM resolves the actual successor and misprediction and retains them through WB.
 MEM correction preserves its own transfer and kills younger tokens. WB alone
 qualifies training and resolved RAS actions from the successful retirement

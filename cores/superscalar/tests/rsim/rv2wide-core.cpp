@@ -117,6 +117,7 @@ int dual_branches = 0, ras_resolutions = 0, max_training_pending = 0;
 Queue<std::uint64_t> training_pending;
 
 std::map<std::uint64_t, bool> expected_branch_taken;
+std::map<std::uint64_t, std::uint64_t> expected_branch_target;
 
 std::map<std::uint64_t, prefetch_t> expected_prefetch;
 int prefetch_count = 0, prefetch_pairs = 0;
@@ -1115,6 +1116,7 @@ void reset_core() {
   multiply_authorized_cycle.clear();
   memory_cycles.clear();
   expected_branch_taken.clear();
+  expected_branch_target.clear();
   training_pending.clear();
   for (int i = 0; i < 32; i++)
     model[i] = 0;
@@ -1385,11 +1387,13 @@ int main() {
     send(UINT64_C(0x2400), imm(5, 0, UINT64_C(0x601)), imm(6, 0, 9));
     drain();
     stop_at(UINT64_C(0x2408), UINT64_C(0x600));
+    expected_branch_target[0x2408] = 0x600;
     send(UINT64_C(0x2408), imm(7, 5, 0, 0, UINT64_C(0x67)), imm(8, 0, 99), 2, 1,
          0);
     drain();
     send(UINT64_C(0x600), imm(8, 7, 0), imm(9, 0, 10));
     drain();
+    CHECK(expected_branch_target.empty());
     stop_at(UINT64_C(0x24d4), UINT64_C(0x24e4));
     send(UINT64_C(0x24d0), branch(1, 2, 32), branch(1, 2, 16, 1));
     drain();
@@ -3941,7 +3945,8 @@ int main() {
     drain();
     send(UINT64_C(0x11518), imm(4, 3, 0), 0, 1);
     drain();
-    // A branch and store share an issue group, not each other's operand words.
+    // Not-taken branches train their targets while the paired stores use
+    // unrelated byte addresses. Exercise both age orders in adjacent groups.
     reset_core();
     lookup_mode = 1;
     send(0x11a00, imm(1, 0, 0x300), imm(2, 0, 6));
@@ -3950,10 +3955,13 @@ int main() {
     {
       const int before = dual_commits;
       const auto not_taken = branch(2, 2, 32, 1);
+      expected_branch_target[0x11a0c] = 0x11a0c + 32;
+      expected_branch_target[0x11a18] = 0x11a18 + 32;
       send(0x11a0c, not_taken, store(3, 1, 0, 0));
       send(0x11a14, store(3, 1, 1, 0), not_taken);
       drain();
       CHECK(dual_commits == before + 2);
+      CHECK(expected_branch_target.empty());
       CHECK(memory_bytes[0x300] == 0x39 && memory_bytes[0x301] == 0x39);
     }
     // Every store width/lane consumes the selected ALU result, not the stale rs2.
@@ -5021,6 +5029,11 @@ void observe() {
       CHECK(training_pending.size() > 0);
       expected_pc = training_pending.take();
       CHECK(branch_update_out.pbits.ppc == expected_pc);
+      if (auto it = expected_branch_target.find(expected_pc);
+          it != expected_branch_target.end()) {
+        CHECK(branch_update_out.pbits.ptarget == it->second);
+        expected_branch_target.erase(it);
+      }
       branch_updates++;
       if (expected_branch_taken.contains(branch_update_out.pbits.ppc)) {
         CHECK(branch_update_out.pbits.ptaken ==

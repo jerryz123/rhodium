@@ -1,5 +1,5 @@
 #lang rhodium
-/* Stores Superscalar lane payloads with shared PC regions and FP requests, successor tags, and compact direction checkpoints. */
+/* Stores compact Superscalar lane payloads and reconstructs their stage-local address, PC and predictor views. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -36,11 +36,12 @@ fun lane_shape(Full :: RecordType, execute :: Boolean, Fault :: DataType, Step :
   | storage_shape(Full, {"fetched": fetched, "vector": storage_shape(Full.field("vector").type, {}, ["pc"])}, ["fp_request"])
   | block:
       def Branch = Full.field("branch").type
-      def update = storage_shape(Branch.field("update").type, {}, ["pc", "return_address"])
-      storage_shape(Full, {"fetched": fetched, "branch": storage_shape(Branch, {"update": update})}, ["fp_request"])
+      def update = storage_shape(Branch.field("update").type, {}, ["pc", "return_address", "target"])
+      storage_shape(Full, {"fetched": fetched, "branch": storage_shape(Branch, {"update": update}, ["target"])}, ["fp_request"])
 
 /* Project into storage or back into a full lane. The target schema determines
-   which aliases are present; addresses and FP requests come from the owning group. */
+   which aliases are present. Both branch target views use the lane's address
+   word; the predicted target is independent. */
 fun recode_lane(T :: RecordType, source :: Hardware.packable, pc :: Hardware.packable, successor :: Hardware.packable, fault :: Hardware.packable, direction :: Hardware.packable, fp_request :: Hardware.packable, execute :: Boolean):
   def Fetched = T.field("fetched").type
   def original = kernel.project(source, "fetched")
@@ -53,9 +54,10 @@ fun recode_lane(T :: RecordType, source :: Hardware.packable, pc :: Hardware.pac
   | block:
       def Branch = T.field("branch").type
       def branch = kernel.project(source, "branch")
+      def address = kernel.project(source, "address")
       def update = copy_fields(Branch.field("update").type, kernel.project(branch, "update"),
-                               {"pc": pc, "return_address": kernel.project(fetched, "sequential_pc")})
-      copy_fields(T, source, {"fetched": fetched, "branch": copy_fields(Branch, branch, {"update": update}), "fp_request": fp_request})
+                               {"pc": pc, "return_address": kernel.project(fetched, "sequential_pc"), "target": address})
+      copy_fields(T, source, {"fetched": fetched, "branch": copy_fields(Branch, branch, {"update": update, "target": address}), "fp_request": fp_request})
 
 /* Preserves the full lane interface and one-cycle flushable pipe contract. Both
    lanes rejoin the PC prefix and FP request registered once for this stage's group. */
@@ -92,6 +94,13 @@ sync_circuit SuperscalarLanePipe(xlen :: XLen, Full :: RecordType, ~hypervisor: 
       when (ingress.valid):
         assert(token.branch.update.pc === token.fetched.pc, "superscalar_lane_branch_pc")
         assert(token.branch.update.return_address === token.fetched.sequential_pc, "superscalar_lane_branch_return")
+        when (token.branch.update.branch):
+          assert(token.branch.control.enable, "superscalar_lane_branch_owns_address")
+          assert(token.branch.target === token.branch.update.target, "superscalar_lane_branch_target")
+
+        when (token.memory.enable ||| (token.prefetch.is_prefetch() & (token.resolution.disposition === SuperscalarDisposition.Continue))):
+          assert(!token.branch.control.enable, "superscalar_lane_data_owns_address")
+
         when (token.fetched.fault.valid()):
           assert(token.resolution.disposition === SuperscalarDisposition.Fault, "superscalar_fetch_fault_disposition")
           assert(token.resolution.cause === token.fetched.fault.cause(), "superscalar_fetch_fault_cause")
@@ -106,7 +115,15 @@ sync_circuit SuperscalarLanePipe(xlen :: XLen, Full :: RecordType, ~hypervisor: 
     def fetched :: SuperscalarInstruction(xlen, hypervisor) = token.fetched
     def fault = fetched.fault
     def encoded = if execute | fault | fault.valid()
-    recode_lane(Stored, token, fetched.pc[0..SuperscalarPcOffsetBits], ingress_step, encoded, fetched.retained_direction(), token.fp_request, execute)
+    // Select by decode, without waiting for EX legality or MEM's taken bit.
+    // The live EX lookup bypasses this mux; at WB its inputs already alias.
+    def captured = if execute
+    | token
+    | block:
+        def result :: SuperscalarResult(xlen, hypervisor) = token
+        result.updated(~address: mux(result.branch.control.enable, result.branch.target, result.address))
+
+    recode_lane(Stored, captured, fetched.pc[0..SuperscalarPcOffsetBits], ingress_step, encoded, fetched.retained_direction(), token.fp_request, execute)
   ) |> storage.ingress
 
   egress_step <== storage.egress.bits.fetched.sequential_pc
