@@ -140,6 +140,17 @@ Format ordinary loads by width and offset; atomics return the raw beat.
 Multiply, divide, FP and vector GPR returns use the same compact instruction
 identity. Keep the full fetch record on retirement, not in these return tags.
 
+Committed completion pipes and scalar arithmetic owners further narrow the PC
+with `SuperscalarCompactIdentity` and the configured `instruction_pc_width`.
+Each owner retains its own `CompactPc`, not a suffix relative to a live pipeline
+prefix. Capture asserts exact representability: these are successfully fetched
+instructions, including speculative fixed FP launches, not arbitrary fault PCs.
+Expand combinationally at public completion, forwarding, and observation ports.
+Keep `SuperscalarInstructionIdentity` full-width for public interfaces and trap
+owners. Raw instruction bits, latency, capacity, and accepted-work flush survival
+remain unchanged. The same compact FP tag crosses fixed execution and the
+divide/sqrt owner; generic arithmetic services remain opaque to this policy.
+
 The issue window encodes the supplied sequential PC once at ingress. Adding
 two or four toggles a contiguous run of bits, starting at bit 1 or 2.
 Store the highest toggled bit and whether bit 1 toggled (six bits on RV32,
@@ -1141,6 +1152,10 @@ recurrence spacing, and a blocked divide preempted by a scheduled fixed return.
 It also checks direct FPR forwarding beside a load hit, delayed-load backpressure,
 scalar/vector reservation collisions, variable divide retention at a booked FPR
 edge, and same-address vector-owner replacement on the older owner's write.
+Its scalar tags exercise both 45-bit PC limits, XLEN wrap, live-input replacement,
+and rejection of a nonrepresentable admitted PC. RV64 core/FP fixtures also
+select 45-bit storage and compare reconstructed completion identities; the core
+fixture covers delayed loads and both integer M services at the PC limits.
 `rv2wide-core-vector` uses 3/5/2-cycle FP timing to exercise matching core/backend
 reservations with shared scalar/vector execution and half-precision arithmetic.
 It also checks that a pending vector-to-FPR move allows independent vector and

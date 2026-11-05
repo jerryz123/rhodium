@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/pc.rhdl").CompactPc
   lib("cores/fp/profile.rhm").fp_transport_profile
   "pairing.rhdl".SuperscalarPairRoute
   "pairing.rhdl".superscalar_pair_immediate_width
@@ -315,6 +316,24 @@ bundle SuperscalarInstructionIdentity(xlen :: XLen):
   pc: Bits(xlen.width)
   raw_instruction: Bits(32)
 
+  /* Captures a successful instruction whose PC fits the caller's storage domain. */
+  method compact(identity, width :: PosInt) :: SuperscalarCompactIdentity(xlen, width):
+    SuperscalarCompactIdentity(xlen, width):
+      pc: CompactPc.capture(xlen, width, identity.pc)
+      raw_instruction: identity.raw_instruction
+
+/* Retains an independently sign-extended successful PC, never an arbitrary fault PC. */
+bundle SuperscalarCompactIdentity(xlen :: XLen, width :: PosInt):
+  pc: CompactPc(xlen, width)
+  raw_instruction: Bits(32)
+
+  /* Restores the architectural identity at completion and observation boundaries. */
+  method expanded(identity) :: SuperscalarInstructionIdentity(xlen):
+    def retained :: SuperscalarCompactIdentity(xlen, width) = identity
+    SuperscalarInstructionIdentity(xlen):
+      pc: retained.pc.expanded()
+      raw_instruction: identity.raw_instruction
+
 /* Keeps age-slot identity and result bank with speculative or authorized numerical work. */
 bundle SuperscalarFpOwner(xlen :: XLen):
   identity: SuperscalarInstructionIdentity(xlen)
@@ -323,6 +342,37 @@ bundle SuperscalarFpOwner(xlen :: XLen):
   destination: FloatDestination
   speculative: Bool
   direct: Bool
+
+  /* Narrows only the successful instruction PC; scheduling and destination stay exact. */
+  method compact(owner, width :: PosInt) :: SuperscalarCompactFpOwner(xlen, width):
+    def source :: SuperscalarFpOwner(xlen) = owner
+    SuperscalarCompactFpOwner(xlen, width):
+      identity: source.identity.compact(width)
+      lane: owner.lane
+      rd: owner.rd
+      destination: owner.destination
+      speculative: owner.speculative
+      direct: owner.direct
+
+/* Carries successful scalar ownership through shared fixed and variable FP execution. */
+bundle SuperscalarCompactFpOwner(xlen :: XLen, width :: PosInt):
+  identity: SuperscalarCompactIdentity(xlen, width)
+  lane: Bits(1)
+  rd: Bits(5)
+  destination: FloatDestination
+  speculative: Bool
+  direct: Bool
+
+  /* Rejoins the full-width public tag without adding storage or arithmetic. */
+  method expanded(owner) :: SuperscalarFpOwner(xlen):
+    def retained :: SuperscalarCompactFpOwner(xlen, width) = owner
+    SuperscalarFpOwner(xlen):
+      identity: retained.identity.expanded()
+      lane: owner.lane
+      rd: owner.rd
+      destination: owner.destination
+      speculative: owner.speculative
+      direct: owner.direct
 
 /* Reconstructs an FP owner from its one pipeline instruction and compact scheduling tag. */
 fun superscalar_fp_owner(xlen :: XLen, hypervisor :: Boolean, fetched :: SuperscalarInstruction(xlen, hypervisor), rd :: Bits(5), request :: FpExecutionRequest(xlen, fp_transport_profile(xlen), SuperscalarFpSchedule())) :~ SuperscalarFpOwner(xlen):
@@ -702,6 +752,31 @@ bundle SuperscalarCompletion(xlen :: XLen):
   write: Bool
   data: Bits(xlen.width)
 
+  /* Narrows a successfully authorized result before its committed transport stages. */
+  method compact(completion, width :: PosInt) :: SuperscalarCompactCompletion(xlen, width):
+    def source :: SuperscalarCompletion(xlen) = completion
+    SuperscalarCompactCompletion(xlen, width):
+      identity: source.identity.compact(width)
+      rd: completion.rd
+      write: completion.write
+      data: completion.data
+
+/* Stores a committed completion without redundant sign bits in its independent PC. */
+bundle SuperscalarCompactCompletion(xlen :: XLen, width :: PosInt):
+  identity: SuperscalarCompactIdentity(xlen, width)
+  rd: Bits(5)
+  write: Bool
+  data: Bits(xlen.width)
+
+  /* Restores the public completion used by forwarding, writeback, and trace consumers. */
+  method expanded(completion) :: SuperscalarCompletion(xlen):
+    def retained :: SuperscalarCompactCompletion(xlen, width) = completion
+    SuperscalarCompletion(xlen):
+      identity: retained.identity.expanded()
+      rd: completion.rd
+      write: completion.write
+      data: completion.data
+
 /* Reports MEM branch recovery or the older WB fault/replay override; Continue is not retirement. */
 bundle SuperscalarRedirect(xlen :: XLen):
   pc: Bits(xlen.width)
@@ -721,6 +796,7 @@ export:
   superscalar_fp_request
   superscalar_physical_request
   SuperscalarFpOwner
+  SuperscalarCompactFpOwner
   SuperscalarFpLoad
   SuperscalarTranslationState
   SuperscalarInstructionTranslation
@@ -759,7 +835,9 @@ export:
   SuperscalarMemory
   SuperscalarRetirement
   SuperscalarCompletion
+  SuperscalarCompactCompletion
   SuperscalarInstructionIdentity
+  SuperscalarCompactIdentity
   SuperscalarRedirect
   SuperscalarFetchRepair
   SuperscalarOperand

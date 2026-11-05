@@ -775,7 +775,8 @@ share fixed return delays without introducing a named-core dependency into FP.
 
 Shared `cores/pc.rhdl` imports architectural XLEN and uses public bundles and
 hardware methods for compact PC storage; it adds no Rhodium implementation import.
-Predictor protocol/BTB/RAS, superscalar retained fetch/prediction storage, and the
+Predictor protocol/BTB/RAS, superscalar retained fetch/prediction/completion and
+arithmetic-owner storage, and the
 RV5Stage fetch queue consume it without changing package direction.
 Shared `cores/bpred/protocol.rhdl` imports architectural XLEN and that PC type.
 `cores/bpred/statistics.rhdl` imports the passive frontend statistics layer and

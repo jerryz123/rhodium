@@ -12,8 +12,9 @@ constexpr unsigned native_precision = xlen == 32 ? 0 : 1;
 constexpr unsigned native_width = xlen == 32 ? 2 : 3;
 int cycles = 0, commits = 0, expected_traps = 0, traps = 0, fp_pairs = 0, redirects = 0;
 std::map<std::uint64_t, int> memory_cycles;
+std::map<std::uint64_t, std::uint32_t> submitted_instructions;
 std::array<std::uint64_t, 32> gprs{};
-std::uint64_t next_pc = 0x8000, load_data = xlen == 32 ? 0x40400000 : 0x4008000000000000, stored_data = 0,
+std::uint64_t next_pc = xlen == 32 ? 0x8000 : UINT64_C(0xfffff00000008000), load_data = xlen == 32 ? 0x40400000 : 0x4008000000000000, stored_data = 0,
               inject_pc = 0;
 unsigned stored_mask = 0, stored_width = 0, expected_locality = 0;
 int stores = 0, response_due = 0, split_due = 0, split_count = 0;
@@ -90,8 +91,12 @@ void observe() {
       if (retired(i).pbits.pwrite && !retired(i).pbits.pdeferred)
         gprs[retired(i).pbits.prd] = retired(i).pbits.pdata;
     }
-  if (completed_out.pvalid && completed_out.pbits.pwrite)
-    gprs[completed_out.pbits.prd] = completed_out.pbits.pdata;
+  if (completed_out.pvalid) {
+    const auto &identity = completed_out.pbits.pidentity;
+    CHECK(submitted_instructions.at(identity.ppc) == identity.praw_uinstruction);
+    if (completed_out.pbits.pwrite)
+      gprs[completed_out.pbits.prd] = completed_out.pbits.pdata;
+  }
   if (redirect_out.pvalid)
     redirects++;
   if (redirect_out.pvalid && redirect_out.pbits.presolution.pdisposition == 1) {
@@ -119,6 +124,8 @@ void send(std::uint32_t a, std::uint32_t b = UINT64_C(19),
   younger.ppc = next_pc + 4;
   younger.pinstruction = younger.praw_uinstruction = b;
   younger.psequential_upc = next_pc + 8;
+  submitted_instructions[next_pc] = a;
+  if (paired) submitted_instructions[next_pc + 4] = b;
   accept([&] { return instructions_out.pready; });
   next_pc += paired ? 8 : 4;
   falling();

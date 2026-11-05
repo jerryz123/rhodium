@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/pc.rhdl").CompactPc
   lib("cores/fp/profile.rhm").fp_transport_profile
   lib("cores/fp/launch-calendar.rhdl") open
   lib("cores/fp/authorization.rhdl").align_fp_authorization
@@ -21,7 +22,7 @@ import:
 
 /* Snapshots operands at RR; fixed returns write only with their aligned WB authorization.
    Accepted variable work and load owners survive all speculative pipeline flushes. */
-sync_circuit SuperscalarFp(xlen :: XLen, timing :: FpExecutionTiming, ~half_precision: half_precision :: HalfPrecisionProfile = HalfPrecisionProfile.None, ~zfa: zfa :: Boolean = #false, ~vector_slots: slots :: Pow2Int = 8):
+sync_circuit SuperscalarFp(xlen :: XLen, timing :: FpExecutionTiming, ~half_precision: half_precision :: HalfPrecisionProfile = HalfPrecisionProfile.None, ~zfa: zfa :: Boolean = #false, ~vector_slots: slots :: Pow2Int = 8, ~instruction_pc_width: pc_width :: PosInt = xlen.width):
   def Request = FpExecutionRequest(xlen, fp_transport_profile(xlen), SuperscalarFpOwner(xlen))
   def Result = FpExecutionResult(xlen, fp_transport_profile(xlen), SuperscalarFpOwner(xlen))
   input read_addresses: Vec(3, Bits(5))
@@ -55,7 +56,7 @@ sync_circuit SuperscalarFp(xlen :: XLen, timing :: FpExecutionTiming, ~half_prec
   def return_width = index_width(span + 1)
   /* Separates speculative scalar authorization from irrevocable vector completion ownership. */
   tagged_union Owner():
-    Scalar(SuperscalarFpOwner(xlen))
+    Scalar(SuperscalarCompactFpOwner(xlen, pc_width))
     Vector(Bits(index_width(slots)))
 
   def SharedRequest = FpExecutionRequest(xlen, fp_transport_profile(xlen), Owner())
@@ -96,11 +97,13 @@ sync_circuit SuperscalarFp(xlen :: XLen, timing :: FpExecutionTiming, ~half_prec
 
   def scalar_fixed = fixed_issue |> to_decoupled() |> map_flow(payload):
     def request :: FpExecutionRequest(xlen, fp_transport_profile(xlen), SuperscalarFpOwner(xlen)) = payload
-    request.with_tag(Owner(), Owner().Scalar(request.tag))
+    def owner :: SuperscalarFpOwner(xlen) = request.tag
+    request.with_tag(Owner(), Owner().Scalar(owner.compact(pc_width)))
 
   def scalar_variable = variable_issue |> map_flow(payload):
     def request :: FpExecutionRequest(xlen, fp_transport_profile(xlen), SuperscalarFpOwner(xlen)) = payload
-    request.with_tag(Owner(), Owner().Scalar(request.tag))
+    def owner :: SuperscalarFpOwner(xlen) = request.tag
+    request.with_tag(Owner(), Owner().Scalar(owner.compact(pc_width)))
 
   def vector = vector_request |> map_flow(payload):
     def request :: FpExecutionRequest(xlen, fp_transport_profile(xlen), Bits(index_width(slots))) = payload
@@ -131,10 +134,15 @@ sync_circuit SuperscalarFp(xlen :: XLen, timing :: FpExecutionTiming, ~half_prec
   ) |> vector_result
   def scalar_result = scalar_return |> map_flow(payload):
     def result :: FpExecutionResult(xlen, fp_transport_profile(xlen), Owner()) = payload
-    result.with_tag(SuperscalarFpOwner(xlen), result.tag.view(Owner().Scalar).payload)
+    def owner :: SuperscalarCompactFpOwner(xlen, pc_width) = result.tag.view(Owner().Scalar).payload
+    result.with_tag(SuperscalarFpOwner(xlen), owner.expanded())
 
   when (fixed_issue.valid):
     assert(launch_calendar.reserved & selection.ingress[0].ready, "superscalar_fp_ex_launch_reserved")
+    assert(CompactPc.fits(xlen, pc_width, fixed_issue.bits.tag.identity.pc), "superscalar_fp_fixed_owner_pc_fits")
+
+  when (variable_issue.fire()):
+    assert(CompactPc.fits(xlen, pc_width, variable_issue.bits.tag.identity.pc), "superscalar_fp_variable_owner_pc_fits")
 
 
   /* WB authorization and scheduled return qualification.

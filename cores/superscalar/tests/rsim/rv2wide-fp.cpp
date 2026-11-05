@@ -127,7 +127,18 @@ ScalarRequest scalar_add(unsigned rd) {
   request.ptag.pdestination = 2;
   request.ptag.pspeculative = 1;
   request.ptag.pdirect = 1;
+  request.ptag.pidentity.ppc = UINT64_C(0xfffff00000000000) + 4 * rd;
+  request.ptag.pidentity.praw_uinstruction = 0x02000053 | (rd << 7);
   return request;
+}
+
+void check_scalar_identity(const ScalarRequest &request) {
+  const auto &actual = completion_out.pbits.ptag;
+  CHECK(actual.pidentity.ppc == request.ptag.pidentity.ppc);
+  CHECK(actual.pidentity.praw_uinstruction == request.ptag.pidentity.praw_uinstruction);
+  CHECK(actual.prd == request.ptag.prd && actual.plane == request.ptag.plane);
+  CHECK(actual.pdestination == request.ptag.pdestination);
+  CHECK(actual.pspeculative == request.ptag.pspeculative && actual.pdirect == request.ptag.pdirect);
 }
 
 void direct_fpr_and_loads() {
@@ -212,6 +223,7 @@ void fpr_calendar_collisions() {
   eval();
   CHECK((busy & (1u << 5)) && completion_out.pvalid);
   CHECK(completion_out.pbits.pvalue == three);
+  check_scalar_identity(scalar);
   tick_model();
 
   authorize_in.pvalid = 0;
@@ -243,6 +255,7 @@ unsigned scalar_divide_latency() {
     eval();
     if (completion_out.pvalid) {
       CHECK(completion_out.pbits.pvalue == three);
+      check_scalar_identity(divide);
       tick_model();
       return cycle;
     }
@@ -275,10 +288,49 @@ void variable_fpr_collision(unsigned due) {
     if (vector_writeback_in.pvalid) CHECK(vector_writeback_out.pready);
     CHECK(bool(completion_out.pvalid) == (cycle == due + 1));
     CHECK(bool(vector_written_out.pvalid) == (cycle == due));
-    if (completion_out.pvalid) CHECK(completion_out.pbits.pvalue == three);
+    if (completion_out.pvalid) {
+      CHECK(completion_out.pbits.pvalue == three);
+      check_scalar_identity(divide);
+    }
     tick_model();
   }
   CHECK(drained && !busy);
+}
+
+void compact_variable_owners() {
+  for (const auto pc : {UINT64_C(0x00000ffffffffffe),
+                        UINT64_C(0xfffff00000000000), UINT64_MAX - 1}) {
+    initialize();
+    auto request = scalar_add(7);
+    request.ptag.pspeculative = 0;
+    request.ptag.pidentity.ppc = pc;
+    request.pcontrol.pexecution.punit = 4;
+    request.pleft = 0x4018000000000000ULL;
+    variable_issue_in.pvalid = 1;
+    variable_issue_in.pbits = request;
+    eval();
+    CHECK(variable_issue_out.pready);
+    tick_model();
+    variable_issue_in.pvalid = 0;
+    // Live input changes must not replace the admitted owner.
+    variable_issue_in.pbits.ptag.pidentity = {};
+    unsigned cycle = 0;
+    for (; cycle < 200 && !completion_out.pvalid; ++cycle) tick_model();
+    CHECK(cycle < 200 && completion_out.pbits.pvalue == three);
+    check_scalar_identity(request);
+    tick_model();
+    CHECK(drained);
+  }
+  expect_failure("superscalar_fp_variable_owner_pc_fits", [] {
+    initialize();
+    auto request = scalar_add(7);
+    request.ptag.pspeculative = 0;
+    request.ptag.pidentity.ppc = UINT64_C(1) << 44;
+    request.pcontrol.pexecution.punit = 4;
+    variable_issue_in.pvalid = 1;
+    variable_issue_in.pbits = request;
+    tick_model();
+  });
 }
 
 int main() {
@@ -289,5 +341,6 @@ int main() {
     direct_fpr_and_loads();
     fpr_calendar_collisions();
     variable_fpr_collision(scalar_divide_latency());
+    compact_variable_owners();
   });
 }

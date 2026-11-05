@@ -9,6 +9,6 @@ import:
   "../../core.rhdl" open
   "../../profile.rhm".SuperscalarPipelineConfig
 
-def program = elaborate(SuperscalarCore(SuperscalarPipelineConfig(~zicboz: #true, ~zicbom: #true, ~zicbop: #true, ~zawrs: #true, ~zihintntl: #true, ~zihintpause: #true, ~sstc: #true, ~svinval: #true, ~ssnpm: #true, ~supm: #true, ~sscofpmf: #true, ~smstateen: #true, ~hypervisor: #true)))
+def program = elaborate(SuperscalarCore(SuperscalarPipelineConfig(~zicboz: #true, ~zicbom: #true, ~zicbop: #true, ~zawrs: #true, ~zihintntl: #true, ~zihintpause: #true, ~sstc: #true, ~svinval: #true, ~ssnpm: #true, ~supm: #true, ~sscofpmf: #true, ~smstateen: #true, ~hypervisor: #true), ~instruction_pc_width: 45))
 def target = rtl_pipeline_target(rsim_target, [statistics_pass()])
 export program target

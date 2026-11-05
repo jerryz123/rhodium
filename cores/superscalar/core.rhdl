@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/pc.rhdl").CompactPc
   lib("rhodium/frontend/layers/statistics.rhm").stat_count
   lib("cores/bpred/statistics.rhdl") open
   lib("cores/fp/profile.rhm").fp_transport_profile
@@ -279,7 +280,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   wb_csrs.interrupts <== interrupts
   wb_csrs.hart_id <== hart_id[0..xlen.width]
   wb_csrs.time_counter <== time_counter
-  inst fp(if fp_enabled | SuperscalarFp(xlen, fp_timing, ~half_precision: profile.execution_half_precision, ~zfa: profile.zfa, ~vector_slots: vector_slots) | SuperscalarFpDisabled(xlen, ~vector_slots: vector_slots))
+  inst fp(if fp_enabled | SuperscalarFp(xlen, fp_timing, ~half_precision: profile.execution_half_precision, ~zfa: profile.zfa, ~vector_slots: vector_slots, ~instruction_pc_width: instruction_pc_width) | SuperscalarFpDisabled(xlen, ~vector_slots: vector_slots))
   vector.floating_writeback |> fp.vector_writeback
   wb_csrs.fp_update.valid <== fp.state_update.valid ||| vector.fp_update.valid ||| vector.floating_result.valid
   wb_csrs.fp_update.bits <== mux(fp.state_update.valid, fp.state_update.bits, Bits(5)(0)) ||| mux(vector.fp_update.valid, vector.fp_update.bits, Bits(5)(0))
@@ -335,8 +336,8 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   inst wb_load_response(SuperscalarLoadResponse(xlen, ~hypervisor: hypervisor))
   reg wb_ordered_memory_pending(~init: Bool(#false))
   reg wb_prior_memory_drained(~init: Bool(#false))
-  inst ex_multiply(SuperscalarMultiply(xlen, ~vector_slots: vector_slots))
-  inst wb_divide(SuperscalarDivide(xlen, ~vector_slots: vector_slots))
+  inst ex_multiply(SuperscalarMultiply(xlen, ~vector_slots: vector_slots, ~instruction_pc_width: instruction_pc_width))
+  inst wb_divide(SuperscalarDivide(xlen, ~vector_slots: vector_slots, ~instruction_pc_width: instruction_pc_width))
   vector.multiply_request |> ex_multiply.vector_request
   ex_multiply.vector_result |> vector.multiply_result
   vector.divide_request |> wb_divide.vector_request
@@ -366,13 +367,31 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
 
   wb_completion_priority <== rr_completion_age.all()
   wb_gpr_calendar.pause <== Bool(#false)
-  inst ex_completion_pipe(ValidPipe(SuperscalarCompletion(xlen), 1))
-  inst mem_completion_pipe(ValidPipe(SuperscalarCompletion(xlen), 1))
-  inst wb_completion_pipe(ValidPipe(SuperscalarCompletion(xlen), 1))
-  rr_completion |> ex_completion_pipe.ingress
+  inst ex_completion_pipe(ValidPipe(SuperscalarCompactCompletion(xlen, instruction_pc_width), 1))
+  inst mem_completion_pipe(ValidPipe(SuperscalarCompactCompletion(xlen, instruction_pc_width), 1))
+  inst wb_completion_pipe(ValidPipe(SuperscalarCompactCompletion(xlen, instruction_pc_width), 1))
+  (rr_completion |> map_valid(payload):
+    def completion :: SuperscalarCompletion(xlen) = payload
+    completion.compact(instruction_pc_width)
+  ) |> ex_completion_pipe.ingress
+
   ex_completion_pipe.egress |> mem_completion_pipe.ingress
   mem_completion_pipe.egress |> wb_completion_pipe.ingress
-  def wb_completion = wb_completion_pipe.egress
+  def ex_completion = ex_completion_pipe.egress |> map_valid(payload):
+    def completion :: SuperscalarCompactCompletion(xlen, instruction_pc_width) = payload
+    completion.expanded()
+
+  def mem_completion = mem_completion_pipe.egress |> map_valid(payload):
+    def completion :: SuperscalarCompactCompletion(xlen, instruction_pc_width) = payload
+    completion.expanded()
+
+  def wb_completion = wb_completion_pipe.egress |> map_valid(payload):
+    def completion :: SuperscalarCompactCompletion(xlen, instruction_pc_width) = payload
+    completion.expanded()
+
+  when (rr_completion.valid):
+    assert(CompactPc.fits(xlen, instruction_pc_width, rr_completion.bits.identity.pc), "superscalar_completion_pc_fits")
+
   def wb_gpr_return = Array(wb_completion, ex_multiply.completed) |> valid_arbiter()
   def wb_vector_return = vector.scalar_result |> filter_valid(result => result.address.any()) |> map_valid(result => SuperscalarCompletion(xlen)):
     identity: wb_vector_scalar_owner
@@ -380,7 +399,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     write: result.address.any()
     data: result.data
 
-  def rr_returns :: List.of(Endpoint) = [wb_gpr_return, mem_completion_pipe.egress, ex_completion_pipe.egress, rr_completion]
+  def rr_returns :: List.of(Endpoint) = [wb_gpr_return, mem_completion, ex_completion, rr_completion]
   reg wb_completion_count(~init: Bits(2)(0))
   when (rr_completion.valid ^ wb_completion.valid):
     wb_completion_count <== mux(rr_completion.valid, wb_completion_count + Bits(2)(1), wb_completion_count - Bits(2)(1))

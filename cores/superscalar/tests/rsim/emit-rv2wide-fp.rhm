@@ -7,5 +7,5 @@ import:
   lib("cores/fp/timing.rhdl").FpExecutionTiming
   "../../fp.rhdl".SuperscalarFp
 
-def program = elaborate(SuperscalarFp(XLen.X64, FpExecutionTiming()))
+def program = elaborate(SuperscalarFp(XLen.X64, FpExecutionTiming(), ~instruction_pc_width: 45))
 export program

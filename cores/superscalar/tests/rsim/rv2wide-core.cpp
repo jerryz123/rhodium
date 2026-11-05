@@ -1329,6 +1329,18 @@ int main() {
         drain();
       }
     }
+    // Independently retained load/divide completions and multiply authorization
+    // must preserve PCs at both compact limits and across XLEN wrap.
+    for (const auto pc : {UINT64_C(0x00000fffffffffe0),
+                          UINT64_C(0xfffff00000000000), UINT64_MAX - 15}) {
+      send(pc, imm(1, 0, 42), imm(2, 0, 7));
+      send(pc + 8, m_insn(3, 1, 2, 0), imm(8, 0, 8));
+      send(pc + 16, m_insn(4, 1, 2, 4), imm(9, 0, 9));
+      drain();
+      send(pc + 24, UINT32_C(0x00003283), imm(10, 0, 10)); // ld x5,0(x0)
+      drain();
+    }
+
     // Correct taken predictions retain a paired target instruction. Wrong
     // direction/target predictions kill that peer and recover exactly once.
     send_predicted(UINT64_C(0x2600), jump(0, 32), UINT64_C(0x2620),
@@ -3323,7 +3335,7 @@ int main() {
 
     // Retained services preserve their own successor and prediction metadata,
     // even across region/XLEN wrap after the live instruction offer is withdrawn.
-    for (auto service_pc : {UINT64_C(0x10ffc), UINT64_C(0x123456789abcfffc),
+    for (auto service_pc : {UINT64_C(0x10ffc), UINT64_C(0xfffff6789abcfffc),
                             UINT64_C(0xfffffffffffffffc)}) {
       for (int lane = 0; lane < 2; ++lane) {
         reset_core();
@@ -3554,7 +3566,7 @@ int main() {
               pc = UINT64_C(0xffe);
             } break;
             case 1: {
-              pc = UINT64_C(0x80000000fffffff8);
+              pc = UINT64_C(0xfffff000fffffff8);
             } break;
             case 2: {
               pc = UINT64_C(0xfffffffffffffff8);
