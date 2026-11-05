@@ -192,8 +192,8 @@ void check_prepared_operands() {
     expect(lanes);
     CHECK(operands[1].prs1 == Pc(value));
     CHECK(operands[1].prs2 == Pc(value));
-    CHECK(issued_instructions[1].ppair.psources[0] == OlderConstant);
-    CHECK(issued_instructions[1].ppair.psources[1] == OlderConstant);
+    CHECK(issued_instructions[1].ppair.psources[0] == (value ? OlderConstant : Register));
+    CHECK(issued_instructions[1].ppair.psources[1] == (value ? OlderConstant : Register));
     CHECK(!operands[1].prewrite.pcomposed);
   }
   clear();
@@ -306,7 +306,72 @@ void check_prepared_operands() {
   }
 }
 
+void check_move_sources() {
+  for (unsigned form = 0; form < 3; ++form) {
+    const auto move = form == 0 ? addi(1, 10) : form == 1 ? add(1, 0, 10) : add(1, 10, 0);
+    const unsigned port = form == 1 ? 1 : 0;
+    clear(); instructions[0] = move; instructions[1] = add(2, 1, 1);
+    read_blocked[2] = read_blocked[3] = 1;
+    expect(lanes);
+    CHECK(operands[1].prs1 == read_data[port]);
+    CHECK(operands[1].prs2 == read_data[port]);
+    CHECK(reads.pforwarded[1][0] && reads.pforwarded[1][1]);
+    CHECK(decision.pwrites.pwrites[0] && decision.pwrites.pwrites[1]);
+    CHECK(decision.pwrites.pports[0] == 0 && decision.pwrites.pports[1] == 1);
+    read_blocked[port] = 1; expect(0);
+    read_blocked[port] = 0;
+    instructions[1] = load(2, 1) | (20 << 20); expect(lanes);
+    CHECK(operands[1].prs1 == read_data[port]);
+    CHECK(!operands[1].prewrite.pmemory_uaddress && !operands[1].prewrite.pcomposed);
+    instructions[1] = (1 << 20) | (1 << 15) | 0x2023; expect(lanes); // SW x1,0(x1)
+    CHECK(operands[1].prs1 == read_data[port] && operands[1].prs2 == read_data[port]);
+    CHECK(!operands[1].prewrite.pstore_udata);
+
+    // A malformed or faulted producer cannot authorize a move route.
+    illegal[0] = 1; expect(1); CHECK(!reads.pforwarded[1][0]);
+    illegal[0] = 0; faults[0] = 1; expect(1); CHECK(!reads.pforwarded[1][0]);
+    if constexpr (lanes == 3) {
+      clear(); instructions[0] = move; instructions[2] = add(2, 1, 1);
+      expect(3);
+      CHECK(operands[2].prs1 == read_data[port] && operands[2].prs2 == read_data[port]);
+      CHECK(reads.pforwarded[2][0] && reads.pforwarded[2][1]);
+      CHECK(decision.pwrites.pports[2] == 1);
+      read_blocked[port] = 1; expect(0);
+
+      clear(); instructions[1] = move; instructions[2] = add(2, 1, 1);
+      expect(3);
+      CHECK(operands[2].prs1 == read_data[port + 2] && operands[2].prs2 == read_data[port + 2]);
+      CHECK(decision.pwrites.pports[2] == 0);
+      read_blocked[port + 2] = 1; expect(1);
+    }
+  }
+  if constexpr (sizeof(Pc) == 8) {
+    clear(); instructions[0] = addi(1, 10) | 8; // ADDIW is not a full-width copy.
+    instructions[1] = add(2, 1, 1); expect(1); CHECK(!reads.pforwarded[1][0]);
+  }
+  clear(); instructions[0] = addi(0, 10); instructions[1] = add(2, 0, 0);
+  expect(lanes); CHECK(!reads.pforwarded[1][0]); CHECK(operands[1].prs1 == 0);
+  if constexpr (lanes == 3) {
+    // Chains share the original captured operand but retain all architectural writers.
+    clear(); instructions[0] = addi(1, 10); instructions[1] = add(2, 0, 1); instructions[2] = addi(1, 2, 5);
+    expect(3); CHECK(operands[1].prs2 == read_data[0]); CHECK(operands[2].prs1 == read_data[0]);
+    CHECK(!decision.pwrites.pwrites[0] && decision.pwrites.pwrites[1] && decision.pwrites.pwrites[2]);
+    instructions[2] = addi(3, 2, 5); expect(2); // Still only two physical write ports.
+    clear(); instructions[0] = addi(1, 10); instructions[1] = addi(10, 11, 1); instructions[2] = addi(1, 1, 2);
+    expect(3); CHECK(operands[2].prs1 == read_data[0]); // Not the intervening replacement of x10.
+    clear(); instructions[0] = addi(1, 10); instructions[1] = add(1, 11, 12); instructions[2] = addi(0, 1, 1);
+    expect(2); CHECK(!reads.pforwarded[2][0]); // Nearest non-move writer shadows the move.
+    clear(); instructions[0] = addi(1, 10); instructions[1] = addi(1, 11); instructions[2] = addi(0, 1, 1);
+    expect(3); CHECK(operands[2].prs1 == read_data[2]); // Nearest move wins.
+    clear(); instructions[0] = load(1); instructions[1] = addi(2, 1); instructions[2] = addi(0, 2, 1);
+    expect(1); CHECK(!reads.pforwarded[2][0]); // No laundering an unavailable load through a move.
+    clear(); instructions[0] = addi(1); instructions[1] = add(2, 0, 1); instructions[2] = addi(1, 2, 1);
+    read_blocked = {1, 1, 1, 1}; expect(3); CHECK(operands[2].prs1 == 0);
+  }
+}
+
 void check_issue_contract() {
+    check_move_sources();
     check_prepared_operands();
     clear();
     expect(lanes);

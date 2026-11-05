@@ -87,6 +87,12 @@ decoded source-use bits, never final issue grants or forwarding availability.
 In the three-candidate specialization, only lane 3 rs1 may borrow lane 2 rs2's
 path, and only lane 3 rs2 may borrow lane 1 rs2's path (one-based numbering).
 Do not free a donor for a same-group replacement route in this first cut.
+`superscalar_issue_reads` may instead select an older move's existing physical
+path, including for either third-lane operand. This is source sharing, not a new
+read allocation or EX result chain. Scan nearest writers in program order and
+retain each move's source route at its position. A non-move dependency cannot
+become ready by passing through a move; source overwrites after a move must not
+retarget its consumers. These selectors and their readiness share one route.
 The core evaluates deferred-return forwarding, interstage forwarding, and
 scoreboard readiness once for each selected physical address. Only the four
 readiness flags feed issue; data stays in the register-read datapath.

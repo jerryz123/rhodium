@@ -220,6 +220,16 @@ Unused operands and x0 release their path; an operand supplied by forwarding
 still occupies it. There is no fallback to a different spare path or sharing
 of an occupied path just because register numbers match.
 
+`superscalar_issue_reads` adds same-group move-source forwarding over this fixed
+allocation. A younger consumer, including lane 3, may select the older move's
+already-resolved physical path instead of its normal path. Full-XLEN `ADDI` with
+zero immediate and `ADD` with either source x0 qualify, including expanded `C.MV`;
+word operations do not. Move chains preserve the original captured value even
+when another instruction overwrites its source register. The nearest writer to
+the copied destination wins, and an unavailable source still blocks issue.
+No extra RF ports or independent forwarding comparators are introduced. Moves
+retain their own retirement and ordinary write-port requirements.
+
 Use the four selected addresses for both RF reads and forwarding comparisons,
 then pass the four resolved `SuperscalarOperand(xlen)` values to
 `superscalar_prepare_operands` in the datapath. Issue receives only their
@@ -262,8 +272,9 @@ decoded candidates + service state --> Issue --> decision / bookings
 Read ownership depends on candidate source demand, never the final issue count.
 The module combines that readiness with same-group RAW/WAW checks, the existing
 first-pair operand rewrites, shared scalar/FP/vector resource limits, ordered
-memory, serialization, PAUSE, and PC-region constraints. A third candidate has
-no new same-group forwarding route; dependencies on either older writer block it.
+memory, serialization, PAUSE, and PC-region constraints. A third candidate can
+consume older move sources, but other same-group result dependencies block it;
+there is no general ALU-to-ALU chain.
 
 Issue selects the constant/register/PC mux routes and immediate-composition
 enable. The RR datapath extracts constants, adds immediates, and selects

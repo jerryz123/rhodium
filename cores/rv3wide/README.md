@@ -48,8 +48,10 @@ There is no backend lane-count parameter. `issue.rhdl` exports
 `RV3WideIssue(xlen)`, a three-candidate scheduling policy with fixed read-path
 borrowing and two-write-port contention. The factory supplies it to the shared
 core. Lane 3 borrows lane 2 rs2's read/bypass path for rs1 and lane 1 rs2's path
-for rs2, only when those donor operands are unused or x0. Issue assigns its
-write port from the two existing ports. Three distinct direct GPR writes cannot
+for rs2, only when those donor operands are unused or x0. Issue selects
+an older move's captured read path when a same-group copy
+dependency permits sharing; this works even when the usual donor is occupied.
+Issue assigns the write port from the two existing ports. Three distinct direct GPR writes cannot
 coissue; same-destination overwrites can share capacity without merging retirements.
 
 The third lane currently executes ordinary integer ALU operations. Branches,

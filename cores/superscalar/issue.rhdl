@@ -149,8 +149,60 @@ bundle SuperscalarIssueHazards():
   structural: Bool
 
 /* Detects an unforwarded GPR dependence on one older group member. */
-fun superscalar_issue_raw(xlen :: XLen, older :: SuperscalarIssueCandidate(xlen), younger :: SuperscalarIssueCandidate(xlen), older_traits :: SuperscalarIssueTraits()) :: Bool:
-  older_traits.writes & ((younger.control.operand.uses_rs1 & (older.rd === younger.rs1)) ||| (younger.control.operand.uses_rs2 & (older.rd === younger.rs2)))
+fun superscalar_issue_raw(xlen :: XLen, older :: SuperscalarIssueCandidate(xlen), younger :: SuperscalarIssueCandidate(xlen), older_traits :: SuperscalarIssueTraits(), forwarded :: Vec(2, Bool)) :: Bool:
+  older_traits.writes & ((younger.control.operand.uses_rs1 & !forwarded[0] & (older.rd === younger.rs1)) ||| (younger.control.operand.uses_rs2 & !forwarded[1] & (older.rd === younger.rs2)))
+
+/* Holds one operand's physical route and whether an older move can copy its RR snapshot. */
+bundle SuperscalarIssueOperand():
+  port: Bits(2)
+  needed: Bool
+  granted: Bool
+  forwarded: Bool
+  captured: Bool
+
+/* Selects existing physical read paths for same-group move consumers, without changing allocation.
+   Scan writers oldest-to-youngest: the nearest writer wins. A move snapshots its source's
+   route at its own position, so later source overwrites cannot change the copied value.
+   Non-move dependencies remain uncaptured, including those needing an EX pair rewrite. */
+fun superscalar_issue_reads(xlen :: XLen, group_width :: matching(2) || matching(3), candidates :: Vec(group_width, SuperscalarIssueCandidate(xlen))) :~ SuperscalarReadRouting(group_width):
+  def base = superscalar_read_routing(group_width, vec(
+    for List (lane in 0..group_width):
+      SuperscalarReadRequest():
+        valid: candidates[lane].present & candidates[lane].decodable
+        addresses: vec(candidates[lane].rs1, candidates[lane].rs2)
+        used: vec(candidates[lane].control.operand.uses_rs1, candidates[lane].control.operand.uses_rs2)
+  ))
+  def moves = for List (lane in 0..group_width): superscalar_move_source(candidates[lane].instruction)
+  def mutable routes :: List.of(Vec(2, SuperscalarIssueOperand())) = []
+  for (lane in 0..group_width):
+    def sources = vec(candidates[lane].rs1, candidates[lane].rs2)
+    def operands = for List (source in 0..2):
+      def initial = SuperscalarIssueOperand():
+        port: base.ports[lane][source]
+        needed: base.needed[lane][source]
+        granted: base.granted[lane][source]
+        forwarded: Bool(#false)
+        captured: Bool(#true)
+
+      def mutable route :: SuperscalarIssueOperand() = initial
+      for (older in 0..lane):
+        def writer = candidates[older]
+        def matched = base.needed[lane][source] & writer.present & writer.decodable & !writer.fetch_fault & writer.control.writeback.enable & writer.rd.any() & (writer.rd === sources[source])
+        def snapshot = mux(moves[older] === SuperscalarMoveSource.Rs2, routes[older][1], routes[older][0])
+        def eligible = (moves[older] =/= SuperscalarMoveSource.None) & snapshot.captured
+        def replacement = mux(eligible, snapshot.updated(~forwarded: Bool(#true)), initial.updated(~captured: Bool(#false)))
+        route := mux(matched, replacement, route)
+
+      route
+
+    routes := routes ++ [vec(operands)]
+
+  base.updated(
+    ~ports: vec(for List (lane in routes): vec(lane[0].port, lane[1].port)),
+    ~needed: vec(for List (lane in routes): vec(lane[0].needed, lane[1].needed)),
+    ~granted: vec(for List (lane in routes): vec(lane[0].granted, lane[1].granted)),
+    ~forwarded: vec(for List (lane in routes): vec(lane[0].forwarded, lane[1].forwarded))
+  )
 
 /* Checks WAW/FPR dependencies and common service conflicts for one ordered pair.
    The caller supplies unresolved GPR RAWs after any physically implemented pair rewrite. */
@@ -235,6 +287,7 @@ export:
   SuperscalarIssueHazards
   superscalar_issue_traits
   superscalar_issue_raw
+  superscalar_issue_reads
   superscalar_issue_pair_hazards
   superscalar_issue_lane_hazards
   superscalar_issue_pair_excluded

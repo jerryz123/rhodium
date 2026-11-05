@@ -36,6 +36,21 @@ hardware_enum SuperscalarReadSource:
   OlderRegister
   OlderPc
 
+/* Identifies the captured GPR source of an exact full-XLEN identity operation. */
+hardware_enum SuperscalarMoveSource:
+  None
+  Rs1
+  Rs2
+
+/* Recognizes ADDI with zero immediate and ADD with a zero register, including expanded C.MV.
+   Word operations are not copies: their sign extension must still execute. */
+fun superscalar_move_source(instruction :: Bits(32)) :~ SuperscalarMoveSource:
+  def is_addi = DecodeGen([DecodeCase(instruction_pattern(rv32.ADDI), Bool(#true))], ~default: Bool(#false))
+  def is_add = DecodeGen([DecodeCase(instruction_pattern(rv32.ADD), Bool(#true))], ~default: Bool(#false))
+  priority_mux(~default: SuperscalarMoveSource.None):
+    (is_addi(instruction) & !instruction_field(fields.immediate12, instruction).any()) ||| (is_add(instruction) & !instruction_field(fields.rs2, instruction).any()): SuperscalarMoveSource.Rs1
+    is_add(instruction) & !instruction_field(fields.rs1, instruction).any(): SuperscalarMoveSource.Rs2
+
 /* Controls RR source selection and the existing stage-local forwarding paths. */
 bundle SuperscalarPairControl():
   sources: Vec(2, SuperscalarReadSource)
@@ -61,7 +76,7 @@ bundle SuperscalarPairing():
     vec(for List (source in 0..2): pairing.routes[source] =/= SuperscalarPairRoute.Register)
 
 /* Resolves each younger RAW against an eligible older ALU writer without changing either instruction's resource admission. */
-fun superscalar_pairing(controls :: Vec(2, SuperscalarControl()), valid :: Vec(2, Bool), destination :: Bits(5), sources :: Vec(2, Bits(5)), instructions :: Vec(2, Bits(32)), older_deferred :: Bool) :: SuperscalarPairing():
+fun superscalar_pairing(controls :: Vec(2, SuperscalarControl()), valid :: Vec(2, Bool), destination :: Bits(5), sources :: Vec(2, Bits(5)), instructions :: Vec(2, Bits(32)), older_deferred :: Bool, ~forwarded: forwarded :: Vec(2, Bool) = vec(Bool(#false), Bool(#false))) :: SuperscalarPairing():
   def older :: SuperscalarControl() = controls[0]
   def younger :: SuperscalarControl() = controls[1]
   def immediate :: OperandImmediate = younger.operand.immediate
@@ -109,12 +124,12 @@ fun superscalar_pairing(controls :: Vec(2, SuperscalarControl()), valid :: Vec(2
         branch_operand: SuperscalarPairRoute.BranchOperand
         Bool(source == 0) & vector_scalar: SuperscalarPairRoute.VectorScalar
 
-      mux(producer & dependency[source], selected, SuperscalarPairRoute.Register)
+      mux(producer & dependency[source] & !forwarded[source], selected, SuperscalarPairRoute.Register)
   )
 
   SuperscalarPairing():
     routes: routes
-    unresolved: vec(for List (source in 0..2): dependency[source] & (routes[source] === SuperscalarPairRoute.Register))
+    unresolved: vec(for List (source in 0..2): dependency[source] & !forwarded[source] & (routes[source] === SuperscalarPairRoute.Register))
 
 /* Projects the recognized rewrite into datapath mux controls; no operand data enters issue. */
 fun superscalar_pair_control(pairing :: SuperscalarPairing(), older :: SuperscalarControl()) :~ SuperscalarPairControl():
@@ -132,6 +147,8 @@ fun superscalar_pair_control(pairing :: SuperscalarPairing(), older :: Superscal
     vector_scalar: pairing.routes[0] === SuperscalarPairRoute.VectorScalar
 
 export:
+  SuperscalarMoveSource
+  superscalar_move_source
   SuperscalarPairRoute
   superscalar_pair_immediate_width
   SuperscalarPairing

@@ -10,7 +10,8 @@ import:
 
 /* Selects up to three instructions without skipping an older blocked candidate.
    Lane 3 borrows only lane 2 rs2 for rs1 and lane 1 rs2 for rs2; it has no
-   same-group forwarding route and may borrow either unused physical write port. */
+   general same-group EX forwarding route and may borrow either unused physical write port.
+   Move consumers may share the older move's captured physical read path. */
 circuit RV3WideIssue(xlen :: XLen):
   input candidates: Vec(3, SuperscalarIssueCandidate(xlen))
   input status: Vec(3, SuperscalarIssueStatus())
@@ -21,19 +22,13 @@ circuit RV3WideIssue(xlen :: XLen):
   output decision: SuperscalarIssueDecision(3)
 
   def traits :: Vec(3, SuperscalarIssueTraits()) = vec(for List (lane in 0..3): superscalar_issue_traits(xlen, candidates[lane]))
-  reads <== superscalar_read_routing(3, vec(
-    for List (lane in 0..3):
-      SuperscalarReadRequest():
-        valid: candidates[lane].present & candidates[lane].decodable
-        addresses: vec(candidates[lane].rs1, candidates[lane].rs2)
-        used: vec(candidates[lane].control.operand.uses_rs1, candidates[lane].control.operand.uses_rs2)
-  ))
-  def pairing = superscalar_pairing(vec(candidates[0].control, candidates[1].control), vec(candidates[0].decodable, candidates[1].decodable), candidates[0].rd, vec(candidates[1].rs1, candidates[1].rs2), vec(candidates[0].instruction, candidates[1].instruction), traits[0].deferred)
+  reads <== superscalar_issue_reads(xlen, 3, candidates)
+  def pairing = superscalar_pairing(vec(candidates[0].control, candidates[1].control), vec(candidates[0].decodable, candidates[1].decodable), candidates[0].rd, vec(candidates[1].rs1, candidates[1].rs2), vec(candidates[0].instruction, candidates[1].instruction), traits[0].deferred, ~forwarded: reads.forwarded[1])
   instructions <== superscalar_issue_instructions(xlen, 3, candidates, pairing)
   def first_pair = superscalar_issue_pair_hazards(xlen, candidates[0], candidates[1], traits[0], traits[1], pairing.unresolved.any(), resources.fixed_returns_collide)
   def third_pairs = vec(
     for List (older in 0..2):
-      superscalar_issue_pair_hazards(xlen, candidates[older], candidates[2], traits[older], traits[2], superscalar_issue_raw(xlen, candidates[older], candidates[2], traits[older]), resources.fixed_returns_collide)
+      superscalar_issue_pair_hazards(xlen, candidates[older], candidates[2], traits[older], traits[2], superscalar_issue_raw(xlen, candidates[older], candidates[2], traits[older], reads.forwarded[2]), resources.fixed_returns_collide)
   )
   def pair_data = vec(Bool(#false), first_pair.data, third_pairs[0].data ||| third_pairs[1].data)
   def pair_structural = vec(Bool(#false), first_pair.structural, third_pairs[0].structural ||| third_pairs[1].structural)
@@ -53,7 +48,7 @@ circuit RV3WideIssue(xlen :: XLen):
   def results :: List.of(Vec(3, Bool)) = for List (lane in 0..3):
     def blocked = any(
       for List (source in 0..2):
-        def port = if lane < 2 | 2 * lane + source | (if source == 0 | 3 | 1)
+        def port = reads.ports[lane][source]
         def replaced = if lane == 1 | pairing.replaced()[source] | Bool(#false)
         reads.needed[lane][source] & (!reads.granted[lane][source] ||| (!replaced & read_blocked[port]))
     )

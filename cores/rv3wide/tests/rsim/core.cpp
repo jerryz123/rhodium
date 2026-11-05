@@ -151,21 +151,45 @@ int main() {
     // A dependent third cannot bypass either older instruction in its group.
     send(0x2240, {addi(10, 0, 5), addi(11, 0, 6), add(10, 10, 11)}); drain();
     send(0x2280, {addi(12, 10, 0)}); drain();
+    // Move forwarding preserves per-instruction values, RF writes, and three-wide issue.
+    send(0x2300, {addi(10, 0, 37), addi(11, 0, 91)}); drain();
+    for (auto move : {addi(1, 10, 0), add(1, 0, 10), add(1, 10, 0)}) {
+      auto prior = issues3;
+      send(0x2340, {move, addi(0, 0, 0), add(2, 1, 1)}); drain();
+      CHECK(issues3 == prior + 1);
+      prior = issues3;
+      send(0x2380, {addi(0, 0, 0), move, add(2, 1, 1)}); drain();
+      CHECK(issues3 == prior + 1);
+      send(0x23c0, {add(3, 1, 2)}); drain();
+    }
+    auto prior_moves = issues3;
+    send(0x2400, {addi(1, 10, 0), add(2, 0, 1), addi(1, 2, 5)}); drain();
+    CHECK(issues3 == prior_moves + 1);
+    send(0x2440, {add(3, 1, 2)}); drain();
+    prior_moves = issues3;
+    send(0x2480, {addi(1, 10, 0), addi(10, 11, 1), addi(1, 1, 2)}); drain();
+    CHECK(issues3 == prior_moves + 1);
+    send(0x24c0, {add(3, 1, 10)}); drain();
+    send(0x2500, {addi(1, 10, 0), add(1, 10, 11), addi(0, 1, 1)}); drain();
+    send(0x2540, {addi(3, 1, 0)}); drain();
     // Shortened successful prefixes must restore the issue-assigned older write.
     for (unsigned failed = 0; failed < 3; ++failed) {
       for (unsigned disposition : {1u, 2u}) {
         reset_core();
+        send(0x2f00, {addi(10, 0, 41), addi(11, 0, 42)}); drain();
         inject = true; inject_pc = 0x3000 + 4*failed; inject_disposition = disposition;
         const auto prior = redirects;
-        send(0x3000, {addi(1, 0, 41), addi(2, 0, 42), addi(1, 0, 43)}, failed);
+        const auto prior_issue = issues3;
+        send(0x3000, {addi(1, 10, 0), addi(2, 11, 0), addi(1, 1, 2)}, failed);
         drain(); CHECK(redirects == prior + 1); CHECK(last_redirect == inject_pc);
+        CHECK(issues3 == prior_issue + 1);
         inject = false;
         send(0x4000, {addi(3, 1, 0), addi(4, 2, 0)}); drain();
         if (disposition == 2) {
           // Refetch only the rejected suffix; older retirement must not repeat.
-          if (failed == 0) send(0x3000, {addi(1, 0, 41), addi(2, 0, 42), addi(1, 0, 43)});
-          if (failed == 1) send(0x3004, {addi(2, 0, 42), addi(1, 0, 43)});
-          if (failed == 2) send(0x3008, {addi(1, 0, 43)});
+          if (failed == 0) send(0x3000, {addi(1, 10, 0), addi(2, 11, 0), addi(1, 1, 2)});
+          if (failed == 1) send(0x3004, {addi(2, 11, 0), addi(1, 1, 2)});
+          if (failed == 2) send(0x3008, {addi(1, 1, 2)});
           drain();
           send(0x4040, {addi(3, 1, 0), addi(4, 2, 0)}); drain();
         }

@@ -21,19 +21,13 @@ circuit RV2WideIssue(xlen :: XLen):
   output decision: SuperscalarIssueDecision(2)
 
   def traits :: Vec(2, SuperscalarIssueTraits()) = vec(for List (lane in 0..2): superscalar_issue_traits(xlen, candidates[lane]))
-  reads <== superscalar_read_routing(2, vec(
-    for List (lane in 0..2):
-      SuperscalarReadRequest():
-        valid: candidates[lane].present & candidates[lane].decodable
-        addresses: vec(candidates[lane].rs1, candidates[lane].rs2)
-        used: vec(candidates[lane].control.operand.uses_rs1, candidates[lane].control.operand.uses_rs2)
-  ))
-  def pairing = superscalar_pairing(vec(candidates[0].control, candidates[1].control), vec(candidates[0].decodable, candidates[1].decodable), candidates[0].rd, vec(candidates[1].rs1, candidates[1].rs2), vec(candidates[0].instruction, candidates[1].instruction), traits[0].deferred)
+  reads <== superscalar_issue_reads(xlen, 2, candidates)
+  def pairing = superscalar_pairing(vec(candidates[0].control, candidates[1].control), vec(candidates[0].decodable, candidates[1].decodable), candidates[0].rd, vec(candidates[1].rs1, candidates[1].rs2), vec(candidates[0].instruction, candidates[1].instruction), traits[0].deferred, ~forwarded: reads.forwarded[1])
   instructions <== superscalar_issue_instructions(xlen, 2, candidates, pairing)
   def pair = superscalar_issue_pair_hazards(xlen, candidates[0], candidates[1], traits[0], traits[1], pairing.unresolved.any(), resources.fixed_returns_collide)
   def hazards = vec(
     for List (lane in 0..2):
-      def blocked = any(for List (source in 0..2): reads.needed[lane][source] & !(Bool(lane == 1) & pairing.replaced()[source]) & read_blocked[2 * lane + source])
+      def blocked = any(for List (source in 0..2): reads.needed[lane][source] & !(Bool(lane == 1) & pairing.replaced()[source]) & read_blocked[reads.ports[lane][source]])
       def training = resources.training_pending + (if lane == 0 | Bits(4)(0) | traits[0].branch.as_bits().zext(4))
       superscalar_issue_lane_hazards(xlen, candidates[lane], traits[lane], status[lane], resources, blocked, training)
   )
