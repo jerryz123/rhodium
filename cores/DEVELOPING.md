@@ -310,13 +310,13 @@ Small widths exhaust every operand/signedness pair; RV32/RV64 combine signed
 extremes, half-width carry boundaries, and seeded random products. Its independent
 full-width oracle checks every valid cycle, including bubbles and reset with
 work in flight. Before the first register, merge the low and cross products,
-upper product, and both sign corrections into one carry-save pair. The carry
-word is already shifted: adding it to the sum gives the full double-width
-product modulo `2^(2*width)`. The second stage adds these words in independent
-16-bit chunks (one smaller chunk for narrow products). Keep each subtotal's
-low bits and the carry into the next chunk. The last stage propagates those
-boundary carries across the full product; only overflow beyond twice the
-operand width can be discarded. Keep the latency independent of operand values.
+upper product, and both sign corrections into one carry-save pair. Add its
+sum and already-shifted carry in independent 16-bit chunks (one smaller chunk
+for narrow products). Register each subtotal with its carry into the next
+chunk. Propagate those boundary carries before the second register; discard
+only overflow beyond twice the operand width. Keep the complete product there
+so each caller can choose what to retain in the third register without changing
+its response cycle.
 
 `iterative-divider` exhausts all eight-bit operand pairs in both signed modes,
 checking the quotient, remainder, and exact response cycle. Keep the trial

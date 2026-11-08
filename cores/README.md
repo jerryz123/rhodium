@@ -51,9 +51,9 @@ retain configuration validation and decide which guarantees they may publish.
 ### Tagged integer services
 
 When the caller owns the final register, `pipelined_product_sum(width, request)`
-provides the same double-width combinational sum after the first two stages.
-The caller can then select the required bits before registering the result.
-Use `PipelinedMultiplier` when the complete registered product is needed.
+provides the registered double-width product after two cycles. The caller can
+then select the required bits for its third register. Use `PipelinedMultiplier`
+for a three-cycle response that retains both halves.
 
 [`integer-service.rhdl`](integer-service.rhdl) carries opaque caller tags through
 the shared multiplier and divider. `TaggedPipelinedMultiplier` is feed-forward
@@ -331,8 +331,8 @@ independently to the two operands. Element width is retained with the products.
 The guaranteed timing is:
 
 ```text
-Valid operands -> carry-save pair -> subtotals -> full products -> processed result
-                     cycle 1          cycle 2        cycle 3            cycle 4
+Valid operands -> chunk subtotals -> full products -> raw response -> processed result
+                      cycle 1           cycle 2          cycle 3           cycle 4
 ```
 
 There is no backpressure, operand-dependent timing, or completion storage.
@@ -380,13 +380,12 @@ The iterative multiplier and divider transfer requests on `request.fire()` and
 hold their `Irrevocable` responses until `response.fire()`. The pipelined
 multiplier instead consumes every asserted `Valid` request and produces the
 corresponding `Valid` response exactly three cycles later, independently of
-operand values and signedness. The first stage multiplies the operand halves
-and merges all partial products and sign corrections into two words: a sum
-and a shifted carry. The second stage adds those words in independent chunks
-of up to 16 bits.
-The third stage propagates carries between those subtotals to produce the
-full product. There is no readiness path: a caller must reserve its write
-cycle or elastic return capacity before launch.
+operand values and signedness. The first stage combines the partial products
+and sign corrections, then registers independent subtotals for chunks of up
+to 16 bits. The second stage propagates carries between chunks and registers
+the full product. The third delivers that product on the response. There is
+no readiness path: a caller must reserve its write cycle or elastic return
+capacity before launch.
 
 ## Map RISC-V instructions onto components
 

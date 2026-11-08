@@ -1502,7 +1502,7 @@ permission at the first sequencing transfer rather than descriptor dispatch.
 
 Scalar multiply and fixed FP reserve their EX slots at RR; squashing an EX
 request must not combinationally change vector shared-service admission.
-In scalar-only builds the carry-save reduction and WB authorization meet
+In scalar-only builds the registered full product and WB authorization meet
 before the final register: store the selected XLEN result with its owner.
 Vector builds register the full double-width sum because full-width vector
 elements consume both halves. Both paths publish scalar results at WB+1.
