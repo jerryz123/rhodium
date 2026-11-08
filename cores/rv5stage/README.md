@@ -131,6 +131,13 @@ workload passes.
 
 ## Experimental hypervisor integration
 
+Standalone `RV5StageCore` publishes `translation_state` using shared
+`RiscvTranslationState(xlen)` from `cores/mmu/context.rhdl`; connect it to the
+MMU's `state` input. It carries live committed CSR and pointer-mask controls,
+with zero guest state when H is disabled. `translation_flush` remains separate.
+The composed `RV5Stage` connects both automatically. Instruction-specific
+pointer masking and prefetch cancellation retain their existing stage boundaries.
+
 `RV5StageExtensions(~hypervisor: #true)` selects the RV64 guest path with the
 Sv39 MMU. The core, frontend, CSR unit, and top-level composition derive H from
 the same `RV5StageConfig`; runtime `misa.H` and the published ISA agree.

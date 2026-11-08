@@ -616,8 +616,11 @@ privilege, Sv39 and trap adapters, pure exception descriptors, and
 `std/ready-valid.rhdl`. Shared `cores/mmu/tlb.rhdl` and `walker.rhdl`
 consume these contracts and `std/bits.rhdl` / `flow/main.rhdl`.
 `cores/mmu/context.rhdl` consumes the shared translation protocol, public
-hypervisor/privilege/Sv39/CSR adapters, and pure CSR/Sv39 descriptors to form
-stateless lookup context. Both named MMUs consume it while retaining arbitration.
+hypervisor/privilege/Sv39/CSR/pointer-masking adapters, and pure XLEN/CSR/Sv39
+descriptors. It owns `RiscvTranslationState` and forms stateless lookup context.
+Both cores and their memory adapters import the state directly; superscalar's
+resolvers and RV5Stage's MMU retain their own capture, arbitration, and prefetch
+cancellation. The bundle adds no dependency on a named core or pipeline payload.
 Both named Sv39 MMUs and RV2Wide's Bare adapter consume `cores/mmu/vector-certificate.rhdl` for the
 shared fast proof and epoch. It imports the shared vector/translation/host-result
 contracts, the window's page-PMA helper, architectural XLEN/PMA/PBMT/guest context,

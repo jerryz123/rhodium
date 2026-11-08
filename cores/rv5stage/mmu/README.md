@@ -406,7 +406,7 @@ wins over refill. The integrating MMU must also cancel outstanding walks and
 order prior PTE stores. Plain cancellation does not invalidate successful
 entries. The production MMU directly instantiates these banks and walker;
 it does not serialize hits through the test service. Its opt-in `~hypervisor`
-specialization accepts CSR-owned `guest_translation` state and selects separate
+specialization reads CSR-owned guest translation from `state.guest` and selects separate
 instruction and effective MPRV/MPV data contexts. Guest fetch faults carry their
 class/provenance in the S2 result. HLV/HLVX/HSV wrap virtual requests with
 `RiscvGuestMemoryAccess`; the MMU consumes it before the physical boundary.

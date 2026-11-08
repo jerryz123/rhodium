@@ -840,6 +840,7 @@ void stimulus() {
   replay_pending = 0;
   replay_pc = 0;
   pbmte = 0;
+  pointer_masking = {};
   pipeline_vector = 0;
   pipeline_physical = 0;
   vector_precheck_in = {};
@@ -1188,6 +1189,41 @@ void stimulus() {
                         PHYSICAL_ADDRESS + UINT64_C(64));
     // The test physical map covers only the CHI physical-address width.
     check_isolated_hint(UINT64_C(0x8000000000000000), UINT64_C(2), 0);
+
+    // The grouped state does not broaden cancellation: unrelated status,
+    // Bare PBMTE, and pointer-mask controls preserve both occupied stages.
+    for (int unrelated = 0; unrelated < 3; ++unrelated) {
+      for (int stage = 1; stage <= 2; ++stage) {
+        falling();
+        prefetch_in = {1, {PHYSICAL_ADDRESS, 2}};
+        tick();
+        check_prefetch(0);
+        if (stage == 2) {
+          falling();
+          prefetch_in = {};
+          tick();
+          check_prefetch(1, PHYSICAL_ADDRESS, 2);
+        }
+        falling();
+        prefetch_in = {};
+        if (unrelated == 0)
+          mstatus ^= UINT64_C(1) << 3;
+        else if (unrelated == 1)
+          pbmte ^= 1;
+        else {
+          pointer_masking.pmode ^= 2;
+          pointer_masking.pvirtual_uaddress ^= 1;
+        }
+        settle();
+        check_prefetch(stage == 2, PHYSICAL_ADDRESS, 2);
+        tick();
+        check_prefetch(stage == 1, PHYSICAL_ADDRESS, 2);
+        falling();
+        tick();
+        check_prefetch(0);
+        CHECK(!data_memory_out.prequest.pvalid);
+      }
+    }
 
     // Flush/reset and each relevant translation-context change cancel either
     // occupied stage at the edge. Already presented physical hints are not

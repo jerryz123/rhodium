@@ -143,7 +143,6 @@ sync_circuit RV5Stage(profile :: RV5StageConfig,
   describe_cosim_context(core, {"mmu": mmu})
   if hypervisor
   | block:
-      mmu.guest_translation <== core.guest_translation
       core.request_guest_fault <== mmu.request_guest_fault
       core.pipeline_guest_fault <== mmu.pipeline_guest_fault
   | #void
@@ -192,10 +191,7 @@ sync_circuit RV5Stage(profile :: RV5StageConfig,
   data_port_arbiter.memory |> memory_router.core
   memory_router.cache |> l1d.core
   memory_router.uncached |> uncached.core
-  mmu.privilege <== core.privilege
-  mmu.mstatus <== core.mstatus
-  mmu.pbmte <== core.pbmte
-  mmu.satp <== core.satp
+  mmu.state <== core.translation_state
   mmu.invalidate_all <== core.translation_flush
   mmu.ordered_busy <== memory_router.ordered_busy
   connect_traced_cache_chi(l1i.chi, imem, "icache", ~snoopable: #false)

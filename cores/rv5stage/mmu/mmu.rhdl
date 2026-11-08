@@ -8,7 +8,7 @@ import:
   lib("cores/pc.rhdl").CompactPc
   lib("riscv/isa/hart.rhm").RiscvMmuType
   lib("cores/mmu/vector.rhdl") open
-  lib("cores/mmu/context.rhdl").riscv_translation_lookup
+  lib("cores/mmu/context.rhdl") open
   "../../cache/protocol.rhdl" open
   "../../cosim-source.rhm".describe_cosim_signals
   "../../cache-prefetch.rhdl" open
@@ -71,10 +71,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   interface walker_lookup(Valid(Bits(width)), ~role: producer)
   interface prefetch(Valid(CachePrefetchReq(width)), ~role: consumer)
   interface physical_prefetch(Valid(CachePrefetchReq(width)), ~role: producer)
-  input privilege: PrivilegeMode
-  input mstatus: Bits(width)
-  input satp: Bits(width)
-  input pbmte: Bool
+  input state: RiscvTranslationState(xlen)
   input invalidate_all: Bool
   input ordered_busy: Bool
   interface instruction_replay_owner(Valid(Bits(width)), ~role: consumer)
@@ -82,12 +79,11 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   unless (!hypervisor) || (xlen == XLen.X64 && mmu_mode == RiscvMmuType.Sv39)
   | error(~who: #'RV5StageMmu, "guest translation requires the RV64 Sv39 MMU")
 
-  def guest_state :: RiscvHypervisorTranslation():
-    if hypervisor
-    | block:
-        input guest_translation: RiscvHypervisorTranslation()
-        guest_translation
-    | literal(RiscvHypervisorTranslation(), 0)
+  def privilege = state.privilege
+  def mstatus = state.mstatus
+  def satp = state.satp
+  def pbmte = state.pbmte
+  def guest_state :: RiscvHypervisorTranslation() = if hypervisor | state.guest | literal(RiscvHypervisorTranslation(), 0)
 
   inst itlb(RiscvTranslationTlb(tlb_entries, ~host_root_epoch: !hypervisor))
   inst dtlb(RiscvTranslationTlb(tlb_entries, ~host_root_epoch: !hypervisor))

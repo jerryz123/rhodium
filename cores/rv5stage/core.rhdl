@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/mmu/context.rhdl").RiscvTranslationState
   lib("cores/pc.rhdl") open
   lib("cores/fetch/redirect.rhdl") open
   lib("rhodium/frontend/layers/statistics.rhm").stat_count
@@ -145,10 +146,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   interface vector_precheck(VectorPrecheck(), ~role: requester)
   interface vector_fast(VectorFastCheck(xlen), ~role: requester)
   interface prefetch(Valid(CachePrefetchReq(width)), ~role: producer)
-  output privilege: PrivilegeMode
-  output mstatus: Bits(width)
-  output satp: Bits(width)
-  output pbmte: Bool
+  output translation_state: RiscvTranslationState(xlen)
   output translation_flush: Bool
   def request_guest :: RiscvGuestException():
     if hypervisor
@@ -261,11 +259,6 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def wb_fp_module = if floating_point_supports_f(profile) | RV5StageFpScalar(xlen, effective_fp_profile, Bits(width), ~half_precision: execution_half_precision, ~zfa: zfa_enabled, ~speculative_fixed: #true, ~timing: fp_timing) | RV5StageDisabledFpPipeline(xlen, effective_fp_profile, Bits(width))
   inst wb_fp(wb_fp_module)
   inst wb_csrs(RiscvCsrFile(core_profile.csr_config))
-  if hypervisor
-  | block:
-      output guest_translation: RiscvHypervisorTranslation()
-      guest_translation <== wb_csrs.guest_translation
-  | #void
 
   def wb_vector_retirement_link = interface_link(Valid(RV5StageRetirementCommand(xlen, vector_completion_slots, hypervisor)))
   wire wb_vector_active: Bool
@@ -588,10 +581,14 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   wb_commit_write_link.right |> id_registers.writes[0]
   wb_deferred_completion_write_link.right |> id_registers.writes[1]
 
-  privilege <== wb_csrs.privilege
-  mstatus <== wb_csrs.mstatus
-  satp <== wb_csrs.satp
-  pbmte <== wb_csrs.pbmte
+  translation_state <== RiscvTranslationState(xlen):
+    privilege: wb_csrs.privilege
+    mstatus: wb_csrs.mstatus
+    satp: wb_csrs.satp
+    pbmte: wb_csrs.pbmte
+    guest: if hypervisor | wb_csrs.guest_translation | literal(RiscvHypervisorTranslation(), 0)
+    pointer_masking: wb_csrs.pointer_masking
+    guest_pointer_masking: if hypervisor | wb_csrs.guest_pointer_masking | wb_csrs.pointer_masking
 
 
   /* Backward control and recovery.

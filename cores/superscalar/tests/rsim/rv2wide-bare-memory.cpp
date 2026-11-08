@@ -31,6 +31,17 @@ int main() {
     CHECK(!physical_prefetch_out.pvalid);
     tick_model();
 
+    // Identity also keeps whole-state cancellation on the outgoing hint edge.
+    prefetch_in = {1, {0x10025, 2}};
+    tick_model();
+    prefetch_in.pvalid = 0;
+    eval();
+    CHECK(physical_prefetch_out.pvalid);
+    mstatus ^= UINT64_C(1) << 3;
+    eval();
+    CHECK(!physical_prefetch_out.pvalid);
+    tick_model();
+
     // EX indexes immediately; MEM resolves the same owner exactly one edge later.
     address = 0x10018;
     access = 1;

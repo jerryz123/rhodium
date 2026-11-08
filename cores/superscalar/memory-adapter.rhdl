@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/mmu/context.rhdl").RiscvTranslationState
   "bundles.rhdl" open
   "memory-translation.rhdl" open
   "translation-specialization.rhm" open
@@ -30,7 +31,7 @@ import:
    accepted owners never observe invalidation. */
 sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpecialization):
   def xlen = translation.architectural_xlen()
-  input state: SuperscalarTranslationState(xlen)
+  input state: RiscvTranslationState(xlen)
   input invalidate: Bool
   input split_guest_access: RiscvGuestMemoryAccess
   input(pipeline_vector, request_vector): Bool

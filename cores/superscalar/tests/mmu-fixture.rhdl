@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/mmu/context.rhdl").RiscvTranslationState
   lib("riscv/rtl/trap.rhdl").ExceptionCause
   lib("riscv/rtl/hypervisor.rhdl") open
   lib("riscv/rtl/pointer-masking.rhdl") open
@@ -81,7 +82,7 @@ sync_circuit SuperscalarMmuFixture(~bare: bare :: Boolean = #false):
   vector_precheck.release |> mmu.vector_precheck.release
   vector_fast |> mmu.vector_fast
   mmu.split_guest_access <== guest_access
-  mmu.state <== SuperscalarTranslationState(XLen.X64):
+  mmu.state <== RiscvTranslationState(XLen.X64):
     pointer_masking: literal(PointerMaskControl(), 0)
     guest_pointer_masking: literal(PointerMaskControl(), 0)
     guest: guest_state

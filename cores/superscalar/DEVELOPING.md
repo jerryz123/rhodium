@@ -965,7 +965,10 @@ depend on a TLB result. The translation services are unbuffered at the query
 boundary. Their result carries a full physical address,
 known/fault status, PBMT, guest provenance, execute-read intent, and probe
 contention, not TLB leaves. Identity resolves immediately; paged translation
-retains its own pending walks and exact failed lookups.
+retains its own pending walks and exact failed lookups. Core, adapter, and
+resolvers use shared `RiscvTranslationState` from `cores/mmu/context.rhdl`.
+Both resolvers retain whole-state comparisons for prefetch cancellation;
+preserve that policy independently of RV5Stage's selected-control comparison.
 
 The adapter takes one `SuperscalarTranslationSpecialization`, an immutable
 generator parameter implemented beside each resolver. Its `circuit()` builds
@@ -1036,7 +1039,7 @@ reserved encodings, and whole-mapping invalidation/remapping. Run `rv2wide-mmu`
 and `riscv-svnapot` plus `tests/profile-test.rhm` for this integration.
 
 Optional `profile.svpbmt` configures the shared CSR bank and ISA/UDB publication.
-Carry the bank's PBMTE in `SuperscalarTranslationState`; shared CSR translation
+Carry the bank's PBMTE in shared `RiscvTranslationState`; shared CSR translation
 flush already handles interpretation changes. Resolve architectural PBMT with
 `riscv/rtl/svpbmt.rhdl` only after translation. MEM qualification, WB physical
 requests, split-fragment permission checks, and prefetch probes must agree.

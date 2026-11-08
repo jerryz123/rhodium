@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/mmu/context.rhdl").RiscvTranslationState
   lib("cores/pc.rhdl") open
   lib("cores/fetch/redirect.rhdl") open
   lib("rhodium/core/ir.rhm").Module
@@ -134,7 +135,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   output retired_count: Bits(2)
   output instruction_capacity: Bits(4)
   output sleeping: Bool
-  output translation_state: SuperscalarTranslationState(xlen)
+  output translation_state: RiscvTranslationState(xlen)
   output translation_flush: Bool
   interface vector_precheck(VectorPrecheck(), ~role: requester)
   interface vector_fast(VectorFastCheck(xlen), ~role: requester)
@@ -263,7 +264,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   wire wb_redirect_pc: Bits(xlen.width)
   def wb_redirect_fault = rejected_fetch(xlen, wb_redirect_pc, wb_csrs.privilege, wb_csrs.satp, guest_state)
   wire wb_reject_target: Bool
-  translation_state <== SuperscalarTranslationState(xlen):
+  translation_state <== RiscvTranslationState(xlen):
     guest: guest_state
     pointer_masking: wb_csrs.pointer_masking
     guest_pointer_masking: if profile.hypervisor | wb_csrs.guest_pointer_masking | wb_csrs.pointer_masking

@@ -32,6 +32,7 @@ completion adaptation and instruction/uncached integration.
 | [`rv5stage.rhdl`](rv5stage.rhdl) | Core, MMU, prefetch routing, cache, uncached, and CHI composition |
 | [`core.rhdl`](core.rhdl) | Scalar pipeline, forwarding, hazards, commit, and deferred completion |
 | [`bundles.rhdl`](bundles.rhdl) | Scalar pipeline payloads |
+| [`../mmu/context.rhdl`](../mmu/context.rhdl) | Shared `RiscvTranslationState` output from committed CSR controls; MMU consumes the same bundle without another register |
 | [`../memory-response.rhdl`](../memory-response.rhdl) | Shared optional-response pairing and LSU result capture; core instruction/control state crosses MEM/WB in parallel |
 | [`../cache-prefetch.rhdl`](../cache-prefetch.rhdl) | Reusable best-effort prefetch operation and request types |
 | [`../../rhodium/std/plru.rhdl`](../../rhodium/std/plru.rhdl) | Protocol-neutral invalid-first padded tree-PLRU selection and state update |

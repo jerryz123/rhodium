@@ -19,6 +19,10 @@ the physical router and cache own admitted transaction behavior.
 Reusable banks, walk sequencing, and translation contracts live in
 [`cores/mmu`](../../mmu/DEVELOPING.md). This directory owns their
 RV5Stage composition, not a separate TLB or walker implementation.
+The core's `translation_state` connects directly to the MMU's shared
+`RiscvTranslationState(xlen)` input `state`. Guest controls are zero without H;
+normal and guest pointer-mask controls remain unused here because the core
+captures instruction-specific masking before EX.
 Reusable ordinary-access fragmentation and load assembly live in
 [`cores/misaligned-access.rhdl`](../../misaligned-access.rhdl),
 specialized here with RV5Stage's opaque memory context. Its final outcome remains
@@ -189,6 +193,10 @@ invalidate translations or cancel accepted page-table response ownership.
    through a combinational prefetch-valid gate.
    Use explicit flush ports on both always-capture prefetch pipes so event
    lineage observes cancellation without introducing a separate reset epoch.
+   Keep the selected effective-privilege/SATP/SUM/MXR change detector; grouping
+   CSR controls into `state` must not replace it with whole-bundle equality.
+   The replay fixture checks that unrelated MSTATUS, Bare PBMTE, and pointer-mask
+   changes preserve occupied hint stages while relevant changes still cancel.
 7. Keep host checks to public translation contracts. Test walk, cancellation,
    fault, and invalidation behavior in compiled simulations, then update
    [README.md](README.md) for observable changes.

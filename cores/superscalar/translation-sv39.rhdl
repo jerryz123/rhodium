@@ -4,7 +4,7 @@
 
 import:
   "../cache/prefetch.rhdl".cache_prefetch_physical
-  lib("cores/mmu/context.rhdl").riscv_translation_lookup
+  lib("cores/mmu/context.rhdl") open
   lib("riscv/rtl/hypervisor.rhdl") open
   lib("riscv/rtl/pointer-masking.rhdl") open
   "bundles.rhdl" open
@@ -56,7 +56,7 @@ bundle SuperscalarTranslationFailure():
 /* Resolves RV64 instruction/data queries using TLBs, retained failures, and a shared walker.
    Queries are combinational; only authorized misses and registered vector probes may allocate walks. */
 sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boolean = #false, ~hypervisor: hypervisor :: Boolean = #true):
-  input state: SuperscalarTranslationState(XLen.X64)
+  input state: RiscvTranslationState(XLen.X64)
   input invalidate: Bool
   input query: SuperscalarTranslationQuery(XLen.X64)
   input(pipeline_vector, request_vector): Bool
@@ -148,7 +148,7 @@ sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: 
   /* Registered hints never contend with demand translation or allocate a walk.
      A context change discards both staged forms, including the outgoing edge. */
 
-  reg prefetch_previous_state(SuperscalarTranslationState(XLen.X64), ~init: literal(SuperscalarTranslationState(XLen.X64), 0))
+  reg prefetch_previous_state(RiscvTranslationState(XLen.X64), ~init: literal(RiscvTranslationState(XLen.X64), 0))
   prefetch_previous_state <== state
   def prefetch_flush = invalidate ||| (prefetch_previous_state.as_bits() =/= state.as_bits())
   inst virtual_prefetch_pipe(ValidPipeAlwaysCapture(CachePrefetchReq(64), 1, ~flushable: #true))

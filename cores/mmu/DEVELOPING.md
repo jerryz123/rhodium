@@ -25,7 +25,7 @@ entry storage, replacement, walk frames, and response ownership stay here.
 |---|---|
 | `protocol.rhdl` | Host-only request, leaf result, and PTE-memory contracts |
 | `translation.rhdl` | Host/guest lookup, mapping, fill, typed faults, PBMT-aware memory, host projections |
-| `context.rhdl` | Stateless host/guest lookup construction from caller-selected effective controls |
+| `context.rhdl` | Shared live architectural translation-state bundle and stateless host/guest lookup construction |
 | `udb.rhm` | Bare/Sv39 and guest translation modes and identifier capacities, excluding pipeline fault-precision claims |
 | `vector.rhdl` | Core-neutral range certificates, context identity, and page-probe interfaces |
 | `vector-certificate.rhdl` | Fast-proof PMA/translation checks, certificate construction, and context/epoch validation |
@@ -38,6 +38,11 @@ entry storage, replacement, walk frames, and response ownership stay here.
 
 Preserve these invariants when extending the components:
 
+- `RiscvTranslationState` carries live CSR controls without defining capture or
+  cancellation. Superscalar keeps its whole-state prefetch comparison; RV5Stage
+  retains effective privilege, SATP, SUM, and MXR comparisons plus its existing
+  explicit flushes. Its unused pointer-mask fields do not create a new MMU mask
+  stage: RV5Stage still captures them in Decode and applies them in EX.
 - Permission results are not cached: demand hits recheck current controls.
   Probes ignore A/D, but must find the same allowed access class at both stages.
 - Mapping page size is separate from traversal level. Normalize leaf PPNs;

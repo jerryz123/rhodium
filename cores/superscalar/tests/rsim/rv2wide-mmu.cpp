@@ -143,6 +143,8 @@ void hint(std::uint64_t va, int operation, bool accepted, std::uint64_t pa = 0,
     invalidate = 1;
   if (cancel_stage == 3)
     mstatus = mstatus ^ (UINT64_C(1) << 18);
+  if (cancel_stage == 4)
+    mstatus = mstatus ^ (UINT64_C(1) << 3);
   eval();
   CHECK(physical_prefetch_out.pvalid == accepted && !physical_valid &&
         !completed && !wb_fault);
@@ -205,6 +207,8 @@ int main() {
     hint(UINT64_C(0x83), 2, 0, 0, 1);
     hint(UINT64_C(0x83), 2, 0, 0, 2);
     hint(UINT64_C(0x83), 2, 0, 0, 3);
+    // Superscalar retains whole-state cancellation even for unrelated MIE.
+    hint(UINT64_C(0x83), 2, 0, 0, 4);
     privilege = 1;
     mstatus = 0;
     for (unsigned repeat_index = 0; repeat_index < (2); ++repeat_index)

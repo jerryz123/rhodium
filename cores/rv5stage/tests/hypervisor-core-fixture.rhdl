@@ -77,11 +77,7 @@ sync_circuit RV5StageHypervisorCoreFixture():
   core.vector_fast |> mmu.vector_fast
   core.prefetch |> mmu.prefetch
   mmu.pipeline_vector <== core.pipeline_vector
-  mmu.privilege <== core.privilege
-  mmu.mstatus <== core.mstatus
-  mmu.pbmte <== core.pbmte
-  mmu.satp <== core.satp
-  mmu.guest_translation <== core.guest_translation
+  mmu.state <== core.translation_state
   core.request_guest_fault <== mmu.request_guest_fault
   core.pipeline_guest_fault <== mmu.pipeline_guest_fault
   mmu.invalidate_all <== core.translation_flush
@@ -91,7 +87,7 @@ sync_circuit RV5StageHypervisorCoreFixture():
   core.hart_id <== Bits(64)(0)
   core.time_counter <== time_counter
   translation_flush <== core.translation_flush
-  virtualized <== core.guest_translation.virtualized
+  virtualized <== core.translation_state.guest.virtualized
   mmu.instruction_lookup.ready <== Bool(#true)
   instruction_valid <== mmu.instruction_memory.request.valid
   instruction_address <== mmu.instruction_memory.request.bits.address

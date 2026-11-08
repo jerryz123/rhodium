@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/mmu/context.rhdl").RiscvTranslationState
   lib("riscv/rtl/trap.rhdl").ExceptionCause
   "../cache/config.rhm".CacheLineBytes
   "bundles.rhdl" open
@@ -27,7 +28,7 @@ import:
 /* Resolves Bare queries immediately while preserving vector proof epochs and one-stage hints.
    Architectural addresses remain full-width through physical-map qualification. */
 sync_circuit SuperscalarIdentityTranslation(xlen :: XLen, config :: RiscvHartCHIConfig):
-  input state: SuperscalarTranslationState(xlen)
+  input state: RiscvTranslationState(xlen)
   input invalidate: Bool
   input query: SuperscalarTranslationQuery(xlen)
   input(pipeline_vector, request_vector): Bool
@@ -90,7 +91,7 @@ sync_circuit SuperscalarIdentityTranslation(xlen :: XLen, config :: RiscvHartCHI
   /* Best-effort prefetch under the current physical context.
      Context changes cancel hints, never accepted demand or split-response ownership. */
 
-  reg previous(SuperscalarTranslationState(xlen), ~init: literal(SuperscalarTranslationState(xlen), 0))
+  reg previous(RiscvTranslationState(xlen), ~init: literal(RiscvTranslationState(xlen), 0))
   previous <== state
   def flush = invalidate ||| (previous.as_bits() =/= state.as_bits())
   inst hints(ValidPipe(CachePrefetchReq(64), 1, ~flushable: #true))

@@ -492,6 +492,8 @@ Connect the core's `translation_state` to the adapter's `state` and its `split_g
 matching input; the latter remains the retained split owner's access mode through
 completion. The composed `Superscalar` selects the specialization from its profile
 and connects these automatically.
+The state uses shared `RiscvTranslationState(xlen)` from `cores/mmu/context.rhdl`;
+context-change prefetch cancellation remains owned by the selected resolver.
 
 ## Supervisor timer
 

@@ -25,25 +25,13 @@ import:
   lib("riscv/rtl/trap.rhdl").ExceptionCause
   lib("riscv/rtl/atomic.rhdl").RiscvAtomicOperation
   lib("riscv/rtl/zihintntl.rhdl").RiscvMemoryLocality
-  lib("riscv/rtl/privilege.rhdl").PrivilegeMode
   lib("riscv/rtl/hypervisor.rhdl") open
-  lib("riscv/rtl/pointer-masking.rhdl").PointerMaskControl
   lib("cores/fp/bundles.rhdl") open
   lib("cores/fp/types.rhdl") open
   lib("hardfloat/main.rhdl").RoundingMode
   lib("cores/vector/bundles.rhdl").VectorDescriptor
   lib("cores/vector/decode.rhdl").VectorConfigMode
 
-
-/* Exposes WB-owned architectural translation controls without pipeline payload coupling. */
-bundle SuperscalarTranslationState(xlen :: XLen):
-  privilege: PrivilegeMode
-  mstatus: Bits(xlen.width)
-  satp: Bits(xlen.width)
-  pbmte: Bool
-  guest: RiscvHypervisorTranslation()
-  pointer_masking: PointerMaskControl()
-  guest_pointer_masking: PointerMaskControl()
 
 /* Resolves an S1 virtual PC combinationally; a miss requests local fetch replay. */
 interface SuperscalarInstructionTranslation(xlen :: XLen):
@@ -954,7 +942,6 @@ export:
   superscalar_physical_request
   SuperscalarFpOwner
   SuperscalarFpLoad
-  SuperscalarTranslationState
   SuperscalarInstructionTranslation
   SuperscalarInstructionLookup
   SuperscalarUncachedInstruction

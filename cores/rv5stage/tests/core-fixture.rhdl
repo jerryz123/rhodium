@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/mmu/context.rhdl").RiscvTranslationState
   lib("cores/mmu/vector.rhdl") open
   "../../cache/protocol.rhdl" open
   "../core.rhdl" open
@@ -107,6 +108,7 @@ sync_circuit RV5StageCoreFixture(profile :: RV5StageConfig, ~reset_address: rese
   output privilege: PrivilegeMode
   output mstatus: Bits(xlen.width)
   output satp: Bits(xlen.width)
+  output translation_state: RiscvTranslationState(xlen)
   output translation_flush: Bool
   inst core(RV5StageCore(profile, ~reset_address: reset_address, ~fp_timing: fp_timing))
   inst frontend(RV5StageFrontend(profile, ~btb_entries: btb_entries, ~ras_entries: ras_entries))
@@ -146,9 +148,10 @@ sync_circuit RV5StageCoreFixture(profile :: RV5StageConfig, ~reset_address: rese
   core.interrupts <== interrupts
   core.hart_id <== hart_id
   core.time_counter <== time_counter
-  privilege <== core.privilege
-  mstatus <== core.mstatus
-  satp <== core.satp
+  translation_state <== core.translation_state
+  privilege <== core.translation_state.privilege
+  mstatus <== core.translation_state.mstatus
+  satp <== core.translation_state.satp
   translation_flush <== core.translation_flush
 
 export:

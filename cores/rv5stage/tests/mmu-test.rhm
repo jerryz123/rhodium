@@ -1,8 +1,9 @@
 #lang rhombus
-// Checks public widths and types at RV5Stage's Sv39 translation boundaries.
+// Checks public widths and types at RV5Stage's RV32/RV64 architectural-state and translation boundaries.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/mmu/context.rhdl").RiscvTranslationState
   lib("riscv/isa/hart.rhm").RiscvMmuType
   lib("rhodium/compile/program.rhm").compile_program
   lib("rhodium/compile/rtl.rhm").rtl_target
@@ -13,31 +14,34 @@ import:
   "params.rhdl" as test_params
   "../../../riscv/isa/xlen.rhm" open
 
-def mmu_design = compile_program(elaborate(mmu.RV5StageMmu(XLen.X64, RiscvMmuType.Sv39, test_params.test_rv5stage_chi_config.physical_map)), rtl_target).report.design
-def mmu_module = mmu_design.modules.find(fun (module_def): module_def.name == "RV5StageMmu")
+for (xlen in [XLen.X32, XLen.X64]):
+  for (hypervisor in if xlen == XLen.X32 | [#false] | [#false, #true]):
+    def mmu_design = compile_program(elaborate(mmu.RV5StageMmu(xlen, if xlen == XLen.X32 | RiscvMmuType.Bare | RiscvMmuType.Sv39, test_params.test_rv5stage_chi_config.physical_map, ~hypervisor: hypervisor)), rtl_target).report.design
+    def mmu_module = mmu_design.modules.find(fun (module_def): module_def.name == "RV5StageMmu")
 
-check:
-  mmu_module.find_input("satp").type.width ~is 64
-  mmu_module.find_output("instruction_lookup_out").type.field("bits").type.width ~is 64
-  scalar_width(mmu_module.find_input("instruction_lookup_in").type.field("ready").type) ~is 1
-  mmu_module.find_output("core_lookup_out").type.field("bits").type.width ~is 64
-  mmu_module.find_output("walker_lookup_out").type.field("bits").type.width ~is 64
-  type_equal(
-    mmu_module.find_output("instruction_out").type.field("response").type.field("bits").type.field("response").type.field("page_fault").type,
-    bool.Bool
-  ) ~is #true
-  type_equal(
-    mmu_module.find_output("instruction_out").type.field("response").type.field("bits").type.field("response").type.field("access_fault").type,
-    bool.Bool
-  ) ~is #true
-  mmu_module.find_output("instruction_memory_out").type.field("request").type.field("bits").type.field("address").type.width ~is 64
-  mmu_module.find_input("prefetch_in").type.field("bits").type.field("address").type.width ~is 64
-  mmu_module.find_output("physical_prefetch_out").type.field("bits").type.field("address").type.width ~is 64
-  type_equal(
-    mmu_module.find_output("instruction_memory_out").type.field("request").type.field("bits").type.field("cacheable").type,
-    bool.Bool
-  ) ~is #true
-  type_equal(
-    mmu_module.find_output("instruction_memory_out").type.field("request").type.field("bits").type.field("device").type,
-    bool.Bool
-  ) ~is #true
+    check:
+      type_equal(mmu_module.find_input("state").type, RiscvTranslationState(xlen)) ~is #true
+      mmu_module.find_input("state").type.field("satp").type.width ~is xlen.width
+      mmu_module.find_output("instruction_lookup_out").type.field("bits").type.width ~is xlen.width
+      scalar_width(mmu_module.find_input("instruction_lookup_in").type.field("ready").type) ~is 1
+      mmu_module.find_output("core_lookup_out").type.field("bits").type.width ~is xlen.width
+      mmu_module.find_output("walker_lookup_out").type.field("bits").type.width ~is xlen.width
+      type_equal(
+        mmu_module.find_output("instruction_out").type.field("response").type.field("bits").type.field("response").type.field("page_fault").type,
+        bool.Bool
+      ) ~is #true
+      type_equal(
+        mmu_module.find_output("instruction_out").type.field("response").type.field("bits").type.field("response").type.field("access_fault").type,
+        bool.Bool
+      ) ~is #true
+      mmu_module.find_output("instruction_memory_out").type.field("request").type.field("bits").type.field("address").type.width ~is xlen.width
+      mmu_module.find_input("prefetch_in").type.field("bits").type.field("address").type.width ~is xlen.width
+      mmu_module.find_output("physical_prefetch_out").type.field("bits").type.field("address").type.width ~is xlen.width
+      type_equal(
+        mmu_module.find_output("instruction_memory_out").type.field("request").type.field("bits").type.field("cacheable").type,
+        bool.Bool
+      ) ~is #true
+      type_equal(
+        mmu_module.find_output("instruction_memory_out").type.field("request").type.field("bits").type.field("device").type,
+        bool.Bool
+      ) ~is #true

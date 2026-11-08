@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/mmu/context.rhdl").RiscvTranslationState
+  lib("riscv/rtl/pointer-masking.rhdl").PointerMaskControl
   lib("cores/fetch/protocol.rhdl").PhysicalInstructionReq
   lib("riscv/isa/hart.rhm").RiscvMmuType
   lib("cores/mmu/vector.rhdl") open
@@ -41,6 +43,7 @@ sync_circuit RV5StageMmuDataPortFixture():
   input mstatus: Bits(64)
   input satp: Bits(64)
   input pbmte: Bool
+  input pointer_masking: PointerMaskControl()
   input invalidate_all: Bool
   input ordered_busy: Bool
   input replay_pending: Bool
@@ -79,10 +82,10 @@ sync_circuit RV5StageMmuDataPortFixture():
   arbiter.lookup |> data_lookup
   prefetch |> mmu.prefetch
   mmu.physical_prefetch |> physical_prefetch
-  mmu.privilege <== privilege
-  mmu.mstatus <== mstatus
-  mmu.pbmte <== pbmte
-  mmu.satp <== satp
+  def empty_state :: RiscvTranslationState(xlen) = literal(RiscvTranslationState(xlen), 0)
+  mmu.state <== empty_state.updated(
+    ~privilege: privilege, ~mstatus: mstatus, ~pbmte: pbmte, ~satp: satp,
+    ~pointer_masking: pointer_masking, ~guest_pointer_masking: pointer_masking)
   mmu.invalidate_all <== invalidate_all
   mmu.ordered_busy <== ordered_busy
   inject_interface(Valid(Bits(64)), ~valid: replay_pending, ~bits: replay_pc) |> mmu.instruction_replay_owner

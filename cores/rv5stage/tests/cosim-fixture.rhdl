@@ -136,7 +136,6 @@ sync_circuit RV5StageCosimFixture(xlen :: XLen, multiplier :: RV5StageMultiplier
   assert(observed.pipeline_access.request.valid === reference.pipeline_access.request.valid, "cosim_passive_lookup_valid")
   assert(!observed.pipeline_access.request.valid ||| (observed.pipeline_access.request.bits.as_bits() === reference.pipeline_access.request.bits.as_bits()), "cosim_passive_lookup_bits")
   assert(observed.pipeline_access.commit === reference.pipeline_access.commit, "cosim_passive_store")
-  assert(observed.privilege === reference.privilege, "cosim_passive_privilege")
-  assert(observed.mstatus === reference.mstatus, "cosim_passive_status")
+  assert(observed.translation_state.as_bits() === reference.translation_state.as_bits(), "cosim_passive_translation_state")
 
 export RV5StageCosimFixture

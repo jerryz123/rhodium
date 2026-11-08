@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/mmu/context.rhdl").RiscvTranslationState
   lib("cores/pc.rhdl").CompactPc
   lib("rhodium/frontend/layers/statistics.rhm").stat_count
   lib("cores/bpred/statistics.rhdl") open
@@ -110,7 +111,7 @@ sync_circuit CoreFixture(profile :: SuperscalarPipelineConfig = SuperscalarPipel
   output retired_count: Bits(2)
   output instruction_capacity: Bits(4)
   output sleeping: Bool
-  output translation_state: SuperscalarTranslationState(xlen)
+  output translation_state: RiscvTranslationState(xlen)
   output translation_flush: Bool
   interface vector_precheck(VectorPrecheck(), ~role: requester)
   interface vector_fast(VectorFastCheck(xlen), ~role: requester)

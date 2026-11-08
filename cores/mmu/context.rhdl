@@ -1,8 +1,10 @@
 #lang rhodium
-/* Constructs host/guest translation lookup context without arbitration or retained pipeline state. */
+/* Defines live architectural translation controls and constructs host/guest lookups without retained pipeline state. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/rtl/pointer-masking.rhdl").PointerMaskControl
   "translation.rhdl" open
   lib("riscv/rtl/hypervisor.rhdl") open
   lib("riscv/rtl/privilege.rhdl") open
@@ -10,6 +12,17 @@ import:
   lib("riscv/rtl/csr.rhdl") open
   lib("riscv/isa/csr.rhm") open
   lib("riscv/isa/sv39.rhm").Sv39Mode
+
+/* Carries live committed CSR controls without capturing an instruction or defining invalidation.
+   Guest state is zero when H is disabled; callers own pointer-mask capture and prefetch cancellation. */
+bundle RiscvTranslationState(xlen :: XLen):
+  privilege: PrivilegeMode
+  mstatus: Bits(xlen.width)
+  satp: Bits(xlen.width)
+  pbmte: Bool
+  guest: RiscvHypervisorTranslation()
+  pointer_masking: PointerMaskControl()
+  guest_pointer_masking: PointerMaskControl()
 
 /* Captures independently controlled host and guest roots, permissions, and memory-type enables. */
 fun riscv_translation_lookup(address :: Bits(64), access :: Sv39Access, privilege :: PrivilegeMode,
@@ -38,4 +51,4 @@ fun riscv_translation_lookup(address :: Bits(64), access :: Sv39Access, privileg
         vs_pbmte: mux(guest, state.vs_pbmte, pbmte)
         g_pbmte: guest & pbmte
 
-export riscv_translation_lookup
+export RiscvTranslationState riscv_translation_lookup

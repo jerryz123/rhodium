@@ -23,7 +23,14 @@ inst dtlb(RiscvTranslationTlb(8))
 inst walker(RiscvTranslationWalker(~svnapot: #true))
 ```
 
-`context.rhdl` supplies `riscv_translation_lookup` to form the shared host/guest
+`context.rhdl` exports `RiscvTranslationState(xlen)` for live committed CSR
+controls: privilege, MSTATUS, SATP, PBMTE, guest translation, and normal/guest
+pointer-mask controls. Both cores publish `translation_state`; their memory
+adapters consume `state`. The layout is fixed; core producers supply zero guest
+state when H is disabled. This payload adds no storage, handshake, or automatic invalidation;
+callers choose when instructions capture controls and which changes cancel hints.
+
+The same module supplies `riscv_translation_lookup` to form the shared host/guest
 lookup from explicitly selected privilege, translation enables, roots, SUM/MXR,
 and PBMTE state. It is combinational and adds no arbitration or retained state.
 HLVX callers set `execute_read` on the resulting lookup separately.

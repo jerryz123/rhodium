@@ -67,10 +67,7 @@ sync_circuit RV5StageLoadHit(~vector: vector_profile :: VectorProfile = DefaultV
   data_port_arbiter.memory |> router.core
   router.cache |> cache.core
   router.uncached |> uncached
-  mmu.privilege <== core.privilege
-  mmu.mstatus <== core.mstatus
-  mmu.pbmte <== Bool(#false)
-  mmu.satp <== core.satp
+  mmu.state <== core.translation_state.updated(~pbmte: Bool(#false))
   mmu.invalidate_all <== core.translation_flush
   mmu.ordered_busy <== router.ordered_busy
   inject_interface(Valid(Bits(64)), ~valid: Bool(#false), ~bits: Bits(64)(0)) |> mmu.instruction_replay_owner
