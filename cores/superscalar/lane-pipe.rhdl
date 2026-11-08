@@ -58,12 +58,33 @@ bundle SuperscalarExecute(xlen :: XLen, hypervisor :: Boolean):
   virtual_instruction: Bool
   vector: SuperscalarLaneVector(xlen)
 
+  /* The vector scalar operand and the integer rs1 operand come from the same read port. */
+  method with_rs1(token, word :: Bits(xlen.width)) :: SuperscalarExecute(xlen, hypervisor):
+    token.updated(~operands: token.operands.updated(~rs1: word), ~vector: token.vector.updated(~scalar: word))
 
-/* Fixed stage boundaries: each wrapper owns the same single flushable ValidPipe.
-   The group owns prefixes and FP metadata; these pipes add no arbitration. */
+
+/* At the reserved last slot, data has one owner per edge. Completion metadata
+   advances independently of the flushable instruction, including across redirects. */
+sync_circuit SuperscalarReturnSlot(xlen :: XLen):
+  input instruction_valid: Bool
+  input instruction_word: Bits(xlen.width)
+  interface incoming(Valid(SuperscalarCompletion(xlen)), ~role: consumer)
+  interface outgoing(Valid(SuperscalarCompletion(xlen)), ~role: producer)
+  output word: Bits(xlen.width)
+
+  assert(!(instruction_valid & incoming.valid), "superscalar_return_slot_exclusive")
+  reg shared_word(Bits(xlen.width))
+  when (incoming.valid):
+    shared_word <== incoming.bits.data
+  elsewhen instruction_valid:
+    shared_word <== instruction_word
+
+  def metadata = incoming |> map_valid(token => token.updated(~data: Bits(xlen.width)(0))) |> valid_pipe(1)
+  metadata |> map_valid(token => token.updated(~data: shared_word)) |> outgoing
+  word <== shared_word
 
 /* Captures EX lane state and exposes only address/encoding views from the shared stage prefix. */
-sync_circuit SuperscalarExecutePipe(xlen :: XLen, ~hypervisor: hypervisor :: Boolean = #false):
+sync_circuit SuperscalarExecutePipe(xlen :: XLen, ~hypervisor: hypervisor :: Boolean = #false, ~completion_slot: completion_slot :: Boolean = #false):
   interface ingress(Valid(SuperscalarExecute(xlen, hypervisor)), ~role: consumer)
   interface egress(Valid(SuperscalarExecute(xlen, hypervisor)), ~role: producer)
   input flush: Bool
@@ -75,8 +96,21 @@ sync_circuit SuperscalarExecutePipe(xlen :: XLen, ~hypervisor: hypervisor :: Boo
 
   inst storage(ValidPipe(SuperscalarExecute(xlen, hypervisor), 1, ~flushable: #true))
   storage.flush <== flush
-  ingress |> storage.ingress
-  storage.egress |> egress
+  if completion_slot
+  | block:
+      interface returned(Valid(SuperscalarCompletion(xlen)), ~role: consumer)
+      interface completion(Valid(SuperscalarCompletion(xlen)), ~role: producer)
+      inst slot(SuperscalarReturnSlot(xlen))
+      slot.instruction_valid <== ingress.valid
+      slot.instruction_word <== ingress.bits.operands.rs1
+      returned |> slot.incoming
+      slot.outgoing |> completion
+      ingress |> map_valid(token => token.into(SuperscalarExecute(xlen, hypervisor)).with_rs1(Bits(xlen.width)(0))) |> storage.ingress
+      storage.egress |> map_valid(token => token.into(SuperscalarExecute(xlen, hypervisor)).with_rs1(slot.word)) |> egress
+  | block:
+      ingress |> storage.ingress
+      storage.egress |> egress
+
   def retained :: SuperscalarExecute(xlen, hypervisor) = storage.egress.bits
   pc <== pc_region ++ retained.fetched.pc
   sequential_pc <== retained.fetched.sequential_pc.apply(pc)
@@ -84,7 +118,7 @@ sync_circuit SuperscalarExecutePipe(xlen :: XLen, ~hypervisor: hypervisor :: Boo
   egress_step <== retained.fetched.sequential_pc
 
 /* Captures exactly the canonical MEM/WB record; the stage group owns its PC prefix and FP context. */
-sync_circuit SuperscalarResultPipe(xlen :: XLen, ~hypervisor: hypervisor :: Boolean = #false):
+sync_circuit SuperscalarResultPipe(xlen :: XLen, ~hypervisor: hypervisor :: Boolean = #false, ~completion_slot: completion_slot :: Boolean = #false):
   interface ingress(Valid(SuperscalarResult(xlen, hypervisor)), ~role: consumer)
   interface egress(Valid(SuperscalarResult(xlen, hypervisor)), ~role: producer)
   input flush: Bool
@@ -95,8 +129,21 @@ sync_circuit SuperscalarResultPipe(xlen :: XLen, ~hypervisor: hypervisor :: Bool
 
   inst storage(ValidPipe(SuperscalarResult(xlen, hypervisor), 1, ~flushable: #true))
   storage.flush <== flush
-  ingress |> storage.ingress
-  storage.egress |> egress
+  if completion_slot
+  | block:
+      interface returned(Valid(SuperscalarCompletion(xlen)), ~role: consumer)
+      interface completion(Valid(SuperscalarCompletion(xlen)), ~role: producer)
+      inst slot(SuperscalarReturnSlot(xlen))
+      slot.instruction_valid <== ingress.valid
+      slot.instruction_word <== ingress.bits.resolution.value
+      returned |> slot.incoming
+      slot.outgoing |> completion
+      ingress |> map_valid(token => token.updated(~resolution: token.resolution.updated(~value: Bits(xlen.width)(0)))) |> storage.ingress
+      storage.egress |> map_valid(token => token.updated(~resolution: token.resolution.updated(~value: slot.word))) |> egress
+  | block:
+      ingress |> storage.ingress
+      storage.egress |> egress
+
   def retained :: SuperscalarResult(xlen, hypervisor) = storage.egress.bits
   pc <== pc_region ++ retained.fetched.pc
   sequential_pc <== retained.fetched.sequential_pc.apply(pc)

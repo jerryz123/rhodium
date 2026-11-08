@@ -524,18 +524,19 @@ Keep accepted ownership independent of speculative flush. The memory owner FIFO
 joins ordered responses through `zip_flow`, normalizes returned data with
 `LoadGen` for ordinary loads, passes architectural LR/AMO values and SC status
 unchanged, and backpressures at the common completion arbiter. Round-robin Flow
-arbitration merges variable load and divide results and reserves the younger RR
-slot for responses requiring a GPR write.
-An unflushable three-stage Valid pipe aligns those responses with the vacant WB
-slot. The shared `RegisterFile(xlen, ~read_ports: 4)` owns exactly four physical
-reads and two physical writes. RR uses the issue module's four selected physical
-addresses and retains forwarding priority. The older WB slot writes port zero;
-the younger WB slot shares port one with independent completions. Successful
+arbitration merges variable load and divide results. When RR accepts a return
+that writes a GPR, it leaves the last issue slot vacant. The return then uses
+that slot's XLEN register in each stage: the first source operand in EX (also
+the vector scalar), and the result or fault value in MEM and WB. Only the word
+is shared. Each stage advances the committed return's validity and metadata
+independently of the instruction's flushable validity, so an older return
+survives a younger instruction's redirect.
+
+The register file has four physical reads and one write port per issue slot.
+Earlier slots can still write while the return uses the last port. Successful
 same-address normal writes suppress the older write without merging retirement.
-Independent completions reserve physical port one;
-RR still reserves the younger instruction slot on their write edge. Do not add
-a third write port or backpressure WB. The completion-pipeline occupancy
-participates in precise fault drain.
+Do not add a return-only write port or backpressure WB. The completion-pipeline
+occupancy participates in precise fault drain.
 Pre-WB producer checks bridge the interval before the scoreboard is set.
 RAW interlocks select the youngest older producer; WAW interlocks cover all
 older deferred producers. A completion forwards at arbitration and from each

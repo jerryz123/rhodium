@@ -188,15 +188,15 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
 
   inst rr_window(SuperscalarIssueWindow(xlen, ~hypervisor: profile.hypervisor, ~group_width: issue_width))
   def ex_pipe = for InstanceArray (lane in 0..issue_width):
-    inst stage(SuperscalarExecutePipe(xlen, ~hypervisor: hypervisor))
+    inst stage(SuperscalarExecutePipe(xlen, ~hypervisor: hypervisor, ~completion_slot: lane == return_port))
     stage
 
   def mem_pipe = for InstanceArray (lane in 0..issue_width):
-    inst stage(SuperscalarResultPipe(xlen, ~hypervisor: hypervisor))
+    inst stage(SuperscalarResultPipe(xlen, ~hypervisor: hypervisor, ~completion_slot: lane == return_port))
     stage
 
   def wb_pipe = for InstanceArray (lane in 0..issue_width):
-    inst stage(SuperscalarResultPipe(xlen, ~hypervisor: hypervisor))
+    inst stage(SuperscalarResultPipe(xlen, ~hypervisor: hypervisor, ~completion_slot: lane == return_port))
     stage
 
   def ex_older = ex_pipe[0]
@@ -363,15 +363,12 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
 
   wb_completion_priority <== rr_completion_age.all()
   wb_gpr_calendar.pause <== Bool(#false)
-  inst ex_completion_pipe(ValidPipe(SuperscalarCompletion(xlen), 1))
-  inst mem_completion_pipe(ValidPipe(SuperscalarCompletion(xlen), 1))
-  inst wb_completion_pipe(ValidPipe(SuperscalarCompletion(xlen), 1))
-  rr_completion |> ex_completion_pipe.ingress
-  ex_completion_pipe.egress |> mem_completion_pipe.ingress
-  mem_completion_pipe.egress |> wb_completion_pipe.ingress
-  def ex_completion = ex_completion_pipe.egress
-  def mem_completion = mem_completion_pipe.egress
-  def wb_completion = wb_completion_pipe.egress
+  def ex_completion = ex_pipe[return_port].completion
+  def mem_completion = mem_pipe[return_port].completion
+  def wb_completion = wb_pipe[return_port].completion
+  rr_completion |> ex_pipe[return_port].returned
+  ex_completion |> mem_pipe[return_port].returned
+  mem_completion |> wb_pipe[return_port].returned
 
   def wb_gpr_return = Array(wb_completion, ex_multiply.completed) |> valid_arbiter()
   def wb_vector_return = vector.scalar_result |> filter_valid(result => result.address.any()) |> map_valid(result => SuperscalarCompletion(xlen)):

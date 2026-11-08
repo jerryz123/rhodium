@@ -339,27 +339,37 @@ int main() {
       send({addi(20, 13, 0), addi(21, 14, 0)}); drain();
       CHECK(gprs[20] == 91 && gprs[21] == 19);
     }
-    // Keep three independent writers queued across load/multiply/late-FP/vector
-    // returns. Each return takes the last port while the older two lanes proceed.
-    for (unsigned service = 0; service < 4; ++service) {
+    // Each service return uses the last port while two older writers proceed.
+    constexpr auto returned_word = UINT64_C(0xfedcba9876543210);
+    struct ReturnCase {
+      std::uint32_t operation;
+      std::uint64_t expected;
+      unsigned groups;
+      bool delayed_load;
+    };
+    const ReturnCase returns[] = {
+      {(10u << 15) | (17u << 7) | 0x3003, returned_word, 32, true}, // LD x17,0(x10)
+      {0x022108b3u, 1764, 32, false}, // MUL x17,x2,x2
+      {fp(0x61, 17, 2, 0), 84, 32, false},
+      {vi(16, 2, 0, 2, 17), 7, 32, false},
+      {0x022548b3u, 6, 96, false}, // DIV x17,x10,x2
+    };
+    for (const auto &[operation, expected, groups, delayed_load] : returns) {
       send({addi(10, 0, 0x110), addi(2, 0, 42)}); drain();
-      words[0x110] = 91;
+      words[0x110] = returned_word;
       const auto before_returns = paired_returns;
-      slow = service == 0;
-      const auto operation = service == 0 ? (10u << 15) | (17u << 7) | 0x3003 :
-          service == 1 ? 0x022108b3u : // MUL x17,x2,x2
-          service == 2 ? fp(0x61, 17, 2, 0) : vi(16, 2, 0, 2, 17);
+      slow = delayed_load;
       third(operation);
-      for (unsigned group = 0; group < 32; ++group)
+      for (unsigned group = 0; group < groups; ++group)
         send({addi(20, 0, group), addi(21, 0, group + 1), addi(22, 0, group + 2)});
       drain(); slow = false;
       if (paired_returns == before_returns)
-        std::cerr << "no paired return for service " << service << " at cycle " << cycle << '\n';
+        std::cerr << "no paired return for instruction " << operation << " at cycle " << cycle << '\n';
       CHECK(paired_returns > before_returns);
       send({addi(23, 20, 0), addi(24, 21, 0), addi(25, 22, 0)}); drain();
-      CHECK(gprs[23] == 31 && gprs[24] == 32 && gprs[25] == 33);
+      CHECK(gprs[23] == groups - 1 && gprs[24] == groups && gprs[25] == groups + 1);
       send({addi(26, 17, 0)}); drain();
-      CHECK(gprs[26] == (service == 0 ? 91 : service == 1 ? 1764 : service == 2 ? 84 : 7));
+      CHECK(gprs[26] == expected);
     }
     CHECK(triples >= 15);
 
