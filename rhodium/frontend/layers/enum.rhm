@@ -10,7 +10,7 @@ import:
   "../support/fields.rhm".HardwareFields
   "../support/fields.rhm".hardware_value_type
   "../support/generator-parameters.rhm".GeneratorParameter
-  "../support/hardware-methods.rhm".HardwareMethods
+  "../support/hardware-methods.rhm" open
   "../support/one-hot-selection.rhm" as one_hot_selection
   "../support/variants.rhm" open
 
@@ -149,6 +149,27 @@ meta:
     def mutable method_names = []
     def mutable method_entries = []
     def mutable method_definitions = []
+    /* Binds a nominal enum receiver; its method keeps the authored parameters and result type. */
+    fun retain_method(method_name :: Syntax, receiver :: Syntax, arguments :: List.of(Syntax),
+                      body :: List.of(Syntax), result :: maybe(Syntax)):
+      def spelling = method_name.to_source_string()
+      when one_hot && spelling == "mux"
+      | syntax_meta.error("mux is reserved for one-hot enum selection", method_name)
+
+      when method_names.contains(spelling)
+      | syntax_meta.error("enum method names must be unique", method_name)
+
+      method_names := method_names ++ [spelling]
+      def binder = Syntax.make_id(enum_name ++ "_" ++ spelling, method_name)
+      def result_surface = if result | result | 'HardwareFields'
+      method_entries := method_entries ++ [hardware_method_entry(method_name, binder, arguments, result_surface)]
+      def implementation = hardware_method_implementation(arguments, body, result)
+      method_definitions := method_definitions ++ [
+        '/* Captures the enum value once for both direct calls and extracted methods. */
+         fun $binder($receiver :: $name):
+           $implementation'
+      ]
+
     for (clause in clauses):
       match clause
       | '$(member :: Identifier)':
@@ -166,74 +187,13 @@ meta:
           encodings := encodings ++ [encoding]
       | 'method $(method_name :: Identifier)($(receiver :: Identifier), $(argument :: GeneratorParameter), ...) :: $(result_constructor :: Identifier)($result_argument, ...):
            $method_body; ...':
-          when one_hot && method_name.to_source_string() == "mux"
-          | syntax_meta.error("mux is reserved for one-hot enum selection", method_name)
-
-          when method_names.find(fun (declared): declared == method_name.to_source_string())
-          | syntax_meta.error("enum method names must be unique", method_name)
-
-          method_names := method_names ++ [method_name.to_source_string()]
-          def method_function = Syntax.make_id(
-            enum_name ++ "_" ++ method_name.to_source_string(),
-            method_name
-          )
-          let [argument_binding, ...] = [argument.binding, ...]
-          method_entries := method_entries ++ [
-            '($method_name, $method_function, ($argument_binding, ...),
-              (typed ($result_constructor($result_argument, ...))))'
-          ]
-          method_definitions := method_definitions ++ [
-            /* Implements the authored receiver-owned method body with its declared receiver and result surface. */
-            'fun $method_function($receiver :: $name, $argument, ...) :: $result_constructor($result_argument, ...):
-               $method_body
-               ...'
-          ]
+          retain_method(method_name, receiver, [argument, ...], [method_body, ...], '$result_constructor($result_argument, ...)')
       | 'method $(method_name :: Identifier)($(receiver :: Identifier), $(argument :: GeneratorParameter), ...) :: $(result_type :: Identifier):
            $method_body; ...':
-          when one_hot && method_name.to_source_string() == "mux"
-          | syntax_meta.error("mux is reserved for one-hot enum selection", method_name)
-
-          when method_names.find(fun (declared): declared == method_name.to_source_string())
-          | syntax_meta.error("enum method names must be unique", method_name)
-
-          method_names := method_names ++ [method_name.to_source_string()]
-          def method_function = Syntax.make_id(
-            enum_name ++ "_" ++ method_name.to_source_string(),
-            method_name
-          )
-          let [argument_binding, ...] = [argument.binding, ...]
-          method_entries := method_entries ++ [
-            '($method_name, $method_function, ($argument_binding, ...), (typed ($result_type)))'
-          ]
-          method_definitions := method_definitions ++ [
-            /* Implements the authored receiver-owned method body with its declared receiver and result surface. */
-            'fun $method_function($receiver :: $name, $argument, ...) :: $result_type:
-               $method_body
-               ...'
-          ]
+          retain_method(method_name, receiver, [argument, ...], [method_body, ...], result_type)
       | 'method $(method_name :: Identifier)($(receiver :: Identifier), $(argument :: GeneratorParameter), ...):
            $method_body; ...':
-          when one_hot && method_name.to_source_string() == "mux"
-          | syntax_meta.error("mux is reserved for one-hot enum selection", method_name)
-
-          when method_names.find(fun (declared): declared == method_name.to_source_string())
-          | syntax_meta.error("enum method names must be unique", method_name)
-
-          method_names := method_names ++ [method_name.to_source_string()]
-          def method_function = Syntax.make_id(
-            enum_name ++ "_" ++ method_name.to_source_string(),
-            method_name
-          )
-          let [argument_binding, ...] = [argument.binding, ...]
-          method_entries := method_entries ++ [
-            '($method_name, $method_function, ($argument_binding, ...), untyped)'
-          ]
-          method_definitions := method_definitions ++ [
-            /* Implements the authored receiver-owned method body with its declared receiver and result surface. */
-            'fun $method_function($receiver :: $name, $argument, ...) :~ HardwareFields:
-               $method_body
-               ...'
-          ]
+          retain_method(method_name, receiver, [argument, ...], [method_body, ...], #false)
       | ~else:
           syntax_meta.error("expected an enum member or method declaration", clause)
 

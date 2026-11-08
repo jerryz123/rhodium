@@ -33,6 +33,9 @@ hardware_enum WideState(~width: 4):
   method is_second(state):
     state.is_one_of(WideState.Second)
 
+bundle EnumSelection(T :: DataType):
+  selected: T
+
 hardware_enum OneHotState(~encoding: one_hot):
   Idle
   Read
@@ -42,6 +45,27 @@ hardware_enum OneHotState(~encoding: one_hot):
 
   method is_access(state):
     state.is_one_of(OneHotState.Read, OneHotState.Write)
+
+  method select(state, fallback, ~type: T :: DataType, ~operand: candidate :: Hardware.of(T), ~enabled: enabled :: Bool = state.is_access()) :: EnumSelection(T):
+    EnumSelection(T):
+      selected: mux(enabled, candidate, fallback)
+
+circuit EnumKeywordMethods(mode :: String):
+  input state: OneHotState
+  input candidate: CacheState
+  output shared: Bool
+  def fallback = CacheState.Invalid
+  def select = state.select
+  cond
+  | mode == "direct": shared <== state.select(fallback, ~operand: candidate, ~type: CacheState).selected.is_shared()
+  | mode == "extracted": shared <== select(fallback, ~enabled: state.is_access(), ~type: CacheState, ~operand: candidate).selected.is_shared()
+  | mode == "reference":
+      def result = EnumSelection(CacheState):
+        selected: mux(state.is_access(), candidate, fallback)
+
+      shared <== result.selected.is_shared()
+  | mode == "missing": shared <== select(fallback, ~type: CacheState).selected.is_shared()
+  | ~else: shared <== select(fallback, ~type: CacheState, ~operand: state).selected.is_shared()
 
 hardware_enum ReflectionCollision:
   values = 7
@@ -169,6 +193,7 @@ circuit WrongBundleSpecialization():
   result <== select_operand(source)
 
 export:
+  EnumKeywordMethods
   ReflectionCollision
   EnumeratedMethods
   AnnotatedBundleSelection

@@ -11,6 +11,38 @@ import:
 export:
   HardwareMethods
 
+meta:
+  export:
+    hardware_method_entry
+    hardware_method_implementation
+
+  /* Maps result-type dependencies to positional or keyword arguments at the call site. */
+  fun hardware_method_entry(name :: Syntax, binder :: Syntax, arguments :: List.of(Syntax), result :: Syntax):
+    def mutable position = 0
+    let [argument_position, ...]:
+      for List (argument in arguments):
+        match argument
+        | '$(keyword :: Keyword): $(binding :: Identifier) $_ ...':
+            '($binding, $keyword)'
+        | '$(binding :: Identifier) $_ ...':
+            def index = position
+            position := position + 1
+            '($binding, $index)'
+
+    '($name, $binder, bound, ($argument_position, ...), $result)'
+
+  /* Builds the function returned by a receiver binder without rewriting its call signature. */
+  fun hardware_method_implementation(arguments :: List.of(Syntax), body :: List.of(Syntax), result :: maybe(Syntax)):
+    let [argument, ...] = arguments
+    let [method_body, ...] = body
+    if result
+    | 'fun ($argument, ...) :: $result:
+         $method_body
+         ...'
+    | 'fun ($argument, ...) :~ HardwareFields:
+         $method_body
+         ...'
+
 // Re-anchors exact receiver-owned dispatch ahead of conservative surfaces;
 // built-ins and lexical extensions remain in the shared fallback provider.
 annot.macro 'HardwareMethods($(base :: annot_meta.Parsed), $method_entry, ...)':

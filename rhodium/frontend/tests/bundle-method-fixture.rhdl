@@ -69,6 +69,24 @@ bundle GenericCacheEnvelope(T :: DataType):
   method widened(envelope, width :: PosInt = 12) :: Bits(width):
     envelope.nested.as_bits().zext(width)
 
+bundle Gate():
+  enabled: Bool
+
+  method wrap(gate, ~type: T :: DataType, ~payload: payload :: Hardware.of(T), ~enabled: enabled :: Bool = gate.enabled) :: GenericCacheEnvelope(T):
+    GenericCacheEnvelope(T):
+      nested: mux(enabled, payload, literal(T, 0))
+
+circuit FixedKeywordMethods(mode :: String):
+  input gate: Gate()
+  input envelope: CacheEnvelope()
+  output shared: Bool
+  def wrap = gate.wrap
+  cond
+  | mode == "direct": shared <== gate.wrap(~payload: envelope, ~type: CacheEnvelope()).value().is_shared()
+  | mode == "extracted": shared <== wrap(~enabled: Bool(#true), ~type: CacheEnvelope(), ~payload: envelope).value().is_shared()
+  | mode == "missing": shared <== wrap(~type: CacheEnvelope()).value().is_shared()
+  | ~else: shared <== wrap(~type: CacheEnvelope(), ~payload: Bits(4)(0)).value().is_shared()
+
 bundle OtherSizedEnvelope(width :: PosInt):
   state: CacheState
   payload: Bits(width)
@@ -255,6 +273,7 @@ export:
   ParameterizedMethodPropagation
   DirectInterfaceMethodPropagation
   InvalidParameterizedMethod
+  FixedKeywordMethods
   design
   parameterized_design
   direct_interface_design

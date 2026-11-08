@@ -11,7 +11,7 @@ import:
   "../support/fields.rhm".hardware_value_type
   "../support/generator-parameters.rhm".GeneratorParameter
   "../support/generator-parameters.rhm".substitute_generator_parameters
-  "../support/hardware-methods.rhm".HardwareMethods
+  "../support/hardware-methods.rhm" open
   "../support/hardware-literal.rhm" open
 
 export:
@@ -218,7 +218,6 @@ defn.macro 'bundle $(name :: Identifier)($(parameter :: GeneratorParameter), ...
   def mutable method_names = []
   def mutable method_entries = []
   def mutable method_definitions = []
-  def mutable specialized_method_entries = []
   /* Substitutes call-site generator arguments into a field's type syntax. */
   fun substitute_bundle_parameters(field_type :: Syntax):
     substitute_generator_parameters(field_type, [parameter.binding, ...])
@@ -236,63 +235,42 @@ defn.macro 'bundle $(name :: Identifier)($(parameter :: GeneratorParameter), ...
       '$field_name: HardwareFields.from_annotation($substituted_type)'
     ]
 
-  /* Binds one receiver's concrete family arguments before creating a method
-     closure, so dependent argument/result checks and host branches share them. */
-  fun retain_specialized_method(method_name :: Syntax,
-                                receiver :: Syntax,
-                                arguments :: List.of(Syntax),
-                                body :: List.of(Syntax),
-                                result :: maybe(Syntax)):
+  /* Binds the receiver while preserving the authored call signature and dependent result surface. */
+  fun retain_method(method_name :: Syntax,
+                    receiver :: Syntax,
+                    arguments :: List.of(Syntax),
+                    body :: List.of(Syntax),
+                    result :: maybe(Syntax)):
     when method_names.find(fun (declared): declared == method_name.to_source_string())
     | syntax_meta.error("bundle method names must be unique", method_name)
 
     method_names := method_names ++ [method_name.to_source_string()]
     def binder = Syntax.make_id(bundle_name ++ "_" ++ method_name.to_source_string(), method_name)
     let [binding, ...] = [parameter.binding, ...]
-    let [argument, ...] = arguments
-    let [method_body, ...] = body
     let [parameter_annotation, ...]:
       for List (binding in [parameter.binding, ...]):
         'annot.def $binding = HardwareFields.of($binding)'
 
     def result_surface = if result | substitute_bundle_parameters(result) | 'HardwareFields'
-    def mutable position = 0
-    let [argument_position, ...]:
-      for List (argument in arguments):
-        match argument
-        | '$(keyword :: Keyword): $(binding :: Identifier) $_ ...':
-            '($binding, $keyword)'
-        | '$(binding :: Identifier) $_ ...':
-            def index = position
-            position := position + 1
-            '($binding, $index)'
+    method_entries := method_entries ++ [hardware_method_entry(method_name, binder, arguments, result_surface)]
+    def implementation = hardware_method_implementation(arguments, body, result)
 
-    specialized_method_entries := specialized_method_entries ++ [
-      '($method_name, $binder, bound, ($argument_position, ...), $result_surface)'
-    ]
-    def implementation:
-      if result
-      | '/* Checks specialization-dependent arguments and the authored hardware result. */
-         fun invoke($argument, ...) :: $result:
-           $method_body
-           ...'
-      | '/* Evaluates the authored method with the captured receiver and parameters. */
-         fun invoke($argument, ...) :~ HardwareFields:
-           $method_body
-           ...'
+    def definition:
+      if parameter_count == 0
+      | '/* Captures the fixed bundle receiver and returns the authored method function. */
+         fun $binder($receiver :: $name()):
+           $implementation'
+      | '/* Captures one bundle specialization and returns its receiver-bound method. */
+         fun $binder(method_receiver :: HardwareFields):
+           let [$binding, ...] = ($family_name).require_specialization(hardware_value_type(method_receiver))
+           // A nested scope lets type-valued parameters also serve as annotations.
+           block:
+             $parameter_annotation
+             ...
+             def $receiver :: $name($binding, ...) = method_receiver
+             $implementation'
 
-    method_definitions := method_definitions ++ [
-      '/* Captures one bundle specialization and returns its receiver-bound method. */
-       fun $binder(method_receiver :: HardwareFields):
-         let [$binding, ...] = ($family_name).require_specialization(hardware_value_type(method_receiver))
-         // A nested scope lets type-valued parameters also serve as annotations.
-         block:
-           $parameter_annotation
-           ...
-           def $receiver :: $name($binding, ...) = method_receiver
-           $implementation
-           invoke'
-    ]
+    method_definitions := method_definitions ++ [definition]
 
   for (item in [clause, ...]):
     match item
@@ -334,75 +312,14 @@ defn.macro 'bundle $(name :: Identifier)($(parameter :: GeneratorParameter), ...
            )'
         ]
     | 'method $(method_name :: Identifier)($(receiver :: Identifier), $(argument :: GeneratorParameter), ...) :: $(result_constructor :: Identifier)($result_argument, ...):
-         $method_body; ...' when parameter_count > 0:
-        retain_specialized_method(method_name, receiver, [argument, ...], [method_body, ...], '$result_constructor($result_argument, ...)')
-    | 'method $(method_name :: Identifier)($(receiver :: Identifier), $(argument :: GeneratorParameter), ...) :: $(result_type :: Identifier):
-         $method_body; ...' when parameter_count > 0:
-        retain_specialized_method(method_name, receiver, [argument, ...], [method_body, ...], result_type)
-    | 'method $(method_name :: Identifier)($(receiver :: Identifier), $(argument :: GeneratorParameter), ...):
-         $method_body; ...' when parameter_count > 0:
-        retain_specialized_method(method_name, receiver, [argument, ...], [method_body, ...], #false)
-    | 'method $(method_name :: Identifier)($(receiver :: Identifier), $(argument :: GeneratorParameter), ...) :: $(result_constructor :: Identifier)($result_argument, ...):
          $method_body; ...':
-        when method_names.find(fun (declared): declared == method_name.to_source_string())
-        | syntax_meta.error("bundle method names must be unique", method_name)
-
-        method_names := method_names ++ [method_name.to_source_string()]
-        def method_function = Syntax.make_id(
-          bundle_name ++ "_" ++ method_name.to_source_string(),
-          method_name
-        )
-        let [argument_binding, ...] = [argument.binding, ...]
-        method_entries := method_entries ++ [
-          '($method_name, $method_function, ($argument_binding, ...),
-            (typed ($result_constructor($result_argument, ...))))'
-        ]
-        method_definitions := method_definitions ++ [
-          /* Implements the authored receiver-owned method body with its declared receiver and result surface. */
-          'fun $method_function($receiver :: $name(), $argument, ...) :: $result_constructor($result_argument, ...):
-             $method_body
-             ...'
-        ]
+        retain_method(method_name, receiver, [argument, ...], [method_body, ...], '$result_constructor($result_argument, ...)')
     | 'method $(method_name :: Identifier)($(receiver :: Identifier), $(argument :: GeneratorParameter), ...) :: $(result_type :: Identifier):
          $method_body; ...':
-        when method_names.find(fun (declared): declared == method_name.to_source_string())
-        | syntax_meta.error("bundle method names must be unique", method_name)
-
-        method_names := method_names ++ [method_name.to_source_string()]
-        def method_function = Syntax.make_id(
-          bundle_name ++ "_" ++ method_name.to_source_string(),
-          method_name
-        )
-        let [argument_binding, ...] = [argument.binding, ...]
-        method_entries := method_entries ++ [
-          '($method_name, $method_function, ($argument_binding, ...), (typed ($result_type)))'
-        ]
-        method_definitions := method_definitions ++ [
-          /* Implements the authored receiver-owned method body with its declared receiver and result surface. */
-          'fun $method_function($receiver :: $name(), $argument, ...) :: $result_type:
-             $method_body
-             ...'
-        ]
+        retain_method(method_name, receiver, [argument, ...], [method_body, ...], result_type)
     | 'method $(method_name :: Identifier)($(receiver :: Identifier), $(argument :: GeneratorParameter), ...):
          $method_body; ...':
-        when method_names.find(fun (declared): declared == method_name.to_source_string())
-        | syntax_meta.error("bundle method names must be unique", method_name)
-
-        method_names := method_names ++ [method_name.to_source_string()]
-        def method_function = Syntax.make_id(
-          bundle_name ++ "_" ++ method_name.to_source_string(),
-          method_name
-        )
-        let [argument_binding, ...] = [argument.binding, ...]
-        method_entries := method_entries ++ [
-          '($method_name, $method_function, ($argument_binding, ...), untyped)'
-        ]
-        method_definitions := method_definitions ++ [
-          /* Implements the authored receiver-owned method body with its declared receiver and result surface. */
-          'fun $method_function($receiver :: $name(), $argument, ...) :~ HardwareFields:
-             $method_body
-             ...'
-        ]
+        retain_method(method_name, receiver, [argument, ...], [method_body, ...], #false)
     | ~else:
         syntax_meta.error(
           "expected a bundle field, conditional field group, or method declaration",
@@ -422,7 +339,6 @@ defn.macro 'bundle $(name :: Identifier)($(parameter :: GeneratorParameter), ...
   let [annotation_static_field, ...] = annotation_static_fields
   let [method_entry, ...] = method_entries
   let [method_definition, ...] = method_definitions
-  let [specialized_method_entry, ...] = specialized_method_entries
   let [parameter_binding, ...] = [parameter.binding, ...]
   if parameter_count == 0
   | block:
@@ -480,11 +396,11 @@ defn.macro 'bundle $(name :: Identifier)($(parameter :: GeneratorParameter), ...
               $type_constructor($parameter_binding, ...)) :: HardwareFields.describes(
                 BundleTypeDescriptor,
                 HardwareMethods(BundleStaticFields($descriptor_static_field, ...),
-                                $specialized_method_entry, ...)
+                                $method_entry, ...)
               )'
        | '$name': '$family_name'
        annot.macro '$name($('$')$parameter_binding, ...)':
-         'HardwareMethods(BundleFields($type_constructor($('$')$parameter_binding, ...), $annotation_static_field, ...), $specialized_method_entry, ...)'
+         'HardwareMethods(BundleFields($type_constructor($('$')$parameter_binding, ...), $annotation_static_field, ...), $method_entry, ...)'
        $method_definition
        ...
      »'

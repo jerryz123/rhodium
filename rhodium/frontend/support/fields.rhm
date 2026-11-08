@@ -845,14 +845,6 @@ dot.macro 'hardware_value_method_dot $left $dot $right':
                 '$binder($left)',
                 '(($(statinfo_meta.call_result_key), $call_result))'
               )
-      | '($(method_name :: Identifier), $method_function, ($argument, ...), untyped)':
-          when !expansion && right.to_source_string() == method_name.to_source_string()
-          | expansion := 'fun ($argument, ...) :~ HardwareFields:
-                            $method_function($left, $argument, ...)'
-      | '($(method_name :: Identifier), $method_function, ($argument, ...), (typed ($result_type)))':
-          when !expansion && right.to_source_string() == method_name.to_source_string()
-          | expansion := 'fun ($argument, ...) :: $result_type:
-                            $method_function($left, $argument, ...)'
       | ~else:
           syntax_meta.error("invalid hardware method static information", entry)
 

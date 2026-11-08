@@ -180,9 +180,12 @@ Receiver-owned dispatch must decline unclaimed names, allowing declared fields
 to resolve before the common method provider. Do not turn a field such as
 `lookup` into a generic operation merely by attaching unrelated owned methods.
 
-Parameterized bundle methods use a generated receiver binder. It checks the
-receiver's `BundleFamily`, obtains its normalized specialization arguments,
-and closes over them before defining the authored method function. Dependent
+Enum and bundle methods share the same call-signature and result-metadata
+builder. Both bind the receiver and return the function with its authored
+parameter list intact. Do not rebuild a positional wrapper from binding names:
+that drops keywords and defaults. The parameterized bundle binder additionally checks
+the receiver's `BundleFamily`, obtains its normalized specialization arguments,
+and closes over them before defining the method function. Dependent
 argument/result checks and host conditionals therefore use the same concrete
 parameters as the receiver, including absent conditional fields. The method
 metadata carries a specialization-substituted result annotation. A dependent

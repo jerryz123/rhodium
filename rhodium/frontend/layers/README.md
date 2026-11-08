@@ -462,6 +462,9 @@ shared <== state.is_shared()
 ```
 
 The first method parameter is the receiver and is omitted at the call site.
+The remaining parameters keep their positional or keyword syntax, annotations,
+and defaults. Extracting a method (`def check_state = state.is_shared`) binds
+the receiver and preserves the same call signature.
 Method bodies use ordinary Rhodium operations and return hardware. An optional
 result type preserves the exact authoring surface for chained calls; an
 unannotated result remains generic `Hardware`. Methods are supported on
@@ -960,6 +963,10 @@ typed method result retains enum or bundle methods for further dot calls.
 Field and method names share one dot namespace and must be distinct.
 Declared fields still take precedence over generic operations with the same
 name, such as a record field named `lookup`.
+
+Both fixed and parameterized bundle methods accept positional and keyword
+arguments, including defaults. Extracting a method with `def f = value.method_name`
+preserves the same call signature as calling it directly.
 
 Parameterized methods use the receiver's concrete specialization. Parameters
 are in scope in the body, argument annotations/defaults, and result annotation:

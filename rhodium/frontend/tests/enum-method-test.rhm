@@ -50,3 +50,14 @@ for (width in [8, 16]):
 
 check:
   elaborate(fixture.WrongBundleSpecialization()) ~throws "annotation"
+
+def reference = dump_ir(compile_program(elaborate(fixture.EnumKeywordMethods("reference")), rtl_target).report.design)
+for (mode in ["direct", "extracted"]):
+  def design = compile_program(elaborate(fixture.EnumKeywordMethods(mode)), rtl_target).report.design
+  check:
+    dump_ir(design) ~is reference
+    verify_design(design) ~is #void
+
+check:
+  elaborate(fixture.EnumKeywordMethods("missing")) ~throws "keyword"
+  elaborate(fixture.EnumKeywordMethods("wrong-type")) ~throws "annotation"
