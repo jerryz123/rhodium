@@ -813,11 +813,14 @@ arithmetic-owner storage, and the
 RV5Stage fetch queue and MMU admission consume it without changing package direction.
 
 The superscalar memory factories import `frontend/foundation.rhm` for their
-`CircuitDefinition` result. `cores/superscalar/memory-adapter.rhdl` uses public
-`core/ir.rhm` and foundation types for its elaboration-time translation circuit
-parameter; access timing and physical transport use Flow and `std/bits.rhdl`.
-Identity and Sv39 resolution remain processor-library consumers of public
-authoring APIs, with no compiler, backend, or simulator dependency.
+`CircuitDefinition` result. `cores/superscalar/translation-specialization.rhm`
+uses public `core/ir.rhm` and foundation types for its immutable circuit/capability
+contract, extending `StableCircuitParam`. Concrete identity/Sv39 specializations
+import foundation's `CircuitDefinition` to build their own implementation.
+The memory adapter depends on that contract rather than raw IR/frontend circuit
+types; access timing and physical transport use Flow and `std/bits.rhdl`.
+Resolvers remain processor-library consumers of public authoring APIs, with no
+compiler, backend, or simulator dependency.
 
 Shared `cores/bpred/protocol.rhdl` imports architectural XLEN; its generic
 width-selectable prediction representation is independent of the fixed core PC type.

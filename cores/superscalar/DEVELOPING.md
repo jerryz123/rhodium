@@ -455,9 +455,10 @@ WB authorization, and the two-port writeback policy stay local.
 | `instruction-memory.rhdl` | Fixed-cycle L1I/noncacheable outcomes, retained fetch replay, and cancellation |
 | `bare-memory.rhdl`, `mmu.rhdl` | Stable entry-point factories selecting identity or paged translation without RTL wrappers |
 | `memory-translation.rhdl` | Combinational query/result contract, including known/fault provenance, probe contention, and held split masking |
+| `translation-specialization.rhm` | Immutable circuit-construction contract, walker-client capability, split-access policy, and atomic PMA policy |
 | `memory-adapter.rhdl` | EX/MEM timing, physical PMA/PBMT qualification, split owner, committed requests, faults, and passive physical observations |
 | `memory-transport.rhdl` | Fixed-priority physical arbitration, atomic eight-entry owner capture, admission-fault routing, and ordered response dispatch |
-| `translation-identity.rhdl`, `translation-sv39.rhdl` | Identity versus TLB/walker resolution, vector proof services, and specialization-specific prefetch timing |
+| `translation-identity.rhdl`, `translation-sv39.rhdl` | Concrete specialization objects and their identity versus TLB/walker circuits, vector proof services, and prefetch timing |
 | `fp.rhdl` | RR fixed-return bookings, EX arithmetic launch, WB authorization, FPR hazards and load/arithmetic write ports |
 | `vector.rhdl` | WB-authorized composition of shared admission/execution and the local LSU adapter |
 | `vector-memory.rhdl` | Adapts shared `../vector/memory-issue.rhdl` lookup issue to Superscalar decisions, precise split outcomes, and ordered raw-word extraction |
@@ -958,6 +959,16 @@ boundary. Their result carries a full physical address,
 known/fault status, PBMT, guest provenance, execute-read intent, and probe
 contention, not TLB leaves. Identity resolves immediately; paged translation
 retains its own pending walks and exact failed lookups.
+
+The adapter takes one `SuperscalarTranslationSpecialization`, an immutable
+generator parameter implemented beside each resolver. Its `circuit()` builds
+the configured implementation; `page_walk_clients()` declares zero or one PTE
+client, and `split_access_policy()`/`atomic_pma_policy()` select explicit host
+policies. Identity chooses ordinary split access and cacheable/readable atomics;
+Sv39 preserves guest split context and requires ordinary/readable atomic memory.
+The adapter consumes these capabilities and policies without a second mode flag
+or module-name inspection. Keep circuit construction and these declarations
+together in the specialization, not as independently supplied caller options.
 
 `memory-transport.rhdl` has two physical clients for Bare (core, split) and
 three for paged translation (core, split, PTE), in that priority order. Only
@@ -1503,6 +1514,8 @@ certificate epochs. The Sv39 fixture covers demand/walk arbitration, translation
 and physical fault provenance, invalidation, PBMT, and vector-window contention.
 Use `tests/xlen-test.rhm`, `rv2wide-rv32`, both wide-cache fixtures, and the
 production fetch/cache/vector fixtures when moving shared access or owner paths.
+The XLEN host suite also checks each specialization's capability/policy contract
+and stable generator equality across width, physical maps, Svnapot, and hypervisor settings.
 
 Validate the real shared engine, adapters, and integrated core with:
 

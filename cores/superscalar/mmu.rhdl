@@ -4,14 +4,14 @@
 
 import:
   "memory-adapter.rhdl".SuperscalarMemoryAdapter
-  "translation-sv39.rhdl".SuperscalarSv39Translation
+  "translation-sv39.rhdl".SuperscalarSv39Specialization
   "../chi-hart.rhdl".RiscvHartCHIConfig
   lib("riscv/isa/xlen.rhm").XLen
   lib("rhodium/frontend/foundation.rhm").CircuitDefinition
 
 /* Preserves the MMU entry point while selecting the paged resolver and its physical PTE client. */
 fun SuperscalarMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boolean = #false, ~hypervisor: hypervisor :: Boolean = #true) :: CircuitDefinition:
-  SuperscalarMemoryAdapter(XLen.X64, config, SuperscalarSv39Translation(config, ~svnapot: svnapot, ~hypervisor: hypervisor), ~paged: #true)
+  SuperscalarMemoryAdapter(XLen.X64, config, SuperscalarSv39Specialization(config, svnapot, hypervisor))
 
 export:
   SuperscalarMmu

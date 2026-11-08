@@ -4,14 +4,14 @@
 
 import:
   "memory-adapter.rhdl".SuperscalarMemoryAdapter
-  "translation-identity.rhdl".SuperscalarIdentityTranslation
+  "translation-identity.rhdl".SuperscalarIdentitySpecialization
   "../chi-hart.rhdl".RiscvHartCHIConfig
   lib("riscv/isa/xlen.rhm").XLen
   lib("rhodium/frontend/foundation.rhm").CircuitDefinition
 
 /* Selects a translation-free adapter without adding hierarchy, storage, or a walker client. */
 fun SuperscalarBareMemory(xlen :: XLen, config :: RiscvHartCHIConfig) :: CircuitDefinition:
-  SuperscalarMemoryAdapter(xlen, config, SuperscalarIdentityTranslation(xlen, config), ~paged: #false)
+  SuperscalarMemoryAdapter(xlen, config, SuperscalarIdentitySpecialization(xlen, config))
 
 export:
   SuperscalarBareMemory

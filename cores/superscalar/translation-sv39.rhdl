@@ -1,5 +1,5 @@
 #lang rhodium
-/* Specializes superscalar address resolution for Sv39, guest translation, and retained walker failures. */
+/* Owns Sv39/guest translation, walker capability, access policies, and retained lookup failures. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -9,6 +9,8 @@ import:
   lib("riscv/rtl/pointer-masking.rhdl") open
   "bundles.rhdl" open
   "memory-translation.rhdl" open
+  "translation-specialization.rhm" open
+  lib("rhodium/frontend/foundation.rhm").CircuitDefinition
   "../cache/operation.rhdl" open
   "../cache-prefetch.rhdl" open
   "../chi-hart.rhdl" open
@@ -284,5 +286,26 @@ sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: 
 
   walker.memory <=> pte
 
+
+/* Couples the RV64 resolver to its walker channel and translation-aware physical access policies. */
+class SuperscalarSv39Specialization(config :: RiscvHartCHIConfig, svnapot :: Boolean = #false, hypervisor :: Boolean = #true):
+  implements SuperscalarTranslationSpecialization
+
+  /* Builds the configured TLB/walker implementation without changing its query timing. */
+  override method circuit() :: CircuitDefinition:
+    SuperscalarSv39Translation(config, ~svnapot: svnapot, ~hypervisor: hypervisor)
+
+  /* The shared walker contributes one physical PTE client after core and split clients. */
+  override method page_walk_clients() :: matching(1): 1
+
+  /* Retains the split owner's guest-access class for translation and HLVX permission checks. */
+  override method split_access_policy() :: SuperscalarSplitAccessPolicy:
+    SuperscalarSplitAccessPolicy.PreserveGuest
+
+  /* Keeps atomic service restricted to resolved ordinary, readable physical memory. */
+  override method atomic_pma_policy() :: SuperscalarAtomicPmaPolicy:
+    SuperscalarAtomicPmaPolicy.OrdinaryReadable
+
 export:
   SuperscalarSv39Translation
+  SuperscalarSv39Specialization

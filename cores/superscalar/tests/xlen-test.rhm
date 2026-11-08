@@ -15,6 +15,9 @@ import:
   lib("riscv/isa/hart.rhm").RiscvMmuType
   "../superscalar.rhdl".Superscalar
   "../profile.rhm".SuperscalarPipelineConfig
+  "../translation-specialization.rhm" open
+  "../translation-identity.rhdl".SuperscalarIdentitySpecialization
+  "../translation-sv39.rhdl".SuperscalarSv39Specialization
   "cache-fixture.rhdl" open
 
 fun child(parent, name):
@@ -23,7 +26,28 @@ fun child(parent, name):
 fun cache_payload_bits(port):
   port.type.field("request").type.field("bits").type.field("data").type.width
 
+def sv39 = SuperscalarSv39Specialization(test_fetch_chi)
+check:
+  sv39.page_walk_clients() ~is 1
+  sv39.split_access_policy() ~is SuperscalarSplitAccessPolicy.PreserveGuest
+  sv39.atomic_pma_policy() ~is SuperscalarAtomicPmaPolicy.OrdinaryReadable
+  sv39.same_stable_circuit_param(SuperscalarSv39Specialization(test_fetch_chi)) ~is #true
+  sv39.same_stable_circuit_param(SuperscalarSv39Specialization(test_chi)) ~is #false
+  sv39.same_stable_circuit_param(SuperscalarSv39Specialization(test_fetch_chi, #true)) ~is #false
+  sv39.same_stable_circuit_param(SuperscalarSv39Specialization(test_fetch_chi, #false, #false)) ~is #false
+
 for (xlen in [XLen.X32, XLen.X64]):
+  def identity = SuperscalarIdentitySpecialization(xlen, test_fetch_chi)
+  check:
+    identity.page_walk_clients() ~is 0
+    identity.split_access_policy() ~is SuperscalarSplitAccessPolicy.Normal
+    identity.atomic_pma_policy() ~is SuperscalarAtomicPmaPolicy.CacheableReadable
+    identity.same_stable_circuit_param(SuperscalarIdentitySpecialization(xlen, test_fetch_chi)) ~is #true
+    identity.same_stable_circuit_param(SuperscalarIdentitySpecialization(xlen, test_chi)) ~is #false
+    identity.same_stable_circuit_param(SuperscalarIdentitySpecialization((if xlen == XLen.X32 | XLen.X64 | XLen.X32), test_fetch_chi)) ~is #false
+    identity.same_stable_circuit_param(sv39) ~is #false
+    sv39.same_stable_circuit_param(identity) ~is #false
+
   def two_issue = compile_program(elaborate(RV2WideIssue(xlen)), rtl_target).report.design.modules.find(fun (module_def): module_def.name == "RV2WideIssue")
   def three_issue = compile_program(elaborate(RV3WideIssue(xlen)), rtl_target).report.design.modules.find(fun (module_def): module_def.name == "RV3WideIssue")
   check:

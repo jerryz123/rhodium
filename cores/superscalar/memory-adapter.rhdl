@@ -1,10 +1,11 @@
 #lang rhodium
-/* Shares fixed-cycle cache access, split execution, and physical ownership across identity and paged translation. */
+/* Shares fixed-cycle cache access, split execution, and physical ownership using specialization-owned capabilities and policies. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "bundles.rhdl" open
   "memory-translation.rhdl" open
+  "translation-specialization.rhm" open
   "memory-transport.rhdl" open
   "../cache/access.rhdl" open
   "../cache/protocol.rhdl" open
@@ -14,8 +15,6 @@ import:
   "../load-store.rhdl" open
   "../misaligned-access.rhdl" open
   "../cosim-source.rhm".describe_cosim_signals
-  lib("rhodium/core/ir.rhm").Module
-  lib("rhodium/frontend/foundation.rhm").CircuitDefinition
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/rtl/trap.rhdl").ExceptionCause
   lib("riscv/rtl/hypervisor.rhdl") open
@@ -28,9 +27,9 @@ import:
   lib("rhodium/std/bits.rhdl") open
 
 /* Preserves one EX/MEM context stage and WB-only mutation with an unbuffered translation service.
-   Paged specialization adds the walker client and retains its existing atomic PMA policy;
+   The specialization supplies its physical-client count and access policies;
    accepted owners never observe invalidation. */
-sync_circuit SuperscalarMemoryAdapter(xlen :: XLen, config :: RiscvHartCHIConfig, translation :: Module || CircuitDefinition, ~paged: paged :: Boolean):
+sync_circuit SuperscalarMemoryAdapter(xlen :: XLen, config :: RiscvHartCHIConfig, translation :: SuperscalarTranslationSpecialization):
   input state: SuperscalarTranslationState(xlen)
   input invalidate: Bool
   input split_guest_access: RiscvGuestMemoryAccess
@@ -48,7 +47,8 @@ sync_circuit SuperscalarMemoryAdapter(xlen :: XLen, config :: RiscvHartCHIConfig
   interface physical_memory(SuperscalarMemory(xlen, 64), ~role: requester)
 
   def bytes = xlen.width / 8
-  inst resolve(translation)
+  def page_walk_clients = translation.page_walk_clients()
+  inst resolve(translation.circuit())
   resolve.state <== state
   resolve.invalidate <== invalidate
   resolve.pipeline_vector <== pipeline_vector
@@ -72,7 +72,7 @@ sync_circuit SuperscalarMemoryAdapter(xlen :: XLen, config :: RiscvHartCHIConfig
   def split_fault_address = apply_pointer_mask(xlen, misaligned.fault_address, resolved.split_mask)
   misaligned.completion |> map_valid(result => result.updated(~fault_address: apply_pointer_mask(xlen, result.fault_address, resolved.split_mask))) |> split.response
   def split_request = misaligned.request |> map_flow(fragment => SuperscalarMemoryReq(xlen, xlen.width)):
-    guest_access: if paged | split_mode | RiscvGuestMemoryAccess.Normal
+    guest_access: if translation.split_access_policy() == SuperscalarSplitAccessPolicy.PreserveGuest | split_mode | RiscvGuestMemoryAccess.Normal
     address: fragment.address
     access: fragment.access
     atomic: fragment.atomic
@@ -128,8 +128,7 @@ sync_circuit SuperscalarMemoryAdapter(xlen :: XLen, config :: RiscvHartCHIConfig
   def cache_block = mem.access.is_cache_block()
   def mem_misaligned = mem.access.is_one_of(CacheOperation.Load, CacheOperation.Store) & !mem.width.is_aligned(mem.address)
   def writes = mem.access.store_fault_class()
-  // Retain Bare's existing atomic-service qualification independently of the ordinary fast-path restriction.
-  def atomic_service = (if paged | cacheable | region.cacheable) & region.readable
+  def atomic_service = (if translation.atomic_pma_policy() == SuperscalarAtomicPmaPolicy.OrdinaryReadable | cacheable | region.cacheable) & region.readable
   def permitted = (!resolved.execute_read ||| region.executable) & cache_access_permitted(region, mem.access, ~reads: !writes, ~writes: writes, ~atomic_service: atomic_service)
   def busy = misaligned.busy ||| memory.request.valid ||| resolved.probe_busy
   def speculative_ok = !busy & !mem_misaligned & data_ok & permitted & cacheable & !atomic_request & !cache_block & !physical_memory.ordered_busy
@@ -160,7 +159,7 @@ sync_circuit SuperscalarMemoryAdapter(xlen :: XLen, config :: RiscvHartCHIConfig
 
   /* WB and split physical admission share an unflushed transport; a walker is an elaboration-time third client. */
 
-  inst transport(SuperscalarMemoryTransport(xlen, if paged | 3 | 2))
+  inst transport(SuperscalarMemoryTransport(xlen, 2 + page_walk_clients))
   transport.physical <=> physical_memory
   memory.request |> gate_flow(data_ok & !misaligned.busy & (!resolved.execute_read ||| region.executable)) |> map_flow(request => superscalar_physical_request(xlen, request, resolved.address, resolved.pbmt)) |> transport.request[0]
   transport.response[0] |> memory.response
@@ -199,7 +198,7 @@ sync_circuit SuperscalarMemoryAdapter(xlen :: XLen, config :: RiscvHartCHIConfig
   def split_access_denied = (resolved.fault =/= RiscvTranslationFault.None) ||| !fragment_permitted ||| transport.fault[1].valid
   misaligned.request_access_fault <== split_request.valid & resolved.known & !misaligned.request_fault & !misaligned.request_guest.page_fault & split_access_denied
 
-  if paged
+  if page_walk_clients == 1
   | block:
       def pte_region = config.physical_map.lookup(resolve.pte.request.bits.address, resolve.pte.request.bits.address +& Bits(64)(7))
       def pte_attributes = resolve_memory_attributes(pte_region, resolve.pte.request.bits.pbmt)

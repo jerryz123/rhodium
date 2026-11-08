@@ -1,0 +1,37 @@
+#lang rhombus
+/* Couples each translation implementation to its static physical-client and access-policy contract. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/core/ir.rhm").Module
+  lib("rhodium/frontend/foundation.rhm").CircuitDefinition
+  lib("rhodium/frontend/foundation.rhm").StableCircuitParam
+
+/* Selects whether a retained split owner carries its guest-access interpretation into fragments. */
+enum SuperscalarSplitAccessPolicy
+| Normal
+| PreserveGuest
+
+/* Separates legacy cacheable/readable atomic service from the stricter ordinary-memory restriction. */
+enum SuperscalarAtomicPmaPolicy
+| CacheableReadable
+| OrdinaryReadable
+
+/* Supplies one coherent immutable generator argument; topology and policies belong to the implementation.
+   A specialization may expose no walker client or the existing single PTE channel. */
+interface SuperscalarTranslationSpecialization:
+  extends StableCircuitParam
+
+  /* Returns the unbuffered translation circuit with the specialization's captured configuration. */
+  method circuit() :: Module || CircuitDefinition
+  /* Sizes the optional physical PTE contribution without allocating dormant clients. */
+  method page_walk_clients() :: matching(0) || matching(1)
+  /* Defines how captured architectural split-access context reaches physical fragments. */
+  method split_access_policy() :: SuperscalarSplitAccessPolicy
+  /* Defines physical atomic-service qualification independently of runtime address-translation mode. */
+  method atomic_pma_policy() :: SuperscalarAtomicPmaPolicy
+
+export:
+  SuperscalarTranslationSpecialization
+  SuperscalarSplitAccessPolicy
+  SuperscalarAtomicPmaPolicy
