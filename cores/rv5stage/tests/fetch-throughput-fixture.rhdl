@@ -64,7 +64,7 @@ sync_circuit RV5StageFetchThroughput():
   valid <== fetch.fetched.valid
   pc <== fetch.fetched.bits.pc
   instruction <== fetch.fetched.bits.instruction
-  fault <== fetch.fetched.bits.instruction_page_fault ||| fetch.fetched.bits.instruction_access_fault ||| fetch.fetched.bits.compressed_illegal
+  fault <== fetch.fetched.bits.fault.valid ||| fetch.fetched.bits.compressed_illegal
   fetch.memory |> mmu.instruction
   mmu.instruction_lookup |> cache.virtual_lookup
   mmu.instruction_memory |> router.core

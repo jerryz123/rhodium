@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/fetch/fault.rhdl") open
   lib("cores/fetch/protocol.rhdl").PhysicalInstructionReq
   "bundles.rhdl" open
   "profile.rhm".SuperscalarPipelineConfig
@@ -36,7 +37,7 @@ bundle SuperscalarFetchCursor(xlen :: XLen):
 bundle SuperscalarFetchAttempt(xlen :: XLen, hypervisor :: Boolean):
   cursor: SuperscalarFetchCursor(xlen)
   replay: Bool
-  fault: SuperscalarFetchBlockFault(xlen, hypervisor)
+  fault: FetchBlockFault(xlen, hypervisor)
 
 /* Issues one eight-byte block per cycle on hits and emits up to group_width instructions.
    Reserves returned-block storage before each lookup.
@@ -326,7 +327,7 @@ sync_circuit SuperscalarFrontend(config :: RiscvHartCHIConfig, profile :: Supers
 
   (outcome |> map_valid(payload):
     def attempt :: SuperscalarFetchAttempt(xlen, hypervisor) = payload
-    wire fetch_fault: SuperscalarFetchBlockFault(xlen, hypervisor)
+    wire fetch_fault: FetchBlockFault(xlen, hypervisor)
     fetch_fault.valid <== result_fault
     fetch_fault.cause <== mux(attempt.fault.valid, attempt.fault.cause, ExceptionCause.InstructionAccessFault)
     fetch_fault.value <== mux(attempt.fault.valid, attempt.fault.value, attempt.cursor.pc)

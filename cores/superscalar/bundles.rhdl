@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/fetch/fault.rhdl") open
   lib("cores/pc.rhdl") open
   lib("cores/fetch/protocol.rhdl").PhysicalInstructionReq
   lib("cores/fp/profile.rhm").fp_transport_profile
@@ -72,56 +73,6 @@ interface SuperscalarUncachedInstruction():
   responder -> requester:
     response: Decoupled(InstructionCacheResult(64))
 
-/* Restricts architectural causes to fetch exceptions supported by this core. */
-fun supported_fetch_cause(cause :: ExceptionCause, hypervisor :: Boolean) :: Bool:
-  cause.is_one_of(ExceptionCause.InstructionAddressMisaligned, ExceptionCause.InstructionAccessFault, ExceptionCause.InstructionPageFault)
-    ||| (Bool(hypervisor) & (cause === ExceptionCause.InstructionGuestPageFault))
-
-/* Translation reports the exact block VA. Assembly checks this against the
-   instruction and converts it to parcel ownership before issuing the packet. */
-bundle SuperscalarFetchBlockFault(xlen :: XLen, hypervisor :: Boolean):
-  valid: Bool
-  cause: ExceptionCause
-  value: Bits(xlen.width)
-  if hypervisor:
-    guest: RiscvGuestFault()
-
-  /* Only H-enabled translation may report a guest-page fault. */
-  method supported(fault) :: Bool:
-    !fault.valid ||| supported_fetch_cause(fault.cause, hypervisor)
-
-  /* Preserve the winning block's cause and guest provenance; a crossing
-     instruction owns its second parcel only if that block actually failed. */
-  method at_parcel(fault, second :: Bool) :: SuperscalarFetchFault(xlen, hypervisor):
-    def continuation = fault.valid & second
-    if hypervisor
-    | SuperscalarFetchFault(xlen, hypervisor):
-        valid: fault.valid
-        cause: fault.cause
-        continuation: continuation
-        guest: fault.guest
-    | SuperscalarFetchFault(xlen, hypervisor):
-        valid: fault.valid
-        cause: fault.cause
-        continuation: continuation
-
-/* Instruction-relative fetch fault. The originating PC travels with the
-   instruction; only a failed second parcel needs a nonzero displacement. */
-bundle SuperscalarFetchFault(xlen :: XLen, hypervisor :: Boolean):
-  valid: Bool
-  cause: ExceptionCause
-  continuation: Bool
-  if hypervisor:
-    guest: RiscvGuestFault()
-
-  /* Recover the exact trap VA modulo XLEN, including a straddle across zero. */
-  method address(fault, pc :: Bits(xlen.width)) :: Bits(xlen.width):
-    mux(fault.continuation, pc + Bits(xlen.width)(2), pc)
-
-  /* Rejects unused encodings and guest faults when this specialization omits H. */
-  method supported(fault) :: Bool:
-    !fault.valid ||| supported_fetch_cause(fault.cause, hypervisor)
-
 /* A +2 or +4 successor toggles one contiguous run, starting at bit 1 or 2.
    The tag names its last changed bit, not a displacement from the PC. */
 bundle SuperscalarPcStep(xlen :: XLen):
@@ -190,7 +141,7 @@ tagged_union SuperscalarInstructionOutcome(xlen :: XLen, hypervisor :: Boolean):
 namespace SuperscalarInstructionOutcome:
   /* Selects fault provenance instead of prediction when a parcel failed. Check the
      full PC before truncation so sequential boundary faults keep their exact address. */
-  export fun select(xlen :: XLen, hypervisor :: Boolean, pc :: Bits(xlen.width), fault :: SuperscalarFetchFault(xlen, hypervisor),
+  export fun select(xlen :: XLen, hypervisor :: Boolean, pc :: Bits(xlen.width), fault :: FetchFault(xlen, hypervisor),
                     ~predicted: predicted :: Bool, ~target: target :: CompactPc(xlen)) :~ SuperscalarInstructionOutcome(xlen, hypervisor):
     def Outcome = SuperscalarInstructionOutcome(xlen, hypervisor)
     def empty :: SuperscalarInstructionFault(xlen, hypervisor) = literal(SuperscalarInstructionFault(xlen, hypervisor), 0)
@@ -226,11 +177,11 @@ bundle SuperscalarInstruction(xlen :: XLen, hypervisor :: Boolean):
     mux(entry.outcome.is(Outcome.Fault), fault_pc, entry.pc.expanded())
 
   /* Supplies only active fault provenance; normal instructions never expose union garbage. */
-  method fetch_fault(entry) :: SuperscalarFetchFault(xlen, hypervisor):
+  method fetch_fault(entry) :: FetchFault(xlen, hypervisor):
     def Outcome = SuperscalarInstructionOutcome(xlen, hypervisor)
     def details :: SuperscalarInstructionFault(xlen, hypervisor) = entry.outcome.view(Outcome.Fault).payload
-    def absent :: SuperscalarFetchFault(xlen, hypervisor) = literal(SuperscalarFetchFault(xlen, hypervisor), 0)
-    def fault :: SuperscalarFetchFault(xlen, hypervisor) = absent.updated(
+    def absent :: FetchFault(xlen, hypervisor) = literal(FetchFault(xlen, hypervisor), 0)
+    def fault :: FetchFault(xlen, hypervisor) = absent.updated(
       ~valid: Bool(#true), ~cause: details.cause, ~continuation: details.continuation)
     def provenance = if hypervisor | fault.updated(~guest: details.guest) | fault
     mux(entry.outcome.is(Outcome.Fault), provenance, absent)
@@ -315,7 +266,7 @@ bundle SuperscalarLaneInstruction(xlen :: XLen, Fault :: DataType):
       direction: fetched.direction
 
   /* Gives an independently owned observation its PC without expanding other aliases. */
-  method observed(fetched, hypervisor :: Boolean, pc :: Bits(xlen.width), fault :: SuperscalarFetchFault(xlen, hypervisor)) :: SuperscalarInstruction(xlen, hypervisor):
+  method observed(fetched, hypervisor :: Boolean, pc :: Bits(xlen.width), fault :: FetchFault(xlen, hypervisor)) :: SuperscalarInstruction(xlen, hypervisor):
     SuperscalarInstruction(xlen, hypervisor):
       pc: CompactPc.capture(xlen, pc)
       instruction: fetched.instruction
@@ -632,15 +583,15 @@ bundle SuperscalarResult(xlen :: XLen, hypervisor :: Boolean):
     result.updated(~address: address_or_left, ~operands: result.operands.updated(~left: address_or_left, ~right: Bits(xlen.width)(0)))
 
   /* Recovers fetch provenance only when the retained origin bit names a fetch fault. */
-  method fetch_fault(token) :: SuperscalarFetchFault(xlen, hypervisor):
+  method fetch_fault(token) :: FetchFault(xlen, hypervisor):
     def continuation = token.fetched.fault & (token.resolution.value[1] ^ token.fetched.pc[1]).into(Bool)
     if hypervisor
-    | SuperscalarFetchFault(xlen, hypervisor):
+    | FetchFault(xlen, hypervisor):
         valid: token.fetched.fault
         cause: token.resolution.cause
         continuation: continuation
         guest: mux(token.fetched.fault, token.resolution.guest, literal(RiscvGuestFault(), 0))
-    | SuperscalarFetchFault(xlen, hypervisor):
+    | FetchFault(xlen, hypervisor):
         valid: token.fetched.fault
         cause: token.resolution.cause
         continuation: continuation
@@ -726,7 +677,7 @@ bundle SuperscalarRetirementCommand(xlen :: XLen, hypervisor :: Boolean):
   /* Reports only successfully retired instructions; invalid fault payloads must not retain WB state. */
   method retired_instruction(token, pc :: Bits(xlen.width)) :: SuperscalarInstruction(xlen, hypervisor):
     def retained :: SuperscalarRetirementCommand(xlen, hypervisor) = token
-    retained.fetched.observed(hypervisor, pc, literal(SuperscalarFetchFault(xlen, hypervisor), 0))
+    retained.fetched.observed(hypervisor, pc, literal(FetchFault(xlen, hypervisor), 0))
 
   /* Derives the architectural successor from the existing step or resolved branch address. */
   method next_pc(token, pc :: Bits(xlen.width)) :: Bits(xlen.width):
@@ -945,8 +896,6 @@ export:
   SuperscalarInstructionTranslation
   SuperscalarInstructionLookup
   SuperscalarUncachedInstruction
-  SuperscalarFetchFault
-  SuperscalarFetchBlockFault
   SuperscalarPcStep
   encode_pc_step
   SuperscalarInstruction

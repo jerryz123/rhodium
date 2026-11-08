@@ -4,6 +4,7 @@
 
 import:
   lib("riscv/rtl/hypervisor.rhdl").RiscvGuestException
+  lib("riscv/isa/hart.rhm").RiscvMmuType
   "../fetch/instruction-buffer.rhdl" open
   "../fetch/packet.rhdl" open
   "../fetch/protocol.rhdl" open
@@ -12,23 +13,25 @@ import:
   "../../../riscv/isa/xlen.rhm" open
   lib("flow/main.rhdl") open
 
-bundle PacketStimulus():
-  pc: Bits(64)
+bundle PacketStimulus(xlen :: XLen, hypervisor :: Boolean):
+  pc: Bits(xlen.width)
   word: Bits(32)
   mask: Bits(2)
   page_fault: Bool
   access_fault: Bool
-  prediction: RV5StagePacketPrediction(XLen.X64)
+  prediction: RV5StagePacketPrediction(xlen)
+  if hypervisor:
+    guest: RiscvGuestException()
 
-sync_circuit RV5StageInstructionBufferFixture(compressed :: Boolean = #true):
-  interface packets(Decoupled(PacketStimulus()), ~role: consumer)
+sync_circuit RV5StageInstructionBufferFixture(compressed :: Boolean = #true, ~xlen: xlen :: XLen = XLen.X64, ~hypervisor: hypervisor :: Boolean = #false):
+  interface packets(Decoupled(PacketStimulus(xlen, hypervisor)), ~role: consumer)
   interface clear(Pulse(), ~role: consumer)
-  interface fetched(Decoupled(FetchDecode(XLen.X64, #false)), ~role: producer)
+  interface fetched(Decoupled(FetchDecode(xlen, hypervisor)), ~role: producer)
   output with_c: Bool
   with_c <== Bool(compressed)
-  inst buffer(RV5StageInstructionBuffer(RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~compressed: if compressed | CCompressedExtensions | []))))
+  inst buffer(RV5StageInstructionBuffer(RV5StageConfig(~xlen: xlen, ~mmu_mode: if hypervisor | RiscvMmuType.Sv39 | RiscvMmuType.Bare, ~extensions: RV5StageExtensions(~hypervisor: hypervisor, ~compressed: if compressed | CCompressedExtensions | []))))
   (packets |> map_flow(packet):
-    RV5StageFetchPacket.create(XLen.X64, #false, packet.pc, packet.word, packet.mask, packet.page_fault, packet.access_fault, packet.prediction, literal(RiscvGuestException(), 0))
+    RV5StageFetchPacket.create(xlen, hypervisor, packet.pc, packet.word, packet.mask, packet.page_fault, packet.access_fault, packet.prediction, if hypervisor | packet.guest | literal(RiscvGuestException(), 0))
   ) |> buffer.packets
   clear |> buffer.clear
   buffer.fetched |> fetched

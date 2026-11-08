@@ -1,5 +1,6 @@
 // Preserves the rv5stage-fetch-prediction cycle and architectural oracle through direct rsim.
 // SPDX-License-Identifier: Apache-2.0
+#include "fetch-fault.hpp"
 #include "driver.hpp"
 #include <deque>
 extern "C" void fallback_trace_bind();
@@ -299,9 +300,9 @@ void expect_pc(std::uint64_t pc, std::uint64_t npc, std::uint8_t fault = 0,
   CHECK(fetched_out.pbits.ppc == pc &&
         fetched_out.pbits.ppredicted_unext_upc == npc &&
         fetched_out.pbits.ppredicted_uras_uaction == ras_action &&
-        fetched_out.pbits.pinstruction_upage_ufault == fault);
+        fetch_page_fault(fetched_out.pbits) == fault);
   if (fault)
-    CHECK(fetched_out.pbits.pinstruction_ufault_uaddress == fault_pc);
+    CHECK(fetch_fault_address(fetched_out.pbits) == fault_pc);
 }
 
 void drive() {

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/fetch/fault.rhdl").FetchFault
   lib("riscv/rtl/trap.rhdl").ExceptionCause
   lib("cores/bpred/statistics.rhdl").PredictionFailure
   lib("cores/fp/profile.rhm").fp_transport_profile
@@ -95,7 +96,6 @@ bundle RV5StageVectorLaunchContext(xlen :: XLen):
 /* Carries the admitted instruction, operands, controls, and precise fault context into EX. */
 bundle DecodeExecute(xlen :: XLen, vector_completion_slots :: Pow2Int, hypervisor :: Boolean):
   if hypervisor:
-    guest: RiscvGuestException()
     guest_access: RiscvGuestMemoryAccess
     virtual_instruction: Bool
 
@@ -130,9 +130,7 @@ bundle DecodeExecute(xlen :: XLen, vector_completion_slots :: Pow2Int, hyperviso
   fence: RV5StageFenceControl()
   hint: RV5StageHintOperation
   illegal: Bool
-  instruction_page_fault: Bool
-  instruction_access_fault: Bool
-  instruction_fault_address: Bits(xlen.width)
+  fault: FetchFault(xlen, hypervisor)
   immediate: Bits(xlen.width)
   rs1: Bits(5)
   rs2: Bits(5)

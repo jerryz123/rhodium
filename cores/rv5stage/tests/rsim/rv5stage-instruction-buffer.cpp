@@ -1,12 +1,17 @@
 // Preserves the rv5stage-instruction-buffer cycle and architectural oracle through direct rsim.
 // SPDX-License-Identifier: Apache-2.0
+#include "fetch-fault.hpp"
 #include "driver.hpp"
 // Checks zero-cycle Decode bypass, parcel retention, stalls, precise faults, and clear priority.
 
 void offer(std::uint64_t pc, std::uint32_t word,
            std::uint8_t mask = UINT64_C(3)) {
   falling();
-  packets_in = {UINT64_C(1), {pc, word, mask, UINT64_C(0), UINT64_C(0), {}}};
+  packets_in = {};
+  packets_in.pvalid = 1;
+  packets_in.pbits.ppc = pc;
+  packets_in.pbits.pword = word;
+  packets_in.pbits.pmask = mask;
   settle();
 }
 void expect_instruction(std::uint64_t pc, std::uint32_t raw) {
@@ -27,7 +32,7 @@ void falling_update() {}
 enum ParcelOwner : unsigned { None, Lower, Upper, Previous };
 
 void predict(ParcelOwner owner, std::uint64_t target, unsigned action) {
-  packets_in.pbits.pprediction = {static_cast<std::uint8_t>(owner), target,
+  packets_in.pbits.pprediction = {static_cast<std::uint8_t>(owner), static_cast<decltype(packets_in.pbits.pprediction.ptarget)>(target),
                                   static_cast<std::uint8_t>(action)};
   settle();
 }
@@ -93,13 +98,91 @@ void check_parcel_ownership() {
     settle();
     expect_instruction(4094, 0xef);
     expect_prediction(fault ? 4098 : 0x380, fault ? 0 : 1);
-    CHECK(fetched_out.pbits.pinstruction_uaccess_ufault == fault);
-    if (fault) CHECK(fetched_out.pbits.pinstruction_ufault_uaddress == 4096);
+    CHECK(fetch_access_fault(fetched_out.pbits) == fault);
+    if (fault) CHECK(fetch_fault_address(fetched_out.pbits) == 4096);
     edge_step();
     falling();
     fetched_in.pready = 1;
     settle();
     edge_step();
+  }
+}
+
+void check_fault_boundaries() {
+  offer(0x600, 0);
+  packets_in.pbits.ppage_ufault = 1;
+  packets_in.pbits.paccess_ufault = 1;
+  fetched_in.pready = 0;
+  settle();
+  for (int stalled = 0; stalled < 2; ++stalled) {
+    CHECK(fetched_out.pvalid && fetched_out.pbits.pfault.pvalid &&
+          fetched_out.pbits.pfault.pcause == 1 &&
+          !fetched_out.pbits.pfault.pcontinuation &&
+          fetch_fault_address(fetched_out.pbits) == 0x600);
+    edge_step();
+  }
+  falling();
+  fetched_in.pready = 1;
+  edge_step();
+
+  const bool rv32 = sizeof(decltype(fetched_out.pbits.ppc)) == 4;
+  const std::uint64_t wrap_prefix = rv32 ? UINT64_C(0xfffffffe) : UINT64_MAX - 1;
+  for (std::uint64_t prefix : {wrap_prefix, (UINT64_C(1) << 38) - 2}) {
+    if (rv32 && prefix > UINT32_MAX) continue;
+    offer(prefix, 0x03130001, 2);
+    CHECK(!fetched_out.pvalid && packets_out.pready);
+    edge_step();
+    const auto next = static_cast<decltype(fetched_out.pbits.ppc)>(prefix + 2);
+    offer(next, 0);
+    packets_in.pbits.paccess_ufault = 1;
+    fetched_in.pready = 0;
+    settle();
+    for (int stalled = 0; stalled < 2; ++stalled) {
+      CHECK(fetched_out.pvalid && fetched_out.pbits.ppc == prefix &&
+            fetched_out.pbits.pfault.pvalid && fetched_out.pbits.pfault.pcause == 1 &&
+            fetched_out.pbits.pfault.pcontinuation &&
+            fetch_fault_address(fetched_out.pbits) == next);
+      edge_step();
+    }
+    falling();
+    fetched_in.pready = 1;
+    edge_step();
+  }
+}
+
+template <class Packets, class Fetched>
+void check_guest_provenance(Packets &offered, const Fetched &fetched) {
+  if constexpr (requires { offered.pbits.pguest; }) {
+    for (int scenario = 0; scenario < 5; ++scenario) {
+      const bool second = scenario == 2 || scenario == 3;
+      const bool implicit = scenario == 1 || scenario == 3;
+      const bool access_wins = scenario == 4;
+      const std::uint64_t pc = second ? 0x7fe : 0x502;
+      const std::uint64_t gpa = implicit ? 0xabcdf8 : 0x1200;
+      if (second) {
+        offer(pc, 0x03130001, 2);
+        edge_step();
+      }
+      offer(second ? pc + 2 : pc, 0);
+      offered.pbits.ppage_ufault = 1;
+      offered.pbits.paccess_ufault = access_wins;
+      offered.pbits.pguest = {1, {1, gpa, static_cast<std::uint8_t>(implicit)}};
+      fetched_in.pready = 0;
+      settle();
+      for (int stalled = 0; stalled < 2; ++stalled) {
+        CHECK(fetched.pvalid && fetched.pbits.ppc == pc && fetched.pbits.pfault.pvalid &&
+              fetched.pbits.pfault.pcause == (access_wins ? 1 : 20) &&
+              fetched.pbits.pfault.pcontinuation == second &&
+              fetch_fault_address(fetched.pbits) == pc + (second ? 2 : 0));
+        const auto &guest = fetched.pbits.pfault.pguest;
+        CHECK(guest.pguest_uvirtual_uaddress && guest.paccess == implicit &&
+              guest.pguest_uphysical_uaddress == (implicit ? gpa : gpa | ((pc + (second ? 2 : 0)) & 3)));
+        edge_step();
+      }
+      falling();
+      fetched_in.pready = 1;
+      edge_step();
+    }
   }
 }
 
@@ -125,6 +208,14 @@ void stimulus() {
       packets_in.pvalid = 0;
       settle();
       CHECK(!fetched_out.pvalid);
+      offer(256, 0);
+      packets_in.pbits.ppage_ufault = 1;
+      packets_in.pbits.paccess_ufault = 1;
+      settle();
+      CHECK(fetched_out.pvalid && fetched_out.pbits.pfault.pvalid &&
+            fetched_out.pbits.pfault.pcause == 1 &&
+            fetch_fault_address(fetched_out.pbits) == 256);
+      edge_step();
       throw Finished{};
     }
 
@@ -133,7 +224,7 @@ void stimulus() {
     CHECK(fetched_out.pbits.pcompressed_uillegal && fetched_out.pbits.psequential_upc == 250);
     packets_in.pbits.ppage_ufault = 1;
     settle();
-    CHECK(fetched_out.pbits.pinstruction_upage_ufault && !fetched_out.pbits.pcompressed_uillegal &&
+    CHECK(fetch_page_fault(fetched_out.pbits) && !fetched_out.pbits.pcompressed_uillegal &&
           fetched_out.pbits.psequential_upc == 252 && fetched_out.pbits.pinstruction == 0);
     edge_step();
     offer(UINT64_C(256), UINT64_C(0x100093));
@@ -186,8 +277,8 @@ void stimulus() {
     packets_in.pbits.ppage_ufault = 1;
     settle();
     CHECK(fetched_out.pvalid && fetched_out.pbits.ppc == UINT64_C(8190) &&
-          fetched_out.pbits.pinstruction_upage_ufault &&
-          fetched_out.pbits.pinstruction_ufault_uaddress == UINT64_C(8192));
+          fetch_page_fault(fetched_out.pbits) &&
+          fetch_fault_address(fetched_out.pbits) == UINT64_C(8192));
     edge_step();
     offer(UINT64_C(12288), UINT64_C(0x850085));
     edge_step();
@@ -203,6 +294,8 @@ void stimulus() {
     CHECK(!fetched_out.pvalid);
 
     check_parcel_ownership();
+    check_fault_boundaries();
+    check_guest_provenance(packets_in, fetched_out);
     throw Finished{};
   }
 }

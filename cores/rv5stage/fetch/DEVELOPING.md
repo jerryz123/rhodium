@@ -34,6 +34,12 @@ qualification here; shared predictors must not import fetch consumers.
 Keep `FetchDecode` in `fetch/protocol.rhdl` rather than the scalar
 pipeline's general `bundles.rhdl`, so instruction assembly does not depend back
 on execution-owned payloads.
+Its `fault` field uses shared `FetchFault` through ID/EX. Assembly resolves the
+existing access-before-page priority and carries `RiscvGuestFault` directly;
+EX reconstructs the fault address from the exact instruction PC and continuation
+bit. The queue's boundary bit selects PC expansion independently. Preserve GPA
+byte adjustment only for explicit faults, leaving implicit PTE GPAs unchanged.
+Cache responses and raw queue flags keep their existing format and timing.
 
 The core may consume fetch and predictor protocols and use the RAS classifier
 when resolving an instruction. Tests remain under [`../tests/`](../tests/), and
@@ -90,6 +96,9 @@ alongside ordinary S0-to-S0 successor ancestry and functional prediction checks.
 The `rv5stage-instruction-buffer` and `rv5stage-instruction-buffer-no-c` fixtures
 distinguish illegal compressed expansion from a head fault and from a raw
 word left for ordinary instruction decode.
+The `rv32` and `h` instruction-buffer variants also cover fault-address wrap,
+positive canonical boundaries, backpressure, access/page priority, and explicit
+versus implicit guest GPA provenance. Keep the same native oracle across variants.
 
 After changing layout or imports, run `moon run rhodium:check-boundaries` and confirm no old
 paths remain. Direct predictor behavior is covered by the shared `bpred-btb`

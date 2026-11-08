@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/fetch/fault.rhdl") open
   lib("cores/mmu/context.rhdl").RiscvTranslationState
   lib("cores/pc.rhdl") open
   lib("cores/fetch/redirect.rhdl") open
@@ -760,7 +761,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     (rr_observed |> gate_flow(rr_decision.admitted[lane]) |> to_valid() |> map_valid(fetched => SuperscalarExecute(xlen, hypervisor)):
       // Compact lane storage reconstructs raw upper bits from the original expanded word.
       // A normalized ADD copy needs a zero immediate, not those original rs2 bits.
-      fetched: SuperscalarLaneInstruction.capture(xlen, hypervisor, SuperscalarFetchFault(xlen, hypervisor), rr_head.entries[lane], rr_head.entries[lane].fetch_fault())
+      fetched: SuperscalarLaneInstruction.capture(xlen, hypervisor, FetchFault(xlen, hypervisor), rr_head.entries[lane], rr_head.entries[lane].fetch_fault())
       control: rr_instructions[lane].control.updated(
         ~operand: rr_instructions[lane].control.operand.updated(~immediate: mux(rr_normalized[lane] =/= fetched.instruction, OperandImmediate.Zero, rr_instructions[lane].control.operand.immediate)),
         ~memory: rr_instructions[lane].control.memory.updated(~access: mux(rr_access.is_cache_management() & (wb_csrs.cbo_permission.operation === CboManagementOperation.Flush), CacheOperation.CacheBlockFlush, rr_access))
@@ -841,7 +842,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     def ex_pc = ex_pipe[lane].pc
     def ex_successor = ex_pipe[lane].sequential_pc
     def ex_raw = ex_pipe[lane].raw_instruction
-    def ex_fetch_fault :: SuperscalarFetchFault(xlen, hypervisor) = ex.fetched.fault
+    def ex_fetch_fault :: FetchFault(xlen, hypervisor) = ex.fetched.fault
     def ex_input = ex_paths[lane][0]
     def ex_output = ex_links[lane].left
     def ex_alu = ex_alus[lane]

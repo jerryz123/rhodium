@@ -67,3 +67,11 @@ is stalled. A fault suppresses the hint without changing the fault address.
 The five-entry queue may store fewer PC bits than XLEN. Decode still sees the
 exact instruction PC and, if a straddling fetch faults, the address of its
 failing parcel. Neither case requires an extra cycle or queue entry.
+
+`FetchDecode.fault` uses shared `FetchFault(xlen, hypervisor)` from
+`cores/fetch/fault.rhdl`. Its cause selects access faults before page faults;
+the guest-page cause is used only when H is enabled. The continuation bit names
+the second parcel, so `fault.address(pc)` recovers the precise fault VA without
+storing another address. Guest metadata adjusts the byte offset for explicit
+fetches and preserves implicit page-table-read GPAs. Faults suppress predictions;
+illegal instruction encodings remain a separate Decode decision.

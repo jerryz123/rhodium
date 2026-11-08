@@ -312,10 +312,10 @@ the head. Wire only the in-bounds neighbors for each destination. Appends
 start at the remaining count, clear discards the old owners, and zero consume
 holds every survivor. The oldest entries remain directly wired to decode.
 
-At the assembler input, `SuperscalarFetchBlockFault` reports the exact failed
+At the assembler input, shared `FetchBlockFault` from `cores/fetch/fault.rhdl` reports the exact failed
 block VA. At packet formation the assembler asserts that it matches the
 instruction PC, or PC+2 modulo XLEN when a straddle's second parcel failed.
-From there `SuperscalarFetchFault` carries validity, the shared `ExceptionCause`,
+From there shared `FetchFault` carries validity, the shared `ExceptionCause`,
 continuation, and (with H) guest provenance. Retained assembler and instruction
 union payloads omit validity because their `Fault` tag already establishes it.
 No fetch-specific cause encoding or cause conversion belongs on this path.

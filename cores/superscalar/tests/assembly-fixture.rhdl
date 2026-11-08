@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/fetch/fault.rhdl") open
   "instruction-fixture.rhdl" open
   "../instruction-assembler.rhdl" open
   "../bundles.rhdl" open
@@ -17,7 +18,7 @@ import:
 bundle AssemblyStimulus(xlen :: XLen, hypervisor :: Boolean):
   pc: Bits(xlen.width)
   data: Bits(64)
-  fault: SuperscalarFetchBlockFault(xlen, hypervisor)
+  fault: FetchBlockFault(xlen, hypervisor)
   prediction: BranchPrediction(xlen, xlen.width)
   directions: Vec(4, TournamentPrediction(10))
   prefix_direction: TournamentPrediction(10)

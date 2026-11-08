@@ -272,6 +272,8 @@ rv5stage-access-fault	cores-execution-frontend	cores/rv5stage/tests/rsim/emit-rv
 rv5stage-return-prediction	cores-execution-frontend	cores/rv5stage/tests/rsim/emit-rv5stage-return-prediction.rhm	program	cores/rv5stage/tests/rsim/rv5stage-return-prediction.cpp
 rv5stage-instruction-buffer	cores-execution-frontend	cores/rv5stage/tests/rsim/emit-rv5stage-instruction-buffer.rhm	program	cores/rv5stage/tests/rsim/rv5stage-instruction-buffer.cpp
 rv5stage-instruction-buffer-no-c	cores-execution-frontend	cores/rv5stage/tests/rsim/emit-rv5stage-instruction-buffer.rhm	no_c	cores/rv5stage/tests/rsim/rv5stage-instruction-buffer.cpp
+rv5stage-instruction-buffer-rv32	cores-execution-frontend	cores/rv5stage/tests/rsim/emit-rv5stage-instruction-buffer.rhm	rv32	cores/rv5stage/tests/rsim/rv5stage-instruction-buffer.cpp
+rv5stage-instruction-buffer-h	cores-execution-frontend	cores/rv5stage/tests/rsim/emit-rv5stage-instruction-buffer.rhm	guest	cores/rv5stage/tests/rsim/rv5stage-instruction-buffer.cpp
 rv5stage-branch-prediction	cores-execution-frontend	cores/rv5stage/tests/rsim/emit-rv5stage-branch-prediction.rhm	program	cores/rv5stage/tests/rsim/rv5stage-branch-prediction.cpp
 rv5stage-core	cores-execution-datapath	cores/rv5stage/tests/rsim/emit-rv5stage-core.rhm	program	cores/rv5stage/tests/rsim/rv5stage-core.cpp
 rv5stage-zcb	cores-execution-frontend	cores/rv5stage/tests/rsim/emit-rv5stage-zcb.rhm	program	cores/rv5stage/tests/rsim/rv5stage-zcb.cpp

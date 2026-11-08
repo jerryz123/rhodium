@@ -1,6 +1,7 @@
 // Preserves the rv5stage-fetch cycle and architectural oracle through direct rsim.
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
+#include "fetch-fault.hpp"
 #include "driver.hpp"
 using control_t = std::remove_cvref_t<decltype(control_in)>;
 using pulse_t = std::remove_cvref_t<decltype(control_in.pflush)>;
@@ -94,8 +95,8 @@ void expect_instruction(std::uint64_t pc, std::uint64_t sequential_pc,
         fetched_out.pbits.praw_uinstruction == raw_instruction &&
         fetched_out.pbits.pinstruction == instruction &&
         !fetched_out.pbits.pcompressed_uillegal &&
-        !fetched_out.pbits.pinstruction_upage_ufault &&
-        !fetched_out.pbits.pinstruction_uaccess_ufault);
+        !fetch_page_fault(fetched_out.pbits) &&
+        !fetch_access_fault(fetched_out.pbits));
   rising();
   settle();
 }
@@ -176,9 +177,9 @@ void check_queue_addresses() {
     settle();
     const auto pc = fault_run + 4 * i;
     CHECK(fetched_out.pvalid && fetched_out.pbits.ppc == pc &&
-          fetched_out.pbits.pinstruction_ufault_uaddress == pc &&
-          fetched_out.pbits.pinstruction_uaccess_ufault &&
-          !fetched_out.pbits.pinstruction_upage_ufault &&
+          fetch_fault_address(fetched_out.pbits) == pc &&
+          fetch_access_fault(fetched_out.pbits) &&
+          !fetch_page_fault(fetched_out.pbits) &&
           fetched_out.pbits.ppredicted_unext_upc == pc + 4);
     rising();
   }
@@ -186,8 +187,8 @@ void check_queue_addresses() {
   // The instruction starts inside Bare memory; its second parcel faults beyond it.
   start_stalled(bare_limit - 2);
   CHECK(fetched_out.pbits.ppc == bare_limit - 2 &&
-        fetched_out.pbits.pinstruction_upage_ufault &&
-        fetched_out.pbits.pinstruction_ufault_uaddress == bare_limit);
+        fetch_page_fault(fetched_out.pbits) &&
+        fetch_fault_address(fetched_out.pbits) == bare_limit);
   fetched_ready = true;
   rising();
 }
@@ -286,8 +287,8 @@ void stimulus() {
     until([&] { return fetched_out.pvalid; });
     settle();
     CHECK(fetched_out.pbits.ppc == UINT64_C(4094) &&
-          fetched_out.pbits.pinstruction_upage_ufault &&
-          fetched_out.pbits.pinstruction_ufault_uaddress == UINT64_C(4096));
+          fetch_page_fault(fetched_out.pbits) &&
+          fetch_fault_address(fetched_out.pbits) == UINT64_C(4096));
     // Accept the checked faulting instruction before the next recovery test.
     rising();
     settle();

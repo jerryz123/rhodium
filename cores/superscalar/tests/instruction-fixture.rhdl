@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/fetch/fault.rhdl") open
   "../bundles.rhdl" open
   lib("cores/bpred/protocol.rhdl") open
   lib("cores/pc.rhdl") open
@@ -15,7 +16,7 @@ bundle InstructionObservation(xlen :: XLen, hypervisor :: Boolean):
   raw_instruction: Bits(32)
   sequential_pc: Bits(xlen.width)
   compressed_illegal: Bool
-  fault: SuperscalarFetchFault(xlen, hypervisor)
+  fault: FetchFault(xlen, hypervisor)
   prediction: BranchPrediction(xlen, xlen.width)
   speculated_ras_action: RasAction
   direction: TournamentPrediction(10)

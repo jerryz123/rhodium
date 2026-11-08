@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/fetch/fault.rhdl") open
   "bundles.rhdl" open
   "predecode.rhdl".SuperscalarPredecode
   "profile.rhm".SuperscalarPipelineConfig
@@ -90,18 +91,18 @@ bundle SuperscalarFetchBlock(xlen :: XLen, hypervisor :: Boolean):
     mux(block.outcome.is(Outcome.Fault), fault_pc, block.pc.expanded())
 
   /* Supplies fault provenance only; normal blocks have no live fault payload. */
-  method fault_value(block) :: SuperscalarFetchBlockFault(xlen, hypervisor):
+  method fault_value(block) :: FetchBlockFault(xlen, hypervisor):
     def retained :: SuperscalarFetchBlock(xlen, hypervisor) = block
     def Outcome = SuperscalarBlockOutcome(xlen, hypervisor)
     def details :: SuperscalarBlockFault(xlen, hypervisor) = block.outcome.view(Outcome.Fault).payload
     def valid = block.outcome.is(Outcome.Fault)
     if hypervisor
-    | SuperscalarFetchBlockFault(xlen, hypervisor):
+    | FetchBlockFault(xlen, hypervisor):
         valid: valid
         cause: details.cause
         value: retained.address()
         guest: details.guest
-    | SuperscalarFetchBlockFault(xlen, hypervisor):
+    | FetchBlockFault(xlen, hypervisor):
         valid: valid
         cause: details.cause
         value: retained.address()
@@ -135,7 +136,7 @@ bundle SuperscalarFetchBlock(xlen :: XLen, hypervisor :: Boolean):
     block.prefix_direction.checkpoint(block.prefix_row)
 
 /* Normalizes both retained and bypassed blocks to the same mutually exclusive outcome. */
-fun fetch_block(xlen :: XLen, hypervisor :: Boolean, pc :: Bits(xlen.width), data :: Bits(64), fault :: SuperscalarFetchBlockFault(xlen, hypervisor), prediction_valid :: Bool, prediction_pc :: Bits(xlen.width), prediction_target_value :: Bits(xlen.width), prediction_compressed :: Bool, prediction_action :: RasAction, directions :: Vec(4, TournamentPrediction(10)), prefix_direction :: TournamentPrediction(10), valid :: Bool) :~ SuperscalarFetchBlock(xlen, hypervisor):
+fun fetch_block(xlen :: XLen, hypervisor :: Boolean, pc :: Bits(xlen.width), data :: Bits(64), fault :: FetchBlockFault(xlen, hypervisor), prediction_valid :: Bool, prediction_pc :: Bits(xlen.width), prediction_target_value :: Bits(xlen.width), prediction_compressed :: Bool, prediction_action :: RasAction, directions :: Vec(4, TournamentPrediction(10)), prefix_direction :: TournamentPrediction(10), valid :: Bool) :~ SuperscalarFetchBlock(xlen, hypervisor):
   when valid:
     assert(CompactPc.fetch_fits(xlen, pc), "superscalar_assembly_fetch_pc_encoding")
     assert(fault.supported(), "superscalar_assembly_supported_fetch_fault")
@@ -258,7 +259,7 @@ sync_circuit SuperscalarInstructionAssembler(profile :: SuperscalarPipelineConfi
     def next_offset = lane_offset + size
     def crosses = !in_second & ((position + size) > Bits(4)(4))
     def fetch_fault = mux(in_second ||| crosses, second_block.fault_value(), first_block.fault_value())
-    def fault :: SuperscalarFetchBlockFault(xlen, hypervisor) = mux(first_block.fault_value().valid, first_block.fault_value(), fetch_fault)
+    def fault :: FetchBlockFault(xlen, hypervisor) = mux(first_block.fault_value().valid, first_block.fault_value(), fetch_fault)
     inst decoded(SuperscalarPredecode(profile))
     decoded.raw <== raw
     def canonical = decoded.canonical

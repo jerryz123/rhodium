@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/fetch/fault.rhdl").FetchFault
+  lib("riscv/rtl/trap.rhdl").ExceptionCause
   lib("cores/bpred/protocol.rhdl") open
   "packet.rhdl" open
   "protocol.rhdl" open
@@ -97,20 +99,28 @@ sync_circuit RV5StageInstructionBuffer(core_profile :: RV5StageConfig):
   fetched.bits.predicted_next_pc <== mux(predicted_taken, target, sequential_pc)
   fetched.bits.predicted_ras_action <== mux(predicted_taken, ras_action, RasAction.None)
   fetched.bits.compressed_illegal <== encoding.compressed_illegal
-  fetched.bits.instruction_page_fault <== page_fault
-  fetched.bits.instruction_access_fault <== access_fault
-  def continuation_fault = straddle & packet_fault
-  fetched.bits.instruction_fault_address <== mux(continuation_fault, packet_pc.align_down(4), pc)
+  fetched.bits.fault.valid <== page_fault ||| access_fault
+  fetched.bits.fault.cause <== if hypervisor
+  | priority_mux(~default: ExceptionCause.InstructionPageFault):
+      access_fault: ExceptionCause.InstructionAccessFault
+      packets.bits.guest.page_fault: ExceptionCause.InstructionGuestPageFault
+  | mux(access_fault, ExceptionCause.InstructionAccessFault, ExceptionCause.InstructionPageFault)
+  fetched.bits.fault.continuation <== straddle & packet_fault
+  def fault :: FetchFault(xlen, hypervisor) = fetched.bits.fault
+
+  when (fetched.valid & fetched.bits.fault.valid):
+    assert(fault.supported(), "rv5stage_supported_fetch_fault")
+    assert(!fault.continuation ||| (fault.address(pc) === packet_pc.align_down(4)), "rv5stage_continuation_fault_address")
 
   if hypervisor
   | block:
       // A fault on the upper parcel names that byte, but an implicit PTE fault
       // must retain the PTE GPA rather than replacing its low bits with the PC.
-      def fault_pc = fetched.bits.instruction_fault_address
+      def fault_pc = fault.address(pc)
       def details = packets.bits.guest.details
-      fetched.bits.guest <== packets.bits.guest.updated(~details: details.updated(
+      fetched.bits.fault.guest <== details.updated(
         ~guest_physical_address: mux(details.access === RiscvGuestFaultAccess.Explicit, details.guest_physical_address.align_down(4) ||| fault_pc[0..2].zext(64), details.guest_physical_address)
-      ))
+      )
   | #void
 
 

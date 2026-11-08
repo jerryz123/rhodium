@@ -557,8 +557,9 @@ the adapter adds no direct Rhodium-library imports.
 `riscv/rtl/state-enable.rhdl` imports pure CSR descriptors and the CSR/privilege
 adapters for stateless hierarchical access decisions. RV5Stage CSR storage
 consumes it; neither module adds a direct Rhodium-library dependency.
-The core, fetch protocols/assembly, and instruction-response protocol import
-the same public adapter for optional guest metadata. `vector.rhdl` and
+The core, fetch assembly, and instruction-response protocol import
+the same public adapter for optional guest metadata; fetch protocols consume
+the shared fetch-fault contract. `vector.rhdl` and
 `vector/memory.rhdl` also import it for conditional retirement provenance;
 they add no new direct Rhodium-library dependency. The production MMU imports
 it and the shared translation contract directly; decode additionally imports
@@ -835,6 +836,12 @@ using only the public authoring surface. Superscalar's bundles, frontend, and
 instruction-memory adapter import it with a 64-bit physical address; RV5Stage's
 uncached protocol, MMU, and instruction-memory router import it at XLEN width.
 The shared payload adds no response, admission, or cancellation policy.
+`cores/fetch/fault.rhdl` imports architectural XLEN, `ExceptionCause`, and guest
+fault details to define shared block and instruction-relative faults. Superscalar
+consumes both; RV5Stage uses the instruction form at assembly and ID/EX while
+retaining its local cache-response and packet representation. Address recovery
+and supported-cause checks are combinational; exception priority and capture
+timing remain owned by each core.
 Shared `cores/bpred/protocol.rhdl` imports architectural XLEN; its generic
 width-selectable prediction representation is independent of the fixed core PC type.
 Both execution pipelines consume its `BranchPredictionStatus` enum; RV5Stage's

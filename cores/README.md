@@ -128,6 +128,14 @@ resolved physical byte address, `cacheable`, and `device` attributes. Its positi
 The payload grants no permission or timing guarantees; the caller's interface
 owns admission, cancellation, response ordering, and replay.
 
+`cores/fetch/fault.rhdl` exports `FetchBlockFault(xlen, hypervisor)` and
+`FetchFault(xlen, hypervisor)`. A block fault carries its exact virtual address;
+assembly converts it to an instruction-relative fault with `at_parcel(second)`.
+The instruction fault carries validity, `ExceptionCause`, a continuation bit,
+and optional `RiscvGuestFault`. `address(pc)` returns PC or PC+2 modulo XLEN.
+Callers restore the exact PC before this operation, qualify fault fields by
+validity, and own fault priority, replay, and capture timing.
+
 ### Shared GPR storage
 
 [`RegisterFile(xlen, ~read_ports, ~write_ports: 2)`](register-file.rhdl) has explicitly selected

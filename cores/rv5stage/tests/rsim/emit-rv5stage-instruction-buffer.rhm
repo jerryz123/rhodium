@@ -3,9 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/isa/xlen.rhm").XLen
   "../../../../cores/rv5stage/tests/instruction-buffer-fixture.rhdl".RV5StageInstructionBufferFixture
   lib("rhodium/frontend/foundation.rhm").elaborate
 
 def program = elaborate(RV5StageInstructionBufferFixture())
 def no_c = elaborate(RV5StageInstructionBufferFixture(#false))
-export program no_c
+def rv32 = elaborate(RV5StageInstructionBufferFixture(~xlen: XLen.X32))
+def guest = elaborate(RV5StageInstructionBufferFixture(~hypervisor: #true))
+export program no_c rv32 guest
