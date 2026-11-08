@@ -1178,7 +1178,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
       mispredicted: token.branch.mispredicted
       predicted_target: mem.fetched.prediction.target.expanded()
       taken: token.branch.taken
-    ) |> wb_pipe[lane].ingress
+    ) |> map_valid(token => token.into(SuperscalarResult(xlen, hypervisor)).for_writeback()) |> wb_pipe[lane].ingress
 
     wb_pipe[lane].flush <== wb_squash
 

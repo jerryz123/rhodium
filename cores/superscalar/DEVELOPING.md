@@ -166,8 +166,12 @@ Branches, integer divide, and vector configuration use the GPR pair; FP
 divide/sqrt takes the FP pair. A CSR uses the left word (rs1 or zero-extended
 immediate), and scalar memory uses the right word (including FPR data for an FP
 store). Select on the individual instruction, not the group's FP request:
-a paired branch still needs its integer operands in MEM. WB takes both words
-from the surviving divide owner; replay reacquires them on reissue. Retained
+a paired branch still needs its integer operands in MEM. After branch comparison,
+`for_writeback()` drives the WB address and left operand from one XLEN word.
+Memory operations, prefetches, and all branches (even not-taken ones) keep the
+address; other instructions keep the left operand. The right word stays
+independent, so a store keeps its data and a divide keeps both operands.
+Replay reacquires the operands on reissue. Retained
 memory owners and the passive memory observer take the same unshifted right word.
 
 MEM/WB lane results and retirement commands each carry a `SuperscalarResolution`
@@ -178,9 +182,9 @@ The result and resolution consumers read that same word; consumers
 must qualify their use. A fault cannot forward or retire result data, and its
 exception value is meaningful only for `Fault`. MEM may replace a successful
 result with a load value or a newly resolved fault before the WB capture. Earlier
-faults retain priority. Keep addresses, source operands, cause, guest provenance,
-and fetch-fault origin separate; do not narrow exception values. The lane
-banks retain their existing validity, flush, and cycle boundaries.
+faults retain priority. Keep the value independent of the shared WB word; do
+not narrow exception values or discard cause, guest provenance, or fetch-fault
+origin. The lane banks retain their existing validity, flush, and cycle boundaries.
 
 The compact `SuperscalarExecute` and `SuperscalarResult` are the canonical
 pipeline payloads. `lane-pipe.rhdl` owns one flushable `ValidPipe` per lane

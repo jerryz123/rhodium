@@ -612,6 +612,13 @@ bundle SuperscalarResult(xlen :: XLen, hypervisor :: Boolean):
   vector_fast_eligible: Bool
   vector: SuperscalarVectorLane()
 
+  /* After MEM compares branch operands, WB needs either the address (including
+     a not-taken branch's training target) or the left operand, never both. */
+  method for_writeback(result) :: SuperscalarResult(xlen, hypervisor):
+    def needs_address = result.memory.enable ||| result.branch.update.branch ||| result.prefetch.is_prefetch()
+    def address_or_left = mux(needs_address, result.address, result.operands.left)
+    result.updated(~address: address_or_left, ~operands: result.operands.updated(~left: address_or_left))
+
   /* Recovers fetch provenance only when the retained origin bit names a fetch fault. */
   method fetch_fault(token) :: SuperscalarFetchFault(xlen, hypervisor):
     def continuation = token.fetched.fault & (token.resolution.value[1] ^ token.fetched.pc[1]).into(Bool)

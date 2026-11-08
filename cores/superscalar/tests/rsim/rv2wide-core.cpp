@@ -4765,15 +4765,20 @@ int main() {
           pc + 8, UINT64_C(0), UINT64_C(0)};
       expected_branch_taken[pc] = ((outcomes & 1) & low_mask(1));
       expected_branch_taken[pc + 4] = (((outcomes >> 1) & 1) & low_mask(1));
+      // A not-taken branch trains its target, not fall-through or its zero lhs.
+      const int first_offset = outcomes & 1 ? 4 : 32;
+      const int second_offset = outcomes & 2 ? 4 : -16;
+      expected_branch_target[pc] = pc + first_offset;
+      expected_branch_target[pc + 4] = pc + 4 + second_offset;
       before_dual = dual_branches;
       before_training = branch_updates;
-      send(pc, branch(0, 0, 4, sv_slice(outcomes, 0, 1) ? 0 : 1),
-           branch(0, 0, 4, sv_slice(outcomes, 1, 1) ? 0 : 1), 2, 1, 1, -1,
+      send(pc, branch(0, 0, first_offset, sv_slice(outcomes, 0, 1) ? 0 : 1),
+           branch(0, 0, second_offset, sv_slice(outcomes, 1, 1) ? 0 : 1), 2, 1, 1, -1,
            second_prediction, first_prediction);
       drain();
       CHECK(dual_branches == before_dual + 1 &&
             branch_updates == before_training + 2 &&
-            expected_branch_taken.size() == 0);
+            expected_branch_taken.empty() && expected_branch_target.empty());
     }
     // A sustained two-branch stream must backpressure RR, never lose a table write.
     {
