@@ -4,9 +4,9 @@
 
 import:
   lib("cores/fetch/fault.rhdl") open
-  "bundles.rhdl" open
+  "../bundles.rhdl" open
   "predecode.rhdl".SuperscalarPredecode
-  "profile.rhm".SuperscalarPipelineConfig
+  "../profile.rhm".SuperscalarPipelineConfig
   lib("cores/bpred/protocol.rhdl") open
   lib("cores/pc.rhdl") open
   lib("riscv/isa/xlen.rhm").XLen

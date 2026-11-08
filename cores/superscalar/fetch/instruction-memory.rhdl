@@ -4,8 +4,8 @@
 
 import:
   lib("cores/fetch/protocol.rhdl").PhysicalInstructionReq
-  "bundles.rhdl" open
-  "../cache/l1i/protocol.rhdl" open
+  "../bundles.rhdl" open
+  "../../cache/l1i/protocol.rhdl" open
   lib("flow/main.rhdl") open
 
 /* Preserves S1/S2 timing while uncached reads retain their physical address until a

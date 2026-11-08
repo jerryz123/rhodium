@@ -3,25 +3,25 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../cache/access.rhdl" open
-  "../cache/uncached-arbiter.rhdl".UncachedFetchArbiter
+  "../../cache/access.rhdl" open
+  "../../cache/uncached-arbiter.rhdl".UncachedFetchArbiter
   lib("riscv/rtl/hypervisor.rhdl") open
-  "bundles.rhdl" open
-  "../cache/config.rhm" open
-  "../cache/protocol.rhdl" open
-  "../cache/l1i/protocol.rhdl".InstructionCacheResult
-  "../cache/operation.rhdl" open
-  "../cache-prefetch.rhdl" open
-  "../cache/l1d/cache.rhdl" open
-  "../cache/io-mshr.rhdl" open
-  "../cache/chi/uncached.rhdl" open
-  "../chi-hart.rhdl" open
-  "../load-store.rhdl" open
-  "../../riscv/isa/xlen.rhm" open
+  "../bundles.rhdl" open
+  "../../cache/config.rhm" open
+  "../../cache/protocol.rhdl" open
+  "../../cache/l1i/protocol.rhdl".InstructionCacheResult
+  "../../cache/operation.rhdl" open
+  "../../cache-prefetch.rhdl" open
+  "../../cache/l1d/cache.rhdl" open
+  "../../cache/io-mshr.rhdl" open
+  "../../cache/chi/uncached.rhdl" open
+  "../../chi-hart.rhdl" open
+  "../../load-store.rhdl" open
+  "../../../riscv/isa/xlen.rhm" open
   lib("riscv/rtl/trap.rhdl").ExceptionCause
-  "../../riscv/rtl/atomic.rhdl" open
-  "../../riscv/rtl/svpbmt.rhdl" open
-  "../../riscv/rtl/zihintntl.rhdl" open
+  "../../../riscv/rtl/atomic.rhdl" open
+  "../../../riscv/rtl/svpbmt.rhdl" open
+  "../../../riscv/rtl/zihintntl.rhdl" open
   lib("flow/main.rhdl") open
   lib("rhodium/std/bits.rhdl") open
   lib("chi/protocol/channels.rhdl") open

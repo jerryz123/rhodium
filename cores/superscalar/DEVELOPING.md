@@ -57,9 +57,9 @@ inside the pipeline merely to match CHI transport.
 
 `superscalar.rhdl` selects an identity or RV64 Sv39/guest translation
 specialization from `profile.mmu_type` at elaboration and passes it directly to
-`SuperscalarMemoryAdapter`. `memory-adapter.rhdl` owns the single EX/MEM
+`SuperscalarMemoryAdapter`. `memory/adapter.rhdl` owns the single EX/MEM
 context register, physical attribute qualification, split execution, and fault
-projection. `memory-transport.rhdl` owns physical arbitration and accepted
+projection. `memory/transport.rhdl` owns physical arbitration and accepted
 response routing. Keep exact SoC profile checks unchanged: `rv32int`
 additionally selects Zve32x/VLEN64,
 Zvbb/Zvkt and the preset's optional scalar/system guarantees. `rv32max` adds
@@ -431,6 +431,16 @@ Keep broader ISA qualification in the existing software suites.
 
 ## Implementation map
 
+Keep the public composition, execution slice, configuration, common bundles,
+and execution helpers at the package root. `fetch/` owns block fetching,
+instruction assembly, and fetch-specific prediction refinement; `memory/`
+owns scalar/vector port arbitration, translation specialization, physical
+transport, and the L1D/uncached attachment. `decode/` owns instruction-control
+relations. Shared cache engines and predictor tables remain in `../cache/`
+and `../bpred/`. These directories retain this guide as their contributor guide.
+Family-level fixtures stay together under `tests/`, including those that
+exercise several of these owners.
+
 `../reservation-wait.rhdl` supplies the WRS timer and wake/timeout result;
 the core retains the waiting WB lane and qualifies TW/VTW. Scalar M-extension
 operand/result formatting uses `../integer-format.rhdl`; RR/EX reservations,
@@ -450,22 +460,23 @@ WB authorization, and the two-port writeback policy stay local.
 | `branch-training.rhdl` | Two-entry, two-offer/one-write retirement training buffer, empty bypass, predictor clear |
 | `pairing.rhdl` | Same-group recognition and control-only RR/EX/MEM mux selections |
 | `read-operands.rhdl` | Four physical read/bypass paths, issue-controlled operand muxes, and immediate computation |
-| `frontend.rhdl` | Credited block fetch, S1 translation/permissions, local replay, and block fault ownership |
-| `instruction-assembler.rhdl` | Flow block storage, mixed-width parcel consumption, shared C expansion, and continuation faults |
+| `fetch/frontend.rhdl` | Credited block fetch, S1 translation/permissions, local replay, and block fault ownership |
+| `fetch/direction.rhdl`, `fetch/predecode.rhdl` | Fresh-S2 direction refinement, retained continuation prefixes, and shared frontend/assembler instruction classification |
+| `fetch/instruction-assembler.rhdl` | Flow block storage, mixed-width parcel consumption, shared C expansion, and continuation faults |
+| `fetch/instruction-memory.rhdl` | Fixed-cycle L1I/noncacheable outcomes, retained fetch replay, and cancellation |
 | `core.rhdl` | RR/EX/MEM/WB, forwarding, shared component/CSR instances, register state, precise traps |
 | `load-response.rhdl` | Four accepted contexts, atomic response/owner joining, shared load extraction |
 | `long-execution.rhdl` | EX multiply reservations and WB owner validation, retained divider ownership |
-| `cache.rhdl` | Physical permissions, shared L1D adaptation, and ordered IOMSHR/uncached routing |
-| `instruction-memory.rhdl` | Fixed-cycle L1I/noncacheable outcomes, retained fetch replay, and cancellation |
-| `memory-translation.rhdl` | Combinational query/result contract, including known/fault provenance, probe contention, and held split masking |
-| `translation-specialization.rhm` | Immutable circuit-construction contract, architectural width, physical map, walker-client capability, split-access policy, and atomic PMA policy |
-| `memory-adapter.rhdl` | EX/MEM timing, physical PMA/PBMT qualification, split owner, committed requests, faults, and passive physical observations |
-| `memory-transport.rhdl` | Fixed-priority physical arbitration, atomic eight-entry owner capture, admission-fault routing, and ordered response dispatch |
-| `translation-identity.rhdl`, `translation-sv39.rhdl` | Concrete specialization objects and their identity versus TLB/walker circuits, vector proof services, and prefetch timing |
+| `memory/attachment.rhdl` | Physical permissions, shared L1D adaptation, and ordered IOMSHR/uncached routing |
+| `memory/translation.rhdl` | Combinational query/result contract, including known/fault provenance, probe contention, and held split masking |
+| `memory/translation-specialization.rhm` | Immutable circuit-construction contract, architectural width, physical map, walker-client capability, split-access policy, and atomic PMA policy |
+| `memory/adapter.rhdl` | EX/MEM timing, physical PMA/PBMT qualification, split owner, committed requests, faults, and passive physical observations |
+| `memory/transport.rhdl` | Fixed-priority physical arbitration, atomic eight-entry owner capture, admission-fault routing, and ordered response dispatch |
+| `memory/translation-identity.rhdl`, `memory/translation-sv39.rhdl` | Concrete specialization objects and their identity versus TLB/walker circuits, vector proof services, and prefetch timing |
 | `fp.rhdl` | RR fixed-return bookings, EX arithmetic launch, WB authorization, FPR hazards and load/arithmetic write ports |
 | `vector.rhdl` | WB-authorized composition of shared admission/execution and the local LSU adapter |
 | `vector-memory.rhdl` | Adapts shared `../vector/memory-issue.rhdl` lookup issue to Superscalar decisions, precise split outcomes, and ordered raw-word extraction |
-| `memory-ports.rhdl` | Scalar/vector lookup, accepted response, and split-owner arbitration |
+| `memory/ports.rhdl` | Scalar/vector lookup, accepted response, and split-owner arbitration |
 | `superscalar.rhdl` | Frontend/core/shared L1I/L1D composition, profile-selected translation specialization, distinct CHI identities, start/halt boundary |
 | `profile.rhm`, `udb.rhm` | Scalar RV32/RV64 architectural description, shared RTL/metadata CSR specialization, and implementation-owned UDB choices |
 | `../rv2wide/hart.rhdl`, `../rv3wide/hart.rhdl` | Named-core SoC port adaptation and one reset-vector start per reset epoch |
@@ -711,8 +722,8 @@ suppress the younger branch's retirement and predictor training.
 
 ### Predictor ownership and recovery
 
-`predecode.rhdl` centralizes compressed expansion, control-flow legality, RAS
-hints, and immediate offsets for both S2 and assembly. `direction.rhdl` walks
+`fetch/predecode.rhdl` centralizes compressed expansion, control-flow legality, RAS
+hints, and immediate offsets for both S2 and assembly. `fetch/direction.rhdl` walks
 fresh S2 parcel boundaries, carrying a byte-six prefix independently of the
 assembler. The shared tournament component owns only counters; the frontend owns speculative
 and committed ten-bit history. S1 registers the PC/history hash, forwarding an
@@ -986,7 +997,7 @@ The adapter consumes these capabilities and policies without a second mode flag
 or module-name inspection. Keep circuit construction and these declarations
 together in the specialization, not as independently supplied caller options.
 
-`memory-transport.rhdl` has two physical clients for Bare (core, split) and
+`memory/transport.rhdl` has two physical clients for Bare (core, split) and
 three for paged translation (core, split, PTE), in that priority order. Only
 physical acceptance enqueues an owner. Local PTE denial may consume the walker's
 offer with an admission fault but cannot enqueue a response owner. The transport
@@ -1046,7 +1057,7 @@ requests, split-fragment permission checks, and prefetch probes must agree.
 Implicit PTE traffic retains physical PMA semantics; management routing uses
 physical cacheability to reach resident aliases even through NC/IO mappings.
 
-`instruction-memory.rhdl` preserves the S1/S2 lookup contract and retains one
+`fetch/instruction-memory.rhdl` preserves the S1/S2 lookup contract and retains one
 nonallocating block until a retry consumes it. A changed retry may discard an
 obsolete completed block. Architectural flush detaches it, not accepted bus
 ownership. The cache adapter arbitrates data before fetch around the existing
@@ -1487,7 +1498,7 @@ configuration does not squash or refetch successors. Faults, interrupts, and
 branch recovery still suppress wrong-path configuration and descriptor admission.
 Direct CSR writes, traps, and translation/context changes retain full drain.
 
-`memory-ports.rhdl` retains fixed-stage lookup ownership, queues every accepted
+`memory/ports.rhdl` retains fixed-stage lookup ownership, queues every accepted
 raw-response owner, and latches the selected split client. These owners survive
 scalar recovery. The MMU prioritizes WB demand over page-window probes and
 speculative lookups, while keeping accepted PTW response ownership unchanged.

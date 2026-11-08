@@ -4,17 +4,17 @@
 
 import:
   lib("cores/mmu/context.rhdl").RiscvTranslationState
-  "bundles.rhdl" open
-  "memory-translation.rhdl" open
+  "../bundles.rhdl" open
+  "translation.rhdl" open
   "translation-specialization.rhm" open
-  "memory-transport.rhdl" open
-  "../cache/access.rhdl" open
-  "../cache/protocol.rhdl" open
-  "../cache/operation.rhdl" open
-  "../cache-prefetch.rhdl" open
-  "../load-store.rhdl" open
-  "../misaligned-access.rhdl" open
-  "../cosim-source.rhm".describe_cosim_signals
+  "transport.rhdl" open
+  "../../cache/access.rhdl" open
+  "../../cache/protocol.rhdl" open
+  "../../cache/operation.rhdl" open
+  "../../cache-prefetch.rhdl" open
+  "../../load-store.rhdl" open
+  "../../misaligned-access.rhdl" open
+  "../../cosim-source.rhm".describe_cosim_signals
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/rtl/trap.rhdl").ExceptionCause
   lib("riscv/rtl/hypervisor.rhdl") open

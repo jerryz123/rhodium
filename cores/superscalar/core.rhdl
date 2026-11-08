@@ -30,7 +30,7 @@ import:
   "long-execution.rhdl" open
   "fp.rhdl" open
   "vector.rhdl" open
-  "memory-ports.rhdl" open
+  "memory/ports.rhdl" open
   lib("cores/vector/decode.rhdl") open
   lib("cores/vector/bundles.rhdl") open
   lib("cores/vector/precheck.rhdl") open

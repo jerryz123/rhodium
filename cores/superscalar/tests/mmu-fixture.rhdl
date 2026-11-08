@@ -7,9 +7,9 @@ import:
   lib("riscv/rtl/hypervisor.rhdl") open
   lib("riscv/rtl/pointer-masking.rhdl") open
   lib("flow/main.rhdl") open
-  "../memory-adapter.rhdl".SuperscalarMemoryAdapter
-  "../translation-identity.rhdl".SuperscalarIdentitySpecialization
-  "../translation-sv39.rhdl".SuperscalarSv39Specialization
+  "../memory/adapter.rhdl".SuperscalarMemoryAdapter
+  "../memory/translation-identity.rhdl".SuperscalarIdentitySpecialization
+  "../memory/translation-sv39.rhdl".SuperscalarSv39Specialization
   "../bundles.rhdl" open
   "cache-fixture.rhdl" open
   "../../cache/protocol.rhdl" open

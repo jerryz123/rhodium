@@ -15,9 +15,9 @@ import:
   lib("riscv/isa/hart.rhm").RiscvMmuType
   "../superscalar.rhdl".Superscalar
   "../profile.rhm".SuperscalarPipelineConfig
-  "../translation-specialization.rhm" open
-  "../translation-identity.rhdl".SuperscalarIdentitySpecialization
-  "../translation-sv39.rhdl".SuperscalarSv39Specialization
+  "../memory/translation-specialization.rhm" open
+  "../memory/translation-identity.rhdl".SuperscalarIdentitySpecialization
+  "../memory/translation-sv39.rhdl".SuperscalarSv39Specialization
   "cache-fixture.rhdl" open
 
 fun child(parent, name):

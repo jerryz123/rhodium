@@ -4,8 +4,8 @@
 
 import:
   "predecode.rhdl".SuperscalarPredecode
-  "profile.rhm".SuperscalarPipelineConfig
-  "bundles.rhdl" open
+  "../profile.rhm".SuperscalarPipelineConfig
+  "../bundles.rhdl" open
   lib("cores/bpred/protocol.rhdl") open
   lib("cores/pc.rhdl") open
   lib("riscv/isa/xlen.rhm").XLen

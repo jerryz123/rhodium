@@ -3,21 +3,21 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../cache/prefetch.rhdl".cache_prefetch_physical
+  "../../cache/prefetch.rhdl".cache_prefetch_physical
   lib("cores/mmu/context.rhdl") open
   lib("riscv/rtl/hypervisor.rhdl") open
   lib("riscv/rtl/pointer-masking.rhdl") open
-  "bundles.rhdl" open
-  "memory-translation.rhdl" open
+  "../bundles.rhdl" open
+  "translation.rhdl" open
   "translation-specialization.rhm" open
   lib("rhodium/frontend/foundation.rhm").CircuitDefinition
-  "../cache/operation.rhdl" open
-  "../cache-prefetch.rhdl" open
-  "../chi-hart.rhdl" open
-  "../mmu/protocol.rhdl" open
-  "../mmu/translation.rhdl" open
-  "../mmu/tlb.rhdl" open
-  "../mmu/walker.rhdl" open
+  "../../cache/operation.rhdl" open
+  "../../cache-prefetch.rhdl" open
+  "../../chi-hart.rhdl" open
+  "../../mmu/protocol.rhdl" open
+  "../../mmu/translation.rhdl" open
+  "../../mmu/tlb.rhdl" open
+  "../../mmu/walker.rhdl" open
   lib("riscv/isa/xlen.rhm") open
   lib("riscv/rtl/pma.rhdl").RiscvPhysicalMemoryMap
   lib("riscv/isa/csr.rhm") open

@@ -278,11 +278,11 @@ privilege helpers for its WB reservation-wait timeout policy. Its profile and UD
 projection import the pure `riscv/isa/c.rhm` compressed-extension descriptors;
 the profile supplies the same selected C/Zcb/Zcmop list to the assembler and
 shared CSR bank, preserving IALIGN and architectural publication consistency.
-`cores/superscalar/translation-sv39.rhdl` imports the shared `cores/mmu/` TLB/walker,
+`cores/superscalar/memory/translation-sv39.rhdl` imports the shared `cores/mmu/` TLB/walker,
 shared cache protocol/operation/geometry and hart CHI-map definitions, and architectural
 CSR, privilege, Sv39, and XLEN helpers. Its memory adapter and physical cache
 adapter use `riscv/rtl/cmo.rhdl` for read-or-write whole-block maintenance permissions.
-`cores/superscalar/memory-adapter.rhdl` consumes the family bundles, shared cache
+`cores/superscalar/memory/adapter.rhdl` consumes the family bundles, shared cache
 protocol, specialization-owned physical map, split engine, Flow, passive
 observation helpers, and architectural
 XLEN, guest-fault, pointer-masking, PBMT, and CMO descriptors plus `std/bits.rhdl`
@@ -819,7 +819,7 @@ Superscalar retained fetch/prediction/completion and
 arithmetic-owner storage, and the
 RV5Stage fetch queue and MMU admission consume it without changing package direction.
 
-`cores/superscalar/translation-specialization.rhm`
+`cores/superscalar/memory/translation-specialization.rhm`
 uses public `core/ir.rhm` and foundation types for its immutable circuit/capability
 contract, extending `StableCircuitParam`, and imports `riscv/isa/xlen.rhm` and
 `riscv/rtl/pma.rhdl` for typed architectural-width and physical-map accessors.

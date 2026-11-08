@@ -4,7 +4,7 @@
 import:
   lib("cores/fetch/fault.rhdl") open
   "instruction-fixture.rhdl" open
-  "../instruction-assembler.rhdl" open
+  "../fetch/instruction-assembler.rhdl" open
   "../bundles.rhdl" open
   "../profile.rhm".SuperscalarPipelineConfig
   lib("cores/bpred/protocol.rhdl") open

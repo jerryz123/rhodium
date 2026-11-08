@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "bundles.rhdl".SuperscalarResolution
-  "../cache/operation.rhdl".CacheOperation
+  "../bundles.rhdl".SuperscalarResolution
+  "../../cache/operation.rhdl".CacheOperation
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/rtl/hypervisor.rhdl") open
   lib("riscv/rtl/pointer-masking.rhdl").PointerMaskControl

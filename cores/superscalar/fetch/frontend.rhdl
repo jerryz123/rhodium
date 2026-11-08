@@ -5,12 +5,12 @@
 import:
   lib("cores/fetch/fault.rhdl") open
   lib("cores/fetch/protocol.rhdl").PhysicalInstructionReq
-  "bundles.rhdl" open
-  "profile.rhm".SuperscalarPipelineConfig
+  "../bundles.rhdl" open
+  "../profile.rhm".SuperscalarPipelineConfig
   "instruction-assembler.rhdl" open
   "direction.rhdl" open
-  "../cache/l1i/protocol.rhdl" open
-  "../chi-hart.rhdl" open
+  "../../cache/l1i/protocol.rhdl" open
+  "../../chi-hart.rhdl" open
   lib("cores/bpred/btb.rhdl").Btb
   lib("cores/bpred/btb.rhdl").DisabledBtb
   lib("cores/bpred/tournament.rhdl") open

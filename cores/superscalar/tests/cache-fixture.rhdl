@@ -7,9 +7,9 @@ import:
   lib("riscv/isa/xlen.rhm").XLen
   "core-fixture.rhdl" open
   "../profile.rhm".SuperscalarPipelineConfig
-  "../cache.rhdl" open
-  "../memory-adapter.rhdl".SuperscalarMemoryAdapter
-  "../translation-sv39.rhdl".SuperscalarSv39Specialization
+  "../memory/attachment.rhdl" open
+  "../memory/adapter.rhdl".SuperscalarMemoryAdapter
+  "../memory/translation-sv39.rhdl".SuperscalarSv39Specialization
   "../bundles.rhdl" open
   "../../cache/config.rhm" open
   "../../cache-prefetch.rhdl" open

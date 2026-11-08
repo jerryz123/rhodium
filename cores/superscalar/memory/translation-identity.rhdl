@@ -5,14 +5,14 @@
 import:
   lib("cores/mmu/context.rhdl").RiscvTranslationState
   lib("riscv/rtl/trap.rhdl").ExceptionCause
-  "../cache/config.rhm".CacheLineBytes
-  "bundles.rhdl" open
-  "memory-translation.rhdl" open
+  "../../cache/config.rhm".CacheLineBytes
+  "../bundles.rhdl" open
+  "translation.rhdl" open
   "translation-specialization.rhm" open
   lib("rhodium/frontend/foundation.rhm").CircuitDefinition
   lib("cores/mmu/translation.rhdl").RiscvTranslationFault
-  "../cache-prefetch.rhdl" open
-  "../chi-hart.rhdl" open
+  "../../cache-prefetch.rhdl" open
+  "../../chi-hart.rhdl" open
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/rtl/pma.rhdl").RiscvPhysicalMemoryMap
   lib("riscv/rtl/hypervisor.rhdl") open

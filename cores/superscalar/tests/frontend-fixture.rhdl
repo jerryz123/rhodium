@@ -4,8 +4,8 @@
 import:
   "../bundles.rhdl" open
   "../profile.rhm".SuperscalarPipelineConfig
-  "../instruction-assembler.rhdl" open
-  "../direction.rhdl" open
+  "../fetch/instruction-assembler.rhdl" open
+  "../fetch/direction.rhdl" open
   "../../cache/l1i/protocol.rhdl" open
   "../../chi-hart.rhdl" open
   lib("cores/bpred/btb.rhdl").Btb
@@ -20,7 +20,7 @@ import:
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
-  "../frontend.rhdl".SuperscalarFrontend
+  "../fetch/frontend.rhdl".SuperscalarFrontend
   "instruction-fixture.rhdl" open
 
 sync_circuit FrontendFixture(config :: RiscvHartCHIConfig, profile :: SuperscalarPipelineConfig = SuperscalarPipelineConfig(), ~group_width: group_width :: matching(2) || matching(3) = 2):

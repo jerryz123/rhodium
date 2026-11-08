@@ -110,7 +110,7 @@ the external memory-service epoch too.
 Retirement, completion, redirect, and issue-count outputs remain observable.
 Branch prediction corrections, memory replays, traps, and privilege returns redirect fetch
 internally. Software programs mtvec/stvec and supplies its trap handler.
-`cores/superscalar/cache.rhdl` owns the standalone `SuperscalarL1D` adapter.
+`cores/superscalar/memory/attachment.rhdl` owns the standalone `SuperscalarL1D` adapter.
 
 When using `SuperscalarCore` directly, provide
 `instructions: Decoupled(SuperscalarPacket(xlen, hypervisor, issue_width))`,

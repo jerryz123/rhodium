@@ -3,12 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "profile.rhm".SuperscalarPipelineConfig
-  "decode/core-ctrl.rhdl".superscalar_instructions
+  "../profile.rhm".SuperscalarPipelineConfig
+  "../decode/core-ctrl.rhdl".superscalar_instructions
   lib("cores/bpred/protocol.rhdl") open
   lib("cores/bpred/ras.rhdl").riscv_ras_action
   lib("riscv/isa/xlen.rhm").XLen
-  "../fetch/encoding.rhdl" open
+  "../../fetch/encoding.rhdl" open
   lib("riscv/model/formats.rhm") as fields
   lib("riscv/rtl/instruction-fields.rhdl").instruction_immediate
 

@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "bundles.rhdl" open
+  "../bundles.rhdl" open
   lib("riscv/isa/xlen.rhm").XLen
   lib("flow/main.rhdl") open
   lib("rhodium/std/bits.rhdl") open
