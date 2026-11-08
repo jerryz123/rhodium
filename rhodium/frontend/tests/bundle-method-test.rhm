@@ -27,10 +27,14 @@ check:
   ors.length() ~is 0
   verify_design(fixture.design) ~is #void
   verify_design(fixture.parameterized_design) ~is #void
+  verify_design(fixture.shaped_design) ~is #void
   verify_design(elaborate(fixture.FixedKeywordMethods("direct")).design) ~is #void
   verify_design(elaborate(fixture.FixedKeywordMethods("extracted")).design) ~is #void
   elaborate(fixture.FixedKeywordMethods("missing")) ~throws "keyword"
   elaborate(fixture.FixedKeywordMethods("wrong-type")) ~throws "annotation"
+  fixture.shaped_design.modules[0].find_output("widened").type.width ~is 8
+  fixture.shaped_design.modules[0].find_output("nested").type.width ~is 8
+  fixture.shaped_design.modules[0].find_output("wide_bits").type.width ~is 8
   verify_design(fixture.direct_interface_design) ~is #void
   elaborate(fixture.InvalidParameterizedMethod("argument")) ~throws "annotation"
   elaborate(fixture.InvalidParameterizedMethod("generic-argument")) ~throws "annotation"

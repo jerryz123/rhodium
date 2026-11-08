@@ -251,6 +251,37 @@ circuit InvalidParameterizedMethod(kind :: String):
 
 def parameterized_design = compile_program(elaborate(ParameterizedMethodPropagation()), rtl_target).report.design
 
+class BundleShape(width :: PosInt)
+
+bundle ShapedValue(shape :: BundleShape, width :: PosInt):
+  payload: Bits(width)
+
+  method full(value) :: ShapedValue(shape, shape.width):
+    ShapedValue(shape, shape.width):
+      payload: value.payload.zext(shape.width)
+
+  method value(value) :: Bits(width):
+    value.payload
+
+  method wide_bits(value) :: Bits(shape.width):
+    value.payload.zext(shape.width)
+
+bundle ShapedEnvelope(shape :: BundleShape, width :: PosInt):
+  nested: ShapedValue(shape, shape.width)
+
+circuit ShapedMethodPropagation():
+  def shape = BundleShape(8)
+  input short: ShapedValue(shape, 4)
+  input envelope: ShapedEnvelope(shape, 4)
+  output widened: Bits(8)
+  output nested: Bits(8)
+  output wide_bits: Bits(8)
+  widened <== short.full().value()
+  nested <== envelope.nested.value()
+  wide_bits <== short.wide_bits()
+
+def shaped_design = compile_program(elaborate(ShapedMethodPropagation()), rtl_target).report.design
+
 sync_circuit DirectInterfaceMethodPropagation():
   interface ingress(CacheStateStream(), ~role: consumer)
   output interface_method: Bool
@@ -276,4 +307,5 @@ export:
   FixedKeywordMethods
   design
   parameterized_design
+  shaped_design
   direct_interface_design

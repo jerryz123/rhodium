@@ -17,7 +17,8 @@ meta:
   /*
    * Rewrites references in a generated result surface to the use site's
    * argument syntax. Type expressions commonly nest parameters in calls,
-   * arithmetic, and host-object member access.
+   * arithmetic, and host-object member access. A member name is literal:
+   * `shape.width` must not substitute a separate parameter named `width`.
    */
   fun substitute_generator_parameters(form :: Syntax,
                                       bindings :: List.of(Identifier)):
@@ -38,10 +39,9 @@ meta:
           for List (part in [item, ...]):
             substitute_generator_parameters(part, bindings)
 
-        def substituted_right = substitute_generator_parameters(right, bindings)
         match operator.unwrap_op()
         | #'#{|.|}:
-            '($substituted_constructor($substituted_item, ...)) . $substituted_right'
+            '($substituted_constructor($substituted_item, ...)) . $right'
         | ~else: form
     | '$constructor($item, ...)':
         def substituted_constructor = substitute_generator_parameters(
@@ -57,7 +57,7 @@ meta:
         def substituted_left = substitute_generator_parameters(left, bindings)
         def substituted_right = substitute_generator_parameters(right, bindings)
         match operator.unwrap_op()
-        | #'#{|.|}: '($substituted_left) . $substituted_right'
+        | #'#{|.|}: '($substituted_left) . $right'
         | #'#{+}: '$substituted_left + $substituted_right'
         | #'#{-}: '$substituted_left - $substituted_right'
         | #'#{*}: '$substituted_left * $substituted_right'
