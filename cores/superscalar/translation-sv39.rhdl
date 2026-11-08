@@ -1,5 +1,5 @@
 #lang rhodium
-/* Owns Sv39/guest translation, its physical map, walker capability, access policies, and retained lookup failures. */
+/* Owns RV64 Sv39/guest translation, its physical map, walker capability, access policies, and retained lookup failures. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -295,6 +295,10 @@ class SuperscalarSv39Specialization(config :: RiscvHartCHIConfig, svnapot :: Boo
   /* Builds the configured TLB/walker implementation without changing its query timing. */
   override method circuit() :: CircuitDefinition:
     SuperscalarSv39Translation(config, ~svnapot: svnapot, ~hypervisor: hypervisor)
+
+  /* Sv39 resolution and its architectural adapter interfaces are always RV64. */
+  override method architectural_xlen() :: XLen:
+    XLen.X64
 
   /* Supplies the same physical attributes used by vector proofs and prefetch qualification. */
   override method physical_map() :: RiscvPhysicalMemoryMap:

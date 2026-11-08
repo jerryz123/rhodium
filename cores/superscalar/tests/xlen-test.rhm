@@ -28,6 +28,7 @@ fun cache_payload_bits(port):
 
 def sv39 = SuperscalarSv39Specialization(test_fetch_chi)
 check:
+  sv39.architectural_xlen() ~is XLen.X64
   sv39.physical_map() ~is test_fetch_chi.physical_map
   sv39.page_walk_clients() ~is 1
   sv39.split_access_policy() ~is SuperscalarSplitAccessPolicy.PreserveGuest
@@ -40,6 +41,7 @@ check:
 for (xlen in [XLen.X32, XLen.X64]):
   def identity = SuperscalarIdentitySpecialization(xlen, test_fetch_chi)
   check:
+    identity.architectural_xlen() ~is xlen
     identity.physical_map() ~is test_fetch_chi.physical_map
     identity.page_walk_clients() ~is 0
     identity.split_access_policy() ~is SuperscalarSplitAccessPolicy.Normal

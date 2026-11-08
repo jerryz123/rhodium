@@ -68,7 +68,7 @@ sync_circuit Superscalar(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfi
   inst instruction(L1ICache(XLen.X64, instruction_cache, ~chi: config, ~fetch_bits: 64))
   inst data(SuperscalarL1D(cache, ~chi: config, ~xlen: xlen, ~beat_bytes: data_beat_bytes))
   def translation = if profile.mmu_type == RiscvMmuType.Bare | SuperscalarIdentitySpecialization(xlen, config) | SuperscalarSv39Specialization(config, profile.svnapot, hypervisor)
-  inst mmu(SuperscalarMemoryAdapter(xlen, translation))
+  inst mmu(SuperscalarMemoryAdapter(translation))
   describe_cosim_context(core, {"mmu": mmu})
 
 

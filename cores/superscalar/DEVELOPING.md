@@ -457,7 +457,7 @@ WB authorization, and the two-port writeback policy stay local.
 | `cache.rhdl` | Physical permissions, shared L1D adaptation, and ordered IOMSHR/uncached routing |
 | `instruction-memory.rhdl` | Fixed-cycle L1I/noncacheable outcomes, retained fetch replay, and cancellation |
 | `memory-translation.rhdl` | Combinational query/result contract, including known/fault provenance, probe contention, and held split masking |
-| `translation-specialization.rhm` | Immutable circuit-construction contract, physical map, walker-client capability, split-access policy, and atomic PMA policy |
+| `translation-specialization.rhm` | Immutable circuit-construction contract, architectural width, physical map, walker-client capability, split-access policy, and atomic PMA policy |
 | `memory-adapter.rhdl` | EX/MEM timing, physical PMA/PBMT qualification, split owner, committed requests, faults, and passive physical observations |
 | `memory-transport.rhdl` | Fixed-priority physical arbitration, atomic eight-entry owner capture, admission-fault routing, and ordered response dispatch |
 | `translation-identity.rhdl`, `translation-sv39.rhdl` | Concrete specialization objects and their identity versus TLB/walker circuits, vector proof services, and prefetch timing |
@@ -965,9 +965,12 @@ retains its own pending walks and exact failed lookups.
 
 The adapter takes one `SuperscalarTranslationSpecialization`, an immutable
 generator parameter implemented beside each resolver. Its `circuit()` builds
-the configured implementation; `physical_map()` supplies the same map used by
+the configured implementation; `architectural_xlen()` determines every architectural
+adapter port width, using the captured XLEN for identity or RV64 for Sv39.
+`physical_map()` supplies the same map used by
 the resolver's vector proofs and prefetch checks to the adapter's demand, split,
-and PTE qualification. The adapter receives no separate CHI configuration.
+and PTE qualification. The specialization is the adapter's only generator argument;
+keep XLEN and physical-map selection with the resolver.
 `page_walk_clients()` declares zero or one PTE
 client, and `split_access_policy()`/`atomic_pma_policy()` select explicit host
 policies. Identity chooses ordinary split access and cacheable/readable atomics;

@@ -1,5 +1,5 @@
 #lang rhodium
-/* Shares fixed-cycle cache access, split execution, and physical ownership using the specialization's map, capabilities, and policies. */
+/* Shares fixed-cycle cache access, split execution, and physical ownership using specialization-owned width, map, capabilities, and policies. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -26,9 +26,10 @@ import:
   lib("rhodium/std/bits.rhdl") open
 
 /* Preserves one EX/MEM context stage and WB-only mutation with an unbuffered translation service.
-   The specialization supplies its physical map, client count, and access policies;
+   The specialization supplies its architectural width, physical map, client count, and access policies;
    accepted owners never observe invalidation. */
-sync_circuit SuperscalarMemoryAdapter(xlen :: XLen, translation :: SuperscalarTranslationSpecialization):
+sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpecialization):
+  def xlen = translation.architectural_xlen()
   input state: SuperscalarTranslationState(xlen)
   input invalidate: Bool
   input split_guest_access: RiscvGuestMemoryAccess

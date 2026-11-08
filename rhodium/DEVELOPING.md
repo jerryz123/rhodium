@@ -817,8 +817,9 @@ RV5Stage fetch queue and MMU admission consume it without changing package direc
 
 `cores/superscalar/translation-specialization.rhm`
 uses public `core/ir.rhm` and foundation types for its immutable circuit/capability
-contract, extending `StableCircuitParam`, and imports `riscv/rtl/pma.rhdl` for
-the typed physical-map accessor. Concrete identity/Sv39 specializations import
+contract, extending `StableCircuitParam`, and imports `riscv/isa/xlen.rhm` and
+`riscv/rtl/pma.rhdl` for typed architectural-width and physical-map accessors.
+Concrete identity/Sv39 specializations import
 foundation's `CircuitDefinition` to build their own implementation and the same
 PMA type to expose their captured physical map.
 The memory adapter depends on that contract rather than raw IR/frontend circuit
