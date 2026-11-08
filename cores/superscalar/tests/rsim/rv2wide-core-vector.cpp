@@ -899,6 +899,31 @@ void paired_scalar_configurations() {
   issue_pair(addi(12, 0, 100), configure);
   CHECK(gprs[12] == 100 && gprs[13] == 2);
 
+  // Both MEM/WB words have a live owner: vsetvl reads x15 while SW or DIV
+  // reads x17. Check the actual vtype as well as the scalar service result.
+  send(addi(16, 0, 0x500));
+  send(addi(17, 0, 5));
+  const auto store = (17u << 20) | (16u << 15) | (2u << 12) | 0x23; // sw x17,0(x16)
+  const auto divide = (1u << 25) | (17u << 20) | (16u << 15) | (4u << 12) | (18u << 7) | 0x33;
+  for (auto service : {store, divide}) {
+    for (bool config_first : {false, true}) {
+      const unsigned vtype = config_first ? 8 : 16;
+      send(addi(15, 0, vtype));
+      setvl(0, 2);
+      words[0x500] = 0;
+      send(addi(18, 0, 0));
+      issue_pair(config_first ? configure : service, config_first ? service : configure);
+      send(0xc21023f3); // csrr x7,vtype
+      CHECK(gprs[7] == vtype && gprs[13] == 2);
+      if (service == store)
+        CHECK(words[0x500] == 5);
+      else {
+        send(addi(19, 18, 0)); // waits for the deferred divide write
+        CHECK(gprs[19] == 0x100);
+      }
+    }
+  }
+
   // Early constants supply dependent AVL/vtype through the same RR operand capture.
   issue_pair(addi(14, 0, 3), vsetvli(13, 14, 0));
   CHECK(gprs[13] == 3);

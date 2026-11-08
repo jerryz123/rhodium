@@ -1214,6 +1214,35 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   /* MEM to WB: only surviving lanes advance. A redirect can kill the younger
      owner independently; stale payloads have no validity outside their lane. */
 
+  def mem_right_words = for List (result in mem_results): result.bits.operands.right
+  def mem_service_claims = for List (result in mem_results):
+    def token :: SuperscalarResult(xlen, hypervisor) = result.bits
+    def divide = (token.muldiv.service === SuperscalarLongOperation.Divide) ||| (token.fp.valid & (token.fp.bits.execution.unit === FloatUnit.DivideSquareRoot))
+    // The passive memory observer needs the store operand even on a fault.
+    result.valid & (token.memory.enable ||| (divide & (token.resolution.disposition === SuperscalarDisposition.Continue)))
+
+  def mem_service_owner = vec(mem_service_claims).into(MaybeOneHot(issue_width))
+  reg wb_service_right(Bits(xlen.width))
+  assert(popcount(mem_service_claims) <= Bits(index_width(issue_width + 1))(1), "superscalar_one_wb_service_operand")
+  when (mem_service_owner.valid):
+    wb_service_right <== mem_service_owner.mux(mem_right_words, ~default: Bits(xlen.width)(0))
+
+  /* A register-vtype configuration can retire beside the scalar service. The
+     CSR command gets its own rs2; immediate configurations read the instruction. */
+  def wb_register_vtype = if vector_enabled
+  | block:
+      def claims = for List (result in mem_results):
+        def token :: SuperscalarResult(xlen, hypervisor) = result.bits
+        result.valid & forwards_config(token) & (token.vector.configure === VectorConfigMode.VtypeRegister)
+
+      def owner = vec(claims).into(MaybeOneHot(issue_width))
+      reg vtype(Bits(xlen.width))
+      when (owner.valid):
+        vtype <== owner.mux(mem_right_words, ~default: Bits(xlen.width)(0))
+
+      vtype
+  | Bits(xlen.width)(0)
+
   def mem_vector_claims :: List.of(Bool) = for List (result in mem_results):
     def token :: SuperscalarResult(xlen, hypervisor) = result.bits
     result.valid & token.vector.operation & (token.resolution.disposition === SuperscalarDisposition.Continue)
@@ -1335,7 +1364,12 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   def wb_vector_success = wb_vector_pending & wb_retained_complete & (wb_retained_result.resolution.disposition === SuperscalarDisposition.Continue)
   // Live owners drive admission; retained results drive only normalized retirement.
   def wb_live_valid :: Vec(issue_width, Bool) = vec(for List (stage in wb_pipe): stage.egress.valid)
-  def wb_live_group :: Vec(issue_width, SuperscalarResult(xlen, hypervisor)) = vec(for List (stage in wb_pipe): stage.egress.bits)
+  def wb_live_group :: Vec(issue_width, SuperscalarResult(xlen, hypervisor)) = vec(
+    for List (stage in wb_pipe):
+      def token :: SuperscalarResult(xlen, hypervisor) = stage.egress.bits
+      token.updated(~operands: token.operands.updated(~right: wb_service_right))
+  )
+
   def wb_scalar_lane = superscalar_service_lane(for List (stage in wb_pipe): stage.egress.valid)
   def wb_scalar :: SuperscalarResult(xlen, hypervisor) = wb_live_group[service_index(wb_scalar_lane)]
   def wb_scalar_vector = wb_scalar.vector.operation
@@ -1759,7 +1793,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     action: mux(wb_command_exception, RiscvCsrAction.None, wb_command.system.action)
     csr_address: wb_command.fetched.instruction[20..32]
     csr_source: wb_command.operands.left
-    vector_config: vector_configuration_request(xlen, wb_command.vector.configure, wb_command.fetched.instruction, wb_command.operands.left, wb_command.operands.right)
+    vector_config: vector_configuration_request(xlen, wb_command.vector.configure, wb_command.fetched.instruction, wb_command.operands.left, wb_register_vtype)
     exception_valid: wb_command_exception
     exception_cause: mux(wb_redirect_pending, wb_redirect_fault.cause, mux(wb_fault_pending, wb_held_trap.cause, wb_command.resolution.cause))
     exception_value: mux(wb_redirect_pending, wb_redirect_pc, mux(wb_fault_pending, wb_held_trap.value, wb_command.resolution.value))

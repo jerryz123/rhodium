@@ -163,7 +163,7 @@ rounding metadata, with no numeric operands. Fixed work already launched at EX
 and needs only authorization. Delayed and split FP loads retain their
 architectural owner independently.
 
-Each MEM and WB lane owns one two-word `SuperscalarResult.operands` record.
+Each MEM lane owns two `SuperscalarResult.operands` words.
 Branches, integer divide, and vector configuration use the GPR pair; FP
 divide/sqrt takes the FP pair. A CSR uses the left word (rs1 or zero-extended
 immediate), and scalar memory uses the right word (including FPR data for an FP
@@ -171,10 +171,13 @@ store). Select on the individual instruction, not the group's FP request:
 a paired branch still needs its integer operands in MEM. After branch comparison,
 `for_writeback()` drives the WB address and left operand from one XLEN word.
 Memory operations, prefetches, and all branches (even not-taken ones) keep the
-address; other instructions keep the left operand. The right word stays
-independent, so a store keeps its data and a divide keeps both operands.
-Replay reacquires the operands on reissue. Retained
-memory owners and the passive memory observer take the same unshifted right word.
+address; other instructions keep the left operand. At MEM→WB, at most one
+surviving scalar service needs the right word. Capture it once per group for
+memory (including the passive observer and retained split stores), integer
+divide, or FP divide/sqrt. WB validity and authorization remain per instruction;
+replay reacquires the operands on reissue. A register-supplied `vsetvl` can
+pair with a scalar service. Only vector-enabled builds capture its `vtype`
+operand separately; immediate forms take their bits from the instruction.
 
 MEM/WB lane results and retirement commands each carry a `SuperscalarResolution`
 field. Its single XLEN `value` word holds either normal result data or the
@@ -605,7 +608,8 @@ Every other source and destination hazard retains its ordinary interlock.
 The same ordinary ALU producer may supply a younger integer store's rs2.
 Waive only that source's RAW/read interlock and carry `rewrite.store_data`
 through EX. Select the older ALU result before StoreGen and retain the raw value
-in the lane's right operand word, including for slow and split accesses.
+in the lane's MEM operand and then the shared WB service word, including for
+slow and split accesses.
 The store's rs1 dependency needs its own constant, composition, or address route;
 store-data forwarding alone does not waive it or restrict its immediate offset.
 Producer admission, WB store authorization, and oldest fault/replay priority

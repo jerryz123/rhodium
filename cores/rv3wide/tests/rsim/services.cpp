@@ -258,6 +258,15 @@ int main() {
     const auto killed = third(fp(1, 3, 1, 1)); drain();
     CHECK(!lanes.contains(killed)); fault_pc = 0;
     third(fp(0x61, 8, 3, 0)); drain(); CHECK(gprs[8] == 2);
+    // Slot one takes a register vtype while slot two takes its FP divisor.
+    send({addi(14, 0, 8)}); drain();
+    const auto vsetvl = 0x80007057u | (14u << 20) | (2u << 15) | (6u << 7);
+    const auto mixed = send({0x13, vsetvl, fp(13, 5, 2, 1)}); drain();
+    CHECK(lanes.at(mixed + 4) == 1 && lanes.at(mixed + 8) == 2);
+    send({0xc21023f3}); drain(); // csrr x7,vtype
+    third(fp(0x61, 18, 5, 0)); drain();
+    CHECK(gprs[7] == 8 && gprs[18] == 2);
+
     // Third-lane vector configuration and arithmetic use the same sequencer.
     const auto config = third(0xc0007057 | 4u << 15 | 6u << 7); drain();
     CHECK(lanes.at(config) == 2 && gprs[6] == 4);
