@@ -269,30 +269,32 @@ pipes and forks; it imports no other named-core implementation.
 Its `instruction-assembler.rhdl` uses Flow's ShiftQueue for returned blocks,
 the shared `riscv/rtl/compressed.rhdl` expander, pure XLEN descriptors, and public
 Bits helpers. Canonical decode remains RV2Wide-owned. Its core, bundles, decoder,
-and MMU import `riscv/rtl/zihintntl.rhdl` for architectural locality metadata.
-Its core, bundles, decoder, MMU, cache adapter, and top consume the neutral `cores/cache-prefetch.rhdl`
-operation/request contract for WB-authorized, nonfaulting I/D hints. Its profile and UDB
+and memory adapter import `riscv/rtl/zihintntl.rhdl` for architectural locality metadata.
+Its core, bundles, decoder, memory adapter, translation services, cache adapter,
+and top consume the neutral `cores/cache-prefetch.rhdl` operation/request contract for
+WB-authorized, nonfaulting I/D hints. Its profile and UDB
 projection publish optional Zawrs; the core uses architectural CSR-field and
 privilege helpers for its WB reservation-wait timeout policy. Its profile and UDB
 projection import the pure `riscv/isa/c.rhm` compressed-extension descriptors;
 the profile supplies the same selected C/Zcb/Zcmop list to the assembler and
 shared CSR bank, preserving IALIGN and architectural publication consistency.
-`cores/superscalar/mmu.rhdl` imports the shared `cores/mmu/` TLB/walker,
+`cores/superscalar/translation-sv39.rhdl` imports the shared `cores/mmu/` TLB/walker,
 shared cache protocol/operation/geometry and hart CHI-map definitions, and architectural
-CSR, privilege, Sv39, and XLEN helpers. Its MMU and physical cache adapter use
-`riscv/rtl/cmo.rhdl` for read-or-write whole-block maintenance permissions.
-`cores/superscalar/bare-memory.rhdl` consumes the named-core bundles, shared cache
+CSR, privilege, Sv39, and XLEN helpers. Its memory adapter and physical cache
+adapter use `riscv/rtl/cmo.rhdl` for read-or-write whole-block maintenance permissions.
+`cores/superscalar/memory-adapter.rhdl` consumes the family bundles, shared cache
 protocol/map, split engine, Flow, passive observation helpers, and architectural
 XLEN, guest-fault, pointer-masking, PBMT, and CMO descriptors plus `std/bits.rhdl`
 alignment helpers, without importing the TLB/walker.
-The top selects Bare or Sv39 via `riscv/isa/hart.rhm`. XLEN-specialized pipeline
+The top selects the identity or Sv39 specialization via `riscv/isa/hart.rhm`
+and supplies it directly to the shared memory adapter. XLEN-specialized pipeline
 and service payloads consume `riscv/isa/xlen.rhm`; operand and combined decode
 also import the canonical `riscv/isa/rv32i.rhm` catalog.
 `cores/superscalar/pairing.rhdl` consumes that catalog through
 `riscv/rtl/instruction-pattern.rhdl` and `std/decode.rhdl` to recognize
 AUIPC+ADDI without duplicating instruction encodings.
-The Sv39 adapter owns EX/MEM translation alignment and
-WB/split/PTE arbitration; the cache package has no reverse dependency. Its MMU
+The memory adapter owns EX/MEM translation alignment and its transport owns
+WB/split/PTE arbitration; the cache package has no reverse dependency. The adapter
 and core also consume `cores/misaligned-access.rhdl`: the neutral split
 request/result contract and retained fragment engine. This shared module imports
 the physical cache protocol, cache operations, load/store shaping, architectural
@@ -335,7 +337,7 @@ and `std/bits.rhdl` for range alignment. Bare/Sv39 translation consume the share
 Its decoder joins the canonical V catalog into the ordinary decode
 relation. The host profile consumes vector-profile and VLEN descriptors and
 `std/bits.rhdl` capacity annotations. `memory-ports.rhdl` uses Flow to retain
-scalar/vector response ownership; the Bare and Sv39 adapters consume the shared
+scalar/vector response ownership; the identity and Sv39 services consume the shared
 MMU vector-window contract. The scalar arithmetic adapters consume opaque
 integer-service and vector completion tags, without importing another core.
 RV2Wide bundles
@@ -812,8 +814,7 @@ Superscalar retained fetch/prediction/completion and
 arithmetic-owner storage, and the
 RV5Stage fetch queue and MMU admission consume it without changing package direction.
 
-The superscalar memory factories import `frontend/foundation.rhm` for their
-`CircuitDefinition` result. `cores/superscalar/translation-specialization.rhm`
+`cores/superscalar/translation-specialization.rhm`
 uses public `core/ir.rhm` and foundation types for its immutable circuit/capability
 contract, extending `StableCircuitParam`. Concrete identity/Sv39 specializations
 import foundation's `CircuitDefinition` to build their own implementation.

@@ -6,8 +6,9 @@ import:
   lib("riscv/rtl/hypervisor.rhdl") open
   lib("riscv/rtl/pointer-masking.rhdl") open
   lib("flow/main.rhdl") open
-  "../mmu.rhdl" open
-  "../bare-memory.rhdl" open
+  "../memory-adapter.rhdl".SuperscalarMemoryAdapter
+  "../translation-identity.rhdl".SuperscalarIdentitySpecialization
+  "../translation-sv39.rhdl".SuperscalarSv39Specialization
   "../bundles.rhdl" open
   "cache-fixture.rhdl" open
   "../../cache/protocol.rhdl" open
@@ -71,7 +72,8 @@ sync_circuit SuperscalarMmuFixture(~bare: bare :: Boolean = #false):
   output memory_drained: Bool
   output completed: Bool
   output completed_data: Bits(64)
-  inst mmu(if bare | SuperscalarBareMemory(XLen.X64, test_fetch_chi) | SuperscalarMmu(test_fetch_chi, ~svnapot: #true))
+  def translation = if bare | SuperscalarIdentitySpecialization(XLen.X64, test_fetch_chi) | SuperscalarSv39Specialization(test_fetch_chi, #true)
+  inst mmu(SuperscalarMemoryAdapter(XLen.X64, test_fetch_chi, translation))
   mmu.pipeline_vector <== vector_access
   mmu.request_vector <== vector_access
   vector_precheck.request |> gate_flow(!ordered_precheck ||| mmu.memory.request.ready) |> mmu.vector_precheck.request

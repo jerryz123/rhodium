@@ -55,13 +55,13 @@ VAs are XLEN, physical adapter requests are 64 bits. Build the physical request
 at the translation boundary with `superscalar_physical_request`; never widen VAs
 inside the pipeline merely to match CHI transport.
 
-`bare-memory.rhdl` and `mmu.rhdl` are factories for the same memory adapter,
-selecting identity or RV64 Sv39/guest translation at elaboration. The factories
-insert no wrapper hierarchy. `memory-adapter.rhdl` owns the single EX/MEM
+`superscalar.rhdl` selects an identity or RV64 Sv39/guest translation
+specialization from `profile.mmu_type` at elaboration and passes it directly to
+`SuperscalarMemoryAdapter`. `memory-adapter.rhdl` owns the single EX/MEM
 context register, physical attribute qualification, split execution, and fault
 projection. `memory-transport.rhdl` owns physical arbitration and accepted
-response routing. The top selects translation from `profile.mmu_type`. Keep exact SoC
-profile checks unchanged: `rv32int` additionally selects Zve32x/VLEN64,
+response routing. Keep exact SoC profile checks unchanged: `rv32int`
+additionally selects Zve32x/VLEN64,
 Zvbb/Zvkt and the preset's optional scalar/system guarantees. `rv32max` adds
 scalar F and Zve32f while retaining the same Bare platform and vector geometry.
 `rv64max` projects the complete non-H RV64 preset with VLEN128 and Sv39.
@@ -456,7 +456,6 @@ WB authorization, and the two-port writeback policy stay local.
 | `long-execution.rhdl` | EX multiply reservations and WB owner validation, retained divider ownership |
 | `cache.rhdl` | Physical permissions, shared L1D adaptation, and ordered IOMSHR/uncached routing |
 | `instruction-memory.rhdl` | Fixed-cycle L1I/noncacheable outcomes, retained fetch replay, and cancellation |
-| `bare-memory.rhdl`, `mmu.rhdl` | Stable entry-point factories selecting identity or paged translation without RTL wrappers |
 | `memory-translation.rhdl` | Combinational query/result contract, including known/fault provenance, probe contention, and held split masking |
 | `translation-specialization.rhm` | Immutable circuit-construction contract, walker-client capability, split-access policy, and atomic PMA policy |
 | `memory-adapter.rhdl` | EX/MEM timing, physical PMA/PBMT qualification, split owner, committed requests, faults, and passive physical observations |
@@ -466,7 +465,7 @@ WB authorization, and the two-port writeback policy stay local.
 | `vector.rhdl` | WB-authorized composition of shared admission/execution and the local LSU adapter |
 | `vector-memory.rhdl` | Adapts shared `../vector/memory-issue.rhdl` lookup issue to Superscalar decisions, precise split outcomes, and ordered raw-word extraction |
 | `memory-ports.rhdl` | Scalar/vector lookup, accepted response, and split-owner arbitration |
-| `superscalar.rhdl` | Frontend/core/shared L1I/L1D composition, distinct CHI identities, start/halt boundary |
+| `superscalar.rhdl` | Frontend/core/shared L1I/L1D composition, profile-selected translation specialization, distinct CHI identities, start/halt boundary |
 | `profile.rhm`, `udb.rhm` | Scalar RV32/RV64 architectural description, shared RTL/metadata CSR specialization, and implementation-owned UDB choices |
 | `../rv2wide/hart.rhdl`, `../rv3wide/hart.rhdl` | Named-core SoC port adaptation and one reset-vector start per reset epoch |
 | `tests/rsim/` | Direct C++ architectural, memory, prediction, and ordering oracles |
@@ -1017,8 +1016,8 @@ physical vector retries supply their own address and PMA attributes.
 The MMU fixture covers delayed simultaneous fault replay, exact address/access/
 context matching, invalidation, stale NC mappings, and implicit guest-PTE provenance.
 
-Optional `profile.svnapot` passes through the production top and MMU to the
-shared walker's structural PTE validation. Keep the shared mapping's page size
+Optional `profile.svnapot` passes through the production top's Sv39 specialization
+to the shared walker's structural PTE validation. Keep the shared mapping's page size
 intact through fill and lookup; do not implement another NAPOT decoder or expand
 a leaf into sixteen fills. ISA/UDB metadata follows the same profile selection.
 The existing MMU fixture checks cold walks from different subpages, warm I/D

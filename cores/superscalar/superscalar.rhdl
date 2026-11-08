@@ -1,5 +1,5 @@
 #lang rhodium
-/* Composes eight-byte fetch, issue-selected execution width, and shared translation and caches. */
+/* Composes eight-byte fetch, issue-selected execution width, profile-selected translation, and shared caches. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -10,8 +10,9 @@ import:
   "issue.rhdl".superscalar_issue_width
   "frontend.rhdl" open
   "cache.rhdl" open
-  "mmu.rhdl" open
-  "bare-memory.rhdl".SuperscalarBareMemory
+  "memory-adapter.rhdl".SuperscalarMemoryAdapter
+  "translation-identity.rhdl".SuperscalarIdentitySpecialization
+  "translation-sv39.rhdl".SuperscalarSv39Specialization
   lib("riscv/isa/hart.rhm").RiscvMmuType
   "instruction-memory.rhdl" open
   "bundles.rhdl" open
@@ -66,7 +67,8 @@ sync_circuit Superscalar(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfi
   inst frontend(SuperscalarFrontend(config, profile, ~group_width: issue_width))
   inst instruction(L1ICache(XLen.X64, instruction_cache, ~chi: config, ~fetch_bits: 64))
   inst data(SuperscalarL1D(cache, ~chi: config, ~xlen: xlen, ~beat_bytes: data_beat_bytes))
-  inst mmu(if profile.mmu_type == RiscvMmuType.Bare | SuperscalarBareMemory(xlen, config) | SuperscalarMmu(config, ~svnapot: profile.svnapot, ~hypervisor: profile.hypervisor))
+  def translation = if profile.mmu_type == RiscvMmuType.Bare | SuperscalarIdentitySpecialization(xlen, config) | SuperscalarSv39Specialization(config, profile.svnapot, hypervisor)
+  inst mmu(SuperscalarMemoryAdapter(xlen, config, translation))
   describe_cosim_context(core, {"mmu": mmu})
 
 
