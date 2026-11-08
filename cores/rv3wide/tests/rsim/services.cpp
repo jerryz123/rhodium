@@ -11,7 +11,7 @@ unsigned split_due = 0;
 std::remove_cvref_t<decltype(split_in.presponse.pbits)> split_reply{};
 std::map<std::uint64_t, std::uint64_t> words, values;
 std::map<std::uint64_t, std::uint32_t> original_instructions;
-std::map<std::uint64_t, unsigned> lanes, training;
+std::map<std::uint64_t, unsigned> lanes, training, training_cycle;
 std::array<std::uint64_t, 32> gprs{};
 std::deque<std::pair<std::uint64_t, unsigned>> responses;
 unsigned cycle = 0, stores = 0, requests = 0, triples = 0, paired_returns = 0;
@@ -91,7 +91,14 @@ void step() {
       redirect_pc = redirect_out.pbits.ppc;
       redirect_target = redirect_out.pbits.ptarget;
     }
-    if (branch_update_out.pvalid) ++training[branch_update_out.pbits.ppc];
+    if (branch_update_out.pvalid) {
+      const auto &update = branch_update_out.pbits;
+      const bool compressed = (original_instructions.at(update.ppc) & 3) != 3;
+      CHECK(update.pbranch && update.pcompressed == compressed);
+      CHECK(update.preturn_uaddress == update.ppc + (compressed ? 2 : 4));
+      ++training[update.ppc];
+      training_cycle[update.ppc] = cycle;
+    }
     if (pipeline_out.pcommit && accepting) store(commit_owner);
     if (memory_in.presponse.pvalid && memory_out.presponse.pready) responses.pop_front();
     if (memory_out.prequest.pvalid && accepting) {
@@ -236,9 +243,20 @@ int main() {
     const auto killed_store = send({0x13, 0x00000863, 0x0020b023}); drain();
     CHECK(lanes.contains(killed_store + 4) && !lanes.contains(killed_store + 8));
     CHECK(stores == old_stores);
-    const auto batch = send({0x00001463, 0x00001463, 0x00001463}); drain();
-    CHECK(lanes.at(batch + 8) == 2);
-    for (unsigned i = 0; i < 3; ++i) CHECK(training.at(batch + 4*i) == 1);
+    // Three retiring branches bypass the first update and fill both FIFO entries.
+    // The queued tail is at the top of each canonical half: its full return
+    // address crosses the positive Sv39 boundary or wraps through XLEN zero.
+    const auto resume_pc = pc;
+    for (auto base : {UINT64_C(0x0000003ffffffff6), UINT64_C(0xfffffffffffffff6)}) {
+      pc = base;
+      send({0x00001463, 0x00001463, 0x00001463}); drain();
+      for (unsigned i = 0; i < 3; ++i) {
+        const auto source = base + 4*i;
+        CHECK(lanes.at(source) == i && training.at(source) == 1);
+        CHECK(training_cycle.at(source) == training_cycle.at(base) + i);
+      }
+    }
+    pc = resume_pc;
     // FP fixed, variable, and late-GPR returns retain lane-three ownership.
     const auto cvt = third(fp(0x69, 1, 2, 0)); drain(); CHECK(lanes.at(cvt) == 2);
     const auto sum = third(fp(1, 2, 1, 1)); drain(); CHECK(lanes.at(sum) == 2);

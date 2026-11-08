@@ -370,11 +370,43 @@ bundle SuperscalarPacket(xlen :: XLen, hypervisor :: Boolean, group_width :: mat
   count: Bits(2)
   entries: Vec(group_width, SuperscalarInstruction(xlen, hypervisor))
 
-/* Keeps a retired branch's BTB outcome and saved tournament predictions together during training. */
+/* A valid entry is a retired branch. Keep its canonical source, full resolved
+   target and lookup decisions; both predictor messages use the same outcome. */
 bundle SuperscalarBranchTraining(xlen :: XLen):
-  branch: BranchUpdate(xlen)
+  pc: CompactPc(xlen)
+  target: Bits(xlen.width)
+  step: SuperscalarPcStep(xlen)
+  conditional: Bool
+  taken: Bool
+  ras_action: RasAction
+  predicted_ras_action: RasAction
   direction_valid: Bool
-  direction: TournamentUpdate(10)
+  row: Bits(10)
+  base_taken: Bool
+  gshare_taken: Bool
+
+  /* Restores the BTB message, including the fall-through across a page or XLEN wrap. */
+  method branch_update(training) :: BranchUpdate(xlen):
+    def pc = training.pc.expanded()
+    BranchUpdate(xlen):
+      pc: pc
+      target: training.target
+      branch: Bool(#true)
+      conditional: training.conditional
+      taken: training.taken
+      compressed: training.step.short_step
+      ras_action: training.ras_action
+      predicted_ras_action: training.predicted_ras_action
+      return_address: training.step.apply(pc)
+
+  /* The hashed row is from lookup; the base index and parcel bits are wires from the saved PC. */
+  method direction_update(training) :: TournamentUpdate(10):
+    TournamentUpdate(10):
+      index: training.row ++ training.pc.low[1..3]
+      base_index: training.pc.low[1..13]
+      base_taken: training.base_taken
+      gshare_taken: training.gshare_taken
+      taken: training.taken
 
 /* Advances committed conditional history in retirement order, independently of table training. */
 bundle SuperscalarHistoryCommit(group_width :: matching(2) || matching(3) = 2):
@@ -546,23 +578,25 @@ bundle SuperscalarBranchDecision():
   branch: Bool
   conditional: Bool
   taken: Bool
-  compressed: Bool
   ras_action: RasAction
   predicted_ras_action: RasAction
 
-  /* Joins the retained decision to the retiring instruction's addresses for predictor training. */
+  /* Captures only the independent facts needed to train after this branch retires. */
   method training(decision, xlen :: XLen, pc :: Bits(xlen.width),
-                  ~target: target :: Bits(xlen.width), ~return_address: return_address :: Bits(xlen.width)) :: BranchUpdate(xlen):
-    BranchUpdate(xlen):
-      pc: pc
+                  ~target: target :: Bits(xlen.width), ~step: step :: SuperscalarPcStep(xlen),
+                  ~checkpoint: checkpoint :: SuperscalarDirectionCheckpoint()) :: SuperscalarBranchTraining(xlen):
+    SuperscalarBranchTraining(xlen):
+      pc: CompactPc.capture(xlen, pc)
       target: target
-      branch: decision.branch
+      step: step
       conditional: decision.conditional
       taken: decision.taken
-      compressed: decision.compressed
       ras_action: decision.ras_action
       predicted_ras_action: decision.predicted_ras_action
-      return_address: return_address
+      direction_valid: decision.conditional & checkpoint.valid
+      row: checkpoint.row
+      base_taken: checkpoint.base_taken
+      gshare_taken: checkpoint.gshare_taken
 
 /* Keeps comparison and recovery controls without a second resolved target word. */
 bundle SuperscalarBranchResult():
@@ -780,7 +814,7 @@ bundle SuperscalarServiceOwner(xlen :: XLen, hypervisor :: Boolean):
       direction: owner.direction
 
     def inactive :: SuperscalarRetirementCommand(xlen, hypervisor) = literal(SuperscalarRetirementCommand(xlen, hypervisor), 0)
-    def update = inactive.branch.update.updated(~compressed: owner.step.short_step, ~predicted_ras_action: owner.speculated_ras_action)
+    def update = inactive.branch.update.updated(~predicted_ras_action: owner.speculated_ras_action)
     def branch = inactive.branch.updated(~mispredicted: owner.prediction_repair, ~update: update)
     inactive.updated(
       ~fetched: fetched, ~rd: owner.rd, ~write: owner.write, ~resolution: resolution.with_result(data), ~result_ready: Bool(#true),

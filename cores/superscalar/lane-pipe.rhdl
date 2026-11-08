@@ -92,7 +92,6 @@ sync_circuit SuperscalarExecutePipe(xlen :: XLen, ~hypervisor: hypervisor :: Boo
   output pc: Bits(xlen.width)
   output sequential_pc: Bits(xlen.width)
   output raw_instruction: Bits(32)
-  output egress_step: SuperscalarPcStep(xlen)
 
   inst storage(ValidPipe(SuperscalarExecute(xlen, hypervisor), 1, ~flushable: #true))
   storage.flush <== flush
@@ -115,7 +114,6 @@ sync_circuit SuperscalarExecutePipe(xlen :: XLen, ~hypervisor: hypervisor :: Boo
   pc <== pc_region ++ retained.fetched.pc
   sequential_pc <== retained.fetched.sequential_pc.apply(pc)
   raw_instruction <== retained.fetched.raw()
-  egress_step <== retained.fetched.sequential_pc
 
 /* Captures exactly the canonical MEM/WB record; the stage group owns its PC prefix and FP context. */
 sync_circuit SuperscalarResultPipe(xlen :: XLen, ~hypervisor: hypervisor :: Boolean = #false, ~completion_slot: completion_slot :: Boolean = #false):
@@ -125,7 +123,6 @@ sync_circuit SuperscalarResultPipe(xlen :: XLen, ~hypervisor: hypervisor :: Bool
   input pc_region: Bits(xlen.width - SuperscalarPcOffsetBits)
   output pc: Bits(xlen.width)
   output sequential_pc: Bits(xlen.width)
-  output egress_step: SuperscalarPcStep(xlen)
 
   inst storage(ValidPipe(SuperscalarResult(xlen, hypervisor), 1, ~flushable: #true))
   storage.flush <== flush
@@ -147,7 +144,6 @@ sync_circuit SuperscalarResultPipe(xlen :: XLen, ~hypervisor: hypervisor :: Bool
   def retained :: SuperscalarResult(xlen, hypervisor) = storage.egress.bits
   pc <== pc_region ++ retained.fetched.pc
   sequential_pc <== retained.fetched.sequential_pc.apply(pc)
-  egress_step <== retained.fetched.sequential_pc
 
 export:
   SuperscalarExecute

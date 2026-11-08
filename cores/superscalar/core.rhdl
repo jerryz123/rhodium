@@ -970,7 +970,6 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
               branch: ex_executable & ex.control.branch.resolver.enable
               conditional: ex.fetched.instruction[0..7] === Bits(7)(0x63)
               taken: Bool(#false)
-              compressed: ex_pipe[lane].egress_step.short_step
               ras_action: ex_actual_action
               predicted_ras_action: ex.fetched.speculated_ras_action
 
@@ -1509,7 +1508,6 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   def wb_retained_capture = wb_split_capture ||| wb_management_capture ||| wb_wait_capture ||| wb_vector_capture
   def wb_retained_lane = mux(wb_vector_capture, wb_vector_lane, mux(wb_wait_capture, Bits(2)(0), wb_memory_lane))
   def wb_retained_candidate :: SuperscalarResult(xlen, hypervisor) = wb_live_group[service_index(wb_retained_lane)]
-  def wb_retained_step = vec(for List (stage in wb_pipe): stage.egress_step)[service_index(wb_retained_lane)]
   def wb_retained_candidate_pc = wb_live_pcs[service_index(wb_retained_lane)]
   when wb_retained_capture:
     assert((wb_retained_candidate.resolution.disposition === SuperscalarDisposition.Continue) & !wb_retained_candidate.fetched.fault, "superscalar_service_capture_continuing")
@@ -1949,19 +1947,11 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     for List (lane in 0..issue_width):
       def token = wb_tokens[lane]
       def pc = wb_group_pcs[lane]
-      def return_address = token.fetched.sequential_pc.apply(pc)
-      def decision = token.branch.update
-      def checkpoint = token.fetched.direction
-      SuperscalarBranchTraining(xlen):
-        branch: decision.training(xlen, pc, ~target: token.address, ~return_address: return_address)
-        direction_valid: decision.conditional & checkpoint.valid
-        direction:
-          TournamentUpdate(10):
-            index: checkpoint.row ++ pc[1..3]
-            base_index: pc[1..13]
-            base_taken: checkpoint.base_taken
-            gshare_taken: checkpoint.gshare_taken
-            taken: decision.taken
+      when (wb_train[lane]):
+        assert(CompactPc.fits(xlen, pc), "superscalar_training_pc_canonical_" ++ to_string(lane))
+
+      token.branch.update.training(xlen, pc, ~target: token.address,
+                                   ~step: token.fetched.sequential_pc, ~checkpoint: token.fetched.direction)
   )
 
   for (lane in 0..issue_width):
@@ -1970,12 +1960,12 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   branch_training.clear.valid <== predictor_clear.valid
   def wb_training_head :: SuperscalarBranchTraining(xlen) = branch_training.training.bits
   branch_update.valid <== branch_training.training.valid
-  branch_update.bits <== wb_training_head.branch
+  branch_update.bits <== wb_training_head.branch_update()
   direction_update.valid <== branch_update.valid & wb_training_head.direction_valid
-  direction_update.bits <== wb_training_head.direction
+  direction_update.bits <== wb_training_head.direction_update()
   // Architectural history and RAS reconciliation are never delayed behind table writes.
   def wb_ras :: Vec(issue_width, Bool) = vec(for List (lane in 0..issue_width): wb_train[lane] & ((wb_tokens[lane].branch.update.ras_action =/= RasAction.None) ||| (wb_tokens[lane].branch.update.predicted_ras_action =/= RasAction.None)))
-  def wb_ras_branch = wb_training[service_index(superscalar_service_lane(for List (lane in 0..issue_width): wb_ras[lane]))].branch
+  def wb_ras_branch = wb_training[service_index(superscalar_service_lane(for List (lane in 0..issue_width): wb_ras[lane]))].branch_update()
   ras_resolution.valid <== wb_ras.any()
   ras_resolution.bits <== RasResolution(xlen):
     actual:

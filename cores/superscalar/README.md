@@ -680,7 +680,7 @@ target-stream work, including a target instruction paired in the younger lane.
 Wrong direction, wrong target, or unmatched RAS action recovers once at MEM;
 older WB recovery has priority. Only successfully retiring branches generate
 resolved predictor updates, separately from assembly discovery. A two-entry
-ordered buffer accepts up to two BTB/tournament training records per cycle and emits
+ordered buffer accepts the retiring group's BTB/tournament training records and emits
 one per cycle; RR projects queue occupancy through the in-flight retirement
 groups, including one table write per cycle, before issuing.
 BTB/tournament training may lag retirement. Both direction components train

@@ -840,8 +840,11 @@ per group; conditional branches do not consume this restriction.
 
 `branch-training.rhdl` owns the two-entry training FIFO, accepting all successful
 WB branches in age order and emitting one BTB/tournament update each cycle, bypassing
-the oldest incoming update when empty. A training record retains the branch
-outcome, both saved table indices, and the observed component bits together.
+the oldest incoming update when empty. A training record stores a canonical
+source PC, the full resolved target, the successor step, one branch outcome,
+and the independent direction lookup row and component predictions. Rebuild
+the base index and parcel bits from the source PC when emitting the update.
+Never truncate the resolved target to the source PC width.
 After reset warm-up, both components train every conditional outcome; the chooser trains only saved
 disagreements toward the correct component. Use current counters, not saved
 counter values, so delayed aliased records compose. RR projects occupancy through the

@@ -4757,7 +4757,10 @@ int main() {
       std::uint64_t pc;
       prediction_t first_prediction, second_prediction;
       reset_core();
-      pc = UINT64_C(0x13000) + ((outcomes * 8) & low_mask(64));
+      // The younger update queues in both Sv39 halves. A not-taken
+      // backward target below the negative boundary must still train in full.
+      pc = (outcomes & 1) ? UINT64_C(0xffffffc000000002)
+                          : UINT64_C(0x0000002380013ffa);
       first_prediction = {static_cast<uint8_t>(((outcomes & 1) & low_mask(1))),
                           pc, pc + 4, UINT64_C(0), UINT64_C(0)};
       second_prediction = {
