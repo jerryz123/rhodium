@@ -51,9 +51,11 @@ retain configuration validation and decide which guarantees they may publish.
 ### Tagged integer services
 
 When the caller owns the final register, `pipelined_product_sum(width, request)`
-provides the registered double-width product after two cycles. The caller can
-then select the required bits for its third register. Use `PipelinedMultiplier`
-for a three-cycle response that retains both halves.
+provides the registered double-width product after two cycles. If the caller
+knows which half it needs at launch, use `pipelined_product_half(width, request)`
+with `Valid(MultiplierHalfRequest(width))`: set `operands` and `high_result`
+together. It returns only the selected half at the same latency, accepting one
+request per cycle. Use `PipelinedMultiplier` for a three-cycle full product.
 
 [`integer-service.rhdl`](integer-service.rhdl) carries opaque caller tags through
 the shared multiplier and divider. `TaggedPipelinedMultiplier` is feed-forward

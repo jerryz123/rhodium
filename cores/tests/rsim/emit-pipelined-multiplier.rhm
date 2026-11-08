@@ -7,6 +7,13 @@ import:
   lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../cores/multiplier.rhdl" open
 
+fun selected_half(width, request, high):
+  def operation = request |> map_valid(bits => MultiplierHalfRequest(width)):
+    operands: bits
+    high_result: high
+
+  pipelined_product_half(width, operation)
+
 sync_circuit PipelinedMultiplierFixture():
   interface request2(Valid(MultiplierRequest(2)), ~role: consumer)
   interface response2(Valid(Bits(4)), ~role: producer)
@@ -16,17 +23,29 @@ sync_circuit PipelinedMultiplierFixture():
   interface response32(Valid(Bits(64)), ~role: producer)
   interface request64(Valid(MultiplierRequest(64)), ~role: consumer)
   interface response64(Valid(Bits(128)), ~role: producer)
+  input high8: Bool
+  input high32: Bool
+  input high64: Bool
+  interface half8(Valid(Bits(8)), ~role: producer)
+  interface half32(Valid(Bits(32)), ~role: producer)
+  interface half64(Valid(Bits(64)), ~role: producer)
   inst small(PipelinedMultiplier(2))
   inst byte(PipelinedMultiplier(8))
   inst word(PipelinedMultiplier(32))
   inst full(PipelinedMultiplier(64))
   request2 |> small.request
   small.response |> response2
-  request8 |> byte.request
+  def Array(byte_full, byte_half) = request8 |> fork_valid(2)
+  byte_full |> byte.request
+  selected_half(8, byte_half, high8) |> half8
   byte.response |> response8
-  request32 |> word.request
+  def Array(word_full, word_half) = request32 |> fork_valid(2)
+  word_full |> word.request
+  selected_half(32, word_half, high32) |> half32
   word.response |> response32
-  request64 |> full.request
+  def Array(full_product, half_product) = request64 |> fork_valid(2)
+  full_product |> full.request
+  selected_half(64, half_product, high64) |> half64
   full.response |> response64
 
 def program = elaborate(PipelinedMultiplierFixture())

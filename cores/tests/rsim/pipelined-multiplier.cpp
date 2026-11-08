@@ -9,7 +9,7 @@ template <unsigned W, class Request, class Response> class Checker {
     if constexpr (W <= 8) return 4U * (1U << W) * (1U << W);
     else return 12U * 12U * 4U + 4096U;
   }();
-  struct Expected { bool valid = false; uint128 value = 0; };
+  struct Expected { bool valid = false; uint128 value = 0; bool high = false; };
   Request &request;
   const Response &response;
   std::array<Expected, latency> history{};
@@ -67,12 +67,19 @@ public:
       bits.pleft = random_left & low_mask(W); bits.pright = random_right & low_mask(W);
     }
   }
+  bool select_high() const { return (sent ^ (sent >> 2)) & 1; }
+  template <class Half> void check_half(const Half &response_half) const {
+    const auto &expected = history[1];  // Selected half returns one cycle before the full product.
+    CHECK(bool(response_half.pvalid) == expected.valid);
+    if (expected.valid)
+      CHECK(response_half.pbits == ((expected.value >> (expected.high ? W : 0)) & low_mask(W)));
+  }
   void check() {
     CHECK(bool(response.pvalid) == history[latency - 1].valid);
     if (response.pvalid) { CHECK(returned_value() == history[latency - 1].value); ++received; }
     for (unsigned i = latency - 1; i > 0; --i) history[i] = history[i - 1];
     const auto &bits = request.pbits;
-    history[0] = {bool(request.pvalid), product(bits.pleft, bits.pright, bits.pmode.pleft_usigned, bits.pmode.pright_usigned)};
+    history[0] = {bool(request.pvalid), product(bits.pleft, bits.pright, bits.pmode.pleft_usigned, bits.pmode.pright_usigned), select_high()};
     if (request.pvalid) {
       ++sent; random_left = advance_random(random_left); random_right = advance_random(random_right);
     }
@@ -95,7 +102,9 @@ int main() {
       tick_model(); tick_model(); tick_model(); reset = 0;
     };
     const auto step = [&] {
-      small.offer(); byte.offer(); word.offer(); full.offer(); eval();
+      small.offer(); byte.offer(); word.offer(); full.offer();
+      high8 = byte.select_high(); high32 = word.select_high(); high64 = full.select_high(); eval();
+      byte.check_half(half8_out); word.check_half(half32_out); full.check_half(half64_out);
       small.check(); byte.check(); word.check(); full.check(); tick_model();
     };
     reset_all();

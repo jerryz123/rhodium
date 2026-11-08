@@ -314,9 +314,11 @@ upper product, and both sign corrections into one carry-save pair. Add its
 sum and already-shifted carry in independent 16-bit chunks (one smaller chunk
 for narrow products). Register each subtotal with its carry into the next
 chunk. Propagate those boundary carries before the second register; discard
-only overflow beyond twice the operand width. Keep the complete product there
-so each caller can choose what to retain in the third register without changing
-its response cycle.
+only overflow beyond twice the operand width for a full-product client.
+For a selected-half client, register just its chunks: a low result starts
+with zero carry; a high result starts with the carry out of the entire low
+half. The same oracle checks this two-cycle result at widths 8, 32, and 64
+while varying half selection between launches.
 
 `iterative-divider` exhausts all eight-bit operand pairs in both signed modes,
 checking the quotient, remainder, and exact response cycle. Keep the trial

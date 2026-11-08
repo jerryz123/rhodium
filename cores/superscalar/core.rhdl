@@ -50,6 +50,7 @@ import:
   "decode/system-ctrl.rhdl" open
   "decode/long-ctrl.rhdl" open
   lib("cores/multiplier.rhdl").MultiplierRequest
+  lib("cores/multiplier.rhdl").MultiplierHalfRequest
   lib("cores/multiplier.rhdl").PipelinedMultiplierStages
   lib("cores/divider.rhdl").DividerRequest
   lib("cores/csr/file.rhdl").RiscvCsrFile
@@ -1068,10 +1069,13 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     def operation :: SuperscalarExecute(xlen, hypervisor) = payload
     !rr_squash & !operation.illegal & !operation.fetched.fault.valid & !operation.fetched.pc[0].into(Bool) & operation.rd.any() & (operation.control.muldiv.service === SuperscalarLongOperation.Multiply)
 
-  (ex_multiply_admitted |> map_valid(operation => MultiplierRequest(xlen.width)):
-    left: operation.operands.rs1
-    right: operation.operands.rs2
-    mode: operation.control.muldiv.multiply.mode
+  (ex_multiply_admitted |> map_valid(operation => MultiplierHalfRequest(xlen.width)):
+    high_result: operation.control.muldiv.multiply.high_result
+    operands:
+      MultiplierRequest(xlen.width):
+        left: operation.operands.rs1
+        right: operation.operands.rs2
+        mode: operation.control.muldiv.multiply.mode
   ) |> ex_multiply.issue
 
   /* Speculative memory lookup.

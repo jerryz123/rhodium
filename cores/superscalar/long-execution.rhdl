@@ -24,12 +24,12 @@ bundle SuperscalarMultiplyWriteback(xlen :: XLen):
   word_result: Bool
 
   /* Attaches the surviving destination to the selected architectural product. */
-  method completion(owner, product :: Bits(2 * xlen.width)) :: SuperscalarCompletion(xlen):
+  method completion(owner, result :: Bits(xlen.width)) :: SuperscalarCompletion(xlen):
     SuperscalarCompletion(xlen):
       identity: owner.identity
       rd: owner.rd
       write: Bool(#true)
-      data: integer_multiply_result(xlen, product, owner.high_result, owner.word_result)
+      data: result
 
 /* Attaches WB authorization and architectural result selection to divide operands. */
 bundle SuperscalarDivideIssue(xlen :: XLen):
@@ -43,7 +43,7 @@ bundle SuperscalarDivideIssue(xlen :: XLen):
    Rejected WB owners drain without publishing the still-running product. */
 sync_circuit SuperscalarMultiply(xlen :: XLen = XLen.X64, ~vector_enabled: vector_enabled :: Boolean = #true, ~vector_slots: slots :: Pow2Int = 8):
   interface book(Pulse(), ~role: consumer)
-  interface issue(Valid(MultiplierRequest(xlen.width)), ~role: consumer)
+  interface issue(Valid(MultiplierHalfRequest(xlen.width)), ~role: consumer)
   interface authorize(Valid(SuperscalarMultiplyWriteback(xlen)), ~role: consumer)
   interface completed(Valid(SuperscalarCompletion(xlen)), ~role: producer)
   output drained: Bool
@@ -76,7 +76,7 @@ sync_circuit SuperscalarMultiply(xlen :: XLen = XLen.X64, ~vector_enabled: vecto
             vector: Bool(#false)
             tag: dont_care(VectorMultiplyTag(slots))
 
-        operands: request
+        operands: request.operands
 
       def vector = vector_returns.issue |> map_valid(operation => IntegerExecutionRequest(MultiplierRequest(xlen.width), MultiplyOwner())):
         tag:
@@ -98,7 +98,7 @@ sync_circuit SuperscalarMultiply(xlen :: XLen = XLen.X64, ~vector_enabled: vecto
       def returned = authorized |> valid_pipe(PipelinedMultiplierStages - 2)
       (returned |> map_valid(payload):
         def owner :: SuperscalarMultiplyWriteback(xlen) = payload
-        owner.completion(execution.result.bits.value)
+        owner.completion(integer_multiply_result(xlen, execution.result.bits.value, owner.high_result, owner.word_result))
       ) |> completed
       when (completed.valid):
         assert(execution.result.valid & !execution.result.bits.tag.vector, "superscalar_multiply_scheduled_result")
@@ -107,11 +107,11 @@ sync_circuit SuperscalarMultiply(xlen :: XLen = XLen.X64, ~vector_enabled: vecto
       vector_result.valid <== Bool(#false)
       vector_result.bits <== dont_care(vector_result.bits.type)
 
-      // At WB the sum and its format are both live. Register just the authorized XLEN result.
-      def product = pipelined_product_sum(xlen.width, operand_issue)
+      // EX selected the product half; WB authorizes it and sign-extends MULW.
+      def product = pipelined_product_half(xlen.width, operand_issue)
       (authorized |> map_valid(payload):
         def owner :: SuperscalarMultiplyWriteback(xlen) = payload
-        owner.completion(product.bits)
+        owner.completion(integer_word_result(xlen, product.bits, owner.word_result))
       ) |> valid_pipe(PipelinedMultiplierStages - 2) |> completed
       when (authorized.valid):
         assert(product.valid, "superscalar_multiply_authorized_sum")

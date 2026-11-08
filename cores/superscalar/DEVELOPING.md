@@ -686,9 +686,10 @@ completion is available for forwarding. x0 M results need no service owner.
 
 EX launches the three-stage multiplier. Only scalar launch validity travels
 beside the arithmetic for the two cycles to WB; do not duplicate the instruction
-identity there. WB supplies PC/raw encoding, destination, and high/word result
-selection from the surviving instruction. Capture them only on authorization,
-for the one remaining cycle. Vector tags still accompany the arithmetic result.
+identity there. EX selects the product half in a scalar-only build. WB supplies
+PC/raw encoding, destination, and word formatting from the surviving instruction;
+it also selects the scalar half when using the vector-capable full-product unit.
+Only an authorized scalar result can complete. Vector tags accompany the arithmetic result.
 RR books EX+3 (RR+4) in the shared fixed GPR calendar.
 The authorized product writes and forwards directly on that edge. A killed,
 replayed, or faulted owner drains without publishing the speculative product;
@@ -1513,8 +1514,9 @@ permission at the first sequencing transfer rather than descriptor dispatch.
 
 Scalar multiply and fixed FP reserve their EX slots at RR; squashing an EX
 request must not combinationally change vector shared-service admission.
-In scalar-only builds the registered full product and WB authorization meet
-before the final register: store the selected XLEN result with its owner.
+In scalar-only builds, the first register holds the selected half's subtotals
+and its incoming carry. The second holds the XLEN result. WB applies MULW
+sign extension and attaches its authorized owner for the final register.
 Vector builds register the full double-width sum because full-width vector
 elements consume both halves. Both paths publish scalar results at WB+1.
 The GPR calendar includes ordinary last-slot writes as well as deferred
