@@ -20,7 +20,7 @@ def example_chi_config = RiscvHartCHIConfig(
   64,
   [RiscvHartCHIRegion(
      RiscvPhysicalMemoryRegion(
-       AddressSet(0, (1 << example_flit.request_address_width) - 1),
+       AddressSet(0, (1 << 32) - 1),
        example_memory_attributes
      ),
      example_home

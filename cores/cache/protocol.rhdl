@@ -124,11 +124,21 @@ interface CacheBeatAccess(xlen :: XLen, Context :: DataType, beat_bytes :: Pow2I
     drained: Bool
     reservation_valid: Bool
 
-/* Specializes the speculative cache port; native-word clients need no width argument. */
-fun CachePipelineAccess(xlen :: XLen, beat_bytes :: Pow2Int = xlen.width / 8) :~ InterfaceType: CacheBeatPipelineAccess(xlen, beat_bytes)
+/* Preserves the named interface surface while defaulting speculative accesses to native words. */
+expr.macro
+| 'CachePipelineAccess($xlen, $beat_bytes)':
+    'CacheBeatPipelineAccess($xlen, $beat_bytes)'
+| 'CachePipelineAccess($xlen)':
+    'CacheBeatPipelineAccess($xlen, ($xlen).width / 8)'
+| 'CachePipelineAccess': 'CacheBeatPipelineAccess'
 
-/* Specializes the authorized port independently of XLEN and its opaque response context. */
-fun CacheAccess(xlen :: XLen, Context :: DataType, beat_bytes :: Pow2Int = xlen.width / 8) :~ InterfaceType: CacheBeatAccess(xlen, Context, beat_bytes)
+/* Preserves hierarchical authorized-port fields for native-word and explicit beat widths. */
+expr.macro
+| 'CacheAccess($xlen, $Context, $beat_bytes)':
+    'CacheBeatAccess($xlen, $Context, $beat_bytes)'
+| 'CacheAccess($xlen, $Context)':
+    'CacheBeatAccess($xlen, $Context, ($xlen).width / 8)'
+| 'CacheAccess': 'CacheBeatAccess'
 
 export:
   CachePipelineBeatReq

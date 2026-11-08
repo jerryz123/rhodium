@@ -6,7 +6,7 @@ int main() {
     reset = 1;
     command = 0;
     priority = 1;
-    select = 0;
+    ports::select = 0;
     tick_model();
     CHECK(held_bits == 0);
     reset = 0;
@@ -15,7 +15,7 @@ int main() {
         for (unsigned choose = 0; choose < 2; ++choose) {
           command = code;
           priority = 1u << lane;
-          select = choose;
+          ports::select = choose;
           eval();
           CHECK(selected == (choose ? 8 : 3));
           CHECK(selected_load == choose);
