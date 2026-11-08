@@ -331,10 +331,8 @@ independently to the two operands. Element width is retained with the products.
 The guaranteed timing is:
 
 ```text
-Valid operands -> partial products -> carry-save reduction -> final products
-                                                            | three cycles
-                                   result processing -> registered result
-                                                        | four cycles total
+Valid operands -> partial products -> subtotals -> full products -> processed result
+                    cycle 1           cycle 2        cycle 3             cycle 4
 ```
 
 There is no backpressure, operand-dependent timing, or completion storage.
@@ -384,10 +382,11 @@ multiplier instead consumes every asserted `Valid` request and produces the
 corresponding `Valid` response exactly three cycles later, independently of
 operand values and signedness. The first stage multiplies the operand halves
 and compresses two groups in parallel: the low and cross products, and the
-upper product with its sign corrections. The second stage combines the groups
-into a carry-save pair; the third adds the pair. It has no
-readiness path: a caller must reserve its write cycle or elastic return capacity
-before launch.
+upper product with its sign corrections. The second stage reduces those
+terms to two words and adds them in independent chunks of up to 16 bits.
+The third stage propagates carries between those subtotals to produce the
+full product. There is no readiness path: a caller must reserve its write
+cycle or elastic return capacity before launch.
 
 ## Map RISC-V instructions onto components
 

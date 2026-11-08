@@ -109,7 +109,7 @@ sync_circuit IterativeMultiplier(width :: PosInt):
     response_valid <== Bool(#false)
 
 /*
- * Two feed-forward registers hold the compressed partial products and their reduction.
+ * Two feed-forward registers hold the compressed partial products and their subtotals.
  * The final sum is combinational so the caller can choose what its third register
  * retains. Signed corrections affect only the upper product half:
  * a*b - negative(a)*(b<<width) - negative(b)*(a<<width), modulo 2^(2*width).
@@ -122,6 +122,8 @@ fun pipelined_product_sum(width :: Pow2Int, request :: Endpoint) :: Endpoint:
   def product_width = width * 2
   def low_sum_width = width + half_width
   def low_carry_start = half_width + 1
+  def chunk_width = math.min(16, product_width)
+  def chunk_count = product_width / chunk_width
 
 
   /* Compress the low/cross products and the sign-corrected upper terms in parallel.
@@ -151,16 +153,31 @@ fun pipelined_product_sum(width :: Pow2Int, request :: Endpoint) :: Endpoint:
   def multiplied = partials |> valid_pipe(1)
 
 
-  /* Reduce the aligned terms to two full-product words without propagating carries. */
+  /* Add each 16-bit column group independently. Its carry belongs to the next group. */
 
-  def reductions = multiplied |> map_valid(operation):
+  def subtotals = multiplied |> map_valid(operation):
     def low_carry = operation.low_carry.zext(product_width) << low_carry_start
     def combined = multiplier_carry_save(product_width, operation.low_sum.zext(product_width), low_carry, operation.upper.sum ++ Bits(width)(0))
     def folded = multiplier_carry_save(product_width, combined.sum, combined.carry, operation.upper.carry ++ Bits(width)(0))
-    multiplier_carry_save(product_width, folded.sum, folded.carry, operation.correction_carry.zext(product_width) << width)
+    def pair = multiplier_carry_save(product_width, folded.sum, folded.carry, operation.correction_carry.zext(product_width) << width)
+    def chunks = for List (chunk in 0..chunk_count):
+      def lo = chunk * chunk_width
+      def hi = lo + chunk_width
+      pair.sum[lo..hi] +& pair.carry[lo..hi]
 
-  def reduced = reductions |> valid_pipe(1)
-  reduced |> map_valid(operation => operation.sum + operation.carry)
+    vec(chunks)
+
+  def registered = subtotals |> valid_pipe(1)
+
+
+  /* Propagate the boundary carries; overflow above the double-width product is discarded. */
+
+  registered |> map_valid(parts):
+    def sums = vec(for List (chunk in 0..chunk_count): parts[chunk][0..chunk_width])
+    def carries = for List (chunk in 0..chunk_count):
+      if chunk == 0 | Bits(chunk_width)(0) | parts[chunk - 1][chunk_width].zext(chunk_width)
+
+    sums.as_bits() + vec(carries).as_bits()
 
 /* Delivers one double-width product per cycle after three registered stages. */
 sync_circuit PipelinedMultiplier(width :: Pow2Int):

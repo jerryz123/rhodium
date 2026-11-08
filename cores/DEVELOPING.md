@@ -313,8 +313,11 @@ work in flight. The first register holds two carry-save pairs and the two-bit
 sign correction count. For the low/cross pair, the sum starts at bit zero and
 the carry starts at bit `width / 2 + 1`. Store only their occupied columns,
 including the top carry, and restore their alignment in the second stage.
-The second register holds the full-width carry-save pair for the final addition.
-Keep the latency independent of operand values.
+Before the second register, add the two remaining words in independent
+16-bit chunks (one smaller chunk for narrow products). Keep each subtotal's
+low bits and the carry into the next chunk. The last stage propagates those
+boundary carries across the full product; only overflow beyond twice the
+operand width can be discarded. Keep the latency independent of operand values.
 
 `iterative-divider` exhausts all eight-bit operand pairs in both signed modes,
 checking the quotient, remainder, and exact response cycle. Keep the trial
