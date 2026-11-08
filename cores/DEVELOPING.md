@@ -309,11 +309,10 @@ is owned by the matching backend fixtures:
 Small widths exhaust every operand/signedness pair; RV32/RV64 combine signed
 extremes, half-width carry boundaries, and seeded random products. Its independent
 full-width oracle checks every valid cycle, including bubbles and reset with
-work in flight. The first register holds two carry-save pairs and the two-bit
-sign correction count. For the low/cross pair, the sum starts at bit zero and
-the carry starts at bit `width / 2 + 1`. Store only their occupied columns,
-including the top carry, and restore their alignment in the second stage.
-Before the second register, add the two remaining words in independent
+work in flight. Before the first register, merge the low and cross products,
+upper product, and both sign corrections into one carry-save pair. The carry
+word is already shifted: adding it to the sum gives the full double-width
+product modulo `2^(2*width)`. The second stage adds these words in independent
 16-bit chunks (one smaller chunk for narrow products). Keep each subtotal's
 low bits and the carry into the next chunk. The last stage propagates those
 boundary carries across the full product; only overflow beyond twice the
