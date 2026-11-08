@@ -1,0 +1,248 @@
+#lang rhodium
+/* Shares fixed-cycle cache access, split execution, and physical ownership across identity and paged translation. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "bundles.rhdl" open
+  "memory-translation.rhdl" open
+  "memory-transport.rhdl" open
+  "../cache/access.rhdl" open
+  "../cache/protocol.rhdl" open
+  "../cache/operation.rhdl" open
+  "../cache-prefetch.rhdl" open
+  "../chi-hart.rhdl" open
+  "../load-store.rhdl" open
+  "../misaligned-access.rhdl" open
+  "../cosim-source.rhm".describe_cosim_signals
+  lib("rhodium/core/ir.rhm").Module
+  lib("rhodium/frontend/foundation.rhm").CircuitDefinition
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/rtl/trap.rhdl").ExceptionCause
+  lib("riscv/rtl/hypervisor.rhdl") open
+  lib("riscv/rtl/pointer-masking.rhdl").apply_pointer_mask
+  lib("riscv/rtl/svpbmt.rhdl") open
+  lib("riscv/rtl/zihintntl.rhdl") open
+  lib("cores/mmu/translation.rhdl").RiscvTranslationFault
+  lib("cores/mmu/vector.rhdl") open
+  lib("flow/main.rhdl") open
+  lib("rhodium/std/bits.rhdl") open
+
+/* Preserves one EX/MEM context stage and WB-only mutation with an unbuffered translation service.
+   Paged specialization adds the walker client and retains its existing atomic PMA policy;
+   accepted owners never observe invalidation. */
+sync_circuit SuperscalarMemoryAdapter(xlen :: XLen, config :: RiscvHartCHIConfig, translation :: Module || CircuitDefinition, ~paged: paged :: Boolean):
+  input state: SuperscalarTranslationState(xlen)
+  input invalidate: Bool
+  input split_guest_access: RiscvGuestMemoryAccess
+  input(pipeline_vector, request_vector): Bool
+  interface vector_precheck(VectorPrecheck(), ~role: responder)
+  interface vector_fast(VectorFastCheck(xlen), ~role: responder)
+  interface prefetch(Valid(CachePrefetchReq(64)), ~role: consumer)
+  interface physical_prefetch(Valid(CachePrefetchReq(64)), ~role: producer)
+  interface instruction(SuperscalarInstructionTranslation(xlen), ~role: responder)
+  interface pipeline(SuperscalarPipelineAccess(xlen), ~role: responder)
+  interface memory(SuperscalarMemory(xlen, xlen.width), ~role: responder)
+  interface split(RiscvSplitAccess(xlen, Bool), ~role: responder)
+  interface pipeline_lookup(Valid(CachePipelineReq(xlen)), ~role: producer)
+  interface physical_pipeline(CachePipelineAccess(xlen), ~role: requester)
+  interface physical_memory(SuperscalarMemory(xlen, 64), ~role: requester)
+
+  def bytes = xlen.width / 8
+  inst resolve(translation)
+  resolve.state <== state
+  resolve.invalidate <== invalidate
+  resolve.pipeline_vector <== pipeline_vector
+  resolve.request_vector <== request_vector
+  vector_precheck <=> resolve.vector_precheck
+  vector_fast <=> resolve.vector_fast
+  instruction <=> resolve.instruction
+  prefetch |> resolve.prefetch
+  resolve.physical_prefetch |> physical_prefetch
+
+
+  /* Split ownership retains its architectural access class through fragment completion. */
+
+  inst misaligned(RiscvMisalignedEngine(xlen, Bool))
+  split.request |> misaligned.start
+  reg split_mode(RiscvGuestMemoryAccess)
+  when (split.request.fire()):
+    split_mode <== split_guest_access
+
+  def resolved :: SuperscalarAddressResolution(xlen) = resolve.result
+  def split_fault_address = apply_pointer_mask(xlen, misaligned.fault_address, resolved.split_mask)
+  misaligned.completion |> map_valid(result => result.updated(~fault_address: apply_pointer_mask(xlen, result.fault_address, resolved.split_mask))) |> split.response
+  def split_request = misaligned.request |> map_flow(fragment => SuperscalarMemoryReq(xlen, xlen.width)):
+    guest_access: if paged | split_mode | RiscvGuestMemoryAccess.Normal
+    address: fragment.address
+    access: fragment.access
+    atomic: fragment.atomic
+    width: fragment.width
+    data: fragment.data
+    mask: fragment.byte_mask
+    locality: fragment.locality
+    pbmt: PageMemoryType.PMA
+
+
+  /* EX indexes immediately; exactly one context register carries that token into MEM. */
+
+  /* Shapes an aligned native-word cache access without changing architectural size or store positioning. */
+  fun cache_request(request :: SuperscalarMemoryReq(xlen, xlen.width), address :: Bits(xlen.width)) :~ CachePipelineReq(xlen):
+    CachePipelineReq(xlen):
+      address: address.align_down(bytes)
+      byte_mask: request.mask
+      access: request.access
+      width: if xlen == XLen.X32 | MemoryWidth.Word | MemoryWidth.Double
+      unsigned: Bool(#true)
+      data: request.data
+
+  def Array(index, context) = pipeline.request |> fork_valid(2)
+  index |> map_valid(request => cache_request(request, request.address)) |> pipeline_lookup
+  def mem_request = context |> valid_pipe(1)
+  def mem :: SuperscalarMemoryReq(xlen, xlen.width) = mem_request.bits
+  def data_request :: SuperscalarMemoryReq(xlen, xlen.width) = priority_mux(~default: mem):
+    split_request.valid: split_request.bits
+    memory.request.valid: memory.request.bits
+
+  resolve.query <== SuperscalarTranslationQuery(xlen):
+    address: mux(split_request.valid, split_fault_address, data_request.address)
+    mem_address: mem.address
+    wb_address: memory.request.bits.address
+    access: data_request.access
+    guest_access: data_request.guest_access
+    split_access: split_mode
+    mem_valid: mem_request.valid
+    wb_valid: memory.request.valid
+    demand: split_request.valid ||| (memory.request.valid & !misaligned.busy)
+    split: split_request.valid
+    busy: misaligned.busy
+
+
+  /* MEM combines translation permission with physical attributes; a conflicting demand replays.
+     No speculative access allocates a response owner or changes architectural memory. */
+
+  def data_ok = resolved.known & (resolved.fault === RiscvTranslationFault.None)
+  def region = cache_access_region(XLen.X64, config.physical_map, resolved.address, data_request.width, data_request.access)
+  def attributes = resolve_memory_attributes(region, resolved.pbmt)
+  def cacheable = attributes.cacheable & !attributes.strongly_ordered & attributes.read_idempotent
+  def atomic_request = mem.access.is_one_of(CacheOperation.LoadReserved, CacheOperation.StoreConditional, CacheOperation.Atomic)
+  def cache_block = mem.access.is_cache_block()
+  def mem_misaligned = mem.access.is_one_of(CacheOperation.Load, CacheOperation.Store) & !mem.width.is_aligned(mem.address)
+  def writes = mem.access.store_fault_class()
+  // Retain Bare's existing atomic-service qualification independently of the ordinary fast-path restriction.
+  def atomic_service = (if paged | cacheable | region.cacheable) & region.readable
+  def permitted = (!resolved.execute_read ||| region.executable) & cache_access_permitted(region, mem.access, ~reads: !writes, ~writes: writes, ~atomic_service: atomic_service)
+  def busy = misaligned.busy ||| memory.request.valid ||| resolved.probe_busy
+  def speculative_ok = !busy & !mem_misaligned & data_ok & permitted & cacheable & !atomic_request & !cache_block & !physical_memory.ordered_busy
+  mem_request |> filter_valid(_request => speculative_ok) |> map_valid(request => cache_request(request, resolved.address[0..xlen.width])) |> physical_pipeline.request
+  def cache_outcome = mux_lookup(physical_pipeline.response.bits.outcome, ~default: SuperscalarCacheOutcome.Replay):
+    CachePipelineOutcome.Slow: SuperscalarCacheOutcome.Slow
+    CachePipelineOutcome.LoadHit: SuperscalarCacheOutcome.LoadHit
+    CachePipelineOutcome.StoreHit: SuperscalarCacheOutcome.StoreHit
+
+  def outcome = priority_mux(~default: mux(physical_pipeline.response.valid, cache_outcome, SuperscalarCacheOutcome.Replay)):
+    busy: SuperscalarCacheOutcome.Replay
+    mem_misaligned: SuperscalarCacheOutcome.Slow
+    !resolved.known: SuperscalarCacheOutcome.Slow
+    resolved.fault === RiscvTranslationFault.GuestPageFault: SuperscalarCacheOutcome.GuestPageFault
+    resolved.fault === RiscvTranslationFault.PageFault: SuperscalarCacheOutcome.PageFault
+    (resolved.fault =/= RiscvTranslationFault.None) ||| !permitted: SuperscalarCacheOutcome.AccessFault
+    !cacheable ||| atomic_request ||| cache_block: SuperscalarCacheOutcome.Slow
+
+  pipeline.response.valid <== mem_request.valid
+  pipeline.response.bits <== SuperscalarLookupResult(xlen):
+    guest: resolved.resolution.guest
+    outcome: outcome
+    data: physical_pipeline.response.bits.data
+
+  physical_pipeline.commit <== pipeline.commit & !misaligned.busy
+  pipeline.commit_ready <== physical_pipeline.commit_ready & !misaligned.busy
+
+
+  /* WB and split physical admission share an unflushed transport; a walker is an elaboration-time third client. */
+
+  inst transport(SuperscalarMemoryTransport(xlen, if paged | 3 | 2))
+  transport.physical <=> physical_memory
+  memory.request |> gate_flow(data_ok & !misaligned.busy & (!resolved.execute_read ||| region.executable)) |> map_flow(request => superscalar_physical_request(xlen, request, resolved.address, resolved.pbmt)) |> transport.request[0]
+  transport.response[0] |> memory.response
+
+  def fragment_address = resolved.address.align_down(bytes)
+  def fragment_region = config.physical_map.lookup(fragment_address, fragment_address +& Bits(64)(bytes - 1))
+  def fragment_attributes = resolve_memory_attributes(fragment_region, resolved.pbmt)
+  def fragment_normal_memory = fragment_attributes.cacheable & !fragment_attributes.strongly_ordered & fragment_attributes.read_idempotent
+  def fragment_access_permitted = mux(data_request.access.store_fault_class(), fragment_region.writable, fragment_region.readable)
+  def fragment_permitted = (!resolved.execute_read ||| fragment_region.executable) & fragment_region.mapped & fragment_normal_memory & fragment_access_permitted
+  split_request |> gate_flow(data_ok & fragment_permitted) |> map_flow(request => superscalar_physical_request(xlen, request, fragment_address, resolved.pbmt)) |> transport.request[1]
+  (transport.response[1] |> map_flow(data => PhysicalMemoryResp(xlen, Bool)):
+    data: data
+    context: Bool(#false)
+    access_fault: Bool(#false)
+  ) |> misaligned.physical_response
+
+  def core_execute_denied = resolved.execute_read & !region.executable
+  def core_local_fault = resolved.known & (!data_ok ||| core_execute_denied)
+  memory.fault.valid <== memory.request.valid & !misaligned.busy & (core_local_fault ||| transport.fault[0].valid)
+  def core_fault_cause = priority_mux(~default: transport.fault[0].bits.cause):
+    !data_ok: resolved.resolution.cause
+    core_execute_denied: ExceptionCause.LoadAccessFault
+
+  memory.fault.bits <== SuperscalarResolution(xlen):
+    guest: resolved.resolution.guest
+    disposition: SuperscalarDisposition.Fault
+    cause: core_fault_cause
+    value: memory.request.bits.address
+
+  misaligned.request_guest <== RiscvGuestException():
+    page_fault: resolved.fault === RiscvTranslationFault.GuestPageFault
+    details: resolved.resolution.guest
+
+  misaligned.request_fault <== split_request.valid & resolved.known & resolved.fault.is_one_of(RiscvTranslationFault.PageFault, RiscvTranslationFault.GuestPageFault)
+  def split_access_denied = (resolved.fault =/= RiscvTranslationFault.None) ||| !fragment_permitted ||| transport.fault[1].valid
+  misaligned.request_access_fault <== split_request.valid & resolved.known & !misaligned.request_fault & !misaligned.request_guest.page_fault & split_access_denied
+
+  if paged
+  | block:
+      def pte_region = config.physical_map.lookup(resolve.pte.request.bits.address, resolve.pte.request.bits.address +& Bits(64)(7))
+      def pte_attributes = resolve_memory_attributes(pte_region, resolve.pte.request.bits.pbmt)
+      def pte_normal_memory = pte_attributes.cacheable & !pte_attributes.strongly_ordered & pte_attributes.read_idempotent
+      def pte_permitted = pte_region.mapped & pte_normal_memory & pte_region.readable
+      transport.request[2].valid <== resolve.pte.request.valid & pte_permitted
+      transport.request[2].bits <== SuperscalarMemoryReq(xlen, 64):
+        guest_access: RiscvGuestMemoryAccess.Normal
+        address: resolve.pte.request.bits.address
+        access: CacheOperation.Load
+        atomic: dont_care(memory.request.bits.atomic.type)
+        width: MemoryWidth.Double
+        data: Bits(xlen.width)(0)
+        mask: Bits(bytes)(2 ** bytes - 1)
+        locality: RiscvMemoryLocality.Default
+        pbmt: resolve.pte.request.bits.pbmt
+
+      def pte_fault = (resolve.pte.request.valid & !pte_permitted) ||| transport.fault[2].valid
+      resolve.pte.request.ready <== transport.request[2].ready ||| pte_fault
+      resolve.pte.request_access_fault <== pte_fault
+      transport.response[2] |> to_valid() |> resolve.pte.response
+  | #void
+
+  memory.drained <== transport.drained & !misaligned.busy
+  memory.ordered_busy <== physical_memory.ordered_busy
+  memory.reservation_valid <== physical_memory.reservation_valid
+
+
+  /* Keep the existing passive MMU observation contract at the selected adapter instance. */
+
+  describe_cosim_signals({
+    "pipeline_valid": physical_pipeline.request.valid,
+    "pipeline_address": resolved.address,
+    "request_valid": transport.request[0].fire(),
+    "request_address": transport.request[0].bits.address,
+    "fragment_valid": transport.request[1].fire(),
+    "fragment_address": fragment_address,
+    "fragment_virtual": split_fault_address,
+    "fragment_mask": split_request.bits.mask,
+    "fragment_data": split_request.bits.data,
+    "fragment_response": transport.response[1].fire(),
+    "fragment_response_data": transport.response[1].bits
+  })
+
+export:
+  SuperscalarMemoryAdapter

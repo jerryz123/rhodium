@@ -67,6 +67,8 @@ sync_circuit SuperscalarMmuFixture(~bare: bare :: Boolean = #false):
   output physical_locality: RiscvMemoryLocality
   output physical_pbmt: PageMemoryType
   output response_ready: Bool
+  input block_response: Bool
+  output memory_drained: Bool
   output completed: Bool
   output completed_data: Bits(64)
   inst mmu(if bare | SuperscalarBareMemory(XLen.X64, test_fetch_chi) | SuperscalarMmu(test_fetch_chi, ~svnapot: #true))
@@ -144,7 +146,8 @@ sync_circuit SuperscalarMmuFixture(~bare: bare :: Boolean = #false):
   wb_ready <== mmu.memory.request.ready
   wb_fault <== mmu.memory.fault.valid
   wb_fault_bits <== mmu.memory.fault.bits
-  mmu.memory.response.ready <== Bool(#true)
+  mmu.memory.response.ready <== !block_response
+  memory_drained <== mmu.memory.drained
   completed <== mmu.memory.response.valid
   completed_data <== mmu.memory.response.bits
   mmu.physical_memory.request.ready <== physical_ready & !physical_fault

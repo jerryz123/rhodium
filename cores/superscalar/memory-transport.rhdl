@@ -1,0 +1,46 @@
+#lang rhodium
+/* Arbitrates resolved physical requests and retains each accepted response's client independently of translation. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "bundles.rhdl" open
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("flow/main.rhdl") open
+  lib("rhodium/std/bits.rhdl") open
+
+/* Pairs a returned native word with the client captured at physical acceptance. */
+bundle SuperscalarPhysicalReply(xlen :: XLen, clients :: PosInt):
+  data: Bits(xlen.width)
+  owner: Bits(index_width(clients))
+
+/* Gives lower client indices priority and atomically queues an owner with every physical transfer.
+   Admission faults follow the live grant; successful replies follow the unflushed eight-entry owner FIFO. */
+sync_circuit SuperscalarMemoryTransport(xlen :: XLen, clients :: PosInt):
+  interface request[clients](Decoupled(SuperscalarMemoryReq(xlen, 64)), ~role: consumer)
+  interface response[clients](Decoupled(Bits(xlen.width)), ~role: producer)
+  interface fault[clients](Valid(SuperscalarResolution(xlen)), ~role: producer)
+  interface physical(SuperscalarMemory(xlen, 64), ~role: requester)
+  output drained: Bool
+
+  inst requests(Arbiter(SuperscalarMemoryReq(xlen, 64), clients))
+  inst owners(Queue(Bits(index_width(clients)), 8))
+  request <=> requests.ingress
+  def Array(transaction, owner) = requests.egress |> atomic_fork(2)
+  transaction |> physical.request
+  owner |> map_flow(_request => requests.chosen) |> owners.ingress
+
+  def replies = Array(physical.response, owners.egress) |> zip_flow(data, owner):
+    SuperscalarPhysicalReply(xlen, clients):
+      data: data
+      owner: owner
+
+  def routed = replies |> demux_flow(clients, reply => reply.owner)
+  def faults = physical.fault |> fork_valid(clients)
+  for (client in 0..clients):
+    routed[client] |> map_flow(reply => reply.data) |> response[client]
+    faults[client] |> filter_valid(_fault => requests.chosen === Bits(index_width(clients))(client)) |> fault[client]
+
+  drained <== physical.drained & !owners.count.any()
+
+export:
+  SuperscalarMemoryTransport

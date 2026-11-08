@@ -55,10 +55,12 @@ VAs are XLEN, physical adapter requests are 64 bits. Build the physical request
 at the translation boundary with `superscalar_physical_request`; never widen VAs
 inside the pipeline merely to match CHI transport.
 
-`bare-memory.rhdl` implements the same EX/MEM/WB contract without translation
-storage. It owns PMA qualification and core/split response routing; accepted
-responses survive invalidation. `mmu.rhdl` remains the RV64 Sv39/guest adapter.
-The top selects one implementation from `profile.mmu_type`. Keep exact SoC
+`bare-memory.rhdl` and `mmu.rhdl` are factories for the same memory adapter,
+selecting identity or RV64 Sv39/guest translation at elaboration. The factories
+insert no wrapper hierarchy. `memory-adapter.rhdl` owns the single EX/MEM
+context register, physical attribute qualification, split execution, and fault
+projection. `memory-transport.rhdl` owns physical arbitration and accepted
+response routing. The top selects translation from `profile.mmu_type`. Keep exact SoC
 profile checks unchanged: `rv32int` additionally selects Zve32x/VLEN64,
 Zvbb/Zvkt and the preset's optional scalar/system guarantees. `rv32max` adds
 scalar F and Zve32f while retaining the same Bare platform and vector geometry.
@@ -451,7 +453,11 @@ WB authorization, and the two-port writeback policy stay local.
 | `long-execution.rhdl` | EX multiply reservations and WB owner validation, retained divider ownership |
 | `cache.rhdl` | Physical permissions, shared L1D adaptation, and ordered IOMSHR/uncached routing |
 | `instruction-memory.rhdl` | Fixed-cycle L1I/noncacheable outcomes, retained fetch replay, and cancellation |
-| `mmu.rhdl` | EX indexing, MEM translation, separate TLBs/shared walker, shared fast-certificate proof with local probe arbitration, WB miss priority, physical-response ownership |
+| `bare-memory.rhdl`, `mmu.rhdl` | Stable entry-point factories selecting identity or paged translation without RTL wrappers |
+| `memory-translation.rhdl` | Combinational query/result contract, including known/fault provenance, probe contention, and held split masking |
+| `memory-adapter.rhdl` | EX/MEM timing, physical PMA/PBMT qualification, split owner, committed requests, faults, and passive physical observations |
+| `memory-transport.rhdl` | Fixed-priority physical arbitration, atomic eight-entry owner capture, admission-fault routing, and ordered response dispatch |
+| `translation-identity.rhdl`, `translation-sv39.rhdl` | Identity versus TLB/walker resolution, vector proof services, and specialization-specific prefetch timing |
 | `fp.rhdl` | RR fixed-return bookings, EX arithmetic launch, WB authorization, FPR hazards and load/arithmetic write ports |
 | `vector.rhdl` | WB-authorized composition of shared admission/execution and the local LSU adapter |
 | `vector-memory.rhdl` | Adapts shared `../vector/memory-issue.rhdl` lookup issue to Superscalar decisions, precise split outcomes, and ordered raw-word extraction |
@@ -944,8 +950,33 @@ this cancellation because a cleared buffer can still be rejecting admission.
 
 The data adapter exposes the shared cache's `pipeline_lookup` (EX virtual index)
 and `CachePipelineAccess` (MEM physical resolution, following WB store commit).
-The MMU owns exactly one request-context register between these phases; do not
-put another register in the adapter or make EX admission depend on a TLB result.
+The memory adapter owns exactly one request-context register between these
+phases; do not duplicate it in a resolver or cache adapter, or make EX admission
+depend on a TLB result. The translation services are unbuffered at the query
+boundary. Their result carries a full physical address,
+known/fault status, PBMT, guest provenance, execute-read intent, and probe
+contention, not TLB leaves. Identity resolves immediately; paged translation
+retains its own pending walks and exact failed lookups.
+
+`memory-transport.rhdl` has two physical clients for Bare (core, split) and
+three for paged translation (core, split, PTE), in that priority order. Only
+physical acceptance enqueues an owner. Local PTE denial may consume the walker's
+offer with an admission fault but cannot enqueue a response owner. The transport
+has no invalidation input; cancellation changes translation publication, never
+an accepted reply's destination. Responses are joined to the owner FIFO and
+demultiplexed using Flow, preserving structural trace ancestry without a module
+summary contract.
+
+The adapter retains native-word fragment size and Bare's existing atomic PMA
+qualification. Paged translation retains HLVX execution checks and guest pointer
+interpretation. Vector windows and certificates reuse the shared `cores/mmu/`
+components in each resolver. Identity prefetch keeps one stage; Sv39 keeps two
+and arbitrates its nonallocating probe below fast vector certification. These
+are independent of the common transport's acceptance and response lifetimes.
+Bare also retains its original data-cacheability restriction for instruction
+hints; do not expand eligibility to instruction-only cached regions as part of
+an ownership refactor.
+
 At the coherent L1D boundary, place the native-word byte mask in the addressed
 row without shifting the store value. L1D scalar mode does that shift and
 returns the selected word in the low XLEN bits. The MMU, PTW, split engine,
@@ -1463,6 +1494,14 @@ nor release ownership. Preserve the per-GPR scoreboard and calendar, and keep
 accepted ownership live across scalar recovery until its scheduled write.
 
 ## Validation
+
+For memory-adapter changes, run `rv2wide-bare-memory` and `rv2wide-mmu` first.
+The Bare fixture checks exact EX/MEM timing, rejected physical offers, admission
+faults, backpressured replies surviving invalidation, split routing, and vector
+certificate epochs. The Sv39 fixture covers demand/walk arbitration, translation
+and physical fault provenance, invalidation, PBMT, and vector-window contention.
+Use `tests/xlen-test.rhm`, `rv2wide-rv32`, both wide-cache fixtures, and the
+production fetch/cache/vector fixtures when moving shared access or owner paths.
 
 Validate the real shared engine, adapters, and integrated core with:
 

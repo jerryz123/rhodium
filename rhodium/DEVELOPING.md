@@ -811,6 +811,14 @@ hardware methods for compact PC storage; it adds no Rhodium implementation impor
 Superscalar retained fetch/prediction/completion and
 arithmetic-owner storage, and the
 RV5Stage fetch queue and MMU admission consume it without changing package direction.
+
+The superscalar memory factories import `frontend/foundation.rhm` for their
+`CircuitDefinition` result. `cores/superscalar/memory-adapter.rhdl` uses public
+`core/ir.rhm` and foundation types for its elaboration-time translation circuit
+parameter; access timing and physical transport use Flow and `std/bits.rhdl`.
+Identity and Sv39 resolution remain processor-library consumers of public
+authoring APIs, with no compiler, backend, or simulator dependency.
+
 Shared `cores/bpred/protocol.rhdl` imports architectural XLEN; its generic
 width-selectable prediction representation is independent of the fixed core PC type.
 `cores/bpred/statistics.rhdl` imports the passive frontend statistics layer and

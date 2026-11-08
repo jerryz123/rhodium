@@ -1,0 +1,288 @@
+#lang rhodium
+/* Specializes superscalar address resolution for Sv39, guest translation, and retained walker failures. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../cache/prefetch.rhdl".cache_prefetch_physical
+  lib("cores/mmu/context.rhdl").riscv_translation_lookup
+  lib("riscv/rtl/hypervisor.rhdl") open
+  lib("riscv/rtl/pointer-masking.rhdl") open
+  "bundles.rhdl" open
+  "memory-translation.rhdl" open
+  "../cache/operation.rhdl" open
+  "../cache-prefetch.rhdl" open
+  "../chi-hart.rhdl" open
+  "../mmu/protocol.rhdl" open
+  "../mmu/translation.rhdl" open
+  "../mmu/tlb.rhdl" open
+  "../mmu/walker.rhdl" open
+  lib("riscv/isa/xlen.rhm") open
+  lib("riscv/isa/csr.rhm") open
+  lib("riscv/isa/sv39.rhm").Sv39Mode
+  lib("riscv/rtl/csr.rhdl") open
+  lib("riscv/rtl/privilege.rhdl") open
+  lib("riscv/rtl/sv39.rhdl") open
+  lib("riscv/rtl/svpbmt.rhdl") open
+  lib("flow/main.rhdl") open
+  lib("rhodium/std/bits.rhdl") open
+  lib("cores/mmu/vector.rhdl") open
+  lib("cores/mmu/vector-window.rhdl") open
+  lib("cores/mmu/vector-certificate.rhdl").VectorCertificate
+
+/* Retains an exact failed lookup and trap provenance, never successful mapping
+   addresses or leaf permissions. The original lookup also owns the access class. */
+bundle SuperscalarTranslationFailure():
+  request: RiscvTlbLookup()
+  kind: RiscvTranslationFault
+  details: RiscvGuestFault()
+
+  /* Projects a matched failure onto the common result path. Failed walks have
+     no physical destination; zero leaves cannot authorize memory or a window. */
+  method mapping(failure) :: RiscvTlbMapping():
+    RiscvTlbMapping():
+      virtual_address: failure.request.virtual_address
+      access: failure.request.access
+      physical_address: Bits(56)(0)
+      page_size: Sv39PageSize.Page4KiB
+      guest_physical_address: Bits(64)(0)
+      vs_leaf: literal(Sv39Pte(), 0)
+      g_leaf: literal(Sv39Pte(), 0)
+      fault: failure.kind
+      fault_details: failure.details
+
+/* Resolves RV64 instruction/data queries using TLBs, retained failures, and a shared walker.
+   Queries are combinational; only authorized misses and registered vector probes may allocate walks. */
+sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boolean = #false, ~hypervisor: hypervisor :: Boolean = #true):
+  input state: SuperscalarTranslationState(XLen.X64)
+  input invalidate: Bool
+  input query: SuperscalarTranslationQuery(XLen.X64)
+  input(pipeline_vector, request_vector): Bool
+  interface vector_precheck(VectorPrecheck(), ~role: responder)
+  interface vector_fast(VectorFastCheck(XLen.X64), ~role: responder)
+  interface prefetch(Valid(CachePrefetchReq(64)), ~role: consumer)
+  interface physical_prefetch(Valid(CachePrefetchReq(64)), ~role: producer)
+  interface instruction(SuperscalarInstructionTranslation(XLen.X64), ~role: responder)
+  interface pte(RiscvTranslationMemory(), ~role: requester)
+  output result: SuperscalarAddressResolution(XLen.X64)
+
+
+  /* Translation banks and pinned vector proof ownership. */
+
+  inst itlb(RiscvTranslationTlb(~host_root_epoch: !hypervisor))
+  inst dtlb(RiscvTranslationTlb(~host_root_epoch: !hypervisor))
+  inst walker(RiscvTranslationWalker(~svnapot: svnapot))
+  inst vector_window(VectorWindow(config.physical_map))
+  vector_precheck <=> vector_window.check
+  reg mem_vector(~init: Bool(#false))
+  mem_vector <== pipeline_vector
+  reg mem_physical(~init: Bool(#false))
+  mem_physical <== pipeline_vector & vector_fast.pipeline_physical
+  assert(!(invalidate & vector_window.owned), "superscalar_vector_window_drained_before_invalidation")
+
+
+  /* Selects the held split owner's pointer interpretation independently of its current address. */
+
+  def selected_mask :: PointerMaskControl() = mux(query.split_access === RiscvGuestMemoryAccess.Normal, state.pointer_masking, state.guest_pointer_masking)
+  def split_mask = selected_mask.updated(~mode: mux(query.split_access === RiscvGuestMemoryAccess.GuestExecuteRead, PointerMaskMode.Disabled, selected_mask.mode))
+
+
+  /* Architectural invalidation
+     Cancel the walker one cycle later; accepted physical response owners remain live. */
+
+  reg cancel(~init: Bool(#false))
+  cancel <== invalidate
+  walker.cancel <== cancel
+  itlb.invalidate_all <== invalidate
+  dtlb.invalidate_all <== invalidate
+
+
+  /* Effective data context and TLB request selection
+     Authorized split/WB demand takes the DTLB ahead of speculative MEM lookup. */
+
+  def guest_state :: RiscvHypervisorTranslation() = if hypervisor | state.guest | literal(RiscvHypervisorTranslation(), 0)
+  def data_privilege = effective_data_privilege(XLen.X64, state.privilege, state.mstatus)
+  def normal_data_guest = if !hypervisor | Bool(#false) | mux((state.privilege === PrivilegeMode.Machine) & csr_flag(state.mstatus, MstatusMPRV), csr_flag(state.mstatus, MstatusMPV) & (data_privilege =/= PrivilegeMode.Machine), guest_state.virtualized)
+
+  /* Captures both translation stages and their independent permission controls in each lookup owner. */
+  fun lookup(address :: Bits(64), access :: Sv39Access, privilege :: PrivilegeMode, guest :: Bool) :~ RiscvTlbLookup():
+    riscv_translation_lookup(address, access, privilege, (privilege =/= PrivilegeMode.Machine) & (csr_field(state.satp, Satp64Mode) === Bits(4)(Sv39Mode)), csr_field(state.satp, Satp64PPN), csr_flag(state.mstatus, MstatusSUM), csr_flag(state.mstatus, MstatusMXR), state.pbmte, guest, guest_state)
+
+  def instruction_lookup = lookup(instruction.request.bits, Sv39Access.Fetch, state.privilege, guest_state.virtualized)
+  def data_virtual_address = query.address
+  def data_demand = query.demand
+  def vector_probe = vector_window.translation.request.valid & !data_demand & !query.busy
+  def certified_physical = !query.split & !vector_probe & mux(query.wb_valid, request_vector & vector_fast.request_physical, query.mem_valid & mem_physical)
+  vector_window.addresses <== vec(query.mem_address, query.wb_address)
+  def window_hit = !query.split & !vector_probe & !certified_physical & mux(query.wb_valid, request_vector & vector_window.hits[1], mem_vector & vector_window.hits[0])
+  def window_address = mux(query.wb_valid, vector_window.physical_addresses[1], vector_window.physical_addresses[0])
+  def explicit_guest = Bool(hypervisor) & (query.guest_access =/= RiscvGuestMemoryAccess.Normal)
+  def execute_read = Bool(hypervisor) & (query.guest_access === RiscvGuestMemoryAccess.GuestExecuteRead)
+  def data_guest = explicit_guest ||| normal_data_guest
+  def data_access = priority_mux(~default: Sv39Access.Load):
+    query.access.is_cache_management(): Sv39Access.CacheManagement
+    query.access.store_fault_class(): Sv39Access.Store
+
+  def explicit_guest_privilege = mux(csr_flag(guest_state.hstatus, HstatusSPVP), PrivilegeMode.Supervisor, PrivilegeMode.User)
+  def selected_data_privilege = mux(explicit_guest, explicit_guest_privilege, data_privilege)
+  def normal_lookup = lookup(data_virtual_address, data_access, selected_data_privilege, data_guest).updated(~execute_read: execute_read)
+  def probe_request = vector_window.translation.request.bits
+  def probe_access = mux(probe_request.store, Sv39Access.Store, Sv39Access.Load)
+  def probe_lookup = lookup(probe_request.address, probe_access, data_privilege, normal_data_guest)
+  def fast_lookup = lookup(vector_fast.request.bits.first, mux(vector_fast.request.bits.store, Sv39Access.Store, Sv39Access.Load), data_privilege, normal_data_guest)
+  def data_lookup = mux(vector_probe, probe_lookup, normal_lookup)
+  itlb.lookup <== instruction_lookup
+  dtlb.lookup <== data_lookup
+  inst certificate(VectorCertificate(XLen.X64, config.physical_map))
+  vector_fast <=> certificate.check
+  certificate.invalidate <== invalidate
+  certificate.current <== lookup(Bits(64)(0), Sv39Access.Load, data_privilege, normal_data_guest)
+  // The independent probe certifies MEM while the demand port serves older work.
+  // Certification checks real A/D permissions; only optional data hints may drop.
+  certificate.translation.valid <== vector_fast.request.valid & dtlb.probe_hit
+  certificate.translation.bits <== riscv_host_result(dtlb.probe_translation).updated(~pbmt: dtlb.probe_pbmt)
+
+
+  /* Registered hints never contend with demand translation or allocate a walk.
+     A context change discards both staged forms, including the outgoing edge. */
+
+  reg prefetch_previous_state(SuperscalarTranslationState(XLen.X64), ~init: literal(SuperscalarTranslationState(XLen.X64), 0))
+  prefetch_previous_state <== state
+  def prefetch_flush = invalidate ||| (prefetch_previous_state.as_bits() =/= state.as_bits())
+  inst virtual_prefetch_pipe(ValidPipeAlwaysCapture(CachePrefetchReq(64), 1, ~flushable: #true))
+  inst physical_prefetch_pipe(ValidPipeAlwaysCapture(CachePrefetchReq(64), 1, ~flushable: #true))
+  virtual_prefetch_pipe.flush <== prefetch_flush
+  physical_prefetch_pipe.flush <== prefetch_flush
+  prefetch |> virtual_prefetch_pipe.ingress
+  def prefetch_request :: CachePrefetchReq(64) = virtual_prefetch_pipe.egress.bits
+  def prefetch_privilege = effective_data_privilege(XLen.X64, state.privilege, state.mstatus)
+  def prefetch_lookup = lookup(prefetch_request.address, Sv39Access.Load, prefetch_privilege, normal_data_guest)
+  itlb.probe <== prefetch_lookup
+  dtlb.probe <== mux(vector_fast.request.valid, fast_lookup, prefetch_lookup)
+  def instruction_prefetch = prefetch_request.operation === CachePrefetchOperation.Instruction
+  def prefetch_hit = mux(instruction_prefetch, itlb.probe_hit, dtlb.probe_hit)
+  def prefetch_fault = mux(instruction_prefetch, itlb.probe_fault, dtlb.probe_fault)
+  def prefetch_translated = normal_data_guest ||| (prefetch_privilege =/= PrivilegeMode.Machine) & (csr_field(state.satp, Satp64Mode) === Bits(4)(Sv39Mode))
+  def prefetch_address_valid = prefetch_translated ||| !prefetch_request.address[56..64].any()
+  def prefetch_address = mux(instruction_prefetch, itlb.probe_physical_address, dtlb.probe_physical_address).zext(64)
+  def prefetch_physical = cache_prefetch_physical(64, config.physical_map, prefetch_address, prefetch_request.operation, mux(instruction_prefetch, itlb.probe_pbmt, dtlb.probe_pbmt))
+  def prefetch_probe_available = instruction_prefetch ||| !vector_fast.request.valid
+  def prefetch_eligible = prefetch_probe_available & !prefetch_flush & prefetch_hit & !prefetch_fault & prefetch_address_valid & prefetch_physical.ordinary_memory & prefetch_physical.permitted
+  (virtual_prefetch_pipe.egress |> filter_valid(_request => prefetch_eligible) |> map_valid(request => request.updated(~address: prefetch_physical.address))) |> physical_prefetch_pipe.ingress
+  physical_prefetch_pipe.egress |> filter_valid(_request => !prefetch_flush) |> physical_prefetch
+
+
+  /* Faults are not TLB entries. Retain each port's exact failed request until
+     its replay observes it; context matching prevents reuse after CSR changes. */
+
+  reg instruction_fault_valid(~init: Bool(#false))
+  reg data_fault_valid(~init: Bool(#false))
+  reg instruction_fault(SuperscalarTranslationFailure())
+  reg data_fault(SuperscalarTranslationFailure())
+  def instruction_failed = instruction_fault_valid & (instruction_fault.request.as_bits() === instruction_lookup.as_bits())
+  def data_failed = data_fault_valid & (data_fault.request.as_bits() === data_lookup.as_bits())
+  def instruction_known = itlb.hit ||| instruction_failed
+  def data_known = dtlb.hit ||| data_failed ||| window_hit ||| certified_physical
+  def instruction_result = mux(instruction_failed, instruction_fault.mapping(), itlb.translation)
+  def translated_result = mux(data_failed, data_fault.mapping(), dtlb.translation)
+  def data_result = priority_mux(~default: translated_result):
+    certified_physical: translated_result.updated(~physical_address: data_virtual_address[0..56], ~fault: RiscvTranslationFault.None)
+    window_hit: translated_result.updated(~physical_address: window_address[0..56], ~fault: RiscvTranslationFault.None)
+
+  def data_ok = data_known & (data_result.fault === RiscvTranslationFault.None)
+  def data_guest_fault = data_result.fault_details.updated(~guest_virtual_address: data_guest)
+  def data_pbmt = mux(window_hit ||| certified_physical, PageMemoryType.PMA, riscv_host_result(data_result).pbmt)
+  vector_window.translation.request.ready <== vector_probe & data_known & !invalidate
+  vector_window.translation.response.valid <== vector_window.translation.request.fire()
+  vector_window.translation.response.bits <== riscv_host_result(data_result)
+  instruction.pbmt <== riscv_host_result(instruction_result).pbmt
+  instruction.address <== instruction_result.physical_address.zext(64)
+  def instruction_disposition = priority_mux(~default: SuperscalarDisposition.Continue):
+    !instruction_known: SuperscalarDisposition.Replay
+    instruction_result.fault =/= RiscvTranslationFault.None: SuperscalarDisposition.Fault
+
+  instruction.resolution <== SuperscalarResolution(XLen.X64):
+    guest: instruction_result.fault_details.updated(~guest_virtual_address: guest_state.virtualized)
+    disposition: instruction_disposition
+    cause: riscv_translation_fault_cause(instruction_result)
+    value: instruction.request.bits
+
+
+  /* Publishes physical attributes and exact faults without granting physical admission. */
+
+  result <== SuperscalarAddressResolution(XLen.X64):
+    known: data_known
+    address: data_result.physical_address.zext(64)
+    pbmt: data_pbmt
+    fault: data_result.fault
+    resolution:
+      SuperscalarResolution(XLen.X64):
+        guest: data_guest_fault
+        disposition: mux(data_result.fault === RiscvTranslationFault.None, SuperscalarDisposition.Continue, SuperscalarDisposition.Fault)
+        cause: riscv_translation_fault_cause(data_result)
+        value: query.address
+    execute_read: execute_read
+    probe_busy: vector_probe
+    split_mask: split_mask
+
+
+  /* Retained miss admission and TLB fills
+     An active walk completes first; pending authorized data wins the next walk admission. */
+
+  reg pending_data(~init: Bool(#false))
+  reg pending_lookup(RiscvTlbLookup())
+  reg walk_live(~init: Bool(#false))
+  reg walk_data(Bool)
+  reg walk_lookup(RiscvTlbLookup())
+  def data_miss = (data_demand ||| vector_probe) & !data_known
+  def same_active_data = walk_live & walk_data & (walk_lookup.as_bits() === data_lookup.as_bits())
+  def instruction_miss = instruction.request.valid & !instruction_known
+  def choose_data = pending_data ||| data_miss
+  walker.request.valid <== !walk_live & !cancel & !invalidate & (choose_data ||| instruction_miss)
+  def selected_data_walk = mux(pending_data, pending_lookup, data_lookup)
+  walker.request.bits <== mux(choose_data, selected_data_walk, instruction_lookup)
+  walker.completion.ready <== Bool(#true)
+  def fill = RiscvTlbFill():
+    request: walk_lookup
+    result: walker.completion.bits
+
+  def failure = SuperscalarTranslationFailure():
+    request: walk_lookup
+    kind: walker.completion.bits.fault
+    details: walker.completion.bits.fault_details
+
+  itlb.fill.valid <== walker.completion.valid & walk_live & !walk_data & !invalidate
+  dtlb.fill.valid <== walker.completion.valid & walk_live & walk_data & !invalidate
+  itlb.fill.bits <== fill
+  dtlb.fill.bits <== fill
+  when invalidate:
+    walk_live <== Bool(#false)
+  elsewhen (walker.request.fire()):
+    walk_live <== Bool(#true)
+    walk_data <== choose_data
+    walk_lookup <== walker.request.bits
+  elsewhen (walker.completion.valid):
+    walk_live <== Bool(#false)
+
+  when (invalidate ||| (walker.request.fire() & choose_data)):
+    pending_data <== Bool(#false)
+  elsewhen (data_miss & !same_active_data & !pending_data):
+    pending_data <== Bool(#true)
+    pending_lookup <== data_lookup
+
+  when invalidate:
+    instruction_fault_valid <== Bool(#false)
+  elsewhen (walker.completion.valid & walk_live & !walk_data):
+    instruction_fault_valid <== walker.completion.bits.fault =/= RiscvTranslationFault.None
+    instruction_fault <== failure
+
+  when invalidate:
+    data_fault_valid <== Bool(#false)
+  elsewhen (walker.completion.valid & walk_live & walk_data):
+    data_fault_valid <== walker.completion.bits.fault =/= RiscvTranslationFault.None
+    data_fault <== failure
+
+
+  walker.memory <=> pte
+
+export:
+  SuperscalarSv39Translation

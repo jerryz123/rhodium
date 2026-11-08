@@ -1,0 +1,43 @@
+#lang rhodium
+/* Defines unbuffered address-resolution queries between superscalar access plumbing and translation specializations. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "bundles.rhdl".SuperscalarResolution
+  "../cache/operation.rhdl".CacheOperation
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/rtl/hypervisor.rhdl") open
+  lib("riscv/rtl/pointer-masking.rhdl").PointerMaskControl
+  lib("riscv/rtl/svpbmt.rhdl").PageMemoryType
+  lib("cores/mmu/translation.rhdl").RiscvTranslationFault
+
+/* Names the selected lookup and independent live addresses without adding a stage or granting admission.
+   Demand is an authorized WB/split offer; speculative MEM and nonallocating probes remain distinct. */
+bundle SuperscalarTranslationQuery(xlen :: XLen):
+  address: Bits(xlen.width)
+  mem_address: Bits(xlen.width)
+  wb_address: Bits(xlen.width)
+  access: CacheOperation
+  guest_access: RiscvGuestMemoryAccess
+  split_access: RiscvGuestMemoryAccess
+  mem_valid: Bool
+  wb_valid: Bool
+  demand: Bool
+  split: Bool
+  busy: Bool
+
+/* Returns address/fault provenance only, never a TLB leaf or fabricated mapping for an identity lookup.
+   Probe contention may replay MEM; execute permission is a separate physical-map requirement for HLVX. */
+bundle SuperscalarAddressResolution(xlen :: XLen):
+  known: Bool
+  address: Bits(64)
+  pbmt: PageMemoryType
+  fault: RiscvTranslationFault
+  resolution: SuperscalarResolution(xlen)
+  execute_read: Bool
+  probe_busy: Bool
+  split_mask: PointerMaskControl()
+
+export:
+  SuperscalarTranslationQuery
+  SuperscalarAddressResolution
