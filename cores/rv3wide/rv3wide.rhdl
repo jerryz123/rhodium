@@ -13,7 +13,7 @@ import:
 
 /* Projects configuration without inserting an RTL wrapper or changing pipeline timing. */
 fun RV3Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~instruction_cache: instruction_cache :: CacheConfig = cache, ~profile: profile :: RV3WideConfig = RV3WideConfig(SuperscalarPipelineConfig(~instruction_cache: instruction_cache, ~data_cache: cache))) :: CircuitDefinition:
-  Superscalar(cache, ~chi: config, ~instruction_cache: instruction_cache, ~profile: profile.pipeline, ~issue: RV3WideIssue(profile.pipeline.xlen))
+  Superscalar(cache, ~chi: config, ~instruction_cache: instruction_cache, ~profile: profile.pipeline, ~issue: RV3WideIssue(profile.pipeline.xlen), ~data_beat_bytes: 16)
 
 export:
   RV3Wide

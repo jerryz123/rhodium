@@ -3,9 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "issue.rhdl".RV3WideIssue
+  "rv3wide.rhdl".RV3Wide
   "profile.rhm" open
-  "../superscalar/superscalar.rhdl".Superscalar
   "../chi-hart.rhdl" open
   lib("riscv/rtl/interrupt.rhdl").RiscvInterrupts
   lib("flow/main.rhdl") open
@@ -23,7 +22,7 @@ sync_circuit RV3WideHart(profile :: RV3WideConfig, ~reset_address: reset_address
   interface imem(CHIRNIChannels(config.flit), ~role: node)
   interface dmem(CHIRNChannels(config.flit), ~role: node)
   interface umem(CHIRNIChannels(config.flit), ~role: node)
-  inst core(Superscalar(profile.pipeline.data_cache, ~chi: config, ~instruction_cache: profile.pipeline.instruction_cache, ~profile: profile.pipeline, ~issue: RV3WideIssue(profile.pipeline.xlen)))
+  inst core(RV3Wide(profile.pipeline.data_cache, ~chi: config, ~instruction_cache: profile.pipeline.instruction_cache, ~profile: profile))
   core.instruction_node_id <== chi_identity.instruction_node_id
   core.data_node_id <== chi_identity.data_node_id
   core.uncached_node_id <== chi_identity.uncached_node_id

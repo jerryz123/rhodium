@@ -1,0 +1,16 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("riscv/isa/xlen.rhm").XLen
+  "../../cache.rhdl".SuperscalarL1D
+  "../cache-fixture.rhdl" open
+
+fun program(xlen):
+  elaborate(SuperscalarL1D(test_cache, ~chi: test_fetch_chi, ~xlen: xlen, ~beat_bytes: 16))
+
+def rv32 = program(XLen.X32)
+def rv64 = program(XLen.X64)
+export:
+  rv32
+  rv64

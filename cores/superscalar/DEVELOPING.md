@@ -942,6 +942,12 @@ The data adapter exposes the shared cache's `pipeline_lookup` (EX virtual index)
 and `CachePipelineAccess` (MEM physical resolution, following WB store commit).
 The MMU owns exactly one request-context register between these phases; do not
 put another register in the adapter or make EX admission depend on a TLB result.
+At the coherent L1D boundary, place the native-word byte mask in the addressed
+row without shifting the store value. L1D scalar mode does that shift and
+returns the selected word in the low XLEN bits. The MMU, PTW, split engine,
+and uncached transport do not use the SRAM row size for access alignment.
+Run `superscalar-wide-cache-rv32` and `superscalar-wide-cache-rv64` for changes
+to this conversion.
 WB data demand wins DTLB contention over MEM, whose token receives Replay.
 Only WB data misses enter the retained pending-walk slot. An instruction walk
 already in progress finishes first, and the pending WB lookup wins next admission.

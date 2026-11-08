@@ -29,7 +29,7 @@ import:
 /* Admits coherent RAM to L1D and exact-width device/noncacheable accesses to a committed IOMSHR.
    IO drains older cache work and blocks younger accesses through final response consumption.
    Accepted operations retain ordered, nonfaulting completion ownership through all redirects. */
-sync_circuit SuperscalarL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~service_queue_depth: service_queue_depth :: PosInt = 2, ~xlen: xlen :: XLen = XLen.X64):
+sync_circuit SuperscalarL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~service_queue_depth: service_queue_depth :: PosInt = 2, ~xlen: xlen :: XLen = XLen.X64, ~beat_bytes: beat_bytes :: Pow2Int = xlen.width / 8):
   def bytes = xlen.width / 8
   input node_id: Bits(config.flit.node_id_width)
   input uncached_node_id: Bits(config.flit.node_id_width)
@@ -45,7 +45,7 @@ sync_circuit SuperscalarL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHICo
   /* Coherent storage and ordered uncached transport.
      Data and fetch share transport, but accepted data drain excludes the younger fetch owner. */
 
-  inst storage(L1DCache(xlen, cache, ~chi: config, ~context: Bool, ~service_queue_depth: service_queue_depth))
+  inst storage(L1DCache(xlen, cache, ~chi: config, ~context: Bool, ~service_queue_depth: service_queue_depth, ~beat_bytes: beat_bytes))
   storage.node_id <== node_id
   chi <=> storage.chi
   inst io(IOMSHR(XLen.X64, Bits(3)))
@@ -117,9 +117,32 @@ sync_circuit SuperscalarL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHICo
      The MMU owns translation/PMA checks. EX indexing cannot depend on a TLB hit;
      the physical tag arrives alongside the following SRAM result. */
 
-  pipeline_lookup |> storage.pipeline_lookup
-  pipeline.request |> filter_valid(_request => !ordered_busy) |> storage.pipeline.request
-  storage.pipeline.response |> pipeline.response
+  /* Move a native-word-relative mask into its row lanes. The inbound mask already
+     includes the byte offset within the word (also for AMOs and split fragments). */
+  fun row_mask(address :: Bits(xlen.width), mask :: Bits(bytes)) :~ Bits(beat_bytes):
+    if beat_bytes == bytes | mask | mask.zext(beat_bytes) << address.align_down(bytes)[0..alignment_bits(beat_bytes)]
+
+  /* The cache's scalar mode positions the data and returns the addressed XLEN word.
+     Do not row-align the address or shift data a second time at this boundary. */
+  fun pipeline_beat(request :: CachePipelineReq(xlen)) :~ CachePipelineBeatReq(xlen, beat_bytes):
+    if beat_bytes == bytes
+    | request
+    | CachePipelineBeatReq(xlen, beat_bytes):
+        raw_beat: Bool(#false)
+        address: request.address
+        width: request.width
+        access: request.access
+        unsigned: request.unsigned
+        data: request.data.zext(beat_bytes * 8)
+        byte_mask: row_mask(request.address, request.byte_mask)
+
+  pipeline_lookup |> map_valid(request => pipeline_beat(request)) |> storage.pipeline_lookup
+  pipeline.request |> filter_valid(_request => !ordered_busy) |> map_valid(request => pipeline_beat(request)) |> storage.pipeline.request
+  (storage.pipeline.response |> map_valid(result => CachePipelineResult(xlen)):
+     outcome: result.outcome
+     reason: result.reason
+     data: result.data[0..xlen.width]
+  ) |> pipeline.response
   storage.pipeline.commit <== pipeline.commit & !ordered_busy
   pipeline.commit_ready <== storage.pipeline.commit_ready & !ordered_busy
 
@@ -139,16 +162,16 @@ sync_circuit SuperscalarL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHICo
   def Array(authorized, authorized_index) = cached |> gate_flow(!ordered_busy) |> atomic_fork(2)
   authorized_index |> to_valid() |> map_valid(request => mux(atomic_request, request.address[0..xlen.width], request.address[0..xlen.width].align_down(bytes))) |> storage.virtual_lookup
   (
-    authorized |> map_flow(request => PhysicalMemoryReq(xlen, Bool)):
-      byte_mask: request.mask
-      address: mux(atomic_request, request.address[0..xlen.width], request.address[0..xlen.width].align_down(bytes))
-      access: request.access
-      atomic: request.atomic
-      width: mux(atomic_request, request.width, if xlen == XLen.X32 | MemoryWidth.Word | MemoryWidth.Double)
-      unsigned: !atomic_request
-      data: request.data
-      context: Bool(#false)
-      locality: request.locality
+    authorized |> map_flow(payload):
+      def native = payload.into(SuperscalarMemoryReq(xlen, 64))
+      def address = native.address[0..xlen.width]
+      // Zero initializes raw_beat (when present) and the unused completion context.
+      def scalar :: PhysicalMemoryBeatReq(xlen, Bool, beat_bytes) = literal(PhysicalMemoryBeatReq(xlen, Bool, beat_bytes), 0)
+      scalar.updated(
+        ~address: mux(atomic_request, address, address.align_down(bytes)), ~byte_mask: row_mask(address, native.mask),
+        ~width: mux(atomic_request, native.width, if xlen == XLen.X32 | MemoryWidth.Word | MemoryWidth.Double), ~unsigned: !atomic_request,
+        ~data: native.data.zext(beat_bytes * 8), ~access: native.access, ~atomic: native.atomic, ~locality: native.locality
+      )
   ) |> storage.core.request
 
   (
@@ -180,7 +203,7 @@ sync_circuit SuperscalarL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHICo
 
   Array(
     uncached_management.egress,
-    storage.core.response |> map_flow(response => response.data),
+    storage.core.response |> map_flow(response => response.data[0..xlen.width]),
     io.core.response |> map_flow(response => response.data[0..xlen.width] << (response.context ++ Bits(3)(0)))
   ) |> arbiter() |> memory.response
   memory.drained <== storage.core.drained & io.core.drained & !uncached_management.egress.valid & !local_management.fire()

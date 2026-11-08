@@ -3,6 +3,8 @@
 import:
   lib("cores/rv2wide/issue.rhdl").RV2WideIssue
   lib("cores/rv3wide/issue.rhdl").RV3WideIssue
+  lib("cores/rv3wide/hart.rhdl").RV3WideHart
+  lib("cores/rv3wide/profile.rhm").RV3WideConfig
   "../issue.rhdl".superscalar_issue_width
   lib("riscv/rtl/trap.rhdl").ExceptionCause
   lib("cores/pc.rhdl").compact_pc_width
@@ -18,6 +20,9 @@ import:
 fun child(parent, name):
   parent.operations.find(fun (op): op.opcode == "rtl.instance" && op.attribute("name") == name).attribute("module")
 
+fun cache_payload_bits(port):
+  port.type.field("request").type.field("bits").type.field("data").type.width
+
 for (xlen in [XLen.X32, XLen.X64]):
   def two_issue = compile_program(elaborate(RV2WideIssue(xlen)), rtl_target).report.design.modules.find(fun (module_def): module_def.name == "RV2WideIssue")
   def three_issue = compile_program(elaborate(RV3WideIssue(xlen)), rtl_target).report.design.modules.find(fun (module_def): module_def.name == "RV3WideIssue")
@@ -30,6 +35,13 @@ for (xlen in [XLen.X32, XLen.X64]):
   def profile = SuperscalarPipelineConfig(~xlen: xlen, ~mmu_type: RiscvMmuType.Bare, ~instruction_cache: test_cache, ~data_cache: test_cache, ~ssnpm: xlen == XLen.X64, ~supm: xlen == XLen.X64, ~btb_entries: 0, ~ras_entries: 0, ~bht: #false)
   def design = compile_program(elaborate(Superscalar(test_cache, ~chi: test_fetch_chi, ~profile: profile, ~issue: RV2WideIssue(profile.xlen))), rtl_target).report.design
   def core = design.modules.find(fun (module_def): module_def.name == "Superscalar")
+  def hart_design = compile_program(elaborate(RV3WideHart(RV3WideConfig(profile), ~reset_address: 0, ~chi: test_fetch_chi)), rtl_target).report.design
+  def hart = hart_design.modules.find(fun (module_def): module_def.name == "RV3WideHart")
+  def wide_adapter = child(child(hart, "core"), "data")
+  check:
+    cache_payload_bits(child(child(core, "data"), "storage").find_input("core_in")) ~is xlen.width
+    cache_payload_bits(wide_adapter.find_input("memory_in")) ~is xlen.width
+    cache_payload_bits(child(wide_adapter, "storage").find_input("core_in")) ~is 128
   def memory = design.modules.find(fun (module_def): module_def.name == "SuperscalarBareMemory")
   def execution = design.modules.find(fun (module_def): module_def.name == "SuperscalarCore")
   def retired = core.find_output("retired_0_out").type.field("bits").type

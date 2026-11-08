@@ -44,6 +44,10 @@ same contained pipeline config; there is still only one execution implementation
 
 Fetch remains eight bytes per cycle, issue/retirement support three lanes, and the
 GPR file is 4R3W. Pipeline payloads come from `cores/superscalar/bundles.rhdl`.
+RV3Wide's coherent L1D reads a 128-bit row per way, for both RV32 and RV64.
+The LSU still issues one native word per request; a wider row does not issue
+two scalar loads together. Page-table reads, misaligned fragments, and
+device transactions keep their existing sizes.
 There is no backend lane-count parameter. `issue.rhdl` exports
 `RV3WideIssue(xlen)`, a three-candidate scheduling policy with bounded read-path
 borrowing and fixed per-lane write ports. The factory supplies it to the shared

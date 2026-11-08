@@ -23,12 +23,13 @@ import:
   lib("riscv/isa/xlen.rhm") open
   lib("riscv/rtl/interrupt.rhdl").RiscvInterrupts
   lib("flow/main.rhdl") open
+  lib("rhodium/std/bits.rhdl").Pow2Int
   lib("chi/protocol/channels.rhdl") open
 
 /* Starts from a physical PC and reports ordered retirement and architectural redirects.
    Faults enter the programmed trap vector; only reset permits a new start pulse.
    Distinct instruction, data, and uncached identities separate retained transactions. */
-sync_circuit Superscalar(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~issue: issue :: Module || CircuitDefinition, ~instruction_cache: instruction_cache :: CacheConfig = cache, ~profile: profile :: SuperscalarPipelineConfig = SuperscalarPipelineConfig(~instruction_cache: instruction_cache, ~data_cache: cache)):
+sync_circuit Superscalar(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~issue: issue :: Module || CircuitDefinition, ~instruction_cache: instruction_cache :: CacheConfig = cache, ~profile: profile :: SuperscalarPipelineConfig = SuperscalarPipelineConfig(~instruction_cache: instruction_cache, ~data_cache: cache), ~data_beat_bytes: data_beat_bytes :: Pow2Int = profile.xlen.width / 8):
   def xlen = profile.xlen
   def hypervisor = profile.hypervisor
   def issue_width = superscalar_issue_width(xlen, issue)
@@ -64,7 +65,7 @@ sync_circuit Superscalar(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfi
   sleeping <== core.sleeping
   inst frontend(SuperscalarFrontend(config, profile, ~group_width: issue_width))
   inst instruction(L1ICache(XLen.X64, instruction_cache, ~chi: config, ~fetch_bits: 64))
-  inst data(SuperscalarL1D(cache, ~chi: config, ~xlen: xlen))
+  inst data(SuperscalarL1D(cache, ~chi: config, ~xlen: xlen, ~beat_bytes: data_beat_bytes))
   inst mmu(if profile.mmu_type == RiscvMmuType.Bare | SuperscalarBareMemory(xlen, config) | SuperscalarMmu(config, ~svnapot: profile.svnapot, ~hypervisor: profile.hypervisor))
   describe_cosim_context(core, {"mmu": mmu})
 

@@ -17,7 +17,8 @@ int ireads = 0, dreads = 0, acks = 0, replay_count = 0, branch_count = 0,
     faults = 0, phase = 0;
 int pbmt_kind = 0, pbmt_fetches = 0, pbmt_loads = 0, pbmt_stores = 0;
 bool svinval_remapped = 0;
-int wrong_path_reads = 0, detached_refills = 0, completions_seen = 0;
+int wrong_path_reads = 0, completions_seen = 0;
+bool detached_wrong_path = false;
 int reset_canceled_refills = 0;
 int predicted_branches = 0, predicted_conditional = 0, predicted_straddles = 0;
 int compressed_retired = 0, straddled_retired = 0, compressed_dual_run = 0;
@@ -696,6 +697,8 @@ int main() {
       insn(p, addi(0, 0, 0));
     for (int b = 2048; b < 4092; b++)
       backing[b] = ((b)&low_mask(8));
+    for (unsigned b = 0; b < 8; ++b)
+      backing[2176 + b] = UINT64_C(316) >> (8 * b);
     for (int b = 0; b < 4096; b++)
       model_bytes[b] = backing[b];
     for (int r = 0; r < 32; r++)
@@ -721,7 +724,9 @@ int main() {
     insn(148, (field(UINT64_C(8), 12, 20) | field(UINT64_C(1), 5, 15) |
                field(UINT64_C(3), 3, 12) | field(UINT64_C(20), 5, 7) |
                field(UINT64_C(3), 7, 0)));
-    insn(184, addi(5, 0, 316));
+    // A cold load produces the JALR target. Fetch can request the fallthrough
+    // while JALR waits, regardless of how many SRAM rows install a data line.
+    insn(184, load(5, 1, 128, 3));
     insn(
         188,
         (field(UINT64_C(0), 12, 20) | field(UINT64_C(5), 5, 15) |
@@ -747,7 +752,7 @@ int main() {
           branch_count >= 3);
     CHECK(predicted_branches == 0);
 
-    CHECK(wrong_path_reads > 0 && detached_refills > 0);
+    CHECK(wrong_path_reads > 0 && detached_wrong_path);
     phase = 1;
     launch(512, 1, 512); // accepted CHI error, not illegal-instruction decoding
     phase = 2;
@@ -1707,7 +1712,11 @@ void drive() {
     instruction_chi_in = {};
     instruction_chi_in.preq.pready = !iactive && cycles % 5 != 0;
     instruction_chi_in.prsp.prequester.pready = cycles % 4 != 0;
-    if (iactive && cycles >= idue) {
+    // Once the target load has issued, deliver the wrong-path error across
+    // the redirect. Earlier refills must still drain if an older load replays.
+    const bool hold_error = phase == 0 && drequest.paddress == 2176 &&
+                            irequest.paddress == 192 && ipacket == 3 && !detached_wrong_path;
+    if (iactive && cycles >= idue && !hold_error) {
       instruction_chi_in.pdat.presponse.pvalid = 1;
       instruction_chi_in.pdat.presponse.pbits.popcode = UINT64_C(4);
       instruction_chi_in.pdat.presponse.pbits.psrc_uid = UINT64_C(1);
@@ -1763,8 +1772,13 @@ void drive() {
 void observe() {
   if (!reset) {
     defer(cycles, cycles + 1);
-    if (cycles > 60000)
-      fail(1, "timeout phase=%0d pc=%h", phase, reference_pc);
+    if (cycles > 60000) {
+      std::cerr << "timeout phase=" << phase << " pc=" << std::hex << reference_pc
+                << " iaddr=" << irequest.paddress << " daddr=" << drequest.paddress
+                << std::dec << " wrong-path reads=" << wrong_path_reads
+                << " detached=" << detached_wrong_path << '\n';
+      fail(1, "fetch fixture timed out");
+    }
     if (retired(0).pvalid && retired(1).pvalid) {
       dual_run++;
       if (dual_run > longest_dual)
@@ -1812,8 +1826,8 @@ void observe() {
       case 0: {
         {
           branch_count++;
-          if (iactive)
-            detached_refills++;
+          if (iactive && irequest.paddress == 192)
+            detached_wrong_path = true;
         }
       } break;
       case 2: {

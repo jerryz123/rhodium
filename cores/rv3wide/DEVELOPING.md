@@ -11,8 +11,9 @@ contains a `SuperscalarPipelineConfig` in `pipeline`; its
 architectural/CSR descriptions, direct core factories, hart, and UDB must use
 that same value. Shared parameter defaults and validation belong in
 `superscalar/profile.rhm`, not duplicated constructors or forwarding fields here.
-The hart independently owns reset/start and CHI wiring and supplies
-`RV3WideIssue(xlen)` through `~issue`. `issue.rhdl` owns the three-candidate
+The hart independently owns reset/start and CHI wiring. Instantiate the
+`RV3Wide` factory there: it selects both `RV3WideIssue(xlen)` and the 16-byte
+coherent data port so the standalone core and SoC do not diverge. `issue.rhdl` owns the three-candidate
 prefix, bounded read borrowing, and last-lane completion reservations. Shared contracts
 and predicates remain under superscalar; neither family imports this policy.
 Do not copy decode or create an independent pipeline. Shared execution derives

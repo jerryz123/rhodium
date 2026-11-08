@@ -232,6 +232,8 @@ rv2wide-core-fp-rv32	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-
 rv2wide-core-fp-late	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-core-fp-late.rhm	program	cores/superscalar/tests/rsim/rv2wide-core-fp-late.cpp
 rv2wide-core-fp-late-rv32	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-core-fp-late.rhm	rv32_program	cores/superscalar/tests/rsim/rv2wide-core-fp-late.cpp
 rv2wide-cache	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-cache.rhm	program	cores/superscalar/tests/rsim/rv2wide-cache.cpp
+superscalar-wide-cache-rv32	cores-components	cores/superscalar/tests/rsim/emit-wide-cache.rhm	rv32	cores/superscalar/tests/rsim/wide-cache.cpp
+superscalar-wide-cache-rv64	cores-components	cores/superscalar/tests/rsim/emit-wide-cache.rhm	rv64	cores/superscalar/tests/rsim/wide-cache.cpp
 rv2wide-fetch-disabled	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-fetch-disabled.rhm	program	cores/superscalar/tests/rsim/rv2wide-fetch-disabled.cpp
 rv2wide-assembly-prediction	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-assembly-prediction.rhm	program	cores/superscalar/tests/rsim/rv2wide-assembly-prediction.cpp
 rv2wide-assembly-prediction-h	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-assembly-prediction.rhm	guest_program	cores/superscalar/tests/rsim/rv2wide-assembly-prediction-h.cpp
