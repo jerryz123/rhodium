@@ -43,7 +43,7 @@ contract without allocating predictor state.
 
 | File | Responsibility |
 |---|---|
-| `protocol.rhdl` | Target/direction predictions, saved-index training, and RAS event payloads |
+| `protocol.rhdl` | Target/direction predictions, shared next-PC accuracy status, saved-index training, and RAS event payloads |
 | `statistics.rhdl` | Pure failure classification and passive count declarations; callers qualify the winning recovery |
 | `btb.rhdl` | Associative low-address entries, shared upper tags, local counters, discovery, and replacement |
 | `counter-table.rhdl` | Single-write-port banked counter storage and reset-only row sweep shared by the direction predictors |

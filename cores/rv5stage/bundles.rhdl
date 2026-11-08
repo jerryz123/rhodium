@@ -57,12 +57,6 @@ hardware_enum RV5StageCompletionSource:
   Divide
   FpInteger
 
-/* Compares the effective frontend next PC with the resolved control-flow target. */
-hardware_enum RV5StageBranchPrediction:
-  NotBranch
-  Correct
-  Mispredicted
-
 /* Associates a deferred GPR write with its producer for scoreboard release. */
 bundle RV5StageDeferredCompletion(xlen :: XLen):
   write: RegisterFileWrite(xlen)
@@ -169,7 +163,7 @@ bundle ExecuteMemory(xlen :: XLen, vector_completion_slots :: Pow2Int, hyperviso
   redirect_valid: Bool
   prediction_failure: PredictionFailure
   branch_update: BranchUpdate(xlen)
-  branch_prediction: RV5StageBranchPrediction
+  branch_prediction: BranchPredictionStatus
   raw_instruction: Bits(32)
   replay: Bool
   data_request_valid: Bool
@@ -205,7 +199,7 @@ bundle MemoryWriteback(xlen :: XLen, vector_completion_slots :: Pow2Int, hypervi
   vector_fast: VectorFastCertificate(xlen)
   pc: Bits(xlen.width)
   resume_pc: Bits(xlen.width)
-  branch_prediction: RV5StageBranchPrediction
+  branch_prediction: BranchPredictionStatus
   ras_mismatch: Bool
   raw_instruction: Bits(32)
   replay: Bool
@@ -275,7 +269,7 @@ bundle RV5StageRetirementCommand(xlen :: XLen, vector_completion_slots :: Pow2In
   vector_launch: Bool
   pc: Bits(xlen.width)
   resume_pc: Bits(xlen.width)
-  branch_prediction: RV5StageBranchPrediction
+  branch_prediction: BranchPredictionStatus
   ras_mismatch: Bool
   raw_instruction: Bits(32)
   replay: Bool
@@ -319,7 +313,7 @@ bundle RetainedScalarWriteback(xlen :: XLen, vector_completion_slots :: Pow2Int,
   pc: Bits(xlen.width)
   resume_pc: Bits(xlen.width)
   raw_instruction: Bits(32)
-  branch_prediction: RV5StageBranchPrediction
+  branch_prediction: BranchPredictionStatus
   ras_mismatch: Bool
   data_request_valid: Bool
   data_request: PhysicalMemoryReq(xlen, RV5StageMemoryContext(vector_completion_slots))
@@ -335,7 +329,6 @@ bundle RetainedScalarWriteback(xlen :: XLen, vector_completion_slots :: Pow2Int,
 export:
   RV5StageBypassStage
   RV5StageCompletionSource
-  RV5StageBranchPrediction
   RV5StageDeferredCompletion
   RV5StageHazardReasons
   RV5StageOperand

@@ -255,7 +255,7 @@ plus shared `cache/io-mshr.rhdl` and `cache/chi/uncached.rhdl` for ordered physi
 IO. It owns PMA routing and cached/uncached exclusion; the shared engines remain
 independent of RV2Wide retirement. Its cache adapter also arbitrates data/fetch
 on the existing uncached engine and imports the neutral L1I result type.
-Its `instruction-memory.rhdl` consumes RV2Wide physical-fetch bundles, the
+Its `instruction-memory.rhdl` consumes shared physical-fetch metadata, local fetch interfaces, the
 neutral L1I protocol, and Flow for fixed-cycle replay and canceled-response
 ownership. Its core, bundles, frontend, MMU, and cache adapter import
 `riscv/rtl/svpbmt.rhdl` for PBMT metadata and effective attributes; bundles also
@@ -827,8 +827,15 @@ types; access timing and physical transport use Flow and `std/bits.rhdl`.
 Resolvers remain processor-library consumers of public authoring APIs, with no
 compiler, backend, or simulator dependency.
 
+Shared `cores/fetch/protocol.rhdl` defines `PhysicalInstructionReq(address_width)`
+using only the public authoring surface. Superscalar's bundles, frontend, and
+instruction-memory adapter import it with a 64-bit physical address; RV5Stage's
+uncached protocol, MMU, and instruction-memory router import it at XLEN width.
+The shared payload adds no response, admission, or cancellation policy.
 Shared `cores/bpred/protocol.rhdl` imports architectural XLEN; its generic
 width-selectable prediction representation is independent of the fixed core PC type.
+Both execution pipelines consume its `BranchPredictionStatus` enum; RV5Stage's
+retained bundles carry the same shared type. Classification and retention stay local.
 `cores/bpred/statistics.rhdl` imports the passive frontend statistics layer and
 classifies prediction failures without importing compilation or simulator code.
 Both named cores consume it; RV5Stage carries its classification from EX to MEM.

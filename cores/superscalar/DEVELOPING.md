@@ -444,6 +444,7 @@ WB authorization, and the two-port writeback policy stay local.
 | `decode/long-ctrl.rhdl` | Shared multiply/divide relations, service selection, inactive care masks |
 | `decode/core-ctrl.rhdl` | Selected instruction domain, writeback column, one combined relation |
 | `bundles.rhdl` | Instruction, lookup/admission/response, stage, and retirement contracts |
+| `../fetch/protocol.rhdl`, `../bpred/protocol.rhdl` | Shared physical fetch request and next-PC prediction status; core timing and retirement qualification remain local |
 | `issue-window.rhdl` | Sole eight-entry compacting instruction buffer, free-entry count, prefix consumption |
 | `issue.rhdl` | Shared issue contracts, signature validation, and dependency/resource predicates |
 | `branch-training.rhdl` | Two-entry, two-offer/one-write retirement training buffer, empty bypass, predictor clear |

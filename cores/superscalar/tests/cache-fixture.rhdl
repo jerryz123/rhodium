@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/fetch/protocol.rhdl").PhysicalInstructionReq
   "instruction-fixture.rhdl" open
   lib("riscv/isa/xlen.rhm").XLen
   "core-fixture.rhdl" open
@@ -100,7 +101,7 @@ sync_circuit SuperscalarCacheFixture():
   mmu.pipeline_lookup |> data.pipeline_lookup
   data.instruction.flush <== Bool(#false)
   data.instruction.request.valid <== Bool(#false)
-  data.instruction.request.bits <== dont_care(SuperscalarPhysicalInstructionReq())
+  data.instruction.request.bits <== dont_care(PhysicalInstructionReq(64))
   data.instruction.response.ready <== Bool(#true)
   data.chi <=> chi
   data.node_id <== node_id

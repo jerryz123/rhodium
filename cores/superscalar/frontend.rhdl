@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/fetch/protocol.rhdl").PhysicalInstructionReq
   "bundles.rhdl" open
   "profile.rhm".SuperscalarPipelineConfig
   "instruction-assembler.rhdl" open
@@ -282,7 +283,7 @@ sync_circuit SuperscalarFrontend(config :: RiscvHartCHIConfig, profile :: Supers
     fault: denied
 
   def Array(resolutions, contexts) = looked_up |> fork_valid(2)
-  (resolutions |> filter_valid(_pc => !denied & !translation_replay) |> map_valid(_address => SuperscalarPhysicalInstructionReq()):
+  (resolutions |> filter_valid(_pc => !denied & !translation_replay) |> map_valid(_address => PhysicalInstructionReq(64)):
     address: s1_base
     cacheable: attributes.instruction_cacheable
     device: attributes.strongly_ordered

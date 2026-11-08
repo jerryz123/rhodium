@@ -1361,7 +1361,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     ex_next_pc_mispredicted, ex_input.bits.target_from_rs1,
     ex_ras_action.is_one_of(RasAction.Pop, RasAction.PopPush), ex_ras_mispredicted
   )
-  ex_payload.branch_prediction <== mux(!ex_input.bits.vector_launch & ex_input.bits.branch_control.enable, mux(ex_next_pc_mispredicted, RV5StageBranchPrediction.Mispredicted, RV5StageBranchPrediction.Correct), RV5StageBranchPrediction.NotBranch)
+  ex_payload.branch_prediction <== mux(!ex_input.bits.vector_launch & ex_input.bits.branch_control.enable, mux(ex_next_pc_mispredicted, BranchPredictionStatus.Mispredicted, BranchPredictionStatus.Correct), BranchPredictionStatus.NotBranch)
   ex_payload.branch_update <== block:
       BranchUpdate(xlen):
         pc: ex_input.bits.pc

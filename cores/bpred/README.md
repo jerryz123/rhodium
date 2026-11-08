@@ -189,6 +189,12 @@ address and decides whether a stack head overrides a BTB target.
 
 ## Prediction statistics
 
+`protocol.rhdl` exports `BranchPredictionStatus` with `NotBranch`, `Correct`,
+and `Mispredicted`. For a branch, correctness means that the effective predicted
+next PC equals the resolved architectural next PC. RAS-action mismatch is reported separately, including on
+nonbranches with stale predictions. Callers own classification timing, squash
+qualification, and whether the status is retained or emitted as a trace field.
+
 `statistics.rhdl` exports `prediction_failure` and `count_prediction_failure`.
 The first takes resolved branch/conditional flags, direction and next-PC mismatch
 flags, indirect/return classification, and a RAS-action mismatch. It selects one

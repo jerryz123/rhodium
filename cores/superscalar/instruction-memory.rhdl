@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/fetch/protocol.rhdl").PhysicalInstructionReq
   "bundles.rhdl" open
   "../cache/l1i/protocol.rhdl" open
   lib("flow/main.rhdl") open
@@ -21,7 +22,7 @@ sync_circuit SuperscalarInstructionMemory():
      unavailable results request replay instead of holding S2. */
 
   def flush = core.flush ||| core.invalidate_all
-  inst s2(ValidPipeAlwaysCapture(SuperscalarPhysicalInstructionReq(), 1), ~reset_when: flush)
+  inst s2(ValidPipeAlwaysCapture(PhysicalInstructionReq(64), 1), ~reset_when: flush)
   core.request |> filter_valid(_request => !core.s1_kill & !flush) |> s2.ingress
   cache.flush <== flush
   cache.invalidate_all <== core.invalidate_all
@@ -38,7 +39,7 @@ sync_circuit SuperscalarInstructionMemory():
 
   reg pending(~init: Bool(#false))
   reg completed(~init: Bool(#false))
-  reg request(SuperscalarPhysicalInstructionReq())
+  reg request(PhysicalInstructionReq(64))
   reg response(InstructionCacheResult(64))
   def uncached_attempt = s2.egress.valid & !s2.egress.bits.cacheable & !flush
   def completed_match = completed & (request.as_bits() === s2.egress.bits.as_bits())

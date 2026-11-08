@@ -1,0 +1,12 @@
+#lang rhodium
+/* Defines core-neutral resolved physical fetch attributes independently of response and cancellation protocols. */
+// SPDX-License-Identifier: Apache-2.0
+
+/* Carries a physical byte address and resolved cacheability/ordering attributes.
+   Address width is independent of architectural XLEN; callers own permission and admission. */
+bundle PhysicalInstructionReq(address_width :: PosInt):
+  address: Bits(address_width)
+  cacheable: Bool
+  device: Bool
+
+export PhysicalInstructionReq

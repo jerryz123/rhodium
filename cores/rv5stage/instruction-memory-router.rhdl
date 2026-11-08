@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/fetch/protocol.rhdl").PhysicalInstructionReq
   "../cache/l1i/protocol.rhdl" open
   "icache/protocol.rhdl" open
   "uncached-protocol.rhdl" open
@@ -12,7 +13,7 @@ import:
 /* Returns an outcome for every live S2 attempt, replaying until uncached data is available.
    Redirects detach uncached consumers while the engine drains accepted traffic. */
 sync_circuit RV5StageInstructionMemoryRouter(xlen :: XLen):
-  interface core(RV5StageInstructionLookup(RV5StagePhysicalInstructionReq(xlen)), ~role: responder)
+  interface core(RV5StageInstructionLookup(PhysicalInstructionReq(xlen.width)), ~role: responder)
   interface cache(InstructionCacheLookup(xlen.width, 32), ~role: requester)
   interface uncached(RV5StagePhysicalInstructionAccess(xlen), ~role: requester)
 
@@ -20,7 +21,7 @@ sync_circuit RV5StageInstructionMemoryRouter(xlen :: XLen):
   /* S1/S2 cached lookup.
      Capture every surviving attempt while only cacheable requests reach L1I. */
 
-  inst s2(ValidPipeAlwaysCapture(RV5StagePhysicalInstructionReq(xlen), 1), ~reset_when: core.flush)
+  inst s2(ValidPipeAlwaysCapture(PhysicalInstructionReq(xlen.width), 1), ~reset_when: core.flush)
   core.request |> filter_valid(_request => !core.s1_kill & !core.flush) |> s2.ingress
   cache.flush <== core.flush
   cache.invalidate_all <== core.invalidate_all

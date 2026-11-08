@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/fetch/protocol.rhdl").PhysicalInstructionReq
   lib("cores/pc.rhdl").CompactPc
   lib("riscv/isa/hart.rhm").RiscvMmuType
   lib("cores/mmu/vector.rhdl") open
@@ -62,7 +63,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   interface vector_fast(VectorFastCheck(xlen), ~role: responder)
   interface pipeline_memory(CachePipelineAccess(xlen), ~role: requester)
   interface pipeline_lookup(Valid(CachePipelineReq(xlen)), ~role: producer)
-  interface instruction_memory(RV5StageInstructionLookup(RV5StagePhysicalInstructionReq(xlen)), ~role: requester)
+  interface instruction_memory(RV5StageInstructionLookup(PhysicalInstructionReq(xlen.width)), ~role: requester)
   interface core_memory(RV5StagePhysicalDataAccess(xlen, vector_completion_slots), ~role: requester)
   interface walker_memory(RV5StagePhysicalDataAccess(xlen, vector_completion_slots), ~role: requester)
   interface instruction_lookup(Decoupled(Bits(width)), ~role: producer)
@@ -458,7 +459,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def Array(instruction_physical_path, instruction_result_path) = instruction_head
     |> filter_valid(_request => !instruction.flush & !instruction.s1_kill) |> fork_valid(2)
   (instruction_physical_path |> filter_valid(_request => instruction_lookup_ready & !instruction_local_fault)
-    |> map_valid(_request => RV5StagePhysicalInstructionReq(xlen)):
+    |> map_valid(_request => PhysicalInstructionReq(xlen.width)):
          address: instruction_physical_address
          cacheable: instruction_attributes.instruction_cacheable
          device: instruction_attributes.strongly_ordered

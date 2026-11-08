@@ -4,6 +4,7 @@
 
 import:
   lib("cores/pc.rhdl") open
+  lib("cores/fetch/protocol.rhdl").PhysicalInstructionReq
   lib("cores/fp/profile.rhm").fp_transport_profile
   "pairing.rhdl".superscalar_pair_immediate_width
   "decode/core-ctrl.rhdl" open
@@ -57,12 +58,6 @@ interface SuperscalarInstructionTranslation(xlen :: XLen):
     resolution: SuperscalarResolution(xlen)
     pbmt: PageMemoryType
 
-/* Carries resolved physical fetch attributes without granting physical permission. */
-bundle SuperscalarPhysicalInstructionReq():
-  address: Bits(64)
-  cacheable: Bool
-  device: Bool
-
 /* Resolves physical S1 fetches into fixed-cycle S2 cache, fault, or replay outcomes. */
 interface SuperscalarInstructionLookup():
   role requester
@@ -72,7 +67,7 @@ interface SuperscalarInstructionLookup():
     flush: Bool
     invalidate_all: Bool
     s1_kill: Bool
-    request: Valid(SuperscalarPhysicalInstructionReq())
+    request: Valid(PhysicalInstructionReq(64))
 
   responder -> requester:
     response: Valid(InstructionCacheResult(64))
@@ -84,7 +79,7 @@ interface SuperscalarUncachedInstruction():
   provider requester
   requester -> responder:
     flush: Bool
-    request: Decoupled(SuperscalarPhysicalInstructionReq())
+    request: Decoupled(PhysicalInstructionReq(64))
 
   responder -> requester:
     response: Decoupled(InstructionCacheResult(64))
@@ -567,12 +562,6 @@ hardware_enum SuperscalarCacheOutcome:
   AccessFault
   GuestPageFault
 
-/* Classifies effective next-PC accuracy independently of RAS-action repair. */
-hardware_enum SuperscalarBranchPrediction:
-  NotBranch
-  Correct
-  Mispredicted
-
 /* Retains training decisions; instruction, return, and target addresses are aliases. */
 bundle SuperscalarBranchDecision():
   branch: Bool
@@ -967,7 +956,6 @@ export:
   SuperscalarFpLoad
   SuperscalarTranslationState
   SuperscalarInstructionTranslation
-  SuperscalarPhysicalInstructionReq
   SuperscalarInstructionLookup
   SuperscalarUncachedInstruction
   SuperscalarFetchFault
@@ -997,7 +985,6 @@ export:
   SuperscalarBranchResult
   SuperscalarMemoryReq
   SuperscalarCacheOutcome
-  SuperscalarBranchPrediction
   SuperscalarLookupResult
   SuperscalarPipelineAccess
   SuperscalarMemory

@@ -1894,7 +1894,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
       instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): wb.fetched.raw()
       deferred: result.deferred
       rd: result.rd
-      branch_prediction(~format: "enum"): mux(wb.branch.update.branch, mux(next_pc =/= predicted_pc, SuperscalarBranchPrediction.Mispredicted, SuperscalarBranchPrediction.Correct), SuperscalarBranchPrediction.NotBranch)
+      branch_prediction(~format: "enum"): mux(wb.branch.update.branch, mux(next_pc =/= predicted_pc, BranchPredictionStatus.Mispredicted, BranchPredictionStatus.Correct), BranchPredictionStatus.NotBranch)
       ras_mismatch: wb.branch.update.ras_action =/= wb.branch.update.predicted_ras_action
       direction_valid: result.fetched.direction.valid
       bimodal_taken: result.fetched.direction.base_taken

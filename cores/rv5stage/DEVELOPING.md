@@ -460,7 +460,7 @@ exception redirects remain a separate unmodeled boundary.
 Vector-memory retirement likewise retains its accepted instruction in an
 `OfferRegister`, released by the existing vector outcome. That outcome supplies
 fault fields, while the stored instruction supplies the retirement ancestry.
-`RV5StageBranchPrediction` stores only the effective-next-PC comparison, computed
+Shared `BranchPredictionStatus` stores only the effective-next-PC comparison, computed
 in EX and carried through ExecuteMemory/MemoryWriteback and retained contexts.
 Keep RAS-action mismatch out of this accuracy metric. Reuse the resolved and
 predicted actions already carried in ExecuteMemory's `branch_update`, comparing

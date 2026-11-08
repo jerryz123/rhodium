@@ -114,6 +114,15 @@ full-width. A pipeline suffix joined to a shared upper-PC register is a differen
 representation and must not be expanded by sign extension. Width selection
 belongs to the core profile, not this type.
 
+### Physical fetch metadata
+
+Import `PhysicalInstructionReq` from `cores/fetch/protocol.rhdl` to carry a
+resolved physical byte address, `cacheable`, and `device` attributes. Its positive
+`address_width` parameter is independent of architectural XLEN: superscalar uses
+`PhysicalInstructionReq(64)` and RV5Stage uses `PhysicalInstructionReq(xlen.width)`.
+The payload grants no permission or timing guarantees; the caller's interface
+owns admission, cancellation, response ordering, and replay.
+
 ### Shared GPR storage
 
 [`RegisterFile(xlen, ~read_ports, ~write_ports: 2)`](register-file.rhdl) has explicitly selected

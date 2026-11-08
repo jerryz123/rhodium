@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/fetch/protocol.rhdl").PhysicalInstructionReq
   lib("riscv/isa/hart.rhm").RiscvMmuType
   lib("cores/mmu/vector.rhdl") open
   "../../cache/protocol.rhdl" open
@@ -30,7 +31,7 @@ sync_circuit RV5StageMmuDataPortFixture():
   interface vector_precheck(VectorPrecheck(), ~role: responder)
   interface pipeline_memory(CachePipelineAccess(xlen), ~role: requester)
   interface pipeline_lookup(Valid(CachePipelineReq(xlen)), ~role: producer)
-  interface instruction_memory(RV5StageInstructionLookup(RV5StagePhysicalInstructionReq(xlen)), ~role: requester)
+  interface instruction_memory(RV5StageInstructionLookup(PhysicalInstructionReq(xlen.width)), ~role: requester)
   interface data_memory(RV5StagePhysicalDataAccess(xlen, slots), ~role: requester)
   interface instruction_lookup(Decoupled(Bits(64)), ~role: producer)
   interface data_lookup(Valid(Bits(64)), ~role: producer)

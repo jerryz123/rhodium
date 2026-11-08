@@ -1,5 +1,5 @@
 #lang rhodium
-/* Defines core-neutral branch prediction, training, and return-stack payloads. */
+/* Defines core-neutral branch prediction, next-PC accuracy, training, and return-stack payloads. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -39,6 +39,12 @@ bundle TournamentPrediction(row_bits :: PosInt):
   base_index: Bits(row_bits + 2)
   base_taken: Bool
   gshare_taken: Bool
+
+/* Classifies effective next-PC accuracy independently of RAS-action repair or recovery qualification. */
+hardware_enum BranchPredictionStatus:
+  NotBranch
+  Correct
+  Mispredicted
 
 /* Encodes the x1/x5 implicit call/return hints, including coroutine pop-then-push. */
 hardware_enum RasAction:
@@ -87,6 +93,7 @@ bundle BranchUpdate(xlen :: XLen):
   return_address: Bits(xlen.width)
 
 export:
+  BranchPredictionStatus
   prediction_target
   BhtUpdate
   BhtPrediction
