@@ -155,6 +155,19 @@ int main() {
     send(0x2280, {addi(12, 10, 0)}); drain();
     // Move forwarding preserves per-instruction values, RF writes, and three-wide issue.
     send(0x2300, {addi(10, 0, 37), addi(11, 0, 91)}); drain();
+    // Read sharing adds no RF ports: two older 2R instructions leave no donors,
+    // but the third still reads their values and all three retire together.
+    auto prior_shared = issues3;
+    send(0x2310, {add(1, 10, 11), add(2, 11, 10), add(3, 10, 11)}); drain();
+    CHECK(issues3 == prior_shared + 1);
+    // One shared source leaves the free donor for the other unique source.
+    prior_shared = issues3;
+    send(0x2320, {add(1, 10, 11), addi(2, 10, 1), add(3, 10, 12)}); drain();
+    CHECK(issues3 == prior_shared + 1);
+    // A same-group overwrite must still interlock despite the matching read.
+    prior_shared = issues3;
+    send(0x2330, {add(1, 10, 11), addi(10, 11, 1), add(3, 10, 12)}); drain();
+    CHECK(issues3 == prior_shared);
     for (auto move : {addi(1, 10, 0), add(1, 0, 10), add(1, 10, 0)}) {
       auto prior = issues3;
       send(0x2340, {move, addi(0, 0, 0), add(2, 1, 1)}); drain();

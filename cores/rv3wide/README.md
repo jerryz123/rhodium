@@ -48,8 +48,10 @@ There is no backend lane-count parameter. `issue.rhdl` exports
 `RV3WideIssue(xlen)`, a three-candidate scheduling policy with bounded read-path
 borrowing and fixed per-lane write ports. The factory supplies it to the shared
 core. Lane 3 prefers lane 2 rs2's read/bypass path for rs1 and lane 1 rs2's path
-for rs2, only when those donor operands are unused or x0. A sole required operand
-can fall back to the other free donor; two required operands keep fixed routes. Issue selects
+for rs2, only when those donor operands are unused or x0. Matching sources first
+share any active older read path; equal lane-3 sources share one allocation.
+A sole unmatched source can fall back to the other free donor; two distinct
+unmatched sources keep fixed routes. Issue selects
 an older move's captured read path when a same-group copy
 dependency permits sharing; this works even when the usual donor is occupied.
 Zero-offset scalar loads/stores in lane 3 may select lane 2's ALU result as their

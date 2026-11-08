@@ -23,31 +23,53 @@ bundle SuperscalarReadRouting(group_width :: matching(2) || matching(3)):
   granted: Vec(group_width, Vec(2, Bool))
   forwarded: Vec(group_width, Vec(2, Bool))
 
-/* Keeps lanes 1/2's paths fixed. Lane 3 prefers lane 2 rs2 for rs1 and lane 1 rs2
-   for rs2; a sole required operand may use either donor. Only unused/x0 operands
-   release a path, never bypass readiness. Two required operands keep fixed routes.
+/* Keeps lanes 1/2's paths fixed. Lane 3 shares matching active reads, then borrows
+   unused rs2 paths for its remaining distinct sources. A single unmatched source
+   may use either donor; readiness never releases or reallocates a path.
    This allocation does not grant issue or resolve dependencies within the candidate group. */
 fun superscalar_read_routing(group_width :: matching(2) || matching(3), requests :: Vec(group_width, SuperscalarReadRequest())) :~ SuperscalarReadRouting(group_width):
   def needed = vec(
     for List (lane in 0..group_width):
       vec(for List (operand in 0..2): requests[lane].valid & requests[lane].used[operand] & requests[lane].addresses[operand].any())
   )
-  def borrow_rs1 = if group_width == 3 | needed[2][0] & !needed[1][1] | Bool(#false)
-  def borrow_rs2 = if group_width == 3 | needed[2][1] & !needed[0][1] | Bool(#false)
-  def fallback_rs1 = if group_width == 3 | needed[2][0] & !needed[2][1] & needed[1][1] & !needed[0][1] | Bool(#false)
-  def fallback_rs2 = if group_width == 3 | needed[2][1] & !needed[2][0] & needed[0][1] & !needed[1][1] | Bool(#false)
+  def matches = vec(
+    for List (operand in 0..2):
+      vec(
+        for List (port in 0..4):
+          def lane = if port < 2 | 0 | 1
+          if group_width == 3
+          | needed[2][operand] & needed[lane][port % 2] & (requests[2].addresses[operand] === requests[lane].addresses[port % 2])
+          | Bool(#false)
+      )
+  )
+  def shared = vec(for List (operand in 0..2): matches[operand].any())
+  def same_source = if group_width == 3 | needed[2][0] & needed[2][1] & (requests[2].addresses[0] === requests[2].addresses[1]) | Bool(#false)
+  def unmatched = vec(
+    if group_width == 3 | needed[2][0] & !shared[0] | Bool(#false),
+    if group_width == 3 | needed[2][1] & !shared[1] & !same_source | Bool(#false)
+  )
+  def borrow_rs1 = unmatched[0] & !needed[1][1]
+  def borrow_rs2 = unmatched[1] & !needed[0][1]
+  def fallback_rs1 = unmatched[0] & !unmatched[1] & needed[1][1] & !needed[0][1]
+  def fallback_rs2 = unmatched[1] & !unmatched[0] & needed[0][1] & !needed[1][1]
+  def source_ports = vec(
+    for List (operand in 0..2):
+      priority_mux((for List (port in 0..4): [matches[operand][port], Bits(2)(port)]),
+                   ~default: if operand == 0 | mux(fallback_rs1, Bits(2)(1), Bits(2)(3)) | mux(fallback_rs2, Bits(2)(3), Bits(2)(1)))
+  )
+  def source_granted = vec(shared[0] ||| borrow_rs1 ||| fallback_rs1, shared[1] ||| borrow_rs2 ||| fallback_rs2)
   def lane1_rs2 = if group_width == 3 | mux(fallback_rs1, requests[2].addresses[0], mux(borrow_rs2, requests[2].addresses[1], requests[0].addresses[1])) | requests[0].addresses[1]
   def lane2_rs2 = if group_width == 3 | mux(fallback_rs2, requests[2].addresses[1], mux(borrow_rs1, requests[2].addresses[0], requests[1].addresses[1])) | requests[1].addresses[1]
   SuperscalarReadRouting(group_width):
     addresses: vec(requests[0].addresses[0], lane1_rs2, requests[1].addresses[0], lane2_rs2)
-    ports: vec(for List (lane in 0..group_width): if lane < 2 | vec(Bits(2)(2 * lane), Bits(2)(2 * lane + 1)) | vec(mux(fallback_rs1, Bits(2)(1), Bits(2)(3)), mux(fallback_rs2, Bits(2)(3), Bits(2)(1))))
+    ports: vec(for List (lane in 0..group_width): if lane < 2 | vec(Bits(2)(2 * lane), Bits(2)(2 * lane + 1)) | vec(source_ports[0], mux(same_source, source_ports[0], source_ports[1])))
     needed: needed
     forwarded: vec(for List (lane in 0..group_width): vec(Bool(#false), Bool(#false)))
     granted: vec(
       for List (lane in 0..group_width):
         if lane < 2
         | vec(Bool(#true), Bool(#true))
-        | vec(!needed[lane][0] ||| borrow_rs1 ||| fallback_rs1, !needed[lane][1] ||| borrow_rs2 ||| fallback_rs2)
+        | vec(!needed[lane][0] ||| source_granted[0], !needed[lane][1] ||| mux(same_source, source_granted[0], source_granted[1]))
     )
 
 /* Routes four already-resolved paths back to operands using issue's physical-path selectors.

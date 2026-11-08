@@ -9,7 +9,7 @@ import:
   lib("riscv/isa/xlen.rhm").XLen
 
 /* Selects up to three instructions without skipping an older blocked candidate.
-   Lane 3 shares the two older rs2 paths, retaining fixed routes for two operands; it has no
+   Lane 3 shares matching older reads and borrows unused rs2 paths; it has no
    general same-group EX forwarding route, but zero-offset memory may use lane 2's ALU result.
    Each lane owns a write port; delayed returns reserve only the last lane.
    Move consumers may share the older move's captured physical read path. */

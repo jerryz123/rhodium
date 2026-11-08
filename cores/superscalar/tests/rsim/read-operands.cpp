@@ -27,12 +27,31 @@ void check() {
   std::array<unsigned, 4> addresses{requests[0].paddresses[0], requests[0].paddresses[1],
                                      requests[1].paddresses[0], requests[1].paddresses[1]};
   std::array<unsigned, 2> third_ports{3, 1};
+  std::array<bool, 2> third_granted{true, true};
   if constexpr (lanes == 3) {
+    std::array<bool, 2> shared{};
+    const bool duplicate = needed(2, 0) && needed(2, 1) && requests[2].paddresses[0] == requests[2].paddresses[1];
     for (unsigned source = 0; source < 2; ++source) {
       if (!needed(2, source)) continue;
+      for (unsigned port = 0; port < 4; ++port) {
+        if (needed(port / 2, port % 2) && addresses[port] == requests[2].paddresses[source]) {
+          third_ports[source] = port;
+          shared[source] = true;
+          break;
+        }
+      }
+    }
+    const std::array<bool, 2> unmatched{needed(2, 0) && !shared[0], needed(2, 1) && !shared[1] && !duplicate};
+    for (unsigned source = 0; source < 2; ++source) {
+      if (!unmatched[source]) continue;
       auto &port = third_ports[source];
-      if (!needed(2, 1 - source) && needed(port / 2, 1) && !needed((4 - port) / 2, 1)) port = 4 - port;
-      if (!needed(port / 2, 1)) addresses[port] = requests[2].paddresses[source];
+      if (!unmatched[1 - source] && needed(port / 2, 1) && !needed((4 - port) / 2, 1)) port = 4 - port;
+      third_granted[source] = !needed(port / 2, 1);
+      if (third_granted[source]) addresses[port] = requests[2].paddresses[source];
+    }
+    if (duplicate) {
+      third_ports[1] = third_ports[0];
+      third_granted[1] = third_granted[0];
     }
   }
   for (unsigned port = 0; port < 4; ++port) CHECK(routing.paddresses[port] == addresses[port]);
@@ -40,7 +59,7 @@ void check() {
     for (unsigned operand = 0; operand < 2; ++operand) {
       const bool demand = needed(lane, operand);
       const unsigned port = lane < 2 ? 2 * lane + operand : third_ports[operand];
-      const bool grant = lane < 2 || !demand || !needed(port / 2, 1);
+      const bool grant = lane < 2 || third_granted[operand];
       CHECK(routing.pports[lane][operand] == port);
       CHECK(bool(routing.pneeded[lane][operand]) == demand);
       CHECK(bool(routing.pgranted[lane][operand]) == grant);
@@ -112,6 +131,24 @@ int main() {
       }
     }
 
+    if constexpr (lanes == 3) {
+      // Exhaust sharing either/both sources with all four older paths, two
+      // unmatched sources, equal third sources, and inactive matching fields.
+      for (unsigned uses = 0; uses < 64; ++uses) {
+        for (unsigned a = 0; a < 7; ++a) {
+          for (unsigned b = 0; b < 7; ++b) {
+            for (unsigned lane = 0; lane < lanes; ++lane) {
+              requests[lane].pvalid = true;
+              requests[lane].pused = {bool(uses & (1u << (2 * lane))), bool(uses & (2u << (2 * lane)))};
+              requests[lane].paddresses = {std::uint8_t(2 * lane + 1), std::uint8_t(2 * lane + 2)};
+            }
+            requests[2].paddresses = {std::uint8_t(a), std::uint8_t(b)};
+            check();
+          }
+        }
+      }
+    }
+
     for (auto &request : requests) {
       request.pvalid = true;
       request.pused = {true, true};
@@ -128,10 +165,14 @@ int main() {
       requests[1].pused[0] = false;
       check();
       CHECK(operands[2][0].pblocked && operands[2][1].pblocked);
-      // Even matching addresses do not co-read an occupied donor in this cut.
+      // Matching active reads share the lowest numbered path, including readiness.
       requests[2].paddresses = {11, 11};
       check();
-      CHECK(operands[2][0].pblocked && operands[2][1].pblocked);
+      CHECK(!operands[2][0].pblocked && !operands[2][1].pblocked);
+      CHECK(routing.pports[2][0] == 1 && routing.pports[2][1] == 1);
+      producers[0].pready = 0;
+      check(); CHECK(operands[2][0].pblocked && operands[2][1].pblocked);
+      clear_sources();
       requests[2].paddresses = {19, 23};
       requests[0].pused[1] = false;
       check();

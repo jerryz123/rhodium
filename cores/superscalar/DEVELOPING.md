@@ -96,9 +96,11 @@ superscalar optimization does not change architectural compressed expansion.
 Feed its read-routing helper candidate presence and
 decoded source-use bits, never final issue grants or forwarding availability.
 In the three-candidate specialization, lane 3 prefers lane 2 rs2's path for rs1
-and lane 1 rs2's path for rs2 (one-based numbering). A sole required operand
-can fall back to the other unused rs2 donor. Two required operands keep their
-fixed routes; neither older rs1 path participates. Express this small demand-only
+and lane 1 rs2's path for rs2 (one-based numbering). First compare both sources
+against all four active older reads, choosing the lowest matching path. Equal
+third-lane sources share a single allocation. A sole unmatched source can fall
+back to the other unused rs2 donor; two distinct unmatched sources keep their
+fixed routes. Older rs1 paths may be shared but never reassigned. Express this small demand-only
 choice directly, without serial allocation or readiness feedback. Read denial
 is a structural hazard, separate from unavailable data on an allocated path.
 Do not free a donor for a same-group replacement route in this first cut.
@@ -1570,7 +1572,8 @@ retirement lanes after their clocked callbacks complete.
 
 The read-path fixtures use the real 4R2W register file and the same forwarding
 function as RR. They exhaust candidate-valid/source-use/x0 combinations, check
-both preferred and fallback borrowers and donor priority, and exercise each of nine producer
+same-register sharing and inactive matching fields, both preferred and fallback
+borrowers and donor priority, and exercise each of nine producer
 positions with available, unavailable, and replaying results. An independent
 youngest-first oracle checks simultaneous matching producers, randomized pending
 scoreboards and writes, pre-edge RF reads, and reset retention. These checks

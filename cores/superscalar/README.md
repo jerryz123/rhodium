@@ -210,17 +210,20 @@ one-based lane numbering:
 | Physical path | Normal owner | Borrower when unused |
 |---|---|---|
 | 0 | Lane 1 rs1 | None |
-| 1 | Lane 1 rs2 | Lane 3 rs2, or its sole rs1 |
+| 1 | Lane 1 rs2 | Lane 3 rs2, or its only unmatched rs1 |
 | 2 | Lane 2 rs1 | None |
-| 3 | Lane 2 rs2 | Lane 3 rs1, or its sole rs2 |
+| 3 | Lane 2 rs2 | Lane 3 rs1, or its only unmatched rs2 |
 
 `superscalar_read_routing(group_width, requests)` selects addresses from decoded
 `SuperscalarReadRequest()` validity, source-use bits, and register numbers.
 Unused operands and x0 release their path; an operand supplied by forwarding
-still occupies it. A sole required lane-3 operand prefers its original donor,
-then falls back to the other free rs2 path. Two required operands retain their
-fixed assignment. Paths 0 and 2 are never borrowed, and matching register
-numbers do not permit sharing an occupied donor. Allocation does not depend on
+still occupies it. Lane 3 first shares any active older path reading the same
+register (lowest path number wins). Equal lane-3 sources also share one path.
+An unmatched source prefers its original donor, then falls back to the other
+free rs2 path when it is the only remaining distinct demand. Two unmatched
+sources retain their fixed assignment. Paths 0 and 2 are never reassigned,
+but their values and readiness can be shared. Sharing a register read does not
+waive a dependency on an older instruction's destination. Allocation does not depend on
 forwarding readiness: a blocked preferred path does not trigger fallback.
 Denied read allocation reports a structural hazard; unavailable data on an
 allocated path reports a data hazard.

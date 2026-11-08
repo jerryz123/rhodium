@@ -4,6 +4,28 @@
 int main() {
   return run_test([] {
     check_issue_contract();
+    // CoreMark's sh1add.uw / zero-offset load / sh2add.uw group shares a5
+    // through lane 1 rs1 and gives s3 the unused lane 2 rs2 path.
+    clear();
+    instructions[0] = (0x10u << 25) | (17u << 20) | (15u << 15) | (2u << 12) | (14u << 7) | (sizeof(Pc) == 8 ? 0x3b : 0x33);
+    instructions[1] = load(14, 14);
+    instructions[2] = (0x10u << 25) | (19u << 20) | (15u << 15) | (4u << 12) | (13u << 7) | (sizeof(Pc) == 8 ? 0x3b : 0x33);
+    expect(3);
+    CHECK(reads.pports[2][0] == 0 && reads.pports[2][1] == 3);
+    CHECK(operands[2].prs1 == read_data[0] && operands[2].prs2 == read_data[3]);
+    CHECK(operands[1].prewrite.pmemory_uaddress);
+    CHECK(!decision.pdata_uhazard[2] && !decision.pstructural_uhazard[2]);
+    read_blocked[3] = 1; expect(2);
+    CHECK(decision.pdata_uhazard[2] && !decision.pstructural_uhazard[2]);
+    read_blocked[3] = 0; read_blocked[0] = 1; expect(0);
+    // A matching older source is not permission to ignore an intervening write.
+    clear(); instructions[0] = add(1, 10, 11); instructions[1] = addi(10, 12, 1);
+    instructions[2] = add(3, 10, 13); expect(2);
+    CHECK(reads.pports[2][0] == 0 && !reads.pforwarded[2][0] && decision.pdata_uhazard[2]);
+    // Both younger operands may share one newly allocated donor as well.
+    clear(); instructions[0] = add(1, 10, 11); instructions[1] = addi(2, 12, 1);
+    instructions[2] = add(3, 13, 13); expect(3);
+    CHECK(reads.pports[2][0] == 3 && reads.pports[2][1] == 3);
     clear(); instructions[0] = addi(1); instructions[1] = addi(2); instructions[2] = addi(3); expect(3);
     // A return owns only the last port, leaving two independent writers available.
     resources.plast_uslot_ureserved = 1; expect(2);

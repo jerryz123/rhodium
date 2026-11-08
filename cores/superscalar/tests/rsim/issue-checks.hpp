@@ -83,12 +83,33 @@ void ordinary(const std::array<unsigned, lanes> &destinations,
     }
   }
   std::array<unsigned, 2> third_ports{3, 1};
+  std::array<bool, 2> third_granted{true, true};
   if constexpr (lanes == 3) {
+    std::array<bool, 2> shared{};
+    const auto normalized = normalize_move(instructions[2]);
+    const std::array<unsigned, 2> sources{(normalized >> 15) & 31, (normalized >> 20) & 31};
+    const bool duplicate = needed[2][0] && needed[2][1] && sources[0] == sources[1];
     for (unsigned source = 0; source < 2; ++source) {
       if (!needed[2][source]) continue;
+      for (unsigned port = 0; port < 4; ++port) {
+        if (needed[port / 2][port % 2] && addresses[port] == sources[source]) {
+          third_ports[source] = port;
+          shared[source] = true;
+          break;
+        }
+      }
+    }
+    const std::array<bool, 2> unmatched{needed[2][0] && !shared[0], needed[2][1] && !shared[1] && !duplicate};
+    for (unsigned source = 0; source < 2; ++source) {
+      if (!unmatched[source]) continue;
       auto &port = third_ports[source];
-      if (!needed[2][1 - source] && needed[port / 2][1] && !needed[(4 - port) / 2][1]) port = 4 - port;
-      if (!needed[port / 2][1]) addresses[port] = (normalize_move(instructions[2]) >> (source ? 20 : 15)) & 31;
+      if (!unmatched[1 - source] && needed[port / 2][1] && !needed[(4 - port) / 2][1]) port = 4 - port;
+      third_granted[source] = !needed[port / 2][1];
+      if (third_granted[source]) addresses[port] = sources[source];
+    }
+    if (duplicate) {
+      third_ports[1] = third_ports[0];
+      third_granted[1] = third_granted[0];
     }
   }
   unsigned count = 0;
@@ -101,7 +122,7 @@ void ordinary(const std::array<unsigned, lanes> &destinations,
       bool blocked = false;
       for (unsigned source = 0; source < 2; ++source) {
         const unsigned port = lane < 2 ? 2 * lane + source : third_ports[source];
-        const bool granted = lane < 2 || !needed[lane][source] || !needed[port / 2][1];
+        const bool granted = lane < 2 || third_granted[source];
         blocked |= needed[lane][source] && (!granted || read_blocked[port]);
       }
       if (blocked) break;
@@ -118,7 +139,7 @@ void ordinary(const std::array<unsigned, lanes> &destinations,
     CHECK(issued_instructions[lane].ppair.psources[1] == Register);
     for (unsigned source = 0; source < 2; ++source) {
       const unsigned port = lane < 2 ? 2 * lane + source : third_ports[source];
-      const bool granted = lane < 2 || !needed[lane][source] || !needed[port / 2][1];
+      const bool granted = lane < 2 || third_granted[source];
       const Pc expected_data = needed[lane][source] && granted ? read_data[port] : 0;
       CHECK((source ? operands[lane].prs2 : operands[lane].prs1) == expected_data);
     }
