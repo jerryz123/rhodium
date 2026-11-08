@@ -1,4 +1,4 @@
-// Checks RV3Wide fetching, compressed execution, memory and trap recovery with prediction disabled.
+// Checks RV3Wide fetching, compressed execution, memory and trap recovery with BTB prediction.
 // SPDX-License-Identifier: Apache-2.0
 #include "driver.hpp"
 using retirement_t = std::remove_cvref_t<decltype(retired_0_out.pbits)>;
@@ -750,7 +750,7 @@ int main() {
     launch(0, 1, 4096);
     CHECK(longest_dual >= 5 && dreads > 0 && completions_seen > 0 &&
           branch_count >= 3);
-    CHECK(predicted_branches == 0);
+    CHECK(predicted_branches > 0);
 
     CHECK(wrong_path_reads > 0 && detached_wrong_path);
     phase = 1;

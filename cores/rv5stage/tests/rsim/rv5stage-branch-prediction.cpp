@@ -1,4 +1,4 @@
-// Preserves the rv5stage-branch-prediction cycle and architectural oracle through direct rsim.
+// Checks warm branches, recovery, and target bounds with two active BTB capacities.
 // SPDX-License-Identifier: Apache-2.0
 #include "driver.hpp"
 auto &instruction_in(unsigned i) {
@@ -11,7 +11,7 @@ auto &data_in(unsigned i) { return i ? data_1_in : data_0_in; }
 auto &data_out(unsigned i) { return i ? data_1_out : data_0_out; }
 using instruction_resp_t =
     std::remove_cvref_t<decltype(instruction_0_in.presponse)>;
-// Compares real loop/indirect-branch execution, wrong-path stores, flushes, and cycles with BTB off/on.
+// Both capacities execute the same loops and indirect branches without wrong-path stores.
 
 instruction_resp_t response[2];
 
@@ -19,7 +19,7 @@ int cycles = 0, completed[2], stores[2], flushes[2], warm_pairs[2],
     last_request_cycle[2];
 
 std::uint64_t last_request[2];
-bool alias_mode = false, benchmark_finished = false;
+bool alias_mode = false, loop_finished = false;
 int alias_requests[2]{}, fault_requests[2]{};
 int training_stores[2]{};
 constexpr auto invalid_target = (UINT64_C(1) << 45) + 0x100;
@@ -211,14 +211,14 @@ void observe() {
     }
     if (completed[0] != 0 && completed[1] != 0) {
       if (alias_mode) {
-        CHECK(alias_requests[0] >= 2 && alias_requests[1] == 1);
+        CHECK(alias_requests[0] >= 2 && alias_requests[1] >= 2);
         CHECK(fault_requests[0] == 0 && fault_requests[1] == 0);
         CHECK(training_stores[0] == 1 && training_stores[1] == 1);
         throw Finished{};
       }
-      CHECK(warm_pairs[0] >= 10 && warm_pairs[1] == 0);
-      CHECK(completed[0] < completed[1] && flushes[0] + 10 < flushes[1]);
-      benchmark_finished = true;
+      CHECK(warm_pairs[0] >= 10 && warm_pairs[1] >= 10);
+      CHECK(flushes[0] > 0 && flushes[1] > 0);
+      loop_finished = true;
     }
   }
 }
@@ -239,7 +239,7 @@ int main() {
     cycle_limit = 5002;
     try {
       stimulus();
-      while (!benchmark_finished)
+      while (!loop_finished)
         rising();
       alias_mode = true;
       stimulus();

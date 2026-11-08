@@ -272,7 +272,7 @@ sync_circuit SuperscalarInstructionAssembler(profile :: SuperscalarPipelineConfi
     def known = mux(bht_branch, direction.taken, predicted.valid & (predicted.pc === pc) & (predicted.compressed === compressed) & control_flow)
     def immediate_control_flow = legal & decoded.immediate
     def immediate_target = prediction_target(xlen, compact_pc_width(xlen), pc + decoded.offset)
-    def direct = legal & (canonical[0..7] === Bits(7)(0x6f)) & Bool(profile.btb_entries > 0)
+    def direct = legal & (canonical[0..7] === Bits(7)(0x6f))
     def returning = legal & action.is_one_of(RasAction.Pop, RasAction.PopPush) & ras_head_valid
     def fallback = !known & (direct ||| returning)
     def sequential_pc = pc + (size.zext(xlen.width) << 1)

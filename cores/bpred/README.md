@@ -92,8 +92,8 @@ every source address. Shared page tags span `max(pc_width, target_width)` bits
 minus the low `match_bits`; source PCs are never truncated into aliases.
 This bounds predictor storage only, not architectural PCs or fault addresses.
 
-`entry_count` is positive. Select `DisabledBtb(xlen)` instead to disable prediction
-with the same ports and no predictor state. `match_bits` must include the fetch offset and
+`entry_count` is positive; every BTB instance allocates prediction state.
+`match_bits` must include the fetch offset and
 be less than `pc_width`, which must not exceed XLEN; `page_count` must be at least two.
 BTB matching has no address-space tag.
 
@@ -160,8 +160,8 @@ asynchronous reads, not a guaranteed physical SRAM implementation.
 stacks. `head_valid` and `head` expose the speculative top combinationally.
 Overflow wraps and replaces the oldest address; underflow is a no-op.
 `entry_count` is positive; `DisabledRas(xlen)` exposes the same ports with an
-always-invalid head and no stack state. Core configurations may still use zero
-entries to select these disabled circuits at instantiation.
+always-invalid head and no stack state. Core configurations use zero RAS
+entries to select this implementation at instantiation.
 
 - `speculate: Valid(RasUpdate(xlen))` applies an accepted speculative action.
   The caller must emit it exactly once, not repeatedly while fetch stalls.

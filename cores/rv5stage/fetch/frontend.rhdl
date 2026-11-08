@@ -17,7 +17,7 @@ import:
 /* Reserves capacity from registered queue/S1/S2 occupancy and pairs fixed-cycle
    memory outcomes with scanned packets. Recovery clears the epoch; replay and
    late repair discard only younger attempts. */
-sync_circuit RV5StageFrontend(core_profile :: RV5StageConfig, ~btb_entries: btb_entries :: Nat = 32, ~ras_entries: ras_entries :: Nat = 6):
+sync_circuit RV5StageFrontend(core_profile :: RV5StageConfig, ~btb_entries: btb_entries :: PosInt = 32, ~ras_entries: ras_entries :: Nat = 6):
   def hypervisor = core_profile.extensions.hypervisor
   def xlen = core_profile.xlen
   def packet_capacity :: PosInt = 5

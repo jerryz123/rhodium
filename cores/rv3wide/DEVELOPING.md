@@ -22,9 +22,9 @@ vector descriptors, and predictor training cover every lane. GPR storage has
 four read ports and three fixed write ports; shared service bandwidth is unchanged.
 
 The shared profile tests cover configuration and UDB agreement. The existing
-`rv2wide-fetch-disabled` behavioral fixture uses `RV3Wide`, so it tests real
+`rv3wide-fetch` behavioral fixture uses `RV3Wide`, so it tests real
 instruction execution, recovery, caches, and translation without a duplicate
-oracle or new CI lane. Preserve that fixture ID as the established baseline.
+oracle or new CI lane.
 SoC profile/binding adapters live in `socs/configs/rv3wide-core-profile.rhm` and
 `socs/harts/rv3wide.rhdl`. Keep CI shape/ISA enrollment paired with RV2Wide;
 software policy remains shape/ISA-owned.
@@ -37,7 +37,7 @@ common issue oracle and add third-candidate checks. The integrated backend
 supplies three candidates. Run `rv3wide-core` for three retirements, borrowed
 operands, three independent fixed write ports, shortened fault/replay prefixes,
 RF consumers, and PC-region crossings. Pair it with `rv2wide-core`, FP/vector
-integration, and the existing production `rv2wide-fetch-disabled` fixture.
+integration, and the existing production `rv3wide-fetch` fixture.
 Run `rv3wide-services` for third-lane load/store hits, deferred returns and replay,
 all-older fault suppression, branches and ordered training, fixed/variable FP,
 multiply/divide, vector configuration and retained vector memory. It also checks

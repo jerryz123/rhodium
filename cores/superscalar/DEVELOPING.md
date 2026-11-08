@@ -30,9 +30,9 @@ dispatch, retaining age-directed scalar/vector admission to avoid ready loops.
 The issue module remains the only prefix-admission authority. Never widen
 two-operand bundles, the four physical read paths, or single-service inputs mechanically.
 
-The moved fixtures retain their `rv2wide-*` runner IDs and C++ filenames to
-preserve the existing coverage inventory. Enabled fetch exercises `RV2Wide`;
-disabled fetch exercises `RV3Wide` with the same instruction oracle. Both use
+Most family fixtures retain their `rv2wide-*` runner IDs and C++ filenames.
+The `rv2wide-fetch` and `rv3wide-fetch` fixtures exercise their respective named
+cores with active BTBs and the same instruction oracle. Both use
 the existing `rv2wide` cosim observation contract and native reconstruction
 adapter because they share pipeline and service ownership. The capture derives
 its retirement width from the selected core's taps.
@@ -1692,7 +1692,7 @@ Run the focused production-core fixture:
 ```sh
 python3 tools/testing/rsim/run.py --fixture rv2wide-core --fixture rv2wide-core-fp --fixture rv2wide-core-fp-late
 python3 tools/testing/rsim/run.py --fixture rv2wide-issue-window --fixture rv2wide-issue-window-h --fixture rv2wide-issue-window-rv32
-python3 tools/testing/rsim/run.py --fixture rv2wide-cache --fixture rv2wide-fetch-disabled
+python3 tools/testing/rsim/run.py --fixture rv2wide-cache --fixture rv3wide-fetch
 python3 tools/testing/rsim/run.py --fixture rv2wide-assembly-prediction --fixture rv2wide-frontend-prediction --fixture rv2wide-bht
 python3 tools/testing/rsim/run.py --fixture rv2wide-assembly-prediction-h
 python3 tools/testing/rsim/run.py --fixture superscalar-issue-window-three --fixture superscalar-issue-window-three-h --fixture superscalar-assembly-three --fixture superscalar-frontend-three
@@ -1749,7 +1749,7 @@ consume every supported prefix length while appending, and clear live offers. An
 queue checks raw/canonical encodings, exact PC/successor and fault addresses,
 guest provenance, sign-extended predicted targets, and direction/RAS checkpoints.
 Distinct saved rows and histories check PC-derived training indices through
-compaction and wrap, including nonzero histories with prediction disabled.
+compaction and wrap, including nonzero histories without a predicted target.
 Invalid valid-index/PC combinations fail admission; invalid training-index bits
 are ignored. The core's retirement/training and recovery oracles check the same
 metadata through both lanes and retained service/replay paths.
@@ -1856,14 +1856,14 @@ illegal compressed mtval, cold line crossings, and Sv39 continuation-page replay
 success, and faults. Cross-page access/page faults check both mepc and mtval through
 the real handler. Packet-level fixtures supply raw encoding and sequential PC
 explicitly rather than relying on defaults in the core.
-The predictor-enabled and disabled fetch instances reuse that entire oracle.
-The enabled fixture additionally selects Zcb/Zcmop and executes every form,
+The RV2Wide and RV3Wide fetch instances reuse that entire oracle.
+The RV2Wide fixture additionally selects Zcb/Zcmop and executes every form,
 all compact integer registers, dependent consumers, byte/halfword memory lanes,
 and wrong-path store suppression. Both variants check original 16-bit trap
 values after older load drain: reserved neighbors with the subsets selected,
 and unselected optional encodings with C only. Profile tests check independent
 selection, shared CSR configuration, publication, and invalid combinations.
-The enabled instance additionally requires warm conditional direction predictions,
+The RV2Wide instance additionally requires warm conditional direction predictions,
 including a 32-bit branch crossing an eight-byte fetch boundary. It also runs
 compiler event instrumentation so accepted-prefix/local-repair ordering and
 instruction ancestry are checked by RTL assertions. The
@@ -1907,8 +1907,8 @@ for both slots,
 compressed/backward jumps and cold/stale straddles, stale jump/conditional targets,
 preservation of correct S1 predictions, stalled packet acceptance and corrected
 cursors, younger fault/replay cancellation, and architectural redirect priority.
-Keep SRAM/refill and event-lineage integration in the existing
-enabled/disabled production fetching fixtures.
+Keep SRAM/refill integration in the production RV2Wide/RV3Wide fetching fixtures
+and event-lineage integration in `rv2wide-fetch`.
 
 The fetching fixture also boots through satp/MRET into Sv39 supervisor code,
 loads/stores through a separately filled DTLB, executes SFENCE.VMA, and checks

@@ -7,5 +7,5 @@ import:
   "../../../../riscv/isa/xlen.rhm".XLen
   "../../../../cores/rv5stage/tests/lrsc-core-progress-fixture.rhdl".RV5StageLRSCCoreProgress
 
-def program = elaborate(RV5StageLRSCCoreProgress(XLen.X32, 16))
+def program = elaborate(RV5StageLRSCCoreProgress(XLen.X32))
 export program

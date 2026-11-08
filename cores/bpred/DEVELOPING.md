@@ -34,10 +34,9 @@ branch-update payloads. Default XLEN keeps standalone predictors lossless.
 Named frontends select widths covering their successful Sv39/Bare PCs and
 normalize every fallback before steering and recording it.
 
-Keep active BTB/RAS implementations separate from `DisabledBtb` and `DisabledRas`.
-The caller selects the circuit from its entry-count configuration; active
-implementations accept only positive depths. Disabled circuits retain the port
-contract without allocating predictor state.
+BTBs always use the active implementation with a positive entry count.
+The caller may select `DisabledRas` for a zero-entry RAS; it retains the port
+contract without allocating return-stack state.
 
 ## Implementation map
 

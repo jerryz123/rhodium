@@ -245,24 +245,7 @@ sync_circuit Btb(xlen :: XLen, entry_count :: PosInt = 32, match_bits :: PosInt 
     elsewhen (invalidated_entries[index]):
       entries[index] <== entries[index].updated(~valid: Bool(#false))
 
-/* Terminates predictor inputs without state and never offers a prediction. */
-sync_circuit DisabledBtb(xlen :: XLen, ~fetch_bytes: fetch_bytes :: PosInt = 4, ~external_direction: external_direction :: Boolean = #false):
-  input cursor: Bits(xlen.width)
-  def caller_taken :: Vec(fetch_bytes / 2, Bool) = if external_direction
-  | block:
-      input conditional_taken: Vec(fetch_bytes / 2, Bool)
-      conditional_taken
-  | literal(Vec(fetch_bytes / 2, Bool), 0)
-
-  interface invalidate_all(Pulse(), ~role: consumer)
-  interface invalidate(Valid(Bits(xlen.width)), ~role: consumer)
-  interface update(Valid(BranchUpdate(xlen)), ~role: consumer)
-  interface discover(Valid(BranchPrediction(xlen, xlen.width)), ~role: consumer)
-  output prediction: BranchPrediction(xlen, xlen.width)
-  prediction <== literal(BranchPrediction(xlen, xlen.width), 0)
-
 export:
   BtbPage
   BtbEntry
   Btb
-  DisabledBtb

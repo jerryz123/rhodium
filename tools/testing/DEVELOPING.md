@@ -46,7 +46,7 @@ rsim owners; shared rsim or orchestration changes select all rsim checks. HDL go
 and instrumentation lanes remain independently selected. Language behavior
 includes arithmetic, aggregates, hierarchy, synchronous clocking, memories,
 and assertion enable/reset behavior; the same examples retain their HDL
-goldens. RV2Wide core/FP, cache, disabled-fetch, prediction, BHT, and MMU
+goldens. RV2Wide core/FP, cache, RV3Wide fetch, prediction, BHT, and MMU
 scoreboards, enabled-fetch tracing, and RV32 integration belong to the core lane. RV5Stage composed behavior has separate frontend, control,
 datapath, vector, memory, and cache groups, preserving the previous workload
 split without HDL dependencies. Use the fixture inventory to select a group;

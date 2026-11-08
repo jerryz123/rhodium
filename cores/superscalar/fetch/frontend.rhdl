@@ -12,7 +12,6 @@ import:
   "../../cache/l1i/protocol.rhdl" open
   "../../chi-hart.rhdl" open
   lib("cores/bpred/btb.rhdl").Btb
-  lib("cores/bpred/btb.rhdl").DisabledBtb
   lib("cores/bpred/tournament.rhdl") open
   lib("cores/bpred/ras.rhdl").Ras
   lib("cores/bpred/ras.rhdl").DisabledRas
@@ -78,7 +77,7 @@ sync_circuit SuperscalarFrontend(config :: RiscvHartCHIConfig, profile :: Supers
   // Covers successful Sv39 and Bare PCs; only speculative destinations may alias.
   reg active(~init: Bool(#false))
   reg cursor(~init: literal(SuperscalarFetchCursor(xlen), 0))
-  inst btb(if profile.btb_entries == 0 | DisabledBtb(xlen, ~fetch_bytes: 8, ~external_direction: profile.bht) | Btb(xlen, profile.btb_entries, ~fetch_bytes: 8, ~external_direction: profile.bht, ~pc_width: pc_width, ~target_width: pc_width))
+  inst btb(Btb(xlen, profile.btb_entries, ~fetch_bytes: 8, ~external_direction: profile.bht, ~pc_width: pc_width, ~target_width: pc_width))
   inst ras(if profile.ras_entries == 0 | DisabledRas(xlen) | Ras(xlen, profile.ras_entries, ~target_width: pc_width))
   inst bht(if profile.bht | TournamentBht() | DisabledTournamentBht())
   inst direction(if profile.bht | SuperscalarDirection(profile) | DisabledSuperscalarDirection(profile))

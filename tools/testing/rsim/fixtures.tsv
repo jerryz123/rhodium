@@ -234,7 +234,7 @@ rv2wide-core-fp-late-rv32	cores-components	cores/superscalar/tests/rsim/emit-rv2
 rv2wide-cache	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-cache.rhm	program	cores/superscalar/tests/rsim/rv2wide-cache.cpp
 superscalar-wide-cache-rv32	cores-components	cores/superscalar/tests/rsim/emit-wide-cache.rhm	rv32	cores/superscalar/tests/rsim/wide-cache.cpp
 superscalar-wide-cache-rv64	cores-components	cores/superscalar/tests/rsim/emit-wide-cache.rhm	rv64	cores/superscalar/tests/rsim/wide-cache.cpp
-rv2wide-fetch-disabled	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-fetch-disabled.rhm	program	cores/superscalar/tests/rsim/rv2wide-fetch-disabled.cpp
+rv3wide-fetch	cores-components	cores/superscalar/tests/rsim/emit-rv3wide-fetch.rhm	program	cores/superscalar/tests/rsim/rv3wide-fetch.cpp
 rv2wide-assembly-prediction	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-assembly-prediction.rhm	program	cores/superscalar/tests/rsim/rv2wide-assembly-prediction.cpp
 rv2wide-assembly-prediction-h	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-assembly-prediction.rhm	guest_program	cores/superscalar/tests/rsim/rv2wide-assembly-prediction-h.cpp
 superscalar-assembly-three	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-assembly-prediction.rhm	three_program	cores/superscalar/tests/rsim/three-assembly.cpp
@@ -300,7 +300,6 @@ rv5stage-dcache	cores-cache	cores/rv5stage/tests/rsim/emit-rv5stage-dcache.rhm	p
 rv5stage-dcache-rv32	cores-cache	cores/rv5stage/tests/rsim/emit-rv5stage-dcache-rv32.rhm	program	cores/rv5stage/tests/rsim/rv5stage-dcache-rv32.cpp
 rv5stage-lrsc-progress	cores-cache	cores/rv5stage/tests/rsim/emit-rv5stage-lrsc-progress.rhm	program	cores/rv5stage/tests/rsim/rv5stage-lrsc-progress.cpp
 rv5stage-lrsc-core-progress	cores-cache	cores/rv5stage/tests/rsim/emit-rv5stage-lrsc-core-progress.rhm	program	cores/rv5stage/tests/rsim/rv5stage-lrsc-core-progress.cpp
-rv5stage-lrsc-core-progress-predicted	cores-cache	cores/rv5stage/tests/rsim/emit-rv5stage-lrsc-core-progress-predicted.rhm	program	cores/rv5stage/tests/rsim/rv5stage-lrsc-core-progress-predicted.cpp
 rv5stage-lrsc-core-progress-rv32	cores-cache	cores/rv5stage/tests/rsim/emit-rv5stage-lrsc-core-progress-rv32.rhm	program	cores/rv5stage/tests/rsim/rv5stage-lrsc-core-progress-rv32.cpp
 event-queue	language	rhodium/event/tests/rsim/emit-event-queue.rhm	program	rhodium/event/tests/rsim/event-queue.cpp	target	rhodium/event/tests/rsim/event-queue-oracle.cpp rheg/runtime/rheg.cc
 event-pipeline	language	rhodium/event/tests/rsim/emit-event-pipeline.rhm	program	rhodium/event/tests/rsim/event-pipeline.cpp	target	rhodium/event/tests/rsim/event-pipeline-oracle.cpp rheg/runtime/rheg.cc

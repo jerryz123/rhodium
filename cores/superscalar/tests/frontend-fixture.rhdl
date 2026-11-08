@@ -9,7 +9,6 @@ import:
   "../../cache/l1i/protocol.rhdl" open
   "../../chi-hart.rhdl" open
   lib("cores/bpred/btb.rhdl").Btb
-  lib("cores/bpred/btb.rhdl").DisabledBtb
   lib("cores/bpred/tournament.rhdl") open
   lib("cores/bpred/ras.rhdl").Ras
   lib("cores/bpred/ras.rhdl").DisabledRas

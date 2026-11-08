@@ -867,8 +867,8 @@ accepted S0 parent; MMU walks and predictor/redirect causality remain unmodeled.
 
 ### Branch prediction
 
-`RV5Stage` and `RV5StageFrontend` accept `~btb_entries` (default 32, zero disables
-prediction) and `~ras_entries` (default 6, zero disables return prediction). The
+`RV5Stage` and `RV5StageFrontend` accept a positive `~btb_entries` (default 32)
+and `~ras_entries` (default 6, zero disables return prediction). The
 fully associative shared [BTB](../bpred/btb.rhdl) stores 14 low address bits and
 references one of eight shared upper-address tags for both its instruction PC
 and target. This preserves exact full-address matching while compacting entries.
@@ -876,9 +876,9 @@ Entries also retain instruction lengths, return-stack actions, and
 conditional/unconditional classification.
 Each entry has a two-bit saturating counter; conditional branches predict taken
 in the upper two states, and unconditional jumps predict taken on a hit. Invalid
-slots are allocated first, then round-robin replacement is used. Disabling the
-BTB also elaborates away the RAS. No global history or separate direction table
-is present.
+slots are allocated first, then round-robin replacement is used. The RAS
+capacity is independently selectable. No global history or separate direction
+table is present.
 
 The shared [RAS](../bpred/ras.rhdl) follows the RISC-V `x1`/`x5` implicit call and
 return hints, including the pop-then-push coroutine case. Calls push their two-

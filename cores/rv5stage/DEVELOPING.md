@@ -309,9 +309,9 @@ calls from arbitrary nonzero link registers.
 For predictor changes run the shared `bpred-btb`, `bpred-ras`,
 `rv5stage-fetch-prediction`, `rv5stage-return-prediction`, and
 `rv5stage-branch-prediction`, then existing `rv5stage-fetch`, `rv5stage-core`,
-and fault/replay fixtures. The paired branch core test compares actual stores,
-cycle counts, flushes, and consecutive backedge requests with prediction enabled
-and disabled; the paired return test holds the BTB constant while alternating
+and fault/replay fixtures. The paired branch core test checks actual stores,
+recovery, and consecutive warm backedge requests with 32-entry and two-entry
+BTBs; the paired return test holds the BTB constant while alternating
 two call sites into one return with the RAS enabled and disabled. Neither test
 inspects internal predictor state. The fetch test covers compressed branch
 ordering, continuation words, duplicate-PC occurrences, backpressure, stale-cut
@@ -914,7 +914,7 @@ The full-core test matrix for the [Ziccrse integration
 guarantee](README.md#lrsc-eventuality-ziccrse) is:
 
 ```sh
-FIXTURES='rv5stage-lrsc-core-progress rv5stage-lrsc-core-progress-predicted rv5stage-lrsc-core-progress-rv32' python3 tools/testing/rsim/run.py
+FIXTURES='rv5stage-lrsc-core-progress rv5stage-lrsc-core-progress-rv32' python3 tools/testing/rsim/run.py
 ```
 
 It executes sixteen-instruction constrained LR.W/SC.W and RV64 LR.D/SC.D loops through RV5Stage,
@@ -922,8 +922,7 @@ its MMU and 32-set direct-mapped L1s, a two-set/two-way inclusive Home, and
 CHI SRAM. The three instruction placements are `0x1fc0`, `0x1fe0`, and
 `0x1ffe`; Bare and supervisor Sv39 runs cover both ordinary and halfword-offset
 fetch/page crossings. Sv39 uses separate 4-KiB leaves; RV32 uses Bare mode.
-The original fixture disables prediction, while `-predicted` and `-rv32` use
-the production 16-entry predictor. Each placement runs without extra traffic,
+Both XLEN variants use a 16-entry BTB. Each placement runs without extra traffic,
 with read-only LLC conflicts, with competing LRs, and with competing LR/SCs.
 Pressure cases take six forward branches over NOPs. Competing LRs must permit
 core progress; competing SCs check system progress rather than per-hart

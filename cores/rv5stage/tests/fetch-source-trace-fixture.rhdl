@@ -14,7 +14,7 @@ sync_circuit EventFetchSource():
   interface replay(Valid(RV5StageFetchAttempt(xlen)), ~role: consumer)
   interface attempts(Decoupled(RV5StageFetchAttempt(xlen)), ~role: producer)
   interface stage1(Valid(RV5StageFetchAttempt(xlen)), ~role: producer)
-  inst source(RV5StageFetchSource(xlen, 0))
+  inst source(RV5StageFetchSource(xlen))
   source.active <== active
   source.space <== space
   source.clear.valid <== clear

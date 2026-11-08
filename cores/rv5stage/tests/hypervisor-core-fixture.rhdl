@@ -63,7 +63,7 @@ sync_circuit RV5StageHypervisorCoreFixture():
   input interrupts: RiscvInterrupts()
   input time_counter: Bits(64)
   inst core(RV5StageCore(profile, ~reset_address: 0x1000))
-  inst frontend(RV5StageFrontend(profile, ~btb_entries: 0, ~ras_entries: 0))
+  inst frontend(RV5StageFrontend(profile, ~ras_entries: 0))
   inst mmu(RV5StageMmu(xlen, RiscvMmuType.Sv39, physical_map, ~hypervisor: #true))
   inst arbiter(RV5StageDataPortArbiter(xlen, 8))
   core.frontend_control |> frontend.control

@@ -96,8 +96,9 @@ For the fetching core with both shared caches, import
 The supplied issue circuit must match the selected profile's XLEN. Optional `~instruction_cache`
 selects different L1I geometry; otherwise both use the supplied geometry.
 `SuperscalarPipelineConfig(~btb_entries: 32, ~ras_entries: 6, ~bht: #true)` selects predictor
-capacities and enables three 4,096-counter tournament tables. Set both capacities
-to zero and `~bht: #false` for the sequential-fetch baseline.
+capacities and enables three 4,096-counter tournament tables. BTB capacity must
+be positive. Set `~ras_entries: 0` to omit the RAS or `~bht: #false` to use
+BTB-local direction counters without the tournament tables.
 Connect separate `instruction_chi` RN-I, `data_chi` RN-F, and `uncached_chi` RN-I
 endpoints with distinct `instruction_node_id`, `data_node_id`, and
 `uncached_node_id` inputs. Pulse

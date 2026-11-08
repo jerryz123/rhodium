@@ -69,7 +69,7 @@ Rsim component lanes own portable language behavior, standard-library, Flow, reu
 and portable controller behavior. The `cores-components` group also includes
 shared 2R2W/4R2W register-file, RV5Stage FP pipeline, integer execution, writeback calendar,
 memory arbiter, divider workload, and three vector-sequencer configurations.
-RV2Wide core/FP, cache, disabled-fetch, assembly and frontend prediction, BHT,
+RV2Wide core/FP, cache, RV3Wide fetch, assembly and frontend prediction, BHT,
 MMU, enabled-fetch with retirement tracing, and RV32 integration also run in
 this group.
 RV5Stage composed core, control, vector, memory-routing, coherent-cache, and

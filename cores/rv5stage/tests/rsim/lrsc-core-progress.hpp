@@ -122,7 +122,7 @@ void initialize_program(int loop_pc, std::uint8_t translated,
     word(pc, jal(loop_pc - pc));
   // Exactly sixteen sequential instructions, including the retry branch:
   // LR, twelve branch/NOP slots, ADDI, SC, BNE retry. Pressure cases take
-  // six forward branches over NOPs, stressing cold and disabled prediction.
+  // six forward branches over NOPs, stressing cold prediction and taken-branch redirects.
   word(loop_pc, word_access ? UINT64_C(0x1002a32f)
                             : UINT64_C(0x1002b32f)); // lr.w/d x6,(x5)
   for (int index = 1; index <= 12; index++)

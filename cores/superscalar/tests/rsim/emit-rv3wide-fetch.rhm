@@ -9,6 +9,6 @@ import:
   lib("cores/rv3wide/profile.rhm").RV3WideConfig
   "../cache-fixture.rhdl" open
 
-def profile = RV3WideConfig(SuperscalarPipelineConfig(~instruction_cache: test_cache, ~data_cache: test_cache, ~btb_entries: 0, ~ras_entries: 0, ~bht: #false))
+def profile = RV3WideConfig(SuperscalarPipelineConfig(~instruction_cache: test_cache, ~data_cache: test_cache, ~ras_entries: 0, ~bht: #false))
 def program = elaborate(HartFixture(RV3Wide(test_cache, ~chi: test_fetch_chi, ~profile: profile), test_fetch_chi, profile.pipeline, ~issue_width: 3))
 export program

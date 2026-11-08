@@ -85,6 +85,6 @@ and Mini RV64Max remains a manual selection. Use complete keys such as
 
 Software coverage follows the shared shape/ISA policy, including Mini/Simple
 Sail cosim, Simple ISA/ACT suites, and tiled multihart workloads. The existing
-shared disabled-prediction fetch fixture also exercises this entry point
+shared `rv3wide-fetch` fixture also exercises this entry point
 against the same behavioral oracle as RV2Wide. See the
 [shared contract](../superscalar/README.md) for all other interfaces and limits.
