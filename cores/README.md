@@ -383,8 +383,9 @@ hold their `Irrevocable` responses until `response.fire()`. The pipelined
 multiplier instead consumes every asserted `Valid` request and produces the
 corresponding `Valid` response exactly three cycles later, independently of
 operand values and signedness. The first stage multiplies the operand halves
-and compresses the upper product with its sign corrections. The second reduces
-all aligned terms to a carry-save pair; the third adds the pair. It has no
+and compresses two groups in parallel: the low and cross products, and the
+upper product with its sign corrections. The second stage combines the groups
+into a carry-save pair; the third adds the pair. It has no
 readiness path: a caller must reserve its write cycle or elastic return capacity
 before launch.
 

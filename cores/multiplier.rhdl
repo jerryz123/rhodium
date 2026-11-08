@@ -28,11 +28,10 @@ bundle MultiplierCarrySave(width :: PosInt):
   sum: Bits(width)
   carry: Bits(width)
 
-/* Retain the low/cross products and the compressed, sign-corrected upper terms. */
-bundle PipelinedMultiplierPartials(width :: PosInt):
-  low_low: Bits(width)
-  low_high: Bits(width)
-  high_low: Bits(width)
+/* Retain only the occupied columns of the low/cross reduction, plus the upper terms. */
+bundle PipelinedMultiplierPartials(width :: PosInt, low_sum_width :: PosInt):
+  low_sum: Bits(low_sum_width)
+  low_carry: Bits(width)
   upper: MultiplierCarrySave(width)
   correction_carry: Bits(2)
 
@@ -110,7 +109,7 @@ sync_circuit IterativeMultiplier(width :: PosInt):
     response_valid <== Bool(#false)
 
 /*
- * Two feed-forward registers hold half-width products and carry-save reduction.
+ * Two feed-forward registers hold the compressed partial products and their reduction.
  * The final sum is combinational so the caller can choose what its third register
  * retains. Signed corrections affect only the upper product half:
  * a*b - negative(a)*(b<<width) - negative(b)*(a<<width), modulo 2^(2*width).
@@ -121,23 +120,31 @@ fun pipelined_product_sum(width :: Pow2Int, request :: Endpoint) :: Endpoint:
 
   def half_width = width / 2
   def product_width = width * 2
+  def low_sum_width = width + half_width
+  def low_carry_start = half_width + 1
 
 
-  /* Partial products. The high product and one's-complement corrections all start
-     at bit width. Compress them at that width; keep their two +1 adjustments separate. */
+  /* Compress the low/cross products and the sign-corrected upper terms in parallel.
+     The cross products begin at half_width, so the shifted carry starts one bit later. */
 
   def partials = request |> map_valid(payload):
     def operation :: MultiplierRequest(width) = payload
+    def low_low = operation.left[0..half_width] *& operation.right[0..half_width]
+    def low_high = operation.left[0..half_width] *& operation.right[half_width..width]
+    def high_low = operation.left[half_width..width] *& operation.right[0..half_width]
+    def low = multiplier_carry_save(product_width, low_low.zext(product_width),
+                                    low_high.zext(product_width) << half_width,
+                                    high_low.zext(product_width) << half_width)
+
     def left_negative = operation.mode.left_signed & operation.left[width - 1].into(Bool)
     def right_negative = operation.mode.right_signed & operation.right[width - 1].into(Bool)
     def high_high = operation.left[half_width..width] *& operation.right[half_width..width]
     def left_correction = mux(left_negative, !operation.right, Bits(width)(0))
     def right_correction = mux(right_negative, !operation.left, Bits(width)(0))
 
-    PipelinedMultiplierPartials(width):
-      low_low: operation.left[0..half_width] *& operation.right[0..half_width]
-      low_high: operation.left[0..half_width] *& operation.right[half_width..width]
-      high_low: operation.left[half_width..width] *& operation.right[0..half_width]
+    PipelinedMultiplierPartials(width, low_sum_width):
+      low_sum: low.sum[0..low_sum_width]
+      low_carry: low.carry[low_carry_start..(low_carry_start + width)]
       upper: multiplier_carry_save(width, high_high, left_correction, right_correction)
       correction_carry: (left_negative & right_negative).as_bits() ++ (left_negative ^ right_negative).as_bits()
 
@@ -147,11 +154,8 @@ fun pipelined_product_sum(width :: Pow2Int, request :: Endpoint) :: Endpoint:
   /* Reduce the aligned terms to two full-product words without propagating carries. */
 
   def reductions = multiplied |> map_valid(operation):
-    def low = multiplier_carry_save(product_width,
-                                    operation.low_low.zext(product_width),
-                                    operation.low_high.zext(product_width) << half_width,
-                                    operation.high_low.zext(product_width) << half_width)
-    def combined = multiplier_carry_save(product_width, low.sum, low.carry, operation.upper.sum ++ Bits(width)(0))
+    def low_carry = operation.low_carry.zext(product_width) << low_carry_start
+    def combined = multiplier_carry_save(product_width, operation.low_sum.zext(product_width), low_carry, operation.upper.sum ++ Bits(width)(0))
     def folded = multiplier_carry_save(product_width, combined.sum, combined.carry, operation.upper.carry ++ Bits(width)(0))
     multiplier_carry_save(product_width, folded.sum, folded.carry, operation.correction_carry.zext(product_width) << width)
 
