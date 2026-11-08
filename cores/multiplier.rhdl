@@ -23,26 +23,24 @@ bundle MultiplierRequest(width :: PosInt):
   right: Bits(width)
   mode: MultiplierMode()
 
-/* Retain raw half-width products and upper-half two's-complement correction terms. */
+/* Represent three terms modulo 2^width by their sum bits and already-shifted carries. */
+bundle MultiplierCarrySave(width :: PosInt):
+  sum: Bits(width)
+  carry: Bits(width)
+
+/* Retain the low/cross products and the compressed, sign-corrected upper terms. */
 bundle PipelinedMultiplierPartials(width :: PosInt):
   low_low: Bits(width)
   low_high: Bits(width)
   high_low: Bits(width)
-  high_high: Bits(width)
-  left_correction: Bits(width)
-  right_correction: Bits(width)
+  upper: MultiplierCarrySave(width)
   correction_carry: Bits(2)
 
-/* Carry two double-width carry-save vectors into the final carry-propagating addition. */
-bundle PipelinedMultiplierReduction(width :: PosInt):
-  first: Bits(width * 2)
-  second: Bits(width * 2)
-
 /* Compress three terms into sum and shifted carry without full-width carry propagation. */
-fun multiplier_carry_save(width :: PosInt, a :: Bits(width * 2), b :: Bits(width * 2), c :: Bits(width * 2)) :~ PipelinedMultiplierReduction(width):
-  PipelinedMultiplierReduction(width):
-    first: a ^ b ^ c
-    second: ((a & b) ||| (a & c) ||| (b & c)) << 1
+fun multiplier_carry_save(width :: PosInt, a :: Bits(width), b :: Bits(width), c :: Bits(width)) :~ MultiplierCarrySave(width):
+  MultiplierCarrySave(width):
+    sum: a ^ b ^ c
+    carry: ((a & b) ||| (a & c) ||| (b & c)) << 1
 
 /*
  * Captures one request, prepares magnitudes for one cycle, then consumes one
@@ -124,29 +122,41 @@ fun pipelined_product_sum(width :: Pow2Int, request :: Endpoint) :: Endpoint:
   def half_width = width / 2
   def product_width = width * 2
 
+
+  /* Partial products. The high product and one's-complement corrections all start
+     at bit width. Compress them at that width; keep their two +1 adjustments separate. */
+
   def partials = request |> map_valid(payload):
     def operation :: MultiplierRequest(width) = payload
     def left_negative = operation.mode.left_signed & operation.left[width - 1].into(Bool)
     def right_negative = operation.mode.right_signed & operation.right[width - 1].into(Bool)
+    def high_high = operation.left[half_width..width] *& operation.right[half_width..width]
+    def left_correction = mux(left_negative, !operation.right, Bits(width)(0))
+    def right_correction = mux(right_negative, !operation.left, Bits(width)(0))
+
     PipelinedMultiplierPartials(width):
       low_low: operation.left[0..half_width] *& operation.right[0..half_width]
       low_high: operation.left[0..half_width] *& operation.right[half_width..width]
       high_low: operation.left[half_width..width] *& operation.right[0..half_width]
-      high_high: operation.left[half_width..width] *& operation.right[half_width..width]
-      left_correction: mux(left_negative, !operation.right, Bits(width)(0))
-      right_correction: mux(right_negative, !operation.left, Bits(width)(0))
+      upper: multiplier_carry_save(width, high_high, left_correction, right_correction)
       correction_carry: (left_negative & right_negative).as_bits() ++ (left_negative ^ right_negative).as_bits()
 
   def multiplied = partials |> valid_pipe(1)
+
+
+  /* Reduce the aligned terms to two full-product words without propagating carries. */
+
   def reductions = multiplied |> map_valid(operation):
-    def low = multiplier_carry_save(width, operation.low_low.zext(product_width), operation.low_high.zext(product_width) << half_width, operation.high_low.zext(product_width) << half_width)
-    def high = multiplier_carry_save(width, operation.high_high.zext(product_width) << width, operation.left_correction.zext(product_width) << width, operation.right_correction.zext(product_width) << width)
-    def combined = multiplier_carry_save(width, low.first, low.second, high.first)
-    def folded = multiplier_carry_save(width, combined.first, combined.second, high.second)
-    multiplier_carry_save(width, folded.first, folded.second, operation.correction_carry.zext(product_width) << width)
+    def low = multiplier_carry_save(product_width,
+                                    operation.low_low.zext(product_width),
+                                    operation.low_high.zext(product_width) << half_width,
+                                    operation.high_low.zext(product_width) << half_width)
+    def combined = multiplier_carry_save(product_width, low.sum, low.carry, operation.upper.sum ++ Bits(width)(0))
+    def folded = multiplier_carry_save(product_width, combined.sum, combined.carry, operation.upper.carry ++ Bits(width)(0))
+    multiplier_carry_save(product_width, folded.sum, folded.carry, operation.correction_carry.zext(product_width) << width)
 
   def reduced = reductions |> valid_pipe(1)
-  reduced |> map_valid(operation => operation.first + operation.second)
+  reduced |> map_valid(operation => operation.sum + operation.carry)
 
 /* Delivers one double-width product per cycle after three registered stages. */
 sync_circuit PipelinedMultiplier(width :: Pow2Int):

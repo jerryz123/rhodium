@@ -2065,14 +2065,23 @@ int main() {
     send(0x30009073);             // csrw mstatus,x1
     send(addi(1, 0, 0x400));
     send(0x30509073);             // mtvec = 0x400
-    // SEW=XLEN routes VMULHU through the scalar multiplier, not the subword bank.
-    // (2^XLEN - 1) * 3 has high half 2 and low half -3.
+    // SEW=XLEN uses the shared multiplier. For operands -1 and -3 the low
+    // half is always 3; the high half distinguishes zero, one, and two sign corrections.
+    constexpr std::uint64_t all_ones = bytes == 8 ? UINT64_MAX : UINT32_MAX;
     setvl(bytes == 8 ? 3 : 2, 1);
     send(addi(14, 0, -1));
-    send(addi(3, 0, 3));
+    send(addi(3, 0, -3));
     send(vi(23, 0, 14, 4, 14));   // vmv.v.x v14,x14
-    send(vi(36, 14, 3, 6, 15));   // vmulhu.vx v15,v14,x3
-    extract(15, 7, 2);
+    const auto check_product = [](unsigned opcode, std::uint64_t expected) {
+      send(vi(opcode, 14, 3, 6, 15));
+      send(vi(16, 15, 0, 2, 7));   // vmv.x.s x7,v15
+      send(addi(7, 7, 0));         // Wait for the vector-to-GPR write.
+      CHECK(gprs[7] == expected);
+    };
+    check_product(36, all_ones - 3); // vmulhu.vx
+    check_product(38, all_ones);     // vmulhsu.vx
+    check_product(39, 0);            // vmulh.vx
+    check_product(37, 3);            // vmul.vx
 
     setvl(0, bytes * 2);
     send(addi(2, 0, 3));

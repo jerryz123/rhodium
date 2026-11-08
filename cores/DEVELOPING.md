@@ -307,8 +307,10 @@ is owned by the matching backend fixtures:
 Small widths exhaust every operand/signedness pair; RV32/RV64 combine signed
 extremes, half-width carry boundaries, and seeded random products. Its independent
 full-width oracle checks every valid cycle, including bubbles and reset with
-work in flight. Preserve the raw partial-product, carry-save, final-add boundary;
-do not reintroduce operand-dependent shortcuts or completed-product storage.
+work in flight. The first register holds three raw products, a carry-save pair
+for the upper product and signed corrections, and their two-bit correction count.
+The second register holds the full-width carry-save pair for the final addition.
+Keep the latency independent of operand values.
 
 `iterative-divider` exhausts all eight-bit operand pairs in both signed modes,
 checking the quotient, remainder, and exact response cycle. Keep the trial
