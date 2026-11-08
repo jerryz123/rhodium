@@ -8,4 +8,7 @@ import:
   "../../../cores/tests/load-store-fixture.rhdl" as fixture
 
 def program = elaborate(fixture.LoadStoreFixture(XLen.X64))
-export program
+def wide_program = elaborate(fixture.LoadStoreFixture(XLen.X64, 16))
+export:
+  program
+  wide_program

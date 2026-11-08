@@ -4,16 +4,15 @@
 
 import:
   lib("rhodium/std/bits.rhdl") open
-  lib("riscv/isa/xlen.rhm").XLen
   "config.rhm" open
 
-/* Counts XLEN-sized words in one complete cache line. */
-fun cache_line_words(xlen :: XLen) :: PosInt: CacheLineBytes * 8 / xlen.width
+/* Counts data SRAM rows in a fixed-size line. */
+fun cache_line_rows(beat_bytes :: Pow2Int) :: PosInt: CacheLineBytes / beat_bytes
 
 /* One returned cache-array word and its position within the owner's dirty line. */
-bundle CacheGatherWord(xlen :: XLen):
-  index: Bits(index_width(cache_line_words(xlen)))
-  data: Bits(xlen.width)
+bundle CacheGatherRow(beat_bytes :: Pow2Int):
+  index: Bits(index_width(cache_line_rows(beat_bytes)))
+  data: Bits(8 * beat_bytes)
 
 /* Selects real ways matching a binary index; an unused encoded index selects no way. */
 fun cache_way_mask(config :: CacheConfig,
@@ -37,7 +36,7 @@ fun cache_lane_mask(config :: CacheConfig,
 export:
   CacheLineBytes
   CacheConfig
-  CacheGatherWord
-  cache_line_words
+  CacheGatherRow
+  cache_line_rows
   cache_way_mask
   cache_lane_mask

@@ -114,10 +114,10 @@ circuit StoreGen(xlen :: XLen,
 
   def offset = address[0..alignment_bits(beat_bytes)]
   def shift = (offset ++ Bits(3)(0))
-  // Byte/halfword/word choose fixed low masks; Double/default enables the whole beat before shifting.
+  // Double enables at most eight bytes, even on a wider data port.
   def base_mask = mux_lookup(
     width,
-    ~default: !Bits(beat_bytes)(0),
+    ~default: Bits(beat_bytes)((1 << math.min(8, beat_bytes)) - 1),
     [
       [MemoryWidth.Byte, Bits(beat_bytes)(0x01)],
       [MemoryWidth.Half, Bits(beat_bytes)(0x03)],

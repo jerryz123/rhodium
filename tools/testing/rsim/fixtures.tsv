@@ -57,6 +57,7 @@ bit-manip-rv32	cores-components	cores/tests/rsim/emit-bit-manip-rv32.rhm	program
 iterative-multiplier	cores-components	cores/tests/rsim/emit-iterative-multiplier.rhm	program	cores/tests/rsim/iterative-multiplier.cpp
 iterative-divider	cores-components	cores/tests/rsim/emit-iterative-divider.rhm	program	cores/tests/rsim/iterative-divider.cpp
 load-store	cores-components	cores/tests/rsim/emit-load-store.rhm	program	cores/tests/rsim/load-store.cpp
+load-store-wide	cores-components	cores/tests/rsim/emit-load-store.rhm	wide_program	cores/tests/rsim/load-store-wide.cpp
 load-store-rv32-word	cores-components	cores/tests/rsim/emit-load-store-rv32-word.rhm	program	cores/tests/rsim/load-store-rv32-word.cpp
 rv64i-alu-integrated	cores-components	examples/cores/decoded-alu.rhdl	program	cores/tests/rsim/rv64i-alu-integrated.cpp
 pipelined-multiplier	cores-components	cores/tests/rsim/emit-pipelined-multiplier.rhm	program	cores/tests/rsim/pipelined-multiplier.cpp
@@ -323,6 +324,7 @@ event-subordinate	protocols	rhodium/event/tests/rsim/emit-event-subordinate.rhm	
 event-fesvr	protocols	rhodium/event/tests/rsim/emit-event-fesvr.rhm	program	rhodium/event/tests/rsim/event-fesvr.cpp	target	rhodium/event/tests/rsim/event-fesvr-oracle.cpp rheg/runtime/rheg.cc
 event-vector	cores-vector-functional-1	rhodium/event/tests/rsim/emit-event-vector.rhm	program	rhodium/event/tests/rsim/event-vector.cpp	target	rhodium/event/tests/rsim/event-vector-oracle.cpp rheg/runtime/rheg.cc
 cache-compack	cores-cache	cores/cache/tests/rsim/emit-cache-compack.rhm	program	cores/cache/tests/rsim/cache-compack.cpp	target	cores/cache/tests/rsim/cache-compack-oracle.cpp rheg/runtime/rheg.cc
+cache-wide-l1d	cores-cache	cores/cache/tests/rsim/emit-wide-l1d.rhm	program	cores/cache/tests/rsim/wide-l1d.cpp
 cache-copyback	cores-cache	cores/cache/tests/rsim/emit-cache-copyback.rhm	program	cores/cache/tests/rsim/cache-copyback.cpp	target	cores/cache/tests/rsim/cache-copyback-oracle.cpp rheg/runtime/rheg.cc
 riscv-walk-trace	cores-components	cores/mmu/tests/rsim/emit-riscv-walk-trace.rhm	program	cores/mmu/tests/rsim/riscv-walk-trace.cpp	target	cores/mmu/tests/rsim/riscv-walk-trace-oracle.cpp rheg/runtime/rheg.cc
 rv5stage-fetch-source	cores-execution-frontend	cores/rv5stage/tests/rsim/emit-rv5stage-fetch-source.rhm	program	cores/rv5stage/tests/rsim/rv5stage-fetch-source.cpp	target	cores/rv5stage/tests/rsim/rv5stage-fetch-source-oracle.cpp rheg/runtime/rheg.cc

@@ -10,17 +10,39 @@ import:
   lib("rhodium/std/read-write.rhdl") open
   lib("rhodium/std/sync-ram.rhdl") open
 
+/* Reads all ways in parallel; only the selected, byte-enabled way receives a write.
+   Each SyncRam occurrence describes exactly one row per address, not a ways-wide macro. */
+sync_circuit CacheWayDataRam(depth :: PosInt, beat_bytes :: Pow2Int, ways :: PosInt):
+  def address_width = index_width(depth)
+  interface port(ReadWritePort(address_width, Bits(8), ways * beat_bytes), ~role: responder)
+  def rows = for List (way in 0..ways):
+    inst bank(SyncRam1RW(depth, Bits(8), beat_bytes))
+    def mask = port.request.bits.mask.as_bits()[(way * beat_bytes)..((way + 1) * beat_bytes)]
+    bank.port.request.valid <== port.request.valid & (!port.request.bits.write ||| mask.any())
+    bank.port.request.bits <== ReadWriteRequest(address_width, Bits(8), beat_bytes):
+      address: port.request.bits.address
+      write: port.request.bits.write
+      data: vec(for List (byte in 0..beat_bytes): port.request.bits.data[way * beat_bytes + byte])
+      mask: mask.into(Mask(beat_bytes))
+
+    if way == 0 | port.response.valid <== bank.port.response.valid | #void
+    for List (byte in 0..beat_bytes): bank.port.response.bits[byte]
+
+  port.response.bits <== vec(for List (lane in 0..(ways * beat_bytes)): rows[lane div beat_bytes][lane % beat_bytes])
+
 /* Provides independent synchronous tag, coherent-state, and byte-masked data SRAMs.
    The cache scheduler owns arbitration and way-major lane masks. */
-sync_circuit CacheDCacheArrays(xlen :: XLen, cache :: CacheConfig, tag_width :: PosInt):
-  def word_bytes = xlen.width / 8
+sync_circuit CacheDCacheArrays(xlen :: XLen, cache :: CacheConfig, tag_width :: PosInt, word_bytes :: Pow2Int = xlen.width / 8):
   def depth = cache.sets * (CacheLineBytes / word_bytes)
   interface tags(ReadWritePort(cache.set_width, Bits(tag_width), cache.ways), ~role: responder)
   interface states(ReadWritePort(cache.set_width, CHICacheState, cache.ways), ~role: responder)
   interface data(ReadWritePort(index_width(depth), Bits(8), cache.ways * word_bytes), ~role: responder)
   inst tag_storage(SyncRam1RW(cache.sets, Bits(tag_width), cache.ways))
   inst state_storage(SyncRam1RW(cache.sets, CHICacheState, cache.ways))
-  inst data_storage(SyncRam1RW(depth, Bits(8), cache.ways * word_bytes))
+  def data_ram = if word_bytes == xlen.width / 8
+  | SyncRam1RW(depth, Bits(8), cache.ways * word_bytes)
+  | CacheWayDataRam(depth, word_bytes, cache.ways)
+  inst data_storage(data_ram)
   tags |> tag_storage.port
   states |> state_storage.port
   data |> data_storage.port

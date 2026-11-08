@@ -12,7 +12,7 @@ import:
 bundle CacheStoreBufferEntry(xlen :: XLen, way_width :: PosInt, word_bytes :: PosInt):
   address: Bits(xlen.width)
   way: Bits(way_width)
-  data: Bits(xlen.width)
+  data: Bits(8 * word_bytes)
   mask: Bits(word_bytes)
   mark_dirty: Bool
 
@@ -21,16 +21,17 @@ bundle CacheStoreBufferEntry(xlen :: XLen, way_width :: PosInt, word_bytes :: Po
    FIFO order. */
 sync_circuit CacheStoreBuffer(xlen :: XLen,
                               way_width :: PosInt,
-                              depth :: Pow2Int = 4):
-  def T = CacheStoreBufferEntry(xlen, way_width, xlen.width / 8)
+                              depth :: Pow2Int = 4,
+                              ~beat_bytes: beat_bytes :: Pow2Int = xlen.width / 8):
+  def T = CacheStoreBufferEntry(xlen, way_width, beat_bytes)
   def pointer_width = index_width(depth)
   def count_width = index_width(depth + 1)
-  def word_offset = alignment_bits(xlen.width / 8)
+  def word_offset = alignment_bits(beat_bytes)
   interface enqueue(Decoupled(T), ~role: consumer)
   interface drain(Irrevocable(T), ~role: producer)
   input full_drain: Bool
   input query_address: Bits(xlen.width)
-  input query_mask: Bits(xlen.width / 8)
+  input query_mask: Bits(beat_bytes)
   input probe_address: Bits(xlen.width)
   output(word_hazard, line_hazard, queued_word_hazard, queued_line_hazard, empty, full, urgent): Bool
   output count: Bits(count_width)
@@ -60,11 +61,11 @@ sync_circuit CacheStoreBuffer(xlen :: XLen,
   urgent <== age >= Bits(4)(8)
 
   /* Tests physical word equality and intersecting byte masks against the speculative query. */
-  fun overlaps(store :: CacheStoreBufferEntry(xlen, way_width, xlen.width / 8)):
+  fun overlaps(store :: CacheStoreBufferEntry(xlen, way_width, beat_bytes)):
     (store.address[word_offset..xlen.width] === query_address[word_offset..xlen.width]) & (store.mask & query_mask).any()
 
   /* Tests whether an entry belongs to the probed 64-byte physical line. */
-  fun same_line(store :: CacheStoreBufferEntry(xlen, way_width, xlen.width / 8)):
+  fun same_line(store :: CacheStoreBufferEntry(xlen, way_width, beat_bytes)):
     store.address[6..xlen.width] === probe_address[6..xlen.width]
 
   queued_word_hazard <== vec(for List (index in 0..depth): occupied[index] & overlaps(entries[index])).as_bits().any()

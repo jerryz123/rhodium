@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  rhombus/meta open
   lib("rhodium/std/bits.rhdl").Pow2Int
   "operation.rhdl" open
   "../../riscv/isa/xlen.rhm" open
@@ -32,80 +33,114 @@ hardware_enum CachePipelineReason:
   Translation
   Ordered
 
+/* A scalar specialization forwards descriptor, record-constructor, and annotation syntax
+   to the same bundle family used by the explicit-width coherent port. */
+defn.macro 'native_beat $(name :: Identifier)($(xlen :: Identifier), $(arg :: Identifier), ...) = $(family :: Identifier)':
+  '«
+     expr.macro
+     | '$name($('$')$xlen, $('$')$arg, ...): $('$')field; $('...')':
+         '$family($('$')$xlen, $('$')$arg, ..., ($('$')$xlen).width / 8): $('$')field; $('...')'
+     | '$name($('$')$xlen, $('$')$arg, ...)':
+         '$family($('$')$xlen, $('$')$arg, ..., ($('$')$xlen).width / 8)'
+     | '$name': '$family'
+     annot.macro '$name($('$')$xlen, $('$')$arg, ...)':
+       '$family($('$')$xlen, $('$')$arg, ..., ($('$')$xlen).width / 8)'
+   »'
+
 /* Carries the translated speculative access controls without permission to mutate or allocate. */
-bundle CachePipelineReq(xlen :: XLen):
-  byte_mask: Bits(memory_word_bytes(xlen))
+bundle CachePipelineBeatReq(xlen :: XLen, beat_bytes :: Pow2Int = xlen.width / 8):
+  if beat_bytes > xlen.width / 8:
+    raw_beat: Bool
+  byte_mask: Bits(beat_bytes)
   address: Bits(xlen.width)
   access: CacheOperation
   width: MemoryWidth
   unsigned: Bool
-  data: Bits(xlen.width)
+  data: Bits(8 * beat_bytes)
 
 /* Returns the physical-resolution decision, diagnostic reason, and selected load data. */
-bundle CachePipelineResult(xlen :: XLen):
+bundle CachePipelineBeatResult(xlen :: XLen, beat_bytes :: Pow2Int = xlen.width / 8):
   outcome: CachePipelineOutcome
   reason: CachePipelineReason
-  data: Bits(xlen.width)
+  data: Bits(8 * beat_bytes)
 
 /* Pairs fixed-cycle lookup outcomes with next-cycle authorization of the matching store candidate.
    Replay repeats lookup; only Slow uses the authorized transaction service. */
-interface CachePipelineAccess(xlen :: XLen):
+interface CacheBeatPipelineAccess(xlen :: XLen, beat_bytes :: Pow2Int):
   role requester
   role responder
   provider requester
 
   requester -> responder:
-    request: Valid(CachePipelineReq(xlen))
+    request: Valid(CachePipelineBeatReq(xlen, beat_bytes))
     commit: Bool
 
   responder -> requester:
-    response: Valid(CachePipelineResult(xlen))
+    response: Valid(CachePipelineBeatResult(xlen, beat_bytes))
     commit_ready: Bool
 
 /* Carries an authorized physical transaction and an uninterpreted caller-owned context. */
-bundle PhysicalMemoryReq(xlen :: XLen, Context :: DataType):
-  byte_mask: Bits(memory_word_bytes(xlen))
+bundle PhysicalMemoryBeatReq(xlen :: XLen, Context :: DataType, beat_bytes :: Pow2Int = xlen.width / 8):
+  if beat_bytes > xlen.width / 8:
+    raw_beat: Bool
+  byte_mask: Bits(beat_bytes)
   address: Bits(xlen.width)
   access: CacheOperation
   atomic: RiscvAtomicOperation
   width: MemoryWidth
   unsigned: Bool
-  data: Bits(xlen.width)
+  data: Bits(8 * beat_bytes)
   context: Context
   locality: RiscvMemoryLocality
 
 /* Returns completion status and load data with the caller's context unchanged. */
-bundle PhysicalMemoryResp(xlen :: XLen, Context :: DataType):
+bundle PhysicalMemoryBeatResp(xlen :: XLen, Context :: DataType, beat_bytes :: Pow2Int = xlen.width / 8):
   // Management retains retirement context for delayed faults. Other current
   // engines report rejection before acceptance and return successful responses.
   access_fault: Bool
-  data: Bits(xlen.width)
+  data: Bits(8 * beat_bytes)
   context: Context
+
+native_beat CachePipelineReq(xlen) = CachePipelineBeatReq
+native_beat CachePipelineResult(xlen) = CachePipelineBeatResult
+
+native_beat PhysicalMemoryReq(xlen, Context) = PhysicalMemoryBeatReq
+native_beat PhysicalMemoryResp(xlen, Context) = PhysicalMemoryBeatResp
 
 /* Exposes authorized request admission, preacceptance faults, tagged completion, drain, and
    reservation. */
-interface CacheAccess(xlen :: XLen, Context :: DataType):
+interface CacheBeatAccess(xlen :: XLen, Context :: DataType, beat_bytes :: Pow2Int):
   role requester
   role responder
   provider requester
 
   requester -> responder:
-    request: Decoupled(PhysicalMemoryReq(xlen, Context))
+    request: Decoupled(PhysicalMemoryBeatReq(xlen, Context, beat_bytes))
 
   responder -> requester:
     request_fault: Bool
     request_access_fault: Bool
-    response: Decoupled(PhysicalMemoryResp(xlen, Context))
+    response: Decoupled(PhysicalMemoryBeatResp(xlen, Context, beat_bytes))
     drained: Bool
     reservation_valid: Bool
 
+/* Specializes the speculative cache port; native-word clients need no width argument. */
+fun CachePipelineAccess(xlen :: XLen, beat_bytes :: Pow2Int = xlen.width / 8) :~ InterfaceType: CacheBeatPipelineAccess(xlen, beat_bytes)
+
+/* Specializes the authorized port independently of XLEN and its opaque response context. */
+fun CacheAccess(xlen :: XLen, Context :: DataType, beat_bytes :: Pow2Int = xlen.width / 8) :~ InterfaceType: CacheBeatAccess(xlen, Context, beat_bytes)
+
 export:
+  CachePipelineBeatReq
   CachePipelineReq
+  CachePipelineBeatResult
   CachePipelineResult
   CachePipelineAccess
   CachePipelineOutcome
   CachePipelineReason
+  PhysicalMemoryBeatReq
   PhysicalMemoryReq
+  PhysicalMemoryBeatResp
   PhysicalMemoryResp
   CacheAccess
 

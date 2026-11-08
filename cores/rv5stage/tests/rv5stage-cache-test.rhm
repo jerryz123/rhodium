@@ -24,6 +24,7 @@ def associative_instruction_program = elaborate(l1i.L1ICache(XLen.X64, CacheConf
 def rv32_data_program = elaborate(l1d.L1DCache(XLen.X32, CacheConfig(32, 1), ~chi: config, ~context: RV5StageMemoryContext(8)))
 def associative_data_program = elaborate(l1d.L1DCache(XLen.X64, CacheConfig(8, 2), ~chi: config, ~context: RV5StageMemoryContext(8)))
 def three_way_data_program = elaborate(l1d.L1DCache(XLen.X64, CacheConfig(8, 3), ~chi: config, ~context: RV5StageMemoryContext(8)))
+def wide_data_program = elaborate(l1d.L1DCache(XLen.X64, CacheConfig(8, 3), ~chi: config, ~context: RV5StageMemoryContext(8), ~beat_bytes: 16))
 def rv32_core_output = rv32_data_program.top.outputs.find(fun (port): port.name == "core_out")
 def rv32_response_type = rv32_core_output.type.field("response").type.field("bits").type
 def instruction_circt = compile_program(instruction_program, circt_target).artifacts[0].content
@@ -33,6 +34,7 @@ def rv32_data_circt = compile_program(rv32_data_program, circt_target).artifacts
 def associative_instruction_circt = compile_program(associative_instruction_program, circt_target).artifacts[0].content
 def associative_data_circt = compile_program(associative_data_program, circt_target).artifacts[0].content
 def three_way_data_circt = compile_program(three_way_data_program, circt_target).artifacts[0].content
+def wide_data_circt = compile_program(wide_data_program, circt_target).artifacts[0].content
 
 check:
   instruction_circt.contains("seq.firmem") ~is #true
@@ -45,6 +47,7 @@ check:
   associative_instruction_circt.contains("!seq.firmem<64 x 128, mask 16>") ~is #true
   associative_data_circt.contains("!seq.firmem<64 x 128, mask 16>") ~is #true
   three_way_data_circt.contains("!seq.firmem<64 x 192, mask 24>") ~is #true
+  wide_data_circt.contains("!seq.firmem<32 x 128, mask 16>") ~is #true
   data_circt.contains("!seq.firmem<64 x 64, mask 8>") ~is #true
   rv32_instruction_circt.contains("!seq.firmem<512 x 32, mask 4>") ~is #true
   rv32_data_circt.contains("!seq.firmem<512 x 32, mask 4>") ~is #true

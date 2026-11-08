@@ -86,6 +86,10 @@ The RV2Wide fixture exercises the real shared L1D from two-wide instruction
 issue through retirement, delayed completion, replay, and physical faults.
 For CHI engine changes also run `cache-compack` and `cache-copyback`;
 for store-buffer changes run `cache-store-buffer`.
+For row-width changes run `cache-wide-l1d` (coherent service, speculation,
+masked stores, and dirty snoops) and `load-store-wide` (scalar lane placement).
+Keep the native data-array instance used by the Mini SRAM map intact; the
+16-byte specialization instantiates a separate byte-masked data SRAM per way.
 The standalone copyback, store-buffer, instruction-cache, and acknowledgement
 fixtures live in this package's `tests/`. Follow the [L1I guide](l1i/DEVELOPING.md)
 for 32/64-bit block tests and named-core fetch integration coverage.

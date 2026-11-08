@@ -1,0 +1,10 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("riscv/isa/xlen.rhm").XLen
+  "../../geometry.rhdl".CacheConfig
+  "../../l1d/cache.rhdl".L1DCache
+  "../params.rhdl".test_cache_chi_config
+
+def program = elaborate(L1DCache(XLen.X64, CacheConfig(4, 2), ~chi: test_cache_chi_config, ~context: Bits(8), ~beat_bytes: 16))
+export program

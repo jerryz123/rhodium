@@ -5,7 +5,6 @@
 import:
   "../geometry.rhdl" open
   "flits.rhdl" open
-  lib("riscv/isa/xlen.rhm").XLen
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
   lib("chi/protocol/flits.rhdl") open
@@ -26,7 +25,7 @@ bundle CacheLineWritebackResult(Context :: DataType):
 /* Retries WriteBackFull while the victim remains snoop-visible; freezes its latest state at
    grant.
    After CompDBIDResp, sends every line packet and retains completion until accepted. */
-sync_circuit CacheLineWriteback(Context :: DataType, address_width :: PosInt, config :: RiscvHartCHIConfig, txn_id :: Nat, ~gather_xlen: xlen :: XLen):
+sync_circuit CacheLineWriteback(Context :: DataType, address_width :: PosInt, config :: RiscvHartCHIConfig, txn_id :: Nat, ~beat_bytes: beat_bytes :: Pow2Int):
   def p = config.flit
   def packets = CacheLineBytes / p.data_bytes
   def packet_width = index_width(packets)
@@ -35,7 +34,7 @@ sync_circuit CacheLineWriteback(Context :: DataType, address_width :: PosInt, co
   input victim_state: CHICacheState
   input snoop_pending: Bool
   output granted: Bool
-  interface gather(Valid(CacheGatherWord(xlen)), ~role: consumer)
+  interface gather(Valid(CacheGatherRow(beat_bytes)), ~role: consumer)
   interface command(Decoupled(CacheLineWritebackCommand(Context, address_width)), ~role: consumer)
   interface completion(Irrevocable(CacheLineWritebackResult(Context)), ~role: producer)
   interface requests(Decoupled(CHIReqFlit(p)), ~role: producer)
@@ -48,7 +47,7 @@ sync_circuit CacheLineWriteback(Context :: DataType, address_width :: PosInt, co
 
   inst control(CHIRetryableTransactionControl(p, CacheCopyBackResponses))
   reg line_address(Bits(address_width))
-  reg line(Vec(cache_line_words(xlen), Bits(xlen.width)))
+  reg line(Vec(cache_line_rows(beat_bytes), Bits(8 * beat_bytes)))
   reg context(Context)
   reg home_id(Bits(p.node_id_width))
   reg dbid(Bits(12))

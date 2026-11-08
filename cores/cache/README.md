@@ -65,10 +65,22 @@ with matching page-offset bits. Physical-only callers supply the physical
 address on both paths. This event is not a second transaction or completion;
 queued requests retain their own SRAM-read ownership.
 
-Requests carry a byte address, access width, unshifted store value, and an
-explicit byte mask positioned within an XLEN beat. Loads return width-selected,
-sign/zero-extended values. A caller needing raw beats may use an aligned
-full-width request; this also accepts already-positioned masked store data.
+By default the L1D port and per-way row are one XLEN word. An L1D caller can
+specialize `~beat_bytes: 16` and pass 16 as the final argument to `CacheAccess`
+and `CachePipelineAccess` for a 128-bit coherent port. Its request payloads
+are `PhysicalMemoryBeatReq(xlen, Context, 16)` and `CachePipelineBeatReq(xlen, 16)`.
+This changes neither
+the 64-byte line nor the CHI flit size. The wide array reads one 16-byte row
+per way in parallel; writes select one way and use 16 byte enables.
+
+Scalar requests supply an unshifted value in the low XLEN bits and an explicit
+byte mask positioned within the containing beat. Scalar loads return the
+width-selected, sign/zero-extended XLEN value in the low bits (upper bits
+zero). On the wide port, ordinary loads and stores may instead assert
+`raw_beat` at a 16-byte-aligned address: loads return the entire row, and stores
+take lane-positioned data and masks without a second shift. This is one cache
+transaction, not two independently addressed accesses. Other operations use
+scalar mode; no uncached port changes width.
 LR/SC, atomics, maintenance, and locality retain the existing physical cache
 semantics. `drained` includes committed stores and every accepted demand stage.
 Maintenance may return an access error; ordinary accepted requests require

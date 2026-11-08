@@ -5,7 +5,6 @@
 import:
   "../geometry.rhdl" open
   "flits.rhdl" open
-  lib("riscv/isa/xlen.rhm").XLen
   lib("rhodium/std/bits.rhdl") open
   lib("rhodium/std/ready-valid.rhdl") open
   lib("chi/protocol/flits.rhdl") open
@@ -27,7 +26,7 @@ bundle CacheDataSnoopUpdate(address_width :: PosInt):
    Dirty hits return all data before invalidation; clean responses update state only at final
    handoff. */
 sync_circuit CacheDataSnoop(address_width :: PosInt,
-                            config :: RiscvHartCHIConfig, ~gather_xlen: xlen :: XLen):
+                            config :: RiscvHartCHIConfig, ~beat_bytes: beat_bytes :: Pow2Int):
   def p = config.flit
   def packet_count :: PosInt = CacheLineBytes / p.data_bytes
   def packet_index_width = index_width(packet_count)
@@ -41,7 +40,7 @@ sync_circuit CacheDataSnoop(address_width :: PosInt,
   interface responses(Decoupled(CHIRspFlit(p)), ~role: producer)
   interface data(Decoupled(CHIDatFlit(p)), ~role: producer)
   interface lookup(Valid(Bits(address_width)), ~role: producer)
-  interface gather(Valid(CacheGatherWord(xlen)), ~role: consumer)
+  interface gather(Valid(CacheGatherRow(beat_bytes)), ~role: consumer)
   interface lookup_result(Valid(CacheDataSnoopLookupResult()), ~role: consumer)
   interface update(Valid(CacheDataSnoopUpdate(address_width)), ~role: producer)
 
@@ -55,7 +54,7 @@ sync_circuit CacheDataSnoop(address_width :: PosInt,
   reg lookup_complete(~init: Bool(#false))
   reg line_hit(~init: Bool(#false))
   reg line_state(~init: CHICacheState.Invalid)
-  reg line(Vec(cache_line_words(xlen), Bits(xlen.width)))
+  reg line(Vec(cache_line_rows(beat_bytes), Bits(8 * beat_bytes)))
   reg packet_index(~init: Bits(packet_index_width)(0))
   reg dvm_first_pending(~init: Bool(#false))
   reg dvm_source_id(~init: Bits(p.node_id_width)(0))
