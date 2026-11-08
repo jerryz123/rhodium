@@ -1404,11 +1404,14 @@ can supply configuration GPR inputs through ordinary RR capture. Fixed FP WB
 authorization permits an EX-validated configuration on the same edge, without
 depending on CSR command-success feedback; other system commands serialize.
 The existing two GPR ports and lane-qualified CSR result selection need no
-additional queue or stage. EX computes configuration
-and its GPR result using shared architectural helpers. The newest nonfaulted
-configuration in MEM, then WB, precedes committed CSR state; slot one is newer
-than slot zero. Within EX only an older configuration forwards to its younger
-peer. Legality, descriptor snapshots, and fast memory geometry all use that
+additional queue or stage. Cores built without vectors read committed CSR state
+directly: they have no MEM/WB configuration snapshots or same-group bypass.
+Vector-capable builds keep forwarding regardless of runtime vector enable;
+legality still controls whether a configuration can claim it.
+EX computes configuration and its GPR result using shared architectural helpers.
+The newest nonfaulted configuration in MEM, then WB, precedes committed CSR
+state. Within an EX group, each lane uses the youngest older configuration, if
+any. Legality, descriptor snapshots, and fast memory geometry all use that
 forwarded state, never RR's potentially stale committed vtype. Ordinary operand
 forwarding carries the new VL to dependent scalar work and configurations.
 

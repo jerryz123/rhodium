@@ -5075,6 +5075,13 @@ int main() {
     CHECK(branch_updates > 0);
     CHECK(direction_updates > 0 && history_recoveries > 0);
 
+    // On this scalar profile vsetivli traps; its younger integer peer must not retire.
+    reset_core();
+    constexpr std::uint32_t vsetivli_x5_4_e8 = 0xc00272d7;
+    stop_at(0x100, 0, 1, 2, vsetivli_x5_4_e8);
+    send(0x100, vsetivli_x5_4_e8, imm(6, 0, 1), 2, 0, 0);
+    drain();
+
     rejected_redirect_tests();
 
   });

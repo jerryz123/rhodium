@@ -796,8 +796,6 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   def ex_tokens :: Vec(issue_width, SuperscalarExecute(xlen, hypervisor)) = vec(for List (lane in 0..issue_width): ex_pipe[lane].egress.bits)
   wire ex_descriptors: Vec(issue_width, VectorDescriptor(xlen))
   wire ex_config_states: Vec(issue_width, RiscvVectorState(xlen))
-  reg mem_config_state(RiscvVectorState(xlen))
-  reg wb_config_state(RiscvVectorState(xlen))
   reg mem_descriptor(VectorDescriptor(xlen))
   reg mem_descriptor_lane(Bits(2))
   reg wb_descriptor(VectorDescriptor(xlen))
@@ -812,11 +810,28 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   fun forwards_config(token :: SuperscalarResult(xlen, hypervisor)) :~ Bool:
     (token.system.action === RiscvCsrAction.VectorConfig) & (token.resolution.disposition === SuperscalarDisposition.Continue)
 
-  def mem_forwards_config = any(for List (lane in mem_pipe): lane.egress.valid & forwards_config(lane.egress.bits))
-  def wb_forwards_config = any(for List (lane in wb_pipe): lane.egress.valid & forwards_config(lane.egress.bits))
-  def ex_prior_vector_state :: RiscvVectorState(xlen) = priority_mux(~default: wb_csrs.vector_state):
-    mem_forwards_config: mem_config_state
-    wb_forwards_config: wb_config_state
+  def ex_prior_vector_state :: RiscvVectorState(xlen):
+    if !vector_enabled
+    | wb_csrs.vector_state
+    | block:
+        reg mem_config_state(RiscvVectorState(xlen))
+        reg wb_config_state(RiscvVectorState(xlen))
+        def ex_claims = for List (result in ex_results): result.valid & forwards_config(result.bits)
+        def mem_claim = any(for List (lane in mem_pipe): lane.egress.valid & forwards_config(lane.egress.bits))
+        def wb_claim = any(for List (lane in wb_pipe): lane.egress.valid & forwards_config(lane.egress.bits))
+
+        for (lane in 0..issue_width):
+          assert(!(ex_claims[lane] & any(for List (younger in lane + 1..issue_width): ex_claims[younger])), "superscalar_one_configuration_per_group")
+
+        when (any(ex_claims)):
+          mem_config_state <== ex_config_states[service_index(superscalar_service_lane(ex_claims))]
+
+        when mem_claim:
+          wb_config_state <== mem_config_state
+
+        priority_mux(~default: wb_csrs.vector_state):
+          mem_claim: mem_config_state
+          wb_claim: wb_config_state
 
   def ex_alus = for InstanceArray (lane in 0..issue_width):
     inst alu(ALU(xlen))
@@ -834,7 +849,16 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     def ex_alu = ex_alus[lane]
     def ex_system :: SuperscalarSystemControl() = ex.control.system
     def ex_is_vector_config = ex_system.action === RiscvCsrAction.VectorConfig
-    def ex_vector_base_state :: RiscvVectorState(xlen) = if lane == 0 | ex_prior_vector_state | priority_mux((for List (index in 0..lane): [ex_pipe[lane - index - 1].egress.valid & forwards_config(ex_results[lane - index - 1].bits), ex_config_states[lane - index - 1]]), ~default: ex_prior_vector_state)
+    def ex_vector_base_state :: RiscvVectorState(xlen):
+      if (lane == 0) || (!vector_enabled)
+      | ex_prior_vector_state
+      | block:
+          def older_configs = for List (index in 0..lane):
+            def older = lane - index - 1
+            [ex_pipe[older].egress.valid & forwards_config(ex_results[older].bits), ex_config_states[older]]
+
+          priority_mux(older_configs, ~default: ex_prior_vector_state)
+
     def ex_vector_config = vector_configuration_request(xlen, ex.control.vector.configure, ex.fetched.instruction, ex.operands.rs1, ex.operands.rs2)
     def ex_configuration = vector_configure(xlen, profile.vector_length, ex_vector_config, ex_vector_base_state.vtype, ex_vector_base_state.vl[0..index_width(profile.vector_length + 1)], ~elen: vector_elen)
     def ex_configured_state = ex_vector_base_state.updated(~vl: ex_configuration.vl.zext(xlen.width), ~vtype: ex_configuration.vtype, ~vstart: Bits(xlen.width)(0))
@@ -994,25 +1018,19 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     mem_younger_next_region <== ex_younger_next_region
 
 
-  /* EX to MEM: a group has at most one live vector operation and one live vset.
-     A faulting younger instruction can bypass pair admission but cannot own either payload. */
+  /* EX to MEM: at most one live vector operation owns the descriptor.
+     A faulting younger instruction can bypass pair admission but cannot own it. */
 
   def ex_vector_claims :: List.of(Bool) = for List (result in ex_results):
     def token :: SuperscalarResult(xlen, hypervisor) = result.bits
     result.valid & token.vector.operation & (token.resolution.disposition === SuperscalarDisposition.Continue)
 
-  def ex_config_claims = for List (result in ex_results): result.valid & forwards_config(result.bits)
-
   for (lane in 0..issue_width):
     assert(!(ex_vector_claims[lane] & any(for List (younger in lane + 1..issue_width): ex_vector_claims[younger])), "superscalar_one_vector_descriptor_per_group")
-  for (lane in 0..issue_width):
-    assert(!(ex_config_claims[lane] & any(for List (younger in lane + 1..issue_width): ex_config_claims[younger])), "superscalar_one_configuration_per_group")
+
   when (any(ex_vector_claims)):
     mem_descriptor_lane <== superscalar_service_lane(ex_vector_claims)
     mem_descriptor <== ex_descriptors[service_index(superscalar_service_lane(ex_vector_claims))]
-
-  when (any(ex_config_claims)):
-    mem_config_state <== ex_config_states[service_index(superscalar_service_lane(ex_config_claims))]
 
   /* Scheduled FP and multiply launches.
      Selects one admitted lane for each shared unit and carries its owner
@@ -1207,9 +1225,6 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     assert(mem_descriptor_lane === superscalar_service_lane(mem_vector_claims), "superscalar_mem_vector_handoff")
     wb_descriptor_lane <== mem_descriptor_lane
     wb_descriptor <== mem_descriptor.updated(~precertified: (mem_descriptor_lane === mem_vector_lane) & vector_fast.response.valid, ~certificate: vector_fast.response.bits)
-
-  when mem_forwards_config:
-    wb_config_state <== mem_config_state
 
   /* MEM branch recovery.
      Correct predictions preserve target-stream work. A correction keeps its
