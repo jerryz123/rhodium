@@ -483,9 +483,10 @@ until WB, including faults on implicit VS PTE reads. An older successful slot
 retires before a younger fault; accepted deferred work drains before trap entry.
 Page-table response ownership survives translation cancellation.
 
-Standalone compositions instantiate `SuperscalarMemoryAdapter(xlen, config, specialization)`
+Standalone compositions instantiate `SuperscalarMemoryAdapter(xlen, specialization)`
 with `SuperscalarIdentitySpecialization(xlen, config)` or
-`SuperscalarSv39Specialization(config, svnapot, hypervisor)`. Connect the core's
+`SuperscalarSv39Specialization(config, svnapot, hypervisor)`. The specialization
+supplies the physical map for all adapter permission checks. Connect the core's
 `translation_state` to the adapter's `state` and its `split_guest_access` to the
 matching input; the latter remains the retained split owner's access mode through
 completion. The composed `Superscalar` selects the specialization from its profile

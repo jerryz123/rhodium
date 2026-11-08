@@ -1,5 +1,5 @@
 #lang rhodium
-/* Owns Sv39/guest translation, walker capability, access policies, and retained lookup failures. */
+/* Owns Sv39/guest translation, its physical map, walker capability, access policies, and retained lookup failures. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -19,6 +19,7 @@ import:
   "../mmu/tlb.rhdl" open
   "../mmu/walker.rhdl" open
   lib("riscv/isa/xlen.rhm") open
+  lib("riscv/rtl/pma.rhdl").RiscvPhysicalMemoryMap
   lib("riscv/isa/csr.rhm") open
   lib("riscv/isa/sv39.rhm").Sv39Mode
   lib("riscv/rtl/csr.rhdl") open
@@ -294,6 +295,10 @@ class SuperscalarSv39Specialization(config :: RiscvHartCHIConfig, svnapot :: Boo
   /* Builds the configured TLB/walker implementation without changing its query timing. */
   override method circuit() :: CircuitDefinition:
     SuperscalarSv39Translation(config, ~svnapot: svnapot, ~hypervisor: hypervisor)
+
+  /* Supplies the same physical attributes used by vector proofs and prefetch qualification. */
+  override method physical_map() :: RiscvPhysicalMemoryMap:
+    config.physical_map
 
   /* The shared walker contributes one physical PTE client after core and split clients. */
   override method page_walk_clients() :: matching(1): 1

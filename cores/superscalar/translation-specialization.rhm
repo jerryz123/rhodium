@@ -1,11 +1,12 @@
 #lang rhombus
-/* Couples each translation implementation to its static physical-client and access-policy contract. */
+/* Couples each translation implementation to its physical map, client requirements, and access policies. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/core/ir.rhm").Module
   lib("rhodium/frontend/foundation.rhm").CircuitDefinition
   lib("rhodium/frontend/foundation.rhm").StableCircuitParam
+  lib("riscv/rtl/pma.rhdl").RiscvPhysicalMemoryMap
 
 /* Selects whether a retained split owner carries its guest-access interpretation into fragments. */
 enum SuperscalarSplitAccessPolicy
@@ -24,6 +25,8 @@ interface SuperscalarTranslationSpecialization:
 
   /* Returns the unbuffered translation circuit with the specialization's captured configuration. */
   method circuit() :: Module || CircuitDefinition
+  /* Shares the resolver's physical map with demand, fragment, and page-table permission checks. */
+  method physical_map() :: RiscvPhysicalMemoryMap
   /* Sizes the optional physical PTE contribution without allocating dormant clients. */
   method page_walk_clients() :: matching(0) || matching(1)
   /* Defines how captured architectural split-access context reaches physical fragments. */

@@ -1,5 +1,5 @@
 #lang rhodium
-/* Shares fixed-cycle cache access, split execution, and physical ownership using specialization-owned capabilities and policies. */
+/* Shares fixed-cycle cache access, split execution, and physical ownership using the specialization's map, capabilities, and policies. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -11,7 +11,6 @@ import:
   "../cache/protocol.rhdl" open
   "../cache/operation.rhdl" open
   "../cache-prefetch.rhdl" open
-  "../chi-hart.rhdl" open
   "../load-store.rhdl" open
   "../misaligned-access.rhdl" open
   "../cosim-source.rhm".describe_cosim_signals
@@ -27,9 +26,9 @@ import:
   lib("rhodium/std/bits.rhdl") open
 
 /* Preserves one EX/MEM context stage and WB-only mutation with an unbuffered translation service.
-   The specialization supplies its physical-client count and access policies;
+   The specialization supplies its physical map, client count, and access policies;
    accepted owners never observe invalidation. */
-sync_circuit SuperscalarMemoryAdapter(xlen :: XLen, config :: RiscvHartCHIConfig, translation :: SuperscalarTranslationSpecialization):
+sync_circuit SuperscalarMemoryAdapter(xlen :: XLen, translation :: SuperscalarTranslationSpecialization):
   input state: SuperscalarTranslationState(xlen)
   input invalidate: Bool
   input split_guest_access: RiscvGuestMemoryAccess
@@ -47,6 +46,7 @@ sync_circuit SuperscalarMemoryAdapter(xlen :: XLen, config :: RiscvHartCHIConfig
   interface physical_memory(SuperscalarMemory(xlen, 64), ~role: requester)
 
   def bytes = xlen.width / 8
+  def physical_map = translation.physical_map()
   def page_walk_clients = translation.page_walk_clients()
   inst resolve(translation.circuit())
   resolve.state <== state
@@ -121,7 +121,7 @@ sync_circuit SuperscalarMemoryAdapter(xlen :: XLen, config :: RiscvHartCHIConfig
      No speculative access allocates a response owner or changes architectural memory. */
 
   def data_ok = resolved.known & (resolved.fault === RiscvTranslationFault.None)
-  def region = cache_access_region(XLen.X64, config.physical_map, resolved.address, data_request.width, data_request.access)
+  def region = cache_access_region(XLen.X64, physical_map, resolved.address, data_request.width, data_request.access)
   def attributes = resolve_memory_attributes(region, resolved.pbmt)
   def cacheable = attributes.cacheable & !attributes.strongly_ordered & attributes.read_idempotent
   def atomic_request = mem.access.is_one_of(CacheOperation.LoadReserved, CacheOperation.StoreConditional, CacheOperation.Atomic)
@@ -165,7 +165,7 @@ sync_circuit SuperscalarMemoryAdapter(xlen :: XLen, config :: RiscvHartCHIConfig
   transport.response[0] |> memory.response
 
   def fragment_address = resolved.address.align_down(bytes)
-  def fragment_region = config.physical_map.lookup(fragment_address, fragment_address +& Bits(64)(bytes - 1))
+  def fragment_region = physical_map.lookup(fragment_address, fragment_address +& Bits(64)(bytes - 1))
   def fragment_attributes = resolve_memory_attributes(fragment_region, resolved.pbmt)
   def fragment_normal_memory = fragment_attributes.cacheable & !fragment_attributes.strongly_ordered & fragment_attributes.read_idempotent
   def fragment_access_permitted = mux(data_request.access.store_fault_class(), fragment_region.writable, fragment_region.readable)
@@ -200,7 +200,7 @@ sync_circuit SuperscalarMemoryAdapter(xlen :: XLen, config :: RiscvHartCHIConfig
 
   if page_walk_clients == 1
   | block:
-      def pte_region = config.physical_map.lookup(resolve.pte.request.bits.address, resolve.pte.request.bits.address +& Bits(64)(7))
+      def pte_region = physical_map.lookup(resolve.pte.request.bits.address, resolve.pte.request.bits.address +& Bits(64)(7))
       def pte_attributes = resolve_memory_attributes(pte_region, resolve.pte.request.bits.pbmt)
       def pte_normal_memory = pte_attributes.cacheable & !pte_attributes.strongly_ordered & pte_attributes.read_idempotent
       def pte_permitted = pte_region.mapped & pte_normal_memory & pte_region.readable

@@ -73,7 +73,7 @@ sync_circuit SuperscalarMmuFixture(~bare: bare :: Boolean = #false):
   output completed: Bool
   output completed_data: Bits(64)
   def translation = if bare | SuperscalarIdentitySpecialization(XLen.X64, test_fetch_chi) | SuperscalarSv39Specialization(test_fetch_chi, #true)
-  inst mmu(SuperscalarMemoryAdapter(XLen.X64, test_fetch_chi, translation))
+  inst mmu(SuperscalarMemoryAdapter(XLen.X64, translation))
   mmu.pipeline_vector <== vector_access
   mmu.request_vector <== vector_access
   vector_precheck.request |> gate_flow(!ordered_precheck ||| mmu.memory.request.ready) |> mmu.vector_precheck.request

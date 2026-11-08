@@ -1,5 +1,5 @@
 #lang rhodium
-/* Owns identity translation, its physical-client capability, and Bare access policies without TLB or walker state. */
+/* Owns identity translation, its physical map and client capability, and Bare access policies without TLB or walker state. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -13,6 +13,7 @@ import:
   "../cache-prefetch.rhdl" open
   "../chi-hart.rhdl" open
   lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/rtl/pma.rhdl").RiscvPhysicalMemoryMap
   lib("riscv/rtl/hypervisor.rhdl") open
   lib("riscv/rtl/svpbmt.rhdl") open
   lib("flow/main.rhdl") open
@@ -116,6 +117,10 @@ class SuperscalarIdentitySpecialization(xlen :: XLen, config :: RiscvHartCHIConf
   /* Selects identity resolution at the requested architectural width and physical map. */
   override method circuit() :: CircuitDefinition:
     SuperscalarIdentityTranslation(xlen, config)
+
+  /* Supplies the same physical attributes used by vector proofs and prefetch qualification. */
+  override method physical_map() :: RiscvPhysicalMemoryMap:
+    config.physical_map
 
   /* Identity resolution does not issue implicit page-table memory transactions. */
   override method page_walk_clients() :: matching(0): 0

@@ -283,7 +283,8 @@ shared cache protocol/operation/geometry and hart CHI-map definitions, and archi
 CSR, privilege, Sv39, and XLEN helpers. Its memory adapter and physical cache
 adapter use `riscv/rtl/cmo.rhdl` for read-or-write whole-block maintenance permissions.
 `cores/superscalar/memory-adapter.rhdl` consumes the family bundles, shared cache
-protocol/map, split engine, Flow, passive observation helpers, and architectural
+protocol, specialization-owned physical map, split engine, Flow, passive
+observation helpers, and architectural
 XLEN, guest-fault, pointer-masking, PBMT, and CMO descriptors plus `std/bits.rhdl`
 alignment helpers, without importing the TLB/walker.
 The top selects the identity or Sv39 specialization via `riscv/isa/hart.rhm`
@@ -816,8 +817,10 @@ RV5Stage fetch queue and MMU admission consume it without changing package direc
 
 `cores/superscalar/translation-specialization.rhm`
 uses public `core/ir.rhm` and foundation types for its immutable circuit/capability
-contract, extending `StableCircuitParam`. Concrete identity/Sv39 specializations
-import foundation's `CircuitDefinition` to build their own implementation.
+contract, extending `StableCircuitParam`, and imports `riscv/rtl/pma.rhdl` for
+the typed physical-map accessor. Concrete identity/Sv39 specializations import
+foundation's `CircuitDefinition` to build their own implementation and the same
+PMA type to expose their captured physical map.
 The memory adapter depends on that contract rather than raw IR/frontend circuit
 types; access timing and physical transport use Flow and `std/bits.rhdl`.
 Resolvers remain processor-library consumers of public authoring APIs, with no
