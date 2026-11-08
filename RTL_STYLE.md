@@ -280,6 +280,13 @@ for cosmetic consistency. Conversely, do not mark an observable result as
   SRAM-like arrays; do not replace synchronous memory with register vectors,
   combinational reads, or reset loops for stylistic uniformity. Preserve port
   count, read latency, write masks, and read/write collision behavior.
+- Make compact payloads canonical. Do not pair a stored bundle with a nearly
+  identical expanded bundle merely to restore addresses or derived metadata.
+  Use scalar methods at the consuming boundary and carry the compact type
+  through pipes, queues, and service interfaces. Preserve shared prefixes and
+  rows at their existing owner. Distinct service or retirement projections are
+  appropriate when their fields have a different purpose or lifetime; do not
+  pad them back into execution records with inactive operands and controls.
 - Prefer existing pipes, queues, and shift registers when their contracts fit.
   Do not replace a handshaked delay with an unconditional delay or conflate a
   payload register with elastic capacity.

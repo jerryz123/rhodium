@@ -5,10 +5,9 @@ import:
   lib("rhodium/frontend/foundation.rhm").elaborate
   lib("riscv/isa/fp-profile.rhm").FloatingPointProfile
   "../../profile.rhm".SuperscalarPipelineConfig
-  "../../instruction-assembler.rhdl".SuperscalarInstructionAssembler
+  "../assembly-fixture.rhdl".AssemblyFixture
 
-def program = elaborate(SuperscalarInstructionAssembler(SuperscalarPipelineConfig(~floating_point: FloatingPointProfile.D), ~pc_width: 45))
-def guest_program = elaborate(SuperscalarInstructionAssembler(SuperscalarPipelineConfig(~floating_point: FloatingPointProfile.D, ~hypervisor: #true), ~pc_width: 45))
-def full_width_program = elaborate(SuperscalarInstructionAssembler(SuperscalarPipelineConfig(~floating_point: FloatingPointProfile.D)))
-def three_program = elaborate(SuperscalarInstructionAssembler(SuperscalarPipelineConfig(~floating_point: FloatingPointProfile.D, ~hypervisor: #true), ~group_width: 3, ~pc_width: 45))
-export program guest_program full_width_program three_program
+def program = elaborate(AssemblyFixture(SuperscalarPipelineConfig(~floating_point: FloatingPointProfile.D)))
+def guest_program = elaborate(AssemblyFixture(SuperscalarPipelineConfig(~floating_point: FloatingPointProfile.D, ~hypervisor: #true)))
+def three_program = elaborate(AssemblyFixture(SuperscalarPipelineConfig(~floating_point: FloatingPointProfile.D, ~hypervisor: #true), ~group_width: 3))
+export program guest_program three_program

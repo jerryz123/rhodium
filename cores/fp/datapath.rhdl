@@ -4,6 +4,7 @@
 
 import:
   "bundles.rhdl" open
+  "profile.rhm".fp_value_width
   "types.rhdl" open
   "../../riscv/isa/fp-profile.rhm" open
   "../../riscv/isa/xlen.rhm" open
@@ -31,24 +32,20 @@ fun integer_move_to_fp(xlen :: XLen,
 fun fp_integer_word_input(xlen :: XLen,
                           value :: Bits(xlen.width),
                           unsigned :: Bool) :~ Bits(xlen.width):
-  if xlen == XLen.X32
-  | value
-  | mux(unsigned, value[0..32].zext(64), value[0..32].into(SInt(32)).sext(64).as_bits())
+  mux(unsigned, value[0..32].zext(xlen.width), value[0..32].sext(xlen.width))
 
 /* Sign-extends a converted 32-bit result to XLEN, including unsigned word conversions. */
 fun fp_integer_word_result(xlen :: XLen,
                            value :: Bits(32)) :~ Bits(xlen.width):
-  if xlen == XLen.X32
-  | value
-  | value.into(SInt(32)).sext(64).as_bits()
+  value.sext(xlen.width)
 
 /* Normalizes byte, halfword, or word integer sources according to conversion signedness. */
 fun fp_integer_narrow_input(xlen :: XLen,
                             value :: Bits(xlen.width),
                             integer_width :: FloatIntegerWidth,
                             unsigned :: Bool) :~ Bits(xlen.width):
-  def byte = mux(unsigned, value[0..8].zext(xlen.width), value[0..8].into(SInt(8)).sext(xlen.width).as_bits())
-  def half = mux(unsigned, value[0..16].zext(xlen.width), value[0..16].into(SInt(16)).sext(xlen.width).as_bits())
+  def byte = mux(unsigned, value[0..8].zext(xlen.width), value[0..8].sext(xlen.width))
+  def half = mux(unsigned, value[0..16].zext(xlen.width), value[0..16].sext(xlen.width))
   mux_lookup(integer_width, ~default: value, [[FloatIntegerWidth.Byte, byte], [FloatIntegerWidth.Half, half], [FloatIntegerWidth.Word, fp_integer_word_input(xlen, value, unsigned)]])
 
 /* Extends byte or halfword conversion results according to destination signedness. */
@@ -56,8 +53,8 @@ fun fp_integer_narrow_result(xlen :: XLen,
                              value :: Bits(16),
                              integer_width :: FloatIntegerWidth,
                              unsigned :: Bool) :~ Bits(xlen.width):
-  def byte = mux(unsigned, value[0..8].zext(xlen.width), value[0..8].into(SInt(8)).sext(xlen.width).as_bits())
-  def half = mux(unsigned, value.zext(xlen.width), value.into(SInt(16)).sext(xlen.width).as_bits())
+  def byte = mux(unsigned, value[0..8].zext(xlen.width), value[0..8].sext(xlen.width))
+  def half = mux(unsigned, value.zext(xlen.width), value.sext(xlen.width))
   mux(integer_width === FloatIntegerWidth.Byte, byte, half)
 
 /* Supplies inactive Zfa outputs without instantiating rounding or modulo arithmetic. */
@@ -321,8 +318,8 @@ circuit FpFormatDatapath(
   def boxed_value = riscv_nan_box(format, arithmetic_fp, flen)
   def selected_value = mux(
     fp_destination,
-    if flen < xlen.width | boxed_value.zext(xlen.width) | boxed_value,
-    if xlen.width < flen | integer_value.zext(flen) | integer_value
+    boxed_value.zext(fp_value_width(xlen, profile)),
+    integer_value.zext(fp_value_width(xlen, profile))
   )
 
   completion <== FpExecutionResult(xlen, profile, Tag):
@@ -345,8 +342,8 @@ circuit FpHalfMinimalDatapath(xlen :: XLen, profile :: FloatingPointProfile, Tag
     tag: request.tag
     value: mux(
       request.control.registers.destination === FloatDestination.FloatingPoint,
-      if flen < xlen.width | boxed_value.zext(xlen.width) | boxed_value,
-      if xlen.width < flen | integer_value.zext(flen) | integer_value
+      boxed_value.zext(fp_value_width(xlen, profile)),
+      integer_value.zext(fp_value_width(xlen, profile))
     )
     exception_flags: Bits(5)(0)
     exception_flags_valid: Bool(#false)

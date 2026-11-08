@@ -149,7 +149,7 @@ These are ownership boundaries, not extra pipeline stages or latency assumptions
 EX, MEM, and WB each store one selected FP request for the group, not one per
 instruction. Pair admission allows only one scalar FP operand/control owner.
 The older transfer captures the shared request even when its owner is younger;
-both lane views rejoin it without local payload storage. Lane validity and the
+all lanes consume it at the service boundary without local payload storage. Lane validity and the
 existing dispatch prefix still control launch and authorization. Killing a
 younger owner does not stall the group register or make its request valid for
 the older instruction. Bubbles need no payload reset or extra valid bit. Keep
@@ -169,6 +169,37 @@ store). Select on the individual instruction, not the group's FP request:
 a paired branch still needs its integer operands in MEM. WB takes both words
 from the surviving divide owner; replay reacquires them on reissue. Retained
 memory owners and the passive memory observer take the same unshifted right word.
+
+MEM/WB lane results and retirement commands each carry a `SuperscalarResolution`
+field. Its single XLEN `value` word holds either normal result data or the
+exception value. When applying a new resolution, `.with_result(data)` keeps
+the exception value for `Fault` and uses the supplied result for every other disposition.
+The result and resolution consumers read that same word; consumers
+must qualify their use. A fault cannot forward or retire result data, and its
+exception value is meaningful only for `Fault`. MEM may replace a successful
+result with a load value or a newly resolved fault before the WB capture. Earlier
+faults retain priority. Keep addresses, source operands, cause, guest provenance,
+and fetch-fault origin separate; do not narrow exception values. The lane
+banks retain their existing validity, flush, and cycle boundaries.
+
+The compact `SuperscalarExecute` and `SuperscalarResult` are the canonical
+pipeline payloads. `lane-pipe.rhdl` owns one flushable `ValidPipe` per lane
+and exposes scalar PC/successor views from the stage-owned prefix. FP requests
+stay in the group banks; consumers join them only at service boundaries.
+Do not introduce stored/full bundle pairs or materialize a whole record merely
+to expand a PC. Add fields deliberately to their actual storage owner.
+`SuperscalarRetirementCommand` is a narrower, combinational retirement/CSR
+projection, not an expanded pipeline clone. It omits execution comparison,
+arithmetic-launch, cache-outcome and guest-access routing state. Retained
+services produce this command directly; new dispatch still reads live WB.
+Select the retirement command and PC from the same logical slot: a returned
+owner replaces slot zero, and a merged scalar in slot one still uses its live
+source lane’s PC. The youngest successful slot supplies the resume PC at an
+empty-pipeline interrupt, even when it is the third slot across a page boundary.
+Build delayed completion identities from the shared lane instruction and the
+stage's full PC. Derive the resolved next PC and project the trap/observation
+boundary instruction on the retirement command, where both live and retained
+paths already meet.
 
 At RR→EX, EX→MEM, and MEM→WB, [all lane pipes](lane-pipe.rhdl) store only
 the low 12 bits of their starting PCs. Each stage owns one shared upper-PC
@@ -201,18 +232,15 @@ Format ordinary loads by width and offset; atomics return the raw beat.
 Multiply, divide, FP and vector GPR returns use the same compact instruction
 identity. Keep the full fetch record on retirement, not in these return tags.
 
-Committed completion pipes and scalar arithmetic owners further narrow the PC
-with `SuperscalarCompactIdentity` and the configured `instruction_pc_width`.
-Each owner retains its own `CompactPc`, not a suffix relative to a live pipeline
-prefix. Capture asserts exact representability: these are successfully fetched
-instructions, including speculative fixed FP launches, not arbitrary fault PCs.
-Expand combinationally at public completion, forwarding, and observation ports.
-Keep `SuperscalarInstructionIdentity` full-width for public interfaces and trap
-owners. Raw instruction bits, latency, capacity, and accepted-work flush survival
-remain unchanged. The same compact FP tag crosses fixed execution and the
-divide/sqrt owner; generic arithmetic services remain opaque to this policy.
+Completion pipes, FP tags and arithmetic owners use the same fixed-PC
+`SuperscalarInstructionIdentity`, `SuperscalarFpOwner` and
+`SuperscalarCompletion` as their consumers. Their PC is independently
+sign-extended with `.address()` at architectural observation boundaries, never
+reconstructed from a live pipeline prefix. Admission establishes exact successful
+PC representability. Trap owners retain full addresses. Width changes do not
+alter latency, capacity, raw instruction ownership or accepted-work flush survival.
 
-The issue window encodes the supplied sequential PC once at ingress. Adding
+Instruction producers encode the sequential PC once when constructing the canonical packet. Adding
 two or four toggles a contiguous run of bits, starting at bit 1 or 2.
 Store the highest toggled bit and whether bit 1 toggled (six bits on RV32,
 seven on RV64). Forward this tag unchanged through the lane registers. The
@@ -244,23 +272,23 @@ reconstructed PC, including the shared region bit needed at a 4 KiB boundary.
 No index adder or history hash is needed. Window and lane admission check valid
 index/PC agreement; invalid indices have no training meaning. Preserve histories
 and flags even when direction validity is false, since recovery still consumes
-nonbranch checkpoints. Public instruction and training payloads remain unchanged.
+nonbranch checkpoints. Instruction packets retain the checkpoint directly; only predictor training and test observation construct complete indices.
 
 Each window entry stores its own `CompactPc`, not an offset from a shared base:
 resident instructions can span unrelated predicted targets. Successful PCs
-sign-extend from `min(XLEN, max(39, physical_address_width + 1))` in the integrated
-hart. The extra physical bit preserves zero-extended Bare PCs, including guest
-Bare addresses within Sv39x4's range. Standalone cores default to XLEN-wide
-storage unless their producer supplies the narrower-PC contract.
-`SuperscalarWindowOutcome` overlays a valid/target prediction with a parcel
-fault and exceptional PC upper bits. Faulting instructions cannot predict.
-The window and EX/MEM/WB lane registers retain the frontend's configured
-target width and sign-extend it for consumers. Never narrow architectural
+sign-extend from 39 bits for RV64 or retain all 32 bits for RV32, in standalone
+and integrated cores alike. The frontend checks representability after translation
+and before physical fetch admission, including guest-Bare. Integration validates
+every executable address-set maximum against the Bare limit; data regions are independent.
+`SuperscalarInstructionOutcome` overlays a valid/target prediction with a parcel
+fault and a positive sequential-boundary bit. Faulting instructions cannot predict.
+The window and EX/MEM/WB lane registers retain the fixed compact-PC
+width and sign-extend it for consumers. Never narrow architectural
 redirects or the resolved target. Each window entry owns its metadata.
 The assembler, window, retained cursor predictions, and lane prediction targets
 use shared `cores/pc.rhdl` capture/expansion semantics. Exact-PC admission uses
 `CompactPc.fits`; speculative destinations use `CompactPc.prediction`.
-Fault unions retain their exceptional upper bits. Direction-prefix block tags
+Boundary faults zero-extend their low PC instead of sign-extending it. Direction-prefix block tags
 and the lane pipes' shared-region PC suffixes keep their existing widths and
 ownership; join a direction block's fixed byte offset before sign expansion.
 
@@ -278,8 +306,11 @@ holds every survivor. The oldest entries remain directly wired to decode.
 At the assembler input, `SuperscalarFetchBlockFault` reports the exact failed
 block VA. At packet formation the assembler asserts that it matches the
 instruction PC, or PC+2 modulo XLEN when a straddle's second parcel failed.
-From there `SuperscalarFetchFault` carries only kind, continuation, and (with H)
-guest provenance. EX reconstructs the VA from the instruction's exact PC when
+From there `SuperscalarFetchFault` carries validity, the shared `ExceptionCause`,
+continuation, and (with H) guest provenance. Retained assembler and instruction
+union payloads omit validity because their `Fault` tag already establishes it.
+No fetch-specific cause encoding or cause conversion belongs on this path.
+EX reconstructs the VA from the instruction's exact PC when
 forming the trap value. MEM and WB retain just the fetch-fault
 origin bit beside the resolved outcome. Preserve EX's fetch-fault priority
 and MEM's earlier-fault priority: the observed fetch fault is reconstructed
@@ -288,10 +319,12 @@ label a later data or CSR fault as a fetch fault. The vector core fixtures
 exercise fault-address wrap, canonical absence, and H guest-page-fault CSRs;
 the fetching fixture covers continuation-page faults.
 
-Store the five-bit architectural exception number in MEM/WB lanes and retained
-WB owners. Widen it at CSR and public observation boundaries. Memory admission
-and vector fault producers must not supply an interrupt or a cause outside
-that field; adding a larger synchronous code requires revisiting the width.
+Carry the shared `ExceptionCause` enum through MEM/WB lanes, retained WB
+owners, vector outcomes, and CSR commands. Do not duplicate cause widths or
+slice architectural numbers into pipeline fields. Pack only at CSR and public
+observation boundaries. Interrupts remain separate from synchronous causes;
+the combinational redirect's `trap_cause` reports the combined architectural
+image without adding pipeline storage.
 
 WB separates live/retained owners, the pre-dispatch prefix (`wb_dispatch`),
 service acceptance/faults, and the successful retirement prefix (`wb_retire`).
@@ -309,7 +342,8 @@ schedule, and vector classification. It carries the selected lane's existing
 successor tag rather than a second full PC or newly encoded offset. Capture
 requires a continuing, nonbranch service with no CSR, arithmetic, hint, or
 non-memory FP operation. Completion supplies fresh data and fault resolution
-and reconstructs inactive execution controls; it never reissues those units.
+directly into `SuperscalarRetirementCommand`; it never reconstructs a pipeline
+record or reissues execution units.
 Preserve the saved prediction-repair bit and metadata even for nonbranches,
 including stale predictions. Split FP loads still need their original FPR
 destination, precision, and scheduling tag. The functional lifecycle and
@@ -673,13 +707,13 @@ bit across continuation lookup and table training.
 Rows are block-based; intra-block checkpoints still append outcomes in order.
 
 The direction walk retains a byte-six prefix as its first halfword, saved row,
-bimodal bit, and compact block address. `~pc_width` uses the frontend's
+bimodal bit, and compact block address. The fixed compact width defines its
 successful-PC bound; restore the fixed `110` byte offset and sign extension
 before comparing the full XLEN continuation address. Faulting blocks cannot
-allocate this state. Standalone direction walks default to full-width PCs.
+allocate this state. Standalone direction walks use the same fixed domain.
 Qualify a retained prediction at capture with the existing `provisional_prefix`
 predicate: it must name this prefix and be uncompressed. Store only that valid
-bit and `~target_width` target bits; its PC comes from the prefix and its RAS
+bit and fixed-width target bits; its PC comes from the prefix and its RAS
 action is decoded from the completed instruction. Width assertions apply only
 to captured successful prefixes and qualified targets. Replay holds all prefix
 state, while clear wins a simultaneous capture. Do not narrow continuation
@@ -705,9 +739,8 @@ fixture checks public replacement timing under blocked assembly, direction
 overrides, compressed/straddled branches, replay, and history metadata. The core
 bench checks saved-index training and recovery checkpoints against offered
 instruction metadata.
-The `rv2wide-direction-prefix`, `rv2wide-direction-prefix-full`, and
-`rv2wide-direction-prefix-rv32` fixtures check direct prefix ownership with
-compact RV64, full-width RV64, and RV32 ports. They cover stale PC/length hints,
+The `rv2wide-direction-prefix` and `rv2wide-direction-prefix-rv32` fixtures
+check direct prefix ownership with fixed RV64 and RV32 ports. They cover stale PC/length hints,
 idle/replay bubbles, continuation faults, clear/capture collisions, immediate
 target repair, distinct lookup/history checkpoints, sign boundaries, and XLEN
 wrap. The compact variant also rejects out-of-range captured PCs and targets.
@@ -726,13 +759,15 @@ successor when array admission or block credits prevent a request.
 Instruction metadata survives issue-window compaction and every pipeline stage.
 Do not infer prediction ownership from a lane or an aligned block PC.
 
-The cursor and S1/S2 attempts retain `SuperscalarCursorPrediction`, with both
+The cursor and S1/S2 attempts retain the canonical `BranchPrediction(xlen, width)`, with both
 prediction addresses bounded by the frontend's predictor width. BTB source
 admission and BTB/RAS target normalization establish that bound before capture;
 assert it on valid S1 predictions. Restore public prediction metadata by sign
 extension, not offsets from the current fetch PC: a continuation or replay can
 carry an earlier instruction's hint. Keep the requested PC and complete fault
-payload at XLEN, including noncanonical redirects and continuation-page faults.
+payload at XLEN until block capture, including sequential crossings and
+continuation-page faults. Nonrepresentable architectural redirects are rejected
+in the backend, not admitted to these attempts.
 Preserve all valid, length, RAS, direction-row, and replay fields and the existing
 capture/clear priorities. Compaction must not add a stage or change block credits.
 The `rv2wide-frontend-retention`, `rv2wide-frontend-retention-h`, and
@@ -816,6 +851,16 @@ WB faults/replays restore without training rejected branches. Architectural
 translation invalidation and FENCE.I clear target, RAS, and history state without
 restarting direction-table warm-up.
 
+A nonrepresentable MEM redirect stops fetch without forwarding its target.
+Only successful WB branch retirement installs that target in the existing
+precise-trap record, marked by one redirect flag, so the link write survives and older faults can squash
+the branch. Invalid WB redirects, including xRET and trap vectors, use the same
+slot. Classify the exception in the following cycle's architectural context;
+wait for older accepted work to drain before issuing its CSR command. Trap PC
+and value name the target, not the branch. A rejected trap-vector replacement
+wins over release of the previous target. Frontend admission accepts only
+representable redirects; sequential boundary faults use their compact encoding.
+
 A pending fault squashes younger pipeline/window work immediately, but its
 CSR trap command and public redirect wait for both the owner FIFO and memory service to drain.
 Same-group older acceptance participates in that drain decision. Branch and
@@ -847,16 +892,15 @@ system recovery use the sequential PC; illegal trap values use the raw encoding.
 A faulting continuation uses the instruction's original PC and the next
 block's fault address. The CSR bank's C configuration must agree with this IALIGN.
 
-The resident `SuperscalarRetainedBlock` keeps a compact PC and a normal/fault tagged
-outcome. The normal valid/compact-target fields share storage with the fault kind,
-exceptional PC upper bits, and optional guest provenance. A failed fetch reports
+The canonical `SuperscalarFetchBlock` keeps a compact PC and a normal/fault tagged
+outcome. The normal valid/compact-target fields share storage with the architectural cause,
+a positive sequential-boundary bit, and optional guest provenance. A failed fetch reports
 its own PC as its fault VA; admission asserts that equality, so storage need not
 duplicate it. Reconstruct the full fault before assembly selects an instruction's
 owner: a straddle retains the continuation's VA, not the prefix's PC. Guest
-provenance remains independent. The frontend selects the same physical/Sv39 PC bound
-as the issue window; standalone assemblers default to XLEN unless `~pc_width`
-sets an explicit successful-PC sign-extension contract. Normalize incoming blocks
-through the same packing/expansion for live bypass and retained selection, so a
+provenance remains independent. The frontend and standalone assembler use the
+same fixed RV32/Sv39 PC domain as the issue window. Normalize incoming blocks
+once at the producer; live bypass and resident selection use that same type, so a
 stall that captures the bypass cannot change the visible packet. Absent fault
 payloads and invalid targets become zero, and a fault suppresses any provisional
 BTB prediction. Store prediction ownership as one of four current-block parcels
@@ -904,7 +948,7 @@ already in progress finishes first, and the pending WB lookup wins next admissio
 The walker captures its request context, independent of subsequent live CSRs.
 
 Each port retains failed walks as `SuperscalarTranslationFailure`: the exact
-lookup/context, fault kind, and guest provenance, not a complete TLB fill.
+lookup/context, fetch fault validity and cause, and guest provenance, not a complete TLB fill.
 Replay matches the entire lookup, including access class and permission controls.
 The lookup supplies the original access for cause selection; a matched failure
 projects a zero physical address and zero leaves onto the common result path.
@@ -1226,9 +1270,9 @@ recurrence spacing, and a blocked divide preempted by a scheduled fixed return.
 It also checks direct FPR forwarding beside a load hit, delayed-load backpressure,
 scalar/vector reservation collisions, variable divide retention at a booked FPR
 edge, and same-address vector-owner replacement on the older owner's write.
-Its scalar tags exercise both 45-bit PC limits, XLEN wrap, live-input replacement,
+Its scalar tags exercise both 39-bit PC limits, XLEN wrap, live-input replacement,
 and rejection of a nonrepresentable admitted PC. RV64 core/FP fixtures also
-select 45-bit storage and compare reconstructed completion identities; the core
+use fixed 39-bit storage and compare reconstructed completion identities; the core
 fixture covers delayed loads and both integer M services at the PC limits.
 `rv2wide-core-vector` uses 3/5/2-cycle FP timing to exercise matching core/backend
 reservations with shared scalar/vector execution and half-precision arithmetic.
@@ -1553,7 +1597,7 @@ python3 tools/testing/rsim/run.py --fixture rv2wide-core --fixture rv2wide-core-
 python3 tools/testing/rsim/run.py --fixture rv2wide-issue-window --fixture rv2wide-issue-window-h --fixture rv2wide-issue-window-rv32
 python3 tools/testing/rsim/run.py --fixture rv2wide-cache --fixture rv2wide-fetch-disabled
 python3 tools/testing/rsim/run.py --fixture rv2wide-assembly-prediction --fixture rv2wide-frontend-prediction --fixture rv2wide-bht
-python3 tools/testing/rsim/run.py --fixture rv2wide-assembly-prediction-h --fixture rv2wide-assembly-prediction-full-width
+python3 tools/testing/rsim/run.py --fixture rv2wide-assembly-prediction-h
 python3 tools/testing/rsim/run.py --fixture superscalar-issue-window-three --fixture superscalar-issue-window-three-h --fixture superscalar-assembly-three --fixture superscalar-frontend-three
 python3 tools/testing/rsim/run.py --fixture superscalar-read-two --fixture superscalar-read-three --fixture superscalar-read-three-rv32
 python3 tools/testing/rsim/run.py --fixture rv2wide-issue --fixture rv3wide-issue --fixture rv3wide-issue-rv32
@@ -1612,7 +1656,7 @@ compaction and wrap, including nonzero histories with prediction disabled.
 Invalid valid-index/PC combinations fail admission; invalid training-index bits
 are ignored. The core's retirement/training and recovery oracles check the same
 metadata through both lanes and retained service/replay paths.
-Directed values exercise noncanonical fault PCs, sign-extended PCs, physical
+Directed values exercise sequential-boundary faults, sign-extended PCs, physical
 upper bits, continuation faults, and XLEN wrap; invalid compact successful PCs
 must trigger the ingress assertion.
 
@@ -1742,13 +1786,12 @@ progress without lookahead, and a second-slot continuation fault.
 Relative prediction ownership checks every parcel at high/negative addresses,
 exact stale-entry invalidation, continuation-only predictions crossing pages and
 XLEN wrap, and rejection of unaligned or unrelated-block prediction owners.
-The primary and `rv2wide-assembly-prediction-h` variants select compact 45-bit
-PCs, with the latter enabling H. `rv2wide-assembly-prediction-full-width` checks
-the standalone XLEN-wide default with the same stream. All variants fill three
+The primary and `rv2wide-assembly-prediction-h` variants select compact 39-bit
+PCs, with the latter enabling H. Both variants fill three
 slots with independent faults or mixed normal/fault owners and exercise stalls,
 live-bypass capture, continuation ownership, and recovery. They check physical
-upper bits, sign-extended PCs, full-width standalone targets, exceptional PC escape
-bits, and fault suppression of speculative predictions. Distinct saved lookup
+upper bits, sign-extended PCs, normalized speculative targets, sequential boundary
+faults, and fault suppression of speculative predictions. Distinct saved lookup
 rows and per-parcel histories check reconstructed training indices through stalls,
 straddles, and XLEN wrap. Invalid producer indices and mismatched fetch-PC/fault-VA
 pairs must fail admission. The H variant also

@@ -5,6 +5,9 @@
 import:
   "../../../rhodium/core/main.rhm" open
   "../../../rhodium/frontend/layers/signed.rhm" as signed
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/backend/circt-target.rhm").circt_target
+  lib("rhodium/backend/verilog-target.rhm").verilog_target
   "base-width-method-fixture.rhdl" as base_fixture
   "width-method-fixture.rhdl" as fixture
 
@@ -34,3 +37,10 @@ check:
   base_module.find_output("widened").type.width ~is 8
   verify_design(fixture.design) ~is #void
   verify_design(base_fixture.design) ~is #void
+
+def signed_bits = signed_extensions.find(fun (operation): type_equal(operation.results[0].type, Bits(8)))
+check:
+  signed_bits != #false ~is #true
+  bits_type(signed_bits.operands[0].type) ~is #true
+  compile_program(fixture.program, circt_target).artifacts[0].content.contains("comb.concat") ~is #true
+  compile_program(fixture.program, verilog_target).artifacts[0].content.contains("[3]") ~is #true

@@ -122,7 +122,7 @@ fun riscv_float_to_integer_move(xlen :: XLen, format :: FloatFormat, value :: IE
   unless format.ieee_width <= xlen.width
   | error(~who: #'riscv_float_to_integer_move, "floating-point value must fit XLEN")
 
-  if format.ieee_width == xlen.width | value.as_bits() | value.as_bits().into(SInt(format.ieee_width)).sext(xlen.width).as_bits()
+  value.as_bits().sext(xlen.width)
 
 /* Reinterprets the low IEEE-width integer bits without numeric conversion or NaN-box validation. */
 fun riscv_integer_to_float_move(format :: FloatFormat, width :: PosInt, value :: Bits(width)) :~ IEEEFloat(format):

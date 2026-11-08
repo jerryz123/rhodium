@@ -15,8 +15,8 @@ import:
   "../support/generator-parameters.rhm".substitute_generator_parameters
   "../support/instance-members.rhm".InstanceMembers
   "../support/instance-members.rhm".register_member_resolver
-  "../support/variants.rhm".enum_type
-  "../support/variants.rhm".enum_values
+  "../../../support/variants.rhm".enum_type
+  "../../../support/variants.rhm".enum_values
 
 export:
   InterfaceDeclaration

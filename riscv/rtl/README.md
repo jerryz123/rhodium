@@ -59,7 +59,7 @@ Dependency enforcement and extension workflow are documented in
 | [`hpm-counter.rhdl`](hpm-counter.rhdl) | `RiscvHpmWrite`, `RiscvHpmCounter` | One RV32/RV64 64-bit event counter with Sscofpmf privilege filtering and sticky overflow; valid events supply `event_count: Bits(2)` (zero through three) |
 | [`timer.rhdl`](timer.rhdl) | `RiscvTimerAccess`, `sstc_access`, `sstc_pending` | Stateless Sstc machine/guest denial priority and unsigned wrapping-time comparison; callers own CSR selection, storage, and pending-bit composition |
 | [`state-enable.rhdl`](state-enable.rhdl) | `RiscvStateEnableAccess`, `state_enable_access` | Stateless M/H SE and ENVCFG access hierarchy with machine-denial priority; callers own implemented CSR selection, state, WARL masks, and base privilege checks |
-| [`trap.rhdl`](trap.rhdl) | `RiscvTrapDecision`, `resolve_riscv_trap`, `exception_cause_bits`, `data_fault_cause` | Select and delegate synchronous exceptions without owning state |
+| [`trap.rhdl`](trap.rhdl) | `ExceptionCause`, `RiscvExceptionDecision`, `RiscvTrapDecision`, `resolve_riscv_trap`, `exception_cause`, `data_fault_cause` | Type, select, and delegate synchronous exceptions without owning state |
 | [`interrupt.rhdl`](interrupt.rhdl) | `RiscvInterrupts`, `resolve_riscv_interrupt`, `interrupt_cause_bits` | Materialize pending bits and standard M/S priority and delegation without owning state |
 | [`pma.rhdl`](pma.rhdl) | `RiscvPhysicalMemoryAttributes`, `RiscvPhysicalMemoryRegion`, `RiscvPhysicalMemoryMap`, `RiscvPhysicalMemoryLookup` | Validate host-authored regions and perform hardware access lookup |
 | [`sv39.rhdl`](sv39.rhdl) | `Sv39Access`, `Sv39Pte`, `Sv39Translation`, and `sv39_*` helpers | Materialize Sv39 geometry, demand permission, and A/D-independent prefetch permission as typed hardware |
@@ -245,14 +245,20 @@ atomics, FP memory operations, and CMOs. Do not apply it to instruction fetch,
 implicit PTE accesses, branch targets, or software CSR values. Hardware address
 faults must retain the transformed address for `xtval`.
 
-[`trap.rhdl`](trap.rhdl) and [`interrupt.rhdl`](interrupt.rhdl) convert pure
-architectural causes to caller-selected widths and select standard trap and
-interrupt decisions from caller-supplied state. They own no registers or
-retirement boundary. Concrete cores still own CSR storage, privilege
-transitions, interrupt sampling, and the precise commit point.
+[`../isa/trap.rhm`](../isa/trap.rhm) declares `ExceptionCause` once using the
+host-safe `hardware_enum` API. [`trap.rhdl`](trap.rhdl) reexports that same type;
+host configuration and RTL use identical member constants without conversion.
+Synchronous fault paths and `RiscvExceptionDecision` carry this enum independently
+of XLEN. Validity is separate: cause zero means instruction-address misalignment,
+not absence of a fault. Only architectural CSR or observation boundaries pack
+causes into bits. `RiscvTrapDecision` carries an XLEN-wide cause image after
+exception/interrupt arbitration, including the interrupt bit when applicable.
+[`interrupt.rhdl`](interrupt.rhdl) keeps interrupt selection separate from the
+exception enum. These adapters own no registers or retirement boundary; concrete
+cores own CSR storage, privilege transitions, sampling, and the precise commit point.
 
-`data_fault_cause(xlen, store, ~page_fault: ..., ~guest_page_fault: ...)`
-selects the load/store cause at XLEN width, prioritizing guest-page, then page,
+`data_fault_cause(store, ~page_fault: ..., ~guest_page_fault: ...)`
+selects a `ExceptionCause`, prioritizing guest-page, then page,
 then access faults. It does not determine whether a fault occurred. Callers
 qualify the flags, retain the faulting address, and order retirement themselves.
 

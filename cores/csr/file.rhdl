@@ -15,7 +15,6 @@ import:
   "../../riscv/isa/vector-profile.rhm" open
   "../../riscv/isa/interrupt.rhm" open
   "../../riscv/isa/sv39.rhm".Sv39Mode
-  "../../riscv/isa/trap.rhm" open
   "../../riscv/isa/xlen.rhm" open
   "../../riscv/model/formats.rhm" as riscv_fields
   "../../riscv/rtl/csr.rhdl" open
@@ -115,7 +114,7 @@ fun resolve_csr_trap(xlen :: XLen,
                      ~virtual_csr: virtual_csr :: Bool = Bool(#false),
                      ~vtsr: vtsr :: Bool = Bool(#false),
                      ~vtw: vtw :: Bool = Bool(#false),
-                     ~vtvm: vtvm :: Bool = Bool(#false)) :~ RiscvTrapDecision(xlen):
+                     ~vtvm: vtvm :: Bool = Bool(#false)) :~ RiscvExceptionDecision(xlen):
   def width = xlen.width
   def zero = Bits(width)(0)
 
@@ -144,20 +143,20 @@ fun resolve_csr_trap(xlen :: XLen,
   def generated_exception = illegal_csr ||| illegal_privileged_operation ||| ecall ||| ebreak ||| (commit_valid & virtual_instruction)
   def ecall_cause = mux_lookup(
     privilege,
-    ~default: exception_cause_bits(ExceptionCause.EnvironmentCallFromMachine, width),
+    ~default: ExceptionCause.EnvironmentCallFromMachine,
     [
-      [PrivilegeMode.User, exception_cause_bits(ExceptionCause.EnvironmentCallFromUser, width)],
-      [PrivilegeMode.Supervisor, mux(virtualized, exception_cause_bits(ExceptionCause.EnvironmentCallFromVirtualSupervisor, width), exception_cause_bits(ExceptionCause.EnvironmentCallFromSupervisor, width))],
-      [PrivilegeMode.Machine, exception_cause_bits(ExceptionCause.EnvironmentCallFromMachine, width)]
+      [PrivilegeMode.User, ExceptionCause.EnvironmentCallFromUser],
+      [PrivilegeMode.Supervisor, mux(virtualized, ExceptionCause.EnvironmentCallFromVirtualSupervisor, ExceptionCause.EnvironmentCallFromSupervisor)],
+      [PrivilegeMode.Machine, ExceptionCause.EnvironmentCallFromMachine]
     ]
   )
 
-  def generated_cause = priority_mux(~default: exception_cause_bits(ExceptionCause.IllegalInstruction, width)):
+  def generated_cause = priority_mux(~default: ExceptionCause.IllegalInstruction):
     ecall: ecall_cause
-    ebreak: exception_cause_bits(ExceptionCause.Breakpoint, width)
-    virtual_instruction: exception_cause_bits(ExceptionCause.VirtualInstruction, width)
+    ebreak: ExceptionCause.Breakpoint
+    virtual_instruction: ExceptionCause.VirtualInstruction
 
-  def instruction = if width == 32 | operation.instruction | operation.instruction.zext(width)
+  def instruction = operation.instruction.zext(width)
   resolve_riscv_trap(
     xlen,
     explicit_exception,
@@ -274,7 +273,7 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
   interface fp_update(Valid(Bits(5)), ~role: consumer)
   interface redirect(Valid(Bits(width)), ~role: producer)
   output trap_event: RiscvTrapDecision(xlen)
-  output command_fault: RiscvTrapDecision(xlen)
+  output command_fault: RiscvExceptionDecision(xlen)
   output interrupt_request: Bool
   output command_success: Bool
   output wfi: Bool
@@ -834,8 +833,8 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
   def illegal_vector_config = (commit.bits.action === RiscvCsrAction.VectorConfig) & (!vector_access_enabled ||| vector_csrs.configuration_illegal)
   def checked_commit = commit.bits.updated(
     ~exception_valid: commit.bits.exception_valid ||| illegal_vector_config,
-    ~exception_cause: mux(commit.bits.exception_valid, commit.bits.exception_cause, exception_cause_bits(ExceptionCause.IllegalInstruction, width)),
-    ~exception_value: mux(commit.bits.exception_valid, commit.bits.exception_value, if width == 32 | commit.bits.instruction | commit.bits.instruction.zext(width))
+    ~exception_cause: mux(commit.bits.exception_valid, commit.bits.exception_cause, ExceptionCause.IllegalInstruction),
+    ~exception_value: mux(commit.bits.exception_valid, commit.bits.exception_value, commit.bits.instruction.zext(width))
   )
 
   // Evaluate the candidate independently of authorization. Callers may retain
@@ -864,7 +863,7 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
 
   def trap = RiscvTrapDecision(xlen):
     valid: synchronous_trap.valid ||| interrupt_take
-    cause: mux(synchronous_trap.valid, synchronous_trap.cause, interrupt.cause)
+    cause: mux(synchronous_trap.valid, synchronous_trap.cause.as_bits().zext(width), interrupt.cause)
     value: mux(synchronous_trap.valid, synchronous_trap.value, zero)
     target: mux(synchronous_trap.valid, synchronous_target, interrupt.target)
 
@@ -992,7 +991,7 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
   def machine_trap_status = mstatus_on_machine_trap(state.mstatus, privilege_state)
   def fault_details_valid = synchronous_trap.valid & commit.bits.exception_valid
   def fault_gva = fault_details_valid & guest_fault_details.guest_virtual_address
-  def guest_page_fault = synchronous_trap.cause.is_one_of([ExceptionCause.InstructionGuestPageFault, ExceptionCause.LoadGuestPageFault, ExceptionCause.StoreGuestPageFault].map(fun (cause): exception_cause_bits(cause, width)))
+  def guest_page_fault = synchronous_trap.cause.is_one_of(ExceptionCause.InstructionGuestPageFault, ExceptionCause.LoadGuestPageFault, ExceptionCause.StoreGuestPageFault)
   def fault_gpa = mux(fault_details_valid & guest_page_fault, guest_fault_details.guest_physical_address >> 2, Bits(64)(0))
   def fault_inst = mux(fault_details_valid & guest_page_fault, guest_fault_instruction(guest_fault_details), Bits(64)(0))
   def trap_mstatus :: Bits(width):

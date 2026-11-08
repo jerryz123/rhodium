@@ -26,6 +26,10 @@ Rhodium, `flow/`, HardFloat, processor implementations, or backend tooling. Keep
 hardware materialization in `rtl/`; keep decode policy, pipeline controls,
 architectural state, and retirement in concrete cores. The package-local
 [`check-boundaries.sh`](check-boundaries.sh) enforces these directions.
+Pure shared enums may import `support/hardware-enum.rhm`: it defines immutable
+descriptors and constants without importing Rhodium or elaborating hardware.
+`isa/trap.rhm` owns `ExceptionCause`; RTL uses that exact descriptor rather
+than declaring a hardware counterpart.
 
 ## Implementation map
 

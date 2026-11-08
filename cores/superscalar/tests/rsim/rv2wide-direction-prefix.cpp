@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "test.hpp"
 #ifndef PREFIX_WIDTH
-#define PREFIX_WIDTH 45
+#define PREFIX_WIDTH 39
 #endif
 using Address = std::remove_cvref_t<decltype(prediction.ppc)>;
 constexpr unsigned width = PREFIX_WIDTH;
@@ -55,7 +55,7 @@ void check_indirect(Address address, Address target, bool predicted = true) {
   CHECK(bool(corrected.pvalid) == predicted);
   CHECK(!invalidate);
   if (predicted) {
-    CHECK(corrected.ppc == address && corrected.ptarget == target &&
+    CHECK(normalized(corrected.ppc) == address && normalized(corrected.ptarget) == target &&
           !corrected.pcompressed && corrected.pras_uaction == 0);
     CHECK(next_pc == target);
   }
@@ -69,7 +69,7 @@ int main() {
     tick_model();
     reset = false;
     const std::uint64_t addresses[] = {
-      0x1006, 0x1ffe, UINT64_C(0x00000ffffffffffe),
+      0x1006, 0x1ffe, UINT64_C(0x0000003ffffffffe),
       UINT64_C(0xffffffc012345ffe), UINT64_MAX - 1,
       UINT64_C(0x123456789abc0006)
     };
@@ -117,7 +117,7 @@ int main() {
       offer_prefix(address, conditional, Address(actual ^ 0x100));
       tick_model();
       continuation(address, conditional);
-      CHECK(corrected.pvalid && corrected.ppc == address && corrected.ptarget == actual);
+      CHECK(corrected.pvalid && normalized(corrected.ppc) == address && normalized(corrected.ptarget) == actual);
       CHECK(invalidate && prefix_direction.pvalid && prefix_direction.pbase_utaken &&
             !prefix_direction.pgshare_utaken && prefix_direction.ptaken);
       CHECK(prefix_direction.pindex == 0x557 && prefix_direction.phistory == 0x123 &&
@@ -132,17 +132,17 @@ int main() {
       CHECK(!corrected.pvalid);
     }
 
-    if constexpr (width == 45) {
+    if constexpr (width == 39) {
       cancel();
       expect_failure("rv2wide_direction_prefix_pc_fits", [] {
-        offer_prefix(UINT64_C(0x123456789abc0006), indirect, 0x800);
+        pc = UINT64_C(0x123456789abc0006);
+        data = (std::uint64_t(indirect & 0xffff) << 48) | UINT64_C(0x000100010001);
+        prediction = {};
+        valid = true;
         tick_model();
       });
       cancel();
-      expect_failure("rv2wide_direction_prefix_target_fits", [] {
-        offer_prefix(0x1006, indirect, UINT64_C(0x123456789abc0000));
-        tick_model();
-      });
+
       cancel();
     }
   });

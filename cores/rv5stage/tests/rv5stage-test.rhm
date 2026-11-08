@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/std/interconnect.rhdl").AddressSet
   lib("riscv/isa/hart.rhm").RiscvMmuType
   lib("rhodium/compile/program.rhm").compile_program
   lib("rhodium/compile/rtl.rhm").rtl_target
@@ -16,8 +17,11 @@ import:
   "../rv5stage.rhdl" as rv5stage
   "params.rhdl" as test_params
 
-def config = test_params.test_rv5stage_chi_config
-def params = test_params.test_rv5stage_chi_params
+def config = chi.RiscvHartCHIConfig(test_params.test_rv5stage_flit, 64, [chi.RiscvHartCHIRegion(
+  RiscvPhysicalMemoryRegion(AddressSet(0, 2 ** 32 - 1), test_params.test_rv5stage_memory_attributes),
+  test_params.test_rv5stage_home
+)])
+def params = chi.RV5StageCHIParams(config, 2, 3)
 def extensions = core_profile.RV5StageExtensions(~zicbom: #true, ~ziccif: #true, ~ziccamoa: #true, ~ziccrse: #true)
 def rv64_design = compile_program(elaborate(rv5stage.RV5Stage( core_profile.RV5StageConfig( ~xlen: XLen.X64, ~extensions: core_profile.RV5StageExtensions(~zicbom: #true, ~ziccif: #true, ~ziccamoa: #true, ~ziccrse: #true, ~svnapot: #true, ~compressed: compressed_extensions(CompressedExtension.Zca)), ~mmu_mode: RiscvMmuType.Sv39, ~data_cache_service_queue_depth: 3 ), ~chi: config, ~reset_address: 2 )), rtl_target).report.design
 def rv32_design = compile_program(elaborate(rv5stage.RV5Stage(core_profile.RV5StageConfig(~xlen: XLen.X32, ~extensions: extensions), ~chi: config, ~reset_address: 0)), rtl_target).report.design
@@ -53,6 +57,8 @@ for (attributes in [
       elaborate(rv5stage.RV5Stage(core_profile.RV5StageConfig(~xlen: xlen, ~extensions: core_profile.RV5StageExtensions(~ziccrse: #true)), ~chi: restricted, ~reset_address: 0)) ~throws "Ziccrse"
 
 check:
+  elaborate(rv5stage.RV5Stage(core_profile.RV5StageConfig(~xlen: XLen.X64), ~chi: config, ~reset_address: 2 ** 38)) ~throws "compact Bare PC domain"
+  elaborate(rv5stage.RV5Stage(core_profile.RV5StageConfig(~xlen: XLen.X64), ~chi: test_params.test_rv5stage_chi_config, ~reset_address: 0)) ~throws "executable physical addresses"
   params.config === config ~is #true
   params.instruction_node.node_id ~is 2
   params.data_node.node_id ~is 3

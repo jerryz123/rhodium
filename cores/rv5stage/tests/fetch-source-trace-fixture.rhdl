@@ -24,7 +24,7 @@ sync_circuit EventFetchSource():
   source.ras_speculate.bits <== literal(RasUpdate(xlen), 0)
   source.ras_restore.valid <== Bool(#false)
   source.btb_discover.valid <== Bool(#false)
-  source.btb_discover.bits <== literal(BranchPrediction(xlen), 0)
+  source.btb_discover.bits <== literal(BranchPrediction(xlen, xlen.width), 0)
   source.predictor_flush.valid <== Bool(#false)
   source.predictor_invalidate.valid <== Bool(#false)
   source.predictor_invalidate.bits <== Bits(64)(0)

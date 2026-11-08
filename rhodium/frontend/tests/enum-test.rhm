@@ -15,6 +15,7 @@ import:
   "../../../examples/rtl/bit-utilities.rhdl" as valid_example
   "enum-valid-fixture.rhdl" as valid_fixture
   "enum-composed.rhdl" as composed_fixture
+  "host-enum-fixture.rhdl" as host_fixture
   "../../../examples/rtl/one-hot-enum.rhdl" as one_hot_fixture
 
 def fixture_design = compile_program(fixture.program, rtl_target).report.design
@@ -73,6 +74,7 @@ def one_hot_mux = one_hot_module.operations.find(
 def validity_module = valid_example_enum_validity_design.modules[0]
 check:
   enum.enum_type(fixture.State) ~is #true
+  elaborate(host_fixture.WrongHostEnum()) ~throws "exactly the same hardware type"
   enum.enum_type(fixture.Opcode) ~is #true
   enum.enum_type(one_hot_fixture.ResultSelect) ~is #true
   enum.enum_width(fixture.State) ~is 2

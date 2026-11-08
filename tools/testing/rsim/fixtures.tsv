@@ -3,6 +3,8 @@
 statistics	language	rhodium/statistics/tests/fixture.rhdl	program	rhodium/statistics/tests/count.cpp	target	sims/statistics/collector.cc
 prediction-statistics	cores-components	cores/bpred/tests/statistics-fixture.rhdl	program	cores/bpred/tests/rsim/statistics.cpp	target	sims/statistics/collector.cc
 compact-pc	cores-components	cores/tests/pc-fixture.rhdl	program	cores/tests/rsim/pc.cpp
+variant-predicate	language	rhodium/frontend/tests/variant-predicate-fixture.rhdl	program	rhodium/frontend/tests/rsim/variant-predicate.cpp
+width-method	language	rhodium/frontend/tests/width-method-fixture.rhdl	program	rhodium/frontend/tests/rsim/width-method.cpp
 sync-memory-masked	language	examples/rtl/sync-memory-masked.rhdl	program	rhodium/backend/tests/rsim/sync-memory-masked.cpp
 counter	language	examples/rtl/counter.rhdl	program	rhodium/backend/tests/rsim/counter.cpp
 pipe	std	examples/std/flow-control.rhdl	pipe_program	flow/tests/rsim/pipe.cpp
@@ -166,6 +168,7 @@ adder4	language	examples/rtl/adder4.rhdl	program	rhodium/backend/tests/rsim/adde
 generated-adder	language	examples/rtl/generated-adder.rhdl	program	rhodium/backend/tests/rsim/generated-adder.cpp
 alu	language	examples/rtl/alu.rhdl	program	rhodium/backend/tests/rsim/alu.cpp
 enum-state	language	examples/rtl/enum-state.rhdl	program	rhodium/backend/tests/rsim/enum-state.cpp
+host-enum	language	rhodium/frontend/tests/host-enum-fixture.rhdl	program	rhodium/frontend/tests/rsim/host-enum.cpp
 enum-validity	language	examples/rtl/bit-utilities.rhdl	enum_validity_program	rhodium/backend/tests/rsim/enum-validity.cpp
 one-hot	language	examples/rtl/one-hot.rhdl	program	rhodium/backend/tests/rsim/one-hot.cpp
 shifts	language	examples/rtl/shifts.rhdl	program	rhodium/backend/tests/rsim/shifts.cpp
@@ -231,7 +234,6 @@ rv2wide-cache	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-cache.r
 rv2wide-fetch-disabled	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-fetch-disabled.rhm	program	cores/superscalar/tests/rsim/rv2wide-fetch-disabled.cpp
 rv2wide-assembly-prediction	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-assembly-prediction.rhm	program	cores/superscalar/tests/rsim/rv2wide-assembly-prediction.cpp
 rv2wide-assembly-prediction-h	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-assembly-prediction.rhm	guest_program	cores/superscalar/tests/rsim/rv2wide-assembly-prediction-h.cpp
-rv2wide-assembly-prediction-full-width	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-assembly-prediction.rhm	full_width_program	cores/superscalar/tests/rsim/rv2wide-assembly-prediction.cpp
 superscalar-assembly-three	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-assembly-prediction.rhm	three_program	cores/superscalar/tests/rsim/three-assembly.cpp
 superscalar-frontend-three	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-frontend-prediction.rhm	three_program	cores/superscalar/tests/rsim/rv2wide-frontend-prediction.cpp
 rv2wide-frontend-prediction	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-frontend-prediction.rhm	program	cores/superscalar/tests/rsim/rv2wide-frontend-prediction.cpp
@@ -240,7 +242,6 @@ rv2wide-frontend-retention-h	cores-components	cores/superscalar/tests/rsim/emit-
 rv2wide-bht-retention	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-bht.rhm	program	cores/superscalar/tests/rsim/rv2wide-frontend-retention.cpp
 rv2wide-bht	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-bht.rhm	program	cores/superscalar/tests/rsim/rv2wide-bht.cpp
 rv2wide-direction-prefix	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-bht.rhm	compact_prefix	cores/superscalar/tests/rsim/rv2wide-direction-prefix.cpp
-rv2wide-direction-prefix-full	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-bht.rhm	full_prefix	cores/superscalar/tests/rsim/rv2wide-direction-prefix-full.cpp
 rv2wide-direction-prefix-rv32	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-bht.rhm	rv32_prefix	cores/superscalar/tests/rsim/rv2wide-direction-prefix-rv32.cpp
 rv2wide-mmu	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-mmu.rhm	program	cores/superscalar/tests/rsim/rv2wide-mmu.cpp
 rv2wide-bare-memory	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-mmu.rhm	bare_program	cores/superscalar/tests/rsim/rv2wide-bare-memory.cpp

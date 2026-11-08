@@ -2,6 +2,7 @@
 /* Compares observed and unobserved cores with controlled scalar/vector memory events. */
 // SPDX-License-Identifier: Apache-2.0
 import:
+  lib("riscv/rtl/hypervisor.rhdl").RiscvGuestException
   lib("cores/mmu/vector.rhdl") open
   "../../cache/protocol.rhdl" open
   "../core.rhdl" open
@@ -85,13 +86,7 @@ sync_circuit RV5StageCosimFixture(xlen :: XLen, multiplier :: RV5StageMultiplier
     core.hart_id <== Bits(xlen.width)(0)
     core.time_counter <== ticks
     core.packets.valid <== packet_valid
-    core.packets.bits <== RV5StageFetchPacket(xlen, #false):
-      pc: pc[0..xlen.width]
-      word: instruction
-      mask: mux(instruction[0..2] =/= Bits(2)(3), Bits(2)(1), Bits(2)(3))
-      page_fault: Bool(#false)
-      access_fault: Bool(#false)
-      prediction: literal(RV5StagePacketPrediction(xlen), 0)
+    core.packets.bits <== RV5StageFetchPacket.create(xlen, #false, pc[0..xlen.width], instruction, mux(instruction[0..2] =/= Bits(2)(3), Bits(2)(1), Bits(2)(3)), Bool(#false), Bool(#false), literal(RV5StagePacketPrediction(xlen), 0), literal(RiscvGuestException(), 0))
 
     core.pipeline_access.response.valid <== lookup_valid & lookup_mode.any()
     core.pipeline_access.response.bits <== CachePipelineResult(xlen):

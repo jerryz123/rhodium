@@ -65,7 +65,7 @@ sync_circuit SpikeSnoop(config :: RiscvHartCHIConfig):
 
   def response_fire = responses.fire()
 
-  def packet_number = if packet_index_width == 2 | packet_index | packet_index.zext(2)
+  def packet_number = packet_index.zext(2)
   def data_id = chi_transfer_data_id(packet_number, p)
   def inactive_data :: CHIDatFlit(p) = literal(CHIDatFlit(p), 0)
   data.valid <== response_valid & response.has_data

@@ -1,0 +1,62 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../bundles.rhdl" open
+  "../profile.rhm".SuperscalarPipelineConfig
+  "../instruction-assembler.rhdl" open
+  "../direction.rhdl" open
+  "../../cache/l1i/protocol.rhdl" open
+  "../../chi-hart.rhdl" open
+  lib("cores/bpred/btb.rhdl").Btb
+  lib("cores/bpred/btb.rhdl").DisabledBtb
+  lib("cores/bpred/tournament.rhdl") open
+  lib("cores/bpred/ras.rhdl").Ras
+  lib("cores/bpred/ras.rhdl").DisabledRas
+  lib("cores/bpred/protocol.rhdl") open
+  lib("cores/pc.rhdl") open
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/rtl/svpbmt.rhdl") open
+  lib("rhodium/std/bits.rhdl") open
+  lib("flow/main.rhdl") open
+
+  "../frontend.rhdl".SuperscalarFrontend
+  "instruction-fixture.rhdl" open
+
+sync_circuit FrontendFixture(config :: RiscvHartCHIConfig, profile :: SuperscalarPipelineConfig = SuperscalarPipelineConfig(), ~group_width: group_width :: matching(2) || matching(3) = 2):
+  def xlen = profile.xlen
+  def hypervisor = profile.hypervisor
+  interface start(Valid(Bits(64)), ~role: consumer)
+  interface redirect(Valid(SuperscalarRedirect(xlen)), ~role: consumer)
+  interface flush(Pulse(), ~role: consumer)
+  interface memory(SuperscalarInstructionLookup(), ~role: requester)
+  interface invalidate(Pulse(), ~role: consumer)
+  interface virtual_lookup(Decoupled(Bits(64)), ~role: producer)
+  interface translation(SuperscalarInstructionTranslation(xlen), ~role: requester)
+  interface instructions(Decoupled(PacketObservation(xlen, hypervisor, group_width)), ~role: producer)
+  interface branch_update(Valid(BranchUpdate(xlen)), ~role: consumer)
+  interface predictor_restore(Pulse(), ~role: consumer)
+  interface predictor_clear(Pulse(), ~role: consumer)
+  interface direction_update(Valid(TournamentUpdate(10)), ~role: consumer)
+  interface ras_resolution(Valid(RasResolution(xlen)), ~role: consumer)
+  interface history_commit(Valid(SuperscalarHistoryCommit(group_width)), ~role: consumer)
+  interface history_restore(Valid(Bits(10)), ~role: consumer)
+
+  inst frontend(SuperscalarFrontend(config, profile, ~group_width: group_width))
+  (frontend.instructions |> map_flow(packet => observe_packet(xlen, hypervisor, group_width, packet))) |> instructions
+  start |> frontend.start
+  redirect |> frontend.redirect
+  flush |> frontend.flush
+  frontend.memory <=> memory
+  invalidate |> frontend.invalidate
+  frontend.virtual_lookup <=> virtual_lookup
+  frontend.translation <=> translation
+  branch_update |> frontend.branch_update
+  predictor_restore |> frontend.predictor_restore
+  predictor_clear |> frontend.predictor_clear
+  direction_update |> frontend.direction_update
+  ras_resolution |> frontend.ras_resolution
+  history_commit |> frontend.history_commit
+  history_restore |> frontend.history_restore
+
+export FrontendFixture

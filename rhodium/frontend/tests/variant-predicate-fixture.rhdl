@@ -1,0 +1,71 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../../examples/rtl/tagged-union.rhdl".Request
+  "../../../examples/rtl/tagged-union.rhdl".ExplicitRequest
+  "../../../examples/rtl/tagged-union.rhdl".OneHotRequest
+  "../../../examples/rtl/tagged-union.rhdl".Option
+  "../../../examples/rtl/nested-tagged-union.rhdl".OuterMessage
+  "../../../examples/rtl/nested-tagged-union.rhdl".InnerMessage
+
+bundle Envelope():
+  request: Request
+
+circuit PredicateChild():
+  input request: Request
+  output matches: Bool
+  matches <== request.is(Request.Read)
+
+sync_circuit VariantPredicateFixture():
+  input request: Request
+  input explicit_request: ExplicitRequest
+  input one_hot_request: OneHotRequest
+  input option: Option(Bits(8))
+  input message: OuterMessage
+  input(enable, capture): Bool
+  output predicates: Vec(12, Bool)
+  output packed_predicate: Bits(1)
+  output payload: Bits(8)
+
+  wire selected: Request
+  selected <== mux(enable, request, Request.Idle)
+  reg held(~init: Request.Idle)
+  when capture:
+    held <== selected
+
+  def envelope = Envelope():
+    request: request
+
+  def choices = vec([request, selected])
+  def matches = selected.is
+  def direct :: Bool = request.is(Request.Read)
+  def read = request.view(Request.Read)
+  def outer = message.view(OuterMessage.Nested)
+  inst child(PredicateChild())
+  child.request <== request
+
+  predicates <== vec([
+    direct & enable,
+    !request.is(Request.Idle),
+    matches(Request.Read) & Bool(#true),
+    envelope.request.is(Request.Read),
+    choices[1].is(Request.Read),
+    held.is(Request.Read),
+    explicit_request.is(ExplicitRequest.Read),
+    one_hot_request.is(OneHotRequest.Data),
+    option.is(Option(Bits(8)).Some),
+    outer.valid & outer.payload.view(InnerMessage.Word).valid,
+    read.valid & request.is(Request.Read).is_one_of(Bool(#true)),
+    child.matches
+  ])
+  packed_predicate <== request.is(Request.Read).as_bits()
+  payload <== mux(read.valid, read.payload, Bits(8)(0))
+
+circuit WrongVariant(extracted :: Boolean):
+  input request: Request
+  output matches: Bool
+  def test_variant = request.is
+  matches <== if extracted | test_variant(ExplicitRequest.Read) | request.is(ExplicitRequest.Read)
+
+def program = elaborate(VariantPredicateFixture())
+export program WrongVariant

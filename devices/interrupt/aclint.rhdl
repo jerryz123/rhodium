@@ -147,8 +147,7 @@ sync_circuit Aclint(config :: AclintConfig):
   def mtime_access = (active_address >= Bits(AclintAddressWidth)(AclintMtimeOffset)) & (
     active_address < Bits(AclintAddressWidth)(AclintMtimeOffset + 8)
   )
-  def timer_register_offset:
-    if lane_width == 3 | active_address[0..3] | active_address[0..3].zext(lane_width)
+  def timer_register_offset = active_address[0..3].zext(lane_width)
 
   def register_offset = mux(mswi_access,
                             active_address[0..2].zext(lane_width),

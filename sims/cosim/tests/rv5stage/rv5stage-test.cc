@@ -301,6 +301,56 @@ void immediate_fp(unsigned xlen, bool floating, unsigned rd) {
   require(std::get<CsrUpdate>(record.effects.at({4,0})).value==1);
   collector.finish();
 }
+void rejected_target(unsigned seed) {
+  Collector collector;
+  collector.reset(0,0,{0,0x8000,{3,false},64,0});
+  DpiBinding binding(collector);
+  std::mt19937 random(seed);
+  constexpr Word target=0x8000000000000100ULL;
+  unsigned count=0;
+  for (Word cycle=0;cycle<5;++cycle) {
+    Sample s;
+    if (cycle==0) {
+      s.cycle.wb_commit_valid=1;
+      s.boundary.csr_commit=1; s.boundary.csr_retired=1;
+      s.header.instruction=0x000082e7;
+      s.boundary.next_pc=target;
+      s.cycle.write_valid=1; s.cycle.write_rd=5; s.cycle.write_data=0x8004;
+    }
+    if (cycle==4) {
+      // Capture allocates a new target fault, not a retained instruction owner.
+      s.cycle.wb_commit_valid=1;
+      s.boundary.csr_commit=1; s.boundary.csr_synchronous_trap=1;
+      s.header.pc=target; s.header.instruction=0;
+      s.header.exception=1; s.header.cause=1;
+      s.boundary.cause=1; s.boundary.epc=target; s.boundary.tval=target;
+      s.boundary.target_pc=0x9000; s.boundary.target_privilege=3;
+    }
+    collector.begin_sample(cycle);
+    std::vector<std::function<void()>> calls;
+    capture(calls,s,0,0,cycle);
+    std::shuffle(calls.begin(),calls.end(),random);
+    for (auto& call:calls) call();
+    binding.check();
+    for (const auto& record:collector.end_sample()) {
+      const auto& instruction=std::get<Instruction>(record.event);
+      require(record.id.order==count);
+      if (count++==0) {
+        require(instruction.pc==0x8000);
+        require(std::get<Retirement>(record.outcome).next_pc==target);
+        const auto& write=std::get<RegisterWrite>(record.effects.at({0,0}));
+        require(write.index==5 && write.value==0x8004);
+      } else {
+        require(instruction.pc==target && instruction.encoding_valid_bytes==0 && instruction.instruction_bytes==0);
+        const auto& trap=std::get<Trap>(record.outcome);
+        require(trap.cause==1 && trap.epc==target && trap.tval==target);
+        require(record.effects.empty());
+      }
+    }
+  }
+  require(count==2);
+  collector.finish();
+}
 void invalid(unsigned mutation) {
   Collector collector; collector.reset(0,0,{0,0x8000,{3,false},64,0}); DpiBinding binding(collector);
   Sample s;
@@ -313,6 +363,7 @@ void invalid(unsigned mutation) {
   require(failed);
 }
 int main() {
+  for (unsigned seed=0;seed<64;++seed) rejected_target(seed);
   for (unsigned xlen : {32,64}) for (bool floating : {false,true}) for (unsigned rd : {0,4}) immediate_fp(xlen,floating,rd);
   for (unsigned xlen : {32,64}) for (Word op : {6,7,8,9}) for (bool fault : {false,true}) cache_operations(xlen,op,fault);
   auto baseline=run(0);

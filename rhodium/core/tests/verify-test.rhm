@@ -69,8 +69,8 @@ block:
     builder.extract(module_def, eight_bits, "five", 2) ~throws "Nat"
     builder.extract(module_def, eight_bits, 8, 2) ~throws "0 <= low <= high < source width"
     builder.extract(module_def, eight_bits, 2, 5) ~throws "0 <= low <= high < source width"
-    builder.zext(module_def, eight_bits, 8) ~throws "larger than the source width"
-    builder.zext(module_def, eight_bits, 4) ~throws "larger than the source width"
+    builder.zext(module_def, eight_bits, 8) ~is eight_bits
+    builder.zext(module_def, eight_bits, 4) ~throws "at least the source width"
     builder.trunc(module_def, eight_bits, 8) ~throws "smaller than the source width"
     builder.trunc(module_def, four_bits, 8) ~throws "smaller than the source width"
 
@@ -195,7 +195,7 @@ block:
   check:
     verify_design(design) ~throws "sum of its operand widths"
 
-block:
+for (opcode in ["rtl.zext", "rtl.sext"]):
   def design = Design()
   def builder = Builder(design)
   def module_def = builder.module("MalformedExtension")
@@ -203,7 +203,7 @@ block:
   def operation_id = design.fresh_id()
   def result = Value(design.fresh_id(), "result", Bits(4), module_def, operation_id)
   def operation = Operation(operation_id,
-                            "rtl.zext",
+                            opcode,
                             module_def,
                             [operand],
                             [result],

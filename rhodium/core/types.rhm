@@ -4,6 +4,9 @@
 
 import:
   "../../support/annotations.rhm" open
+  "../../support/hardware-data.rhm".HardwareType
+  "../../support/hardware-data.rhm".DataType
+  "../../support/hardware-data.rhm".ScalarDataType
 
 export:
   HardwareType
@@ -38,23 +41,6 @@ export:
   selector_width
   count_index_width
   bits_text
-
-/* Defines the common description, equality, and optional canonical packed-width contract for hardware types. */
-interface HardwareType:
-  /* Returns a human-readable type description for diagnostics and IR inspection. */
-  method describe()
-  /* Tests receiver-defined hardware type equality; the public helper enforces symmetric equality for extension types. */
-  method type_equal(other :: HardwareType)
-  /* Returns the positive canonical packed width, or false when this type is opaque to packed operations. */
-  method packed_width()
-
-/* Marks ordinary hardware data that can occupy aggregates and registers, excluding clock and reset controls. */
-interface DataType:
-  extends HardwareType
-
-/* Marks leaf data types, distinct from records and vectors, for scalar operation capability checks. */
-interface ScalarDataType:
-  extends DataType
 
 /* Opts scalar data into same-type bitwise operations without granting arithmetic semantics. */
 interface BitwiseType:

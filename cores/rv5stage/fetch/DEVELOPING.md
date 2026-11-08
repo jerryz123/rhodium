@@ -55,20 +55,19 @@ starts in its retained prefix. On transfer to residual storage, keep only whethe
 the upper parcel owns the prediction. A live continuation can supply the hint
 for that prefix; it cannot override a standalone compressed residual.
 
-Only the internal queue format narrows retained architectural fetch PCs. The integrated non-H RV64 hart
-passes its PMA address width to the frontend; a successful PC sign-extends
-from `max(39, physical_address_width + 1)` bits, covering both Sv39 and Bare.
-The queue stores successful PCs with shared `CompactPc` capture/expansion and
-checks `CompactPc.fits` at admission. A tagged outcome shares storage between the full prediction and the fault
-flags plus original upper PC bits. Do not rely on one outstanding fault:
-each entry must reconstruct its own address while Decode is stalled. Keep
-the ordinary packet for H, RV32, or when the width would not save bits.
-A standalone frontend with no declared physical bound defaults to XLEN.
+The scanner, queue, and instruction buffer use one `RV5StageFetchPacket` with
+fixed 39-bit RV64 or 32-bit RV32 PCs. The MMU rejects nonrepresentable instruction
+addresses after translation and before physical fetch, including guest-Bare;
+existing translation faults take priority. The scanner checks `CompactPc.fits`
+before capturing successful PCs. RV64's tagged outcome shares prediction storage
+with fault flags and one positive sequential-boundary bit, including H configurations. Every
+entry reconstructs its own fault address under Decode backpressure. Consumers
+request address, fault flags, or prediction separately, without an expanded clone.
 
-BTB source admission and BTB/RAS targets use
-`min(XLEN, max(39, physical_address_width + 1))` bits. Source queries outside
-that bound miss rather than alias; they continue through the full-width
-architectural fetch/fault path. Only speculative destinations may alias.
+BTB source admission and BTB/RAS targets use the same fixed PC width. Source
+queries outside that bound miss rather than alias. The backend rejects arbitrary
+nonrepresentable redirects; only sequential crossings need the frontend boundary
+encoding. Only speculative destinations may alias.
 The source uses their normalized hints, and the scanner normalizes direct-jump
 and live-return fallbacks before publishing both packet metadata and redirects.
 Do not truncate a retained prediction independently of the address fetch followed.

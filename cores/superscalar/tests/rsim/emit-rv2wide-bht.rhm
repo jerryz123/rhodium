@@ -3,15 +3,14 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   lib("rhodium/frontend/foundation.rhm").elaborate
-  "../../frontend.rhdl".SuperscalarFrontend
+  "../frontend-fixture.rhdl".FrontendFixture
   "../../direction.rhdl".SuperscalarDirection
   "../../profile.rhm".SuperscalarPipelineConfig
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/isa/hart.rhm").RiscvMmuType
   "../cache-fixture.rhdl".test_chi
 
-def program = elaborate(SuperscalarFrontend(test_chi))
-def compact_prefix = elaborate(SuperscalarDirection(SuperscalarPipelineConfig(), ~pc_width: 45, ~target_width: 45))
-def full_prefix = elaborate(SuperscalarDirection(SuperscalarPipelineConfig()))
+def program = elaborate(FrontendFixture(test_chi))
+def compact_prefix = elaborate(SuperscalarDirection(SuperscalarPipelineConfig()))
 def rv32_prefix = elaborate(SuperscalarDirection(SuperscalarPipelineConfig(~xlen: XLen.X32, ~mmu_type: RiscvMmuType.Bare)))
-export program compact_prefix full_prefix rv32_prefix
+export program compact_prefix rv32_prefix

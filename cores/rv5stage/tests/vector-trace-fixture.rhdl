@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/rtl/trap.rhdl").ExceptionCause
   "../../vector/pipeline.rhdl" open
   "../../vector/bundles.rhdl" open
   "../decode/core-ctrl.rhdl" open
@@ -71,7 +72,7 @@ sync_circuit RV5StageVectorTrace(slots :: Pow2Int):
       disposition: disposition
       slow: slow & token.enabled
       data: Bits(64)(0)
-      cause: Bits(64)(0)
+      cause: dont_care(ExceptionCause)
       fault_address: Bits(64)(0)
   ) |> vector.decision
 

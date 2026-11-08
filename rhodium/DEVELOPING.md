@@ -103,13 +103,13 @@ the [clocking plan](CLOCKING_PLAN.md).
 
 | Area | Responsibility | May depend directly on |
 |---|---|---|
-| [`../support/annotations.rhm`](../support/annotations.rhm) | Dependency-neutral Rhombus refinement annotations | Rhombus only |
-| [`core/`](core/README.md) | Types, IR, Builder, verification, and printing | Other core modules, `../support/annotations.rhm`, and Rhombus libraries |
+| [`../support/`](../support/README.md) | Pure host refinements, shared type/literal protocols, immutable enum/variant descriptions, and the host-safe `hardware_enum` declaration | Rhombus and other pure support modules only |
+| [`core/`](core/README.md) | Structural types, IR, Builder, verification, and printing | Other core modules, pure `../support/` protocols/refinements, and Rhombus libraries |
 | [`lowering/`](lowering/README.md) | Reachable graph copying and extension certification after verification | Core IR, Builder, verifier; local graph copier |
 | [`compile/`](compile/README.md) | Explicit target orchestration, concrete RTL inspection target, in-memory artifacts, and physical boundary manifests | Core IR/signatures and verifier; graph materialization; neutral local contracts |
 | [`analysis/`](analysis/README.md) | Clock compile target plus internal certification, provenance, and diagnostics | Core and analysis modules; only `clocking.rhm` imports neutral compile contracts and RTL preparation |
-| [`frontend/kernel.rhm`](frontend/kernel.rhm) | Context-sensitive elaboration, signature-bearing definition references and layer-owned boundary declarations, checked concrete materialization, and deferred hardware values | Core IR, signatures, Builder; `lowering/program.rhm` |
-| [`frontend/support/`](frontend/support/) | Shared cross-layer protocols, macros, static-information machinery, and policy certification; not a language profile | Kernel, approved core APIs, approved analyses, other support modules |
+| [`frontend/kernel.rhm`](frontend/kernel.rhm) | Context-sensitive elaboration, signature-bearing definition references and layer-owned boundary declarations, checked literal/deferred-value materialization | Core IR, signatures, Builder; `lowering/program.rhm`; pure hardware-data protocols |
+| [`frontend/support/`](frontend/support/) | Shared cross-layer macros, static-information machinery, and policy certification; not a language profile | Kernel, approved core APIs, approved analyses, other frontend support modules, pure host support |
 | [`frontend/foundation.rhm`](frontend/foundation.rhm) | Circuits, ports, connections, elaboration, basic types including callable `Bits` descriptors and `Bool`, extension-defined hardware type declarations and protocols, receiver-owned scalar membership and width extension, selection, and representation methods | Kernel, support including bit-descriptor support, approved core type APIs |
 | [`frontend/layers/`](frontend/layers/README.md) | Independently selectable notation and abstractions over existing semantics | Kernel, support, approved core APIs and analyses |
 | [`frontend/standard.rhm`](frontend/standard.rhm) | Aggregation only; defines no feature behavior | Foundation and all standard layers |
@@ -350,6 +350,9 @@ feature arguments. The pure configuration has no reverse dependency on RTL.
 Its system and combined control relations also import the pure
 `riscv/isa/svinval.rhm` catalog; optional invalidation reuses shared CSR actions
 and the existing WB/MMU ownership boundary.
+Both hardware backends consume `cores/fetch/redirect.rhdl` for rejected-target
+classification. It imports architectural XLEN, CSR, privilege, Sv39, hypervisor,
+and trap definitions only; retirement ordering and retained state stay in the cores.
 `cores/superscalar/core.rhdl`
 imports it to consume the combined decoder, `std/scoreboard.rhdl` for committed
 load destinations, and `flow/main.rhdl` for typed endpoints, feed-forward
@@ -415,6 +418,10 @@ Both named cores' pipeline bundles, cores, and vector adapters, RV2Wide's FP
 adapter, and the shared vector backend/completion/pipeline/FP adapter directly
 import `cores/fp/profile.rhm` for the native FP transport selector, keeping
 RV32F/RV64D payload widths consistent independently of enabled ISA features.
+`cores/superscalar/lane-pipe.rhdl` imports vector descriptor/certificate and
+RISC-V vector state, rounding and pointer-masking types for the canonical EX
+record. Pipeline records and scalar address views use public authoring APIs,
+not frontend kernel reflection or separate expanded bundle families.
 RV2Wide's `profile.rhm` imports the stable generator-parameter contract and
 shared cache geometry alongside pure ISA/hart descriptors and the shared CSR
 configuration used by both RTL and WARL metadata. `hart.rhdl` uses
@@ -489,7 +496,8 @@ registry. Both native adapters share
 `events/atomic.h` for observed physical AMO write-byte normalization, not
 reference execution. The event package retains no named-core dependency.
 `cores/chi-hart.rhdl` imports `std/bits.rhdl` for power-of-two cache-line
-configuration and NodeID-width checks. These modules import no named core.
+configuration and NodeID-width checks, and architectural XLEN for the explicit
+compact-fetch region check. These modules import no named core.
 The Spike-backed core's `profile.rhm` imports `frontend/foundation.rhm` only for
 the stable generator-parameter contract. Its public core and typed transaction
 ABI import the implementation-neutral RISC-V hart/interrupt/PMA descriptions,
@@ -536,8 +544,8 @@ plus the public CSR and PMA adapters; it adds no direct Rhodium-library import.
 `sv39.rhdl` imports its page-memory-type representation and retains its existing
 `std/bits.rhdl` dependency. Shared CSR storage and RV5Stage translation components
 consume these adapters without moving implementation policy into `riscv/`.
-`riscv/rtl/hypervisor.rhdl` imports pure CSR/trap descriptors and the CSR
-and privilege adapters; it adds no direct Rhodium-library import. The optional
+`riscv/rtl/hypervisor.rhdl` imports pure CSR/trap descriptors and the CSR,
+privilege, and typed trap adapters; it adds no direct Rhodium-library import. The optional
 RV5Stage CSR specialization consumes its execution, substitution, delegation,
 and fault-provenance contracts. Hypervisor state remains core-owned.
 `riscv/rtl/timer.rhdl` imports the privilege adapter for stateless Sstc access
@@ -731,15 +739,23 @@ selection, launch authorization, and physical writeback policy.
 `cores/integer-format.rhdl` imports the shared divider response and architectural
 XLEN for combinational scalar M-extension formatting. Both cores' arithmetic
 adapters consume it; it imports no named-core configuration or scheduling.
+`cores/fp/datapath.rhdl` uses its local `profile.rhm` transport-width descriptor
+to extend integer and boxed FP results to their shared output width.
 `cores/reservation-wait.rhdl` imports public Flow for Pulse/Valid ports and owns
 shared wait modes, WRS timeout state, and completion classification. Both cores supply the
 retained-owner validity and qualified privilege controls.
 `cores/reservation-wait-decode.rhdl` imports those modes, canonical Zawrs
 descriptors, `riscv/rtl/instruction-pattern.rhdl`, and public decode relations.
 Both named decoders directly consume the shared mode and mapping; neither
-reexports a core-specific enum. Both scalar cores and vector memory adapters
-consume `riscv/rtl/trap.rhdl` for data-fault causes, leaving operation class,
-flag qualification, fault addresses, and retirement policy with the caller.
+reexports a core-specific enum. Both scalar cores, their pipeline bundles and
+memory adapters, shared CSR protocols, MMU translation, rejected-fetch
+classification, and vector bundles/admission/pipeline/memory issue consume
+`riscv/rtl/trap.rhdl` for the shared synchronous exception enum and fault
+selection. The superscalar frontend and instruction assembler also import
+that enum directly; fetch payloads carry architectural causes without a local
+encoding conversion. Operation class, flag qualification, fault addresses, and retirement
+policy remain with the caller; architectural cause packing belongs at CSR or
+observation boundaries.
 The vector pipeline and its bundles, scalar pipeline bundles, data/uncached
 protocols, and data IO-MSHR directly import `std/bits.rhdl` for the `Pow2Int`
 completion-depth annotation. Tag widths derive from the public `index_width`
@@ -792,10 +808,11 @@ share fixed return delays without introducing a named-core dependency into FP.
 
 Shared `cores/pc.rhdl` imports architectural XLEN and uses public bundles and
 hardware methods for compact PC storage; it adds no Rhodium implementation import.
-Predictor protocol/BTB/RAS, superscalar retained fetch/prediction/completion and
+Superscalar retained fetch/prediction/completion and
 arithmetic-owner storage, and the
-RV5Stage fetch queue consume it without changing package direction.
-Shared `cores/bpred/protocol.rhdl` imports architectural XLEN and that PC type.
+RV5Stage fetch queue and MMU admission consume it without changing package direction.
+Shared `cores/bpred/protocol.rhdl` imports architectural XLEN; its generic
+width-selectable prediction representation is independent of the fixed core PC type.
 `cores/bpred/statistics.rhdl` imports the passive frontend statistics layer and
 classifies prediction failures without importing compilation or simulator code.
 Both named cores consume it; RV5Stage carries its classification from EX to MEM.
@@ -918,7 +935,7 @@ it when adding, removing, or changing a layer's direct dependencies.
 | `signed.rhm` | Explicit-width `SInt`, two's-complement literals, signed truncation, and signed operator participation | core types and IR, kernel, field support, hardware-literal support |
 | `expanding-arithmetic.rhm` | Lossless unsigned addition plus signed and unsigned multiplication with `+&` and `*&` sugar | core types, kernel, field support |
 | `bool.rhm` | Non-numeric lane `Mask` with total index decoding and clipped prefix/range constructors, compact `MaybeOneHot`, packed reductions, lower-index-first priority encoders, total optional-one-hot selection, equality, enum validity, signed and unsigned ordering, binary `mux`, and ordered `priority_mux` | core types and IR, kernel, finite-enum support, field support, hardware-literal support, mask-type support, one-hot-selection support |
-| `enum.rhm` | Nominal sequential, explicit, and one-hot encoded hardware enums plus host name/value enumeration, member literals, and typed-key one-hot selection | kernel, field support, hardware-method support, variant-schema support, one-hot-selection support |
+| `enum.rhm` | Hardware authoring adapters for the shared enum declaration, enum-owned methods, and typed-key one-hot selection | core IR, field support, hardware-method support, generator-parameter support, one-hot-selection support; pure `support/hardware-enum.rhm` and `support/variants.rhm` |
 | `tagged-union.rhm` | Nominal tagged unions, shared enum tags, typed payload construction, and `.tag`/`.is(...)`/`.view(...)` inspection | core IR, kernel, field support, hardware-literal support, variant-schema support |
 | `one-hot.rhm` | One-hot selector types, literals, total `Bits` index conversion, typed mux keys, and selector-owned muxing | core IR, kernel, field support, mux-lookup support, one-hot-selection support |
 | `bundle.rhm` | Bundle declarations, specialization-bound methods, type-named construction, family identity and generator-argument reflection, generic runtime records, recursive literal shadows, and field access | core IR, kernel, field support, hardware-method support, generator-parameter support, hardware-literal support |

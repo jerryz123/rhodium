@@ -4,9 +4,9 @@
 import:
   lib("rhodium/frontend/foundation.rhm").elaborate
   lib("riscv/isa/xlen.rhm").XLen
-  lib("cores/superscalar/core.rhdl").SuperscalarCore
+  lib("cores/superscalar/tests/core-fixture.rhdl").CoreFixture
   lib("cores/superscalar/profile.rhm").SuperscalarPipelineConfig
   "../../issue.rhdl".RV3WideIssue
 
-def program = elaborate(SuperscalarCore(SuperscalarPipelineConfig(), ~issue: RV3WideIssue(XLen.X64)))
+def program = elaborate(CoreFixture(SuperscalarPipelineConfig(), ~issue: RV3WideIssue(XLen.X64)))
 export program

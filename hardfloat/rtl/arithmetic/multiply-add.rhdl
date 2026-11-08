@@ -11,13 +11,6 @@ import:
   "../recode.rhdl" open
   "../round.rhdl".RoundRawFNToRecFN
 
-/* Returns an equal-width bit vector unchanged or zero-extends it to the
-   requested working width. */
-fun fma_extend(value :: Bits, width :: PosInt) :~ Bits(width):
-  if value.type.packed_width() == width
-  | value
-  | value.zext(width)
-
 /* Replicates a Boolean into a fixed-width mask for aligned complement terms. */
 fun fma_repeat(value :: Bool, count :: PosInt) :~ Bits(count):
   vec(for List (_index in 0..count): value).as_bits()
@@ -97,7 +90,7 @@ circuit MulAddRecFNToRawPreMultiply(format :: FloatFormat):
   def main_aligned_c = aligned_c_source.into(SInt(significand_sum_width + 3)) >> c_alignment
   def c_extra_shift = ((significand_sum_width - significand_width) - 1) mod 4
   def c_extra_group_count = (significand_width + c_extra_shift + 3) div 4
-  def c_extra_source = fma_extend(raw_c.significand, c_extra_group_count * 4) << c_extra_shift
+  def c_extra_source = raw_c.significand.zext(c_extra_group_count * 4) << c_extra_shift
   def c_extra_groups = c_extra_source.as_vec(Bits(4))
   def reduced_c_extra_groups = c_extra_groups.map(fun (group): group =/= Bits(4)(0))
   def reduced_c_extra = reduced_c_extra_groups.as_bits()
@@ -112,7 +105,7 @@ circuit MulAddRecFNToRawPreMultiply(format :: FloatFormat):
           c_extra_mask_top,
           c_extra_mask_bottom
         )
-        any(reduced_c_extra & fma_extend(mask, reduced_c_extra.type.packed_width()))
+        any(reduced_c_extra & mask.zext(reduced_c_extra.type.packed_width()))
 
   def aligned_c_tail = main_aligned_c.as_bits()[0..=2]
   def aligned_c_sticky = mux(
@@ -203,10 +196,7 @@ circuit MulAddRecFNToRawPostMultiply(format :: FloatFormat):
 
   def c_dominant_extra_shift = 3 - (significand_width mod 4)
   def c_dominant_group_count = (significand_width + c_dominant_extra_shift + 3) div 4
-  def c_dominant_source = fma_extend(
-    c_dominant_absolute_sum[0..significand_width],
-    c_dominant_group_count * 4
-  ) << c_dominant_extra_shift
+  def c_dominant_source = c_dominant_absolute_sum[0..significand_width].zext(c_dominant_group_count * 4) << c_dominant_extra_shift
   def c_dominant_groups = c_dominant_source.as_vec(Bits(4))
   def c_dominant_reduced_groups = c_dominant_groups.map(fun (group): group =/= Bits(4)(0))
   def c_dominant_reduced = c_dominant_reduced_groups.as_bits()
@@ -218,7 +208,7 @@ circuit MulAddRecFNToRawPostMultiply(format :: FloatFormat):
         def alignment_width = intermediate.c_alignment_distance.type.packed_width()
         def alignment_quarters = intermediate.c_alignment_distance[2..alignment_width]
         def mask = low_mask(alignment_quarters, 0, c_dominant_mask_width)
-        any(c_dominant_reduced & fma_extend(mask, c_dominant_reduced.type.packed_width()))
+        any(c_dominant_reduced & mask.zext(c_dominant_reduced.type.packed_width()))
 
   def c_dominant_significand = (
     c_dominant_main[3..=(significand_width + 4)]
@@ -251,10 +241,7 @@ circuit MulAddRecFNToRawPostMultiply(format :: FloatFormat):
   def non_dominant_reduced_slice = non_dominant_reduced[0..=(significand_width div 2)]
   def non_dominant_reduced_shift = (significand_width div 2) mod 2
   def non_dominant_reduced_again_width = non_dominant_reduced_slice.type.packed_width() + non_dominant_reduced_shift + 1
-  def non_dominant_reduced_again_source = fma_extend(
-    non_dominant_reduced_slice,
-    non_dominant_reduced_again_width
-  ) << non_dominant_reduced_shift
+  def non_dominant_reduced_again_source = non_dominant_reduced_slice.zext(non_dominant_reduced_again_width) << non_dominant_reduced_shift
   def non_dominant_groups_again = non_dominant_reduced_again_source.as_vec(Bits(2))
   def non_dominant_reduced_groups_again = non_dominant_groups_again.map(fun (group): group =/= Bits(2)(0))
   def non_dominant_reduced_again = non_dominant_reduced_groups_again.as_bits()
@@ -263,7 +250,7 @@ circuit MulAddRecFNToRawPostMultiply(format :: FloatFormat):
   def non_dominant_mask_width = (significand_width + 2) div 4
   def non_dominant_mask = low_mask(normalization_halves, 0, non_dominant_mask_width)
   def non_dominant_reduced_extra = any(
-    non_dominant_reduced_again & fma_extend(non_dominant_mask, non_dominant_reduced_again.type.packed_width())
+    non_dominant_reduced_again & non_dominant_mask.zext(non_dominant_reduced_again.type.packed_width())
   )
   def non_dominant_significand = (
     non_dominant_main[3..=(significand_width + 4)]

@@ -19,7 +19,7 @@ def nested_literal = OuterMessage.Nested(
 circuit NestedTaggedUnion():
   input message: OuterMessage
   input word: Bits(8)
-  output nested_word_valid: Bits(1)
+  output nested_word_valid: Bool
   output nested_word: Bits(8)
   output rebuilt: OuterMessage
 

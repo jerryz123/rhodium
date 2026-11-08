@@ -52,14 +52,16 @@ sync_circuit RV5StageInstructionBuffer(core_profile :: RV5StageConfig):
 
   reg residual_valid(~init: Bool(#false))
   reg residual(RV5StageFetchParcel(xlen))
-  def pc = mux(residual_valid, residual.pc, packets.bits.pc)
+  def packet :: RV5StageFetchPacket(xlen, hypervisor) = packets.bits
+  def packet_pc = packet.address()
+  def pc = mux(residual_valid, residual.pc, packet_pc)
   def upper = pc[1].into(Bool)
   def halfword :: Bits(16) = priority_mux(~default: packets.bits.word[0..16]):
     residual_valid: residual.halfword
     upper: packets.bits.word[16..32]
 
   def compressed = parcel_is_compressed(compressed_enabled, halfword)
-  def packet_fault = packets.bits.page_fault ||| packets.bits.access_fault
+  def packet_fault = packet.page_faulted() ||| packet.access_faulted()
   def head_fault = !residual_valid & packet_fault
   def straddle = upper & !compressed & !head_fault
   def head_valid = residual_valid ||| packets.valid
@@ -76,10 +78,10 @@ sync_circuit RV5StageInstructionBuffer(core_profile :: RV5StageConfig):
   /* Fetch-to-Decode payload and precise faults.
      Retain the original instruction PC while a continuation fault names its failing packet. */
 
-  def page_fault = (!residual_valid ||| straddle) & packets.bits.page_fault
-  def access_fault = (!residual_valid ||| straddle) & packets.bits.access_fault
+  def page_fault = (!residual_valid ||| straddle) & packet.page_faulted()
+  def access_fault = (!residual_valid ||| straddle) & packet.access_faulted()
   def sequential_pc = pc + mux(instruction_is_compressed, Bits(width)(2), Bits(width)(4))
-  def prediction = packets.bits.prediction
+  def prediction = packet.prediction_value()
   def continuation_prediction = straddle & packets.valid & (prediction.owner === RV5StagePredictionOwner.Previous)
   def use_residual = residual_valid & !continuation_prediction
   def head_owner = mux(upper, RV5StagePredictionOwner.Upper, RV5StagePredictionOwner.Lower)
@@ -98,7 +100,7 @@ sync_circuit RV5StageInstructionBuffer(core_profile :: RV5StageConfig):
   fetched.bits.instruction_page_fault <== page_fault
   fetched.bits.instruction_access_fault <== access_fault
   def continuation_fault = straddle & packet_fault
-  fetched.bits.instruction_fault_address <== mux(continuation_fault, packets.bits.pc.align_down(4), pc)
+  fetched.bits.instruction_fault_address <== mux(continuation_fault, packet_pc.align_down(4), pc)
 
   if hypervisor
   | block:
@@ -118,7 +120,7 @@ sync_circuit RV5StageInstructionBuffer(core_profile :: RV5StageConfig):
 
   def capture_partial = !residual_valid & straddle
   packets.ready <== !clear.valid & mux(residual_valid, straddle & fetched.ready, capture_partial ||| fetched.ready)
-  def upper_parcel_present = packets.bits.mask[1].into(Bool) & !packets.bits.pc[1].into(Bool)
+  def upper_parcel_present = packets.bits.mask[1].into(Bool) & !packet_pc[1].into(Bool)
   def upper_remains_after_decode = mux(residual_valid, straddle, compressed)
   def keep_upper = upper_parcel_present & !packet_fault & upper_remains_after_decode
   // Assembly may use the resident parcel, the live packet, or both. Capturing
@@ -134,7 +136,7 @@ sync_circuit RV5StageInstructionBuffer(core_profile :: RV5StageConfig):
   elsewhen (packets.fire()):
     residual_valid <== capture_partial ||| keep_upper
     residual <== RV5StageFetchParcel(xlen):
-      pc: packets.bits.pc.align_down(4) + Bits(width)(2)
+      pc: packet_pc.align_down(4) + Bits(width)(2)
       halfword: packets.bits.word[16..32]
       predicted: prediction.owner === RV5StagePredictionOwner.Upper
       target: prediction.target
@@ -143,7 +145,7 @@ sync_circuit RV5StageInstructionBuffer(core_profile :: RV5StageConfig):
     residual_valid <== Bool(#false)
 
   when (fetched.valid & straddle):
-    assert(packets.bits.mask[0].into(Bool) & (packets.bits.pc.align_down(4) === (pc.align_down(4) + Bits(width)(4))), "ibuf_contiguous_instruction")
+    assert(packets.bits.mask[0].into(Bool) & (packet_pc.align_down(4) === (pc.align_down(4) + Bits(width)(4))), "ibuf_contiguous_instruction")
 
 export:
   RV5StageInstructionBuffer

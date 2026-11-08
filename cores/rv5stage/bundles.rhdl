@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/rtl/trap.rhdl").ExceptionCause
   lib("cores/bpred/statistics.rhdl").PredictionFailure
   lib("cores/fp/profile.rhm").fp_transport_profile
   lib("cores/operand.rhdl") open
@@ -149,7 +150,7 @@ bundle DecodeExecute(xlen :: XLen, vector_completion_slots :: Pow2Int, hyperviso
 /* Carries an exception-valid bit, cause, and XLEN-wide trap value. */
 bundle RV5StageException(xlen :: XLen):
   valid: Bool
-  cause: Bits(xlen.width)
+  cause: ExceptionCause
   value: Bits(xlen.width)
 
 /* Carries EX results, branch recovery, memory intent, and vector certification inputs. */
@@ -189,10 +190,10 @@ bundle ExecuteMemory(xlen :: XLen, vector_completion_slots :: Pow2Int, hyperviso
   csr_source: Bits(xlen.width)
   vector_config: RiscvVectorConfigRequest(xlen)
   exception_valid: Bool
-  exception_cause: Bits(xlen.width)
+  exception_cause: ExceptionCause
   exception_value: Bits(xlen.width)
 
-/* Carries MEM hit/replay/fault outcomes and deferred issue payloads to WB authorization. */
+/* Carries instruction context and deferred issue payloads to WB; LSU outcome capture stays separate. */
 bundle MemoryWriteback(xlen :: XLen, vector_completion_slots :: Pow2Int, hypervisor :: Boolean):
   if hypervisor:
     guest: RiscvGuestException()
@@ -208,8 +209,6 @@ bundle MemoryWriteback(xlen :: XLen, vector_completion_slots :: Pow2Int, hypervi
   ras_mismatch: Bool
   raw_instruction: Bits(32)
   replay: Bool
-  load_hit: Bool
-  cache_outcome: CachePipelineOutcome
   data_request_valid: Bool
   data_request: PhysicalMemoryReq(xlen, RV5StageMemoryContext(vector_completion_slots))
   fp_compute: Bool
@@ -228,15 +227,83 @@ bundle MemoryWriteback(xlen :: XLen, vector_completion_slots :: Pow2Int, hypervi
   csr_source: Bits(xlen.width)
   vector_config: RiscvVectorConfigRequest(xlen)
   exception_valid: Bool
-  exception_cause: Bits(xlen.width)
+  exception_cause: ExceptionCause
   exception_value: Bits(xlen.width)
+
+  /* Removes live launch operands and certificates before selecting a retirement owner. */
+  method retirement(operation) :: RV5StageRetirementCommand(xlen, vector_completion_slots, hypervisor):
+    def empty :: RV5StageRetirementCommand(xlen, vector_completion_slots, hypervisor) = literal(RV5StageRetirementCommand(xlen, vector_completion_slots, hypervisor), 0)
+    def command = empty.updated(
+      ~vector_launch: operation.vector_launch,
+      ~pc: operation.pc,
+      ~resume_pc: operation.resume_pc,
+      ~branch_prediction: operation.branch_prediction,
+      ~ras_mismatch: operation.ras_mismatch,
+      ~raw_instruction: operation.raw_instruction,
+      ~replay: operation.replay,
+      ~data_request_valid: operation.data_request_valid,
+      ~data_request: operation.data_request,
+      ~fp_compute: operation.fp_compute,
+      ~prefetch: operation.prefetch,
+      ~writeback_source: operation.writeback_source,
+      ~write_enable: operation.write_enable,
+      ~rd: operation.rd,
+      ~value: operation.value,
+      ~system: operation.system,
+      ~fence: operation.fence,
+      ~hint: operation.hint,
+      ~csr_address: operation.csr_address,
+      ~csr_source: operation.csr_source,
+      ~vector_config: operation.vector_config,
+      ~exception_valid: operation.exception_valid,
+      ~exception_cause: operation.exception_cause,
+      ~exception_value: operation.exception_value
+    )
+    if hypervisor | command.updated(~guest: operation.guest, ~guest_access: operation.guest_access) | command
+
+  /* Replaces the ALU value only for a captured load hit; no outcome or duplicate context is stored. */
+  method with_response(context, response :: CachePipelineResult(xlen)) :: MemoryWriteback(xlen, vector_completion_slots, hypervisor):
+    context.updated(~value: mux(response.outcome === CachePipelineOutcome.LoadHit, response.data, context.value))
+
+/* Common WB retirement and trap command. Deferred arithmetic/vector launch payloads
+   remain at the live pipeline owner, never padded into a completed scalar service. */
+bundle RV5StageRetirementCommand(xlen :: XLen, vector_completion_slots :: Pow2Int, hypervisor :: Boolean):
+  if hypervisor:
+    guest: RiscvGuestException()
+    guest_access: RiscvGuestMemoryAccess
+
+  vector_launch: Bool
+  pc: Bits(xlen.width)
+  resume_pc: Bits(xlen.width)
+  branch_prediction: RV5StageBranchPrediction
+  ras_mismatch: Bool
+  raw_instruction: Bits(32)
+  replay: Bool
+  data_request_valid: Bool
+  data_request: PhysicalMemoryReq(xlen, RV5StageMemoryContext(vector_completion_slots))
+  fp_compute: Bool
+  prefetch: CachePrefetchReq(xlen.width)
+  writeback_source: RV5StageWritebackSelect
+  write_enable: Bool
+  rd: Bits(5)
+  value: Bits(xlen.width)
+  system: RV5StageSystemControl()
+  fence: RV5StageFenceControl()
+  hint: RV5StageHintOperation
+  csr_address: Bits(12)
+  csr_source: Bits(xlen.width)
+  vector_config: RiscvVectorConfigRequest(xlen)
+  exception_valid: Bool
+  exception_cause: ExceptionCause
+  exception_value: Bits(xlen.width)
+
 
 /* Holds an already-classified synchronous trap until older work drains. The resume PC
    preserves the observed instruction boundary; guest provenance exists only with H. */
 bundle RV5StagePendingTrap(xlen :: XLen, hypervisor :: Boolean):
   pc: Bits(xlen.width)
   resume_pc: Bits(xlen.width)
-  cause: Bits(xlen.width)
+  cause: ExceptionCause
   value: Bits(xlen.width)
   if hypervisor:
     guest: RiscvGuestFault()
@@ -264,9 +331,6 @@ bundle RetainedScalarWriteback(xlen :: XLen, vector_completion_slots :: Pow2Int,
   fence: RV5StageFenceControl()
   hint: RV5StageHintOperation
 
-/* Stores instruction/control and the ALU value while LSU outcome/data capture runs in parallel. */
-fun MemoryWritebackContext(xlen :: XLen, vector_completion_slots :: Pow2Int, hypervisor :: Boolean) :: RecordType:
-  RecordType(MemoryWriteback(xlen, vector_completion_slots, hypervisor).fields.filter(~keep: fun (field): !(field.name in ["load_hit", "cache_outcome"])))
 
 export:
   RV5StageBypassStage
@@ -280,6 +344,6 @@ export:
   RV5StageException
   ExecuteMemory
   MemoryWriteback
+  RV5StageRetirementCommand
   RV5StagePendingTrap
   RetainedScalarWriteback
-  MemoryWritebackContext

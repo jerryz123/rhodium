@@ -116,7 +116,7 @@ sync_circuit CacheLineWriteback(Context :: DataType, address_width :: PosInt, co
      Only accepted data advances the packet cursor; final handoff precedes completion release. */
 
   data.valid <== granted & !data_sent
-  def packet_number = if packet_width == 2 | packet_index | packet_index.zext(2)
+  def packet_number = packet_index.zext(2)
   def packet_data = line.as_bits().as_vec(Bits(p.data_width))[packet_index]
   data.bits <== chi_rn_copyback_data(p, node_id, home_id, dbid, chi_transfer_data_id(packet_number, p), packet_data, response_state)
   def final_packet = packet_index === Bits(packet_width)(packets - 1)

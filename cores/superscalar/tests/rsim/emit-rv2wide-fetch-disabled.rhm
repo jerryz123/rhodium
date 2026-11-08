@@ -2,6 +2,7 @@
 // Exercises RV3Wide's three-lane integer pipeline through real fetching and caches.
 // SPDX-License-Identifier: Apache-2.0
 import:
+  "../hart-fixture.rhdl".HartFixture
   "../../profile.rhm".SuperscalarPipelineConfig
   lib("rhodium/frontend/foundation.rhm").elaborate
   lib("cores/rv3wide/rv3wide.rhdl").RV3Wide
@@ -9,5 +10,5 @@ import:
   "../cache-fixture.rhdl" open
 
 def profile = RV3WideConfig(SuperscalarPipelineConfig(~instruction_cache: test_cache, ~data_cache: test_cache, ~btb_entries: 0, ~ras_entries: 0, ~bht: #false))
-def program = elaborate(RV3Wide(test_cache, ~chi: test_fetch_chi, ~profile: profile))
+def program = elaborate(HartFixture(RV3Wide(test_cache, ~chi: test_fetch_chi, ~profile: profile), test_fetch_chi, profile.pipeline, ~issue_width: 3))
 export program

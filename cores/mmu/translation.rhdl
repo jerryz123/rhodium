@@ -8,8 +8,7 @@ import:
   lib("riscv/rtl/hypervisor.rhdl") open
   lib("riscv/rtl/sv39.rhdl") open
   lib("riscv/rtl/svpbmt.rhdl").compose_page_memory_type
-  lib("riscv/rtl/trap.rhdl").exception_cause_bits
-  lib("riscv/isa/trap.rhm").ExceptionCause
+  lib("riscv/rtl/trap.rhdl").ExceptionCause
   lib("rhodium/std/ready-valid.rhdl") open
 
 /* Separates first-stage, guest-stage, and physical failures for precise trap selection. */
@@ -47,18 +46,18 @@ bundle RiscvTlbFill():
 
 /* For a faulting completion, selects the exception class from the original access,
    not an implicit page-table read. */
-fun riscv_translation_fault_cause(result :: RiscvTlbMapping()) :~ Bits(64):
-  def page = mux_lookup(result.access, ~default: exception_cause_bits(ExceptionCause.StorePageFault, 64)):
-    Sv39Access.Fetch: exception_cause_bits(ExceptionCause.InstructionPageFault, 64)
-    Sv39Access.Load: exception_cause_bits(ExceptionCause.LoadPageFault, 64)
+fun riscv_translation_fault_cause(result :: RiscvTlbMapping()) :~ ExceptionCause:
+  def page = mux_lookup(result.access, ~default: ExceptionCause.StorePageFault):
+    Sv39Access.Fetch: ExceptionCause.InstructionPageFault
+    Sv39Access.Load: ExceptionCause.LoadPageFault
 
-  def guest = mux_lookup(result.access, ~default: exception_cause_bits(ExceptionCause.StoreGuestPageFault, 64)):
-    Sv39Access.Fetch: exception_cause_bits(ExceptionCause.InstructionGuestPageFault, 64)
-    Sv39Access.Load: exception_cause_bits(ExceptionCause.LoadGuestPageFault, 64)
+  def guest = mux_lookup(result.access, ~default: ExceptionCause.StoreGuestPageFault):
+    Sv39Access.Fetch: ExceptionCause.InstructionGuestPageFault
+    Sv39Access.Load: ExceptionCause.LoadGuestPageFault
 
-  def physical = mux_lookup(result.access, ~default: exception_cause_bits(ExceptionCause.StoreAccessFault, 64)):
-    Sv39Access.Fetch: exception_cause_bits(ExceptionCause.InstructionAccessFault, 64)
-    Sv39Access.Load: exception_cause_bits(ExceptionCause.LoadAccessFault, 64)
+  def physical = mux_lookup(result.access, ~default: ExceptionCause.StoreAccessFault):
+    Sv39Access.Fetch: ExceptionCause.InstructionAccessFault
+    Sv39Access.Load: ExceptionCause.LoadAccessFault
 
   mux_lookup(result.fault, ~default: physical):
     RiscvTranslationFault.PageFault: page

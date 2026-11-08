@@ -1665,6 +1665,27 @@ void stimulus() {
       tick();
     CHECK(split_requests_seen == 8 && split_completions_seen == 5);
 
+    // This fixture deliberately maps the full PA bus as executable. The runtime
+    // PC check must still reject a Bare fetch whose bit 38 would sign-extend.
+    falling();
+    instruction_phase = 0;
+    instruction_address = (UINT64_C(1) << 38) + 0x5000;
+    instruction_request_valid = 1;
+    settle();
+    CHECK(instruction_out.prequest.pready);
+    tick();
+    CHECK(!instruction_memory_out.prequest.pvalid);
+    falling();
+    instruction_request_valid = 0;
+    instruction_address = 0x100; // Live input cannot change the accepted fault.
+    tick();
+    CHECK(instruction_out.presponse.pvalid &&
+          !instruction_out.presponse.pbits.preplay &&
+          instruction_out.presponse.pbits.presponse.paccess_ufault &&
+          !instruction_out.presponse.pbits.presponse.ppage_ufault &&
+          !instruction_memory_out.prequest.pvalid);
+    tick();
+
     throw Finished{};
   }
 }

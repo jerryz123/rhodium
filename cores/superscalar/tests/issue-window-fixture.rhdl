@@ -1,0 +1,31 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../issue-window.rhdl".SuperscalarIssueWindow
+  "../bundles.rhdl" open
+  "instruction-fixture.rhdl" open
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("flow/main.rhdl") open
+
+sync_circuit IssueWindowFixture(xlen :: XLen = XLen.X64, ~group_width: group_width :: matching(2) || matching(3) = 2, ~hypervisor: hypervisor :: Boolean = #false):
+  interface ingress(Decoupled(PacketObservation(xlen, hypervisor, group_width)), ~role: consumer)
+  interface clear(Pulse(), ~role: consumer)
+  output head: PacketObservation(xlen, hypervisor, group_width)
+  output head_steps: Vec(group_width, SuperscalarPcStep(xlen))
+  interface candidates[group_width](Valid(InstructionObservation(xlen, hypervisor)), ~role: producer)
+  output available: Bits(4)
+  input consume: Bits(2)
+
+  inst window(SuperscalarIssueWindow(xlen, ~group_width: group_width, ~hypervisor: hypervisor))
+  def packet :: PacketObservation(xlen, hypervisor, group_width) = ingress.bits
+  (ingress |> map_flow(_packet => packet.captured(ingress.valid & window.ingress.ready))) |> window.ingress
+  clear |> window.clear
+  head <== observe_packet(xlen, hypervisor, group_width, window.head)
+  head_steps <== window.head_steps
+  available <== window.available
+  window.consume <== consume
+  for (lane in 0..group_width):
+    (window.candidates[lane] |> map_valid(token => observe_instruction(xlen, hypervisor, token))) |> candidates[lane]
+
+export IssueWindowFixture

@@ -10,8 +10,10 @@ import:
 circuit BaseWidthMethod():
   input value: Bits(4)
   output widened: Bits(8)
+  output sign_extended: Bits(8)
 
-  widened <== value.zext(8)
+  widened <== value.zext(4).zext(8)
+  sign_extended <== value.sext(4).sext(8)
 
 def design = compile_program(elaborate(BaseWidthMethod()), rtl_target).report.design
 

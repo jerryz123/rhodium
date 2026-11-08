@@ -187,24 +187,26 @@ int main() {
     send(0x24c0, {add(3, 1, 10)}); drain();
     send(0x2500, {addi(1, 10, 0), add(1, 10, 11), addi(0, 1, 1)}); drain();
     send(0x2540, {addi(3, 1, 0)}); drain();
+    // A trap/replay in the third slot must use its own next-page PC, including sign extension.
+    constexpr std::uint64_t group_pc = UINT64_C(0xffffffff80002ff8);
     // Shortened successful prefixes preserve older writes on their fixed ports.
     for (unsigned failed = 0; failed < 3; ++failed) {
       for (unsigned disposition : {1u, 2u}) {
         reset_core();
         send(0x2f00, {addi(10, 0, 41), addi(11, 0, 42)}); drain();
-        inject = true; inject_pc = 0x3000 + 4*failed; inject_disposition = disposition;
+        inject = true; inject_pc = group_pc + 4*failed; inject_disposition = disposition;
         const auto prior = redirects;
         const auto prior_issue = issues3;
-        send(0x3000, {addi(1, 10, 0), addi(2, 11, 0), addi(1, 1, 2)}, failed);
+        send(group_pc, {addi(1, 10, 0), addi(2, 11, 0), addi(1, 1, 2)}, failed);
         drain(); CHECK(redirects == prior + 1); CHECK(last_redirect == inject_pc);
         CHECK(issues3 == prior_issue + 1);
         inject = false;
         send(0x4000, {addi(3, 1, 0), addi(4, 2, 0)}); drain();
         if (disposition == 2) {
           // Refetch only the rejected suffix; older retirement must not repeat.
-          if (failed == 0) send(0x3000, {addi(1, 10, 0), addi(2, 11, 0), addi(1, 1, 2)});
-          if (failed == 1) send(0x3004, {addi(2, 11, 0), addi(1, 1, 2)});
-          if (failed == 2) send(0x3008, {addi(1, 1, 2)});
+          if (failed == 0) send(group_pc, {addi(1, 10, 0), addi(2, 11, 0), addi(1, 1, 2)});
+          if (failed == 1) send(group_pc + 4, {addi(2, 11, 0), addi(1, 1, 2)});
+          if (failed == 2) send(group_pc + 8, {addi(1, 1, 2)});
           drain();
           send(0x4040, {addi(3, 1, 0), addi(4, 2, 0)}); drain();
         }

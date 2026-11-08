@@ -5,37 +5,45 @@
 import:
   lib("riscv/isa/xlen.rhm").XLen
 
-/* Checks the storage domain before constructing any hardware fields. */
-fun compact_pc_width(xlen :: XLen, width :: PosInt) :: PosInt:
-  unless width <= xlen.width
-  | error(~who: #'CompactPc, "PC storage width must not exceed XLEN")
-
-  width
+/* Fixes the successful instruction domain to RV32 or canonical Sv39 addresses. */
+fun compact_pc_width(xlen :: XLen) :: PosInt:
+  if xlen == XLen.X32 | 32 | 39
 
 /* Stores every low address bit, including alignment bits. The enclosing owner
    either proves exact representability or deliberately accepts a prediction alias. */
-bundle CompactPc(xlen :: XLen, width :: PosInt):
-  low: Bits(compact_pc_width(xlen, width))
+bundle CompactPc(xlen :: XLen):
+  low: Bits(compact_pc_width(xlen))
 
   /* Restores the sign-extended address without arithmetic or additional state. */
   method expanded(pc) :: Bits(xlen.width):
-    if width < xlen.width | pc.low.into(SInt(width)).sext(xlen.width).as_bits() | pc.low
+    pc.low.sext(xlen.width)
+
+  /* A sequential crossing of the positive Sv39 boundary keeps zero upper bits,
+     rather than the sign extension used for an ordinary negative address. */
+  method fetch_address(pc, boundary :: Bool) :: Bits(xlen.width):
+    if xlen == XLen.X64 | mux(boundary, pc.low.zext(64), pc.expanded()) | pc.low
 
 namespace CompactPc:
+  /* Only canonical PCs and a positive sequential boundary fault enter fetch storage.
+     Arbitrary redirect targets are rejected by the backend before admission. */
+  export fun fetch_fits(xlen :: XLen, address :: Bits(xlen.width)) :~ Bool:
+    if xlen == XLen.X64 | fits(xlen, address) ||| !address[39..64].any() | Bool(#true)
+
   /* Tests exact representability; callers qualify admission or lookup themselves. */
-  export fun fits(xlen :: XLen, width :: PosInt, address :: Bits(xlen.width)) :~ Bool:
-    def stored = capture(xlen, width, address)
+  export fun fits(xlen :: XLen, address :: Bits(xlen.width)) :~ Bool:
+    def stored = capture(xlen, address)
     address === stored.expanded()
 
-  /* Captures low bits under the caller's exact-PC contract. On a fault, the
-     enclosing outcome must retain the original upper bits instead of discarding them. */
-  export fun capture(xlen :: XLen, width :: PosInt, address :: Bits(xlen.width)) :~ CompactPc(xlen, width):
-    CompactPc(xlen, width):
-      low: address[0..width]
+  /* Captures low bits under the caller's exact-PC contract. Fetch outcomes
+     distinguish sequential boundary faults; backend owners retain rejected targets. */
+  export fun capture(xlen :: XLen, address :: Bits(xlen.width)) :~ CompactPc(xlen):
+    CompactPc(xlen):
+      low: address[0..compact_pc_width(xlen)]
 
   /* Deliberately permits aliases for predictor state only, never architectural recovery. */
-  export fun prediction(xlen :: XLen, width :: PosInt, address :: Bits(xlen.width)) :~ CompactPc(xlen, width):
-    capture(xlen, width, address)
+  export fun prediction(xlen :: XLen, address :: Bits(xlen.width)) :~ CompactPc(xlen):
+    capture(xlen, address)
 
 export:
   CompactPc
+  compact_pc_width

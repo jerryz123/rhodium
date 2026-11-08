@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   lib("cores/rv2wide/issue.rhdl").RV2WideIssue
+  "../hart-fixture.rhdl".HartFixture
   lib("rhodium/frontend/foundation.rhm").elaborate
   lib("riscv/isa/xlen.rhm").XLen
   "../../superscalar.rhdl" open
@@ -9,5 +10,5 @@ import:
   "../../profile.rhm".SuperscalarPipelineConfig
 
 def profile = SuperscalarPipelineConfig(~xlen: XLen.X32, ~instruction_cache: test_cache, ~data_cache: test_cache, ~sscofpmf: #true, ~sstc: #true, ~zicboz: #true, ~zicbom: #true)
-def program = elaborate(Superscalar(test_cache, ~chi: test_fetch_chi, ~profile: profile, ~issue: RV2WideIssue(profile.xlen)))
+def program = elaborate(HartFixture(Superscalar(test_cache, ~chi: test_fetch_chi, ~profile: profile, ~issue: RV2WideIssue(profile.xlen)), test_fetch_chi, profile))
 export program

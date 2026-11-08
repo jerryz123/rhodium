@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/rtl/trap.rhdl").ExceptionCause
   "bundles.rhdl" open
   "precheck.rhdl" open
   "decode.rhdl".VectorMemoryAddressing
@@ -85,7 +86,7 @@ sync_circuit VectorAdmission(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
     disposition: VectorDisposition.Authorized
     slow: Bool(#false)
     data: Bits(xlen.width)(0)
-    cause: Bits(xlen.width)(0)
+    cause: dont_care(ExceptionCause)
     fault_address: Bits(xlen.width)(0)
 
   /* Keeps precise fault provenance attached to its registered architectural outcome. */
@@ -161,7 +162,7 @@ sync_circuit VectorAdmission(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
   def descriptor_dequeued = head.fire()
   /* Encodes a transfer in the inclusive occupancy width, including a one-entry queue. */
   fun count_event(event :: Bool):
-    if count_width == 1 | event.as_bits() | event.as_bits().zext(count_width)
+    event.as_bits().zext(count_width)
 
   queued_loads <== queued_loads + count_event(descriptor_enqueued & incoming.memory & !incoming.store) - count_event(descriptor_dequeued & outgoing.memory & !outgoing.store)
   queued_stores <== queued_stores + count_event(descriptor_enqueued & incoming.memory & incoming.store) - count_event(descriptor_dequeued & outgoing.memory & outgoing.store)

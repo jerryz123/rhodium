@@ -9,6 +9,7 @@ import:
   "../../core/ir.rhm" open
   "../kernel.rhm" as kernel
   "../support/fields.rhm".HardwareFields
+  "../support/fields.rhm".Bool
   "../support/fields.rhm".HardwareVariantFields
   "../support/fields.rhm".HardwareVariant
   "../support/fields.rhm".HardwareVariantType
@@ -16,7 +17,7 @@ import:
   "../support/fields.rhm".hardware_as_bits
   "../support/fields.rhm".hardware_value_type
   "../support/hardware-literal.rhm".HardwareLiteral
-  "../support/variants.rhm" open
+  "../../../support/variants.rhm" open
 
 export:
   tagged_union
@@ -144,10 +145,7 @@ fun materialize_union_bits(type :: TaggedUnionType,
         | kernel.literal(Bits(type.payload_width), 0, #false, location)
         | block:
             def packed = hardware_as_bits(payload, #'tagged_union, "variant payload", #false, location)
-            def width = member.payload_type.packed_width()
-            if width == type.payload_width
-            | packed
-            | kernel.zext(packed, type.payload_width, #false, location)
+            kernel.zext(packed, type.payload_width, #false, location)
 
       kernel.cast(kernel.concat([tag_bits, payload_bits], #false, location),
                   type,
@@ -242,7 +240,7 @@ fun packed_union_tag_bits(value :: Value,
                    #false,
                    location)
 
-/* Compares the receiver's packed tag with the selected variant's declared encoding. */
+/* Compares the packed tag with the variant encoding and returns a Boolean predicate. */
 fun union_variant_valid(value :: Value,
                         packed :: Value,
                         variant :: TaggedUnionVariant,
@@ -252,7 +250,7 @@ fun union_variant_valid(value :: Value,
                                     variant.member.encoding,
                                     #false,
                                     location)
-  kernel.hw_eq(tag_bits, expected_tag, #false, location)
+  kernel.cast(kernel.hw_eq(tag_bits, expected_tag, #false, location), Bool, #false, location)
 
 /* Extracts the tag and restores its nominal enum descriptor. */
 fun tagged_union_value_tag(entity :: HardwareEntity,
@@ -296,7 +294,7 @@ fun tagged_union_value_view(entity :: HardwareEntity,
 /* Checks variant ownership and constructs its packed-tag equality predicate. */
 fun tagged_union_value_is(entity :: HardwareEntity,
                           supplied_variant :: TaggedUnionVariant,
-                          location :: Location = Location()) :~ HardwareFields:
+                          location :: Location = Location()) :~ Bool:
   def variant = require_tagged_union_variant(supplied_variant)
   def value = require_union_value(entity, location)
   unless type_equal(value.type, variant.type)

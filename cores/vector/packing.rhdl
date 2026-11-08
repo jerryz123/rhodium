@@ -73,7 +73,7 @@ circuit VectorOperands(xlen :: XLen, vlen :: VectorLength):
   /* Scalar/immediate broadcast and per-format lane enables.
      Element bounds and predication are computed before width-changing paths. */
 
-  def signed_immediate = immediate[0..5].into(SInt(5)).sext(xlen.width).into(Bits(xlen.width))
+  def signed_immediate = immediate[0..5].sext(xlen.width)
   def immediate_value = mux_lookup(control.immediate_kind, ~default: signed_immediate, [[VectorImmediateKind.Unsigned5, immediate[0..5].zext(xlen.width)], [VectorImmediateKind.Unsigned6, immediate.zext(xlen.width)]])
   def broadcast_source = mux(control.operand_select === VectorOperandSelect.Immediate, immediate_value, scalar)
   def source_mask = (mask_word >> control.first_element[0..vector_bit_offset_width(xlen)])[0..vector_word_bytes(xlen)]

@@ -44,7 +44,7 @@ fun vector_fast_start(xlen :: XLen, base :: Bits(xlen.width), geometry :: Vector
 /* Checks a prepared start for aligned one-page certification and expands it to whole memory beats.
    Callers may register the start and geometry independently before this combinational step. */
 fun vector_fast_range(xlen :: XLen, start :: VectorFastStart(xlen), geometry :: VectorFootprintGeometry(), store :: Bool) :~ VectorFootprint():
-  def first = if xlen == XLen.X32 | start.address.zext(64) | start.address
+  def first = start.address.zext(64)
   def last_offset = first[0..12].zext(14) + geometry.span_bytes[0..13].zext(14) - Bits(14)(1)
   def one_page = (geometry.span_bytes <= Bits(68)(4096)) & (last_offset < Bits(14)(4096))
   def aligned = !(first & ((Bits(64)(1) << geometry.eew) - Bits(64)(1))).any()
@@ -125,8 +125,8 @@ fun vector_footprint(xlen :: XLen, vlen :: VectorLength, descriptor :: VectorDes
   def last_raw = first_raw + geometry.span_bytes - Bits(68)(1)
   def first_address = apply_pointer_mask(xlen, first_raw[0..xlen.width], masking)
   def last_address = apply_pointer_mask(xlen, last_raw[0..xlen.width], masking)
-  def first = if xlen == XLen.X32 | first_address.zext(64) | first_address
-  def last = if xlen == XLen.X32 | last_address.zext(64) | last_address
+  def first = first_address.zext(64)
+  def last = last_address.zext(64)
   def endpoints_fit = !first_raw[xlen.width..68].any() & !last_raw[xlen.width..68].any()
   def normalized_span_unchanged = (last - first).zext(68) === (last_raw - first_raw)
   def no_wrap = endpoints_fit & (first <= last) & normalized_span_unchanged

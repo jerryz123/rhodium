@@ -8,7 +8,7 @@ import:
   lib("rhodium/frontend/foundation.rhm").circuit_signature
   lib("rhodium/core/signature.rhm").signature_equal
   lib("rhodium/core/types.rhm").VectorType
-  "lane-pipe.rhdl".SuperscalarPcOffsetBits
+  "bundles.rhdl".SuperscalarPcOffsetBits
   "read-operands.rhdl" open
   "pairing.rhdl" open
   "decode/core-ctrl.rhdl".SuperscalarControl

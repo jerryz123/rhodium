@@ -184,11 +184,11 @@ sync_circuit TiledDistributionNetwork(plan :: TiledDistributionPlan):
     time_source |> map_flow(beat => beat.payload.view(TiledDistributionMessage.Time).payload) |> time_egress[hart.index]
     interrupt_source |> map_flow(beat => beat.payload.view(TiledDistributionMessage.Interrupt).payload) |> interrupt_egress[hart.index]
     external_interrupt_source |> map_flow(beat => beat.payload.view(TiledDistributionMessage.ExternalInterrupt).payload) |> external_interrupt_egress[hart.index]
-    assert(!time_source.valid ||| time_view.valid.into(Bool),
+    assert(!time_source.valid ||| time_view.valid,
            "tiled_distribution_time_variant")
-    assert(!interrupt_source.valid ||| interrupt_view.valid.into(Bool),
+    assert(!interrupt_source.valid ||| interrupt_view.valid,
            "tiled_distribution_interrupt_variant")
-    assert(!external_interrupt_source.valid ||| external_interrupt_view.valid.into(Bool),
+    assert(!external_interrupt_source.valid ||| external_interrupt_view.valid,
            "tiled_distribution_external_interrupt_variant")
 
 export:

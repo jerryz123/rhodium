@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/rtl/trap.rhdl").ExceptionCause
   "bundles.rhdl" open
   "replay.rhdl".VectorReplay
   lib("riscv/isa/xlen.rhm").XLen
@@ -58,7 +59,7 @@ sync_circuit VectorMemoryIssue(xlen :: XLen, slots :: Pow2Int):
     disposition: VectorDisposition.Authorized
     slow: Bool(#true)
     data: Bits(xlen.width)(0)
-    cause: Bits(xlen.width)(0)
+    cause: dont_care(ExceptionCause)
     fault_address: token.address
   ) |> durable
 

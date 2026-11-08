@@ -50,7 +50,7 @@ std::uint32_t instruction_at(std::uint64_t address) {
     case 8: return 0x10000193; // li x3,0x100; first visit trains the valid alias
     case 12:
     case 16: return 19;
-    case 20: return 0x00018067; // jalr x0,x3,0; second lookup predicts 0x100
+    case 20: return 0x000182e7; // jalr x5,x3,0; link must retire even when the target fails
     case 24: return 0x18003023; // Fallthrough poison: must never issue.
     case 0x100: return 0x10003023; // Allowed on training visit only; poison on replay.
     case 0x104: return 0x00100193; // li x3,1
@@ -63,7 +63,8 @@ std::uint32_t instruction_at(std::uint64_t address) {
     case 0x20c: return 0x00403423; // sd x4,8(x0)
     case 0x210: return 0x34202273; // csrr x4,mcause
     case 0x214: return 0x00403823; // sd x4,16(x0)
-    case 0x218: return jump(0);
+    case 0x218: return 0x00503c23; // sd x5,24(x0): committed link is 24
+    case 0x21c: return jump(0);
     default: return 19;
     }
   }
@@ -193,9 +194,9 @@ void observe() {
             continue;
           }
           if (alias_mode) {
-            CHECK(data_out(i).prequest.pbits.paddress == (stores[i] % 3) * 8);
+            CHECK(data_out(i).prequest.pbits.paddress == (stores[i] % 4) * 8);
             CHECK(data_out(i).prequest.pbits.pdata ==
-                  (stores[i] % 3 == 2 ? UINT64_C(12) : invalid_target));
+                  (stores[i] % 4 == 2 ? UINT64_C(1) : stores[i] % 4 == 3 ? UINT64_C(24) : invalid_target));
           } else {
             CHECK(data_out(i).prequest.pbits.paddress ==
                   ((stores[i] * 8) & low_mask(64)));
@@ -203,7 +204,7 @@ void observe() {
                   (stores[i] == 1 ? UINT64_C(32) : UINT64_C(20)));
           }
           stores[i]++;
-          if (stores[i] == (alias_mode ? 3 : 4))
+          if (stores[i] == 4)
             completed[i] = cycles;
         }
       }
@@ -211,7 +212,7 @@ void observe() {
     if (completed[0] != 0 && completed[1] != 0) {
       if (alias_mode) {
         CHECK(alias_requests[0] >= 2 && alias_requests[1] == 1);
-        CHECK(fault_requests[0] >= 1 && fault_requests[1] >= 1);
+        CHECK(fault_requests[0] == 0 && fault_requests[1] == 0);
         CHECK(training_stores[0] == 1 && training_stores[1] == 1);
         throw Finished{};
       }

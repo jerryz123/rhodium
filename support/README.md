@@ -1,13 +1,14 @@
-<!-- Guides the use and maintenance of the repository's dependency-neutral Rhombus refinements. -->
+<!-- Guides dependency-neutral host refinements and immutable hardware-data descriptions. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# Shared Rhombus refinements
+# Shared host descriptions
 
 `support/` is a repository-level leaf package for small host-value refinements
-that unrelated packages can import without acquiring Rhodium, protocol, ISA,
-or implementation dependencies. Its public module,
-[`annotations.rhm`](annotations.rhm), imports only Rhombus macro and regular-
-expression libraries. The authoritative repository package boundary is in
+and immutable data descriptions that unrelated packages can import without
+acquiring Rhodium, protocol, ISA, or implementation dependencies. Start with
+[`annotations.rhm`](annotations.rhm) for host constraints or
+[`hardware-enum.rhm`](hardware-enum.rhm) for enums shared by host code and RTL.
+The authoritative repository package boundary is in
 [`rhodium/DEVELOPING.md`](../rhodium/DEVELOPING.md#package-responsibilities).
 
 This directory is not [`rhodium/frontend/support/`](../rhodium/frontend/support/).
@@ -50,19 +51,36 @@ Choose `AsciiIdentifier` only when downstream hardware or generated-symbol
 syntax requires that narrower spelling. Choose `NonemptyString` when punctuation
 or other nonempty text remains meaningful to the owning domain.
 
+## Enums shared by host code and RTL
+
+Import [`hardware-enum.rhm`](hardware-enum.rhm) from ordinary Rhombus:
+
+```rhombus
+import lib("support/hardware-enum.rhm").hardware_enum
+
+hardware_enum Command:
+  Idle = 0
+  Load = 8
+
+Command.Load.packed_value() // 8, without elaboration
+Command.values()            // declaration-order member constants
+```
+
+`#lang rhodium` exposes the same declaration. Import the declared `Command`
+directly into RTL and use it in ports, bundles, registers, comparisons, or mux
+keys; no second declaration or conversion is required. Ordinary host annotations
+accept only constants from that enum. In a hardware authoring context, the same
+annotation also accepts signals of that exact type.
+
+Automatic, explicit-value, explicit-width, and `~encoding: one_hot` forms share
+the same descriptors. Members have nominal host equality and hashing: separately
+declared enums remain distinct even with identical names and encodings.
+Duplicate encodings and insufficient widths are rejected. Hardware-owned methods
+are supplied by the Rhodium authoring layer; see its
+[enum contract](../rhodium/frontend/layers/README.md#hardware-enums).
+
 ## Boundaries and non-goals
 
-This package contains only context-free host-value refinements. It deliberately
-does not define hardware types, elaboration, static information, protocol
+This package defines host data, not live hardware, elaboration, protocol
 legality, IR checks, or backend behavior. Contributor placement and dependency
 rules are in [`DEVELOPING.md`](DEVELOPING.md#boundaries-and-placement).
-
-## Implementation map
-
-Source ownership moved to
-[`DEVELOPING.md`](DEVELOPING.md#implementation-map).
-
-## Focused validation
-
-Contributor validation moved to
-[`DEVELOPING.md`](DEVELOPING.md#focused-validation).

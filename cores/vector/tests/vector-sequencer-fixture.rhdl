@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/rtl/trap.rhdl").ExceptionCause
   lib("cores/vector-layout.rhm").VectorRegisterLayout
   "../../../riscv/isa/vector-profile.rhm" open
   "../bundles.rhdl" open
@@ -111,7 +112,7 @@ sync_circuit VectorSequencerFixture(xlen :: XLen, vlen :: VectorLength, vector_e
     first: pipeline.egress.bits.first
     end: pipeline.egress.bits.end
     disposition: mux(retry, VectorDisposition.Retry, VectorDisposition.Authorized)
-    cause: Bits(xlen.width)(0)
+    cause: dont_care(ExceptionCause)
     fault_address: Bits(xlen.width)(0)
     last: pipeline.egress.bits.last
     compress_state: pipeline.egress.bits.compress_state

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/rtl/hypervisor.rhdl").RiscvGuestException
   "../fetch/instruction-buffer.rhdl" open
   "../fetch/packet.rhdl" open
   "../fetch/protocol.rhdl" open
@@ -11,14 +12,24 @@ import:
   "../../../riscv/isa/xlen.rhm" open
   lib("flow/main.rhdl") open
 
+bundle PacketStimulus():
+  pc: Bits(64)
+  word: Bits(32)
+  mask: Bits(2)
+  page_fault: Bool
+  access_fault: Bool
+  prediction: RV5StagePacketPrediction(XLen.X64)
+
 sync_circuit RV5StageInstructionBufferFixture(compressed :: Boolean = #true):
-  interface packets(Decoupled(RV5StageFetchPacket(XLen.X64, #false)), ~role: consumer)
+  interface packets(Decoupled(PacketStimulus()), ~role: consumer)
   interface clear(Pulse(), ~role: consumer)
   interface fetched(Decoupled(FetchDecode(XLen.X64, #false)), ~role: producer)
   output with_c: Bool
   with_c <== Bool(compressed)
   inst buffer(RV5StageInstructionBuffer(RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~compressed: if compressed | CCompressedExtensions | []))))
-  packets |> buffer.packets
+  (packets |> map_flow(packet):
+    RV5StageFetchPacket.create(XLen.X64, #false, packet.pc, packet.word, packet.mask, packet.page_fault, packet.access_fault, packet.prediction, literal(RiscvGuestException(), 0))
+  ) |> buffer.packets
   clear |> buffer.clear
   buffer.fetched |> fetched
 

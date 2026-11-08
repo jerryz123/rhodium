@@ -94,7 +94,7 @@ sync_circuit RiscvGuestTranslationFixture():
   result_access <== translation.completion.bits.access
   fault_guest <== translation.completion.bits.fault_details.guest_physical_address
   implicit_read <== translation.completion.bits.fault_details.access
-  cause <== riscv_translation_fault_cause(translation.completion.bits)
+  cause <== riscv_translation_fault_cause(translation.completion.bits).as_bits().zext(64)
   tinst <== guest_fault_instruction(translation.completion.bits.fault_details)
   vs_leaf <== translation.completion.bits.vs_leaf.into(Bits(64))
   g_leaf <== translation.completion.bits.g_leaf.into(Bits(64))

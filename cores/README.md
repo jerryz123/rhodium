@@ -71,35 +71,44 @@ RV32 values remain XLEN-wide; none of these helpers adds storage or arbitration.
 
 ### Compact PC storage
 
-Import [`pc.rhdl`](pc.rhdl) for `CompactPc(xlen, width)`: a parameterized bundle
-with exactly `width` low address bits, including alignment bits. Its
+Import [`pc.rhdl`](pc.rhdl) for `CompactPc(xlen)`: a bundle with exactly
+39 low address bits for RV64 or 32 for RV32, including alignment bits. Its
 `.expanded()` method sign-extends to XLEN without an adder or extra state.
-`width` must be positive and no greater than XLEN.
+`compact_pc_width(xlen)` supplies this fixed width for slices and predictor geometry.
 
 ```rhdl
 import:
   lib("cores/pc.rhdl") open
   lib("riscv/isa/xlen.rhm").XLen
 
-def fits = CompactPc.fits(XLen.X64, 45, address)
-def saved = CompactPc.capture(XLen.X64, 45, address)
+def fits = CompactPc.fits(XLen.X64, address)
+def saved = CompactPc.capture(XLen.X64, address)
 def restored = saved.expanded()
 ```
 
 The type-family operations distinguish ownership:
 
-- `CompactPc.fits(xlen, width, address)` checks whether expansion reproduces
+- `CompactPc.fits(xlen, address)` checks whether expansion reproduces
   the exact XLEN address. It does not check translation, permissions, or alignment.
-- `CompactPc.capture(xlen, width, address)` retains the low bits under the
+- `CompactPc.capture(xlen, address)` retains the low bits under the
   caller's exact-PC contract. Assert `fits` at the owning valid/fire boundary,
-  or reject the operation when it is false. For faulting PCs, retain exceptional
-  upper bits in the owner's existing fault union and concatenate them back;
-  do not use sign extension to reconstruct that fault.
-- `CompactPc.prediction(xlen, width, address)` intentionally allows lossy
+  or reject the operation when it is false. Backend rejection retains arbitrary
+  invalid redirect targets outside the frontend.
+- `CompactPc.fetch_fits(xlen, address)` also accepts the positive sequential
+  boundary domain. `.fetch_address(boundary)` zero-extends for that fault and
+  sign-extends otherwise; fetch outcomes retain one boundary bit, not high PC bits.
+- `CompactPc.prediction(xlen, address)` intentionally allows lossy
   normalization for speculative targets. Fetch steering and saved predictions
   must use the same expanded hint; architectural resolution remains exact.
 
 Construction adds no implicit assertion, validity flag, arithmetic, or storage.
+Successful RV64 PCs must be canonical Sv39 addresses. Bare executable physical
+regions must lie below `2^38` (256 GiB), not merely fit an unsigned 39-bit field:
+bit 38 is the sign bit. RV32 executable regions must fit 32 bits. Integrated
+RTL harts validate these regions during elaboration; data-only regions and
+physical transport widths are independent. A successfully translated fetch
+outside the PC domain, including guest-Bare, raises an instruction access fault
+before issuing a physical fetch. Translation faults retain their existing priority.
 Keep architectural redirects, resolved targets, and exception addresses
 full-width. A pipeline suffix joined to a shared upper-PC register is a different
 representation and must not be expanded by sign extension. Width selection

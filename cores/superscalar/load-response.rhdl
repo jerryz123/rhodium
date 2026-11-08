@@ -28,8 +28,8 @@ bundle SuperscalarLoadReturn(xlen :: XLen):
   data: Bits(xlen.width)
 
 /* Reserves one context per accepted request; pipeline flushes cannot discard committed owners. */
-sync_circuit SuperscalarLoadResponse(xlen :: XLen = XLen.X64, ~hypervisor: hypervisor :: Boolean = #false):
-  interface allocate(Valid(SuperscalarResult(xlen, hypervisor)), ~role: consumer)
+sync_circuit SuperscalarLoadResponse(xlen :: XLen = XLen.X64):
+  interface allocate(Valid(SuperscalarLoadOwner(xlen)), ~role: consumer)
   interface response(Decoupled(Bits(xlen.width)), ~role: consumer)
   interface completed(Decoupled(SuperscalarCompletion(xlen)), ~role: producer)
   interface fp_completed(Decoupled(SuperscalarFpLoad(xlen)), ~role: producer)
@@ -39,19 +39,7 @@ sync_circuit SuperscalarLoadResponse(xlen :: XLen = XLen.X64, ~hypervisor: hyper
   interface ordered_completed(Pulse(), ~role: producer)
 
   inst owners(Queue(SuperscalarLoadOwner(xlen), 4))
-  (allocate |> map_valid(payload):
-    def token :: SuperscalarResult(xlen, hypervisor) = payload
-    def request :: SuperscalarFpRetirement(xlen) = token.fp_request
-    SuperscalarLoadOwner(xlen):
-      destination: request.owner(token.fetched.identity(), token.rd)
-      fp_load: token.fp.valid & (token.fp.bits.registers.destination === FloatDestination.FloatingPoint)
-      write: token.write
-      precision: token.fp.bits.execution.destination_precision
-      access: token.memory.access
-      offset: token.address[0..alignment_bits(memory_word_bytes(xlen))]
-      width: token.memory.width
-      unsigned: token.memory.unsigned
-  ) |> to_decoupled() |> owners.ingress
+  allocate |> to_decoupled() |> owners.ingress
   available <== owners.ingress.ready
   // Admission queries retained owners; drain also covers this cycle's allocation.
   pending <== owners.count.any()
@@ -72,7 +60,7 @@ sync_circuit SuperscalarLoadResponse(xlen :: XLen = XLen.X64, ~hypervisor: hyper
   (fp_return |> map_flow(beat => SuperscalarFpLoad(xlen)):
     owner: beat.owner.destination
     precision: beat.owner.precision
-    data: if xlen == XLen.X64 | load.value | load.value.zext(64)
+    data: load.value.zext(64)
   ) |> fp_completed
 
   def completion = integer_return |> map_flow(beat => SuperscalarCompletion(xlen)):
@@ -84,4 +72,5 @@ sync_circuit SuperscalarLoadResponse(xlen :: XLen = XLen.X64, ~hypervisor: hyper
   completion |> completed
 
 export:
+  SuperscalarLoadOwner
   SuperscalarLoadResponse

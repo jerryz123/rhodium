@@ -70,7 +70,7 @@ bundle AluControl():
  * RV64 word operations compute modulo 32 bits, then sign-extend their result.
  */
 fun sign_extend_word(value :: Bits(32)) :: Bits(64):
-  value.into(SInt(32)).sext(64).as_bits()
+  value.sext(64)
 
 /*
  * Compute a combinational XLEN result from physical controls, sharing arithmetic, comparisons,
@@ -85,7 +85,7 @@ circuit ALU(xlen :: XLen):
   output result: Bits(width)
 
   def low_word :: Bits(32) = if xlen == XLen.X64 | left[0..32] | left
-  def unsigned_word_left :: Bits(width) = if xlen == XLen.X64 | low_word.zext(width) | left
+  def unsigned_word_left = low_word.zext(width)
 
 
   /* Shared addition and comparison
@@ -137,10 +137,7 @@ circuit ALU(xlen :: XLen):
   def word_shift_amount = right[0..5]
   def shift_amount :: Bits(shift_width) = if xlen == XLen.X64 | right[0..6] | word_shift_amount
   def effective_shift_amount = if xlen == XLen.X64 | mux(control.word, word_shift_amount.zext(6), shift_amount) | shift_amount
-  def word_shift_source :: Bits(width):
-    if xlen == XLen.X64
-    | mux(control.arithmetic_shift, low_word.into(SInt(32)).sext(64).as_bits(), unsigned_word_left)
-    | left
+  def word_shift_source = mux(control.arithmetic_shift, low_word.sext(width), unsigned_word_left)
 
   def full_shift_source = mux(control.unsigned_word, unsigned_word_left, left)
   def shift_source = if xlen == XLen.X64 | mux(control.word, word_shift_source, full_shift_source) | left
@@ -200,8 +197,8 @@ circuit ALU(xlen :: XLen):
     [
       [AluUnarySelect.OrCombineBytes, or_combine_bytes],
       [AluUnarySelect.ReverseBytes, reverse_bytes],
-      [AluUnarySelect.SignExtendByte, left[0..8].into(SInt(8)).sext(width).as_bits()],
-      [AluUnarySelect.SignExtendHalf, left[0..16].into(SInt(16)).sext(width).as_bits()],
+      [AluUnarySelect.SignExtendByte, left[0..8].sext(width)],
+      [AluUnarySelect.SignExtendHalf, left[0..16].sext(width)],
       [AluUnarySelect.ZeroExtendHalf, left[0..16].zext(width)]
     ]
   )

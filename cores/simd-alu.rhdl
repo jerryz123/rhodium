@@ -256,10 +256,7 @@ circuit SimdALU(xlen :: XLen):
     def operands = for List (format in formats):
       def element_bits = 8 * (2 ** format)
       def source = left[slot * element_bits..(slot + 1) * element_bits]
-      def extended :: Bits(slice_width):
-        if element_bits == slice_width
-        | source
-        | mux(control.arithmetic_shift, source.into(SInt(element_bits)).sext(slice_width).as_bits(), source.zext(slice_width))
+      def extended = mux(control.arithmetic_shift, source.sext(slice_width), source.zext(slice_width))
 
       def repeated :: Bits(slice_width):
         if element_bits == slice_width
@@ -270,7 +267,7 @@ circuit SimdALU(xlen :: XLen):
 
     def amounts = for List (format in formats):
       def amount = right[slot * 8 * (2 ** format)..slot * 8 * (2 ** format) + 3 + format]
-      def extended :: Bits(3 + largest) = if format == largest | amount | amount.zext(3 + largest)
+      def extended = amount.zext(3 + largest)
       [widths[format], extended]
 
     inst shifter(SimdShiftSlice(slice_width, 3 + largest))
@@ -279,7 +276,7 @@ circuit SimdALU(xlen :: XLen):
     shifter.shift_right <== control.shift_right
     shifter.arithmetic_shift <== control.arithmetic_shift
     shifter.rotate <== control.rotate
-    if slice_width == width | shifter.result | shifter.result.zext(width)
+    shifter.result.zext(width)
 
 
   /* Format-dependent byte routing.
@@ -482,7 +479,7 @@ circuit SimdALU(xlen :: XLen):
     def saturated_data = if count == 1 | first_lane.saturated | concat(lanes.map(fun (lane :: FixedLane(element_bits)): lane.saturated).reverse())
     def saturation_bits :: Bits(count) = if count == 1 | first_lane.saturation.as_bits() | concat(lanes.map(fun (lane :: FixedLane(element_bits)): lane.saturation.as_bits()).reverse())
     def carries :: Bits(count) = if count == 1 | first_lane.carry_borrow.as_bits() | concat(lanes.map(fun (lane :: FixedLane(element_bits)): lane.carry_borrow.as_bits()).reverse())
-    def carry_borrow_bits = if count == width / 8 | carries | carries.zext(width / 8)
+    def carry_borrow_bits = carries.zext(width / 8)
     SimdFixedArithmetic(xlen):
       average: average_data
       increment: increments
@@ -565,11 +562,11 @@ circuit SimdWidenOperands(xlen :: XLen):
     def count = (width / 2) div source_bits
     def a = for List (lane in 0..count):
       def source = source_left[lane * source_bits..(lane + 1) * source_bits]
-      mux(left_signed, source.into(SInt(source_bits)).sext(2 * source_bits).as_bits(), source.zext(2 * source_bits))
+      mux(left_signed, source.sext(2 * source_bits), source.zext(2 * source_bits))
 
     def b = for List (lane in 0..count):
       def source = source_right[lane * source_bits..(lane + 1) * source_bits]
-      mux(right_signed, source.into(SInt(source_bits)).sext(2 * source_bits).as_bits(), source.zext(2 * source_bits))
+      mux(right_signed, source.sext(2 * source_bits), source.zext(2 * source_bits))
 
     def enables = for List (lane in 0..(width / 8)):
       if lane < count | mux(upper_half, enabled[lane + count], enabled[lane]).as_bits() | Bits(1)(0)
@@ -622,7 +619,7 @@ circuit SimdExtend(xlen :: XLen):
               def fragment = source >> (part ++ Bits(index_width(width) - 1 - ratio_index)(0))
               def elements = for List (lane in 0..lanes):
                 def element = fragment[lane * source_bits..(lane + 1) * source_bits]
-                mux(signed, element.into(SInt(source_bits)).sext(destination_bits).as_bits(), element.zext(destination_bits))
+                mux(signed, element.sext(destination_bits), element.zext(destination_bits))
 
               if lanes == 1 | elements[0] | concat(elements.reverse())
 

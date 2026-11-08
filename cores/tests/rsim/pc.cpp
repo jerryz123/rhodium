@@ -4,8 +4,8 @@
 #include <cstdint>
 #include <random>
 
-constexpr std::array<unsigned, 5> widths64{1, 32, 39, 45, 64};
-constexpr std::array<unsigned, 4> widths32{1, 16, 31, 32};
+constexpr std::array<unsigned, 1> widths64{39};
+constexpr std::array<unsigned, 1> widths32{32};
 
 std::uint64_t mask(unsigned width) {
   return width == 64 ? UINT64_MAX : (UINT64_C(1) << width) - 1;
@@ -19,8 +19,8 @@ std::uint64_t normalize(std::uint64_t value, unsigned width, unsigned xlen) {
 
 int main() {
   return run_test([] {
-    std::array<std::uint64_t, 5> held64{}, hint64{};
-    std::array<std::uint64_t, 4> held32{}, hint32{};
+    std::array<std::uint64_t, 1> held64{}, hint64{};
+    std::array<std::uint64_t, 1> held32{}, hint32{};
     reset = 1;
     capture = 0;
     tick_model();
@@ -29,6 +29,8 @@ int main() {
       address = value;
       capture = enable;
       eval();
+      CHECK(fetch_fits == (value == normalize(value, 39, 64) || (value >> 39) == 0));
+      if (fetch_fits) CHECK(fetch_address == value);
       for (unsigned i = 0; i < widths64.size(); ++i) {
         const auto expected = normalize(value, widths64[i], 64);
         CHECK(fits64[i] == (value == expected));

@@ -66,4 +66,10 @@ block:
     builder.add(module_def, signed8, bits8) ~throws "same arithmetic type and width"
     builder.shrs(module_def, bits8, amount) ~throws "SignedArithmeticType"
     builder.slt(module_def, signed8, signed4) ~throws "same signed arithmetic type and width"
-    builder.sext(module_def, signed8, 8) ~throws "larger than the source width"
+    builder.sext(module_def, signed8, 8) ~is signed8
+    builder.sext(module_def, signed8, 8, "unused_name") ~is signed8
+    builder.sext(module_def, bits8, 8) ~is bits8
+    builder.zext(module_def, bits8, 8, "unused_name") ~is bits8
+    builder.sext(module_def, bits8, 12).type ~is Bits(12)
+    builder.sext(module_def, signed8, 4) ~throws "at least the source width"
+    builder.sext(module_def, bits8, 4) ~throws "at least the source width"

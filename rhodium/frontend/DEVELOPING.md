@@ -106,6 +106,10 @@ The kernel distinguishes live hardware from deferred frontend descriptions:
 - `DeferredHardwareValue` materializes when `kernel.read` needs a core value.
 - `StaticHardwareValue` marks an immutable description that may safely cross a
   generator-parameter boundary.
+- `HardwareLiteral` is the pure packed-constant protocol from
+  [`support/hardware-data.rhm`](../../support/hardware-data.rhm). It carries no
+  materialization callback or frontend dependency; the kernel reads its type,
+  encoding, and name, validates them, and builds the constant/cast in context.
 - `RegisterPathValue` delays the choice between a register's current value and
   its next-state place until read or drive context is known.
 - `CircuitDefinition` requires `definition_reference()` so wrappers expose
@@ -147,8 +151,9 @@ remaps the operation while sharing detached descriptors; it does not execute
 member-binding callbacks. Interface declarations and their physical mapping are
 owned by `layers/interface.rhm`.
 
-[`support/hardware-literal.rhm`](support/hardware-literal.rhm) implements the
-public `HardwareLiteral` protocol on that deferred boundary. Field, annotation,
+[`support/hardware-literal.rhm`](support/hardware-literal.rhm) supplies validated
+generic packed literals and reexports the pure `HardwareLiteral` protocol.
+Enum constants use that same protocol without importing the frontend. Field, annotation,
 method, and producer-specific surfaces are carried by Rhombus static
 information in [`support/fields.rhm`](support/fields.rhm), not by frontend-only
 IR operations. See the [layer contributor guide](layers/DEVELOPING.md) before

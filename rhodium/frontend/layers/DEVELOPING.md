@@ -60,9 +60,9 @@ The shared machinery is intentionally centralized:
 | [`../support/generator-parameters.rhm`](../support/generator-parameters.rhm) | Generator binding syntax and substitution into dependent result surfaces |
 | [`../support/instance-members.rhm`](../support/instance-members.rhm) | Precise member resolution for child instances |
 | [`../support/mux-lookup.rhm`](../support/mux-lookup.rhm) | Typed mux-key normalization and selector protocols |
-| [`../support/variants.rhm`](../support/variants.rhm) | Shared enum and tagged-union schemas, nominal descriptors, and member literals |
+| [`../../../support/variants.rhm`](../../../support/variants.rhm), [`../../../support/hardware-enum.rhm`](../../../support/hardware-enum.rhm) | Pure enum/tagged-union schemas, nominal descriptors, member literals, and shared enum declaration |
 | [`../support/clocking.rhm`](../support/clocking.rhm) | Ambient sync context, reset scopes, sync-child instantiation, and crossing evidence |
-| [`../support/finite-enum.rhm`](../support/finite-enum.rhm), [`../support/mask-type.rhm`](../support/mask-type.rhm), [`../support/one-hot-selection.rhm`](../support/one-hot-selection.rhm) | Narrow cross-layer protocols that avoid importing their owning feature layers |
+| [`../../../support/hardware-data.rhm`](../../../support/hardware-data.rhm), [`../support/mask-type.rhm`](../support/mask-type.rhm), [`../support/one-hot-selection.rhm`](../support/one-hot-selection.rhm) | Pure type/literal/finite-enum protocols and frontend selector construction |
 
 Receiver membership in [`../support/fields.rhm`](../support/fields.rhm) validates exact scalar types before
 choosing a representation. Multiple alternatives backed by constants (including
@@ -122,6 +122,13 @@ it does not infer conditional ports or keyword-dependent types. Cover this
 boundary with `std-flow-static-test.rhm` and `generator-parameters-test.rhm`.
 
 ## Adding or changing a layer
+
+The enum layer reexports the pure `hardware_enum` binding and supplies its lexical
+`hardware_enum_definition` and `HardwareEnumFields` adapters. They add hardware
+methods and exact value surfaces without creating a second descriptor or member
+family. Pure descriptors carry encoding-family static information so aliases,
+bundle fields, and instance ports recover the same hardware surface. Keep these
+hooks lexical and preserve ordinary host annotation behavior outside the profile.
 
 1. Confirm the feature belongs in a selectable layer using the frontend
    [extension-routing guide](../README.md#extension-routing).

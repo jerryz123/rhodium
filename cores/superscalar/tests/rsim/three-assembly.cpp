@@ -53,7 +53,7 @@ void check_token(const Instruction &actual, const Expected &expected) {
   CHECK(actual.praw_uinstruction == expected.raw);
   CHECK(actual.pinstruction == 0x13); // C.NOP and ADDI x0,x0,0.
   CHECK(actual.psequential_upc == expected.pc + expected.bytes);
-  CHECK(!actual.pcompressed_uillegal && !actual.pfault.pkind);
+  CHECK(!actual.pcompressed_uillegal && !actual.pfault.pvalid);
   CHECK(!actual.pprediction.pvalid && actual.pdirection.pvalid);
   CHECK(actual.pdirection.pindex % 4 == (expected.pc / 2) % 4);
   CHECK(actual.pdirection.pbase_uindex == (expected.pc / 2) % 4096);
@@ -172,20 +172,21 @@ void third_lane_control() {
 }
 
 void continuation_faults() {
-  for (unsigned kind = 1; kind <= 4; ++kind) {
+  for (unsigned cause : {0u, 1u, 12u, 20u}) {
     clear_assembly();
     enqueue(block(0x5ff8, (UINT64_C(0x0013) << 48) | (UINT64_C(1) << 32) | 0x13));
     CHECK(instructions_out.pvalid && instructions_out.pbits.pcount == 2);
     auto continuation = block(0x6000, 0);
-    continuation.pfault.pkind = kind;
+    continuation.pfault.pvalid = 1;
+    continuation.pfault.pcause = cause;
     continuation.pfault.pvalue = 0x6000;
     set_fetch_guest(continuation.pfault, true, 0x12345678, 1);
     enqueue(continuation);
     CHECK(instructions_out.pbits.pcount == 3);
     const auto &faulting = instructions_out.pbits.pentries[2];
     CHECK(faulting.ppc == 0x5ffe && parcel_fault_address(faulting) == 0x6000);
-    CHECK(faulting.pfault.pkind == kind && same_fetch_guest(faulting.pfault, continuation.pfault));
-    CHECK(!instructions_out.pbits.pentries[0].pfault.pkind && !instructions_out.pbits.pentries[1].pfault.pkind);
+    CHECK(faulting.pfault.pvalid && faulting.pfault.pcause == cause && same_fetch_guest(faulting.pfault, continuation.pfault));
+    CHECK(!instructions_out.pbits.pentries[0].pfault.pvalid && !instructions_out.pbits.pentries[1].pfault.pvalid);
     instructions_in.pready = true;
     eval();
     CHECK(!repair_out.pvalid && !discover_out.pvalid && !speculate_out.pvalid);

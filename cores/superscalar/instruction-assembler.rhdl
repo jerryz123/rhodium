@@ -10,43 +10,27 @@ import:
   lib("cores/pc.rhdl") open
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/rtl/hypervisor.rhdl").RiscvGuestFault
+  lib("riscv/rtl/trap.rhdl").ExceptionCause
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
-/* Carries one aligned block's contents, first requested byte, and any block admission/read fault.
-   A fault's VA equals pc; continuation assembly preserves that VA separately from the instruction PC.
-   Valid direction indices use one shared main row and PC-derived parcel/base indices.
-   A valid prediction names a halfword in this block or the preceding straddling prefix. */
-bundle SuperscalarFetchBlock(xlen :: XLen, hypervisor :: Boolean):
-  pc: Bits(xlen.width)
-  data: Bits(64)
-  fault: SuperscalarFetchBlockFault(xlen, hypervisor)
-  prediction: BranchPrediction(xlen)
-  directions: Vec(4, TournamentPrediction(10))
-  prefix_direction: TournamentPrediction(10)
-
-/* Retains only the configured speculative destination bits; expansion restores their sign. */
-bundle SuperscalarBlockPrediction(xlen :: XLen, target_width :: PosInt):
+/* Retains the fixed compact speculative destination; expansion restores its sign. */
+bundle SuperscalarBlockPrediction(xlen :: XLen):
   valid: Bool
-  target: CompactPc(xlen, target_width)
+  target: CompactPc(xlen)
 
-/* Sizes the exceptional PC upper bits, omitted when storage already spans XLEN. */
-fun block_pc_high_width(xlen :: XLen, pc_width :: PosInt):
-  xlen.width - pc_width
-
-/* The exact fetch PC also supplies the fault VA; guest provenance remains independent. */
-bundle SuperscalarBlockFault(xlen :: XLen, hypervisor :: Boolean, pc_width :: PosInt):
-  if pc_width < xlen.width:
-    pc_high: Bits(block_pc_high_width(xlen, pc_width))
-
-  kind: SuperscalarFetchFaultKind
+/* The exact fetch PC also supplies the fault VA; guest provenance remains independent.
+   Boundary is always false for RV32, which retains every architectural PC bit. */
+bundle SuperscalarBlockFault(xlen :: XLen, hypervisor :: Boolean):
+  boundary: Bool
+  cause: ExceptionCause
   if hypervisor:
     guest: RiscvGuestFault()
 
 /* Faulting blocks cannot contribute a taken prediction; their details reuse target storage. */
-tagged_union SuperscalarBlockOutcome(xlen :: XLen, hypervisor :: Boolean, pc_width :: PosInt, target_width :: PosInt):
-  Normal(SuperscalarBlockPrediction(xlen, target_width))
-  Fault(SuperscalarBlockFault(xlen, hypervisor, pc_width))
+tagged_union SuperscalarBlockOutcome(xlen :: XLen, hypervisor :: Boolean):
+  Normal(SuperscalarBlockPrediction(xlen))
+  Fault(SuperscalarBlockFault(xlen, hypervisor))
 
 /* Keeps each parcel's independent recovery history and chooser observations, not redundant indices. */
 bundle SuperscalarBlockDirection():
@@ -56,14 +40,13 @@ bundle SuperscalarBlockDirection():
   base_taken: Bool
   gshare_taken: Bool
 
-  /* Reconstructs training addresses from the saved lookup row and owning instruction PC. */
-  method expanded(direction, index :: Bits(12), base_index :: Bits(12)) :: TournamentPrediction(10):
-    TournamentPrediction(10):
+  /* Attaches the block's shared row when a parcel becomes an independent instruction. */
+  method checkpoint(direction, row :: Bits(10)) :: SuperscalarDirectionCheckpoint():
+    SuperscalarDirectionCheckpoint():
       valid: direction.valid
-      index: index
+      row: row
       history: direction.history
       taken: direction.taken
-      base_index: base_index
       base_taken: direction.base_taken
       gshare_taken: direction.gshare_taken
 
@@ -87,10 +70,10 @@ hardware_enum SuperscalarBlockPredictionOwner:
 
 /* Stores one block with independent compact PC and outcome ownership. Relative prediction
    ownership avoids duplicating the PC; all direction checkpoints remain independent. */
-bundle SuperscalarRetainedBlock(xlen :: XLen, hypervisor :: Boolean, pc_width :: PosInt, target_width :: PosInt):
-  pc: CompactPc(xlen, pc_width)
+bundle SuperscalarFetchBlock(xlen :: XLen, hypervisor :: Boolean):
+  pc: CompactPc(xlen)
   data: Bits(64)
-  outcome: SuperscalarBlockOutcome(xlen, hypervisor, pc_width, target_width)
+  outcome: SuperscalarBlockOutcome(xlen, hypervisor)
   prediction_owner: SuperscalarBlockPredictionOwner
   prediction_compressed: Bool
   prediction_ras_action: RasAction
@@ -99,28 +82,36 @@ bundle SuperscalarRetainedBlock(xlen :: XLen, hypervisor :: Boolean, pc_width ::
   directions: Vec(4, SuperscalarBlockDirection())
   prefix_direction: SuperscalarBlockDirection()
 
-  /* Restores current-block prediction PCs by concatenation and preceding-prefix PCs
-     by decrementing the block number. Invalid fault/target payloads become zero. */
-  method expanded(block) :: SuperscalarFetchBlock(xlen, hypervisor):
-    def Outcome = SuperscalarBlockOutcome(xlen, hypervisor, pc_width, target_width)
-    def fault = block.outcome.is(Outcome.Fault).into(Bool)
-    def details :: SuperscalarBlockFault(xlen, hypervisor, pc_width) = block.outcome.view(Outcome.Fault).payload
-    def normal :: SuperscalarBlockPrediction(xlen, target_width) = block.outcome.view(Outcome.Normal).payload
-    def normal_pc = block.pc.expanded()
-    def fault_pc = if pc_width < xlen.width | details.pc_high ++ block.pc.low | block.pc.low
-    def full_pc = mux(fault, fault_pc, normal_pc)
-    def fault_details:
-      if hypervisor
-      | SuperscalarFetchBlockFault(xlen, hypervisor):
-          kind: details.kind
-          value: fault_pc
-          guest: details.guest
-      | SuperscalarFetchBlockFault(xlen, hypervisor):
-          kind: details.kind
-          value: fault_pc
+  /* Reconstructs the exact faulting PC, or sign-extends a successful PC. */
+  method address(block) :: Bits(xlen.width):
+    def Outcome = SuperscalarBlockOutcome(xlen, hypervisor)
+    def details :: SuperscalarBlockFault(xlen, hypervisor) = block.outcome.view(Outcome.Fault).payload
+    def fault_pc = block.pc.fetch_address(details.boundary)
+    mux(block.outcome.is(Outcome.Fault), fault_pc, block.pc.expanded())
 
-    def target = normal.target.expanded()
-    def predicted = !fault & normal.valid
+  /* Supplies fault provenance only; normal blocks have no live fault payload. */
+  method fault_value(block) :: SuperscalarFetchBlockFault(xlen, hypervisor):
+    def retained :: SuperscalarFetchBlock(xlen, hypervisor) = block
+    def Outcome = SuperscalarBlockOutcome(xlen, hypervisor)
+    def details :: SuperscalarBlockFault(xlen, hypervisor) = block.outcome.view(Outcome.Fault).payload
+    def valid = block.outcome.is(Outcome.Fault)
+    if hypervisor
+    | SuperscalarFetchBlockFault(xlen, hypervisor):
+        valid: valid
+        cause: details.cause
+        value: retained.address()
+        guest: details.guest
+    | SuperscalarFetchBlockFault(xlen, hypervisor):
+        valid: valid
+        cause: details.cause
+        value: retained.address()
+
+  /* Supplies the shared predictor protocol only when a prediction consumer needs it. */
+  method prediction_value(block) :: BranchPrediction(xlen, xlen.width):
+    def Outcome = SuperscalarBlockOutcome(xlen, hypervisor)
+    def normal :: SuperscalarBlockPrediction(xlen) = block.outcome.view(Outcome.Normal).payload
+    def normal_pc = block.pc.expanded()
+    def predicted = block.outcome.is(Outcome.Normal) & normal.valid
     def Owner = SuperscalarBlockPredictionOwner
     def prediction_block = mux(block.prediction_owner === Owner.Previous, normal_pc[3..xlen.width] - Bits(xlen.width - 3)(1), normal_pc[3..xlen.width])
     def prediction_offset = mux_lookup(block.prediction_owner, ~default: Bits(3)(6)):
@@ -128,71 +119,87 @@ bundle SuperscalarRetainedBlock(xlen :: XLen, hypervisor :: Boolean, pc_width ::
       Owner.Parcel1: Bits(3)(2)
       Owner.Parcel2: Bits(3)(4)
 
-    SuperscalarFetchBlock(xlen, hypervisor):
-      pc: full_pc
-      data: block.data
-      fault: mux(fault, fault_details, literal(SuperscalarFetchBlockFault(xlen, hypervisor), 0))
-      prediction:
-        BranchPrediction(xlen):
-          valid: predicted
-          pc: prediction_block ++ prediction_offset
-          target: mux(predicted, target, Bits(xlen.width)(0))
-          compressed: block.prediction_compressed
-          ras_action: block.prediction_ras_action
+    BranchPrediction(xlen, xlen.width):
+      valid: predicted
+      pc: prediction_block ++ prediction_offset
+      target: mux(predicted, normal.target.expanded(), Bits(xlen.width)(0))
+      compressed: block.prediction_compressed
+      ras_action: block.prediction_ras_action
 
-      directions: vec(for List (parcel in 0..4): block.directions[parcel].expanded(block.direction_row ++ Bits(2)(parcel), full_pc[3..13] ++ Bits(2)(parcel)))
-      prefix_direction: block.prefix_direction.expanded(block.prefix_row ++ Bits(2)(3), (full_pc[3..13] - Bits(10)(1)) ++ Bits(2)(3))
+  /* Attaches the shared lookup row only as one parcel leaves block ownership. */
+  method direction_value(block, parcel :: Bits(2)) :: SuperscalarDirectionCheckpoint():
+    block.directions[parcel].checkpoint(block.direction_row)
+
+  /* Preserves the preceding straddling instruction's independent lookup row. */
+  method prefix_value(block) :: SuperscalarDirectionCheckpoint():
+    block.prefix_direction.checkpoint(block.prefix_row)
 
 /* Normalizes both retained and bypassed blocks to the same mutually exclusive outcome. */
-fun retain_fetch_block(xlen :: XLen, hypervisor :: Boolean, pc_width :: PosInt, target_width :: PosInt, block :: SuperscalarFetchBlock(xlen, hypervisor)) :~ SuperscalarRetainedBlock(xlen, hypervisor, pc_width, target_width):
-  def Outcome = SuperscalarBlockOutcome(xlen, hypervisor, pc_width, target_width)
-  def empty_fault :: SuperscalarBlockFault(xlen, hypervisor, pc_width) = literal(SuperscalarBlockFault(xlen, hypervisor, pc_width), 0)
-  def fault_kind :: SuperscalarBlockFault(xlen, hypervisor, pc_width):
-    if hypervisor
-    | empty_fault.updated(~kind: block.fault.kind, ~guest: block.fault.guest)
-    | empty_fault.updated(~kind: block.fault.kind)
+fun fetch_block(xlen :: XLen, hypervisor :: Boolean, pc :: Bits(xlen.width), data :: Bits(64), fault :: SuperscalarFetchBlockFault(xlen, hypervisor), prediction_valid :: Bool, prediction_pc :: Bits(xlen.width), prediction_target_value :: Bits(xlen.width), prediction_compressed :: Bool, prediction_action :: RasAction, directions :: Vec(4, TournamentPrediction(10)), prefix_direction :: TournamentPrediction(10), valid :: Bool) :~ SuperscalarFetchBlock(xlen, hypervisor):
+  when valid:
+    assert(CompactPc.fetch_fits(xlen, pc), "superscalar_assembly_fetch_pc_encoding")
+    assert(fault.supported(), "superscalar_assembly_supported_fetch_fault")
+    assert(!fault.valid ||| (fault.value === pc), "superscalar_assembly_fault_address")
+    for (parcel in 0..4):
+      def direction = directions[parcel]
+      def expected_index = directions[0].index[2..12] ++ Bits(2)(parcel)
+      def expected_base = pc[3..13] ++ Bits(2)(parcel)
+      assert(!direction.valid ||| ((direction.index === expected_index) & (direction.base_index === expected_base)), "superscalar_assembly_direction_indices")
 
-  def details = if pc_width < xlen.width | fault_kind.updated(~pc_high: block.pc[pc_width..xlen.width]) | fault_kind
-  def prediction = SuperscalarBlockPrediction(xlen, target_width):
-    valid: block.prediction.valid
-    target: CompactPc.prediction(xlen, target_width, mux(block.prediction.valid, block.prediction.target, Bits(xlen.width)(0)))
+    def prefix = prefix_direction
+    def prefix_base = (pc[3..13] - Bits(10)(1)) ++ Bits(2)(3)
+    assert(!prefix.valid ||| ((prefix.index[0..2] === Bits(2)(3)) & (prefix.base_index === prefix_base)), "superscalar_assembly_prefix_indices")
+    def pc_fits = CompactPc.fits(xlen, pc)
+    assert(fault.valid ||| pc_fits, "superscalar_assembly_success_pc_fits")
+    def same_block = prediction_pc.align_down(8) === pc.align_down(8)
+    def previous_prefix = prediction_pc === (pc.align_down(8) - Bits(xlen.width)(2))
+    def prediction_fits = !prediction_pc[0].into(Bool) & (same_block ||| previous_prefix)
+    assert(fault.valid ||| !prediction_valid ||| prediction_fits, "superscalar_assembly_prediction_owner")
+    assert(fault.valid ||| !prediction_valid ||| CompactPc.fits(xlen, prediction_target_value), "superscalar_assembly_prediction_target")
+
+
+  def Outcome = SuperscalarBlockOutcome(xlen, hypervisor)
+  def empty_fault :: SuperscalarBlockFault(xlen, hypervisor) = literal(SuperscalarBlockFault(xlen, hypervisor), 0)
+  def provenance :: SuperscalarBlockFault(xlen, hypervisor):
+    if hypervisor
+    | empty_fault.updated(~cause: fault.cause, ~guest: fault.guest)
+    | empty_fault.updated(~cause: fault.cause)
+
+  def details = provenance.updated(~boundary: !CompactPc.fits(xlen, pc))
+  def retained_prediction = SuperscalarBlockPrediction(xlen):
+    valid: prediction_valid
+    target: CompactPc.prediction(xlen, mux(prediction_valid, prediction_target_value, Bits(xlen.width)(0)))
 
   def Owner = SuperscalarBlockPredictionOwner
-  def parcel = mux_lookup(block.prediction.pc[1..3], ~default: Owner.Parcel3):
+  def parcel = mux_lookup(prediction_pc[1..3], ~default: Owner.Parcel3):
     0: Owner.Parcel0
     1: Owner.Parcel1
     2: Owner.Parcel2
 
-  def same_block = block.prediction.pc[3..xlen.width] === block.pc[3..xlen.width]
-  SuperscalarRetainedBlock(xlen, hypervisor, pc_width, target_width):
-    pc: CompactPc.capture(xlen, pc_width, block.pc)
-    data: block.data
-    outcome: mux(block.fault.valid(), Outcome.Fault(details), Outcome.Normal(prediction))
+  def same_block = prediction_pc[3..xlen.width] === pc[3..xlen.width]
+  SuperscalarFetchBlock(xlen, hypervisor):
+    pc: CompactPc.capture(xlen, pc)
+    data: data
+    outcome: mux(fault.valid, Outcome.Fault(details), Outcome.Normal(retained_prediction))
     prediction_owner: mux(same_block, parcel, Owner.Previous)
-    prediction_compressed: block.prediction.compressed
-    prediction_ras_action: block.prediction.ras_action
-    direction_row: block.directions[0].index[2..12]
-    prefix_row: block.prefix_direction.index[2..12]
-    directions: vec(for List (parcel in 0..4): retain_direction(block.directions[parcel]))
-    prefix_direction: retain_direction(block.prefix_direction)
+    prediction_compressed: prediction_compressed
+    prediction_ras_action: prediction_action
+    direction_row: directions[0].index[2..12]
+    prefix_row: prefix_direction.index[2..12]
+    directions: vec(for List (parcel in 0..4): retain_direction(directions[parcel]))
+    prefix_direction: retain_direction(prefix_direction)
 
 /* Decodes a two-block parcel window into an ordered two- or three-lane packet.
    Three retained blocks plus live bypass cover fixed-cycle fetch reservations.
    Accepted packets release exhausted blocks; a missing continuation retains its original block. */
-sync_circuit SuperscalarInstructionAssembler(profile :: SuperscalarPipelineConfig = SuperscalarPipelineConfig(), ~group_width: group_width :: matching(2) || matching(3) = 2, ~pc_width: pc_width :: PosInt = profile.xlen.width, ~target_width: target_width :: PosInt = profile.xlen.width):
+sync_circuit SuperscalarInstructionAssembler(profile :: SuperscalarPipelineConfig = SuperscalarPipelineConfig(), ~group_width: group_width :: matching(2) || matching(3) = 2):
   def xlen = profile.xlen
   def hypervisor = profile.hypervisor
-  unless pc_width <= xlen.width
-  | error(~who: #'SuperscalarInstructionAssembler, "PC storage width must not exceed XLEN")
-
-  unless target_width <= xlen.width
-  | error(~who: #'SuperscalarInstructionAssembler, "target storage width must not exceed XLEN")
-
   interface blocks(Decoupled(SuperscalarFetchBlock(xlen, hypervisor)), ~role: consumer)
   interface clear(Pulse(), ~role: consumer)
   interface instructions(Decoupled(SuperscalarPacket(xlen, hypervisor, group_width)), ~role: producer)
   interface repair(Valid(SuperscalarFetchRepair(xlen)), ~role: producer)
-  interface discover(Valid(BranchPrediction(xlen)), ~role: producer)
+  interface discover(Valid(BranchPrediction(xlen, xlen.width)), ~role: producer)
   interface speculate(Valid(RasUpdate(xlen)), ~role: producer)
   input ras_head_valid: Bool
   input ras_head: Bits(xlen.width)
@@ -204,21 +211,21 @@ sync_circuit SuperscalarInstructionAssembler(profile :: SuperscalarPipelineConfi
      Retained blocks precede live bypass; incomplete continuations keep their owner. */
 
   reg count(~init: Bits(2)(0))
-  reg retained(Vec(3, SuperscalarRetainedBlock(xlen, hypervisor, pc_width, target_width)))
-  def incoming = retain_fetch_block(xlen, hypervisor, pc_width, target_width, blocks.bits)
+  reg retained(Vec(3, SuperscalarFetchBlock(xlen, hypervisor)))
+  def incoming = blocks.bits
   // Input admission is independent of current instruction readiness: every S2 result is reserved.
   blocks.ready <== count < Bits(2)(3)
   def first_present = count.any() ||| blocks.valid
-  def first_block = mux(count.any(), retained[0], incoming).expanded()
-  def second_block = mux(count > Bits(2)(1), retained[1], incoming).expanded()
-  def second_present = ((count > Bits(2)(1)) ||| ((count === Bits(2)(1)) & blocks.valid)) & (second_block.pc === (first_block.pc.align_down(8) + Bits(xlen.width)(8)))
+  def first_block = mux(count.any(), retained[0], incoming)
+  def second_block = mux(count > Bits(2)(1), retained[1], incoming)
+  def second_present = ((count > Bits(2)(1)) ||| ((count === Bits(2)(1)) & blocks.valid)) & (second_block.address() === (first_block.address().align_down(8) + Bits(xlen.width)(8)))
   reg repairing(~init: Bool(#false))
   def discard = clear.valid ||| repairing
   reg consumed(~init: Bits(3)(0))
-  def start = first_block.pc[1..3].zext(4) + consumed.zext(4)
+  def start = first_block.address()[1..3].zext(4) + consumed.zext(4)
   def window = (second_block.data ++ first_block.data) >> (start ++ Bits(4)(0))
   def parcels = Bits(4)(4) - start + mux(second_present, Bits(4)(4), Bits(4)(0))
-  def first_pc = first_block.pc + (consumed.zext(xlen.width) << 1)
+  def first_pc = first_block.address() + (consumed.zext(xlen.width) << 1)
   wire fetched: Vec(group_width, SuperscalarInstruction(xlen, hypervisor))
   wire included: Vec(group_width, Bool)
   wire known_predictions: Vec(group_width, Bool)
@@ -247,28 +254,28 @@ sync_circuit SuperscalarInstructionAssembler(profile :: SuperscalarPipelineConfi
     def position = start + lane_offset
     def in_second = position >= Bits(4)(4)
     def owner = mux(in_second, second_block, first_block)
-    def size = mux(compressed ||| owner.fault.valid(), Bits(4)(1), Bits(4)(2))
+    def size = mux(compressed ||| owner.fault_value().valid, Bits(4)(1), Bits(4)(2))
     def next_offset = lane_offset + size
     def crosses = !in_second & ((position + size) > Bits(4)(4))
-    def fetch_fault = mux(in_second ||| crosses, second_block.fault, first_block.fault)
-    def fault :: SuperscalarFetchBlockFault(xlen, hypervisor) = mux(first_block.fault.valid(), first_block.fault, fetch_fault)
+    def fetch_fault = mux(in_second ||| crosses, second_block.fault_value(), first_block.fault_value())
+    def fault :: SuperscalarFetchBlockFault(xlen, hypervisor) = mux(first_block.fault_value().valid, first_block.fault_value(), fetch_fault)
     inst decoded(SuperscalarPredecode(profile))
     decoded.raw <== raw
     def canonical = decoded.canonical
-    def legal = !fault.valid() & decoded.legal
-    def control_flow = !fault.valid() & decoded.control_flow
+    def legal = !fault.valid & decoded.legal
+    def control_flow = !fault.valid & decoded.control_flow
     def action = mux(control_flow, decoded.action, RasAction.None)
-    def predicted :: BranchPrediction(xlen) = mux(crosses & !owner.prediction.valid, second_block.prediction, owner.prediction)
-    def direction :: TournamentPrediction(10) = mux(crosses, second_block.prefix_direction, owner.directions[pc[1..3]])
+    def predicted :: BranchPrediction(xlen, xlen.width) = mux(crosses & !owner.prediction_value().valid, second_block.prediction_value(), owner.prediction_value())
+    def direction :: SuperscalarDirectionCheckpoint() = mux(crosses, second_block.prefix_value(), owner.direction_value(pc[1..3]))
     def bht_branch = direction.valid & control_flow & decoded.conditional
     def known = mux(bht_branch, direction.taken, predicted.valid & (predicted.pc === pc) & (predicted.compressed === compressed) & control_flow)
     def immediate_control_flow = legal & decoded.immediate
-    def immediate_target = prediction_target(xlen, target_width, pc + decoded.offset)
+    def immediate_target = prediction_target(xlen, compact_pc_width(xlen), pc + decoded.offset)
     def direct = legal & (canonical[0..7] === Bits(7)(0x6f)) & Bool(profile.btb_entries > 0)
     def returning = legal & action.is_one_of(RasAction.Pop, RasAction.PopPush) & ras_head_valid
     def fallback = !known & (direct ||| returning)
     def sequential_pc = pc + (size.zext(xlen.width) << 1)
-    def return_target = prediction_target(xlen, target_width, ras_head)
+    def return_target = prediction_target(xlen, compact_pc_width(xlen), ras_head)
     def predicted_target :: Bits(xlen.width) = priority_mux(~default: return_target):
       immediate_control_flow: immediate_target
       returning: return_target
@@ -276,39 +283,36 @@ sync_circuit SuperscalarInstructionAssembler(profile :: SuperscalarPipelineConfi
 
     def updates_ras = action =/= RasAction.None
     def lane_valid = prefix & (parcels >= next_offset) & !(ras_used & updates_ras)
-    def parcel_fault = fault.at_parcel(crosses & !first_block.fault.valid())
-    when (lane_valid & fault.valid()):
+    def parcel_fault = fault.at_parcel(crosses & !first_block.fault_value().valid)
+    when (lane_valid & fault.valid):
       assert(parcel_fault.address(pc) === fault.value, "superscalar_assembly_fault_parcel")
 
     included[lane] <== lane_valid
     packet_count := mux(lane_valid, Bits(2)(lane + 1), packet_count)
     used_parcels := mux(lane_valid, next_offset, used_parcels)
-    any_fault := any_fault ||| (lane_valid & fault.valid())
+    any_fault := any_fault ||| (lane_valid & fault.valid)
     any_cut := any_cut ||| (lane_valid & (known ||| fallback))
     tail_lane := mux(lane_valid, Bits(index_width(group_width))(lane), tail_lane)
     ras_lane := mux(lane_valid & updates_ras, Bits(index_width(group_width))(lane), ras_lane)
     ras_used := ras_used ||| (lane_valid & updates_ras)
-    prefix := lane_valid & !fault.valid() & !(known ||| fallback)
+    prefix := lane_valid & !fault.valid & !(known ||| fallback)
     offset := next_offset
     // Fresh direction metadata recognizes a not-taken conditional too; it is not a stale BTB entry.
     known_predictions[lane] <== known ||| bht_branch
     entry_repairs[lane] <== known & !bht_branch & immediate_control_flow & (predicted.target =/= immediate_target)
     target_repairs[lane] <== entry_repairs[lane] ||| (known & returning & (predicted.target =/= return_target))
-    fetched[lane] <== SuperscalarInstruction(xlen, hypervisor):
-      pc: pc
-      instruction: canonical
-      raw_instruction: mux(compressed, raw[0..16].zext(32), raw)
-      sequential_pc: sequential_pc
-      compressed_illegal: !decoded.legal
-      fault: parcel_fault
-      prediction:
-        BranchPrediction(xlen):
-          valid: known ||| fallback
-          pc: pc
-          target: predicted_target
-          compressed: compressed
-          ras_action: action
+    when (lane_valid & !parcel_fault.valid):
+      assert(CompactPc.fits(xlen, pc), "superscalar_instruction_success_pc_fits")
 
+    fetched[lane] <== SuperscalarInstruction(xlen, hypervisor):
+      pc: CompactPc.capture(xlen, pc)
+      instruction: canonical
+      raw_parcel: raw[0..16]
+      step: encode_pc_step(xlen, pc, sequential_pc)
+      compressed_illegal: !decoded.legal
+      outcome: SuperscalarInstructionOutcome.select(xlen, hypervisor, pc, parcel_fault, ~predicted: known ||| fallback, ~target: CompactPc.prediction(xlen, predicted_target))
+      predicted_compressed: compressed
+      predicted_ras_action: action
       speculated_ras_action: mux(Bool(profile.ras_entries > 0), action, RasAction.None)
       direction: direction
 
@@ -332,35 +336,35 @@ sync_circuit SuperscalarInstructionAssembler(profile :: SuperscalarPipelineConfi
     def owner = if index == 0 | first_block | second_block
     def mutable known = Bool(#false)
     for (lane in 0..group_width):
-      known := known ||| (included[lane] & (owner.prediction.pc === fetched[lane].pc) & known_predictions[lane])
+      known := known ||| (included[lane] & (owner.prediction_value().pc === fetched[lane].address()) & known_predictions[lane])
     def visited = if index == 0 | first_present | second_present & uses_second
-    visited & owner.prediction.valid & (owner.prediction.pc >= first_pc) & (owner.prediction.pc < tail_pc) & !known & !owner.fault.valid()
+    visited & owner.prediction_value().valid & (owner.prediction_value().pc >= first_pc) & (owner.prediction_value().pc < tail_pc) & !known & !owner.fault_value().valid
 
   def bad_entry = (bad_entries[0] ||| bad_entries[1]) & !packet_fault
   def selected :: SuperscalarInstruction(xlen, hypervisor) = fetched[tail_lane]
   def fallback = cut & !known_predictions[tail_lane]
   def target_repair = cut & target_repairs[tail_lane]
   def entry_repair = cut & entry_repairs[tail_lane]
-  def repair_entry :: Bits(xlen.width) = priority_mux(~default: second_block.prediction.pc):
-    target_repair: selected.pc
-    bad_entries[0]: first_block.prediction.pc
+  def repair_entry :: Bits(xlen.width) = priority_mux(~default: second_block.prediction_value().pc):
+    target_repair: selected.address()
+    bad_entries[0]: first_block.prediction_value().pc
 
   repair.valid <== advance & (bad_entry ||| fallback ||| target_repair)
   repair.bits <== SuperscalarFetchRepair(xlen):
-    target: mux(cut, selected.prediction.target, tail_pc)
+    target: mux(cut, selected.target(), tail_pc)
     invalidate: bad_entry ||| entry_repair
     entry: repair_entry
-    history: superscalar_history_after(selected.direction, selected.direction.taken)
+    history: superscalar_history_after(selected.direction.history, selected.direction.valid, selected.direction.taken)
 
   // A local repair preserves this edge's accepted prefix; discard its queued
   // suffix on the following edge, not during the transfer that owns the repair.
   repairing <== repair.valid
   discover.valid <== instructions.fire() & fallback & !bad_entry
-  discover.bits <== selected.prediction
+  discover.bits <== selected.prediction_value()
   speculate.valid <== instructions.fire() & Bool(profile.ras_entries > 0) & ras_used
   speculate.bits <== RasUpdate(xlen):
     action: fetched[ras_lane].speculated_ras_action
-    return_address: fetched[ras_lane].sequential_pc
+    return_address: fetched[ras_lane].successor()
 
 
   /* Block credits and causal parents.
@@ -404,27 +408,8 @@ sync_circuit SuperscalarInstructionAssembler(profile :: SuperscalarPipelineConfi
       consumed <== Bits(3)(0)
 
   assert(count <= Bits(2)(3), "superscalar_assembly_capacity")
-  when (blocks.fire()):
-    def offered :: SuperscalarFetchBlock(xlen, hypervisor) = blocks.bits
-    assert(offered.fault.supported(), "superscalar_assembly_supported_fetch_fault")
-    assert(!offered.fault.valid() ||| (offered.fault.value === offered.pc), "superscalar_assembly_fault_address")
-    for (parcel in 0..4):
-      def direction = offered.directions[parcel]
-      def expected_index = offered.directions[0].index[2..12] ++ Bits(2)(parcel)
-      def expected_base = offered.pc[3..13] ++ Bits(2)(parcel)
-      assert(!direction.valid ||| ((direction.index === expected_index) & (direction.base_index === expected_base)), "superscalar_assembly_direction_indices")
-
-    def prefix = offered.prefix_direction
-    def prefix_base = (offered.pc[3..13] - Bits(10)(1)) ++ Bits(2)(3)
-    assert(!prefix.valid ||| ((prefix.index[0..2] === Bits(2)(3)) & (prefix.base_index === prefix_base)), "superscalar_assembly_prefix_indices")
-    def pc_fits = CompactPc.fits(xlen, pc_width, offered.pc)
-    assert(offered.fault.valid() ||| pc_fits, "superscalar_assembly_success_pc_fits")
-    def same_block = offered.prediction.pc.align_down(8) === offered.pc.align_down(8)
-    def previous_prefix = offered.prediction.pc === (offered.pc.align_down(8) - Bits(xlen.width)(2))
-    def prediction_fits = !offered.prediction.pc[0].into(Bool) & (same_block ||| previous_prefix)
-    assert(offered.fault.valid() ||| !offered.prediction.valid ||| prediction_fits, "superscalar_assembly_prediction_owner")
-    assert(offered.fault.valid() ||| !offered.prediction.valid ||| CompactPc.fits(xlen, target_width, offered.prediction.target), "superscalar_assembly_prediction_target")
 
 export:
   SuperscalarFetchBlock
+  fetch_block
   SuperscalarInstructionAssembler

@@ -316,7 +316,7 @@ void retire(retirement_t got, int lane) {
   int rd, rs1, rs2, bytes, length;
   CHECK((phase == 0 || phase >= 4) &&
         got.pfetched.ppc == ((reference_pc)&low_mask(64)) &&
-        got.pfetched.pfault.pkind == 0);
+        got.pfetched.pfault.pvalid == 0);
   raw = instruction_at(reference_pc);
   length = sv_slice(raw, 0, (1) - (0) + 1) == 3 ? 4 : 2;
   if (length == 2) {

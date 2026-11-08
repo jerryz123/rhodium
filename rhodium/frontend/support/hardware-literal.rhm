@@ -1,55 +1,17 @@
 #lang rhombus
-/* Defines host-side typed literal shadows and their generic packed materialization. */
+/* Constructs validated packed literal descriptions; the frontend kernel owns materialization. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../core/ir.rhm" open
   "../kernel.rhm" as kernel
+  "../../../support/hardware-data.rhm".HardwareLiteral
 
 export:
   HardwareLiteral
   PackedLiteral
   packed_literal
   require_hardware_literal
-
-/*
- * A HardwareLiteral is immutable host data describing one exact packed image
- * of a DataType. Extensions may define any number of literal classes for the
- * same hardware type by implementing this protocol.
- */
-interface HardwareLiteral:
-  extends kernel.StaticHardwareValue
-  extends kernel.StableCircuitParam
-  /* Returns the declared packed hardware type of this immutable literal. */
-  method literal_type()
-  /* Returns the nonnegative integer encoding of the complete packed image. */
-  method packed_value()
-  /* Supplies an optional constant name; unnamed literal implementations default to false. */
-  method literal_name(): #false
-  /* Returns the packed width of the declared literal type. */
-  method literal_width(): this.literal_type().packed_width()
-
-  /* Compares literal type, packed value, and optional name for safe generator-specialization reuse. */
-  override method same_stable_circuit_param(other :: kernel.StableCircuitParam):
-    other is_a HardwareLiteral && type_equal(this.literal_type(), other.literal_type()) && this.packed_value() == other.packed_value() && this.literal_name() == other.literal_name()
-
-  /*
-   * Core constants intentionally remain Bits-only. Materializing any literal
-   * therefore creates its canonical packed Bits image and then explicitly
-   * casts that image to the literal's declared type.
-   */
-  override method materialize_hardware(location :: Location):
-    def type = this.literal_type()
-    def value = this.packed_value()
-    def name = this.literal_name()
-    validate_literal_parts(type, value, name, location)
-    def width = type.packed_width()
-    if bits_type(type)
-    | kernel.literal(type, value, name, location)
-    | kernel.cast(kernel.literal(Bits(width), value, #false, location),
-                  type,
-                  name,
-                  location)
 
 /* Rejects ill-formed or unpackable types and integer encodings that exceed their packed width. */
 fun validate_literal_parts(type :: DataType,

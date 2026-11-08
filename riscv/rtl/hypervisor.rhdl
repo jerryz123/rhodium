@@ -7,6 +7,7 @@ import:
   "../isa/trap.rhm" open
   "csr.rhdl" open
   "privilege.rhdl" open
+  "trap.rhdl".ExceptionCause
 
 /* Distinguishes an explicit guest fault from an implicit VS page-table-read fault. */
 hardware_enum RiscvGuestFaultAccess:
@@ -94,19 +95,19 @@ fun virtual_supervisor_csr(address :: Bits(12), virtualized :: Bool) :~ Bits(12)
   mux(virtualized, substituted, address)
 
 /* Resolves exception delegation to M, HS, or VS using the captured execution context and supported cause sets. */
-fun hypervisor_trap_target(context :: RiscvExecutionContext(), cause :: Bits(64),
+fun hypervisor_trap_target(context :: RiscvExecutionContext(), cause :: ExceptionCause,
                            medeleg :: Bits(64), hedeleg :: Bits(64)) :~ RiscvTrapTarget:
   def machine_delegated = mux_lookup(
     cause, ~default: Bool(#false),
     (DelegatableExceptionCauses ++ HypervisorExceptionCauses).map(
-      fun (candidate): [exception_code(candidate), medeleg[exception_code(candidate)].into(Bool)]
+      fun (candidate): [candidate, medeleg[exception_code(candidate)].into(Bool)]
     )
   )
 
   def guest_delegated = mux_lookup(
     cause, ~default: Bool(#false),
     DelegatableExceptionCauses.filter(~keep: fun (candidate): candidate != ExceptionCause.EnvironmentCallFromSupervisor).map(
-      fun (candidate): [exception_code(candidate), hedeleg[exception_code(candidate)].into(Bool)]
+      fun (candidate): [candidate, hedeleg[exception_code(candidate)].into(Bool)]
     )
   )
 

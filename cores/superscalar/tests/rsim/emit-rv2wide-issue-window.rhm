@@ -3,11 +3,11 @@
 import:
   lib("rhodium/frontend/foundation.rhm").elaborate
   lib("riscv/isa/xlen.rhm").XLen
-  "../../issue-window.rhdl".SuperscalarIssueWindow
+  "../issue-window-fixture.rhdl".IssueWindowFixture
 
-def program = elaborate(SuperscalarIssueWindow(~pc_width: 45))
-def guest_program = elaborate(SuperscalarIssueWindow(~hypervisor: #true, ~pc_width: 45))
-def rv32_program = elaborate(SuperscalarIssueWindow(XLen.X32))
-def three_program = elaborate(SuperscalarIssueWindow(~group_width: 3, ~pc_width: 45))
-def three_guest_program = elaborate(SuperscalarIssueWindow(~group_width: 3, ~hypervisor: #true, ~pc_width: 45))
+def program = elaborate(IssueWindowFixture())
+def guest_program = elaborate(IssueWindowFixture(~hypervisor: #true))
+def rv32_program = elaborate(IssueWindowFixture(XLen.X32))
+def three_program = elaborate(IssueWindowFixture(~group_width: 3))
+def three_guest_program = elaborate(IssueWindowFixture(~group_width: 3, ~hypervisor: #true))
 export program guest_program rv32_program three_program three_guest_program

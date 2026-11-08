@@ -126,10 +126,9 @@ fun spike_chi_params(config :: RiscvHartCHIConfig,
  */
 fun spike_chi_address(address :: Bits, p :: CHIFlitParams) :~ Bits(p.request_address_width):
   def width = hardware_value_type(address).packed_width()
-  cond
-  | width < p.request_address_width: address.zext(p.request_address_width)
-  | width == p.request_address_width: address
-  | ~else: address[0..p.request_address_width]
+  if width <= p.request_address_width
+  | address.zext(p.request_address_width)
+  | address[0..p.request_address_width]
 
 /* Check that address bits above the CHI request width are zero. */
 fun spike_chi_address_fits(address :: Bits, p :: CHIFlitParams) :~ Bool:

@@ -111,7 +111,7 @@ sync_circuit CacheDataSnoop(address_width :: PosInt,
      Hand off every dirty packet before invalidation; clean state changes also wait for transfer. */
 
   def packet_data = line.as_bits().as_vec(Bits(p.data_width))[packet_index]
-  def packet_beat = if packet_index_width == 2 | packet_index | packet_index.zext(2)
+  def packet_beat = packet_index.zext(2)
   def packet_data_id = chi_transfer_data_id(packet_beat, p)
   def dirty_response:
     CHICoherentResponse():

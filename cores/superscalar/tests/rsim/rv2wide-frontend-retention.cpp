@@ -93,10 +93,10 @@ void run_prefix(std::uint64_t pc, std::uint64_t target, bool replay, bool fault)
     const auto instruction = instructions_out.pbits.pentries[0];
     CHECK(instructions_out.pbits.pcount == 1 && instruction.ppc == pc);
     if (fault) {
-      CHECK(instruction.pfault.pkind == 3 && parcel_fault_address(instruction) == std::uint64_t(pc + 2));
+      CHECK(instruction.pfault.pvalid && instruction.pfault.pcause == 12 && parcel_fault_address(instruction) == std::uint64_t(pc + 2));
       CHECK(!instruction.pprediction.pvalid);
     } else {
-      CHECK(instruction.pfault.pkind == 0 && instruction.praw_uinstruction == 0x00010067);
+      CHECK(instruction.pfault.pvalid == 0 && instruction.praw_uinstruction == 0x00010067);
       CHECK(instruction.pprediction.pvalid && instruction.pprediction.ppc == pc &&
             instruction.pprediction.ptarget == target && !instruction.pprediction.pcompressed &&
             instruction.pprediction.pras_uaction == 0);
@@ -112,16 +112,16 @@ void run_prefix(std::uint64_t pc, std::uint64_t target, bool replay, bool fault)
 
 int main() {
   return run_test([] {
-    for (auto pc : {UINT64_C(0x1ffe), UINT64_C(0xfffff00000000ffe), UINT64_MAX - 1})
-      for (auto target : {UINT64_C(0x00000ffffffff800), UINT64_C(0xfffff00000000800)})
+    for (auto pc : {UINT64_C(0x1ffe), UINT64_C(0xffffffc000000ffe), UINT64_MAX - 1})
+      for (auto target : {UINT64_C(0x0000003ffffff800), UINT64_C(0xffffffc000000800)})
         for (bool replay : {false, true}) run_prefix(pc, target, replay, false);
     // Crossing the positive compact limit faults at the exact, nonrepresentable continuation PC.
-    run_prefix(UINT64_C(0x00000ffffffffffe), 0x800, false, true);
+    run_prefix(UINT64_C(0x0000003ffffffffe), 0x800, false, true);
     run_prefix(UINT64_MAX - 1, 0x800, false, true);
 
-    // Architectural redirects and their independent fault tokens retain all XLEN bits.
+    // A canonical redirected address can still have an independent translation fault.
     initialize(0x106, 0x800, false, false);
-    fault_pc = UINT64_C(0x123456789abc0200);
+    fault_pc = UINT64_C(0xffffffc012340200);
     inject_fault = true;
     redirect_in = {1, {prefix_pc, fault_pc, {0, 0, 0, {}}}};
     virtual_lookup_in.pready = 1;
@@ -134,7 +134,7 @@ int main() {
     for (unsigned i = 0; i < 4; ++i) {
       const auto instruction = instructions_out.pbits.pentries[0];
       CHECK(instruction.ppc == fault_pc && parcel_fault_address(instruction) == fault_pc &&
-            instruction.pfault.pkind == 3 && !instruction.pprediction.pvalid);
+            instruction.pfault.pvalid && instruction.pfault.pcause == 12 && !instruction.pprediction.pvalid);
       cycle();
     }
   });

@@ -21,10 +21,7 @@ fun raw_float_from_integer(signed_input :: Bool,
   def extended_integer_width = 1 << (exponent_width - 1)
   def sign = signed_input & input[integer_width - 1].into(Bool)
   def magnitude = mux(sign, -input, input)
-  def extended_magnitude:
-    if integer_width == extended_integer_width
-    | magnitude
-    | magnitude.zext(extended_integer_width)
+  def extended_magnitude = magnitude.zext(extended_integer_width)
 
   def normalization_distance = extended_magnitude.count_leading_zeros()
   def normalized = extended_magnitude << normalization_distance

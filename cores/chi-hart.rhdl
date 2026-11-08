@@ -8,6 +8,7 @@ import:
   lib("chi/protocol/link.rhdl") open
   lib("chi/protocol/fabric.rhdl") open
   lib("riscv/rtl/pma.rhdl") open
+  lib("riscv/isa/xlen.rhm").XLen
 
 /* Associate one physical-memory attribute region with its CHI Home endpoint. */
 class RiscvHartCHIRegion(physical :: RiscvPhysicalMemoryRegion,
@@ -36,6 +37,15 @@ class RiscvHartCHIConfig(flit :: CHIFlitParams,
     ).map(fun (region): region.physical.address_set)
 
   property has_uncached: uncached_address_sets.length() > 0
+
+  /* Validates Bare executable regions against the fixed PC domain without
+     restricting data-only regions or the CHI transport width. */
+  method check_compact_fetch(xlen :: XLen):
+    def limit = 2 ** (if xlen == XLen.X32 | 32 | 38)
+    for (region in regions):
+      def addresses = region.physical.address_set
+      unless (!region.physical.attributes.executable) || (addresses.base bits.or addresses.mask) < limit
+      | error(~who: #'RiscvHartCHIConfig, "executable physical addresses must fit the compact Bare PC domain (RV64 below 2^38; RV32 below 2^32)")
 
   /*
    * Require coherent/cacheability consistency, idempotent executable reads, atomic

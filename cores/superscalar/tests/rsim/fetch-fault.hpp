@@ -2,16 +2,6 @@
 #pragma once
 #include <cstdint>
 
-constexpr unsigned fetch_kind(unsigned cause) {
-  switch (cause) {
-  case 0: return 1;
-  case 1: return 2;
-  case 12: return 3;
-  case 20: return 4;
-  default: return 7;
-  }
-}
-
 template <class Fault>
 void set_fetch_guest(Fault &fault, bool valid, std::uint64_t address, unsigned access) {
   if constexpr (requires { fault.pguest; })

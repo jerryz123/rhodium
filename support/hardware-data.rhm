@@ -1,0 +1,81 @@
+#lang rhombus
+/* Defines immutable hardware-data descriptions without IR or elaboration dependencies. */
+// SPDX-License-Identifier: Apache-2.0
+
+export:
+  HardwareType
+  DataType
+  ScalarDataType
+  HardwareEntity
+  StableCircuitParam
+  HardwareLiteral
+  FiniteEnumType
+  MuxLookupKey
+  MuxLookupSelectorType
+  OneHotSelectorType
+
+/* Describes a type's identity and optional packed representation as ordinary host data. */
+interface HardwareType:
+  /* Returns a diagnostic description. */
+  method describe()
+  /* Compares the receiver with another type descriptor. */
+  method type_equal(other :: HardwareType)
+  /* Returns a positive packed width, or false for opaque types. */
+  method packed_width()
+
+/* Marks data descriptors that can occupy aggregates and registers. */
+interface DataType:
+  extends HardwareType
+
+/* Distinguishes leaf data from aggregate descriptions. */
+interface ScalarDataType:
+  extends DataType
+
+/* Marks values accepted by a hardware authoring consumer, including immutable literals. */
+interface HardwareEntity
+
+/* Supplies semantic equality for immutable generator parameters. */
+interface StableCircuitParam:
+  /* Defaults to ordinary host equality; consumers require symmetric comparison. */
+  method same_stable_circuit_param(other :: StableCircuitParam) :: Boolean:
+    this == other
+
+/* Describes a packed constant without allocating IR or requiring an elaboration context. */
+interface HardwareLiteral:
+  extends HardwareEntity
+  extends StableCircuitParam
+  /* Returns the constant's nominal or structural data descriptor. */
+  method literal_type()
+  /* Returns its nonnegative packed integer. */
+  method packed_value()
+  /* Optionally names a materialized constant. */
+  method literal_name(): #false
+  /* Returns the descriptor's packed width. */
+  method literal_width(): this.literal_type().packed_width()
+  /* Compares type, packed value, and optional name without elaboration. */
+  override method same_stable_circuit_param(other :: StableCircuitParam):
+    other is_a HardwareLiteral && this.literal_type().type_equal(other.literal_type()) && other.literal_type().type_equal(this.literal_type()) && this.packed_value() == other.packed_value() && this.literal_name() == other.literal_name()
+
+/* Exposes the complete legal encoding set of a finite enum descriptor. */
+interface FiniteEnumType:
+  /* Returns encodings in declaration order. */
+  method enum_encodings()
+
+/* Identifies a typed constant that can select a keyed alternative. */
+interface MuxLookupKey:
+  extends HardwareLiteral
+  /* Returns the key's nominal descriptor. */
+  method mux_lookup_key_type(): this.literal_type()
+  /* Returns the key's packed integer. */
+  method mux_lookup_key_encoding(): this.packed_value()
+
+/* Lets a selector descriptor validate and normalize its keys. */
+interface MuxLookupSelectorType:
+  /* Rejects keys outside the selector's type and returns the packed encoding. */
+  method normalize_mux_lookup_key(key :: MuxLookupKey || Nat)
+
+/* Describes a selector whose packed bits directly select independent lanes. */
+interface OneHotSelectorType:
+  extends MuxLookupSelectorType
+  /* Returns the selector lane count. */
+  method one_hot_selector_width()

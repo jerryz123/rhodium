@@ -20,6 +20,9 @@ Define hardware-only encoded choices directly with `hardware_enum`; do not add
 a matching host enum and an enum-to-integer function solely to initialize it.
 Keep pure host encodings when architectural models or tools consume them, such
 as CSR addresses, trap/interrupt masks, MISA bits, and vector configuration.
+For shared encoded enums, declare `hardware_enum` in the pure catalog using
+`support/hardware-enum.rhm` and import the same descriptor into RTL.
+`ExceptionCause` is shared this way; do not recreate a parallel hardware enum.
 Reusable mappings from instruction catalogs to shared processor components
 belong beside their components in `cores/`; complete instruction selection, register files,
 privilege-state storage, scheduling, execution composition, and retirement
@@ -75,7 +78,9 @@ implementation.
 The `riscv-control-policy` fixture checks M/S destination-first interrupt
 arbitration for RV32/RV64, per-cause enables and privilege gates, and ELEN32/64
 vtype normalization. It also covers every load/store, page, and guest-page
-combination for `data_fault_cause` at both widths. Named-core tests retain
+combination for `data_fault_cause`, including architectural packing at both XLENs.
+Shared CSR tests check every exception enum encoding and the typed synchronous
+versus raw architectural cause boundary. Named-core tests retain
 coverage of caller-specific fault qualification and retirement ordering.
 Pair it with `riscv/tests/vector-test.rhm` for host geometry
 changes and `riscv-hypervisor-csr` when interrupt selection changes.

@@ -64,7 +64,7 @@ fun expansion_source_bits(source :: ExpansionValueSource,
       Bits(width)(source.value)
   | source is_a FieldExpansionValue:
       def field_value = instruction_field(source.field, compressed.zext(32))
-      def extended = if source.field.width == width | field_value | field_value.zext(width)
+      def extended = field_value.zext(width)
       extended + Bits(width)(source.addend)
   | ~else:
       error(~who: #'expansion_source_bits,
@@ -76,7 +76,7 @@ fun scatter_immediate_bits(layout :: ImmediateLayout,
   def mutable result = Bits(32)(0)
   for (piece in layout.pieces):
     def fragment = value[piece.output_low..(piece.output_high + 1)]
-    def extended = if fragment.type.width == 32 | fragment | fragment.zext(32)
+    def extended = fragment.zext(32)
     result := result ||| (extended << piece.source.low)
 
   result

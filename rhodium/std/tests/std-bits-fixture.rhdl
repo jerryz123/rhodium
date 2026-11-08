@@ -18,7 +18,7 @@ circuit WrapIncrementFixture():
     def width = wrap_cases[position][0]
     def capacity = wrap_cases[position][1]
     def stepped = wrap_increment(index[0..width], capacity)
-    small_next[position] <== if width == 16 | stepped | stepped.zext(16)
+    small_next[position] <== stepped.zext(16)
 
   next_65 <== wrap_increment(index[0..65], (1 << 64) + 1)
   next_129 <== wrap_increment(index, (1 << 128) + 1)
@@ -43,8 +43,8 @@ circuit SaturatingStepFixture():
     def limit = saturation_cases[position][1]
     def inc = saturating_increment(value[0..width], limit)
     def dec = saturating_decrement(value[0..width])
-    increased[position] <== if width == 16 | inc | inc.zext(16)
-    decreased[position] <== if width == 16 | dec | dec.zext(16)
+    increased[position] <== inc.zext(16)
+    decreased[position] <== dec.zext(16)
 
   inc_65 <== saturating_increment(value[0..65], 1 << 64)
   dec_65 <== saturating_decrement(value[0..65])

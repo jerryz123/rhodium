@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/rtl/trap.rhdl").ExceptionCause
   lib("cores/fp/profile.rhm").fp_transport_profile
   lib("cores/integer-execution.rhdl") open
   lib("cores/register-write.rhdl") open
@@ -269,7 +270,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
     s1_simd_multiply: Bits(4)(2 + SimdMultiplyAccumulateStages)
     s1_packed_load: Bits(4)(3)
     s1_control.memory: Bits(4)(4)
-  def s1_calendar_delay = if calendar_width == 4 | s1_write_delay | s1_write_delay.zext(calendar_width)
+  def s1_calendar_delay = s1_write_delay.zext(calendar_width)
   def s1_next_slot = if vector_completion_slots == 1 | Bits(tag_width)(0) | allocate_slot + operand_fetch.scheduled_return.as_bits().zext(tag_width)
   def s1_fault_only_first = s1_control.memory & (s1_control.memory_mode === VectorMemoryMode.FaultOnlyFirst)
   def s1_slot_available = !allocated[s1_next_slot] & (Bool(vector_completion_slots != 1) ||| !operand_fetch.scheduled_return) & (!s1_fault_only_first ||| (!allocated.as_bits().any() & !operand_fetch.scheduled_return))
@@ -629,7 +630,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
     first: operation.beat.first
     end: operation.beat.end
     disposition: VectorDisposition.Authorized
-    cause: Bits(xlen.width)(0)
+    cause: dont_care(ExceptionCause)
     fault_address: Bits(xlen.width)(0)
     last: operation.beat.last
     compress_state: operation.beat.compress_state
@@ -644,7 +645,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
     first: operation.beat.first
     end: operation.beat.end
     disposition: VectorDisposition.Authorized
-    cause: Bits(xlen.width)(0)
+    cause: dont_care(ExceptionCause)
     fault_address: Bits(xlen.width)(0)
     last: Bool(#false)
     compress_state: operation.beat.compress_state

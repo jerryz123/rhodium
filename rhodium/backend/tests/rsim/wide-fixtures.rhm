@@ -125,7 +125,7 @@ fun make_wide(width :: PosInt):
      ["equal", b.eq(top, a, z)], ["selected", selected],
      ["low", b.trunc(top, a, 63)], ["high", b.extract(top, a, width - 1, width - 64)],
      ["cross", b.extract(top, a, 31 + cross_width - 1, 31)],
-     ["zero", if width == 64 | narrow | b.zext(top, narrow, width)],
+     ["zero", b.zext(top, narrow, width)],
      ["sign", if width == 64 | narrow | b.sext(top, b.cast(top, narrow, Signed(64)), width)],
      ["small_sign", b.sext(top, b.cast(top, small, Signed(5)), width)],
      ["grown", b.zext(top, a, width + 33)],

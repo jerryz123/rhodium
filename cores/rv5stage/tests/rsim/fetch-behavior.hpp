@@ -49,9 +49,9 @@ int stalled_requests;
 
 std::uint64_t held_request_address;
 
-// Five adjacent faulting words spanning two different upper-PC patterns.
-constexpr std::uint64_t fault_run = UINT64_C(0x5a5a1ffffffffff8);
-constexpr std::uint64_t bare_limit = UINT64_C(1) << 44;
+// Canonical faulting words preserve their sign without an upper-PC escape field.
+constexpr std::uint64_t fault_run = UINT64_C(0xffffffc000002000);
+constexpr std::uint64_t bare_limit = UINT64_C(1) << 38;
 
 std::uint32_t word_at(std::uint64_t address) {
   switch (address) {

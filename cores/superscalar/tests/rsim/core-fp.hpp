@@ -14,7 +14,7 @@ int cycles = 0, commits = 0, expected_traps = 0, traps = 0, fp_pairs = 0, redire
 std::map<std::uint64_t, int> memory_cycles;
 std::map<std::uint64_t, std::uint32_t> submitted_instructions;
 std::array<std::uint64_t, 32> gprs{};
-std::uint64_t next_pc = xlen == 32 ? 0x8000 : UINT64_C(0xfffff00000008000), load_data = xlen == 32 ? 0x40400000 : 0x4008000000000000, stored_data = 0,
+std::uint64_t next_pc = xlen == 32 ? 0x8000 : UINT64_C(0xffffffc000008000), load_data = xlen == 32 ? 0x40400000 : 0x4008000000000000, stored_data = 0,
               inject_pc = 0;
 unsigned stored_mask = 0, stored_width = 0, expected_locality = 0;
 int stores = 0, response_due = 0, split_due = 0, split_count = 0;
@@ -93,7 +93,7 @@ void observe() {
     }
   if (completed_out.pvalid) {
     const auto &identity = completed_out.pbits.pidentity;
-    CHECK(submitted_instructions.at(identity.ppc) == identity.praw_uinstruction);
+    CHECK(submitted_instructions.at(xlen == 32 ? identity.ppc : completion_pc(identity.ppc, 39)) == identity.praw_uinstruction);
     if (completed_out.pbits.pwrite)
       gprs[completed_out.pbits.prd] = completed_out.pbits.pdata;
   }

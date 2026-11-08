@@ -6,6 +6,8 @@ import:
   rhombus as host
   rhombus/meta.reducer
   "../../support/annotations.rhm" open
+  "../../support/hardware-data.rhm".StableCircuitParam
+  "../../support/hardware-data.rhm".HardwareLiteral
   "../core/ir.rhm" open
   "../core/signature.rhm" open
   "../core/builder.rhm" open
@@ -105,15 +107,6 @@ export:
   switch_chain
   read
   frontend_fail
-
-/*
- * Opts an immutable host value into circuit specialization reuse. Ordinary
- * equality is the default; implementations may supply semantic equality.
- */
-interface StableCircuitParam:
-  /* Supplies semantic host equality for specialization reuse; the default uses ordinary equality. */
-  method same_stable_circuit_param(other :: StableCircuitParam) :: Boolean:
-    this == other
 
 /* Exposes signature-bearing references independently of concrete implementations. */
 interface CircuitDefinition:
@@ -467,10 +460,22 @@ fun active_module(location :: Location = Location()):
 fun fresh_name(base :: String, location :: Location = Location()):
   require_context(location).allocate_symbol(base)
 
-/* Materializes deferred descriptions, reads places, and selects registers' current values; rejects unreadable entities. */
+/* Materializes pure literals and deferred descriptions, reads places, and selects registers' current values. */
 fun read(entity :~ HardwareEntity, location :: Location = Location()):
   def context = require_context(location)
   cond
+  | entity is_a HardwareLiteral:
+      def type = entity.literal_type()
+      def value = entity.packed_value()
+      unless type is_a DataType && type_well_formed(type) && type.packed_width() is_a PosInt
+      | frontend_fail("hardware literal type must be a well-formed packed DataType", location)
+
+      unless value is_a Nat && bits.length(value) <= type.packed_width()
+      | frontend_fail("hardware literal packed value does not fit its type", location)
+
+      if bits_type(type)
+      | literal(type, value, entity.literal_name(), location)
+      | cast(literal(Bits(type.packed_width()), value, #false, location), type, entity.literal_name(), location)
   | entity is_a DeferredHardwareValue:
       entity.materialize_hardware(location)
   | entity is_a Value: entity
@@ -544,7 +549,7 @@ fun build_circuit(identity :: CircuitIdentity,
                   location :: Location = Location()):
   def context = require_context(location)
   for (argument in arguments, index in 0..arguments.length()):
-    when argument is_a HardwareEntity && !(argument is_a StaticHardwareValue)
+    when argument is_a HardwareEntity && !(argument is_a StaticHardwareValue) && !(argument is_a HardwareLiteral)
     | frontend_fail("circuit parameter " ++ to_string(index) ++ " must be a host value, not live hardware", location)
 
   def reusable = for all (argument in arguments): stable_circuit_param_value(argument)

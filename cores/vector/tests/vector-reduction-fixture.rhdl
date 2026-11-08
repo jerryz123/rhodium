@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/rtl/trap.rhdl").ExceptionCause
   lib("cores/register-write.rhdl") open
   "../../../riscv/isa/vector-profile.rhm" open
   "../pipeline.rhdl" open
@@ -75,7 +76,7 @@ sync_circuit VectorReductionFixture(xlen :: XLen, vlen :: VectorLength):
     disposition: VectorDisposition.Authorized
     slow: Bool(#false)
     data: load_data
-    cause: Bits(xlen.width)(0)
+    cause: dont_care(ExceptionCause)
     fault_address: Bits(xlen.width)(0)
 
   vector.completion.valid <== Bool(#false)

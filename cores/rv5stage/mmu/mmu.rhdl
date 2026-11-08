@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/pc.rhdl").CompactPc
   lib("riscv/isa/hart.rhm").RiscvMmuType
   lib("cores/mmu/vector.rhdl") open
   lib("cores/mmu/context.rhdl").riscv_translation_lookup
@@ -158,7 +159,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
 
   def instruction_head = instruction_s1.egress
   def instruction_address = instruction_head.bits.address
-  def instruction_virtual_address = if xlen == XLen.X32 | instruction_address.zext(64) | instruction_address
+  def instruction_virtual_address = instruction_address.zext(64)
   // One accepted S0 request atomically launches the virtual lookup and
   // captures the MMU's S1 context. The frontend retains its own occurrence.
   def Array(instruction_lookup_request, instruction_admission) = instruction.request |> atomic_fork(2)
@@ -178,10 +179,10 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def data_request :: PhysicalMemoryReq(xlen, RV5StageMemoryContext(vector_completion_slots)) = mux(split_busy, misaligned.request.bits, incoming_request)
   def data_memory_operation = data_request.access
   def data_fault_address = mux(split_busy, misaligned.fault_address, data_request.address)
-  def data_virtual_address = if xlen == XLen.X32 | data_fault_address.zext(64) | data_fault_address
+  def data_virtual_address = data_fault_address.zext(64)
   def split_candidate = data.request.valid & !split_busy & incoming_request.access.is_one_of(CacheOperation.Load, CacheOperation.Store) & !incoming_request.width.is_aligned(incoming_request.address)
   def data_demand = misaligned.request.valid ||| (data.request.valid & !split_busy & !split_candidate)
-  def data_vector = data_request.context.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).Vector).into(Bool)
+  def data_vector = data_request.context.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).Vector)
   def data_physical = mux(split_busy, split_physical, data_vector & vector_fast.request_physical)
   def data_window = vector_window.owned & data_vector & !data_physical & !split_candidate & !split_busy
   def data_pinned = data_window ||| data_physical
@@ -195,7 +196,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   itlb.invalidate_all <== invalidate_all
   // Authorized WB requests own the DTLB on contention. Younger MEM loads then
   // fall back instead of observing a translation belonging to another token.
-  def load_virtual_address = if xlen == XLen.X32 | load_request.egress.bits.address.zext(64) | load_request.egress.bits.address
+  def load_virtual_address = load_request.egress.bits.address.zext(64)
   vector_window.addresses <== vec([data_virtual_address, load_virtual_address])
   def load_window = vector_window.owned & pipeline_owner.bits & !physical_owner.bits
   def load_pinned = load_window ||| physical_owner.bits
@@ -238,7 +239,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   prefetch |> virtual_prefetch_pipe.ingress
 
   def prefetch_request = virtual_prefetch_pipe.egress.bits.into(CachePrefetchReq(width))
-  def prefetch_virtual_address = if xlen == XLen.X32 | prefetch_request.address.zext(64) | prefetch_request.address
+  def prefetch_virtual_address = prefetch_request.address.zext(64)
   def normal_data_translation_enabled = (satp_sv39 & (normal_data_privilege =/= PrivilegeMode.Machine)) ||| normal_data_guest
   def probe = lookup(prefetch_virtual_address, Sv39Access.Load, normal_data_privilege, normal_data_translation_enabled & !normal_data_guest, normal_data_guest)
   itlb.probe <== probe
@@ -444,7 +445,10 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def instruction_physical = physical_map.lookup(instruction_physical_address, instruction_physical_address +& Bits(width)(3))
   def instruction_has_physical_address = !instruction_translation_enabled ||| itlb.hit
   def instruction_attributes = resolve_memory_attributes(instruction_physical, itlb_result.pbmt)
-  def instruction_access_fault = instruction_walk_access_fault ||| (instruction_has_physical_address & !instruction_page_fault & !instruction_physical.executable)
+  // A successful translation, including guest-Bare, must not authorize a PC
+  // which the instruction pipeline cannot retain exactly. Faults keep the VA.
+  def instruction_pc_fits = CompactPc.fits(xlen, instruction_address)
+  def instruction_access_fault = instruction_walk_access_fault ||| (instruction_has_physical_address & !instruction_page_fault & (!instruction_physical.executable ||| !instruction_pc_fits))
   def instruction_local_fault = instruction_page_fault ||| instruction_access_fault
 
 
@@ -579,7 +583,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def walker_memory_request_fire = walker_memory.request.fire()
   // The shared walker retains canceled PTE ownership until the reply drains.
   walker_memory.response |> to_valid()
-    |> map_valid(response => if xlen == XLen.X32 | response.data.zext(64) | response.data)
+    |> map_valid(response => response.data.zext(64))
     |> walker.memory.response
 
   def Array(ordinary_responses, split_responses) = core_memory.response |> demux_flow(2, _response => split_busy.as_bits())

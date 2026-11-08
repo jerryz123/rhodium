@@ -202,8 +202,8 @@ check:
   bit_builder.extract(bit_top, bit_source, 5, 0) ~throws "extract indices"
   bit_builder.extract(bit_top, bit_source, 1, 2) ~throws "extract indices"
   bit_builder.trunc(bit_top, bit_source, 5) ~throws "smaller"
-  bit_builder.zext(bit_top, bit_source, 5) ~throws "larger"
-  bit_builder.sext(bit_top, bit_source, 8) ~throws "SignedArithmeticType"
+  bit_builder.zext(bit_top, bit_source, 4) ~throws "at least"
+  bit_builder.sext(bit_top, bit_source, 4) ~throws "at least"
 
 
 // Dynamic operators preserve structural port types and source graph isolation.

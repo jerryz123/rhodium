@@ -4,12 +4,11 @@
 
 import:
   "../../riscv/isa/xlen.rhm" open
-  "../pc.rhdl" open
 
 /* Canonicalizes only a speculative destination before both fetch steering and
    prediction capture. Architectural targets and exception addresses must not use this. */
 fun prediction_target(xlen :: XLen, target_width :: PosInt, address :: Bits(xlen.width)) :~ Bits(xlen.width):
-  CompactPc.prediction(xlen, target_width, address).expanded()
+  address[0..target_width].sext(xlen.width)
 
 /* Trains a saved direction-table address independently of the caller's current history. */
 bundle BhtUpdate(row_bits :: PosInt):
@@ -58,13 +57,22 @@ bundle RasResolution(xlen :: XLen):
   actual: RasUpdate(xlen)
   predicted_action: RasAction
 
-/* Names a predicted control-flow instruction, target, length, and implicit stack action. */
-bundle BranchPrediction(xlen :: XLen):
+/* Names a predicted control-flow instruction and target without expanding
+   either address in retained transport records. Full addresses are scalar views. */
+bundle BranchPrediction(xlen :: XLen, width :: Int.in(1, xlen.width) = xlen.width):
   valid: Bool
-  pc: Bits(xlen.width)
-  target: Bits(xlen.width)
+  pc: Bits(width)
+  target: Bits(width)
   compressed: Bool
   ras_action: RasAction
+
+  /* Restores the exact admitted source PC using sign wiring only. */
+  method address(prediction) :: Bits(xlen.width):
+    prediction.pc.sext(xlen.width)
+
+  /* Restores the normalized speculative destination using sign wiring only. */
+  method destination(prediction) :: Bits(xlen.width):
+    prediction.target.sext(xlen.width)
 
 /* Carries a caller-qualified resolved control-flow outcome for BTB training and RAS recovery. */
 bundle BranchUpdate(xlen :: XLen):

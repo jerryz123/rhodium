@@ -127,7 +127,7 @@ fun forwarded_operand(xlen :: XLen, hypervisor :: Boolean, address :: Bits(5), s
   for (producer in producers):
     def token :: SuperscalarResult(xlen, hypervisor) = producer.bits
     def matched = producer.valid & token.write & (token.rd === address)
-    value := mux(matched, token.data, value)
+    value := mux(matched, token.resolution.value, value)
     blocked := mux(matched, (token.resolution.disposition =/= SuperscalarDisposition.Continue) ||| !token.result_ready, blocked)
 
   SuperscalarOperand(xlen):

@@ -1,0 +1,47 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../hardware-enum.rhm".hardware_enum
+  "hardware-enum-fixture.rhm" open
+
+fun encoding(value :: Command): value.packed_value()
+
+check:
+  Command.names() ~is ["Idle", "Load", "Store"]
+  Command.values().map(encoding) ~is [0, 8, 3]
+  Command.Load is_a Command ~is #true
+  Other.Load is_a Command ~is #false
+  Command.Load == Command.values()[1] ~is #true
+  Command.Load == Other.Load ~is #false
+  {Command.Load, Command.values()[1]}.length() ~is 1
+  {Command.Load: 17}[Command.values()[1]] ~is 17
+  Command.packed_width() ~is 4
+  State.packed_width() ~is 5
+  State.values().map(fun (value): value.packed_value()) ~is [0, 1]
+  Priority.values().map(fun (value): value.packed_value()) ~is [1, 2, 4]
+  Priority.packed_width() ~is 3
+  encoding(Other.Load) ~throws "Command"
+
+fun duplicate():
+  hardware_enum Bad:
+    First = 1
+    Second = 1
+
+  Bad
+
+fun negative():
+  hardware_enum Bad:
+    First = -1
+
+  Bad
+
+fun narrow():
+  hardware_enum Bad(~width: 2):
+    First = 4
+
+  Bad
+
+check:
+  duplicate() ~throws "encodings must be unique"
+  negative() ~throws "specifications"
+  narrow() ~throws "does not fit"

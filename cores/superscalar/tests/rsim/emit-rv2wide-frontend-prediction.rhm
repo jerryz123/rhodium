@@ -3,11 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   lib("rhodium/frontend/foundation.rhm").elaborate
-  "../../frontend.rhdl".SuperscalarFrontend
+  "../frontend-fixture.rhdl".FrontendFixture
   "../cache-fixture.rhdl".test_chi
   "../../profile.rhm".SuperscalarPipelineConfig
 
-def program = elaborate(SuperscalarFrontend(test_chi, SuperscalarPipelineConfig(~bht: #false)))
-def guest_program = elaborate(SuperscalarFrontend(test_chi, SuperscalarPipelineConfig(~bht: #false, ~hypervisor: #true)))
-def three_program = elaborate(SuperscalarFrontend(test_chi, SuperscalarPipelineConfig(~bht: #false), ~group_width: 3))
+def program = elaborate(FrontendFixture(test_chi, SuperscalarPipelineConfig(~bht: #false)))
+def guest_program = elaborate(FrontendFixture(test_chi, SuperscalarPipelineConfig(~bht: #false, ~hypervisor: #true)))
+def three_program = elaborate(FrontendFixture(test_chi, SuperscalarPipelineConfig(~bht: #false), ~group_width: 3))
 export program guest_program three_program

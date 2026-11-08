@@ -100,6 +100,12 @@ become a false positive.
 
 ## Implementation map
 
+The `HardwareType`/`DataType`/`ScalarDataType` and `HardwareEntity` protocol
+identities live in pure [`support/hardware-data.rhm`](../../support/hardware-data.rhm)
+and are reexported by core. This permits enum catalogs to construct the same
+immutable descriptors used in IR without importing core or frontend. Core still
+owns structural types, validation, arithmetic capabilities, and all operations.
+
 | File | Owns | Focused evidence |
 |---|---|---|
 | [`types.rhm`](types.rhm) | Open type capabilities, built-in types, equality, packing, and selector widths | [`types-test.rhm`](../../rhodium/core/tests/types-test.rhm), [`signed-test.rhm`](../../rhodium/core/tests/signed-test.rhm), [`shift-test.rhm`](../../rhodium/core/tests/shift-test.rhm) |

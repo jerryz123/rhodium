@@ -1,13 +1,12 @@
 #lang rhombus
-/* Defines shared nominal variant schemas, tag enums, and encoded member values. */
+/* Defines immutable nominal variant schemas, enum descriptors, and member constants for host and RTL use. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus.bits.(<<) as <<
-  "../../../support/annotations.rhm" open
-  "../../core/ir.rhm" open
-  "finite-enum.rhm".FiniteEnumType
-  "mux-lookup.rhm" as mux_support
+  "annotations.rhm" open
+  "hardware-data.rhm" open
+  "hardware-data.rhm" as mux_support
 
 export:
   VariantIdentity
@@ -52,7 +51,7 @@ fun payload_type_equal(left :: maybe(DataType),
                        right :: maybe(DataType)):
   if !left || !right
   | left == #false && right == #false
-  | type_equal(left, right)
+  | left.type_equal(right) && right.type_equal(left)
 
 /*
  * Declaration identity is nominal, while the realized member payloads remain
@@ -285,6 +284,13 @@ class EnumValue(type :: EnumType || OneHotEnumType,
                 member_name :: String,
                 encoding :: Nat):
   implements mux_support.MuxLookupKey
+  implements Equatable
+  /* Compares host members by declaration identity and encoding, not schema shape. */
+  override method equals(other :: EnumValue, _recur :: Function):
+    type.identity === other.type.identity && encoding == other.encoding
+  /* Keeps host map/set keys consistent with nominal equality. */
+  override method hash_code(recur :: Function):
+    Equatable.hash_code_combine(Equatable.identity_hash(type.identity), recur(encoding))
   /* Returns this member's nominal enum type. */
   override method literal_type(): type
   /* Returns this member's integer encoding. */

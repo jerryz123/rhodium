@@ -1,0 +1,97 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../bundles.rhdl" open
+  lib("cores/bpred/protocol.rhdl") open
+  lib("cores/pc.rhdl") open
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("flow/main.rhdl") open
+
+// Independent full-address stimulus and observation shape, never a production transport.
+bundle InstructionObservation(xlen :: XLen, hypervisor :: Boolean):
+  pc: Bits(xlen.width)
+  instruction: Bits(32)
+  raw_instruction: Bits(32)
+  sequential_pc: Bits(xlen.width)
+  compressed_illegal: Bool
+  fault: SuperscalarFetchFault(xlen, hypervisor)
+  prediction: BranchPrediction(xlen, xlen.width)
+  speculated_ras_action: RasAction
+  direction: TournamentPrediction(10)
+
+
+  method captured(token, accepted :: Bool) :: SuperscalarInstruction(xlen, hypervisor):
+    when accepted:
+      assert(token.raw_instruction === superscalar_raw_instruction(token.instruction, token.raw_instruction[0..16]), "superscalar_window_raw_encoding")
+      assert(token.sequential_pc.is_one_of(token.pc + Bits(xlen.width)(2), token.pc + Bits(xlen.width)(4)), "superscalar_window_instruction_length")
+      assert(!token.prediction.valid ||| (token.prediction.pc === token.pc), "superscalar_window_prediction_pc")
+      assert(!token.prediction.valid ||| CompactPc.fits(xlen, token.prediction.target), "superscalar_window_prediction_target")
+      assert(!token.direction.valid ||| ((token.direction.index[0..2] === token.pc[1..3]) & (token.direction.base_index === token.pc[1..13])), "superscalar_window_direction_indices")
+      assert(token.fault.supported(), "superscalar_supported_fetch_fault")
+      assert(!token.fault.valid ||| !token.prediction.valid, "superscalar_fault_does_not_predict")
+      def pc_fits = CompactPc.fits(xlen, token.pc)
+      assert(token.fault.valid ||| pc_fits, "superscalar_window_success_pc_fits")
+
+    def checkpoint = SuperscalarDirectionCheckpoint():
+      row: token.direction.index[2..12]
+      history: token.direction.history
+      valid: token.direction.valid
+      taken: token.direction.taken
+      base_taken: token.direction.base_taken
+      gshare_taken: token.direction.gshare_taken
+
+    SuperscalarInstruction(xlen, hypervisor):
+      pc: CompactPc.capture(xlen, token.pc)
+      instruction: token.instruction
+      raw_parcel: token.raw_instruction[0..16]
+      step: encode_pc_step(xlen, token.pc, token.sequential_pc)
+      compressed_illegal: token.compressed_illegal
+      outcome: SuperscalarInstructionOutcome.select(xlen, hypervisor, token.pc, token.fault, ~predicted: token.prediction.valid, ~target: CompactPc.prediction(xlen, token.prediction.target))
+      predicted_compressed: token.prediction.compressed
+      predicted_ras_action: token.prediction.ras_action
+      speculated_ras_action: token.speculated_ras_action
+      direction: checkpoint
+
+fun observe_instruction(xlen :: XLen, hypervisor :: Boolean, token :: SuperscalarInstruction(xlen, hypervisor)) :~ InstructionObservation(xlen, hypervisor):
+  InstructionObservation(xlen, hypervisor):
+    pc: token.address()
+    instruction: token.instruction
+    raw_instruction: token.raw()
+    sequential_pc: token.successor()
+    compressed_illegal: token.compressed_illegal
+    fault: token.fetch_fault()
+    prediction: token.prediction_value()
+    speculated_ras_action: token.speculated_ras_action
+    direction: token.direction.expanded(token.address())
+
+bundle PacketObservation(xlen :: XLen, hypervisor :: Boolean, group_width :: matching(2) || matching(3)):
+  count: Bits(2)
+  entries: Vec(group_width, InstructionObservation(xlen, hypervisor))
+
+  method captured(packet, accepted :: Bool) :: SuperscalarPacket(xlen, hypervisor, group_width):
+    SuperscalarPacket(xlen, hypervisor, group_width):
+      count: packet.count
+      entries: vec(for List (lane in 0..group_width): packet.entries[lane].captured(accepted & (packet.count > Bits(2)(lane))))
+
+fun observe_packet(xlen :: XLen, hypervisor :: Boolean, group_width :: matching(2) || matching(3), packet :: SuperscalarPacket(xlen, hypervisor, group_width)) :~ PacketObservation(xlen, hypervisor, group_width):
+  PacketObservation(xlen, hypervisor, group_width):
+    count: packet.count
+    entries: vec(for List (lane in 0..group_width): observe_instruction(xlen, hypervisor, packet.entries[lane]))
+
+bundle RetirementObservation(xlen :: XLen, hypervisor :: Boolean):
+  fetched: InstructionObservation(xlen, hypervisor)
+  rd: Bits(5)
+  write: Bool
+  data: Bits(xlen.width)
+  deferred: Bool
+
+fun observe_retirement(xlen :: XLen, hypervisor :: Boolean, token :: SuperscalarRetirement(xlen, hypervisor)) :~ RetirementObservation(xlen, hypervisor):
+  RetirementObservation(xlen, hypervisor):
+    fetched: observe_instruction(xlen, hypervisor, token.fetched)
+    rd: token.rd
+    write: token.write
+    data: token.data
+    deferred: token.deferred
+
+export InstructionObservation PacketObservation RetirementObservation observe_instruction observe_packet observe_retirement

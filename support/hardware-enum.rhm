@@ -1,0 +1,121 @@
+#lang rhombus/and_meta
+/* Declares nominal encoded enums as immutable host data, with optional authoring-context extensions. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  rhombus/meta open
+  "annotations.rhm" open
+  "hardware-data.rhm" open
+  "variants.rhm" open
+
+export:
+  hardware_enum
+  make_automatic_enum
+  make_explicit_enum
+  make_one_hot_enum
+  enum_descriptor_static_info_key
+
+// Retains a descriptor's encoding family across imports and ordinary host aliases.
+statinfo.key enum_descriptor_static_info_key:
+  ~and: fun (_left, right): right
+  ~or: fun (_left, right): right
+
+/* Assigns consecutive encodings and a minimum or explicitly requested packed width. */
+fun make_automatic_enum(name :: AsciiIdentifier, names :: NonemptyList.of(AsciiIdentifier), width :: maybe(PosInt) = #false):
+  enum_type_from_schema(make_automatic_variant_schema(name, VariantIdentity(), names.map(fun (member): [member, #false]), width))
+
+/* Validates explicit encodings and constructs one fresh nominal descriptor. */
+fun make_explicit_enum(name :: AsciiIdentifier, members :: NonemptyList.of(List), width :: maybe(PosInt) = #false):
+  enum_type_from_schema(make_explicit_variant_schema(name, VariantIdentity(), members.map(fun (member): [member[0], member[1], #false]), width))
+
+/* Assigns one selector bit per declared member. */
+fun make_one_hot_enum(name :: AsciiIdentifier, names :: NonemptyList.of(AsciiIdentifier)):
+  enum_type_from_schema(make_one_hot_variant_schema(name, VariantIdentity(), names.map(fun (member): [member, #false])))
+
+meta:
+  export enum_annotation
+  /* Uses a lexical authoring adapter when present; ordinary host code accepts only literals. */
+  fun enum_annotation(type :: Syntax, use :: Syntax, kind :: Syntax):
+    def adapter = Syntax.make_id("HardwareEnumFields", use)
+    if syntax_meta.value(adapter, annot_meta.space, #false)
+    | '$adapter($type, $kind)'
+    | 'EnumValue && satisfying(fun (value): value.literal_type().type_equal($type))'
+
+  /* Defines a pure enum or delegates richer hardware-method syntax to the lexical RTL layer. */
+  fun expand_enum(name :: Syntax, options :: List, clauses :: List):
+    def adapter = Syntax.make_id("hardware_enum_definition", name)
+    let [option, ...] = options
+    let [clause, ...] = clauses
+    if syntax_meta.value(adapter, defn_meta.space, #false)
+    | '$adapter $name($option, ...): $clause; ...'
+    | block:
+        def mutable width = '#false'
+        def mutable fixed = #false
+        def mutable one_hot = #false
+        for (option in options):
+          match option
+          | '~width: $size':
+              when fixed | syntax_meta.error("duplicate ~width option", option)
+              fixed := #true
+              width := size
+          | '~encoding: one_hot':
+              when one_hot | syntax_meta.error("duplicate ~encoding option", option)
+              one_hot := #true
+          | ~else: syntax_meta.error("expected ~width or ~encoding: one_hot", option)
+
+        def mutable members = []
+        def mutable encodings = []
+        for (clause in clauses):
+          match clause
+          | '$(member :: Identifier)': members := members ++ [member]
+          | '$(member :: Identifier) = $encoding':
+              members := members ++ [member]
+              encodings := encodings ++ [encoding]
+          | ~else: syntax_meta.error("expected an enum member", clause)
+
+        when members.length() == 0 | syntax_meta.error("hardware enum requires at least one member", name)
+        when encodings.length() != 0 && encodings.length() != members.length()
+        | syntax_meta.error("cannot mix automatic and explicit enum members", name)
+
+        when one_hot && (fixed || encodings.length() > 0)
+        | syntax_meta.error("one-hot enum width and encodings are determined by its members", name)
+
+        let [member, ...] = members
+        let [member_name, ...] = members.map(fun (member): member.to_source_string())
+        let [encoding, ...] = encodings
+        def constructor:
+          cond
+          | one_hot: 'make_one_hot_enum($(name.to_source_string()), [$member_name, ...])'
+          | encodings.length() > 0: 'make_explicit_enum($(name.to_source_string()), [[$member_name, $encoding], ...], $width)'
+          | ~else: 'make_automatic_enum($(name.to_source_string()), [$member_name, ...], $width)'
+
+        def member_dot = Syntax.make_id(name.to_source_string() ++ "_member_dot", name)
+        def members_annotation = Syntax.make_id(name.to_source_string() ++ "_members", name)
+        def kind = if one_hot | 'one_hot' | 'ordinary'
+        '«
+           annot.macro '$name':
+             ~op_stx use
+             enum_annotation('$name', use, '$kind')
+           dot.macro '$member_dot $('$')left $('$')dot $('$')right':
+             def annotation = enum_annotation('$name', left, '$kind')
+             if [$member_name, ...].contains(right.to_source_string())
+             | 'enum_value($('$')left, $('$')(right.to_source_string())) :: $('$')annotation'
+             | if right.to_source_string() == "values"
+               | 'fun () :~ List.of($('$')annotation): enum_values($('$')left)'
+               | if ["name", "identity", "members", "names", "width", "packed_width", "enum_encodings", "member", "describe"].contains(right.to_source_string())
+                 | #false
+                 | 'enum_value($('$')left, $('$')(right.to_source_string())) :: $('$')annotation'
+           annot.macro '$members_annotation':
+             annot_meta.pack_predicate(
+               'fun (value): value is_a HardwareType && enum_type(value)',
+               '(($(statinfo_meta.dot_provider_key), $member_dot),
+                 (enum_descriptor_static_info_key, $kind))')
+           def $name :: $members_annotation = $constructor
+         »'
+
+/* Offers the same declaration spelling to host modules and hardware language profiles. */
+defn.macro
+| 'hardware_enum $(name :: Identifier): $clause; ...':
+    expand_enum(name, [], [clause, ...])
+| 'hardware_enum $(name :: Identifier)($option, ...): $clause; ...':
+    expand_enum(name, [option, ...], [clause, ...])

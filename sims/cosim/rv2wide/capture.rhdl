@@ -68,7 +68,8 @@ sync_circuit SuperscalarCosimObserver(profile :: SuperscalarPipelineConfig, tap_
   /* Standalone core observations have no sibling physical-memory provenance. */
   fun mmu_lane(name :: String) :~ Bits(64): if tap_types.has_key(name) | tap_lane(name) | Bits(64)(0)
   def slots = tap_types["wb_retired"].length
-  def tokens :: Vec(slots, SuperscalarResult(xlen, hypervisor)) = taps["wb_tokens"]
+  def tokens :: Vec(slots, SuperscalarRetirementCommand(xlen, hypervisor)) = taps["wb_tokens"]
+  def pcs :: Vec(slots, Bits(xlen.width)) = taps["wb_pcs"]
   def retirement :: Vec(slots, SuperscalarRetirement(xlen, hypervisor)) = taps["wb_retirement"]
   def retired :: Vec(slots, Bool) = taps["wb_retired"]
   def writes :: Vec(slots, Bool) = taps["wb_writes"]
@@ -93,7 +94,7 @@ sync_circuit SuperscalarCosimObserver(profile :: SuperscalarPipelineConfig, tap_
   def trap_target :: RiscvTrapTarget = taps["csr_trap_target"]
   def trap_cause :: Bits(xlen.width) = taps["csr_trap_cause"]
   for (index in 0..4):
-    def token :: SuperscalarBoundaryInstruction(xlen) = if index < slots | tokens[index].boundary_instruction() | boundary_instruction
+    def token :: SuperscalarBoundaryInstruction(xlen) = if index < slots | tokens[index].boundary_instruction(pcs[index]) | boundary_instruction
     def result :: SuperscalarRetirement(xlen, hypervisor) = if index < slots | retirement[index] | literal(SuperscalarRetirement(xlen, hypervisor), 0)
     def deferred = if index < slots | result.deferred | Bool(#false)
     def write = if index < slots | mux(deferred, result.write, writes[index]) | Bool(#false)
@@ -101,7 +102,7 @@ sync_circuit SuperscalarCosimObserver(profile :: SuperscalarPipelineConfig, tap_
     rhodium_rv2wide_lane.call(
       instance_id, Bits(64)(index), lane((if index < slots | retired[index] | Bool(#false)).as_bits()),
       lane((if index < slots | (split_capture & (memory_lane === Bits(2)(index))) ||| (vector_capture & (vector_lane === Bits(2)(index))) | Bool(#false)).as_bits()),
-      lane(token.identity.pc), lane(token.identity.raw_instruction), lane(next_pc), lane(token.fetch_fault.as_bits()),
+      lane(token.pc), lane(token.raw_instruction), lane(next_pc), lane(token.fetch_fault.as_bits()),
       lane(token.rd), lane(write.as_bits()), lane(result.data), lane(deferred.as_bits()),
       lane(mux(token.memory.enable, Bits(2)(0), mux(multiply, Bits(2)(1), Bits(2)(2)))),
       // Maintenance has no architectural byte effect. Its retained retirement
@@ -125,12 +126,12 @@ sync_circuit SuperscalarCosimObserver(profile :: SuperscalarPipelineConfig, tap_
 
   for (index in 0..4):
     def result :: SuperscalarCompletion(xlen) = completions[index]
-    rhodium_rv2wide_completion.call(instance_id, Bits(64)(index), lane(completion_valid[index].as_bits()), lane(result.identity.pc), lane(result.rd), lane(result.write.as_bits()), lane(result.data), ~enable: active)
+    rhodium_rv2wide_completion.call(instance_id, Bits(64)(index), lane(completion_valid[index].as_bits()), lane(result.identity.address()), lane(result.rd), lane(result.write.as_bits()), lane(result.data), ~enable: active)
 
   def fp_result :: FpExecutionResult(xlen, fp_transport_profile(xlen), SuperscalarFpOwner(xlen)) = taps["fp_completion"]
   def fp_load :: SuperscalarFpLoad(xlen) = taps["fp_load"]
-  rhodium_rv2wide_fp.call(instance_id, Bits(64)(0), tap_lane("fp_valid"), lane(fp_result.tag.identity.pc), lane(fp_result.tag.rd), lane(fp_result.tag.destination.as_bits()), lane(fp_result.value), lane(fp_result.exception_flags_valid.as_bits()), lane(fp_result.exception_flags), Bits(64)(floating_point_register_width(fp_transport_profile(xlen))), ~enable: active)
-  rhodium_rv2wide_fp.call(instance_id, Bits(64)(1), tap_lane("fp_load_valid"), lane(fp_load.owner.identity.pc), lane(fp_load.owner.rd), Bits(64)(2), lane(fp_load_value(fp_transport_profile(xlen), fp_load.precision, fp_load.data)), Bits(64)(0), Bits(64)(0), Bits(64)(floating_point_register_width(fp_transport_profile(xlen))), ~enable: active)
+  rhodium_rv2wide_fp.call(instance_id, Bits(64)(0), tap_lane("fp_valid"), lane(fp_result.tag.identity.address()), lane(fp_result.tag.rd), lane(fp_result.tag.destination.as_bits()), lane(fp_result.value), lane(fp_result.exception_flags_valid.as_bits()), lane(fp_result.exception_flags), Bits(64)(floating_point_register_width(fp_transport_profile(xlen))), ~enable: active)
+  rhodium_rv2wide_fp.call(instance_id, Bits(64)(1), tap_lane("fp_load_valid"), lane(fp_load.owner.identity.address()), lane(fp_load.owner.rd), Bits(64)(2), lane(fp_load_value(fp_transport_profile(xlen), fp_load.precision, fp_load.data)), Bits(64)(0), Bits(64)(0), Bits(64)(floating_point_register_width(fp_transport_profile(xlen))), ~enable: active)
   def vector_request :: Bool = if vectors | taps["lsu_request_vector"] | Bool(#false)
   def vector_pipeline :: Bool = if vectors | taps["lsu_pipeline_vector"] | Bool(#false)
   def vector_split :: Bool = if vectors | taps["lsu_split_vector"] | Bool(#false)

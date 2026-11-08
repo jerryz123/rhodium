@@ -65,8 +65,8 @@ fail_matches "portable lowering must depend only on core and other lowering modu
   '^[[:space:]]+"[^"]*(compile|analysis|frontend|backend|formal|std|event|diagram)/' rhodium/lowering
 fail_matches "compilation must not import backends, frontend, analysis, or domain libraries" \
   '^[[:space:]]+"[^"]*(backend|frontend|analysis|formal|std|flow|event|diagram)/' rhodium/compile
-fail_matches "support annotations must remain dependency-neutral" \
-  '^[[:space:]]*(import[[:space:]]+)?(lib\()?"[^"]*(rhodium/|flow/|noc/|riscv/|chi/|rfpl/|cores/)' support/annotations.rhm
+fail_matches "pure host support must remain dependency-neutral" \
+  '^[[:space:]]*(import[[:space:]]+)?(lib\()?"[^"]*(rhodium/|flow/|noc/|riscv/|chi/|rfpl/|cores/)' support
 fail_matches "frontend must not import compilation, backend, or formal modules" \
   '^[[:space:]]+"[^"]*(compile|backend|formal)/' rhodium/frontend
 fail_matches "frontend must not import the clock-analysis compile target" \

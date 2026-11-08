@@ -57,6 +57,16 @@ completion adaptation and instruction/uncached integration.
 
 ## Change the core
 
+Reject nonrepresentable MEM redirects before frontend admission, but let the
+originating instruction retire normally. WB retains an invalid committed
+successor or CSR redirect in the existing pending-trap record, marked by one
+redirect flag. On the following cycle,
+classify the fault using the new privilege/translation context, wait for accepted
+work to drain, and issue an explicit CSR trap at the target PC. This preserves
+JAL/JALR link writes and xRET state transitions. Pending target faults stop
+younger work and interrupts; invalid trap-vector replacements win over release.
+The frontend's sequential boundary encoding is independent of this backend owner.
+
 Select active or disabled FP/vector services at instantiation. The vector
 pipeline's disabled implementation owns inactive service outputs; scalar WB
 launch qualification, FPR reservation, and retained retirement context remain
@@ -175,13 +185,16 @@ from a DPI-result register in the observed design.
    classification must cross MEM/WB together. FP hits use `load_hit` at WB
    without allocating a deferred reservation; older data transactions must be
    drained before admitting that path so the FPR load-write port cannot collide.
-   `mem_wb_pipe` stores `MemoryWritebackContext`, the instruction/control projection
-   of `MemoryWriteback`, including the ordinary ALU value but not `load_hit` or
-   `cache_outcome`. `memory_response` stores the selected LSU outcome and data
-   independently on the same edge. A combinational join reconstructs the flat
-   WB payload and selects load-hit data. Both payload captures remain
+   `mem_wb_pipe` stores the canonical `MemoryWriteback`, including the ordinary
+   ALU value but not an additional `load_hit` or `cache_outcome` copy.
+   `memory_response` stores the selected LSU outcome and data independently on
+   the same edge. `with_response` selects the load-hit value in that same record;
+   consumers read the outcome alongside it instead of expanding a second bundle.
+   Both payload captures remain
    unconditional: a squash cancels validity, not forwarding payload capture.
    Never replace the registered load-data source with a live MEM response.
+   Keep instruction context and LSU response ownership separate when adding
+   fields; do not introduce a stored/full pair or derive storage with reflection.
 5. Test cycle-visible behavior in the narrowest rsim fixture, then
    the composed core. Do not add an elaboration snapshot for every submodule.
    Update [README.md](README.md) when public profiles, ports, ordering, timing,
@@ -425,8 +438,11 @@ Only its own completion releases it; capture must not replace a pending owner.
 Keep PC/instruction, prediction metadata, scalar result, the observed physical
 request, and optional guest context. Do not retain new arithmetic/vector issue
 operands or a pre-existing replay/exception: neither admission path accepts
-those operations. Construct inactive controls when joining the common retirement
-path. This same slot holds misaligned scalar accesses while the MMU sequences independent
+those operations. Complete into `RV5StageRetirementCommand`, the common retirement/trap projection,
+not a zero-padded `MemoryWriteback`. Live FP/vector launch operands and
+certificates remain on the normal WB pipe and are qualified by the selected
+command's launch enables. Retained vector completion uses the same command
+without storing those launch operands. This same slot holds misaligned scalar accesses while the MMU sequences independent
 fragments. Admission squashes younger work; success restarts at the next PC,
 and fault enters the trap path with the retained instruction and fragment VA.
 No split load reserves a deferred destination: successful completion uses normal

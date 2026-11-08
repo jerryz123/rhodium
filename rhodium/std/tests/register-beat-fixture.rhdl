@@ -11,7 +11,7 @@ def cases = [[1, 1, 1], [1, 8, 1], [3, 16, 2], [3, 24, 3],
              [16, 64, 8], [16, 128, 16], [32, 256, 32], [64, 512, 64]]
 
 fun padded(value :: Bits, width :: PosInt) :~ Bits(width):
-  if value.type.packed_width() == width | value | value.zext(width)
+  value.zext(width)
 
 circuit RegisterBeatFixture():
   input register_lane: Bits(8)

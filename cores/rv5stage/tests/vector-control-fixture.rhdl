@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/rtl/trap.rhdl").ExceptionCause
   "../../csr/file.rhdl" open
   "../../csr/protocol.rhdl" open
   "../profile.rhm" open
@@ -117,8 +118,8 @@ sync_circuit RV5StageVectorControlFixture(vlen :: VectorLength):
     csr_source: mux(decoder.control.system.immediate, instruction[15..20].zext(xlen.width), scalar1)
     vector_config: vector_configuration_request(xlen, decoder.control.vector.configure, instruction, scalar1, scalar2)
     exception_valid: exception_valid ||| !decoder.valid ||| decoder.control.vector.integer
-    exception_cause: Bits(xlen.width)(2)
-    exception_value: if xlen == XLen.X32 | instruction | instruction.zext(xlen.width)
+    exception_cause: ExceptionCause.IllegalInstruction
+    exception_value: instruction.zext(xlen.width)
 
   writeback_valid <== csrs.writeback_valid
   writeback_value <== csrs.writeback_value

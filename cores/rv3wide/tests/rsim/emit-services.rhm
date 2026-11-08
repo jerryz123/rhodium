@@ -7,11 +7,11 @@ import:
   lib("riscv/isa/fp-profile.rhm").FloatingPointProfile
   lib("riscv/isa/vector-profile.rhm").VectorProfile
   lib("cores/fp/timing.rhdl").FpExecutionTiming
-  lib("cores/superscalar/core.rhdl").SuperscalarCore
+  lib("cores/superscalar/tests/core-fixture.rhdl").CoreFixture
   lib("cores/superscalar/profile.rhm").SuperscalarPipelineConfig
   "../../issue.rhdl".RV3WideIssue
 
-def program = elaborate(SuperscalarCore(
+def program = elaborate(CoreFixture(
   SuperscalarPipelineConfig(~floating_point: FloatingPointProfile.D, ~vector: VectorProfile.V),
   ~fp_timing: FpExecutionTiming(3, 5, 3), ~issue: RV3WideIssue(XLen.X64)
 ))

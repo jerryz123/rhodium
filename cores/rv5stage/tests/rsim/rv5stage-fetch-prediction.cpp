@@ -34,6 +34,8 @@ response_t response{}, s2_response{};
 bool request_ready = 1, output_ready = 1;
 
 std::uint64_t fault_address = UINT64_MAX;
+constexpr auto positive_boundary = UINT64_C(1) << 38;
+constexpr auto negative_base = UINT64_C(0xffffffc000000000);
 
 int mode = 0, cycle = 0, previous_request = -1, previous_output = -1;
 
@@ -46,7 +48,7 @@ std::uint32_t word_at(std::uint64_t address) {
   if (mode == 16)
     return 0x00010067; // JALR x0,x2,0: no direct fallback or RAS substitution.
   if (mode == 17)
-    return address == (UINT64_C(1) << 44) - 4 ? 0x0080006f : 19; // JAL x0,+8.
+    return address == positive_boundary - 4 ? 0x0080006f : 19; // JAL x0,+8.
   switch (mode) {
   case 0: {
     return UINT64_C(111); // JAL at each word boundary.
@@ -340,13 +342,16 @@ void observe() {
                              ? response_t{}
                              : response);
       defer(response.pvalid, 0);
-      if (memory_out.prequest.pvalid && memory_in.prequest.pready)
+      if (memory_out.prequest.pvalid && memory_in.prequest.pready) {
+        const auto address = memory_out.prequest.pbits.paddress;
+        const bool noncanonical = address >= positive_boundary && address < negative_base;
         defer(response,
               std::remove_cvref_t<decltype(response)>{
                   UINT64_C(1),
-                  {word_at(memory_out.prequest.pbits.paddress),
-                   memory_out.prequest.pbits.paddress == fault_address,
+                  {word_at(address),
+                   address == fault_address || noncanonical,
                    UINT64_C(0)}});
+      }
     }
     if (!reset && memory_out.pflush && !restart_valid && !flush)
       local_flushes = local_flushes + 1;
@@ -689,20 +694,29 @@ void stimulus() {
     start(0x100);
     expect_pc(0x100, 0x300);
     CHECK(expected_requests.empty());
-    // Architectural recovery still fetches the exact invalid destination and
-    // delivers that address in the fault, without predicting it away.
-    fault_address = actual;
-    start(actual);
-    expect_pc(actual, actual + 4, 1, 0, actual);
+    // Invalid architectural redirects are rejected by the backend (covered by
+    // rv5stage-branch-prediction). Admitted recovery retains an exact high PC
+    // even when translation faults instead of returning an instruction.
+    const auto recovery = negative_base + 0x300;
+    fault_address = recovery;
+    start(recovery);
+    expect_pc(recovery, recovery + 4, 1, 0, recovery);
 
     initialize(17);
-    const auto edge = (UINT64_C(1) << 44) - 4;
-    const auto aliased = UINT64_C(0xfffff00000000004);
+    const auto edge = positive_boundary - 4;
+    const auto aliased = negative_base + 4;
     fallback_trace_expect(edge, aliased, 1);
     start(edge);
     expect_pc(edge, aliased);
     for (unsigned repeat = 0; repeat < 4; ++repeat)
       falling();
+
+    // Sequential crossing is not a backend redirect: preserve the positive
+    // noncanonical fault address rather than sign-extending it into an alias.
+    initialize(18);
+    start(edge);
+    expect_pc(edge, positive_boundary);
+    expect_pc(positive_boundary, positive_boundary + 4, 1, 0, positive_boundary);
     fallback_trace_finish();
     ;
     throw Finished{};

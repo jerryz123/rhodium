@@ -1,0 +1,58 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../bundles.rhdl" open
+  "../profile.rhm".SuperscalarPipelineConfig
+  "../../chi-hart.rhdl".RiscvHartCHIConfig
+  "instruction-fixture.rhdl" open
+  lib("rhodium/frontend/foundation.rhm").CircuitDefinition
+  lib("riscv/rtl/interrupt.rhdl").RiscvInterrupts
+  lib("flow/main.rhdl") open
+  lib("chi/protocol/channels.rhdl") open
+
+sync_circuit HartFixture(target :: CircuitDefinition, config :: RiscvHartCHIConfig, profile :: SuperscalarPipelineConfig, ~issue_width: issue_width :: matching(2) || matching(3) = 2):
+  def xlen = profile.xlen
+  def hypervisor = profile.hypervisor
+  input(instruction_node_id, data_node_id, uncached_node_id): Bits(config.flit.node_id_width)
+  input interrupts: RiscvInterrupts()
+  input(hart_id, time_counter): Bits(64)
+  interface start(Valid(Bits(64)), ~role: consumer)
+  interface retired[issue_width](Valid(RetirementObservation(xlen, hypervisor)), ~role: producer)
+  interface completed(Valid(SuperscalarCompletion(xlen)), ~role: producer)
+  interface redirect(Valid(SuperscalarRedirect(xlen)), ~role: producer)
+  interface instruction_chi(CHIRNIChannels(config.flit), ~role: node)
+  interface data_chi(CHIRNChannels(config.flit), ~role: node)
+  interface uncached_chi(CHIRNIChannels(config.flit), ~role: node)
+  output halted: Bool
+  output sleeping: Bool
+  output(issued, retired_count): Bits(2)
+
+  inst hart(target)
+  hart.instruction_node_id <== instruction_node_id
+  hart.data_node_id <== data_node_id
+  hart.uncached_node_id <== uncached_node_id
+  hart.interrupts <== interrupts
+  hart.hart_id <== hart_id
+  hart.time_counter <== time_counter
+  start |> hart.start
+  for (lane in 0..issue_width):
+    (hart.retired[lane] |> map_valid(token => observe_retirement(xlen, hypervisor, token))) |> retired[lane]
+
+  def completion :: SuperscalarCompletion(xlen) = hart.completed.bits
+  (hart.completed |> map_valid(_token => SuperscalarCompletion(xlen)):
+    identity: SuperscalarInstructionIdentity.create(xlen, completion.identity.address(), completion.identity.raw_instruction)
+    rd: completion.rd
+    write: completion.write
+    data: completion.data
+  ) |> completed
+  hart.redirect |> redirect
+  hart.instruction_chi <=> instruction_chi
+  hart.data_chi <=> data_chi
+  hart.uncached_chi <=> uncached_chi
+  halted <== hart.halted
+  sleeping <== hart.sleeping
+  issued <== hart.issued
+  retired_count <== hart.retired_count
+
+export HartFixture

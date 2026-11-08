@@ -110,11 +110,6 @@ sync_circuit L1DCache(xlen :: XLen,
   def word_index_width = index_width(words_per_line)
   def data_address_width = index_width(data_depth)
 
-  /* Restore known-zero address bits when a stored tag or local address is
-     compared with a wider snoop or returned on the XLEN victim path. */
-  fun pad_address(address :: Bits, target_width :: PosInt) :~ Bits(target_width):
-    if hardware_value_type(address).packed_width() == target_width | address | address.zext(target_width)
-
   input node_id: Bits(p.node_id_width)
   interface core(CacheAccess(xlen, Context), ~role: responder)
   interface virtual_lookup(Valid(Bits(width)), ~role: consumer)
@@ -259,7 +254,7 @@ sync_circuit L1DCache(xlen :: XLen,
   s1_store_gen.value <== pipeline.request.bits.data
   stores.query_address <== pipeline.request.bits.address
   stores.query_mask <== pipeline.request.bits.byte_mask
-  def s1_probe_conflict = snoop_pending & (snoop.address[6..snoop_width] === pad_address(pipeline.request.bits.address, snoop_width)[6..snoop_width])
+  def s1_probe_conflict = snoop_pending & (snoop.address[6..snoop_width] === pipeline.request.bits.address.zext(snoop_width)[6..snoop_width])
   def s1_read_matches = s1_read_valid & arrays.tags.response.valid & arrays.states.response.valid & (s1_store ||| arrays.data.response.valid) & (s1_read_address[0..12] === pipeline.request.bits.address[0..12])
   wire s1_outcome: CachePipelineOutcome
   wire s1_reason: CachePipelineReason
@@ -332,7 +327,7 @@ sync_circuit L1DCache(xlen :: XLen,
      Enqueues only the matching retained store candidate. A same-line probe
      revokes the ownership proof; unrelated probes do not reject this store. */
 
-  def s2_probe_conflict = snoop_pending & (snoop.address[6..snoop_width] === pad_address(s2_store_candidate.egress.bits.address, snoop_width)[6..snoop_width])
+  def s2_probe_conflict = snoop_pending & (snoop.address[6..snoop_width] === s2_store_candidate.egress.bits.address.zext(snoop_width)[6..snoop_width])
   pipeline.commit_ready <== s2_store_candidate.egress.valid & stores.enqueue.ready & hit_path_available & !s2_probe_conflict
   stores.enqueue.valid <== pipeline.commit & pipeline.commit_ready
   stores.enqueue.bits <== s2_store_candidate.egress.bits
@@ -494,7 +489,7 @@ sync_circuit L1DCache(xlen :: XLen,
   writeback.snoop_pending <== snoop_pending
   when eviction_gather_start:
     eviction_state <== eviction_start.bits.victim_state
-  elsewhen (snoop.update.valid & (snoop.update.bits.address.align_down(CacheLineBytes) === pad_address(eviction_line_address, snoop_width))):
+  elsewhen (snoop.update.valid & (snoop.update.bits.address.align_down(CacheLineBytes) === eviction_line_address.zext(snoop_width))):
     eviction_state <== mux(snoop.update.bits.invalidate, CHICacheState.Invalid, snoop.update.bits.state)
 
   // Only a demand can evict a dirty victim. Resume the requested line, not the victim.
@@ -618,7 +613,7 @@ sync_circuit L1DCache(xlen :: XLen,
   // Compare the full CHI tag: an RV32 hart must miss snoops above its address space.
   def snoop_tag = snoop_address[(offset_width + set_width)..snoop_width]
   def snoop_valids = valid_lines[snoop_set]
-  def snoop_matches = vec(for List (way in 0..ways): snoop_valids[way] & (pad_address(arrays.tags.response.bits[way], snoop_width - offset_width - set_width) === snoop_tag))
+  def snoop_matches = vec(for List (way in 0..ways): snoop_valids[way] & (arrays.tags.response.bits[way].zext(snoop_width - offset_width - set_width) === snoop_tag))
   def snoop_selection = priority_encoder_oh(snoop_matches)
   def snoop_line_hit = snoop_selection.valid
   def snoop_lookup_state = snoop_selection.mux(for List (way in 0..ways): arrays.states.response.bits[way], ~default: CHICacheState.Invalid).into(CHICacheState)
@@ -669,7 +664,7 @@ sync_circuit L1DCache(xlen :: XLen,
         allocation_way: s3_allocation_way
         victim_valid: s3_valids[s3_allocation_way]
         victim_state: arrays.states.response.bits[s3_allocation_way]
-        victim_address: pad_address(concat(arrays.tags.response.bits[s3_allocation_way], s3_set, Bits(offset_width)(0)), width)
+        victim_address: concat(arrays.tags.response.bits[s3_allocation_way], s3_set, Bits(offset_width)(0)).zext(width)
   ) |> s4_result.ingress
 
   for (left in 0..ways):
@@ -1009,7 +1004,7 @@ sync_circuit L1DCache(xlen :: XLen,
   def s4_reservation_clear = s4_path.fire() & !local_mutation_capture & (s4_sc ||| ((s4_store ||| s4_zero ||| s4_atomic) & (s4_line_address === reservation_line_address)))
   def mutation_touches_reservation = (pending_mutation_access.is_store() ||| pending_zero ||| pending_mutation_access.is_atomic()) & (pending_mutation_line_address === reservation_line_address)
   def mutation_reservation_clear = local_mutation_commit & (pending_mutation_access.is_store_conditional() ||| mutation_touches_reservation)
-  def snoop_reservation_clear = snoop.update.valid & (snoop.update.bits.address.align_down(CacheLineBytes) === pad_address(reservation_line_address, snoop_width))
+  def snoop_reservation_clear = snoop.update.valid & (snoop.update.bits.address.align_down(CacheLineBytes) === reservation_line_address.zext(snoop_width))
   def replacement_reservation_clear = s4_path.fire() & s4_needs_refill & !s4_bypass_refill & !s4_hit & s4_victim_valid & (s4_victim_address === reservation_line_address)
   def buffered_store_reservation_clear = stores.enqueue.fire() & (stores.enqueue.bits.address.align_down(CacheLineBytes) === reservation_line_address)
   def reservation_clear = s4_reservation_clear ||| mutation_reservation_clear ||| snoop_reservation_clear ||| replacement_reservation_clear ||| buffered_store_reservation_clear
@@ -1080,7 +1075,7 @@ sync_circuit L1DCache(xlen :: XLen,
   // acknowledged grant until SRAM installation; Home may probe after CompAck.
   def protect_refill = refill.acknowledgements.valid ||| refill.completion.valid
   def protect_core = reservation_protected ||| core_service_count.any()
-  def protect_copyback = writeback.granted & (cache_chi_snoop_address(p, snoop_width, chi.snoops.bits.address).align_down(CacheLineBytes) === pad_address(eviction_line_address, snoop_width))
+  def protect_copyback = writeback.granted & (cache_chi_snoop_address(p, snoop_width, chi.snoops.bits.address).align_down(CacheLineBytes) === eviction_line_address.zext(snoop_width))
   chi.snoops |> gate_flow(!(protect_refill ||| protect_core ||| protect_copyback)) |> snoop.snoops
   def writeback_active = !writeback.command.ready
   def Array(refill_response, writeback_response, maintenance_response) = (

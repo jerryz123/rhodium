@@ -52,7 +52,7 @@ sync_circuit FpDivSqrtBank(xlen :: XLen, profile :: FloatingPointProfile, format
     operation.tininess_mode <== TininessMode.AfterRounding
     def result = riscv_canonicalize_nan(format, operation.out.to_ieee())
     def boxed = riscv_nan_box(format, result, flen)
-    terminal_values[i] <== if flen < xlen.width | boxed.zext(xlen.width) | boxed
+    terminal_values[i] <== boxed.zext(fp_value_width(xlen, profile))
     finished[i] <== operation.division_valid ||| operation.square_root_valid
     flags[i] <== riscv_exception_flags(operation.exception_flags)
 

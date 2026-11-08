@@ -23,8 +23,7 @@ import:
   lib("riscv/isa/xlen.rhm") open
   lib("riscv/isa/csr.rhm") open
   lib("riscv/isa/sv39.rhm").Sv39Mode
-  lib("riscv/isa/trap.rhm").ExceptionCause
-  lib("riscv/rtl/trap.rhdl").exception_cause_bits
+  lib("riscv/rtl/trap.rhdl").ExceptionCause
   lib("riscv/rtl/csr.rhdl") open
   lib("riscv/rtl/zihintntl.rhdl") open
   lib("riscv/rtl/privilege.rhdl") open
@@ -439,7 +438,7 @@ sync_circuit SuperscalarMmu(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: B
   memory.fault.valid <== memory.request.valid & !misaligned.busy & (core_local_fault ||| core_physical_fault)
   def core_fault_cause = priority_mux(~default: physical_memory.fault.bits.cause):
     !data_ok: riscv_translation_fault_cause(data_result)
-    core_execute_denied: exception_cause_bits(ExceptionCause.LoadAccessFault, 64)
+    core_execute_denied: ExceptionCause.LoadAccessFault
 
   memory.fault.bits <== SuperscalarResolution(XLen.X64):
     guest: data_guest_fault

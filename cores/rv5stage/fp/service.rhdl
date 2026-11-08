@@ -54,9 +54,9 @@ sync_circuit RV5StageFpService(xlen :: XLen, profile :: FloatingPointProfile, Sc
   launch_calendar.vector_accepted <== tagged_vector_request.fire()
   def Array(fp_launch, fp_reservation) = ex_fp_selection.egress |> atomic_fork(2)
   fp_launch |> wb_fp_execution.request
-  fp_reservation |> filter_flow(operation => operation.tag.is(FpOwner().Vector).into(Bool) & (operation.control.execution.unit =/= FloatUnit.DivideSquareRoot)) |> map_flow(operation => operation.control.execution) |> launch_calendar.vector_book
+  fp_reservation |> filter_flow(operation => operation.tag.is(FpOwner().Vector) & (operation.control.execution.unit =/= FloatUnit.DivideSquareRoot)) |> map_flow(operation => operation.control.execution) |> launch_calendar.vector_book
   (
-    wb_fp_execution.result |> demux_flow(2, ~stable: #true, result => result.tag.is(FpOwner().Vector).into(Bool))
+    wb_fp_execution.result |> demux_flow(2, ~stable: #true, result => result.tag.is(FpOwner().Vector))
       |> parallel(
            (map_flow(~stable: #true, payload):
               def result :: FpExecutionResult(xlen, profile, FpOwner()) = payload

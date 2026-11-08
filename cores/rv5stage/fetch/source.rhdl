@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/pc.rhdl") open
   lib("cores/bpred/protocol.rhdl") open
   lib("cores/bpred/btb.rhdl") open
   lib("cores/bpred/ras.rhdl") open
@@ -15,7 +16,7 @@ bundle RV5StageFetchAttempt(xlen :: XLen):
   pc: Bits(xlen.width)
   continuation: Bool
   continuation_target: Bits(xlen.width)
-  prediction: BranchPrediction(xlen)
+  prediction: BranchPrediction(xlen, xlen.width)
 
 /* Retains the last cursor update and its trace owner; the caller supplies the reset fallback. */
 sync_circuit RV5StageFetchCursor(xlen :: XLen):
@@ -46,7 +47,9 @@ sync_circuit RV5StageFetchOffer(xlen :: XLen):
 /* Selects restart, late redirect, replay, predicted successor, or saved cursor
    in priority order. Accepted offers own S1; BTB/RAS lookup and continuation
    drive the next S0 candidate. pc_width bounds BTB source admission, not architectural PCs. */
-sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: Nat = 32, ras_entries :: Nat = 6, ~pc_width: pc_width :: PosInt = xlen.width, ~target_width: target_width :: PosInt = xlen.width):
+sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: Nat = 32, ras_entries :: Nat = 6):
+  def pc_width = compact_pc_width(xlen)
+  def target_width = compact_pc_width(xlen)
   def width = xlen.width
   input active: Bool
   input space: Bool
@@ -59,7 +62,7 @@ sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: Nat = 32, ras_entr
   interface branch_update(Valid(BranchUpdate(xlen)), ~role: consumer)
   interface ras_speculate(Valid(RasUpdate(xlen)), ~role: consumer)
   interface ras_restore(Pulse(), ~role: consumer)
-  interface btb_discover(Valid(BranchPrediction(xlen)), ~role: consumer)
+  interface btb_discover(Valid(BranchPrediction(xlen, xlen.width)), ~role: consumer)
   interface attempts(Decoupled(RV5StageFetchAttempt(xlen)), ~role: producer)
   interface stage1(Valid(RV5StageFetchAttempt(xlen)), ~role: producer)
   output ras_head_valid: Bool
@@ -71,6 +74,9 @@ sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: Nat = 32, ras_entr
      allocates the fixed S1 lookup context. */
 
   reg running(~init: Bool(#true))
+  when (restart.valid):
+    assert(CompactPc.fits(xlen, restart.bits), "rv5stage_redirect_pc_admitted")
+
   inst cursor(RV5StageFetchCursor(xlen))
   inst offer(RV5StageFetchOffer(xlen))
   inst btb(if btb_entries == 0 | DisabledBtb(xlen) | Btb(xlen, btb_entries, ~pc_width: pc_width, ~target_width: target_width))
@@ -111,7 +117,7 @@ sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: Nat = 32, ras_entr
   def stored_prediction = btb.prediction
   def predicted_return = stored_prediction.ras_action.is_one_of(RasAction.Pop, RasAction.PopPush) & ras.head_valid
   def btb_prediction = stored_prediction.updated(~target: mux(predicted_return, ras.head, stored_prediction.target))
-  def prediction = mux(s1.egress.bits.continuation, literal(BranchPrediction(xlen), 0), btb_prediction)
+  def prediction = mux(s1.egress.bits.continuation, literal(BranchPrediction(xlen, xlen.width), 0), btb_prediction)
   def predicted_straddle = prediction.valid & prediction.pc[1].into(Bool) & !prediction.compressed
   def next_pc = priority_mux(~default: s1.egress.bits.pc.align_down(4) + Bits(width)(4)):
     s1.egress.bits.continuation: s1.egress.bits.continuation_target
@@ -126,16 +132,16 @@ sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: Nat = 32, ras_entr
     pc: pc
     continuation: Bool(#false)
     continuation_target: pc
-    prediction: literal(BranchPrediction(xlen), 0)
+    prediction: literal(BranchPrediction(xlen, xlen.width), 0)
 
   def Array(restart_offer, restart_update) = restart_candidates |> fork_valid(2)
-  def Array(replay_offer, replay_update) = (replay |> map_valid(attempt => attempt.updated(~prediction: literal(BranchPrediction(xlen), 0)))) |> fork_valid(2)
+  def Array(replay_offer, replay_update) = (replay |> map_valid(attempt => attempt.updated(~prediction: literal(BranchPrediction(xlen, xlen.width), 0)))) |> fork_valid(2)
   def Array(prediction_source, lookup_source) = s1.egress |> fork_valid(2)
   def next_candidates = prediction_source |> map_valid(_attempt => RV5StageFetchAttempt(xlen)):
     pc: next_pc
     continuation: predicted_straddle
     continuation_target: prediction.target
-    prediction: literal(BranchPrediction(xlen), 0)
+    prediction: literal(BranchPrediction(xlen, xlen.width), 0)
 
   def Array(next_offer, next_update) = next_candidates |> fork_valid(2)
   def seed = inject_interface(Valid(RV5StageFetchAttempt(xlen)), ~valid: Bool(#true), ~bits: literal(RV5StageFetchAttempt(xlen), 0))

@@ -629,6 +629,12 @@ scoreboards and a completion arbiter.
 
 The execution core consumes `packets: Decoupled(RV5StageFetchPacket(xlen, hypervisor))` and supplies
 `frontend_control` for activity, redirects, invalidation, and predictor training.
+PCs follow the fixed [RV32/Sv39 compact-PC contract](../README.md#compact-pc-storage).
+The scanner, packet queue and instruction buffer use that same packet type;
+address, fault flags and prediction are scalar/member views, not an expanded
+second packet. RV64, including H, stores 39-bit successful PCs with full fault
+addresses in the tagged outcome. RV32 stores all 32 bits. Executable Bare regions
+and reset addresses must lie below `2^38` on RV64; data addresses are independent.
 `RV5Stage` connects those ports to the frontend; the frontend's `memory` port
 connects to the MMU's fixed-latency fetch-attempt interface.
 The diagram illustrates the current composition; the stage and transfer

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/isa/xlen.rhm").XLen
   "memory-context.rhdl" open
   "../cosim-source.rhm".describe_cosim_context
   "../cache-prefetch.rhdl" open
@@ -102,6 +103,13 @@ sync_circuit RV5Stage(profile :: RV5StageConfig,
 
   def vector_completion_slots = profile.vector_completion_slots
   def xlen = profile.xlen
+  config.check_compact_fetch(xlen)
+  unless reset_address < 2 ** xlen.width
+  | error(~who: #'RV5Stage, "reset address must fit XLEN")
+
+  unless reset_address < 2 ** (if xlen == XLen.X32 | 32 | 38)
+  | error(~who: #'RV5Stage, "reset address must fit the compact Bare PC domain")
+
   def extensions = profile.extensions
   def width = xlen.width
   def p = config.flit
@@ -129,8 +137,7 @@ sync_circuit RV5Stage(profile :: RV5StageConfig,
 
   inst core(RV5StageCore(profile, ~reset_address: reset_address))
   inst frontend(RV5StageFrontend(
-    profile, ~btb_entries: btb_entries, ~ras_entries: ras_entries,
-    ~physical_address_width: config.physical_map.address_width
+    profile, ~btb_entries: btb_entries, ~ras_entries: ras_entries
   ))
   inst mmu(RV5StageMmu(xlen, profile.mmu_mode, config.physical_map, ~svnapot: profile.extensions.svnapot, ~vector_completion_slots: vector_completion_slots, ~hypervisor: hypervisor))
   describe_cosim_context(core, {"mmu": mmu})

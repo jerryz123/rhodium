@@ -11,6 +11,7 @@ import:
   "../../../cores/rv5stage/profile.rhm".RV5StageConfig
   "../../../cores/misaligned-access.rhdl".RiscvSplitResult
   "../../../cores/rv5stage/bundles.rhdl".MemoryWriteback
+  "../../../cores/rv5stage/bundles.rhdl".RV5StageRetirementCommand
   "../../../cores/rv5stage/memory-context.rhdl" open
   "../../../cores/rv5stage/fp/bundles.rhdl" open
   "../../../cores/fp/types.rhdl".FloatDestination
@@ -110,6 +111,7 @@ sync_circuit RV5StageCosimObserver(profile :: RV5StageConfig, tap_types :: Map, 
   def wb_memory_pending :: Bool = taps["wb_memory_pending"]
   def wb_reservation_wait_pending :: Bool = taps["wb_reservation_wait_pending"]
   def wb_pending_exception_valid :: Bool = taps["wb_pending_exception_valid"]
+  def wb_redirect_pending :: Bool = taps["wb_redirect_pending"]
   def wb_current_exception_wait :: Bool = taps["wb_current_exception_wait"]
   def wb_memory_accepted :: Bool = taps["wb_memory_accepted"]
   def wb_attempt :: Bool = taps["wb_attempt"]
@@ -120,8 +122,8 @@ sync_circuit RV5StageCosimObserver(profile :: RV5StageConfig, tap_types :: Map, 
   def split_result :: RiscvSplitResult(xlen, RV5StageMemoryContext(vector_completion_slots)) = taps["split_result"]
   def wb_commit_has_multiply :: Bool = taps["wb_commit_has_multiply"]
   def wb_commit_has_divide :: Bool = taps["wb_commit_has_divide"]
-  def wb_offer_bits :: MemoryWriteback(xlen, vector_completion_slots, hypervisor) = taps["wb_offer_bits"]
-  def wb_commit_bits :: MemoryWriteback(xlen, vector_completion_slots, hypervisor) = taps["wb_commit_bits"]
+  def wb_offer_bits :: RV5StageRetirementCommand(xlen, vector_completion_slots, hypervisor) = taps["wb_offer_bits"]
+  def wb_commit_bits :: RV5StageRetirementCommand(xlen, vector_completion_slots, hypervisor) = taps["wb_commit_bits"]
   def wb_input_bits :: MemoryWriteback(xlen, vector_completion_slots, hypervisor) = taps["wb_input_bits"]
   def resume_pc :: Bits(width) = taps["resume_pc"]
   def response_fire :: Bool = taps["response_fire"]
@@ -159,23 +161,26 @@ sync_circuit RV5StageCosimObserver(profile :: RV5StageConfig, tap_types :: Map, 
   def csr_interrupt_inputs :: RiscvInterrupts() = taps["csr_interrupt_inputs"]
   def csr_time_input :: Bits(64) = taps["csr_time_input"]
   def csr_interrupt_boundary :: Bool = taps["csr_interrupt_boundary"]
-  def instruction = mux(wb_reservation_wait_accept, wb_input_bits, wb_offer_bits)
+  def instruction = mux(wb_reservation_wait_accept, wb_input_bits.retirement(), wb_offer_bits)
+  // A rejected target has no previously observed instruction owner. Allocate
+  // its fetch-fault record only at trap entry, after the jump's separate retirement.
+  def target_fault = wb_redirect_pending & csr_synchronous_trap
   rhodium_rv5stage_scalar_cycle.call(
     cosim_instance, Bits(64)(width), Bits(64)(if fp_enabled | floating_point_register_width(fp_profile) | 0),
     Bits(64)(if vector_enabled | 1 | 0), wb_retained_memory_accepted.as_bits().zext(64),
     wb_reservation_wait_accept.as_bits().zext(64), wb_vector_admission.as_bits().zext(64), wb_vector_return.as_bits().zext(64),
-    wb_commit_valid.as_bits().zext(64), wb_memory_pending.as_bits().zext(64), wb_reservation_wait_pending.as_bits().zext(64),
-    wb_pending_exception_valid.as_bits().zext(64), wb_current_exception_wait.as_bits().zext(64), wb_memory_accepted.as_bits().zext(64),
+    (wb_commit_valid ||| target_fault).as_bits().zext(64), wb_memory_pending.as_bits().zext(64), wb_reservation_wait_pending.as_bits().zext(64),
+    (wb_pending_exception_valid & !wb_redirect_pending).as_bits().zext(64), wb_current_exception_wait.as_bits().zext(64), wb_memory_accepted.as_bits().zext(64),
     wb_attempt.as_bits().zext(64), wb_data_fault.as_bits().zext(64), wb_split_accepted.as_bits().zext(64),
     wb_split_done.as_bits().zext(64), wb_commit_has_multiply.as_bits().zext(64), wb_commit_has_divide.as_bits().zext(64),
     response_fire.as_bits().zext(64), write_valid.as_bits().zext(64), lane(wb_fault_address), wb_commit_bits.rd.zext(64),
-    lane(wb_commit_bits.value), write_rd.zext(64), lane(write_data), wb_offer_bits.data_request_valid.as_bits().zext(64),
+    lane(wb_commit_bits.value), write_rd.zext(64), lane(write_data), (wb_offer_bits.data_request_valid & !wb_redirect_pending).as_bits().zext(64),
     ~enable: active
   )
 
   rhodium_rv5stage_header.call(
-    cosim_instance, lane(instruction.pc), instruction.raw_instruction.zext(64), instruction.exception_valid.as_bits().zext(64),
-    lane(instruction.exception_cause), ~enable: active
+    cosim_instance, lane(mux(wb_redirect_pending, csr_trap_pc, instruction.pc)), mux(wb_redirect_pending, Bits(32)(0), instruction.raw_instruction).zext(64),
+    (wb_redirect_pending ||| instruction.exception_valid).as_bits().zext(64), lane(mux(wb_redirect_pending, csr_trap_cause, instruction.exception_cause.as_bits().zext(width))), ~enable: active
   )
 
   rhodium_rv5stage_boundary.call(
@@ -194,7 +199,7 @@ sync_circuit RV5StageCosimObserver(profile :: RV5StageConfig, tap_types :: Map, 
   rhodium_rv5stage_response.call(
     cosim_instance, lane(memory_response.data), memory_response.access_fault.as_bits().zext(64),
     lane(memory_response.context.writeback.as_bits()),
-    memory_response.context.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint).into(Bool).as_bits().zext(64),
+    memory_response.context.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint).as_bits().zext(64),
     lane(split_result.response.data), (split_result.page_fault ||| split_result.response.access_fault).as_bits().zext(64),
     lane(split_result.fault_address), ~enable: active
   )
@@ -210,8 +215,8 @@ sync_circuit RV5StageCosimObserver(profile :: RV5StageConfig, tap_types :: Map, 
     rhodium_rv5stage_request.call(
       cosim_instance, Bits(64)(index), lane(request.address), lane(request.access.as_bits()), lane(request.width.as_bits()),
       lane(request.atomic.as_bits()), lane(request.data), lane(request.context.writeback.as_bits()),
-      request.context.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).Integer).into(Bool).as_bits().zext(64),
-      request.context.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint).into(Bool).as_bits().zext(64),
+      request.context.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).Integer).as_bits().zext(64),
+      request.context.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint).as_bits().zext(64),
       request.context.writeback.view(RV5StageMemoryWriteback(vector_completion_slots).Integer).payload.zext(64), ~enable: active
     )
 

@@ -14,9 +14,9 @@ unsigned sequence = 0;
 Instruction token(unsigned id) {
   Instruction result{};
   const std::uint64_t pcs[] = {0xffe, UINT64_C(0xffffffc000001ffc),
-                              UINT64_C(0x00000ffffffffffc), UINT64_MAX - 1};
+                              UINT64_C(0x0000003ffffffffc), UINT64_MAX - 1};
   const bool fault = id % 3 == 1;
-  result.ppc = fault ? UINT64_C(0x123456789abc0000) + id * 2 : pcs[id % 4];
+  result.ppc = fault ? UINT64_C(0x0000004000000000) + id * 2 : pcs[id % 4];
   if (fault && id % 4 >= 2) result.ppc = UINT64_MAX - 1;
   result.pinstruction = (id * 0x9e3779b9u & ~127u) | 0x13;
   // Vary the canonical upper half independently of a compressed raw parcel.
@@ -24,13 +24,15 @@ Instruction token(unsigned id) {
                                      : result.pinstruction;
   result.psequential_upc = result.ppc + (id & 1 ? 2 : 4);
   result.pcompressed_uillegal = id & 1;
-  result.pfault.pkind = fault ? 1 + (id / 3) % (has_guest<Fault> ? 4 : 3) : 0;
+  constexpr unsigned causes[] = {0, 1, 12, 20};
+  result.pfault.pvalid = fault;
+  result.pfault.pcause = causes[(id / 3) % (has_guest<Fault> ? 4 : 3)];
   result.pfault.pcontinuation = id & 1;
   set_fetch_guest(result.pfault, true, UINT64_C(0x123456780) + id, id % 3);
   result.pprediction.pvalid = !fault && id % 4 != 0;
   result.pprediction.ppc = result.pprediction.pvalid ? result.ppc : 0xdead;
   result.pprediction.ptarget = sign_extend((UINT64_C(0x1234fedcba987654) ^ id) ^
-                                          (std::uint64_t(id & 1) << 44), xlen == 64 ? 45 : 32);
+                                          (std::uint64_t(id & 1) << 38), xlen == 64 ? 39 : 32);
   result.pprediction.pcompressed = id & 1;
   result.pprediction.pras_uaction = id % 4;
   result.pspeculated_uras_uaction = (id + 1) % 4;

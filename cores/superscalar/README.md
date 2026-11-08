@@ -113,30 +113,42 @@ internally. Software programs mtvec/stvec and supplies its trap handler.
 `cores/superscalar/cache.rhdl` owns the standalone `SuperscalarL1D` adapter.
 
 When using `SuperscalarCore` directly, provide
-`instructions: Decoupled(SuperscalarPacket(xlen, hypervisor, issue_width))`, matching the supplied issue module.
-Each packet has a `count` of one through `issue_width` and that many valid `entries`,
-oldest first. Entries contain an
-XLEN-wide `pc`, canonical 32-bit `instruction`, original `raw_instruction` (zero-extended
-for C), length-derived `sequential_pc`, `compressed_illegal`, and
-`fault: SuperscalarFetchFault(xlen, hypervisor)`. Direct packet producers supply
-all of this metadata. For a 32-bit encoding the raw word is the canonical
-instruction; for a compressed encoding the raw word contains only the original
-low halfword, even when expansion is illegal. The low two bits of that halfword
-identify the encoding independently of the fetch-fault or successor fields.
-Every accepted entry, including a fault, must supply `pc + 2` or `pc + 4`
-modulo XLEN. A valid prediction must name that instruction's PC; an invalid
-prediction's input PC and target are ignored. The PC reported in either case is the
-instruction PC itself; an invalid prediction's target is reported as zero.
-Faulting entries must not predict. Direct `SuperscalarCore` producers default to
-full-XLEN PCs. With `~instruction_pc_width: n`, every successful PC and every
-valid predicted target must equal the sign extension of its low `n` bits;
-faulting PCs remain unrestricted.
-The integrated hart selects this width from its physical-address and Sv39 bounds.
-Set `fault.kind` to `SuperscalarFetchFaultKind.None` and clear `compressed_illegal`
-for successful fetches; instruction bits are ignored for fetch faults. The
-other supported kinds are `Misaligned`, `Access`, `Page`, and (with H)
-`GuestPage`. `fault.valid()` reports presence; `fault.cause()`
-returns the five-bit architectural exception number for a present fault.
+`instructions: Decoupled(SuperscalarPacket(xlen, hypervisor, issue_width))`,
+using the fixed [compact-PC contract](../README.md#compact-pc-storage). The supplied issue module sets the width. Each packet has a nonzero
+`count` and that many oldest-first entries. `SuperscalarInstruction` is the
+canonical compact record used by assembly, the issue window and observations:
+a `CompactPc`, canonical 32-bit instruction, raw low parcel, successor-step
+tag, normal/fault union, RAS metadata and a direction checkpoint.
+
+Construct `SuperscalarInstruction(xlen, hypervisor)` with named fields. Capture
+the starting PC with `CompactPc.capture`, use `encode_pc_step` for a successor of
+PC+2 or PC+4 modulo XLEN, and set `outcome` with
+`SuperscalarInstructionOutcome.select`. Pass the original full PC to the
+selector so it can distinguish a sequential boundary fault before truncation.
+Successful PCs must fit the fixed RV32/Sv39 domain before capture;
+sequential-boundary faults use one bit to select zero extension instead of sign
+extension. The boundary field is present for both XLENs and is always false for RV32.
+Arbitrary invalid redirects are rejected in the backend, preserving
+the originating instruction's retirement and the target's precise trap PC. Predictions
+cannot be active on faults. Destinations are normalized speculative addresses,
+not architectural targets. Executable Bare regions must fit below `2^38` for RV64 or `2^32` for RV32.
+Successful guest-Bare translations outside the PC domain fault before fetching;
+data-only physical regions remain independent.
+
+Consumers use `.address()`, `.raw()`, `.successor()`, `.fetch_fault()`,
+`.predicted()`, and `.target()` without expanding a second instruction type.
+`.prediction_value()` formats the shared predictor protocol where needed.
+The raw upper half comes from the canonical word for a 32-bit encoding and
+is zero for a compressed encoding. An inactive prediction's target is zero.
+Direction checkpoints retain row, recovery history and chooser observations;
+training derives the parcel/base indices from the owning PC.
+Clear `fault.valid` and `compressed_illegal` for successful fetches;
+instruction bits are ignored for fetch faults. For a present fault, set
+`fault.cause` directly to the shared `ExceptionCause` member:
+`InstructionAddressMisaligned`, `InstructionAccessFault`, `InstructionPageFault`,
+or (with H) `InstructionGuestPageFault`. Cause zero is a valid misalignment
+exception, not an absence marker. Retained tagged-union payloads use the
+`Fault` tag for presence instead of storing a second valid bit.
 Set `fault.continuation` only when the second 16-bit parcel failed.
 `fault.address(pc)` then yields `pc + 2` modulo XLEN; for a first-parcel fault
 it yields `pc`. For example, an instruction at `0xffe` that faults fetching
@@ -176,7 +188,7 @@ pulses for a connected predictor; `Superscalar` connects these internally.
 
 `SuperscalarFrontend`, `SuperscalarInstructionAssembler`, and
 `SuperscalarIssueWindow` accept `~group_width: 2` (the default) or
-`~group_width: 3`. Connect components with the same width; their packet type is
+`~group_width: 3`. Connect components with matching group and address widths; their packet type is
 `SuperscalarPacket(xlen, hypervisor, group_width)`. For example:
 
 ```rhdl
@@ -583,8 +595,8 @@ the four current-block predictions share the lookup row supplied by parcel zero.
 The preceding prefix has its own lookup row. All five recovery histories and
 chooser observations survive buffering independently; invalid training indices
 are unspecified. Invalid producer addresses or valid direction indices are rejected.
-Integrated predictions sign-extend destinations from the configured successful-PC
-width (covering Sv39 and Bare physical addresses). Unrepresentable targets may
+Integrated predictions sign-extend destinations from the fixed RV32/Sv39 PC
+width. Unrepresentable targets may
 alias; execution still resolves against the exact architectural target and
 squashes wrong-path instructions. Architectural recovery and faults remain full-width.
 
@@ -607,7 +619,7 @@ misaligned faults.
 ## Branch prediction
 
 The frontend uses the shared 32-entry BTB, a six-entry RAS, and a bimodal/gshare
-tournament predictor. BTB source admission uses the configured successful-PC
+tournament predictor. BTB source admission uses the fixed successful-PC
 bound: out-of-range lookups miss, and source writes or invalidations never
 alias an in-range entry. Architectural fetch and fault addresses remain exact.
 S1 reads the PC-indexed bimodal table alongside the BTB
@@ -822,7 +834,7 @@ Outputs have no backpressure. `deferred` means a memory or multiply/divide opera
 accepted at WB and its response will arrive on `completed`, rather than being
 reissued or retired again. For a deferred GPR result, `write` describes the eventual
 GPR write and retirement `data` is unspecified. The unbackpressured
-`completed: Valid(SuperscalarCompletion(xlen))` reports `identity.pc`,
+`completed: Valid(SuperscalarCompletion(xlen))` reports the compact identity (use `identity.address()` for the full PC),
 `identity.raw_instruction`, `rd`, `write`, and `data`. It is not another retirement;
 there is no `deferred` flag, fault record, or predictor checkpoint on this port.
 Store acknowledgements have `write` false. Non-writing data is unspecified on either interface.
@@ -1124,9 +1136,11 @@ replayed or rolled back. LR/SC/AMO still require natural alignment.
 The corresponding `resolution[2]: Valid(SuperscalarResolution(xlen))` may qualify it in
 the same cycle with Continue, Fault, or Replay. This is a synchronous stage
 qualification boundary, **not** an asynchronous memory response interface.
-A Fault supplies a synchronous exception number in the low five bits of the
-XLEN-wide cause port; upper bits must be zero. Interrupts are selected by the
-CSR unit and reported with the architectural interrupt bit set on redirect.
+A Fault supplies a `ExceptionCause` synchronous exception. Interrupts are selected
+by the CSR unit and use the separate `redirect.bits.interrupt` flag; they never
+occupy the synchronous cause field. On a trap redirect, `redirect.bits.trap_cause`
+reports the architectural XLEN-wide cause image, including the interrupt bit.
+`redirect.bits.resolution.cause` is meaningful only for synchronous faults.
 Absent qualification means Continue. Inputs for nonexistent or WB-squashed
 tokens have no architectural effect. This cut uses the boundary to exercise
 ordering before connecting a real memory subsystem.
@@ -1144,8 +1158,9 @@ to retire exactly once. `redirect: Valid(SuperscalarRedirect(xlen))` reports rec
   `target` is the architectural trap vector.
 - System: WB serialization/return recovery, successful retained-memory resume,
   WFI wake, or an interrupt boundary.
-  `target` is the selected successor, return PC, or trap vector. Cause/value are
-  meaningful for an interrupt trap (cause has its interrupt bit set).
+  `target` is the selected successor, return PC, or trap vector. For an interrupt
+  trap, `trap_cause` has its interrupt bit set and `resolution.value` is zero;
+  `resolution.cause` is not an interrupt number.
 
 Instruction PCs require two-byte alignment. JALR clears bit zero; compressed
 JALR writes `pc + 2`, while a full-width jump writes `pc + 4`. The shared CSR bank

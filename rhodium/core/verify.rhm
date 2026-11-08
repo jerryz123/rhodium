@@ -243,13 +243,13 @@ fun check_operation_types(module_def :: Module,
       unless bits_type(result.type) && result.type.width == 1
       | fail_operation(operation,
                        operation.opcode ++ " result must be Bits(1)")
-  | "signed_arithmetic_sext":
+  | "scalar_sext":
       def operand = operation.operands[0]
       def result = operation.results[0]
       def target_width = operation.attribute("target_width", #false)
-      unless signed_arithmetic_type(operand.type) && signed_arithmetic_type(result.type)
+      unless (bits_type(operand.type) && bits_type(result.type)) || (signed_arithmetic_type(operand.type) && signed_arithmetic_type(result.type))
       | fail_operation(operation,
-                       "rtl.sext operand and result must be SignedArithmeticType values")
+                       "rtl.sext operand and result must both be Bits or SignedArithmeticType values")
 
       unless target_width is_a PosInt && target_width > scalar_width(operand.type)
       | fail_operation(operation,
@@ -257,7 +257,7 @@ fun check_operation_types(module_def :: Module,
 
       unless scalar_width(result.type) == target_width && type_equal(result.type, operand.type.with_bit_width(target_width))
       | fail_operation(operation,
-                       "rtl.sext result must preserve the signed arithmetic type at the target width")
+                       "rtl.sext result must preserve the operand type family at the target width")
   | "data_mux_lookup":
       unless operation.operands.length() >= 3
       | fail_operation(operation, "mux lookup requires a selector, default, and at least one case")

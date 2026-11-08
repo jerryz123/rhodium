@@ -7,8 +7,7 @@
 fun wrap_around(n :: Bits,
                 max :: Bits) :: Bits(n.type.width):
   def width = n.type.width
-  def comparable_max:
-    if (max.type.width == width) | max | max.zext(width)
+  def comparable_max = max.zext(width)
 
   mux(n > comparable_max, Bits(width)(0), n)
 

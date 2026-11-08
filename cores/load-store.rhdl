@@ -74,14 +74,14 @@ circuit LoadGen(xlen :: XLen,
   def half = shifted[0..16]
   def word = shifted[0..32]
   def double_value = shifted[0..xlen_bits]
-  def signed_word = if xlen == XLen.X64 | word.into(SInt(32)).sext(64).as_bits() | word
-  def unsigned_word = if xlen == XLen.X64 | word.zext(64) | word
+  def signed_word = word.sext(xlen_bits)
+  def unsigned_word = word.zext(xlen_bits)
   def signed_value :: Bits(xlen_bits) = mux_lookup(
     width,
     ~default: double_value,
     [
-      [MemoryWidth.Byte, byte.into(SInt(8)).sext(xlen_bits).as_bits()],
-      [MemoryWidth.Half, half.into(SInt(16)).sext(xlen_bits).as_bits()],
+      [MemoryWidth.Byte, byte.sext(xlen_bits)],
+      [MemoryWidth.Half, half.sext(xlen_bits)],
       [MemoryWidth.Word, signed_word]
     ]
   )
@@ -125,10 +125,7 @@ circuit StoreGen(xlen :: XLen,
     ]
   )
 
-  def beat_value:
-    if beat_bits == xlen_bits
-    | value
-    | value.zext(beat_bits)
+  def beat_value = value.zext(beat_bits)
 
   data <== beat_value << shift
   mask <== (base_mask << offset).into(Mask(beat_bytes))

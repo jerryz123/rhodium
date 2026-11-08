@@ -5,6 +5,7 @@
 #include "collector.h"
 static rhodium::statistics::Collector statistic_collector(rhodium::statistics::descriptors);
 static std::vector<unsigned> statistic_samples(rhodium::statistics::descriptors.size());
+static std::uint64_t rejected_recovery_pc = UINT64_MAX;
 extern "C" void rhodium_stat_count(int id) {
   statistic_collector.count(id);
   ++statistic_samples.at(id);
@@ -13,6 +14,9 @@ void counted_tick() {
   const auto issue = issued;
   const bool retires[] = {bool(retired_0_out.pvalid), bool(retired_1_out.pvalid)};
   const bool recovery = !reset && redirect_out.pvalid && redirect_out.pbits.presolution.pdisposition == 0;
+  const bool rejected_recovery = !reset && fetch_flush_out.pvalid &&
+      ((memory_stage_0_out.pvalid && memory_stage_0_out.pbits.ppc == rejected_recovery_pc) ||
+       (memory_stage_1_out.pvalid && memory_stage_1_out.pbits.ppc == rejected_recovery_pc));
   std::fill(statistic_samples.begin(), statistic_samples.end(), 0);
   statistic_collector.begin(reset);
   tick_model();
@@ -30,7 +34,7 @@ void counted_tick() {
         CHECK(value == unsigned(retires[n]));
     if (descriptor.find("mispredict_") != std::string_view::npos) recoveries += value;
   }
-  CHECK(recoveries == unsigned(recovery));
+  CHECK(recoveries == unsigned(recovery || rejected_recovery));
 }
 #define tick_model counted_tick
 #include "driver.hpp"
@@ -1031,7 +1035,7 @@ void send(std::uint64_t pc, std::uint32_t first, std::uint32_t second,
   }
   if (fetch_fault_lane >= 0)
     instructions_in.pbits.pentries[fetch_fault_lane].pfault = {
-        .pkind = 2, .pcontinuation = fault_continuation};
+        .pvalid = 1, .pcause = 1, .pcontinuation = fault_continuation};
   settle();
   while (!instructions_out.pready)
     tick();
@@ -1085,8 +1089,9 @@ void stop_at(std::uint64_t pc, std::uint64_t target, int disposition = 0,
           .ptarget = disposition == 1 ? trap_target : target,
           .presolution = {.pdisposition =
                               static_cast<uint8_t>(((disposition)&low_mask(2))),
-                          .pcause = cause,
-                          .pvalue = value}};
+                          .pcause = static_cast<uint8_t>(cause & 31),
+                          .pvalue = value},
+          .pinterrupt = bool(cause >> 63)};
   expected_redirects.push_back(item);
 }
 void reset_core() {
@@ -1206,6 +1211,93 @@ void supervisor_timer(std::uint8_t global_enable) {
   send(pc, UINT64_C(0x30200073), 0, 1, 0, 0);
   drain();
   trap_target = UINT64_C(0x700);
+}
+
+void rejected_redirect_tests() {
+  for (const auto target : {UINT64_C(0x0000200000000100), UINT64_C(0x8000000000000100)}) {
+    for (unsigned mode = 0; mode < 4; ++mode) {
+      const bool return_to_sv39 = mode != 0;
+      const unsigned cause = mode == 2 ? 20 : return_to_sv39 ? 12 : 1;
+      reset_core();
+      std::uint64_t pc = 0x18000;
+      constant64(pc, 1, target);
+      drain();
+      if (return_to_sv39) {
+        constant64(pc, 2, UINT64_C(8) << 60);
+        drain();
+        csr_access(pc, 1, 0, 2, mode == 1 ? 0x180 : mode == 2 ? 0x680 : 0x280, 0); pc += 4;
+        constant64(pc, 2, UINT64_C(0x800) | (mode >= 2 ? UINT64_C(1) << 39 : 0));
+        drain();
+        csr_access(pc, 1, 0, 2, 0x300, UINT64_C(0xa00000000)); pc += 4;
+        csr_access(pc, 1, 0, 1, 0x341, 0); pc += 4;
+        expect_system(pc, UINT32_C(0x30200073));
+        stop_at(target, 0, 1, cause, target);
+        send(pc, UINT32_C(0x30200073), 0, 1, 0, 0);
+      } else {
+        // The jump may retire while an older accepted load still owes its result.
+        hold_responses = true;
+        send(pc, UINT32_C(0x00003283), 0, 1); pc += 4;
+        until([&] { return response_count == 1; });
+        const auto stores_before = stores;
+        rejected_recovery_pc = pc;
+        expected_branch_target[pc] = target;
+        stop_at(target, 0, 1, 1, target);
+        send(pc, imm(7, 1, 0, 0, 0x67), store(2, 0, 0, 3), 2, 1, 0);
+        for (unsigned i = 0; i < 12; ++i) tick();
+        CHECK(expected.empty() && expected_redirects.size() == 1 && response_count == 1);
+        CHECK(stores == stores_before && model[7] == pc + 4);
+        hold_responses = false;
+      }
+      drain();
+      rejected_recovery_pc = UINT64_MAX;
+      csr_access(0, 2, 10, 0, 0x341, target);
+      csr_access(4, 2, 11, 0, 0x343, target);
+      csr_access(8, 2, 12, 0, 0x342, cause);
+      if (mode == 2) csr_access(12, 2, 13, 0, 0x34b, target >> 2);
+      if (!return_to_sv39) {
+        send(12, imm(8, 7, 0), 0, 1);
+        drain();
+      }
+    }
+  }
+
+  // An older fault cancels a younger invalid jump before it can own a target trap.
+  reset_core();
+  std::uint64_t pc = 0x19000;
+  constexpr auto target = UINT64_C(0x0000200000000100);
+  constant64(pc, 1, target);
+  drain();
+  inject_enable = true;
+  inject_pc = pc;
+  inject_result = {.pdisposition = 1, .pcause = 2, .pvalue = 0xbad};
+  stop_at(pc, 0, 1, 2, 0xbad);
+  send(pc, imm(3, 0, 3), imm(7, 1, 0, 0, 0x67), 2, 0, 0);
+  drain();
+  inject_enable = false;
+  csr_access(0, 2, 10, 0, 0x341, pc);
+  csr_access(4, 2, 11, 0, 0x343, 0xbad);
+  send(8, imm(8, 7, 0), 0, 1);
+  drain();
+  CHECK(model[8] == 0);
+
+  // Reset abandons a retained target fault together with its older response epoch.
+  reset_core();
+  pc = 0x1a000;
+  constant64(pc, 1, target);
+  drain();
+  hold_responses = true;
+  send(pc, UINT32_C(0x00003283), 0, 1); pc += 4;
+  until([&] { return response_count == 1; });
+  rejected_recovery_pc = pc;
+  expected_branch_target[pc] = target;
+  stop_at(target, 0, 1, 1, target);
+  send(pc, imm(7, 1, 0, 0, 0x67), 0, 1);
+  for (unsigned i = 0; i < 12; ++i) tick();
+  CHECK(expected_redirects.size() == 1 && response_count == 1);
+  rejected_recovery_pc = UINT64_MAX;
+  reset_core();
+  send(0x100, imm(8, 0, 42), 0, 1);
+  drain();
 }
 
 int main() {
@@ -1331,8 +1423,8 @@ int main() {
     }
     // Independently retained load/divide completions and multiply authorization
     // must preserve PCs at both compact limits and across XLEN wrap.
-    for (const auto pc : {UINT64_C(0x00000fffffffffe0),
-                          UINT64_C(0xfffff00000000000), UINT64_MAX - 15}) {
+    for (const auto pc : {UINT64_C(0x0000003fffffffe0),
+                          UINT64_C(0xffffffc000000000), UINT64_MAX - 15}) {
       send(pc, imm(1, 0, 42), imm(2, 0, 7));
       send(pc + 8, m_insn(3, 1, 2, 0), imm(8, 0, 8));
       send(pc + 16, m_insn(4, 1, 2, 4), imm(9, 0, 9));
@@ -1372,12 +1464,14 @@ int main() {
     drain();
     // A lossy target hint can name valid code while the actual destination
     // escapes the compact range. Full-width resolution must kill that peer.
-    const auto edge_pc = (UINT64_C(1) << 44) - 0x100;
+    const auto edge_pc = (UINT64_C(1) << 38) - 0x100;
     const auto actual_target = edge_pc + 0x200;
-    const auto aliased_target = UINT64_C(0xfffff00000000100);
-    stop_at(edge_pc, actual_target);
+    const auto aliased_target = UINT64_C(0xffffffc000000100);
+    rejected_recovery_pc = edge_pc;
+    stop_at(actual_target, 0, 1, 1, actual_target);
     send_predicted(edge_pc, jump(0, 0x200), aliased_target, aliased_target, 0);
     drain();
+    rejected_recovery_pc = UINT64_MAX;
     CHECK(memory_cycles.at(0xb200) < memory_cycles.at(0xa200));
     send_predicted(UINT64_C(0x2640), jump(1, 32), UINT64_C(0x2660),
                    UINT64_C(0x2660), 1, UINT64_C(1));
@@ -1427,7 +1521,7 @@ int main() {
     inject_pc = UINT64_C(0x2550);
     // An earlier EX exception wins; an unselected external cause is not validated.
     inject_result = {.pdisposition = UINT64_C(1),
-                     .pcause = UINT64_MAX,
+                     .pcause = 31,
                      .pvalue = UINT64_C(0xdead)};
     stop_at(UINT64_C(0x2550), UINT64_C(0x2550), 1, 2, UINT64_C(0xffffffff));
     send(UINT64_C(0x2550), UINT64_C(0xffffffff), {}, 1, 0, 0);
@@ -1485,6 +1579,28 @@ int main() {
     send(UINT64_C(0x3000), imm(22, 20, 0), imm(23, 21, 0));
     drain();
     CHECK(single_issues > 10 && stops == 24);
+
+    // MEM replaces an already computed result with an unrelated full-width
+    // trap value. Neither faulting data nor its dependent younger work may retire.
+    const int before_value_faults = stops;
+    for (int lane = 0; lane < 2; ++lane) {
+      for (const auto value : {UINT64_C(0), UINT64_C(0x8000000000000001),
+                               UINT64_C(0x0123456789abcdef), UINT64_MAX}) {
+        const auto pc = UINT64_C(0x3100) + 32 * lane;
+        inject_enable = 1;
+        inject_pc = pc + 4 * lane;
+        inject_result = {.pdisposition = 1, .pcause = 5, .pvalue = value};
+        stop_at(inject_pc, inject_pc, 1, 5, value);
+        send(pc, imm(12, 0, 0x135), imm(13, 0, 0x246), 2, lane == 1, 0);
+        tick();
+        send(pc + 8, imm(14, 12, 1), imm(15, 13, 1), 2, 0, 0);
+        drain();
+        inject_enable = 0;
+        send(pc + 16, imm(14, 12, 0), imm(15, 13, 0));
+        drain();
+      }
+    }
+    CHECK(stops == before_value_faults + 8);
 
     // Warm loads use the normal MEM/WB path and sustain one LSU plus one ALU each cycle.
     reset_core();
@@ -3335,7 +3451,7 @@ int main() {
 
     // Retained services preserve their own successor and prediction metadata,
     // even across region/XLEN wrap after the live instruction offer is withdrawn.
-    for (auto service_pc : {UINT64_C(0x10ffc), UINT64_C(0xfffff6789abcfffc),
+    for (auto service_pc : {UINT64_C(0x10ffc), UINT64_C(0xfffffff89abcfffc),
                             UINT64_C(0xfffffffffffffffc)}) {
       for (int lane = 0; lane < 2; ++lane) {
         reset_core();
@@ -3566,7 +3682,7 @@ int main() {
               pc = UINT64_C(0xffe);
             } break;
             case 1: {
-              pc = UINT64_C(0xfffff000fffffff8);
+              pc = UINT64_C(0xffffffc0fffffff8);
             } break;
             case 2: {
               pc = UINT64_C(0xfffffffffffffff8);
@@ -4932,7 +5048,7 @@ int main() {
       inject_enable = 1;
       inject_pc = UINT64_C(0x1b000) + ((lane * 4) & low_mask(64));
       inject_result = {.pdisposition = UINT64_C(1),
-                       .pcause = lane ? UINT64_C(23) : UINT64_C(21),
+                       .pcause = static_cast<uint8_t>(lane ? 23 : 21),
                        .pvalue = UINT64_C(0x500008),
                        .pguest = {1, 131072, 1}};
       stop_at(inject_pc, 0, 1, inject_result.pcause, UINT64_C(0x500008));
@@ -4954,15 +5070,8 @@ int main() {
     CHECK(branch_updates > 0);
     CHECK(direction_updates > 0 && history_recoveries > 0);
 
-    // Interrupt causes belong to the CSR path, not the synchronous MEM input.
-    reset_core();
-    inject_enable = 1;
-    inject_pc = UINT64_C(0x1c000);
-    inject_result = {.pdisposition = 1, .pcause = (UINT64_C(1) << 63) | 5};
-    expect_failure("superscalar_external_sync_cause", [] {
-      send(inject_pc, imm(5, 0, 7), 0, 1, 0, 0);
-      drain();
-    });
+    rejected_redirect_tests();
+
   });
 }
 
@@ -4975,7 +5084,7 @@ void drive() {
         memory_out.prequest.pbits.paddress == fault_address;
     memory_in.pfault.pbits = {.pdisposition = UINT64_C(1),
                               .pcause =
-                                  (memory_out.prequest.pbits.paccess == 2 ||
+                                  static_cast<uint8_t>((memory_out.prequest.pbits.paccess == 2 ||
                                    memory_out.prequest.pbits.paccess == 4 ||
                                    memory_out.prequest.pbits.paccess == 5 ||
                                    memory_out.prequest.pbits.paccess == 6 ||
@@ -4983,7 +5092,7 @@ void drive() {
                                    memory_out.prequest.pbits.paccess == 8 ||
                                    memory_out.prequest.pbits.paccess == 9)
                                       ? UINT64_C(7)
-                                      : UINT64_C(5),
+                                      : UINT64_C(5)),
                               .pvalue = fault_address};
     memory_in.prequest.pready =
         !block_requests && response_count < 16 && !memory_in.pfault.pvalid;
@@ -5339,8 +5448,8 @@ void observe() {
             (one_of(memory_stage(0).pbits.pinstruction & 127, {19, 27}) &&
              sv_slice(memory_stage(0).pbits.pinstruction, 12, 3) == 0 &&
              sv_slice(memory_stage(0).pbits.pinstruction, 15, 5) == 0));
-      // Preserve the workload budget; completed GPR setup is fixture overhead.
-      if (cycles - gpr_initialization_cycles > 80000)
+      // Include redirected-target cases; completed GPR setup is fixture overhead.
+      if (cycles - gpr_initialization_cycles > 90000)
         fail(1,
              "watchdog: commits=%0d pending=%0d next_pc=%h "
              "conditional_pairs=%0d mop_pairs=%0d split=%0d/%b offer=%b "
@@ -5471,30 +5580,30 @@ void observe() {
       if (completed_out.pvalid) {
         retirement_t want;
         int index;
-        if (completed_out.pbits.pidentity.ppc >= UINT64_C(0xac08) &&
-            completed_out.pbits.pidentity.ppc < UINT64_C(0xac48)) {
+        if (completion_pc(completed_out.pbits.pidentity.ppc, 39) >= UINT64_C(0xac08) &&
+            completion_pc(completed_out.pbits.pidentity.ppc, 39) < UINT64_C(0xac48)) {
           if (multiply_stream_count != 0)
             CHECK(cycles == multiply_stream_cycle + 1);
           multiply_stream_cycle = cycles;
           multiply_stream_count++;
         }
         if (multiply_authorized_cycle.contains(
-                completed_out.pbits.pidentity.ppc)) {
+                completion_pc(completed_out.pbits.pidentity.ppc, 39))) {
           CHECK(cycles ==
-                multiply_authorized_cycle[completed_out.pbits.pidentity.ppc] +
+                multiply_authorized_cycle[completion_pc(completed_out.pbits.pidentity.ppc, 39)] +
                     1);
-          multiply_authorized_cycle.erase(completed_out.pbits.pidentity.ppc);
+          multiply_authorized_cycle.erase(completion_pc(completed_out.pbits.pidentity.ppc, 39));
         }
         index = -1;
         CHECK(expected_completions.size() > 0);
         for (unsigned i = 0; i < expected_completions.size(); ++i)
           if (expected_completions[i].pfetched.ppc ==
-              completed_out.pbits.pidentity.ppc)
+              completion_pc(completed_out.pbits.pidentity.ppc, 39))
             index = i;
         CHECK(index >= 0);
         want = expected_completions[index];
         expected_completions.erase(expected_completions.begin() + index);
-        CHECK(same_completion_identity(completed_out.pbits.pidentity, want.pfetched) &&
+        CHECK(same_completion_identity(completed_out.pbits.pidentity, want.pfetched, 39) &&
               completed_out.pbits.pwrite == want.pwrite );
         if (want.pwrite)
           CHECK(completed_out.pbits.prd == want.prd &&
@@ -5527,6 +5636,7 @@ void observe() {
         want = expected_redirects.take();
         CHECK(redirect_out.pbits.ppc == want.ppc &&
               redirect_out.pbits.ptarget == want.ptarget &&
+              (want.presolution.pdisposition == 3 || !redirect_out.pbits.pinterrupt) &&
               redirect_out.pbits.presolution.pdisposition ==
                   want.presolution.pdisposition);
         if (want.presolution.pdisposition == 1)

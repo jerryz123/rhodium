@@ -22,82 +22,113 @@ bundle RV5StagePacketPrediction(xlen :: XLen):
   target: Bits(xlen.width)
   ras_action: RasAction
 
-/* Carries one raw fetch word with valid-parcel mask, prediction, and optional guest-fault
-   provenance. */
-bundle RV5StageFetchPacket(xlen :: XLen, hypervisor :: Boolean):
-  if hypervisor:
-    guest: RiscvGuestException()
-
-  pc: Bits(xlen.width)
-  word: Bits(32)
-  mask: Bits(2)
-  page_fault: Bool
-  access_fault: Bool
-  prediction: RV5StagePacketPrediction(xlen)
-
 /* Names the restart PC and stale predictor PC when S2 repairs a prediction cut. */
 bundle RV5StageFetchRepair(xlen :: XLen):
   pc: Bits(xlen.width)
   entry: Bits(xlen.width)
 
-/* Sizes the exceptional upper-PC field outside the independently retained low bits. */
-fun queue_pc_high_width(xlen :: XLen, pc_width :: PosInt) :: PosInt:
-  xlen.width - pc_width
-
-/* Preserves the bits missing from a faulting PC and the memory response's fault flags. */
-bundle RV5StageQueueFault(xlen :: XLen, pc_width :: PosInt):
-  pc_high: Bits(queue_pc_high_width(xlen, pc_width))
+/* Marks a positive sequential boundary crossing alongside the response's fault flags. */
+bundle RV5StageQueueFault():
+  boundary: Bool
   page_fault: Bool
   access_fault: Bool
 
 /* Faults never predict, so the prediction and fault details share queue storage. */
-tagged_union RV5StageQueueOutcome(xlen :: XLen, pc_width :: PosInt):
+tagged_union RV5StageQueueOutcome(xlen :: XLen):
   Success(RV5StagePacketPrediction(xlen))
-  Fault(RV5StageQueueFault(xlen, pc_width))
+  Fault(RV5StageQueueFault())
 
-/* Internal queue entry, selected for compact non-H RV64 frontends. Successful PCs sign-extend; a fault carries
-   the original high bits in the same entry, independent of any other packet. */
-bundle RV5StageCompactFetchPacket(xlen :: XLen, pc_width :: PosInt):
-  pc: CompactPc(xlen, pc_width)
-  outcome: RV5StageQueueOutcome(xlen, pc_width)
+/* Canonical scanner, queue, and Decode packet. A fault's boundary bit selects
+   zero extension instead of sign extension; RV32 needs no boundary encoding. */
+bundle RV5StageFetchPacket(xlen :: XLen, hypervisor :: Boolean):
+  if hypervisor:
+    guest: RiscvGuestException()
+
+  if xlen == XLen.X64:
+    pc: CompactPc(xlen)
+    outcome: RV5StageQueueOutcome(xlen)
+
+  if xlen == XLen.X32:
+    pc: Bits(xlen.width)
+
   word: Bits(32)
   mask: Bits(2)
+  if xlen == XLen.X32:
+    page_fault: Bool
+    access_fault: Bool
+    prediction: RV5StagePacketPrediction(xlen)
 
-  /* Restores Decode's full-width PC without an adder. A fault cannot predict,
-     but its original instruction word and exact faulting address survive. */
-  method expanded(packet) :: RV5StageFetchPacket(xlen, #false):
-    def Outcome = RV5StageQueueOutcome(xlen, pc_width)
-    def fault = packet.outcome.is(Outcome.Fault).into(Bool)
-    def details = packet.outcome.view(Outcome.Fault).payload
-    def normal_pc = packet.pc.expanded()
-    RV5StageFetchPacket(xlen, #false):
-      pc: mux(fault, details.pc_high ++ packet.pc.low, normal_pc)
-      word: packet.word
-      mask: packet.mask
-      page_fault: fault & details.page_fault
-      access_fault: fault & details.access_fault
-      prediction: mux(fault, literal(RV5StagePacketPrediction(xlen), 0), packet.outcome.view(Outcome.Success).payload)
+  /* Restores the requested address, including a positive sequential-boundary fault. */
+  method address(packet) :: Bits(xlen.width):
+    if xlen == XLen.X64
+    | block:
+        def low :: CompactPc(xlen) = packet.pc
+        def Outcome = RV5StageQueueOutcome(xlen)
+        def details = packet.outcome.view(Outcome.Fault).payload
+        low.fetch_address(packet.outcome.is(Outcome.Fault) & details.boundary)
+    | packet.pc
 
-/* Packs one scanner occurrence independently, including a fault on a speculative
-   or noncanonical target whose upper bits cannot be recovered by sign extension. */
-fun compact_fetch_packet(xlen :: XLen, pc_width :: PosInt, packet :: RV5StageFetchPacket(xlen, #false)) :~ RV5StageCompactFetchPacket(xlen, pc_width):
-  def fault = packet.page_fault ||| packet.access_fault
-  def Outcome = RV5StageQueueOutcome(xlen, pc_width)
-  def details = RV5StageQueueFault(xlen, pc_width):
-    pc_high: packet.pc[pc_width..xlen.width]
-    page_fault: packet.page_fault
-    access_fault: packet.access_fault
+  /* Qualifies the page-fault payload by the mutually exclusive outcome tag. */
+  method page_faulted(packet) :: Bool:
+    if xlen == XLen.X64
+    | packet.outcome.is(RV5StageQueueOutcome(xlen).Fault) & packet.outcome.view(RV5StageQueueOutcome(xlen).Fault).payload.page_fault
+    | packet.page_fault
 
-  RV5StageCompactFetchPacket(xlen, pc_width):
-    pc: CompactPc.capture(xlen, pc_width, packet.pc)
-    outcome: mux(fault, Outcome.Fault(details), Outcome.Success(packet.prediction))
-    word: packet.word
-    mask: packet.mask
+  /* Qualifies the access-fault payload by the mutually exclusive outcome tag. */
+  method access_faulted(packet) :: Bool:
+    if xlen == XLen.X64
+    | packet.outcome.is(RV5StageQueueOutcome(xlen).Fault) & packet.outcome.view(RV5StageQueueOutcome(xlen).Fault).payload.access_fault
+    | packet.access_fault
+
+  /* Reads the packet hint, with no prediction on a faulting packet. */
+  method prediction_value(packet) :: RV5StagePacketPrediction(xlen):
+    if xlen == XLen.X64
+    | mux(packet.outcome.is(RV5StageQueueOutcome(xlen).Fault), literal(RV5StagePacketPrediction(xlen), 0), packet.outcome.view(RV5StageQueueOutcome(xlen).Success).payload)
+    | packet.prediction
+
+namespace RV5StageFetchPacket:
+  /* Forms the canonical packet directly from scanner results, before any queue or bypass. */
+  export fun create(xlen :: XLen, hypervisor :: Boolean, address :: Bits(xlen.width), word :: Bits(32), mask :: Bits(2), page_fault :: Bool, access_fault :: Bool, prediction :: RV5StagePacketPrediction(xlen), guest :: RiscvGuestException()) :~ RV5StageFetchPacket(xlen, hypervisor):
+    if xlen == XLen.X64
+    | block:
+        def Outcome = RV5StageQueueOutcome(xlen)
+        def details = RV5StageQueueFault():
+          boundary: !CompactPc.fits(xlen, address)
+          page_fault: page_fault
+          access_fault: access_fault
+
+        def outcome = mux(page_fault ||| access_fault, Outcome.Fault(details), Outcome.Success(prediction))
+        if hypervisor
+        | RV5StageFetchPacket(xlen, hypervisor):
+            pc: CompactPc.capture(xlen, address)
+            outcome: outcome
+            word: word
+            mask: mask
+            guest: guest
+        | RV5StageFetchPacket(xlen, hypervisor):
+            pc: CompactPc.capture(xlen, address)
+            outcome: outcome
+            word: word
+            mask: mask
+    | if hypervisor
+      | RV5StageFetchPacket(xlen, hypervisor):
+          guest: guest
+          pc: address
+          word: word
+          mask: mask
+          page_fault: page_fault
+          access_fault: access_fault
+          prediction: prediction
+      | RV5StageFetchPacket(xlen, hypervisor):
+          pc: address
+          word: word
+          mask: mask
+          page_fault: page_fault
+          access_fault: access_fault
+          prediction: prediction
 
 export:
   RV5StagePredictionOwner
   RV5StagePacketPrediction
   RV5StageFetchPacket
-  RV5StageCompactFetchPacket
-  compact_fetch_packet
   RV5StageFetchRepair

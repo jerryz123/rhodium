@@ -512,7 +512,7 @@ fun instrument_events(logical :: DesignElaboration,
         def name = "__event_instance_" ++ to_string(index)
         def seen = builder.register(module_def, name ++ "_seen", Bits(1), clock, reset, builder.constant(module_def, Bits(1), 0))
         def identity = copied.values[scope.value.id]
-        def value = if identity.type.packed_width() == 64 | identity | builder.zext(module_def, identity, 64)
+        def value = builder.zext(module_def, identity, 64)
         def saved = builder.register(module_def, name ++ "_value", Bits(64), clock, reset, zero)
         def bind = builder.bit_and(module_def, activity, builder.bit_not(module_def, seen.current))
         builder.drive(seen.next, builder.bit_or(module_def, seen.current, activity))
@@ -566,7 +566,7 @@ fun instrument_events(logical :: DesignElaboration,
           def low = index * 32
           def high = if width - 1 < low + 31 | width - 1 | low + 31
           def word = builder.extract(module_def, packed, high, low)
-          def padded = if high - low + 1 == 32 | word | builder.zext(module_def, word, 32)
+          def padded = builder.zext(module_def, word, 32)
           builder.dpi_call(module_def, word_dpi, [id, sequence, builder.constant(module_def, Bits(32), index), padded], clock, fire)
 
       when parent_plans.has_key(site.id)

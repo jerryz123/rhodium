@@ -198,10 +198,16 @@ For its RV5Stage integration, run the EX/MEM/WB load-path fixtures listed in
 
 `pc.rhdl` owns the compact-PC representation and type-family capture, prediction,
 and representability operations described in the [public contract](README.md#compact-pc-storage).
-It depends only on XLEN and the public authoring surface. Predictors and fetch
-owners choose widths and qualify admission; the type must not import their
-policies or allocate exception escape storage. Keep fault upper bits in their
-existing mutually exclusive outcomes and shared pipeline prefixes stage-owned.
+It depends only on XLEN and the public authoring surface. Fetch owners qualify admission to the fixed RV32/Sv39 PC domain; the type must not import their
+policies or allocate exception escape storage. Fetch fault outcomes retain only
+a positive sequential-boundary bit; shared pipeline prefixes remain stage-owned.
+Both backends suppress nonrepresentable redirects and retain their exact target
+only after the originating instruction commits. `fetch/redirect.rhdl` classifies
+that fault using post-retirement privilege/translation state, without owning
+pipeline ordering, drain, or CSR commands.
+`RiscvHartCHIConfig.check_compact_fetch` validates executable address-set maxima;
+runtime fetch checks also cover guest-Bare translation to low host PAs. Shared
+predictors retain generic widths; core callers select the fixed PC width.
 For changes, run the `compact-pc` rsim fixture and `tests/pc-test.rhm`, then
 the affected [predictor](bpred/DEVELOPING.md#validation) and fetch/window fixtures.
 

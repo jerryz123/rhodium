@@ -89,7 +89,7 @@ sync_circuit SuperscalarVectorFixture():
   outcome_pc <== vector.outcome.bits.pc
   disposition <== vector.outcome.bits.disposition
   fault_address <== vector.outcome.bits.fault_address
-  fault_cause <== vector.outcome.bits.cause
+  fault_cause <== vector.outcome.bits.cause.as_bits().zext(64)
   fault_start_valid <== vector.fault_start.valid
   fault_start <== vector.fault_start.bits
   scalar_valid <== vector.scalar_result.valid

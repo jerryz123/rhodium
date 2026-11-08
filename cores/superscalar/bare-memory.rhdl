@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/rtl/trap.rhdl").ExceptionCause
   "../cache/access.rhdl" open
   "bundles.rhdl" open
   "../cache/protocol.rhdl" open
@@ -67,11 +68,11 @@ sync_circuit SuperscalarBareMemory(xlen :: XLen, config :: RiscvHartCHIConfig):
   /* Bare instruction translation.
      Preserve the architectural PC while reporting identity translation and PMA attributes. */
 
-  instruction.address <== (if xlen == XLen.X64 | instruction.request.bits | instruction.request.bits.zext(64))
+  instruction.address <== instruction.request.bits.zext(64)
   instruction.pbmt <== PageMemoryType.PMA
   instruction.resolution <== SuperscalarResolution(xlen):
     disposition: SuperscalarDisposition.Continue
-    cause: dont_care(Bits(xlen.width))
+    cause: dont_care(ExceptionCause)
     value: instruction.request.bits
     guest: literal(RiscvGuestFault(), 0)
 
@@ -104,7 +105,7 @@ sync_circuit SuperscalarBareMemory(xlen :: XLen, config :: RiscvHartCHIConfig):
   def mem = context |> valid_pipe(1)
   def request :: SuperscalarMemoryReq(xlen, xlen.width) = mem.bits
   def block = request.access.is_cache_block()
-  def physical_address = if xlen == XLen.X64 | request.address | request.address.zext(64)
+  def physical_address = request.address.zext(64)
   def region = cache_access_region(XLen.X64, config.physical_map, physical_address, request.width, request.access)
   def atomic = request.access.is_one_of(CacheOperation.LoadReserved, CacheOperation.StoreConditional, CacheOperation.Atomic)
   def writes = request.access.store_fault_class()
@@ -140,7 +141,7 @@ sync_circuit SuperscalarBareMemory(xlen :: XLen, config :: RiscvHartCHIConfig):
      Each accepted physical request atomically records its route in the owner FIFO. */
 
   def masked_address :: Bits(xlen.width) = apply_pointer_mask(xlen, misaligned.request.bits.address, state.pointer_masking)
-  def fragment_address = if xlen == XLen.X64 | masked_address | masked_address.zext(64)
+  def fragment_address = masked_address.zext(64)
   def fragment_region = config.physical_map.lookup(fragment_address, fragment_address +& Bits(64)(bytes - 1))
   def fragment_access_permitted = mux(misaligned.request.bits.access.store_fault_class(), fragment_region.writable, fragment_region.readable)
   def fragment_normal_memory = fragment_region.cacheable & fragment_region.read_idempotent & !fragment_region.device
@@ -148,7 +149,7 @@ sync_circuit SuperscalarBareMemory(xlen :: XLen, config :: RiscvHartCHIConfig):
   inst requests(Arbiter(SuperscalarMemoryReq(xlen, 64), 2))
   inst owners(Queue(Bool, 8))
   memory.request |> gate_flow(!misaligned.busy) |> map_flow(request => superscalar_physical_request(
-    xlen, request, (if xlen == XLen.X64 | request.address | request.address.zext(64)), PageMemoryType.PMA
+    xlen, request, request.address.zext(64), PageMemoryType.PMA
   )) |> requests.ingress[0]
 
   (misaligned.request |> gate_flow(fragment_permitted) |> map_flow(fragment => SuperscalarMemoryReq(xlen, 64)):

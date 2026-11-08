@@ -10,7 +10,7 @@ import:
   "../../core/types.rhm".count_index_width
   "../../core/types.rhm".signed_arithmetic_type
   "../kernel.rhm" as kernel
-  "../support/finite-enum.rhm" as finite_enum_support
+  "../../../support/hardware-data.rhm" as finite_enum_support
   "../support/fields.rhm".HardwareFields
   "../support/fields.rhm".Bool
   "../support/fields.rhm".bool_type
@@ -511,9 +511,7 @@ class PopcountNode(value :: Value, capacity :: PosInt)
 fun widen_popcount_node(node :: PopcountNode,
                         target_width :: PosInt,
                         location :: Location):
-  if node.value.type.width == target_width
-  | node.value
-  | kernel.zext(node.value, target_width, #false, location)
+  kernel.zext(node.value, target_width, #false, location)
 
 /*
  * Each node carries the number of source bits beneath it, allowing every

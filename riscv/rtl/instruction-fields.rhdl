@@ -43,11 +43,7 @@ fun instruction_immediate(layout :: ImmediateLayout,
           "immediate output width must cover the architectural immediate")
 
   def value = immediate_bits(layout, instruction)
-  if output_width == layout.width
-  | value
-  | if layout.signed
-    | value.into(SInt(layout.width)).sext(output_width).as_bits()
-    | value.zext(output_width)
+  if layout.signed | value.sext(output_width) | value.zext(output_width)
 
 export:
   instruction_field

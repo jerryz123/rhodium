@@ -4,6 +4,8 @@ import:
   lib("cores/rv2wide/issue.rhdl").RV2WideIssue
   lib("cores/rv3wide/issue.rhdl").RV3WideIssue
   "../issue.rhdl".superscalar_issue_width
+  lib("riscv/rtl/trap.rhdl").ExceptionCause
+  lib("cores/pc.rhdl").compact_pc_width
   lib("rhodium/frontend/foundation.rhm").elaborate
   lib("rhodium/compile/program.rhm").compile_program
   lib("rhodium/compile/rtl.rhm").rtl_target
@@ -24,6 +26,7 @@ for (xlen in [XLen.X32, XLen.X64]):
     superscalar_issue_width(xlen, three_issue) ~is 3
     superscalar_issue_width((if xlen == XLen.X32 | XLen.X64 | XLen.X32), two_issue) ~throws "superscalar issue contract"
 
+  def pc_width = compact_pc_width(xlen)
   def profile = SuperscalarPipelineConfig(~xlen: xlen, ~mmu_type: RiscvMmuType.Bare, ~instruction_cache: test_cache, ~data_cache: test_cache, ~ssnpm: xlen == XLen.X64, ~supm: xlen == XLen.X64, ~btb_entries: 0, ~ras_entries: 0, ~bht: #false)
   def design = compile_program(elaborate(Superscalar(test_cache, ~chi: test_fetch_chi, ~profile: profile, ~issue: RV2WideIssue(profile.xlen))), rtl_target).report.design
   def core = design.modules.find(fun (module_def): module_def.name == "Superscalar")
@@ -31,7 +34,7 @@ for (xlen in [XLen.X32, XLen.X64]):
   def execution = design.modules.find(fun (module_def): module_def.name == "SuperscalarCore")
   def retired = core.find_output("retired_0_out").type.field("bits").type
   def completed = core.find_output("completed_out").type.field("bits").type
-  def compact_fault_width = 4 // Non-H instruction: kind and second-parcel flag.
+  def fetch_fault_width = 2 + ExceptionCause.packed_width() // Presence, architectural cause, and second-parcel flag.
   def step_width = if xlen == XLen.X32 | 6 | 7 // Last changed bit and short-step flag.
   def fifo = child(child(execution, "wb_load_response"), "owners")
   def queue_storage = fifo.memories.find(fun (mem): mem.name == "storage")
@@ -40,14 +43,14 @@ for (xlen in [XLen.X32, XLen.X64]):
   def s2 = child(frontend, "s2")
   def attempt = s2.find_output("egress_out").type.field("bits").type
   check:
-    retired.field("fetched").type.field("fault").type.packed_width() ~is compact_fault_width
-    attempt.field("fault").type.packed_width() ~is 3 + xlen.width
-    completed.field("identity").type.packed_width() ~is xlen.width + 32
-    completed.packed_width() ~is 2 * xlen.width + 38
+    retired.field("fetched").type ~is execution.find_input("instructions_in").type.field("bits").type.field("entries").type.element_type
+    attempt.field("fault").type.packed_width() ~is 1 + ExceptionCause.packed_width() + xlen.width
+    completed.field("identity").type.packed_width() ~is pc_width + 32
+    completed.packed_width() ~is pc_width + xlen.width + 38
     queue_storage.depth ~is 4
-    queue_storage.element_type.field("destination").type.field("identity").type.packed_width() ~is xlen.width + 32
+    queue_storage.element_type.field("destination").type.field("identity").type.packed_width() ~is pc_width + 32
     multiply.find_input("issue_in").type.field("bits").type.packed_width() ~is 2 * xlen.width + 2
-    multiply.find_input("authorize_in").type.field("bits").type.packed_width() ~is xlen.width + 32 + 5 + 2
+    multiply.find_input("authorize_in").type.field("bits").type.packed_width() ~is pc_width + 32 + 5 + 2
 
   for (stage in ["ex", "mem", "wb"]):
     def prefix_name = stage ++ "_pc_region"
@@ -58,26 +61,29 @@ for (xlen in [XLen.X32, XLen.X64]):
       prefix.results[0].type.packed_width() ~is xlen.width - 12
       relative.results[0].type.packed_width() ~is 1
 
-  def lanes = execution.operations.filter(~keep: fun (op): op.opcode == "rtl.instance" && op.attribute("module").name.contains("SuperscalarLanePipe"))
+  def lanes = execution.operations.filter(~keep: fun (op): op.opcode == "rtl.instance" && op.attribute("module").name.contains("SuperscalarExecutePipe") || op.opcode == "rtl.instance" && op.attribute("module").name.contains("SuperscalarResultPipe"))
   check: lanes.length() ~is 6
   for (instance in lanes):
     def storage = child(instance.attribute("module"), "storage")
     def payload = storage.operations.find(fun (op): op.opcode == "rtl.register" && op.attribute("name") == "stage_bits").results[0].type.element_type
     def has_resolution = "resolution" in payload.fields.map(fun (field): field.name)
-    def fault_width = if has_resolution | 1 | compact_fault_width
+    def fault_width = if has_resolution | 1 | fetch_fault_width
     when has_resolution
-    | check: payload.field("resolution").type.field("cause").type.width ~is 5
+    | check: payload.field("resolution").type.field("cause").type ~is ExceptionCause
+
+    when has_resolution
+    | check: payload.field("resolution").type.field("value").type.width ~is xlen.width
 
     check:
       payload.field("fetched").type.field("pc").type.width ~is 12
       payload.field("fetched").type.field("fault").type.packed_width() ~is fault_width
-      payload.field("fetched").type.field("prediction").type.field("target").type.packed_width() ~is math.min(xlen.width, math.max(39, test_fetch_chi.flit.request_address_width + 1))
+      payload.field("fetched").type.field("prediction").type.field("target").type.packed_width() ~is pc_width
       payload.field("fetched").type.field("sequential_pc").type.packed_width() ~is step_width
 
   check:
-    execution.find_output("redirect_out").type.field("bits").type.field("resolution").type.field("cause").type.width ~is xlen.width
+    execution.find_output("redirect_out").type.field("bits").type.field("resolution").type.field("cause").type ~is ExceptionCause
     retired.field("data").type.width ~is xlen.width
-    retired.field("fetched").type.field("pc").type.width ~is xlen.width
+    retired.field("fetched").type.field("pc").type.packed_width() ~is pc_width
     core.find_input("start_in").type.field("bits").type.width ~is 64
     memory.find_input("state").type.field("satp").type.width ~is xlen.width
     execution.find_output("memory_out").type.field("request").type.field("bits").type.field("address").type.width ~is xlen.width

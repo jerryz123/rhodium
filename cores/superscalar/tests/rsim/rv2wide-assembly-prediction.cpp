@@ -22,7 +22,7 @@ bool same_packet(const Packet &a, const Packet &b) {
         x.praw_uinstruction != y.praw_uinstruction ||
         x.psequential_upc != y.psequential_upc ||
         x.pcompressed_uillegal != y.pcompressed_uillegal ||
-        x.pfault.pkind != y.pfault.pkind ||
+        x.pfault.pvalid != y.pfault.pvalid || x.pfault.pcause != y.pfault.pcause ||
         x.pfault.pcontinuation != y.pfault.pcontinuation || !same_fetch_guest(x.pfault, y.pfault) ||
         x.pprediction.pvalid != y.pprediction.pvalid ||
         x.pprediction.ppc != y.pprediction.ppc ||
@@ -51,7 +51,7 @@ void observe() {
       want = expected_pc.take();
       CHECK(instructions_out.pbits.pentries[lane].ppc == want);
       if (want == UINT64_C(0x706))
-        CHECK((instructions_out.pbits.pentries[lane].pfault.pkind != 0) &&
+        CHECK((instructions_out.pbits.pentries[lane].pfault.pvalid != 0) &&
               parcel_fault_address(instructions_out.pbits.pentries[lane]) ==
                   UINT64_C(0x708));
       if (want == UINT64_C(0x406))
@@ -178,7 +178,7 @@ void offer(std::uint64_t pc, std::uint64_t data, std::uint64_t pred_pc = 0,
   blocks_in = {UINT64_C(1),
                {pc,
                 data,
-                {std::uint8_t(fault ? 2 : 0), pc},
+                {std::uint8_t(fault != 0), 1, pc},
                 {pred_pc != 0, pred_pc, pred_target, compressed, UINT64_C(0)},
                 directions,
                 prefix}};
@@ -203,7 +203,7 @@ void check_fault(const Fault &expected, std::uint64_t pc) {
   CHECK(instructions_out.pvalid && instructions_out.pbits.pcount == 1);
   const auto &instruction = instructions_out.pbits.pentries[0];
   const auto &fault = instruction.pfault;
-  CHECK(instruction.ppc == pc && fault.pkind == expected.pkind && parcel_fault_address(instruction) == expected.pvalue &&
+  CHECK(instruction.ppc == pc && fault.pvalid && fault.pcause == expected.pcause && parcel_fault_address(instruction) == expected.pvalue &&
         same_fetch_guest(fault, expected) &&
         !instruction.pprediction.pvalid && !repair_out.pvalid &&
         !discover_out.pvalid && !speculate_out.pvalid);
@@ -223,16 +223,17 @@ void offer_fault(std::uint64_t pc, const Fault &fault) {
 }
 
 void compact_storage_tests() {
-  for (auto base : {UINT64_C(0x00000ffffffff000), UINT64_C(0xffffffc012345000),
+  for (auto base : {UINT64_C(0x0000003ffffff000), UINT64_C(0xffffffc012345000),
                     UINT64_C(0xfffffffffffff000)}) {
     clear();
     instructions_in.pready = false;
     const auto first = base + 6;
     const auto last = base + 0x104;
-    const auto exceptional = UINT64_C(0x123456789abc0001);
-    const auto target = UINT64_C(0xdeadbeef12345678);
+    const auto exceptional = UINT64_C(0x0000004000000000);
+    const auto target = UINT64_C(0xffffffef12345678);
     Fault fault{};
-    fault.pkind = TEST_HYPERVISOR ? fetch_kind(20) : fetch_kind(1);
+    fault.pvalid = 1;
+    fault.pcause = TEST_HYPERVISOR ? 20 : 1;
     fault.pvalue = exceptional;
     if (TEST_HYPERVISOR) set_fetch_guest(fault, true, UINT64_C(0x123456789abc), 1);
     expected_pc.push_back(first);
@@ -290,11 +291,11 @@ void compact_storage_tests() {
 }
 
 void prediction_owner_tests() {
-  const auto target = UINT64_C(0xdeadbeef12345678);
-  for (auto base : {UINT64_C(0x00000ffffffff000), UINT64_C(0xffffffc012345000),
+  const auto target = UINT64_C(0xffffffef12345678);
+  for (auto base : {UINT64_C(0x0000003ffffff000), UINT64_C(0xffffffc012345000),
                     UINT64_C(0xfffffffffffff000)}) {
     // Every parcel owner survives bypass capture and backpressure, without
-    // treating a high/negative PC as an offset or narrowing an indirect target.
+    // treating a high/negative PC as an offset or losing an admitted compact target.
     for (unsigned parcel = 0; parcel < 4; ++parcel) {
       clear();
       instructions_in.pready = false;
@@ -415,11 +416,13 @@ void direction_contract_tests() {
 
 void fault_storage_tests() {
   const std::array<std::uint64_t, 3> pcs{
-      UINT64_C(0xffffffc012345001), UINT64_C(0x8000000000002000),
-      UINT64_C(0x4000000000003000)};
+      UINT64_C(0xffffffc012345001), UINT64_C(0x0000004000000000),
+      UINT64_C(0x0000004000000008)};
   std::array<Fault, 3> faults{};
   for (unsigned i = 0; i < 3; ++i) {
-    faults[i].pkind = i + 1;
+    constexpr unsigned causes[] = {0, 1, 12};
+    faults[i].pvalid = 1;
+    faults[i].pcause = causes[i];
     faults[i].pvalue = pcs[i];
     if (TEST_HYPERVISOR) {
       set_fetch_guest(faults[i], true, UINT64_C(0x123456780000) + i * 8, i & 1);
@@ -452,7 +455,8 @@ void fault_storage_tests() {
   for (unsigned guest_walk = 0; guest_walk < (TEST_HYPERVISOR ? 2U : 1U); ++guest_walk) {
     auto fault = faults[2];
     if (TEST_HYPERVISOR) {
-      fault.pkind = fetch_kind(20);
+      fault.pvalid = 1;
+      fault.pcause = 20;
       set_fetch_guest(fault, true, UINT64_C(0x123456780010), guest_walk);
     }
 
@@ -497,9 +501,9 @@ void fault_storage_tests() {
   clear();
   settle();
   CHECK(!instructions_out.pvalid && available == 3);
-  // An unused kind encoding is not a supported fetch exception.
+  // A data-access exception is not a supported fetch exception.
   auto unsupported = faults[1];
-  unsupported.pkind = 7;
+  unsupported.pcause = 5;
   expect_failure("superscalar_assembly_supported_fetch_fault", [&] {
     offer_fault(pcs[1], unsupported);
   });
@@ -787,8 +791,8 @@ int main() {
            field(UINT64_C(0x10001), 32, 0)));
     offer(UINT64_C(0x11108), 0, 0, 0, 0, 1);
     CHECK(instructions_out.pvalid && instructions_out.pbits.pcount == 2 &&
-          instructions_out.pbits.pentries[0].pfault.pkind == 0 &&
-          (instructions_out.pbits.pentries[1].pfault.pkind != 0) &&
+          instructions_out.pbits.pentries[0].pfault.pvalid == 0 &&
+          (instructions_out.pbits.pentries[1].pfault.pvalid != 0) &&
           parcel_fault_address(instructions_out.pbits.pentries[1]) ==
               UINT64_C(0x11108));
     instructions_in.pready = 1;

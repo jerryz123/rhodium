@@ -5,9 +5,12 @@ import:
   lib("riscv/isa/xlen.rhm").XLen
   "../btb.rhdl".Btb
   "../ras.rhdl".Ras
+  "../protocol.rhdl".BranchPrediction
 
 for (xlen in [XLen.X32, XLen.X64]):
   check:
+    BranchPrediction(xlen, xlen.width + 1) ~throws "Int.in"
+    BranchPrediction(xlen, 0) ~throws "Int.in"
     elaborate(Btb(xlen, ~target_width: xlen.width + 1)) ~throws "must not exceed XLEN"
     elaborate(Ras(xlen, ~target_width: xlen.width + 1)) ~throws "must not exceed XLEN"
     elaborate(Btb(xlen, ~target_width: 0)) ~throws "PosInt"

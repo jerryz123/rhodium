@@ -50,7 +50,7 @@ fun port_observer_pass(specs):
               def width = value.type.packed_width()
               unless width <= 64 | error("observer fields must fit one word")
               def packed = builder.cast(module_def, value, Bits(width), prefix ++ "_packed")
-              if width == 64 | packed | builder.zext(module_def, packed, 64, prefix ++ "_word")
+              builder.zext(module_def, packed, 64, prefix ++ "_word")
 
             def imported = builder.dpi_import(spec[1], for List (i in 0..samples.length()): "arg" ++ to_string(i), samples.map(fun (v): v.type))
             builder.dpi_call(module_def, imported, samples, port("clock"), builder.constant(module_def, Bits(1), 1, "test_observer_enable_" ++ spec[1]))

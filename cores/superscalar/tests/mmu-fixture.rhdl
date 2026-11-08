@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/rtl/trap.rhdl").ExceptionCause
   lib("riscv/rtl/hypervisor.rhdl") open
   lib("riscv/rtl/pointer-masking.rhdl") open
   lib("flow/main.rhdl") open
@@ -151,7 +152,7 @@ sync_circuit SuperscalarMmuFixture(~bare: bare :: Boolean = #false):
   mmu.physical_memory.fault.bits <== SuperscalarResolution(XLen.X64):
     guest: literal(RiscvGuestFault(), 0)
     disposition: SuperscalarDisposition.Fault
-    cause: Bits(64)(5)
+    cause: ExceptionCause.LoadAccessFault
     value: mmu.physical_memory.request.bits.address
 
   mmu.physical_memory.response.valid <== response_valid

@@ -1,0 +1,9 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+
+circuit BadSignNarrowing():
+  input value: Bits(8)
+  output result: Bits(4)
+  result <== value.sext(4)
+
+elaborate(BadSignNarrowing())

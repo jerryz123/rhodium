@@ -15,8 +15,8 @@ sync_circuit RetainedSelectionFixture():
     selection.candidate <== candidates[index][0..n].into(MaybeOneHot(n))
     selection.capture <== captures[index]
     selection.release <== releases[index]
-    selections[index] <== if n == 5 | selection.selected.as_bits() | selection.selected.as_bits().zext(5)
-    retained[index] <== if n == 5 | selection.retained.as_bits() | selection.retained.as_bits().zext(5)
+    selections[index] <== selection.selected.as_bits().zext(5)
+    retained[index] <== selection.retained.as_bits().zext(5)
     held[index] <== selection.held
 
 def program = elaborate(RetainedSelectionFixture())

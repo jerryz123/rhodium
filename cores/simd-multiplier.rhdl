@@ -55,9 +55,7 @@ bundle SimdMultiplyResult(width :: Pow2Int):
 
 /* Sign- or zero-extend a narrow operand into one physical multiplier slot. */
 fun simd_multiply_extend(width :: PosInt, source :: Bits(width), target :: PosInt, signed_mode :: Bool) :~ Bits(target):
-  if width == target
-  | source
-  | mux(signed_mode, source.into(SInt(width)).sext(target).as_bits(), source.zext(target))
+  mux(signed_mode, source.sext(target), source.zext(target))
 
 /* Validate physical geometry and enumerate source widths up to the selected largest multiplier. */
 fun simd_multiply_formats(width :: Pow2Int, max_element_width :: Pow2Int) :: List.of(PosInt):

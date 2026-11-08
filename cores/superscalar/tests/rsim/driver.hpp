@@ -136,8 +136,12 @@ inline bool one_of(std::uint64_t value,
                    std::initializer_list<std::uint64_t> choices) {
   return std::find(choices.begin(), choices.end(), value) != choices.end();
 }
-template <class I, class T> bool same_completion_identity(const I &id, const T &fetched) {
-  return id.ppc == fetched.ppc && id.praw_uinstruction == fetched.praw_uinstruction;
+inline std::uint64_t completion_pc(std::uint64_t pc, unsigned width) {
+  const auto sign = UINT64_C(1) << (width - 1);
+  return ((pc & low_mask(width)) ^ sign) - sign;
+}
+template <class I, class T> bool same_completion_identity(const I &id, const T &fetched, unsigned width = 64) {
+  return completion_pc(id.ppc, width) == fetched.ppc && id.praw_uinstruction == fetched.praw_uinstruction;
 }
 
 template <class T> bool same_instruction(const T &x, const T &y) {
@@ -145,9 +149,10 @@ template <class T> bool same_instruction(const T &x, const T &y) {
          x.praw_uinstruction == y.praw_uinstruction &&
          x.psequential_upc == y.psequential_upc &&
          x.pcompressed_uillegal == y.pcompressed_uillegal &&
-         x.pfault.pkind == y.pfault.pkind &&
-         x.pfault.pcontinuation == (y.pfault.pkind && y.pfault.pcontinuation) &&
-         (y.pfault.pkind ? same_fetch_guest(x.pfault, y.pfault)
+         x.pfault.pvalid == y.pfault.pvalid &&
+         x.pfault.pcause == (y.pfault.pvalid ? y.pfault.pcause : 0) &&
+         x.pfault.pcontinuation == (y.pfault.pvalid && y.pfault.pcontinuation) &&
+         (y.pfault.pvalid ? same_fetch_guest(x.pfault, y.pfault)
                         : fetch_guest_is(x.pfault, false, 0, 0)) &&
          x.pprediction.pvalid == y.pprediction.pvalid &&
          x.pprediction.ppc == y.ppc &&

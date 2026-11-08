@@ -224,7 +224,7 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
       outcome_guest <== guest
   | #void
 
-  def fault_cause = data_fault_cause(xlen, store, ~page_fault: page_fault, ~guest_page_fault: page_fault & guest.page_fault)
+  def fault_cause = data_fault_cause(store, ~page_fault: page_fault, ~guest_page_fault: page_fault & guest.page_fault)
   def response_capture = response_context |> trace_valid_event("vector/memory.result", ~when: token.memory & token.enabled, ~fields: decision):
     pc: decision.request_context.token.context
     address: decision.request_context.request.address
@@ -285,7 +285,7 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
   Array(offered_hit, slow_completion, deferred_split) |> arbiter() |> completion
   when (memory.response.valid):
     assert(!memory.response.bits.access_fault, "vector_memory_faults_are_reported_before_acceptance")
-    assert(memory.response.bits.context.writeback.is(RV5StageMemoryWriteback(slots).Vector).into(Bool), "vector_response_has_vector_owner")
+    assert(memory.response.bits.context.writeback.is(RV5StageMemoryWriteback(slots).Vector), "vector_response_has_vector_owner")
 
   assert(!(accepted & (retry ||| fault)), "vector_accepted_request_never_replays")
 

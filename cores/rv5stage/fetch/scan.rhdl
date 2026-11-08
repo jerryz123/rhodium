@@ -4,6 +4,8 @@
 
 import:
   "../../fetch/encoding.rhdl" open
+  lib("cores/pc.rhdl") open
+  lib("riscv/rtl/hypervisor.rhdl").RiscvGuestException
   lib("cores/bpred/protocol.rhdl") open
   lib("cores/bpred/ras.rhdl").riscv_compressed_ras_action
   lib("cores/bpred/ras.rhdl").riscv_ras_action
@@ -23,25 +25,26 @@ fun compressed_jump_offset(instruction :: Bits(16), output_width :: PosInt) :~ B
     instruction[12..13] ++ instruction[8..9] ++ instruction[9..11] ++ instruction[6..7]
       ++ instruction[7..8] ++ instruction[2..3] ++ instruction[11..12] ++ instruction[3..6] ++ Bits(1)(0)
   )
-  immediate.into(SInt(12)).sext(output_width).as_bits()
+  immediate.sext(output_width)
 
 /* Pairs a returned fetch word with its full S1 prediction for repair and discovery. */
 bundle RV5StageScanWord(xlen :: XLen, hypervisor :: Boolean):
   pc: Bits(xlen.width)
   mask: Bits(2)
   response: RV5StageInstructionResp(hypervisor)
-  prediction: BranchPrediction(xlen)
+  prediction: BranchPrediction(xlen, xlen.width)
 
 /* Validates predicted boundaries, refreshes warm RAS targets, and discovers direct jumps/returns.
    Its private partial-word state supports straddles independently of Decode's residual storage. */
-sync_circuit RV5StageFetchScan(core_profile :: RV5StageConfig, ~target_width: target_width :: PosInt = core_profile.xlen.width):
+sync_circuit RV5StageFetchScan(core_profile :: RV5StageConfig):
+  def target_width = compact_pc_width(core_profile.xlen)
   def hypervisor = core_profile.extensions.hypervisor
   def xlen = core_profile.xlen
   def compressed_enabled = compressed_extensions_enabled(core_profile.extensions.compressed)
   interface ingress(Valid(RV5StageScanWord(xlen, hypervisor)), ~role: consumer)
   interface egress(Valid(RV5StageFetchPacket(xlen, hypervisor)), ~role: producer)
   interface repair(Valid(RV5StageFetchRepair(xlen)), ~role: producer)
-  interface fallback(Valid(BranchPrediction(xlen)), ~role: producer)
+  interface fallback(Valid(BranchPrediction(xlen, xlen.width)), ~role: producer)
   interface speculate(Valid(RasUpdate(xlen)), ~role: producer)
   interface clear(Pulse(), ~role: consumer)
   input ras_head_valid: Bool
@@ -55,8 +58,14 @@ sync_circuit RV5StageFetchScan(core_profile :: RV5StageConfig, ~target_width: ta
   reg partial_halfword(Bits(16))
   reg partial_prediction_seen(~init: Bool(#false))
   reg partial_return_repair(~init: Bool(#false))
-  reg partial_return_prediction(BranchPrediction(xlen))
+  reg partial_return_prediction(BranchPrediction(xlen, xlen.width))
   def packet = ingress.bits
+  when (ingress.valid):
+    assert(CompactPc.fetch_fits(xlen, packet.pc), "fetch_pc_encoding")
+
+  when (ingress.valid & !packet.response.page_fault & !packet.response.access_fault):
+    assert(CompactPc.fits(xlen, packet.pc), "fetch_success_pc_fits_queue")
+
   def packet_clean = !packet.response.page_fault & !packet.response.access_fault
   when (ingress.valid & packet_clean & packet.prediction.valid):
     assert(packet.prediction.target === prediction_target(xlen, target_width, packet.prediction.target), "fetch_scan_prediction_target")
@@ -127,7 +136,7 @@ sync_circuit RV5StageFetchScan(core_profile :: RV5StageConfig, ~target_width: ta
   def first_fallback_target = mux(first_direct_jump, first_direct_target, ras_head)
   def second_fallback_target = mux(second_direct_jump, second_direct_target, ras_head)
   def fallback_target = prediction_target(xlen, target_width, mux(first_fallback, first_fallback_target, second_fallback_target))
-  def fallback_prediction = BranchPrediction(xlen):
+  def fallback_prediction = BranchPrediction(xlen, xlen.width):
     valid: ingress.valid & missing_fallback & packet_clean
     pc: fallback_pc
     target: fallback_target
@@ -135,11 +144,11 @@ sync_circuit RV5StageFetchScan(core_profile :: RV5StageConfig, ~target_width: ta
     ras_action: mux(first_fallback, first_action, second_action)
 
   def refreshed_prediction = prediction.updated(~target: return_target)
-  def effective_prediction :: BranchPrediction(xlen) = priority_mux(~default: prediction):
+  def effective_prediction :: BranchPrediction(xlen, xlen.width) = priority_mux(~default: prediction):
     return_repair: refreshed_prediction
     fallback_prediction.valid: fallback_prediction
 
-  def redirect_prediction :: BranchPrediction(xlen) = priority_mux(~default: fallback_prediction):
+  def redirect_prediction :: BranchPrediction(xlen, xlen.width) = priority_mux(~default: fallback_prediction):
     continued_return_repair: partial_return_prediction
     return_repair: refreshed_prediction
 
@@ -160,22 +169,13 @@ sync_circuit RV5StageFetchScan(core_profile :: RV5StageConfig, ~target_width: ta
 
   def Array(packets, repairs, fallbacks, hints) = ingress |> fork_valid(4)
   (packets |> filter_valid(_packet => !clear.valid) |> map_valid(raw):
-    wire scanned: RV5StageFetchPacket(xlen, hypervisor)
-    scanned.pc <== raw.pc
-    scanned.word <== raw.response.word
-    scanned.mask <== mask
-    scanned.page_fault <== raw.response.page_fault
-    scanned.access_fault <== raw.response.access_fault
-    scanned.prediction <== RV5StagePacketPrediction(xlen):
+    def prediction = RV5StagePacketPrediction(xlen):
       owner: owner
       target: effective_prediction.target
       ras_action: effective_prediction.ras_action
 
-    if hypervisor
-    | scanned.guest <== raw.response.guest
-    | #void
-
-    scanned
+    def guest = if hypervisor | raw.response.guest | literal(RiscvGuestException(), 0)
+    RV5StageFetchPacket.create(xlen, hypervisor, raw.pc, raw.response.word, mask, raw.response.page_fault, raw.response.access_fault, prediction, guest)
   ) |> egress
   (hints |> filter_valid(_packet => !clear.valid & packet_clean & effective_prediction.valid & (effective_prediction.ras_action =/= RasAction.None))
     |> map_valid(_packet => RasUpdate(xlen)):

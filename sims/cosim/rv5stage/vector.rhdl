@@ -15,7 +15,7 @@ fun rv5stage_cosim_vector(profile :: RV5StageConfig, types :: Map, mmu :: Map, i
   if types.has_key("mmu_request")
   | block:
       def request :: PhysicalMemoryReq(profile.xlen, RV5StageMemoryContext(slots)) = mmu["mmu_request"]
-      def vector_request = request.context.writeback.is(RV5StageMemoryWriteback(slots).Vector).into(Bool)
+      def vector_request = request.context.writeback.is(RV5StageMemoryWriteback(slots).Vector)
       def tag = request.context.writeback.view(RV5StageMemoryWriteback(slots).Vector).payload
       rhodium_vector_translation.call(
         instance, capture_lane(tag), capture_lane(mmu["mmu_request_address"]),
@@ -27,7 +27,7 @@ fun rv5stage_cosim_vector(profile :: RV5StageConfig, types :: Map, mmu :: Map, i
   | block:
       def request :: PhysicalMemoryReq(profile.xlen, RV5StageMemoryContext(slots)) = mmu["mmu_fragment_request"]
       def response :: PhysicalMemoryResp(profile.xlen, RV5StageMemoryContext(slots)) = mmu["mmu_fragment_response"]
-      def vector_request = request.context.writeback.is(RV5StageMemoryWriteback(slots).Vector).into(Bool)
+      def vector_request = request.context.writeback.is(RV5StageMemoryWriteback(slots).Vector)
       def tag = request.context.writeback.view(RV5StageMemoryWriteback(slots).Vector).payload
       rhodium_vector_fragment_start.call(instance, capture_lane(mmu["mmu_fragment_address"]), ~enable: active & mmu["mmu_fragment_valid"])
       rhodium_vector_fragment.call(

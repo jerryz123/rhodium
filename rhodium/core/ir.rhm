@@ -4,6 +4,7 @@
 
 import:
   "types.rhm" open
+  "../../support/hardware-data.rhm".HardwareEntity
 
 export:
   all_from("types.rhm")
@@ -50,13 +51,6 @@ class Origin(kind :: String = "unknown",
     if description == ""
     | kind
     | kind ++ ": " ++ description
-
-/*
- * Identifies core objects that participate directly in authored hardware.
- * Frontend-only deferred values extend the same marker without coupling core
- * to elaboration machinery.
- */
-interface HardwareEntity
 
 class.together:
   /* Represents a module-owned SSA result with a defining operation and seal-aware operand-use bookkeeping. */

@@ -35,8 +35,8 @@ sync_circuit SuperscalarReadFixture(xlen :: XLen, group_width :: matching(2) || 
     def empty :: SuperscalarResult(xlen, #false) = literal(SuperscalarResult(xlen, #false), 0)
     link.left.valid <== source.valid
     link.left.bits <== empty.updated(
-      ~rd: source.address, ~write: source.write, ~data: source.data, ~result_ready: source.ready,
-      ~resolution: empty.resolution.updated(~disposition: mux(source.continuing, SuperscalarDisposition.Continue, SuperscalarDisposition.Replay))
+      ~rd: source.address, ~write: source.write, ~result_ready: source.ready,
+      ~resolution: empty.resolution.updated(~value: source.data, ~disposition: mux(source.continuing, SuperscalarDisposition.Continue, SuperscalarDisposition.Replay))
     )
     link.right
 

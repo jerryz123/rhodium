@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/rtl/trap.rhdl").ExceptionCause
   lib("cores/register-write.rhdl").RegisterFileWrite
   "../../fp/bundles.rhdl" open
   "../pipeline.rhdl" open
@@ -84,7 +85,7 @@ sync_circuit VectorOverlap():
       disposition: mux(retry, VectorDisposition.Retry, mux(fault, VectorDisposition.Fault, VectorDisposition.Authorized))
       slow: slow & token.memory & token.enabled
       data: hit_data
-      cause: Bits(64)(0)
+      cause: dont_care(ExceptionCause)
       fault_address: Bits(64)(0)
   ) |> vector.decision
 

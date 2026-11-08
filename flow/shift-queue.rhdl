@@ -36,7 +36,7 @@ sync_circuit ShiftQueue(T :: DataType,
   egress.bits <== if flow | mux(occupied[0], payload[0], ingress.bits) | payload[0]
   mask <== occupied.as_bits()
   def count_bits = for List (index in 0..depth):
-    if depth == 1 | occupied[index].as_bits() | occupied[index].as_bits().zext(index_width(depth + 1))
+    occupied[index].as_bits().zext(index_width(depth + 1))
 
   count <== tree_reduce(count_bits, fun (left, right): left + right)
   def accepted = ingress.fire()
@@ -65,7 +65,7 @@ sync_circuit ShiftQueue(T :: DataType,
   def bypass = if flow | !occupied[0] | Bool(#false)
   def enqueue = accepted & !(bypass & egress.ready)
   def release = (occupied[0] & egress.ready).as_bits()
-  def released = if depth == 1 | release | release.zext(index_width(depth + 1))
+  def released = release.zext(index_width(depth + 1))
   describe_interface_window_storage(depth, enqueue, released, count, clear, [occupied[0]], ~live: if flow | bypass | #false)
   describe_interface_contract(ingress, egress, "data", ~kind: "shift-queue", ~trace_model: interface_trace_window())
 

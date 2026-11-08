@@ -71,7 +71,7 @@ fun vector_simd_multiply_request(xlen :: XLen, vlen :: VectorLength, beat :: Vec
 /* Sign- or zero-extends one SEW element into the physical integer execution width. */
 fun vector_integer_operand(xlen :: XLen, value :: Bits(xlen.width), sew :: Bits(2), signed_mode :: Bool) :~ Bits(xlen.width):
   def cases = for List (width in [8, 16, 32], code in 0..3):
-    [code, if width == xlen.width | value[0..width] | mux(signed_mode, value[0..width].into(SInt(width)).sext(xlen.width).as_bits(), value[0..width].zext(xlen.width))]
+    [code, mux(signed_mode, value[0..width].sext(xlen.width), value[0..width].zext(xlen.width))]
 
   mux_lookup(sew, ~default: value[0..xlen.width], cases)
 

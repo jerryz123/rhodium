@@ -77,7 +77,7 @@ def schemas:
    OperationSchema("rtl.zext", "combinational", 1, 1, 0,
                    ["target_width", "name"], "bits_zext", "resize"),
    OperationSchema("rtl.sext", "combinational", 1, 1, 0,
-                   ["target_width", "name"], "signed_arithmetic_sext", "resize"),
+                   ["target_width", "name"], "scalar_sext", "resize"),
    OperationSchema("rtl.trunc", "combinational", 1, 1, 0,
                    ["target_width", "name"], "bits_trunc", "resize"),
    OperationSchema("rtl.record_create", "combinational", #false, 1, 0,

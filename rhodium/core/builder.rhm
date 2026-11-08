@@ -1335,7 +1335,7 @@ class Builder(design :: Design):
                           #'extract,
                           {"high": high, "low": low})
 
-  /* Widens Bits with leading zeros, requiring a strictly larger positive target width. */
+  /* Widens Bits with leading zeros, or returns the original value at equal width. */
   method zext(module_def :: Module,
               value :: Value,
               target_width :: PosInt,
@@ -1348,21 +1348,24 @@ class Builder(design :: Design):
     unless bits_type(value.type)
     | fail(#'zext, "zext operand must have a Bits type")
 
-    unless target_width > value.type.width
-    | fail(#'zext, "zext target width must be larger than the source width")
+    unless target_width >= value.type.width
+    | fail(#'zext, "zext target width must be at least the source width")
 
-    build_value_operation(design,
-                          module_def,
-                          "rtl.zext",
-                          [value],
-                          Bits(target_width),
-                          name,
-                          location,
-                          origin,
-                          #'zext,
-                          {"target_width": target_width})
+    if target_width == value.type.width
+    | value
+    | build_value_operation(design,
+                            module_def,
+                            "rtl.zext",
+                            [value],
+                            Bits(target_width),
+                            name,
+                            location,
+                            origin,
+                            #'zext,
+                            {"target_width": target_width})
 
-  /* Widens a signed arithmetic scalar by sign replication, preserving its type family at a strictly larger width. */
+  /* Replicates the top bit of Bits or a signed scalar, preserving its type family.
+     Equal width returns the original value; narrowing is never implicit. */
   method sext(module_def :: Module,
               value :: Value,
               target_width :: PosInt,
@@ -1372,26 +1375,28 @@ class Builder(design :: Design):
     ensure_module_in_design(design, module_def, #'sext)
     ensure_open(module_def, #'sext)
     ensure_value_in(module_def, value, #'sext)
-    unless signed_arithmetic_type(value.type)
-    | fail(#'sext, "sext operand must have a SignedArithmeticType")
+    unless bits_type(value.type) || signed_arithmetic_type(value.type)
+    | fail(#'sext, "sext operand must have a Bits or SignedArithmeticType")
 
-    unless target_width > scalar_width(value.type)
-    | fail(#'sext, "sext target width must be larger than the source width")
+    unless target_width >= scalar_width(value.type)
+    | fail(#'sext, "sext target width must be at least the source width")
 
     def result_type = value.type.with_bit_width(target_width)
-    unless signed_arithmetic_type(result_type) && scalar_width(result_type) == target_width
-    | fail(#'sext, "sext operand type must preserve its signed arithmetic type when widened")
+    unless (if bits_type(value.type) | bits_type(result_type) | signed_arithmetic_type(result_type)) && scalar_width(result_type) == target_width
+    | fail(#'sext, "sext operand type must preserve its Bits or signed arithmetic type when widened")
 
-    build_value_operation(design,
-                          module_def,
-                          "rtl.sext",
-                          [value],
-                          result_type,
-                          name,
-                          location,
-                          origin,
-                          #'sext,
-                          {"target_width": target_width})
+    if target_width == scalar_width(value.type)
+    | value
+    | build_value_operation(design,
+                            module_def,
+                            "rtl.sext",
+                            [value],
+                            result_type,
+                            name,
+                            location,
+                            origin,
+                            #'sext,
+                            {"target_width": target_width})
 
   /* Keeps the low bits of a Bits value, requiring a strictly smaller positive target width. */
   method trunc(module_def :: Module,

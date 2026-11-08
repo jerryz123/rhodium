@@ -2,29 +2,32 @@
 /* Defines synchronous exception causes and their architectural cause codes. */
 // SPDX-License-Identifier: Apache-2.0
 
+import:
+  "../../support/hardware-enum.rhm".hardware_enum
+
 /* Names synchronous architectural exception causes independently of trap-handler state. */
-enum ExceptionCause
-| InstructionAddressMisaligned
-| InstructionAccessFault
-| IllegalInstruction
-| Breakpoint
-| LoadAddressMisaligned
-| LoadAccessFault
-| StoreAddressMisaligned
-| StoreAccessFault
-| EnvironmentCallFromUser
-| EnvironmentCallFromSupervisor
-| EnvironmentCallFromMachine
-| InstructionPageFault
-| LoadPageFault
-| StorePageFault
-| SoftwareCheck
-| HardwareError
-| EnvironmentCallFromVirtualSupervisor
-| InstructionGuestPageFault
-| LoadGuestPageFault
-| VirtualInstruction
-| StoreGuestPageFault
+hardware_enum ExceptionCause:
+  InstructionAddressMisaligned = 0
+  InstructionAccessFault = 1
+  IllegalInstruction = 2
+  Breakpoint = 3
+  LoadAddressMisaligned = 4
+  LoadAccessFault = 5
+  StoreAddressMisaligned = 6
+  StoreAccessFault = 7
+  EnvironmentCallFromUser = 8
+  EnvironmentCallFromSupervisor = 9
+  EnvironmentCallFromMachine = 11
+  InstructionPageFault = 12
+  LoadPageFault = 13
+  StorePageFault = 15
+  SoftwareCheck = 18
+  HardwareError = 19
+  EnvironmentCallFromVirtualSupervisor = 10
+  InstructionGuestPageFault = 20
+  LoadGuestPageFault = 21
+  VirtualInstruction = 22
+  StoreGuestPageFault = 23
 
 def HypervisorExceptionCauses = [
   ExceptionCause.EnvironmentCallFromVirtualSupervisor,
@@ -54,28 +57,7 @@ def DelegatableExceptionCauses = [
 
 /* Maps an exception cause to its architectural exception number. */
 fun exception_code(cause :: ExceptionCause) :: Nat:
-  match cause
-  | ExceptionCause.InstructionAddressMisaligned: 0
-  | ExceptionCause.InstructionAccessFault: 1
-  | ExceptionCause.IllegalInstruction: 2
-  | ExceptionCause.Breakpoint: 3
-  | ExceptionCause.LoadAddressMisaligned: 4
-  | ExceptionCause.LoadAccessFault: 5
-  | ExceptionCause.StoreAddressMisaligned: 6
-  | ExceptionCause.StoreAccessFault: 7
-  | ExceptionCause.EnvironmentCallFromUser: 8
-  | ExceptionCause.EnvironmentCallFromSupervisor: 9
-  | ExceptionCause.EnvironmentCallFromMachine: 11
-  | ExceptionCause.InstructionPageFault: 12
-  | ExceptionCause.LoadPageFault: 13
-  | ExceptionCause.StorePageFault: 15
-  | ExceptionCause.SoftwareCheck: 18
-  | ExceptionCause.HardwareError: 19
-  | ExceptionCause.EnvironmentCallFromVirtualSupervisor: 10
-  | ExceptionCause.InstructionGuestPageFault: 20
-  | ExceptionCause.LoadGuestPageFault: 21
-  | ExceptionCause.VirtualInstruction: 22
-  | ExceptionCause.StoreGuestPageFault: 23
+  cause.packed_value()
 
 /* Combines exception causes into a host delegation/selection mask. */
 fun exception_mask(causes :: List.of(ExceptionCause)) :: Nat:

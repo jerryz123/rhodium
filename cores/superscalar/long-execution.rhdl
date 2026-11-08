@@ -33,7 +33,7 @@ bundle SuperscalarDivideIssue(xlen :: XLen):
    RR books the EX slot and RF write cycle; a squash cannot change vector admission combinationally.
    Scalar numerical results never wait in storage.
    Rejected WB owners drain without publishing the still-running product. */
-sync_circuit SuperscalarMultiply(xlen :: XLen = XLen.X64, ~vector_slots: slots :: Pow2Int = 8, ~instruction_pc_width: pc_width :: PosInt = xlen.width):
+sync_circuit SuperscalarMultiply(xlen :: XLen = XLen.X64, ~vector_slots: slots :: Pow2Int = 8):
   interface book(Pulse(), ~role: consumer)
   interface issue(Valid(MultiplierRequest(xlen.width)), ~role: consumer)
   interface authorize(Valid(SuperscalarMultiplyWriteback(xlen)), ~role: consumer)
@@ -46,13 +46,6 @@ sync_circuit SuperscalarMultiply(xlen :: XLen = XLen.X64, ~vector_slots: slots :
   bundle MultiplyOwner():
     vector: Bool
     tag: VectorMultiplyTag(slots)
-
-  /* Holds only the surviving scalar's compact identity and product projection. */
-  bundle WritebackOwner():
-    identity: SuperscalarCompactIdentity(xlen, pc_width)
-    rd: Bits(5)
-    high_result: Bool
-    word_result: Bool
 
   inst execution(TaggedPipelinedMultiplier(xlen.width, MultiplyOwner()))
   inst vector_returns(CompletionQueue(IntegerExecutionRequest(MultiplierRequest(xlen.width), VectorMultiplyTag(slots)), IntegerExecutionResult(Bits(xlen.width * 2), VectorMultiplyTag(slots)), slots, ~pipe: #false))
@@ -93,20 +86,14 @@ sync_circuit SuperscalarMultiply(xlen :: XLen = XLen.X64, ~vector_slots: slots :
      until authorization, then the return pipe owns it through the booked write. */
 
   def wb_launch = launch_issue |> map_valid(_request => Bool(#true)) |> valid_pipe(2)
-  def authorized = wb_launch |> filter_valid(_launch => authorize.valid) |> map_valid(_launch):
-    def identity :: SuperscalarInstructionIdentity(xlen) = authorize.bits.identity
-    WritebackOwner():
-      identity: identity.compact(pc_width)
-      rd: authorize.bits.rd
-      high_result: authorize.bits.high_result
-      word_result: authorize.bits.word_result
+  def authorized = wb_launch |> filter_valid(_launch => authorize.valid) |> map_valid(_launch => authorize.bits)
 
   def returned = authorized |> valid_pipe(PipelinedMultiplierStages - 2)
   (returned |> map_valid(payload):
-    def owner :: WritebackOwner() = payload
-    def identity :: SuperscalarCompactIdentity(xlen, pc_width) = owner.identity
+    def owner :: SuperscalarMultiplyWriteback(xlen) = payload
+    def identity :: SuperscalarInstructionIdentity(xlen) = owner.identity
     SuperscalarCompletion(xlen):
-      identity: identity.expanded()
+      identity: identity
       rd: owner.rd
       write: Bool(#true)
       data: integer_multiply_result(xlen, execution.result.bits.value, owner.high_result, owner.word_result)
@@ -123,10 +110,9 @@ sync_circuit SuperscalarMultiply(xlen :: XLen = XLen.X64, ~vector_slots: slots :
 
   when (authorize.valid):
     assert(wb_launch.valid, "superscalar_multiply_wb_owner")
-    assert(CompactPc.fits(xlen, pc_width, authorize.bits.identity.pc), "superscalar_multiply_owner_pc_fits")
 
 /* Holds one authorized divider owner until its backpressured result enters the completion arbiter. */
-sync_circuit SuperscalarDivide(xlen :: XLen = XLen.X64, ~vector_slots: slots :: Pow2Int = 8, ~instruction_pc_width: pc_width :: PosInt = xlen.width):
+sync_circuit SuperscalarDivide(xlen :: XLen = XLen.X64, ~vector_slots: slots :: Pow2Int = 8):
   interface issue(Decoupled(SuperscalarDivideIssue(xlen)), ~role: consumer)
   interface completed(Decoupled(SuperscalarCompletion(xlen)), ~role: producer)
   output drained: Bool
@@ -135,7 +121,7 @@ sync_circuit SuperscalarDivide(xlen :: XLen = XLen.X64, ~vector_slots: slots :: 
 
   /* Retains scalar identity and result projection; operands belong to the numerical engine. */
   bundle ScalarOwner():
-    identity: SuperscalarCompactIdentity(xlen, pc_width)
+    identity: SuperscalarInstructionIdentity(xlen)
     rd: Bits(5)
     write: Bool
     control: RiscvDivideControl()
@@ -153,7 +139,7 @@ sync_circuit SuperscalarDivide(xlen :: XLen = XLen.X64, ~vector_slots: slots :: 
       operands: operation.request
       tag: Owner().Scalar(
         ScalarOwner():
-          identity: identity.compact(pc_width)
+          identity: identity
           rd: operation.owner.rd
           write: operation.owner.write
           control: operation.control
@@ -165,7 +151,7 @@ sync_circuit SuperscalarDivide(xlen :: XLen = XLen.X64, ~vector_slots: slots :: 
 
   def selected = Array(scalar, vector) |> rr_arbiter()
   selected |> execution.request
-  def Array(scalar_response, vector_response) = execution.result |> demux_flow(2, ~stable: #true, result => result.tag.is(Owner().Vector).into(Bool))
+  def Array(scalar_response, vector_response) = execution.result |> demux_flow(2, ~stable: #true, result => result.tag.is(Owner().Vector))
   (vector_response |> map_flow(~stable: #true, result => IntegerExecutionResult(DividerResponse(xlen.width), VectorDivideTag(slots))):
       tag: result.tag.view(Owner().Vector).payload
       value: result.value
@@ -174,10 +160,10 @@ sync_circuit SuperscalarDivide(xlen :: XLen = XLen.X64, ~vector_slots: slots :: 
   reg occupied(~init: Bool(#false))
   (scalar_response |> map_flow(response):
     def owner :: ScalarOwner() = response.tag.view(Owner().Scalar).payload
-    def identity :: SuperscalarCompactIdentity(xlen, pc_width) = owner.identity
+    def identity :: SuperscalarInstructionIdentity(xlen) = owner.identity
     def result = integer_divide_result(xlen, response.value, owner.control.remainder, owner.control.word_result)
     SuperscalarCompletion(xlen):
-      identity: identity.expanded()
+      identity: identity
       rd: owner.rd
       write: owner.write
       data: result
@@ -185,7 +171,6 @@ sync_circuit SuperscalarDivide(xlen :: XLen = XLen.X64, ~vector_slots: slots :: 
 
   when (issue.fire()):
     occupied <== Bool(#true)
-    assert(CompactPc.fits(xlen, pc_width, issue.bits.owner.identity.pc), "superscalar_divide_owner_pc_fits")
   elsewhen (completed.fire()):
     occupied <== Bool(#false)
 

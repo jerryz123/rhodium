@@ -93,8 +93,8 @@ sync_circuit CacheCopyBackFixture():
       response_ready: engine.responses.ready
       granted: engine.granted
       data_valid: engine.data.valid
-      data: if data_width == 512 | engine.data.bits.data | engine.data.bits.data.zext(512)
-      mask: if data_width == 512 | engine.data.bits.byte_enable | engine.data.bits.byte_enable.zext(64)
+      data: engine.data.bits.data.zext(512)
+      mask: engine.data.bits.byte_enable.zext(64)
       data_id: engine.data.bits.data_id
       data_opcode: engine.data.bits.opcode
       data_txn: engine.data.bits.txn_id

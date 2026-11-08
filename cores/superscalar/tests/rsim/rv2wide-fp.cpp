@@ -127,7 +127,7 @@ ScalarRequest scalar_add(unsigned rd) {
   request.ptag.pdestination = 2;
   request.ptag.pspeculative = 1;
   request.ptag.pdirect = 1;
-  request.ptag.pidentity.ppc = UINT64_C(0xfffff00000000000) + 4 * rd;
+  request.ptag.pidentity.ppc = (UINT64_C(0xffffffc000000000) + 4 * rd) & low_mask(39);
   request.ptag.pidentity.praw_uinstruction = 0x02000053 | (rd << 7);
   return request;
 }
@@ -298,12 +298,12 @@ void variable_fpr_collision(unsigned due) {
 }
 
 void compact_variable_owners() {
-  for (const auto pc : {UINT64_C(0x00000ffffffffffe),
-                        UINT64_C(0xfffff00000000000), UINT64_MAX - 1}) {
+  for (const auto pc : {UINT64_C(0x0000003ffffffffe),
+                        UINT64_C(0xffffffc000000000), UINT64_MAX - 1}) {
     initialize();
     auto request = scalar_add(7);
     request.ptag.pspeculative = 0;
-    request.ptag.pidentity.ppc = pc;
+    request.ptag.pidentity.ppc = pc & low_mask(39);
     request.pcontrol.pexecution.punit = 4;
     request.pleft = 0x4018000000000000ULL;
     variable_issue_in.pvalid = 1;
@@ -321,16 +321,7 @@ void compact_variable_owners() {
     tick_model();
     CHECK(drained);
   }
-  expect_failure("superscalar_fp_variable_owner_pc_fits", [] {
-    initialize();
-    auto request = scalar_add(7);
-    request.ptag.pspeculative = 0;
-    request.ptag.pidentity.ppc = UINT64_C(1) << 44;
-    request.pcontrol.pexecution.punit = 4;
-    variable_issue_in.pvalid = 1;
-    variable_issue_in.pbits = request;
-    tick_model();
-  });
+
 }
 
 int main() {

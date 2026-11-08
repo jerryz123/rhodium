@@ -13,6 +13,7 @@ import:
   "../../../rhodium/frontend/support/mux-lookup.rhm".OneHotSelectorType
   "../../../examples/rtl/tagged-union.rhdl" as fixture
   "../../../examples/rtl/nested-tagged-union.rhdl" as nested_fixture
+  "variant-predicate-fixture.rhdl" as predicate_fixture
 
 def fixture_design = compile_program(fixture.program, rtl_target).report.design
 def nested_fixture_design = compile_program(nested_fixture.program, rtl_target).report.design
@@ -61,6 +62,8 @@ check:
   type_equal(fixture.read_request.literal_type(), union_type) ~is #true
   type_equal(module_def.find_input("request").type, union_type) ~is #true
   type_equal(module_def.find_output("request_tag").type, tag_type) ~is #true
+  type_equal(module_def.find_output("is_idle").type, hw.Bool) ~is #true
+  type_equal(module_def.find_output("is_read").type, hw.Bool) ~is #true
   type_equal(module_def.find_output("read_payload").type, Bits(8)) ~is #true
   type_equal(module_def.find_output("write_address").type, Bits(8)) ~is #true
   type_equal(module_def.find_output("rebuilt_write").type, union_type) ~is #true
@@ -76,6 +79,9 @@ check:
   type_equal(nested_module.find_input("message").type,
              nested_fixture.OuterMessage) ~is #true
   type_equal(nested_module.find_output("nested_word").type, Bits(8)) ~is #true
+  type_equal(nested_module.find_output("nested_word_valid").type, hw.Bool) ~is #true
   type_equal(nested_module.find_output("rebuilt").type,
              nested_fixture.OuterMessage) ~is #true
   verify_design(nested_fixture_design) ~is #void
+  hw.elaborate(predicate_fixture.WrongVariant(#false)) ~throws "variant must belong to the tested tagged-union type"
+  hw.elaborate(predicate_fixture.WrongVariant(#true)) ~throws "variant must belong to the tested tagged-union type"

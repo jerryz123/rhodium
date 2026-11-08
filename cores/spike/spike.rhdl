@@ -93,7 +93,7 @@ sync_circuit SpikeCore(config :: SpikeConfig,
   inst data(SpikeDataCHI(chi_config))
   inst uncached(SpikeUncachedCHI(chi_config))
 
-  spike.hart_id <== if config.architecture.xlen.width == 64 | hart_id | hart_id.zext(64)
+  spike.hart_id <== hart_id.zext(64)
   spike.reset_vector <== Bits(64)(reset_address)
   spike.time <== time_counter
   spike.interrupts <== interrupts.machine_external.as_bits() ++ (

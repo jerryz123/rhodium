@@ -75,7 +75,7 @@ sync_circuit SpikeRelease(config :: RiscvHartCHIConfig):
 
   // CompDBIDResp supplies the copyback DBID; final DAT acceptance is this engine's completion boundary.
   def granted = SpikeReleaseResponses.milestone(control.received, "grant")
-  def packet_number = if packet_index_width == 2 | packet_index | packet_index.zext(2)
+  def packet_number = packet_index.zext(2)
   data.valid <== granted & !data_sent
   data.bits <== chi_rn_copyback_data(
     p, node_id, home_id, dbid, chi_transfer_data_id(packet_number, p),

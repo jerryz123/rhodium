@@ -59,7 +59,7 @@ sync_circuit Packetizer(T :: DataType, chunk_width :: PosInt):
   def transfer = egress.fire()
   def [phase, first, last] = flit_phase_state(chunk_count, transfer)
   def packed = payload_queue.egress.bits.as_bits()
-  def padded = if padded_width == payload_width | packed | packed.zext(padded_width)
+  def padded = packed.zext(padded_width)
   def chunks = padded.as_vec(Bits(chunk_width))
 
   egress.bits <== FramedFixedFlit(Bits(chunk_width)):

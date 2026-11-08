@@ -14,6 +14,8 @@ std::uint64_t response_data = 0, array_address = 0, source_pc = 0,
 void falling_update() {}
 void drive() {
   translation_in = {translation_out.prequest.pbits, {0, 0, 0, {}}, 0};
+  if (scenario == 18)
+    translation_in.paddress = 0x100; // A high guest-Bare PC can translate to low PA.
   memory_in = {{std::uint8_t(response_valid),
                 {response_data, std::uint8_t(response_error),
                  std::uint8_t(response_replay)}}};
@@ -84,12 +86,15 @@ void observe() {
     defer(response_valid, 0);
   } else {
     cycles++;
+    if (scenario == 18 && translation_out.prequest.pvalid &&
+        translation_out.prequest.pbits >= (UINT64_C(1) << 38))
+      CHECK(!memory_out.prequest.pvalid);
     if (virtual_lookup_out.pvalid && virtual_lookup_in.pready &&
         virtual_lookup_out.pbits == UINT64_C(0x100) && source_cycle < 0)
       source_cycle = cycles;
     if (memory_out.prequest.pvalid && !memory_out.ps1_ukill &&
         !memory_out.pflush)
-      CHECK(array_valid && memory_out.prequest.pbits.paddress == array_address);
+      CHECK(array_valid && memory_out.prequest.pbits.paddress == (scenario == 18 ? 0x100 : array_address));
     if (memory_out.prequest.pvalid &&
         memory_out.prequest.pbits.paddress == UINT64_C(0x100) &&
         (scenario == 2 || scenario == 3 || scenario == 7 || scenario == 11 ||
@@ -132,7 +137,7 @@ void observe() {
         if (scenario != 16 && insn.ppc == branch_pc && accepted_cycle < 0) {
           accepted_cycle = cycles;
           CHECK(insn.pprediction.pvalid &&
-                insn.pprediction.ptarget == target_pc && insn.pfault.pkind == 0 &&
+                insn.pprediction.ptarget == target_pc && insn.pfault.pvalid == 0 &&
                 int(instructions_out.pbits.pcount) == lane + 1);
           CHECK(memory_out.ps1_ukill == (scenario != 11 && scenario < 14) &&
                 !memory_out.pflush);
@@ -160,7 +165,7 @@ void restart(int test_case, std::uint8_t predicted = 0) {
   target_cycle = -1;
   packets = 0;
   scenario = test_case;
-  source_pc = UINT64_C(0x100);
+  source_pc = test_case == 18 ? (UINT64_C(1) << 38) - 8 : UINT64_C(0x100);
   branch_pc =
       (test_case == 1 || test_case == 8) ? UINT64_C(0x104) : UINT64_C(0x100);
   if (test_case == 12 || test_case == 13)
@@ -333,13 +338,25 @@ int main() {
     instructions_in.pready = 1;
     until([&] { return accepted_cycle >= 0; });
     CHECK(target_cycle == source_cycle + 1);
-    // Execution recovery is not a prediction: it must preserve every bit.
+    // Accepted architectural recovery preserves a canonical high address.
     falling();
-    const auto actual = (UINT64_C(1) << 45) + 0x300;
+    const auto actual = UINT64_C(0xffffffc000000300);
     redirect_in = {1, {branch_pc, actual, {0, 0, 0, {}}}};
     settle();
     CHECK(virtual_lookup_out.pvalid && virtual_lookup_out.pbits == actual);
     falling();
     redirect_in = {};
+    restart(18);
+    // A sequential crossing must fault even if guest translation returns low PA.
+    until([&] { return instructions_out.pvalid && instructions_out.pbits.pentries[0].pfault.pvalid != 0; });
+    instructions_in.pready = 0;
+    for (unsigned stall = 0; stall < 4; ++stall) {
+      const auto &fault = instructions_out.pbits.pentries[0];
+      CHECK(instructions_out.pbits.pcount == 1 && fault.ppc == (UINT64_C(1) << 38) &&
+            fault.pfault.pvalid && fault.pfault.pcause == 1 && !fault.pprediction.pvalid);
+      falling();
+    }
+    instructions_in.pready = 1;
+    falling();
   });
 }

@@ -2,6 +2,7 @@
 // Exposes certified beat scheduling, contended VRF writes, and shared SIMD alignment.
 // SPDX-License-Identifier: Apache-2.0
 import:
+  lib("riscv/rtl/trap.rhdl").ExceptionCause
   lib("cores/vector-layout.rhm").VectorRegisterLayout
   "../packed-load.rhdl" open
   "../packed-bundles.rhdl" open
@@ -161,7 +162,7 @@ sync_circuit VectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen = XLen.X6
       disposition: mux(retry, VectorDisposition.Retry, VectorDisposition.Authorized)
       slow: slow
       data: hit_data[0..xlen.width]
-      cause: Bits(xlen.width)(0)
+      cause: dont_care(ExceptionCause)
       fault_address: Bits(xlen.width)(0)
   ) |> engine.commit
 
@@ -183,7 +184,7 @@ sync_circuit VectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen = XLen.X6
     first: engine.resolved.layout.before.element
     end: engine.resolved.layout.after.element
     disposition: engine.commit.bits.disposition
-    cause: Bits(xlen.width)(0)
+    cause: dont_care(ExceptionCause)
     fault_address: Bits(xlen.width)(0)
     last: engine.resolved.layout.last
     compress_state: literal(VectorCompressState(xlen, vlen), 0)

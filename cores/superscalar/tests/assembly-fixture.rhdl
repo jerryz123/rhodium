@@ -1,0 +1,57 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "instruction-fixture.rhdl" open
+  "../instruction-assembler.rhdl" open
+  "../bundles.rhdl" open
+  "../profile.rhm".SuperscalarPipelineConfig
+  lib("cores/bpred/protocol.rhdl") open
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("flow/main.rhdl") open
+
+/* Carries one aligned block's contents, first requested byte, and any block admission/read fault.
+   A fault's VA equals pc; continuation assembly preserves that VA separately from the instruction PC.
+   Valid direction indices use one shared main row and PC-derived parcel/base indices.
+   A valid prediction names a halfword in this block or the preceding straddling prefix. */
+bundle AssemblyStimulus(xlen :: XLen, hypervisor :: Boolean):
+  pc: Bits(xlen.width)
+  data: Bits(64)
+  fault: SuperscalarFetchBlockFault(xlen, hypervisor)
+  prediction: BranchPrediction(xlen, xlen.width)
+  directions: Vec(4, TournamentPrediction(10))
+  prefix_direction: TournamentPrediction(10)
+
+
+sync_circuit AssemblyFixture(profile :: SuperscalarPipelineConfig = SuperscalarPipelineConfig(), ~group_width: group_width :: matching(2) || matching(3) = 2):
+  def xlen = profile.xlen
+  def hypervisor = profile.hypervisor
+  interface blocks(Decoupled(AssemblyStimulus(xlen, hypervisor)), ~role: consumer)
+  interface clear(Pulse(), ~role: consumer)
+  interface instructions(Decoupled(PacketObservation(xlen, hypervisor, group_width)), ~role: producer)
+  interface repair(Valid(SuperscalarFetchRepair(xlen)), ~role: producer)
+  interface discover(Valid(BranchPrediction(xlen, xlen.width)), ~role: producer)
+  interface speculate(Valid(RasUpdate(xlen)), ~role: producer)
+  input ras_head_valid: Bool
+  input ras_head: Bits(xlen.width)
+  input pause: Bool
+  output available: Bits(2)
+
+  inst assembly(SuperscalarInstructionAssembler(profile, ~group_width: group_width))
+  (blocks |> map_flow(block):
+    fetch_block(xlen, hypervisor, block.pc, block.data,
+                block.fault, block.prediction.valid, block.prediction.pc, block.prediction.target,
+                block.prediction.compressed, block.prediction.ras_action,
+                block.directions, block.prefix_direction, blocks.valid & assembly.blocks.ready)
+  ) |> assembly.blocks
+  clear |> assembly.clear
+  (assembly.instructions |> map_flow(packet => observe_packet(xlen, hypervisor, group_width, packet))) |> instructions
+  assembly.repair |> repair
+  assembly.discover |> discover
+  assembly.speculate |> speculate
+  assembly.ras_head_valid <== ras_head_valid
+  assembly.ras_head <== ras_head
+  assembly.pause <== pause
+  available <== assembly.available
+
+export AssemblyFixture

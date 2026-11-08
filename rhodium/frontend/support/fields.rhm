@@ -5,6 +5,8 @@
 import:
   rhombus/meta open
   "../../../support/annotations.rhm" open
+  "../../../support/hardware-enum.rhm".enum_descriptor_static_info_key
+  "../../../support/hardware-enum.rhm".enum_annotation
   "../../core/ir.rhm" open
   "../../core/types.rhm" open
   "../kernel.rhm" as kernel
@@ -69,7 +71,9 @@ annot.macro 'ValueSurfaceFields($(type :: expr_meta.Parsed))':
   )
   if value_infos
   | annot_meta.pack_predicate('fun (_value): #true', statinfo_meta.unpack(value_infos))
-  | 'HardwareFields.from_type($type)'
+  | block:
+      def kind = statinfo_meta.find(statinfo_meta.gather(type), 'enum_descriptor_static_info_key')
+      if kind | enum_annotation(type.group, type.group, kind) | 'HardwareFields.from_type($type)'
 
 annot.macro 'CircuitPortFields($(port_name :: Identifier): $(port_type :: expr_meta.Parsed), ...)':
   let [port_infos, ...]:
@@ -152,7 +156,7 @@ interface HardwareVariant
 interface HardwareVariantType:
   /* Constructs the tag value of an entity belonging to this variant type. */
   method hardware_variant_tag(entity :: HardwareEntity, location :: Location)
-  /* Constructs a predicate testing the entity against one nominal variant. */
+  /* Constructs a Bool predicate testing the entity against one nominal variant. */
   method hardware_variant_is(entity :: HardwareEntity,
                              variant :: HardwareVariant,
                              location :: Location)
@@ -260,7 +264,9 @@ namespace HardwareFields:
         'fun (value): value is_a HardwareEntity && hardware_has_type(value, $type)',
         statinfo_meta.unpack(value_infos)
       )
-    | 'HardwareFields'
+    | block:
+        def kind = statinfo_meta.find(statinfo_meta.gather(type), 'enum_descriptor_static_info_key')
+        if kind | enum_annotation(type.group, type.group, kind) | 'HardwareFields'
 
   // Transfers a readable value's member surface to storage inferred from it.
   // The producer still owns inference and runtime hardware-type validation.
@@ -345,11 +351,11 @@ fun hardware_variant_tag_or_project(
 /* Delegates nominal variant membership testing to the receiver's descriptor. */
 fun hardware_variant_is(value :: HardwareEntity,
                         variant :: HardwareVariant,
-                        location :: Location = Location()) :~ HardwareFields:
+                        location :: Location = Location()) :~ Bool:
   require_hardware_variant_type(value, #'is).hardware_variant_is(value, variant, location)
 
 /* Returns a variant view's validity predicate. */
-fun hardware_variant_view_valid(view :: HardwareVariantView) :~ HardwareFields:
+fun hardware_variant_view_valid(view :: HardwareVariantView) :~ Bool:
   view.valid
 
 /* Returns a variant view's payload, rejecting nullary variants. */
@@ -389,13 +395,13 @@ annot.macro 'HardwareVariantFields($expected_type)':
 dot.macro 'hardware_variant_field_dot $left $dot $right':
   match right
   | 'tag': 'hardware_variant_tag($left) :: HardwareFields'
-  | 'is': 'fun (variant) :~ HardwareFields: hardware_variant_is($left, variant)'
+  | 'is': 'fun (variant) :~ Bool: hardware_variant_is($left, variant)'
   | 'view': 'fun (variant) :~ HardwareVariantViewFields: hardware_variant_view($left, variant)'
   | ~else: #false
 
 dot.macro 'hardware_variant_view_dot $left $dot $right':
   match right
-  | 'valid': 'hardware_variant_view_valid($left) :: HardwareFields'
+  | 'valid': 'hardware_variant_view_valid($left) :: Bool'
   | 'payload': 'hardware_variant_view_payload($left) :: HardwareFields'
   | ~else: #false
 
@@ -594,17 +600,17 @@ fun hardware_zero_extend(value :: HardwareEntity,
   kernel.zext(source, target_width, name, location)
 
 /*
- * Extends a signed receiver through its width-preserving nominal type family
- * while keeping the receiver's static method surface.
+ * Replicates the top bit of Bits or a signed receiver while preserving its
+ * type family and static method surface; equal width returns the source.
  */
 fun hardware_sign_extend(value :: HardwareEntity,
                          target_width :: PosInt,
                          name :: maybe(AsciiIdentifier) = #false,
                          location :: Location = Location()) :~ HardwareFields:
   def source = kernel.read(value, location)
-  unless signed_arithmetic_type(source.type)
+  unless bits_type(source.type) || signed_arithmetic_type(source.type)
   | error(~who: #'sext,
-          location.describe() ++ ": .sext receiver must have a SignedArithmeticType")
+          location.describe() ++ ": .sext receiver must have a Bits or SignedArithmeticType")
 
   kernel.sext(source, target_width, name, location)
 
@@ -733,7 +739,7 @@ meta:
         )
     | 'is($(variant :: expr_meta.Parsed)) $rest ...':
         values(
-          'hardware_variant_is($left, $variant) :: HardwareFields',
+          'hardware_variant_is($left, $variant) :: Bool',
           '$rest ...'
         )
     | 'view($(variant :: expr_meta.Parsed)) $rest ...':

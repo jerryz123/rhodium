@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/rtl/trap.rhdl").ExceptionCause
   "../vector-memory.rhdl" open
   "../bundles.rhdl" open
   lib("cores/vector/bundles.rhdl") open
@@ -26,7 +27,8 @@ sync_circuit SuperscalarVectorMemoryFixture(xlen :: XLen, slots :: Pow2Int):
   input lookup_data: Bits(xlen.width)
   input(request_ready, response_valid, completion_ready, ordered_busy, request_fault): Bool
   input response_data: Bits(xlen.width)
-  input(fault_cause, fault_address): Bits(xlen.width)
+  input fault_cause: ExceptionCause
+  input fault_address: Bits(xlen.width)
   input(split_ready, split_valid, split_page_fault, split_access_fault, split_guest_fault): Bool
   input(split_data, split_fault_address): Bits(xlen.width)
   output(lookup, lookup_physical, committed, requested, request_physical, response_ready, split_requested): Bool

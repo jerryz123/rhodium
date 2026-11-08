@@ -125,7 +125,7 @@ class RegisterBeatView(bus_bytes :: PosInt, register_lane :: Bits):
     unless value.type.packed_width() <= bus_bytes * 8
     | error(~who: #'RegisterBeatView, "register value must fit the bus beat")
 
-    def widened = if value.type.packed_width() == bus_bytes * 8 | value | value.zext(bus_bytes * 8)
+    def widened = value.zext(bus_bytes * 8)
     widened << (register_lane ++ Bits(3)(0))
 
 /* Interleaves power-of-two banks at stripe granularity, independently of any protocol. */

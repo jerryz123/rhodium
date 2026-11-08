@@ -1,0 +1,61 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../../support/tests/hardware-enum-fixture.rhm" open
+
+def Selector = Priority
+
+bundle Envelope():
+  command: Command
+  priority: Priority
+
+fun is_load(value :: Command) :: Bool:
+  value.is_one_of(Command.Load)
+
+fun select_command(flag :: Bool) :: Command:
+  mux(flag, Command.Load, Command.Store)
+
+circuit Echo():
+  input source: Command
+  output result: Command
+  result <== source
+
+sync_circuit HostEnum():
+  input command: Command
+  input priority: Selector
+  input select: Bool
+  output selected: Command
+  output selected_load: Bool
+  output input_load: Bool
+  output literal_bits: Bits(4)
+  output held_bits: Bits(4)
+  output echoed_bits: Bits(4)
+  output priority_bits: Bits(4)
+  output envelope_load: Bool
+  output vector_load: Bool
+
+  reg held(~init: Command.Idle)
+  held <== command
+  selected <== select_command(select)
+  selected_load <== is_load(select_command(select))
+  input_load <== is_load(command)
+  literal_bits <== Command.Load.as_bits()
+  held_bits <== held.as_bits()
+  inst echo(Echo())
+  echo.source <== command
+  echoed_bits <== echo.result.as_bits()
+  def envelope = Envelope():
+    command: command
+    priority: priority
+
+  envelope_load <== is_load(envelope.command)
+  def commands = vec(command, Command.Load)
+  vector_load <== is_load(commands[0])
+  priority_bits <== envelope.priority.mux({Priority.First: Bits(4)(1), Priority.Second: Bits(4)(2), Priority.Third: Bits(4)(3)})
+
+circuit WrongHostEnum():
+  output result: Command
+  result <== Other.Load
+
+def program = elaborate(HostEnum())
+export program WrongHostEnum

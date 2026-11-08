@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/pc.rhdl").CompactPc
+  lib("cores/pc.rhdl") open
   lib("cores/fp/profile.rhm").fp_transport_profile
   "pairing.rhdl".superscalar_pair_immediate_width
   "decode/core-ctrl.rhdl" open
@@ -21,9 +21,7 @@ import:
   lib("cores/bpred/protocol.rhdl") open
   lib("cores/branch-resolver.rhdl").BranchResolverControl
   lib("riscv/isa/xlen.rhm").XLen
-  lib("riscv/isa/trap.rhm").exception_code
-  lib("riscv/isa/trap.rhm").ExceptionCause
-  lib("riscv/rtl/trap.rhdl").exception_cause_bits
+  lib("riscv/rtl/trap.rhdl").ExceptionCause
   lib("riscv/rtl/atomic.rhdl").RiscvAtomicOperation
   lib("riscv/rtl/zihintntl.rhdl").RiscvMemoryLocality
   lib("riscv/rtl/privilege.rhdl").PrivilegeMode
@@ -91,55 +89,44 @@ interface SuperscalarUncachedInstruction():
   responder -> requester:
     response: Decoupled(InstructionCacheResult(64))
 
-/* Pipeline owners carry synchronous exception numbers (currently 0..23), never interrupts. */
-def SuperscalarCauseWidth = 5
-
-/* Names only instruction-fetch exceptions; None also represents absence of a fault. */
-hardware_enum SuperscalarFetchFaultKind:
-  None
-  Misaligned
-  Access
-  Page
-  GuestPage
-
-  /* Rejects unused encodings and guest faults on a core without H. */
-  method supported(kind, hypervisor :: Boolean) :: Bool:
-    kind.is_one_of(SuperscalarFetchFaultKind.None, SuperscalarFetchFaultKind.Misaligned, SuperscalarFetchFaultKind.Access, SuperscalarFetchFaultKind.Page)
-      ||| (Bool(hypervisor) & (kind === SuperscalarFetchFaultKind.GuestPage))
+/* Restricts architectural causes to fetch exceptions supported by this core. */
+fun supported_fetch_cause(cause :: ExceptionCause, hypervisor :: Boolean) :: Bool:
+  cause.is_one_of(ExceptionCause.InstructionAddressMisaligned, ExceptionCause.InstructionAccessFault, ExceptionCause.InstructionPageFault)
+    ||| (Bool(hypervisor) & (cause === ExceptionCause.InstructionGuestPageFault))
 
 /* Translation reports the exact block VA. Assembly checks this against the
    instruction and converts it to parcel ownership before issuing the packet. */
 bundle SuperscalarFetchBlockFault(xlen :: XLen, hypervisor :: Boolean):
-  kind: SuperscalarFetchFaultKind
+  valid: Bool
+  cause: ExceptionCause
   value: Bits(xlen.width)
   if hypervisor:
     guest: RiscvGuestFault()
 
-  /* A failed block has no executable parcels. */
-  method valid(fault) :: Bool:
-    fault.kind =/= SuperscalarFetchFaultKind.None
-
   /* Only H-enabled translation may report a guest-page fault. */
   method supported(fault) :: Bool:
-    fault.kind.supported(hypervisor)
+    !fault.valid ||| supported_fetch_cause(fault.cause, hypervisor)
 
   /* Preserve the winning block's cause and guest provenance; a crossing
      instruction owns its second parcel only if that block actually failed. */
   method at_parcel(fault, second :: Bool) :: SuperscalarFetchFault(xlen, hypervisor):
-    def continuation = fault.valid() & second
+    def continuation = fault.valid & second
     if hypervisor
     | SuperscalarFetchFault(xlen, hypervisor):
-        kind: fault.kind
+        valid: fault.valid
+        cause: fault.cause
         continuation: continuation
         guest: fault.guest
     | SuperscalarFetchFault(xlen, hypervisor):
-        kind: fault.kind
+        valid: fault.valid
+        cause: fault.cause
         continuation: continuation
 
 /* Instruction-relative fetch fault. The originating PC travels with the
    instruction; only a failed second parcel needs a nonzero displacement. */
 bundle SuperscalarFetchFault(xlen :: XLen, hypervisor :: Boolean):
-  kind: SuperscalarFetchFaultKind
+  valid: Bool
+  cause: ExceptionCause
   continuation: Bool
   if hypervisor:
     guest: RiscvGuestFault()
@@ -148,30 +135,9 @@ bundle SuperscalarFetchFault(xlen :: XLen, hypervisor :: Boolean):
   method address(fault, pc :: Bits(xlen.width)) :: Bits(xlen.width):
     mux(fault.continuation, pc + Bits(xlen.width)(2), pc)
 
-  /* Reports whether this instruction carries a fetch exception. */
-  method valid(fault) :: Bool:
-    fault.kind =/= SuperscalarFetchFaultKind.None
-
-  /* Returns the architectural synchronous exception number at the resolution boundary. */
-  method cause(fault) :: Bits(SuperscalarCauseWidth):
-    mux_lookup(fault.kind, ~default: Bits(SuperscalarCauseWidth)(0)):
-      SuperscalarFetchFaultKind.Misaligned: Bits(SuperscalarCauseWidth)(exception_code(ExceptionCause.InstructionAddressMisaligned))
-      SuperscalarFetchFaultKind.Access: Bits(SuperscalarCauseWidth)(exception_code(ExceptionCause.InstructionAccessFault))
-      SuperscalarFetchFaultKind.Page: Bits(SuperscalarCauseWidth)(exception_code(ExceptionCause.InstructionPageFault))
-      SuperscalarFetchFaultKind.GuestPage: Bits(SuperscalarCauseWidth)(exception_code(ExceptionCause.InstructionGuestPageFault))
-
   /* Rejects unused encodings and guest faults when this specialization omits H. */
   method supported(fault) :: Bool:
-    fault.kind.supported(hypervisor)
-
-/* Classifies an architectural translation/resolution cause at the fetch boundary.
-   The caller rejects a fault whose cause maps to None. */
-fun fetch_fault_kind(cause :: Bits) :~ SuperscalarFetchFaultKind:
-  mux_lookup(cause, ~default: SuperscalarFetchFaultKind.None):
-    exception_code(ExceptionCause.InstructionAddressMisaligned): SuperscalarFetchFaultKind.Misaligned
-    exception_code(ExceptionCause.InstructionAccessFault): SuperscalarFetchFaultKind.Access
-    exception_code(ExceptionCause.InstructionPageFault): SuperscalarFetchFaultKind.Page
-    exception_code(ExceptionCause.InstructionGuestPageFault): SuperscalarFetchFaultKind.GuestPage
+    !fault.valid ||| supported_fetch_cause(fault.cause, hypervisor)
 
 /* A +2 or +4 successor toggles one contiguous run, starting at bit 1 or 2.
    The tag names its last changed bit, not a displacement from the PC. */
@@ -219,37 +185,185 @@ bundle SuperscalarDirectionCheckpoint():
 fun superscalar_raw_instruction(instruction :: Bits(32), raw_parcel :: Bits(16)) :: Bits(32):
   mux(raw_parcel[0..2].all(), instruction[16..32], Bits(16)(0)) ++ raw_parcel
 
-/* Retains canonical decode bits, original encoding, and the length-derived successor through retirement. */
+/* Stores a normalized frontend hint in the fixed architectural PC domain. */
+bundle SuperscalarInstructionPrediction(xlen :: XLen):
+  valid: Bool
+  target: CompactPc(xlen)
+
+/* Marks positive sequential boundary crossings, the failed parcel, and guest provenance.
+   Boundary is always false for RV32, which retains every architectural PC bit. */
+bundle SuperscalarInstructionFault(xlen :: XLen, hypervisor :: Boolean):
+  boundary: Bool
+  cause: ExceptionCause
+  continuation: Bool
+  if hypervisor:
+    guest: RiscvGuestFault()
+
+/* A fault never predicts, so its details reuse the normal prediction's storage. */
+tagged_union SuperscalarInstructionOutcome(xlen :: XLen, hypervisor :: Boolean):
+  Normal(SuperscalarInstructionPrediction(xlen))
+  Fault(SuperscalarInstructionFault(xlen, hypervisor))
+
+namespace SuperscalarInstructionOutcome:
+  /* Selects fault provenance instead of prediction when a parcel failed. Check the
+     full PC before truncation so sequential boundary faults keep their exact address. */
+  export fun select(xlen :: XLen, hypervisor :: Boolean, pc :: Bits(xlen.width), fault :: SuperscalarFetchFault(xlen, hypervisor),
+                    ~predicted: predicted :: Bool, ~target: target :: CompactPc(xlen)) :~ SuperscalarInstructionOutcome(xlen, hypervisor):
+    def Outcome = SuperscalarInstructionOutcome(xlen, hypervisor)
+    def empty :: SuperscalarInstructionFault(xlen, hypervisor) = literal(SuperscalarInstructionFault(xlen, hypervisor), 0)
+    def details :: SuperscalarInstructionFault(xlen, hypervisor) = empty.updated(
+      ~boundary: !CompactPc.fits(xlen, pc), ~cause: fault.cause, ~continuation: fault.continuation)
+    def provenance = if hypervisor | details.updated(~guest: fault.guest) | details
+    def prediction = SuperscalarInstructionPrediction(xlen):
+      valid: predicted
+      target: target
+
+    mux(fault.valid, Outcome.Fault(provenance), Outcome.Normal(prediction))
+
+/* Successful PCs sign-extend independently; a boundary fault instead zero-extends.
+   Direction training indices are reconstructed from the instruction PC;
+   the lookup row, history, and assembler's length decision retain independent ownership. */
 bundle SuperscalarInstruction(xlen :: XLen, hypervisor :: Boolean):
-  pc: Bits(xlen.width)
+  pc: CompactPc(xlen)
   instruction: Bits(32)
-  raw_instruction: Bits(32)
-  sequential_pc: Bits(xlen.width)
+  raw_parcel: Bits(16)
+  step: SuperscalarPcStep(xlen)
   compressed_illegal: Bool
-  fault: SuperscalarFetchFault(xlen, hypervisor)
-  prediction: BranchPrediction(xlen)
+  outcome: SuperscalarInstructionOutcome(xlen, hypervisor)
+  predicted_compressed: Bool
+  predicted_ras_action: RasAction
   speculated_ras_action: RasAction
-  direction: TournamentPrediction(10)
+  direction: SuperscalarDirectionCheckpoint()
 
-  /* Checks the PC-derived portions of observable training indices; invalid indices are unspecified. */
-  method direction_indices_valid(fetched) :: Bool:
-    !fetched.direction.valid ||| ((fetched.direction.index[0..2] === fetched.pc[1..3]) & (fetched.direction.base_index === fetched.pc[1..13]))
+  /* Reconstructs canonical PCs and positive sequential-boundary fault addresses. */
+  method address(entry) :: Bits(xlen.width):
+    def Outcome = SuperscalarInstructionOutcome(xlen, hypervisor)
+    def details :: SuperscalarInstructionFault(xlen, hypervisor) = entry.outcome.view(Outcome.Fault).payload
+    def fault_pc = entry.pc.fetch_address(details.boundary)
+    mux(entry.outcome.is(Outcome.Fault), fault_pc, entry.pc.expanded())
 
-  /* Removes redundant indices while retaining all history and chooser observations, even when invalid. */
-  method retained_direction(fetched) :: SuperscalarDirectionCheckpoint():
-    SuperscalarDirectionCheckpoint():
-      row: fetched.direction.index[2..12]
-      history: fetched.direction.history
-      valid: fetched.direction.valid
-      taken: fetched.direction.taken
-      base_taken: fetched.direction.base_taken
-      gshare_taken: fetched.direction.gshare_taken
+  /* Supplies only active fault provenance; normal instructions never expose union garbage. */
+  method fetch_fault(entry) :: SuperscalarFetchFault(xlen, hypervisor):
+    def Outcome = SuperscalarInstructionOutcome(xlen, hypervisor)
+    def details :: SuperscalarInstructionFault(xlen, hypervisor) = entry.outcome.view(Outcome.Fault).payload
+    def absent :: SuperscalarFetchFault(xlen, hypervisor) = literal(SuperscalarFetchFault(xlen, hypervisor), 0)
+    def fault :: SuperscalarFetchFault(xlen, hypervisor) = absent.updated(
+      ~valid: Bool(#true), ~cause: details.cause, ~continuation: details.continuation)
+    def provenance = if hypervisor | fault.updated(~guest: details.guest) | fault
+    mux(entry.outcome.is(Outcome.Fault), provenance, absent)
 
-  /* Projects the accepted instruction, not the live lane at completion time. */
-  method identity(fetched) :: SuperscalarInstructionIdentity(xlen):
-    SuperscalarInstructionIdentity(xlen):
+  /* Recovers the original encoding without storing a duplicate upper parcel. */
+  method raw(entry) :: Bits(32):
+    superscalar_raw_instruction(entry.instruction, entry.raw_parcel)
+
+  /* Reuses the accepted carry tag instead of adding a new successor adder. */
+  method successor(entry) :: Bits(xlen.width):
+    entry.step.apply(entry.address())
+
+  /* Tests prediction ownership without expanding the instruction record. */
+  method predicted(entry) :: Bool:
+    def Outcome = SuperscalarInstructionOutcome(xlen, hypervisor)
+    def normal :: SuperscalarInstructionPrediction(xlen) = entry.outcome.view(Outcome.Normal).payload
+    entry.outcome.is(Outcome.Normal) & normal.valid
+
+  /* Restores only the selected speculative target; inactive targets are zero. */
+  method target(entry) :: Bits(xlen.width):
+    def Outcome = SuperscalarInstructionOutcome(xlen, hypervisor)
+    def normal :: SuperscalarInstructionPrediction(xlen) = entry.outcome.view(Outcome.Normal).payload
+    mux(entry.predicted(), normal.target.expanded(), Bits(xlen.width)(0))
+
+  /* Formats the shared predictor message at discovery, not while moving stored instructions. */
+  method prediction_value(entry) :: BranchPrediction(xlen, xlen.width):
+    BranchPrediction(xlen, xlen.width):
+      valid: entry.predicted()
+      pc: entry.address()
+      target: entry.target()
+      compressed: entry.predicted_compressed
+      ras_action: entry.predicted_ras_action
+
+  /* Projects an independently retained completion identity from this instruction. */
+  method identity(entry) :: SuperscalarInstructionIdentity(xlen):
+    SuperscalarInstructionIdentity.create(xlen, entry.address(), entry.raw())
+
+def SuperscalarPcOffsetBits = 12
+
+
+/* Instruction metadata: only the starting-PC suffix is lane-owned. Prediction
+   destinations remain independent, and the successor uses the window's step tag. */
+
+/* Retains a speculative destination without another copy of its instruction PC. */
+bundle SuperscalarLanePrediction(xlen :: XLen):
+  valid: Bool
+  target: CompactPc(xlen)
+  compressed: Bool
+  ras_action: RasAction
+
+/* Shares the compact instruction layout; EX retains a fault, MEM/WB only its origin bit. */
+bundle SuperscalarLaneInstruction(xlen :: XLen, Fault :: DataType):
+  pc: Bits(SuperscalarPcOffsetBits)
+  instruction: Bits(32)
+  raw_instruction: Bits(16)
+  sequential_pc: SuperscalarPcStep(xlen)
+  compressed_illegal: Bool
+  fault: Fault
+  prediction: SuperscalarLanePrediction(xlen)
+  speculated_ras_action: RasAction
+  direction: SuperscalarDirectionCheckpoint()
+
+  /* Restores the original encoding from the canonical word and retained low parcel. */
+  method raw(fetched) :: Bits(32):
+    superscalar_raw_instruction(fetched.instruction, fetched.raw_instruction)
+
+  /* Captures a delayed result's identity using the full PC supplied by its stage. */
+  method identity(fetched, pc :: Bits(xlen.width)) :: SuperscalarInstructionIdentity(xlen):
+    SuperscalarInstructionIdentity.create(xlen, pc, fetched.raw())
+
+  /* Changes fault ownership at resolution while preserving the compact instruction metadata. */
+  method with_fault(fetched, NextFault :: DataType, fault :: Hardware.of(NextFault)) :: SuperscalarLaneInstruction(xlen, NextFault):
+    SuperscalarLaneInstruction(xlen, NextFault):
       pc: fetched.pc
+      instruction: fetched.instruction
       raw_instruction: fetched.raw_instruction
+      sequential_pc: fetched.sequential_pc
+      compressed_illegal: fetched.compressed_illegal
+      fault: fault
+      prediction: fetched.prediction
+      speculated_ras_action: fetched.speculated_ras_action
+      direction: fetched.direction
+
+  /* Gives an independently owned observation its PC without expanding other aliases. */
+  method observed(fetched, hypervisor :: Boolean, pc :: Bits(xlen.width), fault :: SuperscalarFetchFault(xlen, hypervisor)) :: SuperscalarInstruction(xlen, hypervisor):
+    SuperscalarInstruction(xlen, hypervisor):
+      pc: CompactPc.capture(xlen, pc)
+      instruction: fetched.instruction
+      raw_parcel: fetched.raw_instruction
+      step: fetched.sequential_pc
+      compressed_illegal: fetched.compressed_illegal
+      outcome: SuperscalarInstructionOutcome.select(xlen, hypervisor, pc, fault, ~predicted: fetched.prediction.valid, ~target: fetched.prediction.target)
+      predicted_compressed: fetched.prediction.compressed
+      predicted_ras_action: fetched.prediction.ras_action
+      speculated_ras_action: fetched.speculated_ras_action
+      direction: fetched.direction
+
+namespace SuperscalarLaneInstruction:
+  /* Transfers only lane-owned metadata; the stage separately captures the shared PC prefix. */
+  export fun capture(xlen :: XLen, hypervisor :: Boolean, Fault :: DataType, fetched :: SuperscalarInstruction(xlen, hypervisor), fault :: Hardware.of(Fault)) :~ SuperscalarLaneInstruction(xlen, Fault):
+    SuperscalarLaneInstruction(xlen, Fault):
+      pc: fetched.pc.low[0..SuperscalarPcOffsetBits]
+      instruction: fetched.instruction
+      raw_instruction: fetched.raw_parcel
+      sequential_pc: fetched.step
+      compressed_illegal: fetched.compressed_illegal
+      fault: fault
+      prediction:
+        SuperscalarLanePrediction(xlen):
+          valid: fetched.predicted()
+          target: CompactPc.prediction(xlen, fetched.target())
+          compressed: fetched.predicted_compressed
+          ras_action: fetched.predicted_ras_action
+      speculated_ras_action: fetched.speculated_ras_action
+      direction: fetched.direction
+
 
 /* Offers a nonempty instruction prefix with an explicit two- or three-entry capacity. */
 bundle SuperscalarPacket(xlen :: XLen, hypervisor :: Boolean, group_width :: matching(2) || matching(3)):
@@ -274,35 +388,18 @@ hardware_enum SuperscalarDisposition:
   Replay
   System
 
-/* Supplies a same-cycle MEM outcome; fault payload is observed only for Fault. */
+/* Carries one synchronous outcome with its compact cause and exact trap value.
+   Interrupts are architectural redirect metadata, not a pipeline exception. */
 bundle SuperscalarResolution(xlen :: XLen):
   disposition: SuperscalarDisposition
-  cause: Bits(xlen.width)
+  cause: ExceptionCause
   value: Bits(xlen.width)
   guest: RiscvGuestFault()
 
-  /* Narrows a stage or memory-service outcome; its producer must supply a representable fault. */
-  method compact(source) :: SuperscalarSyncResolution(xlen):
-    SuperscalarSyncResolution(xlen):
-      disposition: source.disposition
-      cause: source.cause[0..SuperscalarCauseWidth]
-      value: source.value
-      guest: source.guest
-
-/* Carries a precise trap value and guest provenance alongside the compact synchronous cause. */
-bundle SuperscalarSyncResolution(xlen :: XLen):
-  disposition: SuperscalarDisposition
-  cause: Bits(SuperscalarCauseWidth)
-  value: Bits(xlen.width)
-  guest: RiscvGuestFault()
-
-  /* Reconstructs the XLEN public observation without introducing an interrupt bit. */
-  method expanded(source) :: SuperscalarResolution(xlen):
-    SuperscalarResolution(xlen):
-      disposition: source.disposition
-      cause: source.cause.zext(xlen.width)
-      value: source.value
-      guest: source.guest
+  /* Keeps the exact trap value for a fault; all other dispositions retain the
+     caller's result in the same XLEN word. */
+  method with_result(outcome, data :: Bits(xlen.width)) :: SuperscalarResolution(xlen):
+    outcome.updated(~value: mux(outcome.disposition === SuperscalarDisposition.Fault, outcome.value, data))
 
 /* Keeps the instruction's position independent of the two physical GPR write ports. */
 bundle SuperscalarFpSchedule():
@@ -310,30 +407,23 @@ bundle SuperscalarFpSchedule():
   speculative: Bool
   direct: Bool
 
-/* Identifies the instruction producing a delayed result without retaining frontend recovery state. */
+/* Identifies a delayed result with a successful RV32 or canonical Sv39 PC. */
 bundle SuperscalarInstructionIdentity(xlen :: XLen):
-  pc: Bits(xlen.width)
+  pc: Bits(compact_pc_width(xlen))
   raw_instruction: Bits(32)
 
-  /* Captures a successful instruction whose PC fits the caller's storage domain. */
-  method compact(identity, width :: PosInt) :: SuperscalarCompactIdentity(xlen, width):
-    SuperscalarCompactIdentity(xlen, width):
-      pc: CompactPc.capture(xlen, width, identity.pc)
-      raw_instruction: identity.raw_instruction
+  /* Expands only the address at an architectural or observation consumer. */
+  method address(identity) :: Bits(xlen.width):
+    identity.pc.sext(xlen.width)
 
-/* Retains an independently sign-extended successful PC, never an arbitrary fault PC. */
-bundle SuperscalarCompactIdentity(xlen :: XLen, width :: PosInt):
-  pc: CompactPc(xlen, width)
-  raw_instruction: Bits(32)
-
-  /* Restores the architectural identity at completion and observation boundaries. */
-  method expanded(identity) :: SuperscalarInstructionIdentity(xlen):
-    def retained :: SuperscalarCompactIdentity(xlen, width) = identity
+namespace SuperscalarInstructionIdentity:
+  /* Captures a successful PC; the accepting producer checks representability. */
+  export fun create(xlen :: XLen, pc :: Bits(xlen.width), raw :: Bits(32)) :~ SuperscalarInstructionIdentity(xlen):
     SuperscalarInstructionIdentity(xlen):
-      pc: retained.pc.expanded()
-      raw_instruction: identity.raw_instruction
+      pc: pc[0..compact_pc_width(xlen)]
+      raw_instruction: raw
 
-/* Keeps age-slot identity and result bank with speculative or authorized numerical work. */
+/* Keeps age-slot identity and result bank through scalar numerical execution. */
 bundle SuperscalarFpOwner(xlen :: XLen):
   identity: SuperscalarInstructionIdentity(xlen)
   lane: Bits(2)
@@ -342,41 +432,10 @@ bundle SuperscalarFpOwner(xlen :: XLen):
   speculative: Bool
   direct: Bool
 
-  /* Narrows only the successful instruction PC; scheduling and destination stay exact. */
-  method compact(owner, width :: PosInt) :: SuperscalarCompactFpOwner(xlen, width):
-    def source :: SuperscalarFpOwner(xlen) = owner
-    SuperscalarCompactFpOwner(xlen, width):
-      identity: source.identity.compact(width)
-      lane: owner.lane
-      rd: owner.rd
-      destination: owner.destination
-      speculative: owner.speculative
-      direct: owner.direct
-
-/* Carries successful scalar ownership through shared fixed and variable FP execution. */
-bundle SuperscalarCompactFpOwner(xlen :: XLen, width :: PosInt):
-  identity: SuperscalarCompactIdentity(xlen, width)
-  lane: Bits(2)
-  rd: Bits(5)
-  destination: FloatDestination
-  speculative: Bool
-  direct: Bool
-
-  /* Rejoins the full-width public tag without adding storage or arithmetic. */
-  method expanded(owner) :: SuperscalarFpOwner(xlen):
-    def retained :: SuperscalarCompactFpOwner(xlen, width) = owner
-    SuperscalarFpOwner(xlen):
-      identity: retained.identity.expanded()
-      lane: owner.lane
-      rd: owner.rd
-      destination: owner.destination
-      speculative: owner.speculative
-      direct: owner.direct
-
 /* Reconstructs an FP owner from its one pipeline instruction and compact scheduling tag. */
-fun superscalar_fp_owner(xlen :: XLen, hypervisor :: Boolean, fetched :: SuperscalarInstruction(xlen, hypervisor), rd :: Bits(5), request :: FpExecutionRequest(xlen, fp_transport_profile(xlen), SuperscalarFpSchedule())) :~ SuperscalarFpOwner(xlen):
+fun superscalar_fp_owner(xlen :: XLen, identity :: SuperscalarInstructionIdentity(xlen), rd :: Bits(5), request :: FpExecutionRequest(xlen, fp_transport_profile(xlen), SuperscalarFpSchedule())) :~ SuperscalarFpOwner(xlen):
   SuperscalarFpOwner(xlen):
-    identity: fetched.identity()
+    identity: identity
     lane: request.tag.lane
     rd: rd
     destination: request.control.registers.destination
@@ -384,8 +443,8 @@ fun superscalar_fp_owner(xlen :: XLen, hypervisor :: Boolean, fetched :: Supersc
     direct: request.tag.direct
 
 /* Attaches architectural ownership only when numerical work enters a shared service. */
-fun superscalar_fp_request(xlen :: XLen, hypervisor :: Boolean, fetched :: SuperscalarInstruction(xlen, hypervisor), rd :: Bits(5), request :: FpExecutionRequest(xlen, fp_transport_profile(xlen), SuperscalarFpSchedule())) :~ FpExecutionRequest(xlen, fp_transport_profile(xlen), SuperscalarFpOwner(xlen)):
-  request.with_tag(SuperscalarFpOwner(xlen), superscalar_fp_owner(xlen, hypervisor, fetched, rd, request))
+fun superscalar_fp_request(xlen :: XLen, identity :: SuperscalarInstructionIdentity(xlen), rd :: Bits(5), request :: FpExecutionRequest(xlen, fp_transport_profile(xlen), SuperscalarFpSchedule())) :~ FpExecutionRequest(xlen, fp_transport_profile(xlen), SuperscalarFpOwner(xlen)):
+  request.with_tag(SuperscalarFpOwner(xlen), superscalar_fp_owner(xlen, identity, rd, request))
 
 /* Retains WB ownership, timing, and divide/sqrt controls. Operand words stay
    in the owning instruction's result record, not in this group metadata. */
@@ -466,17 +525,6 @@ bundle SuperscalarOperands(xlen :: XLen):
   rs2: Bits(xlen.width)
   rewrite: SuperscalarExecutionRewrite(xlen)
 
-/* Holds datapath operands and execution rewrites beside decoded pipeline controls. */
-bundle SuperscalarExecute(xlen :: XLen, hypervisor :: Boolean):
-  fetched: SuperscalarInstruction(xlen, hypervisor)
-  control: SuperscalarControl()
-  operands: SuperscalarOperands(xlen)
-  rd: Bits(5)
-  illegal: Bool
-  virtual_instruction: Bool
-  fp_request: FpExecutionRequest(xlen, fp_transport_profile(xlen), SuperscalarFpSchedule())
-  vector: VectorDescriptor(xlen)
-
 /* Distinguishes a fixed-latency hit, retry, authorized slow service, or translation fault. */
 hardware_enum SuperscalarCacheOutcome:
   Slow
@@ -493,11 +541,33 @@ hardware_enum SuperscalarBranchPrediction:
   Correct
   Mispredicted
 
-/* Carries the EX comparison inputs and the MEM-resolved control transfer through WB. */
-bundle SuperscalarBranchResult(xlen :: XLen):
+/* Retains training decisions; instruction, return, and target addresses are aliases. */
+bundle SuperscalarBranchDecision():
+  branch: Bool
+  conditional: Bool
   taken: Bool
-  target: Bits(xlen.width)
-  update: BranchUpdate(xlen)
+  compressed: Bool
+  ras_action: RasAction
+  predicted_ras_action: RasAction
+
+  /* Joins the retained decision to the retiring instruction's addresses for predictor training. */
+  method training(decision, xlen :: XLen, pc :: Bits(xlen.width),
+                  ~target: target :: Bits(xlen.width), ~return_address: return_address :: Bits(xlen.width)) :: BranchUpdate(xlen):
+    BranchUpdate(xlen):
+      pc: pc
+      target: target
+      branch: decision.branch
+      conditional: decision.conditional
+      taken: decision.taken
+      compressed: decision.compressed
+      ras_action: decision.ras_action
+      predicted_ras_action: decision.predicted_ras_action
+      return_address: return_address
+
+/* Keeps comparison and recovery controls without a second resolved target word. */
+bundle SuperscalarBranchResult():
+  taken: Bool
+  update: SuperscalarBranchDecision()
   control: BranchResolverControl()
   operands_from_older: Vec(2, Bool)
   mispredicted: Bool
@@ -520,14 +590,13 @@ bundle SuperscalarLaneOperands(xlen :: XLen):
   left: Bits(xlen.width)
   right: Bits(xlen.width)
 
-/* Retains one scalar lane's result, control transfer, and fault/replay outcome through MEM and WB. */
+/* Retains exactly one lane's MEM/WB result, operands, control and fault outcome, without derived aliases. */
 bundle SuperscalarResult(xlen :: XLen, hypervisor :: Boolean):
-  fetched: SuperscalarInstruction(xlen, hypervisor)
+  fetched: SuperscalarLaneInstruction(xlen, Bool)
   rd: Bits(5)
   write: Bool
-  data: Bits(xlen.width)
   result_ready: Bool
-  branch: SuperscalarBranchResult(xlen)
+  branch: SuperscalarBranchResult()
   memory: SuperscalarMemoryControl()
   guest_access: RiscvGuestMemoryAccess
   prefetch: CachePrefetchOperation
@@ -538,34 +607,62 @@ bundle SuperscalarResult(xlen :: XLen, hypervisor :: Boolean):
   system: SuperscalarSystemControl()
   muldiv: SuperscalarLongControl()
   operands: SuperscalarLaneOperands(xlen)
-  resolution: SuperscalarSyncResolution(xlen)
+  resolution: SuperscalarResolution(xlen)
   fp: SuperscalarFpControl()
-  fp_request: SuperscalarFpRetirement(xlen)
   vector_fast_eligible: Bool
   vector: SuperscalarVectorLane()
 
-  /* Project the instruction before a capture or from a live retirement slot. */
-  method boundary_instruction(result) :: SuperscalarBoundaryInstruction(xlen):
-    SuperscalarBoundaryInstruction(xlen):
-      identity: result.fetched.identity()
-      next_pc: mux(result.branch.taken, result.branch.target, result.fetched.sequential_pc)
-      fetch_fault: result.fetched.fault.valid()
+  /* Recovers fetch provenance only when the retained origin bit names a fetch fault. */
+  method fetch_fault(token) :: SuperscalarFetchFault(xlen, hypervisor):
+    def continuation = token.fetched.fault & (token.resolution.value[1] ^ token.fetched.pc[1]).into(Bool)
+    if hypervisor
+    | SuperscalarFetchFault(xlen, hypervisor):
+        valid: token.fetched.fault
+        cause: token.resolution.cause
+        continuation: continuation
+        guest: mux(token.fetched.fault, token.resolution.guest, literal(RiscvGuestFault(), 0))
+    | SuperscalarFetchFault(xlen, hypervisor):
+        valid: token.fetched.fault
+        cause: token.resolution.cause
+        continuation: continuation
+
+  /* Formats a public instruction observation without reconstructing the pipeline record. */
+  method observed(token, pc :: Bits(xlen.width)) :: SuperscalarInstruction(xlen, hypervisor):
+    def retained :: SuperscalarResult(xlen, hypervisor) = token
+    retained.fetched.observed(hypervisor, pc, retained.fetch_fault())
+
+  /* Projects a live resolved lane onto the same retirement port used by service completions. */
+  method retirement(result) :: SuperscalarRetirementCommand(xlen, hypervisor):
+    SuperscalarRetirementCommand(xlen, hypervisor):
+      fetched: result.fetched
       rd: result.rd
+      write: result.write
+      result_ready: result.result_ready
+      branch:
+        SuperscalarRetirementBranch():
+          taken: result.branch.taken
+          update: result.branch.update
+          mispredicted: result.branch.mispredicted
       memory: result.memory
+      prefetch: result.prefetch
+      pause: result.pause
+      locality_hint: result.locality_hint
       address: result.address
-      store_data: result.operands.right
+      system: result.system
+      operands: result.operands
+      resolution: result.resolution
       fp: result.fp
-      vector: result.vector.operation
+      vector: result.vector
 
   /* Captures only a continuing split/maintenance/wait/vector-memory owner.
      The lane's existing successor tag avoids recoding or adding a PC adder. */
-  method service_owner(result, step :: SuperscalarPcStep(xlen)) :: SuperscalarServiceOwner(xlen, hypervisor):
+  method service_owner(result, pc :: Bits(xlen.width), fp_request :: SuperscalarFpRetirement(xlen)) :: SuperscalarServiceOwner(xlen, hypervisor):
     SuperscalarServiceOwner(xlen, hypervisor):
-      identity: result.fetched.identity()
+      identity: result.fetched.identity(pc)
       instruction: result.fetched.instruction
-      step: step
+      step: result.fetched.sequential_pc
       predicted: result.fetched.prediction.valid
-      target: result.fetched.prediction.target
+      target: result.fetched.prediction.target.expanded()
       predicted_compressed: result.fetched.prediction.compressed
       predicted_ras_action: result.fetched.prediction.ras_action
       speculated_ras_action: result.fetched.speculated_ras_action
@@ -579,8 +676,57 @@ bundle SuperscalarResult(xlen :: XLen, hypervisor :: Boolean):
       store_data: result.operands.right
       wait: result.system.wait
       fp: result.fp
-      fp_schedule: result.fp_request.tag
+      fp_schedule: fp_request.tag
       vector: result.vector
+
+/* Carries only resolved training decisions; comparison controls end at MEM. */
+bundle SuperscalarRetirementBranch():
+  taken: Bool
+  update: SuperscalarBranchDecision()
+  mispredicted: Bool
+
+/* Common retirement/CSR/observation projection. Execution controls, cache outcome,
+   guest-access routing and arithmetic launch ownership stay with the live pipeline. */
+bundle SuperscalarRetirementCommand(xlen :: XLen, hypervisor :: Boolean):
+  fetched: SuperscalarLaneInstruction(xlen, Bool)
+  rd: Bits(5)
+  write: Bool
+  result_ready: Bool
+  branch: SuperscalarRetirementBranch()
+  memory: SuperscalarMemoryControl()
+  prefetch: CachePrefetchOperation
+  pause: Bool
+  locality_hint: RiscvMemoryLocality
+  address: Bits(xlen.width)
+  system: SuperscalarSystemControl()
+  operands: SuperscalarLaneOperands(xlen)
+  resolution: SuperscalarResolution(xlen)
+  fp: SuperscalarFpControl()
+  vector: SuperscalarVectorLane()
+
+  /* Reports only successfully retired instructions; invalid fault payloads must not retain WB state. */
+  method retired_instruction(token, pc :: Bits(xlen.width)) :: SuperscalarInstruction(xlen, hypervisor):
+    def retained :: SuperscalarRetirementCommand(xlen, hypervisor) = token
+    retained.fetched.observed(hypervisor, pc, literal(SuperscalarFetchFault(xlen, hypervisor), 0))
+
+  /* Derives the architectural successor from the existing step or resolved branch address. */
+  method next_pc(token, pc :: Bits(xlen.width)) :: Bits(xlen.width):
+    mux(token.branch.taken, token.address, token.fetched.sequential_pc.apply(pc))
+
+  /* Project the instruction before a capture or from a live retirement slot. */
+  method boundary_instruction(result, pc :: Bits(xlen.width)) :: SuperscalarBoundaryInstruction(xlen):
+    SuperscalarBoundaryInstruction(xlen):
+      pc: pc
+      raw_instruction: result.fetched.raw()
+      next_pc: result.next_pc(pc)
+      fetch_fault: result.fetched.fault
+      rd: result.rd
+      memory: result.memory
+      address: result.address
+      store_data: result.operands.right
+      fp: result.fp
+      vector: result.vector.operation
+
 
 /* Owns accepted WB services, never a branch, CSR operation, or arithmetic launch.
    Faults and data arrive at completion; frontend observation metadata survives,
@@ -594,7 +740,7 @@ bundle SuperscalarServiceOwner(xlen :: XLen, hypervisor :: Boolean):
   predicted_compressed: Bool
   predicted_ras_action: RasAction
   speculated_ras_action: RasAction
-  direction: TournamentPrediction(10)
+  direction: SuperscalarDirectionCheckpoint()
   prediction_repair: Bool
   rd: Bits(5)
   write: Bool
@@ -607,52 +753,41 @@ bundle SuperscalarServiceOwner(xlen :: XLen, hypervisor :: Boolean):
   fp_schedule: SuperscalarFpSchedule()
   vector: SuperscalarVectorLane()
 
-  /* Rejoins the completed service with ordinary WB retirement and observation.
-     Inactive execution controls are zero; no service can relaunch those units. */
-  method completed(owner, data :: Bits(xlen.width), resolution :: SuperscalarSyncResolution(xlen)) :: SuperscalarResult(xlen, hypervisor):
-    def successor = owner.step.apply(owner.identity.pc)
-    def fetched = SuperscalarInstruction(xlen, hypervisor):
-      pc: owner.identity.pc
+  /* Supplies a completed service to retirement; inactive dispatch controls cannot relaunch work. */
+  method completed(owner, data :: Bits(xlen.width), resolution :: SuperscalarResolution(xlen)) :: SuperscalarRetirementCommand(xlen, hypervisor):
+    def fetched = SuperscalarLaneInstruction(xlen, Bool):
+      pc: owner.identity.pc[0..SuperscalarPcOffsetBits]
       instruction: owner.instruction
-      raw_instruction: owner.identity.raw_instruction
-      sequential_pc: successor
+      raw_instruction: owner.identity.raw_instruction[0..16]
+      sequential_pc: owner.step
       compressed_illegal: Bool(#false)
-      fault: literal(SuperscalarFetchFault(xlen, hypervisor), 0)
+      fault: Bool(#false)
       prediction:
-        BranchPrediction(xlen):
+        SuperscalarLanePrediction(xlen):
           valid: owner.predicted
-          pc: owner.identity.pc
-          target: owner.target
+          target: CompactPc.prediction(xlen, owner.target)
           compressed: owner.predicted_compressed
           ras_action: owner.predicted_ras_action
-
       speculated_ras_action: owner.speculated_ras_action
       direction: owner.direction
 
-    def inactive_update :: BranchUpdate(xlen) = literal(BranchUpdate(xlen), 0)
-    def update = inactive_update.updated(
-      ~pc: owner.identity.pc, ~return_address: successor,
-      ~compressed: owner.step.short_step, ~predicted_ras_action: owner.speculated_ras_action
-    )
-    def inactive_branch :: SuperscalarBranchResult(xlen) = literal(SuperscalarBranchResult(xlen), 0)
-    def inactive_system :: SuperscalarSystemControl() = literal(SuperscalarSystemControl(), 0)
-    def inactive_fp :: SuperscalarFpRetirement(xlen) = literal(SuperscalarFpRetirement(xlen), 0)
-    def inactive_result :: SuperscalarResult(xlen, hypervisor) = literal(SuperscalarResult(xlen, hypervisor), 0)
-    inactive_result.updated(
-      ~fetched: fetched, ~rd: owner.rd, ~write: owner.write, ~data: data, ~result_ready: Bool(#true),
-      ~branch: inactive_branch.updated(~update: update, ~mispredicted: owner.prediction_repair),
-      ~memory: owner.memory, ~guest_access: owner.guest_access, ~address: owner.address,
-      ~operands: inactive_result.operands.updated(~right: owner.store_data),
-      ~system: inactive_system.updated(~wait: owner.wait), ~resolution: resolution,
-      ~fp: owner.fp, ~fp_request: inactive_fp.updated(~tag: owner.fp_schedule, ~destination: owner.fp.bits.registers.destination),
-      ~vector: owner.vector
+    def inactive :: SuperscalarRetirementCommand(xlen, hypervisor) = literal(SuperscalarRetirementCommand(xlen, hypervisor), 0)
+    def update = inactive.branch.update.updated(~compressed: owner.step.short_step, ~predicted_ras_action: owner.speculated_ras_action)
+    def branch = inactive.branch.updated(~mispredicted: owner.prediction_repair, ~update: update)
+    inactive.updated(
+      ~fetched: fetched, ~rd: owner.rd, ~write: owner.write, ~resolution: resolution.with_result(data), ~result_ready: Bool(#true),
+      ~branch: branch,
+      ~memory: owner.memory, ~address: owner.address,
+      ~operands: inactive.operands.updated(~right: owner.store_data),
+      ~system: inactive.system.updated(~wait: owner.wait), ~fp: owner.fp, ~vector: owner.vector
     )
 
 /* The instruction fields sampled by the passive WB observer. Only identity
    is needed by the trap datapath; the remaining fields need no physical
    storage in a build without that observer. */
 bundle SuperscalarBoundaryInstruction(xlen :: XLen):
-  identity: SuperscalarInstructionIdentity(xlen)
+  pc: Bits(xlen.width)
+  raw_instruction: Bits(32)
   next_pc: Bits(xlen.width)
   fetch_fault: Bool
   rd: Bits(5)
@@ -667,7 +802,7 @@ bundle SuperscalarBoundaryInstruction(xlen :: XLen):
 bundle SuperscalarPendingTrap(xlen :: XLen, hypervisor :: Boolean):
   interrupt: Bool
   instruction: SuperscalarBoundaryInstruction(xlen)
-  cause: Bits(SuperscalarCauseWidth)
+  cause: ExceptionCause
   value: Bits(xlen.width)
   if hypervisor:
     guest: RiscvGuestFault()
@@ -680,8 +815,8 @@ bundle SuperscalarFetchRepair(xlen :: XLen):
   history: Bits(10)
 
 /* Appends a conditional outcome while leaving nonbranch history checkpoints unchanged. */
-fun superscalar_history_after(prediction :: TournamentPrediction(10), taken :: Bool) :~ Bits(10):
-  mux(prediction.valid, prediction.history[0..9] ++ taken.as_bits(), prediction.history)
+fun superscalar_history_after(history :: Bits(10), valid :: Bool, taken :: Bool) :~ Bits(10):
+  mux(valid, history[0..9] ++ taken.as_bits(), history)
 
 /* Carries exact byte addresses and XLEN beats; VA uses XLEN, while PA width is independent. */
 bundle SuperscalarMemoryReq(xlen :: XLen, address_width :: PosInt):
@@ -763,36 +898,14 @@ bundle SuperscalarCompletion(xlen :: XLen):
   write: Bool
   data: Bits(xlen.width)
 
-  /* Narrows a successfully authorized result before its committed transport stages. */
-  method compact(completion, width :: PosInt) :: SuperscalarCompactCompletion(xlen, width):
-    def source :: SuperscalarCompletion(xlen) = completion
-    SuperscalarCompactCompletion(xlen, width):
-      identity: source.identity.compact(width)
-      rd: completion.rd
-      write: completion.write
-      data: completion.data
-
-/* Stores a committed completion without redundant sign bits in its independent PC. */
-bundle SuperscalarCompactCompletion(xlen :: XLen, width :: PosInt):
-  identity: SuperscalarCompactIdentity(xlen, width)
-  rd: Bits(5)
-  write: Bool
-  data: Bits(xlen.width)
-
-  /* Restores the public completion used by forwarding, writeback, and trace consumers. */
-  method expanded(completion) :: SuperscalarCompletion(xlen):
-    def retained :: SuperscalarCompactCompletion(xlen, width) = completion
-    SuperscalarCompletion(xlen):
-      identity: retained.identity.expanded()
-      rd: completion.rd
-      write: completion.write
-      data: completion.data
-
-/* Reports MEM branch recovery or the older WB fault/replay override; Continue is not retirement. */
+/* Reports MEM branch recovery or the older WB fault/replay override; Continue is not retirement.
+   trap_cause is the architectural trap image; resolution.cause describes only synchronous faults. */
 bundle SuperscalarRedirect(xlen :: XLen):
   pc: Bits(xlen.width)
   target: Bits(xlen.width)
   resolution: SuperscalarResolution(xlen)
+  interrupt: Bool
+  trap_cause: Bits(xlen.width)
 
 /* Describes a youngest-older operand match, including results not yet usable. */
 bundle SuperscalarOperand(xlen :: XLen):
@@ -809,7 +922,6 @@ export:
   superscalar_fp_request
   superscalar_physical_request
   SuperscalarFpOwner
-  SuperscalarCompactFpOwner
   SuperscalarFpLoad
   SuperscalarTranslationState
   SuperscalarInstructionTranslation
@@ -818,11 +930,10 @@ export:
   SuperscalarUncachedInstruction
   SuperscalarFetchFault
   SuperscalarFetchBlockFault
-  SuperscalarFetchFaultKind
-  fetch_fault_kind
   SuperscalarPcStep
   encode_pc_step
   SuperscalarInstruction
+  SuperscalarInstructionOutcome
   superscalar_raw_instruction
   SuperscalarDirectionCheckpoint
   SuperscalarPacket
@@ -830,11 +941,13 @@ export:
   SuperscalarHistoryCommit
   SuperscalarDisposition
   SuperscalarResolution
-  SuperscalarSyncResolution
-  SuperscalarCauseWidth
-  SuperscalarExecute
   SuperscalarLaneOperands
   SuperscalarResult
+  SuperscalarRetirementCommand
+  SuperscalarBranchDecision
+  SuperscalarPcOffsetBits
+  SuperscalarLaneInstruction
+  SuperscalarLanePrediction
   SuperscalarServiceOwner
   SuperscalarPendingTrap
   SuperscalarBoundaryInstruction
@@ -848,9 +961,7 @@ export:
   SuperscalarMemory
   SuperscalarRetirement
   SuperscalarCompletion
-  SuperscalarCompactCompletion
   SuperscalarInstructionIdentity
-  SuperscalarCompactIdentity
   SuperscalarRedirect
   SuperscalarFetchRepair
   SuperscalarOperand

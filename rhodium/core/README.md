@@ -337,7 +337,9 @@ cast(A: packable, B: same packed width)     -> B
 onehot_mux(Bits(n), n values of T)          -> T: packable DataType
 concat(Bits(a), Bits(b), ...)               -> Bits(a + b + ...)
 extract(Bits(w), high, low)                 -> Bits(high - low + 1)
-sext(S: SignedArithmeticType, wider width)  -> S.with_bit_width(wider width)
+zext(Bits(w), width >= w)                  -> Bits(width)
+sext(Bits(w), width >= w)                  -> Bits(width)
+sext(S: SignedArithmeticType, width >= w)  -> S.with_bit_width(width)
 memory(depth, T: DataType)                  -> Memory<T>
 memory_read_async(Memory<T>, address)       -> T
 memory_write(Memory<T>, address, T,
@@ -351,6 +353,12 @@ dpi_call(procedure, Clock, enable, args...) -> void
 dpi_register(function, Clock, enable,
              args...)                       -> one or more flat result types
 ```
+
+Builder `zext` and `sext` reject narrowing and return the original value at
+equal width, without creating or naming a new operation. Actual `rtl.zext`
+and `rtl.sext` operations therefore always widen. Sign extension replicates
+the source's top bit; a `Bits` source remains `Bits`, while a signed scalar
+preserves its nominal signed type family.
 
 ### Selection and partial values
 

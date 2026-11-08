@@ -1,0 +1,43 @@
+#lang rhodium
+/* Classifies rejected instruction targets in the architectural context after redirect retirement. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/isa/csr.rhm") open
+  lib("riscv/isa/sv39.rhm").Sv39Mode
+  lib("riscv/rtl/csr.rhdl") open
+  lib("riscv/rtl/privilege.rhdl") open
+  lib("riscv/rtl/hypervisor.rhdl") open
+  lib("riscv/rtl/trap.rhdl").ExceptionCause
+
+/* Reports a target fault without retaining a second copy of its address. */
+bundle RejectedFetch():
+  cause: ExceptionCause
+  guest: RiscvGuestFault()
+
+/* The caller has rejected a nonrepresentable target and retains its exact PC.
+   Read post-retirement privilege and translation state, especially after xRET.
+   VS canonicality precedes G-stage input-width checks; Bare rejects the unsupported
+   instruction address as an access fault without issuing a memory request. */
+fun rejected_fetch(xlen :: XLen, address :: Bits(xlen.width), privilege :: PrivilegeMode, satp :: Bits(xlen.width), guest :: RiscvHypervisorTranslation()) :~ RejectedFetch():
+  def paged:
+    if xlen == XLen.X64
+    | mux(guest.virtualized, csr_field(guest.vsatp, Satp64Mode) === Bits(4)(Sv39Mode), (privilege =/= PrivilegeMode.Machine) & (csr_field(satp, Satp64Mode) === Bits(4)(Sv39Mode)))
+    | Bool(#false)
+
+  def physical = address.zext(64)
+  def guest_page = guest.virtualized & !paged & (csr_field(guest.hgatp, Hgatp64Mode) === Bits(4)(Sv39Mode)) & !sv39x4_address_valid(physical)
+  RejectedFetch():
+    cause:
+      priority_mux(~default: ExceptionCause.InstructionAccessFault):
+        paged: ExceptionCause.InstructionPageFault
+        guest_page: ExceptionCause.InstructionGuestPageFault
+
+    guest:
+      RiscvGuestFault():
+        guest_virtual_address: guest.virtualized
+        guest_physical_address: mux(guest_page, physical, Bits(64)(0))
+        access: RiscvGuestFaultAccess.Explicit
+
+export RejectedFetch rejected_fetch

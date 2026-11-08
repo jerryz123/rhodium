@@ -1,6 +1,7 @@
 #lang rhodium
 // SPDX-License-Identifier: Apache-2.0
 import:
+  lib("riscv/rtl/trap.rhdl").ExceptionCause
   "../pipeline.rhdl" open
   "../bundles.rhdl" open
   "../muldiv.rhdl" open
@@ -83,7 +84,7 @@ sync_circuit VectorMultiplyFixture(xlen :: XLen):
      disposition: mux(retry, VectorDisposition.Retry, VectorDisposition.Authorized)
      slow: slow & token.enabled
      data: hit_data
-     cause: Bits(xlen.width)(0)
+     cause: dont_care(ExceptionCause)
      fault_address: Bits(xlen.width)(0)
   ) |> vector.decision
   response |> vector.completion

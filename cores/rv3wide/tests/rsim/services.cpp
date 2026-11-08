@@ -362,5 +362,17 @@ int main() {
       CHECK(gprs[26] == (service == 0 ? 91 : service == 1 ? 1764 : service == 2 ? 84 : 7));
     }
     CHECK(triples >= 15);
+
+    // With an empty pipeline an interrupt must resume after the youngest retirement,
+    // even when only the third instruction crossed into the next canonical page.
+    send({0x30446073}); drain(); // csrsi mie,8 (MSIE)
+    send({0x30046073}); drain(); // csrsi mstatus,8 (MIE)
+    pc = UINT64_C(0xffffffff8000fff8);
+    const auto group = send({addi(20, 0, 1), addi(21, 0, 2), addi(22, 0, 3)});
+    drain();
+    CHECK(lanes.at(group + 8) == 2);
+    interrupts.pmachine_usoftware = 1; drain();
+    CHECK(redirect_pc == group + 12);
+    interrupts.pmachine_usoftware = 0;
   });
 }

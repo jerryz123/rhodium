@@ -1,13 +1,29 @@
 #lang rhombus
 // SPDX-License-Identifier: Apache-2.0
 import:
-  "../pc.rhdl".CompactPc
+  "../pc.rhdl" open
   lib("riscv/isa/xlen.rhm").XLen
+  lib("rhodium/std/interconnect.rhdl").AddressSet
+  lib("cores/chi-hart.rhdl") open
+  lib("riscv/rtl/pma.rhdl") open
+  "../rv5stage/tests/params.rhdl" open
 
-for (xlen in [XLen.X32, XLen.X64]):
-  for (width in 1..(xlen.width + 1)):
-    check: CompactPc(xlen, width).packed_width() ~is width
+check:
+  CompactPc(XLen.X32).packed_width() ~is 32
+  CompactPc(XLen.X64).packed_width() ~is 39
+  compact_pc_width(XLen.X32) ~is 32
+  compact_pc_width(XLen.X64) ~is 39
 
-  check:
-    CompactPc(xlen, 0) ~throws "PosInt"
-    CompactPc(xlen, xlen.width + 1) ~throws "must not exceed XLEN"
+fun physical_map(base, mask, executable):
+  RiscvHartCHIConfig(test_rv5stage_flit, 64, [RiscvHartCHIRegion(
+    RiscvPhysicalMemoryRegion(AddressSet(base, mask), RiscvPhysicalMemoryAttributes(#true, #true, executable, #true, #true, #false, #true)),
+    test_rv5stage_home
+  )])
+
+check:
+  physical_map(2 ** 38 - 64, 63, #true).check_compact_fetch(XLen.X64) ~is #void
+  physical_map(2 ** 32 - 64, 63, #true).check_compact_fetch(XLen.X32) ~is #void
+  physical_map(2 ** 38, 63, #true).check_compact_fetch(XLen.X64) ~throws "executable physical addresses"
+  physical_map(0, 2 ** 38 + 63, #true).check_compact_fetch(XLen.X64) ~throws "executable physical addresses"
+  physical_map(2 ** 32, 63, #true).check_compact_fetch(XLen.X32) ~throws "executable physical addresses"
+  physical_map(2 ** 43, 63, #false).check_compact_fetch(XLen.X64) ~is #void

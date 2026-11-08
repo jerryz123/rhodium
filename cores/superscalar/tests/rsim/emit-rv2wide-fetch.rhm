@@ -2,6 +2,7 @@
 // Compiles the production fetching core with its matching event descriptor.
 // SPDX-License-Identifier: Apache-2.0
 import:
+  "../hart-fixture.rhdl".HartFixture
   "../../profile.rhm".SuperscalarPipelineConfig
   lib("rhodium/event/tests/rsim/trace-sites.rhm").traced_target
   lib("rhodium/frontend/foundation.rhm").elaborate
@@ -12,7 +13,7 @@ import:
   "../cache-fixture.rhdl" open
 
 def profile = RV2WideConfig(SuperscalarPipelineConfig(~instruction_cache: test_cache, ~data_cache: test_cache, ~compressed: compressed_extensions(CompressedExtension.C, CompressedExtension.Zcb, CompressedExtension.Zcmop), ~zicbop: #true, ~zawrs: #true, ~zihintntl: #true, ~zihintpause: #true, ~svpbmt: #true, ~svinval: #true))
-def program = elaborate(RV2Wide(test_cache, ~chi: test_fetch_chi, ~profile: profile))
+def program = elaborate(HartFixture(RV2Wide(test_cache, ~chi: test_fetch_chi, ~profile: profile), test_fetch_chi, profile.pipeline))
 
 fun site_header(manifest):
   "\nnamespace superscalar_fetch_sites {\n" ++ String.join(

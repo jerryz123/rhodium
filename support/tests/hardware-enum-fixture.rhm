@@ -1,0 +1,25 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../hardware-enum.rhm".hardware_enum
+
+hardware_enum Command:
+  Idle = 0
+  Load = 8
+  Store = 3
+
+hardware_enum Other:
+  Idle = 0
+  Load = 8
+  Store = 3
+
+hardware_enum Priority(~encoding: one_hot):
+  First
+  Second
+  Third
+
+hardware_enum State(~width: 5):
+  Off
+  On
+
+export Command Other Priority State

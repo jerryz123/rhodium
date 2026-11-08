@@ -9,10 +9,10 @@ import:
   lib("riscv/isa/fp-profile.rhm") open
   lib("cores/fp/timing.rhdl") open
   "../../profile.rhm" open
-  "../../core.rhdl" open
+  "../core-fixture.rhdl" open
 
-def program = elaborate(SuperscalarCore(SuperscalarPipelineConfig(~floating_point: FloatingPointProfile.D, ~half_precision: HalfPrecisionProfile.Zfhmin, ~zfa: #true, ~zihintntl: #true), ~fp_timing: FpExecutionTiming(3, 5, 3), ~instruction_pc_width: 45, ~issue: RV2WideIssue(XLen.X64)))
-def rv32_program = elaborate(SuperscalarCore(SuperscalarPipelineConfig(~xlen: XLen.X32, ~floating_point: FloatingPointProfile.F, ~zihintntl: #true), ~fp_timing: FpExecutionTiming(3, 5, 3), ~issue: RV2WideIssue(XLen.X32)))
+def program = elaborate(CoreFixture(SuperscalarPipelineConfig(~floating_point: FloatingPointProfile.D, ~half_precision: HalfPrecisionProfile.Zfhmin, ~zfa: #true, ~zihintntl: #true), ~fp_timing: FpExecutionTiming(3, 5, 3)))
+def rv32_program = elaborate(CoreFixture(SuperscalarPipelineConfig(~xlen: XLen.X32, ~floating_point: FloatingPointProfile.F, ~zihintntl: #true), ~fp_timing: FpExecutionTiming(3, 5, 3)))
 export:
   program
   rv32_program

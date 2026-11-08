@@ -318,7 +318,7 @@ void step() {
           redirect_out.pbits.ptarget, redirect_out.pbits.presolution.pdisposition});
       const bool interrupt = interrupt_after_admission &&
           redirect_out.pbits.presolution.pdisposition == 3 &&
-          (redirect_out.pbits.presolution.pcause >> (bytes * 8 - 1));
+          redirect_out.pbits.pinterrupt;
       if (redirect_out.pbits.presolution.pdisposition == 2)
         replay_pc = redirect_out.pbits.ptarget;
       if (redirect_out.pbits.presolution.pdisposition == 2 ||
@@ -329,7 +329,7 @@ void step() {
           CHECK(retired_pcs.contains(authorization_owner) && responses.empty());
         }
         ++fault_count;
-        last_cause = redirect_out.pbits.presolution.pcause;
+        last_cause = redirect_out.pbits.ptrap_ucause;
         last_tval = redirect_out.pbits.presolution.pvalue;
         last_fault_pc = redirect_out.pbits.ppc;
       }
@@ -449,7 +449,7 @@ void stream(const std::vector<std::uint32_t> &program, bool fault = false,
       entry.psequential_upc = entry.ppc + 4;
       entry.pinstruction = entry.praw_uinstruction = program[sent + lane];
       if (static_cast<int>(sent + lane) == fetch_fault_index)
-        entry.pfault = {.pkind = 2};
+        entry.pfault = {.pvalid = 1, .pcause = 1};
     }
     settle();
     const bool accepted = instructions_in.pvalid && instructions_out.pready;
@@ -1965,9 +1965,10 @@ void fetch_fault_roundtrip(unsigned cause, bool valid = true,
   const bool continuation = cause == 12 || cause == 20;
   const auto fault_address = pc_t(pc + (continuation ? 2 : 0));
   constexpr std::uint64_t gpa = UINT64_C(0x123400006789000);
-  entry.pfault.pkind = valid ? fetch_kind(cause) : 0;
+  entry.pfault.pvalid = valid;
+  entry.pfault.pcause = cause & 31;
   entry.pfault.pcontinuation = continuation;
-  set_fetch_guest(entry.pfault, true, gpa, 1); // Ignored when the kind is None.
+  set_fetch_guest(entry.pfault, true, gpa, 1); // Ignored when the fault is absent.
   bool saw_mem = false, saw_retire = false;
   for (unsigned wait = 0; valid ? fault_count == faults : !saw_retire; ++wait) {
     CHECK(wait < 100);
@@ -1978,8 +1979,8 @@ void fetch_fault_roundtrip(unsigned cause, bool valid = true,
       const auto &f = token.pfault;
       CHECK(token.psequential_upc == successor && token.pprediction.ppc == pc &&
             !token.pprediction.pvalid && token.pprediction.ptarget == 0 &&
-            token.praw_uinstruction == entry.praw_uinstruction && (f.pkind != 0) == valid);
-      CHECK(f.pkind == (valid ? fetch_kind(cause) : 0) && f.pcontinuation == (valid && continuation));
+            token.praw_uinstruction == entry.praw_uinstruction && f.pvalid == valid);
+      CHECK(f.pcause == (valid ? cause : 0) && f.pcontinuation == (valid && continuation));
       const bool guest = valid && bytes == 8;
       CHECK(fetch_guest_is(f, guest, guest ? gpa : 0, guest));
       saw_mem = true;
@@ -1989,11 +1990,18 @@ void fetch_fault_roundtrip(unsigned cause, bool valid = true,
       const auto &fetched = retired_0_out.pbits.pfetched;
       CHECK(fetched.psequential_upc == successor && fetched.pprediction.ppc == pc &&
             !fetched.pprediction.pvalid && fetched.pprediction.ptarget == 0);
-      CHECK(!valid && !f.pkind && !f.pcontinuation && fetch_guest_is(f, false, 0, 0));
+      CHECK(!valid && !f.pvalid && !f.pcause && !f.pcontinuation && fetch_guest_is(f, false, 0, 0));
       saw_retire = true;
     }
     step();
     if (accepted) instructions_in.pvalid = 0;
+  }
+  if (valid && (!saw_mem || last_fault_pc != pc || last_cause != cause || last_tval != fault_address)) {
+    std::cerr << "fetch fault roundtrip: pc=" << std::hex << pc
+              << " observed_pc=" << last_fault_pc << " tval=" << last_tval
+              << " expected_tval=" << fault_address << std::dec
+              << " cause=" << last_cause << " expected_cause=" << cause
+              << " saw_mem=" << saw_mem << '\n';
   }
   CHECK(saw_mem && (valid ? (last_fault_pc == pc && last_cause == cause && last_tval == fault_address)
                           : (saw_retire && fault_count == faults)));
@@ -2005,10 +2013,13 @@ void fetch_fault_roundtrip(unsigned cause, bool valid = true,
 }
 
 void successor_carry_boundaries() {
-  // Exercise each possible end of the changed run. Faults let us reuse PCs
-  // without retiring the same address twice in the fixture's instruction stream.
+  // Exercise independent PC carry positions, including the positive Sv39
+  // boundary. Higher RV64 PC bits are sign extension, not frontend storage;
+  // arbitrary noncanonical redirect targets are rejected in the backend.
+  // Faults let us reuse PCs without retiring an address twice in this stream.
+  constexpr unsigned carry_bits = bytes == 4 ? 32 : 39;
   for (unsigned length : {2u, 4u}) {
-    for (unsigned bit = length == 2 ? 1 : 2; bit < bytes * 8; ++bit) {
+    for (unsigned bit = length == 2 ? 1 : 2; bit < carry_bits; ++bit) {
       const auto boundary = UINT64_C(1) << bit;
       fetch_fault_roundtrip(1, true, boundary - length, length);
     }

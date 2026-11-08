@@ -4,61 +4,25 @@
 
 import:
   rhombus/meta open
-  "../../../support/annotations.rhm" open
   "../../core/ir.rhm" open
-  "../kernel.rhm" as kernel
   "../support/fields.rhm".HardwareFields
   "../support/fields.rhm".hardware_value_type
   "../support/generator-parameters.rhm".GeneratorParameter
   "../support/hardware-methods.rhm" open
   "../support/one-hot-selection.rhm" as one_hot_selection
-  "../support/variants.rhm" open
+  "../../../support/variants.rhm" open
+  "../../../support/hardware-enum.rhm" open
 
 export:
   hardware_enum
+  hardware_enum_definition
+  HardwareEnumFields
   enum_type
   enum_width
   enum_members
   enum_names
   enum_values
   enum_encoding
-
-/* Constructs a fresh nominal enum with declaration-order integer encodings and optional fixed width. */
-fun make_automatic_enum(name :: AsciiIdentifier,
-                        member_names :: NonemptyList.of(AsciiIdentifier),
-                        requested_width :: maybe(PosInt) = #false):
-  enum_type_from_schema(
-    make_automatic_variant_schema(
-      name,
-      VariantIdentity(),
-      member_names.map(fun (member_name): [member_name, #false]),
-      requested_width
-    )
-  )
-
-/* Constructs a fresh nominal enum with validated author-supplied integer encodings. */
-fun make_explicit_enum(name :: AsciiIdentifier,
-                       members :: NonemptyList.of(List),
-                       requested_width :: maybe(PosInt) = #false):
-  enum_type_from_schema(
-    make_explicit_variant_schema(
-      name,
-      VariantIdentity(),
-      members.map(fun (member): [member[0], member[1], #false]),
-      requested_width
-    )
-  )
-
-/* Constructs a fresh nominal enum with one selector bit per member. */
-fun make_one_hot_enum(name :: AsciiIdentifier,
-                      member_names :: NonemptyList.of(AsciiIdentifier)):
-  enum_type_from_schema(
-    make_one_hot_variant_schema(
-      name,
-      VariantIdentity(),
-      member_names.map(fun (member_name): [member_name, #false])
-    )
-  )
 
 /* Checks whether a hardware value carries a nominal one-hot enum descriptor. */
 fun hardware_has_one_hot_enum_type(value :: HardwareEntity):
@@ -108,6 +72,10 @@ annot.macro
     'HardwareFields.of($type) && OneHotEnumValue'
 | 'EnumHardwareFields($type, ordinary)':
     'HardwareFields.of($type)'
+
+/* Supplies the hardware value surface for a host-declared enum in this lexical profile. */
+annot.macro 'HardwareEnumFields($type, $kind)':
+  'EnumHardwareFields($type, $kind)'
 
 annot.macro 'EnumMembers':
   annot_meta.pack_predicate(
@@ -276,7 +244,7 @@ meta:
        »'
 
 defn.macro
-| 'hardware_enum $(name :: Identifier): $clause; ...':
+| 'hardware_enum_definition $(name :: Identifier): $clause; ...':
     expand_hardware_enum(name, [], [clause, ...])
-| 'hardware_enum $(name :: Identifier)($option, ...): $clause; ...':
+| 'hardware_enum_definition $(name :: Identifier)($option, ...): $clause; ...':
     expand_hardware_enum(name, [option, ...], [clause, ...])

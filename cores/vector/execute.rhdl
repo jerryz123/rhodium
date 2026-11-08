@@ -197,7 +197,7 @@ circuit VectorExecute(xlen :: XLen, vlen :: VectorLength, ~packed_multiply: pack
   def scalar_value = mux(any_scalar_destination, beat.left, beat.right)
   def scalar_extensions = for List (format in 0..(vector_format_count(xlen) - 1)):
     def width = 8 << format
-    [SimdElementWidth.values()[format], scalar_value[0..width].into(SInt(width)).sext(xlen.width).into(Bits(xlen.width))]
+    [SimdElementWidth.values()[format], scalar_value[0..width].sext(xlen.width)]
 
   def extended_scalar = mux_lookup(beat.element_width, ~default: scalar_value, scalar_extensions)
   def reduction_data = mux(beat.control.floating_point, beat.right, reduced)

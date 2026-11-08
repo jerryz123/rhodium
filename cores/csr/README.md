@@ -38,6 +38,8 @@ core's interrupt boundary + next PC ------------> interrupt entry
   `commit.valid`. It reports a candidate synchronous fault without changing
   state. A caller may inspect it, retain a denied read while older work drains,
   and authorize trap entry later using the retained exception context.
+  Both `commit.bits.exception_cause` and `command_fault.cause` use the shared
+  `ExceptionCause` hardware enum from `riscv/rtl/trap.rhdl`.
 - `retire_count: Bits(2)` independently counts zero through three architectural
   retirements in `minstret` and the optional retirement HPM event. Ordinary instructions need not send
   commands. Command success does not itself increment counters. Counter CSR
@@ -50,7 +52,9 @@ core's interrupt boundary + next PC ------------> interrupt entry
   and live translation context are outputs. Draining older work, squashing
   younger work, cache/TLB invalidation, and resumption remain core policy.
   `trap_event: RiscvTrapDecision` exposes the selected synchronous or interrupt
-  cause, value, and destination privilege on the trap-entry edge.
+  cause, value, and destination privilege on the trap-entry edge. Its cause is
+  the architectural XLEN-wide image, including the high interrupt bit; it is
+  not a synchronous exception enum.
 - FP/vector completion inputs update flags/status and vector progress. Drain
   outstanding updates before changing the host/guest context owning them.
 

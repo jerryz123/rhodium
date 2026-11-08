@@ -8,9 +8,9 @@ import:
   lib("rhodium/backend/rsim-target.rhm").rsim_target
   lib("rhodium/statistics/pass.rhm").statistics_pass
   lib("rhodium/frontend/foundation.rhm").elaborate
-  "../../core.rhdl" open
+  "../core-fixture.rhdl" open
   "../../profile.rhm".SuperscalarPipelineConfig
 
-def program = elaborate(SuperscalarCore(SuperscalarPipelineConfig(~zicboz: #true, ~zicbom: #true, ~zicbop: #true, ~zawrs: #true, ~zihintntl: #true, ~zihintpause: #true, ~sstc: #true, ~svinval: #true, ~ssnpm: #true, ~supm: #true, ~sscofpmf: #true, ~smstateen: #true, ~hypervisor: #true), ~instruction_pc_width: 45, ~issue: RV2WideIssue(XLen.X64)))
+def program = elaborate(CoreFixture(SuperscalarPipelineConfig(~zicboz: #true, ~zicbom: #true, ~zicbop: #true, ~zawrs: #true, ~zihintntl: #true, ~zihintpause: #true, ~sstc: #true, ~svinval: #true, ~ssnpm: #true, ~supm: #true, ~sscofpmf: #true, ~smstateen: #true, ~hypervisor: #true)))
 def target = rtl_pipeline_target(rsim_target, [statistics_pass()])
 export program target

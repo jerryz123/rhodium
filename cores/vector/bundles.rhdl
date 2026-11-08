@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/rtl/trap.rhdl").ExceptionCause
   lib("cores/mmu/vector.rhdl") open
   lib("cores/vector-layout.rhm") open
   lib("rhodium/std/bits.rhdl").Pow2Int
@@ -207,7 +208,7 @@ bundle VectorCommit(xlen :: XLen, vector_completion_slots :: Pow2Int):
   disposition: VectorDisposition
   slow: Bool
   data: Bits(xlen.width)
-  cause: Bits(xlen.width)
+  cause: ExceptionCause
   fault_address: Bits(xlen.width)
 
 /* Returns delayed LSU data by persistent completion slot, not current sequencing identity. */
@@ -232,7 +233,7 @@ bundle VectorFeedback(xlen :: XLen, vlen :: VectorLength, Context :: DataType):
   first: Bits(index_width(vlen + 1))
   end: Bits(index_width(vlen + 1))
   disposition: VectorDisposition
-  cause: Bits(xlen.width)
+  cause: ExceptionCause
   fault_address: Bits(xlen.width)
   last: Bool
   compress_state: VectorCompressState(xlen, vlen)

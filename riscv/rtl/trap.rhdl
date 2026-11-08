@@ -7,26 +7,28 @@ import:
   "../isa/xlen.rhm" open
   "privilege.rhdl" open
 
-/* Carries exception validity, cause, trap value, and the selected trap privilege. */
+/* Carries a synchronous exception before interrupt arbitration and CSR encoding. */
+bundle RiscvExceptionDecision(xlen :: XLen):
+  valid: Bool
+  cause: ExceptionCause
+  value: Bits(xlen.width)
+  target: RiscvTrapTarget
+
+/* Carries the architectural cause image after exception/interrupt arbitration. */
 bundle RiscvTrapDecision(xlen :: XLen):
   valid: Bool
   cause: Bits(xlen.width)
   value: Bits(xlen.width)
   target: RiscvTrapTarget
 
-/* Materializes an architectural synchronous cause number at the supplied width. */
-fun exception_cause_bits(cause :: ExceptionCause,
-                         width :: PosInt) :~ Bits(width):
-  Bits(width)(exception_code(cause))
-
 /* Encodes a data access fault, prioritizing guest-page over page faults.
    The caller qualifies these flags and retains fault validity, address, and retirement order. */
-fun data_fault_cause(xlen :: XLen, store :: Bool,
+fun data_fault_cause(store :: Bool,
                      ~page_fault: page_fault :: Bool,
-                     ~guest_page_fault: guest_page_fault :: Bool) :~ Bits(xlen.width):
-  def access = mux(store, exception_cause_bits(ExceptionCause.StoreAccessFault, xlen.width), exception_cause_bits(ExceptionCause.LoadAccessFault, xlen.width))
-  def page = mux(store, exception_cause_bits(ExceptionCause.StorePageFault, xlen.width), exception_cause_bits(ExceptionCause.LoadPageFault, xlen.width))
-  def guest = mux(store, exception_cause_bits(ExceptionCause.StoreGuestPageFault, xlen.width), exception_cause_bits(ExceptionCause.LoadGuestPageFault, xlen.width))
+                     ~guest_page_fault: guest_page_fault :: Bool) :~ ExceptionCause:
+  def access = mux(store, ExceptionCause.StoreAccessFault, ExceptionCause.LoadAccessFault)
+  def page = mux(store, ExceptionCause.StorePageFault, ExceptionCause.LoadPageFault)
+  def guest = mux(store, ExceptionCause.StoreGuestPageFault, ExceptionCause.LoadGuestPageFault)
   priority_mux(~default: access):
     guest_page_fault: guest
     page_fault: page
@@ -34,13 +36,13 @@ fun data_fault_cause(xlen :: XLen, store :: Bool,
 /* Prioritizes explicit exceptions over generated exceptions and applies supported medeleg routing below Machine mode. */
 fun resolve_riscv_trap(xlen :: XLen,
                        explicit_valid :: Bool,
-                       explicit_cause :: Bits(xlen.width),
+                       explicit_cause :: ExceptionCause,
                        explicit_value :: Bits(xlen.width),
                        generated_valid :: Bool,
-                       generated_cause :: Bits(xlen.width),
+                       generated_cause :: ExceptionCause,
                        generated_value :: Bits(xlen.width),
                        privilege :: PrivilegeMode,
-                       medeleg :: Bits(xlen.width)) :~ RiscvTrapDecision(xlen):
+                       medeleg :: Bits(xlen.width)) :~ RiscvExceptionDecision(xlen):
   def valid = explicit_valid ||| generated_valid
   def cause = mux(explicit_valid, explicit_cause, generated_cause)
   def delegated = mux_lookup(
@@ -49,18 +51,19 @@ fun resolve_riscv_trap(xlen :: XLen,
     DelegatableExceptionCauses.map(
       fun (candidate):
         def code = exception_code(candidate)
-        [code, medeleg[code].into(Bool)]
+        [candidate, medeleg[code].into(Bool)]
     )
   )
 
-  RiscvTrapDecision(xlen):
+  RiscvExceptionDecision(xlen):
     valid: valid
     cause: cause
     value: mux(explicit_valid, explicit_value, generated_value)
     target: mux(valid & (privilege =/= PrivilegeMode.Machine) & delegated, RiscvTrapTarget.Supervisor, RiscvTrapTarget.Machine)
 
 export:
+  ExceptionCause
+  RiscvExceptionDecision
   RiscvTrapDecision
-  exception_cause_bits
   data_fault_cause
   resolve_riscv_trap

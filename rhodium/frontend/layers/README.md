@@ -420,7 +420,9 @@ constant amounts may be nonnegative host `Int` values. Mixed widths and mixed
 `Bits`/`SInt` arithmetic are rejected rather than coerced.
 
 `value.sext(target_width)` explicitly sign-extends and preserves the receiver's
-signed arithmetic type family. `strunc(value, target_width)` explicitly retains
+signed arithmetic type family (or `Bits` for a `Bits` receiver). An equal target
+width returns the original value; a smaller width is rejected.
+`strunc(value, target_width)` explicitly retains
 the low bits and returns the same signed type at the narrower width. Equal-width
 representation changes between `Bits` and `SInt` continue to use `cast` or
 `.into`. Signed expanding multiplication uses `*&`; expanding signed addition,
@@ -441,6 +443,14 @@ Hardware enums are nominal `ScalarDataType`s without arithmetic or bitwise
 capability. Automatic encodings use declaration order and the minimum positive
 width. Explicit encodings require a stable width, unique names and values, and
 all-or-none explicit values.
+
+The same `hardware_enum` is available to pure host modules from
+[`support/hardware-enum.rhm`](../../../support/hardware-enum.rhm). Its descriptors
+and member constants require no elaboration and retain the same identity when
+imported into RTL. Host code can enumerate members, inspect `.packed_value()`,
+and use nominal equality or map/set keys. No host-to-hardware enum conversion is
+needed. In host code an enum annotation accepts its member constants; in the
+Rhodium profile it also accepts live values of that type.
 
 An enum may own multiple hardware methods:
 
@@ -553,8 +563,9 @@ def read = request.view(Request.Read)
 `value.tag` returns the union's nominal `tag_type`. `value.is(Variant)` tests
 the tag, while `value.view(Variant)` returns a view with `.valid` and, for a
 payload variant, a typed `.payload`. The payload is meaningful only when
-`.valid` is true. Variants must belong to the viewed union. Payload
-constructors require the declared payload type, and nullary variants are
+`.valid` is true. Both `.is(Variant)` and `.view(Variant).valid` return `Bool`,
+including when `.is` is extracted as a receiver-bound function. Variants must
+belong to the viewed union. Payload constructors require the declared payload type, and nullary variants are
 reusable hardware literals.
 
 Automatic tags use declaration order and the minimum positive width. As with
@@ -624,10 +635,14 @@ their environment could physically drive a multi-hot encoding.
 - `bits_value[index]` produces `Bits(1)`.
 - `value[low..high]` uses a half-open host range; `low..=high` is inclusive.
   Both forms lower to the core's fixed bit-extraction operation.
-- `bits_value.zext(target_width)` adds most-significant zeroes and returns wider
+- `bits_value.zext(target_width)` adds most-significant zeroes and returns
   `Bits`; use `.as_bits()` to expose other packable data first.
-- `signed_value.sext(target_width)` sign-extends any `SignedArithmeticType` and
-  returns the same nominal signed type family at the wider width.
+- `value.sext(target_width)` replicates the most-significant bit of `Bits` or
+  any `SignedArithmeticType`, preserving the receiver's type family.
+  `Bits.sext` returns `Bits`; it does not change subsequent arithmetic to signed.
+- Both extension methods accept an equal target width as a no-op and reject
+  narrowing. Equal-width calls return the original value without emitting an
+  operation or renaming it, even when an optional result name is supplied.
 - `trunc` retains low bits.
 - `value.into(TargetType)` preserves packed width and bit pattern while
   changing the hardware type.

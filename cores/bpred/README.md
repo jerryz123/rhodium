@@ -29,7 +29,7 @@ themselves to a fetch pipeline. Shared setup is in the
 ## Branch-target buffer
 
 `Btb(xlen, entry_count = 32, match_bits = 14, page_count = 8, ~fetch_bytes: 4, ~external_direction: #false, ~pc_width: xlen.width, ~target_width: xlen.width)` has a
-combinational `cursor` input and `BranchPrediction(xlen)` output. Lookup selects
+combinational `cursor` input and `BranchPrediction(xlen, xlen.width)` output. Lookup selects
 the earliest predicted-taken instruction at or after the cursor **within its
 aligned fetch block**. `fetch_bytes` supports four (the default) or eight bytes.
 Halfword-aligned entry PCs support compressed code;
@@ -56,7 +56,7 @@ The state-update interfaces are:
   a false value removes a matching stale entry. A taken control-flow miss
   allocates a weakly-taken entry, while a not-taken miss does not allocate.
   Existing counters update on both taken and not-taken outcomes.
-- `discover: Valid(BranchPrediction(xlen))` installs a valid early-discovered
+- `discover: Valid(BranchPrediction(xlen, xlen.width))` installs a valid early-discovered
   unconditional jump or return. Resolved `update` takes priority over discovery.
 - `invalidate: Valid(Bits(xlen.width))` removes an exact instruction-PC match
   and suppresses simultaneous training/discovery writes.
@@ -64,8 +64,11 @@ The state-update interfaces are:
   Reset does the same. The caller chooses when architectural context or code
   changes require invalidation.
 
-`BranchPrediction` carries `valid`, instruction `pc`, `target`, `compressed`,
-and `ras_action`. `BranchUpdate` adds conditional/taken classification and
+`BranchPrediction(xlen, width = xlen.width)` carries `valid`, instruction `pc`, `target`, `compressed`,
+and `ras_action`. The optional common address width bounds retained transport;
+`.address()` and `.destination()` restore scalar XLEN addresses by sign extension.
+Callers must establish source-PC representability before narrowing; speculative
+target normalization remains predictor policy. `BranchUpdate` adds conditional/taken classification and
 actual/predicted RAS actions plus the return address. The caller qualifies
 updates against its own squash and resolution rules. Invalid prediction
 payload fields must not be observed.

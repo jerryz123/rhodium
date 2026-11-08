@@ -1,10 +1,10 @@
 #lang rhodium
 
-// Rejects sign extension on a receiver without signed-arithmetic semantics.
+// Rejects sign extension on a nonnumeric lane mask.
 // SPDX-License-Identifier: Apache-2.0
 
 circuit BadSignExtension():
-  input value: Bits(4)
+  input value: Mask(4)
   output widened: Bits(8)
 
   widened <== value.sext(8)

@@ -4,7 +4,6 @@
 
 import:
   "protocol.rhdl" open
-  "../pc.rhdl" open
   "../../riscv/isa/xlen.rhm" open
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
@@ -58,8 +57,8 @@ sync_circuit Btb(xlen :: XLen, entry_count :: PosInt = 32, match_bits :: PosInt 
   interface invalidate_all(Pulse(), ~role: consumer)
   interface invalidate(Valid(Bits(xlen.width)), ~role: consumer)
   interface update(Valid(BranchUpdate(xlen)), ~role: consumer)
-  interface discover(Valid(BranchPrediction(xlen)), ~role: consumer)
-  output prediction: BranchPrediction(xlen)
+  interface discover(Valid(BranchPrediction(xlen, xlen.width)), ~role: consumer)
+  output prediction: BranchPrediction(xlen, xlen.width)
 
   def index_bits = index_width(entry_count)
   def page_index_bits = index_width(page_count)
@@ -77,14 +76,11 @@ sync_circuit Btb(xlen :: XLen, entry_count :: PosInt = 32, match_bits :: PosInt 
   reg page_replacement(~init: Bits(page_index_bits)(0))
   /* Rejects nonrepresentable source addresses instead of matching or modifying a low-bit alias. */
   fun source_fits(address :: Bits(xlen.width)) :~ Bool:
-    CompactPc.fits(xlen, pc_width, address)
+    address === prediction_target(xlen, pc_width, address)
 
   /* Restores exact stored source addresses and normalized destinations without an address adder. */
   fun expand_address(address :: Bits(address_width)) :~ Bits(xlen.width):
-    def stored = CompactPc(xlen, address_width):
-      low: address
-
-    stored.expanded()
+    address.sext(xlen.width)
 
   /* Extracts the common-width upper bits of an admitted source or normalized target. */
   fun page_tag(address :: Bits(xlen.width)) :~ Bits(address_width - match_bits):
@@ -120,7 +116,7 @@ sync_circuit Btb(xlen :: XLen, entry_count :: PosInt = 32, match_bits :: PosInt 
     earliest := mux(offset.any(), offset, earliest)
 
   def selected = entries[priority_encoder(earliest)]
-  prediction <== BranchPrediction(xlen):
+  prediction <== BranchPrediction(xlen, xlen.width):
     valid: candidates.any() & !invalidate_all.valid
     pc: expand_address(pages[selected.pc_page].tag ++ selected.pc_low)
     // Shared pages can also contain full source PCs. Normalize the lookup
@@ -261,9 +257,9 @@ sync_circuit DisabledBtb(xlen :: XLen, ~fetch_bytes: fetch_bytes :: PosInt = 4, 
   interface invalidate_all(Pulse(), ~role: consumer)
   interface invalidate(Valid(Bits(xlen.width)), ~role: consumer)
   interface update(Valid(BranchUpdate(xlen)), ~role: consumer)
-  interface discover(Valid(BranchPrediction(xlen)), ~role: consumer)
-  output prediction: BranchPrediction(xlen)
-  prediction <== literal(BranchPrediction(xlen), 0)
+  interface discover(Valid(BranchPrediction(xlen, xlen.width)), ~role: consumer)
+  output prediction: BranchPrediction(xlen, xlen.width)
+  prediction <== literal(BranchPrediction(xlen, xlen.width), 0)
 
 export:
   BtbPage

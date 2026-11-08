@@ -166,7 +166,7 @@ check:
   schema_for("rtl.mul").type_rule ~is "arithmetic_same_type_binary"
   schema_for("rtl.shrs").type_rule ~is "signed_arithmetic_shift"
   schema_for("rtl.slt").type_rule ~is "signed_arithmetic_compare"
-  schema_for("rtl.sext").type_rule ~is "signed_arithmetic_sext"
+  schema_for("rtl.sext").type_rule ~is "scalar_sext"
   schema_for("rtl.ult").type_rule ~is "bits_same_width_compare"
   schema_for("rtl.mux_lookup").type_rule ~is "data_mux_lookup"
   schema_for("rtl.onehot_mux").type_rule ~is "onehot_mux"
