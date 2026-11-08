@@ -23,6 +23,14 @@ bundle SuperscalarMultiplyWriteback(xlen :: XLen):
   high_result: Bool
   word_result: Bool
 
+  /* Attaches the surviving destination to the selected architectural product. */
+  method completion(owner, product :: Bits(2 * xlen.width)) :: SuperscalarCompletion(xlen):
+    SuperscalarCompletion(xlen):
+      identity: owner.identity
+      rd: owner.rd
+      write: Bool(#true)
+      data: integer_multiply_result(xlen, product, owner.high_result, owner.word_result)
+
 /* Attaches WB authorization and architectural result selection to divide operands. */
 bundle SuperscalarDivideIssue(xlen :: XLen):
   request: DividerRequest(xlen.width)
@@ -33,7 +41,7 @@ bundle SuperscalarDivideIssue(xlen :: XLen):
    RR books the EX slot and RF write cycle; a squash cannot change vector admission combinationally.
    Scalar numerical results never wait in storage.
    Rejected WB owners drain without publishing the still-running product. */
-sync_circuit SuperscalarMultiply(xlen :: XLen = XLen.X64, ~vector_slots: slots :: Pow2Int = 8):
+sync_circuit SuperscalarMultiply(xlen :: XLen = XLen.X64, ~vector_enabled: vector_enabled :: Boolean = #true, ~vector_slots: slots :: Pow2Int = 8):
   interface book(Pulse(), ~role: consumer)
   interface issue(Valid(MultiplierRequest(xlen.width)), ~role: consumer)
   interface authorize(Valid(SuperscalarMultiplyWriteback(xlen)), ~role: consumer)
@@ -42,62 +50,71 @@ sync_circuit SuperscalarMultiply(xlen :: XLen = XLen.X64, ~vector_slots: slots :
   interface vector_request(Decoupled(IntegerExecutionRequest(MultiplierRequest(xlen.width), VectorMultiplyTag(slots))), ~role: consumer)
   interface vector_result(Irrevocable(IntegerExecutionResult(Bits(xlen.width * 2), VectorMultiplyTag(slots))), ~role: producer)
 
-  /* Identifies vector returns without putting scalar WB policy in the arithmetic service. */
-  bundle MultiplyOwner():
-    vector: Bool
-    tag: VectorMultiplyTag(slots)
-
-  inst execution(TaggedPipelinedMultiplier(xlen.width, MultiplyOwner()))
-  inst vector_returns(CompletionQueue(IntegerExecutionRequest(MultiplierRequest(xlen.width), VectorMultiplyTag(slots)), IntegerExecutionResult(Bits(xlen.width * 2), VectorMultiplyTag(slots)), slots, ~pipe: #false))
   reg reserved(~init: Bool(#false))
   reserved <== book.valid
-  vector_request |> gate_flow(!reserved) |> vector_returns.request
   when (issue.valid):
     assert(reserved, "superscalar_multiply_ex_launch_reserved")
 
+  /* EX launches unconditionally; only the matching surviving WB owner may publish. */
   def Array(operand_issue, launch_issue) = issue |> fork_valid(2)
-  def scalar = operand_issue |> map_valid(request => IntegerExecutionRequest(MultiplierRequest(xlen.width), MultiplyOwner())):
-    tag:
-      MultiplyOwner():
-        vector: Bool(#false)
-        tag: dont_care(VectorMultiplyTag(slots))
-
-    operands: request
-
-  def vector = vector_returns.issue |> map_valid(operation => IntegerExecutionRequest(MultiplierRequest(xlen.width), MultiplyOwner())):
-    tag:
-      MultiplyOwner():
-        vector: Bool(#true)
-        tag: operation.tag
-
-    operands: operation.operands
-
-  Array(scalar, vector) |> valid_arbiter() |> execution.request
-  (execution.result |> filter_valid(result => result.tag.vector) |> map_valid(result => IntegerExecutionResult(Bits(xlen.width * 2), VectorMultiplyTag(slots))):
-    tag: result.tag.tag
-    value: result.value
-  ) |> vector_returns.completion
-
-  vector_returns.response |> vector_result
-
-
-  /* WB authorization and completion.
-     Only launch validity crosses EX to WB here. The WB token owns the identity
-     until authorization, then the return pipe owns it through the booked write. */
-
   def wb_launch = launch_issue |> map_valid(_request => Bool(#true)) |> valid_pipe(2)
   def authorized = wb_launch |> filter_valid(_launch => authorize.valid) |> map_valid(_launch => authorize.bits)
 
-  def returned = authorized |> valid_pipe(PipelinedMultiplierStages - 2)
-  (returned |> map_valid(payload):
-    def owner :: SuperscalarMultiplyWriteback(xlen) = payload
-    def identity :: SuperscalarInstructionIdentity(xlen) = owner.identity
-    SuperscalarCompletion(xlen):
-      identity: identity
-      rd: owner.rd
-      write: Bool(#true)
-      data: integer_multiply_result(xlen, execution.result.bits.value, owner.high_result, owner.word_result)
-  ) |> completed
+  if vector_enabled
+  | block:
+      /* Identifies vector returns without putting scalar WB policy in the arithmetic service. */
+      bundle MultiplyOwner():
+        vector: Bool
+        tag: VectorMultiplyTag(slots)
+
+      inst execution(TaggedPipelinedMultiplier(xlen.width, MultiplyOwner()))
+      inst vector_returns(CompletionQueue(IntegerExecutionRequest(MultiplierRequest(xlen.width), VectorMultiplyTag(slots)), IntegerExecutionResult(Bits(xlen.width * 2), VectorMultiplyTag(slots)), slots, ~pipe: #false))
+      vector_request |> gate_flow(!reserved) |> vector_returns.request
+      def scalar = operand_issue |> map_valid(request => IntegerExecutionRequest(MultiplierRequest(xlen.width), MultiplyOwner())):
+        tag:
+          MultiplyOwner():
+            vector: Bool(#false)
+            tag: dont_care(VectorMultiplyTag(slots))
+
+        operands: request
+
+      def vector = vector_returns.issue |> map_valid(operation => IntegerExecutionRequest(MultiplierRequest(xlen.width), MultiplyOwner())):
+        tag:
+          MultiplyOwner():
+            vector: Bool(#true)
+            tag: operation.tag
+
+        operands: operation.operands
+
+      Array(scalar, vector) |> valid_arbiter() |> execution.request
+      (execution.result |> filter_valid(result => result.tag.vector) |> map_valid(result => IntegerExecutionResult(Bits(xlen.width * 2), VectorMultiplyTag(slots))):
+        tag: result.tag.tag
+        value: result.value
+      ) |> vector_returns.completion
+
+      vector_returns.response |> vector_result
+
+      // Vector consumers need both halves. Project scalar results after the shared register.
+      def returned = authorized |> valid_pipe(PipelinedMultiplierStages - 2)
+      (returned |> map_valid(payload):
+        def owner :: SuperscalarMultiplyWriteback(xlen) = payload
+        owner.completion(execution.result.bits.value)
+      ) |> completed
+      when (completed.valid):
+        assert(execution.result.valid & !execution.result.bits.tag.vector, "superscalar_multiply_scheduled_result")
+  | block:
+      vector_request.ready <== Bool(#false)
+      vector_result.valid <== Bool(#false)
+      vector_result.bits <== dont_care(vector_result.bits.type)
+
+      // At WB the sum and its format are both live. Register just the authorized XLEN result.
+      def product = pipelined_product_sum(xlen.width, operand_issue)
+      (authorized |> map_valid(payload):
+        def owner :: SuperscalarMultiplyWriteback(xlen) = payload
+        owner.completion(product.bits)
+      ) |> valid_pipe(PipelinedMultiplierStages - 2) |> completed
+      when (authorized.valid):
+        assert(product.valid, "superscalar_multiply_authorized_sum")
 
   def count_width = index_width(PipelinedMultiplierStages + 1)
   reg outstanding(~init: Bits(count_width)(0))
@@ -105,9 +122,6 @@ sync_circuit SuperscalarMultiply(xlen :: XLen = XLen.X64, ~vector_slots: slots :
   outstanding <== outstanding + issue.valid.as_bits().zext(count_width) - rejected.as_bits().zext(count_width) - completed.valid.as_bits().zext(count_width)
   drained <== !outstanding.any()
   assert(outstanding <= Bits(count_width)(PipelinedMultiplierStages), "superscalar_multiply_inflight_capacity")
-  when (completed.valid):
-    assert(execution.result.valid & !execution.result.bits.tag.vector, "superscalar_multiply_scheduled_result")
-
   when (authorize.valid):
     assert(wb_launch.valid, "superscalar_multiply_wb_owner")
 

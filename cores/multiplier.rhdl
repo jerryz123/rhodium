@@ -112,21 +112,20 @@ sync_circuit IterativeMultiplier(width :: PosInt):
     response_valid <== Bool(#false)
 
 /*
- * Three feed-forward stages compute raw half-width products, carry-save reduction,
- * and one final sum. Signed corrections affect only the upper product half:
+ * Two feed-forward registers hold half-width products and carry-save reduction.
+ * The final sum is combinational so the caller can choose what its third register
+ * retains. Signed corrections affect only the upper product half:
  * a*b - negative(a)*(b<<width) - negative(b)*(a<<width), modulo 2^(2*width).
  */
-sync_circuit PipelinedMultiplier(width :: Pow2Int):
+fun pipelined_product_sum(width :: Pow2Int, request :: Endpoint) :: Endpoint:
   unless width >= 2
   | error(~who: #'PipelinedMultiplier, "width must be at least two")
 
   def half_width = width / 2
   def product_width = width * 2
 
-  interface request(Valid(MultiplierRequest(width)), ~role: consumer)
-  interface response(Valid(Bits(product_width)), ~role: producer)
-
-  def partials = request |> map_valid(operation):
+  def partials = request |> map_valid(payload):
+    def operation :: MultiplierRequest(width) = payload
     def left_negative = operation.mode.left_signed & operation.left[width - 1].into(Bool)
     def right_negative = operation.mode.right_signed & operation.right[width - 1].into(Bool)
     PipelinedMultiplierPartials(width):
@@ -147,11 +146,19 @@ sync_circuit PipelinedMultiplier(width :: Pow2Int):
     multiplier_carry_save(width, folded.first, folded.second, operation.correction_carry.zext(product_width) << width)
 
   def reduced = reductions |> valid_pipe(1)
-  reduced |> map_valid(operation => operation.first + operation.second) |> valid_pipe(1) |> response
+  reduced |> map_valid(operation => operation.first + operation.second)
+
+/* Delivers one double-width product per cycle after three registered stages. */
+sync_circuit PipelinedMultiplier(width :: Pow2Int):
+  interface request(Valid(MultiplierRequest(width)), ~role: consumer)
+  interface response(Valid(Bits(width * 2)), ~role: producer)
+
+  pipelined_product_sum(width, request) |> valid_pipe(1) |> response
 
 export:
   MultiplierMode
   MultiplierRequest
   PipelinedMultiplierStages
   IterativeMultiplier
+  pipelined_product_sum
   PipelinedMultiplier

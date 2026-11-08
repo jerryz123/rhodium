@@ -50,6 +50,11 @@ retain configuration validation and decide which guarantees they may publish.
 
 ### Tagged integer services
 
+When the caller owns the final register, `pipelined_product_sum(width, request)`
+provides the same double-width combinational sum after the first two stages.
+The caller can then select the required bits before registering the result.
+Use `PipelinedMultiplier` when the complete registered product is needed.
+
 [`integer-service.rhdl`](integer-service.rhdl) carries opaque caller tags through
 the shared multiplier and divider. `TaggedPipelinedMultiplier` is feed-forward
 Valid input/output with no completion storage. `IterativeMultiplyService` and

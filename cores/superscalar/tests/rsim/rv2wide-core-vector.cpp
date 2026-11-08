@@ -2065,6 +2065,15 @@ int main() {
     send(0x30009073);             // csrw mstatus,x1
     send(addi(1, 0, 0x400));
     send(0x30509073);             // mtvec = 0x400
+    // SEW=XLEN routes VMULHU through the scalar multiplier, not the subword bank.
+    // (2^XLEN - 1) * 3 has high half 2 and low half -3.
+    setvl(bytes == 8 ? 3 : 2, 1);
+    send(addi(14, 0, -1));
+    send(addi(3, 0, 3));
+    send(vi(23, 0, 14, 4, 14));   // vmv.v.x v14,x14
+    send(vi(36, 14, 3, 6, 15));   // vmulhu.vx v15,v14,x3
+    extract(15, 7, 2);
+
     setvl(0, bytes * 2);
     send(addi(2, 0, 3));
     send(addi(3, 0, 7));

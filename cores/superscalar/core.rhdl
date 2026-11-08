@@ -333,7 +333,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   inst wb_load_response(SuperscalarLoadResponse(xlen))
   reg wb_ordered_memory_pending(~init: Bool(#false))
   reg wb_prior_memory_drained(~init: Bool(#false))
-  inst ex_multiply(SuperscalarMultiply(xlen, ~vector_slots: vector_slots))
+  inst ex_multiply(SuperscalarMultiply(xlen, ~vector_enabled: vector_enabled, ~vector_slots: vector_slots))
   inst wb_divide(SuperscalarDivide(xlen, ~vector_slots: vector_slots))
   vector.multiply_request |> ex_multiply.vector_request
   ex_multiply.vector_result |> vector.multiply_result
