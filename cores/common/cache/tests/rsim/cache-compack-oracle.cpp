@@ -57,7 +57,7 @@ void sample_lane(unsigned lane, unsigned fire, unsigned packet, unsigned ack, un
 }
 }
 extern "C" void compack_bind() { rheg::graph().bind_manifest(rheg_generated::manifest()); }
-extern "C" void compack_sample(unsigned reset, unsigned command, unsigned instruction_rom,
+extern "C" void compack_sample(unsigned reset, unsigned command, unsigned instruction_rom, unsigned d_address,
     unsigned dfire, unsigned dpacket, unsigned ifire, unsigned ipacket,
     unsigned dack, unsigned ddbid, unsigned iack, unsigned idbid, unsigned stalled,
     unsigned dfinish, unsigned ifinish) {
@@ -74,7 +74,7 @@ extern "C" void compack_sample(unsigned reset, unsigned command, unsigned instru
   if (command) {
     if (owner[0] || owner[1] || residency[0] || residency[1]) fail("new command overwrote line ownership");
     packets = {}; rom = instruction_rom; roms += rom;
-    residency[0] = begin_refill(test_sites::dcache_refill, 0x1000);
+    residency[0] = begin_refill(test_sites::dcache_refill, d_address);
     residency[1] = begin_refill(test_sites::icache_refill, rom ? 0x8000 : 0x1000);
   }
   sample_lane(0, dfire, dpacket, dack, ddbid);

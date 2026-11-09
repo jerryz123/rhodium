@@ -313,9 +313,10 @@ victim is dirty, avoiding nonbinding writeback traffic.
 | Failed SC | Return one without CHI traffic or a data-array update | Unchanged |
 | Dirty allocation victim | Gather the line, complete writeback, then issue the refill | Victim invalidated before replacement installation |
 
-The shared [refill engine](../chi/refill.rhdl) retains the aligned address and
-CHI transaction state across retry. Each accepted `CompData` packet writes
-its position in L1D's 64-byte line buffer; L1D consumes the line only after
+L1D supplies the aligned miss address from its retained request until refill
+completion is accepted. The [refill engine](../chi/refill.rhdl) uses that
+address for every attempt and retains its own CHI retry state. Each accepted
+`CompData` packet writes its position in L1D's 64-byte line buffer; L1D consumes the line only after
 all packets arrive and `CompAck` transfers. L1D supplies the destination way
 and original response context from the shared registers; only a miss captures
 the allocation and installation policy.
@@ -351,8 +352,9 @@ For a dirty allocation victim, the shared array reader gathers each row into
 the same line buffer that will later receive the refill. Snoop responses use
 a separate snapshot. Only after the last victim row is present can the
 [writeback engine](../chi/writeback.rhdl) accept the command
-and issue a retryable `WriteBackFull`. The victim remains resident and
-snoop-visible while awaiting `CompDBIDResp`; its set remains reserved against
+and issue a retryable `WriteBackFull`. L1D holds the victim address separately
+from the miss address until copyback completion is accepted. The victim remains
+resident and snoop-visible while awaiting `CompDBIDResp`; its set remains reserved against
 local accesses. A preceding snoop may consume its dirty data and invalidate
 it, in which case copyback reports Invalid without enabled bytes. The grant
 freezes the response state, and the victim is invalidated locally after all

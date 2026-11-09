@@ -128,6 +128,7 @@ constexpr std::uint8_t DBID_RESP_ORD = UINT64_C(14);
 constexpr std::uint8_t RETRY_ACK = UINT64_C(3);
 constexpr std::uint8_t PCRD_GRANT = UINT64_C(7);
 constexpr std::uint8_t SNP_CLEAN_INVALID = UINT64_C(9);
+constexpr std::uint8_t SNP_RESP = UINT64_C(1);
 constexpr std::uint8_t SNP_RESP_DATA = UINT64_C(1);
 constexpr std::uint8_t COPY_BACK_WRITE_DATA = UINT64_C(2);
 constexpr std::uint8_t COMP_DATA = UINT64_C(4);
@@ -824,6 +825,40 @@ void observe() {}
 
 void falling_update() {}
 
+// Hold the retried REQ while a different line's snoop response is stalled.
+// Check the live offers and the eventual handshake, not just a sampled request.
+void retry_with_probe(std::uint8_t opcode, std::uint64_t line, std::uint16_t txn,
+                      std::uint8_t credit, std::uint64_t probe, std::uint16_t probe_txn) {
+  chi_in.prequests.pready = 0;
+  chi_in.prequester_uresponses.pready = 0;
+  send_response(RETRY_ACK, txn, 0, credit);
+  send_response(PCRD_GRANT, txn, 0, credit);
+  until([&] { return chi_out.prequests.pvalid; });
+  auto check_retry = [&] {
+    const auto &req = chi_out.prequests.pbits;
+    CHECK(chi_out.prequests.pvalid && req.paddress == line && req.popcode == opcode &&
+          req.ptxn_uid == txn && !req.pallow_uretry && req.ppcrd_utype == credit);
+  };
+  check_retry();
+  send_snoop(probe, probe_txn);
+  until([&] { check_retry(); return chi_out.prequester_uresponses.pvalid; });
+  for (int cycle = 0; cycle < 4; ++cycle) {
+    check_retry();
+    const auto &rsp = chi_out.prequester_uresponses;
+    CHECK(rsp.pvalid && rsp.pbits.popcode == SNP_RESP && rsp.pbits.ptxn_uid == probe_txn &&
+          rsp.pbits.presp == 0);
+    tick();
+  }
+  grant_rsp_credit();
+  tick();
+  tx_rsp_pending = 0;
+  grant_req_credit();
+  settle();
+  check_retry();
+  tick();
+  accept_request(opcode, line, txn, 6, 0, credit);
+}
+
 // The miss owns a byte store across both CHI transactions. A waiting load
 // must not replace that record, even with the refill's final response stalled.
 void check_store_miss_across_copyback() {
@@ -841,17 +876,13 @@ void check_store_miss_across_copyback() {
                     0, 3, 0);
   accept_request(WRITE_BACK_FULL, ADDRESS, 1, 6, 1, 0);
   send_core_request(THIRD_ADDRESS + 16, MEMORY_LOAD, ATOMIC_SWAP, 0, 17);
-  send_response(RETRY_ACK, 1, 0, 5);
-  send_response(PCRD_GRANT, 1, 0, 5);
-  accept_request(WRITE_BACK_FULL, ADDRESS, 1, 6, 0, 5);
+  retry_with_probe(WRITE_BACK_FULL, ADDRESS, 1, 5, PREFETCH_READ_ADDRESS, 120);
   send_response(COMP_DBID_RESP, 1, 85, 0);
   for (int packet = 0; packet < 4; ++packet)
     accept_copyback_data(packet, victim);
 
   accept_request(READ_UNIQUE, THIRD_ADDRESS, 0, 6, 1, 0);
-  send_response(RETRY_ACK, 0, 0, 3);
-  send_response(PCRD_GRANT, 0, 0, 3);
-  accept_request(READ_UNIQUE, THIRD_ADDRESS, 0, 6, 0, 3);
+  retry_with_probe(READ_UNIQUE, THIRD_ADDRESS, 0, 3, PREFETCH_WRITE_ADDRESS, 121);
   return_line(THIRD_ADDRESS, THIRD_LINE, 2);
   accept_comp_ack();
   for (int i = 0; i < 16; ++i) {

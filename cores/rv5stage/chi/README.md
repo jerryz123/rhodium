@@ -57,7 +57,9 @@ retains the selected Home and command context, accepts each `CompData` packet
 exactly once, and emits `CompAck`. Its `packet_write` output supplies the
 index and data for the caller's line buffer on each accepted packet. Completion
 metadata becomes valid only after every packet arrives and the acknowledgement
-transfers.
+transfers. Supply the aligned miss address on `line_address` and hold it
+from command acceptance through the completion handshake. Every attempt and
+the completion use that address.
 
 Both line engines expose a tracing contract from the accepted `CompData` packet
 that completes the line to its later `CompAck`. That single parent survives
@@ -72,7 +74,8 @@ address, data, byte mask, Home, DBID, and completion state until the transaction
 finishes. `CacheLineWriteback` instead issues one retryable, aligned
 64-byte `WriteBackFull`. After `CompDBIDResp`, it sends the line as four,
 two, or one `CopyBackWriteData` packets on 128-, 256-, or 512-bit DAT.
-The caller must keep its victim line input stable from command acceptance
+The caller holds the victim address on `line_address` from command acceptance
+through the completion handshake. The victim data on `line` must remain stable
 through the final DAT transfer. There is no second completion response or CompAck.
 
 The cache retains the victim as snoop-visible until handoff. Pending snoops

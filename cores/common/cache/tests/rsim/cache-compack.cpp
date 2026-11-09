@@ -4,7 +4,7 @@
 #include "../../../../../chi/tests/rsim/request.hpp"
 extern "C" void compack_bind();
 extern "C" void compack_sample(unsigned reset, unsigned command,
-                               unsigned instruction_rom, unsigned dfire,
+                               unsigned instruction_rom, unsigned d_address, unsigned dfire,
                                unsigned dpacket, unsigned ifire,
                                unsigned ipacket, unsigned dack, unsigned ddbid,
                                unsigned iack, unsigned idbid, unsigned stalled,
@@ -16,7 +16,7 @@ void tick() {
   eval();
 
   compack_sample(unsigned(reset), unsigned(command_valid && command_ready),
-                 unsigned(instruction_rom),
+                 unsigned(instruction_rom), unsigned(d_line_address),
                  unsigned(ddata_in.pvalid && ddata_out.pready),
                  unsigned(ddata_in.pbits.pdata_uid),
                  unsigned(idata_in.pvalid && idata_out.pready),
@@ -49,6 +49,7 @@ void clear() {
 }
 void start(bool rom) {
   instruction_rom = rom;
+  d_line_address = rom ? 0x2080 : 0x1040;
   command_valid = 1;
   eval();
   CHECK(command_ready);
@@ -57,7 +58,7 @@ void start(bool rom) {
   for (unsigned repeat_index = 0; repeat_index < (3); ++repeat_index)
     tick();
   CHECK(dreq_out.pvalid && ireq_out.pvalid &&
-        dreq_out.pbits.popcode == UINT64_C(2) &&
+        dreq_out.pbits.popcode == UINT64_C(2) && dreq_out.pbits.paddress == d_line_address &&
         ireq_out.pbits.popcode == (rom ? UINT64_C(4) : UINT64_C(3)));
   dreq_in.pready = 1;
   ireq_in.pready = 1;
@@ -125,8 +126,8 @@ void acknowledge() {
   }
   for (unsigned repeat_index = 0; repeat_index < (3); ++repeat_index) {
     tick();
-    CHECK(d_complete && i_complete && !dack_out.pvalid && !iack_out.pvalid &&
-          !command_ready);
+    CHECK(d_complete && d_complete_address == d_line_address && i_complete &&
+          !dack_out.pvalid && !iack_out.pvalid && !command_ready);
   }
   completion_ready = 1;
   tick();

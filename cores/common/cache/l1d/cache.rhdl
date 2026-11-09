@@ -433,14 +433,13 @@ sync_circuit L1DCache(xlen :: XLen,
 
   wire s4_refill_accepted: Bool
   wire s4_refill_opcode: CHIReqOpcode
-  wire s4_refill_address: Bits(width)
   def s4_observed = s4_result.egress |> trace_event("dcache/s4.resolve", ~fields: result):
     address: retained_address
     prefetch: result.prefetch
     hit: result.hit
     refill_accepted: s4_refill_accepted
     refill_opcode(~format: "enum"): s4_refill_opcode
-    refill_address: s4_refill_address
+    refill_address: retained_line_address
 
   def s4_path = s4_observed
   def s4_prefetch = s4_result.egress.bits.prefetch
@@ -486,19 +485,19 @@ sync_circuit L1DCache(xlen :: XLen,
      same miss from its L1D record. Neither engine owns a copy of that record. */
 
   /* Selects the acquisition and supplies the prefetch flag for launch accounting. */
-  fun refill_command(prefetch :: Bool, prefetch_write :: Bool) :~ CacheLineRefillCommand(Bool, width):
-    CacheLineRefillCommand(Bool, width):
-      line_address: retained_line_address
+  fun refill_command(prefetch :: Bool, prefetch_write :: Bool) :~ CacheLineRefillCommand(Bool):
+    CacheLineRefillCommand(Bool):
       opcode: mux(prefetch_write ||| retained_request.access.needs_unique() ||| (retained_request.access === CacheOperation.LoadReserved), CHIReqOpcode.ReadUnique, CHIReqOpcode.ReadClean)
       context: prefetch
 
+  refill.line_address <== retained_line_address
   def direct_refill_commands = s4_refill_path |> map_flow(result => refill_command(result.prefetch, result.prefetch_write))
 
   def s4_victim_address = s4_result.egress.bits.victim_address
   def eviction_start = s4_eviction_path |> gate_flow(gather_idle & !refill_installing) |> to_valid()
   def eviction_gather_start = eviction_start.valid
-  def eviction_command = CacheLineWritebackCommand(Bool, width):
-    line_address: eviction_line_address
+  writeback.line_address <== eviction_line_address
+  def eviction_command = CacheLineWritebackCommand(Bool):
     context: Bool(#false)
 
   def eviction_command_valid = gather_state === L1DGatherState.EvictionReady
@@ -519,13 +518,12 @@ sync_circuit L1DCache(xlen :: XLen,
   // fields are meaningful when accepted; the refill contract retains ancestry.
   s4_refill_accepted <== direct_refill_commands.fire()
   s4_refill_opcode <== direct_refill_commands.bits.opcode
-  s4_refill_address <== direct_refill_commands.bits.line_address
   // Gather ancestry is not yet modeled; writeback supplies its own resident owner.
   Array(direct_refill_commands, post_eviction_refills) |> arbiter() |> refill.command
   stat_count("dcache_miss", refill.command.fire() & !refill.command.bits.context)
   def writeback_complete = writeback.completion.fire()
-  when (writeback.completion.valid):
-    assert(miss_active, "l1d_copyback_retains_miss")
+  when (!writeback.command.ready):
+    assert(miss_active & !eviction_gather_start, "l1d_copyback_holds_victim_and_miss")
 
 
   /* Refill completion and installation.
@@ -542,8 +540,8 @@ sync_circuit L1DCache(xlen :: XLen,
   refill.completion.ready <== mux(miss_install, refill_installing & refill_install_final, refill_can_complete) & (miss_prefetch ||| service_responses.ingress.ready)
   def complete_refill = refill.completion.fire()
   def install_refill = complete_refill & miss_install
-  when (refill.completion.valid):
-    assert(miss_active & (refill.completion.bits.line_address === retained_line_address), "l1d_refill_matches_miss")
+  when (!refill.command.ready):
+    assert(miss_active, "l1d_refill_retains_miss")
 
   when complete_refill:
     assert(!refill.completion.bits.pass_dirty, "l1d_refill_not_dirty")

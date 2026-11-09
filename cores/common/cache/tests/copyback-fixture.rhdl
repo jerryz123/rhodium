@@ -60,10 +60,10 @@ sync_circuit CacheCopyBackFixture():
     engine.victim_state <== state
     engine.snoop_pending <== snoop_pending
     engine.line <== line
+    engine.line_address <== Bits(64)(0x80001240)
 
     engine.command.valid <== enabled[index] & command_valid
-    engine.command.bits <== CacheLineWritebackCommand(Bits(8), 64):
-      line_address: Bits(64)(0x80001240)
+    engine.command.bits <== CacheLineWritebackCommand(Bits(8)):
       context: Bits(8)(0xa5)
 
     def requests = engine.requests |> trace_event("request/" ++ to_string(index))

@@ -176,8 +176,11 @@ row. The copyback fixture covers 128-, 256-, and 512-bit DAT.
    stalls. A local mutation holds it through the SRAM update (the final row
    for block zero). Extract the local AMO operand and response from the
    retained row; an active miss uses the refill buffer instead. Derive the
-   reserved set and line from the retained request. Keep the victim address
-   and snoop ownership separate; copyback completion resumes the active miss,
+   reserved set and line from the retained request. Drive the refill engine's
+   `line_address` from that request and the writeback engine's from the victim
+   register captured at eviction gather start. Hold each input stable from
+   command handshake through completion handshake, including retries and stalls.
+   Neither address comes from a live command or snoop. Copyback completion resumes the active miss,
    not a new S4 request. Only ordinary demand load/store contexts enable
    hit-under-miss. Protect the whole set in S0 admission and S1 classification.
    An ordinary load or store matching the reserved line may resolve as Slow

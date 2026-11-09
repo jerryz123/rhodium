@@ -15,7 +15,7 @@ def design = compile_program(elaborate(refill.CacheLineRefill(Bits(5), 32, confi
 def engine = design.modules.find(fun (module_def): module_def.name == "CacheLineRefill")
 
 check:
-  engine.find_input("command_in").type.field("bits").type.field("line_address").type.width ~is 32
+  engine.find_input("line_address").type.width ~is 32
   engine.find_input("command_in").type.field("bits").type.field("context").type.width ~is 5
   engine.find_output("completion_out").type.field("bits").type.field("context").type.width ~is 5
   engine.find_output("packet_write_out").type.field("bits").type.field("index").type.width ~is 2

@@ -20,9 +20,11 @@ sync_circuit EventCompAck():
   def p = config.flit
   input command_valid: Bool
   input instruction_rom: Bool
+  input d_line_address: Bits(32)
   input completion_ready: Bool
   output command_ready: Bool
   output d_complete: Bool
+  output d_complete_address: Bits(32)
   output i_complete: Bool
   interface dreq(Decoupled(CHIReqFlit(p)), ~role: producer)
   interface ireq(Decoupled(CHIReqFlit(p)), ~role: producer)
@@ -37,8 +39,8 @@ sync_circuit EventCompAck():
   command_ready <== refill.command.ready & read.command.ready
   refill.command.valid <== command_valid & read.command.ready
   read.command.valid <== command_valid & refill.command.ready
-  refill.command.bits <== CacheLineRefillCommand(Bits(8), 32):
-    line_address: Bits(32)(0x1000)
+  refill.line_address <== d_line_address
+  refill.command.bits <== CacheLineRefillCommand(Bits(8)):
     opcode: CHIReqOpcode.ReadClean
     context: Bits(8)(42)
 
@@ -54,6 +56,7 @@ sync_circuit EventCompAck():
     engine.completion.ready <== completion_ready
 
   d_complete <== refill.completion.valid
+  d_complete_address <== refill.completion.bits.line_address
   i_complete <== read.completion.valid
   def ddata_event = ddata |> trace_event("ddata", ~fields: flit):
     packet: flit.data_id
