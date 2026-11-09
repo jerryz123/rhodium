@@ -35,10 +35,13 @@ RV2Wide also advertises the non-page-table guarantees for RV64 Bare.
 `chi-hart.rhdl` owns physical-region/Home mapping and requester attachment;
 `misaligned-access.rhdl` owns fragment sequencing with opaque caller context;
 `memory-lookup.rhdl` defines the fixed-cycle lookup and store-commit interface
-specialized by the cache and superscalar adapters. `memory-arbiter.rhdl` owns scalar/vector lookup grants, MEM response routing,
-WB store ownership, and tagged transaction arbitration. A contested vector
-attempt receives its native Slow result. Callers specify how to handle an
-absent physical response, the response tag projection, and transaction admission;
+specialized by the cache and superscalar adapters. `memory-arbiter.rhdl` owns
+scalar/vector lookup grants, MEM response routing, and WB store ownership. A
+contested vector lookup receives its native Slow result. Callers specify how to
+handle an absent lookup response. The same file owns N-client transaction
+arbitration. It exposes the live grant for admission sidebands and routes replies
+by their returned tag. Callers supply the priority order, tag mapping, and any
+outstanding limit.
 `memory-response.rhdl` owns opaque data/context replies, optional-response pairing, and one-cycle LSU result capture;
 `vector-layout.rhm` owns pure physical row geometry; `cosim-source.rhm` owns
 passive observation declarations. None selects a named core's profile or

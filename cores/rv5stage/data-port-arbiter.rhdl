@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../common/cache/protocol.rhdl".PhysicalMemoryResp
+  "../common/memory-arbiter.rhdl".arbitrate_memory_clients
   "memory-context.rhdl" open
   "uncached-protocol.rhdl" open
   "../../riscv/isa/xlen.rhm" open
@@ -20,19 +22,19 @@ sync_circuit RV5StageDataPortArbiter(xlen :: XLen, slots :: Pow2Int):
   interface walker_lookup(Valid(Bits(xlen.width)), ~role: consumer)
   interface lookup(Valid(Bits(xlen.width)), ~role: producer)
 
+  def Context = RV5StageMemoryContext(slots)
 
-  /* Request arbitration and origin tagging
-     Core offers have priority; the selected origin travels in each accepted memory request. */
+  /* Records the port of origin alongside the existing architectural writeback tag. */
+  fun tag_request(request :: RV5StagePhysicalDataReq(xlen, slots), chosen :: Bits(1)):
+    def origin = mux(chosen === Bits(1)(1), RV5StageDataOrigin.Walker, RV5StageDataOrigin.Core)
+    def context = request.memory.context.updated(~origin: origin)
+    request.with_context(Context, context)
 
-  inst requests(Arbiter(RV5StagePhysicalDataReq(xlen, slots), 2))
-  Array(core.request, walker.request) <=> requests.ingress
-  def selected_walker = requests.chosen === Bits(1)(1)
-  def selected_origin = mux(selected_walker, RV5StageDataOrigin.Walker, RV5StageDataOrigin.Core)
-  (requests.egress |> map_flow(request):
-    def context = request.memory.context.updated(~origin: selected_origin)
-    def tagged_memory = request.memory.updated(~context: context)
-    request.updated(~memory: tagged_memory)
-  ) |> memory.request
+  def (chosen, Array(core_responses, walker_responses), drained) = arbitrate_memory_clients(
+    Array(core.request, walker.request), memory, ~tag_request: tag_request,
+    ~response_client: fun (reply :: PhysicalMemoryResp(xlen, Context)): reply.context.origin === RV5StageDataOrigin.Walker
+  )
+  def selected_walker = chosen === Bits(1)(1)
 
   // Admission faults belong to the selected live offer, not a retained response.
   core.request_fault <== memory.request_fault & !selected_walker
@@ -44,11 +46,10 @@ sync_circuit RV5StageDataPortArbiter(xlen :: XLen, slots :: Pow2Int):
   /* Retained response routing and shared status
      Completion routing uses the returned origin; the walker never observes LR reservations. */
 
-  def Array(core_responses, walker_responses) = memory.response |> demux_flow(2, response => (response.context.origin === RV5StageDataOrigin.Walker).as_bits())
   core_responses |> core.response
   walker_responses |> walker.response
-  core.drained <== memory.drained
-  walker.drained <== memory.drained
+  core.drained <== drained
+  walker.drained <== drained
   core.reservation_valid <== memory.reservation_valid
   walker.reservation_valid <== Bool(#false)
 

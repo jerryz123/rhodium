@@ -4,6 +4,7 @@
 
 import:
   "../bundles.rhdl" open
+  lib("cores/common/memory-arbiter.rhdl").arbitrate_memory_clients
   lib("cores/common/cache/protocol.rhdl").PhysicalDataReq
   lib("riscv/isa/xlen.rhm").XLen
   lib("flow/main.rhdl") open
@@ -20,27 +21,24 @@ sync_circuit SuperscalarMemoryTransport(xlen :: XLen, clients :: PosInt, Context
   interface physical(SuperscalarPhysicalMemory(xlen, Routed), ~role: requester)
   output drained: Bool
 
-  inst requests(Arbiter(PhysicalDataReq(xlen, Context, 64), clients))
-  inst outstanding(CreditCounter(8))
-  request <=> requests.ingress
-  (requests.egress |> gate_flow(!outstanding.full) |> map_flow(request):
-    def selected :: PhysicalDataReq(xlen, Context, 64) = request
+  /* Wraps the original context so physical replies retain their accepted owner. */
+  fun tag_request(selected :: PhysicalDataReq(xlen, Context, 64), chosen :: Bits(index_width(clients))):
     def route = SuperscalarTransportContext(Context, clients):
-      client: requests.chosen
+      client: chosen
       context: selected.memory.context
     selected.with_context(Routed, route)
-  ) |> physical.request
-  outstanding.increment <== physical.request.fire()
-  def routed = physical.response |> gate_flow(!outstanding.empty) |> demux_flow(clients, response => response.context.client)
+
+  def (chosen, routed, all_drained) = arbitrate_memory_clients(
+    request, physical, ~capacity: 8, ~tag_request: tag_request,
+    ~response_client: fun (reply :: MemoryResponse(Bits(xlen.width), Routed)): reply.context.client
+  )
+  drained <== all_drained
   def faults = physical.fault |> fork_valid(clients)
   for (client in 0..clients):
     (routed[client] |> map_flow(reply):
       def returned :: MemoryResponse(Bits(xlen.width), Routed) = reply
       returned.with_context(Context, returned.context.context)
     ) |> response[client]
-    faults[client] |> filter_valid(_fault => requests.chosen === Bits(index_width(clients))(client)) |> fault[client]
-
-  outstanding.decrement <== physical.response.fire()
-  drained <== physical.drained & outstanding.empty
+    faults[client] |> filter_valid(_fault => chosen === Bits(index_width(clients))(client)) |> fault[client]
 
 export SuperscalarMemoryTransport

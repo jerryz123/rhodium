@@ -153,14 +153,61 @@ int main() {
     response_data = 0x12345678;
     eval();
     CHECK(completed && completed_data == response_data && !response_ready && !memory_drained);
+    // A split fragment can take an admission fault while that older WB reply returns.
+    address = 0x10019;
+    split_width = 2;
+    split_valid = 1;
+    eval();
+    CHECK(split_ready);
+    tick_model();
+    split_valid = 0;
+    physical_fault = 1;
+    block_response = 0;
+    eval();
+    CHECK(physical_valid && !wb_fault && !split_completed);
+    CHECK(response_ready && completed && completed_data == response_data);
+    tick_model();
+    physical_fault = 0;
+    response_valid = 0;
+    eval();
+    CHECK(split_completed && split_access_fault && !split_page_fault && !completed);
+    tick_model();
+    address = 0x10018;
+    eval();
+    CHECK(memory_drained && !completed);
+
+    // Fill all eight physical credits, then hold the ninth offer and the first reply.
+    wb_valid = 1;
+    physical_ready = 1;
+    for (unsigned i = 0; i < 8; ++i) {
+      eval();
+      CHECK(wb_ready && physical_valid);
+      tick_model();
+    }
+    response_valid = 1;
+    block_response = 1;
+    eval();
+    CHECK(!wb_ready && !physical_valid && completed && !response_ready && !memory_drained);
     tick_model();
     block_response = 0;
     eval();
-    CHECK(response_ready && completed && completed_data == response_data);
+    CHECK(!wb_ready && completed && response_ready);
     tick_model();
     response_valid = 0;
     eval();
-    CHECK(memory_drained && !completed);
+    CHECK(wb_ready && physical_valid);
+    tick_model();
+    wb_valid = 0;
+    physical_ready = 0;
+    response_valid = 1;
+    for (unsigned i = 0; i < 8; ++i) {
+      eval();
+      CHECK(completed && response_ready && !memory_drained);
+      tick_model();
+    }
+    eval();
+    CHECK(!completed && !response_ready && memory_drained);
+    response_valid = 0;
 
     for (unsigned width = 1; width <= 3; ++width)
       for (unsigned offset = 1; offset < 8; ++offset)

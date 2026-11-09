@@ -60,9 +60,9 @@ the transaction.
 specialization from `profile.mmu_type` at elaboration and passes it directly to
 `SuperscalarMemoryAdapter`. `memory/adapter.rhdl` owns the single EX/MEM
 context register, physical attribute qualification, split execution, and fault
-projection. `memory/transport.rhdl` owns physical arbitration and accepted
-response routing. Keep exact SoC profile checks unchanged: `rv32int`
-additionally selects Zve32x/VLEN64,
+projection. `memory/transport.rhdl` binds the [shared arbiter](../common/memory-arbiter.rhdl)
+to the superscalar client tag, eight-credit limit, and admission faults.
+Keep exact SoC profile checks unchanged: `rv32int` additionally selects Zve32x/VLEN64,
 Zvbb/Zvkt and the preset's optional scalar/system guarantees. `rv32max` adds
 scalar F and Zve32f while retaining the same Bare platform and vector geometry.
 `rv64max` projects the complete non-H RV64 preset with VLEN128 and Sv39.
@@ -473,7 +473,7 @@ WB authorization, and the two-port writeback policy stay local.
 | `memory/translation.rhdl` | Combinational query/result contract, including known/fault provenance, probe contention, and held split masking |
 | `memory/translation-specialization.rhm` | Immutable circuit-construction contract, architectural width, physical map, walker-client capability, split-access policy, and atomic PMA policy |
 | `memory/adapter.rhdl` | EX/MEM timing, physical PMA/PBMT qualification, split owner, committed requests, faults, and passive physical observations |
-| `memory/transport.rhdl` | Fixed-priority physical arbitration, atomic eight-entry owner capture, admission-fault routing, and ordered response dispatch |
+| `memory/transport.rhdl` | Physical client tag wrapping and removal, eight-credit configuration, and live-grant admission faults |
 | `memory/translation-identity.rhdl`, `memory/translation-sv39.rhdl` | Concrete specialization objects and their identity versus TLB/walker circuits, vector proof services, and prefetch timing |
 | `fp.rhdl` | RR fixed-return bookings, EX arithmetic launch, WB authorization, FPR hazards and load/arithmetic write ports |
 | `vector.rhdl` | WB-authorized composition of shared admission/execution and the local LSU adapter |
