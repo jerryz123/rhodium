@@ -242,14 +242,15 @@ void check_stalled_store(unsigned offset) {
         requests == prev_requests + 1 && writes == prev_writes + 1);
 }
 
-void check_block_zero() {
-  constexpr unsigned line = 0x1040;
-  const int previous_writes = writes, previous_completed = completed;
+void check_block_zero(unsigned address) {
+  const unsigned line = address & ~63u;
+  const int previous_requests = requests, previous_writes = writes;
+  const int previous_accepted = accepted, previous_completed = completed;
   core_in.prequest = {};
   core_in.prequest.pvalid = 1;
   core_in.prequest.pbits.ppbmt = 1;  // Non-cacheable alias of zero-capable RAM.
   auto &mem = core_in.prequest.pbits.pmemory;
-  mem.paddress = line + 37;
+  mem.paddress = address;
   mem.paccess = 6;
   mem.pdata = 0xdeadbeef;
   mem.pbyte_umask = 1;
@@ -258,9 +259,16 @@ void check_block_zero() {
   tick();
   core_in.prequest = {};
   for (unsigned i = 0; i < 8; ++i) {
+    chi_in.preq.pready = 0;
     until([&] { return chi_out.preq.pvalid; });
-    CHECK(chi_out.preq.pbits.paddress == line + 8 * i &&
-          chi_out.preq.pbits.popcode == 24 && chi_out.preq.pbits.psize_uor_unum_ureq == 3);
+    for (unsigned hold = 0; hold < 2; ++hold) {
+      const auto &req = chi_out.preq;
+      CHECK(req.pvalid && req.pbits.paddress == line + 8 * i &&
+            req.pbits.ptgt_uid == 1 && req.pbits.popcode == 24 &&
+            req.pbits.psize_uor_unum_ureq == 3);
+      tick();
+    }
+    chi_in.preq.pready = 1;
     tick();
     auto &rsp = chi_in.prsp.presponse;
     rsp = {};
@@ -298,8 +306,13 @@ void check_block_zero() {
     tick();
     rsp.pvalid = 0;
   }
-  settle();
-  CHECK(core_out.pdrained && writes == previous_writes + 8 && completed == previous_completed + 1);
+  for (unsigned guard = 0; guard < 4; ++guard) {
+    settle();
+    CHECK(core_out.pdrained && !chi_out.preq.pvalid && !chi_out.pdat.prequest.pvalid);
+    tick();
+  }
+  CHECK(requests == previous_requests + 8 && writes == previous_writes + 8 &&
+        accepted == previous_accepted + 1 && completed == previous_completed + 1 && outstanding == 0);
 }
 
 void stimulus() {
@@ -328,7 +341,8 @@ void stimulus() {
 
     for (unsigned offset : {0u, 4u, 8u, 12u})
       check_stalled_store(offset);
-    check_block_zero();
+    check_block_zero(0x1040 + 37);
+    check_block_zero(0x7fff);  // Last byte of RAM; 0x8000 belongs to the device home.
 
     // Reset clears a queued slot along with the shared transaction engine.
     fetch();
