@@ -48,7 +48,15 @@ data before another read can issue. `flush` cancels consumer ownership;
 `invalidate_all` only invalidates L1I. The caller asserts both when its recovery
 policy requires both. Accepted CHI work still drains after consumer cancellation.
 
-The router accepts a physical address width independent of XLEN. The supplied
+The router accepts a physical address width independent of XLEN. By default,
+uncached retries compare the entire byte address. A caller that already checks
+the executable physical map can pass
+`~executable_address_width: physical_map.executable_address_width`.
+Then uncached attempts must fit that bound and be fetch-block aligned. Only the
+retained retry key is narrowed; the cache and uncached ports still carry the
+full address.
+
+The supplied
 [uncached CHI attachment](../cache/README.md#non-cacheable-service) supports
 32- or 64-bit aligned fetches that fit its transport word. Permissions belong
 to the caller. [Fault helpers](fault.rhdl) and [encoding helpers](encoding.rhdl)

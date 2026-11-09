@@ -272,6 +272,9 @@ device-memory transaction semantics. `RiscvPhysicalMemoryMap.lookup(first,
 last)` accepts arbitrary-width hardware addresses, rejects high bits outside
 the configured physical width, and reports attributes only when both endpoints
 lie in the same region. A transfer therefore cannot straddle PMA regions.
+The host property `executable_address_width` bounds the highest possible byte
+address in any executable region, irrespective of cacheability. It returns
+zero when no executable address needs a set bit; it is not a permission check.
 The optional `~instruction_cacheable` attribute defaults to `cacheable` and
 independently permits instruction-cache allocation. Opting in while data
 caching is disabled requires readable, executable, read-idempotent, read-only,

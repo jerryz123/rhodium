@@ -26,6 +26,9 @@ check:
   normal.cache_block_zero ~is #true
   device.cache_block_zero ~is #false
   physical_map.address_width ~is 16
+  physical_map.executable_address_width ~is 15
+  RiscvPhysicalMemoryMap(44, [RiscvPhysicalMemoryRegion(AddressSet(0x100000000, 0xfff), normal)]).executable_address_width ~is 33
+  RiscvPhysicalMemoryMap(16, [RiscvPhysicalMemoryRegion(AddressSet(0x8000, 0x7fff), device)]).executable_address_width ~is 0
   physical_map.regions.length() ~is 2
   physical_map.regions[0].attributes.cacheable ~is #true
   physical_map.regions[1].attributes.cacheable ~is #false

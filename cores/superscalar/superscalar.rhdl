@@ -100,7 +100,7 @@ sync_circuit Superscalar(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfi
   /* Cached and nonallocating fetch share one frontend response path.
      Noncacheable fetch uses the data adapter's ordered uncached transport. */
 
-  inst instruction_memory(InstructionMemoryRouter(64, 64))
+  inst instruction_memory(InstructionMemoryRouter(64, 64, ~executable_address_width: config.physical_map.executable_address_width))
   frontend.memory <=> instruction_memory.core
   instruction_memory.cache <=> instruction.core
   instruction_memory.uncached <=> data.instruction

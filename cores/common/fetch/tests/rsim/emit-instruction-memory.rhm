@@ -4,8 +4,15 @@
 
 import:
   lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("rhodium/std/interconnect.rhdl").AddressSet
+  lib("riscv/rtl/pma.rhdl") open
   "../../memory.rhdl".InstructionMemoryRouter
 
-def word = elaborate(InstructionMemoryRouter(64, 32))
-def block = elaborate(InstructionMemoryRouter(64, 64))
+def rom = RiscvPhysicalMemoryAttributes(#true, #false, #true, #false, #false, #false, #true)
+def ram = RiscvPhysicalMemoryAttributes(#true, #true, #true, #true, #true, #false, #true)
+def physical_map = RiscvPhysicalMemoryMap(44, [
+  RiscvPhysicalMemoryRegion(AddressSet(0, 0x1ffff), rom),
+  RiscvPhysicalMemoryRegion(AddressSet(0x100000000, 0x1ffff), ram)])
+def word = elaborate(InstructionMemoryRouter(64, 32, ~executable_address_width: physical_map.executable_address_width))
+def block = elaborate(InstructionMemoryRouter(64, 64, ~executable_address_width: physical_map.executable_address_width))
 export word block

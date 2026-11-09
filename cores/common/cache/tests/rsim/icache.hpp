@@ -260,7 +260,8 @@ void check_refill_fault_replay() {
   auto expect_fault = [](std::uint64_t address) {
     send_core_request(address);
     CHECK(core_out.presponse.pvalid && core_out.presponse.pbits.paccess_ufault &&
-          !core_out.presponse.pbits.preplay && !chi_out.preq.pvalid);
+          !core_out.presponse.pbits.preplay && !core_out.presponse.pbits.pdata &&
+          !chi_out.preq.pvalid);
     cache_tick();
     CHECK(!chi_out.preq.pvalid);
   };
@@ -290,6 +291,58 @@ void check_refill_fault_replay() {
   return_line(ADDRESS, LINE);
   accept_comp_ack();
   expect_block(line_slice(LINE, 24 * 8, FETCH_BITS));
+  invalidate_cache(ADDRESS);
+}
+
+// Resolve hit, miss, hit on successive cycles while the miss waits for CHI.
+void check_mixed_lookup_outcomes() {
+  forbid_core_response = true;
+  send_prefetch(ADDRESS);
+  accept_read_request(ADDRESS);
+  return_line(ADDRESS, LINE);
+  accept_comp_ack();
+  for (int cycle = 0; cycle < 12; ++cycle)
+    cache_tick();
+  send_prefetch(ADDRESS);
+  for (int cycle = 0; cycle < 3; ++cycle) {
+    cache_tick();
+    CHECK(!chi_out.preq.pvalid);
+  }
+  forbid_core_response = false;
+
+  constexpr std::array addresses{ADDRESS + 8, COLLIDE_B_ADDRESS + 16, ADDRESS + 24};
+  chi_in.preq.pready = 0;
+  lookup_override = true;
+  staged_lookup = {.pvalid = 1, .pbits = addresses[0] ^ virtual_page_xor};
+  settle();
+  CHECK(virtual_lookup_out.pready);
+  cache_tick();
+  for (unsigned i = 0; i < addresses.size(); ++i) {
+    core_in.prequest = {.pvalid = 1, .pbits = {.paddress = addresses[i]}};
+    staged_lookup = {};
+    if (i + 1 < addresses.size()) {
+      staged_lookup = {.pvalid = 1, .pbits = addresses[i + 1] ^ virtual_page_xor};
+      settle();
+      CHECK(virtual_lookup_out.pready);
+    }
+    cache_tick();
+    const auto &response = core_out.presponse;
+    CHECK(response.pvalid && !response.pbits.paccess_ufault);
+    CHECK(response.pbits.preplay == (i == 1));
+    CHECK(response.pbits.pdata ==
+          (i == 1 ? 0 : line_slice(LINE, (addresses[i] - ADDRESS) * 8, FETCH_BITS)));
+  }
+  core_in.prequest = {};
+  lookup_override = false;
+  cache_tick();
+  grant_req_credit();
+  accept_read_request(COLLIDE_B_ADDRESS);
+  return_line(COLLIDE_B_ADDRESS, LINE_B);
+  accept_comp_ack();
+  send_core_request(COLLIDE_B_ADDRESS);
+  expect_block(line_slice(LINE_B, 0, FETCH_BITS));
+  send_core_request(ADDRESS);
+  expect_block(line_slice(LINE, 0, FETCH_BITS));
   invalidate_cache(ADDRESS);
 }
 
@@ -395,6 +448,7 @@ void run_case() {
   grant_req_credit();
   grant_rsp_credit();
   check_refill_fault_replay();
+  check_mixed_lookup_outcomes();
 
   if (FETCH_BITS == 64) {
     wide_fetch();

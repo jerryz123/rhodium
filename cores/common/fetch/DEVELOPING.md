@@ -11,7 +11,14 @@ read endpoints. `memory.rhdl` owns the S1/S2 pipe and one pending/completed
 uncached owner. It uses the neutral L1I protocol and Flow, never a pipeline's
 fetch bundle. Translation faults are adapted in the consuming MMU.
 
-Keep full physical-request matching and update priority explicit: flush wins,
+Keep S2's full physical request always-captured so its address flops can be
+shared with the L1I and frontend. Only the key written on uncached request
+acceptance needs the aligned block number and device attribute. Derive its
+bound from **all** executable regions: page attributes can make normally
+cacheable RAM uncached. Check the bound and alignment on retries as well as
+initial attempts; neither cache invalidation nor cached traffic consumes the key.
+
+Keep update priority explicit: flush wins,
 then read acceptance, response capture, and completed-reply consumption or
 discard. Do not add a hit-path queue or cancel accepted transport ownership.
 The shared cache attachment owns transport draining; the frontend selects which

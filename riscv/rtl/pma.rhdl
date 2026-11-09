@@ -79,6 +79,13 @@ class RiscvPhysicalMemoryMap(address_width :: PosInt,
 
     super(address_width, regions)
 
+  /* Bounds addresses admitted for fetch, including cacheable regions that PBMT can make uncached. */
+  property executable_address_width:
+    for values(width = 0) (region in regions):
+      if region.attributes.executable
+      | math.max(width, bits.length(region.address_set.base bits.or region.address_set.mask))
+      | width
+
   /* Checks both supplied address endpoints against one region, rejecting high-bit truncation and clearing all flags when unmapped. */
   method lookup(raw_address :: Bits,
                 raw_last_address :: Bits = raw_address) :~ RiscvPhysicalMemoryLookup():

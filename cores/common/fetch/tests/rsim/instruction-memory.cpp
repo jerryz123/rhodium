@@ -4,6 +4,8 @@
 using fetch_word = std::remove_cvref_t<decltype(core_out.presponse.pbits.pdata)>;
 bool cache_replay = 0;
 int transactions = 0;
+std::uint64_t accepted_address = 0;
+bool accepted_device = false;
 void tick() {
   rising();
   settle();
@@ -39,8 +41,11 @@ void observe() {
                 .paccess_ufault = 0,
                 .preplay = cache_replay});
     }
-    if (!reset && uncached_out.prequest.pvalid && uncached_in.prequest.pready)
+    if (!reset && uncached_out.prequest.pvalid && uncached_in.prequest.pready) {
       transactions++;
+      accepted_address = uncached_out.prequest.pbits.paddress;
+      accepted_device = uncached_out.prequest.pbits.pdevice;
+    }
   }
 }
 
@@ -126,7 +131,7 @@ void stimulus() {
 
     // Completed data cannot satisfy a retry with different physical attributes.
     attempt(UINT64_C(57344), 0, 1);
-    CHECK(transactions == 3);
+    CHECK(transactions == 3 && !accepted_device);
     uncached_in.presponse = {
         .pvalid = 1,
         .pbits = {.pdata = fetch_word(UINT64_C(0xdeadbeef01234567)),
@@ -136,7 +141,7 @@ void stimulus() {
     attempt(UINT64_C(57344), 0, 1, 0, 1);
     CHECK(transactions == 3);
     attempt(UINT64_C(57344), 0, 1, 0, 1);
-    CHECK(transactions == 4);
+    CHECK(transactions == 4 && accepted_device && accepted_address == UINT64_C(57344));
     uncached_in.presponse.pvalid = 1;
     tick();
     uncached_in.presponse.pvalid = 0;
@@ -150,16 +155,37 @@ void stimulus() {
     attempt(UINT64_C(57344), 0, 0, UINT64_C(0xdeadbeef01234567), 1, 1);
     CHECK(transactions == 4);
 
-    // A different address discards the old completion and can acquire a new owner.
-    attempt(UINT64_C(61440), 0, 1);
+    // The executable high RAM region can be uncached via PBMT. Bit 32 is the
+    // only difference from the low ROM request; a stale completion must not hit.
+    constexpr std::uint64_t low = 0xf000, high = (UINT64_C(1) << 32) | low;
+    attempt(low, 0, 1);
+    CHECK(transactions == 5 && accepted_address == low);
     uncached_in.presponse.pbits.paccess_ufault = 0;
+    uncached_in.presponse.pbits.pdata = fetch_word(0x11112222);
     uncached_in.presponse.pvalid = 1;
     tick();
     uncached_in.presponse.pvalid = 0;
-    attempt(UINT64_C(65536), 0, 1);
+    attempt(high, 0, 1);
     CHECK(transactions == 5);
-    attempt(UINT64_C(65536), 0, 1);
+    attempt(high, 0, 1);
+    CHECK(transactions == 6 && accepted_address == high && !accepted_device);
+    uncached_in.presponse.pbits.pdata = fetch_word(0x33334444);
+    uncached_in.presponse.pvalid = 1;
+    tick();
+    uncached_in.presponse.pvalid = 0;
+    attempt(high, 0, 0, 0x33334444);
     CHECK(transactions == 6);
+
+    // Keep the lowest block-number bit as well as the highest address bit.
+    attempt(high, 0, 1);
+    uncached_in.presponse.pvalid = 1;
+    tick();
+    uncached_in.presponse.pvalid = 0;
+    const auto adjacent = high + sizeof(fetch_word);
+    attempt(adjacent, 0, 1);
+    CHECK(transactions == 7);
+    attempt(adjacent, 0, 1);
+    CHECK(transactions == 8 && accepted_address == adjacent);
 
     throw Finished{};
   }
