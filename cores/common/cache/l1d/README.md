@@ -200,15 +200,14 @@ flowchart LR
   Core -->|"empty buffer + available SRAM"| Lookup
   Virtual["Early virtual index"] --> Lookup
   Queue --> Lookup["S3 lookup Pipe<br/>tag + state + data SRAMs"]
-  Lookup --> Resolved["Registered S4 result<br/>word + hit + coherence + victim"]
+  Lookup --> Resolved["Registered S4 metadata<br/>hit + coherence + victim"]
   Resolved -->|load hit| Load["LoadGen"]
-  Lookup -->|"same S3-to-S4 edge"| Record["Original request"]
+  Lookup -->|"same S3-to-S4 edge"| Record["Original request + selected row"]
   Record --> Load
   Resolved -->|"owned mutation or miss"| Way["Retained selected way"]
-  Resolved -->|owned store / SC / AMO| Pending["Mutation old value"]
   Record --> Mutate
   Way --> Mutate
-  Pending --> Mutate["StoreGen + atomic ALU<br/>byte-lane update"]
+  Load -->|"old AMO value"| Mutate["StoreGen + atomic ALU<br/>byte-lane update"]
   Load --> Response["Two-entry response Queue<br/>ordered Decoupled response"]
   Mutate --> Arrays["Tag, state, and data arrays"]
   Mutate --> Response
@@ -275,9 +274,10 @@ Only requests with reserved downstream capacity enter S4; its retained result
 waits until the selected local operation or transaction can advance.
 A miss or owned mutation keeps the original S4 request in place and captures
 the selected way at launch. This releases the S4 stage without copying the
-request. An owned store, SC, or AMO captures the old value separately. On the
-following edge it updates the selected byte lanes and sets UniqueDirty without
-emitting REQ or DAT traffic; an AMO returns the value from before that update.
+request. An owned AMO keeps the selected array row alongside its request:
+the same extracted scalar goes to the atomic ALU and the response. On the
+following edge the mutation updates the selected byte lanes and sets UniqueDirty
+without emitting REQ or DAT traffic.
 
 `CacheOperation.CacheBlockZero` carries the original address and no result
 destination. A Unique hit writes zeros to every XLEN word while blocking

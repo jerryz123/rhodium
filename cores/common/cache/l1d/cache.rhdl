@@ -52,14 +52,13 @@ bundle L1DLookup(xlen :: XLen, Context :: DataType, beat_bytes :: Pow2Int):
   prefetch: Bool
   prefetch_write: Bool
 
-/* Captures tag/state/data resolution and the chosen replacement victim for elastic S4 service. */
-bundle L1DResolved(xlen :: XLen, way_width :: PosInt, beat_bytes :: Pow2Int):
+/* Captures hit, coherence, and victim metadata for elastic S4 service. */
+bundle L1DResolved(xlen :: XLen, way_width :: PosInt):
   prefetch: Bool
   prefetch_write: Bool
   hit: Bool
   hit_way: Bits(way_width)
   state: CHICacheState
-  word: Bits(beat_bytes * 8)
   allocation_way: Bits(way_width)
   victim_valid: Bool
   victim_state: CHICacheState
@@ -166,7 +165,7 @@ sync_circuit L1DCache(xlen :: XLen,
   // S3 retains its request if older S4 work takes the arrays. Its returned
   // data is discarded and reread before retry, including across snoop service.
   inst s3_lookup(Pipe(L1DLookup(xlen, Context, beat_bytes), 1))
-  inst s4_result(Pipe(L1DResolved(xlen, way_width, beat_bytes), 1))
+  inst s4_result(Pipe(L1DResolved(xlen, way_width), 1))
   reg s3_read_valid(~init: Bool(#false))
   // Retain a slow completion until its downstream writeback path accepts it.
   // Registered-only input capacity keeps response backpressure out of request
@@ -196,13 +195,13 @@ sync_circuit L1DCache(xlen :: XLen,
   reg reservation_width(~init: MemoryWidth.Word)
 
 
-  /* S3 captures the request alongside the S4 result. A local mutation or miss
-     retains it after S4 transfers, and captures the selected way at launch. */
+  /* S3 captures the request and selected array row alongside the S4 metadata.
+     An owned AMO keeps both through its write; a miss uses the refill row. */
 
   reg retained_request(PhysicalMemoryBeatReq(xlen, Context, beat_bytes))
+  reg retained_row(Bits(beat_width))
   reg retained_way(Bits(way_width))
   reg pending_mutation_valid(~init: Bool(#false))
-  reg pending_mutation_old_value(Bits(width))
   reg pending_zero_index(~init: Bits(word_index_width)(0))
   reg refill_installing(~init: Bool(#false))
   reg refill_install_index(~init: Bits(word_index_width)(0))
@@ -459,7 +458,6 @@ sync_circuit L1DCache(xlen :: XLen,
      installing. LR, mutations, and prefetches retain their independent allocation policy. */
   def s4_bypass_refill = !s4_prefetch & !s4_hit & (s4_access === CacheOperation.Load) & (retained_request.locality =/= RiscvMemoryLocality.Default)
   def s4_dirty_victim = s4_needs_refill & !s4_bypass_refill & !s4_prefetch & !s4_hit & s4_victim_valid & s4_victim_state.is_dirty()
-  def s4_word = s4_result.egress.bits.word
   def gather_idle = gather_state === L1DGatherState.Idle
   def gather_read = gather_state.is_one_of(L1DGatherState.EvictionRead, L1DGatherState.SnoopRead)
   def gather_issue = gather_read & !gather_last_issued
@@ -548,15 +546,15 @@ sync_circuit L1DCache(xlen :: XLen,
   def service_load_unsigned = (retained_request.access === CacheOperation.Load) & retained_request.unsigned
   def refilled_word = backing_line[refill_word_index]
   service_load_gen.address <== retained_request.address
-  def service_row = mux(complete_refill, refilled_word, s4_word)
+  def service_row = mux(miss_active, refilled_word, retained_row)
   service_load_gen.data <== service_row
   service_load_gen.width <== retained_request.width
   service_load_gen.unsigned_load <== service_load_unsigned
   def refill_mutation = refill.completion.valid & !miss_prefetch & refill_access.needs_unique()
 
   /* Local mutation datapath.
-     An authorized owned hit retains its request and old value through the
-     SRAM write or final block-zero word; no new CHI owner is allocated. */
+     An owned AMO uses the same extracted old value for the ALU and response.
+     The SRAM write does not change the retained row. */
 
   def local_mutation = s4_mutation & s4_owned_mutation
   def local_mutation_capture = local_mutation & s4_local.valid
@@ -566,7 +564,7 @@ sync_circuit L1DCache(xlen :: XLen,
   def pending_zero = pending_mutation_access.is_cache_block_zero()
   def local_mutation_commit = pending_mutation_valid & (!pending_zero ||| (pending_zero_index =/= Bits(word_index_width)(words_per_line - 1)) ||| service_responses.ingress.ready)
   def local_mutation_complete = local_mutation_commit & (!pending_zero ||| (pending_zero_index === Bits(word_index_width)(words_per_line - 1)))
-  local_atomic_alu.old_value <== pending_mutation_old_value
+  local_atomic_alu.old_value <== service_load_gen.value
   local_atomic_alu.operand <== retained_request.data[0..width]
   local_atomic_alu.word <== retained_request.width === MemoryWidth.Word
   local_atomic_alu.operation <== retained_request.atomic
@@ -661,13 +659,12 @@ sync_circuit L1DCache(xlen :: XLen,
   (
     s3_observed
       |> gate_flow(s3_can_advance & s3_read_valid)
-      |> map_flow(lookup => L1DResolved(xlen, way_width, beat_bytes)):
+      |> map_flow(lookup => L1DResolved(xlen, way_width)):
         prefetch: lookup.prefetch
         prefetch_write: lookup.prefetch_write
         hit: s3_hit_way.valid
         hit_way: s3_hit_way.index
         state: s3_state
-        word: s3_word
         allocation_way: s3_allocation_way
         victim_valid: s3_valids[s3_allocation_way]
         victim_state: arrays.states.response.bits[s3_allocation_way]
@@ -677,6 +674,7 @@ sync_circuit L1DCache(xlen :: XLen,
   when (s4_result.ingress.fire()):
     assert(!pending_mutation_valid & !miss_active, "l1d_s4_request_not_owned_by_slow_service")
     retained_request <== s3_request
+    retained_row <== s3_word
 
   for (left in 0..ways):
     for (right in (left + 1)..ways):
@@ -762,9 +760,8 @@ sync_circuit L1DCache(xlen :: XLen,
   def response_access = response_request.access
   def response_address = response_request.address
   def response_width = response_request.width
-  def response_old_value = mux(local_mutation_commit, pending_mutation_old_value, service_load_gen.value)
   def response_data = priority_mux(~default: Bits(width)(0)):
-    response_access.returns_old_value(): response_old_value
+    response_access.returns_old_value(): service_load_gen.value
     response_access.is_store_conditional() & s4_failed_sc: Bits(width)(1)
 
   def response = PhysicalMemoryBeatResp(xlen, Context, beat_bytes):
@@ -922,7 +919,6 @@ sync_circuit L1DCache(xlen :: XLen,
 
   when local_mutation_capture:
     pending_mutation_valid <== Bool(#true)
-    pending_mutation_old_value <== service_load_gen.value
     pending_zero_index <== Bits(word_index_width)(0)
   elsewhen local_mutation_complete:
     pending_mutation_valid <== Bool(#false)

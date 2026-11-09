@@ -4,6 +4,7 @@
 using Row = decltype(core_in.prequest.pbits.pdata);
 using Line = std::array<Row, 4>;
 constexpr unsigned load = 1, store = 2, lr = 3, sc = 4, amo = 5;
+constexpr unsigned word = 2, doubleword = 3, atomic_swap = 0, atomic_add = 1;
 constexpr unsigned base = 0x1000;
 
 template <class F> void until(F done) {
@@ -16,13 +17,14 @@ template <class F> void until(F done) {
 }
 
 void request(unsigned address, unsigned op, Row row = {}, unsigned mask = 0xffff, bool raw = true,
-             unsigned context = 0x97) {
+             unsigned context = 0x97, unsigned width = doubleword, unsigned atomic_op = atomic_swap) {
   auto &req = core_in.prequest;
   req.pbits = {};
   req.pbits.praw_ubeat = raw;
   req.pbits.paddress = address;
   req.pbits.paccess = op;
-  req.pbits.pwidth = 3;
+  req.pbits.pwidth = width;
+  req.pbits.patomic = atomic_op;
   req.pbits.pbyte_umask = mask;
   req.pbits.pdata = row;
   req.pbits.pcontext = context;
@@ -224,6 +226,18 @@ int main() {
     hit(base + 8, load, Row{{patch.words[0], patch.words[1], 0, 0}}, 0xff00, false);
     request(base + 16, store, patch); response({}); a[1] = patch;
     request(base + 16, load); response(a[1]);
+    // AMOADD.W in both halves of an XLEN word must sign-extend the old value
+    // and update only its four byte lanes, even while responses are stalled.
+    a[1] = Row{{0x80000001, 0xf0000002, 0x13579bdf, 0x2468ace0}};
+    hit(base + 16, store, a[1]);
+    for (unsigned half : {0u, 1u}) {
+      const auto old = a[1].words[half];
+      request(base + 16 + 4*half, amo, Row{{3, 0, 0, 0}}, 0xf << (4*half),
+              false, 0x80+half, word, atomic_add);
+      response(Row{{old, 0xffffffff, 0, 0}}, 0x80+half);
+      a[1].words[half] += 3;
+      hit(base + 16, load, a[1]);
+    }
     // AMOSWAP.D and LR/SC remain scalar and affect only their eight lanes.
     Row high{{a[3].words[2], a[3].words[3], 0, 0}};
     request(base + 56, amo, patch, 0xff00, false); response(high);
