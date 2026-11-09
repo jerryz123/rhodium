@@ -88,7 +88,9 @@ allocate. Whole-bank invalidation wins over a simultaneous fill, removes global
 entries, and resets replacement state. Demand lookup observes pre-edge state;
 callers order the invalidation against their pipeline. The separate nonfaulting
 probe ignores A/D but requires a common access class permitted by both stages.
-Probe PBMT applies the G override followed by a non-PMA stage-one override.
+The `prefetch_probe` output groups the hit, fault, physical address, and PBMT
+so a caller can select the instruction or data probe as one result. Probe
+PBMT applies the G override followed by a non-PMA stage-one override.
 
 ## Vector page certification
 

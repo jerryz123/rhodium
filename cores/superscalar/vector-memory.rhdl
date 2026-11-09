@@ -110,23 +110,22 @@ sync_circuit SuperscalarVectorMemory(xlen :: XLen, slots :: Pow2Int):
   def arrival = (
     mem |> map_valid(attempt => Decision()):
       attempt: attempt
-      response: pipeline.response.bits.updated(~outcome: mux(pipeline.response.valid & !attempt.misaligned, pipeline.response.bits.outcome, SuperscalarCacheOutcome.Slow))
+      response: pipeline.response.bits.updated(~outcome: mux(pipeline.response.valid & !attempt.misaligned, pipeline.response.bits.outcome, CachePipelineOutcome.Slow))
   ) |> valid_pipe(1, ~flush: controller.recover)
 
 
   /* Converts a split reply into the same native WB result used for aligned attempts. */
   fun finish_split(saved :: Attempt(), reply :: RiscvSplitResult(xlen, Bool)) :~ Decision():
-    def result = priority_mux(~default: SuperscalarCacheOutcome.LoadHit):
-      reply.guest.page_fault: SuperscalarCacheOutcome.GuestPageFault
-      reply.page_fault: SuperscalarCacheOutcome.PageFault
-      reply.response.access_fault: SuperscalarCacheOutcome.AccessFault
+    def result = priority_mux(~default: CachePipelineOutcome.LoadHit):
+      reply.page_fault ||| reply.guest.page_fault: CachePipelineOutcome.PageFault
+      reply.response.access_fault: CachePipelineOutcome.AccessFault
     Decision():
       attempt: saved
       response:
         SuperscalarLookupResult(xlen):
           outcome: result
           data: reply.response.data
-          guest: reply.guest.details
+          guest: reply.guest
 
   def (wb :: Endpoint.of(Valid(Decision())), split_owner :: Endpoint.of(Decoupled(Attempt()))) = vector_split_writeback(
     arrival, split.response, split_capture,
@@ -141,10 +140,10 @@ sync_circuit SuperscalarVectorMemory(xlen :: XLen, slots :: Pow2Int):
   def token = attempt.token
   request_physical <== token.precertified
   def access = wb.valid & token.enabled
-  def slow = access & (native.response.outcome === SuperscalarCacheOutcome.Slow)
+  def slow = access & (native.response.outcome === CachePipelineOutcome.Slow)
   def split_attempt = slow & attempt.misaligned
   def ordinary = slow & !attempt.misaligned
-  def store_hit = access & (native.response.outcome === SuperscalarCacheOutcome.StoreHit)
+  def store_hit = access & (native.response.outcome === CachePipelineOutcome.StoreHit)
   def store_commit = store_hit & !memory.ordered_busy
   pipeline.commit <== store_commit
   (ordinary_request |> filter_valid(_decision => ordinary & !outstanding.full & !memory.ordered_busy) |> map_valid(decision):
@@ -184,10 +183,10 @@ sync_circuit SuperscalarVectorMemory(xlen :: XLen, slots :: Pow2Int):
   /* Translate cache and admission failures into a vector decision. Split data
      is already assembled, while ordinary hits still need raw-word extraction. */
 
-  def lookup_fault = access & native.response.outcome.is_one_of(SuperscalarCacheOutcome.PageFault, SuperscalarCacheOutcome.GuestPageFault, SuperscalarCacheOutcome.AccessFault)
+  def lookup_fault = access & native.response.outcome.is_one_of(CachePipelineOutcome.PageFault, CachePipelineOutcome.AccessFault)
   def admission_fault = memory.request.valid & memory.fault.valid
   def fault = lookup_fault ||| admission_fault
-  def lookup_retry = native.response.outcome === SuperscalarCacheOutcome.Replay
+  def lookup_retry = native.response.outcome === CachePipelineOutcome.Replay
   def ordinary_retry = ordinary & !accepted
   def store_retry = (store_hit & !store_commit) ||| (store_commit & !pipeline.commit_ready)
   def split_retry = split_attempt & !split.request.fire()
@@ -199,8 +198,8 @@ sync_circuit SuperscalarVectorMemory(xlen :: XLen, slots :: Pow2Int):
   hit_data.unsigned_load <== Bool(#true)
   hit_data.data <== native.response.data
   def hit_value = hit_data.value
-  def page_fault = native.response.outcome === SuperscalarCacheOutcome.PageFault
-  def guest_page_fault = native.response.outcome === SuperscalarCacheOutcome.GuestPageFault
+  def page_fault = native.response.outcome === CachePipelineOutcome.PageFault
+  def guest_page_fault = page_fault & native.response.guest.page_fault
   def lookup_cause = data_fault_cause(token.store, ~page_fault: page_fault, ~guest_page_fault: guest_page_fault)
   def fault_address = priority_mux(~default: attempt.request.address):
     split_pending: split.response.bits.fault_address
@@ -216,7 +215,7 @@ sync_circuit SuperscalarVectorMemory(xlen :: XLen, slots :: Pow2Int):
     cause: mux(admission_fault, memory.fault.bits.cause, lookup_cause)
     fault_address: fault_address
   ) |> controller.decision
-  outcome_guest <== mux(admission_fault, memory.fault.bits.guest, native.response.guest)
+  outcome_guest <== mux(admission_fault, memory.fault.bits.guest, native.response.guest.details)
   when (wb.valid & token.precertified):
     assert(!attempt.misaligned, "superscalar_certified_vector_request_is_aligned")
 

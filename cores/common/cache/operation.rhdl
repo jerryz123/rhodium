@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/rtl/sv39.rhdl").Sv39Access
   "../load-store.rhdl".MemoryWidth
   lib("rhodium/std/bits.rhdl") open
 
@@ -72,6 +73,12 @@ hardware_enum CacheOperation:
     operation.is_one_of(CacheOperation.Load,
                         CacheOperation.LoadReserved,
                         CacheOperation.Atomic)
+
+  /* Classifies a data translation. Management checks read-or-write permissions independently of D. */
+  method translation_access(operation) :: Sv39Access:
+    priority_mux(~default: Sv39Access.Load):
+      operation.is_cache_management(): Sv39Access.CacheManagement
+      operation.needs_unique(): Sv39Access.Store
 
   /* Selects register-producing memory operations, including SC status. */
   method returns_result(operation) :: Bool:

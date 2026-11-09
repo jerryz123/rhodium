@@ -51,6 +51,13 @@ fun riscv_tlb_matches(entry :: RiscvTlbEntry(), request :: RiscvTlbLookup()) :~ 
   def same_controls = (left.vs_pbmte === right.vs_pbmte) & (left.g_pbmte === right.g_pbmte) & (left.hs_mxr === right.hs_mxr)
   entry.valid & (entry.virtualized === request.virtualized) & same_page & same_modes & same_roots & same_controls
 
+/* Keeps a nonfaulting probe's permission, address and memory type together when selecting a TLB. */
+bundle RiscvPrefetchProbe():
+  hit: Bool
+  fault: Bool
+  physical_address: Bits(56)
+  pbmt: PageMemoryType
+
 /* Provides combinational demand and nonfaulting probe lookups over one associative bank.
    Successful fills replace round-robin; invalidation wins over a simultaneous fill. */
 sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8, ~host_root_epoch: host_root_epoch :: Boolean = #false):
@@ -65,6 +72,7 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8, ~host_root_epoch: h
   output probe_fault: Bool
   output probe_demand_fault: Bool
   output probe_translation: RiscvTlbMapping()
+  output prefetch_probe: RiscvPrefetchProbe()
   output probe_physical_address: Bits(56)
   output probe_pbmt: PageMemoryType
 
@@ -186,6 +194,12 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8, ~host_root_epoch: h
   def probe_intermediate_pbmt = mux(probe_g, probe_g_leaf.pbmt, PageMemoryType.PMA)
   probe_pbmt <== compose_page_memory_type(mux(probe_vs, probe_entry.vs_leaf.pbmt, PageMemoryType.PMA), probe_intermediate_pbmt)
 
+  prefetch_probe <== RiscvPrefetchProbe():
+    hit: probe_hit
+    fault: probe_fault
+    physical_address: probe_physical
+    pbmt: probe_pbmt
+
 
   /* Fill replacement and invalidation
      Only successful mappings enter the bank; invalidation wins at the state-update edge. */
@@ -284,6 +298,7 @@ sync_circuit RiscvTlb(entry_count :: Pow2Int = 8):
   probe_pbmt <== bank.probe_pbmt
 
 export:
+  RiscvPrefetchProbe
   RiscvTlb
   RiscvTranslationTlb
   RiscvTlbEntry

@@ -23,7 +23,7 @@ sync_circuit SuperscalarVectorMemoryFixture(xlen :: XLen, slots :: Pow2Int):
   input width: Bits(2)
   output issue_ready: Bool
   input(lookup_valid, commit_ready): Bool
-  input lookup_outcome: SuperscalarCacheOutcome
+  input lookup_outcome: CachePipelineOutcome
   input lookup_data: Bits(xlen.width)
   input(request_ready, response_valid, completion_ready, ordered_busy, request_fault): Bool
   input response_data: Bits(xlen.width)
@@ -71,7 +71,7 @@ sync_circuit SuperscalarVectorMemoryFixture(xlen :: XLen, slots :: Pow2Int):
   dut.pipeline.response.bits <== SuperscalarLookupResult(xlen):
     outcome: lookup_outcome
     data: lookup_data
-    guest: literal(RiscvGuestFault(), 0)
+    guest: literal(RiscvGuestException(), 0)
 
   dut.pipeline.commit_ready <== commit_ready
   committed <== dut.pipeline.commit

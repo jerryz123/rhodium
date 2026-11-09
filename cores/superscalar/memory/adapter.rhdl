@@ -142,17 +142,13 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
   def speculative_ok = decision.is(CacheLookupDecision.Probe) & !physical_memory.ordered_busy
   mem_request |> filter_valid(_request => speculative_ok) |> map_valid(request => cache_request(request.memory, resolved.address[0..xlen.width])) |> physical_pipeline.request
   def cache_outcome = cache_lookup_outcome(decision, physical_pipeline.response.valid, physical_pipeline.response.bits.outcome)
-  def outcome = mux_lookup(cache_outcome, ~default: SuperscalarCacheOutcome.Replay):
-    CachePipelineOutcome.Slow: SuperscalarCacheOutcome.Slow
-    CachePipelineOutcome.LoadHit: SuperscalarCacheOutcome.LoadHit
-    CachePipelineOutcome.StoreHit: SuperscalarCacheOutcome.StoreHit
-    CachePipelineOutcome.PageFault: mux(guest_page_fault, SuperscalarCacheOutcome.GuestPageFault, SuperscalarCacheOutcome.PageFault)
-    CachePipelineOutcome.AccessFault: SuperscalarCacheOutcome.AccessFault
-
   pipeline.response.valid <== mem_request.valid
   pipeline.response.bits <== SuperscalarLookupResult(xlen):
-    guest: resolved.guest
-    outcome: outcome
+    guest:
+      RiscvGuestException():
+        page_fault: guest_page_fault & (cache_outcome === CachePipelineOutcome.PageFault)
+        details: resolved.guest
+    outcome: cache_outcome
     data: physical_pipeline.response.bits.data
 
   physical_pipeline.commit <== pipeline.commit & !misaligned.busy

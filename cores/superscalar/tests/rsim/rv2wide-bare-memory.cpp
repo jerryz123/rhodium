@@ -115,7 +115,7 @@ int main() {
     for (unsigned fault : {4u, 5u}) {
       lookup_outcome = fault;
       eval();
-      CHECK(result_valid && resolve_valid && outcome == fault);
+      CHECK(result_valid && resolve_valid && outcome == fault && !lookup_guest.ppage_ufault);
     }
     suppress_lookup_response = 1;
     eval();

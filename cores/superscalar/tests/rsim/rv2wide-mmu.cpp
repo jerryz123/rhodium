@@ -916,6 +916,16 @@ int main() {
            wb_fault_bits.pguest.pguest_uphysical_uaddress == 90120 &&
            wb_fault_bits.pguest.paccess == 0));
     wb_valid = 0;
+    // A resident G-stage denial reaches MEM as PageFault with the same guest provenance.
+    ex_valid = 1;
+    tick_model();
+    falling();
+    ex_valid = 0;
+    eval();
+    CHECK(result_valid && outcome == 4 && !resolve_valid && !physical_valid &&
+          lookup_guest.ppage_ufault && lookup_guest.pdetails.pguest_uvirtual_uaddress &&
+          lookup_guest.pdetails.pguest_uphysical_uaddress == 90120 &&
+          lookup_guest.pdetails.paccess == 0);
     // Implicit VS PTE reads themselves undergo G translation and retain their GPA.
     guest_access = 0;
     guest_state.pvirtualized = 1;

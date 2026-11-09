@@ -1008,7 +1008,9 @@ allocate, mutate memory, or perform device reads. The service returns:
 - `Slow`: WB attempts the separate authorized transaction path.
 - `Replay`: resource contention retries the instruction, without slow admission.
 - `PageFault` or `AccessFault`: WB reports the appropriate load/store cause and
-  original byte address. Missing MEM feedback on a granted scalar lookup triggers replay.
+  original byte address. On `PageFault`, WB selects the guest-page cause when
+  `guest.page_fault` is set and takes the trap provenance from `guest.details`.
+  Missing MEM feedback on a granted scalar lookup triggers replay.
 
 When scalar and vector request the same lookup cycle, scalar wins and vector
 receives an explicit `Slow` result for WB transaction admission.

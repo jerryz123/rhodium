@@ -39,10 +39,38 @@ bundle RiscvTlbMapping():
   fault: RiscvTranslationFault
   fault_details: RiscvGuestFault()
 
+/* Retains an exact failed lookup and trap provenance, never successful mapping
+   addresses or leaf permissions. The original lookup also owns the access class. */
+bundle RiscvTranslationFailure():
+  request: RiscvTlbLookup()
+  kind: RiscvTranslationFault
+  details: RiscvGuestFault()
+
+  /* Projects a matched failure onto the common result path. Failed walks have
+     no physical destination; zero leaves cannot authorize memory or a window. */
+  method mapping(failure) :: RiscvTlbMapping():
+    RiscvTlbMapping():
+      virtual_address: failure.request.virtual_address
+      access: failure.request.access
+      physical_address: Bits(56)(0)
+      page_size: Sv39PageSize.Page4KiB
+      guest_physical_address: Bits(64)(0)
+      vs_leaf: literal(Sv39Pte(), 0)
+      g_leaf: literal(Sv39Pte(), 0)
+      fault: failure.kind
+      fault_details: failure.details
+
 /* Pairs a completed mapping with the original lookup context for associative installation. */
 bundle RiscvTlbFill():
   request: RiscvTlbLookup()
   result: RiscvTlbMapping()
+
+  /* Captures the failed walk key and provenance for a subsequent matching request. */
+  method failure(fill) :: RiscvTranslationFailure():
+    RiscvTranslationFailure():
+      request: fill.request
+      kind: fill.result.fault
+      details: fill.result.fault_details
 
 /* For a faulting completion, selects the exception class from the original access,
    not an implicit page-table read. */
@@ -163,6 +191,7 @@ export:
   RiscvTlbLookup
   RiscvTlbMapping
   RiscvTlbFill
+  RiscvTranslationFailure
   riscv_translation_fault_cause
   RiscvPteRead
   RiscvTranslationMemory

@@ -285,7 +285,8 @@ privilege helpers for its WB reservation-wait timeout policy. Its profile and UD
 projection import the pure `riscv/isa/c.rhm` compressed-extension descriptors;
 the profile supplies the same selected C/Zcb/Zcmop list to the assembler and
 shared CSR bank, preserving IALIGN and architectural publication consistency.
-The shared physical cache protocol imports the architectural PBMT type for
+The shared cache operation type imports the architectural Sv39 access class
+for data translation. The shared physical cache protocol imports the architectural PBMT type for
 `PhysicalDataReq`. Superscalar bundles, physical transport, and the RV5Stage
 physical port consume this payload. The RV5Stage protocol uses Rhombus meta
 for its native-width alias. The superscalar data translation contract uses the

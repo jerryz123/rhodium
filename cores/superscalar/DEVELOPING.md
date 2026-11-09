@@ -1044,8 +1044,8 @@ Only WB data misses enter the retained pending-walk slot. An instruction walk
 already in progress finishes first, and the pending WB lookup wins next admission.
 The walker captures its request context, independent of subsequent live CSRs.
 
-Each port retains failed walks as `SuperscalarTranslationFailure`: the exact
-lookup/context, fetch fault validity and cause, and guest provenance, not a complete TLB fill.
+Each port retains the exact lookup, fault class, and guest provenance in a shared
+`RiscvTranslationFailure` record.
 Replay matches the entire lookup, including access class and permission controls.
 The lookup supplies the original access for cause selection; a matched failure
 projects a zero physical address and zero leaves onto the common result path.

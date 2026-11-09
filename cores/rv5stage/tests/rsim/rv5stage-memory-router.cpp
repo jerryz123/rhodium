@@ -1,7 +1,7 @@
 // Checks PMA routing, IO admission, and memory response ordering.
 // SPDX-License-Identifier: Apache-2.0
 #include "driver.hpp"
-constexpr unsigned LOAD = 1, STORE = 2, LOAD_RESERVED = 3, ATOMIC = 5;
+constexpr unsigned LOAD = 1, STORE = 2, LOAD_RESERVED = 3, STORE_CONDITIONAL = 4, ATOMIC = 5;
 void tick() {
   settle();
   rising();
@@ -52,6 +52,36 @@ void check_request(std::uint32_t address, std::uint8_t access,
     tick();
     uncached_in.presponse.pvalid = UINT64_C(0);
   }
+}
+
+// A PBMT-NC override on atomic-capable RAM routes to the ordered I/O slot.
+void check_nc_atomic(unsigned operation, bool older_cache_work) {
+  auto &req = core_in.prequest;
+  req.pbits.ppbmt = 1;
+  req.pbits.pmemory.paccess = operation;
+  req.pbits.pmemory.paddress = 0x1000;
+  req.pbits.pmemory.pwidth = 2;
+  req.pbits.pmemory.pbyte_umask = 0xf;
+  req.pbits.pmemory.patomic = 0; // AMOSWAP.W
+  req.pvalid = 1;
+  if (older_cache_work) {
+    cache_in.pdrained = 0;
+    settle();
+    CHECK(!core_out.prequest.pready && !core_out.prequest_uaccess_ufault &&
+          !cache_out.prequest.pvalid && !uncached_out.prequest.pvalid);
+    tick();
+    cache_in.pdrained = 1;
+  }
+  settle();
+  CHECK(core_out.prequest.pready && core_out.prequest_uaccess_ufault &&
+        !core_out.prequest_ufault && !cache_out.prequest.pvalid &&
+        !uncached_out.prequest.pvalid);
+  tick();
+  req.pvalid = 0;
+  settle();
+  CHECK(core_out.pdrained && !core_out.presponse.pvalid &&
+        !cache_out.prequest.pvalid && !uncached_out.prequest.pvalid);
+  req.pbits.ppbmt = 0;
 }
 
 void drive() {}
@@ -119,6 +149,10 @@ void stimulus() {
         check_request(UINT64_C(4096), ((op)&low_mask(4)), 1, 0, 0);
     }
     core_in.prequest.pbits.ppbmt = 0;
+    for (auto operation : {LOAD_RESERVED, STORE_CONDITIONAL, ATOMIC}) {
+      check_nc_atomic(operation, false);
+      check_nc_atomic(operation, true);
+    }
     // Every AMOArithmetic operation must reach coherent RAM, including its
     // first and last naturally aligned word, but not a non-atomic/device PMA.
     core_in.prequest.pbits.pmemory.pwidth = UINT64_C(2);

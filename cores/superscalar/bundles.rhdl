@@ -21,6 +21,7 @@ import:
   lib("cores/common/load-store.rhdl").MemoryWidth
   lib("cores/common/load-store.rhdl").memory_word_bytes
   lib("cores/common/cache/protocol.rhdl").PhysicalDataReq
+  lib("cores/common/cache/protocol.rhdl").CachePipelineOutcome
   lib("cores/common/cache/protocol.rhdl").PhysicalMemoryReq
   lib("cores/common/cache/operation.rhdl").CacheOperation
   lib("riscv/rtl/svpbmt.rhdl").PageMemoryType
@@ -469,16 +470,6 @@ bundle SuperscalarOperands(xlen :: XLen):
   rs2: Bits(xlen.width)
   rewrite: SuperscalarExecutionRewrite(xlen)
 
-/* Distinguishes a fixed-latency hit, retry, authorized slow service, or translation fault. */
-hardware_enum SuperscalarCacheOutcome:
-  Slow
-  LoadHit
-  StoreHit
-  Replay
-  PageFault
-  AccessFault
-  GuestPageFault
-
 /* Retains training decisions; instruction, return, and target addresses are aliases. */
 bundle SuperscalarBranchDecision():
   branch: Bool
@@ -543,7 +534,7 @@ bundle SuperscalarResult(xlen :: XLen, hypervisor :: Boolean):
   prefetch: CachePrefetchOperation
   hint: InstructionHint
   address: Bits(xlen.width)
-  cache_outcome: SuperscalarCacheOutcome
+  cache_outcome: CachePipelineOutcome
   system: SuperscalarSystemControl()
   muldiv: SuperscalarLongControl()
   operands: SuperscalarLaneOperands(xlen)
@@ -805,9 +796,9 @@ bundle SuperscalarUncachedContext(Context :: DataType):
 
 /* Returns the MEM decision and raw aligned load beat; no allocation or mutation occurs here. */
 bundle SuperscalarLookupResult(xlen :: XLen):
-  outcome: SuperscalarCacheOutcome
+  outcome: CachePipelineOutcome
   data: Bits(xlen.width)
-  guest: RiscvGuestFault()
+  guest: RiscvGuestException()
 
 /* Pairs an EX lookup with next-cycle MEM feedback and a one-cycle WB store candidate. */
 expr.macro
@@ -915,7 +906,6 @@ export:
   SuperscalarBoundaryInstruction
   SuperscalarVectorLane
   SuperscalarBranchResult
-  SuperscalarCacheOutcome
   SuperscalarLookupResult
   SuperscalarPipelineAccess
   SuperscalarMemory

@@ -97,6 +97,39 @@ void flushed_fetch_before_device_load() {
   CHECK(memory_out.pdrained && !memory_out.presponse.pvalid && !instruction_out.presponse.pvalid);
 }
 
+// Issue the same PBMT-NC word atomics as the RV5Stage committed-router fixture.
+void check_nc_atomics(bool older_cache_work) {
+  if (older_cache_work) {
+    service(base, 1, 0, word_mask, size_code);
+    until([] { return memory_out.presponse.pvalid; });
+  }
+  auto &req = memory_in.prequest;
+  for (unsigned op : {3u, 4u, 5u}) { // LR.W, SC.W, AMOSWAP.W
+    req.pbits = {};
+    req.pbits.ppbmt = 1;
+    req.pbits.pmemory.paddress = base;
+    req.pbits.pmemory.paccess = op;
+    req.pbits.pmemory.pwidth = 2;
+    req.pbits.pmemory.pbyte_umask = 0xf;
+    req.pvalid = 1;
+    eval();
+    CHECK(!memory_out.prequest.pready && memory_out.pfault.pvalid &&
+          memory_out.pfault.pbits.pcause == (op == 3 ? 5 : 7) &&
+          memory_out.pfault.pbits.pvalue == base);
+    CHECK(memory_out.pdrained == !older_cache_work &&
+          memory_out.presponse.pvalid == older_cache_work &&
+          !chi_out.prequests.pvalid && !uncached_chi_out.preq.pvalid);
+    tick_model();
+    req.pvalid = 0;
+    eval();
+    CHECK(!memory_out.pfault.pvalid && !chi_out.prequests.pvalid &&
+          !uncached_chi_out.preq.pvalid);
+  }
+  if (older_cache_work)
+    complete(expected(0));
+  CHECK(memory_out.pdrained && !memory_out.presponse.pvalid);
+}
+
 void fill() {
   until([] { return chi_out.prequests.pvalid; });
   CHECK(chi_out.prequests.pbits.paddress == base && chi_out.prequests.pbits.popcode == 7);
@@ -145,6 +178,9 @@ int main() {
     // A committed byte store misses in the top native word of the first row.
     service(base + 15, 2, Word(0xa5) << (8 * (bytes - 1)), 1u << (bytes - 1), 0);
     fill(); complete(0); line[15] = 0xa5;
+    until([] { return memory_out.pdrained; });
+    check_nc_atomics(false);
+    check_nc_atomics(true);
     for (unsigned offset = 0; offset < 16; offset += bytes) {
       lookup(offset, false, expected(offset), word_mask);
       // Speculative byte store in this native word, authorized one cycle later.

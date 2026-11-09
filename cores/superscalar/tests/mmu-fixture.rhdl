@@ -59,7 +59,8 @@ sync_circuit SuperscalarMmuFixture(~bare: bare :: Boolean = #false):
   output split_fault_address: Bits(64)
   output(index_valid, resolve_valid, result_valid): Bool
   output(index_address, resolve_address): Bits(64)
-  output outcome: SuperscalarCacheOutcome
+  output outcome: CachePipelineOutcome
+  output lookup_guest: RiscvGuestException()
   output wb_fault: Bool
   output wb_fault_bits: SuperscalarResolution(XLen.X64)
   output wb_ready: Bool
@@ -133,6 +134,7 @@ sync_circuit SuperscalarMmuFixture(~bare: bare :: Boolean = #false):
   resolve_address <== mmu.physical_pipeline.request.bits.address
   result_valid <== mmu.pipeline.response.valid
   outcome <== mmu.pipeline.response.bits.outcome
+  lookup_guest <== mmu.pipeline.response.bits.guest
   mmu.memory.request.valid <== wb_valid
   mmu.memory.request.bits <== request
   mmu.split.request.valid <== split_valid

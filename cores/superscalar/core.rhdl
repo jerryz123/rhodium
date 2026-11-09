@@ -64,6 +64,7 @@ import:
   lib("cores/common/load-store.rhdl") open
   lib("cores/common/cache/operation.rhdl") open
   lib("cores/common/cache-prefetch.rhdl") open
+  lib("cores/common/cache/protocol.rhdl").CachePipelineOutcome
   lib("cores/common/cache/protocol.rhdl").PhysicalMemoryReq
   lib("cores/common/misaligned-access.rhdl") open
   lib("riscv/isa/xlen.rhm") open
@@ -989,7 +990,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
       prefetch: ex.control.prefetch
       hint: ex.control.hint
       address: mux(ex.control.branch.resolver.enable, ex_target, ex_address)
-      cache_outcome: SuperscalarCacheOutcome.Slow
+      cache_outcome: CachePipelineOutcome.Slow
       system: ex.control.system
       muldiv: ex.control.muldiv
       operands:
@@ -1149,21 +1150,21 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     (mem_context |> map_valid(token): token.into(SuperscalarResult(xlen, hypervisor)).observed(mem_pc)) |> memory_stage[lane]
     def mem_lookup = mem.memory_active & (mem.resolution.disposition === SuperscalarDisposition.Continue)
     def mem_misaligned = mem.memory.access.requires_split(mem.memory.width, mem.address)
-    def mem_outcome = priority_mux(~default: SuperscalarCacheOutcome.Replay):
-      mem_misaligned: SuperscalarCacheOutcome.Slow
+    def mem_outcome = priority_mux(~default: CachePipelineOutcome.Replay):
+      mem_misaligned: CachePipelineOutcome.Slow
       scalar_pipeline.response.valid: scalar_pipeline.response.bits.outcome
 
-    def mem_hit = mem_lookup & (mem.memory.access === CacheOperation.Load) & (mem_outcome === SuperscalarCacheOutcome.LoadHit)
-    def mem_page_fault = mem_outcome.is_one_of(SuperscalarCacheOutcome.PageFault, SuperscalarCacheOutcome.GuestPageFault)
-    def mem_fault = mem_outcome.is_one_of(SuperscalarCacheOutcome.PageFault, SuperscalarCacheOutcome.GuestPageFault, SuperscalarCacheOutcome.AccessFault)
+    def mem_hit = mem_lookup & (mem.memory.access === CacheOperation.Load) & (mem_outcome === CachePipelineOutcome.LoadHit)
+    def mem_page_fault = mem_outcome === CachePipelineOutcome.PageFault
+    def mem_fault = mem_outcome.is_one_of(CachePipelineOutcome.PageFault, CachePipelineOutcome.AccessFault)
     def mem_disposition = priority_mux(~default: SuperscalarDisposition.Continue):
       mem_fault: SuperscalarDisposition.Fault
-      mem_outcome === SuperscalarCacheOutcome.Replay: SuperscalarDisposition.Replay
+      mem_outcome === CachePipelineOutcome.Replay: SuperscalarDisposition.Replay
 
     def mem_lookup_resolution = SuperscalarResolution(xlen):
-      guest: scalar_pipeline.response.bits.guest
+      guest: scalar_pipeline.response.bits.guest.details
       disposition: mem_disposition
-      cause: data_fault_cause(mem.memory.access.store_fault_class(), ~page_fault: mem_page_fault, ~guest_page_fault: mem_outcome === SuperscalarCacheOutcome.GuestPageFault)
+      cause: data_fault_cause(mem.memory.access.store_fault_class(), ~page_fault: mem_page_fault, ~guest_page_fault: mem_page_fault & scalar_pipeline.response.bits.guest.page_fault)
       value: mem.address
 
     def mem_taken = mem.branch.update.branch & mem_resolver.result.bits.taken
@@ -1559,8 +1560,8 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   /* Drain older services before launching retained split work.
      Capture, completion, acceptance, then drain define state-update priority. */
 
-  def wb_slow = wb_memory_active & !wb_memory_capture & (wb_memory.cache_outcome === SuperscalarCacheOutcome.Slow)
-  def wb_store_hit = wb_memory_active & wb_memory.memory.access.is_store() & (wb_memory.cache_outcome === SuperscalarCacheOutcome.StoreHit)
+  def wb_slow = wb_memory_active & !wb_memory_capture & (wb_memory.cache_outcome === CachePipelineOutcome.Slow)
+  def wb_store_hit = wb_memory_active & wb_memory.memory.access.is_store() & (wb_memory.cache_outcome === CachePipelineOutcome.StoreHit)
   def wb_older_vector_memory = wb_live_valid[service_index(wb_vector_lane)] & wb_vector.vector.memory & (wb_vector_lane < wb_memory_lane)
   def wb_vector_store_pending = vector.service.stores_pending ||| (wb_older_vector_memory & wb_vector.vector.store)
   def wb_vector_load_pending = vector.service.loads_pending ||| (wb_older_vector_memory & !wb_vector.vector.store)

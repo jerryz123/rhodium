@@ -89,8 +89,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   // translation evidence until architectural invalidation. Keep its exact
   // guest-fault metadata separate from successful ITLB mappings and probes.
   reg instruction_fault_cached(~init: Bool(#false))
-  reg instruction_fault_lookup(RiscvTlbLookup())
-  reg instruction_fault_mapping(RiscvTlbMapping())
+  reg instruction_failure(RiscvTranslationFailure())
   def dtlb_result = riscv_host_result(dtlb.translation)
   inst vector_window(VectorWindow(physical_map))
   inst misaligned(RiscvMisalignedEngine(xlen, RV5StageMemoryContext(vector_completion_slots)))
@@ -167,7 +166,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def data_physical = mux(split_busy, split_physical, data_vector & vector_fast.request_physical)
   def data_window = vector_window.owned & data_vector & !data_physical & !split_candidate & !split_busy
   def data_pinned = data_window ||| data_physical
-  def data_access_kind = mux(data_memory_operation.is_cache_management(), Sv39Access.CacheManagement, mux(data_memory_operation.needs_unique(), Sv39Access.Store, Sv39Access.Load))
+  def data_access_kind = data_memory_operation.translation_access()
 
 
   /* Translation-port arbitration
@@ -228,18 +227,17 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   dtlb.probe <== probe
 
   def instruction_prefetch = prefetch_request.operation === CachePrefetchOperation.Instruction
-  def prefetch_translation_hit = mux(instruction_prefetch, itlb.probe_hit, dtlb.probe_hit)
-  def prefetch_translation_fault = mux(instruction_prefetch, itlb.probe_fault, dtlb.probe_fault)
+  def hint_probe = mux(instruction_prefetch, itlb.prefetch_probe, dtlb.prefetch_probe)
   def prefetch_translated_address = if xlen == XLen.X32 | prefetch_request.address | mux(
     normal_data_translation_enabled,
-    mux(instruction_prefetch, itlb.probe_physical_address, dtlb.probe_physical_address).zext(64),
+    hint_probe.physical_address.zext(64),
     prefetch_request.address
   )
 
-  def prefetch_physical = cache_prefetch_physical(width, physical_map, prefetch_translated_address, prefetch_request.operation, mux(instruction_prefetch, itlb.probe_pbmt, dtlb.probe_pbmt))
+  def prefetch_physical = cache_prefetch_physical(width, physical_map, prefetch_translated_address, prefetch_request.operation, hint_probe.pbmt)
 
   virtual_prefetch_pipe.egress
-    |> filter_valid(_request => prefetch_request.operation.is_prefetch() & prefetch_translation_hit & !prefetch_translation_fault & prefetch_physical.cacheable & prefetch_physical.permitted)
+    |> filter_valid(_request => prefetch_request.operation.is_prefetch() & hint_probe.hit & !hint_probe.fault & prefetch_physical.cacheable & prefetch_physical.permitted)
     |> map_valid(request => request.updated(~address: prefetch_physical.address))
     |> physical_prefetch_pipe.ingress
 
@@ -320,7 +318,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
      Page probes precede instruction misses, then authorized data misses. */
 
   def can_start_walk = !walk_active & !fault_valid
-  def instruction_fault_cache_hit = instruction_fault_cached & (instruction_fault_lookup.as_bits() === itlb.lookup.as_bits())
+  def instruction_fault_cache_hit = instruction_fault_cached & (instruction_failure.request.as_bits() === itlb.lookup.as_bits())
   // A replaying older instruction may need its own fetch (including a
   // straddling word), but speculative successors must not repeatedly occupy
   // the shared walker before that instruction resolves.
@@ -373,8 +371,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
     instruction_fault_cached <== Bool(#false)
   elsewhen cache_instruction_page_fault:
     instruction_fault_cached <== Bool(#true)
-    instruction_fault_lookup <== walk_lookup
-    instruction_fault_mapping <== walker.completion.bits
+    instruction_failure <== fills.bits.into(RiscvTlbFill()).failure()
 
 
   /* Fault selection and instruction PMA checks */
@@ -394,7 +391,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
       details: mapping.fault_details.updated(~guest_virtual_address: guest)
 
   def instruction_exception_mapping = priority_mux(~default: itlb.translation):
-    instruction_fault_cache_hit: instruction_fault_mapping
+    instruction_fault_cache_hit: instruction_failure.mapping()
     latched_instruction_fault: fault_mapping
 
   def instruction_guest_exception = guest_exception(instruction_exception_mapping, instruction_guest)

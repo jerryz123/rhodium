@@ -6,6 +6,7 @@ import:
   lib("cores/common/mmu/context.rhdl").GuestMemoryReq
   lib("cores/common/cosim-source.rhm").describe_cosim_signals
   "../bundles.rhdl" open
+  lib("cores/common/cache/protocol.rhdl").CachePipelineOutcome
   lib("cores/common/cache/protocol.rhdl").PhysicalMemoryReq
   lib("cores/common/memory-arbiter.rhdl") open
   lib("cores/common/misaligned-access.rhdl") open
@@ -38,9 +39,9 @@ sync_circuit SuperscalarMemoryPorts(xlen :: XLen, slots :: Pow2Int):
 
   pipeline_vector <== !scalar_pipeline.request.valid
   def slow = SuperscalarLookupResult(xlen):
-    outcome: SuperscalarCacheOutcome.Slow
+    outcome: CachePipelineOutcome.Slow
     data: Bits(xlen.width)(0)
-    guest: literal(RiscvGuestFault(), 0)
+    guest: literal(RiscvGuestException(), 0)
   def (_, mem_vector) = arbitrate_memory_lookups(
     GuestMemoryReq(PhysicalMemoryReq(xlen, Bool)), SuperscalarLookupResult(xlen), scalar_pipeline, vector_pipeline, pipeline, ~slow: slow
   )

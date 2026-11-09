@@ -29,27 +29,6 @@ import:
   lib("cores/common/mmu/vector-window.rhdl") open
   lib("cores/common/mmu/vector-certificate.rhdl").VectorCertificate
 
-/* Retains an exact failed lookup and trap provenance, never successful mapping
-   addresses or leaf permissions. The original lookup also owns the access class. */
-bundle SuperscalarTranslationFailure():
-  request: RiscvTlbLookup()
-  kind: RiscvTranslationFault
-  details: RiscvGuestFault()
-
-  /* Projects a matched failure onto the common result path. Failed walks have
-     no physical destination; zero leaves cannot authorize memory or a window. */
-  method mapping(failure) :: RiscvTlbMapping():
-    RiscvTlbMapping():
-      virtual_address: failure.request.virtual_address
-      access: failure.request.access
-      physical_address: Bits(56)(0)
-      page_size: Sv39PageSize.Page4KiB
-      guest_physical_address: Bits(64)(0)
-      vs_leaf: literal(Sv39Pte(), 0)
-      g_leaf: literal(Sv39Pte(), 0)
-      fault: failure.kind
-      fault_details: failure.details
-
 /* Resolves RV64 instruction/data queries using TLBs, retained failures, and a shared walker.
    Queries are combinational; only authorized misses and registered vector probes may allocate walks. */
 sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boolean = #false, ~hypervisor: hypervisor :: Boolean = #true):
@@ -113,11 +92,7 @@ sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: 
   def window_address = mux(query.wb_valid, vector_window.physical_addresses[1], vector_window.physical_addresses[0])
   def demand = if hypervisor | guest_data_context(normal, query.guest_access, guest_state.hstatus) | normal
   def execute_read = Bool(hypervisor) & (query.guest_access === RiscvGuestMemoryAccess.GuestExecuteRead)
-  def data_access = priority_mux(~default: Sv39Access.Load):
-    query.access.is_cache_management(): Sv39Access.CacheManagement
-    query.access.store_fault_class(): Sv39Access.Store
-
-  def normal_lookup = tlb.lookup(data_virtual_address, data_access, demand.privilege, demand.virtualized).updated(~execute_read: execute_read)
+  def normal_lookup = tlb.lookup(data_virtual_address, query.access.translation_access(), demand.privilege, demand.virtualized).updated(~execute_read: execute_read)
   def probe_request = vector_window.translation.request.bits
   def probe_access = mux(probe_request.store, Sv39Access.Store, Sv39Access.Load)
   def probe_lookup = tlb.lookup(probe_request.address, probe_access, normal.privilege, normal.virtualized)
@@ -151,14 +126,13 @@ sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: 
   itlb.probe <== prefetch_lookup
   dtlb.probe <== mux(vector_fast.request.valid, fast_lookup, prefetch_lookup)
   def instruction_prefetch = prefetch_request.operation === CachePrefetchOperation.Instruction
-  def prefetch_hit = mux(instruction_prefetch, itlb.probe_hit, dtlb.probe_hit)
-  def prefetch_fault = mux(instruction_prefetch, itlb.probe_fault, dtlb.probe_fault)
+  def hint_probe = mux(instruction_prefetch, itlb.prefetch_probe, dtlb.prefetch_probe)
   def prefetch_translated = tlb.enabled(normal.privilege, normal.virtualized)
   def prefetch_address_valid = prefetch_translated ||| !prefetch_request.address[56..64].any()
-  def prefetch_address = mux(instruction_prefetch, itlb.probe_physical_address, dtlb.probe_physical_address).zext(64)
-  def prefetch_physical = cache_prefetch_physical(64, config.physical_map, prefetch_address, prefetch_request.operation, mux(instruction_prefetch, itlb.probe_pbmt, dtlb.probe_pbmt))
+  def prefetch_address = hint_probe.physical_address.zext(64)
+  def prefetch_physical = cache_prefetch_physical(64, config.physical_map, prefetch_address, prefetch_request.operation, hint_probe.pbmt)
   def prefetch_probe_available = instruction_prefetch ||| !vector_fast.request.valid
-  def prefetch_eligible = prefetch_probe_available & !prefetch_flush & prefetch_hit & !prefetch_fault & prefetch_address_valid & prefetch_physical.ordinary_memory & prefetch_physical.permitted
+  def prefetch_eligible = prefetch_probe_available & !prefetch_flush & hint_probe.hit & !hint_probe.fault & prefetch_address_valid & prefetch_physical.ordinary_memory & prefetch_physical.permitted
   (virtual_prefetch_pipe.egress |> filter_valid(_request => prefetch_eligible) |> map_valid(request => request.updated(~address: prefetch_physical.address))) |> physical_prefetch_pipe.ingress
   physical_prefetch_pipe.egress |> filter_valid(_request => !prefetch_flush) |> physical_prefetch
 
@@ -168,8 +142,8 @@ sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: 
 
   reg instruction_fault_valid(~init: Bool(#false))
   reg data_fault_valid(~init: Bool(#false))
-  reg instruction_fault(SuperscalarTranslationFailure())
-  reg data_fault(SuperscalarTranslationFailure())
+  reg instruction_fault(RiscvTranslationFailure())
+  reg data_fault(RiscvTranslationFailure())
   def instruction_failed = instruction_fault_valid & (instruction_fault.request.as_bits() === instruction_lookup.as_bits())
   def data_failed = data_fault_valid & (data_fault.request.as_bits() === data_lookup.as_bits())
   def instruction_known = itlb.hit ||| instruction_failed
@@ -233,11 +207,6 @@ sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: 
     request: walk_lookup
     result: walker.completion.bits
 
-  def failure = SuperscalarTranslationFailure():
-    request: walk_lookup
-    kind: walker.completion.bits.fault
-    details: walker.completion.bits.fault_details
-
   itlb.fill.valid <== walker.completion.valid & walk_live & !walk_data & !invalidate
   dtlb.fill.valid <== walker.completion.valid & walk_live & walk_data & !invalidate
   itlb.fill.bits <== fill
@@ -261,13 +230,13 @@ sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: 
     instruction_fault_valid <== Bool(#false)
   elsewhen (walker.completion.valid & walk_live & !walk_data):
     instruction_fault_valid <== walker.completion.bits.fault =/= RiscvTranslationFault.None
-    instruction_fault <== failure
+    instruction_fault <== fill.failure()
 
   when invalidate:
     data_fault_valid <== Bool(#false)
   elsewhen (walker.completion.valid & walk_live & walk_data):
     data_fault_valid <== walker.completion.bits.fault =/= RiscvTranslationFault.None
-    data_fault <== failure
+    data_fault <== fill.failure()
 
 
   walker.memory <=> pte
