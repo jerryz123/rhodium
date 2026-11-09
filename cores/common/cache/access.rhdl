@@ -1,10 +1,11 @@
 #lang rhodium
-/* Classifies physical access footprints, fragment permissions, and committed cache service routes. */
+/* Classifies speculative cache lookups, physical access permissions, and committed service routes. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "config.rhm".CacheLineBytes
   "operation.rhdl".CacheOperation
+  "protocol.rhdl".CachePipelineOutcome
   "../load-store.rhdl" open
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/rtl/pma.rhdl") open
@@ -21,6 +22,31 @@ fun cache_access_region(xlen :: XLen, physical_map :: RiscvPhysicalMemoryMap, ad
 /* Both load misses and partial store misses can fetch a complete line. */
 fun allows_data_cache_allocation(attributes :: RiscvMemoryAccessAttributes()) :~ Bool:
   attributes.cacheable & !attributes.strongly_ordered & attributes.read_idempotent
+
+/* A speculative access either probes L1D or receives a local MEM outcome. */
+tagged_union CacheLookupDecision:
+  Probe
+  Local(CachePipelineOutcome)
+
+/* Contention replays first. WB resolves splits and translation misses. For an aligned hit,
+   translation and physical permission faults take priority over slow service. */
+fun classify_cache_lookup(~blocked: blocked :: Bool, ~split: split :: Bool, ~known: known :: Bool,
+                          ~page_fault: page_fault :: Bool, ~access_fault: access_fault :: Bool,
+                          ~permitted: permitted :: Bool, ~can_probe: can_probe :: Bool) :~ CacheLookupDecision:
+  priority_mux(~default: CacheLookupDecision.Probe):
+    blocked: CacheLookupDecision.Local(CachePipelineOutcome.Replay)
+    split ||| !known: CacheLookupDecision.Local(CachePipelineOutcome.Slow)
+    page_fault: CacheLookupDecision.Local(CachePipelineOutcome.PageFault)
+    access_fault ||| !permitted: CacheLookupDecision.Local(CachePipelineOutcome.AccessFault)
+    !can_probe: CacheLookupDecision.Local(CachePipelineOutcome.Slow)
+
+/* A probe with no physical response replays in the existing MEM cycle. */
+fun cache_lookup_outcome(decision :: CacheLookupDecision, response_valid :: Bool,
+                         response_outcome :: CachePipelineOutcome) :~ CachePipelineOutcome:
+  def local = decision.view(CacheLookupDecision.Local)
+  priority_mux(~default: CachePipelineOutcome.Replay):
+    local.valid: local.payload
+    response_valid: response_outcome
 
 /* Encodes the output order of the committed request demultiplexer. */
 hardware_enum CacheServiceRoute:
@@ -62,6 +88,9 @@ fun cache_access_permitted(physical :: RiscvPhysicalMemoryLookup(), operation ::
   mux(operation.is_cache_management(), cbo_management_physical_permission(physical), ordinary)
 
 export:
+  CacheLookupDecision
+  classify_cache_lookup
+  cache_lookup_outcome
   CacheServiceRoute
   committed_cache_route
   cache_fragment_permitted

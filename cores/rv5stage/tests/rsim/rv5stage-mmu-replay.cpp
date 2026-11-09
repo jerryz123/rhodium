@@ -106,6 +106,9 @@ int priority_core_requests = 0, priority_pte_requests = 0;
 bool split_phase = 0, split_store = 0, split_cross_page = 0,
      split_contained = 0;
 
+constexpr std::uint64_t first_page_va = VIRTUAL_ADDRESS + 0xffd;
+std::uint8_t first_page_operation = 0;
+
 bool split_response_valid = 0;
 
 std::uint64_t split_response_data = 0;
@@ -153,6 +156,32 @@ void check_load_pipeline(std::uint64_t address, std::uint8_t expected_hit,
 void tick() {
   rising();
   settle();
+}
+
+// The resident supervisor leaf is inaccessible to U loads and lacks D for S stores.
+void check_first_page_fault(std::uint8_t operation) {
+  check_load_pipeline(first_page_va, 0, 0, PIPE_SLOW, operation);
+  falling();
+  first_page_operation = operation;
+  data_request_valid = 1;
+  settle();
+  CHECK(data_out.prequest.pready && !data_out.prequest_ufault &&
+        !data_out.prequest_uaccess_ufault && !data_memory_out.prequest.pvalid);
+  tick();
+  falling();
+  data_request_valid = 0;
+  settle();
+  for (int cycle = 0; !split_valid && cycle < 20; ++cycle) {
+    CHECK(!data_memory_out.prequest.pvalid);
+    tick();
+  }
+  CHECK(split_valid && split_page_fault && !split_response.paccess_ufault &&
+        split_fault_address == first_page_va &&
+        split_response.pcontext.pwriteback == memory_integer(7) &&
+        !data_memory_out.prequest.pvalid);
+  tick();
+  falling();
+  first_page_operation = 0;
 }
 
 void release_window() {
@@ -503,6 +532,10 @@ void drive() {
       data_in.prequest.pbits.paccess = split_store ? UINT64_C(2) : MEMORY_LOAD;
       data_in.prequest.pbits.pdata = UINT64_C(0x1122334455667788);
       data_in.prequest.pbits.pbyte_umask = UINT64_MAX;
+    }
+    if (first_page_operation) {
+      data_in.prequest.pbits.paddress = first_page_va;
+      data_in.prequest.pbits.paccess = first_page_operation;
     }
     instruction_memory_in = {};
     instruction_memory_in.presponse.pvalid = instruction_return_valid;
@@ -1053,9 +1086,11 @@ void stimulus() {
     privilege = UINT64_C(0);
     check_load_pipeline(VIRTUAL_ADDRESS, 0, 0,
                         PIPE_PAGE_FAULT); // supervisor leaf denied to U
+    check_first_page_fault(MEMORY_LOAD);
     privilege = PRIVILEGE_S;
     check_load_pipeline(VIRTUAL_ADDRESS, 0, 0, PIPE_PAGE_FAULT,
                         UINT64_C(2)); // store requires the dirty PTE bit
+    check_first_page_fault(2);
 
     // A writable but non-dirty leaf may serve loads, but CBO.ZERO must fault
     // under the core's fault-on-A/D policy, even on a nonaligned TLB hit.

@@ -1148,7 +1148,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
 
     (mem_context |> map_valid(token): token.into(SuperscalarResult(xlen, hypervisor)).observed(mem_pc)) |> memory_stage[lane]
     def mem_lookup = mem.memory_active & (mem.resolution.disposition === SuperscalarDisposition.Continue)
-    def mem_misaligned = mem.memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store) & !mem.memory.width.is_aligned(mem.address)
+    def mem_misaligned = mem.memory.access.requires_split(mem.memory.width, mem.address)
     def mem_outcome = priority_mux(~default: SuperscalarCacheOutcome.Replay):
       mem_misaligned: SuperscalarCacheOutcome.Slow
       scalar_pipeline.response.valid: scalar_pipeline.response.bits.outcome
@@ -1516,7 +1516,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   // This selection must not depend on request readiness or retirement feedback.
   def wb_memory_locality = priority_mux((for List (lane in 1..issue_width): [wb_memory_lane === Bits(2)(lane), instruction_hint_locality(wb_live_group[lane - 1].hint)]), ~default: wb_pending_locality)
   def wb_memory_active = wb_dispatch[service_index(wb_memory_lane)] & wb_memory.memory_active & wb_scalar_prefix
-  def wb_split_capture = wb_memory_active & wb_memory.memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store) & !wb_memory.memory.width.is_aligned(wb_memory.address)
+  def wb_split_capture = wb_memory_active & wb_memory.memory.access.requires_split(wb_memory.memory.width, wb_memory.address)
   def wb_management_capture = wb_memory_active & wb_memory.memory.access.is_cache_management()
   def wb_memory_capture = wb_split_capture ||| wb_management_capture
   def wb_wait_capture = wb_dispatch[0] & (wb_live_group[0].system.wait =/= ReservationWaitMode.None)

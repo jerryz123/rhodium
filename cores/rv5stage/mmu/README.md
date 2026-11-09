@@ -78,6 +78,9 @@ In MEM the DTLB resolves that captured request in parallel with SRAM outputs.
 The MMU forwards permitted loads and stores to `pipeline_memory` only for
 cacheable, read-idempotent memory with relaxed ordering. MEM reports an explicit
 load hit, store candidate, replay, slow-service need, or page/access fault.
+When MEM owns the lookup, a misaligned ordinary load or store takes slow service
+even on a resident page with denied permissions. WB authorizes the split, and
+the fragment that faults supplies the precise virtual address.
 WB store authorization passes through to the matching cache candidate.
 This path never starts a speculative walk or device transaction.
 

@@ -21,7 +21,7 @@ vector slots, trap causes, or core/PTW routing decisions into cache state.
 |---|---|
 | `config.rhm`, `geometry.rhdl` | Immutable VIPT geometry and way/lane masks |
 | `udb.rhm` | Reservation and cache-maintenance policy declarations; integrating cores retain split-access and alignment-fault guarantees |
-| `access.rhdl` | Whole-access PMA footprint, split-fragment and PTE permissions, and committed route selection |
+| `access.rhdl` | Speculative lookup classification, whole-access PMA footprint, split-fragment and PTE permissions, and committed route selection |
 | `prefetch.rhdl` | Aligned whole-line PMA/PBMT classification and operation-specific permissions, without staging or final eligibility |
 | `operation.rhdl`, `protocol.rhdl` | Physical operations, fixed-cycle lookup, authorization, completion |
 | `l1d/cache.rhdl` | SRAM scheduling, set-isolated hit-under-miss, retained service, coherence, LR/SC |

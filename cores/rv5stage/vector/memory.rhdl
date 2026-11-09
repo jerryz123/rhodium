@@ -90,7 +90,6 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
   def lookup_store = mux(controller.lookup.bits.precertified, controller.lookup.bits.store, store)
   pipeline_physical <== controller.lookup.bits.precertified
   def width = controller.lookup.bits.memory_width.into(MemoryWidth)
-  def misaligned = access & !width.is_aligned(address)
   def request = PhysicalMemoryReq(xlen, RV5StageMemoryContext(slots)):
     byte_mask: controller.lookup.bits.byte_mask[0..xlen.width / 8]
     address: address
@@ -106,6 +105,7 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
 
     locality: RiscvMemoryLocality.Default
 
+  def misaligned = access & request.access.requires_split(width, address)
   (
     lookup_path |> filter_valid(_token => access & !misaligned & !controller.recover)
       |> map_valid(_token => CachePipelineReq(xlen)):

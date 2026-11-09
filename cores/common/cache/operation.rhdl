@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../load-store.rhdl".MemoryWidth
   lib("rhodium/std/bits.rhdl") open
 
 /* Distinguishes ordinary, atomic, and cache-block operations across the LSU pipeline. */
@@ -21,6 +22,10 @@ hardware_enum CacheOperation:
   /* Tests whether the decoded instruction uses a memory operation. */
   method is_memory(operation) :: Bool:
     operation =/= CacheOperation.None
+
+  /* Ordinary loads and stores use fragment service when their address is not naturally aligned. */
+  method requires_split(operation, width :: MemoryWidth, address :: Bits) :: Bool:
+    operation.is_one_of(CacheOperation.Load, CacheOperation.Store) & !width.is_aligned(address)
 
   /* Selects ordinary loads and LR reads, excluding read-modify-write atomics. */
   method is_load(operation) :: Bool:

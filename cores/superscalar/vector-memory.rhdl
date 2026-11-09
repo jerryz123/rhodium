@@ -90,7 +90,7 @@ sync_circuit SuperscalarVectorMemory(xlen :: XLen, slots :: Pow2Int):
     locality: RiscvMemoryLocality.Default
     unsigned: Bool(#true)
 
-  def misaligned = controller.lookup.bits.enabled & !width.is_aligned(address)
+  def misaligned = controller.lookup.bits.enabled & request.access.requires_split(width, address)
   (lookup_attempt |> filter_valid(token => token.enabled & !misaligned & !controller.recover) |> map_valid(_token => GuestMemoryReq(PhysicalMemoryReq(xlen, Bool))):
     memory: request
     translation: RiscvGuestMemoryAccess.Normal

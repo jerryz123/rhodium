@@ -127,28 +127,27 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
   def cacheable = allows_data_cache_allocation(attributes)
   def atomic_request = mem.access.is_one_of(CacheOperation.LoadReserved, CacheOperation.StoreConditional, CacheOperation.Atomic)
   def cache_block = mem.access.is_cache_block()
-  def mem_misaligned = mem.access.is_one_of(CacheOperation.Load, CacheOperation.Store) & !mem.width.is_aligned(mem.address)
+  def mem_misaligned = mem.access.requires_split(mem.width, mem.address)
   def writes = mem.access.store_fault_class()
   def atomic_service = (if translation.atomic_pma_policy() == SuperscalarAtomicPmaPolicy.OrdinaryReadable | cacheable | region.cacheable) & region.readable
   def permitted = (!resolved.execute_read ||| region.executable) & cache_access_permitted(region, mem.access, ~reads: !writes, ~writes: writes, ~atomic_service: atomic_service)
   def busy = misaligned.busy ||| memory.request.valid ||| resolved.probe_busy
-  def speculative_ok = !busy & !mem_misaligned & data_ok & permitted & cacheable & !atomic_request & !cache_block & !physical_memory.ordered_busy
+  def guest_page_fault = resolved.fault === RiscvTranslationFault.GuestPageFault
+  def decision = classify_cache_lookup(
+    ~blocked: busy, ~split: mem_misaligned, ~known: resolved.known,
+    ~page_fault: guest_page_fault ||| (resolved.fault === RiscvTranslationFault.PageFault),
+    ~access_fault: resolved.fault === RiscvTranslationFault.AccessFault,
+    ~permitted: permitted, ~can_probe: cacheable & !atomic_request & !cache_block
+  )
+  def speculative_ok = decision.is(CacheLookupDecision.Probe) & !physical_memory.ordered_busy
   mem_request |> filter_valid(_request => speculative_ok) |> map_valid(request => cache_request(request.memory, resolved.address[0..xlen.width])) |> physical_pipeline.request
-  def cache_outcome = mux_lookup(physical_pipeline.response.bits.outcome, ~default: SuperscalarCacheOutcome.Replay):
+  def cache_outcome = cache_lookup_outcome(decision, physical_pipeline.response.valid, physical_pipeline.response.bits.outcome)
+  def outcome = mux_lookup(cache_outcome, ~default: SuperscalarCacheOutcome.Replay):
     CachePipelineOutcome.Slow: SuperscalarCacheOutcome.Slow
     CachePipelineOutcome.LoadHit: SuperscalarCacheOutcome.LoadHit
     CachePipelineOutcome.StoreHit: SuperscalarCacheOutcome.StoreHit
-    CachePipelineOutcome.PageFault: SuperscalarCacheOutcome.PageFault
+    CachePipelineOutcome.PageFault: mux(guest_page_fault, SuperscalarCacheOutcome.GuestPageFault, SuperscalarCacheOutcome.PageFault)
     CachePipelineOutcome.AccessFault: SuperscalarCacheOutcome.AccessFault
-
-  def outcome = priority_mux(~default: mux(physical_pipeline.response.valid, cache_outcome, SuperscalarCacheOutcome.Replay)):
-    busy: SuperscalarCacheOutcome.Replay
-    mem_misaligned: SuperscalarCacheOutcome.Slow
-    !resolved.known: SuperscalarCacheOutcome.Slow
-    resolved.fault === RiscvTranslationFault.GuestPageFault: SuperscalarCacheOutcome.GuestPageFault
-    resolved.fault === RiscvTranslationFault.PageFault: SuperscalarCacheOutcome.PageFault
-    (resolved.fault =/= RiscvTranslationFault.None) ||| !permitted: SuperscalarCacheOutcome.AccessFault
-    !cacheable ||| atomic_request ||| cache_block: SuperscalarCacheOutcome.Slow
 
   pipeline.response.valid <== mem_request.valid
   pipeline.response.bits <== SuperscalarLookupResult(xlen):

@@ -480,7 +480,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def wb_fp_response = wb_fp_responses |> to_valid()
   def wb_other_response = wb_other_responses |> to_valid()
   def wb_scalar_request = wb_scalar_owner.data_request
-  def wb_split_pending = wb_memory_pending & wb_scalar_request.access.into(CacheOperation).is_one_of(CacheOperation.Load, CacheOperation.Store) & !wb_scalar_request.width.is_aligned(wb_scalar_request.address)
+  def wb_split_pending = wb_memory_pending & wb_scalar_request.access.into(CacheOperation).requires_split(wb_scalar_request.width, wb_scalar_request.address)
   def wb_split_done = wb_split_pending & split_completion.valid & !split_completion.bits.response.context.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).Vector)
   def wb_split_fault = wb_split_done & (split_completion.bits.page_fault ||| split_completion.bits.response.access_fault)
   def wb_memory_done = wb_split_done ||| (wb_memory_pending & !wb_split_pending & wb_other_response.valid)
@@ -1554,7 +1554,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
          replay: operation.replay ||| wb_memory_response_replay
          admitted: wb_memory_accepted
 
-  def wb_split_candidate = wb_offer_bits.data_request.access.into(CacheOperation).is_one_of(CacheOperation.Load, CacheOperation.Store) & !wb_offer_bits.data_request.width.is_aligned(wb_offer_bits.data_request.address)
+  def wb_split_candidate = wb_offer_bits.data_request.access.into(CacheOperation).requires_split(wb_offer_bits.data_request.width, wb_offer_bits.data_request.address)
   def wb_split_ready = !wb_split_candidate ||| (!wb_vector_active & !wb_deferred_results_pending)
   def wb_memory_offer = wb_memory_response |> filter_valid(_operation => wb_memory_attempt & wb_fp_load_ready & wb_split_ready)
     |> map_valid(operation => operation.data_request.updated(

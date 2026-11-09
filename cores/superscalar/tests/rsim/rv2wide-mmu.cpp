@@ -76,6 +76,26 @@ void finish_split(std::uint64_t value, std::uint64_t fault_va = 0,
   tick_model();
   falling();
 }
+void check_first_page_fault(int operation) {
+  constexpr std::uint64_t va = 0x500ffd;
+  address = va;
+  access = operation;
+  ex_valid = 1;
+  tick_model();
+  falling();
+  ex_valid = 0;
+  eval();
+  CHECK(result_valid && outcome == 0 && !resolve_valid && !physical_valid);
+  start_split(va, operation);
+  for (int cycle = 0; !split_completed && cycle < 20; ++cycle) {
+    CHECK(!physical_valid);
+    tick_model();
+  }
+  CHECK(split_completed && split_page_fault && !split_access_fault &&
+        split_fault_address == va && !physical_valid && !completed);
+  tick_model();
+  falling();
+}
 void walk_data(std::uint64_t leaf) {
   reply(UINT64_C(0x10000), (UINT64_C(17) << 10) | 1);
   reply(UINT64_C(0x11010), (UINT64_C(18) << 10) | 1);
@@ -325,6 +345,12 @@ int main() {
     fence();
     offer_wb(UINT64_C(0x500008));
     walk_data((UINT64_C(22) << 10) | UINT64_C(0x43));
+    // The resident supervisor leaf denies U loads and S stores on page one.
+    privilege = 0;
+    check_first_page_fault(1);
+    privilege = 1;
+    check_first_page_fault(2);
+    address = UINT64_C(0x500008);
     hint(
         UINT64_C(0x50003f), 3, 1,
         UINT64_C(

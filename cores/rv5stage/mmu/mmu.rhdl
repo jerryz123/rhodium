@@ -161,7 +161,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def data_memory_operation = data_request.access
   def data_fault_address = mux(split_busy, misaligned.fault_address, data_request.address)
   def data_virtual_address = data_fault_address.zext(64)
-  def split_candidate = data.request.valid & !split_busy & incoming_request.access.is_one_of(CacheOperation.Load, CacheOperation.Store) & !incoming_request.width.is_aligned(incoming_request.address)
+  def split_candidate = data.request.valid & !split_busy & incoming_request.access.requires_split(incoming_request.width, incoming_request.address)
   def data_demand = misaligned.request.valid ||| (data.request.valid & !split_busy & !split_candidate)
   def data_vector = data_request.context.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).Vector)
   def data_physical = mux(split_busy, split_physical, data_vector & vector_fast.request_physical)
@@ -177,7 +177,8 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   itlb.invalidate_all <== invalidate_all
   // Authorized WB requests own the DTLB on contention. Younger MEM loads then
   // fall back instead of observing a translation belonging to another token.
-  def load_virtual_address = load_request.egress.bits.address.zext(64)
+  def lookup = load_request.egress.bits
+  def load_virtual_address = lookup.address.zext(64)
   vector_window.addresses <== vec([data_virtual_address, load_virtual_address])
   def load_window = vector_window.owned & pipeline_owner.bits & !physical_owner.bits
   def load_pinned = load_window ||| physical_owner.bits
@@ -188,7 +189,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
     probe_selected: page_probe.request.bits.address
     load_request.egress.valid: load_virtual_address
 
-  def pipeline_is_store = load_request.egress.bits.access === CacheOperation.Store
+  def pipeline_is_store = lookup.access === CacheOperation.Store
   def speculative_store = priority_mux(~default: vector_fast.request.bits.store):
     probe_selected: page_probe.request.bits.store
     load_request.egress.valid: pipeline_is_store
@@ -265,14 +266,14 @@ sync_circuit RV5StageMmu(xlen :: XLen,
 
   def load_address :: Bits(width):
     if xlen == XLen.X32
-    | load_request.egress.bits.address
+    | lookup.address
     | block:
-        priority_mux(~default: load_request.egress.bits.address):
-          physical_owner.bits: load_request.egress.bits.address
+        priority_mux(~default: lookup.address):
+          physical_owner.bits: lookup.address
           load_window: vector_window.physical_addresses[1]
           data_translation_enabled: dtlb.translation.physical_address.zext(64)
 
-  def load_last_offset = memory_access_last_offset(xlen, load_request.egress.bits.width)
+  def load_last_offset = memory_access_last_offset(xlen, lookup.width)
   def load_physical = physical_map.lookup(load_address, load_address +& load_last_offset)
   def load_attributes = resolve_memory_attributes(load_physical, mux(load_pinned, PageMemoryType.PMA, dtlb_result.pbmt))
   // Translation contention and ordered IO replay without entering miss service.
@@ -283,9 +284,13 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def load_translation_access_fault = !load_pinned & dtlb_result.access_fault
   def pipeline_permitted = load_physical.mapped & mux(pipeline_is_store, load_physical.writable, load_physical.readable) & (!execute_read ||| load_physical.executable)
   def pipeline_cacheable = allows_data_cache_allocation(load_attributes)
-  def pipeline_misaligned = !load_request.egress.bits.width.is_aligned(load_request.egress.bits.address)
+  def decision = classify_cache_lookup(
+    ~blocked: pipeline_blocked, ~split: lookup.access.requires_split(lookup.width, lookup.address), ~known: load_translation_hit,
+    ~page_fault: load_translation_fault, ~access_fault: load_translation_access_fault,
+    ~permitted: pipeline_permitted, ~can_probe: pipeline_cacheable
+  )
   def Array(physical_request, local_result) = load_request.egress |> fork_valid(2)
-  def cache_eligible = !pipeline_blocked & load_translation_hit & !load_translation_fault & !load_translation_access_fault & pipeline_permitted & pipeline_cacheable & !pipeline_misaligned
+  def cache_eligible = decision.is(CacheLookupDecision.Probe)
   physical_request |> filter_valid(_request => cache_eligible)
     |> map_valid(request => request.updated(~address: load_address)) |> pipeline_memory.request
 
@@ -293,33 +298,13 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   // feed fence/trap drain back into the very store authorization being drained.
   pipeline_memory.commit <== pipeline.commit
   pipeline.commit_ready <== pipeline_memory.commit_ready
-  wire pipeline_outcome: CachePipelineOutcome
-  when pipeline_blocked:
-    pipeline_outcome <== CachePipelineOutcome.Replay
-  elsewhen (!load_translation_hit):
-    pipeline_outcome <== CachePipelineOutcome.Slow
-  elsewhen load_translation_fault:
-    pipeline_outcome <== CachePipelineOutcome.PageFault
-  elsewhen load_translation_access_fault:
-    pipeline_outcome <== CachePipelineOutcome.AccessFault
-  elsewhen pipeline_misaligned:
-    pipeline_outcome <== CachePipelineOutcome.Slow
-  elsewhen (!pipeline_permitted):
-    pipeline_outcome <== CachePipelineOutcome.AccessFault
-  elsewhen (!pipeline_cacheable):
-    pipeline_outcome <== CachePipelineOutcome.Slow
-  elsewhen (pipeline_memory.response.valid):
-    pipeline_outcome <== pipeline_memory.response.bits.outcome
-  otherwise:
-    pipeline_outcome <== CachePipelineOutcome.Replay
-
   def pipeline_reason = priority_mux(~default: pipeline_memory.response.bits.reason):
     pipeline_blocked: mux(ordered_busy, CachePipelineReason.Ordered, CachePipelineReason.Translation)
     !load_translation_hit: CachePipelineReason.Translation
     !pipeline_cacheable: CachePipelineReason.Ordered
 
   def pipeline_result = CachePipelineResult(xlen):
-    outcome: pipeline_outcome
+    outcome: cache_lookup_outcome(decision, pipeline_memory.response.valid, pipeline_memory.response.bits.outcome)
     reason: pipeline_reason
     data: pipeline_memory.response.bits.data
 
@@ -619,7 +604,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   /* Passive physical-address taps follow the same MEM and accepted-WB owners. */
 
   describe_cosim_signals({
-    "pipeline_valid": pipeline.response.valid & pipeline_outcome.is_one_of(CachePipelineOutcome.LoadHit, CachePipelineOutcome.StoreHit),
+    "pipeline_valid": pipeline.response.valid & pipeline_result.outcome.is_one_of(CachePipelineOutcome.LoadHit, CachePipelineOutcome.StoreHit),
     "pipeline_address": load_address,
     "request_valid": data.request.fire() & !split_capture & !data.request_fault & !data.request_access_fault,
     "request_address": data_physical_address,
