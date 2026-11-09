@@ -51,10 +51,11 @@ after all words are installed. Coherence and committed response ownership are
 never canceled by pipeline flush. Preserve the bounded LR probe-protection
 window independently of reservation validity and drain accepted probes.
 
-Keep admission policy explicit at callers of `access.rhdl`: RV2Wide requires
-readable cached service for atomics and checks natural alignment at committed
-physical admission; RV5Stage retains its separate translation/alignment boundary.
-Use `committed_cache_route` for the three demultiplexer outputs in enum order.
+Use `classify_committed_cache_access` for physical admission, service selection,
+and uncached ordering. Both ports check atomic alignment. Superscalar also
+checks ordinary request alignment at its native-word port. RV5Stage routes
+ordinary misaligned loads and stores through split service upstream.
+Keep the port's fault handshake and payload adaptation in its caller.
 Pass the aligned translated address, fragment byte count, and selected PBMT to
 `cache_fragment_permitted`. The physical address can be wider than XLEN.
 The MMUs retain fault priority and the address reported for each fragment.

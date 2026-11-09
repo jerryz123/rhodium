@@ -11,7 +11,6 @@ import:
   "uncached-protocol.rhdl" open
   "../../riscv/isa/xlen.rhm".XLen
   "../../riscv/rtl/pma.rhdl" open
-  "../../riscv/rtl/svpbmt.rhdl" open
   lib("flow/main.rhdl") open
   lib("rhodium/std/bits.rhdl") open
 
@@ -37,13 +36,10 @@ sync_circuit RV5StageMemoryRouter(xlen :: XLen,
 
   def request :: PhysicalMemoryReq(xlen, RV5StageMemoryContext(vector_completion_slots)) = core.request.bits.memory
   def operation = request.access
-  def physical = cache_access_region(xlen, physical_map, request.address, request.width, operation)
-  def attributes = resolve_memory_attributes(physical, core.request.bits.pbmt)
-  def request_permitted = cache_access_permitted(
-    physical, operation, ~reads: operation.returns_old_value(), ~writes: operation.needs_unique(),
-    ~atomic_service: allows_committed_atomic_service(physical, attributes, ~aligned: request.width.is_aligned(request.address))
+  def admission = classify_committed_cache_access(
+    xlen, physical_map, request.address, request.width, operation, core.request.bits.pbmt,
+    ~reads: operation.returns_old_value(), ~require_alignment: #false
   )
-  def route = committed_cache_route(operation, physical, attributes)
 
 
   /* Ordered path admission
@@ -52,9 +48,9 @@ sync_circuit RV5StageMemoryRouter(xlen :: XLen,
   ordered_busy <== ordering.ordered_busy
   def Array(cache_requests, uncached_requests, management_requests) = (
     core.request
-      |> filter_flow(_request => request_permitted)
+      |> filter_flow(_request => admission.permitted)
       |> map_flow(request => request.memory)
-      |> demux_flow(3, _request => route.as_bits())
+      |> demux_flow(3, _request => admission.route.as_bits())
   )
 
   // The static physical map forbids cached copies of these regions. After
@@ -72,19 +68,19 @@ sync_circuit RV5StageMemoryRouter(xlen :: XLen,
     uncached_requests
       |> map_flow(request => UncachedMemoryReq(xlen, RV5StageMemoryContext(vector_completion_slots))):
           request: request
-          device: attributes.strongly_ordered
+          device: admission.strongly_ordered
   ) |> ordering.uncached
 
 
   /* Fault reporting and completion return
      Local maintenance has no path fault; all retained completions return through one arbiter. */
 
-  def cached = route === CacheServiceRoute.Cached
-  def uncached_io = route === CacheServiceRoute.Uncached
+  def cached = admission.route === CacheServiceRoute.Cached
+  def uncached_io = admission.route === CacheServiceRoute.Uncached
   def selected_request_fault = (cached & cache.request_fault) ||| (uncached_io & ordering.io_request_fault)
   def selected_access_fault = (cached & cache.request_access_fault) ||| (uncached_io & ordering.io_request_access_fault)
-  core.request_fault <== core.request.valid & request_permitted & selected_request_fault
-  core.request_access_fault <== core.request.valid & (!request_permitted ||| selected_access_fault)
+  core.request_fault <== core.request.valid & admission.permitted & selected_request_fault
+  core.request_access_fault <== core.request.valid & (!admission.permitted ||| selected_access_fault)
 
   core.drained <== ordering.drained
   core.reservation_valid <== cache.reservation_valid

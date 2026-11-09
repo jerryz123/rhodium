@@ -384,23 +384,17 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def data_walk_access_fault = !data_pinned & ((latched_data_fault & fault_is_access) ||| (dtlb.hit & dtlb_result.access_fault))
   def request_fault_mapping = mux(latched_data_fault, fault_mapping, dtlb.translation)
 
-  /* Projects a selected fragment's mapping fault into guest trap metadata. */
-  fun guest_exception(mapping :: RiscvTlbMapping(), guest :: Bool) :~ RiscvGuestException():
-    RiscvGuestException():
-      page_fault: mapping.fault === RiscvTranslationFault.GuestPageFault
-      details: mapping.fault_details.updated(~guest_virtual_address: guest)
-
   def instruction_exception_mapping = priority_mux(~default: itlb.translation):
     instruction_fault_cache_hit: instruction_failure.mapping()
     latched_instruction_fault: fault_mapping
 
-  def instruction_guest_exception = guest_exception(instruction_exception_mapping, instruction_guest)
+  def instruction_guest_exception = riscv_guest_exception(instruction_exception_mapping, instruction_guest)
   if hypervisor
   | block:
       output request_guest_fault: RiscvGuestException()
       output pipeline_guest_fault: RiscvGuestException()
-      request_guest_fault <== guest_exception(request_fault_mapping, normal.virtualized ||| (request_mode =/= RiscvGuestMemoryAccess.Normal))
-      pipeline_guest_fault <== guest_exception(dtlb.translation, normal.virtualized ||| (load_mode.bits =/= RiscvGuestMemoryAccess.Normal))
+      request_guest_fault <== riscv_guest_exception(request_fault_mapping, normal.virtualized ||| (request_mode =/= RiscvGuestMemoryAccess.Normal))
+      pipeline_guest_fault <== riscv_guest_exception(dtlb.translation, normal.virtualized ||| (load_mode.bits =/= RiscvGuestMemoryAccess.Normal))
   | #void
 
   def instruction_lookup_ready = !instruction_translation_enabled ||| itlb.hit ||| instruction_fault_cache_hit ||| latched_instruction_fault
@@ -508,7 +502,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   data.request_access_fault <== data.request.valid & !split_busy & !split_candidate & !data_page_fault & (local_access_fault ||| (core_data_request.valid & core_memory.request_access_fault))
   misaligned.request_fault <== data_page_fault
   misaligned.request_access_fault <== !data_page_fault & (local_access_fault ||| (core_data_request.valid & core_memory.request_access_fault))
-  misaligned.request_guest <== guest_exception(request_fault_mapping, normal.virtualized ||| (request_mode =/= RiscvGuestMemoryAccess.Normal))
+  misaligned.request_guest <== riscv_guest_exception(request_fault_mapping, normal.virtualized ||| (request_mode =/= RiscvGuestMemoryAccess.Normal))
 
 
   /* PTE physical requests and response routing */

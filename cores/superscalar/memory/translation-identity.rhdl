@@ -77,7 +77,7 @@ sync_circuit SuperscalarIdentityTranslation(xlen :: XLen, config :: RiscvHartCHI
     pbmt: PageMemoryType.PMA
     fault: RiscvTranslationFault.None
     cause: dont_care(ExceptionCause)
-    guest: literal(RiscvGuestFault(), 0)
+    guest: literal(RiscvGuestException(), 0)
     execute_read: Bool(#false)
     probe_busy: Bool(#false)
     split_mask: state.pointer_masking
@@ -117,10 +117,6 @@ class SuperscalarIdentitySpecialization(xlen :: XLen, config :: RiscvHartCHIConf
 
   /* Identity resolution does not issue implicit page-table memory transactions. */
   override method page_walk_clients() :: matching(0): 0
-
-  /* Bare fragments always use ordinary physical access, independently of unused guest inputs. */
-  override method split_access_policy() :: SuperscalarSplitAccessPolicy:
-    SuperscalarSplitAccessPolicy.Normal
 
   /* Preserves Bare's cacheable/readable atomic qualification without broadening the fast path. */
   override method atomic_pma_policy() :: SuperscalarAtomicPmaPolicy:

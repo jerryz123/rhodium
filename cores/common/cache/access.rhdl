@@ -93,7 +93,32 @@ fun cache_access_permitted(physical :: RiscvPhysicalMemoryLookup(), operation ::
   ) & (!operation.is_cache_block_zero() ||| physical.cache_block_zero) & aligned
   mux(operation.is_cache_management(), cbo_management_physical_permission(physical), ordinary)
 
+/* Drives the committed service demultiplexer and the device bit on uncached requests. */
+bundle CommittedCacheAccess():
+  permitted: Bool
+  route: CacheServiceRoute
+  strongly_ordered: Bool
+
+/* Classifies the full physical footprint once. Ports supply their read intent and whether
+   they require naturally aligned ordinary requests. Atomics always require alignment. */
+fun classify_committed_cache_access(xlen :: XLen, physical_map :: RiscvPhysicalMemoryMap, address :: Bits(xlen.width),
+                                    width :: MemoryWidth, operation :: CacheOperation, pbmt :: PageMemoryType,
+                                    ~reads: reads :: Bool, ~require_alignment: require_alignment :: Boolean) :~ CommittedCacheAccess():
+  def physical = cache_access_region(xlen, physical_map, address, width, operation)
+  def attributes = resolve_memory_attributes(physical, pbmt)
+  def aligned = width.is_aligned(address)
+  CommittedCacheAccess():
+    permitted: cache_access_permitted(
+      physical, operation, ~reads: reads, ~writes: operation.needs_unique(),
+      ~atomic_service: allows_committed_atomic_service(physical, attributes, ~aligned: aligned),
+      ~aligned: if require_alignment | operation.is_cache_block_zero() ||| aligned | Bool(#true)
+    )
+    route: committed_cache_route(operation, physical, attributes)
+    strongly_ordered: attributes.strongly_ordered
+
 export:
+  CommittedCacheAccess
+  classify_committed_cache_access
   CacheLookupDecision
   classify_cache_lookup
   cache_lookup_outcome

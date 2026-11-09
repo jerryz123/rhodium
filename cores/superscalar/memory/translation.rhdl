@@ -34,7 +34,7 @@ bundle SuperscalarAddressResolution():
   pbmt: PageMemoryType
   fault: RiscvTranslationFault
   cause: ExceptionCause
-  guest: RiscvGuestFault()
+  guest: RiscvGuestException()
   execute_read: Bool
   probe_busy: Bool
   split_mask: PointerMaskControl()

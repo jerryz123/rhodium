@@ -77,7 +77,6 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
   def split_fault_address = apply_pointer_mask(xlen, misaligned.fault_address, resolved.split_mask)
   misaligned.completion |> map_valid(result => result.updated(~fault_address: apply_pointer_mask(xlen, result.fault_address, resolved.split_mask))) |> split.response
   def split_request = misaligned.request
-  def split_guest = if translation.split_access_policy() == SuperscalarSplitAccessPolicy.PreserveGuest | split_mode | RiscvGuestMemoryAccess.Normal
 
 
   /* EX indexes immediately; exactly one context register carries that token into MEM. */
@@ -101,7 +100,7 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
     split_request.valid: split_request.bits
     memory.request.valid: committed.with_address_context(committed.address, Bool(#false))
   def guest_access = priority_mux(~default: mem_request.bits.translation):
-    split_request.valid: split_guest
+    split_request.valid: split_mode
     memory.request.valid: memory.request.bits.translation
 
   resolve.query <== SuperscalarTranslationQuery(xlen):
@@ -132,10 +131,9 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
   def atomic_service = (if translation.atomic_pma_policy() == SuperscalarAtomicPmaPolicy.OrdinaryReadable | cacheable | region.cacheable) & region.readable
   def permitted = (!resolved.execute_read ||| region.executable) & cache_access_permitted(region, mem.access, ~reads: !writes, ~writes: writes, ~atomic_service: atomic_service)
   def busy = misaligned.busy ||| memory.request.valid ||| resolved.probe_busy
-  def guest_page_fault = resolved.fault === RiscvTranslationFault.GuestPageFault
   def decision = classify_cache_lookup(
     ~blocked: busy, ~split: mem_misaligned, ~known: resolved.known,
-    ~page_fault: guest_page_fault ||| (resolved.fault === RiscvTranslationFault.PageFault),
+    ~page_fault: resolved.guest.page_fault ||| (resolved.fault === RiscvTranslationFault.PageFault),
     ~access_fault: resolved.fault === RiscvTranslationFault.AccessFault,
     ~permitted: permitted, ~can_probe: cacheable & !atomic_request & !cache_block
   )
@@ -144,10 +142,7 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
   def cache_outcome = cache_lookup_outcome(decision, physical_pipeline.response.valid, physical_pipeline.response.bits.outcome)
   pipeline.response.valid <== mem_request.valid
   pipeline.response.bits <== SuperscalarLookupResult(xlen):
-    guest:
-      RiscvGuestException():
-        page_fault: guest_page_fault & (cache_outcome === CachePipelineOutcome.PageFault)
-        details: resolved.guest
+    guest: resolved.guest.updated(~page_fault: resolved.guest.page_fault & (cache_outcome === CachePipelineOutcome.PageFault))
     outcome: cache_outcome
     data: physical_pipeline.response.bits.data
 
@@ -192,14 +187,12 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
     core_execute_denied: ExceptionCause.LoadAccessFault
 
   memory.fault.bits <== SuperscalarResolution(xlen):
-    guest: resolved.guest
+    guest: resolved.guest.details
     disposition: SuperscalarDisposition.Fault
     cause: core_fault_cause
     value: committed.address
 
-  misaligned.request_guest <== RiscvGuestException():
-    page_fault: resolved.fault === RiscvTranslationFault.GuestPageFault
-    details: resolved.guest
+  misaligned.request_guest <== resolved.guest
 
   misaligned.request_fault <== split_request.valid & resolved.known & resolved.fault.is_one_of(RiscvTranslationFault.PageFault, RiscvTranslationFault.GuestPageFault)
   def split_access_denied = (resolved.fault =/= RiscvTranslationFault.None) ||| !fragment_permitted ||| transport.fault[1].valid

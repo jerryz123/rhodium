@@ -155,7 +155,6 @@ sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: 
     window_hit: translated_result.updated(~physical_address: window_address[0..56], ~fault: RiscvTranslationFault.None)
 
   def data_ok = data_known & (data_result.fault === RiscvTranslationFault.None)
-  def data_guest_fault = data_result.fault_details.updated(~guest_virtual_address: demand.virtualized)
   def data_pbmt = mux(window_hit ||| certified_physical, PageMemoryType.PMA, riscv_host_result(data_result).pbmt)
   vector_window.translation.request.ready <== vector_probe & data_known & !invalidate
   vector_window.translation.response.valid <== vector_window.translation.request.fire()
@@ -167,7 +166,7 @@ sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: 
     instruction_result.fault =/= RiscvTranslationFault.None: SuperscalarDisposition.Fault
 
   instruction.resolution <== SuperscalarResolution(XLen.X64):
-    guest: instruction_result.fault_details.updated(~guest_virtual_address: guest_state.virtualized)
+    guest: riscv_guest_exception(instruction_result, guest_state.virtualized).details
     disposition: instruction_disposition
     cause: riscv_translation_fault_cause(instruction_result)
     value: instruction.request.bits
@@ -181,7 +180,7 @@ sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: 
     pbmt: data_pbmt
     fault: data_result.fault
     cause: riscv_translation_fault_cause(data_result)
-    guest: data_guest_fault
+    guest: riscv_guest_exception(data_result, demand.virtualized)
     execute_read: execute_read
     probe_busy: vector_probe
     split_mask: split_mask
@@ -260,10 +259,6 @@ class SuperscalarSv39Specialization(config :: RiscvHartCHIConfig, svnapot :: Boo
 
   /* The shared walker contributes one physical PTE client after core and split clients. */
   override method page_walk_clients() :: matching(1): 1
-
-  /* Retains the split owner's guest-access class for translation and HLVX permission checks. */
-  override method split_access_policy() :: SuperscalarSplitAccessPolicy:
-    SuperscalarSplitAccessPolicy.PreserveGuest
 
   /* Keeps atomic service restricted to resolved ordinary, readable physical memory. */
   override method atomic_pma_policy() :: SuperscalarAtomicPmaPolicy:

@@ -130,6 +130,27 @@ void check_nc_atomics(bool older_cache_work) {
   CHECK(memory_out.pdrained && !memory_out.presponse.pvalid);
 }
 
+void check_misaligned_requests() {
+  auto &req = memory_in.prequest;
+  for (unsigned op : {1u, 2u}) {
+    req.pbits = {};
+    req.pbits.pmemory.paddress = base + 2;
+    req.pbits.pmemory.paccess = op;
+    req.pbits.pmemory.pwidth = 2;
+    req.pbits.pmemory.pbyte_umask = (0xfu << 2) & word_mask;
+    req.pvalid = 1;
+    eval();
+    CHECK(!memory_out.prequest.pready && memory_out.pfault.pvalid &&
+          memory_out.pfault.pbits.pcause == (op == 1 ? 5 : 7) &&
+          memory_out.pfault.pbits.pvalue == base + 2);
+    tick_model();
+    req.pvalid = 0;
+    eval();
+    CHECK(memory_out.pdrained && !memory_out.presponse.pvalid &&
+          !chi_out.prequests.pvalid && !uncached_chi_out.preq.pvalid);
+  }
+}
+
 void fill() {
   until([] { return chi_out.prequests.pvalid; });
   CHECK(chi_out.prequests.pbits.paddress == base && chi_out.prequests.pbits.popcode == 7);
@@ -173,6 +194,7 @@ int main() {
   return run_test([] {
     reset = 1; tick_model(); reset = 0;
     node_id = 3; chi_in.prequester_uresponses.pready = 1;
+    check_misaligned_requests();
     flushed_fetch_before_device_load();
     for (unsigned b = 0; b < line.size(); ++b) line[b] = b + 1;
     // A committed byte store misses in the top native word of the first row.

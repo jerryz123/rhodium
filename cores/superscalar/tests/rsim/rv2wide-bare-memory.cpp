@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-#include "test.hpp"
+#include "speculative-atomics.hpp"
 
 void check_split_load(unsigned width, unsigned offset, bool sign_extend) {
   constexpr std::uint64_t base = 0x10000;
@@ -100,6 +100,10 @@ int main() {
     eval();
     CHECK(!physical_prefetch_out.pvalid);
     tick_model();
+
+    privilege = 3;
+    check_speculative_atomics(0x15008, 0); // Atomic RAM defers to committed service.
+    check_speculative_atomics(0x2000, 5);  // Device PMA raises AccessFault.
 
     // EX indexes immediately; MEM resolves the same owner exactly one edge later.
     address = 0x10018;

@@ -152,6 +152,11 @@ void stimulus() {
     // Every AMOArithmetic operation must reach coherent RAM, including its
     // first and last naturally aligned word, but not a non-atomic/device PMA.
     core_in.prequest.pbits.pmemory.pwidth = UINT64_C(2);
+    // Raw ordinary requests at this port have already passed split admission upstream.
+    for (auto operation : {LOAD, STORE}) {
+      check_request(0x1002, operation, 1, 0, 0);
+      CHECK(cache_out.prequest.pbits.paddress == 0x1002);
+    }
     for (int operation = 0; operation < 9; operation++) {
       core_in.prequest.pbits.pmemory.patomic = ((operation)&low_mask(4));
       check_request(UINT64_C(4096), ATOMIC, 1, 0, 0);

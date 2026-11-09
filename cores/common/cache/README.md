@@ -112,7 +112,8 @@ At committed admission, LR, SC, and AMOs require natural alignment and readable,
 atomic-capable memory that permits cache allocation. SC and AMOs also require
 write permission. Both cores report a denied atomic on the request cycle,
 even while older cache work is draining.
-`committed_cache_route` selects cached or uncached service for ordinary accesses.
+`classify_committed_cache_access` returns permission, the service route, and the
+strong-ordering bit for the committed offer. Ordinary accesses select cached or uncached service.
 Maintenance uses physical cacheability to choose cached service or local
 completion. Callers check permission before admitting the request.
 

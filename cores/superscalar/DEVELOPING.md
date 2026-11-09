@@ -471,7 +471,7 @@ WB authorization, and the two-port writeback policy stay local.
 | `long-execution.rhdl` | EX multiply reservations and WB owner validation, retained divider ownership |
 | `memory/attachment.rhdl` | Physical permissions, shared L1D adaptation, and ordered IOMSHR/uncached routing |
 | `memory/translation.rhdl` | Combinational query/result contract, including known/fault provenance, probe contention, and held split masking |
-| `memory/translation-specialization.rhm` | Immutable circuit-construction contract, architectural width, physical map, walker-client capability, split-access policy, and atomic PMA policy |
+| `memory/translation-specialization.rhm` | Immutable circuit-construction contract, architectural width, physical map, walker-client capability, and speculative atomic PMA policy |
 | `memory/adapter.rhdl` | EX/MEM timing, physical PMA/PBMT qualification, split owner, committed requests, faults, and passive physical observations |
 | `memory/transport.rhdl` | Physical client tag wrapping and removal, eight-credit configuration, and live-grant admission faults |
 | `memory/translation-identity.rhdl`, `memory/translation-sv39.rhdl` | Concrete specialization objects and their identity versus TLB/walker circuits, vector proof services, and prefetch timing |
@@ -1007,12 +1007,15 @@ the resolver's vector proofs and prefetch checks to the adapter's demand, split,
 and PTE qualification. The specialization is the adapter's only generator argument;
 keep XLEN and physical-map selection with the resolver.
 `page_walk_clients()` declares zero or one PTE
-client, and `split_access_policy()`/`atomic_pma_policy()` select explicit host
-policies. Identity chooses ordinary split access and cacheable/readable atomics;
-Sv39 preserves guest split context and requires ordinary/readable atomic memory.
-The adapter consumes these capabilities and policies without a second mode flag
-or module-name inspection. Keep circuit construction and these declarations
-together in the specialization, not as independently supplied caller options.
+client. The adapter passes the captured split owner's guest-access mode to
+every fragment. Sv39 uses it for translation and HLVX permission checks.
+Identity resolves the physical address independently of that mode.
+`atomic_pma_policy()` selects the speculative atomic qualification. Identity
+requires cacheable, readable memory. Sv39 also requires the resolved attributes
+to allow data-cache allocation. L1D requires cacheable regions to have idempotent
+reads, and identity always supplies PMA. Both adapters send speculative atomics
+on ordinary atomic RAM to committed service. Sv39 reports a MEM access fault
+when an NC or I/O leaf overrides that same RAM.
 
 `memory/transport.rhdl` has two physical clients for Bare (core, split) and
 three for paged translation (core, split, PTE), in that priority order. Only

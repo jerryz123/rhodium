@@ -1,6 +1,6 @@
 // Checks speculative and authorized translations, invalidation, faults, and split accesses.
 // SPDX-License-Identifier: Apache-2.0
-#include "test.hpp"
+#include "speculative-atomics.hpp"
 
 void falling() {
   eval();
@@ -404,34 +404,20 @@ int main() {
     tick_model();
     falling();
     wb_valid = 0;
-    // Device PMAs reject all atomics without a physical or uncached transaction.
-    privilege = 3;
-    address = UINT64_C(0x2000);
-    for (int operation = 3; operation <= 6; operation++) {
-      access = ((operation)&low_mask(4));
-      ex_valid = 1;
-      tick_model();
-      falling();
-      ex_valid = 0;
-      eval();
-      CHECK(result_valid && outcome == 5 && !resolve_valid && !physical_valid);
-      tick_model();
-      falling();
-    }
+    privilege = 3; // Use physical addresses for the paired speculative PMA checks.
+    check_speculative_atomics(0x15008, 0);
+    check_speculative_atomics(0x2000, 5);
     // Zero uses its own PMA capability, not atomic permission or natural alignment.
     access = 6;
-    for (int scenario = 0; scenario < 4; scenario++) {
-      address = scenario == 0   ? UINT64_C(0x2403)
-                : scenario == 1 ? UINT64_C(0x2103)
-                : scenario == 2 ? UINT64_C(0x253f)
-                                : UINT64_C(0x233f);
+    for (std::uint64_t addr : {0x2000u, 0x2403u, 0x2103u, 0x253fu, 0x233fu}) {
+      address = addr;
       ex_valid = 1;
       tick_model();
       falling();
       ex_valid = 0;
       eval();
       CHECK(result_valid && !resolve_valid &&
-            outcome == (scenario < 2 ? 5 : 0));
+            outcome == (addr == 0x253f || addr == 0x233f ? 0 : 5));
       tick_model();
       falling();
     }
@@ -774,16 +760,8 @@ int main() {
       access = 1;
       hint(UINT64_C(0x50003f), 2, 0);
       hint(UINT64_C(0x50003f), 3, 0);
-      // PBMT must not make unsupported physical atomic service legal.
-      access = 3;
-      ex_valid = 1;
-      tick_model();
-      falling();
-      ex_valid = 0;
-      eval();
-      CHECK(result_valid && outcome == 5 && !resolve_valid);
-      tick_model();
-      falling();
+      // The same atomic RAM faults in MEM under either translated NC or IO.
+      check_speculative_atomics(0x500008, 5);
       access = 1;
       // The conservative split path still refuses non-idempotent/noncacheable beats.
       start_split(UINT64_C(0x500007));
@@ -958,8 +936,14 @@ int main() {
     eval();
     CHECK(physical_valid && !wb_fault);
     wb_valid = 0;
-    guest_state = {};
+    // The split owner retains HLVX after its live input changes. This RAM is
+    // readable and allocatable, so execute permission alone denies the fragment.
+    guest_access = 2;
+    start_split(0x2503, 1, 2);
     guest_access = 0;
+    address = 0x15008;
+    finish_split(0, 0x2503, false, true);
+    guest_state = {};
     // Admission probes two distinct pages through the ordinary DTLB/walker.
     // Once certified, vector attempts use the pinned mappings without another walk.
     satp = UINT64_C(0x8000000000000010);

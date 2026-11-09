@@ -18,7 +18,6 @@ import:
   "../../common/load-store.rhdl" open
   "../../../riscv/isa/xlen.rhm" open
   lib("riscv/rtl/trap.rhdl").ExceptionCause
-  "../../../riscv/rtl/svpbmt.rhdl" open
   lib("flow/main.rhdl") open
   lib("rhodium/std/bits.rhdl") open
   lib("chi/protocol/channels.rhdl") open
@@ -79,17 +78,10 @@ sync_circuit SuperscalarL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHICo
   def ordered_busy = ordering.ordered_busy
   def request :: AddressedPhysicalMemoryBeatReq(xlen, Context, bytes, 64) = memory.request.bits.memory
   def atomic_request = request.access.is_one_of(CacheOperation.LoadReserved, CacheOperation.StoreConditional, CacheOperation.Atomic)
-  def aligned = request.width.is_aligned(request.address)
-  def physical = cache_access_region(XLen.X64, config.physical_map, request.address, request.width, request.access)
-  def attributes = resolve_memory_attributes(physical, memory.request.bits.pbmt)
-  def route = committed_cache_route(request.access, physical, attributes)
-  def writes = request.access.store_fault_class()
-  def permitted = cache_access_permitted(
-    physical, request.access, ~reads: !writes, ~writes: writes,
-    ~atomic_service: allows_committed_atomic_service(physical, attributes, ~aligned: aligned),
-    ~aligned: request.access.is_cache_block_zero() ||| aligned
+  def admission = classify_committed_cache_access(
+    XLen.X64, config.physical_map, request.address, request.width, request.access, memory.request.bits.pbmt,
+    ~reads: !request.access.store_fault_class(), ~require_alignment: #true
   )
-
 
 
   /* Speculative EX/MEM cache access.
@@ -129,7 +121,7 @@ sync_circuit SuperscalarL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHICo
   /* Committed cached, uncached, and local-management paths.
      Accepted operations retain response ownership across speculative redirects. */
 
-  def Array(cached, uncached_requests, local_management) = memory.request |> gate_flow(permitted) |> map_flow(translated => translated.memory) |> demux_flow(3, _request => route.as_bits())
+  def Array(cached, uncached_requests, local_management) = memory.request |> gate_flow(admission.permitted) |> map_flow(translated => translated.memory) |> demux_flow(3, _request => admission.route.as_bits())
   // A statically uncached region has no cached copies. Complete after drain,
   // without issuing an invented load/store to a possibly side-effecting device.
   (local_management |> map_flow(request => MemoryResponse(Bits(xlen.width), Context)):
@@ -153,7 +145,7 @@ sync_circuit SuperscalarL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHICo
 
   (
     uncached_requests |> map_flow(request => UncachedMemoryReq(XLen.X64, SuperscalarUncachedContext(Context))):
-      device: attributes.strongly_ordered
+      device: admission.strongly_ordered
       request:
         PhysicalMemoryReq(XLen.X64, SuperscalarUncachedContext(Context)):
           byte_mask: if xlen == XLen.X64 | request.byte_mask | request.byte_mask.zext(8) << (request.address[2].as_bits() ++ Bits(2)(0))
@@ -173,7 +165,7 @@ sync_circuit SuperscalarL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHICo
 
   /* Admission faults report the original address. Accepted cache service completes without a late fault. */
 
-  memory.fault.valid <== memory.request.valid & !permitted
+  memory.fault.valid <== memory.request.valid & !admission.permitted
   memory.fault.bits <== SuperscalarResolution(xlen):
     guest: literal(RiscvGuestFault(), 0)
     disposition: SuperscalarDisposition.Fault

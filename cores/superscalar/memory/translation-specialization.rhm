@@ -9,11 +9,6 @@ import:
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/rtl/pma.rhdl").RiscvPhysicalMemoryMap
 
-/* Selects whether a retained split owner carries its guest-access interpretation into fragments. */
-enum SuperscalarSplitAccessPolicy
-| Normal
-| PreserveGuest
-
 /* Separates legacy cacheable/readable atomic service from the stricter ordinary-memory restriction. */
 enum SuperscalarAtomicPmaPolicy
 | CacheableReadable
@@ -32,12 +27,9 @@ interface SuperscalarTranslationSpecialization:
   method physical_map() :: RiscvPhysicalMemoryMap
   /* Sizes the optional physical PTE contribution without allocating dormant clients. */
   method page_walk_clients() :: matching(0) || matching(1)
-  /* Defines how captured architectural split-access context reaches physical fragments. */
-  method split_access_policy() :: SuperscalarSplitAccessPolicy
   /* Defines physical atomic-service qualification independently of runtime address-translation mode. */
   method atomic_pma_policy() :: SuperscalarAtomicPmaPolicy
 
 export:
   SuperscalarTranslationSpecialization
-  SuperscalarSplitAccessPolicy
   SuperscalarAtomicPmaPolicy
