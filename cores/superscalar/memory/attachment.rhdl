@@ -47,7 +47,7 @@ sync_circuit SuperscalarL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHICo
   storage.node_id <== node_id
   chi <=> storage.chi
   inst io(IOMSHR(XLen.X64, SuperscalarUncachedContext(Context)))
-  inst uncached(UncachedInstructionMemory(XLen.X64, config, SuperscalarUncachedContext(Context), 64))
+  inst uncached(UncachedInstructionMemory(XLen.X64, config, Bool, 64))
   io.memory |> uncached.core
   instruction.response <=> uncached.instruction.response
   uncached.instruction.flush <== instruction.flush

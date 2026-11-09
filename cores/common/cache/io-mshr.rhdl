@@ -6,7 +6,7 @@ import:
   "protocol.rhdl" open
   "operation.rhdl".CacheOperation
   "../../../riscv/isa/xlen.rhm".XLen
-  lib("rhodium/std/ready-valid.rhdl") open
+  lib("flow/main.rhdl") open
 
 /* Separates an empty data slot, a retained request awaiting RN-I issue, and accepted engine
    work. */
@@ -16,11 +16,11 @@ hardware_enum IOMSHRState:
   Active
 
 /* Admits one supported committed request independently of downstream availability.
-   Retains its payload until issue and releases only on final completion; unsupported operations
-   never allocate. */
+   Returns the original context on final completion; the transport only supplies data and status.
+   Unsupported operations never allocate. */
 sync_circuit IOMSHR(xlen :: XLen, Context :: DataType):
   interface core(UncachedMemoryAccess(xlen, Context), ~role: responder)
-  interface memory(UncachedMemoryAccess(xlen, Context), ~role: requester)
+  interface memory(UncachedMemoryAccess(xlen, Bool), ~role: requester)
 
   reg state(~init: IOMSHRState.Idle)
   reg request(UncachedMemoryReq(xlen, Context))
@@ -36,10 +36,33 @@ sync_circuit IOMSHR(xlen :: XLen, Context :: DataType):
   core.request_fault <== Bool(#false)
   core.request_access_fault <== core.request.valid & !supported
   def accept = core.request.fire() & supported
-  memory.request.valid <== queued
-  memory.request.bits <== request
-  memory.response |> core.response
   core.drained <== idle & !accept
+
+
+  /* The slot owns the caller's context until the response transfers. The RN-I
+     still owns transaction routing and can drain an unrelated detached fetch. */
+
+  def payload = request.request
+  memory.request.valid <== queued
+  memory.request.bits <== UncachedMemoryReq(xlen, Bool):
+    device: request.device
+    request:
+      PhysicalMemoryReq(xlen, Bool):
+        address: payload.address
+        access: payload.access
+        atomic: payload.atomic
+        width: payload.width
+        unsigned: payload.unsigned
+        byte_mask: payload.byte_mask
+        data: payload.data
+        locality: payload.locality
+        context: Bool(#false)
+
+  (memory.response |> map_flow(reply => PhysicalMemoryResp(xlen, Context)):
+    data: reply.data
+    access_fault: reply.access_fault
+    context: payload.context
+  ) |> core.response
 
   when accept:
     request <== core.request.bits

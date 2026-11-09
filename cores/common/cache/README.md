@@ -120,7 +120,9 @@ The fixed-cycle lookup and store-authorization interfaces remain cache-specific.
 It accepts independently of downstream availability, presents the captured
 request the following cycle, and releases only on final completion. It has no
 same-cycle refill or extra response buffer. Unsupported operations fault before
-allocation. Context is preserved without inspecting its contents.
+allocation. The IOMSHR alone retains the opaque caller context. Its downstream
+`UncachedMemoryAccess(xlen, Bool)` sends a constant placeholder; only response
+data and fault status come back from the transport.
 
 `CHIUncachedMemory(xlen, config, Context)` performs one nonretrying,
 nonallocating transaction at a time. RAM accesses remain coherent (`ReadOnce`

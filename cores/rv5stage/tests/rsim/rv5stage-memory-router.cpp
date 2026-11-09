@@ -38,15 +38,17 @@ void check_request(std::uint32_t address, std::uint8_t access,
     CHECK(uncached_out.prequest.pvalid && !core_out.pdrained &&
           uncached_out.prequest.pbits.prequest.paddress == address &&
           uncached_out.prequest.pbits.prequest.paccess == access &&
-          uncached_out.prequest.pbits.prequest.plocality == UINT64_C(4) &&
-          uncached_out.prequest.pbits.prequest.pcontext.pwriteback ==
-              memory_vector(UINT64_C(5)));
+          uncached_out.prequest.pbits.prequest.plocality == UINT64_C(4));
     tick();
     uncached_in.presponse.pvalid = UINT64_C(1);
     uncached_in.presponse.pbits.pdata = UINT64_C(0x12345678);
+    uncached_in.presponse.pbits.paccess_ufault = (access == STORE);
+    uncached_in.presponse.pbits.pcontext = 1; // Not the caller's context.
     settle();
     CHECK(core_out.presponse.pvalid &&
-          core_out.presponse.pbits.pdata == UINT64_C(0x12345678));
+          core_out.presponse.pbits.pdata == UINT64_C(0x12345678) &&
+          core_out.presponse.pbits.paccess_ufault == (access == STORE) &&
+          core_out.presponse.pbits.pcontext.pwriteback == memory_vector(5));
     tick();
     uncached_in.presponse.pvalid = UINT64_C(0);
   }

@@ -75,7 +75,9 @@ local-management slot replaces the callers' previous one-entry queues.
 `UncachedInstructionMemory` composes existing ownership and transport without
 another request stage. The frontend controls cancellation; committed data never
 inherits it. Keep fetch response draining on the detached owner and retain data
-priority even while a canceled instruction reply drains.
+priority even while a canceled instruction reply drains. When driven by an
+IOMSHR, specialize the transport context to `Bool`: only the slot owns the
+caller's return tag, and only a data response handshake releases that slot.
 
 Keep existing `dcache/*` event names and retained transaction lineage stable;
 named-core integration must not summarize an entire cache as a fake trace

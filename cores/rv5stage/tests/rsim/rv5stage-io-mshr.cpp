@@ -102,17 +102,17 @@ void contended_load(std::uint8_t flush_fetch,
   instruction_in.pflush = 0;
   read_data(UINT64_C(0x8000000000000000));
   core_in.presponse.pready = 0;
-  settle();
-  CHECK(core_out.presponse.pvalid &&
-        core_out.presponse.pbits.pdata == UINT64_C(0x80000000) &&
-        core_out.presponse.pbits.pcontext.pwriteback == expected_writeback &&
-        !core_out.pdrained);
-  for (int repeat_index = 0; repeat_index < (3); ++repeat_index) {
-    CHECK(!chi_out.pdat.presponse.pready && completed == initial_completed);
-    tick();
+  for (unsigned hold = 0; hold < 4; ++hold) {
+    core_in.prequest.pbits.pmemory.pcontext.pwriteback = expected_writeback ^ (hold + 1);
     settle();
     CHECK(core_out.presponse.pvalid &&
-          core_out.presponse.pbits.pdata == UINT64_C(0x80000000));
+          core_out.presponse.pbits.pdata == UINT64_C(0x80000000) &&
+          core_out.presponse.pbits.pcontext.pwriteback == expected_writeback &&
+          !core_out.presponse.pbits.paccess_ufault &&
+          !core_out.prequest.pready && !core_out.pdrained &&
+          !instruction_out.presponse.pvalid && !chi_out.pdat.presponse.pready &&
+          completed == initial_completed);
+    tick();
   }
   core_in.presponse.pready = 1;
   tick();
@@ -177,7 +177,7 @@ void stimulus() {
     contended_load(
         1, (field(UINT64_C(3), 2, 7) |
             field(UINT64_C(15), 7,
-                  0))); // Four-bit slot must survive retained RN-I ownership.
+                  0))); // Four-bit slot must survive the detached fetch.
     contended_load(0, memory_integer(UINT64_C(31)));
     contended_load(1, UINT64_C(0));
 

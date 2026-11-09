@@ -22,7 +22,7 @@ sync_circuit RV5StageIOMSHRFixture(~vector_completion_slots: vector_completion_s
   interface instruction(PhysicalInstructionAccess(64, 32), ~role: responder)
   interface chi(CHIRNIChannels(config.flit), ~role: node)
   inst router(RV5StageMemoryRouter(XLen.X64, config.physical_map, ~vector_completion_slots: vector_completion_slots))
-  inst uncached(UncachedInstructionMemory(XLen.X64, config, RV5StageMemoryContext(vector_completion_slots), 32))
+  inst uncached(UncachedInstructionMemory(XLen.X64, config, Bool, 32))
   core |> router.core
   router.cache |> cache
   router.uncached |> uncached.core

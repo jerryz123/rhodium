@@ -529,11 +529,7 @@ void observe() {
         defer(uncached_response,
               std::remove_cvref_t<decltype(uncached_response)>{
                   .paccess_ufault = UINT64_C(0),
-                  .pdata = UINT64_C(4277009102),
-                  .pcontext = {.pwriteback = uncached_out.prequest.pbits
-                                                 .prequest.pcontext.pwriteback,
-                               .porigin = uncached_out.prequest.pbits.prequest
-                                              .pcontext.porigin}});
+                  .pdata = UINT64_C(4277009102)});
         if (uncached_out.prequest.pbits.prequest.paccess == UINT64_C(1))
           defer(device_reads, device_reads + 1);
       }

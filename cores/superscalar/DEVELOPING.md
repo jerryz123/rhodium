@@ -525,8 +525,8 @@ cacheable, idempotent memory; do not widen device accesses into this path.
 
 Preserve natural access width through MMU translation. Cache service aligns its
 own beats; uncached service keeps the exact address/size and unpositions store
-data for the shared StoreGen. Its context wraps the caller's opaque owner with
-a three-bit byte offset, restoring a returned scalar to its raw-beat lane before
+data for the shared StoreGen. The IOMSHR retains the caller's opaque owner and
+three-bit byte offset locally, restoring a returned scalar to its raw-beat lane before
 returning the original context to the core's LoadGen. Do not issue
 speculative physical requests to devices or use widened PMA checks that reject
 legitimate sub-beat regions. Page-table traffic still requires cacheable RAM.

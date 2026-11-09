@@ -349,6 +349,9 @@ void observe() {
         defer(wide_splat_reads, wide_splat_reads + 1);
       if (instruction_out.pflush && vector_load_pending)
         defer(redirected_tail, redirected_tail + 1);
+      if (demand_fire && transaction.paddress == UINT64_C(40960))
+        CHECK(transaction.paccess == 1 &&
+              bit_slice(transaction.pcontext.pwriteback, 7, 2) == 3);
       if (device_elements != 0 && load_issue && load_address == UINT64_C(4872))
         CHECK(device_elements == 4 && !uncached_pending);
       if (transaction_fire && transaction.paccess == 2 &&
@@ -409,16 +412,9 @@ void observe() {
         defer(uncached_response,
               std::remove_cvref_t<decltype(uncached_response)>{
                   .paccess_ufault = 0,
-                  .pdata = UINT64_C(49),
-                  .pcontext = {.pwriteback = uncached_out.prequest.pbits
-                                                 .prequest.pcontext.pwriteback,
-                               .porigin = uncached_out.prequest.pbits.prequest
-                                              .pcontext.porigin}});
+                  .pdata = UINT64_C(49)});
         if (uncached_out.prequest.pbits.prequest.paddress == UINT64_C(40960)) {
-          CHECK(uncached_out.prequest.pbits.prequest.paccess == 1 &&
-                bit_slice(
-                    uncached_out.prequest.pbits.prequest.pcontext.pwriteback, 7,
-                    (8) - (7) + 1) == 3);
+          CHECK(uncached_out.prequest.pbits.prequest.paccess == 1);
           defer(vector_load_pending, 1);
           defer(uncached_delay, 50);
         } else if (uncached_out.prequest.pbits.prequest.paddress >=

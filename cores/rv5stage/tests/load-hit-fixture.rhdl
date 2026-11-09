@@ -29,7 +29,7 @@ import:
 sync_circuit RV5StageLoadHit(~vector: vector_profile :: VectorProfile = DefaultVectorProfile, ~vector_length: vlen :: VectorLength = 128, ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8):
   input permit_demand: Bool
   interface instruction(RV5StageTestInstructionAccess(XLen.X64), ~role: requester)
-  interface uncached(UncachedMemoryAccess(XLen.X64, RV5StageMemoryContext(vector_completion_slots)), ~role: requester)
+  interface uncached(UncachedMemoryAccess(XLen.X64, Bool), ~role: requester)
   interface chi(CHIRNChannels(test_rv5stage_flit), ~role: node)
   output(load_issue, load_hit, transaction_valid, transaction_fire): Bool
   output load_address: Bits(64)

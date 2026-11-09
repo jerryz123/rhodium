@@ -27,11 +27,11 @@ Word expected(unsigned offset) {
   return value;
 }
 
-void service(unsigned offset, unsigned op, Word data, unsigned mask, unsigned width) {
+void service(unsigned address, unsigned op, Word data, unsigned mask, unsigned width) {
   auto &req = memory_in.prequest;
   req.pbits = {};
   req.pbits.pcontext = ++next_context;
-  req.pbits.paddress = base + offset;
+  req.pbits.paddress = address;
   req.pbits.paccess = op;
   req.pbits.pdata = data;
   req.pbits.pmask = mask;
@@ -54,6 +54,45 @@ void complete(Word value) {
   }
   memory_in.presponse.pready = 1; tick_model(); memory_in.presponse.pready = 0;
   contexts.pop_front();
+}
+
+void flushed_fetch_before_device_load() {
+  constexpr unsigned offset = bytes - 1;
+  constexpr unsigned address = 0x2000 + offset;
+  auto &fetch = instruction_in.prequest;
+  auto &req = uncached_chi_out.preq;
+  auto &dat = uncached_chi_in.pdat.presponse;
+
+  fetch.pbits = {}; fetch.pbits.paddress = 0x10000; fetch.pvalid = 1;
+  until([] { return instruction_out.prequest.pready; });
+  tick_model(); fetch.pvalid = 0;
+  until([&] { return req.pvalid; });
+  CHECK(req.pbits.paddress == 0x10000);
+  const auto fetch_home = req.pbits.ptgt_uid;
+  uncached_chi_in.preq.pready = 1; tick_model(); uncached_chi_in.preq.pready = 0;
+
+  // Admit the tagged byte load while the issued fetch still owns its CHI reply.
+  service(address, 1, 0, 1u << offset, 0);
+  memory_in.prequest.pbits = {};
+  instruction_in.pflush = 1; tick_model(); instruction_in.pflush = 0;
+  dat.pbits = {}; dat.pbits.popcode = 4;
+  dat.pbits.phome_unid_uor_upbha_uor_umismatched_umecid = fetch_home;
+  dat.pvalid = 1; eval();
+  CHECK(uncached_chi_out.pdat.presponse.pready && !instruction_out.presponse.pvalid &&
+        !memory_out.presponse.pvalid && !memory_out.pdrained);
+  tick_model(); dat.pvalid = 0;
+
+  until([&] { return req.pvalid; });
+  CHECK(req.pbits.paddress == address && req.pbits.popcode == 4 && req.pbits.psize_uor_unum_ureq == 0);
+  const auto data_home = req.pbits.ptgt_uid;
+  uncached_chi_in.preq.pready = 1; tick_model(); uncached_chi_in.preq.pready = 0;
+  dat.pbits.phome_unid_uor_upbha_uor_umismatched_umecid = data_home;
+  dat.pbits.pdata.words[offset / 4] = 0xa5u << (8 * (offset % 4));
+  dat.pvalid = 1; eval();
+  CHECK(!uncached_chi_out.pdat.presponse.pready && !instruction_out.presponse.pvalid);
+  complete(Word(0xa5) << (8 * offset)); // Checks tag and lane on every stalled cycle.
+  dat.pvalid = 0; eval();
+  CHECK(memory_out.pdrained && !memory_out.presponse.pvalid && !instruction_out.presponse.pvalid);
 }
 
 void fill() {
@@ -99,9 +138,10 @@ int main() {
   return run_test([] {
     reset = 1; tick_model(); reset = 0;
     node_id = 3; chi_in.prequester_uresponses.pready = 1;
+    flushed_fetch_before_device_load();
     for (unsigned b = 0; b < line.size(); ++b) line[b] = b + 1;
     // A committed byte store misses in the top native word of the first row.
-    service(15, 2, Word(0xa5) << (8 * (bytes - 1)), 1u << (bytes - 1), 0);
+    service(base + 15, 2, Word(0xa5) << (8 * (bytes - 1)), 1u << (bytes - 1), 0);
     fill(); complete(0); line[15] = 0xa5;
     for (unsigned offset = 0; offset < 16; offset += bytes) {
       lookup(offset, false, expected(offset), word_mask);
@@ -111,19 +151,19 @@ int main() {
     }
     for (unsigned offset = 0; offset < 32; offset += bytes) {
       // Same native-word contract as a committed load or a page-table read.
-      service(offset, 1, 0, word_mask, size_code); complete(expected(offset));
+      service(base + offset, 1, 0, word_mask, size_code); complete(expected(offset));
       lookup(offset, false, expected(offset), word_mask);
     }
     // Distinct accepted owners remain paired while the first return is backpressured.
-    service(0, 1, 0, word_mask, size_code);
-    service(bytes, 1, 0, word_mask, size_code);
+    service(base, 1, 0, word_mask, size_code);
+    service(base + bytes, 1, 0, word_mask, size_code);
     complete(expected(0));
     complete(expected(bytes));
     // AMOSWAP.W keeps its byte address and unshifted operand even when the
     // addressed word is the last four bytes of an RV64 doubleword.
     const unsigned word_offset = 12 % bytes;
     const auto old = std::uint32_t(expected(12 - word_offset) >> (word_offset * 8));
-    service(12, 5, 0x28394a5b, 0xfu << word_offset, 2);
+    service(base + 12, 5, 0x28394a5b, 0xfu << word_offset, 2);
     complete(Word(std::int32_t(old)));
     for (unsigned b = 0; b < 4; ++b) line[12 + b] = 0x28394a5bu >> (8 * b);
     lookup(12 - word_offset, false, expected(12 - word_offset), word_mask);

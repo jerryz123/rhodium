@@ -152,7 +152,7 @@ sync_circuit RV5Stage(profile :: RV5StageConfig,
   inst instruction_memory_router(InstructionMemoryRouter(xlen.width, 32))
   inst memory_router(RV5StageMemoryRouter(xlen, config.physical_map, ~vector_completion_slots: vector_completion_slots))
   inst data_port_arbiter(RV5StageDataPortArbiter(xlen, vector_completion_slots))
-  inst uncached(UncachedInstructionMemory(xlen, config, RV5StageMemoryContext(vector_completion_slots), 32))
+  inst uncached(UncachedInstructionMemory(xlen, config, Bool, 32))
   l1i.node_id <== chi_identity.instruction_node_id
   l1d.node_id <== chi_identity.data_node_id
   uncached.node_id <== chi_identity.uncached_node_id
