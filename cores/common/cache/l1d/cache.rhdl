@@ -53,8 +53,9 @@ bundle L1DLookup(xlen :: XLen, Context :: DataType, beat_bytes :: Pow2Int):
   prefetch_write: Bool
 
 /* Captures tag/state/data resolution and the chosen replacement victim for elastic S4 service. */
-bundle L1DResolved(xlen :: XLen, way_width :: PosInt, Context :: DataType, beat_bytes :: Pow2Int):
-  lookup: L1DLookup(xlen, Context, beat_bytes)
+bundle L1DResolved(xlen :: XLen, way_width :: PosInt, beat_bytes :: Pow2Int):
+  prefetch: Bool
+  prefetch_write: Bool
   hit: Bool
   hit_way: Bits(way_width)
   state: CHICacheState
@@ -165,7 +166,7 @@ sync_circuit L1DCache(xlen :: XLen,
   // S3 retains its request if older S4 work takes the arrays. Its returned
   // data is discarded and reread before retry, including across snoop service.
   inst s3_lookup(Pipe(L1DLookup(xlen, Context, beat_bytes), 1))
-  inst s4_result(Pipe(L1DResolved(xlen, way_width, Context, beat_bytes), 1))
+  inst s4_result(Pipe(L1DResolved(xlen, way_width, beat_bytes), 1))
   reg s3_read_valid(~init: Bool(#false))
   // Retain a slow completion until its downstream writeback path accepts it.
   // Registered-only input capacity keeps response backpressure out of request
@@ -195,8 +196,8 @@ sync_circuit L1DCache(xlen :: XLen,
   reg reservation_width(~init: MemoryWidth.Word)
 
 
-  /* Retained S4 service. A local mutation and a miss share the original request
-     and selected way; each keeps its own progress and completion state. */
+  /* S3 captures the request alongside the S4 result. A local mutation or miss
+     retains it after S4 transfers, and captures the selected way at launch. */
 
   reg retained_request(PhysicalMemoryBeatReq(xlen, Context, beat_bytes))
   reg retained_way(Bits(way_width))
@@ -420,28 +421,25 @@ sync_circuit L1DCache(xlen :: XLen,
      Uses captured lookup results to choose a local hit, refill, or eviction.
      This elastic service stage is not a fixed requester-cycle boundary. */
 
-  def s4_context = s4_result.egress.bits.lookup.into(L1DLookup(xlen, Context, beat_bytes))
   wire s4_refill_accepted: Bool
   wire s4_refill_opcode: CHIReqOpcode
   wire s4_refill_address: Bits(width)
   def s4_observed = s4_result.egress |> trace_event("dcache/s4.resolve", ~fields: result):
-    address: s4_context.request.address
-    prefetch: s4_context.prefetch
+    address: retained_request.address
+    prefetch: result.prefetch
     hit: result.hit
     refill_accepted: s4_refill_accepted
     refill_opcode(~format: "enum"): s4_refill_opcode
     refill_address: s4_refill_address
 
   def s4_path = s4_observed
-  def s4_request :: PhysicalMemoryBeatReq(xlen, Context, beat_bytes) = s4_context.request
-  def s4_prefetch = s4_context.prefetch
-  def s4_prefetch_write = s4_context.prefetch_write
-  def s4_set = s4_request.address[offset_width..(offset_width + set_width)]
+  def s4_prefetch = s4_result.egress.bits.prefetch
+  def s4_prefetch_write = s4_result.egress.bits.prefetch_write
   def s4_hit = s4_result.egress.bits.hit
   def s4_state = s4_result.egress.bits.state.into(CHICacheState)
   def s4_victim_valid = s4_result.egress.bits.victim_valid
   def s4_victim_state = s4_result.egress.bits.victim_state.into(CHICacheState)
-  def s4_access = s4_request.access
+  def s4_access = retained_request.access
   def s4_valid = s4_result.egress.valid
   def s4_load = s4_valid & !s4_prefetch & s4_access.is_load()
   def s4_store = s4_valid & !s4_prefetch & s4_access.is_store()
@@ -449,7 +447,7 @@ sync_circuit L1DCache(xlen :: XLen,
   def s4_atomic = s4_valid & !s4_prefetch & s4_access.is_atomic()
   def s4_sc = s4_valid & !s4_prefetch & s4_access.is_store_conditional()
   def s4_lr = s4_load & (s4_access === CacheOperation.LoadReserved)
-  def s4_reservation_matches = reservation_valid & (reservation_address === s4_request.address) & (reservation_width === s4_request.width)
+  def s4_reservation_matches = reservation_valid & (reservation_address === retained_request.address) & (reservation_width === retained_request.width)
   def s4_sc_authorized = s4_reservation_matches & s4_hit & s4_state.is_unique()
   def s4_mutation = s4_store ||| s4_zero ||| s4_atomic ||| (s4_sc & s4_sc_authorized)
   def s4_owned_mutation = s4_mutation & s4_hit & s4_state.is_unique()
@@ -459,11 +457,7 @@ sync_circuit L1DCache(xlen :: XLen,
 
   /* Makes nondefault-locality ordinary load misses consume the clean refill buffer without
      installing. LR, mutations, and prefetches retain their independent allocation policy. */
-  fun bypass_allocation(result :: L1DResolved(xlen, way_width, Context, beat_bytes)):
-    def lookup = result.lookup.into(L1DLookup(xlen, Context, beat_bytes))
-    !lookup.prefetch & !result.hit & (lookup.request.access === CacheOperation.Load) & (lookup.request.locality =/= RiscvMemoryLocality.Default)
-
-  def s4_bypass_refill = bypass_allocation(s4_result.egress.bits)
+  def s4_bypass_refill = !s4_prefetch & !s4_hit & (s4_access === CacheOperation.Load) & (retained_request.locality =/= RiscvMemoryLocality.Default)
   def s4_dirty_victim = s4_needs_refill & !s4_bypass_refill & !s4_prefetch & !s4_hit & s4_victim_valid & s4_victim_state.is_dirty()
   def s4_word = s4_result.egress.bits.word
   def gather_idle = gather_state === L1DGatherState.Idle
@@ -472,8 +466,8 @@ sync_circuit L1DCache(xlen :: XLen,
   def gather_issue_final = gather_issue_index === Bits(word_index_width)(words_per_line - 1)
   def gather_response_final = gather_response_index === Bits(word_index_width)(words_per_line - 1)
 
-  // Every branch retains the complete resolved result until its consumer
-  // constructs a command or captures state from the accepted event.
+  // Each branch uses the resolved metadata and its matching retained request
+  // until the consumer accepts the event.
   def Array(s4_hit_path, s4_transaction_path) = s4_path |> demux_flow(2, _result => s4_needs_refill.as_bits())
   def Array(s4_refill_path, s4_eviction_path) = s4_transaction_path |> demux_flow(2, _result => s4_dirty_victim.as_bits())
   def s4_local = s4_hit_path |> gate_flow(service_responses.ingress.ready) |> to_valid()
@@ -489,12 +483,7 @@ sync_circuit L1DCache(xlen :: XLen,
       opcode: mux(prefetch_write ||| request.access.into(CacheOperation).needs_unique() ||| (request.access === CacheOperation.LoadReserved), CHIReqOpcode.ReadUnique, CHIReqOpcode.ReadClean)
       context: prefetch
 
-  def direct_refill_commands = (
-    s4_refill_path
-      |> map_flow(result):
-        def lookup = result.lookup.into(L1DLookup(xlen, Context, beat_bytes))
-        refill_command(lookup.request, lookup.prefetch, lookup.prefetch_write)
-  )
+  def direct_refill_commands = s4_refill_path |> map_flow(result => refill_command(retained_request, result.prefetch, result.prefetch_write))
 
   def s4_victim_address = s4_result.egress.bits.victim_address
   def eviction_start = s4_eviction_path |> gate_flow(gather_idle & !refill_installing) |> to_valid()
@@ -556,13 +545,12 @@ sync_circuit L1DCache(xlen :: XLen,
   def refill_access = retained_request.access
   def refill_tag = retained_request.address[(offset_width + set_width)..physical_width]
   def refill_word_index = retained_request.address[row_offset_width..offset_width]
-  def service_load_request :: PhysicalMemoryBeatReq(xlen, Context, beat_bytes) = mux(complete_refill, retained_request, s4_request)
-  def service_load_unsigned = mux(service_load_request.access === CacheOperation.Load, service_load_request.unsigned, Bool(#false))
+  def service_load_unsigned = (retained_request.access === CacheOperation.Load) & retained_request.unsigned
   def refilled_word = backing_line[refill_word_index]
-  service_load_gen.address <== service_load_request.address
+  service_load_gen.address <== retained_request.address
   def service_row = mux(complete_refill, refilled_word, s4_word)
   service_load_gen.data <== service_row
-  service_load_gen.width <== service_load_request.width
+  service_load_gen.width <== retained_request.width
   service_load_gen.unsigned_load <== service_load_unsigned
   def refill_mutation = refill.completion.valid & !miss_prefetch & refill_access.needs_unique()
 
@@ -673,8 +661,9 @@ sync_circuit L1DCache(xlen :: XLen,
   (
     s3_observed
       |> gate_flow(s3_can_advance & s3_read_valid)
-      |> map_flow(request => L1DResolved(xlen, way_width, Context, beat_bytes)):
-        lookup: request
+      |> map_flow(lookup => L1DResolved(xlen, way_width, beat_bytes)):
+        prefetch: lookup.prefetch
+        prefetch_write: lookup.prefetch_write
         hit: s3_hit_way.valid
         hit_way: s3_hit_way.index
         state: s3_state
@@ -684,6 +673,10 @@ sync_circuit L1DCache(xlen :: XLen,
         victim_state: arrays.states.response.bits[s3_allocation_way]
         victim_address: concat(arrays.tags.response.bits[s3_allocation_way], s3_set, Bits(offset_width)(0)).zext(width)
   ) |> s4_result.ingress
+
+  when (s4_result.ingress.fire()):
+    assert(!pending_mutation_valid & !miss_active, "l1d_s4_request_not_owned_by_slow_service")
+    retained_request <== s3_request
 
   for (left in 0..ways):
     for (right in (left + 1)..ways):
@@ -764,9 +757,7 @@ sync_circuit L1DCache(xlen :: XLen,
   def s4_load_hit = s4_local.valid & s4_load & s4_hit & (!s4_lr ||| s4_state.is_unique())
   def s4_failed_sc = s4_local.valid & s4_sc & !s4_sc_authorized
   def produces_response = maintenance_complete ||| s4_load_hit ||| local_mutation_complete ||| s4_failed_sc ||| (complete_refill & !miss_prefetch)
-  def response_request :: PhysicalMemoryBeatReq(xlen, Context, beat_bytes) = priority_mux(~default: s4_request):
-    maintenance_complete: maintenance_done.bits.context
-    complete_refill ||| local_mutation_commit: retained_request
+  def response_request :: PhysicalMemoryBeatReq(xlen, Context, beat_bytes) = mux(maintenance_complete, maintenance_done.bits.context, retained_request)
 
   def response_access = response_request.access
   def response_address = response_request.address
@@ -926,7 +917,7 @@ sync_circuit L1DCache(xlen :: XLen,
   when (local_mutation_capture ||| miss_capture):
     assert(!(local_mutation_capture & miss_capture), "l1d_one_retained_capture")
     assert(!pending_mutation_valid & !miss_active, "l1d_retained_capture_when_idle")
-    retained_request <== s4_request
+    assert(!s4_result.ingress.fire(), "l1d_s4_request_held_on_slow_launch")
     retained_way <== mux(s4_hit, s4_result.egress.bits.hit_way, s4_result.egress.bits.allocation_way)
 
   when local_mutation_capture:
@@ -1004,7 +995,7 @@ sync_circuit L1DCache(xlen :: XLen,
     gather_issue_index <== Bits(word_index_width)(0)
     gather_response_pending <== Bool(#false)
     gather_last_issued <== Bool(#false)
-    gather_set <== mux(eviction_gather_start, eviction_start.bits.lookup.into(L1DLookup(xlen, Context, beat_bytes)).request.address[offset_width..(offset_width + set_width)], snoop_set)
+    gather_set <== mux(eviction_gather_start, retained_set, snoop_set)
     gather_way <== mux(eviction_gather_start, eviction_start.bits.allocation_way, snoop_selection.index)
     when eviction_gather_start:
       eviction_line_address <== eviction_start.bits.victim_address
@@ -1033,9 +1024,8 @@ sync_circuit L1DCache(xlen :: XLen,
      bounds probe deferral separately and cannot be renewed by repeated LR. */
 
   def reservation_line_address = reservation_address.align_down(CacheLineBytes)
-  def s4_line_address = s4_request.address.align_down(CacheLineBytes)
   def completing_lr = (s4_load_hit & (s4_access === CacheOperation.LoadReserved)) ||| (install_refill & (refill_access === CacheOperation.LoadReserved))
-  def s4_reservation_clear = s4_path.fire() & !local_mutation_capture & (s4_sc ||| ((s4_store ||| s4_zero ||| s4_atomic) & (s4_line_address === reservation_line_address)))
+  def s4_reservation_clear = s4_path.fire() & !local_mutation_capture & (s4_sc ||| ((s4_store ||| s4_zero ||| s4_atomic) & (retained_line_address === reservation_line_address)))
   def mutation_touches_reservation = (pending_mutation_access.is_store() ||| pending_zero ||| pending_mutation_access.is_atomic()) & (retained_line_address === reservation_line_address)
   def mutation_reservation_clear = local_mutation_commit & (pending_mutation_access.is_store_conditional() ||| mutation_touches_reservation)
   def snoop_reservation_clear = snoop.update.valid & (snoop.update.bits.address.align_down(CacheLineBytes) === reservation_line_address.zext(snoop_width))
@@ -1088,7 +1078,7 @@ sync_circuit L1DCache(xlen :: XLen,
   def pipeline_replacement_touch = pipeline.request.valid & s1_outcome.is_one_of(CachePipelineOutcome.LoadHit, CachePipelineOutcome.StoreHit)
   def transaction_replacement_touch = s4_path.fire() & s4_hit
   def replacement_touch = pipeline_replacement_touch ||| transaction_replacement_touch
-  def replacement_touch_set = mux(pipeline_replacement_touch, s1_set, s4_set)
+  def replacement_touch_set = mux(pipeline_replacement_touch, s1_set, retained_set)
   def replacement_touch_way = mux(pipeline_replacement_touch, s1_hit_way.index, s4_result.egress.bits.hit_way)
   assert(!(replacement_touch & install_refill), "l1d_replacement_update_unique")
   when replacement_touch:

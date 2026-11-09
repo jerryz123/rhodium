@@ -76,6 +76,24 @@ void response(Row expected, unsigned context = 0x97) {
   core_in.presponse.pready = 1; tick_model(); core_in.presponse.pready = 0;
 }
 
+void check_consecutive_hits(unsigned address, const Line &line) {
+  request(address, load, {}, 0xffff, true, 0x21);
+  const auto first_accept = test_cycles;
+  request(address+32, load, {}, 0xffff, true, 0x62);
+  CHECK(test_cycles == first_accept + 1);
+  core_in.presponse.pready = 1;
+  until([] { return core_out.presponse.pvalid; });
+  for (unsigned i : {0u, 2u}) {
+    const auto &rsp = core_out.presponse;
+    CHECK(rsp.pvalid && !rsp.pbits.paccess_ufault && rsp.pbits.pdata == line[i]);
+    CHECK(rsp.pbits.pcontext == (i == 0 ? 0x21 : 0x62));
+    CHECK(!chi_out.prequests.pvalid);
+    tick_model(); eval();
+  }
+  CHECK(!core_out.presponse.pvalid);
+  core_in.presponse.pready = 0;
+}
+
 void hit(unsigned address, unsigned op, Row value, unsigned mask = 0xffff, bool raw = true, bool commit = true) {
   auto &lookup = pipeline_lookup_in;
   lookup.pbits = {};
@@ -124,6 +142,8 @@ void check_backing_handoff(const Line &victim, Line probed) {
   // While copyback waits for its grant, the other set can still hit.
   hit(base+64+48, load, replacement[3]);
   response(old, 0x41);
+  // A queued load to a different row must not replace the active miss request.
+  request(base+512+48, load, {}, 0xffff, true, 0xd3);
   rsp.pbits.popcode = 5; // CompDBIDResp
   rsp.pbits.psrc_uid = 1;
   rsp.pbits.ptgt_uid = 3;
@@ -166,6 +186,7 @@ void check_backing_handoff(const Line &victim, Line probed) {
   chi_in.prequester_uresponses.pready = 1; tick_model();
   drain_line(probed, 1, 0x32);
   response(replacement[2], 0xb2);
+  response(replacement[3], 0xd3);
   for (unsigned i = 0; i < 4; ++i)
     hit(base+512+i*16, load, replacement[i]);
 }
@@ -184,6 +205,7 @@ int main() {
     // Read a whole row on a miss. Retain the result under backpressure.
     request(base + 256 + 48, load);
     refill(base + 256, 2, b); response(b[3]);
+    check_consecutive_hits(base + 256, b);
     // Allocate the same set's other way with a write-miss merge.
     Row patch{{0xaabbccdd, 0x11223344, 0x55667788, 0xdeadbeef}};
     request(base + 32, store, patch, 0xf00f); refill(base, 7, a); response({});

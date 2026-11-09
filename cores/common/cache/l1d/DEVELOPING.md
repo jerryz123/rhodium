@@ -64,9 +64,9 @@ scheduler grants are combinational wires, not additional pipeline stages. Keep
 SRAM owner priorities, store authorization, and engine state transitions
 explicit; retain slow completions until the selected response sink accepts them.
 
-S4 hit/refill/eviction branches carry the complete resolved bundle; build
-transaction commands and capture mutation/gather state from the consuming
-branch's payload. The S4 result and slow-service response registers are elastic;
+S4 hit/refill/eviction branches carry the resolved array metadata. Capture the
+original request on the same S3-to-S4 transfer and use that register for every
+branch. The S4 result and slow-service response registers are elastic;
 the latter has registered-only input capacity to break the downstream-ready
 path through request admission. Do not turn stalled transfers into repeated
 completion events. S2 maps demands and hints into lookup
@@ -155,13 +155,15 @@ row. The copyback fixture covers 128-, 256-, and 512-bit DAT.
    movement, or reservation invalidation.
 4. Preserve explicit SRAM ownership and priority among core lookup, line
    gather, refill installation, and snoop service.
-   Keep transaction capacity separate from array availability. S4 captures
-   one request and selected way for either an owned local mutation or a miss.
-   Never overwrite this pair while either owner is live. A miss takes it on
-   direct refill acceptance or eviction gather start and holds it through final
-   refill completion, including retries and stalls. A local mutation holds it
-   through the SRAM update (the final row for block zero). Keep the mutation's
-   old value and the miss's install policy separate. Derive the reserved set
+   Keep transaction capacity separate from array availability. An ordinary hit
+   can consume its S4 request as the next S3 request replaces it. A miss or
+   local mutation instead takes ownership in place and captures the selected
+   way. Let the S4 token leave; do not overwrite the request on that edge or
+   while the slow owner is live. A miss owns it from direct refill acceptance
+   or eviction gather start through refill completion, including retries and
+   stalls. A local mutation holds it through the SRAM update (the final row
+   for block zero). Keep the mutation's old value and the miss's install
+   policy separate. Derive the reserved set
    and line from the retained request. Keep the victim address
    and snoop ownership separate; copyback completion resumes the active miss,
    not a new S4 request. Only ordinary demand load/store contexts enable

@@ -202,9 +202,12 @@ flowchart LR
   Queue --> Lookup["S3 lookup Pipe<br/>tag + state + data SRAMs"]
   Lookup --> Resolved["Registered S4 result<br/>word + hit + coherence + victim"]
   Resolved -->|load hit| Load["LoadGen"]
-  Resolved -->|"owned mutation or miss"| Record["Shared request + selected way"]
+  Lookup -->|"same S3-to-S4 edge"| Record["Original request"]
+  Record --> Load
+  Resolved -->|"owned mutation or miss"| Way["Retained selected way"]
   Resolved -->|owned store / SC / AMO| Pending["Mutation old value"]
   Record --> Mutate
+  Way --> Mutate
   Pending --> Mutate["StoreGen + atomic ALU<br/>byte-lane update"]
   Load --> Response["Two-entry response Queue<br/>ordered Decoupled response"]
   Mutate --> Arrays["Tag, state, and data arrays"]
@@ -217,7 +220,8 @@ flowchart LR
   Line -->|"victim packets"| Writeback["WriteBackFull"]
   Writeback -->|"completed"| Refill["ReadClean or ReadUnique"]
   Victim -->|no| Refill
-  Record -->|"request and destination way"| Install
+  Record --> Install
+  Way --> Install
   Refill -->|"accepted packets by DataID"| Line
   Line -->|"after CompAck"| Install["Install one row/cycle<br/>publish metadata last"]
   Line -->|"non-allocating load after CompAck"| Load
@@ -269,10 +273,11 @@ operation completes. Pending snoops may use the arrays while the retained
 request waits; replay then observes updated tags, coherence state, and data.
 Only requests with reserved downstream capacity enter S4; its retained result
 waits until the selected local operation or transaction can advance.
-A slow-service store, SC, or AMO that already has Unique ownership uses the same
-retained request and way as a miss. It captures the old value separately. On the following
-edge it updates the selected byte lanes and sets UniqueDirty without emitting
-REQ or DAT traffic; an AMO returns the captured value from before that update.
+A miss or owned mutation keeps the original S4 request in place and captures
+the selected way at launch. This releases the S4 stage without copying the
+request. An owned store, SC, or AMO captures the old value separately. On the
+following edge it updates the selected byte lanes and sets UniqueDirty without
+emitting REQ or DAT traffic; an AMO returns the value from before that update.
 
 `CacheOperation.CacheBlockZero` carries the original address and no result
 destination. A Unique hit writes zeros to every XLEN word while blocking
