@@ -2,12 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("rhodium/core/types.rhm").Bits
   lib("riscv/isa/xlen.rhm").XLen
   "../../memory/attachment.rhdl".SuperscalarL1D
   "../cache-fixture.rhdl" open
 
 fun program(xlen):
-  elaborate(SuperscalarL1D(test_cache, ~chi: test_fetch_chi, ~xlen: xlen, ~beat_bytes: 16))
+  elaborate(SuperscalarL1D(test_cache, ~chi: test_fetch_chi, ~context: Bits(16), ~xlen: xlen, ~beat_bytes: 16))
 
 def rv32 = program(XLen.X32)
 def rv64 = program(XLen.X64)

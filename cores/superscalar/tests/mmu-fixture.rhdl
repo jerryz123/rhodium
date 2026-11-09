@@ -100,7 +100,8 @@ sync_circuit SuperscalarMmuFixture(~bare: bare :: Boolean = #false):
   fetch_resolution <== mmu.instruction.resolution
   fetch_physical <== mmu.instruction.address
   fetch_pbmt <== mmu.instruction.pbmt
-  def request = SuperscalarMemoryReq(XLen.X64, 64):
+  def request = SuperscalarMemoryReq(XLen.X64, 64, Bool):
+    context: Bool(#false)
     guest_access: guest_access
     address: address
     access: access
@@ -153,7 +154,7 @@ sync_circuit SuperscalarMmuFixture(~bare: bare :: Boolean = #false):
   mmu.memory.response.ready <== !block_response
   memory_drained <== mmu.memory.drained
   completed <== mmu.memory.response.valid
-  completed_data <== mmu.memory.response.bits
+  completed_data <== mmu.memory.response.bits.data
   mmu.physical_memory.request.ready <== physical_ready & !physical_fault
   mmu.physical_memory.fault.valid <== mmu.physical_memory.request.valid & physical_fault
   mmu.physical_memory.fault.bits <== SuperscalarResolution(XLen.X64):
@@ -163,7 +164,12 @@ sync_circuit SuperscalarMmuFixture(~bare: bare :: Boolean = #false):
     value: mmu.physical_memory.request.bits.address
 
   mmu.physical_memory.response.valid <== response_valid
-  mmu.physical_memory.response.bits <== response_data
+  // The memory responder retains and echoes accepted context, just as the real cache does.
+  inst response_context(Queue(mmu.physical_memory.request.bits.context.type, 8))
+  inject_interface(Valid(mmu.physical_memory.request.bits.context.type), ~valid: mmu.physical_memory.request.fire(), ~bits: mmu.physical_memory.request.bits.context) |> offer_decoupled() |> response_context.ingress
+  mmu.physical_memory.response.bits.data <== response_data
+  mmu.physical_memory.response.bits.context <== response_context.egress.bits
+  response_context.egress.ready <== mmu.physical_memory.response.fire()
   mmu.physical_memory.drained <== Bool(#true)
   mmu.physical_memory.ordered_busy <== Bool(#false)
   mmu.physical_memory.reservation_valid <== Bool(#false)

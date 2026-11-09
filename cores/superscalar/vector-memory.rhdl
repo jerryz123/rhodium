@@ -27,10 +27,11 @@ import:
 sync_circuit SuperscalarVectorMemory(xlen :: XLen, slots :: Pow2Int):
   def Token = VectorToken(xlen, Bits(xlen.width), slots)
   def Tag = Bits(index_width(slots))
+  def Context = SuperscalarMemoryContext(xlen, slots)
   /* Keeps the original beat and exact masked address beside its fixed-cycle lookup. */
   bundle Attempt():
     token: Token
-    request: SuperscalarMemoryReq(xlen, xlen.width)
+    request: SuperscalarMemoryReq(xlen, xlen.width, Bool)
     misaligned: Bool
 
   /* Retains the MEM outcome until its WB authorization edge. */
@@ -38,15 +39,9 @@ sync_circuit SuperscalarVectorMemory(xlen :: XLen, slots :: Pow2Int):
     attempt: Attempt()
     response: SuperscalarLookupResult(xlen)
 
-  /* Retains extraction geometry with each accepted, ordered raw memory response. */
-  bundle ReturnOwner():
-    tag: Tag
-    offset: Bits(index_width(xlen.width / 8))
-    width: MemoryWidth
-
   interface issue(Decoupled(Token), ~role: consumer)
   interface pipeline(SuperscalarPipelineAccess(xlen), ~role: requester)
-  interface memory(SuperscalarMemory(xlen, xlen.width), ~role: requester)
+  interface memory(SuperscalarMemory(xlen, xlen.width, Context), ~role: requester)
   interface split(RiscvSplitAccess(xlen, Bool), ~role: requester)
   interface feedback(Valid(VectorCommit(xlen, slots)), ~role: producer)
   interface outcome(Valid(VectorCommit(xlen, slots)), ~role: producer)
@@ -57,15 +52,15 @@ sync_circuit SuperscalarVectorMemory(xlen :: XLen, slots :: Pow2Int):
   output(idle, requests_idle, memory_start_ready, pipeline_physical, request_physical): Bool
 
 
-  /* Shared lookup issue and retained response owners.
-     Recovery flushes unaccepted attempts; accepted return and split owners survive. */
+  /* Shared lookup issue and outstanding completion credits.
+     Recovery flushes unaccepted attempts; memory retains accepted context and split ownership survives. */
 
   wire recover: Bool
   wire retry: Bool
   wire resolved: Bool
   reg split_pending(~init: Bool(#false))
   reg split_token(Attempt())
-  inst owners(Queue(ReturnOwner(), slots))
+  inst outstanding(CreditCounter(slots))
   inst split_returns(Queue(VectorCompletion(xlen, slots), 1))
   inst launch(VectorMemoryIssue(xlen, slots))
   issue |> launch.issue
@@ -87,7 +82,8 @@ sync_circuit SuperscalarVectorMemory(xlen :: XLen, slots :: Pow2Int):
   store_data.address <== address
   store_data.width <== width
   store_data.value <== launch.lookup.bits.store_data
-  def request = SuperscalarMemoryReq(xlen, xlen.width):
+  def request = SuperscalarMemoryReq(xlen, xlen.width, Bool):
+    context: Bool(#false)
     address: address
     access: mux(launch.lookup.bits.store, CacheOperation.Store, CacheOperation.Load)
     atomic: RiscvAtomicOperation.Swap
@@ -134,7 +130,14 @@ sync_circuit SuperscalarVectorMemory(xlen :: XLen, slots :: Pow2Int):
   def store_hit = access & (wb.bits.response.outcome === SuperscalarCacheOutcome.StoreHit)
   def store_commit = store_hit & !memory.ordered_busy
   pipeline.commit <== store_commit
-  ordinary_request |> filter_valid(_decision => ordinary & owners.ingress.ready & !memory.ordered_busy) |> map_valid(decision => decision.attempt.request) |> offer_decoupled() |> memory.request
+  (ordinary_request |> filter_valid(_decision => ordinary & !outstanding.full & !memory.ordered_busy) |> map_valid(decision):
+    def request :: SuperscalarMemoryReq(xlen, xlen.width, Bool) = decision.attempt.request
+    def owner = SuperscalarVectorMemoryOwner(xlen, slots):
+      tag: decision.attempt.token.completion_tag
+      offset: decision.attempt.request.address[0..index_width(xlen.width / 8)]
+      width: decision.attempt.request.width
+    request.with_context(Context, Context.Vector(owner))
+  ) |> offer_decoupled() |> memory.request
   (split_request |> filter_valid(_decision => split_attempt & !memory.ordered_busy & split_returns.ingress.ready) |> map_valid(decision => PhysicalMemoryReq(xlen, Bool)):
     address: decision.attempt.request.address
     access: decision.attempt.request.access
@@ -148,25 +151,21 @@ sync_circuit SuperscalarVectorMemory(xlen :: XLen, slots :: Pow2Int):
   ) |> offer_decoupled() |> split.request
 
 
-  /* Accepted ordinary responses retain extraction geometry.
-     Join each raw word with its queued tag, width, and byte offset, not live WB. */
+  /* Accepted ordinary replies carry their retained extraction geometry.
+     Credits survive recovery without retaining another copy of each owner. */
 
   def accepted = memory.request.fire()
-  owners.ingress.valid <== accepted
-  owners.ingress.bits <== ReturnOwner():
-    tag: token.completion_tag
-    offset: attempt.request.address[0..index_width(xlen.width / 8)]
-    width: attempt.request.width
-
+  outstanding.increment <== accepted
+  def returned = memory.response.bits
+  def owner :: SuperscalarVectorMemoryOwner(xlen, slots) = returned.context.view(Context.Vector).payload
   inst returned_data(LoadGen(xlen, xlen.width / 8))
-  returned_data.address <== owners.egress.bits.offset.zext(xlen.width)
-  returned_data.width <== owners.egress.bits.width
+  returned_data.address <== owner.offset.zext(xlen.width)
+  returned_data.width <== owner.width
   returned_data.unsigned_load <== Bool(#true)
-  returned_data.data <== memory.response.bits
-  def delayed = Array(memory.response, owners.egress) |> zip_flow(_data, owner):
-    VectorCompletion(xlen, slots):
-      tag: owner.tag
-      data: returned_data.value
+  returned_data.data <== returned.data
+  def delayed = memory.response |> gate_flow(!outstanding.empty) |> map_flow(_reply => VectorCompletion(xlen, slots)):
+    tag: owner.tag
+    data: returned_data.value
 
 
   /* Split completion resolves the captured attempt.
@@ -224,6 +223,7 @@ sync_circuit SuperscalarVectorMemory(xlen :: XLen, slots :: Pow2Int):
   // of load-return arbitration, including alongside a younger cache hit.
   store_response |> filter_valid(_decision => resolved & token.store & !accepted) |> map_valid(decision => decision.attempt.token.completion_tag) |> store_completed
   Array(offered_hit, delayed, split_returns.egress) |> arbiter() |> completion
+  outstanding.decrement <== memory.response.fire()
   when (wb.valid & token.precertified):
     assert(!fault & !attempt.misaligned, "superscalar_certified_vector_request_is_aligned_and_nonfaulting")
     assert(launch.occupied & (token.completion_tag === launch.oldest_tag), "superscalar_vector_retry_resolves_oldest_request")
@@ -278,7 +278,7 @@ sync_circuit SuperscalarVectorMemory(xlen :: XLen, slots :: Pow2Int):
   // A first read matures next cycle. A successfully released final certified
   // attempt can supply that edge, but retries, splits, and new captures cannot.
   memory_start_ready <== launch.empty_after_release & !issue.valid & !launch.lookup.valid & !mem.valid & (!wb.valid ||| resolved) & !split_pending
-  idle <== requests_idle & !owners.count.any() & !split_returns.count.any()
+  idle <== requests_idle & outstanding.empty & !split_returns.count.any()
   assert(!(accepted & (retry ||| fault)), "superscalar_vector_accepted_request_never_replays")
 
   /* Observe actual completion and retained split ownership without changing LSU timing. */

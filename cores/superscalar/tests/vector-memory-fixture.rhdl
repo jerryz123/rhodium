@@ -84,7 +84,11 @@ sync_circuit SuperscalarVectorMemoryFixture(xlen :: XLen, slots :: Pow2Int):
     guest: literal(RiscvGuestFault(), 0)
 
   dut.memory.response.valid <== response_valid
-  dut.memory.response.bits <== response_data
+  inst response_context(Queue(dut.memory.request.bits.context.type, slots))
+  inject_interface(Valid(dut.memory.request.bits.context.type), ~valid: dut.memory.request.fire(), ~bits: dut.memory.request.bits.context) |> offer_decoupled() |> response_context.ingress
+  dut.memory.response.bits.data <== response_data
+  dut.memory.response.bits.context <== response_context.egress.bits
+  response_context.egress.ready <== dut.memory.response.fire()
   dut.memory.drained <== Bool(#true)
   dut.memory.ordered_busy <== ordered_busy
   dut.memory.reservation_valid <== Bool(#false)

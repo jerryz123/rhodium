@@ -1,0 +1,53 @@
+#lang rhodium
+/* Formats context-bearing scalar memory returns and accounts for four committed completions. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "bundles.rhdl" open
+  lib("cores/common/load-store.rhdl") open
+  lib("cores/common/cache/operation.rhdl") open
+  lib("riscv/isa/xlen.rhm") open
+  lib("flow/main.rhdl") open
+
+/* Reserves four outstanding completions without duplicating owners retained by memory.
+   Returned context selects formatting and destination; speculative flush cannot cancel credits. */
+sync_circuit SuperscalarMemoryCompletion(xlen :: XLen = XLen.X64):
+  interface allocate(Pulse(), ~role: consumer)
+  interface response(Decoupled(MemoryResponse(Bits(xlen.width), SuperscalarLoadOwner(xlen))), ~role: consumer)
+  interface completed(Decoupled(SuperscalarCompletion(xlen)), ~role: producer)
+  interface fp_completed(Decoupled(SuperscalarFpLoad(xlen)), ~role: producer)
+  output available: Bool
+  output pending: Bool
+  output drained: Bool
+  interface ordered_completed(Pulse(), ~role: producer)
+
+  inst outstanding(CreditCounter(4))
+  outstanding.increment <== allocate.valid
+  available <== !outstanding.full
+  pending <== !outstanding.empty
+  drained <== outstanding.empty & !allocate.valid
+  def result = response.bits
+  inst load(LoadGen(xlen, memory_word_bytes(xlen)))
+  load.address <== result.context.offset.zext(xlen.width)
+  load.width <== result.context.width
+  load.unsigned_load <== result.context.unsigned
+  load.data <== result.data
+  def Array(integer_return, fp_return) = response |> gate_flow(!outstanding.empty) |> demux_flow(2, beat => beat.context.fp_load)
+  (fp_return |> map_flow(beat => SuperscalarFpLoad(xlen)):
+    owner: beat.context.destination
+    precision: beat.context.precision
+    data: load.value.zext(64)
+  ) |> fp_completed
+
+  def completion = integer_return |> map_flow(beat => SuperscalarCompletion(xlen)):
+    identity: beat.context.destination.identity
+    rd: beat.context.destination.rd
+    write: beat.context.write
+    data: mux(beat.context.access === CacheOperation.Load, load.value, beat.data)
+
+  completion |> completed
+  outstanding.decrement <== response.fire()
+  ordered_completed.valid <== response.fire() & !result.context.access.is_one_of(CacheOperation.Load, CacheOperation.Store)
+
+export:
+  SuperscalarMemoryCompletion

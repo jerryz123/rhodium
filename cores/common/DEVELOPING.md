@@ -34,7 +34,7 @@ particular, RV5Stage advertises its supervisor guarantees only for RV64 Sv39;
 RV2Wide also advertises the non-page-table guarantees for RV64 Bare.
 `chi-hart.rhdl` owns physical-region/Home mapping and requester attachment;
 `misaligned-access.rhdl` owns fragment sequencing with opaque caller context;
-`memory-response.rhdl` owns optional-response pairing and one-cycle LSU result capture;
+`memory-response.rhdl` owns opaque data/context replies, optional-response pairing, and one-cycle LSU result capture;
 `vector-layout.rhm` owns pure physical row geometry; `cosim-source.rhm` owns
 passive observation declarations. None selects a named core's profile or
 implements its retirement policy. Architectural encodings and stateless

@@ -19,7 +19,7 @@ import:
   "../lane-pipe.rhdl" open
   "../branch-training.rhdl".SuperscalarBranchTrainingBuffer
   "../pairing.rhdl" open
-  "../load-response.rhdl" open
+  "../memory-completion.rhdl" open
   "../long-execution.rhdl" open
   "../fp.rhdl" open
   "../vector.rhdl" open
@@ -102,7 +102,7 @@ sync_circuit CoreFixture(profile :: SuperscalarPipelineConfig = SuperscalarPipel
   interface ras_resolution(Valid(RasResolution(xlen)), ~role: producer)
   interface history_commit(Valid(SuperscalarHistoryCommit(issue_width)), ~role: producer)
   interface history_restore(Valid(Bits(10)), ~role: producer)
-  interface memory(SuperscalarMemory(xlen, xlen.width), ~role: requester)
+  interface memory(SuperscalarMemory(xlen, xlen.width, SuperscalarMemoryContext(xlen, profile.vector_completion_slots)), ~role: requester)
   interface split(RiscvSplitAccess(xlen, Bool), ~role: requester)
   output split_guest_access: RiscvGuestMemoryAccess
   interface pipeline(SuperscalarPipelineAccess(xlen), ~role: requester)

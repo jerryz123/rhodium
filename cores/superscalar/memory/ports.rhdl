@@ -1,5 +1,5 @@
 #lang rhodium
-/* Arbitrates scalar/vector LSU attempts while retaining accepted response and store-candidate ownership. */
+/* Arbitrates scalar/vector LSU traffic and routes carried context while retaining lookup and split ownership. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -9,16 +9,18 @@ import:
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/rtl/hypervisor.rhdl") open
   lib("flow/main.rhdl") open
+  lib("rhodium/std/bits.rhdl").Pow2Int
 
 /* Gives fixed scalar EX attempts priority and fairly arbitrates irrevocable WB requests.
    Neither speculative redirects nor live requester changes affect accepted reply routing. */
-sync_circuit SuperscalarMemoryPorts(xlen :: XLen):
+sync_circuit SuperscalarMemoryPorts(xlen :: XLen, slots :: Pow2Int):
+  def Context = SuperscalarMemoryContext(xlen, slots)
   interface scalar_pipeline(SuperscalarPipelineAccess(xlen), ~role: responder)
   interface vector_pipeline(SuperscalarPipelineAccess(xlen), ~role: responder)
   interface pipeline(SuperscalarPipelineAccess(xlen), ~role: requester)
-  interface scalar_memory(SuperscalarMemory(xlen, xlen.width), ~role: responder)
-  interface vector_memory(SuperscalarMemory(xlen, xlen.width), ~role: responder)
-  interface memory(SuperscalarMemory(xlen, xlen.width), ~role: requester)
+  interface scalar_memory(SuperscalarMemory(xlen, xlen.width, Context), ~role: responder)
+  interface vector_memory(SuperscalarMemory(xlen, xlen.width, Context), ~role: responder)
+  interface memory(SuperscalarMemory(xlen, xlen.width, Context), ~role: requester)
   interface scalar_split(RiscvSplitAccess(xlen, Bool), ~role: responder)
   interface vector_split(RiscvSplitAccess(xlen, Bool), ~role: responder)
   interface split(RiscvSplitAccess(xlen, Bool), ~role: requester)
@@ -48,37 +50,24 @@ sync_circuit SuperscalarMemoryPorts(xlen :: XLen):
   vector_pipeline.commit_ready <== wb_valid & wb_vector & pipeline.commit_ready
 
 
-  /* Accepted slow-memory owners and ordered replies.
-     Queue the chosen client atomically with acceptance, then consume that
-     owner with its response. Admission faults use the live choice; replies never do. */
+  /* Accepted slow-memory routing travels with the completion context.
+     Registered credits preserve the previous sixteen-entry admission bound. */
 
-  inst requests(RRArbiter(SuperscalarMemoryReq(xlen, xlen.width), 2))
-  inst owners(Queue(Bool, 16))
+  inst requests(RRArbiter(SuperscalarMemoryReq(xlen, xlen.width, Context), 2))
+  inst outstanding(CreditCounter(16))
   Array(scalar_memory.request, vector_memory.request) <=> requests.ingress
   request_vector <== requests.chosen.into(Bool)
-  def Array(request, owner) = requests.egress |> atomic_fork(2)
-  request |> memory.request
-  owner |> map_flow(_request => request_vector) |> owners.ingress
+  requests.egress |> gate_flow(!outstanding.full) |> memory.request
+  outstanding.increment <== memory.request.fire()
   memory.fault |> filter_valid(_fault => !request_vector) |> scalar_memory.fault
   memory.fault |> filter_valid(_fault => request_vector) |> vector_memory.fault
-
-  /* Keeps each raw beat paired with the client selected at acceptance. */
-  bundle Response():
-    data: Bits(xlen.width)
-    vector: Bool
-
-  (
-    Array(memory.response, owners.egress) |> zip_flow(data, vector):
-      Response():
-        data: data
-        vector: vector
-  ) |> demux_flow(2, response => response.vector) |> parallel(
-    (Decoupled(Response()) |> map_flow(response => response.data)) |> scalar_memory.response,
-    (Decoupled(Response()) |> map_flow(response => response.data)) |> vector_memory.response
-  )
+  def Array(scalar_response, vector_response) = memory.response |> gate_flow(!outstanding.empty) |> demux_flow(2, response => response.context.is(Context.Vector))
+  scalar_response |> scalar_memory.response
+  vector_response |> vector_memory.response
+  outstanding.decrement <== memory.response.fire()
 
   for (client in [scalar_memory, vector_memory]):
-    client.drained <== memory.drained & !owners.count.any()
+    client.drained <== memory.drained & outstanding.empty
     client.ordered_busy <== memory.ordered_busy
     client.reservation_valid <== memory.reservation_valid
 

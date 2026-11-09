@@ -7,7 +7,8 @@ const auto &memory_stage(unsigned i) {
   return i ? memory_stage_1_out : memory_stage_0_out;
 }
 const auto &retired(unsigned i) { return i ? retired_1_out : retired_0_out; }
-constexpr unsigned xlen = 8 * sizeof(memory_in.presponse.pbits);
+constexpr unsigned xlen = 8 * sizeof(memory_in.presponse.pbits.pdata);
+std::remove_cvref_t<decltype(memory_out.prequest.pbits.pcontext)> load_context{};
 constexpr unsigned native_precision = xlen == 32 ? 0 : 1;
 constexpr unsigned native_width = xlen == 32 ? 2 : 3;
 int cycles = 0, commits = 0, expected_traps = 0, traps = 0, fp_pairs = 0, redirects = 0;
@@ -25,7 +26,8 @@ void drive() {
   memory_in.prequest.pready = !pending_load;
   memory_in.pdrained = !pending_load;
   memory_in.presponse.pvalid = pending_load && cycles >= response_due;
-  memory_in.presponse.pbits = load_data;
+  memory_in.presponse.pbits.pdata = load_data;
+  memory_in.presponse.pbits.pcontext = load_context;
   for (int lane = 0; lane < 2; lane++)
     if (inject_fault && memory_stage(lane).pvalid &&
         memory_stage(lane).pbits.ppc == inject_pc) {
@@ -74,6 +76,7 @@ void observe() {
     CHECK(slow_load && memory_out.prequest.pbits.paccess == 1);
     CHECK(memory_out.prequest.pbits.plocality == expected_locality);
     defer(pending_load, 1);
+    defer(load_context, memory_out.prequest.pbits.pcontext);
     response_due = cycles + 12;
   }
   if (memory_in.presponse.pvalid && memory_out.presponse.pready)

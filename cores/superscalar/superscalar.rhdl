@@ -66,9 +66,10 @@ sync_circuit Superscalar(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfi
   sleeping <== core.sleeping
   inst frontend(SuperscalarFrontend(config, profile, ~group_width: issue_width))
   inst instruction(L1ICache(XLen.X64, instruction_cache, ~chi: config, ~fetch_bits: 64))
-  inst data(SuperscalarL1D(cache, ~chi: config, ~xlen: xlen, ~beat_bytes: data_beat_bytes))
+  def MemoryContext = SuperscalarMemoryContext(xlen, profile.vector_completion_slots)
   def translation = if profile.mmu_type == RiscvMmuType.Bare | SuperscalarIdentitySpecialization(xlen, config) | SuperscalarSv39Specialization(config, profile.svnapot, hypervisor)
-  inst mmu(SuperscalarMemoryAdapter(translation))
+  inst mmu(SuperscalarMemoryAdapter(translation, ~context: MemoryContext))
+  inst data(SuperscalarL1D(cache, ~chi: config, ~context: mmu.physical_memory.request.bits.context.type, ~xlen: xlen, ~beat_bytes: data_beat_bytes))
   describe_cosim_context(core, {"mmu": mmu})
 
 

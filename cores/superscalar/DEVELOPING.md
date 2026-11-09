@@ -234,10 +234,11 @@ fetch fault can bypass normal pairing but cannot claim the payload. Each stage
 also forwards one successful vset result independently: a vset and a vector
 can pair, so their state snapshots are not interchangeable.
 
-The four-entry delayed-memory FIFO retains PC/raw encoding, destination identity,
-return bank, byte offset and load formatting, not the MEM/WB result. Join the
-oldest owner to the arriving beat before selecting either completion port.
-Format ordinary loads by width and offset; atomics return the raw beat.
+Delayed-memory context carries PC/raw encoding, destination identity, return bank,
+byte offset, and load formatting through memory. Four scalar credits bound
+outstanding work; returned context selects the completion port without a shadow
+owner queue. Format ordinary loads by width and offset; atomic results already
+contain their architectural value or status.
 Multiply, divide, FP and vector GPR returns use the same compact instruction
 identity. Keep the full fetch record on retirement, not in these return tags.
 
@@ -465,7 +466,7 @@ WB authorization, and the two-port writeback policy stay local.
 | `fetch/instruction-assembler.rhdl` | Flow block storage, mixed-width parcel consumption, shared C expansion, and continuation faults |
 | `../common/fetch/memory.rhdl` | Shared fixed-cycle L1I/noncacheable outcomes, retained fetch replay, and cancellation |
 | `core.rhdl` | RR/EX/MEM/WB, forwarding, shared component/CSR instances, register state, precise traps |
-| `load-response.rhdl` | Four accepted contexts, atomic response/owner joining, shared load extraction |
+| `memory-completion.rhdl` | Four outstanding scalar credits and context-directed load formatting/writeback projection |
 | `long-execution.rhdl` | EX multiply reservations and WB owner validation, retained divider ownership |
 | `memory/attachment.rhdl` | Physical permissions, shared L1D adaptation, and ordered IOMSHR/uncached routing |
 | `memory/translation.rhdl` | Combinational query/result contract, including known/fault provenance, probe contention, and held split masking |
@@ -509,13 +510,14 @@ contract. Capture their WB owner before draining older deferred work, squash
 younger pipeline/window state, then launch once. Retain that owner through the
 single final Valid outcome; successful completion retires in slot zero and
 refetches its successor, while a fault enters normal retained-trap handling.
-Do not allocate a load-response/scoreboard owner or reuse the admission-certified
+Do not allocate a deferred-completion credit/scoreboard owner or reuse the admission-certified
 aligned response port. Interrupt entry waits for this noncancelable owner.
 
 `cores/common/misaligned-access.rhdl` owns fragment masks, store positioning, and
 load assembly; this MMU owns each fragment's translation/PMA check. Fragment
-responses, ordinary core replies, and PTE responses share one ordered physical
-owner FIFO and are routed with `zip_flow`/`demux_flow`. The second fragment must
+responses, ordinary core replies, and PTE responses carry a physical-client tag
+through memory and are routed with `demux_flow`. An eight-entry credit counter
+preserves the previous admission bound without retaining a parallel routing FIFO. The second fragment must
 wait for first-fragment completion, and fault provenance must use the engine's
 virtual fault address, not its aligned physical request. Preserve accepted
 prefixes on later faults. Check the full XLEN/8-byte footprint against normal,
@@ -523,8 +525,9 @@ cacheable, idempotent memory; do not widen device accesses into this path.
 
 Preserve natural access width through MMU translation. Cache service aligns its
 own beats; uncached service keeps the exact address/size and unpositions store
-data for the shared StoreGen. Its opaque three-bit context restores a returned
-scalar to its raw-beat lane for the core's existing LoadGen. Do not issue
+data for the shared StoreGen. Its context wraps the caller's opaque owner with
+a three-bit byte offset, restoring a returned scalar to its raw-beat lane before
+returning the original context to the core's LoadGen. Do not issue
 speculative physical requests to devices or use widened PMA checks that reject
 legitimate sub-beat regions. Page-table traffic still requires cacheable RAM.
 
@@ -533,11 +536,12 @@ admission and speculative physical resolution. Carry that state back through
 the MMU as `ordered_busy`: WB must replay even an earlier MEM hit while IO is
 outstanding. Gating only slow requests misses that race. Neither the core nor
 speculative flush cancels an accepted IO owner. The physical response paths are
-mutually ordered and merge using Flow arbitration, preserving the MMU owner FIFO.
+mutually ordered and merge using Flow arbitration, preserving returned context.
 
-Keep accepted ownership independent of speculative flush. The memory owner FIFO
-joins ordered responses through `zip_flow`, normalizes returned data with
-`LoadGen` for ordinary loads, passes architectural LR/AMO values and SC status
+Keep accepted ownership independent of speculative flush. Scalar requests carry
+their instruction/destination/format context through memory; a four-entry credit
+counter tracks capacity until response consumption. The completion projection
+uses the returned context and `LoadGen` for ordinary loads, passes architectural LR/AMO values and SC status
 unchanged, and backpressures at the common completion arbiter. Round-robin Flow
 arbitration merges variable load and divide results. When RR accepts a return
 that writes a GPR, it leaves the last issue slot vacant. The return then uses
@@ -899,7 +903,7 @@ wins over release of the previous target. Frontend admission accepts only
 representable redirects; sequential boundary faults use their compact encoding.
 
 A pending fault squashes younger pipeline/window work immediately, but its
-CSR trap command and public redirect wait for both the owner FIFO and memory service to drain.
+CSR trap command and public redirect wait for both completion credits and memory service to drain.
 Same-group older acceptance participates in that drain decision. Branch and
 replay redirects do not cancel or wait for successful accepted work.
 Reset is coordinated with the memory service; it ends the entire response epoch.
@@ -1011,12 +1015,12 @@ together in the specialization, not as independently supplied caller options.
 
 `memory/transport.rhdl` has two physical clients for Bare (core, split) and
 three for paged translation (core, split, PTE), in that priority order. Only
-physical acceptance enqueues an owner. Local PTE denial may consume the walker's
-offer with an admission fault but cannot enqueue a response owner. The transport
-has no invalidation input; cancellation changes translation publication, never
-an accepted reply's destination. Responses are joined to the owner FIFO and
-demultiplexed using Flow, preserving structural trace ancestry without a module
-summary contract.
+physical acceptance spends a credit. Local PTE denial may consume the walker's
+offer with an admission fault but cannot spend a credit. The transport wraps
+the opaque context with the selected client and removes that layer on response.
+It has no invalidation input; cancellation changes translation publication, never
+an accepted reply's destination. Returned context and Flow demultiplexing preserve
+structural trace ancestry without a module summary contract.
 
 The adapter retains native-word fragment size and Bare's existing atomic PMA
 qualification. Paged translation retains HLVX execution checks and guest pointer
@@ -1100,9 +1104,9 @@ and `tests/profile-test.rhm` for configuration/publication changes.
 Architectural invalidation clears TLBs and retained faults at the retirement edge.
 Registered walker cancellation breaks the retirement/readiness feedback path;
 the invalidation edge suppresses completion publication and new walk admission.
-Core/PTE physical requests use fixed core-first arbitration and an atomic request/
-owner fork. The owner FIFO is never flushed: it routes each accepted response
-even when the walker is draining a canceled epoch. A PTE admission fault consumes
+Core/PTE physical requests use fixed core-first arbitration and carry client
+identity in their context. Accepted context and outstanding credits survive
+flush: they route each response even while the walker drains a canceled epoch. A PTE admission fault consumes
 the walker offer without allocating a physical response owner. No whole-walk
 cache lock may block a translated older WB access behind younger fetch traffic.
 
@@ -1121,7 +1125,7 @@ atomic enters EX, without draining independent integer/M work. EX/MEM check
 alignment, translation, and PMA but never physically execute an atomic.
 WB alone allocates its owner and sets `wb_ordered_memory_pending`; all younger memory
 retirement, including previously resolved hits and store candidates, replays
-until the atomic response/owner join transfers to completion arbitration.
+until the context-bearing atomic response transfers to completion arbitration.
 This stronger ordering implements every aq/rl combination without separate
 acquire/release queues. The pending flag is not speculative flush state.
 Reservation and RMW behavior stay entirely in the shared L1D.
@@ -1154,8 +1158,8 @@ younger candidate is probed again after compaction. Preserve the effective
 invalidate-to-flush operation in the pipeline controls. Current execution
 privilege controls CBCFE/CBIE; MPRV affects only translation.
 
-Management shares the split access's retained WB owner, not the deferred load
-FIFO. Capture squashes younger work while permitting an older peer to retire.
+Management uses the split access's retained WB owner and a management context
+tag on its memory request. Capture squashes younger work while permitting an older peer to retire.
 Latch completion of prior-work drain before presenting the request: live
 `memory.drained` may depend on current admission and must not gate that same
 offer. Retain translation retries and request backpressure without reexecuting
@@ -1296,7 +1300,7 @@ vector provenance without retaining those fields in an unobserved netlist.
 The separate service record still owns delayed operations that can retire.
 An older accepted load paired with a younger fault
 retires once, preserves its completion owner, and delays trap entry until the
-owner FIFO, service, and unflushable completion pipe are all empty. Interrupts
+completion credits, service, and unflushable completion pipe are all empty. Interrupts
 inhibit new WB memory acceptance before retaining the oldest unretired PC.
 If an interrupt disappears while draining, recover to that PC without trap entry.
 An empty-pipeline boundary uses the last retired successor (including branch
@@ -1511,9 +1515,12 @@ configuration does not squash or refetch successors. Faults, interrupts, and
 branch recovery still suppress wrong-path configuration and descriptor admission.
 Direct CSR writes, traps, and translation/context changes retain full drain.
 
-`memory/ports.rhdl` retains fixed-stage lookup ownership, queues every accepted
-raw-response owner, and latches the selected split client. These owners survive
-scalar recovery. The MMU prioritizes WB demand over page-window probes and
+`memory/ports.rhdl` retains fixed-stage lookup ownership and latches the selected
+split client. Ordinary responses route from the returned scalar/vector context;
+a sixteen-entry credit counter preserves the former routing FIFO's capacity.
+Vector slot/offset/width metadata travels through memory as well, with a slot-sized
+credit counter replacing its response-owner queue. All accepted context and
+credits survive scalar recovery. The MMU prioritizes WB demand over page-window probes and
 speculative lookups, while keeping accepted PTW response ownership unchanged.
 Translation-context changes must wait until the vector page window is released.
 

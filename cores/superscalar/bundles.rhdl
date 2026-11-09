@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/std/bits.rhdl") open
+  lib("cores/common/memory-response.rhdl").MemoryResponse
   lib("cores/common/fetch/fault.rhdl") open
   lib("cores/common/pc.rhdl") open
   lib("cores/common/fp/profile.rhm").fp_transport_profile
@@ -760,8 +762,42 @@ bundle SuperscalarFetchRepair(xlen :: XLen):
 fun superscalar_history_after(history :: Bits(10), valid :: Bool, taken :: Bool) :~ Bits(10):
   mux(valid, history[0..9] ++ taken.as_bits(), history)
 
+/* Keeps only return routing, destination identity, and subword formatting until the beat arrives. */
+bundle SuperscalarLoadOwner(xlen :: XLen):
+  destination: SuperscalarFpOwner(xlen)
+  fp_load: Bool
+  write: Bool
+  precision: FloatPrecision
+  access: CacheOperation
+  offset: Bits(alignment_bits(memory_word_bytes(xlen)))
+  width: MemoryWidth
+  unsigned: Bool
+
+/* Carries a vector response's slot and raw-word extraction geometry through memory. */
+bundle SuperscalarVectorMemoryOwner(xlen :: XLen, slots :: Pow2Int):
+  tag: Bits(index_width(slots))
+  offset: Bits(index_width(memory_word_bytes(xlen)))
+  width: MemoryWidth
+
+/* Distinguishes delayed scalar, vector, and locally retired management completions. */
+tagged_union SuperscalarMemoryContext(xlen :: XLen, slots :: Pow2Int):
+  Scalar(SuperscalarLoadOwner(xlen))
+  Vector(SuperscalarVectorMemoryOwner(xlen, slots))
+  Management
+
+/* Wraps an opaque completion context with the physical arbitration client's identity. */
+bundle SuperscalarTransportContext(Context :: DataType, clients :: PosInt):
+  client: Bits(index_width(clients))
+  context: Context
+
+/* Retains byte placement independently of the caller's opaque completion owner. */
+bundle SuperscalarUncachedContext(Context :: DataType):
+  offset: Bits(3)
+  context: Context
+
 /* Carries exact byte addresses and XLEN beats; VA uses XLEN, while PA width is independent. */
-bundle SuperscalarMemoryReq(xlen :: XLen, address_width :: PosInt):
+bundle SuperscalarMemoryReq(xlen :: XLen, address_width :: PosInt, Context :: DataType):
+  context: Context
   address: Bits(address_width)
   access: CacheOperation
   atomic: RiscvAtomicOperation
@@ -772,9 +808,24 @@ bundle SuperscalarMemoryReq(xlen :: XLen, address_width :: PosInt):
   pbmt: PageMemoryType
   guest_access: RiscvGuestMemoryAccess
 
+  /* Replaces an arbitration or completion context while preserving every access control. */
+  method with_context(request, To :: DataType, context :: Hardware.of(To)) :: SuperscalarMemoryReq(xlen, address_width, To):
+    SuperscalarMemoryReq(xlen, address_width, To):
+      context: context
+      address: request.address
+      access: request.access
+      atomic: request.atomic
+      width: request.width
+      data: request.data
+      mask: request.mask
+      locality: request.locality
+      pbmt: request.pbmt
+      guest_access: request.guest_access
+
 /* Crosses the translation boundary without changing access size or positioned store lanes. */
-fun superscalar_physical_request(xlen :: XLen, request :: SuperscalarMemoryReq(xlen, xlen.width), address :: Bits(64), pbmt :: PageMemoryType) :~ SuperscalarMemoryReq(xlen, 64):
-  SuperscalarMemoryReq(xlen, 64):
+fun superscalar_physical_request(xlen :: XLen, Context :: DataType, request :: SuperscalarMemoryReq(xlen, xlen.width, Context), address :: Bits(64), pbmt :: PageMemoryType) :~ SuperscalarMemoryReq(xlen, 64, Context):
+  SuperscalarMemoryReq(xlen, 64, Context):
+    context: request.context
     address: address
     access: request.access
     atomic: request.atomic
@@ -797,7 +848,7 @@ interface SuperscalarPipelineAccess(xlen :: XLen):
   role responder
   provider requester
   requester -> responder:
-    request: Valid(SuperscalarMemoryReq(xlen, xlen.width))
+    request: Valid(SuperscalarMemoryReq(xlen, xlen.width, Bool))
     commit: Bool
 
   responder -> requester:
@@ -811,16 +862,16 @@ interface SuperscalarPipelineAccess(xlen :: XLen):
    registered ordered_busy prevents younger memory effects, including earlier lookup hits.
    Reservation validity is live shared-cache state for WB wait-on-reservation.
    Reset must reset both participants together. */
-interface SuperscalarMemory(xlen :: XLen, address_width :: PosInt):
+interface SuperscalarMemory(xlen :: XLen, address_width :: PosInt, Context :: DataType):
   role requester
   role responder
   provider requester
   requester -> responder:
-    request: Decoupled(SuperscalarMemoryReq(xlen, address_width))
+    request: Decoupled(SuperscalarMemoryReq(xlen, address_width, Context))
 
   responder -> requester:
     fault: Valid(SuperscalarResolution(xlen))
-    response: Decoupled(Bits(xlen.width))
+    response: Decoupled(MemoryResponse(Bits(xlen.width), Context))
     drained: Bool
     ordered_busy: Bool
     reservation_valid: Bool
@@ -855,6 +906,12 @@ bundle SuperscalarOperand(xlen :: XLen):
   data: Bits(xlen.width)
 
 export:
+  SuperscalarLoadOwner
+  SuperscalarVectorMemoryOwner
+  SuperscalarMemoryContext
+  SuperscalarTransportContext
+  SuperscalarUncachedContext
+  MemoryResponse
   SuperscalarExecutionRewrite
   SuperscalarOperands
   SuperscalarFpSchedule

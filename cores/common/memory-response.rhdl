@@ -1,9 +1,20 @@
 #lang rhodium
-/* Pairs optional same-cycle LSU responses with caller contexts and captures only response state. */
+/* Defines opaque-context memory replies and captures optional fixed-cycle LSU responses. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("flow/main.rhdl") open
+
+/* Returns data alongside the unchanged caller-owned completion context. */
+bundle MemoryResponse(Value :: DataType, Context :: DataType):
+  data: Value
+  context: Context
+
+  /* Replaces one routing layer without changing the returned value. */
+  method with_context(response, To :: DataType, context :: Hardware.of(To)) :: MemoryResponse(Value, To):
+    MemoryResponse(Value, To):
+      data: response.data
+      context: context
 
 /* Retains the response for one cycle while returning its paired context without storage.
    The caller captures that context in parallel; absent responses use its local decision.
@@ -33,4 +44,5 @@ sync_circuit MemoryResponseCapture(Context :: DataType, Result :: DataType):
   response_path |> map_valid(pair => pair.response) |> valid_pipe_always_capture(1) |> captured
 
 export:
+  MemoryResponse
   MemoryResponseCapture

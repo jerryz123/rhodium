@@ -1,6 +1,7 @@
 // Tests XLEN lanes at the superscalar boundary, independently of CHI refill order.
 // SPDX-License-Identifier: Apache-2.0
 #include "test.hpp"
+#include <deque>
 
 using Word = decltype(memory_in.prequest.pbits.pdata);
 constexpr unsigned bytes = sizeof(Word);
@@ -8,6 +9,8 @@ constexpr unsigned size_code = bytes == 4 ? 2 : 3;
 constexpr unsigned word_mask = (1u << bytes) - 1;
 constexpr unsigned base = 0x400;
 std::array<unsigned char, 64> line{};
+std::uint16_t next_context = 0x5300;
+std::deque<std::uint16_t> contexts;
 
 template <class F> void until(F accepted) {
   for (unsigned cycle = 0; cycle < 128; ++cycle) {
@@ -27,6 +30,7 @@ Word expected(unsigned offset) {
 void service(unsigned offset, unsigned op, Word data, unsigned mask, unsigned width) {
   auto &req = memory_in.prequest;
   req.pbits = {};
+  req.pbits.pcontext = ++next_context;
   req.pbits.paddress = base + offset;
   req.pbits.paccess = op;
   req.pbits.pdata = data;
@@ -35,14 +39,21 @@ void service(unsigned offset, unsigned op, Word data, unsigned mask, unsigned wi
   req.pvalid = 1;
   until([] { return memory_out.prequest.pready; });
   CHECK(!memory_out.pfault.pvalid);
+  contexts.push_back(req.pbits.pcontext);
   tick_model();
   req.pvalid = 0;
 }
 
 void complete(Word value) {
   until([] { return memory_out.presponse.pvalid; });
-  CHECK(memory_out.presponse.pbits == value);
+  CHECK(!contexts.empty());
+  for (unsigned hold = 0; hold < 3; ++hold) {
+    CHECK(memory_out.presponse.pvalid && memory_out.presponse.pbits.pdata == value);
+    CHECK(memory_out.presponse.pbits.pcontext == contexts.front());
+    tick_model();
+  }
   memory_in.presponse.pready = 1; tick_model(); memory_in.presponse.pready = 0;
+  contexts.pop_front();
 }
 
 void fill() {
@@ -103,6 +114,11 @@ int main() {
       service(offset, 1, 0, word_mask, size_code); complete(expected(offset));
       lookup(offset, false, expected(offset), word_mask);
     }
+    // Distinct accepted owners remain paired while the first return is backpressured.
+    service(0, 1, 0, word_mask, size_code);
+    service(bytes, 1, 0, word_mask, size_code);
+    complete(expected(0));
+    complete(expected(bytes));
     // AMOSWAP.W keeps its byte address and unshifted operand even when the
     // addressed word is the last four bytes of an RV64 doubleword.
     const unsigned word_offset = 12 % bytes;

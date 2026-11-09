@@ -64,8 +64,9 @@ sync_circuit SuperscalarCacheFixture():
   core.interrupts <== literal(core.interrupts.type, 0)
   core.hart_id <== Bits(64)(0)
   core.time_counter <== Bits(64)(0)
-  inst data(SuperscalarL1D(test_cache, ~chi: test_fetch_chi))
-  inst mmu(SuperscalarMemoryAdapter(SuperscalarSv39Specialization(test_fetch_chi)))
+  def Context = SuperscalarMemoryContext(XLen.X64, 8)
+  inst data(SuperscalarL1D(test_cache, ~chi: test_fetch_chi, ~context: SuperscalarTransportContext(Context, 3)))
+  inst mmu(SuperscalarMemoryAdapter(SuperscalarSv39Specialization(test_fetch_chi), ~context: Context))
   core.vector_precheck <=> mmu.vector_precheck
   core.vector_fast |> mmu.vector_fast
   mmu.pipeline_vector <== core.pipeline_vector
@@ -88,7 +89,7 @@ sync_circuit SuperscalarCacheFixture():
   // replacing the production cache, its coherent engine, or its resident data.
   (
     mmu.physical_memory.request |> map_flow(request):
-      def physical = request.into(SuperscalarMemoryReq(XLen.X64, 64))
+      def physical = request.into(SuperscalarMemoryReq(XLen.X64, 64, SuperscalarTransportContext(Context, 3)))
       physical.updated(~pbmt: mux(physical.access.is_cache_management(), management_pbmt, physical.pbmt))
   ) |> data.memory.request
 

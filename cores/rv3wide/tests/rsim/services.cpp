@@ -13,7 +13,9 @@ std::map<std::uint64_t, std::uint64_t> words, values;
 std::map<std::uint64_t, std::uint32_t> original_instructions;
 std::map<std::uint64_t, unsigned> lanes, training, training_cycle;
 std::array<std::uint64_t, 32> gprs{};
-std::deque<std::pair<std::uint64_t, unsigned>> responses;
+using MemoryContext = std::remove_cvref_t<decltype(memory_out.prequest.pbits.pcontext)>;
+struct Response { std::uint64_t first; unsigned second; MemoryContext context; };
+std::deque<Response> responses;
 unsigned cycle = 0, stores = 0, requests = 0, triples = 0, paired_returns = 0;
 std::uint64_t pc = 0x8000, fault_pc = 0, redirect_pc = 0, redirect_target = 0;
 unsigned fault_disposition = 1;
@@ -32,7 +34,7 @@ const auto &retired(unsigned lane) {
   if (lane == 1) return retired_1_out;
   return retired_2_out;
 }
-void store(const Request &r) {
+template <class T> void store(const T &r) {
   auto &word = words[r.paddress & ~UINT64_C(7)];
   for (unsigned byte = 0; byte < 8; ++byte)
     if (r.pmask & (1u << byte)) {
@@ -49,7 +51,8 @@ void step() {
   memory_in.prequest.pready = accepting;
   memory_in.pdrained = responses.empty();
   memory_in.presponse.pvalid = !responses.empty() && responses.front().second <= cycle;
-  memory_in.presponse.pbits = responses.empty() ? 0 : responses.front().first;
+  memory_in.presponse.pbits.pdata = responses.empty() ? 0 : responses.front().first;
+  memory_in.presponse.pbits.pcontext = responses.empty() ? MemoryContext{} : responses.front().context;
   split_in.prequest.pready = !split_active;
   split_in.presponse.pvalid = split_active && cycle >= split_due;
   split_in.presponse.pbits = split_reply;
@@ -105,7 +108,7 @@ void step() {
       ++requests;
       const auto &r = memory_out.prequest.pbits;
       if (r.paccess == 2) store(r);
-      responses.push_back({words[r.paddress & ~UINT64_C(7)], cycle + 8});
+      responses.push_back({words[r.paddress & ~UINT64_C(7)], cycle + 8, r.pcontext});
     }
     if (split_in.presponse.pvalid) split_active = false;
     if (split_out.prequest.pvalid && split_in.prequest.pready) {

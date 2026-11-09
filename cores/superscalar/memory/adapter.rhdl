@@ -26,10 +26,14 @@ import:
   lib("flow/main.rhdl") open
   lib("rhodium/std/bits.rhdl") open
 
+/* Counts core and split clients plus the translation specialization's page-walk client. */
+fun physical_client_count(translation :: SuperscalarTranslationSpecialization) :: PosInt:
+  2 + translation.page_walk_clients()
+
 /* Preserves one EX/MEM context stage and WB-only mutation with an unbuffered translation service.
    The specialization supplies its architectural width, physical map, client count, and access policies;
    accepted owners never observe invalidation. */
-sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpecialization):
+sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpecialization, ~context: Context :: DataType = Bool):
   def xlen = translation.architectural_xlen()
   input state: RiscvTranslationState(xlen)
   input invalidate: Bool
@@ -41,11 +45,11 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
   interface physical_prefetch(Valid(CachePrefetchReq(64)), ~role: producer)
   interface instruction(SuperscalarInstructionTranslation(xlen), ~role: responder)
   interface pipeline(SuperscalarPipelineAccess(xlen), ~role: responder)
-  interface memory(SuperscalarMemory(xlen, xlen.width), ~role: responder)
+  interface memory(SuperscalarMemory(xlen, xlen.width, Context), ~role: responder)
   interface split(RiscvSplitAccess(xlen, Bool), ~role: responder)
   interface pipeline_lookup(Valid(CachePipelineReq(xlen)), ~role: producer)
   interface physical_pipeline(CachePipelineAccess(xlen), ~role: requester)
-  interface physical_memory(SuperscalarMemory(xlen, 64), ~role: requester)
+  interface physical_memory(SuperscalarMemory(xlen, 64, SuperscalarTransportContext(Context, physical_client_count(translation))), ~role: requester)
 
   def bytes = xlen.width / 8
   def physical_map = translation.physical_map()
@@ -73,7 +77,8 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
   def resolved :: SuperscalarAddressResolution(xlen) = resolve.result
   def split_fault_address = apply_pointer_mask(xlen, misaligned.fault_address, resolved.split_mask)
   misaligned.completion |> map_valid(result => result.updated(~fault_address: apply_pointer_mask(xlen, result.fault_address, resolved.split_mask))) |> split.response
-  def split_request = misaligned.request |> map_flow(fragment => SuperscalarMemoryReq(xlen, xlen.width)):
+  def split_request = misaligned.request |> map_flow(fragment => SuperscalarMemoryReq(xlen, xlen.width, Bool)):
+    context: Bool(#false)
     guest_access: if translation.split_access_policy() == SuperscalarSplitAccessPolicy.PreserveGuest | split_mode | RiscvGuestMemoryAccess.Normal
     address: fragment.address
     access: fragment.access
@@ -88,7 +93,7 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
   /* EX indexes immediately; exactly one context register carries that token into MEM. */
 
   /* Shapes an aligned native-word cache access without changing architectural size or store positioning. */
-  fun cache_request(request :: SuperscalarMemoryReq(xlen, xlen.width), address :: Bits(xlen.width)) :~ CachePipelineReq(xlen):
+  fun cache_request(request :: SuperscalarMemoryReq(xlen, xlen.width, Bool), address :: Bits(xlen.width)) :~ CachePipelineReq(xlen):
     CachePipelineReq(xlen):
       address: address.align_down(bytes)
       byte_mask: request.mask
@@ -100,10 +105,11 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
   def Array(index, context) = pipeline.request |> fork_valid(2)
   index |> map_valid(request => cache_request(request, request.address)) |> pipeline_lookup
   def mem_request = context |> valid_pipe(1)
-  def mem :: SuperscalarMemoryReq(xlen, xlen.width) = mem_request.bits
-  def data_request :: SuperscalarMemoryReq(xlen, xlen.width) = priority_mux(~default: mem):
+  def mem :: SuperscalarMemoryReq(xlen, xlen.width, Bool) = mem_request.bits
+  def committed :: SuperscalarMemoryReq(xlen, xlen.width, Context) = memory.request.bits
+  def data_request :: SuperscalarMemoryReq(xlen, xlen.width, Bool) = priority_mux(~default: mem):
     split_request.valid: split_request.bits
-    memory.request.valid: memory.request.bits
+    memory.request.valid: committed.with_context(Bool, Bool(#false))
 
   resolve.query <== SuperscalarTranslationQuery(xlen):
     address: mux(split_request.valid, split_fault_address, data_request.address)
@@ -161,9 +167,9 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
 
   /* WB and split physical admission share an unflushed transport; a walker is an elaboration-time third client. */
 
-  inst transport(SuperscalarMemoryTransport(xlen, 2 + page_walk_clients))
+  inst transport(SuperscalarMemoryTransport(xlen, physical_client_count(translation), Context))
   transport.physical <=> physical_memory
-  memory.request |> gate_flow(data_ok & !misaligned.busy & (!resolved.execute_read ||| region.executable)) |> map_flow(request => superscalar_physical_request(xlen, request, resolved.address, resolved.pbmt)) |> transport.request[0]
+  memory.request |> gate_flow(data_ok & !misaligned.busy & (!resolved.execute_read ||| region.executable)) |> map_flow(request => superscalar_physical_request(xlen, Context, request, resolved.address, resolved.pbmt)) |> transport.request[0]
   transport.response[0] |> memory.response
 
   def fragment_address = resolved.address.align_down(bytes)
@@ -172,9 +178,12 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
   def fragment_normal_memory = fragment_attributes.cacheable & !fragment_attributes.strongly_ordered & fragment_attributes.read_idempotent
   def fragment_access_permitted = mux(data_request.access.store_fault_class(), fragment_region.writable, fragment_region.readable)
   def fragment_permitted = (!resolved.execute_read ||| fragment_region.executable) & fragment_region.mapped & fragment_normal_memory & fragment_access_permitted
-  split_request |> gate_flow(data_ok & fragment_permitted) |> map_flow(request => superscalar_physical_request(xlen, request, fragment_address, resolved.pbmt)) |> transport.request[1]
-  (transport.response[1] |> map_flow(data => PhysicalMemoryResp(xlen, Bool)):
-    data: data
+  (split_request |> gate_flow(data_ok & fragment_permitted) |> map_flow(request):
+    def fragment :: SuperscalarMemoryReq(xlen, xlen.width, Bool) = request
+    superscalar_physical_request(xlen, Context, fragment.with_context(Context, dont_care(Context)), fragment_address, resolved.pbmt)
+  ) |> transport.request[1]
+  (transport.response[1] |> map_flow(reply => PhysicalMemoryResp(xlen, Bool)):
+    data: reply.data
     context: Bool(#false)
     access_fault: Bool(#false)
   ) |> misaligned.physical_response
@@ -207,7 +216,8 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
       def pte_normal_memory = pte_attributes.cacheable & !pte_attributes.strongly_ordered & pte_attributes.read_idempotent
       def pte_permitted = pte_region.mapped & pte_normal_memory & pte_region.readable
       transport.request[2].valid <== resolve.pte.request.valid & pte_permitted
-      transport.request[2].bits <== SuperscalarMemoryReq(xlen, 64):
+      transport.request[2].bits <== SuperscalarMemoryReq(xlen, 64, Context):
+        context: dont_care(Context)
         guest_access: RiscvGuestMemoryAccess.Normal
         address: resolve.pte.request.bits.address
         access: CacheOperation.Load
@@ -221,7 +231,7 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
       def pte_fault = (resolve.pte.request.valid & !pte_permitted) ||| transport.fault[2].valid
       resolve.pte.request.ready <== transport.request[2].ready ||| pte_fault
       resolve.pte.request_access_fault <== pte_fault
-      transport.response[2] |> to_valid() |> resolve.pte.response
+      transport.response[2] |> map_flow(reply => reply.data) |> to_valid() |> resolve.pte.response
   | #void
 
   memory.drained <== transport.drained & !misaligned.busy
@@ -242,7 +252,7 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
     "fragment_mask": split_request.bits.mask,
     "fragment_data": split_request.bits.data,
     "fragment_response": transport.response[1].fire(),
-    "fragment_response_data": transport.response[1].bits
+    "fragment_response_data": transport.response[1].bits.data
   })
 
 export:

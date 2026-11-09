@@ -897,7 +897,7 @@ Atomics can occupy either issue slot and pair with independent integer work.
 They drain older memory before issue, authorize only at WB, and prevent younger
 memory retirement until their response is consumed. This conservative ordering
 supports every aq/rl combination; independent integer instructions can continue.
-Responses use the same retained owner FIFO, scoreboard, completion arbiter, and
+Responses carry their accepted owner through memory and use the same scoreboard, completion arbiter, and
 two GPR write ports as loads and M operations. Accepted owners survive redirects.
 
 LR/SC reservation matching, invalidation by stores, AMOs, snoops, and replacement,
@@ -987,9 +987,9 @@ EX -- Valid lookup --> memory service -- fixed MEM result --> WB
                                                             |
                         hit-store commit / slow admission <--+
                                                             |
-              accepted owner FIFO <-- WB acceptance --> scoreboard set
+              context-bearing request <-- WB acceptance --> scoreboard set
                       |                                      |
-ordered slow response +--> result projection --> reserve younger RR slot
+ordered data + context --> result projection --> reserve younger RR slot
                                             |
                              unflushable completion pipe --> shared WB write
 ```
@@ -1010,7 +1010,10 @@ allocate, mutate memory, or perform device reads. The service returns:
 
 LR/SC/AMO use Slow after successful checks, never a speculative load/store hit.
 
-`memory: SuperscalarMemory(xlen, xlen.width)` accepts WB `Decoupled` virtual requests. Admission is
+`memory: SuperscalarMemory(xlen, xlen.width, Context)` accepts WB `Decoupled` virtual requests.
+Each request carries caller-owned `context`; the successful response is
+`MemoryResponse(Bits(xlen.width), Context)` with `data` and unchanged `context`.
+The memory implementation treats that context as opaque. Admission is
 non-speculative and resolves synchronous exceptions **before acceptance**:
 `fault.valid` supplies a Fault resolution, including its precise address, and
 the service must deassert request readiness. Otherwise a transfer irrevocably
@@ -1029,10 +1032,10 @@ resolved cache hits, while an ordered transaction awaits completion. Independent
 integer instructions may continue. This signal must describe retained service
 state, not depend on the current request valid or pipeline commit.
 
-Four transaction contexts can await responses. The response unit joins each
-response with its retained owner using Flow, independently of speculative flushes.
-Full context storage replays a new attempt before acceptance; it never cancels
-older requests. Accepted loads, including x0 loads, and store acknowledgements
+Four scalar transactions can await responses. A registered credit counter
+limits admission; the completion owner travels through memory instead of being
+duplicated in a parallel FIFO. Full capacity replays a new attempt before
+acceptance; it never cancels older requests. Accepted loads, including x0 loads, and store acknowledgements
 continue draining across younger branch/replay redirects. `memory.drained`
 must also include internally buffered committed hit stores.
 
@@ -1409,7 +1412,8 @@ PBMT overrides preserve the physical coherence domain as described above.
 PMA permission/mapping failures trap without CHI traffic, with the original VA;
 page-table reads remain restricted to readable, cacheable, idempotent RAM.
 
-The core retains load extension and completion ownership. Accepted traffic drains
+The core defines load extension and completion metadata; memory carries that
+metadata unchanged through cached, IO, and local-management completion. Accepted traffic drains
 across redirects, and the two-port writeback policy is unchanged. As with the
 existing shared ordinary-memory path, admitted transactions must complete
 successfully; late CHI errors are protocol assertions, not implemented precise

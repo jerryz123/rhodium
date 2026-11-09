@@ -86,10 +86,11 @@ int pause_commits = 0, pause_dual = 0, pause_cycle = 0;
 bool saw_repacked = 0;
 
 lookup_flow_t lookup_response;
-memory_req_t lookup_request, store_candidate;
+std::remove_cvref_t<decltype(pipeline_out.prequest.pbits)> lookup_request, store_candidate;
 Queue<memory_req_t> expected_requests;
 Queue<retirement_t> expected_completions, response_owners;
 std::uint64_t response_data[16];
+std::remove_cvref_t<decltype(memory_out.prequest.pbits.pcontext)> response_context[16];
 int response_due[16], response_read = 0, response_write = 0, response_count = 0;
 std::uint8_t memory_bytes[4096], model_bytes[4096];
 bool block_requests = 0, block_stores = 0, hold_responses = 0;
@@ -247,7 +248,7 @@ void expect_memory(std::uint64_t address, std::uint8_t write_access, int bytes,
   expected_requests.push_back(item);
 }
 
-void check_request(memory_req_t actual) {
+template <class T> void check_request(const T &actual) {
   memory_req_t want;
   CHECK(expected_requests.size() > 0);
   want = expected_requests.take();
@@ -5125,7 +5126,8 @@ void drive() {
   }
   memory_in.pordered_ubusy = 0;
   memory_in.preservation_uvalid = reservation_valid;
-  memory_in.presponse.pbits = response_data[response_read];
+  memory_in.presponse.pbits.pdata = response_data[response_read];
+  memory_in.presponse.pbits.pcontext = response_context[response_read];
 }
 
 void observe() {
@@ -5322,6 +5324,7 @@ void observe() {
           beat = sign_extend(beat, 32);
         }
         defer(response_data[response_write], beat);
+        defer(response_context[response_write], memory_out.prequest.pbits.pcontext);
         defer(response_management[response_write],
               (memory_out.prequest.pbits.paccess == 7 ||
                memory_out.prequest.pbits.paccess == 8 ||

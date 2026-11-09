@@ -366,9 +366,14 @@ and trap definitions only; retirement ordering and retained state stay in the co
 imports it to consume the combined decoder, `std/scoreboard.rhdl` for committed
 load destinations, and `flow/main.rhdl` for typed endpoints, feed-forward
 pipeline storage, and fault retention. `bundles.rhdl`, `issue-window.rhdl`,
-`branch-training.rhdl`, and `load-response.rhdl` import the same Flow facade for
-stream contracts, instruction/retired-training storage, owner storage, and
-atomic response/context joining.
+`branch-training.rhdl`, and `memory-completion.rhdl` import the same Flow facade
+for stream contracts, instruction/retired-training storage, credit accounting,
+and returned-context routing. `cores/common/memory-response.rhdl` supplies the
+generic data/context result and retagging method using public types and Flow.
+Superscalar bundles import that contract and `std/bits.rhdl` for owner geometry.
+The memory adapter, physical transport, and cache attachment carry opaque context;
+the pipeline defines scalar/vector/management interpretation. Physical-client
+routing and uncached byte offsets wrap that context without interpreting it.
 `cores/superscalar/read-operands.rhdl` imports the family's operand/result
 bundles, pairing control types, shared immediate extraction, architectural XLEN,
 and the Flow endpoint annotation. It owns fixed four-path read routing,

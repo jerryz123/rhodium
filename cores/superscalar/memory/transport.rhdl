@@ -1,5 +1,5 @@
 #lang rhodium
-/* Arbitrates resolved physical requests and retains each accepted response's client independently of translation. */
+/* Carries accepted client identity through physical memory without a parallel routing FIFO. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,39 +8,38 @@ import:
   lib("flow/main.rhdl") open
   lib("rhodium/std/bits.rhdl") open
 
-/* Pairs a returned native word with the client captured at physical acceptance. */
-bundle SuperscalarPhysicalReply(xlen :: XLen, clients :: PosInt):
-  data: Bits(xlen.width)
-  owner: Bits(index_width(clients))
-
-/* Gives lower client indices priority and atomically queues an owner with every physical transfer.
-   Admission faults follow the live grant; successful replies follow the unflushed eight-entry owner FIFO. */
-sync_circuit SuperscalarMemoryTransport(xlen :: XLen, clients :: PosInt):
-  interface request[clients](Decoupled(SuperscalarMemoryReq(xlen, 64)), ~role: consumer)
-  interface response[clients](Decoupled(Bits(xlen.width)), ~role: producer)
+/* Adds one physical-client routing layer to opaque context and removes it on reply.
+   Admission faults use the live grant; accepted replies use only returned context.
+   Eight registered credits preserve the former owner FIFO's admission boundary. */
+sync_circuit SuperscalarMemoryTransport(xlen :: XLen, clients :: PosInt, Context :: DataType):
+  def Routed = SuperscalarTransportContext(Context, clients)
+  interface request[clients](Decoupled(SuperscalarMemoryReq(xlen, 64, Context)), ~role: consumer)
+  interface response[clients](Decoupled(MemoryResponse(Bits(xlen.width), Context)), ~role: producer)
   interface fault[clients](Valid(SuperscalarResolution(xlen)), ~role: producer)
-  interface physical(SuperscalarMemory(xlen, 64), ~role: requester)
+  interface physical(SuperscalarMemory(xlen, 64, Routed), ~role: requester)
   output drained: Bool
 
-  inst requests(Arbiter(SuperscalarMemoryReq(xlen, 64), clients))
-  inst owners(Queue(Bits(index_width(clients)), 8))
+  inst requests(Arbiter(SuperscalarMemoryReq(xlen, 64, Context), clients))
+  inst outstanding(CreditCounter(8))
   request <=> requests.ingress
-  def Array(transaction, owner) = requests.egress |> atomic_fork(2)
-  transaction |> physical.request
-  owner |> map_flow(_request => requests.chosen) |> owners.ingress
-
-  def replies = Array(physical.response, owners.egress) |> zip_flow(data, owner):
-    SuperscalarPhysicalReply(xlen, clients):
-      data: data
-      owner: owner
-
-  def routed = replies |> demux_flow(clients, reply => reply.owner)
+  (requests.egress |> gate_flow(!outstanding.full) |> map_flow(request):
+    def selected :: SuperscalarMemoryReq(xlen, 64, Context) = request
+    def route = SuperscalarTransportContext(Context, clients):
+      client: requests.chosen
+      context: request.context
+    selected.with_context(Routed, route)
+  ) |> physical.request
+  outstanding.increment <== physical.request.fire()
+  def routed = physical.response |> gate_flow(!outstanding.empty) |> demux_flow(clients, response => response.context.client)
   def faults = physical.fault |> fork_valid(clients)
   for (client in 0..clients):
-    routed[client] |> map_flow(reply => reply.data) |> response[client]
+    (routed[client] |> map_flow(reply):
+      def returned :: MemoryResponse(Bits(xlen.width), Routed) = reply
+      returned.with_context(Context, returned.context.context)
+    ) |> response[client]
     faults[client] |> filter_valid(_fault => requests.chosen === Bits(index_width(clients))(client)) |> fault[client]
 
-  drained <== physical.drained & !owners.count.any()
+  outstanding.decrement <== physical.response.fire()
+  drained <== physical.drained & outstanding.empty
 
-export:
-  SuperscalarMemoryTransport
+export SuperscalarMemoryTransport

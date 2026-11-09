@@ -7,7 +7,8 @@ using Request = std::remove_cvref_t<decltype(pipeline_out.prequest.pbits)>;
 Request lookup_owner{}, commit_owner{};
 bool lookup_live = false;
 std::map<std::uint64_t, std::uint64_t> words;
-struct Response { std::uint64_t data; unsigned due; };
+using MemoryContext = std::remove_cvref_t<decltype(memory_out.prequest.pbits.pcontext)>;
+struct Response { std::uint64_t data; unsigned due; MemoryContext context; };
 std::deque<Response> responses;
 std::deque<unsigned> scalar_bookings;
 unsigned cycle = 0, completions = 0, checks = 0, releases = 0, stores = 0;
@@ -20,7 +21,7 @@ std::uint32_t vector_insn(unsigned funct6, unsigned vs2, unsigned vs1,
   return funct6 << 26 | 1 << 25 | vs2 << 20 | vs1 << 15 | funct3 << 12 |
          vd << 7 | 0x57;
 }
-void write_word(const Request &request) {
+template <class T> void write_word(const T &request) {
   auto &value = words[request.paddress & ~UINT64_C(7)];
   for (unsigned byte = 0; byte < 8; ++byte)
     if ((request.pmask >> byte) & 1) {
@@ -41,7 +42,8 @@ void settle() {
   memory_in.preservation_uvalid = 0;
   memory_in.pdrained = responses.empty();
   memory_in.presponse.pvalid = !responses.empty() && responses.front().due <= cycle;
-  memory_in.presponse.pbits = responses.empty() ? 0 : responses.front().data;
+  memory_in.presponse.pbits.pdata = responses.empty() ? 0 : responses.front().data;
+  memory_in.presponse.pbits.pcontext = responses.empty() ? MemoryContext{} : responses.front().context;
   split_in.prequest.pready = 1;
   split_in.presponse.pvalid = 0;
   eval();
@@ -73,7 +75,7 @@ void step() {
       const auto request = memory_out.prequest.pbits;
       if (request.paccess == 2)
         write_word(request);
-      responses.push_back({words[request.paddress & ~UINT64_C(7)], cycle + response_delay});
+      responses.push_back({words[request.paddress & ~UINT64_C(7)], cycle + response_delay, request.pcontext});
     }
     CHECK(!split_out.prequest.pvalid);
   }

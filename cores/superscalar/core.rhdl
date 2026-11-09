@@ -26,7 +26,7 @@ import:
   "branch-training.rhdl".SuperscalarBranchTrainingBuffer
   "pairing.rhdl" open
   "read-operands.rhdl" open
-  "load-response.rhdl" open
+  "memory-completion.rhdl" open
   "long-execution.rhdl" open
   "fp.rhdl" open
   "vector.rhdl" open
@@ -128,7 +128,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   interface ras_resolution(Valid(RasResolution(xlen)), ~role: producer)
   interface history_commit(Valid(SuperscalarHistoryCommit(issue_width)), ~role: producer)
   interface history_restore(Valid(Bits(10)), ~role: producer)
-  interface memory(SuperscalarMemory(xlen, xlen.width), ~role: requester)
+  interface memory(SuperscalarMemory(xlen, xlen.width, SuperscalarMemoryContext(xlen, profile.vector_completion_slots)), ~role: requester)
   interface split(RiscvSplitAccess(xlen, Bool), ~role: requester)
   output split_guest_access: RiscvGuestMemoryAccess
   interface pipeline(SuperscalarPipelineAccess(xlen), ~role: requester)
@@ -158,7 +158,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
      Core WB retains architectural age and admission policy; the adapter owns
      accepted memory routing and the vector pipeline owns descriptor execution. */
 
-  inst memory_ports(SuperscalarMemoryPorts(xlen))
+  inst memory_ports(SuperscalarMemoryPorts(xlen, vector_slots))
   def scalar_memory = memory_ports.scalar_memory
   def scalar_pipeline = memory_ports.scalar_pipeline
   def scalar_split = memory_ports.scalar_split
@@ -332,7 +332,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   reg wb_pc_known(~init: Bool(#false))
   wire wb_reservation_waiting: Bool
   sleeping <== wb_sleeping ||| wb_reservation_waiting
-  inst wb_load_response(SuperscalarLoadResponse(xlen))
+  inst wb_memory_completion(SuperscalarMemoryCompletion(xlen))
   reg wb_ordered_memory_pending(~init: Bool(#false))
   reg wb_prior_memory_drained(~init: Bool(#false))
   inst ex_multiply(SuperscalarMultiply(xlen, ~vector_enabled: vector_enabled, ~vector_slots: vector_slots))
@@ -343,18 +343,20 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   wb_divide.vector_result |> vector.service.divide_result
   inst rr_completions(RRArbiter(SuperscalarCompletion(xlen), 2))
   inst wb_scoreboard(Scoreboard(32))
-  wire wb_management_response: Bool
-  def Array(wb_ordinary_response, wb_management_return) = scalar_memory.response |> demux_flow(2, _data => wb_management_response)
-  wb_ordinary_response |> wb_load_response.response
+  def Array(wb_ordinary_response, wb_management_return) = scalar_memory.response |> demux_flow(2, reply => reply.context.is(SuperscalarMemoryContext(xlen, vector_slots).Management))
+  (wb_ordinary_response |> map_flow(reply):
+    def returned :: MemoryResponse(Bits(xlen.width), SuperscalarMemoryContext(xlen, vector_slots)) = reply
+    returned.with_context(SuperscalarLoadOwner(xlen), returned.context.view(SuperscalarMemoryContext(xlen, vector_slots).Scalar).payload)
+  ) |> wb_memory_completion.response
   def wb_management_completed = wb_management_return |> to_valid()
-  wb_load_response.fp_completed |> fp.load_return
+  wb_memory_completion.fp_completed |> fp.load_return
 
 
   /* Committed completion transport.
      Deferred results reserve the last issue slot and travel to its WB
      write port. Already committed responses never take speculative flush. */
 
-  for (source in [wb_load_response.completed, wb_divide.completed], index in 0..2):
+  for (source in [wb_memory_completion.completed, wb_divide.completed], index in 0..2):
     source |> rr_completions.ingress[index]
 
   def rr_completion = rr_completions.egress |> gate_flow(wb_gpr_calendar.registered_free[2] & (!rr_vector_writeback_waiting ||| wb_completion_priority)) |> to_valid()
@@ -632,7 +634,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
      completion; PAUSE blocks younger issue without blocking accepted returns. */
 
   def rr_memory_in_pipeline = any(for List (lane in 0..issue_width): (ex_pipe[lane].egress.valid & ex_pipe[lane].egress.bits.control.memory.enable) ||| (mem_pipe[lane].egress.valid & mem_pipe[lane].egress.bits.memory.enable) ||| (wb_pipe[lane].egress.valid & wb_pipe[lane].egress.bits.memory.enable))
-  def rr_ordered_memory_ready = !rr_memory_in_pipeline & scalar_memory.drained & wb_load_response.drained & !wb_ordered_memory_pending
+  def rr_ordered_memory_ready = !rr_memory_in_pipeline & scalar_memory.drained & wb_memory_completion.drained & !wb_ordered_memory_pending
   // A PAUSE may follow an older peer, but no younger issue crosses it. Its
   // post-retirement cooldown never blocks accepted service completions.
   reg rr_pause_cycles(~init: Bits(5)(0))
@@ -1087,7 +1089,8 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   ex_store.value <== ex_lookup.operands.right
   ex_store.width <== ex_lookup.memory.width
   scalar_pipeline.request.valid <== ex_valid[service_index(ex_memory_lane)] & ex_lookup.memory.enable & (ex_lookup.resolution.disposition === SuperscalarDisposition.Continue) & !rr_squash
-  scalar_pipeline.request.bits <== SuperscalarMemoryReq(xlen, xlen.width):
+  scalar_pipeline.request.bits <== SuperscalarMemoryReq(xlen, xlen.width, Bool):
+    context: Bool(#false)
     guest_access: ex_lookup.guest_access
     address: ex_lookup.address
     access: ex_lookup.memory.access
@@ -1323,7 +1326,6 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   /* Split, management, and vector completion resolve the captured owner, not live WB.
      Completion may precede acceptance for a wait or local admission fault. */
 
-  wb_management_response <== wb_management & wb_retained_sent
   wire wb_management_fault: Bool
   wire wb_management_accepted: Bool
   def wb_retained_complete = scalar_split.response.valid ||| wb_management_completed.valid ||| wb_management_fault ||| wb_wait_complete ||| (wb_retained_pending & wb_retained_vector & vector.outcome.valid)
@@ -1431,7 +1433,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   def wb_vector = wb_live_group[service_index(wb_vector_lane)]
   def wb_vector_offer = wb_dispatch[service_index(wb_vector_lane)] & (if vector_enabled | wb_vector.vector.operation | Bool(#false))
   def wb_vector_pc = wb_live_pcs[service_index(wb_vector_lane)]
-  def wb_vector_ordered = !wb_vector.vector.memory ||| (wb_prior_memory_drained & !wb_load_response.pending & !wb_ordered_memory_pending)
+  def wb_vector_ordered = !wb_vector.vector.memory ||| (wb_prior_memory_drained & !wb_memory_completion.pending & !wb_ordered_memory_pending)
   def wb_vector_gpr_write = wb_vector.vector.integer_destination & wb_vector.write
   def wb_vector_results_available = !wb_vector_gpr_write ||| wb_vector_scalar_available
   def wb_vector_fpr_available = !wb_vector.vector.floating_scalar_destination ||| !wb_vector.vector.floating_point ||| !wb_vector_fpr_pending ||| fp.vector_written.valid
@@ -1556,7 +1558,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   def wb_vector_store_pending = vector.service.stores_pending ||| (wb_older_vector_memory & wb_vector.vector.store)
   def wb_vector_load_pending = vector.service.loads_pending ||| (wb_older_vector_memory & !wb_vector.vector.store)
   def wb_memory_blocked = scalar_memory.ordered_busy ||| wb_ordered_memory_pending ||| wb_vector_store_pending ||| (wb_memory.memory.access.store_fault_class() & wb_vector_load_pending)
-  def wb_prior_drained = wb_load_response.drained & scalar_memory.drained & ex_multiply.drained & wb_divide.drained & !wb_completion_count.any() & !rr_completion.valid & fp.drained & !vector.active & !wb_vector_scalar_pending & !wb_vector_fpr_pending
+  def wb_prior_drained = wb_memory_completion.drained & scalar_memory.drained & ex_multiply.drained & wb_divide.drained & !wb_completion_count.any() & !rr_completion.valid & fp.drained & !vector.active & !wb_vector_scalar_pending & !wb_vector_fpr_pending
   scalar_split.request.valid <== wb_retained_ready & !wb_management & !wb_reservation_waiting & !wb_retained_vector
   memory_ports.scalar_guest_access <== wb_retained_owner.guest_access
   scalar_split.request.bits <== PhysicalMemoryReq(xlen, Bool):
@@ -1601,8 +1603,19 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   wb_store.address <== wb_request_address
   wb_store.value <== wb_request_data
   wb_store.width <== wb_request_memory.width
-  scalar_memory.request.valid <== (wb_slow & wb_load_response.available & !wb_memory_blocked) ||| (wb_management & wb_retained_ready)
-  scalar_memory.request.bits <== SuperscalarMemoryReq(xlen, xlen.width):
+  scalar_memory.request.valid <== (wb_slow & wb_memory_completion.available & !wb_memory_blocked) ||| (wb_management & wb_retained_ready)
+  def wb_memory_owner = SuperscalarLoadOwner(xlen):
+    destination: wb_fp_request.owner(wb_memory.fetched.identity(wb_memory_pc), wb_memory.rd)
+    fp_load: wb_memory.fp.valid & (wb_memory.fp.bits.registers.destination === FloatDestination.FloatingPoint)
+    write: wb_memory.write
+    precision: wb_memory.fp.bits.execution.destination_precision
+    access: wb_memory.memory.access
+    offset: wb_memory.address[0..alignment_bits(memory_word_bytes(xlen))]
+    width: wb_memory.memory.width
+    unsigned: wb_memory.memory.unsigned
+
+  scalar_memory.request.bits <== SuperscalarMemoryReq(xlen, xlen.width, SuperscalarMemoryContext(xlen, vector_slots)):
+    context: mux(wb_management, SuperscalarMemoryContext(xlen, vector_slots).Management(), SuperscalarMemoryContext(xlen, vector_slots).Scalar(wb_memory_owner))
     guest_access: wb_request_guest
     address: wb_request_address
     access: wb_request_memory.access
@@ -1622,20 +1635,11 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   wb_management_accepted <== wb_management & scalar_memory.request.fire()
   def wb_accepted = scalar_memory.request.fire() & !wb_admission_fault & !wb_management
   def wb_memory_replay = (wb_memory_active & !wb_memory_capture & wb_memory_blocked) ||| (wb_slow & !wb_accepted & !wb_admission_fault) ||| (wb_store_hit & !scalar_pipeline.commit_ready)
-  wb_load_response.allocate.valid <== wb_accepted
-  wb_load_response.allocate.bits <== SuperscalarLoadOwner(xlen):
-    destination: wb_fp_request.owner(wb_memory.fetched.identity(wb_memory_pc), wb_memory.rd)
-    fp_load: wb_memory.fp.valid & (wb_memory.fp.bits.registers.destination === FloatDestination.FloatingPoint)
-    write: wb_memory.write
-    precision: wb_memory.fp.bits.execution.destination_precision
-    access: wb_memory.memory.access
-    offset: wb_memory.address[0..alignment_bits(memory_word_bytes(xlen))]
-    width: wb_memory.memory.width
-    unsigned: wb_memory.memory.unsigned
+  wb_memory_completion.allocate.valid <== wb_accepted
 
   when (wb_accepted & !wb_memory.memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store)):
     wb_ordered_memory_pending <== Bool(#true)
-  elsewhen (wb_load_response.ordered_completed.valid):
+  elsewhen (wb_memory_completion.ordered_completed.valid):
     wb_ordered_memory_pending <== Bool(#false)
 
   assert(!(scalar_memory.request.fire() & wb_admission_fault), "superscalar_fault_prevents_acceptance")
@@ -2038,7 +2042,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   wb_service.left.bits <== vec(for List (lane in 0..issue_width): retired[lane].bits)[service_index(wb_service_lane)]
   describe_interface_selection((for List (lane in 0..issue_width): wb_service_lane === Bits(2)(lane)), ~name: "service-lane")
   describe_interface_contract((for Array (lane in 0..issue_width): wb_retirement_paths[lane][1]), wb_service.left, "service-lane", ~trace_model: interface_trace_selection(~name: "service-lane"))
-  describe_interface_contract(wb_service.right, Array(wb_load_response.allocate, wb_divide_link.left), "committed-service", ~trace_model: interface_trace_routing([wb_accepted, wb_divide_accepted]))
+  describe_interface_contract(wb_service.right, Array(wb_memory_completion.allocate, wb_divide_link.left), "committed-service", ~trace_model: interface_trace_routing([wb_accepted, wb_divide_accepted]))
 
 
   /* Architectural GPR write ports.
@@ -2149,8 +2153,8 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     "fp_load_valid": fp.load_write.valid,
     "fp_load": fp.load_write.bits,
     "wb_boundary_instruction": wb_boundary_instruction,
-    "completion_fire": vec(wb_load_response.completed.fire(), ex_multiply.completed.valid, wb_divide.completed.fire(), completed.valid & !wb_vector_return.valid),
-    "completion": vec(wb_load_response.completed.bits, ex_multiply.completed.bits, wb_divide.completed.bits, completed.bits)
+    "completion_fire": vec(wb_memory_completion.completed.fire(), ex_multiply.completed.valid, wb_divide.completed.fire(), completed.valid & !wb_vector_return.valid),
+    "completion": vec(wb_memory_completion.completed.bits, ex_multiply.completed.bits, wb_divide.completed.bits, completed.bits)
   }, (if vector_enabled | {"csr": wb_csrs, "vector": vector, "lsu": memory_ports} | {"csr": wb_csrs}))
 
 export:
