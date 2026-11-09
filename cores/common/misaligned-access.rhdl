@@ -54,7 +54,7 @@ sync_circuit RiscvMisalignedEngine(xlen :: XLen, Context :: DataType):
 
   /* Retained architectural owner and fragment progress.
      An accepted fragment keeps its reply owner until the response arrives;
-     the original request survives until one final completion. */
+     address, controls and context survive until one final completion. */
 
   reg state(RiscvMisalignedState, ~init: RiscvMisalignedState.Idle)
   reg saved(PhysicalMemoryReq(xlen, Context))
@@ -62,8 +62,6 @@ sync_circuit RiscvMisalignedEngine(xlen :: XLen, Context :: DataType):
   reg page_fault(~init: Bool(#false))
   reg access_fault(~init: Bool(#false))
   reg guest(RiscvGuestException())
-  reg first_data(Bits(width))
-  reg second_data(Bits(width))
   busy <== state =/= RiscvMisalignedState.Idle
   start.ready <== !busy
   def capture = start.fire()
@@ -102,24 +100,32 @@ sync_circuit RiscvMisalignedEngine(xlen :: XLen, Context :: DataType):
   def physical_fire = request.fire() & !rejected
 
 
-  /* Fragment response capture and final load assembly.
-     The retained second flag routes replies; live upstream requests cannot
-     alter the fragment's context or assembly offsets. */
+  /* Shared store payload and load assembly word. A store keeps its original
+     bytes across both requests. A load takes the whole first reply, then wraps
+     the next word's low bytes into the lanes below the original offset. */
 
   def Array(first_responses, second_responses) = physical_response |> demux_flow(2, _response => second.as_bits())
   def first_response = first_responses |> to_valid()
   def second_response = second_responses |> to_valid()
-  when (first_response.valid):
-    first_data <== first_response.bits.data
+  def wrapped_lanes = Mask(word_bytes).prefix(offset)
+  def previous = saved.data.as_vec(Bits(8))
+  def incoming = physical_response.bits.data.as_vec(Bits(8))
+  def assembled = vec(
+    for List (lane in 0..word_bytes):
+      mux(!second ||| wrapped_lanes[lane], incoming[lane], previous[lane])
+  )
 
-  when (second_response.valid):
-    second_data <== second_response.bits.data
+  when capture:
+    saved <== start.bits
+  elsewhen (physical_response.fire() & (saved.access === CacheOperation.Load)):
+    saved <== saved.updated(~data: assembled.as_bits())
 
+  /* Rotate the assembled bytes to lane zero before normal load extension. */
   inst load(LoadGen(xlen, word_bytes))
   load.address <== Bits(width)(0)
   load.width <== saved.width
   load.unsigned_load <== saved.unsigned
-  load.data <== (first_data >> shift) ||| mux(crosses_word, second_data << remaining_shift, Bits(width)(0))
+  load.data <== ((saved.data ++ saved.data) >> shift)[0..width]
   completion.valid <== state === RiscvMisalignedState.Complete
   completion.bits <== RiscvSplitResult(xlen, Context):
     response:
@@ -143,7 +149,6 @@ sync_circuit RiscvMisalignedEngine(xlen :: XLen, Context :: DataType):
 
   def continue_second = crosses_word & !first_response.bits.access_fault
   when capture:
-    saved <== start.bits
     second <== Bool(#false)
     page_fault <== Bool(#false)
     access_fault <== Bool(#false)

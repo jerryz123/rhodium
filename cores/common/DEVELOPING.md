@@ -40,6 +40,12 @@ passive observation declarations. None selects a named core's profile or
 implements its retirement policy. Architectural encodings and stateless
 architectural policy stay under `riscv/isa/` and `riscv/rtl/`.
 
+The misaligned engine's saved request has one XLEN data word. Store replies
+must leave it intact for a possible second request. Loads use it for assembly:
+the first reply supplies all lanes, and the second replaces only those below
+the original byte offset. The address, width, signedness, and caller context
+remain those of the original request through completion, including on faults.
+
 `integer-execution.rhdl` supplies opaque arithmetic request/result ownership;
 `integer-service.rhdl` carries those tags through iterative multiply/divide and
 feed-forward multiplication, with explicit scheduled or buffered return adapters.

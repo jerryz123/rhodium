@@ -563,7 +563,7 @@ int main() {
       CHECK(!physical_valid && !split_completed);
     }
     falling();
-    return_data(0);
+    return_data(UINT64_C(0xdeadbeefdeadbeef)); // A store reply must not replace its payload.
     wait_request(UINT64_C(0x308));
     CHECK(physical_locality == 4);
     CHECK(physical_mask == UINT64_C(0x7f) &&
@@ -577,27 +577,35 @@ int main() {
     start_split(UINT64_C(0x303), 1, 1);
     reply(UINT64_C(0x300), UINT64_C(0x8877665544332211));
     finish_split(UINT64_C(0x5544));
-    // A cached first translation and missing second PTE must never reissue
-    // the accepted first-page store or require rollback.
+    // Stall the second page walk after the first fragment completes. A fault
+    // must report page two, neither publishing a partial load nor repeating a store.
     privilege = 1;
     satp = UINT64_C(0x8000000000000010);
-    fence();
-    locality = 2;
-    start_split(UINT64_C(0x500ffd), 2, 3);
-    locality = 0;
-    walk_data((UINT64_C(21) << 10) | UINT64_C(0xc7));
-    wait_request(UINT64_C(0x15ff8));
-    CHECK(physical_mask == UINT64_C(0xe0));
-    CHECK(physical_locality == 2);
-    physical_ready = 1;
-    tick_model();
-    falling();
-    physical_ready = 0;
-    return_data(0);
-    reply(UINT64_C(0x10000), (UINT64_C(17) << 10) | 1);
-    reply(UINT64_C(0x11010), (UINT64_C(18) << 10) | 1);
-    reply(UINT64_C(0x12808), 0);
-    finish_split(0, UINT64_C(0x501000), 1);
+    for (int operation : {1, 2}) {
+      fence();
+      locality = 2;
+      start_split(UINT64_C(0x500ffd), operation, 3);
+      locality = 0;
+      walk_data((UINT64_C(21) << 10) | UINT64_C(0xc7));
+      wait_request(UINT64_C(0x15ff8));
+      CHECK(physical_mask == UINT64_C(0xe0));
+      CHECK(physical_locality == 2);
+      physical_ready = 1;
+      tick_model();
+      falling();
+      physical_ready = 0;
+      return_data(UINT64_C(0x123456789abcdef0));
+      reply(UINT64_C(0x10000), (UINT64_C(17) << 10) | 1);
+      reply(UINT64_C(0x11010), (UINT64_C(18) << 10) | 1);
+      wait_request(UINT64_C(0x12808));
+      for (unsigned stall = 0; stall < 3; ++stall) {
+        CHECK(physical_valid && physical_address == UINT64_C(0x12808) && !split_completed);
+        tick_model();
+        falling();
+      }
+      reply(UINT64_C(0x12808), 0);
+      finish_split(0, UINT64_C(0x501000), 1);
+    }
     // Device fragments are rejected locally, even when one natural beat would
     // otherwise cover the access. Atomic alignment remains a core decision.
     privilege = 3;

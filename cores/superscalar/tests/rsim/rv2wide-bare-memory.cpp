@@ -1,6 +1,55 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "test.hpp"
 
+void check_split_load(unsigned width, unsigned offset, bool sign_extend) {
+  constexpr std::uint64_t base = 0x10000;
+  constexpr std::uint8_t bytes[] = {0xf0, 0x71, 0xe2, 0x53, 0xb4, 0x35, 0x96, 0x17,
+                                    0x88, 0x19, 0xaa, 0x3b, 0xcc, 0x5d, 0xee, 0x7f};
+  const unsigned size = 1u << width;
+  address = base + offset;
+  access = 1;
+  split_width = width;
+  split_signed = sign_extend;
+  split_valid = 1;
+  eval(); CHECK(split_ready);
+  tick_model();
+  split_valid = 0;
+  address = base + 7; // No longer the owner.
+  eval();
+
+  const unsigned fragments = offset + size > 8 ? 2 : 1;
+  for (unsigned i = 0; i < fragments; ++i) {
+    for (unsigned wait = 0; !physical_valid && wait < 20; ++wait) tick_model();
+    for (unsigned stall = 0; stall < 3; ++stall) {
+      CHECK(physical_valid && physical_address == base + 8*i && !split_completed);
+      tick_model(); eval();
+    }
+    physical_ready = 1;
+    tick_model(); physical_ready = 0;
+    for (unsigned stall = 0; stall < 3; ++stall) {
+      response_data = ~std::uint64_t(stall);
+      eval(); CHECK(!physical_valid && !split_completed);
+      tick_model();
+    }
+    std::uint64_t word = 0;
+    for (unsigned lane = 0; lane < 8; ++lane)
+      word |= std::uint64_t(bytes[8*i + lane]) << (8*lane);
+    response_data = word;
+    response_valid = 1;
+    eval(); CHECK(response_ready && !completed);
+    tick_model(); response_valid = 0; eval();
+  }
+
+  std::uint64_t expected = 0;
+  for (unsigned lane = 0; lane < size; ++lane)
+    expected |= std::uint64_t(bytes[offset + lane]) << (8*lane);
+  if (sign_extend && size < 8 && (bytes[offset + size - 1] & 0x80))
+    expected |= ~UINT64_C(0) << (8*size);
+  CHECK(split_completed && split_result == expected);
+  CHECK(!split_page_fault && !split_access_fault && !completed);
+  tick_model(); eval(); CHECK(memory_drained);
+}
+
 int main() {
   return run_test([] {
     reset = 1;
@@ -90,34 +139,11 @@ int main() {
     eval();
     CHECK(memory_drained && !completed);
 
-    // Split fragments retain their separate response route and exact byte lanes.
-    address = 0x10003;
-    split_width = 3;
-    split_valid = 1;
-    eval();
-    CHECK(split_ready);
-    tick_model();
-    split_valid = 0;
-    for (unsigned fragment = 0; fragment < 2; ++fragment) {
-      for (unsigned wait = 0; !physical_valid && wait < 20; ++wait) tick_model();
-      CHECK(physical_valid && physical_address == 0x10000 + fragment * 8);
-      physical_ready = 1;
-      tick_model();
-      physical_ready = 0;
-      response_data = fragment ? UINT64_C(0x0f0e0d0c0b0a0908) : UINT64_C(0x0706050403020100);
-      response_valid = 1;
-      eval();
-      CHECK(response_ready && !completed);
-      tick_model();
-      response_valid = 0;
-      eval();
-    }
-    for (unsigned wait = 0; !split_completed && wait < 20; ++wait) tick_model();
-    CHECK(split_completed && split_result == UINT64_C(0x0a09080706050403));
-    CHECK(!split_page_fault && !split_access_fault && !completed);
-    tick_model();
-    eval();
-    CHECK(memory_drained);
+    for (unsigned width = 1; width <= 3; ++width)
+      for (unsigned offset = 1; offset < 8; ++offset)
+        if (offset % (1u << width) != 0)
+          for (bool sign_extend : {false, true})
+            check_split_load(width, offset, sign_extend);
 
     for (bool store : {false, true}) {
       vector_fast_in.prequest = {1, {0x10008, 0x100ff, store}};

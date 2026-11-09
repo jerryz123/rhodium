@@ -47,6 +47,7 @@ sync_circuit SuperscalarMmuFixture(~bare: bare :: Boolean = #false):
   input locality: RiscvMemoryLocality
   input split_valid: Bool
   input split_width: MemoryWidth
+  input split_signed: Bool
   input split_data: Bits(64)
   output split_ready: Bool
   output split_completed: Bool
@@ -134,7 +135,7 @@ sync_circuit SuperscalarMmuFixture(~bare: bare :: Boolean = #false):
     access: access
     atomic: RiscvAtomicOperation.Swap
     width: split_width
-    unsigned: Bool(#true)
+    unsigned: !split_signed
     data: split_data
     byte_mask: Bits(8)(0)
     context: Bool(#false)
