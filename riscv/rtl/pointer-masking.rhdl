@@ -69,6 +69,12 @@ fun hypervisor_pointer_mask_control(context :: RiscvExecutionContext(), mstatus 
     mode: mux(Bool(enabled) & !mxr & (access =/= RiscvGuestMemoryAccess.GuestExecuteRead), mode, PointerMaskMode.Disabled)
     virtual_address: (data.privilege =/= PrivilegeMode.Machine) & csr_field(mux(data.virtualized, vsatp, satp), Satp64Mode).any()
 
+/* Selects the precomputed host or explicit-guest control for a data access.
+   HLVX keeps the guest address interpretation and disables masking. */
+fun select_pointer_mask(normal :: PointerMaskControl(), guest :: PointerMaskControl(), access :: RiscvGuestMemoryAccess) :~ PointerMaskControl():
+  def selected :: PointerMaskControl() = mux(access === RiscvGuestMemoryAccess.Normal, normal, guest)
+  selected.updated(~mode: mux(access === RiscvGuestMemoryAccess.GuestExecuteRead, PointerMaskMode.Disabled, selected.mode))
+
 /* Reconstructs the masked upper RV64 address bits by sign- or zero-extension while preserving low bits; RV32 is unchanged. */
 fun apply_pointer_mask(xlen :: XLen, address :: Bits(xlen.width), control :: PointerMaskControl()) :~ Bits(xlen.width):
   if xlen == XLen.X32
@@ -91,4 +97,5 @@ export:
   user_pointer_mask_control
   hypervisor_pointer_mask_control
   pointer_mask_hstatus_fields
+  select_pointer_mask
   apply_pointer_mask

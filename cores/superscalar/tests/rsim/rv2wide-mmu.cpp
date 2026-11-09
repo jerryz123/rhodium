@@ -1,6 +1,7 @@
 // Checks speculative and authorized translations, invalidation, faults, and split accesses.
 // SPDX-License-Identifier: Apache-2.0
 #include "speculative-atomics.hpp"
+#include "../../../common/cache/tests/rsim/speculative-access.hpp"
 
 void falling() {
   eval();
@@ -943,6 +944,27 @@ int main() {
     guest_access = 0;
     address = 0x15008;
     finish_split(0, 0x2503, false, true);
+    guest_state = {};
+    satp = 0;
+    guest_state.phstatus = 0x100;
+    fence();
+    check_speculative_data_permissions([](unsigned addr, unsigned op, unsigned mode, unsigned expected) {
+      address = addr;
+      access = op;
+      guest_access = mode;
+      lookup_outcome = op == speculative_access::store ? speculative_access::store_hit : speculative_access::load_hit;
+      ex_valid = 1;
+      eval();
+      CHECK(index_valid && index_address == addr && !result_valid);
+      tick_model();
+      ex_valid = 0;
+      eval();
+      CHECK(result_valid && outcome == expected && resolve_valid == speculative_access::issues_lookup(expected));
+      CHECK(!physical_valid && !lookup_guest.ppage_ufault);
+      tick_model();
+    });
+    lookup_outcome = 1;
+    guest_access = 0;
     guest_state = {};
     // Admission probes two distinct pages through the ordinary DTLB/walker.
     // Once certified, vector attempts use the pinned mappings without another walk.

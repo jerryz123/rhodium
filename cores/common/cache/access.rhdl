@@ -14,7 +14,7 @@ import:
   lib("rhodium/std/bits.rhdl") open
 
 /* Looks up the complete natural-width access or aligned maintenance block, retaining address overflow. */
-fun cache_access_region(xlen :: XLen, physical_map :: RiscvPhysicalMemoryMap, address :: Bits(xlen.width), width :: MemoryWidth, operation :: CacheOperation) :~ RiscvPhysicalMemoryLookup():
+fun cache_access_region(xlen :: XLen, physical_map :: RiscvPhysicalMemoryMap, address :: Bits(xlen.width), width :: MemoryWidth, operation :: CacheOperation = CacheOperation.Load) :~ RiscvPhysicalMemoryLookup():
   def first = mux(operation.is_cache_block(), address.align_down(CacheLineBytes), address)
   def last = first +& mux(operation.is_cache_block(), Bits(xlen.width)(CacheLineBytes - 1), memory_access_last_offset(xlen, width))
   physical_map.lookup(first, last)
@@ -93,6 +93,23 @@ fun cache_access_permitted(physical :: RiscvPhysicalMemoryLookup(), operation ::
   ) & (!operation.is_cache_block_zero() ||| physical.cache_block_zero) & aligned
   mux(operation.is_cache_management(), cbo_management_physical_permission(physical), ordinary)
 
+/* Reports whether MEM may access the region and whether its effective attributes allow L1D allocation. */
+bundle SpeculativeCacheAccess():
+  permitted: Bool
+  allocatable: Bool
+
+/* Checks the selected footprint and PBMT before MEM can probe L1D. HLVX also needs execute
+   permission, and LR/SC/AMO require readable, allocatable memory even for store-class faults. */
+fun classify_speculative_cache_access(physical :: RiscvPhysicalMemoryLookup(), pbmt :: PageMemoryType,
+                                      operation :: CacheOperation, ~execute_read: execute_read :: Bool) :~ SpeculativeCacheAccess():
+  def allocatable = allows_data_cache_allocation(resolve_memory_attributes(physical, pbmt))
+  def writes = operation.store_fault_class()
+  SpeculativeCacheAccess():
+    permitted: (!execute_read ||| physical.executable) & cache_access_permitted(
+      physical, operation, ~reads: !writes, ~writes: writes, ~atomic_service: allocatable & physical.readable
+    )
+    allocatable: allocatable
+
 /* Drives the committed service demultiplexer and the device bit on uncached requests. */
 bundle CommittedCacheAccess():
   permitted: Bool
@@ -117,6 +134,8 @@ fun classify_committed_cache_access(xlen :: XLen, physical_map :: RiscvPhysicalM
     strongly_ordered: attributes.strongly_ordered
 
 export:
+  SpeculativeCacheAccess
+  classify_speculative_cache_access
   CommittedCacheAccess
   classify_committed_cache_access
   CacheLookupDecision

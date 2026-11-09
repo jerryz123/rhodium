@@ -51,6 +51,10 @@ after all words are installed. Coherence and committed response ownership are
 never canceled by pipeline flush. Preserve the bounded LR probe-protection
 window independently of reservation validity and drain accepted probes.
 
+Run `rv5stage-speculative-access` and `rv2wide-mmu` together after changing
+speculative physical permission checks. They drive the same offers through EX
+and check the MEM outcome and physical lookup on the following cycle.
+
 Use `classify_committed_cache_access` for physical admission, service selection,
 and uncached ordering. Both ports check atomic alignment. Superscalar also
 checks ordinary request alignment at its native-word port. RV5Stage routes

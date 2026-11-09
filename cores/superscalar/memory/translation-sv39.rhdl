@@ -61,8 +61,7 @@ sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: 
 
   /* Selects the held split owner's pointer interpretation independently of its current address. */
 
-  def selected_mask :: PointerMaskControl() = mux(query.split_access === RiscvGuestMemoryAccess.Normal, state.pointer_masking, state.guest_pointer_masking)
-  def split_mask = selected_mask.updated(~mode: mux(query.split_access === RiscvGuestMemoryAccess.GuestExecuteRead, PointerMaskMode.Disabled, selected_mask.mode))
+  def split_mask = select_pointer_mask(state.pointer_masking, state.guest_pointer_masking, query.split_access)
 
 
   /* Architectural invalidation
@@ -144,8 +143,8 @@ sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: 
   reg data_fault_valid(~init: Bool(#false))
   reg instruction_fault(RiscvTranslationFailure())
   reg data_fault(RiscvTranslationFailure())
-  def instruction_failed = instruction_fault_valid & (instruction_fault.request.as_bits() === instruction_lookup.as_bits())
-  def data_failed = data_fault_valid & (data_fault.request.as_bits() === data_lookup.as_bits())
+  def instruction_failed = instruction_fault_valid & instruction_fault.request.same_request(instruction_lookup)
+  def data_failed = data_fault_valid & data_fault.request.same_request(data_lookup)
   def instruction_known = itlb.hit ||| instruction_failed
   def data_known = dtlb.hit ||| data_failed ||| window_hit ||| certified_physical
   def instruction_result = mux(instruction_failed, instruction_fault.mapping(), itlb.translation)
@@ -195,7 +194,7 @@ sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: 
   reg walk_data(Bool)
   reg walk_lookup(RiscvTlbLookup())
   def data_miss = (data_demand ||| vector_probe) & !data_known
-  def same_active_data = walk_live & walk_data & (walk_lookup.as_bits() === data_lookup.as_bits())
+  def same_active_data = walk_live & walk_data & walk_lookup.same_request(data_lookup)
   def instruction_miss = instruction.request.valid & !instruction_known
   def choose_data = pending_data ||| data_miss
   walker.request.valid <== !walk_live & !cancel & !invalidate & (choose_data ||| instruction_miss)

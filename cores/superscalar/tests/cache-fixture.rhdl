@@ -49,6 +49,9 @@ def test_fetch_chi = RiscvHartCHIConfig(test_flit, CacheLineBytes, test_chi.regi
                                                RiscvPhysicalMemoryAttributes(#true, #true, #false, #false, #false, #false, #true, ~cache_block_zero: #true)), test_io_home),
   RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0x2400, 7),
                                                RiscvPhysicalMemoryAttributes(#true, #true, #false, #false, #false, #false, #true, ~cache_block_zero: #true)), test_io_home),
+  // A doubleword at this aligned address extends past the four mapped bytes.
+  RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0x2700, 3),
+                                               RiscvPhysicalMemoryAttributes(#true, #true, #false, #false, #false, #false, #true)), test_io_home),
   RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0x2600, 0xff),
                                                RiscvPhysicalMemoryAttributes(#true, #false, #true, #false, #false, #false, #true, ~instruction_cacheable: #true)), test_io_home),
   RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0x2500, 0xff),

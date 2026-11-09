@@ -271,21 +271,21 @@ sync_circuit RV5StageMmu(xlen :: XLen,
           load_window: vector_window.physical_addresses[1]
           data_translation_enabled: dtlb.translation.physical_address.zext(64)
 
-  def load_last_offset = memory_access_last_offset(xlen, lookup.width)
-  def load_physical = physical_map.lookup(load_address, load_address +& load_last_offset)
-  def load_attributes = resolve_memory_attributes(load_physical, mux(load_pinned, PageMemoryType.PMA, dtlb_result.pbmt))
+  def load_physical = cache_access_region(xlen, physical_map, load_address, lookup.width)
+  def pipeline_access = classify_speculative_cache_access(
+    load_physical, mux(load_pinned, PageMemoryType.PMA, dtlb_result.pbmt),
+    mux(pipeline_is_store, CacheOperation.Store, CacheOperation.Load), ~execute_read: execute_read
+  )
   // Translation contention and ordered IO replay without entering miss service.
   // Pending committed cache stores do not make this translation port busy.
   def pipeline_blocked = split_busy ||| data.request.valid ||| invalidate_all ||| ordered_busy ||| (probe_selected & !load_pinned)
   def load_translation_hit = load_pinned ||| dtlb.hit
   def load_translation_fault = !load_pinned & dtlb_result.fault
   def load_translation_access_fault = !load_pinned & dtlb_result.access_fault
-  def pipeline_permitted = load_physical.mapped & mux(pipeline_is_store, load_physical.writable, load_physical.readable) & (!execute_read ||| load_physical.executable)
-  def pipeline_cacheable = allows_data_cache_allocation(load_attributes)
   def decision = classify_cache_lookup(
     ~blocked: pipeline_blocked, ~split: lookup.access.requires_split(lookup.width, lookup.address), ~known: load_translation_hit,
     ~page_fault: load_translation_fault, ~access_fault: load_translation_access_fault,
-    ~permitted: pipeline_permitted, ~can_probe: pipeline_cacheable
+    ~permitted: pipeline_access.permitted, ~can_probe: pipeline_access.allocatable
   )
   def Array(physical_request, local_result) = load_request.egress |> fork_valid(2)
   def cache_eligible = decision.is(CacheLookupDecision.Probe)
@@ -299,7 +299,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def pipeline_reason = priority_mux(~default: pipeline_memory.response.bits.reason):
     pipeline_blocked: mux(ordered_busy, CachePipelineReason.Ordered, CachePipelineReason.Translation)
     !load_translation_hit: CachePipelineReason.Translation
-    !pipeline_cacheable: CachePipelineReason.Ordered
+    !pipeline_access.allocatable: CachePipelineReason.Ordered
 
   def pipeline_result = CachePipelineResult(xlen):
     outcome: cache_lookup_outcome(decision, pipeline_memory.response.valid, pipeline_memory.response.bits.outcome)
@@ -318,7 +318,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
      Page probes precede instruction misses, then authorized data misses. */
 
   def can_start_walk = !walk_active & !fault_valid
-  def instruction_fault_cache_hit = instruction_fault_cached & (instruction_failure.request.as_bits() === itlb.lookup.as_bits())
+  def instruction_fault_cache_hit = instruction_fault_cached & instruction_failure.request.same_request(itlb.lookup)
   // A replaying older instruction may need its own fetch (including a
   // straddling word), but speculative successors must not repeatedly occupy
   // the shared walker before that instruction resolves.

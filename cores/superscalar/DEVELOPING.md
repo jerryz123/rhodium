@@ -1025,10 +1025,8 @@ It has no invalidation input; cancellation changes translation publication, neve
 an accepted reply's destination. Returned context and Flow demultiplexing preserve
 structural trace ancestry without a module summary contract.
 
-The adapter retains native-word fragment size and Bare's existing atomic PMA
-qualification. Paged translation retains HLVX execution checks and guest pointer
-interpretation. Vector windows and certificates reuse the shared `cores/common/mmu/`
-components in each resolver. Identity prefetch keeps one stage; Sv39 keeps two
+The adapter retains native-word fragment size. Each resolver reuses the shared
+vector window and certificate components in `cores/common/mmu/`. Identity prefetch keeps one stage; Sv39 keeps two
 and arbitrates its nonallocating probe below fast vector certification. These
 are independent of the common transport's acceptance and response lifetimes.
 Bare also retains its original data-cacheability restriction for instruction

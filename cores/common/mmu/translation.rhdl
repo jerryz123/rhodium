@@ -26,6 +26,11 @@ bundle RiscvTlbLookup():
   access: Sv39Access
   context: RiscvGuestTranslationContext()
 
+  /* A replay or an active walk matches only the entire original request, including
+     the exact address, access class, execute-read intent, and both translation contexts. */
+  method same_request(request, other :: RiscvTlbLookup()) :: Bool:
+    request.as_bits() === other.as_bits()
+
 /* Retains independent stage permissions, PBMT, and fault provenance. Bare stages have
    zero leaves; the captured context identifies which stages apply. */
 bundle RiscvTlbMapping():

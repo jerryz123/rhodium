@@ -48,7 +48,9 @@ Preserve these invariants when extending the components:
 - Mapping page size is separate from traversal level. Normalize leaf PPNs;
   composed guest entries retain exact guest provenance at 4 KiB granularity.
 - Capture all context at walk admission. Later live requests cannot change a
-  pending PTE's permission checks, PBMT, or completion provenance.
+  pending PTE's permission checks, PBMT, or completion provenance. Use
+  `RiscvTlbLookup.same_request` to identify a retained failure or an active
+  walk. TLB entries use page-size matching and recheck current permissions.
 - An accepted PTE owns its reply across cancellation and invalidation. Keep
   Drain separate from Idle; zero-latency responses are valid on acceptance.
 - Invalidation wins over refill at the edge. Core-owned flush/retirement

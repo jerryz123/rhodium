@@ -122,20 +122,16 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
 
   def data_ok = resolved.known & (resolved.fault === RiscvTranslationFault.None)
   def region = cache_access_region(XLen.X64, physical_map, resolved.address, data_request.width, data_request.access)
-  def attributes = resolve_memory_attributes(region, resolved.pbmt)
-  def cacheable = allows_data_cache_allocation(attributes)
+  def access = classify_speculative_cache_access(region, resolved.pbmt, mem.access, ~execute_read: resolved.execute_read)
   def atomic_request = mem.access.is_one_of(CacheOperation.LoadReserved, CacheOperation.StoreConditional, CacheOperation.Atomic)
   def cache_block = mem.access.is_cache_block()
   def mem_misaligned = mem.access.requires_split(mem.width, mem.address)
-  def writes = mem.access.store_fault_class()
-  def atomic_service = cacheable & region.readable
-  def permitted = (!resolved.execute_read ||| region.executable) & cache_access_permitted(region, mem.access, ~reads: !writes, ~writes: writes, ~atomic_service: atomic_service)
   def busy = misaligned.busy ||| memory.request.valid ||| resolved.probe_busy
   def decision = classify_cache_lookup(
     ~blocked: busy, ~split: mem_misaligned, ~known: resolved.known,
     ~page_fault: resolved.guest.page_fault ||| (resolved.fault === RiscvTranslationFault.PageFault),
     ~access_fault: resolved.fault === RiscvTranslationFault.AccessFault,
-    ~permitted: permitted, ~can_probe: cacheable & !atomic_request & !cache_block
+    ~permitted: access.permitted, ~can_probe: access.allocatable & !atomic_request & !cache_block
   )
   def speculative_ok = decision.is(CacheLookupDecision.Probe) & !physical_memory.ordered_busy
   mem_request |> filter_valid(_request => speculative_ok) |> map_valid(request => cache_request(request.memory, resolved.address[0..xlen.width])) |> physical_pipeline.request

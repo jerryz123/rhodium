@@ -286,6 +286,7 @@ rv5stage-zkt-rv64	cores-execution-datapath	cores/rv5stage/tests/rsim/emit-rv5sta
 rv5stage-data-fault	cores-execution-frontend	cores/rv5stage/tests/rsim/emit-rv5stage-data-fault.rhm	program	cores/rv5stage/tests/rsim/rv5stage-data-fault.cpp
 rv5stage-zicboz	cores-memory	cores/rv5stage/tests/rsim/emit-rv5stage-zicboz.rhm	program	cores/rv5stage/tests/rsim/rv5stage-zicboz.cpp
 rv5stage-zicbom	cores-memory	cores/rv5stage/tests/rsim/emit-rv5stage-zicbom.rhm	program	cores/rv5stage/tests/rsim/rv5stage-zicbom.cpp
+rv5stage-speculative-access	cores-memory	cores/rv5stage/tests/rsim/emit-rv5stage-speculative-access.rhm	program	cores/rv5stage/tests/rsim/rv5stage-speculative-access.cpp
 rv5stage-mmu-replay	cores-memory	cores/rv5stage/tests/rsim/emit-rv5stage-mmu-replay.rhm	program	cores/rv5stage/tests/rsim/rv5stage-mmu-replay.cpp
 rv5stage-interrupt	cores-execution-control	cores/rv5stage/tests/rsim/emit-rv5stage-interrupt.rhm	program	cores/rv5stage/tests/rsim/rv5stage-interrupt.cpp
 rv5stage-wfi	cores-execution-control	cores/rv5stage/tests/rsim/emit-rv5stage-wfi.rhm	program	cores/rv5stage/tests/rsim/rv5stage-wfi.cpp

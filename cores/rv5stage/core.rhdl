@@ -960,7 +960,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
       operation.operand_left <== id_control.operand.left
       operation.operand_right <== id_control.operand.right
       operation.pointer_masking <== if hypervisor
-      | mux(id_explicit_guest, wb_csrs.guest_pointer_masking.updated(~mode: mux(id_control.guest_access === RiscvGuestMemoryAccess.GuestExecuteRead, PointerMaskMode.Disabled, wb_csrs.guest_pointer_masking.mode)), wb_csrs.pointer_masking)
+      | select_pointer_mask(wb_csrs.pointer_masking, wb_csrs.guest_pointer_masking, id_control.guest_access)
       | wb_csrs.pointer_masking
 
       operation.branch_control <== id_control.branch.resolver
