@@ -13,7 +13,7 @@ import:
   lib("cores/rv5stage/mmu/mmu.rhdl") open
   lib("cores/rv5stage/mmu/protocol.rhdl") open
   lib("riscv/rtl/privilege.rhdl").PrivilegeMode
-  lib("cores/rv5stage/instruction-memory-router.rhdl") open
+  lib("cores/common/fetch/memory.rhdl") open
   lib("cores/common/cache/l1i/cache.rhdl") open
   lib("cores/rv5stage/icache/protocol.rhdl") open
   lib("cores/rv5stage/memory-context.rhdl") open
@@ -47,7 +47,7 @@ sync_circuit RV5StageFetchThroughput():
   mmu.vector_fast.candidate <== dont_care(VectorFastCertificate(XLen.X64))
   mmu.vector_fast.pipeline_physical <== Bool(#false)
   mmu.vector_fast.request_physical <== Bool(#false)
-  inst router(RV5StageInstructionMemoryRouter(XLen.X64))
+  inst router(InstructionMemoryRouter(64, 32))
   inst cache(L1ICache(XLen.X64, CacheConfig(32, 1), ~chi: test_rv5stage_chi_config, ~fetch_bits: 32))
   fetch.control.active <== active
   inject_interface(Pulse(), ~valid: Bool(#false)) |> fetch.control.flush
@@ -71,7 +71,7 @@ sync_circuit RV5StageFetchThroughput():
   router.cache |> cache.core
   router.uncached.request.ready <== Bool(#true)
   router.uncached.response.valid <== Bool(#false)
-  router.uncached.response.bits <== literal(RV5StageInstructionResp(#false), 0)
+  router.uncached.response.bits <== literal(router.uncached.response.bits.type, 0)
   def empty_state :: RiscvTranslationState(XLen.X64) = literal(RiscvTranslationState(XLen.X64), 0)
   mmu.state <== empty_state.updated(~privilege: PrivilegeMode.Machine)
   mmu.invalidate_all <== Bool(#false)

@@ -5,7 +5,7 @@
 import:
   lib("cores/common/mmu/context.rhdl").RiscvTranslationState
   lib("riscv/rtl/pointer-masking.rhdl").PointerMaskControl
-  lib("cores/common/fetch/protocol.rhdl").PhysicalInstructionReq
+  lib("cores/common/fetch/protocol.rhdl") open
   lib("riscv/isa/hart.rhm").RiscvMmuType
   lib("cores/common/mmu/vector.rhdl") open
   "../../common/cache/protocol.rhdl" open
@@ -33,7 +33,7 @@ sync_circuit RV5StageMmuDataPortFixture():
   interface vector_precheck(VectorPrecheck(), ~role: responder)
   interface pipeline_memory(CachePipelineAccess(xlen), ~role: requester)
   interface pipeline_lookup(Valid(CachePipelineReq(xlen)), ~role: producer)
-  interface instruction_memory(RV5StageInstructionLookup(PhysicalInstructionReq(xlen.width)), ~role: requester)
+  interface instruction_memory(PhysicalInstructionLookup(xlen.width, 32), ~role: requester)
   interface data_memory(RV5StagePhysicalDataAccess(xlen, slots), ~role: requester)
   interface instruction_lookup(Decoupled(Bits(64)), ~role: producer)
   interface data_lookup(Valid(Bits(64)), ~role: producer)

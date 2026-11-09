@@ -25,8 +25,9 @@ Before adding a component, decide who owns its policy:
   register storage, packed execution, and persistent completion ownership.
   [`common/bpred/`](common/bpred/DEVELOPING.md) owns shared BTB/RAS state and prediction payloads;
   callers retain fetch geometry integration, redirect timing, and update qualification.
-  [`common/fetch/protocol.rhdl`](common/fetch/protocol.rhdl) owns the physical fetch request
-  shared by superscalar and RV5Stage, parameterized by physical address width.
+  [`common/fetch/`](common/fetch/DEVELOPING.md) owns physical fetch protocols and the
+  fixed-cycle L1I/uncached router shared by superscalar and RV5Stage, parameterized
+  by physical address and fetch widths.
   [`common/fetch/fault.rhdl`](common/fetch/fault.rhdl) owns shared block and instruction-relative
   faults; each assembler owns parcel selection and its core's exception priority.
   [`common/fetch/encoding.rhdl`](common/fetch/encoding.rhdl) shares stateless instruction expansion

@@ -14,7 +14,7 @@ import:
   "memory/translation-identity.rhdl".SuperscalarIdentitySpecialization
   "memory/translation-sv39.rhdl".SuperscalarSv39Specialization
   lib("riscv/isa/hart.rhm").RiscvMmuType
-  "fetch/instruction-memory.rhdl" open
+  lib("cores/common/fetch/memory.rhdl").InstructionMemoryRouter
   "bundles.rhdl" open
   "../common/cache/config.rhm" open
   "../common/cache-prefetch.rhdl" open
@@ -99,7 +99,7 @@ sync_circuit Superscalar(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfi
   /* Cached and nonallocating fetch share one frontend response path.
      Noncacheable fetch uses the data adapter's ordered uncached transport. */
 
-  inst instruction_memory(SuperscalarInstructionMemory())
+  inst instruction_memory(InstructionMemoryRouter(64, 64))
   frontend.memory <=> instruction_memory.core
   instruction_memory.cache <=> instruction.core
   instruction_memory.uncached <=> data.instruction

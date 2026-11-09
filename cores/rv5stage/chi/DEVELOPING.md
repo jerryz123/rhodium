@@ -12,9 +12,10 @@ dependency direction, extension workflow, and focused validation.
 The package may depend on shared cache geometry and public cache/uncached
 protocols, the RISC-V physical-memory model, the shared CHI library, and public
 Rhodium libraries. Transaction engines must not import either cache
-implementation. `uncached.rhdl` adapts fetch/data payloads to the shared
-`cores/common/cache/uncached-arbiter.rhdl` owner-retaining arbiter;
-it uses the shared physical protocol specialized with `RV5StageMemoryContext`.
+implementation. The parent specializes the shared
+`cores/common/cache/uncached-instruction.rhdl` attachment with
+`RV5StageMemoryContext`; fetch/data shaping and retained response ownership live
+in that common attachment.
 
 [`../../common/chi-hart.rhdl`](../../common/chi-hart.rhdl) owns generic RISC-V
 hart attachment configuration, capabilities, and identities. `foundation.rhdl`
@@ -68,11 +69,12 @@ including nonzero trace/QoS.
 | [`write-unique.rhdl`](../../common/cache/chi/write-unique.rhdl) | One partial-width retryable `WriteUniquePtl` transaction |
 | [`writeback.rhdl`](../../common/cache/chi/writeback.rhdl) | One retryable full-line copyback, latest victim state at grant, and packet handoff |
 | [`snoop.rhdl`](../../common/cache/chi/snoop.rhdl) | Data-cache snoop lifetime, DVM pairing, cache lookup/update, and response traffic |
-| [`uncached.rhdl`](uncached.rhdl) | Named-core fetch/data shaping and shared arbiter/transport composition |
+| [`../../common/cache/uncached-instruction.rhdl`](../../common/cache/uncached-instruction.rhdl) | Shared fetch/data shaping and arbiter/transport composition |
 | [`../../common/cache/chi/uncached.rhdl`](../../common/cache/chi/uncached.rhdl) | Shared nonallocating physical transaction sequencing |
 
 [`../uncached-protocol.rhdl`](../uncached-protocol.rhdl) owns translated requests
-with PBMT metadata and cancellable fetch interfaces. Physical payloads and
+with PBMT metadata. Cancellable physical fetch interfaces live in
+`cores/common/fetch/protocol.rhdl`. Physical data payloads and
 uncached service interfaces live in `cores/common/cache/protocol.rhdl`; destination and
 Core/Walker routing live in `../memory-context.rhdl`. The parent directly
 instantiates shared L1D without a repacking wrapper. Its memory router chooses

@@ -1,6 +1,10 @@
 #lang rhodium
-/* Defines core-neutral resolved physical fetch attributes independently of response and cancellation protocols. */
+/* Defines physical fetch attributes, replay-qualified lookups, and cancellable instruction reads. */
 // SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../cache/l1i/protocol.rhdl".InstructionCacheResult
+  lib("rhodium/std/ready-valid.rhdl") open
 
 /* Carries a physical byte address and resolved cacheability/ordering attributes.
    Address width is independent of architectural XLEN; callers own permission and admission. */
@@ -9,4 +13,41 @@ bundle PhysicalInstructionReq(address_width :: PosInt):
   cacheable: Bool
   device: Bool
 
-export PhysicalInstructionReq
+/* Returns physical instruction bytes or an access fault, without architectural translation faults. */
+bundle PhysicalInstructionResp(fetch_bits :: PosInt):
+  data: Bits(fetch_bits)
+  access_fault: Bool
+
+/* Pairs physical S1 requests with S2 cache, fault, or replay outcomes.
+   Invalidation and consumer cancellation are separate caller-owned controls. */
+interface PhysicalInstructionLookup(address_width :: PosInt, fetch_bits :: PosInt):
+  role requester
+  role responder
+  provider requester
+  requester -> responder:
+    flush: Bool
+    invalidate_all: Bool
+    s1_kill: Bool
+    request: Valid(PhysicalInstructionReq(address_width))
+
+  responder -> requester:
+    response: Valid(InstructionCacheResult(fetch_bits))
+
+/* Offers one physical read and holds its reply until consumed or detached by flush.
+   Detaching a consumer never discards accepted transport response ownership. */
+interface PhysicalInstructionAccess(address_width :: PosInt, fetch_bits :: PosInt):
+  role requester
+  role responder
+  provider requester
+  requester -> responder:
+    flush: Bool
+    request: Decoupled(PhysicalInstructionReq(address_width))
+
+  responder -> requester:
+    response: Decoupled(PhysicalInstructionResp(fetch_bits))
+
+export:
+  PhysicalInstructionReq
+  PhysicalInstructionResp
+  PhysicalInstructionLookup
+  PhysicalInstructionAccess

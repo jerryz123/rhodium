@@ -36,6 +36,15 @@ LSU `memory_start_ready` and memory-drained indications and selects arithmetic t
 and packed multiplication. The composition adds no queues beyond admission and
 execution themselves; scalar retirement policy and LSU staging remain outside.
 
+[`VectorExecutionService(xlen, slots)`](service.rhdl) groups the backend's
+FP/multiply/divide requests and returns, scalar and floating results, GPR write
+claims, architectural update pulses, and lifetime summaries. The backend and
+both pipeline adapters expose it as `service`; connect it with one interface
+connection. The service adds no state. Descriptor `request`, precise `outcome`,
+`precheck`, and wrapper-wide `active` remain separate. FPR scheduling claims
+also remain separate: the superscalar core reserves a calendar slot, while
+RV5Stage uses its existing exclusive FPR owner and accepts the claim locally.
+
 `decode.rhdl` provides `VectorControl`, authored decode relations, and
 `VectorOperationLegality`. A named core composes those relations with its scalar
 source, writeback, and system columns. `register-file.rhdl`, `packing.rhdl`, and

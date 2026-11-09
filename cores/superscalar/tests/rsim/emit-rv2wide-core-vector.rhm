@@ -41,7 +41,7 @@ def target = traced_target(site_header, EventInstrumentationConfig(~partial: #tr
   ["SuperscalarVectorPipeline", "superscalar_vector_admission", [
     ["request_in", "valid"], ["request_out", "ready"],
     ["request_in", "bits", "pc"], ["request_in", "bits", "instruction"],
-    ["floating_result_out", "valid"], ["floating_result_out", "bits", "address"]
+    ["service_out", "floating_result", "valid"], ["service_out", "floating_result", "bits", "address"]
   ]],
   ["VectorSequencer", "superscalar_vector_dispatch", [
     ["request_in", "valid"], ["request_out", "ready"],

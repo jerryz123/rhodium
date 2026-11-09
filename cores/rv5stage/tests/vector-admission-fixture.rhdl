@@ -42,7 +42,7 @@ sync_circuit RV5StageVectorAdmission():
   inst vector(RV5StageVectorPipeline(xlen, 128))
   split_completion |> vector.split_completion
   vector.request_fault_address <== vector.memory.request.bits.address
-  vector.scalar_writeback.ready <== Bool(#true)
+  vector.service.scalar_writeback.ready <== Bool(#true)
   decode.instruction <== instruction
   vector.request.valid <== request_valid
   vector.request.bits <== VectorDescriptor(xlen):
@@ -123,25 +123,25 @@ sync_circuit RV5StageVectorAdmission():
   memory_responses |> vector.memory.response
   vector.memory.drained <== Bool(#true)
   vector.memory.reservation_valid <== Bool(#false)
-  vector.fp_request.ready <== Bool(#false)
-  vector.fp_result.valid <== Bool(#false)
-  vector.fp_result.bits <== dont_care(vector.fp_result.bits.type)
-  vector.multiply_request.ready <== Bool(#false)
-  vector.multiply_result.valid <== Bool(#false)
-  vector.multiply_result.bits <== dont_care(vector.multiply_result.bits.type)
-  vector.divide_request.ready <== Bool(#false)
-  vector.divide_result.valid <== Bool(#false)
-  vector.divide_result.bits <== dont_care(vector.divide_result.bits.type)
+  vector.service.fp_request.ready <== Bool(#false)
+  vector.service.fp_result.valid <== Bool(#false)
+  vector.service.fp_result.bits <== dont_care(vector.service.fp_result.bits.type)
+  vector.service.multiply_request.ready <== Bool(#false)
+  vector.service.multiply_result.valid <== Bool(#false)
+  vector.service.multiply_result.bits <== dont_care(vector.service.multiply_result.bits.type)
+  vector.service.divide_request.ready <== Bool(#false)
+  vector.service.divide_result.valid <== Bool(#false)
+  vector.service.divide_result.bits <== dont_care(vector.service.divide_result.bits.type)
   request_ready <== vector.request.ready
   active <== vector.active
-  sequencing <== vector.sequencing
-  certification_pending <== vector.certification_pending
-  loads_pending <== vector.loads_pending
-  stores_pending <== vector.stores_pending
-  fp_pending <== vector.fp_pending
-  retired <== vector.execution_done.valid
+  sequencing <== vector.service.sequencing
+  certification_pending <== vector.service.certification_pending
+  loads_pending <== vector.service.loads_pending
+  stores_pending <== vector.service.stores_pending
+  fp_pending <== vector.service.fp_pending
+  retired <== vector.service.execution_done.valid
   outcome_valid <== vector.outcome.valid
   outcome_pc <== vector.outcome.bits.pc
-  fp_offered <== vector.fp_request.valid
+  fp_offered <== vector.service.fp_request.valid
 
 export RV5StageVectorAdmission

@@ -241,26 +241,31 @@ the stable generator-parameter contract. L1D uses Flow, `std/bits.rhdl`,
 `std/sync-ram.rhdl`, and the store buffer uses `std/reduction.rhdl`.
 L1I uses the same Flow, Bits, PLRU, read-write, and SyncRam APIs, plus shared
 prefetch types. Its physical block result contains data/access-fault/replay,
-never named-core translation metadata. The RV5Stage instruction-memory router
-adapts it to the core's 32-bit fetch result using ordinary combinational Flow.
+never named-core translation metadata. `cores/common/fetch/protocol.rhdl`
+imports the neutral L1I result and public ready-valid contracts;
+`fetch/memory.rhdl` adds Flow for shared fixed-cycle physical lookup and retained
+uncached replay. Both RV5Stage and superscalar compose this router; their MMUs
+and frontends retain translation, exception adaptation, and cancellation policy.
 The shared line-read engine owns coherent RAM/immutable-ROM snapshot transport.
 Cache-side CHI engines consume shared flits, retry control, and the neutral
 `cores/common/chi-hart.rhdl` map, never named-core code. Nonallocating CHI uses
-the shared LoadGen/StoreGen components; IO retention uses the same physical
-payload and uninterpreted context. RV5Stage defines only destination/origin in
-`memory-context.rhdl` and directly specializes these shared services. Its
-uncached attachment uses Flow arbitration/mapping for fetch/data ownership;
-fetch cancellation and cached/IO ordering stay named-core policy. RV2Wide's cache
-adapter imports the same cache, physical-map contract, Flow, and Bits helpers,
-plus shared `cache/io-mshr.rhdl` and `cache/chi/uncached.rhdl` for ordered physical
-IO. It owns PMA routing and cached/uncached exclusion; the shared engines remain
-independent of RV2Wide retirement. Its cache adapter also arbitrates data/fetch
-on the existing uncached engine and imports the neutral L1I result type.
-Its `instruction-memory.rhdl` consumes shared physical-fetch metadata, local fetch interfaces, the
-neutral L1I protocol, and Flow for fixed-cycle replay and canceled-response
-ownership. Its core, bundles, frontend, MMU, and cache adapter import
-`riscv/rtl/svpbmt.rhdl` for PBMT metadata and effective attributes; bundles also
-consume the shared L1I result type. Its request bundles additionally import the
+shared LoadGen/StoreGen components; IO retention uses physical payloads and
+uninterpreted context. `cache/uncached-instruction.rhdl` imports the shared fetch
+protocol, CHI transport/arbiter, physical memory contracts, hart map, XLEN,
+atomic/locality types, Flow, `std/bits.rhdl`, and CHI channels. It shapes fetches
+without owning frontend recovery policy. `cache/ordered-service.rhdl` imports
+only Flow and shares drain/capacity gating, local completion storage, and response
+merge over caller-supplied payload types. Both cores retain PMA routing,
+permission/fault policy, IOMSHR specialization, and beat adaptation.
+`cores/common/vector/service.rhdl` directly imports shared FP profile/bundles/FPR
+write contracts, integer execution, register write, multiplier/divider, vector tags,
+XLEN, `std/bits.rhdl`, and ready-valid. The backend and pipeline adapters import
+this common interface rather than redeclaring arithmetic/results/status ports.
+LSU contracts, admission timing, precise outcomes, and FPR scheduling policy
+remain outside the interface.
+The superscalar core, bundles, frontend, MMU, and cache adapter import
+`riscv/rtl/svpbmt.rhdl` for PBMT metadata and effective attributes.
+Its request bundles additionally import the
 shared `MemoryWidth`, and its decode imports the pure Zifencei, Zicboz, Zicbom,
 Zicbop, Zawrs, Zihintpause, and Zihintntl catalogs;
 its `rv2wide.rhdl` composition uses Flow to connect the frontend, execution slice,
@@ -832,11 +837,11 @@ types; access timing and physical transport use Flow and `std/bits.rhdl`.
 Resolvers remain processor-library consumers of public authoring APIs, with no
 compiler, backend, or simulator dependency.
 
-Shared `cores/common/fetch/protocol.rhdl` defines `PhysicalInstructionReq(address_width)`
-using only the public authoring surface. Superscalar's bundles, frontend, and
-instruction-memory adapter import it with a 64-bit physical address; RV5Stage's
-uncached protocol, MMU, and instruction-memory router import it at XLEN width.
-The shared payload adds no response, admission, or cancellation policy.
+Shared physical fetch requests and their lookup/read endpoints live in
+`cores/common/fetch/protocol.rhdl`, with dependencies listed in the cache/fetch
+inventory above. Superscalar uses 64-bit physical addresses and fetch blocks;
+RV5Stage uses XLEN physical addresses and 32-bit fetch words. Neither physical
+protocol carries translation faults or architectural exception policy.
 `cores/common/fetch/fault.rhdl` imports architectural XLEN, `ExceptionCause`, and guest
 fault details to define shared block and instruction-relative faults. Superscalar
 consumes both; RV5Stage uses the instruction form at assembly and ID/EX while

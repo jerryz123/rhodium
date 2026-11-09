@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/common/fetch/protocol.rhdl").PhysicalInstructionReq
+  lib("cores/common/fetch/protocol.rhdl") open
   lib("cores/common/pc.rhdl").CompactPc
   lib("riscv/isa/hart.rhm").RiscvMmuType
   lib("cores/common/mmu/vector.rhdl") open
@@ -63,7 +63,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   interface vector_fast(VectorFastCheck(xlen), ~role: responder)
   interface pipeline_memory(CachePipelineAccess(xlen), ~role: requester)
   interface pipeline_lookup(Valid(CachePipelineReq(xlen)), ~role: producer)
-  interface instruction_memory(RV5StageInstructionLookup(PhysicalInstructionReq(xlen.width)), ~role: requester)
+  interface instruction_memory(PhysicalInstructionLookup(xlen.width, 32), ~role: requester)
   interface core_memory(RV5StagePhysicalDataAccess(xlen, vector_completion_slots), ~role: requester)
   interface walker_memory(RV5StagePhysicalDataAccess(xlen, vector_completion_slots), ~role: requester)
   interface instruction_lookup(Decoupled(Bits(width)), ~role: producer)
@@ -482,9 +482,9 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def resolved = instruction_s2.egress |> filter_valid(_result => !instruction.flush) |> map_valid(result):
     wire selected: RV5StageFetchResult(hypervisor)
     selected.replay <== mux(s2_local_result, result.replay, !instruction_memory.response.valid ||| instruction_memory.response.bits.replay)
-    selected.response.word <== instruction_memory.response.bits.response.word
+    selected.response.word <== instruction_memory.response.bits.data
     selected.response.page_fault <== result.response.page_fault
-    selected.response.access_fault <== result.response.access_fault ||| (!s2_local_result & instruction_memory.response.valid & instruction_memory.response.bits.response.access_fault)
+    selected.response.access_fault <== result.response.access_fault ||| (!s2_local_result & instruction_memory.response.valid & instruction_memory.response.bits.access_fault)
     if hypervisor
     | selected.response.guest <== result.response.guest
     | #void

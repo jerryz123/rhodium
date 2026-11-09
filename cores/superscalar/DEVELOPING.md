@@ -463,7 +463,7 @@ WB authorization, and the two-port writeback policy stay local.
 | `fetch/frontend.rhdl` | Credited block fetch, S1 translation/permissions, local replay, and block fault ownership |
 | `fetch/direction.rhdl`, `fetch/predecode.rhdl` | Fresh-S2 direction refinement, retained continuation prefixes, and shared frontend/assembler instruction classification |
 | `fetch/instruction-assembler.rhdl` | Flow block storage, mixed-width parcel consumption, shared C expansion, and continuation faults |
-| `fetch/instruction-memory.rhdl` | Fixed-cycle L1I/noncacheable outcomes, retained fetch replay, and cancellation |
+| `../common/fetch/memory.rhdl` | Shared fixed-cycle L1I/noncacheable outcomes, retained fetch replay, and cancellation |
 | `core.rhdl` | RR/EX/MEM/WB, forwarding, shared component/CSR instances, register state, precise traps |
 | `load-response.rhdl` | Four accepted contexts, atomic response/owner joining, shared load extraction |
 | `long-execution.rhdl` | EX multiply reservations and WB owner validation, retained divider ownership |
@@ -1069,7 +1069,8 @@ requests, split-fragment permission checks, and prefetch probes must agree.
 Implicit PTE traffic retains physical PMA semantics; management routing uses
 physical cacheability to reach resident aliases even through NC/IO mappings.
 
-`fetch/instruction-memory.rhdl` preserves the S1/S2 lookup contract and retains one
+The [common physical fetch router](../common/fetch/DEVELOPING.md) preserves the
+S1/S2 lookup contract and retains one
 nonallocating block until a retry consumes it. A changed retry may discard an
 obsolete completed block. Architectural flush detaches it, not accepted bus
 ownership. The cache adapter arbitrates data before fetch around the existing

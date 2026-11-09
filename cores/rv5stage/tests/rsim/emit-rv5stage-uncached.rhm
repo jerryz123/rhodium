@@ -4,10 +4,11 @@
 
 import:
   lib("rhodium/frontend/foundation.rhm").elaborate
-  "../../../../cores/rv5stage/chi/uncached.rhdl".RV5StageUncached
+  lib("cores/common/cache/uncached-instruction.rhdl").UncachedInstructionMemory
+  lib("cores/rv5stage/memory-context.rhdl").RV5StageMemoryContext
   "../../../../cores/rv5stage/tests/params.rhdl".test_rv5stage_uncached_config
   "../../../../riscv/isa/xlen.rhm".XLen
 
-def program = elaborate(RV5StageUncached(XLen.X64, test_rv5stage_uncached_config)
+def program = elaborate(UncachedInstructionMemory(XLen.X64, test_rv5stage_uncached_config, RV5StageMemoryContext(8), 32)
 )
 export program

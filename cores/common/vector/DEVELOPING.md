@@ -84,6 +84,7 @@ new payload buffers or instruction-ID reconstruction.
 | `packed-prepare.rhdl`, `packed-load.rhdl`, `splat-load.rhdl`, `load-response.rhdl` | Packed and splat transport preparation, response assembly, and retained carry |
 | `geometry.rhdl`, `precheck.rhdl` | Scheduling geometry and conservative certification footprints; captured-descriptor queries live on `VectorDescriptor` in `bundles.rhdl` |
 | `backend.rhdl` | Common admission/execution composition, service forwarding, and precise fault transport; no named LSU protocol |
+| `service.rhdl` | Shared arithmetic/result interfaces and lifetime summaries, independent of LSU and scalar scheduling |
 | `admission.rhdl` | Descriptor credit, head certification, pinned-window release, queued-kind summaries, and registered outcomes |
 | `memory-issue.rhdl` | Shared LSU issue selection, packed-load bypass, ordinary lookup register, and durable capture feedback |
 | `replay.rhdl` | Durable request retention/retry cursors and independent store acknowledgements |
@@ -151,6 +152,13 @@ its memory streams to their LSU adapter and select WB policy, fault-provenance
 types, drain qualification, arithmetic resources, and descriptor queue timing.
 Passive execution taps are nested under the backend component; memory taps stay
 on the named LSU. Keep their capture bindings aligned when changing hierarchy.
+Use the common `service` interface for arithmetic and architectural-result
+forwarding rather than redeclaring its ports in each wrapper. Keep the FPR
+scheduling claim separate to preserve RV5Stage's exclusive owner and the
+superscalar calendar. Wrapper-wide `active` still includes each adapter's own
+retained work; it is not merely a backend summary. Disabled variants terminate
+the same interface without allocating execution state.
+
 Keep `precheck.rhdl`'s fast start preparation separate from one-page range
 qualification. RV5Stage registers the start/wrap proof and geometry at EX/MEM;
 RV2Wide computes both helpers in EX. Neither helper owns validity, registers,

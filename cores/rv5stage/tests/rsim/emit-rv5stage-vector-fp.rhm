@@ -19,6 +19,6 @@ def target = rtl_pipeline_target(rsim_target, [port_observer_pass([
   ["RV5StageFpScalar", "test_scalar_fp_overlap", [
     ["fixed_issue_in", "valid"], ["fixed_issue_in", "bits", "context"]
   ]],
-  ["RV5StageVectorPipeline", "test_vector_fp_overlap", [["fp_pending"]]]
+  ["RV5StageVectorPipeline", "test_vector_fp_overlap", [["service_out", "fp_pending"]]]
 ])])
 export program target

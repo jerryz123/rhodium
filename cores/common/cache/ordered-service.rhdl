@@ -1,0 +1,34 @@
+#lang rhodium
+/* Orders cached, uncached, and local-management service without owning admission policy. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("flow/main.rhdl") open
+
+/* Excludes younger cached work while committed IO or local maintenance owns completion.
+   Callers classify requests, adapt byte lanes, and retain the IO owner. This boundary
+   adds only the existing one-entry local completion queue; ordinary paths are wires. */
+sync_circuit OrderedMemoryService(CachedRequest :: DataType, UncachedRequest :: DataType, Response :: DataType):
+  interface cached(Decoupled(CachedRequest), ~role: consumer)
+  interface uncached(Decoupled(UncachedRequest), ~role: consumer)
+  interface management(Decoupled(Response), ~role: consumer)
+  interface cache_request(Decoupled(CachedRequest), ~role: producer)
+  interface io_request(Decoupled(UncachedRequest), ~role: producer)
+  interface cache_response(Decoupled(Response), ~role: consumer)
+  interface io_response(Decoupled(Response), ~role: consumer)
+  interface response(Decoupled(Response), ~role: producer)
+  input(cache_drained, io_drained, io_available): Bool
+  output(ordered_busy, background_ready, hints_ready, drained): Bool
+
+  inst local(Queue(Response, 1))
+  def cache_available = io_available & !local.egress.valid
+  ordered_busy <== !cache_available
+  hints_ready <== io_drained & !local.egress.valid
+  background_ready <== cache_drained & io_drained & !local.egress.valid
+  cached |> gate_flow(cache_available) |> cache_request
+  uncached |> gate_flow(cache_drained & !local.egress.valid) |> io_request
+  management |> gate_flow(cache_drained & cache_available) |> local.ingress
+  Array(local.egress, cache_response, io_response) |> arbiter() |> response
+  drained <== cache_drained & io_drained & !local.egress.valid & !management.fire()
+
+export OrderedMemoryService

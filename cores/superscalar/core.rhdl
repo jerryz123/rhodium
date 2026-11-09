@@ -281,17 +281,17 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   wb_csrs.time_counter <== time_counter
   inst fp(if fp_enabled | SuperscalarFp(xlen, fp_timing, ~half_precision: profile.execution_half_precision, ~zfa: profile.zfa, ~vector_slots: vector_slots) | SuperscalarFpDisabled(xlen, ~vector_slots: vector_slots))
   vector.floating_writeback |> fp.vector_writeback
-  wb_csrs.fp_update.valid <== fp.state_update.valid ||| vector.fp_update.valid ||| vector.floating_result.valid
-  wb_csrs.fp_update.bits <== mux(fp.state_update.valid, fp.state_update.bits, Bits(5)(0)) ||| mux(vector.fp_update.valid, vector.fp_update.bits, Bits(5)(0))
+  wb_csrs.fp_update.valid <== fp.state_update.valid ||| vector.service.fp_update.valid ||| vector.service.floating_result.valid
+  wb_csrs.fp_update.bits <== mux(fp.state_update.valid, fp.state_update.bits, Bits(5)(0)) ||| mux(vector.service.fp_update.valid, vector.service.fp_update.bits, Bits(5)(0))
   if fp_enabled
   | block:
-      vector.fp_request |> fp.vector_request
-      fp.vector_result |> vector.fp_result
-      vector.floating_result |> fp.vector_write
+      vector.service.fp_request |> fp.vector_request
+      fp.vector_result |> vector.service.fp_result
+      vector.service.floating_result |> fp.vector_write
   | block:
-      vector.fp_request.ready <== Bool(#false)
-      vector.fp_result.valid <== Bool(#false)
-      vector.fp_result.bits <== dont_care(vector.fp_result.bits.type)
+      vector.service.fp_request.ready <== Bool(#false)
+      vector.service.fp_result.valid <== Bool(#false)
+      vector.service.fp_result.bits <== dont_care(vector.service.fp_result.bits.type)
       fp.vector_request.valid <== Bool(#false)
       fp.vector_request.bits <== dont_care(fp.vector_request.bits.type)
       fp.vector_result.ready <== Bool(#true)
@@ -311,22 +311,22 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   wb_fp_gpr_scoreboard.clear.bits <== wb_fp_late_gpr.bits.tag.rd
   wire wb_fp_variable_accepted: Bool
   wire wb_fp_fixed_authorized: Bool
-  vector.saturate |> wb_csrs.vector_saturate
-  vector.fault_start |> wb_csrs.vector_fault_start
-  vector.truncate |> wb_csrs.vector_truncate
+  vector.service.saturate |> wb_csrs.vector_saturate
+  vector.service.fault_start |> wb_csrs.vector_fault_start
+  vector.service.truncate |> wb_csrs.vector_truncate
   reg wb_vector_scalar_pending(~init: Bool(#false))
   reg wb_vector_scalar_owner(SuperscalarInstructionIdentity(xlen))
   reg wb_vector_scalar_rd(Bits(5))
-  def wb_vector_scalar_return = vector.scalar_result.valid & vector.scalar_result.bits.address.any()
+  def wb_vector_scalar_return = vector.service.scalar_result.valid & vector.service.scalar_result.bits.address.any()
   def wb_vector_scalar_available = !wb_vector_scalar_pending ||| wb_vector_scalar_return
   reg rr_vector_writeback_waiting(~init: Bool(#false))
   inst wb_vector_scoreboard(Scoreboard(32))
-  vector.scalar_result |> filter_valid(result => result.address.any()) |> map_valid(result => result.address) |> wb_vector_scoreboard.clear
+  vector.service.scalar_result |> filter_valid(result => result.address.any()) |> map_valid(result => result.address) |> wb_vector_scoreboard.clear
   reg wb_vector_fpr_pending(~init: Bool(#false))
-  vector.scalar_writeback |> gate_flow(!wb_completion_priority) |> map_flow(delay => if gpr_delay_width <= 4 | delay[0..gpr_delay_width] | delay.zext(gpr_delay_width)) |> wb_gpr_calendar.reserve[2]
+  vector.service.scalar_writeback |> gate_flow(!wb_completion_priority) |> map_flow(delay => if gpr_delay_width <= 4 | delay[0..gpr_delay_width] | delay.zext(gpr_delay_width)) |> wb_gpr_calendar.reserve[2]
   // Stop new last-port bookings long enough to create a return slot.
   // A starving scalar completion retains its existing bounded-age priority.
-  rr_vector_writeback_waiting <== vector.scalar_writeback.valid & !vector.scalar_writeback.ready
+  rr_vector_writeback_waiting <== vector.service.scalar_writeback.valid & !vector.service.scalar_writeback.ready
   reg wb_sleeping(~init: Bool(#false))
   reg wb_resume_pc(~init: Bits(xlen.width)(0))
   reg wb_pc_known(~init: Bool(#false))
@@ -337,10 +337,10 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   reg wb_prior_memory_drained(~init: Bool(#false))
   inst ex_multiply(SuperscalarMultiply(xlen, ~vector_enabled: vector_enabled, ~vector_slots: vector_slots))
   inst wb_divide(SuperscalarDivide(xlen, ~vector_slots: vector_slots))
-  vector.multiply_request |> ex_multiply.vector_request
-  ex_multiply.vector_result |> vector.multiply_result
-  vector.divide_request |> wb_divide.vector_request
-  wb_divide.vector_result |> vector.divide_result
+  vector.service.multiply_request |> ex_multiply.vector_request
+  ex_multiply.vector_result |> vector.service.multiply_result
+  vector.service.divide_request |> wb_divide.vector_request
+  wb_divide.vector_result |> vector.service.divide_result
   inst rr_completions(RRArbiter(SuperscalarCompletion(xlen), 2))
   inst wb_scoreboard(Scoreboard(32))
   wire wb_management_response: Bool
@@ -374,7 +374,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   mem_completion |> wb_pipe[return_port].returned
 
   def wb_gpr_return = Array(wb_completion, ex_multiply.completed) |> valid_arbiter()
-  def wb_vector_return = vector.scalar_result |> filter_valid(result => result.address.any()) |> map_valid(result => SuperscalarCompletion(xlen)):
+  def wb_vector_return = vector.service.scalar_result |> filter_valid(result => result.address.any()) |> map_valid(result => SuperscalarCompletion(xlen)):
     identity: wb_vector_scalar_owner
     rd: result.address
     write: result.address.any()
@@ -520,10 +520,10 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   /* Deferred returns forward at RR admission and again at the reserved write edge.
      Each later rr_returns entry overrides earlier entries and the vector/late-FP/RF fallback. */
   fun rr_stored(address :: Bits(5), stored :: Bits(xlen.width)) :: Bits(xlen.width):
-    def vector_match = vector.scalar_result.valid & (vector.scalar_result.bits.address === address)
+    def vector_match = vector.service.scalar_result.valid & (vector.service.scalar_result.bits.address === address)
     def late_fp_match = wb_fp_late_gpr.valid & (wb_fp_late_gpr.bits.tag.rd === address)
     def initial_value = priority_mux(~default: stored):
-      vector_match: vector.scalar_result.bits.data
+      vector_match: vector.service.scalar_result.bits.data
       late_fp_match: wb_fp_late_gpr.bits.value
 
     def mutable value = initial_value
@@ -548,7 +548,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
       source.valid & owner.write & (owner.rd === address)
 
     def returned = any(return_matches)
-    (rr_busy(address) & !returned) ||| (scoreboard_busy(32, wb_vector_scoreboard.busy, address) & !(vector.scalar_result.valid & (vector.scalar_result.bits.address === address)))
+    (rr_busy(address) & !returned) ||| (scoreboard_busy(32, wb_vector_scoreboard.busy, address) & !(vector.service.scalar_result.valid & (vector.service.scalar_result.bits.address === address)))
 
 
   /* Operand forwarding and same-group dependencies.
@@ -596,7 +596,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     assert(rr_training_projected <= Bits(4)(2), "superscalar_branch_training_projection")
 
   // Pending summaries include pre-WB owners, before service busy state is set.
-  def rr_fp_updates_pending = !fp.drained ||| vector.fp_pending ||| any(
+  def rr_fp_updates_pending = !fp.drained ||| vector.service.fp_pending ||| any(
     for List (lane in 0..issue_width):
       def ex_fp = ex_pipe[lane].egress.valid & (ex_pipe[lane].egress.bits.control.fp.valid ||| ex_pipe[lane].egress.bits.control.vector.floating_point)
       def mem_fp = mem_pipe[lane].egress.valid & (mem_pipe[lane].egress.bits.fp.valid ||| mem_pipe[lane].egress.bits.vector.floating_point)
@@ -622,8 +622,8 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     def integer_result_claim = control.vector.integer & control.vector.scalar_destination & control.writeback.enable & rr_rd[lane].any()
     def vector_execution_blocked = rr_vector[lane] & ((integer_result_claim & !wb_vector_scalar_available) ||| floating_source_pending ||| floating_destination_blocked)
     def integer_destination_pending = control.writeback.enable & scoreboard_busy(32, wb_vector_scoreboard.busy, rr_rd[lane])
-    def memory_order_blocked = control.memory.enable & (vector.stores_pending ||| (control.memory.access.store_fault_class() & vector.loads_pending))
-    (vector.certification_pending & (rr_vector[lane] ||| rr_vector_config[lane])) ||| vector_execution_blocked ||| integer_destination_pending ||| memory_order_blocked
+    def memory_order_blocked = control.memory.enable & (vector.service.stores_pending ||| (control.memory.access.store_fault_class() & vector.service.loads_pending))
+    (vector.service.certification_pending & (rr_vector[lane] ||| rr_vector_config[lane])) ||| vector_execution_blocked ||| integer_destination_pending ||| memory_order_blocked
 
   def rr_pipeline_empty = !any(for List (lane in 0..issue_width): ex_pipe[lane].egress.valid ||| mem_pipe[lane].egress.valid ||| wb_pipe[lane].egress.valid)
 
@@ -714,7 +714,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   wb_gpr_calendar.reserve[1].valid <== any(for List (lane in 0..issue_width): rr_decision.admitted[lane] & rr_multiply[lane])
   wb_gpr_calendar.reserve[1].bits <== Bits(gpr_delay_width)(PipelinedMultiplierStages + 1)
   ex_multiply.book.valid <== wb_gpr_calendar.reserve[1].valid
-  when (!vector.multiply_request.valid ||| vector.multiply_request.fire()):
+  when (!vector.service.multiply_request.valid ||| vector.service.multiply_request.fire()):
     rr_vector_multiply_turn <== Bool(#false)
   elsewhen (wb_gpr_calendar.reserve[1].fire()):
     rr_vector_multiply_turn <== Bool(#true)
@@ -1442,7 +1442,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   // Credit predicts the older descriptor's acceptance without depending on
   // a request qualified by the younger scalar service's own outcome.
   def wb_scalar_service_lane = superscalar_service_lane(for List (lane in 0..issue_width): wb_live_valid[lane] & (wb_live_group[lane].memory.enable ||| (wb_live_group[lane].muldiv.service =/= SuperscalarLongOperation.None) ||| (wb_live_group[lane].fp.valid & (wb_live_group[lane].fp.bits.execution.unit === FloatUnit.DivideSquareRoot))))
-  def wb_scalar_prefix = !any(for List (lane in 0..issue_width): wb_live_valid[lane] & wb_vectors[lane] & (Bits(2)(lane) < wb_scalar_service_lane)) ||| (wb_vector_eligible & vector.available & (!wb_vector.vector.memory ||| wb_vector_certified))
+  def wb_scalar_prefix = !any(for List (lane in 0..issue_width): wb_live_valid[lane] & wb_vectors[lane] & (Bits(2)(lane) < wb_scalar_service_lane)) ||| (wb_vector_eligible & vector.service.available & (!wb_vector.vector.memory ||| wb_vector_certified))
   def wb_vector_prefix = !wb_scalar_stop
   vector.request.valid <== wb_vector_offer & wb_vector_eligible & wb_vector_prefix
   vector.request.bits <== wb_descriptor.updated(~precertified: wb_vector_certified)
@@ -1478,7 +1478,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   // Only a nonzero GPR writer claims this owner; unrelated vector descriptors
   // may pass it. A returning result still observes the old owner on replacement.
   when (wb_vector_scalar_return):
-    assert(wb_vector_scalar_pending & (vector.scalar_result.bits.address === wb_vector_scalar_rd), "superscalar_vector_scalar_return_owner")
+    assert(wb_vector_scalar_pending & (vector.service.scalar_result.bits.address === wb_vector_scalar_rd), "superscalar_vector_scalar_return_owner")
 
   when (wb_vector_accepted & wb_vector_gpr_write):
     assert(wb_vector_scalar_available, "superscalar_vector_scalar_owner_available")
@@ -1494,7 +1494,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   elsewhen (fp.vector_written.valid):
     wb_vector_fpr_pending <== Bool(#false)
 
-  wb_csrs.vector_retire.valid <== vector.retire.valid ||| (wb_vector_accepted & (!wb_vector.vector.memory ||| wb_vector_certified))
+  wb_csrs.vector_retire.valid <== vector.service.retire.valid ||| (wb_vector_accepted & (!wb_vector.vector.memory ||| wb_vector_certified))
 
   /* Scalar admission follows the older descriptor's registered credit.
      The reverse age order qualifies vector admission with scalar outcomes;
@@ -1553,8 +1553,8 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   def wb_slow = wb_memory_active & !wb_memory_capture & (wb_memory.cache_outcome === SuperscalarCacheOutcome.Slow)
   def wb_store_hit = wb_memory_active & wb_memory.memory.access.is_store() & (wb_memory.cache_outcome === SuperscalarCacheOutcome.StoreHit)
   def wb_older_vector_memory = wb_live_valid[service_index(wb_vector_lane)] & wb_vector.vector.memory & (wb_vector_lane < wb_memory_lane)
-  def wb_vector_store_pending = vector.stores_pending ||| (wb_older_vector_memory & wb_vector.vector.store)
-  def wb_vector_load_pending = vector.loads_pending ||| (wb_older_vector_memory & !wb_vector.vector.store)
+  def wb_vector_store_pending = vector.service.stores_pending ||| (wb_older_vector_memory & wb_vector.vector.store)
+  def wb_vector_load_pending = vector.service.loads_pending ||| (wb_older_vector_memory & !wb_vector.vector.store)
   def wb_memory_blocked = scalar_memory.ordered_busy ||| wb_ordered_memory_pending ||| wb_vector_store_pending ||| (wb_memory.memory.access.store_fault_class() & wb_vector_load_pending)
   def wb_prior_drained = wb_load_response.drained & scalar_memory.drained & ex_multiply.drained & wb_divide.drained & !wb_completion_count.any() & !rr_completion.valid & fp.drained & !vector.active & !wb_vector_scalar_pending & !wb_vector_fpr_pending
   scalar_split.request.valid <== wb_retained_ready & !wb_management & !wb_reservation_waiting & !wb_retained_vector
@@ -2048,17 +2048,17 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
 
   def wb_completion_write = wb_gpr_return.valid & wb_gpr_return.bits.write
   def wb_return_address = priority_mux(~default: Bits(5)(0)):
-    vector.scalar_result.valid: vector.scalar_result.bits.address
+    vector.service.scalar_result.valid: vector.service.scalar_result.bits.address
     wb_fp_late_gpr.valid: wb_fp_late_gpr.bits.tag.rd
     wb_completion_write: wb_gpr_return.bits.rd
 
   def wb_return_data = priority_mux(~default: Bits(xlen.width)(0)):
-    vector.scalar_result.valid: vector.scalar_result.bits.data
+    vector.service.scalar_result.valid: vector.service.scalar_result.bits.data
     wb_fp_late_gpr.valid: wb_fp_late_gpr.bits.value
     wb_completion_write: wb_gpr_return.bits.data
 
   def wb_last_valid = wb_pipe[return_port].egress.valid
-  assert(!(vector.scalar_result.valid & (wb_completion_write ||| wb_last_valid ||| wb_fp_late_gpr.valid)), "superscalar_vector_reserved_last_slot")
+  assert(!(vector.service.scalar_result.valid & (wb_completion_write ||| wb_last_valid ||| wb_fp_late_gpr.valid)), "superscalar_vector_reserved_last_slot")
   assert(!(wb_fp_late_gpr.valid & (wb_completion_write ||| wb_last_valid)), "superscalar_fixed_fp_reserved_last_slot")
   assert(!(ex_multiply.completed.valid & (wb_completion.valid ||| wb_last_valid)), "superscalar_multiply_reserved_last_slot")
   when (ex_multiply.completed.valid):
@@ -2080,7 +2080,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     data: wb_return_data
 
   for (port in 0..issue_width):
-    def completion = Bool(port == return_port) & (wb_completion_write ||| wb_fp_late_gpr.valid ||| (vector.scalar_result.valid & vector.scalar_result.bits.address.any()))
+    def completion = Bool(port == return_port) & (wb_completion_write ||| wb_fp_late_gpr.valid ||| (vector.service.scalar_result.valid & vector.service.scalar_result.bits.address.any()))
     assert(!(wb_physical_writes[port] & completion), "superscalar_write_port_exclusive_" ++ to_string(port))
     rr_registers.writes[port].valid <== wb_physical_writes[port] ||| completion
     rr_registers.writes[port].bits <== mux(completion, wb_return_value, wb_write_values[port])

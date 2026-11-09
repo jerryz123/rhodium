@@ -66,36 +66,36 @@ sync_circuit SuperscalarVectorFixture():
   vector.split <=> split
   def proof = vector.precheck.request |> to_valid() |> map_valid(_range => precheck_safe) |> valid_pipe(1) |> to_decoupled() |> queue(1)
   proof |> vector.precheck.response
-  vector.scalar_writeback.ready <== Bool(#true)
+  vector.service.scalar_writeback.ready <== Bool(#true)
   vector.floating_writeback.ready <== Bool(#true)
-  vector.fp_request.ready <== Bool(#false)
-  vector.fp_result.valid <== Bool(#false)
-  vector.fp_result.bits <== dont_care(vector.fp_result.bits.type)
-  vector.multiply_request.ready <== Bool(#false)
-  vector.multiply_result.valid <== Bool(#false)
-  vector.multiply_result.bits <== dont_care(vector.multiply_result.bits.type)
-  vector.divide_request.ready <== Bool(#false)
-  vector.divide_result.valid <== Bool(#false)
-  vector.divide_result.bits <== dont_care(vector.divide_result.bits.type)
+  vector.service.fp_request.ready <== Bool(#false)
+  vector.service.fp_result.valid <== Bool(#false)
+  vector.service.fp_result.bits <== dont_care(vector.service.fp_result.bits.type)
+  vector.service.multiply_request.ready <== Bool(#false)
+  vector.service.multiply_result.valid <== Bool(#false)
+  vector.service.multiply_result.bits <== dont_care(vector.service.multiply_result.bits.type)
+  vector.service.divide_request.ready <== Bool(#false)
+  vector.service.divide_result.valid <== Bool(#false)
+  vector.service.divide_result.bits <== dont_care(vector.service.divide_result.bits.type)
   request_ready <== vector.request.ready
   active <== vector.active
-  sequencing <== vector.sequencing
-  loads_pending <== vector.loads_pending
-  stores_pending <== vector.stores_pending
+  sequencing <== vector.service.sequencing
+  loads_pending <== vector.service.loads_pending
+  stores_pending <== vector.service.stores_pending
   checking <== vector.precheck.request.fire()
   released <== vector.precheck.release.valid
-  done <== vector.execution_done.valid
+  done <== vector.service.execution_done.valid
   outcome_valid <== vector.outcome.valid
   outcome_pc <== vector.outcome.bits.pc
   disposition <== vector.outcome.bits.disposition
   fault_address <== vector.outcome.bits.fault_address
   fault_cause <== vector.outcome.bits.cause.as_bits().zext(64)
-  fault_start_valid <== vector.fault_start.valid
-  fault_start <== vector.fault_start.bits
-  scalar_valid <== vector.scalar_result.valid
-  scalar_data <== vector.scalar_result.bits.data
-  scalar_rd <== vector.scalar_result.bits.address
-  scalar_reserve <== vector.scalar_writeback.fire()
-  scalar_delay <== vector.scalar_writeback.bits
+  fault_start_valid <== vector.service.fault_start.valid
+  fault_start <== vector.service.fault_start.bits
+  scalar_valid <== vector.service.scalar_result.valid
+  scalar_data <== vector.service.scalar_result.bits.data
+  scalar_rd <== vector.service.scalar_result.bits.address
+  scalar_reserve <== vector.service.scalar_writeback.fire()
+  scalar_delay <== vector.service.scalar_writeback.bits
 
 export SuperscalarVectorFixture

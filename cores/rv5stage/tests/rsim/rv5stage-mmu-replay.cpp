@@ -507,9 +507,8 @@ void drive() {
     instruction_memory_in = {};
     instruction_memory_in.presponse.pvalid = instruction_return_valid;
     instruction_memory_in.presponse.pbits = {
-        .presponse = {.pword = instruction_return_word,
-                      .ppage_ufault = UINT64_C(0),
-                      .paccess_ufault = UINT64_C(0)},
+        .pdata = instruction_return_word,
+        .paccess_ufault = UINT64_C(0),
         .preplay = instruction_return_replay};
     data_memory_in.prequest.pready = memory_ready;
     data_memory_in.prequest_ufault = UINT64_C(0);

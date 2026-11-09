@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/common/fetch/protocol.rhdl") open
   "../bundles.rhdl" open
   "../profile.rhm".SuperscalarPipelineConfig
   "../fetch/instruction-assembler.rhdl" open
@@ -28,7 +29,7 @@ sync_circuit FrontendFixture(config :: RiscvHartCHIConfig, profile :: Superscala
   interface start(Valid(Bits(64)), ~role: consumer)
   interface redirect(Valid(SuperscalarRedirect(xlen)), ~role: consumer)
   interface flush(Pulse(), ~role: consumer)
-  interface memory(SuperscalarInstructionLookup(), ~role: requester)
+  interface memory(PhysicalInstructionLookup(64, 64), ~role: requester)
   interface invalidate(Pulse(), ~role: consumer)
   interface virtual_lookup(Decoupled(Bits(64)), ~role: producer)
   interface translation(SuperscalarInstructionTranslation(xlen), ~role: requester)

@@ -1,0 +1,70 @@
+#lang rhodium
+/* Composes ordered data/fetch arbitration with the nonallocating CHI transport. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "uncached-arbiter.rhdl".UncachedFetchArbiter
+  "chi/uncached.rhdl".CHIUncachedMemory
+  "protocol.rhdl" open
+  "operation.rhdl" open
+  "../fetch/protocol.rhdl" open
+  "../chi-hart.rhdl".RiscvHartCHIConfig
+  "../load-store.rhdl" open
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/rtl/atomic.rhdl").RiscvAtomicOperation
+  lib("riscv/rtl/zihintntl.rhdl").RiscvMemoryLocality
+  lib("flow/main.rhdl") open
+  lib("rhodium/std/bits.rhdl") open
+  lib("chi/protocol/channels.rhdl").CHIRNIChannels
+
+/* Gives data priority and preserves opaque data context through the shared transport.
+   Fetch reads use their configured word/block width; flushed fetches withdraw before
+   issue or drain without a consumer after acceptance. Adds no request/response stage. */
+sync_circuit UncachedInstructionMemory(xlen :: XLen, config :: RiscvHartCHIConfig, Context :: DataType, fetch_bits :: PosInt):
+  unless (fetch_bits == 32 || fetch_bits == 64) && fetch_bits <= xlen.width
+  | error(~who: #'UncachedInstructionMemory, "fetch width must be 32 or 64 bits and fit the transport word")
+
+  input node_id: Bits(config.flit.node_id_width)
+  interface instruction(PhysicalInstructionAccess(xlen.width, fetch_bits), ~role: responder)
+  interface core(UncachedMemoryAccess(xlen, Context), ~role: responder)
+  interface chi(CHIRNIChannels(config.flit), ~role: node)
+  inst transport(CHIUncachedMemory(xlen, config, Context))
+  inst ownership(UncachedFetchArbiter(xlen, Context))
+  ownership.flush <== instruction.flush
+  core |> ownership.data
+  ownership.transport |> transport.core
+  transport.node_id <== node_id
+  transport.cancel <== ownership.cancel
+  transport.chi <=> chi
+
+
+  /* Instruction shaping and detached response draining.
+     Fetch carries no data context, atomic intent, or locality hint. The transport
+     retains response ownership independently of the frontend's cancellation. */
+
+  (instruction.request |> map_flow(fetch => UncachedMemoryReq(xlen, Context)):
+    device: fetch.device
+    request:
+      PhysicalMemoryReq(xlen, Context):
+        address: fetch.address
+        access: CacheOperation.Load
+        atomic: dont_care(RiscvAtomicOperation)
+        width: if fetch_bits == 32 | MemoryWidth.Word | MemoryWidth.Double
+        unsigned: Bool(#true)
+        data: dont_care(Bits(xlen.width))
+        byte_mask: Bits(xlen.width / 8)(2 ** (fetch_bits / 8) - 1)
+        context: dont_care(Context)
+        locality: RiscvMemoryLocality.Default
+  ) |> ownership.instruction_request
+
+  (ownership.instruction_response |> filter_flow(_reply => !instruction.flush)
+    |> map_flow(reply => PhysicalInstructionResp(fetch_bits)):
+      data: reply.data[0..fetch_bits]
+      access_fault: reply.access_fault
+  ) |> instruction.response
+
+  when (instruction.request.valid & transport.core.drained & !core.request.valid & !instruction.flush):
+    assert(!instruction.request.bits.cacheable, "uncached_instruction_not_cacheable")
+    assert(instruction.request.bits.address.is_aligned(fetch_bits / 8), "uncached_instruction_aligned")
+
+export UncachedInstructionMemory

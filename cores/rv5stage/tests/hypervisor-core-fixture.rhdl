@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../../common/cache/l1i/protocol.rhdl".InstructionCacheResult
   lib("riscv/isa/hart.rhm").RiscvMmuType
   "../../common/cache/protocol.rhdl" open
   "../../common/load-store.rhdl" open
@@ -93,13 +94,9 @@ sync_circuit RV5StageHypervisorCoreFixture():
   instruction_address <== mmu.instruction_memory.request.bits.address
   instruction_cacheable <== mmu.instruction_memory.request.bits.cacheable
   instruction_device <== mmu.instruction_memory.request.bits.device
-  (mmu.instruction_memory.request |> map_valid(_request => RV5StageFetchResult(#false)):
-    response:
-      RV5StageInstructionResp(#false):
-        word: instruction_word
-        page_fault: Bool(#false)
-        access_fault: Bool(#false)
-
+  (mmu.instruction_memory.request |> map_valid(_request => InstructionCacheResult(32)):
+    data: instruction_word
+    access_fault: Bool(#false)
     replay: Bool(#false)
   ) |> valid_pipe(1) |> mmu.instruction_memory.response
 

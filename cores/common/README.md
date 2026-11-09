@@ -410,6 +410,7 @@ The package is organized by component, not by ISA namespace:
 | Location | Shared responsibility |
 |---|---|
 | Root datapaths and `*-decode.rhdl` | Execution blocks and their component-control relations |
+| [`fetch/`](fetch/README.md) | Physical fetch protocols, fixed-cycle L1I/uncached routing, replay ownership, and encoding/fault helpers |
 | [`cache/`](cache/README.md) | Physical L1I/L1D, cache protocols, and cache-side CHI engines |
 | [`csr/`](csr/README.md) | Core-neutral CSR/trap state behind authorized commands |
 | [`mmu/`](mmu/README.md) | Host/guest TLBs, page-table walking, and translation contracts |

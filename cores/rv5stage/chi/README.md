@@ -122,10 +122,10 @@ use an appropriate snoop such as `SnpUnique` or `SnpCleanInvalid`.
 
 ## Uncached access
 
-`RV5StageUncached` arbitrates physical instruction and data requests onto one
-RN-I endpoint with at most one outstanding transaction. It specializes the
-shared `CHIUncachedMemory` service and retains only requester ownership and fetch
-cancellation policy. The service emits `ReadNoSnp`
+[`UncachedInstructionMemory`](../../common/cache/README.md#non-cacheable-service)
+arbitrates physical instruction and data requests onto one RN-I endpoint with
+at most one outstanding transaction. It composes the shared `CHIUncachedMemory`
+service with data-first ownership and fetch cancellation. The service emits `ReadNoSnp`
 and `WriteNoSnpPtl` for physical device/ROM regions, and non-allocating `ReadOnce`
 and `WriteUniquePtl` for PBMT aliases of coherent RAM. Effective ordering is
 captured at admission, independently of the physical coherence domain. It

@@ -27,8 +27,8 @@ def target = rtl_pipeline_target(rsim_target, [port_observer_pass([
     ["vector_fast_out", "request", "bits", "last"]
   ]],
   ["RV5StageVectorPipeline", "test_vector_lifetime", [
-    ["sequencing"],
-    ["certification_pending"]
+    ["service_out", "sequencing"],
+    ["service_out", "certification_pending"]
   ]]
 ])])
 export program target

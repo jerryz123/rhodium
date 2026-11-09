@@ -9,8 +9,9 @@ in [`protocol.rhdl`](protocol.rhdl). The physical cache lives in
 [DEVELOPING.md](DEVELOPING.md).
 
 RV5Stage directly instantiates `L1ICache` with `~fetch_bits: 32` for both XLENs.
-The instruction-memory router converts shared block/error/replay outcomes into
-`RV5StageFetchResult`; the MMU supplies page faults and guest provenance.
+The [shared instruction-memory router](../../common/fetch/README.md) returns
+physical block/error/replay outcomes; the MMU adapts them into
+`RV5StageFetchResult` with page faults and guest provenance.
 Frontend instruction assembly, replay, and fault ownership remain unchanged.
 
 The [core memory hierarchy](../README.md#memory-hierarchy) owns PMA routing and

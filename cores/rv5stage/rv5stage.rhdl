@@ -17,8 +17,8 @@ import:
   "../common/cache/l1d/cache.rhdl" open
   "data-port-arbiter.rhdl" open
   "memory-router.rhdl" open
-  "instruction-memory-router.rhdl" open
-  "chi/uncached.rhdl" open
+  lib("cores/common/fetch/memory.rhdl").InstructionMemoryRouter
+  lib("cores/common/cache/uncached-instruction.rhdl").UncachedInstructionMemory
   "mmu/mmu.rhdl" open
   lib("flow/main.rhdl") open
   lib("rhodium/std/ready-valid.rhdl") open
@@ -149,10 +149,10 @@ sync_circuit RV5Stage(profile :: RV5StageConfig,
 
   inst l1i(L1ICache(xlen, profile.cache_geometry.instruction, ~chi: config, ~fetch_bits: 32))
   inst l1d(L1DCache(xlen, profile.cache_geometry.data, ~chi: config, ~service_queue_depth: profile.data_cache_service_queue_depth, ~context: RV5StageMemoryContext(vector_completion_slots)))
-  inst instruction_memory_router(RV5StageInstructionMemoryRouter(xlen))
+  inst instruction_memory_router(InstructionMemoryRouter(xlen.width, 32))
   inst memory_router(RV5StageMemoryRouter(xlen, config.physical_map, ~vector_completion_slots: vector_completion_slots))
   inst data_port_arbiter(RV5StageDataPortArbiter(xlen, vector_completion_slots))
-  inst uncached(RV5StageUncached(xlen, config, ~vector_completion_slots: vector_completion_slots))
+  inst uncached(UncachedInstructionMemory(xlen, config, RV5StageMemoryContext(vector_completion_slots), 32))
   l1i.node_id <== chi_identity.instruction_node_id
   l1d.node_id <== chi_identity.data_node_id
   uncached.node_id <== chi_identity.uncached_node_id

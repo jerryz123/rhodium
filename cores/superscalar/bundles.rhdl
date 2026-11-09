@@ -5,7 +5,6 @@
 import:
   lib("cores/common/fetch/fault.rhdl") open
   lib("cores/common/pc.rhdl") open
-  lib("cores/common/fetch/protocol.rhdl").PhysicalInstructionReq
   lib("cores/common/fp/profile.rhm").fp_transport_profile
   "pairing.rhdl".superscalar_pair_immediate_width
   "decode/core-ctrl.rhdl" open
@@ -16,7 +15,6 @@ import:
   lib("cores/common/load-store.rhdl").MemoryWidth
   lib("cores/common/load-store.rhdl").memory_word_bytes
   lib("cores/common/cache/operation.rhdl").CacheOperation
-  lib("cores/common/cache/l1i/protocol.rhdl").InstructionCacheResult
   lib("riscv/rtl/svpbmt.rhdl").PageMemoryType
   lib("cores/common/cache-prefetch.rhdl").CachePrefetchOperation
   lib("cores/common/reservation-wait.rhdl").ReservationWaitMode
@@ -46,32 +44,6 @@ interface SuperscalarInstructionTranslation(xlen :: XLen):
     address: Bits(64)
     resolution: SuperscalarResolution(xlen)
     pbmt: PageMemoryType
-
-/* Resolves physical S1 fetches into fixed-cycle S2 cache, fault, or replay outcomes. */
-interface SuperscalarInstructionLookup():
-  role requester
-  role responder
-  provider requester
-  requester -> responder:
-    flush: Bool
-    invalidate_all: Bool
-    s1_kill: Bool
-    request: Valid(PhysicalInstructionReq(64))
-
-  responder -> requester:
-    response: Valid(InstructionCacheResult(64))
-
-/* Cancels a fetch consumer while retaining accepted transport response ownership. */
-interface SuperscalarUncachedInstruction():
-  role requester
-  role responder
-  provider requester
-  requester -> responder:
-    flush: Bool
-    request: Decoupled(PhysicalInstructionReq(64))
-
-  responder -> requester:
-    response: Decoupled(InstructionCacheResult(64))
 
 /* A +2 or +4 successor toggles one contiguous run, starting at bit 1 or 2.
    The tag names its last changed bit, not a displacement from the PC. */
@@ -894,8 +866,6 @@ export:
   SuperscalarFpOwner
   SuperscalarFpLoad
   SuperscalarInstructionTranslation
-  SuperscalarInstructionLookup
-  SuperscalarUncachedInstruction
   SuperscalarPcStep
   encode_pc_step
   SuperscalarInstruction

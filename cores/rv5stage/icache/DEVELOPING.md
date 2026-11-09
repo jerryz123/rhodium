@@ -6,10 +6,10 @@
 Read [README.md](README.md) for the attachment and
 the [shared L1I guide](../../common/cache/l1i/DEVELOPING.md) for physical cache changes.
 
-`protocol.rhdl` owns RV5Stage's S0/S2 fetch interface, S1 translated lookup,
-32-bit instruction response, page faults, and optional guest provenance.
-`../instruction-memory-router.rhdl` maps the physical cache result into this
-contract and retains ordered uncached fetches. `../rv5stage.rhdl` directly
+`protocol.rhdl` owns RV5Stage's S0/S2 fetch interface, 32-bit instruction
+response, page faults, and optional guest provenance. The
+[common physical fetch router](../../common/fetch/DEVELOPING.md) retains ordered
+uncached fetches; the MMU adapts its physical result into this contract. `../rv5stage.rhdl` directly
 connects the shared L1I. Translation and fetch correlation belong to MMU and
 frontend, not the physical cache. Keep the existing S0/S1/S2 timing and
 simultaneous-flush/replacement contract when changing these boundaries.
@@ -19,7 +19,7 @@ fault fields to `InstructionCacheResult` or introduce a wiring-only wrapper.
 See the [package graph](../../../rhodium/DEVELOPING.md) for dependencies.
 
 Run `cores/rv5stage/tests/fetch-admission-test.rhm` through
-`tools/run-racket-tests.sh`. The `rv5stage-instruction-memory-router`,
+`tools/run-racket-tests.sh`. The `instruction-memory32` and `instruction-memory64`,
 `rv5stage-fetch-throughput`, and `rv5stage-icache-coherence` rsim fixtures cover
 ordered uncached work, replay, lineage, and dirty-code visibility. Run the
 shared-cache fixtures for physical behavior, and `moon run rhodium:check-boundaries` after

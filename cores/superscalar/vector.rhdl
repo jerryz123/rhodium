@@ -3,22 +3,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/common/fp/profile.rhm").fp_transport_profile
+  lib("cores/common/vector/service.rhdl").VectorExecutionService
   lib("cores/common/cosim-source.rhm").describe_cosim_signals
   lib("cores/common/vector/backend.rhdl") open
   "bundles.rhdl" open
   "vector-memory.rhdl" open
   lib("cores/common/vector/bundles.rhdl") open
-  lib("cores/common/vector/muldiv.rhdl") open
   lib("cores/common/mmu/vector.rhdl") open
   lib("cores/common/misaligned-access.rhdl") open
-  lib("cores/common/integer-execution.rhdl") open
-  lib("cores/common/register-write.rhdl") open
-  lib("cores/common/multiplier.rhdl") open
-  lib("cores/common/divider.rhdl") open
-  lib("cores/common/fp/bundles.rhdl") open
   lib("cores/common/fp/timing.rhdl") open
-  lib("cores/common/fp/register-file.rhdl").FloatingPointRegisterWrite
   lib("riscv/isa/xlen.rhm") open
   lib("riscv/isa/vector.rhm") open
   lib("riscv/rtl/pointer-masking.rhdl") open
@@ -30,8 +23,7 @@ import:
    last-beat acceptance, and final execution drain. The scalar core owns age order,
    architectural retirement, and arithmetic/write-port arbitration at these ports. */
 sync_circuit SuperscalarVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_completion_slots: slots :: Pow2Int = 8, ~dispatch_depth: dispatch_depth :: PosInt = 6, ~multiply_latency: multiply_latency :: maybe(PosInt) = #false, ~fixed_fp: fixed_fp :: Boolean = #false, ~fp_timing: fp_timing :: FpExecutionTiming = FpExecutionTiming()):
-  def fp_profile = fp_transport_profile(xlen)
-  def Tag = Bits(index_width(slots))
+  interface service(VectorExecutionService(xlen, slots), ~role: executor)
   interface request(Decoupled(VectorDescriptor(xlen)), ~role: consumer)
   interface pipeline(SuperscalarPipelineAccess(xlen), ~role: requester)
   interface memory(SuperscalarMemory(xlen, xlen.width), ~role: requester)
@@ -40,23 +32,8 @@ sync_circuit SuperscalarVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vect
   interface outcome(Valid(VectorCommit(xlen, slots)), ~role: producer)
   output outcome_guest: RiscvGuestFault()
   output(pipeline_physical, request_physical): Bool
-  interface fp_request(Decoupled(FpExecutionRequest(xlen, fp_profile, Tag)), ~role: producer)
-  interface fp_result(Decoupled(FpExecutionResult(xlen, fp_profile, Tag)), ~role: consumer)
-  interface multiply_request(Decoupled(IntegerExecutionRequest(MultiplierRequest(xlen.width), VectorMultiplyTag(slots))), ~role: producer)
-  interface multiply_result(Irrevocable(IntegerExecutionResult(Bits(xlen.width * 2), VectorMultiplyTag(slots))), ~role: consumer)
-  interface divide_request(Decoupled(IntegerExecutionRequest(DividerRequest(xlen.width), VectorDivideTag(slots))), ~role: producer)
-  interface divide_result(Irrevocable(IntegerExecutionResult(DividerResponse(xlen.width), VectorDivideTag(slots))), ~role: consumer)
-  interface fp_update(Valid(Bits(5)), ~role: producer)
-  interface fault_start(Valid(Bits(xlen.width)), ~role: producer)
-  interface truncate(Valid(Bits(xlen.width)), ~role: producer)
-  interface retire(Pulse(), ~role: producer)
-  interface execution_done(Pulse(), ~role: producer)
-  interface saturate(Pulse(), ~role: producer)
-  interface scalar_result(Valid(RegisterFileWrite(xlen)), ~role: producer)
-  interface scalar_writeback(Decoupled(Bits(4)), ~role: producer)
   interface floating_writeback(Decoupled(Bits(4)), ~role: producer)
-  interface floating_result(Valid(FloatingPointRegisterWrite(fp_profile)), ~role: producer)
-  output(active, sequencing, pending, stores_pending, loads_pending, fp_pending, certification_pending, available): Bool
+  output active: Bool
 
   inst access(SuperscalarVectorMemory(xlen, slots))
   inst backend(VectorBackend(xlen, vlen, RiscvGuestFault(), ~vector_completion_slots: slots, ~dispatch_depth: dispatch_depth, ~pipe: #false, ~multiply_latency: multiply_latency, ~packed_multiply: #true, ~fixed_fp: fixed_fp, ~fp_timing: fp_timing))
@@ -79,35 +56,13 @@ sync_circuit SuperscalarVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vect
   access.memory <=> memory
   pipeline_physical <== access.pipeline_physical
   request_physical <== access.request_physical
-  backend.fp_request |> fp_request
-  fp_result |> backend.fp_result
-  backend.multiply_request |> multiply_request
-  multiply_result |> backend.multiply_result
-  backend.divide_request |> divide_request
-  divide_result |> backend.divide_result
-  backend.fp_update |> fp_update
-  backend.fault_start |> fault_start
-  backend.truncate |> truncate
-  backend.retire |> retire
-  backend.execution_done |> execution_done
-  backend.saturate |> saturate
-  backend.scalar_result |> scalar_result
-  backend.scalar_writeback |> scalar_writeback
+  backend.service <=> service
   backend.floating_writeback |> floating_writeback
-  backend.floating_result |> floating_result
-  sequencing <== backend.sequencing
-  pending <== backend.pending
-  stores_pending <== backend.stores_pending
-  loads_pending <== backend.loads_pending
-  fp_pending <== backend.fp_pending
-  certification_pending <== backend.certification_pending
-  available <== backend.available
   describe_cosim_signals({"admitted": request.fire()}, ~components: {"backend": backend, "memory": access})
 
 /* Terminates the optional vector client without allocating a sequencer, VRF, or execution state. */
 sync_circuit SuperscalarVectorDisabled(xlen :: XLen, ~vector_completion_slots: slots :: Pow2Int = 8):
-  def fp_profile = fp_transport_profile(xlen)
-  def Tag = Bits(index_width(slots))
+  interface service(VectorExecutionService(xlen, slots), ~role: executor)
   interface request(Decoupled(VectorDescriptor(xlen)), ~role: consumer)
   interface pipeline(SuperscalarPipelineAccess(xlen), ~role: requester)
   interface memory(SuperscalarMemory(xlen, xlen.width), ~role: requester)
@@ -116,40 +71,25 @@ sync_circuit SuperscalarVectorDisabled(xlen :: XLen, ~vector_completion_slots: s
   interface outcome(Valid(VectorCommit(xlen, slots)), ~role: producer)
   output outcome_guest: RiscvGuestFault()
   output(pipeline_physical, request_physical): Bool
-  interface fp_request(Decoupled(FpExecutionRequest(xlen, fp_profile, Tag)), ~role: producer)
-  interface fp_result(Decoupled(FpExecutionResult(xlen, fp_profile, Tag)), ~role: consumer)
-  interface multiply_request(Decoupled(IntegerExecutionRequest(MultiplierRequest(xlen.width), VectorMultiplyTag(slots))), ~role: producer)
-  interface multiply_result(Irrevocable(IntegerExecutionResult(Bits(xlen.width * 2), VectorMultiplyTag(slots))), ~role: consumer)
-  interface divide_request(Decoupled(IntegerExecutionRequest(DividerRequest(xlen.width), VectorDivideTag(slots))), ~role: producer)
-  interface divide_result(Irrevocable(IntegerExecutionResult(DividerResponse(xlen.width), VectorDivideTag(slots))), ~role: consumer)
-  interface fp_update(Valid(Bits(5)), ~role: producer)
-  interface fault_start(Valid(Bits(xlen.width)), ~role: producer)
-  interface truncate(Valid(Bits(xlen.width)), ~role: producer)
-  interface retire(Pulse(), ~role: producer)
-  interface execution_done(Pulse(), ~role: producer)
-  interface saturate(Pulse(), ~role: producer)
-  interface scalar_result(Valid(RegisterFileWrite(xlen)), ~role: producer)
-  interface scalar_writeback(Decoupled(Bits(4)), ~role: producer)
   interface floating_writeback(Decoupled(Bits(4)), ~role: producer)
-  interface floating_result(Valid(FloatingPointRegisterWrite(fp_profile)), ~role: producer)
-  output(active, sequencing, pending, stores_pending, loads_pending, fp_pending, certification_pending, available): Bool
-  for (port :: Endpoint in [pipeline.request, memory.request, split.request, precheck.request, outcome, fp_request, multiply_request, divide_request, fp_update, fault_start, truncate, scalar_result, scalar_writeback, floating_result]):
+  output active: Bool
+  for (port :: Endpoint in [pipeline.request, memory.request, split.request, precheck.request, outcome, service.fp_request, service.multiply_request, service.divide_request, service.fp_update, service.fault_start, service.truncate, service.scalar_result, service.scalar_writeback, service.floating_result]):
     port.valid <== Bool(#false)
     port.bits <== dont_care(port.bits.type)
 
-  for (port :: Endpoint in [precheck.release, retire, execution_done, saturate]):
+  for (port :: Endpoint in [precheck.release, service.retire, service.execution_done, service.saturate]):
     port.valid <== Bool(#false)
 
   floating_writeback.valid <== Bool(#false)
   floating_writeback.bits <== Bits(4)(1)
 
-  for (port :: Endpoint in [memory.response, precheck.response, fp_result, multiply_result, divide_result]):
+  for (port :: Endpoint in [memory.response, precheck.response, service.fp_result, service.multiply_result, service.divide_result]):
     port.ready <== Bool(#true)
 
   request.ready <== Bool(#false)
   pipeline.commit <== Bool(#false)
   outcome_guest <== literal(RiscvGuestFault(), 0)
-  for (value in [pipeline_physical, request_physical, active, sequencing, pending, stores_pending, loads_pending, fp_pending, certification_pending, available]):
+  for (value in [pipeline_physical, request_physical, active, service.sequencing, service.pending, service.stores_pending, service.loads_pending, service.fp_pending, service.certification_pending, service.available]):
     value <== Bool(#false)
 
 export:

@@ -290,7 +290,8 @@ rv5stage-wfi	cores-execution-control	cores/rv5stage/tests/rsim/emit-rv5stage-wfi
 rv5stage-zawrs	cores-execution-control	cores/rv5stage/tests/rsim/emit-rv5stage-zawrs.rhm	program	cores/rv5stage/tests/rsim/rv5stage-zawrs.cpp
 rv5stage-pause	cores-execution-control	cores/rv5stage/tests/rsim/emit-rv5stage-pause.rhm	program	cores/rv5stage/tests/rsim/rv5stage-pause.cpp
 rv5stage-ntl	cores-memory	cores/rv5stage/tests/rsim/emit-rv5stage-ntl.rhm	program	cores/rv5stage/tests/rsim/rv5stage-ntl.cpp
-rv5stage-instruction-memory-router	cores-memory	cores/rv5stage/tests/rsim/emit-rv5stage-instruction-memory-router.rhm	program	cores/rv5stage/tests/rsim/rv5stage-instruction-memory-router.cpp
+instruction-memory32	cores-memory	cores/common/fetch/tests/rsim/emit-instruction-memory.rhm	word	cores/common/fetch/tests/rsim/instruction-memory.cpp
+instruction-memory64	cores-memory	cores/common/fetch/tests/rsim/emit-instruction-memory.rhm	block	cores/common/fetch/tests/rsim/instruction-memory.cpp
 rv5stage-memory-router	cores-memory	cores/rv5stage/tests/rsim/emit-rv5stage-memory-router.rhm	program	cores/rv5stage/tests/rsim/rv5stage-memory-router.cpp
 rv5stage-uncached	cores-memory	cores/rv5stage/tests/rsim/emit-rv5stage-uncached.rhm	program	cores/rv5stage/tests/rsim/rv5stage-uncached.cpp
 rv5stage-io-mshr	cores-memory	cores/rv5stage/tests/rsim/emit-rv5stage-io-mshr.rhm	program	cores/rv5stage/tests/rsim/rv5stage-io-mshr.cpp

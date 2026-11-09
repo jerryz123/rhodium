@@ -4,12 +4,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/common/fp/profile.rhm").fp_transport_profile
+  lib("cores/common/vector/service.rhdl").VectorExecutionService
   lib("cores/common/vector/backend.rhdl") open
   lib("cores/common/mmu/vector.rhdl") open
-  lib("cores/common/integer-execution.rhdl") open
-  lib("cores/common/register-write.rhdl") open
-  "../common/fp/bundles.rhdl" open
   "../common/fp/timing.rhdl" open
   "memory-context.rhdl" open
   "../common/cache/protocol.rhdl" open
@@ -17,15 +14,10 @@ import:
   "../common/vector/bundles.rhdl" open
   "vector/memory.rhdl" open
   "mmu/protocol.rhdl" open
-  "../common/vector/muldiv.rhdl" open
-  "../common/multiplier.rhdl" open
-  "../common/divider.rhdl" open
-  "../common/fp/register-file.rhdl".FloatingPointRegisterWrite
   "../../riscv/isa/vector.rhm" open
   "../../riscv/isa/xlen.rhm" open
   "../../riscv/rtl/pointer-masking.rhdl" open
   "../../riscv/rtl/hypervisor.rhdl" open
-  lib("hardfloat/main.rhdl").RoundingMode
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
@@ -33,34 +25,14 @@ import:
    Keeps page-window ownership, fault-certainty barriers, and registered architectural
    outcomes separate from the older execution owner's retained requests and results. */
 sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_completion_slots: slots :: Pow2Int = 8, ~trace_isa: trace_isa :: maybe(String) = #false, ~multiply_latency: multiply_latency :: maybe(PosInt) = #false, ~fixed_fp: fixed_fp :: Boolean = #false, ~fp_timing: fp_timing :: FpExecutionTiming = FpExecutionTiming(), ~hypervisor: hypervisor :: Boolean = #false):
-  def fp_profile = fp_transport_profile(xlen)
-  def Tag = Bits(index_width(slots))
-  def MultiplyTag = VectorMultiplyTag(slots)
-  def DivideTag = VectorDivideTag(slots)
+  interface service(VectorExecutionService(xlen, slots), ~role: executor)
   interface request(Decoupled(VectorDescriptor(xlen)), ~role: consumer)
   output(pipeline_physical, request_physical): Bool
   interface pipeline(CachePipelineAccess(xlen), ~role: requester)
   interface memory(CacheAccess(xlen, RV5StageMemoryContext(slots)), ~role: requester)
   interface outcome(Valid(VectorCommit(xlen, slots)), ~role: producer)
   interface precheck(VectorPrecheck(), ~role: requester)
-  interface fp_request(Decoupled(FpExecutionRequest(xlen, fp_profile, Tag)), ~role: producer)
-  interface fp_result(Decoupled(FpExecutionResult(xlen, fp_profile, Tag)), ~role: consumer)
-  interface multiply_request(Decoupled(IntegerExecutionRequest(MultiplierRequest(xlen.width), MultiplyTag)), ~role: producer)
-  interface multiply_result(Irrevocable(IntegerExecutionResult(Bits(xlen.width * 2), MultiplyTag)), ~role: consumer)
-  interface divide_request(Decoupled(IntegerExecutionRequest(DividerRequest(xlen.width), DivideTag)), ~role: producer)
-  interface divide_result(Irrevocable(IntegerExecutionResult(DividerResponse(xlen.width), DivideTag)), ~role: consumer)
-  interface fp_update(Valid(Bits(5)), ~role: producer)
-  interface fault_start(Valid(Bits(xlen.width)), ~role: producer)
-  interface truncate(Valid(Bits(xlen.width)), ~role: producer)
-  interface retire(Pulse(), ~role: producer)
-  interface execution_done(Pulse(), ~role: producer)
-  interface saturate(Pulse(), ~role: producer)
-  interface scalar_result(Valid(RegisterFileWrite(xlen)), ~role: producer)
-  interface scalar_writeback(Decoupled(Bits(4)), ~role: producer)
-  interface floating_result(Valid(FloatingPointRegisterWrite(fp_profile)), ~role: producer)
-  output(active, sequencing, pending, stores_pending): Bool
-  output(certification_pending, loads_pending, fp_pending): Bool
-  output available: Bool
+  output active: Bool
 
   inst access(RV5StageVectorMemory(xlen, slots, ~hypervisor: hypervisor))
   inst backend(VectorBackend(xlen, vlen, if hypervisor | RiscvGuestException() | Bool, ~vector_completion_slots: slots, ~pipe: #true, ~trace_isa: trace_isa, ~multiply_latency: multiply_latency, ~fixed_fp: fixed_fp, ~fp_timing: fp_timing))
@@ -95,62 +67,21 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   access.memory <=> memory
   pipeline_physical <== access.pipeline_physical
   request_physical <== access.request_physical
-  backend.fp_request |> fp_request
-  fp_result |> backend.fp_result
-  backend.multiply_request |> multiply_request
-  multiply_result |> backend.multiply_result
-  backend.divide_request |> divide_request
-  divide_result |> backend.divide_result
-  backend.fp_update |> fp_update
-  backend.fault_start |> fault_start
-  backend.truncate |> truncate
-  backend.retire |> retire
-  backend.execution_done |> execution_done
-  backend.saturate |> saturate
-  backend.scalar_result |> scalar_result
-  backend.scalar_writeback |> scalar_writeback
+  backend.service <=> service
   // The existing single FPR owner excludes scalar arithmetic until its direct write.
   backend.floating_writeback.ready <== Bool(#true)
-  backend.floating_result |> floating_result
-  sequencing <== backend.sequencing
-  pending <== backend.pending
-  stores_pending <== backend.stores_pending
-  loads_pending <== backend.loads_pending
-  fp_pending <== backend.fp_pending
-  certification_pending <== backend.certification_pending
-  available <== backend.available
   describe_cosim_signals({"admitted": request.fire()}, ~components: {"backend": backend, "memory": access})
 
 /* Terminates the vector service boundary without state, requests, or architectural effects. */
 sync_circuit DisabledRV5StageVectorPipeline(xlen :: XLen, ~vector_completion_slots: slots :: Pow2Int = 8, ~hypervisor: hypervisor :: Boolean = #false):
-  def fp_profile = fp_transport_profile(xlen)
-  def Tag = Bits(index_width(slots))
-  def MultiplyTag = VectorMultiplyTag(slots)
-  def DivideTag = VectorDivideTag(slots)
+  interface service(VectorExecutionService(xlen, slots), ~role: executor)
   interface request(Decoupled(VectorDescriptor(xlen)), ~role: consumer)
   output(pipeline_physical, request_physical): Bool
   interface pipeline(CachePipelineAccess(xlen), ~role: requester)
   interface memory(CacheAccess(xlen, RV5StageMemoryContext(slots)), ~role: requester)
   interface outcome(Valid(VectorCommit(xlen, slots)), ~role: producer)
   interface precheck(VectorPrecheck(), ~role: requester)
-  interface fp_request(Decoupled(FpExecutionRequest(xlen, fp_profile, Tag)), ~role: producer)
-  interface fp_result(Decoupled(FpExecutionResult(xlen, fp_profile, Tag)), ~role: consumer)
-  interface multiply_request(Decoupled(IntegerExecutionRequest(MultiplierRequest(xlen.width), MultiplyTag)), ~role: producer)
-  interface multiply_result(Irrevocable(IntegerExecutionResult(Bits(xlen.width * 2), MultiplyTag)), ~role: consumer)
-  interface divide_request(Decoupled(IntegerExecutionRequest(DividerRequest(xlen.width), DivideTag)), ~role: producer)
-  interface divide_result(Irrevocable(IntegerExecutionResult(DividerResponse(xlen.width), DivideTag)), ~role: consumer)
-  interface fp_update(Valid(Bits(5)), ~role: producer)
-  interface fault_start(Valid(Bits(xlen.width)), ~role: producer)
-  interface truncate(Valid(Bits(xlen.width)), ~role: producer)
-  interface retire(Pulse(), ~role: producer)
-  interface execution_done(Pulse(), ~role: producer)
-  interface saturate(Pulse(), ~role: producer)
-  interface scalar_result(Valid(RegisterFileWrite(xlen)), ~role: producer)
-  interface scalar_writeback(Decoupled(Bits(4)), ~role: producer)
-  interface floating_result(Valid(FloatingPointRegisterWrite(fp_profile)), ~role: producer)
-  output(active, sequencing, pending, stores_pending): Bool
-  output(certification_pending, loads_pending, fp_pending): Bool
-  output available: Bool
+  output active: Bool
 
   input request_fault_address: Bits(xlen.width)
   interface split_completion(Valid(RiscvSplitResult(xlen, RV5StageMemoryContext(slots))), ~role: consumer)
@@ -176,38 +107,38 @@ sync_circuit DisabledRV5StageVectorPipeline(xlen :: XLen, ~vector_completion_slo
   precheck.request.bits <== dont_care(VectorRange())
   precheck.response.ready <== Bool(#true)
   precheck.release.valid <== Bool(#false)
-  fp_request.valid <== Bool(#false)
-  fp_request.bits <== dont_care(FpExecutionRequest(xlen, fp_profile, Tag))
-  fp_result.ready <== Bool(#true)
-  multiply_request.valid <== Bool(#false)
-  multiply_request.bits <== dont_care(IntegerExecutionRequest(MultiplierRequest(xlen.width), MultiplyTag))
-  multiply_result.ready <== Bool(#true)
-  divide_request.valid <== Bool(#false)
-  divide_request.bits <== dont_care(IntegerExecutionRequest(DividerRequest(xlen.width), DivideTag))
-  divide_result.ready <== Bool(#true)
-  fp_update.valid <== Bool(#false)
-  fp_update.bits <== Bits(5)(0)
-  fault_start.valid <== Bool(#false)
-  fault_start.bits <== Bits(xlen.width)(0)
-  truncate.valid <== Bool(#false)
-  truncate.bits <== Bits(xlen.width)(0)
-  retire.valid <== Bool(#false)
-  execution_done.valid <== Bool(#false)
-  saturate.valid <== Bool(#false)
-  scalar_result.valid <== Bool(#false)
-  scalar_result.bits <== dont_care(RegisterFileWrite(xlen))
-  scalar_writeback.valid <== Bool(#false)
-  scalar_writeback.bits <== Bits(4)(1)
-  floating_result.valid <== Bool(#false)
-  floating_result.bits <== dont_care(FloatingPointRegisterWrite(fp_profile))
+  service.fp_request.valid <== Bool(#false)
+  service.fp_request.bits <== dont_care(service.fp_request.bits.type)
+  service.fp_result.ready <== Bool(#true)
+  service.multiply_request.valid <== Bool(#false)
+  service.multiply_request.bits <== dont_care(service.multiply_request.bits.type)
+  service.multiply_result.ready <== Bool(#true)
+  service.divide_request.valid <== Bool(#false)
+  service.divide_request.bits <== dont_care(service.divide_request.bits.type)
+  service.divide_result.ready <== Bool(#true)
+  service.fp_update.valid <== Bool(#false)
+  service.fp_update.bits <== Bits(5)(0)
+  service.fault_start.valid <== Bool(#false)
+  service.fault_start.bits <== Bits(xlen.width)(0)
+  service.truncate.valid <== Bool(#false)
+  service.truncate.bits <== Bits(xlen.width)(0)
+  service.retire.valid <== Bool(#false)
+  service.execution_done.valid <== Bool(#false)
+  service.saturate.valid <== Bool(#false)
+  service.scalar_result.valid <== Bool(#false)
+  service.scalar_result.bits <== dont_care(service.scalar_result.bits.type)
+  service.scalar_writeback.valid <== Bool(#false)
+  service.scalar_writeback.bits <== Bits(4)(1)
+  service.floating_result.valid <== Bool(#false)
+  service.floating_result.bits <== dont_care(service.floating_result.bits.type)
   active <== Bool(#false)
-  sequencing <== Bool(#false)
-  pending <== Bool(#false)
-  stores_pending <== Bool(#false)
-  certification_pending <== Bool(#false)
-  loads_pending <== Bool(#false)
-  fp_pending <== Bool(#false)
-  available <== Bool(#false)
+  service.sequencing <== Bool(#false)
+  service.pending <== Bool(#false)
+  service.stores_pending <== Bool(#false)
+  service.certification_pending <== Bool(#false)
+  service.loads_pending <== Bool(#false)
+  service.fp_pending <== Bool(#false)
+  service.available <== Bool(#false)
 
 export:
   RV5StageVectorPipeline

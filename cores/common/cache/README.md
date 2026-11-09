@@ -142,6 +142,25 @@ requests and decide which frontend recovery events assert `flush`.
 The separate retryable `CacheWriteUnique` engine retains opaque context through
 retry/credit handling, DBID acquisition, write-data transfer, and completion.
 
+`UncachedInstructionMemory(xlen, config, Context, fetch_bits)` in
+[`uncached-instruction.rhdl`](uncached-instruction.rhdl) composes that data-first
+arbiter with `CHIUncachedMemory`. Its instruction port uses the
+[physical fetch protocol](../fetch/README.md); `fetch_bits` is 32 or 64 and must
+fit the transport word. It shapes aligned instruction reads and drains detached
+replies without adding a pipeline stage. The data context remains opaque.
+
+`OrderedMemoryService(CachedRequest, UncachedRequest, Response)` in
+[`ordered-service.rhdl`](ordered-service.rhdl) shares cached/IO exclusion and
+response ordering. Callers supply classified, adapted request streams and cache
+and IO drain/capacity indications. Uncached work waits for older cache work;
+cached work waits for committed IO and local management completion. Local
+management uses one response slot after drain, without inventing a device
+transaction. The response arbiter merges local, cached, and IO completions.
+`ordered_busy`, `hints_ready`, and `background_ready` expose the same ordering
+for speculative cache work, prefetches, and uncached instruction admission.
+PMA permissions, PBMT interpretation, byte-lane conversion, and fault reporting
+remain with the caller. There is no cancellation port for committed service.
+
 ## Integration and limits
 
 Callers check physical permissions, complete-access mapping, cacheability,
@@ -154,6 +173,6 @@ architectural destination and core/PTW origin context. [RV2Wide](../../rv2wide/R
 owns an ordered completion FIFO and requests raw beats. Frontends, MMUs, and named
 core CHI endpoint composition remain outside this package. The shared arbiter
 implements owner retention and cancellation; the integrating core chooses flush
-policy and orders cached traffic against IO.
+policy and connects classified data paths through the shared ordering component.
 The [detailed L1D contract](l1d/README.md) describes SRAM scheduling, reservation
 protection, maintenance, and coherence behavior.

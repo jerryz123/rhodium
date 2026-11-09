@@ -49,7 +49,7 @@ completion adaptation and instruction/uncached integration.
 | [`../common/reservation-wait.rhdl`](../common/reservation-wait.rhdl) | Shared WRS timeout/wakeup mechanism; the core retains its WB instruction and qualifies TW/VTW |
 | [`../common/integer-format.rhdl`](../common/integer-format.rhdl) | Scalar multiply/divide operand and result formatting, independent of service ownership |
 | [`mmu/DEVELOPING.md`](mmu/DEVELOPING.md) | TLBs, demand translation, best-effort prefetch probes, and page-table walking |
-| [`instruction-memory-router.rhdl`](instruction-memory-router.rhdl), [`memory-router.rhdl`](memory-router.rhdl), [`uncached-protocol.rhdl`](uncached-protocol.rhdl) | Physical-region routing, data IO-MSHR composition, and the shared uncached protocol |
+| [`../common/fetch/memory.rhdl`](../common/fetch/memory.rhdl), [`memory-router.rhdl`](memory-router.rhdl), [`uncached-protocol.rhdl`](uncached-protocol.rhdl) | Shared physical fetch routing, local data admission/IO-MSHR composition, and data routing metadata |
 | [`cache.rhdl`](../common/cache/geometry.rhdl) | Shared RV5Stage cache geometry and way/lane masks |
 | [`chi/DEVELOPING.md`](chi/DEVELOPING.md) | Physical-region/Home policy, RN identity, cache transaction engines, and the shared uncached RN-I implementation |
 | [`icache/DEVELOPING.md`](icache/DEVELOPING.md), [`../common/cache/DEVELOPING.md`](../common/cache/DEVELOPING.md) | Named fetch metadata and shared physical instruction/data caches |
@@ -1138,7 +1138,7 @@ with no D-cache traffic or ROM CompAck. Its C++ driver checks the public CHI
 transactions and boot-ROM output words directly. Keep simulator entry programming and SoC
 BootROM policy separate from this core-level regression.
 
-For instruction-router flow changes, select `rv5stage-instruction-memory-router`
+For instruction-router flow changes, select `instruction-memory32` and `instruction-memory64`
 and `rv5stage-io-boot`. The router bench covers registered cached outcomes, S1 kill, explicit replay,
 exactly-once uncached acceptance, stalled IO, and flush cancellation.
 

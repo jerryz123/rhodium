@@ -1262,7 +1262,9 @@ vector FP without adding another execution unit or FPR write port.
 `vector.rhdl` also exposes `SuperscalarVectorPipeline(xlen, vlen)` as an independently
 usable service. It composes the shared sequencer, VRF, SIMD datapath, and
 completion scoreboard with Superscalar lookup, ordered-memory, and split-access
-interfaces. `SuperscalarCore` supplies the architectural integration:
+interfaces. Its shared arithmetic, results, and lifetime summaries use
+[`VectorExecutionService`](../common/vector/README.md) at `service`; the FPR
+scheduling claim remains separate. `SuperscalarCore` supplies the architectural integration:
 
 - At most one vector operation issues per cycle. Its partner follows the
   common [dependency and resource checks](#execution-and-ordering), not a vector

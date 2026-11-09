@@ -1,0 +1,55 @@
+#lang rhodium
+/* Groups shared vector arithmetic, architectural results, and lifetime summaries. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../fp/profile.rhm".fp_transport_profile
+  "../fp/bundles.rhdl" open
+  "../fp/register-file.rhdl".FloatingPointRegisterWrite
+  "../integer-execution.rhdl" open
+  "../register-write.rhdl" open
+  "../multiplier.rhdl" open
+  "../divider.rhdl" open
+  "muldiv.rhdl" open
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("rhodium/std/bits.rhdl") open
+  lib("rhodium/std/ready-valid.rhdl") open
+
+/* Sizes a complete multiplication result before the consumer selects a scalar word or half. */
+fun vector_product_width(xlen :: XLen) :: PosInt:
+  xlen.width * 2
+
+/* Connects the backend to scalar execution services without selecting LSU or writeback policy.
+   Descriptor admission, precise outcomes, and total wrapper activity remain separate.
+   The FPR scheduling claim stays local because the cores use different ownership policies. */
+interface VectorExecutionService(xlen :: XLen, slots :: Pow2Int):
+  role executor
+  role core
+  provider executor
+  executor -> core:
+    fp_request: Decoupled(FpExecutionRequest(xlen, fp_transport_profile(xlen), Bits(index_width(slots))))
+    multiply_request: Decoupled(IntegerExecutionRequest(MultiplierRequest(xlen.width), VectorMultiplyTag(slots)))
+    divide_request: Decoupled(IntegerExecutionRequest(DividerRequest(xlen.width), VectorDivideTag(slots)))
+    fp_update: Valid(Bits(5))
+    fault_start: Valid(Bits(xlen.width))
+    truncate: Valid(Bits(xlen.width))
+    retire: Pulse()
+    execution_done: Pulse()
+    saturate: Pulse()
+    scalar_result: Valid(RegisterFileWrite(xlen))
+    scalar_writeback: Decoupled(Bits(4))
+    floating_result: Valid(FloatingPointRegisterWrite(fp_transport_profile(xlen)))
+    sequencing: Bool
+    pending: Bool
+    stores_pending: Bool
+    loads_pending: Bool
+    fp_pending: Bool
+    certification_pending: Bool
+    available: Bool
+
+  core -> executor:
+    fp_result: Decoupled(FpExecutionResult(xlen, fp_transport_profile(xlen), Bits(index_width(slots))))
+    multiply_result: Irrevocable(IntegerExecutionResult(Bits(vector_product_width(xlen)), VectorMultiplyTag(slots)))
+    divide_result: Irrevocable(IntegerExecutionResult(DividerResponse(xlen.width), VectorDivideTag(slots)))
+
+export VectorExecutionService

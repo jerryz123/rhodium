@@ -1029,7 +1029,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
       wb_vector.pipeline_guest_fault <== pipeline_guest
   | #void
 
-  wb_vector.scalar_writeback |> map_flow(delay => delay.zext(wb_calendar_width)) |> wb_gpr_calendar.reserve[0]
+  wb_vector.service.scalar_writeback |> map_flow(delay => delay.zext(wb_calendar_width)) |> wb_gpr_calendar.reserve[0]
   inst wb_vector_retirement(OfferRegister(RV5StageRetirementCommand(xlen, vector_completion_slots, hypervisor)))
   def wb_vector_context = wb_input.bits.vector_context
   def wb_vector_vd = instruction_field(riscv_fields.rd, wb_vector_context.instruction)
@@ -1045,18 +1045,18 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   | ex_vector_operation_legal <== Bool(#false)
 
   wb_vector_active <== wb_vector.active ||| wb_vector_integer_write_pending
-  wb_vector_certification_pending <== wb_vector.certification_pending
-  wb_vector_loads_pending <== wb_vector.loads_pending
-  wb_vector_fp_pending <== wb_vector.fp_pending
+  wb_vector_certification_pending <== wb_vector.service.certification_pending
+  wb_vector_loads_pending <== wb_vector.service.loads_pending
+  wb_vector_fp_pending <== wb_vector.service.fp_pending
   wb_vector.precheck |> vector_precheck
-  wb_vector_stores_pending <== wb_vector.stores_pending
-  wb_vector.multiply_request |> wb_vector_multiply_request_link.left
-  wb_vector_multiply_result_link.right |> wb_vector.multiply_result
-  wb_vector.divide_request |> wb_vector_divide_request_link.left
-  wb_vector_divide_result_link.right |> wb_vector.divide_result
-  wb_vector.fp_request |> wb_vector_fp_request_link.left
-  wb_vector_fp_result_link.right |> wb_vector.fp_result
-  wb_vector.fp_update |> wb_vector_fp_update_link.left
+  wb_vector_stores_pending <== wb_vector.service.stores_pending
+  wb_vector.service.multiply_request |> wb_vector_multiply_request_link.left
+  wb_vector_multiply_result_link.right |> wb_vector.service.multiply_result
+  wb_vector.service.divide_request |> wb_vector_divide_request_link.left
+  wb_vector_divide_result_link.right |> wb_vector.service.divide_result
+  wb_vector.service.fp_request |> wb_vector_fp_request_link.left
+  wb_vector_fp_result_link.right |> wb_vector.service.fp_result
+  wb_vector.service.fp_update |> wb_vector_fp_update_link.left
   wb_vector.memory <=> memory_ports.vector
   wb_vector.pipeline <=> memory_ports.vector_pipeline
   def wb_vector_masking_unchanged = (wb_vector_context.pointer_masking.mode === wb_csrs.pointer_masking.mode) & (wb_vector_context.pointer_masking.virtual_address === wb_csrs.pointer_masking.virtual_address)
@@ -1088,7 +1088,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   vector_fast.request_physical <== wb_vector.request_physical
   wb_vector_replay <== wb_vector_launch.valid & !wb_vector_sink_ready
   wb_vector_launch |> filter_valid(descriptor => wb_vector_accepted & descriptor.control.integer & descriptor.control.scalar_destination & wb_vector_vd.any()) |> map_valid(_descriptor => wb_vector_vd) |> wb_vector_reserve_link.left
-  wb_vector.floating_result |> wb_fp.vector_write
+  wb_vector.service.floating_result |> wb_fp.vector_write
   when (wb_fp.vector_reserve.fire()):
     wb_vector_fp_write_pending <== Bool(#true)
   elsewhen (wb_fp.vector_write.valid):
@@ -1111,11 +1111,11 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   ) |> wb_vector_retirement_link.left
 
   wb_vector_truncate <== wb_vector.outcome.valid & (wb_vector.outcome.bits.disposition === VectorDisposition.Truncate)
-  wb_vector.fault_start |> wb_csrs.vector_fault_start
-  wb_vector.truncate |> wb_csrs.vector_truncate
-  wb_csrs.vector_retire.valid <== wb_vector.retire.valid ||| (Bool(vector_enabled) & wb_commit_valid & wb_commit_bits.vector_launch & !wb_commit_bits.exception_valid)
-  wb_vector.saturate |> wb_csrs.vector_saturate
-  wb_vector.scalar_result |> wb_vector_scalar_result_link.left
+  wb_vector.service.fault_start |> wb_csrs.vector_fault_start
+  wb_vector.service.truncate |> wb_csrs.vector_truncate
+  wb_csrs.vector_retire.valid <== wb_vector.service.retire.valid ||| (Bool(vector_enabled) & wb_commit_valid & wb_commit_bits.vector_launch & !wb_commit_bits.exception_valid)
+  wb_vector.service.saturate |> wb_csrs.vector_saturate
+  wb_vector.service.scalar_result |> wb_vector_scalar_result_link.left
   assert(!(wb_vector_accepted & wb_vector_replay), "rv5stage_wb_vector_accept_does_not_replay")
   assert(!wb_vector_replay ||| !wb_vector.request.fire(), "rv5stage_wb_vector_replay_has_no_admission")
 

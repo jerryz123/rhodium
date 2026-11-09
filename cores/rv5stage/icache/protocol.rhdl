@@ -1,5 +1,5 @@
 #lang rhodium
-/* Defines instruction words, fixed-latency fetch attempts, and ordered slow transactions. */
+/* Defines RV5Stage instruction words, fixed-cycle fetch attempts, and architectural faults. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -41,26 +41,8 @@ interface RV5StageFetchAccess(xlen :: XLen, hypervisor :: Boolean):
   responder -> requester:
     response: Valid(RV5StageFetchResult(hypervisor))
 
-/* Pairs physical S1 resolution with a registered S2 hit/fault/replay outcome.
-   Long-lived work survives replay; flush detaches its consumer, not accepted bus traffic. */
-interface RV5StageInstructionLookup(RequestType :: HardwareType):
-  role requester
-  role responder
-  provider requester
-
-  requester -> responder:
-    flush: Bool
-    invalidate_all: Bool
-    s1_kill: Bool
-    request: Valid(RequestType)
-
-  responder -> requester:
-    response: Valid(RV5StageFetchResult(#false))
-
-
 export:
   RV5StageFetchResult
   RV5StageFetchAccess
-  RV5StageInstructionLookup
   RV5StageInstructionReq
   RV5StageInstructionResp

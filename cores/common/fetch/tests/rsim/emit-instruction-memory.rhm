@@ -1,0 +1,11 @@
+#lang rhombus
+// Exports shared physical fetch routers for word and eight-byte block replay oracles.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  "../../memory.rhdl".InstructionMemoryRouter
+
+def word = elaborate(InstructionMemoryRouter(64, 32))
+def block = elaborate(InstructionMemoryRouter(64, 64))
+export word block

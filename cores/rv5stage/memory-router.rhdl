@@ -8,6 +8,7 @@ import:
   "../common/cache/protocol.rhdl" open
   "../common/cache/operation.rhdl" open
   "../common/cache/io-mshr.rhdl".IOMSHR
+  "../common/cache/ordered-service.rhdl".OrderedMemoryService
   "uncached-protocol.rhdl" open
   "../../riscv/isa/xlen.rhm".XLen
   "../../riscv/rtl/pma.rhdl" open
@@ -29,7 +30,7 @@ sync_circuit RV5StageMemoryRouter(xlen :: XLen,
   /* Retained uncached capacity
      Request capacity is independent of the response sink to avoid a flush-ready loop. */
 
-  inst uncached_management(Queue(PhysicalMemoryResp(xlen, RV5StageMemoryContext(vector_completion_slots)), 1))
+  inst ordering(OrderedMemoryService(PhysicalMemoryReq(xlen, RV5StageMemoryContext(vector_completion_slots)), UncachedMemoryReq(xlen, RV5StageMemoryContext(vector_completion_slots)), PhysicalMemoryResp(xlen, RV5StageMemoryContext(vector_completion_slots))))
   inst io_mshr(IOMSHR(xlen, RV5StageMemoryContext(vector_completion_slots)))
   io_mshr.memory |> uncached
 
@@ -53,9 +54,12 @@ sync_circuit RV5StageMemoryRouter(xlen :: XLen,
 
   // Readiness reports registered slot availability. Unlike drained it does
   // not include a same-cycle acceptance, avoiding a cross-path ready loop.
-  def cache_available = io_mshr.core.request.ready & !uncached_management.egress.valid
-  ordered_busy <== !cache_available
-  def uncached_available = cache.drained & !uncached_management.egress.valid
+  ordering.cache_drained <== cache.drained
+  ordering.io_drained <== io_mshr.core.drained
+  ordering.io_available <== io_mshr.core.request.ready
+  ordered_busy <== ordering.ordered_busy
+  ordering.cache_request |> cache.request
+  ordering.io_request |> io_mshr.core.request
   def Array(cache_requests, uncached_requests, management_requests) = (
     core.request
       |> filter_flow(_request => request_permitted)
@@ -66,21 +70,20 @@ sync_circuit RV5StageMemoryRouter(xlen :: XLen,
   // The static physical map forbids cached copies of these regions. After
   // permission checks and older traffic drain, maintenance needs no device IO.
   (
-    management_requests |> gate_flow(cache.drained & io_mshr.core.request.ready & uncached_management.ingress.ready)
+    management_requests
       |> map_flow(request => PhysicalMemoryResp(xlen, RV5StageMemoryContext(vector_completion_slots))):
          access_fault: Bool(#false)
          data: Bits(xlen.width)(0)
          context: request.context
-  ) |> uncached_management.ingress
+  ) |> ordering.management
 
-  cache_requests |> gate_flow(cache_available) |> cache.request
+  cache_requests |> ordering.cached
   (
     uncached_requests
-      |> gate_flow(uncached_available)
       |> map_flow(request => UncachedMemoryReq(xlen, RV5StageMemoryContext(vector_completion_slots))):
           request: request
           device: attributes.strongly_ordered
-  ) |> io_mshr.core.request
+  ) |> ordering.uncached
 
 
   /* Fault reporting and completion return
@@ -91,8 +94,10 @@ sync_circuit RV5StageMemoryRouter(xlen :: XLen,
   core.request_fault <== core.request.valid & request_permitted & !local_management & selected_request_fault
   core.request_access_fault <== core.request.valid & (!request_permitted ||| (!local_management & selected_access_fault))
 
-  Array(uncached_management.egress, io_mshr.core.response, cache.response) |> arbiter() |> core.response
-  core.drained <== cache.drained & io_mshr.core.drained & !uncached_management.egress.valid & !management_requests.fire()
+  cache.response |> ordering.cache_response
+  io_mshr.core.response |> ordering.io_response
+  ordering.response |> core.response
+  core.drained <== ordering.drained
   core.reservation_valid <== cache.reservation_valid
   assert(!(cache.response.valid & io_mshr.core.response.valid),
          "rv5stage_memory_response_paths_exclusive")

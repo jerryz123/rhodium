@@ -96,7 +96,7 @@ void stimulus() {
                        UINT64_C(0xaaaabbbb12345678)));
     settle();
     CHECK(instruction_out.presponse.pvalid &&
-          instruction_out.presponse.pbits.pword == UINT64_C(0x44332211) &&
+          instruction_out.presponse.pbits.pdata == UINT64_C(0x44332211) &&
           !chi_out.pdat.presponse.pready && !core_out.presponse.pvalid);
     instruction_in.presponse.pready = UINT64_C(1);
     settle();

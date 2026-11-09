@@ -33,6 +33,8 @@ vector slots, trap causes, or core/PTW routing decisions into cache state.
 | `chi/refill.rhdl`, `chi/writeback.rhdl`, `chi/snoop.rhdl` | Retained acquisition, victim, and snoop lifetimes |
 | `io-mshr.rhdl` | Opaque-context committed IO retention, from admission through final response |
 | `uncached-arbiter.rhdl` | Data-first fetch/data arbitration, retained response ownership, and detached-fetch draining |
+| `uncached-instruction.rhdl` | Width-selected physical fetch shaping and shared CHI transport composition |
+| `ordered-service.rhdl` | Cached/IO exclusion, one local-management completion slot, and response merge |
 | `chi/uncached.rhdl`, `chi/write-unique.rhdl` | Nonallocating RN-I service and retryable partial-width write transport |
 
 ## Change workflow
@@ -62,6 +64,18 @@ RV2Wide's translated adapter additionally requires ordinary idempotent memory,
 checks probe availability/address bounds, and gates the outgoing flush cycle.
 Keep these differences in the callers; use `rv5stage-mmu-replay` and
 `rv2wide-mmu` for prefetch changes.
+
+`OrderedMemoryService` takes already-classified streams and opaque payloads.
+Preserve registered IO capacity as the cached-admission condition, separately
+from drain, to avoid a request/response-ready cycle. The caller owns IOMSHR,
+PMA/PBMT checks, fault sidebands, speculative indexing, and beat adaptation.
+Do not introduce new buffering on the cached or IO request paths. The sole
+local-management slot replaces the callers' previous one-entry queues.
+
+`UncachedInstructionMemory` composes existing ownership and transport without
+another request stage. The frontend controls cancellation; committed data never
+inherits it. Keep fetch response draining on the detached owner and retain data
+priority even while a canceled instruction reply drains.
 
 Keep existing `dcache/*` event names and retained transaction lineage stable;
 named-core integration must not summarize an entire cache as a fake trace

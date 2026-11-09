@@ -3,20 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/common/fp/profile.rhm").fp_transport_profile
+  lib("cores/common/vector/service.rhdl").VectorExecutionService
   lib("cores/common/vector/admission.rhdl") open
   lib("cores/common/mmu/vector.rhdl") open
-  lib("cores/common/integer-execution.rhdl") open
-  lib("cores/common/register-write.rhdl") open
-  "../fp/bundles.rhdl" open
   "../fp/timing.rhdl" open
   "../cosim-source.rhm".describe_cosim_signals
   "bundles.rhdl" open
   "pipeline.rhdl" open
-  "muldiv.rhdl" open
-  "../multiplier.rhdl" open
-  "../divider.rhdl" open
-  "../fp/register-file.rhdl".FloatingPointRegisterWrite
   "../../../riscv/isa/vector.rhm" open
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/rtl/pointer-masking.rhdl" open
@@ -35,32 +28,13 @@ sync_circuit VectorBackend(xlen :: XLen, vlen :: VectorLength, Fault :: DataType
                            ~packed_multiply: packed_multiply :: Boolean = #false,
                            ~fixed_fp: fixed_fp :: Boolean = #false,
                            ~fp_timing: fp_timing :: FpExecutionTiming = FpExecutionTiming()):
-  def fp_profile = fp_transport_profile(xlen)
   def Tag = Bits(index_width(slots))
-  def MultiplyTag = VectorMultiplyTag(slots)
-  def DivideTag = VectorDivideTag(slots)
+  interface service(VectorExecutionService(xlen, slots), ~role: executor)
   interface request(Decoupled(VectorDescriptor(xlen)), ~role: consumer)
   interface outcome(Valid(VectorCommit(xlen, slots)), ~role: producer)
   interface precheck(VectorPrecheck(), ~role: requester)
-  interface fp_request(Decoupled(FpExecutionRequest(xlen, fp_profile, Tag)), ~role: producer)
-  interface fp_result(Decoupled(FpExecutionResult(xlen, fp_profile, Tag)), ~role: consumer)
-  interface multiply_request(Decoupled(IntegerExecutionRequest(MultiplierRequest(xlen.width), MultiplyTag)), ~role: producer)
-  interface multiply_result(Irrevocable(IntegerExecutionResult(Bits(xlen.width * 2), MultiplyTag)), ~role: consumer)
-  interface divide_request(Decoupled(IntegerExecutionRequest(DividerRequest(xlen.width), DivideTag)), ~role: producer)
-  interface divide_result(Irrevocable(IntegerExecutionResult(DividerResponse(xlen.width), DivideTag)), ~role: consumer)
-  interface fp_update(Valid(Bits(5)), ~role: producer)
-  interface fault_start(Valid(Bits(xlen.width)), ~role: producer)
-  interface truncate(Valid(Bits(xlen.width)), ~role: producer)
-  interface retire(Pulse(), ~role: producer)
-  interface execution_done(Pulse(), ~role: producer)
-  interface saturate(Pulse(), ~role: producer)
-  interface scalar_result(Valid(RegisterFileWrite(xlen)), ~role: producer)
-  interface scalar_writeback(Decoupled(Bits(4)), ~role: producer)
   interface floating_writeback(Decoupled(Bits(4)), ~role: producer)
-  interface floating_result(Valid(FloatingPointRegisterWrite(fp_profile)), ~role: producer)
-  output(active, sequencing, pending, stores_pending): Bool
-  output(certification_pending, loads_pending, fp_pending): Bool
-  output available: Bool
+  output active: Bool
   interface issue(Decoupled(VectorToken(xlen, Bits(xlen.width), slots)), ~role: producer)
   interface decision(Valid(VectorCommit(xlen, slots)), ~role: consumer)
   interface completion(Decoupled(VectorCompletion(xlen, slots)), ~role: consumer)
@@ -86,7 +60,7 @@ sync_circuit VectorBackend(xlen :: XLen, vlen :: VectorLength, Fault :: DataType
   admission.precise_fault <== precise_fault
   admission.outcome |> outcome
   outcome_fault <== admission.outcome_fault
-  available <== admission.available
+  service.available <== admission.available
   store <== admission.store
   pointer_masking <== admission.pointer_masking
 
@@ -101,29 +75,29 @@ sync_circuit VectorBackend(xlen :: XLen, vlen :: VectorLength, Fault :: DataType
   execution.cancel.valid <== Bool(#false)
   execution.schedule_enable <== !execution.memory_start_pending ||| memory_start_ready
   execution.memory_drained <== memory_drained
-  execution.fp_request |> fp_request
-  fp_result |> execution.fp_result
-  execution.multiply_request |> multiply_request
-  multiply_result |> execution.multiply_result
-  execution.divide_request |> divide_request
-  divide_result |> execution.divide_result
-  execution.fp_update |> fp_update
-  execution.fault_start |> fault_start
-  execution.truncate |> truncate
-  retire.valid <== outcome.valid & (outcome.bits.disposition =/= VectorDisposition.Fault)
-  execution.retire |> execution_done
-  execution.saturate |> saturate
-  execution.scalar_result |> scalar_result
-  execution.scalar_writeback |> scalar_writeback
+  execution.fp_request |> service.fp_request
+  service.fp_result |> execution.fp_result
+  execution.multiply_request |> service.multiply_request
+  service.multiply_result |> execution.multiply_result
+  execution.divide_request |> service.divide_request
+  service.divide_result |> execution.divide_result
+  execution.fp_update |> service.fp_update
+  execution.fault_start |> service.fault_start
+  execution.truncate |> service.truncate
+  service.retire.valid <== outcome.valid & (outcome.bits.disposition =/= VectorDisposition.Fault)
+  execution.retire |> service.execution_done
+  execution.saturate |> service.saturate
+  execution.scalar_result |> service.scalar_result
+  execution.scalar_writeback |> service.scalar_writeback
   execution.floating_writeback |> floating_writeback
-  execution.floating_result |> floating_result
+  execution.floating_result |> service.floating_result
   active <== execution.active ||| admission.active
-  sequencing <== execution.sequencing
-  pending <== execution.pending
-  stores_pending <== execution.stores_pending ||| admission.stores_pending
-  loads_pending <== execution.loads_pending ||| admission.loads_pending
-  fp_pending <== execution.fp_pending ||| admission.fp_pending
-  certification_pending <== admission.certification_pending
+  service.sequencing <== execution.sequencing
+  service.pending <== execution.pending
+  service.stores_pending <== execution.stores_pending ||| admission.stores_pending
+  service.loads_pending <== execution.loads_pending ||| admission.loads_pending
+  service.fp_pending <== execution.fp_pending ||| admission.fp_pending
+  service.certification_pending <== admission.certification_pending
   describe_cosim_signals({}, ~components: {"execution": execution})
 
 export VectorBackend

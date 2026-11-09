@@ -4,7 +4,7 @@
 
 import:
   lib("cores/common/fetch/fault.rhdl") open
-  lib("cores/common/fetch/protocol.rhdl").PhysicalInstructionReq
+  lib("cores/common/fetch/protocol.rhdl") open
   "../bundles.rhdl" open
   "../profile.rhm".SuperscalarPipelineConfig
   "instruction-assembler.rhdl" open
@@ -73,7 +73,7 @@ sync_circuit SuperscalarFrontend(config :: RiscvHartCHIConfig, profile :: Supers
   interface start(Valid(Bits(64)), ~role: consumer)
   interface redirect(Valid(SuperscalarRedirect(xlen)), ~role: consumer)
   interface flush(Pulse(), ~role: consumer)
-  interface memory(SuperscalarInstructionLookup(), ~role: requester)
+  interface memory(PhysicalInstructionLookup(64, 64), ~role: requester)
   interface invalidate(Pulse(), ~role: consumer)
   interface virtual_lookup(Decoupled(Bits(64)), ~role: producer)
   interface translation(SuperscalarInstructionTranslation(xlen), ~role: requester)
