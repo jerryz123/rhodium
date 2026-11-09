@@ -390,6 +390,20 @@ void falling_update() {}
 
 enum class Continuation { Complete, Fault, Flush };
 unsigned tracked_action = 0, prefix_actions = 0, return_repairs = 0;
+bool track_stalled_fallback = false;
+unsigned fallback_pulses = 0;
+
+extern "C" void observe_fallback_feedback(std::uint64_t rst, std::uint64_t redirect,
+    std::uint64_t address, std::uint64_t discover, std::uint64_t valid,
+    std::uint64_t pc, std::uint64_t target) {
+  if (rst || !track_stalled_fallback)
+    return;
+  CHECK(redirect == discover);
+  if (redirect) {
+    CHECK(!request_ready && address == 3074 && valid && pc == 2818 && target == address);
+    ++fallback_pulses;
+  }
+}
 
 extern "C" void observe_return_repair(
     std::uint64_t rst, std::uint64_t speculate, std::uint64_t link, std::uint64_t action,
@@ -623,6 +637,7 @@ void stimulus() {
     initialize(3);
     train(UINT64_C(1282), UINT64_C(1536), 1);
     start(UINT64_C(1280));
+    settle(); // Drop the initial restart pulse before waiting for the repair.
     while (!memory_out.pflush)
       falling();
     restart_valid = 1;
@@ -631,6 +646,12 @@ void stimulus() {
     falling();
     restart_valid = 0;
     expect_pc(UINT64_C(1792), UINT64_C(1796));
+    // Revisit the repaired word without clearing the BTB. If its upper-half
+    // entry survived recovery, the next accepted request would be 1536.
+    expected_requests = {1280, 1284};
+    start(1280);
+    expect_pc(1280, 1284);
+    CHECK(expected_requests.empty() && local_flushes == 0);
 
     initialize(4);
     train(UINT64_C(256), UINT64_C(512), 0, 0, 1, UINT64_C(1));
@@ -779,6 +800,8 @@ void stimulus() {
     // Retaining that offer must retain the exact S2 cause, not the younger S1.
     initialize(11);
     output_ready = 0;
+    track_stalled_fallback = true;
+    fallback_pulses = 0;
     fallback_trace_expect(UINT64_C(2820), UINT64_C(3074), 3);
     start(UINT64_C(2818));
     while (!(memory_in.presponse.pvalid &&
@@ -787,12 +810,22 @@ void stimulus() {
     request_ready = 0;
     for (int repeat_index = 0; repeat_index < (5); ++repeat_index)
       falling();
+    CHECK(fallback_pulses == 1);
+    expected_requests = {3072, 3076};
     request_ready = 1;
     for (int repeat_index = 0; repeat_index < (3); ++repeat_index)
       falling();
     output_ready = 1;
     for (int repeat_index = 0; repeat_index < (5); ++repeat_index)
       falling();
+    CHECK(expected_requests.empty() && fallback_pulses == 1);
+    track_stalled_fallback = false;
+    // On a warm lookup S1 follows the discovered target immediately after
+    // requesting the continuation, before S2 could discover it again.
+    expected_requests = {2816, 2820, 3072};
+    start(2818);
+    expect_pc(2818, 3074);
+    CHECK(expected_requests.empty());
     initialize(16);
     const auto actual = (UINT64_C(1) << 45) + 0x300;
     train(0x100, actual, 0);

@@ -4,7 +4,7 @@
 
 import:
   lib("cores/common/bpred/protocol.rhdl") open
-  lib("cores/common/pc.rhdl") open
+  lib("riscv/isa/xlen.rhm").XLen
   "source.rhdl" open
   "packet.rhdl" open
   "scan.rhdl" open
@@ -13,6 +13,11 @@ import:
   "../icache/protocol.rhdl" open
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
+
+/* A stale BTB entry needs invalidation and restart; a discovered prediction needs training and redirect. */
+tagged_union RV5StageFetchCorrection(xlen :: XLen):
+  Repair(RV5StageFetchRepair(xlen))
+  Fallback(BranchPrediction(xlen, xlen.width))
 
 /* Reserves capacity from registered queue/S1/S2 occupancy and pairs fixed-cycle
    memory outcomes with scanned packets. Recovery clears the epoch; replay and
@@ -27,17 +32,17 @@ sync_circuit RV5StageFrontend(core_profile :: RV5StageConfig, ~btb_entries: btb_
   interface packets(Decoupled(QueuePacket), ~role: producer)
 
 
-  /* Recovery and delayed redirect owners.
-     Architectural recovery supersedes repair; repair supersedes the delayed
-     fallback redirect. Neither path introduces another packet buffer. */
+  /* Registered S2 correction. Recovery supersedes either redirect, but does
+     not suppress invalidation of an already identified stale BTB entry. */
 
   def recovery = control.flush.valid ||| control.restart.valid ||| control.invalidate_all.valid
-  inst repair(ValidPipe(RV5StageFetchRepair(xlen), 1, ~flushable: #true))
-  def command = recovery ||| repair.egress.valid
-  inst late_return(ValidPipe(BranchPrediction(xlen, xlen.width), 1, ~flushable: #true))
-  def fallback_redirect = late_return.egress |> filter_valid(_prediction => !command)
-  repair.flush <== recovery ||| fallback_redirect.valid
-  late_return.flush <== command
+  def Correction = RV5StageFetchCorrection(xlen)
+  inst correction(ValidPipe(Correction, 1, ~flushable: #true))
+  correction.flush <== recovery
+  def Array(repair_event, fallback_event) = correction.egress |> fork_valid(2)
+  def repair = repair_event |> filter_valid(event => event.is(Correction.Repair)) |> map_valid(event => event.view(Correction.Repair).payload)
+  def fallback_redirect = fallback_event |> filter_valid(event => !recovery & event.is(Correction.Fallback)) |> map_valid(event => event.view(Correction.Fallback).payload)
+  def command = recovery ||| repair.valid
 
 
   /* Fixed S1/S2 attempts and reserved packet queue.
@@ -54,8 +59,10 @@ sync_circuit RV5StageFrontend(core_profile :: RV5StageConfig, ~btb_entries: btb_
      Repair discards younger attempts, retaining the corrected S2 packet and
      older queue/residual contents. Full recovery also restores the RAS. */
 
-  scan.repair |> repair.ingress
-  def Array(repair_restart, repair_invalidate) = repair.egress |> fork_valid(2)
+  def repair_candidate = scan.repair |> map_valid(details => Correction.Repair(details))
+  def fallback_candidate = scan.fallback |> filter_valid(_prediction => queue.ingress.ready) |> map_valid(prediction => Correction.Fallback(prediction))
+  Array(repair_candidate, fallback_candidate) |> valid_arbiter() |> correction.ingress
+  def Array(repair_restart, repair_invalidate) = repair |> fork_valid(2)
   Array(control.restart, repair_restart |> filter_valid(_repair => !recovery) |> map_valid(repair => repair.pc)) |> valid_arbiter() |> source.restart
   repair_invalidate |> map_valid(repair => repair.entry) |> source.predictor_invalidate
   control.predictor_flush |> source.predictor_flush
@@ -68,8 +75,6 @@ sync_circuit RV5StageFrontend(core_profile :: RV5StageConfig, ~btb_entries: btb_
   scan.ras_head <== source.ras_head
   def queued = queue.egress |> filter_flow(_packet => !recovery)
   queued |> packets
-  def accepted_fallback = scan.fallback |> filter_valid(_prediction => !command & queue.ingress.ready)
-  accepted_fallback |> late_return.ingress
   def Array(fallback_target, fallback_discovery) = fallback_redirect |> fork_valid(2)
   fallback_target |> map_valid(prediction => prediction.target) |> source.redirect
   fallback_discovery |> source.btb_discover

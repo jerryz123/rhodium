@@ -26,6 +26,10 @@ def target = traced_target(site_header, EventInstrumentationConfig(~partial: #tr
     ["speculate_out", "valid"], ["speculate_out", "bits", "return_address"], ["speculate_out", "bits", "action"],
     ["fallback_out", "valid"], ["fallback_out", "bits", "valid"], ["fallback_out", "bits", "pc"],
     ["fallback_out", "bits", "target"], ["fallback_out", "bits", "compressed"], ["fallback_out", "bits", "ras_action"]
+  ]],
+  ["RV5StageFetchSource", "observe_fallback_feedback", [
+    ["redirect_in", "valid"], ["redirect_in", "bits"], ["btb_discover_in", "valid"],
+    ["btb_discover_in", "bits", "valid"], ["btb_discover_in", "bits", "pc"], ["btb_discover_in", "bits", "target"]
   ]]
 ])])
 export program target

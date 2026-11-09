@@ -91,8 +91,10 @@ the old valid alias, rejects a wrong-path store, and checks full-width mepc/mtva
 
 Scanner packet, repair, and fallback outputs derive from explicit ingress
 forks. Keep fallback gating and payload unchanged when mapping its Flow
-branch: the existing late-redirect pipe and cursor retain the triggering S2
-occurrence. This identifies the fallback's triggering packet, not provenance
+branch: one registered correction carries either repair or fallback, with repair
+first in priority. Recovery suppresses both redirects but not an already pending
+BTB invalidation. A fallback trains once; the cursor retains its target and the
+triggering S2 occurrence if issuance stalls. This identifies the triggering packet, not provenance
 of retained predictor/halfword state. No manual event edge or extra checkpoint
 is needed. `rv5stage-fetch-prediction` checks exact S2-to-S0 parent occurrences
 for direct/compressed jumps, returns, straddles, and blocked redirect issuance
