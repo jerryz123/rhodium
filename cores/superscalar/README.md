@@ -601,9 +601,12 @@ Each failed fetch reports its own requested PC as its fault address. Assembly
 preserves that address when a continuation fault belongs to an earlier instruction.
 Valid direction metadata uses PC-derived bimodal/chooser indices and parcel bits;
 the four current-block predictions share the lookup row supplied by parcel zero.
-The preceding prefix has its own lookup row. All five recovery histories and
-chooser observations survive buffering independently; invalid training indices
-are unspecified. Invalid producer addresses or valid direction indices are rejected.
+The preceding prefix has its own lookup row. A block's recovery history starts
+before that prefix; each valid conditional appends its predicted outcome before
+the next parcel. Every instruction sees the same pre-instruction history and
+chooser observations whether bypassed or buffered, including nonbranches.
+Inconsistent histories, invalid producer addresses, and incorrect indices on valid
+predictions are rejected; indices on invalid predictions are unspecified.
 Integrated predictions sign-extend destinations from the fixed RV32/Sv39 PC
 width. Unrepresentable targets may
 alias; execution still resolves against the exact architectural target and

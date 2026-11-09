@@ -18,23 +18,29 @@ void clear_assembly() {
   CHECK(available == 3);
 }
 
+unsigned seed(std::uint64_t pc) { return ((pc >> 3) ^ 0x155) & 1023; }
+
 Block block(std::uint64_t pc, std::uint64_t data) {
   Block result{};
   result.ppc = pc;
   result.pdata = data;
+  unsigned history = ((seed(pc) << 1) | 1) & 1023;
   for (unsigned i = 0; i < 4; ++i) {
     auto &direction = result.pdirections[i];
-    direction.pvalid = true;
+    direction.pvalid = i == 1 || i == 2;
+    direction.ptaken = i != 1;
     direction.pindex = (0x180 | i);
     direction.pbase_uindex = ((pc & ~UINT64_C(7)) / 2 + i) & 4095;
-    direction.phistory = (pc / 8 + i) & 1023;
+    direction.phistory = history;
+    if (direction.pvalid) history = ((history << 1) | direction.ptaken) & 1023;
     direction.pbase_utaken = i & 1;
     direction.pgshare_utaken = !(i & 1);
   }
   result.pprefix_udirection = result.pdirections[3];
+  result.pprefix_udirection.pvalid = true;
   result.pprefix_udirection.pindex = 0x2af;
   result.pprefix_udirection.pbase_uindex = ((pc & ~UINT64_C(7)) / 2 - 1) & 4095;
-  result.pprefix_udirection.phistory = 0x155;
+  result.pprefix_udirection.phistory = seed(pc);
   return result;
 }
 
@@ -54,12 +60,16 @@ void check_token(const Instruction &actual, const Expected &expected) {
   CHECK(actual.pinstruction == 0x13); // C.NOP and ADDI x0,x0,0.
   CHECK(actual.psequential_upc == expected.pc + expected.bytes);
   CHECK(!actual.pcompressed_uillegal && !actual.pfault.pvalid);
-  CHECK(!actual.pprediction.pvalid && actual.pdirection.pvalid);
+  CHECK(!actual.pprediction.pvalid);
   CHECK(actual.pdirection.pindex % 4 == (expected.pc / 2) % 4);
   CHECK(actual.pdirection.pbase_uindex == (expected.pc / 2) % 4096);
   const bool straddles = expected.pc % 8 == 6 && expected.bytes == 4;
-  CHECK(actual.pdirection.phistory == (straddles ? 0x155 :
-      ((expected.pc & ~UINT64_C(7)) / 8 + (expected.pc / 2) % 4) % 1024));
+  const auto parcel = (expected.pc / 2) % 4;
+  const auto initial = seed(expected.pc);
+  const unsigned checkpoints[] = {(initial << 1) | 1, (initial << 1) | 1,
+                                  (initial << 2) | 2, (initial << 3) | 5};
+  CHECK(bool(actual.pdirection.pvalid) == (straddles || parcel == 1 || parcel == 2));
+  CHECK(actual.pdirection.phistory == (straddles ? seed(expected.pc + 2) : checkpoints[parcel] & 1023));
 }
 
 void parcel_streams() {
@@ -171,6 +181,29 @@ void third_lane_control() {
   CHECK(instructions_out.pvalid && instructions_out.pbits.pentries[0].ppc == 0x4006);
 }
 
+void stalled_history_bypass() {
+  clear_assembly();
+  constexpr std::uint64_t pc = 0x735a0;
+  blocks_in.pbits = block(pc, UINT64_C(0x0001000100010001));
+  blocks_in.pvalid = true;
+  eval();
+  CHECK(blocks_out.pready && instructions_out.pvalid && instructions_out.pbits.pcount == 3);
+  const auto bypass = instructions_out.pbits;
+  tick_model();
+  blocks_in.pvalid = false;
+  for (unsigned stall = 0; stall < 3; ++stall) {
+    blocks_in.pbits = block(pc + (stall + 1) * 8, 0);
+    eval();
+    CHECK(instructions_out.pvalid && instructions_out.pbits.pcount == bypass.pcount);
+    for (unsigned lane = 0; lane < 3; ++lane) {
+      const auto &entry = instructions_out.pbits.pentries[lane];
+      check_token(entry, {pc + lane * 2, 2, 1});
+      CHECK(entry.pdirection.phistory == bypass.pentries[lane].pdirection.phistory);
+    }
+    tick_model();
+  }
+}
+
 void continuation_faults() {
   for (unsigned cause : {0u, 1u, 12u, 20u}) {
     clear_assembly();
@@ -201,6 +234,7 @@ int main() {
     tick_model();
     reset = false;
     parcel_streams();
+    stalled_history_bypass();
     third_lane_control();
     continuation_faults();
     // Clear must suppress both resident and live-bypass offers.

@@ -80,6 +80,10 @@ for (xlen in [XLen.X32, XLen.X64]):
   def queue_storage = fifo.memories.find(fun (mem): mem.name == "storage")
   def multiply = child(execution, "ex_multiply")
   def frontend = child(core, "frontend")
+  def assembler = child(frontend, "assembler")
+  def offer = assembler.find_input("blocks_in").type.field("bits").type
+  def block_data = offer.field("block_data").type
+  def retained = assembler.operations.find(fun (op): op.opcode == "rtl.register" && op.attribute("name") == "retained")
   def s2 = child(frontend, "s2")
   def attempt = s2.find_output("egress_out").type.field("bits").type
   def cursor_width = if xlen == XLen.X32 | 32 | 40
@@ -90,6 +94,10 @@ for (xlen in [XLen.X32, XLen.X64]):
     attempt.field("source_offset").type.width ~is 3
     attempt.field("cursor").type.field("pc").type.width ~is cursor_width
     child(frontend, "s1").find_output("egress_out").type.field("bits").type ~is attempt.field("cursor").type
+    block_data.field("history_seed").type.width ~is 10
+    block_data.field("directions").type.packed_width() ~is 4 * 4
+    offer.packed_width() ~is block_data.packed_width() + 4 * 10
+    retained.results[0].type.packed_width() ~is 3 * block_data.packed_width()
     hint.field("target").type.packed_width() ~is pc_width
     hint.packed_width() ~is pc_width + 4 // Valid, length, and RAS action.
     completed.field("identity").type.packed_width() ~is pc_width + 32

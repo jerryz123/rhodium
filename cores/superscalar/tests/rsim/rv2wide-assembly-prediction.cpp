@@ -170,6 +170,16 @@ void observe() {
     }
   }
 }
+void drive_histories() {
+  const auto &prefix = blocks_in.pbits.pprefix_udirection;
+  unsigned history = prefix.phistory;
+  if (prefix.pvalid) history = ((history << 1) | prefix.ptaken) & 0x3ff;
+  for (auto &direction : blocks_in.pbits.pdirections) {
+    direction.phistory = history;
+    if (direction.pvalid) history = ((history << 1) | direction.ptaken) & 0x3ff;
+  }
+}
+
 void offer(std::uint64_t pc, std::uint64_t data, std::uint64_t pred_pc = 0,
            std::uint64_t pred_target = 0, std::uint8_t compressed = 0,
            std::uint8_t fault = 0, std::array<Direction, 4> directions = {},
@@ -182,6 +192,7 @@ void offer(std::uint64_t pc, std::uint64_t data, std::uint64_t pred_pc = 0,
                 {pred_pc != 0, pred_pc, pred_target, compressed, UINT64_C(0)},
                 directions,
                 prefix}};
+  drive_histories();
   accept([&] { return blocks_out.pready; });
   falling();
   blocks_in = {};
@@ -249,7 +260,9 @@ void compact_storage_tests() {
     blocks_in.pbits.pfault.pvalue = ~first; // Absent fault payload canonicalizes to zero.
     blocks_in.pbits.pprediction = {false, ~first, target, false, 0};
     blocks_in.pbits.pdirections[0].pindex = 0xabc;
-    blocks_in.pbits.pdirections[3] = {true, 0xabf, 0x125, false, std::uint16_t((first >> 1) & 0xfff), true, false};
+    blocks_in.pbits.pprefix_udirection.phistory = 0x125;
+    blocks_in.pbits.pdirections[3] = {true, 0xabf, 0, false, std::uint16_t((first >> 1) & 0xfff), true, false};
+    drive_histories();
     settle();
     CHECK(blocks_out.pready && instructions_out.pvalid);
     const Packet bypass = instructions_out.pbits;
@@ -308,8 +321,10 @@ void prediction_owner_tests() {
       blocks_in.pbits.pdata = UINT64_C(0x8102) << (16 * parcel); // C.JR x2.
       blocks_in.pbits.pprediction = {true, pc, target, true, 0};
       blocks_in.pbits.pdirections[0].pindex = 0x554;
-      blocks_in.pbits.pdirections[parcel] = {true, std::uint16_t(0x554 + parcel), std::uint16_t(0x299 + parcel),
+      blocks_in.pbits.pprefix_udirection.phistory = 0x299 + parcel;
+      blocks_in.pbits.pdirections[parcel] = {true, std::uint16_t(0x554 + parcel), 0,
                                            false, std::uint16_t((pc >> 1) & 0xfff), true, false};
+      drive_histories();
       settle();
       CHECK(instructions_out.pvalid && instructions_out.pbits.pcount == 1);
       const Packet bypass = instructions_out.pbits;
@@ -363,6 +378,7 @@ void prediction_owner_tests() {
     blocks_in.pbits.pdata = 1; // Upper halfword of JALR x0,x2,0.
     blocks_in.pbits.pprediction = {true, pc, target, false, 0};
     blocks_in.pbits.pprefix_udirection = {true, 0xe97, 0x2ac, false, std::uint16_t((pc >> 1) & 0xfff), false, true};
+    drive_histories();
     settle();
     CHECK(instructions_out.pvalid && instructions_out.pbits.pcount == 1);
     const Packet bypass = instructions_out.pbits;
@@ -399,7 +415,7 @@ void direction_contract_tests() {
     instructions_in.pready = false;
     std::array<Direction, 4> directions{};
     directions[0].pindex = 0x554;
-    directions[2] = {true, 0x556, 0x321, false, 0x802, true, false};
+    directions[2] = {true, 0x556, 0, false, 0x802, true, false};
     Direction prefix{true, 0xe97, 0x125, false, 0x7ff, false, true};
     if (mutation == 0) directions[2].pindex ^= 4; // Row differs from the saved main row.
     if (mutation == 1) directions[2].pindex ^= 1; // Wrong parcel.
@@ -411,6 +427,15 @@ void direction_contract_tests() {
     });
     blocks_in = {};
   }
+  // A nonbranch's saved history is still observable on recovery.
+  clear();
+  falling();
+  blocks_in = {};
+  blocks_in.pvalid = true;
+  blocks_in.pbits.ppc = 0x123000;
+  blocks_in.pbits.pdirections[2].phistory = 1;
+  expect_failure("superscalar_assembly_parcel_histories", [&] { rising(); });
+  blocks_in = {};
   clear();
 }
 
@@ -724,14 +749,16 @@ int main() {
             write_bits(bytes, (second_parcel + 1) * 16, 16, UINT64_C(1));
           for (int parcel = 0; parcel < 4; parcel++) {
             first_directions[parcel] = {UINT64_C(1), std::uint16_t(0x554 + parcel),
-                                        std::uint16_t(17 + parcel), UINT64_C(0), std::uint16_t(((base >> 1) + parcel) & 0xfff), 1, 0};
+                                        0, UINT64_C(0), std::uint16_t(((base >> 1) + parcel) & 0xfff), 1, 0};
             second_directions[parcel] = {UINT64_C(1), std::uint16_t(0xaa8 + parcel),
-                                         std::uint16_t(29 + parcel), UINT64_C(0), std::uint16_t(((base >> 1) + 4 + parcel) & 0xfff), 0, 1};
+                                         0, UINT64_C(0), std::uint16_t(((base >> 1) + 4 + parcel) & 0xfff), 0, 1};
           }
           prefix = {UINT64_C(1), UINT64_C(0xe97), UINT64_C(0x355), UINT64_C(0), std::uint16_t(((base >> 1) + 3) & 0xfff), 1, 0};
           expected_pc.push_back(pc);
           expected_pc.push_back(second_pc);
-          offer(pc, bits(bytes, 63, 0), 0, 0, 0, 0, first_directions);
+          Direction first_prefix{};
+          first_prefix.phistory = 17;
+          offer(pc, bits(bytes, 63, 0), 0, 0, 0, 0, first_directions, first_prefix);
           offer(base + 8, bits(bytes, 127, 64), 0, 0, 0, 0, second_directions,
                 prefix);
           CHECK(instructions_out.pvalid && instructions_out.pbits.pcount == 2);
@@ -745,7 +772,7 @@ int main() {
             size = lane == 0 ? first_bytes : second_bytes;
             const bool straddles = parcel == 3 && size == 4;
             CHECK(instructions_out.pbits.pentries[lane].pdirection.phistory ==
-                  (straddles ? 0x355 : parcel < 4 ? 17 + parcel : 29 + parcel - 4));
+                  (straddles ? 0x355 : parcel < 4 ? (17 << parcel) : ((0x355 << (parcel - 3)) & 0x3ff)));
             CHECK(instructions_out.pbits.pentries[lane].pdirection.pindex ==
                   (straddles ? 0xe97 : parcel < 4 ? 0x554 + parcel : 0xaa8 + parcel - 4));
             CHECK(instructions_out.pbits.pentries[lane].pdirection.pbase_uindex == (((base >> 1) + parcel) & 0xfff) &&

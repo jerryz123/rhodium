@@ -937,8 +937,8 @@ duplicate it. Reconstruct the full fault before assembly selects an instruction'
 owner: a straddle retains the continuation's VA, not the prefix's PC. Guest
 provenance remains independent. The frontend and standalone assembler use the
 same fixed RV32/Sv39 PC domain as the issue window. Normalize incoming blocks
-once at the producer; live bypass and resident selection use that same type, so a
-stall that captures the bypass cannot change the visible packet. Absent fault
+once at the producer. A stall that captures the bypass must not change the
+visible packet. Absent fault
 payloads and invalid targets become zero, and a fault suppresses any provisional
 BTB prediction. Store prediction ownership as one of four current-block parcels
 or the preceding block's final parcel, not another XLEN-wide PC. Admission checks
@@ -951,9 +951,14 @@ bimodal/chooser index from that instruction's PC. Admission asserts these indice
 for valid predictions; parcel zero supplies the main row even when its prediction
 is invalid. Invalid indices are not an observable training contract. Never derive
 a lookup row from the per-parcel recovery history: S1 captured the row before S2
-walked the conditional branches. Keep all five ten-bit histories and their four
-flags intact; the prefix checkpoint is independent. Do not change the three
-credits, release rules, or ready path when changing this representation.
+walked the conditional branches. Capture one ten-bit history seed (the prefix's
+pre-update history) and each position's valid, taken, base, and gshare flags.
+On resident reads, start at the seed and append each valid outcome, prefix
+first; each parcel observes the history **before** its own update. Live bypass
+uses S2's already-computed histories without a second scan. Assert equality
+at admission for all four parcels, including invalid predictions: nonbranch
+recovery still uses their history. Only the compact block moves between slots;
+the three credits, release rules, and ready path do not change.
 
 The frontend also selects this PC width for speculative BTB/RAS destinations.
 Direction correction and assembler direct/return fallbacks normalize targets
@@ -1897,8 +1902,8 @@ slots with independent faults or mixed normal/fault owners and exercise stalls,
 live-bypass capture, continuation ownership, and recovery. They check physical
 upper bits, sign-extended PCs, normalized speculative targets, sequential boundary
 faults, and fault suppression of speculative predictions. Distinct saved lookup
-rows and per-parcel histories check reconstructed training indices through stalls,
-straddles, and XLEN wrap. Invalid producer indices and mismatched fetch-PC/fault-VA
+rows and ordered parcel histories check reconstructed checkpoints through stalls,
+straddles, and XLEN wrap. Inconsistent histories, invalid producer indices, and mismatched fetch-PC/fault-VA
 pairs must fail admission. The H variant also
 checks guest provenance and rejection of an out-of-range successful compact PC.
 Local repair clears block ownership on the following cycle; it must

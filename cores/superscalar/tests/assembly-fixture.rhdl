@@ -13,7 +13,8 @@ import:
 
 /* Carries one aligned block's contents, first requested byte, and any block admission/read fault.
    A fault's VA equals pc; continuation assembly preserves that VA separately from the instruction PC.
-   Valid direction indices use one shared main row and PC-derived parcel/base indices.
+   Direction histories follow the ordered conditional updates starting at the prefix;
+   valid indices use one shared main row and PC-derived parcel/base indices.
    A valid prediction names a halfword in this block or the preceding straddling prefix. */
 bundle AssemblyStimulus(xlen :: XLen, hypervisor :: Boolean):
   pc: Bits(xlen.width)
