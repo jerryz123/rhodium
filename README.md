@@ -383,19 +383,3 @@ Current capabilities include:
   support, privilege and trap state, coherent L1 caches, CHI integration, and
   experimental RV64 hypervisor support. See
   [`cores/rv5stage/README.md`](cores/rv5stage/README.md) for its current contract.
-
-## Deferred work
-
-- Memory initialization, masks on asynchronous-read memories, general
-  multi-port synchronous memories, and defined inter-port collisions
-- Asynchronous reset, reset-polarity metadata, and reset-domain crossing analysis
-- Runtime-loaded operation dialects
-- Multi-role protocols, optional interface fields, and generated protocol
-  assertions
-- Unrestricted user-authored IR mutation and rewriting; the supported
-  [instrumentation pipeline](rhodium/compile/README.md#ordered-rtl-instrumentation)
-  requires preservation of functional behavior, top-level interfaces, existing
-  instance paths, and metadata
-
-Contributor-facing hardening priorities are tracked in
-[`DEVELOPING.md`](DEVELOPING.md#maintain-compatibility-and-generated-artifacts).
