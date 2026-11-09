@@ -787,20 +787,22 @@ successor when array admission or block credits prevent a request.
 Instruction metadata survives issue-window compaction and every pipeline stage.
 Do not infer prediction ownership from a lane or an aligned block PC.
 
-The cursor and S1/S2 attempts retain the canonical `BranchPrediction(xlen, width)`, with both
-prediction addresses bounded by the frontend's predictor width. BTB source
-admission and BTB/RAS target normalization establish that bound before capture;
-assert it on valid S1 predictions. Restore public prediction metadata by sign
-extension, not offsets from the current fetch PC: a continuation or replay can
-carry an earlier instruction's hint. Keep the requested PC and complete fault
-payload at XLEN until block capture, including sequential crossings and
+The cursor and S1 retain the hint (valid, target, length, and RAS action), not
+its source PC. A valid ordinary BTB hit must be in the lookup's eight-byte
+block. S2 keeps its three-bit byte offset; for a continuation the offset is
+six and the source block is the preceding block, modulo the predictor width.
+Reconstruct the source once for direction correction, invalidation, and
+assembly. Never reconstruct the target relative to the block: the original
+BTB/RAS destination survives backpressure and replay. Keep the requested PC
+and complete fault payload at XLEN until block capture, including sequential crossings and
 continuation-page faults. Nonrepresentable architectural redirects are rejected
 in the backend, not admitted to these attempts.
 Preserve all valid, length, RAS, direction-row, and replay fields and the existing
 capture/clear priorities. Compaction must not add a stage or change block credits.
-The `rv2wide-frontend-retention`, `rv2wide-frontend-retention-h`, and
-`rv2wide-bht-retention` fixtures hold continuations across BTB retraining and
-replay, check negative and wraparound PCs/targets under packet backpressure,
+The `rv2wide-frontend-retention`, `superscalar-frontend-three-retention`,
+`rv2wide-frontend-retention-h`, and `rv2wide-bht-retention` fixtures hold
+continuations across BTB retraining, translation replay, and cache replay.
+They check negative and wraparound PCs and targets under packet backpressure
 and verify exact full-width redirect and continuation fault addresses.
 
 Assembly validates predictions while expanding the existing two candidate

@@ -3,7 +3,7 @@
 #include "fetch-fault.hpp"
 
 std::uint64_t prefix_pc = 0, target_pc = 0, fault_pc = 0;
-bool inject_fault = false, replay_once = false;
+bool inject_fault = false, replay_once = false, replay_translation_once = false;
 bool response_valid = false, response_replay = false;
 std::uint64_t response_data = 0;
 unsigned continuation_requests = 0, target_requests = 0;
@@ -22,6 +22,8 @@ void settle() {
     translation_in = {physical(pc), {0, 0, 0, {}}, 0};
     if (inject_fault && pc == fault_pc)
       translation_in.presolution = {1, 12, pc, {}}; // Instruction page fault.
+    else if (replay_translation_once && pc == prefix_pc + 2)
+      translation_in.presolution = {2, 0, 0, {}};
   }
   eval();
 }
@@ -34,6 +36,9 @@ void cycle() {
   const bool request = !reset && memory_out.prequest.pvalid &&
                        !memory_out.ps1_ukill && !memory_out.pflush;
   const auto address = memory_out.prequest.pbits.paddress;
+  const bool translation_retry = replay_translation_once && translation_out.prequest.pvalid &&
+                                 translation_out.prequest.pbits == prefix_pc + 2;
+  if (translation_retry) CHECK(!request);
   bool next_replay = false;
   if (request && address == 0x108) {
     ++continuation_requests;
@@ -44,6 +49,7 @@ void cycle() {
                     address == 0x108 ? UINT64_C(0x0001000100010001) :
                     UINT64_C(0x0010001300100013);
   tick_model();
+  if (translation_retry) replay_translation_once = false;
   response_valid = request;
   response_replay = next_replay;
   response_data = data;
@@ -52,7 +58,7 @@ void cycle() {
 
 void initialize(std::uint64_t pc, std::uint64_t target, bool replay, bool fault) {
   prefix_pc = pc; target_pc = target; fault_pc = pc + 2;
-  inject_fault = fault; replay_once = replay;
+  inject_fault = fault; replay_once = replay; replay_translation_once = false;
   response_valid = false; response_replay = false;
   continuation_requests = 0; target_requests = 0;
   reset = 1;
@@ -68,8 +74,10 @@ void initialize(std::uint64_t pc, std::uint64_t target, bool replay, bool fault)
   cycle(); branch_update_in = {};
 }
 
-void run_prefix(std::uint64_t pc, std::uint64_t target, bool replay, bool fault) {
+void run_prefix(std::uint64_t pc, std::uint64_t target, bool replay, bool fault,
+                bool replay_translation = false) {
   initialize(pc, target, replay, fault);
+  replay_translation_once = replay_translation;
   virtual_lookup_in.pready = 1;
   settle();
   CHECK(virtual_lookup_out.pvalid && virtual_lookup_out.pbits == (pc & ~UINT64_C(7)));
@@ -105,6 +113,7 @@ void run_prefix(std::uint64_t pc, std::uint64_t target, bool replay, bool fault)
     cycle();
   }
   if (replay) CHECK(continuation_requests >= 2);
+  CHECK(!replay_translation_once);
   if (!fault) CHECK(target_requests > 0);
   instructions_in.pready = 1;
   cycle();
@@ -115,6 +124,8 @@ int main() {
     for (auto pc : {UINT64_C(0x1ffe), UINT64_C(0xffffffc000000ffe), UINT64_MAX - 1})
       for (auto target : {UINT64_C(0x0000003ffffff800), UINT64_C(0xffffffc000000800)})
         for (bool replay : {false, true}) run_prefix(pc, target, replay, false);
+    // Lose the same continuation twice: once at translation, then at the cache.
+    run_prefix(UINT64_C(0xffffffc000000ffe), 0x800, true, false, true);
     // Crossing the positive compact limit faults at the exact, nonrepresentable continuation PC.
     run_prefix(UINT64_C(0x0000003ffffffffe), 0x800, false, true);
     run_prefix(UINT64_MAX - 1, 0x800, false, true);

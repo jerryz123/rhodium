@@ -241,6 +241,7 @@ superscalar-assembly-three	cores-components	cores/superscalar/tests/rsim/emit-rv
 superscalar-frontend-three	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-frontend-prediction.rhm	three_program	cores/superscalar/tests/rsim/rv2wide-frontend-prediction.cpp
 rv2wide-frontend-prediction	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-frontend-prediction.rhm	program	cores/superscalar/tests/rsim/rv2wide-frontend-prediction.cpp
 rv2wide-frontend-retention	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-frontend-prediction.rhm	program	cores/superscalar/tests/rsim/rv2wide-frontend-retention.cpp
+superscalar-frontend-three-retention	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-frontend-prediction.rhm	three_program	cores/superscalar/tests/rsim/rv2wide-frontend-retention.cpp
 rv2wide-frontend-retention-h	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-frontend-prediction.rhm	guest_program	cores/superscalar/tests/rsim/rv2wide-frontend-retention.cpp
 rv2wide-bht-retention	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-bht.rhm	program	cores/superscalar/tests/rsim/rv2wide-frontend-retention.cpp
 rv2wide-bht	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-bht.rhm	program	cores/superscalar/tests/rsim/rv2wide-bht.cpp

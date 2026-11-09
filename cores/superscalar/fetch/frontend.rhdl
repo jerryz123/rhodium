@@ -23,10 +23,10 @@ import:
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
-/* Retains a requested PC and the original prediction for a trailing-instruction continuation. */
+/* A continuation carries the hint for byte six of the preceding eight-byte block. */
 bundle SuperscalarFetchCursor(xlen :: XLen):
   pc: Bits(xlen.width)
-  prediction: BranchPrediction(xlen, compact_pc_width(xlen))
+  prediction: SuperscalarLanePrediction(xlen)
   continuation: Bool
   row: Bits(10)
   hashed: Bool
@@ -35,8 +35,22 @@ bundle SuperscalarFetchCursor(xlen :: XLen):
 /* Retains predictor ownership and permission outcomes through the cache-result stage. */
 bundle SuperscalarFetchAttempt(xlen :: XLen, hypervisor :: Boolean):
   cursor: SuperscalarFetchCursor(xlen)
+  source_offset: Bits(3)
   replay: Bool
   fault: FetchBlockFault(xlen, hypervisor)
+
+  /* Ordinary hits belong to this block. A continuation's predecessor wraps at
+     the predictor width; neither reconstruction changes the target or fault VA. */
+  method branch_prediction(attempt) :: BranchPrediction(xlen, compact_pc_width(xlen)):
+    def block_index = attempt.cursor.pc[3..compact_pc_width(xlen)]
+    def previous = block_index - Bits(compact_pc_width(xlen) - 3)(1)
+    def hint = attempt.cursor.prediction
+    BranchPrediction(xlen, compact_pc_width(xlen)):
+      valid: hint.valid
+      pc: mux(attempt.cursor.continuation, previous, block_index) ++ attempt.source_offset
+      target: hint.target.low
+      compressed: hint.compressed
+      ras_action: hint.ras_action
 
 /* Issues one eight-byte block per cycle on hits and emits up to group_width instructions.
    Reserves returned-block storage before each lookup.
@@ -116,16 +130,17 @@ sync_circuit SuperscalarFrontend(config :: RiscvHartCHIConfig, profile :: Supers
   assembler.pause <== predictor_restore.valid
   def use_ras_target = btb.prediction.ras_action.is_one_of(RasAction.Pop, RasAction.PopPush) & ras.head_valid & !restore
   def ordinary_target = mux(use_ras_target, ras.head, btb.prediction.target)
-  def ordinary_prediction = BranchPrediction(xlen, pc_width):
+  def ordinary_prediction = SuperscalarLanePrediction(xlen):
     valid: btb.prediction.valid
-    pc: btb.prediction.pc[0..pc_width]
-    target: ordinary_target[0..pc_width]
+    target: CompactPc.prediction(xlen, ordinary_target)
     compressed: btb.prediction.compressed
     ras_action: btb.prediction.ras_action
 
-  def prediction :: BranchPrediction(xlen, pc_width) = mux(s1.egress.bits.continuation, s1.egress.bits.prediction, ordinary_prediction)
+  def prediction :: SuperscalarLanePrediction(xlen) = mux(s1.egress.bits.continuation, s1.egress.bits.prediction, ordinary_prediction)
+  def source_offset = mux(s1.egress.bits.continuation, Bits(3)(6), btb.prediction.pc[0..3])
   when (s1.egress.valid & !s1.egress.bits.continuation & btb.prediction.valid):
     assert(CompactPc.fits(xlen, btb.prediction.pc), "superscalar_cursor_prediction_pc_fits")
+    assert(btb.prediction.pc.align_down(8) === s1.egress.bits.pc.align_down(8), "superscalar_prediction_source_block")
     assert(CompactPc.fits(xlen, ordinary_target), "superscalar_cursor_prediction_target_fits")
 
 
@@ -133,7 +148,7 @@ sync_circuit SuperscalarFrontend(config :: RiscvHartCHIConfig, profile :: Supers
      Replay retains the current attempt for retry; fault stops further fetch. */
 
   def result :: SuperscalarFetchAttempt(xlen, hypervisor) = s2.egress.bits
-  def s2_prediction :: BranchPrediction(xlen, pc_width) = result.cursor.prediction
+  def s2_prediction = result.branch_prediction()
   def result_fault = result.fault.valid ||| (memory.response.valid & memory.response.bits.access_fault)
   def replay = s2.egress.valid & !result.fault.valid & (result.replay ||| (memory.response.valid & memory.response.bits.replay)) & !command
   def fault = s2.egress.valid & !replay & result_fault & !command
@@ -198,9 +213,9 @@ sync_circuit SuperscalarFrontend(config :: RiscvHartCHIConfig, profile :: Supers
      S1 prediction feeds S0 directly. Recovery cancels younger reservations,
      but direction correction still reserves the retained S2 response. */
 
-  def straddle = prediction.valid & (prediction.address()[0..3] === Bits(3)(6)) & !prediction.compressed & !s1.egress.bits.continuation
+  def straddle = prediction.valid & (source_offset === Bits(3)(6)) & !prediction.compressed & !s1.egress.bits.continuation
   def next_cursor = SuperscalarFetchCursor(xlen):
-    pc: mux(s1.egress.bits.continuation ||| (prediction.valid & !straddle), prediction.destination(), s1.egress.bits.pc.align_down(8) + Bits(xlen.width)(8))
+    pc: mux(s1.egress.bits.continuation ||| (prediction.valid & !straddle), prediction.target.expanded(), s1.egress.bits.pc.align_down(8) + Bits(xlen.width)(8))
     prediction: prediction
     continuation: straddle
     row: Bits(10)(0)
@@ -278,7 +293,7 @@ sync_circuit SuperscalarFrontend(config :: RiscvHartCHIConfig, profile :: Supers
   def looked_up = s1.egress |> filter_valid(_pc => !kill_younger) |> trace_valid_event("frontend/s1.lookup", ~fields: address):
     pc: address.pc
     predicted: prediction.valid
-    target: prediction.destination()
+    target: prediction.target.expanded()
     replay: translation_replay
     fault: denied
 
@@ -292,6 +307,7 @@ sync_circuit SuperscalarFrontend(config :: RiscvHartCHIConfig, profile :: Supers
   (contexts |> map_valid(address):
     wire attempt: SuperscalarFetchAttempt(xlen, hypervisor)
     attempt.cursor <== address.updated(~prediction: prediction, ~row: mux(address.hashed, address.row, address.pc[3..13] ^ s1_history), ~hashed: Bool(#true), ~base_taken: mux(address.hashed, address.base_taken, bht.base_taken))
+    attempt.source_offset <== source_offset
     attempt.replay <== translation_replay & !misaligned
     attempt.fault.valid <== denied
     attempt.fault.cause <== fault_cause
@@ -334,7 +350,7 @@ sync_circuit SuperscalarFrontend(config :: RiscvHartCHIConfig, profile :: Supers
     | fetch_fault.guest <== attempt.fault.guest
     | #void
 
-    def offered_prediction :: BranchPrediction(xlen, pc_width) = mux(Bool(profile.bht), direction.corrected, attempt.cursor.prediction)
+    def offered_prediction :: BranchPrediction(xlen, pc_width) = mux(Bool(profile.bht), direction.corrected, s2_prediction)
     fetch_block(xlen, hypervisor,
                 attempt.cursor.pc, memory.response.bits.data, fetch_fault,
                 offered_prediction.valid, offered_prediction.address(), offered_prediction.destination(), offered_prediction.compressed, offered_prediction.ras_action,
