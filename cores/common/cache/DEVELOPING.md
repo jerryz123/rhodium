@@ -21,7 +21,7 @@ vector slots, trap causes, or core/PTW routing decisions into cache state.
 |---|---|
 | `config.rhm`, `geometry.rhdl` | Immutable VIPT geometry and way/lane masks |
 | `udb.rhm` | Reservation and cache-maintenance policy declarations; integrating cores retain split-access and alignment-fault guarantees |
-| `access.rhdl` | Whole-access PMA footprint and permission classification; callers supply read/write intent, atomic-service restrictions, and alignment |
+| `access.rhdl` | Whole-access PMA footprint, split-fragment permission, and committed route selection |
 | `prefetch.rhdl` | Aligned whole-line PMA/PBMT classification and operation-specific permissions, without staging or final eligibility |
 | `operation.rhdl`, `protocol.rhdl` | Physical operations, fixed-cycle lookup, authorization, completion |
 | `l1d/cache.rhdl` | SRAM scheduling, set-isolated hit-under-miss, retained service, coherence, LR/SC |
@@ -54,9 +54,10 @@ window independently of reservation validity and drain accepted probes.
 Keep admission policy explicit at callers of `access.rhdl`: RV2Wide requires
 readable cached service for atomics and checks natural alignment at committed
 physical admission; RV5Stage retains its separate translation/alignment boundary.
-Management permissions and physical cacheability are independent of PBMT;
-ordinary cacheability uses the resolved PMA/PBMT attributes. The helper owns no
-transaction, queue, or speculative-versus-committed scheduling.
+Use `committed_cache_route` for the three demultiplexer outputs in enum order.
+Pass the aligned translated address, fragment byte count, and selected PBMT to
+`cache_fragment_permitted`. The physical address can be wider than XLEN.
+The MMUs retain fault priority and the address reported for each fragment.
 
 `prefetch.rhdl` shares physical classification, not hint admission. RV5Stage
 checks cacheability/permission and cancels staged hints at the clock edge.

@@ -35,8 +35,12 @@ sync_circuit SuperscalarMemoryPorts(xlen :: XLen, slots :: Pow2Int):
      These stage registers do not track accepted slow-memory requests. */
 
   pipeline_vector <== !scalar_pipeline.request.valid
+  def slow = SuperscalarLookupResult(xlen):
+    outcome: SuperscalarCacheOutcome.Slow
+    data: Bits(xlen.width)(0)
+    guest: literal(RiscvGuestFault(), 0)
   def (_, mem_vector) = arbitrate_memory_lookups(
-    SuperscalarMemoryReq(xlen, xlen.width, Bool), SuperscalarLookupResult(xlen), scalar_pipeline, vector_pipeline, pipeline
+    SuperscalarMemoryReq(xlen, xlen.width, Bool), SuperscalarLookupResult(xlen), scalar_pipeline, vector_pipeline, pipeline, ~slow: slow
   )
 
 

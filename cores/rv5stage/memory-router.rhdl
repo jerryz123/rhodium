@@ -40,13 +40,10 @@ sync_circuit RV5StageMemoryRouter(xlen :: XLen,
 
   def request :: PhysicalMemoryReq(xlen, RV5StageMemoryContext(vector_completion_slots)) = core.request.bits.memory
   def operation = request.access
-  def management = operation.is_cache_management()
   def physical = cache_access_region(xlen, physical_map, request.address, request.width, operation)
   def attributes = resolve_memory_attributes(physical, core.request.bits.pbmt)
   def request_permitted = cache_access_permitted(physical, operation, ~reads: operation.returns_old_value(), ~writes: operation.needs_unique())
-  // Maintenance must still reach cached aliases when PBMT disables allocation.
-  def request_is_uncached = !mux(management, physical.cacheable, attributes.cacheable)
-  def local_management = management & request_is_uncached
+  def route = committed_cache_route(operation, physical, attributes)
 
 
   /* Ordered path admission
@@ -64,7 +61,7 @@ sync_circuit RV5StageMemoryRouter(xlen :: XLen,
     core.request
       |> filter_flow(_request => request_permitted)
       |> map_flow(request => request.memory)
-      |> demux_flow(3, _request => mux(local_management, Bits(2)(2), request_is_uncached.as_bits().zext(2)))
+      |> demux_flow(3, _request => route.as_bits())
   )
 
   // The static physical map forbids cached copies of these regions. After
@@ -89,10 +86,12 @@ sync_circuit RV5StageMemoryRouter(xlen :: XLen,
   /* Fault reporting and completion return
      Local maintenance has no path fault; all retained completions return through one arbiter. */
 
-  def selected_request_fault = mux(request_is_uncached, io_mshr.core.request_fault, cache.request_fault)
-  def selected_access_fault = mux(request_is_uncached, io_mshr.core.request_access_fault, cache.request_access_fault)
-  core.request_fault <== core.request.valid & request_permitted & !local_management & selected_request_fault
-  core.request_access_fault <== core.request.valid & (!request_permitted ||| (!local_management & selected_access_fault))
+  def cached = route === CacheServiceRoute.Cached
+  def uncached_io = route === CacheServiceRoute.Uncached
+  def selected_request_fault = (cached & cache.request_fault) ||| (uncached_io & io_mshr.core.request_fault)
+  def selected_access_fault = (cached & cache.request_access_fault) ||| (uncached_io & io_mshr.core.request_access_fault)
+  core.request_fault <== core.request.valid & request_permitted & selected_request_fault
+  core.request_access_fault <== core.request.valid & (!request_permitted ||| selected_access_fault)
 
   cache.response |> ordering.cache_response
   io_mshr.core.response |> ordering.io_response

@@ -75,8 +75,8 @@ release; they must not consult a subsequent macro's window.
 Ordinary loads and stores have a pipeline-aligned `pipeline` interface. EX launches
 `pipeline_lookup` directly into L1D and registers the address and operation controls.
 In MEM the DTLB resolves that captured request in parallel with SRAM outputs.
-The MMU forwards only permitted cacheable, non-device physical requests to
-`pipeline_memory`; loads must also be read-idempotent. MEM reports an explicit
+The MMU forwards permitted loads and stores to `pipeline_memory` only for
+cacheable, read-idempotent memory with relaxed ordering. MEM reports an explicit
 load hit, store candidate, replay, slow-service need, or page/access fault.
 WB store authorization passes through to the matching cache candidate.
 This path never starts a speculative walk or device transaction.

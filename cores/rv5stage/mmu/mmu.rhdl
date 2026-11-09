@@ -10,6 +10,7 @@ import:
   lib("cores/common/mmu/vector.rhdl") open
   lib("cores/common/mmu/context.rhdl") open
   "../../common/cache/protocol.rhdl" open
+  "../../common/cache/access.rhdl" open
   "../../common/cosim-source.rhm".describe_cosim_signals
   "../../common/cache-prefetch.rhdl" open
   "../../common/cache/prefetch.rhdl".cache_prefetch_physical
@@ -295,7 +296,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def load_translation_fault = !load_pinned & dtlb_result.fault
   def load_translation_access_fault = !load_pinned & dtlb_result.access_fault
   def pipeline_permitted = load_physical.mapped & mux(pipeline_is_store, load_physical.writable, load_physical.readable) & (!execute_read ||| load_physical.executable)
-  def pipeline_cacheable = load_attributes.cacheable & !load_attributes.strongly_ordered & (pipeline_is_store ||| load_attributes.read_idempotent)
+  def pipeline_cacheable = allows_data_cache_allocation(load_attributes)
   def pipeline_misaligned = !load_request.egress.bits.width.is_aligned(load_request.egress.bits.address)
   def Array(physical_request, local_result) = load_request.egress |> fork_valid(2)
   def cache_eligible = !pipeline_blocked & load_translation_hit & !load_translation_fault & !load_translation_access_fault & pipeline_permitted & pipeline_cacheable & !pipeline_misaligned
@@ -511,9 +512,10 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def execute_read_denied = execute_read & dtlb.hit & !(data_physical_region.readable & data_physical_region.executable)
   // A retained split owner uses the same demand TLB and physical checks as
   // ordinary requests. No second-page probe or simultaneous mapping is needed.
-  def fragment_region = physical_map.lookup(data_physical_address, data_physical_address +& Bits(width)(word_bytes - 1))
-  def fragment_attributes = resolve_memory_attributes(fragment_region, mux(data_physical, PageMemoryType.PMA, dtlb_result.pbmt))
-  def fragment_permitted = fragment_region.mapped & fragment_attributes.cacheable & !fragment_attributes.strongly_ordered & mux(data_memory_operation.is_store(), fragment_region.writable, fragment_region.readable & fragment_attributes.read_idempotent) & (!execute_read ||| fragment_region.executable)
+  def fragment_permitted = cache_fragment_permitted(
+    physical_map, data_physical_address, word_bytes, mux(data_physical, PageMemoryType.PMA, dtlb_result.pbmt),
+    ~write: data_memory_operation.is_store(), ~execute_read: execute_read
+  )
   def translation_ready = data_pinned ||| !data_translation_enabled ||| dtlb.hit
   def fragment_region_fault = split_busy & translation_ready & !data_page_fault & !data_walk_access_fault & !fragment_permitted
   request_fault_address <== data_request.address

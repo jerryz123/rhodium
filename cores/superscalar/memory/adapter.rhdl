@@ -131,7 +131,7 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
   def data_ok = resolved.known & (resolved.fault === RiscvTranslationFault.None)
   def region = cache_access_region(XLen.X64, physical_map, resolved.address, data_request.width, data_request.access)
   def attributes = resolve_memory_attributes(region, resolved.pbmt)
-  def cacheable = attributes.cacheable & !attributes.strongly_ordered & attributes.read_idempotent
+  def cacheable = allows_data_cache_allocation(attributes)
   def atomic_request = mem.access.is_one_of(CacheOperation.LoadReserved, CacheOperation.StoreConditional, CacheOperation.Atomic)
   def cache_block = mem.access.is_cache_block()
   def mem_misaligned = mem.access.is_one_of(CacheOperation.Load, CacheOperation.Store) & !mem.width.is_aligned(mem.address)
@@ -173,11 +173,10 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
   transport.response[0] |> memory.response
 
   def fragment_address = resolved.address.align_down(bytes)
-  def fragment_region = physical_map.lookup(fragment_address, fragment_address +& Bits(64)(bytes - 1))
-  def fragment_attributes = resolve_memory_attributes(fragment_region, resolved.pbmt)
-  def fragment_normal_memory = fragment_attributes.cacheable & !fragment_attributes.strongly_ordered & fragment_attributes.read_idempotent
-  def fragment_access_permitted = mux(data_request.access.store_fault_class(), fragment_region.writable, fragment_region.readable)
-  def fragment_permitted = (!resolved.execute_read ||| fragment_region.executable) & fragment_region.mapped & fragment_normal_memory & fragment_access_permitted
+  def fragment_permitted = cache_fragment_permitted(
+    physical_map, fragment_address, bytes, resolved.pbmt,
+    ~write: data_request.access.store_fault_class(), ~execute_read: resolved.execute_read
+  )
   (split_request |> gate_flow(data_ok & fragment_permitted) |> map_flow(request):
     def fragment :: SuperscalarMemoryReq(xlen, xlen.width, Bool) = request
     superscalar_physical_request(xlen, Context, fragment.with_context(Context, dont_care(Context)), fragment_address, resolved.pbmt)
@@ -213,7 +212,7 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
   | block:
       def pte_region = physical_map.lookup(resolve.pte.request.bits.address, resolve.pte.request.bits.address +& Bits(64)(7))
       def pte_attributes = resolve_memory_attributes(pte_region, resolve.pte.request.bits.pbmt)
-      def pte_normal_memory = pte_attributes.cacheable & !pte_attributes.strongly_ordered & pte_attributes.read_idempotent
+      def pte_normal_memory = allows_data_cache_allocation(pte_attributes)
       def pte_permitted = pte_region.mapped & pte_normal_memory & pte_region.readable
       transport.request[2].valid <== resolve.pte.request.valid & pte_permitted
       transport.request[2].bits <== SuperscalarMemoryReq(xlen, 64, Context):

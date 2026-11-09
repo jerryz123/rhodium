@@ -7,13 +7,15 @@ import:
   lib("flow/main.rhdl") open
 
 /* Gives scalar lookups priority, routes the next cycle's result, and authorizes the
-   winner's store two cycles later. A caller may supply local results for a lost
-   lookup or an absent response. Returns the live grant and the sampled MEM owner. */
+   winner's store two cycles later. A losing vector attempt receives Slow for WB admission.
+   A granted lookup follows the physical port's absent-response contract.
+   Returns the live grant and the sampled MEM owner. */
 fun arbitrate_memory_lookups(Request :: DataType, Result :: DataType,
                              scalar :: Endpoint.supports(MemoryLookupPort(Request, Result)),
                              vector :: Endpoint.supports(MemoryLookupPort(Request, Result)),
                              pipeline :: Endpoint.supports(MemoryLookupPort(Request, Result)),
-                             ~fallback: fallback :: maybe(Function) = #false):
+                             ~slow: slow :: Hardware.of(Result),
+                             ~slow_on_absence: slow_on_absence :: Boolean = #false):
   def scalar_request = scalar.request
   def vector_request = vector.request
   def response = pipeline.response
@@ -38,23 +40,18 @@ fun arbitrate_memory_lookups(Request :: DataType, Result :: DataType,
   vector.commit_ready <== wb_valid & wb_vector & pipeline.commit_ready
 
 
-  /* A physical response follows its selected request. If every attempt requires
-     a response, retain each attempt's lineage for its locally generated result. */
+  /* A physical response belongs to the MEM winner. A local Slow keeps the
+     attempt's ancestry as it moves to authorized service. */
 
   def returns = response |> fork_valid(2)
   for (sink in [scalar.response, vector.response], request in [scalar_request, vector_request], lane in 0..2):
     def winner = if lane == 0 | !mem_vector | mem_vector
+    def Array(lookup, attempt) = request |> fork_valid(2)
+    lookup |> lookups.ingress[lane]
     def returned = returns[lane] |> filter_valid(_response => mem_valid & winner)
-    if fallback
-    | block:
-        def Array(lookup, attempt) = request |> fork_valid(2)
-        lookup |> lookups.ingress[lane]
-        def pending = attempt |> map_valid(_request => if lane == 0 | !selected_vector | selected_vector) |> valid_pipe(1)
-        def local = pending |> filter_valid(won => !won ||| !response.valid) |> map_valid(won => fallback(won))
-        Array(returned, local) |> valid_arbiter() |> sink
-    | block:
-        request |> lookups.ingress[lane]
-        returned |> sink
+    def pending = attempt |> map_valid(_request => slow) |> valid_pipe(1)
+    def local = pending |> filter_valid(_result => !winner ||| (Bool(slow_on_absence) & !response.valid))
+    Array(returned, local) |> valid_arbiter() |> sink
 
   values(selected_vector, mem_vector)
 

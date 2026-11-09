@@ -30,7 +30,10 @@ Contributors changing the L1D implementation should read
 `XLen.X32` or `XLen.X64`. The cache configuration supplies set/way geometry;
 the positive service-queue depth bounds authorized requests and same-line
 waiters, while the required CHI configuration supplies flit geometry and the
-Home map. A separate
+Home map. Every data-cacheable region must permit idempotent reads because
+a partial store miss can fetch a whole line. Elaboration rejects incompatible
+regions. Map memory with read side effects as uncached behind an HN-I for
+exact-width accesses. A separate
 `node_id` input supplies the occurrence's RN-F identity. Core addresses use
 XLEN; resident tags use the smaller of XLEN and the CHI request-address width,
 less line-offset and set bits. At least one tag bit must remain. An address

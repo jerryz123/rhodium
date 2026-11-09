@@ -17,6 +17,8 @@ import:
   "../uncached-protocol.rhdl" open
   "../profile.rhm" open
   lib("riscv/rtl/privilege.rhdl").PrivilegeMode
+  lib("riscv/rtl/pma.rhdl") open
+  lib("rhodium/std/interconnect.rhdl").AddressSet
   "params.rhdl" open
   "../../common/cache-prefetch.rhdl" open
   "../../../riscv/isa/xlen.rhm" open
@@ -49,7 +51,15 @@ sync_circuit RV5StageMmuDataPortFixture():
   input replay_pending: Bool
   input replay_pc: Bits(64)
 
-  inst mmu(RV5StageMmu(xlen, RiscvMmuType.Sv39, test_rv5stage_chi_config.physical_map, ~svnapot: #true))
+  // The standalone MMU also accepts PMAs that a write-allocating L1D cannot service.
+  def width = test_rv5stage_flit.request_address_width
+  def half = 1 << (width - 1)
+  def side_effecting = RiscvPhysicalMemoryAttributes(#true, #true, #false, #true, #false, #false, #false)
+  def physical_map = RiscvPhysicalMemoryMap(width, [
+    RiscvPhysicalMemoryRegion(AddressSet(0, half - 1), test_rv5stage_memory_attributes),
+    RiscvPhysicalMemoryRegion(AddressSet(half, half - 1), side_effecting)
+  ])
+  inst mmu(RV5StageMmu(xlen, RiscvMmuType.Sv39, physical_map, ~svnapot: #true))
   inst arbiter(RV5StageDataPortArbiter(xlen, slots))
   instruction |> mmu.instruction
   data |> mmu.data

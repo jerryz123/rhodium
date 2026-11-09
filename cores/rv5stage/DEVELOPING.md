@@ -520,7 +520,7 @@ response/store-candidate fork. It is shared by scalar and vector requesters;
 capture cache fields, not instruction metadata the cache does not own.
 Fork scalar EX into instruction context and lookup flows. The shared LSU
 arbiter routes returned lineage only to the selected requester; losing lookups
-produce local replay from their own retained context. MMU similarly chooses
+produce a local Slow result from their own retained context. MMU similarly chooses
 cache-return lineage or its local translation/fault outcome. Preserve inactive
 payload values and all original gating predicates.
 At scalar MEM and vector decision capture, pair context with the optional

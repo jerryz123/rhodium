@@ -36,8 +36,9 @@ RV2Wide also advertises the non-page-table guarantees for RV64 Bare.
 `misaligned-access.rhdl` owns fragment sequencing with opaque caller context;
 `memory-lookup.rhdl` defines the fixed-cycle lookup and store-commit interface
 specialized by the cache and superscalar adapters. `memory-arbiter.rhdl` owns scalar/vector lookup grants, MEM response routing,
-WB store ownership, and tagged transaction arbitration. Callers supply local
-lookup fallback semantics, the response tag projection, and the admission policy;
+WB store ownership, and tagged transaction arbitration. A contested vector
+attempt receives its native Slow result. Callers specify how to handle an
+absent physical response, the response tag projection, and transaction admission;
 `memory-response.rhdl` owns opaque data/context replies, optional-response pairing, and one-cycle LSU result capture;
 `vector-layout.rhm` owns pure physical row geometry; `cosim-source.rhm` owns
 passive observation declarations. None selects a named core's profile or

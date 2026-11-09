@@ -208,44 +208,53 @@ void stimulus() {
           !chi_out.preq.pvalid);
 
     // Device writes must use Home-issued DBIDs, not direct write transfer.
-    core_in.prequest.pvalid = UINT64_C(1);
-    core_in.prequest.pbits.prequest.paddress = UINT64_C(32772);
-    core_in.prequest.pbits.prequest.paccess = UINT64_C(2); // Store
-    core_in.prequest.pbits.prequest.pwidth = UINT64_C(2);
-    core_in.prequest.pbits.prequest.pbyte_umask = UINT64_C(240);
-    core_in.prequest.pbits.prequest.pdata = UINT64_C(0x12345678);
-    core_in.prequest.pbits.pdevice = UINT64_C(1);
-    settle();
-    CHECK(core_out.prequest.pready);
-    tick();
-    core_in.prequest.pvalid = 0;
-    settle();
-    CHECK(chi_out.preq.pvalid && chi_out.preq.pbits.popcode == UINT64_C(28) &&
-          !chi_out.preq.pbits.psnp_uattr_uor_udo_udwt);
-    tick();
-    chi_in.prsp.presponse.pvalid = 1;
-    chi_in.prsp.presponse.pbits = {};
-    chi_in.prsp.presponse.pbits.popcode = UINT64_C(6); // DBIDResp
-    chi_in.prsp.presponse.pbits.psrc_uid = UINT64_C(4);
-    chi_in.prsp.presponse.pbits.pdbid_uor_ugroup_uid = UINT64_C(291);
-    tick();
-    chi_in.prsp.presponse.pvalid = 0;
-    settle();
-    CHECK(chi_out.pdat.prequest.pvalid &&
-          chi_out.pdat.prequest.pbits.ptgt_uid == UINT64_C(4) &&
-          chi_out.pdat.prequest.pbits.ptxn_uid == UINT64_C(291) &&
-          chi_out.pdat.prequest.pbits.pbyte_uenable == UINT64_C(240) &&
-          read_bits(chi_out.pdat.prequest.pbits.pdata, 0, 128) ==
-              UINT64_C(0x1234567800000000));
-    tick();
-    chi_in.prsp.presponse.pvalid = 1;
-    chi_in.prsp.presponse.pbits.popcode = UINT64_C(4); // Comp
-    settle();
-    CHECK(core_out.presponse.pvalid);
-    tick();
-    chi_in.prsp.presponse.pvalid = 0;
-    settle();
-    CHECK(core_out.pdrained);
+    for (bool byte : {false, true}) {
+      const unsigned address = byte ? 0x8005 : 0x8004;
+      const unsigned width = byte ? 0 : 2;
+      const unsigned mask = byte ? 0x20 : 0xf0;
+      const std::uint64_t value = byte ? 0xab : 0x12345678;
+      core_in.prequest.pvalid = UINT64_C(1);
+      core_in.prequest.pbits.prequest.paddress = address;
+      core_in.prequest.pbits.prequest.paccess = UINT64_C(2); // Store
+      core_in.prequest.pbits.prequest.pwidth = width;
+      core_in.prequest.pbits.prequest.pbyte_umask = mask;
+      core_in.prequest.pbits.prequest.pdata = value;
+      core_in.prequest.pbits.pdevice = UINT64_C(1);
+      settle();
+      CHECK(core_out.prequest.pready);
+      tick();
+      core_in.prequest.pvalid = 0;
+      settle();
+      CHECK(chi_out.preq.pvalid && chi_out.preq.pbits.popcode == UINT64_C(28) &&
+            chi_out.preq.pbits.paddress == address &&
+            chi_out.preq.pbits.psize_uor_unum_ureq == width &&
+            !chi_out.preq.pbits.pmem_uattr.pallocate &&
+            !chi_out.preq.pbits.psnp_uattr_uor_udo_udwt);
+      tick();
+      chi_in.prsp.presponse.pvalid = 1;
+      chi_in.prsp.presponse.pbits = {};
+      chi_in.prsp.presponse.pbits.popcode = UINT64_C(6); // DBIDResp
+      chi_in.prsp.presponse.pbits.psrc_uid = UINT64_C(4);
+      chi_in.prsp.presponse.pbits.pdbid_uor_ugroup_uid = UINT64_C(291);
+      tick();
+      chi_in.prsp.presponse.pvalid = 0;
+      settle();
+      CHECK(!chi_out.preq.pvalid && chi_out.pdat.prequest.pvalid &&
+            chi_out.pdat.prequest.pbits.ptgt_uid == UINT64_C(4) &&
+            chi_out.pdat.prequest.pbits.ptxn_uid == UINT64_C(291) &&
+            chi_out.pdat.prequest.pbits.pbyte_uenable == mask &&
+            read_bits(chi_out.pdat.prequest.pbits.pdata, 0, 128) ==
+                (value << (8 * (address % 8))));
+      tick();
+      chi_in.prsp.presponse.pvalid = 1;
+      chi_in.prsp.presponse.pbits.popcode = UINT64_C(4); // Comp
+      settle();
+      CHECK(!chi_out.preq.pvalid && core_out.presponse.pvalid);
+      tick();
+      chi_in.prsp.presponse.pvalid = 0;
+      settle();
+      CHECK(core_out.pdrained);
+    }
 
     // Non-cacheable aliases of coherent RAM retain the physical snoop domain.
     for (int device = 0; device < 2; device++) {

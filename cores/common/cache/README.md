@@ -100,8 +100,17 @@ fault metadata stay with the caller.
 `cache_access_permitted` helpers for integration boundaries. Footprint lookup
 covers the natural access width or entire aligned CBO block, including address
 overflow. Callers supply read/write intent, atomic-service eligibility, and
-alignment eligibility. PMA still grants permissions; management uses its separate
-architectural rule. These helpers do not select a route or own a transaction.
+alignment eligibility. `allows_data_cache_allocation` checks the resolved
+PMA/PBMT attributes for cacheability, relaxed ordering, and read idempotence.
+It applies to ordinary loads and stores at both lookup and authorized service.
+`committed_cache_route` selects cached or uncached service for ordinary accesses.
+Maintenance uses physical cacheability to choose cached service or local
+completion. Callers check permission before admitting the request.
+
+`cache_fragment_permitted` checks the entire aligned physical word of a split
+access against the resolved memory attributes and its read or write permission.
+An execute-read fragment also requires execute permission. Each core translates
+and checks each fragment before issuing it.
 
 [`cache_prefetch_physical`](prefetch.rhdl) classifies a complete aligned cache
 line from an address, prefetch operation, and PBMT. It returns the aligned

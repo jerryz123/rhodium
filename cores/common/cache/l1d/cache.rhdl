@@ -85,6 +85,11 @@ sync_circuit L1DCache(xlen :: XLen,
   unless config.cache_line_bytes == CacheLineBytes
   | error(~who: #'L1DCache, "CHI region geometry must use 64-byte cache lines")
 
+  for (region in config.regions):
+    def attributes = region.physical.attributes
+    unless (!attributes.cacheable) || attributes.read_idempotent
+    | error(~who: #'L1DCache, "write-allocating cache regions require read-idempotent memory")
+
   def physical_width = math.min(width, p.request_address_width)
   def snoop_width = math.max(width, p.request_address_width)
   check_l1d_geometry(physical_width, cache)

@@ -9,6 +9,7 @@ import:
   "../../../rhodium/core/main.rhm" open
   lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../riscv/isa/xlen.rhm" open
+  lib("riscv/rtl/pma.rhdl") open
   "../../common/cache/geometry.rhdl" open
   "../../common/chi-hart.rhdl" open
   "../../common/cache/l1d/cache.rhdl" as l1d
@@ -17,6 +18,11 @@ import:
   "params.rhdl" as test_params
 
 def config = test_params.test_rv5stage_chi_config
+def ram = config.regions[0]
+def side_effecting = RiscvPhysicalMemoryAttributes(#true, #true, #false, #true, #false, #false, #false)
+def unsafe_allocation = RiscvHartCHIConfig(config.flit, config.cache_line_bytes, [
+  RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(ram.physical.address_set, side_effecting), ram.home)
+])
 def cache_config = CacheConfig(8, 1)
 def associative_cache_config = CacheConfig(8, 2)
 def design = compile_program(elaborate(l1d.L1DCache(XLen.X64, cache_config, ~chi: config, ~context: protocol.RV5StageMemoryContext(8))), rtl_target).report.design
@@ -50,6 +56,7 @@ for (slots in [1, 2, 4, 8, 16, 256]):
     type_equal(PhysicalMemoryResp(XLen.X64, protocol.RV5StageMemoryContext(slots)).field("context").type.field("origin").type, protocol.RV5StageDataOrigin) ~is #true
 
 check:
+  elaborate(l1d.L1DCache(XLen.X64, cache_config, ~chi: unsafe_allocation, ~context: Bits(1))) ~throws "write-allocating cache regions require read-idempotent memory"
   tag_row_width(cache) ~is 44 - 6 - 3
   elaborate(CacheStoreBuffer(44, 1, ~beat_bytes: 8, ~query_width: 32)) ~throws "query width"
   elaborate(CacheStoreBuffer(44, 1, ~beat_bytes: 128)) ~throws "rows must fit a line"

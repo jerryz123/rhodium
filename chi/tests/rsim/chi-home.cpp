@@ -36,6 +36,7 @@ inline auto &downstream_requests_in = port_in.psubordinate.preq;
 inline auto &downstream_request_data_in = port_in.psubordinate.pdat.prequest;
 inline auto &downstream_response_data_in = port_in.psubordinate.pdat.presponse;
 constexpr std::uint8_t READ_NO_SNP = UINT64_C(4);
+constexpr std::uint8_t WRITE_NO_SNP_PTL = 28;
 constexpr std::uint8_t WRITE_NO_SNP_FULL = UINT64_C(29);
 constexpr std::uint8_t COMP = UINT64_C(4);
 constexpr std::uint8_t DBID_RESP = UINT64_C(6);
@@ -78,6 +79,8 @@ void translate_request(std::uint8_t opcode, std::uint8_t size,
     eval();
     CHECK(upstream_requests_out.pready);
     CHECK(downstream_requests_out.pbits.popcode == opcode &&
+          downstream_requests_out.pbits.paddress == address &&
+          downstream_requests_out.pbits.psize_uor_unum_ureq == size &&
           downstream_requests_out.pbits.psrc_uid == HOME_ID &&
           downstream_requests_out.pbits.ptgt_uid == subordinate_id);
     CHECK(downstream_requests_out.pbits
@@ -136,7 +139,7 @@ void translate_subordinate_response(std::uint8_t opcode, std::uint16_t slot,
     downstream_responses_in.pvalid = UINT64_C(1);
     upstream_responses_in.pready = UINT64_C(1);
     eval();
-    CHECK(downstream_responses_out.pready && upstream_responses_out.pvalid);
+    CHECK(!downstream_requests_out.pvalid && downstream_responses_out.pready && upstream_responses_out.pvalid);
     CHECK(upstream_responses_out.pbits.popcode == opcode &&
           upstream_responses_out.pbits.psrc_uid == HOME_ID &&
           upstream_responses_out.pbits.ptgt_uid == REQUESTER_ID &&
@@ -150,7 +153,8 @@ void translate_subordinate_response(std::uint8_t opcode, std::uint16_t slot,
 
 void translate_write_data(std::uint16_t home_dbid,
                           std::uint16_t subordinate_dbid, std::uint8_t data_id,
-                          std::uint8_t subordinate_id, unsigned __int128 data) {
+                          std::uint8_t subordinate_id, unsigned __int128 data,
+                          std::uint16_t byte_enable) {
   {
     upstream_request_data_in.pbits = {};
     upstream_request_data_in.pbits.popcode = NON_COPY_BACK_WRITE_DATA;
@@ -158,7 +162,7 @@ void translate_write_data(std::uint16_t home_dbid,
     upstream_request_data_in.pbits.ptgt_uid = HOME_ID;
     upstream_request_data_in.pbits.ptxn_uid = home_dbid;
     upstream_request_data_in.pbits.pdata_uid = data_id;
-    upstream_request_data_in.pbits.pbyte_uenable = UINT64_C(65535);
+    upstream_request_data_in.pbits.pbyte_uenable = byte_enable;
     upstream_request_data_in.pbits.pdata = wide(data);
     upstream_request_data_in.pvalid = UINT64_C(1);
     downstream_request_data_in.pready = UINT64_C(1);
@@ -171,7 +175,9 @@ void translate_write_data(std::uint16_t home_dbid,
           downstream_request_data_out.pbits.ptgt_uid == subordinate_id &&
           downstream_request_data_out.pbits.ptxn_uid == subordinate_dbid &&
           downstream_request_data_out.pbits.pdata_uid == data_id);
-    CHECK(downstream_request_data_out.pbits.pdata == wide(data));
+    CHECK(!downstream_requests_out.pvalid);
+    CHECK(downstream_request_data_out.pbits.pbyte_uenable == byte_enable &&
+          downstream_request_data_out.pbits.pdata == wide(data));
     tick_model();
     upstream_request_data_in = {};
     downstream_request_data_in.pready = UINT64_C(0);
@@ -217,8 +223,9 @@ void run_case() {
 
   translate_request(WRITE_NO_SNP_FULL, UINT64_C(4), UINT64_C(258), UINT64_C(0),
                     UINT64_C(2147483648), SUBORDINATE_ID, first_slot);
-  translate_request(WRITE_NO_SNP_FULL, UINT64_C(4), UINT64_C(260), UINT64_C(0),
-                    UINT64_C(2415919104), SECOND_SUBORDINATE_ID, second_slot);
+  // The second Home route carries one byte, including its original address and lane.
+  translate_request(WRITE_NO_SNP_PTL, 0, UINT64_C(260), UINT64_C(0),
+                    UINT64_C(0x90000005), SECOND_SUBORDINATE_ID, second_slot);
 
   translate_subordinate_response(DBID_RESP, second_slot,
                                  SECOND_SUBORDINATE_DBID, UINT64_C(260),
@@ -227,9 +234,9 @@ void run_case() {
                                  UINT64_C(258), SUBORDINATE_ID,
                                  first_home_dbid);
   translate_write_data(first_home_dbid, SUBORDINATE_DBID, UINT64_C(0),
-                       SUBORDINATE_ID, WRITE_DATA);
+                       SUBORDINATE_ID, WRITE_DATA, 0xffff);
   translate_write_data(second_home_dbid, SECOND_SUBORDINATE_DBID, UINT64_C(0),
-                       SECOND_SUBORDINATE_ID, WRITE_DATA + 1);
+                       SECOND_SUBORDINATE_ID, UINT64_C(0xab) << 40, 1u << 5);
   translate_subordinate_response(COMP, first_slot, SUBORDINATE_DBID,
                                  UINT64_C(258), SUBORDINATE_ID,
                                  completion_dbid);

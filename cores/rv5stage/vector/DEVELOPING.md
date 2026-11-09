@@ -410,7 +410,7 @@ whose partial-row carry still needs writeback.
 
 The shared [`memory-arbiter.rhdl`](../memory-arbiter.rhdl) has separate Valid
 lookup and Decoupled transaction arbiters. A losing lookup gets an explicit
-Replay result in the response cycle. The winner's identity accompanies its
+Slow result in the response cycle and can issue an authorized transaction at WB. The winner's identity accompanies its
 retained store candidate through the commit cycle; later arbitration must not
 select that owner. Tagged delayed responses route independently of current
 requests. `rv5stage-memory-arbiter` checks this cycle-visible contract; use

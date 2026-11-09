@@ -609,8 +609,9 @@ never a named-core configuration. `cores/common/profile.rhm` consumes pure MISA,
 FP, compressed, and vector descriptors for shared ISA-name and MISA projection;
 named profiles retain defaults, restrictions, and qualification predicates.
 `cores/common/cache/access.rhdl` consumes cache operation/geometry, load/store widths,
-architectural PMA/CMO/XLEN, and public bit helpers. Both cores consume its
-combinational classification while retaining their access-intent and service policies.
+architectural PMA/PBMT/CMO/XLEN, and public bit helpers. Both cores consume its
+committed route selector and split-fragment permission check. Pipeline adapters
+retain transaction admission and fault reporting.
 `cores/common/cache/prefetch.rhdl` consumes cache geometry/prefetch operations,
 architectural PMA/PBMT, and public bit helpers. Both translated MMU adapters
 consume its physical classification without moving hint cancellation or final

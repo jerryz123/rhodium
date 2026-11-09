@@ -1,5 +1,5 @@
 #lang rhodium
-/* Classifies complete physical cache-access footprints and permission requirements without owning routing or timing. */
+/* Classifies physical access footprints, fragment permissions, and committed cache service routes. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,6 +8,7 @@ import:
   "../load-store.rhdl" open
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/rtl/pma.rhdl") open
+  lib("riscv/rtl/svpbmt.rhdl") open
   lib("riscv/rtl/cmo.rhdl").cbo_management_physical_permission
   lib("rhodium/std/bits.rhdl") open
 
@@ -16,6 +17,33 @@ fun cache_access_region(xlen :: XLen, physical_map :: RiscvPhysicalMemoryMap, ad
   def first = mux(operation.is_cache_block(), address.align_down(CacheLineBytes), address)
   def last = first +& mux(operation.is_cache_block(), Bits(xlen.width)(CacheLineBytes - 1), memory_access_bytes(xlen, width) - Bits(xlen.width)(1))
   physical_map.lookup(first, last)
+
+/* Both load misses and partial store misses can fetch a complete line. */
+fun allows_data_cache_allocation(attributes :: RiscvMemoryAccessAttributes()) :~ Bool:
+  attributes.cacheable & !attributes.strongly_ordered & attributes.read_idempotent
+
+/* Encodes the output order of the committed request demultiplexer. */
+hardware_enum CacheServiceRoute:
+  Cached = 0
+  Uncached = 1
+  LocalManagement = 2
+
+/* Maintenance follows physical cacheability so it reaches cached aliases even with a PBMT override. */
+fun committed_cache_route(operation :: CacheOperation, physical :: RiscvPhysicalMemoryLookup(),
+                          attributes :: RiscvMemoryAccessAttributes()) :~ CacheServiceRoute:
+  mux(operation.is_cache_management(),
+      mux(physical.cacheable, CacheServiceRoute.Cached, CacheServiceRoute.LocalManagement),
+      mux(allows_data_cache_allocation(attributes), CacheServiceRoute.Cached, CacheServiceRoute.Uncached))
+
+/* Checks the entire aligned split fragment, retaining end-address overflow.
+   Execute-read fragments also require execute permission on the physical region. */
+fun cache_fragment_permitted(physical_map :: RiscvPhysicalMemoryMap, address :: Bits, fragment_bytes :: Pow2Int,
+                             pbmt :: PageMemoryType, ~write: write :: Bool, ~execute_read: execute_read :: Bool) :~ Bool:
+  def last = address +& Bits(address.type.packed_width())(fragment_bytes - 1)
+  def region = physical_map.lookup(address, last)
+  def attributes = resolve_memory_attributes(region, pbmt)
+  def permitted = mux(write, region.writable, region.readable)
+  allows_data_cache_allocation(attributes) & permitted & (!execute_read ||| region.executable)
 
 /* Combines PMA permissions with the caller's access intent and service restrictions.
    Maintenance follows its architectural permission rule independently of ordinary-access alignment or atomic service. */
@@ -30,5 +58,9 @@ fun cache_access_permitted(physical :: RiscvPhysicalMemoryLookup(), operation ::
   mux(operation.is_cache_management(), cbo_management_physical_permission(physical), ordinary)
 
 export:
+  CacheServiceRoute
+  committed_cache_route
+  cache_fragment_permitted
+  allows_data_cache_allocation
   cache_access_region
   cache_access_permitted

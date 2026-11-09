@@ -11,7 +11,7 @@ import:
   lib("flow/main.rhdl") open
 
 /* Prioritizes admitted vector transactions but scalar speculative lookups.
-   Losing lookups replay; retained selection routes store commit and tagged responses. */
+   Losing lookups use authorized transaction service; retained selection routes store commit and tagged responses. */
 sync_circuit RV5StageMemoryArbiter(xlen :: XLen, slots :: Pow2Int):
   interface scalar(CacheAccess(xlen, RV5StageMemoryContext(slots)), ~role: responder)
   interface vector(CacheAccess(xlen, RV5StageMemoryContext(slots)), ~role: responder)
@@ -34,18 +34,13 @@ sync_circuit RV5StageMemoryArbiter(xlen :: XLen, slots :: Pow2Int):
   vector.request_access_fault <== memory.request_access_fault & selected_vector
 
 
-  /* A losing lookup receives ArrayPort Replay. A selected lookup without a
-     physical response receives Slow so WB may issue the authorized request. */
-
-  /* Shapes the local result for this attempt when no cache response reaches it. */
-  fun fallback(won :: Bool) :~ CachePipelineResult(xlen):
-    CachePipelineResult(xlen):
-      outcome: mux(won, CachePipelineOutcome.Slow, CachePipelineOutcome.Replay)
-      reason: CachePipelineReason.ArrayPort
-      data: Bits(xlen.width)(0)
+  def slow = CachePipelineResult(xlen):
+    outcome: CachePipelineOutcome.Slow
+    reason: CachePipelineReason.ArrayPort
+    data: Bits(xlen.width)(0)
 
   def (lookup_vector, _) = arbitrate_memory_lookups(
-    CachePipelineReq(xlen), CachePipelineResult(xlen), scalar_pipeline, vector_pipeline, pipeline, ~fallback: fallback
+    CachePipelineReq(xlen), CachePipelineResult(xlen), scalar_pipeline, vector_pipeline, pipeline, ~slow: slow, ~slow_on_absence: #true
   )
   pipeline_vector <== lookup_vector
 

@@ -16,7 +16,7 @@ int main() {
     tick_model();
     reset = 0;
 
-    // Scalar wins a contested lookup; vector receives replay one cycle later.
+    // Scalar wins a contested lookup; vector receives Slow one cycle later.
     scalar_pipeline_in.prequest = {.pvalid = 1,
                                    .pbits = {.pbyte_umask = 255,
                                              .paddress = UINT64_C(0x100),
@@ -39,11 +39,24 @@ int main() {
                              .pbits = {.poutcome = UINT64_C(2),
                                        .preason = 0,
                                        .pdata = UINT64_C(0x11)}};
-    eval();
-    CHECK(scalar_pipeline_out.presponse.pvalid &&
-          scalar_pipeline_out.presponse.pbits.poutcome == 2);
-    CHECK(vector_pipeline_out.presponse.pvalid &&
-          vector_pipeline_out.presponse.pbits.poutcome == 3);
+    for (unsigned cycle = 0; cycle < 4; ++cycle) {
+      // WB can authorize the losing vector store while scalar keeps the lookup port.
+      vector_in.prequest.pvalid = cycle == 2;
+      vector_in.prequest.pbits.paddress = 0x200;
+      vector_in.prequest.pbits.paccess = 2;
+      memory_in.prequest.pready = 1;
+      eval();
+      if (cycle == 2)
+        CHECK(vector_in.prequest.pvalid && vector_out.prequest.pready &&
+              memory_out.prequest.pvalid && memory_out.prequest.pbits.paddress == 0x200 &&
+              !vector_pipeline_out.pcommit_uready);
+      CHECK(scalar_pipeline_out.presponse.pvalid &&
+            scalar_pipeline_out.presponse.pbits.poutcome == 2);
+      CHECK(vector_pipeline_out.presponse.pvalid &&
+            vector_pipeline_out.presponse.pbits.poutcome == 0 &&
+            vector_pipeline_out.presponse.pbits.preason == 1);
+      tick_model();
+    }
     scalar_pipeline_in.prequest.pvalid = 0;
 
     // The next lookup belongs to vector while the scalar store reaches commit.

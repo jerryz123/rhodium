@@ -81,13 +81,13 @@ sync_circuit SuperscalarL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHICo
   def request :: SuperscalarMemoryReq(xlen, 64, Context) = memory.request.bits
   def atomic_request = request.access.is_one_of(CacheOperation.LoadReserved, CacheOperation.StoreConditional, CacheOperation.Atomic)
   def zero_block = request.access.is_cache_block_zero()
-  def management = request.access.is_cache_management()
   def physical = cache_access_region(XLen.X64, config.physical_map, request.address, request.width, request.access)
   def attributes = resolve_memory_attributes(physical, request.pbmt)
-  def cacheable = attributes.cacheable & !attributes.strongly_ordered & attributes.read_idempotent
+  def route = committed_cache_route(request.access, physical, attributes)
   def writes = request.access.store_fault_class()
   def permitted = cache_access_permitted(
-    physical, request.access, ~reads: !writes, ~writes: writes, ~atomic_service: cacheable & physical.readable,
+    physical, request.access, ~reads: !writes, ~writes: writes,
+    ~atomic_service: allows_data_cache_allocation(attributes) & physical.readable,
     ~aligned: zero_block ||| request.width.is_aligned(request.address)
   )
 
@@ -130,12 +130,7 @@ sync_circuit SuperscalarL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHICo
   /* Committed cached, uncached, and local-management paths.
      Accepted operations retain response ownership across speculative redirects. */
 
-  def cached_service = mux(management, physical.cacheable, cacheable)
-  def service_route :: Bits(2) = priority_mux(~default: Bits(2)(0)):
-    management & !physical.cacheable: Bits(2)(2)
-    !cached_service: Bits(2)(1)
-
-  def Array(cached, uncached_requests, local_management) = memory.request |> gate_flow(permitted) |> demux_flow(3, _request => service_route)
+  def Array(cached, uncached_requests, local_management) = memory.request |> gate_flow(permitted) |> demux_flow(3, _request => route.as_bits())
   // A statically uncached region has no cached copies. Complete after drain,
   // without issuing an invented load/store to a possibly side-effecting device.
   (local_management |> map_flow(request => MemoryResponse(Bits(xlen.width), Context)):

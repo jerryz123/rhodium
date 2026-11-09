@@ -83,6 +83,8 @@ void stimulus() {
 
     check_request(UINT64_C(4096), LOAD, UINT64_C(1), UINT64_C(0), UINT64_C(0));
     check_request(UINT64_C(4096), STORE, UINT64_C(1), UINT64_C(0), UINT64_C(0));
+    // A partial store can require a line read even when its addressed byte is writable.
+    check_request(0x9001, STORE, 0, 1, 0);
     // Ssccptr admission: walker-origin doubleword reads use the ordinary
     // coherent cache path at every aligned offset, without losing ownership.
     // This fixture checks routing; the core/MMU fixture consumes actual PTEs.

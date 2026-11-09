@@ -13,7 +13,7 @@ int main() {
     tick_model();
     reset = 0;
 
-    // A contested fixed-cycle lookup has one physical winner and one response.
+    // A contested fixed-cycle lookup has one physical winner and a local Slow for the loser.
     scalar_pipeline_in.prequest.pvalid = 1;
     vector_pipeline_in.prequest.pvalid = 1;
     scalar_pipeline_in.prequest.pbits.paddress = 0x100;
@@ -21,11 +21,17 @@ int main() {
     eval();
     CHECK(!pipeline_vector && pipeline_out.prequest.pbits.paddress == 0x100);
     tick_model();
-    scalar_pipeline_in.prequest.pvalid = 0;
     pipeline_in.presponse.pvalid = 1;
+    pipeline_in.presponse.pbits.poutcome = 2;
+    for (unsigned cycle = 0; cycle < 4; ++cycle) {
+      eval();
+      CHECK(scalar_pipeline_out.presponse.pvalid && scalar_pipeline_out.presponse.pbits.poutcome == 2);
+      CHECK(vector_pipeline_out.presponse.pvalid && vector_pipeline_out.presponse.pbits.poutcome == 0);
+      tick_model();
+    }
+    scalar_pipeline_in.prequest.pvalid = 0;
     eval();
     CHECK(pipeline_vector && pipeline_out.prequest.pbits.paddress == 0x200);
-    CHECK(scalar_pipeline_out.presponse.pvalid && !vector_pipeline_out.presponse.pvalid);
     tick_model();
     vector_pipeline_in.prequest.pvalid = 0;
     pipeline_in.presponse.pvalid = 0;
@@ -48,8 +54,13 @@ int main() {
     CHECK(!request_vector && scalar_memory_out.pfault.pvalid && !vector_memory_out.pfault.pvalid);
     memory_in.pfault.pvalid = 0;
     memory_in.prequest.pready = 1;
+    // Scalar keeps the lookup port as both clients make progress on authorized requests.
+    scalar_pipeline_in.prequest.pvalid = vector_pipeline_in.prequest.pvalid = 1;
     for (unsigned accepted = 0; accepted < 16; ++accepted) {
       eval();
+      CHECK(!pipeline_vector && pipeline_out.prequest.pbits.paddress == 0x100);
+      if (accepted)
+        CHECK(vector_pipeline_out.presponse.pvalid && vector_pipeline_out.presponse.pbits.poutcome == 0);
       CHECK(memory_out.prequest.pvalid && request_vector == (accepted % 2));
       CHECK(scalar_memory_out.prequest.pready != vector_memory_out.prequest.pready);
       tick_model();

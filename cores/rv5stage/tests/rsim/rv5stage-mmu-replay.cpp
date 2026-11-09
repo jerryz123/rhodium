@@ -1513,6 +1513,9 @@ void stimulus() {
     check_load_pipeline(UINT64_C(16384), 0, 0, PIPE_SLOW);
     pipeline_vector = 1;
     check_load_pipeline(UINT64_C(49152), 1, UINT64_C(49152));
+    // Even with a known physical address and writable PMA, a possible store
+    // miss must not enter an allocating cache on non-read-idempotent memory.
+    check_load_pipeline(UINT64_C(1) << 43, 0, 0, PIPE_SLOW, 2);
     pipeline_physical = 0;
     pipeline_vector = 1;
     check_load_pipeline(UINT64_C(20472), 1, UINT64_C(36856));
