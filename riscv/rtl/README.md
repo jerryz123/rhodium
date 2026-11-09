@@ -275,6 +275,8 @@ lie in the same region. A transfer therefore cannot straddle PMA regions.
 The host property `executable_address_width` bounds the highest possible byte
 address in any executable region, irrespective of cacheability. It returns
 zero when no executable address needs a set bit; it is not a permission check.
+`cacheable_address_width` gives the analogous bound over the union of data-
+and instruction-cacheable regions, regardless of execute permission.
 The optional `~instruction_cacheable` attribute defaults to `cacheable` and
 independently permits instruction-cache allocation. Opting in while data
 caching is disabled requires readable, executable, read-idempotent, read-only,

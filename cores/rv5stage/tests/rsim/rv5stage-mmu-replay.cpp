@@ -1243,6 +1243,15 @@ void stimulus() {
     // The test physical map covers only the CHI physical-address width.
     check_isolated_hint(UINT64_C(0x8000000000000000), UINT64_C(2), 0);
 
+    constexpr auto high_ram = UINT64_C(3) << 42, high_rom = high_ram + 0x1000;
+    check_isolated_hint(high_ram + 0xfff, 2, 1, high_ram + 0xfc0);
+    check_isolated_hint(high_ram + 0x40, 3, 1, high_ram + 0x40);
+    check_isolated_hint(high_ram + 0x40, 1, 0);
+    check_isolated_hint(high_rom + 0x83, 1, 1, high_rom + 0x80);
+    check_isolated_hint(high_rom + 0x83, 2, 0);
+    check_isolated_hint(high_rom + 0x83, 3, 0);
+    check_isolated_hint((UINT64_C(1) << 44) | high_ram | 0x40, 2, 0);
+
     // The grouped state does not broaden cancellation: unrelated status,
     // Bare PBMTE, and pointer-mask controls preserve both occupied stages.
     for (int unrelated = 0; unrelated < 3; ++unrelated) {
@@ -1286,14 +1295,14 @@ void stimulus() {
         falling();
         prefetch_in = {
             .pvalid = UINT64_C(1),
-            .pbits = {.paddress = PHYSICAL_ADDRESS, .poperation = UINT64_C(2)}};
+            .pbits = {.paddress = high_ram + 0x7f, .poperation = UINT64_C(2)}};
         tick();
         check_prefetch(0);
         if (stage == 2) {
           falling();
           prefetch_in = {};
           tick();
-          check_prefetch(1, PHYSICAL_ADDRESS, UINT64_C(2));
+          check_prefetch(1, high_ram + 0x40, UINT64_C(2));
         }
         falling();
         // Leave ingress valid while canceling the first stage: new hints on
@@ -1322,7 +1331,7 @@ void stimulus() {
         } break;
         }
         settle();
-        check_prefetch(stage == 2, PHYSICAL_ADDRESS, UINT64_C(2));
+        check_prefetch(stage == 2, high_ram + 0x40, UINT64_C(2));
         tick();
         check_prefetch(0);
         falling();

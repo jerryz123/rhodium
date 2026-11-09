@@ -229,6 +229,16 @@ int main() {
     hint(UINT64_C(0x2400), 3, 0); // Region does not contain a complete block.
     hint(UINT64_C(0x2625), 1, 1, UINT64_C(0x2600)); // Sv39 permits instruction-only ROM.
     hint(UINT64_C(0x2500), 1, 0); // Cacheable but not executable.
+    constexpr auto high_ram = UINT64_C(1) << 32, high_rom = UINT64_C(1) << 33;
+    hint(high_ram + 0xfff, 2, true, high_ram + 0xfc0);
+    hint(high_ram + 0x40, 3, true, high_ram + 0x40);
+    hint(high_ram + 0x40, 1, false);
+    hint(high_rom + 0x83, 1, true, high_rom + 0x80);
+    hint(high_rom + 0x83, 2, false);
+    hint(high_rom + 0x83, 3, false);
+    hint((UINT64_C(1) << 34) | high_rom | 0x83, 1, false);
+    hint(high_ram + 0x40, 3, false, 0, 1);
+    hint(high_rom + 0x83, 1, false, 0, 2);
     hint(UINT64_C(0x83), 2, 0, 0, 1);
     hint(UINT64_C(0x83), 2, 0, 0, 2);
     hint(UINT64_C(0x83), 2, 0, 0, 3);

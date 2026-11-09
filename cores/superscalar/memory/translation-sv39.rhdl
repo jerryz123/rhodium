@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../common/cache/prefetch.rhdl".cache_prefetch_physical
+  "../../common/cache/prefetch.rhdl" open
   lib("cores/common/mmu/context.rhdl") open
   lib("riscv/rtl/hypervisor.rhdl") open
   lib("riscv/rtl/pointer-masking.rhdl") open
@@ -116,7 +116,7 @@ sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: 
   prefetch_previous_state <== state
   def prefetch_flush = invalidate ||| (prefetch_previous_state.as_bits() =/= state.as_bits())
   inst virtual_prefetch_pipe(ValidPipeAlwaysCapture(CachePrefetchReq(64), 1, ~flushable: #true))
-  inst physical_prefetch_pipe(ValidPipeAlwaysCapture(CachePrefetchReq(64), 1, ~flushable: #true))
+  inst physical_prefetch_pipe(PhysicalPrefetchPipe(64, config.physical_map.cacheable_address_width))
   virtual_prefetch_pipe.flush <== prefetch_flush
   physical_prefetch_pipe.flush <== prefetch_flush
   prefetch |> virtual_prefetch_pipe.ingress

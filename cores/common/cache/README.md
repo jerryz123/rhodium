@@ -137,6 +137,11 @@ ordinary-idempotent-memory predicates. Superscalar Bare requires ordinary
 data-cacheable RAM even for an instruction hint. Callers choose eligibility,
 translation arbitration, staging, and cancellation; the helper adds no state.
 
+`PhysicalPrefetchPipe(address_width, physical_map.cacheable_address_width)`
+delays an admitted hint by one cycle and clears validity on a flush edge.
+Its input must already be line-aligned and checked against the full physical
+map. Its output carries the original operation and full-width line address.
+
 ## Non-cacheable service
 
 Cached and uncached services share the physical payload and opaque context.

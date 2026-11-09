@@ -13,7 +13,7 @@ import:
   "../../common/cache/access.rhdl" open
   "../../common/cosim-source.rhm".describe_cosim_signals
   "../../common/cache-prefetch.rhdl" open
-  "../../common/cache/prefetch.rhdl".cache_prefetch_physical
+  "../../common/cache/prefetch.rhdl" open
   "../../common/fp/types.rhdl" open
   "protocol.rhdl" open
   lib("cores/common/mmu/protocol.rhdl") open
@@ -214,7 +214,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def prefetch_context_changed = (prefetch_previous_privilege =/= normal.privilege) ||| (prefetch_previous_satp =/= satp) ||| (prefetch_previous_sum =/= tlb.sum) ||| (prefetch_previous_mxr =/= tlb.mxr)
   def prefetch_flush = instruction.flush ||| invalidate_all ||| prefetch_context_changed
   inst virtual_prefetch_pipe(ValidPipeAlwaysCapture(CachePrefetchReq(width), 1, ~flushable: #true))
-  inst physical_prefetch_pipe(ValidPipeAlwaysCapture(CachePrefetchReq(width), 1, ~flushable: #true))
+  inst physical_prefetch_pipe(PhysicalPrefetchPipe(width, physical_map.cacheable_address_width))
   virtual_prefetch_pipe.flush <== prefetch_flush
   physical_prefetch_pipe.flush <== prefetch_flush
   prefetch |> virtual_prefetch_pipe.ingress

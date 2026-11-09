@@ -62,6 +62,15 @@ def test_fetch_chi = RiscvHartCHIConfig(test_flit, CacheLineBytes, test_chi.regi
                                                RiscvPhysicalMemoryAttributes(#true, #true, #false, #true, #false, #false, #true, ~cache_block_zero: #true)), test_home)
 ])
 
+// Kept separate from test_fetch_chi so the MMU oracle can exercise high physical
+// hints without changing production-like fetch/area fixtures that use the small map.
+def test_prefetch_chi = RiscvHartCHIConfig(test_flit, CacheLineBytes, test_fetch_chi.regions ++ [
+  RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(1 << 32, 0xfff),
+                                               RiscvPhysicalMemoryAttributes(#true, #true, #false, #true, #false, #false, #true)), test_home),
+  RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(1 << 33, 0xfff),
+                                               RiscvPhysicalMemoryAttributes(#true, #false, #true, #false, #false, #false, #true, ~instruction_cacheable: #true)), test_io_home)
+])
+
 sync_circuit SuperscalarCacheFixture():
   input node_id: Bits(test_flit.node_id_width)
   input management_pbmt: PageMemoryType
@@ -134,3 +143,4 @@ export:
   test_cache
   test_chi
   test_fetch_chi
+  test_prefetch_chi

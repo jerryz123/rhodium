@@ -1,10 +1,11 @@
 #lang rhodium
-/* Classifies a translated prefetch's complete physical line without owning admission or cancellation. */
+/* Classifies complete physical prefetch lines and stages admitted hints without changing caller policy. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "config.rhm".CacheLineBytes
-  "../cache-prefetch.rhdl".CachePrefetchOperation
+  "../cache-prefetch.rhdl" open
+  lib("flow/main.rhdl") open
   lib("riscv/rtl/pma.rhdl") open
   lib("riscv/rtl/svpbmt.rhdl") open
   lib("rhodium/std/bits.rhdl") open
@@ -39,6 +40,43 @@ fun cache_prefetch_physical(address_width :: PosInt, physical_map :: RiscvPhysic
     ordinary_memory: ordinary & cacheable
     ordinary_data_memory: ordinary & attributes.cacheable
 
+/* Carries only a physical line number and its original instruction/read/write intent. */
+bundle PhysicalPrefetchLine(number_width :: PosInt):
+  number: Bits(number_width)
+  operation: CachePrefetchOperation
+
+/* Registers an already admitted physical hint. Flush clears validity at the edge;
+   each caller retains its own permission checks and outgoing cancellation policy. */
+sync_circuit PhysicalPrefetchPipe(address_width :: PosInt, cacheable_width :: Nat):
+  interface ingress(Valid(CachePrefetchReq(address_width)), ~role: consumer)
+  interface egress(Valid(CachePrefetchReq(address_width)), ~role: producer)
+  input flush: Bool
+
+  def offset = alignment_bits(CacheLineBytes)
+  def end_bit = math.min(address_width, cacheable_width)
+  def number_width = math.max(1, end_bit - offset)
+  inst line(ValidPipeAlwaysCapture(PhysicalPrefetchLine(number_width), 1, ~flushable: #true))
+  line.flush <== flush
+
+  when (ingress.valid):
+    assert(ingress.bits.address.is_aligned(CacheLineBytes), "physical_prefetch_line_aligned")
+    if end_bit < address_width
+    | assert(!ingress.bits.address[end_bit..address_width].any(), "physical_prefetch_fits_map")
+    | #void
+
+  def request :: CachePrefetchReq(address_width) = ingress.bits
+  (ingress |> map_valid(_ => PhysicalPrefetchLine(number_width)):
+    number: if end_bit > offset | request.address[offset..end_bit] | Bits(1)(0)
+    operation: request.operation
+  ) |> line.ingress
+
+  def stored :: PhysicalPrefetchLine(number_width) = line.egress.bits
+  (line.egress |> map_valid(_ => CachePrefetchReq(address_width)):
+    address: if end_bit > offset | (stored.number ++ Bits(offset)(0)).zext(address_width) | Bits(address_width)(0)
+    operation: stored.operation
+  ) |> egress
+
 export:
+  PhysicalPrefetchPipe
   CachePrefetchPhysical
   cache_prefetch_physical

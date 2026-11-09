@@ -55,9 +55,13 @@ sync_circuit RV5StageMmuDataPortFixture():
   def width = test_rv5stage_flit.request_address_width
   def half = 1 << (width - 1)
   def side_effecting = RiscvPhysicalMemoryAttributes(#true, #true, #false, #true, #false, #false, #false)
+  def data_ram = RiscvPhysicalMemoryAttributes(#true, #true, #false, #true, #false, #false, #true, ~instruction_cacheable: #false)
+  def instruction_rom = RiscvPhysicalMemoryAttributes(#true, #false, #true, #false, #false, #false, #true, ~instruction_cacheable: #true)
   def physical_map = RiscvPhysicalMemoryMap(width, [
     RiscvPhysicalMemoryRegion(AddressSet(0, half - 1), test_rv5stage_memory_attributes),
-    RiscvPhysicalMemoryRegion(AddressSet(half, half - 1), side_effecting)
+    RiscvPhysicalMemoryRegion(AddressSet(half, half / 2 - 1), side_effecting),
+    RiscvPhysicalMemoryRegion(AddressSet(half + half / 2, 0xfff), data_ram),
+    RiscvPhysicalMemoryRegion(AddressSet(half + half / 2 + 0x1000, 0xfff), instruction_rom)
   ])
   inst mmu(RV5StageMmu(xlen, RiscvMmuType.Sv39, physical_map, ~svnapot: #true))
   inst arbiter(RV5StageDataPortArbiter(xlen, slots))

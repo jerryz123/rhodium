@@ -22,7 +22,7 @@ vector slots, trap causes, or core/PTW routing decisions into cache state.
 | `config.rhm`, `geometry.rhdl` | Immutable VIPT geometry and way/lane masks |
 | `udb.rhm` | Reservation and cache-maintenance policy declarations; integrating cores retain split-access and alignment-fault guarantees |
 | `access.rhdl` | Speculative lookup classification, whole-access PMA footprint, split-fragment and PTE permissions, and committed route selection |
-| `prefetch.rhdl` | Aligned whole-line PMA/PBMT classification and operation-specific permissions, without staging or final eligibility |
+| `prefetch.rhdl` | Aligned whole-line PMA/PBMT classification and the one-cycle register for admitted physical hints |
 | `operation.rhdl`, `protocol.rhdl` | Physical operations, fixed-cycle lookup, authorization, completion |
 | `l1d/cache.rhdl` | SRAM scheduling, set-isolated hit-under-miss, retained service, coherence, LR/SC |
 | `l1i/cache.rhdl`, `l1i/protocol.rhdl` | Width-selected instruction-block lookup, snapshot residency, replay, invalidation |
@@ -64,7 +64,12 @@ Pass the aligned translated address, fragment byte count, and selected PBMT to
 `cache_fragment_permitted`. The physical address can be wider than XLEN.
 The MMUs retain fault priority and the address reported for each fragment.
 
-`prefetch.rhdl` shares physical classification, not hint admission. RV5Stage
+`PhysicalPrefetchPipe` stores the operation and aligned line number only after
+full-address classification. Size that number for **all** data- or
+instruction-cacheable regions, including non-executable RAM and instruction-only
+ROM. Do not narrow the virtual probe or the address used to classify the line.
+
+The MMUs retain hint admission and cancellation policy. RV5Stage
 checks cacheability/permission and cancels staged hints at the clock edge.
 RV2Wide's translated adapter additionally requires ordinary idempotent memory,
 checks probe availability/address bounds, and gates the outgoing flush cycle.
