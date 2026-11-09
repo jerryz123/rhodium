@@ -29,12 +29,14 @@ update_t branch_update_in = {};
 struct response_t {
   std::uint8_t pvalid{};
   response_bits_t pbits{};
+  bool replay{};
 };
 response_t response{}, s2_response{};
 
 bool request_ready = 1, output_ready = 1;
 
 std::uint64_t fault_address = UINT64_MAX;
+std::uint64_t replay_once_address = UINT64_MAX;
 constexpr auto positive_boundary = UINT64_C(1) << 38;
 constexpr auto negative_base = UINT64_C(0xffffffc000000000);
 
@@ -262,6 +264,7 @@ void initialize(int next_mode) {
   continuous_requests = 0;
   continuous_outputs = 0;
   fault_address = UINT64_MAX;
+  replay_once_address = UINT64_MAX;
   expected_requests.clear();
   previous_request = -1;
   previous_output = -1;
@@ -316,7 +319,7 @@ void drive() {
     control_in.pbranch_uupdate = branch_update_in;
     memory_in.prequest.pready = request_ready;
     memory_in.presponse = {s2_response.pvalid,
-                           {s2_response.pbits, UINT64_C(0)}};
+                           {s2_response.pbits, s2_response.replay}};
     fetched_in.pready = output_ready;
   }
 }
@@ -346,12 +349,15 @@ void observe() {
       if (memory_out.prequest.pvalid && memory_in.prequest.pready) {
         const auto address = memory_out.prequest.pbits.paddress;
         const bool noncanonical = address >= positive_boundary && address < negative_base;
+        const bool replay = address == replay_once_address;
+        if (replay)
+          replay_once_address = UINT64_MAX;
         defer(response,
               std::remove_cvref_t<decltype(response)>{
                   UINT64_C(1),
                   {word_at(address),
                    address == fault_address || noncanonical,
-                   UINT64_C(0)}});
+                   UINT64_C(0)}, replay});
       }
     }
     if (!reset && memory_out.pflush && !restart_valid && !flush)
@@ -478,6 +484,34 @@ void stimulus() {
       expect_pc(UINT64_C(1026), UINT64_C(770));
     }
     CHECK(request_checks == 30 && local_flushes == 0);
+
+    // Replay the continuation, not the prefix. While its reissue is blocked,
+    // retrain the same branch: the saved occurrence must still use its old target.
+    initialize(2);
+    train(770, high_target, 0);
+    replay_once_address = 772;
+    expected_requests = {768, 772, 772, high_target};
+    output_ready = 0;
+    start(770);
+    falling();
+    CHECK(request_checks == 2);
+    request_ready = 0;
+    while (!s2_response.replay)
+      falling();
+    CHECK(memory_out.ps1_ukill);
+    train(770, 1024, 0);
+    for (unsigned i = 0; i < 3; ++i) {
+      falling();
+      CHECK(memory_out.prequest.pvalid && memory_out.prequest.pbits.paddress == 772);
+    }
+    request_ready = 1;
+    falling();
+    falling();
+    CHECK(expected_requests.empty());
+    expect_pc(770, high_target);
+    output_ready = 1;
+    expect_pc(high_target, high_target + 4);
+    CHECK(local_flushes == 0);
 
     initialize(3);
     train(UINT64_C(1282), UINT64_C(1536),

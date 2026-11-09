@@ -74,7 +74,10 @@ BTB source admission and BTB/RAS targets use the same fixed PC width. Source
 queries outside that bound miss rather than alias. The backend rejects arbitrary
 nonrepresentable redirects; only sequential crossings need the frontend boundary
 encoding. Only speculative destinations may alias.
-The source uses their normalized hints, and the scanner normalizes direct-jump
+The cursor, S1, and S2 retain a straddling prediction's destination as a
+`CompactPc`, including through replay. Expand it only when selecting it as
+the next PC; the fetch attempt's own PC stays XLEN-wide for boundary faults.
+The source uses the predictors' normalized hints, and the scanner normalizes direct-jump
 and live-return fallbacks before publishing both packet metadata and redirects.
 Do not truncate a retained prediction independently of the address fetch followed.
 EX still compares against the full architectural next PC; restart, repair PCs,

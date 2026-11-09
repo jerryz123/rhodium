@@ -16,10 +16,10 @@ void tick() {
       unsigned(reset), unsigned(active), unsigned(space), unsigned(clear),
       unsigned(restart_in.pvalid), restart_in.pbits, unsigned(replay_in.pvalid),
       replay_in.pbits.ppc, unsigned(replay_in.pbits.pcontinuation),
-      replay_in.pbits.pcontinuation_utarget, unsigned(attempts_out.pvalid),
+      replay_in.pbits.pcontinuation_utarget.plow, unsigned(attempts_out.pvalid),
       unsigned(attempts_in.pready), attempts_out.pbits.ppc,
       unsigned(attempts_out.pbits.pcontinuation),
-      attempts_out.pbits.pcontinuation_utarget, unsigned(stage1_out.pvalid),
+      attempts_out.pbits.pcontinuation_utarget.plow, unsigned(stage1_out.pvalid),
       stage1_out.pbits.ppc);
   tick_model();
   fetch_source_check();
@@ -66,7 +66,7 @@ int main() {
     replay_in.pvalid = 1;
     replay_in.pbits.ppc = UINT64_C(4098);
     replay_in.pbits.pcontinuation = 1;
-    replay_in.pbits.pcontinuation_utarget = UINT64_C(8192);
+    replay_in.pbits.pcontinuation_utarget.plow = UINT64_C(8192);
     tick();
     replay_in.pvalid = 0;
     attempts_in.pready = 1;
@@ -84,7 +84,7 @@ int main() {
       replay_in.pvalid = (slice(r, 10, 9) == 0);
       replay_in.pbits.ppc = UINT64_C(4098);
       replay_in.pbits.pcontinuation = ((r >> 11) & 1);
-      replay_in.pbits.pcontinuation_utarget = UINT64_C(8192);
+      replay_in.pbits.pcontinuation_utarget.plow = UINT64_C(8192);
       attempts_in.pready = ((r >> 12) & 1);
       tick();
     }

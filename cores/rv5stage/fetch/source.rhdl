@@ -11,11 +11,11 @@ import:
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
-/* Carries an S0/S1/S2 PC occurrence with straddle continuation and prediction metadata. */
+/* Keeps the exact fetch PC through replay; only the predicted destination of a straddle is compact. */
 bundle RV5StageFetchAttempt(xlen :: XLen):
   pc: Bits(xlen.width)
   continuation: Bool
-  continuation_target: Bits(xlen.width)
+  continuation_target: CompactPc(xlen)
   prediction: BranchPrediction(xlen, xlen.width)
 
 /* Retains the last cursor update and its trace owner; the caller supplies the reset fallback. */
@@ -120,7 +120,7 @@ sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: PosInt = 32, ras_e
   def prediction = mux(s1.egress.bits.continuation, literal(BranchPrediction(xlen, xlen.width), 0), btb_prediction)
   def predicted_straddle = prediction.valid & prediction.pc[1].into(Bool) & !prediction.compressed
   def next_pc = priority_mux(~default: s1.egress.bits.pc.align_down(4) + Bits(width)(4)):
-    s1.egress.bits.continuation: s1.egress.bits.continuation_target
+    s1.egress.bits.continuation: s1.egress.bits.continuation_target.expanded()
     prediction.valid & !predicted_straddle: prediction.target
 
 
@@ -131,7 +131,7 @@ sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: PosInt = 32, ras_e
   def restart_candidates = Array(restart, redirect) |> valid_arbiter() |> map_valid(pc => RV5StageFetchAttempt(xlen)):
     pc: pc
     continuation: Bool(#false)
-    continuation_target: pc
+    continuation_target: CompactPc.prediction(xlen, pc)
     prediction: literal(BranchPrediction(xlen, xlen.width), 0)
 
   def Array(restart_offer, restart_update) = restart_candidates |> fork_valid(2)
@@ -140,7 +140,7 @@ sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: PosInt = 32, ras_e
   def next_candidates = prediction_source |> map_valid(_attempt => RV5StageFetchAttempt(xlen)):
     pc: next_pc
     continuation: predicted_straddle
-    continuation_target: prediction.target
+    continuation_target: CompactPc.prediction(xlen, prediction.target)
     prediction: literal(BranchPrediction(xlen, xlen.width), 0)
 
   def Array(next_offer, next_update) = next_candidates |> fork_valid(2)
