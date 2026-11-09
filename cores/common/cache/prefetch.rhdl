@@ -15,6 +15,7 @@ bundle CachePrefetchPhysical(address_width :: PosInt):
   permitted: Bool
   cacheable: Bool
   ordinary_memory: Bool
+  ordinary_data_memory: Bool
 
 /* Aligns the line, retains end-address overflow, and resolves PBMT without granting PMA permissions. */
 fun cache_prefetch_physical(address_width :: PosInt, physical_map :: RiscvPhysicalMemoryMap,
@@ -30,11 +31,13 @@ fun cache_prefetch_physical(address_width :: PosInt, physical_map :: RiscvPhysic
     CachePrefetchOperation.Write: region.writable
 
   def cacheable = mux(operation === CachePrefetchOperation.Instruction, attributes.instruction_cacheable, attributes.cacheable)
+  def ordinary = region.mapped & !attributes.strongly_ordered & attributes.read_idempotent
   CachePrefetchPhysical(address_width):
     address: first
     permitted: permitted
     cacheable: cacheable
-    ordinary_memory: region.mapped & cacheable & !attributes.strongly_ordered & attributes.read_idempotent
+    ordinary_memory: ordinary & cacheable
+    ordinary_data_memory: ordinary & attributes.cacheable
 
 export:
   CachePrefetchPhysical

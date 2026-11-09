@@ -20,9 +20,6 @@ import:
   "../../common/mmu/walker.rhdl" open
   lib("riscv/isa/xlen.rhm") open
   lib("riscv/rtl/pma.rhdl").RiscvPhysicalMemoryMap
-  lib("riscv/isa/csr.rhm") open
-  lib("riscv/isa/sv39.rhm").Sv39Mode
-  lib("riscv/rtl/csr.rhdl") open
   lib("riscv/rtl/privilege.rhdl") open
   lib("riscv/rtl/sv39.rhdl") open
   lib("riscv/rtl/svpbmt.rhdl") open
@@ -102,14 +99,11 @@ sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: 
   /* Effective data context and TLB request selection
      Authorized split/WB demand takes the DTLB ahead of speculative MEM lookup. */
 
-  def guest_state :: RiscvHypervisorTranslation() = if hypervisor | state.guest | literal(RiscvHypervisorTranslation(), 0)
+  def tlb = RiscvTlbLookupBuilder(XLen.X64, state, ~sv39: #true, ~hypervisor: hypervisor)
+  def guest_state = tlb.guest_state
   def normal = effective_data_context(XLen.X64, state.privilege, state.mstatus, ~virtualized: if hypervisor | guest_state.virtualized | #false)
 
-  /* Captures both translation stages and their independent permission controls in each lookup owner. */
-  fun lookup(address :: Bits(64), access :: Sv39Access, privilege :: PrivilegeMode, guest :: Bool) :~ RiscvTlbLookup():
-    riscv_translation_lookup(address, access, privilege, (privilege =/= PrivilegeMode.Machine) & (csr_field(state.satp, Satp64Mode) === Bits(4)(Sv39Mode)), csr_field(state.satp, Satp64PPN), csr_flag(state.mstatus, MstatusSUM), csr_flag(state.mstatus, MstatusMXR), state.pbmte, guest, guest_state)
-
-  def instruction_lookup = lookup(instruction.request.bits, Sv39Access.Fetch, state.privilege, guest_state.virtualized)
+  def instruction_lookup = tlb.lookup(instruction.request.bits, Sv39Access.Fetch, state.privilege, guest_state.virtualized)
   def data_virtual_address = query.address
   def data_demand = query.demand
   def vector_probe = vector_window.translation.request.valid & !data_demand & !query.busy
@@ -123,18 +117,18 @@ sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: 
     query.access.is_cache_management(): Sv39Access.CacheManagement
     query.access.store_fault_class(): Sv39Access.Store
 
-  def normal_lookup = lookup(data_virtual_address, data_access, demand.privilege, demand.virtualized).updated(~execute_read: execute_read)
+  def normal_lookup = tlb.lookup(data_virtual_address, data_access, demand.privilege, demand.virtualized).updated(~execute_read: execute_read)
   def probe_request = vector_window.translation.request.bits
   def probe_access = mux(probe_request.store, Sv39Access.Store, Sv39Access.Load)
-  def probe_lookup = lookup(probe_request.address, probe_access, normal.privilege, normal.virtualized)
-  def fast_lookup = lookup(vector_fast.request.bits.first, mux(vector_fast.request.bits.store, Sv39Access.Store, Sv39Access.Load), normal.privilege, normal.virtualized)
+  def probe_lookup = tlb.lookup(probe_request.address, probe_access, normal.privilege, normal.virtualized)
+  def fast_lookup = tlb.lookup(vector_fast.request.bits.first, mux(vector_fast.request.bits.store, Sv39Access.Store, Sv39Access.Load), normal.privilege, normal.virtualized)
   def data_lookup = mux(vector_probe, probe_lookup, normal_lookup)
   itlb.lookup <== instruction_lookup
   dtlb.lookup <== data_lookup
   inst certificate(VectorCertificate(XLen.X64, config.physical_map))
   vector_fast <=> certificate.check
   certificate.invalidate <== invalidate
-  certificate.current <== lookup(Bits(64)(0), Sv39Access.Load, normal.privilege, normal.virtualized)
+  certificate.current <== tlb.lookup(Bits(64)(0), Sv39Access.Load, normal.privilege, normal.virtualized)
   // The independent probe certifies MEM while the demand port serves older work.
   // Certification checks real A/D permissions; only optional data hints may drop.
   certificate.translation.valid <== vector_fast.request.valid & dtlb.probe_hit
@@ -153,13 +147,13 @@ sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: 
   physical_prefetch_pipe.flush <== prefetch_flush
   prefetch |> virtual_prefetch_pipe.ingress
   def prefetch_request :: CachePrefetchReq(64) = virtual_prefetch_pipe.egress.bits
-  def prefetch_lookup = lookup(prefetch_request.address, Sv39Access.Load, normal.privilege, normal.virtualized)
+  def prefetch_lookup = tlb.lookup(prefetch_request.address, Sv39Access.Load, normal.privilege, normal.virtualized)
   itlb.probe <== prefetch_lookup
   dtlb.probe <== mux(vector_fast.request.valid, fast_lookup, prefetch_lookup)
   def instruction_prefetch = prefetch_request.operation === CachePrefetchOperation.Instruction
   def prefetch_hit = mux(instruction_prefetch, itlb.probe_hit, dtlb.probe_hit)
   def prefetch_fault = mux(instruction_prefetch, itlb.probe_fault, dtlb.probe_fault)
-  def prefetch_translated = normal.virtualized ||| (normal.privilege =/= PrivilegeMode.Machine) & (csr_field(state.satp, Satp64Mode) === Bits(4)(Sv39Mode))
+  def prefetch_translated = tlb.enabled(normal.privilege, normal.virtualized)
   def prefetch_address_valid = prefetch_translated ||| !prefetch_request.address[56..64].any()
   def prefetch_address = mux(instruction_prefetch, itlb.probe_physical_address, dtlb.probe_physical_address).zext(64)
   def prefetch_physical = cache_prefetch_physical(64, config.physical_map, prefetch_address, prefetch_request.operation, mux(instruction_prefetch, itlb.probe_pbmt, dtlb.probe_pbmt))

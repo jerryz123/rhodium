@@ -12,6 +12,8 @@ import:
   "../memory/translation-sv39.rhdl".SuperscalarSv39Specialization
   "../bundles.rhdl" open
   "../../common/cache/config.rhm" open
+  "../../common/cache/protocol.rhdl".PhysicalDataReq
+  "../../common/cache/operation.rhdl".CacheOperation
   "../../common/cache-prefetch.rhdl" open
   "../../common/chi-hart.rhdl" open
   lib("rhodium/std/interconnect.rhdl").AddressSet
@@ -37,6 +39,8 @@ def test_fetch_chi = RiscvHartCHIConfig(test_flit, CacheLineBytes, test_chi.regi
                                                RiscvPhysicalMemoryAttributes(#true, #true, #true, #true, #true, #false, #true, ~cache_block_zero: #true)), test_home),
   RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0x2000, 0xff),
                                                RiscvPhysicalMemoryAttributes(#true, #true, #false, #false, #false, #true, #false)), test_io_home),
+  RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0x100002000, 0xff),
+                                               RiscvPhysicalMemoryAttributes(#true, #true, #false, #false, #false, #true, #false)), test_io_home),
   RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0x2100, 7),
                                                RiscvPhysicalMemoryAttributes(#true, #false, #false, #false, #false, #true, #false)), test_io_home),
   RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0x2203, 0),
@@ -45,6 +49,8 @@ def test_fetch_chi = RiscvHartCHIConfig(test_flit, CacheLineBytes, test_chi.regi
                                                RiscvPhysicalMemoryAttributes(#true, #true, #false, #false, #false, #false, #true, ~cache_block_zero: #true)), test_io_home),
   RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0x2400, 7),
                                                RiscvPhysicalMemoryAttributes(#true, #true, #false, #false, #false, #false, #true, ~cache_block_zero: #true)), test_io_home),
+  RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0x2600, 0xff),
+                                               RiscvPhysicalMemoryAttributes(#true, #false, #true, #false, #false, #false, #true, ~instruction_cacheable: #true)), test_io_home),
   RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0x2500, 0xff),
                                                RiscvPhysicalMemoryAttributes(#true, #true, #false, #true, #false, #false, #true, ~cache_block_zero: #true)), test_home)
 ])
@@ -89,8 +95,9 @@ sync_circuit SuperscalarCacheFixture():
   // replacing the production cache, its coherent engine, or its resident data.
   (
     mmu.physical_memory.request |> map_flow(request):
-      def physical = request.into(SuperscalarMemoryReq(XLen.X64, 64, SuperscalarTransportContext(Context, 3)))
-      physical.updated(~pbmt: mux(physical.access.is_cache_management(), management_pbmt, physical.pbmt))
+      def physical = request.into(PhysicalDataReq(XLen.X64, SuperscalarTransportContext(Context, 3), 64))
+      def operation :: CacheOperation = physical.memory.access
+      physical.updated(~pbmt: mux(operation.is_cache_management(), management_pbmt, physical.pbmt))
   ) |> data.memory.request
 
   data.memory.response |> mmu.physical_memory.response

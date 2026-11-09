@@ -3,7 +3,7 @@
 #include "test.hpp"
 #include <deque>
 
-using Word = decltype(memory_in.prequest.pbits.pdata);
+using Word = decltype(memory_in.prequest.pbits.pmemory.pdata);
 constexpr unsigned bytes = sizeof(Word);
 constexpr unsigned size_code = bytes == 4 ? 2 : 3;
 constexpr unsigned word_mask = (1u << bytes) - 1;
@@ -27,19 +27,21 @@ Word expected(unsigned offset) {
   return value;
 }
 
-void service(unsigned address, unsigned op, Word data, unsigned mask, unsigned width) {
+void service(std::uint64_t address, unsigned op, Word data, unsigned mask, unsigned width) {
   auto &req = memory_in.prequest;
   req.pbits = {};
-  req.pbits.pcontext = ++next_context;
-  req.pbits.paddress = address;
-  req.pbits.paccess = op;
-  req.pbits.pdata = data;
-  req.pbits.pmask = mask;
-  req.pbits.pwidth = width;
+  auto &memory = req.pbits.pmemory;
+  memory.pcontext = ++next_context;
+  memory.paddress = address;
+  memory.paccess = op;
+  memory.pdata = data;
+  memory.pbyte_umask = mask;
+  memory.pwidth = width;
+  memory.punsigned = op == 1 || op == 2;
   req.pvalid = 1;
   until([] { return memory_out.prequest.pready; });
   CHECK(!memory_out.pfault.pvalid);
-  contexts.push_back(req.pbits.pcontext);
+  contexts.push_back(memory.pcontext);
   tick_model();
   req.pvalid = 0;
 }
@@ -58,7 +60,7 @@ void complete(Word value) {
 
 void flushed_fetch_before_device_load() {
   constexpr unsigned offset = bytes - 1;
-  constexpr unsigned address = 0x2000 + offset;
+  constexpr std::uint64_t address = UINT64_C(0x100002000) + offset;
   auto &fetch = instruction_in.prequest;
   auto &req = uncached_chi_out.preq;
   auto &dat = uncached_chi_in.pdat.presponse;

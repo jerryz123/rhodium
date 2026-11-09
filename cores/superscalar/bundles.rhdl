@@ -19,6 +19,8 @@ import:
   lib("flow/main.rhdl") open
   lib("cores/common/load-store.rhdl").MemoryWidth
   lib("cores/common/load-store.rhdl").memory_word_bytes
+  lib("cores/common/cache/protocol.rhdl").PhysicalDataReq
+  lib("cores/common/cache/protocol.rhdl").AddressedPhysicalMemoryBeatReq
   lib("cores/common/cache/operation.rhdl").CacheOperation
   lib("riscv/rtl/svpbmt.rhdl").PageMemoryType
   lib("cores/common/cache-prefetch.rhdl").CachePrefetchOperation
@@ -802,7 +804,7 @@ bundle SuperscalarUncachedContext(Context :: DataType):
   offset: Bits(3)
   context: Context
 
-/* Carries exact byte addresses and XLEN beats; VA uses XLEN, while PA width is independent. */
+/* Carries a core-side byte address, guest access intent, and XLEN data before translation. */
 bundle SuperscalarMemoryReq(xlen :: XLen, address_width :: PosInt, Context :: DataType):
   context: Context
   address: Bits(address_width)
@@ -830,18 +832,20 @@ bundle SuperscalarMemoryReq(xlen :: XLen, address_width :: PosInt, Context :: Da
       guest_access: request.guest_access
 
 /* Crosses the translation boundary without changing access size or positioned store lanes. */
-fun superscalar_physical_request(xlen :: XLen, Context :: DataType, request :: SuperscalarMemoryReq(xlen, xlen.width, Context), address :: Bits(64), pbmt :: PageMemoryType) :~ SuperscalarMemoryReq(xlen, 64, Context):
-  SuperscalarMemoryReq(xlen, 64, Context):
-    context: request.context
-    address: address
-    access: request.access
-    atomic: request.atomic
-    width: request.width
-    data: request.data
-    mask: request.mask
-    locality: request.locality
+fun superscalar_physical_request(xlen :: XLen, Context :: DataType, request :: SuperscalarMemoryReq(xlen, xlen.width, Context), address :: Bits(64), pbmt :: PageMemoryType) :~ PhysicalDataReq(xlen, Context, 64):
+  PhysicalDataReq(xlen, Context, 64):
     pbmt: pbmt
-    guest_access: request.guest_access
+    memory:
+      AddressedPhysicalMemoryBeatReq(xlen, Context, xlen.width / 8, 64):
+        context: request.context
+        address: address
+        access: request.access
+        atomic: request.atomic
+        width: request.width
+        unsigned: !request.access.is_one_of(CacheOperation.LoadReserved, CacheOperation.StoreConditional, CacheOperation.Atomic)
+        data: request.data
+        byte_mask: request.mask
+        locality: request.locality
 
 /* Returns the MEM decision and raw aligned load beat; no allocation or mutation occurs here. */
 bundle SuperscalarLookupResult(xlen :: XLen):
@@ -862,12 +866,12 @@ expr.macro
    registered ordered_busy prevents younger memory effects, including earlier lookup hits.
    Reservation validity is live shared-cache state for WB wait-on-reservation.
    Reset must reset both participants together. */
-interface SuperscalarMemory(xlen :: XLen, address_width :: PosInt, Context :: DataType):
+interface SuperscalarMemoryPort(xlen :: XLen, Context :: DataType, Request :: DataType):
   role requester
   role responder
   provider requester
   requester -> responder:
-    request: Decoupled(SuperscalarMemoryReq(xlen, address_width, Context))
+    request: Decoupled(Request)
 
   responder -> requester:
     fault: Valid(SuperscalarResolution(xlen))
@@ -875,6 +879,16 @@ interface SuperscalarMemory(xlen :: XLen, address_width :: PosInt, Context :: Da
     drained: Bool
     ordered_busy: Bool
     reservation_valid: Bool
+
+/* The core offers virtual addresses and guest intent. Physical service consumes resolved PA and PBMT. */
+expr.macro
+| 'SuperscalarMemory($xlen, $address_width, $Context)':
+    'SuperscalarMemoryPort($xlen, $Context, SuperscalarMemoryReq($xlen, $address_width, $Context))'
+| 'SuperscalarMemory': 'fun (xlen :: XLen, address_width :: PosInt, Context :: DataType): SuperscalarMemory(xlen, address_width, Context)'
+
+expr.macro
+| 'SuperscalarPhysicalMemory($xlen, $Context)':
+    'SuperscalarMemoryPort($xlen, $Context, PhysicalDataReq($xlen, $Context, 64))'
 
 /* Reports one successfully retired instruction and its optional architectural GPR write. */
 bundle SuperscalarRetirement(xlen :: XLen, hypervisor :: Boolean):
@@ -951,6 +965,7 @@ export:
   SuperscalarLookupResult
   SuperscalarPipelineAccess
   SuperscalarMemory
+  SuperscalarPhysicalMemory
   SuperscalarRetirement
   SuperscalarCompletion
   SuperscalarInstructionIdentity

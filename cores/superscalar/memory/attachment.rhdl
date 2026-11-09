@@ -30,7 +30,7 @@ sync_circuit SuperscalarL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHICo
   def bytes = xlen.width / 8
   input node_id: Bits(config.flit.node_id_width)
   input uncached_node_id: Bits(config.flit.node_id_width)
-  interface memory(SuperscalarMemory(xlen, 64, Context), ~role: responder)
+  interface memory(SuperscalarPhysicalMemory(xlen, Context), ~role: responder)
   interface instruction(PhysicalInstructionAccess(64, 64), ~role: responder)
   interface prefetch(Valid(CachePrefetchReq(64)), ~role: consumer)
   interface pipeline_lookup(Valid(CachePipelineReq(xlen)), ~role: consumer)
@@ -77,11 +77,11 @@ sync_circuit SuperscalarL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHICo
      Management uses physical cacheability; ordinary requests use resolved PMA/PBMT attributes. */
 
   def ordered_busy = ordering.ordered_busy
-  def request :: SuperscalarMemoryReq(xlen, 64, Context) = memory.request.bits
+  def request :: AddressedPhysicalMemoryBeatReq(xlen, Context, bytes, 64) = memory.request.bits.memory
   def atomic_request = request.access.is_one_of(CacheOperation.LoadReserved, CacheOperation.StoreConditional, CacheOperation.Atomic)
   def zero_block = request.access.is_cache_block_zero()
   def physical = cache_access_region(XLen.X64, config.physical_map, request.address, request.width, request.access)
-  def attributes = resolve_memory_attributes(physical, request.pbmt)
+  def attributes = resolve_memory_attributes(physical, memory.request.bits.pbmt)
   def route = committed_cache_route(request.access, physical, attributes)
   def writes = request.access.store_fault_class()
   def permitted = cache_access_permitted(
@@ -129,7 +129,7 @@ sync_circuit SuperscalarL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHICo
   /* Committed cached, uncached, and local-management paths.
      Accepted operations retain response ownership across speculative redirects. */
 
-  def Array(cached, uncached_requests, local_management) = memory.request |> gate_flow(permitted) |> demux_flow(3, _request => route.as_bits())
+  def Array(cached, uncached_requests, local_management) = memory.request |> gate_flow(permitted) |> map_flow(translated => translated.memory) |> demux_flow(3, _request => route.as_bits())
   // A statically uncached region has no cached copies. Complete after drain,
   // without issuing an invented load/store to a possibly side-effecting device.
   (local_management |> map_flow(request => MemoryResponse(Bits(xlen.width), Context)):
@@ -140,13 +140,13 @@ sync_circuit SuperscalarL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHICo
   authorized_index |> to_valid() |> map_valid(request => mux(atomic_request, request.address[0..xlen.width], request.address[0..xlen.width].align_down(bytes))) |> storage.virtual_lookup
   (
     authorized |> map_flow(payload):
-      def native = payload.into(SuperscalarMemoryReq(xlen, 64, Context))
+      def native = payload.into(AddressedPhysicalMemoryBeatReq(xlen, Context, bytes, 64))
       def address = native.address[0..xlen.width]
       // Zero initializes raw_beat (when present); completion context comes from the request.
       def scalar :: PhysicalMemoryBeatReq(xlen, Context, beat_bytes) = literal(PhysicalMemoryBeatReq(xlen, Context, beat_bytes), 0)
       scalar.updated(
-        ~address: mux(atomic_request, address, address.align_down(bytes)), ~byte_mask: row_mask(address, native.mask),
-        ~width: mux(atomic_request, native.width, if xlen == XLen.X32 | MemoryWidth.Word | MemoryWidth.Double), ~unsigned: !atomic_request,
+        ~address: mux(atomic_request, address, address.align_down(bytes)), ~byte_mask: row_mask(address, native.byte_mask),
+        ~width: mux(atomic_request, native.width, if xlen == XLen.X32 | MemoryWidth.Word | MemoryWidth.Double), ~unsigned: native.unsigned,
         ~context: native.context, ~data: native.data.zext(beat_bytes * 8), ~access: native.access, ~atomic: native.atomic, ~locality: native.locality
       )
   ) |> ordering.cached
@@ -156,7 +156,7 @@ sync_circuit SuperscalarL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHICo
       device: attributes.strongly_ordered
       request:
         PhysicalMemoryReq(XLen.X64, SuperscalarUncachedContext(Context)):
-          byte_mask: if xlen == XLen.X64 | request.mask | request.mask.zext(8) << (request.address[2].as_bits() ++ Bits(2)(0))
+          byte_mask: if xlen == XLen.X64 | request.byte_mask | request.byte_mask.zext(8) << (request.address[2].as_bits() ++ Bits(2)(0))
           address: request.address
           access: request.access
           atomic: request.atomic
@@ -178,7 +178,7 @@ sync_circuit SuperscalarL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHICo
     guest: literal(RiscvGuestFault(), 0)
     disposition: SuperscalarDisposition.Fault
     cause: mux(request.access.store_fault_class(), ExceptionCause.StoreAccessFault, ExceptionCause.LoadAccessFault)
-    value: memory.request.bits.address[0..xlen.width]
+    value: request.address[0..xlen.width]
 
   memory.drained <== ordering.drained
   memory.reservation_valid <== storage.core.reservation_valid

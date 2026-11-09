@@ -4,6 +4,7 @@
 
 import:
   "../bundles.rhdl" open
+  lib("cores/common/cache/protocol.rhdl").PhysicalDataReq
   lib("riscv/isa/xlen.rhm").XLen
   lib("flow/main.rhdl") open
   lib("rhodium/std/bits.rhdl") open
@@ -13,20 +14,20 @@ import:
    Eight registered credits preserve the former owner FIFO's admission boundary. */
 sync_circuit SuperscalarMemoryTransport(xlen :: XLen, clients :: PosInt, Context :: DataType):
   def Routed = SuperscalarTransportContext(Context, clients)
-  interface request[clients](Decoupled(SuperscalarMemoryReq(xlen, 64, Context)), ~role: consumer)
+  interface request[clients](Decoupled(PhysicalDataReq(xlen, Context, 64)), ~role: consumer)
   interface response[clients](Decoupled(MemoryResponse(Bits(xlen.width), Context)), ~role: producer)
   interface fault[clients](Valid(SuperscalarResolution(xlen)), ~role: producer)
-  interface physical(SuperscalarMemory(xlen, 64, Routed), ~role: requester)
+  interface physical(SuperscalarPhysicalMemory(xlen, Routed), ~role: requester)
   output drained: Bool
 
-  inst requests(Arbiter(SuperscalarMemoryReq(xlen, 64, Context), clients))
+  inst requests(Arbiter(PhysicalDataReq(xlen, Context, 64), clients))
   inst outstanding(CreditCounter(8))
   request <=> requests.ingress
   (requests.egress |> gate_flow(!outstanding.full) |> map_flow(request):
-    def selected :: SuperscalarMemoryReq(xlen, 64, Context) = request
+    def selected :: PhysicalDataReq(xlen, Context, 64) = request
     def route = SuperscalarTransportContext(Context, clients):
       client: requests.chosen
-      context: request.context
+      context: selected.memory.context
     selected.with_context(Routed, route)
   ) |> physical.request
   outstanding.increment <== physical.request.fire()

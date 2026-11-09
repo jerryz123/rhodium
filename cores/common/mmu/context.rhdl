@@ -51,4 +51,26 @@ fun riscv_translation_lookup(address :: Bits(64), access :: Sv39Access, privileg
         vs_pbmte: mux(guest, state.vs_pbmte, pbmte)
         g_pbmte: guest & pbmte
 
-export RiscvTranslationState riscv_translation_lookup
+/* Decodes a core's live translation state once for its demand, prefetch, and vector lookup ports.
+   Callers supply the effective privilege and guest mode of each owner. No lookup is registered here. */
+class RiscvTlbLookupBuilder(host_sv39 :: Bool, root_ppn :: Bits(44), sum :: Bool, mxr :: Bool,
+                            pbmte :: Bool, guest_state :: RiscvHypervisorTranslation()):
+  /* A Bare configuration ignores SATP mode. RV32 supplies zero for unimplemented Sv39 controls. */
+  constructor (xlen :: XLen, state :: RiscvTranslationState(xlen), ~sv39: sv39 :: Boolean, ~hypervisor: hypervisor :: Boolean):
+    def mode = if sv39 && xlen == XLen.X64 | csr_field(state.satp, Satp64Mode) === Bits(Satp64Mode.width)(Sv39Mode) | Bool(#false)
+    def root = if xlen == XLen.X64 | csr_field(state.satp, Satp64PPN) | Bits(Satp64PPN.width)(0)
+    def host_sum = if xlen == XLen.X64 | csr_flag(state.mstatus, MstatusSUM) | Bool(#false)
+    def host_mxr = if xlen == XLen.X64 | csr_flag(state.mstatus, MstatusMXR) | Bool(#false)
+    def guest = if hypervisor | state.guest | literal(RiscvHypervisorTranslation(), 0)
+    super(mode, root, host_sum, host_mxr, state.pbmte, guest)
+
+  /* Guest accesses use the VS/G context even when host translation is Bare. */
+  method enabled(privilege :: PrivilegeMode, guest :: Bool) :~ Bool:
+    guest ||| (host_sv39 & (privilege =/= PrivilegeMode.Machine))
+
+  /* Constructs the complete lookup key used for permission checks, replay, and TLB fills. */
+  method lookup(address :: Bits(64), access :: Sv39Access, privilege :: PrivilegeMode, guest :: Bool) :~ RiscvTlbLookup():
+    riscv_translation_lookup(address, access, privilege, host_sv39 & (privilege =/= PrivilegeMode.Machine),
+                             root_ppn, sum, mxr, pbmte, guest, guest_state)
+
+export RiscvTranslationState riscv_translation_lookup RiscvTlbLookupBuilder

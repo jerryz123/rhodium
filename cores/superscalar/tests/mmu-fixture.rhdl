@@ -163,12 +163,12 @@ sync_circuit SuperscalarMmuFixture(~bare: bare :: Boolean = #false):
     guest: literal(RiscvGuestFault(), 0)
     disposition: SuperscalarDisposition.Fault
     cause: ExceptionCause.LoadAccessFault
-    value: mmu.physical_memory.request.bits.address
+    value: mmu.physical_memory.request.bits.memory.address
 
   mmu.physical_memory.response.valid <== response_valid
   // The memory responder retains and echoes accepted context, just as the real cache does.
-  inst response_context(Queue(mmu.physical_memory.request.bits.context.type, 8))
-  inject_interface(Valid(mmu.physical_memory.request.bits.context.type), ~valid: mmu.physical_memory.request.fire(), ~bits: mmu.physical_memory.request.bits.context) |> offer_decoupled() |> response_context.ingress
+  inst response_context(Queue(mmu.physical_memory.request.bits.memory.context.type, 8))
+  inject_interface(Valid(mmu.physical_memory.request.bits.memory.context.type), ~valid: mmu.physical_memory.request.fire(), ~bits: mmu.physical_memory.request.bits.memory.context) |> offer_decoupled() |> response_context.ingress
   mmu.physical_memory.response.bits.data <== response_data
   mmu.physical_memory.response.bits.context <== response_context.egress.bits
   response_context.egress.ready <== mmu.physical_memory.response.fire()
@@ -176,11 +176,11 @@ sync_circuit SuperscalarMmuFixture(~bare: bare :: Boolean = #false):
   mmu.physical_memory.ordered_busy <== Bool(#false)
   mmu.physical_memory.reservation_valid <== Bool(#false)
   physical_valid <== mmu.physical_memory.request.valid
-  physical_address <== mmu.physical_memory.request.bits.address
-  physical_access <== mmu.physical_memory.request.bits.access
-  physical_data <== mmu.physical_memory.request.bits.data
-  physical_mask <== mmu.physical_memory.request.bits.mask
-  physical_locality <== mmu.physical_memory.request.bits.locality
+  physical_address <== mmu.physical_memory.request.bits.memory.address
+  physical_access <== mmu.physical_memory.request.bits.memory.access
+  physical_data <== mmu.physical_memory.request.bits.memory.data
+  physical_mask <== mmu.physical_memory.request.bits.memory.byte_mask
+  physical_locality <== mmu.physical_memory.request.bits.memory.locality
   physical_pbmt <== mmu.physical_memory.request.bits.pbmt
   response_ready <== mmu.physical_memory.response.ready
 

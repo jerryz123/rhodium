@@ -204,6 +204,7 @@ int main() {
     hint(UINT64_C(0x2000), 2, 0); // Device.
     hint(UINT64_C(0x2300), 2, 0); // Noncacheable.
     hint(UINT64_C(0x2400), 3, 0); // Region does not contain a complete block.
+    hint(UINT64_C(0x2625), 1, 1, UINT64_C(0x2600)); // Sv39 permits instruction-only ROM.
     hint(UINT64_C(0x2500), 1, 0); // Cacheable but not executable.
     hint(UINT64_C(0x83), 2, 0, 0, 1);
     hint(UINT64_C(0x83), 2, 0, 0, 2);

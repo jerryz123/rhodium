@@ -50,10 +50,11 @@ Keep fixed 64-bit fetch blocks, boot/time inputs, and CHI transport separate
 from architectural width. The shared uncached engine remains 64-bit so it can
 return one complete fetch block; scalar IO is explicitly widened/narrowed at
 the cache adapter, preserving its exact access size and byte offset.
-Memory request and interface constructors take explicit address width: core
-VAs are XLEN, physical adapter requests are 64 bits. Build the physical request
-at the translation boundary with `superscalar_physical_request`; never widen VAs
-inside the pipeline merely to match CHI transport.
+Build the shared `PhysicalDataReq` at the translation boundary with
+`superscalar_physical_request`. Core VAs are XLEN. The physical request keeps
+64 address bits through PMA and IO routing, including on RV32. The transport
+adds its client tag to `memory.context` and carries the resolved PBMT alongside
+the transaction.
 
 `superscalar.rhdl` selects an identity or RV64 Sv39/guest translation
 specialization from `profile.mmu_type` at elaboration and passes it directly to

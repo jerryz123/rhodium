@@ -3,17 +3,21 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  rhombus/meta open
   "memory-context.rhdl" open
   "../common/cache/protocol.rhdl" open
   lib("rhodium/std/bits.rhdl").Pow2Int
   "../../riscv/isa/xlen.rhm".XLen
-  "../../riscv/rtl/svpbmt.rhdl" open
   lib("rhodium/std/ready-valid.rhdl") open
 
-/* Carries a translated data request and its PBMT override into physical-region routing. */
-bundle RV5StagePhysicalDataReq(xlen :: XLen, slots :: Pow2Int):
-  memory: PhysicalMemoryReq(xlen, RV5StageMemoryContext(slots))
-  pbmt: PageMemoryType
+/* Specializes the shared physical payload with the RV5Stage return context. */
+expr.macro
+| 'RV5StagePhysicalDataReq($xlen, $slots): $field; ...':
+    'PhysicalDataReq($xlen, RV5StageMemoryContext($slots), ($xlen).width): $field; ...'
+| 'RV5StagePhysicalDataReq($xlen, $slots)': 'PhysicalDataReq($xlen, RV5StageMemoryContext($slots), ($xlen).width)'
+| 'RV5StagePhysicalDataReq': 'fun (xlen :: XLen, slots :: Pow2Int): RV5StagePhysicalDataReq(xlen, slots)'
+
+annot.macro 'RV5StagePhysicalDataReq($xlen, $slots)': 'PhysicalDataReq($xlen, RV5StageMemoryContext($slots), ($xlen).width)'
 
 /* Couples physical admission/faults with tagged completion, drain, and reservation status. */
 interface RV5StagePhysicalDataAccess(xlen :: XLen, slots :: Pow2Int):

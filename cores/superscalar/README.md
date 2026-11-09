@@ -84,11 +84,12 @@ RV32 uses the low 32 boot-address bits. Bare mode has no TLB or walker: PMA
 permissions, ordered IO, and independently checked misaligned fragments remain
 active. CSR `satp` reads zero and ignores mode writes in this specialization.
 
-`SuperscalarMemoryReq(xlen, address_width)` and `SuperscalarMemory(xlen, address_width)`
-separate byte-address width from scalar beat width. The core-facing request uses
-`xlen.width` virtual-address bits; the Bare/Sv39 adapter produces 64-bit physical
-addresses for the cache/CHI adapter. Translation does not change access size,
-store byte lanes, or response ordering.
+The core-facing `SuperscalarMemory(xlen, xlen.width, Context)` carries virtual
+addresses and guest access intent. Both translation specializations produce
+`PhysicalDataReq(xlen, Context, 64)` for the physical router. Its `memory` field
+carries the 64-bit physical address, XLEN data, byte enables, and return context.
+Its `pbmt` field qualifies the physical access. Translation preserves access
+size, store byte placement, and response ordering.
 
 For the fetching core with both shared caches, import
 `cores/superscalar/superscalar.rhdl` and `cores/common/cache/config.rhm`, then instantiate

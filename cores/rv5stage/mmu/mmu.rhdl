@@ -31,9 +31,6 @@ import:
   "../memory-context.rhdl" open
   "../../common/load-store.rhdl" open
   "../../../riscv/isa/xlen.rhm" open
-  "../../../riscv/isa/csr.rhm" open
-  "../../../riscv/isa/sv39.rhm".Sv39Mode
-  "../../../riscv/rtl/csr.rhdl" open
   "../../../riscv/rtl/pma.rhdl" open
   "../../../riscv/rtl/sv39.rhdl" open
   "../../../riscv/rtl/svpbmt.rhdl" open
@@ -83,8 +80,8 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def privilege = state.privilege
   def mstatus = state.mstatus
   def satp = state.satp
-  def pbmte = state.pbmte
-  def guest_state :: RiscvHypervisorTranslation() = if hypervisor | state.guest | literal(RiscvHypervisorTranslation(), 0)
+  def tlb = RiscvTlbLookupBuilder(xlen, state, ~sv39: mmu_mode == RiscvMmuType.Sv39, ~hypervisor: hypervisor)
+  def guest_state = tlb.guest_state
 
   inst itlb(RiscvTranslationTlb(tlb_entries, ~host_root_epoch: !hypervisor))
   inst dtlb(RiscvTranslationTlb(tlb_entries, ~host_root_epoch: !hypervisor))
@@ -123,20 +120,11 @@ sync_circuit RV5StageMmu(xlen :: XLen,
 
   def execute_read = demand_mode === RiscvGuestMemoryAccess.GuestExecuteRead
 
-  def satp_sv39 = if mmu_mode == RiscvMmuType.Bare || xlen == XLen.X32 | Bool(#false) | csr_field(satp, Satp64Mode) === Bits(Satp64Mode.width)(Sv39Mode)
-  def root_ppn = if xlen == XLen.X32 | Bits(Satp64PPN.width)(0) | csr_field(satp, Satp64PPN)
-  def supervisor_or_user = privilege =/= PrivilegeMode.Machine
   def instruction_guest = guest_state.virtualized
-  def instruction_translation_enabled = (satp_sv39 & supervisor_or_user) ||| instruction_guest
+  def instruction_translation_enabled = tlb.enabled(privilege, instruction_guest)
   def normal = effective_data_context(xlen, privilege, mstatus, ~virtualized: if hypervisor | guest_state.virtualized | #false)
   def demand = guest_data_context(normal, demand_mode, guest_state.hstatus)
-  def data_translation_enabled = (satp_sv39 & (demand.privilege =/= PrivilegeMode.Machine)) ||| demand.virtualized
-  def sum = if xlen == XLen.X32 | Bool(#false) | csr_flag(mstatus, MstatusSUM)
-  def mxr = if xlen == XLen.X32 | Bool(#false) | csr_flag(mstatus, MstatusMXR)
-
-  /* Captures host or guest translation roots, privilege, permission controls, and PBMT enables. */
-  fun lookup(address :: Bits(64), access :: Sv39Access, effective_privilege :: PrivilegeMode, enabled :: Bool, guest :: Bool) :~ RiscvTlbLookup():
-    riscv_translation_lookup(address, access, effective_privilege, enabled, root_ppn, sum, mxr, pbmte, guest, guest_state)
+  def data_translation_enabled = tlb.enabled(demand.privilege, demand.virtualized)
 
 
   /* Vector certificate context
@@ -147,7 +135,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   inst certificate(VectorCertificate(xlen, physical_map))
   vector_fast <=> certificate.check
   certificate.invalidate <== invalidate_all
-  certificate.current <== lookup(Bits(64)(0), Sv39Access.Load, normal.privilege, satp_sv39 & (normal.privilege =/= PrivilegeMode.Machine) & !normal.virtualized, normal.virtualized)
+  certificate.current <== tlb.lookup(Bits(64)(0), Sv39Access.Load, normal.privilege, normal.virtualized)
 
 
   /* Instruction S0 admission and S1 ownership */
@@ -187,7 +175,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   /* Translation-port arbitration
      Authorized WB demand precedes page probes, MEM lookup, and vector fast certification. */
 
-  itlb.lookup <== lookup(instruction_virtual_address, Sv39Access.Fetch, privilege, instruction_translation_enabled & !instruction_guest, instruction_guest)
+  itlb.lookup <== tlb.lookup(instruction_virtual_address, Sv39Access.Fetch, privilege, instruction_guest)
   itlb.invalidate_all <== invalidate_all
   // Authorized WB requests own the DTLB on contention. Younger MEM loads then
   // fall back instead of observing a translation belonging to another token.
@@ -208,7 +196,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
     load_request.egress.valid: pipeline_is_store
 
   def demand_access = mux(data_demand, data_access_kind, mux(speculative_store, Sv39Access.Store, Sv39Access.Load))
-  dtlb.lookup <== lookup(demand_address, demand_access, demand.privilege, data_translation_enabled & !demand.virtualized, demand.virtualized).updated(~execute_read: execute_read)
+  dtlb.lookup <== tlb.lookup(demand_address, demand_access, demand.privilege, demand.virtualized).updated(~execute_read: execute_read)
   dtlb.invalidate_all <== invalidate_all
   certificate.translation.valid <== fast_selected & dtlb.hit
   certificate.translation.bits <== dtlb_result
@@ -223,9 +211,9 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   reg prefetch_previous_mxr(~init: Bool(#false))
   prefetch_previous_privilege <== normal.privilege
   prefetch_previous_satp <== satp
-  prefetch_previous_sum <== sum
-  prefetch_previous_mxr <== mxr
-  def prefetch_context_changed = (prefetch_previous_privilege =/= normal.privilege) ||| (prefetch_previous_satp =/= satp) ||| (prefetch_previous_sum =/= sum) ||| (prefetch_previous_mxr =/= mxr)
+  prefetch_previous_sum <== tlb.sum
+  prefetch_previous_mxr <== tlb.mxr
+  def prefetch_context_changed = (prefetch_previous_privilege =/= normal.privilege) ||| (prefetch_previous_satp =/= satp) ||| (prefetch_previous_sum =/= tlb.sum) ||| (prefetch_previous_mxr =/= tlb.mxr)
   def prefetch_flush = instruction.flush ||| invalidate_all ||| prefetch_context_changed
   inst virtual_prefetch_pipe(ValidPipeAlwaysCapture(CachePrefetchReq(width), 1, ~flushable: #true))
   inst physical_prefetch_pipe(ValidPipeAlwaysCapture(CachePrefetchReq(width), 1, ~flushable: #true))
@@ -235,8 +223,8 @@ sync_circuit RV5StageMmu(xlen :: XLen,
 
   def prefetch_request = virtual_prefetch_pipe.egress.bits.into(CachePrefetchReq(width))
   def prefetch_virtual_address = prefetch_request.address.zext(64)
-  def normal_data_translation_enabled = (satp_sv39 & (normal.privilege =/= PrivilegeMode.Machine)) ||| normal.virtualized
-  def probe = lookup(prefetch_virtual_address, Sv39Access.Load, normal.privilege, normal_data_translation_enabled & !normal.virtualized, normal.virtualized)
+  def normal_data_translation_enabled = tlb.enabled(normal.privilege, normal.virtualized)
+  def probe = tlb.lookup(prefetch_virtual_address, Sv39Access.Load, normal.privilege, normal.virtualized)
   itlb.probe <== probe
   dtlb.probe <== probe
 
@@ -286,7 +274,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
           load_window: vector_window.physical_addresses[1]
           data_translation_enabled: dtlb.translation.physical_address.zext(64)
 
-  def load_last_offset = mux_lookup(load_request.egress.bits.width, [[MemoryWidth.Byte, Bits(width)(0)], [MemoryWidth.Half, Bits(width)(1)], [MemoryWidth.Word, Bits(width)(3)], [MemoryWidth.Double, Bits(width)(7)]])
+  def load_last_offset = memory_access_last_offset(xlen, load_request.egress.bits.width)
   def load_physical = physical_map.lookup(load_address, load_address +& load_last_offset)
   def load_attributes = resolve_memory_attributes(load_physical, mux(load_pinned, PageMemoryType.PMA, dtlb_result.pbmt))
   // Translation contention and ordered IO replay without entering miss service.
@@ -507,7 +495,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
 
   def data_physical_address = mux(split_busy, translated_fragment_address.align_down(word_bytes), translated_fragment_address)
   def data_translated_address = mux(data_translation_enabled, dtlb.translation.physical_address.zext(64), data_virtual_address)
-  def data_last_offset = mux_lookup(data_request.width, [[MemoryWidth.Byte, Bits(64)(0)], [MemoryWidth.Half, Bits(64)(1)], [MemoryWidth.Word, Bits(64)(3)], [MemoryWidth.Double, Bits(64)(7)]])
+  def data_last_offset = memory_access_last_offset(XLen.X64, data_request.width)
   def data_physical_region = physical_map.lookup(data_translated_address, data_translated_address +& data_last_offset)
   def execute_read_denied = execute_read & dtlb.hit & !(data_physical_region.readable & data_physical_region.executable)
   // A retained split owner uses the same demand TLB and physical checks as

@@ -68,7 +68,7 @@ for (xlen in [XLen.X32, XLen.X64]):
   def wide_adapter = child(child(hart, "core"), "data")
   check:
     cache_payload_bits(child(child(core, "data"), "storage").find_input("core_in")) ~is xlen.width
-    cache_payload_bits(wide_adapter.find_input("memory_in")) ~is xlen.width
+    wide_adapter.find_input("memory_in").type.field("request").type.field("bits").type.field("memory").type.field("data").type.width ~is xlen.width
     cache_payload_bits(child(wide_adapter, "storage").find_input("core_in")) ~is 128
   def memory = child(core, "mmu")
   def execution = design.modules.find(fun (module_def): module_def.name == "SuperscalarCore")
@@ -139,5 +139,5 @@ for (xlen in [XLen.X32, XLen.X64]):
     core.find_input("start_in").type.field("bits").type.width ~is 64
     memory.find_input("state").type.field("satp").type.width ~is xlen.width
     execution.find_output("memory_out").type.field("request").type.field("bits").type.field("address").type.width ~is xlen.width
-    memory.find_output("physical_memory_out").type.field("request").type.field("bits").type.field("address").type.width ~is 64
+    memory.find_output("physical_memory_out").type.field("request").type.field("bits").type.field("memory").type.field("address").type.width ~is 64
     design.modules.filter(~keep: fun (module_def): module_def.name == "RiscvTranslationWalker").length() ~is 0

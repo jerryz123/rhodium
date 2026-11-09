@@ -30,9 +30,10 @@ adapters consume `state`. The layout is fixed; core producers supply zero guest
 state when H is disabled. This payload adds no storage, handshake, or automatic invalidation;
 callers choose when instructions capture controls and which changes cancel hints.
 
-The same module supplies `riscv_translation_lookup` to form the shared host/guest
-lookup from explicitly selected privilege, translation enables, roots, SUM/MXR,
-and PBMTE state. It is combinational and adds no arbitration or retained state.
+Both cores use `RiscvTlbLookupBuilder` to decode their live state once. Its
+`lookup(address, access, privilege, guest)` method builds a host or guest
+lookup for the selected owner. `riscv_translation_lookup` also accepts decoded
+controls directly. Fetch, demand, and probe timing belongs to the caller.
 HLVX callers set `execute_read` on the resulting lookup separately.
 
 The caller supplies `RiscvTlbLookup` values, selects misses for the walker's

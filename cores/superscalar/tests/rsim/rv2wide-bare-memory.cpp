@@ -81,6 +81,15 @@ int main() {
     CHECK(!physical_prefetch_out.pvalid);
     tick_model();
 
+    // The same instruction hint is accepted for ordinary RAM and dropped for instruction-only ROM.
+    for (std::uint64_t addr : {0x10025u, 0x2625u}) {
+      prefetch_in = {1, {addr, 1}};
+      tick_model();
+      prefetch_in.pvalid = 0;
+      eval();
+      CHECK(physical_prefetch_out.pvalid == (addr == 0x10025));
+    }
+
     // Identity also keeps whole-state cancellation on the outgoing hint edge.
     prefetch_in = {1, {0x10025, 2}};
     tick_model();

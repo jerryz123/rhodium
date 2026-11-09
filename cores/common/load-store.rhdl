@@ -33,12 +33,17 @@ fun memory_word_bytes(xlen :: XLen) :: PosInt:
 fun memory_access_bytes(xlen :: XLen, width :: MemoryWidth) :~ Bits(xlen.width):
   mux_lookup(width, [[MemoryWidth.Byte, Bits(xlen.width)(1)], [MemoryWidth.Half, Bits(xlen.width)(2)], [MemoryWidth.Word, Bits(xlen.width)(4)], [MemoryWidth.Double, Bits(xlen.width)(8)]])
 
+/* Returns the inclusive last-byte offset for a natural-width access. Callers checking
+   physical permissions add it with carry so a range cannot wrap into mapped memory. */
+fun memory_access_last_offset(xlen :: XLen, width :: MemoryWidth) :~ Bits(xlen.width):
+  memory_access_bytes(xlen, width) - Bits(xlen.width)(1)
+
 /*
  * Compare the first and last accessed word addresses to detect an access spanning an XLEN
  * boundary.
  */
 fun memory_crosses_word(xlen :: XLen, address :: Bits(xlen.width), width :: MemoryWidth) :~ Bool:
-  address.align_down(memory_word_bytes(xlen)) =/= (address + (memory_access_bytes(xlen, width) - Bits(xlen.width)(1))).align_down(memory_word_bytes(xlen))
+  address.align_down(memory_word_bytes(xlen)) =/= (address + memory_access_last_offset(xlen, width)).align_down(memory_word_bytes(xlen))
 
 /* Build a low-lane byte-enable pattern within one XLEN word for the selected access size. */
 fun memory_width_mask(xlen :: XLen, width :: MemoryWidth) :~ Bits(memory_word_bytes(xlen)):
@@ -134,6 +139,7 @@ export:
   memory_byte_mask
   memory_word_bytes
   memory_access_bytes
+  memory_access_last_offset
   memory_crosses_word
   memory_width_mask
   MemoryWidth

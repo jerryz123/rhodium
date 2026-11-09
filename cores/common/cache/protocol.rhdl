@@ -6,6 +6,7 @@ import:
   "../memory-lookup.rhdl".MemoryLookupPort
   rhombus/meta open
   lib("rhodium/std/bits.rhdl").Pow2Int
+  lib("riscv/rtl/svpbmt.rhdl").PageMemoryType
   "operation.rhdl" open
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/rtl/atomic.rhdl" open
@@ -96,6 +97,29 @@ native_width PhysicalMemoryBeatReq(xlen, Context, beat_bytes) = AddressedPhysica
 native_width PhysicalMemoryReq(xlen, Context) = PhysicalMemoryBeatReq / 8
 native_width PhysicalMemoryResp(xlen, Context) = PhysicalMemoryBeatResp / 8
 
+/* Carries one translated native-word transaction and its effective page memory type to the physical router.
+   PA width is independent of XLEN. The opaque context follows the request through completion. */
+bundle PhysicalDataReq(xlen :: XLen, Context :: DataType, address_width :: PosInt):
+  memory: AddressedPhysicalMemoryBeatReq(xlen, Context, memory_word_bytes(xlen), address_width)
+  pbmt: PageMemoryType
+
+  /* Replaces the return context when arbitration adds a client tag, preserving the original access. */
+  method with_context(request, To :: DataType, context :: Hardware.of(To)) :: PhysicalDataReq(xlen, To, address_width):
+    def access = request.memory
+    PhysicalDataReq(xlen, To, address_width):
+      pbmt: request.pbmt
+      memory:
+        AddressedPhysicalMemoryBeatReq(xlen, To, xlen.width / 8, address_width):
+          address: access.address
+          byte_mask: access.byte_mask
+          access: access.access
+          atomic: access.atomic
+          width: access.width
+          unsigned: access.unsigned
+          data: access.data
+          context: context
+          locality: access.locality
+
 /* Exposes authorized request admission, preacceptance faults, tagged completion, drain, and
    reservation. */
 interface CacheBeatAccess(xlen :: XLen, Context :: DataType, beat_bytes :: Pow2Int):
@@ -139,6 +163,7 @@ export:
   CachePipelineReason
   PhysicalMemoryBeatReq
   AddressedPhysicalMemoryBeatReq
+  PhysicalDataReq
   PhysicalMemoryReq
   PhysicalMemoryBeatResp
   PhysicalMemoryResp

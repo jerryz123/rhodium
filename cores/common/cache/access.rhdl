@@ -15,7 +15,7 @@ import:
 /* Looks up the complete natural-width access or aligned maintenance block, retaining address overflow. */
 fun cache_access_region(xlen :: XLen, physical_map :: RiscvPhysicalMemoryMap, address :: Bits(xlen.width), width :: MemoryWidth, operation :: CacheOperation) :~ RiscvPhysicalMemoryLookup():
   def first = mux(operation.is_cache_block(), address.align_down(CacheLineBytes), address)
-  def last = first +& mux(operation.is_cache_block(), Bits(xlen.width)(CacheLineBytes - 1), memory_access_bytes(xlen, width) - Bits(xlen.width)(1))
+  def last = first +& mux(operation.is_cache_block(), Bits(xlen.width)(CacheLineBytes - 1), memory_access_last_offset(xlen, width))
   physical_map.lookup(first, last)
 
 /* Both load misses and partial store misses can fetch a complete line. */

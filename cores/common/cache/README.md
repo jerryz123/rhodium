@@ -65,6 +65,11 @@ with matching page-offset bits. Physical-only callers supply the physical
 address on both paths. This event is not a second transaction or completion;
 queued requests retain their own SRAM-read ownership.
 
+At the MMU-to-router boundary, `PhysicalDataReq(xlen, Context, address_width)`
+pairs a native-word `memory` transaction with its resolved `pbmt`. RV5Stage
+uses an XLEN physical port and superscalar uses a 64-bit physical port for
+both XLENs. Each core supplies its own return context and fault protocol.
+
 By default the L1D port and per-way row are one XLEN word. An L1D caller can
 specialize `~beat_bytes: 16` and pass 16 as the final argument to `CacheAccess`
 and `CachePipelineAccess` for a 128-bit coherent port. Its request payloads
@@ -117,7 +122,8 @@ read-idempotent region with relaxed ordering under the effective PBMT.
 [`cache_prefetch_physical`](prefetch.rhdl) classifies a complete aligned cache
 line from an address, prefetch operation, and PBMT. It returns the aligned
 address, operation permission, instruction/data cacheability, and the stronger
-ordinary-idempotent-memory predicate separately. Callers choose eligibility,
+ordinary-idempotent-memory predicates. Superscalar Bare requires ordinary
+data-cacheable RAM even for an instruction hint. Callers choose eligibility,
 translation arbitration, staging, and cancellation; the helper adds no state.
 
 ## Non-cacheable service

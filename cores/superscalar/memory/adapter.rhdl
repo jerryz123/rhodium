@@ -49,7 +49,7 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
   interface split(RiscvSplitAccess(xlen, Bool), ~role: responder)
   interface pipeline_lookup(Valid(CachePipelineReq(xlen)), ~role: producer)
   interface physical_pipeline(CachePipelineAccess(xlen), ~role: requester)
-  interface physical_memory(SuperscalarMemory(xlen, 64, SuperscalarTransportContext(Context, physical_client_count(translation))), ~role: requester)
+  interface physical_memory(SuperscalarPhysicalMemory(xlen, SuperscalarTransportContext(Context, physical_client_count(translation))), ~role: requester)
 
   def bytes = xlen.width / 8
   def physical_map = translation.physical_map()
@@ -214,17 +214,19 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
   | block:
       def pte_permitted = pte_read_permitted(physical_map, resolve.pte.request.bits.address, resolve.pte.request.bits.pbmt)
       transport.request[2].valid <== resolve.pte.request.valid & pte_permitted
-      transport.request[2].bits <== SuperscalarMemoryReq(xlen, 64, Context):
-        context: dont_care(Context)
-        guest_access: RiscvGuestMemoryAccess.Normal
-        address: resolve.pte.request.bits.address
-        access: CacheOperation.Load
-        atomic: dont_care(memory.request.bits.atomic.type)
-        width: MemoryWidth.Double
-        data: Bits(xlen.width)(0)
-        mask: Bits(bytes)(2 ** bytes - 1)
-        locality: RiscvMemoryLocality.Default
+      transport.request[2].bits <== PhysicalDataReq(xlen, Context, 64):
         pbmt: resolve.pte.request.bits.pbmt
+        memory:
+          AddressedPhysicalMemoryBeatReq(xlen, Context, bytes, 64):
+            context: dont_care(Context)
+            address: resolve.pte.request.bits.address
+            access: CacheOperation.Load
+            atomic: dont_care(memory.request.bits.atomic.type)
+            width: MemoryWidth.Double
+            unsigned: Bool(#true)
+            data: Bits(xlen.width)(0)
+            byte_mask: Bits(bytes)(2 ** bytes - 1)
+            locality: RiscvMemoryLocality.Default
 
       def pte_fault = (resolve.pte.request.valid & !pte_permitted) ||| transport.fault[2].valid
       resolve.pte.request.ready <== transport.request[2].ready ||| pte_fault
@@ -243,7 +245,7 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
     "pipeline_valid": physical_pipeline.request.valid,
     "pipeline_address": resolved.address,
     "request_valid": transport.request[0].fire(),
-    "request_address": transport.request[0].bits.address,
+    "request_address": transport.request[0].bits.memory.address,
     "fragment_valid": transport.request[1].fire(),
     "fragment_address": fragment_address,
     "fragment_virtual": split_fault_address,

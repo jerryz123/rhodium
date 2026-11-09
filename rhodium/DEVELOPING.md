@@ -285,11 +285,15 @@ privilege helpers for its WB reservation-wait timeout policy. Its profile and UD
 projection import the pure `riscv/isa/c.rhm` compressed-extension descriptors;
 the profile supplies the same selected C/Zcb/Zcmop list to the assembler and
 shared CSR bank, preserving IALIGN and architectural publication consistency.
-The superscalar data translation contract uses the architectural exception cause
-and guest-fault types directly. `cores/superscalar/memory/translation-sv39.rhdl` imports the shared `cores/common/mmu/` TLB/walker,
+The shared physical cache protocol imports the architectural PBMT type for
+`PhysicalDataReq`. Superscalar bundles, physical transport, and the RV5Stage
+physical port consume this payload. The RV5Stage protocol uses Rhombus meta
+for its native-width alias. The superscalar data translation contract uses the
+architectural exception cause and guest-fault types directly. `cores/superscalar/memory/translation-sv39.rhdl` imports the shared `cores/common/mmu/` TLB/walker,
 shared cache protocol/operation/geometry and hart CHI-map definitions, and architectural
-CSR, privilege, Sv39, and XLEN helpers. Its memory adapter and physical cache
-adapter use `riscv/rtl/cmo.rhdl` for read-or-write whole-block maintenance permissions.
+privilege, Sv39, and XLEN helpers. Both MMUs use the shared context module
+to decode architectural CSRs for lookup construction. The superscalar adapters
+use the shared cache access helpers for whole-block maintenance permissions.
 `cores/superscalar/memory/adapter.rhdl` consumes the family bundles, shared cache
 protocol, specialization-owned physical map, split engine, Flow, passive
 observation helpers, and architectural
@@ -616,8 +620,8 @@ committed route selector, split-fragment permission check, and PTE read policy. 
 retain transaction admission and fault reporting.
 `cores/common/cache/prefetch.rhdl` consumes cache geometry/prefetch operations,
 architectural PMA/PBMT, and public bit helpers. Both translated MMU adapters
-consume its physical classification without moving hint cancellation or final
-eligibility into the cache package.
+and the superscalar identity specialization consume its physical classification.
+Each caller controls final eligibility and hint cancellation.
 `cores/common/operand.rhdl` consumes architectural immediate formats and extraction;
 `cores/common/operand-decode.rhdl` adds canonical I/M/A/B/Zicond instruction catalogs and XLEN, the public
 RISC-V decode adapter, and `std/decode.rhdl`. Named decoders consume these

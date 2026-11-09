@@ -5,7 +5,7 @@
 import:
   lib("cores/common/mmu/context.rhdl").RiscvTranslationState
   lib("riscv/rtl/trap.rhdl").ExceptionCause
-  "../../common/cache/config.rhm".CacheLineBytes
+  "../../common/cache/prefetch.rhdl".cache_prefetch_physical
   "../bundles.rhdl" open
   "translation.rhdl" open
   "translation-specialization.rhm" open
@@ -18,7 +18,6 @@ import:
   lib("riscv/rtl/hypervisor.rhdl") open
   lib("riscv/rtl/svpbmt.rhdl") open
   lib("flow/main.rhdl") open
-  lib("rhodium/std/bits.rhdl") open
   lib("cores/common/mmu/vector.rhdl") open
   lib("cores/common/mmu/vector-window.rhdl") open
   lib("cores/common/mmu/vector-certificate.rhdl").VectorCertificate
@@ -94,18 +93,10 @@ sync_circuit SuperscalarIdentityTranslation(xlen :: XLen, config :: RiscvHartCHI
   hints.flush <== flush
   prefetch |> hints.ingress
   def hint :: CachePrefetchReq(64) = hints.egress.bits
-  def hint_address = hint.address.align_down(CacheLineBytes)
-  def hint_region = config.physical_map.lookup(hint_address, hint_address +& Bits(64)(CacheLineBytes - 1))
-  def hint_permission = mux_lookup(hint.operation):
-    CachePrefetchOperation.None: Bool(#false)
-    CachePrefetchOperation.Instruction: hint_region.executable
-    CachePrefetchOperation.Read: hint_region.readable
-    CachePrefetchOperation.Write: hint_region.writable
-
-  // Bare retains its existing data-cacheability restriction, including for instruction hints.
-  def hint_normal_memory = hint_region.cacheable & hint_region.read_idempotent & !hint_region.device
-  def hint_permitted = hint_region.mapped & hint_normal_memory & hint_permission
-  hints.egress |> filter_valid(_hint => !flush & hint_permitted) |> map_valid(hint => hint.updated(~address: hint_address)) |> physical_prefetch
+  def physical = cache_prefetch_physical(64, config.physical_map, hint.address, hint.operation, PageMemoryType.PMA)
+  // Bare requires data-cacheable RAM for every hint, including instruction prefetch.
+  hints.egress |> filter_valid(_hint => !flush & physical.ordinary_data_memory & physical.permitted)
+    |> map_valid(hint => hint.updated(~address: physical.address)) |> physical_prefetch
 
 
 /* Couples the identity circuit to its two-client transport shape and legacy Bare access policies. */
