@@ -199,7 +199,7 @@ flowchart LR
   Core["S2 authorized request<br/>Decoupled"] --> Queue["Configurable request queue<br/>structural acceptance"]
   Core -->|"empty buffer + available SRAM"| Lookup
   Virtual["Early virtual index"] --> Lookup
-  Queue --> Lookup["S3 lookup Pipe<br/>tag + state + XLEN word SRAMs"]
+  Queue --> Lookup["S3 lookup Pipe<br/>tag + state + data SRAMs"]
   Lookup --> Resolved["Registered S4 result<br/>word + hit + coherence + victim"]
   Resolved -->|load hit| Load["LoadGen"]
   Resolved -->|owned store / SC / AMO| Pending["Registered mutation<br/>request + way + old value"]
@@ -211,25 +211,27 @@ flowchart LR
   Resolved -->|miss or ownership acquisition| Victim{"Dirty allocated victim?"}
   Resolved -->|"accepted miss"| Record["One miss record<br/>request, way, install policy"]
   Victim -->|yes| Gather["Shared gather reader"]
-  Arrays -->|"one XLEN word per return"| Gather
-  Gather -->|"victim words"| Writeback["Writeback line register<br/>one WriteBackFull"]
-  Writeback --> Refill["ReadClean or ReadUnique<br/>retry-aware refill"]
+  Arrays -->|"one row per return"| Gather
+  Gather -->|"victim rows"| Line["Shared 64-byte line"]
+  Line -->|"victim packets"| Writeback["WriteBackFull"]
+  Writeback -->|"completed"| Refill["ReadClean or ReadUnique"]
   Victim -->|no| Refill
   Record -->|"request and destination way"| Install
-  Refill -->|retained copy| Install["Install one XLEN word/cycle<br/>publish metadata last"]
-  Refill -->|non-allocating load| Load
+  Refill -->|"accepted packets by DataID"| Line
+  Line -->|"after CompAck"| Install["Install one row/cycle<br/>publish metadata last"]
+  Line -->|"non-allocating load after CompAck"| Load
   Install --> Arrays
   Install --> Response
 
-  Snoop["Snoop engine"] -->|"lookup / update request"| Arrays
+  Snoop["Snoop engine<br/>private 64-byte line"] -->|"lookup / update request"| Arrays
   Arrays -->|"hit and state"| Snoop
   Gather -->|"dirty snoop words"| Snoop
   Snoop --> CHI["CHI SnpResp / SnpRespData"]
 ```
 
 The tag and coherence-state arrays hold one entry per way and set. The
-byte-masked data array has `sets * (64 / (XLEN / 8))` rows, each containing one
-XLEN word per way. Parallel comparisons select the hit way; assertions reject
+byte-masked data array has `sets * (64 / beat_bytes)` rows, each containing
+`beat_bytes` bytes per way. Parallel comparisons select the hit way; assertions reject
 duplicate valid tags. An aligned scalar load, store, LR/SC, or AMO therefore
 touches one data row even though coherent transfers operate on a whole line.
 
@@ -301,17 +303,18 @@ victim is dirty, avoiding nonbinding writeback traffic.
 | Dirty allocation victim | Gather the line, complete writeback, then issue the refill | Victim invalidated before replacement installation |
 
 The shared [refill engine](../chi/refill.rhdl) retains the aligned address and
-CHI transaction state across retry, accepts unique `CompData` packets, sends
-`CompAck`, and exposes the completed line only afterward. L1D's miss record
+CHI transaction state across retry. Each accepted `CompData` packet writes
+its position in L1D's 64-byte line buffer; L1D consumes the line only after
+all packets arrive and `CompAck` transfers. L1D's miss record
 supplies the destination way, allocation policy, and original response context.
 A direct miss starts the refill on its S4 acceptance edge; after a dirty
 eviction the refill uses the original request address, not the victim address.
 
 Shared cache lines are fixed at 64 bytes, and L1D rejects a refill carrying `PassDirty`. With the
 repository's default 128-bit DAT width, four packets form a line. Installation
-writes one XLEN word per cycle—eight writes for RV64 or sixteen for RV32—and
-publishes the tag, coherence state, and valid bit only on the final word. A
-mutating refill merges its selected bytes before that word is written.
+writes one configured array row per cycle and publishes the tag, coherence
+state, and valid bit only on the final row. A mutating refill merges its
+selected bytes before that row is written.
 
 For a non-default-locality ordinary load miss, the retained transaction context
 instead selects completion without installation. The complete clean line is
@@ -332,9 +335,10 @@ behavior. This uses coherent `ReadClean`, not uncached `ReadNoSnp` or `ReadOnce`
 Home still obtains current data from dirty peers. It may clean those peers and
 allocate in outer caches. No outer-cache allocation policy is claimed.
 
-For a dirty allocation victim, the shared array reader writes each returning
-XLEN word directly into the [writeback engine](../chi/writeback.rhdl)'s line
-register. Only after the last word is present can the engine accept the command
+For a dirty allocation victim, the shared array reader gathers each row into
+the same line buffer that will later receive the refill. Snoop responses use
+a separate snapshot. Only after the last victim row is present can the
+[writeback engine](../chi/writeback.rhdl) accept the command
 and issue a retryable `WriteBackFull`. The victim remains resident and
 snoop-visible while awaiting `CompDBIDResp`; its set remains reserved against
 local accesses. A preceding snoop may consume its dirty data and invalidate

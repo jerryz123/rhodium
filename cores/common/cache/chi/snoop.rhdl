@@ -40,7 +40,7 @@ sync_circuit CacheDataSnoop(address_width :: PosInt,
   interface responses(Decoupled(CHIRspFlit(p)), ~role: producer)
   interface data(Decoupled(CHIDatFlit(p)), ~role: producer)
   interface lookup(Valid(Bits(address_width)), ~role: producer)
-  interface gather(Valid(CacheGatherRow(beat_bytes)), ~role: consumer)
+  interface gather(Valid(CacheLineChunk(beat_bytes)), ~role: consumer)
   interface lookup_result(Valid(CacheDataSnoopLookupResult()), ~role: consumer)
   interface update(Valid(CacheDataSnoopUpdate(address_width)), ~role: producer)
 

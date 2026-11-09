@@ -54,8 +54,10 @@ capabilities separately for coherent RAM and noncoherent ROM Homes.
 
 `CacheLineRefill` issues retryable `ReadClean` or `ReadUnique` requests,
 retains the selected Home and command context, accepts each `CompData` packet
-exactly once, and emits `CompAck`. It publishes a completed 64-byte line only
-after every packet has arrived and the acknowledgement has been accepted.
+exactly once, and emits `CompAck`. Its `packet_write` output supplies the
+index and data for the caller's line buffer on each accepted packet. Completion
+metadata becomes valid only after every packet arrives and the acknowledgement
+transfers.
 
 Both line engines expose a tracing contract from the accepted `CompData` packet
 that completes the line to its later `CompAck`. That single parent survives
@@ -70,14 +72,15 @@ address, data, byte mask, Home, DBID, and completion state until the transaction
 finishes. `CacheLineWriteback` instead issues one retryable, aligned
 64-byte `WriteBackFull`. After `CompDBIDResp`, it sends the line as four,
 two, or one `CopyBackWriteData` packets on 128-, 256-, or 512-bit DAT.
-There is no second completion response or CompAck.
+The caller must keep its victim line input stable from command acceptance
+through the final DAT transfer. There is no second completion response or CompAck.
 
 The cache retains the victim as snoop-visible until handoff. Pending snoops
 finish before the grant is accepted; the engine then captures the latest victim
 state. If a snoop already invalidated it, all copyback packets report Invalid
 with zero data and byte enables. Otherwise they carry the complete captured
 line and consistent state. Once granted, same-line snoops wait until every
-packet transfers. Command context and data remain retained through completion
+packet transfers. The engine retains command context through completion
 backpressure.
 
 ## Event residency

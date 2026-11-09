@@ -19,16 +19,15 @@ bundle CacheLineRefillCommand(Context :: DataType,
   opcode: CHIReqOpcode
   context: Context
 
-/* Returns the assembled line, caller context, and coherent state/dirty ownership. */
+/* Releases the caller's assembled line with its address, context and coherent ownership. */
 bundle CacheLineRefillResult(Context :: DataType,
                              address_width :: PosInt):
   line_address: Bits(address_width)
   context: Context
-  line: Vec(CacheLineBytes / 8, Bits(64))
   state: CHIResponseState
   pass_dirty: Bool
 
-/* Retains one retryable ReadClean/ReadUnique transaction with DataID-indexed packet assembly.
+/* Retains one retryable ReadClean/ReadUnique transaction and emits each accepted packet for storage.
    Completion waits for all unique packets and CompAck acceptance; the last arriving packet owns
    the ack. */
 sync_circuit CacheLineRefill(Context :: DataType,
@@ -55,6 +54,7 @@ sync_circuit CacheLineRefill(Context :: DataType,
   interface acknowledgements(Decoupled(CHIRspFlit(p)), ~role: producer)
   interface responses(Decoupled(CHIRspFlit(p)), ~role: consumer)
   interface response_data(Decoupled(CHIDatFlit(p)), ~role: consumer)
+  interface packet_write(Valid(CacheLineChunk(p.data_bytes)), ~role: producer)
 
 
   /* Retained acquisition and packet assembly state.
@@ -69,7 +69,6 @@ sync_circuit CacheLineRefill(Context :: DataType,
   reg line_address(~init: Bits(address_width)(0))
   reg opcode(~init: CHIReqOpcode.ReadClean)
   reg context(Context)
-  reg line(~init: Bits(CacheLineBytes * 8)(0))
   reg home_id(~init: Bits(p.node_id_width)(0))
   reg dbid(~init: Bits(12)(0))
   reg response_state(~init: CHIResponseState.Invalid)
@@ -140,9 +139,13 @@ sync_circuit CacheLineRefill(Context :: DataType,
   def packet_index = chi_transfer_beat(incoming_data.data_id, p)[0..packet_index_width]
   def packet_was_received = received_packets[packet_index]
   def next_received_packets = received_packets.updated(packet_index, Bool(#true))
-  def next_line = line.as_vec(Bits(p.data_width)).updated(packet_index, incoming_data.data)
   response_data.ready <== control.active & control.attempt_outstanding & !all_data_received
   def data_fire = response_data.fire()
+  packet_write.valid <== data_fire
+  packet_write.bits <== CacheLineChunk(p.data_bytes):
+    index: packet_index
+    data: incoming_data.data
+
   when data_fire:
     assert(incoming_data.opcode === CHIDatOpcode.CompData,
            "line_refill_response_is_comp_data")
@@ -183,7 +186,6 @@ sync_circuit CacheLineRefill(Context :: DataType,
   completion.bits <== CacheLineRefillResult(Context, address_width):
     line_address: line_address
     context: context
-    line: line.as_vec(Bits(64))
     state: response_state
     pass_dirty: pass_dirty
 
@@ -211,14 +213,12 @@ sync_circuit CacheLineRefill(Context :: DataType,
     line_address <== command.bits.line_address
     opcode <== command.bits.opcode
     context <== command.bits.context
-    line <== Bits(CacheLineBytes * 8)(0)
     home_id <== command_home.node_id
     dbid <== Bits(12)(0)
     response_state <== CHIResponseState.Invalid
     pass_dirty <== Bool(#false)
   elsewhen data_fire:
     received_packets <== next_received_packets
-    line <== next_line.as_bits()
     when first_data_packet:
       dbid <== incoming_data.dbid_or_mecid[0..12]
       response_state <== coherent_response.state

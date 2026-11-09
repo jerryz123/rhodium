@@ -18,8 +18,8 @@ check:
   engine.find_input("command_in").type.field("bits").type.field("line_address").type.width ~is 32
   engine.find_input("command_in").type.field("bits").type.field("context").type.width ~is 5
   engine.find_output("completion_out").type.field("bits").type.field("context").type.width ~is 5
-  engine.find_output("completion_out").type.field("bits").type.field("line").type.length ~is 8
-  engine.find_output("completion_out").type.field("bits").type.field("line").type.element_type.width ~is 64
+  engine.find_output("packet_write_out").type.field("bits").type.field("index").type.width ~is 2
+  engine.find_output("packet_write_out").type.field("bits").type.field("data").type.width ~is 128
   engine.find_output("requests_out").type.field("bits").type.field("opcode").type.width ~is 7
   engine.find_input("responses_in").type.field("bits").type.field("opcode").type.width ~is 5
   engine.find_input("response_data_in").type.field("bits").type.field("data").type.width ~is 128

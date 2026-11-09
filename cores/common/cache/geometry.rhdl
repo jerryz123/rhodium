@@ -9,8 +9,8 @@ import:
 /* Counts data SRAM rows in a fixed-size line. */
 fun cache_line_rows(beat_bytes :: Pow2Int) :: PosInt: CacheLineBytes / beat_bytes
 
-/* One returned cache-array word and its position within the owner's dirty line. */
-bundle CacheGatherRow(beat_bytes :: Pow2Int):
+/* One aligned chunk and its index within a line, in units of the producer's beat size. */
+bundle CacheLineChunk(beat_bytes :: Pow2Int):
   index: Bits(index_width(cache_line_rows(beat_bytes)))
   data: Bits(8 * beat_bytes)
 
@@ -36,7 +36,7 @@ fun cache_lane_mask(config :: CacheConfig,
 export:
   CacheLineBytes
   CacheConfig
-  CacheGatherRow
+  CacheLineChunk
   cache_line_rows
   cache_way_mask
   cache_lane_mask

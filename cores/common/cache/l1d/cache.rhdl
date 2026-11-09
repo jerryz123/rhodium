@@ -161,7 +161,7 @@ sync_circuit L1DCache(xlen :: XLen,
   inst refill_atomic_alu(RiscvAtomicALU(xlen))
   inst refill(CacheLineRefill(Bool, width, config))
   inst snoop(CacheDataSnoop(snoop_width, config, ~beat_bytes: beat_bytes))
-  inst writeback(CacheLineWriteback(Bool, width, config, 1, ~beat_bytes: beat_bytes))
+  inst writeback(CacheLineWriteback(Bool, width, config, 1))
   inst maintenance(CHICacheMaintenance(p, PhysicalMemoryBeatReq(xlen, Context, beat_bytes)))
   maintenance.node_id <== node_id
   maintenance.txn_id <== Bits(12)(2)
@@ -216,6 +216,9 @@ sync_circuit L1DCache(xlen :: XLen,
   reg miss_active(~init: Bool(#false))
   reg miss_allows_hits(~init: Bool(#false))
   reg miss_record(L1DMissRecord(xlen, way_width, Context, beat_bytes))
+  // Every row is written before its owner can publish the victim or the replacement.
+  reg backing_line(Vec(words_per_line, Bits(beat_width)))
+  writeback.line <== backing_line.as_bits()
   def miss_set = miss_record.request.address[offset_width..(offset_width + set_width)]
   def miss_line_address = miss_record.request.address.align_down(CacheLineBytes)
   reg gather_state(~init: L1DGatherState.Idle)
@@ -561,10 +564,9 @@ sync_circuit L1DCache(xlen :: XLen,
   def refill_set = refill_request.address[offset_width..(offset_width + set_width)]
   def refill_tag = refill_request.address[(offset_width + set_width)..physical_width]
   def refill_word_index = refill_request.address[row_offset_width..offset_width]
-  def refill_words = refill.completion.bits.line.as_bits().as_vec(Bits(beat_width))
   def service_load_request :: PhysicalMemoryBeatReq(xlen, Context, beat_bytes) = mux(complete_refill, refill_request, s4_request)
   def service_load_unsigned = mux(service_load_request.access === CacheOperation.Load, service_load_request.unsigned, Bool(#false))
-  def refilled_word = refill_words[refill_word_index]
+  def refilled_word = backing_line[refill_word_index]
   service_load_gen.address <== service_load_request.address
   def service_row = mux(complete_refill, refilled_word, s4_word)
   service_load_gen.data <== service_row
@@ -610,7 +612,7 @@ sync_circuit L1DCache(xlen :: XLen,
   refill_store_gen.width <== refill_request.width
   def refill_store_word_data = mux(is_raw_beat(refill_request), refill_request.data, refill_store_gen.data).as_vec(Bits(8))
   def refill_store_byte_mask = refill_request.byte_mask.as_vec(Bool)
-  def refill_install_bytes = refill_words[refill_install_index].as_vec(Bits(8))
+  def refill_install_bytes = backing_line[refill_install_index].as_vec(Bits(8))
   def mutate_refill_word = refill_mutation & (refill_install_index === refill_word_index)
   def merged_refill_word = vec(
     for List (byte_index in 0..beat_bytes):
@@ -973,14 +975,38 @@ sync_circuit L1DCache(xlen :: XLen,
   // Every word is written before publication. The two owners retain separate
   // snapshots so gathering for one never disturbs the other's stalled DAT.
   def gathered_response_words = arrays.data.response.bits.as_bits().as_vec(Bits(beat_width))
-  def word = CacheGatherRow(beat_bytes):
+  def word = CacheLineChunk(beat_bytes):
     index: gather_response_index
     data: gathered_response_words[gather_way]
 
-  def returning_word = inject_interface(Valid(CacheGatherRow(beat_bytes)), ~valid: gather_response_pending, ~bits: word)
+  def returning_word = inject_interface(Valid(CacheLineChunk(beat_bytes)), ~valid: gather_response_pending, ~bits: word)
   def Array(eviction_words, snoop_words) = returning_word |> fork_valid(2)
-  eviction_words |> filter_valid(_word => gather_state === L1DGatherState.EvictionRead) |> writeback.gather
+  def victim_row = eviction_words |> filter_valid(_word => gather_state === L1DGatherState.EvictionRead)
   snoop_words |> filter_valid(_word => gather_state === L1DGatherState.SnoopRead) |> snoop.gather
+
+
+  /* Backing line writes. Victim rows precede the copyback command; refill packets
+     replace them by DataID only after copyback completes. Snoops never write this bank. */
+
+  def acquiring_victim = eviction_gather_start ||| gather_state.is_one_of(L1DGatherState.EvictionRead, L1DGatherState.EvictionReady)
+  when acquiring_victim:
+    assert(refill.command.ready & !refill.command.valid & writeback.command.ready, "l1d_victim_gather_owns_backing_line")
+
+  def packet = refill.packet_write
+  when (packet.valid):
+    assert(miss_active & writeback.command.ready & !acquiring_victim & !refill_installing, "l1d_refill_owns_backing_line")
+
+  def rows_per_packet = p.data_bytes / beat_bytes
+  def PacketIndex = Bits(index_width(cache_line_rows(p.data_bytes)))
+  def packet_rows = packet.bits.data.as_vec(Bits(beat_width))
+  for (row in 0..words_per_line):
+    when (victim_row.valid & (victim_row.bits.index === Bits(word_index_width)(row))):
+      backing_line[row] <== victim_row.bits.data
+    elsewhen (packet.valid & (packet.bits.index === PacketIndex(row div rows_per_packet))):
+      backing_line[row] <== packet_rows[row % rows_per_packet]
+
+
+  /* Gather progress. Hand the complete line to its owner on the existing Ready boundary. */
 
   // Both captures initialize the same reader. Eviction wins a simultaneous
   // start; the inactive owner's payload remains unchanged.

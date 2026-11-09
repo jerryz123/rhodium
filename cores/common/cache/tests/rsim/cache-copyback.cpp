@@ -47,12 +47,6 @@ int main() {
                                                    : state;
         for (unsigned i = 0; i < 3; ++i)
           enabled[i] = i == lane;
-        gather_valid = 1;
-        for (unsigned i = 0; i < 8; ++i) {
-          gather_index = i;
-          tick();
-        }
-        gather_valid = 0;
         command_valid = 1;
         tick();
         command_valid = 0;

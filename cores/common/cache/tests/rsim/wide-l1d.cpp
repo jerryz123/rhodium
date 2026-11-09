@@ -34,27 +34,35 @@ void request(unsigned address, unsigned op, Row row = {}, unsigned mask = 0xffff
   virtual_lookup_in.pvalid = 0;
 }
 
-void refill(unsigned address, unsigned opcode, const Line &line) {
+unsigned accept_request(unsigned address, unsigned opcode) {
   until([] { return chi_out.prequests.pvalid; });
   CHECK(chi_out.prequests.pbits.paddress == address && chi_out.prequests.pbits.popcode == opcode);
   const auto txn = chi_out.prequests.pbits.ptxn_uid;
   chi_in.prequests.pready = 1; tick_model(); chi_in.prequests.pready = 0;
-  for (unsigned i : {3u, 1u, 0u, 2u}) {
-    auto &dat = chi_in.presponse_udata;
-    dat.pbits = {};
-    dat.pbits.popcode = 4; // CompData
-    dat.pbits.pdata_uid = i;
-    dat.pbits.presp = opcode == 7 ? 2 : 1;
-    dat.pbits.ptxn_uid = txn;
-    dat.pbits.phome_unid_uor_upbha_uor_umismatched_umecid = 1;
-    dat.pbits.psrc_uid = 1;
-    dat.pbits.ptgt_uid = 3;
-    dat.pbits.pbyte_uenable = 0xffff;
-    dat.pbits.pdata = line[i];
-    dat.pvalid = 1;
-    until([] { return chi_out.presponse_udata.pready; });
-    tick_model(); dat.pvalid = 0;
-  }
+  return txn;
+}
+
+void refill_packet(unsigned txn, unsigned i, unsigned resp, Row row) {
+  auto &dat = chi_in.presponse_udata;
+  dat.pbits = {};
+  dat.pbits.popcode = 4; // CompData
+  dat.pbits.pdata_uid = i;
+  dat.pbits.presp = resp;
+  dat.pbits.ptxn_uid = txn;
+  dat.pbits.phome_unid_uor_upbha_uor_umismatched_umecid = 1;
+  dat.pbits.psrc_uid = 1;
+  dat.pbits.ptgt_uid = 3;
+  dat.pbits.pbyte_uenable = 0xffff;
+  dat.pbits.pdata = row;
+  dat.pvalid = 1;
+  until([] { return chi_out.presponse_udata.pready; });
+  tick_model(); dat.pvalid = 0;
+}
+
+void refill(unsigned address, unsigned opcode, const Line &line) {
+  const auto txn = accept_request(address, opcode);
+  for (unsigned i : {3u, 1u, 0u, 2u})
+    refill_packet(txn, i, opcode == 7 ? 2 : 1, line[i]);
 }
 
 void response(Row expected) {
@@ -89,6 +97,65 @@ void hit(unsigned address, unsigned op, Row value, unsigned mask = 0xffff, bool 
     tick_model(); pipeline_in.pcommit = 0;
     until([] { return core_out.pdrained; });
   }
+}
+
+void check_backing_handoff(const Line &victim, const Line &probed) {
+  reset = 1; tick_model(); reset = 0;
+  Line replacement{};
+  for (unsigned i = 0; i < 4; ++i)
+    for (unsigned j = 0; j < 4; ++j)
+      replacement[i].words[j] = 0xc0010000 + 4*i + j;
+
+  request(base, store, victim[0]); refill(base, 7, victim); response({});
+  request(base+256, store, probed[0]); refill(base+256, 7, probed); response({});
+  request(base+512+32, load);
+  auto &rsp = chi_in.presponses;
+  rsp.pbits = {};
+  rsp.pbits.ptxn_uid = accept_request(base, 0x1b); // WriteBackFull
+  rsp.pbits.popcode = 5; // CompDBIDResp
+  rsp.pbits.psrc_uid = 1;
+  rsp.pbits.ptgt_uid = 3;
+  rsp.pbits.pdbid_uor_ugroup_uid = 0x55;
+  rsp.pvalid = 1;
+  until([] { return chi_out.presponses.pready; });
+  tick_model(); rsp.pvalid = 0;
+
+  const auto &dat = chi_out.prequest_udata;
+  auto drain_line = [&](const Line &line, unsigned op, unsigned txn) {
+    for (unsigned i = 0; i < 4; ++i) {
+      until([&] { return dat.pvalid; });
+      for (unsigned stall = 0; stall < 3; ++stall) {
+        CHECK(dat.pvalid && dat.pbits.popcode == op && dat.pbits.ptxn_uid == txn);
+        CHECK(dat.pbits.pbyte_uenable == 0xffff && dat.pbits.pdata_uid == i && dat.pbits.pdata == line[i]);
+        CHECK(!chi_out.prequests.pvalid);
+        tick_model(); eval();
+      }
+      chi_in.prequest_udata.pready = 1; tick_model(); chi_in.prequest_udata.pready = 0;
+    }
+  };
+  drain_line(victim, 2, 0x55);
+  const auto txn = accept_request(base+512, 2); // ReadClean
+  refill_packet(txn, 3, 1, replacement[3]);
+
+  auto &snp = chi_in.psnoops;
+  snp.pbits = {};
+  snp.pbits.paddress = (base+256) >> 3; snp.pbits.popcode = 9;
+  snp.pbits.psrc_uid = 1; snp.pbits.ptxn_uid = 0x32; snp.pvalid = 1;
+  until([] { return chi_out.psnoops.pready; }); tick_model(); snp.pvalid = 0;
+  until([&] { return dat.pvalid; });
+  chi_in.prequester_uresponses.pready = 0;
+  for (unsigned i : {1u, 0u, 2u}) {
+    CHECK(dat.pvalid && dat.pbits.pdata == probed[0]);
+    refill_packet(txn, i, 1, replacement[i]);
+    eval();
+  }
+  until([] { return chi_out.prequester_uresponses.pvalid; });
+  CHECK(!core_out.presponse.pvalid);
+  chi_in.prequester_uresponses.pready = 1; tick_model();
+  drain_line(probed, 1, 0x32);
+  response(replacement[2]);
+  for (unsigned i = 0; i < 4; ++i)
+    hit(base+512+i*16, load, replacement[i]);
 }
 
 int main() {
@@ -144,5 +211,6 @@ int main() {
       CHECK(dat.pbyte_uenable == 0xffff && dat.pdata == a[i]);
       chi_in.prequest_udata.pready = 1; tick_model(); chi_in.prequest_udata.pready = 0;
     }
+    check_backing_handoff(a, b);
   });
 }
