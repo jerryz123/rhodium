@@ -113,7 +113,7 @@ void check_dirty_snoop_words() {
   CHECK(requests == 6);
 }
 
-void check_high_probe_with_queued_store() {
+void check_high_probe_misses() {
   // CHI carries more PA bits than this RV32 cache. The dirty low line
   // must neither supply data nor be invalidated by its high-address alias.
   chi_in.psnoops.pvalid = 1;
@@ -121,7 +121,7 @@ void check_high_probe_with_queued_store() {
   chi_in.psnoops.pbits.psrc_uid = 1;
   chi_in.psnoops.pbits.paddress = ((UINT64_C(1) << 32) | 4096) >> 3;
   settle();
-  CHECK(!core_out.pdrained && chi_out.psnoops.pready);
+  CHECK(chi_out.psnoops.pready);
   tick();
   chi_in.psnoops = {};
   for (int cycle = 0; cycle < 100 && !chi_out.prequester_uresponses.pvalid; ++cycle) {
@@ -299,6 +299,8 @@ void stimulus() {
     for (unsigned repeat_index = 0; repeat_index < (160); ++repeat_index)
       tick();
     CHECK(core_out.preservation_uvalid);
+    check_high_probe_misses();
+    CHECK(core_out.preservation_uvalid);
     send_request(UINT64_C(4156), UINT64_C(4), 0, 2, 0, UINT64_C(22136));
     expect_response(0);
     CHECK(requests == 6);
@@ -350,7 +352,11 @@ void stimulus() {
         tick();
         pipeline_in = {};
         CHECK(!core_out.preservation_uvalid);
-        if (lane == 3) check_high_probe_with_queued_store();
+        if (lane == 3) {
+          settle();
+          CHECK(!core_out.pdrained);
+          check_high_probe_misses();
+        }
         for (unsigned repeat_index = 0; repeat_index < (2); ++repeat_index)
           tick();
         CHECK(core_out.pdrained && responses == old_responses && requests == 6);

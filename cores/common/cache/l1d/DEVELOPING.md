@@ -65,7 +65,7 @@ SRAM owner priorities, store authorization, and engine state transitions
 explicit; retain slow completions until the selected response sink accepts them.
 
 S4 hit/refill/eviction branches carry the resolved array metadata. Capture the
-original request and selected data row on the same S3-to-S4 transfer. Both
+admitted request and selected data row on the same S3-to-S4 transfer. Both
 remain available after an owned mutation consumes its S4 token. The S4
 metadata and slow-service response registers are elastic;
 the latter has registered-only input capacity to break the downstream-ready
@@ -129,6 +129,11 @@ row. The copyback fixture covers 128-, 256-, and 512-bit DAT.
    a paired virtual read and physical resolution. Queued physical requests win
    the lookup port; unresolved virtual reads cannot produce a lookup token.
    Geometry rejection belongs to `../config.rhm`.
+   Check demand and hint addresses at full width before narrowing. S3, the
+   retained S4 request, and the LR reservation keep the complete byte address
+   in `min(XLEN, CHI request address width)` bits. Zero-extend the stored
+   address for wider comparisons; never truncate a live demand or probe to
+   test whether it matches a retained line.
 2. Keep the one-request-per-cycle load-hit path separate from blocking miss,
    acquisition, gather, writeback, and installation state.
    The speculative `pipeline_lookup` read uses only the virtual page offset in S0.

@@ -47,8 +47,8 @@ hardware_enum L1DArrayOwner:
   StoreDrain
 
 /* Pairs an authorized physical request with demand or best-effort prefetch intent. */
-bundle L1DLookup(xlen :: XLen, Context :: DataType, beat_bytes :: Pow2Int):
-  request: PhysicalMemoryBeatReq(xlen, Context, beat_bytes)
+bundle L1DLookup(xlen :: XLen, Context :: DataType, beat_bytes :: Pow2Int, address_width :: PosInt):
+  request: AddressedPhysicalMemoryBeatReq(xlen, Context, beat_bytes, address_width)
   prefetch: Bool
   prefetch_write: Bool
 
@@ -170,7 +170,7 @@ sync_circuit L1DCache(xlen :: XLen,
   inst service_requests(Queue(PhysicalMemoryBeatReq(xlen, Context, beat_bytes), service_queue_depth, ~flow: #true))
   // S3 retains its request if older S4 work takes the arrays. Its returned
   // data is discarded and reread before retry, including across snoop service.
-  inst s3_lookup(Pipe(L1DLookup(xlen, Context, beat_bytes), 1))
+  inst s3_lookup(Pipe(L1DLookup(xlen, Context, beat_bytes, physical_width), 1))
   inst s4_result(Pipe(L1DResolved(xlen, way_width), 1))
   reg s3_read_valid(~init: Bool(#false))
   // Retain a slow completion until its downstream writeback path accepts it.
@@ -197,14 +197,16 @@ sync_circuit L1DCache(xlen :: XLen,
   def reservation_protected = reservation_count > Bits(reservation_count_width)(reservation_backoff)
   reg reservation_valid(~init: Bool(#false))
   core.reservation_valid <== reservation_valid
-  reg reservation_address(~init: Bits(width)(0))
+  reg reservation_address(~init: Bits(physical_width)(0))
   reg reservation_width(~init: MemoryWidth.Word)
 
 
   /* S3 captures the request and selected array row alongside the S4 metadata.
      An owned AMO keeps both through its write; a miss uses the refill row. */
 
-  reg retained_request(PhysicalMemoryBeatReq(xlen, Context, beat_bytes))
+  reg retained_request(AddressedPhysicalMemoryBeatReq(xlen, Context, beat_bytes, physical_width))
+  def retained_address = retained_request.address.zext(width)
+  def retained_raw_beat = if beat_width > width | retained_request.raw_beat | Bool(#false)
   reg retained_row(Bits(beat_width))
   reg retained_way(Bits(way_width))
   reg pending_mutation_valid(~init: Bool(#false))
@@ -222,7 +224,7 @@ sync_circuit L1DCache(xlen :: XLen,
   reg backing_line(Vec(words_per_line, Bits(beat_width)))
   writeback.line <== backing_line.as_bits()
   def retained_set = retained_request.address[offset_width..(offset_width + set_width)]
-  def retained_line_address = retained_request.address.align_down(CacheLineBytes)
+  def retained_line_address = retained_address.align_down(CacheLineBytes)
   reg gather_state(~init: L1DGatherState.Idle)
   reg gather_issue_index(~init: Bits(word_index_width)(0))
   reg gather_response_pending(~init: Bool(#false))
@@ -433,7 +435,7 @@ sync_circuit L1DCache(xlen :: XLen,
   wire s4_refill_opcode: CHIReqOpcode
   wire s4_refill_address: Bits(width)
   def s4_observed = s4_result.egress |> trace_event("dcache/s4.resolve", ~fields: result):
-    address: retained_request.address
+    address: retained_address
     prefetch: result.prefetch
     hit: result.hit
     refill_accepted: s4_refill_accepted
@@ -484,13 +486,13 @@ sync_circuit L1DCache(xlen :: XLen,
      same miss from its L1D record. Neither engine owns a copy of that record. */
 
   /* Selects the acquisition and supplies the prefetch flag for launch accounting. */
-  fun refill_command(request :: PhysicalMemoryBeatReq(xlen, Context, beat_bytes), prefetch :: Bool, prefetch_write :: Bool) :~ CacheLineRefillCommand(Bool, width):
+  fun refill_command(prefetch :: Bool, prefetch_write :: Bool) :~ CacheLineRefillCommand(Bool, width):
     CacheLineRefillCommand(Bool, width):
-      line_address: request.address.as_bits().align_down(CacheLineBytes)
-      opcode: mux(prefetch_write ||| request.access.into(CacheOperation).needs_unique() ||| (request.access === CacheOperation.LoadReserved), CHIReqOpcode.ReadUnique, CHIReqOpcode.ReadClean)
+      line_address: retained_line_address
+      opcode: mux(prefetch_write ||| retained_request.access.needs_unique() ||| (retained_request.access === CacheOperation.LoadReserved), CHIReqOpcode.ReadUnique, CHIReqOpcode.ReadClean)
       context: prefetch
 
-  def direct_refill_commands = s4_refill_path |> map_flow(result => refill_command(retained_request, result.prefetch, result.prefetch_write))
+  def direct_refill_commands = s4_refill_path |> map_flow(result => refill_command(result.prefetch, result.prefetch_write))
 
   def s4_victim_address = s4_result.egress.bits.victim_address
   def eviction_start = s4_eviction_path |> gate_flow(gather_idle & !refill_installing) |> to_valid()
@@ -511,7 +513,7 @@ sync_circuit L1DCache(xlen :: XLen,
     eviction_state <== mux(snoop.update.bits.invalidate, CHICacheState.Invalid, snoop.update.bits.state)
 
   // Only a demand can evict a dirty victim. Resume the requested line, not the victim.
-  def post_eviction_refills = writeback.completion |> map_flow(_done => refill_command(retained_request, Bool(#false), Bool(#false)))
+  def post_eviction_refills = writeback.completion |> map_flow(_done => refill_command(Bool(#false), Bool(#false)))
 
   // Direct launch is an S4 decision, not another pipeline stage. The command
   // fields are meaningful when accepted; the refill contract retains ancestry.
@@ -554,7 +556,7 @@ sync_circuit L1DCache(xlen :: XLen,
   def refill_word_index = retained_request.address[row_offset_width..offset_width]
   def service_load_unsigned = (retained_request.access === CacheOperation.Load) & retained_request.unsigned
   def refilled_word = backing_line[refill_word_index]
-  service_load_gen.address <== retained_request.address
+  service_load_gen.address <== retained_address
   def service_row = mux(miss_active, refilled_word, retained_row)
   service_load_gen.data <== service_row
   service_load_gen.width <== retained_request.width
@@ -577,16 +579,16 @@ sync_circuit L1DCache(xlen :: XLen,
   local_atomic_alu.operand <== retained_request.data[0..width]
   local_atomic_alu.word <== retained_request.width === MemoryWidth.Word
   local_atomic_alu.operation <== retained_request.atomic
-  local_store_gen.address <== retained_request.address
+  local_store_gen.address <== retained_address
   local_store_gen.value <== mux(pending_mutation_access.is_atomic(), local_atomic_alu.value, retained_request.data[0..width])
   local_store_gen.width <== retained_request.width
-  def local_store_word_data = mux(pending_zero, Bits(beat_width)(0), mux(is_raw_beat(retained_request), retained_request.data, local_store_gen.data)).as_vec(Bits(8))
+  def local_store_word_data = mux(pending_zero, Bits(beat_width)(0), mux(retained_raw_beat, retained_request.data, local_store_gen.data)).as_vec(Bits(8))
 
   /* Refill mutation and byte merge.
      AMO/store/zero updates are applied to the selected refill word before
      publishing the complete line. */
 
-  refill_load_gen.address <== retained_request.address
+  refill_load_gen.address <== retained_address
   refill_load_gen.data <== refilled_word
   refill_load_gen.width <== retained_request.width
   refill_load_gen.unsigned_load <== Bool(#false)
@@ -594,10 +596,10 @@ sync_circuit L1DCache(xlen :: XLen,
   refill_atomic_alu.operand <== retained_request.data[0..width]
   refill_atomic_alu.word <== retained_request.width === MemoryWidth.Word
   refill_atomic_alu.operation <== retained_request.atomic
-  refill_store_gen.address <== retained_request.address
+  refill_store_gen.address <== retained_address
   refill_store_gen.value <== mux(refill_access.is_atomic(), refill_atomic_alu.value, retained_request.data[0..width])
   refill_store_gen.width <== retained_request.width
-  def refill_store_word_data = mux(is_raw_beat(retained_request), retained_request.data, refill_store_gen.data).as_vec(Bits(8))
+  def refill_store_word_data = mux(retained_raw_beat, retained_request.data, refill_store_gen.data).as_vec(Bits(8))
   def refill_store_byte_mask = retained_request.byte_mask.as_vec(Bool)
   def refill_install_bytes = backing_line[refill_install_index].as_vec(Bits(8))
   def mutate_refill_word = refill_mutation & (refill_install_index === refill_word_index)
@@ -661,7 +663,7 @@ sync_circuit L1DCache(xlen :: XLen,
   // Gating retains blocked requests; only admitted reads enter the elastic S4
   // result register. A stalled request is reread when S4 has capacity.
   def s3_observed = s3_lookup.egress |> trace_event("dcache/s3.lookup", ~stalls: #true, ~fields: lookup):
-    address: lookup.request.address
+    address: lookup.request.address.zext(width)
     prefetch: lookup.prefetch
     access(~format: "enum"): lookup.request.access
 
@@ -713,14 +715,31 @@ sync_circuit L1DCache(xlen :: XLen,
   store_drain <== stores.drain.fire()
   def array_read_address = priority_mux(~default: s2_index_address):
     s0_read_issue: pipeline_lookup.bits.address
-    s2_retry: s3_lookup.egress.bits.request.address
+    s2_retry: s3_lookup.egress.bits.request.address.zext(width)
 
   def array_read_set = array_read_address[offset_width..(offset_width + set_width)]
   def array_read_data_address = array_read_address[row_offset_width..(offset_width + set_width)]
   def s2_admit = !management_waiting & s3_can_advance & !s2_retry & stores.empty & !s2_store_candidate.egress.valid
   core.request |> gate_flow(!core.request.valid ||| service_address_fits) |> service_requests.ingress
-  def s2_demand = ordinary_requests |> map_flow(request => L1DLookup(xlen, Context, beat_bytes)):
-    request: request
+  // Admission checked the full address before queueing. Preserve the byte offset
+  // and every payload field, including the optional raw-row transfer mode.
+  wire admitted: AddressedPhysicalMemoryBeatReq(xlen, Context, beat_bytes, physical_width)
+  def demand = ordinary_requests.bits
+  admitted.address <== demand.address[0..physical_width]
+  admitted.byte_mask <== demand.byte_mask
+  admitted.access <== demand.access
+  admitted.atomic <== demand.atomic
+  admitted.width <== demand.width
+  admitted.unsigned <== demand.unsigned
+  admitted.data <== demand.data
+  admitted.context <== demand.context
+  admitted.locality <== demand.locality
+  if beat_width > width
+  | admitted.raw_beat <== demand.raw_beat
+  | #void
+
+  def s2_demand = ordinary_requests |> map_flow(_request => L1DLookup(xlen, Context, beat_bytes, physical_width)):
+    request: admitted
     prefetch: Bool(#false)
     prefetch_write: Bool(#false)
 
@@ -731,14 +750,14 @@ sync_circuit L1DCache(xlen :: XLen,
       |> filter_valid(_hint => s2_prefetch & s2_admit & s3_lookup.ingress.ready & !ordinary_requests.valid)
       |> map_valid(payload):
         def hint = payload.into(CachePrefetchReq(width))
-        def empty :: PhysicalMemoryBeatReq(xlen, Context, beat_bytes) = literal(PhysicalMemoryBeatReq(xlen, Context, beat_bytes), 0)
+        def empty :: AddressedPhysicalMemoryBeatReq(xlen, Context, beat_bytes, physical_width) = literal(AddressedPhysicalMemoryBeatReq(xlen, Context, beat_bytes, physical_width), 0)
         def request = empty.updated(
-          ~address: hint.address, ~access: CacheOperation.Load, ~atomic: RiscvAtomicOperation.Swap,
+          ~address: hint.address[0..physical_width], ~access: CacheOperation.Load, ~atomic: RiscvAtomicOperation.Swap,
           ~width: MemoryWidth.Byte, ~unsigned: Bool(#true), ~byte_mask: Bits(beat_bytes)(1) << hint.address[0..row_offset_width],
           ~context: dont_care(Context), ~locality: RiscvMemoryLocality.Default
         )
 
-        L1DLookup(xlen, Context, beat_bytes):
+        L1DLookup(xlen, Context, beat_bytes, physical_width):
           request: request
           prefetch: Bool(#true)
           prefetch_write: hint.operation === CachePrefetchOperation.Write
@@ -769,7 +788,7 @@ sync_circuit L1DCache(xlen :: XLen,
   def produces_response = maintenance_complete ||| s4_load_hit ||| local_mutation_complete ||| s4_failed_sc ||| (complete_refill & !miss_prefetch)
   def response_data = priority_mux(~default: Bits(beat_width)(0)):
     maintenance_complete: Bits(beat_width)(0)
-    is_raw_beat(retained_request) & (s4_access === CacheOperation.Load): service_row
+    retained_raw_beat & (s4_access === CacheOperation.Load): service_row
     s4_access.returns_old_value(): scalar_response(service_load_gen.value)
     s4_failed_sc: Bits(beat_width)(1)
 
@@ -1028,14 +1047,14 @@ sync_circuit L1DCache(xlen :: XLen,
      Reservation lifetime follows accesses/coherence. The fairness timer
      bounds probe deferral separately and cannot be renewed by repeated LR. */
 
-  def reservation_line_address = reservation_address.align_down(CacheLineBytes)
+  def reservation_line_address = reservation_address.align_down(CacheLineBytes).zext(width)
   def completing_lr = (s4_load_hit & (s4_access === CacheOperation.LoadReserved)) ||| (install_refill & (refill_access === CacheOperation.LoadReserved))
   def s4_reservation_clear = s4_path.fire() & !local_mutation_capture & (s4_sc ||| ((s4_store ||| s4_zero ||| s4_atomic) & (retained_line_address === reservation_line_address)))
   def mutation_touches_reservation = (pending_mutation_access.is_store() ||| pending_zero ||| pending_mutation_access.is_atomic()) & (retained_line_address === reservation_line_address)
   def mutation_reservation_clear = local_mutation_commit & (pending_mutation_access.is_store_conditional() ||| mutation_touches_reservation)
   def snoop_reservation_clear = snoop.update.valid & (snoop.update.bits.address.align_down(CacheLineBytes) === reservation_line_address.zext(snoop_width))
   def replacement_reservation_clear = s4_path.fire() & s4_needs_refill & !s4_bypass_refill & !s4_hit & s4_victim_valid & (s4_victim_address === reservation_line_address)
-  def buffered_store_reservation_clear = stores.enqueue.fire() & (candidate_line.zext(width - offset_width) === reservation_address[offset_width..width])
+  def buffered_store_reservation_clear = stores.enqueue.fire() & (candidate_line === reservation_address[offset_width..physical_width])
   def reservation_clear = s4_reservation_clear ||| mutation_reservation_clear ||| snoop_reservation_clear ||| replacement_reservation_clear ||| buffered_store_reservation_clear
   // Reservation lifetime follows accesses and coherence, not the fairness timer.
   // A slow SC may still succeed after probes have been allowed to proceed.

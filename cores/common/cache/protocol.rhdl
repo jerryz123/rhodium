@@ -34,18 +34,18 @@ hardware_enum CachePipelineReason:
   Translation
   Ordered
 
-/* A scalar specialization forwards descriptor, record-constructor, and annotation syntax
-   to the same bundle family used by the explicit-width coherent port. */
-defn.macro 'native_beat $(name :: Identifier)($(xlen :: Identifier), $(arg :: Identifier), ...) = $(family :: Identifier)':
+/* Supply the final width (in bits or bytes) consistently in descriptor,
+   record-constructor, and annotation syntax for a native specialization. */
+defn.macro 'native_width $(name :: Identifier)($(xlen :: Identifier), $(arg :: Identifier), ...) = $(family :: Identifier) / $bits_per_unit':
   '«
      expr.macro
      | '$name($('$')$xlen, $('$')$arg, ...): $('$')field; $('...')':
-         '$family($('$')$xlen, $('$')$arg, ..., ($('$')$xlen).width / 8): $('$')field; $('...')'
+         '$family($('$')$xlen, $('$')$arg, ..., ($('$')$xlen).width / $bits_per_unit): $('$')field; $('...')'
      | '$name($('$')$xlen, $('$')$arg, ...)':
-         '$family($('$')$xlen, $('$')$arg, ..., ($('$')$xlen).width / 8)'
+         '$family($('$')$xlen, $('$')$arg, ..., ($('$')$xlen).width / $bits_per_unit)'
      | '$name': '$family'
      annot.macro '$name($('$')$xlen, $('$')$arg, ...)':
-       '$family($('$')$xlen, $('$')$arg, ..., ($('$')$xlen).width / 8)'
+       '$family($('$')$xlen, $('$')$arg, ..., ($('$')$xlen).width / $bits_per_unit)'
    »'
 
 /* Carries the translated speculative access controls without permission to mutate or allocate. */
@@ -65,12 +65,14 @@ bundle CachePipelineBeatResult(xlen :: XLen, beat_bytes :: Pow2Int = xlen.width 
   reason: CachePipelineReason
   data: Bits(8 * beat_bytes)
 
-/* Carries an authorized physical transaction and an uninterpreted caller-owned context. */
-bundle PhysicalMemoryBeatReq(xlen :: XLen, Context :: DataType, beat_bytes :: Pow2Int = xlen.width / 8):
+/* Carries an authorized transaction and opaque caller context. External ports use
+   XLEN addresses; checked internal storage can specialize just the address width. */
+bundle AddressedPhysicalMemoryBeatReq(xlen :: XLen, Context :: DataType, beat_bytes :: Pow2Int = xlen.width / 8,
+                                      address_width :: PosInt = xlen.width):
   if beat_bytes > xlen.width / 8:
     raw_beat: Bool
   byte_mask: Bits(beat_bytes)
-  address: Bits(xlen.width)
+  address: Bits(address_width)
   access: CacheOperation
   atomic: RiscvAtomicOperation
   width: MemoryWidth
@@ -87,11 +89,12 @@ bundle PhysicalMemoryBeatResp(xlen :: XLen, Context :: DataType, beat_bytes :: P
   data: Bits(8 * beat_bytes)
   context: Context
 
-native_beat CachePipelineReq(xlen) = CachePipelineBeatReq
-native_beat CachePipelineResult(xlen) = CachePipelineBeatResult
+native_width CachePipelineReq(xlen) = CachePipelineBeatReq / 8
+native_width CachePipelineResult(xlen) = CachePipelineBeatResult / 8
 
-native_beat PhysicalMemoryReq(xlen, Context) = PhysicalMemoryBeatReq
-native_beat PhysicalMemoryResp(xlen, Context) = PhysicalMemoryBeatResp
+native_width PhysicalMemoryBeatReq(xlen, Context, beat_bytes) = AddressedPhysicalMemoryBeatReq / 1
+native_width PhysicalMemoryReq(xlen, Context) = PhysicalMemoryBeatReq / 8
+native_width PhysicalMemoryResp(xlen, Context) = PhysicalMemoryBeatResp / 8
 
 /* Exposes authorized request admission, preacceptance faults, tagged completion, drain, and
    reservation. */
@@ -135,6 +138,7 @@ export:
   CachePipelineOutcome
   CachePipelineReason
   PhysicalMemoryBeatReq
+  AddressedPhysicalMemoryBeatReq
   PhysicalMemoryReq
   PhysicalMemoryBeatResp
   PhysicalMemoryResp

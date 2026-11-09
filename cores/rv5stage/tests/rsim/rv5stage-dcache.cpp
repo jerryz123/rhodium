@@ -193,7 +193,8 @@ struct Line {
     }
   }
 };
-constexpr std::uint64_t ADDRESS = UINT64_C(0x100000000);
+// Exercise the highest retained PA bit on refills, hits, reservations, and copybacks.
+constexpr std::uint64_t ADDRESS = (UINT64_C(1) << 43) | UINT64_C(0x100000000);
 const Line LINE = {UINT64_C(0xf0e0d0c0b0a0908),  UINT64_C(0x706050403020100),
                    UINT64_C(0xfedcba9876543210), UINT64_C(0x1122334455667788),
                    UINT64_C(0xffeeddccbbaa9988), UINT64_C(0x7766554433221100),
@@ -952,6 +953,14 @@ void stimulus() {
     probe_only = UINT64_C(0);
 
     forbid_core_response = UINT64_C(1);
+    // The low line is cold: truncating either high hint would start a CHI refill.
+    for (auto intent : {2, 3}) {
+      send_prefetch(PREFETCH_READ_ADDRESS | (UINT64_C(1) << 44), intent);
+      for (int cycle = 0; cycle < 8; ++cycle) {
+        tick();
+        CHECK(core_out.pdrained && !tx_req_pending && !chi_out.prequests.pvalid);
+      }
+    }
     send_prefetch(PREFETCH_READ_ADDRESS, UINT64_C(2));
     accept_request(READ_CLEAN, PREFETCH_READ_ADDRESS, UINT64_C(0), UINT64_C(6),
                    UINT64_C(1), UINT64_C(0));
@@ -1095,6 +1104,18 @@ void stimulus() {
                       UINT64_C(0), UINT64_C(8));
     expect_core_response(STORE_DATA_2, WRITEBACK_INTEGER_KIND, UINT64_C(8));
     CHECK(core_out.preservation_uvalid);
+    // This SC differs from the reserved byte address only above the CHI PA.
+    core_in.prequest.pbits.paddress = (ADDRESS + 40) | (UINT64_C(1) << 44);
+    core_in.prequest.pbits.paccess = MEMORY_SC;
+    core_in.prequest.pvalid = 1;
+    for (int cycle = 0; cycle < 4; ++cycle) {
+      settle();
+      CHECK(core_out.prequest_uaccess_ufault && !core_out.prequest.pready);
+      tick();
+      CHECK(core_out.preservation_uvalid && !core_out.presponse.pvalid && !tx_req_pending);
+    }
+    core_in.prequest.pvalid = 0;
+    core_in.prequest.pbits.paddress = ADDRESS + 40;
     // A rejected SC may read the SRAM but cannot consume the LR reservation
     // or write data. The next permitted SC through another alias must succeed.
     core_in.prequest.pbits.paccess = MEMORY_SC;
