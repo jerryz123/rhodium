@@ -66,7 +66,7 @@ sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: 
   interface physical_prefetch(Valid(CachePrefetchReq(64)), ~role: producer)
   interface instruction(SuperscalarInstructionTranslation(XLen.X64), ~role: responder)
   interface pte(RiscvTranslationMemory(), ~role: requester)
-  output result: SuperscalarAddressResolution(XLen.X64)
+  output result: SuperscalarAddressResolution()
 
 
   /* Translation banks and pinned vector proof ownership. */
@@ -207,17 +207,13 @@ sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: 
 
   /* Publishes physical attributes and exact faults without granting physical admission. */
 
-  result <== SuperscalarAddressResolution(XLen.X64):
+  result <== SuperscalarAddressResolution():
     known: data_known
     address: data_result.physical_address.zext(64)
     pbmt: data_pbmt
     fault: data_result.fault
-    resolution:
-      SuperscalarResolution(XLen.X64):
-        guest: data_guest_fault
-        disposition: mux(data_result.fault === RiscvTranslationFault.None, SuperscalarDisposition.Continue, SuperscalarDisposition.Fault)
-        cause: riscv_translation_fault_cause(data_result)
-        value: query.address
+    cause: riscv_translation_fault_cause(data_result)
+    guest: data_guest_fault
     execute_read: execute_read
     probe_busy: vector_probe
     split_mask: split_mask

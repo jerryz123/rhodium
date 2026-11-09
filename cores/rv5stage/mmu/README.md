@@ -94,8 +94,11 @@ probe cannot authorize either operation.
 in [`rv5stage.rhdl`](../rv5stage.rhdl). Its separate core and walker outputs
 meet at the [data-port arbiter](../data-port-arbiter.rhdl) before the
 [physical-memory router](../memory-router.rhdl). The router selects L1D for
-cacheable memory or the uncached engine for a non-cacheable region; a cacheable
-PTE read follows the ordinary L1D path.
+cacheable data or the uncached engine for a non-cacheable data region. Before
+arbitration, the MMU checks the entire eight-byte PTE against PMA and the
+walker's PBMT. Only readable, cacheable, read-idempotent memory with relaxed
+ordering can supply a PTE. A denied read completes locally as an access fault
+on the original fetch, load, or store.
 
 `instruction_lookup: Decoupled(Bits(XLEN))` launches S0 virtual reads directly
 into L1I. An atomic fork couples each accepted `RV5StageFetchAccess.request`
@@ -311,7 +314,7 @@ PTE traffic through its physical data arbiter.
 | Condition | Architectural class | Owner and disposition |
 |---|---|---|
 | Noncanonical VA, invalid PTE structure, misaligned superpage, permission failure, or Svade A/D failure | Instruction, load, or store/AMO page fault | Walker/TLB classify it; MMU correlates it with the original VA and suppresses the physical access |
-| Physical PTE request rejected as unmapped or disallowed | Instruction, load, or store/AMO access fault | Physical router reports rejection; walker preserves access-fault classification for the original operation |
+| Physical PTE request rejected as unmapped or disallowed | Instruction, load, or store/AMO access fault | MMU rejects the PTE locally or forwards a physical admission fault. The walker preserves the original operation and VA |
 | Final fetch range is not executable | Instruction access fault | MMU physical-map check suppresses the physical request |
 | Final data range is unmapped, lacks read/write/atomic permission, or its selected physical path reports an access fault | Load or store/AMO access fault | Physical-memory router or selected child path; MMU forwards the result |
 | Misaligned instruction target or atomic/LRSC address | Address-misaligned fault | Parent [`core.rhdl`](../core.rhdl), outside the MMU |

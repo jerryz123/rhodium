@@ -858,6 +858,25 @@ void stimulus() {
     settle();
     reset = UINT64_C(0);
 
+    // A readable, side-effecting root must fault the original load without offering a PTE read,
+    // even when the physical request sink is stalled. A subsequent ordinary root still walks.
+    satp = SATP_SV39_ROOT_1 | (UINT64_C(1) << (43 - 12));
+    falling();
+    data_request_valid = 1;
+    settle();
+    for (unsigned cycle = 0; cycle < 16 && !data_out.prequest.pready; ++cycle) {
+      CHECK(!data_memory_out.prequest.pvalid);
+      tick();
+    }
+    CHECK(data_out.prequest.pready && data_out.prequest_uaccess_ufault &&
+          !data_out.prequest_ufault && request_fault_address == VIRTUAL_ADDRESS &&
+          !data_memory_out.prequest.pvalid);
+    tick();
+    falling();
+    data_request_valid = 0;
+    satp = SATP_SV39_ROOT_1;
+    clear_translations();
+
     falling();
     data_request_valid = UINT64_C(1);
     settle();

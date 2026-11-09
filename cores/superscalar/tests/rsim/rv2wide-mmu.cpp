@@ -162,6 +162,7 @@ void hint(std::uint64_t va, int operation, bool accepted, std::uint64_t pa = 0,
 }
 int main() {
   return run_test([] {
+    lookup_outcome = 1; // Physical LoadHit.
     reset = 1;
     privilege = 1;
     satp = UINT64_C(0x8000000000000010);
@@ -1244,5 +1245,19 @@ int main() {
     eval();
     CHECK(fetch_resolution.pdisposition == 1 && wb_fault);
     fetch_valid = wb_valid = 0;
+
+    // A valid G leaf can map the VS root into readable RAM but mark the PTE read NC or IO.
+    // The walker must reject the implicit read locally and retain the original guest load VA.
+    pbmte = 1;
+    for (std::uint64_t pbmt : {1u, 2u}) {
+      fence();
+      offer_wb(0x500038);
+      walk_at(0x20000, (pbmt << 61) | (UINT64_C(23) << 10) | 0xd7);
+      wb_valid = 1;
+      eval();
+      CHECK(wb_fault && wb_fault_bits.pcause == 5 && wb_fault_bits.pvalue == 0x500038 &&
+            wb_fault_bits.pguest.pguest_uvirtual_uaddress && !physical_valid);
+      wb_valid = 0;
+    }
   });
 }

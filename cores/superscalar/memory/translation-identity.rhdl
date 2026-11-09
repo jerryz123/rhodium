@@ -37,7 +37,7 @@ sync_circuit SuperscalarIdentityTranslation(xlen :: XLen, config :: RiscvHartCHI
   interface prefetch(Valid(CachePrefetchReq(64)), ~role: consumer)
   interface physical_prefetch(Valid(CachePrefetchReq(64)), ~role: producer)
   interface instruction(SuperscalarInstructionTranslation(xlen), ~role: responder)
-  output result: SuperscalarAddressResolution(xlen)
+  output result: SuperscalarAddressResolution()
 
   inst vector_window(VectorWindow(config.physical_map))
   vector_precheck <=> vector_window.check
@@ -72,17 +72,13 @@ sync_circuit SuperscalarIdentityTranslation(xlen :: XLen, config :: RiscvHartCHI
 
   /* Identity resolution carries no page permissions or translation failure state. */
 
-  result <== SuperscalarAddressResolution(xlen):
+  result <== SuperscalarAddressResolution():
     known: Bool(#true)
     address: query.address.zext(64)
     pbmt: PageMemoryType.PMA
     fault: RiscvTranslationFault.None
-    resolution:
-      SuperscalarResolution(xlen):
-        guest: literal(RiscvGuestFault(), 0)
-        disposition: SuperscalarDisposition.Continue
-        cause: dont_care(ExceptionCause)
-        value: query.address
+    cause: dont_care(ExceptionCause)
+    guest: literal(RiscvGuestFault(), 0)
     execute_read: Bool(#false)
     probe_busy: Bool(#false)
     split_mask: state.pointer_masking

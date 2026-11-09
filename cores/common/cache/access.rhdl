@@ -45,6 +45,10 @@ fun cache_fragment_permitted(physical_map :: RiscvPhysicalMemoryMap, address :: 
   def permitted = mux(write, region.writable, region.readable)
   allows_data_cache_allocation(attributes) & permitted & (!execute_read ||| region.executable)
 
+/* A hardware page walk reads one complete eight-byte PTE from ordinary, idempotent RAM. */
+fun pte_read_permitted(physical_map :: RiscvPhysicalMemoryMap, address :: Bits(64), pbmt :: PageMemoryType) :~ Bool:
+  cache_fragment_permitted(physical_map, address, 8, pbmt, ~write: Bool(#false), ~execute_read: Bool(#false))
+
 /* Combines PMA permissions with the caller's access intent and service restrictions.
    Maintenance follows its architectural permission rule independently of ordinary-access alignment or atomic service. */
 fun cache_access_permitted(physical :: RiscvPhysicalMemoryLookup(), operation :: CacheOperation,
@@ -61,6 +65,7 @@ export:
   CacheServiceRoute
   committed_cache_route
   cache_fragment_permitted
+  pte_read_permitted
   allows_data_cache_allocation
   cache_access_region
   cache_access_permitted

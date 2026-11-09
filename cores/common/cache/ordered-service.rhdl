@@ -4,6 +4,9 @@
 
 import:
   lib("flow/main.rhdl") open
+  lib("riscv/isa/xlen.rhm").XLen
+  "io-mshr.rhdl".IOMSHR
+  "protocol.rhdl".UncachedMemoryReq
 
 /* Excludes younger cached work while committed IO or local maintenance owns completion.
    Callers classify requests, adapt byte lanes, and retain the IO owner. This boundary
@@ -31,4 +34,35 @@ sync_circuit OrderedMemoryService(CachedRequest :: DataType, UncachedRequest :: 
   Array(local.egress, cache_response, io_response) |> arbiter() |> response
   drained <== cache_drained & io_drained & !local.egress.valid & !management.fire()
 
-export OrderedMemoryService
+/* Classified request sinks, ordering status, and precise IO admission faults for the core. */
+class OrderedMemoryAttachment(cached :: Endpoint, uncached :: Endpoint, management :: Endpoint,
+                              ordered_busy :: Bool, hints_ready :: Bool, background_ready :: Bool, drained :: Bool,
+                              io_request_fault :: Bool, io_request_access_fault :: Bool)
+
+/* Connects the cache port and retained IO slot to a single ordered service. The
+   two optional Flow transforms adapt native replies before arbitration. Registered
+   slot capacity gates new cached work independently of same-cycle IO admission. */
+fun attach_ordered_memory(cache :: Endpoint, transport :: Endpoint, response :: Endpoint.supports(DecoupledCtrl()),
+                          io_xlen :: XLen, IOContext :: DataType,
+                          ~cache_reply: cache_reply :: Function = values, ~io_reply: io_reply :: Function = values) :~ OrderedMemoryAttachment:
+  def cache_request :: Endpoint.supports(DecoupledCtrl()) = cache.field("request")
+  inst ordering(OrderedMemoryService(decoupled_payload_type(cache_request), UncachedMemoryReq(io_xlen, IOContext), decoupled_payload_type(response)))
+  inst io_mshr(IOMSHR(io_xlen, IOContext))
+  io_mshr.memory |> transport
+  ordering.cache_drained <== cache.field("drained")
+  ordering.io_drained <== io_mshr.core.drained
+  ordering.io_available <== io_mshr.core.request.ready
+  ordering.cache_request |> cache_request
+  ordering.io_request |> io_mshr.core.request
+  def cache_response :: Endpoint.supports(DecoupledCtrl()) = cache.field("response")
+  cache_reply(cache_response) |> ordering.cache_response
+  io_reply(io_mshr.core.response) |> ordering.io_response
+  ordering.response |> response
+  assert(!(cache_response.valid & io_mshr.core.response.valid), "ordered_memory_response_paths_exclusive")
+  OrderedMemoryAttachment(ordering.cached, ordering.uncached, ordering.management,
+                          ordering.ordered_busy, ordering.hints_ready, ordering.background_ready, ordering.drained,
+                          io_mshr.core.request_fault, io_mshr.core.request_access_fault)
+
+export:
+  OrderedMemoryService
+  attach_ordered_memory

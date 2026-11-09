@@ -545,7 +545,9 @@ sync_circuit RV5StageMmu(xlen :: XLen,
 
   /* PTE physical requests and response routing */
 
-  def walker_memory_request = walker.memory.request |> gate_flow(walk_active & !walker_memory_pending) |> trace_event("mmu/pte.request")
+  def pte_offer = walker.memory.request |> gate_flow(walk_active & !walker_memory_pending)
+  def pte_permitted = pte_read_permitted(physical_map, pte_offer.bits.address, pte_offer.bits.pbmt)
+  def walker_memory_request = pte_offer |> filter_flow(_pte => pte_permitted) |> trace_event("mmu/pte.request")
   walker_lookup.valid <== walker_memory_request.valid
   walker_lookup.bits <== if xlen == XLen.X32 | walker_memory_request.bits.address[0..32] | walker_memory_request.bits.address
   def walker_data_request = walker_memory_request |> map_flow(pte => PhysicalMemoryReq(xlen, RV5StageMemoryContext(vector_completion_slots))):
@@ -575,7 +577,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
     pbmt: walker_memory_request.bits.pbmt
   ) |> walker_memory.request
 
-  walker.memory.request_access_fault <== walker_memory.request_access_fault
+  walker.memory.request_access_fault <== (pte_offer.valid & !pte_permitted) ||| (walker_memory.request.valid & walker_memory.request_access_fault)
   def walker_memory_request_fire = walker_memory.request.fire()
   // The shared walker retains canceled PTE ownership until the reply drains.
   walker_memory.response |> to_valid()

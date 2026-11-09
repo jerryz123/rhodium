@@ -74,7 +74,7 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
   when (split.request.fire()):
     split_mode <== split_guest_access
 
-  def resolved :: SuperscalarAddressResolution(xlen) = resolve.result
+  def resolved :: SuperscalarAddressResolution() = resolve.result
   def split_fault_address = apply_pointer_mask(xlen, misaligned.fault_address, resolved.split_mask)
   misaligned.completion |> map_valid(result => result.updated(~fault_address: apply_pointer_mask(xlen, result.fault_address, resolved.split_mask))) |> split.response
   def split_request = misaligned.request |> map_flow(fragment => SuperscalarMemoryReq(xlen, xlen.width, Bool)):
@@ -145,6 +145,8 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
     CachePipelineOutcome.Slow: SuperscalarCacheOutcome.Slow
     CachePipelineOutcome.LoadHit: SuperscalarCacheOutcome.LoadHit
     CachePipelineOutcome.StoreHit: SuperscalarCacheOutcome.StoreHit
+    CachePipelineOutcome.PageFault: SuperscalarCacheOutcome.PageFault
+    CachePipelineOutcome.AccessFault: SuperscalarCacheOutcome.AccessFault
 
   def outcome = priority_mux(~default: mux(physical_pipeline.response.valid, cache_outcome, SuperscalarCacheOutcome.Replay)):
     busy: SuperscalarCacheOutcome.Replay
@@ -157,7 +159,7 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
 
   pipeline.response.valid <== mem_request.valid
   pipeline.response.bits <== SuperscalarLookupResult(xlen):
-    guest: resolved.resolution.guest
+    guest: resolved.guest
     outcome: outcome
     data: physical_pipeline.response.bits.data
 
@@ -191,18 +193,18 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
   def core_local_fault = resolved.known & (!data_ok ||| core_execute_denied)
   memory.fault.valid <== memory.request.valid & !misaligned.busy & (core_local_fault ||| transport.fault[0].valid)
   def core_fault_cause = priority_mux(~default: transport.fault[0].bits.cause):
-    !data_ok: resolved.resolution.cause
+    !data_ok: resolved.cause
     core_execute_denied: ExceptionCause.LoadAccessFault
 
   memory.fault.bits <== SuperscalarResolution(xlen):
-    guest: resolved.resolution.guest
+    guest: resolved.guest
     disposition: SuperscalarDisposition.Fault
     cause: core_fault_cause
     value: memory.request.bits.address
 
   misaligned.request_guest <== RiscvGuestException():
     page_fault: resolved.fault === RiscvTranslationFault.GuestPageFault
-    details: resolved.resolution.guest
+    details: resolved.guest
 
   misaligned.request_fault <== split_request.valid & resolved.known & resolved.fault.is_one_of(RiscvTranslationFault.PageFault, RiscvTranslationFault.GuestPageFault)
   def split_access_denied = (resolved.fault =/= RiscvTranslationFault.None) ||| !fragment_permitted ||| transport.fault[1].valid
@@ -210,10 +212,7 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
 
   if page_walk_clients == 1
   | block:
-      def pte_region = physical_map.lookup(resolve.pte.request.bits.address, resolve.pte.request.bits.address +& Bits(64)(7))
-      def pte_attributes = resolve_memory_attributes(pte_region, resolve.pte.request.bits.pbmt)
-      def pte_normal_memory = allows_data_cache_allocation(pte_attributes)
-      def pte_permitted = pte_region.mapped & pte_normal_memory & pte_region.readable
+      def pte_permitted = pte_read_permitted(physical_map, resolve.pte.request.bits.address, resolve.pte.request.bits.pbmt)
       transport.request[2].valid <== resolve.pte.request.valid & pte_permitted
       transport.request[2].bits <== SuperscalarMemoryReq(xlen, 64, Context):
         context: dont_care(Context)

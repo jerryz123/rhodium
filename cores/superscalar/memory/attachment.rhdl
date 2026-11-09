@@ -13,8 +13,7 @@ import:
   "../../common/cache/operation.rhdl" open
   "../../common/cache-prefetch.rhdl" open
   "../../common/cache/l1d/cache.rhdl" open
-  "../../common/cache/io-mshr.rhdl" open
-  "../../common/cache/ordered-service.rhdl".OrderedMemoryService
+  "../../common/cache/ordered-service.rhdl".attach_ordered_memory
   "../../common/chi-hart.rhdl" open
   "../../common/load-store.rhdl" open
   "../../../riscv/isa/xlen.rhm" open
@@ -46,19 +45,19 @@ sync_circuit SuperscalarL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHICo
   inst storage(L1DCache(xlen, cache, ~chi: config, ~context: Context, ~service_queue_depth: service_queue_depth, ~beat_bytes: beat_bytes))
   storage.node_id <== node_id
   chi <=> storage.chi
-  inst io(IOMSHR(XLen.X64, SuperscalarUncachedContext(Context)))
   inst uncached(UncachedInstructionMemory(XLen.X64, config, Bool, 64))
-  io.memory |> uncached.core
   instruction.response <=> uncached.instruction.response
   uncached.instruction.flush <== instruction.flush
   uncached.node_id <== uncached_node_id
   uncached.chi <=> uncached_chi
-  inst ordering(OrderedMemoryService(PhysicalMemoryBeatReq(xlen, Context, beat_bytes), UncachedMemoryReq(XLen.X64, SuperscalarUncachedContext(Context)), MemoryResponse(Bits(xlen.width), Context)))
-  ordering.cache_drained <== storage.core.drained
-  ordering.io_drained <== io.core.drained
-  ordering.io_available <== io.core.request.ready
-  ordering.cache_request |> storage.core.request
-  ordering.io_request |> io.core.request
+  def cache_reply = map_flow(response => MemoryResponse(Bits(xlen.width), Context)):
+    data: response.data[0..xlen.width]
+    context: response.context
+  def io_reply = map_flow(response => MemoryResponse(Bits(xlen.width), Context)):
+    data: response.data[0..xlen.width] << (response.context.offset ++ Bits(3)(0))
+    context: response.context.context
+  def ordering = attach_ordered_memory(storage.core, uncached.core, memory.response, XLen.X64, SuperscalarUncachedContext(Context),
+                                       ~cache_reply: cache_reply, ~io_reply: io_reply)
 
 
   /* Uncached fetch and best-effort prefetch.
@@ -172,8 +171,7 @@ sync_circuit SuperscalarL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHICo
   ) |> ordering.uncached
 
 
-  /* Admission faults and ordered response merge.
-     Local management drains without inventing a device access; IO preserves exact byte lanes. */
+  /* Admission faults report the original address. Accepted cache service completes without a late fault. */
 
   memory.fault.valid <== memory.request.valid & !permitted
   memory.fault.bits <== SuperscalarResolution(xlen):
@@ -182,15 +180,6 @@ sync_circuit SuperscalarL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHICo
     cause: mux(request.access.store_fault_class(), ExceptionCause.StoreAccessFault, ExceptionCause.LoadAccessFault)
     value: memory.request.bits.address[0..xlen.width]
 
-  (storage.core.response |> map_flow(response => MemoryResponse(Bits(xlen.width), Context)):
-    data: response.data[0..xlen.width]
-    context: response.context
-  ) |> ordering.cache_response
-  (io.core.response |> map_flow(response => MemoryResponse(Bits(xlen.width), Context)):
-    data: response.data[0..xlen.width] << (response.context.offset ++ Bits(3)(0))
-    context: response.context.context
-  ) |> ordering.io_response
-  ordering.response |> memory.response
   memory.drained <== ordering.drained
   memory.reservation_valid <== storage.core.reservation_valid
   memory.ordered_busy <== ordered_busy

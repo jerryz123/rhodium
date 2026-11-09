@@ -110,7 +110,9 @@ completion. Callers check permission before admitting the request.
 `cache_fragment_permitted` checks the entire aligned physical word of a split
 access against the resolved memory attributes and its read or write permission.
 An execute-read fragment also requires execute permission. Each core translates
-and checks each fragment before issuing it.
+and checks each fragment before issuing it. Both cores use `pte_read_permitted`
+for walker reads. All eight PTE bytes must lie in the same readable, cacheable,
+read-idempotent region with relaxed ordering under the effective PBMT.
 
 [`cache_prefetch_physical`](prefetch.rhdl) classifies a complete aligned cache
 line from an address, prefetch operation, and PBMT. It returns the aligned
@@ -160,10 +162,11 @@ arbiter with `CHIUncachedMemory`. Its instruction port uses the
 fit the transport word. It shapes aligned instruction reads and drains detached
 replies without adding a pipeline stage. The data context remains opaque.
 
-`OrderedMemoryService(CachedRequest, UncachedRequest, Response)` in
-[`ordered-service.rhdl`](ordered-service.rhdl) shares cached/IO exclusion and
-response ordering. Callers supply classified, adapted request streams and cache
-and IO drain/capacity indications. Uncached work waits for older cache work;
+Both cores use [`attach_ordered_memory`](ordered-service.rhdl) to connect the physical
+cache port, an IOMSHR, and the core response sink. It returns cached, uncached,
+and local-management request sinks, ordering status, and IO admission faults.
+Optional Flow transforms convert native cache and IO replies before the shared
+`OrderedMemoryService` arbitrates them. Uncached work waits for older cache work and
 cached work waits for committed IO and local management completion. Local
 management uses one response slot after drain, without inventing a device
 transaction. The response arbiter merges local, cached, and IO completions.

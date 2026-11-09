@@ -11,7 +11,7 @@ int cycle, delay_left, stores, walks, flushes, traps, scenario;
 int cmo_count, last_cmo;
 bool cmo_completed;
 bool pbmt_check = 0;
-int expected_type, expected_pte_type, pbmt_data_reads;
+int expected_type, pbmt_data_reads;
 std::uint64_t pbmt_code, pbmt_data;
 bool pending;
 int supervisor_root_address = 0;
@@ -1062,7 +1062,6 @@ void run_pbmt(int vs_type, int g_type, int pte_type, std::uint8_t vs_paged = 1,
   reset = 1;
   scenario = 80;
   expected_type = vs_paged && vs_type != 0 ? vs_type : g_paged ? g_type : 0;
-  expected_pte_type = g_paged ? pte_type : 0;
   pbmt_code = g_paged ? UINT64_C(0x18000) : UINT64_C(0x10000);
   pbmt_data = g_paged ? UINT64_C(0x19000) : UINT64_C(0x11000);
   entry = vs_paged ? GVA : UINT64_C(0x10000);
@@ -1072,7 +1071,8 @@ void run_pbmt(int vs_type, int g_type, int pte_type, std::uint8_t vs_paged = 1,
   bad_g = g_paged && (g_type == 3 || (g_type != 0 && !enable_m));
   bad_pte =
       vs_paged && g_paged && (pte_type == 3 || (pte_type != 0 && !enable_m));
-  cause = bad_pte ? 20 : bad_vs ? 12 : bad_g ? 20 : 10;
+  const bool denied_pte = vs_paged && g_paged && enable_m && (pte_type == 1 || pte_type == 2);
+  cause = bad_pte ? 20 : denied_pte ? 1 : bad_vs ? 12 : bad_g ? 20 : 10;
   machine_boot();
   csrw(UINT64_C(773), UINT64_C(8192));
   csrw(UINT64_C(261), UINT64_C(12288));
@@ -1129,6 +1129,8 @@ void run_pbmt(int vs_type, int g_type, int pte_type, std::uint8_t vs_paged = 1,
           read64(pbmt_data + 40) == UINT64_C(22136) && pbmt_data_reads >= 2);
   else
     CHECK(read64(SIGNATURE + 40) == entry && pbmt_data_reads == 0);
+  if (denied_pte)
+    CHECK(read64(SIGNATURE + 8) == entry && (read64(SIGNATURE + 32) & 64));
   pbmt_check = 0;
 }
 
@@ -2133,7 +2135,7 @@ void observe() {
           }
           if (memory_walker && memory_address >= UINT64_C(32768) &&
               memory_address < UINT64_C(45056))
-            CHECK(memory_pbmt == ((expected_pte_type)&low_mask(2)));
+            CHECK(memory_pbmt == 0); // Only ordinary memory may supply an implicit VS PTE.
         }
         CHECK(!pending);
         CHECK(memory_address < 196608);
@@ -2319,11 +2321,13 @@ void stimulus() {
     for (int modes = 0; modes < 4; modes++)
       for (int v = 0; v < 3; v++)
         for (int g = 0; g < 3; g++)
-          run_pbmt(v, g, 1, ((modes & 1) & low_mask(1)),
+          run_pbmt(v, g, 0, ((modes & 1) & low_mask(1)),
                    ((modes >> 1) & low_mask(1)));
     for (int v = 0; v < 3; v++)
       for (int g = 0; g < 3; g++)
-        run_pbmt(v, g, 2, 1, 1, 1);
+        run_pbmt(v, g, 0, 1, 1, 1);
+    run_pbmt(0, 0, 1); // An NC or IO VS page table faults the original instruction fetch.
+    run_pbmt(0, 0, 2);
     run_pbmt(1, 0, 0, 1, 1, 0, 1, 0);
     run_pbmt(1, 0, 0, 1, 1, 0, 0, 1);
     run_pbmt(0, 1, 0, 1, 1, 0, 0, 1);

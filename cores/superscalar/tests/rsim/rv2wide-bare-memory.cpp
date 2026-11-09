@@ -52,6 +52,7 @@ void check_split_load(unsigned width, unsigned offset, bool sign_extend) {
 
 int main() {
   return run_test([] {
+    lookup_outcome = 1; // Physical LoadHit.
     reset = 1;
     tick_model();
     reset = 0;
@@ -101,6 +102,19 @@ int main() {
     ex_valid = 0;
     eval();
     CHECK(result_valid && resolve_valid && resolve_address == address && outcome == 1);
+    // Both physical fault classes belong to this MEM lookup. Only an absent reply replays it.
+    for (unsigned fault : {4u, 5u}) {
+      lookup_outcome = fault;
+      eval();
+      CHECK(result_valid && resolve_valid && outcome == fault);
+    }
+    suppress_lookup_response = 1;
+    eval();
+    CHECK(result_valid && outcome == 3);
+    suppress_lookup_response = 0;
+    lookup_outcome = 1;
+    eval();
+    CHECK(result_valid && outcome == 1);
     tick_model();
     eval();
     CHECK(!result_valid && memory_drained);

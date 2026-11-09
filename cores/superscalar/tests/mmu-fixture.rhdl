@@ -41,6 +41,8 @@ sync_circuit SuperscalarMmuFixture(~bare: bare :: Boolean = #false):
   output fetch_resolution: SuperscalarResolution(XLen.X64)
   output fetch_physical: Bits(64)
   output fetch_pbmt: PageMemoryType
+  input lookup_outcome: CachePipelineOutcome
+  input suppress_lookup_response: Bool
   input(ex_valid, wb_valid, commit): Bool
   input access: CacheOperation
   input address: Bits(64)
@@ -116,9 +118,9 @@ sync_circuit SuperscalarMmuFixture(~bare: bare :: Boolean = #false):
   mmu.pipeline.request.bits <== request
   mmu.pipeline.commit <== commit
   mmu.physical_pipeline.commit_ready <== Bool(#true)
-  mmu.physical_pipeline.response.valid <== mmu.physical_pipeline.request.valid
+  mmu.physical_pipeline.response.valid <== mmu.physical_pipeline.request.valid & !suppress_lookup_response
   mmu.physical_pipeline.response.bits <== CachePipelineResult(XLen.X64):
-    outcome: CachePipelineOutcome.LoadHit
+    outcome: lookup_outcome
     reason: CachePipelineReason.None
     data: Bits(64)(0xabcd)
 

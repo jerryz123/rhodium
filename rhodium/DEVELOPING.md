@@ -254,9 +254,10 @@ context to the physical response. `cache/uncached-instruction.rhdl` imports the 
 protocol, CHI transport/arbiter, physical memory contracts, hart map, XLEN,
 atomic/locality types, Flow, `std/bits.rhdl`, and CHI channels. It shapes fetches
 without owning frontend recovery policy. `cache/ordered-service.rhdl` imports
-only Flow and shares drain/capacity gating, local completion storage, and response
-merge over caller-supplied payload types. Both cores retain PMA routing,
-permission/fault policy, IOMSHR specialization, and beat adaptation.
+Flow, XLEN, the physical memory protocol, and IOMSHR. It attaches the cache
+and IO slot to shared drain/capacity gating, local completion storage, and
+response arbitration. Both cores retain PMA routing, fault reporting, and
+beat adaptation.
 `cores/common/vector/service.rhdl` directly imports shared FP profile/bundles/FPR
 write contracts, integer execution, register write, multiplier/divider, vector tags,
 XLEN, `std/bits.rhdl`, and ready-valid. The backend and pipeline adapters import
@@ -284,7 +285,8 @@ privilege helpers for its WB reservation-wait timeout policy. Its profile and UD
 projection import the pure `riscv/isa/c.rhm` compressed-extension descriptors;
 the profile supplies the same selected C/Zcb/Zcmop list to the assembler and
 shared CSR bank, preserving IALIGN and architectural publication consistency.
-`cores/superscalar/memory/translation-sv39.rhdl` imports the shared `cores/common/mmu/` TLB/walker,
+The superscalar data translation contract uses the architectural exception cause
+and guest-fault types directly. `cores/superscalar/memory/translation-sv39.rhdl` imports the shared `cores/common/mmu/` TLB/walker,
 shared cache protocol/operation/geometry and hart CHI-map definitions, and architectural
 CSR, privilege, Sv39, and XLEN helpers. Its memory adapter and physical cache
 adapter use `riscv/rtl/cmo.rhdl` for read-or-write whole-block maintenance permissions.
@@ -610,7 +612,7 @@ FP, compressed, and vector descriptors for shared ISA-name and MISA projection;
 named profiles retain defaults, restrictions, and qualification predicates.
 `cores/common/cache/access.rhdl` consumes cache operation/geometry, load/store widths,
 architectural PMA/PBMT/CMO/XLEN, and public bit helpers. Both cores consume its
-committed route selector and split-fragment permission check. Pipeline adapters
+committed route selector, split-fragment permission check, and PTE read policy. Pipeline adapters
 retain transaction admission and fault reporting.
 `cores/common/cache/prefetch.rhdl` consumes cache geometry/prefetch operations,
 architectural PMA/PBMT, and public bit helpers. Both translated MMU adapters

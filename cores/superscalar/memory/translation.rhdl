@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../bundles.rhdl".SuperscalarResolution
+  lib("riscv/rtl/trap.rhdl").ExceptionCause
   "../../common/cache/operation.rhdl".CacheOperation
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/rtl/hypervisor.rhdl") open
@@ -28,12 +28,13 @@ bundle SuperscalarTranslationQuery(xlen :: XLen):
 
 /* Returns address/fault provenance only, never a TLB leaf or fabricated mapping for an identity lookup.
    Probe contention may replay MEM; execute permission is a separate physical-map requirement for HLVX. */
-bundle SuperscalarAddressResolution(xlen :: XLen):
+bundle SuperscalarAddressResolution():
   known: Bool
   address: Bits(64)
   pbmt: PageMemoryType
   fault: RiscvTranslationFault
-  resolution: SuperscalarResolution(xlen)
+  cause: ExceptionCause
+  guest: RiscvGuestFault()
   execute_read: Bool
   probe_busy: Bool
   split_mask: PointerMaskControl()
