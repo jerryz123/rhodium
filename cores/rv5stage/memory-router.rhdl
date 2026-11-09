@@ -39,7 +39,10 @@ sync_circuit RV5StageMemoryRouter(xlen :: XLen,
   def operation = request.access
   def physical = cache_access_region(xlen, physical_map, request.address, request.width, operation)
   def attributes = resolve_memory_attributes(physical, core.request.bits.pbmt)
-  def request_permitted = cache_access_permitted(physical, operation, ~reads: operation.returns_old_value(), ~writes: operation.needs_unique())
+  def request_permitted = cache_access_permitted(
+    physical, operation, ~reads: operation.returns_old_value(), ~writes: operation.needs_unique(),
+    ~atomic_service: allows_committed_atomic_service(physical, attributes, ~aligned: request.width.is_aligned(request.address))
+  )
   def route = committed_cache_route(operation, physical, attributes)
 
 

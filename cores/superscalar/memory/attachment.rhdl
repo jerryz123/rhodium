@@ -79,15 +79,15 @@ sync_circuit SuperscalarL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHICo
   def ordered_busy = ordering.ordered_busy
   def request :: AddressedPhysicalMemoryBeatReq(xlen, Context, bytes, 64) = memory.request.bits.memory
   def atomic_request = request.access.is_one_of(CacheOperation.LoadReserved, CacheOperation.StoreConditional, CacheOperation.Atomic)
-  def zero_block = request.access.is_cache_block_zero()
+  def aligned = request.width.is_aligned(request.address)
   def physical = cache_access_region(XLen.X64, config.physical_map, request.address, request.width, request.access)
   def attributes = resolve_memory_attributes(physical, memory.request.bits.pbmt)
   def route = committed_cache_route(request.access, physical, attributes)
   def writes = request.access.store_fault_class()
   def permitted = cache_access_permitted(
     physical, request.access, ~reads: !writes, ~writes: writes,
-    ~atomic_service: allows_data_cache_allocation(attributes) & physical.readable,
-    ~aligned: zero_block ||| request.width.is_aligned(request.address)
+    ~atomic_service: allows_committed_atomic_service(physical, attributes, ~aligned: aligned),
+    ~aligned: request.access.is_cache_block_zero() ||| aligned
   )
 
 

@@ -23,6 +23,12 @@ fun cache_access_region(xlen :: XLen, physical_map :: RiscvPhysicalMemoryMap, ad
 fun allows_data_cache_allocation(attributes :: RiscvMemoryAccessAttributes()) :~ Bool:
   attributes.cacheable & !attributes.strongly_ordered & attributes.read_idempotent
 
+/* LR, SC and AMOs require an aligned request to readable, allocatable memory at physical
+   admission. cache_access_permitted also checks the region's atomic and operation permissions. */
+fun allows_committed_atomic_service(physical :: RiscvPhysicalMemoryLookup(), attributes :: RiscvMemoryAccessAttributes(),
+                                    ~aligned: aligned :: Bool) :~ Bool:
+  aligned & physical.readable & allows_data_cache_allocation(attributes)
+
 /* A speculative access either probes L1D or receives a local MEM outcome. */
 tagged_union CacheLookupDecision:
   Probe
@@ -96,5 +102,6 @@ export:
   cache_fragment_permitted
   pte_read_permitted
   allows_data_cache_allocation
+  allows_committed_atomic_service
   cache_access_region
   cache_access_permitted

@@ -54,7 +54,7 @@ void check_request(std::uint32_t address, std::uint8_t access,
   }
 }
 
-// A PBMT-NC override on atomic-capable RAM routes to the ordered I/O slot.
+// PBMT-NC denies atomics at admission even while an older cache request drains.
 void check_nc_atomic(unsigned operation, bool older_cache_work) {
   auto &req = core_in.prequest;
   req.pbits.ppbmt = 1;
@@ -64,14 +64,7 @@ void check_nc_atomic(unsigned operation, bool older_cache_work) {
   req.pbits.pmemory.pbyte_umask = 0xf;
   req.pbits.pmemory.patomic = 0; // AMOSWAP.W
   req.pvalid = 1;
-  if (older_cache_work) {
-    cache_in.pdrained = 0;
-    settle();
-    CHECK(!core_out.prequest.pready && !core_out.prequest_uaccess_ufault &&
-          !cache_out.prequest.pvalid && !uncached_out.prequest.pvalid);
-    tick();
-    cache_in.pdrained = 1;
-  }
+  cache_in.pdrained = !older_cache_work;
   settle();
   CHECK(core_out.prequest.pready && core_out.prequest_uaccess_ufault &&
         !core_out.prequest_ufault && !cache_out.prequest.pvalid &&
@@ -79,8 +72,9 @@ void check_nc_atomic(unsigned operation, bool older_cache_work) {
   tick();
   req.pvalid = 0;
   settle();
-  CHECK(core_out.pdrained && !core_out.presponse.pvalid &&
+  CHECK(core_out.pdrained == !older_cache_work && !core_out.presponse.pvalid &&
         !cache_out.prequest.pvalid && !uncached_out.prequest.pvalid);
+  cache_in.pdrained = 1;
   req.pbits.ppbmt = 0;
 }
 
@@ -152,6 +146,8 @@ void stimulus() {
     for (auto operation : {LOAD_RESERVED, STORE_CONDITIONAL, ATOMIC}) {
       check_nc_atomic(operation, false);
       check_nc_atomic(operation, true);
+      check_request(0x1000, operation, 1, 0, 0);
+      check_request(0x1002, operation, 0, 0, 1);
     }
     // Every AMOArithmetic operation must reach coherent RAM, including its
     // first and last naturally aligned word, but not a non-atomic/device PMA.

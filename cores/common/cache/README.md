@@ -108,6 +108,10 @@ overflow. Callers supply read/write intent, atomic-service eligibility, and
 alignment eligibility. `allows_data_cache_allocation` checks the resolved
 PMA/PBMT attributes for cacheability, relaxed ordering, and read idempotence.
 It applies to ordinary loads and stores at both lookup and authorized service.
+At committed admission, LR, SC, and AMOs require natural alignment and readable,
+atomic-capable memory that permits cache allocation. SC and AMOs also require
+write permission. Both cores report a denied atomic on the request cycle,
+even while older cache work is draining.
 `committed_cache_route` selects cached or uncached service for ordinary accesses.
 Maintenance uses physical cacheability to choose cached service or local
 completion. Callers check permission before admitting the request.
