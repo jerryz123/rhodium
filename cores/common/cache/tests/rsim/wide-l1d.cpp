@@ -68,11 +68,11 @@ void refill(unsigned address, unsigned opcode, const Line &line) {
     refill_packet(txn, i, opcode == 7 ? 2 : 1, line[i]);
 }
 
-void response(Row expected, unsigned context = 0x97) {
+void response(Row expected, unsigned context = 0x97, bool access_fault = false) {
   until([] { return core_out.presponse.pvalid; });
   for (int i = 0; i < 2; ++i) {
     CHECK(core_out.presponse.pvalid && core_out.presponse.pbits.pdata == expected);
-    CHECK(!core_out.presponse.pbits.paccess_ufault && core_out.presponse.pbits.pcontext == context);
+    CHECK(core_out.presponse.pbits.paccess_ufault == access_fault && core_out.presponse.pbits.pcontext == context);
     tick_model(); eval();
   }
   core_in.presponse.pready = 1; tick_model(); core_in.presponse.pready = 0;
@@ -94,6 +94,43 @@ void check_consecutive_hits(unsigned address, const Line &line) {
   }
   CHECK(!core_out.presponse.pvalid);
   core_in.presponse.pready = 0;
+}
+
+void check_maintenance_retry(const Line &younger_line) {
+  constexpr unsigned clean = 8, clean_shared = 8, retry_ack = 3, credit_grant = 7, comp = 4;
+  constexpr unsigned clean_line = base + 64, load_line = base + 128;
+  request(clean_line + 24, clean, {}, 0, false, 0x59);
+  until([] { return chi_out.prequests.pvalid; });
+  CHECK(chi_out.prequests.pbits.pallow_uretry);
+  const auto txn = accept_request(clean_line, clean_shared);
+  request(load_line + 32, load, {}, 0xffff, true, 0xa6);
+
+  auto send_rsp = [&](unsigned opcode, unsigned id, unsigned credit_type, unsigned error) {
+    auto &rsp = chi_in.presponses;
+    rsp.pbits = {};
+    rsp.pbits.psrc_uid = 1;
+    rsp.pbits.ptgt_uid = 3;
+    rsp.pbits.ptxn_uid = id;
+    rsp.pbits.popcode = opcode;
+    rsp.pbits.ppcrd_utype = credit_type;
+    rsp.pbits.presp_uerr = error;
+    rsp.pvalid = 1;
+    until([] { return chi_out.presponses.pready; });
+    tick_model(); rsp.pvalid = 0;
+  };
+  send_rsp(retry_ack, txn, 5, 0);
+  send_rsp(credit_grant, 0, 5, 0);
+  until([] { return chi_out.prequests.pvalid; });
+  CHECK(!core_out.presponse.pvalid && !chi_out.prequests.pbits.pallow_uretry);
+  CHECK(chi_out.prequests.pbits.ppcrd_utype == 5);
+  CHECK(accept_request(clean_line, clean_shared) == txn);
+  send_rsp(comp, txn, 0, 2);
+
+  // Keep the failed clean at the response head while the new miss takes ownership.
+  until([] { return core_out.presponse.pvalid; });
+  refill(load_line, 2, younger_line);
+  response({}, 0x59, true);
+  response(younger_line[2], 0xa6);
 }
 
 void hit(unsigned address, unsigned op, Row value, unsigned mask = 0xffff, bool raw = true, bool commit = true) {
@@ -208,6 +245,7 @@ int main() {
     request(base + 256 + 48, load);
     refill(base + 256, 2, b); response(b[3]);
     check_consecutive_hits(base + 256, b);
+    check_maintenance_retry(a);
     // Allocate the same set's other way with a write-miss merge.
     Row patch{{0xaabbccdd, 0x11223344, 0x55667788, 0xdeadbeef}};
     request(base + 32, store, patch, 0xf00f); refill(base, 7, a); response({});

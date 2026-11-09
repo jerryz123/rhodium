@@ -120,7 +120,11 @@ row. The copyback fixture covers 128-, 256-, and 512-bit DAT.
 
 1. Preserve ordered Decoupled requests and backpressurable slow responses,
    including completion metadata for stores, atomics, and deferred writeback.
-   Carry the opaque caller context unchanged through retained requests and replies.
+   The retained request owns the opaque caller context until the response
+   queue accepts it. Maintenance bypasses S4 after older work drains: update
+   only that context on its command handshake and block S4 admission until
+   completion. Keep the retry address and CHI command fields in the maintenance
+   engine; it does not need the caller's physical request.
    Keep readiness structural even when an empty request buffer is bypassed by
    a paired virtual read and physical resolution. Queued physical requests win
    the lookup port; unresolved virtual reads cannot produce a lookup token.
@@ -253,5 +257,7 @@ demand completion without a delayed hint transaction or duplicate response.
 
 For cache-management changes, the RV64 cache bench checks dirty-data preservation
 for clean, invalidate-as-flush, and flush, including backpressured snoop copyback,
-retry, and Home completion ordering. Keep generic CHI `MakeInvalid` discard
-coverage separate from the RISC-V maintenance policy.
+retry, and Home completion ordering. The wide L1D fixture queues a load during
+a clean retry and holds the failed clean response through the younger refill;
+the two replies must keep their own contexts. Keep generic CHI `MakeInvalid`
+discard coverage separate from the RISC-V maintenance policy.

@@ -153,7 +153,7 @@ sync_circuit L1DCache(xlen :: XLen,
   inst refill(CacheLineRefill(Bool, width, config))
   inst snoop(CacheDataSnoop(snoop_width, config, ~beat_bytes: beat_bytes))
   inst writeback(CacheLineWriteback(Bool, width, config, 1))
-  inst maintenance(CHICacheMaintenance(p, PhysicalMemoryBeatReq(xlen, Context, beat_bytes)))
+  inst maintenance(CHICacheMaintenance(p, Bool))
   maintenance.node_id <== node_id
   maintenance.txn_id <== Bits(12)(2)
   refill.node_id <== node_id
@@ -373,13 +373,13 @@ sync_circuit L1DCache(xlen :: XLen,
   def maintenance_lookups_drained = !s2_store_candidate.egress.valid & !s3_lookup.egress.valid & !s4_result.egress.valid & !service_responses.egress.valid
   (
     management_requests |> gate_flow(stores.empty & maintenance_engines_drained & maintenance_lookups_drained)
-      |> map_flow(request => CHICacheMaintenanceCommand(p, PhysicalMemoryBeatReq(xlen, Context, beat_bytes))):
+      |> map_flow(request => CHICacheMaintenanceCommand(p, Bool)):
          address: management_address
          opcode: mux(request.access === CacheOperation.CacheBlockClean, CHIReqOpcode.CleanShared, CHIReqOpcode.CleanInvalid)
          snoop_me: Bool(#true)
          home_id: management_home.node_id
          pas: CHIPAS.Secure
-         context: request
+         context: Bool(#false)
   ) |> maintenance.command
 
   def maintenance_done = maintenance.completion |> gate_flow(service_responses.ingress.ready) |> to_valid()
@@ -672,9 +672,12 @@ sync_circuit L1DCache(xlen :: XLen,
   ) |> s4_result.ingress
 
   when (s4_result.ingress.fire()):
-    assert(!pending_mutation_valid & !miss_active, "l1d_s4_request_not_owned_by_slow_service")
+    assert(!pending_mutation_valid & !miss_active & !maintenance_active & !maintenance.command.fire(), "l1d_s4_request_not_owned_by_slow_service")
     retained_request <== s3_request
     retained_row <== s3_word
+  elsewhen (maintenance.command.fire()):
+    // Maintenance bypasses S4 and owns only the caller context until completion.
+    retained_request <== retained_request.updated(~context: management_requests.bits.context)
 
   for (left in 0..ways):
     for (right in (left + 1)..ways):
@@ -755,19 +758,16 @@ sync_circuit L1DCache(xlen :: XLen,
   def s4_load_hit = s4_local.valid & s4_load & s4_hit & (!s4_lr ||| s4_state.is_unique())
   def s4_failed_sc = s4_local.valid & s4_sc & !s4_sc_authorized
   def produces_response = maintenance_complete ||| s4_load_hit ||| local_mutation_complete ||| s4_failed_sc ||| (complete_refill & !miss_prefetch)
-  def response_request :: PhysicalMemoryBeatReq(xlen, Context, beat_bytes) = mux(maintenance_complete, maintenance_done.bits.context, retained_request)
-
-  def response_access = response_request.access
-  def response_address = response_request.address
-  def response_width = response_request.width
-  def response_data = priority_mux(~default: Bits(width)(0)):
-    response_access.returns_old_value(): service_load_gen.value
-    response_access.is_store_conditional() & s4_failed_sc: Bits(width)(1)
+  def response_data = priority_mux(~default: Bits(beat_width)(0)):
+    maintenance_complete: Bits(beat_width)(0)
+    is_raw_beat(retained_request) & (s4_access === CacheOperation.Load): service_row
+    s4_access.returns_old_value(): scalar_response(service_load_gen.value)
+    s4_failed_sc: Bits(beat_width)(1)
 
   def response = PhysicalMemoryBeatResp(xlen, Context, beat_bytes):
     access_fault: maintenance_complete & (maintenance_done.bits.error =/= CHIRespErr.OK)
-    data: mux(is_raw_beat(response_request) & (response_access === CacheOperation.Load), service_row, scalar_response(response_data))
-    context: response_request.context
+    data: response_data
+    context: retained_request.context
 
   inject_interface(Valid(PhysicalMemoryBeatResp(xlen, Context, beat_bytes)), ~valid: produces_response, ~bits: response) |> to_decoupled() |> service_responses.ingress
   when produces_response:
@@ -1032,8 +1032,8 @@ sync_circuit L1DCache(xlen :: XLen,
   // A slow SC may still succeed after probes have been allowed to proceed.
   when completing_lr:
     reservation_valid <== Bool(#true)
-    reservation_address <== response_address
-    reservation_width <== response_width
+    reservation_address <== retained_request.address
+    reservation_width <== retained_request.width
   elsewhen reservation_clear:
     reservation_valid <== Bool(#false)
 

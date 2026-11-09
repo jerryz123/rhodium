@@ -366,9 +366,10 @@ Invalidate uses the RISC-V-permitted flush policy: dirty data is preserved befor
 invalidation. Its architectural permission remains CBO.INVAL's CBIE permission;
 selecting this implementation policy does not require flush permission.
 
-Every operation returns one backpressurable slow response. Its `access_fault`
-field reports a non-OK CHI completion; the parent retains architectural context
-to classify and retire or trap. Translation and PMA checks remain parent-owned.
+Every management operation returns one backpressurable slow response with
+zero data and the original caller context. Its `access_fault` field reports a
+non-OK CHI completion. The parent classifies and retires or traps; translation
+and PMA checks remain parent-owned.
 
 ## Snoop ordering and responses
 
