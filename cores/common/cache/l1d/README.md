@@ -137,8 +137,8 @@ receiving data directly from the refill engine, and no independent second miss
 can become outstanding.
 
 Requests carry `locality: RiscvMemoryLocality` (`Default`, `P1`, `Pall`,
-`S1`, `All`). L1D retains the complete request, including locality, in one
-miss record from S4 admission through refill completion, even when a dirty
+`S1`, `All`). L1D retains the complete request, including locality, from
+S4 admission through refill completion, even when a dirty
 victim must first be written back. Locality is architectural intent, independent
 of cache policy. Non-default selectors bypass L1 allocation on ordinary integer
 and FP load misses; all hits and other operations keep their existing behavior.
@@ -202,14 +202,15 @@ flowchart LR
   Queue --> Lookup["S3 lookup Pipe<br/>tag + state + data SRAMs"]
   Lookup --> Resolved["Registered S4 result<br/>word + hit + coherence + victim"]
   Resolved -->|load hit| Load["LoadGen"]
-  Resolved -->|owned store / SC / AMO| Pending["Registered mutation<br/>request + way + old value"]
+  Resolved -->|"owned mutation or miss"| Record["Shared request + selected way"]
+  Resolved -->|owned store / SC / AMO| Pending["Mutation old value"]
+  Record --> Mutate
   Pending --> Mutate["StoreGen + atomic ALU<br/>byte-lane update"]
   Load --> Response["Two-entry response Queue<br/>ordered Decoupled response"]
   Mutate --> Arrays["Tag, state, and data arrays"]
   Mutate --> Response
 
   Resolved -->|miss or ownership acquisition| Victim{"Dirty allocated victim?"}
-  Resolved -->|"accepted miss"| Record["One miss record<br/>request, way, install policy"]
   Victim -->|yes| Gather["Shared gather reader"]
   Arrays -->|"one row per return"| Gather
   Gather -->|"victim rows"| Line["Shared 64-byte line"]
@@ -268,8 +269,8 @@ operation completes. Pending snoops may use the arrays while the retained
 request waits; replay then observes updated tags, coherence state, and data.
 Only requests with reserved downstream capacity enter S4; its retained result
 waits until the selected local operation or transaction can advance.
-A slow-service store, SC, or AMO that already has Unique ownership first captures its request,
-selected way, and old value in a one-entry mutation register. On the following
+A slow-service store, SC, or AMO that already has Unique ownership uses the same
+retained request and way as a miss. It captures the old value separately. On the following
 edge it updates the selected byte lanes and sets UniqueDirty without emitting
 REQ or DAT traffic; an AMO returns the captured value from before that update.
 
@@ -305,8 +306,9 @@ victim is dirty, avoiding nonbinding writeback traffic.
 The shared [refill engine](../chi/refill.rhdl) retains the aligned address and
 CHI transaction state across retry. Each accepted `CompData` packet writes
 its position in L1D's 64-byte line buffer; L1D consumes the line only after
-all packets arrive and `CompAck` transfers. L1D's miss record
-supplies the destination way, allocation policy, and original response context.
+all packets arrive and `CompAck` transfers. L1D supplies the destination way
+and original response context from the shared registers; only a miss captures
+the allocation and installation policy.
 A direct miss starts the refill on its S4 acceptance edge; after a dirty
 eviction the refill uses the original request address, not the victim address.
 

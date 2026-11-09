@@ -15,7 +15,8 @@ template <class F> void until(F done) {
   CHECK(false && "L1D handshake timed out");
 }
 
-void request(unsigned address, unsigned op, Row row = {}, unsigned mask = 0xffff, bool raw = true) {
+void request(unsigned address, unsigned op, Row row = {}, unsigned mask = 0xffff, bool raw = true,
+             unsigned context = 0x97) {
   auto &req = core_in.prequest;
   req.pbits = {};
   req.pbits.praw_ubeat = raw;
@@ -24,7 +25,7 @@ void request(unsigned address, unsigned op, Row row = {}, unsigned mask = 0xffff
   req.pbits.pwidth = 3;
   req.pbits.pbyte_umask = mask;
   req.pbits.pdata = row;
-  req.pbits.pcontext = 0x97;
+  req.pbits.pcontext = context;
   virtual_lookup_in.pvalid = 1;
   virtual_lookup_in.pbits = address;
   req.pvalid = 1;
@@ -65,11 +66,11 @@ void refill(unsigned address, unsigned opcode, const Line &line) {
     refill_packet(txn, i, opcode == 7 ? 2 : 1, line[i]);
 }
 
-void response(Row expected) {
+void response(Row expected, unsigned context = 0x97) {
   until([] { return core_out.presponse.pvalid; });
   for (int i = 0; i < 2; ++i) {
     CHECK(core_out.presponse.pvalid && core_out.presponse.pbits.pdata == expected);
-    CHECK(!core_out.presponse.pbits.paccess_ufault && core_out.presponse.pbits.pcontext == 0x97);
+    CHECK(!core_out.presponse.pbits.paccess_ufault && core_out.presponse.pbits.pcontext == context);
     tick_model(); eval();
   }
   core_in.presponse.pready = 1; tick_model(); core_in.presponse.pready = 0;
@@ -99,7 +100,7 @@ void hit(unsigned address, unsigned op, Row value, unsigned mask = 0xffff, bool 
   }
 }
 
-void check_backing_handoff(const Line &victim, const Line &probed) {
+void check_backing_handoff(const Line &victim, Line probed) {
   reset = 1; tick_model(); reset = 0;
   Line replacement{};
   for (unsigned i = 0; i < 4; ++i)
@@ -108,10 +109,21 @@ void check_backing_handoff(const Line &victim, const Line &probed) {
 
   request(base, store, victim[0]); refill(base, 7, victim); response({});
   request(base+256, store, probed[0]); refill(base+256, 7, probed); response({});
-  request(base+512+32, load);
+  request(base+64, load); refill(base+64, 2, replacement); response(replacement[0]);
+
+  // Queue a miss behind an owned AMOSWAP.D without accepting its response.
+  // The AMO changes way one; the miss must evict way zero and keep its own context.
+  Row old{{probed[1].words[2], probed[1].words[3], 0, 0}};
+  request(base+256+24, amo, replacement[0], 0xff00, false, 0x41);
+  probed[1].words[2] = replacement[0].words[0];
+  probed[1].words[3] = replacement[0].words[1];
+  request(base+512+32, load, {}, 0xffff, true, 0xb2);
   auto &rsp = chi_in.presponses;
   rsp.pbits = {};
   rsp.pbits.ptxn_uid = accept_request(base, 0x1b); // WriteBackFull
+  // While copyback waits for its grant, the other set can still hit.
+  hit(base+64+48, load, replacement[3]);
+  response(old, 0x41);
   rsp.pbits.popcode = 5; // CompDBIDResp
   rsp.pbits.psrc_uid = 1;
   rsp.pbits.ptgt_uid = 3;
@@ -153,7 +165,7 @@ void check_backing_handoff(const Line &victim, const Line &probed) {
   CHECK(!core_out.presponse.pvalid);
   chi_in.prequester_uresponses.pready = 1; tick_model();
   drain_line(probed, 1, 0x32);
-  response(replacement[2]);
+  response(replacement[2], 0xb2);
   for (unsigned i = 0; i < 4; ++i)
     hit(base+512+i*16, load, replacement[i]);
 }

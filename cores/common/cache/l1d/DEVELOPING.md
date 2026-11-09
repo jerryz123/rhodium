@@ -112,8 +112,10 @@ arrival order. No command-time clear is needed: installation and bypass both
 wait for the full packet set and CompAck.
 
 The RV64 D-cache fixture checks both grant orderings with two dirty lines;
-`cache-wide-l1d` stalls snoop data across a reordered refill and reads back
-each installed row. The copyback fixture covers 128-, 256-, and 512-bit DAT.
+`cache-wide-l1d` queues a dirty miss behind a local AMO, checks a load hit
+in another set while the AMO response and copyback grant are stalled, then
+stalls snoop data across a reordered refill and reads back each installed
+row. The copyback fixture covers 128-, 256-, and 512-bit DAT.
 
 1. Preserve ordered Decoupled requests and backpressurable slow responses,
    including completion metadata for stores, atomics, and deferred writeback.
@@ -147,20 +149,24 @@ each installed row. The copyback fixture covers 128-, 256-, and 512-bit DAT.
    S3 request once its outstanding read and S4 have drained.
 3. Publish refill metadata only after the last word, and invalidate a dirty
    victim before reusing its way. Capture the cache's install disposition in
-   the L1D miss record separately from architectural locality and new-way
+   miss-only control bits separately from architectural locality and new-way
    allocation. A non-allocating load must complete from the acknowledged clean
    transaction buffer without SRAM writes, victim handling, replacement-state
    movement, or reservation invalidation.
 4. Preserve explicit SRAM ownership and priority among core lookup, line
    gather, refill installation, and snoop service.
-   Keep transaction capacity separate from array availability. Capture
-   `miss_record` once, on direct refill acceptance or eviction gather start,
-   and hold it through final refill completion, including retries and stalls.
-   Derive the reserved set and line from its request. Keep the victim address
+   Keep transaction capacity separate from array availability. S4 captures
+   one request and selected way for either an owned local mutation or a miss.
+   Never overwrite this pair while either owner is live. A miss takes it on
+   direct refill acceptance or eviction gather start and holds it through final
+   refill completion, including retries and stalls. A local mutation holds it
+   through the SRAM update (the final row for block zero). Keep the mutation's
+   old value and the miss's install policy separate. Derive the reserved set
+   and line from the retained request. Keep the victim address
    and snoop ownership separate; copyback completion resumes the active miss,
    not a new S4 request. Only ordinary demand load/store contexts enable
    hit-under-miss. Protect the whole set in S0 admission and S1 classification.
-   An ordinary load or store matching `miss_line_address` may resolve as Slow
+   An ordinary load or store matching the reserved line may resolve as Slow
    and wait in the authorized request queue; it must perform a fresh lookup
    after completion and must not observe the refill buffer directly. Such a
    parked head owns no SRAM port and does not block independent load hits. Keep
