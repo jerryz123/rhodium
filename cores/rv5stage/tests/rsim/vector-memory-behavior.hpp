@@ -413,30 +413,30 @@ void observe() {
               std::remove_cvref_t<decltype(uncached_response)>{
                   .paccess_ufault = 0,
                   .pdata = UINT64_C(49)});
-        if (uncached_out.prequest.pbits.prequest.paddress == UINT64_C(40960)) {
-          CHECK(uncached_out.prequest.pbits.prequest.paccess == 1);
+        if (uncached_out.prequest.pbits.paddress == UINT64_C(40960)) {
+          CHECK(uncached_out.prequest.pbits.paccess == 1);
           defer(vector_load_pending, 1);
           defer(uncached_delay, 50);
-        } else if (uncached_out.prequest.pbits.prequest.paddress >=
+        } else if (uncached_out.prequest.pbits.paddress >=
                    UINT64_C(36864)) {
-          CHECK(uncached_out.prequest.pbits.prequest.paccess == 2 &&
-                uncached_out.prequest.pbits.prequest.paddress ==
+          CHECK(uncached_out.prequest.pbits.paccess == 2 &&
+                uncached_out.prequest.pbits.paddress ==
                     UINT64_C(36864) + ((device_elements * 8) & low_mask(64)) &&
-                uncached_out.prequest.pbits.prequest.pdata ==
+                uncached_out.pstore_upayload.pdata ==
                     ((device_elements + 1) & low_mask(64)));
           defer(device_elements, device_elements + 1);
         } else {
-          if (uncached_out.prequest.pbits.prequest.pdata !=
+          if (uncached_out.pstore_upayload.pdata !=
               expected[signatures])
             std::cerr << "signature " << signatures << " pc " << std::hex
                       << expected_pc[signatures] << " got "
-                      << uncached_out.prequest.pbits.prequest.pdata
+                      << uncached_out.pstore_upayload.pdata
                       << " expected " << expected[signatures] << std::dec
                       << '\n';
-          CHECK(uncached_out.prequest.pbits.prequest.paccess == 2 &&
-                uncached_out.prequest.pbits.prequest.paddress ==
+          CHECK(uncached_out.prequest.pbits.paccess == 2 &&
+                uncached_out.prequest.pbits.paddress ==
                     UINT64_C(32768) + ((signatures * 8) & low_mask(64)) &&
-                uncached_out.prequest.pbits.prequest.pdata ==
+                uncached_out.pstore_upayload.pdata ==
                     expected[signatures]);
           defer(signatures, signatures + 1);
           if (signatures == fault_reset_signature ||

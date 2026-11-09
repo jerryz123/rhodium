@@ -249,10 +249,11 @@ and frontends retain translation, exception adaptation, and cancellation policy.
 The shared line-read engine owns coherent RAM/immutable-ROM snapshot transport.
 Cache-side CHI engines consume shared flits, retry control, and the neutral
 `cores/common/chi-hart.rhdl` map, never named-core code. Nonallocating CHI uses
-shared LoadGen/StoreGen components; the IOMSHR uses Flow to attach its retained
+the shared LoadGen; the IOMSHR uses StoreGen to align the retained write
+payload at admission and Flow to attach its retained
 context to the physical response. `cache/uncached-instruction.rhdl` imports the shared fetch
 protocol, CHI transport/arbiter, physical memory contracts, hart map, XLEN,
-atomic/locality types, Flow, `std/bits.rhdl`, and CHI channels. It shapes fetches
+locality types, Flow, `std/bits.rhdl`, and CHI channels. It shapes fetches
 without owning frontend recovery policy. `cache/ordered-service.rhdl` imports
 Flow, XLEN, the physical memory protocol, and IOMSHR. It attaches the cache
 and IO slot to shared drain/capacity gating, local completion storage, and

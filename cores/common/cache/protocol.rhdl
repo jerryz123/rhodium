@@ -191,3 +191,39 @@ interface UncachedMemoryAccess(xlen :: XLen, Context :: DataType):
 export:
   UncachedMemoryReq
   UncachedMemoryAccess
+
+/* Arbitrates the command, independently of the committed store's data lifetime. */
+bundle UncachedCommand(xlen :: XLen, Context :: DataType):
+  address: Bits(xlen.width)
+  access: CacheOperation
+  width: MemoryWidth
+  unsigned: Bool
+  device: Bool
+  locality: RiscvMemoryLocality
+  context: Context
+
+/* Data and byte enables positioned within the addressed eight-byte transfer lane. */
+bundle UncachedStorePayload():
+  data: Bits(64)
+  byte_mask: Mask(8)
+
+/* The data owner holds store_payload from command transfer through final response.
+   Block zero supplies all-zero data and all enables for each of its eight writes. */
+interface UncachedTransportAccess(xlen :: XLen, Context :: DataType):
+  role requester
+  role responder
+  provider requester
+  requester -> responder:
+    request: Decoupled(UncachedCommand(xlen, Context))
+    store_payload: UncachedStorePayload()
+
+  responder -> requester:
+    request_fault: Bool
+    request_access_fault: Bool
+    response: Decoupled(PhysicalMemoryResp(xlen, Context))
+    drained: Bool
+
+export:
+  UncachedCommand
+  UncachedStorePayload
+  UncachedTransportAccess

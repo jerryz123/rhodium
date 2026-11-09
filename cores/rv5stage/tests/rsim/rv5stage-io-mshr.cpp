@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "driver.hpp"
 int accepted = 0, completed = 0, requests = 0, writes = 0, outstanding = 0;
+constexpr bool rv32 = sizeof(core_in.prequest.pbits.pmemory.pdata) == 4;
 void tick() {
   rising();
   falling();
@@ -38,7 +39,7 @@ void contended_load(std::uint8_t flush_fetch,
   core_in.prequest.pbits.pmemory.paddress = UINT64_C(32772);
   core_in.prequest.pbits.pmemory.paccess = UINT64_C(1);
   core_in.prequest.pbits.pmemory.pwidth = UINT64_C(2);
-  core_in.prequest.pbits.pmemory.pbyte_umask = UINT64_C(240);
+  core_in.prequest.pbits.pmemory.pbyte_umask = rv32 ? 0x0f : 0xf0;
   core_in.prequest.pbits.pmemory.punsigned = 1;
   core_in.prequest.pbits.pmemory.pcontext.pwriteback = expected_writeback;
   settle();
@@ -157,6 +158,150 @@ void observe() {
 
 void falling_update() {}
 
+void check_stalled_store(unsigned offset) {
+  const int prev_accepted = accepted, prev_completed = completed;
+  const int prev_requests = requests, prev_writes = writes;
+  // Queue a store behind an unissued fetch, then cancel only the fetch.
+  chi_in.preq.pready = 0;
+  fetch();
+  core_in.prequest.pvalid = 1;
+  core_in.prequest.pbits = {};
+  core_in.prequest.pbits.pmemory.paddress = (0x8000 + offset);
+  core_in.prequest.pbits.pmemory.paccess = UINT64_C(2);
+  core_in.prequest.pbits.pmemory.pwidth = UINT64_C(2);
+  core_in.prequest.pbits.pmemory.pbyte_umask = 0x5u << (offset % sizeof(core_in.prequest.pbits.pmemory.pdata));
+  core_in.prequest.pbits.pmemory.pdata = UINT64_C(0x12345678);
+  settle();
+  CHECK(core_out.prequest.pready);
+  tick();
+  core_in.prequest = {};
+  instruction_in.pflush = 1;
+  tick();
+  instruction_in.pflush = 0;
+  tick();
+  for (int repeat_index = 0; repeat_index < (4); ++repeat_index) {
+    CHECK(chi_out.preq.pvalid &&
+          chi_out.preq.pbits.paddress == (0x8000 + offset) &&
+          chi_out.preq.pbits.popcode == UINT64_C(28) && !core_out.pdrained);
+    tick();
+  }
+  chi_in.preq.pready = 1;
+  tick();
+  instruction_in.prequest.pvalid = 1;
+  instruction_in.prequest.pbits.paddress = 0xc000;
+  core_in.prequest.pvalid = 1;
+  core_in.prequest.pbits.pmemory.paccess = 2;
+  core_in.prequest.pbits.pmemory.paddress = 0x8010;
+  core_in.prequest.pbits.pmemory.pdata = 0xdeadbeef;
+  core_in.prequest.pbits.pmemory.pbyte_umask = 0xf;
+  for (int i = 0; i < 3; ++i) {
+    settle();
+    CHECK(!instruction_out.prequest.pready && !core_out.prequest.pready &&
+          !chi_out.pdat.prequest.pvalid);
+    tick();
+  }
+  chi_in.prsp.presponse.pvalid = 1;
+  chi_in.prsp.presponse.pbits = {};
+  chi_in.prsp.presponse.pbits.popcode = UINT64_C(6);
+  chi_in.prsp.presponse.pbits.psrc_uid = UINT64_C(4);
+  chi_in.prsp.presponse.pbits.pdbid_uor_ugroup_uid = UINT64_C(291);
+  tick();
+  chi_in.prsp.presponse.pvalid = 0;
+  chi_in.pdat.prequest.pready = 0;
+  for (int repeat_index = 0; repeat_index < (4); ++repeat_index) {
+    instruction_in.pflush = repeat_index == 1;
+    settle();
+    CHECK(chi_out.pdat.prequest.pvalid &&
+          chi_out.pdat.prequest.pbits.ptxn_uid == UINT64_C(291) &&
+          chi_out.pdat.prequest.pbits.pbyte_uenable == (0x5u << offset) &&
+          read_bits(chi_out.pdat.prequest.pbits.pdata, 0, 128) ==
+              (uint128(0x12345678) << (8 * offset)) &&
+          !instruction_out.prequest.pready && !instruction_out.presponse.pvalid &&
+          !core_out.prequest.pready && !core_out.pdrained);
+    tick();
+  }
+  chi_in.pdat.prequest.pready = 1;
+  instruction_in.prequest.pvalid = 0;
+  core_in.prequest.pvalid = 0;
+  tick();
+  for (int repeat_index = 0; repeat_index < (6); ++repeat_index) {
+    CHECK(!core_out.pdrained && !core_out.presponse.pvalid &&
+          !core_out.prequest.pready);
+    tick();
+  }
+  chi_in.prsp.presponse.pbits.popcode = UINT64_C(4);
+  chi_in.prsp.presponse.pvalid = 1;
+  settle();
+  CHECK(core_out.presponse.pvalid &&
+        core_out.presponse.pbits.pcontext.pwriteback == UINT64_C(0));
+  tick();
+  chi_in.prsp.presponse.pvalid = 0;
+  for (unsigned repeat_index = 0; repeat_index < (4); ++repeat_index)
+    tick();
+  CHECK(core_out.pdrained && accepted == prev_accepted + 1 && completed == prev_completed + 1 &&
+        requests == prev_requests + 1 && writes == prev_writes + 1);
+}
+
+void check_block_zero() {
+  constexpr unsigned line = 0x1040;
+  const int previous_writes = writes, previous_completed = completed;
+  core_in.prequest = {};
+  core_in.prequest.pvalid = 1;
+  core_in.prequest.pbits.ppbmt = 1;  // Non-cacheable alias of zero-capable RAM.
+  auto &mem = core_in.prequest.pbits.pmemory;
+  mem.paddress = line + 37;
+  mem.paccess = 6;
+  mem.pdata = 0xdeadbeef;
+  mem.pbyte_umask = 1;
+  settle();
+  CHECK(core_out.prequest.pready && !core_out.prequest_uaccess_ufault);
+  tick();
+  core_in.prequest = {};
+  for (unsigned i = 0; i < 8; ++i) {
+    until([&] { return chi_out.preq.pvalid; });
+    CHECK(chi_out.preq.pbits.paddress == line + 8 * i &&
+          chi_out.preq.pbits.popcode == 24 && chi_out.preq.pbits.psize_uor_unum_ureq == 3);
+    tick();
+    auto &rsp = chi_in.prsp.presponse;
+    rsp = {};
+    rsp.pvalid = 1;
+    rsp.pbits.psrc_uid = 1;
+    rsp.pbits.popcode = 6;  // DBIDResp
+    rsp.pbits.pdbid_uor_ugroup_uid = 0x40 + i;
+    tick();
+    rsp.pvalid = 0;
+    chi_in.pdat.prequest.pready = 0;
+    for (int hold = 0; hold < 3; ++hold) {
+      settle();
+      const auto &dat = chi_out.pdat.prequest;
+      CHECK(dat.pvalid && dat.pbits.ptxn_uid == 0x40 + i &&
+            dat.pbits.pbyte_uenable == ((i & 1) ? 0xff00 : 0xff) &&
+            read_bits(dat.pbits.pdata, 0, 128) == 0 && !core_out.presponse.pvalid);
+      tick();
+    }
+    chi_in.pdat.prequest.pready = 1;
+    tick();
+    rsp.pbits.popcode = 4;  // Comp
+    rsp.pvalid = 1;
+    if (i == 7) {
+      core_in.presponse.pready = 0;
+      for (unsigned hold = 0; hold < 3; ++hold) {
+        settle();
+        CHECK(core_out.presponse.pvalid && !chi_out.prsp.presponse.pready &&
+              !core_out.prequest.pready && !core_out.pdrained);
+        tick();
+      }
+      core_in.presponse.pready = 1;
+    }
+    settle();
+    CHECK(core_out.presponse.pvalid == (i == 7) && !core_out.pdrained);
+    tick();
+    rsp.pvalid = 0;
+  }
+  settle();
+  CHECK(core_out.pdrained && writes == previous_writes + 8 && completed == previous_completed + 1);
+}
+
 void stimulus() {
   reset = 1;
   node_id = UINT64_C(5);
@@ -181,67 +326,9 @@ void stimulus() {
     contended_load(0, memory_integer(UINT64_C(31)));
     contended_load(1, UINT64_C(0));
 
-    // Queue a store behind an unissued fetch, then cancel only the fetch.
-    chi_in.preq.pready = 0;
-    fetch();
-    core_in.prequest.pvalid = 1;
-    core_in.prequest.pbits = {};
-    core_in.prequest.pbits.pmemory.paddress = UINT64_C(32772);
-    core_in.prequest.pbits.pmemory.paccess = UINT64_C(2);
-    core_in.prequest.pbits.pmemory.pwidth = UINT64_C(2);
-    core_in.prequest.pbits.pmemory.pbyte_umask = UINT64_C(240);
-    core_in.prequest.pbits.pmemory.pdata = UINT64_C(0x12345678);
-    settle();
-    CHECK(core_out.prequest.pready);
-    tick();
-    core_in.prequest = {};
-    instruction_in.pflush = 1;
-    tick();
-    instruction_in.pflush = 0;
-    tick();
-    for (int repeat_index = 0; repeat_index < (4); ++repeat_index) {
-      CHECK(chi_out.preq.pvalid &&
-            chi_out.preq.pbits.paddress == UINT64_C(32772) &&
-            chi_out.preq.pbits.popcode == UINT64_C(28) && !core_out.pdrained);
-      tick();
-    }
-    chi_in.preq.pready = 1;
-    tick();
-    chi_in.prsp.presponse.pvalid = 1;
-    chi_in.prsp.presponse.pbits = {};
-    chi_in.prsp.presponse.pbits.popcode = UINT64_C(6);
-    chi_in.prsp.presponse.pbits.psrc_uid = UINT64_C(4);
-    chi_in.prsp.presponse.pbits.pdbid_uor_ugroup_uid = UINT64_C(291);
-    tick();
-    chi_in.prsp.presponse.pvalid = 0;
-    chi_in.pdat.prequest.pready = 0;
-    for (int repeat_index = 0; repeat_index < (4); ++repeat_index) {
-      CHECK(chi_out.pdat.prequest.pvalid &&
-            chi_out.pdat.prequest.pbits.ptxn_uid == UINT64_C(291) &&
-            chi_out.pdat.prequest.pbits.pbyte_uenable == UINT64_C(240) &&
-            read_bits(chi_out.pdat.prequest.pbits.pdata, 0, 128) ==
-                UINT64_C(0x1234567800000000) &&
-            !core_out.pdrained);
-      tick();
-    }
-    chi_in.pdat.prequest.pready = 1;
-    tick();
-    for (int repeat_index = 0; repeat_index < (6); ++repeat_index) {
-      CHECK(!core_out.pdrained && !core_out.presponse.pvalid &&
-            !core_out.prequest.pready);
-      tick();
-    }
-    chi_in.prsp.presponse.pbits.popcode = UINT64_C(4);
-    chi_in.prsp.presponse.pvalid = 1;
-    settle();
-    CHECK(core_out.presponse.pvalid &&
-          core_out.presponse.pbits.pcontext.pwriteback == UINT64_C(0));
-    tick();
-    chi_in.prsp.presponse.pvalid = 0;
-    for (unsigned repeat_index = 0; repeat_index < (4); ++repeat_index)
-      tick();
-    CHECK(core_out.pdrained && accepted == 5 && completed == 5 &&
-          requests == 9 && writes == 1);
+    for (unsigned offset : {0u, 4u, 8u, 12u})
+      check_stalled_store(offset);
+    check_block_zero();
 
     // Reset clears a queued slot along with the shared transaction engine.
     fetch();

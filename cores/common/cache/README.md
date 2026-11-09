@@ -137,15 +137,18 @@ The fixed-cycle lookup and store-authorization interfaces remain cache-specific.
 It accepts independently of downstream availability, presents the captured
 request the following cycle, and releases only on final completion. It has no
 same-cycle refill or extra response buffer. Unsupported operations fault before
-allocation. The IOMSHR alone retains the opaque caller context. Its downstream
-`UncachedMemoryAccess(xlen, Bool)` sends a constant placeholder; only response
-data and fault status come back from the transport.
+allocation. The IOMSHR alone retains the opaque caller context and store operand.
+Its downstream `UncachedTransportAccess(xlen, Bool)` sends a command with a
+constant context. Separately, `store_payload` supplies data and byte enables
+positioned within the addressed eight-byte lane. The producer must hold that payload
+through the store's final response handshake, not just command acceptance.
 
 `CHIUncachedMemory(xlen, config, Context)` performs one nonretrying,
 nonallocating transaction at a time. RAM accesses remain coherent (`ReadOnce`
 or `WriteUniquePtl`) even when PBMT prohibits caching; device/ROM accesses use
 the corresponding NoSnp operation. Block zero serializes eight eight-byte writes
-with one completion. The caller's `cancel` input can withdraw only a read still
+with one completion; the IOMSHR supplies zero data and enables all eight bytes
+for the whole sequence. The caller's `cancel` input can withdraw only a read still
 waiting to issue its CHI request. Once accepted by CHI, it must drain normally;
 the caller is responsible for consuming any orphan response. Stores cannot be
 canceled. `drained` reports the transport's own idle state, not requester policy.

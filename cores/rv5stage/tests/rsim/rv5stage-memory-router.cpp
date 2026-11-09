@@ -36,9 +36,9 @@ void check_request(std::uint32_t address, std::uint8_t access,
     core_in.prequest.pvalid = UINT64_C(0);
     settle();
     CHECK(uncached_out.prequest.pvalid && !core_out.pdrained &&
-          uncached_out.prequest.pbits.prequest.paddress == address &&
-          uncached_out.prequest.pbits.prequest.paccess == access &&
-          uncached_out.prequest.pbits.prequest.plocality == UINT64_C(4));
+          uncached_out.prequest.pbits.paddress == address &&
+          uncached_out.prequest.pbits.paccess == access &&
+          uncached_out.prequest.pbits.plocality == UINT64_C(4));
     tick();
     uncached_in.presponse.pvalid = UINT64_C(1);
     uncached_in.presponse.pbits.pdata = UINT64_C(0x12345678);
@@ -217,7 +217,7 @@ void stimulus() {
       settle();
       CHECK(!core_out.prequest.pready && !cache_out.prequest.pvalid &&
             !core_out.pdrained && uncached_out.prequest.pvalid &&
-            uncached_out.prequest.pbits.prequest.paddress == UINT64_C(8192));
+            uncached_out.prequest.pbits.paddress == UINT64_C(8192));
       core_in.prequest.pbits.pmemory.paddress = UINT64_C(20481);
       core_in.prequest.pbits.pmemory.paccess = UINT64_C(8);
       settle();

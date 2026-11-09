@@ -14,15 +14,15 @@ import:
   lib("riscv/isa/xlen.rhm").XLen
   lib("chi/protocol/channels.rhdl").CHIRNIChannels
 
-sync_circuit RV5StageIOMSHRFixture(~vector_completion_slots: vector_completion_slots :: Pow2Int = 8):
+sync_circuit RV5StageIOMSHRFixture(xlen :: XLen, ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8):
   def config = test_rv5stage_uncached_config
   input node_id: Bits(config.flit.node_id_width)
-  interface core(RV5StagePhysicalDataAccess(XLen.X64, vector_completion_slots), ~role: responder)
-  interface cache(CacheAccess(XLen.X64, RV5StageMemoryContext(vector_completion_slots)), ~role: requester)
-  interface instruction(PhysicalInstructionAccess(64, 32), ~role: responder)
+  interface core(RV5StagePhysicalDataAccess(xlen, vector_completion_slots), ~role: responder)
+  interface cache(CacheAccess(xlen, RV5StageMemoryContext(vector_completion_slots)), ~role: requester)
+  interface instruction(PhysicalInstructionAccess(xlen.width, 32), ~role: responder)
   interface chi(CHIRNIChannels(config.flit), ~role: node)
-  inst router(RV5StageMemoryRouter(XLen.X64, config.physical_map, ~vector_completion_slots: vector_completion_slots))
-  inst uncached(UncachedInstructionMemory(XLen.X64, config, Bool, 32))
+  inst router(RV5StageMemoryRouter(xlen, config.physical_map, ~vector_completion_slots: vector_completion_slots))
+  inst uncached(UncachedInstructionMemory(xlen, config, Bool, 32))
   core |> router.core
   router.cache |> cache
   router.uncached |> uncached.core

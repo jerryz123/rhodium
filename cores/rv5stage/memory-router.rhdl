@@ -22,7 +22,7 @@ sync_circuit RV5StageMemoryRouter(xlen :: XLen,
                                   ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8):
   interface core(RV5StagePhysicalDataAccess(xlen, vector_completion_slots), ~role: responder)
   interface cache(CacheAccess(xlen, RV5StageMemoryContext(vector_completion_slots)), ~role: requester)
-  interface uncached(UncachedMemoryAccess(xlen, Bool), ~role: requester)
+  interface uncached(UncachedTransportAccess(xlen, Bool), ~role: requester)
   output ordered_busy: Bool
 
 

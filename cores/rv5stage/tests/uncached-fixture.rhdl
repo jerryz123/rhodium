@@ -13,8 +13,7 @@ import:
   lib("riscv/isa/xlen.rhm").XLen
 
 def uncached_design = compile_program(elaborate(UncachedInstructionMemory(XLen.X64, params.test_rv5stage_uncached_config, RV5StageMemoryContext(8), 32)), rtl_target).report.design
-def router_design = compile_program(elaborate(RV5StageMemoryRouter(XLen.X64,
-                                                   params.test_rv5stage_uncached_config.physical_map)), rtl_target).report.design
+def router_design = compile_program(elaborate(RV5StageMemoryRouter(XLen.X64, params.test_rv5stage_uncached_config.physical_map)), rtl_target).report.design
 def instruction_router_design = compile_program(elaborate(InstructionMemoryRouter(64, 32)), rtl_target).report.design
 
 export:

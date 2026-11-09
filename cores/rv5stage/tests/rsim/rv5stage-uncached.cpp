@@ -46,10 +46,10 @@ void stimulus() {
     instruction_in.prequest.pbits.pdevice = UINT64_C(0);
     instruction_in.presponse.pready = UINT64_C(0);
     core_in.prequest.pvalid = UINT64_C(1);
-    core_in.prequest.pbits.prequest.paddress = UINT64_C(32768);
-    core_in.prequest.pbits.prequest.paccess = LOAD;
-    core_in.prequest.pbits.prequest.pwidth = UINT64_C(3);
-    core_in.prequest.pbits.prequest.pbyte_umask = UINT64_C(255);
+    core_in.prequest.pbits.paddress = UINT64_C(32768);
+    core_in.prequest.pbits.paccess = LOAD;
+    core_in.prequest.pbits.pwidth = UINT64_C(3);
+    core_in.pstore_upayload.pbyte_umask = UINT64_C(255);
     core_in.prequest.pbits.pdevice = UINT64_C(1);
     settle();
     CHECK(core_out.prequest.pready && !instruction_out.prequest.pready &&
@@ -148,9 +148,11 @@ void stimulus() {
     // One accepted, arbitrarily aligned zero request stays outstanding across
     // eight acknowledged writes, including backpressure at every CHI boundary.
     core_in.prequest.pvalid = UINT64_C(1);
-    core_in.prequest.pbits.prequest.paddress = UINT64_C(49215);
-    core_in.prequest.pbits.prequest.paccess = UINT64_C(6);
-    core_in.prequest.pbits.prequest.pcontext.pwriteback = UINT64_C(0);
+    core_in.prequest.pbits.paddress = UINT64_C(49215);
+    core_in.pstore_upayload.pdata = 0;
+    core_in.pstore_upayload.pbyte_umask = 0xff;
+    core_in.prequest.pbits.paccess = UINT64_C(6);
+    core_in.prequest.pbits.pcontext.pwriteback = UINT64_C(0);
     core_in.prequest.pbits.pdevice = UINT64_C(0);
     tick();
     core_in.prequest.pvalid = UINT64_C(0);
@@ -214,11 +216,11 @@ void stimulus() {
       const unsigned mask = byte ? 0x20 : 0xf0;
       const std::uint64_t value = byte ? 0xab : 0x12345678;
       core_in.prequest.pvalid = UINT64_C(1);
-      core_in.prequest.pbits.prequest.paddress = address;
-      core_in.prequest.pbits.prequest.paccess = UINT64_C(2); // Store
-      core_in.prequest.pbits.prequest.pwidth = width;
-      core_in.prequest.pbits.prequest.pbyte_umask = mask;
-      core_in.prequest.pbits.prequest.pdata = value;
+      core_in.prequest.pbits.paddress = address;
+      core_in.prequest.pbits.paccess = UINT64_C(2); // Store
+      core_in.prequest.pbits.pwidth = width;
+      core_in.pstore_upayload.pbyte_umask = mask;
+      core_in.pstore_upayload.pdata = value << (8 * (address % 8));
       core_in.prequest.pbits.pdevice = UINT64_C(1);
       settle();
       CHECK(core_out.prequest.pready);
@@ -259,9 +261,9 @@ void stimulus() {
     // Non-cacheable aliases of coherent RAM retain the physical snoop domain.
     for (int device = 0; device < 2; device++) {
       core_in.prequest.pvalid = 1;
-      core_in.prequest.pbits.prequest.paddress = UINT64_C(4096);
-      core_in.prequest.pbits.prequest.paccess = LOAD;
-      core_in.prequest.pbits.prequest.pwidth = 3;
+      core_in.prequest.pbits.paddress = UINT64_C(4096);
+      core_in.prequest.pbits.paccess = LOAD;
+      core_in.prequest.pbits.pwidth = 3;
       core_in.prequest.pbits.pdevice = ((device)&low_mask(1));
       tick();
       core_in.prequest.pvalid = 0;
@@ -279,8 +281,8 @@ void stimulus() {
       tick();
       chi_in.pdat.presponse.pvalid = 0;
       core_in.prequest.pvalid = 1;
-      core_in.prequest.pbits.prequest.paccess = 2;
-      core_in.prequest.pbits.prequest.pbyte_umask = UINT64_C(255);
+      core_in.prequest.pbits.paccess = 2;
+      core_in.pstore_upayload.pbyte_umask = UINT64_C(255);
       tick();
       core_in.prequest.pvalid = 0;
       settle();

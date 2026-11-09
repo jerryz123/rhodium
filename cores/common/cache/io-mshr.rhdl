@@ -5,6 +5,7 @@
 import:
   "protocol.rhdl" open
   "operation.rhdl".CacheOperation
+  "../load-store.rhdl".StoreGen
   "../../../riscv/isa/xlen.rhm".XLen
   lib("flow/main.rhdl") open
 
@@ -20,14 +21,17 @@ hardware_enum IOMSHRState:
    Unsupported operations never allocate. */
 sync_circuit IOMSHR(xlen :: XLen, Context :: DataType):
   interface core(UncachedMemoryAccess(xlen, Context), ~role: responder)
-  interface memory(UncachedMemoryAccess(xlen, Bool), ~role: requester)
+  interface memory(UncachedTransportAccess(xlen, Bool), ~role: requester)
 
   reg state(~init: IOMSHRState.Idle)
-  reg request(UncachedMemoryReq(xlen, Context))
+  reg command(UncachedCommand(xlen, Bool))
+  reg context(Context)
+  reg store_payload(UncachedStorePayload())
   def idle = state === IOMSHRState.Idle
   def queued = state === IOMSHRState.Queued
   def active = state === IOMSHRState.Active
-  def operation = core.request.bits.request.access
+  def request :: PhysicalMemoryReq(xlen, Context) = core.request.bits.request
+  def operation = request.access
   def supported = operation.is_one_of(CacheOperation.Load, CacheOperation.Store, CacheOperation.CacheBlockZero)
 
   // Admission depends on this data slot, not the shared engine's fetch owner.
@@ -42,30 +46,41 @@ sync_circuit IOMSHR(xlen :: XLen, Context :: DataType):
   /* The slot owns the caller's context until the response transfers. The RN-I
      still owns transaction routing and can drain an unrelated detached fetch. */
 
-  def payload = request.request
   memory.request.valid <== queued
-  memory.request.bits <== UncachedMemoryReq(xlen, Bool):
-    device: request.device
-    request:
-      PhysicalMemoryReq(xlen, Bool):
-        address: payload.address
-        access: payload.access
-        atomic: payload.atomic
-        width: payload.width
-        unsigned: payload.unsigned
-        byte_mask: payload.byte_mask
-        data: payload.data
-        locality: payload.locality
-        context: Bool(#false)
+  memory.request.bits <== command
+  memory.store_payload <== store_payload
 
   (memory.response |> map_flow(reply => PhysicalMemoryResp(xlen, Context)):
     data: reply.data
     access_fault: reply.access_fault
-    context: payload.context
+    context: context
   ) |> core.response
 
+  /* Form the write lane once at admission. RV32 masks already include the
+     byte offset within a word; address bit two selects the word in the lane. */
+
+  inst store_gen(StoreGen(xlen))
+  store_gen.address <== request.address
+  store_gen.value <== request.data
+  store_gen.width <== request.width
+  def zero = operation.is_cache_block_zero()
+  def lane_mask = if xlen == XLen.X64 | request.byte_mask | request.byte_mask.zext(8) << (request.address[2].as_bits() ++ Bits(2)(0))
+
   when accept:
-    request <== core.request.bits
+    command <== UncachedCommand(xlen, Bool):
+      address: request.address
+      access: operation
+      width: request.width
+      unsigned: request.unsigned
+      device: core.request.bits.device
+      locality: request.locality
+      context: Bool(#false)
+
+    context <== request.context
+    store_payload <== UncachedStorePayload():
+      data: mux(zero, Bits(64)(0), store_gen.data)
+      byte_mask: mux(zero, !Bits(8)(0), lane_mask).into(Mask(8))
+
     state <== IOMSHRState.Queued
   elsewhen (memory.request.fire()):
     state <== IOMSHRState.Active

@@ -34,11 +34,10 @@ sync_circuit CHIUncachedMemory(xlen :: XLen, config :: RiscvHartCHIConfig, Conte
 
   input node_id: Bits(p.node_id_width)
   input cancel: Bool
-  interface core(UncachedMemoryAccess(xlen, Context), ~role: responder)
+  interface core(UncachedTransportAccess(xlen, Context), ~role: responder)
   interface chi(CHIRNIChannels(p), ~role: node)
 
   inst load_gen(LoadGen(xlen))
-  inst store_gen(StoreGen(xlen))
   reg state(~init: CHIUncachedState.Idle)
   reg address(Bits(width))
   reg memory_width(MemoryWidth)
@@ -49,13 +48,11 @@ sync_circuit CHIUncachedMemory(xlen :: XLen, config :: RiscvHartCHIConfig, Conte
   reg request_opcode(CHIReqOpcode)
   reg request_device(~init: Bool(#false))
   reg dbid(Bits(12))
-  reg write_data(Bits(64))
-  reg write_mask(Mask(8))
   reg zero_active(~init: Bool(#false))
   reg zero_index(Bits(index_width(CacheLineBytes / 8)), ~init: Bits(index_width(CacheLineBytes / 8))(0))
 
   def idle = state === CHIUncachedState.Idle
-  def command :: PhysicalMemoryReq(xlen, Context) = core.request.bits.request
+  def command :: UncachedCommand(xlen, Context) = core.request.bits
   def command_access = command.access
   def command_supported = command_access.is_one_of(CacheOperation.Load,
                                                    CacheOperation.Store,
@@ -98,10 +95,6 @@ sync_circuit CHIUncachedMemory(xlen :: XLen, config :: RiscvHartCHIConfig, Conte
 
   def request_fire = chi.req.fire()
 
-  store_gen.address <== command.address
-  store_gen.value <== command.data
-  store_gen.width <== command.width
-
   def incoming_response = chi.rsp.response.bits
   def response_ordinary = incoming_response.opcode =/= CHIRspOpcode.RespLCrdReturn
   def dbid_expected = state === CHIUncachedState.WriteDBID
@@ -114,9 +107,13 @@ sync_circuit CHIUncachedMemory(xlen :: XLen, config :: RiscvHartCHIConfig, Conte
   def dbid_fire = response_fire & dbid_expected
   def completion_fire = response_fire & completion_expected
 
+  /* Place the owner's stable doubleword in the CHI beat. Only the address
+     advances between block-zero writes; DAT never consults a live command. */
+
+  def payload = core.store_payload
   def data_lane = address[3..alignment_bits(p.data_bytes)]
-  def bus_data = write_data.zext(p.data_width) << (data_lane ++ Bits(6)(0))
-  def bus_mask = write_mask.into(Bits(8)).zext(p.data_bytes) << (data_lane ++ Bits(3)(0))
+  def bus_data = payload.data.zext(p.data_width) << (data_lane ++ Bits(6)(0))
+  def bus_mask = payload.byte_mask.as_bits().zext(p.data_bytes) << (data_lane ++ Bits(3)(0))
   chi.dat.request.valid <== state === CHIUncachedState.WriteData
   chi.dat.request.bits <== cache_chi_write_data(
     p,
@@ -163,8 +160,6 @@ sync_circuit CHIUncachedMemory(xlen :: XLen, config :: RiscvHartCHIConfig, Conte
     request_size <== selected_size
     request_opcode <== selected_opcode
     request_device <== core.request.bits.device
-    write_data <== mux(command_zero, Bits(64)(0), store_gen.data)
-    write_mask <== mux(command_zero, !Bits(8)(0), if xlen == XLen.X64 | command.byte_mask | command.byte_mask.zext(8) << (command.address[2].as_bits() ++ Bits(2)(0))).into(Mask(8))
     zero_active <== command_zero
     zero_index <== Bits(index_width(CacheLineBytes / 8))(0)
     state <== CHIUncachedState.Request

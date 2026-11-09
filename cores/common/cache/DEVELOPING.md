@@ -80,6 +80,10 @@ inherits it. Keep fetch response draining on the detached owner and retain data
 priority even while a canceled instruction reply drains. When driven by an
 IOMSHR, specialize the transport context to `Bool`: only the slot owns the
 caller's return tag, and only a data response handshake releases that slot.
+Arbitrate commands, not store data. The slot positions data and byte enables
+within a doubleword at admission. Wire that payload directly to the transport;
+its accepted address selects the CHI lane. Never source DAT from a live
+request or recapture it on DBID.
 
 Keep existing `dcache/*` event names and retained transaction lineage stable;
 named-core integration must not summarize an entire cache as a fake trace
@@ -113,7 +117,7 @@ fixtures live in this package's `tests/`. Follow the [L1I guide](l1i/DEVELOPING.
 for 32/64-bit block tests and named-core fetch integration coverage.
 
 For nonallocating service changes, run `rv5stage-uncached`, `rv5stage-io-mshr`,
-and `rv5stage-memory-router`. For fetch/data arbiter changes include RV2Wide\'s
+`rv5stage-io-mshr-rv32`, and `rv5stage-memory-router`. For fetch/data arbiter changes include RV2Wide's
 `rv2wide-fetch` fixture. These integrated fixtures cover fetch cancellation,
 data priority, committed IO retention, byte placement, block zero, and ordered
 routing. Keep cancellation at the pre-CHI-request boundary; never clear an

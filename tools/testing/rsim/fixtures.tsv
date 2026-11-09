@@ -297,6 +297,7 @@ instruction-memory64	cores-memory	cores/common/fetch/tests/rsim/emit-instruction
 rv5stage-memory-router	cores-memory	cores/rv5stage/tests/rsim/emit-rv5stage-memory-router.rhm	program	cores/rv5stage/tests/rsim/rv5stage-memory-router.cpp
 rv5stage-uncached	cores-memory	cores/rv5stage/tests/rsim/emit-rv5stage-uncached.rhm	program	cores/rv5stage/tests/rsim/rv5stage-uncached.cpp
 rv5stage-io-mshr	cores-memory	cores/rv5stage/tests/rsim/emit-rv5stage-io-mshr.rhm	program	cores/rv5stage/tests/rsim/rv5stage-io-mshr.cpp
+rv5stage-io-mshr-rv32	cores-memory	cores/rv5stage/tests/rsim/emit-rv5stage-io-mshr.rhm	program32	cores/rv5stage/tests/rsim/rv5stage-io-mshr.cpp
 rv5stage-io-boot	cores-memory	cores/rv5stage/tests/rsim/emit-rv5stage-io-boot.rhm	program	cores/rv5stage/tests/rsim/rv5stage-io-boot.cpp
 rv5stage-icache-coherence	cores-cache	cores/rv5stage/tests/rsim/emit-rv5stage-icache-coherence.rhm	program	cores/rv5stage/tests/rsim/rv5stage-icache-coherence.cpp
 rv5stage-icache-coherence-flat	cores-cache	cores/rv5stage/tests/rsim/emit-rv5stage-icache-coherence-flat.rhm	program	cores/rv5stage/tests/rsim/rv5stage-icache-coherence-flat.cpp

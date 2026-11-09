@@ -10,18 +10,19 @@ import:
 /* Gives data priority, retains the accepted response owner across flush, and drains detached fetches.
    The transport permits one outstanding request. Callers shape/check requests; no stage is added. */
 sync_circuit UncachedFetchArbiter(xlen :: XLen, Context :: DataType):
-  interface data(UncachedMemoryAccess(xlen, Context), ~role: responder)
-  interface instruction_request(Decoupled(UncachedMemoryReq(xlen, Context)), ~role: consumer)
+  interface data(UncachedTransportAccess(xlen, Context), ~role: responder)
+  interface instruction_request(Decoupled(UncachedCommand(xlen, Context)), ~role: consumer)
   interface instruction_response(Decoupled(PhysicalMemoryResp(xlen, Context)), ~role: producer)
-  interface transport(UncachedMemoryAccess(xlen, Context), ~role: requester)
+  interface transport(UncachedTransportAccess(xlen, Context), ~role: requester)
   input flush: Bool
   output cancel: Bool
-  inst requests(Arbiter(UncachedMemoryReq(xlen, Context), 2))
+  inst requests(Arbiter(UncachedCommand(xlen, Context), 2))
   reg owner_is_instruction(~init: Bool(#false))
   reg instruction_live(~init: Bool(#false))
   data.request |> requests.ingress[0]
   instruction_request |> gate_flow(!flush) |> requests.ingress[1]
   requests.egress |> transport.request
+  transport.store_payload <== data.store_payload
   data.request_fault <== transport.request_fault & data.request.valid
   data.request_access_fault <== transport.request_access_fault & data.request.valid
   data.drained <== transport.drained
