@@ -124,25 +124,40 @@ bundle ALURequest(width :: PosInt):
   a: Bits(width)
   b: Bits(width)
 
+  /* Builds the selected fixed-width operation on this request's operands. */
+  method evaluate(request) :: Bits(width):
+    mux_lookup(request.op):
+      Operation.Add: request.a + request.b
+      Operation.Xor: request.a ^ request.b
+      Operation.And: request.a & request.b
+
+/* Identifies the client that owns a computed ALU result. */
+bundle ALUResponse(width :: PosInt, clients :: PosInt):
+  client: Bits(index_width(clients))
+  value: Bits(width)
+
 /* Chooses the datapath width and client count during elaboration. */
 sync_circuit SharedALU(width :: PosInt, clients :: PosInt):
   def Request = ALURequest(width)
   interface ingress[clients](Decoupled(Request), ~role: consumer)
-  interface egress(Irrevocable(Bits(width)), ~role: producer)
+  interface egress(Irrevocable(ALUResponse(width, clients)), ~role: producer)
 
   /* Generates one two-entry FIFO per client, preserving each client's request order. */
   def buffered = ingress |> parallel_handles(
     for Array (_ in 0..clients): Request |> queue(2)
   )
-  /* |> connects hardware stages. Round-robin arbitration sets
-     result order; ready/valid backpressure propagates through the pipeline.
-     The output FIFO holds each result stable until accepted. */
+  inst arbiter(RRArbiter(Request, clients))
+  buffered <=> arbiter.ingress
+
+  /* |> connects hardware stages. Requests stay ordered within each client;
+     round-robin arbitration sets result order. Evaluation after arbitration
+     creates one shared datapath; the selected client index tags each result.
+     Backpressure propagates upstream; the output FIFO holds stalled results stable. */
   (
-    buffered |> rr_arbiter() |> map_flow(request):
-      mux_lookup(request.op):
-        Operation.Add: request.a + request.b
-        Operation.Xor: request.a ^ request.b
-        Operation.And: request.a & request.b
+    arbiter.egress |> map_flow(request):
+      ALUResponse(width, clients):
+        client: arbiter.chosen
+        value: request.evaluate()
   ) |> queue(2) |> egress
 
 /* Instantiates three clients sharing a 16-bit datapath. */
