@@ -1,5 +1,5 @@
 #lang rhombus
-// Exercises speculative physical permissions at the guest-aware RV5Stage MMU port.
+// Exercises speculative and committed physical permissions at the guest-aware RV5Stage MMU port.
 // SPDX-License-Identifier: Apache-2.0
 import:
   lib("rhodium/frontend/foundation.rhm").elaborate
@@ -10,6 +10,8 @@ import:
   "../../mmu/mmu.rhdl".RV5StageMmu
 
 def physical_map = RiscvPhysicalMemoryMap(44, [
+  RiscvPhysicalMemoryRegion(AddressSet(0x2800, 0xff), RiscvPhysicalMemoryAttributes(#false, #false, #true, #false, #false, #false, #true)),
+  RiscvPhysicalMemoryRegion(AddressSet(0x2900, 1), RiscvPhysicalMemoryAttributes(#true, #false, #true, #false, #false, #false, #true)),
   RiscvPhysicalMemoryRegion(AddressSet(0x2100, 7), RiscvPhysicalMemoryAttributes(#true, #false, #false, #false, #false, #true, #false)),
   RiscvPhysicalMemoryRegion(AddressSet(0x2500, 0xff), RiscvPhysicalMemoryAttributes(#true, #true, #false, #true, #false, #false, #true)),
   RiscvPhysicalMemoryRegion(AddressSet(0x2700, 3), RiscvPhysicalMemoryAttributes(#true, #true, #false, #false, #false, #false, #true))

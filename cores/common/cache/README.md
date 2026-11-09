@@ -110,6 +110,9 @@ PMA/PBMT attributes for cacheability, relaxed ordering, and read idempotence.
 `classify_speculative_cache_access` returns permission and allocation eligibility
 for the selected footprint. HLVX requires execute permission as well as read
 permission. Each core combines the result with its translation and replay state.
+At WB, both MMUs check the same HLVX permissions over the translated access.
+A physical denial raises a load access fault at the original virtual address
+before the MMU offers a physical request.
 At committed admission, LR, SC, and AMOs require natural alignment and readable,
 atomic-capable memory that permits cache allocation. SC and AMOs also require
 write permission. Both cores report a denied atomic on the request cycle,

@@ -1,6 +1,7 @@
-// Checks one-cycle MEM qualification at the RV5Stage guest-aware physical lookup port.
+// Checks speculative MEM and committed HLVX physical permissions in the RV5Stage MMU.
 // SPDX-License-Identifier: Apache-2.0
 #include "test.hpp"
+#include "../../../common/cache/tests/rsim/committed-hlvx.hpp"
 #include "../../../common/cache/tests/rsim/speculative-access.hpp"
 
 int main() {
@@ -10,6 +11,32 @@ int main() {
     reset = 0;
     state.pprivilege = 1;
     state.pguest.phstatus = 0x100;
+    check_committed_hlvx([](unsigned addr, unsigned width, bool permitted) {
+      auto &req = data_in.prequest;
+      req.pbits.ptranslation = speculative_access::hlvx;
+      req.pbits.pmemory.paccess = speculative_access::load;
+      req.pbits.pmemory.pwidth = width;
+      req.pbits.pmemory.punsigned = 1;
+      req.pbits.pmemory.pbyte_umask = (1u << (1u << width)) - 1;
+      req.pbits.pmemory.paddress = addr;
+      req.pvalid = 1;
+      for (unsigned ready : {0u, 1u}) {
+        core_memory_in.prequest.pready = ready;
+        eval();
+        CHECK(!data_out.prequest_ufault && data_out.prequest_uaccess_ufault == !permitted);
+        CHECK(core_memory_out.prequest.pvalid == permitted && !walker_memory_out.prequest.pvalid);
+        if (permitted) {
+          CHECK(core_memory_out.prequest.pbits.pmemory.paddress == addr && data_out.prequest.pready == ready);
+        } else {
+          CHECK(request_fault_address == addr);
+        }
+        if (permitted)
+          tick_model();
+      }
+      req.pvalid = 0;
+      eval();
+      CHECK(!data_out.prequest_uaccess_ufault && !core_memory_out.prequest.pvalid);
+    });
     check_speculative_data_permissions([](unsigned addr, unsigned op, unsigned mode, unsigned expected) {
       auto &req = pipeline_in.prequest;
       req.pbits.pmemory.paddress = addr;

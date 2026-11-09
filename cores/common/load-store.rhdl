@@ -58,6 +58,15 @@ fun memory_byte_mask(xlen :: XLen, address :: Bits(xlen.width), width :: MemoryW
   def bytes = xlen.width / 8
   memory_width_mask(xlen, width) << address[0..alignment_bits(bytes)]
 
+/* Place a word-relative byte mask in its beat. The mask already includes the offset within the word. */
+fun place_word_byte_mask(address :: Bits, mask :: Bits, beat_bytes :: Pow2Int) :~ Bits(beat_bytes):
+  def word_bytes :: Pow2Int = mask.type.packed_width()
+  unless beat_bytes >= word_bytes
+  | error(~who: #'place_word_byte_mask, "memory beat must contain one complete word")
+  if beat_bytes == word_bytes
+  | mask
+  | mask.zext(beat_bytes) << address.align_down(word_bytes)[0..alignment_bits(beat_bytes)]
+
 /*
  * Selects one scalar from a returned beat and extends it to XLEN.
  */
@@ -137,6 +146,7 @@ circuit StoreGen(xlen :: XLen,
 
 export:
   memory_byte_mask
+  place_word_byte_mask
   memory_word_bytes
   memory_access_bytes
   memory_access_last_offset

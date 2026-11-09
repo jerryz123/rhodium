@@ -921,7 +921,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     def ex_actual_action = mux(ex_executable & ex.control.branch.resolver.enable, riscv_ras_action(ex.fetched.instruction), RasAction.None)
     def ex_bad_pc = ex_pc[0].into(Bool)
     def ex_memory = ex_executable & ex.control.memory.access.is_memory()
-    def ex_bad_address = ex_memory & ex.control.memory.access.is_one_of(CacheOperation.LoadReserved, CacheOperation.StoreConditional, CacheOperation.Atomic) & !ex.control.memory.width.is_aligned(ex_address)
+    def ex_bad_address = ex_memory & ex.control.memory.access.is_lr_sc_or_amo() & !ex.control.memory.width.is_aligned(ex_address)
     def ex_generated_guest = empty_guest.updated(~guest_virtual_address: !ex.illegal & !ex.virtual_instruction & mux(ex_bad_pc, guest_state.virtualized, ex_bad_address & ex_data_guest))
     def ex_fault = ex_fetch_fault.valid ||| ex.illegal ||| ex_vector_illegal ||| ex.virtual_instruction ||| ex_bad_pc ||| ex_bad_address
 
@@ -1100,7 +1100,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
         data: mux(ex_lookup.memory.access.is_store(), ex_store.data, ex_lookup.operands.right)
         locality: RiscvMemoryLocality.Default
         byte_mask: ex_store.mask.as_bits()
-        unsigned: !ex_lookup.memory.access.is_one_of(CacheOperation.LoadReserved, CacheOperation.StoreConditional, CacheOperation.Atomic)
+        unsigned: !ex_lookup.memory.access.is_lr_sc_or_amo()
 
   describe_interface_selection((for List (lane in 0..issue_width): ex_memory_lane === Bits(2)(lane)), ~name: "lookup")
   describe_interface_contract((for Array (lane in 0..issue_width): ex_paths[lane][2]), scalar_pipeline.request, "lookup-lane", ~trace_model: interface_trace_selection(~name: "lookup"))
@@ -1625,9 +1625,9 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
         atomic: wb_request_memory.atomic
         width: wb_request_memory.width
         data: mux(wb_request_memory.access.is_store(), wb_store.data, wb_request_data)
-        locality: mux(wb_request_memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store), wb_memory_locality, RiscvMemoryLocality.Default)
+        locality: mux(wb_request_memory.access.is_load_or_store(), wb_memory_locality, RiscvMemoryLocality.Default)
         byte_mask: wb_store.mask.as_bits()
-        unsigned: !wb_request_memory.access.is_one_of(CacheOperation.LoadReserved, CacheOperation.StoreConditional, CacheOperation.Atomic)
+        unsigned: !wb_request_memory.access.is_lr_sc_or_amo()
 
   scalar_pipeline.commit <== wb_store_hit & !wb_memory_blocked
   // The physical service's drain may depend on today's admission. Sample a
@@ -1640,7 +1640,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   def wb_memory_replay = (wb_memory_active & !wb_memory_capture & wb_memory_blocked) ||| (wb_slow & !wb_accepted & !wb_admission_fault) ||| (wb_store_hit & !scalar_pipeline.commit_ready)
   wb_memory_completion.allocate.valid <== wb_accepted
 
-  when (wb_accepted & !wb_memory.memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store)):
+  when (wb_accepted & !wb_memory.memory.access.is_load_or_store()):
     wb_ordered_memory_pending <== Bool(#true)
   elsewhen (wb_memory_completion.ordered_completed.valid):
     wb_ordered_memory_pending <== Bool(#false)

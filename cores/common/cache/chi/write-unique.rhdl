@@ -99,7 +99,7 @@ sync_circuit CacheWriteUnique(Context :: DataType, address_width :: PosInt, conf
 
   def data_lane = address[3..alignment_bits(p.data_bytes)]
   def bus_data = write_data.zext(p.data_width) << (data_lane ++ Bits(6)(0))
-  def bus_mask = write_mask.into(Bits(8)).zext(p.data_bytes) << (data_lane ++ Bits(3)(0))
+  def bus_mask = place_word_byte_mask(address, write_mask.as_bits(), p.data_bytes)
   data.valid <== control.active & dbid_received & !data_sent
   data.bits <== cache_chi_write_data(
     p,

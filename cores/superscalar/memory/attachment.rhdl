@@ -10,7 +10,6 @@ import:
   "../bundles.rhdl" open
   "../../common/cache/config.rhm" open
   "../../common/cache/protocol.rhdl" open
-  "../../common/cache/operation.rhdl" open
   "../../common/cache-prefetch.rhdl" open
   "../../common/cache/l1d/cache.rhdl" open
   "../../common/cache/ordered-service.rhdl".attach_ordered_memory
@@ -77,7 +76,7 @@ sync_circuit SuperscalarL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHICo
 
   def ordered_busy = ordering.ordered_busy
   def request :: AddressedPhysicalMemoryBeatReq(xlen, Context, bytes, 64) = memory.request.bits.memory
-  def atomic_request = request.access.is_one_of(CacheOperation.LoadReserved, CacheOperation.StoreConditional, CacheOperation.Atomic)
+  def atomic_request = request.access.is_lr_sc_or_amo()
   def admission = classify_committed_cache_access(
     XLen.X64, config.physical_map, request.address, request.width, request.access, memory.request.bits.pbmt,
     ~reads: !request.access.store_fault_class(), ~require_alignment: #true
@@ -87,11 +86,6 @@ sync_circuit SuperscalarL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHICo
   /* Speculative EX/MEM cache access.
      The MMU owns translation/PMA checks. EX indexing cannot depend on a TLB hit;
      the physical tag arrives alongside the following SRAM result. */
-
-  /* Move a native-word-relative mask into its row lanes. The inbound mask already
-     includes the byte offset within the word (also for AMOs and split fragments). */
-  fun row_mask(address :: Bits(xlen.width), mask :: Bits(bytes)) :~ Bits(beat_bytes):
-    if beat_bytes == bytes | mask | mask.zext(beat_bytes) << address.align_down(bytes)[0..alignment_bits(beat_bytes)]
 
   /* The cache's scalar mode positions the data and returns the addressed XLEN word.
      Do not row-align the address or shift data a second time at this boundary. */
@@ -105,7 +99,7 @@ sync_circuit SuperscalarL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHICo
         access: request.access
         unsigned: request.unsigned
         data: request.data.zext(beat_bytes * 8)
-        byte_mask: row_mask(request.address, request.byte_mask)
+        byte_mask: place_word_byte_mask(request.address, request.byte_mask, beat_bytes)
 
   pipeline_lookup |> map_valid(request => pipeline_beat(request)) |> storage.pipeline_lookup
   pipeline.request |> filter_valid(_request => !ordered_busy) |> map_valid(request => pipeline_beat(request)) |> storage.pipeline.request
@@ -137,7 +131,7 @@ sync_circuit SuperscalarL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHICo
       // Zero initializes raw_beat (when present); completion context comes from the request.
       def scalar :: PhysicalMemoryBeatReq(xlen, Context, beat_bytes) = literal(PhysicalMemoryBeatReq(xlen, Context, beat_bytes), 0)
       scalar.updated(
-        ~address: mux(atomic_request, address, address.align_down(bytes)), ~byte_mask: row_mask(address, native.byte_mask),
+        ~address: mux(atomic_request, address, address.align_down(bytes)), ~byte_mask: place_word_byte_mask(address, native.byte_mask, beat_bytes),
         ~width: mux(atomic_request, native.width, if xlen == XLen.X32 | MemoryWidth.Word | MemoryWidth.Double), ~unsigned: native.unsigned,
         ~context: native.context, ~data: native.data.zext(beat_bytes * 8), ~access: native.access, ~atomic: native.atomic, ~locality: native.locality
       )
@@ -148,7 +142,7 @@ sync_circuit SuperscalarL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHICo
       device: admission.strongly_ordered
       request:
         PhysicalMemoryReq(XLen.X64, SuperscalarUncachedContext(Context)):
-          byte_mask: if xlen == XLen.X64 | request.byte_mask | request.byte_mask.zext(8) << (request.address[2].as_bits() ++ Bits(2)(0))
+          byte_mask: place_word_byte_mask(request.address, request.byte_mask, 8)
           address: request.address
           access: request.access
           atomic: request.atomic

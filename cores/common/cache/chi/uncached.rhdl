@@ -115,7 +115,7 @@ sync_circuit CHIUncachedMemory(xlen :: XLen, config :: RiscvHartCHIConfig, Conte
   def payload = core.store_payload
   def data_lane = address[3..alignment_bits(p.data_bytes)]
   def bus_data = payload.data.zext(p.data_width) << (data_lane ++ Bits(6)(0))
-  def bus_mask = payload.byte_mask.as_bits().zext(p.data_bytes) << (data_lane ++ Bits(3)(0))
+  def bus_mask = place_word_byte_mask(address, payload.byte_mask.as_bits(), p.data_bytes)
   chi.dat.request.valid <== state === CHIUncachedState.WriteData
   chi.dat.request.bits <== cache_chi_write_data(
     p,

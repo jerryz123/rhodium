@@ -96,7 +96,7 @@ fun superscalar_zero_offset_memory(control :: SuperscalarControl(), instruction 
     OperandImmediate.I: !instruction_field(fields.immediate12, instruction).any()
     OperandImmediate.S: all(for List (piece in fields.SImmediate.pieces): !instruction_field(piece.source, instruction).any())
 
-  control.memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store) & zero_displacement
+  control.memory.access.is_load_or_store() & zero_displacement
 
 /* Resolves each younger RAW against an eligible older ALU writer without changing either instruction's resource admission. */
 fun superscalar_pairing(controls :: Vec(2, SuperscalarControl()), valid :: Vec(2, Bool), destination :: Bits(5), sources :: Vec(2, Bits(5)), instructions :: Vec(2, Bits(32)), older_deferred :: Bool, ~forwarded: forwarded :: Vec(2, Bool) = vec(Bool(#false), Bool(#false))) :: SuperscalarPairing():
@@ -106,7 +106,7 @@ fun superscalar_pairing(controls :: Vec(2, SuperscalarControl()), valid :: Vec(2
   def used = vec(younger.operand.uses_rs1, younger.operand.uses_rs2)
   def dependency = vec(for List (source in 0..2): valid[1] & writes & used[source] & (destination === sources[source]))
   def producer = superscalar_pair_producer(older, valid[0], destination, older_deferred)
-  def scalar_memory = younger.memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store)
+  def scalar_memory = younger.memory.access.is_load_or_store()
   def memory_address = superscalar_zero_offset_memory(younger, instructions[1])
   def store_data = !younger.fp.valid & (younger.memory.access === CacheOperation.Store)
   def branch_operand = younger.branch.resolver.enable & !younger.branch.resolver.unconditional

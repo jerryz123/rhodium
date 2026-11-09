@@ -10,7 +10,6 @@ import:
   "transport.rhdl" open
   "../../common/cache/access.rhdl" open
   "../../common/cache/protocol.rhdl" open
-  "../../common/cache/operation.rhdl" open
   "../../common/cache-prefetch.rhdl" open
   "../../common/load-store.rhdl" open
   "../../common/misaligned-access.rhdl" open
@@ -123,7 +122,7 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
   def data_ok = resolved.known & (resolved.fault === RiscvTranslationFault.None)
   def region = cache_access_region(XLen.X64, physical_map, resolved.address, data_request.width, data_request.access)
   def access = classify_speculative_cache_access(region, resolved.pbmt, mem.access, ~execute_read: resolved.execute_read)
-  def atomic_request = mem.access.is_one_of(CacheOperation.LoadReserved, CacheOperation.StoreConditional, CacheOperation.Atomic)
+  def atomic_request = mem.access.is_lr_sc_or_amo()
   def cache_block = mem.access.is_cache_block()
   def mem_misaligned = mem.access.requires_split(mem.width, mem.address)
   def busy = misaligned.busy ||| memory.request.valid ||| resolved.probe_busy
@@ -150,7 +149,8 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
 
   inst transport(SuperscalarMemoryTransport(xlen, physical_client_count(translation), Context))
   transport.physical <=> physical_memory
-  (memory.request |> gate_flow(data_ok & !misaligned.busy & (!resolved.execute_read ||| region.executable)) |> map_flow(request):
+  def core_execute_denied = resolved.execute_read & !hlvx_physical_permitted(region)
+  (memory.request |> gate_flow(data_ok & !misaligned.busy & !core_execute_denied) |> map_flow(request):
     def native :: PhysicalMemoryReq(xlen, Context) = request.memory
     PhysicalDataReq(xlen, Context, 64):
       memory: native.with_address_context(resolved.address, native.context)
@@ -175,7 +175,6 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
     access_fault: Bool(#false)
   ) |> misaligned.physical_response
 
-  def core_execute_denied = resolved.execute_read & !region.executable
   def core_local_fault = resolved.known & (!data_ok ||| core_execute_denied)
   memory.fault.valid <== memory.request.valid & !misaligned.busy & (core_local_fault ||| transport.fault[0].valid)
   def core_fault_cause = priority_mux(~default: transport.fault[0].bits.cause):

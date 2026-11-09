@@ -52,6 +52,7 @@ void check_split_load(unsigned width, unsigned offset, bool sign_extend) {
 
 int main() {
   return run_test([] {
+    request_width = 3;
     lookup_outcome = 1; // Physical LoadHit.
     reset = 1;
     tick_model();

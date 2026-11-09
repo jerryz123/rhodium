@@ -24,9 +24,17 @@ hardware_enum CacheOperation:
   method is_memory(operation) :: Bool:
     operation =/= CacheOperation.None
 
+  /* Selects the ordinary load and store operations eligible for speculative cache hits and split service. */
+  method is_load_or_store(operation) :: Bool:
+    operation.is_one_of(CacheOperation.Load, CacheOperation.Store)
+
+  /* Selects all reservation and read-modify-write operations subject to atomic admission. */
+  method is_lr_sc_or_amo(operation) :: Bool:
+    operation.is_one_of(CacheOperation.LoadReserved, CacheOperation.StoreConditional, CacheOperation.Atomic)
+
   /* Ordinary loads and stores use fragment service when their address is not naturally aligned. */
   method requires_split(operation, width :: MemoryWidth, address :: Bits) :: Bool:
-    operation.is_one_of(CacheOperation.Load, CacheOperation.Store) & !width.is_aligned(address)
+    operation.is_load_or_store() & !width.is_aligned(address)
 
   /* Selects ordinary loads and LR reads, excluding read-modify-write atomics. */
   method is_load(operation) :: Bool:

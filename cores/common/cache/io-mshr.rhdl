@@ -5,7 +5,7 @@
 import:
   "protocol.rhdl" open
   "operation.rhdl".CacheOperation
-  "../load-store.rhdl".StoreGen
+  "../load-store.rhdl" open
   "../../../riscv/isa/xlen.rhm".XLen
   lib("flow/main.rhdl") open
 
@@ -64,7 +64,7 @@ sync_circuit IOMSHR(xlen :: XLen, Context :: DataType):
   store_gen.value <== request.data
   store_gen.width <== request.width
   def zero = operation.is_cache_block_zero()
-  def lane_mask = if xlen == XLen.X64 | request.byte_mask | request.byte_mask.zext(8) << (request.address[2].as_bits() ++ Bits(2)(0))
+  def lane_mask = place_word_byte_mask(request.address, request.byte_mask, 8)
 
   when accept:
     command <== UncachedCommand(xlen, Bool):

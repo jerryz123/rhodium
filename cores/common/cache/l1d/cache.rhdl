@@ -129,7 +129,7 @@ sync_circuit L1DCache(xlen :: XLen,
   /* Raw transfers cover one aligned coherent row and never reinterpret atomic or management operations. */
   fun check_raw_request(valid :: Bool, address :: Bits(width), access :: CacheOperation):
     when valid:
-      assert(address.is_aligned(beat_bytes) & access.is_one_of(CacheOperation.Load, CacheOperation.Store), "l1d_raw_beat_is_aligned_load_or_store")
+      assert(address.is_aligned(beat_bytes) & access.is_load_or_store(), "l1d_raw_beat_is_aligned_load_or_store")
 
   if beat_width > width
   | block:
@@ -268,7 +268,8 @@ sync_circuit L1DCache(xlen :: XLen,
      for the caller's capture register, not a second cache response stage. */
 
   def s1_array_words = arrays.data.response.bits.as_bits().as_vec(Bits(beat_width))
-  def s1_store = pipeline.request.bits.access === CacheOperation.Store
+  def s1_access :: CacheOperation = pipeline.request.bits.access
+  def s1_store = s1_access.is_store()
   def s1_set = pipeline.request.bits.address[offset_width..(offset_width + set_width)]
   def s1_tag = pipeline.request.bits.address[(offset_width + set_width)..physical_width]
   def s1_address_fits = cache_chi_address_fits(pipeline.request.bits.address, p)
@@ -289,11 +290,11 @@ sync_circuit L1DCache(xlen :: XLen,
   def s1_read_matches = s1_read_valid & arrays.tags.response.valid & arrays.states.response.valid & (s1_store ||| arrays.data.response.valid) & (s1_read_address[0..12] === pipeline.request.bits.address[0..12])
   wire s1_outcome: CachePipelineOutcome
   wire s1_reason: CachePipelineReason
-  def s1_miss_set_clear = (pipeline.request.bits.access === CacheOperation.Load) & (s1_set =/= retained_set)
+  def s1_miss_set_clear = (s1_access === CacheOperation.Load) & (s1_set =/= retained_set)
   // Ordinary accesses to the one outstanding line become authorized waiters.
   // They do not consume a partial refill: authorization queues them, and the transaction
   // path performs a fresh authoritative lookup after installation completes.
-  def s1_same_line_waiter = miss_active & pipeline.request.bits.access.is_one_of(CacheOperation.Load, CacheOperation.Store) & (pipeline.request.bits.address.align_down(CacheLineBytes) === retained_line_address)
+  def s1_same_line_waiter = miss_active & s1_access.is_load_or_store() & (pipeline.request.bits.address.align_down(CacheLineBytes) === retained_line_address)
   when (!s1_address_fits):
     s1_outcome <== CachePipelineOutcome.AccessFault
     s1_reason <== CachePipelineReason.Translation
@@ -700,7 +701,8 @@ sync_circuit L1DCache(xlen :: XLen,
      miss owns no array port and need not block independent load hits. */
 
   def engines_idle = arrays_available & !miss_active & backing_engines_ready
-  def parked_same_line_waiter = ordinary_requests.valid & miss_active & ordinary_requests.bits.access.is_one_of(CacheOperation.Load, CacheOperation.Store) & (ordinary_requests.bits.address.align_down(CacheLineBytes) === retained_line_address)
+  def demand :: PhysicalMemoryBeatReq(xlen, Context, beat_bytes) = ordinary_requests.bits
+  def parked_same_line_waiter = ordinary_requests.valid & miss_active & demand.access.is_load_or_store() & (demand.address.align_down(CacheLineBytes) === retained_line_address)
   def service_order_clear = (!service_requests.egress.valid ||| parked_same_line_waiter) & !s3_lookup.egress.valid & !s4_result.egress.valid & !virtual_lookup.valid
   hit_path_available <== engines_idle & service_order_clear
   hit_under_miss <== miss_active & miss_allows_hits & arrays_available & service_order_clear & !snoop_pending
@@ -721,7 +723,6 @@ sync_circuit L1DCache(xlen :: XLen,
   // Admission checked the full address before queueing. Preserve the byte offset
   // and every payload field, including the optional raw-row transfer mode.
   wire admitted: AddressedPhysicalMemoryBeatReq(xlen, Context, beat_bytes, physical_width)
-  def demand = ordinary_requests.bits
   admitted.address <== demand.address[0..physical_width]
   admitted.byte_mask <== demand.byte_mask
   admitted.access <== demand.access
@@ -952,7 +953,7 @@ sync_circuit L1DCache(xlen :: XLen,
 
   when miss_capture:
     miss_active <== Bool(#true)
-    miss_allows_hits <== !s4_prefetch & s4_access.is_one_of(CacheOperation.Load, CacheOperation.Store)
+    miss_allows_hits <== !s4_prefetch & s4_access.is_load_or_store()
     miss_allocation <== !s4_hit & !s4_bypass_refill
     miss_install <== !s4_bypass_refill
     miss_prefetch <== s4_prefetch

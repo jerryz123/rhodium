@@ -46,6 +46,7 @@ sync_circuit SuperscalarMmuFixture(~bare: bare :: Boolean = #false):
   input suppress_lookup_response: Bool
   input(ex_valid, wb_valid, commit): Bool
   input access: CacheOperation
+  input request_width: MemoryWidth
   input address: Bits(64)
   input locality: RiscvMemoryLocality
   input split_valid: Bool
@@ -112,11 +113,11 @@ sync_circuit SuperscalarMmuFixture(~bare: bare :: Boolean = #false):
         address: address
         access: access
         atomic: RiscvAtomicOperation.Swap
-        width: MemoryWidth.Double
+        width: request_width
         data: Bits(64)(0)
         locality: locality
-        byte_mask: Bits(8)(0xff)
-        unsigned: !access.is_one_of(CacheOperation.LoadReserved, CacheOperation.StoreConditional, CacheOperation.Atomic)
+        byte_mask: memory_width_mask(XLen.X64, request_width)
+        unsigned: !access.is_lr_sc_or_amo()
 
   mmu.pipeline.request.valid <== ex_valid
   mmu.pipeline.request.bits <== request

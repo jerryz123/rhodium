@@ -1,6 +1,7 @@
 // Checks speculative and authorized translations, invalidation, faults, and split accesses.
 // SPDX-License-Identifier: Apache-2.0
 #include "speculative-atomics.hpp"
+#include "../../../common/cache/tests/rsim/committed-hlvx.hpp"
 #include "../../../common/cache/tests/rsim/speculative-access.hpp"
 
 void falling() {
@@ -183,6 +184,7 @@ void hint(std::uint64_t va, int operation, bool accepted, std::uint64_t pa = 0,
 }
 int main() {
   return run_test([] {
+    request_width = 3;
     lookup_outcome = 1; // Physical LoadHit.
     reset = 1;
     privilege = 1;
@@ -948,6 +950,33 @@ int main() {
     satp = 0;
     guest_state.phstatus = 0x100;
     fence();
+    check_committed_hlvx([](unsigned addr, unsigned width, bool permitted) {
+      address = addr;
+      access = speculative_access::load;
+      guest_access = speculative_access::hlvx;
+      request_width = width;
+      wb_valid = 1;
+      for (unsigned ready : {0u, 1u}) {
+        physical_ready = ready;
+        eval();
+        CHECK(physical_valid == permitted && wb_fault == !permitted);
+        CHECK(wb_ready == (permitted && ready));
+        if (permitted) {
+          CHECK(physical_address == addr);
+        } else {
+          CHECK(wb_fault_bits.pcause == 5 && wb_fault_bits.pvalue == addr);
+        }
+        if (permitted)
+          tick_model();
+      }
+      wb_valid = 0;
+      eval();
+      CHECK(!physical_valid && !wb_fault);
+      if (permitted)
+        return_data(0xabcd, true);
+    });
+    physical_ready = 0;
+    request_width = 3;
     check_speculative_data_permissions([](unsigned addr, unsigned op, unsigned mode, unsigned expected) {
       address = addr;
       access = op;

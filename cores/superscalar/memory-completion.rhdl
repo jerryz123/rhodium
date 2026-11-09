@@ -26,12 +26,12 @@ sync_circuit SuperscalarMemoryCompletion(xlen :: XLen = XLen.X64):
   available <== !outstanding.full
   pending <== !outstanding.empty
   drained <== outstanding.empty & !allocate.valid
-  def result = response.bits
+  def owner :: SuperscalarLoadOwner(xlen) = response.bits.context
   inst load(LoadGen(xlen, memory_word_bytes(xlen)))
-  load.address <== result.context.offset.zext(xlen.width)
-  load.width <== result.context.width
-  load.unsigned_load <== result.context.unsigned
-  load.data <== result.data
+  load.address <== owner.offset.zext(xlen.width)
+  load.width <== owner.width
+  load.unsigned_load <== owner.unsigned
+  load.data <== response.bits.data
   def Array(integer_return, fp_return) = response |> gate_flow(!outstanding.empty) |> demux_flow(2, beat => beat.context.fp_load)
   (fp_return |> map_flow(beat => SuperscalarFpLoad(xlen)):
     owner: beat.context.destination
@@ -47,7 +47,7 @@ sync_circuit SuperscalarMemoryCompletion(xlen :: XLen = XLen.X64):
 
   completion |> completed
   outstanding.decrement <== response.fire()
-  ordered_completed.valid <== response.fire() & !result.context.access.is_one_of(CacheOperation.Load, CacheOperation.Store)
+  ordered_completed.valid <== response.fire() & !owner.access.is_load_or_store()
 
 export:
   SuperscalarMemoryCompletion
