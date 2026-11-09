@@ -71,7 +71,7 @@ completion until its consumer asserts `ready`. Stalling this return never
 changes the fixed-latency `CachePipelineAccess` hit response.
 
 Lookup cannot allocate or mutate anything. An owned store retains a one-cycle
-physical address/way/data/mask candidate. In S2 the caller asserts `commit` only
+physical row/way/data/mask candidate. In S2 the caller asserts `commit` only
 when that candidate is nonspeculative; `commit_ready` permits its insertion into
 the committed buffer. A rejected or squashed candidate has no effect and cannot
 survive to authorize a later instruction. Successful enqueue completes the store
@@ -81,11 +81,13 @@ read/write permissions, alignment, and non-device cacheability before admission.
 
 ### Committed stores and SRAM arbitration
 
-Four FIFO entries retain positioned data, byte mask, physical address, selected
+Four FIFO entries retain positioned data, byte mask, physical row number, selected
 way, and whether the coherence state needs marking dirty. Loads compare all
 older entries, including a same-cycle authorized enqueue, by physical word and
 byte overlap. Different words, different physical tags, and disjoint bytes do not
-cause a dependency replay. There is no store merging or forwarding yet.
+cause a dependency replay. A probe outside the implemented physical address
+range does not drain a store with matching low bits. There is no store merging
+or forwarding yet.
 
 A full buffer can replace its draining head on the same edge. This pipe-style
 replacement preserves capacity without replaying the committing store when the

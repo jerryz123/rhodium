@@ -3,36 +3,46 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../../../riscv/isa/xlen.rhm" open
+  "../config.rhm".CacheLineBytes
   lib("rhodium/std/bits.rhdl") open
   lib("rhodium/std/reduction.rhdl").tree_reduce
   lib("flow/main.rhdl") open
 
-/* Retains an authorized owned-line store's physical bytes, way, and dirty-state update. */
-bundle CacheStoreBufferEntry(xlen :: XLen, way_width :: PosInt, word_bytes :: PosInt):
-  address: Bits(xlen.width)
+/* Identifies an owned physical row; the mask selects its written bytes. */
+bundle CacheStoreBufferEntry(row_width :: PosInt, way_width :: PosInt, beat_bytes :: Pow2Int):
+  row_number: Bits(row_width)
   way: Bits(way_width)
-  data: Bits(8 * word_bytes)
-  mask: Bits(word_bytes)
+  data: Bits(8 * beat_bytes)
+  mask: Bits(beat_bytes)
   mark_dirty: Bool
+
+  /* Drops the row index within the line for probe and reservation comparisons. */
+  method line_number(store) :: Bits(row_width - (alignment_bits(CacheLineBytes) - alignment_bits(beat_bytes))):
+    store.row_number[(alignment_bits(CacheLineBytes) - alignment_bits(beat_bytes))..row_width]
 
 /* Drains committed stores in FIFO order, exposing byte-overlap and same-line probe hazards.
    Current enqueue participates in hazards; bounded head age requests a drain without changing
    FIFO order. */
-sync_circuit CacheStoreBuffer(xlen :: XLen,
+sync_circuit CacheStoreBuffer(physical_width :: PosInt,
                               way_width :: PosInt,
                               depth :: Pow2Int = 4,
-                              ~beat_bytes: beat_bytes :: Pow2Int = xlen.width / 8):
-  def T = CacheStoreBufferEntry(xlen, way_width, beat_bytes)
+                              ~beat_bytes: beat_bytes :: Pow2Int,
+                              ~query_width: query_width :: PosInt = physical_width):
+  def line_offset = alignment_bits(CacheLineBytes)
+  unless query_width >= physical_width && physical_width > line_offset && beat_bytes <= CacheLineBytes
+  | error(~who: #'CacheStoreBuffer, "query width must cover the physical address, which must include a line number; rows must fit a line")
+
+  def word_offset = alignment_bits(beat_bytes)
+  def row_width = physical_width - word_offset
+  def T = CacheStoreBufferEntry(row_width, way_width, beat_bytes)
   def pointer_width = index_width(depth)
   def count_width = index_width(depth + 1)
-  def word_offset = alignment_bits(beat_bytes)
   interface enqueue(Decoupled(T), ~role: consumer)
   interface drain(Irrevocable(T), ~role: producer)
   input full_drain: Bool
-  input query_address: Bits(xlen.width)
+  input query_address: Bits(query_width)
   input query_mask: Bits(beat_bytes)
-  input probe_address: Bits(xlen.width)
+  input probe_address: Bits(query_width)
   output(word_hazard, line_hazard, queued_word_hazard, queued_line_hazard, empty, full, urgent): Bool
   output count: Bits(count_width)
   reg entries(Vec(depth, T))
@@ -61,12 +71,12 @@ sync_circuit CacheStoreBuffer(xlen :: XLen,
   urgent <== age >= Bits(4)(8)
 
   /* Tests physical word equality and intersecting byte masks against the speculative query. */
-  fun overlaps(store :: CacheStoreBufferEntry(xlen, way_width, beat_bytes)):
-    (store.address[word_offset..xlen.width] === query_address[word_offset..xlen.width]) & (store.mask & query_mask).any()
+  fun overlaps(store :: CacheStoreBufferEntry(row_width, way_width, beat_bytes)):
+    (store.row_number.zext(query_width - word_offset) === query_address[word_offset..query_width]) & (store.mask & query_mask).any()
 
   /* Tests whether an entry belongs to the probed 64-byte physical line. */
-  fun same_line(store :: CacheStoreBufferEntry(xlen, way_width, beat_bytes)):
-    store.address[6..xlen.width] === probe_address[6..xlen.width]
+  fun same_line(store :: CacheStoreBufferEntry(row_width, way_width, beat_bytes)):
+    store.line_number().zext(query_width - line_offset) === probe_address[line_offset..query_width]
 
   queued_word_hazard <== vec(for List (index in 0..depth): occupied[index] & overlaps(entries[index])).as_bits().any()
   queued_line_hazard <== vec(for List (index in 0..depth): occupied[index] & same_line(entries[index])).as_bits().any()

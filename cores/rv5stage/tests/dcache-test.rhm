@@ -12,6 +12,7 @@ import:
   "../../common/cache/geometry.rhdl" open
   "../../common/chi-hart.rhdl" open
   "../../common/cache/l1d/cache.rhdl" as l1d
+  "../../common/cache/l1d/store-buffer.rhdl".CacheStoreBuffer
   "../memory-context.rhdl" as protocol
   "params.rhdl" as test_params
 
@@ -32,6 +33,12 @@ fun tag_row_width(cache):
   def ram = arrays.find_instance("tag_storage").attribute("module")
   ram.find_output("port_out").type.field("response").type.field("bits").type.packed_width()
 
+for ([instance, row_width, query_width] in [[cache, 44 - 3, 64], [rv32_cache, 32 - 2, 44]]):
+  def stores = instance.find_instance("stores").attribute("module")
+  check:
+    stores.find_output("drain_out").type.field("bits").type.field("row_number").type.width ~is row_width
+    stores.find_input("probe_address").type.width ~is query_width
+
 // The public wire contract grows only when the slot index is the widest variant.
 for (slots in [1, 2, 4, 8, 16, 256]):
   def writeback = protocol.RV5StageMemoryWriteback(slots)
@@ -44,6 +51,8 @@ for (slots in [1, 2, 4, 8, 16, 256]):
 
 check:
   tag_row_width(cache) ~is 44 - 6 - 3
+  elaborate(CacheStoreBuffer(44, 1, ~beat_bytes: 8, ~query_width: 32)) ~throws "query width"
+  elaborate(CacheStoreBuffer(44, 1, ~beat_bytes: 128)) ~throws "rows must fit a line"
   tag_row_width(rv32_cache) ~is 32 - 6 - 3
   associative_cache_config.set_width ~is 3
   associative_cache_config.way_width ~is 1

@@ -3,8 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   lib("rhodium/frontend/foundation.rhm").elaborate
-  "../../../../../riscv/isa/xlen.rhm" open
   "../../l1d/store-buffer.rhdl" open
 
-def program = elaborate(CacheStoreBuffer(XLen.X64, 1))
+def program = elaborate(CacheStoreBuffer(44, 1, ~beat_bytes: 8, ~query_width: 64))
 export program

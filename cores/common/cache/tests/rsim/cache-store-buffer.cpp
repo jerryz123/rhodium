@@ -4,6 +4,12 @@
 #include "test.hpp"
 using store_t = std::remove_cvref_t<decltype(enqueue_in.pbits)>;
 
+// Exercise the top implemented physical bit and a nonzero row within each line.
+constexpr std::uint64_t address(unsigned entry) {
+  return (UINT64_C(1) << 43) + 4096 * (entry + 1) + 16;
+}
+constexpr std::uint64_t row(unsigned entry) { return address(entry) >> 3; }
+
 void enqueue(store_t store) {
   enqueue_in = {.pvalid = 1, .pbits = store};
   eval();
@@ -18,46 +24,63 @@ void run_case() {
   CHECK(empty && !full && enqueue_out.pready && count == 0 &&
         !drain_out.pvalid);
   enqueue_in = {.pvalid = 1,
-                .pbits = {.paddress = UINT64_C(4096),
+                .pbits = {.prow_unumber = row(0),
                           .pway = 0,
                           .pdata = UINT64_C(4386),
                           .pmask = UINT64_C(3),
                           .pmark_udirty = 1}};
-  query_address = UINT64_C(4097);
+  query_address = address(0) + 1;
   query_mask = UINT64_C(2);
-  probe_address = UINT64_C(4152);
+  probe_address = address(0) + 32;
   eval();
   CHECK(word_hazard && line_hazard && !queued_word_hazard &&
         !queued_line_hazard);
+  const auto alias_bit = UINT64_C(1) << 44;
+  query_address |= alias_bit;
+  probe_address |= alias_bit;
+  eval();
+  CHECK(!word_hazard && !line_hazard); // Also check the current enqueue.
   tick_model();
   enqueue_in = {};
-  enqueue({.paddress = UINT64_C(8192),
+  enqueue({.prow_unumber = row(1),
            .pway = 1,
            .pdata = UINT64_C(13124),
            .pmask = UINT64_C(12),
            .pmark_udirty = 0});
-  enqueue({.paddress = UINT64_C(12288),
+  enqueue({.prow_unumber = row(2),
            .pway = 0,
            .pdata = UINT64_C(21862),
            .pmask = UINT64_C(48),
            .pmark_udirty = 0});
-  enqueue({.paddress = UINT64_C(16384),
+  enqueue({.prow_unumber = row(3),
            .pway = 1,
            .pdata = UINT64_C(30600),
            .pmask = UINT64_C(192),
            .pmark_udirty = 0});
   CHECK(count == 4 && full && !enqueue_out.pready && !empty &&
-        drain_out.pbits.paddress == UINT64_C(4096));
+        drain_out.pbits.prow_unumber == row(0));
   for (int entry = 0; entry < 4; entry++) {
-    query_address = UINT64_C(4096) + (UINT64_C(4096) * entry);
+    query_address = address(entry);
     query_mask = entry == 0   ? UINT64_C(3)
                  : entry == 1 ? UINT64_C(12)
                  : entry == 2 ? UINT64_C(48)
                               : UINT64_C(192);
-    probe_address = query_address + UINT64_C(56);
+    probe_address = query_address + 32;
     eval();
     CHECK(word_hazard && queued_word_hazard && line_hazard &&
           queued_line_hazard);
+    query_mask ^= 0xff;
+    eval();
+    CHECK(!word_hazard && !queued_word_hazard && queued_line_hazard);
+    query_mask = 0xff;
+    query_address |= alias_bit;
+    eval();
+    CHECK(!word_hazard && !queued_word_hazard && line_hazard);
+    query_address = address(entry);
+    probe_address |= alias_bit;
+    eval();
+    CHECK(word_hazard && !line_hazard && !queued_line_hazard);
+    probe_address = query_address + 32;
     query_address += 8;
     query_mask = UINT64_C(255);
     eval();
@@ -73,7 +96,7 @@ void run_case() {
         drain_out.pbits.pmark_udirty);
 
   enqueue_in = {.pvalid = 1,
-                .pbits = {.paddress = UINT64_C(20480),
+                .pbits = {.prow_unumber = row(4),
                           .pway = 0,
                           .pdata = UINT64_C(39338),
                           .pmask = UINT64_C(255),
@@ -86,17 +109,17 @@ void run_case() {
   enqueue_in = {};
   drain_in.pready = 0;
   full_drain = 0;
-  CHECK(count == 4 && full && drain_out.pbits.paddress == UINT64_C(8192) &&
+  CHECK(count == 4 && full && drain_out.pbits.prow_unumber == row(1) &&
         !urgent);
 
   drain_in.pready = 1;
-  CHECK(drain_out.pbits.paddress == UINT64_C(8192));
+  CHECK(drain_out.pbits.prow_unumber == row(1));
   tick_model();
-  CHECK(drain_out.pbits.paddress == UINT64_C(12288));
+  CHECK(drain_out.pbits.prow_unumber == row(2));
   tick_model();
-  CHECK(drain_out.pbits.paddress == UINT64_C(16384));
+  CHECK(drain_out.pbits.prow_unumber == row(3));
   tick_model();
-  CHECK(drain_out.pbits.paddress == UINT64_C(20480));
+  CHECK(drain_out.pbits.prow_unumber == row(4));
   tick_model();
   CHECK(empty && !full && count == 0 && !drain_out.pvalid);
 }

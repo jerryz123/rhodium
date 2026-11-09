@@ -99,6 +99,7 @@ sync_circuit L1DCache(xlen :: XLen,
   def data_lanes = ways * beat_bytes
   def offset_width = alignment_bits(CacheLineBytes)
   def row_offset_width = alignment_bits(beat_bytes)
+  def row_number_width = physical_width - row_offset_width
   def set_width = cache.set_width
   def way_width = cache.way_width
   def tag_width = physical_width - offset_width - set_width
@@ -137,8 +138,8 @@ sync_circuit L1DCache(xlen :: XLen,
      refill, snoop, and writeback engines retain their own CHI lifetimes. */
 
   inst arrays(CacheDCacheArrays(xlen, cache, tag_width, beat_bytes))
-  inst stores(CacheStoreBuffer(xlen, way_width, ~beat_bytes: beat_bytes))
-  def StoreBufferEntry = CacheStoreBufferEntry(xlen, way_width, beat_bytes)
+  inst stores(CacheStoreBuffer(physical_width, way_width, ~beat_bytes: beat_bytes, ~query_width: snoop_width))
+  def StoreBufferEntry = CacheStoreBufferEntry(row_number_width, way_width, beat_bytes)
   inst s2_store_candidate(ValidPipeAlwaysCapture(StoreBufferEntry, 1))
   inst s1_store_gen(StoreGen(xlen, beat_bytes))
   inst service_load_gen(LoadGen(xlen, beat_bytes))
@@ -237,7 +238,8 @@ sync_circuit L1DCache(xlen :: XLen,
   wire hit_path_available: Bool
   wire hit_under_miss: Bool
   wire store_drain: Bool
-  def store_state_write = store_drain & stores.drain.bits.mark_dirty
+  def draining_store :: CacheStoreBufferEntry(row_number_width, way_width, beat_bytes) = stores.drain.bits
+  def store_state_write = store_drain & draining_store.mark_dirty
   def snoop_pending = snoop.pending
   def snoop_lookup_start = snoop.lookup.valid
 
@@ -274,7 +276,7 @@ sync_circuit L1DCache(xlen :: XLen,
   s1_store_gen.address <== pipeline.request.bits.address
   s1_store_gen.width <== pipeline.request.bits.width
   s1_store_gen.value <== pipeline.request.bits.data[0..width]
-  stores.query_address <== pipeline.request.bits.address
+  stores.query_address <== pipeline.request.bits.address.zext(snoop_width)
   stores.query_mask <== mux(is_raw_beat(pipeline.request.bits) & !s1_store, !Bits(beat_bytes)(0), pipeline.request.bits.byte_mask)
   def s1_probe_conflict = snoop_pending & (snoop.address[6..snoop_width] === pipeline.request.bits.address.zext(snoop_width)[6..snoop_width])
   def s1_read_matches = s1_read_valid & arrays.tags.response.valid & arrays.states.response.valid & (s1_store ||| arrays.data.response.valid) & (s1_read_address[0..12] === pipeline.request.bits.address[0..12])
@@ -336,8 +338,8 @@ sync_circuit L1DCache(xlen :: XLen,
   (
     store_candidate_path
       |> filter_valid(_request => s1_outcome === CachePipelineOutcome.StoreHit)
-      |> map_valid(request => CacheStoreBufferEntry(xlen, way_width, beat_bytes)):
-        address: request.address
+      |> map_valid(request => CacheStoreBufferEntry(row_number_width, way_width, beat_bytes)):
+        row_number: request.address[row_offset_width..physical_width]
         way: s1_hit_way.index
         data: mux(is_raw_beat(request), request.data, s1_store_gen.data)
         mask: pipeline.request.bits.byte_mask
@@ -349,10 +351,12 @@ sync_circuit L1DCache(xlen :: XLen,
      Enqueues only the matching retained store candidate. A same-line probe
      revokes the ownership proof; unrelated probes do not reject this store. */
 
-  def s2_probe_conflict = snoop_pending & (snoop.address[6..snoop_width] === s2_store_candidate.egress.bits.address.zext(snoop_width)[6..snoop_width])
+  def candidate :: CacheStoreBufferEntry(row_number_width, way_width, beat_bytes) = s2_store_candidate.egress.bits
+  def candidate_line = candidate.line_number()
+  def s2_probe_conflict = snoop_pending & (snoop.address[offset_width..snoop_width] === candidate_line.zext(snoop_width - offset_width))
   pipeline.commit_ready <== s2_store_candidate.egress.valid & stores.enqueue.ready & hit_path_available & !s2_probe_conflict
   stores.enqueue.valid <== pipeline.commit & pipeline.commit_ready
-  stores.enqueue.bits <== s2_store_candidate.egress.bits
+  stores.enqueue.bits <== candidate
 
 
   /* Authorized service ingress and maintenance.
@@ -610,7 +614,7 @@ sync_circuit L1DCache(xlen :: XLen,
      Accepted snoops can proceed around queued work, preventing a Home/RN-F
      wait cycle; dirty data gathers before the lookup result is returned. */
 
-  stores.probe_address <== snoop.address[0..width]
+  stores.probe_address <== snoop.address
   snoop.cache_ready <== !s3_read_valid & !s4_result.egress.valid & !pending_mutation_valid & gather_idle & !refill_installing & !stores.queued_line_hazard
   def snoop_address = snoop.address
   def snoop_set = snoop_address[offset_width..(offset_width + set_width)]
@@ -792,11 +796,11 @@ sync_circuit L1DCache(xlen :: XLen,
   def refill_lane_mask = cache_lane_mask(cache, retained_way, beat_bytes, full_byte_mask)
   def local_mutation_lane_mask = cache_lane_mask(cache, retained_way, beat_bytes, mux(pending_zero, full_byte_mask, retained_request.byte_mask.into(Mask(beat_bytes))))
   def line_write_bytes = priority_mux(~default: refill_install_data):
-    store_drain: stores.drain.bits.data.as_vec(Bits(8))
+    store_drain: draining_store.data.as_vec(Bits(8))
     local_mutation_commit: local_store_word_data
 
-  def store_way_mask = cache_way_mask(cache, stores.drain.bits.way)
-  def store_lane_mask = cache_lane_mask(cache, stores.drain.bits.way, beat_bytes, stores.drain.bits.mask.into(Mask(beat_bytes)))
+  def store_way_mask = cache_way_mask(cache, draining_store.way)
+  def store_lane_mask = cache_lane_mask(cache, draining_store.way, beat_bytes, draining_store.mask.into(Mask(beat_bytes)))
   def repeated_line_write_bytes = for List (lane in 0..data_lanes): line_write_bytes[lane % beat_bytes]
 
   def tag_port_owner = priority_mux(~default: L1DArrayOwner.Pipeline):
@@ -845,7 +849,7 @@ sync_circuit L1DCache(xlen :: XLen,
   arrays.states.request.bits <== ReadWriteRequest(set_width, CHICacheState, ways):
     address: (
       priority_mux(~default: array_read_set):
-        store_state_write: stores.drain.bits.address[offset_width..(offset_width + set_width)]
+        store_state_write: draining_store.line_number()[0..set_width]
         install_refill ||| local_mutation_commit: retained_set
         snoop_lookup_start: snoop_set
         update_snoop_state: snoop.update.bits.address[offset_width..(offset_width + set_width)]
@@ -873,7 +877,7 @@ sync_circuit L1DCache(xlen :: XLen,
   def data_port_request = ReadWriteRequest(data_address_width, Bits(8), data_lanes):
     address: (
       priority_mux(~default: array_read_data_address):
-        store_drain: stores.drain.bits.address[row_offset_width..(offset_width + set_width)]
+        store_drain: draining_store.row_number[0..data_address_width]
         local_mutation_commit: local_mutation_address
         cache_write: refill_install_address
         gather_issue: gather_address
@@ -1026,7 +1030,7 @@ sync_circuit L1DCache(xlen :: XLen,
   def mutation_reservation_clear = local_mutation_commit & (pending_mutation_access.is_store_conditional() ||| mutation_touches_reservation)
   def snoop_reservation_clear = snoop.update.valid & (snoop.update.bits.address.align_down(CacheLineBytes) === reservation_line_address.zext(snoop_width))
   def replacement_reservation_clear = s4_path.fire() & s4_needs_refill & !s4_bypass_refill & !s4_hit & s4_victim_valid & (s4_victim_address === reservation_line_address)
-  def buffered_store_reservation_clear = stores.enqueue.fire() & (stores.enqueue.bits.address.align_down(CacheLineBytes) === reservation_line_address)
+  def buffered_store_reservation_clear = stores.enqueue.fire() & (candidate_line.zext(width - offset_width) === reservation_address[offset_width..width])
   def reservation_clear = s4_reservation_clear ||| mutation_reservation_clear ||| snoop_reservation_clear ||| replacement_reservation_clear ||| buffered_store_reservation_clear
   // Reservation lifetime follows accesses and coherence, not the fairness timer.
   // A slow SC may still succeed after probes have been allowed to proceed.

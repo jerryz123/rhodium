@@ -217,7 +217,7 @@ const Line THIRD_LINE = [] {
 
 void tick();
 void stage_pipeline_store(std::uint64_t address, std::uint64_t value,
-                          std::uint8_t size = 3);
+                          std::uint8_t size = 3, std::uint8_t expected = PIPE_STORE_HIT);
 void store_then_load(std::uint64_t store_address, std::uint64_t value,
                      std::uint64_t load_address, std::uint8_t store_size,
                      std::uint8_t load_size, std::uint8_t overlap,
@@ -292,7 +292,7 @@ void tick() {
 }
 
 void stage_pipeline_store(std::uint64_t address, std::uint64_t value,
-                          std::uint8_t size) {
+                          std::uint8_t size, std::uint8_t expected) {
   pipeline_in = {};
   pipeline_lookup_in = {.pvalid = 1,
                         .pbits = {.pbyte_umask = static_cast<uint8_t>(
@@ -318,7 +318,7 @@ void stage_pipeline_store(std::uint64_t address, std::uint64_t value,
           .pdata = value}};
   settle();
   CHECK(pipeline_out.presponse.pvalid &&
-        pipeline_out.presponse.pbits.poutcome == PIPE_STORE_HIT);
+        pipeline_out.presponse.pbits.poutcome == expected);
 }
 
 // Exercise a younger read at the WB enqueue boundary. Keep an EX read
@@ -1813,6 +1813,13 @@ void stimulus() {
     return_line(ADDRESS, LINE, UINT64_C(2));
     accept_comp_ack();
     expect_core_response(bit_slice(LINE, 0, 64), WRITEBACK_INTEGER_KIND, 1);
+    // An out-of-range alias of this owned line must never create an S2 candidate.
+    stage_pipeline_store(ADDRESS | (UINT64_C(1) << 44), STORE_DATA, 3, PIPE_ACCESS_FAULT);
+    tick();
+    pipeline_in = {};
+    settle();
+    CHECK(!pipeline_out.pcommit_uready && core_out.pdrained);
+    check_pipeline_load(ADDRESS, 1, 1, bit_slice(LINE, 0, 64));
     // A squashed store candidate has no architectural or array effect.
     stage_pipeline_store(ADDRESS, STORE_DATA);
     tick();

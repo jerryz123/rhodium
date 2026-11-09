@@ -113,6 +113,26 @@ void check_dirty_snoop_words() {
   CHECK(requests == 6);
 }
 
+void check_high_probe_with_queued_store() {
+  // CHI carries more PA bits than this RV32 cache. The dirty low line
+  // must neither supply data nor be invalidated by its high-address alias.
+  chi_in.psnoops.pvalid = 1;
+  chi_in.psnoops.pbits.popcode = 9; // SnpCleanInvalid
+  chi_in.psnoops.pbits.psrc_uid = 1;
+  chi_in.psnoops.pbits.paddress = ((UINT64_C(1) << 32) | 4096) >> 3;
+  settle();
+  CHECK(!core_out.pdrained && chi_out.psnoops.pready);
+  tick();
+  chi_in.psnoops = {};
+  for (int cycle = 0; cycle < 100 && !chi_out.prequester_uresponses.pvalid; ++cycle) {
+    CHECK(!chi_out.prequest_udata.pvalid);
+    tick();
+  }
+  CHECK(chi_out.prequester_uresponses.pvalid &&
+        chi_out.prequester_uresponses.pbits.presp == 0);
+  tick();
+}
+
 void stimulus() {
   reset = 1;
   node_id = UINT64_C(3);
@@ -330,6 +350,7 @@ void stimulus() {
         tick();
         pipeline_in = {};
         CHECK(!core_out.preservation_uvalid);
+        if (lane == 3) check_high_probe_with_queued_store();
         for (unsigned repeat_index = 0; repeat_index < (2); ++repeat_index)
           tick();
         CHECK(core_out.pdrained && responses == old_responses && requests == 6);
@@ -338,25 +359,6 @@ void stimulus() {
         expect_response(expected);
       }
 
-      // CHI carries more PA bits than this RV32 cache. The dirty low line
-      // must neither supply data nor be invalidated by its high-address alias.
-      chi_in.psnoops.pvalid = 1;
-      chi_in.psnoops.pbits.popcode = 9; // SnpCleanInvalid
-      chi_in.psnoops.pbits.psrc_uid = 1;
-      chi_in.psnoops.pbits.paddress = ((UINT64_C(1) << 32) | 4096) >> 3;
-      settle();
-      for (int cycle = 0; cycle < 100 && !chi_out.psnoops.pready; ++cycle)
-        tick();
-      CHECK(chi_out.psnoops.pready);
-      tick();
-      chi_in.psnoops = {};
-      for (int cycle = 0; cycle < 100 && !chi_out.prequester_uresponses.pvalid; ++cycle) {
-        CHECK(!chi_out.prequest_udata.pvalid);
-        tick();
-      }
-      CHECK(chi_out.prequester_uresponses.pvalid &&
-            chi_out.prequester_uresponses.pbits.presp == 0);
-      tick();
       send_request(4156, 1);
       expect_response(expected);
       CHECK(requests == 6);
