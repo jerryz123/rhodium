@@ -1,83 +1,86 @@
-// Checks captured operands, preparation latency, reset, signed products, and
-// response backpressure.
+// Checks double-width products, exact iteration latency, and replacement of a stalled response.
 // SPDX-License-Identifier: Apache-2.0
-#include "test.hpp"
+#include "wide.hpp"
 
-void issue(std::uint8_t left, std::uint8_t right, bool left_signed,
-           bool right_signed) {
-  while (!request_out.pready)
-    tick_model();
-  request_in = {.pvalid = UINT64_C(1),
-                .pbits = {left, right, {left_signed, right_signed}}};
+template <unsigned W>
+void check_multiplier(auto &request, const auto &admission, auto &sink, const auto &response) {
+  constexpr std::uint64_t sign = UINT64_C(1) << (W - 1);
+  const auto mask = low_mask(W);
+  const std::array<std::uint64_t, 8> edges = {
+      0, 1, 7, sign - 1, sign, sign + 1, mask, UINT64_C(0xfedcba9876543210) & mask};
+  const auto extend = [=](std::uint64_t operand, bool is_signed) -> uint128 {
+    return is_signed && (operand & sign) ? (uint128(operand) | ~uint128(mask)) : operand;
+  };
+  const auto result = [&]() -> uint128 {
+    if constexpr (W == 64) return wide_value(response.pbits);
+    else return response.pbits;
+  };
+
+  // Reset during an operation must discard its response and admit a fresh request.
+  request = {};
+  request.pvalid = 1;
   tick_model();
-  request_in.pvalid = UINT64_C(0);
-  request_in.pbits = {};
-}
-
-void expect_product(std::uint16_t expected) {
-  for (unsigned repeat_index = 0; repeat_index < (9); ++repeat_index) {
-    CHECK(!response_out.pvalid);
-    CHECK(!request_out.pready);
+  request = {};
+  tick_model();
+  reset = 1;
+  tick_model();
+  reset = 0;
+  for (unsigned i = 0; i <= W + 1; ++i) {
+    CHECK(admission.pready && !response.pvalid);
     tick_model();
   }
-  CHECK(response_out.pvalid && response_out.pbits == expected);
+
+  bool held = false;
+  uint128 expected = 0;
+  for (auto left : edges) {
+    for (auto right : edges) {
+      for (unsigned mode = 0; mode < 4; ++mode) {
+        const bool left_signed = mode & 2, right_signed = mode & 1;
+        request.pvalid = 1;
+        request.pbits.pleft = left;
+        request.pbits.pright = right;
+        request.pbits.pmode = {left_signed, right_signed};
+        sink.pready = 0;
+        if (held) {
+          // Offer the next request while the previous full product is stalled.
+          for (unsigned stall = 0; stall < 3; ++stall) {
+            eval();
+            CHECK(!admission.pready && response.pvalid && result() == expected);
+            tick_model();
+          }
+        }
+
+        sink.pready = 1;
+        eval();
+        CHECK(admission.pready && bool(response.pvalid) == held);
+        if (held) CHECK(result() == expected);
+        tick_model();  // Accept the new operands on the edge that consumes the old product.
+        request = {};
+        sink.pready = 0;
+        expected = (extend(left, left_signed) * extend(right, right_signed))
+                   & (~uint128(0) >> (128 - 2 * W));
+        for (unsigned cycle = 0; cycle < W + 1; ++cycle) {
+          eval();
+          CHECK(!admission.pready && !response.pvalid);
+          tick_model();
+        }
+        CHECK(response.pvalid && result() == expected);
+        held = true;
+      }
+    }
+  }
+  sink.pready = 1;
+  tick_model();
+  CHECK(!response.pvalid && admission.pready);
 }
 
 int main() {
   return run_test([] {
-    reset = UINT64_C(1);
-    request_in = {};
-    response_in = {.pready = UINT64_C(1)};
+    reset = 1;
     tick_model();
-    reset = UINT64_C(0);
-
-    issue(UINT64_C(7), UINT64_C(9), UINT64_C(0), UINT64_C(0));
-    expect_product(UINT64_C(63));
-
-    issue(UINT64_C(255), UINT64_C(255), UINT64_C(0), UINT64_C(0));
-    expect_product(UINT64_C(65025));
-
-    issue(UINT64_C(253), UINT64_C(7), UINT64_C(1), UINT64_C(0));
-    expect_product(UINT64_C(65515));
-
-    issue(UINT64_C(128), UINT64_C(255), UINT64_C(1), UINT64_C(1));
-    response_in.pready = UINT64_C(0);
-    eval();
-    expect_product(UINT64_C(128));
-    for (unsigned repeat_index = 0; repeat_index < (3); ++repeat_index) {
-      tick_model();
-      CHECK(response_out.pvalid && response_out.pbits == UINT64_C(128));
-      CHECK(!request_out.pready);
-    }
-
-    response_in.pready = UINT64_C(1);
-    eval();
-    CHECK(request_out.pready);
-    request_in = {
-        .pvalid = UINT64_C(1),
-        .pbits = {UINT64_C(255), UINT64_C(254), {UINT64_C(0), UINT64_C(1)}}};
-    tick_model();
-    request_in.pvalid = UINT64_C(0);
-    CHECK(!response_out.pvalid);
-    expect_product(UINT64_C(65026));
-
-    issue(UINT64_C(128), UINT64_C(128), UINT64_C(1), UINT64_C(1));
-    expect_product(UINT64_C(16384));
-    issue(UINT64_C(0), UINT64_C(128), UINT64_C(0), UINT64_C(1));
-    expect_product(UINT64_C(0));
-
-    issue(UINT64_C(129), UINT64_C(127), UINT64_C(1), UINT64_C(1));
-    reset = UINT64_C(1);
-    tick_model();
-    reset = UINT64_C(0);
-    for (unsigned repeat_index = 0; repeat_index < (10); ++repeat_index) {
-      CHECK(!response_out.pvalid && request_out.pready);
-      tick_model();
-    }
-    issue(UINT64_C(255), UINT64_C(255), UINT64_C(1), UINT64_C(1));
-    expect_product(UINT64_C(1));
-
-    tick_model();
-    CHECK(!response_out.pvalid && request_out.pready);
+    reset = 0;
+    check_multiplier<8>(request8_in, request8_out, response8_in, response8_out);
+    check_multiplier<32>(request32_in, request32_out, response32_in, response32_out);
+    check_multiplier<64>(request64_in, request64_out, response64_in, response64_out);
   });
 }

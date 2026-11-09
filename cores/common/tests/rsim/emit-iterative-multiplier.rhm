@@ -1,10 +1,29 @@
-#lang rhombus
-// Defines a program for the reusable eight-bit iterative multiplier fixture.
+#lang rhodium
+/* Exercises the iterative multiplier at byte, RV32, and RV64 operand widths. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("flow/main.rhdl") open
   lib("rhodium/frontend/foundation.rhm").elaborate
-  "../../multiplier.rhdl" as multiplier
+  "../../multiplier.rhdl" open
 
-def program = elaborate(multiplier.IterativeMultiplier(8))
+sync_circuit IterativeMultiplierFixture():
+  interface request8(Decoupled(MultiplierRequest(8)), ~role: consumer)
+  interface response8(Irrevocable(Bits(16)), ~role: producer)
+  interface request32(Decoupled(MultiplierRequest(32)), ~role: consumer)
+  interface response32(Irrevocable(Bits(64)), ~role: producer)
+  interface request64(Decoupled(MultiplierRequest(64)), ~role: consumer)
+  interface response64(Irrevocable(Bits(128)), ~role: producer)
+
+  inst byte(IterativeMultiplier(8))
+  inst word(IterativeMultiplier(32))
+  inst full(IterativeMultiplier(64))
+  request8 |> byte.request
+  byte.response |> response8
+  request32 |> word.request
+  word.response |> response32
+  request64 |> full.request
+  full.response |> response64
+
+def program = elaborate(IterativeMultiplierFixture())
 export program

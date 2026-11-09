@@ -36,7 +36,7 @@ fun multiplier_carry_save(width :: PosInt, a :: Bits(width), b :: Bits(width), c
 
 /*
  * Captures one request, prepares magnitudes for one cycle, then consumes one
- * multiplier bit per cycle. The double-width response stays stable under backpressure;
+ * multiplier bit per cycle. The accumulator holds the signed product under backpressure;
  * a replacement request can be accepted as the prior response is consumed.
  */
 sync_circuit IterativeMultiplier(width :: PosInt):
@@ -56,11 +56,10 @@ sync_circuit IterativeMultiplier(width :: PosInt):
   reg accumulator(Bits(product_width))
   reg negate_result(Bool)
   reg response_valid(~init: Bool(#false))
-  reg response_bits(Bits(product_width))
 
   request.ready <== !active & (!response_valid ||| response.ready)
   response.valid <== response_valid
-  response.bits <== response_bits
+  response.bits <== accumulator
 
   def request_fire = request.fire()
   def response_fire = response.fire()
@@ -72,7 +71,6 @@ sync_circuit IterativeMultiplier(width :: PosInt):
   def addend = mux(multiplier[0].into(Bool), multiplicand, Bits(product_width)(0))
   def accumulated = accumulator + addend
   def last_iteration = count === Bits(count_width)(width - 1)
-  def signed_product = mux(negate_result, -accumulated, accumulated)
 
   when request_fire:
     active <== Bool(#true)
@@ -92,7 +90,7 @@ sync_circuit IterativeMultiplier(width :: PosInt):
   elsewhen (active & last_iteration):
     active <== Bool(#false)
     response_valid <== Bool(#true)
-    response_bits <== signed_product
+    accumulator <== mux(negate_result, -accumulated, accumulated)
   elsewhen active:
     count <== count + Bits(count_width)(1)
     multiplicand <== multiplicand << 1
