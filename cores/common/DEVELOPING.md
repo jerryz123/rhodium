@@ -62,7 +62,9 @@ physical register-file ports. Named-core adapters retain service selection,
 launch/authorization timing, and architectural writeback scheduling.
 `register-file.rhdl` owns explicitly read/write-port-sized storage (two writes by default).
 Named cores wire physical ports directly and retain forwarding, same-destination
-write policy, and completion reservations. Reads are pre-edge; the storage
+write policy, and completion reservations. Only x1–x31 have storage. Each
+read port decodes bits [2:0] once across four groups of eight (x0 is a constant),
+then selects a group with bits [4:3]. Reads are pre-edge; the storage
 does not allocate ports or select architectural winners. GPR storage has no
 reset value; fixture scoreboards track written registers instead of assuming
 zero initialization. Validate retention across reset with idle writes, x0,

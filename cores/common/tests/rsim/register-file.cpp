@@ -69,6 +69,23 @@ int main() {
     addresses.fill(0);
     step();
 
+    // The first row of each eight-register group has the same low address bits.
+    addresses = {0, 8, 16, 24};
+    write_valid = {1, 1, 1};
+    write_values[0] = {8, 81};
+    write_values[1] = {16, 161};
+    write_values[2] = {24, 241};
+    step();
+    write_values[0] = {0, word_t(low_mask(width))};
+    write_values[1] = {24, 242};
+    write_values[2] = {0, 1};
+    step();
+    write_valid = {};
+    for (unsigned rotation = 0; rotation < 4; ++rotation) {
+      std::rotate(addresses.begin(), addresses.begin() + 1, addresses.end());
+      check_reads();
+    }
+
     std::mt19937_64 random(0x4a2b);
     for (unsigned cycle = 0; cycle < 3000; ++cycle) {
       for (auto &address : addresses) address = random() % 32;

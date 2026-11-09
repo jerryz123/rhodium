@@ -15,12 +15,34 @@ sync_circuit RegisterFile(xlen :: XLen, ~read_ports: read_ports :: PosInt, ~writ
   output read_data: Vec(read_ports, Bits(xlen.width))
   interface writes[write_ports](Valid(RegisterFileWrite(xlen)), ~role: consumer)
 
-  reg registers(Vec(32, Bits(xlen.width)))
-  read_data <== vec(for List (port in 0..read_ports): mux(read_addresses[port].any(), registers[read_addresses[port]], Bits(xlen.width)(0)))
-  for (port in 0..write_ports):
-    when (writes[port].valid & writes[port].bits.address.any()):
-      registers[writes[port].bits.address] <== writes[port].bits.data
+  def Word = Bits(xlen.width)
+  reg registers(Vec(31, Word))
+  def words = [Word(0)] ++ (for List (row in 0..31): registers[row])
 
+  /* Each read port shares its low-bit decode across four groups of eight.
+     The high bits select the group; x0 is a constant input to group zero. */
+
+  for (port in 0..read_ports):
+    def address = read_addresses[port]
+    def lane = one_hot(address[0..3])
+    def groups = for List (group in 0..4):
+      lane.mux(words.drop(8 * group).take(8))
+
+    read_data[port] <== vec(groups)[address[3..5]]
+
+  /* Decode writes by architectural address. Only x1 through x31 have a
+     destination, and the collision check ensures at most one writer per row. */
+
+  def write_data = for List (port in 0..write_ports): writes[port].bits.data
+  for (address in 1..32):
+    def claims = for List (port in 0..write_ports):
+      writes[port].valid & (writes[port].bits.address === Bits(5)(address))
+
+    def writer = vec(claims).into(MaybeOneHot(write_ports))
+    when (writer.valid):
+      registers[address - 1] <== writer.mux(write_data, ~default: Word(0))
+
+  for (port in 0..write_ports):
     for (other in port + 1..write_ports):
       assert(!(writes[port].valid & writes[other].valid & writes[port].bits.address.any() & (writes[port].bits.address === writes[other].bits.address)), "register_file_distinct_writes_" ++ to_string(port) ++ "_" ++ to_string(other))
 
