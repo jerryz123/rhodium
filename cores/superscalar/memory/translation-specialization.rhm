@@ -1,5 +1,5 @@
 #lang rhombus
-/* Couples each translation implementation to its architectural width, physical map, client requirements, and access policies. */
+/* Couples each translation implementation to its architectural width, physical map, and page-walk client count. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -9,13 +9,7 @@ import:
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/rtl/pma.rhdl").RiscvPhysicalMemoryMap
 
-/* Separates legacy cacheable/readable atomic service from the stricter ordinary-memory restriction. */
-enum SuperscalarAtomicPmaPolicy
-| CacheableReadable
-| OrdinaryReadable
-
-/* Supplies one coherent immutable generator argument; topology and policies belong to the implementation.
-   A specialization may expose no walker client or the existing single PTE channel. */
+/* Supplies the immutable configuration needed to build the resolver and size its physical transport. */
 interface SuperscalarTranslationSpecialization:
   extends StableCircuitParam
 
@@ -27,9 +21,6 @@ interface SuperscalarTranslationSpecialization:
   method physical_map() :: RiscvPhysicalMemoryMap
   /* Sizes the optional physical PTE contribution without allocating dormant clients. */
   method page_walk_clients() :: matching(0) || matching(1)
-  /* Defines physical atomic-service qualification independently of runtime address-translation mode. */
-  method atomic_pma_policy() :: SuperscalarAtomicPmaPolicy
 
 export:
   SuperscalarTranslationSpecialization
-  SuperscalarAtomicPmaPolicy

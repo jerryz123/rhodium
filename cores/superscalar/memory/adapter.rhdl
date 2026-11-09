@@ -1,5 +1,5 @@
 #lang rhodium
-/* Shares fixed-cycle cache access, split execution, and physical ownership using specialization-owned width, map, capabilities, and policies. */
+/* Shares fixed-cycle cache access, split execution, and physical ownership across identity and Sv39 translation. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -30,8 +30,8 @@ fun physical_client_count(translation :: SuperscalarTranslationSpecialization) :
   2 + translation.page_walk_clients()
 
 /* Preserves one EX/MEM context stage and WB-only mutation with an unbuffered translation service.
-   The specialization supplies its architectural width, physical map, client count, and access policies;
-   accepted owners never observe invalidation. */
+   The specialization supplies the architectural width, physical map, and page-walk client count.
+   Accepted owners survive invalidation. */
 sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpecialization, ~context: Context :: DataType = Bool):
   def xlen = translation.architectural_xlen()
   input state: RiscvTranslationState(xlen)
@@ -128,7 +128,7 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
   def cache_block = mem.access.is_cache_block()
   def mem_misaligned = mem.access.requires_split(mem.width, mem.address)
   def writes = mem.access.store_fault_class()
-  def atomic_service = (if translation.atomic_pma_policy() == SuperscalarAtomicPmaPolicy.OrdinaryReadable | cacheable | region.cacheable) & region.readable
+  def atomic_service = cacheable & region.readable
   def permitted = (!resolved.execute_read ||| region.executable) & cache_access_permitted(region, mem.access, ~reads: !writes, ~writes: writes, ~atomic_service: atomic_service)
   def busy = misaligned.busy ||| memory.request.valid ||| resolved.probe_busy
   def decision = classify_cache_lookup(

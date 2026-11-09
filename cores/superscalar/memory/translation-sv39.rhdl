@@ -1,5 +1,5 @@
 #lang rhodium
-/* Owns RV64 Sv39/guest translation, its physical map, walker capability, access policies, and retained lookup failures. */
+/* Implements RV64 Sv39 and guest translation with retained walk failures. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -241,7 +241,7 @@ sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: 
   walker.memory <=> pte
 
 
-/* Couples the RV64 resolver to its walker channel and translation-aware physical access policies. */
+/* Configures the RV64 resolver and its page-walk client. */
 class SuperscalarSv39Specialization(config :: RiscvHartCHIConfig, svnapot :: Boolean = #false, hypervisor :: Boolean = #true):
   implements SuperscalarTranslationSpecialization
 
@@ -259,10 +259,6 @@ class SuperscalarSv39Specialization(config :: RiscvHartCHIConfig, svnapot :: Boo
 
   /* The shared walker contributes one physical PTE client after core and split clients. */
   override method page_walk_clients() :: matching(1): 1
-
-  /* Keeps atomic service restricted to resolved ordinary, readable physical memory. */
-  override method atomic_pma_policy() :: SuperscalarAtomicPmaPolicy:
-    SuperscalarAtomicPmaPolicy.OrdinaryReadable
 
 export:
   SuperscalarSv39Translation

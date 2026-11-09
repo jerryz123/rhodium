@@ -1,5 +1,5 @@
 #lang rhodium
-/* Owns identity translation, its architectural width, physical map, client capability, and Bare access policies. */
+/* Implements identity translation, physical vector checks, and Bare prefetch qualification. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -99,7 +99,7 @@ sync_circuit SuperscalarIdentityTranslation(xlen :: XLen, config :: RiscvHartCHI
     |> map_valid(hint => hint.updated(~address: physical.address)) |> physical_prefetch
 
 
-/* Couples the identity circuit to its two-client transport shape and legacy Bare access policies. */
+/* Configures the identity resolver and its transport without a page-walk client. */
 class SuperscalarIdentitySpecialization(xlen :: XLen, config :: RiscvHartCHIConfig):
   implements SuperscalarTranslationSpecialization
 
@@ -117,10 +117,6 @@ class SuperscalarIdentitySpecialization(xlen :: XLen, config :: RiscvHartCHIConf
 
   /* Identity resolution does not issue implicit page-table memory transactions. */
   override method page_walk_clients() :: matching(0): 0
-
-  /* Preserves Bare's cacheable/readable atomic qualification without broadening the fast path. */
-  override method atomic_pma_policy() :: SuperscalarAtomicPmaPolicy:
-    SuperscalarAtomicPmaPolicy.CacheableReadable
 
 export:
   SuperscalarIdentityTranslation

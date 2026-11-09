@@ -15,7 +15,6 @@ import:
   lib("riscv/isa/hart.rhm").RiscvMmuType
   "../superscalar.rhdl".Superscalar
   "../profile.rhm".SuperscalarPipelineConfig
-  "../memory/translation-specialization.rhm" open
   "../memory/translation-identity.rhdl".SuperscalarIdentitySpecialization
   "../memory/translation-sv39.rhdl".SuperscalarSv39Specialization
   "cache-fixture.rhdl" open
@@ -31,7 +30,6 @@ check:
   sv39.architectural_xlen() ~is XLen.X64
   sv39.physical_map() ~is test_fetch_chi.physical_map
   sv39.page_walk_clients() ~is 1
-  sv39.atomic_pma_policy() ~is SuperscalarAtomicPmaPolicy.OrdinaryReadable
   sv39.same_stable_circuit_param(SuperscalarSv39Specialization(test_fetch_chi)) ~is #true
   sv39.same_stable_circuit_param(SuperscalarSv39Specialization(test_chi)) ~is #false
   sv39.same_stable_circuit_param(SuperscalarSv39Specialization(test_fetch_chi, #true)) ~is #false
@@ -43,7 +41,6 @@ for (xlen in [XLen.X32, XLen.X64]):
     identity.architectural_xlen() ~is xlen
     identity.physical_map() ~is test_fetch_chi.physical_map
     identity.page_walk_clients() ~is 0
-    identity.atomic_pma_policy() ~is SuperscalarAtomicPmaPolicy.CacheableReadable
     identity.same_stable_circuit_param(SuperscalarIdentitySpecialization(xlen, test_fetch_chi)) ~is #true
     identity.same_stable_circuit_param(SuperscalarIdentitySpecialization(xlen, test_chi)) ~is #false
     identity.same_stable_circuit_param(SuperscalarIdentitySpecialization((if xlen == XLen.X32 | XLen.X64 | XLen.X32), test_fetch_chi)) ~is #false
