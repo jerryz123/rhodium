@@ -1515,8 +1515,8 @@ configuration does not squash or refetch successors. Faults, interrupts, and
 branch recovery still suppress wrong-path configuration and descriptor admission.
 Direct CSR writes, traps, and translation/context changes retain full drain.
 
-`memory/ports.rhdl` retains fixed-stage lookup ownership and latches the selected
-split client. Ordinary responses route from the returned scalar/vector context;
+`memory/ports.rhdl` binds the [shared scalar/vector arbiter](../common/memory-arbiter.rhdl)
+to the native pipeline ports and retains the split client through its final response. Ordinary responses route from the returned scalar/vector context;
 a sixteen-entry credit counter preserves the former routing FIFO's capacity.
 Vector slot/offset/width metadata travels through memory as well, with a slot-sized
 credit counter replacing its response-owner queue. All accepted context and
@@ -1559,6 +1559,8 @@ accepted ownership live across scalar recovery until its scheduled write.
 
 ## Validation
 
+Run `superscalar-memory-ports` for scalar/vector contention, MEM and WB
+ownership, fault routing, and credit exhaustion under response backpressure.
 For memory-adapter changes, run `rv2wide-bare-memory` and `rv2wide-mmu` first.
 The Bare fixture checks exact EX/MEM timing, rejected physical offers, admission
 faults, backpressured replies surviving invalidation, split routing, and vector

@@ -8,7 +8,8 @@ memory services. The integrated entry point is
 [`Superscalar`](../superscalar.rhdl); see the [package contract](../README.md)
 and [contributor guide](../DEVELOPING.md#implementation-map).
 
-`ports.rhdl` arbitrates scalar/vector ownership. `adapter.rhdl` owns pipeline
+`ports.rhdl` uses the [shared scalar/vector arbiter](../../common/memory-arbiter.rhdl)
+for lookups and round-robin transactions, and retains split-access ownership. `adapter.rhdl` owns pipeline
 timing, qualification, and split accesses; `translation.rhdl` defines its
 translation query/result contract. The identity and Sv39 specializations pair
 their implementation with the capabilities in `translation-specialization.rhm`.

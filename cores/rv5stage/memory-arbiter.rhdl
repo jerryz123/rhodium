@@ -5,7 +5,7 @@
 import:
   "memory-context.rhdl" open
   "../common/cache/protocol.rhdl" open
-  "../common/load-store.rhdl" open
+  "../common/memory-arbiter.rhdl" open
   "../../riscv/isa/xlen.rhm" open
   lib("rhodium/std/bits.rhdl").Pow2Int
   lib("flow/main.rhdl") open
@@ -24,68 +24,28 @@ sync_circuit RV5StageMemoryArbiter(xlen :: XLen, slots :: Pow2Int):
   /* Authorized requests: admitted vector work precedes younger scalar WB.
      Return routing uses retained writeback tags, not the live arbiter choice. */
 
-  inst requests(Arbiter(PhysicalMemoryReq(xlen, RV5StageMemoryContext(slots)), 2))
-  Array(vector.request, scalar.request) <=> requests.ingress
-  requests.egress |> memory.request
-  def selected_vector = requests.chosen === Bits(1)(0)
+  def selected_vector = arbitrate_memory_transactions(
+    scalar, vector, memory,
+    ~vector_response: fun (reply :: PhysicalMemoryResp(xlen, RV5StageMemoryContext(slots))): reply.context.writeback.is(RV5StageMemoryWriteback(slots).Vector).as_bits()
+  )
   scalar.request_fault <== memory.request_fault & !selected_vector
   scalar.request_access_fault <== memory.request_access_fault & !selected_vector
   vector.request_fault <== memory.request_fault & selected_vector
   vector.request_access_fault <== memory.request_access_fault & selected_vector
-  def Array(scalar_responses, vector_responses) = memory.response |> demux_flow(2, response => response.context.writeback.is(RV5StageMemoryWriteback(slots).Vector).as_bits())
-  scalar_responses |> scalar.response
-  vector_responses |> vector.response
-  scalar.drained <== memory.drained
-  vector.drained <== memory.drained
-  scalar.reservation_valid <== memory.reservation_valid
-  vector.reservation_valid <== memory.reservation_valid
 
 
-  /* Speculative lookups: scalar precedes vector, unlike authorized requests.
-     Each caller keeps its one-cycle result owner, including a losing lookup
-     that must receive Replay rather than disappear. */
+  /* A losing lookup receives ArrayPort Replay. A selected lookup without a
+     physical response receives Slow so WB may issue the authorized request. */
 
-  inst lookups(ValidArbiter(CachePipelineReq(xlen), 2))
-  def Array(scalar_lookup, scalar_context) = scalar_pipeline.request |> fork_valid(2)
-  def Array(vector_lookup, vector_context) = vector_pipeline.request |> fork_valid(2)
-  Array(scalar_lookup, vector_lookup) <=> lookups.ingress
-  def Array(selected_lookup, selected_owner) = lookups.egress |> fork_valid(2)
-  selected_lookup |> pipeline.request
-  def lookup_vector = lookups.chosen === Bits(1)(1)
+  /* Shapes the local result for this attempt when no cache response reaches it. */
+  fun fallback(won :: Bool) :~ CachePipelineResult(xlen):
+    CachePipelineResult(xlen):
+      outcome: mux(won, CachePipelineOutcome.Slow, CachePipelineOutcome.Replay)
+      reason: CachePipelineReason.ArrayPort
+      data: Bits(xlen.width)(0)
+
+  def (lookup_vector, _) = arbitrate_memory_lookups(scalar_pipeline, vector_pipeline, pipeline, ~fallback: fallback)
   pipeline_vector <== lookup_vector
-  def scalar_result = scalar_context |> map_valid(_request => !lookup_vector) |> valid_pipe(1)
-  def vector_result = vector_context |> map_valid(_request => lookup_vector) |> valid_pipe(1)
-  def store_owner = selected_owner |> map_valid(_request => lookup_vector) |> valid_pipe(2)
-
-
-  /* One-cycle result routing and local fallback.
-     An absent physical response is Slow for the selected lookup; a losing
-     lookup receives ArrayPort Replay. Selected Flow lineage stays intact. */
-
-  def replay = CachePipelineResult(xlen):
-    outcome: CachePipelineOutcome.Replay
-    reason: CachePipelineReason.ArrayPort
-    data: Bits(xlen.width)(0)
-
-  def selected_result = mux(pipeline.response.valid, pipeline.response.bits, replay.updated(~outcome: CachePipelineOutcome.Slow))
-  def Array(scalar_return, vector_return) = pipeline.response |> fork_valid(2)
-  def scalar_bits = mux(scalar_result.bits, selected_result, replay)
-  def vector_bits = mux(vector_result.bits, selected_result, replay)
-  def scalar_selected = scalar_return |> filter_valid(_response => scalar_result.valid & scalar_result.bits) |> map_valid(_response => scalar_bits)
-  def vector_selected = vector_return |> filter_valid(_response => vector_result.valid & vector_result.bits) |> map_valid(_response => vector_bits)
-  def scalar_local = scalar_result |> filter_valid(selected => !selected ||| !pipeline.response.valid) |> map_valid(_selected => scalar_bits)
-  def vector_local = vector_result |> filter_valid(selected => !selected ||| !pipeline.response.valid) |> map_valid(_selected => vector_bits)
-  Array(scalar_selected, scalar_local) |> valid_arbiter() |> scalar_pipeline.response
-  Array(vector_selected, vector_local) |> valid_arbiter() |> vector_pipeline.response
-
-
-  /* Two-cycle store-commit ownership.
-     The retained selected lookup, not a newer live request, selects the
-     commit source and the sole caller allowed to observe commit readiness. */
-
-  pipeline.commit <== store_owner.valid & mux(store_owner.bits, vector_pipeline.commit, scalar_pipeline.commit)
-  scalar_pipeline.commit_ready <== store_owner.valid & !store_owner.bits & pipeline.commit_ready
-  vector_pipeline.commit_ready <== store_owner.valid & store_owner.bits & pipeline.commit_ready
 
 export:
   RV5StageMemoryArbiter

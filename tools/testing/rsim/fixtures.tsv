@@ -223,6 +223,7 @@ rv3wide-issue	cores-components	cores/rv3wide/tests/issue-fixture.rhdl	program	co
 rv3wide-issue-rv32	cores-components	cores/rv3wide/tests/issue-fixture.rhdl	rv32_program	cores/rv3wide/tests/rsim/issue.cpp
 rv2wide-core-vector	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-core-vector.rhm	program	cores/superscalar/tests/rsim/rv2wide-core-vector.cpp	target	rheg/runtime/rheg.cc
 rv2wide-core-vector-rv32	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-core-vector.rhm	rv32_program	cores/superscalar/tests/rsim/rv2wide-core-vector.cpp	target	rheg/runtime/rheg.cc
+superscalar-memory-ports	cores-components	cores/superscalar/tests/rsim/emit-memory-ports.rhm	program	cores/superscalar/tests/rsim/memory-ports.cpp
 rv2wide-vector-memory	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-vector-memory.rhm	program	cores/superscalar/tests/rsim/rv2wide-vector-memory.cpp
 rv2wide-vector-memory-rv32	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-vector-memory-rv32.rhm	program	cores/superscalar/tests/rsim/rv2wide-vector-memory.cpp
 rv2wide-vector	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-vector.rhm	program	cores/superscalar/tests/rsim/rv2wide-vector.cpp

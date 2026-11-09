@@ -5,6 +5,7 @@
 import:
   lib("cores/common/cosim-source.rhm").describe_cosim_signals
   "../bundles.rhdl" open
+  lib("cores/common/memory-arbiter.rhdl") open
   lib("cores/common/misaligned-access.rhdl") open
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/rtl/hypervisor.rhdl") open
@@ -34,42 +35,20 @@ sync_circuit SuperscalarMemoryPorts(xlen :: XLen, slots :: Pow2Int):
      These stage registers do not track accepted slow-memory requests. */
 
   pipeline_vector <== !scalar_pipeline.request.valid
-  Array(scalar_pipeline.request, vector_pipeline.request) |> valid_arbiter() |> pipeline.request
-  reg mem_vector(~init: Bool(#false))
-  reg wb_vector(~init: Bool(#false))
-  reg mem_valid(~init: Bool(#false))
-  reg wb_valid(~init: Bool(#false))
-  mem_vector <== pipeline_vector
-  wb_vector <== mem_vector
-  mem_valid <== pipeline.request.valid
-  wb_valid <== mem_valid
-  pipeline.response |> filter_valid(_response => mem_valid & !mem_vector) |> scalar_pipeline.response
-  pipeline.response |> filter_valid(_response => mem_valid & mem_vector) |> vector_pipeline.response
-  pipeline.commit <== wb_valid & mux(wb_vector, vector_pipeline.commit, scalar_pipeline.commit)
-  scalar_pipeline.commit_ready <== wb_valid & !wb_vector & pipeline.commit_ready
-  vector_pipeline.commit_ready <== wb_valid & wb_vector & pipeline.commit_ready
+  def (_, mem_vector) = arbitrate_memory_lookups(scalar_pipeline, vector_pipeline, pipeline)
 
 
   /* Accepted slow-memory routing travels with the completion context.
      Registered credits preserve the previous sixteen-entry admission bound. */
 
-  inst requests(RRArbiter(SuperscalarMemoryReq(xlen, xlen.width, Context), 2))
-  inst outstanding(CreditCounter(16))
-  Array(scalar_memory.request, vector_memory.request) <=> requests.ingress
-  request_vector <== requests.chosen.into(Bool)
-  requests.egress |> gate_flow(!outstanding.full) |> memory.request
-  outstanding.increment <== memory.request.fire()
+  request_vector <== arbitrate_memory_transactions(
+    scalar_memory, vector_memory, memory, ~round_robin: #true, ~capacity: 16,
+    ~vector_response: fun (reply :: MemoryResponse(Bits(xlen.width), Context)): reply.context.is(Context.Vector)
+  )
   memory.fault |> filter_valid(_fault => !request_vector) |> scalar_memory.fault
   memory.fault |> filter_valid(_fault => request_vector) |> vector_memory.fault
-  def Array(scalar_response, vector_response) = memory.response |> gate_flow(!outstanding.empty) |> demux_flow(2, response => response.context.is(Context.Vector))
-  scalar_response |> scalar_memory.response
-  vector_response |> vector_memory.response
-  outstanding.decrement <== memory.response.fire()
-
-  for (client in [scalar_memory, vector_memory]):
-    client.drained <== memory.drained & outstanding.empty
-    client.ordered_busy <== memory.ordered_busy
-    client.reservation_valid <== memory.reservation_valid
+  scalar_memory.ordered_busy <== memory.ordered_busy
+  vector_memory.ordered_busy <== memory.ordered_busy
 
 
   /* Split ownership spans the entire fragment sequence.

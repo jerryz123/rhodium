@@ -1,0 +1,92 @@
+#lang rhodium
+/* Shares fixed-cycle LSU lookup ownership and tagged scalar/vector transaction routing. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("flow/main.rhdl") open
+
+/* Gives scalar lookups priority, routes the next cycle's result, and authorizes the
+   winner's store two cycles later. A caller may supply local results for a lost
+   lookup or an absent response. Returns the live grant and the sampled MEM owner. */
+fun arbitrate_memory_lookups(scalar :: Endpoint, vector :: Endpoint, pipeline :: Endpoint,
+                             ~fallback: fallback :: maybe(Function) = #false):
+  def scalar_request = scalar.field("request")
+  def vector_request = vector.field("request")
+  def response = pipeline.field("response")
+  inst lookups(ValidArbiter(scalar_request.field("bits").type, 2))
+  def selected_vector = lookups.chosen === Bits(1)(1)
+  lookups.egress |> pipeline.field("request")
+
+
+  /* MEM and WB ownership follows the fixed lookup latency. The MEM owner bit
+     also serves the superscalar observation port, which samples it on idle cycles. */
+
+  reg mem_valid(~init: Bool(#false))
+  reg mem_vector(~init: Bool(#false))
+  reg wb_valid(~init: Bool(#false))
+  reg wb_vector(~init: Bool(#false))
+  mem_valid <== lookups.egress.valid
+  mem_vector <== !scalar_request.field("valid")
+  wb_valid <== mem_valid
+  wb_vector <== mem_vector
+  pipeline.field("commit") <== wb_valid & mux(wb_vector, vector.field("commit"), scalar.field("commit"))
+  scalar.field("commit_ready") <== wb_valid & !wb_vector & pipeline.field("commit_ready")
+  vector.field("commit_ready") <== wb_valid & wb_vector & pipeline.field("commit_ready")
+
+
+  /* A physical response follows its selected request. If every attempt requires
+     a response, retain each attempt's lineage for its locally generated result. */
+
+  def returns = response |> fork_valid(2)
+  for (client in [scalar, vector], request in [scalar_request, vector_request], lane in 0..2):
+    def winner = if lane == 0 | !mem_vector | mem_vector
+    def returned = returns[lane] |> filter_valid(_response => mem_valid & winner)
+    if fallback
+    | block:
+        def Array(lookup, attempt) = request |> fork_valid(2)
+        lookup |> lookups.ingress[lane]
+        def pending = attempt |> map_valid(_request => if lane == 0 | !selected_vector | selected_vector) |> valid_pipe(1)
+        def local = pending |> filter_valid(won => !won ||| !response.field("valid")) |> map_valid(won => fallback(won))
+        Array(returned, local) |> valid_arbiter() |> client.field("response")
+    | block:
+        request |> lookups.ingress[lane]
+        returned |> client.field("response")
+
+  values(selected_vector, mem_vector)
+
+/* Arbitrates authorized requests and routes replies by the caller's vector tag.
+   Fixed priority favors vector; round-robin starts with scalar. Optional credits
+   bound accepted work until response transfer. Admission faults use the returned live grant. */
+fun arbitrate_memory_transactions(scalar :: Endpoint, vector :: Endpoint, memory :: Endpoint,
+                                  ~vector_response: vector_response :: Function,
+                                  ~round_robin: round_robin :: Boolean = #false,
+                                  ~capacity: capacity :: maybe(PosInt) = #false):
+  def request :: Endpoint.supports(DecoupledCtrl()) = memory.field("request")
+  def response :: Endpoint.supports(DecoupledCtrl()) = memory.field("response")
+  def Request = decoupled_payload_type(request)
+  inst requests(if round_robin | RRArbiter(Request, 2) | Arbiter(Request, 2))
+  def inputs = if round_robin | Array(scalar.field("request"), vector.field("request")) | Array(vector.field("request"), scalar.field("request"))
+  inputs <=> requests.ingress
+  def (replies, drained) = if capacity
+  | block:
+      inst outstanding(CreditCounter(capacity))
+      requests.egress |> gate_flow(!outstanding.full) |> request
+      def returns = response |> gate_flow(!outstanding.empty)
+      outstanding.increment <== request.fire()
+      outstanding.decrement <== response.fire()
+      values(returns, memory.field("drained") & outstanding.empty)
+  | block:
+      requests.egress |> request
+      values(response, memory.field("drained"))
+
+  def Array(scalar_reply, vector_reply) = replies |> demux_flow(2, reply => vector_response(reply))
+  scalar_reply |> scalar.field("response")
+  vector_reply |> vector.field("response")
+  for (client in [scalar, vector]):
+    client.field("drained") <== drained
+    client.field("reservation_valid") <== memory.field("reservation_valid")
+  requests.chosen === Bits(1)(if round_robin | 1 | 0)
+
+export:
+  arbitrate_memory_lookups
+  arbitrate_memory_transactions

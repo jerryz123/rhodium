@@ -1,0 +1,10 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("riscv/isa/xlen.rhm").XLen
+  "../../memory/ports.rhdl".SuperscalarMemoryPorts
+
+def program = elaborate(SuperscalarMemoryPorts(XLen.X64, 4))
+export program

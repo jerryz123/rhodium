@@ -41,7 +41,7 @@ completion adaptation and instruction/uncached integration.
 | [`../common/register-file.rhdl`](../common/register-file.rhdl) | Shared pre-edge GPR storage, selected as 2R2W; write-to-ID bypass remains in `core.rhdl` |
 | [`vector.rhdl`](vector.rhdl) | WB macro allocation, autonomous vector execution/memory paths, and macro retirement outcomes |
 | [`integer-execution.rhdl`](integer-execution.rhdl) | Tagged shared multiply/divide services and separate scheduled/buffered product-return adapters |
-| [`memory-arbiter.rhdl`](memory-arbiter.rhdl) | Scalar/vector LSU lookup ownership, store-commit timing, transaction arbitration, and tagged response routing |
+| [`memory-arbiter.rhdl`](memory-arbiter.rhdl) | Binds the [common memory arbiter](../common/memory-arbiter.rhdl) to RV5Stage replay/slow results, vector-first admission, and writeback tags |
 | [`data-port-arbiter.rhdl`](data-port-arbiter.rhdl) | Core-first physical core/PTW arbitration, paired L1D index selection, and origin-tagged response routing before PMA/uncached routing |
 | [`vector/DEVELOPING.md`](vector/DEVELOPING.md) | Opt-in XLEN-wide Zve/V WB-launched sequencer, vector CSR state, flat register bank, SIMD packing, and LSU ownership |
 | [`fp/DEVELOPING.md`](fp/DEVELOPING.md) | Scalar FP payloads, FPR hazards, LSU bridges, and retirement adaptation over shared [`cores/common/fp/`](../common/fp/DEVELOPING.md) components |

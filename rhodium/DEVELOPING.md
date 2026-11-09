@@ -743,9 +743,10 @@ adapters. Both named vector memory adapters import `cores/common/vector/memory-c
 for writeback decisions, split retention, and completion arbitration. It imports
 vector bundles, the shared `memory-issue.rhdl` scheduler, architectural XLEN and
 exception types, public `Pow2Int`, and Flow. The scheduler owns its `VectorReplay`
-instance. `cores/rv5stage/memory-arbiter.rhdl` imports Flow for shared LSU
-arbitration and tagged response routing, plus public `std/bits.rhdl` for
-completion geometry. No memory adapter imports a cache implementation.
+instance. `cores/common/memory-arbiter.rhdl` imports Flow for fixed-cycle
+lookup ownership, request arbitration, credit accounting, and tagged response
+routing. RV5Stage and superscalar memory ports import it and supply their
+admission policies and native completion tags. No memory adapter imports a cache implementation.
 `vector/precheck.rhdl` imports vector descriptor/control types, the shared MMU
 precheck protocol, pure vector/XLEN geometry, and the public pointer-mask
 adapter. `cores/common/mmu/vector-window.rhdl` imports that MMU protocol, public RISC-V PMA
