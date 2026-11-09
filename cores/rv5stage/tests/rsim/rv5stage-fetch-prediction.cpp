@@ -39,6 +39,7 @@ std::uint64_t fault_address = UINT64_MAX;
 std::uint64_t replay_once_address = UINT64_MAX;
 constexpr auto positive_boundary = UINT64_C(1) << 38;
 constexpr auto negative_base = UINT64_C(0xffffffc000000000);
+std::uint64_t return_program_base = 0;
 
 int mode = 0, cycle = 0, previous_request = -1, previous_output = -1;
 
@@ -48,6 +49,8 @@ bool continuous_requests = 0, continuous_outputs = 0;
 std::deque<std::uint64_t> expected_requests;
 
 std::uint32_t word_at(std::uint64_t address) {
+  if (mode == 15)
+    address -= return_program_base;
   if (mode == 16)
     return 0x00010067; // JALR x0,x2,0: no direct fallback or RAS substitution.
   if (mode == 17)
@@ -259,6 +262,7 @@ void initialize(int next_mode) {
   reset = 1;
   active = 0;
   mode = next_mode;
+  return_program_base = 0;
   output_ready = 1;
   request_ready = 1;
   continuous_requests = 0;
@@ -383,6 +387,69 @@ void observe() {
 }
 
 void falling_update() {}
+
+enum class Continuation { Complete, Fault, Flush };
+unsigned tracked_action = 0, prefix_actions = 0, return_repairs = 0;
+
+extern "C" void observe_return_repair(
+    std::uint64_t rst, std::uint64_t speculate, std::uint64_t link, std::uint64_t action,
+    std::uint64_t fallback, std::uint64_t valid, std::uint64_t pc, std::uint64_t target,
+    std::uint64_t compressed, std::uint64_t predicted_action) {
+  if (rst || !tracked_action)
+    return;
+  if (speculate && link == return_program_base + 774) {
+    CHECK(action == tracked_action);
+    ++prefix_actions;
+  }
+  if (fallback) {
+    CHECK(valid && pc == return_program_base + 770 && target == return_program_base + 516 &&
+          !compressed && predicted_action == tracked_action);
+    ++return_repairs;
+  }
+}
+
+void replay_straddling_return(unsigned action, Continuation outcome) {
+  initialize(15);
+  const auto base = action == 3 ? negative_base : UINT64_C(0);
+  return_program_base = base;
+  train(base + 256, base + 512, 0, 0, 1, 1);
+  train(base + 512, base + 770, 0, 0, 1, 1);
+  // The instruction is a Pop. A stale PopPush hint must survive as predicted.
+  train(base + 770, 0x4000, 0, 0, 1, action);
+  train(base + 516, base + 260, 0, 0, 1, 2);
+  tracked_action = action;
+  prefix_actions = return_repairs = 0;
+  replay_once_address = base + 772;
+  start(base + 256);
+  while (!s2_response.replay)
+    falling();
+  request_ready = 0;
+  for (unsigned i = 0; i < 4; ++i) {
+    falling();
+    CHECK(memory_out.prequest.pvalid && memory_out.prequest.pbits.paddress == base + 772);
+    CHECK(prefix_actions == 1 && return_repairs == 0);
+  }
+  if (outcome == Continuation::Fault)
+    fault_address = base + 772;
+  output_ready = 0;
+  request_ready = 1;
+  falling();
+  while (!s2_response.pvalid)
+    falling();
+  CHECK(!s2_response.replay && s2_response.pbits.pword == word_at(base + 772));
+  if (outcome == Continuation::Flush) {
+    start(0x1200); // Cancel the retry on the edge that would publish its repair.
+    expect_pc(0x1200, 0x1204);
+  } else if (outcome == Continuation::Fault) {
+    expect_pc(base + 770, base + 774, 1, 0, base + 772);
+  } else {
+    expect_pc(base + 770, base + 516, 0, action);
+    output_ready = 1;
+    expect_pc(base + 516, base + (action == 2 ? 260 : 774), 0, 2);
+  }
+  CHECK(prefix_actions == 1 && return_repairs == unsigned(outcome == Continuation::Complete));
+  tracked_action = 0;
+}
 
 void stimulus() {
   reset = 1;
@@ -661,6 +728,10 @@ void stimulus() {
       expect_pc(UINT64_C(512), return_pc, 0, UINT64_C(1));
       expect_pc(return_pc, return_pc + 4, 1, 0, fault_address);
     }
+
+    for (unsigned action : {2u, 3u})
+      for (auto outcome : {Continuation::Complete, Continuation::Fault, Continuation::Flush})
+        replay_straddling_return(action, outcome);
 
     initialize(10);
     fallback_trace_expect(UINT64_C(2560), UINT64_C(2564), 1);

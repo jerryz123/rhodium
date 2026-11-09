@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   lib("rhodium/event/tests/rsim/trace-sites.rhm").traced_target
+  lib("cores/common/tests/rsim/port-observers.rhm").port_observer_pass
   "../../../../cores/rv5stage/profile.rhm" open
   lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../../rhodium/event/main.rhm".EventInstrumentationConfig
@@ -20,5 +21,11 @@ fun site_header(manifest):
 
   "\nnamespace test_sites {\n" ++ String.join(site_constants, "") ++ "}\n"
 
-def target = traced_target(site_header, EventInstrumentationConfig(~partial: #true))
+def target = traced_target(site_header, EventInstrumentationConfig(~partial: #true), ~before: [port_observer_pass([
+  ["RV5StageFetchScan", "observe_return_repair", [
+    ["speculate_out", "valid"], ["speculate_out", "bits", "return_address"], ["speculate_out", "bits", "action"],
+    ["fallback_out", "valid"], ["fallback_out", "bits", "valid"], ["fallback_out", "bits", "pc"],
+    ["fallback_out", "bits", "target"], ["fallback_out", "bits", "compressed"], ["fallback_out", "bits", "ras_action"]
+  ]]
+])])
 export program target

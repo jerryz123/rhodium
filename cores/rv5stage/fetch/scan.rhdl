@@ -58,7 +58,8 @@ sync_circuit RV5StageFetchScan(core_profile :: RV5StageConfig):
   reg partial_halfword(Bits(16))
   reg partial_prediction_seen(~init: Bool(#false))
   reg partial_return_repair(~init: Bool(#false))
-  reg partial_return_prediction(BranchPrediction(xlen, xlen.width))
+  reg partial_return_target(CompactPc(xlen))
+  reg partial_return_pop_push(Bool)
   def packet = ingress.bits
   when (ingress.valid):
     assert(CompactPc.fetch_fits(xlen, packet.pc), "fetch_pc_encoding")
@@ -148,8 +149,15 @@ sync_circuit RV5StageFetchScan(core_profile :: RV5StageConfig):
     return_repair: refreshed_prediction
     fallback_prediction.valid: fallback_prediction
 
+  def continued_prediction = BranchPrediction(xlen, xlen.width):
+    valid: Bool(#true)
+    pc: first_pc
+    target: partial_return_target.expanded()
+    compressed: Bool(#false)
+    ras_action: mux(partial_return_pop_push, RasAction.PopPush, RasAction.Pop)
+
   def redirect_prediction :: BranchPrediction(xlen, xlen.width) = priority_mux(~default: fallback_prediction):
-    continued_return_repair: partial_return_prediction
+    continued_return_repair: continued_prediction
     return_repair: refreshed_prediction
 
 
@@ -201,7 +209,8 @@ sync_circuit RV5StageFetchScan(core_profile :: RV5StageConfig):
     partial_halfword <== upper_half
     partial_prediction_seen <== packet.prediction.valid
     partial_return_repair <== return_repair & return_prefix
-    partial_return_prediction <== refreshed_prediction
+    partial_return_target <== CompactPc.prediction(xlen, ras_head)
+    partial_return_pop_push <== prediction.ras_action === RasAction.PopPush
 
 export:
   RV5StageScanWord

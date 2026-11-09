@@ -51,9 +51,10 @@ The scanner refreshes validated return hints from the live RAS at S2, before
 the admitted packet updates the stack. A changed warm target uses the existing
 late-redirect path, not structural-entry invalidation. For an upper-halfword
 32-bit return, publish corrected prefix metadata and apply its action once;
-retain the pending redirect until the continuation is admitted. Redirecting at
-the prefix would kill the continuation, and re-reading the stack afterward
-would use the already-popped head. Faults and epoch clears suppress that redirect.
+retain the pre-action compact target and whether the prediction was PopPush.
+On admitting the continuation, reuse its assembled instruction PC to publish
+the repair. Do not re-decode the predicted action or re-read the changed stack.
+Faults and epoch clears suppress that redirect.
 
 Keep full prediction PCs in scan, repair, and RAS feedback. Encode parcel ownership
 on the packet branch only: the scanner knows whether a newly discovered fallback
