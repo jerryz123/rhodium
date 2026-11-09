@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/common/mmu/context.rhdl").GuestMemoryReq
   rhombus/meta open
   lib("cores/common/memory-lookup.rhdl").MemoryLookupPort
   lib("rhodium/std/bits.rhdl") open
@@ -20,7 +21,7 @@ import:
   lib("cores/common/load-store.rhdl").MemoryWidth
   lib("cores/common/load-store.rhdl").memory_word_bytes
   lib("cores/common/cache/protocol.rhdl").PhysicalDataReq
-  lib("cores/common/cache/protocol.rhdl").AddressedPhysicalMemoryBeatReq
+  lib("cores/common/cache/protocol.rhdl").PhysicalMemoryReq
   lib("cores/common/cache/operation.rhdl").CacheOperation
   lib("riscv/rtl/svpbmt.rhdl").PageMemoryType
   lib("cores/common/cache-prefetch.rhdl").CachePrefetchOperation
@@ -29,8 +30,6 @@ import:
   lib("cores/common/branch-resolver.rhdl").BranchResolverControl
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/rtl/trap.rhdl").ExceptionCause
-  lib("riscv/rtl/atomic.rhdl").RiscvAtomicOperation
-  lib("riscv/rtl/zihintntl.rhdl").RiscvMemoryLocality
   lib("riscv/rtl/hypervisor.rhdl") open
   lib("cores/common/fp/bundles.rhdl") open
   lib("cores/common/fp/types.rhdl") open
@@ -804,49 +803,6 @@ bundle SuperscalarUncachedContext(Context :: DataType):
   offset: Bits(3)
   context: Context
 
-/* Carries a core-side byte address, guest access intent, and XLEN data before translation. */
-bundle SuperscalarMemoryReq(xlen :: XLen, address_width :: PosInt, Context :: DataType):
-  context: Context
-  address: Bits(address_width)
-  access: CacheOperation
-  atomic: RiscvAtomicOperation
-  width: MemoryWidth
-  data: Bits(xlen.width)
-  mask: Bits(memory_word_bytes(xlen))
-  locality: RiscvMemoryLocality
-  pbmt: PageMemoryType
-  guest_access: RiscvGuestMemoryAccess
-
-  /* Replaces an arbitration or completion context while preserving every access control. */
-  method with_context(request, To :: DataType, context :: Hardware.of(To)) :: SuperscalarMemoryReq(xlen, address_width, To):
-    SuperscalarMemoryReq(xlen, address_width, To):
-      context: context
-      address: request.address
-      access: request.access
-      atomic: request.atomic
-      width: request.width
-      data: request.data
-      mask: request.mask
-      locality: request.locality
-      pbmt: request.pbmt
-      guest_access: request.guest_access
-
-/* Crosses the translation boundary without changing access size or positioned store lanes. */
-fun superscalar_physical_request(xlen :: XLen, Context :: DataType, request :: SuperscalarMemoryReq(xlen, xlen.width, Context), address :: Bits(64), pbmt :: PageMemoryType) :~ PhysicalDataReq(xlen, Context, 64):
-  PhysicalDataReq(xlen, Context, 64):
-    pbmt: pbmt
-    memory:
-      AddressedPhysicalMemoryBeatReq(xlen, Context, xlen.width / 8, 64):
-        context: request.context
-        address: address
-        access: request.access
-        atomic: request.atomic
-        width: request.width
-        unsigned: !request.access.is_one_of(CacheOperation.LoadReserved, CacheOperation.StoreConditional, CacheOperation.Atomic)
-        data: request.data
-        byte_mask: request.mask
-        locality: request.locality
-
 /* Returns the MEM decision and raw aligned load beat; no allocation or mutation occurs here. */
 bundle SuperscalarLookupResult(xlen :: XLen):
   outcome: SuperscalarCacheOutcome
@@ -856,7 +812,7 @@ bundle SuperscalarLookupResult(xlen :: XLen):
 /* Pairs an EX lookup with next-cycle MEM feedback and a one-cycle WB store candidate. */
 expr.macro
 | 'SuperscalarPipelineAccess($xlen)':
-    'MemoryLookupPort(SuperscalarMemoryReq($xlen, ($xlen).width, Bool), SuperscalarLookupResult($xlen))'
+    'MemoryLookupPort(GuestMemoryReq(PhysicalMemoryReq($xlen, Bool)), SuperscalarLookupResult($xlen))'
 | 'SuperscalarPipelineAccess': 'fun (xlen :: XLen): SuperscalarPipelineAccess(xlen)'
 
 /* Authorizes slow transactions at WB. Admission resolves all synchronous faults;
@@ -882,9 +838,9 @@ interface SuperscalarMemoryPort(xlen :: XLen, Context :: DataType, Request :: Da
 
 /* The core offers virtual addresses and guest intent. Physical service consumes resolved PA and PBMT. */
 expr.macro
-| 'SuperscalarMemory($xlen, $address_width, $Context)':
-    'SuperscalarMemoryPort($xlen, $Context, SuperscalarMemoryReq($xlen, $address_width, $Context))'
-| 'SuperscalarMemory': 'fun (xlen :: XLen, address_width :: PosInt, Context :: DataType): SuperscalarMemory(xlen, address_width, Context)'
+| 'SuperscalarMemory($xlen, $Context)':
+    'SuperscalarMemoryPort($xlen, $Context, GuestMemoryReq(PhysicalMemoryReq($xlen, $Context)))'
+| 'SuperscalarMemory': 'fun (xlen :: XLen, Context :: DataType): SuperscalarMemory(xlen, Context)'
 
 expr.macro
 | 'SuperscalarPhysicalMemory($xlen, $Context)':
@@ -933,7 +889,6 @@ export:
   superscalar_fp_retirement
   superscalar_fp_owner
   superscalar_fp_request
-  superscalar_physical_request
   SuperscalarFpOwner
   SuperscalarFpLoad
   SuperscalarInstructionTranslation
@@ -960,7 +915,6 @@ export:
   SuperscalarBoundaryInstruction
   SuperscalarVectorLane
   SuperscalarBranchResult
-  SuperscalarMemoryReq
   SuperscalarCacheOutcome
   SuperscalarLookupResult
   SuperscalarPipelineAccess

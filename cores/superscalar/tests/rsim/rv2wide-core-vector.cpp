@@ -8,7 +8,7 @@
 #include <map>
 #include <set>
 
-using Request = std::remove_cvref_t<decltype(pipeline_out.prequest.pbits)>;
+using Request = std::remove_cvref_t<decltype(pipeline_out.prequest.pbits.pmemory)>;
 constexpr unsigned bytes = sizeof(memory_in.presponse.pbits.pdata);
 Request lookup{}, commit_owner{};
 bool lookup_live = false, proof_pending = false, slow = false, safe = true;
@@ -34,7 +34,7 @@ std::map<unsigned, unsigned> vector_fpr_write_cycles;
 std::map<std::uint64_t, std::uint64_t> retirement_values;
 struct GprCompletion { unsigned cycle, rd, instruction; std::uint64_t value; };
 std::map<std::uint64_t, std::vector<GprCompletion>> gpr_completions;
-using MemoryContext = std::remove_cvref_t<decltype(memory_out.prequest.pbits.pcontext)>;
+using MemoryContext = std::remove_cvref_t<decltype(memory_out.prequest.pbits.pmemory.pcontext)>;
 struct Response { std::uint64_t data; unsigned due; MemoryContext context; };
 std::deque<Response> responses;
 unsigned fault_count = 0;
@@ -209,7 +209,7 @@ std::uint32_t addi(unsigned rd, unsigned rs, unsigned value) {
 template <class T> void write(const T &request) {
   auto &word = words[request.paddress & ~(std::uint64_t(bytes) - 1)];
   for (unsigned byte = 0; byte < bytes; ++byte)
-    if (request.pmask >> byte & 1) {
+    if (request.pbyte_umask >> byte & 1) {
       const auto mask = UINT64_C(255) << (8 * byte);
       word = (word & ~mask) | (request.pdata & mask);
     }
@@ -257,11 +257,11 @@ void settle() {
   }
   eval();
   if (fault_at && memory_out.prequest.pvalid &&
-      memory_out.prequest.pbits.paddress == fault_at) {
+      memory_out.prequest.pbits.pmemory.paddress == fault_at) {
     memory_in.prequest.pready = 0;
     memory_in.pfault.pvalid = 1;
     memory_in.pfault.pbits.pdisposition = 1;
-    memory_in.pfault.pbits.pcause = memory_out.prequest.pbits.paccess == 2 ? 15 : 13;
+    memory_in.pfault.pbits.pcause = memory_out.prequest.pbits.pmemory.paccess == 2 ? 15 : 13;
     if (guest_fault) {
       memory_in.pfault.pbits.pcause += 8;
       memory_in.pfault.pbits.pguest = {1, 0x23450, 0};
@@ -342,8 +342,8 @@ void step() {
         CHECK(retired_pcs.contains(authorization_owner));
       if (pipeline_in.pcommit_uready) write(commit_owner);
     }
-    if (memory_out.prequest.pvalid && memory_out.prequest.pbits.paccess == 2) {
-      const auto address = memory_out.prequest.pbits.paddress;
+    if (memory_out.prequest.pvalid && memory_out.prequest.pbits.pmemory.paccess == 2) {
+      const auto address = memory_out.prequest.pbits.pmemory.paddress;
       store_offers[address].push_back(cycle);
       if (authorization_owner && address == guarded_store_address)
         CHECK(retired_pcs.contains(authorization_owner));
@@ -351,7 +351,7 @@ void step() {
     if (memory_in.presponse.pvalid && memory_out.presponse.pready)
       responses.pop_front();
     if (memory_out.prequest.pvalid && memory_in.prequest.pready) {
-      const auto request = memory_out.prequest.pbits;
+      const auto request = memory_out.prequest.pbits.pmemory;
       if (authorization_owner && request.paddress == guarded_store_address)
         CHECK(retired_pcs.contains(authorization_owner));
       if (request.paccess == 2) write(request);
@@ -364,7 +364,7 @@ void step() {
   }
   const bool proof_accept = vector_precheck_out.prequest.pvalid && vector_precheck_in.prequest.pready;
   const bool proof_return = vector_precheck_in.presponse.pvalid && vector_precheck_out.presponse.pready;
-  const auto next_lookup = pipeline_out.prequest.pbits;
+  const auto next_lookup = pipeline_out.prequest.pbits.pmemory;
   const auto next_live = pipeline_out.prequest.pvalid;
   vector_trace::sample();
   tick_model();

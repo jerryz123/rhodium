@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/common/mmu/context.rhdl").GuestMemoryReq
   lib("cores/common/fetch/fault.rhdl").FetchFault
   lib("cores/common/mmu/context.rhdl").RiscvTranslationState
   lib("cores/common/pc.rhdl") open
@@ -173,7 +174,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   wire wb_guest_access: RiscvGuestMemoryAccess
   if hypervisor
   | block:
-      (memory_ports.memory.request |> map_flow(request => RV5StageGuestMemoryReq(PhysicalMemoryReq(xlen, RV5StageMemoryContext(vector_completion_slots)))):
+      (memory_ports.memory.request |> map_flow(request => GuestMemoryReq(PhysicalMemoryReq(xlen, RV5StageMemoryContext(vector_completion_slots)))):
         memory: request
         translation: mux(request.context.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).Vector), RiscvGuestMemoryAccess.Normal, wb_guest_access)
       ) |> data_access.request
@@ -183,7 +184,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
       memory_ports.memory.request_access_fault <== data_access.request_access_fault
       memory_ports.memory.drained <== data_access.drained
       memory_ports.memory.reservation_valid <== data_access.reservation_valid
-      (memory_ports.pipeline.request |> map_valid(request => RV5StageGuestMemoryReq(CachePipelineReq(xlen))):
+      (memory_ports.pipeline.request |> map_valid(request => GuestMemoryReq(CachePipelineReq(xlen))):
         memory: request
         translation: mux(memory_ports.pipeline_vector, RiscvGuestMemoryAccess.Normal, ex_guest_access)
       ) |> pipeline_access.request

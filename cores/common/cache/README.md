@@ -116,7 +116,8 @@ completion. Callers check permission before admitting the request.
 access against the resolved memory attributes and its read or write permission.
 An execute-read fragment also requires execute permission. Each core translates
 and checks each fragment before issuing it. Both cores use `pte_read_permitted`
-for walker reads. All eight PTE bytes must lie in the same readable, cacheable,
+for walker reads and `pte_read_request` to construct the unsigned doubleword
+load with the walker PBMT and caller-supplied return context. All eight PTE bytes must lie in the same readable, cacheable,
 read-idempotent region with relaxed ordering under the effective PBMT.
 
 [`cache_prefetch_physical`](prefetch.rhdl) classifies a complete aligned cache

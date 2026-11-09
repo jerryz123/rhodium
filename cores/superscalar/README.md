@@ -84,8 +84,9 @@ RV32 uses the low 32 boot-address bits. Bare mode has no TLB or walker: PMA
 permissions, ordered IO, and independently checked misaligned fragments remain
 active. CSR `satp` reads zero and ignores mode writes in this specialization.
 
-The core-facing `SuperscalarMemory(xlen, xlen.width, Context)` carries virtual
-addresses and guest access intent. Both translation specializations produce
+The core-facing `SuperscalarMemory(xlen, Context)` carries `GuestMemoryReq(PhysicalMemoryReq(xlen, Context))`.
+Its `memory` field holds the native access with an XLEN virtual address, and
+`translation` carries guest access intent. Both translation specializations produce
 `PhysicalDataReq(xlen, Context, 64)` for the physical router. Its `memory` field
 carries the 64-bit physical address, XLEN data, byte enables, and return context.
 Its `pbmt` field qualifies the physical access. Translation preserves access
@@ -1014,8 +1015,8 @@ receives an explicit `Slow` result for WB transaction admission.
 
 LR/SC/AMO use Slow after successful checks, never a speculative load/store hit.
 
-`memory: SuperscalarMemory(xlen, xlen.width, Context)` accepts WB `Decoupled` virtual requests.
-Each request carries caller-owned `context`; the successful response is
+`memory: SuperscalarMemory(xlen, Context)` accepts WB `Decoupled` virtual requests.
+Each request carries caller-owned `memory.context`; the successful response is
 `MemoryResponse(Bits(xlen.width), Context)` with `data` and unchanged `context`.
 The memory implementation treats that context as opaque. Admission is
 non-speculative and resolves synchronous exceptions **before acceptance**:

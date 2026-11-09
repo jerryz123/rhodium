@@ -265,7 +265,7 @@ XLEN, `std/bits.rhdl`, and ready-valid. The backend and pipeline adapters import
 this common interface rather than redeclaring arithmetic/results/status ports.
 LSU contracts, admission timing, precise outcomes, and FPR scheduling policy
 remain outside the interface.
-The superscalar core, bundles, frontend, MMU, and cache adapter import
+The superscalar bundles, frontend, MMU, and cache adapter import
 `riscv/rtl/svpbmt.rhdl` for PBMT metadata and effective attributes.
 Its request bundles additionally import the
 shared `MemoryWidth`, and its decode imports the pure Zifencei, Zicboz, Zicbom,
@@ -276,8 +276,7 @@ physical map, RISC-V trap causes, `std/bits.rhdl` alignment helpers, and Flow
 pipes and forks; it imports no other named-core implementation.
 Its `instruction-assembler.rhdl` uses Flow's ShiftQueue for returned blocks,
 the shared `riscv/rtl/compressed.rhdl` expander, pure XLEN descriptors, and public
-Bits helpers. Canonical decode remains RV2Wide-owned. Its core, bundles, decoder,
-and memory adapter import `riscv/rtl/zihintntl.rhdl` for architectural locality metadata.
+Bits helpers. Canonical decode remains RV2Wide-owned. Its core, vector LSU, and decoder import `riscv/rtl/zihintntl.rhdl` for architectural locality metadata.
 Its core, bundles, decoder, memory adapter, translation services, cache adapter,
 and top consume the neutral `cores/common/cache-prefetch.rhdl` operation/request contract for
 WB-authorized, nonfaulting I/D hints. Its profile and UDB
@@ -660,8 +659,9 @@ implicit VS reads. No implementation state moves into the RISC-V architecture pa
 RV5Stage's MMU imports the shared protocol, translation projections, TLB, and
 walker directly. Shared `cores/common/mmu/vector.rhdl` imports the host result shape,
 architectural XLEN/guest-context identity, and `std/ready-valid.rhdl` for vector
-range certificates and page probes. Virtual request wrappers, arbitration,
-context revalidation, and completion ownership remain named-core policy.
+range certificates and page probes. Both families use `GuestMemoryReq` from
+`cores/common/mmu/context.rhdl` to carry guest access intent around a native
+request. Each core owns its admission, context revalidation, and completion policy.
 No compatibility module or reverse dependency is introduced.
 The translation projection, TLB probes, MMU and physical router also import
 the public Svpbmt adapter for one attribute composition/resolution policy.

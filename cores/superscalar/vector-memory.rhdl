@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/common/mmu/context.rhdl").GuestMemoryReq
   lib("cores/common/cosim-source.rhm").describe_cosim_signals
   lib("cores/common/vector/memory-controller.rhdl") open
   "bundles.rhdl" open
@@ -16,7 +17,6 @@ import:
   lib("riscv/rtl/atomic.rhdl") open
   lib("riscv/rtl/hypervisor.rhdl") open
   lib("riscv/rtl/pointer-masking.rhdl") open
-  lib("riscv/rtl/svpbmt.rhdl") open
   lib("riscv/rtl/zihintntl.rhdl") open
   lib("rhodium/std/bits.rhdl").Pow2Int
   lib("flow/main.rhdl") open
@@ -31,7 +31,7 @@ sync_circuit SuperscalarVectorMemory(xlen :: XLen, slots :: Pow2Int):
   /* Keeps the original beat and exact masked address beside its fixed-cycle lookup. */
   bundle Attempt():
     token: Token
-    request: SuperscalarMemoryReq(xlen, xlen.width, Bool)
+    request: PhysicalMemoryReq(xlen, Bool)
     misaligned: Bool
 
   /* Retains the MEM outcome until its WB authorization edge. */
@@ -41,7 +41,7 @@ sync_circuit SuperscalarVectorMemory(xlen :: XLen, slots :: Pow2Int):
 
   interface issue(Decoupled(Token), ~role: consumer)
   interface pipeline(SuperscalarPipelineAccess(xlen), ~role: requester)
-  interface memory(SuperscalarMemory(xlen, xlen.width, Context), ~role: requester)
+  interface memory(SuperscalarMemory(xlen, Context), ~role: requester)
   interface split(RiscvSplitAccess(xlen, Bool), ~role: requester)
   interface feedback(Valid(VectorCommit(xlen, slots)), ~role: producer)
   interface outcome(Valid(VectorCommit(xlen, slots)), ~role: producer)
@@ -79,20 +79,22 @@ sync_circuit SuperscalarVectorMemory(xlen :: XLen, slots :: Pow2Int):
   store_data.address <== address
   store_data.width <== width
   store_data.value <== controller.lookup.bits.store_data
-  def request = SuperscalarMemoryReq(xlen, xlen.width, Bool):
+  def request = PhysicalMemoryReq(xlen, Bool):
     context: Bool(#false)
     address: address
     access: mux(controller.lookup.bits.store, CacheOperation.Store, CacheOperation.Load)
     atomic: RiscvAtomicOperation.Swap
     width: width
     data: store_data.data
-    mask: controller.lookup.bits.byte_mask
+    byte_mask: controller.lookup.bits.byte_mask
     locality: RiscvMemoryLocality.Default
-    pbmt: PageMemoryType.PMA
-    guest_access: RiscvGuestMemoryAccess.Normal
+    unsigned: Bool(#true)
 
   def misaligned = controller.lookup.bits.enabled & !width.is_aligned(address)
-  lookup_attempt |> filter_valid(token => token.enabled & !misaligned & !controller.recover) |> map_valid(_token => request) |> pipeline.request
+  (lookup_attempt |> filter_valid(token => token.enabled & !misaligned & !controller.recover) |> map_valid(_token => GuestMemoryReq(PhysicalMemoryReq(xlen, Bool))):
+    memory: request
+    translation: RiscvGuestMemoryAccess.Normal
+  ) |> pipeline.request
 
 
   /* MEM: Pair the retained beat with the lookup result.
@@ -146,23 +148,16 @@ sync_circuit SuperscalarVectorMemory(xlen :: XLen, slots :: Pow2Int):
   def store_commit = store_hit & !memory.ordered_busy
   pipeline.commit <== store_commit
   (ordinary_request |> filter_valid(_decision => ordinary & !outstanding.full & !memory.ordered_busy) |> map_valid(decision):
-    def request :: SuperscalarMemoryReq(xlen, xlen.width, Bool) = decision.attempt.request
+    def request :: PhysicalMemoryReq(xlen, Bool) = decision.attempt.request
     def owner = SuperscalarVectorMemoryOwner(xlen, slots):
       tag: decision.attempt.token.completion_tag
       offset: request.address[0..index_width(xlen.width / 8)]
       width: request.width
-    request.with_context(Context, Context.Vector(owner))
+    GuestMemoryReq(PhysicalMemoryReq(xlen, Context)):
+      memory: request.with_address_context(request.address, Context.Vector(owner))
+      translation: RiscvGuestMemoryAccess.Normal
   ) |> offer_decoupled() |> memory.request
-  (split_request |> filter_valid(_decision => split_attempt & !memory.ordered_busy & controller.split_capacity) |> map_valid(decision => PhysicalMemoryReq(xlen, Bool)):
-    address: decision.attempt.request.address
-    access: decision.attempt.request.access
-    atomic: decision.attempt.request.atomic
-    width: decision.attempt.request.width
-    unsigned: Bool(#true)
-    data: decision.attempt.token.store_data
-    byte_mask: decision.attempt.request.mask
-    context: Bool(#false)
-    locality: decision.attempt.request.locality
+  (split_request |> filter_valid(_decision => split_attempt & !memory.ordered_busy & controller.split_capacity) |> map_valid(decision => decision.attempt.request.updated(~data: decision.attempt.token.store_data))
   ) |> offer_decoupled() |> split.request
   split_capture <== split.request.fire()
 

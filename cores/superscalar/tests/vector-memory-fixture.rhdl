@@ -65,8 +65,8 @@ sync_circuit SuperscalarVectorMemoryFixture(xlen :: XLen, slots :: Pow2Int):
   issue_ready <== dut.issue.ready
   lookup <== dut.pipeline.request.valid
   lookup_physical <== dut.pipeline_physical
-  lookup_address <== dut.pipeline.request.bits.address
-  lookup_store <== dut.pipeline.request.bits.data
+  lookup_address <== dut.pipeline.request.bits.memory.address
+  lookup_store <== dut.pipeline.request.bits.memory.data
   dut.pipeline.response.valid <== lookup_valid
   dut.pipeline.response.bits <== SuperscalarLookupResult(xlen):
     outcome: lookup_outcome
@@ -84,8 +84,8 @@ sync_circuit SuperscalarVectorMemoryFixture(xlen :: XLen, slots :: Pow2Int):
     guest: literal(RiscvGuestFault(), 0)
 
   dut.memory.response.valid <== response_valid
-  inst response_context(Queue(dut.memory.request.bits.context.type, slots))
-  inject_interface(Valid(dut.memory.request.bits.context.type), ~valid: dut.memory.request.fire(), ~bits: dut.memory.request.bits.context) |> offer_decoupled() |> response_context.ingress
+  inst response_context(Queue(dut.memory.request.bits.memory.context.type, slots))
+  inject_interface(Valid(dut.memory.request.bits.memory.context.type), ~valid: dut.memory.request.fire(), ~bits: dut.memory.request.bits.memory.context) |> offer_decoupled() |> response_context.ingress
   dut.memory.response.bits.data <== response_data
   dut.memory.response.bits.context <== response_context.egress.bits
   response_context.egress.ready <== dut.memory.response.fire()
@@ -94,9 +94,9 @@ sync_circuit SuperscalarVectorMemoryFixture(xlen :: XLen, slots :: Pow2Int):
   dut.memory.reservation_valid <== Bool(#false)
   requested <== dut.memory.request.valid
   request_physical <== dut.request_physical
-  request_address <== dut.memory.request.bits.address
-  request_store <== dut.memory.request.bits.data
-  request_mask <== dut.memory.request.bits.mask
+  request_address <== dut.memory.request.bits.memory.address
+  request_store <== dut.memory.request.bits.memory.data
+  request_mask <== dut.memory.request.bits.memory.byte_mask
   response_ready <== dut.memory.response.ready
   dut.split.request.ready <== split_ready
   dut.split.response.valid <== split_valid

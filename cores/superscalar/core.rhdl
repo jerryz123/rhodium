@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/common/mmu/context.rhdl").GuestMemoryReq
   lib("cores/common/fetch/fault.rhdl") open
   lib("cores/common/mmu/context.rhdl").RiscvTranslationState
   lib("cores/common/pc.rhdl") open
@@ -79,7 +80,6 @@ import:
   lib("rhodium/std/scoreboard.rhdl") open
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
-  lib("riscv/rtl/svpbmt.rhdl").PageMemoryType
   lib("riscv/rtl/pointer-masking.rhdl") open
 
 /* Tracks one nonreplayable WB owner from older-work drain through service completion. */
@@ -129,7 +129,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   interface ras_resolution(Valid(RasResolution(xlen)), ~role: producer)
   interface history_commit(Valid(SuperscalarHistoryCommit(issue_width)), ~role: producer)
   interface history_restore(Valid(Bits(10)), ~role: producer)
-  interface memory(SuperscalarMemory(xlen, xlen.width, SuperscalarMemoryContext(xlen, profile.vector_completion_slots)), ~role: requester)
+  interface memory(SuperscalarMemory(xlen, SuperscalarMemoryContext(xlen, profile.vector_completion_slots)), ~role: requester)
   interface split(RiscvSplitAccess(xlen, Bool), ~role: requester)
   output split_guest_access: RiscvGuestMemoryAccess
   interface pipeline(SuperscalarPipelineAccess(xlen), ~role: requester)
@@ -1094,17 +1094,19 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   ex_store.value <== ex_lookup.operands.right
   ex_store.width <== ex_lookup.memory.width
   scalar_pipeline.request.valid <== ex_valid[service_index(ex_memory_lane)] & ex_lookup.memory_active & (ex_lookup.resolution.disposition === SuperscalarDisposition.Continue) & !rr_squash
-  scalar_pipeline.request.bits <== SuperscalarMemoryReq(xlen, xlen.width, Bool):
-    context: Bool(#false)
-    guest_access: ex_lookup.guest_access
-    address: ex_lookup.address
-    access: ex_lookup.memory.access
-    atomic: ex_lookup.memory.atomic
-    width: ex_lookup.memory.width
-    data: mux(ex_lookup.memory.access.is_store(), ex_store.data, ex_lookup.operands.right)
-    mask: ex_store.mask.as_bits()
-    locality: RiscvMemoryLocality.Default
-    pbmt: PageMemoryType.PMA
+  scalar_pipeline.request.bits <== GuestMemoryReq(PhysicalMemoryReq(xlen, Bool)):
+    translation: ex_lookup.guest_access
+    memory:
+      PhysicalMemoryReq(xlen, Bool):
+        context: Bool(#false)
+        address: ex_lookup.address
+        access: ex_lookup.memory.access
+        atomic: ex_lookup.memory.atomic
+        width: ex_lookup.memory.width
+        data: mux(ex_lookup.memory.access.is_store(), ex_store.data, ex_lookup.operands.right)
+        locality: RiscvMemoryLocality.Default
+        byte_mask: ex_store.mask.as_bits()
+        unsigned: !ex_lookup.memory.access.is_one_of(CacheOperation.LoadReserved, CacheOperation.StoreConditional, CacheOperation.Atomic)
 
   describe_interface_selection((for List (lane in 0..issue_width): ex_memory_lane === Bits(2)(lane)), ~name: "lookup")
   describe_interface_contract((for Array (lane in 0..issue_width): ex_paths[lane][2]), scalar_pipeline.request, "lookup-lane", ~trace_model: interface_trace_selection(~name: "lookup"))
@@ -1619,17 +1621,19 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     width: wb_memory.memory.width
     unsigned: wb_memory.memory.unsigned
 
-  scalar_memory.request.bits <== SuperscalarMemoryReq(xlen, xlen.width, SuperscalarMemoryContext(xlen, vector_slots)):
-    context: mux(wb_management, SuperscalarMemoryContext(xlen, vector_slots).Management(), SuperscalarMemoryContext(xlen, vector_slots).Scalar(wb_memory_owner))
-    guest_access: wb_request_guest
-    address: wb_request_address
-    access: wb_request_memory.access
-    atomic: wb_request_memory.atomic
-    width: wb_request_memory.width
-    data: mux(wb_request_memory.access.is_store(), wb_store.data, wb_request_data)
-    mask: wb_store.mask.as_bits()
-    locality: mux(wb_request_memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store), wb_memory_locality, RiscvMemoryLocality.Default)
-    pbmt: PageMemoryType.PMA
+  scalar_memory.request.bits <== GuestMemoryReq(PhysicalMemoryReq(xlen, SuperscalarMemoryContext(xlen, vector_slots))):
+    translation: wb_request_guest
+    memory:
+      PhysicalMemoryReq(xlen, SuperscalarMemoryContext(xlen, vector_slots)):
+        context: mux(wb_management, SuperscalarMemoryContext(xlen, vector_slots).Management(), SuperscalarMemoryContext(xlen, vector_slots).Scalar(wb_memory_owner))
+        address: wb_request_address
+        access: wb_request_memory.access
+        atomic: wb_request_memory.atomic
+        width: wb_request_memory.width
+        data: mux(wb_request_memory.access.is_store(), wb_store.data, wb_request_data)
+        locality: mux(wb_request_memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store), wb_memory_locality, RiscvMemoryLocality.Default)
+        byte_mask: wb_store.mask.as_bits()
+        unsigned: !wb_request_memory.access.is_one_of(CacheOperation.LoadReserved, CacheOperation.StoreConditional, CacheOperation.Atomic)
 
   scalar_pipeline.commit <== wb_store_hit & !wb_memory_blocked
   // The physical service's drain may depend on today's admission. Sample a

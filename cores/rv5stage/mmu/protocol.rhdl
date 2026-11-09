@@ -8,16 +8,10 @@ import:
   "../../common/cache/protocol.rhdl" open
   "../../common/misaligned-access.rhdl".RiscvSplitResult
   "../../../riscv/isa/xlen.rhm" open
-  "../../../riscv/rtl/hypervisor.rhdl" open
+  "../../common/mmu/context.rhdl".GuestMemoryReq
   "../memory-context.rhdl" open
   lib("rhodium/std/bits.rhdl").Pow2Int
   lib("rhodium/std/ready-valid.rhdl") open
-
-/* Wraps a virtual memory request with captured guest-access intent, consumed before cache
-   dispatch. */
-bundle RV5StageGuestMemoryReq(T):
-  memory: T
-  translation: RiscvGuestMemoryAccess
 
 /* Carries authorized guest-aware virtual requests, fault indications, and tagged completions. */
 interface RV5StageGuestDataAccess(xlen :: XLen, slots :: Pow2Int):
@@ -25,7 +19,7 @@ interface RV5StageGuestDataAccess(xlen :: XLen, slots :: Pow2Int):
   role responder
   provider requester
   requester -> responder:
-    request: Decoupled(RV5StageGuestMemoryReq(PhysicalMemoryReq(xlen, RV5StageMemoryContext(slots))))
+    request: Decoupled(GuestMemoryReq(PhysicalMemoryReq(xlen, RV5StageMemoryContext(slots))))
 
   responder -> requester:
     request_fault: Bool
@@ -37,11 +31,10 @@ interface RV5StageGuestDataAccess(xlen :: XLen, slots :: Pow2Int):
 /* Carries speculative guest-aware lookups with separate WB store authorization. */
 expr.macro
 | 'RV5StageGuestPipelineAccess($xlen)':
-    'MemoryLookupPort(RV5StageGuestMemoryReq(CachePipelineReq($xlen)), CachePipelineResult($xlen))'
+    'MemoryLookupPort(GuestMemoryReq(CachePipelineReq($xlen)), CachePipelineResult($xlen))'
 | 'RV5StageGuestPipelineAccess': 'fun (xlen :: XLen): RV5StageGuestPipelineAccess(xlen)'
 
 export:
   RiscvSplitResult
-  RV5StageGuestMemoryReq
   RV5StageGuestDataAccess
   RV5StageGuestPipelineAccess

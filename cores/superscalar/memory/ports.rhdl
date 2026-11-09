@@ -3,8 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/common/mmu/context.rhdl").GuestMemoryReq
   lib("cores/common/cosim-source.rhm").describe_cosim_signals
   "../bundles.rhdl" open
+  lib("cores/common/cache/protocol.rhdl").PhysicalMemoryReq
   lib("cores/common/memory-arbiter.rhdl") open
   lib("cores/common/misaligned-access.rhdl") open
   lib("riscv/isa/xlen.rhm").XLen
@@ -19,9 +21,9 @@ sync_circuit SuperscalarMemoryPorts(xlen :: XLen, slots :: Pow2Int):
   interface scalar_pipeline(SuperscalarPipelineAccess(xlen), ~role: responder)
   interface vector_pipeline(SuperscalarPipelineAccess(xlen), ~role: responder)
   interface pipeline(SuperscalarPipelineAccess(xlen), ~role: requester)
-  interface scalar_memory(SuperscalarMemory(xlen, xlen.width, Context), ~role: responder)
-  interface vector_memory(SuperscalarMemory(xlen, xlen.width, Context), ~role: responder)
-  interface memory(SuperscalarMemory(xlen, xlen.width, Context), ~role: requester)
+  interface scalar_memory(SuperscalarMemory(xlen, Context), ~role: responder)
+  interface vector_memory(SuperscalarMemory(xlen, Context), ~role: responder)
+  interface memory(SuperscalarMemory(xlen, Context), ~role: requester)
   interface scalar_split(RiscvSplitAccess(xlen, Bool), ~role: responder)
   interface vector_split(RiscvSplitAccess(xlen, Bool), ~role: responder)
   interface split(RiscvSplitAccess(xlen, Bool), ~role: requester)
@@ -40,7 +42,7 @@ sync_circuit SuperscalarMemoryPorts(xlen :: XLen, slots :: Pow2Int):
     data: Bits(xlen.width)(0)
     guest: literal(RiscvGuestFault(), 0)
   def (_, mem_vector) = arbitrate_memory_lookups(
-    SuperscalarMemoryReq(xlen, xlen.width, Bool), SuperscalarLookupResult(xlen), scalar_pipeline, vector_pipeline, pipeline, ~slow: slow
+    GuestMemoryReq(PhysicalMemoryReq(xlen, Bool)), SuperscalarLookupResult(xlen), scalar_pipeline, vector_pipeline, pipeline, ~slow: slow
   )
 
 

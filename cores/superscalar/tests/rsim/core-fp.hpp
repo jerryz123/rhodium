@@ -8,7 +8,7 @@ const auto &memory_stage(unsigned i) {
 }
 const auto &retired(unsigned i) { return i ? retired_1_out : retired_0_out; }
 constexpr unsigned xlen = 8 * sizeof(memory_in.presponse.pbits.pdata);
-std::remove_cvref_t<decltype(memory_out.prequest.pbits.pcontext)> load_context{};
+std::remove_cvref_t<decltype(memory_out.prequest.pbits.pmemory.pcontext)> load_context{};
 constexpr unsigned native_precision = xlen == 32 ? 0 : 1;
 constexpr unsigned native_width = xlen == 32 ? 2 : 3;
 int cycles = 0, commits = 0, expected_traps = 0, traps = 0, fp_pairs = 0, redirects = 0;
@@ -52,14 +52,14 @@ void observe() {
   defer(pipeline_in.presponse.pvalid, pipeline_out.prequest.pvalid);
   defer(pipeline_in.presponse.pbits.poutcome,
         slow_load                                  ? UINT64_C(0)
-        : pipeline_out.prequest.pbits.paccess == 1 ? UINT64_C(1)
+        : pipeline_out.prequest.pbits.pmemory.paccess == 1 ? UINT64_C(1)
                                                    : UINT64_C(2));
   defer(pipeline_in.presponse.pbits.pdata, load_data);
   if (pipeline_out.prequest.pvalid &&
-      pipeline_out.prequest.pbits.paccess == 2) {
-    stored_data = pipeline_out.prequest.pbits.pdata;
-    stored_mask = pipeline_out.prequest.pbits.pmask;
-    stored_width = pipeline_out.prequest.pbits.pwidth;
+      pipeline_out.prequest.pbits.pmemory.paccess == 2) {
+    stored_data = pipeline_out.prequest.pbits.pmemory.pdata;
+    stored_mask = pipeline_out.prequest.pbits.pmemory.pbyte_umask;
+    stored_width = pipeline_out.prequest.pbits.pmemory.pwidth;
   }
   if (pipeline_out.pcommit)
     stores++;
@@ -73,10 +73,10 @@ void observe() {
   if (split_in.presponse.pvalid)
     defer(pending_split, 0);
   if (memory_out.prequest.pvalid && memory_in.prequest.pready) {
-    CHECK(slow_load && memory_out.prequest.pbits.paccess == 1);
-    CHECK(memory_out.prequest.pbits.plocality == expected_locality);
+    CHECK(slow_load && memory_out.prequest.pbits.pmemory.paccess == 1);
+    CHECK(memory_out.prequest.pbits.pmemory.plocality == expected_locality);
     defer(pending_load, 1);
-    defer(load_context, memory_out.prequest.pbits.pcontext);
+    defer(load_context, memory_out.prequest.pbits.pmemory.pcontext);
     response_due = cycles + 12;
   }
   if (memory_in.presponse.pvalid && memory_out.presponse.pready)

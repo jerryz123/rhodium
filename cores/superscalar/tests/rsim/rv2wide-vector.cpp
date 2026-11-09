@@ -3,11 +3,11 @@
 #include <deque>
 #include <map>
 
-using Request = std::remove_cvref_t<decltype(pipeline_out.prequest.pbits)>;
+using Request = std::remove_cvref_t<decltype(pipeline_out.prequest.pbits.pmemory)>;
 Request lookup_owner{}, commit_owner{};
 bool lookup_live = false;
 std::map<std::uint64_t, std::uint64_t> words;
-using MemoryContext = std::remove_cvref_t<decltype(memory_out.prequest.pbits.pcontext)>;
+using MemoryContext = std::remove_cvref_t<decltype(memory_out.prequest.pbits.pmemory.pcontext)>;
 struct Response { std::uint64_t data; unsigned due; MemoryContext context; };
 std::deque<Response> responses;
 std::deque<unsigned> scalar_bookings;
@@ -24,7 +24,7 @@ std::uint32_t vector_insn(unsigned funct6, unsigned vs2, unsigned vs1,
 template <class T> void write_word(const T &request) {
   auto &value = words[request.paddress & ~UINT64_C(7)];
   for (unsigned byte = 0; byte < 8; ++byte)
-    if ((request.pmask >> byte) & 1) {
+    if ((request.pbyte_umask >> byte) & 1) {
       const auto mask = UINT64_C(255) << (byte * 8);
       value = (value & ~mask) | (request.pdata & mask);
     }
@@ -72,14 +72,14 @@ void step() {
     if (memory_in.presponse.pvalid && memory_out.presponse.pready)
       responses.pop_front();
     if (memory_out.prequest.pvalid && memory_in.prequest.pready) {
-      const auto request = memory_out.prequest.pbits;
+      const auto request = memory_out.prequest.pbits.pmemory;
       if (request.paccess == 2)
         write_word(request);
       responses.push_back({words[request.paddress & ~UINT64_C(7)], cycle + response_delay, request.pcontext});
     }
     CHECK(!split_out.prequest.pvalid);
   }
-  const auto next_owner = pipeline_out.prequest.pbits;
+  const auto next_owner = pipeline_out.prequest.pbits.pmemory;
   const bool next_live = pipeline_out.prequest.pvalid;
   if (lookup_live && replay_budget)
     --replay_budget;

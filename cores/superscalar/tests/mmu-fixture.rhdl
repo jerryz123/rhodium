@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/common/mmu/context.rhdl").GuestMemoryReq
   lib("cores/common/mmu/context.rhdl").RiscvTranslationState
   lib("riscv/rtl/trap.rhdl").ExceptionCause
   lib("riscv/rtl/hypervisor.rhdl") open
@@ -102,17 +103,19 @@ sync_circuit SuperscalarMmuFixture(~bare: bare :: Boolean = #false):
   fetch_resolution <== mmu.instruction.resolution
   fetch_physical <== mmu.instruction.address
   fetch_pbmt <== mmu.instruction.pbmt
-  def request = SuperscalarMemoryReq(XLen.X64, 64, Bool):
-    context: Bool(#false)
-    guest_access: guest_access
-    address: address
-    access: access
-    atomic: RiscvAtomicOperation.Swap
-    width: MemoryWidth.Double
-    data: Bits(64)(0)
-    mask: Bits(8)(0xff)
-    locality: locality
-    pbmt: PageMemoryType.PMA
+  def request = GuestMemoryReq(PhysicalMemoryReq(XLen.X64, Bool)):
+    translation: guest_access
+    memory:
+      PhysicalMemoryReq(XLen.X64, Bool):
+        context: Bool(#false)
+        address: address
+        access: access
+        atomic: RiscvAtomicOperation.Swap
+        width: MemoryWidth.Double
+        data: Bits(64)(0)
+        locality: locality
+        byte_mask: Bits(8)(0xff)
+        unsigned: !access.is_one_of(CacheOperation.LoadReserved, CacheOperation.StoreConditional, CacheOperation.Atomic)
 
   mmu.pipeline.request.valid <== ex_valid
   mmu.pipeline.request.bits <== request

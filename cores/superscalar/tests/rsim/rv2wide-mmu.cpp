@@ -472,6 +472,7 @@ int main() {
     fence();
     fetch_valid = 1;
     wait_request(UINT64_C(0x10000));
+    CHECK(physical_access == 1 && physical_mask == 0xff && physical_data == 0);
     physical_ready = 1;
     tick_model();
     falling();

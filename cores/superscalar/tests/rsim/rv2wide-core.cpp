@@ -48,7 +48,7 @@ using retirement_t = std::remove_cvref_t<decltype(retired_0_out.pbits)>;
 using redirect_t = std::remove_cvref_t<decltype(redirect_out.pbits)>;
 using resolution_t = std::remove_cvref_t<decltype(resolution_0_in.pbits)>;
 using split_result_t = std::remove_cvref_t<decltype(split_in.presponse.pbits)>;
-using memory_req_t = std::remove_cvref_t<decltype(memory_out.prequest.pbits)>;
+using memory_req_t = std::remove_cvref_t<decltype(memory_out.prequest.pbits.pmemory)>;
 using lookup_flow_t = std::remove_cvref_t<decltype(pipeline_in.presponse)>;
 using prefetch_t = std::remove_cvref_t<decltype(prefetch_out.pbits)>;
 auto &resolution(unsigned i) { return i ? resolution_1_in : resolution_0_in; }
@@ -86,11 +86,11 @@ int pause_commits = 0, pause_dual = 0, pause_cycle = 0;
 bool saw_repacked = 0;
 
 lookup_flow_t lookup_response;
-std::remove_cvref_t<decltype(pipeline_out.prequest.pbits)> lookup_request, store_candidate;
+std::remove_cvref_t<decltype(pipeline_out.prequest.pbits.pmemory)> lookup_request, store_candidate;
 Queue<memory_req_t> expected_requests;
 Queue<retirement_t> expected_completions, response_owners;
 std::uint64_t response_data[16];
-std::remove_cvref_t<decltype(memory_out.prequest.pbits.pcontext)> response_context[16];
+std::remove_cvref_t<decltype(memory_out.prequest.pbits.pmemory.pcontext)> response_context[16];
 int response_due[16], response_read = 0, response_write = 0, response_count = 0;
 std::uint8_t memory_bytes[4096], model_bytes[4096];
 bool block_requests = 0, block_stores = 0, hold_responses = 0;
@@ -241,7 +241,7 @@ void expect_memory(std::uint64_t address, std::uint8_t write_access, int bytes,
   item.paccess = write_access ? 2 : 1;
   item.pwidth = ((std::countr_zero(unsigned(bytes))) & low_mask(2));
   for (int b = 0; b < bytes; b++) {
-    sv_slice(item.pmask, int(sv_slice(address, 0, 3)) + b, 1) = 1;
+    sv_slice(item.pbyte_umask, int(sv_slice(address, 0, 3)) + b, 1) = 1;
     sv_slice(item.pdata, (int(sv_slice(address, 0, 3)) + b) * 8, 8) =
         sv_slice(value, b * 8, 8);
   }
@@ -254,13 +254,15 @@ template <class T> void check_request(const T &actual) {
   want = expected_requests.take();
   CHECK(actual.paddress == want.paddress && actual.paccess == want.paccess &&
         actual.pwidth == want.pwidth && actual.plocality == want.plocality &&
-        (want.paccess >= 6 || actual.pmask == want.pmask));
+        (want.paccess >= 6 || actual.pbyte_umask == want.pbyte_umask));
+  if (want.paccess == 1 || want.paccess == 3)
+    CHECK(actual.punsigned == (want.paccess == 1));  // Raw load beat or architectural LR value.
   if (want.paccess == 6)
     for (int b = 0; b < 64; b++)
       defer(memory_bytes[int(actual.paddress & ~UINT64_C(0x3f)) + b], 0);
   if (want.paccess == 2) {
     for (int b = 0; b < 8; b++) {
-      if (sv_slice(want.pmask, b, 1)) {
+      if (sv_slice(want.pbyte_umask, b, 1)) {
         CHECK(sv_slice(actual.pdata, b * 8, 8) ==
               sv_slice(want.pdata, b * 8, 8));
         defer(
@@ -568,7 +570,7 @@ void expect_instruction(std::uint64_t pc, std::uint32_t word) {
         request.paccess = 3;
         request.pwidth = ((f3)&low_mask(2));
         for (int i = 0; i < bytes; i++) {
-          sv_slice(request.pmask, int(sv_slice(a, 0, 3)) + i, 1) = 1;
+          sv_slice(request.pbyte_umask, int(sv_slice(a, 0, 3)) + i, 1) = 1;
           sv_slice(value, i * 8, 8) = model_bytes[int(a) + i];
         }
         if (bytes == 4)
@@ -5097,16 +5099,16 @@ void drive() {
     split_in.presponse.pbits = split_reply;
     memory_in.pfault.pvalid =
         memory_out.prequest.pvalid && inject_memory_fault &&
-        memory_out.prequest.pbits.paddress == fault_address;
+        memory_out.prequest.pbits.pmemory.paddress == fault_address;
     memory_in.pfault.pbits = {.pdisposition = UINT64_C(1),
                               .pcause =
-                                  static_cast<uint8_t>((memory_out.prequest.pbits.paccess == 2 ||
-                                   memory_out.prequest.pbits.paccess == 4 ||
-                                   memory_out.prequest.pbits.paccess == 5 ||
-                                   memory_out.prequest.pbits.paccess == 6 ||
-                                   memory_out.prequest.pbits.paccess == 7 ||
-                                   memory_out.prequest.pbits.paccess == 8 ||
-                                   memory_out.prequest.pbits.paccess == 9)
+                                  static_cast<uint8_t>((memory_out.prequest.pbits.pmemory.paccess == 2 ||
+                                   memory_out.prequest.pbits.pmemory.paccess == 4 ||
+                                   memory_out.prequest.pbits.pmemory.paccess == 5 ||
+                                   memory_out.prequest.pbits.pmemory.paccess == 6 ||
+                                   memory_out.prequest.pbits.pmemory.paccess == 7 ||
+                                   memory_out.prequest.pbits.pmemory.paccess == 8 ||
+                                   memory_out.prequest.pbits.pmemory.paccess == 9)
                                       ? UINT64_C(7)
                                       : UINT64_C(5)),
                               .pvalue = fault_address};
@@ -5290,15 +5292,15 @@ void observe() {
       defer(lookup_response.pvalid, pipeline_out.prequest.pvalid);
       if (pipeline_out.prequest.pvalid)
         lookups++;
-      defer(lookup_request, pipeline_out.prequest.pbits);
+      defer(lookup_request, pipeline_out.prequest.pbits.pmemory);
       defer(lookup_response.pbits.poutcome,
             lookup_mode == 1
-                ? (pipeline_out.prequest.pbits.paccess == 2 ? UINT64_C(2)
+                ? (pipeline_out.prequest.pbits.pmemory.paccess == 2 ? UINT64_C(2)
                                                             : UINT64_C(1))
                 : ((lookup_mode)&low_mask(3)));
       for (int b = 0; b < 8; b++)
         defer(sv_slice(lookup_response.pbits.pdata, b * 8, 8),
-              memory_bytes[int(sv_slice(pipeline_out.prequest.pbits.paddress, 3,
+              memory_bytes[int(sv_slice(pipeline_out.prequest.pbits.pmemory.paddress, 3,
                                         (11) - (3) + 1)) *
                                8 +
                            b]);
@@ -5310,25 +5312,25 @@ void observe() {
       }
       if (push_response) {
         std::uint64_t beat;
-        check_request(memory_out.prequest.pbits);
+        check_request(memory_out.prequest.pbits.pmemory);
         for (int b = 0; b < 8; b++)
           sv_slice(beat, b * 8, 8) =
-              memory_bytes[int(sv_slice(memory_out.prequest.pbits.paddress, 3,
+              memory_bytes[int(sv_slice(memory_out.prequest.pbits.pmemory.paddress, 3,
                                         (11) - (3) + 1)) *
                                8 +
                            b];
-        if (memory_out.prequest.pbits.paccess == 3 &&
-            memory_out.prequest.pbits.pwidth == 2) {
-          beat = beat >> (8 * int(sv_slice(memory_out.prequest.pbits.paddress,
+        if (memory_out.prequest.pbits.pmemory.paccess == 3 &&
+            memory_out.prequest.pbits.pmemory.pwidth == 2) {
+          beat = beat >> (8 * int(sv_slice(memory_out.prequest.pbits.pmemory.paddress,
                                            0, (2) - (0) + 1)));
           beat = sign_extend(beat, 32);
         }
         defer(response_data[response_write], beat);
-        defer(response_context[response_write], memory_out.prequest.pbits.pcontext);
+        defer(response_context[response_write], memory_out.prequest.pbits.pmemory.pcontext);
         defer(response_management[response_write],
-              (memory_out.prequest.pbits.paccess == 7 ||
-               memory_out.prequest.pbits.paccess == 8 ||
-               memory_out.prequest.pbits.paccess == 9));
+              (memory_out.prequest.pbits.pmemory.paccess == 7 ||
+               memory_out.prequest.pbits.pmemory.paccess == 8 ||
+               memory_out.prequest.pbits.pmemory.paccess == 9));
         defer(response_due[response_write], cycles + configured_delay);
         defer(response_write, (response_write + 1) % 16);
         requests++;

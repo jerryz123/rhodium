@@ -100,7 +100,7 @@ for (xlen in [XLen.X32, XLen.X64]):
     hint.packed_width() ~is pc_width + 4 // Valid, length, and RAS action.
     completed.field("identity").type.packed_width() ~is pc_width + 32
     completed.packed_width() ~is pc_width + xlen.width + 38
-    execution.find_output("memory_out").type.field("request").type.field("bits").type.field("context").type ~is execution.find_input("memory_in").type.field("response").type.field("bits").type.field("context").type
+    execution.find_output("memory_out").type.field("request").type.field("bits").type.field("memory").type.field("context").type ~is execution.find_input("memory_in").type.field("response").type.field("bits").type.field("context").type
     multiply.find_input("issue_in").type.field("bits").type.packed_width() ~is 2 * xlen.width + 3 // Signedness pair and high-half select.
     multiply.find_input("authorize_in").type.field("bits").type.packed_width() ~is pc_width + 32 + 5 + 2
 
@@ -138,6 +138,6 @@ for (xlen in [XLen.X32, XLen.X64]):
     retired.field("fetched").type.field("pc").type.packed_width() ~is pc_width
     core.find_input("start_in").type.field("bits").type.width ~is 64
     memory.find_input("state").type.field("satp").type.width ~is xlen.width
-    execution.find_output("memory_out").type.field("request").type.field("bits").type.field("address").type.width ~is xlen.width
+    execution.find_output("memory_out").type.field("request").type.field("bits").type.field("memory").type.field("address").type.width ~is xlen.width
     memory.find_output("physical_memory_out").type.field("request").type.field("bits").type.field("memory").type.field("address").type.width ~is 64
     design.modules.filter(~keep: fun (module_def): module_def.name == "RiscvTranslationWalker").length() ~is 0

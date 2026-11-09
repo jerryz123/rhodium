@@ -13,6 +13,12 @@ import:
   lib("riscv/isa/csr.rhm") open
   lib("riscv/isa/sv39.rhm").Sv39Mode
 
+/* Wraps a virtual memory request with captured guest-access intent, consumed before cache
+   dispatch. */
+bundle GuestMemoryReq(T :: DataType):
+  memory: T
+  translation: RiscvGuestMemoryAccess
+
 /* Carries live committed CSR controls without capturing an instruction or defining invalidation.
    Guest state is zero when H is disabled; callers own pointer-mask capture and prefetch cancellation. */
 bundle RiscvTranslationState(xlen :: XLen):
@@ -73,4 +79,4 @@ class RiscvTlbLookupBuilder(host_sv39 :: Bool, root_ppn :: Bits(44), sum :: Bool
     riscv_translation_lookup(address, access, privilege, host_sv39 & (privilege =/= PrivilegeMode.Machine),
                              root_ppn, sum, mxr, pbmte, guest, guest_state)
 
-export RiscvTranslationState riscv_translation_lookup RiscvTlbLookupBuilder
+export GuestMemoryReq RiscvTranslationState riscv_translation_lookup RiscvTlbLookupBuilder

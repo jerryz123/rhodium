@@ -872,7 +872,7 @@ and interrupt draining.
 
 Explicit guest loads/stores carry `RiscvGuestMemoryAccess` from ID through WB.
 Only the hypervisor specialization wraps virtual pipeline and transaction
-requests with `RV5StageGuestMemoryReq`; the MMU consumes that intent before
+requests with the shared `GuestMemoryReq`; the MMU consumes that intent before
 physical admission. Keep HU/V legality in ID and capture it with the instruction;
 SPVP chooses translation privilege without changing live execution state. HLVX
 retains the load fault class and unsigned result, with a separate execute-read

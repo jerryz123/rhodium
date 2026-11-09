@@ -50,8 +50,8 @@ Keep fixed 64-bit fetch blocks, boot/time inputs, and CHI transport separate
 from architectural width. The shared uncached engine remains 64-bit so it can
 return one complete fetch block; scalar IO is explicitly widened/narrowed at
 the cache adapter, preserving its exact access size and byte offset.
-Build the shared `PhysicalDataReq` at the translation boundary with
-`superscalar_physical_request`. Core VAs are XLEN. The physical request keeps
+At the translation boundary, pair the native request with its resolved physical
+address and PBMT in `PhysicalDataReq`. Core VAs are XLEN. The physical request keeps
 64 address bits through PMA and IO routing, including on RV32. The transport
 adds its client tag to `memory.context` and carries the resolved PBMT alongside
 the transaction.

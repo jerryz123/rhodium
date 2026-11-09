@@ -16,10 +16,10 @@ int main() {
     // A contested fixed-cycle lookup has one physical winner and a local Slow for the loser.
     scalar_pipeline_in.prequest.pvalid = 1;
     vector_pipeline_in.prequest.pvalid = 1;
-    scalar_pipeline_in.prequest.pbits.paddress = 0x100;
-    vector_pipeline_in.prequest.pbits.paddress = 0x200;
+    scalar_pipeline_in.prequest.pbits.pmemory.paddress = 0x100;
+    vector_pipeline_in.prequest.pbits.pmemory.paddress = 0x200;
     eval();
-    CHECK(!pipeline_vector && pipeline_out.prequest.pbits.paddress == 0x100);
+    CHECK(!pipeline_vector && pipeline_out.prequest.pbits.pmemory.paddress == 0x100);
     tick_model();
     pipeline_in.presponse.pvalid = 1;
     pipeline_in.presponse.pbits.poutcome = 2;
@@ -31,7 +31,7 @@ int main() {
     }
     scalar_pipeline_in.prequest.pvalid = 0;
     eval();
-    CHECK(pipeline_vector && pipeline_out.prequest.pbits.paddress == 0x200);
+    CHECK(pipeline_vector && pipeline_out.prequest.pbits.pmemory.paddress == 0x200);
     tick_model();
     vector_pipeline_in.prequest.pvalid = 0;
     pipeline_in.presponse.pvalid = 0;
@@ -58,7 +58,7 @@ int main() {
     scalar_pipeline_in.prequest.pvalid = vector_pipeline_in.prequest.pvalid = 1;
     for (unsigned accepted = 0; accepted < 16; ++accepted) {
       eval();
-      CHECK(!pipeline_vector && pipeline_out.prequest.pbits.paddress == 0x100);
+      CHECK(!pipeline_vector && pipeline_out.prequest.pbits.pmemory.paddress == 0x100);
       if (accepted)
         CHECK(vector_pipeline_out.presponse.pvalid && vector_pipeline_out.presponse.pbits.poutcome == 0);
       CHECK(memory_out.prequest.pvalid && request_vector == (accepted % 2));

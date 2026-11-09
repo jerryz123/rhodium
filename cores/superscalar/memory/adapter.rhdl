@@ -20,7 +20,6 @@ import:
   lib("riscv/rtl/hypervisor.rhdl") open
   lib("riscv/rtl/pointer-masking.rhdl").apply_pointer_mask
   lib("riscv/rtl/svpbmt.rhdl") open
-  lib("riscv/rtl/zihintntl.rhdl") open
   lib("cores/common/mmu/translation.rhdl").RiscvTranslationFault
   lib("cores/common/mmu/vector.rhdl") open
   lib("flow/main.rhdl") open
@@ -45,7 +44,7 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
   interface physical_prefetch(Valid(CachePrefetchReq(64)), ~role: producer)
   interface instruction(SuperscalarInstructionTranslation(xlen), ~role: responder)
   interface pipeline(SuperscalarPipelineAccess(xlen), ~role: responder)
-  interface memory(SuperscalarMemory(xlen, xlen.width, Context), ~role: responder)
+  interface memory(SuperscalarMemory(xlen, Context), ~role: responder)
   interface split(RiscvSplitAccess(xlen, Bool), ~role: responder)
   interface pipeline_lookup(Valid(CachePipelineReq(xlen)), ~role: producer)
   interface physical_pipeline(CachePipelineAccess(xlen), ~role: requester)
@@ -77,46 +76,40 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
   def resolved :: SuperscalarAddressResolution() = resolve.result
   def split_fault_address = apply_pointer_mask(xlen, misaligned.fault_address, resolved.split_mask)
   misaligned.completion |> map_valid(result => result.updated(~fault_address: apply_pointer_mask(xlen, result.fault_address, resolved.split_mask))) |> split.response
-  def split_request = misaligned.request |> map_flow(fragment => SuperscalarMemoryReq(xlen, xlen.width, Bool)):
-    context: Bool(#false)
-    guest_access: if translation.split_access_policy() == SuperscalarSplitAccessPolicy.PreserveGuest | split_mode | RiscvGuestMemoryAccess.Normal
-    address: fragment.address
-    access: fragment.access
-    atomic: fragment.atomic
-    width: fragment.width
-    data: fragment.data
-    mask: fragment.byte_mask
-    locality: fragment.locality
-    pbmt: PageMemoryType.PMA
+  def split_request = misaligned.request
+  def split_guest = if translation.split_access_policy() == SuperscalarSplitAccessPolicy.PreserveGuest | split_mode | RiscvGuestMemoryAccess.Normal
 
 
   /* EX indexes immediately; exactly one context register carries that token into MEM. */
 
   /* Shapes an aligned native-word cache access without changing architectural size or store positioning. */
-  fun cache_request(request :: SuperscalarMemoryReq(xlen, xlen.width, Bool), address :: Bits(xlen.width)) :~ CachePipelineReq(xlen):
+  fun cache_request(request :: PhysicalMemoryReq(xlen, Bool), address :: Bits(xlen.width)) :~ CachePipelineReq(xlen):
     CachePipelineReq(xlen):
       address: address.align_down(bytes)
-      byte_mask: request.mask
+      byte_mask: request.byte_mask
       access: request.access
       width: if xlen == XLen.X32 | MemoryWidth.Word | MemoryWidth.Double
       unsigned: Bool(#true)
       data: request.data
 
   def Array(index, context) = pipeline.request |> fork_valid(2)
-  index |> map_valid(request => cache_request(request, request.address)) |> pipeline_lookup
+  index |> map_valid(request => cache_request(request.memory, request.memory.address)) |> pipeline_lookup
   def mem_request = context |> valid_pipe(1)
-  def mem :: SuperscalarMemoryReq(xlen, xlen.width, Bool) = mem_request.bits
-  def committed :: SuperscalarMemoryReq(xlen, xlen.width, Context) = memory.request.bits
-  def data_request :: SuperscalarMemoryReq(xlen, xlen.width, Bool) = priority_mux(~default: mem):
+  def mem :: PhysicalMemoryReq(xlen, Bool) = mem_request.bits.memory
+  def committed :: PhysicalMemoryReq(xlen, Context) = memory.request.bits.memory
+  def data_request :: PhysicalMemoryReq(xlen, Bool) = priority_mux(~default: mem):
     split_request.valid: split_request.bits
-    memory.request.valid: committed.with_context(Bool, Bool(#false))
+    memory.request.valid: committed.with_address_context(committed.address, Bool(#false))
+  def guest_access = priority_mux(~default: mem_request.bits.translation):
+    split_request.valid: split_guest
+    memory.request.valid: memory.request.bits.translation
 
   resolve.query <== SuperscalarTranslationQuery(xlen):
     address: mux(split_request.valid, split_fault_address, data_request.address)
     mem_address: mem.address
-    wb_address: memory.request.bits.address
+    wb_address: committed.address
     access: data_request.access
-    guest_access: data_request.guest_access
+    guest_access: guest_access
     split_access: split_mode
     mem_valid: mem_request.valid
     wb_valid: memory.request.valid
@@ -140,7 +133,7 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
   def permitted = (!resolved.execute_read ||| region.executable) & cache_access_permitted(region, mem.access, ~reads: !writes, ~writes: writes, ~atomic_service: atomic_service)
   def busy = misaligned.busy ||| memory.request.valid ||| resolved.probe_busy
   def speculative_ok = !busy & !mem_misaligned & data_ok & permitted & cacheable & !atomic_request & !cache_block & !physical_memory.ordered_busy
-  mem_request |> filter_valid(_request => speculative_ok) |> map_valid(request => cache_request(request, resolved.address[0..xlen.width])) |> physical_pipeline.request
+  mem_request |> filter_valid(_request => speculative_ok) |> map_valid(request => cache_request(request.memory, resolved.address[0..xlen.width])) |> physical_pipeline.request
   def cache_outcome = mux_lookup(physical_pipeline.response.bits.outcome, ~default: SuperscalarCacheOutcome.Replay):
     CachePipelineOutcome.Slow: SuperscalarCacheOutcome.Slow
     CachePipelineOutcome.LoadHit: SuperscalarCacheOutcome.LoadHit
@@ -171,7 +164,12 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
 
   inst transport(SuperscalarMemoryTransport(xlen, physical_client_count(translation), Context))
   transport.physical <=> physical_memory
-  memory.request |> gate_flow(data_ok & !misaligned.busy & (!resolved.execute_read ||| region.executable)) |> map_flow(request => superscalar_physical_request(xlen, Context, request, resolved.address, resolved.pbmt)) |> transport.request[0]
+  (memory.request |> gate_flow(data_ok & !misaligned.busy & (!resolved.execute_read ||| region.executable)) |> map_flow(request):
+    def native :: PhysicalMemoryReq(xlen, Context) = request.memory
+    PhysicalDataReq(xlen, Context, 64):
+      memory: native.with_address_context(resolved.address, native.context)
+      pbmt: resolved.pbmt
+  ) |> transport.request[0]
   transport.response[0] |> memory.response
 
   def fragment_address = resolved.address.align_down(bytes)
@@ -179,9 +177,11 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
     physical_map, fragment_address, bytes, resolved.pbmt,
     ~write: data_request.access.store_fault_class(), ~execute_read: resolved.execute_read
   )
-  (split_request |> gate_flow(data_ok & fragment_permitted) |> map_flow(request):
-    def fragment :: SuperscalarMemoryReq(xlen, xlen.width, Bool) = request
-    superscalar_physical_request(xlen, Context, fragment.with_context(Context, dont_care(Context)), fragment_address, resolved.pbmt)
+  (split_request |> gate_flow(data_ok & fragment_permitted) |> map_flow(fragment):
+    def native :: PhysicalMemoryReq(xlen, Bool) = fragment
+    PhysicalDataReq(xlen, Context, 64):
+      memory: native.with_address_context(fragment_address, dont_care(Context))
+      pbmt: resolved.pbmt
   ) |> transport.request[1]
   (transport.response[1] |> map_flow(reply => PhysicalMemoryResp(xlen, Bool)):
     data: reply.data
@@ -200,7 +200,7 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
     guest: resolved.guest
     disposition: SuperscalarDisposition.Fault
     cause: core_fault_cause
-    value: memory.request.bits.address
+    value: committed.address
 
   misaligned.request_guest <== RiscvGuestException():
     page_fault: resolved.fault === RiscvTranslationFault.GuestPageFault
@@ -214,19 +214,7 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
   | block:
       def pte_permitted = pte_read_permitted(physical_map, resolve.pte.request.bits.address, resolve.pte.request.bits.pbmt)
       transport.request[2].valid <== resolve.pte.request.valid & pte_permitted
-      transport.request[2].bits <== PhysicalDataReq(xlen, Context, 64):
-        pbmt: resolve.pte.request.bits.pbmt
-        memory:
-          AddressedPhysicalMemoryBeatReq(xlen, Context, bytes, 64):
-            context: dont_care(Context)
-            address: resolve.pte.request.bits.address
-            access: CacheOperation.Load
-            atomic: dont_care(memory.request.bits.atomic.type)
-            width: MemoryWidth.Double
-            unsigned: Bool(#true)
-            data: Bits(xlen.width)(0)
-            byte_mask: Bits(bytes)(2 ** bytes - 1)
-            locality: RiscvMemoryLocality.Default
+      transport.request[2].bits <== pte_read_request(xlen, resolve.pte.request.bits.address, resolve.pte.request.bits.pbmt, dont_care(Context))
 
       def pte_fault = (resolve.pte.request.valid & !pte_permitted) ||| transport.fault[2].valid
       resolve.pte.request.ready <== transport.request[2].ready ||| pte_fault
@@ -249,7 +237,7 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
     "fragment_valid": transport.request[1].fire(),
     "fragment_address": fragment_address,
     "fragment_virtual": split_fault_address,
-    "fragment_mask": split_request.bits.mask,
+    "fragment_mask": split_request.bits.byte_mask,
     "fragment_data": split_request.bits.data,
     "fragment_response": transport.response[1].fire(),
     "fragment_response_data": transport.response[1].bits.data

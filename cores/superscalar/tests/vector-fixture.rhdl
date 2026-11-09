@@ -20,7 +20,7 @@ sync_circuit SuperscalarVectorFixture():
   input(vl, vtype, scalar, pc): Bits(64)
   input(request_valid, certificate_valid, precheck_safe): Bool
   interface pipeline(SuperscalarPipelineAccess(xlen), ~role: requester)
-  interface memory(SuperscalarMemory(xlen, 64, SuperscalarMemoryContext(xlen, 4)), ~role: requester)
+  interface memory(SuperscalarMemory(xlen, SuperscalarMemoryContext(xlen, 4)), ~role: requester)
   interface split(RiscvSplitAccess(xlen, Bool), ~role: requester)
   output(request_ready, active, sequencing, loads_pending, stores_pending, checking, released, done): Bool
   output(outcome_valid, fault_start_valid): Bool

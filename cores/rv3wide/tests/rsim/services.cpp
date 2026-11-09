@@ -3,7 +3,7 @@
 #include <map>
 #include <deque>
 
-using Request = std::remove_cvref_t<decltype(pipeline_out.prequest.pbits)>;
+using Request = std::remove_cvref_t<decltype(pipeline_out.prequest.pbits.pmemory)>;
 Request lookup{}, commit_owner{};
 bool lookup_valid = false, slow = false, accepting = true, proof = false;
 bool split_active = false, split_fault = false;
@@ -13,7 +13,7 @@ std::map<std::uint64_t, std::uint64_t> words, values;
 std::map<std::uint64_t, std::uint32_t> original_instructions;
 std::map<std::uint64_t, unsigned> lanes, training, training_cycle;
 std::array<std::uint64_t, 32> gprs{};
-using MemoryContext = std::remove_cvref_t<decltype(memory_out.prequest.pbits.pcontext)>;
+using MemoryContext = std::remove_cvref_t<decltype(memory_out.prequest.pbits.pmemory.pcontext)>;
 struct Response { std::uint64_t first; unsigned second; MemoryContext context; };
 std::deque<Response> responses;
 unsigned cycle = 0, stores = 0, requests = 0, triples = 0, paired_returns = 0;
@@ -37,7 +37,7 @@ const auto &retired(unsigned lane) {
 template <class T> void store(const T &r) {
   auto &word = words[r.paddress & ~UINT64_C(7)];
   for (unsigned byte = 0; byte < 8; ++byte)
-    if (r.pmask & (1u << byte)) {
+    if (r.pbyte_umask & (1u << byte)) {
       const auto mask = UINT64_C(255) << (8 * byte);
       word = (word & ~mask) | (r.pdata & mask);
     }
@@ -106,7 +106,7 @@ void step() {
     if (memory_in.presponse.pvalid && memory_out.presponse.pready) responses.pop_front();
     if (memory_out.prequest.pvalid && accepting) {
       ++requests;
-      const auto &r = memory_out.prequest.pbits;
+      const auto &r = memory_out.prequest.pbits.pmemory;
       if (r.paccess == 2) store(r);
       responses.push_back({words[r.paddress & ~UINT64_C(7)], cycle + 8, r.pcontext});
     }
@@ -133,7 +133,7 @@ void step() {
   const bool next_proof = (proof && !vector_precheck_out.presponse.pready) ||
       (vector_precheck_out.prequest.pvalid && vector_precheck_in.prequest.pready);
   commit_owner = lookup;
-  lookup = pipeline_out.prequest.pbits;
+  lookup = pipeline_out.prequest.pbits.pmemory;
   lookup_valid = pipeline_out.prequest.pvalid;
   tick_model();
   proof = next_proof;

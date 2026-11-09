@@ -82,6 +82,17 @@ bundle AddressedPhysicalMemoryBeatReq(xlen :: XLen, Context :: DataType, beat_by
   context: Context
   locality: RiscvMemoryLocality
 
+  /* Rebinds address width and return context while preserving the access and byte lanes. */
+  method with_address_context(request, address :: Bits, context :: Hardware.packable) :: AddressedPhysicalMemoryBeatReq(xlen, context.type, beat_bytes, address.type.packed_width()):
+    def To = AddressedPhysicalMemoryBeatReq(xlen, context.type, beat_bytes, address.type.packed_width())
+    def empty :: AddressedPhysicalMemoryBeatReq(xlen, context.type, beat_bytes, address.type.packed_width()) = literal(To, 0)
+    def result = empty.updated(
+      ~address: address, ~byte_mask: request.byte_mask, ~context: context,
+      ~access: request.access, ~atomic: request.atomic, ~width: request.width,
+      ~unsigned: request.unsigned, ~data: request.data, ~locality: request.locality
+    )
+    if beat_bytes > xlen.width / 8 | result.updated(~raw_beat: request.raw_beat) | result
+
 /* Returns completion status and load data with the caller's context unchanged. */
 bundle PhysicalMemoryBeatResp(xlen :: XLen, Context :: DataType, beat_bytes :: Pow2Int = xlen.width / 8):
   // Management retains retirement context for delayed faults. Other current
@@ -105,20 +116,26 @@ bundle PhysicalDataReq(xlen :: XLen, Context :: DataType, address_width :: PosIn
 
   /* Replaces the return context when arbitration adds a client tag, preserving the original access. */
   method with_context(request, To :: DataType, context :: Hardware.of(To)) :: PhysicalDataReq(xlen, To, address_width):
-    def access = request.memory
+    def access :: AddressedPhysicalMemoryBeatReq(xlen, Context, memory_word_bytes(xlen), address_width) = request.memory
     PhysicalDataReq(xlen, To, address_width):
       pbmt: request.pbmt
-      memory:
-        AddressedPhysicalMemoryBeatReq(xlen, To, xlen.width / 8, address_width):
-          address: access.address
-          byte_mask: access.byte_mask
-          access: access.access
-          atomic: access.atomic
-          width: access.width
-          unsigned: access.unsigned
-          data: access.data
-          context: context
-          locality: access.locality
+      memory: access.with_address_context(access.address, context)
+
+/* Builds an eight-byte page-table read with the walker's resolved PA, PBMT, and return tag. */
+fun pte_read_request(xlen :: XLen, address :: Bits, pbmt :: PageMemoryType, context :: Hardware.packable) :~ PhysicalDataReq(xlen, context.type, address.type.packed_width()):
+  PhysicalDataReq(xlen, context.type, address.type.packed_width()):
+    pbmt: pbmt
+    memory:
+      AddressedPhysicalMemoryBeatReq(xlen, context.type, memory_word_bytes(xlen), address.type.packed_width()):
+        address: address
+        byte_mask: !Bits(memory_word_bytes(xlen))(0)
+        access: CacheOperation.Load
+        atomic: RiscvAtomicOperation.Swap
+        width: MemoryWidth.Double
+        unsigned: Bool(#true)
+        data: Bits(xlen.width)(0)
+        context: context
+        locality: RiscvMemoryLocality.Default
 
 /* Exposes authorized request admission, preacceptance faults, tagged completion, drain, and
    reservation. */
@@ -164,6 +181,7 @@ export:
   PhysicalMemoryBeatReq
   AddressedPhysicalMemoryBeatReq
   PhysicalDataReq
+  pte_read_request
   PhysicalMemoryReq
   PhysicalMemoryBeatResp
   PhysicalMemoryResp

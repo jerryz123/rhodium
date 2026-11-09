@@ -35,8 +35,6 @@ import:
   "../../../riscv/rtl/sv39.rhdl" open
   "../../../riscv/rtl/svpbmt.rhdl" open
   "../../../riscv/rtl/privilege.rhdl".effective_data_context
-  "../../../riscv/rtl/atomic.rhdl" open
-  "../../../riscv/rtl/zihintntl.rhdl" open
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
@@ -538,20 +536,10 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def walker_memory_request = pte_offer |> filter_flow(_pte => pte_permitted) |> trace_event("mmu/pte.request")
   walker_lookup.valid <== walker_memory_request.valid
   walker_lookup.bits <== if xlen == XLen.X32 | walker_memory_request.bits.address[0..32] | walker_memory_request.bits.address
-  def walker_data_request = walker_memory_request |> map_flow(pte => PhysicalMemoryReq(xlen, RV5StageMemoryContext(vector_completion_slots))):
-    byte_mask: !Bits(width / 8)(0)
-    address: if xlen == XLen.X32 | pte.address[0..32] | pte.address
-    access: CacheOperation.Load
-    atomic: RiscvAtomicOperation.Swap
-    width: MemoryWidth.Double
-    unsigned: Bool(#true)
-    data: Bits(width)(0)
-    context:
-      RV5StageMemoryContext(vector_completion_slots):
-        writeback: RV5StageMemoryWriteback(vector_completion_slots).Ack
-        origin: RV5StageDataOrigin.Walker
-
-    locality: RiscvMemoryLocality.Default
+  def walker_context = RV5StageMemoryContext(vector_completion_slots):
+    writeback: RV5StageMemoryWriteback(vector_completion_slots).Ack
+    origin: RV5StageDataOrigin.Walker
+  walker_memory_request |> map_flow(pte => pte_read_request(xlen, pte.address[0..width], pte.pbmt, walker_context)) |> walker_memory.request
 
   core_lookup.valid <== data_demand
   core_lookup.bits <== data_request.address
@@ -559,11 +547,6 @@ sync_circuit RV5StageMmu(xlen :: XLen,
     memory: request
     pbmt: mux(data_pinned, PageMemoryType.PMA, dtlb_result.pbmt)
   ) |> core_memory.request
-
-  (walker_data_request |> map_flow(request => RV5StagePhysicalDataReq(xlen, vector_completion_slots)):
-    memory: request
-    pbmt: walker_memory_request.bits.pbmt
-  ) |> walker_memory.request
 
   walker.memory.request_access_fault <== (pte_offer.valid & !pte_permitted) ||| (walker_memory.request.valid & walker_memory.request_access_fault)
   def walker_memory_request_fire = walker_memory.request.fire()
