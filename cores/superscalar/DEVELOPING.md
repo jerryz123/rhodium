@@ -793,10 +793,14 @@ block. S2 keeps its three-bit byte offset; for a continuation the offset is
 six and the source block is the preceding block, modulo the predictor width.
 Reconstruct the source once for direction correction, invalidation, and
 assembly. Never reconstruct the target relative to the block: the original
-BTB/RAS destination survives backpressure and replay. Keep the requested PC
-and complete fault payload at XLEN until block capture, including sequential crossings and
-continuation-page faults. Nonrepresentable architectural redirects are rejected
-in the backend, not admitted to these attempts.
+BTB/RAS destination survives backpressure and replay. The saved cursor, S1,
+and S2 retain the requested byte PC in 32 bits on RV32 and 40 bits on RV64.
+The extra RV64 bit distinguishes the first sequential block beyond positive
+Sv39 from its negative canonical alias. Check live XLEN candidates before
+narrowing; sign-extend stored PCs for lookup, translation, and fault reporting.
+The extra bit does not widen admission: nonrepresentable architectural redirects
+are rejected in the backend, and a sequential crossing cannot issue a physical
+request even if translation returns an executable address. Keep fault values at XLEN.
 Preserve all valid, length, RAS, direction-row, and replay fields and the existing
 capture/clear priorities. Compaction must not add a stage or change block credits.
 The `rv2wide-frontend-retention`, `superscalar-frontend-three-retention`,

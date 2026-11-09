@@ -11,6 +11,8 @@ bool response_valid = 0, response_error = 0, response_replay = 0,
      array_valid = 0, inject_younger_error = 0, inject_younger_replay = 0;
 std::uint64_t response_data = 0, array_address = 0, source_pc = 0,
               branch_pc = 0, target_pc = 0;
+constexpr auto sv39_boundary = UINT64_C(1) << 38;
+bool saw_boundary_lookup = false, saw_boundary_translation = false;
 void falling_update() {}
 void drive() {
   translation_in = {translation_out.prequest.pbits, {0, 0, 0, {}}, 0};
@@ -86,9 +88,16 @@ void observe() {
     defer(response_valid, 0);
   } else {
     cycles++;
-    if (scenario == 18 && translation_out.prequest.pvalid &&
-        translation_out.prequest.pbits >= (UINT64_C(1) << 38))
-      CHECK(!memory_out.prequest.pvalid);
+    if (scenario == 18) {
+      if (virtual_lookup_out.pvalid && virtual_lookup_in.pready &&
+          virtual_lookup_out.pbits == sv39_boundary)
+        saw_boundary_lookup = true;
+      if (translation_out.prequest.pvalid && translation_out.prequest.pbits >= sv39_boundary) {
+        CHECK(!memory_out.prequest.pvalid);
+        if (translation_out.prequest.pbits == sv39_boundary)
+          saw_boundary_translation = true;
+      }
+    }
     if (virtual_lookup_out.pvalid && virtual_lookup_in.pready &&
         virtual_lookup_out.pbits == UINT64_C(0x100) && source_cycle < 0)
       source_cycle = cycles;
@@ -160,12 +169,14 @@ void restart(int test_case, std::uint8_t predicted = 0) {
   virtual_lookup_in.pready = 1;
   inject_younger_error = 0;
   inject_younger_replay = 0;
+  saw_boundary_lookup = false;
+  saw_boundary_translation = false;
   source_cycle = -1;
   accepted_cycle = -1;
   target_cycle = -1;
   packets = 0;
   scenario = test_case;
-  source_pc = test_case == 18 ? (UINT64_C(1) << 38) - 8 : UINT64_C(0x100);
+  source_pc = test_case == 18 ? sv39_boundary - 8 : UINT64_C(0x100);
   branch_pc =
       (test_case == 1 || test_case == 8) ? UINT64_C(0x104) : UINT64_C(0x100);
   if (test_case == 12 || test_case == 13)
@@ -349,10 +360,11 @@ int main() {
     restart(18);
     // A sequential crossing must fault even if guest translation returns low PA.
     until([&] { return instructions_out.pvalid && instructions_out.pbits.pentries[0].pfault.pvalid != 0; });
+    CHECK(saw_boundary_lookup && saw_boundary_translation);
     instructions_in.pready = 0;
     for (unsigned stall = 0; stall < 4; ++stall) {
       const auto &fault = instructions_out.pbits.pentries[0];
-      CHECK(instructions_out.pbits.pcount == 1 && fault.ppc == (UINT64_C(1) << 38) &&
+      CHECK(instructions_out.pbits.pcount == 1 && fault.ppc == sv39_boundary &&
             fault.pfault.pvalid && fault.pfault.pcause == 1 && !fault.pprediction.pvalid);
       falling();
     }

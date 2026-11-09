@@ -23,14 +23,22 @@ import:
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
-/* A continuation carries the hint for byte six of the preceding eight-byte block. */
+/* RV64 keeps one bit beyond Sv39 so a sequential crossing cannot alias a canonical PC. */
+fun fetch_cursor_width(xlen :: XLen) :: PosInt:
+  if xlen == XLen.X32 | 32 | 40
+
+/* Retains the requested byte PC and the preceding block's hint on a continuation. */
 bundle SuperscalarFetchCursor(xlen :: XLen):
-  pc: Bits(xlen.width)
+  pc: Bits(fetch_cursor_width(xlen))
   prediction: SuperscalarLanePrediction(xlen)
   continuation: Bool
   row: Bits(10)
   hashed: Bool
   base_taken: Vec(4, Bool)
+
+  /* Restores the exact requested address, including a sequential boundary fault. */
+  method address(cursor) :: Bits(xlen.width):
+    cursor.pc.sext(xlen.width)
 
 /* Retains predictor ownership and permission outcomes through the cache-result stage. */
 bundle SuperscalarFetchAttempt(xlen :: XLen, hypervisor :: Boolean):
@@ -88,7 +96,6 @@ sync_circuit SuperscalarFrontend(config :: RiscvHartCHIConfig, profile :: Supers
   /* Fetch ownership and fixed-cycle context.
      Each S1/S2 context reserves one eventual block in the assembler. */
 
-  // Covers successful Sv39 and Bare PCs; only speculative destinations may alias.
   reg active(~init: Bool(#false))
   reg cursor(~init: literal(SuperscalarFetchCursor(xlen), 0))
   inst btb(Btb(xlen, profile.btb_entries, ~fetch_bytes: 8, ~external_direction: profile.bht, ~pc_width: pc_width, ~target_width: pc_width))
@@ -111,7 +118,8 @@ sync_circuit SuperscalarFrontend(config :: RiscvHartCHIConfig, profile :: Supers
   def command = start.valid ||| redirect.valid ||| flush.valid ||| invalidate.valid
   def repair = assembler.repair.valid ||| direction_repair
   def restore = command ||| predictor_restore.valid
-  btb.cursor <== s1.egress.bits.pc
+  def s1_pc = s1.egress.bits.address()
+  btb.cursor <== s1_pc
   if profile.bht
   | btb.conditional_taken <== mux(s1.egress.bits.hashed, s1.egress.bits.base_taken, bht.base_taken)
   | #void
@@ -140,7 +148,7 @@ sync_circuit SuperscalarFrontend(config :: RiscvHartCHIConfig, profile :: Supers
   def source_offset = mux(s1.egress.bits.continuation, Bits(3)(6), btb.prediction.pc[0..3])
   when (s1.egress.valid & !s1.egress.bits.continuation & btb.prediction.valid):
     assert(CompactPc.fits(xlen, btb.prediction.pc), "superscalar_cursor_prediction_pc_fits")
-    assert(btb.prediction.pc.align_down(8) === s1.egress.bits.pc.align_down(8), "superscalar_prediction_source_block")
+    assert(btb.prediction.pc.align_down(8) === s1_pc.align_down(8), "superscalar_prediction_source_block")
     assert(CompactPc.fits(xlen, ordinary_target), "superscalar_cursor_prediction_target_fits")
 
 
@@ -148,6 +156,7 @@ sync_circuit SuperscalarFrontend(config :: RiscvHartCHIConfig, profile :: Supers
      Replay retains the current attempt for retry; fault stops further fetch. */
 
   def result :: SuperscalarFetchAttempt(xlen, hypervisor) = s2.egress.bits
+  def s2_pc = result.cursor.address()
   def s2_prediction = result.branch_prediction()
   def result_fault = result.fault.valid ||| (memory.response.valid & memory.response.bits.access_fault)
   def replay = s2.egress.valid & !result.fault.valid & (result.replay ||| (memory.response.valid & memory.response.bits.replay)) & !command
@@ -161,7 +170,7 @@ sync_circuit SuperscalarFrontend(config :: RiscvHartCHIConfig, profile :: Supers
   assembler.instructions |> instructions
   direction.valid <== s2.egress.valid & !command & !replay
   direction.clear <== command ||| assembler.repair.valid
-  direction.pc <== s2.egress.bits.cursor.pc
+  direction.pc <== s2_pc
   direction.data <== memory.response.bits.data
   direction.fault <== result_fault
   direction.prediction <== s2_prediction
@@ -180,7 +189,7 @@ sync_circuit SuperscalarFrontend(config :: RiscvHartCHIConfig, profile :: Supers
   btb.invalidate.valid <== mux(assembler.repair.valid, assembler.repair.bits.invalidate, direction.valid & direction.invalidate & Bool(profile.bht))
   btb.invalidate.bits <== mux(assembler.repair.valid, assembler.repair.bits.entry, s2_prediction.address())
   def s2_straddle = s2_prediction.valid & (s2_prediction.address()[0..3] === Bits(3)(6)) & !s2_prediction.compressed & !s2.egress.bits.cursor.continuation
-  def provisional_successor = mux(s2.egress.bits.cursor.continuation ||| (s2_prediction.valid & !s2_straddle), s2_prediction.destination(), s2.egress.bits.cursor.pc.align_down(8) + Bits(xlen.width)(8))
+  def provisional_successor = mux(s2.egress.bits.cursor.continuation ||| (s2_prediction.valid & !s2_straddle), s2_prediction.destination(), s2_pc.align_down(8) + Bits(xlen.width)(8))
   def direction_updates_history = Bool(profile.bht) & direction.valid & !result_fault
   direction_repair <== direction_updates_history & (direction.next_pc =/= provisional_successor)
 
@@ -213,22 +222,35 @@ sync_circuit SuperscalarFrontend(config :: RiscvHartCHIConfig, profile :: Supers
      S1 prediction feeds S0 directly. Recovery cancels younger reservations,
      but direction correction still reserves the retained S2 response. */
 
+  /* Check the full-width candidate before discarding any bits of a live cursor. */
+  fun retain_pc(address :: Bits(xlen.width), live :: Bool, label :: String):
+    def retained = address[0..fetch_cursor_width(xlen)]
+    when live:
+      assert(retained.sext(xlen.width) === address, label)
+
+    retained
+
+  def restart = start.valid ||| redirect.valid
+  def replace = restart ||| (!command & (repair ||| replay))
+  def replacement_pc = priority_mux(~default: direction.next_pc):
+    start.valid: start.bits[0..xlen.width]
+    redirect.valid: redirect.bits.target
+    assembler.repair.valid: assembler.repair.bits.target
+
+  def recovery = restart ||| repair
+  def recovery_pc = retain_pc(replacement_pc, replace & recovery, "superscalar_fetch_recovery_pc_fits")
   def straddle = prediction.valid & (source_offset === Bits(3)(6)) & !prediction.compressed & !s1.egress.bits.continuation
+  def successor = mux(s1.egress.bits.continuation ||| (prediction.valid & !straddle), prediction.target.expanded(), s1_pc.align_down(8) + Bits(xlen.width)(8))
   def next_cursor = SuperscalarFetchCursor(xlen):
-    pc: mux(s1.egress.bits.continuation ||| (prediction.valid & !straddle), prediction.target.expanded(), s1.egress.bits.pc.align_down(8) + Bits(xlen.width)(8))
+    pc: retain_pc(successor, s1.egress.valid & continue_fetch & !replace, "superscalar_fetch_successor_pc_fits")
     prediction: prediction
     continuation: straddle
     row: Bits(10)(0)
     hashed: Bool(#false)
     base_taken: literal(Vec(4, Bool), 0)
 
-  def restart = start.valid ||| redirect.valid
-  def replace = restart ||| (!command & (repair ||| replay))
   def selected :: SuperscalarFetchCursor(xlen) = priority_mux(~default: cursor):
-    start.valid: cursor.updated(~pc: start.bits[0..xlen.width], ~continuation: Bool(#false), ~hashed: Bool(#false))
-    redirect.valid: cursor.updated(~pc: redirect.bits.target, ~continuation: Bool(#false), ~hashed: Bool(#false))
-    assembler.repair.valid: cursor.updated(~pc: assembler.repair.bits.target, ~continuation: Bool(#false), ~hashed: Bool(#false))
-    direction_repair: cursor.updated(~pc: direction.next_pc, ~continuation: Bool(#false), ~hashed: Bool(#false))
+    recovery: cursor.updated(~pc: recovery_pc, ~continuation: Bool(#false), ~hashed: Bool(#false))
     replay: s2.egress.bits.cursor
     s1.egress.valid: next_cursor
 
@@ -244,12 +266,12 @@ sync_circuit SuperscalarFrontend(config :: RiscvHartCHIConfig, profile :: Supers
   )
 
   def requested = attempt |> trace_event("frontend/s0.request", ~fields: address):
-    pc: address.pc
+    pc: selected.address()
 
   def Array(array_index, context) = requested |> atomic_fork(2)
-  (array_index |> map_flow(address):
-    def physical = address.pc.zext(64)
-    physical.align_down(8)
+  (array_index |> map_flow(payload):
+    def lookup :: SuperscalarFetchCursor(xlen) = payload
+    lookup.address().zext(64).align_down(8)
   ) |> virtual_lookup
 
   context |> to_valid() |> s1.ingress
@@ -264,8 +286,10 @@ sync_circuit SuperscalarFrontend(config :: RiscvHartCHIConfig, profile :: Supers
   elsewhen fault:
     active <== Bool(#false)
 
+  def ahead = selected.address().align_down(8) + Bits(xlen.width)(8)
+  def ahead_pc = retain_pc(ahead, attempt.fire(), "superscalar_fetch_lookahead_pc_fits")
   when (attempt.fire()):
-    cursor <== selected.updated(~pc: selected.pc.align_down(8) + Bits(xlen.width)(8), ~continuation: Bool(#false), ~hashed: Bool(#false))
+    cursor <== selected.updated(~pc: ahead_pc, ~continuation: Bool(#false), ~hashed: Bool(#false))
   elsewhen (replace ||| (continue_fetch & s1.egress.valid)):
     cursor <== selected
 
@@ -279,10 +303,10 @@ sync_circuit SuperscalarFrontend(config :: RiscvHartCHIConfig, profile :: Supers
   def attributes = resolve_memory_attributes(physical, translation.pbmt)
   // Guest-Bare translation can map a high GPA into low physical memory.
   // Check the original architectural PC as well as the physical permissions.
-  def pc_fits = CompactPc.fits(xlen, s1.egress.bits.pc)
+  def pc_fits = CompactPc.fits(xlen, s1_pc)
   def permitted = physical.mapped & physical.executable & pc_fits
   def misaligned = !s1.egress.bits.pc.is_aligned(2)
-  s1.egress |> filter_valid(cursor => !kill_younger & cursor.pc.is_aligned(2)) |> map_valid(cursor => cursor.pc) |> translation.request
+  s1.egress |> filter_valid(_cursor => !kill_younger & !misaligned) |> map_valid(_cursor => s1_pc) |> translation.request
   def translation_replay = translation.resolution.disposition === SuperscalarDisposition.Replay
   def translation_fault = translation.resolution.disposition === SuperscalarDisposition.Fault
   def denied = misaligned ||| (!translation_replay & (translation_fault ||| !permitted))
@@ -291,7 +315,7 @@ sync_circuit SuperscalarFrontend(config :: RiscvHartCHIConfig, profile :: Supers
     translation_fault: translation.resolution.cause
 
   def looked_up = s1.egress |> filter_valid(_pc => !kill_younger) |> trace_valid_event("frontend/s1.lookup", ~fields: address):
-    pc: address.pc
+    pc: s1_pc
     predicted: prediction.valid
     target: prediction.target.expanded()
     replay: translation_replay
@@ -311,7 +335,7 @@ sync_circuit SuperscalarFrontend(config :: RiscvHartCHIConfig, profile :: Supers
     attempt.replay <== translation_replay & !misaligned
     attempt.fault.valid <== denied
     attempt.fault.cause <== fault_cause
-    attempt.fault.value <== address.pc
+    attempt.fault.value <== s1_pc
     if hypervisor
     | attempt.fault.guest <== translation.resolution.guest
     | #void
@@ -336,7 +360,7 @@ sync_circuit SuperscalarFrontend(config :: RiscvHartCHIConfig, profile :: Supers
      no cache result waits for instruction issue. */
 
   def outcome = s2.egress |> filter_valid(_attempt => !command & !replay) |> trace_valid_event("frontend/s2.outcome", ~fields: attempt):
-    pc: attempt.cursor.pc
+    pc: s2_pc
     fault: result_fault
     direction_corrected: direction_repair
 
@@ -345,14 +369,14 @@ sync_circuit SuperscalarFrontend(config :: RiscvHartCHIConfig, profile :: Supers
     wire fetch_fault: FetchBlockFault(xlen, hypervisor)
     fetch_fault.valid <== result_fault
     fetch_fault.cause <== mux(attempt.fault.valid, attempt.fault.cause, ExceptionCause.InstructionAccessFault)
-    fetch_fault.value <== mux(attempt.fault.valid, attempt.fault.value, attempt.cursor.pc)
+    fetch_fault.value <== mux(attempt.fault.valid, attempt.fault.value, s2_pc)
     if hypervisor
     | fetch_fault.guest <== attempt.fault.guest
     | #void
 
     def offered_prediction :: BranchPrediction(xlen, pc_width) = mux(Bool(profile.bht), direction.corrected, s2_prediction)
     fetch_block(xlen, hypervisor,
-                attempt.cursor.pc, memory.response.bits.data, fetch_fault,
+                s2_pc, memory.response.bits.data, fetch_fault,
                 offered_prediction.valid, offered_prediction.address(), offered_prediction.destination(), offered_prediction.compressed, offered_prediction.ras_action,
                 mux(Bool(profile.bht), direction.directions, literal(Vec(4, TournamentPrediction(10)), 0)),
                 mux(Bool(profile.bht), direction.prefix_direction, literal(TournamentPrediction(10), 0)), outcome.valid)
