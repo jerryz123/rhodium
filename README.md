@@ -106,13 +106,9 @@ signals. Here, the generated circuit adds two eight-bit inputs.
 
 ### Composing a shared ALU
 
-Three clients share one arithmetic datapath. Each gets its own request FIFO;
-round-robin arbitration selects the next request, and a result FIFO absorbs
-downstream stalls.
-
 ```rhombus
 #lang rhodium
-/* Combines buffered client requests into one shared streaming ALU. */
+/* Shares one ALU datapath among buffered clients, with a result FIFO for downstream stalls. */
 
 import:
   lib("flow/main.rhdl") open
@@ -128,15 +124,19 @@ bundle ALURequest(width :: PosInt):
   a: Bits(width)
   b: Bits(width)
 
-/* Generates independent client queues and a shared, backpressured result path. */
+/* Chooses the datapath width and client count during elaboration. */
 sync_circuit SharedALU(width :: PosInt, clients :: PosInt):
   def Request = ALURequest(width)
   interface ingress[clients](Decoupled(Request), ~role: consumer)
   interface egress(Irrevocable(Bits(width)), ~role: producer)
 
+  /* Generates one two-entry FIFO per client, preserving each client's request order. */
   def buffered = ingress |> parallel_handles(
     for Array (_ in 0..clients): Request |> queue(2)
   )
+  /* |> connects hardware stages. Round-robin arbitration sets
+     result order; ready/valid backpressure propagates through the pipeline.
+     The output FIFO holds each result stable until accepted. */
   (
     buffered |> rr_arbiter() |> map_flow(request):
       mux_lookup(request.op):
@@ -145,6 +145,7 @@ sync_circuit SharedALU(width :: PosInt, clients :: PosInt):
         Operation.And: request.a & request.b
   ) |> queue(2) |> egress
 
+/* Instantiates three clients sharing a 16-bit datapath. */
 def program = elaborate(SharedALU(16, 3))
 
 export:
@@ -152,12 +153,6 @@ export:
   program
 ```
 
-`width` and `clients` are elaboration-time parameters; the `for Array` generates
-one two-entry queue per client. The `|>` chain builds hardware connections,
-not a software loop. Requests remain ordered within each client, while results
-follow arbitration order. Ready/valid backpressure propagates through the
-pipeline, and the output queue holds each result stable until accepted.
-The defaultless `mux_lookup` checks that every `Operation` has an arm.
 See [Flow](flow/README.md) for the composition and protocol contracts.
 
 Run the language-oriented programming examples
