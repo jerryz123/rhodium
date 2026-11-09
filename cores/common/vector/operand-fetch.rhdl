@@ -132,7 +132,8 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
      Gather row selection is prepared by the sequencer; this stage extracts or rotates its data. */
 
   def read_destination_chunk = beat_control.first >> (Bits(2)(vector_byte_offset_width(xlen)) - destination_width)
-  def extension_part = mux_lookup(descriptor.control.extension_ratio, ~default: read_destination_chunk[0].as_bits().zext(3)):
+  def extension_part = mux_lookup(descriptor.control.extension_ratio):
+    SimdExtensionRatio.By2: read_destination_chunk[0].as_bits().zext(3)
     SimdExtensionRatio.By4: read_destination_chunk[0..2].zext(3)
     SimdExtensionRatio.By8: read_destination_chunk[0..3]
 
@@ -182,7 +183,8 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
     vlmax: mux(whole_register_move, limit, geometry.vlmax)
     masked: descriptor.masked & !mask_select & !carry_input
     operand_select:
-      mux_lookup(descriptor.control.operand, ~default: VectorOperandSelect.Vector):
+      mux_lookup(descriptor.control.operand):
+        VectorOperandMode.Vector: VectorOperandSelect.Vector
         VectorOperandMode.Scalar: VectorOperandSelect.Scalar
         VectorOperandMode.FloatingScalar: VectorOperandSelect.Scalar
         VectorOperandMode.Immediate: VectorOperandSelect.Immediate

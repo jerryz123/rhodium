@@ -17,8 +17,8 @@ hardware_enum MemoryWidth:
   method is_aligned(width, address :: Bits) :: Bool:
     mux_lookup(
       width,
-      ~default: address.is_aligned(8),
       [
+        [MemoryWidth.Double, address.is_aligned(8)],
         [MemoryWidth.Byte, address.is_aligned(1)],
         [MemoryWidth.Half, address.is_aligned(2)],
         [MemoryWidth.Word, address.is_aligned(4)]
@@ -31,7 +31,7 @@ fun memory_word_bytes(xlen :: XLen) :: PosInt:
 
 /* Encode the selected scalar access size as an XLEN-wide hardware byte count. */
 fun memory_access_bytes(xlen :: XLen, width :: MemoryWidth) :~ Bits(xlen.width):
-  mux_lookup(width, ~default: Bits(xlen.width)(8), [[MemoryWidth.Byte, Bits(xlen.width)(1)], [MemoryWidth.Half, Bits(xlen.width)(2)], [MemoryWidth.Word, Bits(xlen.width)(4)]])
+  mux_lookup(width, [[MemoryWidth.Byte, Bits(xlen.width)(1)], [MemoryWidth.Half, Bits(xlen.width)(2)], [MemoryWidth.Word, Bits(xlen.width)(4)], [MemoryWidth.Double, Bits(xlen.width)(8)]])
 
 /*
  * Compare the first and last accessed word addresses to detect an access spanning an XLEN
@@ -43,7 +43,7 @@ fun memory_crosses_word(xlen :: XLen, address :: Bits(xlen.width), width :: Memo
 /* Build a low-lane byte-enable pattern within one XLEN word for the selected access size. */
 fun memory_width_mask(xlen :: XLen, width :: MemoryWidth) :~ Bits(memory_word_bytes(xlen)):
   def bytes = memory_word_bytes(xlen)
-  mux_lookup(width, ~default: !Bits(bytes)(0), [[MemoryWidth.Byte, Bits(bytes)(1)], [MemoryWidth.Half, Bits(bytes)(3)], [MemoryWidth.Word, Bits(bytes)(15)]])
+  mux_lookup(width, [[MemoryWidth.Byte, Bits(bytes)(1)], [MemoryWidth.Half, Bits(bytes)(3)], [MemoryWidth.Word, Bits(bytes)(15)], [MemoryWidth.Double, !Bits(bytes)(0)]])
 
 /*
  * Position the access-size byte enables within the containing XLEN word; crossing accesses are
@@ -78,8 +78,8 @@ circuit LoadGen(xlen :: XLen,
   def unsigned_word = word.zext(xlen_bits)
   def signed_value :: Bits(xlen_bits) = mux_lookup(
     width,
-    ~default: double_value,
     [
+      [MemoryWidth.Double, double_value],
       [MemoryWidth.Byte, byte.sext(xlen_bits)],
       [MemoryWidth.Half, half.sext(xlen_bits)],
       [MemoryWidth.Word, signed_word]
@@ -88,8 +88,8 @@ circuit LoadGen(xlen :: XLen,
 
   def unsigned_value :: Bits(xlen_bits) = mux_lookup(
     width,
-    ~default: double_value,
     [
+      [MemoryWidth.Double, double_value],
       [MemoryWidth.Byte, byte.zext(xlen_bits)],
       [MemoryWidth.Half, half.zext(xlen_bits)],
       [MemoryWidth.Word, unsigned_word]

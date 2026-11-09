@@ -1,0 +1,131 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../support/mux-lookup.rhm" as mux_support
+
+hardware_enum Sparse(~width: 5):
+  First = 1
+  Middle = 7
+  Last = 29
+  method is_last(value) :: Bool:
+    value === Sparse.Last
+
+hardware_enum Automatic:
+  First
+  Middle
+  Last
+
+hardware_enum Lane(~encoding: one_hot):
+  First
+  Middle
+  Last
+
+hardware_enum Single:
+  Only
+
+hardware_enum Wide(~width: 80):
+  Low = 1
+  High = (1 << 70)
+
+bundle Payload():
+  value: Bits(12)
+  method get(payload) :: Bits(12): payload.value
+
+bundle Envelope():
+  payload: Payload()
+  state: Sparse
+
+circuit Echo():
+  input value: Sparse
+  output result: Sparse
+  result <== value
+
+sync_circuit EnumMux():
+  use_static
+  input selector: Sparse
+  input automatic: Automatic
+  input lane: Lane
+  input(a, b): Bits(12)
+  output(block_result, list_result, generated_result, payload_result, held_result, field_result): Bits(12)
+  output(automatic_result, lane_result, single_result): Bits(12)
+  output selected: Sparse
+  output selected_last: Bool
+  output fallback: Bits(12)
+
+  block_result <== mux_lookup(selector):
+    Sparse.First: a
+    Sparse.Middle: b
+    Sparse.Last: a + b
+
+  list_result <== mux_lookup(selector, [[Sparse.Last, a + b], [Sparse.First, a], [Sparse.Middle, b]])
+  def alternatives = [a, b, a + b]
+  def cases = for List (member in Sparse.values(), index in 0..3): [member, alternatives[index]]
+  generated_result <== mux_lookup(selector, cases)
+  def payload = mux_lookup(selector):
+    Sparse.First: Payload(): value: a
+    Sparse.Middle: Payload(): value: b
+    Sparse.Last: Payload(): value: a + b
+
+  payload_result <== payload.get()
+  def envelope = Envelope():
+    payload: Payload(): value: a
+    state: selector
+
+  def field_payload = mux_lookup(selector, [[Sparse.First, envelope.payload], [Sparse.Middle, envelope.payload], [Sparse.Last, envelope.payload]])
+  field_result <== field_payload.get()
+  def selected_value = mux_lookup(selector):
+    Sparse.First: Sparse.Last
+    Sparse.Middle: Sparse.First
+    Sparse.Last: Sparse.Middle
+
+  selected <== selected_value
+  selected_last <== selected_value.is_last()
+  automatic_result <== mux_lookup(automatic, [[Automatic.First, a], [Automatic.Middle, b], [Automatic.Last, a + b]])
+  lane_result <== mux_lookup(lane):
+    Lane.Last: a + b
+    Lane.First: a
+    Lane.Middle: b
+
+  single_result <== mux_lookup(Single.Only, [[Single.Only, a]])
+  reg held(~init: Sparse.First)
+  held <== selector
+  inst echo(Echo())
+  echo.value <== held
+  held_result <== mux_lookup(echo.result):
+    Sparse.First: a
+    Sparse.Middle: b
+    Sparse.Last: a + b
+
+  fallback <== mux_lookup(selector, ~default: Bits(12)(0xabc), [[Sparse.First, a]])
+
+circuit WideMux():
+  input selector: Wide
+  output result: Bits(8)
+  result <== mux_lookup(selector):
+    Wide.High: Bits(8)(2)
+    Wide.Low: Bits(8)(1)
+
+circuit InvalidEnumMux(kind :: String):
+  def Selector = if kind == "bits" | Bits(5) | Sparse
+  input selector: Selector
+  output result: Bits(8)
+  def first = [Sparse.First, Bits(8)(1)]
+  def middle = [Sparse.Middle, Bits(8)(2)]
+  def last = [Sparse.Last, Bits(8)(3)]
+  def cases:
+    match kind
+    | "missing": [first, middle]
+    | "duplicate": [first, middle, middle]
+    | "extra": [first, middle, last, first]
+    | "integer": [[1, Bits(8)(1)], middle, last]
+    | "foreign": [[Automatic.First, Bits(8)(1)], middle, last]
+    | "unknown": [first, middle, [mux_support.mux_lookup_literal(Sparse, 31), Bits(8)(3)]]
+    | "empty": []
+    | "shape": [first, middle, [Sparse.Last]]
+    | "type": [first, middle, [Sparse.Last, Bits(9)(3)]]
+    | ~else: [first, middle, last]
+
+  result <== mux_lookup(selector, cases)
+
+def program = elaborate(EnumMux())
+export program Sparse WideMux InvalidEnumMux

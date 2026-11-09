@@ -6,6 +6,7 @@ import:
   rhombus
   rhombus.(!) as host_invert
   rhombus/meta open
+  "../../../support/hardware-enum.rhm".enum_descriptor_static_info_key
   "../../core/ir.rhm".Location
   "../../core/types.rhm" open
   "../kernel.rhm" open:
@@ -42,6 +43,7 @@ import:
   "../kernel.rhm".hw_shru as kernel_hw_shru
   "../kernel.rhm".hw_shrs as kernel_hw_shrs
   "../support/fields.rhm".HardwareFields
+  "../support/fields.rhm".value_surface_static_info_key
   "../support/fields.rhm".hardware_as_bits
   "../support/bits-type.rhm".Bits as LiteralBits
   "../support/hardware-literal.rhm" open
@@ -81,6 +83,17 @@ meta:
   /* Attaches the operand's static method/field surface to a generated result expression. */
   fun preserve_operand_surface(result :: Syntax, operand :: Syntax):
     statinfo_meta.wrap(result, statinfo_meta.gather(operand))
+
+  /* Retains a lookup arm's fields and methods, including type-named enum constants. */
+  fun mux_lookup_result(result :: Syntax, arm :: Syntax):
+    match arm.group
+    | '$(type_name :: Identifier) $dot $(member :: Identifier)' when dot.to_source_string() == ".":
+        let '$(type_expr :: expr_meta.Parsed)' = type_name
+        def infos = statinfo_meta.gather(type_expr)
+        if statinfo_meta.find(infos, 'enum_descriptor_static_info_key') || statinfo_meta.find(infos, 'value_surface_static_info_key')
+        | '$result :: HardwareFields.from_type($type_expr)'
+        | preserve_operand_surface(result, arm)
+    | ~else: preserve_operand_surface(result, arm)
 
 /*
  * Frontend literals are static host shadows. They allocate core operations
@@ -271,6 +284,14 @@ fun trunc(entity :: HardwareEntity,
           name :: maybe(String) = #false) :~ HardwareFields:
   kernel_trunc(entity, target_width, name)
 
+/* Validates pair-shaped cases and normalizes keys through the selector's nominal contract. */
+fun normalize_mux_lookup_cases(selector_type :: MuxLookupSelectorType, cases :: List.of(List)):
+  for List (case in cases):
+    unless case.length() == 2
+    | error(~who: #'mux_lookup, "mux lookup cases must be [key, value] pairs")
+
+    [selector_type.normalize_mux_lookup_key(case[0]), case[1]]
+
 /* Normalizes selector-owned typed keys to packed integers before building a mux with an explicit default. */
 fun build_mux_lookup(selector :: HardwareEntity,
                      default_value :: HardwareEntity,
@@ -281,17 +302,27 @@ fun build_mux_lookup(selector :: HardwareEntity,
       hw_mux_lookup(selector_value, default_value, cases)
   | selector_value.type is_a MuxLookupSelectorType:
       def selector_bits = hardware_as_bits(selector_value, #'mux_lookup, "mux lookup selector")
-      def normalized_cases = cases.map(
-        fun (case):
-          unless case.length() == 2
-          | error(~who: #'mux_lookup, "mux lookup cases must be [key, value] pairs")
-
-          [selector_value.type.normalize_mux_lookup_key(case[0]), case[1]]
-      )
+      def normalized_cases = normalize_mux_lookup_cases(selector_value.type, cases)
 
       hw_mux_lookup(selector_bits, default_value, normalized_cases)
   | ~else:
       hw_mux_lookup(selector_value, default_value, cases)
+
+/* Requires every legal enum key exactly once; unused packed encodings select an uncared value. */
+fun build_exhaustive_enum_mux_lookup(selector :: HardwareEntity, cases :: List.of(List)) :~ HardwareFields:
+  def value = read(selector)
+  unless value.type is_a FiniteEnumType && value.type is_a MuxLookupSelectorType
+  | error(~who: #'mux_lookup, "mux lookup without a default requires a finite enum selector")
+
+  def normalized = normalize_mux_lookup_cases(value.type, cases)
+  def keys = normalized.map(fun (case): case[0]).sort(fun (left, right): left < right)
+  def encodings = value.type.enum_encodings().sort(fun (left, right): left < right)
+  unless normalized.length() > 0 && keys == encodings
+  | error(~who: #'mux_lookup, "exhaustive enum mux lookup must cover every member exactly once")
+
+  def result_type = read(normalized[0][1]).type
+  hw_mux_lookup(hardware_as_bits(value, #'mux_lookup, "enum mux lookup selector"),
+                dont_care(result_type), normalized)
 
 expr.macro
 | 'mux_lookup($(selector :: expr_meta.Parsed),
@@ -310,6 +341,22 @@ expr.macro
                         $default_value,
                         [[$key, $case_value], ...])',
       default_value
+    )
+| 'mux_lookup($(selector :: expr_meta.Parsed),
+              [[$first_key, $(first_value :: expr_meta.Parsed)], $case, ...])':
+    mux_lookup_result(
+      'build_exhaustive_enum_mux_lookup($selector, [[$first_key, $first_value], $case, ...])',
+      first_value
+    )
+| 'mux_lookup($(selector :: expr_meta.Parsed), $(cases :: expr_meta.Parsed))':
+    'build_exhaustive_enum_mux_lookup($selector, $cases)'
+| 'mux_lookup($(selector :: expr_meta.Parsed)):
+     $(first_key :: expr_meta.Parsed): $(first_value :: expr_meta.Parsed)
+     $(key :: expr_meta.Parsed): $case_value
+     ...':
+    mux_lookup_result(
+      'build_exhaustive_enum_mux_lookup($selector, [[$first_key, $first_value], [$key, $case_value], ...])',
+      first_value
     )
 
 /* Dispatches addition to hardware construction when either operand is hardware, otherwise to host arithmetic. */

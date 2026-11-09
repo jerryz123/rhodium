@@ -881,7 +881,8 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     def ex_executable = !ex.illegal & !ex_vector_illegal & !ex.virtual_instruction & !ex_fetch_fault.valid
     def ex_pair_immediate = ex.operands.rewrite.immediate.sext(xlen.width)
     def ex_immediate = mux(ex.operands.rewrite.composed, ex_pair_immediate, ex.control.operand.immediate.decode(ex.fetched.instruction, xlen.width))
-    ex_alu.left <== mux_lookup(ex.control.operand.left, ~default: ex.operands.rs1):
+    ex_alu.left <== mux_lookup(ex.control.operand.left):
+      OperandASelect.Register: ex.operands.rs1
       OperandASelect.Pc: ex_pc
       OperandASelect.Zero: Bits(xlen.width)(0)
 

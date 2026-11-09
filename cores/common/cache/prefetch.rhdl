@@ -23,7 +23,8 @@ fun cache_prefetch_physical(address_width :: PosInt, physical_map :: RiscvPhysic
   def first = address.align_down(CacheLineBytes)
   def region = physical_map.lookup(first, first +& Bits(address_width)(CacheLineBytes - 1))
   def attributes = resolve_memory_attributes(region, pbmt)
-  def permitted = mux_lookup(operation, ~default: Bool(#false)):
+  def permitted = mux_lookup(operation):
+    CachePrefetchOperation.None: Bool(#false)
     CachePrefetchOperation.Instruction: region.executable
     CachePrefetchOperation.Read: region.readable
     CachePrefetchOperation.Write: region.writable

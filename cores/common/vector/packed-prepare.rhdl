@@ -209,7 +209,8 @@ sync_circuit VectorPackedPrepare(xlen :: XLen, vlen :: VectorLength, Context :: 
 
   def phase_after_read = mux(store_read_pending, VectorPreparePhase.ReadDone, VectorPreparePhase.Issue)
   def phase_after_alignment = mux((store_remaining & !store_group).any(), VectorPreparePhase.Read, VectorPreparePhase.Issue)
-  def prepared_next_phase = mux_lookup(prepare, ~default: prepare):
+  def prepared_next_phase = mux_lookup(prepare):
+    VectorPreparePhase.Issue: prepare
     VectorPreparePhase.Map: first_phase
     VectorPreparePhase.MaskLow: mux(masks_ready, VectorPreparePhase.MaskHigh, prepare)
     VectorPreparePhase.MaskHigh: mux(masks_ready, VectorPreparePhase.MaskDone, prepare)

@@ -17,7 +17,9 @@ hardware_enum InstructionHint:
 
 /* Selects the locality passed to the memory system when a hint retires. */
 fun instruction_hint_locality(hint :: InstructionHint) :~ RiscvMemoryLocality:
-  mux_lookup(hint, ~default: RiscvMemoryLocality.Default, [
+  mux_lookup(hint, [
+    [InstructionHint.None, RiscvMemoryLocality.Default],
+    [InstructionHint.Pause, RiscvMemoryLocality.Default],
     [InstructionHint.NtlP1, RiscvMemoryLocality.P1],
     [InstructionHint.NtlPall, RiscvMemoryLocality.Pall],
     [InstructionHint.NtlS1, RiscvMemoryLocality.S1],

@@ -45,6 +45,15 @@ operand of `rtl.any` or `rtl.all`. The frontend handles empty
 identities and returns `Bool`; backends choose their reduction implementation.
 Other utilities that require a packed word, such as popcount, retain packing.
 
+`comb.rhm` validates defaultless `mux_lookup` through the shared
+`FiniteEnumType` and `MuxLookupSelectorType` protocols. Normalize nominal keys,
+require exact coverage of the declared encodings, and lower through ordinary
+`rtl.mux_lookup` with a typed don't-care default. Do not add a new IR operation,
+assert enum validity implicitly, or substitute a valid member for unused
+encodings. Keep explicit-default lookup semantics unchanged. The enum-mux
+frontend and rsim fixtures cover coverage diagnostics, result surfaces, sparse,
+wide, singleton, and one-hot enums, plus explicit recovery behavior.
+
 ## Static information and hardware surfaces
 
 Rhodium uses Rhombus static information to retain an authoring surface while

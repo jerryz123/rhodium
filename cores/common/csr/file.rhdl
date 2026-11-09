@@ -877,8 +877,8 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
 
   def csr_replacement :: Bits(width) = mux_lookup(
     commit.bits.csr_operation,
-    ~default: csr_read_value,
     [
+      [RiscvCsrOperation.None, csr_read_value],
       [RiscvCsrOperation.Write, commit.bits.csr_source],
       [RiscvCsrOperation.Set, csr_read_value ||| commit.bits.csr_source],
       [RiscvCsrOperation.Clear, csr_read_value & !commit.bits.csr_source]

@@ -37,8 +37,8 @@ circuit RiscvAtomicALU(xlen :: XLen):
   def signed_less = mux(left_sign ^ right_sign, left_sign, unsigned_less)
   def selected_value :: Bits(width) = mux_lookup(
     operation,
-    ~default: right,
     [
+      [RiscvAtomicOperation.Swap, right],
       [RiscvAtomicOperation.Add, left + right],
       [RiscvAtomicOperation.Xor, left ^ right],
       [RiscvAtomicOperation.And, left & right],

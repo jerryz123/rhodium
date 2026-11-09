@@ -286,7 +286,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
           load_window: vector_window.physical_addresses[1]
           data_translation_enabled: dtlb.translation.physical_address.zext(64)
 
-  def load_last_offset = mux_lookup(load_request.egress.bits.width, ~default: Bits(width)(7), [[MemoryWidth.Byte, Bits(width)(0)], [MemoryWidth.Half, Bits(width)(1)], [MemoryWidth.Word, Bits(width)(3)]])
+  def load_last_offset = mux_lookup(load_request.egress.bits.width, [[MemoryWidth.Byte, Bits(width)(0)], [MemoryWidth.Half, Bits(width)(1)], [MemoryWidth.Word, Bits(width)(3)], [MemoryWidth.Double, Bits(width)(7)]])
   def load_physical = physical_map.lookup(load_address, load_address +& load_last_offset)
   def load_attributes = resolve_memory_attributes(load_physical, mux(load_pinned, PageMemoryType.PMA, dtlb_result.pbmt))
   // Translation contention and ordered IO replay without entering miss service.
@@ -507,7 +507,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
 
   def data_physical_address = mux(split_busy, translated_fragment_address.align_down(word_bytes), translated_fragment_address)
   def data_translated_address = mux(data_translation_enabled, dtlb.translation.physical_address.zext(64), data_virtual_address)
-  def data_last_offset = mux_lookup(data_request.width, ~default: Bits(64)(7), [[MemoryWidth.Byte, Bits(64)(0)], [MemoryWidth.Half, Bits(64)(1)], [MemoryWidth.Word, Bits(64)(3)]])
+  def data_last_offset = mux_lookup(data_request.width, [[MemoryWidth.Byte, Bits(64)(0)], [MemoryWidth.Half, Bits(64)(1)], [MemoryWidth.Word, Bits(64)(3)], [MemoryWidth.Double, Bits(64)(7)]])
   def data_physical_region = physical_map.lookup(data_translated_address, data_translated_address +& data_last_offset)
   def execute_read_denied = execute_read & dtlb.hit & !(data_physical_region.readable & data_physical_region.executable)
   // A retained split owner uses the same demand TLB and physical checks as

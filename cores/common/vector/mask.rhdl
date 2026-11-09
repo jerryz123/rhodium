@@ -53,7 +53,7 @@ circuit VectorMaskScan(xlen :: XLen):
 
   def packed = mux_lookup(element_width, ~default: elements[0], for List (format in 1..vector_format_count(xlen)): [SimdElementWidth.values()[format], elements[format]])
   next_carry <== mux(control.result === VectorScanResult.First, first_result, count)
-  data <== mux_lookup(control.result, ~default: count, [[VectorScanResult.First, first_result], [VectorScanResult.Mask, mask], [VectorScanResult.Elements, packed]])
+  data <== mux_lookup(control.result, [[VectorScanResult.Count, count], [VectorScanResult.First, first_result], [VectorScanResult.Mask, mask], [VectorScanResult.Elements, packed]])
 
 export:
   VectorScanResult

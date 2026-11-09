@@ -114,7 +114,10 @@ fun riscv_unbox(format :: FloatFormat, width :: PosInt, value :: Bits(width)) :~
 fun riscv_sign_inject(format :: FloatFormat, left :: IEEEFloat(format), right :: IEEEFloat(format), operation :: FloatSignOperation) :~ IEEEFloat(format):
   def left_bits = left.as_bits()
   def right_sign = right.as_bits()[format.ieee_width - 1].into(Bool)
-  def sign = mux_lookup(operation, ~default: left_bits[format.ieee_width - 1].into(Bool) ^ right_sign, [[FloatSignOperation.Copy, right_sign], [FloatSignOperation.Negate, !right_sign]])
+  def sign = mux_lookup(operation):
+    FloatSignOperation.Copy: right_sign
+    FloatSignOperation.Negate: !right_sign
+    FloatSignOperation.Xor: left_bits[format.ieee_width - 1].into(Bool) ^ right_sign
   (sign ++ left_bits[0..(format.ieee_width - 1)]).into(IEEEFloat(format))
 
 /* Reinterprets the IEEE image as integer bits and sign-extends narrow formats to XLEN. */

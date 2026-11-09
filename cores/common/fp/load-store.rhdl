@@ -27,9 +27,9 @@ fun fp_load_value(profile :: FloatingPointProfile,
   | mux(precision === FloatPrecision.Half, half, single)
   | mux_lookup(
       precision,
-      ~default: data,
       [[FloatPrecision.Half, half],
-       [FloatPrecision.Single, single]]
+       [FloatPrecision.Single, single],
+       [FloatPrecision.Double, data]]
     )
 
 /* Extracts raw low-precision store bits and zero-extends the memory operand to 64 bits. */
@@ -42,9 +42,9 @@ fun fp_store_value(profile :: FloatingPointProfile,
         data.zext(64))
   | mux_lookup(
       precision,
-      ~default: data,
       [[FloatPrecision.Half, data[0..16].zext(64)],
-       [FloatPrecision.Single, data[0..32].zext(64)]]
+       [FloatPrecision.Single, data[0..32].zext(64)],
+       [FloatPrecision.Double, data]]
     )
 
 export:

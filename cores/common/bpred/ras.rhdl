@@ -83,14 +83,17 @@ sync_circuit Ras(xlen :: XLen, entry_count :: PosInt = 6, ~target_width: target_
 
   /* Computes the top after push/pop; pop-then-push replaces the current top. */
   fun updated_top(top :: Bits(index_bits), count :: Bits(count_bits), action :: RasAction) :~ Bits(index_bits):
-    mux_lookup(action, ~default: top):
+    mux_lookup(action):
+      RasAction.None: top
+      RasAction.PopPush: top
       RasAction.Push: mux(count === Bits(count_bits)(0), top, wrap_increment(top, entry_count))
       RasAction.Pop: mux(count === Bits(count_bits)(0), top, decrement(top))
 
   /* Saturates depth on push/pop and makes pop-then-push nonempty without increasing
      existing depth. */
   fun updated_count(count :: Bits(count_bits), action :: RasAction) :~ Bits(count_bits):
-    mux_lookup(action, ~default: count):
+    mux_lookup(action):
+      RasAction.None: count
       RasAction.Push: saturating_increment(count, entry_count)
       RasAction.Pop: saturating_decrement(count)
       RasAction.PopPush: mux(count === Bits(count_bits)(0), Bits(count_bits)(1), count)

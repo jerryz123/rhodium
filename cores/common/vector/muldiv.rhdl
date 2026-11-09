@@ -38,7 +38,8 @@ bundle VectorMultiplyValue(xlen :: XLen):
 fun vector_multiply_control(result :: VectorMultiplyResult, accumulate :: Bool, subtract :: Bool, rounding_mode :: SimdRoundingMode, upper_half :: Bool) :~ SimdMultiplyControl():
   SimdMultiplyControl():
     select:
-      mux_lookup(result, ~default: SimdMultiplySelect.Low):
+      mux_lookup(result):
+        VectorMultiplyResult.Low: SimdMultiplySelect.Low
         VectorMultiplyResult.High: SimdMultiplySelect.High
         VectorMultiplyResult.Widened: SimdMultiplySelect.Wide
         VectorMultiplyResult.Fractional: SimdMultiplySelect.Fractional

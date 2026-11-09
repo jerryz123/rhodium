@@ -139,7 +139,8 @@ sync_circuit SharedALU(width :: PosInt, clients :: PosInt):
   )
   (
     buffered |> rr_arbiter() |> map_flow(request):
-      mux_lookup(request.op, ~default: request.a + request.b):
+      mux_lookup(request.op):
+        Operation.Add: request.a + request.b
         Operation.Xor: request.a ^ request.b
         Operation.And: request.a & request.b
   ) |> queue(2) |> egress
@@ -156,6 +157,7 @@ one two-entry queue per client. The `|>` chain builds hardware connections,
 not a software loop. Requests remain ordered within each client, while results
 follow arbitration order. Ready/valid backpressure propagates through the
 pipeline, and the output queue holds each result stable until accepted.
+The defaultless `mux_lookup` checks that every `Operation` has an arm.
 See [Flow](flow/README.md) for the composition and protocol contracts.
 
 Run the language-oriented programming examples

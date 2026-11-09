@@ -987,7 +987,7 @@ it when adding, removing, or changing a layer's direct dependencies.
 
 | Layer | Provides | Direct Rhodium dependencies |
 |---|---|---|
-| `comb.rhm` | Generic packed literals, typed synthesis don't-cares, decode relations, modular arithmetic, unsigned remainder with checked host divisors, bitwise operations, muxes, extraction, and bit-vector truncation | core types and IR, kernel, field support, bit-descriptor support, hardware-literal support, mux-lookup support |
+| `comb.rhm` | Generic packed literals, typed synthesis don't-cares, decode relations, modular arithmetic, unsigned remainder with checked host divisors, bitwise operations, muxes, extraction, and bit-vector truncation | core types and IR, kernel, field support, bit-descriptor support, hardware-literal support, mux-lookup support, pure enum descriptor metadata |
 | `signed.rhm` | Explicit-width `SInt`, two's-complement literals, signed truncation, and signed operator participation | core types and IR, kernel, field support, hardware-literal support |
 | `expanding-arithmetic.rhm` | Lossless unsigned addition plus signed and unsigned multiplication with `+&` and `*&` sugar | core types, kernel, field support |
 | `bool.rhm` | Non-numeric lane `Mask` with total index decoding and clipped prefix/range constructors, compact `MaybeOneHot`, packed reductions, lower-index-first priority encoders, total optional-one-hot selection, equality, enum validity, signed and unsigned ordering, binary `mux`, and ordered `priority_mux` | core types and IR, kernel, finite-enum support, field support, hardware-literal support, mask-type support, one-hot-selection support |
@@ -1044,8 +1044,8 @@ language profiles:
 - `generator-parameters.rhm` extracts runtime bindings from the ordinary
   Rhombus parameter forms shared by circuit generators.
 - `mux-lookup.rhm` lets independent layers contribute typed static keys,
-  lookup selector behavior, and one-hot selector types without importing one
-  another.
+  lookup selector behavior, finite-enum coverage, and one-hot selector types
+  without importing one another.
 - `mask-type.rhm` lets independent layers require nominal lane-set semantics
   without importing the Boolean layer that owns `Mask` and its `Bool` indexing
   surface.

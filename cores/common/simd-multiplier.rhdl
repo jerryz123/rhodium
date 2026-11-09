@@ -129,7 +129,8 @@ fun simd_fractional_product(width :: PosInt, product :: Bits(width * 2), roundin
   def round_bit = product[distance - 1].into(Bool)
   def discarded = product[0..distance].any()
   def below_round = product[0..distance - 1].any()
-  def increment = mux_lookup(rounding_mode, ~default: round_bit, [
+  def increment = mux_lookup(rounding_mode, [
+    [SimdRoundingMode.NearestUp, round_bit],
     [SimdRoundingMode.NearestEven, round_bit & (below_round ||| shifted[0].into(Bool))],
     [SimdRoundingMode.Down, Bool(#false)],
     [SimdRoundingMode.Odd, !shifted[0].into(Bool) & discarded]
@@ -146,7 +147,8 @@ fun simd_fractional_product(width :: PosInt, product :: Bits(width * 2), roundin
 fun simd_multiply_add(width :: Pow2Int, element_width :: SimdElementWidth, left :: Bits(width), right :: Bits(width), subtract :: Bool) :~ Bits(width):
   def inverted = mux(subtract, !right, right)
   def boundaries = for List (byte in 0..width / 8):
-    mux_lookup(element_width, ~default: Bool(#true), [
+    mux_lookup(element_width, [
+      [SimdElementWidth.E8, Bool(#true)],
       [SimdElementWidth.E16, Bool(byte % 2 == 0)],
       [SimdElementWidth.E32, Bool(byte % 4 == 0)],
       [SimdElementWidth.E64, Bool(byte % 8 == 0)]

@@ -47,19 +47,27 @@ bundle RiscvTlbFill():
 /* For a faulting completion, selects the exception class from the original access,
    not an implicit page-table read. */
 fun riscv_translation_fault_cause(result :: RiscvTlbMapping()) :~ ExceptionCause:
-  def page = mux_lookup(result.access, ~default: ExceptionCause.StorePageFault):
+  def page = mux_lookup(result.access):
+    Sv39Access.Store: ExceptionCause.StorePageFault
+    Sv39Access.CacheManagement: ExceptionCause.StorePageFault
     Sv39Access.Fetch: ExceptionCause.InstructionPageFault
     Sv39Access.Load: ExceptionCause.LoadPageFault
 
-  def guest = mux_lookup(result.access, ~default: ExceptionCause.StoreGuestPageFault):
+  def guest = mux_lookup(result.access):
+    Sv39Access.Store: ExceptionCause.StoreGuestPageFault
+    Sv39Access.CacheManagement: ExceptionCause.StoreGuestPageFault
     Sv39Access.Fetch: ExceptionCause.InstructionGuestPageFault
     Sv39Access.Load: ExceptionCause.LoadGuestPageFault
 
-  def physical = mux_lookup(result.access, ~default: ExceptionCause.StoreAccessFault):
+  def physical = mux_lookup(result.access):
+    Sv39Access.Store: ExceptionCause.StoreAccessFault
+    Sv39Access.CacheManagement: ExceptionCause.StoreAccessFault
     Sv39Access.Fetch: ExceptionCause.InstructionAccessFault
     Sv39Access.Load: ExceptionCause.LoadAccessFault
 
-  mux_lookup(result.fault, ~default: physical):
+  mux_lookup(result.fault):
+    RiscvTranslationFault.None: physical
+    RiscvTranslationFault.AccessFault: physical
     RiscvTranslationFault.PageFault: page
     RiscvTranslationFault.GuestPageFault: guest
 

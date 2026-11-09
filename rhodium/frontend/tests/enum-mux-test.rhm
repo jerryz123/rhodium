@@ -1,0 +1,25 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
+  "enum-mux-fixture.rhdl" as fixture
+
+// Coverage is over declared members, not every representable bit pattern.
+def wide = compile_program(elaborate(fixture.WideMux()), rtl_target).report.design
+check:
+  wide.modules[0].find_input("selector").type.packed_width() ~is 80
+
+for (kind in ["missing", "duplicate", "extra", "unknown", "empty"]):
+  check:
+    elaborate(fixture.InvalidEnumMux(kind)) ~throws "cover every member exactly once"
+
+for (kind in ["integer", "foreign"]):
+  check:
+    elaborate(fixture.InvalidEnumMux(kind)) ~throws "keys must be members of the selector's enum type"
+
+check:
+  elaborate(fixture.InvalidEnumMux("bits")) ~throws "requires a finite enum selector"
+  elaborate(fixture.InvalidEnumMux("shape")) ~throws "cases must be [key, value] pairs"
+  elaborate(fixture.InvalidEnumMux("type")) ~throws "exactly the same DataType"

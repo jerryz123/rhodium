@@ -5,11 +5,13 @@
 import:
   "../../core/types.rhm" open
   "hardware-literal.rhm" open
+  "../../../support/hardware-data.rhm".FiniteEnumType
   "../../../support/hardware-data.rhm".MuxLookupKey
   "../../../support/hardware-data.rhm".MuxLookupSelectorType
   "../../../support/hardware-data.rhm".OneHotSelectorType
 
 export:
+  FiniteEnumType
   MuxLookupKey
   MuxLookupSelectorType
   OneHotSelectorType

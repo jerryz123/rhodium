@@ -269,6 +269,25 @@ Cases may come from a host list. Keys are checked and normalized during
 elaboration. Binary `mux(sel, when_true, when_false)` is a `Bool` specialization
 of the same core `rtl.mux_lookup`; there is no separate core mux operation.
 
+For an enum selector, omit `~default` to require every declared member exactly
+once:
+
+```rhombus
+result <== mux_lookup(operation):
+  Operation.Add: a + b
+  Operation.Xor: a ^ b
+  Operation.And: a & b
+```
+
+The equivalent host-list form is `mux_lookup(operation, cases)`. Missing,
+duplicate, foreign-enum, and undeclared keys are rejected during elaboration.
+Coverage uses declared encodings, including sparse and one-hot enums, rather
+than enumerating the whole packed bit space. Results must have exactly the same
+hardware type. The result retains the first arm's value surface when that arm
+is available syntactically. Unused selector encodings have no defined result;
+use an explicit default when recovery or reserved-encoding behavior matters.
+Non-enum selectors still require `~default`.
+
 Ordered predicate selection uses `priority_mux`:
 
 ```rhombus
@@ -515,8 +534,10 @@ are checked against that nominal enum and must cover each member exactly once. S
 
 Each evaluated declaration has distinct nominal identity. Members lower to
 `Bits(width)` constants plus casts. Enum-selected `mux_lookup` requires keys
-from exactly the selector's enum and retains a mandatory default for unused
-encodings. See [`../../../examples/rtl/enum-state.rhdl`](../../../examples/rtl/enum-state.rhdl).
+from exactly the selector's enum. Omitting `~default` requires all declared
+members exactly once, with unused encodings uncared. An explicit default
+supports partial lookups and defined recovery from unused encodings. See
+[`../../../examples/rtl/enum-state.rhdl`](../../../examples/rtl/enum-state.rhdl).
 
 Enum definitions also support host-side enumeration:
 

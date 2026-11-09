@@ -100,7 +100,8 @@ sync_circuit SuperscalarIdentityTranslation(xlen :: XLen, config :: RiscvHartCHI
   def hint :: CachePrefetchReq(64) = hints.egress.bits
   def hint_address = hint.address.align_down(CacheLineBytes)
   def hint_region = config.physical_map.lookup(hint_address, hint_address +& Bits(64)(CacheLineBytes - 1))
-  def hint_permission = mux_lookup(hint.operation, ~default: Bool(#false)):
+  def hint_permission = mux_lookup(hint.operation):
+    CachePrefetchOperation.None: Bool(#false)
     CachePrefetchOperation.Instruction: hint_region.executable
     CachePrefetchOperation.Read: hint_region.readable
     CachePrefetchOperation.Write: hint_region.writable

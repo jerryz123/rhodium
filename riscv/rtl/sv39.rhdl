@@ -82,7 +82,8 @@ fun sv39_page_size(pte :: Sv39Pte(), level :: Bits(2)) :~ Sv39PageSize:
 
 /* Clears page-offset PPN bits to normalize a leaf into its mapping base. */
 fun sv39_base_ppn(ppn :: Bits(44), page_size :: Sv39PageSize) :~ Bits(44):
-  mux_lookup(page_size, ~default: ppn):
+  mux_lookup(page_size):
+    Sv39PageSize.Page4KiB: ppn
     Sv39PageSize.Page64KiB: ppn[4..44] ++ Bits(4)(0)
     Sv39PageSize.Page2MiB: ppn[9..44] ++ Bits(9)(0)
     Sv39PageSize.Page1GiB: ppn[18..44] ++ Bits(18)(0)
@@ -90,14 +91,16 @@ fun sv39_base_ppn(ppn :: Bits(44), page_size :: Sv39PageSize) :~ Bits(44):
 /* Compares addresses above the offset width of the selected mapping size. */
 fun sv39_same_page(left :: Bits, right :: Bits(left.type.packed_width()), page_size :: Sv39PageSize) :~ Bool:
   def width = left.type.packed_width()
-  mux_lookup(page_size, ~default: left[12..width] === right[12..width]):
+  mux_lookup(page_size):
+    Sv39PageSize.Page4KiB: left[12..width] === right[12..width]
     Sv39PageSize.Page64KiB: left[16..width] === right[16..width]
     Sv39PageSize.Page2MiB: left[21..width] === right[21..width]
     Sv39PageSize.Page1GiB: left[30..width] === right[30..width]
 
 /* Combines a normalized mapping PPN with the virtual offset for the selected page size. */
 fun sv39_physical_address(virtual_address :: Bits(64), base_ppn :: Bits(44), page_size :: Sv39PageSize) :~ Bits(56):
-  mux_lookup(page_size, ~default: base_ppn ++ virtual_address[0..12]):
+  mux_lookup(page_size):
+    Sv39PageSize.Page4KiB: base_ppn ++ virtual_address[0..12]
     Sv39PageSize.Page64KiB: base_ppn[4..44] ++ virtual_address[0..16]
     Sv39PageSize.Page2MiB: base_ppn[9..44] ++ virtual_address[0..21]
     Sv39PageSize.Page1GiB: base_ppn[18..44] ++ virtual_address[0..30]
@@ -114,7 +117,8 @@ fun sv39_permission_valid(pte :: Sv39Pte(), access :: Sv39Access,
   )
   // Management checks load-or-store access and A, but never checks or sets D.
   // PTE structural validity remains the caller's separate leaf check.
-  def access_valid = mux_lookup(access, ~default: pte.write & pte.dirty):
+  def access_valid = mux_lookup(access):
+    Sv39Access.Store: pte.write & pte.dirty
     Sv39Access.Fetch: pte.execute
     Sv39Access.Load: mux(execute_read, pte.execute, pte.read ||| (mxr & pte.execute))
     Sv39Access.CacheManagement: pte.read ||| pte.write ||| (mxr & pte.execute)

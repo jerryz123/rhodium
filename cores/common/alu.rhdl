@@ -109,8 +109,8 @@ circuit ALU(xlen :: XLen):
   def conditional_mask = mux(right.any(), !Bits(width)(0), Bits(width)(0))
   def logic_right_source = mux_lookup(
     control.logic_right_select,
-    ~default: right,
     [
+      [AluLogicRightSelect.Operand, right],
       [AluLogicRightSelect.OneHot, bit_mask],
       [AluLogicRightSelect.ConditionalMask, conditional_mask]
     ]
@@ -122,8 +122,8 @@ circuit ALU(xlen :: XLen):
   def or_result = xor_result ||| and_result
   def logic_result = mux_lookup(
     control.logic_select,
-    ~default: and_result,
     [
+      [AluLogicSelect.And, and_result],
       [AluLogicSelect.Or, or_result],
       [AluLogicSelect.Xor, xor_result]
     ]
@@ -193,7 +193,6 @@ circuit ALU(xlen :: XLen):
   def reverse_bytes = concat(reversed_bytes)
   def unary_result :: Bits(width) = mux_lookup(
     control.unary_select,
-    ~default: dont_care(Bits(width)),
     [
       [AluUnarySelect.OrCombineBytes, or_combine_bytes],
       [AluUnarySelect.ReverseBytes, reverse_bytes],
@@ -209,7 +208,6 @@ circuit ALU(xlen :: XLen):
 
   def selected_result :: Bits(width) = mux_lookup(
     control.result_select,
-    ~default: dont_care(Bits(width)),
     [
       [AluResultSelect.Adder, adder_result],
       [AluResultSelect.Shift, shift_result],

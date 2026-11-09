@@ -1139,7 +1139,8 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   ex_vector_resolved_rs1 <== ex_forwarded_rs1
   ex_vector_resolved_rs2 <== ex_forwarded_rs2
 
-  ex_alu.left <== mux_lookup(ex_input.bits.operand_left, ~default: ex_forwarded_rs1):
+  ex_alu.left <== mux_lookup(ex_input.bits.operand_left):
+    OperandASelect.Register: ex_forwarded_rs1
     OperandASelect.Pc: ex_input.bits.pc
     OperandASelect.Zero: Bits(width)(0)
 

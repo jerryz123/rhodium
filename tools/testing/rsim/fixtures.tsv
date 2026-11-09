@@ -170,6 +170,7 @@ generated-adder	language	examples/rtl/generated-adder.rhdl	program	rhodium/backe
 alu	language	examples/rtl/alu.rhdl	program	rhodium/backend/tests/rsim/alu.cpp
 enum-state	language	examples/rtl/enum-state.rhdl	program	rhodium/backend/tests/rsim/enum-state.cpp
 host-enum	language	rhodium/frontend/tests/host-enum-fixture.rhdl	program	rhodium/frontend/tests/rsim/host-enum.cpp
+enum-mux	language	rhodium/frontend/tests/enum-mux-fixture.rhdl	program	rhodium/frontend/tests/rsim/enum-mux.cpp
 enum-validity	language	examples/rtl/bit-utilities.rhdl	enum_validity_program	rhodium/backend/tests/rsim/enum-validity.cpp
 one-hot	language	examples/rtl/one-hot.rhdl	program	rhodium/backend/tests/rsim/one-hot.cpp
 shifts	language	examples/rtl/shifts.rhdl	program	rhodium/backend/tests/rsim/shifts.cpp
