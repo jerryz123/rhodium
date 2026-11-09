@@ -2,7 +2,7 @@
 /* Adapts RV5Stage physical memory provenance to the shared passive vector observer. */
 // SPDX-License-Identifier: Apache-2.0
 import:
-  "../../../cores/cache/protocol.rhdl" open
+  "../../../cores/common/cache/protocol.rhdl" open
   "../../../cores/rv5stage/profile.rhm".RV5StageConfig
   "../events/transport.rhdl".capture_lane
   "../../../cores/rv5stage/memory-context.rhdl" open

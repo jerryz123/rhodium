@@ -4,7 +4,7 @@
 import:
   "../bundles.rhdl" open
   "../profile.rhm".SuperscalarPipelineConfig
-  "../../chi-hart.rhdl".RiscvHartCHIConfig
+  "../../common/chi-hart.rhdl".RiscvHartCHIConfig
   "instruction-fixture.rhdl" open
   lib("rhodium/frontend/foundation.rhm").CircuitDefinition
   lib("riscv/rtl/interrupt.rhdl").RiscvInterrupts

@@ -4,8 +4,8 @@
 
 import:
   lib("riscv/isa/xlen.rhm").XLen
-  lib("cores/bpred/protocol.rhdl") open
-  lib("cores/pc.rhdl") open
+  lib("cores/common/bpred/protocol.rhdl") open
+  lib("cores/common/pc.rhdl") open
   "bundles.rhdl" open
   lib("flow/main.rhdl") open
 

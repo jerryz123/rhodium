@@ -6,10 +6,10 @@
 This package adapts RV5Stage's instruction and uncached paths to CHI and owns
 the core's RN capability projection. Shared refill, snoop, dirty-line writeback,
 WriteUnique, and nonallocating transport engines live in
-[`cores/cache/chi/`](../../cache/DEVELOPING.md).
+[`cores/common/cache/chi/`](../../common/cache/DEVELOPING.md).
 The implementation-neutral
 physical-region, Home mapping, requester capability, and placement contract is
-owned by [`cores/chi-hart.rhdl`](../../chi-hart.rhdl).
+owned by [`cores/common/chi-hart.rhdl`](../../common/chi-hart.rhdl).
 Contributors should read [DEVELOPING.md](DEVELOPING.md) for engine ownership
 and validation.
 
@@ -133,7 +133,7 @@ Device writes use the Home's DBID and return write data to that Home; they do
 not request direct write transfer.
 
 In the composed core, data requests come from the
-[data IO-MSHR](../../cache/README.md#non-cacheable-service), which accepts
+[data IO-MSHR](../../common/cache/README.md#non-cacheable-service), which accepts
 independently while the engine serves an instruction. The engine still accepts
 only when idle and prioritizes a presented data request over a new fetch. Its
 `drained` describes the shared engine, not data-side quiescence; the IO-MSHR

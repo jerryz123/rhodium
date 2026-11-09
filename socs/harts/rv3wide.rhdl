@@ -5,9 +5,9 @@
 import:
   lib("cores/rv3wide/profile.rhm").RV3WideConfig
   lib("cores/rv3wide/hart.rhdl").RV3WideHart
-  lib("cores/cache/config.rhm").CacheLineBytes
-  lib("cores/cache/chi/attachment.rhdl").cache_chi_params
-  lib("cores/chi-hart.rhdl").RiscvHartCHIConfig
+  lib("cores/common/cache/config.rhm").CacheLineBytes
+  lib("cores/common/cache/chi/attachment.rhdl").cache_chi_params
+  lib("cores/common/chi-hart.rhdl").RiscvHartCHIConfig
   "implementation.rhdl".RiscvHartImplementation
 
 /* Packages synthesizable RV3Wide specialization without introducing a new SoC or simulation harness. */

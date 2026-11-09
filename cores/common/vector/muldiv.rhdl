@@ -1,0 +1,144 @@
+#lang rhodium
+/* Adapts packed and scalar integer multiplication and division to retained vector ownership. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("cores/common/integer-execution.rhdl") open
+  "bundles.rhdl" open
+  "decode.rhdl".VectorMultiplyResult
+  "../simd-alu.rhdl".SimdRoundingMode
+  "../simd-alu.rhdl".SimdElementWidth
+  "../simd-multiplier.rhdl" open
+  "geometry.rhdl".vector_aligned_first
+  "../multiplier.rhdl" open
+  "../divider.rhdl" open
+  "../../../riscv/isa/xlen.rhm" open
+  "../../../riscv/isa/vector.rhm" open
+  lib("rhodium/std/bits.rhdl").Pow2Int
+
+/* Retains completion slot, source SEW, product selection, and fractional rounding policy. */
+bundle VectorMultiplyTag(slots :: Pow2Int):
+  slot: Bits(index_width(slots))
+  sew: Bits(2)
+  result: VectorMultiplyResult
+  rounding_mode: SimdRoundingMode
+
+/* Retains completion slot, source SEW, and quotient/remainder selection. */
+bundle VectorDivideTag(slots :: Pow2Int):
+  slot: Bits(index_width(slots))
+  sew: Bits(2)
+  remainder: Bool
+
+/* Pairs selected product bits with fractional-multiply saturation. */
+bundle VectorMultiplyValue(xlen :: XLen):
+  data: Bits(xlen.width)
+  saturated: Bool
+
+/* Maps vector product selection onto the shared numeric formatter's control. */
+fun vector_multiply_control(result :: VectorMultiplyResult, accumulate :: Bool, subtract :: Bool, rounding_mode :: SimdRoundingMode, upper_half :: Bool) :~ SimdMultiplyControl():
+  SimdMultiplyControl():
+    select:
+      mux_lookup(result, ~default: SimdMultiplySelect.Low):
+        VectorMultiplyResult.High: SimdMultiplySelect.High
+        VectorMultiplyResult.Widened: SimdMultiplySelect.Wide
+        VectorMultiplyResult.Fractional: SimdMultiplySelect.Fractional
+    upper_half: upper_half
+    accumulate: accumulate
+    subtract: subtract
+    rounding_mode: rounding_mode
+
+/* Forms packed operands and one destination beat's MAC/rounding context without widening inputs. */
+fun vector_simd_multiply_request(xlen :: XLen, vlen :: VectorLength, beat :: VectorBeat(xlen, vlen)) :~ SimdMultiplyAccumulateRequest(xlen.width):
+  def accumulate = beat.control.multiply_accumulate
+  def destination_product = accumulate & beat.control.multiply_destination
+  def upper = beat.first =/= vector_aligned_first(xlen, vlen, beat.first, beat.element_width.as_bits())
+  def result = mux(accumulate, mux(beat.control.widening, VectorMultiplyResult.Widened, VectorMultiplyResult.Low), beat.control.multiply_result)
+  SimdMultiplyAccumulateRequest(xlen.width):
+    operands:
+      SimdMultiplyRequest(xlen.width):
+        left: mux(destination_product, beat.destination_data, beat.left)
+        right: beat.right
+        mode:
+          MultiplierMode():
+            left_signed: beat.control.left_signed
+            right_signed: beat.control.right_signed
+        element_width: beat.element_width
+    context:
+      SimdMultiplyContext(xlen.width):
+        addend: mux(destination_product, beat.left, beat.destination_data)
+        control: vector_multiply_control(result, accumulate, beat.control.multiply_subtract, beat.rounding_mode, upper)
+
+/* Sign- or zero-extends one SEW element into the physical integer execution width. */
+fun vector_integer_operand(xlen :: XLen, value :: Bits(xlen.width), sew :: Bits(2), signed_mode :: Bool) :~ Bits(xlen.width):
+  def cases = for List (width in [8, 16, 32], code in 0..3):
+    [code, mux(signed_mode, value[0..width].sext(xlen.width), value[0..width].zext(xlen.width))]
+
+  mux_lookup(sew, ~default: value[0..xlen.width], cases)
+
+/* Builds a tagged shared multiplier request, selecting old vd for destination-multiply forms. */
+fun vector_multiply_request(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, beat :: VectorBeat(xlen, vlen), slot :: Bits(index_width(slots))) :~ IntegerExecutionRequest(MultiplierRequest(xlen.width), VectorMultiplyTag(slots)):
+  def sew = beat.element_width.into(Bits(2))
+  IntegerExecutionRequest(MultiplierRequest(xlen.width), VectorMultiplyTag(slots)):
+    tag:
+      VectorMultiplyTag(slots):
+        slot: slot
+        sew: sew
+        result: mux(beat.control.multiply_accumulate, mux(beat.control.widening, VectorMultiplyResult.Widened, VectorMultiplyResult.Low), beat.control.multiply_result)
+        rounding_mode: beat.rounding_mode
+
+    operands:
+      MultiplierRequest(xlen.width):
+        left: vector_integer_operand(xlen, mux(beat.control.multiply_accumulate & beat.control.multiply_destination, beat.destination_data, beat.left), sew, beat.control.left_signed)
+        right: vector_integer_operand(xlen, beat.right, sew, beat.control.right_signed)
+        mode:
+          MultiplierMode():
+            left_signed: beat.control.left_signed
+            right_signed: beat.control.right_signed
+
+/* Builds a tagged shared divider request from normalized singleton operands. */
+fun vector_divide_request(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, beat :: VectorBeat(xlen, vlen), slot :: Bits(index_width(slots))) :~ IntegerExecutionRequest(DividerRequest(xlen.width), VectorDivideTag(slots)):
+  def sew = beat.element_width.into(Bits(2))
+  IntegerExecutionRequest(DividerRequest(xlen.width), VectorDivideTag(slots)):
+    tag:
+      VectorDivideTag(slots):
+        slot: slot
+        sew: sew
+        remainder: beat.control.remainder
+
+    operands:
+      DividerRequest(xlen.width):
+        dividend: vector_integer_operand(xlen, beat.left, sew, beat.control.left_signed)
+        divisor: vector_integer_operand(xlen, beat.right, sew, beat.control.left_signed)
+        signed_mode: beat.control.left_signed
+
+/* Formats the scalar service's lane-zero product with the shared packed numeric formatter.
+   Other output lanes are ignored by the retained singleton write mask. */
+fun vector_multiply_value(xlen :: XLen, slots :: Pow2Int, result :: IntegerExecutionResult(Bits(xlen.width * 2), VectorMultiplyTag(slots)), addend :: Bits(xlen.width), accumulate :: Bool, subtract :: Bool) :~ VectorMultiplyValue(xlen):
+  def products = SimdMultiplyProducts(xlen.width):
+    data: result.value
+    element_width: result.tag.sew.into(SimdElementWidth)
+
+  def context = SimdMultiplyContext(xlen.width):
+    addend: addend
+    control: vector_multiply_control(result.tag.result, accumulate, subtract, result.tag.rounding_mode, Bool(#false))
+
+  def formatted = simd_multiply_result(xlen.width, products, context)
+  VectorMultiplyValue(xlen):
+    data: formatted.data
+    saturated: formatted.saturated[0]
+
+/* Selects quotient or remainder from the completed request's retained tag. */
+fun vector_divide_value(xlen :: XLen, slots :: Pow2Int, result :: IntegerExecutionResult(DividerResponse(xlen.width), VectorDivideTag(slots))) :~ Bits(xlen.width):
+  def value = mux(result.tag.remainder, result.value.remainder, result.value.quotient)
+  value
+
+export:
+  VectorMultiplyTag
+  VectorDivideTag
+  VectorMultiplyValue
+  vector_integer_operand
+  vector_multiply_request
+  vector_simd_multiply_request
+  vector_divide_request
+  vector_multiply_value
+  vector_divide_value

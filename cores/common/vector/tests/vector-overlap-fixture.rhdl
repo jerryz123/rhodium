@@ -1,0 +1,112 @@
+#lang rhodium
+// Exposes one production sequencer plus delayed memory decisions and services for overlap checks.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("riscv/rtl/trap.rhdl").ExceptionCause
+  lib("cores/common/register-write.rhdl").RegisterFileWrite
+  "../../fp/bundles.rhdl" open
+  "../pipeline.rhdl" open
+  "../bundles.rhdl" open
+  "decode.rhdl" open
+  "../../../../riscv/isa/fp-profile.rhm" open
+  "../../../../riscv/isa/vector-profile.rhm" open
+  "../../../../riscv/isa/xlen.rhm" open
+  "../../../../riscv/rtl/vector.rhdl" open
+  "../../../../riscv/rtl/pointer-masking.rhdl" open
+  lib("hardfloat/main.rhdl").RoundingMode
+  lib("flow/main.rhdl") open
+
+sync_circuit VectorOverlap():
+  def xlen = XLen.X64
+  def slots = 8
+  input instruction: Bits(32)
+  input(vl, vtype, scalar, hit_data): Bits(64)
+  input(request_valid, packed_memory, retry, slow, cancel, issue_ready, decision_hold, fault): Bool
+  interface response(Decoupled(VectorCompletion(xlen, slots)), ~role: consumer)
+  interface fp_request(Decoupled(FpExecutionRequest(xlen, FloatingPointProfile.D, Bits(3))), ~role: producer)
+  interface fp_result(Decoupled(FpExecutionResult(xlen, FloatingPointProfile.D, Bits(3))), ~role: consumer)
+  interface scalar_result(Valid(RegisterFileWrite(xlen)), ~role: producer)
+  interface attempt(Valid(VectorToken(XLen.X64, Bits(64), slots)), ~role: producer)
+  interface resolution(Valid(VectorToken(XLen.X64, Bits(64), slots)), ~role: producer)
+  output(request_ready, active, issued, issue_finished, sequencing_finished, retired): Bool
+  inst decode(VectorTestDecoder())
+  inst vector(VectorExecution(xlen, 128, Bits(64), ~vector_completion_slots: slots))
+  vector.schedule_enable <== issue_ready
+  vector.scalar_writeback.ready <== Bool(#true)
+  vector.floating_writeback.ready <== Bool(#true)
+  inst tokens(ValidPipe(VectorToken(XLen.X64, Bits(64), slots), 3, ~flushable: #true))
+  decode.instruction <== instruction
+  vector.request.valid <== request_valid
+  vector.request.bits <== VectorInstruction(xlen, Bits(64)):
+    context: scalar
+    descriptor:
+      VectorDescriptor(xlen):
+        pc: scalar
+        precertified: Bool(#false)
+        certificate: dont_care(vector.request.bits.descriptor.certificate.type)
+        instruction: instruction
+        state:
+          RiscvVectorState(xlen):
+            vl: vl
+            vtype: vtype
+            vstart: Bits(64)(0)
+            vxrm: Bits(2)(0)
+            vxsat: Bool(#false)
+
+        control: decode.control
+        scalar: scalar
+        floating_scalar: Bits(64)(0)
+        stride: Bits(64)(8)
+        masked: !instruction[25].into(Bool)
+        rounding_mode: RoundingMode.NearEven
+        pointer_masking:
+          PointerMaskControl():
+            mode: PointerMaskMode.Disabled
+            virtual_address: Bool(#false)
+
+  vector.packed_memory <== packed_memory
+  vector.issue |> to_valid() |> tokens.ingress
+  def Array(observed, memory_tokens) = tokens.egress |> fork_valid(2)
+  observed |> attempt
+  wire recover: Bool
+  def pending_decision = memory_tokens |> filter_valid(token => token.memory) |> to_decoupled()
+    |> shift_queue(slots, ~flow: #true, ~flush: recover)
+  resolution.valid <== pending_decision.valid
+  resolution.bits <== pending_decision.bits
+  def feedback = pending_decision |> gate_flow(!cancel & !decision_hold) |> to_valid()
+  recover <== cancel ||| (feedback.valid & (retry ||| fault))
+  tokens.flush <== recover
+  vector.cancel.valid <== cancel
+  (
+    feedback |> map_valid(token => VectorCommit(xlen, 8)):
+      tag: token.completion_tag
+      pc: token.context
+      disposition: mux(retry, VectorDisposition.Retry, mux(fault, VectorDisposition.Fault, VectorDisposition.Authorized))
+      slow: slow & token.memory & token.enabled
+      data: hit_data
+      cause: dont_care(ExceptionCause)
+      fault_address: Bits(64)(0)
+  ) |> vector.decision
+
+  response |> vector.completion
+  vector.store_completed.valid <== Bool(#false)
+  vector.store_completed.bits <== dont_care(vector.store_completed.bits.type)
+  vector.memory_drained <== Bool(#true)
+  vector.fp_request |> fp_request
+  fp_result |> vector.fp_result
+  vector.scalar_result |> scalar_result
+  vector.multiply_request.ready <== Bool(#false)
+  vector.multiply_result.valid <== Bool(#false)
+  vector.multiply_result.bits <== dont_care(vector.multiply_result.bits.type)
+  vector.divide_request.ready <== Bool(#false)
+  vector.divide_result.valid <== Bool(#false)
+  vector.divide_result.bits <== dont_care(vector.divide_result.bits.type)
+  request_ready <== vector.request.ready
+  active <== vector.active
+  issued <== vector.issue.fire()
+  issue_finished <== vector.issue_done.valid
+  sequencing_finished <== vector.sequencing_done.valid
+  retired <== vector.retire.valid
+
+export VectorOverlap

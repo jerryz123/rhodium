@@ -8,10 +8,10 @@ import:
   "../memory-context.rhdl" open
   lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../riscv/isa/xlen.rhm" open
-  "../../cache/geometry.rhdl" open
-  "../../cache/protocol.rhdl".PhysicalMemoryResp
-  "../../../cores/cache/l1i/cache.rhdl" as l1i
-  "../../cache/l1d/cache.rhdl" as l1d
+  "../../common/cache/geometry.rhdl" open
+  "../../common/cache/protocol.rhdl".PhysicalMemoryResp
+  "../../common/cache/l1i/cache.rhdl" as l1i
+  "../../common/cache/l1d/cache.rhdl" as l1d
   "../../../cores/rv5stage/tests/params.rhdl" as test_params
 
 def config = test_params.test_rv5stage_chi_config

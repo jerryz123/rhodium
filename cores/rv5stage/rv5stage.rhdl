@@ -5,16 +5,16 @@
 import:
   lib("riscv/isa/xlen.rhm").XLen
   "memory-context.rhdl" open
-  "../cosim-source.rhm".describe_cosim_context
-  "../cache-prefetch.rhdl" open
+  "../common/cosim-source.rhm".describe_cosim_context
+  "../common/cache-prefetch.rhdl" open
   "core.rhdl" open
   "fetch/frontend.rhdl" open
   "../../riscv/rtl/interrupt.rhdl" open
   "chi/foundation.rhdl" open
   "profile.rhm" open
-  "../cache/geometry.rhdl" open
-  "../cache/l1i/cache.rhdl" open
-  "../cache/l1d/cache.rhdl" open
+  "../common/cache/geometry.rhdl" open
+  "../common/cache/l1i/cache.rhdl" open
+  "../common/cache/l1d/cache.rhdl" open
   "data-port-arbiter.rhdl" open
   "memory-router.rhdl" open
   "instruction-memory-router.rhdl" open

@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/alu.rhdl") open
-  lib("cores/alu-decode.rhdl") open
+  lib("cores/common/alu.rhdl") open
+  lib("cores/common/alu-decode.rhdl") open
   lib("riscv/isa/xlen.rhm") open
 
 /* Decodes an instruction into shared ALU controls and reports validity with its result. */

@@ -4,23 +4,23 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/fp/profile.rhm").fp_transport_profile
-  lib("cores/vector/backend.rhdl") open
-  lib("cores/mmu/vector.rhdl") open
-  lib("cores/integer-execution.rhdl") open
-  lib("cores/register-write.rhdl") open
-  "../fp/bundles.rhdl" open
-  "../fp/timing.rhdl" open
+  lib("cores/common/fp/profile.rhm").fp_transport_profile
+  lib("cores/common/vector/backend.rhdl") open
+  lib("cores/common/mmu/vector.rhdl") open
+  lib("cores/common/integer-execution.rhdl") open
+  lib("cores/common/register-write.rhdl") open
+  "../common/fp/bundles.rhdl" open
+  "../common/fp/timing.rhdl" open
   "memory-context.rhdl" open
-  "../cache/protocol.rhdl" open
-  "../cosim-source.rhm".describe_cosim_signals
-  "../vector/bundles.rhdl" open
+  "../common/cache/protocol.rhdl" open
+  "../common/cosim-source.rhm".describe_cosim_signals
+  "../common/vector/bundles.rhdl" open
   "vector/memory.rhdl" open
   "mmu/protocol.rhdl" open
-  "../vector/muldiv.rhdl" open
-  "../multiplier.rhdl" open
-  "../divider.rhdl" open
-  "../fp/register-file.rhdl".FloatingPointRegisterWrite
+  "../common/vector/muldiv.rhdl" open
+  "../common/multiplier.rhdl" open
+  "../common/divider.rhdl" open
+  "../common/fp/register-file.rhdl".FloatingPointRegisterWrite
   "../../riscv/isa/vector.rhm" open
   "../../riscv/isa/xlen.rhm" open
   "../../riscv/rtl/pointer-masking.rhdl" open

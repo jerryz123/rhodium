@@ -3,12 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../fetch/encoding.rhdl" open
-  lib("cores/pc.rhdl") open
+  "../../common/fetch/encoding.rhdl" open
+  lib("cores/common/pc.rhdl") open
   lib("riscv/rtl/hypervisor.rhdl").RiscvGuestException
-  lib("cores/bpred/protocol.rhdl") open
-  lib("cores/bpred/ras.rhdl").riscv_compressed_ras_action
-  lib("cores/bpred/ras.rhdl").riscv_ras_action
+  lib("cores/common/bpred/protocol.rhdl") open
+  lib("cores/common/bpred/ras.rhdl").riscv_compressed_ras_action
+  lib("cores/common/bpred/ras.rhdl").riscv_ras_action
   "packet.rhdl" open
   "../icache/protocol.rhdl".RV5StageInstructionResp
   "../profile.rhm".RV5StageConfig

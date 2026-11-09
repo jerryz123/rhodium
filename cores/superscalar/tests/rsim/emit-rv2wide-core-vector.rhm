@@ -6,11 +6,11 @@ import:
   lib("rhodium/frontend/foundation.rhm").elaborate
   lib("rhodium/event/main.rhm") open
   lib("rhodium/event/tests/rsim/trace-sites.rhm").traced_target
-  lib("cores/tests/rsim/port-observers.rhm").port_observer_pass
+  lib("cores/common/tests/rsim/port-observers.rhm").port_observer_pass
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/isa/fp-profile.rhm") open
   lib("riscv/isa/vector-profile.rhm") open
-  lib("cores/fp/timing.rhdl").FpExecutionTiming
+  lib("cores/common/fp/timing.rhdl").FpExecutionTiming
   "../core-fixture.rhdl".CoreFixture
   "../../profile.rhm".SuperscalarPipelineConfig
 

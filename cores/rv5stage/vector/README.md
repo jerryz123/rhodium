@@ -3,7 +3,7 @@
 
 # RV5Stage vector integration
 
-The execution engine lives in [`cores/vector`](../../vector/README.md).
+The execution engine lives in [`cores/common/vector`](../../common/vector/README.md).
 This guide describes RV5Stage's profile selection, WB admission, retirement,
 and LSU integration around that shared engine.
 
@@ -36,7 +36,7 @@ forms; it does not enable other FP16 vector operations or scalar `Zfhmin`.
 Selecting `VectorExtension.Zvfh` with scalar `Zfhmin` or `Zfh` instead enables
 the complete vector FP surface at SEW=16 and the standard six SEW=8 widening
 and narrowing integer-conversion forms.
-The reusable arithmetic stays in [`SimdALU`](../../README.md#packed-simd-integer-alu).
+The reusable arithmetic stays in [`SimdALU`](../../common/README.md#packed-simd-integer-alu).
 Contributors should read [DEVELOPING.md](DEVELOPING.md) for state ownership,
 source placement, and validation.
 
@@ -67,7 +67,7 @@ configuration, vector CSR writes, vector completion, fixed-point saturation, or
 a vector fault mark VS Dirty; reads do not, and SD combines the FP and vector
 dirty states. Software may manage VS through M/S status.
 
-The [vector control column](../../vector/decode.rhdl) describes same-width
+The [vector control column](../../common/vector/decode.rhdl) describes same-width
 wrapping, reverse, saturating, averaging, and carry/borrow add/sub; logic; shifts; fixed-point scaling shifts and narrowing clips;
 comparisons, min/max, compression, narrowing shifts,
 and narrow-source widening plus wide-source widening add/sub using direct SIMD controls, operand selection, extension
@@ -287,12 +287,12 @@ ordered metadata reclamation after writeback; a smaller window can reduce memory
 The integrated core propagates the count through every LSU adapter. Standalone
 compositions must select the same count on their data interfaces and engines.
 
-[`../../vector/bundles.rhdl`](../../vector/bundles.rhdl) defines an instruction/configuration snapshot,
+[`../../common/vector/bundles.rhdl`](../../common/vector/bundles.rhdl) defines an instruction/configuration snapshot,
 XLEN-bit packed micro-ops, and memory acceptance/retry/fault feedback. Position
 is an exclusive architectural element range, independent of masked-off lanes;
 caller-defined context identifies outstanding work. Authorization is distinct
 from result completion, and accepted side effects must never be retried.
-[`VectorSequencer`](../../vector/sequencer.rhdl) retains one macro descriptor and its
+[`VectorSequencer`](../../common/vector/sequencer.rhdl) retains one macro descriptor and its
 scalar/configuration snapshot. The original macro crosses ID/EX, EX/MEM, and
 MEM/WB without executing scalar side effects. EX forwarding resolves its scalar
 base and stride into a per-occurrence context carried beside the launch token;
@@ -302,7 +302,7 @@ Vector launch tokens may follow each other through the scalar stages. WB admits
 each into the two-entry descriptor FIFO or precisely replays it when full,
 without making WB elastic. Older scalar instructions can finish or squash the
 launch normally.
-[`VectorOperandFetch`](../../vector/operand-fetch.rhdl) owns three synchronous
+[`VectorOperandFetch`](../../common/vector/operand-fetch.rhdl) owns three synchronous
 general VRF reads supplying `vs2` (or store `vs3`), `vs1`, and
 the old destination for multiply-accumulate operations; a dedicated `v0`
 shadow supplies predication concurrently. The sequencer accepts a read only
@@ -399,14 +399,14 @@ adder.
 The six `vzext.vf2/vf4/vf8` and `vsext.vf2/vf4/vf8` forms retain destination
 SEW/LMUL scheduling while reading `vs2` at EEW `SEW/2`, `SEW/4`, or `SEW/8`.
 Operand fetch selects the corresponding narrow source fragment and
-[`SimdExtend`](../../simd-alu.rhdl) directly wires its elements into one XLEN-bit
+[`SimdExtend`](../../common/simd-alu.rhdl) directly wires its elements into one XLEN-bit
 destination beat. Legality rejects unsupported source EEW, source EMUL below
 1/8, misaligned groups, masked `v0` conflicts, and destination overlap except
 when an integral source group occupies the highest-numbered part of the
 destination group.
 
 The vector pipeline's private execution stage uses
-[`VectorExecute`](../../vector/execute.rhdl) and the shared SIMD ALU. Its fixed-latency
+[`VectorExecute`](../../common/vector/execute.rhdl) and the shared SIMD ALU. Its fixed-latency
 result maturity completes on the reserved write cycle without
 an external authorization round trip. An exclusive end position advances even for
 masked-off elements. Ordinary compute releases the sequencer at its final read
@@ -632,7 +632,7 @@ must be aligned and disjoint; the single-register selection mask must be
 disjoint from both data groups, including when VL is zero.
 
 The sequencer reads the data and selection-mask chunks through general ports.
-[`SimdCompress`](../../simd-alu.rhdl) compacts each XLEN-bit word without
+[`SimdCompress`](../../common/simd-alu.rhdl) compacts each XLEN-bit word without
 owning architectural state. A retained suffix joins the next compacted word;
 each issued beat carries its post-beat suffix, element count, and destination
 position as a speculative checkpoint. Result maturity advances the committed

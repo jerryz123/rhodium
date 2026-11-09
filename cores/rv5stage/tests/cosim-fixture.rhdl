@@ -3,14 +3,14 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   lib("riscv/rtl/hypervisor.rhdl").RiscvGuestException
-  lib("cores/mmu/vector.rhdl") open
-  "../../cache/protocol.rhdl" open
+  lib("cores/common/mmu/vector.rhdl") open
+  "../../common/cache/protocol.rhdl" open
   "../core.rhdl" open
   "../../../sims/cosim/events/transport.rhdl".capture_lane
   "../profile.rhm" open
   "../fetch/packet.rhdl" open
   "../memory-context.rhdl" open
-  "../../cache/operation.rhdl".CacheOperation
+  "../../common/cache/operation.rhdl".CacheOperation
   "../mmu/protocol.rhdl" open
   "../../../riscv/rtl/interrupt.rhdl" open
   "../../../riscv/isa/xlen.rhm" open

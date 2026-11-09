@@ -5,12 +5,12 @@
 
 Read [README.md](README.md) for scalar ports, hazards, and retirement semantics.
 This guide owns the architectural wrapper, not the reusable numeric components;
-their contributor guide is [`cores/fp/DEVELOPING.md`](../../fp/DEVELOPING.md).
+their contributor guide is [`cores/common/fp/DEVELOPING.md`](../../common/fp/DEVELOPING.md).
 
 ## Architecture and ownership
 
 This package imports shared FP types, operand transactions, execution, and
-register storage from `cores/fp/`. It may also use RISC-V architectural helpers,
+register storage from `cores/common/fp/`. It may also use RISC-V architectural helpers,
 public Rhodium libraries, Flow, and passive observation declarations. It must
 not import caches, MMU implementation, `core.rhdl`, backends, simulators, or
 tests. No shared FP component imports this wrapper. See the repository
@@ -21,7 +21,7 @@ integer-result retirement. Its named `service.rhdl` owns scalar/vector issue
 arbitration and consumes the shared `FpLaunchCalendar` for return bookings. The scalar wrapper owns FPR
 reservations/hazards, load boxing, operand snapshots, completion adaptation,
 and architectural-state update events. Canonical FP instruction mappings live
-in [`cores/fp/decode.rhdl`](../../fp/decode.rhdl); the named
+in [`cores/common/fp/decode.rhdl`](../../common/fp/decode.rhdl); the named
 [`core-ctrl.rhdl`](../decode/core-ctrl.rhdl) joins them with scalar columns.
 
 ## Implementation map
@@ -31,7 +31,7 @@ in [`cores/fp/decode.rhdl`](../../fp/decode.rhdl); the named
 | [`bundles.rhdl`](bundles.rhdl) | Scalar issue/completion, scalar execution owner, and LSU payloads |
 | [`pipeline.rhdl`](pipeline.rhdl) | FPR scoreboard, load/store bridges, vector FPR reservation/write, and completion/state updates |
 | [`service.rhdl`](service.rhdl) | ID booking, EX grants, scalar/vector arbitration, and matching stateless disabled service |
-| [`../../fp/`](../../fp/DEVELOPING.md) | Shared types/decode, tagged arithmetic service, and 3R2W register file |
+| [`../../common/fp/`](../../common/fp/DEVELOPING.md) | Shared types/decode, tagged arithmetic service, and 3R2W register file |
 
 `RV5StageFpScalar` exposes operand execution ports. `RV5StageFpPipeline`
 composes it with an elastic service for standalone use; the core instead
@@ -68,7 +68,7 @@ when wrapper semantics change. Generated output remains untracked.
 ## Focused validation
 
 ```sh
-tools/run-racket-tests.sh cores/fp/tests/decode-test.rhm \
+tools/run-racket-tests.sh cores/common/fp/tests/decode-test.rhm \
   cores/rv5stage/tests/fp-pipeline-test.rhm cores/rv5stage/tests/core-ctrl-test.rhm
 python3 tools/testing/rsim/run.py --fixture rv5stage-fp-pipeline
 FIXTURES='rv5stage-core-rv32f rv5stage-core-rv64d' \
@@ -78,7 +78,7 @@ FIXTURES='rv5stage-core-rv32f rv5stage-core-rv64d' \
 These preserve F/D/Zfh/Zfa arithmetic integration, FPR hazards, LSU bridges,
 WB authorization, and flag updates. Add `rv5stage-vector-fp` for shared service
 arbitration, retagging, vector reservation, or scalar/vector movement changes.
-Run the [shared FP fixtures](../../fp/DEVELOPING.md#validation) for arithmetic,
+Run the [shared FP fixtures](../../common/fp/DEVELOPING.md#validation) for arithmetic,
 service, or register-file changes. Moves/import changes require
 `moon run rhodium:check-boundaries`; fixture moves also require reviewing CI path selection.
 The [CIRCT guide](../../../tools/testing/circt/DEVELOPING.md) owns runner modes.

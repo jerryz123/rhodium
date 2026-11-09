@@ -4,17 +4,17 @@
 import:
   lib("rhodium/compile/program.rhm").compile_program
   lib("rhodium/compile/rtl.rhm").rtl_target
-  "../../../cores/cache/protocol.rhdl" open
+  "../../../cores/common/cache/protocol.rhdl" open
   lib("rhodium/frontend/kernel.rhm").input as observer_input
   "vector.rhdl".rv5stage_cosim_vector
   "../events/transport.rhdl".capture_lane as lane
   "../../../cores/rv5stage/profile.rhm".RV5StageConfig
-  "../../../cores/misaligned-access.rhdl".RiscvSplitResult
+  "../../../cores/common/misaligned-access.rhdl".RiscvSplitResult
   "../../../cores/rv5stage/bundles.rhdl".MemoryWriteback
   "../../../cores/rv5stage/bundles.rhdl".RV5StageRetirementCommand
   "../../../cores/rv5stage/memory-context.rhdl" open
   "../../../cores/rv5stage/fp/bundles.rhdl" open
-  "../../../cores/fp/types.rhdl".FloatDestination
+  "../../../cores/common/fp/types.rhdl".FloatDestination
   "../../../riscv/isa/vector-profile.rhm".vector_profile_enabled
   "../../../riscv/isa/fp-profile.rhm" open
   "../../../riscv/isa/xlen.rhm".XLen

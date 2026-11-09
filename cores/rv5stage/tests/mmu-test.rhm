@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/mmu/context.rhdl").RiscvTranslationState
+  lib("cores/common/mmu/context.rhdl").RiscvTranslationState
   lib("riscv/isa/hart.rhm").RiscvMmuType
   lib("rhodium/compile/program.rhm").compile_program
   lib("rhodium/compile/rtl.rhm").rtl_target

@@ -5,10 +5,10 @@
 import:
   "../profile.rhm".SuperscalarPipelineConfig
   "../decode/core-ctrl.rhdl".superscalar_instructions
-  lib("cores/bpred/protocol.rhdl") open
-  lib("cores/bpred/ras.rhdl").riscv_ras_action
+  lib("cores/common/bpred/protocol.rhdl") open
+  lib("cores/common/bpred/ras.rhdl").riscv_ras_action
   lib("riscv/isa/xlen.rhm").XLen
-  "../../fetch/encoding.rhdl" open
+  "../../common/fetch/encoding.rhdl" open
   lib("riscv/model/formats.rhm") as fields
   lib("riscv/rtl/instruction-fields.rhdl").instruction_immediate
 

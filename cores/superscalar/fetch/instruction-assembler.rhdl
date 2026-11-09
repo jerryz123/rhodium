@@ -3,12 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/fetch/fault.rhdl") open
+  lib("cores/common/fetch/fault.rhdl") open
   "../bundles.rhdl" open
   "predecode.rhdl".SuperscalarPredecode
   "../profile.rhm".SuperscalarPipelineConfig
-  lib("cores/bpred/protocol.rhdl") open
-  lib("cores/pc.rhdl") open
+  lib("cores/common/bpred/protocol.rhdl") open
+  lib("cores/common/pc.rhdl") open
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/rtl/hypervisor.rhdl").RiscvGuestFault
   lib("riscv/rtl/trap.rhdl").ExceptionCause

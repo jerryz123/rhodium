@@ -1,7 +1,7 @@
 // Provides RV5Stage memory-context encodings on the shared rsim scoreboard driver.
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
-#include "../../../tests/rsim/driver.hpp"
+#include "../../../common/tests/rsim/driver.hpp"
 
 inline std::uint16_t memory_integer(unsigned rd) { return 0x80 | (rd & 31); }
 inline std::uint16_t memory_fp(unsigned rd, unsigned precision) {

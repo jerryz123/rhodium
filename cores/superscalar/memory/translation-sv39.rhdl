@@ -3,21 +3,21 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../cache/prefetch.rhdl".cache_prefetch_physical
-  lib("cores/mmu/context.rhdl") open
+  "../../common/cache/prefetch.rhdl".cache_prefetch_physical
+  lib("cores/common/mmu/context.rhdl") open
   lib("riscv/rtl/hypervisor.rhdl") open
   lib("riscv/rtl/pointer-masking.rhdl") open
   "../bundles.rhdl" open
   "translation.rhdl" open
   "translation-specialization.rhm" open
   lib("rhodium/frontend/foundation.rhm").CircuitDefinition
-  "../../cache/operation.rhdl" open
-  "../../cache-prefetch.rhdl" open
-  "../../chi-hart.rhdl" open
-  "../../mmu/protocol.rhdl" open
-  "../../mmu/translation.rhdl" open
-  "../../mmu/tlb.rhdl" open
-  "../../mmu/walker.rhdl" open
+  "../../common/cache/operation.rhdl" open
+  "../../common/cache-prefetch.rhdl" open
+  "../../common/chi-hart.rhdl" open
+  "../../common/mmu/protocol.rhdl" open
+  "../../common/mmu/translation.rhdl" open
+  "../../common/mmu/tlb.rhdl" open
+  "../../common/mmu/walker.rhdl" open
   lib("riscv/isa/xlen.rhm") open
   lib("riscv/rtl/pma.rhdl").RiscvPhysicalMemoryMap
   lib("riscv/isa/csr.rhm") open
@@ -28,9 +28,9 @@ import:
   lib("riscv/rtl/svpbmt.rhdl") open
   lib("flow/main.rhdl") open
   lib("rhodium/std/bits.rhdl") open
-  lib("cores/mmu/vector.rhdl") open
-  lib("cores/mmu/vector-window.rhdl") open
-  lib("cores/mmu/vector-certificate.rhdl").VectorCertificate
+  lib("cores/common/mmu/vector.rhdl") open
+  lib("cores/common/mmu/vector-window.rhdl") open
+  lib("cores/common/mmu/vector-certificate.rhdl").VectorCertificate
 
 /* Retains an exact failed lookup and trap provenance, never successful mapping
    addresses or leaf permissions. The original lookup also owns the access class. */

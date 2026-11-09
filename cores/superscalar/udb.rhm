@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../udb.rhm" open
+  "../common/udb.rhm" open
   "profile.rhm".SuperscalarPipelineConfig
   lib("riscv/udb.rhm") open
   lib("support/annotations.rhm").NonemptyString

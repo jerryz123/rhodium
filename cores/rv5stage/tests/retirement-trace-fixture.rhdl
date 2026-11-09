@@ -3,12 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   lib("riscv/rtl/hypervisor.rhdl").RiscvGuestException
-  lib("cores/mmu/vector.rhdl") open
-  "../../cache/protocol.rhdl" open
+  lib("cores/common/mmu/vector.rhdl") open
+  "../../common/cache/protocol.rhdl" open
   "../core.rhdl" open
   "../profile.rhm" open
   "../fetch/packet.rhdl" open
-  lib("cores/bpred/protocol.rhdl") open
+  lib("cores/common/bpred/protocol.rhdl") open
   "../memory-context.rhdl" open
   "../mmu/protocol.rhdl" open
   "../../../riscv/rtl/interrupt.rhdl" open

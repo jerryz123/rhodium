@@ -3,38 +3,38 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/fetch/fault.rhdl").FetchFault
-  lib("cores/mmu/context.rhdl").RiscvTranslationState
-  lib("cores/pc.rhdl") open
-  lib("cores/fetch/redirect.rhdl") open
+  lib("cores/common/fetch/fault.rhdl").FetchFault
+  lib("cores/common/mmu/context.rhdl").RiscvTranslationState
+  lib("cores/common/pc.rhdl") open
+  lib("cores/common/fetch/redirect.rhdl") open
   lib("rhodium/frontend/layers/statistics.rhm").stat_count
-  lib("cores/bpred/statistics.rhdl") open
-  lib("cores/fp/profile.rhm").fp_transport_profile
-  lib("cores/reservation-wait.rhdl") open
-  lib("cores/operand.rhdl") open
-  lib("cores/integer-service.rhdl") open
-  lib("cores/mmu/vector.rhdl") open
-  lib("cores/integer-execution.rhdl") open
-  lib("cores/register-write.rhdl") open
-  "../fp/bundles.rhdl" open
-  "../memory-response.rhdl" open
+  lib("cores/common/bpred/statistics.rhdl") open
+  lib("cores/common/fp/profile.rhm").fp_transport_profile
+  lib("cores/common/reservation-wait.rhdl") open
+  lib("cores/common/operand.rhdl") open
+  lib("cores/common/integer-service.rhdl") open
+  lib("cores/common/mmu/vector.rhdl") open
+  lib("cores/common/integer-execution.rhdl") open
+  lib("cores/common/register-write.rhdl") open
+  "../common/fp/bundles.rhdl" open
+  "../common/memory-response.rhdl" open
   "memory-context.rhdl" open
-  "../cache/protocol.rhdl" open
-  "../cosim-source.rhm".describe_cosim_hart
+  "../common/cache/protocol.rhdl" open
+  "../common/cosim-source.rhm".describe_cosim_hart
   lib("riscv/rtl/hypervisor.rhdl") open
-  lib("cores/bpred/protocol.rhdl") open
-  lib("cores/bpred/ras.rhdl") open
-  "../alu.rhdl" open
-  "../branch-resolver.rhdl" open
-  "../load-store.rhdl" open
-  "../cache-prefetch.rhdl" open
-  "../cache/operation.rhdl" open
+  lib("cores/common/bpred/protocol.rhdl") open
+  lib("cores/common/bpred/ras.rhdl") open
+  "../common/alu.rhdl" open
+  "../common/branch-resolver.rhdl" open
+  "../common/load-store.rhdl" open
+  "../common/cache-prefetch.rhdl" open
+  "../common/cache/operation.rhdl" open
   "memory-arbiter.rhdl" open
   "mmu/protocol.rhdl" open
   "decode/core-ctrl.rhdl" open
-  "../vector/decode.rhdl" open
-  "../vector/bundles.rhdl" open
-  "../vector/precheck.rhdl" open
+  "../common/vector/decode.rhdl" open
+  "../common/vector/bundles.rhdl" open
+  "../common/vector/precheck.rhdl" open
   "vector.rhdl" open
   "../../riscv/isa/vector.rhm" open
   "../../riscv/isa/vector-profile.rhm" open
@@ -45,37 +45,37 @@ import:
   "../../riscv/rtl/vector.rhdl" open
   "../../riscv/rtl/zihintntl.rhdl" open
   "decode/branch-ctrl.rhdl" open
-  "../branch-decode.rhdl" open
+  "../common/branch-decode.rhdl" open
   "decode/mem-ctrl.rhdl" open
   "decode/fence-ctrl.rhdl" open
   "decode/hint-ctrl.rhdl" open
   "decode/system-ctrl.rhdl" open
   "decode/writeback-ctrl.rhdl" open
   "bundles.rhdl" open
-  "../csr/file.rhdl" open
-  "../csr/protocol.rhdl" open
+  "../common/csr/file.rhdl" open
+  "../common/csr/protocol.rhdl" open
   lib("riscv/rtl/privilege.rhdl").PrivilegeMode
   "profile.rhm".RV5StageConfig
   "profile.rhm".RV5StageMultiplierKind
-  lib("cores/vector/profile.rhm").vector_execution_half_precision
+  lib("cores/common/vector/profile.rhm").vector_execution_half_precision
   "../../riscv/rtl/interrupt.rhdl" open
   "multiply.rhdl" open
   "integer-execution.rhdl" open
-  "../writeback-calendar.rhdl" open
-  "../vector/muldiv.rhdl" open
-  "../multiplier.rhdl" open
-  "../divider.rhdl" open
+  "../common/writeback-calendar.rhdl" open
+  "../common/vector/muldiv.rhdl" open
+  "../common/multiplier.rhdl" open
+  "../common/divider.rhdl" open
   "divide.rhdl" open
   "fp/pipeline.rhdl" open
   "fp/service.rhdl" open
-  "../fp/timing.rhdl" open
+  "../common/fp/timing.rhdl" open
   lib("hardfloat/main.rhdl").RoundingMode
   "fp/bundles.rhdl" open
   "fetch/protocol.rhdl" open
   "fetch/packet.rhdl" open
   "fetch/instruction-buffer.rhdl" open
-  "../fp/types.rhdl" open
-  "../register-file.rhdl".RegisterFile
+  "../common/fp/types.rhdl" open
+  "../common/register-file.rhdl".RegisterFile
   "../../riscv/isa/c.rhm" open
   "../../riscv/isa/xlen.rhm" open
   "../../riscv/isa/fp-profile.rhm" open

@@ -2,16 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/mmu/context.rhdl").RiscvTranslationState
-  lib("cores/pc.rhdl").CompactPc
+  lib("cores/common/mmu/context.rhdl").RiscvTranslationState
+  lib("cores/common/pc.rhdl").CompactPc
   lib("rhodium/frontend/layers/statistics.rhm").stat_count
-  lib("cores/bpred/statistics.rhdl") open
-  lib("cores/fp/profile.rhm").fp_transport_profile
-  lib("cores/reservation-wait.rhdl") open
-  lib("cores/integer-format.rhdl") open
-  lib("cores/register-file.rhdl").RegisterFile
-  lib("cores/register-write.rhdl").RegisterFileWrite
-  lib("cores/operand.rhdl") open
+  lib("cores/common/bpred/statistics.rhdl") open
+  lib("cores/common/fp/profile.rhm").fp_transport_profile
+  lib("cores/common/reservation-wait.rhdl") open
+  lib("cores/common/integer-format.rhdl") open
+  lib("cores/common/register-file.rhdl").RegisterFile
+  lib("cores/common/register-write.rhdl").RegisterFileWrite
+  lib("cores/common/operand.rhdl") open
   lib("riscv/rtl/hypervisor.rhdl") open
   "../profile.rhm" open
   "../bundles.rhdl" open
@@ -24,37 +24,37 @@ import:
   "../fp.rhdl" open
   "../vector.rhdl" open
   "../memory/ports.rhdl" open
-  lib("cores/vector/decode.rhdl") open
-  lib("cores/vector/bundles.rhdl") open
-  lib("cores/vector/precheck.rhdl") open
-  lib("cores/mmu/vector.rhdl") open
+  lib("cores/common/vector/decode.rhdl") open
+  lib("cores/common/vector/bundles.rhdl") open
+  lib("cores/common/vector/precheck.rhdl") open
+  lib("cores/common/mmu/vector.rhdl") open
   lib("riscv/isa/vector-profile.rhm") open
   lib("riscv/rtl/vector.rhdl") open
   lib("hardfloat/main.rhdl").RoundingMode
-  lib("cores/fp/bundles.rhdl") open
-  lib("cores/fp/types.rhdl") open
-  lib("cores/fp/timing.rhdl") open
-  lib("cores/writeback-calendar.rhdl") open
+  lib("cores/common/fp/bundles.rhdl") open
+  lib("cores/common/fp/types.rhdl") open
+  lib("cores/common/fp/timing.rhdl") open
+  lib("cores/common/writeback-calendar.rhdl") open
   lib("riscv/isa/fp-profile.rhm") open
   lib("riscv/rtl/floating-point.rhdl") open
-  "../../cosim-source.rhm".describe_cosim_hart
+  "../../common/cosim-source.rhm".describe_cosim_hart
   "../decode/core-ctrl.rhdl" open
   "../decode/system-ctrl.rhdl" open
   "../decode/long-ctrl.rhdl" open
-  lib("cores/multiplier.rhdl").MultiplierRequest
-  lib("cores/multiplier.rhdl").PipelinedMultiplierStages
-  lib("cores/divider.rhdl").DividerRequest
-  lib("cores/csr/file.rhdl").RiscvCsrFile
-  lib("cores/csr/protocol.rhdl") open
-  lib("cores/alu.rhdl") open
-  lib("cores/branch-resolver.rhdl") open
-  lib("cores/bpred/protocol.rhdl") open
-  lib("cores/bpred/ras.rhdl").riscv_ras_action
-  lib("cores/load-store.rhdl") open
-  lib("cores/cache/operation.rhdl") open
-  lib("cores/cache-prefetch.rhdl") open
-  lib("cores/cache/protocol.rhdl").PhysicalMemoryReq
-  lib("cores/misaligned-access.rhdl") open
+  lib("cores/common/multiplier.rhdl").MultiplierRequest
+  lib("cores/common/multiplier.rhdl").PipelinedMultiplierStages
+  lib("cores/common/divider.rhdl").DividerRequest
+  lib("cores/common/csr/file.rhdl").RiscvCsrFile
+  lib("cores/common/csr/protocol.rhdl") open
+  lib("cores/common/alu.rhdl") open
+  lib("cores/common/branch-resolver.rhdl") open
+  lib("cores/common/bpred/protocol.rhdl") open
+  lib("cores/common/bpred/ras.rhdl").riscv_ras_action
+  lib("cores/common/load-store.rhdl") open
+  lib("cores/common/cache/operation.rhdl") open
+  lib("cores/common/cache-prefetch.rhdl") open
+  lib("cores/common/cache/protocol.rhdl").PhysicalMemoryReq
+  lib("cores/common/misaligned-access.rhdl") open
   lib("riscv/isa/xlen.rhm") open
   lib("riscv/isa/trap.rhm").ExceptionCause
   lib("riscv/isa/csr.rhm") open

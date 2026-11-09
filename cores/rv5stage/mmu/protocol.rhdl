@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../cache/protocol.rhdl" open
-  "../../misaligned-access.rhdl".RiscvSplitResult
+  "../../common/cache/protocol.rhdl" open
+  "../../common/misaligned-access.rhdl".RiscvSplitResult
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/rtl/hypervisor.rhdl" open
   "../memory-context.rhdl" open

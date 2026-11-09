@@ -8,7 +8,7 @@ import:
   "../../../rhodium/core/main.rhm" open
   lib("rhodium/frontend/foundation.rhm").elaborate
   "params.rhdl" as test_params
-  "../../cache/chi/refill.rhdl" as refill
+  "../../common/cache/chi/refill.rhdl" as refill
 
 def config = test_params.test_rv5stage_chi_config
 def design = compile_program(elaborate(refill.CacheLineRefill(Bits(5), 32, config)), rtl_target).report.design

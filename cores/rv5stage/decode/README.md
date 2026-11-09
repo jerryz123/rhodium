@@ -120,7 +120,7 @@ component relation with `component_output`, and nests those outputs into one
 `RV5StageControl` row. The row sets `floating_point_valid` false and leaves the
 entire FP sub-bundle unconstrained.
 
-For an FP instruction, [`cores/fp/decode.rhdl`](../../fp/decode.rhdl) derives integer/FPR source
+For an FP instruction, [`cores/common/fp/decode.rhdl`](../../common/fp/decode.rhdl) derives integer/FPR source
 use and destination-bank selection from the instruction's operand metadata,
 then joins that register control to the selected execution control. The
 `floating_point_core_control_cases` adapter in
@@ -141,7 +141,7 @@ instantiate that circuit beside the core decoder.
 `rv5stage_instructions(..., ~zawrs: #true)` selection append the two exact
 `WRS.NTO`/`WRS.STO` rows. `ZawrsCoreControlCases` composes the ordinary
 component-owned columns; `ZawrsSystemCases` adapts shared
-[`ReservationWaitCases`](../../reservation-wait-decode.rhdl) to select
+[`ReservationWaitCases`](../../common/reservation-wait-decode.rhdl) to select
 `ReservationWaitMode.NoTimeout` or `ReservationWaitMode.ShortTimeout` in the
 separate `system.wait` field. Both classify as serializing system operations,
 use no explicit integer operands, and disable register writes,

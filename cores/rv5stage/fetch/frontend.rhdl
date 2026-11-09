@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/bpred/protocol.rhdl") open
-  lib("cores/pc.rhdl") open
+  lib("cores/common/bpred/protocol.rhdl") open
+  lib("cores/common/pc.rhdl") open
   "source.rhdl" open
   "packet.rhdl" open
   "scan.rhdl" open

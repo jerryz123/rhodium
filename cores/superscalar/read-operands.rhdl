@@ -5,7 +5,7 @@
 import:
   "bundles.rhdl" open
   "pairing.rhdl" open
-  lib("cores/operand.rhdl").OperandImmediate
+  lib("cores/common/operand.rhdl").OperandImmediate
   lib("riscv/isa/xlen.rhm").XLen
   lib("flow/main.rhdl") open
 

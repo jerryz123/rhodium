@@ -7,7 +7,7 @@ import:
   lib("cores/rv3wide/profile.rhm").RV3WideConfig
   "../issue.rhdl".superscalar_issue_width
   lib("riscv/rtl/trap.rhdl").ExceptionCause
-  lib("cores/pc.rhdl").compact_pc_width
+  lib("cores/common/pc.rhdl").compact_pc_width
   lib("rhodium/frontend/foundation.rhm").elaborate
   lib("rhodium/compile/program.rhm").compile_program
   lib("rhodium/compile/rtl.rhm").rtl_target

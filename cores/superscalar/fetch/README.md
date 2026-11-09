@@ -13,5 +13,5 @@ RV3Wide. The integrated entry point is
 predictions using actual instruction boundaries; `predecode.rhdl` shares
 instruction classification with `instruction-assembler.rhdl`.
 `instruction-memory.rhdl` adapts cached and uncached fetch outcomes.
-Shared prediction tables remain in [`cores/bpred`](../../bpred/README.md), and
-the physical instruction cache remains in [`cores/cache`](../../cache/README.md).
+Shared prediction tables remain in [`cores/common/bpred`](../../common/bpred/README.md), and
+the physical instruction cache remains in [`cores/common/cache`](../../common/cache/README.md).

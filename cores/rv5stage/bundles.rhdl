@@ -3,31 +3,31 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/fetch/fault.rhdl").FetchFault
+  lib("cores/common/fetch/fault.rhdl").FetchFault
   lib("riscv/rtl/trap.rhdl").ExceptionCause
-  lib("cores/bpred/statistics.rhdl").PredictionFailure
-  lib("cores/fp/profile.rhm").fp_transport_profile
-  lib("cores/operand.rhdl") open
-  lib("cores/mmu/vector.rhdl") open
-  lib("cores/register-write.rhdl") open
+  lib("cores/common/bpred/statistics.rhdl").PredictionFailure
+  lib("cores/common/fp/profile.rhm").fp_transport_profile
+  lib("cores/common/operand.rhdl") open
+  lib("cores/common/mmu/vector.rhdl") open
+  lib("cores/common/register-write.rhdl") open
   "memory-context.rhdl" open
-  "../cache/protocol.rhdl" open
+  "../common/cache/protocol.rhdl" open
   lib("riscv/rtl/hypervisor.rhdl") open
   lib("rhodium/std/bits.rhdl").Pow2Int
-  lib("cores/bpred/protocol.rhdl") open
+  lib("cores/common/bpred/protocol.rhdl") open
   "../../riscv/isa/xlen.rhm" open
   "../../riscv/rtl/pointer-masking.rhdl" open
   "../../riscv/rtl/vector.rhdl" open
   "../../riscv/rtl/atomic.rhdl" open
-  "../branch-decode.rhdl" open
-  "../multiply-decode.rhdl" open
-  "../divide-decode.rhdl" open
-  "../vector/decode.rhdl" open
-  "../alu.rhdl" open
-  "../branch-resolver.rhdl" open
-  "../cache-prefetch.rhdl" open
-  "../load-store.rhdl" open
-  "../cache/operation.rhdl" open
+  "../common/branch-decode.rhdl" open
+  "../common/multiply-decode.rhdl" open
+  "../common/divide-decode.rhdl" open
+  "../common/vector/decode.rhdl" open
+  "../common/alu.rhdl" open
+  "../common/branch-resolver.rhdl" open
+  "../common/cache-prefetch.rhdl" open
+  "../common/load-store.rhdl" open
+  "../common/cache/operation.rhdl" open
   "decode/mem-ctrl.rhdl" open
   "decode/multiply-ctrl.rhdl" open
   "decode/divide-ctrl.rhdl" open
@@ -35,9 +35,9 @@ import:
   "decode/system-ctrl.rhdl" open
   "decode/fence-ctrl.rhdl" open
   "decode/hint-ctrl.rhdl" open
-  "../fp/types.rhdl" open
+  "../common/fp/types.rhdl" open
   "mmu/protocol.rhdl" open
-  "../vector/precheck.rhdl".VectorFootprintGeometry
+  "../common/vector/precheck.rhdl".VectorFootprintGeometry
   "multiply.rhdl" open
   "divide.rhdl" open
   "fp/bundles.rhdl" open

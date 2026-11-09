@@ -7,7 +7,7 @@ import:
   lib("rhodium/frontend/foundation.rhm").elaborate
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/isa/fp-profile.rhm") open
-  lib("cores/fp/timing.rhdl") open
+  lib("cores/common/fp/timing.rhdl") open
   "../../profile.rhm" open
   "../core-fixture.rhdl" open
 

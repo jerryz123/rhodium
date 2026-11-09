@@ -3,9 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/reservation-wait.rhdl").ReservationWaitMode
-  "../../csr/decode.rhdl" open
-  lib("cores/csr/protocol.rhdl").RiscvCsrAction
+  lib("cores/common/reservation-wait.rhdl").ReservationWaitMode
+  "../../common/csr/decode.rhdl" open
+  lib("cores/common/csr/protocol.rhdl").RiscvCsrAction
   lib("riscv/isa/rv64i.rhm") open
   lib("riscv/isa/m.rhm") open
   lib("riscv/isa/a.rhm") open

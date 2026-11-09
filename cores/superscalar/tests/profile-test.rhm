@@ -14,7 +14,7 @@ import:
   lib("cores/rv3wide/udb.rhm").rv3wide_udb_configuration
   lib("riscv/isa/fp-profile.rhm") open
   lib("riscv/isa/c.rhm") open
-  lib("cores/cache/config.rhm").CacheConfig
+  lib("cores/common/cache/config.rhm").CacheConfig
 
 def configured_shared = SuperscalarPipelineConfig(
     ~instruction_cache: CacheConfig(16, 2), ~data_cache: CacheConfig(32, 2),

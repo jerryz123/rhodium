@@ -4,12 +4,12 @@
 
 import:
   "../bundles.rhdl".SuperscalarResolution
-  "../../cache/operation.rhdl".CacheOperation
+  "../../common/cache/operation.rhdl".CacheOperation
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/rtl/hypervisor.rhdl") open
   lib("riscv/rtl/pointer-masking.rhdl").PointerMaskControl
   lib("riscv/rtl/svpbmt.rhdl").PageMemoryType
-  lib("cores/mmu/translation.rhdl").RiscvTranslationFault
+  lib("cores/common/mmu/translation.rhdl").RiscvTranslationFault
 
 /* Names the selected lookup and independent live addresses without adding a stage or granting admission.
    Demand is an authorized WB/split offer; speculative MEM and nonallocating probes remain distinct. */

@@ -4,8 +4,8 @@
 
 import:
   lib("riscv/rtl/trap.rhdl").ExceptionCause
-  "../../vector/pipeline.rhdl" open
-  "../../vector/bundles.rhdl" open
+  "../../common/vector/pipeline.rhdl" open
+  "../../common/vector/bundles.rhdl" open
   "../decode/core-ctrl.rhdl" open
   "../../../riscv/isa/vector-profile.rhm" open
   "../../../riscv/isa/xlen.rhm" open

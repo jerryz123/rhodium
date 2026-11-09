@@ -1,0 +1,455 @@
+<!-- Specifies the shared cache's write-back L1D, single-miss ownership, and independent load-hit policy. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
+# Shared data cache
+
+This directory owns the shared physical data cache and the private L1D's
+array, replacement, coherence-state, refill, writeback, snoop, and LR/SC
+contracts. The [package guide](../README.md) owns the physical interface;
+named cores own MMU/PMA routing and architectural fence ordering. The
+[CHI guide](../../../../chi/README.md)
+owns the protocol vocabulary and fabric-wide rules.
+
+Contributors changing the L1D implementation should read
+[`DEVELOPING.md`](DEVELOPING.md).
+
+## At a glance
+
+| Property | Current contract |
+|---|---|
+| Organization | Non-aliasing VIPT, set-associative, write-back, write-allocate; one outstanding miss with independent load hits and same-line authorized waiters |
+| Geometry | Power-of-two sets from 2 through 64, positive ways, fixed 64-byte lines; see [shared geometry](../README.md#entry-point) |
+| Core throughput | One uncontended load hit per cycle; owned store hits retire into four committed entries |
+| Core protocol | Fixed-cycle lookup/resolution and next-cycle store authorization; ordered `Decoupled` slow requests and backpressurable slow responses |
+| Coherence states | Invalid, SharedClean, UniqueClean, and UniqueDirty |
+| Allocation | Lowest invalid way, otherwise per-set tree PLRU |
+| CHI traffic | `ReadClean`, `ReadUnique`, retryable `WriteBackFull` with `CopyBackWriteData`, nonallocating `WriteUniquePtl`, cache-block maintenance, `CompAck`, `SnpResp`, and dirty `SnpRespData` |
+| Prefetch | Demand-priority Valid event; read intent uses `ReadClean`, write intent uses `ReadUnique`, and neither responds or mutates data |
+
+`L1DCache(xlen, cache, ~chi: config, ~context: Context, ~service_queue_depth: 2)` accepts
+`XLen.X32` or `XLen.X64`. The cache configuration supplies set/way geometry;
+the positive service-queue depth bounds authorized requests and same-line
+waiters, while the required CHI configuration supplies flit geometry and the
+Home map. A separate
+`node_id` input supplies the occurrence's RN-F identity. Core addresses use
+XLEN; resident tags use the smaller of XLEN and the CHI request-address width,
+less line-offset and set bits. At least one tag bit must remain. An address
+outside that width cannot hit a low line: demand faults, prefetch drops, and
+a snoop above the hart address space returns a miss.
+
+## Core-facing protocol
+
+Both pipeline lookups and slow requests carry `byte_mask: Bits(XLEN / 8)`,
+positioned relative to the aligned XLEN word. Scalar callers derive it with
+`memory_byte_mask`; packed vector stores can select arbitrary lanes. The mask
+survives store buffering, refill merge, local mutation, and uncached routing.
+Data retains the ordinary width/address positioning convention; aligned
+full-width packed requests supply already positioned data. Load callers provide
+the accessed-byte mask for store-buffer hazard/forwarding checks.
+
+Slow requests and responses carry one caller-supplied `context: Context` field,
+preserved unchanged by the cache. It may identify any caller-owned completion,
+but the cache never interprets register destinations, vector slots, or routing.
+Every demand, including a store, still requires normal transaction completion.
+RV5Stage retains its architectural writeback and origin together;
+RV2Wide instead owns an ordered completion FIFO outside the cache.
+
+`CachePipelineAccess(xlen)` carries ordinary loads and stores. The caller
+launches `pipeline_lookup` with an early address in S0, then supplies
+`pipeline.request` with the matching physical address and controls in S1.
+Physical-only callers use the physical address on both paths.
+Loads read synchronous tag/state/data arrays; stores need only tag/state reads.
+The result vocabulary distinguishes `LoadHit`, `StoreHit`, `Replay`, `Slow`,
+`PageFault`, and `AccessFault`; the caller supplies translation and permission
+faults, not the physical cache. Loads return normalized data combinationally in S1.
+`Replay` requires a fresh lookup; SRAM contention or a byte hazard never
+turns an otherwise warm hit into a slow transaction. Misses and ownership
+acquisition use the cache's slow service. Translation misses and non-cacheable
+operations are routed by the caller to their respective services.
+The separate slow response is `Decoupled`: the cache or RN-I retains a
+completion until its consumer asserts `ready`. Stalling this return never
+changes the fixed-latency `CachePipelineAccess` hit response.
+
+Lookup cannot allocate or mutate anything. An owned store retains a one-cycle
+physical address/way/data/mask candidate. In S2 the caller asserts `commit` only
+when that candidate is nonspeculative; `commit_ready` permits its insertion into
+the committed buffer. A rejected or squashed candidate has no effect and cannot
+survive to authorize a later instruction. Successful enqueue completes the store
+from the caller's perspective:
+the internal drain produces no second response. The parent checks translation,
+read/write permissions, alignment, and non-device cacheability before admission.
+
+### Committed stores and SRAM arbitration
+
+Four FIFO entries retain positioned data, byte mask, physical address, selected
+way, and whether the coherence state needs marking dirty. Loads compare all
+older entries, including a same-cycle authorized enqueue, by physical word and
+byte overlap. Different words, different physical tags, and disjoint bytes do not
+cause a dependency replay. There is no store merging or forwarding yet.
+
+A full buffer can replace its draining head on the same edge. This pipe-style
+replacement preserves capacity without replaying the committing store when the
+SRAM scheduler has already authorized that drain.
+
+The head drains in an idle data-read slot, including metadata-only store lookup
+cycles when no state write is needed. Capacity pressure, a byte dependency,
+a matching probe, waiting slow work, or eight cycles of head age force draining
+when the arrays are available. A forced write may replay a competing read;
+single-port SRAM contention is distinct from a data dependency.
+
+Slow allocation/replacement and maintenance wait for committed stores to drain.
+A matching snoop also waits before reading metadata or gathering dirty data;
+unrelated probes are not delayed merely by buffer occupancy. A matching pending probe
+prevents new store authorization, so no stale ownership proof can enqueue after
+coherence service starts. Fences, traps, and ordered IO observe buffer occupancy
+through `drained`, including same-cycle enqueue.
+
+### Load hits under a miss
+
+One ordinary demand load or store miss may remain outstanding while speculative
+pipeline loads hit resident lines in other cache sets. Waiting for CHI requests,
+retry credit, response packets, CompAck acceptance, or buffered victim writeback
+does not itself occupy the SRAM ports. Independent load hits retain the normal
+S0/S1 lookup timing and may complete before the older miss. The authorized slow
+request/response path remains ordered and supports only one miss at a time.
+
+The entire miss set is reserved from acquisition/allocation through final
+installation (or non-allocating completion), including the victim and other
+ways. An ordinary load or store to the outstanding line resolves as slow and
+may enter the configurable authorized request queue. It waits there without
+observing partial refill data, then performs a fresh tag/state lookup after the
+miss completes. This collapses ordinary same-line load traffic when the first
+transaction installs a usable line; a waiter may instead miss again after a
+non-allocating refill or when it needs stronger ownership. An independent
+second miss, a different-line same-set access, or an ordinary store to another
+line still replays during this interval. LR/SC, atomic, cache-block, and
+prefetch transactions do not become waiters. Queued older requests and retained
+lookup stages remain ordering barriers rather than being bypassed
+speculatively, except that a same-line waiter parked behind the active miss
+owns no SRAM port and does not block independent load hits.
+
+Gather, refill installation, mutation, and snoop array activity retain priority.
+Loads replay on conflicting cycles and never observe partially installed data
+or reuse a read result owned by another request. An outstanding miss still keeps
+`drained` false; fences and ordered IO retain their existing completion rules.
+This remains a single-MSHR cache: waiters relookup after completion rather than
+receiving data directly from the refill engine, and no independent second miss
+can become outstanding.
+
+Requests carry `locality: RiscvMemoryLocality` (`Default`, `P1`, `Pall`,
+`S1`, `All`). L1D retains the complete request, including locality, in one
+miss record from S4 admission through refill completion, even when a dirty
+victim must first be written back. Locality is architectural intent, independent
+of cache policy. Non-default selectors bypass L1 allocation on ordinary integer
+and FP load misses; all hits and other operations keep their existing behavior.
+Prefetch requests use `Default`.
+
+[`protocol.rhdl`](../protocol.rhdl) defines `CacheAccess(xlen, Context)`:
+
+| Direction | Member | Meaning |
+|---|---|---|
+| Requester → cache | `request: Decoupled(PhysicalMemoryReq)` | Permitted physical XLEN byte address; scalar or cache-block operation; atomic function; scalar width; load signedness; XLEN source data; opaque caller context; locality |
+| Requester → cache | `virtual_lookup: Valid(Bits(XLEN))` | Early virtual byte address, paired with a permitted physical request at the same edge; no backpressure |
+| Requester → cache | `prefetch: Valid(CachePrefetchReq)` | Best-effort aligned physical read/write hint; no acceptance or completion |
+| Cache → requester | `response: Decoupled(PhysicalMemoryResp)` | Ordered, backpressurable completion with `access_fault`, XLEN load/atomic/SC result, and the unchanged caller context |
+| Cache → requester | `request_fault`, `request_access_fault` | No page faults; an address too wide for CHI raises an access fault before admission. Translation and PMA checks remain upstream. |
+| Cache → requester | `drained` | Combinational quiescence observation used by architectural serialization |
+
+The authorized request is `Decoupled`; an unaccepted attempt may be withdrawn
+and replayed. Slow responses remain pending until accepted. Loads and atomics
+return normalized XLEN values; an RV64 word AMO result is sign extended.
+Successful SC returns zero and failed SC returns one. Slow-path stores also
+produce an ordered completion response, but its data and destination metadata
+are not architectural results.
+
+The pipeline checks architectural alignment. The cache owns XLEN-word
+alignment within the line, byte masks, and load/store lane generation.
+`virtual_lookup` is a separate cache port, not part of the core data-access
+interface. Accepted physical requests require a live matching early lookup;
+the cache checks its validity and equality of VA/PA bits `[11:0]`. Queued
+physical requests issue their own array read. An early read
+without physical acceptance creates no completion, refill, mutation, or LR/SC
+reservation change. The parent resolves TLB misses, faults, and uncached routing
+without waiting for that speculative read. PTW requests are already physical
+and supply their physical address on both paths.
+
+`drained` is true only when no request is accepted that cycle and no queued
+request, committed store, core lookup, registered mutation, acquisition/refill, dirty-line drain,
+gather, refill installation, maintenance transaction, or response remains active.
+It does not include an independently serviced snoop; the parent serialization
+logic separately waits for older deferred completions. It is an observation,
+not a separate fence transaction.
+
+## Data path and arrays
+
+[`cache.rhdl`](cache.rhdl) keeps the hit path short and moves line transactions
+into shared engines. This diagram illustrates the current pipeline and resource
+arrangement; the handshake and ordering contracts are described above.
+
+```mermaid
+flowchart LR
+  S0["S0 early load/store index"] --> SRAM["Synchronous tag/state/data read"]
+  SRAM --> S1["S1 physical tag + ownership + byte hazards"]
+  Caller["Caller supplies permitted physical request"] --> S1
+  S1 -->|"load hit"| Result["Combinational result to caller"]
+  S1 -->|"owned store hit"| S2["S2 retained store candidate"]
+  Authorization["Caller authorizes matching candidate"] --> S2
+  S2 -->|"commit and commit_ready"| Stores["Four-entry committed store buffer"]
+  Stores -->|"scheduled byte write"| Arrays
+  Core["S2 authorized request<br/>Decoupled"] --> Queue["Configurable request queue<br/>structural acceptance"]
+  Core -->|"empty buffer + available SRAM"| Lookup
+  Virtual["Early virtual index"] --> Lookup
+  Queue --> Lookup["S3 lookup Pipe<br/>tag + state + XLEN word SRAMs"]
+  Lookup --> Resolved["Registered S4 result<br/>word + hit + coherence + victim"]
+  Resolved -->|load hit| Load["LoadGen"]
+  Resolved -->|owned store / SC / AMO| Pending["Registered mutation<br/>request + way + old value"]
+  Pending --> Mutate["StoreGen + atomic ALU<br/>byte-lane update"]
+  Load --> Response["Two-entry response Queue<br/>ordered Decoupled response"]
+  Mutate --> Arrays["Tag, state, and data arrays"]
+  Mutate --> Response
+
+  Resolved -->|miss or ownership acquisition| Victim{"Dirty allocated victim?"}
+  Resolved -->|"accepted miss"| Record["One miss record<br/>request, way, install policy"]
+  Victim -->|yes| Gather["Shared gather reader"]
+  Arrays -->|"one XLEN word per return"| Gather
+  Gather -->|"victim words"| Writeback["Writeback line register<br/>one WriteBackFull"]
+  Writeback --> Refill["ReadClean or ReadUnique<br/>retry-aware refill"]
+  Victim -->|no| Refill
+  Record -->|"request and destination way"| Install
+  Refill -->|retained copy| Install["Install one XLEN word/cycle<br/>publish metadata last"]
+  Refill -->|non-allocating load| Load
+  Install --> Arrays
+  Install --> Response
+
+  Snoop["Snoop engine"] -->|"lookup / update request"| Arrays
+  Arrays -->|"hit and state"| Snoop
+  Gather -->|"dirty snoop words"| Snoop
+  Snoop --> CHI["CHI SnpResp / SnpRespData"]
+```
+
+The tag and coherence-state arrays hold one entry per way and set. The
+byte-masked data array has `sets * (64 / (XLEN / 8))` rows, each containing one
+XLEN word per way. Parallel comparisons select the hit way; assertions reject
+duplicate valid tags. An aligned scalar load, store, LR/SC, or AMO therefore
+touches one data row even though coherent transfers operate on a whole line.
+
+On the authorized transaction path, a `Queue` with configurable positive depth
+(two by default) and `flow=true, pipe=false` makes core request readiness solely
+a function of registered queue occupancy. Tag, state, and data results may
+decide whether its egress drains, but cannot feed back combinationally into
+acceptance.
+The same queue retains ordinary same-line waiters while the single miss entry is
+occupied; a full queue rejects admission so the caller retains or retries its request.
+When the queue is empty and the SRAM port is available, an early virtual lookup
+reads the arrays in parallel with translation and PMA checks. Its permitted
+physical request bypasses the queue into the lookup pipeline at the read edge.
+Otherwise, accepted physical requests enter the queue and later index using
+their unchanged page-offset bits. Queued requests always precede fresh demands.
+A one-stage `Pipe` retains S3 request context alongside the synchronous SRAM
+lookup. Tag comparison and word/state selection feed an elastic S4 result
+register. S4 checks access ownership and LR/SC reservation, chooses eviction
+or refill, and produces hit responses. Consecutive uncontended load hits can
+still advance every cycle; an uncontended hit responds two edges after its
+array-read edge, through S4 and the transaction response register. Its
+two-entry queue retains a stalled completion, with input readiness determined
+only by registered occupancy. Ordinary pipeline hits bypass these transaction
+registers as described above.
+
+S0/S1/S2 denote lookup, resolution, and authorization; S3 and S4 extend the
+authorized processing path, not the CPU pipeline. Queueing and rereads can delay
+these stages, so they are not fixed cycles after authorization. A reread returns
+to S2 admission without repeating architectural authorization.
+
+An older S4 miss or mutation stops younger S3 advancement. The cache retains
+that younger request, discards its array result, and rereads after the older
+operation completes. Pending snoops may use the arrays while the retained
+request waits; replay then observes updated tags, coherence state, and data.
+Only requests with reserved downstream capacity enter S4; its retained result
+waits until the selected local operation or transaction can advance.
+A slow-service store, SC, or AMO that already has Unique ownership first captures its request,
+selected way, and old value in a one-entry mutation register. On the following
+edge it updates the selected byte lanes and sets UniqueDirty without emitting
+REQ or DAT traffic; an AMO returns the captured value from before that update.
+
+`CacheOperation.CacheBlockZero` carries the original address and no result
+destination. A Unique hit writes zeros to every XLEN word while blocking
+lookups and snoops for that bounded SRAM interval. A shared hit or miss uses
+`ReadUnique`, including ordinary dirty-victim writeback, then installs zeros
+instead of the returned data. Both paths leave UniqueDirty, clear a matching
+reservation, and produce one response after the final word. RV64 takes eight
+word writes and RV32 sixteen. Snoop handling remains available while waiting
+for ownership, avoiding a dependency on a blocked Home transaction.
+
+The Valid prefetch path joins only at the lookup input and cannot backpressure
+the MMU. A queued or same-cycle demand request wins. A read hint that misses
+launches the ordinary clean refill; a write hint that misses or finds a shared
+line launches `ReadUnique`, but installs UniqueClean and performs no data
+mutation. A hit is consumed silently. A hint is discarded if the selected miss
+victim is dirty, avoiding nonbinding writeback traffic.
+
+## Miss, acquisition, and replacement flow
+
+| Lookup outcome | Action | Installed or resulting state |
+|---|---|---|
+| Default-locality ordinary load miss | Issue `ReadClean` | SharedClean or UniqueClean from the CHI response |
+| LR miss or SharedClean hit | Issue `ReadUnique` without data mutation | UniqueClean |
+| Ordinary load miss with non-default locality | Issue `ReadClean`, consume the transaction buffer without installation | No resident-line or replacement-state change |
+| Store/AMO miss | Allocate a way and issue `ReadUnique` | Merge the mutation while installing; UniqueDirty |
+| Store/AMO hit in SharedClean | Retain the current way and issue `ReadUnique` | Merge the mutation while installing; UniqueDirty |
+| Matching SC on a Unique hit | Commit locally without CHI acquisition | UniqueDirty |
+| Failed SC | Return one without CHI traffic or a data-array update | Unchanged |
+| Dirty allocation victim | Gather the line, complete writeback, then issue the refill | Victim invalidated before replacement installation |
+
+The shared [refill engine](../chi/refill.rhdl) retains the aligned address and
+CHI transaction state across retry, accepts unique `CompData` packets, sends
+`CompAck`, and exposes the completed line only afterward. L1D's miss record
+supplies the destination way, allocation policy, and original response context.
+A direct miss starts the refill on its S4 acceptance edge; after a dirty
+eviction the refill uses the original request address, not the victim address.
+
+Shared cache lines are fixed at 64 bytes, and L1D rejects a refill carrying `PassDirty`. With the
+repository's default 128-bit DAT width, four packets form a line. Installation
+writes one XLEN word per cycle—eight writes for RV64 or sixteen for RV32—and
+publishes the tag, coherence state, and valid bit only on the final word. A
+mutating refill merges its selected bytes before that word is written.
+
+For a non-default-locality ordinary load miss, the retained transaction context
+instead selects completion without installation. The complete clean line is
+consumed after `CompAck`, using normal load lane extraction and destination
+metadata. [CHI permits silent eviction of a clean copy](https://documentation-service.arm.com/static/5f914ecbf86e16515cdc2b4d)
+(section 4.6): no data, tag, valid, or state array is written, no victim is
+drained, and replacement state is untouched. It does not explicitly clear
+a resident LR reservation, which is still subject to conflicting accesses and coherence events.
+Younger authorized slow requests remain ordered behind
+the transaction and reread their retained lookups afterward; independent
+pipeline load hits may proceed under the set-exclusion rules above. Snoops
+continue to service resident lines while the read is outstanding.
+
+All four NTL selectors currently choose this same L1 policy. A hinted hit still
+reads the resident line, including authoritative dirty data. Stores, LR/SC,
+AMOs, block operations, and prefetches keep normal allocation and ownership
+behavior. This uses coherent `ReadClean`, not uncached `ReadNoSnp` or `ReadOnce`;
+Home still obtains current data from dirty peers. It may clean those peers and
+allocate in outer caches. No outer-cache allocation policy is claimed.
+
+For a dirty allocation victim, the shared array reader writes each returning
+XLEN word directly into the [writeback engine](../chi/writeback.rhdl)'s line
+register. Only after the last word is present can the engine accept the command
+and issue a retryable `WriteBackFull`. The victim remains resident and
+snoop-visible while awaiting `CompDBIDResp`; its set remains reserved against
+local accesses. A preceding snoop may consume its dirty data and invalidate
+it, in which case copyback reports Invalid without enabled bytes. The grant
+freezes the response state, and the victim is invalidated locally after all
+copyback DAT packets transfer. Only then can the replacement refill start.
+Unrelated load hits retain the existing hit-under-miss behavior.
+
+## Cache-block management
+
+`CacheBlockClean`, `CacheBlockInvalidate`, and `CacheBlockFlush` requests issue
+`CleanShared`, `CleanInvalid`, and `CleanInvalid`, respectively, with SnoopMe
+enabled and no allocation. They drain older cache work, bypass demand lookup,
+and block younger lookup until Home completion. Even a local miss is sent to
+Home so other coherent caches are included. Snoop service remains independent
+through retries and completion waits; it also handles the issuing cache's copy.
+Invalidate uses the RISC-V-permitted flush policy: dirty data is preserved before
+invalidation. Its architectural permission remains CBO.INVAL's CBIE permission;
+selecting this implementation policy does not require flush permission.
+
+Every operation returns one backpressurable slow response. Its `access_fault`
+field reports a non-OK CHI completion; the parent retains architectural context
+to classify and retire or trap. Translation and PMA checks remain parent-owned.
+
+## Snoop ordering and responses
+
+The shared [data-snoop engine](../chi/snoop.rhdl) owns each request's lifetime,
+DVM pairing, lookup-result capture, stable CHI response, and dirty-data packet
+sequence. Outside the [bounded local-service windows](#lrsc-reservation), a
+pending snoop prevents a new core lookup. It waits behind an active lookup,
+registered mutation, line gather, or refill installation, but it may run while
+a captured refill or writeback transaction is otherwise waiting on CHI.
+An already accepted snoop finishes before refill installation. New snoops are
+deferred from CompAck through installation; once installation begins, the
+refill keeps the ports through the final word.
+
+| Cached result | CHI response | Local transition |
+|---|---|---|
+| Miss | `SnpResp` reporting Invalid | None |
+| Clean hit, retained | `SnpResp` with the stored or requested shared state | Retain or downgrade to SharedClean |
+| Clean hit, invalidating or `RetToSrc` | `SnpResp` reporting Invalid | Invalidate |
+| Dirty hit, data-preserving snoop | Complete-line `SnpRespData` with `PassDirty` and Invalid | Invalidate after the final data packet |
+| Make-invalid hit | `SnpResp` reporting Invalid, no data | Discard the copy, including dirty data |
+| Two-packet `SnpDVMOp` | One `SnpResp` after the second packet | No array access |
+
+A dirty snoop uses the same array reader, but its words go into the snoop
+engine's own line register. A pending copyback and a snoop can therefore hold
+different dirty lines even when DAT is stalled. The snoop publishes the lookup
+result after its last word arrives; Home then receives the authoritative line.
+Reset clears lookup, pending mutation, refill installation, line gather,
+reservation, valid-line, replacement, and child transaction-engine state.
+
+## LR/SC reservation
+
+LR records one exact byte address and scalar width in a cache-local reservation.
+The core-facing `reservation_valid` output exposes that registered state for
+WRS observation, independently of request readiness or data-path draining.
+The MMU and physical router forward this level unchanged; WRS does not own or
+clear a second reservation. Invalidation on the entry edge is visible on the
+next cycle, so a waiting core cannot lose a wake pulse.
+LR obtains Unique ownership before completing, including an ownership upgrade
+on a SharedClean hit, but does not write data or dirty a clean line. This is
+cache policy: LR still uses architectural load translation and permissions.
+SC succeeds only while address and width match and the line is still locally
+Unique. It never launches an ownership acquisition or refill; it updates the
+cached word, returns zero, and leaves the line
+UniqueDirty. A locally successful SC clears the reservation when its registered
+mutation commits. A failed SC returns one without issuing CHI traffic or writing
+the array and clears the reservation with its lookup; every SC attempt therefore
+clears the reservation.
+
+The reservation is also cleared by a same-line local store or AMO, a snoop
+changing that line's state, or replacement of the reserved line.
+
+Probe protection has a bounded lifetime independent of core stalls. For the
+128-cycle protected interval, new snoops wait and best-effort prefetches are
+dropped. SC can therefore finish locally even when a Home is waiting to evict
+the inclusive copy. Expiry allows snoops to proceed, but does not itself clear
+`reservation_valid`: a delayed SC can succeed if the line remains owned and no
+conflicting event has occurred. A three-cycle backoff prevents immediate renewal;
+another LR during a live interval ends protection instead of extending it, while
+recording the new reservation. WRS observes actual reservation loss, not the
+end of probe protection; its instruction-specific timeout remains core-owned.
+
+New snoops also wait from refill CompAck through SRAM installation. An
+eight-cycle service window follows installation, or completion of a snoop
+when a local lookup is waiting, so neither immediate revocation nor continuous
+probe traffic can monopolize lookup admission. Already accepted snoops finish
+normally; these windows do not freeze transaction engines or promise bounded
+external memory latency.
+
+These mechanisms support RV5Stage's optional [Ziccrse integration
+guarantee](../../../rv5stage/README.md#lrsc-eventuality-ziccrse); a standalone L1D is not enough
+to establish it. Full-system constrained-loop progress also depends on
+instruction fetch, translation, and Home/network fairness.
+The [RV5Stage test matrix](../../../rv5stage/DEVELOPING.md#ziccrse-progress-gate) owns evidence
+for boundary-crossing loops, prediction, translation, read-only eviction
+pressure, and competing LR/SC requesters on complete systems.
+
+## Replacement and deliberate limits
+
+Allocation selects the lowest invalid way before using the set's tree-PLRU
+victim. Every admitted resident access and newly allocated installation marks
+its way most recently used. Ownership acquisition for an existing SharedClean
+line retains and touches its way; its later refill installation does not touch
+the state a second time. Prefetch hits participate, while snoops, invalidation,
+failed refills, and non-allocating misses do not. Non-power-of-two
+associativities use a padded tree whose unused leaves are never eligible victims.
+
+- Prefetches are not buffered, cannot run under a miss, and may delay a later
+  demand once an admitted miss or ownership acquisition has launched.
+- The cache has no store hit-under-miss, autonomous prefetcher, or background writeback.
+- L1D and L1I have no direct coherence connection; instruction coherence uses
+  the parent core's fence/invalidation sequence and independent CHI snoops.
+- Dirty replacement supports full-line `WriteBackFull`, not partial copyback
+  or other copyback transaction families.
+- The cache does not generate translation, alignment, or PMA faults. It reports
+  maintenance completion errors for classification by the parent core.

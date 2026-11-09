@@ -3,18 +3,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/fp/authorization.rhdl").align_fp_authorization
-  "../../fp/profile.rhm".check_fp_profile
-  "../../fp/bundles.rhdl" open
-  "../../cosim-source.rhm".describe_cosim_signals
+  lib("cores/common/fp/authorization.rhdl").align_fp_authorization
+  "../../common/fp/profile.rhm".check_fp_profile
+  "../../common/fp/bundles.rhdl" open
+  "../../common/cosim-source.rhm".describe_cosim_signals
   "bundles.rhdl" open
-  "../../fp/execute.rhdl" open
-  "../../fp/register-file.rhdl" open
-  "../../fp/types.rhdl" open
-  "../../fp/timing.rhdl" open
+  "../../common/fp/execute.rhdl" open
+  "../../common/fp/register-file.rhdl" open
+  "../../common/fp/types.rhdl" open
+  "../../common/fp/timing.rhdl" open
   "../../../riscv/isa/fp-profile.rhm" open
   "../../../riscv/isa/xlen.rhm" open
-  "../../fp/load-store.rhdl" open
+  "../../common/fp/load-store.rhdl" open
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
   lib("rhodium/std/scoreboard.rhdl") open

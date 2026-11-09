@@ -3,22 +3,22 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/fp/profile.rhm").fp_transport_profile
-  lib("cores/cosim-source.rhm").describe_cosim_signals
-  lib("cores/vector/backend.rhdl") open
+  lib("cores/common/fp/profile.rhm").fp_transport_profile
+  lib("cores/common/cosim-source.rhm").describe_cosim_signals
+  lib("cores/common/vector/backend.rhdl") open
   "bundles.rhdl" open
   "vector-memory.rhdl" open
-  lib("cores/vector/bundles.rhdl") open
-  lib("cores/vector/muldiv.rhdl") open
-  lib("cores/mmu/vector.rhdl") open
-  lib("cores/misaligned-access.rhdl") open
-  lib("cores/integer-execution.rhdl") open
-  lib("cores/register-write.rhdl") open
-  lib("cores/multiplier.rhdl") open
-  lib("cores/divider.rhdl") open
-  lib("cores/fp/bundles.rhdl") open
-  lib("cores/fp/timing.rhdl") open
-  lib("cores/fp/register-file.rhdl").FloatingPointRegisterWrite
+  lib("cores/common/vector/bundles.rhdl") open
+  lib("cores/common/vector/muldiv.rhdl") open
+  lib("cores/common/mmu/vector.rhdl") open
+  lib("cores/common/misaligned-access.rhdl") open
+  lib("cores/common/integer-execution.rhdl") open
+  lib("cores/common/register-write.rhdl") open
+  lib("cores/common/multiplier.rhdl") open
+  lib("cores/common/divider.rhdl") open
+  lib("cores/common/fp/bundles.rhdl") open
+  lib("cores/common/fp/timing.rhdl") open
+  lib("cores/common/fp/register-file.rhdl").FloatingPointRegisterWrite
   lib("riscv/isa/xlen.rhm") open
   lib("riscv/isa/vector.rhm") open
   lib("riscv/rtl/pointer-masking.rhdl") open

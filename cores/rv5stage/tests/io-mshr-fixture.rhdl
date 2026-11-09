@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../cache/protocol.rhdl" open
+  "../../common/cache/protocol.rhdl" open
   lib("rhodium/std/bits.rhdl").Pow2Int
   "../memory-router.rhdl".RV5StageMemoryRouter
   "../chi/uncached.rhdl".RV5StageUncached

@@ -14,8 +14,8 @@ import:
   "../fetch/frontend.rhdl".RV5StageFrontend
   "../mmu/mmu.rhdl".RV5StageMmu
   "../profile.rhm" open
-  "../../cache/l1i/cache.rhdl".L1ICache
-  "../../cache/geometry.rhdl".CacheConfig
+  "../../common/cache/l1i/cache.rhdl".L1ICache
+  "../../common/cache/geometry.rhdl".CacheConfig
   "params.rhdl" as test_params
 
 // Reuse the verifier's leaf and sequential-cut semantics, including child ports.

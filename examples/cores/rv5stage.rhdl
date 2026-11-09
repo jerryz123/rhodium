@@ -5,7 +5,7 @@
 import:
   lib("riscv/isa/hart.rhm").RiscvMmuType
   lib("cores/rv5stage/rv5stage.rhdl") open
-  lib("cores/chi-hart.rhdl") open
+  lib("cores/common/chi-hart.rhdl") open
   lib("cores/rv5stage/profile.rhm") open
   lib("chi/main.rhdl") open
   lib("riscv/isa/c.rhm") open

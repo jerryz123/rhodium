@@ -15,7 +15,7 @@ ownership and validation are in [DEVELOPING.md](DEVELOPING.md).
 import:
   lib("cores/rv3wide/rv3wide.rhdl").RV3Wide
   lib("cores/rv3wide/profile.rhm").RV3WideConfig
-  lib("cores/cache/config.rhm").CacheConfig
+  lib("cores/common/cache/config.rhm").CacheConfig
 
 inst core(RV3Wide(CacheConfig(64, 2), ~chi: config))
 ```

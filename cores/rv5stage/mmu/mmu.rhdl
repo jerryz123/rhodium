@@ -4,31 +4,31 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/fetch/protocol.rhdl").PhysicalInstructionReq
-  lib("cores/pc.rhdl").CompactPc
+  lib("cores/common/fetch/protocol.rhdl").PhysicalInstructionReq
+  lib("cores/common/pc.rhdl").CompactPc
   lib("riscv/isa/hart.rhm").RiscvMmuType
-  lib("cores/mmu/vector.rhdl") open
-  lib("cores/mmu/context.rhdl") open
-  "../../cache/protocol.rhdl" open
-  "../../cosim-source.rhm".describe_cosim_signals
-  "../../cache-prefetch.rhdl" open
-  "../../cache/prefetch.rhdl".cache_prefetch_physical
-  "../../fp/types.rhdl" open
+  lib("cores/common/mmu/vector.rhdl") open
+  lib("cores/common/mmu/context.rhdl") open
+  "../../common/cache/protocol.rhdl" open
+  "../../common/cosim-source.rhm".describe_cosim_signals
+  "../../common/cache-prefetch.rhdl" open
+  "../../common/cache/prefetch.rhdl".cache_prefetch_physical
+  "../../common/fp/types.rhdl" open
   "protocol.rhdl" open
-  lib("cores/mmu/protocol.rhdl") open
-  lib("cores/mmu/translation.rhdl") open
+  lib("cores/common/mmu/protocol.rhdl") open
+  lib("cores/common/mmu/translation.rhdl") open
   "../../../riscv/rtl/hypervisor.rhdl" open
-  "../../misaligned-access.rhdl" open
-  lib("cores/mmu/tlb.rhdl") open
-  lib("cores/mmu/walker.rhdl") open
-  "../../mmu/vector-window.rhdl" open
-  "../../mmu/vector-certificate.rhdl".VectorCertificate
+  "../../common/misaligned-access.rhdl" open
+  lib("cores/common/mmu/tlb.rhdl") open
+  lib("cores/common/mmu/walker.rhdl") open
+  "../../common/mmu/vector-window.rhdl" open
+  "../../common/mmu/vector-certificate.rhdl".VectorCertificate
   lib("riscv/rtl/privilege.rhdl").PrivilegeMode
-  "../../cache/operation.rhdl" open
+  "../../common/cache/operation.rhdl" open
   "../icache/protocol.rhdl" open
   "../uncached-protocol.rhdl" open
   "../memory-context.rhdl" open
-  "../../load-store.rhdl" open
+  "../../common/load-store.rhdl" open
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/isa/csr.rhm" open
   "../../../riscv/isa/sv39.rhm".Sv39Mode

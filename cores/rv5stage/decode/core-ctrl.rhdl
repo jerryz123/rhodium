@@ -3,28 +3,28 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/reservation-wait.rhdl").ReservationWaitMode
-  "../../csr/decode.rhdl".csr_instruction_action
-  lib("cores/csr/protocol.rhdl").RiscvCsrAction
-  lib("cores/operand-decode.rhdl") open
-  lib("cores/operand.rhdl") open
-  lib("cores/vector/instruction-metadata.rhm") open
-  lib("cores/memory-decode.rhdl") open
+  lib("cores/common/reservation-wait.rhdl").ReservationWaitMode
+  "../../common/csr/decode.rhdl".csr_instruction_action
+  lib("cores/common/csr/protocol.rhdl").RiscvCsrAction
+  lib("cores/common/operand-decode.rhdl") open
+  lib("cores/common/operand.rhdl") open
+  lib("cores/common/vector/instruction-metadata.rhm") open
+  lib("cores/common/memory-decode.rhdl") open
   "../../../riscv/rtl/hypervisor.rhdl" open
   "../../../riscv/isa/h.rhm" open
   "../../../riscv/isa/svinval.rhm" open
   "../../../riscv/isa/zawrs.rhm" open
-  "../../alu.rhdl" open
-  "../../branch-resolver.rhdl" open
-  "../../load-store.rhdl" open
-  "../../cache-prefetch.rhdl" open
-  "../../cache/operation.rhdl" open
+  "../../common/alu.rhdl" open
+  "../../common/branch-resolver.rhdl" open
+  "../../common/load-store.rhdl" open
+  "../../common/cache-prefetch.rhdl" open
+  "../../common/cache/operation.rhdl" open
   "../../../riscv/rtl/decode.rhdl" open
   "../../../riscv/rtl/csr.rhdl" open
-  "../../alu-decode.rhdl" open
-  "../../branch-decode.rhdl" open
-  "../../multiply-decode.rhdl" open
-  "../../divide-decode.rhdl" open
+  "../../common/alu-decode.rhdl" open
+  "../../common/branch-decode.rhdl" open
+  "../../common/multiply-decode.rhdl" open
+  "../../common/divide-decode.rhdl" open
   "alu-ctrl.rhdl" open
   "operand-ctrl.rhdl" open
   "branch-ctrl.rhdl" open
@@ -37,9 +37,9 @@ import:
   "hint-ctrl.rhdl" open
   "../../../riscv/isa/zihintpause.rhm" open
   "../../../riscv/isa/zihintntl.rhm" open
-  "../../fp/decode.rhdl" open
-  "../../fp/scalar-decode.rhdl".fp_scalar_metadata
-  "../../vector/decode.rhdl" open
+  "../../common/fp/decode.rhdl" open
+  "../../common/fp/scalar-decode.rhdl".fp_scalar_metadata
+  "../../common/vector/decode.rhdl" open
   "../../../riscv/isa/v.rhm" as vector_isa
   "../../../riscv/isa/zvbb.rhm" as vector_bitmanip
   "../../../riscv/isa/vector-profile.rhm" open

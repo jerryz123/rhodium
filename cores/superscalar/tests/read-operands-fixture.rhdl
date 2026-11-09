@@ -4,8 +4,8 @@
 import:
   "../read-operands.rhdl" open
   "../bundles.rhdl" open
-  lib("cores/register-file.rhdl").RegisterFile
-  lib("cores/register-write.rhdl").RegisterFileWrite
+  lib("cores/common/register-file.rhdl").RegisterFile
+  lib("cores/common/register-write.rhdl").RegisterFileWrite
   lib("riscv/isa/xlen.rhm").XLen
   lib("flow/main.rhdl") open
 

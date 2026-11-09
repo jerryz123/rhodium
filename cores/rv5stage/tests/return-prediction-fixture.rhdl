@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../cache/protocol.rhdl" open
+  "../../common/cache/protocol.rhdl" open
   "core-fixture.rhdl" open
   "../profile.rhm" open
   "../icache/protocol.rhdl" open

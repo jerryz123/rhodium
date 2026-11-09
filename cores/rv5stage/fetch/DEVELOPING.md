@@ -18,12 +18,12 @@ instruction storage, refill, and coherence rather than fetch sequencing.
 | [`source.rhdl`](source.rhdl) | S0 PC selection, continuation, replay, and prediction lookup |
 | [`packet.rhdl`](packet.rhdl), [`scan.rhdl`](scan.rhdl) | Raw packet representation, prediction-cut validation, and S2 control-flow predecode |
 | [`instruction-buffer.rhdl`](instruction-buffer.rhdl) | Compressed expansion, straddling assembly, and residual-halfword state |
-| [`../../bpred/`](../../bpred/DEVELOPING.md) | Shared prediction payloads, BTB state, RISC-V hints, and speculative/resolved RAS |
+| [`../../common/bpred/`](../../common/bpred/DEVELOPING.md) | Shared prediction payloads, BTB state, RISC-V hints, and speculative/resolved RAS |
 
 ## Dependency direction
 
-The fetch pipeline consumes the shared `cores/bpred/` components and protocols,
-and [stateless instruction encoding helpers](../../fetch/encoding.rhdl).
+The fetch pipeline consumes the shared `cores/common/bpred/` components and protocols,
+and [stateless instruction encoding helpers](../../common/fetch/encoding.rhdl).
 S2 uses only parcel shape: a 32-bit prefix can identify a possible branch
 without supplying its target. Keep the complete-instruction gate on fallback
 targets. ID uses the expander for its own ISA catalog (raw passthrough without C);

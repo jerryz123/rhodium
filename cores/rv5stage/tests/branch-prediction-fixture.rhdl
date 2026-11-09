@@ -2,7 +2,7 @@
 // Checks RV64 branch prediction and recovery with 32-entry and two-entry BTBs.
 // SPDX-License-Identifier: Apache-2.0
 import:
-  "../../cache/protocol.rhdl" open
+  "../../common/cache/protocol.rhdl" open
   "core-fixture.rhdl" open
   "../profile.rhm" open
   "../icache/protocol.rhdl" open

@@ -2,14 +2,14 @@
 /* Captures passive shared vector events; native cosim owns all cross-cycle bookkeeping. */
 // SPDX-License-Identifier: Apache-2.0
 import:
-  "../../../cores/cache/protocol.rhdl" open
+  "../../../cores/common/cache/protocol.rhdl" open
   lib("rhodium/frontend/kernel.rhm").input as observer_input
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/isa/vector.rhm").VectorLength
   lib("rhodium/std/bits.rhdl").Pow2Int
   "../events/transport.rhdl".capture_lane
-  "../../../cores/vector/register-file.rhdl".VectorRegisterWrite
-  "../../../cores/vector/bundles.rhdl" open
+  "../../../cores/common/vector/register-file.rhdl".VectorRegisterWrite
+  "../../../cores/common/vector/bundles.rhdl" open
 
 /* Captures actual vector queue admission, distinct from retained WB admission. */
 dpi_import procedure rhodium_vector_admission(instance: Bits(64))

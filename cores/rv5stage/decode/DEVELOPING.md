@@ -10,7 +10,7 @@ extension, source navigation, and focused validation.
 ## Architecture and dependency boundary
 
 Reusable component mappings live beside their shared components in
-[`cores/`](../../README.md#map-risc-v-instructions-onto-components).
+[`cores/`](../../common/README.md#map-risc-v-instructions-onto-components).
 Each RV5Stage adapter here owns the cases that extend one reusable relation
 across the core's complete selected catalog. Component files do not import sibling control modules;
 [`core-ctrl.rhdl`](core-ctrl.rhdl) is the only composition boundary. The parent
@@ -25,27 +25,27 @@ execution and retirement behavior.
 
 | File | Owned control |
 |---|---|
-| [`../../alu-decode.rhdl`](../../alu-decode.rhdl), [`alu-ctrl.rhdl`](alu-ctrl.rhdl) | Reusable I/B/Zicond ALU mapping; RV5Stage catalog completion and optional CBO/Zawrs rows |
-| [`../../operand.rhdl`](../../operand.rhdl), [`../../operand-decode.rhdl`](../../operand-decode.rhdl), [`operand-ctrl.rhdl`](operand-ctrl.rhdl) | Shared scalar controls and I/M/A/B/Zicond operand relations; RV5Stage catalog completion and MOP routing policy |
-| [`../../branch-decode.rhdl`](../../branch-decode.rhdl), [`branch-ctrl.rhdl`](branch-ctrl.rhdl) | Reusable branch-resolver mapping; RV5Stage catalog completion and optional rows |
+| [`../../common/alu-decode.rhdl`](../../common/alu-decode.rhdl), [`alu-ctrl.rhdl`](alu-ctrl.rhdl) | Reusable I/B/Zicond ALU mapping; RV5Stage catalog completion and optional CBO/Zawrs rows |
+| [`../../common/operand.rhdl`](../../common/operand.rhdl), [`../../common/operand-decode.rhdl`](../../common/operand-decode.rhdl), [`operand-ctrl.rhdl`](operand-ctrl.rhdl) | Shared scalar controls and I/M/A/B/Zicond operand relations; RV5Stage catalog completion and MOP routing policy |
+| [`../../common/branch-decode.rhdl`](../../common/branch-decode.rhdl), [`branch-ctrl.rhdl`](branch-ctrl.rhdl) | Reusable branch-resolver mapping; RV5Stage catalog completion and optional rows |
 | [`mem-ctrl.rhdl`](mem-ctrl.rhdl) | Load, store, LR/SC, and AMO operation, width, atomic operation, and load extension |
-| [`../../multiply-decode.rhdl`](../../multiply-decode.rhdl), [`multiply-ctrl.rhdl`](multiply-ctrl.rhdl) | Reusable Zmmul controls; RV5Stage catalog completion |
-| [`../../divide-decode.rhdl`](../../divide-decode.rhdl), [`divide-ctrl.rhdl`](divide-ctrl.rhdl) | Reusable M divide controls; RV5Stage catalog completion |
+| [`../../common/multiply-decode.rhdl`](../../common/multiply-decode.rhdl), [`multiply-ctrl.rhdl`](multiply-ctrl.rhdl) | Reusable Zmmul controls; RV5Stage catalog completion |
+| [`../../common/divide-decode.rhdl`](../../common/divide-decode.rhdl), [`divide-ctrl.rhdl`](divide-ctrl.rhdl) | Reusable M divide controls; RV5Stage catalog completion |
 | [`writeback-ctrl.rhdl`](writeback-ctrl.rhdl) | Scalar architectural write enable and result source |
-| [`system-ctrl.rhdl`](system-ctrl.rhdl) | Shared CSR/system-action mappings from `../../csr/decode.rhdl`, plus independent WRS.NTO/WRS.STO wait controls |
+| [`system-ctrl.rhdl`](system-ctrl.rhdl) | Shared CSR/system-action mappings from `../../common/csr/decode.rhdl`, plus independent WRS.NTO/WRS.STO wait controls |
 | [`fence-ctrl.rhdl`](fence-ctrl.rhdl) | Memory, instruction, host/guest translation fences and Svinval ordering-only actions |
 | [`hint-ctrl.rhdl`](hint-ctrl.rhdl) | Nonarchitectural PAUSE and NTL selectors, separate from fence/system serialization |
-| [`../../fp/decode.rhdl`](../../fp/decode.rhdl) | Shared FP register-bank use, destination bank, execution unit, precisions, rounding-mode use, and operation modifiers |
-| [`../../vector/decode.rhdl`](../../vector/decode.rhdl) | Zve/V configuration, packed SIMD controls, operand modes, profile ELEN/FP restrictions, and same-/mixed-width register-group legality |
+| [`../../common/fp/decode.rhdl`](../../common/fp/decode.rhdl) | Shared FP register-bank use, destination bank, execution unit, precisions, rounding-mode use, and operation modifiers |
+| [`../../common/vector/decode.rhdl`](../../common/vector/decode.rhdl) | Zve/V configuration, packed SIMD controls, operand modes, profile ELEN/FP restrictions, and same-/mixed-width register-group legality |
 | [`../../../riscv/rtl/decode.rhdl`](../../../riscv/rtl/decode.rhdl) | Catalog-independent RISC-V case construction, exclusion, exact-pattern comparison, and component lookup helpers |
-| [`../../fp/scalar-decode.rhdl`](../../fp/scalar-decode.rhdl) | Shared FP scalar operand/address and LSU patterns |
+| [`../../common/fp/scalar-decode.rhdl`](../../common/fp/scalar-decode.rhdl) | Shared FP scalar operand/address and LSU patterns |
 | [`core-ctrl.rhdl`](core-ctrl.rhdl) | `RV5StageControl`, core-row composition, FP scalar-resource activation/writeback policy, profile validation, and the integrated decoder circuit |
 
 ALU and operand relations use each XLEN catalog's own immediate-shift
 `InstructionSpec` because those encodings differ. Other shared instructions
 reuse the same model objects; rows match exact input patterns rather than
 rebinding by name. Memory width is the shared
-[`MemoryWidth`](../../load-store.rhdl) datapath contract.
+[`MemoryWidth`](../../common/load-store.rhdl) datapath contract.
 
 ## Add an instruction
 
@@ -68,13 +68,13 @@ rebinding by name. Memory width is the shared
 | Need | Start here |
 |---|---|
 | Integrated bundle, selected core catalogs, and final decoder | [`core-ctrl.rhdl`](core-ctrl.rhdl) |
-| F/D/Zfhmin/Zfh/Zfa catalogs and shared FP controls | [`../../fp/decode.rhdl`](../../fp/decode.rhdl) |
+| F/D/Zfhmin/Zfh/Zfa catalogs and shared FP controls | [`../../common/fp/decode.rhdl`](../../common/fp/decode.rhdl) |
 | Shared instruction-pattern conversion | [`../../../riscv/rtl/instruction-pattern.rhdl`](../../../riscv/rtl/instruction-pattern.rhdl) |
 | ISA catalogs and profile enums | [`../../../riscv/isa/`](../../../riscv/isa/) |
 | Pipeline use of decoded controls | [`../core.rhdl`](../core.rhdl) |
 | Integer domain, columns, masks, and bundle shape | [`../tests/core-ctrl-test.rhm`](../tests/core-ctrl-test.rhm) |
 | Zicbop override, controls, and core event boundary | [`../tests/zicbop-test.rhm`](../tests/zicbop-test.rhm) |
-| FP domains, metadata, and component profiles | [`../../fp/tests/decode-test.rhm`](../../fp/tests/decode-test.rhm) |
+| FP domains, metadata, and component profiles | [`../../common/fp/tests/decode-test.rhm`](../../common/fp/tests/decode-test.rhm) |
 
 ## Focused validation
 
@@ -109,7 +109,7 @@ wrapper:
 ```sh
 tools/run-racket-tests.sh \
   cores/rv5stage/tests/core-ctrl-test.rhm \
-  cores/fp/tests/decode-test.rhm
+  cores/common/fp/tests/decode-test.rhm
 ```
 
 The core-control test checks exact RV32/RV64 domains, representative columns,

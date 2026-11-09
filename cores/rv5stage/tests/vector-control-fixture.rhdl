@@ -4,12 +4,12 @@
 
 import:
   lib("riscv/rtl/trap.rhdl").ExceptionCause
-  "../../csr/file.rhdl" open
-  "../../csr/protocol.rhdl" open
+  "../../common/csr/file.rhdl" open
+  "../../common/csr/protocol.rhdl" open
   "../profile.rhm" open
   "../../../riscv/rtl/interrupt.rhdl" open
   "../decode/core-ctrl.rhdl" open
-  "../../vector/decode.rhdl" open
+  "../../common/vector/decode.rhdl" open
   "../decode/system-ctrl.rhdl" open
   "../../../riscv/isa/vector.rhm" open
   "../../../riscv/isa/vector-profile.rhm" open

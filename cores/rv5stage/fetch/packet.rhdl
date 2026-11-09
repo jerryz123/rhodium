@@ -4,8 +4,8 @@
 
 import:
   lib("riscv/rtl/hypervisor.rhdl") open
-  lib("cores/bpred/protocol.rhdl") open
-  lib("cores/pc.rhdl") open
+  lib("cores/common/bpred/protocol.rhdl") open
+  lib("cores/common/pc.rhdl") open
   "../../../riscv/isa/xlen.rhm".XLen
 
 /* Names the predicted instruction relative to this word. Previous is the

@@ -6,9 +6,9 @@ import:
   lib("chi/protocol/channels.rhdl") open
   lib("cores/rv5stage/rv5stage.rhdl").RV5Stage
   lib("cores/rv5stage/profile.rhm").RV5StageConfig
-  lib("cores/chi-hart.rhdl").RiscvHartCHIIdentity
-  lib("cores/chi-hart.rhdl").RiscvHartCHIConfig
-  lib("cores/chi-hart.rhdl").RiscvHartCHIRegion
+  lib("cores/common/chi-hart.rhdl").RiscvHartCHIIdentity
+  lib("cores/common/chi-hart.rhdl").RiscvHartCHIConfig
+  lib("cores/common/chi-hart.rhdl").RiscvHartCHIRegion
   lib("riscv/rtl/interrupt.rhdl").RiscvInterrupts
   lib("cores/rv5stage/tests/params.rhdl").test_rv5stage_uncached_config
   lib("devices/boot/bootrom-image.rhm").riscv_bootrom_image

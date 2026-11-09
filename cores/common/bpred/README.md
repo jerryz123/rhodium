@@ -1,0 +1,223 @@
+<!-- Documents reusable branch-target, direction-table, and return-address prediction contracts. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
+# Branch prediction
+
+`bpred/` provides shared `Btb`, `Bht`, `TournamentBht`, and `Ras` components. RV5Stage uses BTB/RAS;
+RV2Wide additionally uses the tournament tables. They own predictor state, not fetch sequencing, instruction assembly, redirect
+priority, or retirement. See [DEVELOPING.md](DEVELOPING.md) for maintenance and
+[the core catalog](../README.md) for consumers.
+
+## Get started
+
+```rhdl
+import:
+  lib("cores/common/bpred/btb.rhdl") open
+  lib("cores/common/bpred/ras.rhdl") open
+  lib("cores/common/bpred/protocol.rhdl") open
+  lib("riscv/isa/xlen.rhm").XLen
+
+inst btb(Btb(XLen.X64))
+inst ras(Ras(XLen.X64))
+```
+
+The caller drives the BTB cursor and event inputs, uses `prediction`, and
+selects the RAS head for return predictions. These components do not connect
+themselves to a fetch pipeline. Shared setup is in the
+[repository quick start](../../../README.md#quick-start).
+
+## Branch-target buffer
+
+`Btb(xlen, entry_count = 32, match_bits = 14, page_count = 8, ~fetch_bytes: 4, ~external_direction: #false, ~pc_width: xlen.width, ~target_width: xlen.width)` has a
+combinational `cursor` input and `BranchPrediction(xlen, xlen.width)` output. Lookup selects
+the earliest predicted-taken instruction at or after the cursor **within its
+aligned fetch block**. `fetch_bytes` supports four (the default) or eight bytes.
+Halfword-aligned entry PCs support compressed code;
+the caller validates instruction boundaries and predicted lengths against
+fetched data. `prediction.valid` is false on a miss or full invalidation.
+
+Entries store low PC/target bits and indices into shared upper-address tags.
+Matching still checks the complete admitted source address. Page replacement invalidates every
+entry using that page as either a source or target. Empty entry slots are used
+before round-robin replacement. Conditional branches have two-bit saturating
+counters; the upper two states predict taken. Unconditional entries predict
+taken whenever they match.
+
+With `~external_direction: #true`, the additional `conditional_taken` input
+supplies one direction per halfword position. These bits replace local counters
+in conditional-entry selection, before choosing the earliest matching target.
+Unconditional entries still predict taken. Local counters continue training;
+the default has no additional port and retains local-counter selection.
+
+The state-update interfaces are:
+
+- `update: Valid(BranchUpdate(xlen))` trains a resolved outcome. `branch`
+  identifies a control-flow instruction, including unconditional jumps;
+  a false value removes a matching stale entry. A taken control-flow miss
+  allocates a weakly-taken entry, while a not-taken miss does not allocate.
+  Existing counters update on both taken and not-taken outcomes.
+- `discover: Valid(BranchPrediction(xlen, xlen.width))` installs a valid early-discovered
+  unconditional jump or return. Resolved `update` takes priority over discovery.
+- `invalidate: Valid(Bits(xlen.width))` removes an exact instruction-PC match
+  and suppresses simultaneous training/discovery writes.
+- `invalidate_all: Pulse()` clears entries, page tags, and replacement state.
+  Reset does the same. The caller chooses when architectural context or code
+  changes require invalidation.
+
+`BranchPrediction(xlen, width = xlen.width)` carries `valid`, instruction `pc`, `target`, `compressed`,
+and `ras_action`. The optional common address width bounds retained transport;
+`.address()` and `.destination()` restore scalar XLEN addresses by sign extension.
+Callers must establish source-PC representability before narrowing; speculative
+target normalization remains predictor policy. `BranchUpdate` adds conditional/taken classification and
+actual/predicted RAS actions plus the return address. The caller qualifies
+updates against its own squash and resolution rules. Invalid prediction
+payload fields must not be observed.
+
+`target_width` may be any positive width up to XLEN. Training and discovery keep
+that many low destination bits and sign-extend them before prediction. This is
+deliberately lossy: a nonrepresentable destination can predict an unrelated valid
+address. Source-PC lookup and invalidation still compare every address bit.
+Callers must steer fetch and record the same normalized prediction, then compare
+against the exact architectural next PC at resolution. Never apply this
+normalization to architectural recovery or exception addresses.
+`prediction_target(xlen, target_width, address)` supplies the same normalization
+for caller-generated direct-jump and return predictions.
+
+`pc_width` instead defines an exact source-address domain: a PC must equal the
+sign extension of its low `pc_width` bits. Outside that domain, lookup misses,
+training/discovery makes no state change, and invalidation cannot remove an
+in-range alias. An ignored update still suppresses simultaneous discovery;
+any invalidation still suppresses simultaneous writes. The default XLEN admits
+every source address. Shared page tags span `max(pc_width, target_width)` bits
+minus the low `match_bits`; source PCs are never truncated into aliases.
+This bounds predictor storage only, not architectural PCs or fault addresses.
+
+`entry_count` is positive; every BTB instance allocates prediction state.
+`match_bits` must include the fetch offset and
+be less than `pc_width`, which must not exceed XLEN; `page_count` must be at least two.
+BTB matching has no address-space tag.
+
+## Direction table
+
+`Bht(row_bits = 10)` stores four two-bit saturating counters per row. Its
+default 1,024 rows provide 4,096 counters (1 KiB of counter data), with no
+row-valid map. `row` selects four halfword banks combinationally; `prefix_row` independently
+reads bank three for an unfinished byte-six instruction. Cold counters are
+weakly not-taken. Asynchronous reads do not guarantee SRAM mapping.
+
+`update: Valid(BhtUpdate(row_bits))` supplies a saved index and actual `taken`
+outcome. Index bits 1:0 select the bank; upper bits select the row. Training
+saturates the current counter, so consecutive aliased updates are not lost.
+After reset deasserts, the table initializes one whole row per clock. For the
+first `2 ** row_bits` edges, all lookup ports return cold counters and training
+offers are discarded, including on the final scrub edge. Training resumes on
+the following edge. Another hardware reset restarts the sweep; there is no
+runtime clear input. `DisabledBht` retains the lookup/update ports without table state.
+
+Callers own PC/history hashing, speculative history, instruction boundaries,
+training authorization, and recovery. `BhtPrediction(row_bits)` carries a
+conditional-valid bit, saved index, pre-instruction history, and predicted
+outcome; a not-taken prediction is still valid metadata.
+
+## Tournament direction tables
+
+`TournamentBht(row_bits = 10)` combines bimodal and gshare direction tables
+with a PC-indexed two-bit chooser. All three tables have four banks per row:
+3 KiB of counter data at the default size. Bimodal and gshare
+counters start weakly not-taken; choosers start strongly preferring bimodal.
+One winning gshare disagreement does not switch a cold chooser; two consecutive
+winning disagreements do. Alternating winners from the cold state retain the
+bimodal preference instead of switching on every update.
+
+The caller supplies independent `base_row`, `gshare_row`, and `choice_row`
+addresses. `base_taken`, `gshare_taken`, and `use_gshare` expose four direction
+bits each. `prefix_gshare_row` and `prefix_choice_row` independently read bank
+three for an unfinished instruction. This permits an early bimodal lookup and
+a later tournament lookup without coupling pipeline timing to this component.
+The caller snapshots early bimodal bits, selects the later result, and owns
+hashing, speculative history, instruction boundaries, and recovery.
+
+`update: Valid(TournamentUpdate(row_bits))` carries saved gshare and bimodal
+indices, their observed predictions, and the actual outcome. After warm-up,
+both direction tables train on every update. The chooser trains only on component disagreement,
+toward the component that was correct. All updates saturate current counters,
+not saved counter values; delayed and consecutive aliased updates remain valid.
+The chooser uses the saved bimodal index. One reset sweep initializes the same
+row of all three tables in parallel: 1,024 post-reset cycles by default. During
+the sweep fetch can continue with not-taken directions and bimodal selection;
+no training is queued or applied. Runtime invalidations do not restart it.
+`DisabledTournamentBht` retains the same ports with no predictor state.
+
+`TournamentPrediction` retains the selected prediction, both component bits,
+both indices, conditional-valid bit, and pre-instruction history checkpoint.
+Callers must retain these bits through retirement rather than reread the tables
+when training the chooser. These tables have no address-space tags and use
+asynchronous reads, not a guaranteed physical SRAM implementation.
+
+## Return-address stack
+
+`Ras(xlen, entry_count = 6, ~target_width: xlen.width)` maintains separate speculative and resolved bounded
+stacks. `head_valid` and `head` expose the speculative top combinationally.
+Overflow wraps and replaces the oldest address; underflow is a no-op.
+`entry_count` is positive; `DisabledRas(xlen)` exposes the same ports with an
+always-invalid head and no stack state. Core configurations use zero RAS
+entries to select this implementation at instantiation.
+
+- `speculate: Valid(RasUpdate(xlen))` applies an accepted speculative action.
+  The caller must emit it exactly once, not repeatedly while fetch stalls.
+- `resolve: Valid(RasResolution(xlen))` applies the actual action to resolved
+  state. A mismatch with `predicted_action` restores speculative state to the
+  updated resolved state.
+- `restore: Pulse()` restores resolved state after recovery. If simultaneous
+  with resolution, restoration includes that resolution's actual action.
+- `clear: Pulse()` and reset empty both stacks. Clear has highest priority;
+  restoration or action reconciliation takes priority over speculation.
+
+`RasAction` is `None`, `Push`, `Pop`, or `PopPush`; `PopPush` replaces the
+current top, making an empty stack nonempty. `RasUpdate` carries `action` and
+`return_address`; `RasResolution` carries `actual` and `predicted_action`.
+Both stacks store only `target_width` low address bits; `head` sign-extends them
+to XLEN. Resolved stack state is still predictor state, not architectural link
+register storage. Its width has the same range and aliasing contract as the BTB.
+
+`riscv_ras_action(instruction)` classifies canonical JAL/JALR `x1`/`x5`
+call/return hints, including coroutine behavior.
+`riscv_compressed_ras_action(xlen, instruction)` classifies raw compressed
+hints, including RV32-only C.JAL. These helpers classify hints rather than
+validate instruction legality. The caller supplies the length-correct return
+address and decides whether a stack head overrides a BTB target.
+
+## Prediction statistics
+
+`protocol.rhdl` exports `BranchPredictionStatus` with `NotBranch`, `Correct`,
+and `Mispredicted`. For a branch, correctness means that the effective predicted
+next PC equals the resolved architectural next PC. RAS-action mismatch is reported separately, including on
+nonbranches with stale predictions. Callers own classification timing, squash
+qualification, and whether the status is retained or emitted as a trace field.
+
+`statistics.rhdl` exports `prediction_failure` and `count_prediction_failure`.
+The first takes resolved branch/conditional flags, direction and next-PC mismatch
+flags, indirect/return classification, and a RAS-action mismatch. It selects one
+`PredictionFailure`: nonbranch, conditional direction, return/indirect/direct
+target, RAS-only, or none, in that priority order. A return includes a coroutine
+pop-then-push. Callers define direction mismatch from their retained effective
+prediction; a taken branch whose target equals fallthrough need not be a next-PC
+error.
+
+The second takes the **winning recovery event** and that classification, and
+declares six passive `stat_count` sites. It must be called once per module.
+It neither changes predictor state nor qualifies recovery. Counts are enabled
+only by the compile target; names, measurement window, and baseline policy are
+documented in [RTL statistics](../../../sims/README.md#rtl-statistics).
+
+## Integration boundary
+
+The caller owns when to redirect, which instructions remain in a fetched
+packet, cross-word continuation, prediction verification, context invalidation,
+and which resolved actions survive recovery. No predictor input is itself
+authorization to retire an instruction.
+
+RV5Stage's current integration is documented in its
+[branch-prediction contract](../../rv5stage/README.md#branch-prediction) and
+[fetch guide](../../rv5stage/fetch/README.md). RV2Wide uses an eight-byte lookup
+and WB-qualified training; see its [fetch contract](../../superscalar/README.md#branch-prediction).

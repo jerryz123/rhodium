@@ -3,20 +3,20 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/fetch/fault.rhdl") open
-  lib("cores/fetch/protocol.rhdl").PhysicalInstructionReq
+  lib("cores/common/fetch/fault.rhdl") open
+  lib("cores/common/fetch/protocol.rhdl").PhysicalInstructionReq
   "../bundles.rhdl" open
   "../profile.rhm".SuperscalarPipelineConfig
   "instruction-assembler.rhdl" open
   "direction.rhdl" open
-  "../../cache/l1i/protocol.rhdl" open
-  "../../chi-hart.rhdl" open
-  lib("cores/bpred/btb.rhdl").Btb
-  lib("cores/bpred/tournament.rhdl") open
-  lib("cores/bpred/ras.rhdl").Ras
-  lib("cores/bpred/ras.rhdl").DisabledRas
-  lib("cores/bpred/protocol.rhdl") open
-  lib("cores/pc.rhdl") open
+  "../../common/cache/l1i/protocol.rhdl" open
+  "../../common/chi-hart.rhdl" open
+  lib("cores/common/bpred/btb.rhdl").Btb
+  lib("cores/common/bpred/tournament.rhdl") open
+  lib("cores/common/bpred/ras.rhdl").Ras
+  lib("cores/common/bpred/ras.rhdl").DisabledRas
+  lib("cores/common/bpred/protocol.rhdl") open
+  lib("cores/common/pc.rhdl") open
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/rtl/svpbmt.rhdl") open
   lib("riscv/rtl/trap.rhdl").ExceptionCause

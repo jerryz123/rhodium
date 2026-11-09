@@ -2,24 +2,24 @@
 // Exercises cold-refill recovery and steady-state frontend/MMU/L1I throughput.
 // SPDX-License-Identifier: Apache-2.0
 import:
-  lib("cores/mmu/context.rhdl").RiscvTranslationState
+  lib("cores/common/mmu/context.rhdl").RiscvTranslationState
   lib("riscv/isa/hart.rhm").RiscvMmuType
-  lib("cores/mmu/vector.rhdl") open
+  lib("cores/common/mmu/vector.rhdl") open
   "../memory-context.rhdl" open
-  "../../cache/protocol.rhdl" open
+  "../../common/cache/protocol.rhdl" open
   "fetch-fixture.rhdl" open
   lib("cores/rv5stage/profile.rhm") open
-  lib("cores/bpred/protocol.rhdl") open
+  lib("cores/common/bpred/protocol.rhdl") open
   lib("cores/rv5stage/mmu/mmu.rhdl") open
   lib("cores/rv5stage/mmu/protocol.rhdl") open
   lib("riscv/rtl/privilege.rhdl").PrivilegeMode
   lib("cores/rv5stage/instruction-memory-router.rhdl") open
-  lib("cores/cache/l1i/cache.rhdl") open
+  lib("cores/common/cache/l1i/cache.rhdl") open
   lib("cores/rv5stage/icache/protocol.rhdl") open
   lib("cores/rv5stage/memory-context.rhdl") open
-  lib("cores/cache/geometry.rhdl") open
+  lib("cores/common/cache/geometry.rhdl") open
   lib("cores/rv5stage/tests/params.rhdl") open
-  lib("cores/cache-prefetch.rhdl") open
+  lib("cores/common/cache-prefetch.rhdl") open
   lib("riscv/isa/c.rhm").CCompressedExtensions
   lib("riscv/isa/fp-profile.rhm") open
   lib("riscv/isa/xlen.rhm").XLen

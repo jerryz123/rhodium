@@ -1,0 +1,61 @@
+#lang rhodium
+/* Retains one non-cacheable data operation from admission through RN-I completion. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "protocol.rhdl" open
+  "operation.rhdl".CacheOperation
+  "../../../riscv/isa/xlen.rhm".XLen
+  lib("rhodium/std/ready-valid.rhdl") open
+
+/* Separates an empty data slot, a retained request awaiting RN-I issue, and accepted engine
+   work. */
+hardware_enum IOMSHRState:
+  Idle
+  Queued
+  Active
+
+/* Admits one supported committed request independently of downstream availability.
+   Retains its payload until issue and releases only on final completion; unsupported operations
+   never allocate. */
+sync_circuit IOMSHR(xlen :: XLen, Context :: DataType):
+  interface core(UncachedMemoryAccess(xlen, Context), ~role: responder)
+  interface memory(UncachedMemoryAccess(xlen, Context), ~role: requester)
+
+  reg state(~init: IOMSHRState.Idle)
+  reg request(UncachedMemoryReq(xlen, Context))
+  def idle = state === IOMSHRState.Idle
+  def queued = state === IOMSHRState.Queued
+  def active = state === IOMSHRState.Active
+  def operation = core.request.bits.request.access
+  def supported = operation.is_one_of(CacheOperation.Load, CacheOperation.Store, CacheOperation.CacheBlockZero)
+
+  // Admission depends on this data slot, not the shared engine's fetch owner.
+  // Unsupported requests fault before admission and cannot acquire the slot.
+  core.request.ready <== idle
+  core.request_fault <== Bool(#false)
+  core.request_access_fault <== core.request.valid & !supported
+  def accept = core.request.fire() & supported
+  memory.request.valid <== queued
+  memory.request.bits <== request
+  memory.response |> core.response
+  core.drained <== idle & !accept
+
+  when accept:
+    request <== core.request.bits
+    state <== IOMSHRState.Queued
+  elsewhen (memory.request.fire()):
+    state <== IOMSHRState.Active
+  elsewhen (memory.response.fire()):
+    state <== IOMSHRState.Idle
+
+  // An accepted operation is irrevocable. The engine cannot report a late
+  // admission fault, and only its final data completion releases the slot.
+  when queued:
+    assert(!memory.request_fault & !memory.request_access_fault, "io_mshr_no_late_fault")
+
+  when (memory.response.valid):
+    assert(active, "io_mshr_completion_expected")
+
+export:
+  IOMSHR

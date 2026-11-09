@@ -3,35 +3,35 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/fetch/fault.rhdl") open
-  lib("cores/pc.rhdl") open
-  lib("cores/fetch/protocol.rhdl").PhysicalInstructionReq
-  lib("cores/fp/profile.rhm").fp_transport_profile
+  lib("cores/common/fetch/fault.rhdl") open
+  lib("cores/common/pc.rhdl") open
+  lib("cores/common/fetch/protocol.rhdl").PhysicalInstructionReq
+  lib("cores/common/fp/profile.rhm").fp_transport_profile
   "pairing.rhdl".superscalar_pair_immediate_width
   "decode/core-ctrl.rhdl" open
   "decode/mem-ctrl.rhdl" open
   "decode/system-ctrl.rhdl" open
   "decode/long-ctrl.rhdl" open
   lib("flow/main.rhdl") open
-  lib("cores/load-store.rhdl").MemoryWidth
-  lib("cores/load-store.rhdl").memory_word_bytes
-  lib("cores/cache/operation.rhdl").CacheOperation
-  lib("cores/cache/l1i/protocol.rhdl").InstructionCacheResult
+  lib("cores/common/load-store.rhdl").MemoryWidth
+  lib("cores/common/load-store.rhdl").memory_word_bytes
+  lib("cores/common/cache/operation.rhdl").CacheOperation
+  lib("cores/common/cache/l1i/protocol.rhdl").InstructionCacheResult
   lib("riscv/rtl/svpbmt.rhdl").PageMemoryType
-  lib("cores/cache-prefetch.rhdl").CachePrefetchOperation
-  lib("cores/reservation-wait.rhdl").ReservationWaitMode
-  lib("cores/bpred/protocol.rhdl") open
-  lib("cores/branch-resolver.rhdl").BranchResolverControl
+  lib("cores/common/cache-prefetch.rhdl").CachePrefetchOperation
+  lib("cores/common/reservation-wait.rhdl").ReservationWaitMode
+  lib("cores/common/bpred/protocol.rhdl") open
+  lib("cores/common/branch-resolver.rhdl").BranchResolverControl
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/rtl/trap.rhdl").ExceptionCause
   lib("riscv/rtl/atomic.rhdl").RiscvAtomicOperation
   lib("riscv/rtl/zihintntl.rhdl").RiscvMemoryLocality
   lib("riscv/rtl/hypervisor.rhdl") open
-  lib("cores/fp/bundles.rhdl") open
-  lib("cores/fp/types.rhdl") open
+  lib("cores/common/fp/bundles.rhdl") open
+  lib("cores/common/fp/types.rhdl") open
   lib("hardfloat/main.rhdl").RoundingMode
-  lib("cores/vector/bundles.rhdl").VectorDescriptor
-  lib("cores/vector/decode.rhdl").VectorConfigMode
+  lib("cores/common/vector/bundles.rhdl").VectorDescriptor
+  lib("cores/common/vector/decode.rhdl").VectorConfigMode
 
 
 /* Resolves an S1 virtual PC combinationally; a miss requests local fetch replay. */

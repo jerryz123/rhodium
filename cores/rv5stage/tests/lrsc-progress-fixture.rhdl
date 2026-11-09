@@ -3,13 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../cache/protocol.rhdl" open
-  "../../cache/l1d/cache.rhdl" open
+  "../../common/cache/protocol.rhdl" open
+  "../../common/cache/l1d/cache.rhdl" open
   "../memory-context.rhdl" open
-  "../../cache/geometry.rhdl" open
+  "../../common/cache/geometry.rhdl" open
   "../chi/foundation.rhdl" open
   "params.rhdl" open
-  lib("cores/cache-prefetch.rhdl").CachePrefetchReq
+  lib("cores/common/cache-prefetch.rhdl").CachePrefetchReq
   lib("riscv/isa/xlen.rhm") open
   lib("chi/protocol/flits.rhdl") open
   lib("chi/home/home-common.rhdl") open

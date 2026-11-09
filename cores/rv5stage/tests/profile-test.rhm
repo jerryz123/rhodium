@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/vector/profile.rhm").vector_execution_half_precision
+  lib("cores/common/vector/profile.rhm").vector_execution_half_precision
   "../profile.rhm" open
   "../../../riscv/isa/c.rhm" open
   "../../../riscv/isa/fp-profile.rhm" open

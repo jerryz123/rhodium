@@ -35,8 +35,8 @@ An accepted refill or uncached read drains through a speculative flush; a
 replay retries the oldest failed PC. The [instruction cache](../icache/README.md)
 owns refill and storage, not fetch sequencing.
 
-Branch prediction uses the shared [`cores/bpred/`](../../bpred/README.md)
-components. Their [`protocol.rhdl`](../../bpred/protocol.rhdl) defines prediction and training payloads,
+Branch prediction uses the shared [`cores/common/bpred/`](../../common/bpred/README.md)
+components. Their [`protocol.rhdl`](../../common/bpred/protocol.rhdl) defines prediction and training payloads,
 while the parent [branch-prediction contract](../README.md#branch-prediction)
 defines their observable policy and generator parameters.
 
@@ -69,7 +69,7 @@ exact instruction PC and, if a straddling fetch faults, the address of its
 failing parcel. Neither case requires an extra cycle or queue entry.
 
 `FetchDecode.fault` uses shared `FetchFault(xlen, hypervisor)` from
-`cores/fetch/fault.rhdl`. Its cause selects access faults before page faults;
+`cores/common/fetch/fault.rhdl`. Its cause selects access faults before page faults;
 the guest-page cause is used only when H is enabled. The continuation bit names
 the second parcel, so `fault.address(pc)` recovers the precise fault VA without
 storing another address. Guest metadata adjusts the byte offset for explicit

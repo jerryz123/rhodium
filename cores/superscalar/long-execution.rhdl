@@ -3,17 +3,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/pc.rhdl").CompactPc
-  lib("cores/integer-format.rhdl") open
+  lib("cores/common/pc.rhdl").CompactPc
+  lib("cores/common/integer-format.rhdl") open
   lib("riscv/isa/xlen.rhm").XLen
   "bundles.rhdl" open
-  lib("cores/multiplier.rhdl") open
-  lib("cores/divider.rhdl") open
-  lib("cores/divide-decode.rhdl").RiscvDivideControl
+  lib("cores/common/multiplier.rhdl") open
+  lib("cores/common/divider.rhdl") open
+  lib("cores/common/divide-decode.rhdl").RiscvDivideControl
   lib("flow/main.rhdl") open
-  lib("cores/integer-execution.rhdl") open
-  lib("cores/integer-service.rhdl") open
-  lib("cores/vector/muldiv.rhdl") open
+  lib("cores/common/integer-execution.rhdl") open
+  lib("cores/common/integer-service.rhdl") open
+  lib("cores/common/vector/muldiv.rhdl") open
   lib("rhodium/std/bits.rhdl").Pow2Int
 
 /* Identifies the surviving WB instruction and selects its architectural product. */

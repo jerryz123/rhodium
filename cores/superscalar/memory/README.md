@@ -15,4 +15,4 @@ their implementation with the capabilities in `translation-specialization.rhm`.
 `transport.rhdl` routes accepted physical requests and responses.
 `attachment.rhdl` implements `SuperscalarL1D`, including permissions, ordering,
 and cached/uncached routing around the shared
-[`L1DCache`](../../cache/l1d/README.md).
+[`L1DCache`](../../common/cache/l1d/README.md).

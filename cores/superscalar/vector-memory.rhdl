@@ -3,14 +3,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/cosim-source.rhm").describe_cosim_signals
-  lib("cores/vector/memory-issue.rhdl").VectorMemoryIssue
+  lib("cores/common/cosim-source.rhm").describe_cosim_signals
+  lib("cores/common/vector/memory-issue.rhdl").VectorMemoryIssue
   "bundles.rhdl" open
-  lib("cores/vector/bundles.rhdl") open
-  lib("cores/cache/operation.rhdl") open
-  lib("cores/cache/protocol.rhdl") open
-  lib("cores/load-store.rhdl") open
-  lib("cores/misaligned-access.rhdl") open
+  lib("cores/common/vector/bundles.rhdl") open
+  lib("cores/common/cache/operation.rhdl") open
+  lib("cores/common/cache/protocol.rhdl") open
+  lib("cores/common/load-store.rhdl") open
+  lib("cores/common/misaligned-access.rhdl") open
   lib("riscv/isa/xlen.rhm") open
   lib("riscv/rtl/trap.rhdl") open
   lib("riscv/rtl/atomic.rhdl") open

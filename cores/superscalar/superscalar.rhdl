@@ -16,11 +16,11 @@ import:
   lib("riscv/isa/hart.rhm").RiscvMmuType
   "fetch/instruction-memory.rhdl" open
   "bundles.rhdl" open
-  "../cache/config.rhm" open
-  "../cache-prefetch.rhdl" open
-  "../cache/l1i/cache.rhdl" open
-  "../chi-hart.rhdl" open
-  "../cosim-source.rhm".describe_cosim_context
+  "../common/cache/config.rhm" open
+  "../common/cache-prefetch.rhdl" open
+  "../common/cache/l1i/cache.rhdl" open
+  "../common/chi-hart.rhdl" open
+  "../common/cosim-source.rhm".describe_cosim_context
   lib("riscv/isa/xlen.rhm") open
   lib("riscv/rtl/interrupt.rhdl").RiscvInterrupts
   lib("flow/main.rhdl") open

@@ -17,14 +17,14 @@ sequencing, trap priority, atomic/LRSC alignment, and final exception causes;
 the physical router and cache own admitted transaction behavior.
 
 Reusable banks, walk sequencing, and translation contracts live in
-[`cores/mmu`](../../mmu/DEVELOPING.md). This directory owns their
+[`cores/common/mmu`](../../common/mmu/DEVELOPING.md). This directory owns their
 RV5Stage composition, not a separate TLB or walker implementation.
 The core's `translation_state` connects directly to the MMU's shared
 `RiscvTranslationState(xlen)` input `state`. Guest controls are zero without H;
 normal and guest pointer-mask controls remain unused here because the core
 captures instruction-specific masking before EX.
 Reusable ordinary-access fragmentation and load assembly live in
-[`cores/misaligned-access.rhdl`](../../misaligned-access.rhdl),
+[`cores/common/misaligned-access.rhdl`](../../common/misaligned-access.rhdl),
 specialized here with RV5Stage's opaque memory context. Its final outcome remains
 owned by scalar WB or the vector element, not by the shared physical cache.
 
@@ -37,7 +37,7 @@ and drains its orphan reply before admitting another walk. The MMU forwards all
 accepted replies, even after invalidation, and tracks the physical pending read.
 This is response correlation, not whole-port ownership.
 
-The MMU declares passive cosim taps through `cores/cosim-source.rhm`:
+The MMU declares passive cosim taps through `cores/common/cosim-source.rhm`:
 successful MEM hit addresses and accepted WB physical requests, including each
 independently accepted physical fragment for misaligned scalar accesses.
 For vector splits it also exports the stable fragment request and actual
@@ -57,12 +57,12 @@ with `COSIM=1` instead of maintaining a separate cosim-only Sv39 program.
 | File | Ownership |
 |---|---|
 | [`protocol.rhdl`](protocol.rhdl) | RV5Stage guest-aware virtual requests and split outcomes |
-| [`../../mmu/vector.rhdl`](../../mmu/vector.rhdl) | Shared vector certificates and page probes |
-| [`../../mmu/vector-certificate.rhdl`](../../mmu/vector-certificate.rhdl) | Fast-proof eligibility, context/epoch validation, and certificate construction; this MMU still owns demand-port selection |
-| [`../../mmu/`](../../mmu/DEVELOPING.md) | Shared TLB/walker implementation, host/guest contracts, and direct fixture ownership |
-| [`../../mmu/vector-window.rhdl`](../../mmu/vector-window.rhdl) | Two-page macro-owned translation authorization and full-page ordinary-memory certification |
+| [`../../common/mmu/vector.rhdl`](../../common/mmu/vector.rhdl) | Shared vector certificates and page probes |
+| [`../../common/mmu/vector-certificate.rhdl`](../../common/mmu/vector-certificate.rhdl) | Fast-proof eligibility, context/epoch validation, and certificate construction; this MMU still owns demand-port selection |
+| [`../../common/mmu/`](../../common/mmu/DEVELOPING.md) | Shared TLB/walker implementation, host/guest contracts, and direct fixture ownership |
+| [`../../common/mmu/vector-window.rhdl`](../../common/mmu/vector-window.rhdl) | Two-page macro-owned translation authorization and full-page ordinary-memory certification |
 | [`mmu.rhdl`](mmu.rhdl) | ITLB/DTLB composition, miss priority, exact-request instruction fault-outcome retention, replay-owner walk admission, fault correlation, registered fetch outcomes, registered virtual/physical prefetch stages and cancellation, retained fragment demand translation, physical checks, and separate core/PTE physical offers |
-| [`cores/misaligned-access.rhdl`](../../misaligned-access.rhdl) | Shared one- or two-word virtual fragmentation, opaque owner retention, load assembly, and precise final split outcome |
+| [`cores/common/misaligned-access.rhdl`](../../common/misaligned-access.rhdl) | Shared one- or two-word virtual fragmentation, opaque owner retention, load assembly, and precise final split outcome |
 | [`../data-port-arbiter.rhdl`](../data-port-arbiter.rhdl) | Core-first physical request and lookup selection, fault demultiplexing, and origin-tagged response routing |
 | [`../rv5stage.rhdl`](../rv5stage.rhdl) | Core, L1I, physical-router, and privileged-control integration |
 | [`../../../riscv/rtl/sv39.rhdl`](../../../riscv/rtl/sv39.rhdl) | Shared Sv39 decoding, canonicality, permission, superpage, and address helpers |
@@ -80,7 +80,7 @@ PMM writes restart fetch and therefore clear pending prefetch stages, but do not
 invalidate translations or cancel accepted page-table response ownership.
 
 1. Put pure Sv39 representation/policy in `riscv/rtl`, reusable TLB/walker
-   state in `cores/mmu`, and RV5Stage arbitration and integration here.
+   state in `cores/common/mmu`, and RV5Stage arbitration and integration here.
 2. Preserve address correlation for walk completions and faults. The instruction
    attempt is captured into S1 after S0 admission; the frontend may change its
    payload immediately. An unresolved attempt produces S2 replay, never a
@@ -138,7 +138,7 @@ invalidate translations or cancel accepted page-table response ownership.
    from architectural invalidation and from clearing an already-latched fault.
 5. Recheck current privilege, `SUM`, `MXR`, `A`, and `D` on every TLB hit; do
    not cache a prior permission decision.
-   The explicit exception is a certified vector macro: `../../mmu/vector-window.rhdl`
+   The explicit exception is a certified vector macro: `../../common/mmu/vector-window.rhdl`
    retains its two translations and authorization under a stable architectural
    context until execution releases them. CSR/privilege changes, SFENCE, traps,
    and interrupts cannot pass this owner. DTLB replacement can proceed normally.
@@ -217,7 +217,7 @@ held completion, cancellation, and invalidation during accepted reads and
 completion. Pair it with `riscv-nested-walker` when shared walk/result
 contracts change. The precise cause helper consumes the original access class;
 its test covers fetch/load/store/cache-management implicit-PTE faults.
-Keep this command sequencer under `cores/mmu/tests`; production ITLB/DTLB hits remain combinational.
+Keep this command sequencer under `cores/common/mmu/tests`; production ITLB/DTLB hits remain combinational.
 The production MMU uses the shared ports directly. The optional guest context
 comes from the CSR owner; current privilege/MPRV/MPV chooses fetch/data stage
 contexts separately. The core retains the paired request/MEM fault metadata,
@@ -247,7 +247,7 @@ frame owns the continuation while the active frame runs G translation; no
 second walker or nested memory requester is instantiated. Keep memory-response
 ownership in the shared walker; the MMU must not filter replies on invalidation.
 Shared PTE/address helpers remain in `riscv/rtl`, retained frames in
-`cores/mmu`, and named-core arbitration here. Keep H profile publication
+`cores/common/mmu`, and named-core arbitration here. Keep H profile publication
 separate from component validation.
 
 Mapping geometry belongs in the public Sv39 adapter. Keep walker `level`

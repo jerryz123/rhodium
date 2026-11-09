@@ -3,8 +3,8 @@
 
 import:
   "../decode/operand-ctrl.rhdl".superscalar_operand_cases
-  "../../operand.rhdl" open
-  "../../operand-decode.rhdl" open
+  "../../common/operand.rhdl" open
+  "../../common/operand-decode.rhdl" open
   lib("rhodium/std/decode.rhdl") open
   lib("rhodium/frontend/layers/bool.rhm").Bool
   lib("riscv/isa/xlen.rhm").XLen

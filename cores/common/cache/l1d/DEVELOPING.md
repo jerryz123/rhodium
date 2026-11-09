@@ -1,0 +1,243 @@
+<!-- Guides implementation and validation of the shared cache's set-isolated hit-under-miss data cache. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
+# Developing the shared data cache
+
+Read the L1D [README](README.md) for its public request/response, hit, refill,
+writeback, snoop, atomic, LR/SC, replacement, and deliberate-limit contracts.
+This guide owns implementation placement and contributor validation.
+
+## Architecture and ownership
+
+The L1D package owns the data-access protocol, synchronous arrays, hit path,
+coherence state, mutation, blocking allocation/acquisition, replacement, and
+LR/SC reservation. The shared [IO-MSHR](../io-mshr.rhdl) owns nonallocating
+request retention; the integrating core owns virtual translation, alignment
+faults, PMA routing, ordering between cache and IO service, architectural fences,
+and external CHI endpoint composition.
+
+Keep L1D independent of L1I. Reuse parent cache parameters and the sibling CHI
+package's refill, writeback, and data-snoop engines rather than
+importing the instruction-cache package.
+[`../../../check-boundaries.sh`](../../../check-boundaries.sh) enforces that split.
+
+## Implementation map
+
+| Concern | Owner |
+|---|---|
+| Physical request and response bundles | [`protocol.rhdl`](../protocol.rhdl) |
+| Synchronous tag/state and byte-masked data storage | [`arrays.rhdl`](arrays.rhdl) |
+| Parameterized committed-store capacity, physical-byte/probe comparisons, FIFO order, and bounded age | [`store-buffer.rhdl`](store-buffer.rhdl) |
+| Shared pipeline decisions, SRAM scheduling, prefetch admission, reservation, replacement, gather, refill installation, and transaction arbitration | [`cache.rhdl`](cache.rhdl) |
+| Shared cache geometry | [`../geometry.rhdl`](../geometry.rhdl) |
+| Reusable invalid-first tree-PLRU policy | [`../../../../rhodium/std/plru.rhdl`](../../../../rhodium/std/plru.rhdl) |
+| Retry-aware complete-line refill | [`../chi/refill.rhdl`](../chi/refill.rhdl) |
+| Dirty-victim drain | [`../chi/writeback.rhdl`](../chi/writeback.rhdl) |
+| Clean and dirty snoop transaction lifetime | [`../chi/snoop.rhdl`](../chi/snoop.rhdl) |
+| Named-core integration | [RV5Stage](../../../rv5stage/rv5stage.rhdl), [RV2Wide](../../../rv2wide/rv2wide.rhdl) |
+| Host configuration and protocol metadata | [RV5Stage cache contract](../../../rv5stage/tests/dcache-test.rhm), [transaction engines](../../../rv5stage/tests/transaction-engines-test.rhm) |
+| Behavioral fixtures | [Rsim shared components](../tests/rsim/), [RV5Stage rsim integration](../../../rv5stage/tests/rsim/), [RV2Wide rsim integration](../../../rv2wide/tests/rsim/) |
+
+## Change the cache
+
+### Internal naming and organization
+
+In `cache.rhdl`, `s0_` names speculative read admission and launch,
+`s1_` names the synchronous SRAM result and physical-tag/hit decision, and
+`s2_` names the retained store candidate, authorization, and slow-request
+admission. Name a pipeline register for the stage consuming its current value,
+not the stage supplying its next value. The fast hit path stays contiguous
+near the top of the circuit.
+
+Authorized requests enter a separate retained path: `s3_` names the
+retained SRAM lookup, and `s4_` names captured resolution, permission checks,
+and transaction launch. Queueing or rereads can stall this path, so S3 and S4
+are cache processing stages, not fixed cycles after requester authorization. Retries
+reenter the `s2_` read-admission logic without repeating authorization.
+Keep transaction-spanning state under its engine name, such as `miss_*`,
+`refill_*`, `snoop_*`, or `reservation_*`.
+
+Use flow chains for channel arbitration, Valid payload transformation, and
+engine-generated offers. Preserve fixed-priority input order and unconditional
+payload capture at remaining `ValidPipeAlwaysCapture` boundaries. Shared
+scheduler grants are combinational wires, not additional pipeline stages. Keep
+SRAM owner priorities, store authorization, and engine state transitions
+explicit; retain slow completions until the selected response sink accepts them.
+
+S4 hit/refill/eviction branches carry the complete resolved bundle; build
+transaction commands and capture mutation/gather state from the consuming
+branch's payload. The S4 result and slow-service response registers are elastic;
+the latter has registered-only input capacity to break the downstream-ready
+path through request admission. Do not turn stalled transfers into repeated
+completion events. S2 maps demands and hints into lookup
+flows with demand-first arbitration. Drop hints unless they can win and enter
+S3 immediately, before `to_decoupled()` checks acceptance; never buffer them.
+Keep early virtual SRAM indexing independent of that token arbitration and
+keep request-queue ingress readiness structural.
+
+Event lineage follows the intrinsic queue/elastic/fixed-latency contracts of
+the named service queue, S3 pipe, and S4 result register; callers do not restate
+them. S3 observes lookup advancement before its gate, with a stall companion;
+S4 observes all admitted demand or prefetch resolutions one cycle later.
+Direct refill acceptance and command fields are captured on S4, before
+arbitration with post-eviction work, not on a separate numbered stage.
+The shared `dcache/s1.access` checkpoint belongs on physical resolution before
+the response/store-candidate fork. Capture outcome and reason there for both
+scalar and vector traffic. L1D returns load results combinationally in S1;
+`dcache/arrays.tags` and `dcache/arrays.data` instead annotate the actual tag
+and data SRAM request ports. They fire on every port use, including snoop,
+refill, gather, and mutation owners, and expose the winning owner without
+treating a rejected speculative lookup as an SRAM access. A core lookup uses
+these ports in S0; their request-cycle timestamps precede the corresponding S1
+response by one cycle. The stage-neutral names also cover non-core port owners.
+Caller-side result capture is outside this module; tracing must not add a cache
+register or imply a delay that is absent from the functional path.
+The refill engine declares retained ownership
+from command acceptance through completion; its resident checkpoint carries S4
+ancestry through the final arbiter and parents each request attempt. Writeback
+residency similarly parents copyback requests/data and post-eviction refill
+commands. Its incoming gather ancestry, and maintenance ancestry, remain unknown.
+Do not infer gather-FSM ancestry from an address or transaction ID. See the
+[RV5Stage integration trace guide](../../../rv5stage/DEVELOPING.md#pipeline-event-annotations)
+for an example of caller-owned result capture and translation-fault observations.
+
+### Behavioral invariants
+
+The shared gather FSM owns the read index and returned word's destination,
+not a line buffer. Route each response to exactly one engine. Publish the
+eviction command or snoop result on the existing Ready-state boundary, after
+all words have arrived. Neither engine may overwrite an active DAT payload.
+The RV64 D-cache fixture checks both grant orderings with two different dirty
+lines; the copyback fixture also covers 128-, 256-, and 512-bit DAT.
+
+1. Preserve ordered Decoupled requests and backpressurable slow responses,
+   including completion metadata for stores, atomics, and deferred writeback.
+   Carry the opaque caller context unchanged through retained requests and replies.
+   Keep readiness structural even when an empty request buffer is bypassed by
+   a paired virtual read and physical resolution. Queued physical requests win
+   the lookup port; unresolved virtual reads cannot produce a lookup token.
+   Geometry rejection belongs to `../config.rhm`.
+2. Keep the one-request-per-cycle load-hit path separate from blocking miss,
+   acquisition, gather, writeback, and installation state.
+   The speculative `pipeline_lookup` read uses only the virtual page offset in S0.
+   `pipeline.request` supplies the physical tag and operation controls in S1; return its
+   matching SRAM value combinationally to the caller. Do not insert the
+   authorized transaction path's S4/response registers into that hit path.
+   Registered read ownership and page-offset matching prevent consuming another
+   request's SRAM response. Return an explicit replay for blocked reads, not a
+   slow-service request. Store lookup retains only a one-cycle candidate; S2
+   authorization alone enqueues it. Compare all committed bytes, including the
+   current enqueue, without using global drain as a hit-readiness condition.
+   Only enqueue may clear a matching reservation for a buffered ordinary store.
+   Keep SRAM arbitration independent of logical word/byte conflicts, and keep
+   same-line snoop draining independent of unrelated probes. Do not allow a
+   committed entry's way to be replaced or downgraded before its drain.
+   For authorized transactions,
+   S3 owns array reads, tag comparison, and word/state selection; its result
+   crosses an elastic `Pipe` before S4 checks permissions and launches
+   transactions. Reserve S4 capacity before advancing S3. Retain and reread
+   younger S3 requests blocked by older S4 work or snoops; never retain their
+   stale array results across mutation, refill, or coherence service. Include
+   both stages in drain and maintenance ordering, but let snoops pass a retained
+   S3 request once its outstanding read and S4 have drained.
+3. Publish refill metadata only after the last word, and invalidate a dirty
+   victim before reusing its way. Capture the cache's install disposition in
+   the L1D miss record separately from architectural locality and new-way
+   allocation. A non-allocating load must complete from the acknowledged clean
+   transaction buffer without SRAM writes, victim handling, replacement-state
+   movement, or reservation invalidation.
+4. Preserve explicit SRAM ownership and priority among core lookup, line
+   gather, refill installation, and snoop service.
+   Keep transaction capacity separate from array availability. Capture
+   `miss_record` once, on direct refill acceptance or eviction gather start,
+   and hold it through final refill completion, including retries and stalls.
+   Derive the reserved set and line from its request. Keep the victim address
+   and snoop ownership separate; copyback completion resumes the active miss,
+   not a new S4 request. Only ordinary demand load/store contexts enable
+   hit-under-miss. Protect the whole set in S0 admission and S1 classification.
+   An ordinary load or store matching `miss_line_address` may resolve as Slow
+   and wait in the authorized request queue; it must perform a fresh lookup
+   after completion and must not observe the refill buffer directly. Such a
+   parked head owns no SRAM port and does not block independent load hits. Keep
+   the queue's positive depth specialized by `service_queue_depth`; it bounds
+   accepted waiters but does not add miss entries. Replay every independent
+   second miss and every unsupported same-line operation rather than allocating
+   another owner. Do not weaken store authorization, ordered-queue barriers, or
+   `drained` when enabling independent load reads or same-line waiters.
+   Preserve registered read ownership across an installation or snoop arriving
+   between S0 and S1; never steal an array cycle from older work.
+5. Acquire Unique for LR without treating it as a store for translation,
+   faults, dirty state, or refill mutation. SC authorization is a local owned
+   hit decision; never retain it in a refill context. Keep probe-protection expiry
+   separate from reservation validity. Preserve mutation/replacement invalidation
+   and probe state changes under the [LR/SC contract](README.md#lrsc-reservation).
+   Gate new snoop admission rather than masking an accepted snoop's pending
+   state. Protect the CompAck-to-install interval and give waiting lookups a
+   bounded turn after `snoop.completed`. Countdown progress must not depend on
+   core, memory, or snoop readiness. Do not move architectural alignment or
+   PMA faults into the cache.
+6. Keep prefetch response-free and demand-priority; write intent may acquire
+   UniqueClean ownership but must not mutate data or make a line dirty.
+7. Keep uncached routing outside L1D. Do not connect fetch flush to committed
+   data state; accepted cache contexts survive speculative redirects.
+8. Test hit, miss, refill, atomic, and coherence behavior in compiled fixtures;
+   keep host coverage to configuration and protocol metadata. Update
+   [README.md](README.md) when public timing, state, traffic, or limits change.
+
+## Focused validation
+
+Use the host check for geometry, public types, and protocol metadata:
+
+```sh
+tools/run-racket-tests.sh cores/rv5stage/tests/dcache-test.rhm
+```
+
+Test cache, transaction, and atomic behavior through compiled fixtures:
+
+```sh
+FIXTURES='cache-store-buffer riscv-atomic' python3 tools/testing/rsim/run.py
+FIXTURES='rv5stage-dcache rv5stage-dcache-rv32 rv5stage-lrsc-progress rv5stage-memory-router rv5stage-io-mshr' python3 tools/testing/rsim/run.py
+FIXTURES='rv5stage-load-hit' python3 tools/testing/rsim/run.py
+```
+
+Use the [RV5Stage guide](../../../rv5stage/DEVELOPING.md#focused-validation) and
+[RV2Wide guide](../../../rv2wide/DEVELOPING.md) for complete-core integration.
+Backend fixture names include `rv5stage-dcache` and
+`rv5stage-dcache-rv32`; use the backend test
+[`DEVELOPING.md`](../../../../tools/testing/circt/DEVELOPING.md) for CIRCT and Verilator
+modes. Repository wrappers provide the persistent worktree-specific root.
+
+The RV64 cache bench covers cold and shared-hit LR ownership, a probe offered
+at CompAck, delayed SC under pending eviction traffic, protection expiry, repeated LR,
+and reacquisition after revocation. RV32 and RV64 also require SC success after
+a quiet delay beyond the protection window, without new CHI traffic.
+`rv5stage-lrsc-progress` connects two actual
+L1Ds to a two-set, one-way inclusive Home and CHI SRAM through registered,
+round-robin channel transport. It forces read-only
+LLC replacement during delayed SC, checks dirty-data preservation through
+eviction, permits an intervening writer after a stalled LR's protection expires, and
+completes two competing LR/SC pairs through exclusive acquisition.
+These tests do not replace constrained instruction-loop testing through a
+complete SoC, including fetch, translation, and network arbitration.
+
+For hit-under-miss changes, `rv5stage-dcache` also checks sustained independent
+hits during delayed/retried refills and dirty writeback, both ways of a reserved
+set, a second miss, blocked stores and atomics, gapped packet assembly,
+installation progress, concurrent non-allocating completion, queued older
+stores, invalidating snoops, and reset. Its byte-store regression retries
+both victim copyback and replacement refill, stalls final completion, and
+checks that a same-line waiter sees the merged bytes in the selected way.
+Run `rv5stage-load-hit` at the real
+core/MMU/router/cache boundary for hits during delayed load/store misses,
+deferred-result use, and fence ordering. Include `rv5stage-dcache-rv32` and
+`rv5stage-lrsc-progress` for width and coherence regression coverage, then rerun
+SingleCoreRV5StageSoC vvadd with the same ELF and host polling before claiming a speedup.
+
+For internal flow changes, the RV64 cache bench also checks same-cycle demand
+priority over a hint, hint drops during miss service, and retained younger
+demand completion without a delayed hint transaction or duplicate response.
+
+For cache-management changes, the RV64 cache bench checks dirty-data preservation
+for clean, invalidate-as-flush, and flush, including backpressured snoop copyback,
+retry, and Home completion ordering. Keep generic CHI `MakeInvalid` discard
+coverage separate from the RISC-V maintenance policy.

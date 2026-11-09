@@ -4,7 +4,7 @@
 import:
   lib("rhodium/frontend/foundation.rhm").elaborate
   lib("riscv/isa/xlen.rhm").XLen
-  lib("cores/fp/timing.rhdl").FpExecutionTiming
+  lib("cores/common/fp/timing.rhdl").FpExecutionTiming
   "../../fp.rhdl".SuperscalarFp
 
 def program = elaborate(SuperscalarFp(XLen.X64, FpExecutionTiming()))

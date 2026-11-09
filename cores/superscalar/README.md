@@ -91,7 +91,7 @@ addresses for the cache/CHI adapter. Translation does not change access size,
 store byte lanes, or response ordering.
 
 For the fetching core with both shared caches, import
-`cores/superscalar/superscalar.rhdl` and `cores/cache/config.rhm`, then instantiate
+`cores/superscalar/superscalar.rhdl` and `cores/common/cache/config.rhm`, then instantiate
 `Superscalar(CacheConfig(64, 2), ~chi: config, ~issue: RV2WideIssue(XLen.X64))`.
 The supplied issue circuit must match the selected profile's XLEN. Optional `~instruction_cache`
 selects different L1I geometry; otherwise both use the supplied geometry.
@@ -115,7 +115,7 @@ internally. Software programs mtvec/stvec and supplies its trap handler.
 
 When using `SuperscalarCore` directly, provide
 `instructions: Decoupled(SuperscalarPacket(xlen, hypervisor, issue_width))`,
-using the fixed [compact-PC contract](../README.md#compact-pc-storage). The supplied issue module sets the width. Each packet has a nonzero
+using the fixed [compact-PC contract](../common/README.md#compact-pc-storage). The supplied issue module sets the width. Each packet has a nonzero
 `count` and that many oldest-first entries. `SuperscalarInstruction` is the
 canonical compact record used by assembly, the issue window and observations:
 a `CompactPc`, canonical 32-bit instruction, raw low parcel, successor-step
@@ -344,7 +344,7 @@ or `SuperscalarPipelineConfig(~xlen: XLen.X32, ~floating_point: FloatingPointPro
 for RV32F; the default remains integer-only. RV64D implies F. Architectural
 FPR width is 32 bits for RV32F and 64 bits for RV64D. Controls, decode, the three-read/two-write
 FPR file, numerical execution, boxing, and flag behavior come from
-[`cores/fp/`](../fp/README.md).
+[`cores/common/fp/`](../common/fp/README.md).
 
 Add Zfa 1.0 with
 `SuperscalarPipelineConfig(~floating_point: FloatingPointProfile.D, ~zfa: #true)`.
@@ -493,7 +493,7 @@ Connect the core's `translation_state` to the adapter's `state` and its `split_g
 matching input; the latter remains the retained split owner's access mode through
 completion. The composed `Superscalar` selects the specialization from its profile
 and connects these automatically.
-The state uses shared `RiscvTranslationState(xlen)` from `cores/mmu/context.rhdl`;
+The state uses shared `RiscvTranslationState(xlen)` from `cores/common/mmu/context.rhdl`;
 context-change prefetch cancellation remains owned by the selected resolver.
 
 ## Supervisor timer
@@ -548,7 +548,7 @@ The shared L1D currently treats all four non-default selectors alike: an ordinar
 load miss returns data without installing the line. Hits, stores, atomics, and
 cache-management operations retain their existing behavior. Translation,
 permissions, ordering, and coherence are unchanged; no lower-level cache policy
-is promised. See the [shared L1D contract](../cache/l1d/README.md).
+is promised. See the [shared L1D contract](../common/cache/l1d/README.md).
 
 ## Instruction fetch
 
@@ -809,7 +809,7 @@ instruction need only enter its descriptor queue, not finish execution.
 Memory ordering and unresolved vector-memory authorization can still reject
 the younger service at WB. An explicit bypass can waive only the dependency its
 physical path supplies.
-The shared `cores/alu.rhdl` and `cores/branch-resolver.rhdl` own execution.
+The shared `cores/common/alu.rhdl` and `cores/common/branch-resolver.rhdl` own execution.
 Each slot uses one composed structured decoder, with the shared component
 relations joined to Superscalar operand/writeback controls.
 
@@ -851,7 +851,7 @@ Store acknowledgements have `write` false. Non-writing data is unspecified on ei
 ## Multiply and divide
 
 Vector subword multiplies use the dedicated packed pipeline described in
-[shared vector execution](../vector/README.md#packed-integer-multiplication).
+[shared vector execution](../common/vector/README.md#packed-integer-multiplication).
 It supports packed low/high products, MAC, widening, and fractional rounding
 without occupying the scalar multiplier. Full-width vector elements still
 share the scalar multiplier; division remains shared at every element width.
@@ -1052,7 +1052,7 @@ transactions block younger memory operations only.
 
 ## CSR, traps, and interrupts
 
-The shared `cores/csr` bank owns architectural state and permission checks;
+The shared `cores/common/csr` bank owns architectural state and permission checks;
 Superscalar owns precise ordering. Except for pure CSR reads and the non-draining vector configuration
 path described under [vector execution](#vector-execution), system instructions issue alone only after older
 pipeline work and accepted deferred operations (including GPR completion writes)
@@ -1067,7 +1067,7 @@ Pure reads issue alone within a pair but overlap surrounding pipeline work.
 They sample permissions and values at WB, forward their GPR result there, and
 do not restart fetching or drain unrelated deferred memory. Reads of implicit
 FP/vector status wait for the relevant older writers, using the
-[shared CSR policy](../csr/README.md#pure-reads-and-ordering). A denied read,
+[shared CSR policy](../common/csr/README.md#pure-reads-and-ordering). A denied read,
 including one with `rd=x0`, retains its precise fault until older work drains.
 
 WB retires only the successful prefix: an older instruction still retires if its

@@ -6,7 +6,7 @@ import:
   lib("rhodium/frontend/foundation.rhm").elaborate
   lib("rhodium/backend/rsim-target.rhm").rsim_target
   lib("rhodium/compile/pipeline.rhm").rtl_pipeline_target
-  lib("cores/tests/rsim/port-observers.rhm").port_observer_pass
+  lib("cores/common/tests/rsim/port-observers.rhm").port_observer_pass
 
 def program = elaborate(RV5StageVectorAdmission())
 def target = rtl_pipeline_target(rsim_target, [port_observer_pass([

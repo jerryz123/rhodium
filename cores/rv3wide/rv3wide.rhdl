@@ -7,8 +7,8 @@ import:
   "../superscalar/profile.rhm".SuperscalarPipelineConfig
   "profile.rhm".RV3WideConfig
   "../superscalar/superscalar.rhdl".Superscalar
-  "../cache/config.rhm".CacheConfig
-  "../chi-hart.rhdl".RiscvHartCHIConfig
+  "../common/cache/config.rhm".CacheConfig
+  "../common/chi-hart.rhdl".RiscvHartCHIConfig
   lib("rhodium/frontend/foundation.rhm").CircuitDefinition
 
 /* Projects configuration without inserting an RTL wrapper or changing pipeline timing. */

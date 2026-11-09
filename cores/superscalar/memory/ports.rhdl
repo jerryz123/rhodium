@@ -3,9 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/cosim-source.rhm").describe_cosim_signals
+  lib("cores/common/cosim-source.rhm").describe_cosim_signals
   "../bundles.rhdl" open
-  lib("cores/misaligned-access.rhdl") open
+  lib("cores/common/misaligned-access.rhdl") open
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/rtl/hypervisor.rhdl") open
   lib("flow/main.rhdl") open

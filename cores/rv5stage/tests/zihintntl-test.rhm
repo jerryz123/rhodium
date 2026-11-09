@@ -3,9 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/reservation-wait.rhdl").ReservationWaitMode
-  lib("cores/csr/protocol.rhdl").RiscvCsrAction
-  lib("cores/operand.rhdl") open
+  lib("cores/common/reservation-wait.rhdl").ReservationWaitMode
+  lib("cores/common/csr/protocol.rhdl").RiscvCsrAction
+  lib("cores/common/operand.rhdl") open
   lib("rhodium/frontend/foundation.rhm") as hw
   lib("rhodium/compile/program.rhm").compile_program
   lib("rhodium/compile/rtl.rhm").rtl_target
@@ -18,15 +18,15 @@ import:
   "../../../riscv/isa/fp-profile.rhm" open
   "../../../riscv/rtl/csr.rhdl" open
   "../../../riscv/rtl/hypervisor.rhdl" open
-  "../../branch-resolver.rhdl" open
-  "../../cache-prefetch.rhdl" open
+  "../../common/branch-resolver.rhdl" open
+  "../../common/cache-prefetch.rhdl" open
   "../decode/core-ctrl.rhdl" open
-  "../../cache/operation.rhdl" open
-  "../../vector/decode.rhdl" open
+  "../../common/cache/operation.rhdl" open
+  "../../common/vector/decode.rhdl" open
   "../decode/hint-ctrl.rhdl" open
   "../decode/fence-ctrl.rhdl" open
   "../decode/branch-ctrl.rhdl" open
-  "../../branch-decode.rhdl" open
+  "../../common/branch-decode.rhdl" open
   "../decode/writeback-ctrl.rhdl" open
   "../decode/mem-ctrl.rhdl" open
   "../decode/system-ctrl.rhdl" open

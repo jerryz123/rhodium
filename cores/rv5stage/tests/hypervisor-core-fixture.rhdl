@@ -4,8 +4,8 @@
 
 import:
   lib("riscv/isa/hart.rhm").RiscvMmuType
-  "../../cache/protocol.rhdl" open
-  "../../load-store.rhdl" open
+  "../../common/cache/protocol.rhdl" open
+  "../../common/load-store.rhdl" open
   "../core.rhdl" open
   "../fetch/frontend.rhdl" open
   "../mmu/mmu.rhdl" open
@@ -13,7 +13,7 @@ import:
   "../data-port-arbiter.rhdl" open
   "../memory-context.rhdl" open
   "../icache/protocol.rhdl" open
-  "../../cache/operation.rhdl" open
+  "../../common/cache/operation.rhdl" open
   "../uncached-protocol.rhdl" open
   lib("riscv/rtl/svpbmt.rhdl") open
   "../profile.rhm" open

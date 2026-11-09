@@ -6,14 +6,14 @@ import:
   "../profile.rhm".SuperscalarPipelineConfig
   "../fetch/instruction-assembler.rhdl" open
   "../fetch/direction.rhdl" open
-  "../../cache/l1i/protocol.rhdl" open
-  "../../chi-hart.rhdl" open
-  lib("cores/bpred/btb.rhdl").Btb
-  lib("cores/bpred/tournament.rhdl") open
-  lib("cores/bpred/ras.rhdl").Ras
-  lib("cores/bpred/ras.rhdl").DisabledRas
-  lib("cores/bpred/protocol.rhdl") open
-  lib("cores/pc.rhdl") open
+  "../../common/cache/l1i/protocol.rhdl" open
+  "../../common/chi-hart.rhdl" open
+  lib("cores/common/bpred/btb.rhdl").Btb
+  lib("cores/common/bpred/tournament.rhdl") open
+  lib("cores/common/bpred/ras.rhdl").Ras
+  lib("cores/common/bpred/ras.rhdl").DisabledRas
+  lib("cores/common/bpred/protocol.rhdl") open
+  lib("cores/common/pc.rhdl") open
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/rtl/svpbmt.rhdl") open
   lib("rhodium/std/bits.rhdl") open

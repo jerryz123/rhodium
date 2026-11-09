@@ -18,19 +18,23 @@ search_sources() {
   fi
 }
 
-# Search all core production sources while excluding test fixtures from ownership checks.
+# Search selected production trees, defaulting to all cores, while excluding test fixtures.
 search_production_sources() {
   local pattern="$1"
+  shift
+  if [[ "$#" -eq 0 ]]; then
+    set -- cores
+  fi
   if command -v rg >/dev/null 2>&1; then
-    rg -n "$pattern" cores --glob '*.rhm' --glob '*.rhdl' \
+    rg -n "$pattern" "$@" --glob '*.rhm' --glob '*.rhdl' \
       --glob '!**/tests/**'
   else
-    find cores -type f \( -name '*.rhm' -o -name '*.rhdl' \) \
+    find "$@" -type f \( -name '*.rhm' -o -name '*.rhdl' \) \
       ! -path '*/tests/*' -exec grep -nHE "$pattern" {} +
   fi
 }
 
-# Search reusable components regardless of whether they are root modules or component families.
+# Search common components and the shared superscalar implementation, excluding named variants.
 search_shared_sources() {
   local pattern="$1"
   if command -v rg >/dev/null 2>&1; then
@@ -54,15 +58,23 @@ fi
 
 component_domain_imports="$(
   search_sources '^[[:space:]]+(lib\()?"[^"]*(riscv/|rv5stage/|rv2wide/|rv3wide/|superscalar/|spike/)' \
-    cores/alu.rhdl cores/branch-resolver.rhdl cores/cache-prefetch.rhdl \
-    cores/load-store.rhdl \
-    cores/multiplier.rhdl cores/divider.rhdl cores/simd-alu.rhdl \
+    cores/common/alu.rhdl cores/common/branch-resolver.rhdl cores/common/cache-prefetch.rhdl \
+    cores/common/load-store.rhdl \
+    cores/common/multiplier.rhdl cores/common/divider.rhdl cores/common/simd-alu.rhdl \
     | grep -Ev 'riscv/isa/xlen\.rhm' \
     || true
 )"
 if [[ -n "$component_domain_imports" ]]; then
   echo "reusable processor components may import XLen but not instruction catalogs or named cores" >&2
   echo "$component_domain_imports" >&2
+  exit 1
+fi
+
+common_pipeline_imports="$(search_production_sources \
+  '^[[:space:]]+(lib\()?"[^" ]*(rv5stage|rv2wide|rv3wide|superscalar|spike)/' cores/common || true)"
+if [[ -n "$common_pipeline_imports" ]]; then
+  echo "common processor components must not import pipeline implementations or named-core policy" >&2
+  echo "$common_pipeline_imports" >&2
   exit 1
 fi
 
@@ -113,7 +125,7 @@ if [[ -n "$pipeline_transport_imports" ]]; then
   exit 1
 fi
 
-alternate_core_sources="$(find cores/rv5stage -maxdepth 1 -type f -name 'core-*.rhdl' -print)"
+alternate_core_sources="$(find cores/rv5stage -maxdepth 1 -type f -name 'common/core-*.rhdl' -print)"
 if [[ -n "$alternate_core_sources" ]]; then
   echo "RV5Stage must keep one authoritative core implementation" >&2
   echo "$alternate_core_sources" >&2
@@ -126,14 +138,14 @@ legacy_rv5stage_fetch_sources="$(find cores/rv5stage -maxdepth 1 -type f \
      -o -name 'fetch-scan.rhdl' -o -name 'instruction-buffer.rhdl' \
      -o -name 'btb.rhdl' -o -name 'ras.rhdl' \) -print)"
 if [[ -n "$legacy_rv5stage_fetch_sources" ]]; then
-  echo "RV5Stage fetch belongs under cores/rv5stage/fetch; shared predictors belong under cores/bpred" >&2
+  echo "RV5Stage fetch belongs under cores/rv5stage/fetch; shared predictors belong under cores/common/bpred" >&2
   echo "$legacy_rv5stage_fetch_sources" >&2
   exit 1
 fi
 
 bpred_protocol_implementation_imports="$(search_sources \
   '^[[:space:]]+(lib\()?"([^" ]*/)?(btb|ras)\.rhdl"' \
-  cores/bpred/protocol.rhdl || true)"
+  cores/common/bpred/protocol.rhdl || true)"
 if [[ -n "$bpred_protocol_implementation_imports" ]]; then
   echo "branch prediction protocols must not import predictor implementations" >&2
   echo "$bpred_protocol_implementation_imports" >&2
@@ -151,7 +163,7 @@ fi
 
 chi_cache_implementation_imports="$(search_sources \
   '^[[:space:]]+(lib\()?"[^" ]*(icache|dcache|l1i|l1d)/cache\.rhdl"' \
-  cores/rv5stage/chi cores/cache/chi || true)"
+  cores/rv5stage/chi cores/common/cache/chi || true)"
 if [[ -n "$chi_cache_implementation_imports" ]]; then
   echo "CHI engines may import cache protocols but not cache implementations" >&2
   echo "$chi_cache_implementation_imports" >&2

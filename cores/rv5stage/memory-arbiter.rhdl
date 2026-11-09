@@ -4,8 +4,8 @@
 
 import:
   "memory-context.rhdl" open
-  "../cache/protocol.rhdl" open
-  "../load-store.rhdl" open
+  "../common/cache/protocol.rhdl" open
+  "../common/load-store.rhdl" open
   "../../riscv/isa/xlen.rhm" open
   lib("rhodium/std/bits.rhdl").Pow2Int
   lib("flow/main.rhdl") open

@@ -4,10 +4,10 @@
 import:
   "../vector.rhdl" open
   "../bundles.rhdl" open
-  lib("cores/vector/bundles.rhdl") open
-  lib("cores/vector/tests/decode.rhdl") open
-  lib("cores/mmu/vector.rhdl") open
-  lib("cores/misaligned-access.rhdl") open
+  lib("cores/common/vector/bundles.rhdl") open
+  lib("cores/common/vector/tests/decode.rhdl") open
+  lib("cores/common/mmu/vector.rhdl") open
+  lib("cores/common/misaligned-access.rhdl") open
   lib("riscv/isa/xlen.rhm") open
   lib("riscv/rtl/vector.rhdl") open
   lib("riscv/rtl/pointer-masking.rhdl") open

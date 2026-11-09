@@ -3,11 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/mmu/vector.rhdl") open
-  "../../cache/protocol.rhdl" open
+  lib("cores/common/mmu/vector.rhdl") open
+  "../../common/cache/protocol.rhdl" open
   "../vector.rhdl" open
-  "../../vector/bundles.rhdl" open
-  "../../cache/operation.rhdl" open
+  "../../common/vector/bundles.rhdl" open
+  "../../common/cache/operation.rhdl" open
   "../decode/core-ctrl.rhdl" open
   "../memory-context.rhdl" open
   "../mmu/protocol.rhdl" open

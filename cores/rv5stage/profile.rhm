@@ -3,11 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../profile.rhm" open
-  "../vector/profile.rhm".check_vector_profile
-  "../csr/config.rhm".RiscvCsrConfig
-  "../fp/profile.rhm".check_fp_profile
-  "../cache/config.rhm" open
+  "../common/profile.rhm" open
+  "../common/vector/profile.rhm".check_vector_profile
+  "../common/csr/config.rhm".RiscvCsrConfig
+  "../common/fp/profile.rhm".check_fp_profile
+  "../common/cache/config.rhm" open
   lib("rhodium/frontend/foundation.rhm").StableCircuitParam
   lib("rhodium/std/bits.rhdl").Pow2Int
   lib("riscv/isa/c.rhm") open

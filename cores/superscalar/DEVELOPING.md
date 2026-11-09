@@ -72,7 +72,7 @@ scalar and vector capabilities; scalar decode must continue to use
 `profile.half_precision`. The core-vector fixture exercises scalar Zfhmin with
 full Zvfh, including half arithmetic, width conversions, flag completion, and
 scalar/vector FP contention.
-The shared [`fp_transport_profile(xlen)`](../fp/profile.rhm) selects the native pipeline transport shape (RV32F
+The shared [`fp_transport_profile(xlen)`](../common/fp/profile.rhm) selects the native pipeline transport shape (RV32F
 or RV64D), including the disabled adapter. Do not put 64-bit FPR payloads in
 RV32 pipeline tokens. The raw FP-load transport remains 64 bits because the
 shared boxing helper consumes a width-independent load image.
@@ -295,7 +295,7 @@ The window and EX/MEM/WB lane registers retain the fixed compact-PC
 width and sign-extend it for consumers. Never narrow architectural
 redirects or the resolved target. Each window entry owns its metadata.
 The assembler, window, retained cursor predictions, and lane prediction targets
-use shared `cores/pc.rhdl` capture/expansion semantics. Exact-PC admission uses
+use shared `cores/common/pc.rhdl` capture/expansion semantics. Exact-PC admission uses
 `CompactPc.fits`; speculative destinations use `CompactPc.prediction`.
 Boundary faults zero-extend their low PC instead of sign-extending it. Direction-prefix block tags
 and the lane pipes' shared-region PC suffixes keep their existing widths and
@@ -312,7 +312,7 @@ the head. Wire only the in-bounds neighbors for each destination. Appends
 start at the remaining count, clear discards the old owners, and zero consume
 holds every survivor. The oldest entries remain directly wired to decode.
 
-At the assembler input, shared `FetchBlockFault` from `cores/fetch/fault.rhdl` reports the exact failed
+At the assembler input, shared `FetchBlockFault` from `cores/common/fetch/fault.rhdl` reports the exact failed
 block VA. At packet formation the assembler asserts that it matches the
 instruction PC, or PC+2 modulo XLEN when a straddle's second parcel failed.
 From there shared `FetchFault` carries validity, the shared `ExceptionCause`,
@@ -360,7 +360,7 @@ passive retirement/event interfaces remain unchanged.
 Use Flow maps/filters for combinational stage transfers; explicit selection and
 retained-storage contracts remain where core policy chooses or retains owners.
 
-Reuse ALU, branch, load/store shaping, and shared scoreboard components and the `cores/*-decode.rhdl` instruction
+Reuse ALU, branch, load/store shaping, and shared scoreboard components and the `cores/common/*-decode.rhdl` instruction
 relations. Never import RV5Stage or another named core. Do not create an
 instruction-kind enum followed by a second runtime control decoder.
 Core control rows join exact canonical instruction patterns using
@@ -436,14 +436,14 @@ and execution helpers at the package root. `fetch/` owns block fetching,
 instruction assembly, and fetch-specific prediction refinement; `memory/`
 owns scalar/vector port arbitration, translation specialization, physical
 transport, and the L1D/uncached attachment. `decode/` owns instruction-control
-relations. Shared cache engines and predictor tables remain in `../cache/`
-and `../bpred/`. These directories retain this guide as their contributor guide.
+relations. Shared cache engines and predictor tables remain in `../common/cache/`
+and `../common/bpred/`. These directories retain this guide as their contributor guide.
 Family-level fixtures stay together under `tests/`, including those that
 exercise several of these owners.
 
-`../reservation-wait.rhdl` supplies the WRS timer and wake/timeout result;
+`../common/reservation-wait.rhdl` supplies the WRS timer and wake/timeout result;
 the core retains the waiting WB lane and qualifies TW/VTW. Scalar M-extension
-operand/result formatting uses `../integer-format.rhdl`; RR/EX reservations,
+operand/result formatting uses `../common/integer-format.rhdl`; RR/EX reservations,
 WB authorization, and the two-port writeback policy stay local.
 
 | Owner | Responsibility |
@@ -454,7 +454,7 @@ WB authorization, and the two-port writeback policy stay local.
 | `decode/long-ctrl.rhdl` | Shared multiply/divide relations, service selection, inactive care masks |
 | `decode/core-ctrl.rhdl` | Selected instruction domain, writeback column, one combined relation |
 | `bundles.rhdl` | Instruction, lookup/admission/response, stage, and retirement contracts |
-| `../fetch/protocol.rhdl`, `../bpred/protocol.rhdl` | Shared physical fetch request and next-PC prediction status; core timing and retirement qualification remain local |
+| `../common/fetch/protocol.rhdl`, `../common/bpred/protocol.rhdl` | Shared physical fetch request and next-PC prediction status; core timing and retirement qualification remain local |
 | `issue-window.rhdl` | Sole eight-entry compacting instruction buffer, free-entry count, prefix consumption |
 | `issue.rhdl` | Shared issue contracts, signature validation, and dependency/resource predicates |
 | `branch-training.rhdl` | Two-entry, two-offer/one-write retirement training buffer, empty bypass, predictor clear |
@@ -475,7 +475,7 @@ WB authorization, and the two-port writeback policy stay local.
 | `memory/translation-identity.rhdl`, `memory/translation-sv39.rhdl` | Concrete specialization objects and their identity versus TLB/walker circuits, vector proof services, and prefetch timing |
 | `fp.rhdl` | RR fixed-return bookings, EX arithmetic launch, WB authorization, FPR hazards and load/arithmetic write ports |
 | `vector.rhdl` | WB-authorized composition of shared admission/execution and the local LSU adapter |
-| `vector-memory.rhdl` | Adapts shared `../vector/memory-issue.rhdl` lookup issue to Superscalar decisions, precise split outcomes, and ordered raw-word extraction |
+| `vector-memory.rhdl` | Adapts shared `../common/vector/memory-issue.rhdl` lookup issue to Superscalar decisions, precise split outcomes, and ordered raw-word extraction |
 | `memory/ports.rhdl` | Scalar/vector lookup, accepted response, and split-owner arbitration |
 | `superscalar.rhdl` | Frontend/core/shared L1I/L1D composition, profile-selected translation specialization, distinct CHI identities, start/halt boundary |
 | `profile.rhm`, `udb.rhm` | Scalar RV32/RV64 architectural description, shared RTL/metadata CSR specialization, and implementation-owned UDB choices |
@@ -512,7 +512,7 @@ refetches its successor, while a fault enters normal retained-trap handling.
 Do not allocate a load-response/scoreboard owner or reuse the admission-certified
 aligned response port. Interrupt entry waits for this noncancelable owner.
 
-`cores/misaligned-access.rhdl` owns fragment masks, store positioning, and
+`cores/common/misaligned-access.rhdl` owns fragment masks, store positioning, and
 load assembly; this MMU owns each fragment's translation/PMA check. Fragment
 responses, ordinary core replies, and PTE responses share one ordered physical
 owner FIFO and are routed with `zip_flow`/`demux_flow`. The second fragment must
@@ -980,7 +980,7 @@ boundary. Their result carries a full physical address,
 known/fault status, PBMT, guest provenance, execute-read intent, and probe
 contention, not TLB leaves. Identity resolves immediately; paged translation
 retains its own pending walks and exact failed lookups. Core, adapter, and
-resolvers use shared `RiscvTranslationState` from `cores/mmu/context.rhdl`.
+resolvers use shared `RiscvTranslationState` from `cores/common/mmu/context.rhdl`.
 Both resolvers retain whole-state comparisons for prefetch cancellation;
 preserve that policy independently of RV5Stage's selected-control comparison.
 
@@ -1011,7 +1011,7 @@ summary contract.
 
 The adapter retains native-word fragment size and Bare's existing atomic PMA
 qualification. Paged translation retains HLVX execution checks and guest pointer
-interpretation. Vector windows and certificates reuse the shared `cores/mmu/`
+interpretation. Vector windows and certificates reuse the shared `cores/common/mmu/`
 components in each resolver. Identity prefetch keeps one stage; Sv39 keeps two
 and arbitrates its nonallocating probe below fast vector certification. These
 are independent of the common transport's acceptance and response lifetimes.
@@ -1392,12 +1392,12 @@ existing ISA-smoke lanes, not a separate FP qualification matrix.
 
 The vector wrapper enables the shared engine's packed multiplier. Keep its
 subword issue, VRF return reservations, and SIMD completion ownership inside
-`cores/vector/`; the named core continues to own only shared full-width
+`cores/common/vector/`; the named core continues to own only shared full-width
 multiply/divide scheduling and scalar pipeline policy. Do not route packed
 VRF results through the scalar GPR completion calendar.
 
 Keep architectural admission, retirement, and scalar hazards in `core.rhdl`;
-`vector.rhdl` connects `cores/vector/backend.rhdl` to the local LSU rather
+`vector.rhdl` connects `cores/common/vector/backend.rhdl` to the local LSU rather
 than reauthoring admission/execution composition or importing RV5Stage policy.
 WB admission consumes registered descriptor credit, never downstream LSU
 readiness. Memory admission checks retained scalar load owners and a sampled
@@ -1668,7 +1668,7 @@ The observation contract's typed tokens
 use grouped branch state and compact FP scheduling tags; the native callbacks
 retain their existing architectural fields and timing. The core declares
 WB slots, split capture, CSR commands, and accepted service returns through
-`cores/cosim-source.rhm`; `superscalar.rhdl` binds the sibling MMU's physical
+`cores/common/cosim-source.rhm`; `superscalar.rhdl` binds the sibling MMU's physical
 provenance. Ordinary elaboration adds no observation ports, state, or DPI.
 The simulation-owned [adapter](../../sims/cosim/DEVELOPING.md) assigns age IDs,
 retains deferred owners, and resolves both slots at a settled sample barrier.

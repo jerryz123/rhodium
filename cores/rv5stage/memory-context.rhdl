@@ -4,7 +4,7 @@
 
 import:
   lib("rhodium/std/bits.rhdl").Pow2Int
-  "../fp/types.rhdl" open
+  "../common/fp/types.rhdl" open
 
 /* Retains the FPR destination and precision needed to box a completed FP load. */
 bundle RV5StageFpMemoryWriteback():

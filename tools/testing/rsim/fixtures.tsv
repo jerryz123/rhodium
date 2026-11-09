@@ -1,8 +1,8 @@
 # Defines rsim fixtures, owner groups, program exports, drivers, and optional targets/link sources.
 # SPDX-License-Identifier: Apache-2.0
 statistics	language	rhodium/statistics/tests/fixture.rhdl	program	rhodium/statistics/tests/count.cpp	target	sims/statistics/collector.cc
-prediction-statistics	cores-components	cores/bpred/tests/statistics-fixture.rhdl	program	cores/bpred/tests/rsim/statistics.cpp	target	sims/statistics/collector.cc
-compact-pc	cores-components	cores/tests/pc-fixture.rhdl	program	cores/tests/rsim/pc.cpp
+prediction-statistics	cores-components	cores/common/bpred/tests/statistics-fixture.rhdl	program	cores/common/bpred/tests/rsim/statistics.cpp	target	sims/statistics/collector.cc
+compact-pc	cores-components	cores/common/tests/pc-fixture.rhdl	program	cores/common/tests/rsim/pc.cpp
 variant-predicate	language	rhodium/frontend/tests/variant-predicate-fixture.rhdl	program	rhodium/frontend/tests/rsim/variant-predicate.cpp
 width-method	language	rhodium/frontend/tests/width-method-fixture.rhdl	program	rhodium/frontend/tests/rsim/width-method.cpp
 sync-memory-masked	language	examples/rtl/sync-memory-masked.rhdl	program	rhodium/backend/tests/rsim/sync-memory-masked.cpp
@@ -46,26 +46,26 @@ saturating-step	std	rhodium/std/tests/rsim/emit-saturating-step.rhm	program	rhod
 prefix-scan	std	rhodium/std/tests/rsim/emit-prefix-scan.rhm	program	rhodium/std/tests/rsim/prefix-scan.cpp
 transfer-range	std	rhodium/std/tests/rsim/emit-transfer-range.rhm	program	rhodium/std/tests/rsim/transfer-range.cpp
 register-beat	std	rhodium/std/tests/register-beat-fixture.rhdl	program	rhodium/std/tests/rsim/register-beat.cpp
-rv32i-alu	cores-components	cores/tests/rsim/emit-rv32i-alu.rhm	program	cores/tests/rsim/rv32i-alu.cpp
-rv64i-alu	cores-components	cores/tests/rsim/emit-rv64i-alu.rhm	program	cores/tests/rsim/rv64i-alu.cpp
+rv32i-alu	cores-components	cores/common/tests/rsim/emit-rv32i-alu.rhm	program	cores/common/tests/rsim/rv32i-alu.cpp
+rv64i-alu	cores-components	cores/common/tests/rsim/emit-rv64i-alu.rhm	program	cores/common/tests/rsim/rv64i-alu.cpp
 cache-replacement	std	rhodium/std/tests/rsim/emit-cache-replacement.rhm	program	rhodium/std/tests/rsim/cache-replacement.cpp
 shift-queue	std	flow/tests/rsim/emit-shift-queue.rhm	program	flow/tests/rsim/shift-queue.cpp
 round-robin-matcher	std	flow/tests/rsim/emit-round-robin-matcher.rhm	program	flow/tests/rsim/round-robin-matcher.cpp
 credited-monitor	std	examples/std/credited-transport.rhdl	monitor_program	flow/tests/rsim/credited-monitor.cpp
-bit-manip	cores-components	cores/tests/rsim/emit-bit-manip.rhm	program	cores/tests/rsim/bit-manip.cpp
-bit-manip-rv32	cores-components	cores/tests/rsim/emit-bit-manip-rv32.rhm	program	cores/tests/rsim/bit-manip-rv32.cpp
-iterative-multiplier	cores-components	cores/tests/rsim/emit-iterative-multiplier.rhm	program	cores/tests/rsim/iterative-multiplier.cpp
-iterative-divider	cores-components	cores/tests/rsim/emit-iterative-divider.rhm	program	cores/tests/rsim/iterative-divider.cpp
-load-store	cores-components	cores/tests/rsim/emit-load-store.rhm	program	cores/tests/rsim/load-store.cpp
-load-store-wide	cores-components	cores/tests/rsim/emit-load-store.rhm	wide_program	cores/tests/rsim/load-store-wide.cpp
-load-store-rv32-word	cores-components	cores/tests/rsim/emit-load-store-rv32-word.rhm	program	cores/tests/rsim/load-store-rv32-word.cpp
-rv64i-alu-integrated	cores-components	examples/cores/decoded-alu.rhdl	program	cores/tests/rsim/rv64i-alu-integrated.cpp
-pipelined-multiplier	cores-components	cores/tests/rsim/emit-pipelined-multiplier.rhm	program	cores/tests/rsim/pipelined-multiplier.cpp
-register-file	cores-components	cores/tests/rsim/emit-register-file.rhm	program	cores/tests/rsim/register-file.cpp
-register-file-rv32	cores-components	cores/tests/rsim/emit-register-file.rhm	rv32_program	cores/tests/rsim/register-file.cpp
-simd-multiplier	cores-components	cores/tests/rsim/emit-simd-multiplier.rhm	program	cores/tests/rsim/simd-multiplier.cpp
-vector-multiply	cores-vector-functional-1	cores/vector/tests/rsim/emit-vector-multiply.rhm	program	cores/vector/tests/rsim/vector-multiply.cpp
-vector-multiply-rv32	cores-vector-functional-1	cores/vector/tests/rsim/emit-vector-multiply.rhm	rv32_program	cores/vector/tests/rsim/vector-multiply-rv32.cpp
+bit-manip	cores-components	cores/common/tests/rsim/emit-bit-manip.rhm	program	cores/common/tests/rsim/bit-manip.cpp
+bit-manip-rv32	cores-components	cores/common/tests/rsim/emit-bit-manip-rv32.rhm	program	cores/common/tests/rsim/bit-manip-rv32.cpp
+iterative-multiplier	cores-components	cores/common/tests/rsim/emit-iterative-multiplier.rhm	program	cores/common/tests/rsim/iterative-multiplier.cpp
+iterative-divider	cores-components	cores/common/tests/rsim/emit-iterative-divider.rhm	program	cores/common/tests/rsim/iterative-divider.cpp
+load-store	cores-components	cores/common/tests/rsim/emit-load-store.rhm	program	cores/common/tests/rsim/load-store.cpp
+load-store-wide	cores-components	cores/common/tests/rsim/emit-load-store.rhm	wide_program	cores/common/tests/rsim/load-store-wide.cpp
+load-store-rv32-word	cores-components	cores/common/tests/rsim/emit-load-store-rv32-word.rhm	program	cores/common/tests/rsim/load-store-rv32-word.cpp
+rv64i-alu-integrated	cores-components	examples/cores/decoded-alu.rhdl	program	cores/common/tests/rsim/rv64i-alu-integrated.cpp
+pipelined-multiplier	cores-components	cores/common/tests/rsim/emit-pipelined-multiplier.rhm	program	cores/common/tests/rsim/pipelined-multiplier.cpp
+register-file	cores-components	cores/common/tests/rsim/emit-register-file.rhm	program	cores/common/tests/rsim/register-file.cpp
+register-file-rv32	cores-components	cores/common/tests/rsim/emit-register-file.rhm	rv32_program	cores/common/tests/rsim/register-file.cpp
+simd-multiplier	cores-components	cores/common/tests/rsim/emit-simd-multiplier.rhm	program	cores/common/tests/rsim/simd-multiplier.cpp
+vector-multiply	cores-vector-functional-1	cores/common/vector/tests/rsim/emit-vector-multiply.rhm	program	cores/common/vector/tests/rsim/vector-multiply.cpp
+vector-multiply-rv32	cores-vector-functional-1	cores/common/vector/tests/rsim/emit-vector-multiply.rhm	rv32_program	cores/common/vector/tests/rsim/vector-multiply-rv32.cpp
 hardfloat-numeric	hardfloat	hardfloat/tests/numeric-fixture.rhdl	program	hardfloat/tests/rsim/numeric.cpp
 hardfloat-representation	hardfloat	hardfloat/tests/representation-fixture.rhdl	program	hardfloat/tests/rsim/representation.cpp
 hardfloat-divide-sqrt	hardfloat	hardfloat/tests/divide-sqrt-fixture.rhdl	program	hardfloat/tests/rsim/divide-sqrt.cpp
@@ -79,20 +79,20 @@ riscv-control-policy	cores-components	riscv/rtl/tests/rsim/emit-riscv-control-po
 riscv-floating-point	cores-components	riscv/rtl/tests/rsim/emit-riscv-floating-point.rhm	program	riscv/rtl/tests/rsim/riscv-floating-point.cpp
 riscv-compressed	cores-components	riscv/rtl/tests/rsim/emit-riscv-compressed.rhm	program	riscv/rtl/tests/rsim/riscv-compressed.cpp
 riscv-atomic	cores-components	riscv/rtl/tests/rsim/emit-riscv-atomic.rhm	program	riscv/rtl/tests/rsim/riscv-atomic.cpp
-bpred-btb	cores-components	cores/bpred/tests/rsim/emit-bpred-btb.rhm	program	cores/bpred/tests/rsim/bpred-btb.cpp
-bpred-btb-compact	cores-components	cores/bpred/tests/rsim/emit-bpred-btb.rhm	compact_program	cores/bpred/tests/rsim/bpred-btb-compact.cpp
-bpred-btb-bounded	cores-components	cores/bpred/tests/rsim/emit-bpred-btb.rhm	bounded_program	cores/bpred/tests/rsim/bpred-btb-bounded.cpp
-bpred-btb-source-bounded	cores-components	cores/bpred/tests/rsim/emit-bpred-btb.rhm	bounded_source_program	cores/bpred/tests/rsim/bpred-btb-source-bounded.cpp
-bpred-btb-wide-bounded	cores-components	cores/bpred/tests/rsim/emit-bpred-btb-wide.rhm	bounded_program	cores/bpred/tests/rsim/bpred-btb-wide.cpp
-bpred-btb-external-bounded	cores-components	cores/bpred/tests/rsim/emit-bpred-btb-external.rhm	bounded_program	cores/bpred/tests/rsim/bpred-btb-external.cpp
-bpred-btb-wide	cores-components	cores/bpred/tests/rsim/emit-bpred-btb-wide.rhm	program	cores/bpred/tests/rsim/bpred-btb-wide.cpp
-bpred-ras	cores-components	cores/bpred/tests/rsim/emit-bpred-ras.rhm	program	cores/bpred/tests/rsim/bpred-ras.cpp
-bpred-ras-compact	cores-components	cores/bpred/tests/rsim/emit-bpred-ras.rhm	compact_program	cores/bpred/tests/rsim/bpred-ras-compact.cpp
-fp-register-file	cores-components	cores/fp/tests/rsim/emit-fp-register-file.rhm	program	cores/fp/tests/rsim/fp-register-file.cpp
-riscv-svpbmt	cores-components	cores/mmu/tests/rsim/emit-riscv-svpbmt.rhm	program	cores/mmu/tests/rsim/riscv-svpbmt.cpp
-riscv-svnapot	cores-components	cores/mmu/tests/rsim/emit-riscv-svnapot.rhm	program	cores/mmu/tests/rsim/riscv-svnapot.cpp
-riscv-nested-walker	cores-components	cores/mmu/tests/rsim/emit-riscv-nested-walker.rhm	program	cores/mmu/tests/rsim/riscv-nested-walker.cpp
-riscv-guest-translation	cores-components	cores/mmu/tests/rsim/emit-riscv-guest-translation.rhm	program	cores/mmu/tests/rsim/riscv-guest-translation.cpp
+bpred-btb	cores-components	cores/common/bpred/tests/rsim/emit-bpred-btb.rhm	program	cores/common/bpred/tests/rsim/bpred-btb.cpp
+bpred-btb-compact	cores-components	cores/common/bpred/tests/rsim/emit-bpred-btb.rhm	compact_program	cores/common/bpred/tests/rsim/bpred-btb-compact.cpp
+bpred-btb-bounded	cores-components	cores/common/bpred/tests/rsim/emit-bpred-btb.rhm	bounded_program	cores/common/bpred/tests/rsim/bpred-btb-bounded.cpp
+bpred-btb-source-bounded	cores-components	cores/common/bpred/tests/rsim/emit-bpred-btb.rhm	bounded_source_program	cores/common/bpred/tests/rsim/bpred-btb-source-bounded.cpp
+bpred-btb-wide-bounded	cores-components	cores/common/bpred/tests/rsim/emit-bpred-btb-wide.rhm	bounded_program	cores/common/bpred/tests/rsim/bpred-btb-wide.cpp
+bpred-btb-external-bounded	cores-components	cores/common/bpred/tests/rsim/emit-bpred-btb-external.rhm	bounded_program	cores/common/bpred/tests/rsim/bpred-btb-external.cpp
+bpred-btb-wide	cores-components	cores/common/bpred/tests/rsim/emit-bpred-btb-wide.rhm	program	cores/common/bpred/tests/rsim/bpred-btb-wide.cpp
+bpred-ras	cores-components	cores/common/bpred/tests/rsim/emit-bpred-ras.rhm	program	cores/common/bpred/tests/rsim/bpred-ras.cpp
+bpred-ras-compact	cores-components	cores/common/bpred/tests/rsim/emit-bpred-ras.rhm	compact_program	cores/common/bpred/tests/rsim/bpred-ras-compact.cpp
+fp-register-file	cores-components	cores/common/fp/tests/rsim/emit-fp-register-file.rhm	program	cores/common/fp/tests/rsim/fp-register-file.cpp
+riscv-svpbmt	cores-components	cores/common/mmu/tests/rsim/emit-riscv-svpbmt.rhm	program	cores/common/mmu/tests/rsim/riscv-svpbmt.cpp
+riscv-svnapot	cores-components	cores/common/mmu/tests/rsim/emit-riscv-svnapot.rhm	program	cores/common/mmu/tests/rsim/riscv-svnapot.cpp
+riscv-nested-walker	cores-components	cores/common/mmu/tests/rsim/emit-riscv-nested-walker.rhm	program	cores/common/mmu/tests/rsim/riscv-nested-walker.cpp
+riscv-guest-translation	cores-components	cores/common/mmu/tests/rsim/emit-riscv-guest-translation.rhm	program	cores/common/mmu/tests/rsim/riscv-guest-translation.cpp
 noc-crossbar	protocols	examples/noc/noc-crossbar.rhdl	program	noc/rtl/tests/rsim/noc-crossbar.cpp
 noc-route-computer	protocols	examples/noc/noc-route-computer.rhdl	program	noc/rtl/tests/rsim/noc-route-computer.cpp
 noc-router	protocols	examples/noc/noc-router.rhdl	program	noc/rtl/tests/rsim/noc-router.cpp
@@ -108,20 +108,20 @@ chi-inclusive-directory	protocols	chi/tests/rsim/emit-chi-inclusive-directory.rh
 chi-snp-noc	protocols	chi/tests/rsim/emit-chi-snp-noc.rhm	program	chi/tests/rsim/chi-snp-noc.cpp
 chi-family-noc	protocols	chi/tests/rsim/emit-chi-family-noc.rhm	program	chi/tests/rsim/chi-family-noc.cpp
 hdmi-tmds	protocols	devices/tests/rsim/emit-hdmi-tmds.rhm	program	devices/tests/rsim/hdmi-tmds.cpp
-simd-alu	cores-components	cores/tests/rsim/emit-simd-alu.rhm	program	cores/tests/rsim/simd-alu.cpp
-simd-alu32	cores-components	cores/tests/rsim/emit-simd-alu32.rhm	program	cores/tests/rsim/simd-alu32.cpp
+simd-alu	cores-components	cores/common/tests/rsim/emit-simd-alu.rhm	program	cores/common/tests/rsim/simd-alu.cpp
+simd-alu32	cores-components	cores/common/tests/rsim/emit-simd-alu32.rhm	program	cores/common/tests/rsim/simd-alu32.cpp
 riscv-hpm-rv32	cores-components	riscv/rtl/tests/rsim/emit-riscv-hpm-rv32.rhm	program	riscv/rtl/tests/rsim/riscv-hpm-rv32.cpp
 riscv-hpm-rv64	cores-components	riscv/rtl/tests/rsim/emit-riscv-hpm-rv64.rhm	program	riscv/rtl/tests/rsim/riscv-hpm-rv64.cpp
-riscv-sstc-rv32	cores-components	cores/csr/tests/rsim/emit-riscv-sstc-rv32.rhm	program	cores/csr/tests/rsim/riscv-sstc-rv32.cpp
-riscv-zihpm-rv32	cores-components	cores/csr/tests/rsim/emit-riscv-zihpm-rv32.rhm	program	cores/csr/tests/rsim/riscv-zihpm-rv32.cpp
-riscv-zihpm-rv64	cores-components	cores/csr/tests/rsim/emit-riscv-zihpm-rv64.rhm	program	cores/csr/tests/rsim/riscv-zihpm-rv64.cpp
-riscv-sscofpmf-rv32	cores-components	cores/csr/tests/rsim/emit-riscv-sscofpmf-rv32.rhm	program	cores/csr/tests/rsim/riscv-sscofpmf-rv32.cpp
-riscv-sscofpmf-rv64	cores-components	cores/csr/tests/rsim/emit-riscv-sscofpmf-rv64.rhm	program	cores/csr/tests/rsim/riscv-sscofpmf-rv64.cpp
-riscv-sscofpmf-rv64h	cores-components	cores/csr/tests/rsim/emit-riscv-sscofpmf-rv64h.rhm	program	cores/csr/tests/rsim/riscv-sscofpmf-rv64h.cpp
-riscv-csr	cores-components	cores/csr/tests/rsim/emit-riscv-csr.rhm	program	cores/csr/tests/rsim/riscv-csr.cpp
-riscv-hypervisor-csr	cores-components	cores/csr/tests/rsim/emit-riscv-hypervisor-csr.rhm	program	cores/csr/tests/rsim/riscv-hypervisor-csr.cpp
-fp-service	cores-components	cores/fp/tests/rsim/emit-fp-service.rhm	program	cores/fp/tests/rsim/fp-service.cpp
-fp-scheduled	cores-components	cores/fp/tests/rsim/emit-fp-scheduled.rhm	program	cores/fp/tests/rsim/fp-scheduled.cpp
+riscv-sstc-rv32	cores-components	cores/common/csr/tests/rsim/emit-riscv-sstc-rv32.rhm	program	cores/common/csr/tests/rsim/riscv-sstc-rv32.cpp
+riscv-zihpm-rv32	cores-components	cores/common/csr/tests/rsim/emit-riscv-zihpm-rv32.rhm	program	cores/common/csr/tests/rsim/riscv-zihpm-rv32.cpp
+riscv-zihpm-rv64	cores-components	cores/common/csr/tests/rsim/emit-riscv-zihpm-rv64.rhm	program	cores/common/csr/tests/rsim/riscv-zihpm-rv64.cpp
+riscv-sscofpmf-rv32	cores-components	cores/common/csr/tests/rsim/emit-riscv-sscofpmf-rv32.rhm	program	cores/common/csr/tests/rsim/riscv-sscofpmf-rv32.cpp
+riscv-sscofpmf-rv64	cores-components	cores/common/csr/tests/rsim/emit-riscv-sscofpmf-rv64.rhm	program	cores/common/csr/tests/rsim/riscv-sscofpmf-rv64.cpp
+riscv-sscofpmf-rv64h	cores-components	cores/common/csr/tests/rsim/emit-riscv-sscofpmf-rv64h.rhm	program	cores/common/csr/tests/rsim/riscv-sscofpmf-rv64h.cpp
+riscv-csr	cores-components	cores/common/csr/tests/rsim/emit-riscv-csr.rhm	program	cores/common/csr/tests/rsim/riscv-csr.cpp
+riscv-hypervisor-csr	cores-components	cores/common/csr/tests/rsim/emit-riscv-hypervisor-csr.rhm	program	cores/common/csr/tests/rsim/riscv-hypervisor-csr.cpp
+fp-service	cores-components	cores/common/fp/tests/rsim/emit-fp-service.rhm	program	cores/common/fp/tests/rsim/fp-service.cpp
+fp-scheduled	cores-components	cores/common/fp/tests/rsim/emit-fp-scheduled.rhm	program	cores/common/fp/tests/rsim/fp-scheduled.cpp
 bootrom	protocols	devices/tests/rsim/emit-bootrom.rhm	program	devices/tests/rsim/bootrom.cpp
 aclint	protocols	devices/tests/rsim/emit-aclint.rhm	program	devices/tests/rsim/aclint.cpp
 plic	protocols	devices/tests/rsim/emit-plic.rhm	program	devices/tests/rsim/plic.cpp
@@ -151,19 +151,19 @@ chi-noc-adapter	protocols	chi/tests/rsim/emit-chi-noc-adapter.rhm	program	chi/te
 hdmi-frame-reader	protocols	devices/tests/rsim/emit-hdmi-frame-reader.rhm	program	devices/tests/rsim/hdmi-frame-reader.cpp
 hdmi-scanout	protocols	devices/tests/rsim/emit-hdmi-scanout.rhm	program	devices/tests/rsim/hdmi-scanout.cpp
 chi-inclusive-home	protocols	chi/tests/rsim/emit-chi-inclusive-home.rhm	program	chi/tests/rsim/chi-inclusive-home.cpp
-cache-icache	cores-components	cores/cache/tests/rsim/emit-cache-icache.rhm	program	cores/cache/tests/rsim/cache-icache.cpp
-cache-icache64	cores-components	cores/cache/tests/rsim/emit-cache-icache64.rhm	program	cores/cache/tests/rsim/cache-icache64.cpp
-cache-store-buffer	cores-components	cores/cache/tests/rsim/emit-cache-store-buffer.rhm	program	cores/cache/tests/rsim/cache-store-buffer.cpp
+cache-icache	cores-components	cores/common/cache/tests/rsim/emit-cache-icache.rhm	program	cores/common/cache/tests/rsim/cache-icache.cpp
+cache-icache64	cores-components	cores/common/cache/tests/rsim/emit-cache-icache64.rhm	program	cores/common/cache/tests/rsim/cache-icache64.cpp
+cache-store-buffer	cores-components	cores/common/cache/tests/rsim/emit-cache-store-buffer.rhm	program	cores/common/cache/tests/rsim/cache-store-buffer.cpp
 fesvr-mmio	protocols	sims/tests/rsim/emit-fesvr-mmio.rhm	program	sims/tests/rsim/fesvr-mmio.cpp
-bpred-bht	cores-components	cores/bpred/tests/rsim/emit-bpred-bht.rhm	program	cores/bpred/tests/rsim/bpred-bht.cpp
+bpred-bht	cores-components	cores/common/bpred/tests/rsim/emit-bpred-bht.rhm	program	cores/common/bpred/tests/rsim/bpred-bht.cpp
 rv5stage-fp-pipeline	cores-components	cores/rv5stage/tests/rsim/emit-rv5stage-fp-pipeline.rhm	program	cores/rv5stage/tests/rsim/rv5stage-fp-pipeline.cpp
 rv5stage-integer-execution	cores-components	cores/rv5stage/tests/rsim/emit-rv5stage-integer-execution.rhm	program	cores/rv5stage/tests/rsim/rv5stage-integer-execution.cpp
 rv5stage-writeback	cores-components	cores/rv5stage/tests/rsim/emit-rv5stage-writeback.rhm	program	cores/rv5stage/tests/rsim/rv5stage-writeback.cpp
 rv5stage-divide	cores-components	cores/rv5stage/tests/rsim/emit-rv5stage-divide.rhm	program	cores/rv5stage/tests/rsim/rv5stage-divide.cpp
 rv5stage-memory-arbiter	cores-components	cores/rv5stage/tests/rsim/emit-rv5stage-memory-arbiter.rhm	program	cores/rv5stage/tests/rsim/rv5stage-memory-arbiter.cpp
-rv5stage-vector-sequencer	cores-components	cores/vector/tests/rsim/emit-rv5stage-vector-sequencer.rhm	program	cores/vector/tests/rsim/rv5stage-vector-sequencer.cpp
-rv5stage-vector-sequencer-rv32	cores-components	cores/vector/tests/rsim/emit-rv5stage-vector-sequencer-rv32.rhm	program	cores/vector/tests/rsim/rv5stage-vector-sequencer-rv32.cpp
-rv5stage-vector-sequencer-1024	cores-components	cores/vector/tests/rsim/emit-rv5stage-vector-sequencer-1024.rhm	program	cores/vector/tests/rsim/rv5stage-vector-sequencer-1024.cpp
+rv5stage-vector-sequencer	cores-components	cores/common/vector/tests/rsim/emit-rv5stage-vector-sequencer.rhm	program	cores/common/vector/tests/rsim/rv5stage-vector-sequencer.cpp
+rv5stage-vector-sequencer-rv32	cores-components	cores/common/vector/tests/rsim/emit-rv5stage-vector-sequencer-rv32.rhm	program	cores/common/vector/tests/rsim/rv5stage-vector-sequencer-rv32.cpp
+rv5stage-vector-sequencer-1024	cores-components	cores/common/vector/tests/rsim/emit-rv5stage-vector-sequencer-1024.rhm	program	cores/common/vector/tests/rsim/rv5stage-vector-sequencer-1024.cpp
 adder	language	examples/lop/adder-standard.rhdl	program	rhodium/backend/tests/rsim/adder.cpp
 adder4	language	examples/rtl/adder4.rhdl	program	rhodium/backend/tests/rsim/adder4.cpp
 generated-adder	language	examples/rtl/generated-adder.rhdl	program	rhodium/backend/tests/rsim/generated-adder.cpp
@@ -250,21 +250,21 @@ rv2wide-direction-prefix-rv32	cores-components	cores/superscalar/tests/rsim/emit
 rv2wide-mmu	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-mmu.rhm	program	cores/superscalar/tests/rsim/rv2wide-mmu.cpp
 rv2wide-bare-memory	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-mmu.rhm	bare_program	cores/superscalar/tests/rsim/rv2wide-bare-memory.cpp
 rv5stage-chi-requests	cores-memory	cores/rv5stage/tests/rsim/emit-rv5stage-chi-requests.rhm	program	cores/rv5stage/tests/rsim/rv5stage-chi-requests.cpp
-rv5stage-vector	cores-vector-functional-1	cores/vector/tests/rsim/emit-rv5stage-vector.rhm	program	cores/vector/tests/rsim/rv5stage-vector.cpp
+rv5stage-vector	cores-vector-functional-1	cores/common/vector/tests/rsim/emit-rv5stage-vector.rhm	program	cores/common/vector/tests/rsim/rv5stage-vector.cpp
 rv5stage-vector-control	cores-vector-functional-1	cores/rv5stage/tests/rsim/emit-rv5stage-vector-control.rhm	program	cores/rv5stage/tests/rsim/rv5stage-vector-control.cpp
 rv5stage-vector-fp	cores-vector-functional-1	cores/rv5stage/tests/rsim/emit-rv5stage-vector-fp.rhm	program	cores/rv5stage/tests/rsim/rv5stage-vector-fp.cpp	target
 rv5stage-vector-muldiv	cores-vector-functional-1	cores/rv5stage/tests/rsim/emit-rv5stage-vector-muldiv.rhm	program	cores/rv5stage/tests/rsim/rv5stage-vector-muldiv.cpp
-rv5stage-vector-reduction	cores-vector-functional-2	cores/vector/tests/rsim/emit-rv5stage-vector-reduction.rhm	program	cores/vector/tests/rsim/rv5stage-vector-reduction.cpp
-rv5stage-vector-mask-512	cores-vector-configurations	cores/vector/tests/rsim/emit-rv5stage-vector-mask-512.rhm	program	cores/vector/tests/rsim/rv5stage-vector-mask-512.cpp
-rv5stage-vector-packed	cores-vector-functional-2	cores/vector/tests/rsim/emit-rv5stage-vector-packed.rhm	program	cores/vector/tests/rsim/rv5stage-vector-packed.cpp	target	rheg/runtime/rheg.cc
-rv5stage-vector-overlap	cores-vector-functional-2	cores/vector/tests/rsim/emit-rv5stage-vector-overlap.rhm	program	cores/vector/tests/rsim/rv5stage-vector-overlap.cpp
+rv5stage-vector-reduction	cores-vector-functional-2	cores/common/vector/tests/rsim/emit-rv5stage-vector-reduction.rhm	program	cores/common/vector/tests/rsim/rv5stage-vector-reduction.cpp
+rv5stage-vector-mask-512	cores-vector-configurations	cores/common/vector/tests/rsim/emit-rv5stage-vector-mask-512.rhm	program	cores/common/vector/tests/rsim/rv5stage-vector-mask-512.cpp
+rv5stage-vector-packed	cores-vector-functional-2	cores/common/vector/tests/rsim/emit-rv5stage-vector-packed.rhm	program	cores/common/vector/tests/rsim/rv5stage-vector-packed.cpp	target	rheg/runtime/rheg.cc
+rv5stage-vector-overlap	cores-vector-functional-2	cores/common/vector/tests/rsim/emit-rv5stage-vector-overlap.rhm	program	cores/common/vector/tests/rsim/rv5stage-vector-overlap.cpp
 rv5stage-vector-admission	cores-vector-functional-2	cores/rv5stage/tests/rsim/emit-rv5stage-vector-admission.rhm	program	cores/rv5stage/tests/rsim/rv5stage-vector-admission.cpp	target
-vector-admission-one	cores-vector-functional-2	cores/vector/tests/rsim/emit-vector-admission.rhm	depth_one	cores/vector/tests/rsim/vector-admission.cpp
-vector-admission-two	cores-vector-functional-2	cores/vector/tests/rsim/emit-vector-admission.rhm	depth_two	cores/vector/tests/rsim/vector-admission.cpp
-vector-admission-three	cores-vector-functional-2	cores/vector/tests/rsim/emit-vector-admission.rhm	depth_three	cores/vector/tests/rsim/vector-admission.cpp
-vector-admission-four	cores-vector-functional-2	cores/vector/tests/rsim/emit-vector-admission.rhm	depth_four	cores/vector/tests/rsim/vector-admission.cpp
-vector-admission-eight	cores-vector-functional-2	cores/vector/tests/rsim/emit-vector-admission.rhm	depth_eight	cores/vector/tests/rsim/vector-admission.cpp
-rv5stage-vector-packed-rv32	cores-vector-configurations	cores/vector/tests/rsim/emit-rv5stage-vector-packed-rv32.rhm	program	cores/vector/tests/rsim/rv5stage-vector-packed-rv32.cpp	target	rheg/runtime/rheg.cc
+vector-admission-one	cores-vector-functional-2	cores/common/vector/tests/rsim/emit-vector-admission.rhm	depth_one	cores/common/vector/tests/rsim/vector-admission.cpp
+vector-admission-two	cores-vector-functional-2	cores/common/vector/tests/rsim/emit-vector-admission.rhm	depth_two	cores/common/vector/tests/rsim/vector-admission.cpp
+vector-admission-three	cores-vector-functional-2	cores/common/vector/tests/rsim/emit-vector-admission.rhm	depth_three	cores/common/vector/tests/rsim/vector-admission.cpp
+vector-admission-four	cores-vector-functional-2	cores/common/vector/tests/rsim/emit-vector-admission.rhm	depth_four	cores/common/vector/tests/rsim/vector-admission.cpp
+vector-admission-eight	cores-vector-functional-2	cores/common/vector/tests/rsim/emit-vector-admission.rhm	depth_eight	cores/common/vector/tests/rsim/vector-admission.cpp
+rv5stage-vector-packed-rv32	cores-vector-configurations	cores/common/vector/tests/rsim/emit-rv5stage-vector-packed-rv32.rhm	program	cores/common/vector/tests/rsim/rv5stage-vector-packed-rv32.cpp	target	rheg/runtime/rheg.cc
 rv5stage-zvkt	cores-vector-functional-2	cores/rv5stage/tests/rsim/emit-rv5stage-zvkt.rhm	program	cores/rv5stage/tests/rsim/rv5stage-zvkt.cpp
 rv5stage-hypervisor-core	cores-execution-control	cores/rv5stage/tests/rsim/emit-rv5stage-hypervisor-core.rhm	program	cores/rv5stage/tests/rsim/rv5stage-hypervisor-core.cpp
 rv5stage-pointer-masking	cores-memory	cores/rv5stage/tests/rsim/emit-rv5stage-pointer-masking.rhm	program	cores/rv5stage/tests/rsim/rv5stage-pointer-masking.cpp
@@ -327,10 +327,10 @@ event-home	protocols	rhodium/event/tests/rsim/emit-event-home.rhm	program	rhodiu
 event-subordinate	protocols	rhodium/event/tests/rsim/emit-event-subordinate.rhm	program	rhodium/event/tests/rsim/event-subordinate.cpp	target	rhodium/event/tests/rsim/event-subordinate-oracle.cpp rheg/runtime/rheg.cc
 event-fesvr	protocols	rhodium/event/tests/rsim/emit-event-fesvr.rhm	program	rhodium/event/tests/rsim/event-fesvr.cpp	target	rhodium/event/tests/rsim/event-fesvr-oracle.cpp rheg/runtime/rheg.cc
 event-vector	cores-vector-functional-1	rhodium/event/tests/rsim/emit-event-vector.rhm	program	rhodium/event/tests/rsim/event-vector.cpp	target	rhodium/event/tests/rsim/event-vector-oracle.cpp rheg/runtime/rheg.cc
-cache-compack	cores-cache	cores/cache/tests/rsim/emit-cache-compack.rhm	program	cores/cache/tests/rsim/cache-compack.cpp	target	cores/cache/tests/rsim/cache-compack-oracle.cpp rheg/runtime/rheg.cc
-cache-wide-l1d	cores-cache	cores/cache/tests/rsim/emit-wide-l1d.rhm	program	cores/cache/tests/rsim/wide-l1d.cpp
-cache-copyback	cores-cache	cores/cache/tests/rsim/emit-cache-copyback.rhm	program	cores/cache/tests/rsim/cache-copyback.cpp	target	cores/cache/tests/rsim/cache-copyback-oracle.cpp rheg/runtime/rheg.cc
-riscv-walk-trace	cores-components	cores/mmu/tests/rsim/emit-riscv-walk-trace.rhm	program	cores/mmu/tests/rsim/riscv-walk-trace.cpp	target	cores/mmu/tests/rsim/riscv-walk-trace-oracle.cpp rheg/runtime/rheg.cc
+cache-compack	cores-cache	cores/common/cache/tests/rsim/emit-cache-compack.rhm	program	cores/common/cache/tests/rsim/cache-compack.cpp	target	cores/common/cache/tests/rsim/cache-compack-oracle.cpp rheg/runtime/rheg.cc
+cache-wide-l1d	cores-cache	cores/common/cache/tests/rsim/emit-wide-l1d.rhm	program	cores/common/cache/tests/rsim/wide-l1d.cpp
+cache-copyback	cores-cache	cores/common/cache/tests/rsim/emit-cache-copyback.rhm	program	cores/common/cache/tests/rsim/cache-copyback.cpp	target	cores/common/cache/tests/rsim/cache-copyback-oracle.cpp rheg/runtime/rheg.cc
+riscv-walk-trace	cores-components	cores/common/mmu/tests/rsim/emit-riscv-walk-trace.rhm	program	cores/common/mmu/tests/rsim/riscv-walk-trace.cpp	target	cores/common/mmu/tests/rsim/riscv-walk-trace-oracle.cpp rheg/runtime/rheg.cc
 rv5stage-fetch-source	cores-execution-frontend	cores/rv5stage/tests/rsim/emit-rv5stage-fetch-source.rhm	program	cores/rv5stage/tests/rsim/rv5stage-fetch-source.cpp	target	cores/rv5stage/tests/rsim/rv5stage-fetch-source-oracle.cpp rheg/runtime/rheg.cc
 rv5stage-fetch	cores-execution-frontend	cores/rv5stage/tests/rsim/emit-rv5stage-fetch.rhm	program	cores/rv5stage/tests/rsim/rv5stage-fetch.cpp	-
 rv5stage-fetch-prediction	cores-execution-frontend	cores/rv5stage/tests/rsim/emit-rv5stage-fetch-prediction.rhm	program	cores/rv5stage/tests/rsim/rv5stage-fetch-prediction.cpp	target	cores/rv5stage/tests/rsim/rv5stage-fetch-prediction-oracle.cpp rheg/runtime/rheg.cc
@@ -347,5 +347,5 @@ rv5stage-core-rv32f	cores-execution-datapath	cores/rv5stage/tests/rsim/emit-rv5s
 rv5stage-core-rv64d	cores-execution-datapath	cores/rv5stage/tests/rsim/emit-rv5stage-core-rv64d.rhm	program	cores/rv5stage/tests/rsim/rv5stage-core-rv64d.cpp	target
 tiled-distribution	protocols	socs/tests/tiled-distribution-fixture.rhdl	distribution_program	socs/tests/rsim/tiled-distribution.cpp
 tiled-time	protocols	socs/tests/tiled-distribution-fixture.rhdl	time_program	socs/tests/rsim/tiled-time.cpp
-bpred-tournament	cores-components	cores/bpred/tests/rsim/emit-bpred-tournament.rhm	program	cores/bpred/tests/rsim/bpred-tournament.cpp
-bpred-btb-external	cores-components	cores/bpred/tests/rsim/emit-bpred-btb-external.rhm	program	cores/bpred/tests/rsim/bpred-btb-external.cpp
+bpred-tournament	cores-components	cores/common/bpred/tests/rsim/emit-bpred-tournament.rhm	program	cores/common/bpred/tests/rsim/bpred-tournament.cpp
+bpred-btb-external	cores-components	cores/common/bpred/tests/rsim/emit-bpred-btb-external.rhm	program	cores/common/bpred/tests/rsim/bpred-btb-external.cpp

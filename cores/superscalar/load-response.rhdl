@@ -4,9 +4,9 @@
 
 import:
   "bundles.rhdl" open
-  lib("cores/load-store.rhdl") open
-  lib("cores/cache/operation.rhdl") open
-  lib("cores/fp/types.rhdl") open
+  lib("cores/common/load-store.rhdl") open
+  lib("cores/common/cache/operation.rhdl") open
+  lib("cores/common/fp/types.rhdl") open
   lib("riscv/isa/xlen.rhm") open
   lib("flow/main.rhdl") open
   lib("rhodium/std/bits.rhdl").alignment_bits

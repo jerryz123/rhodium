@@ -3,15 +3,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/fetch/fault.rhdl") open
+  lib("cores/common/fetch/fault.rhdl") open
   lib("flow/main.rhdl") open
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/rtl/vector.rhdl").RiscvVectorState
   lib("riscv/rtl/pointer-masking.rhdl").PointerMaskControl
   lib("hardfloat/main.rhdl").RoundingMode
-  lib("cores/mmu/vector.rhdl").VectorFastCertificate
-  lib("cores/vector/bundles.rhdl").VectorDescriptor
-  lib("cores/vector/decode.rhdl").VectorControl
+  lib("cores/common/mmu/vector.rhdl").VectorFastCertificate
+  lib("cores/common/vector/bundles.rhdl").VectorDescriptor
+  lib("cores/common/vector/decode.rhdl").VectorControl
   "decode/core-ctrl.rhdl" open
   "pairing.rhdl" open
   "bundles.rhdl" open

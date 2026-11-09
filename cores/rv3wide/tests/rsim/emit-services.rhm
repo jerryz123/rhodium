@@ -6,7 +6,7 @@ import:
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/isa/fp-profile.rhm").FloatingPointProfile
   lib("riscv/isa/vector-profile.rhm").VectorProfile
-  lib("cores/fp/timing.rhdl").FpExecutionTiming
+  lib("cores/common/fp/timing.rhdl").FpExecutionTiming
   lib("cores/superscalar/tests/core-fixture.rhdl").CoreFixture
   lib("cores/superscalar/profile.rhm").SuperscalarPipelineConfig
   "../../issue.rhdl".RV3WideIssue

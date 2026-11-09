@@ -13,10 +13,10 @@ ownership and validation.
 ## Shared components
 
 Numeric execution, canonical instruction mappings, and register storage live
-in [`cores/fp/`](../../fp/README.md), independently of any named core.
+in [`cores/common/fp/`](../../common/fp/README.md), independently of any named core.
 RV5Stage uses `FpExecutionService` in scheduled mode with reserved writeback
 cycles and scalar/vector owner tags. Its scalar wrapper retains architectural
-reservations and completion policy. The [shared service contract](../../fp/README.md#operand-execution)
+reservations and completion policy. The [shared service contract](../../common/fp/README.md#operand-execution)
 defines timing, reordering, backpressure, rounding, and reset behavior.
 
 ## Scalar architectural wrapper

@@ -58,7 +58,7 @@ admits power-of-two VLEN values
 VLMAX, aligned register groups, deterministic `min(AVL, VLMAX)` length selection,
 architectural bit offsets, and EEW-to-EMUL conversion. Fractional LMUL uses the
 low portion of a register. Physical row mapping is independently parameterized
-by [`VectorRegisterLayout`](../cores/vector-layout.rhm); no VRF row width
+by [`VectorRegisterLayout`](../cores/common/vector-layout.rhm); no VRF row width
 is implied by these architectural descriptors.
 
 `vector_data_overlap_legal` implements ordinary data-operand overlap rules;
@@ -221,7 +221,7 @@ implications. It projects the supplied hart description, not a named core.
 Implementation guarantees such as Svade must be supplied explicitly through
 `~additional`; translation mode alone does not imply an A/D update policy.
 A concrete processor still owns its implemented feature selection and behavioral
-parameters, with component-owned CSR facts supplied by `cores/csr/udb.rhm`.
+parameters, with component-owned CSR facts supplied by `cores/common/csr/udb.rhm`.
 For RV5Stage, that projection is documented in the
 [`RV5Stage generator contract`](../cores/rv5stage/README.md#udb-configuration).
 

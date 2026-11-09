@@ -6,8 +6,8 @@ import:
   "../../memory-context.rhdl" open
   lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../../riscv/isa/xlen.rhm" open
-  "../../../cache/geometry.rhdl" open
-  "../../../cache/l1d/cache.rhdl" as cache
+  "../../../common/cache/geometry.rhdl" open
+  "../../../common/cache/l1d/cache.rhdl" as cache
   "../../../../cores/rv5stage/tests/params.rhdl" as test_params
 
 def program = elaborate(cache.L1DCache(XLen.X32, CacheConfig(4, 1), ~chi: test_params.test_rv5stage_chi_config, ~service_queue_depth: 1, ~context: RV5StageMemoryContext(8))

@@ -1,0 +1,251 @@
+#lang rhodium
+/* Predicts the earliest taken branch using compact entries and shared upper-address pages. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "protocol.rhdl" open
+  "../../../riscv/isa/xlen.rhm" open
+  lib("rhodium/std/bits.rhdl") open
+  lib("flow/main.rhdl") open
+
+/* Stores a shared valid upper-address tag used by branch and target entries. */
+bundle BtbPage(tag_width :: PosInt):
+  valid: Bool
+  tag: Bits(tag_width)
+
+/* Stores low PC/target bits, shared-page indices, local direction counter, length, and RAS
+   hint. */
+bundle BtbEntry(match_bits :: PosInt, page_count :: PosInt):
+  valid: Bool
+  pc_low: Bits(match_bits)
+  pc_page: Bits(index_width(page_count))
+  target_low: Bits(match_bits)
+  target_page: Bits(index_width(page_count))
+  conditional: Bool
+  compressed: Bool
+  counter: Bits(2)
+  ras_action: RasAction
+
+/* Predicts the earliest taken branch in the configured fetch block using full-address matches via shared
+   pages.
+   Optional caller directions replace local counters before selecting a conditional target.
+   pc_width admits only sign-extendable source PCs; target_width normalizes speculative destinations.
+   Shared tags span both widths, while source lookup and invalidation remain exact.
+   Resolved training precedes discovery; page replacement invalidates all dependent entries. */
+sync_circuit Btb(xlen :: XLen, entry_count :: PosInt = 32, match_bits :: PosInt = 14, page_count :: PosInt = 8, ~fetch_bytes: fetch_bytes :: PosInt = 4, ~external_direction: external_direction :: Boolean = #false, ~pc_width: pc_width :: PosInt = xlen.width, ~target_width: target_width :: PosInt = xlen.width):
+  // Lookup is combinational; only predictor state changes are event flows.
+  unless fetch_bytes == 4 || fetch_bytes == 8
+  | error(~who: #'Btb, "fetch bytes must be four or eight")
+
+  def offset_bits = if fetch_bytes == 4 | 2 | 3
+  unless pc_width <= xlen.width && target_width <= xlen.width
+  | error(~who: #'Btb, "PC and target storage widths must not exceed XLEN")
+
+  unless match_bits >= offset_bits && match_bits < pc_width
+  | error(~who: #'Btb, "match bits must include the fetch-word offset and leave an upper source-address tag")
+
+  unless page_count >= 2
+  | error(~who: #'Btb, "shared page count must be at least two")
+
+  input cursor: Bits(xlen.width)
+  def caller_taken :: Vec(fetch_bytes / 2, Bool) = if external_direction
+  | block:
+      input conditional_taken: Vec(fetch_bytes / 2, Bool)
+      conditional_taken
+  | literal(Vec(fetch_bytes / 2, Bool), 0)
+
+  interface invalidate_all(Pulse(), ~role: consumer)
+  interface invalidate(Valid(Bits(xlen.width)), ~role: consumer)
+  interface update(Valid(BranchUpdate(xlen)), ~role: consumer)
+  interface discover(Valid(BranchPrediction(xlen, xlen.width)), ~role: consumer)
+  output prediction: BranchPrediction(xlen, xlen.width)
+
+  def index_bits = index_width(entry_count)
+  def page_index_bits = index_width(page_count)
+  def address_width = math.max(pc_width, target_width)
+  def Page = BtbPage(address_width - match_bits)
+  def Entry = BtbEntry(match_bits, page_count)
+
+
+  /* Shared upper-address pages and low-address branch entries.
+     Replacement cursors have independent update events. */
+
+  reg pages(~init: vec(for List (_index in 0..page_count): literal(Page, 0)))
+  reg entries(~init: vec(for List (_index in 0..entry_count): literal(Entry, 0)))
+  reg replacement(~init: Bits(index_bits)(0))
+  reg page_replacement(~init: Bits(page_index_bits)(0))
+  /* Rejects nonrepresentable source addresses instead of matching or modifying a low-bit alias. */
+  fun source_fits(address :: Bits(xlen.width)) :~ Bool:
+    address === prediction_target(xlen, pc_width, address)
+
+  /* Restores exact stored source addresses and normalized destinations without an address adder. */
+  fun expand_address(address :: Bits(address_width)) :~ Bits(xlen.width):
+    address.sext(xlen.width)
+
+  /* Extracts the common-width upper bits of an admitted source or normalized target. */
+  fun page_tag(address :: Bits(xlen.width)) :~ Bits(address_width - match_bits):
+    address[match_bits..address_width]
+
+  /* Compares stored upper bits; source users separately qualify representability before any effect. */
+  fun page_matches(address :: Bits(xlen.width)) :~ Vec(page_count, Bool):
+    vec(for List (index in 0..page_count): pages[index].valid & (pages[index].tag === page_tag(address)))
+
+
+  /* Combinational prediction lookup.
+     Choose the earliest halfword at or after the cursor, independently of
+     allocation order; equal-offset matches retain priority-encoder order. */
+
+  def cursor_pages = page_matches(cursor)
+  def cursor_fits = source_fits(cursor)
+  def candidates = vec(
+    for List (index in 0..entry_count):
+      def entry = entries[index]
+      def block_matches = cursor_pages[entry.pc_page] & (entry.pc_low[offset_bits..match_bits] === cursor[offset_bits..match_bits])
+      def at_or_after_cursor = entry.pc_low[0..offset_bits] >= cursor[0..offset_bits]
+      def direction = if external_direction | caller_taken[entry.pc_low[1..offset_bits]] | entry.counter[1].into(Bool)
+      def predicted_taken = !entry.conditional ||| direction
+      cursor_fits & entry.valid & pages[entry.target_page].valid & block_matches & at_or_after_cursor & predicted_taken
+  )
+
+  def offsets = for List (offset in 0..(fetch_bytes / 2)):
+    vec(for List (index in 0..entry_count): candidates[index] & (entries[index].pc_low[0..offset_bits] === Bits(offset_bits)(offset * 2)))
+
+  def mutable earliest = candidates
+  // Visit later offsets first so an earlier nonempty offset wins the fold.
+  for (offset :: Vec(entry_count, Bool) in offsets.reverse()):
+    earliest := mux(offset.any(), offset, earliest)
+
+  def selected = entries[priority_encoder(earliest)]
+  prediction <== BranchPrediction(xlen, xlen.width):
+    valid: candidates.any() & !invalidate_all.valid
+    pc: expand_address(pages[selected.pc_page].tag ++ selected.pc_low)
+    // Shared pages can also contain full source PCs. Normalize the lookup
+    // even when invalid, keeping downstream speculative storage width-bounded.
+    target: prediction_target(xlen, target_width, expand_address(pages[selected.target_page].tag ++ selected.target_low))
+    compressed: selected.compressed
+    ras_action: selected.ras_action
+
+
+  /* Training and discovery select one write candidate.
+     Any resolved update suppresses discovery; invalidation suppresses commit. */
+
+  def discovering = discover.valid & discover.bits.valid & !update.valid
+  def write_pc = mux(update.valid, update.bits.pc, discover.bits.pc)
+  // Source tags remain exact; only the speculative destination may alias.
+  def write_target = prediction_target(xlen, target_width, mux(update.valid, update.bits.target, discover.bits.target))
+  def write_compressed = mux(update.valid, update.bits.compressed, discover.bits.compressed)
+  def write_ras_action = mux(update.valid, update.bits.ras_action, discover.bits.ras_action)
+  def write_pc_pages = page_matches(write_pc)
+  def write_target_pages = page_matches(write_target)
+  def matches = vec(for List (index in 0..entry_count): entries[index].valid & write_pc_pages[entries[index].pc_page] & (entries[index].pc_low === write_pc[0..match_bits]))
+  def empty = vec(for List (index in 0..entry_count): !entries[index].valid)
+  def matched = matches.any()
+  def selected_index = priority_mux(~default: replacement):
+    matched: priority_encoder(matches)
+    empty.any(): priority_encoder(empty)
+
+  def previous = entries[selected_index]
+  def incremented = saturating_increment(previous.counter, 3)
+  def decremented = saturating_decrement(previous.counter)
+  def write = (update.valid & (matched ||| (update.bits.branch & update.bits.taken))) ||| discovering
+  def commit_write = write & !invalidate.valid & source_fits(write_pc)
+  def write_valid = mux(update.valid, update.bits.branch, Bool(#true))
+
+
+  /* Shared-page allocation and dependent-entry invalidation.
+     PC and target can share a page, but distinct new pages cannot choose
+     the same replacement slot. Existing target pages are protected. */
+
+  def allocate_pages = commit_write & write_valid
+  def pc_page_found = write_pc_pages.any()
+  def target_page_found = write_target_pages.any()
+  def empty_pages = vec(for List (index in 0..page_count): !pages[index].valid)
+  def same_page = page_tag(write_pc) === page_tag(write_target)
+  def target_existing_page = priority_encoder(write_target_pages)
+  def pc_replacement = mux(!same_page & target_page_found & (page_replacement === target_existing_page), wrap_increment(page_replacement, page_count), page_replacement)
+  def pc_page = priority_mux(~default: pc_replacement):
+    pc_page_found: priority_encoder(write_pc_pages)
+    empty_pages.any(): priority_encoder(empty_pages)
+
+  def target_empty_pages = vec(for List (index in 0..page_count): empty_pages[index] & (pc_page =/= Bits(page_index_bits)(index)))
+  def target_replacement = mux(page_replacement === pc_page, wrap_increment(page_replacement, page_count), page_replacement)
+  def target_page = priority_mux(~default: target_replacement):
+    same_page: pc_page
+    target_page_found: target_existing_page
+    target_empty_pages.any(): priority_encoder(target_empty_pages)
+
+  def replace_pc_page = allocate_pages & !pc_page_found & pages[pc_page].valid
+  def replace_target_page = allocate_pages & !same_page & !target_page_found & pages[target_page].valid
+  def replaced_page = vec(
+    for List (index in 0..page_count):
+      (replace_pc_page & (pc_page === Bits(page_index_bits)(index))) ||| (replace_target_page & (target_page === Bits(page_index_bits)(index)))
+  )
+
+  def invalidated_entries = vec(
+    for List (index in 0..entry_count):
+      replaced_page[entries[index].pc_page] ||| replaced_page[entries[index].target_page]
+  )
+
+  def invalidate_pages = page_matches(invalidate.bits)
+  def invalidate_fits = source_fits(invalidate.bits)
+  def invalidate_matches = vec(
+    for List (index in 0..entry_count):
+      invalidate_fits & entries[index].valid & invalidate_pages[entries[index].pc_page] & (entries[index].pc_low === invalidate.bits[0..match_bits])
+  )
+
+
+  /* Replacement cursors and page writes.
+     Global invalidation wins both cursors; entry/page allocations advance them
+     independently, so their update guards must remain separate. */
+
+  when (invalidate_all.valid):
+    replacement <== Bits(index_bits)(0)
+  elsewhen (commit_write & !matched):
+    replacement <== wrap_increment(selected_index, entry_count)
+
+  when (invalidate_all.valid):
+    page_replacement <== Bits(page_index_bits)(0)
+  elsewhen (allocate_pages & (!pc_page_found ||| (!same_page & !target_page_found))):
+    page_replacement <== wrap_increment(mux(!same_page & !target_page_found, target_page, pc_page), page_count)
+
+  for (index in 0..page_count):
+    when (invalidate_all.valid):
+      pages[index] <== literal(Page, 0)
+    elsewhen (allocate_pages & !pc_page_found & (pc_page === Bits(page_index_bits)(index))):
+      pages[index] <== BtbPage(address_width - match_bits):
+        valid: Bool(#true)
+        tag: page_tag(write_pc)
+    elsewhen (allocate_pages & !same_page & !target_page_found & (target_page === Bits(page_index_bits)(index))):
+      pages[index] <== BtbPage(address_width - match_bits):
+        valid: Bool(#true)
+        tag: page_tag(write_target)
+
+
+  /* Entry updates: global clear, explicit invalidation, selected write,
+     then invalidation caused by a replaced shared page. */
+
+  def trained_counter = mux(update.bits.taken, incremented, decremented)
+  def write_counter = mux(update.valid & matched, trained_counter, Bits(2)(2))
+  for (index in 0..entry_count):
+    when (invalidate_all.valid):
+      entries[index] <== literal(Entry, 0)
+    elsewhen (invalidate.valid & invalidate_matches[index]):
+      entries[index] <== entries[index].updated(~valid: Bool(#false))
+    elsewhen (commit_write & (selected_index === Bits(index_bits)(index))):
+      entries[index] <== BtbEntry(match_bits, page_count):
+        valid: write_valid
+        pc_low: write_pc[0..match_bits]
+        pc_page: pc_page
+        target_low: write_target[0..match_bits]
+        target_page: target_page
+        conditional: mux(update.valid, update.bits.conditional, Bool(#false))
+        compressed: write_compressed
+        counter: write_counter
+        ras_action: write_ras_action
+    elsewhen (invalidated_entries[index]):
+      entries[index] <== entries[index].updated(~valid: Bool(#false))
+
+export:
+  BtbPage
+  BtbEntry
+  Btb

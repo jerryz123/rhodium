@@ -3,9 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../cache/chi/flits.rhdl" open
-  "../../cache/chi/attachment.rhdl" open
-  "../../chi-hart.rhdl" open
+  "../../common/cache/chi/flits.rhdl" open
+  "../../common/cache/chi/attachment.rhdl" open
+  "../../common/chi-hart.rhdl" open
 
 /* Preserves the RV5Stage constructor spelling over shared-cache endpoint descriptions. */
 fun RV5StageCHIParams(config :: RiscvHartCHIConfig, instruction_node_id :: Nat, data_node_id :: Nat, ~uncached_node_id: uncached_node_id :: Nat = 0) :: CacheCHIParams:

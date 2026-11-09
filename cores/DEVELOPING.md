@@ -3,8 +3,8 @@
 
 # Developing processor components and cores
 
-Read the package [README](README.md) for reusable component contracts and the
-current named-core catalog. This guide owns source placement, dependency
+Read the package [README](README.md) for the implementation catalog and
+[`common/README.md`](common/README.md) for reusable components. This guide owns source placement, dependency
 direction, extension workflow, and contributor validation.
 
 ## Choose the right home
@@ -12,43 +12,43 @@ direction, extension workflow, and contributor validation.
 Before adding a component, decide who owns its policy:
 
 - Put small reusable execution blocks, data-shaping helpers, and integration
-  contracts directly under `cores/`. Keep each component's instruction mapping
-  beside it: `alu-decode.rhdl`, `branch-decode.rhdl`, `multiply-decode.rhdl`,
-  `divide-decode.rhdl`, and `memory-decode.rhdl` describe component controls, not a whole core profile.
+  contracts directly under `cores/common/`. Keep each component's instruction mapping
+  beside it: `common/alu-decode.rhdl`, `common/branch-decode.rhdl`, `common/multiply-decode.rhdl`,
+  `common/divide-decode.rhdl`, and `common/memory-decode.rhdl` describe component controls, not a whole core profile.
   Numeric datapaths consume already-decoded controls; only their mappings
   import instruction catalogs.
-- Put substantial shared component families in their own directories:
-  [`csr/`](csr/DEVELOPING.md) owns CSR/trap state and
-  [`mmu/`](mmu/DEVELOPING.md) owns translation contracts, TLBs, and PTW state;
-  [`fp/`](fp/DEVELOPING.md) owns FP mappings, operand execution, and register storage.
-  [`vector/`](vector/DEVELOPING.md) owns vector control relations, sequencing,
+- Put substantial shared component families under `cores/common/`:
+  [`common/csr/`](common/csr/DEVELOPING.md) owns CSR/trap state and
+  [`common/mmu/`](common/mmu/DEVELOPING.md) owns translation contracts, TLBs, and PTW state;
+  [`common/fp/`](common/fp/DEVELOPING.md) owns FP mappings, operand execution, and register storage.
+  [`common/vector/`](common/vector/DEVELOPING.md) owns vector control relations, sequencing,
   register storage, packed execution, and persistent completion ownership.
-  [`bpred/`](bpred/DEVELOPING.md) owns shared BTB/RAS state and prediction payloads;
+  [`common/bpred/`](common/bpred/DEVELOPING.md) owns shared BTB/RAS state and prediction payloads;
   callers retain fetch geometry integration, redirect timing, and update qualification.
-  [`fetch/protocol.rhdl`](fetch/protocol.rhdl) owns the physical fetch request
+  [`common/fetch/protocol.rhdl`](common/fetch/protocol.rhdl) owns the physical fetch request
   shared by superscalar and RV5Stage, parameterized by physical address width.
-  [`fetch/fault.rhdl`](fetch/fault.rhdl) owns shared block and instruction-relative
+  [`common/fetch/fault.rhdl`](common/fetch/fault.rhdl) owns shared block and instruction-relative
   faults; each assembler owns parcel selection and its core's exception priority.
-  [`fetch/encoding.rhdl`](fetch/encoding.rhdl) shares stateless instruction expansion
+  [`common/fetch/encoding.rhdl`](common/fetch/encoding.rhdl) shares stateless instruction expansion
   and parcel classification. Frontend stages, parcel buffering and issue windows
   stay in the owning cores.
-  [`superscalar/`](superscalar/DEVELOPING.md) owns the complete, currently
+  Organize common components by responsibility. They may depend on architectural
+  `riscv/` definitions, but never on a pipeline's configuration or payloads.
+- [`superscalar/`](superscalar/DEVELOPING.md) owns the complete, currently
   two/three-lane pipeline shared by the RV2Wide and RV3Wide named entry points,
   including its frontend, decode, configuration, and integration tests.
   Named RV2Wide/RV3Wide issue modules supply their admission policies through
   an elaboration-time circuit parameter; shared issue contracts and predicates
   stay in superscalar without reverse imports.
-  Organize by responsibility, not by a second ISA namespace. Shared does not
-  mean ISA-independent: these families may depend on architectural `riscv/`
-  definitions, but never a named core's configuration or pipeline payloads.
 - Put reusable cache geometry, physical protocols, L1I/L1D state, and cache-side
-  CHI engines in [`cache/`](cache/DEVELOPING.md). Completion context belongs
+  CHI engines in [`common/cache/`](common/cache/DEVELOPING.md). Completion context belongs
   to the caller and must remain opaque inside shared cache hardware.
 - Put instruction decode, core-specific architectural integration, pipeline policy, adapters, and
   integrated tests under `cores/<name>/`.
-- Put direct tests for root components in [`tests/`](tests/) and family tests
-  under that family's `tests/` directory, including rsim drivers and any HDL-specific emitters and
-  benches. Put a named core's tests under its own `tests/` directory.
+- Put direct tests for standalone common components in [`common/tests/`](common/tests/)
+  and family tests under that family's `tests/` directory, including rsim drivers
+  and HDL-specific emitters and benches. Named-core and pipeline tests stay
+  under their owning implementation's `tests/` directory.
 
 A reusable component may use the closed RISC-V `XLen` configuration when its
 contract is specifically RV32/RV64. Reusable component mappings may consume
@@ -62,7 +62,7 @@ support, and shared protocol libraries, but never on another named core.
 ```mermaid
 flowchart LR
   Consumers["backends, examples,<br/>and tests"] --> Named["named cores<br/>cores/name/"]
-  Consumers --> Reusable["reusable components<br/>cores/*.rhdl"]
+  Consumers --> Reusable["reusable components<br/>cores/common/*.rhdl"]
   Named --> Reusable
   Named --> Superscalar["shared superscalar pipeline"]
   Superscalar --> Reusable
@@ -74,20 +74,20 @@ flowchart LR
   Superscalar --> Riscv
   Superscalar --> Protocols
   Superscalar --> Rhodium
-  Named --> Cache["shared physical caches<br/>cores/cache/"]
+  Named --> Cache["shared physical caches<br/>cores/common/cache/"]
   Cache --> Protocols
   Cache --> Riscv
   Cache --> Rhodium
-  Named --> Mapping["component mappings<br/>cores/*-decode.rhdl"]
+  Named --> Mapping["component mappings<br/>cores/common/*-decode.rhdl"]
   Mapping --> Reusable
   Mapping --> Riscv
   Mapping --> Protocols
   Mapping --> Rhodium
-  Named --> State["shared CSR and translation<br/>cores/csr/, cores/mmu/"]
+  Named --> State["shared CSR and translation<br/>cores/common/csr/, cores/common/mmu/"]
   State --> Riscv
   State --> Rhodium
-  Named --> FP["shared floating point<br/>cores/fp/"]
-  Named --> Vector["shared vector execution<br/>cores/vector/"]
+  Named --> FP["shared floating point<br/>cores/common/fp/"]
+  Named --> Vector["shared vector execution<br/>cores/common/vector/"]
   Vector --> FP
   Vector --> State
   Vector --> Reusable
@@ -96,7 +96,7 @@ flowchart LR
   FP --> Riscv
   FP --> Rhodium
   FP --> HardFloat["HardFloat numeric primitives"]
-  Named --> Bpred["shared prediction<br/>cores/bpred/"]
+  Named --> Bpred["shared prediction<br/>cores/common/bpred/"]
   Bpred --> Riscv
   Bpred --> Rhodium
   Named --> Riscv["RISC-V ISA and RTL"]
@@ -109,285 +109,30 @@ flowchart LR
 Production code must not reverse an arrow toward consumers. Neither reusable
 components nor named cores may import a backend, example, or test. Backend
 consumers elaborate public designs from outside this package.
-[`check-boundaries.sh`](check-boundaries.sh) enforces these rules across root
-modules and shared families, prevents imports of named-core policy, keeps CHI engines
+[`check-boundaries.sh`](check-boundaries.sh) enforces these rules across common
+modules, shared families, and pipeline implementations, prevents imports of named-core policy, keeps CHI engines
 independent of private cache implementations, and keeps generated bytecode out
 of `cores/`.
 
-## Add or change a component
+## Change workflow
 
-Small shared integration modules remain at the root:
-`profile.rhm` composes common ISA-name groups and MISA capabilities from explicit execution choices;
-`udb.rhm` composes shared bank/cache/MMU/vector declarations for callers opting
-into the precise-execution contract. Named profiles retain optional extension
-selection, qualification claims, and physical integration bounds.
-Keep configuration defaults and supervisor qualification predicates local. In
-particular, RV5Stage advertises its supervisor guarantees only for RV64 Sv39;
-RV2Wide also advertises the non-page-table guarantees for RV64 Bare.
-`chi-hart.rhdl` owns physical-region/Home mapping and requester attachment;
-`misaligned-access.rhdl` owns fragment sequencing with opaque caller context;
-`memory-response.rhdl` owns optional-response pairing and one-cycle LSU result capture;
-`vector-layout.rhm` owns pure physical row geometry; `cosim-source.rhm` owns
-passive observation declarations. None selects a named core's profile or
-implements its retirement policy. Architectural encodings and stateless
-architectural policy stay under `riscv/isa/` and `riscv/rtl/`.
+Choose the owner before editing. Common components own reusable physical
+controls, protocols, and state; pipeline implementations own stage timing,
+architectural context, recovery, and retirement. Named RV2Wide/RV3Wide variants
+select the superscalar implementation and their issue policies.
 
-`integer-execution.rhdl` supplies opaque arithmetic request/result ownership;
-`integer-service.rhdl` carries those tags through iterative multiply/divide and
-feed-forward multiplication, with explicit scheduled or buffered return adapters.
-`register-write.rhdl` supplies a GPR destination/value payload independent of
-physical register-file ports. Named-core adapters retain service selection,
-launch/authorization timing, and architectural writeback scheduling.
-`register-file.rhdl` owns explicitly read/write-port-sized storage (two writes by default).
-Named cores wire physical ports directly and retain forwarding, same-destination
-write policy, and completion reservations. Reads are pre-edge; the storage
-does not allocate ports or select architectural winners. GPR storage has no
-reset value; fixture scoreboards track written registers instead of assuming
-zero initialization. Validate retention across reset with idle writes, x0,
-read/write timing, independent writes, and invalid write collisions with the
-`register-file` and `register-file-rv32`
-rsim fixtures, each exercising 2R2W, 4R2W, and 4R3W storage. RV5Stage owns its
-write-to-ID forwarding in `core.rhdl`; the shared storage never bypasses writes.
-Use `rv5stage-core`, `rv5stage-multiply`, and CSR/FP completion fixtures for
-that timing boundary. RV2Wide integration additionally uses `rv2wide-core`
-and its FP/vector completion fixtures when those paths change.
-`integer-format.rhdl` owns scalar M-extension word-operand normalization and
-product/quotient/remainder projection, without scheduling or owner types.
-`reservation-wait.rhdl` owns the shared wait modes, WRS timer, and wake-versus-timeout priority;
-named cores retain the instruction and qualify TW/VTW from their CSR state.
-Capture resets the timer before any same-edge increment. Completion remains a
-level rather than consuming or replacing the caller's retained owner.
-`reservation-wait-decode.rhdl` maps canonical WRS encodings to those modes.
-Named decoders compose the relation into their own partial controls, retaining
-inactive-resource and serialization policy and leaving unused operands free.
+Follow the [common component guide](common/DEVELOPING.md) for library changes
+and the owning pipeline or named-core guide for implementation changes.
+Move direct component tests with their implementation; integrated fixtures stay
+with the pipeline or variant they exercise. Update imports, documentation,
+fixture inventories, and simulator/CI source groups together when moving files.
+Keep generated models, bytecode, and native binaries out of version control.
 
-`writeback-calendar.rhdl` owns registered write-cycle occupancy and ordered
-same-cycle claims. Keep `registered_free` independent of all reservation
-inputs and pause; `prior_claims_available` observes only earlier accepted
-claims and honors pause. Queries share the reservation delay numbering and
-add no state. Callers choose a dependency-safe view and retain same-group
-collision policy, result ownership, and authorization. The existing
-`rv5stage-writeback` rsim fixture checks both views, multiple simultaneous
-queries, reset, paused aging, and invalid reservations; pair it with named-core
-FP/multiply/vector fixtures when changing a caller.
+## Validation
 
-`operand.rhdl` owns scalar source-use, ALU routing, and immediate controls;
-`operand-decode.rhdl` owns the common I/M/A/B/Zicond relations and reusable partial
-patterns. Named decoders compose their domains and retain different MOP
-routing policies; dedicated M services leave ALU operand routing free. Preserve
-care masks when moving relations: sharing a type is not permission to constrain
-an unobserved field.
-
-UDB declarations follow implementation ownership: `csr/udb.rhm` describes the
-bank, `cache/udb.rhm` describes L1D reservation/maintenance policies, and
-`mmu/udb.rhm` describes translation modes. `udb.rhm` defines an explicitly
-selected precise-execution and split-access contract, not a guarantee inferred
-from instantiating those components. Named
-projections retain address/map constraints and responsibility for satisfying
-that execution contract. `vector/profile.rhm` validates scalar/vector execution
-compatibility without selecting either core's ISA defaults or scheduling.
-
-Keep accepted split-access fragments irrevocable and retain their owner until
-the response. Translation/PMA checks, interrupt/drain policy, and retirement
-belong to the caller. Keep vector row geometry pure host code with an explicit
-row width; it must not imply ports, SRAM, or scheduling.
-
-`MemoryResponseCapture` joins a live caller context with its same-cycle response
-or fallback. Its context output is combinational; only the result is registered.
-Capture the caller's instruction/control state in parallel and rejoin at the
-next stage without extra storage. Keep early fault/replay decisions and commit
-authorization in the caller, and keep the physical cache response combinational.
-For its RV5Stage integration, run the EX/MEM/WB load-path fixtures listed in
-[`rv5stage/DEVELOPING.md`](rv5stage/DEVELOPING.md#focused-validation).
-
-`pc.rhdl` owns the compact-PC representation and type-family capture, prediction,
-and representability operations described in the [public contract](README.md#compact-pc-storage).
-It depends only on XLEN and the public authoring surface. Fetch owners qualify admission to the fixed RV32/Sv39 PC domain; the type must not import their
-policies or allocate exception escape storage. Fetch fault outcomes retain only
-a positive sequential-boundary bit; shared pipeline prefixes remain stage-owned.
-Both backends suppress nonrepresentable redirects and retain their exact target
-only after the originating instruction commits. `fetch/redirect.rhdl` classifies
-that fault using post-retirement privilege/translation state, without owning
-pipeline ordering, drain, or CSR commands.
-`RiscvHartCHIConfig.check_compact_fetch` validates executable address-set maxima;
-runtime fetch checks also cover guest-Bare translation to low host PAs. Shared
-predictors retain generic widths; core callers select the fixed PC width.
-For changes, run the `compact-pc` rsim fixture and `tests/pc-test.rhm`, then
-the affected [predictor](bpred/DEVELOPING.md#validation) and fetch/window fixtures.
-
-`cosim-source.rhm` bridges public core metadata and frontend read/domain APIs.
-Its adapter contracts, local taps, explicit child views, and sibling contexts
-are remappable read-only declarations, not capture hardware. All selected
-components must share the hart's clock/reset domain. DPI producers, adapters,
-event reconstruction, and reference checking belong to
-[`../sims/cosim/`](../sims/cosim/DEVELOPING.md); functional declarations must not
-import compiler passes, simulators, or reference models.
-
-1. Define already-decoded physical controls and leave instruction recognition,
-   operand routing, pipeline scheduling, and architectural destination policy
-   with the caller.
-2. Specify combinational or ready-valid timing, backpressure stability, reset,
-   and exceptional fixed-width behavior in [README.md](README.md).
-3. Use a host test only for pure configuration or public elaboration-time
-   rejection. Test datapath results, state, backpressure, and timing through a
-   rsim fixture; do not snapshot internal operations just because a
-   component is new.
-4. Integrate the component into a named core only after its standalone contract
-   is stable.
-
-When adding a named core, create `cores/<name>/` and keep its decode, datapath,
-architectural state, adapters, documentation, and tests together. Give it a
-public README and companion DEVELOPING guide before adding system integration.
-When named cores use one implementation family, keep that implementation and
-its tests in the family instead: RV2Wide and RV3Wide own separate configuration
-classes containing `SuperscalarPipelineConfig` and hart wrappers that use it
-directly, with no cross-import
-between the named directories. Pipeline behavior remains shared.
-
-## Packed SIMD implementation
-
-The packed integer unit in `simd-alu.rhdl` takes `XLen.X32` or `XLen.X64` and
-specializes to that architectural width. Guard
-bits around four or eight bytes isolate each element within one shared adder;
-one additional top bit retains full-word carry. Byte comparison pairs feed a
-shared reduction tree. The tapered shifter bank is 32/16/8/8 or
-64/32/16/16/8/8/8/8 bits, routing element widths through the same slots. Left
-and right shifts share each slice by reversing around the right shifter.
-Barrel stages select fill or wrap bits for rotation; repeating a narrow
-operand across its slot makes the same network rotate at every element width.
-Byte population counts and directional zero counts feed shared reduction
-trees. Byte-local bit reversal also serves the permutation path, whose
-remaining byte-order changes are wiring and width-selected routing.
-Width-specific logic only routes operands and packs results/masks, rather than
-instantiating full datapaths per width. These design techniques follow
-[Saturn's integer unit](https://github.com/ucb-bar/saturn-vectors/blob/master/src/main/scala/exu/int/IntegerPipe.scala)
-and [shift unit](https://github.com/ucb-bar/saturn-vectors/blob/master/src/main/scala/exu/int/ShiftPipe.scala);
-the public operation and widening contracts are in [README.md](README.md#packed-simd-integer-alu).
-`SimdWidenOperands` independently sign- or zero-extends source halves, or
-passes an already destination-width left source alongside one extended source,
-without adding another ALU or coupling widening to instruction decode.
-`SimdCompress` performs only stable word-local element compaction and returns
-its selected-element count; cross-word suffixes and architectural progress
-belong to the caller. Its exclusive lane ranks and total share the standard
-`prefix_scan` network with a count width that includes a fully selected word.
-Keep the destination-routing priority and unused-lane zeroing separate from
-rank computation. Keep RVV register layout and architectural policy outside
-these reusable components.
-
-`simd-multiplier.rhdl` shares the existing three-stage `PipelinedMultiplier`
-arithmetic through banks derived from physical word width and maximum element
-width, independently of XLEN. Each byte-offset slot gets the largest supported
-multiplier aligned to that offset. A 64-bit bank's byte-offset order is
-64/8/16/8/32/8/16/8; a 32-bit bank uses 32/8/16/8. Wider slots extend narrower
-operands; product routing selects each lane's full result. Lowering the maximum
-element width repeats smaller banks and leaves larger elements to caller-owned
-execution resources. This follows the
-sharing principle in [Saturn's segmented multiplier](https://github.com/ucb-bar/saturn-vectors/blob/master/src/main/scala/exu/int/SegmentedMultiplyPipe.scala),
-using the repository's existing multiplier implementation rather than importing
-another arithmetic implementation.
-Result context advances separately for the same three cycles; a fourth stage
-registers the numeric projection. The formatter's guarded-byte adder prevents
-cross-element carry and remains independent of vector scheduling or writeback.
-Keep scalar-product formatting usable without instantiating another multiplier;
-the pipeline prunes unused projections through `~max_element_width`.
-
-## Focused validation
-
-The direct SIMD fixture checks exhaustive byte operand pairs and directed or
-random wider elements, including rotation with dirty fill controls, zero counts, byte permutations,
-both widening halves, compaction masks, and enable remapping against independent
-per-element models:
-
-```sh
-FIXTURES='simd-alu simd-alu32' python3 tools/testing/rsim/run.py
-```
-
-Pure host contracts can use the package tests directly. Cycle-visible behavior
-is owned by the matching backend fixtures:
-
-`pipelined-multiplier` checks the three-cycle contract at widths 2, 8, 32, and 64.
-Small widths exhaust every operand/signedness pair; RV32/RV64 combine signed
-extremes, half-width carry boundaries, and seeded random products. Its independent
-full-width oracle checks every valid cycle, including bubbles and reset with
-work in flight. Before the first register, merge the low and cross products,
-upper product, and both sign corrections into one carry-save pair. Add its
-sum and already-shifted carry in independent 16-bit chunks (one smaller chunk
-for narrow products). Register each subtotal with its carry into the next
-chunk. Propagate those boundary carries before the second register; discard
-only overflow beyond twice the operand width for a full-product client.
-For a selected-half client, register just its chunks: a low result starts
-with zero carry; a high result starts with the carry out of the entire low
-half. The same oracle checks this two-cycle result at widths 8, 32, and 64
-while varying half selection between launches.
-
-`iterative-divider` exhausts all eight-bit operand pairs in both signed modes,
-checking the quotient, remainder, and exact response cycle. Keep the trial
-subtraction one bit wider than the operands. Finalization corrects signs in
-the working registers themselves; a blocked response holds both words until
-transfer, including when a new request replaces it on that same edge.
-
-```sh
-tools/run-racket-tests.sh cores/tests/branch-resolver-test.rhm
-FIXTURES='rv32i-alu rv64i-alu load-store iterative-multiplier pipelined-multiplier iterative-divider' python3 tools/testing/rsim/run.py
-```
-
-`simd-multiplier` checks `(32, 16)`, `(64, 32)`, and self-contained `(64, 64)`
-geometry, exhaustive byte products under
-all signedness combinations, directed and randomized wider lanes, both widening
-halves, accumulating/subtracting results, all fractional rounding modes and
-saturation, exact three/four-cycle latency, bubbles, and reset while occupied.
-It also checks scalar-produced full-width products through the common formatter.
-
-```sh
-python3 tools/testing/rsim/run.py --fixture simd-multiplier
-```
-
-`memory-decode.rhdl` generates active scalar/atomic/cache-block rows into caller-shaped
-controls and owns the guest-to-ordinary memory instruction mapping. Named decoders
-add inactive-domain rows, validity columns, and issue/retirement policy; shared
-relations must not constrain unused fields just to match another core\'s bundle.
-Use both cores\' composed decode checks when changing these mappings.
-
-Shared instruction mappings and row geometry use
-`cores/tests/{alu-decode,multiply-decode,divide-decode,vector-layout}-test.rhm`.
-Scalar integer formatting changes use `rv5stage-multiply`, `rv5stage-divide`,
-`rv2wide-core`, and `rv2wide-rv32`. Reservation-wait changes use
-`rv5stage-zawrs` and `rv2wide-core`, including timeout-edge reservation loss;
-`rv5stage-hypervisor-core` additionally checks VTW and simultaneous TW/VTW.
-Tagged integer service changes use `rv5stage-integer-execution` for held
-results and scheduled returns, and `rv2wide-core-vector` for shared-client
-ownership and scalar WB authorization.
-Shared test-only [`tests/rsim/port-observers.rhm`](tests/rsim/port-observers.rhm)
-adds clocked scalar-field observations of public component ports for both named
-cores. Keep architectural and occurrence scoreboards with each caller's tests;
-the helper changes no functional signature and belongs to no production core.
-CSR, translation, and floating-point checks are routed by their respective
-[CSR](csr/DEVELOPING.md#change-workflow-and-validation) and
-[MMU](mmu/DEVELOPING.md#validation) and [FP](fp/DEVELOPING.md#validation) guides. For shared split-engine changes,
-cover both callers with `rv2wide-mmu` and `rv5stage-hypervisor-core` fixtures.
-Changes to passive observation metadata need the cosim pass tests.
-Shared predictor behavior is covered by the `bpred-btb` and `bpred-ras`
-fixtures; use the [predictor guide](bpred/DEVELOPING.md#validation) for
-RV5Stage integration checks.
-
-The protocol-neutral tree-PLRU policy and its `cache-replacement` fixture are
-owned by [`../rhodium/std/plru.rhdl`](../rhodium/std/plru.rhdl); core cache
-changes should run that fixture together with their integration fixtures.
-
-Pass several paths to one invocation when a contract spans components. The
-wrapper supplies the persistent worktree-specific root when none is selected.
-After changing imports or package layout, run:
-
-```sh
-bash cores/check-boundaries.sh
-```
-
-For changes crossing reusable components and RV5Stage integration, run the
-end-to-end core fixture set:
-
-```sh
-moon run rhodium:rv5stage-test
-```
-
-Use [`rv5stage/DEVELOPING.md`](rv5stage/DEVELOPING.md) for narrower ownership
-and backend-fixture guidance.
+Run the smallest owning host and behavioral checks from the common, pipeline,
+or named-core guide. Run `moon run rhodium:check-boundaries` after moves or
+dependency changes. The checker enforces that `common/` cannot import pipeline
+implementations, named variants, or their tests, while the superscalar family
+cannot depend on the variants that select it. Use repository-managed Racket
+wrappers and the [test guide](../tools/testing/DEVELOPING.md).

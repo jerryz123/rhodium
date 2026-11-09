@@ -25,7 +25,7 @@ fileGroups:
     - "tools/testing/rsim/**/*"
   rsim-core-check-sources:
     - "chi/**/*"
-    - "cores/tests/**/*"
+    - "cores/common/tests/**/*"
     - "examples/cores/**/*"
     - "examples/riscv/**/*"
     - "rheg/**/*"

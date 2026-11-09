@@ -3,9 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../integer-execution.rhdl" open
-  "../multiplier.rhdl" open
-  "../integer-service.rhdl" open
+  "../common/integer-execution.rhdl" open
+  "../common/multiplier.rhdl" open
+  "../common/integer-service.rhdl" open
   "profile.rhm".RV5StageMultiplierKind
   lib("flow/main.rhdl") open
 

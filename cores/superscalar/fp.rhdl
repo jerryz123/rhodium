@@ -3,18 +3,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/pc.rhdl").CompactPc
-  lib("cores/fp/profile.rhm").fp_transport_profile
-  lib("cores/fp/launch-calendar.rhdl") open
-  lib("cores/fp/authorization.rhdl").align_fp_authorization
-  lib("cores/writeback-calendar.rhdl").WritebackCalendar
+  lib("cores/common/pc.rhdl").CompactPc
+  lib("cores/common/fp/profile.rhm").fp_transport_profile
+  lib("cores/common/fp/launch-calendar.rhdl") open
+  lib("cores/common/fp/authorization.rhdl").align_fp_authorization
+  lib("cores/common/writeback-calendar.rhdl").WritebackCalendar
   "bundles.rhdl" open
-  lib("cores/fp/bundles.rhdl") open
-  lib("cores/fp/types.rhdl") open
-  lib("cores/fp/timing.rhdl") open
-  lib("cores/fp/execute.rhdl") open
-  lib("cores/fp/register-file.rhdl") open
-  lib("cores/fp/load-store.rhdl") open
+  lib("cores/common/fp/bundles.rhdl") open
+  lib("cores/common/fp/types.rhdl") open
+  lib("cores/common/fp/timing.rhdl") open
+  lib("cores/common/fp/execute.rhdl") open
+  lib("cores/common/fp/register-file.rhdl") open
+  lib("cores/common/fp/load-store.rhdl") open
   lib("riscv/isa/fp-profile.rhm") open
   lib("riscv/isa/xlen.rhm") open
   lib("flow/main.rhdl") open

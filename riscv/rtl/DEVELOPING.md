@@ -94,7 +94,7 @@ from live CSR values after a request has been issued.
 `riscv-nested-walker` exercises the captured guest context and Sv39x4
 address helpers with the production standalone walker. Keep stage mode/root
 geometry and permission representations here, but saved frames, serialized
-memory ownership, and canceled-response draining in `cores/mmu/`.
+memory ownership, and canceled-response draining in `cores/common/mmu/`.
 
 For Svnapot and mapping geometry, run `riscv-svnapot` and
 `rv5stage-mmu-replay`. They cover compact 64 KiB mappings, reserved encodings,

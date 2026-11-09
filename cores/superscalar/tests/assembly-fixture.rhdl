@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/fetch/fault.rhdl") open
+  lib("cores/common/fetch/fault.rhdl") open
   "instruction-fixture.rhdl" open
   "../fetch/instruction-assembler.rhdl" open
   "../bundles.rhdl" open
   "../profile.rhm".SuperscalarPipelineConfig
-  lib("cores/bpred/protocol.rhdl") open
+  lib("cores/common/bpred/protocol.rhdl") open
   lib("riscv/isa/xlen.rhm").XLen
   lib("flow/main.rhdl") open
 

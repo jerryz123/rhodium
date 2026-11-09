@@ -16,11 +16,11 @@ import:
   "decode/long-ctrl.rhdl".SuperscalarLongOperation
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/rtl/csr.rhdl") open
-  lib("cores/csr/protocol.rhdl").RiscvCsrAction
-  lib("cores/csr/protocol.rhdl").csr_pure_read
-  lib("cores/cache/operation.rhdl").CacheOperation
-  lib("cores/fp/types.rhdl") open
-  lib("cores/vector/decode.rhdl").VectorOperandMode
+  lib("cores/common/csr/protocol.rhdl").RiscvCsrAction
+  lib("cores/common/csr/protocol.rhdl").csr_pure_read
+  lib("cores/common/cache/operation.rhdl").CacheOperation
+  lib("cores/common/fp/types.rhdl") open
+  lib("cores/common/vector/decode.rhdl").VectorOperandMode
 
 /* Carries decoded candidates, not granted instructions; presence must not depend on readiness. */
 bundle SuperscalarIssueCandidate(xlen :: XLen):

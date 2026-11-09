@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/reservation-wait.rhdl").ReservationWaitMode
+  lib("cores/common/reservation-wait.rhdl").ReservationWaitMode
   lib("riscv/isa/zawrs.rhm") open
   rhombus.bits.(<<) as <<
   rhombus.bits.(>>) as >>
   lib("rhodium/frontend/support/hardware-literal.rhm").PackedLiteral
-  lib("cores/vector/instruction-metadata.rhm").vector_base_instructions
+  lib("cores/common/vector/instruction-metadata.rhm").vector_base_instructions
   "../decode/core-ctrl.rhdl".superscalar_control_cases
   "../profile.rhm".SuperscalarPipelineConfig
   lib("riscv/isa/xlen.rhm").XLen

@@ -5,15 +5,15 @@
 import:
   lib("riscv/isa/hart.rhm").RiscvMmuType
   lib("riscv/rtl/pma.rhdl").RiscvPhysicalMemoryRegion
-  "../../cache/protocol.rhdl" open
+  "../../common/cache/protocol.rhdl" open
   "../rv5stage.rhdl".RV5Stage
   "../profile.rhm" open
   "../../../riscv/rtl/interrupt.rhdl".RiscvInterrupts
-  "../../cache/l1d/cache.rhdl" open
+  "../../common/cache/l1d/cache.rhdl" open
   "../memory-context.rhdl" open
   "../chi/foundation.rhdl" open
   "params.rhdl" open
-  lib("cores/cache-prefetch.rhdl").CachePrefetchReq
+  lib("cores/common/cache-prefetch.rhdl").CachePrefetchReq
   lib("riscv/isa/xlen.rhm") open
   lib("riscv/isa/c.rhm").CCompressedExtensions
   lib("chi/protocol/flits.rhdl") open

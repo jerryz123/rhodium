@@ -20,7 +20,7 @@ IMPLEMENTATION = {
     ],
     'architecture': [
         'riscv/isa/**/*', 'riscv/model/**/*', 'riscv/rtl/**/*', 'riscv/udb*', 'riscv/udb*/**/*',
-        'cores/profile.rhm', 'cores/udb.rhm', 'devicetree/**/*',
+        'cores/common/profile.rhm', 'cores/common/udb.rhm', 'devicetree/**/*',
     ],
     'soc-config': [
         'socs/configs/**/*', 'socs/platform/**/*', 'socs/harts/implementation.rhdl',
@@ -33,11 +33,8 @@ IMPLEMENTATION = {
         'noc/model/**/*', 'noc/plan/**/*', 'noc/std/**/*', 'noc/rtl/**/*',
         '!noc/rtl/wormhole-router.rhdl',
     ],
-    'hart-interface': ['cores/chi-hart.rhdl', 'cores/cosim-source.rhm'],
-    'shared-core': [
-        'cores/**/*', 'hardfloat/**/*', '!cores/rv2wide/**/*', '!cores/rv5stage/**/*',
-        '!cores/spike/**/*', '!cores/rv3wide/**/*', '!cores/superscalar/**/*',
-    ],
+    'hart-interface': ['cores/common/chi-hart.rhdl', 'cores/common/cosim-source.rhm'],
+    'shared-core': ['cores/common/**/*', 'hardfloat/**/*'],
     'core--rv2wide': ['cores/rv2wide/**/*', 'cores/superscalar/**/*', 'socs/harts/rv2wide.rhdl'],
     'core--rv3wide': ['cores/rv3wide/**/*', 'cores/superscalar/**/*', 'socs/harts/rv3wide.rhdl'],
     'core--rv5stage': ['cores/rv5stage/**/*', 'socs/harts/rv5stage.rhdl'],

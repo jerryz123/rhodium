@@ -5,10 +5,10 @@ import:
   lib("riscv/rtl/trap.rhdl").ExceptionCause
   "../vector-memory.rhdl" open
   "../bundles.rhdl" open
-  lib("cores/vector/bundles.rhdl") open
-  lib("cores/cache/protocol.rhdl") open
-  lib("cores/load-store.rhdl") open
-  lib("cores/misaligned-access.rhdl") open
+  lib("cores/common/vector/bundles.rhdl") open
+  lib("cores/common/cache/protocol.rhdl") open
+  lib("cores/common/load-store.rhdl") open
+  lib("cores/common/misaligned-access.rhdl") open
   lib("riscv/isa/xlen.rhm") open
   lib("riscv/rtl/hypervisor.rhdl") open
   lib("riscv/rtl/pointer-masking.rhdl") open

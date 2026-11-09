@@ -1,0 +1,153 @@
+#lang rhodium
+/* Computes conservative vector memory byte footprints without an element-address multiplier. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("cores/common/mmu/vector.rhdl") open
+  "bundles.rhdl" open
+  "decode.rhdl" open
+  "../../../riscv/isa/vector.rhm" open
+  "../../../riscv/isa/xlen.rhm" open
+  "../../../riscv/rtl/pointer-masking.rhdl" open
+  "../../../riscv/rtl/vector.rhdl".RiscvVectorState
+  lib("rhodium/std/bits.rhdl") open
+
+/* Retains widened byte-span arithmetic before pointer normalization and overflow checks. */
+bundle VectorFootprintGeometry():
+  eligible: Bool
+  empty: Bool
+  start_offset: Bits(68)
+  span_bytes: Bits(68)
+  eew: Bits(2)
+  reverse: Bool
+  strided: Bool
+
+/* Returns a conservative virtual byte range and optional certification eligibility. */
+bundle VectorFootprint():
+  eligible: Bool
+  empty: Bool
+  range: VectorRange()
+
+/* Carries the normalized start and overflow proof across a caller-selected pipeline boundary. */
+bundle VectorFastStart(xlen :: XLen):
+  address: Bits(xlen.width)
+  no_wrap: Bool
+
+/* Forms a forward or reverse footprint start without adding storage or changing pointer policy. */
+fun vector_fast_start(xlen :: XLen, base :: Bits(xlen.width), geometry :: VectorFootprintGeometry(), masking :: PointerMaskControl()) :~ VectorFastStart(xlen):
+  def offset = geometry.start_offset[0..xlen.width]
+  def raw = mux(geometry.reverse, base - offset, base + offset)
+  VectorFastStart(xlen):
+    address: apply_pointer_mask(xlen, raw, masking)
+    no_wrap: !geometry.start_offset[xlen.width..68].any() & mux(geometry.reverse, base >= offset, raw >= base) & (!geometry.strided ||| (masking.mode === PointerMaskMode.Disabled))
+
+/* Checks a prepared start for aligned one-page certification and expands it to whole memory beats.
+   Callers may register the start and geometry independently before this combinational step. */
+fun vector_fast_range(xlen :: XLen, start :: VectorFastStart(xlen), geometry :: VectorFootprintGeometry(), store :: Bool) :~ VectorFootprint():
+  def first = start.address.zext(64)
+  def last_offset = first[0..12].zext(14) + geometry.span_bytes[0..13].zext(14) - Bits(14)(1)
+  def one_page = (geometry.span_bytes <= Bits(68)(4096)) & (last_offset < Bits(14)(4096))
+  def aligned = !(first & ((Bits(64)(1) << geometry.eew) - Bits(64)(1))).any()
+  VectorFootprint():
+    eligible: geometry.eligible & start.no_wrap & one_page & aligned
+    empty: geometry.empty
+    range:
+      VectorRange():
+        first: first.align_down(xlen.width / 8)
+        last: (first[12..64] ++ last_offset[0..12]) ||| Bits(64)(xlen.width / 8 - 1)
+        store: store
+
+/* Multiplies by the constant-selected field count using shifts and additions. */
+fun vector_field_extent(value :: Bits(68), nf :: Bits(3)) :~ Bits(68):
+  mux_lookup(nf, ~default: value, [
+    [1, value << 1], [2, (value << 1) + value], [3, value << 2],
+    [4, (value << 2) + value], [5, (value << 2) + (value << 1)],
+    [6, (value << 3) - value], [7, value << 3]
+  ])
+
+/* Bounds contiguous or encoded-zero-stride memory, including whole-register and mask transfers. */
+fun vector_footprint_geometry(xlen :: XLen, vlen :: VectorLength, control :: VectorControl(), instruction :: Bits(32), state :: RiscvVectorState(xlen)) :~ VectorFootprintGeometry():
+  def whole = control.memory_mode === VectorMemoryMode.WholeRegister
+  def mask = control.memory_mode === VectorMemoryMode.Mask
+  def zero_stride = vector_zero_stride_load_parts(control, instruction)
+  def eew = mux(mask, Bits(2)(0), control.memory_data_eew)
+  def start = state.vstart.zext(68)
+  def whole_limit = vector_field_extent(Bits(68)(vlen / 8), control.memory_nf) >> eew
+  def limit = priority_mux(~default: state.vl.zext(68)):
+    whole: whole_limit
+    mask: (state.vl.zext(68) + Bits(68)(7)) >> 3
+
+  def nf = mux(whole ||| mask, Bits(3)(0), control.memory_nf)
+  VectorFootprintGeometry():
+    eligible: control.memory & ((control.memory_addressing === VectorMemoryAddressing.UnitStride) ||| zero_stride) & (control.memory_mode =/= VectorMemoryMode.FaultOnlyFirst)
+    empty: start >= limit
+    start_offset: mux(zero_stride, Bits(68)(0), vector_field_extent(start << eew, nf))
+    span_bytes: mux(zero_stride, Bits(68)(1) << eew, vector_field_extent((limit - start) << eew, nf))
+    eew: eew
+    reverse: Bool(#false)
+    strided: Bool(#false)
+
+/* Rounds a small dynamic stride magnitude up to a power-of-two envelope for optional
+   one-page proof. An overlarge envelope selects fallback without changing exact addresses. */
+fun vector_strided_fast_geometry(xlen :: XLen, vlen :: VectorLength, control :: VectorControl(), state :: RiscvVectorState(xlen), stride :: Bits(xlen.width)) :~ VectorFootprintGeometry():
+  def magnitude = mux(stride[xlen.width - 1].into(Bool), -stride, stride)
+  def small = magnitude[0..12]
+  def exponent = Bits(4)(12) - count_leading_zeros(small - Bits(12)(1))
+  def length = state.vl[0..index_width(vlen + 1)]
+  def steps = mux(length.any(), length - Bits(index_width(vlen + 1))(1), Bits(index_width(vlen + 1))(0))
+  def distance = mux(small.any(), steps.zext(68) << exponent, Bits(68)(0))
+  def eew = control.memory_data_eew
+  def alignment_mask = (Bits(xlen.width)(1) << eew) - Bits(xlen.width)(1)
+  def supported_mode = control.memory & (control.memory_addressing === VectorMemoryAddressing.Strided) & !control.memory_nf.any() & (control.memory_mode =/= VectorMemoryMode.FaultOnlyFirst)
+  def starts_at_zero = !state.vstart.any()
+  def stride_fits = !magnitude[12..xlen.width].any() ||| !steps.any()
+  def stride_aligned = !(stride & alignment_mask).any()
+  VectorFootprintGeometry():
+    eligible: supported_mode & starts_at_zero & stride_fits & stride_aligned
+    empty: !length.any()
+    start_offset: mux(stride[xlen.width - 1].into(Bool), distance, Bits(68)(0))
+    span_bytes: distance + (Bits(68)(1) << eew)
+    eew: eew
+    reverse: stride[xlen.width - 1].into(Bool)
+    strided: Bool(#true)
+
+/* Chooses the contiguous/splat or conservative dynamic-stride fast-check geometry. */
+fun vector_fast_footprint_geometry(xlen :: XLen, vlen :: VectorLength, control :: VectorControl(), instruction :: Bits(32), state :: RiscvVectorState(xlen), stride :: Bits(xlen.width)) :~ VectorFootprintGeometry():
+  def ordinary = vector_footprint_geometry(xlen, vlen, control, instruction, state)
+  def dynamic_stride = vector_strided_fast_geometry(xlen, vlen, control, state, stride)
+  mux((control.memory_addressing === VectorMemoryAddressing.Strided) & !vector_zero_stride_load_parts(control, instruction), dynamic_stride, ordinary)
+
+/* Normalizes a descriptor's range and admits only aligned, nonwrapping footprints within two
+   pages. */
+fun vector_footprint(xlen :: XLen, vlen :: VectorLength, descriptor :: VectorDescriptor(xlen), masking :: PointerMaskControl()) :~ VectorFootprint():
+  def geometry = vector_footprint_geometry(xlen, vlen, descriptor.control, descriptor.instruction, descriptor.state)
+  def first_raw = descriptor.scalar.zext(68) + geometry.start_offset
+  def last_raw = first_raw + geometry.span_bytes - Bits(68)(1)
+  def first_address = apply_pointer_mask(xlen, first_raw[0..xlen.width], masking)
+  def last_address = apply_pointer_mask(xlen, last_raw[0..xlen.width], masking)
+  def first = first_address.zext(64)
+  def last = last_address.zext(64)
+  def endpoints_fit = !first_raw[xlen.width..68].any() & !last_raw[xlen.width..68].any()
+  def normalized_span_unchanged = (last - first).zext(68) === (last_raw - first_raw)
+  def no_wrap = endpoints_fit & (first <= last) & normalized_span_unchanged
+  def aligned = (first & ((Bits(64)(1) << geometry.eew) - Bits(64)(1))) === Bits(64)(0)
+  def two_pages = (last[12..64] === first[12..64]) ||| (last[12..64] === (first[12..64] + Bits(52)(1)))
+  VectorFootprint():
+    eligible: geometry.eligible & no_wrap & aligned & two_pages
+    empty: geometry.empty
+    range:
+      VectorRange():
+        first: first
+        last: last
+        store: descriptor.control.store
+
+export:
+  VectorFastStart
+  vector_fast_start
+  vector_fast_range
+  VectorFootprintGeometry
+  vector_footprint_geometry
+  vector_fast_footprint_geometry
+  VectorFootprint
+  vector_field_extent
+  vector_footprint

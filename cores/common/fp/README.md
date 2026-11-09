@@ -1,0 +1,162 @@
+<!-- Defines shared FP control mappings, operand execution, and register-file contracts. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
+# Shared floating-point components
+
+`cores/common/fp/` provides reusable FP instruction/control mappings, a three-read,
+two-write register file, and tagged operand execution built on HardFloat.
+It does not own a core's issue policy, register hazards, retirement, or LSU.
+Contributors should read [DEVELOPING.md](DEVELOPING.md).
+
+## Get started
+
+Import only the components needed by the caller:
+
+```rhdl
+import:
+  lib("flow/main.rhdl") open
+  lib("cores/common/fp/bundles.rhdl") open
+  lib("cores/common/fp/execute.rhdl") open
+  lib("cores/common/fp/types.rhdl") open
+  lib("riscv/isa/fp-profile.rhm") open
+  lib("riscv/isa/xlen.rhm") open
+
+sync_circuit FpClient():
+  def Request = FpExecutionRequest(XLen.X64, FloatingPointProfile.D, Bits(8))
+  def Result = FpExecutionResult(XLen.X64, FloatingPointProfile.D, Bits(8))
+  interface request(Decoupled(Request), ~role: consumer)
+  interface result(Irrevocable(Result), ~role: producer)
+  inst execution(FpExecutionService(XLen.X64, FloatingPointProfile.D, Bits(8)))
+  request |> execution.request
+  execution.result |> result
+```
+
+See the repository [quick start](../../../README.md) for setup.
+
+## Operand execution
+
+[`FpExecutionService`](execute.rhdl) accepts three operand words,
+`FloatingPointControl`, an immediate index, a resolved rounding mode,
+and a caller-selected `Tag` type. A `Decoupled` transfer authorizes execution.
+`left` is `max(XLEN, FLEN)` bits: supply the first boxed FP source when
+`control.registers.uses_frs1` is true, otherwise the raw integer source for
+integer-to-FP conversions and moves. Select it before buffering the request.
+`right` and `third` remain independent FLEN-wide operands. Precision tags apply
+to FP sources, not to the raw integer interpretation of `left`.
+
+The default `Irrevocable` result retains its unchanged tag, one `value`,
+exception flags, and flag-update enable until consumed. `value` holds the
+selected integer result or NaN-boxed FP result in `max(XLEN, FLEN)` bits;
+the caller's retained destination metadata determines its interpretation.
+The numerical datapath selects that value before result storage, so integer
+and FP results share the same pipeline and completion-queue payload bits.
+
+The register-use and destination fields select numeric conversion direction;
+they never name, read, reserve, or write a register. Per-operand precision tags
+allow exact promotion of narrow vector operands alongside wide operands or
+fused addends. FP values use FLEN-wide RISC-V NaN boxing. Execution preserves
+canonical-NaN, rounding, and exception-flag semantics. Dynamic rounding-mode
+resolution and accrued architectural flags belong to the caller.
+
+Guaranteed transfer structure:
+
+```text
+decoded operands + opaque tag
+            |
+     fixed/variable dispatch
+       /              \
+ fixed arithmetic   divide/sqrt (retained terminal result)
+ selected fixed delay    |
+       \                /
+         completion arbitration -> tagged result
+```
+
+Divide/sqrt accepts one outstanding operation across all supported precisions.
+It holds the result and its tag through backpressure; a waiting request of
+another precision cannot launch on the edge that releases the current result.
+
+[`FpExecutionTiming`](timing.rhdl) supplies the execution and scheduling contract:
+single/half arithmetic, double arithmetic, and other fixed operations have
+independently configurable delays. Defaults preserve the current two-cycle
+return. Each fixed lane has initiation interval one. These are nonstallable delays around combinational arithmetic,
+not a claim of balanced arithmetic stages. Launch arbitration prevents two
+different-latency operations from claiming the same return cycle.
+The default service reserves `timing.maximum + 2` fixed-response slots and fairly merges
+fixed and variable completions into its held result. With
+`~scheduled_writeback: #true`, fixed results have no completion queue and must
+be consumed on their reserved return cycle. The caller must reserve writeback
+capacity before accepting the request. The scheduled output is `Decoupled`:
+a fixed return can preempt an unaccepted variable offer. Aging pauses new
+fixed launches so a blocked variable result can drain. Its
+`fixed_admission_available` output allows a scheduled caller to reserve the
+following cycle's launch without crossing that aging pause. The caller must
+also reserve service ownership and the return cycle; this output alone is not
+an admission grant.
+
+`authorization.rhdl` supplies `align_fp_authorization(source, timing, control,
+~elapsed: cycles)`. It delays each Valid owner by its fixed execution latency
+minus elapsed launch-to-authorization cycles, with no result buffering. The
+control projection returns `FloatExecutionControl()`. The caller must authorize at
+or before every fixed return and reserve collision-free return cycles; the
+helper does not grant issue or retirement permission.
+
+[`FpLaunchCalendar`](launch-calendar.rhdl) shares the booking mechanism for
+next-cycle scalar launches and fixed-return cycles. Scalar `book` is a Valid
+event after admission; vector bookings transfer atomically with launch.
+It exposes the registered launch reservation and prevents repeated scalar
+bookings from starving a waiting vector client. Callers still choose arbitration,
+completion buffering, architectural authorization, and physical register ports.
+
+Results may reorder across fixed latencies and variable paths. Use
+[`request.with_tag(To, tag)` and `result.with_tag(To, tag)`](bundles.rhdl) with ordinary
+Flow arbitration and tag-based routing to share the service. Tags remain
+opaque; the service has no client count, destination scoreboard, or
+architectural cancellation. Accepted work survives younger redirects.
+Synchronous reset discards pending work and results. Memory operations are
+not execution-service requests.
+
+## Register file and decode
+
+[`FloatingPointRegisterFile(profile)`](register-file.rhdl) stores 32 unreset
+FPRs, exposes three combinational reads and two `Valid` writes, and forwards
+same-cycle writes to reads. Write port 1 wins over port 0 if both target the
+same register, matching stored-state priority. The caller owns write-port
+allocation, hazards, and architectural initialization.
+
+[`fp_load_value` and `fp_store_value`](load-store.rhdl) NaN-box raw load bits
+and shape low-precision store bits. They own no memory request, reservation,
+permission, or retirement behavior.
+
+[`types.rhdl`](types.rhdl) defines precision, operation, register-use, and
+numeric controls without instruction tables. [`decode.rhdl`](decode.rhdl)
+maps canonical F/D/Zfhmin/Zfh/Zfa catalogs onto those types. Its partial
+relations retain don't-care fields; callers compose the case lists into their
+own complete decoder rather than instantiate parallel decoders.
+`FloatingPointInstructionDecoder` is available for standalone users.
+
+[`fp_scalar_metadata`](scalar-decode.rhdl) supplies scalar source/destination
+roles and FP load/store classification. Its `operands()` and
+`memory_control(Control)` methods return partial decode patterns, not hardware
+decoders; use the latter only for memory rows. Callers retain scalar writeback
+and resource-enable policy. Arithmetic ALU routing and store load-extension
+fields remain unconstrained.
+
+## Limits and integration
+
+[`fp_transport_profile(xlen)`](profile.rhm) selects the native shared-service
+transport shape: F for X32 and D for X64, including disabled adapters. This is
+independent of enabled ISA features; it does not enable F or D in a core profile.
+
+The extracted specialization contract remains disabled FP, RV32F, or RV64D,
+with optional Zfhmin, Zfh, and Zfa. `profile.rhm` checks those component
+capabilities without importing named-core configuration. This extraction does
+not add RV32D or RV64F service specializations.
+
+Architectural instruction descriptions and stateless FP helpers remain in
+[`riscv/`](../../../riscv/README.md); numeric primitives remain in
+[`hardfloat/`](../../../hardfloat/README.md). RV5Stage's
+[scalar wrapper](../../rv5stage/fp/README.md) owns its FPR scoreboard, scalar/vector
+reservations, LSU adaptation, and retirement policy. The superscalar
+[wrapper](../../superscalar/fp.rhdl) owns two-wide scheduling and authorization
+for RV2Wide and RV3Wide.
+Both reuse the same execution, storage, and fixed-owner alignment components.

@@ -4,7 +4,7 @@
 # Developing RV5Stage instruction-memory contracts
 
 Read [README.md](README.md) for the attachment and
-the [shared L1I guide](../../cache/l1i/DEVELOPING.md) for physical cache changes.
+the [shared L1I guide](../../common/cache/l1i/DEVELOPING.md) for physical cache changes.
 
 `protocol.rhdl` owns RV5Stage's S0/S2 fetch interface, S1 translated lookup,
 32-bit instruction response, page faults, and optional guest provenance.

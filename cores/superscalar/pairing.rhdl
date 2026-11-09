@@ -4,10 +4,10 @@
 
 import:
   "decode/core-ctrl.rhdl".SuperscalarControl
-  lib("cores/operand.rhdl") open
-  lib("cores/alu.rhdl").AluResultSelect
+  lib("cores/common/operand.rhdl") open
+  lib("cores/common/alu.rhdl").AluResultSelect
   "decode/system-ctrl.rhdl" open
-  lib("cores/cache/operation.rhdl").CacheOperation
+  lib("cores/common/cache/operation.rhdl").CacheOperation
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/isa/rv32i.rhm") as rv32
   lib("riscv/model/formats.rhm") as fields

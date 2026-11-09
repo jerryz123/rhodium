@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../udb.rhm" open
+  "../common/udb.rhm" open
   "../../support/annotations.rhm".NonemptyString
   "../../riscv/udb.rhm" open
   "../../riscv/isa/xlen.rhm".XLen

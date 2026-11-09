@@ -11,7 +11,7 @@ import:
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/isa/c.rhm" open
   "../../../riscv/rtl/pma.rhdl" open
-  "../../cache/geometry.rhdl" as cache
+  "../../common/cache/geometry.rhdl" as cache
   "../chi/foundation.rhdl" as chi
   "../profile.rhm" as core_profile
   "../rv5stage.rhdl" as rv5stage

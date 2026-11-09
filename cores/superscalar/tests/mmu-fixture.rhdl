@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/mmu/context.rhdl").RiscvTranslationState
+  lib("cores/common/mmu/context.rhdl").RiscvTranslationState
   lib("riscv/rtl/trap.rhdl").ExceptionCause
   lib("riscv/rtl/hypervisor.rhdl") open
   lib("riscv/rtl/pointer-masking.rhdl") open
@@ -12,16 +12,16 @@ import:
   "../memory/translation-sv39.rhdl".SuperscalarSv39Specialization
   "../bundles.rhdl" open
   "cache-fixture.rhdl" open
-  "../../cache/protocol.rhdl" open
-  "../../cache/operation.rhdl" open
-  "../../cache-prefetch.rhdl" open
+  "../../common/cache/protocol.rhdl" open
+  "../../common/cache/operation.rhdl" open
+  "../../common/cache-prefetch.rhdl" open
   lib("riscv/rtl/atomic.rhdl") open
   lib("riscv/rtl/svpbmt.rhdl") open
   lib("riscv/rtl/zihintntl.rhdl") open
-  "../../load-store.rhdl" open
+  "../../common/load-store.rhdl" open
   lib("riscv/rtl/privilege.rhdl") open
   lib("riscv/isa/xlen.rhm") open
-  lib("cores/mmu/vector.rhdl") open
+  lib("cores/common/mmu/vector.rhdl") open
 
 sync_circuit SuperscalarMmuFixture(~bare: bare :: Boolean = #false):
   input privilege: Bits(2)

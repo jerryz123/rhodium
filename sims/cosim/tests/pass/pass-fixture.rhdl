@@ -4,7 +4,7 @@ import:
   lib("rhodium/compile/program.rhm").compile_program
   lib("rhodium/compile/rtl.rhm").rtl_target
   lib("flow/main.rhdl") open
-  "../../../../cores/cosim-source.rhm" open
+  "../../../../cores/common/cosim-source.rhm" open
 
 dpi_import procedure cosim_test_sample(instance: Bits(64), value: Bits(8))
 dpi_import procedure cosim_test_functional(value: Bits(8))

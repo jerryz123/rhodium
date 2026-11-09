@@ -132,7 +132,7 @@ workload passes.
 ## Experimental hypervisor integration
 
 Standalone `RV5StageCore` publishes `translation_state` using shared
-`RiscvTranslationState(xlen)` from `cores/mmu/context.rhdl`; connect it to the
+`RiscvTranslationState(xlen)` from `cores/common/mmu/context.rhdl`; connect it to the
 MMU's `state` input. It carries live committed CSR and pointer-mask controls,
 with zero guest state when H is disabled. `translation_flush` remains separate.
 The composed `RV5Stage` connects both automatically. Instruction-specific
@@ -279,7 +279,7 @@ naturally aligned reservation set to **at most** 64 bytes, not exactly 64.
 RV5Stage reserves the naturally aligned LR access (4 bytes for LR.W, 8 for
 RV64 LR.D) and requires SC to match its physical address and width. Conservative
 same-line invalidations may also cause SC failure; the
-[L1D reservation contract](../cache/l1d/README.md#lrsc-reservation) describes them.
+[L1D reservation contract](../common/cache/l1d/README.md#lrsc-reservation) describes them.
 This size guarantee does not establish Ziccrse's LR/SC forward-progress guarantee.
 
 Profile-derived device trees advertise `zic64b` and `za64rs`. UDB includes their
@@ -419,7 +419,7 @@ translation, permissions, ordering, or coherence. It expresses architectural
 intent, not a cache policy. L1D currently interprets every non-default selector
 as non-allocating on ordinary load misses, using its coherent transaction buffer;
 hits and stores retain their existing behavior. See the
-[L1D policy](../cache/l1d/README.md#miss-acquisition-and-replacement-flow) for ordering,
+[L1D policy](../common/cache/l1d/README.md#miss-acquisition-and-replacement-flow) for ordering,
 resident-line preservation, and outer-cache limits.
 
 ## Pipeline event tracing
@@ -427,7 +427,7 @@ resident-line preservation, and outer-cache limits.
 The core carries metadata-only checkpoints named `core/s2.decode`,
 `core/s3.execute`, `core/s4.memory`, and `core/s5.wb`. Ordinary elaboration does not add
 counters or DPI calls; `TRACE=1` instruments the selected SoC elaboration.
-The [RV5Stage SoC trace mode](../../sims/README.md#export-rv5stage-soc-events-to-perfetto)
+The [SoC trace mode](../../sims/README.md#export-soc-events-to-perfetto)
 includes these sites automatically. Stage-number prefixes keep their names in
 pipeline order when sorted lexicographically.
 
@@ -636,7 +636,7 @@ scoreboards and a completion arbiter.
 
 The execution core consumes `packets: Decoupled(RV5StageFetchPacket(xlen, hypervisor))` and supplies
 `frontend_control` for activity, redirects, invalidation, and predictor training.
-PCs follow the fixed [RV32/Sv39 compact-PC contract](../README.md#compact-pc-storage).
+PCs follow the fixed [RV32/Sv39 compact-PC contract](../common/README.md#compact-pc-storage).
 The scanner, packet queue and instruction buffer use that same packet type;
 address, fault flags and prediction are scalar/member views, not an expanded
 second packet. RV64, including H, stores 39-bit successful PCs with full fault
@@ -869,7 +869,7 @@ accepted S0 parent; MMU walks and predictor/redirect causality remain unmodeled.
 
 `RV5Stage` and `RV5StageFrontend` accept a positive `~btb_entries` (default 32)
 and `~ras_entries` (default 6, zero disables return prediction). The
-fully associative shared [BTB](../bpred/btb.rhdl) stores 14 low address bits and
+fully associative shared [BTB](../common/bpred/btb.rhdl) stores 14 low address bits and
 references one of eight shared upper-address tags for both its instruction PC
 and target. This preserves exact full-address matching while compacting entries.
 Entries also retain instruction lengths, return-stack actions, and
@@ -880,7 +880,7 @@ slots are allocated first, then round-robin replacement is used. The RAS
 capacity is independently selectable. No global history or separate direction
 table is present.
 
-The shared [RAS](../bpred/ras.rhdl) follows the RISC-V `x1`/`x5` implicit call and
+The shared [RAS](../common/bpred/ras.rhdl) follows the RISC-V `x1`/`x5` implicit call and
 return hints, including the pop-then-push coroutine case. Calls push their two-
 or four-byte sequential PC; return BTB hits use the stack head and fall back to
 the BTB target when the stack is empty. On a BTB miss, fault-free S2 fetch data
@@ -947,7 +947,7 @@ deferred instructions still crossing ID/EX or EX/MEM. Independent younger
 instructions may proceed while a load, multiply, divide, or FP result remains
 outstanding. D-cache slow responses remain ordered. During an ordinary demand
 miss, independent pipeline loads may hit other cache sets; stores, second
-misses, and conflicting accesses replay. See the [hit-under-miss contract](../cache/l1d/README.md#load-hits-under-a-miss).
+misses, and conflicting accesses replay. See the [hit-under-miss contract](../common/cache/l1d/README.md#load-hits-under-a-miss).
 
 A data request never carries downstream readiness back through EX/MEM. If WB
 cannot dispatch it because of a DTLB miss, walker ownership, cache pressure, or
@@ -963,9 +963,9 @@ instruction-kind enum or parallel runtime decoders. Unused controls remain
 synthesis don't-cares behind a separate valid bit.
 
 Standard B and Zicond operations reuse the shared combinational
-[`ALU`](../alu.rhdl). Zba, Zbb, Zbs, and Zicond add no second decoder, execution
+[`ALU`](../common/alu.rhdl). Zba, Zbb, Zbs, and Zicond add no second decoder, execution
 unit, pipeline state, reservation, or scoreboard path. A operations use the
-semantic memory machinery in [`memory.rhdl`](../cache/operation.rhdl) and return through the
+semantic memory machinery in [`memory.rhdl`](../common/cache/operation.rhdl) and return through the
 same deferred path as loads.
 
 CSR instructions return the old value and update state atomically at WB. System
@@ -973,7 +973,7 @@ instructions other than pure CSR reads and `vset*` serialize in Decode and wait 
 work before entering the pipeline. Vector configuration instead commits in
 order at WB after EX computes and bypasses its resulting state to following
 vector instructions or configurations, without draining older vector execution.
-Pure reads use the [shared CSR ordering policy](../csr/README.md#pure-reads-and-ordering):
+Pure reads use the [shared CSR ordering policy](../common/csr/README.md#pure-reads-and-ordering):
 they sample at WB without draining unrelated memory or restarting Fetch.
 Consumers wait for WB write-to-ID forwarding, while status reads wait only
 for relevant older implicit FP/vector updates. Denied reads, even with `rd=x0`,
@@ -1040,7 +1040,7 @@ physical-memory map and `CHIHomeMap`, preventing permissions, cacheability, and
 CHI routing from describing different address ranges. Cache transactions decode
 their address once and retain the selected HN-F NodeID through retry, data, and
 completion acknowledgement. The reusable
-[`cores/chi-hart.rhdl`](../chi-hart.rhdl) contract owns attachment
+[`cores/common/chi-hart.rhdl`](../common/chi-hart.rhdl) contract owns attachment
 configuration and identity; the [RV5Stage CHI contract](chi/README.md) owns the
 core-specific transaction behavior.
 
@@ -1239,14 +1239,14 @@ immutable BootROM can opt in independently and fill L1I with 64-byte HN-I
 `ReadNoSnp` requests; PBMT-overridden coherent RAM uses nonallocating `ReadOnce`
 instead, preserving its physical coherence domain. All executable regions must
 be read-idempotent. See the
-[shared instruction-cache contract](../cache/l1i/README.md). RV5Stage selects
+[shared instruction-cache contract](../common/cache/l1i/README.md). RV5Stage selects
 32-bit fetch blocks and adapts the physical result in its memory router.
 L1D is a single-miss write-back/
 write-allocate cache supporting loads, stores, LR/SC, and AMOs, with independent
 pipeline load hits permitted under ordinary demand misses. All
 non-cacheable instruction and data requests arbitrate onto the same
 one-outstanding RN-I engine. Non-cacheable data operations first enter a
-single-entry [IO-MSHR](../cache/README.md#non-cacheable-service), independently
+single-entry [IO-MSHR](../common/cache/README.md#non-cacheable-service), independently
 of an active instruction fetch. Its retained request takes priority at the
 next engine arbitration and survives instruction flushes. The slot remains
 occupied until completion; cached and uncached data demands cannot pass each
@@ -1298,15 +1298,15 @@ replacement, refill, dirty writeback, snoop behavior, DVM handling, and CHI
 response stability are specified by the subsystem documents:
 
 - [`icache/README.md`](icache/README.md) — named fetch metadata and shared-L1I attachment
-- [`../cache/l1i/README.md`](../cache/l1i/README.md) — nonsnooping instruction-cache implementation
-- [`../cache/README.md`](../cache/README.md) — shared physical protocols, write-back L1D, and uncached service
+- [`../common/cache/l1i/README.md`](../common/cache/l1i/README.md) — nonsnooping instruction-cache implementation
+- [`../common/cache/README.md`](../common/cache/README.md) — shared physical protocols, write-back L1D, and uncached service
 - [`mmu/README.md`](mmu/README.md) — Sv39 translation and L1D walker arbitration
 - [`chi/README.md`](chi/README.md) — shared CHI configuration, cache transaction
   engines, snoop handling, and uncached RN-I access
 
 ## Privileged and architectural state
 
-The shared [CSR/trap bank](../csr/README.md) owns user, machine, and supervisor CSRs, current
+The shared [CSR/trap bank](../common/csr/README.md) owns user, machine, and supervisor CSRs, current
 privilege, trap entry, interrupt selection, and `MRET`/`SRET`. FP profiles add
 the aliased `fflags`, `frm`, and `fcsr` views, `mstatus.FS` state, and derived
 `SD`. The `csr_bank` declaration is the single source for recognized IDs, read

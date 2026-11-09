@@ -1,0 +1,10 @@
+#lang rhombus
+// Defines a program for the reusable eight-bit iterative divider fixture.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  "../../divider.rhdl" as divider
+
+def program = elaborate(divider.IterativeDivider(8))
+export program

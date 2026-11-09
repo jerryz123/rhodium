@@ -15,7 +15,7 @@ COMMON = (
     'socs/configs/isa-profiles.rhm', 'socs/harts/implementation.rhdl',
     'socs/platform/description.rhm', 'socs/platform/endpoint-params.rhdl',
     'socs/platform/fabric-profiles.rhm', 'socs/platform/boot.rhdl', 'socs/platform/peripherals.rhdl',
-    'cores/chi-hart.rhdl', 'devicetree/*.rhm', 'riscv/isa/*.rhm', 'riscv/model/*.rhm',
+    'cores/common/chi-hart.rhdl', 'devicetree/*.rhm', 'riscv/isa/*.rhm', 'riscv/model/*.rhm',
     'riscv/udb*.rhm', 'riscv/rtl/pma.rhdl', 'support/*.rhm',
     'rhodium/main.rkt', 'rhodium/language.rhm', 'rhodium/core/*.rhm', 'rhodium/std/bits.rhdl',
     'rhodium/std/interconnect.rhdl', 'rhodium/base/**/*.rkt', 'rhodium/base/**/*.rhm',
@@ -30,10 +30,10 @@ SHAPES = {
     'simple': (*ONE_HART, 'socs/single-core-soc/main.rhdl'),
     'tiled': ('socs/tiled-soc/main.rhdl', 'socs/tiled-soc/layout.rhm', 'noc/std/topology/rectangular-mesh.rhm'),
 }
-RTL_PROFILE = ('cores/profile.rhm', 'cores/udb.rhm', 'cores/cache/config.rhm', 'cores/csr/config.rhm',
-               'cores/vector/profile.rhm', 'cores/fp/profile.rhm', 'cores/cache/udb.rhm', 'cores/csr/udb.rhm',
-               'cores/vector/udb.rhm', 'cores/mmu/udb.rhm', 'cores/cache/chi/attachment.rhdl',
-               'cores/cache/chi/flits.rhdl', 'chi/transactions/retryable-transaction.rhdl',
+RTL_PROFILE = ('cores/common/profile.rhm', 'cores/common/udb.rhm', 'cores/common/cache/config.rhm', 'cores/common/csr/config.rhm',
+               'cores/common/vector/profile.rhm', 'cores/common/fp/profile.rhm', 'cores/common/cache/udb.rhm', 'cores/common/csr/udb.rhm',
+               'cores/common/vector/udb.rhm', 'cores/common/mmu/udb.rhm', 'cores/common/cache/chi/attachment.rhdl',
+               'cores/common/cache/chi/flits.rhdl', 'chi/transactions/retryable-transaction.rhdl',
                'chi/transactions/cache-maintenance.rhdl')
 CORES = {
     'rv5stage': (*RTL_PROFILE, 'socs/configs/core-profiles.rhm', 'cores/rv5stage/chi/foundation.rhdl'),

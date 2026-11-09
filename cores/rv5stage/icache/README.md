@@ -5,7 +5,7 @@
 
 This directory owns RV5Stage's fetch attempt, translation, and fault metadata
 in [`protocol.rhdl`](protocol.rhdl). The physical cache lives in
-[`cores/cache/l1i/`](../../cache/l1i/README.md). Contributors should read
+[`cores/common/cache/l1i/`](../../common/cache/l1i/README.md). Contributors should read
 [DEVELOPING.md](DEVELOPING.md).
 
 RV5Stage directly instantiates `L1ICache` with `~fetch_bits: 32` for both XLENs.

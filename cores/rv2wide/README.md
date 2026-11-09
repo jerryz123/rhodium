@@ -14,7 +14,7 @@ there. Read [DEVELOPING.md](DEVELOPING.md) for contributor routing.
 import:
   lib("cores/rv2wide/rv2wide.rhdl").RV2Wide
   lib("cores/rv2wide/profile.rhm").RV2WideConfig
-  lib("cores/cache/config.rhm").CacheConfig
+  lib("cores/common/cache/config.rhm").CacheConfig
 
 inst core(RV2Wide(CacheConfig(64, 2), ~chi: config))
 ```

@@ -6,7 +6,7 @@ import:
   "issue.rhdl".RV2WideIssue
   "profile.rhm" open
   "../superscalar/superscalar.rhdl".Superscalar
-  "../chi-hart.rhdl" open
+  "../common/chi-hart.rhdl" open
   lib("riscv/rtl/interrupt.rhdl").RiscvInterrupts
   lib("flow/main.rhdl") open
   lib("chi/protocol/channels.rhdl") open

@@ -1,0 +1,388 @@
+#lang rhodium
+/* Writes scheduled or accepted variable results directly and reclaims ownership metadata in
+   order. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("cores/common/fp/profile.rhm").fp_transport_profile
+  lib("cores/common/integer-execution.rhdl") open
+  lib("cores/common/register-write.rhdl") open
+  "../fp/bundles.rhdl" open
+  lib("cores/common/vector-layout.rhm") open
+  lib("rhodium/std/bits.rhdl").Pow2Int
+  lib("rhodium/std/bits.rhdl").expand_mask
+  lib("rhodium/std/bits.rhdl").wrap_increment
+  "bundles.rhdl" open
+  "slots.rhdl" open
+  "muldiv.rhdl" open
+  "../simd-multiplier.rhdl".SimdMultiplyResult
+  "../simd-alu.rhdl".SimdElementWidth
+  "../divider.rhdl" open
+  "register-file.rhdl" open
+  "../fp/register-file.rhdl".FloatingPointRegisterWrite
+  "../../../riscv/isa/vector.rhm" open
+  "../../../riscv/isa/xlen.rhm" open
+  lib("flow/main.rhdl") open
+
+/* Stores byte enables or a singleton FP mask enable, reusing the beat's bit position.
+   Arbitrary immediate mask writes bypass this retained representation. */
+bundle VectorCompletionWrite(xlen :: XLen, vlen :: VectorLength):
+  address: Bits(index_width(VectorRegisterLayout(vlen, xlen.width).depth))
+  data: Bits(xlen.width)
+  bytes: Mask(vector_word_bytes(xlen))
+  bit_enabled: Bool
+
+  /* Restores the physical bit mask at a delayed result's existing writeback boundary. */
+  method expand(write, mask_destination :: Bool, shift :: Bits(vector_bit_offset_width(xlen))) :: VectorRegisterWrite(xlen, vlen):
+    VectorRegisterWrite(xlen, vlen):
+      address: write.address
+      data: write.data
+      mask: mux(mask_destination, write.bit_enabled.as_bits().zext(xlen.width) << shift, expand_mask(write.bytes.as_bits(), 8))
+
+/* Writes scheduled local results and accepted service/load returns directly into the sole VRF
+   port.
+   Persistent slots retain routing and destination metadata, not completed result data;
+   actual writes may finish out of order while metadata is reclaimed in allocation order. */
+sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_completion_slots :: Pow2Int, ~fixed_multiply: fixed_multiply :: Boolean = #false):
+  def tag_width = index_width(vector_completion_slots)
+  def InstructionId = Bits(tag_width)
+  def SlotId = Bits(tag_width)
+  def Result = VectorOwnedResult(xlen, vlen, vector_completion_slots)
+  def fp_profile = fp_transport_profile(xlen)
+  interface reserve(Valid(VectorSlotAllocation(vector_completion_slots)), ~role: consumer)
+  interface compute_maturity(Valid(Result), ~role: consumer)
+  interface memory_attempt(Valid(Result), ~role: consumer)
+  interface decision(Valid(VectorCommit(xlen, vector_completion_slots)), ~role: consumer)
+  interface response(Decoupled(VectorCompletion(xlen, vector_completion_slots)), ~role: consumer)
+  interface store_completed(Valid(SlotId), ~role: consumer)
+  interface packed_accept(Valid(SlotId), ~role: consumer)
+  interface packed_release(Pulse(), ~role: consumer)
+  interface replay(Pulse(), ~role: consumer)
+  input(reserved_write, fixed_fp_return): Bool
+  output compute_writeback: Bool
+  interface fp_result(Decoupled(FpExecutionResult(xlen, fp_profile, SlotId)), ~role: consumer)
+  interface multiply_result(Irrevocable(IntegerExecutionResult(Bits(xlen.width * 2), VectorMultiplyTag(vector_completion_slots))), ~role: consumer)
+  interface simd_result(Valid(IntegerExecutionResult(SimdMultiplyResult(xlen.width), SlotId)), ~role: consumer)
+  interface divide_result(Irrevocable(IntegerExecutionResult(DividerResponse(xlen.width), VectorDivideTag(vector_completion_slots))), ~role: consumer)
+  interface drained(Valid(VectorDrained(xlen, vlen, vector_completion_slots)), ~role: producer)
+  interface write(Valid(VectorRegisterWrite(xlen, vlen)), ~role: producer)
+  interface fp_update(Valid(Bits(5)), ~role: producer)
+  interface saturate(Pulse(), ~role: producer)
+  interface scalar_result(Valid(RegisterFileWrite(xlen)), ~role: producer)
+  interface floating_result(Valid(FloatingPointRegisterWrite(fp_profile)), ~role: producer)
+  output state: Vec(vector_completion_slots, VectorSlotState(xlen, vlen, vector_completion_slots))
+  output(allocate_slot, accept_slot, drain_slot): SlotId
+
+
+  /* Persistent ownership and allocation/acceptance/drain frontiers. */
+
+  reg entry_packed(Vec(vector_completion_slots, Bool))
+  reg entry_owner(Vec(vector_completion_slots, InstructionId))
+  reg entry_write_address(Vec(vector_completion_slots, Bits(index_width(VectorRegisterLayout(vlen, xlen.width).depth))))
+  reg entry_writes(Vec(vector_completion_slots, Bool))
+  // Slots retain ownership before issue, not completed result payloads.
+  // Tags identify these slots; scalar rd never encodes vector element position.
+  inst slots(VectorSlots(vector_completion_slots))
+  def allocated = slots.allocated
+  def authorized_slots = slots.accepted
+  reg completed(~init: Bits(vector_completion_slots)(0).as_vec(Bool))
+  def RetainedWrite = VectorCompletionWrite(xlen, vlen)
+  reg retained_entries(Vec(vector_completion_slots, VectorResultBeat(xlen, vlen, RetainedWrite)))
+
+  /* Selects compact storage before decoding its byte or singleton-bit mask. */
+  fun entry_at(slot :: Bits(tag_width)) :: VectorResultBeat(xlen, vlen, VectorRegisterWrite(xlen, vlen)):
+    def retained = retained_entries[slot]
+    retained.with_write(VectorRegisterWrite(xlen, vlen), retained.write.expand(retained.mask_destination, retained.shift))
+
+  reg drain_cursor(~init: Bits(index_width(vector_completion_slots))(0))
+  reg allocate_cursor(~init: Bits(index_width(vector_completion_slots))(0))
+  reg accept_cursor(~init: Bits(index_width(vector_completion_slots))(0))
+  replay |> slots.replay
+
+
+  /* Compute and memory resolution context */
+
+  def memory_accepted = decision.valid & (decision.bits.disposition === VectorDisposition.Authorized)
+  def Array(local_compute, scalar_compute, floating_compute) = compute_maturity |> fork_valid(3)
+  def Array(hit_attempt, accepted_attempt) = memory_attempt |> fork_valid(2)
+  def compute_result = compute_maturity.bits
+  def compute_beat = compute_result.beat
+  def compute_tag = compute_result.tag
+  def memory_result = memory_attempt.bits
+  def memory_beat = memory_result.beat
+  def element_resolved = compute_maturity.valid ||| memory_accepted
+  def resolution_tag = mux(compute_maturity.valid, compute_tag, memory_result.tag)
+  def resolution_beat :: VectorResultBeat(xlen, vlen, VectorRegisterWrite(xlen, vlen)) = mux(compute_maturity.valid, compute_beat, memory_beat)
+  def retained_write = VectorCompletionWrite(xlen, vlen):
+    address: resolution_beat.write.address
+    data: resolution_beat.write.data
+    bytes: vec(for List (byte in 0..vector_word_bytes(xlen)): resolution_beat.write.mask[byte * 8]).as_bits().into(Mask(vector_word_bytes(xlen)))
+    bit_enabled: resolution_beat.write.mask.any()
+
+  def retain_result = element_resolved & (resolution_beat.memory ||| resolution_beat.fp_execute ||| resolution_beat.multiply_divide)
+  when retain_result:
+    assert(retained_write.expand(resolution_beat.mask_destination, resolution_beat.shift).mask === resolution_beat.write.mask, "vector_retained_write_mask_is_lossless")
+
+
+  /* Completion order is independent of metadata reclamation. Slow loads wait
+     at their producer; a hit owns the cycle reserved before its lookup. */
+
+  def multiply_entry = entry_at(multiply_result.bits.tag.slot)
+  def multiply_completion = vector_multiply_value(xlen, vector_completion_slots, multiply_result.bits, multiply_entry.write.data, multiply_entry.multiply_accumulate, multiply_entry.multiply_subtract)
+  def fp_entry = entry_at(fp_result.bits.tag)
+  def fp_arrival_data = mux(fp_entry.mask_destination, fp_result.bits.value[0].as_bits().zext(xlen.width), fp_result.bits.value)
+
+  def compute_completes_now = !compute_beat.fp_execute & !compute_beat.multiply_execute
+
+  /* Normalizes one winning result's retained slot, owner, write policy, flags, and saturation. */
+  bundle Writeback():
+    tag: SlotId
+    beat: VectorResultBeat(xlen, vlen, VectorRegisterWrite(xlen, vlen))
+    owner: InstructionId
+    data: Bits(xlen.width)
+    flags: Bits(5)
+    saturated: Bool
+
+
+  /* Writeback arbitration and result reconstruction
+     Nonstallable local results and hits keep their reserved cycles; variable returns wait at their producers. */
+
+  def local_result = local_compute |> filter_valid(_result => compute_completes_now) |> map_valid(result => Writeback()):
+    tag: result.tag
+    beat: result.beat
+    owner: result.owner
+    data: result.beat.write.data
+    flags: Bits(5)(0)
+    saturated: result.beat.saturated
+
+  def hit_valid = memory_accepted & !decision.bits.slow
+  def packed_multiplication = simd_result |> map_valid(result => Writeback()):
+    tag: result.tag
+    beat: entry_at(result.tag)
+    owner: entry_owner[result.tag]
+    data: result.value.data
+    flags: Bits(5)(0)
+    saturated: (expand_mask(result.value.saturated.as_bits(), 8) & entry_at(result.tag).write.mask).any()
+
+  def multiply_write_available = !local_result.valid & !hit_valid & !packed_multiplication.valid & (Bool(fixed_multiply) ||| !reserved_write)
+  def multiplication = multiply_result |> gate_flow(multiply_write_available) |> to_valid() |> map_valid(result => Writeback()):
+    tag: result.tag.slot
+    beat: entry_at(result.tag.slot)
+    owner: entry_owner[result.tag.slot]
+    data: multiply_completion.data
+    flags: Bits(5)(0)
+    saturated: multiply_completion.saturated
+
+  def fp_write_available = !local_result.valid & !hit_valid & !packed_multiplication.valid & !multiplication.valid & (fixed_fp_return ||| !reserved_write)
+  def floating = fp_result |> gate_flow(fp_write_available) |> to_valid() |> map_valid(result => Writeback()):
+    tag: result.tag
+    beat: entry_at(result.tag)
+    owner: entry_owner[result.tag]
+    data: fp_arrival_data
+    flags: mux(result.exception_flags_valid, result.exception_flags, Bits(5)(0))
+    saturated: Bool(#false)
+
+  def divide_write_available = !local_result.valid & !hit_valid & !packed_multiplication.valid & !multiplication.valid & !floating.valid & !reserved_write
+  def division = divide_result |> gate_flow(divide_write_available) |> to_valid() |> map_valid(result => Writeback()):
+    tag: result.tag.slot
+    beat: entry_at(result.tag.slot)
+    owner: entry_owner[result.tag.slot]
+    data: vector_divide_value(xlen, vector_completion_slots, result)
+    flags: Bits(5)(0)
+    saturated: Bool(#false)
+
+  def compute_arrival = local_result.valid ||| packed_multiplication.valid ||| multiplication.valid ||| floating.valid ||| division.valid
+  def hit_result = hit_attempt |> filter_valid(_result => hit_valid) |> map_valid(result => Writeback()):
+    tag: result.tag
+    beat: result.beat
+    owner: result.owner
+    data: decision.bits.data
+    flags: Bits(5)(0)
+    saturated: Bool(#false)
+
+  // Slow store acknowledgements also write no VRF data. Reclaim their metadata
+  // independently, including alongside a scheduled compute or packed return.
+  def Array(data_response, acknowledgement) = response |> demux_flow(2, result => !entry_at(result.tag).write.mask.any())
+  def acknowledged = acknowledgement |> to_valid()
+  def slow_write_available = !compute_arrival & !hit_valid & !reserved_write
+  def slow_result = data_response |> gate_flow(slow_write_available) |> to_valid() |> map_valid(result => Writeback()):
+    tag: result.tag
+    beat: entry_at(result.tag)
+    owner: entry_owner[result.tag]
+    data: result.data
+    flags: Bits(5)(0)
+    saturated: Bool(#false)
+
+  compute_writeback <== compute_arrival ||| hit_valid ||| slow_result.valid
+
+
+  /* Accepted-load lineage
+     Each outstanding slot retains a separate occurrence until its returned result writes. */
+
+  def accepted_memory = accepted_attempt |> filter_valid(result => memory_accepted & decision.bits.slow & result.beat.write.mask.any())
+  def accepted_per_slot = accepted_memory |> fork_valid(vector_completion_slots)
+  def memory_results = for Array (slot in 0..vector_completion_slots):
+    def tag = Bits(tag_width)(slot)
+    def capture = accepted_per_slot[slot] |> filter_valid(operation => operation.tag === tag)
+    def returned = inject_interface(Valid(Writeback()), ~valid: slow_result.valid & (slow_result.bits.tag === tag), ~bits: slow_result.bits)
+    def name = "memory-result-" ++ to_string(slot)
+    describe_interface_retained_storage(capture.valid, returned.valid, authorized_slots[slot] & retained_entries[slot].memory & !completed[slot], ~name: name)
+    describe_interface_contract(capture, returned, name, ~trace_model: interface_trace_retained(~name: name))
+    returned
+
+
+  /* Winning completion and ordered drain qualification */
+
+  def memory_writeback = memory_results |> valid_arbiter()
+  def writeback = Array(local_result, packed_multiplication, multiplication, floating, division, hit_result, memory_writeback) |> valid_arbiter()
+  def finished = writeback |> trace_valid_event("vector/complete", ~fields: operation):
+    packed: Bool(#false)
+    destination(~format: "unsigned"): operation.beat.destination
+    write_enabled: operation.beat.write.mask.any()
+
+  def finishing_head = finished.valid & (finished.bits.tag === drain_cursor)
+  def drain = !entry_packed[drain_cursor] & ((authorized_slots[drain_cursor] & completed[drain_cursor]) ||| finishing_head)
+
+
+  /* Each accepted slot completes at most once, regardless of response order. */
+
+  when (response.fire()):
+    assert(authorized_slots[response.bits.tag], "vector_response_has_authorized_owner")
+    assert(!completed[response.bits.tag], "vector_response_completes_once")
+
+  when (store_completed.valid):
+    assert(authorized_slots[store_completed.bits] & !completed[store_completed.bits], "vector_store_completion_has_unique_authorized_owner")
+
+  when (fp_result.fire()):
+    assert(authorized_slots[fp_result.bits.tag] & retained_entries[fp_result.bits.tag].floating_point, "vector_fp_result_has_authorized_owner")
+    assert(!completed[fp_result.bits.tag], "vector_fp_result_completes_once")
+
+  when (multiply_result.fire()):
+    assert(authorized_slots[multiply_result.bits.tag.slot] & retained_entries[multiply_result.bits.tag.slot].multiply_divide & !retained_entries[multiply_result.bits.tag.slot].divide, "vector_multiply_result_has_authorized_owner")
+    assert(!completed[multiply_result.bits.tag.slot], "vector_multiply_result_completes_once")
+
+  when (simd_result.valid):
+    assert(reserved_write & !local_result.valid & !hit_valid & !multiply_result.fire() & !fp_result.fire(), "vector_packed_multiply_has_exclusive_reserved_write")
+    assert(authorized_slots[simd_result.bits.tag] & retained_entries[simd_result.bits.tag].multiply_execute, "vector_packed_multiply_has_authorized_owner")
+    assert(!completed[simd_result.bits.tag], "vector_packed_multiply_completes_once")
+
+  when (divide_result.fire()):
+    assert(authorized_slots[divide_result.bits.tag.slot] & retained_entries[divide_result.bits.tag.slot].multiply_divide & retained_entries[divide_result.bits.tag.slot].divide, "vector_divide_result_has_authorized_owner")
+    assert(!completed[divide_result.bits.tag.slot], "vector_divide_result_completes_once")
+
+
+  /* Scalar destination outputs */
+
+  (
+    scalar_compute |> filter_valid(result => compute_completes_now & result.beat.scalar_destination)
+      |> map_valid(result => RegisterFileWrite(xlen)):
+           address: result.beat.destination
+           data: result.beat.write.data[0..xlen.width]
+  ) |> scalar_result
+
+  (
+    floating_compute |> filter_valid(result => compute_completes_now & result.beat.floating_scalar_destination)
+      |> map_valid(result):
+           def data = result.beat.write.data
+           def element_width = result.beat.element_width
+           def boxed_data:
+             if xlen == XLen.X32
+             | mux(element_width === SimdElementWidth.E16, (!Bits(16)(0)) ++ data[0..16], data[0..32])
+             | mux_lookup(element_width, ~default: data):
+                 SimdElementWidth.E16: (!Bits(48)(0)) ++ data[0..16]
+                 SimdElementWidth.E32: (!Bits(32)(0)) ++ data[0..32]
+
+           FloatingPointRegisterWrite(fp_profile):
+             address: result.beat.destination
+             data: boxed_data
+  ) |> floating_result
+
+
+  /* Architectural VRF writes, flags, and saturation */
+
+  def element_write = finished |> filter_valid(operation => operation.beat.write.mask.any()) |> map_valid(operation):
+    def beat = operation.beat
+    beat.write.updated(~data: mux(beat.memory ||| beat.floating_point ||| beat.multiply_divide, operation.data << beat.shift, beat.write.data))
+
+  element_write |> write
+  fp_update.valid <== finished.valid & finished.bits.beat.fp_execute
+  fp_update.bits <== finished.bits.flags
+  saturate.valid <== finished.valid & finished.bits.saturated
+
+
+  /* Slot reservation, authorization, and reclamation
+     Allocation and acceptance advance independently of out-of-order result writes. */
+
+  slots.reserve.valid <== reserve.valid
+  slots.reserve.bits <== allocate_cursor
+  def durable = element_resolved ||| packed_accept.valid
+  def durable_tag = priority_mux(~default: decision.bits.tag):
+    compute_maturity.valid: compute_tag
+    packed_accept.valid: packed_accept.bits
+
+  slots.accept.valid <== durable
+  slots.accept.bits <== durable_tag
+  slots.release.valid <== drain ||| packed_release.valid
+  slots.release.bits <== drain_cursor
+  when (slots.release.valid):
+    drain_cursor <== wrap_increment(drain_cursor, vector_completion_slots)
+
+  when durable:
+    assert(durable_tag === accept_cursor, "vector_resolution_follows_acceptance_frontier")
+    accept_cursor <== wrap_increment(durable_tag, vector_completion_slots)
+
+  when (replay.valid):
+    allocate_cursor <== mux(durable, wrap_increment(durable_tag, vector_completion_slots), accept_cursor)
+  elsewhen (reserve.valid):
+    allocate_cursor <== wrap_increment(allocate_cursor, vector_completion_slots)
+
+
+  /* Writes release hazards immediately; metadata reclamation remains ordered. */
+
+  for (slot in 0..vector_completion_slots):
+    def tag = Bits(tag_width)(slot)
+    def resolving = element_resolved & (resolution_tag === tag)
+    def releasing = slots.release.valid & (drain_cursor === tag)
+    when (reserve.valid & (allocate_cursor === tag)):
+      entry_owner[slot] <== reserve.bits.owner
+      entry_packed[slot] <== reserve.bits.packed
+
+    when resolving:
+      // Only service metadata/operands and memory routing outlive execution.
+      when (resolution_beat.memory ||| resolution_beat.fp_execute ||| resolution_beat.multiply_divide):
+        retained_entries[slot] <== resolution_beat.with_write(RetainedWrite, retained_write)
+
+      entry_write_address[slot] <== resolution_beat.write.address
+      entry_writes[slot] <== resolution_beat.write.mask.any()
+    elsewhen (reserve.valid & (allocate_cursor === tag)):
+      entry_writes[slot] <== Bool(#false)
+
+    // A result for the ordered drain_cursor can drain immediately; do not leave a
+    // completed bit behind after releasing its owner on the same edge.
+    when (releasing ||| (reserve.valid & (allocate_cursor === tag))):
+      completed[slot] <== Bool(#false)
+    elsewhen ((finished.valid & (finished.bits.tag === tag)) ||| (store_completed.valid & (store_completed.bits === tag)) ||| (acknowledged.valid & (acknowledged.bits.tag === tag))):
+      completed[slot] <== Bool(#true)
+
+
+  /* Completion observation and read-only slot state */
+
+  drained.valid <== finished.valid
+  drained.bits <== VectorDrained(xlen, vlen, vector_completion_slots):
+    beat: finished.bits.beat
+    owner: finished.bits.owner
+    data: finished.bits.data
+
+  allocate_slot <== allocate_cursor
+  drain_slot <== drain_cursor
+  accept_slot <== accept_cursor
+  state <== vec(for List (s in 0..vector_completion_slots):
+                 VectorSlotState(xlen, vlen, vector_completion_slots):
+                   allocated: allocated[s]
+                   accepted: authorized_slots[s]
+                   packed: entry_packed[s]
+                   owner: entry_owner[s]
+                   write_address: entry_write_address[s]
+                   writes: entry_writes[s] & !completed[s])
+
+export VectorCompletionUnit

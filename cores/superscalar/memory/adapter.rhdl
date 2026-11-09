@@ -3,26 +3,26 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/mmu/context.rhdl").RiscvTranslationState
+  lib("cores/common/mmu/context.rhdl").RiscvTranslationState
   "../bundles.rhdl" open
   "translation.rhdl" open
   "translation-specialization.rhm" open
   "transport.rhdl" open
-  "../../cache/access.rhdl" open
-  "../../cache/protocol.rhdl" open
-  "../../cache/operation.rhdl" open
-  "../../cache-prefetch.rhdl" open
-  "../../load-store.rhdl" open
-  "../../misaligned-access.rhdl" open
-  "../../cosim-source.rhm".describe_cosim_signals
+  "../../common/cache/access.rhdl" open
+  "../../common/cache/protocol.rhdl" open
+  "../../common/cache/operation.rhdl" open
+  "../../common/cache-prefetch.rhdl" open
+  "../../common/load-store.rhdl" open
+  "../../common/misaligned-access.rhdl" open
+  "../../common/cosim-source.rhm".describe_cosim_signals
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/rtl/trap.rhdl").ExceptionCause
   lib("riscv/rtl/hypervisor.rhdl") open
   lib("riscv/rtl/pointer-masking.rhdl").apply_pointer_mask
   lib("riscv/rtl/svpbmt.rhdl") open
   lib("riscv/rtl/zihintntl.rhdl") open
-  lib("cores/mmu/translation.rhdl").RiscvTranslationFault
-  lib("cores/mmu/vector.rhdl") open
+  lib("cores/common/mmu/translation.rhdl").RiscvTranslationFault
+  lib("cores/common/mmu/vector.rhdl") open
   lib("flow/main.rhdl") open
   lib("rhodium/std/bits.rhdl") open
 

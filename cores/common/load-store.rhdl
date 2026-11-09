@@ -1,0 +1,141 @@
+#lang rhodium
+/* Generates XLEN load values and byte-lane stores within configurable memory beats. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../riscv/isa/xlen.rhm" open
+  lib("rhodium/std/bits.rhdl") open
+
+/* Select scalar access size independently of instruction decode and memory protocol. */
+hardware_enum MemoryWidth:
+  Byte
+  Half
+  Word
+  Double
+
+  /* Check natural byte, halfword, word, or doubleword alignment for the selected scalar width. */
+  method is_aligned(width, address :: Bits) :: Bool:
+    mux_lookup(
+      width,
+      ~default: address.is_aligned(8),
+      [
+        [MemoryWidth.Byte, address.is_aligned(1)],
+        [MemoryWidth.Half, address.is_aligned(2)],
+        [MemoryWidth.Word, address.is_aligned(4)]
+      ]
+    )
+
+/* Return the host byte count in one XLEN word. */
+fun memory_word_bytes(xlen :: XLen) :: PosInt:
+  xlen.width / 8
+
+/* Encode the selected scalar access size as an XLEN-wide hardware byte count. */
+fun memory_access_bytes(xlen :: XLen, width :: MemoryWidth) :~ Bits(xlen.width):
+  mux_lookup(width, ~default: Bits(xlen.width)(8), [[MemoryWidth.Byte, Bits(xlen.width)(1)], [MemoryWidth.Half, Bits(xlen.width)(2)], [MemoryWidth.Word, Bits(xlen.width)(4)]])
+
+/*
+ * Compare the first and last accessed word addresses to detect an access spanning an XLEN
+ * boundary.
+ */
+fun memory_crosses_word(xlen :: XLen, address :: Bits(xlen.width), width :: MemoryWidth) :~ Bool:
+  address.align_down(memory_word_bytes(xlen)) =/= (address + (memory_access_bytes(xlen, width) - Bits(xlen.width)(1))).align_down(memory_word_bytes(xlen))
+
+/* Build a low-lane byte-enable pattern within one XLEN word for the selected access size. */
+fun memory_width_mask(xlen :: XLen, width :: MemoryWidth) :~ Bits(memory_word_bytes(xlen)):
+  def bytes = memory_word_bytes(xlen)
+  mux_lookup(width, ~default: !Bits(bytes)(0), [[MemoryWidth.Byte, Bits(bytes)(1)], [MemoryWidth.Half, Bits(bytes)(3)], [MemoryWidth.Word, Bits(bytes)(15)]])
+
+/*
+ * Position the access-size byte enables within the containing XLEN word; crossing accesses are
+ * not split.
+ */
+fun memory_byte_mask(xlen :: XLen, address :: Bits(xlen.width), width :: MemoryWidth) :~ Bits(memory_word_bytes(xlen)):
+  def bytes = xlen.width / 8
+  memory_width_mask(xlen, width) << address[0..alignment_bits(bytes)]
+
+/*
+ * Selects one scalar from a returned beat and extends it to XLEN.
+ */
+circuit LoadGen(xlen :: XLen,
+                beat_bytes :: Pow2Int = 8):
+  def xlen_bits = xlen.width
+  def beat_bits = beat_bytes * 8
+  unless beat_bits >= xlen_bits
+  | error(~who: #'LoadGen, "memory beat must contain one complete XLEN word")
+
+  input address: Bits(xlen_bits)
+  input data: Bits(beat_bits)
+  input width: MemoryWidth
+  input unsigned_load: Bool
+  output value: Bits(xlen_bits)
+
+  def shifted :: Bits(beat_bits) = data >> (address[0..alignment_bits(beat_bytes)] ++ Bits(3)(0))
+  def byte = shifted[0..8]
+  def half = shifted[0..16]
+  def word = shifted[0..32]
+  def double_value = shifted[0..xlen_bits]
+  def signed_word = word.sext(xlen_bits)
+  def unsigned_word = word.zext(xlen_bits)
+  def signed_value :: Bits(xlen_bits) = mux_lookup(
+    width,
+    ~default: double_value,
+    [
+      [MemoryWidth.Byte, byte.sext(xlen_bits)],
+      [MemoryWidth.Half, half.sext(xlen_bits)],
+      [MemoryWidth.Word, signed_word]
+    ]
+  )
+
+  def unsigned_value :: Bits(xlen_bits) = mux_lookup(
+    width,
+    ~default: double_value,
+    [
+      [MemoryWidth.Byte, byte.zext(xlen_bits)],
+      [MemoryWidth.Half, half.zext(xlen_bits)],
+      [MemoryWidth.Word, unsigned_word]
+    ]
+  )
+
+  value <== mux(unsigned_load, unsigned_value, signed_value)
+
+/* Position an XLEN value and width-selected byte mask in one beat; callers validate access legality. */
+circuit StoreGen(xlen :: XLen,
+                 beat_bytes :: Pow2Int = 8):
+  def xlen_bits = xlen.width
+  def beat_bits = beat_bytes * 8
+  unless beat_bits >= xlen_bits
+  | error(~who: #'StoreGen, "memory beat must contain one complete XLEN word")
+
+  input address: Bits(xlen_bits)
+  input value: Bits(xlen_bits)
+  input width: MemoryWidth
+  output data: Bits(beat_bits)
+  output mask: Mask(beat_bytes)
+
+  def offset = address[0..alignment_bits(beat_bytes)]
+  def shift = (offset ++ Bits(3)(0))
+  // Double enables at most eight bytes, even on a wider data port.
+  def base_mask = mux_lookup(
+    width,
+    ~default: Bits(beat_bytes)((1 << math.min(8, beat_bytes)) - 1),
+    [
+      [MemoryWidth.Byte, Bits(beat_bytes)(0x01)],
+      [MemoryWidth.Half, Bits(beat_bytes)(0x03)],
+      [MemoryWidth.Word, Bits(beat_bytes)(0x0f)]
+    ]
+  )
+
+  def beat_value = value.zext(beat_bits)
+
+  data <== beat_value << shift
+  mask <== (base_mask << offset).into(Mask(beat_bytes))
+
+export:
+  memory_byte_mask
+  memory_word_bytes
+  memory_access_bytes
+  memory_crosses_word
+  memory_width_mask
+  MemoryWidth
+  LoadGen
+  StoreGen

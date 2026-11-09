@@ -13,13 +13,13 @@ The package may depend on shared cache geometry and public cache/uncached
 protocols, the RISC-V physical-memory model, the shared CHI library, and public
 Rhodium libraries. Transaction engines must not import either cache
 implementation. `uncached.rhdl` adapts fetch/data payloads to the shared
-`cores/cache/uncached-arbiter.rhdl` owner-retaining arbiter;
+`cores/common/cache/uncached-arbiter.rhdl` owner-retaining arbiter;
 it uses the shared physical protocol specialized with `RV5StageMemoryContext`.
 
-[`../../chi-hart.rhdl`](../../chi-hart.rhdl) owns generic RISC-V
+[`../../common/chi-hart.rhdl`](../../common/chi-hart.rhdl) owns generic RISC-V
 hart attachment configuration, capabilities, and identities. `foundation.rhdl`
 owns RV5Stage's endpoint capability projection and re-exports shared constructors.
-`cores/cache/chi/flits.rhdl` owns transaction profiles and flit construction;
+`cores/common/cache/chi/flits.rhdl` owns transaction profiles and flit construction;
 shared line-read, refill, copyback, snoop, WriteUnique, and uncached engines have no RV5Stage dependency.
 Writeback directly composes CHI retry control
 and the shared copyback packet constructor, not the scalar write-unique engine.
@@ -60,20 +60,20 @@ including nonzero trace/QoS.
 
 | File | Ownership |
 |---|---|
-| [`../../chi-hart.rhdl`](../../chi-hart.rhdl) | Implementation-neutral physical-region/Home configuration, RN parameters, capabilities, and identities |
+| [`../../common/chi-hart.rhdl`](../../common/chi-hart.rhdl) | Implementation-neutral physical-region/Home configuration, RN parameters, capabilities, and identities |
 | [`foundation.rhdl`](foundation.rhdl) | RV5Stage endpoint capabilities and shared constructor exports |
-| [`../../cache/chi/flits.rhdl`](../../cache/chi/flits.rhdl) | Shared cache response profiles and flit constructors |
-| [`../../cache/chi/line-read.rhdl`](../../cache/chi/line-read.rhdl) | Coherent RAM snapshots and immutable-ROM line reads, without cache ownership |
-| [`refill.rhdl`](../../cache/chi/refill.rhdl) | Retry-aware packet-complete cache-line acquisition and acknowledgement |
-| [`write-unique.rhdl`](../../cache/chi/write-unique.rhdl) | One partial-width retryable `WriteUniquePtl` transaction |
-| [`writeback.rhdl`](../../cache/chi/writeback.rhdl) | One retryable full-line copyback, latest victim state at grant, and packet handoff |
-| [`snoop.rhdl`](../../cache/chi/snoop.rhdl) | Data-cache snoop lifetime, DVM pairing, cache lookup/update, and response traffic |
+| [`../../common/cache/chi/flits.rhdl`](../../common/cache/chi/flits.rhdl) | Shared cache response profiles and flit constructors |
+| [`../../common/cache/chi/line-read.rhdl`](../../common/cache/chi/line-read.rhdl) | Coherent RAM snapshots and immutable-ROM line reads, without cache ownership |
+| [`refill.rhdl`](../../common/cache/chi/refill.rhdl) | Retry-aware packet-complete cache-line acquisition and acknowledgement |
+| [`write-unique.rhdl`](../../common/cache/chi/write-unique.rhdl) | One partial-width retryable `WriteUniquePtl` transaction |
+| [`writeback.rhdl`](../../common/cache/chi/writeback.rhdl) | One retryable full-line copyback, latest victim state at grant, and packet handoff |
+| [`snoop.rhdl`](../../common/cache/chi/snoop.rhdl) | Data-cache snoop lifetime, DVM pairing, cache lookup/update, and response traffic |
 | [`uncached.rhdl`](uncached.rhdl) | Named-core fetch/data shaping and shared arbiter/transport composition |
-| [`../../cache/chi/uncached.rhdl`](../../cache/chi/uncached.rhdl) | Shared nonallocating physical transaction sequencing |
+| [`../../common/cache/chi/uncached.rhdl`](../../common/cache/chi/uncached.rhdl) | Shared nonallocating physical transaction sequencing |
 
 [`../uncached-protocol.rhdl`](../uncached-protocol.rhdl) owns translated requests
 with PBMT metadata and cancellable fetch interfaces. Physical payloads and
-uncached service interfaces live in `cores/cache/protocol.rhdl`; destination and
+uncached service interfaces live in `cores/common/cache/protocol.rhdl`; destination and
 Core/Walker routing live in `../memory-context.rhdl`. The parent directly
 instantiates shared L1D without a repacking wrapper. Its memory router chooses
 cache versus IO and enforces architectural ordering around the shared IO slot.
@@ -102,8 +102,8 @@ an accumulation of all line packets. Do not use packet index order as arrival
 order, or extend acknowledgement ownership through stalled line installation.
 
 1. Put implementation-neutral hart attachment configuration and capabilities in
-   `cores/chi-hart.rhdl`; put reusable flit construction and transaction
-   machinery in `cores/cache/chi/`, not `foundation.rhdl`.
+   `cores/common/chi-hart.rhdl`; put reusable flit construction and transaction
+   machinery in `cores/common/cache/chi/`, not `foundation.rhdl`.
 2. Keep each retained transaction lifetime in its owning engine; do not move
    cache arrays or replacement policy into this package.
 3. Preserve selected Home, transaction identifiers, retry state, packet

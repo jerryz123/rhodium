@@ -3,9 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../profile.rhm" open
-  "../fp/profile.rhm".check_fp_profile
-  "../vector/profile.rhm" open
+  "../common/profile.rhm" open
+  "../common/fp/profile.rhm".check_fp_profile
+  "../common/vector/profile.rhm" open
   lib("rhodium/frontend/foundation.rhm").StableCircuitParam
   lib("riscv/isa/profile.rhm") open
   lib("riscv/isa/hart.rhm") open
@@ -15,8 +15,8 @@ import:
   lib("riscv/isa/vector-profile.rhm") open
   lib("riscv/isa/vector.rhm").VectorLength
   lib("rhodium/std/bits.rhdl").Pow2Int
-  "../csr/config.rhm".RiscvCsrConfig
-  "../cache/config.rhm" open
+  "../common/csr/config.rhm".RiscvCsrConfig
+  "../common/cache/config.rhm" open
 
 /* Selects implementation resources and optional scalar, supervisor, and hypervisor features with RV32/RV64 scalar widths, mandatory C, and Bare or RV64 Sv39 translation. */
 class SuperscalarPipelineConfig(xlen :: XLen, mmu_type :: RiscvMmuType, instruction_cache :: CacheConfig, data_cache :: CacheConfig, btb_entries :: PosInt, ras_entries :: Nat, bht :: Boolean, floating_point :: FloatingPointProfile, half_precision :: HalfPrecisionProfile, zfa :: Boolean, compressed :: List.of(CompressedExtension), zicboz :: Boolean, zicbom :: Boolean, zicbop :: Boolean, zawrs :: Boolean, zihintpause :: Boolean, zihintntl :: Boolean, sstc :: Boolean, svnapot :: Boolean, svpbmt :: Boolean, svinval :: Boolean, ssnpm :: Boolean, supm :: Boolean, sscofpmf :: Boolean, smstateen :: Boolean, hypervisor :: Boolean, vector :: VectorProfile, vector_extensions :: List.of(VectorExtension), ziccif :: Boolean, ziccamoa :: Boolean, ziccrse :: Boolean, vector_length :: VectorLength, vector_completion_slots :: Pow2Int, vector_dispatch_depth :: PosInt):

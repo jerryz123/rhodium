@@ -3,30 +3,30 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/reservation-wait-decode.rhdl").ReservationWaitCases
-  lib("cores/reservation-wait.rhdl").ReservationWaitMode
-  "../../csr/decode.rhdl".csr_instruction_action
-  lib("cores/operand.rhdl") open
-  lib("cores/vector/instruction-metadata.rhm") open
+  lib("cores/common/reservation-wait-decode.rhdl").ReservationWaitCases
+  lib("cores/common/reservation-wait.rhdl").ReservationWaitMode
+  "../../common/csr/decode.rhdl".csr_instruction_action
+  lib("cores/common/operand.rhdl") open
+  lib("cores/common/vector/instruction-metadata.rhm") open
   "../profile.rhm".SuperscalarPipelineConfig
   lib("riscv/isa/rv32i.rhm") as rv32
-  lib("cores/memory-decode.rhdl") open
+  lib("cores/common/memory-decode.rhdl") open
   "operand-ctrl.rhdl" open
   "mem-ctrl.rhdl" open
   "system-ctrl.rhdl" open
   "long-ctrl.rhdl" open
-  lib("cores/alu.rhdl") open
-  lib("cores/alu-decode.rhdl") open
-  lib("cores/branch-decode.rhdl") open
-  lib("cores/fp/decode.rhdl") open
-  lib("cores/fp/scalar-decode.rhdl").fp_scalar_metadata
-  lib("cores/vector/decode.rhdl") open
+  lib("cores/common/alu.rhdl") open
+  lib("cores/common/alu-decode.rhdl") open
+  lib("cores/common/branch-decode.rhdl") open
+  lib("cores/common/fp/decode.rhdl") open
+  lib("cores/common/fp/scalar-decode.rhdl").fp_scalar_metadata
+  lib("cores/common/vector/decode.rhdl") open
   lib("riscv/isa/v.rhm") as vector_isa
   lib("riscv/isa/zvbb.rhm").ZvbbInstructions
   lib("riscv/isa/vector-profile.rhm") open
-  lib("cores/load-store.rhdl").MemoryWidth
-  lib("cores/cache/operation.rhdl").CacheOperation
-  lib("cores/cache-prefetch.rhdl") open
+  lib("cores/common/load-store.rhdl").MemoryWidth
+  lib("cores/common/cache/operation.rhdl").CacheOperation
+  lib("cores/common/cache-prefetch.rhdl") open
   lib("riscv/isa/fp-profile.rhm") open
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/isa/rv64i.rhm") open
@@ -48,7 +48,7 @@ import:
   lib("riscv/isa/privileged.rhm").SFENCE_VMA
   lib("riscv/rtl/hypervisor.rhdl") open
   lib("riscv/rtl/zihintntl.rhdl") open
-  lib("cores/csr/protocol.rhdl").RiscvCsrAction
+  lib("cores/common/csr/protocol.rhdl").RiscvCsrAction
   lib("riscv/rtl/csr.rhdl").RiscvCsrOperation
   lib("riscv/rtl/decode.rhdl") open
   lib("rhodium/std/decode.rhdl") open

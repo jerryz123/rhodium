@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/operand.rhdl") as scalar_operands
+  lib("cores/common/operand.rhdl") as scalar_operands
   lib("rhodium/frontend/foundation.rhm") as hw
   lib("rhodium/compile/program.rhm").compile_program
   lib("rhodium/compile/rtl.rhm").rtl_target
@@ -15,14 +15,14 @@ import:
   "../../../riscv/isa/fp-profile.rhm" open
   "../../../riscv/isa/zicbop.rhm" open
   "../../../riscv/model/formats.rhm" open
-  "../../cache-prefetch.rhdl" open
+  "../../common/cache-prefetch.rhdl" open
   "../core.rhdl" as core
   "../profile.rhm" open
   "../decode/core-ctrl.rhdl" as controls
   "../decode/mem-ctrl.rhdl" as memory
-  "../../cache/operation.rhdl" as core_memory
+  "../../common/cache/operation.rhdl" as core_memory
   "../decode/writeback-ctrl.rhdl" as writeback
-  "../../alu.rhdl" as alu
+  "../../common/alu.rhdl" as alu
 
 fun control_for_word(cases, word :: Nat):
   cases.find(fun (candidate): candidate.input.matches(hw.Bits(32)(word))).output

@@ -20,7 +20,7 @@ separation.
 Keep the scalar pipeline dependent on the RV5Stage cache protocols rather than
 a generic memory transport. Keep I-cache and D-cache attachments independent of
 each other. Physical L1D, geometry, and refill/copyback/snoop machinery belong
-to [`cores/cache/`](../cache/DEVELOPING.md); this core retains architectural
+to [`cores/common/cache/`](../common/cache/DEVELOPING.md); this core retains architectural
 completion adaptation and instruction/uncached integration.
 
 ## Implementation map
@@ -32,27 +32,27 @@ completion adaptation and instruction/uncached integration.
 | [`rv5stage.rhdl`](rv5stage.rhdl) | Core, MMU, prefetch routing, cache, uncached, and CHI composition |
 | [`core.rhdl`](core.rhdl) | Scalar pipeline, forwarding, hazards, commit, and deferred completion |
 | [`bundles.rhdl`](bundles.rhdl) | Scalar pipeline payloads |
-| [`../mmu/context.rhdl`](../mmu/context.rhdl) | Shared `RiscvTranslationState` output from committed CSR controls; MMU consumes the same bundle without another register |
-| [`../memory-response.rhdl`](../memory-response.rhdl) | Shared optional-response pairing and LSU result capture; core instruction/control state crosses MEM/WB in parallel |
-| [`../cache-prefetch.rhdl`](../cache-prefetch.rhdl) | Reusable best-effort prefetch operation and request types |
+| [`../common/mmu/context.rhdl`](../common/mmu/context.rhdl) | Shared `RiscvTranslationState` output from committed CSR controls; MMU consumes the same bundle without another register |
+| [`../common/memory-response.rhdl`](../common/memory-response.rhdl) | Shared optional-response pairing and LSU result capture; core instruction/control state crosses MEM/WB in parallel |
+| [`../common/cache-prefetch.rhdl`](../common/cache-prefetch.rhdl) | Reusable best-effort prefetch operation and request types |
 | [`../../rhodium/std/plru.rhdl`](../../rhodium/std/plru.rhdl) | Protocol-neutral invalid-first padded tree-PLRU selection and state update |
 | [`fetch/DEVELOPING.md`](fetch/DEVELOPING.md) | Fetch protocols, frontend sequencing, instruction assembly, BTB, and RAS |
 | [`decode/DEVELOPING.md`](decode/DEVELOPING.md) | Structured integer and FP control generation |
-| [`../register-file.rhdl`](../register-file.rhdl) | Shared pre-edge GPR storage, selected as 2R2W; write-to-ID bypass remains in `core.rhdl` |
+| [`../common/register-file.rhdl`](../common/register-file.rhdl) | Shared pre-edge GPR storage, selected as 2R2W; write-to-ID bypass remains in `core.rhdl` |
 | [`vector.rhdl`](vector.rhdl) | WB macro allocation, autonomous vector execution/memory paths, and macro retirement outcomes |
 | [`integer-execution.rhdl`](integer-execution.rhdl) | Tagged shared multiply/divide services and separate scheduled/buffered product-return adapters |
 | [`memory-arbiter.rhdl`](memory-arbiter.rhdl) | Scalar/vector LSU lookup ownership, store-commit timing, transaction arbitration, and tagged response routing |
 | [`data-port-arbiter.rhdl`](data-port-arbiter.rhdl) | Core-first physical core/PTW arbitration, paired L1D index selection, and origin-tagged response routing before PMA/uncached routing |
 | [`vector/DEVELOPING.md`](vector/DEVELOPING.md) | Opt-in XLEN-wide Zve/V WB-launched sequencer, vector CSR state, flat register bank, SIMD packing, and LSU ownership |
-| [`fp/DEVELOPING.md`](fp/DEVELOPING.md) | Scalar FP payloads, FPR hazards, LSU bridges, and retirement adaptation over shared [`cores/fp/`](../fp/DEVELOPING.md) components |
+| [`fp/DEVELOPING.md`](fp/DEVELOPING.md) | Scalar FP payloads, FPR hazards, LSU bridges, and retirement adaptation over shared [`cores/common/fp/`](../common/fp/DEVELOPING.md) components |
 | [`decode/system-ctrl.rhdl`](decode/system-ctrl.rhdl) | Composes shared CSR actions with local reservation-wait control; `core.rhdl` owns WB authorization and retirement |
-| [`../reservation-wait.rhdl`](../reservation-wait.rhdl) | Shared WRS timeout/wakeup mechanism; the core retains its WB instruction and qualifies TW/VTW |
-| [`../integer-format.rhdl`](../integer-format.rhdl) | Scalar multiply/divide operand and result formatting, independent of service ownership |
+| [`../common/reservation-wait.rhdl`](../common/reservation-wait.rhdl) | Shared WRS timeout/wakeup mechanism; the core retains its WB instruction and qualifies TW/VTW |
+| [`../common/integer-format.rhdl`](../common/integer-format.rhdl) | Scalar multiply/divide operand and result formatting, independent of service ownership |
 | [`mmu/DEVELOPING.md`](mmu/DEVELOPING.md) | TLBs, demand translation, best-effort prefetch probes, and page-table walking |
 | [`instruction-memory-router.rhdl`](instruction-memory-router.rhdl), [`memory-router.rhdl`](memory-router.rhdl), [`uncached-protocol.rhdl`](uncached-protocol.rhdl) | Physical-region routing, data IO-MSHR composition, and the shared uncached protocol |
-| [`cache.rhdl`](../cache/geometry.rhdl) | Shared RV5Stage cache geometry and way/lane masks |
+| [`cache.rhdl`](../common/cache/geometry.rhdl) | Shared RV5Stage cache geometry and way/lane masks |
 | [`chi/DEVELOPING.md`](chi/DEVELOPING.md) | Physical-region/Home policy, RN identity, cache transaction engines, and the shared uncached RN-I implementation |
-| [`icache/DEVELOPING.md`](icache/DEVELOPING.md), [`../cache/DEVELOPING.md`](../cache/DEVELOPING.md) | Named fetch metadata and shared physical instruction/data caches |
+| [`icache/DEVELOPING.md`](icache/DEVELOPING.md), [`../common/cache/DEVELOPING.md`](../common/cache/DEVELOPING.md) | Named fetch metadata and shared physical instruction/data caches |
 | [`memory-context.rhdl`](memory-context.rhdl) | Architectural destination and core/PTW ownership, opaque to shared services |
 | [`tests/`](tests/) | Decode, configuration, public specialization, and invalid-use checks |
 
@@ -85,7 +85,7 @@ pause so a starving variable return can still drain.
 FP calendar/arbitration policy belongs in `fp/service.rhdl`, not in
 the reusable numeric service.
 
-CSR read intent and implicit-writer dependencies come from `cores/csr/protocol.rhdl`.
+CSR read intent and implicit-writer dependencies come from `cores/common/csr/protocol.rhdl`.
 Pure reads bypass global serialization, but Decode includes older pre-admission
 FP/vector writers when applying that dependency policy. Their GPR consumers
 wait through EX/MEM for WB's write-to-ID forwarding; never route a placeholder
@@ -348,7 +348,7 @@ The vector multiplier request queue retains operands from accepted feed-forward
 beats during shared-service contention and bypasses when empty. Result tags
 retain selection and destination metadata until consumption.
 
-`../writeback-calendar.rhdl` owns future physical write-cycle reservations. The core
+`../common/writeback-calendar.rhdl` owns future physical write-cycle reservations. The core
 reserves the deferred GPR port for pipelined multiplication, fixed FP integer
 returns, and vector-to-integer movement before launching each fixed operation.
 The vector composition independently reserves the VRF port. Shared-service
@@ -367,7 +367,7 @@ returns, WB authorization, cancellation, and reset through the production scalar
 adapter; `rv5stage-vector-muldiv` covers shared scalar/vector execution.
 
 Fixed FP similarly reserves EX service ownership and its selected return cycle
-at ID. `cores/fp/timing.rhdl` is the common timing contract for execution, scalar
+at ID. `cores/common/fp/timing.rhdl` is the common timing contract for execution, scalar
 authorization, and vector VRF scheduling. Results earlier than WB are aligned
 to WB; longer results carry delayed authorization, not a generic result buffer.
 Only authorized results set/clear architectural destinations or accrue flags.
@@ -380,7 +380,7 @@ waiting vector work a turn. Store probes retain their independent ID/EX timing.
 ## Pointer-masking ownership
 
 The opt-in RV64 Ssnpm path uses reusable policy and address helpers from
-`riscv/rtl/pointer-masking.rhdl`. The shared `cores/csr/file.rhdl` owns PMM state and WARL writes,
+`riscv/rtl/pointer-masking.rhdl`. The shared `cores/common/csr/file.rhdl` owns PMM state and WARL writes,
 and reexports the shared `PrivilegeMode` for existing core consumers.
 ID captures `PointerMaskControl` in `DecodeExecute`; EX transforms only the
 effective memory address and leaves the integer result and low 48 bits intact.
@@ -628,14 +628,14 @@ modules by name instead of flattening them.
 
 ## Focused validation
 
-Shared register-file fixtures live under `../tests/rsim/` and exercise both
+Shared register-file fixtures live under `../common/tests/rsim/` and exercise both
 2R2W and 4R2W storage. The integrated `rv5stage-core` fixture checks WB-to-ID
 capture, younger-producer priority, x0, and deferred-load forwarding;
 `rv5stage-multiply` checks same-cycle completion and dependent issue.
 Standalone FP pipeline, integer execution, writeback calendar,
 memory arbiter, divider workload, and vector-sequencer fixtures drive emitted
 rsim C++ directly. Their sources and independent scoreboards live under
-`tests/rsim/`, except reusable vector fixtures under `../vector/tests/rsim/`,
+`tests/rsim/`, except reusable vector fixtures under `../common/vector/tests/rsim/`,
 and run in the `cores-components` CI group. Select fixtures by name:
 
 ```sh
@@ -656,7 +656,7 @@ wide-mask boundaries at bits 63/64 and 511/512, scalar counts of 512,
 SEW8 prefix/index wrap, and representative multiword reductions and
 permutations with stalls, cancellation, and restart. Do not duplicate the
 full parameter sweep at the larger width.
-`../tests/rsim/driver.hpp` settles host combinational responses, samples pre-edge
+`../common/tests/rsim/driver.hpp` settles host combinational responses, samples pre-edge
 transfers, ticks the DUT, and then publishes registered host updates. Keep this
 ordering when porting a scoreboard; a native record must be assigned by fields,
 not initialized from its former packed SV integer.
@@ -675,7 +675,7 @@ The RV32F/RV64D complete-core fixtures share `tests/rsim/core-wb-behavior.hpp`;
 vector-memory and one-slot configurations share `tests/rsim/vector-memory-behavior.hpp`.
 Keep the same complete workload in each parameter configuration.
 
-[`../tests/rsim/port-observers.rhm`](../tests/rsim/port-observers.rhm) is shared test-only
+[`../common/tests/rsim/port-observers.rhm`](../common/tests/rsim/port-observers.rhm) is shared test-only
 instrumentation replacing the former SV bind/hierarchical monitors. It copies
 the prepared hierarchy and adds clocked callbacks at the same public component
 ports, without changing functional ports, state, or production generators.
@@ -768,7 +768,7 @@ precise fault PCs/values and suppression of younger stores. Its common machine
 bootstrap explicitly initializes state access for preexisting guest programs.
 
 Sstc's full-width compares and privilege-gate classification use
-`riscv/rtl/timer.rhdl`; comparator storage and CSR writes live in `cores/csr/file.rhdl`.
+`riscv/rtl/timer.rhdl`; comparator storage and CSR writes live in `cores/common/csr/file.rhdl`.
 Keep its optional state absent from non-Sstc specializations. RV32 low/high
 writes preserve the other half. Never use V-gated `time` CSR readback as the
 guest comparator input: virtual time advances while HS/M executes too.
@@ -885,7 +885,7 @@ MPRV/MPV accesses, ordered HFENCE remapping, and explicit guest memory widths,
 HU/SPVP legality, warm permissions, and precise denied-store behavior. Pair it with the host core and
 MMU replay regressions and `riscv-hypervisor-csr` when changing this boundary.
 
-Run `tools/run-racket-tests.sh riscv/tests/hypervisor-test.rhm riscv/tests/csr-test.rhm cores/csr/tests/csr-test.rhm`
+Run `tools/run-racket-tests.sh riscv/tests/hypervisor-test.rhm riscv/tests/csr-test.rhm cores/common/csr/tests/csr-test.rhm`
 and `FIXTURES='riscv-hypervisor-csr riscv-csr' python3 tools/testing/rsim/run.py`
 when changing this boundary. The [SoC mandatory-requirement gate](../../socs/tests/udb-test.rhm)
 checks the published RVA23 declarations.

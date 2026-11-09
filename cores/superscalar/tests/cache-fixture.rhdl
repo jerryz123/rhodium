@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/fetch/protocol.rhdl").PhysicalInstructionReq
+  lib("cores/common/fetch/protocol.rhdl").PhysicalInstructionReq
   "instruction-fixture.rhdl" open
   lib("riscv/isa/xlen.rhm").XLen
   "core-fixture.rhdl" open
@@ -11,9 +11,9 @@ import:
   "../memory/adapter.rhdl".SuperscalarMemoryAdapter
   "../memory/translation-sv39.rhdl".SuperscalarSv39Specialization
   "../bundles.rhdl" open
-  "../../cache/config.rhm" open
-  "../../cache-prefetch.rhdl" open
-  "../../chi-hart.rhdl" open
+  "../../common/cache/config.rhm" open
+  "../../common/cache-prefetch.rhdl" open
+  "../../common/chi-hart.rhdl" open
   lib("rhodium/std/interconnect.rhdl").AddressSet
   lib("chi/protocol/params.rhdl").CHIFlitParams
   lib("chi/protocol/link.rhdl").CHINodeKind

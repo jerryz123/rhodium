@@ -1,0 +1,154 @@
+#lang rhodium
+/* Shares operand-level FP execution with scheduled fixed writes or an elastic standalone
+   adapter. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "profile.rhm".check_fp_profile
+  "bundles.rhdl" open
+  "datapath.rhdl" open
+  "div-sqrt.rhdl" open
+  "types.rhdl" open
+  "timing.rhdl" open
+  "../../../riscv/isa/fp-profile.rhm" open
+  "../../../riscv/isa/xlen.rhm" open
+  lib("flow/main.rhdl") open
+
+/* Round-robins two persistent completions without payload storage and locks a blocked
+   winner until transfer to preserve the irrevocable output. */
+sync_circuit FpCompletionArbiter(T :: DataType):
+  interface ingress[2](Irrevocable(T), ~role: consumer)
+  interface egress(Irrevocable(T), ~role: producer)
+
+  reg prefer_second(~init: Bool(#false))
+  reg locked(~init: Bool(#false))
+  reg owner_is_second(Bool)
+  def unlocked_is_second = mux(prefer_second, ingress[1].valid, !ingress[0].valid & ingress[1].valid)
+  def selected_is_second = mux(locked, owner_is_second, unlocked_is_second)
+  def selected_valid = mux(selected_is_second, ingress[1].valid, ingress[0].valid)
+
+  ingress[0].ready <== egress.ready & !selected_is_second
+  ingress[1].ready <== egress.ready & selected_is_second
+  egress.valid <== selected_valid
+  egress.bits <== mux(selected_is_second, ingress[1].bits, ingress[0].bits)
+  describe_interface_selection([selected_valid & !selected_is_second, selected_valid & selected_is_second])
+  describe_interface_contract(ingress, egress, "data", ~kind: "irrevocable-rr-arbiter", ~trace_model: interface_trace_selection())
+
+  when (egress.fire()):
+    locked <== Bool(#false)
+    prefer_second <== !selected_is_second
+  elsewhen (selected_valid & !locked):
+    locked <== Bool(#true)
+    owner_is_second <== selected_is_second
+
+/* Gives reserved fixed returns priority while bounding variable-result starvation. */
+sync_circuit FpScheduledReturns(Request :: DataType, Result :: DataType):
+  interface request(Decoupled(Request), ~role: consumer)
+  interface issue(Valid(Request), ~role: producer)
+  interface completion(Valid(Result), ~role: consumer)
+  interface variable(Irrevocable(Result), ~role: consumer)
+  output fixed_admission_available: Bool
+  interface result(Decoupled(Result), ~role: producer)
+  reg variable_age(~init: Bits(3)(0))
+  fixed_admission_available <== variable_age < Bits(3)(6)
+  // Stop new launches long enough for an older variable result to drain;
+  // fixed work already in flight still writes on its reserved cycle.
+  def fixed_issue = request |> gate_flow(!variable_age.all()) |> to_valid()
+  fixed_issue |> issue
+  // Variable work stays in its lane. Never lock the common result mux
+  // against an already-reserved fixed return arriving next cycle.
+  Array(completion |> to_decoupled(), variable) |> arbiter() |> result
+  assert(!completion.valid ||| result.ready, "scheduled_fp_writes_on_return")
+  when (!variable.valid ||| variable.ready):
+    variable_age <== Bits(3)(0)
+  elsewhen (!variable_age.all()):
+    variable_age <== variable_age + Bits(3)(1)
+
+/* Reserves fixed completion storage before launch and fairly drains held lane results. */
+sync_circuit FpBufferedReturns(Request :: DataType, Result :: DataType, capacity :: PosInt):
+  interface request(Decoupled(Request), ~role: consumer)
+  interface issue(Valid(Request), ~role: producer)
+  interface completion(Valid(Result), ~role: consumer)
+  interface variable(Irrevocable(Result), ~role: consumer)
+  output fixed_admission_available: Bool
+  interface result(Irrevocable(Result), ~role: producer)
+  fixed_admission_available <== Bool(#false)
+  inst fixed_responses(CompletionQueue(Request, Result, capacity))
+  fixed_responses.issue |> issue
+  completion |> fixed_responses.completion
+  inst completion_merge(FpCompletionArbiter(Result))
+  fixed_responses.response |> completion_merge.ingress[0]
+  variable |> completion_merge.ingress[1]
+  completion_merge.egress |> result
+  request |> fixed_responses.request
+
+/* Dispatches fixed and variable arithmetic while preserving opaque execution tags.
+   Scheduled fixed returns use the selected timing contract; standalone mode reserves
+   completion storage and presents an irrevocable merged result. */
+sync_circuit FpExecutionService(
+  xlen :: XLen,
+  profile :: FloatingPointProfile,
+  Tag :: DataType,
+  ~half_precision: half_precision :: HalfPrecisionProfile = DefaultHalfPrecisionProfile,
+  ~zfa: zfa_enabled :: Boolean = #false,
+  ~scheduled_writeback: scheduled_writeback :: Boolean = #false,
+  ~timing: timing :: FpExecutionTiming = FpExecutionTiming()
+):
+  check_fp_profile(xlen, profile, half_precision, ~zfa: zfa_enabled)
+  unless floating_point_supports_f(profile)
+  | error(~who: #'FpExecutionService, "FP execution requires RV32F or RV64D")
+
+  def ExecutionRequest = FpExecutionRequest(xlen, profile, Tag)
+  def Result = FpExecutionResult(xlen, profile, Tag)
+  interface request(Decoupled(ExecutionRequest), ~role: consumer)
+  interface result(if scheduled_writeback | Decoupled(Result) | Irrevocable(Result), ~role: producer)
+  // A scalar caller may book the following cycle's fixed launch. Stop such
+  // admissions one cycle before aging stops unreserved current launches.
+  output fixed_admission_available: Bool
+
+  def FixedModule = cond
+  | !half_precision_supports_zfhmin(half_precision):
+      if profile == FloatingPointProfile.F | FpFixedF(xlen, Tag, ~zfa: zfa_enabled) | FpFixedD(xlen, Tag, ~zfa: zfa_enabled)
+  | profile == FloatingPointProfile.F:
+      FpFixedFHalf(xlen, Tag, ~arithmetic: half_precision_supports_zfh(half_precision), ~zfa: zfa_enabled)
+  | ~else:
+      FpFixedDHalf(xlen, Tag, ~arithmetic: half_precision_supports_zfh(half_precision), ~zfa: zfa_enabled)
+
+  def DivSqrtModule = cond
+  | !half_precision_supports_zfh(half_precision):
+      if profile == FloatingPointProfile.F | FpDivSqrtF(xlen, Tag) | FpDivSqrtD(xlen, Tag)
+  | profile == FloatingPointProfile.F: FpDivSqrtFHalf(xlen, Tag)
+  | ~else: FpDivSqrtDHalf(xlen, Tag)
+
+  inst fixed(FixedModule)
+  inst div_sqrt(DivSqrtModule)
+  def Array(fixed_request, division_request) = (
+    request |> demux_flow(2, issued => issued.control.execution.unit === FloatUnit.DivideSquareRoot)
+  )
+  reg pending_returns(~init: Bits(timing.maximum + 1)(0))
+  def return_selection = Bits(timing.maximum + 1)(1) << timing.latency(fixed_request.bits.control.execution)
+  def return_available = !(pending_returns & return_selection).any()
+  wire fixed_launch: Bool
+  pending_returns <== (pending_returns ||| mux(fixed_launch, return_selection, Bits(timing.maximum + 1)(0))) >> 1
+  /* Routes one combinational result through its selected nonstallable delay. */
+  fun timed_result(source :: Endpoint) :: Endpoint:
+    def paths = source |> fork_valid(timing.latencies.length())
+    def results = for Array (latency in timing.latencies, index in 0..timing.latencies.length()):
+      paths[index] |> filter_valid(operation => timing.latency(operation.control.execution) === Bits(timing.width)(latency)) |> map_valid(_operation => fixed.completion) |> valid_pipe(latency)
+
+    results |> valid_arbiter()
+
+  inst returns(if scheduled_writeback | FpScheduledReturns(ExecutionRequest, Result) | FpBufferedReturns(ExecutionRequest, Result, timing.maximum + 2))
+  fixed_request |> gate_flow(return_available) |> returns.request
+  fixed.request <== returns.issue.bits
+  fixed_launch <== returns.issue.valid
+  timed_result(returns.issue) |> returns.completion
+  div_sqrt.completion |> returns.variable
+  returns.result |> result
+  fixed_admission_available <== returns.fixed_admission_available
+  division_request |> div_sqrt.request
+  when (request.valid):
+    assert(request.bits.control.execution.unit =/= FloatUnit.Memory, "fp_execution_requires_compute")
+
+export:
+  FpExecutionService

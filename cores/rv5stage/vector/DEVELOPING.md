@@ -5,11 +5,11 @@
 
 Read [README.md](README.md) for port timing, geometry, and caller obligations.
 Architectural geometry lives in `riscv/isa/vector.rhm`; shared execution and
-physical storage live in [`cores/vector`](../../vector/DEVELOPING.md).
+physical storage live in [`cores/common/vector`](../../common/vector/DEVELOPING.md).
 This directory retains only `memory.rhdl`, RV5Stage's LSU adapter. The parent
 `../vector.rhdl` owns descriptor admission, certification, and retirement
 outcomes; the scalar core owns architectural commit. Do not add instruction
-recognition to `cores/simd-alu.rhdl` or hardware dependencies to the pure model.
+recognition to `cores/common/simd-alu.rhdl` or hardware dependencies to the pure model.
 
 The optional RV64 hypervisor specialization shares this entire datapath. The
 parent CSR file owns independent HS/VS vector status; the MMU owns two-stage
@@ -21,7 +21,7 @@ unchanged. Context changes wait for admitted vector effects to drain; ordinary
 certified scalar/vector overlap remains enabled. See the core
 [integration guide](../DEVELOPING.md#focused-validation) for guest regressions.
 
-Physical row counts and locations come from `cores/vector-layout.rhm`,
+Physical row counts and locations come from `cores/common/vector-layout.rhm`,
 not the ISA model. Thread `xlen` through storage, sequencing, packing,
 completion, and shared-service payloads; instantiate `SimdALU(xlen)` and
 `VectorRegisterLayout(vlen, xlen.width)`. RV32 uses 32-bit rows and permits
@@ -44,7 +44,7 @@ FP memory round-trips, and ordered reduction through the shared F service.
 
 The optional compile-target cosim observer follows WB admission through the
 descriptor FIFO to the execution instruction ID. Passive metadata in the parent
-and `../../vector/pipeline.rhdl` exports the actual VRF port, its completion owner, and ordered
+and `../../common/vector/pipeline.rhdl` exports the actual VRF port, its completion owner, and ordered
 instruction drain. Do not use sequencer release to seal a record or count the v0
 shadow as another architectural write. Packed-load metadata selects the
 returned slot's owner for a direct full-row write, the current head owner for an
@@ -61,7 +61,7 @@ slots, preserves accepted slots across replay, and clears per-hart state on a
 new reset epoch. DPI callback order must not encode any of those priorities.
 Slow macro admission gets its WB identity before certification; its retained
 retirement returns under that identity rather than allocating another record.
-Owner reclamation comes from `../../vector/instructions.rhdl`, including faulted macros that
+Owner reclamation comes from `../../common/vector/instructions.rhdl`, including faulted macros that
 drain without asserting the successful-retirement pulse. Do not reconstruct the
 owner cursor from that pulse.
 The native adapter admits instructions by their actual WB/dispatch lifecycle,
@@ -92,16 +92,16 @@ lifetimes; they do not introduce additional pipeline stages.
 | Component | Owns | Releases ownership when |
 |---|---|---|
 | Parent `../vector.rhdl` | Two-entry WB admission FIFO and head-only page certification | The head dispatches to execution |
-| `../../vector/instructions.rhdl` | Instruction IDs, pending-kind summaries, destination-row intents, progressive row frontier, and store-drain barrier | Sequencing/issue is closed and all owned slots and carry have drained |
-| `../../vector/sequencer.rhdl` | One descriptor, compute/element/transport cursors, preparation phases, and precise restart checkpoint | Final sequence transfer for compute and MEM-certified ordinary memory; first captured active splat probe; final authorization for faultable memory |
-| `../../vector/memory-issue.rhdl` | Shared certified retention, retry cursor, lookup scheduling, and capture feedback | Each request is released by the LSU's resolution |
+| `../../common/vector/instructions.rhdl` | Instruction IDs, pending-kind summaries, destination-row intents, progressive row frontier, and store-drain barrier | Sequencing/issue is closed and all owned slots and carry have drained |
+| `../../common/vector/sequencer.rhdl` | One descriptor, compute/element/transport cursors, preparation phases, and precise restart checkpoint | Final sequence transfer for compute and MEM-certified ordinary memory; first captured active splat probe; final authorization for faultable memory |
+| `../../common/vector/memory-issue.rhdl` | Shared certified retention, retry cursor, lookup scheduling, and capture feedback | Each request is released by the LSU's resolution |
 | `memory.rhdl` | RV5Stage cache decisions, split ownership, precise outcomes, and response shaping | Each request is accepted by the cache or completes directly |
-| `../../vector/operand-fetch.rhdl` | Fixed-latency sequence context, operand packing, and compression data | Scheduled beat issues or unauthorized preparation is flushed |
-| `../../vector/pipeline.rhdl` | Shared composition, existing private execution registers, recurrence state, and shared-service request queues | Each beat reaches compute maturity or a memory decision |
-| `../../vector/completion.rhdl` / `../../vector/slots.rhdl` | Slot ownership metadata, direct result writes, and ordered metadata reclamation | A result writes; its metadata is reclaimed at the head; replay drops only unaccepted slots |
-| `../../vector/packed-prepare.rhdl` | Combinational packed layouts and scratch mask/store data, under sequencer-controlled progress | A prepared beat transfers through the common sequence port |
-| `../../vector/packed-load.rhdl` | Packed layout checkpoints, accepted responses, byte assembly, and partial-row carry | Accepted words and the final partial row drain |
-| `../../vector/splat-load.rhdl` | One faultable encoded-zero-stride read value, mask-word cache, and row-wise VRF writes | The final row drains, all elements are masked, or the read faults |
+| `../../common/vector/operand-fetch.rhdl` | Fixed-latency sequence context, operand packing, and compression data | Scheduled beat issues or unauthorized preparation is flushed |
+| `../../common/vector/pipeline.rhdl` | Shared composition, existing private execution registers, recurrence state, and shared-service request queues | Each beat reaches compute maturity or a memory decision |
+| `../../common/vector/completion.rhdl` / `../../common/vector/slots.rhdl` | Slot ownership metadata, direct result writes, and ordered metadata reclamation | A result writes; its metadata is reclaimed at the head; replay drops only unaccepted slots |
+| `../../common/vector/packed-prepare.rhdl` | Combinational packed layouts and scratch mask/store data, under sequencer-controlled progress | A prepared beat transfers through the common sequence port |
+| `../../common/vector/packed-load.rhdl` | Packed layout checkpoints, accepted responses, byte assembly, and partial-row carry | Accepted words and the final partial row drain |
+| `../../common/vector/splat-load.rhdl` | One faultable encoded-zero-stride read value, mask-word cache, and row-wise VRF writes | The final row drains, all elements are masked, or the read faults |
 
 Misaligned elements are never precertified: `memory.rhdl` suppresses their
 speculative lookup and offers them to the shared WB slow path. That path owns
@@ -119,14 +119,14 @@ A completed store prefix is never reissued on a TLB miss. Vector completion
 still accounts for one element and one slot; a failed load does not modify
 that element's destination.
 
-`../../vector/geometry.rhdl` provides focused combinational helpers for beat limits, widths,
-lane counts, and VRF operand requirements. `../../vector/bundles.rhdl` separates instruction descriptors,
+`../../common/vector/geometry.rhdl` provides focused combinational helpers for beat limits, widths,
+lane counts, and VRF operand requirements. `../../common/vector/bundles.rhdl` separates instruction descriptors,
 operand-free `BeatControl`, operand-bearing beats, owned results, and drain
 events. `BeatControl` carries only beat-specific progress, address, mask, and
 destination. The sequence context captures its instruction descriptor once;
 operand fetch derives widths, rounding modes, and decoded controls from that
 captured descriptor, never from the sequencer's current instruction.
-`../../vector/packed-bundles.rhdl` supplies transport layouts shared by packed preparation
+`../../common/vector/packed-bundles.rhdl` supplies transport layouts shared by packed preparation
 and assembly.
 
 Instruction IDs and completion-slot IDs are different lifetimes, even though
@@ -142,13 +142,13 @@ do not merge simultaneous responses with a lossy Valid arbiter. Flow connections
 compose transfers; fixed-latency context pairing must not acquire new queues or
 waiting joins during a readability change.
 
-There is one in-order sequencer: `../../vector/sequencer.rhdl` retains exactly one accepted
+There is one in-order sequencer: `../../common/vector/sequencer.rhdl` retains exactly one accepted
 descriptor and never alternates among instructions. Its common sequence request
 describes compute, elementwise memory, or packed transport, with explicit read
 enables. Unmasked packed loads are ordinary sequence transfers with no VRF reads.
 The sequencer owns packed byte/field/address progress and preparation phases;
 the packed helper cannot advance a cursor or independently issue a beat.
-`../../vector/operand-fetch.rhdl` is a
+`../../common/vector/operand-fetch.rhdl` is a
 separate downstream stage that owns synchronous VRF reads, response alignment,
 operand packing, and compression carry. The sequencer controls dependent gather
 index reads and retains the index while the final data-read schedule is blocked. The sequencer
@@ -211,10 +211,10 @@ their layout and partial-row carry retain independent completion ownership.
 Replay restores only the current unauthorized suffix. Result routing uses the
 slot's route, never the current descriptor's route, and no launch resets the ring.
 All accepted operands are captured, so older issued instructions have no unread
-VRF sources. Older pending writes block reads by XLEN-bit row; `../../vector/dependencies.rhdl`
+VRF sources. Older pending writes block reads by XLEN-bit row; `../../common/vector/dependencies.rhdl`
 computes conservative destination groups while pending writes have not yet
 resolved to individual rows. For monotonic same-width elementwise compute,
-`../../vector/instructions.rhdl` advances an owner-local row frontier when the last beat for a
+`../../common/vector/instructions.rhdl` advances an owner-local row frontier when the last beat for a
 row resolves. The result's exact completion slot already owns that row until
 its actual write, so this handoff needs no speculative issue-time write address
 or operand-fetch reservation. Irregular and replayable schedules keep their
@@ -243,7 +243,7 @@ metadata until ordered release. Partial, rotated, and segmented rows retain raw
 data and align at ordered drain. A completed prefix and carry suffix can update
 on the same edge.
 Segment mapping remains explicit byte routing, separate from the rotator.
-The existing `../../vector/execute.rhdl` instance shares its SIMD full-word rotate slice between
+The existing `../../common/vector/execute.rhdl` instance shares its SIMD full-word rotate slice between
 ordinary execution and packed alignment. Fixed-cycle ordinary execution has
 priority over scheduled store alignment, then buffered load alignment.
 Scheduled ordinary returns and final carry flush arbitrate the sole VRF write port
@@ -327,7 +327,7 @@ retirement.
 
 ## Event ownership
 
-`../../vector/pipeline.rhdl` keeps the admitted descriptor's retained-storage contract
+`../../common/vector/pipeline.rhdl` keeps the admitted descriptor's retained-storage contract
 before the schedule fork, without emitting an admission or residency event.
 The scope uses the existing sequencer occupancy and mode-specific sequencing release:
 final read-request transfer for ordinary compute and MEM-certified ordinary memory, final feedback for serialized
@@ -346,8 +346,8 @@ resource-admission failures without changing launch timing.
 Operand fetch carries every sequence occurrence through its fixed response stage
 to the common issue stream without a post-read stall. Packed loads carry their
 metadata through the same stage, with reads disabled. Compression suffixes also
-return through the sequencer before issue. Issue remains in `../../vector/pipeline.rhdl`; direct completion is owned by
-`../../vector/completion.rhdl`.
+return through the sequencer before issue. Issue remains in `../../common/vector/pipeline.rhdl`; direct completion is owned by
+`../../common/vector/completion.rhdl`.
 Both paths use the stable `vector/s2.issue` and `vector/complete` labels, with a
 `packed` field distinguishing their beat geometry. Packed events additionally
 carry transport byte count, store direction, byte mask, and slot metadata.
@@ -355,10 +355,10 @@ Site identity includes the instance path; consumers must not assume a label
 uniquely identifies a site. These are micro-op/beat milestones, not whole-vector
 instruction completion.
 The standard sequencer's retained macro ownership reaches each packed offer.
-The fixed attempt pipe reaches acceptance; `../../vector/packed-load.rhdl` owns the accepted FIFO
+The fixed attempt pipe reaches acceptance; `../../common/vector/packed-load.rhdl` owns the accepted FIFO
 contract through ordered beat release. A completion denotes
 transfer into the masked row carry/write path, not raw response arrival.
-`../../vector/sequencer.rhdl` declares the retained descriptor's request-to-sequence-request
+`../../common/vector/sequencer.rhdl` declares the retained descriptor's request-to-sequence-request
 relation. Operand fetch carries that lineage through its single fixed context
 pipe, including prepared gathers and packed loads with no VRF reads. Compression's optional
 suffix retains its generating read context. These paths preserve lineage through
@@ -419,28 +419,28 @@ ownership, simultaneous hit/response completion, and precise restart.
 `riscv/isa/v.rhm` owns initial instruction formats and encodings, and
 `riscv/rtl/vector.rhdl` materializes stateless vtype/AVL rules. Core decode owns
 the vector control column; `decode/core-ctrl.rhdl` alone adds scalar source and
-system controls. The shared `cores/csr/vector.rhdl` owns retained vector state. Its parent CSR
+system controls. The shared `cores/common/csr/vector.rhdl` owns retained vector state. Its parent CSR
 file gates writes on successful WB, enforces VS access, and handles traps.
 The candidate configuration input is a combinational preview; a separate
 `Pulse` authorizes it only after legality and exception checks. Keep preview
 independent of that authorization path.
-`../../vector/bundles.rhdl` owns phase-specific beat-control/beat/result types, context-bearing macro
+`../../common/vector/bundles.rhdl` owns phase-specific beat-control/beat/result types, context-bearing macro
 requests, and lightweight issue tokens. Keep these independent of the parent
 pipeline bundle definitions; scalar bundles must not contain packed vector data.
-`../../vector/sequencer.rhdl` owns descriptor retention, read generation, the sequencing cursor,
-internal maturity progress, and memory authorization progress. `../../vector/bundles.rhdl`
-owns the read-request boundary. `../../vector/operand-fetch.rhdl` owns VRF ports, per-beat
+`../../common/vector/sequencer.rhdl` owns descriptor retention, read generation, the sequencing cursor,
+internal maturity progress, and memory authorization progress. `../../common/vector/bundles.rhdl`
+owns the read-request boundary. `../../common/vector/operand-fetch.rhdl` owns VRF ports, per-beat
 context alignment, packing, gather, compression checkpoints, and response credits. Its downstream beat storage
 survives ordinary sequencer replacement; it never selects or retains a successor
-instruction. `../../vector/pipeline.rhdl` attaches an owner to each ordinary read request,
+instruction. `../../common/vector/pipeline.rhdl` attaches an owner to each ordinary read request,
 allocates completion slots from that carried owner, and routes VRF returns by
 the sampled read-port owner, not the current descriptor. Sequencing release,
 final issue, direct result write, and ordered metadata reclamation are separate events.
-`../../vector/execute.rhdl` is combinational:
+`../../common/vector/execute.rhdl` is combinational:
 it adapts the beat to the shared SIMD unit and packs its result, not a separate
 pipeline stage. The parent [`vector.rhdl`](../vector.rhdl) composes the execution
 engine, memory attempt pipeline, macro ownership, and retirement outcome.
-[`../../vector/precheck.rhdl`](../../vector/precheck.rhdl) computes a conservative contiguous byte footprint
+[`../../common/vector/precheck.rhdl`](../../common/vector/precheck.rhdl) computes a conservative contiguous byte footprint
 using shifts and constant field-count sums, never an element-address multiplier.
 It includes whole-register and packed-mask geometry, `vstart`, segment fields,
 pointer normalization, alignment, and overflow. For dynamic signed strides,
@@ -453,7 +453,7 @@ elementwise addresses and one transfer per element. The parent freezes attempts
 while the MMU's page certificate is pending. A false certificate is fallback,
 not a fault: element masking and exact first-fault semantics remain in memory
 execution. See [MMU ownership](../mmu/DEVELOPING.md) for pinned translations.
-[`../../vector/pipeline.rhdl`](../../vector/pipeline.rhdl) owns the sequencer/VRF/SIMD composition and shared
+[`../../common/vector/pipeline.rhdl`](../../common/vector/pipeline.rhdl) owns the sequencer/VRF/SIMD composition and shared
 service operands. An atomic fork couples local attempt admission to operand
 capture. Compute has one fixed execute stage before local maturity or service
 request acceptance. MEM-certified memory becomes durable at that execute
@@ -465,11 +465,11 @@ accepted results and service requests retain their ownership.
 transaction acceptance. Fallback replay flushes younger attempts and operand results,
 then restores the sequencer checkpoint. Certified retry rewinds only retained
 requests. Neither path replays an accepted transaction.
-[`../../vector/completion.rhdl`](../../vector/completion.rhdl) owns direct writeback and ordered ownership
-reclamation. Its [`../../vector/slots.rhdl`](../../vector/slots.rhdl) separates reserved slots from accepted
+[`../../common/vector/completion.rhdl`](../../common/vector/completion.rhdl) owns direct writeback and ordered ownership
+reclamation. Its [`../../common/vector/slots.rhdl`](../../common/vector/slots.rhdl) separates reserved slots from accepted
 owners: replay releases only the former. Register-row hazards belong to
-[`../../vector/instructions.rhdl`](../../vector/instructions.rhdl), not the slot tracker.
-[`../../vector/load-response.rhdl`](../../vector/load-response.rhdl)
+[`../../common/vector/instructions.rhdl`](../../common/vector/instructions.rhdl), not the slot tracker.
+[`../../common/vector/load-response.rhdl`](../../common/vector/load-response.rhdl)
 keeps packed hits and delayed responses independent for genuine byte assembly.
 Ordinary hits own their reserved write cycle; delayed ordinary responses wait
 at the memory producer until that port is free.
@@ -526,8 +526,8 @@ SEW=8. `Zvbb` remains independently selected, adds only its extension-specific
 decode rows, and reuses the packed integer controls. Keep those legality classes
 explicit in decode and never merge extension instructions into base V.
 
-`../../vector/fp.rhdl` adapts singleton operands and the shared physical execution control to the
-shared FP request. It imports the common [`cores/fp/`](../../fp/README.md) contracts, RISC-V
+`../../common/vector/fp.rhdl` adapts singleton operands and the shared physical execution control to the
+shared FP request. It imports the common [`cores/common/fp/`](../../common/fp/README.md) contracts, RISC-V
 boxing helpers, and HardFloat types; none of those modules imports vector
 execution. The parent pipeline reserves completion slots for both memory and
 FP. Dynamic FP rounding is part of each admitted descriptor and issued beat;
@@ -563,7 +563,7 @@ cancellation, and ordered instruction-to-memory-result coverage, alongside
 the scalar FP and existing vector memory/sequencer fixtures when these shared
 boundaries change.
 
-`../../vector/muldiv.rhdl` adapts singleton integer operands and width/result selectors to
+`../../common/vector/muldiv.rhdl` adapts singleton integer operands and width/result selectors to
 the tagged integer service contracts. Its multiply tag separately retains
 ordinary low/high/widened selection and `vsmul` rounding mode. Widening result
 placement comes from the accepted result beat rather than changing source SEW
@@ -666,7 +666,7 @@ must explicitly produce zero and hold the drain head at zero; `index_width(1)`
 still represents a one-bit hardware value. Keep the count on public token,
 completion, and data-protocol types, not just on the private register arrays.
 
-`../../vector/register-file.rhdl` stores a flat `Vec(32 * VLEN / XLEN, Bits(XLEN))` behind three
+`../../common/vector/register-file.rhdl` stores a flat `Vec(32 * VLEN / XLEN, Bits(XLEN))` behind three
 general read ports and mirrors the `VLEN / XLEN` physical chunks of `v0` into a
 dedicated address-only mask shadow. Both paths use Flow
 `map_valid`/`valid_pipe` to snapshot each read. Forward the bit-merged value at
@@ -714,7 +714,7 @@ validate an SEW32 scalar FPR box before packing its payload for `vfmv.v.f`,
 reuse packed merge/slide hardware and must not allocate a shared FP-service
 completion slot or contribute `fflags`.
 
-`../../vector/mask.rhdl` owns decoded scan controls and a combinational parallel prefix
+`../../common/vector/mask.rhdl` owns decoded scan controls and a combinational parallel prefix
 network. Decode selects count/first/mask/element results and prefix/index
 modifiers; the datapath does not recognize instructions. The sequencer reads
 source masks at EEW=1 through existing ports and bounds every scan's enables
@@ -754,7 +754,7 @@ Keep the existing sequencer, control, scalar-core, and shared-FP fixtures when
 changing their common result/decode payloads.
 
 Slides retain destination-order progress while selecting source chunks from
-the signed displacement in `../../vector/sequencer.rhdl`. Keep full XLEN offset information
+the signed displacement in `../../common/vector/sequencer.rhdl`. Keep full XLEN offset information
 until source bounds are checked; never wrap a large offset into VRF address
 bits. Per-byte validity handles both negative upward prefixes and fractional
 groups smaller than a physical row. Read context retains those bounds alongside
@@ -762,7 +762,7 @@ the beat. The low byte offset depends only on the retained displacement because
 every issue cursor is destination-chunk-aligned.
 
 Preselect the lower chunk's high bytes and upper chunk's low bytes, then use
-the existing SIMD full-word rotate-right path in `../../vector/execute.rhdl`. Slide1 insertion
+the existing SIMD full-word rotate-right path in `../../common/vector/execute.rhdl`. Slide1 insertion
 happens before rotation: SEW-aligned displacement preserves each byte's
 element-local scalar position. Decode selects shift/rotate controls directly.
 Override the ALU's physical full-word write mask with byte enables derived from the
@@ -808,8 +808,8 @@ reserved overlap. Keep the shared-FP fixture as a common-read-path regression.
 `rv5stage-vector-sequencer-1024` checks valid scalar and EI16 indices above 255,
 which smaller legal EI16 groups cannot reach.
 
-Compression retains cross-word data in `../../vector/operand-fetch.rhdl`, with instruction
-progress controlled by `../../vector/sequencer.rhdl`. `SimdCompress` returns only a compacted
+Compression retains cross-word data in `../../common/vector/operand-fetch.rhdl`, with instruction
+progress controlled by `../../common/vector/sequencer.rhdl`. `SimdCompress` returns only a compacted
 XLEN-bit word and selected element count. Operand fetch appends that word to a retained suffix and places
 at most one full destination chunk on each source-read beat. If the final
 source beat emits a full chunk and leaves a suffix, the prepared suffix returns
@@ -836,13 +836,13 @@ predication, while the full-core muldiv fixture checks decode, locally accepted
 writes, tail preservation, squash, and illegal vstart.
 Run the RV32/RV64 control fixtures whenever compression legality changes.
 
-`../../vector/packing.rhdl` handles runtime SEW, broadcasting, lane enables, direct unary
+`../../common/vector/packing.rhdl` handles runtime SEW, broadcasting, lane enables, direct unary
 2x/4x/8x extension, widening halves, and destination packing. Global element
 position is distinct from enabled-lane
 count. Keep overflow bits until destination bounds are checked. Local `legal`
 outputs are not architectural group/overlap permission or result maturity.
 
-Widening schedules destination-width beats in `../../vector/sequencer.rhdl`. Narrow-source
+Widening schedules destination-width beats in `../../common/vector/sequencer.rhdl`. Narrow-source
 lower/upper pairs reread one XLEN-bit source row. Wide-source forms instead derive
 the `vs2` row from destination-width geometry while their narrow vector/scalar
 source retains lower/upper selection. Each beat independently advances the
@@ -876,8 +876,8 @@ priority over the sticky set.
 Keep execution enables separate from `select_right`: merge consumes `v0` as
 data while both selected alternatives remain writable. Move rows describe only
 their real source and select the existing SIMD right-input path. Mask-logic rows
-select a XLEN-mask-bit schedule in `../../vector/sequencer.rhdl`, with a retained
-bit-enable mask for the partial first/last word. `../../vector/execute.rhdl` reuses the SIMD
+select a XLEN-mask-bit schedule in `../../common/vector/sequencer.rhdl`, with a retained
+bit-enable mask for the partial first/last word. `../../common/vector/execute.rhdl` reuses the SIMD
 logic network and writes its packed data directly instead of comparison bits.
 The single-register legality rule belongs in decode, not generic VRF geometry.
 Do not make memory/FP scheduling depend on integer-only don't-care controls.
@@ -900,7 +900,7 @@ execution regression. The control fixtures reject reserved vm/vs2 encodings
 and merge into/from vector v0 while accepting scalar x0, immediate zero, and
 unaligned single mask registers at large LMUL.
 
-The shared `../../vector/tests/vector-fixture.rhdl` captures request controls alongside
+The shared `../../common/vector/tests/vector-fixture.rhdl` captures request controls alongside
 the bank read, executes the actual SIMD ALU, and optionally commits its result
 through the same masked port used for initialization. Its independent C++
 scoreboard checks public read/write behavior at VLEN 128, 256, and 512,

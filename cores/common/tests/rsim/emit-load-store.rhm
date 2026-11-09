@@ -1,0 +1,14 @@
+#lang rhombus
+// Defines CIRCT IR for the reusable load/store lane-generation fixture.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  "../../../../riscv/isa/xlen.rhm" open
+  "../load-store-fixture.rhdl" as fixture
+
+def program = elaborate(fixture.LoadStoreFixture(XLen.X64))
+def wide_program = elaborate(fixture.LoadStoreFixture(XLen.X64, 16))
+export:
+  program
+  wide_program

@@ -3,27 +3,27 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/mmu/context.rhdl").RiscvTranslationState
+  lib("cores/common/mmu/context.rhdl").RiscvTranslationState
   lib("riscv/rtl/trap.rhdl").ExceptionCause
-  "../../cache/config.rhm".CacheLineBytes
+  "../../common/cache/config.rhm".CacheLineBytes
   "../bundles.rhdl" open
   "translation.rhdl" open
   "translation-specialization.rhm" open
   lib("rhodium/frontend/foundation.rhm").CircuitDefinition
-  lib("cores/mmu/translation.rhdl").RiscvTranslationFault
-  "../../cache-prefetch.rhdl" open
-  "../../chi-hart.rhdl" open
+  lib("cores/common/mmu/translation.rhdl").RiscvTranslationFault
+  "../../common/cache-prefetch.rhdl" open
+  "../../common/chi-hart.rhdl" open
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/rtl/pma.rhdl").RiscvPhysicalMemoryMap
   lib("riscv/rtl/hypervisor.rhdl") open
   lib("riscv/rtl/svpbmt.rhdl") open
   lib("flow/main.rhdl") open
   lib("rhodium/std/bits.rhdl") open
-  lib("cores/mmu/vector.rhdl") open
-  lib("cores/mmu/vector-window.rhdl") open
-  lib("cores/mmu/vector-certificate.rhdl").VectorCertificate
-  lib("cores/mmu/translation.rhdl").RiscvTlbLookup
-  lib("cores/mmu/protocol.rhdl").RiscvTranslationResult
+  lib("cores/common/mmu/vector.rhdl") open
+  lib("cores/common/mmu/vector-window.rhdl") open
+  lib("cores/common/mmu/vector-certificate.rhdl").VectorCertificate
+  lib("cores/common/mmu/translation.rhdl").RiscvTlbLookup
+  lib("cores/common/mmu/protocol.rhdl").RiscvTranslationResult
 
 /* Resolves Bare queries immediately while preserving vector proof epochs and one-stage hints.
    Architectural addresses remain full-width through physical-map qualification. */

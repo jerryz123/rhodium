@@ -3,9 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/fetch/protocol.rhdl").PhysicalInstructionReq
+  lib("cores/common/fetch/protocol.rhdl").PhysicalInstructionReq
   "../bundles.rhdl" open
-  "../../cache/l1i/protocol.rhdl" open
+  "../../common/cache/l1i/protocol.rhdl" open
   lib("flow/main.rhdl") open
 
 /* Preserves S1/S2 timing while uncached reads retain their physical address until a

@@ -3,12 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/integer-format.rhdl") open
-  lib("cores/integer-service.rhdl") open
-  lib("cores/integer-execution.rhdl") open
-  "../divider.rhdl" open
+  lib("cores/common/integer-format.rhdl") open
+  lib("cores/common/integer-service.rhdl") open
+  lib("cores/common/integer-execution.rhdl") open
+  "../common/divider.rhdl" open
   "decode/divide-ctrl.rhdl" open
-  "../divide-decode.rhdl" open
+  "../common/divide-decode.rhdl" open
   "../../riscv/isa/xlen.rhm" open
   lib("flow/main.rhdl") open
 

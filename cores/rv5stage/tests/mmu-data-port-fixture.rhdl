@@ -3,12 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/mmu/context.rhdl").RiscvTranslationState
+  lib("cores/common/mmu/context.rhdl").RiscvTranslationState
   lib("riscv/rtl/pointer-masking.rhdl").PointerMaskControl
-  lib("cores/fetch/protocol.rhdl").PhysicalInstructionReq
+  lib("cores/common/fetch/protocol.rhdl").PhysicalInstructionReq
   lib("riscv/isa/hart.rhm").RiscvMmuType
-  lib("cores/mmu/vector.rhdl") open
-  "../../cache/protocol.rhdl" open
+  lib("cores/common/mmu/vector.rhdl") open
+  "../../common/cache/protocol.rhdl" open
   "../mmu/mmu.rhdl" open
   "../mmu/protocol.rhdl" open
   "../data-port-arbiter.rhdl" open
@@ -18,7 +18,7 @@ import:
   "../profile.rhm" open
   lib("riscv/rtl/privilege.rhdl").PrivilegeMode
   "params.rhdl" open
-  "../../cache-prefetch.rhdl" open
+  "../../common/cache-prefetch.rhdl" open
   "../../../riscv/isa/xlen.rhm" open
   lib("flow/main.rhdl") open
 
