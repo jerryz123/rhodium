@@ -251,6 +251,13 @@ with zero carry; a high result starts with the carry out of the entire low
 half. The same oracle checks this two-cycle result at widths 8, 32, and 64
 while varying half selection between launches.
 
+`iterative-multiplier` checks every eight-bit operand pair in all four signedness
+combinations, plus RV32/RV64 edge cases, exact latency, and replacement of a
+stalled response. Its accumulator starts with the multiplier in the low half;
+each right shift consumes one operand bit and installs one product bit. Keep the
+carry from the upper-half addition when shifting. Only the final iteration
+corrects the product sign.
+
 `iterative-divider` exhausts all eight-bit operand pairs in both signed modes,
 checking the quotient, remainder, and exact response cycle. Keep the trial
 subtraction one bit wider than the operands. Finalization corrects signs in

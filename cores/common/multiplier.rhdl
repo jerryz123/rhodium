@@ -51,8 +51,7 @@ sync_circuit IterativeMultiplier(width :: PosInt):
   reg left_negative(Bool)
   reg right_negative(Bool)
   reg count(~init: Bits(count_width)(0))
-  reg multiplicand(Bits(product_width))
-  reg multiplier(Bits(width))
+  reg multiplicand(Bits(width))
   reg accumulator(Bits(product_width))
   reg negate_result(Bool)
   reg response_valid(~init: Bool(#false))
@@ -65,11 +64,16 @@ sync_circuit IterativeMultiplier(width :: PosInt):
   def response_fire = response.fire()
   def request_left_negative = request.bits.mode.left_signed & request.bits.left[width - 1].into(Bool)
   def request_right_negative = request.bits.mode.right_signed & request.bits.right[width - 1].into(Bool)
-  def left_operand = multiplicand[0..width]
-  def left_magnitude = mux(left_negative, -left_operand, left_operand)
-  def right_magnitude = mux(right_negative, -multiplier, multiplier)
-  def addend = mux(multiplier[0].into(Bool), multiplicand, Bits(product_width)(0))
-  def accumulated = accumulator + addend
+  def low_word = accumulator[0..width]
+  def left_magnitude = mux(left_negative, -multiplicand, multiplicand)
+  def right_magnitude = mux(right_negative, -low_word, low_word)
+
+  /* The low half starts with the multiplier. Each step consumes its low bit
+     and shifts the upper sum, including its carry, into the combined product. */
+
+  def addend = mux(low_word[0].into(Bool), multiplicand, Bits(width)(0))
+  def upper_sum = accumulator[width..product_width] +& addend
+  def shifted_product = (upper_sum ++ low_word)[1..(product_width + 1)]
   def last_iteration = count === Bits(count_width)(width - 1)
 
   when request_fire:
@@ -78,24 +82,21 @@ sync_circuit IterativeMultiplier(width :: PosInt):
     left_negative <== request_left_negative
     right_negative <== request_right_negative
     count <== Bits(count_width)(0)
-    multiplicand <== request.bits.left.zext(product_width)
-    multiplier <== request.bits.right
-    accumulator <== Bits(product_width)(0)
+    multiplicand <== request.bits.left
+    accumulator <== request.bits.right.zext(product_width)
     negate_result <== request_left_negative ^ request_right_negative
     response_valid <== Bool(#false)
   elsewhen preparing:
     preparing <== Bool(#false)
-    multiplicand <== left_magnitude.zext(product_width)
-    multiplier <== right_magnitude
+    multiplicand <== left_magnitude
+    accumulator <== right_magnitude.zext(product_width)
   elsewhen (active & last_iteration):
     active <== Bool(#false)
     response_valid <== Bool(#true)
-    accumulator <== mux(negate_result, -accumulated, accumulated)
+    accumulator <== mux(negate_result, -shifted_product, shifted_product)
   elsewhen active:
     count <== count + Bits(count_width)(1)
-    multiplicand <== multiplicand << 1
-    multiplier <== multiplier >> 1
-    accumulator <== accumulated
+    accumulator <== shifted_product
   elsewhen response_fire:
     response_valid <== Bool(#false)
 

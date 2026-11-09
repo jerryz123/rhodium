@@ -6,8 +6,12 @@ template <unsigned W>
 void check_multiplier(auto &request, const auto &admission, auto &sink, const auto &response) {
   constexpr std::uint64_t sign = UINT64_C(1) << (W - 1);
   const auto mask = low_mask(W);
-  const std::array<std::uint64_t, 8> edges = {
-      0, 1, 7, sign - 1, sign, sign + 1, mask, UINT64_C(0xfedcba9876543210) & mask};
+  std::vector<std::uint64_t> operands;
+  if constexpr (W == 8) {
+    for (unsigned i = 0; i < 256; ++i) operands.push_back(i);
+  } else {
+    operands = {0, 1, 7, sign - 1, sign, sign + 1, mask, UINT64_C(0xfedcba9876543210) & mask};
+  }
   const auto extend = [=](std::uint64_t operand, bool is_signed) -> uint128 {
     return is_signed && (operand & sign) ? (uint128(operand) | ~uint128(mask)) : operand;
   };
@@ -32,8 +36,8 @@ void check_multiplier(auto &request, const auto &admission, auto &sink, const au
 
   bool held = false;
   uint128 expected = 0;
-  for (auto left : edges) {
-    for (auto right : edges) {
+  for (auto left : operands) {
+    for (auto right : operands) {
       for (unsigned mode = 0; mode < 4; ++mode) {
         const bool left_signed = mode & 2, right_signed = mode & 1;
         request.pvalid = 1;
