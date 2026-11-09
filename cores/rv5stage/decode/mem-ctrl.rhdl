@@ -10,8 +10,7 @@ import:
   "../../../riscv/isa/zicbom.rhm" open
   "../../common/cache/operation.rhdl" open
   "../../../riscv/rtl/decode.rhdl" open
-  "../../../riscv/rtl/atomic.rhdl" open
-  "../../common/load-store.rhdl" open
+  lib("cores/common/memory-control.rhdl").ScalarMemoryControl
   "../../../riscv/isa/rv32i.rhm" as rv32
   "../../../riscv/isa/rv64i.rhm" open
   "../../../riscv/isa/m.rhm" open
@@ -24,32 +23,24 @@ import:
   "../../../riscv/isa/privileged.rhm" open
   lib("rhodium/std/decode.rhdl") open
 
-/* Selects memory operation, AMO function, transfer width, and load extension independently of
-   address generation. */
-bundle RV5StageMemoryControl():
-  access: CacheOperation
-  atomic: RiscvAtomicOperation
-  width: MemoryWidth
-  unsigned: Bool
-
 def shared_loads = RiscvWordLoads
 def shared_stores = RiscvWordStores
 def shared_memory_instructions = shared_loads ++ shared_stores
-def no_memory = partial_pattern(RV5StageMemoryControl()):
+def no_memory = partial_pattern(ScalarMemoryControl()):
   access: CacheOperation.None
 
-def RV32IMemoryCases = scalar_memory_cases(RV5StageMemoryControl(), ~xlen: XLen.X32) ++ instruction_cases(
+def RV32IMemoryCases = scalar_memory_cases(ScalarMemoryControl(), ~xlen: XLen.X32) ++ instruction_cases(
   excluding_instructions(rv32.RV32IInstructions, shared_memory_instructions),
   no_memory
 )
 def rv64_memory_instructions = shared_memory_instructions ++ [LWU, LD, SD]
-def RV64IMemoryCases = scalar_memory_cases(RV5StageMemoryControl(), ~xlen: XLen.X64) ++ instruction_cases(
+def RV64IMemoryCases = scalar_memory_cases(ScalarMemoryControl(), ~xlen: XLen.X64) ++ instruction_cases(
   excluding_instructions(RV64IInstructions, rv64_memory_instructions),
   no_memory
 )
 
-def RV32AMemoryCases = atomic_memory_cases(RV5StageMemoryControl(), ~xlen: XLen.X32)
-def RV64AMemoryCases = atomic_memory_cases(RV5StageMemoryControl(), ~xlen: XLen.X64)
+def RV32AMemoryCases = atomic_memory_cases(ScalarMemoryControl(), ~xlen: XLen.X32)
+def RV64AMemoryCases = atomic_memory_cases(ScalarMemoryControl(), ~xlen: XLen.X64)
 def RV32RV5StageMemoryCases = RV32IMemoryCases ++ instruction_cases(
   RV32MInstructions ++ RV32BInstructions ++ ZicondInstructions ++ ZicsrInstructions ++ ZifenceiInstructions ++ ZimopInstructions ++ PrivilegedInstructions,
   no_memory
@@ -61,7 +52,7 @@ def RV64RV5StageMemoryCases = RV64IMemoryCases ++ instruction_cases(
 def RV32IMemoryDecode = ValidDecodeGen(RV32IMemoryCases)
 def RV64IMemoryDecode = ValidDecodeGen(RV64IMemoryCases)
 
-def block_cases = cache_block_memory_cases(RV5StageMemoryControl())
+def block_cases = cache_block_memory_cases(ScalarMemoryControl())
 def ZicbozMemoryCases = for List (instruction in ZicbozInstructions): DecodeCase(instruction_pattern(instruction), component_output(block_cases, instruction_pattern(instruction)))
 def ZicbomMemoryCases = for List (instruction in ZicbomInstructions): DecodeCase(instruction_pattern(instruction), component_output(block_cases, instruction_pattern(instruction)))
 
@@ -71,7 +62,8 @@ export:
   ZawrsMemoryCases
   ZicbomMemoryCases
   ZicbozMemoryCases
-  RV5StageMemoryControl
+  rename:
+    ScalarMemoryControl as RV5StageMemoryControl
   RV32AMemoryCases
   RV64AMemoryCases
   RV32IMemoryCases

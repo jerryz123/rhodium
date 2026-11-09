@@ -34,7 +34,7 @@ execution and retirement behavior.
 | [`writeback-ctrl.rhdl`](writeback-ctrl.rhdl) | Scalar architectural write enable and result source |
 | [`system-ctrl.rhdl`](system-ctrl.rhdl) | Shared CSR/system-action mappings from `../../common/csr/decode.rhdl`, plus independent WRS.NTO/WRS.STO wait controls |
 | [`fence-ctrl.rhdl`](fence-ctrl.rhdl) | Memory, instruction, host/guest translation fences and Svinval ordering-only actions |
-| [`hint-ctrl.rhdl`](hint-ctrl.rhdl) | Nonarchitectural PAUSE and NTL selectors, separate from fence/system serialization |
+| [`../../common/instruction-hint.rhdl`](../../common/instruction-hint.rhdl) | Shared PAUSE and NTL selector and retiring locality projection. [`hint-ctrl.rhdl`](hint-ctrl.rhdl) exports the RV5Stage name. |
 | [`../../common/fp/decode.rhdl`](../../common/fp/decode.rhdl) | Shared FP register-bank use, destination bank, execution unit, precisions, rounding-mode use, and operation modifiers |
 | [`../../common/vector/decode.rhdl`](../../common/vector/decode.rhdl) | Zve/V configuration, packed SIMD controls, operand modes, profile ELEN/FP restrictions, and same-/mixed-width register-group legality |
 | [`../../../riscv/rtl/decode.rhdl`](../../../riscv/rtl/decode.rhdl) | Catalog-independent RISC-V case construction, exclusion, exact-pattern comparison, and component lookup helpers |

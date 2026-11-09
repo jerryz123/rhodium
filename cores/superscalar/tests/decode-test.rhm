@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/common/cache/operation.rhdl").CacheOperation
   lib("cores/common/reservation-wait.rhdl").ReservationWaitMode
   lib("riscv/isa/zawrs.rhm") open
   rhombus.bits.(<<) as <<
@@ -60,7 +61,9 @@ for (xlen in [XLen.X32, XLen.X64]):
       field(field(control.value, "system"), "wait").packed_value() ~is mode.packed_value()
       cared(control, "system", "wait") ~is #true
       cared(control, "system", "immediate") ~is #false
-      field(field(control.value, "memory"), "enable").packed_value() ~is 0
+      field(field(control.value, "memory"), "access").packed_value() ~is CacheOperation.None.packed_value()
+      field(field(control.care, "memory"), "access").packed_value() ~is (1 << CacheOperation.packed_width()) - 1
+      cared(control, "memory", "width") ~is #false
       field(field(control.value, "writeback"), "enable").packed_value() ~is 0
   def returned_elsewhere = [LB, LH, LW, LBU, LHU] ++ ZicsrInstructions ++ (
     if rv64 | [LD, LWU] ++ RV64AInstructions ++ RV64MInstructions | RV32AInstructions ++ RV32MInstructions
@@ -85,7 +88,8 @@ for (xlen in [XLen.X32, XLen.X64]):
     check:
       cared(control, "memory", "unsigned") ~is #false
       cared(control, "memory", "width") ~is #true
-      cared(control, "memory", "enable") ~is #true
+      cared(control, "memory", "access") ~is #true
+      field(field(control.value, "memory"), "access").packed_value() ~is CacheOperation.Store.packed_value()
 
   for (instruction in (if rv64 | [LD, LR_D] | [LW, LR_W])):
     check: cared(output_for(cases, instruction), "memory", "unsigned") ~is #false

@@ -1,0 +1,19 @@
+#lang rhodium
+/* Carries decoded scalar LSU controls for either processor pipeline. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "cache/operation.rhdl".CacheOperation
+  "load-store.rhdl".MemoryWidth
+  lib("riscv/rtl/atomic.rhdl").RiscvAtomicOperation
+
+/* Selects memory operation, AMO function, transfer width, and load extension independently of
+   address generation. */
+bundle ScalarMemoryControl():
+  access: CacheOperation
+  atomic: RiscvAtomicOperation
+  width: MemoryWidth
+  unsigned: Bool
+
+export:
+  ScalarMemoryControl

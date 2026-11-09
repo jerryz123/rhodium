@@ -1,11 +1,12 @@
 #lang rhodium
-/* Maps scalar memory instructions to caller-shaped physical LSU controls without pipeline policy. */
+/* Maps scalar memory instructions and cache hints to LSU controls and memory intent. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("riscv/isa/xlen.rhm").XLen
   "load-store.rhdl" open
   "cache/operation.rhdl" open
+  "cache-prefetch.rhdl".CachePrefetchOperation
   lib("riscv/rtl/atomic.rhdl") open
   lib("riscv/rtl/decode.rhdl") open
   lib("riscv/isa/rv64i.rhm") open
@@ -13,12 +14,28 @@ import:
   lib("riscv/isa/h.rhm") open
   lib("riscv/isa/zicboz.rhm") open
   lib("riscv/isa/zicbom.rhm") open
+  lib("riscv/isa/zicbop.rhm") open
+  lib("riscv/isa/zihintntl.rhm") open
+  "instruction-hint.rhdl".InstructionHint
   lib("rhodium/std/decode.rhdl") open
 
 def RiscvWordLoads = [LB, LH, LW, LBU, LHU]
 def RiscvWordStores = [SB, SH, SW]
 def RiscvDoubleLoads = [LWU, LD]
 def RiscvDoubleStores = [SD]
+
+/* Pair canonical hint encodings with the intent consumed by the memory system. */
+def RiscvPrefetchHints = [
+  [PREFETCH_I, CachePrefetchOperation.Instruction],
+  [PREFETCH_R, CachePrefetchOperation.Read],
+  [PREFETCH_W, CachePrefetchOperation.Write]
+]
+def RiscvLocalityHints = [
+  [NTL_P1, InstructionHint.NtlP1],
+  [NTL_PALL, InstructionHint.NtlPall],
+  [NTL_S1, InstructionHint.NtlS1],
+  [NTL_ALL, InstructionHint.NtlAll]
+]
 
 /* Generates active XLEN-specific load/store rows; full-width loads need no extension policy. */
 fun scalar_memory_cases(Control :: DataType, ~xlen: xlen :: XLen) :: List.of(DecodeCase):
@@ -203,6 +220,8 @@ def RiscvGuestMemoryInstructions = [
 ]
 
 export:
+  RiscvPrefetchHints
+  RiscvLocalityHints
   RiscvWordLoads
   RiscvWordStores
   RiscvDoubleLoads

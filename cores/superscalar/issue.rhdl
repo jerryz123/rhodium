@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/common/instruction-hint.rhdl").InstructionHint
   lib("rhodium/core/ir.rhm").Module
   lib("rhodium/frontend/foundation.rhm").CircuitDefinition
   lib("rhodium/frontend/foundation.rhm").circuit_signature
@@ -108,7 +109,7 @@ fun superscalar_issue_traits(xlen :: XLen, candidate :: SuperscalarIssueCandidat
   def vector = control.vector.integer ||| control.vector.memory ||| control.vector.floating_point ||| control.vector.multiply_divide
   def long = control.muldiv.service =/= SuperscalarLongOperation.None
   def variable_fp = control.fp.valid & (control.fp.bits.execution.unit === FloatUnit.DivideSquareRoot)
-  def deferred = control.memory.enable ||| long ||| candidate.late_gpr ||| vector
+  def deferred = control.memory.access.is_memory() ||| long ||| candidate.late_gpr ||| vector
   def writes = candidate.decodable & control.writeback.enable & candidate.rd.any()
   def vector_frs1 = vector & control.vector.floating_point & (control.vector.operand === VectorOperandMode.FloatingScalar)
   SuperscalarIssueTraits():
@@ -116,7 +117,7 @@ fun superscalar_issue_traits(xlen :: XLen, candidate :: SuperscalarIssueCandidat
     writes: writes
     multiply: writes & (control.muldiv.service === SuperscalarLongOperation.Multiply)
     vector: vector
-    scalar_service: control.memory.enable ||| long ||| variable_fp
+    scalar_service: control.memory.access.is_memory() ||| long ||| variable_fp
     vector_config: control.system.action === RiscvCsrAction.VectorConfig
     vector_frs1: vector_frs1
     fpr_reads: control.fp.valid ||| vector_frs1
@@ -209,14 +210,14 @@ fun superscalar_issue_lane_hazards(xlen :: XLen, candidate :: SuperscalarIssueCa
   def control = candidate.control
   def data = candidate.decodable & (operands_blocked ||| status.fp_data_blocked ||| (control.writeback.enable & status.destination_blocked))
   def capacity = (traits.multiply & !resources.multiply_available) ||| status.fp_capacity_blocked ||| (traits.branch & (training_pending >= Bits(4)(3)))
-  def ordered_memory = candidate.decodable & control.memory.enable & !control.memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store)
+  def ordered_memory = candidate.decodable & !control.memory.access.is_one_of(CacheOperation.None, CacheOperation.Load, CacheOperation.Store)
   SuperscalarIssueHazards():
     data: data
     structural: status.execution_blocked ||| resources.retry_wait ||| capacity ||| (traits.system & !resources.serialization_ready) ||| status.csr_read_wait ||| (ordered_memory & !resources.memory_order_ready)
 
 /* Checks pair ordering restrictions independently of resource and operand readiness. */
 fun superscalar_issue_pair_excluded(xlen :: XLen, older :: SuperscalarIssueCandidate(xlen), a :: SuperscalarIssueTraits(), b :: SuperscalarIssueTraits()) :: Bool:
-  !older.decodable ||| older.control.pause ||| a.system ||| a.csr ||| b.system ||| b.csr
+  !older.decodable ||| (older.control.hint === InstructionHint.Pause) ||| a.system ||| a.csr ||| b.system ||| b.csr
 
 /* Checks whether compact pipeline PCs can represent a candidate relative to the group's oldest PC. */
 fun superscalar_issue_pc_allowed(xlen :: XLen, first_pc :: Bits(xlen.width), pc :: Bits(xlen.width)) :: Bool:

@@ -32,8 +32,5 @@ fun superscalar_operand_cases(xlen :: XLen):
     instruction_cases([CSRRWI, CSRRSI, CSRRCI, MRET, SRET, WFI, SFENCE_VMA, FENCE_I], no_operands)
   ])
 
-def SuperscalarOperandCases = superscalar_operand_cases(XLen.X64)
-
 export:
-  SuperscalarOperandCases
   superscalar_operand_cases

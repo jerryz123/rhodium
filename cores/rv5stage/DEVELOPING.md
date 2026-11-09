@@ -1073,7 +1073,7 @@ than reconstructing metadata at refill completion.
 
 For PAUSE, run the catalog/overlay/profile tests and `rv5stage-pause`, plus
 `rv5stage-wfi` and `rv5stage-zawrs` when changing issue/interrupt gating.
-`decode/hint-ctrl.rhdl` owns the nonarchitectural hint selector. Pipeline
+[`../common/instruction-hint.rhdl`](../common/instruction-hint.rhdl) owns the shared PAUSE and NTL selector. Pipeline
 payloads carry it to WB, where PAUSE retires before starting a bounded counter.
 The hint's younger-issue barrier is distinct from system/fence serialization:
 PAUSE must not inherit an older-work drain. Keep interrupt and completion

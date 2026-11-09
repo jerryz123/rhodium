@@ -34,7 +34,8 @@ import:
   "writeback-ctrl.rhdl" open
   "system-ctrl.rhdl" open
   "fence-ctrl.rhdl" open
-  "hint-ctrl.rhdl" open
+  lib("cores/common/instruction-hint.rhdl").InstructionHint
+  lib("cores/common/memory-control.rhdl").ScalarMemoryControl
   "../../../riscv/isa/zihintpause.rhm" open
   "../../../riscv/isa/zihintntl.rhm" open
   "../../common/fp/decode.rhdl" open
@@ -68,14 +69,14 @@ bundle RV5StageControl():
   alu: AluControl()
   operand: OperandControl()
   branch: RiscvBranchControl()
-  memory: RV5StageMemoryControl()
+  memory: ScalarMemoryControl()
   prefetch: CachePrefetchOperation
   multiply: RiscvMultiplyControl()
   divide: RiscvDivideControl()
   writeback: RV5StageWritebackControl()
   system: RV5StageSystemControl()
   fence: RV5StageFenceControl()
-  hint: RV5StageHintOperation
+  hint: InstructionHint
   floating_point_valid: Bool
   floating_point: FloatingPointControl()
   vector: VectorControl()
@@ -91,7 +92,7 @@ def inactive_branch_control = partial_pattern(RiscvBranchControl()):
     partial_pattern(BranchResolverControl()):
       enable: Bool(#false)
 
-def inactive_memory_control = partial_pattern(RV5StageMemoryControl()):
+def inactive_memory_control = partial_pattern(ScalarMemoryControl()):
   access: CacheOperation.None
 
 def inactive_writeback_control = partial_pattern(RV5StageWritebackControl()):
@@ -133,7 +134,7 @@ fun compose_control_cases(instructions :: List.of(InstructionSpec),
           writeback: component_output(writeback_cases, input)
           system: component_output(system_cases, input)
           fence: component_output(fence_cases, input)
-          hint: RV5StageHintOperation.None
+          hint: InstructionHint.None
           floating_point_valid: Bool(#false)
           floating_point: pattern(FloatingPointControl(), _)
           vector: NoVectorControl
@@ -154,14 +155,14 @@ fun floating_point_core_control_cases(instructions :: List.of(InstructionSpec),
           alu: if scalar.memory | scalar_address_alu | unused_scalar_alu
           operand: scalar.operands()
           branch: inactive_branch_control
-          memory: if scalar.memory | scalar.memory_control(RV5StageMemoryControl()) | inactive_memory_control
+          memory: if scalar.memory | scalar.memory_control(ScalarMemoryControl()) | inactive_memory_control
           prefetch: CachePrefetchOperation.None
           multiply: pattern(RiscvMultiplyControl(), _)
           divide: pattern(RiscvDivideControl(), _)
           writeback: inactive_writeback_control
           system: inactive_system_control
           fence: inactive_fence_control
-          hint: RV5StageHintOperation.None
+          hint: InstructionHint.None
           floating_point_valid: Bool(#true)
           floating_point: component_output(floating_point_cases, input)
           vector: NoVectorControl
@@ -171,43 +172,29 @@ fun floating_point_core_control_cases(instructions :: List.of(InstructionSpec),
 /* Zicbop refines three ORI-to-x0 regions. Complete override rows are formed
    after the ordinary scalar control columns have been composed. */
 
-def zicbop_operand_control = pattern(OperandControl()):
-  uses_rs1: Bool(#true)
-  uses_rs2: Bool(#false)
-  left: OperandASelect.Register
-  right: OperandBSelect.Immediate
-  immediate: OperandImmediate.Prefetch
-
-/* Maps the three prefetch catalog entries to instruction, read, or write intent. */
-fun zicbop_operation(instruction :: InstructionSpec):
-  cond
-  | instruction.name == zicbop.PREFETCH_I.name: CachePrefetchOperation.Instruction
-  | instruction.name == zicbop.PREFETCH_R.name: CachePrefetchOperation.Read
-  | ~else: CachePrefetchOperation.Write
-
-def ZicbopCoreControlCases = for List (instruction in zicbop.ZicbopInstructions):
+def ZicbopCoreControlCases = for List ([instruction, operation] in RiscvPrefetchHints):
   DecodeCase(
     instruction_pattern(instruction),
     pattern(RV5StageControl()):
       guest_access: RiscvGuestMemoryAccess.Normal
       alu: scalar_address_alu
-      operand: zicbop_operand_control
+      operand: prefetch_operands
       branch: inactive_branch_control
       memory: inactive_memory_control
-      prefetch: zicbop_operation(instruction)
+      prefetch: operation
       multiply: pattern(RiscvMultiplyControl(), _)
       divide: pattern(RiscvDivideControl(), _)
       writeback: inactive_writeback_control
       system: inactive_system_control
       fence: inactive_fence_control
-      hint: RV5StageHintOperation.None
+      hint: InstructionHint.None
       floating_point_valid: Bool(#false)
       floating_point: pattern(FloatingPointControl(), _)
       vector: NoVectorControl
   )
 
 /* Builds side-effect-free hint/fence overlays without GPR use or memory admission. */
-fun hint_control_case(instruction :: InstructionSpec, hint :: RV5StageHintOperation, ~fence: fence :: RV5StageFenceOperation = RV5StageFenceOperation.None):
+fun hint_control_case(instruction :: InstructionSpec, hint :: InstructionHint, ~fence: fence :: RV5StageFenceOperation = RV5StageFenceOperation.None):
   DecodeCase(
     instruction_pattern(instruction),
     partial_pattern(RV5StageControl()):
@@ -235,10 +222,10 @@ fun hint_control_case(instruction :: InstructionSpec, hint :: RV5StageHintOperat
       vector: NoVectorControl
   )
 
-def ZihintpauseCoreControlCases = [hint_control_case(PAUSE, RV5StageHintOperation.Pause)]
+def ZihintpauseCoreControlCases = [hint_control_case(PAUSE, InstructionHint.Pause)]
 def HypervisorFenceControlCases = [
-  hint_control_case(HFENCE_VVMA, RV5StageHintOperation.None, ~fence: RV5StageFenceOperation.GuestVirtualTranslation),
-  hint_control_case(HFENCE_GVMA, RV5StageHintOperation.None, ~fence: RV5StageFenceOperation.GuestPhysicalTranslation)
+  hint_control_case(HFENCE_VVMA, InstructionHint.None, ~fence: RV5StageFenceOperation.GuestVirtualTranslation),
+  hint_control_case(HFENCE_GVMA, InstructionHint.None, ~fence: RV5StageFenceOperation.GuestPhysicalTranslation)
 ]
 
 
@@ -246,14 +233,14 @@ def HypervisorFenceControlCases = [
    instructions remain distinct solely for their privilege-only access checks. */
 
 def SvinvalControlCases = [
-  hint_control_case(SINVAL_VMA, RV5StageHintOperation.None, ~fence: RV5StageFenceOperation.AddressTranslation),
-  hint_control_case(SFENCE_W_INVAL, RV5StageHintOperation.None, ~fence: RV5StageFenceOperation.TranslationOrder),
-  hint_control_case(SFENCE_INVAL_IR, RV5StageHintOperation.None, ~fence: RV5StageFenceOperation.TranslationOrder)
+  hint_control_case(SINVAL_VMA, InstructionHint.None, ~fence: RV5StageFenceOperation.AddressTranslation),
+  hint_control_case(SFENCE_W_INVAL, InstructionHint.None, ~fence: RV5StageFenceOperation.TranslationOrder),
+  hint_control_case(SFENCE_INVAL_IR, InstructionHint.None, ~fence: RV5StageFenceOperation.TranslationOrder)
 ]
 
 def SvinvalHypervisorControlCases = [
-  hint_control_case(HINVAL_VVMA, RV5StageHintOperation.None, ~fence: RV5StageFenceOperation.GuestVirtualTranslation),
-  hint_control_case(HINVAL_GVMA, RV5StageHintOperation.None, ~fence: RV5StageFenceOperation.GuestPhysicalTranslation)
+  hint_control_case(HINVAL_VVMA, InstructionHint.None, ~fence: RV5StageFenceOperation.GuestVirtualTranslation),
+  hint_control_case(HINVAL_GVMA, InstructionHint.None, ~fence: RV5StageFenceOperation.GuestPhysicalTranslation)
 ]
 
 
@@ -265,14 +252,7 @@ def HypervisorMemoryControlCases = for List ([instruction, ordinary, execute_rea
   def control = partial_pattern(RV5StageControl()):
     guest_access: if execute_read | RiscvGuestMemoryAccess.GuestExecuteRead | RiscvGuestMemoryAccess.Guest
     alu: scalar_address_alu
-    operand:
-      pattern(OperandControl()):
-        uses_rs1: Bool(#true)
-        uses_rs2: Bool(store)
-        left: OperandASelect.Register
-        right: OperandBSelect.Immediate
-        immediate: OperandImmediate.Zero
-
+    operand: if store | atomic_operands | load_reserved_operands
     branch: inactive_branch_control
     memory: component_output(RV64IMemoryCases, instruction_pattern(ordinary))
     prefetch: CachePrefetchOperation.None
@@ -283,7 +263,7 @@ def HypervisorMemoryControlCases = for List ([instruction, ordinary, execute_rea
 
     system: inactive_system_control
     fence: inactive_fence_control
-    hint: RV5StageHintOperation.None
+    hint: InstructionHint.None
     floating_point_valid: Bool(#false)
     vector: NoVectorControl
 
@@ -308,10 +288,10 @@ fun vector_core_control_cases(instructions :: List.of(InstructionSpec),
       cond
       | !memory: inactive_memory_control
       | store:
-          partial_pattern(RV5StageMemoryControl()):
+          partial_pattern(ScalarMemoryControl()):
             access: CacheOperation.Store
       | ~else:
-          partial_pattern(RV5StageMemoryControl()):
+          partial_pattern(ScalarMemoryControl()):
             access: CacheOperation.Load
 
     def writeback_control:
@@ -346,7 +326,7 @@ fun vector_core_control_cases(instructions :: List.of(InstructionSpec),
         writeback: writeback_control
         system: system_control
         fence: inactive_fence_control
-        hint: RV5StageHintOperation.None
+        hint: InstructionHint.None
         floating_point_valid: Bool(#false)
         vector: component_output(vector_controls, input)
     )
@@ -354,12 +334,8 @@ fun vector_core_control_cases(instructions :: List.of(InstructionSpec),
 def VectorCoreControlCases = vector_core_control_cases(vector_isa.VectorVInstructions, VectorControlCases)
 def VectorIntegerCoreControlCases = vector_core_control_cases(vector_base_instructions(VectorProfile.Zve32x), VectorControlCases)
 def VectorZvbbCoreControlCases = vector_core_control_cases(vector_bitmanip.ZvbbInstructions, VectorZvbbCases)
-def ZihintntlCoreControlCases = [
-  hint_control_case(NTL_P1, RV5StageHintOperation.NtlP1),
-  hint_control_case(NTL_PALL, RV5StageHintOperation.NtlPall),
-  hint_control_case(NTL_S1, RV5StageHintOperation.NtlS1),
-  hint_control_case(NTL_ALL, RV5StageHintOperation.NtlAll)
-]
+def ZihintntlCoreControlCases = for List ([instruction, hint] in RiscvLocalityHints):
+  hint_control_case(instruction, hint)
 
 
 /* Reservation waits retain retirement context in the core. */

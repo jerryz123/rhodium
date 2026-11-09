@@ -207,12 +207,17 @@ launch, authorization, or retirement.
 
 `memory-decode.rhdl` supplies `scalar_memory_cases(Control, ~xlen: xlen)`,
 `atomic_memory_cases(Control, ~xlen: xlen)`, and
-`cache_block_memory_cases(Control)`. The caller-shaped control bundle supplies
-`access`, `atomic`, `width`, and `unsigned` fields as needed. The returned partial
-relations leave irrelevant controls unconstrained; callers add validity fields,
-inactive-domain coverage, and pipeline policy before composing their decoder.
+`cache_block_memory_cases(Control)`. Both pipelines use `ScalarMemoryControl()` from
+`memory-control.rhdl`. Its `access` selects the operation, with
+`CacheOperation.None` for inactive rows. Active rows constrain `atomic`,
+`width`, and `unsigned` only when the operation observes them.
 `RiscvGuestMemoryInstructions` maps guest loads/stores to ordinary LSU operations
 and distinguishes HLVX execute-read permission.
+`RiscvPrefetchHints` pairs each Zicbop instruction with its
+`CachePrefetchOperation`. `RiscvLocalityHints` pairs each Zihintntl instruction
+with its `InstructionHint`. Both decoders use these pairs to build their
+feature-selected overlays on ORI and ADD. At retirement,
+`instruction_hint_locality` maps the carried hint to `RiscvMemoryLocality`.
 
 ## Packed SIMD integer ALU
 

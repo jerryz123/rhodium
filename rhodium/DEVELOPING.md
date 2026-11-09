@@ -582,7 +582,13 @@ existing core-to-architecture dependency direction.
 The CSR specialization reads MISA from the existing RV5Stage profile projection,
 which owns the pure `riscv/isa/profile.rhm` catalog dependency.
 `cores/common/memory-decode.rhdl` imports shared LSU/atomic controls, canonical scalar,
-A/H/CMO catalogs, and `std/decode.rhdl`. `cores/common/csr/decode.rhdl` imports the
+A/H/CMO catalogs, and `std/decode.rhdl`. For cache hints it pairs the Zicbop
+and Zihintntl catalogs with `cores/common/cache-prefetch.rhdl` operations and
+`cores/common/instruction-hint.rhdl` selectors. The latter imports
+`riscv/rtl/zihintntl.rhdl` for the writeback locality projection.
+`cores/common/memory-control.rhdl` combines the shared cache operation and
+transfer width with the atomic function from `riscv/rtl/atomic.rhdl`.
+`cores/common/csr/decode.rhdl` imports the
 Zicsr, base, privileged, H, and Svinval catalogs, shared CSR actions, CSR RTL
 controls, and `std/decode.rhdl`. Both generate partial
 relations into caller-shaped bundles without a named-core dependency.

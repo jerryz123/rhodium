@@ -450,7 +450,7 @@ WB authorization, and the two-port writeback policy stay local.
 | Owner | Responsibility |
 |---|---|
 | `decode/operand-ctrl.rhdl` | Composes shared I/M/A/B/Zicond operand relations with Superscalar MOP routing policy |
-| `decode/mem-ctrl.rhdl` | Load/store enable, direction, width, signedness, inactive care masks |
+| [`../common/memory-control.rhdl`](../common/memory-control.rhdl) | Scalar LSU controls. EX sets `memory_active` on executable memory instructions and preserves the decoded operation for fault classification. |
 | `decode/system-ctrl.rhdl` | Architectural CSR operation/source, trap/return/wait, and serialized fence columns |
 | `decode/long-ctrl.rhdl` | Shared multiply/divide relations, service selection, inactive care masks |
 | `decode/core-ctrl.rhdl` | Selected instruction domain, writeback column, one combined relation |
@@ -1181,7 +1181,7 @@ residency, invalidation, and uncached no-IO completion.
 Optional Zicbop overlays its three exact hint cubes on the ORI relation, using
 the architectural `PrefetchImmediate` descriptor and shared
 `CachePrefetchOperation`. Ordinary ORI encodings retain their original controls.
-Hints have no memory-enable or GPR-write control. Fork successful WB retirement
+Hints select `CacheOperation.None` and suppress GPR writeback. Fork successful WB retirement
 into the hint path, then use Flow's fixed-priority Valid arbiter; simultaneous
 younger hints may be dropped without changing retirement.
 

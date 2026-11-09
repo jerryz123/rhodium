@@ -34,7 +34,7 @@ import:
   "decode/writeback-ctrl.rhdl" open
   "decode/system-ctrl.rhdl" open
   "decode/fence-ctrl.rhdl" open
-  "decode/hint-ctrl.rhdl" open
+  lib("cores/common/instruction-hint.rhdl") open
   "../common/fp/types.rhdl" open
   "mmu/protocol.rhdl" open
   "../common/vector/precheck.rhdl".VectorFootprintGeometry
@@ -128,7 +128,7 @@ bundle DecodeExecute(xlen :: XLen, vector_completion_slots :: Pow2Int, hyperviso
   writeback_source: RV5StageWritebackSelect
   system: RV5StageSystemControl()
   fence: RV5StageFenceControl()
-  hint: RV5StageHintOperation
+  hint: InstructionHint
   illegal: Bool
   fault: FetchFault(xlen, hypervisor)
   immediate: Bits(xlen.width)
@@ -177,7 +177,7 @@ bundle ExecuteMemory(xlen :: XLen, vector_completion_slots :: Pow2Int, hyperviso
   divide_issue: RV5StageDivideIssue(xlen)
   system: RV5StageSystemControl()
   fence: RV5StageFenceControl()
-  hint: RV5StageHintOperation
+  hint: InstructionHint
   csr_address: Bits(12)
   csr_source: Bits(xlen.width)
   vector_config: RiscvVectorConfigRequest(xlen)
@@ -214,7 +214,7 @@ bundle MemoryWriteback(xlen :: XLen, vector_completion_slots :: Pow2Int, hypervi
   divide_issue: RV5StageDivideIssue(xlen)
   system: RV5StageSystemControl()
   fence: RV5StageFenceControl()
-  hint: RV5StageHintOperation
+  hint: InstructionHint
   csr_address: Bits(12)
   csr_source: Bits(xlen.width)
   vector_config: RiscvVectorConfigRequest(xlen)
@@ -281,7 +281,7 @@ bundle RV5StageRetirementCommand(xlen :: XLen, vector_completion_slots :: Pow2In
   value: Bits(xlen.width)
   system: RV5StageSystemControl()
   fence: RV5StageFenceControl()
-  hint: RV5StageHintOperation
+  hint: InstructionHint
   csr_address: Bits(12)
   csr_source: Bits(xlen.width)
   vector_config: RiscvVectorConfigRequest(xlen)
@@ -321,7 +321,7 @@ bundle RetainedScalarWriteback(xlen :: XLen, vector_completion_slots :: Pow2Int,
   value: Bits(xlen.width)
   system: RV5StageSystemControl()
   fence: RV5StageFenceControl()
-  hint: RV5StageHintOperation
+  hint: InstructionHint
 
 
 export:

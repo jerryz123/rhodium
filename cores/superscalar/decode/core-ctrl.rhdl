@@ -12,7 +12,8 @@ import:
   lib("riscv/isa/rv32i.rhm") as rv32
   lib("cores/common/memory-decode.rhdl") open
   "operand-ctrl.rhdl" open
-  "mem-ctrl.rhdl" open
+  lib("cores/common/memory-control.rhdl").ScalarMemoryControl
+  lib("cores/common/operand-decode.rhdl") open
   "system-ctrl.rhdl" open
   "long-ctrl.rhdl" open
   lib("cores/common/alu.rhdl") open
@@ -45,9 +46,9 @@ import:
   lib("riscv/isa/zihintntl.rhm") open
   lib("riscv/isa/svinval.rhm") open
   lib("riscv/isa/h.rhm") open
-  lib("riscv/isa/privileged.rhm").SFENCE_VMA
+  lib("riscv/isa/privileged.rhm").PrivilegedInstructions
   lib("riscv/rtl/hypervisor.rhdl") open
-  lib("riscv/rtl/zihintntl.rhdl") open
+  lib("cores/common/instruction-hint.rhdl").InstructionHint
   lib("cores/common/csr/protocol.rhdl").RiscvCsrAction
   lib("riscv/rtl/csr.rhdl").RiscvCsrOperation
   lib("riscv/rtl/decode.rhdl") open
@@ -68,11 +69,10 @@ bundle SuperscalarControl():
   alu: AluControl()
   operand: OperandControl()
   branch: RiscvBranchControl()
-  memory: SuperscalarMemoryControl()
+  memory: ScalarMemoryControl()
   guest_access: RiscvGuestMemoryAccess
   prefetch: CachePrefetchOperation
-  pause: Bool
-  locality_hint: RiscvMemoryLocality
+  hint: InstructionHint
   writeback: SuperscalarWritebackControl()
   system: SuperscalarSystemControl()
   muldiv: SuperscalarLongControl()
@@ -97,11 +97,10 @@ fun superscalar_vector_cases(profile :: SuperscalarPipelineConfig) :: List.of(De
           uses_rs2: Bool(metadata.uses_rs2)
 
       branch: inactive_branch
-      memory: partial_pattern(SuperscalarMemoryControl()): enable: Bool(#false)
+      memory: inactive_core_memory
       guest_access: RiscvGuestMemoryAccess.Normal
       prefetch: CachePrefetchOperation.None
-      pause: Bool(#false)
-      locality_hint: RiscvMemoryLocality.Default
+      hint: InstructionHint.None
       writeback:
         partial_pattern(SuperscalarWritebackControl()):
           enable: Bool(configuration || scalar_destination)
@@ -119,15 +118,14 @@ fun superscalar_vector_cases(profile :: SuperscalarPipelineConfig) :: List.of(De
 
     DecodeCase(instruction_pattern(instruction), output)
 
-/* Inactive controls care only about the enable/valid discriminator.
-   Reuse these exact patterns without filling in unobservable payload fields. */
-def inactive_core_memory = partial_pattern(SuperscalarMemoryControl()): enable: Bool(#false)
+/* Inactive memory and FP rows constrain only the operation or validity discriminator. */
+def inactive_core_memory = partial_pattern(ScalarMemoryControl()): access: CacheOperation.None
 def inactive_core_fp = partial_pattern(SuperscalarFpControl()): valid: Bool(#false)
 
 
 /* Selects canonical instruction encodings before joining their control columns. */
 fun integer_instructions(xlen :: XLen) :: List.of(InstructionSpec):
-  (if xlen == XLen.X32 | rv32.RV32IInstructions ++ RV32MInstructions ++ RV32AInstructions ++ RV32BInstructions | RV64IInstructions ++ RV64MInstructions ++ RV64AInstructions ++ RV64BInstructions) ++ ZicondInstructions ++ ZimopInstructions ++ ZicsrInstructions ++ ZifenceiInstructions ++ SuperscalarPrivilegedInstructions
+  (if xlen == XLen.X32 | rv32.RV32IInstructions ++ RV32MInstructions ++ RV32AInstructions ++ RV32BInstructions | RV64IInstructions ++ RV64MInstructions ++ RV64AInstructions ++ RV64BInstructions) ++ ZicondInstructions ++ ZimopInstructions ++ ZicsrInstructions ++ ZifenceiInstructions ++ PrivilegedInstructions
 
 /* Joins exact canonical input patterns, preserving each component's inactive care masks. */
 fun compose_control_cases(xlen :: XLen) :: List.of(DecodeCase):
@@ -139,19 +137,19 @@ fun compose_control_cases(xlen :: XLen) :: List.of(DecodeCase):
   def bit_alu = if xlen == XLen.X32 | RV32BAluCases | RV64BAluCases
   def operands = superscalar_operand_cases(xlen)
   def loads = RiscvWordLoads ++ (if xlen == XLen.X64 | RiscvDoubleLoads | [])
-  def SuperscalarStores = RiscvWordStores ++ (if xlen == XLen.X64 | RiscvDoubleStores | [])
-  def memory = enabled_cases(scalar_memory_cases(SuperscalarMemoryControl(), ~xlen: xlen)) ++ instruction_cases(excluding_instructions(base, loads ++ SuperscalarStores), inactive_core_memory)
-  def atomics = enabled_cases(atomic_memory_cases(SuperscalarMemoryControl(), ~xlen: xlen))
+  def stores = RiscvWordStores ++ (if xlen == XLen.X64 | RiscvDoubleStores | [])
+  def memory = scalar_memory_cases(ScalarMemoryControl(), ~xlen: xlen) ++ instruction_cases(excluding_instructions(base, loads ++ stores), inactive_core_memory)
+  def atomics = atomic_memory_cases(ScalarMemoryControl(), ~xlen: xlen)
   def instructions = integer_instructions(xlen)
   def addition_alu_cases = instruction_cases(atomic ++ ZimopInstructions, component_output(alu, instruction_pattern(ADDI)))
-  def system_alu_cases = instruction_cases(multiply ++ ZicsrInstructions ++ ZifenceiInstructions ++ SuperscalarPrivilegedInstructions, unused_alu)
-  def inactive_memory_cases = instruction_cases(multiply ++ bitmanip ++ ZicondInstructions ++ ZimopInstructions ++ ZicsrInstructions ++ ZifenceiInstructions ++ SuperscalarPrivilegedInstructions, inactive_core_memory)
+  def system_alu_cases = instruction_cases(multiply ++ ZicsrInstructions ++ ZifenceiInstructions ++ PrivilegedInstructions, unused_alu)
+  def inactive_memory_cases = instruction_cases(multiply ++ bitmanip ++ ZicondInstructions ++ ZimopInstructions ++ ZicsrInstructions ++ ZifenceiInstructions ++ PrivilegedInstructions, inactive_core_memory)
   def core_long_cases = long_cases(instructions, ~xlen: xlen)
   def core_branch_cases = branch_cases(instructions)
   def branches = [BEQ, BNE, BLT, BGE, BLTU, BGEU]
   def jumps = [JAL, JALR]
   def writeback_cases = decode_groups(SuperscalarWritebackControl(), ~input: instruction_pattern):
-    group branches ++ SuperscalarStores ++ [ECALL, EBREAK, FENCE, FENCE_I] ++ SuperscalarPrivilegedInstructions:
+    group branches ++ stores ++ [ECALL, EBREAK, FENCE, FENCE_I] ++ PrivilegedInstructions:
       enable: Bool(#false)
 
     group jumps:
@@ -161,7 +159,7 @@ fun compose_control_cases(xlen :: XLen) :: List.of(DecodeCase):
     group ZicsrInstructions ++ loads ++ atomic ++ multiply:
       enable: Bool(#true)
 
-    group excluding_instructions(instructions, branches ++ jumps ++ SuperscalarStores ++ [ECALL, EBREAK, FENCE, FENCE_I] ++ SuperscalarPrivilegedInstructions ++ ZicsrInstructions ++ loads ++ atomic ++ multiply):
+    group excluding_instructions(instructions, branches ++ jumps ++ stores ++ [ECALL, EBREAK, FENCE, FENCE_I] ++ PrivilegedInstructions ++ ZicsrInstructions ++ loads ++ atomic ++ multiply):
       enable: Bool(#true)
       link: Bool(#false)
 
@@ -181,8 +179,7 @@ fun compose_control_cases(xlen :: XLen) :: List.of(DecodeCase):
         fp: inactive_core_fp
         vector: NoVectorControl
         prefetch: CachePrefetchOperation.None
-        pause: Bool(#false)
-        locality_hint: RiscvMemoryLocality.Default
+        hint: InstructionHint.None
     )
 
 
@@ -195,52 +192,45 @@ def inactive_long = component_output(long_cases([ADDI]), instruction_pattern(ADD
 /* CBO rows use rs1 unchanged and have no register destination or CSR action. */
 
 def SuperscalarCboInstructions = ZicbozInstructions ++ ZicbomInstructions
+def block_cases = cache_block_memory_cases(ScalarMemoryControl())
+def block_width = partial_pattern(ScalarMemoryControl()): width: MemoryWidth.Double
 def SuperscalarCboControlCases = for List (instruction in SuperscalarCboInstructions):
   def input = instruction_pattern(instruction)
   def output = pattern(SuperscalarControl()):
     guest_access: RiscvGuestMemoryAccess.Normal
     alu: component_output(RV64ICompleteAluCases, instruction_pattern(ADDI))
-    operand: component_output(SuperscalarOperandCases, instruction_pattern(LR_D))
-    branch: component_output(branch_cases(SuperscalarCboInstructions), input)
-    memory: component_output(SuperscalarZeroCases ++ SuperscalarManagementCases, input)
+    operand: load_reserved_operands
+    branch: inactive_branch
+    memory: component_output(block_cases, input).intersection(block_width).terms[0]
     writeback: partial_pattern(SuperscalarWritebackControl()): enable: Bool(#false)
     system: component_output(SuperscalarSystemCases, instruction_pattern(ADDI))
-    muldiv: component_output(long_cases(SuperscalarCboInstructions), input)
+    muldiv: inactive_long
     fp: inactive_core_fp
     vector: NoVectorControl
     prefetch: CachePrefetchOperation.None
-    pause: Bool(#false)
-    locality_hint: RiscvMemoryLocality.Default
+    hint: InstructionHint.None
 
   DecodeCase(input, output)
 
 
 /* Prefetch rows refine ORI-to-x0; overlay removes only those exact hint cubes. */
 
-def SuperscalarPrefetchCases = for List (entry in [[PREFETCH_I, CachePrefetchOperation.Instruction], [PREFETCH_R, CachePrefetchOperation.Read], [PREFETCH_W, CachePrefetchOperation.Write]]):
+def SuperscalarPrefetchCases = for List ([instruction, operation] in RiscvPrefetchHints):
   def output = pattern(SuperscalarControl()):
     guest_access: RiscvGuestMemoryAccess.Normal
     alu: component_output(RV64ICompleteAluCases, instruction_pattern(ADDI))
-    operand:
-      pattern(OperandControl()):
-        uses_rs1: Bool(#true)
-        uses_rs2: Bool(#false)
-        left: OperandASelect.Register
-        right: OperandBSelect.Immediate
-        immediate: OperandImmediate.Prefetch
-
+    operand: prefetch_operands
     branch: inactive_branch
     memory: inactive_core_memory
-    prefetch: entry[1]
-    pause: Bool(#false)
-    locality_hint: RiscvMemoryLocality.Default
+    prefetch: operation
+    hint: InstructionHint.None
     writeback: partial_pattern(SuperscalarWritebackControl()): enable: Bool(#false)
     system: component_output(SuperscalarSystemCases, instruction_pattern(ADDI))
     muldiv: inactive_long
     fp: inactive_core_fp
     vector: NoVectorControl
 
-  DecodeCase(instruction_pattern(entry[0]), output)
+  DecodeCase(instruction_pattern(instruction), output)
 
 /* Selects the exact scalar domain used by decode and compressed expansion. */
 fun superscalar_instructions(profile :: SuperscalarPipelineConfig) :: List.of(InstructionSpec):
@@ -259,16 +249,11 @@ def SuperscalarWaitCases = for List (entry in ReservationWaitCases):
   def output = pattern(SuperscalarControl()):
     guest_access: RiscvGuestMemoryAccess.Normal
     alu: unused_alu
-    operand:
-      partial_pattern(OperandControl()):
-        uses_rs1: Bool(#false)
-        uses_rs2: Bool(#false)
-
+    operand: no_operands
     branch: inactive_branch
     memory: inactive_core_memory
     prefetch: CachePrefetchOperation.None
-    pause: Bool(#false)
-    locality_hint: RiscvMemoryLocality.Default
+    hint: InstructionHint.None
     writeback: partial_pattern(SuperscalarWritebackControl()): enable: Bool(#false)
     system:
       partial_pattern(SuperscalarSystemControl()):
@@ -289,16 +274,11 @@ def SuperscalarWaitCases = for List (entry in ReservationWaitCases):
 def pause_control = pattern(SuperscalarControl()):
   guest_access: RiscvGuestMemoryAccess.Normal
   alu: unused_alu
-  operand:
-    partial_pattern(OperandControl()):
-      uses_rs1: Bool(#false)
-      uses_rs2: Bool(#false)
-
+  operand: no_operands
   branch: inactive_branch
   memory: inactive_core_memory
   prefetch: CachePrefetchOperation.None
-  pause: Bool(#true)
-  locality_hint: RiscvMemoryLocality.Default
+  hint: InstructionHint.Pause
   writeback: partial_pattern(SuperscalarWritebackControl()): enable: Bool(#false)
   system: component_output(SuperscalarSystemCases, instruction_pattern(ADDI))
   muldiv: inactive_long
@@ -310,27 +290,22 @@ def SuperscalarPauseCases = [DecodeCase(instruction_pattern(PAUSE), pause_contro
 
 /* Locality hints refine exact ADD-to-x0 words; encoded rs2 is not an operand. */
 
-def SuperscalarLocalityCases = for List (entry in [[NTL_P1, RiscvMemoryLocality.P1], [NTL_PALL, RiscvMemoryLocality.Pall], [NTL_S1, RiscvMemoryLocality.S1], [NTL_ALL, RiscvMemoryLocality.All]]):
+def SuperscalarLocalityCases = for List ([instruction, hint] in RiscvLocalityHints):
   def output = pattern(SuperscalarControl()):
     guest_access: RiscvGuestMemoryAccess.Normal
     alu: unused_alu
-    operand:
-      partial_pattern(OperandControl()):
-        uses_rs1: Bool(#false)
-        uses_rs2: Bool(#false)
-
+    operand: no_operands
     branch: inactive_branch
     memory: inactive_core_memory
     prefetch: CachePrefetchOperation.None
-    pause: Bool(#false)
-    locality_hint: entry[1]
+    hint: hint
     writeback: partial_pattern(SuperscalarWritebackControl()): enable: Bool(#false)
     system: component_output(SuperscalarSystemCases, instruction_pattern(ADDI))
     muldiv: inactive_long
     fp: inactive_core_fp
     vector: NoVectorControl
 
-  DecodeCase(instruction_pattern(entry[0]), output)
+  DecodeCase(instruction_pattern(instruction), output)
 
 
 /* Serialized invalidation commands share inactive datapaths but retain distinct CSR actions. */
@@ -340,16 +315,11 @@ def SuperscalarInvalidationControlCases = for List (instruction in SvinvalInstru
   def output = pattern(SuperscalarControl()):
     guest_access: RiscvGuestMemoryAccess.Normal
     alu: unused_alu
-    operand:
-      partial_pattern(OperandControl()):
-        uses_rs1: Bool(#false)
-        uses_rs2: Bool(#false)
-
+    operand: no_operands
     branch: inactive_branch
     memory: inactive_core_memory
     prefetch: CachePrefetchOperation.None
-    pause: Bool(#false)
-    locality_hint: RiscvMemoryLocality.Default
+    hint: InstructionHint.None
     writeback: partial_pattern(SuperscalarWritebackControl()): enable: Bool(#false)
     system: component_output(SuperscalarInvalidationCases, input)
     muldiv: inactive_long
@@ -363,8 +333,6 @@ fun superscalar_control_cases(profile :: SuperscalarPipelineConfig) :: List.of(D
   def xlen = profile.xlen
   def selected_fp_instructions = fp_instructions(xlen, profile.floating_point, profile.half_precision, ~zfa: profile.zfa)
   def selected_fp_controls = fp_control_cases(xlen, profile.floating_point, profile.half_precision, ~zfa: profile.zfa)
-  def fp_branches = branch_cases(selected_fp_instructions)
-  def fp_long = long_cases(selected_fp_instructions)
 
 
   /* Integer composition and exact hint overlays.
@@ -391,25 +359,22 @@ fun superscalar_control_cases(profile :: SuperscalarPipelineConfig) :: List.of(D
   def floating_cases = for List (instruction in selected_fp_instructions):
     def input = instruction_pattern(instruction)
     def scalar = fp_scalar_metadata(instruction)
-    def memory_control = if scalar.memory
-    | scalar.memory_control(SuperscalarMemoryControl()).intersection(partial_pattern(SuperscalarMemoryControl()): enable: Bool(#true)).terms[0]
-    | inactive_core_memory
+    def memory_control = if scalar.memory | scalar.memory_control(ScalarMemoryControl()) | inactive_core_memory
 
     def output = pattern(SuperscalarControl()):
       guest_access: RiscvGuestMemoryAccess.Normal
       alu: if scalar.memory | component_output(RV64ICompleteAluCases, instruction_pattern(ADDI)) | unused_alu
       operand: scalar.operands()
-      branch: component_output(fp_branches, input)
+      branch: inactive_branch
       memory: memory_control
       prefetch: CachePrefetchOperation.None
-      pause: Bool(#false)
-      locality_hint: RiscvMemoryLocality.Default
+      hint: InstructionHint.None
       writeback:
         partial_pattern(SuperscalarWritebackControl()):
           enable: Bool(scalar.integer_destination)
 
       system: component_output(SuperscalarSystemCases, instruction_pattern(ADDI))
-      muldiv: component_output(fp_long, input)
+      muldiv: inactive_long
       vector: NoVectorControl
       fp:
         pattern(SuperscalarFpControl()):
@@ -422,25 +387,18 @@ fun superscalar_control_cases(profile :: SuperscalarPipelineConfig) :: List.of(D
 
 /* Reuses ordinary LSU controls for explicit guest accesses and serialized CSR actions for fences. */
 fun superscalar_hypervisor_cases(svinval :: Boolean) :: List.of(DecodeCase):
-  def memory_cases = for List (entry in RiscvGuestMemoryInstructions):
-    def store = entry[1] in SuperscalarStores
-    def input = instruction_pattern(entry[1])
+  def scalar_cases = scalar_memory_cases(ScalarMemoryControl(), ~xlen: XLen.X64)
+  def memory_cases = for List ([instruction, ordinary, execute_read] in RiscvGuestMemoryInstructions):
+    def store = ordinary in (RiscvWordStores ++ RiscvDoubleStores)
+    def input = instruction_pattern(ordinary)
     def output = pattern(SuperscalarControl()):
       alu: component_output(RV64ICompleteAluCases, instruction_pattern(ADDI))
-      operand:
-        pattern(OperandControl()):
-          uses_rs1: Bool(#true)
-          uses_rs2: Bool(store)
-          left: OperandASelect.Register
-          right: OperandBSelect.Immediate
-          immediate: OperandImmediate.Zero
-
+      operand: if store | atomic_operands | load_reserved_operands
       branch: inactive_branch
-      memory: component_output(SuperscalarMemoryCases, input)
-      guest_access: if entry[2] | RiscvGuestMemoryAccess.GuestExecuteRead | RiscvGuestMemoryAccess.Guest
+      memory: component_output(scalar_cases, input)
+      guest_access: if execute_read | RiscvGuestMemoryAccess.GuestExecuteRead | RiscvGuestMemoryAccess.Guest
       prefetch: CachePrefetchOperation.None
-      pause: Bool(#false)
-      locality_hint: RiscvMemoryLocality.Default
+      hint: InstructionHint.None
       writeback:
         partial_pattern(SuperscalarWritebackControl()):
           enable: Bool(!store)
@@ -450,20 +408,18 @@ fun superscalar_hypervisor_cases(svinval :: Boolean) :: List.of(DecodeCase):
       fp: inactive_core_fp
       vector: NoVectorControl
 
-    DecodeCase(instruction_pattern(entry[0]), output)
+    DecodeCase(instruction_pattern(instruction), output)
 
   def fences = [HFENCE_VVMA, HFENCE_GVMA] ++ (if svinval | [HINVAL_VVMA, HINVAL_GVMA] | [])
   memory_cases ++ for List (instruction in fences):
-    def input = instruction_pattern(SFENCE_VMA)
     def output = pattern(SuperscalarControl()):
       alu: unused_alu
-      operand: component_output(SuperscalarOperandCases, input)
+      operand: no_operands
       branch: inactive_branch
       memory: inactive_core_memory
       guest_access: RiscvGuestMemoryAccess.Normal
       prefetch: CachePrefetchOperation.None
-      pause: Bool(#false)
-      locality_hint: RiscvMemoryLocality.Default
+      hint: InstructionHint.None
       writeback: partial_pattern(SuperscalarWritebackControl()): enable: Bool(#false)
       system:
         pattern(SuperscalarSystemControl()):

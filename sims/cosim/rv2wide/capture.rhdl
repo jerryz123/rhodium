@@ -104,12 +104,12 @@ sync_circuit SuperscalarCosimObserver(profile :: SuperscalarPipelineConfig, tap_
       lane((if index < slots | (split_capture & (memory_lane === Bits(2)(index))) ||| (vector_capture & (vector_lane === Bits(2)(index))) | Bool(#false)).as_bits()),
       lane(token.pc), lane(token.raw_instruction), lane(next_pc), lane(token.fetch_fault.as_bits()),
       lane(token.rd), lane(write.as_bits()), lane(result.data), lane(deferred.as_bits()),
-      lane(mux(token.memory.enable, Bits(2)(0), mux(multiply, Bits(2)(1), Bits(2)(2)))),
+      lane(mux(token.memory_active, Bits(2)(0), mux(multiply, Bits(2)(1), Bits(2)(2)))),
       // Maintenance has no architectural byte effect. Its retained retirement
       // or trap is sufficient; Sail independently checks permissions and VA.
-      lane((token.memory.enable & !token.memory.access.is_cache_management()).as_bits()), lane(token.address), lane(token.memory.access.as_bits()), lane(token.memory.width.as_bits()),
+      lane((token.memory_active & !token.memory.access.is_cache_management()).as_bits()), lane(token.address), lane(token.memory.access.as_bits()), lane(token.memory.width.as_bits()),
       lane(token.memory.atomic.as_bits()), lane(token.store_data),
-      mux(token.fp.valid, mux(token.memory.enable, mux(token.fp.bits.registers.destination === FloatDestination.FloatingPoint, Bits(64)(2), Bits(64)(3)), Bits(64)(1)), Bits(64)(0)),
+      mux(token.fp.valid, mux(token.memory_active, mux(token.fp.bits.registers.destination === FloatDestination.FloatingPoint, Bits(64)(2), Bits(64)(3)), Bits(64)(1)), Bits(64)(0)),
       mux(token.fp.valid, lane(token.fp.bits.registers.destination.as_bits()), Bits(64)(0)),
       mux(token.fp.bits.execution.unit === FloatUnit.DivideSquareRoot, !Bits(64)(0), timing.latency(token.fp.bits.execution, ~width: 64) - Bits(64)(2)),
       lane(token.vector.as_bits()), ~enable: active

@@ -48,7 +48,7 @@ import:
   "../common/branch-decode.rhdl" open
   "decode/mem-ctrl.rhdl" open
   "decode/fence-ctrl.rhdl" open
-  "decode/hint-ctrl.rhdl" open
+  lib("cores/common/instruction-hint.rhdl") open
   "decode/system-ctrl.rhdl" open
   "decode/writeback-ctrl.rhdl" open
   "bundles.rhdl" open
@@ -666,7 +666,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def if_pause_cycle_limit = 16
   reg if_pause_cycles(~init: Bits(index_width(if_pause_cycle_limit + 1))(0))
   def if_pause_active = any(if_pause_cycles)
-  def if_pause_commit = wb_commit_valid & !wb_commit_bits.exception_valid & (wb_commit_bits.hint === RV5StageHintOperation.Pause)
+  def if_pause_commit = wb_commit_valid & !wb_commit_bits.exception_valid & (wb_commit_bits.hint === InstructionHint.Pause)
   when (wb_csrs.redirect.valid ||| wb_csrs.interrupt_request):
     if_pause_cycles <== Bits(index_width(if_pause_cycle_limit + 1))(0)
   elsewhen if_pause_commit:
@@ -835,7 +835,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def id_ex_serializing = ex_input.valid & (core_serializing_operation(ex_input.bits.system, ex_input.bits.fence, ex_input.bits.instruction) ||| ex_input.bits.memory_operation.into(CacheOperation).is_cache_management())
   def id_mem_serializing = mem_input.valid & (core_serializing_operation(mem_input.bits.system, mem_input.bits.fence, mem_input.bits.raw_instruction) ||| mem_input.bits.data_request.access.into(CacheOperation).is_cache_management())
   def id_wb_serializing = wb_commit_valid & core_serializing_operation(wb_offer_bits.system, wb_offer_bits.fence, wb_offer_bits.raw_instruction)
-  def id_pause_in_flight = (ex_input.valid & (ex_input.bits.hint === RV5StageHintOperation.Pause)) ||| (mem_input.valid & (mem_input.bits.hint === RV5StageHintOperation.Pause)) ||| (wb.valid & (wb_offer_bits.hint === RV5StageHintOperation.Pause))
+  def id_pause_in_flight = (ex_input.valid & (ex_input.bits.hint === InstructionHint.Pause)) ||| (mem_input.valid & (mem_input.bits.hint === InstructionHint.Pause)) ||| (wb.valid & (wb_offer_bits.hint === InstructionHint.Pause))
   def id_serializing_in_flight = id_ex_serializing ||| id_mem_serializing ||| id_wb_serializing ||| wb_scalar_pending ||| wb_reservation_wait_accept ||| (wb_input.valid & wb_input.bits.data_request.access.into(CacheOperation).is_cache_management())
   def id_wb_commit_deferred = wb_commit_valid & core_deferred_writeback(wb_commit_bits.writeback_source) & wb_commit_bits.write_enable
   def wb_deferred_results_pending = wb_scoreboard.busy.any() ||| wb_fp_integer_scoreboard.busy.any() ||| !wb_fp.drained
@@ -1520,11 +1520,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
      NTL associates with exactly one successfully retiring successor. */
 
   reg wb_pending_locality(~init: RiscvMemoryLocality.Default)
-  def wb_retiring_locality = mux_lookup(wb_commit_bits.hint, ~default: RiscvMemoryLocality.Default):
-    RV5StageHintOperation.NtlP1: RiscvMemoryLocality.P1
-    RV5StageHintOperation.NtlPall: RiscvMemoryLocality.Pall
-    RV5StageHintOperation.NtlS1: RiscvMemoryLocality.S1
-    RV5StageHintOperation.NtlAll: RiscvMemoryLocality.All
+  def wb_retiring_locality = instruction_hint_locality(wb_commit_bits.hint)
 
   when (wb_csrs.redirect.valid):
     wb_pending_locality <== RiscvMemoryLocality.Default

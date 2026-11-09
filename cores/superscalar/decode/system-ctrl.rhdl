@@ -38,8 +38,7 @@ bundle SuperscalarSystemControl():
   method uses_command(control) :: Bool:
     (control.csr =/= RiscvCsrOperation.None) ||| (control.action =/= RiscvCsrAction.None) ||| (control.fence =/= SuperscalarFence.None) ||| (control.wait =/= ReservationWaitMode.None)
 
-def SuperscalarPrivilegedInstructions = [MRET, SRET, WFI, SFENCE_VMA]
-def SuperscalarSystemInstructions = [ECALL, EBREAK, FENCE, FENCE_I] ++ ZicsrInstructions ++ SuperscalarPrivilegedInstructions
+def SuperscalarSystemInstructions = [ECALL, EBREAK, FENCE, FENCE_I] ++ ZicsrInstructions ++ PrivilegedInstructions
 def base_system_cases = decode_groups(SuperscalarSystemControl(), ~input: instruction_pattern):
   group excluding_instructions(RV64IInstructions ++ RV64MInstructions ++ RV64AInstructions ++ RV64BInstructions ++ ZicondInstructions ++ ZimopInstructions, [ECALL, EBREAK, FENCE]):
     wait: ReservationWaitMode.None
@@ -69,7 +68,7 @@ def system_inactive = partial_pattern(SuperscalarSystemControl()):
   fence: SuperscalarFence.None
 
 def SuperscalarSystemCases = base_system_cases
-  ++ csr_system_cases(SuperscalarSystemControl(), system_inactive, [ECALL, EBREAK] ++ SuperscalarPrivilegedInstructions)
+  ++ csr_system_cases(SuperscalarSystemControl(), system_inactive, [ECALL, EBREAK] ++ PrivilegedInstructions)
   ++ csr_access_cases(SuperscalarSystemControl(), csr_inactive)
 
 // Full invalidation ignores address/ASID operands; ordering retains its own privilege rule.
@@ -80,5 +79,4 @@ export:
   SuperscalarFence
   SuperscalarSystemControl
   SuperscalarSystemInstructions
-  SuperscalarPrivilegedInstructions
   SuperscalarSystemCases

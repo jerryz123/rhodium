@@ -1,0 +1,29 @@
+#lang rhodium
+/* Defines nonarchitectural execution hints separately from fences and system operations. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("riscv/rtl/zihintntl.rhdl").RiscvMemoryLocality
+
+/* Separates bounded PAUSE cooldown and NTL locality intent from architectural fence/system
+   actions. */
+hardware_enum InstructionHint:
+  None
+  Pause
+  NtlP1
+  NtlPall
+  NtlS1
+  NtlAll
+
+/* Selects the locality passed to the memory system when a hint retires. */
+fun instruction_hint_locality(hint :: InstructionHint) :~ RiscvMemoryLocality:
+  mux_lookup(hint, ~default: RiscvMemoryLocality.Default, [
+    [InstructionHint.NtlP1, RiscvMemoryLocality.P1],
+    [InstructionHint.NtlPall, RiscvMemoryLocality.Pall],
+    [InstructionHint.NtlS1, RiscvMemoryLocality.S1],
+    [InstructionHint.NtlAll, RiscvMemoryLocality.All]
+  ])
+
+export:
+  InstructionHint
+  instruction_hint_locality

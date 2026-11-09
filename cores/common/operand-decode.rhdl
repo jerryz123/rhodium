@@ -130,6 +130,13 @@ def load_reserved_operands = pattern(OperandControl()):
   right: OperandBSelect.Immediate
   immediate: OperandImmediate.Zero
 
+def prefetch_operands = pattern(OperandControl()):
+  uses_rs1: Bool(#true)
+  uses_rs2: Bool(#false)
+  left: OperandASelect.Register
+  right: OperandBSelect.Immediate
+  immediate: OperandImmediate.Prefetch
+
 def csr_register_operands = partial_pattern(OperandControl()):
   uses_rs1: Bool(#true)
   uses_rs2: Bool(#false)
@@ -193,5 +200,6 @@ export:
   register_operands
   atomic_operands
   load_reserved_operands
+  prefetch_operands
   csr_register_operands
   no_operands

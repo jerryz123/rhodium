@@ -46,7 +46,8 @@ import:
   lib("riscv/rtl/floating-point.rhdl") open
   "../common/cosim-source.rhm".describe_cosim_hart
   "decode/core-ctrl.rhdl" open
-  "decode/mem-ctrl.rhdl".SuperscalarMemoryControl
+  lib("cores/common/memory-control.rhdl").ScalarMemoryControl
+  lib("cores/common/instruction-hint.rhdl") open
   "decode/system-ctrl.rhdl" open
   "decode/long-ctrl.rhdl" open
   lib("cores/common/multiplier.rhdl").MultiplierRequest
@@ -438,13 +439,13 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   def rr_fp_illegal = for List (lane in 0..issue_width): rr_controls[lane].fp.valid & (!wb_csrs.fp_enabled ||| (rr_controls[lane].fp.bits.execution.uses_rounding_mode & !rr_rounding[lane].valid))
   def rr_cbo_illegal = for List (lane in 0..issue_width):
     def access :: CacheOperation = rr_controls[lane].memory.access
-    rr_controls[lane].memory.enable & ((access.is_cache_block_zero() & (wb_csrs.cbo_zero_access =/= CboAccess.Allowed)) ||| (access.is_cache_management() & (wb_csrs.cbo_permission.access =/= CboAccess.Allowed)))
+    (access.is_cache_block_zero() & (wb_csrs.cbo_zero_access =/= CboAccess.Allowed)) ||| (access.is_cache_management() & (wb_csrs.cbo_permission.access =/= CboAccess.Allowed))
 
   def rr_explicit_guest = for List (lane in 0..issue_width): rr_controls[lane].guest_access =/= RiscvGuestMemoryAccess.Normal
   def rr_guest_illegal = for List (lane in 0..issue_width): rr_explicit_guest[lane] & !guest_state.virtualized & (wb_csrs.privilege === PrivilegeMode.User) & !csr_flag(guest_state.hstatus, HstatusHU)
   def rr_virtual_instruction = for List (lane in 0..issue_width):
     def access :: CacheOperation = rr_controls[lane].memory.access
-    (rr_explicit_guest[lane] & guest_state.virtualized) ||| (rr_controls[lane].memory.enable & ((access.is_cache_block_zero() & (wb_csrs.cbo_zero_access === CboAccess.VirtualInstruction)) ||| (access.is_cache_management() & (wb_csrs.cbo_permission.access === CboAccess.VirtualInstruction))))
+    (rr_explicit_guest[lane] & guest_state.virtualized) ||| (access.is_cache_block_zero() & (wb_csrs.cbo_zero_access === CboAccess.VirtualInstruction)) ||| (access.is_cache_management() & (wb_csrs.cbo_permission.access === CboAccess.VirtualInstruction))
 
   def rr_fetch_faults :: Vec(issue_width, Bool) = vec(
     for List (lane in 0..issue_width): rr_head.entries[lane].fetch_fault().valid
@@ -624,7 +625,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     def integer_result_claim = control.vector.integer & control.vector.scalar_destination & control.writeback.enable & rr_rd[lane].any()
     def vector_execution_blocked = rr_vector[lane] & ((integer_result_claim & !wb_vector_scalar_available) ||| floating_source_pending ||| floating_destination_blocked)
     def integer_destination_pending = control.writeback.enable & scoreboard_busy(32, wb_vector_scoreboard.busy, rr_rd[lane])
-    def memory_order_blocked = control.memory.enable & (vector.service.stores_pending ||| (control.memory.access.store_fault_class() & vector.service.loads_pending))
+    def memory_order_blocked = control.memory.access.is_memory() & (vector.service.stores_pending ||| (control.memory.access.store_fault_class() & vector.service.loads_pending))
     (vector.service.certification_pending & (rr_vector[lane] ||| rr_vector_config[lane])) ||| vector_execution_blocked ||| integer_destination_pending ||| memory_order_blocked
 
   def rr_pipeline_empty = !any(for List (lane in 0..issue_width): ex_pipe[lane].egress.valid ||| mem_pipe[lane].egress.valid ||| wb_pipe[lane].egress.valid)
@@ -633,13 +634,17 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
      Atomics and CBO.ZERO drain older memory and hold younger memory through
      completion; PAUSE blocks younger issue without blocking accepted returns. */
 
-  def rr_memory_in_pipeline = any(for List (lane in 0..issue_width): (ex_pipe[lane].egress.valid & ex_pipe[lane].egress.bits.control.memory.enable) ||| (mem_pipe[lane].egress.valid & mem_pipe[lane].egress.bits.memory.enable) ||| (wb_pipe[lane].egress.valid & wb_pipe[lane].egress.bits.memory.enable))
+  def rr_memory_in_pipeline = any(
+    for List (lane in 0..issue_width):
+      def ex_access :: CacheOperation = ex_pipe[lane].egress.bits.control.memory.access
+      (ex_pipe[lane].egress.valid & ex_access.is_memory()) ||| (mem_pipe[lane].egress.valid & mem_pipe[lane].egress.bits.memory_active) ||| (wb_pipe[lane].egress.valid & wb_pipe[lane].egress.bits.memory_active)
+  )
   def rr_ordered_memory_ready = !rr_memory_in_pipeline & scalar_memory.drained & wb_memory_completion.drained & !wb_ordered_memory_pending
   // A PAUSE may follow an older peer, but no younger issue crosses it. Its
   // post-retirement cooldown never blocks accepted service completions.
   reg rr_pause_cycles(~init: Bits(5)(0))
   def rr_pause_lanes = for List (lane in 0..issue_width):
-    (ex_pipe[lane].egress.valid & ex_pipe[lane].egress.bits.control.pause) ||| (mem_pipe[lane].egress.valid & mem_pipe[lane].egress.bits.pause) ||| (wb_pipe[lane].egress.valid & wb_pipe[lane].egress.bits.pause)
+    (ex_pipe[lane].egress.valid & (ex_pipe[lane].egress.bits.control.hint === InstructionHint.Pause)) ||| (mem_pipe[lane].egress.valid & (mem_pipe[lane].egress.bits.hint === InstructionHint.Pause)) ||| (wb_pipe[lane].egress.valid & (wb_pipe[lane].egress.bits.hint === InstructionHint.Pause))
 
   def rr_pause_blocked = vec(rr_pause_lanes).any() ||| rr_pause_cycles.any()
   def rr_last_return_reserved = rr_completion.valid ||| !wb_gpr_calendar.registered_free[2]
@@ -921,7 +926,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     def ex_target = mux(ex.control.branch.target_from_rs1, ex_target_sum & !Bits(xlen.width)(1), ex_target_sum)
     def ex_actual_action = mux(ex_executable & ex.control.branch.resolver.enable, riscv_ras_action(ex.fetched.instruction), RasAction.None)
     def ex_bad_pc = ex_pc[0].into(Bool)
-    def ex_memory = ex_executable & ex.control.memory.enable
+    def ex_memory = ex_executable & ex.control.memory.access.is_memory()
     def ex_bad_address = ex_memory & ex.control.memory.access.is_one_of(CacheOperation.LoadReserved, CacheOperation.StoreConditional, CacheOperation.Atomic) & !ex.control.memory.width.is_aligned(ex_address)
     def ex_generated_guest = empty_guest.updated(~guest_virtual_address: !ex.illegal & !ex.virtual_instruction & mux(ex_bad_pc, guest_state.virtualized, ex_bad_address & ex_data_guest))
     def ex_fault = ex_fetch_fault.valid ||| ex.illegal ||| ex_vector_illegal ||| ex.virtual_instruction ||| ex_bad_pc ||| ex_bad_address
@@ -978,11 +983,11 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
               ras_action: ex_actual_action
               predicted_ras_action: ex.fetched.speculated_ras_action
 
-      memory: ex.control.memory.updated(~enable: ex_memory)
+      memory_active: ex_memory
+      memory: ex.control.memory
       guest_access: ex.control.guest_access
       prefetch: ex.control.prefetch
-      pause: ex.control.pause
-      locality_hint: ex.control.locality_hint
+      hint: ex.control.hint
       address: mux(ex.control.branch.resolver.enable, ex_target, ex_address)
       cache_outcome: SuperscalarCacheOutcome.Slow
       system: ex.control.system
@@ -1053,7 +1058,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
 
     superscalar_fp_request(xlen, identity, operation.rd, ex_fp_request)
   ) |> fp.fixed_issue
-  def ex_memory_lane = superscalar_service_lane(for List (lane in 0..issue_width): ex_valid[lane] & ex_tokens[lane].control.memory.enable)
+  def ex_memory_lane = superscalar_service_lane(for List (lane in 0..issue_width): ex_valid[lane] & ex_tokens[lane].control.memory.access.is_memory())
   def ex_result_tokens :: Vec(issue_width, SuperscalarResult(xlen, hypervisor)) = vec(
     for List (lane in 0..issue_width):
       def result = ex_results[lane]
@@ -1088,7 +1093,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   ex_store.address <== ex_lookup.address
   ex_store.value <== ex_lookup.operands.right
   ex_store.width <== ex_lookup.memory.width
-  scalar_pipeline.request.valid <== ex_valid[service_index(ex_memory_lane)] & ex_lookup.memory.enable & (ex_lookup.resolution.disposition === SuperscalarDisposition.Continue) & !rr_squash
+  scalar_pipeline.request.valid <== ex_valid[service_index(ex_memory_lane)] & ex_lookup.memory_active & (ex_lookup.resolution.disposition === SuperscalarDisposition.Continue) & !rr_squash
   scalar_pipeline.request.bits <== SuperscalarMemoryReq(xlen, xlen.width, Bool):
     context: Bool(#false)
     guest_access: ex_lookup.guest_access
@@ -1111,7 +1116,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
 
   def mem_valid :: Vec(issue_width, Bool) = vec(for List (stage in mem_pipe): stage.egress.valid)
   def mem_tokens :: Vec(issue_width, SuperscalarResult(xlen, hypervisor)) = vec(for List (stage in mem_pipe): stage.egress.bits)
-  def mem_memory_lane = superscalar_service_lane(for List (lane in 0..issue_width): mem_valid[lane] & mem_tokens[lane].memory.enable)
+  def mem_memory_lane = superscalar_service_lane(for List (lane in 0..issue_width): mem_valid[lane] & mem_tokens[lane].memory_active)
   def mem_memory :: SuperscalarResult(xlen, hypervisor) = mem_tokens[service_index(mem_memory_lane)]
   def mem_vector_lane = superscalar_service_lane(for List (lane in 0..issue_width): mem_valid[lane] & mem_tokens[lane].vector.memory)
   def mem_vector :: SuperscalarResult(xlen, hypervisor) = mem_tokens[service_index(mem_vector_lane)]
@@ -1140,7 +1145,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     ) |> mem_resolver.request
 
     (mem_context |> map_valid(token): token.into(SuperscalarResult(xlen, hypervisor)).observed(mem_pc)) |> memory_stage[lane]
-    def mem_lookup = mem.memory.enable & (mem.resolution.disposition === SuperscalarDisposition.Continue)
+    def mem_lookup = mem.memory_active & (mem.resolution.disposition === SuperscalarDisposition.Continue)
     def mem_misaligned = mem.memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store) & !mem.memory.width.is_aligned(mem.address)
     def mem_outcome = priority_mux(~default: SuperscalarCacheOutcome.Replay):
       mem_misaligned: SuperscalarCacheOutcome.Slow
@@ -1227,7 +1232,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     def token :: SuperscalarResult(xlen, hypervisor) = result.bits
     def divide = (token.muldiv.service === SuperscalarLongOperation.Divide) ||| (token.fp.valid & (token.fp.bits.execution.unit === FloatUnit.DivideSquareRoot))
     // The passive memory observer needs the store operand even on a fault.
-    result.valid & (token.memory.enable ||| (divide & (token.resolution.disposition === SuperscalarDisposition.Continue)))
+    result.valid & (token.memory_active ||| (divide & (token.resolution.disposition === SuperscalarDisposition.Continue)))
 
   def mem_service_owner = vec(mem_service_claims).into(MaybeOneHot(issue_width))
   reg wb_service_right(Bits(xlen.width))
@@ -1302,7 +1307,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   reg wb_retained_vector(~init: Bool(#false))
   reg wb_retained_locality(RiscvMemoryLocality)
   reg wb_pending_locality(~init: RiscvMemoryLocality.Default)
-  def wb_management = wb_retained_pending & wb_retained_owner.memory.enable & wb_retained_owner.memory.access.is_cache_management()
+  def wb_management = wb_retained_pending & wb_retained_owner.memory_active & wb_retained_owner.memory.access.is_cache_management()
   wb_reservation_waiting <== wb_retained_pending & (wb_retained_owner.wait =/= ReservationWaitMode.None)
 
   /* Reservation-wait completion uses retained instruction context.
@@ -1380,7 +1385,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   def wb_scalar_lane = superscalar_service_lane(for List (stage in wb_pipe): stage.egress.valid)
   def wb_scalar :: SuperscalarResult(xlen, hypervisor) = wb_live_group[service_index(wb_scalar_lane)]
   def wb_scalar_vector = wb_scalar.vector.operation
-  def wb_scalar_simple = !wb_scalar_vector & !wb_scalar.memory.enable & !wb_scalar.fp.valid & (wb_scalar.muldiv.service === SuperscalarLongOperation.None) & !wb_scalar.system.uses_command() & !wb_scalar.pause
+  def wb_scalar_simple = !wb_scalar_vector & !wb_scalar.memory_active & !wb_scalar.fp.valid & (wb_scalar.muldiv.service === SuperscalarLongOperation.None) & !wb_scalar.system.uses_command() & (wb_scalar.hint =/= InstructionHint.Pause)
   // Return eligibility must not depend on the FP completion it authorizes.
   def wb_scalar_port_available = Bool(return_port != 1) ||| !wb_gpr_calendar.occupied[0].into(Bool)
   def wb_vector_merge = wb_vector_success & wb_live_valid.any() & wb_scalar_simple & wb_scalar_port_available & (wb_scalar.resolution.disposition === SuperscalarDisposition.Continue)
@@ -1443,7 +1448,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   def wb_vector_eligible = wb_vector_ordered & wb_vector_results_available & wb_vector_fpr_available
   // Credit predicts the older descriptor's acceptance without depending on
   // a request qualified by the younger scalar service's own outcome.
-  def wb_scalar_service_lane = superscalar_service_lane(for List (lane in 0..issue_width): wb_live_valid[lane] & (wb_live_group[lane].memory.enable ||| (wb_live_group[lane].muldiv.service =/= SuperscalarLongOperation.None) ||| (wb_live_group[lane].fp.valid & (wb_live_group[lane].fp.bits.execution.unit === FloatUnit.DivideSquareRoot))))
+  def wb_scalar_service_lane = superscalar_service_lane(for List (lane in 0..issue_width): wb_live_valid[lane] & (wb_live_group[lane].memory_active ||| (wb_live_group[lane].muldiv.service =/= SuperscalarLongOperation.None) ||| (wb_live_group[lane].fp.valid & (wb_live_group[lane].fp.bits.execution.unit === FloatUnit.DivideSquareRoot))))
   def wb_scalar_prefix = !any(for List (lane in 0..issue_width): wb_live_valid[lane] & wb_vectors[lane] & (Bits(2)(lane) < wb_scalar_service_lane)) ||| (wb_vector_eligible & vector.service.available & (!wb_vector.vector.memory ||| wb_vector_certified))
   def wb_vector_prefix = !wb_scalar_stop
   vector.request.valid <== wb_vector_offer & wb_vector_eligible & wb_vector_prefix
@@ -1502,13 +1507,13 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
      The reverse age order qualifies vector admission with scalar outcomes;
      neither direction depends on final retirement feedback. */
 
-  def wb_memory_lane = superscalar_service_lane(for List (lane in 0..issue_width): wb_live_valid[lane] & wb_live_group[lane].memory.enable)
+  def wb_memory_lane = superscalar_service_lane(for List (lane in 0..issue_width): wb_live_valid[lane] & wb_live_group[lane].memory_active)
   def wb_memory :: SuperscalarResult(xlen, hypervisor) = wb_live_group[service_index(wb_memory_lane)]
   def wb_memory_pc = wb_live_pcs[service_index(wb_memory_lane)]
   // A younger request consumes its older peer's hint on this same WB edge.
   // This selection must not depend on request readiness or retirement feedback.
-  def wb_memory_locality = priority_mux((for List (lane in 1..issue_width): [wb_memory_lane === Bits(2)(lane), wb_live_group[lane - 1].locality_hint]), ~default: wb_pending_locality)
-  def wb_memory_active = wb_dispatch[service_index(wb_memory_lane)] & wb_memory.memory.enable & wb_scalar_prefix
+  def wb_memory_locality = priority_mux((for List (lane in 1..issue_width): [wb_memory_lane === Bits(2)(lane), instruction_hint_locality(wb_live_group[lane - 1].hint)]), ~default: wb_pending_locality)
+  def wb_memory_active = wb_dispatch[service_index(wb_memory_lane)] & wb_memory.memory_active & wb_scalar_prefix
   def wb_split_capture = wb_memory_active & wb_memory.memory.access.is_one_of(CacheOperation.Load, CacheOperation.Store) & !wb_memory.memory.width.is_aligned(wb_memory.address)
   def wb_management_capture = wb_memory_active & wb_memory.memory.access.is_cache_management()
   def wb_memory_capture = wb_split_capture ||| wb_management_capture
@@ -1519,7 +1524,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   def wb_retained_candidate_pc = wb_live_pcs[service_index(wb_retained_lane)]
   when wb_retained_capture:
     assert((wb_retained_candidate.resolution.disposition === SuperscalarDisposition.Continue) & !wb_retained_candidate.fetched.fault, "superscalar_service_capture_continuing")
-    assert(!wb_retained_candidate.branch.update.branch & (wb_retained_candidate.muldiv.service === SuperscalarLongOperation.None) & !wb_retained_candidate.prefetch.is_prefetch() & !wb_retained_candidate.pause, "superscalar_service_capture_not_execution")
+    assert(!wb_retained_candidate.branch.update.branch & (wb_retained_candidate.muldiv.service === SuperscalarLongOperation.None) & !wb_retained_candidate.prefetch.is_prefetch() & (wb_retained_candidate.hint =/= InstructionHint.Pause), "superscalar_service_capture_not_execution")
     assert((wb_retained_candidate.system.csr === RiscvCsrOperation.None) & (wb_retained_candidate.system.action === RiscvCsrAction.None) & (wb_retained_candidate.system.fence === SuperscalarFence.None), "superscalar_service_capture_not_command")
     assert(!wb_retained_candidate.fp.valid ||| (wb_retained_candidate.fp.bits.execution.unit === FloatUnit.Memory), "superscalar_service_capture_fp_memory")
     assert(!wb_retained_candidate.fp.valid ||| (wb_fp_request.destination === wb_retained_candidate.fp.bits.registers.destination), "superscalar_service_capture_fp_destination")
@@ -1597,7 +1602,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
 
   def wb_request_address = mux(wb_management, wb_retained_owner.address, wb_memory.address)
   def wb_request_data = mux(wb_management, wb_retained_owner.store_data, wb_memory.operands.right)
-  def wb_request_memory :: SuperscalarMemoryControl() = mux(wb_management, wb_retained_owner.memory, wb_memory.memory)
+  def wb_request_memory :: ScalarMemoryControl() = mux(wb_management, wb_retained_owner.memory, wb_memory.memory)
   def wb_request_guest = mux(wb_management, wb_retained_owner.guest_access, wb_memory.guest_access)
   inst wb_store(StoreGen(xlen, xlen.width / 8))
   wb_store.address <== wb_request_address
@@ -2021,7 +2026,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   wb_fp_gpr_scoreboard.set.bits <== fp.authorize.bits.tag.rd
   fp.load_reserve.valid <== wb_accepted & wb_memory.fp.valid & (wb_memory.fp.bits.registers.destination === FloatDestination.FloatingPoint)
   fp.load_reserve.bits <== wb_fp_request.owner(wb_memory.fetched.identity(wb_memory_pc), wb_memory.rd)
-  fp.load_hit.valid <== vec(for List (lane in 0..issue_width): retired[lane].valid)[service_index(wb_fp_lane)] & wb_fp_token.fp.valid & wb_fp_token.memory.enable & (wb_fp_token.memory.access === CacheOperation.Load) & !wb_accepted
+  fp.load_hit.valid <== vec(for List (lane in 0..issue_width): retired[lane].valid)[service_index(wb_fp_lane)] & wb_fp_token.fp.valid & wb_fp_token.memory_active & (wb_fp_token.memory.access === CacheOperation.Load) & !wb_accepted
   fp.load_hit.bits <== SuperscalarFpLoad(xlen):
     owner: wb_selected_fp.owner(wb_fp_token.fetched.identity(wb_fp_token_pc), wb_fp_token.rd)
     precision: wb_fp_token.fp.bits.execution.destination_precision
@@ -2113,9 +2118,9 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   when (wb_csrs.redirect.valid):
     wb_pending_locality <== RiscvMemoryLocality.Default
   elsewhen (retired[0].valid):
-    wb_pending_locality <== last_retired.locality_hint
+    wb_pending_locality <== instruction_hint_locality(last_retired.hint)
 
-  def wb_pause_commit = any(for List (lane in 0..issue_width): retired[lane].valid & wb_tokens[lane].pause)
+  def wb_pause_commit = any(for List (lane in 0..issue_width): retired[lane].valid & (wb_tokens[lane].hint === InstructionHint.Pause))
   when (rr_squash ||| wb_csrs.interrupt_request):
     rr_pause_cycles <== Bits(5)(0)
   elsewhen wb_pause_commit:

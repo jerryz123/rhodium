@@ -10,7 +10,8 @@ import:
   lib("cores/common/fp/profile.rhm").fp_transport_profile
   "pairing.rhdl".superscalar_pair_immediate_width
   "decode/core-ctrl.rhdl" open
-  "decode/mem-ctrl.rhdl" open
+  lib("cores/common/memory-control.rhdl").ScalarMemoryControl
+  lib("cores/common/instruction-hint.rhdl").InstructionHint
   "decode/system-ctrl.rhdl" open
   "decode/long-ctrl.rhdl" open
   lib("flow/main.rhdl") open
@@ -533,11 +534,11 @@ bundle SuperscalarResult(xlen :: XLen, hypervisor :: Boolean):
   write: Bool
   result_ready: Bool
   branch: SuperscalarBranchResult()
-  memory: SuperscalarMemoryControl()
+  memory_active: Bool
+  memory: ScalarMemoryControl()
   guest_access: RiscvGuestMemoryAccess
   prefetch: CachePrefetchOperation
-  pause: Bool
-  locality_hint: RiscvMemoryLocality
+  hint: InstructionHint
   address: Bits(xlen.width)
   cache_outcome: SuperscalarCacheOutcome
   system: SuperscalarSystemControl()
@@ -552,7 +553,7 @@ bundle SuperscalarResult(xlen :: XLen, hypervisor :: Boolean):
      a not-taken branch's training target) or the left operand. The issue group
      captures service data and register-supplied vtype outside the lane. */
   method for_writeback(result) :: SuperscalarResult(xlen, hypervisor):
-    def needs_address = result.memory.enable ||| result.branch.update.branch ||| result.prefetch.is_prefetch()
+    def needs_address = result.memory_active ||| result.branch.update.branch ||| result.prefetch.is_prefetch()
     def address_or_left = mux(needs_address, result.address, result.operands.left)
     result.updated(~address: address_or_left, ~operands: result.operands.updated(~left: address_or_left, ~right: Bits(xlen.width)(0)))
 
@@ -587,10 +588,10 @@ bundle SuperscalarResult(xlen :: XLen, hypervisor :: Boolean):
           taken: result.branch.taken
           update: result.branch.update
           mispredicted: result.branch.mispredicted
+      memory_active: result.memory_active
       memory: result.memory
       prefetch: result.prefetch
-      pause: result.pause
-      locality_hint: result.locality_hint
+      hint: result.hint
       address: result.address
       system: result.system
       operands: result.operands
@@ -614,6 +615,7 @@ bundle SuperscalarResult(xlen :: XLen, hypervisor :: Boolean):
       prediction_repair: result.branch.mispredicted
       rd: result.rd
       write: result.write
+      memory_active: result.memory_active
       memory: result.memory
       guest_access: result.guest_access
       address: result.address
@@ -637,10 +639,10 @@ bundle SuperscalarRetirementCommand(xlen :: XLen, hypervisor :: Boolean):
   write: Bool
   result_ready: Bool
   branch: SuperscalarRetirementBranch()
-  memory: SuperscalarMemoryControl()
+  memory_active: Bool
+  memory: ScalarMemoryControl()
   prefetch: CachePrefetchOperation
-  pause: Bool
-  locality_hint: RiscvMemoryLocality
+  hint: InstructionHint
   address: Bits(xlen.width)
   system: SuperscalarSystemControl()
   operands: SuperscalarLaneOperands(xlen)
@@ -665,6 +667,7 @@ bundle SuperscalarRetirementCommand(xlen :: XLen, hypervisor :: Boolean):
       next_pc: result.next_pc(pc)
       fetch_fault: result.fetched.fault
       rd: result.rd
+      memory_active: result.memory_active
       memory: result.memory
       address: result.address
       store_data: result.operands.right
@@ -688,7 +691,8 @@ bundle SuperscalarServiceOwner(xlen :: XLen, hypervisor :: Boolean):
   prediction_repair: Bool
   rd: Bits(5)
   write: Bool
-  memory: SuperscalarMemoryControl()
+  memory_active: Bool
+  memory: ScalarMemoryControl()
   guest_access: RiscvGuestMemoryAccess
   address: Bits(xlen.width)
   store_data: Bits(xlen.width)
@@ -721,7 +725,7 @@ bundle SuperscalarServiceOwner(xlen :: XLen, hypervisor :: Boolean):
     inactive.updated(
       ~fetched: fetched, ~rd: owner.rd, ~write: owner.write, ~resolution: resolution.with_result(data), ~result_ready: Bool(#true),
       ~branch: branch,
-      ~memory: owner.memory, ~address: owner.address,
+      ~memory_active: owner.memory_active, ~memory: owner.memory, ~address: owner.address,
       ~operands: inactive.operands.updated(~right: owner.store_data),
       ~system: inactive.system.updated(~wait: owner.wait), ~fp: owner.fp, ~vector: owner.vector
     )
@@ -735,7 +739,8 @@ bundle SuperscalarBoundaryInstruction(xlen :: XLen):
   next_pc: Bits(xlen.width)
   fetch_fault: Bool
   rd: Bits(5)
-  memory: SuperscalarMemoryControl()
+  memory_active: Bool
+  memory: ScalarMemoryControl()
   address: Bits(xlen.width)
   store_data: Bits(xlen.width)
   fp: SuperscalarFpControl()

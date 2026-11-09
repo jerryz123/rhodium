@@ -1,16 +1,10 @@
 #lang rhodium
-/* Defines nonarchitectural execution hints separately from fences and system operations. */
+/* Exposes the shared instruction hint selector under the RV5Stage decode API. */
 // SPDX-License-Identifier: Apache-2.0
 
-/* Separates bounded PAUSE cooldown and NTL locality intent from architectural fence/system
-   actions. */
-hardware_enum RV5StageHintOperation:
-  None
-  Pause
-  NtlP1
-  NtlPall
-  NtlS1
-  NtlAll
+import:
+  lib("cores/common/instruction-hint.rhdl").InstructionHint
 
 export:
-  RV5StageHintOperation
+  rename:
+    InstructionHint as RV5StageHintOperation
