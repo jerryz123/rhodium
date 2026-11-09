@@ -958,6 +958,52 @@ void check_overlapping_dirty_lines(bool grant_before_snoop) {
   expect_core_response(bit_slice(THIRD_LINE, 0, 64), WRITEBACK_INTEGER_KIND, 2);
 }
 
+void check_clean_reserved_victim() {
+  prepare_hit_under_miss();
+  constexpr auto reserved = PREFETCH_READ_ADDRESS;
+  constexpr auto other_way = reserved + (EVICT_ADDRESS - ADDRESS);
+  constexpr auto replacement = reserved + (THIRD_ADDRESS - ADDRESS);
+  send_core_request(reserved + 8, MEMORY_LR, ATOMIC_SWAP, 0, 1);
+  expect_core_response(bit_slice(LINE, 64, 64), WRITEBACK_INTEGER_KIND, 1);
+  CHECK(core_out.preservation_uvalid);
+
+  // Evict the same victim tag from set zero; the reservation is in set one.
+  send_core_request(THIRD_ADDRESS, MEMORY_LOAD, ATOMIC_SWAP, 0, 2);
+  accept_request(READ_CLEAN, THIRD_ADDRESS, 0, 6, 1, 0);
+  CHECK(core_out.preservation_uvalid);
+  return_line(THIRD_ADDRESS, THIRD_LINE, 2);
+  accept_comp_ack();
+  expect_core_response(bit_slice(THIRD_LINE, 0, 64), WRITEBACK_INTEGER_KIND, 2);
+  check_pipeline_load(ADDRESS, 1, 0);
+
+  // In the reserved set, fill the empty way, then replace the unreserved tag.
+  send_core_request(other_way, MEMORY_LOAD, ATOMIC_SWAP, 0, 3);
+  accept_request(READ_CLEAN, other_way, 0, 6, 1, 0);
+  return_line(other_way, EVICT_LINE, 2);
+  accept_comp_ack();
+  expect_core_response(bit_slice(EVICT_LINE, 0, 64), WRITEBACK_INTEGER_KIND, 3);
+  CHECK(core_out.preservation_uvalid);
+  check_pipeline_load(reserved + 8, 1, 1, bit_slice(LINE, 64, 64));
+  send_core_request(replacement, MEMORY_LOAD, ATOMIC_SWAP, 0, 4);
+  accept_request(READ_CLEAN, replacement, 0, 6, 1, 0);
+  CHECK(core_out.preservation_uvalid);
+  return_line(replacement, THIRD_LINE, 2);
+  accept_comp_ack();
+  expect_core_response(bit_slice(THIRD_LINE, 0, 64), WRITEBACK_INTEGER_KIND, 4);
+
+  // Now PLRU selects the clean reserved line. No copyback or refill data
+  // is needed to release the reservation.
+  send_core_request(other_way, MEMORY_LOAD, ATOMIC_SWAP, 0, 3);
+  accept_request(READ_CLEAN, other_way, 0, 6, 1, 0);
+  CHECK(!core_out.preservation_uvalid);
+  return_line(other_way, EVICT_LINE, 2);
+  accept_comp_ack();
+  expect_core_response(bit_slice(EVICT_LINE, 0, 64), WRITEBACK_INTEGER_KIND, 3);
+  send_core_request(reserved + 8, MEMORY_SC, ATOMIC_SWAP, STORE_DATA, 5);
+  expect_core_response(1, WRITEBACK_INTEGER_KIND, 5);
+  CHECK(!tx_req_pending);
+}
+
 void stimulus() {
   reset = UINT64_C(1);
   node_id = CACHE_ID;
@@ -2319,6 +2365,7 @@ void stimulus() {
     check_overlapping_dirty_lines(false);
     check_overlapping_dirty_lines(true);
     check_store_miss_across_copyback();
+    check_clean_reserved_victim();
     throw Finished{};
   }
 }

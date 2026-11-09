@@ -53,7 +53,7 @@ bundle L1DLookup(xlen :: XLen, Context :: DataType, beat_bytes :: Pow2Int, addre
   prefetch_write: Bool
 
 /* Captures hit, coherence, and victim metadata for elastic S4 service. */
-bundle L1DResolved(xlen :: XLen, way_width :: PosInt):
+bundle L1DResolved(way_width :: PosInt):
   prefetch: Bool
   prefetch_write: Bool
   hit: Bool
@@ -62,7 +62,6 @@ bundle L1DResolved(xlen :: XLen, way_width :: PosInt):
   allocation_way: Bits(way_width)
   victim_valid: Bool
   victim_state: CHICacheState
-  victim_address: Bits(xlen.width)
 
 /* Rejects address widths lacking tag bits beyond the line offset and set index. */
 fun check_l1d_geometry(width :: PosInt, cache :: CacheConfig):
@@ -171,7 +170,7 @@ sync_circuit L1DCache(xlen :: XLen,
   // S3 retains its request if older S4 work takes the arrays. Its returned
   // data is discarded and reread before retry, including across snoop service.
   inst s3_lookup(Pipe(L1DLookup(xlen, Context, beat_bytes, physical_width), 1))
-  inst s4_result(Pipe(L1DResolved(xlen, way_width), 1))
+  inst s4_result(Pipe(L1DResolved(way_width), 1))
   reg s3_read_valid(~init: Bool(#false))
   // Retain a slow completion until its downstream writeback path accepts it.
   // Registered-only input capacity keeps response backpressure out of request
@@ -201,13 +200,14 @@ sync_circuit L1DCache(xlen :: XLen,
   reg reservation_width(~init: MemoryWidth.Word)
 
 
-  /* S3 captures the request and selected array row alongside the S4 metadata.
-     An owned AMO keeps both through its write; a miss uses the refill row. */
+  /* S4 admission captures the request, hit row, and replacement tag together.
+     A miss pins the request set and victim tag after its S4 token leaves. */
 
   reg retained_request(AddressedPhysicalMemoryBeatReq(xlen, Context, beat_bytes, physical_width))
   def retained_address = retained_request.address.zext(width)
   def retained_raw_beat = if beat_width > width | retained_request.raw_beat | Bool(#false)
   reg retained_row(Bits(beat_width))
+  reg retained_victim_tag(Bits(tag_width))
   reg retained_way(Bits(way_width))
   reg pending_mutation_valid(~init: Bool(#false))
   reg pending_zero_index(~init: Bits(word_index_width)(0))
@@ -225,6 +225,7 @@ sync_circuit L1DCache(xlen :: XLen,
   writeback.line <== backing_line.as_bits()
   def retained_set = retained_request.address[offset_width..(offset_width + set_width)]
   def retained_line_address = retained_address.align_down(CacheLineBytes)
+  def victim_line_address = concat(retained_victim_tag, retained_set, Bits(offset_width)(0)).zext(width)
   reg gather_state(~init: L1DGatherState.Idle)
   reg gather_issue_index(~init: Bits(word_index_width)(0))
   reg gather_response_pending(~init: Bool(#false))
@@ -232,7 +233,6 @@ sync_circuit L1DCache(xlen :: XLen,
   reg gather_last_issued(~init: Bool(#false))
   reg gather_set(Bits(set_width))
   reg gather_way(Bits(way_width))
-  reg eviction_line_address(Bits(width))
   reg eviction_state(~init: CHICacheState.Invalid)
   reg gathered_snoop_state(~init: CHICacheState.Invalid)
   reg snoop_metadata_pending(~init: Bool(#false))
@@ -493,10 +493,9 @@ sync_circuit L1DCache(xlen :: XLen,
   refill.line_address <== retained_line_address
   def direct_refill_commands = s4_refill_path |> map_flow(result => refill_command(result.prefetch, result.prefetch_write))
 
-  def s4_victim_address = s4_result.egress.bits.victim_address
   def eviction_start = s4_eviction_path |> gate_flow(gather_idle & !refill_installing) |> to_valid()
   def eviction_gather_start = eviction_start.valid
-  writeback.line_address <== eviction_line_address
+  writeback.line_address <== victim_line_address
   def eviction_command = CacheLineWritebackCommand(Bool):
     context: Bool(#false)
 
@@ -508,7 +507,7 @@ sync_circuit L1DCache(xlen :: XLen,
   writeback.snoop_pending <== snoop_pending
   when eviction_gather_start:
     eviction_state <== eviction_start.bits.victim_state
-  elsewhen (snoop.update.valid & (snoop.update.bits.address.align_down(CacheLineBytes) === eviction_line_address.zext(snoop_width))):
+  elsewhen (snoop.update.valid & (snoop.update.bits.address.align_down(CacheLineBytes) === victim_line_address.zext(snoop_width))):
     eviction_state <== mux(snoop.update.bits.invalidate, CHICacheState.Invalid, snoop.update.bits.state)
 
   // Only a demand can evict a dirty victim. Resume the requested line, not the victim.
@@ -668,7 +667,7 @@ sync_circuit L1DCache(xlen :: XLen,
   (
     s3_observed
       |> gate_flow(s3_can_advance & s3_read_valid)
-      |> map_flow(lookup => L1DResolved(xlen, way_width)):
+      |> map_flow(lookup => L1DResolved(way_width)):
         prefetch: lookup.prefetch
         prefetch_write: lookup.prefetch_write
         hit: s3_hit_way.valid
@@ -677,13 +676,13 @@ sync_circuit L1DCache(xlen :: XLen,
         allocation_way: s3_allocation_way
         victim_valid: s3_valids[s3_allocation_way]
         victim_state: arrays.states.response.bits[s3_allocation_way]
-        victim_address: concat(arrays.tags.response.bits[s3_allocation_way], s3_set, Bits(offset_width)(0)).zext(width)
   ) |> s4_result.ingress
 
   when (s4_result.ingress.fire()):
     assert(!pending_mutation_valid & !miss_active & !maintenance_active & !maintenance.command.fire(), "l1d_s4_request_not_owned_by_slow_service")
     retained_request <== s3_request
     retained_row <== s3_word
+    retained_victim_tag <== arrays.tags.response.bits[s3_allocation_way]
   elsewhen (maintenance.command.fire()):
     // Maintenance bypasses S4 and owns only the caller context until completion.
     retained_request <== retained_request.updated(~context: management_requests.bits.context)
@@ -1019,9 +1018,6 @@ sync_circuit L1DCache(xlen :: XLen,
     gather_last_issued <== Bool(#false)
     gather_set <== mux(eviction_gather_start, retained_set, snoop_set)
     gather_way <== mux(eviction_gather_start, eviction_start.bits.allocation_way, snoop_selection.index)
-    when eviction_gather_start:
-      eviction_line_address <== eviction_start.bits.victim_address
-
     when (!eviction_gather_start):
       gathered_snoop_state <== snoop_lookup_state
   elsewhen gather_read:
@@ -1051,7 +1047,7 @@ sync_circuit L1DCache(xlen :: XLen,
   def mutation_touches_reservation = (pending_mutation_access.is_store() ||| pending_zero ||| pending_mutation_access.is_atomic()) & (retained_line_address === reservation_line_address)
   def mutation_reservation_clear = local_mutation_commit & (pending_mutation_access.is_store_conditional() ||| mutation_touches_reservation)
   def snoop_reservation_clear = snoop.update.valid & (snoop.update.bits.address.align_down(CacheLineBytes) === reservation_line_address.zext(snoop_width))
-  def replacement_reservation_clear = s4_path.fire() & s4_needs_refill & !s4_bypass_refill & !s4_hit & s4_victim_valid & (s4_victim_address === reservation_line_address)
+  def replacement_reservation_clear = s4_path.fire() & s4_needs_refill & !s4_bypass_refill & !s4_hit & s4_victim_valid & (victim_line_address === reservation_line_address)
   def buffered_store_reservation_clear = stores.enqueue.fire() & (candidate_line === reservation_address[offset_width..physical_width])
   def reservation_clear = s4_reservation_clear ||| mutation_reservation_clear ||| snoop_reservation_clear ||| replacement_reservation_clear ||| buffered_store_reservation_clear
   // Reservation lifetime follows accesses and coherence, not the fairness timer.
@@ -1089,9 +1085,8 @@ sync_circuit L1DCache(xlen :: XLen,
   def snoop_update_set = snoop.update.bits.address[offset_width..(offset_width + set_width)]
   def snooped_set_valids = valid_lines[snoop_update_set].updated(snoop_way, Bool(#false))
   def snooped_valid_lines = mux(snoop_invalidates, valid_lines.updated(snoop_update_set, snooped_set_valids), valid_lines)
-  def eviction_set = eviction_line_address[offset_width..(offset_width + set_width)]
   when writeback_complete:
-    valid_lines <== snooped_valid_lines.updated(eviction_set, snooped_valid_lines[eviction_set].updated(retained_way, Bool(#false)))
+    valid_lines <== snooped_valid_lines.updated(retained_set, snooped_valid_lines[retained_set].updated(retained_way, Bool(#false)))
   elsewhen snoop_invalidates:
     valid_lines <== snooped_valid_lines
   elsewhen install_refill:
@@ -1121,7 +1116,7 @@ sync_circuit L1DCache(xlen :: XLen,
   // acknowledged grant until SRAM installation; Home may probe after CompAck.
   def protect_refill = refill.acknowledgements.valid ||| refill.completion.valid
   def protect_core = reservation_protected ||| core_service_count.any()
-  def protect_copyback = writeback.granted & (cache_chi_snoop_address(p, snoop_width, chi.snoops.bits.address).align_down(CacheLineBytes) === eviction_line_address.zext(snoop_width))
+  def protect_copyback = writeback.granted & (cache_chi_snoop_address(p, snoop_width, chi.snoops.bits.address).align_down(CacheLineBytes) === victim_line_address.zext(snoop_width))
   chi.snoops |> gate_flow(!(protect_refill ||| protect_core ||| protect_copyback)) |> snoop.snoops
   def writeback_active = !writeback.command.ready
   def Array(refill_response, writeback_response, maintenance_response) = (

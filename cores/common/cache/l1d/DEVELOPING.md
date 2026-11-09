@@ -65,8 +65,8 @@ SRAM owner priorities, store authorization, and engine state transitions
 explicit; retain slow completions until the selected response sink accepts them.
 
 S4 hit/refill/eviction branches carry the resolved array metadata. Capture the
-admitted request and selected data row on the same S3-to-S4 transfer. Both
-remain available after an owned mutation consumes its S4 token. The S4
+admitted request, selected data row, and allocation way's tag on the same
+S3-to-S4 transfer. They remain available after the S4 token leaves. The S4
 metadata and slow-service response registers are elastic;
 the latter has registered-only input capacity to break the downstream-ready
 path through request admission. Do not turn stalled transfers into repeated
@@ -177,9 +177,10 @@ row. The copyback fixture covers 128-, 256-, and 512-bit DAT.
    for block zero). Extract the local AMO operand and response from the
    retained row; an active miss uses the refill buffer instead. Derive the
    reserved set and line from the retained request. Drive the refill engine's
-   `line_address` from that request and the writeback engine's from the victim
-   register captured at eviction gather start. Hold each input stable from
-   command handshake through completion handshake, including retries and stalls.
+   `line_address` from that request. For clean replacement's reservation check
+   and dirty copyback, reconstruct the victim line from the captured tag and
+   the retained request's set, never the snoop/gather set. Hold each engine's
+   address stable from command handshake through completion, including retries and stalls.
    Neither address comes from a live command or snoop. Copyback completion resumes the active miss,
    not a new S4 request. Only ordinary demand load/store contexts enable
    hit-under-miss. Protect the whole set in S0 admission and S1 classification.
@@ -237,7 +238,9 @@ modes. Repository wrappers provide the persistent worktree-specific root.
 
 The RV64 cache bench covers cold and shared-hit LR ownership, a probe offered
 at CompAck, delayed SC under pending eviction traffic, protection expiry, repeated LR,
-and reacquisition after revocation. RV32 and RV64 also require SC success after
+and reacquisition after revocation. Clean replacement clears the reservation
+at S4 only for the matching victim: the bench also evicts a same-tag line in
+a different set and a different tag in the reserved set. RV32 and RV64 require SC success after
 a quiet delay beyond the protection window, without new CHI traffic.
 `rv5stage-lrsc-progress` connects two actual
 L1Ds to a two-set, one-way inclusive Home and CHI SRAM through registered,
