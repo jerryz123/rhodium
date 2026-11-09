@@ -1,10 +1,10 @@
 #lang rhodium
-/* Adapts shared vector issue to Superscalar lookup decisions, WB admission, and ordered returns. */
+/* Translates Superscalar cache lookups, raw-word returns, and explicit split requests for the vector LSU controller. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("cores/common/cosim-source.rhm").describe_cosim_signals
-  lib("cores/common/vector/memory-issue.rhdl").VectorMemoryIssue
+  lib("cores/common/vector/memory-controller.rhdl") open
   "bundles.rhdl" open
   lib("cores/common/vector/bundles.rhdl") open
   lib("cores/common/cache/operation.rhdl") open
@@ -55,47 +55,44 @@ sync_circuit SuperscalarVectorMemory(xlen :: XLen, slots :: Pow2Int):
   /* Shared lookup issue and outstanding completion credits.
      Recovery flushes unaccepted attempts; memory retains accepted context and split ownership survives. */
 
-  wire recover: Bool
-  wire retry: Bool
-  wire resolved: Bool
-  reg split_pending(~init: Bool(#false))
-  reg split_token(Attempt())
+  inst controller(VectorMemoryController(xlen, slots))
+  issue |> controller.issue
+  controller.feedback |> feedback
+  controller.outcome |> outcome
+  controller.completion |> completion
+  controller.store_completed |> store_completed
+  memory_start_ready <== controller.memory_start_ready
   inst outstanding(CreditCounter(slots))
-  inst split_returns(Queue(VectorCompletion(xlen, slots), 1))
-  inst launch(VectorMemoryIssue(xlen, slots))
-  issue |> launch.issue
-  launch.blocked <== split_pending
-  launch.recover <== recover
-  launch.retry <== retry
-  launch.skip <== Bool(#false)
-  launch.release <== resolved
+  wire split_capture: Bool
+  // Certified addresses are aligned, so a split never takes a retained ring entry.
+  controller.skip <== Bool(#false)
 
 
   /* Lookup formation.
      The shared issue path supplies the timed beat; Superscalar positions raw cache words. */
 
-  def Array(lookup_attempt, retained_attempt) = launch.lookup |> fork_valid(2)
-  def address = mux(launch.lookup.bits.precertified, launch.lookup.bits.physical_address, apply_pointer_mask(xlen, launch.lookup.bits.address, pointer_masking))
-  pipeline_physical <== launch.lookup.bits.precertified
-  def width = launch.lookup.bits.memory_width.into(MemoryWidth)
+  def Array(lookup_attempt, retained_attempt) = controller.lookup |> fork_valid(2)
+  def address = mux(controller.lookup.bits.precertified, controller.lookup.bits.physical_address, apply_pointer_mask(xlen, controller.lookup.bits.address, pointer_masking))
+  pipeline_physical <== controller.lookup.bits.precertified
+  def width = controller.lookup.bits.memory_width.into(MemoryWidth)
   inst store_data(StoreGen(xlen, xlen.width / 8))
   store_data.address <== address
   store_data.width <== width
-  store_data.value <== launch.lookup.bits.store_data
+  store_data.value <== controller.lookup.bits.store_data
   def request = SuperscalarMemoryReq(xlen, xlen.width, Bool):
     context: Bool(#false)
     address: address
-    access: mux(launch.lookup.bits.store, CacheOperation.Store, CacheOperation.Load)
+    access: mux(controller.lookup.bits.store, CacheOperation.Store, CacheOperation.Load)
     atomic: RiscvAtomicOperation.Swap
     width: width
     data: store_data.data
-    mask: launch.lookup.bits.byte_mask
+    mask: controller.lookup.bits.byte_mask
     locality: RiscvMemoryLocality.Default
     pbmt: PageMemoryType.PMA
     guest_access: RiscvGuestMemoryAccess.Normal
 
-  def misaligned = launch.lookup.bits.enabled & !width.is_aligned(address)
-  lookup_attempt |> filter_valid(token => token.enabled & !misaligned & !recover) |> map_valid(_token => request) |> pipeline.request
+  def misaligned = controller.lookup.bits.enabled & !width.is_aligned(address)
+  lookup_attempt |> filter_valid(token => token.enabled & !misaligned & !controller.recover) |> map_valid(_token => request) |> pipeline.request
 
 
   /* MEM: Pair the retained beat with the lookup result.
@@ -106,39 +103,57 @@ sync_circuit SuperscalarVectorMemory(xlen :: XLen, slots :: Pow2Int):
       token: token
       request: request
       misaligned: misaligned
-  ) |> valid_pipe(1, ~flush: recover)
+  ) |> valid_pipe(1, ~flush: controller.recover)
 
-  def wb = (
+  def arrival = (
     mem |> map_valid(attempt => Decision()):
       attempt: attempt
       response: pipeline.response.bits.updated(~outcome: mux(pipeline.response.valid & !attempt.misaligned, pipeline.response.bits.outcome, SuperscalarCacheOutcome.Slow))
-  ) |> valid_pipe(1, ~flush: recover)
+  ) |> valid_pipe(1, ~flush: controller.recover)
 
 
-  /* WB: Authorize stores and offer ordinary or split slow work.
-     Request eligibility precedes admission/fault outcomes. Reserve response
-     capacity before accepting work that cannot later be canceled. */
+  /* Converts a split reply into the same native WB result used for aligned attempts. */
+  fun finish_split(saved :: Attempt(), reply :: RiscvSplitResult(xlen, Bool)) :~ Decision():
+    def result = priority_mux(~default: SuperscalarCacheOutcome.LoadHit):
+      reply.guest.page_fault: SuperscalarCacheOutcome.GuestPageFault
+      reply.page_fault: SuperscalarCacheOutcome.PageFault
+      reply.response.access_fault: SuperscalarCacheOutcome.AccessFault
+    Decision():
+      attempt: saved
+      response:
+        SuperscalarLookupResult(xlen):
+          outcome: result
+          data: reply.response.data
+          guest: reply.guest.details
 
-  def Array(ordinary_request, split_request, hit_response, store_response, precise_response) = wb |> fork_valid(5)
-  def attempt = wb.bits.attempt
+  def (wb :: Endpoint.of(Valid(Decision())), split_owner :: Endpoint.of(Decoupled(Attempt()))) = vector_split_writeback(
+    arrival, split.response, split_capture,
+    ~save: fun (decision :: Decision()): decision.attempt,
+    ~finish: finish_split)
+  def split_pending = split_owner.valid
+  controller.split_pending <== split_pending
+  def saved :: Attempt() = split_owner.bits
+  def Array(ordinary_request, split_request, decision_path) = wb |> fork_valid(3)
+  def native :: Decision() = wb.bits
+  def attempt = native.attempt
   def token = attempt.token
   request_physical <== token.precertified
   def access = wb.valid & token.enabled
-  def slow = access & (wb.bits.response.outcome === SuperscalarCacheOutcome.Slow)
+  def slow = access & (native.response.outcome === SuperscalarCacheOutcome.Slow)
   def split_attempt = slow & attempt.misaligned
   def ordinary = slow & !attempt.misaligned
-  def store_hit = access & (wb.bits.response.outcome === SuperscalarCacheOutcome.StoreHit)
+  def store_hit = access & (native.response.outcome === SuperscalarCacheOutcome.StoreHit)
   def store_commit = store_hit & !memory.ordered_busy
   pipeline.commit <== store_commit
   (ordinary_request |> filter_valid(_decision => ordinary & !outstanding.full & !memory.ordered_busy) |> map_valid(decision):
     def request :: SuperscalarMemoryReq(xlen, xlen.width, Bool) = decision.attempt.request
     def owner = SuperscalarVectorMemoryOwner(xlen, slots):
       tag: decision.attempt.token.completion_tag
-      offset: decision.attempt.request.address[0..index_width(xlen.width / 8)]
-      width: decision.attempt.request.width
+      offset: request.address[0..index_width(xlen.width / 8)]
+      width: request.width
     request.with_context(Context, Context.Vector(owner))
   ) |> offer_decoupled() |> memory.request
-  (split_request |> filter_valid(_decision => split_attempt & !memory.ordered_busy & split_returns.ingress.ready) |> map_valid(decision => PhysicalMemoryReq(xlen, Bool)):
+  (split_request |> filter_valid(_decision => split_attempt & !memory.ordered_busy & controller.split_capacity) |> map_valid(decision => PhysicalMemoryReq(xlen, Bool)):
     address: decision.attempt.request.address
     access: decision.attempt.request.access
     atomic: decision.attempt.request.atomic
@@ -149,6 +164,7 @@ sync_circuit SuperscalarVectorMemory(xlen :: XLen, slots :: Pow2Int):
     context: Bool(#false)
     locality: decision.attempt.request.locality
   ) |> offer_decoupled() |> split.request
+  split_capture <== split.request.fire()
 
 
   /* Accepted ordinary replies carry their retained extraction geometry.
@@ -163,123 +179,60 @@ sync_circuit SuperscalarVectorMemory(xlen :: XLen, slots :: Pow2Int):
   returned_data.width <== owner.width
   returned_data.unsigned_load <== Bool(#true)
   returned_data.data <== returned.data
-  def delayed = memory.response |> gate_flow(!outstanding.empty) |> map_flow(_reply => VectorCompletion(xlen, slots)):
+  (memory.response |> gate_flow(!outstanding.empty) |> map_flow(_reply => VectorCompletion(xlen, slots)):
     tag: owner.tag
     data: returned_data.value
+  ) |> controller.returned
+  outstanding.decrement <== memory.response.fire()
 
 
-  /* Split completion resolves the captured attempt.
-     A successful response has reserved completion capacity; faults retain
-     their exact address and guest provenance for architectural reporting. */
+  /* Translate cache and admission failures into a vector decision. Split data
+     is already assembled, while ordinary hits still need raw-word extraction. */
 
-  def returned_split = split.response.valid & split_pending
-  def split_fault = split.response.bits.page_fault ||| split.response.bits.guest.page_fault ||| split.response.bits.response.access_fault
-  split_returns.ingress.valid <== returned_split & !split_fault
-  split_returns.ingress.bits <== VectorCompletion(xlen, slots):
-    tag: split_token.token.completion_tag
-    data: split.response.bits.response.data
-
-  when (split.response.valid):
-    assert(split_pending, "superscalar_vector_split_has_owner")
-    assert(split_fault ||| split_returns.ingress.ready, "superscalar_vector_split_return_reserved")
-
-  when (split.request.fire()):
-    split_pending <== Bool(#true)
-    split_token <== attempt
-  elsewhen returned_split:
-    split_pending <== Bool(#false)
-
-
-  /* WB recovery and immediate completion.
-     Faults suppress retries. Completion backpressure retries only the certified
-     ring; a committed store retains an acknowledgement instead of retrying. */
-
-  def lookup_fault = access & wb.bits.response.outcome.is_one_of(SuperscalarCacheOutcome.PageFault, SuperscalarCacheOutcome.GuestPageFault, SuperscalarCacheOutcome.AccessFault)
+  def lookup_fault = access & native.response.outcome.is_one_of(SuperscalarCacheOutcome.PageFault, SuperscalarCacheOutcome.GuestPageFault, SuperscalarCacheOutcome.AccessFault)
   def admission_fault = memory.request.valid & memory.fault.valid
   def fault = lookup_fault ||| admission_fault
-  def lookup_retry = wb.bits.response.outcome === SuperscalarCacheOutcome.Replay
+  def lookup_retry = native.response.outcome === SuperscalarCacheOutcome.Replay
   def ordinary_retry = ordinary & !accepted
   def store_retry = (store_hit & !store_commit) ||| (store_commit & !pipeline.commit_ready)
   def split_retry = split_attempt & !split.request.fire()
-  def access_retry = access & !fault & (memory.ordered_busy ||| lookup_retry ||| ordinary_retry ||| store_retry ||| split_retry)
+  def access_retry = access & !split_pending & !fault & (memory.ordered_busy ||| lookup_retry ||| ordinary_retry ||| store_retry ||| split_retry)
   def hit = wb.valid & !slow & !fault & !access_retry
   inst hit_data(LoadGen(xlen, xlen.width / 8))
   hit_data.address <== attempt.request.address
   hit_data.width <== attempt.request.width
   hit_data.unsigned_load <== Bool(#true)
-  hit_data.data <== wb.bits.response.data
+  hit_data.data <== native.response.data
   def hit_value = hit_data.value
-  def hit_return = hit_response |> filter_valid(_operation => hit & token.precertified & !token.store) |> map_valid(_operation => VectorCompletion(xlen, slots)):
-    tag: token.completion_tag
-    data: hit_value
-
-  def offered_hit = hit_return |> offer_decoupled()
-  // Only the retained certified ring depends on completion readiness. Precise
-  // feedback itself controls that readiness in the shared completion engine.
-  retry <== access_retry ||| (hit_return.valid & !offered_hit.ready)
-  recover <== retry ||| fault ||| split.request.fire()
-  resolved <== wb.valid & token.precertified & !recover
-  // A committed store writes no register data. Report its slot independently
-  // of load-return arbitration, including alongside a younger cache hit.
-  store_response |> filter_valid(_decision => resolved & token.store & !accepted) |> map_valid(decision => decision.attempt.token.completion_tag) |> store_completed
-  Array(offered_hit, delayed, split_returns.egress) |> arbiter() |> completion
-  outstanding.decrement <== memory.response.fire()
-  when (wb.valid & token.precertified):
-    assert(!fault & !attempt.misaligned, "superscalar_certified_vector_request_is_aligned_and_nonfaulting")
-    assert(launch.occupied & (token.completion_tag === launch.oldest_tag), "superscalar_vector_retry_resolves_oldest_request")
-
-
-  /* Architectural outcomes distinguish retry, truncation, and fault.
-     Immediate admission faults override lookup details; split outcomes use
-     their retained owner. Certified capture and precise feedback are exclusive. */
-
-  def page_fault = wb.bits.response.outcome === SuperscalarCacheOutcome.PageFault
-  def guest_page_fault = wb.bits.response.outcome === SuperscalarCacheOutcome.GuestPageFault
+  def page_fault = native.response.outcome === SuperscalarCacheOutcome.PageFault
+  def guest_page_fault = native.response.outcome === SuperscalarCacheOutcome.GuestPageFault
   def lookup_cause = data_fault_cause(token.store, ~page_fault: page_fault, ~guest_page_fault: guest_page_fault)
-  def fault_disposition = mux(token.truncate_on_fault, VectorDisposition.Truncate, VectorDisposition.Fault)
-  def immediate_disposition = priority_mux(~default: VectorDisposition.Authorized):
-    access_retry: VectorDisposition.Retry
-    fault: fault_disposition
+  def fault_address = priority_mux(~default: attempt.request.address):
+    split_pending: split.response.bits.fault_address
+    admission_fault: memory.fault.bits.value
 
-  def immediate = precise_response |> filter_valid(_decision => !token.precertified & !split.request.fire()) |> map_valid(decision => VectorCommit(xlen, slots)):
-    tag: decision.attempt.token.completion_tag
-    pc: decision.attempt.token.context
-    disposition: immediate_disposition
-    slow: accepted
-    data: hit_value
+  (decision_path |> map_valid(_decision => VectorMemoryDecision(xlen, slots)):
+    token: token
+    action: vector_memory_action(
+      ~fault: fault, ~retry: access_retry, ~accepted: accepted,
+      ~split_start: split_capture, ~split_return: split_pending
+    )
+    data: mux(split_pending, native.response.data, hit_value)
     cause: mux(admission_fault, memory.fault.bits.cause, lookup_cause)
-    fault_address: mux(admission_fault, memory.fault.bits.value, decision.attempt.request.address)
-
-  def split_cause = data_fault_cause(split_token.token.store, ~page_fault: split.response.bits.page_fault, ~guest_page_fault: split.response.bits.guest.page_fault)
-  def split_fault_disposition = mux(split_token.token.truncate_on_fault, VectorDisposition.Truncate, VectorDisposition.Fault)
-  def split_decision = split.response |> filter_valid(_result => split_pending) |> map_valid(result => VectorCommit(xlen, slots)):
-    tag: split_token.token.completion_tag
-    pc: split_token.token.context
-    disposition: mux(split_fault, split_fault_disposition, VectorDisposition.Authorized)
-    slow: !split_fault
-    data: result.response.data
-    cause: split_cause
-    fault_address: result.fault_address
-
-  def Array(decision, retirement) = Array(immediate, split_decision) |> valid_arbiter() |> fork_valid(2)
-  Array(launch.durable, decision) |> valid_arbiter() |> feedback
-  assert(!(launch.durable.valid & decision.valid), "superscalar_vector_capture_and_precise_feedback_are_exclusive")
-  def last_beat = mux(returned_split, split_token.token.last, token.last)
-  retirement |> filter_valid(event => (event.disposition =/= VectorDisposition.Retry) & (last_beat ||| event.disposition.is_one_of(VectorDisposition.Fault, VectorDisposition.Truncate))) |> outcome
-  outcome_guest <== priority_mux(~default: wb.bits.response.guest):
-    returned_split: split.response.bits.guest.details
-    admission_fault: memory.fault.bits.guest
-
+    fault_address: fault_address
+  ) |> controller.decision
+  outcome_guest <== mux(admission_fault, memory.fault.bits.guest, native.response.guest)
+  when (wb.valid & token.precertified):
+    assert(!attempt.misaligned, "superscalar_certified_vector_request_is_aligned")
 
   /* Quiescence includes accepted owners as well as unaccepted attempts.
      A drained attempt pipeline alone does not release outstanding responses. */
 
-  requests_idle <== !launch.occupied & !launch.lookup.valid & !mem.valid & !wb.valid & !split_pending
-  // A first read matures next cycle. A successfully released final certified
-  // attempt can supply that edge, but retries, splits, and new captures cannot.
-  memory_start_ready <== launch.empty_after_release & !issue.valid & !launch.lookup.valid & !mem.valid & (!wb.valid ||| resolved) & !split_pending
-  idle <== requests_idle & outstanding.empty & !split_returns.count.any()
-  assert(!(accepted & (retry ||| fault)), "superscalar_vector_accepted_request_never_replays")
+  controller.mem_valid <== mem.valid
+  controller.wb_valid <== arrival.valid
+  requests_idle <== controller.issue_idle & !mem.valid & !arrival.valid
+  idle <== requests_idle & outstanding.empty & controller.split_capacity
+  assert(!(accepted & (controller.retry ||| fault)), "superscalar_vector_accepted_request_never_replays")
 
   /* Observe actual completion and retained split ownership without changing LSU timing. */
 
@@ -291,11 +244,11 @@ sync_circuit SuperscalarVectorMemory(xlen :: XLen, slots :: Pow2Int):
     "completion": completion.bits,
     "store_completed": store_completed.valid,
     "store_completed_tag": store_completed.bits,
-    "fault": fault ||| (returned_split & split_fault),
-    "fault_tag": mux(returned_split, split_token.token.completion_tag, token.completion_tag),
-    "fault_address": mux(returned_split, split.response.bits.fault_address, immediate.bits.fault_address),
+    "fault": fault,
+    "fault_tag": token.completion_tag,
+    "fault_address": fault_address,
     "split": split.request.fire(),
-    "split_tag": split_token.token.completion_tag,
+    "split_tag": saved.token.completion_tag,
     "request_tag": token.completion_tag
   })
 

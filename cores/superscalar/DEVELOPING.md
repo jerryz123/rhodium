@@ -476,7 +476,7 @@ WB authorization, and the two-port writeback policy stay local.
 | `memory/translation-identity.rhdl`, `memory/translation-sv39.rhdl` | Concrete specialization objects and their identity versus TLB/walker circuits, vector proof services, and prefetch timing |
 | `fp.rhdl` | RR fixed-return bookings, EX arithmetic launch, WB authorization, FPR hazards and load/arithmetic write ports |
 | `vector.rhdl` | WB-authorized composition of shared admission/execution and the local LSU adapter |
-| `vector-memory.rhdl` | Adapts shared `../common/vector/memory-issue.rhdl` lookup issue to Superscalar decisions, precise split outcomes, and ordered raw-word extraction |
+| `vector-memory.rhdl` | Adapts native lookup, slow and split admission, and raw-word extraction to the shared vector memory controller |
 | `memory/ports.rhdl` | Scalar/vector lookup, accepted response, and split-owner arbitration |
 | `superscalar.rhdl` | Frontend/core/shared L1I/L1D composition, profile-selected translation specialization, distinct CHI identities, start/halt boundary |
 | `profile.rhm`, `udb.rhm` | Scalar RV32/RV64 architectural description, shared RTL/metadata CSR specialization, and implementation-owned UDB choices |

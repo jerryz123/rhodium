@@ -133,8 +133,15 @@ recovery. Faultable beats wait behind retained requests and the caller's
 release decisions and retains responsibility for suppressing younger effects.
 `occupied` and `oldest_tag` describe only retained certified requests;
 `empty_after_release` accounts for same-edge release and capture, not downstream
-lookup stages or accepted responses. Core adapters combine that credit with
-their own pipeline and split state to compute `memory_start_ready`.
+lookup stages or accepted responses.
+
+[`VectorMemoryController`](memory-controller.rhdl) combines that credit with
+the adapter's MEM/WB and split occupancy to produce `memory_start_ready`.
+Adapters report a hit, retry, fault, accepted slow request, split start, or
+split return. A split start defers feedback until the final reply. A faultable
+hit returns data in precise feedback. A certified load hit competes with
+delayed returns on the completion port, while a certified store hit acknowledges
+its slot independently.
 
 [`VectorReplay`](replay.rhdl) retains certified requests through local retries;
 attempts may run ahead, but release remains ordered. A split takeover can move

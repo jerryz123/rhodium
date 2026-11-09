@@ -95,7 +95,8 @@ lifetimes; they do not introduce additional pipeline stages.
 | `../../common/vector/instructions.rhdl` | Instruction IDs, pending-kind summaries, destination-row intents, progressive row frontier, and store-drain barrier | Sequencing/issue is closed and all owned slots and carry have drained |
 | `../../common/vector/sequencer.rhdl` | One descriptor, compute/element/transport cursors, preparation phases, and precise restart checkpoint | Final sequence transfer for compute and MEM-certified ordinary memory; first captured active splat probe; final authorization for faultable memory |
 | `../../common/vector/memory-issue.rhdl` | Shared certified retention, retry cursor, lookup scheduling, and capture feedback | Each request is released by the LSU's resolution |
-| `memory.rhdl` | RV5Stage cache decisions, split ownership, precise outcomes, and response shaping | Each request is accepted by the cache or completes directly |
+| `../../common/vector/memory-controller.rhdl` | WB recovery, precise feedback, retained split lookup, and slot completion | The beat resolves and any deferred data transfers |
+| `memory.rhdl` | RV5Stage lookup timing, slow-port admission, MMU split result and guest fault interpretation | The native result reaches the common controller |
 | `../../common/vector/operand-fetch.rhdl` | Fixed-latency sequence context, operand packing, and compression data | Scheduled beat issues or unauthorized preparation is flushed |
 | `../../common/vector/pipeline.rhdl` | Shared composition, existing private execution registers, recurrence state, and shared-service request queues | Each beat reaches compute maturity or a memory decision |
 | `../../common/vector/completion.rhdl` / `../../common/vector/slots.rhdl` | Slot ownership metadata, direct result writes, and ordered metadata reclamation | A result writes; its metadata is reclaimed at the head; replay drops only unaccepted slots |

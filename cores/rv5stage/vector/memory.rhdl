@@ -1,9 +1,9 @@
 #lang rhodium
-/* Adapts shared vector issue to RV5Stage cache decisions, split ownership, and precise outcomes. */
+/* Translates RV5Stage pipeline lookups, slow admissions, and split replies for the vector LSU controller. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/common/vector/memory-issue.rhdl").VectorMemoryIssue
+  lib("cores/common/vector/memory-controller.rhdl") open
   "../../common/cache/protocol.rhdl" open
   "../../common/cosim-source.rhm".describe_cosim_signals
   "../../common/vector/bundles.rhdl" open
@@ -69,49 +69,45 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
   /* Shared lookup issue and local split ownership.
      Certified capture is durable; a split takeover skips its retained request. */
 
-  inst split_owner(OfferRegister(Decision()))
-  def split_pending = split_owner.egress.valid
+  inst controller(VectorMemoryController(xlen, slots))
+  issue |> controller.issue
+  controller.feedback |> feedback
+  controller.outcome |> outcome
+  controller.completion |> completion
+  controller.store_completed |> store_completed
+  memory_start_ready <== controller.memory_start_ready
   wire split_capture: Bool
-  wire recover: Bool
-  wire retry: Bool
-  wire resolved: Bool
-  inst launch(VectorMemoryIssue(xlen, slots))
-  issue |> launch.issue
-  launch.blocked <== split_pending
-  launch.recover <== recover
-  launch.retry <== retry
-  launch.skip <== split_capture
-  launch.release <== resolved
-  requests_idle <== !launch.occupied & !launch.lookup.valid & !split_pending
+  controller.skip <== split_capture
+  requests_idle <== controller.issue_idle
 
 
   /* Lookup formation.
      The shared issue path supplies the timed beat; RV5Stage supplies cache shape. */
 
-  def Array(lookup_path, context_path) = launch.lookup |> fork_valid(2)
-  def access = launch.lookup.bits.memory & launch.lookup.bits.enabled
-  def address = mux(launch.lookup.bits.precertified, launch.lookup.bits.physical_address, apply_pointer_mask(xlen, launch.lookup.bits.address[0..xlen.width], pointer_masking))
-  def lookup_store = mux(launch.lookup.bits.precertified, launch.lookup.bits.store, store)
-  pipeline_physical <== launch.lookup.bits.precertified
-  def width = launch.lookup.bits.memory_width.into(MemoryWidth)
+  def Array(lookup_path, context_path) = controller.lookup |> fork_valid(2)
+  def access = controller.lookup.bits.memory & controller.lookup.bits.enabled
+  def address = mux(controller.lookup.bits.precertified, controller.lookup.bits.physical_address, apply_pointer_mask(xlen, controller.lookup.bits.address[0..xlen.width], pointer_masking))
+  def lookup_store = mux(controller.lookup.bits.precertified, controller.lookup.bits.store, store)
+  pipeline_physical <== controller.lookup.bits.precertified
+  def width = controller.lookup.bits.memory_width.into(MemoryWidth)
   def misaligned = access & !width.is_aligned(address)
   def request = PhysicalMemoryReq(xlen, RV5StageMemoryContext(slots)):
-    byte_mask: launch.lookup.bits.byte_mask[0..xlen.width / 8]
+    byte_mask: controller.lookup.bits.byte_mask[0..xlen.width / 8]
     address: address
     access: mux(lookup_store, CacheOperation.Store, CacheOperation.Load)
     atomic: RiscvAtomicOperation.Swap
     width: width
     unsigned: Bool(#true)
-    data: launch.lookup.bits.store_data[0..xlen.width]
+    data: controller.lookup.bits.store_data[0..xlen.width]
     context:
       RV5StageMemoryContext(slots):
-        writeback: RV5StageMemoryWriteback(slots).Vector(launch.lookup.bits.completion_tag)
+        writeback: RV5StageMemoryWriteback(slots).Vector(controller.lookup.bits.completion_tag)
         origin: RV5StageDataOrigin.Core
 
     locality: RiscvMemoryLocality.Default
 
   (
-    lookup_path |> filter_valid(_token => access & !misaligned & !recover)
+    lookup_path |> filter_valid(_token => access & !misaligned & !controller.recover)
       |> map_valid(_token => CachePipelineReq(xlen)):
            byte_mask: request.byte_mask
            address: request.address
@@ -130,7 +126,7 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
     request: request
     misaligned: misaligned
 
-  def mem_context = mem |> valid_pipe(1, ~flush: recover)
+  def mem_context = mem |> valid_pipe(1, ~flush: controller.recover)
   def Array(context_capture, missing_response) = mem_context |> fork_valid(2)
   def returned = pipeline.response |> filter_valid(_result => mem_context.valid)
   def absent = missing_response |> filter_valid(_lookup => !pipeline.response.valid)
@@ -149,37 +145,40 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
 
     decision
 
-  def arrival = wb |> to_valid() |> valid_pipe(1, ~flush: recover)
+  def arrival = wb |> to_valid() |> valid_pipe(1, ~flush: controller.recover)
 
 
-  /* WB decision and split-result reentry.
-     A retained split decision rejoins classification only when its completion arrives. */
-
-  def returned_split = split_owner.egress |> gate_flow(split_completion.valid) |> map_flow(operation):
+  /* Translates a completed MMU split using the accepted lookup's original owner. */
+  fun finish_split(saved :: Lookup(), reply :: RiscvSplitResult(xlen, RV5StageMemoryContext(slots))) :~ Decision():
     wire result: Decision()
-    result.request_context <== operation.request_context
+    result.request_context <== saved
     def split_outcome :: CachePipelineOutcome = priority_mux(~default: CachePipelineOutcome.LoadHit):
-      split_completion.bits.page_fault: CachePipelineOutcome.PageFault
-      split_completion.bits.response.access_fault: CachePipelineOutcome.AccessFault
+      reply.page_fault: CachePipelineOutcome.PageFault
+      reply.response.access_fault: CachePipelineOutcome.AccessFault
 
     result.outcome <== split_outcome
-    result.data <== split_completion.bits.response.data
+    result.data <== reply.response.data
     if hypervisor
-    | result.guest <== split_completion.bits.guest
+    | result.guest <== reply.guest
     | #void
 
     result
 
-  def wb_context = Array(arrival |> filter_valid(_operation => !split_pending), returned_split |> to_valid()) |> valid_arbiter()
-  def Array(split_retention, response_context) = wb_context |> fork_valid(2)
-  split_retention |> filter_valid(_operation => split_capture) |> split_owner.update
-  def operation = wb_context.bits
+  def (wb_context :: Endpoint.of(Valid(Decision())), split_owner :: Endpoint.of(Decoupled(Lookup()))) = vector_split_writeback(
+    arrival, split_completion, split_capture,
+    ~save: fun (decision :: Decision()): decision.request_context,
+    ~finish: finish_split)
+  def split_pending = split_owner.valid
+  when (split_completion.valid):
+    def tag = split_completion.bits.response.context.writeback.view(RV5StageMemoryWriteback(slots).Vector).payload
+    assert(tag === split_owner.bits.token.completion_tag, "vector_split_return_matches_owner")
+  controller.split_pending <== split_pending
+  def operation :: Decision() = wb_context.bits
   def token = operation.request_context.token
   request_physical <== token.precertified
   def memory_operation = wb_context.valid & token.memory & token.enabled
   def slow = memory_operation & (operation.outcome === CachePipelineOutcome.Slow)
   def store_hit = !split_pending & memory_operation & (operation.outcome === CachePipelineOutcome.StoreHit)
-  wire hit_ready: Bool
   pipeline.commit <== store_hit
   def page_fault = memory_operation & ((operation.outcome === CachePipelineOutcome.PageFault) ||| (slow & memory.request_fault))
   def access_fault = memory_operation & !page_fault & ((operation.outcome === CachePipelineOutcome.AccessFault) ||| (slow & memory.request_access_fault))
@@ -189,31 +188,12 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
   def slow_blocked = slow & !memory.request.ready
   def store_commit_blocked = store_hit & !pipeline.commit_ready
   def precise_retry = memory_operation & !fault & (cache_replay ||| slow_blocked ||| store_commit_blocked)
-  def hit_completion_blocked = hit & token.precertified & !token.store & !hit_ready
-  retry <== precise_retry ||| hit_completion_blocked
   // The outgoing offer below is exactly the live Slow decision. Compute its
   // admission before annotating/forking that decision, without reading an undriven output.
   def accepted = slow & memory.request.ready & !fault
   split_capture <== accepted & operation.request_context.misaligned & !split_pending
-  def truncate = fault & token.truncate_on_fault
-  recover <== retry ||| fault ||| split_capture
-  resolved <== wb_context.valid & token.precertified & !recover
-  // Reserve the next-cycle issue edge only after all older preparation has
-  // left the pipeline and the durable ring is empty or actually releasing last.
-  memory_start_ready <== launch.empty_after_release & !issue.valid & !launch.lookup.valid & !mem_context.valid & (!arrival.valid ||| resolved) & !split_pending
-  when (wb_context.valid & token.precertified):
-    assert(!fault, "certified_vector_request_cannot_fault")
-    assert(launch.occupied & (token.completion_tag === launch.oldest_tag), "vector_retry_resolves_oldest_request")
-
-
-
-  /* Request admission, precise feedback, and macro outcome.
-     Slow offers do not depend on their own admission feedback; certified work has no late fault. */
-
-  def disposition = priority_mux(~default: VectorDisposition.Authorized):
-    precise_retry: VectorDisposition.Retry
-    truncate: VectorDisposition.Truncate
-    fault: VectorDisposition.Fault
+  controller.mem_valid <== mem_context.valid
+  controller.wb_valid <== arrival.valid
 
   def guest :: RiscvGuestException():
     if hypervisor | mux(slow, request_guest, operation.guest) | literal(RiscvGuestException(), 0)
@@ -225,69 +205,43 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
   | #void
 
   def fault_cause = data_fault_cause(store, ~page_fault: page_fault, ~guest_page_fault: page_fault & guest.page_fault)
-  def response_capture = response_context |> trace_valid_event("vector/memory.result", ~when: token.memory & token.enabled, ~fields: decision):
+  def response_capture = wb_context |> trace_valid_event("vector/memory.result", ~when: token.memory & token.enabled, ~fields: decision):
     pc: decision.request_context.token.context
     address: decision.request_context.request.address
     slot(~format: "unsigned"): decision.request_context.token.completion_tag
     outcome(~format: "enum"): decision.outcome
     fault: fault
-    replay: retry
+    replay: controller.retry
     admitted: accepted
 
-  def Array(request_path, decision_path, hit_path) = response_capture |> fork_valid(3)
+  def Array(request_path, decision_path) = response_capture |> fork_valid(2)
   request_path |> filter_valid(_operation => slow) |> map_valid(operation => operation.request_context.request) |> offer_decoupled() |> memory.request
   def slow_admission_fault = slow & (memory.request_fault ||| memory.request_access_fault)
   def fault_address :: Bits(xlen.width) = priority_mux(~default: operation.request_context.request.address):
     split_pending: split_completion.bits.fault_address
     slow_admission_fault: request_fault_address
 
-  def decision = decision_path |> filter_valid(_operation => !split_capture) |> map_valid(operation => VectorCommit(xlen, slots)):
-    tag: operation.request_context.token.completion_tag
-    pc: operation.request_context.token.context
-    disposition: disposition
-    slow: accepted ||| (split_pending & !fault)
+  (decision_path |> map_valid(_operation => VectorMemoryDecision(xlen, slots)):
+    token: token
+    action: vector_memory_action(
+      ~fault: fault, ~retry: precise_retry, ~accepted: accepted,
+      ~split_start: split_capture, ~split_return: split_pending
+    )
     data: operation.data
     cause: fault_cause
     fault_address: fault_address
+  ) |> controller.decision
 
-  def Array(feedback_path, outcome_path) = decision |> fork_valid(2)
-  def precise_feedback = feedback_path |> filter_valid(_event => !token.precertified)
-  Array(launch.durable, precise_feedback) |> valid_arbiter() |> feedback
-  assert(!(launch.durable.valid & precise_feedback.valid), "vector_capture_and_precise_feedback_are_exclusive")
-  outcome_path |> filter_valid(event => !token.precertified & (event.disposition =/= VectorDisposition.Retry) & (token.last ||| fault)) |> outcome
-
-
-  /* Load-return arbitration and independent store-hit bookkeeping.
-     A committed store never competes with load data for completion bandwidth. */
-
-  def Array(load_hit_path, store_hit_path) = hit_path |> fork_valid(2)
-  def hit_completion = load_hit_path |> filter_valid(_operation => hit & token.precertified & !token.store) |> map_valid(result => VectorCompletion(xlen, slots)):
-    tag: result.request_context.token.completion_tag
-    data: result.data
-
-  def offered_hit = hit_completion |> offer_decoupled()
-  hit_ready <== offered_hit.ready
-  store_hit_path |> filter_valid(_operation => resolved & token.store & !accepted) |> map_valid(result => result.request_context.token.completion_tag) |> store_completed
-  def slow_completion = (
+  (
     memory.response |> map_flow(response => VectorCompletion(xlen, slots)):
       tag: response.context.writeback.view(RV5StageMemoryWriteback(slots).Vector).payload
       data: response.data
-  )
-
-  // Split results arrive outside the fixed write calendar. Authorize their
-  // slot first, then use the ordinary arbitrated completion/writeback path.
-  def split_result = split_completion |> filter_valid(result => !result.page_fault & !result.response.access_fault)
-    |> map_valid(result => VectorCompletion(xlen, slots)):
-         tag: result.response.context.writeback.view(RV5StageMemoryWriteback(slots).Vector).payload
-         data: result.response.data
-
-  def deferred_split = split_result |> to_decoupled() |> queue(1)
-  Array(offered_hit, slow_completion, deferred_split) |> arbiter() |> completion
+  ) |> controller.returned
   when (memory.response.valid):
     assert(!memory.response.bits.access_fault, "vector_memory_faults_are_reported_before_acceptance")
     assert(memory.response.bits.context.writeback.is(RV5StageMemoryWriteback(slots).Vector), "vector_response_has_vector_owner")
 
-  assert(!(accepted & (retry ||| fault)), "vector_accepted_request_never_replays")
+  assert(!(accepted & (controller.retry ||| fault)), "vector_accepted_request_never_replays")
 
 
   /* Passive completion accounting.
@@ -295,7 +249,7 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
      retain their slot through completion, including certified hit acknowledgements. */
 
   describe_cosim_signals({
-    "direct": memory_operation & hit & !retry & !token.precertified & !split_pending,
+    "direct": memory_operation & hit & !controller.retry & !token.precertified & !split_pending,
     "direct_tag": token.completion_tag,
     "direct_data": operation.data,
     "completed": completion.fire(),
@@ -304,7 +258,7 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
     "store_completed_tag": store_completed.bits,
     "fault": fault,
     "fault_tag": token.completion_tag,
-    "fault_address": decision.bits.fault_address,
+    "fault_address": fault_address,
     "split": split_capture
   })
 

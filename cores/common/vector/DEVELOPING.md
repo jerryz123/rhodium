@@ -87,6 +87,7 @@ new payload buffers or instruction-ID reconstruction.
 | `service.rhdl` | Shared arithmetic/result interfaces and lifetime summaries, independent of LSU and scalar scheduling |
 | `admission.rhdl` | Descriptor credit, head certification, pinned-window release, queued-kind summaries, and registered outcomes |
 | `memory-issue.rhdl` | Shared LSU issue selection, packed-load bypass, ordinary lookup register, and durable capture feedback |
+| `memory-controller.rhdl` | WB decisions, split ownership, precise feedback, certified release, and arbitration of tagged data returns |
 | `replay.rhdl` | Durable request retention/retry cursors and independent store acknowledgements |
 | `instruction-metadata.rhm` | Canonical base decode domains and scalar operand/destination metadata |
 | `udb.rhm` | Shared execution geometry and architectural policy for named-core UDB projections |
@@ -168,13 +169,15 @@ certificate context, or retirement. Validate changes through
 the ordinary lookup register, packed-load bypass, and delayed capture feedback.
 Do not add buffering or flush the durable-feedback pipe during recovery. An
 older registered lookup wins over a packed bypass; the latter retains ready-valid
-backpressure until it can launch. Both core adapters use this same frontend.
-The adapters retain the later MEM/WB stages, fault interpretation, split
-ownership, and cache response shaping; `VectorReplay` owns only durable request
-storage and its ordered attempt/release cursors. The frontend exposes ring
-occupancy, oldest-tag identity, and release credit without exporting its child
-instance. The caller still combines credit with its own pipeline/split occupancy.
-Its Decoupled attempt advances only on transfer, so an older registered lookup
+backpressure until it can launch. Both adapters use `VectorMemoryController`,
+which drives this frontend from the WB decision. Each adapter supplies its
+MEM/WB occupancy, native cache admission, formatted data, and precise fault
+cause and address. `vector_split_writeback` retains the accepted lookup until
+the adapter converts its split reply into a WB decision. The controller reports
+precise feedback on that edge and queues successful split data for completion.
+Only certified hits depend on completion readiness. Keep that ready path out
+of precise feedback because the feedback itself can affect write availability.
+The replay ring's Decoupled attempt advances only on transfer, so an older registered lookup
 can defer a captured packed load without another payload buffer or a lost request.
 The backend installs a certified or faultable successor through the ordinary
 sequencer handshake, independently of LSU drain. `memory_start_pending` remains

@@ -1,0 +1,139 @@
+#lang rhodium
+/* Resolves vector LSU attempts, preserves split ownership, and arbitrates slot completions. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "bundles.rhdl" open
+  "memory-issue.rhdl".VectorMemoryIssue
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/rtl/trap.rhdl").ExceptionCause
+  lib("rhodium/std/bits.rhdl").Pow2Int
+  lib("flow/main.rhdl") open
+
+/* Describes what happened to a live attempt at the scalar LSU admission boundary. */
+hardware_enum VectorMemoryAction:
+  Hit
+  Retry
+  Fault
+  Admitted
+  SplitStarted
+  SplitReturned
+
+/* Carries a scalar LSU decision and its precise fault or formatted load value. */
+bundle VectorMemoryDecision(xlen :: XLen, slots :: Pow2Int):
+  token: VectorToken(xlen, Bits(xlen.width), slots)
+  action: VectorMemoryAction
+  data: Bits(xlen.width)
+  cause: ExceptionCause
+  fault_address: Bits(xlen.width)
+
+/* Admission faults win over stalls. A successful split takes its owner's place
+   until its return, even when both transfers use the ordinary slow port. */
+fun vector_memory_action(~fault: fault :: Bool, ~retry: retry :: Bool, ~accepted: accepted :: Bool,
+                         ~split_start: start :: Bool, ~split_return: returned :: Bool) :~ VectorMemoryAction:
+  priority_mux(~default: VectorMemoryAction.Hit):
+    fault: VectorMemoryAction.Fault
+    retry: VectorMemoryAction.Retry
+    start: VectorMemoryAction.SplitStarted
+    returned: VectorMemoryAction.SplitReturned
+    accepted: VectorMemoryAction.Admitted
+
+/* Holds the accepted split's lookup across recovery. Its reply rejoins the original
+   WB path with the retained owner and the scalar adapter's native fault details. */
+fun vector_split_writeback(arrival :: Endpoint, response :: Endpoint, capture :: Bool,
+                           ~save: save :: Function, ~finish: finish :: Function):
+  def Array(retain, ordinary) = arrival |> fork_valid(2)
+  def accepted = retain |> filter_valid(_decision => capture) |> map_valid(result => save(result))
+  inst owner(OfferRegister(accepted.bits.type))
+  accepted |> owner.update
+  when (response.field("valid")):
+    assert(owner.egress.valid, "vector_split_return_has_owner")
+  def returned = Array(owner.egress, response |> to_decoupled()) |> zip_flow(saved, reply):
+    finish(saved, reply)
+  def wb = Array(ordinary |> filter_valid(_decision => !owner.egress.valid), returned |> to_valid()) |> valid_arbiter()
+  values(wb, owner.egress)
+
+/* Couples ordered issue to WB recovery. Only precise beats advance the sequencer
+   at WB. Certified hits use the completion port, and split data waits one cycle
+   so its authorization precedes slot writeback. */
+sync_circuit VectorMemoryController(xlen :: XLen, slots :: Pow2Int):
+  def Token = VectorToken(xlen, Bits(xlen.width), slots)
+  interface issue(Decoupled(Token), ~role: consumer)
+  interface lookup(Valid(Token), ~role: producer)
+  interface decision(Valid(VectorMemoryDecision(xlen, slots)), ~role: consumer)
+  interface returned(Decoupled(VectorCompletion(xlen, slots)), ~role: consumer)
+  interface feedback(Valid(VectorCommit(xlen, slots)), ~role: producer)
+  interface outcome(Valid(VectorCommit(xlen, slots)), ~role: producer)
+  interface completion(Decoupled(VectorCompletion(xlen, slots)), ~role: producer)
+  interface store_completed(Valid(Bits(index_width(slots))), ~role: producer)
+  input(split_pending, skip, mem_valid, wb_valid): Bool
+  output(recover, retry, issue_idle, memory_start_ready, split_capacity): Bool
+
+  inst launch(VectorMemoryIssue(xlen, slots))
+  issue |> launch.issue
+  launch.lookup |> lookup
+  launch.blocked <== split_pending
+  launch.skip <== skip
+  def Array(hit_path, store_path, split_path, precise_path) = decision |> fork_valid(4)
+  def token = decision.bits.token
+  def action = decision.bits.action
+  def fault = decision.valid & (action === VectorMemoryAction.Fault)
+  def split_start = decision.valid & (action === VectorMemoryAction.SplitStarted)
+  def immediate_hit = action === VectorMemoryAction.Hit
+
+  /* Both data lanes retain their original slot through arbitration. */
+  fun completion_value(result :: VectorMemoryDecision(xlen, slots)) :~ VectorCompletion(xlen, slots):
+    VectorCompletion(xlen, slots):
+      tag: result.token.completion_tag
+      data: result.data
+
+  def hit = hit_path |> filter_valid(_result => immediate_hit & token.precertified & !token.store)
+    |> map_valid(result => completion_value(result)) |> offer_decoupled()
+  inst split_returns(Queue(VectorCompletion(xlen, slots), 1))
+  split_path |> filter_valid(_result => action === VectorMemoryAction.SplitReturned)
+    |> map_valid(result => completion_value(result)) |> offer_decoupled() |> split_returns.ingress
+  split_capacity <== split_returns.ingress.ready
+  Array(hit, returned, split_returns.egress) |> arbiter() |> completion
+  when (split_returns.ingress.valid):
+    assert(split_capacity, "vector_split_return_reserved")
+
+  retry <== (decision.valid & (action === VectorMemoryAction.Retry)) ||| (hit.valid & !hit.ready)
+  recover <== retry ||| fault ||| split_start
+  def resolved = decision.valid & token.precertified & !recover
+  launch.retry <== retry
+  launch.recover <== recover
+  launch.release <== resolved
+  store_path |> filter_valid(_result => resolved & token.store & immediate_hit)
+    |> map_valid(result => result.token.completion_tag) |> store_completed
+  when (decision.valid & token.precertified):
+    assert(!fault, "certified_vector_request_cannot_fault")
+    assert(launch.occupied & (token.completion_tag === launch.oldest_tag), "vector_retry_resolves_oldest_request")
+
+  def disposition = priority_mux(~default: VectorDisposition.Authorized):
+    fault: mux(token.truncate_on_fault, VectorDisposition.Truncate, VectorDisposition.Fault)
+    action === VectorMemoryAction.Retry: VectorDisposition.Retry
+
+  def precise = precise_path |> filter_valid(_result => !token.precertified & !split_start)
+    |> map_valid(result => VectorCommit(xlen, slots)):
+         tag: result.token.completion_tag
+         pc: result.token.context
+         disposition: disposition
+         slow: action.is_one_of(VectorMemoryAction.Admitted, VectorMemoryAction.SplitReturned)
+         data: result.data
+         cause: result.cause
+         fault_address: result.fault_address
+
+  def Array(progress, retire) = precise |> fork_valid(2)
+  Array(launch.durable, progress) |> valid_arbiter() |> feedback
+  assert(!(launch.durable.valid & progress.valid), "vector_capture_and_precise_feedback_are_exclusive")
+  retire |> filter_valid(event => (event.disposition =/= VectorDisposition.Retry) & (token.last ||| fault)) |> outcome
+
+  issue_idle <== !launch.occupied & !lookup.valid & !split_pending
+  memory_start_ready <== launch.empty_after_release & !issue.valid & !lookup.valid & !mem_valid & (!wb_valid ||| resolved) & !split_pending
+
+export:
+  VectorMemoryAction
+  VectorMemoryDecision
+  vector_memory_action
+  vector_split_writeback
+  VectorMemoryController
