@@ -44,7 +44,9 @@ sync_circuit RV5StageMemoryArbiter(xlen :: XLen, slots :: Pow2Int):
       reason: CachePipelineReason.ArrayPort
       data: Bits(xlen.width)(0)
 
-  def (lookup_vector, _) = arbitrate_memory_lookups(scalar_pipeline, vector_pipeline, pipeline, ~fallback: fallback)
+  def (lookup_vector, _) = arbitrate_memory_lookups(
+    CachePipelineReq(xlen), CachePipelineResult(xlen), scalar_pipeline, vector_pipeline, pipeline, ~fallback: fallback
+  )
   pipeline_vector <== lookup_vector
 
 export:

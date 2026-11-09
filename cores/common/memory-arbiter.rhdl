@@ -3,19 +3,23 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "memory-lookup.rhdl".MemoryLookupPort
   lib("flow/main.rhdl") open
 
 /* Gives scalar lookups priority, routes the next cycle's result, and authorizes the
    winner's store two cycles later. A caller may supply local results for a lost
    lookup or an absent response. Returns the live grant and the sampled MEM owner. */
-fun arbitrate_memory_lookups(scalar :: Endpoint, vector :: Endpoint, pipeline :: Endpoint,
+fun arbitrate_memory_lookups(Request :: DataType, Result :: DataType,
+                             scalar :: Endpoint.supports(MemoryLookupPort(Request, Result)),
+                             vector :: Endpoint.supports(MemoryLookupPort(Request, Result)),
+                             pipeline :: Endpoint.supports(MemoryLookupPort(Request, Result)),
                              ~fallback: fallback :: maybe(Function) = #false):
-  def scalar_request = scalar.field("request")
-  def vector_request = vector.field("request")
-  def response = pipeline.field("response")
-  inst lookups(ValidArbiter(scalar_request.field("bits").type, 2))
+  def scalar_request = scalar.request
+  def vector_request = vector.request
+  def response = pipeline.response
+  inst lookups(ValidArbiter(Request, 2))
   def selected_vector = lookups.chosen === Bits(1)(1)
-  lookups.egress |> pipeline.field("request")
+  lookups.egress |> pipeline.request
 
 
   /* MEM and WB ownership follows the fixed lookup latency. The MEM owner bit
@@ -26,19 +30,19 @@ fun arbitrate_memory_lookups(scalar :: Endpoint, vector :: Endpoint, pipeline ::
   reg wb_valid(~init: Bool(#false))
   reg wb_vector(~init: Bool(#false))
   mem_valid <== lookups.egress.valid
-  mem_vector <== !scalar_request.field("valid")
+  mem_vector <== !scalar_request.valid
   wb_valid <== mem_valid
   wb_vector <== mem_vector
-  pipeline.field("commit") <== wb_valid & mux(wb_vector, vector.field("commit"), scalar.field("commit"))
-  scalar.field("commit_ready") <== wb_valid & !wb_vector & pipeline.field("commit_ready")
-  vector.field("commit_ready") <== wb_valid & wb_vector & pipeline.field("commit_ready")
+  pipeline.commit <== wb_valid & mux(wb_vector, vector.commit, scalar.commit)
+  scalar.commit_ready <== wb_valid & !wb_vector & pipeline.commit_ready
+  vector.commit_ready <== wb_valid & wb_vector & pipeline.commit_ready
 
 
   /* A physical response follows its selected request. If every attempt requires
      a response, retain each attempt's lineage for its locally generated result. */
 
   def returns = response |> fork_valid(2)
-  for (client in [scalar, vector], request in [scalar_request, vector_request], lane in 0..2):
+  for (sink in [scalar.response, vector.response], request in [scalar_request, vector_request], lane in 0..2):
     def winner = if lane == 0 | !mem_vector | mem_vector
     def returned = returns[lane] |> filter_valid(_response => mem_valid & winner)
     if fallback
@@ -46,11 +50,11 @@ fun arbitrate_memory_lookups(scalar :: Endpoint, vector :: Endpoint, pipeline ::
         def Array(lookup, attempt) = request |> fork_valid(2)
         lookup |> lookups.ingress[lane]
         def pending = attempt |> map_valid(_request => if lane == 0 | !selected_vector | selected_vector) |> valid_pipe(1)
-        def local = pending |> filter_valid(won => !won ||| !response.field("valid")) |> map_valid(won => fallback(won))
-        Array(returned, local) |> valid_arbiter() |> client.field("response")
+        def local = pending |> filter_valid(won => !won ||| !response.valid) |> map_valid(won => fallback(won))
+        Array(returned, local) |> valid_arbiter() |> sink
     | block:
         request |> lookups.ingress[lane]
-        returned |> client.field("response")
+        returned |> sink
 
   values(selected_vector, mem_vector)
 

@@ -662,7 +662,7 @@ certificates. `uncached-protocol.rhdl` defines the physical request wrapper
 carrying PBMT alongside the shared physical request; the physical arbiter
 imports that wrapper and the router consumes it. No dependency direction changes.
 `riscv/rtl/pointer-masking.rhdl` imports the pure CSR fields and XLEN plus
-the CSR and privilege adapters and the hypervisor explicit-access enum. Its PMM encoding belongs to its hardware enum,
+the CSR and privilege adapters and the hypervisor explicit-access enum and context selection. Its PMM encoding belongs to its hardware enum,
 not a duplicate host enum and integer converter.
 
 `cores/common/vector/udb.rhm` projects shared execution geometry and architectural
@@ -743,7 +743,10 @@ adapters. Both named vector memory adapters import `cores/common/vector/memory-c
 for writeback decisions, split retention, and completion arbitration. It imports
 vector bundles, the shared `memory-issue.rhdl` scheduler, architectural XLEN and
 exception types, public `Pow2Int`, and Flow. The scheduler owns its `VectorReplay`
-instance. `cores/common/memory-arbiter.rhdl` imports Flow for fixed-cycle
+instance. The shared cache protocol, RV5Stage guest MMU protocol, and superscalar bundles specialize
+`cores/common/memory-lookup.rhdl` with their native request and result payloads.
+It imports `rhodium/std/ready-valid.rhdl` for the two Valid channels.
+`cores/common/memory-arbiter.rhdl` imports this lookup interface and Flow for fixed-cycle
 lookup ownership, request arbitration, credit accounting, and tagged response
 routing. RV5Stage and superscalar memory ports import it and supply their
 admission policies and native completion tags. No memory adapter imports a cache implementation.

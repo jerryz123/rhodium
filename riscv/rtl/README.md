@@ -75,6 +75,9 @@ virtualization in `RiscvExecutionContext`; `RiscvTrapTarget` names M, HS,
 and VS trap destinations. Trap and interrupt decisions carry that typed
 `target`, rather than a supervisor Boolean. [`hypervisor.rhdl`](hypervisor.rhdl) provides
 S-to-VS CSR substitution and two-level synchronous delegation.
+`effective_data_context` applies MPRV/MPP to ordinary data accesses and, on RV64 H,
+selects the effective virtualization state using MPV. `guest_data_context` applies
+the SPVP override for an explicit guest load or store.
 `RiscvGuestMemoryAccess` distinguishes ordinary execution-context accesses,
 explicit guest accesses, and HLVX execute-permission reads. This intent is not
 a physical cache operation: HLVX remains a load for fault classification.

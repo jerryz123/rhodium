@@ -20,6 +20,14 @@ hardware_enum RiscvGuestMemoryAccess:
   Guest
   GuestExecuteRead
 
+/* Explicit guest loads and stores use VS/VU according to SPVP, independently of
+   the ordinary MPRV context. HLVX has the same privilege and separate execute permission. */
+fun guest_data_context(normal :: RiscvExecutionContext(), access :: RiscvGuestMemoryAccess, hstatus :: Bits(64)) :~ RiscvExecutionContext():
+  def explicit_guest = access =/= RiscvGuestMemoryAccess.Normal
+  RiscvExecutionContext():
+    privilege: mux(explicit_guest, mux(csr_flag(hstatus, HstatusSPVP), PrivilegeMode.Supervisor, PrivilegeMode.User), normal.privilege)
+    virtualized: explicit_guest ||| normal.virtualized
+
 /* Names the supported VS-stage translation modes. */
 hardware_enum RiscvVSMode:
   Bare
@@ -123,6 +131,7 @@ fun guest_fault_instruction(fault :: RiscvGuestFault()) :~ Bits(64):
 
 export:
   RiscvGuestMemoryAccess
+  guest_data_context
   RiscvHypervisorTranslation
   RiscvGuestException
   RiscvVSMode

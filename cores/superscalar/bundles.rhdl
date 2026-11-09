@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  rhombus/meta open
+  lib("cores/common/memory-lookup.rhdl").MemoryLookupPort
   lib("rhodium/std/bits.rhdl") open
   lib("cores/common/memory-response.rhdl").MemoryResponse
   lib("cores/common/fetch/fault.rhdl") open
@@ -848,17 +850,10 @@ bundle SuperscalarLookupResult(xlen :: XLen):
   guest: RiscvGuestFault()
 
 /* Pairs an EX lookup with next-cycle MEM feedback and a one-cycle WB store candidate. */
-interface SuperscalarPipelineAccess(xlen :: XLen):
-  role requester
-  role responder
-  provider requester
-  requester -> responder:
-    request: Valid(SuperscalarMemoryReq(xlen, xlen.width, Bool))
-    commit: Bool
-
-  responder -> requester:
-    response: Valid(SuperscalarLookupResult(xlen))
-    commit_ready: Bool
+expr.macro
+| 'SuperscalarPipelineAccess($xlen)':
+    'MemoryLookupPort(SuperscalarMemoryReq($xlen, ($xlen).width, Bool), SuperscalarLookupResult($xlen))'
+| 'SuperscalarPipelineAccess': 'fun (xlen :: XLen): SuperscalarPipelineAccess(xlen)'
 
 /* Authorizes slow transactions at WB. Admission resolves all synchronous faults;
    accepted responses are successful and ordered: ordinary loads return raw aligned

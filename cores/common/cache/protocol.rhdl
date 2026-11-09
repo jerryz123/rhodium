@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../memory-lookup.rhdl".MemoryLookupPort
   rhombus/meta open
   lib("rhodium/std/bits.rhdl").Pow2Int
   "operation.rhdl" open
@@ -64,21 +65,6 @@ bundle CachePipelineBeatResult(xlen :: XLen, beat_bytes :: Pow2Int = xlen.width 
   reason: CachePipelineReason
   data: Bits(8 * beat_bytes)
 
-/* Pairs fixed-cycle lookup outcomes with next-cycle authorization of the matching store candidate.
-   Replay repeats lookup; only Slow uses the authorized transaction service. */
-interface CacheBeatPipelineAccess(xlen :: XLen, beat_bytes :: Pow2Int):
-  role requester
-  role responder
-  provider requester
-
-  requester -> responder:
-    request: Valid(CachePipelineBeatReq(xlen, beat_bytes))
-    commit: Bool
-
-  responder -> requester:
-    response: Valid(CachePipelineBeatResult(xlen, beat_bytes))
-    commit_ready: Bool
-
 /* Carries an authorized physical transaction and an uninterpreted caller-owned context. */
 bundle PhysicalMemoryBeatReq(xlen :: XLen, Context :: DataType, beat_bytes :: Pow2Int = xlen.width / 8):
   if beat_bytes > xlen.width / 8:
@@ -127,10 +113,10 @@ interface CacheBeatAccess(xlen :: XLen, Context :: DataType, beat_bytes :: Pow2I
 /* Preserves the named interface surface while defaulting speculative accesses to native words. */
 expr.macro
 | 'CachePipelineAccess($xlen, $beat_bytes)':
-    'CacheBeatPipelineAccess($xlen, $beat_bytes)'
+    'MemoryLookupPort(CachePipelineBeatReq($xlen, $beat_bytes), CachePipelineBeatResult($xlen, $beat_bytes))'
 | 'CachePipelineAccess($xlen)':
-    'CacheBeatPipelineAccess($xlen, ($xlen).width / 8)'
-| 'CachePipelineAccess': 'CacheBeatPipelineAccess'
+    'CachePipelineAccess($xlen, ($xlen).width / 8)'
+| 'CachePipelineAccess': 'fun (xlen :: XLen, beat_bytes :: Pow2Int): CachePipelineAccess(xlen, beat_bytes)'
 
 /* Preserves hierarchical authorized-port fields for native-word and explicit beat widths. */
 expr.macro

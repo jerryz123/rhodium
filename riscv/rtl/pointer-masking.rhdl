@@ -8,6 +8,7 @@ import:
   "csr.rhdl" open
   "privilege.rhdl" open
   "hypervisor.rhdl".RiscvGuestMemoryAccess
+  "hypervisor.rhdl".guest_data_context
 
 /* Uses architectural disabled, seven-bit, and sixteen-bit pointer-mask encodings. */
 hardware_enum PointerMaskMode(~width: 2):
@@ -59,16 +60,14 @@ fun user_pointer_mask_control(xlen :: XLen, privilege :: PrivilegeMode, mstatus 
  * VS accesses use henvcfg. HLVX and either effective MXR bypass masking. */
 fun hypervisor_pointer_mask_control(context :: RiscvExecutionContext(), mstatus :: Bits(64), satp :: Bits(64), senvcfg :: Bits(64), hstatus :: Bits(64), vsstatus :: Bits(64), vsatp :: Bits(64), henvcfg :: Bits(64), access :: RiscvGuestMemoryAccess, ~enabled: enabled :: Boolean) :~ PointerMaskControl():
   def explicit_guest = access =/= RiscvGuestMemoryAccess.Normal
-  def normal_privilege = effective_data_privilege(XLen.X64, context.privilege, mstatus)
-  def mprv = (context.privilege === PrivilegeMode.Machine) & csr_flag(mstatus, MstatusMPRV)
-  def guest = explicit_guest ||| mux(mprv, csr_flag(mstatus, MstatusMPV) & (normal_privilege =/= PrivilegeMode.Machine), context.virtualized)
-  def effective = mux(explicit_guest, mux(csr_flag(hstatus, HstatusSPVP), PrivilegeMode.Supervisor, PrivilegeMode.User), normal_privilege)
+  def normal = effective_data_context(XLen.X64, context.privilege, mstatus, ~virtualized: context.virtualized)
+  def data = guest_data_context(normal, access, hstatus)
   def user_mode = mux(explicit_guest & (context.privilege === PrivilegeMode.User), pointer_mask_mode_bits(csr_field(hstatus, HstatusHUPMM)), pointer_mask_mode(XLen.X64, senvcfg))
-  def mode = mux(effective === PrivilegeMode.User, user_mode, mux(guest & (effective === PrivilegeMode.Supervisor), pointer_mask_mode(XLen.X64, henvcfg), PointerMaskMode.Disabled))
-  def mxr = csr_flag(mstatus, MstatusMXR) ||| (guest & csr_flag(vsstatus, MstatusMXR))
+  def mode = mux(data.privilege === PrivilegeMode.User, user_mode, mux(data.virtualized & (data.privilege === PrivilegeMode.Supervisor), pointer_mask_mode(XLen.X64, henvcfg), PointerMaskMode.Disabled))
+  def mxr = csr_flag(mstatus, MstatusMXR) ||| (data.virtualized & csr_flag(vsstatus, MstatusMXR))
   PointerMaskControl():
     mode: mux(Bool(enabled) & !mxr & (access =/= RiscvGuestMemoryAccess.GuestExecuteRead), mode, PointerMaskMode.Disabled)
-    virtual_address: (effective =/= PrivilegeMode.Machine) & csr_field(mux(guest, vsatp, satp), Satp64Mode).any()
+    virtual_address: (data.privilege =/= PrivilegeMode.Machine) & csr_field(mux(data.virtualized, vsatp, satp), Satp64Mode).any()
 
 /* Reconstructs the masked upper RV64 address bits by sign- or zero-extension while preserving low bits; RV32 is unchanged. */
 fun apply_pointer_mask(xlen :: XLen, address :: Bits(xlen.width), control :: PointerMaskControl()) :~ Bits(xlen.width):

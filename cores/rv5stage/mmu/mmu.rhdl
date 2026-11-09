@@ -36,7 +36,7 @@ import:
   "../../../riscv/rtl/pma.rhdl" open
   "../../../riscv/rtl/sv39.rhdl" open
   "../../../riscv/rtl/svpbmt.rhdl" open
-  "../../../riscv/rtl/privilege.rhdl".effective_data_privilege
+  "../../../riscv/rtl/privilege.rhdl".effective_data_context
   "../../../riscv/rtl/atomic.rhdl" open
   "../../../riscv/rtl/zihintntl.rhdl" open
   lib("rhodium/std/bits.rhdl") open
@@ -120,7 +120,6 @@ sync_circuit RV5StageMmu(xlen :: XLen,
     wb_translation_owner: request_mode
     pipeline_translation_eligible: load_mode.bits
 
-  def explicit_guest = demand_mode =/= RiscvGuestMemoryAccess.Normal
   def execute_read = demand_mode === RiscvGuestMemoryAccess.GuestExecuteRead
 
   def satp_sv39 = if mmu_mode == RiscvMmuType.Bare || xlen == XLen.X32 | Bool(#false) | csr_field(satp, Satp64Mode) === Bits(Satp64Mode.width)(Sv39Mode)
@@ -128,11 +127,9 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def supervisor_or_user = privilege =/= PrivilegeMode.Machine
   def instruction_guest = guest_state.virtualized
   def instruction_translation_enabled = (satp_sv39 & supervisor_or_user) ||| instruction_guest
-  def normal_data_privilege = effective_data_privilege(xlen, privilege, mstatus)
-  def normal_data_guest = if !hypervisor | Bool(#false) | mux((privilege === PrivilegeMode.Machine) & csr_flag(mstatus, MstatusMPRV), csr_flag(mstatus, MstatusMPV) & (normal_data_privilege =/= PrivilegeMode.Machine), guest_state.virtualized)
-  def data_privilege = mux(explicit_guest, mux(csr_flag(guest_state.hstatus, HstatusSPVP), PrivilegeMode.Supervisor, PrivilegeMode.User), normal_data_privilege)
-  def data_guest = explicit_guest ||| normal_data_guest
-  def data_translation_enabled = (satp_sv39 & (data_privilege =/= PrivilegeMode.Machine)) ||| data_guest
+  def normal = effective_data_context(xlen, privilege, mstatus, ~virtualized: if hypervisor | guest_state.virtualized | #false)
+  def demand = guest_data_context(normal, demand_mode, guest_state.hstatus)
+  def data_translation_enabled = (satp_sv39 & (demand.privilege =/= PrivilegeMode.Machine)) ||| demand.virtualized
   def sum = if xlen == XLen.X32 | Bool(#false) | csr_flag(mstatus, MstatusSUM)
   def mxr = if xlen == XLen.X32 | Bool(#false) | csr_flag(mstatus, MstatusMXR)
 
@@ -149,7 +146,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   inst certificate(VectorCertificate(xlen, physical_map))
   vector_fast <=> certificate.check
   certificate.invalidate <== invalidate_all
-  certificate.current <== lookup(Bits(64)(0), Sv39Access.Load, normal_data_privilege, satp_sv39 & (normal_data_privilege =/= PrivilegeMode.Machine) & !normal_data_guest, normal_data_guest)
+  certificate.current <== lookup(Bits(64)(0), Sv39Access.Load, normal.privilege, satp_sv39 & (normal.privilege =/= PrivilegeMode.Machine) & !normal.virtualized, normal.virtualized)
 
 
   /* Instruction S0 admission and S1 ownership */
@@ -210,7 +207,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
     load_request.egress.valid: pipeline_is_store
 
   def demand_access = mux(data_demand, data_access_kind, mux(speculative_store, Sv39Access.Store, Sv39Access.Load))
-  dtlb.lookup <== lookup(demand_address, demand_access, data_privilege, data_translation_enabled & !data_guest, data_guest).updated(~execute_read: execute_read)
+  dtlb.lookup <== lookup(demand_address, demand_access, demand.privilege, data_translation_enabled & !demand.virtualized, demand.virtualized).updated(~execute_read: execute_read)
   dtlb.invalidate_all <== invalidate_all
   certificate.translation.valid <== fast_selected & dtlb.hit
   certificate.translation.bits <== dtlb_result
@@ -223,11 +220,11 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   reg prefetch_previous_satp(~init: Bits(width)(0))
   reg prefetch_previous_sum(~init: Bool(#false))
   reg prefetch_previous_mxr(~init: Bool(#false))
-  prefetch_previous_privilege <== normal_data_privilege
+  prefetch_previous_privilege <== normal.privilege
   prefetch_previous_satp <== satp
   prefetch_previous_sum <== sum
   prefetch_previous_mxr <== mxr
-  def prefetch_context_changed = (prefetch_previous_privilege =/= normal_data_privilege) ||| (prefetch_previous_satp =/= satp) ||| (prefetch_previous_sum =/= sum) ||| (prefetch_previous_mxr =/= mxr)
+  def prefetch_context_changed = (prefetch_previous_privilege =/= normal.privilege) ||| (prefetch_previous_satp =/= satp) ||| (prefetch_previous_sum =/= sum) ||| (prefetch_previous_mxr =/= mxr)
   def prefetch_flush = instruction.flush ||| invalidate_all ||| prefetch_context_changed
   inst virtual_prefetch_pipe(ValidPipeAlwaysCapture(CachePrefetchReq(width), 1, ~flushable: #true))
   inst physical_prefetch_pipe(ValidPipeAlwaysCapture(CachePrefetchReq(width), 1, ~flushable: #true))
@@ -237,8 +234,8 @@ sync_circuit RV5StageMmu(xlen :: XLen,
 
   def prefetch_request = virtual_prefetch_pipe.egress.bits.into(CachePrefetchReq(width))
   def prefetch_virtual_address = prefetch_request.address.zext(64)
-  def normal_data_translation_enabled = (satp_sv39 & (normal_data_privilege =/= PrivilegeMode.Machine)) ||| normal_data_guest
-  def probe = lookup(prefetch_virtual_address, Sv39Access.Load, normal_data_privilege, normal_data_translation_enabled & !normal_data_guest, normal_data_guest)
+  def normal_data_translation_enabled = (satp_sv39 & (normal.privilege =/= PrivilegeMode.Machine)) ||| normal.virtualized
+  def probe = lookup(prefetch_virtual_address, Sv39Access.Load, normal.privilege, normal_data_translation_enabled & !normal.virtualized, normal.virtualized)
   itlb.probe <== probe
   dtlb.probe <== probe
 
@@ -433,8 +430,8 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   | block:
       output request_guest_fault: RiscvGuestException()
       output pipeline_guest_fault: RiscvGuestException()
-      request_guest_fault <== guest_exception(request_fault_mapping, normal_data_guest ||| (request_mode =/= RiscvGuestMemoryAccess.Normal))
-      pipeline_guest_fault <== guest_exception(dtlb.translation, normal_data_guest ||| (load_mode.bits =/= RiscvGuestMemoryAccess.Normal))
+      request_guest_fault <== guest_exception(request_fault_mapping, normal.virtualized ||| (request_mode =/= RiscvGuestMemoryAccess.Normal))
+      pipeline_guest_fault <== guest_exception(dtlb.translation, normal.virtualized ||| (load_mode.bits =/= RiscvGuestMemoryAccess.Normal))
   | #void
 
   def instruction_lookup_ready = !instruction_translation_enabled ||| itlb.hit ||| instruction_fault_cache_hit ||| latched_instruction_fault
@@ -541,7 +538,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   data.request_access_fault <== data.request.valid & !split_busy & !split_candidate & !data_page_fault & (local_access_fault ||| (core_data_request.valid & core_memory.request_access_fault))
   misaligned.request_fault <== data_page_fault
   misaligned.request_access_fault <== !data_page_fault & (local_access_fault ||| (core_data_request.valid & core_memory.request_access_fault))
-  misaligned.request_guest <== guest_exception(request_fault_mapping, normal_data_guest ||| (request_mode =/= RiscvGuestMemoryAccess.Normal))
+  misaligned.request_guest <== guest_exception(request_fault_mapping, normal.virtualized ||| (request_mode =/= RiscvGuestMemoryAccess.Normal))
 
 
   /* PTE physical requests and response routing */

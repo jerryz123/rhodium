@@ -39,7 +39,7 @@ import:
   "../../riscv/isa/vector.rhm" open
   "../../riscv/isa/vector-profile.rhm" open
   "../../riscv/isa/csr.rhm" open
-  "../../riscv/rtl/privilege.rhdl".effective_data_privilege
+  "../../riscv/rtl/privilege.rhdl".effective_data_context
   "../../riscv/rtl/csr.rhdl".csr_flag
   "../../riscv/rtl/csr.rhdl".RiscvCsrOperation
   "../../riscv/rtl/vector.rhdl" open
@@ -1391,7 +1391,8 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   if hypervisor
   | block:
       ex_payload.guest_access <== ex_guest_access
-      def data_virtualized = (ex_guest_access =/= RiscvGuestMemoryAccess.Normal) ||| mux((wb_csrs.privilege === PrivilegeMode.Machine) & csr_flag(wb_csrs.mstatus, MstatusMPRV), csr_flag(wb_csrs.mstatus, MstatusMPV) & (effective_data_privilege(xlen, wb_csrs.privilege, wb_csrs.mstatus) =/= PrivilegeMode.Machine), wb_csrs.guest_translation.virtualized)
+      def normal = effective_data_context(xlen, wb_csrs.privilege, wb_csrs.mstatus, ~virtualized: wb_csrs.guest_translation.virtualized)
+      def data_virtualized = guest_data_context(normal, ex_guest_access, wb_csrs.guest_translation.hstatus).virtualized
       def details = RiscvGuestFault():
         guest_virtual_address: !ex_input.bits.illegal & !ex_vector_illegal & !ex_virtual_instruction & mux(ex_redirect_fault, wb_csrs.guest_translation.virtualized, ex_is_memory & !ex_memory_aligned & data_virtualized)
         guest_physical_address: Bits(64)(0)

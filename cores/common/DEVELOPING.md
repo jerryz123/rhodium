@@ -34,7 +34,8 @@ particular, RV5Stage advertises its supervisor guarantees only for RV64 Sv39;
 RV2Wide also advertises the non-page-table guarantees for RV64 Bare.
 `chi-hart.rhdl` owns physical-region/Home mapping and requester attachment;
 `misaligned-access.rhdl` owns fragment sequencing with opaque caller context;
-`memory-arbiter.rhdl` owns scalar/vector lookup grants, MEM response routing,
+`memory-lookup.rhdl` defines the fixed-cycle lookup and store-commit interface
+specialized by the cache and superscalar adapters. `memory-arbiter.rhdl` owns scalar/vector lookup grants, MEM response routing,
 WB store ownership, and tagged transaction arbitration. Callers supply local
 lookup fallback semantics, the response tag projection, and the admission policy;
 `memory-response.rhdl` owns opaque data/context replies, optional-response pairing, and one-cycle LSU result capture;

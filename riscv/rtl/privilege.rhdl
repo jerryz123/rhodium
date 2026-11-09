@@ -51,9 +51,19 @@ fun mstatus_mret_privilege(mstatus :: Bits) :~ PrivilegeMode:
 fun mstatus_sret_privilege(mstatus :: Bits) :~ PrivilegeMode:
   mux(csr_flag(mstatus, MstatusSPP), PrivilegeMode.Supervisor, PrivilegeMode.User)
 
+/* Selects effective privilege for ordinary data accesses. RV64 H callers supply
+   live V so M-mode MPRV also selects MPV when the effective privilege is below M. */
+fun effective_data_context(xlen :: XLen, privilege :: PrivilegeMode, mstatus :: Bits(xlen.width),
+                           ~virtualized: virtualized :: maybe(Bool) = #false) :~ RiscvExecutionContext():
+  def mprv = (privilege === PrivilegeMode.Machine) & csr_flag(mstatus, MstatusMPRV)
+  def effective = mux(mprv, mstatus_effective_mpp(mstatus), privilege)
+  RiscvExecutionContext():
+    privilege: effective
+    virtualized: if virtualized | mux(mprv, csr_flag(mstatus, MstatusMPV) & (effective =/= PrivilegeMode.Machine), virtualized) | Bool(#false)
+
 /* Applies MPRV/MPP only to Machine-mode explicit data accesses. */
 fun effective_data_privilege(xlen :: XLen, privilege :: PrivilegeMode, mstatus :: Bits(xlen.width)) :~ PrivilegeMode:
-  mux((privilege === PrivilegeMode.Machine) & csr_flag(mstatus, MstatusMPRV), mstatus_effective_mpp(mstatus), privilege)
+  effective_data_context(xlen, privilege, mstatus).privilege
 
 /* Saves SIE into SPIE, clears SIE, and records prior supervisor privilege in SPP. */
 fun mstatus_on_supervisor_trap(mstatus :: Bits,
@@ -92,6 +102,7 @@ export:
   mstatus_effective_mpp
   mstatus_mret_privilege
   mstatus_sret_privilege
+  effective_data_context
   effective_data_privilege
   mstatus_on_supervisor_trap
   mstatus_on_machine_trap

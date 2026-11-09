@@ -1,0 +1,23 @@
+#lang rhodium
+/* Defines the fixed-cycle lookup and store-commit port for scalar and vector memory. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/std/ready-valid.rhdl").Valid
+
+/* Pairs a speculative lookup with a response one cycle later and store authorization
+   two cycles after lookup. The caller supplies its native request and result types. */
+interface MemoryLookupPort(Request :: DataType, Result :: DataType):
+  role requester
+  role responder
+  provider requester
+
+  requester -> responder:
+    request: Valid(Request)
+    commit: Bool
+
+  responder -> requester:
+    response: Valid(Result)
+    commit_ready: Bool
+
+export MemoryLookupPort

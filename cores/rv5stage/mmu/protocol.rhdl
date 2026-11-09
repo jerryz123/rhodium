@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  rhombus/meta open
+  "../../common/memory-lookup.rhdl".MemoryLookupPort
   "../../common/cache/protocol.rhdl" open
   "../../common/misaligned-access.rhdl".RiscvSplitResult
   "../../../riscv/isa/xlen.rhm" open
@@ -33,17 +35,10 @@ interface RV5StageGuestDataAccess(xlen :: XLen, slots :: Pow2Int):
     reservation_valid: Bool
 
 /* Carries speculative guest-aware lookups with separate WB store authorization. */
-interface RV5StageGuestPipelineAccess(xlen :: XLen):
-  role requester
-  role responder
-  provider requester
-  requester -> responder:
-    request: Valid(RV5StageGuestMemoryReq(CachePipelineReq(xlen)))
-    commit: Bool
-
-  responder -> requester:
-    response: Valid(CachePipelineResult(xlen))
-    commit_ready: Bool
+expr.macro
+| 'RV5StageGuestPipelineAccess($xlen)':
+    'MemoryLookupPort(RV5StageGuestMemoryReq(CachePipelineReq($xlen)), CachePipelineResult($xlen))'
+| 'RV5StageGuestPipelineAccess': 'fun (xlen :: XLen): RV5StageGuestPipelineAccess(xlen)'
 
 export:
   RiscvSplitResult

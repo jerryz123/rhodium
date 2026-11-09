@@ -914,9 +914,8 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     def ex_data_guest:
       if profile.hypervisor
       | block:
-          def mprv_active = (wb_csrs.privilege === PrivilegeMode.Machine) & csr_flag(wb_csrs.mstatus, MstatusMPRV)
-          def mprv_guest = csr_flag(wb_csrs.mstatus, MstatusMPV) & (effective_data_privilege(xlen, wb_csrs.privilege, wb_csrs.mstatus) =/= PrivilegeMode.Machine)
-          ex_explicit_guest ||| mux(mprv_active, mprv_guest, guest_state.virtualized)
+          def normal = effective_data_context(xlen, wb_csrs.privilege, wb_csrs.mstatus, ~virtualized: guest_state.virtualized)
+          guest_data_context(normal, ex.control.guest_access, guest_state.hstatus).virtualized
       | Bool(#false)
 
     /* Branch target and local fault classification are combinational payloads;
