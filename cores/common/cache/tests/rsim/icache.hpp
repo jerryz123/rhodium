@@ -249,6 +249,50 @@ void expect_block(std::uint64_t expected) {
   cache_tick();
 }
 
+// A failed refill belongs to the physical line, not the initiating fetch offset.
+void check_refill_fault_replay() {
+  constexpr auto other_word = ADDRESS + 24;
+  auto start_failed_line = [] {
+    send_core_request(ADDRESS + 8);
+    accept_read_request(ADDRESS);
+    return_line(ADDRESS, LINE, 1, 2);
+  };
+  auto expect_fault = [](std::uint64_t address) {
+    send_core_request(address);
+    CHECK(core_out.presponse.pvalid && core_out.presponse.pbits.paccess_ufault &&
+          !core_out.presponse.pbits.preplay && !chi_out.preq.pvalid);
+    cache_tick();
+    CHECK(!chi_out.preq.pvalid);
+  };
+
+  start_failed_line();
+  accept_comp_ack();
+  // A successful refill can replace the engine's address before the fault is retried.
+  send_core_request(COLLIDE_B_ADDRESS);
+  accept_read_request(COLLIDE_B_ADDRESS);
+  return_line(COLLIDE_B_ADDRESS, LINE_B);
+  accept_comp_ack();
+  expect_block(line_slice(LINE_B, 0, FETCH_BITS));
+  // An address-width fault is independent, even with identical low line bits.
+  expect_fault(other_word | (UINT64_C(1) << 44));
+  expect_fault(other_word);
+  // The matching replay consumed the fault. A second demand must issue to CHI.
+  start_failed_line();
+  // Flush while the failed transaction still owes its CompAck.
+  core_in.pflush = 1;
+  chi_in.prsp.prequester.pready = 0;
+  cache_tick();
+  core_in.pflush = 0;
+  chi_in.prsp.prequester.pready = 1;
+  accept_comp_ack();
+  send_core_request(other_word);
+  accept_read_request(ADDRESS);
+  return_line(ADDRESS, LINE);
+  accept_comp_ack();
+  expect_block(line_slice(LINE, 24 * 8, FETCH_BITS));
+  invalidate_cache(ADDRESS);
+}
+
 void wide_fetch() {
 
   send_core_request(ADDRESS + UINT64_C(4032));
@@ -350,6 +394,7 @@ void run_case() {
   reset = UINT64_C(0);
   grant_req_credit();
   grant_rsp_credit();
+  check_refill_fault_replay();
 
   if (FETCH_BITS == 64) {
     wide_fetch();

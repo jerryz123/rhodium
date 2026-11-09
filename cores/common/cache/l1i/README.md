@@ -117,12 +117,13 @@ flowchart LR
 ## Refill and replacement
 
 Every coherent-RAM miss issues one 64-byte `ReadOnce`. The [snapshot engine](../chi/line-read.rhdl)
-retains its line address and context through retry, collects every `CompData`
+retains the line address and replacement way through retry, collects every `CompData`
 packet, and sends `CompAck` before exposing the result. The response grants no
 coherent ownership or dirty responsibility. With 128-bit DAT, four packets form
-a line. A demand read error is retained until a matching replay receives one instruction
-access fault, without allocation;
-prefetch errors are discarded without an architectural response.
+a line. A demand read error is retained for a replay at any fetch offset in the
+same physical line. The replay receives one instruction access fault without
+allocating the line. An out-of-range lookup cannot consume that fault by aliasing
+the line's low address bits. Prefetch errors produce no architectural response.
 Immutable ROM uses the same arrays and installation path after a 64-byte
 `ReadNoSnp`, with no coherent ownership or `CompAck`. ROM data reads remain
 uncached. Prefetch permissions remain the caller's responsibility.

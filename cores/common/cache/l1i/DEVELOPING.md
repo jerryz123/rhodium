@@ -41,9 +41,11 @@ separation.
    with the preceding read; kill younger S1 reads on frontend replay.
    Common geometry rejection belongs to `../config.rhm`; fetch width is checked here.
 2. S1 compares the returned tags with the translated address; S2 always captures
-   the selected word, hit decision, and refill context. Keep these fixed-latency
-   stages distinct from frontend replay and the blocking refill path. A miss returns replay while accepted refill work continues independently;
-   retain a demand read error until a matching retry consumes one access fault.
+   the selected word, outcome, physical line number, and replacement way. Check
+   the full lookup address before narrowing it. On a miss the line-read engine
+   owns the aligned address; its only installation context is the replacement way.
+   A failed demand refill leaves a separate physical line number for replay.
+   Only a matching refill fault consumes it; an address-width fault does not.
 3. Publish tag and validity only after the final installation word so a
    partial line cannot hit or satisfy a snoop.
 4. Keep speculative `flush` separate from architectural `invalidate_all`,
