@@ -46,7 +46,8 @@ bool zero_request = UINT64_C(0);
 
 std::uint8_t management_operation = 0;
 
-bool page_fault_pte_seen;
+std::uint64_t fault_phase_address = FAULT_VIRTUAL_ADDRESS;
+int page_fault_pte_requests;
 
 bool memory_ready = UINT64_C(0);
 
@@ -506,7 +507,7 @@ void drive() {
     data_in.prequest.pvalid = data_request_valid;
     data_in.presponse.pready = UINT64_C(1);
     data_in.prequest.pbits.paddress =
-        (page_fault_phase ? FAULT_VIRTUAL_ADDRESS : VIRTUAL_ADDRESS) +
+        (page_fault_phase ? fault_phase_address : VIRTUAL_ADDRESS) +
         (zero_request || management_operation != 0 ? UINT64_C(63)
                                                    : UINT64_C(0));
     if (vector_phase)
@@ -575,7 +576,7 @@ void observe() {
             std::remove_cvref_t<decltype(pte_response_data)>{});
       defer(pte_requests, std::remove_cvref_t<decltype(pte_requests)>{});
       defer(translated_request_seen, UINT64_C(0));
-      defer(page_fault_pte_seen, UINT64_C(0));
+      defer(page_fault_pte_requests, 0);
     } else {
       if (data_memory_out.presponse.pready && !ordinary_response_valid &&
           !manual_pte_valid)
@@ -778,12 +779,12 @@ void observe() {
           defer(pte_response_valid, UINT64_C(1));
           defer(instruction_pte_requests, instruction_pte_requests + 1);
         } else if (page_fault_phase) {
-          CHECK(!page_fault_pte_seen &&
+          CHECK(page_fault_pte_requests < 2 &&
                 data_memory_out.prequest.pbits.pmemory.paddress ==
-                    UINT64_C(4096));
+                    (page_fault_pte_requests == 0 ? 0x1000 : 0x1008));
           defer(pte_response_valid, UINT64_C(1));
           defer(pte_response_data, UINT64_C(0));
-          defer(page_fault_pte_seen, UINT64_C(1));
+          defer(page_fault_pte_requests, page_fault_pte_requests + 1);
         } else if (pte_requests == 0) {
           CHECK(data_memory_out.prequest.pbits.pmemory.paddress ==
                 UINT64_C(4096));
@@ -1196,7 +1197,7 @@ void stimulus() {
     settle();
     data_request_valid = UINT64_C(0);
 
-    until([&] { return page_fault_pte_seen; });
+    until([&] { return page_fault_pte_requests == 1; });
     // Fetch recovery must not discard a data walk's completion or fault.
     falling();
     instruction_flush = 1;
@@ -1204,6 +1205,18 @@ void stimulus() {
       tick();
     falling();
     instruction_flush = 0;
+
+    // Same offset and low VPNs, different root PTE. B must neither receive A's
+    // pending fault nor start a walk of its own until A consumes the fault.
+    constexpr auto retry_b = FAULT_VIRTUAL_ADDRESS | (UINT64_C(1) << 30);
+    fault_phase_address = retry_b;
+    data_request_valid = 1;
+    for (int cycle = 0; cycle < 4; ++cycle) {
+      settle();
+      CHECK(!data_out.prequest.pready && !data_out.prequest_ufault &&
+            !data_out.prequest_uaccess_ufault && !data_memory_out.prequest.pvalid);
+      tick();
+    }
 
     // The translated entry is supervisor-only. A user-mode lookup therefore
     // faults directly in the DTLB, but must not consume the pending walker
@@ -1223,16 +1236,31 @@ void stimulus() {
 
     falling();
     page_fault_phase = UINT64_C(1);
+    fault_phase_address = FAULT_VIRTUAL_ADDRESS;
     privilege = PRIVILEGE_S;
     data_request_valid = UINT64_C(1);
     settle();
     CHECK(data_out.prequest.pready && data_out.prequest_ufault &&
-          !data_out.prequest_uaccess_ufault &&
+          !data_out.prequest_uaccess_ufault && request_fault_address == FAULT_VIRTUAL_ADDRESS &&
           !data_memory_out.prequest.pvalid);
     rising();
     settle();
     data_request_valid = UINT64_C(0);
     CHECK(data_out.pdrained);
+
+    // With no flush or invalidation, B now walks through its own root PTE.
+    falling();
+    fault_phase_address = retry_b;
+    data_request_valid = 1;
+    settle();
+    CHECK(!data_out.prequest.pready && !data_out.prequest_ufault);
+    until([&] { return data_out.prequest.pready; });
+    CHECK(page_fault_pte_requests == 2 && data_out.prequest_ufault &&
+          !data_out.prequest_uaccess_ufault && request_fault_address == retry_b);
+    tick();
+    falling();
+    data_request_valid = 0;
+    fault_phase_address = FAULT_VIRTUAL_ADDRESS;
 
     // Bare hints keep the same latency and line alignment, including I hints.
     falling();

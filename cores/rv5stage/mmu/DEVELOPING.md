@@ -81,8 +81,10 @@ invalidate translations or cancel accepted page-table response ownership.
 
 1. Put pure Sv39 representation/policy in `riscv/rtl`, reusable TLB/walker
    state in `cores/common/mmu`, and RV5Stage arbitration and integration here.
-2. Preserve address correlation for walk completions and faults. The instruction
-   attempt is captured into S1 after S0 admission; the frontend may change its
+2. Match a transient fault against the full VA in the admitted walk lookup.
+   No instruction, data, or probe walk may replace it while the fault is pending.
+   Keep the cached instruction page-fault key separate: it can outlive later walks.
+   The instruction attempt is captured into S1 after S0 admission; the frontend may change its
    payload immediately. An unresolved attempt produces S2 replay, never a
    retained request or local reread. A request transferred with instruction
    flush replaces the old S1 context; a flush without transfer clears it. Gate

@@ -251,7 +251,6 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   reg fault_valid(~init: Bool(#false))
   reg fault_is_data(~init: Bool(#false))
   reg fault_is_access(~init: Bool(#false))
-  reg fault_address(Bits(64))
   reg fault_mapping(RiscvTlbMapping())
   reg walker_memory_pending(~init: Bool(#false))
 
@@ -373,8 +372,9 @@ sync_circuit RV5StageMmu(xlen :: XLen,
 
   /* Fault selection and instruction PMA checks */
 
-  def latched_instruction_fault = fault_valid & !fault_is_data & (fault_address === instruction_virtual_address)
-  def latched_data_fault = fault_valid & fault_is_data & (fault_address === data_virtual_address)
+  // A pending transient fault blocks new walks, so walk_lookup still identifies its VA.
+  def latched_instruction_fault = fault_valid & !fault_is_data & (walk_lookup.virtual_address === instruction_virtual_address)
+  def latched_data_fault = fault_valid & fault_is_data & (walk_lookup.virtual_address === data_virtual_address)
   def instruction_page_fault = instruction_translation_enabled & ((itlb.hit & itlb_result.fault) ||| instruction_fault_cache_hit ||| (latched_instruction_fault & !fault_is_access))
   def data_page_fault = !data_pinned & data_translation_enabled & ((dtlb.hit & dtlb_result.fault) ||| (latched_data_fault & !fault_is_access))
   def instruction_walk_access_fault = (latched_instruction_fault & fault_is_access) ||| (itlb.hit & itlb_result.access_fault)
@@ -558,7 +558,6 @@ sync_circuit RV5StageMmu(xlen :: XLen,
     fault_is_data <== walk_is_data
     fault_is_access <== walker.completion.bits.fault === RiscvTranslationFault.AccessFault
     fault_mapping <== walker.completion.bits
-    fault_address <== walker.completion.bits.virtual_address
 
   when walker_request_fire:
     walk_instruction_discarded <== Bool(#false)
