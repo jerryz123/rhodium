@@ -44,8 +44,11 @@ separation.
    the selected word, outcome, physical line number, and replacement way. Check
    the full lookup address before narrowing it. On a miss the line-read engine
    owns the aligned address; its only installation context is the replacement way.
-   A failed demand refill leaves a separate physical line number for replay.
-   Only a matching refill fault consumes it; an address-width fault does not.
+   Bound the active refill and saved demand-error line numbers by the
+   instruction-cacheable physical map, including immutable ROM. Keep them
+   independent: another refill may complete before the failed line is retried.
+   Compare the saved number against the full lookup line; neither a high alias
+   nor an address-width fault may consume it. Do not narrow S2 with these owners.
 3. Publish tag and validity only after the final installation word so a
    partial line cannot hit or satisfy a snoop.
 4. Keep speculative `flush` separate from architectural `invalidate_all`,

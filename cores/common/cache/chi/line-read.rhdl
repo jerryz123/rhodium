@@ -24,6 +24,11 @@ bundle CacheLineReadResult(Context :: DataType, address_width :: PosInt):
   line: Vec(CacheLineBytes / 8, Bits(64))
   access_fault: Bool
 
+/* Counts non-offset bits needed to identify an admitted RAM or ROM instruction line. */
+fun instruction_refill_line_bits(config :: RiscvHartCHIConfig, address_width :: PosInt) :: Nat:
+  def mapped_width = config.physical_map.address_width_for(fun (region): region.instruction_cacheable)
+  math.max(0, math.min(address_width, mapped_width) - alignment_bits(CacheLineBytes))
+
 /* Reads coherent RAM with ReadOnce/CompAck or immutable ROM with ReadNoSnp and no ack.
    Assembles packets by DataID, retaining the command until the caller accepts the complete
    line. */
@@ -39,6 +44,8 @@ sync_circuit CacheLineRead(Context :: DataType, address_width :: PosInt, config 
 
   def packet_count = CacheLineBytes / p.data_bytes
   def packet_index_width = index_width(packet_count)
+  def offset = alignment_bits(CacheLineBytes)
+  def line_bits = instruction_refill_line_bits(config, address_width)
 
   input node_id: Bits(p.node_id_width)
   interface command(Decoupled(CacheLineReadCommand(Context, address_width)),
@@ -56,7 +63,8 @@ sync_circuit CacheLineRead(Context :: DataType, address_width :: PosInt, config 
   ))
 
   reg acknowledgement_sent(~init: Bool(#false))
-  reg line_address(~init: Bits(address_width)(0))
+  reg line_number(~init: Bits(math.max(1, line_bits))(0))
+  def line_address = line_number.zext(address_width) << offset
   reg context(Context)
   reg line(~init: Bits(CacheLineBytes * 8)(0))
   reg home_id(~init: Bits(p.node_id_width)(0))
@@ -185,7 +193,7 @@ sync_circuit CacheLineRead(Context :: DataType, address_width :: PosInt, config 
     )
 
     acknowledgement_sent <== Bool(#false)
-    line_address <== command.bits.line_address
+    line_number <== if line_bits == 0 | Bits(1)(0) | command.bits.line_address[offset..(offset + line_bits)]
     context <== command.bits.context
     line <== Bits(CacheLineBytes * 8)(0)
     home_id <== command_home.node_id
@@ -201,6 +209,7 @@ sync_circuit CacheLineRead(Context :: DataType, address_width :: PosInt, config 
     acknowledgement_sent <== Bool(#true)
 
 export:
+  instruction_refill_line_bits
   CacheLineReadCommand
   CacheLineReadResult
   CacheLineRead

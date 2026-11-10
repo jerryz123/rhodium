@@ -268,16 +268,38 @@ void check_refill_fault_replay() {
 
   start_failed_line();
   accept_comp_ack();
-  // A successful refill can replace the engine's address before the fault is retried.
-  send_core_request(COLLIDE_B_ADDRESS);
-  accept_read_request(COLLIDE_B_ADDRESS);
-  return_line(COLLIDE_B_ADDRESS, LINE_B);
-  accept_comp_ack();
+  // The active refill changes to ROM; the failed RAM line must stay identifiable.
+  constexpr auto high_rom = ADDRESS | (UINT64_C(1) << 37);
+  rom_phase = true;
+  chi_in.preq.pready = 0;
+  send_core_request(high_rom);
+  CHECK(core_out.presponse.pvalid && core_out.presponse.pbits.preplay);
+  for (int c = 0; !chi_out.preq.pvalid && c < 100; ++c)
+    cache_tick();
+  for (int c = 0; c < 4; ++c) {
+    CHECK(chi_out.preq.pvalid && chi_out.preq.pbits.paddress == high_rom);
+    cache_tick();
+  }
+  grant_req_credit();
+  accept_rom_request(high_rom);
+  return_line(high_rom, LINE_B, 1);
   expect_block(line_slice(LINE_B, 0, FETCH_BITS));
+  rom_phase = false;
   // An address-width fault is independent, even with identical low line bits.
   expect_fault(other_word | (UINT64_C(1) << 44));
   expect_fault(other_word);
   // The matching replay consumed the fault. A second demand must issue to CHI.
+  start_failed_line();
+  accept_comp_ack();
+  // This alias fits CHI but lies above instruction-cacheable memory. Inspect
+  // its S2 miss, then squash it before it becomes an inadmissible CHI command.
+  send_core_request(other_word | (UINT64_C(1) << 40));
+  CHECK(core_out.presponse.pvalid && core_out.presponse.pbits.preplay &&
+        !core_out.presponse.pbits.paccess_ufault);
+  core_in.pflush = 1;
+  cache_tick();
+  core_in.pflush = 0;
+  CHECK(!chi_out.preq.pvalid);
   start_failed_line();
   // Flush while the failed transaction still owes its CompAck.
   core_in.pflush = 1;
@@ -292,6 +314,13 @@ void check_refill_fault_replay() {
   accept_comp_ack();
   expect_block(line_slice(LINE, 24 * 8, FETCH_BITS));
   invalidate_cache(ADDRESS);
+  // A ROM fault must itself retain the high bit, not just compare against it.
+  rom_phase = true;
+  send_core_request(high_rom);
+  accept_rom_request(high_rom);
+  return_line(high_rom, LINE_B, 1, 2);
+  expect_fault(high_rom + 24);
+  rom_phase = false;
 }
 
 // Resolve hit, miss, hit on successive cycles while the miss waits for CHI.

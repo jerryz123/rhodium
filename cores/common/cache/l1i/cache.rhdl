@@ -67,6 +67,7 @@ sync_circuit L1ICache(xlen :: XLen, cache :: CacheConfig, ~chi: config :: RiscvH
   def data_lanes = ways * word_bytes
   def offset_width = alignment_bits(CacheLineBytes)
   def line_number_width = physical_width - offset_width
+  def refill_line_bits = instruction_refill_line_bits(config, physical_width)
   def word_offset_width = alignment_bits(word_bytes)
   def set_width = cache.set_width
   def way_width = cache.way_width
@@ -108,7 +109,7 @@ sync_circuit L1ICache(xlen :: XLen, cache :: CacheConfig, ~chi: config :: RiscvH
   reg refill_installing(~init: Bool(#false))
   reg refill_install_index(~init: Bits(word_index_width)(0))
   reg refill_error_valid(~init: Bool(#false))
-  reg refill_error_line(Bits(line_number_width))
+  reg refill_error_line(Bits(math.max(1, refill_line_bits)))
 
 
   /* CHI line-read attachment */
@@ -200,7 +201,7 @@ sync_circuit L1ICache(xlen :: XLen, cache :: CacheConfig, ~chi: config :: RiscvH
 
   def lookup_survives = !cache_flush & !core.s1_kill & tags.port.response.valid & (core.request.valid ||| array_context.prefetch)
   def lookup_issue = array_read.egress.valid & lookup_survives
-  def retained_error = refill_error_valid & !array_context.prefetch & (refill_error_line === lookup_line)
+  def retained_error = refill_error_valid & !array_context.prefetch & (refill_error_line.zext(line_number_width) === lookup_line)
   def outcome = priority_mux(~default: L1ILookupOutcome.Miss):
     !lookup_fits: L1ILookupOutcome.AddressFault
     retained_error: L1ILookupOutcome.RefillFault
@@ -345,7 +346,7 @@ sync_circuit L1ICache(xlen :: XLen, cache :: CacheConfig, ~chi: config :: RiscvH
 
     when (refill_complete & refill_live & refill.completion.bits.access_fault):
       refill_error_valid <== Bool(#true)
-      refill_error_line <== completion_address[offset_width..physical_width]
+      refill_error_line <== if refill_line_bits == 0 | Bits(1)(0) | completion_address[offset_width..(offset_width + refill_line_bits)]
     elsewhen (core.response.valid & (lookup.egress.bits.outcome === L1ILookupOutcome.RefillFault)):
       refill_error_valid <== Bool(#false)
 
