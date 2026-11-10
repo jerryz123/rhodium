@@ -520,25 +520,40 @@ int main() {
     response_valid = 0;
     if (!command_ready || completed)
       fail(1, "cancel on response edge leaked completion");
+
+    // A noncanonical host VA faults on admission, without issuing a PTE read.
+    constexpr auto original = UINT64_C(0xa5a5800000004321);
+    constexpr auto replacement = UINT64_C(0x4321);
     defaults();
-    launch(UINT64_C(0x1234), LOAD);
-    while (!completed)
-      tick_model();
-    falling();
-    cancel_now();
-    if (!command_ready || completed)
-      fail(1, "canceled completion escaped");
+    virtualized = 0;
+    vs_mode = 1;
+    launch(original, FETCH);
+    address = replacement;
+    access = LOAD;
     command_valid = 1;
+    for (int cycle = 0; cycle < 4; ++cycle) {
+      eval();
+      if (!completed || command_ready || memory_valid || fault != PAGE ||
+          result_virtual != original || result_access != FETCH)
+        fail(1, "stalled fault lost its original request");
+      tick_model();
+    }
+
+    // Cancel wins over both completion acceptance and the waiting replacement.
+    completion_ready = 1;
     cancel = 1;
     eval();
-    if (command_ready)
-      fail(1, "admitted during cancel");
+    if (completed || command_ready)
+      fail(1, "transfer escaped cancellation");
     tick_model();
-    falling();
-    command_valid = 0;
     cancel = 0;
-    defaults();
-    launch(UINT64_C(0x4321), LOAD);
-    finish(NONE, UINT64_C(0x4321), LOAD, UINT64_C(0x4321));
+    completion_ready = 0;
+    eval();
+    if (!command_ready || completed)
+      fail(1, "canceled completion did not release the walker");
+    launch(replacement, LOAD);
+    address = original;
+    reply(UINT64_C(0x1000), entry(0, VR));
+    finish(NONE, replacement, LOAD, replacement);
   });
 }

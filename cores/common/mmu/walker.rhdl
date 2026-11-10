@@ -69,7 +69,8 @@ sync_circuit RiscvTranslationWalker(~svnapot: svnapot :: Boolean = #false):
 
   walking.ready <== (state === RiscvPageWalkState.Idle) & !cancel
   completion.valid <== (state === RiscvPageWalkState.Complete) & !cancel
-  completion.bits <== result
+  // No new walk can replace operation while its completion is offered.
+  completion.bits <== result.updated(~virtual_address: operation.virtual_address)
   memory.request.valid <== (state === RiscvPageWalkState.Request) & !cancel
   def request_fire = request.fire()
   def memory_fire = memory.request.fire()
@@ -145,7 +146,7 @@ sync_circuit RiscvTranslationWalker(~svnapot: svnapot :: Boolean = #false):
       access: mux(implicit_access, RiscvGuestFaultAccess.PageTableRead, RiscvGuestFaultAccess.Explicit)
 
     RiscvTlbMapping():
-      virtual_address: operation.virtual_address
+      virtual_address: Bits(64)(0)
       access: operation.access
       physical_address: physical
       page_size: mux(!operation.virtualized & virtual_stage, page_size, Sv39PageSize.Page4KiB)
@@ -167,7 +168,7 @@ sync_circuit RiscvTranslationWalker(~svnapot: svnapot :: Boolean = #false):
   elsewhen request_fire:
     operation <== request.bits
     vs_leaf <== zero_leaf
-    result <== empty_mapping.updated(~virtual_address: request.bits.virtual_address, ~access: request.bits.access, ~fault: RiscvTranslationFault.PageFault)
+    result <== empty_mapping.updated(~access: request.bits.access, ~fault: RiscvTranslationFault.PageFault)
     phase <== mux(request.bits.context.vs_mode === RiscvVSMode.Sv39, RiscvPageWalkPhase.Virtual, RiscvPageWalkPhase.GuestFinal)
     frame <== root_frame(request.bits.virtual_address, mux(request.bits.context.vs_mode === RiscvVSMode.Sv39, request.bits.context.vs_root_ppn, request.bits.context.g_root_ppn))
     def direct_host_walk = !request.bits.virtualized & (request.bits.context.vs_mode === RiscvVSMode.Sv39)
