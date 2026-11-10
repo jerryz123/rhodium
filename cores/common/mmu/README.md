@@ -30,11 +30,13 @@ adapters consume `state`. The layout is fixed; core producers supply zero guest
 state when H is disabled. This payload adds no storage, handshake, or automatic invalidation;
 callers choose when instructions capture controls and which changes cancel hints.
 
-Both cores use `RiscvTlbLookupBuilder` to decode their live state once. Its
-`lookup(address, access, privilege, guest)` method builds a host or guest
-lookup for the selected owner. `riscv_translation_lookup` also accepts decoded
-controls directly. Fetch, demand, and probe timing belongs to the caller.
-HLVX callers set `execute_read` on the resulting lookup separately.
+Both cores use `RiscvTlbLookupBuilder` to decode their live state once.
+`data_lookup(address, access, mode)` defaults to the ordinary MPRV/MPV data
+context. An explicit guest mode selects privilege from SPVP, and
+`GuestExecuteRead` sets the HLVX permission bit in the lookup key.
+Fetch uses `lookup(address, access, privilege, guest)` with the instruction
+owner's privilege. `riscv_translation_lookup` also accepts decoded controls
+directly. Each caller controls port arbitration and timing.
 
 The caller supplies `RiscvTlbLookup` values, selects misses for the walker's
 Decoupled request, and routes its Irrevocable completion to the owning bank's

@@ -125,14 +125,14 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
   def atomic_request = mem.access.is_lr_sc_or_amo()
   def cache_block = mem.access.is_cache_block()
   def mem_misaligned = mem.access.requires_split(mem.width, mem.address)
-  def busy = misaligned.busy ||| memory.request.valid ||| resolved.probe_busy
+  def busy = misaligned.busy ||| memory.request.valid ||| resolved.probe_busy ||| physical_memory.ordered_busy
   def decision = classify_cache_lookup(
     ~blocked: busy, ~split: mem_misaligned, ~known: resolved.known,
     ~page_fault: resolved.fault.is_page_fault(),
     ~access_fault: resolved.fault === RiscvTranslationFault.AccessFault,
     ~permitted: access.permitted, ~can_probe: access.allocatable & !atomic_request & !cache_block
   )
-  def speculative_ok = decision.is(CacheLookupDecision.Probe) & !physical_memory.ordered_busy
+  def speculative_ok = decision.is(CacheLookupDecision.Probe)
   mem_request |> filter_valid(_request => speculative_ok) |> map_valid(request => cache_request(request.memory, resolved.address[0..xlen.width])) |> physical_pipeline.request
   def cache_outcome = cache_lookup_outcome(decision, physical_pipeline.response.valid, physical_pipeline.response.bits.outcome)
   pipeline.response.valid <== mem_request.valid

@@ -6,7 +6,7 @@ import:
   lib("riscv/isa/xlen.rhm").XLen
   "memory-context.rhdl" open
   "../common/cosim-source.rhm".describe_cosim_context
-  "../common/cache-prefetch.rhdl" open
+  "../common/cache/prefetch.rhdl".dispatch_physical_prefetch
   "core.rhdl" open
   "fetch/frontend.rhdl" open
   "../../riscv/rtl/interrupt.rhdl" open
@@ -177,12 +177,7 @@ sync_circuit RV5Stage(profile :: RV5StageConfig,
   mmu.walker_lookup |> data_port_arbiter.walker_lookup
   data_port_arbiter.lookup |> l1d.virtual_lookup
   core.prefetch |> mmu.prefetch
-  def physical_prefetch_request = mmu.physical_prefetch.bits.into(CachePrefetchReq(width))
-  def instruction_prefetch_selected = physical_prefetch_request.operation === CachePrefetchOperation.Instruction
-  def data_prefetch_selected = physical_prefetch_request.operation.is_one_of(CachePrefetchOperation.Read, CachePrefetchOperation.Write)
-  def Array(instruction_prefetch, data_prefetch) = mmu.physical_prefetch |> fork_valid(2)
-  instruction_prefetch |> filter_valid(_request => instruction_prefetch_selected) |> l1i.prefetch
-  data_prefetch |> filter_valid(_request => data_prefetch_selected) |> l1d.prefetch
+  dispatch_physical_prefetch(width, mmu.physical_prefetch, l1i.prefetch, l1d.prefetch)
   mmu.instruction_memory |> instruction_memory_router.core
   instruction_memory_router.cache |> l1i.core
   instruction_memory_router.uncached |> uncached.instruction

@@ -69,7 +69,7 @@ int main() {
       eval();
       CHECK(!data_out.prequest_uaccess_ufault && !core_memory_out.prequest.pvalid);
     });
-    check_speculative_data_permissions([](unsigned addr, unsigned op, unsigned mode, unsigned expected) {
+    const auto probe = [](unsigned addr, unsigned op, unsigned mode, unsigned expected) {
       auto &req = pipeline_in.prequest;
       req.pbits.pmemory.paddress = addr;
       req.pbits.pmemory.paccess = op;
@@ -92,6 +92,8 @@ int main() {
             !pipeline_guest_fault.ppage_ufault);
       tick_model();
       pipeline_memory_in.presponse.pvalid = 0;
-    });
+    };
+    check_speculative_data_permissions(probe);
+    check_ordered_io_replay(ordered_busy, probe);
   });
 }

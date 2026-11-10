@@ -998,21 +998,23 @@ int main() {
     });
     physical_ready = 0;
     request_width = 3;
-    check_speculative_data_permissions([](unsigned addr, unsigned op, unsigned mode, unsigned expected) {
+    const auto probe = [](unsigned addr, unsigned op, unsigned mode, unsigned expected) {
       address = addr;
       access = op;
       guest_access = mode;
       lookup_outcome = op == speculative_access::store ? speculative_access::store_hit : speculative_access::load_hit;
       ex_valid = 1;
       eval();
-      CHECK(index_valid && index_address == addr && !result_valid);
+      CHECK(index_valid && index_address == (addr & ~7u) && !result_valid);
       tick_model();
       ex_valid = 0;
       eval();
       CHECK(result_valid && outcome == expected && resolve_valid == speculative_access::issues_lookup(expected));
       CHECK(!physical_valid && !lookup_guest.ppage_ufault);
       tick_model();
-    });
+    };
+    check_speculative_data_permissions(probe);
+    check_ordered_io_replay(ordered_busy, probe);
     lookup_outcome = 1;
     guest_access = 0;
     guest_state = {};

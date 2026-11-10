@@ -109,7 +109,8 @@ alignment eligibility. `allows_data_cache_allocation` checks the resolved
 PMA/PBMT attributes for cacheability, relaxed ordering, and read idempotence.
 `classify_speculative_cache_access` returns permission and allocation eligibility
 for the selected footprint. HLVX requires execute permission as well as read
-permission. Each core combines the result with its translation and replay state.
+permission. While older ordered I/O is busy, both cores replay a speculative
+lookup before reporting a local fault or selecting split service.
 At WB, both MMUs check the same HLVX permissions over the translated access.
 A physical denial raises a load access fault at the original virtual address
 before the MMU offers a physical request.
@@ -118,7 +119,8 @@ atomic-capable memory that permits cache allocation. SC and AMOs also require
 write permission. Both cores report a denied atomic on the request cycle,
 even while older cache work is draining.
 `classify_committed_cache_access` returns permission, the service route, and the
-strong-ordering bit for the committed offer. Ordinary accesses select cached or uncached service.
+strong-ordering bit for the committed offer. It derives read and write intent
+from the cache operation. Ordinary accesses select cached or uncached service.
 Maintenance uses physical cacheability to choose cached service or local
 completion. After the caller handles permission and fault signaling,
 `route_committed_request` unwraps the admitted request and sends it to the
@@ -143,6 +145,8 @@ translation arbitration, staging, and cancellation; the helper adds no state.
 delays an admitted hint by one cycle and clears validity on a flush edge.
 Its input must already be line-aligned and checked against the full physical
 map. Its output carries the original operation and full-width line address.
+`dispatch_physical_prefetch` routes that output to L1I for instruction hints
+and to L1D for read or write hints in the same cycle. It drops `None`.
 
 ## Non-cacheable service
 

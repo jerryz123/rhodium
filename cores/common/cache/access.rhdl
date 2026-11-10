@@ -120,17 +120,17 @@ bundle CommittedCacheAccess():
   route: CacheServiceRoute
   strongly_ordered: Bool
 
-/* Classifies the full physical footprint once. Ports supply their read intent and whether
-   they require naturally aligned ordinary requests. Atomics always require alignment. */
+/* Classifies the full physical footprint once. The operation determines read/write permissions.
+   Ports select ordinary alignment policy; atomics always require natural alignment. */
 fun classify_committed_cache_access(xlen :: XLen, physical_map :: RiscvPhysicalMemoryMap, address :: Bits(xlen.width),
                                     width :: MemoryWidth, operation :: CacheOperation, pbmt :: PageMemoryType,
-                                    ~reads: reads :: Bool, ~require_alignment: require_alignment :: Boolean) :~ CommittedCacheAccess():
+                                    ~require_alignment: require_alignment :: Boolean) :~ CommittedCacheAccess():
   def physical = cache_access_region(xlen, physical_map, address, width, operation)
   def attributes = resolve_memory_attributes(physical, pbmt)
   def aligned = width.is_aligned(address)
   CommittedCacheAccess():
     permitted: cache_access_permitted(
-      physical, operation, ~reads: reads, ~writes: operation.needs_unique(),
+      physical, operation, ~reads: operation.returns_old_value(), ~writes: operation.needs_unique(),
       ~atomic_service: allows_committed_atomic_service(physical, attributes, ~aligned: aligned),
       ~aligned: if require_alignment | operation.is_cache_block_zero() ||| aligned | Bool(#true)
     )

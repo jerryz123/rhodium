@@ -33,6 +33,7 @@ sync_circuit SuperscalarMmuFixture(~bare: bare :: Boolean = #false):
   input guest_access: RiscvGuestMemoryAccess
   input vector_access: Bool
   input ordered_precheck: Bool
+  input ordered_busy: Bool
   interface vector_precheck(VectorPrecheck(), ~role: responder)
   interface vector_fast(VectorFastCheck(XLen.X64), ~role: responder)
   interface prefetch(Valid(CachePrefetchReq(64)), ~role: consumer)
@@ -179,7 +180,7 @@ sync_circuit SuperscalarMmuFixture(~bare: bare :: Boolean = #false):
   mmu.physical_memory.response.bits.context <== response_context.egress.bits
   response_context.egress.ready <== mmu.physical_memory.response.fire()
   mmu.physical_memory.drained <== Bool(#true)
-  mmu.physical_memory.ordered_busy <== Bool(#false)
+  mmu.physical_memory.ordered_busy <== ordered_busy
   mmu.physical_memory.reservation_valid <== Bool(#false)
   physical_valid <== mmu.physical_memory.request.valid
   physical_address <== mmu.physical_memory.request.bits.memory.address

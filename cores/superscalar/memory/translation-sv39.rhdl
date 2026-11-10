@@ -20,7 +20,6 @@ import:
   "../../common/mmu/walker.rhdl" open
   lib("riscv/isa/xlen.rhm") open
   lib("riscv/rtl/pma.rhdl").RiscvPhysicalMemoryMap
-  lib("riscv/rtl/privilege.rhdl") open
   lib("riscv/rtl/sv39.rhdl") open
   lib("riscv/rtl/svpbmt.rhdl") open
   lib("flow/main.rhdl") open
@@ -79,7 +78,6 @@ sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: 
 
   def tlb = RiscvTlbLookupBuilder(XLen.X64, state, ~sv39: #true, ~hypervisor: hypervisor)
   def guest_state = tlb.guest_state
-  def normal = effective_data_context(XLen.X64, state.privilege, state.mstatus, ~virtualized: if hypervisor | guest_state.virtualized | #false)
 
   def instruction_lookup = tlb.lookup(instruction.request.bits, Sv39Access.Fetch, state.privilege, guest_state.virtualized)
   def data_virtual_address = query.address
@@ -89,20 +87,18 @@ sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: 
   vector_window.addresses <== vec(query.mem_address, query.wb_address)
   def window_hit = !query.split & !vector_probe & !certified_physical & mux(query.wb_valid, request_vector & vector_window.hits[1], mem_vector & vector_window.hits[0])
   def window_address = mux(query.wb_valid, vector_window.physical_addresses[1], vector_window.physical_addresses[0])
-  def demand = if hypervisor | guest_data_context(normal, query.guest_access, guest_state.hstatus) | normal
-  def execute_read = Bool(hypervisor) & (query.guest_access === RiscvGuestMemoryAccess.GuestExecuteRead)
-  def normal_lookup = tlb.lookup(data_virtual_address, query.access.translation_access(), demand.privilege, demand.virtualized).updated(~execute_read: execute_read)
+  def demand_lookup = tlb.data_lookup(data_virtual_address, query.access.translation_access(), query.guest_access)
   def probe_request = vector_window.translation.request.bits
   def probe_access = mux(probe_request.store, Sv39Access.Store, Sv39Access.Load)
-  def probe_lookup = tlb.lookup(probe_request.address, probe_access, normal.privilege, normal.virtualized)
-  def fast_lookup = tlb.lookup(vector_fast.request.bits.first, mux(vector_fast.request.bits.store, Sv39Access.Store, Sv39Access.Load), normal.privilege, normal.virtualized)
-  def data_lookup = mux(vector_probe, probe_lookup, normal_lookup)
+  def probe_lookup = tlb.data_lookup(probe_request.address, probe_access)
+  def fast_lookup = tlb.data_lookup(vector_fast.request.bits.first, mux(vector_fast.request.bits.store, Sv39Access.Store, Sv39Access.Load))
+  def data_lookup = mux(vector_probe, probe_lookup, demand_lookup)
   itlb.lookup <== instruction_lookup
   dtlb.lookup <== data_lookup
   inst certificate(VectorCertificate(XLen.X64, config.physical_map))
   vector_fast <=> certificate.check
   certificate.invalidate <== invalidate
-  certificate.current <== tlb.lookup(Bits(64)(0), Sv39Access.Load, normal.privilege, normal.virtualized)
+  certificate.current <== tlb.data_lookup(Bits(64)(0), Sv39Access.Load)
   // The independent probe certifies MEM while the demand port serves older work.
   // Certification checks real A/D permissions; only optional data hints may drop.
   certificate.translation.valid <== vector_fast.request.valid & dtlb.probe_hit
@@ -121,7 +117,7 @@ sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: 
   physical_prefetch_pipe.flush <== prefetch_flush
   prefetch |> virtual_prefetch_pipe.ingress
   def prefetch_request :: CachePrefetchReq(64) = virtual_prefetch_pipe.egress.bits
-  def prefetch_lookup = tlb.lookup(prefetch_request.address, Sv39Access.Load, normal.privilege, normal.virtualized)
+  def prefetch_lookup = tlb.data_lookup(prefetch_request.address, Sv39Access.Load)
   itlb.probe <== prefetch_lookup
   dtlb.probe <== mux(vector_fast.request.valid, fast_lookup, prefetch_lookup)
   def instruction_prefetch = prefetch_request.operation === CachePrefetchOperation.Instruction
@@ -177,8 +173,8 @@ sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: 
     pbmt: data_pbmt
     fault: data_result.fault
     cause: riscv_translation_fault_cause(data_result)
-    guest: riscv_guest_exception(data_result, demand.virtualized)
-    execute_read: execute_read
+    guest: riscv_guest_exception(data_result, demand_lookup.virtualized)
+    execute_read: demand_lookup.execute_read
     probe_busy: vector_probe
     split_mask: split_mask
 

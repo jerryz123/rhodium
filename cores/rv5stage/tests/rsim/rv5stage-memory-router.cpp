@@ -143,11 +143,15 @@ void stimulus() {
         check_request(UINT64_C(4096), ((op)&low_mask(4)), 1, 0, 0);
     }
     core_in.prequest.pbits.ppbmt = 0;
+    // A store can use write-only memory. Even an atomic-capable region needs read permission for LR/SC/AMO.
+    check_request(0xa000, STORE, 1, 0, 0);
+    check_request(0xa000, LOAD, 0, 0, 1);
     for (auto operation : {LOAD_RESERVED, STORE_CONDITIONAL, ATOMIC}) {
       check_nc_atomic(operation, false);
       check_nc_atomic(operation, true);
       check_request(0x1000, operation, 1, 0, 0);
       check_request(0x1002, operation, 0, 0, 1);
+      check_request(0xa000, operation, 0, 0, 1);
     }
     // Every AMOArithmetic operation must reach coherent RAM, including its
     // first and last naturally aligned word, but not a non-atomic/device PMA.

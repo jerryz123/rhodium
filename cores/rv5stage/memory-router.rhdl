@@ -6,7 +6,6 @@ import:
   "../common/cache/access.rhdl" open
   "memory-context.rhdl" open
   "../common/cache/protocol.rhdl" open
-  "../common/cache/operation.rhdl" open
   "../common/cache/ordered-service.rhdl" open
   "uncached-protocol.rhdl" open
   "../../riscv/isa/xlen.rhm".XLen
@@ -35,10 +34,8 @@ sync_circuit RV5StageMemoryRouter(xlen :: XLen,
      Check both endpoints of a scalar access or the complete cache-block operation. */
 
   def request :: PhysicalMemoryReq(xlen, RV5StageMemoryContext(vector_completion_slots)) = core.request.bits.memory
-  def operation = request.access
   def admission = classify_committed_cache_access(
-    xlen, physical_map, request.address, request.width, operation, core.request.bits.pbmt,
-    ~reads: operation.returns_old_value(), ~require_alignment: #false
+    xlen, physical_map, request.address, request.width, request.access, core.request.bits.pbmt, ~require_alignment: #false
   )
 
 

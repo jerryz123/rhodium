@@ -34,7 +34,6 @@ import:
   "../../../riscv/rtl/pma.rhdl" open
   "../../../riscv/rtl/sv39.rhdl" open
   "../../../riscv/rtl/svpbmt.rhdl" open
-  "../../../riscv/rtl/privilege.rhdl".effective_data_context
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
@@ -76,7 +75,6 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   | error(~who: #'RV5StageMmu, "guest translation requires the RV64 Sv39 MMU")
 
   def privilege = state.privilege
-  def mstatus = state.mstatus
   def satp = state.satp
   def tlb = RiscvTlbLookupBuilder(xlen, state, ~sv39: mmu_mode == RiscvMmuType.Sv39, ~hypervisor: hypervisor)
   def guest_state = tlb.guest_state
@@ -115,13 +113,9 @@ sync_circuit RV5StageMmu(xlen :: XLen,
     wb_translation_owner: request_mode
     pipeline_translation_eligible: load_mode.bits
 
-  def execute_read = demand_mode === RiscvGuestMemoryAccess.GuestExecuteRead
-
   def instruction_guest = guest_state.virtualized
   def instruction_translation_enabled = tlb.enabled(privilege, instruction_guest)
-  def normal = effective_data_context(xlen, privilege, mstatus, ~virtualized: if hypervisor | guest_state.virtualized | #false)
-  def demand = guest_data_context(normal, demand_mode, guest_state.hstatus)
-  def data_translation_enabled = tlb.enabled(demand.privilege, demand.virtualized)
+  def normal = tlb.normal_data
 
 
   /* Vector certificate context
@@ -132,7 +126,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   inst certificate(VectorCertificate(xlen, physical_map))
   vector_fast <=> certificate.check
   certificate.invalidate <== invalidate_all
-  certificate.current <== tlb.lookup(Bits(64)(0), Sv39Access.Load, normal.privilege, normal.virtualized)
+  certificate.current <== tlb.data_lookup(Bits(64)(0), Sv39Access.Load)
 
 
   /* Instruction S0 admission and S1 ownership */
@@ -194,7 +188,10 @@ sync_circuit RV5StageMmu(xlen :: XLen,
     load_request.egress.valid: pipeline_is_store
 
   def demand_access = mux(data_demand, data_access_kind, mux(speculative_store, Sv39Access.Store, Sv39Access.Load))
-  dtlb.lookup <== tlb.lookup(demand_address, demand_access, demand.privilege, demand.virtualized).updated(~execute_read: execute_read)
+  def demand_lookup = tlb.data_lookup(demand_address, demand_access, demand_mode)
+  def execute_read = demand_lookup.execute_read
+  def data_translation_enabled = tlb.enabled(demand_lookup.context.privilege, demand_lookup.virtualized)
+  dtlb.lookup <== demand_lookup
   dtlb.invalidate_all <== invalidate_all
   certificate.translation.valid <== fast_selected & dtlb.hit
   certificate.translation.bits <== dtlb_result
@@ -222,7 +219,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def prefetch_request = virtual_prefetch_pipe.egress.bits.into(CachePrefetchReq(width))
   def prefetch_virtual_address = prefetch_request.address.zext(64)
   def normal_data_translation_enabled = tlb.enabled(normal.privilege, normal.virtualized)
-  def probe = tlb.lookup(prefetch_virtual_address, Sv39Access.Load, normal.privilege, normal.virtualized)
+  def probe = tlb.data_lookup(prefetch_virtual_address, Sv39Access.Load)
   itlb.probe <== probe
   dtlb.probe <== probe
 

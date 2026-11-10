@@ -40,6 +40,14 @@ fun cache_prefetch_physical(address_width :: PosInt, physical_map :: RiscvPhysic
     ordinary_memory: ordinary & cacheable
     ordinary_data_memory: ordinary & attributes.cacheable
 
+/* Routes instruction hints to L1I and read/write hints to L1D in the same cycle. */
+fun dispatch_physical_prefetch(address_width :: PosInt, source :: Endpoint.of(Valid(CachePrefetchReq(address_width))),
+                               instruction :: Endpoint, data :: Endpoint):
+  def request :: CachePrefetchReq(address_width) = source.bits
+  def Array(instruction_hint, data_hint) = source |> fork_valid(2)
+  instruction_hint |> filter_valid(_ => request.operation === CachePrefetchOperation.Instruction) |> instruction
+  data_hint |> filter_valid(_ => request.operation.is_one_of(CachePrefetchOperation.Read, CachePrefetchOperation.Write)) |> data
+
 /* Carries only a physical line number and its original instruction/read/write intent. */
 bundle PhysicalPrefetchLine(number_width :: PosInt):
   number: Bits(number_width)
@@ -80,3 +88,4 @@ export:
   PhysicalPrefetchPipe
   CachePrefetchPhysical
   cache_prefetch_physical
+  dispatch_physical_prefetch

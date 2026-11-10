@@ -79,7 +79,7 @@ sync_circuit SuperscalarL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHICo
   def atomic_request = request.access.is_lr_sc_or_amo()
   def admission = classify_committed_cache_access(
     XLen.X64, config.physical_map, request.address, request.width, request.access, memory.request.bits.pbmt,
-    ~reads: !request.access.store_fault_class(), ~require_alignment: #true
+    ~require_alignment: #true
   )
 
 

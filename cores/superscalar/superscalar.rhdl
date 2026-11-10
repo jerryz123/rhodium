@@ -17,7 +17,7 @@ import:
   lib("cores/common/fetch/memory.rhdl").InstructionMemoryRouter
   "bundles.rhdl" open
   "../common/cache/config.rhm" open
-  "../common/cache-prefetch.rhdl" open
+  "../common/cache/prefetch.rhdl".dispatch_physical_prefetch
   "../common/cache/l1i/cache.rhdl" open
   "../common/chi-hart.rhdl" open
   "../common/cosim-source.rhm".describe_cosim_context
@@ -111,9 +111,7 @@ sync_circuit Superscalar(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfi
      Translation precedes routing to either private cache. */
 
   core.prefetch |> mmu.prefetch
-  def Array(instruction_prefetch, data_prefetch) = mmu.physical_prefetch |> fork_valid(2)
-  instruction_prefetch |> filter_valid(request => request.into(CachePrefetchReq(64)).operation === CachePrefetchOperation.Instruction) |> instruction.prefetch
-  data_prefetch |> filter_valid(request => request.into(CachePrefetchReq(64)).operation.is_one_of(CachePrefetchOperation.Read, CachePrefetchOperation.Write)) |> data.prefetch
+  dispatch_physical_prefetch(64, mmu.physical_prefetch, instruction.prefetch, data.prefetch)
 
 
   /* Instruction CHI identity and architectural reporting.

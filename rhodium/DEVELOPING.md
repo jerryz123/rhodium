@@ -294,8 +294,8 @@ physical port consume this payload. The RV5Stage protocol uses Rhombus meta
 for its native-width alias. The superscalar data translation contract uses the
 architectural exception cause and guest-fault types directly. `cores/superscalar/memory/translation-sv39.rhdl` imports the shared `cores/common/mmu/` TLB/walker,
 shared cache protocol/operation/geometry and hart CHI-map definitions, and architectural
-privilege, Sv39, and XLEN helpers. Both MMUs use the shared context module
-to decode architectural CSRs for lookup construction. The superscalar adapters
+hypervisor, Sv39, and XLEN helpers. Both MMUs use the shared context module
+to decode architectural CSRs and select effective data privilege for lookup construction. The superscalar adapters
 use the shared cache access helpers for whole-block maintenance permissions.
 `cores/superscalar/memory/adapter.rhdl` consumes the family bundles, shared cache
 protocol, specialization-owned physical map, split engine, Flow, passive
@@ -624,7 +624,8 @@ retain transaction admission and fault reporting.
 `cores/common/cache/prefetch.rhdl` consumes cache geometry/prefetch operations,
 architectural PMA/PBMT, and public bit helpers. Both translated MMU adapters
 and the superscalar identity specialization consume its physical classification.
-Each caller controls final eligibility and hint cancellation.
+Both core compositions use its Flow helper to dispatch qualified hints to L1I or L1D.
+Each MMU controls final eligibility and hint cancellation.
 `cores/common/operand.rhdl` consumes architectural immediate formats and extraction;
 `cores/common/operand-decode.rhdl` adds canonical I/M/A/B/Zicond instruction catalogs and XLEN, the public
 RISC-V decode adapter, and `std/decode.rhdl`. Named decoders consume these
