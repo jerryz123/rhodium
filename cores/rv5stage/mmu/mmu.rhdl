@@ -313,8 +313,15 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   /* Page-walk admission
      Page probes precede instruction misses, then authorized data misses. */
 
+  /* In host-only builds a SATP write invalidates the fault entry and cancels
+     its walk. The epoch therefore identifies the root; H keeps both root tags. */
+  fun instruction_fault_key(lookup :: RiscvTlbLookup()) :: RiscvTlbLookup():
+    if hypervisor
+    | lookup
+    | lookup.updated(~context: lookup.context.updated(~vs_root_ppn: Bits(44)(0)))
+
   def can_start_walk = !walk_active & !fault_valid
-  def instruction_fault_cache_hit = instruction_fault_cached & instruction_failure.request.same_request(itlb.lookup)
+  def instruction_fault_cache_hit = instruction_fault_cached & instruction_failure.request.same_request(instruction_fault_key(itlb.lookup))
   // A replaying older instruction may need its own fetch (including a
   // straddling word), but speculative successors must not repeatedly occupy
   // the shared walker before that instruction resolves.
@@ -366,8 +373,9 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   when invalidate_all:
     instruction_fault_cached <== Bool(#false)
   elsewhen cache_instruction_page_fault:
+    def failure = fills.bits.into(RiscvTlbFill()).failure()
     instruction_fault_cached <== Bool(#true)
-    instruction_failure <== fills.bits.into(RiscvTlbFill()).failure()
+    instruction_failure <== failure.updated(~request: instruction_fault_key(failure.request))
 
 
   /* Fault selection and instruction PMA checks */

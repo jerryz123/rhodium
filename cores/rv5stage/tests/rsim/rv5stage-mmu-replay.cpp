@@ -407,6 +407,83 @@ void finish_detached_walk(int flush_at, std::uint8_t fault = 0) {
   }
 }
 
+// Return a root-level PTE for the pending instruction walk. Stop just before
+// the completion edge so the caller can collide it with an invalidation.
+void reply_to_fetch_root(std::uint64_t root_address, std::uint64_t pte) {
+  falling();
+  instruction_address = PHYSICAL_ADDRESS; // Identity-mapped by the superpage.
+  instruction_request_valid = 1;
+  tick();
+  falling();
+  instruction_request_valid = 0;
+  until([&] { return data_memory_out.prequest.pvalid; });
+  CHECK(data_memory_out.prequest.pbits.pmemory.paddress == root_address);
+  falling();
+  memory_ready = 1;
+  tick();
+  falling();
+  memory_ready = 0;
+  manual_pte_valid = 1;
+  manual_pte_data = pte;
+  tick();
+  falling();
+  manual_pte_valid = 0;
+}
+
+void check_instruction_fault_epoch(bool invalidate_on_completion) {
+  const auto saved_satp = satp;
+  const int ptes_before = manual_pte_requests;
+  const int fetches_before = instruction_requests_seen;
+  clear_translations();
+  memory_ready = 0;
+  memory_idle = 1;
+  reply_to_fetch_root(0x1000, 0); // Same VA faults under the original root.
+  if (!invalidate_on_completion) {
+    tick();
+    instruction_fault_expected = 1;
+    fetch_word(PHYSICAL_ADDRESS); // Consume the transient fault.
+    fetch_word(PHYSICAL_ADDRESS); // Replay from the persistent fault entry.
+    instruction_fault_expected = 0;
+  }
+  CHECK(manual_pte_requests == ptes_before + 1 &&
+        instruction_requests_seen == fetches_before);
+
+  falling();
+  satp = SATP_SV39_ROOT_1 + 1;
+  clear_translations();
+  reply_to_fetch_root(0x2000, 0x4b); // Valid supervisor RX, accessed, PPN 0.
+  tick();
+  fetch_word(PHYSICAL_ADDRESS);
+  CHECK(manual_pte_requests == ptes_before + 2 &&
+        instruction_requests_seen == fetches_before + 1);
+  falling();
+  satp = saved_satp;
+  clear_translations();
+}
+
+void check_instruction_fault_privilege() {
+  const int ptes_before = manual_pte_requests;
+  constexpr std::uint64_t user_rx = 0x5b; // Supervisor fetch denied, user fetch allowed.
+  clear_translations();
+  reply_to_fetch_root(0x1000, user_rx);
+  tick();
+  instruction_fault_expected = 1;
+  fetch_word(PHYSICAL_ADDRESS);
+  instruction_fault_expected = 0;
+
+  // No invalidation: the same-root cache entry still exists, but the
+  // permission context no longer matches. Rewalk the unchanged PTE as U.
+  falling();
+  privilege = PRIVILEGE_U;
+  reply_to_fetch_root(0x1000, user_rx);
+  tick();
+  fetch_word(PHYSICAL_ADDRESS);
+  CHECK(manual_pte_requests == ptes_before + 2);
+  falling();
+  privilege = PRIVILEGE_S;
+  clear_translations();
+}
+
 void check_canceled_pte_reply() {
   const auto old_satp = satp;
   int accepted_before;
@@ -1510,6 +1587,9 @@ void stimulus() {
       finish_detached_walk(flush_at);
     finish_detached_walk(3, 1); // Fault discovered after an earlier redirect.
     finish_detached_walk(5, 1); // Redirect coincides with fault completion.
+    check_instruction_fault_epoch(false);
+    check_instruction_fault_epoch(true);
+    check_instruction_fault_privilege();
     // An older replay may refetch a straddling instruction, but a younger
     // speculative page cannot start another walk before that owner resolves.
     clear_translations();

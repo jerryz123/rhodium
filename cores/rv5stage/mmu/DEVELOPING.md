@@ -84,6 +84,9 @@ invalidate translations or cancel accepted page-table response ownership.
 2. Match a transient fault against the full VA in the admitted walk lookup.
    No instruction, data, or probe walk may replace it while the fault is pending.
    Keep the cached instruction page-fault key separate: it can outlive later walks.
+   In host-only builds the key omits the SATP root PPN: as with the host ITLB,
+   every SATP write must invalidate the entry, even on a fault-completion edge.
+   Keep the full root in walker requests and both roots in H-enabled fault keys.
    The instruction attempt is captured into S1 after S0 admission; the frontend may change its
    payload immediately. An unresolved attempt produces S2 replay, never a
    retained request or local reread. A request transferred with instruction
