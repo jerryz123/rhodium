@@ -1,8 +1,9 @@
-// Checks speculative MEM and committed HLVX physical permissions in the RV5Stage MMU.
+// Checks prefetch, fetch-block, speculative MEM, and committed HLVX permissions in the RV5Stage MMU.
 // SPDX-License-Identifier: Apache-2.0
 #include "test.hpp"
 #include "../../../common/cache/tests/rsim/committed-hlvx.hpp"
 #include "../../../common/cache/tests/rsim/speculative-access.hpp"
+#include "../../../common/mmu/tests/rsim/guest-bare-prefetch.hpp"
 
 int main() {
   return run_test([] {
@@ -10,6 +11,37 @@ int main() {
     tick_model();
     reset = 0;
     state.pprivilege = 1;
+    state.pguest.pvirtualized = 1;
+    tick_model();
+    check_guest_bare_prefetch([] {
+      CHECK(!walker_memory_out.prequest.pvalid && !core_memory_out.prequest.pvalid &&
+            !data_out.prequest_ufault && !data_out.prequest_uaccess_ufault);
+    });
+    state.pguest.pvirtualized = 0;
+    // One executable word at 0x2a00; only two bytes are mapped at 0x2900.
+    instruction_lookup_in.pready = 1;
+    for (unsigned address : {0x2a00u, 0x2900u}) {
+      const bool permitted = address == 0x2a00;
+      instruction_in.prequest.pvalid = 1;
+      instruction_in.prequest.pbits.paddress = address;
+      eval();
+      CHECK(instruction_out.prequest.pready);
+      tick_model();
+      instruction_in.prequest.pvalid = 0;
+      eval();
+      CHECK(instruction_memory_out.prequest.pvalid == permitted);
+      if (permitted)
+        CHECK(instruction_memory_out.prequest.pbits.paddress == address &&
+              !instruction_memory_out.prequest.pbits.pcacheable && !instruction_memory_out.prequest.pbits.pdevice);
+      tick_model();
+      instruction_memory_in.presponse.pvalid = permitted;
+      eval();
+      CHECK(instruction_out.presponse.pvalid && !instruction_out.presponse.pbits.preplay &&
+            !instruction_out.presponse.pbits.presponse.ppage_ufault &&
+            instruction_out.presponse.pbits.presponse.paccess_ufault == !permitted);
+      tick_model();
+      instruction_memory_in.presponse.pvalid = 0;
+    }
     state.pguest.phstatus = 0x100;
     check_committed_hlvx([](unsigned addr, unsigned width, bool permitted) {
       auto &req = data_in.prequest;

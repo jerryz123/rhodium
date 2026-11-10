@@ -126,12 +126,10 @@ sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: 
   dtlb.probe <== mux(vector_fast.request.valid, fast_lookup, prefetch_lookup)
   def instruction_prefetch = prefetch_request.operation === CachePrefetchOperation.Instruction
   def hint_probe = mux(instruction_prefetch, itlb.prefetch_probe, dtlb.prefetch_probe)
-  def prefetch_translated = tlb.enabled(normal.privilege, normal.virtualized)
-  def prefetch_address_valid = prefetch_translated ||| !prefetch_request.address[56..64].any()
   def prefetch_address = hint_probe.physical_address.zext(64)
   def prefetch_physical = cache_prefetch_physical(64, config.physical_map, prefetch_address, prefetch_request.operation, hint_probe.pbmt)
   def prefetch_probe_available = instruction_prefetch ||| !vector_fast.request.valid
-  def prefetch_eligible = prefetch_probe_available & !prefetch_flush & hint_probe.hit & !hint_probe.fault & prefetch_address_valid & prefetch_physical.ordinary_memory & prefetch_physical.permitted
+  def prefetch_eligible = prefetch_probe_available & !prefetch_flush & hint_probe.hit & !hint_probe.fault & prefetch_physical.ordinary_memory & prefetch_physical.permitted
   (virtual_prefetch_pipe.egress |> filter_valid(_request => prefetch_eligible) |> map_valid(request => request.updated(~address: prefetch_physical.address))) |> physical_prefetch_pipe.ingress
   physical_prefetch_pipe.egress |> filter_valid(_request => !prefetch_flush) |> physical_prefetch
 

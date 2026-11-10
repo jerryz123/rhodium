@@ -3,6 +3,7 @@
 #include "speculative-atomics.hpp"
 #include "../../../common/cache/tests/rsim/committed-hlvx.hpp"
 #include "../../../common/cache/tests/rsim/speculative-access.hpp"
+#include "../../../common/mmu/tests/rsim/guest-bare-prefetch.hpp"
 
 void falling() {
   eval();
@@ -263,6 +264,12 @@ int main() {
       tick_model();
       CHECK(!physical_valid);
     }
+    // A canonical high VA still produces a hint when Sv39 maps it into RAM.
+    constexpr auto high_va = UINT64_C(0xffffffc000500008);
+    offer_wb(high_va);
+    walk_at(high_va, (UINT64_C(21) << 10) | UINT64_C(0xc7));
+    hint(high_va, 2, true, 0x15000);
+    fence();
     offer_wb(UINT64_C(0x500008));
     walk_data((UINT64_C(21) << 10) | UINT64_C(0xc7));
     hint(UINT64_C(0x50003f), 2, 1, UINT64_C(0x15000));
@@ -938,6 +945,10 @@ int main() {
     guest_state = {};
     guest_state.phstatus = UINT64_C(0x100);
     guest_access = 2;
+    guest_state.pvirtualized = 1;
+    fence();
+    check_guest_bare_prefetch([] { CHECK(!physical_valid && !wb_fault && !completed); });
+    guest_state.pvirtualized = 0;
     // HLVX also requires executable PMA even with both translation stages Bare.
     fence();
     address = UINT64_C(0x2300);

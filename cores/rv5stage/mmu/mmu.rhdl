@@ -5,7 +5,7 @@
 
 import:
   lib("cores/common/fetch/protocol.rhdl") open
-  lib("cores/common/pc.rhdl").CompactPc
+  lib("cores/common/fetch/access.rhdl").qualify_physical_fetch
   lib("riscv/isa/hart.rhm").RiscvMmuType
   lib("cores/common/mmu/vector.rhdl") open
   lib("cores/common/mmu/context.rhdl") open
@@ -366,7 +366,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def Array(instruction_fill, data_fill) = fills |> fork_valid(2)
   instruction_fill |> filter_valid(_completion => !walk_is_data & !walk_is_probe) |> itlb.fill
   data_fill |> filter_valid(_completion => walk_is_data ||| walk_is_probe) |> dtlb.fill
-  def cache_instruction_page_fault = walker_fault_completion & !walk_is_data & !walk_is_probe & !invalidate_all & walker.completion.bits.fault.is_one_of(RiscvTranslationFault.PageFault, RiscvTranslationFault.GuestPageFault)
+  def cache_instruction_page_fault = walker_fault_completion & !walk_is_data & !walk_is_probe & !invalidate_all & walker.completion.bits.fault.is_page_fault()
   when invalidate_all:
     instruction_fault_cached <== Bool(#false)
   elsewhen cache_instruction_page_fault:
@@ -399,13 +399,11 @@ sync_circuit RV5StageMmu(xlen :: XLen,
 
   def instruction_lookup_ready = !instruction_translation_enabled ||| itlb.hit ||| instruction_fault_cache_hit ||| latched_instruction_fault
   def instruction_physical_address = if xlen == XLen.X32 | instruction_address | mux(instruction_translation_enabled, itlb.translation.physical_address.zext(64), instruction_address)
-  def instruction_physical = physical_map.lookup(instruction_physical_address, instruction_physical_address +& Bits(width)(3))
+  def (instruction_permitted, physical_fetch) = qualify_physical_fetch(
+    xlen, physical_map, instruction_address, instruction_physical_address, 4, itlb_result.pbmt
+  )
   def instruction_has_physical_address = !instruction_translation_enabled ||| itlb.hit
-  def instruction_attributes = resolve_memory_attributes(instruction_physical, itlb_result.pbmt)
-  // A successful translation, including guest-Bare, must not authorize a PC
-  // which the instruction pipeline cannot retain exactly. Faults keep the VA.
-  def instruction_pc_fits = CompactPc.fits(xlen, instruction_address)
-  def instruction_access_fault = instruction_walk_access_fault ||| (instruction_has_physical_address & !instruction_page_fault & (!instruction_physical.executable ||| !instruction_pc_fits))
+  def instruction_access_fault = instruction_walk_access_fault ||| (instruction_has_physical_address & !instruction_page_fault & !instruction_permitted)
   def instruction_local_fault = instruction_page_fault ||| instruction_access_fault
 
 
@@ -415,11 +413,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def Array(instruction_physical_path, instruction_result_path) = instruction_head
     |> filter_valid(_request => !instruction.flush & !instruction.s1_kill) |> fork_valid(2)
   (instruction_physical_path |> filter_valid(_request => instruction_lookup_ready & !instruction_local_fault)
-    |> map_valid(_request => PhysicalInstructionReq(xlen.width)):
-         address: instruction_physical_address
-         cacheable: instruction_attributes.instruction_cacheable
-         device: instruction_attributes.strongly_ordered
-  ) |> instruction_memory.request
+    |> map_valid(_request => physical_fetch)) |> instruction_memory.request
 
   instruction_memory.flush <== instruction.flush
   instruction_memory.invalidate_all <== instruction.invalidate_all

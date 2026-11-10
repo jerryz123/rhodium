@@ -1192,10 +1192,13 @@ void stimulus() {
     launch(515, 0, 515); // odd PC faults without issuing an aligned read
     phase = 3;
     launch(4096, 1, 4096); // unmapped restart never reaches CHI
+    const int cached_reads = ireads, uncached_reads = ureads;
+    launch(0x2a02, 1, 0x2a02); // Four executable bytes cannot serve the aligned eight-byte block.
+    CHECK(ireads == cached_reads && ureads == uncached_reads);
     phase = 4;
     reference_pc = 640;
     launch(640, 2, 652, UINT64_C(4294967295));
-    CHECK(faults == 5 && acks + reset_canceled_refills == ireads);
+    CHECK(faults == 6 && acks + reset_canceled_refills == ireads);
     // Execute a real handler through L1I: program mtvec, take ECALL, read
     // architectural trap state, advance mepc, return, then sleep after a marker.
     phase = 5;
@@ -1237,7 +1240,7 @@ void stimulus() {
     for (int repeat_index = 0; repeat_index < (3); ++repeat_index)
       falling();
     CHECK(reference_pc == UINT64_C(788) && registers[10] == 11 &&
-          registers[11] == UINT64_C(780) && registers[12] == 99 && faults == 6);
+          registers[11] == UINT64_C(780) && registers[12] == 99 && faults == 7);
     // Real M-mode setup and MRET into translated S-mode. The same three-level
     // tables serve independent I/D TLBs through the coherent data cache.
     falling();
@@ -1377,7 +1380,7 @@ void stimulus() {
           registers[7] == registers[6] && registers[8] == registers[6] &&
           registers[12] == 77 && registers[10] == 13 &&
           registers[11] == UINT64_C(5246976) &&
-          registers[13] == UINT64_C(4194340) && faults == 7);
+          registers[13] == UINT64_C(4194340) && faults == 8);
     for (int scenario = 7; scenario <= 8; scenario++) {
       falling();
       reset = 1;
@@ -1425,7 +1428,7 @@ void stimulus() {
             registers[11] == expected_fault_value &&
             registers[13] == ((expected_fault_pc)&low_mask(64)) &&
             registers[12] == (scenario == 7 ? 0 : 77) &&
-            faults == scenario + 1);
+            faults == scenario + 2);
     }
     // Exact-width MMIO, ordinary uncached RAM, and cache-hit ordering. A taken
     // branch skips a device store; a byte-only mapping must not become an 8B read.

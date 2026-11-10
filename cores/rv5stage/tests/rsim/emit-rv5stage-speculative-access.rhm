@@ -10,6 +10,7 @@ import:
   "../../mmu/mmu.rhdl".RV5StageMmu
 
 def physical_map = RiscvPhysicalMemoryMap(44, [
+  RiscvPhysicalMemoryRegion(AddressSet(0x2a00, 3), RiscvPhysicalMemoryAttributes(#true, #false, #true, #false, #false, #false, #true)),
   RiscvPhysicalMemoryRegion(AddressSet(0x2800, 0xff), RiscvPhysicalMemoryAttributes(#false, #false, #true, #false, #false, #false, #true)),
   RiscvPhysicalMemoryRegion(AddressSet(0x2900, 1), RiscvPhysicalMemoryAttributes(#true, #false, #true, #false, #false, #false, #true)),
   RiscvPhysicalMemoryRegion(AddressSet(0x2100, 7), RiscvPhysicalMemoryAttributes(#true, #false, #false, #false, #false, #true, #false)),

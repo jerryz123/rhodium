@@ -128,7 +128,7 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
   def busy = misaligned.busy ||| memory.request.valid ||| resolved.probe_busy
   def decision = classify_cache_lookup(
     ~blocked: busy, ~split: mem_misaligned, ~known: resolved.known,
-    ~page_fault: resolved.guest.page_fault ||| (resolved.fault === RiscvTranslationFault.PageFault),
+    ~page_fault: resolved.fault.is_page_fault(),
     ~access_fault: resolved.fault === RiscvTranslationFault.AccessFault,
     ~permitted: access.permitted, ~can_probe: access.allocatable & !atomic_request & !cache_block
   )
@@ -189,7 +189,7 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
 
   misaligned.request_guest <== resolved.guest
 
-  misaligned.request_fault <== split_request.valid & resolved.known & resolved.fault.is_one_of(RiscvTranslationFault.PageFault, RiscvTranslationFault.GuestPageFault)
+  misaligned.request_fault <== split_request.valid & resolved.known & resolved.fault.is_page_fault()
   def split_access_denied = (resolved.fault =/= RiscvTranslationFault.None) ||| !fragment_permitted ||| transport.fault[1].valid
   misaligned.request_access_fault <== split_request.valid & resolved.known & !misaligned.request_fault & !misaligned.request_guest.page_fault & split_access_denied
 

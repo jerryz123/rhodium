@@ -242,7 +242,9 @@ the stable generator-parameter contract. L1D uses Flow, `std/bits.rhdl`,
 L1I uses the same Flow, Bits, PLRU, read-write, and SyncRam APIs, plus shared
 prefetch types. Its physical block result contains data/access-fault/replay,
 never named-core translation metadata. `cores/common/fetch/protocol.rhdl`
-imports the neutral L1I result and public ready-valid contracts;
+imports the neutral L1I result and public ready-valid contracts.
+`fetch/access.rhdl` uses that request type, shared compact PCs, architectural XLEN,
+PMA/PBMT, and the power-of-two size annotation for physical block qualification.
 `fetch/memory.rhdl` adds Flow for shared fixed-cycle physical lookup and retained
 uncached replay. Both RV5Stage and superscalar compose this router; their MMUs
 and frontends retain translation, exception adaptation, and cancellation policy.

@@ -21,6 +21,13 @@ requester, `cache` to shared L1I, and `uncached` to
 `PhysicalInstructionResp(fetch_bits)`: instruction bytes and an access fault.
 It carries no translation fault or architectural exception state.
 
+Before issuing a request, both cores use `qualify_physical_fetch` to check that
+the original PC fits the core's address representation and the complete
+physical block lies in an executable region. It returns permission and a
+`PhysicalInstructionReq` with cacheability and device ordering resolved from
+PMA and PBMT. The caller supplies the block start and size and selects the
+architectural fault. [Fetch qualification](access.rhdl)
+
 ## Lookup and replay contract
 
 Every surviving S1 request produces an S2 outcome one cycle later. `s1_kill`

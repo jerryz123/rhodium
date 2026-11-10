@@ -12,7 +12,7 @@ import:
   "../../common/cache/protocol.rhdl" open
   "../../common/cache-prefetch.rhdl" open
   "../../common/cache/l1d/cache.rhdl" open
-  "../../common/cache/ordered-service.rhdl".attach_ordered_memory
+  "../../common/cache/ordered-service.rhdl" open
   "../../common/chi-hart.rhdl" open
   "../../common/load-store.rhdl" open
   "../../../riscv/isa/xlen.rhm" open
@@ -115,7 +115,8 @@ sync_circuit SuperscalarL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHICo
   /* Committed cached, uncached, and local-management paths.
      Accepted operations retain response ownership across speculative redirects. */
 
-  def Array(cached, uncached_requests, local_management) = memory.request |> gate_flow(admission.permitted) |> map_flow(translated => translated.memory) |> demux_flow(3, _request => admission.route.as_bits())
+  def admitted = memory.request |> gate_flow(admission.permitted)
+  def Array(cached, uncached_requests, local_management) = route_committed_request(admitted, admission.route)
   // A statically uncached region has no cached copies. Complete after drain,
   // without issuing an invented load/store to a possibly side-effecting device.
   (local_management |> map_flow(request => MemoryResponse(Bits(xlen.width), Context)):

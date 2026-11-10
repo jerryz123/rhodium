@@ -5,6 +5,7 @@
 import:
   lib("flow/main.rhdl") open
   lib("riscv/isa/xlen.rhm").XLen
+  "access.rhdl".CacheServiceRoute
   "io-mshr.rhdl".IOMSHR
   "protocol.rhdl".UncachedMemoryReq
 
@@ -33,6 +34,11 @@ sync_circuit OrderedMemoryService(CachedRequest :: DataType, UncachedRequest :: 
   management |> gate_flow(cache_drained & cache_available) |> local.ingress
   Array(local.egress, cache_response, io_response) |> arbiter() |> response
   drained <== cache_drained & io_drained & !local.egress.valid & !management.fire()
+
+/* Unwraps an admitted physical request and selects the cached, uncached, or local management sink.
+   The caller controls how its input acknowledges an admission fault. */
+fun route_committed_request(admitted :: Endpoint.supports(DecoupledCtrl()), route :: CacheServiceRoute):
+  admitted |> map_flow(request => request.memory) |> demux_flow(3, _request => route.as_bits())
 
 /* Classified request sinks, ordering status, and precise IO admission faults for the core. */
 class OrderedMemoryAttachment(cached :: Endpoint, uncached :: Endpoint, management :: Endpoint,
@@ -65,4 +71,5 @@ fun attach_ordered_memory(cache :: Endpoint, transport :: Endpoint, response :: 
 
 export:
   OrderedMemoryService
+  route_committed_request
   attach_ordered_memory

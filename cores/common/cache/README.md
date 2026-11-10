@@ -120,7 +120,9 @@ even while older cache work is draining.
 `classify_committed_cache_access` returns permission, the service route, and the
 strong-ordering bit for the committed offer. Ordinary accesses select cached or uncached service.
 Maintenance uses physical cacheability to choose cached service or local
-completion. Callers check permission before admitting the request.
+completion. After the caller handles permission and fault signaling,
+`route_committed_request` unwraps the admitted request and sends it to the
+selected service. Routing adds no storage.
 
 `cache_fragment_permitted` checks the entire aligned physical word of a split
 access against the resolved memory attributes and its read or write permission.

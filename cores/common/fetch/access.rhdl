@@ -1,0 +1,27 @@
+#lang rhodium
+/* Qualifies physical fetch blocks against the executable map, PBMT, and the architectural PC domain. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "protocol.rhdl".PhysicalInstructionReq
+  "../pc.rhdl".CompactPc
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/rtl/pma.rhdl").RiscvPhysicalMemoryMap
+  lib("riscv/rtl/svpbmt.rhdl") open
+  lib("rhodium/std/bits.rhdl").Pow2Int
+
+/* Returns permission and resolved request attributes for the caller-selected block start.
+   The carry in the last byte and the original virtual PC both participate in qualification. */
+fun qualify_physical_fetch(xlen :: XLen, physical_map :: RiscvPhysicalMemoryMap, pc :: Bits(xlen.width),
+                           address :: Bits, fetch_bytes :: Pow2Int, pbmt :: PageMemoryType):
+  def width = address.type.packed_width()
+  def region = physical_map.lookup(address, address +& Bits(width)(fetch_bytes - 1))
+  def attributes = resolve_memory_attributes(region, pbmt)
+  def permitted = CompactPc.fits(xlen, pc) & region.mapped & region.executable
+  def request = PhysicalInstructionReq(width):
+    address: address
+    cacheable: attributes.instruction_cacheable
+    device: attributes.strongly_ordered
+  values(permitted, request)
+
+export qualify_physical_fetch

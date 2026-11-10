@@ -18,6 +18,10 @@ hardware_enum RiscvTranslationFault:
   GuestPageFault
   AccessFault
 
+  /* Groups VS/host page faults and G-stage guest-page faults for the pipeline page-fault outcome. */
+  method is_page_fault(fault) :: Bool:
+    fault.is_one_of(RiscvTranslationFault.PageFault, RiscvTranslationFault.GuestPageFault)
+
 /* Captures the access and both translation contexts used to match and recheck a mapping. */
 bundle RiscvTlbLookup():
   virtualized: Bool
@@ -190,7 +194,7 @@ fun riscv_host_result(result :: RiscvTlbMapping()) :~ RiscvTranslationResult():
     global_mapping: result.vs_leaf.global_mapping
     accessed: result.vs_leaf.accessed
     dirty: result.vs_leaf.dirty
-    fault: result.fault.is_one_of(RiscvTranslationFault.PageFault, RiscvTranslationFault.GuestPageFault)
+    fault: result.fault.is_page_fault()
     access_fault: result.fault === RiscvTranslationFault.AccessFault
     pbmt: mux(result.fault === RiscvTranslationFault.None, compose_page_memory_type(result.vs_leaf.pbmt, result.g_leaf.pbmt), PageMemoryType.PMA)
 
