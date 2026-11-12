@@ -94,6 +94,18 @@ void check_consecutive_hits(unsigned address, const Line &line) {
   }
   CHECK(!core_out.presponse.pvalid);
   core_in.presponse.pready = 0;
+
+  // Fill both response slots, leave a third hit stalled in S4, and queue a
+  // fourth from a different row. Each hit must return its own full beat.
+  for (unsigned i : {3u, 0u, 2u, 1u})
+    request(address + 16*i, load, {}, 0xffff, true, 0x30+i);
+  for (unsigned stall = 0; stall < 5; ++stall) {
+    tick_model(); eval();
+    CHECK(core_out.presponse.pvalid && core_out.presponse.pbits.pdata == line[3]);
+    CHECK(!chi_out.prequests.pvalid);
+  }
+  for (unsigned i : {3u, 0u, 2u, 1u})
+    response(line[i], 0x30+i);
 }
 
 void check_maintenance_retry(const Line &younger_line) {

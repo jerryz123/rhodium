@@ -66,8 +66,10 @@ explicit; retain slow completions until the selected response sink accepts them.
 
 S4 hit/refill/eviction branches carry the resolved array metadata. Capture the
 admitted request, selected data row, and allocation way's tag on the same
-S3-to-S4 transfer. They remain available after the S4 token leaves. The S4
-metadata and slow-service response registers are elastic;
+S3-to-S4 transfer. A local hit uses row zero of the backing line, regardless
+of its SRAM row index. Hold it through a stalled hit or local AMO; do not admit
+another S4 capture while gather, copyback, or refill owns the bank. Dirty snoops
+retain their independent line. The S4 metadata and slow-service response registers are elastic;
 the latter has registered-only input capacity to break the downstream-ready
 path through request admission. Do not turn stalled transfers into repeated
 completion events. S2 maps demands and hints into lookup
@@ -175,7 +177,7 @@ row. The copyback fixture covers 128-, 256-, and 512-bit DAT.
    or eviction gather start through refill completion, including retries and
    stalls. A local mutation holds it through the SRAM update (the final row
    for block zero). Extract the local AMO operand and response from the
-   retained row; an active miss uses the refill buffer instead. Derive the
+   captured hit word; a miss instead selects its addressed refill row. Derive the
    reserved set and line from the retained request. Drive the refill engine's
    `line_address` from that request. For clean replacement's reservation check
    and dirty copyback, reconstruct the victim line from the captured tag and

@@ -206,7 +206,6 @@ sync_circuit L1DCache(xlen :: XLen,
   reg retained_request(AddressedPhysicalMemoryBeatReq(xlen, Context, beat_bytes, physical_width))
   def retained_address = retained_request.address.zext(width)
   def retained_raw_beat = if beat_width > width | retained_request.raw_beat | Bool(#false)
-  reg retained_row(Bits(beat_width))
   reg retained_victim_tag(Bits(tag_width))
   reg retained_way(Bits(way_width))
   reg pending_mutation_valid(~init: Bool(#false))
@@ -220,7 +219,8 @@ sync_circuit L1DCache(xlen :: XLen,
   reg miss_allocation(Bool)
   reg miss_install(Bool)
   reg miss_prefetch(Bool)
-  // Every row is written before its owner can publish the victim or the replacement.
+  // S4 uses row zero for its local hit. Victim gather and refill each replace
+  // every row before publishing the line; the snoop engine has its own bank.
   reg backing_line(Vec(words_per_line, Bits(beat_width)))
   writeback.line <== backing_line.as_bits()
   def retained_set = retained_request.address[offset_width..(offset_width + set_width)]
@@ -555,7 +555,7 @@ sync_circuit L1DCache(xlen :: XLen,
   def service_load_unsigned = (retained_request.access === CacheOperation.Load) & retained_request.unsigned
   def refilled_word = backing_line[refill_word_index]
   service_load_gen.address <== retained_address
-  def service_row = mux(miss_active, refilled_word, retained_row)
+  def service_row = mux(miss_active, refilled_word, backing_line[0])
   service_load_gen.data <== service_row
   service_load_gen.width <== retained_request.width
   service_load_gen.unsigned_load <== service_load_unsigned
@@ -679,10 +679,10 @@ sync_circuit L1DCache(xlen :: XLen,
         victim_state: arrays.states.response.bits[s3_allocation_way]
   ) |> s4_result.ingress
 
-  when (s4_result.ingress.fire()):
+  def capture_s4 = s4_result.ingress.fire()
+  when capture_s4:
     assert(!pending_mutation_valid & !miss_active & !maintenance_active & !maintenance.command.fire(), "l1d_s4_request_not_owned_by_slow_service")
     retained_request <== s3_request
-    retained_row <== s3_word
     retained_victim_tag <== arrays.tags.response.bits[s3_allocation_way]
   elsewhen (maintenance.command.fire()):
     // Maintenance bypasses S4 and owns only the caller context until completion.
@@ -987,8 +987,8 @@ sync_circuit L1DCache(xlen :: XLen,
   snoop_words |> filter_valid(_word => gather_state === L1DGatherState.SnoopRead) |> snoop.gather
 
 
-  /* Backing line writes. Victim rows precede the copyback command; refill packets
-     replace them by DataID only after copyback completes. Snoops never write this bank. */
+  /* Backing line writes. S4 captures its hit in row zero while the bank is idle.
+     Victim rows precede copyback; refill packets replace them by DataID afterward. */
 
   def acquiring_victim = eviction_gather_start ||| gather_state.is_one_of(L1DGatherState.EvictionRead, L1DGatherState.EvictionReady)
   when acquiring_victim:
@@ -998,6 +998,9 @@ sync_circuit L1DCache(xlen :: XLen,
   when (packet.valid):
     assert(miss_active & writeback.command.ready & !acquiring_victim & !refill_installing, "l1d_refill_owns_backing_line")
 
+  when capture_s4:
+    assert(!victim_row.valid & !packet.valid, "l1d_s4_owns_backing_row_zero")
+
   def rows_per_packet = p.data_bytes / beat_bytes
   def PacketIndex = Bits(index_width(cache_line_rows(p.data_bytes)))
   def packet_rows = packet.bits.data.as_vec(Bits(beat_width))
@@ -1006,6 +1009,8 @@ sync_circuit L1DCache(xlen :: XLen,
       backing_line[row] <== victim_row.bits.data
     elsewhen (packet.valid & (packet.bits.index === PacketIndex(row div rows_per_packet))):
       backing_line[row] <== packet_rows[row % rows_per_packet]
+    elsewhen (Bool(row == 0) & capture_s4):
+      backing_line[row] <== s3_word
 
 
   /* Gather progress. Hand the complete line to its owner on the existing Ready boundary. */
