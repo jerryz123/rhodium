@@ -4,7 +4,16 @@ import:
   lib("riscv/isa/xlen.rhm").XLen
   "../../geometry.rhdl".CacheConfig
   "../../l1d/cache.rhdl".L1DCache
-  "../params.rhdl".test_cache_chi_config
+  "../params.rhdl" open
+  "../../../chi-hart.rhdl" open
+  lib("riscv/rtl/pma.rhdl") open
+  lib("rhodium/std/interconnect.rhdl").AddressSet
 
-def program = elaborate(L1DCache(XLen.X64, CacheConfig(4, 2), ~chi: test_cache_chi_config, ~context: Bits(8), ~beat_bytes: 16))
+def rom = RiscvPhysicalMemoryAttributes(#true, #false, #true, #false, #false, #false, #true, ~instruction_cacheable: #true)
+def config = RiscvHartCHIConfig(test_cache_flit, 64, test_cache_uncached_config.regions ++ [
+  RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0x100001000, 0xff), test_cache_memory_attributes), test_cache_home),
+  RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0x400001000, 0xff), rom), test_cache_uncached_home)
+])
+
+def program = elaborate(L1DCache(XLen.X64, CacheConfig(4, 2), ~chi: config, ~context: Bits(8), ~beat_bytes: 16))
 export program

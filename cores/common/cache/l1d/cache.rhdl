@@ -90,6 +90,8 @@ sync_circuit L1DCache(xlen :: XLen,
     | error(~who: #'L1DCache, "write-allocating cache regions require read-idempotent memory")
 
   def physical_width = math.min(width, p.request_address_width)
+  def data_width = config.physical_map.address_width_for(fun (attributes): attributes.cacheable)
+  def retained_width = math.min(physical_width, data_width)
   def snoop_width = math.max(width, p.request_address_width)
   check_l1d_geometry(physical_width, cache)
   def sets = cache.sets
@@ -117,6 +119,11 @@ sync_circuit L1DCache(xlen :: XLen,
   /* Returns scalar results in the low XLEN bits, including sign-extended subword loads. */
   fun scalar_response(value :: Bits(width)) :~ Bits(beat_width):
     value.zext(beat_width)
+
+  /* Check the full byte address before admission. Mapped holes and access
+     permissions are still checked upstream; snoops retain their full tags. */
+  fun service_address_fits(address :: Bits(width)) :~ Bool:
+    address === address[0..retained_width].zext(width)
 
   input node_id: Bits(p.node_id_width)
   interface core(CacheAccess(xlen, Context, beat_bytes), ~role: responder)
@@ -169,7 +176,7 @@ sync_circuit L1DCache(xlen :: XLen,
   inst service_requests(Queue(PhysicalMemoryBeatReq(xlen, Context, beat_bytes), service_queue_depth, ~flow: #true))
   // S3 retains its request if older S4 work takes the arrays. Its returned
   // data is discarded and reread before retry, including across snoop service.
-  inst s3_lookup(Pipe(L1DLookup(xlen, Context, beat_bytes, physical_width), 1))
+  inst s3_lookup(Pipe(L1DLookup(xlen, Context, beat_bytes, retained_width), 1))
   inst s4_result(Pipe(L1DResolved(way_width), 1))
   reg s3_read_valid(~init: Bool(#false))
   // Retain a slow completion until its downstream writeback path accepts it.
@@ -196,14 +203,14 @@ sync_circuit L1DCache(xlen :: XLen,
   def reservation_protected = reservation_count > Bits(reservation_count_width)(reservation_backoff)
   reg reservation_valid(~init: Bool(#false))
   core.reservation_valid <== reservation_valid
-  reg reservation_address(~init: Bits(physical_width)(0))
+  reg reservation_address(~init: Bits(retained_width)(0))
   reg reservation_width(~init: MemoryWidth.Word)
 
 
   /* S4 admission captures the request, hit row, and replacement tag together.
      A miss pins the request set and victim tag after its S4 token leaves. */
 
-  reg retained_request(AddressedPhysicalMemoryBeatReq(xlen, Context, beat_bytes, physical_width))
+  reg retained_request(AddressedPhysicalMemoryBeatReq(xlen, Context, beat_bytes, retained_width))
   def retained_address = retained_request.address.zext(width)
   def retained_raw_beat = if beat_width > width | retained_request.raw_beat | Bool(#false)
   reg retained_victim_tag(Bits(tag_width))
@@ -223,7 +230,7 @@ sync_circuit L1DCache(xlen :: XLen,
   // every row before publishing the line; the snoop engine has its own bank.
   reg backing_line(Vec(words_per_line, Bits(beat_width)))
   writeback.line <== backing_line.as_bits()
-  def retained_set = retained_request.address[offset_width..(offset_width + set_width)]
+  def retained_set = retained_address[offset_width..(offset_width + set_width)]
   def retained_line_address = retained_address.align_down(CacheLineBytes)
   def victim_line_address = concat(retained_victim_tag, retained_set, Bits(offset_width)(0)).zext(width)
   reg gather_state(~init: L1DGatherState.Idle)
@@ -373,8 +380,8 @@ sync_circuit L1DCache(xlen :: XLen,
 
   service_responses.egress |> core.response
   core.request_fault <== Bool(#false)
-  def service_address_fits = cache_chi_address_fits(core.request.bits.address, p)
-  core.request_access_fault <== core.request.valid & !service_address_fits
+  def demand_fits = service_address_fits(core.request.bits.address)
+  core.request_access_fault <== core.request.valid & !demand_fits
 
   def maintenance_active = !maintenance.command.ready
   def Array(ordinary_requests, management_requests) = service_requests.egress |> demux_flow(2, request => request.access.into(CacheOperation).is_cache_management().as_bits())
@@ -397,7 +404,7 @@ sync_circuit L1DCache(xlen :: XLen,
   def maintenance_done = maintenance.completion |> gate_flow(service_responses.ingress.ready) |> to_valid()
   def maintenance_complete = maintenance_done.valid
   def prefetch_request = prefetch.bits.into(CachePrefetchReq(width))
-  def prefetch_valid = prefetch.valid & cache_chi_address_fits(prefetch_request.address, p) & prefetch_request.operation.is_one_of(CachePrefetchOperation.Read, CachePrefetchOperation.Write)
+  def prefetch_valid = prefetch.valid & service_address_fits(prefetch_request.address) & prefetch_request.operation.is_one_of(CachePrefetchOperation.Read, CachePrefetchOperation.Write)
 
 
   /* S2 service indexing and hint selection.
@@ -418,8 +425,9 @@ sync_circuit L1DCache(xlen :: XLen,
      blocked work must reread after older mutation or coherence service. */
 
   def s3_request = s3_lookup.egress.bits.request
-  def s3_set = s3_request.address[offset_width..(offset_width + set_width)]
-  def s3_tag = s3_request.address[(offset_width + set_width)..physical_width]
+  def s3_address = s3_request.address.zext(physical_width)
+  def s3_set = s3_address[offset_width..(offset_width + set_width)]
+  def s3_tag = s3_address[(offset_width + set_width)..physical_width]
   def s3_valids = valid_lines[s3_set]
   def s3_matches = vec(for List (way in 0..ways): s3_valids[way] & (arrays.tags.response.bits[way] === s3_tag))
   def s3_hit_way = priority_encoder_oh(s3_matches)
@@ -550,8 +558,8 @@ sync_circuit L1DCache(xlen :: XLen,
       assert(refill.completion.bits.state === CHIResponseState.Unique, "l1d_lr_refill_owned")
 
   def refill_access = retained_request.access
-  def refill_tag = retained_request.address[(offset_width + set_width)..physical_width]
-  def refill_word_index = retained_request.address[row_offset_width..offset_width]
+  def refill_tag = retained_address[(offset_width + set_width)..physical_width]
+  def refill_word_index = retained_address[row_offset_width..offset_width]
   def service_load_unsigned = (retained_request.access === CacheOperation.Load) & retained_request.unsigned
   def refilled_word = backing_line[refill_word_index]
   service_load_gen.address <== retained_address
@@ -719,11 +727,11 @@ sync_circuit L1DCache(xlen :: XLen,
   def array_read_set = array_read_address[offset_width..(offset_width + set_width)]
   def array_read_data_address = array_read_address[row_offset_width..(offset_width + set_width)]
   def s2_admit = !management_waiting & s3_can_advance & !s2_retry & stores.empty & !s2_store_candidate.egress.valid
-  core.request |> gate_flow(!core.request.valid ||| service_address_fits) |> service_requests.ingress
+  core.request |> gate_flow(!core.request.valid ||| demand_fits) |> service_requests.ingress
   // Admission checked the full address before queueing. Preserve the byte offset
   // and every payload field, including the optional raw-row transfer mode.
-  wire admitted: AddressedPhysicalMemoryBeatReq(xlen, Context, beat_bytes, physical_width)
-  admitted.address <== demand.address[0..physical_width]
+  wire admitted: AddressedPhysicalMemoryBeatReq(xlen, Context, beat_bytes, retained_width)
+  admitted.address <== demand.address[0..retained_width]
   admitted.byte_mask <== demand.byte_mask
   admitted.access <== demand.access
   admitted.atomic <== demand.atomic
@@ -736,7 +744,7 @@ sync_circuit L1DCache(xlen :: XLen,
   | admitted.raw_beat <== demand.raw_beat
   | #void
 
-  def s2_demand = ordinary_requests |> map_flow(_request => L1DLookup(xlen, Context, beat_bytes, physical_width)):
+  def s2_demand = ordinary_requests |> map_flow(_request => L1DLookup(xlen, Context, beat_bytes, retained_width)):
     request: admitted
     prefetch: Bool(#false)
     prefetch_write: Bool(#false)
@@ -748,14 +756,14 @@ sync_circuit L1DCache(xlen :: XLen,
       |> filter_valid(_hint => s2_prefetch & s2_admit & s3_lookup.ingress.ready & !ordinary_requests.valid)
       |> map_valid(payload):
         def hint = payload.into(CachePrefetchReq(width))
-        def empty :: AddressedPhysicalMemoryBeatReq(xlen, Context, beat_bytes, physical_width) = literal(AddressedPhysicalMemoryBeatReq(xlen, Context, beat_bytes, physical_width), 0)
+        def empty :: AddressedPhysicalMemoryBeatReq(xlen, Context, beat_bytes, retained_width) = literal(AddressedPhysicalMemoryBeatReq(xlen, Context, beat_bytes, retained_width), 0)
         def request = empty.updated(
-          ~address: hint.address[0..physical_width], ~access: CacheOperation.Load, ~atomic: RiscvAtomicOperation.Swap,
+          ~address: hint.address[0..retained_width], ~access: CacheOperation.Load, ~atomic: RiscvAtomicOperation.Swap,
           ~width: MemoryWidth.Byte, ~unsigned: Bool(#true), ~byte_mask: Bits(beat_bytes)(1) << hint.address[0..row_offset_width],
           ~context: dont_care(Context), ~locality: RiscvMemoryLocality.Default
         )
 
-        L1DLookup(xlen, Context, beat_bytes, physical_width):
+        L1DLookup(xlen, Context, beat_bytes, retained_width):
           request: request
           prefetch: Bool(#true)
           prefetch_write: hint.operation === CachePrefetchOperation.Write
@@ -885,7 +893,7 @@ sync_circuit L1DCache(xlen :: XLen,
      Routes gather reads and store/refill/mutation writes; tracing observes
      the actual SRAM use rather than merely the logical request. */
 
-  def local_mutation_address = mux(pending_zero, retained_set ++ pending_zero_index, retained_request.address[row_offset_width..(offset_width + set_width)])
+  def local_mutation_address = mux(pending_zero, retained_set ++ pending_zero_index, retained_address[row_offset_width..(offset_width + set_width)])
   def refill_install_address = retained_set ++ refill_install_index
   def gather_address = gather_set ++ gather_issue_index
   def array_data_read = (s0_read_issue & s0_load) ||| s2_retry ||| (array_lookup_issue & !s0_read_issue)
@@ -1054,7 +1062,7 @@ sync_circuit L1DCache(xlen :: XLen,
   def mutation_reservation_clear = local_mutation_commit & (pending_mutation_access.is_store_conditional() ||| mutation_touches_reservation)
   def snoop_reservation_clear = snoop.update.valid & (snoop.update.bits.address.align_down(CacheLineBytes) === reservation_line_address.zext(snoop_width))
   def replacement_reservation_clear = s4_path.fire() & s4_needs_refill & !s4_bypass_refill & !s4_hit & s4_victim_valid & (victim_line_address === reservation_line_address)
-  def buffered_store_reservation_clear = stores.enqueue.fire() & (candidate_line === reservation_address[offset_width..physical_width])
+  def buffered_store_reservation_clear = stores.enqueue.fire() & (candidate_line === reservation_line_address[offset_width..physical_width])
   def reservation_clear = s4_reservation_clear ||| mutation_reservation_clear ||| snoop_reservation_clear ||| replacement_reservation_clear ||| buffered_store_reservation_clear
   // Reservation lifetime follows accesses and coherence, not the fairness timer.
   // A slow SC may still succeed after probes have been allowed to proceed.

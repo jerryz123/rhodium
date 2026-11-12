@@ -133,7 +133,9 @@ row. The copyback fixture covers 128-, 256-, and 512-bit DAT.
    Geometry rejection belongs to `../config.rhm`.
    Check demand and hint addresses at full width before narrowing. S3, the
    retained S4 request, and the LR reservation keep the complete byte address
-   in `min(XLEN, CHI request address width)` bits. Zero-extend the stored
+   through the highest byte in any data-cacheable region, capped by XLEN and
+   the CHI request width. Instruction-only ROM and devices do not widen it.
+   Preserve the existing SRAM tag, virtual index, and snoop widths. Zero-extend the stored
    address for wider comparisons; never truncate a live demand or probe to
    test whether it matches a retained line.
 2. Keep the one-request-per-cycle load-hit path separate from blocking miss,

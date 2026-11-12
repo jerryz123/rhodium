@@ -16,7 +16,7 @@ template <class F> void until(F done) {
   CHECK(false && "L1D handshake timed out");
 }
 
-void request(unsigned address, unsigned op, Row row = {}, unsigned mask = 0xffff, bool raw = true,
+void request(std::uint64_t address, unsigned op, Row row = {}, unsigned mask = 0xffff, bool raw = true,
              unsigned context = 0x97, unsigned width = doubleword, unsigned atomic_op = atomic_swap) {
   auto &req = core_in.prequest;
   req.pbits = {};
@@ -37,7 +37,7 @@ void request(unsigned address, unsigned op, Row row = {}, unsigned mask = 0xffff
   virtual_lookup_in.pvalid = 0;
 }
 
-unsigned accept_request(unsigned address, unsigned opcode) {
+unsigned accept_request(std::uint64_t address, unsigned opcode) {
   until([] { return chi_out.prequests.pvalid; });
   CHECK(chi_out.prequests.pbits.paddress == address && chi_out.prequests.pbits.popcode == opcode);
   const auto txn = chi_out.prequests.pbits.ptxn_uid;
@@ -62,7 +62,7 @@ void refill_packet(unsigned txn, unsigned i, unsigned resp, Row row) {
   tick_model(); dat.pvalid = 0;
 }
 
-void refill(unsigned address, unsigned opcode, const Line &line) {
+void refill(std::uint64_t address, unsigned opcode, const Line &line) {
   const auto txn = accept_request(address, opcode);
   for (unsigned i : {3u, 1u, 0u, 2u})
     refill_packet(txn, i, opcode == 7 ? 2 : 1, line[i]);
@@ -242,6 +242,65 @@ void check_backing_handoff(const Line &victim, Line probed) {
     hit(base+512+i*16, load, replacement[i]);
 }
 
+void check_retained_address(const Line &low, const Line &high) {
+  constexpr auto ram = (UINT64_C(1) << 32) | base;
+  constexpr auto alias = (UINT64_C(1) << 33) | base; // Within CHI, beyond data RAM.
+  for (bool matching_probe : {false, true}) {
+    reset = 1; tick_model(); reset = 0;
+    // No demand, reservation or resident line can suppress this cold hint.
+    prefetch_in.pbits.poperation = 2;
+    prefetch_in.pbits.paddress = alias + 64;
+    prefetch_in.pvalid = 1; tick_model(); prefetch_in.pvalid = 0;
+    for (unsigned cycle = 0; cycle < 8; ++cycle) {
+      eval(); CHECK(!chi_out.prequests.pvalid && core_out.pdrained);
+      tick_model();
+    }
+
+    request(base, lr, {}, 0xff, false);
+    refill(base, 7, low);
+    response(Row{{low[0].words[0], low[0].words[1], 0, 0}});
+    CHECK(core_out.preservation_uvalid);
+
+    auto &req = core_in.prequest;
+    req.pbits.paddress = alias;
+    req.pbits.paccess = sc;
+    req.pvalid = 1;
+    eval();
+    CHECK(core_out.prequest_uaccess_ufault && !core_out.prequest.pready);
+    tick_model(); req.pvalid = 0;
+    for (unsigned cycle = 0; cycle < 140; ++cycle) {
+      eval(); CHECK(!chi_out.prequests.pvalid && !core_out.presponse.pvalid && core_out.preservation_uvalid);
+      tick_model();
+    }
+
+    auto &snp = chi_in.psnoops;
+    snp.pbits = {};
+    snp.pbits.paddress = (matching_probe ? base : alias) >> 3;
+    snp.pbits.popcode = 9; // SnpCleanInvalid
+    snp.pbits.psrc_uid = 1; snp.pbits.ptxn_uid = 0x37;
+    snp.pvalid = 1;
+    until([] { return chi_out.psnoops.pready; }); tick_model(); snp.pvalid = 0;
+    until([] { return chi_out.prequester_uresponses.pvalid; });
+    CHECK(chi_out.prequester_uresponses.pbits.ptxn_uid == 0x37);
+    tick_model();
+    request(base, sc, {}, 0xff, false);
+    response(Row{{unsigned(matching_probe), 0, 0, 0}});
+    CHECK(!core_out.preservation_uvalid);
+  }
+
+  // Hold a mapped high refill at REQ while the live input names the low alias.
+  request(ram + 32, load);
+  core_in.prequest.pbits.paddress = base + 32;
+  until([] { return chi_out.prequests.pvalid; });
+  for (unsigned cycle = 0; cycle < 5; ++cycle) {
+    CHECK(chi_out.prequests.pvalid && chi_out.prequests.pbits.paddress == ram);
+    tick_model(); eval();
+  }
+  refill(ram, 2, high);
+  response(high[2]);
+  request(ram + 48, load); response(high[3]);
+}
+
 int main() {
   return run_test([] {
     reset = 1; tick_model(); reset = 0;
@@ -310,5 +369,6 @@ int main() {
       chi_in.prequest_udata.pready = 1; tick_model(); chi_in.prequest_udata.pready = 0;
     }
     check_backing_handoff(a, b);
+    check_retained_address(a, b);
   });
 }

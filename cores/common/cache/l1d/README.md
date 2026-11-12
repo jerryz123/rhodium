@@ -37,8 +37,11 @@ exact-width accesses. A separate
 `node_id` input supplies the occurrence's RN-F identity. Core addresses use
 XLEN; resident tags use the smaller of XLEN and the CHI request-address width,
 less line-offset and set bits. At least one tag bit must remain. An address
-outside that width cannot hit a low line: demand faults, prefetch drops, and
-a snoop above the hart address space returns a miss.
+outside that width cannot hit a low line. Authorized service also checks that
+the full address fits the width of the highest data-cacheable byte before
+retaining it. An over-width demand reports an access fault and an over-width
+hint is dropped. Snoops compare the full CHI tag, so a high alias cannot
+invalidate a low reservation.
 
 ## Core-facing protocol
 
@@ -157,7 +160,7 @@ Prefetch requests use `Default`.
 | Requester → cache | `virtual_lookup: Valid(Bits(XLEN))` | Early virtual byte address, paired with a permitted physical request at the same edge; no backpressure |
 | Requester → cache | `prefetch: Valid(CachePrefetchReq)` | Best-effort aligned physical read/write hint; no acceptance or completion |
 | Cache → requester | `response: Decoupled(PhysicalMemoryResp)` | Ordered, backpressurable completion with `access_fault`, XLEN load/atomic/SC result, and the unchanged caller context |
-| Cache → requester | `request_fault`, `request_access_fault` | No page faults; an address too wide for CHI raises an access fault before admission. Translation and PMA checks remain upstream. |
+| Cache → requester | `request_fault`, `request_access_fault` | No page faults; a demand exceeding the retained data-address width raises an access fault before admission. Translation, PMA permissions, and holes within that width remain upstream. |
 | Cache → requester | `drained` | Combinational quiescence observation used by architectural serialization |
 
 The authorized request is `Decoupled`; an unaccepted attempt may be withdrawn
