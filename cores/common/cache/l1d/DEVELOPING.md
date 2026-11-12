@@ -147,8 +147,10 @@ row. The copyback fixture covers 128-, 256-, and 512-bit DAT.
    Registered read ownership and page-offset matching prevent consuming another
    request's SRAM response. Return an explicit replay for blocked reads, not a
    slow-service request. Store lookup retains only a one-cycle candidate; S2
-   authorization alone enqueues it. Capture the physical row number only after
-   the full S1 address fits. Compare it against the full load or snoop address;
+   authorization alone enqueues it. After the full S1 tag and ownership check,
+   retain only the data-cacheable row number in the candidate and FIFO. For
+   RAM smaller than the cache geometry, zero-pad the SRAM drain index. Compare
+   the retained row or line against the full load or snoop address;
    CHI probes can be wider than XLEN. Compare all committed bytes, including
    the current enqueue, without using global drain as a hit-readiness condition.
    Only enqueue may clear a matching reservation for a buffered ordinary store.

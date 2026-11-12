@@ -5,5 +5,5 @@ import:
   lib("rhodium/frontend/foundation.rhm").elaborate
   "../../l1d/store-buffer.rhdl" open
 
-def program = elaborate(CacheStoreBuffer(44, 1, ~beat_bytes: 8, ~query_width: 64))
+def program = elaborate(CacheStoreBuffer(33, 1, ~beat_bytes: 8, ~query_width: 64))
 export program

@@ -145,7 +145,7 @@ void check_maintenance_retry(const Line &younger_line) {
   response(younger_line[2], 0xa6);
 }
 
-void hit(unsigned address, unsigned op, Row value, unsigned mask = 0xffff, bool raw = true, bool commit = true) {
+void hit(std::uint64_t address, unsigned op, Row value, unsigned mask = 0xffff, bool raw = true, bool commit = true) {
   auto &lookup = pipeline_lookup_in;
   lookup.pbits = {};
   lookup.pbits.paddress = address;
@@ -301,6 +301,28 @@ void check_retained_address(const Line &low, const Line &high) {
   request(ram + 48, load); response(high[3]);
 }
 
+void check_high_store_rows(const Line &low, const Line &high) {
+  reset = 1; tick_model(); reset = 0;
+  constexpr auto ram = (UINT64_C(1) << 32) | base;
+  // Own both lines in the same set, with only the low line reserved.
+  request(ram, lr, {}, 0xff, false); refill(ram, 7, high);
+  response(Row{{high[0].words[0], high[0].words[1], 0, 0}});
+  request(base, lr, {}, 0xff, false); refill(base, 7, low);
+  response(Row{{low[0].words[0], low[0].words[1], 0, 0}});
+  hit(ram + 48, store, high[1]);
+  CHECK(core_out.preservation_uvalid);
+  hit(base + 48, load, low[3]);
+  hit(ram + 48, load, high[1]);
+
+  // The same buffered store must clear the high reservation on enqueue.
+  request(ram, lr, {}, 0xff, false);
+  response(Row{{high[0].words[0], high[0].words[1], 0, 0}});
+  CHECK(core_out.preservation_uvalid);
+  hit(ram + 48, store, high[2]);
+  CHECK(!core_out.preservation_uvalid);
+  hit(ram + 48, load, high[2]);
+}
+
 int main() {
   return run_test([] {
     reset = 1; tick_model(); reset = 0;
@@ -370,5 +392,6 @@ int main() {
     }
     check_backing_handoff(a, b);
     check_retained_address(a, b);
+    check_high_store_rows(a, b);
   });
 }

@@ -105,8 +105,10 @@ sync_circuit L1DCache(xlen :: XLen,
   def data_lanes = ways * beat_bytes
   def offset_width = alignment_bits(CacheLineBytes)
   def row_offset_width = alignment_bits(beat_bytes)
-  def row_number_width = physical_width - row_offset_width
   def set_width = cache.set_width
+  // Keep the drain's complete SRAM index even if RAM spans fewer sets.
+  def store_address_width = math.max(retained_width, offset_width + set_width)
+  def row_number_width = store_address_width - row_offset_width
   def way_width = cache.way_width
   def tag_width = physical_width - offset_width - set_width
   def word_index_width = index_width(words_per_line)
@@ -149,7 +151,7 @@ sync_circuit L1DCache(xlen :: XLen,
      refill, snoop, and writeback engines retain their own CHI lifetimes. */
 
   inst arrays(CacheDCacheArrays(xlen, cache, tag_width, beat_bytes))
-  inst stores(CacheStoreBuffer(physical_width, way_width, ~beat_bytes: beat_bytes, ~query_width: snoop_width))
+  inst stores(CacheStoreBuffer(store_address_width, way_width, ~beat_bytes: beat_bytes, ~query_width: snoop_width))
   def StoreBufferEntry = CacheStoreBufferEntry(row_number_width, way_width, beat_bytes)
   inst s2_store_candidate(ValidPipeAlwaysCapture(StoreBufferEntry, 1))
   inst s1_store_gen(StoreGen(xlen, beat_bytes))
@@ -350,11 +352,15 @@ sync_circuit L1DCache(xlen :: XLen,
   when (pipeline.request.valid & miss_active & (s1_outcome === CachePipelineOutcome.LoadHit)):
     assert(miss_allows_hits & s1_miss_set_clear & s1_read_matches, "l1d_hit_under_miss_isolated")
 
+  // A full-tag hit identifies a resident line installed from admitted RAM.
+  when (pipeline.request.valid & (s1_outcome === CachePipelineOutcome.StoreHit)):
+    assert(service_address_fits(pipeline.request.bits.address), "l1d_store_hit_fits_data_map")
+
   (
     store_candidate_path
       |> filter_valid(_request => s1_outcome === CachePipelineOutcome.StoreHit)
       |> map_valid(request => CacheStoreBufferEntry(row_number_width, way_width, beat_bytes)):
-        row_number: request.address[row_offset_width..physical_width]
+        row_number: request.address[row_offset_width..retained_width].zext(row_number_width)
         way: s1_hit_way.index
         data: mux(is_raw_beat(request), request.data, s1_store_gen.data)
         mask: pipeline.request.bits.byte_mask
@@ -1062,7 +1068,7 @@ sync_circuit L1DCache(xlen :: XLen,
   def mutation_reservation_clear = local_mutation_commit & (pending_mutation_access.is_store_conditional() ||| mutation_touches_reservation)
   def snoop_reservation_clear = snoop.update.valid & (snoop.update.bits.address.align_down(CacheLineBytes) === reservation_line_address.zext(snoop_width))
   def replacement_reservation_clear = s4_path.fire() & s4_needs_refill & !s4_bypass_refill & !s4_hit & s4_victim_valid & (victim_line_address === reservation_line_address)
-  def buffered_store_reservation_clear = stores.enqueue.fire() & (candidate_line === reservation_line_address[offset_width..physical_width])
+  def buffered_store_reservation_clear = stores.enqueue.fire() & (candidate_line === reservation_line_address[offset_width..store_address_width])
   def reservation_clear = s4_reservation_clear ||| mutation_reservation_clear ||| snoop_reservation_clear ||| replacement_reservation_clear ||| buffered_store_reservation_clear
   // Reservation lifetime follows accesses and coherence, not the fairness timer.
   // A slow SC may still succeed after probes have been allowed to proceed.

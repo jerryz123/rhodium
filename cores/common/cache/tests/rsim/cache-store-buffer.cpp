@@ -6,7 +6,7 @@ using store_t = std::remove_cvref_t<decltype(enqueue_in.pbits)>;
 
 // Exercise the top implemented physical bit and a nonzero row within each line.
 constexpr std::uint64_t address(unsigned entry) {
-  return (UINT64_C(1) << 43) + 4096 * (entry + 1) + 16;
+  return (UINT64_C(1) << 32) + 4096 * (entry + 1) + 16;
 }
 constexpr std::uint64_t row(unsigned entry) { return address(entry) >> 3; }
 
@@ -35,11 +35,19 @@ void run_case() {
   eval();
   CHECK(word_hazard && line_hazard && !queued_word_hazard &&
         !queued_line_hazard);
-  const auto alias_bit = UINT64_C(1) << 44;
+  // Bit 33 is within the CHI address but just outside this buffer's RAM bound.
+  const auto alias_bit = UINT64_C(1) << 33;
+  query_mask = 0xfc;
+  eval();
+  CHECK(!word_hazard && line_hazard); // Same row, disjoint bytes.
+  query_mask = 2;
   query_address |= alias_bit;
+  eval();
+  CHECK(!word_hazard && line_hazard);
+  query_address = address(0);
   probe_address |= alias_bit;
   eval();
-  CHECK(!word_hazard && !line_hazard); // Also check the current enqueue.
+  CHECK(word_hazard && !line_hazard);
   tick_model();
   enqueue_in = {};
   enqueue({.prow_unumber = row(1),
