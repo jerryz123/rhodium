@@ -9,6 +9,7 @@ import:
   "translation-specialization.rhm" open
   "transport.rhdl" open
   "../../common/cache/access.rhdl" open
+  "../../common/pte-read.rhdl".PteReadAdmission
   "../../common/cache/protocol.rhdl" open
   "../../common/cache-prefetch.rhdl" open
   "../../common/load-store.rhdl" open
@@ -125,7 +126,7 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
   def mem_misaligned = mem.access.requires_split(mem.width, mem.address)
   def busy = misaligned.busy ||| memory.request.valid ||| resolved.probe_busy ||| physical_memory.ordered_busy
   def decision = classify_cache_lookup(
-    ~blocked: busy, ~split: mem_misaligned, ~known: resolved.known,
+    ~invalidate: invalidate, ~blocked: busy, ~split: mem_misaligned, ~known: resolved.known,
     ~page_fault: resolved.fault.is_page_fault(),
     ~access_fault: resolved.fault === RiscvTranslationFault.AccessFault,
     ~permitted: access.permitted, ~can_probe: access.allocatable & !atomic_request & !cache_block
@@ -150,9 +151,7 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
   def core_execute_denied = resolved.execute_read & !hlvx_physical_permitted(region)
   (memory.request |> gate_flow(data_ok & !misaligned.busy & !core_execute_denied) |> map_flow(request):
     def native :: PhysicalMemoryReq(xlen, Context) = request.memory
-    PhysicalDataReq(xlen, Context, 64):
-      memory: native.with_address_context(resolved.address, native.context)
-      pbmt: resolved.pbmt
+    native.translated(resolved.address, resolved.pbmt)
   ) |> transport.request[0]
   transport.response[0] |> memory.response
 
@@ -163,9 +162,7 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
   )
   (split_request |> gate_flow(data_ok & fragment_permitted) |> map_flow(fragment):
     def native :: PhysicalMemoryReq(xlen, Bool) = fragment
-    PhysicalDataReq(xlen, Context, 64):
-      memory: native.with_address_context(fragment_address, dont_care(Context))
-      pbmt: resolved.pbmt
+    native.translated(fragment_address, resolved.pbmt, ~context: dont_care(Context))
   ) |> transport.request[1]
   (transport.response[1] |> map_flow(reply => PhysicalMemoryResp(xlen, Bool)):
     data: reply.data
@@ -193,13 +190,11 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
 
   if page_walk_clients == 1
   | block:
-      def pte_permitted = pte_read_permitted(physical_map, resolve.pte.request.bits.address, resolve.pte.request.bits.pbmt)
-      transport.request[2].valid <== resolve.pte.request.valid & pte_permitted
-      transport.request[2].bits <== pte_read_request(xlen, resolve.pte.request.bits.address, resolve.pte.request.bits.pbmt, dont_care(Context))
-
-      def pte_fault = (resolve.pte.request.valid & !pte_permitted) ||| transport.fault[2].valid
-      resolve.pte.request.ready <== transport.request[2].ready ||| pte_fault
-      resolve.pte.request_access_fault <== pte_fault
+      inst pte(PteReadAdmission(physical_map))
+      resolve.pte.request |> pte.walker
+      pte.physical_fault <== transport.fault[2].valid
+      resolve.pte.request_access_fault <== pte.access_fault
+      pte.physical |> map_flow(read => pte_read_request(xlen, read.address, read.pbmt, dont_care(Context))) |> transport.request[2]
       transport.response[2] |> map_flow(reply => reply.data) |> to_valid() |> resolve.pte.response
   | #void
 

@@ -659,7 +659,9 @@ Both host adapters are wiring-only; entry storage, permission checking, and
 walker continuation/response ownership belong to those shared implementations.
 The serialized composition lives under `cores/common/mmu/tests/translation-service.rhdl`;
 production never imports it. PTE reads retain the G-stage memory attribute for
-implicit VS reads. No implementation state moves into the RISC-V architecture package.
+implicit VS reads. Both memory adapters use `cores/common/pte-read.rhdl` to
+connect the walker's PTE offer to physical admission. It imports the shared PTE
+payload, cache permission check, physical map, and Flow.
 RV5Stage's MMU imports the shared protocol, translation projections, TLB, and
 walker directly. Shared `cores/common/mmu/vector.rhdl` imports the host result shape,
 architectural XLEN/guest-context identity, and `std/ready-valid.rhdl` for vector

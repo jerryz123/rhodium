@@ -137,7 +137,8 @@ sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: 
   reg data_fault_valid(~init: Bool(#false))
   reg instruction_fault(RiscvTranslationFailure())
   reg data_fault(RiscvTranslationFailure())
-  def instruction_failed = instruction_fault_valid & instruction_fault.request.same_request(instruction_lookup)
+  def instruction_key = instruction_lookup.instruction_fault_key(~host_root_epoch: !hypervisor)
+  def instruction_failed = instruction_fault_valid & instruction_fault.request.same_request(instruction_key)
   def data_failed = data_fault_valid & data_fault.request.same_request(data_lookup)
   def instruction_known = itlb.hit ||| instruction_failed
   def data_known = dtlb.hit ||| data_failed ||| window_hit ||| certified_physical
@@ -214,7 +215,8 @@ sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: 
     instruction_fault_valid <== Bool(#false)
   elsewhen (walker.completion.valid & walk_live & !walk_data):
     instruction_fault_valid <== walker.completion.bits.fault =/= RiscvTranslationFault.None
-    instruction_fault <== fill.failure()
+    def failure = fill.failure()
+    instruction_fault <== failure.updated(~request: failure.request.instruction_fault_key(~host_root_epoch: !hypervisor))
 
   when invalidate:
     data_fault_valid <== Bool(#false)

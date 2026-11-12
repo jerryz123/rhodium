@@ -114,8 +114,9 @@ alignment eligibility. `allows_data_cache_allocation` checks the resolved
 PMA/PBMT attributes for cacheability, relaxed ordering, and read idempotence.
 `classify_speculative_cache_access` returns permission and allocation eligibility
 for the selected footprint. HLVX requires execute permission as well as read
-permission. While older ordered I/O is busy, both cores replay a speculative
-lookup before reporting a local fault or selecting split service.
+permission. On translation invalidation or while ordered I/O is busy, a
+speculative MEM lookup replays before issuing to L1D, reporting a fault, or
+selecting split service.
 At WB, both MMUs check the same HLVX permissions over the translated access.
 A physical denial raises a load access fault at the original virtual address
 before the MMU offers a physical request.
@@ -133,11 +134,16 @@ selected service. Routing adds no storage.
 
 `cache_fragment_permitted` checks the entire aligned physical word of a split
 access against the resolved memory attributes and its read or write permission.
-An execute-read fragment also requires execute permission. Each core translates
-and checks each fragment before issuing it. Both cores use `pte_read_permitted`
-for walker reads and `pte_read_request` to construct the unsigned doubleword
-load with the walker PBMT and caller-supplied return context. All eight PTE bytes must lie in the same readable, cacheable,
-read-idempotent region with relaxed ordering under the effective PBMT.
+An execute-read fragment also requires execute permission. After translation,
+`request.translated(address, pbmt)` builds the native physical request for either a committed access or a checked fragment. The supplied PA
+sets the address width. The optional `~context` replaces the return tag.
+
+[`PteReadAdmission`](../pte-read.rhdl) consumes a denied walker read with an
+access fault. A permitted read holds its offer until the physical port accepts
+or faults it. Only a successful acceptance owns a reply. `pte_read_request`
+constructs the unsigned doubleword load with the walker PBMT and return tag.
+All eight PTE bytes must lie in the same readable, cacheable, read-idempotent
+region with relaxed ordering under the effective PBMT.
 
 [`cache_prefetch_physical`](prefetch.rhdl) classifies a complete aligned cache
 line from an address, prefetch operation, and PBMT. It returns the aligned

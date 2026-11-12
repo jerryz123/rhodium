@@ -95,6 +95,13 @@ bundle AddressedPhysicalMemoryBeatReq(xlen :: XLen, Context :: DataType, beat_by
       unsigned: request.unsigned
       data: request.data
 
+  /* Pairs a translated native access with its effective PBMT. A split client can replace
+     its private context while the resolved address determines the physical port width. */
+  method translated(request, address :: Bits, pbmt :: PageMemoryType, ~context: context :: Hardware.packable = request.context) :: PhysicalDataReq(xlen, context.type, address.type.packed_width()):
+    PhysicalDataReq(xlen, context.type, address.type.packed_width()):
+      memory: request.with_address_context(address, context)
+      pbmt: pbmt
+
   /* Rebinds address width and return context while preserving the access and byte lanes. */
   method with_address_context(request, address :: Bits, context :: Hardware.packable) :: AddressedPhysicalMemoryBeatReq(xlen, context.type, beat_bytes, address.type.packed_width()):
     def To = AddressedPhysicalMemoryBeatReq(xlen, context.type, beat_bytes, address.type.packed_width())

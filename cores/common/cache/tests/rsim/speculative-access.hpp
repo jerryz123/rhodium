@@ -32,3 +32,16 @@ template <typename Busy, typename Probe> void check_ordered_io_replay(Busy &busy
   retry(0x2700, access_fault);
   retry(0x2501, slow);
 }
+
+// Keep the same aligned load in EX for the retry. Invalidation arrives after
+// its first lookup reaches MEM and crosses the edge before the retry resolves.
+template <class Flag, class Tick, class Expect>
+void check_warm_lookup_invalidation(Flag &invalidate, Tick tick, Expect expect) {
+  tick();
+  expect(speculative_access::load_hit);
+  invalidate = 1;
+  expect(speculative_access::replay);
+  tick();
+  invalidate = 0;
+  expect(speculative_access::slow);
+}

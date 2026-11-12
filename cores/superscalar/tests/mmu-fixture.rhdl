@@ -24,7 +24,7 @@ import:
   lib("riscv/isa/xlen.rhm") open
   lib("cores/common/mmu/vector.rhdl") open
 
-sync_circuit SuperscalarMmuFixture(~bare: bare :: Boolean = #false):
+sync_circuit SuperscalarMmuFixture(~bare: bare :: Boolean = #false, ~hypervisor: hypervisor :: Boolean = #true):
   input privilege: Bits(2)
   input(satp, mstatus): Bits(64)
   input invalidate: Bool
@@ -80,7 +80,7 @@ sync_circuit SuperscalarMmuFixture(~bare: bare :: Boolean = #false):
   output memory_drained: Bool
   output completed: Bool
   output completed_data: Bits(64)
-  def translation = if bare | SuperscalarIdentitySpecialization(XLen.X64, test_fetch_chi) | SuperscalarSv39Specialization(test_prefetch_chi, #true)
+  def translation = if bare | SuperscalarIdentitySpecialization(XLen.X64, test_fetch_chi) | SuperscalarSv39Specialization(test_prefetch_chi, #true, hypervisor)
   inst mmu(SuperscalarMemoryAdapter(translation))
   mmu.pipeline_vector <== vector_access
   mmu.request_vector <== vector_access

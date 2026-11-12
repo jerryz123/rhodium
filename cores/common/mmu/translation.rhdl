@@ -39,6 +39,13 @@ bundle RiscvTlbLookup():
   method same_request(request, other :: RiscvTlbLookup()) :: Bool:
     request.as_bits() === other.as_bits()
 
+  /* For host-only instruction fault replay, SATP changes invalidate the entry and cancel its
+     walk. Hypervisor builds keep both root PPNs in the key, including for host fetches. */
+  method instruction_fault_key(request, ~host_root_epoch: host_root_epoch :: Boolean) :: RiscvTlbLookup():
+    if host_root_epoch
+    | request.updated(~context: request.context.updated(~vs_root_ppn: Bits(44)(0)))
+    | request
+
 /* Retains independent stage permissions, PBMT, and fault provenance. Bare stages have
    zero leaves; the captured context identifies which stages apply. */
 bundle RiscvTlbMapping():

@@ -1,0 +1,26 @@
+#lang rhodium
+/* Adapts a walker's fault-or-accept handshake to a physical PTE read offer. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "cache/access.rhdl".pte_read_permitted
+  "mmu/translation.rhdl".RiscvPteRead
+  lib("riscv/rtl/pma.rhdl").RiscvPhysicalMemoryMap
+  lib("flow/main.rhdl") open
+
+/* Local denial consumes the walker request without issuing a read. A permitted offer
+   stays live until physical acceptance or rejection, which can arrive with ready low. */
+circuit PteReadAdmission(physical_map :: RiscvPhysicalMemoryMap):
+  interface walker(Decoupled(RiscvPteRead()), ~role: consumer)
+  interface physical(Decoupled(RiscvPteRead()), ~role: producer)
+  input physical_fault: Bool
+  output access_fault: Bool
+
+  def permitted = pte_read_permitted(physical_map, walker.bits.address, walker.bits.pbmt)
+  physical.valid <== walker.valid & permitted
+  physical.bits <== walker.bits
+  access_fault <== walker.valid & (!permitted ||| physical_fault)
+  walker.ready <== physical.ready ||| access_fault
+  describe_interface_contract(walker, physical, "pte-read", ~trace_model: interface_trace_combinational(~guard: permitted))
+
+export PteReadAdmission

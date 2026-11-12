@@ -38,13 +38,13 @@ tagged_union CacheLookupDecision:
   Probe
   Local(CachePipelineOutcome)
 
-/* Contention replays first. WB resolves splits and translation misses. For an aligned hit,
+/* Invalidation and contention replay first. WB resolves splits and translation misses. For an aligned hit,
    translation and physical permission faults take priority over slow service. */
-fun classify_cache_lookup(~blocked: blocked :: Bool, ~split: split :: Bool, ~known: known :: Bool,
+fun classify_cache_lookup(~invalidate: invalidate :: Bool, ~blocked: blocked :: Bool, ~split: split :: Bool, ~known: known :: Bool,
                           ~page_fault: page_fault :: Bool, ~access_fault: access_fault :: Bool,
                           ~permitted: permitted :: Bool, ~can_probe: can_probe :: Bool) :~ CacheLookupDecision:
   priority_mux(~default: CacheLookupDecision.Probe):
-    blocked: CacheLookupDecision.Local(CachePipelineOutcome.Replay)
+    invalidate ||| blocked: CacheLookupDecision.Local(CachePipelineOutcome.Replay)
     split ||| !known: CacheLookupDecision.Local(CachePipelineOutcome.Slow)
     page_fault: CacheLookupDecision.Local(CachePipelineOutcome.PageFault)
     access_fault ||| !permitted: CacheLookupDecision.Local(CachePipelineOutcome.AccessFault)

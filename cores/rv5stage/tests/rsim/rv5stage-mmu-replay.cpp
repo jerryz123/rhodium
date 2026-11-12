@@ -1,6 +1,7 @@
 // Preserves the rv5stage-mmu-replay cycle and architectural oracle through direct rsim.
 // SPDX-License-Identifier: Apache-2.0
 #include "driver.hpp"
+#include "../../../common/cache/tests/rsim/speculative-access.hpp"
 #include "../../../common/mmu/tests/rsim/bare-vector-precheck.hpp"
 void tick();
 using data_req_bits_t = std::remove_cvref_t<decltype(data_in.prequest.pbits)>;
@@ -83,6 +84,7 @@ int instruction_pte_requests = 0;
 bool detached_walk_phase = 0;
 
 bool manual_pte_valid = 0;
+bool reject_pte = false;
 
 std::uint64_t manual_pte_data = 0;
 
@@ -624,7 +626,7 @@ void drive() {
         .preplay = instruction_return_replay};
     data_memory_in.prequest.pready = memory_ready;
     data_memory_in.prequest_ufault = UINT64_C(0);
-    data_memory_in.prequest_uaccess_ufault = UINT64_C(0);
+    data_memory_in.prequest_uaccess_ufault = reject_pte && data_memory_out.prequest.pvalid;
     data_memory_in.presponse.pvalid = pte_response_valid ||
                                       ordinary_response_valid ||
                                       manual_pte_valid || split_response_valid;
@@ -1597,6 +1599,26 @@ void stimulus() {
     check_instruction_fault_epoch(false);
     check_instruction_fault_epoch(true);
     check_instruction_fault_privilege();
+
+    // The physical port may reject a PTE while backpressured. It owes no reply.
+    clear_translations();
+    const int accepted_before_denial = manual_pte_requests;
+    memory_ready = 0;
+    data_request_valid = 1;
+    until([&] { return data_memory_out.prequest.pvalid; });
+    CHECK(data_memory_out.prequest.pbits.pmemory.pcontext.porigin &&
+          data_memory_out.prequest.pbits.pmemory.paddress == 0x1000);
+    const auto denied_va = data_in.prequest.pbits.paddress;
+    reject_pte = true;
+    tick();
+    reject_pte = false;
+    tick();
+    CHECK(data_out.prequest.pready && data_out.prequest_uaccess_ufault &&
+          !data_out.prequest_ufault && request_fault_address == denied_va &&
+          !data_memory_out.prequest.pvalid && manual_pte_requests == accepted_before_denial);
+    tick();
+    data_request_valid = 0;
+
     // An older replay may refetch a straddling instruction, but a younger
     // speculative page cannot start another walk before that owner resolves.
     clear_translations();
@@ -1713,7 +1735,19 @@ void stimulus() {
     certify_range(UINT64_C(20416), UINT64_C(20543), 0, 0, 6);
     release_window();
     // A failed conservative precheck is not a trap. Its valid first page remains reusable.
-    check_load_pipeline(UINT64_C(20416), 1, UINT64_C(36800));
+    falling();
+    pipeline_in.prequest = {.pvalid = 1, .pbits = {.pbyte_umask = 0xff,
+        .paddress = 20416, .paccess = MEMORY_LOAD, .pwidth = MEMORY_DOUBLE}};
+    check_warm_lookup_invalidation(invalidate_all, tick, [&](unsigned expected) {
+      settle();
+      CHECK(pipeline_out.presponse.pvalid && pipeline_out.presponse.pbits.poutcome == expected);
+      CHECK(pipeline_memory_out.prequest.pvalid == speculative_access::issues_lookup(expected));
+      if (pipeline_memory_out.prequest.pvalid)
+        CHECK(pipeline_memory_out.prequest.pbits.paddress == 36800);
+      CHECK(!data_memory_out.prequest.pvalid);
+    });
+    pipeline_in.prequest = {};
+    tick();
     clear_translations();
     vector_no_dirty = 1;
     certify_range(UINT64_C(16384), UINT64_C(16639), 0, 1, 3);

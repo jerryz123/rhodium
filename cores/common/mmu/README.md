@@ -91,7 +91,10 @@ request transfers. It is not a validity signal: use it only with a known owner.
 `route_tlb_fill` pairs a qualified walker completion with that lookup
 and sends it to the selected instruction or data bank in the same cycle.
 The caller selects the owner, controls completion acceptance, and can use the
-returned fill payload to retain a failed walk for replay.
+returned fill payload to retain a failed walk for replay. Both cores use
+`RiscvTlbLookup.instruction_fault_key` to capture and match an instruction
+failure. Host-only harts use the SATP invalidation epoch for the root.
+H-enabled harts compare both root PPNs. Walk admission retains the full lookup.
 
 Successful fills update a matching entry or replace cyclically. Faults never
 allocate. Whole-bank invalidation wins over a simultaneous fill, removes global

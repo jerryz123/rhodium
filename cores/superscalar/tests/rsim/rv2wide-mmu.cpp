@@ -711,6 +711,18 @@ int main() {
     walk_at(UINT64_C(0x400008), UINT64_C(0x80000000000020cb));
     CHECK(fetch_resolution.pdisposition == 0 && fetch_physical == 8);
     fetch_valid = 0;
+    address = 0x500008;
+    ex_valid = 1;
+    check_warm_lookup_invalidation(invalidate, tick_model, [&](unsigned expected) {
+      eval();
+      CHECK(result_valid && outcome == expected);
+      CHECK(resolve_valid == speculative_access::issues_lookup(expected));
+      if (resolve_valid)
+        CHECK(resolve_address == 8);
+      CHECK(!physical_valid);
+    });
+    ex_valid = 0;
+    tick_model();
     // Warm permission checks must apply to every subpage, including current U mode.
     fence();
     offer_wb(UINT64_C(0x503008));

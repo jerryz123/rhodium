@@ -9,6 +9,7 @@ import:
   lib("riscv/isa/hart.rhm").RiscvMmuType
   lib("cores/common/mmu/vector.rhdl") open
   lib("cores/common/mmu/context.rhdl") open
+  "../../common/pte-read.rhdl".PteReadAdmission
   "../../common/cache/protocol.rhdl" open
   "../../common/cache/access.rhdl" open
   "../../common/cosim-source.rhm".describe_cosim_signals
@@ -274,12 +275,12 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   )
   // Translation contention and ordered IO replay without entering miss service.
   // Pending committed cache stores do not make this translation port busy.
-  def pipeline_blocked = split_busy ||| data.request.valid ||| invalidate_all ||| ordered_busy ||| (probe_selected & !load_pinned)
+  def pipeline_blocked = split_busy ||| data.request.valid ||| ordered_busy ||| (probe_selected & !load_pinned)
   def load_translation_hit = load_pinned ||| dtlb.hit
   def load_translation_fault = !load_pinned & dtlb_result.fault
   def load_translation_access_fault = !load_pinned & dtlb_result.access_fault
   def decision = classify_cache_lookup(
-    ~blocked: pipeline_blocked, ~split: lookup.access.requires_split(lookup.width, lookup.address), ~known: load_translation_hit,
+    ~invalidate: invalidate_all, ~blocked: pipeline_blocked, ~split: lookup.access.requires_split(lookup.width, lookup.address), ~known: load_translation_hit,
     ~page_fault: load_translation_fault, ~access_fault: load_translation_access_fault,
     ~permitted: pipeline_access.permitted, ~can_probe: pipeline_access.allocatable
   )
@@ -313,15 +314,8 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   /* Page-walk admission
      Page probes precede instruction misses, then authorized data misses. */
 
-  /* In host-only builds a SATP write invalidates the fault entry and cancels
-     its walk. The epoch therefore identifies the root; H keeps both root tags. */
-  fun instruction_fault_key(lookup :: RiscvTlbLookup()) :: RiscvTlbLookup():
-    if hypervisor
-    | lookup
-    | lookup.updated(~context: lookup.context.updated(~vs_root_ppn: Bits(44)(0)))
-
   def can_start_walk = !walk_active & !fault_valid
-  def instruction_fault_cache_hit = instruction_fault_cached & instruction_failure.request.same_request(instruction_fault_key(itlb.lookup))
+  def instruction_fault_cache_hit = instruction_fault_cached & instruction_failure.request.same_request(itlb.lookup.instruction_fault_key(~host_root_epoch: !hypervisor))
   // A replaying older instruction may need its own fetch (including a
   // straddling word), but speculative successors must not repeatedly occupy
   // the shared walker before that instruction resolves.
@@ -367,7 +361,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   elsewhen cache_instruction_page_fault:
     def failure = fill.failure()
     instruction_fault_cached <== Bool(#true)
-    instruction_failure <== failure.updated(~request: instruction_fault_key(failure.request))
+    instruction_failure <== failure.updated(~request: failure.request.instruction_fault_key(~host_root_epoch: !hypervisor))
 
 
   /* Fault selection and instruction PMA checks */
@@ -487,7 +481,9 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def core_data_request = requests
     |> filter_flow(_request => !(data_page_fault ||| local_access_fault))
     |> gate_flow(translation_ready)
-    |> map_flow(request => request.updated(~address: data_physical_address, ~access: data_memory_operation))
+    |> map_flow(request):
+        def native :: PhysicalMemoryReq(xlen, RV5StageMemoryContext(vector_completion_slots)) = request
+        native.translated(data_physical_address, mux(data_pinned, PageMemoryType.PMA, dtlb_result.pbmt))
 
   data.request_access_fault <== data.request.valid & !split_busy & !split_candidate & !data_page_fault & (local_access_fault ||| (core_data_request.valid & core_memory.request_access_fault))
   misaligned.request_fault <== data_page_fault
@@ -497,9 +493,11 @@ sync_circuit RV5StageMmu(xlen :: XLen,
 
   /* PTE physical requests and response routing */
 
-  def pte_offer = walker.memory.request |> gate_flow(walk_active & !walker_memory_pending)
-  def pte_permitted = pte_read_permitted(physical_map, pte_offer.bits.address, pte_offer.bits.pbmt)
-  def walker_memory_request = pte_offer |> filter_flow(_pte => pte_permitted) |> trace_event("mmu/pte.request")
+  inst pte(PteReadAdmission(physical_map))
+  walker.memory.request |> gate_flow(walk_active & !walker_memory_pending) |> pte.walker
+  pte.physical_fault <== walker_memory.request_access_fault
+  walker.memory.request_access_fault <== pte.access_fault
+  def walker_memory_request = pte.physical |> trace_event("mmu/pte.request")
   walker_lookup.valid <== walker_memory_request.valid
   walker_lookup.bits <== if xlen == XLen.X32 | walker_memory_request.bits.address[0..32] | walker_memory_request.bits.address
   def walker_context = RV5StageMemoryContext(vector_completion_slots):
@@ -509,12 +507,8 @@ sync_circuit RV5StageMmu(xlen :: XLen,
 
   core_lookup.valid <== data_demand
   core_lookup.bits <== data_request.address
-  (core_data_request |> map_flow(request => RV5StagePhysicalDataReq(xlen, vector_completion_slots)):
-    memory: request
-    pbmt: mux(data_pinned, PageMemoryType.PMA, dtlb_result.pbmt)
-  ) |> core_memory.request
+  core_data_request |> core_memory.request
 
-  walker.memory.request_access_fault <== (pte_offer.valid & !pte_permitted) ||| (walker_memory.request.valid & walker_memory.request_access_fault)
   def walker_memory_request_fire = walker_memory.request.fire()
   // The shared walker retains canceled PTE ownership until the reply drains.
   walker_memory.response |> to_valid()
