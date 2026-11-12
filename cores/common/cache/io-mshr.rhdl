@@ -19,7 +19,7 @@ hardware_enum IOMSHRState:
 /* Admits one supported committed request independently of downstream availability.
    Returns the original context on final completion; the transport only supplies data and status.
    Unsupported operations never allocate. */
-sync_circuit IOMSHR(xlen :: XLen, Context :: DataType):
+sync_circuit IOMSHR(xlen :: XLen, Context :: DataType, ~admitted_address_width: admitted_width :: Nat = xlen.width):
   interface core(UncachedMemoryAccess(xlen, Context), ~role: responder)
   interface memory(UncachedTransportAccess(xlen, Bool), ~role: requester)
 
@@ -66,9 +66,14 @@ sync_circuit IOMSHR(xlen :: XLen, Context :: DataType):
   def zero = operation.is_cache_block_zero()
   def lane_mask = place_word_byte_mask(request.address, request.byte_mask, 8)
 
+  // Full-width PMA admission precedes this slot. Tie the omitted bits to zero
+  // at capture so the RN-I sees a full byte address without registering them.
+  def retained_width = math.min(admitted_width, xlen.width)
+  def admitted_address = if retained_width == 0 | Bits(xlen.width)(0) | request.address[0..retained_width].zext(xlen.width)
   when accept:
+    assert(request.address === admitted_address, "io_mshr_address_fits_admitted_map")
     command <== UncachedCommand(xlen, Bool):
-      address: request.address
+      address: admitted_address
       access: operation
       width: request.width
       unsigned: request.unsigned

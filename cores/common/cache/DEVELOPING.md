@@ -79,8 +79,11 @@ Keep these differences in the callers; use `rv5stage-mmu-replay` and
 `OrderedMemoryService` takes already-classified streams and opaque payloads.
 Preserve registered IO capacity as the cached-admission condition, separately
 from drain, to avoid a request/response-ready cycle. `attach_ordered_memory`
-wires that service to the cache and IOMSHR. Each core supplies its IO width and
-context, qualifies requests, handles fault sidebands, and adapts byte lanes.
+wires that service to the cache and IOMSHR. Each core supplies the physical map
+used for full-footprint admission. Bound the retained IO address using all
+mapped regions: PBMT can route even cacheable RAM through RN-I. Keep the
+slot independent of fetch cancellation and the RN-I engine's address register.
+Each core supplies its IO width and context, handles fault sidebands, and adapts byte lanes.
 Do not introduce new buffering on the cached or IO request paths. The sole
 local-management slot replaces the callers' previous one-entry queues.
 

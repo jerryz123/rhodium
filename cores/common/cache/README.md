@@ -171,6 +171,9 @@ It accepts independently of downstream availability, presents the captured
 request the following cycle, and releases only on final completion. It has no
 same-cycle refill or extra response buffer. Unsupported operations fault before
 allocation. The IOMSHR alone retains the opaque caller context and store operand.
+Callers that already checked the full physical address may supply
+`~admitted_address_width` to omit known-zero upper bits from storage. The
+default retains the full XLEN address; the transport always sees the byte address.
 Its downstream `UncachedTransportAccess(xlen, Bool)` sends a command with a
 constant context. Separately, `store_payload` supplies data and byte enables
 positioned within the addressed eight-byte lane. The producer must hold that payload

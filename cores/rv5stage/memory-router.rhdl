@@ -27,7 +27,8 @@ sync_circuit RV5StageMemoryRouter(xlen :: XLen,
   /* Retained uncached capacity
      Request capacity is independent of the response sink to avoid a flush-ready loop. */
 
-  def ordering = attach_ordered_memory(cache, uncached, core.response, xlen, RV5StageMemoryContext(vector_completion_slots))
+  def ordering = attach_ordered_memory(cache, uncached, core.response, xlen, RV5StageMemoryContext(vector_completion_slots),
+                                       ~physical_map: physical_map)
 
 
   /* Full-access permission classification

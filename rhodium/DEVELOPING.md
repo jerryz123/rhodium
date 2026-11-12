@@ -257,7 +257,7 @@ context to the physical response. `cache/uncached-instruction.rhdl` imports the 
 protocol, CHI transport/arbiter, physical memory contracts, hart map, XLEN,
 locality types, Flow, `std/bits.rhdl`, and CHI channels. It shapes fetches
 without owning frontend recovery policy. `cache/ordered-service.rhdl` imports
-Flow, XLEN, the physical memory protocol, and IOMSHR. It attaches the cache
+Flow, XLEN, the physical memory protocol, PMA map type, and IOMSHR. It attaches the cache
 and IO slot to shared drain/capacity gating, local completion storage, and
 response arbitration. Both cores retain PMA routing, fault reporting, and
 beat adaptation.

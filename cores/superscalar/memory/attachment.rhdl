@@ -55,7 +55,7 @@ sync_circuit SuperscalarL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHICo
     data: response.data[0..xlen.width] << (response.context.offset ++ Bits(3)(0))
     context: response.context.context
   def ordering = attach_ordered_memory(storage.core, uncached.core, memory.response, XLen.X64, SuperscalarUncachedContext(Context),
-                                       ~cache_reply: cache_reply, ~io_reply: io_reply)
+                                       ~physical_map: config.physical_map, ~cache_reply: cache_reply, ~io_reply: io_reply)
 
 
   /* Uncached fetch and best-effort prefetch.

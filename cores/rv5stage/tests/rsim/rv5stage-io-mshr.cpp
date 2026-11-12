@@ -27,7 +27,7 @@ void fetch() {
 }
 
 void contended_load(std::uint8_t flush_fetch,
-                    std::uint16_t expected_writeback) {
+                    std::uint16_t expected_writeback, std::uint64_t address = 0x8004) {
   int initial_requests, initial_accepted, initial_completed;
   initial_requests = requests;
   initial_accepted = accepted;
@@ -36,7 +36,7 @@ void contended_load(std::uint8_t flush_fetch,
   tick(); // Fetch reaches CHI; its response is delayed.
   core_in.prequest.pvalid = 1;
   core_in.prequest.pbits = {};
-  core_in.prequest.pbits.pmemory.paddress = UINT64_C(32772);
+  core_in.prequest.pbits.pmemory.paddress = address;
   core_in.prequest.pbits.pmemory.paccess = UINT64_C(1);
   core_in.prequest.pbits.pmemory.pwidth = UINT64_C(2);
   core_in.prequest.pbits.pmemory.pbyte_umask = rv32 ? 0x0f : 0xf0;
@@ -85,7 +85,7 @@ void contended_load(std::uint8_t flush_fetch,
   for (int repeat_index = 0; repeat_index < (4); ++repeat_index) {
     settle();
     CHECK(chi_out.preq.pvalid &&
-          chi_out.preq.pbits.paddress == UINT64_C(32772) &&
+          chi_out.preq.pbits.paddress == address &&
           chi_out.preq.pbits.popcode == UINT64_C(4) &&
           chi_out.preq.pbits.psize_uor_unum_ureq == UINT64_C(2) &&
           chi_out.preq.pbits.pmem_uattr.pdevice &&
@@ -242,8 +242,28 @@ void check_stalled_store(unsigned offset) {
         requests == prev_requests + 1 && writes == prev_writes + 1);
 }
 
-void check_block_zero(unsigned address) {
-  const unsigned line = address & ~63u;
+void check_unmapped_alias(std::uint64_t address) {
+  const int prev_requests = requests, prev_accepted = accepted;
+  core_in.prequest = {};
+  core_in.prequest.pvalid = 1;
+  core_in.prequest.pbits.pmemory.paddress = address;
+  core_in.prequest.pbits.pmemory.paccess = 1;
+  core_in.prequest.pbits.pmemory.pwidth = 2;
+  settle();
+  CHECK(core_out.prequest.pready && core_out.prequest_uaccess_ufault &&
+        !cache_out.prequest.pvalid && !chi_out.preq.pvalid);
+  tick();
+  core_in.prequest = {};
+  for (unsigned i = 0; i < 4; ++i) {
+    settle();
+    CHECK(core_out.pdrained && !core_out.presponse.pvalid && !chi_out.preq.pvalid);
+    tick();
+  }
+  CHECK(requests == prev_requests && accepted == prev_accepted);
+}
+
+void check_block_zero(std::uint64_t address) {
+  const auto line = address & ~UINT64_C(63);
   const int previous_requests = requests, previous_writes = writes;
   const int previous_accepted = accepted, previous_completed = completed;
   core_in.prequest = {};
@@ -337,12 +357,15 @@ void stimulus() {
             field(UINT64_C(15), 7,
                   0))); // Four-bit slot must survive the detached fetch.
     contended_load(0, memory_integer(UINT64_C(31)));
-    contended_load(1, UINT64_C(0));
+    contended_load(1, 0, rv32 ? 0x8004 : UINT64_C(0x100008004));
+    check_unmapped_alias(rv32 ? 0x18004 : UINT64_C(0x400008004));
 
     for (unsigned offset : {0u, 4u, 8u, 12u})
       check_stalled_store(offset);
     check_block_zero(0x1040 + 37);
     check_block_zero(0x7fff);  // Last byte of RAM; 0x8000 belongs to the device home.
+    if (!rv32)
+      check_block_zero(UINT64_C(0x2000010ff));  // PBMT-NC RAM sets the highest retained bit.
 
     // Reset clears a queued slot along with the shared transaction engine.
     fetch();

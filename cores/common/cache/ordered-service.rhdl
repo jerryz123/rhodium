@@ -5,6 +5,7 @@
 import:
   lib("flow/main.rhdl") open
   lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/rtl/pma.rhdl").RiscvPhysicalMemoryMap
   "access.rhdl".CacheServiceRoute
   "io-mshr.rhdl".IOMSHR
   "protocol.rhdl".UncachedMemoryReq
@@ -49,11 +50,13 @@ class OrderedMemoryAttachment(cached :: Endpoint, uncached :: Endpoint, manageme
    two optional Flow transforms adapt native replies before arbitration. Registered
    slot capacity gates new cached work independently of same-cycle IO admission. */
 fun attach_ordered_memory(cache :: Endpoint, transport :: Endpoint, response :: Endpoint.supports(DecoupledCtrl()),
-                          io_xlen :: XLen, IOContext :: DataType,
+                          io_xlen :: XLen, IOContext :: DataType, ~physical_map: physical_map :: RiscvPhysicalMemoryMap,
                           ~cache_reply: cache_reply :: Function = values, ~io_reply: io_reply :: Function = values) :~ OrderedMemoryAttachment:
   def cache_request :: Endpoint.supports(DecoupledCtrl()) = cache.field("request")
   inst ordering(OrderedMemoryService(decoupled_payload_type(cache_request), UncachedMemoryReq(io_xlen, IOContext), decoupled_payload_type(response)))
-  inst io_mshr(IOMSHR(io_xlen, IOContext))
+  // PBMT can send cacheable RAM through RN-I as well as statically uncached regions.
+  def admitted_width = physical_map.address_width_for(fun (_attributes): #true)
+  inst io_mshr(IOMSHR(io_xlen, IOContext, ~admitted_address_width: admitted_width))
   io_mshr.memory |> transport
   ordering.cache_drained <== cache.field("drained")
   ordering.io_drained <== io_mshr.core.drained

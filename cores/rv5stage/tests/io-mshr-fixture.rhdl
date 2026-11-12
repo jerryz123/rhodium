@@ -10,12 +10,20 @@ import:
   lib("cores/common/cache/uncached-instruction.rhdl").UncachedInstructionMemory
   "../memory-context.rhdl".RV5StageMemoryContext
   "../uncached-protocol.rhdl" open
-  "params.rhdl".test_rv5stage_uncached_config
+  "params.rhdl" open
+  "../../common/chi-hart.rhdl" open
+  lib("rhodium/std/interconnect.rhdl").AddressSet
+  lib("riscv/rtl/pma.rhdl").RiscvPhysicalMemoryRegion
   lib("riscv/isa/xlen.rhm").XLen
   lib("chi/protocol/channels.rhdl").CHIRNIChannels
 
 sync_circuit RV5StageIOMSHRFixture(xlen :: XLen, ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8):
-  def config = test_rv5stage_uncached_config
+  def base = test_rv5stage_uncached_config
+  def config = RiscvHartCHIConfig(base.flit, base.cache_line_bytes, base.regions ++ [
+    RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0x1_0000_8000, 0xff), test_rv5stage_device_attributes), test_rv5stage_uncached_home),
+    RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0x2_0000_1000, 0xff), test_rv5stage_memory_attributes), test_rv5stage_home)
+  ])
+
   input node_id: Bits(config.flit.node_id_width)
   interface core(RV5StagePhysicalDataAccess(xlen, vector_completion_slots), ~role: responder)
   interface cache(CacheAccess(xlen, RV5StageMemoryContext(vector_completion_slots)), ~role: requester)
