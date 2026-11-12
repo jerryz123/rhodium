@@ -10,6 +10,7 @@ import:
   "translation.rhdl" open
   "translation-specialization.rhm" open
   lib("rhodium/frontend/foundation.rhm").CircuitDefinition
+  lib("cores/common/mmu/translation.rhdl").riscv_bare_address_fits
   lib("cores/common/mmu/translation.rhdl").RiscvTranslationFault
   "../../common/cache-prefetch.rhdl" open
   "../../common/chi-hart.rhdl" open
@@ -44,7 +45,10 @@ sync_circuit SuperscalarIdentityTranslation(xlen :: XLen, config :: RiscvHartCHI
   vector_window.translation.request.ready <== !invalidate
   vector_window.translation.response.valid <== vector_window.translation.request.fire()
   def empty_translation :: RiscvTranslationResult() = literal(RiscvTranslationResult(), 0)
-  vector_window.translation.response.bits <== empty_translation.updated(~physical_address: vector_window.translation.request.bits.address[0..56])
+  def probe_address = vector_window.translation.request.bits.address
+  vector_window.translation.response.bits <== empty_translation.updated(
+    ~physical_address: probe_address[0..56], ~access_fault: !riscv_bare_address_fits(probe_address)
+  )
   assert(!(invalidate & vector_window.owned), "superscalar_bare_vector_window_drained_before_invalidation")
 
   /* Bare certificates retain identity mappings; invalidation still separates admission epochs. */

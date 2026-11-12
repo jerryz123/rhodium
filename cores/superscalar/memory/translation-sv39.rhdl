@@ -102,7 +102,7 @@ sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: 
   // The independent probe certifies MEM while the demand port serves older work.
   // Certification checks real A/D permissions; only optional data hints may drop.
   certificate.translation.valid <== vector_fast.request.valid & dtlb.probe_hit
-  certificate.translation.bits <== riscv_host_result(dtlb.probe_translation).updated(~pbmt: dtlb.probe_pbmt)
+  certificate.translation.bits <== riscv_host_result(dtlb.probe_translation)
 
 
   /* Registered hints never contend with demand translation or allocate a walk.
@@ -194,15 +194,8 @@ sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: 
   walker.request.valid <== !walk_live & !cancel & !invalidate & (choose_data ||| instruction_miss)
   def selected_data_walk = mux(pending_data, pending_lookup, data_lookup)
   walker.request.bits <== mux(choose_data, selected_data_walk, instruction_lookup)
-  walker.completion.ready <== Bool(#true)
-  def fill = RiscvTlbFill():
-    request: walk_lookup
-    result: walker.completion.bits
-
-  itlb.fill.valid <== walker.completion.valid & walk_live & !walk_data & !invalidate
-  dtlb.fill.valid <== walker.completion.valid & walk_live & walk_data & !invalidate
-  itlb.fill.bits <== fill
-  dtlb.fill.bits <== fill
+  def completed = walker.completion |> to_valid() |> filter_valid(_result => walk_live & !invalidate)
+  def fill = route_tlb_fill(completed, walk_lookup, walk_data, itlb.fill, dtlb.fill)
   when invalidate:
     walk_live <== Bool(#false)
   elsewhen (walker.request.fire()):

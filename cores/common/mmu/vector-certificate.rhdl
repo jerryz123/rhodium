@@ -5,6 +5,7 @@
 import:
   "vector.rhdl" open
   "vector-window.rhdl".vector_page_permitted
+  "translation.rhdl".riscv_bare_address_fits
   "translation.rhdl".RiscvTlbLookup
   "protocol.rhdl".RiscvTranslationResult
   lib("riscv/isa/xlen.rhm").XLen
@@ -35,7 +36,9 @@ sync_circuit VectorCertificate(xlen :: XLen, physical_map :: RiscvPhysicalMemory
   def address :: Bits(64) = if bare | check.request.bits.first | translation.bits.physical_address.zext(64)
   def page = address.align_down(4096)
   def page_permitted = vector_page_permitted(physical_map, page, check.request.bits.store)
-  def translation_permitted = if bare | Bool(#true) | translation.valid & !translation.bits.fault & !translation.bits.access_fault & (translation.bits.pbmt === PageMemoryType.PMA)
+  def translation_permitted = if bare
+  | riscv_bare_address_fits(address)
+  | translation.valid & !translation.bits.fault & !translation.bits.access_fault & (translation.bits.pbmt === PageMemoryType.PMA)
   def proof = check.request |> filter_valid(_range => !invalidate & translation_permitted & page_permitted)
   (proof |> map_valid(range => VectorFastCertificate(xlen)):
     range: range

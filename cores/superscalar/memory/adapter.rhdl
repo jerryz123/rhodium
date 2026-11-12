@@ -82,13 +82,11 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
 
   /* Shapes an aligned native-word cache access without changing architectural size or store positioning. */
   fun cache_request(request :: PhysicalMemoryReq(xlen, Bool), address :: Bits(xlen.width)) :~ CachePipelineReq(xlen):
-    CachePipelineReq(xlen):
-      address: address.align_down(bytes)
-      byte_mask: request.byte_mask
-      access: request.access
-      width: if xlen == XLen.X32 | MemoryWidth.Word | MemoryWidth.Double
-      unsigned: Bool(#true)
-      data: request.data
+    request.native_lookup().updated(
+      ~address: address.align_down(bytes),
+      ~width: if xlen == XLen.X32 | MemoryWidth.Word | MemoryWidth.Double,
+      ~unsigned: Bool(#true)
+    )
 
   def Array(index, context) = pipeline.request |> fork_valid(2)
   index |> map_valid(request => cache_request(request.memory, request.memory.address)) |> pipeline_lookup

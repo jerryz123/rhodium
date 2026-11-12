@@ -11,6 +11,10 @@ import:
   lib("riscv/rtl/trap.rhdl").ExceptionCause
   lib("rhodium/std/ready-valid.rhdl") open
 
+/* A Bare identity mapping must fit the 56-bit physical result before its address is narrowed. */
+fun riscv_bare_address_fits(address :: Bits(64)) :~ Bool:
+  !address[56..64].any()
+
 /* Separates first-stage, guest-stage, and physical failures for precise trap selection. */
 hardware_enum RiscvTranslationFault:
   None
@@ -199,6 +203,7 @@ fun riscv_host_result(result :: RiscvTlbMapping()) :~ RiscvTranslationResult():
     pbmt: mux(result.fault === RiscvTranslationFault.None, compose_page_memory_type(result.vs_leaf.pbmt, result.g_leaf.pbmt), PageMemoryType.PMA)
 
 export:
+  riscv_bare_address_fits
   riscv_guest_exception
   riscv_host_lookup
   riscv_host_mapping

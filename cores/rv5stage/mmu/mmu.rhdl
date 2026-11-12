@@ -362,18 +362,12 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def probe_walk_result = walker_completed |> filter_valid(_result => walk_is_probe) |> map_valid(result => riscv_host_result(result))
   Array(probe_hit_result, probe_walk_result) |> valid_arbiter() |> page_probe.response
   def walker_fault_completion = walker_completion_fire & (walker.completion.bits.fault =/= RiscvTranslationFault.None)
-  def fills = walker_completed |> map_valid(result => RiscvTlbFill()):
-    request: walk_lookup
-    result: result
-
-  def Array(instruction_fill, data_fill) = fills |> fork_valid(2)
-  instruction_fill |> filter_valid(_completion => !walk_is_data & !walk_is_probe) |> itlb.fill
-  data_fill |> filter_valid(_completion => walk_is_data ||| walk_is_probe) |> dtlb.fill
+  def fill = route_tlb_fill(walker_completed, walk_lookup, walk_is_data ||| walk_is_probe, itlb.fill, dtlb.fill)
   def cache_instruction_page_fault = walker_fault_completion & !walk_is_data & !walk_is_probe & !invalidate_all & walker.completion.bits.fault.is_page_fault()
   when invalidate_all:
     instruction_fault_cached <== Bool(#false)
   elsewhen cache_instruction_page_fault:
-    def failure = fills.bits.into(RiscvTlbFill()).failure()
+    def failure = fill.failure()
     instruction_fault_cached <== Bool(#true)
     instruction_failure <== failure.updated(~request: instruction_fault_key(failure.request))
 

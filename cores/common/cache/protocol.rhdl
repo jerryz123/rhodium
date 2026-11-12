@@ -60,6 +60,8 @@ bundle CachePipelineBeatReq(xlen :: XLen, beat_bytes :: Pow2Int = xlen.width / 8
   unsigned: Bool
   data: Bits(8 * beat_bytes)
 
+native_width CachePipelineReq(xlen) = CachePipelineBeatReq / 8
+
 /* Returns the physical-resolution decision, diagnostic reason, and selected load data. */
 bundle CachePipelineBeatResult(xlen :: XLen, beat_bytes :: Pow2Int = xlen.width / 8):
   outcome: CachePipelineOutcome
@@ -82,6 +84,17 @@ bundle AddressedPhysicalMemoryBeatReq(xlen :: XLen, Context :: DataType, beat_by
   context: Context
   locality: RiscvMemoryLocality
 
+  /* Projects a native XLEN request into its speculative lookup, preserving the byte address,
+     lane mask, and load formatting while dropping commit-only controls and context. */
+  method native_lookup(request) :: CachePipelineReq(xlen):
+    CachePipelineReq(xlen):
+      address: request.address
+      byte_mask: request.byte_mask
+      access: request.access
+      width: request.width
+      unsigned: request.unsigned
+      data: request.data
+
   /* Rebinds address width and return context while preserving the access and byte lanes. */
   method with_address_context(request, address :: Bits, context :: Hardware.packable) :: AddressedPhysicalMemoryBeatReq(xlen, context.type, beat_bytes, address.type.packed_width()):
     def To = AddressedPhysicalMemoryBeatReq(xlen, context.type, beat_bytes, address.type.packed_width())
@@ -101,7 +114,6 @@ bundle PhysicalMemoryBeatResp(xlen :: XLen, Context :: DataType, beat_bytes :: P
   data: Bits(8 * beat_bytes)
   context: Context
 
-native_width CachePipelineReq(xlen) = CachePipelineBeatReq / 8
 native_width CachePipelineResult(xlen) = CachePipelineBeatResult / 8
 
 native_width PhysicalMemoryBeatReq(xlen, Context, beat_bytes) = AddressedPhysicalMemoryBeatReq / 1

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "speculative-atomics.hpp"
+#include "../../../common/mmu/tests/rsim/bare-vector-precheck.hpp"
 
 void check_split_load(unsigned width, unsigned offset, bool sign_extend) {
   constexpr std::uint64_t base = 0x10000;
@@ -59,6 +60,25 @@ int main() {
     reset = 0;
     eval();
     CHECK(!vector_fast_out.presponse.pvalid);
+
+    check_bare_vector_precheck([](auto first, auto last, bool store, bool safe) {
+      vector_precheck_in.prequest = {1, {first, last, store}};
+      eval();
+      CHECK(vector_precheck_out.prequest.pready);
+      tick_model();
+      vector_precheck_in.prequest = {};
+      eval();
+      CHECK(!vector_precheck_out.presponse.pvalid && !physical_valid);
+      tick_model();
+      CHECK(vector_precheck_out.presponse.pvalid && vector_precheck_out.presponse.pbits == safe);
+      CHECK(!physical_valid && !wb_fault);
+      vector_precheck_in.presponse.pready = 1;
+      tick_model();
+      vector_precheck_in.presponse.pready = 0;
+      vector_precheck_in.prelease.pvalid = 1;
+      tick_model();
+      vector_precheck_in.prelease.pvalid = 0;
+    });
 
     // Bare hints retain one cycle of latency and suppress the outgoing edge on invalidation.
     prefetch_in.pvalid = 1;

@@ -60,6 +60,11 @@ refills, mutations, and response backpressure. It never interprets it. Every
 authorized demand, including a store with no register destination, receives
 one ordered response. Prefetches carry no response ownership.
 
+A native `PhysicalMemoryReq` provides `native_lookup()` for the speculative
+port. It preserves the byte address, operation, width, signedness, byte mask,
+and data. A core that fetches a whole word can override the lookup address,
+width, and signedness while retaining the original request for completion.
+
 Every accepted authorized request requires a same-edge `virtual_lookup` event
 with matching page-offset bits. Physical-only callers supply the physical
 address on both paths. This event is not a second transaction or completion;

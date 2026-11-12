@@ -1,6 +1,7 @@
 // Preserves the rv5stage-mmu-replay cycle and architectural oracle through direct rsim.
 // SPDX-License-Identifier: Apache-2.0
 #include "driver.hpp"
+#include "../../../common/mmu/tests/rsim/bare-vector-precheck.hpp"
 void tick();
 using data_req_bits_t = std::remove_cvref_t<decltype(data_in.prequest.pbits)>;
 // Verifies MMU walks, faults, prefetches, vector windows, and split slow accesses.
@@ -968,6 +969,12 @@ void stimulus() {
       rising();
     settle();
     reset = UINT64_C(0);
+
+    satp = 0;
+    check_bare_vector_precheck([](auto first, auto last, bool store, bool safe) {
+      certify_range(first, last, store, safe, 0, 1);
+      release_window();
+    });
 
     // A readable, side-effecting root must fault the original load without offering a PTE read,
     // even when the physical request sink is stalled. A subsequent ordinary root still walks.

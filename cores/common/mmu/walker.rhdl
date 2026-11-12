@@ -117,7 +117,7 @@ sync_circuit RiscvTranslationWalker(~svnapot: svnapot :: Boolean = #false):
 
   def bad_virtual_address = virtual_stage & !frame.address.sv39_canonical()
   def bad_guest_address = !virtual_stage & !guest_bare & (!sv39x4_address_valid(frame.address) ||| any(operation.context.g_root_ppn[0..2]))
-  def bare_overflow = !virtual_stage & guest_bare & any(frame.address[56..64])
+  def bare_overflow = !virtual_stage & guest_bare & !riscv_bare_address_fits(frame.address)
   def address_fault = priority_mux(~default: RiscvTranslationFault.GuestPageFault):
     bare_overflow: RiscvTranslationFault.AccessFault
     virtual_stage: RiscvTranslationFault.PageFault

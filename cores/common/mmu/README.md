@@ -85,6 +85,11 @@ both banks on every SATP root write and prevent an older walk from filling
 after invalidation. H-enabled harts and the default reusable bank retain the
 full root-tagged behavior.
 
+`route_tlb_fill` pairs a qualified walker completion with its captured lookup
+and sends it to the selected instruction or data bank in the same cycle.
+The caller selects the owner, controls completion acceptance, and can use the
+returned fill payload to retain a failed walk for replay.
+
 Successful fills update a matching entry or replace cyclically. Faults never
 allocate. Whole-bank invalidation wins over a simultaneous fill, removes global
 entries, and resets replacement state. Demand lookup observes pre-edge state;
@@ -124,13 +129,14 @@ first page probe is offered in the cycle after accepting the range, using only
 captured state; service backpressure may delay transfer, and later changes to
 the request cannot affect it. The page-probe service
 may use TLB hits or walks, including a response on a probe's transfer cycle.
-This fallback boundary does not add latency to the independent MEM fast check.
-Certification requires ordinary
-cacheable, idempotent memory, the requested access permission, and PMA rather
-than an overriding page memory type. A covering superpage can satisfy both
-endpoints with one probe. A false response selects precise per-access execution;
-it is not an architectural exception. The caller owns footprint eligibility,
-probe arbitration, translation context stability, and retirement ordering.
+A Bare probe checks the original address before narrowing it to 56 bits. An
+overflowing endpoint makes the precheck return false. This fallback runs
+independently of the MEM fast check. Certification requires cacheable,
+idempotent ordinary memory, the requested access permission, and the PMA memory
+type. A covering superpage can satisfy both endpoints with one probe. A false
+response selects precise per-access execution. The caller owns footprint
+eligibility, probe arbitration, translation context stability, and retirement
+ordering.
 
 ## Walker and memory ownership
 

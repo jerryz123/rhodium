@@ -58,6 +58,18 @@ bundle RiscvPrefetchProbe():
   physical_address: Bits(56)
   pbmt: PageMemoryType
 
+/* Pairs a qualified walker completion with its captured lookup, routes it to the owning
+   bank, and returns that same fill payload for the caller's fault-replay bookkeeping. */
+fun route_tlb_fill(completed :: Endpoint.of(Valid(RiscvTlbMapping())), lookup :: RiscvTlbLookup(), data_owner :: Bool,
+                   instruction :: Endpoint.of(Valid(RiscvTlbFill())), data :: Endpoint.of(Valid(RiscvTlbFill()))) :~ RiscvTlbFill():
+  def fills = completed |> map_valid(result => RiscvTlbFill()):
+    request: lookup
+    result: result
+  def Array(instruction_fill, data_fill) = fills |> fork_valid(2)
+  instruction_fill |> filter_valid(_fill => !data_owner) |> instruction
+  data_fill |> filter_valid(_fill => data_owner) |> data
+  fills.bits.into(RiscvTlbFill())
+
 /* Provides combinational demand and nonfaulting probe lookups over one associative bank.
    Successful fills replace round-robin; invalidation wins over a simultaneous fill. */
 sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8, ~host_root_epoch: host_root_epoch :: Boolean = #false):
@@ -116,7 +128,7 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8, ~host_root_epoch: h
     access: RiscvGuestFaultAccess.Explicit
 
   def demand_fault = priority_mux(~default: RiscvTranslationFault.None):
-    bare & lookup.virtual_address[56..64].any(): RiscvTranslationFault.AccessFault
+    bare & !riscv_bare_address_fits(lookup.virtual_address): RiscvTranslationFault.AccessFault
     vs_fault: RiscvTranslationFault.PageFault
     g_fault: RiscvTranslationFault.GuestPageFault
 
@@ -158,7 +170,7 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8, ~host_root_epoch: h
   probe_raw_hit <== probe_bare ||| probe_matches.any()
   probe_hit <== probe_raw_hit & !invalidate_all
   // With both stages Bare, the original address must fit before truncation to the physical port.
-  def probe_bare_overflow = probe_bare & probe.virtual_address[56..64].any()
+  def probe_bare_overflow = probe_bare & !riscv_bare_address_fits(probe.virtual_address)
   probe_fault <== probe_hit & (probe_bare_overflow ||| !probe_permissions.any())
 
 
@@ -300,6 +312,7 @@ sync_circuit RiscvTlb(entry_count :: Pow2Int = 8):
   probe_pbmt <== bank.probe_pbmt
 
 export:
+  route_tlb_fill
   RiscvPrefetchProbe
   RiscvTlb
   RiscvTranslationTlb

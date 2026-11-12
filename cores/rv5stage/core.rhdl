@@ -1312,13 +1312,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
 
   // Both ordinary operations use EX/MEM lookup. Only WB authorizes a store;
   // lookup itself cannot change the cache or initiate an external transaction.
-  def ex_lookup_payload = CachePipelineReq(xlen):
-    byte_mask: ex_data_request.byte_mask
-    address: ex_memory_address
-    access: ex_memory_operation
-    width: ex_input.bits.memory_width
-    unsigned: ex_input.bits.memory_unsigned
-    data: ex_data_request.data
+  def ex_lookup_payload = ex_data_request.native_lookup()
 
   def ex_resume_pc = priority_mux(~default: ex_input.bits.sequential_pc):
     ex_input.bits.vector_launch: ex_input.bits.sequential_pc

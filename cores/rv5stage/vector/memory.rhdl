@@ -106,16 +106,8 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
     locality: RiscvMemoryLocality.Default
 
   def misaligned = access & request.access.requires_split(width, address)
-  (
-    lookup_path |> filter_valid(_token => access & !misaligned & !controller.recover)
-      |> map_valid(_token => CachePipelineReq(xlen)):
-           byte_mask: request.byte_mask
-           address: request.address
-           access: request.access
-           width: request.width
-           unsigned: request.unsigned
-           data: request.data
-  ) |> pipeline.request
+  lookup_path |> filter_valid(_token => access & !misaligned & !controller.recover)
+    |> map_valid(_token => request.native_lookup()) |> pipeline.request
 
 
   /* MEM context and cache-result pairing.
