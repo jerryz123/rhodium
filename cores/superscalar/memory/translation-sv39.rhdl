@@ -186,7 +186,7 @@ sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: 
   reg pending_lookup(RiscvTlbLookup())
   reg walk_live(~init: Bool(#false))
   reg walk_data(Bool)
-  reg walk_lookup(RiscvTlbLookup())
+  def walk_lookup = walker.accepted_lookup
   def data_miss = (data_demand ||| vector_probe) & !data_known
   def same_active_data = walk_live & walk_data & walk_lookup.same_request(data_lookup)
   def instruction_miss = instruction.request.valid & !instruction_known
@@ -201,7 +201,6 @@ sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: 
   elsewhen (walker.request.fire()):
     walk_live <== Bool(#true)
     walk_data <== choose_data
-    walk_lookup <== walker.request.bits
   elsewhen (walker.completion.valid):
     walk_live <== Bool(#false)
 

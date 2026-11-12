@@ -85,7 +85,10 @@ both banks on every SATP root write and prevent an older walk from filling
 after invalidation. H-enabled harts and the default reusable bank retain the
 full root-tagged behavior.
 
-`route_tlb_fill` pairs a qualified walker completion with its captured lookup
+`walker.accepted_lookup` exposes the last request that transferred into the
+walker. It holds through completion, cancellation, and drain until another
+request transfers. It is not a validity signal: use it only with a known owner.
+`route_tlb_fill` pairs a qualified walker completion with that lookup
 and sends it to the selected instruction or data bank in the same cycle.
 The caller selects the owner, controls completion acceptance, and can use the
 returned fill payload to retain a failed walk for replay.

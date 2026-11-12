@@ -49,8 +49,12 @@ Preserve these invariants when extending the components:
   composed guest entries retain exact guest provenance at 4 KiB granularity.
 - Capture all context at walk admission. Later live requests cannot change a
   pending PTE's permission checks, PBMT, or completion provenance. The walker
-  returns the original VA from its retained request through completion stalls;
-  guest fault addresses come from the traversal, not from that request. Use
+  uses its accepted lookup for host and VS traversal, G-only walks, and the
+  original VA on completion. Only a nested G walk needs a separate GPA: the
+  address of a VS PTE or the final VS translation. The saved VS frame holds
+  table PPN, level, and inherited global status, not a copy of the original VA.
+  Use the walker's lookup for fill and fault correlation rather than recapturing
+  its request on the same edge. Use
   `RiscvTlbLookup.same_request` to identify a retained failure or an active
   walk. TLB entries use page-size matching and recheck current permissions.
 - An accepted PTE owns its reply across cancellation and invalidation. Keep

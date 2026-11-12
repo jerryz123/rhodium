@@ -12,6 +12,7 @@ import:
 sync_circuit RiscvNestedWalkerFixture():
   input command_valid: Bool
   output command_ready: Bool
+  output accepted_virtual: Bits(64)
   input virtualized: Bool
   input address: Bits(64)
   input access: Sv39Access
@@ -69,6 +70,7 @@ sync_circuit RiscvNestedWalkerFixture():
     context: context
 
   command_ready <== walker.request.ready
+  accepted_virtual <== walker.accepted_lookup.virtual_address
   walker.memory.request.ready <== memory_ready
   walker.memory.request_access_fault <== memory_fault
   walker.memory.response.valid <== response_valid

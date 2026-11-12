@@ -336,9 +336,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def start_data_walk = can_start_walk & !start_probe_walk & !start_instruction_walk & data_miss
   walker.request.valid <== start_instruction_walk ||| start_data_walk ||| start_probe_walk
   walker.request.bits <== mux(start_data_walk ||| start_probe_walk, dtlb.lookup, itlb.lookup)
-  reg walk_lookup(RiscvTlbLookup())
-  when (walker.request.fire()):
-    walk_lookup <== walker.request.bits
+  def walk_lookup = walker.accepted_lookup
 
   def walker_request_fire = walker.request.fire()
   page_probe.request.ready <== probe_selected & !invalidate_all & (dtlb.hit ||| (start_probe_walk & walker.request.ready))

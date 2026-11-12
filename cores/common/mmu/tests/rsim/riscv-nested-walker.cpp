@@ -127,6 +127,51 @@ void cancel_now() {
   eval();
 }
 
+void check_host_walk_owner() {
+  constexpr auto first = UINT64_C(0x40001234);
+  constexpr auto next = UINT64_C(0xffffffff81234567);
+  defaults();
+  virtualized = 0;
+  vs_mode = 1;
+  launch(first, FETCH);
+  wait_read(0x1008);
+  memory_ready = 1;
+  tick_model();
+  memory_ready = 0;
+  address = next;
+  access = LOAD;
+  command_valid = 1;
+  cancel_now();
+  for (int i = 0; i < 3; ++i) {
+    CHECK(accepted_virtual == first && !command_ready && !memory_valid && !completed);
+    tick_model();
+  }
+  pte = entry(0, VR);
+  response_valid = 1;
+  tick_model();
+  response_valid = 0;
+  eval();
+  CHECK(command_ready && !completed && accepted_virtual == first);
+
+  launch(next, LOAD);
+  address = first;
+  access = FETCH;
+  command_valid = 1;
+  // All three VPN indices and the final byte offset must come from next.
+  reply(0x1ff0, entry(2, 1));
+  reply(0x2048, entry(3, 1));
+  reply(0x31a0, entry(0xabc, VR));
+  for (int i = 0; i < 3; ++i) {
+    eval();
+    CHECK(completed && !command_ready && accepted_virtual == next &&
+          result_virtual == next && result_address == 0xabc567 && result_access == LOAD);
+    tick_model();
+  }
+  command_valid = 0;
+  finish(NONE, next, LOAD, 0xabc567);
+  CHECK(command_ready && accepted_virtual == next);
+}
+
 int main() {
   return run_test([] {
     reset = 1;
@@ -555,5 +600,6 @@ int main() {
     address = original;
     reply(UINT64_C(0x1000), entry(0, VR));
     finish(NONE, replacement, LOAD, replacement);
+    check_host_walk_owner();
   });
 }
