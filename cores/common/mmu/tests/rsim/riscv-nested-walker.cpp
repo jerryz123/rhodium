@@ -172,6 +172,80 @@ void check_host_walk_owner() {
   CHECK(command_ready && accepted_virtual == next);
 }
 
+void check_host_leaf_offsets() {
+  constexpr auto va = UINT64_C(0xffffffff9234d5ab);
+  constexpr auto napot = UINT64_C(1) << 63;
+  struct Leaf {
+    unsigned level;
+    std::uint64_t flags, ppn, expected;
+  };
+  constexpr Leaf leaves[] = {
+      {0, VR,         0xabcde123456, 0xabcde1234565ab}, // 4 KiB
+      {0, VR | napot, 0xabcde123458, 0xabcde12345d5ab}, // 64 KiB
+      {1, VR,         0xabcde123400, 0xabcde12354d5ab}, // 2 MiB
+      {2, VR,         0xabcdec00000, 0xabcdec1234d5ab}, // 1 GiB
+  };
+  defaults();
+  virtualized = 0;
+  vs_mode = 1;
+  unsigned root = 4;
+  for (const auto &leaf : leaves) {
+    vs_root = root++;
+    launch(va, LOAD);
+    auto slot = (vs_root << 12) + 0xff0;
+    if (leaf.level < 2) {
+      reply(slot, entry(2, 1));
+      slot = 0x2488;
+    }
+    if (leaf.level == 0) {
+      reply(slot, entry(3, 1));
+      slot = 0x3a68;
+    }
+    const auto leaf_pte = entry(leaf.ppn, leaf.flags);
+    reply(slot, leaf_pte);
+    command_valid = 1;
+    for (unsigned i = 1; i <= 3; ++i) {
+      address = va + i;
+      vs_root = root + i;
+      pte = entry(i, 1);
+      eval();
+      CHECK(completed && !memory_valid && !command_ready && fault == NONE);
+      CHECK(result_virtual == va && result_address == leaf.expected &&
+            result_guest == leaf.expected && vs_leaf == leaf_pte);
+      tick_model();
+    }
+    if (leaf.level == 1) {
+      // Cancel this held success on its acceptance edge. The next walk must
+      // read its new root, not this leaf or the offered replacement address.
+      cancel = 1;
+      completion_ready = 1;
+      eval();
+      CHECK(!completed && !command_ready);
+      tick_model();
+      cancel = completion_ready = 0;
+      command_valid = 0;
+      eval();
+      CHECK(command_ready && !completed);
+    } else {
+      command_valid = 0;
+      finish(NONE, va, LOAD, leaf.expected);
+    }
+  }
+
+  // A fault must not expose a table PPN as a physical result.
+  launch(va, LOAD);
+  reply((vs_root << 12) + 0xff0, 0);
+  CHECK(result_address == 0 && result_guest == 0);
+  finish(PAGE, va, LOAD, 0);
+
+  // A Bare host success has no leaf PPN; it returns the accepted VA unchanged.
+  constexpr auto bare = UINT64_C(0xabcdef12345dbe);
+  defaults();
+  launch(bare, LOAD);
+  address = va;
+  finish(NONE, bare, LOAD, bare);
+}
+
 int main() {
   return run_test([] {
     reset = 1;
@@ -601,5 +675,6 @@ int main() {
     reply(UINT64_C(0x1000), entry(0, VR));
     finish(NONE, replacement, LOAD, replacement);
     check_host_walk_owner();
+    check_host_leaf_offsets();
   });
 }

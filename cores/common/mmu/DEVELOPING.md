@@ -45,8 +45,11 @@ Preserve these invariants when extending the components:
   stage: RV5Stage still captures them in Decode and applies them in EX.
 - Permission results are not cached: demand hits recheck current controls.
   Probes ignore A/D, but must find the same allowed access class at both stages.
-- Mapping page size is separate from traversal level. Normalize leaf PPNs;
-  composed guest entries retain exact guest provenance at 4 KiB granularity.
+- Mapping page size is separate from traversal level. On a successful host
+  Sv39 leaf, replace the current table PPN with the raw leaf PPN. Build the
+  held physical address from that PPN, the captured page size, and the accepted
+  VA's offset. A host fault returns zero, not a stale table address. Composed
+  guest entries retain their address and exact guest provenance at 4 KiB granularity.
 - Capture all context at walk admission. Later live requests cannot change a
   pending PTE's permission checks, PBMT, or completion provenance. The walker
   uses its accepted lookup for host and VS traversal, G-only walks, and the

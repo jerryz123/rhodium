@@ -30,7 +30,8 @@ hardware_enum RiscvPageWalkState:
   Complete
   Drain
 
-/* Retains the table PPN, level, and inherited global bit while descending or suspending a walk. */
+/* Holds the table PPN, level, and inherited global bit during traversal. A successful
+   host leaf replaces the table PPN with its own PPN until completion. */
 bundle RiscvPageWalkFrame():
   table_ppn: Bits(44)
   level: Bits(2)
@@ -71,8 +72,19 @@ sync_circuit RiscvTranslationWalker(~svnapot: svnapot :: Boolean = #false):
 
   walking.ready <== (state === RiscvPageWalkState.Idle) & !cancel
   completion.valid <== (state === RiscvPageWalkState.Complete) & !cancel
-  // No new walk can replace operation while its completion is offered.
-  completion.bits <== result.updated(~virtual_address: operation.virtual_address)
+  // A host leaf no longer needs the table that supplied it. Reconstruct its
+  // address from the held frame and lookup, never from the next memory response.
+  def host_base_ppn = sv39_base_ppn(frame.table_ppn, result.page_size)
+  def host_address = priority_mux(~default: operation.virtual_address[0..56]):
+    result.fault =/= RiscvTranslationFault.None: Bits(56)(0)
+    operation.context.vs_mode === RiscvVSMode.Sv39: sv39_physical_address(operation.virtual_address, host_base_ppn, result.page_size)
+
+  completion.bits <== result.updated(
+    ~virtual_address: operation.virtual_address,
+    ~physical_address: mux(operation.virtualized, result.physical_address, host_address),
+    ~guest_physical_address: mux(operation.virtualized, result.guest_physical_address, host_address.zext(64))
+  )
+
   memory.request.valid <== (state === RiscvPageWalkState.Request) & !cancel
   def request_fire = request.fire()
   when request_fire:
@@ -219,7 +231,8 @@ sync_circuit RiscvTranslationWalker(~svnapot: svnapot :: Boolean = #false):
 
     state <== mux(operation.virtualized, RiscvPageWalkState.PrepareRead, RiscvPageWalkState.Request)
   elsewhen (response_received & virtual_stage & !operation.virtualized):
-    result <== outcome(RiscvTranslationFault.None, translated_address, zero_leaf)
+    frame <== frame.updated(~table_ppn: pte.ppn)
+    result <== outcome(RiscvTranslationFault.None, Bits(56)(0), zero_leaf)
     state <== RiscvPageWalkState.Complete
   elsewhen (response_received & virtual_stage):
     vs_leaf <== vs_pte
