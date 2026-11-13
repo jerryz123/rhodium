@@ -164,15 +164,21 @@ rounding metadata, with no numeric operands. Fixed work already launched at EX
 and needs only authorization. Delayed and split FP loads retain their
 architectural owner independently.
 
-Each MEM lane owns two `SuperscalarResult.operands` words.
-Branches, integer divide, and vector configuration use the GPR pair; FP
-divide/sqrt takes the FP pair. A CSR uses the left word (rs1 or zero-extended
-immediate), and scalar memory uses the right word (including FPR data for an FP
-store). Select on the individual instruction, not the group's FP request:
-a paired branch still needs its integer operands in MEM. After branch comparison,
-`for_writeback()` drives the WB address and left operand from one XLEN word.
-Memory operations, prefetches, and all branches (even not-taken ones) keep the
-address; other instructions keep the left operand. At MEM→WB, at most one
+Each EX→MEM lane captures three XLEN words, selected for its own instruction:
+
+| Instruction | `address_or_left` | `resolution.value` on success | `right` when needed |
+|---|---|---|---|
+| Ordinary integer ALU | Unused | ALU result | — |
+| Conditional branch | Target, even if not taken | Comparison rs1 | Comparison rs2 |
+| Jump and link | Target | Link PC | — |
+| Memory or prefetch | Effective address | Load hits substitute data in MEM | Unshifted store data |
+| CSR | rs1 or zero-extended immediate | CSR readback comes from WB | — |
+| Integer or FP divide/sqrt | First arithmetic operand | No early GPR result | Second arithmetic operand |
+| Vector configuration | AVL source | Forwardable VL | Register-supplied vtype |
+
+An EX fault takes precedence over every use of `resolution.value`. MEM compares
+branch operands only for a live branch; same-group rewrites still select the
+older ALU producer, not the branch's comparison word. At MEM→WB, at most one
 surviving scalar service needs the right word. Capture it once per group for
 memory (including the passive observer and retained split stores), integer
 divide, or FP divide/sqrt. WB validity and authorization remain per instruction;
@@ -181,9 +187,10 @@ pair with a scalar service. Only vector-enabled builds capture its `vtype`
 operand separately; immediate forms take their bits from the instruction.
 
 MEM/WB lane results and retirement commands each carry a `SuperscalarResolution`
-field. Its single XLEN `value` word holds either normal result data or the
-exception value. When applying a new resolution, `.with_result(data)` keeps
-the exception value for `Fault` and uses the supplied result for every other disposition.
+field. Its single XLEN `value` word carries normal result data, the exact
+exception value, or a conditional branch's non-writing operand. When applying a
+new resolution, `.with_result(data)` keeps the exception value for `Fault` and
+uses the supplied result for every other disposition.
 The result and resolution consumers read that same word; consumers
 must qualify their use. A fault cannot forward or retire result data, and its
 exception value is meaningful only for `Fault`. MEM may replace a successful
@@ -847,13 +854,11 @@ The same path handles stale boundaries and direct-jump/RAS fallbacks.
 Speculative RAS actions occur only on instruction packet acceptance, with at
 most one action per packet; fetch replay and local repair preserve older actions.
 
-At EX→MEM each lane captures one XLEN address word: the resolved target for a
-branch or jump (even if not taken), otherwise the effective data address after
-pointer masking. Select with decoded branch enable, not fault-qualified training
-enable: legality gates the consumer, not the word captured. The live EX cache
-lookup uses the data address before this selection. MEM and WB expose the stored
-word to the owning consumer: resolution and BTB training for a branch, or memory
-and prefetch for a data address.
+At EX→MEM the lane's address-or-left word retains the resolved target for a
+branch or jump (even if not taken). Select it with decoded branch enable, not
+fault-qualified training enable: legality gates the consumer, not the captured
+target. The live EX cache lookup uses the masked effective data address before
+the lane's storage selection.
 The predicted target and the trap value remain independent.
 MEM resolves the actual successor and misprediction and retains them through WB.
 MEM correction preserves its own transfer and kills younger tokens. WB alone

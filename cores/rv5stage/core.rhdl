@@ -1129,7 +1129,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   fun ex_forwarded_register_value(operand :: RV5StageOperand(xlen)):
     operand.stage_sel.mux({
       RV5StageBypassStage.RegisterFile: operand.value,
-      RV5StageBypassStage.Memory: mem_input.bits.result,
+      RV5StageBypassStage.Memory: mem_input.bits.value,
       RV5StageBypassStage.Writeback: wb_input.bits.value
     })
 
@@ -1371,18 +1371,20 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   ex_payload.writeback_source <== ex_input.bits.writeback_source
   ex_payload.writeback_enable <== ex_input.bits.writeback_enable & !ex_input.bits.vector_launch & !ex_exception.valid
   ex_payload.rd <== ex_input.bits.rd
-  ex_payload.result <== mux(ex_is_vector_config, ex_vector_configuration.vl.zext(width), ex_result)
+  ex_payload.value <== priority_mux(~default: ex_result):
+    ex_exception.valid: ex_exception.value
+    ex_input.bits.system.csr =/= RiscvCsrOperation.None: ex_csr_source
+    ex_is_vector_config: ex_vector_configuration.vl.zext(width)
+
   ex_payload.multiply_issue <== ex_multiply_issue
   ex_payload.divide_issue <== ex_divide_issue
   ex_payload.system <== ex_input.bits.system
   ex_payload.fence <== ex_input.bits.fence
   ex_payload.hint <== ex_input.bits.hint
   ex_payload.csr_address <== ex_input.bits.instruction[20..32]
-  ex_payload.csr_source <== ex_csr_source
   ex_payload.vector_config <== ex_vector_config
   ex_payload.exception_valid <== ex_exception.valid
   ex_payload.exception_cause <== ex_exception.cause
-  ex_payload.exception_value <== ex_exception.value
 
   if hypervisor
   | block:
@@ -1488,18 +1490,16 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     result.writeback_source <== mux(mem_load_hit, RV5StageWritebackSelect.Alu, operation.writeback_source)
     result.write_enable <== operation.writeback_enable & !operation.exception_valid & !operation.replay
     result.rd <== operation.rd
-    result.value <== operation.result
+    result.value <== operation.value
     result.multiply_issue <== operation.multiply_issue
     result.divide_issue <== operation.divide_issue
     result.system <== operation.system
     result.fence <== operation.fence
     result.hint <== operation.hint
     result.csr_address <== operation.csr_address
-    result.csr_source <== operation.csr_source
     result.vector_config <== operation.vector_config
     result.exception_valid <== operation.exception_valid
     result.exception_cause <== operation.exception_cause
-    result.exception_value <== operation.exception_value
     if hypervisor
     | block:
         result.guest_access <== operation.guest_access

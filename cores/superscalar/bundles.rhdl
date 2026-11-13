@@ -514,9 +514,7 @@ bundle SuperscalarVectorLane():
   store: Bool
   configure: VectorConfigMode
 
-/* Two words owned by this instruction, not the issue group. A CSR uses left
-   for its source; scalar memory uses right for its unshifted write data.
-   Branch comparison, divide and vector configuration consume the pair. */
+/* Logical retirement operands, projected from the lane and group service words. */
 bundle SuperscalarLaneOperands(xlen :: XLen):
   left: Bits(xlen.width)
   right: Bits(xlen.width)
@@ -533,23 +531,15 @@ bundle SuperscalarResult(xlen :: XLen, hypervisor :: Boolean):
   guest_access: RiscvGuestMemoryAccess
   prefetch: CachePrefetchOperation
   hint: InstructionHint
-  address: Bits(xlen.width)
+  address_or_left: Bits(xlen.width)
   cache_outcome: CachePipelineOutcome
   system: SuperscalarSystemControl()
   muldiv: SuperscalarLongControl()
-  operands: SuperscalarLaneOperands(xlen)
+  right: Bits(xlen.width)
   resolution: SuperscalarResolution(xlen)
   fp: SuperscalarFpControl()
   vector_fast_eligible: Bool
   vector: SuperscalarVectorLane()
-
-  /* After MEM compares branch operands, WB keeps either the address (including
-     a not-taken branch's training target) or the left operand. The issue group
-     captures service data and register-supplied vtype outside the lane. */
-  method for_writeback(result) :: SuperscalarResult(xlen, hypervisor):
-    def needs_address = result.memory_active ||| result.branch.update.branch ||| result.prefetch.is_prefetch()
-    def address_or_left = mux(needs_address, result.address, result.operands.left)
-    result.updated(~address: address_or_left, ~operands: result.operands.updated(~left: address_or_left, ~right: Bits(xlen.width)(0)))
 
   /* Recovers fetch provenance only when the retained origin bit names a fetch fault. */
   method fetch_fault(token) :: FetchFault(xlen, hypervisor):
@@ -586,9 +576,12 @@ bundle SuperscalarResult(xlen :: XLen, hypervisor :: Boolean):
       memory: result.memory
       prefetch: result.prefetch
       hint: result.hint
-      address: result.address
+      address: result.address_or_left
       system: result.system
-      operands: result.operands
+      operands:
+        SuperscalarLaneOperands(xlen):
+          left: result.address_or_left
+          right: result.right
       resolution: result.resolution
       fp: result.fp
       vector: result.vector
@@ -612,8 +605,8 @@ bundle SuperscalarResult(xlen :: XLen, hypervisor :: Boolean):
       memory_active: result.memory_active
       memory: result.memory
       guest_access: result.guest_access
-      address: result.address
-      store_data: result.operands.right
+      address: result.address_or_left
+      store_data: result.right
       wait: result.system.wait
       fp: result.fp
       fp_schedule: fp_request.tag

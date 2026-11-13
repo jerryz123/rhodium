@@ -145,7 +145,8 @@ bundle RV5StageException(xlen :: XLen):
   cause: ExceptionCause
   value: Bits(xlen.width)
 
-/* Carries EX results, branch recovery, memory intent, and vector certification inputs. */
+/* Carries EX results, branch recovery, memory intent, and vector certification inputs.
+   The scalar value is the early trap value, CSR source, or normal bypass result, in that order. */
 bundle ExecuteMemory(xlen :: XLen, vector_completion_slots :: Pow2Int, hypervisor :: Boolean):
   if hypervisor:
     guest: RiscvGuestException()
@@ -172,20 +173,19 @@ bundle ExecuteMemory(xlen :: XLen, vector_completion_slots :: Pow2Int, hyperviso
   writeback_source: RV5StageWritebackSelect
   writeback_enable: Bool
   rd: Bits(5)
-  result: Bits(xlen.width)
+  value: Bits(xlen.width)
   multiply_issue: RV5StageMultiplyIssue(xlen)
   divide_issue: RV5StageDivideIssue(xlen)
   system: RV5StageSystemControl()
   fence: RV5StageFenceControl()
   hint: InstructionHint
   csr_address: Bits(12)
-  csr_source: Bits(xlen.width)
   vector_config: RiscvVectorConfigRequest(xlen)
   exception_valid: Bool
   exception_cause: ExceptionCause
-  exception_value: Bits(xlen.width)
 
-/* Carries instruction context and deferred issue payloads to WB; LSU outcome capture stays separate. */
+/* Carries the selected scalar value, instruction context and deferred issue payloads to WB;
+   the aligned LSU outcome and load-hit data are captured separately. */
 bundle MemoryWriteback(xlen :: XLen, vector_completion_slots :: Pow2Int, hypervisor :: Boolean):
   if hypervisor:
     guest: RiscvGuestException()
@@ -216,11 +216,9 @@ bundle MemoryWriteback(xlen :: XLen, vector_completion_slots :: Pow2Int, hypervi
   fence: RV5StageFenceControl()
   hint: InstructionHint
   csr_address: Bits(12)
-  csr_source: Bits(xlen.width)
   vector_config: RiscvVectorConfigRequest(xlen)
   exception_valid: Bool
   exception_cause: ExceptionCause
-  exception_value: Bits(xlen.width)
 
   /* Removes live launch operands and certificates before selecting a retirement owner. */
   method retirement(operation) :: RV5StageRetirementCommand(xlen, vector_completion_slots, hypervisor):
@@ -245,15 +243,15 @@ bundle MemoryWriteback(xlen :: XLen, vector_completion_slots :: Pow2Int, hypervi
       ~fence: operation.fence,
       ~hint: operation.hint,
       ~csr_address: operation.csr_address,
-      ~csr_source: operation.csr_source,
+      ~csr_source: operation.value,
       ~vector_config: operation.vector_config,
       ~exception_valid: operation.exception_valid,
       ~exception_cause: operation.exception_cause,
-      ~exception_value: operation.exception_value
+      ~exception_value: operation.value
     )
     if hypervisor | command.updated(~guest: operation.guest, ~guest_access: operation.guest_access) | command
 
-  /* Replaces the ALU value only for a captured load hit; no outcome or duplicate context is stored. */
+  /* Substitutes the captured load-hit data; all other instructions keep their EX value. */
   method with_response(context, response :: CachePipelineResult(xlen)) :: MemoryWriteback(xlen, vector_completion_slots, hypervisor):
     context.updated(~value: mux(response.outcome === CachePipelineOutcome.LoadHit, response.data, context.value))
 

@@ -845,6 +845,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     inst alu(ALU(xlen))
     alu
 
+  wire ex_lookup_addresses: Vec(issue_width, Bits(xlen.width))
   def ex_alu_older = ex_alus[0]
   for (lane in 0..issue_width):
     def ex :: SuperscalarExecute(xlen, hypervisor) = ex_tokens[lane]
@@ -902,6 +903,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
       | wb_csrs.pointer_masking
 
     def ex_address = apply_pointer_mask(xlen, ex_raw_address, ex_mask)
+    ex_lookup_addresses[lane] <== ex_address
     // Only the proposed range is meaningful before MEM supplies a certificate.
     def ex_vector_geometry = vector_fast_footprint_geometry(xlen, profile.vector_length, ex.control.vector, ex.fetched.instruction, ex_vector_state, ex.operands.rs2)
     def ex_vector_start = vector_fast_start(xlen, ex.operands.rs1, ex_vector_geometry, ex_mask)
@@ -941,13 +943,23 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
       ex_bad_pc: ex_pc
       ex_bad_address: ex_address
 
-    /* EX/MEM operand capture. Select once for this instruction. Only a CSR
-       owns the immediate source mode; other decode rows may leave it unspecified.
-       The right word also feeds the live lookup before byte-lane shaping. */
+    /* EX/MEM word ownership. A conditional branch needs its target and both
+       comparison operands, but has no GPR result. Jumps keep their link instead.
+       Services that need a left operand have no memory or branch address. */
+
     def ex_fp_divide = ex.control.fp.valid & (ex.control.fp.bits.execution.unit === FloatUnit.DivideSquareRoot)
-    def ex_left = priority_mux(~default: ex.operands.rs1):
+    def ex_csr = ex_system.csr =/= RiscvCsrOperation.None
+    def ex_address_or_left = priority_mux(~default: ex_address):
+      ex.control.branch.resolver.enable: ex_target
       ex_fp_divide: ex_fp_request.left
-      (ex_system.csr =/= RiscvCsrOperation.None) & ex_system.immediate: instruction_field(fields.rs1, ex.fetched.instruction).zext(xlen.width)
+      ex_csr & ex_system.immediate: instruction_field(fields.rs1, ex.fetched.instruction).zext(xlen.width)
+      ex_csr ||| ex_is_vector_config ||| (ex.control.muldiv.service === SuperscalarLongOperation.Divide): ex.operands.rs1
+
+    def ex_value = priority_mux(~default: ex_alu.result):
+      ex_fault: ex_fault_value
+      ex.control.branch.resolver.enable & !ex.control.branch.resolver.unconditional: ex.operands.rs1
+      ex_is_vector_config: ex_configuration.vl.zext(xlen.width)
+      ex.control.writeback.link: ex_successor
 
     def ex_right = priority_mux(~default: ex.operands.rs2):
       ex.control.fp.valid: ex_fp_request.right[0..xlen.width]
@@ -982,15 +994,11 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
       guest_access: ex.control.guest_access
       prefetch: ex.control.prefetch
       hint: ex.control.hint
-      address: mux(ex.control.branch.resolver.enable, ex_target, ex_address)
+      address_or_left: ex_address_or_left
       cache_outcome: CachePipelineOutcome.Slow
       system: ex.control.system
       muldiv: ex.control.muldiv
-      operands:
-        SuperscalarLaneOperands(xlen):
-          left: ex_left
-          right: ex_right
-
+      right: ex_right
       fp: ex.control.fp
       vector_fast_eligible: ex_vector_footprint.eligible & !ex_vector_footprint.empty
       vector:
@@ -1006,7 +1014,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
         SuperscalarResolution(xlen):
           disposition: mux(ex_fault, SuperscalarDisposition.Fault, SuperscalarDisposition.Continue)
           cause: ex_fault_cause
-          value: mux(ex_fault, ex_fault_value, mux(ex_is_vector_config, ex_configuration.vl.zext(xlen.width), mux(ex.control.writeback.link, ex_successor, ex_alu.result)))
+          value: ex_value
           guest: if hypervisor | mux(ex_fetch_fault.valid, ex.fetched.fault.guest, ex_generated_guest) | ex_generated_guest
     ) |> ex_output
 
@@ -1084,8 +1092,9 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
      lookup alone cannot authorize a store or external transaction. */
 
   inst ex_store(StoreGen(xlen, xlen.width / 8))
-  ex_store.address <== ex_lookup.address
-  ex_store.value <== ex_lookup.operands.right
+  def ex_lookup_address = ex_lookup_addresses[service_index(ex_memory_lane)]
+  ex_store.address <== ex_lookup_address
+  ex_store.value <== ex_lookup.right
   ex_store.width <== ex_lookup.memory.width
   scalar_pipeline.request.valid <== ex_valid[service_index(ex_memory_lane)] & ex_lookup.memory_active & (ex_lookup.resolution.disposition === SuperscalarDisposition.Continue) & !rr_squash
   scalar_pipeline.request.bits <== GuestMemoryReq(PhysicalMemoryReq(xlen, Bool)):
@@ -1093,11 +1102,11 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     memory:
       PhysicalMemoryReq(xlen, Bool):
         context: Bool(#false)
-        address: ex_lookup.address
+        address: ex_lookup_address
         access: ex_lookup.memory.access
         atomic: ex_lookup.memory.atomic
         width: ex_lookup.memory.width
-        data: mux(ex_lookup.memory.access.is_store(), ex_store.data, ex_lookup.operands.right)
+        data: mux(ex_lookup.memory.access.is_store(), ex_store.data, ex_lookup.right)
         locality: RiscvMemoryLocality.Default
         byte_mask: ex_store.mask.as_bits()
         unsigned: !ex_lookup.memory.access.is_lr_sc_or_amo()
@@ -1123,7 +1132,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   when (vector_fast.request.valid):
     assert(mem_descriptor_lane === mem_vector_lane, "superscalar_mem_vector_descriptor_owner")
   inst mem_load(LoadGen(xlen, xlen.width / 8))
-  mem_load.address <== mem_memory.address
+  mem_load.address <== mem_memory.address_or_left
   mem_load.width <== mem_memory.memory.width
   mem_load.unsigned_load <== mem_memory.memory.unsigned
   mem_load.data <== scalar_pipeline.response.bits.data
@@ -1135,14 +1144,14 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     def mem_pc = mem_pipe[lane].pc
     inst mem_resolver(BranchResolver(xlen.width))
     (mem_branch_input |> filter_valid(_operation => !wb_squash) |> map_valid(_operation => BranchResolverRequest(xlen.width)):
-      left: mux(mem.branch.operands_from_older[0], mem_older.egress.bits.resolution.value, mem.operands.left)
-      right: mux(mem.branch.operands_from_older[1], mem_older.egress.bits.resolution.value, mem.operands.right)
+      left: mux(mem.branch.operands_from_older[0], mem_older.egress.bits.resolution.value, mem.resolution.value)
+      right: mux(mem.branch.operands_from_older[1], mem_older.egress.bits.resolution.value, mem.right)
       control: mem.branch.control
     ) |> mem_resolver.request
 
     (mem_context |> map_valid(token): token.into(SuperscalarResult(xlen, hypervisor)).observed(mem_pc)) |> memory_stage[lane]
     def mem_lookup = mem.memory_active & (mem.resolution.disposition === SuperscalarDisposition.Continue)
-    def mem_misaligned = mem.memory.access.requires_split(mem.memory.width, mem.address)
+    def mem_misaligned = mem.memory.access.requires_split(mem.memory.width, mem.address_or_left)
     def mem_outcome = priority_mux(~default: CachePipelineOutcome.Replay):
       mem_misaligned: CachePipelineOutcome.Slow
       scalar_pipeline.response.valid: scalar_pipeline.response.bits.outcome
@@ -1158,17 +1167,17 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
       guest: scalar_pipeline.response.bits.guest.details
       disposition: mem_disposition
       cause: data_fault_cause(mem.memory.access.store_fault_class(), ~page_fault: mem_page_fault, ~guest_page_fault: mem_page_fault & scalar_pipeline.response.bits.guest.page_fault)
-      value: mem.address
+      value: mem.address_or_left
 
     def mem_taken = mem.branch.update.branch & mem_resolver.result.bits.taken
-    def mem_next_pc = mux(mem_taken, mem.address, mem.fetched.sequential_pc.apply(mem_pc))
+    def mem_next_pc = mux(mem_taken, mem.address_or_left, mem.fetched.sequential_pc.apply(mem_pc))
     def mem_predicted_pc = mux(mem.fetched.prediction.valid, mem.fetched.prediction.target.expanded(), mem.fetched.sequential_pc.apply(mem_pc))
-    def mem_bad_target = mem_taken & mem.address[0].into(Bool)
+    def mem_bad_target = mem_taken & mem.address_or_left[0].into(Bool)
     def mem_target_resolution = SuperscalarResolution(xlen):
       guest: empty_guest.updated(~guest_virtual_address: guest_state.virtualized)
       disposition: SuperscalarDisposition.Fault
       cause: ExceptionCause.InstructionAddressMisaligned
-      value: mem.address
+      value: mem.address_or_left
 
     /* Final MEM resolution and forwarding.
        Earlier faults win; a permitted load hit joins the ordinary data
@@ -1202,7 +1211,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
       mispredicted: token.branch.mispredicted
       predicted_target: mem.fetched.prediction.target.expanded()
       taken: token.branch.taken
-    ) |> map_valid(token => token.into(SuperscalarResult(xlen, hypervisor)).for_writeback()) |> wb_pipe[lane].ingress
+    ) |> map_valid(token => token.updated(~right: Bits(xlen.width)(0))) |> wb_pipe[lane].ingress
 
     wb_pipe[lane].flush <== wb_squash
 
@@ -1223,7 +1232,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   /* MEM to WB: only surviving lanes advance. A redirect can kill the younger
      owner independently; stale payloads have no validity outside their lane. */
 
-  def mem_right_words = for List (result in mem_results): result.bits.operands.right
+  def mem_right_words = for List (result in mem_results): result.bits.right
   def mem_service_claims = for List (result in mem_results):
     def token :: SuperscalarResult(xlen, hypervisor) = result.bits
     def divide = (token.muldiv.service === SuperscalarLongOperation.Divide) ||| (token.fp.valid & (token.fp.bits.execution.unit === FloatUnit.DivideSquareRoot))
@@ -1274,7 +1283,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   def mem_pcs = vec(for List (stage in mem_pipe): stage.pc)
   def mem_branch_pc = priority_mux((for List (lane in 0..issue_width - 1): [mem_corrections[lane], mem_pcs[lane]]), ~default: mem_pcs[issue_width - 1])
   def mem_prediction_pc = mux(mem_branch.fetched.prediction.valid, mem_branch.fetched.prediction.target.expanded(), mem_branch.fetched.sequential_pc.apply(mem_branch_pc))
-  def mem_actual_pc = mux(mem_branch.branch.taken, mem_branch.address, mem_branch.fetched.sequential_pc.apply(mem_branch_pc))
+  def mem_actual_pc = mux(mem_branch.branch.taken, mem_branch.address_or_left, mem_branch.fetched.sequential_pc.apply(mem_branch_pc))
   def mem_prediction_failure = prediction_failure(
     mem_branch.branch.update.branch, mem_branch.branch.update.conditional,
     ((mem_actual_pc =/= mem_prediction_pc) & (mem_branch.branch.taken ^ (mem_prediction_pc =/= mem_branch.fetched.sequential_pc.apply(mem_branch_pc)))) ||| (mem_branch.fetched.direction.valid & (mem_branch.fetched.direction.taken ^ mem_branch.branch.taken)),
@@ -1285,7 +1294,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   count_prediction_failure(mem_branch_redirect, mem_prediction_failure)
   def mem_redirect_bits = SuperscalarRedirect(xlen):
     pc: mem_branch_pc
-    target: mux(mem_branch.branch.taken, mem_branch.address, mem_branch.fetched.sequential_pc.apply(mem_branch_pc))
+    target: mux(mem_branch.branch.taken, mem_branch.address_or_left, mem_branch.fetched.sequential_pc.apply(mem_branch_pc))
     resolution: mem_branch.resolution
     interrupt: Bool(#false)
     trap_cause: Bits(xlen.width)(0)
@@ -1375,7 +1384,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   def wb_live_group :: Vec(issue_width, SuperscalarResult(xlen, hypervisor)) = vec(
     for List (stage in wb_pipe):
       def token :: SuperscalarResult(xlen, hypervisor) = stage.egress.bits
-      token.updated(~operands: token.operands.updated(~right: wb_service_right))
+      token.updated(~right: wb_service_right)
   )
 
   def wb_scalar_lane = superscalar_service_lane(for List (stage in wb_pipe): stage.egress.valid)
@@ -1510,7 +1519,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   // This selection must not depend on request readiness or retirement feedback.
   def wb_memory_locality = priority_mux((for List (lane in 1..issue_width): [wb_memory_lane === Bits(2)(lane), instruction_hint_locality(wb_live_group[lane - 1].hint)]), ~default: wb_pending_locality)
   def wb_memory_active = wb_dispatch[service_index(wb_memory_lane)] & wb_memory.memory_active & wb_scalar_prefix
-  def wb_split_capture = wb_memory_active & wb_memory.memory.access.requires_split(wb_memory.memory.width, wb_memory.address)
+  def wb_split_capture = wb_memory_active & wb_memory.memory.access.requires_split(wb_memory.memory.width, wb_memory.address_or_left)
   def wb_management_capture = wb_memory_active & wb_memory.memory.access.is_cache_management()
   def wb_memory_capture = wb_split_capture ||| wb_management_capture
   def wb_wait_capture = wb_dispatch[0] & (wb_live_group[0].system.wait =/= ReservationWaitMode.None)
@@ -1596,8 +1605,8 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
      Request offers depend on pre-dispatch owners, not final retirement;
      successful acceptance, admission faults, and replay remain distinct. */
 
-  def wb_request_address = mux(wb_management, wb_retained_owner.address, wb_memory.address)
-  def wb_request_data = mux(wb_management, wb_retained_owner.store_data, wb_memory.operands.right)
+  def wb_request_address = mux(wb_management, wb_retained_owner.address, wb_memory.address_or_left)
+  def wb_request_data = mux(wb_management, wb_retained_owner.store_data, wb_memory.right)
   def wb_request_memory :: ScalarMemoryControl() = mux(wb_management, wb_retained_owner.memory, wb_memory.memory)
   def wb_request_guest = mux(wb_management, wb_retained_owner.guest_access, wb_memory.guest_access)
   inst wb_store(StoreGen(xlen, xlen.width / 8))
@@ -1611,7 +1620,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     write: wb_memory.write
     precision: wb_memory.fp.bits.execution.destination_precision
     access: wb_memory.memory.access
-    offset: wb_memory.address[0..alignment_bits(memory_word_bytes(xlen))]
+    offset: wb_memory.address_or_left[0..alignment_bits(memory_word_bytes(xlen))]
     width: wb_memory.memory.width
     unsigned: wb_memory.memory.unsigned
 
@@ -1686,8 +1695,8 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     def operation :: SuperscalarResult(xlen, hypervisor) = payload
     def control = operation.muldiv.divide
     def request = DividerRequest(xlen.width):
-      dividend: integer_word_operand(xlen, operation.operands.left, control.signed_mode, control.word_result)
-      divisor: integer_word_operand(xlen, operation.operands.right, control.signed_mode, control.word_result)
+      dividend: integer_word_operand(xlen, operation.address_or_left, control.signed_mode, control.word_result)
+      divisor: integer_word_operand(xlen, operation.right, control.signed_mode, control.word_result)
       signed_mode: control.signed_mode
 
     def owner = SuperscalarCompletion(xlen):

@@ -237,6 +237,10 @@ int main() {
     const auto branch = third(0x00000863); drain(); // beq x0,x0,+16
     CHECK(lanes.at(branch) == 2 && redirect_pc == branch && redirect_target == branch + 16);
     CHECK(training.at(branch) == 1);
+    // Both operands are 42. The last lane must compare its own nonzero rs1,
+    // not its target or stale data in the shared completion slot.
+    const auto not_taken = third(0x01511863); drain(); // bne x2,x21,+16
+    CHECK(lanes.at(not_taken) == 2 && redirect_pc == branch && training.at(not_taken) == 1);
     const auto jump = third(0x010000ef); drain(); // jal x1,+16
     CHECK(lanes.at(jump) == 2 && gprs[1] == jump + 4 && redirect_target == jump + 16);
     const auto indirect = third(0x000082e7); drain(); // jalr x5,0(x1)

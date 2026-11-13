@@ -186,8 +186,12 @@ from a DPI-result register in the observed design.
    classification must cross MEM/WB together. FP hits use `load_hit` at WB
    without allocating a deferred reservation; older data transactions must be
    drained before admitting that path so the FPR load-write port cannot collide.
-   `mem_wb_pipe` stores the canonical `MemoryWriteback`, including the ordinary
-   ALU value but not an additional `load_hit` or `cache_outcome` copy.
+   `mem_wb_pipe` stores the canonical `MemoryWriteback`, including the shared
+   scalar value but not an additional `load_hit` or `cache_outcome` copy.
+   EX selects this word once: an early trap carries its fault value, a CSR
+   instruction carries its source, and an ordinary producer carries its result
+   (including VL for vector configuration). Only the result case is eligible
+   for forwarding. Late LSU faults still use the request or split-fault address.
    `memory_response` stores the selected LSU outcome and data independently on
    the same edge. `with_response` selects the load-hit value in that same record;
    consumers read the outcome alongside it instead of expanding a second bundle.

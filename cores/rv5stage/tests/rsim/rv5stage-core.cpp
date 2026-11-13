@@ -156,6 +156,12 @@ std::uint32_t instruction_at(std::uint64_t address) {
   } break;
   case UINT64_C(0x1000000ac): return vector_words[0];
   case UINT64_C(0x1000000b0): return vector_words[1];
+  case UINT64_C(0x1000000b4): return 0x34049073; // csrw mscratch, x9 (64-bit link)
+  case UINT64_C(0x1000000b8): return 0x3406dc73; // csrrwi x24, mscratch, 13
+  case UINT64_C(0x1000000bc): return 0x001c0c93; // addi x25, x24, 1
+  case UINT64_C(0x1000000c0): return 0x34002d73; // csrr x26, mscratch
+  case UINT64_C(0x1000000c4): return 0x07903c23; // sd x25, 120(x0)
+  case UINT64_C(0x1000000c8): return 0x09a03023; // sd x26, 128(x0)
   case 0: return 0x34202af3; // mtvec=0: csrr x21, mcause
   case 4: return 0x34302b73; // csrr x22, mtval
   case 8: return 0x34102bf3; // csrr x23, mepc
@@ -451,10 +457,15 @@ void observe() {
               const std::uint64_t expected[] = {2, vector_words[index], UINT64_C(0x1000000ac) + 4 * index};
               CHECK(data_access_out.prequest.pbits.paddress == unsigned(96 + 8 * field) &&
                     data_access_out.prequest.pbits.pdata == expected[field]);
-              if (stores_seen == 15) {
-                CHECK(saw_split_restart);
-                throw Finished{};
-              }
+            } break;
+            case 16: {
+              CHECK(data_access_out.prequest.pbits.paddress == 120 &&
+                    data_access_out.prequest.pbits.pdata == UINT64_C(0x100000051));
+            } break;
+            case 17: {
+              CHECK(data_access_out.prequest.pbits.paddress == 128 &&
+                    data_access_out.prequest.pbits.pdata == 13 && saw_split_restart);
+              throw Finished{};
             } break;
             default: {
               fail(1, "unexpected forwarding test store");

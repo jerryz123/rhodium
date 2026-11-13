@@ -1605,6 +1605,19 @@ int main() {
     }
     CHECK(stops == before_value_faults + 8);
 
+    // A taken BEQ encoding with a fault on its second parcel must not redirect
+    // or train. The trap value is PC+2, not the comparison word or target.
+    const auto before_fault_training = branch_updates;
+    for (int lane = 0; lane < 2; ++lane) {
+      const auto pc = UINT64_C(0xffffffff80003140) + 16 * lane;
+      const auto beq = branch(12, 12, 32);
+      stop_at(pc + 4 * lane, 0, 1, 1, pc + 4 * lane + 2);
+      send(pc, lane ? imm(12, 0, 5) : beq, lane ? beq : imm(13, 12, 9),
+           2, lane == 1, false, lane, {}, {}, true);
+      drain();
+    }
+    CHECK(branch_updates == before_fault_training);
+
     // Warm loads use the normal MEM/WB path and sustain one LSU plus one ALU each cycle.
     reset_core();
     lookup_mode = 1;

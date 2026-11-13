@@ -66,8 +66,9 @@ for (operand_name in ["left", "right"]):
   def input_index = identity_index(inputs.map(fun (port): port.value), input.value)
   def driver = place_leaf_driver(alu.places[input_index], [])
   visit(driver.value, driver.path)
-  unless ["mem_wb_pipe", ["bits", "value"]] in sources
-  | error(~who: #'ex_forwarding, "ALU operand no longer reads the normal WB value")
+  for (stage in ["ex_mem_pipe", "mem_wb_pipe"]):
+    unless [stage, ["bits", "value"]] in sources
+    | error(~who: #'ex_forwarding, "ALU operand no longer reads the registered value from " ++ stage)
 
   for (field in ["outcome", "data"]):
     unless ["memory_response", ["bits", field]] in sources
