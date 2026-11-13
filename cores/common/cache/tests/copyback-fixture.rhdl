@@ -59,7 +59,8 @@ sync_circuit CacheCopyBackFixture():
     engine.node_id <== Bits(7)(3)
     engine.victim_state <== state
     engine.snoop_pending <== snoop_pending
-    engine.line <== line
+    engine.packet.valid <== Bool(#true)
+    engine.packet.bits <== line.as_vec(Bits(data_width))[engine.packet_index]
     engine.line_address <== Bits(64)(0x80001240)
 
     engine.command.valid <== enabled[index] & command_valid

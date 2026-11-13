@@ -270,6 +270,32 @@ void check_backing_handoff(const Line &victim, Line probed) {
     hit(base+512+i*16, load, replacement[i]);
 }
 
+// Neither the old tag nor the incoming tag may expose a partially written way.
+void check_partial_install(const Line &old_line, const Line &new_line) {
+  reset = 1; tick_model(); reset = 0;
+  for (unsigned address : {base, base + 256}) {
+    request(address, load); refill(address, 2, old_line); response(old_line[0]);
+  }
+  request(base + 512 + 48, load);
+  const auto txn = accept_request(base + 512, 2);
+  refill_packet(txn, 3, 1, new_line[3]);
+  for (unsigned address : {base, base + 512}) {
+    auto &snp = chi_in.psnoops;
+    snp.pbits = {};
+    snp.pbits.paddress = address >> 3; snp.pbits.popcode = 1; // SnpShared: a clean hit would report SharedClean.
+    snp.pbits.psrc_uid = 1; snp.pbits.ptxn_uid = 0x41; snp.pvalid = 1;
+    until([] { return chi_out.psnoops.pready; }); tick_model(); snp.pvalid = 0;
+    const auto &rsp = chi_out.prequester_uresponses;
+    until([&] { return rsp.pvalid; });
+    CHECK(rsp.pbits.ptxn_uid == 0x41 && rsp.pbits.presp == 0);
+    CHECK(!chi_out.prequest_udata.pvalid && !core_out.presponse.pvalid);
+    tick_model();
+  }
+  for (unsigned i : {1u, 0u, 2u}) refill_packet(txn, i, 1, new_line[i]);
+  response(new_line[3]);
+  for (unsigned i = 0; i < 4; ++i) hit(base + 512 + 16*i, load, new_line[i]);
+}
+
 void check_retained_address(const Line &low, const Line &high) {
   constexpr auto ram = (UINT64_C(1) << 32) | base;
   constexpr auto alias = (UINT64_C(1) << 33) | base; // Within CHI, beyond data RAM.
@@ -419,6 +445,7 @@ int main() {
       chi_in.prequest_udata.pready = 1; tick_model(); chi_in.prequest_udata.pready = 0;
     }
     check_backing_handoff(a, b);
+    check_partial_install(a, b);
     check_retained_address(a, b);
     check_high_store_rows(a, b);
   });

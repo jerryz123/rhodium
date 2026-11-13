@@ -116,7 +116,7 @@ through `drained`, including same-cycle enqueue.
 
 One ordinary demand load or store miss may remain outstanding while speculative
 pipeline loads hit resident lines in other cache sets. Waiting for CHI requests,
-retry credit, response packets, CompAck acceptance, or buffered victim writeback
+retry credit, response packets, CompAck acceptance, or a stalled victim packet
 does not itself occupy the SRAM ports. Independent load hits retain the normal
 S0/S1 lookup timing and may complete before the older miss. The authorized slow
 request/response path remains ordered and supports only one miss at a time.
@@ -221,23 +221,22 @@ flowchart LR
   Mutate --> Response
 
   Resolved -->|miss or ownership acquisition| Victim{"Dirty allocated victim?"}
-  Victim -->|yes| Gather["Shared gather reader"]
-  Arrays -->|"one row per return"| Gather
-  Gather -->|"victim rows"| Line["Shared 64-byte line"]
-  Line -->|"victim packets"| Writeback["WriteBackFull"]
+  Victim -->|yes| Writeback["WriteBackFull"]
+  Arrays -->|"granted victim rows"| PacketSlot["One copyback/refill packet"]
+  PacketSlot -->|"victim DAT"| Writeback
   Writeback -->|"completed"| Refill["ReadClean or ReadUnique"]
   Victim -->|no| Refill
   Record --> Install
   Way --> Install
-  Refill -->|"accepted packets by DataID"| Line
-  Line -->|"after CompAck"| Install["Install one row/cycle<br/>publish metadata last"]
-  Line -->|"non-allocating load after CompAck"| Load
+  Refill -->|"allocating packets by DataID"| PacketSlot
+  PacketSlot -->|"one row per SRAM turn"| Install["Install rows<br/>publish metadata after CompAck"]
+  Refill -->|"requested old row"| Load
   Install --> Arrays
   Install --> Response
 
   Snoop["Snoop engine"] -->|"lookup / final update"| Arrays
   Arrays -->|"hit and state"| Snoop
-  Gather -->|"dirty snoop rows"| Packet["One DAT packet"]
+  Arrays -->|"dirty snoop rows"| Packet["Independent snoop packet"]
   Packet -->|"ready / valid"| Snoop
   Snoop --> CHI["CHI SnpResp / SnpRespData"]
 ```
@@ -315,13 +314,13 @@ victim is dirty, avoiding nonbinding writeback traffic.
 | Store/AMO hit in SharedClean | Retain the current way and issue `ReadUnique` | Merge the mutation while installing; UniqueDirty |
 | Matching SC on a Unique hit | Commit locally without CHI acquisition | UniqueDirty |
 | Failed SC | Return one without CHI traffic or a data-array update | Unchanged |
-| Dirty allocation victim | Gather the line, complete writeback, then issue the refill | Victim invalidated before replacement installation |
+| Dirty allocation victim | Issue writeback, stream the granted victim, then issue refill | Victim invalidated before replacement installation |
 
 L1D supplies the aligned miss address from its retained request until refill
 completion is accepted. The [refill engine](../chi/refill.rhdl) uses that
 address for every attempt and retains its own CHI retry state. Each accepted
-`CompData` packet writes its position in L1D's 64-byte line buffer; L1D consumes the line only after
-all packets arrive and `CompAck` transfers. L1D supplies the destination way
+`CompData` packet identifies its SRAM rows by DataID. An allocating miss
+backpressures DAT when the current packet cannot drain. L1D supplies the destination way
 and original response context from the shared registers; only a miss captures
 the allocation and installation policy.
 A direct miss starts the refill on its S4 acceptance edge; after a dirty
@@ -329,13 +328,13 @@ eviction the refill uses the original request address, not the victim address.
 
 Shared cache lines are fixed at 64 bytes, and L1D rejects a refill carrying `PassDirty`. With the
 repository's default 128-bit DAT width, four packets form a line. Installation
-writes one configured array row per cycle and publishes the tag, coherence
-state, and valid bit only on the final row. A mutating refill merges its
+writes one configured array row per available SRAM turn and publishes the tag,
+coherence state, and valid bit only after all rows and `CompAck`. A mutating refill merges its
 selected bytes before that row is written.
 
 For a non-default-locality ordinary load miss, the retained transaction context
-instead selects completion without installation. The complete clean line is
-consumed after `CompAck`, using normal load lane extraction and destination
+instead selects completion without installation. Only the requested row is
+saved; the load completes after `CompAck`, using normal lane extraction and destination
 metadata. [CHI permits silent eviction of a clean copy](https://documentation-service.arm.com/static/5f914ecbf86e16515cdc2b4d)
 (section 4.6): no data, tag, valid, or state array is written, no victim is
 drained, and replacement state is untouched. It does not explicitly clear
@@ -352,11 +351,10 @@ behavior. This uses coherent `ReadClean`, not uncached `ReadNoSnp` or `ReadOnce`
 Home still obtains current data from dirty peers. It may clean those peers and
 allocate in outer caches. No outer-cache allocation policy is claimed.
 
-For a dirty allocation victim, the shared array reader gathers each row into
-the same line buffer that will later receive the refill. Snoop responses use
-a separate packet buffer. Only after the last victim row is present can the
-[writeback engine](../chi/writeback.rhdl) accept the command
-and issue a retryable `WriteBackFull`. L1D holds the victim address separately
+For a dirty allocation victim, the [writeback engine](../chi/writeback.rhdl)
+issues a retryable `WriteBackFull` without reading the data array. After grant,
+the reader assembles one packet, holds its bytes through DAT stalls, and yields
+the SRAM to dirty snoops. L1D holds the victim address separately
 from the miss address until copyback completion is accepted. The victim remains
 resident and snoop-visible while awaiting `CompDBIDResp`; its set remains reserved against
 local accesses. A preceding snoop may consume its dirty data and invalidate
@@ -388,11 +386,10 @@ The shared [data-snoop engine](../chi/snoop.rhdl) owns each request's lifetime,
 DVM pairing, lookup-result capture, stable CHI response, and dirty-data packet
 sequence. Outside the [bounded local-service windows](#lrsc-reservation), a
 pending snoop prevents a new core lookup. It waits behind an active lookup,
-registered mutation, line gather, or refill installation, but it may run while
-a captured refill or writeback transaction is otherwise waiting on CHI.
-An already accepted snoop finishes before refill installation. New snoops are
-deferred from CompAck through installation; once installation begins, the
-refill keeps the ports through the final word.
+registered mutation, or another snoop. Dirty snoop reads take priority over
+copyback reads and refill writes. A stalled snoop packet uses no SRAM port.
+An accepted snoop finishes before refill metadata publication; new snoops are
+deferred from CompAck through publication.
 
 | Cached result | CHI response | Local transition |
 |---|---|---|

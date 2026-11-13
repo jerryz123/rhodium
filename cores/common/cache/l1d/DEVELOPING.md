@@ -66,9 +66,8 @@ explicit; retain slow completions until the selected response sink accepts them.
 
 S4 hit/refill/eviction branches carry the resolved array metadata. Capture the
 admitted request, selected data row, and allocation way's tag on the same
-S3-to-S4 transfer. A local hit uses row zero of the backing line, regardless
-of its SRAM row index. Hold it through a stalled hit or local AMO; do not admit
-another S4 capture while gather, copyback, or refill owns the bank. Dirty snoops
+S3-to-S4 transfer. Hold the service row through a stalled hit or local AMO;
+only a refill packet containing the requested row may replace it during a miss. Dirty snoops
 retain their packet separately. The S4 metadata and slow-service response registers are elastic;
 the latter has registered-only input capacity to break the downstream-ready
 path through request admission. Do not turn stalled transfers into repeated
@@ -99,23 +98,21 @@ The refill engine declares retained ownership
 from command acceptance through completion; its resident checkpoint carries S4
 ancestry through the final arbiter and parents each request attempt. Writeback
 residency similarly parents copyback requests/data and post-eviction refill
-commands. Its incoming gather ancestry, and maintenance ancestry, remain unknown.
-Do not infer gather-FSM ancestry from an address or transaction ID. See the
+commands. Eviction commands come directly from S4. See the
 [RV5Stage integration trace guide](../../../rv5stage/DEVELOPING.md#pipeline-event-annotations)
 for an example of caller-owned result capture and translation-fault observations.
 
 ### Behavioral invariants
 
-The gather FSM routes each returning array row to exactly one destination:
-L1D's writeback/refill line or the snoop packet buffer. Publish eviction only
-after its last row arrives. For snoops, return metadata immediately; only a
-data-preserving dirty hit starts the reader. The last row bypasses into DAT
-and is captured for a stall. Do not issue the next packet's first read until
-the previous packet transfers. Preserve
-the victim through retry and the final copyback transfer; only then may the
-replacement refill start. Write refill packets on acceptance by DataID, not
-arrival order. No command-time clear is needed: installation and bypass both
-wait for the full packet set and CompAck.
+Copyback and refill share one packet register, not the snoop register.
+Read the pinned victim only after grant. Keep its packet cursor independent
+of snoop reads; acquire the next packet no earlier than the current transfer.
+The final returning row bypasses into DAT and is captured for a stall.
+After final handoff, invalidate the victim and start the replacement refill.
+For direct installation, hide the selected way at admission. Index incoming
+packets by DataID, apply mutations while writing rows, and retain the requested
+old row for the response. Never write a bypass fill to SRAM. Publish metadata
+only after the final write, CompAck, and any previously admitted snoop.
 
 The RV64 D-cache fixture checks both grant orderings with two dirty lines;
 `cache-wide-l1d` queues a dirty miss behind a local AMO, checks a load hit
@@ -184,7 +181,7 @@ the response-only path for both make-invalid opcodes.
    local mutation instead takes ownership in place and captures the selected
    way. Let the S4 token leave; do not overwrite the request on that edge or
    while the slow owner is live. A miss owns it from direct refill acceptance
-   or eviction gather start through refill completion, including retries and
+   or writeback command acceptance through refill completion, including retries and
    stalls. A local mutation holds it through the SRAM update (the final row
    for block zero). Extract the local AMO operand and response from the
    captured hit word; a miss instead selects its addressed refill row. Derive the

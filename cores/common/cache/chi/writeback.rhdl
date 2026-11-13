@@ -13,7 +13,7 @@ import:
   lib("chi/protocol/messages.rhdl").chi_rn_copyback_data
   lib("chi/transactions/retryable-transaction.rhdl") open
 
-/* Starts copyback of the caller's gathered victim and tags its completion. */
+/* Starts copyback of the caller's pinned victim and tags its completion. */
 bundle CacheLineWritebackCommand(Context :: DataType):
   context: Context
 
@@ -35,7 +35,9 @@ sync_circuit CacheLineWriteback(Context :: DataType, address_width :: PosInt, co
   input victim_state: CHICacheState
   input snoop_pending: Bool
   output granted: Bool
-  input line: Bits(CacheLineBytes * 8)
+  output packet_needed: Bool
+  output packet_index: Bits(packet_width)
+  interface packet(Decoupled(Bits(p.data_width)), ~role: consumer)
   interface command(Decoupled(CacheLineWritebackCommand(Context)), ~role: consumer)
   interface completion(Irrevocable(CacheLineWritebackResult(Context)), ~role: producer)
   interface requests(Decoupled(CHIReqFlit(p)), ~role: producer)
@@ -44,14 +46,14 @@ sync_circuit CacheLineWriteback(Context :: DataType, address_width :: PosInt, co
 
 
   /* Retained victim command.
-     The caller holds the gathered line through the last DAT transfer; the engine retains context. */
+     The caller pins the victim in its array; SRAM reads are unnecessary until grant. */
 
   inst control(CHIRetryableTransactionControl(p, CacheCopyBackResponses))
   reg context(Context)
   reg home_id(Bits(p.node_id_width))
   reg dbid(Bits(12))
   reg response_state(Bits(3))
-  reg packet_index(~init: Bits(packet_width)(0))
+  reg cursor(~init: Bits(packet_width)(0))
   reg data_sent(~init: Bool(#false))
   def returning = command |> trace_event("dcache/writeback", ~residency: "data", ~fields: _request):
     address: line_address
@@ -109,11 +111,12 @@ sync_circuit CacheLineWriteback(Context :: DataType, address_width :: PosInt, co
   /* Granted packet stream and caller completion.
      Only accepted data advances the packet cursor; final handoff precedes completion release. */
 
-  data.valid <== granted & !data_sent
-  def packet_number = packet_index.zext(2)
-  def packet_data = line.as_vec(Bits(p.data_width))[packet_index]
-  data.bits <== chi_rn_copyback_data(p, node_id, home_id, dbid, chi_transfer_data_id(packet_number, p), packet_data, response_state)
-  def final_packet = packet_index === Bits(packet_width)(packets - 1)
+  packet_needed <== granted & !data_sent
+  packet_index <== cursor
+  packet.ready <== packet_needed & data.ready
+  data.valid <== packet_needed & packet.valid
+  data.bits <== chi_rn_copyback_data(p, node_id, home_id, dbid, chi_transfer_data_id(cursor.zext(2), p), packet.bits, response_state)
+  def final_packet = cursor === Bits(packet_width)(packets - 1)
   def final_data = data.fire() & final_packet
   completion.valid <== control.active & data_sent
   completion.bits <== CacheLineWritebackResult(Context):
@@ -125,12 +128,12 @@ sync_circuit CacheLineWriteback(Context :: DataType, address_width :: PosInt, co
   describe_interface_retained_storage(command_fire, completion.fire(), control.active)
   describe_interface_contract(returning, Array(control.attempt, data, completion), "copyback-outputs", ~trace_model: interface_trace_retained(~outputs: 3))
   when command_fire:
-    packet_index <== Bits(packet_width)(0)
+    cursor <== Bits(packet_width)(0)
     data_sent <== Bool(#false)
   elsewhen final_data:
     data_sent <== Bool(#true)
   elsewhen (data.fire()):
-    packet_index <== packet_index + Bits(packet_width)(1)
+    cursor <== cursor + Bits(packet_width)(1)
 
 export:
   CacheLineWritebackCommand

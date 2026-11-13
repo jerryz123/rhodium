@@ -28,13 +28,6 @@ import:
   lib("chi/transactions/cache-maintenance.rhdl") open
   lib("chi/protocol/channels.rhdl").CHIRNChannels
 
-/* Owns word-at-a-time line gathering for dirty eviction or snoop data handoff. */
-hardware_enum L1DGatherState:
-  Idle
-  EvictionRead
-  EvictionReady
-  SnoopRead
-
 /* Labels the winning physical SRAM user independently of scalar instruction ownership. */
 hardware_enum L1DArrayOwner:
   Pipeline
@@ -220,8 +213,8 @@ sync_circuit L1DCache(xlen :: XLen,
   reg retained_way(Bits(way_width))
   reg pending_mutation_valid(~init: Bool(#false))
   reg pending_zero_index(~init: Bits(word_index_width)(0))
-  reg refill_installing(~init: Bool(#false))
-  reg refill_install_index(~init: Bits(word_index_width)(0))
+  reg refill_packet_live(~init: Bool(#false))
+  reg refill_row(Bits(word_index_width))
   // Reserve the whole set across victim gather, writeback, retry, and install.
   // Only ordinary demand loads/stores permit independent pipeline load hits.
   reg miss_active(~init: Bool(#false))
@@ -229,14 +222,18 @@ sync_circuit L1DCache(xlen :: XLen,
   reg miss_allocation(Bool)
   reg miss_install(Bool)
   reg miss_prefetch(Bool)
-  // S4 uses row zero for its local hit. Victim gather and refill each replace
-  // every row before publishing the line; snoops have independent packet storage.
-  reg backing_line(Vec(words_per_line, Bits(beat_width)))
-  writeback.line <== backing_line.as_bits()
+  // Only the requested old row survives the transaction. Copyback and refill
+  // never overlap, so their packet can share storage; snoops have their own.
+  reg service_row(Bits(beat_width))
+  reg backing_packet(Vec(rows_per_packet, Bits(beat_width)))
+  reg copy_row(~init: Bits(word_index_width)(0))
+  reg copy_response_offset(Bits(index_width(rows_per_packet)))
+  reg copy_response_pending(~init: Bool(#false))
+  reg copy_packet_held(~init: Bool(#false))
   def retained_set = retained_address[offset_width..(offset_width + set_width)]
   def retained_line_address = retained_address.align_down(CacheLineBytes)
   def victim_line_address = concat(retained_victim_tag, retained_set, Bits(offset_width)(0)).zext(width)
-  reg gather_state(~init: L1DGatherState.Idle)
+  reg snoop_reading(~init: Bool(#false))
   reg gather_issue_index(~init: Bits(word_index_width)(0))
   reg gather_response_pending(~init: Bool(#false))
   reg gather_response_index(~init: Bits(word_index_width)(0))
@@ -255,6 +252,7 @@ sync_circuit L1DCache(xlen :: XLen,
 
   wire hit_path_available: Bool
   wire hit_under_miss: Bool
+  wire backing_port_busy: Bool
   wire store_drain: Bool
   def draining_store :: CacheStoreBufferEntry(row_number_width, way_width, beat_bytes) = stores.drain.bits
   def store_state_write = store_drain & draining_store.mark_dirty
@@ -268,7 +266,7 @@ sync_circuit L1DCache(xlen :: XLen,
 
   def s0_load = pipeline_lookup.valid & (pipeline_lookup.bits.access === CacheOperation.Load)
   def s0_miss_set_clear = s0_load & (pipeline_lookup.bits.address[offset_width..(offset_width + set_width)] =/= retained_set)
-  def s0_read_issue = pipeline_lookup.valid & (hit_path_available ||| (hit_under_miss & s0_miss_set_clear)) & !snoop_lookup_start & !snoop_metadata_pending & !snoop.update.valid & !store_state_write & !(store_drain & s0_load)
+  def s0_read_issue = pipeline_lookup.valid & (hit_path_available ||| (hit_under_miss & s0_miss_set_clear)) & !backing_port_busy & !snoop_lookup_start & !snoop_metadata_pending & !snoop.update.valid & !store_state_write & !(store_drain & s0_load)
   s1_read_valid <== s0_read_issue
   when s0_read_issue:
     s1_read_address <== pipeline_lookup.bits.address
@@ -397,7 +395,7 @@ sync_circuit L1DCache(xlen :: XLen,
   // Admission checked the full address; the CHI retry record needs only mapped line bits.
   def management_address = management_requests.bits.address[0..retained_width].align_down(CacheLineBytes).zext(p.request_address_width)
   def management_home = config.home_map.lookup(management_address)
-  def maintenance_engines_drained = refill.command.ready & writeback.command.ready & !pending_mutation_valid & !refill_installing & (gather_state === L1DGatherState.Idle)
+  def maintenance_engines_drained = refill.command.ready & writeback.command.ready & !pending_mutation_valid & !snoop_reading
   def maintenance_lookups_drained = !s2_store_candidate.egress.valid & !s3_lookup.egress.valid & !s4_result.egress.valid & !service_responses.egress.valid
   (
     management_requests |> gate_flow(stores.empty & maintenance_engines_drained & maintenance_lookups_drained)
@@ -486,15 +484,13 @@ sync_circuit L1DCache(xlen :: XLen,
      installing. LR, mutations, and prefetches retain their independent allocation policy. */
   def s4_bypass_refill = !s4_prefetch & !s4_hit & (s4_access === CacheOperation.Load) & (retained_request.locality =/= RiscvMemoryLocality.Default)
   def s4_dirty_victim = s4_needs_refill & !s4_bypass_refill & !s4_prefetch & !s4_hit & s4_victim_valid & s4_victim_state.is_dirty()
-  def gather_idle = gather_state === L1DGatherState.Idle
-  def gather_read = gather_state.is_one_of(L1DGatherState.EvictionRead, L1DGatherState.SnoopRead)
   // A read cannot be recalled. Issue beyond a packet boundary only on its
   // transfer, so next cycle's SRAM result always has a free destination.
-  def snoop_row_valid = (gather_state === L1DGatherState.SnoopRead) & gather_response_pending
+  def snoop_row_valid = snoop_reading & gather_response_pending
   def packet_last_row = if rows_per_packet == 1 | Bool(#true) | gather_response_index[0..packet_offset_bits].all()
   def snoop_packet_arriving = snoop_row_valid & packet_last_row
   def snoop_packet_valid = snoop_packet_arriving ||| snoop_packet_held
-  def gather_issue = gather_read & !gather_last_issued & (!snoop_packet_valid ||| snoop.packet.ready)
+  def gather_issue = snoop_reading & !gather_last_issued & (!snoop_packet_valid ||| snoop.packet.ready)
   def gather_issue_final = gather_issue_index === Bits(word_index_width)(words_per_line - 1)
   def gather_response_final = gather_response_index === Bits(word_index_width)(words_per_line - 1)
 
@@ -517,20 +513,15 @@ sync_circuit L1DCache(xlen :: XLen,
   refill.line_address <== retained_line_address
   def direct_refill_commands = s4_refill_path |> map_flow(result => refill_command(result.prefetch, result.prefetch_write))
 
-  def eviction_start = s4_eviction_path |> gate_flow(gather_idle & !refill_installing) |> to_valid()
-  def eviction_gather_start = eviction_start.valid
   writeback.line_address <== victim_line_address
-  def eviction_command = CacheLineWritebackCommand(Bool):
+  def copyback_command = CacheLineWritebackCommand(Bool):
     context: Bool(#false)
 
-  def eviction_command_valid = gather_state === L1DGatherState.EvictionReady
-  wire eviction_command_ready: Bool
-  inject_interface(Decoupled(hardware_value_type(eviction_command)), ~valid: eviction_command_valid, ~bits: eviction_command, ~ready: eviction_command_ready) |> writeback.command
-  def writeback_command_fire = writeback.command.fire()
+  s4_eviction_path |> map_flow(_result => copyback_command) |> writeback.command
   writeback.victim_state <== eviction_state
   writeback.snoop_pending <== snoop_pending
-  when eviction_gather_start:
-    eviction_state <== eviction_start.bits.victim_state
+  when (writeback.command.fire()):
+    eviction_state <== s4_victim_state
   elsewhen (snoop.update.valid & (snoop.update.bits.address.align_down(CacheLineBytes) === victim_line_address.zext(snoop_width))):
     eviction_state <== mux(snoop.update.bits.invalidate, CHICacheState.Invalid, snoop.update.bits.state)
 
@@ -541,26 +532,21 @@ sync_circuit L1DCache(xlen :: XLen,
   // fields are meaningful when accepted; the refill contract retains ancestry.
   s4_refill_accepted <== direct_refill_commands.fire()
   s4_refill_opcode <== direct_refill_commands.bits.opcode
-  // Gather ancestry is not yet modeled; writeback supplies its own resident owner.
   Array(direct_refill_commands, post_eviction_refills) |> arbiter() |> refill.command
   stat_count("dcache_miss", refill.command.fire() & !refill.command.bits.context)
   def writeback_complete = writeback.completion.fire()
   when (!writeback.command.ready):
-    assert(miss_active & !eviction_gather_start, "l1d_copyback_holds_victim_and_miss")
+    assert(miss_active, "l1d_copyback_holds_victim_and_miss")
 
 
-  /* Refill completion and installation.
-     Finishes accepted snoops before installing. New probes wait through the
-     acknowledged grant and word-at-a-time installation interval. */
+  /* Stream refill packets to the reserved way. An accepted snoop has first
+     claim on row reads, but a stalled snoop DAT need not hold the SRAM port. */
 
-  def refill_can_complete = !snoop_pending & gather_idle & !refill_installing & !pending_mutation_valid
-  def refill_install_start = refill.completion.valid & miss_install & refill_can_complete
-  def refill_install_final = refill_install_index === Bits(word_index_width)(words_per_line - 1)
-  def refill_install_word = refill_installing
-  // ReadClean returns a clean copy, which CHI permits us to silently discard.
-  // A bypass consumes the acknowledged transaction buffer without touching
-  // arrays, replacement state, or any resident line's reservation.
-  refill.completion.ready <== mux(miss_install, refill_installing & refill_install_final, refill_can_complete) & (miss_prefetch ||| service_responses.ingress.ready)
+  def refill_install_word = refill_packet_live & !gather_issue
+  def refill_packet_last = if rows_per_packet == 1 | Bool(#true) | refill_row[0..packet_offset_bits].all()
+  def packet_capacity = !refill_packet_live ||| (refill_install_word & refill_packet_last)
+  def refill_can_complete = !snoop_pending & !snoop_reading & !refill_packet_live & !pending_mutation_valid
+  refill.completion.ready <== refill_can_complete & (miss_prefetch ||| service_responses.ingress.ready)
   def complete_refill = refill.completion.fire()
   def install_refill = complete_refill & miss_install
   when (!refill.command.ready):
@@ -576,13 +562,11 @@ sync_circuit L1DCache(xlen :: XLen,
   def refill_tag = retained_address[(offset_width + set_width)..physical_width]
   def refill_word_index = retained_address[row_offset_width..offset_width]
   def service_load_unsigned = (retained_request.access === CacheOperation.Load) & retained_request.unsigned
-  def refilled_word = backing_line[refill_word_index]
   service_load_gen.address <== retained_address
-  def service_row = mux(miss_active, refilled_word, backing_line[0])
   service_load_gen.data <== service_row
   service_load_gen.width <== retained_request.width
   service_load_gen.unsigned_load <== service_load_unsigned
-  def refill_mutation = refill.completion.valid & !miss_prefetch & refill_access.needs_unique()
+  def refill_mutation = !miss_prefetch & refill_access.needs_unique()
 
   /* Local mutation datapath.
      An owned AMO uses the same extracted old value for the ALU and response.
@@ -610,7 +594,7 @@ sync_circuit L1DCache(xlen :: XLen,
      publishing the complete line. */
 
   refill_load_gen.address <== retained_address
-  refill_load_gen.data <== refilled_word
+  refill_load_gen.data <== service_row
   refill_load_gen.width <== retained_request.width
   refill_load_gen.unsigned_load <== Bool(#false)
   refill_atomic_alu.old_value <== refill_load_gen.value
@@ -622,8 +606,9 @@ sync_circuit L1DCache(xlen :: XLen,
   refill_store_gen.width <== retained_request.width
   def refill_store_word_data = mux(retained_raw_beat, retained_request.data, refill_store_gen.data).as_vec(Bits(8))
   def refill_store_byte_mask = retained_request.byte_mask.as_vec(Bool)
-  def refill_install_bytes = backing_line[refill_install_index].as_vec(Bits(8))
-  def mutate_refill_word = refill_mutation & (refill_install_index === refill_word_index)
+  def install_offset = if rows_per_packet == 1 | Bits(1)(0) | refill_row[0..packet_offset_bits]
+  def refill_install_bytes = backing_packet[install_offset].as_vec(Bits(8))
+  def mutate_refill_word = refill_mutation & (refill_row === refill_word_index)
   def merged_refill_word = vec(
     for List (byte_index in 0..beat_bytes):
       mux(refill_store_byte_mask[byte_index], refill_store_word_data[byte_index], refill_install_bytes[byte_index])
@@ -643,7 +628,7 @@ sync_circuit L1DCache(xlen :: XLen,
      wait cycle. Only snoops that must preserve dirty data claim the row reader. */
 
   stores.probe_address <== snoop.address
-  snoop.cache_ready <== !s3_read_valid & !s4_result.egress.valid & !pending_mutation_valid & gather_idle & !refill_installing & !stores.queued_line_hazard
+  snoop.cache_ready <== !s3_read_valid & !s4_result.egress.valid & !pending_mutation_valid & !snoop_reading & !stores.queued_line_hazard
   def snoop_address = snoop.address
   def snoop_set = snoop_address[offset_width..(offset_width + set_width)]
   // Compare the full CHI tag: an RV32 hart must miss snoops above its address space.
@@ -674,7 +659,7 @@ sync_circuit L1DCache(xlen :: XLen,
      S4 reserves the backing engines; blocked S3 work retains its request,
      then rereads instead of consuming stale array data. */
 
-  def retained_array_work_idle = !maintenance_active & gather_idle & !refill_installing & !pending_mutation_valid
+  def retained_array_work_idle = !maintenance_active & !snoop_reading & !pending_mutation_valid
   def backing_engines_ready = refill.command.ready & writeback.command.ready
   def arrays_available = retained_array_work_idle & !s4_needs_refill & !local_mutation
   def s3_can_advance = s4_result.ingress.ready & arrays_available & backing_engines_ready & !snoop_pending
@@ -725,7 +710,7 @@ sync_circuit L1DCache(xlen :: XLen,
   def parked_same_line_waiter = ordinary_requests.valid & miss_active & demand.access.is_load_or_store() & (demand.address.align_down(CacheLineBytes) === retained_line_address)
   def service_order_clear = (!service_requests.egress.valid ||| parked_same_line_waiter) & !s3_lookup.egress.valid & !s4_result.egress.valid & !virtual_lookup.valid
   hit_path_available <== engines_idle & service_order_clear
-  hit_under_miss <== miss_active & miss_allows_hits & arrays_available & service_order_clear & !snoop_pending
+  hit_under_miss <== miss_active & miss_allows_hits & arrays_available & service_order_clear & !snoop_pending & !(refill.completion.valid & miss_install)
   def store_drain_available = engines_idle & !s3_read_valid & !s4_result.egress.valid & !snoop_metadata_pending & !snoop_lookup_start & !snoop.update.valid
   def full_store_drain = stores.full & store_drain_available
   def force_store_drain = stores.urgent ||| service_requests.egress.valid ||| management_waiting ||| (snoop_pending & stores.queued_line_hazard) ||| (pipeline.request.valid & !s1_store & stores.queued_word_hazard)
@@ -906,12 +891,20 @@ sync_circuit L1DCache(xlen :: XLen,
      the actual SRAM use rather than merely the logical request. */
 
   def local_mutation_address = mux(pending_zero, retained_set ++ pending_zero_index, retained_address[row_offset_width..(offset_width + set_width)])
-  def refill_install_address = retained_set ++ refill_install_index
+  def refill_install_address = retained_set ++ refill_row
   def gather_address = gather_set ++ gather_issue_index
+  // An unrelated snoop takes priority over new victim reads. Its storage
+  // is independent, including when a complete victim packet is stalled.
+  def copy_last_return = copy_response_pending & (copy_response_offset === Bits(index_width(rows_per_packet))(rows_per_packet - 1))
+  writeback.packet.valid <== copy_last_return ||| copy_packet_held
+  def copy_more = writeback.packet_index =/= Bits(index_width(cache_line_rows(p.data_bytes)))(cache_line_rows(p.data_bytes) - 1)
+  def copy_read = writeback.packet_needed & !snoop_reading & (!(copy_packet_held ||| copy_last_return) ||| (writeback.packet.fire() & copy_more))
+  backing_port_busy <== copy_read ||| refill_install_word ||| install_refill
   def array_data_read = (s0_read_issue & s0_load) ||| s2_retry ||| (array_lookup_issue & !s0_read_issue)
   def data_port_owner = priority_mux(~default: L1DArrayOwner.Service):
     s0_read_issue: L1DArrayOwner.Pipeline
     gather_issue: L1DArrayOwner.Gather
+    copy_read: L1DArrayOwner.Gather
     refill_install_word: L1DArrayOwner.Refill
     local_mutation_commit: L1DArrayOwner.Mutation
     store_drain: L1DArrayOwner.StoreDrain
@@ -923,6 +916,7 @@ sync_circuit L1DCache(xlen :: XLen,
         local_mutation_commit: local_mutation_address
         cache_write: refill_install_address
         gather_issue: gather_address
+        copy_read: retained_set ++ copy_row
     )
 
     write: cache_write ||| store_drain
@@ -934,7 +928,7 @@ sync_circuit L1DCache(xlen :: XLen,
     )
 
   def traced_data_port = (
-    inject_interface(Valid(ReadWriteRequest(data_address_width, Bits(8), data_lanes)), ~valid: array_data_read ||| cache_write ||| gather_issue ||| store_drain, ~bits: data_port_request)
+    inject_interface(Valid(ReadWriteRequest(data_address_width, Bits(8), data_lanes)), ~valid: array_data_read ||| cache_write ||| gather_issue ||| copy_read ||| store_drain, ~bits: data_port_request)
       |> trace_valid_event("dcache/arrays.data", ~fields: request):
         index: request.address
         write: request.write
@@ -955,7 +949,7 @@ sync_circuit L1DCache(xlen :: XLen,
 
   snoop_metadata_pending <== snoop_lookup_start
 
-  def miss_capture = s4_refill_path.fire() ||| eviction_gather_start
+  def miss_capture = s4_refill_path.fire() ||| writeback.command.fire()
   assert(!(pending_mutation_valid & miss_active), "l1d_retained_owners_exclusive")
   when (local_mutation_capture ||| miss_capture):
     assert(!(local_mutation_capture & miss_capture), "l1d_one_retained_capture")
@@ -981,26 +975,13 @@ sync_circuit L1DCache(xlen :: XLen,
     miss_active <== Bool(#false)
     miss_allows_hits <== Bool(#false)
 
-  when refill_install_start:
-    refill_installing <== Bool(#true)
-    refill_install_index <== Bits(word_index_width)(0)
-  elsewhen install_refill:
-    refill_installing <== Bool(#false)
-    refill_install_index <== Bits(word_index_width)(0)
-  elsewhen (refill_install_word & !refill_install_final):
-    refill_install_index <== refill_install_index + Bits(word_index_width)(1)
-
-  /* Word-at-a-time gathering.
-     Eviction and dirty snoops share the reader, but retain separate owners;
-     issued reads and returning words can progress on the same edge. */
+  /* Word-at-a-time snoop gathering. The retained read owner selects its
+     way from the synchronous response independently of subsequent requests. */
 
   def gathered_response_words = arrays.data.response.bits.as_bits().as_vec(Bits(beat_width))
   def word = CacheLineChunk(beat_bytes):
     index: gather_response_index
     data: gathered_response_words[gather_way]
-
-  def returning_word = inject_interface(Valid(CacheLineChunk(beat_bytes)), ~valid: gather_response_pending, ~bits: word)
-  def victim_row = returning_word |> filter_valid(_word => gather_state === L1DGatherState.EvictionRead)
 
   /* Assemble only the current snoop packet. Bypass the final returning row
      to DAT; if stalled, its captured copy drives the same offer until transfer. */
@@ -1020,43 +1001,58 @@ sync_circuit L1DCache(xlen :: XLen,
     snoop_packet_held <== !snoop.packet.ready
 
 
-  /* Backing line writes. S4 captures its hit in row zero while the bank is idle.
-     Victim rows precede copyback; refill packets replace them by DataID afterward. */
+  /* Copyback gathers one granted packet. Its final SRAM return bypasses the
+     register for the first offer; stalls retain every byte without rereads. */
 
-  def acquiring_victim = eviction_gather_start ||| gather_state.is_one_of(L1DGatherState.EvictionRead, L1DGatherState.EvictionReady)
-  when acquiring_victim:
-    assert(refill.command.ready & !refill.command.valid & writeback.command.ready, "l1d_victim_gather_owns_backing_line")
+  copy_response_pending <== copy_read
+  when copy_read:
+    copy_response_offset <== (if rows_per_packet == 1 | Bits(1)(0) | copy_row[0..packet_offset_bits])
+    copy_row <== wrap_increment(copy_row, words_per_line)
+
+  def victim_word = gathered_response_words[retained_way]
+  def victim_packet = for List (row in 0..rows_per_packet):
+    if row == last_row | mux(copy_last_return, victim_word, backing_packet[row]) | backing_packet[row]
+
+  writeback.packet.bits <== vec(victim_packet).as_bits()
+
+  when (writeback.packet.valid):
+    copy_packet_held <== !writeback.packet.ready
+
+  /* Capture the requested old row even for bypass or an AMO. Only allocating
+     fills take the packet slot; DataID selects the SRAM rows, not arrival order. */
 
   def packet = refill.packet_write
-  when (packet.valid):
-    assert(miss_active & writeback.command.ready & !acquiring_victim & !refill_installing, "l1d_refill_owns_backing_line")
-
-  when capture_s4:
-    assert(!victim_row.valid & !packet.valid, "l1d_s4_owns_backing_row_zero")
-
-  def PacketIndex = Bits(index_width(cache_line_rows(p.data_bytes)))
   def packet_rows = packet.bits.data.as_vec(Bits(beat_width))
-  for (row in 0..words_per_line):
-    when (victim_row.valid & (victim_row.bits.index === Bits(word_index_width)(row))):
-      backing_line[row] <== victim_row.bits.data
-    elsewhen (packet.valid & (packet.bits.index === PacketIndex(row div rows_per_packet))):
-      backing_line[row] <== packet_rows[row % rows_per_packet]
-    elsewhen (Bool(row == 0) & capture_s4):
-      backing_line[row] <== s3_word
+  def target_offset = if rows_per_packet == 1 | Bits(1)(0) | refill_word_index[0..packet_offset_bits]
+  when capture_s4:
+    service_row <== s3_word
+  elsewhen (packet.valid & ((refill_word_index >> packet_offset_bits) === packet.bits.index.zext(word_index_width))):
+    service_row <== packet_rows[target_offset]
+
+  for (row in 0..rows_per_packet):
+    when (packet.valid & miss_install):
+      backing_packet[row] <== packet_rows[row]
+    elsewhen (copy_response_pending & (copy_response_offset === Bits(index_width(rows_per_packet))(row))):
+      backing_packet[row] <== victim_word
+
+  when (packet.valid & miss_install):
+    refill_packet_live <== Bool(#true)
+    refill_row <== packet.bits.index.zext(word_index_width) << packet_offset_bits
+  elsewhen refill_install_word:
+    refill_packet_live <== !refill_packet_last
+    refill_row <== refill_row + Bits(word_index_width)(1)
 
 
-  /* Release the reader on eviction command acceptance or final snoop DAT transfer. */
+  /* Release the snoop reader only after its final DAT transfer. */
 
-  // Both captures initialize the same reader. Eviction wins a simultaneous
-  // start; the inactive owner's payload remains unchanged.
-  when (eviction_gather_start ||| snoop_gather_start):
-    gather_state <== mux(eviction_gather_start, L1DGatherState.EvictionRead, L1DGatherState.SnoopRead)
+  when snoop_gather_start:
+    snoop_reading <== Bool(#true)
     gather_issue_index <== Bits(word_index_width)(0)
     gather_response_pending <== Bool(#false)
     gather_last_issued <== Bool(#false)
-    gather_set <== mux(eviction_gather_start, retained_set, snoop_set)
-    gather_way <== mux(eviction_gather_start, eviction_start.bits.allocation_way, snoop_selection.index)
-  elsewhen gather_read:
+    gather_set <== snoop_set
+    gather_way <== snoop_selection.index
+  elsewhen snoop_reading:
     gather_response_pending <== gather_issue
     when gather_issue:
       gather_response_index <== gather_issue_index
@@ -1066,12 +1062,8 @@ sync_circuit L1DCache(xlen :: XLen,
     when gather_response_pending:
       assert(arrays.data.response.valid, "l1d_gather_read_response_valid")
 
-    when (gather_response_pending & gather_response_final & (gather_state === L1DGatherState.EvictionRead)):
-      gather_state <== L1DGatherState.EvictionReady
-    elsewhen (snoop.packet.fire() & gather_response_final):
-      gather_state <== L1DGatherState.Idle
-  elsewhen writeback_command_fire:
-    gather_state <== L1DGatherState.Idle
+    when (snoop.packet.fire() & gather_response_final):
+      snoop_reading <== Bool(#false)
 
 
   /* LR/SC reservation and bounded probe protection.
@@ -1122,8 +1114,10 @@ sync_circuit L1DCache(xlen :: XLen,
   def snoop_update_set = snoop.update.bits.address[offset_width..(offset_width + set_width)]
   def snooped_set_valids = valid_lines[snoop_update_set].updated(snoop_way, Bool(#false))
   def snooped_valid_lines = mux(snoop_invalidates, valid_lines.updated(snoop_update_set, snooped_set_valids), valid_lines)
-  when writeback_complete:
-    valid_lines <== snooped_valid_lines.updated(retained_set, snooped_valid_lines[retained_set].updated(retained_way, Bool(#false)))
+  def direct_install = s4_refill_path.fire() & !s4_bypass_refill
+  def direct_way = mux(s4_hit, s4_result.egress.bits.hit_way, s4_result.egress.bits.allocation_way)
+  when (direct_install ||| writeback_complete):
+    valid_lines <== snooped_valid_lines.updated(retained_set, snooped_valid_lines[retained_set].updated(mux(direct_install, direct_way, retained_way), Bool(#false)))
   elsewhen snoop_invalidates:
     valid_lines <== snooped_valid_lines
   elsewhen install_refill:
@@ -1148,7 +1142,7 @@ sync_circuit L1DCache(xlen :: XLen,
   Array(refill.requests, writeback.requests, maintenance.requests) |> arbiter() |> chi.requests
   Array(refill.acknowledgements, snoop.responses) |> arbiter() |> chi.requester_responses
   Array(writeback.data, snoop.data) |> arbiter() |> chi.request_data
-  chi.response_data |> refill.response_data
+  chi.response_data |> gate_flow(packet_capacity) |> refill.response_data
   // Stop new probes, not an already accepted snoop. In particular protect the
   // acknowledged grant until SRAM installation; Home may probe after CompAck.
   def protect_refill = refill.acknowledgements.valid ||| refill.completion.valid

@@ -246,7 +246,7 @@ void accept_request(std::uint8_t opcode, std::uint64_t address,
                     std::uint16_t txn_id, std::uint8_t size,
                     std::uint8_t allow_retry, std::uint8_t pcrd_type);
 void return_line(std::uint64_t address, const Line &line,
-                 std::uint8_t response_state, std::uint8_t exercise_hits = 0);
+                 std::uint8_t response_state, bool exercise_hits = false, bool allocate = true);
 void accept_comp_ack();
 void expect_core_response(std::uint64_t data, std::uint8_t destination,
                           std::uint8_t rd, std::uint8_t access_fault = 0);
@@ -431,6 +431,10 @@ void check_under_miss(std::uint64_t address, std::uint8_t outcome,
           .punsigned = 0,
           .pdata = 0}};
   settle();
+  if (pipeline_out.presponse.pbits.poutcome != outcome)
+    fprintf(stderr, "under miss: addr=%llx access=%u expected=%u got=%u reason=%u at cycle %llu\n",
+            (unsigned long long)address, operation, outcome, pipeline_out.presponse.pbits.poutcome,
+            pipeline_out.presponse.pbits.preason, (unsigned long long)test_cycles);
   CHECK(pipeline_out.presponse.pvalid &&
         pipeline_out.presponse.pbits.poutcome == outcome);
   if (outcome == PIPE_LOAD_HIT)
@@ -631,7 +635,7 @@ void accept_request(std::uint8_t opcode, std::uint64_t address,
 }
 
 void return_line(std::uint64_t address, const Line &line,
-                 std::uint8_t response_state, std::uint8_t exercise_hits) {
+                 std::uint8_t response_state, bool exercise_hits, bool allocate) {
   int packet;
   {
     for (packet = 3; packet >= 0; packet = packet - 1) {
@@ -655,8 +659,10 @@ void return_line(std::uint64_t address, const Line &line,
       chi_in.presponse_udata.pvalid = UINT64_C(0);
       chi_in.presponse_udata.pbits = {};
       if (exercise_hits && packet != 0) {
-        check_under_miss(PREFETCH_READ_ADDRESS, PIPE_LOAD_HIT,
-                         bit_slice(LINE, 0, 64));
+        // Both 64-bit SRAM turns belong to this accepted 128-bit packet.
+        if (allocate)
+          check_under_miss(PREFETCH_READ_ADDRESS, PIPE_REPLAY);
+        check_under_miss(PREFETCH_READ_ADDRESS, PIPE_LOAD_HIT, bit_slice(LINE, 0, 64));
         check_under_miss(address,
                          PIPE_SLOW); // Waiters cannot observe a partial line.
       }
@@ -917,11 +923,11 @@ void check_overlapping_dirty_lines(bool grant_before_snoop) {
   const auto start = test_cycles;
   send_core_request(THIRD_ADDRESS, MEMORY_LOAD, ATOMIC_SWAP, 0, 2);
   accept_request(WRITE_BACK_FULL, ADDRESS, 1, 6, 1, 0);
-  CHECK(test_cycles - start == 14);
+  CHECK(test_cycles - start == 4); // No full-line gather before REQ.
   chi_in.prequest_udata.pready = 0;
   if (grant_before_snoop) {
     send_response(COMP_DBID_RESP, 1, 85, 0);
-    settle();
+    for (unsigned wait = 0; !chi_out.prequest_udata.pvalid && wait < 8; ++wait) tick();
     CHECK(chi_out.prequest_udata.pvalid);
     const auto stalled = chi_out.prequest_udata.pbits;
     send_snoop(EVICT_ADDRESS, 122);
@@ -941,14 +947,20 @@ void check_overlapping_dirty_lines(bool grant_before_snoop) {
   grant_dat_credit();
   tx_dat_pending = 0;
   const auto copyback_start = test_cycles;
-  for (int packet = 0; packet < 4; ++packet) {
-    accept_copyback_data(packet, victim);
-    CHECK(test_cycles - copyback_start == 1u + packet);
-  }
+  accept_copyback_data(0, victim);
   if (grant_before_snoop) {
+    // The held victim packet drains first. The independent dirty snoop has
+    // gathered during the stall and finishes before further victim reads.
     for (int packet = 0; packet < 4; ++packet) {
       accept_snoop_data(packet, probed, 122);
     }
+    grant_dat_credit();
+    tx_dat_pending = 0;
+  }
+  for (int packet = 1; packet < 4; ++packet) {
+    accept_copyback_data(packet, victim);
+    if (!grant_before_snoop)
+      CHECK(test_cycles - copyback_start == 3u + 2u * packet);
   }
   accept_request(READ_CLEAN, THIRD_ADDRESS, 0, 6, 1, 0);
   return_line(THIRD_ADDRESS, THIRD_LINE, 1);
@@ -2085,7 +2097,8 @@ void stimulus() {
       chi_in.prequester_uresponses.pready = 0;
       return_line(THIRD_ADDRESS, THIRD_LINE,
                   store_miss != 0 ? UINT64_C(2) : UINT64_C(1), 1);
-      stream_under_miss(); // Full line buffered, CompAck backpressured.
+      tick(); tick(); // Drain the final packet's two rows.
+      stream_under_miss(); // Rows installed but not published; CompAck is stalled.
       pipeline_lookup_in = {
           .pvalid = 1,
           .pbits = {.pbyte_umask = static_cast<uint8_t>(
@@ -2188,7 +2201,7 @@ void stimulus() {
       CHECK(replies == 4 &&
             (store_miss != 0 ? (waiter_replies == 2 && ack_replies == 2)
                              : (primary_replies == 1 && waiter_replies == 3)) &&
-            blocked >= 8 && resumed >= 8 && core_out.pdrained &&
+            blocked > 0 && resumed >= 8 && core_out.pdrained &&
             !tx_req_pending);
       check_pipeline_load(THIRD_ADDRESS, 1, 1,
                           store_miss != 0 ? STORE_DATA
@@ -2206,7 +2219,7 @@ void stimulus() {
       send_core_request(THIRD_ADDRESS, MEMORY_LOAD, ATOMIC_SWAP, 0, 2, 1);
       accept_request(READ_CLEAN, THIRD_ADDRESS, 0, 6, 1, 0);
       chi_in.prequester_uresponses.pready = 0;
-      return_line(THIRD_ADDRESS, THIRD_LINE, UINT64_C(1), 1);
+      return_line(THIRD_ADDRESS, THIRD_LINE, UINT64_C(1), true, false);
       pipeline_lookup_in = {
           .pvalid = 1,
           .pbits = {.pbyte_umask = static_cast<uint8_t>(

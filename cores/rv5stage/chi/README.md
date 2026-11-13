@@ -55,7 +55,7 @@ capabilities separately for coherent RAM and noncoherent ROM Homes.
 `CacheLineRefill` issues retryable `ReadClean` or `ReadUnique` requests,
 retains the selected Home and command context, accepts each `CompData` packet
 exactly once, and emits `CompAck`. Its `packet_write` output supplies the
-index and data for the caller's line buffer on each accepted packet. Completion
+index and data for the caller's SRAM writer on each accepted packet. Completion
 metadata becomes valid only after every packet arrives and the acknowledgement
 transfers. Supply the aligned miss address on `line_address` and hold it
 from command acceptance through the completion handshake. Every attempt and
@@ -75,8 +75,9 @@ finishes. `CacheLineWriteback` instead issues one retryable, aligned
 64-byte `WriteBackFull`. After `CompDBIDResp`, it sends the line as four,
 two, or one `CopyBackWriteData` packets on 128-, 256-, or 512-bit DAT.
 The caller holds the victim address on `line_address` from command acceptance
-through the completion handshake. The victim data on `line` must remain stable
-through the final DAT transfer. There is no second completion response or CompAck.
+through the completion handshake. When `packet_needed` is asserted, the caller
+supplies the indicated `packet_index` on `packet` and holds that offer until
+it transfers. There is no second completion response or CompAck.
 
 The cache retains the victim as snoop-visible until handoff. Pending snoops
 finish before the grant is accepted; the engine then captures the latest victim
