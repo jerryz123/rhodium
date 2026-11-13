@@ -148,9 +148,11 @@ region with relaxed ordering under the effective PBMT.
 [`cache_prefetch_physical`](prefetch.rhdl) classifies a complete aligned cache
 line from an address, prefetch operation, and PBMT. It returns the aligned
 address, operation permission, instruction/data cacheability, and the stronger
-ordinary-idempotent-memory predicates. Superscalar Bare requires ordinary
-data-cacheable RAM even for an instruction hint. Callers choose eligibility,
-translation arbitration, staging, and cancellation; the helper adds no state.
+ordinary-memory predicates. Both Sv39 adapters use `allows_translated_hint`.
+The selected probe must hit without a fault, and the complete line must permit
+the operation and support relaxed, idempotent reads. Superscalar Bare requires
+ordinary data-cacheable RAM even for an instruction hint. Each core controls
+probe arbitration and cancellation.
 
 `PhysicalPrefetchPipe(address_width, physical_map.cacheable_address_width)`
 delays an admitted hint by one cycle and clears validity on a flush edge.

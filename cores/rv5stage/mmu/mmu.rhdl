@@ -34,7 +34,6 @@ import:
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/rtl/pma.rhdl" open
   "../../../riscv/rtl/sv39.rhdl" open
-  "../../../riscv/rtl/svpbmt.rhdl" open
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
@@ -235,7 +234,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def prefetch_physical = cache_prefetch_physical(width, physical_map, prefetch_translated_address, prefetch_request.operation, hint_probe.pbmt)
 
   virtual_prefetch_pipe.egress
-    |> filter_valid(_request => prefetch_request.operation.is_prefetch() & hint_probe.hit & !hint_probe.fault & prefetch_physical.cacheable & prefetch_physical.permitted)
+    |> filter_valid(_request => prefetch_physical.allows_translated_hint(~hit: hint_probe.hit, ~fault: hint_probe.fault))
     |> map_valid(request => request.updated(~address: prefetch_physical.address))
     |> physical_prefetch_pipe.ingress
 
@@ -253,24 +252,18 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   reg fault_is_data(~init: Bool(#false))
   reg fault_is_access(~init: Bool(#false))
   reg fault_mapping(RiscvTlbMapping())
-  reg walker_memory_pending(~init: Bool(#false))
 
 
   /* MEM pipeline translation and local replay
      Contention and ordered accesses fall back without entering cache miss service. */
 
-  def load_address :: Bits(width):
-    if xlen == XLen.X32
-    | lookup.address
-    | block:
-        priority_mux(~default: lookup.address):
-          physical_owner.bits: lookup.address
-          load_window: vector_window.physical_addresses[1]
-          data_translation_enabled: dtlb.translation.physical_address.zext(64)
-
+  def (load_address, load_pbmt) = vector_data_translation(
+    xlen, lookup.address, dtlb_result, ~physical: physical_owner.bits, ~window: load_window,
+    ~window_address: vector_window.physical_addresses[1], ~translated: data_translation_enabled
+  )
   def load_physical = cache_access_region(xlen, physical_map, load_address, lookup.width)
   def pipeline_access = classify_speculative_cache_access(
-    load_physical, mux(load_pinned, PageMemoryType.PMA, dtlb_result.pbmt),
+    load_physical, load_pbmt,
     mux(pipeline_is_store, CacheOperation.Store, CacheOperation.Load), ~execute_read: execute_read
   )
   // Translation contention and ordered IO replay without entering miss service.
@@ -293,8 +286,9 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   // feed fence/trap drain back into the very store authorization being drained.
   pipeline_memory.commit <== pipeline.commit
   pipeline.commit_ready <== pipeline_memory.commit_ready
+  def local = decision.view(CacheLookupDecision.Local)
   def pipeline_reason = priority_mux(~default: pipeline_memory.response.bits.reason):
-    pipeline_blocked: mux(ordered_busy, CachePipelineReason.Ordered, CachePipelineReason.Translation)
+    local.valid & (local.payload === CachePipelineOutcome.Replay): mux(ordered_busy, CachePipelineReason.Ordered, CachePipelineReason.Translation)
     !load_translation_hit: CachePipelineReason.Translation
     !pipeline_access.allocatable: CachePipelineReason.Ordered
 
@@ -443,15 +437,10 @@ sync_circuit RV5StageMmu(xlen :: XLen,
      arbiter tags each accepted transaction and returns it to its origin. */
 
   def word_bytes = memory_word_bytes(xlen)
-  def translated_fragment_address :: Bits(width):
-    if xlen == XLen.X32
-    | data_request.address
-    | block:
-        priority_mux(~default: data_request.address):
-          data_physical: data_request.address
-          data_window: vector_window.physical_addresses[0]
-          data_translation_enabled: dtlb.translation.physical_address.zext(64)
-
+  def (translated_fragment_address :: Bits(width), data_pbmt) = vector_data_translation(
+    xlen, data_request.address, dtlb_result, ~physical: data_physical, ~window: data_window,
+    ~window_address: vector_window.physical_addresses[0], ~translated: data_translation_enabled
+  )
   def data_physical_address = mux(split_busy, translated_fragment_address.align_down(word_bytes), translated_fragment_address)
   def data_translated_address = mux(data_translation_enabled, dtlb.translation.physical_address.zext(64), data_virtual_address)
   def data_physical_region = cache_access_region(XLen.X64, physical_map, data_translated_address, data_request.width)
@@ -459,7 +448,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   // A retained split owner uses the same demand TLB and physical checks as
   // ordinary requests. No second-page probe or simultaneous mapping is needed.
   def fragment_permitted = cache_fragment_permitted(
-    physical_map, data_physical_address, word_bytes, mux(data_physical, PageMemoryType.PMA, dtlb_result.pbmt),
+    physical_map, data_physical_address, word_bytes, data_pbmt,
     ~write: data_memory_operation.is_store(), ~execute_read: execute_read
   )
   def translation_ready = data_pinned ||| !data_translation_enabled ||| dtlb.hit
@@ -483,7 +472,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
     |> gate_flow(translation_ready)
     |> map_flow(request):
         def native :: PhysicalMemoryReq(xlen, RV5StageMemoryContext(vector_completion_slots)) = request
-        native.translated(data_physical_address, mux(data_pinned, PageMemoryType.PMA, dtlb_result.pbmt))
+        native.translated(data_physical_address, data_pbmt)
 
   data.request_access_fault <== data.request.valid & !split_busy & !split_candidate & !data_page_fault & (local_access_fault ||| (core_data_request.valid & core_memory.request_access_fault))
   misaligned.request_fault <== data_page_fault
@@ -494,7 +483,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   /* PTE physical requests and response routing */
 
   inst pte(PteReadAdmission(physical_map))
-  walker.memory.request |> gate_flow(walk_active & !walker_memory_pending) |> pte.walker
+  walker.memory.request |> gate_flow(walk_active) |> pte.walker
   pte.physical_fault <== walker_memory.request_access_fault
   walker.memory.request_access_fault <== pte.access_fault
   def walker_memory_request = pte.physical |> trace_event("mmu/pte.request")
@@ -509,7 +498,6 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   core_lookup.bits <== data_request.address
   core_data_request |> core_memory.request
 
-  def walker_memory_request_fire = walker_memory.request.fire()
   // The shared walker retains canceled PTE ownership until the reply drains.
   walker_memory.response |> to_valid()
     |> map_valid(response => response.data.zext(64))
@@ -525,7 +513,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   data.reservation_valid <== core_memory.reservation_valid
 
 
-  /* Walker, fault, and accepted-PTE ownership updates */
+  /* Architectural walk ownership and fault retention */
 
   def fault_latch_reset = invalidate_all ||| (instruction.flush & fault_valid & !fault_is_data)
   def latched_instruction_fault_accepted = instruction_s1_valid & instruction_translation_enabled & latched_instruction_fault
@@ -558,14 +546,6 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   elsewhen walk_active:
     when discard_instruction_walk:
       walk_instruction_discarded <== Bool(#true)
-
-  when (walker_memory_request_fire & !walker.memory.request_access_fault):
-    walker_memory_pending <== Bool(#true)
-  elsewhen (walker_memory.response.fire()):
-    walker_memory_pending <== Bool(#false)
-
-  when (walker_memory.response.valid):
-    assert(walker_memory_pending, "rv5stage_mmu_pte_response_has_accepted_request")
 
   assert(!(invalidate_all & vector_window.owned), "vector_page_window_survives_until_macro_drain")
   when (data.request.valid & data_window):

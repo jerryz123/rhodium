@@ -281,7 +281,8 @@ translation misses, permission failures, non-cacheable physical regions, and
 PMA denial for the hint's intended instruction/read/write use all drop the
 event without a cache or memory access and without an architectural fault.
 Forwarded addresses are aligned to the fixed 64-byte cache line, and the PMA
-lookup covers that complete line.
+lookup covers that complete line. Read and write hints both require idempotent
+reads and relaxed ordering, since either can fetch the line.
 
 ## Shared walker and L1D-side arbitration
 

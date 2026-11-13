@@ -18,6 +18,11 @@ bundle CachePrefetchPhysical(address_width :: PosInt):
   ordinary_memory: Bool
   ordinary_data_memory: Bool
 
+  /* A nonfaulting translation probe may prefetch a permitted line only from ordinary,
+     read-idempotent memory, including when a write hint requests exclusive ownership. */
+  method allows_translated_hint(physical, ~hit: hit :: Bool, ~fault: fault :: Bool) :: Bool:
+    hit & !fault & physical.ordinary_memory & physical.permitted
+
 /* Aligns the line, retains end-address overflow, and resolves PBMT without granting PMA permissions. */
 fun cache_prefetch_physical(address_width :: PosInt, physical_map :: RiscvPhysicalMemoryMap,
                             address :: Bits(address_width), operation :: CachePrefetchOperation,

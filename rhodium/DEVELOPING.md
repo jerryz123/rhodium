@@ -664,12 +664,13 @@ connect the walker's PTE offer to physical admission. It imports the shared PTE
 payload, cache permission check, physical map, and Flow.
 RV5Stage's MMU imports the shared protocol, translation projections, TLB, and
 walker directly. Shared `cores/common/mmu/vector.rhdl` imports the host result shape,
-architectural XLEN/guest-context identity, and `std/ready-valid.rhdl` for vector
-range certificates and page probes. Both families use `GuestMemoryReq` from
-`cores/common/mmu/context.rhdl` to carry guest access intent around a native
-request. Each core owns its admission, context revalidation, and completion policy.
+architectural XLEN, guest context, PBMT, and `std/ready-valid.rhdl` for vector
+range certificates, page probes, and selection of certified data addresses.
+Both families use `GuestMemoryReq` from `cores/common/mmu/context.rhdl` to
+carry guest access intent around a native request. Each core owns its admission,
+context revalidation, and completion policy.
 No compatibility module or reverse dependency is introduced.
-The translation projection, TLB probes, MMU and physical router also import
+The translation projection, TLB probes, and physical router also import
 the public Svpbmt adapter for one attribute composition/resolution policy.
 `cores/common/mmu/vector-window.rhdl` uses its enum to exclude overridden pages from fast
 certificates. `uncached-protocol.rhdl` defines the physical request wrapper

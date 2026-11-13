@@ -69,6 +69,9 @@ def test_fetch_chi = RiscvHartCHIConfig(test_flit, CacheLineBytes, test_chi.regi
 def test_prefetch_chi = RiscvHartCHIConfig(test_flit, CacheLineBytes, test_fetch_chi.regions ++ [
   RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(1 << 32, 0xfff),
                                                RiscvPhysicalMemoryAttributes(#true, #true, #false, #true, #false, #false, #true)), test_home),
+  // Only the standalone translation fixture uses this cacheable, non-idempotent region.
+  RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(1 << 43, 0xfff),
+                                               RiscvPhysicalMemoryAttributes(#true, #true, #false, #true, #false, #false, #false)), test_home),
   RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(1 << 33, 0xfff),
                                                RiscvPhysicalMemoryAttributes(#true, #false, #true, #false, #false, #false, #true, ~instruction_cacheable: #true)), test_io_home)
 ])

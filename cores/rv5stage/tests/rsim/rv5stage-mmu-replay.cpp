@@ -26,6 +26,8 @@ constexpr std::uint8_t PIPE_SLOW = 0, PIPE_LOAD_HIT = 1, PIPE_STORE_HIT = 2,
                        PIPE_REPLAY = 3, PIPE_PAGE_FAULT = 4,
                        PIPE_ACCESS_FAULT = 5;
 
+constexpr std::uint8_t REASON_TRANSLATION = 6, REASON_ORDERED = 7;
+
 bool instruction_flush;
 
 bool data_request_valid;
@@ -144,6 +146,8 @@ void check_load_pipeline(std::uint64_t address, std::uint8_t expected_hit,
         (pipeline_out.presponse.pbits.poutcome == PIPE_LOAD_HIT) ==
             expected_hit);
   CHECK(pipeline_out.presponse.pbits.poutcome == expected_outcome);
+  if (ordered_busy && expected_outcome == PIPE_REPLAY)
+    CHECK(pipeline_out.presponse.pbits.preason == REASON_ORDERED);
   if (expected_hit)
     CHECK(pipeline_memory_out.prequest.pbits.paddress == physical_address &&
           pipeline_out.presponse.pbits.pdata == UINT64_C(0x123456789abcdef0));
@@ -1358,6 +1362,9 @@ void stimulus() {
     check_isolated_hint(UINT64_C(0x8000000000000000), UINT64_C(2), 0);
 
     constexpr auto high_ram = UINT64_C(3) << 42, high_rom = high_ram + 0x1000;
+    // Read and write prefetches can both fetch a line from memory.
+    for (unsigned operation : {2u, 3u})
+      check_isolated_hint((UINT64_C(1) << 43) + 8, operation, false);
     check_isolated_hint(high_ram + 0xfff, 2, 1, high_ram + 0xfc0);
     check_isolated_hint(high_ram + 0x40, 3, 1, high_ram + 0x40);
     check_isolated_hint(high_ram + 0x40, 1, 0);
@@ -1741,6 +1748,8 @@ void stimulus() {
     check_warm_lookup_invalidation(invalidate_all, tick, [&](unsigned expected) {
       settle();
       CHECK(pipeline_out.presponse.pvalid && pipeline_out.presponse.pbits.poutcome == expected);
+      if (invalidate_all)
+        CHECK(pipeline_out.presponse.pbits.preason == REASON_TRANSLATION);
       CHECK(pipeline_memory_out.prequest.pvalid == speculative_access::issues_lookup(expected));
       if (pipeline_memory_out.prequest.pvalid)
         CHECK(pipeline_memory_out.prequest.pbits.paddress == 36800);

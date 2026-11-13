@@ -1,12 +1,26 @@
 #lang rhodium
-/* Defines page-range certification and translation-probe contracts for vector clients. */
+/* Defines vector translation proofs and resolves data addresses covered by them. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "protocol.rhdl".RiscvTranslationResult
   lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/rtl/svpbmt.rhdl").PageMemoryType
   lib("riscv/rtl/hypervisor.rhdl").RiscvGuestTranslationContext
   lib("rhodium/std/ready-valid.rhdl") open
+
+/* Resolves an eligible carried PA or pinned window before ordinary data translation.
+   Both vector proofs certify PMA. RV32 is identity-only and keeps the original address. */
+fun vector_data_translation(xlen :: XLen, address :: Bits(xlen.width), translation :: RiscvTranslationResult(),
+                            ~physical: physical :: Bool, ~window: window :: Bool, ~window_address: window_address :: Bits(64),
+                            ~translated: translated :: Bool):
+  def pa = if xlen == XLen.X32
+  | address
+  | priority_mux(~default: address):
+      physical: address
+      window: window_address
+      translated: translation.physical_address.zext(64)
+  values(pa, mux(physical ||| window, PageMemoryType.PMA, translation.pbmt))
 
 /* Bounds one nonspeculative vector macro's virtual byte range and required permission.
    A false check selects exact element execution, never an architectural fault. */
@@ -70,6 +84,7 @@ interface VectorPrecheck():
     response: Irrevocable(Bool)
 
 export:
+  vector_data_translation
   VectorRange
   VectorFastCertificate
   VectorFastCheck

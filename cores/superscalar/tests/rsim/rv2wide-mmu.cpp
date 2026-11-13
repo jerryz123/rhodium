@@ -231,6 +231,8 @@ int main() {
     hint(UINT64_C(0x2625), 1, 1, UINT64_C(0x2600)); // Sv39 permits instruction-only ROM.
     hint(UINT64_C(0x2500), 1, 0); // Cacheable but not executable.
     constexpr auto high_ram = UINT64_C(1) << 32, high_rom = UINT64_C(1) << 33;
+    for (unsigned operation : {2u, 3u})
+      hint((UINT64_C(1) << 43) + 8, operation, false);
     hint(high_ram + 0xfff, 2, true, high_ram + 0xfc0);
     hint(high_ram + 0x40, 3, true, high_ram + 0x40);
     hint(high_ram + 0x40, 1, false);
@@ -1048,6 +1050,13 @@ int main() {
     vector_precheck_in.presponse.pready = 1;
     tick_model();
     vector_precheck_in.presponse.pready = 0;
+    // Replace all eight DTLB entries while the vector window owns both pages.
+    for (unsigned page = 0; page < 8; ++page) {
+      const unsigned va = 0x700000 + page * 4096;
+      offer_wb(va);
+      walk_at(va, (UINT64_C(22) << 10) | 0xcf);
+    }
+    probe(0x500ff8, speculative_access::load, speculative_access::normal, speculative_access::slow);
     vector_access = 1;
     data_hit(0x500ff8, 0x16ff8);
     data_hit(0x501000, 0x17000);

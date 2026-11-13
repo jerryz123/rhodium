@@ -33,9 +33,9 @@ superpages, and physical-address construction. Keep translation state in the
 MMU and core-first physical arbitration in the parent
 [`data-port-arbiter.rhdl`](../data-port-arbiter.rhdl), not in the pure RISC-V
 model or caches. The shared walker retains an accepted PTE through cancellation
-and drains its orphan reply before admitting another walk. The MMU forwards all
-accepted replies, even after invalidation, and tracks the physical pending read.
-This is response correlation, not whole-port ownership.
+and drains its orphan reply before admitting another walk. The physical arbiter
+routes each reply by its origin tag. The MMU forwards walker replies even
+after invalidation, and the walker checks that it owns them.
 
 The MMU declares passive cosim taps through `cores/common/cosim-source.rhm`:
 successful MEM hit addresses and accepted WB physical requests, including each

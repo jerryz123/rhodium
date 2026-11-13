@@ -21,7 +21,6 @@ import:
   lib("riscv/isa/xlen.rhm") open
   lib("riscv/rtl/pma.rhdl").RiscvPhysicalMemoryMap
   lib("riscv/rtl/sv39.rhdl") open
-  lib("riscv/rtl/svpbmt.rhdl") open
   lib("flow/main.rhdl") open
   lib("rhodium/std/bits.rhdl") open
   lib("cores/common/mmu/vector.rhdl") open
@@ -125,7 +124,7 @@ sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: 
   def prefetch_address = hint_probe.physical_address.zext(64)
   def prefetch_physical = cache_prefetch_physical(64, config.physical_map, prefetch_address, prefetch_request.operation, hint_probe.pbmt)
   def prefetch_probe_available = instruction_prefetch ||| !vector_fast.request.valid
-  def prefetch_eligible = prefetch_probe_available & !prefetch_flush & hint_probe.hit & !hint_probe.fault & prefetch_physical.ordinary_memory & prefetch_physical.permitted
+  def prefetch_eligible = prefetch_probe_available & !prefetch_flush & prefetch_physical.allows_translated_hint(~hit: hint_probe.hit, ~fault: hint_probe.fault)
   (virtual_prefetch_pipe.egress |> filter_valid(_request => prefetch_eligible) |> map_valid(request => request.updated(~address: prefetch_physical.address))) |> physical_prefetch_pipe.ingress
   physical_prefetch_pipe.egress |> filter_valid(_request => !prefetch_flush) |> physical_prefetch
 
@@ -144,15 +143,17 @@ sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: 
   def data_known = dtlb.hit ||| data_failed ||| window_hit ||| certified_physical
   def instruction_result = mux(instruction_failed, instruction_fault.mapping(), itlb.translation)
   def translated_result = mux(data_failed, data_fault.mapping(), dtlb.translation)
-  def data_result = priority_mux(~default: translated_result):
-    certified_physical: translated_result.updated(~physical_address: data_virtual_address[0..56], ~fault: RiscvTranslationFault.None)
-    window_hit: translated_result.updated(~physical_address: window_address[0..56], ~fault: RiscvTranslationFault.None)
-
-  def data_ok = data_known & (data_result.fault === RiscvTranslationFault.None)
-  def data_pbmt = mux(window_hit ||| certified_physical, PageMemoryType.PMA, riscv_host_result(data_result).pbmt)
+  def translation = riscv_host_result(translated_result)
+  def (data_address :: Bits(64), data_pbmt) = vector_data_translation(
+    XLen.X64, data_virtual_address, translation, ~physical: certified_physical, ~window: window_hit,
+    ~window_address: window_address, ~translated: Bool(#true)
+  )
+  def data_result = translated_result.updated(
+    ~fault: mux(certified_physical ||| window_hit, RiscvTranslationFault.None, translated_result.fault)
+  )
   vector_window.translation.request.ready <== vector_probe & data_known & !invalidate
   vector_window.translation.response.valid <== vector_window.translation.request.fire()
-  vector_window.translation.response.bits <== riscv_host_result(data_result)
+  vector_window.translation.response.bits <== translation
   instruction.pbmt <== riscv_host_result(instruction_result).pbmt
   instruction.address <== instruction_result.physical_address.zext(64)
   def instruction_disposition = priority_mux(~default: SuperscalarDisposition.Continue):
@@ -170,7 +171,7 @@ sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: 
 
   result <== SuperscalarAddressResolution():
     known: data_known
-    address: data_result.physical_address.zext(64)
+    address: data_address[0..56].zext(64)
     pbmt: data_pbmt
     fault: data_result.fault
     cause: riscv_translation_fault_cause(data_result)
