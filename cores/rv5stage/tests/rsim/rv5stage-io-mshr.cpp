@@ -8,18 +8,18 @@ void tick() {
   falling();
 }
 
-void read_data(uint128 data) {
+void read_data(uint128 data, unsigned home = 4) {
   chi_in.pdat.presponse.pvalid = 1;
   chi_in.pdat.presponse.pbits = {};
   chi_in.pdat.presponse.pbits.popcode = UINT64_C(4);
   chi_in.pdat.presponse.pbits.phome_unid_uor_upbha_uor_umismatched_umecid =
-      UINT64_C(4);
+      home;
   write_bits(chi_in.pdat.presponse.pbits.pdata, 0, 128, data);
 }
 
-void fetch() {
+void fetch(std::uint64_t address = 0xc00c) {
   instruction_in.prequest.pvalid = 1;
-  instruction_in.prequest.pbits.paddress = UINT64_C(49164);
+  instruction_in.prequest.pbits.paddress = address;
   settle();
   CHECK(instruction_out.prequest.pready);
   tick();
@@ -27,12 +27,26 @@ void fetch() {
 }
 
 void contended_load(std::uint8_t flush_fetch,
-                    std::uint16_t expected_writeback, std::uint64_t address = 0x8004) {
+                    std::uint16_t expected_writeback, std::uint64_t address = 0x8004,
+                    bool high_ram_fetch = false) {
   int initial_requests, initial_accepted, initial_completed;
   initial_requests = requests;
   initial_accepted = accepted;
   initial_completed = completed;
-  fetch();
+  // The fetch bypasses the IOMSHR. Check the transport's own retained
+  // address while the live instruction port names the low alias.
+  const auto fetch_address = high_ram_fetch ? UINT64_C(0x20000100c) : UINT64_C(0xc00c);
+  chi_in.preq.pready = 0;
+  fetch(fetch_address);
+  instruction_in.prequest.pbits.paddress = fetch_address & UINT32_MAX;
+  for (unsigned stall = 0; stall < 3; ++stall) {
+    settle();
+    CHECK(chi_out.preq.pvalid && chi_out.preq.pbits.paddress == fetch_address &&
+          chi_out.preq.pbits.ptgt_uid == (high_ram_fetch ? 1 : 4) &&
+          chi_out.preq.pbits.popcode == (high_ram_fetch ? 3 : 4));  // ReadOnce / ReadNoSnp
+    tick();
+  }
+  chi_in.preq.pready = 1;
   tick(); // Fetch reaches CHI; its response is delayed.
   core_in.prequest.pvalid = 1;
   core_in.prequest.pbits = {};
@@ -63,7 +77,7 @@ void contended_load(std::uint8_t flush_fetch,
   instruction_in.pflush = 0;
   instruction_in.presponse.pready = 0;
   read_data(((uint128(UINT64_C(0x806700000000)) << 64) |
-             UINT64_C(0))); // jalr fetch response
+             UINT64_C(0)), high_ram_fetch ? 1 : 4); // jalr fetch response
   settle();
   CHECK(!core_out.presponse.pvalid && !core_out.prequest.pready &&
         !cache_out.prequest.pvalid &&
@@ -357,8 +371,8 @@ void stimulus() {
             field(UINT64_C(15), 7,
                   0))); // Four-bit slot must survive the detached fetch.
     contended_load(0, memory_integer(UINT64_C(31)));
-    contended_load(1, 0, rv32 ? 0x8004 : UINT64_C(0x100008004));
-    check_unmapped_alias(rv32 ? 0x18004 : UINT64_C(0x400008004));
+    contended_load(1, 0, rv32 ? 0x8004 : UINT64_C(0x100008004), !rv32);
+    check_unmapped_alias(rv32 ? 0x18004 : UINT64_C(0x500008004));  // Aliases the mapped high device if truncated.
 
     for (unsigned offset : {0u, 4u, 8u, 12u})
       check_stalled_store(offset);

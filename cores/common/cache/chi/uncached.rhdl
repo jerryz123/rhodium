@@ -31,6 +31,11 @@ sync_circuit CHIUncachedMemory(xlen :: XLen, config :: RiscvHartCHIConfig, Conte
   def p = config.flit
   def word_lanes = p.data_bytes / 8
   def lane_width = index_width(word_lanes)
+  // PBMT can send coherent RAM through RN-I. Keep all mapped address bits
+  // and the line offset used to sequence block-zero writes.
+  def line_offset_bits = alignment_bits(CacheLineBytes)
+  def mapped_width = config.physical_map.address_width_for(fun (_attributes): #true)
+  def retained_width = math.min(width, math.max(mapped_width, line_offset_bits))
 
   input node_id: Bits(p.node_id_width)
   input cancel: Bool
@@ -39,7 +44,7 @@ sync_circuit CHIUncachedMemory(xlen :: XLen, config :: RiscvHartCHIConfig, Conte
 
   inst load_gen(LoadGen(xlen))
   reg state(~init: CHIUncachedState.Idle)
-  reg address(Bits(width))
+  reg address(Bits(retained_width))
   reg memory_width(MemoryWidth)
   reg unsigned_load(~init: Bool(#false))
   reg context(Context)
@@ -58,7 +63,6 @@ sync_circuit CHIUncachedMemory(xlen :: XLen, config :: RiscvHartCHIConfig, Conte
                                                    CacheOperation.CacheBlockZero)
   def command_zero = command_access.is_cache_block_zero()
   // A block zero starts line-aligned; its retained address is also its word counter.
-  def line_offset_bits = alignment_bits(CacheLineBytes)
   def zero_word = address[3..line_offset_bits]
   def zero_last = zero_word.all()
   def command_home = config.home_map.lookup(cache_chi_address(command.address, p))
@@ -135,7 +139,7 @@ sync_circuit CHIUncachedMemory(xlen :: XLen, config :: RiscvHartCHIConfig, Conte
   def read_lane:
     if word_lanes == 1 | Bits(lane_width)(0) | address[3..alignment_bits(p.data_bytes)]
 
-  load_gen.address <== address
+  load_gen.address <== address.zext(width)
   load_gen.data <== read_lanes[read_lane]
   load_gen.width <== memory_width
   load_gen.unsigned_load <== unsigned_load
@@ -154,7 +158,7 @@ sync_circuit CHIUncachedMemory(xlen :: XLen, config :: RiscvHartCHIConfig, Conte
   chi.rsp.requester.bits <== literal(CHIRspFlit(p), 0)
 
   when request_accept:
-    address <== selected_address
+    address <== selected_address[0..retained_width]
     memory_width <== command.width
     unsigned_load <== command.unsigned
     context <== command.context
@@ -176,7 +180,8 @@ sync_circuit CHIUncachedMemory(xlen :: XLen, config :: RiscvHartCHIConfig, Conte
   elsewhen write_data_fire:
     state <== CHIUncachedState.WriteResponse
   elsewhen (completion_fire & zero_active & !zero_last):
-    address <== address[line_offset_bits..width] ++ (zero_word + Bits(line_offset_bits - 3)(1)) ++ address[0..3]
+    def next_offset = (zero_word + Bits(line_offset_bits - 3)(1)) ++ address[0..3]
+    address <== address.align_down(CacheLineBytes) ||| next_offset.zext(retained_width)
     state <== CHIUncachedState.Request
   elsewhen (read_fire ||| completion_fire):
     state <== CHIUncachedState.Idle
