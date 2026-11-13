@@ -1,0 +1,9 @@
+#lang rhombus
+// Exercises an integrated-style map narrower than a 1 GiB superpage offset.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  "../../tlb.rhdl".RiscvTranslationTlb
+
+def program = elaborate(RiscvTranslationTlb(2, ~host_root_epoch: #true, ~physical_address_width: 20))
+export program
