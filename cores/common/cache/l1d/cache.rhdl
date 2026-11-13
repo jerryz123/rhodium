@@ -392,7 +392,8 @@ sync_circuit L1DCache(xlen :: XLen,
   def maintenance_active = !maintenance.command.ready
   def Array(ordinary_requests, management_requests) = service_requests.egress |> demux_flow(2, request => request.access.into(CacheOperation).is_cache_management().as_bits())
   def management_waiting = management_requests.valid
-  def management_address = cache_chi_address(management_requests.bits.address.align_down(CacheLineBytes), p)
+  // Admission checked the full address; the CHI retry record needs only mapped line bits.
+  def management_address = management_requests.bits.address[0..retained_width].align_down(CacheLineBytes).zext(p.request_address_width)
   def management_home = config.home_map.lookup(management_address)
   def maintenance_engines_drained = refill.command.ready & writeback.command.ready & !pending_mutation_valid & !refill_installing & (gather_state === L1DGatherState.Idle)
   def maintenance_lookups_drained = !s2_store_candidate.egress.valid & !s3_lookup.egress.valid & !s4_result.egress.valid & !service_responses.egress.valid

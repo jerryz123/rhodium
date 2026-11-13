@@ -110,11 +110,42 @@ void check_consecutive_hits(unsigned address, const Line &line) {
 
 void check_maintenance_retry(const Line &younger_line) {
   constexpr unsigned clean = 8, clean_shared = 8, retry_ack = 3, credit_grant = 7, comp = 4;
-  constexpr unsigned clean_line = base + 64, load_line = base + 128;
+  constexpr auto clean_line = (UINT64_C(1) << 32) + base + 64;
+  constexpr unsigned load_line = base + 128;
+
+  // Bit 33 is inside CHI but outside data RAM. Dropping it before admission
+  // would turn this rejected clean into a command for the mapped high line.
+  auto &req = core_in.prequest;
+  req.pbits = {};
+  req.pbits.paddress = (UINT64_C(1) << 33) | (clean_line + 24);
+  req.pbits.paccess = clean;
+  req.pvalid = 1;
+  for (unsigned cycle = 0; cycle < 4; ++cycle) {
+    eval();
+    CHECK(core_out.prequest_uaccess_ufault && !core_out.prequest.pready);
+    CHECK(!chi_out.prequests.pvalid && !core_out.presponse.pvalid);
+    tick_model();
+  }
+  req.pvalid = 0;
+  eval(); CHECK(core_out.pdrained);
+
   request(clean_line + 24, clean, {}, 0, false, 0x59);
+  req.pbits.paddress = base + 64 + 24;
   until([] { return chi_out.prequests.pvalid; });
-  CHECK(chi_out.prequests.pbits.pallow_uretry);
-  const auto txn = accept_request(clean_line, clean_shared);
+  const auto txn = chi_out.prequests.pbits.ptxn_uid;
+  auto accept_clean = [&](bool first_attempt) {
+    const auto &offer = chi_out.prequests;
+    until([&] { return offer.pvalid; });
+    for (unsigned cycle = 0; cycle < 4; ++cycle) {
+      CHECK(offer.pvalid && offer.pbits.paddress == clean_line && offer.pbits.popcode == clean_shared);
+      CHECK(offer.pbits.ptgt_uid == 1 && offer.pbits.ptxn_uid == txn);
+      CHECK(offer.pbits.pallow_uretry == first_attempt && !core_out.presponse.pvalid);
+      if (!first_attempt) CHECK(offer.pbits.ppcrd_utype == 5);
+      tick_model(); eval();
+    }
+    CHECK(accept_request(clean_line, clean_shared) == txn);
+  };
+  accept_clean(true);
   request(load_line + 32, load, {}, 0xffff, true, 0xa6);
 
   auto send_rsp = [&](unsigned opcode, unsigned id, unsigned credit_type, unsigned error) {
@@ -132,10 +163,7 @@ void check_maintenance_retry(const Line &younger_line) {
   };
   send_rsp(retry_ack, txn, 5, 0);
   send_rsp(credit_grant, 0, 5, 0);
-  until([] { return chi_out.prequests.pvalid; });
-  CHECK(!core_out.presponse.pvalid && !chi_out.prequests.pbits.pallow_uretry);
-  CHECK(chi_out.prequests.pbits.ppcrd_utype == 5);
-  CHECK(accept_request(clean_line, clean_shared) == txn);
+  accept_clean(false);
   send_rsp(comp, txn, 0, 2);
 
   // Keep the failed clean at the response head while the new miss takes ownership.

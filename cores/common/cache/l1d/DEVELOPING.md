@@ -125,8 +125,9 @@ row. The copyback fixture covers 128-, 256-, and 512-bit DAT.
    The retained request owns the opaque caller context until the response
    queue accepts it. Maintenance bypasses S4 after older work drains: update
    only that context on its command handshake and block S4 admission until
-   completion. Keep the retry address and CHI command fields in the maintenance
-   engine; it does not need the caller's physical request.
+   completion. After full-width admission, align the mapped data address and
+   zero-extend it for CHI. The maintenance engine retains that line and its
+   command fields across retries; it does not need the caller's physical request.
    Keep readiness structural even when an empty request buffer is bypassed by
    a paired virtual read and physical resolution. Queued physical requests win
    the lookup port; unresolved virtual reads cannot produce a lookup token.
