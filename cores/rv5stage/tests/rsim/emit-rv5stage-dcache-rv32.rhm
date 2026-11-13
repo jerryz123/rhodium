@@ -7,10 +7,19 @@ import:
   lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../../riscv/isa/xlen.rhm" open
   "../../../common/cache/geometry.rhdl" open
+  "../../../common/cache/chi/flits.rhdl".RiscvHartCHIConfig
+  lib("chi/protocol/params.rhdl").CHIFlitParams
   "../../../common/cache/l1d/cache.rhdl" as cache
   "../../../../cores/rv5stage/tests/params.rhdl" as test_params
 
-def program = elaborate(cache.L1DCache(XLen.X32, CacheConfig(4, 1), ~chi: test_params.test_rv5stage_chi_config, ~service_queue_depth: 1, ~context: RV5StageMemoryContext(8))
-)
+fun rv32_cache(data_width):
+  def config = RiscvHartCHIConfig(CHIFlitParams(~data_width: data_width), 64, test_params.test_rv5stage_chi_config.regions)
+  elaborate(cache.L1DCache(XLen.X32, CacheConfig(4, 1), ~chi: config, ~service_queue_depth: 1, ~context: RV5StageMemoryContext(8)))
 
-export program
+def program = rv32_cache(128)
+def dat256 = rv32_cache(256)
+def dat512 = rv32_cache(512)
+export:
+  program
+  dat256
+  dat512

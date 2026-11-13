@@ -79,9 +79,14 @@ void observe() {}
 
 void falling_update() {}
 
-// A 128-bit DAT beat contains four RV32 gather words. Check all sixteen
-// positions, including the word that arrives immediately before publication.
+constexpr unsigned packet_bytes = sizeof(chi_in.presponse_udata.pbits.pdata.words);
+constexpr unsigned packets_per_line = 64 / packet_bytes;
+constexpr unsigned words_per_packet = packet_bytes / 4;
+
+// Check each RV32 row through stalls, including the last SRAM return that
+// bypasses into the offered packet and then switches to the retained copy.
 void check_dirty_snoop_words() {
+  const auto old_requests = requests;
   constexpr std::uint32_t pattern = 0x12345600;
   for (unsigned word = 0; word < 16; ++word) {
     send_request(4096 + word * 4, 2, 0, 2, 0, pattern + word);
@@ -97,20 +102,24 @@ void check_dirty_snoop_words() {
   CHECK(chi_out.psnoops.pready);
   tick();
   chi_in.psnoops = {};
-  for (unsigned packet = 0; packet < 4; ++packet) {
+  for (unsigned packet = 0; packet < packets_per_line; ++packet) {
     for (int cycle = 0; cycle < 100 && !chi_out.prequest_udata.pvalid; ++cycle)
       tick();
     CHECK(chi_out.prequest_udata.pvalid);
     const auto &beat = chi_out.prequest_udata.pbits;
-    CHECK(beat.popcode == 1 && beat.pdata_uid == packet &&
-          beat.presp == 4 && beat.pbyte_uenable == UINT16_MAX);
-    for (unsigned word = 0; word < 4; ++word)
-      CHECK(read_bits(beat.pdata, word * 32, 32) == pattern + packet * 4 + word);
+    for (unsigned stall = 0; stall < 5; ++stall) {
+      CHECK(chi_out.prequest_udata.pvalid && beat.popcode == 1 &&
+            beat.pdata_uid == packet * (packet_bytes / 16) &&
+            beat.presp == 4 && beat.pbyte_uenable == low_mask(packet_bytes));
+      for (unsigned word = 0; word < words_per_packet; ++word)
+        CHECK(beat.pdata.words[word] == pattern + packet * words_per_packet + word);
+      tick();
+    }
     chi_in.prequest_udata.pready = 1;
     tick();
     chi_in.prequest_udata.pready = 0;
   }
-  CHECK(requests == 6);
+  CHECK(requests == old_requests);
 }
 
 void check_high_probe_misses() {
@@ -152,15 +161,15 @@ void stimulus() {
     for (int cycle = 0; cycle < 100 && requests == 0; cycle++)
       tick();
     CHECK(requests == 1 && responses == 0 && !core_out.pdrained);
-    for (int packet = 0; packet < 4; packet++) {
+    for (unsigned packet = 0; packet < packets_per_line; packet++) {
       for (int cycle = 0; cycle < 100 && !chi_out.presponse_udata.pready;
            cycle++)
         tick();
       CHECK(chi_out.presponse_udata.pready);
       chi_in.presponse_udata.pbits = {};
-      write_bits(chi_in.presponse_udata.pbits.pdata, 0, 128, ~uint128(0));
-      chi_in.presponse_udata.pbits.pbyte_uenable = UINT16_MAX;
-      chi_in.presponse_udata.pbits.pdata_uid = ((packet)&low_mask(2));
+      chi_in.presponse_udata.pbits.pdata.words.fill(UINT32_MAX);
+      chi_in.presponse_udata.pbits.pbyte_uenable = low_mask(packet_bytes);
+      chi_in.presponse_udata.pbits.pdata_uid = packet * (packet_bytes / 16);
       chi_in.presponse_udata.pbits.presp = UINT64_C(2);
       chi_in.presponse_udata.pbits.popcode = UINT64_C(4);
       chi_in.presponse_udata.pbits.phome_unid_uor_upbha_uor_umismatched_umecid =
@@ -174,6 +183,10 @@ void stimulus() {
     }
     expect_response(UINT64_C(0));
     CHECK(acknowledgements == 1 && responses == 1);
+    if (packet_bytes != 16) {
+      check_dirty_snoop_words();
+      throw Finished{};
+    }
     for (int offset = 0; offset < 64; offset++) {
       send_request(UINT64_C(4096) + ((offset)&low_mask(32)), UINT64_C(6));
       send_request(UINT64_C(4096) + (((offset / 4) * 4) & low_mask(32)),

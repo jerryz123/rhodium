@@ -11,7 +11,7 @@ import:
   lib("chi/protocol/protocol.rhdl").chi_transfer_data_id
   lib("chi/protocol/coherence.rhdl") open
 
-/* Publishes hit and coherence state after any required dirty-word gathering finishes. */
+/* Returns tag and state lookup independently of dirty packet reads. */
 bundle CacheDataSnoopLookupResult():
   hit: Bool
   state: CHICacheState
@@ -25,8 +25,7 @@ bundle CacheDataSnoopUpdate(address_width :: PosInt):
 /* Services one ordinary snoop or a paired DVM operation independently of demand transactions.
    Dirty hits return all data before invalidation; clean responses update state only at final
    handoff. */
-sync_circuit CacheDataSnoop(address_width :: PosInt,
-                            config :: RiscvHartCHIConfig, ~beat_bytes: beat_bytes :: Pow2Int):
+sync_circuit CacheDataSnoop(address_width :: PosInt, config :: RiscvHartCHIConfig):
   def p = config.flit
   def packet_count :: PosInt = CacheLineBytes / p.data_bytes
   def packet_index_width = index_width(packet_count)
@@ -40,7 +39,8 @@ sync_circuit CacheDataSnoop(address_width :: PosInt,
   interface responses(Decoupled(CHIRspFlit(p)), ~role: producer)
   interface data(Decoupled(CHIDatFlit(p)), ~role: producer)
   interface lookup(Valid(Bits(address_width)), ~role: producer)
-  interface gather(Valid(CacheLineChunk(beat_bytes)), ~role: consumer)
+  output gather_required: Bool
+  interface packet(Decoupled(CacheLineChunk(p.data_bytes)), ~role: consumer)
   interface lookup_result(Valid(CacheDataSnoopLookupResult()), ~role: consumer)
   interface update(Valid(CacheDataSnoopUpdate(address_width)), ~role: producer)
 
@@ -54,8 +54,6 @@ sync_circuit CacheDataSnoop(address_width :: PosInt,
   reg lookup_complete(~init: Bool(#false))
   reg line_hit(~init: Bool(#false))
   reg line_state(~init: CHICacheState.Invalid)
-  reg line(Vec(cache_line_rows(beat_bytes), Bits(8 * beat_bytes)))
-  reg packet_index(~init: Bits(packet_index_width)(0))
   reg dvm_first_pending(~init: Bool(#false))
   reg dvm_source_id(~init: Bits(p.node_id_width)(0))
   reg dvm_txn_id(~init: Bits(12)(0))
@@ -81,15 +79,15 @@ sync_circuit CacheDataSnoop(address_width :: PosInt,
   lookup.valid <== lookup_start
   lookup.bits <== address
   def lookup_result_fire = active_state & uses_lookup & !lookup_complete & lookup_result.valid
-  when (gather.valid):
-    assert(active_state & uses_lookup & !lookup_complete, "snoop_gather_before_result")
-    line[gather.bits.index] <== gather.bits.data
+  def preserve_dirty = !chi_snoop_discards_dirty(request.opcode)
+  def resolved_state = lookup_result.bits.state.into(CHICacheState)
+  gather_required <== lookup_result_fire & lookup_result.bits.hit & resolved_state.is_dirty() & preserve_dirty
 
 
   /* Clean response and retained cache-state selection.
      Dirty-preserving snoops use DAT instead; discard policy can finish through RSP. */
 
-  def dirty_hit = uses_lookup & line_hit & line_state.is_dirty() & !chi_snoop_discards_dirty(request.opcode)
+  def dirty_hit = uses_lookup & line_hit & line_state.is_dirty() & preserve_dirty
   def shares_state = cache_snoop_shares_cache_state(request.opcode)
   def invalidates_state = cache_snoop_invalidates_cache_state(request.opcode)
   def discards_clean_line = invalidates_state ||| request.ret_to_src
@@ -109,7 +107,7 @@ sync_circuit CacheDataSnoop(address_width :: PosInt,
   /* Dirty packet stream and final cache update.
      Hand off every dirty packet before invalidation; clean state changes also wait for transfer. */
 
-  def packet_data = line.as_bits().as_vec(Bits(p.data_width))[packet_index]
+  def packet_index = packet.bits.index
   def packet_beat = packet_index.zext(2)
   def packet_data_id = chi_transfer_data_id(packet_beat, p)
   def dirty_response:
@@ -119,7 +117,7 @@ sync_circuit CacheDataSnoop(address_width :: PosInt,
 
   def inactive_data :: CHIDatFlit(p) = literal(CHIDatFlit(p), 0)
   def snoop_data = inactive_data.updated(
-    ~data: packet_data,
+    ~data: packet.bits.data,
     ~byte_enable: !Bits(p.byte_enable_width)(0),
     ~trace_tag: request.trace_tag,
     ~tag_op: CHITagOp.Invalid,
@@ -135,7 +133,9 @@ sync_circuit CacheDataSnoop(address_width :: PosInt,
     ~qos: request.qos
   )
 
-  data.valid <== active_state & lookup_complete & dirty_hit
+  def sending = active_state & lookup_complete & dirty_hit
+  data.valid <== sending & packet.valid
+  packet.ready <== sending & data.ready
   data.bits <== snoop_data
   def data_fire = data.fire()
   def final_packet = packet_index === Bits(packet_index_width)(packet_count - 1)
@@ -162,13 +162,10 @@ sync_circuit CacheDataSnoop(address_width :: PosInt,
     lookup_complete <== Bool(#false)
     line_hit <== Bool(#false)
     line_state <== CHICacheState.Invalid
-    packet_index <== Bits(packet_index_width)(0)
   elsewhen lookup_result_fire:
     lookup_complete <== Bool(#true)
     line_hit <== lookup_result.bits.hit
     line_state <== lookup_result.bits.state
-  elsewhen (data_fire & !final_packet):
-    packet_index <== packet_index + Bits(packet_index_width)(1)
   elsewhen snoop_complete:
     active_state <== Bool(#false)
     uses_lookup <== Bool(#false)

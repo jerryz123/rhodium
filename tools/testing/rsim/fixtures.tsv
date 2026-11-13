@@ -307,6 +307,8 @@ rv5stage-icache-coherence	cores-cache	cores/rv5stage/tests/rsim/emit-rv5stage-ic
 rv5stage-icache-coherence-flat	cores-cache	cores/rv5stage/tests/rsim/emit-rv5stage-icache-coherence-flat.rhm	program	cores/rv5stage/tests/rsim/rv5stage-icache-coherence-flat.cpp
 rv5stage-dcache	cores-cache	cores/rv5stage/tests/rsim/emit-rv5stage-dcache.rhm	program	cores/rv5stage/tests/rsim/rv5stage-dcache.cpp
 rv5stage-dcache-rv32	cores-cache	cores/rv5stage/tests/rsim/emit-rv5stage-dcache-rv32.rhm	program	cores/rv5stage/tests/rsim/rv5stage-dcache-rv32.cpp
+rv5stage-dcache-snoop256	cores-cache	cores/rv5stage/tests/rsim/emit-rv5stage-dcache-rv32.rhm	dat256	cores/rv5stage/tests/rsim/rv5stage-dcache-rv32.cpp
+rv5stage-dcache-snoop512	cores-cache	cores/rv5stage/tests/rsim/emit-rv5stage-dcache-rv32.rhm	dat512	cores/rv5stage/tests/rsim/rv5stage-dcache-rv32.cpp
 rv5stage-lrsc-progress	cores-cache	cores/rv5stage/tests/rsim/emit-rv5stage-lrsc-progress.rhm	program	cores/rv5stage/tests/rsim/rv5stage-lrsc-progress.cpp
 rv5stage-lrsc-core-progress	cores-cache	cores/rv5stage/tests/rsim/emit-rv5stage-lrsc-core-progress.rhm	program	cores/rv5stage/tests/rsim/rv5stage-lrsc-core-progress.cpp
 rv5stage-lrsc-core-progress-rv32	cores-cache	cores/rv5stage/tests/rsim/emit-rv5stage-lrsc-core-progress-rv32.rhm	program	cores/rv5stage/tests/rsim/rv5stage-lrsc-core-progress-rv32.cpp

@@ -69,7 +69,7 @@ admitted request, selected data row, and allocation way's tag on the same
 S3-to-S4 transfer. A local hit uses row zero of the backing line, regardless
 of its SRAM row index. Hold it through a stalled hit or local AMO; do not admit
 another S4 capture while gather, copyback, or refill owns the bank. Dirty snoops
-retain their independent line. The S4 metadata and slow-service response registers are elastic;
+retain their packet separately. The S4 metadata and slow-service response registers are elastic;
 the latter has registered-only input capacity to break the downstream-ready
 path through request admission. Do not turn stalled transfers into repeated
 completion events. S2 maps demands and hints into lookup
@@ -107,8 +107,11 @@ for an example of caller-owned result capture and translation-fault observations
 ### Behavioral invariants
 
 The gather FSM routes each returning array row to exactly one destination:
-L1D's writeback/refill line or the snoop engine's private line. Publish the
-eviction command or snoop result only after the last row arrives. Preserve
+L1D's writeback/refill line or the snoop packet buffer. Publish eviction only
+after its last row arrives. For snoops, return metadata immediately; only a
+data-preserving dirty hit starts the reader. The last row bypasses into DAT
+and is captured for a stall. Do not issue the next packet's first read until
+the previous packet transfers. Preserve
 the victim through retry and the final copyback transfer; only then may the
 replacement refill start. Write refill packets on acceptance by DataID, not
 arrival order. No command-time clear is needed: installation and bypass both
@@ -118,7 +121,9 @@ The RV64 D-cache fixture checks both grant orderings with two dirty lines;
 `cache-wide-l1d` queues a dirty miss behind a local AMO, checks a load hit
 in another set while the AMO response and copyback grant are stalled, then
 stalls snoop data across a reordered refill and reads back each installed
-row. The copyback fixture covers 128-, 256-, and 512-bit DAT.
+row. The RV32 snoop fixtures check every row under DAT stalls at 128, 256,
+and 512 bits. The RV64 fixture checks the unstalled transfer schedule and
+the response-only path for both make-invalid opcodes.
 
 1. Preserve ordered Decoupled requests and backpressurable slow responses,
    including completion metadata for stores, atomics, and deferred writeback.

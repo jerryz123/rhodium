@@ -235,9 +235,10 @@ flowchart LR
   Install --> Arrays
   Install --> Response
 
-  Snoop["Snoop engine<br/>private 64-byte line"] -->|"lookup / update request"| Arrays
+  Snoop["Snoop engine"] -->|"lookup / final update"| Arrays
   Arrays -->|"hit and state"| Snoop
-  Gather -->|"dirty snoop words"| Snoop
+  Gather -->|"dirty snoop rows"| Packet["One DAT packet"]
+  Packet -->|"ready / valid"| Snoop
   Snoop --> CHI["CHI SnpResp / SnpRespData"]
 ```
 
@@ -353,7 +354,7 @@ allocate in outer caches. No outer-cache allocation policy is claimed.
 
 For a dirty allocation victim, the shared array reader gathers each row into
 the same line buffer that will later receive the refill. Snoop responses use
-a separate snapshot. Only after the last victim row is present can the
+a separate packet buffer. Only after the last victim row is present can the
 [writeback engine](../chi/writeback.rhdl) accept the command
 and issue a retryable `WriteBackFull`. L1D holds the victim address separately
 from the miss address until copyback completion is accepted. The victim remains
@@ -402,10 +403,11 @@ refill keeps the ports through the final word.
 | Make-invalid hit | `SnpResp` reporting Invalid, no data | Discard the copy, including dirty data |
 | Two-packet `SnpDVMOp` | One `SnpResp` after the second packet | No array access |
 
-A dirty snoop uses the same array reader, but its words go into the snoop
-engine's own line register. A pending copyback and a snoop can therefore hold
-different dirty lines even when DAT is stalled. The snoop publishes the lookup
-result after its last word arrives; Home then receives the authoritative line.
+A data-preserving dirty snoop streams one CHI packet at a time from the
+array. When DAT stalls, the cache holds that packet and stops issuing reads
+before the next packet. The resident way stays authoritative until the final
+transfer; a stalled copyback keeps its own data. Make-invalid snoops skip
+the data array and discard the dirty line only when their response transfers.
 Reset clears lookup, pending mutation, refill installation, line gather,
 reservation, valid-line, replacement, and child transaction-engine state.
 

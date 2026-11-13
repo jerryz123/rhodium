@@ -34,7 +34,6 @@ hardware_enum L1DGatherState:
   EvictionRead
   EvictionReady
   SnoopRead
-  SnoopReady
 
 /* Labels the winning physical SRAM user independently of scalar instruction ownership. */
 hardware_enum L1DArrayOwner:
@@ -101,6 +100,8 @@ sync_circuit L1DCache(xlen :: XLen,
 
   def beat_width = beat_bytes * 8
   def words_per_line = cache_line_rows(beat_bytes)
+  def rows_per_packet = p.data_bytes / beat_bytes
+  def packet_offset_bits = alignment_bits(rows_per_packet)
   def data_depth = sets * words_per_line
   def data_lanes = ways * beat_bytes
   def offset_width = alignment_bits(CacheLineBytes)
@@ -165,7 +166,7 @@ sync_circuit L1DCache(xlen :: XLen,
   inst refill_store_gen(StoreGen(xlen, beat_bytes))
   inst refill_atomic_alu(RiscvAtomicALU(xlen))
   inst refill(CacheLineRefill(Bool, width, config))
-  inst snoop(CacheDataSnoop(snoop_width, config, ~beat_bytes: beat_bytes))
+  inst snoop(CacheDataSnoop(snoop_width, config))
   inst writeback(CacheLineWriteback(Bool, width, config, 1))
   inst maintenance(CHICacheMaintenance(p, Bool))
   maintenance.node_id <== node_id
@@ -229,7 +230,7 @@ sync_circuit L1DCache(xlen :: XLen,
   reg miss_install(Bool)
   reg miss_prefetch(Bool)
   // S4 uses row zero for its local hit. Victim gather and refill each replace
-  // every row before publishing the line; the snoop engine has its own bank.
+  // every row before publishing the line; snoops have independent packet storage.
   reg backing_line(Vec(words_per_line, Bits(beat_width)))
   writeback.line <== backing_line.as_bits()
   def retained_set = retained_address[offset_width..(offset_width + set_width)]
@@ -243,7 +244,8 @@ sync_circuit L1DCache(xlen :: XLen,
   reg gather_set(Bits(set_width))
   reg gather_way(Bits(way_width))
   reg eviction_state(~init: CHICacheState.Invalid)
-  reg gathered_snoop_state(~init: CHICacheState.Invalid)
+  reg snoop_packet_rows(Vec(rows_per_packet, Bits(beat_width)))
+  reg snoop_packet_held(~init: Bool(#false))
   reg snoop_metadata_pending(~init: Bool(#false))
 
 
@@ -486,7 +488,13 @@ sync_circuit L1DCache(xlen :: XLen,
   def s4_dirty_victim = s4_needs_refill & !s4_bypass_refill & !s4_prefetch & !s4_hit & s4_victim_valid & s4_victim_state.is_dirty()
   def gather_idle = gather_state === L1DGatherState.Idle
   def gather_read = gather_state.is_one_of(L1DGatherState.EvictionRead, L1DGatherState.SnoopRead)
-  def gather_issue = gather_read & !gather_last_issued
+  // A read cannot be recalled. Issue beyond a packet boundary only on its
+  // transfer, so next cycle's SRAM result always has a free destination.
+  def snoop_row_valid = (gather_state === L1DGatherState.SnoopRead) & gather_response_pending
+  def packet_last_row = if rows_per_packet == 1 | Bool(#true) | gather_response_index[0..packet_offset_bits].all()
+  def snoop_packet_arriving = snoop_row_valid & packet_last_row
+  def snoop_packet_valid = snoop_packet_arriving ||| snoop_packet_held
+  def gather_issue = gather_read & !gather_last_issued & (!snoop_packet_valid ||| snoop.packet.ready)
   def gather_issue_final = gather_issue_index === Bits(word_index_width)(words_per_line - 1)
   def gather_response_final = gather_response_index === Bits(word_index_width)(words_per_line - 1)
 
@@ -632,7 +640,7 @@ sync_circuit L1DCache(xlen :: XLen,
   /* Snoop lookup and data handoff.
      Backing transactions retain their context without occupying the SRAMs.
      Accepted snoops can proceed around queued work, preventing a Home/RN-F
-     wait cycle; dirty data gathers before the lookup result is returned. */
+     wait cycle. Only snoops that must preserve dirty data claim the row reader. */
 
   stores.probe_address <== snoop.address
   snoop.cache_ready <== !s3_read_valid & !s4_result.egress.valid & !pending_mutation_valid & gather_idle & !refill_installing & !stores.queued_line_hazard
@@ -654,15 +662,12 @@ sync_circuit L1DCache(xlen :: XLen,
       when snoop_metadata_valid:
         assert(!(snoop_matches[left] & snoop_matches[right]), "l1d_snoop_hit_unique")
 
-  def snoop_dirty_hit = snoop_line_hit & snoop_lookup_state.is_dirty()
-  def snoop_gather_start = snoop_metadata_valid & snoop_dirty_hit
-  def snoop_direct_result = snoop_metadata_valid & !snoop_dirty_hit
-  def snoop_gather_result = gather_state === L1DGatherState.SnoopReady
-  def snoop_result = CacheDataSnoopLookupResult():
-    hit: mux(snoop_gather_result, Bool(#true), snoop_line_hit)
-    state: mux(snoop_gather_result, gathered_snoop_state, snoop_lookup_state)
+  snoop.lookup_result.valid <== snoop_metadata_valid
+  snoop.lookup_result.bits <== CacheDataSnoopLookupResult():
+    hit: snoop_line_hit
+    state: snoop_lookup_state
 
-  inject_interface(Valid(CacheDataSnoopLookupResult()), ~valid: snoop_direct_result ||| snoop_gather_result, ~bits: snoop_result) |> snoop.lookup_result
+  def snoop_gather_start = snoop.gather_required
 
 
   /* Lookup scheduling and retained advancement.
@@ -989,17 +994,30 @@ sync_circuit L1DCache(xlen :: XLen,
      Eviction and dirty snoops share the reader, but retain separate owners;
      issued reads and returning words can progress on the same edge. */
 
-  // Every word is written before publication. The two owners retain separate
-  // snapshots so gathering for one never disturbs the other's stalled DAT.
   def gathered_response_words = arrays.data.response.bits.as_bits().as_vec(Bits(beat_width))
   def word = CacheLineChunk(beat_bytes):
     index: gather_response_index
     data: gathered_response_words[gather_way]
 
   def returning_word = inject_interface(Valid(CacheLineChunk(beat_bytes)), ~valid: gather_response_pending, ~bits: word)
-  def Array(eviction_words, snoop_words) = returning_word |> fork_valid(2)
-  def victim_row = eviction_words |> filter_valid(_word => gather_state === L1DGatherState.EvictionRead)
-  snoop_words |> filter_valid(_word => gather_state === L1DGatherState.SnoopRead) |> snoop.gather
+  def victim_row = returning_word |> filter_valid(_word => gather_state === L1DGatherState.EvictionRead)
+
+  /* Assemble only the current snoop packet. Bypass the final returning row
+     to DAT; if stalled, its captured copy drives the same offer until transfer. */
+
+  def row_in_packet = if rows_per_packet == 1 | Bits(1)(0) | gather_response_index[0..packet_offset_bits]
+  when snoop_row_valid:
+    snoop_packet_rows[row_in_packet] <== word.data
+
+  def last_row = rows_per_packet - 1
+  def last_data = mux(snoop_packet_arriving, word.data, snoop_packet_rows[last_row])
+  snoop.packet.valid <== snoop_packet_valid
+  snoop.packet.bits <== CacheLineChunk(p.data_bytes):
+    index: (gather_response_index >> packet_offset_bits)[0..index_width(cache_line_rows(p.data_bytes))]
+    data: vec(for List (row in 0..rows_per_packet): if row == last_row | last_data | snoop_packet_rows[row]).as_bits()
+
+  when snoop_packet_valid:
+    snoop_packet_held <== !snoop.packet.ready
 
 
   /* Backing line writes. S4 captures its hit in row zero while the bank is idle.
@@ -1016,7 +1034,6 @@ sync_circuit L1DCache(xlen :: XLen,
   when capture_s4:
     assert(!victim_row.valid & !packet.valid, "l1d_s4_owns_backing_row_zero")
 
-  def rows_per_packet = p.data_bytes / beat_bytes
   def PacketIndex = Bits(index_width(cache_line_rows(p.data_bytes)))
   def packet_rows = packet.bits.data.as_vec(Bits(beat_width))
   for (row in 0..words_per_line):
@@ -1028,7 +1045,7 @@ sync_circuit L1DCache(xlen :: XLen,
       backing_line[row] <== s3_word
 
 
-  /* Gather progress. Hand the complete line to its owner on the existing Ready boundary. */
+  /* Release the reader on eviction command acceptance or final snoop DAT transfer. */
 
   // Both captures initialize the same reader. Eviction wins a simultaneous
   // start; the inactive owner's payload remains unchanged.
@@ -1039,8 +1056,6 @@ sync_circuit L1DCache(xlen :: XLen,
     gather_last_issued <== Bool(#false)
     gather_set <== mux(eviction_gather_start, retained_set, snoop_set)
     gather_way <== mux(eviction_gather_start, eviction_start.bits.allocation_way, snoop_selection.index)
-    when (!eviction_gather_start):
-      gathered_snoop_state <== snoop_lookup_state
   elsewhen gather_read:
     gather_response_pending <== gather_issue
     when gather_issue:
@@ -1050,11 +1065,12 @@ sync_circuit L1DCache(xlen :: XLen,
 
     when gather_response_pending:
       assert(arrays.data.response.valid, "l1d_gather_read_response_valid")
-      when gather_response_final:
-        gather_state <== mux(gather_state === L1DGatherState.EvictionRead, L1DGatherState.EvictionReady, L1DGatherState.SnoopReady)
+
+    when (gather_response_pending & gather_response_final & (gather_state === L1DGatherState.EvictionRead)):
+      gather_state <== L1DGatherState.EvictionReady
+    elsewhen (snoop.packet.fire() & gather_response_final):
+      gather_state <== L1DGatherState.Idle
   elsewhen writeback_command_fire:
-    gather_state <== L1DGatherState.Idle
-  elsewhen snoop_gather_result:
     gather_state <== L1DGatherState.Idle
 
 

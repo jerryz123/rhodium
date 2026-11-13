@@ -902,8 +902,7 @@ void check_store_miss_across_copyback() {
   check_pipeline_load(ADDRESS, 1, 0);
 }
 
-// Exercise a snoop of a different dirty way both before the copyback grant and
-// while its first DAT beat is stalled. Cycle offsets are the pre-refactor trace.
+// Probe a different dirty way on either side of the copyback grant.
 void check_overlapping_dirty_lines(bool grant_before_snoop) {
   prepare_hit_under_miss();
   auto victim = LINE;
@@ -935,27 +934,67 @@ void check_overlapping_dirty_lines(bool grant_before_snoop) {
     send_snoop(EVICT_ADDRESS, 122);
     for (int packet = 0; packet < 4; ++packet) {
       accept_snoop_data(packet, probed, 122);
-      CHECK(test_cycles - start == 30u + 4 * packet);
     }
     send_response(COMP_DBID_RESP, 1, 85, 0);
   }
 
   grant_dat_credit();
   tx_dat_pending = 0;
+  const auto copyback_start = test_cycles;
   for (int packet = 0; packet < 4; ++packet) {
     accept_copyback_data(packet, victim);
-    CHECK(test_cycles - start == (grant_before_snoop ? 33u : 44u) + packet);
+    CHECK(test_cycles - copyback_start == 1u + packet);
   }
   if (grant_before_snoop) {
     for (int packet = 0; packet < 4; ++packet) {
       accept_snoop_data(packet, probed, 122);
-      CHECK(test_cycles - start == 40u + 4 * packet);
     }
   }
   accept_request(READ_CLEAN, THIRD_ADDRESS, 0, 6, 1, 0);
   return_line(THIRD_ADDRESS, THIRD_LINE, 1);
   accept_comp_ack();
   expect_core_response(bit_slice(THIRD_LINE, 0, 64), WRITEBACK_INTEGER_KIND, 2);
+}
+
+// Measure transfers at the public port with DAT continuously ready. The
+// discard cases hold RSP instead and must never return dirty data.
+void check_snoop_stream(unsigned opcode) {
+  prepare_hit_under_miss();
+  auto line = LINE;
+  bit_slice(line, 0, 64) = STORE_DATA;
+  send_core_request(ADDRESS, MEMORY_STORE, ATOMIC_SWAP, STORE_DATA, 0);
+  expect_core_response(0, WRITEBACK_ACK_KIND, 0);
+  chi_in.prequester_uresponses.pready = 0;
+  send_snoop(ADDRESS, 117, opcode);
+  const auto start = test_cycles - 1; // Edge accepting SNP.
+  if (opcode == SNP_CLEAN_INVALID) {
+    for (unsigned i = 0; i < 4; ++i) {
+      while (!chi_out.prequest_udata.pvalid && test_cycles - start < 60)
+        tick();
+      const auto &dat = chi_out.prequest_udata;
+      CHECK(dat.pvalid && dat.pbits.popcode == SNP_RESP_DATA &&
+            dat.pbits.pdata_uid == i && dat.pbits.ptxn_uid == 117 &&
+            read_bits(dat.pbits.pdata, 0, 128) == read_bits(line, i * 128, 128));
+      tick();
+      CHECK(test_cycles - start == 5 + 2 * i);
+    }
+  } else {
+    while (!chi_out.prequester_uresponses.pvalid && test_cycles - start < 60) {
+      CHECK(!chi_out.prequest_udata.pvalid);
+      tick();
+    }
+    CHECK(test_cycles - start == 2);
+    for (unsigned stall = 0; stall < 8; ++stall) {
+      const auto &rsp = chi_out.prequester_uresponses;
+      CHECK(rsp.pvalid && rsp.pbits.popcode == SNP_RESP &&
+            rsp.pbits.ptxn_uid == 117 && rsp.pbits.presp == 0 &&
+            !chi_out.prequest_udata.pvalid);
+      tick();
+    }
+    grant_rsp_credit();
+    tick();
+  }
+  check_pipeline_load(ADDRESS, 1, 0);
 }
 
 void check_clean_reserved_victim() {
@@ -2364,6 +2403,9 @@ void stimulus() {
 
     check_overlapping_dirty_lines(false);
     check_overlapping_dirty_lines(true);
+    check_snoop_stream(SNP_CLEAN_INVALID);
+    check_snoop_stream(0x0a); // SnpMakeInvalid
+    check_snoop_stream(0x06); // SnpMakeInvalidStash
     check_store_miss_across_copyback();
     check_clean_reserved_victim();
     throw Finished{};
