@@ -49,8 +49,10 @@ separation.
    independent: another refill may complete before the failed line is retried.
    Compare the saved number against the full lookup line; neither a high alias
    nor an address-width fault may consume it. Do not narrow S2 with these owners.
-3. Publish tag and validity only after the final installation word so a
-   partial line cannot hit or satisfy a snoop.
+3. Invalidate the selected victim on command acceptance. Stream the first row
+   of each DAT packet directly into SRAM and retain only its unwritten tail.
+   Publish tag and validity only after the final row and successful CHI completion.
+   A failed refill must not restore the victim's old valid bit.
 4. Keep speculative `flush` separate from architectural `invalidate_all`,
    including their different treatment of resident and in-flight refill state.
    Either control clears old lookup contexts, but a simultaneous transferred
@@ -97,7 +99,7 @@ Use the host check for geometry and public protocol contracts:
 
 ```sh
 tools/run-racket-tests.sh cores/common/cache/tests/icache-test.rhm
-FIXTURES='cache-icache cache-icache64' python3 tools/testing/rsim/run.py
+FIXTURES='cache-icache cache-icache64 cache-icache-dat256 cache-icache-dat512' python3 tools/testing/rsim/run.py
 FIXTURES='cache-compack' python3 tools/testing/rsim/run.py
 moon run rhodium:check-boundaries
 ```
@@ -105,7 +107,9 @@ moon run rhodium:check-boundaries
 Test 32-bit snapshots, refill, invalidation, and access-error behavior in
 `cache-icache`. `cache-icache64` checks every 64-bit block position, page-end and
 next-page reads, consecutive hits, redirect survival, invalidation, errors, and
-ROM. `cache-compack` checks retained line-read and acknowledgement ancestry.
+ROM. The 256- and 512-bit DAT fixtures exercise multirow draining, partial
+replacement and fault handling, including ROM completion without CompAck.
+`cache-compack` checks retained line-read and acknowledgement ancestry.
 `rv2wide-fetch` executes the real 64-bit frontend/core composition; its owning
 [guide](../../../superscalar/DEVELOPING.md#validation) describes the retirement oracle.
 Use the [RV5Stage guide](../../../rv5stage/DEVELOPING.md#focused-validation) when a change crosses

@@ -36,6 +36,7 @@ sync_circuit EventCompAck():
   inst read(CacheLineRead(Bits(8), 32, config))
   refill.node_id <== Bits(p.node_id_width)(3)
   read.node_id <== Bits(p.node_id_width)(2)
+  read.packet.ready <== Bool(#true)
   command_ready <== refill.command.ready & read.command.ready
   refill.command.valid <== command_valid & read.command.ready
   read.command.valid <== command_valid & refill.command.ready

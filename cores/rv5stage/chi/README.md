@@ -39,8 +39,8 @@ one specialized core can be instantiated at multiple locations.
 
 `CacheLineRead` issues retryable 64-byte `ReadOnce` requests through RN-I
 channels. It obtains coherent data but no snoopable ownership or dirty
-responsibility. It retains context and collects the complete packet set before
-acknowledging Home and exposing line data plus an access-fault flag. A consumer
+responsibility. It retains the destination, streams packets by DataID, and
+reports accumulated fault status after acknowledging the complete packet set. A consumer
 flush cannot abandon an accepted transaction. L1I decides whether a completed
 snapshot may install or respond; the engine only owns CHI lifetime.
 For instruction-only cacheable ROM, the same engine issues a 64-byte

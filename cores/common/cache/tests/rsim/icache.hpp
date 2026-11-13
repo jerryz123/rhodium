@@ -3,11 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "../../../../../chi/tests/rsim/request.hpp"
 #include "test.hpp"
-#include "wide.hpp"
 using CHIReqFlit = std::remove_cvref_t<decltype(chi_out.preq.pbits)>;
 using CHIRspFlit = std::remove_cvref_t<decltype(chi_out.prsp.prequester.pbits)>;
 constexpr unsigned FETCH_BITS = sizeof(core_out.presponse.pbits.pdata) * 8;
 using Line = std::array<std::uint64_t, 8>;
+constexpr int PACKET_BYTES = sizeof(chi_in.pdat.presponse.pbits.pdata.words);
+constexpr int PACKETS = 64 / PACKET_BYTES;
 Line filled_line(std::uint32_t value) {
   Line line;
   line.fill((std::uint64_t(value) << 32) | value);
@@ -65,18 +66,6 @@ void grant_rsp_credit() {
   }
 }
 
-void wait_dat_credit() {
-  int cycles;
-  {
-    cycles = 0;
-    while (!chi_out.pdat.presponse.pready && cycles < 50) {
-      cache_tick();
-      cycles = cycles + 1;
-    }
-    CHECK(chi_out.pdat.presponse.pready);
-  }
-}
-
 void send_core_request(std::uint64_t address) {
   int cycles;
   {
@@ -126,20 +115,21 @@ void accept_read_request(std::uint64_t address) {
   }
 }
 
-void return_line(std::uint64_t address, const Line &line, int gap = 0,
-                 std::uint8_t error = 0) {
+unsigned return_line(std::uint64_t address, const Line &line, int gap = 0,
+                     std::uint8_t error = 0, int first = PACKETS - 1, int last = 0) {
+  unsigned stalls = 0;
   int packet;
   {
-    for (packet = 3; packet >= 0; packet = packet - 1) {
+    for (packet = first; packet >= last; --packet) {
       for (unsigned repeat_index = 0; repeat_index < (gap); ++repeat_index)
         cache_tick();
-      wait_dat_credit();
       chi_in.pdat.presponse.pbits = {};
-      chi_in.pdat.presponse.pbits.pdata =
-          wide((uint128(line[2 * packet + 1]) << 64) | line[2 * packet]);
-      chi_in.pdat.presponse.pbits.pbyte_uenable = UINT64_C(65535);
-      chi_in.pdat.presponse.pbits.pdata_uid =
-          slice(address, 5, 4) + slice(packet, 1, 0);
+      CHECK((address & 63) == 0);
+      auto &words = chi_in.pdat.presponse.pbits.pdata.words;
+      for (unsigned w = 0; w < words.size(); ++w)
+        words[w] = line_slice(line, packet * PACKET_BYTES * 8 + w * 32, 32);
+      chi_in.pdat.presponse.pbits.pbyte_uenable = low_mask(PACKET_BYTES);
+      chi_in.pdat.presponse.pbits.pdata_uid = packet * (PACKET_BYTES / 16);
       chi_in.pdat.presponse.pbits.presp = UINT64_C(0);
       chi_in.pdat.presponse.pbits.presp_uerr = error;
       chi_in.pdat.presponse.pbits.popcode = COMP_DATA;
@@ -150,11 +140,18 @@ void return_line(std::uint64_t address, const Line &line, int gap = 0,
       chi_in.pdat.presponse.pbits.psrc_uid = rom_phase ? UINT64_C(4) : HOME_ID;
       chi_in.pdat.presponse.pbits.ptgt_uid = CACHE_ID;
       chi_in.pdat.presponse.pvalid = UINT64_C(1);
+      settle();
+      for (int cycles = 0; !chi_out.pdat.presponse.pready; ++cycles) {
+        CHECK(cycles < 50);
+        ++stalls;
+        cache_tick();
+      }
       cache_tick();
       chi_in.pdat.presponse.pvalid = UINT64_C(0);
       chi_in.pdat.presponse.pbits = {};
     }
   }
+  return stalls;
 }
 
 void accept_comp_ack() {
@@ -249,13 +246,79 @@ void expect_block(std::uint64_t expected) {
   cache_tick();
 }
 
+// Keep B resident while C partially overwrites A, then faults on the last DAT.
+void check_failed_replacement() {
+  invalidate_cache(ADDRESS);
+  auto fill = [](std::uint64_t address, const Line &line) {
+    send_core_request(address);
+    accept_read_request(address);
+    auto stalls = return_line(address, line);
+    if (PACKETS > 1)
+      CHECK(stalls > 0);
+    accept_comp_ack();
+    expect_block(line_slice(line, 0, FETCH_BITS));
+  };
+  fill(ADDRESS, LINE);
+  fill(COLLIDE_B_ADDRESS, LINE_B);
+  send_core_request(COLLIDE_C_ADDRESS);
+  accept_read_request(COLLIDE_C_ADDRESS);
+  return_line(COLLIDE_C_ADDRESS, LINE_C, 0, 0, PACKETS - 1, 1);
+  chi_in.prsp.prequester.pready = 0;
+  return_line(COLLIDE_C_ADDRESS, LINE_C, 0, 2, 0, 0);
+  for (int cycle = 0; cycle < 4; ++cycle) {
+    CHECK(chi_out.prsp.prequester.pvalid && !virtual_lookup_out.pready);
+    cache_tick();
+  }
+  grant_rsp_credit();
+  accept_comp_ack();
+  send_core_request(COLLIDE_B_ADDRESS);
+  expect_block(line_slice(LINE_B, 0, FETCH_BITS));
+  send_core_request(COLLIDE_C_ADDRESS);
+  CHECK(core_out.presponse.pvalid && core_out.presponse.pbits.paccess_ufault);
+  cache_tick();
+  fill(ADDRESS, LINE); // The old tag must miss too, not expose C's rows.
+  fill(COLLIDE_C_ADDRESS, LINE_C);
+  invalidate_cache(ADDRESS);
+}
+
+// Interrupt row draining immediately after the first packet, not after CompAck.
+void check_partial_flush(bool fence) {
+  invalidate_cache(ADDRESS);
+  send_core_request(ADDRESS);
+  accept_read_request(ADDRESS);
+  chi_in.prsp.prequester.pready = 0;
+  return_line(ADDRESS, LINE, 0, 0, PACKETS - 1, PACKETS - 1);
+  core_in.pflush = !fence;
+  core_in.pinvalidate_uall = fence;
+  cache_tick();
+  core_in.pflush = core_in.pinvalidate_uall = 0;
+  return_line(ADDRESS, LINE, 0, 0, PACKETS - 2, 0);
+  grant_rsp_credit();
+  accept_comp_ack();
+  send_core_request(ADDRESS);
+  if (fence) {
+    accept_read_request(ADDRESS);
+    return_line(ADDRESS, LINE_B);
+    accept_comp_ack();
+  }
+  const auto &expected = fence ? LINE_B : LINE;
+  expect_block(line_slice(expected, 0, FETCH_BITS));
+  for (unsigned offset = FETCH_BITS / 8; offset < 64; offset += FETCH_BITS / 8) {
+    send_core_request(ADDRESS + offset);
+    expect_block(line_slice(expected, offset * 8, FETCH_BITS));
+  }
+  invalidate_cache(ADDRESS);
+}
+
 // A failed refill belongs to the physical line, not the initiating fetch offset.
 void check_refill_fault_replay() {
   constexpr auto other_word = ADDRESS + 24;
   auto start_failed_line = [] {
     send_core_request(ADDRESS + 8);
     accept_read_request(ADDRESS);
-    return_line(ADDRESS, LINE, 1, 2);
+    // Later healthy packets must not clear an earlier response error.
+    return_line(ADDRESS, LINE, 1, 2, PACKETS - 1, PACKETS - 1);
+    return_line(ADDRESS, LINE, 1, 0, PACKETS - 2, 0);
   };
   auto expect_fault = [](std::uint64_t address) {
     send_core_request(address);
@@ -476,6 +539,24 @@ void run_case() {
   reset = UINT64_C(0);
   grant_req_credit();
   grant_rsp_credit();
+  check_failed_replacement();
+  check_partial_flush(false);
+  check_partial_flush(true);
+  if (PACKET_BYTES > 16) {
+    // ROM needs no acknowledgement. Probe immediately so an early completion
+    // would expose the last row of the final (out-of-order) packet unwritten.
+    rom_phase = true;
+    constexpr std::uint64_t rom = 0x10000;
+    send_core_request(rom);
+    accept_rom_request(rom);
+    return_line(rom, LINE);
+    for (unsigned i = 0; i < 64 / (FETCH_BITS / 8); ++i) {
+      unsigned offset = (PACKET_BYTES - FETCH_BITS / 8 + i * (FETCH_BITS / 8)) % 64;
+      send_core_request(rom + offset);
+      expect_block(line_slice(LINE, offset * 8, FETCH_BITS));
+    }
+    return;
+  }
   check_refill_fault_replay();
   check_mixed_lookup_outcomes();
 

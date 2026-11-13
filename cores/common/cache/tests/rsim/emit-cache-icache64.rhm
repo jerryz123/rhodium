@@ -5,8 +5,19 @@ import:
   lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../../../riscv/isa/xlen.rhm" open
   "../../l1i/cache.rhdl" open
+  "../../chi/flits.rhdl".RiscvHartCHIConfig
+  lib("chi/protocol/params.rhdl").CHIFlitParams
   "../../config.rhm" open
   "../params.rhdl" open
 
 def program = elaborate(L1ICache(XLen.X64, CacheConfig(4, 2), ~chi: test_instruction_cache_config, ~fetch_bits: 64))
-export program
+fun wide_dat(data_width):
+  def config = RiscvHartCHIConfig(CHIFlitParams(~data_width: data_width), 64, test_instruction_cache_config.regions)
+  elaborate(L1ICache(XLen.X64, CacheConfig(4, 2), ~chi: config, ~fetch_bits: 64))
+
+def dat256 = wide_dat(256)
+def dat512 = wide_dat(512)
+export:
+  program
+  dat256
+  dat512

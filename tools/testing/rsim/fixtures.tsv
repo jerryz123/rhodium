@@ -153,6 +153,8 @@ hdmi-scanout	protocols	devices/tests/rsim/emit-hdmi-scanout.rhm	program	devices/
 chi-inclusive-home	protocols	chi/tests/rsim/emit-chi-inclusive-home.rhm	program	chi/tests/rsim/chi-inclusive-home.cpp
 cache-icache	cores-components	cores/common/cache/tests/rsim/emit-cache-icache.rhm	program	cores/common/cache/tests/rsim/cache-icache.cpp
 cache-icache64	cores-components	cores/common/cache/tests/rsim/emit-cache-icache64.rhm	program	cores/common/cache/tests/rsim/cache-icache64.cpp
+cache-icache-dat256	cores-components	cores/common/cache/tests/rsim/emit-cache-icache64.rhm	dat256	cores/common/cache/tests/rsim/cache-icache64.cpp
+cache-icache-dat512	cores-components	cores/common/cache/tests/rsim/emit-cache-icache64.rhm	dat512	cores/common/cache/tests/rsim/cache-icache64.cpp
 cache-store-buffer	cores-components	cores/common/cache/tests/rsim/emit-cache-store-buffer.rhm	program	cores/common/cache/tests/rsim/cache-store-buffer.cpp
 fesvr-mmio	protocols	sims/tests/rsim/emit-fesvr-mmio.rhm	program	sims/tests/rsim/fesvr-mmio.cpp
 bpred-bht	cores-components	cores/common/bpred/tests/rsim/emit-bpred-bht.rhm	program	cores/common/bpred/tests/rsim/bpred-bht.cpp

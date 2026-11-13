@@ -63,6 +63,8 @@ sync_circuit L1ICache(xlen :: XLen, cache :: CacheConfig, ~chi: config :: RiscvH
   def ways = cache.ways
   def word_bytes = row_bits / 8
   def words_per_line = CacheLineBytes / word_bytes
+  def rows_per_packet = p.data_bytes / word_bytes
+  def packet_offset_width = alignment_bits(rows_per_packet)
   def data_depth = sets * words_per_line
   def data_lanes = ways * word_bytes
   def offset_width = alignment_bits(CacheLineBytes)
@@ -106,8 +108,9 @@ sync_circuit L1ICache(xlen :: XLen, cache :: CacheConfig, ~chi: config :: RiscvH
 
   reg refill_live(~init: Bool(#false))
   reg refill_installable(~init: Bool(#false))
-  reg refill_installing(~init: Bool(#false))
-  reg refill_install_index(~init: Bits(word_index_width)(0))
+  reg tail_pending(~init: Bool(#false))
+  reg tail_row(Bits(word_index_width))
+  reg tail_data(Bits(p.data_width - row_bits))
   reg refill_error_valid(~init: Bool(#false))
   reg refill_error_line(Bits(math.max(1, refill_line_bits)))
 
@@ -171,24 +174,39 @@ sync_circuit L1ICache(xlen :: XLen, cache :: CacheConfig, ~chi: config :: RiscvH
         assert(!(lookup_matches[left] & lookup_matches[right]), "l1i_core_hit_unique")
 
 
-  /* Refill completion and installation qualification */
+  /* The first row bypasses directly from DAT to SRAM. Only the remainder of
+     this packet needs storage; its DataID, not arrival order, selects the rows. */
 
-  def completion_address = refill.completion.bits.line_address
-  def completion_way = refill.completion.bits.context
+  def completion_address = refill.owner.line_address
+  def completion_way = refill.owner.context
   def completion_set = completion_address[offset_width..(offset_width + set_width)]
   def completion_tag = completion_address[(offset_width + set_width)..physical_width]
-  def completion_words = refill.completion.bits.line.as_bits().as_vec(Bits(row_bits))
-  def refill_completion_discard = !refill_installable ||| core.invalidate_all ||| refill.completion.bits.access_fault
-  def refill_install_start = refill.completion.valid & !refill_completion_discard & !refill_installing
-  def refill_install_final = refill_install_index === Bits(word_index_width)(words_per_line - 1)
-  def refill_install_word = refill_installing & !core.invalidate_all
-  def refill_completion_may_finish = refill_completion_discard ||| (refill_installing & refill_install_final)
+  def write_allowed = refill_installable & !core.invalidate_all
+  refill.packet.ready <== !tail_pending ||| !write_allowed
+  def first_write = refill.packet.fire() & write_allowed
+  def tail_write = tail_pending & write_allowed
+  def first_row = refill.packet.bits.index.zext(word_index_width) << packet_offset_width
+  def write_row = mux(tail_pending, tail_row, first_row)
+  def last_row = if rows_per_packet == 2 | Bool(#true) | tail_row[0..packet_offset_width].all()
+  def write_data = mux(tail_pending, tail_data[0..row_bits], refill.packet.bits.data[0..row_bits])
+
+  when first_write:
+    tail_data <== refill.packet.bits.data[row_bits..p.data_width]
+    tail_row <== first_row + Bits(word_index_width)(1)
+  elsewhen (tail_write & Bool(rows_per_packet > 2)):
+    tail_data <== tail_data >> row_bits
+    tail_row <== tail_row + Bits(word_index_width)(1)
+
+  when first_write:
+    tail_pending <== Bool(#true)
+  elsewhen tail_pending:
+    tail_pending <== write_allowed & !last_row
 
 
   /* S0 admission depends only on transaction/installation state, not S1 tags,
      translation, or the consuming instruction pipeline. */
 
-  def array_accepts_input = refill.command.ready & !refill_installing
+  def array_accepts_input = refill.command.ready
   def Array(array_contexts, tag_reads, line_reads) = Array(demand_lookup, hinted_lookup)
     |> arbiter() |> gate_flow(array_accepts_input) |> to_valid() |> fork_valid(3)
   array_contexts |> array_read.ingress
@@ -242,9 +260,8 @@ sync_circuit L1ICache(xlen :: XLen, cache :: CacheConfig, ~chi: config :: RiscvH
     replay: result.outcome === L1ILookupOutcome.Miss
   ) |> core.response
 
-  // Hold the completed line throughout multibeat installation; only the
-  // final word or an explicit discard consumes the completion.
-  def refill_completed = refill.completion |> gate_flow(refill_completion_may_finish) |> to_valid()
+  // ROM completion can precede the last SRAM write. Never release its owner early.
+  def refill_completed = refill.completion |> gate_flow(!tail_write ||| last_row) |> to_valid()
 
 
   /* Refill installation data and write masks */
@@ -253,9 +270,10 @@ sync_circuit L1ICache(xlen :: XLen, cache :: CacheConfig, ~chi: config :: RiscvH
   def demand_refill = !lookup.egress.bits.prefetch
   stat_count("icache_miss", refill_start & demand_refill)
   def refill_complete = refill_completed.valid
-  def install = refill_complete & refill_installing & !refill_completion_discard
+  def publishable = write_allowed & !refill.completion.bits
+  def install = refill_complete & publishable
   def install_way_mask = cache_way_mask(cache, completion_way)
-  def refill_word_bytes = completion_words[refill_install_index].as_vec(Bits(8))
+  def refill_word_bytes = write_data.as_vec(Bits(8))
   def line_write_mask = cache_lane_mask(cache, completion_way, word_bytes, !Mask(word_bytes)(0))
   def line_write_bytes = for List (lane in 0..data_lanes): refill_word_bytes[lane % word_bytes]
 
@@ -269,7 +287,7 @@ sync_circuit L1ICache(xlen :: XLen, cache :: CacheConfig, ~chi: config :: RiscvH
     data: dont_care(Vec(ways, Bits(tag_width)))
     mask: dont_care(Mask(ways))
 
-  def tag_write_commands = refill_completed |> filter_valid(_completion => refill_installing & !refill_completion_discard)
+  def tag_write_commands = refill_completed |> filter_valid(_fault => publishable)
     |> map_valid(_completion => ReadWriteRequest(set_width, Bits(tag_width), ways)):
          address: completion_set
          write: Bool(#true)
@@ -285,28 +303,30 @@ sync_circuit L1ICache(xlen :: XLen, cache :: CacheConfig, ~chi: config :: RiscvH
     data: dont_care(Vec(data_lanes, Bits(8)))
     mask: dont_care(Mask(data_lanes))
 
-  // The installation sequencer is a real producer: each held completion
-  // generates several writes before its own transfer can finish.
   def line_install_bits = ReadWriteRequest(data_address_width, Bits(8), data_lanes):
-    address: completion_set ++ refill_install_index
+    address: completion_set ++ write_row
     write: Bool(#true)
     data: vec(line_write_bytes)
     mask: line_write_mask
 
-  def line_install = inject_interface(Valid(ReadWriteRequest(data_address_width, Bits(8), data_lanes)), ~valid: refill_install_word, ~bits: line_install_bits)
+  def line_install = inject_interface(Valid(ReadWriteRequest(data_address_width, Bits(8), data_lanes)), ~valid: first_write ||| tail_write, ~bits: line_install_bits)
   assert(!(line_read_commands.valid & line_install.valid), "l1i_data_ports_exclusive")
   Array(line_install, line_read_commands) |> valid_arbiter() |> lines.port.request
 
 
   /* Resident publication and replacement updates
-     Publish line validity only after final installation; architectural invalidation wins. */
+     Retire the victim before the first destructive write, even if the read later
+     faults. Only successful completion can publish the new tag and touch PLRU. */
+
+  def validity_set = mux(refill_start, lookup.egress.bits.line_number[0..set_width], completion_set)
+  def validity_way = mux(refill_start, lookup.egress.bits.way, completion_way)
 
   when (core.invalidate_all):
     valid_lines <== vec(
       for List (_set in 0..sets): Bits(ways)(0).as_vec(Bool)
     )
-  elsewhen install:
-    valid_lines <== valid_lines.updated(completion_set, valid_lines[completion_set].updated(completion_way, Bool(#true)))
+  elsewhen (refill_start ||| install):
+    valid_lines <== valid_lines.updated(validity_set, valid_lines[validity_set].updated(validity_way, install))
 
   when (core.invalidate_all):
     replacement_state <== vec(
@@ -318,18 +338,6 @@ sync_circuit L1ICache(xlen :: XLen, cache :: CacheConfig, ~chi: config :: RiscvH
     replacement_state <== replacement_state.updated(lookup_set, plru_touch(ways, replacement_state[lookup_set], lookup_selection.index))
 
   assert(!(install & lookup_issue & line_hit), "l1i_replacement_update_unique")
-
-  when (core.invalidate_all):
-    refill_installing <== Bool(#false)
-    refill_install_index <== Bits(word_index_width)(0)
-  elsewhen refill_install_start:
-    refill_installing <== Bool(#true)
-    refill_install_index <== Bits(word_index_width)(0)
-  elsewhen refill_complete:
-    refill_installing <== Bool(#false)
-    refill_install_index <== Bits(word_index_width)(0)
-  elsewhen (refill_install_word & !refill_install_final):
-    refill_install_index <== refill_install_index + Bits(word_index_width)(1)
 
 
   /* Demand error retention and refill installability
@@ -344,7 +352,7 @@ sync_circuit L1ICache(xlen :: XLen, cache :: CacheConfig, ~chi: config :: RiscvH
     elsewhen refill_complete:
       refill_live <== Bool(#false)
 
-    when (refill_complete & refill_live & refill.completion.bits.access_fault):
+    when (refill_complete & refill_live & refill.completion.bits):
       refill_error_valid <== Bool(#true)
       refill_error_line <== if refill_line_bits == 0 | Bits(1)(0) | completion_address[offset_width..(offset_width + refill_line_bits)]
     elsewhen (core.response.valid & (lookup.egress.bits.outcome === L1ILookupOutcome.RefillFault)):

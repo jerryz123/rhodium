@@ -109,16 +109,16 @@ flowchart LR
     S2 -->|hit or fault| Frontend["Frontend result"]
     S2 -->|miss: replay| Frontend
     S2 -->|miss: acquire line| Read["ReadOnce or ROM ReadNoSnp"]
-    Read --> Install["Install one SRAM row per cycle"]
-    Install -->|publish tag last| Array
+    Read -->|packet DataID| Install["Write rows into invalid way"]
+    Install -->|all rows written and CHI success| Array
     Frontend -->|later retry| S0
 ```
 
 ## Refill and replacement
 
 Every coherent-RAM miss issues one 64-byte `ReadOnce`. The [snapshot engine](../chi/line-read.rhdl)
-retains the line address and replacement way through retry, collects every `CompData`
-packet, and sends `CompAck` before exposing the result. The response grants no
+retains the line address and replacement way through retry, forwards each `CompData`
+packet to SRAM, and sends `CompAck` after accepting the complete packet set. The response grants no
 coherent ownership or dirty responsibility. With 128-bit DAT, four packets form
 a line. A demand read error is retained for a replay at any fetch offset in the
 same physical line. The replay receives one instruction access fault without
@@ -128,10 +128,14 @@ Immutable ROM uses the same arrays and installation path after a 64-byte
 `ReadNoSnp`, with no coherent ownership or `CompAck`. ROM data reads remain
 uncached. Prefetch permissions remain the caller's responsibility.
 
-Installation writes one SRAM row per cycle—eight writes for a 64-bit row or
-sixteen for a 32-bit row—and publishes the tag and valid bit only on the final
-word. Allocation selects the lowest invalid way before using the set's
-tree-PLRU victim. Every admitted resident hit and successful installation marks
+Allocation selects the lowest invalid way before using the set's tree-PLRU
+victim. It invalidates that way before overwriting any row, so a failed
+replacement can evict the victim but cannot expose partial data under either tag.
+The first row goes directly to SRAM on packet acceptance; DAT is backpressured
+while the remaining rows are written, one per cycle. DataID places packets
+regardless of arrival order. The new tag becomes valid only after all rows
+are written and the read has completed successfully, including any required
+`CompAck`. Every admitted resident hit and successful installation marks
 its way most recently used. Prefetch hits participate; discarded or failed
 refills and non-allocating events do not. Non-power-of-two associativities use a
 padded tree whose unused leaves are never eligible victims.
