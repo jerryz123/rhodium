@@ -310,7 +310,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
      Page probes precede instruction misses, then authorized data misses. */
 
   def can_start_walk = !walk_active & !fault_valid
-  def instruction_fault_cache_hit = instruction_fault_cached & instruction_failure.request.same_request(itlb.lookup.instruction_fault_key(~host_root_epoch: !hypervisor))
+  def instruction_fault_cache_hit = instruction_fault_cached & instruction_failure.request.same_request(itlb.lookup.retained_key(~host_root_epoch: !hypervisor))
   // A replaying older instruction may need its own fetch (including a
   // straddling word), but speculative successors must not repeatedly occupy
   // the shared walker before that instruction resolves.
@@ -356,7 +356,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   elsewhen cache_instruction_page_fault:
     def failure = fill.failure()
     instruction_fault_cached <== Bool(#true)
-    instruction_failure <== failure.updated(~request: failure.request.instruction_fault_key(~host_root_epoch: !hypervisor))
+    instruction_failure <== failure.updated(~request: failure.request.retained_key(~host_root_epoch: !hypervisor))
 
 
   /* Fault selection and instruction PMA checks */

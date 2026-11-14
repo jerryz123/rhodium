@@ -59,8 +59,8 @@ sync_circuit VectorPackedPrepare(xlen :: XLen, vlen :: VectorLength, Context :: 
 
   reg layout(Layout)
   reg byte_mask(Bits(bytes))
-  reg low_mask(Bits(xlen.width))
-  reg high_mask(Bits(xlen.width))
+  reg low_predicates(Vec(bytes, Bool))
+  reg high_predicates(Vec(bytes, Bool))
   reg store_data(Bits(xlen.width))
   reg store_remaining(Bits(bytes))
   reg read_row(Address)
@@ -163,9 +163,13 @@ sync_circuit VectorPackedPrepare(xlen :: XLen, vlen :: VectorLength, Context :: 
   def masks_ready = !blocked_rows[start_mask_row] & !blocked_rows[end_mask_row]
   mask_read.valid <== enable & masks_ready & prepare.is_one_of(VectorPreparePhase.MaskLow, VectorPreparePhase.MaskHigh)
   mask_read.bits <== mux(prepare === VectorPreparePhase.MaskHigh, end_mask, start_mask)[0..index_width(VectorRegisterLayout(vlen, xlen.width).rows_per_register)]
+  // Map owns the layout until issue or restart, so select one predicate per byte on return.
+  def returned_predicates = vec(for List (lane in 0..bytes):
+                                  mask_result.bits.as_vec(Bool)[layout.elements[lane][0..vector_bit_offset_width(xlen)]])
   def enabled_bytes = vec(for List (lane in 0..bytes):
-                            def word = mux((layout.elements[lane] >> vector_bit_offset_width(xlen)) === start_mask, low_mask, high_mask)
-                            layout.live[lane].into(Bool) & (!masked ||| word.as_vec(Bool)[layout.elements[lane][0..vector_bit_offset_width(xlen)]])).as_bits()
+                            def in_low_row = (layout.elements[lane] >> vector_bit_offset_width(xlen)) === start_mask
+                            def predicate = mux(in_low_row, low_predicates[lane], high_predicates[lane])
+                            layout.live[lane].into(Bool) & (!masked ||| predicate)).as_bits()
 
 
   /* Store-row selection and shared alignment */
@@ -232,11 +236,11 @@ sync_circuit VectorPackedPrepare(xlen :: XLen, vlen :: VectorLength, Context :: 
       store_remaining <== mapped.live
       store_data <== Bits(xlen.width)(0)
     elsewhen ((prepare === VectorPreparePhase.MaskHigh) & masks_ready):
-      low_mask <== mask_result.bits
+      low_predicates <== returned_predicates
     elsewhen (prepare === VectorPreparePhase.MaskDone):
-      high_mask <== mask_result.bits
+      high_predicates <== returned_predicates
     elsewhen ((prepare === VectorPreparePhase.Read) & read_step_ready):
-      // MaskDone's second word is now registered; retain the exact per-byte predicate.
+      // Both rows' predicates are now available, including for a crossing beat.
       byte_mask <== enabled_bytes
       when store_read_pending:
         read_row <== source_row

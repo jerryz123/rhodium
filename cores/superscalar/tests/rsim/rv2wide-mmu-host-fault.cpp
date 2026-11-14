@@ -1,13 +1,14 @@
-// Exercises instruction fault replay and SATP invalidation on the host-only MMU.
+// Exercises exact fault replay, queued data walks, and SATP invalidation on the host-only MMU.
 // SPDX-License-Identifier: Apache-2.0
 #include "test.hpp"
 
 constexpr std::uint64_t sv39 = UINT64_C(8) << 60;
 
-void reply_pte(unsigned ppn, std::uint64_t pte) {
+void reply_pte(unsigned ppn, std::uint64_t pte, unsigned root_index = 0) {
+  eval();
   for (unsigned cycle = 0; cycle < 10 && !physical_valid; ++cycle)
     tick_model();
-  CHECK(physical_valid && physical_address == (std::uint64_t(ppn) << 12));
+  CHECK(physical_valid && physical_address == (std::uint64_t(ppn) << 12) + 8 * root_index);
   physical_ready = 1;
   tick_model();
   physical_ready = 0;
@@ -87,6 +88,59 @@ void check_data_alias(bool outside) {
   wb_valid = 0;
 }
 
+void check_queued_data_epoch(bool cancel_pending) {
+  reset_host();
+  fetch_valid = 1;
+  fetch_address = 0x10080;
+  tick_model();
+  fetch_valid = 0;
+  constexpr std::uint64_t va = (UINT64_C(1) << 30) + 0x2000;
+  address = va;
+  access = 1;
+  request_width = 2;
+  wb_valid = 1;
+  tick_model(); // A one-cycle WB miss behind the active instruction walk.
+  wb_valid = 0;
+  address = 0x4000;
+  reply_pte(0x10, 0x4b);
+  if (!cancel_pending) {
+    reply_pte(0x10, 0, 1); // Captured VA, not the now-idle WB port.
+    tick_model();
+    wb_valid = 1;
+    address = va;
+    for (unsigned cycle = 0; cycle < 3; ++cycle) {
+      eval();
+      CHECK(wb_fault && wb_fault_bits.pcause == 13 && wb_fault_bits.pvalue == va && !physical_valid);
+      tick_model();
+    }
+    access = 2;
+    eval();
+    CHECK(!wb_fault); // Same VA, but the retained load failure cannot satisfy a store.
+    wb_valid = 0;
+  }
+  invalidate = 1;
+  tick_model();
+  invalidate = 0;
+  satp = sv39 | 0x11;
+  for (unsigned cycle = 0; cycle < 8; ++cycle) {
+    tick_model();
+    CHECK(!physical_valid); // No old pending walk launches against the new root.
+  }
+  address = va;
+  access = 1;
+  wb_valid = 1;
+  eval();
+  CHECK(!wb_fault);
+  tick_model();
+  wb_valid = 0;
+  reply_pte(0x11, (UINT64_C(1) << 30) | 0x43, 1);
+  tick_model();
+  wb_valid = 1;
+  eval();
+  CHECK(!wb_fault && physical_valid && physical_address == UINT64_C(0x100002000));
+  wb_valid = 0;
+}
+
 int main() {
   return run_test([] {
     for (bool invalidate_on_completion : {false, true}) {
@@ -118,5 +172,7 @@ int main() {
       check_instruction_alias(outside);
       check_data_alias(outside);
     }
+    for (bool cancel_pending : {false, true})
+      check_queued_data_epoch(cancel_pending);
   });
 }

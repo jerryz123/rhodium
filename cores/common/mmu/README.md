@@ -97,9 +97,11 @@ request transfers. It is not a validity signal: use it only with a known owner.
 and sends it to the selected instruction or data bank in the same cycle.
 The caller selects the owner, controls completion acceptance, and can use the
 returned fill payload to retain a failed walk for replay. Both cores use
-`RiscvTlbLookup.instruction_fault_key` to capture and match an instruction
-failure. Host-only harts use the SATP invalidation epoch for the root.
-H-enabled harts compare both root PPNs. Walk admission retains the full lookup.
+`RiscvTlbLookup.retained_key` to capture and match an instruction failure.
+The superscalar MMU also uses it for data failures and queued data misses.
+Host-only harts invalidate these owners on every SATP write, so a queued miss
+can take its root from SATP at launch. H-enabled harts retain both root PPNs.
+The walker always accepts a full lookup.
 
 Successful fills update a matching entry or replace cyclically. Faults never
 allocate. Whole-bank invalidation wins over a simultaneous fill, removes global

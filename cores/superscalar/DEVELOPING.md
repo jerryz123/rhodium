@@ -1049,9 +1049,12 @@ Only WB data misses enter the retained pending-walk slot. An instruction walk
 already in progress finishes first, and the pending WB lookup wins next admission.
 The walker captures its request context, independent of subsequent live CSRs.
 
-Each port retains the exact lookup, fault class, and guest provenance in a shared
+Each port retains its lookup key, fault class, and guest provenance in a shared
 `RiscvTranslationFailure` record.
-Replay matches the entire lookup, including access class and permission controls.
+Replay matches the address, access class and permission controls. In host-only
+builds every SATP write invalidates pending work and both failures, so these
+owners omit the root PPN and a pending walk uses live SATP at launch. H-enabled
+builds retain and compare both roots.
 The lookup supplies the original access for cause selection; a matched failure
 projects a zero physical address and zero leaves onto the common result path.
 Successful completions invalidate that port's cached failure, while architectural

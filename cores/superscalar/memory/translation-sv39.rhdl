@@ -137,9 +137,10 @@ sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: 
   reg data_fault_valid(~init: Bool(#false))
   reg instruction_fault(RiscvTranslationFailure())
   reg data_fault(RiscvTranslationFailure())
-  def instruction_key = instruction_lookup.instruction_fault_key(~host_root_epoch: !hypervisor)
+  def instruction_key = instruction_lookup.retained_key(~host_root_epoch: !hypervisor)
+  def data_key = data_lookup.retained_key(~host_root_epoch: !hypervisor)
   def instruction_failed = instruction_fault_valid & instruction_fault.request.same_request(instruction_key)
-  def data_failed = data_fault_valid & data_fault.request.same_request(data_lookup)
+  def data_failed = data_fault_valid & data_fault.request.same_request(data_key)
   def instruction_known = itlb.hit ||| instruction_failed
   def data_known = dtlb.hit ||| data_failed ||| window_hit ||| certified_physical
   def instruction_result = mux(instruction_failed, instruction_fault.mapping(), itlb.translation)
@@ -195,7 +196,14 @@ sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: 
   def instruction_miss = instruction.request.valid & !instruction_known
   def choose_data = pending_data ||| data_miss
   walker.request.valid <== !walk_live & !cancel & !invalidate & (choose_data ||| instruction_miss)
-  def selected_data_walk = mux(pending_data, pending_lookup, data_lookup)
+
+  // SATP writes discard the pending owner before it can launch under a different host root.
+  def pending_walk:
+    if hypervisor
+    | pending_lookup
+    | pending_lookup.updated(~context: pending_lookup.context.updated(~vs_root_ppn: tlb.root_ppn))
+
+  def selected_data_walk = mux(pending_data, pending_walk, data_lookup)
   walker.request.bits <== mux(choose_data, selected_data_walk, instruction_lookup)
   def completed = walker.completion |> to_valid() |> filter_valid(_result => walk_live & !invalidate)
   def fill = route_tlb_fill(completed, walk_lookup, walk_data, itlb.fill, dtlb.fill)
@@ -211,20 +219,22 @@ sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: 
     pending_data <== Bool(#false)
   elsewhen (data_miss & !same_active_data & !pending_data):
     pending_data <== Bool(#true)
-    pending_lookup <== data_lookup
+    pending_lookup <== data_key
+
+  def failure = fill.failure()
+  def retained_failure = failure.updated(~request: failure.request.retained_key(~host_root_epoch: !hypervisor))
 
   when invalidate:
     instruction_fault_valid <== Bool(#false)
   elsewhen (walker.completion.valid & walk_live & !walk_data):
     instruction_fault_valid <== walker.completion.bits.fault =/= RiscvTranslationFault.None
-    def failure = fill.failure()
-    instruction_fault <== failure.updated(~request: failure.request.instruction_fault_key(~host_root_epoch: !hypervisor))
+    instruction_fault <== retained_failure
 
   when invalidate:
     data_fault_valid <== Bool(#false)
   elsewhen (walker.completion.valid & walk_live & walk_data):
     data_fault_valid <== walker.completion.bits.fault =/= RiscvTranslationFault.None
-    data_fault <== fill.failure()
+    data_fault <== retained_failure
 
 
   walker.memory <=> pte
