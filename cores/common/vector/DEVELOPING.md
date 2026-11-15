@@ -22,9 +22,11 @@ port counts and scalar scheduling.
 Keep instruction IDs, completion slots, and the sequencer cursor distinct.
 Return routing uses retained slot ownership, never the live descriptor. A retry
 restores the unauthorized checkpoint without deleting accepted memory ownership.
-For non-indexed element transfers, derive the byte step from the retained
-descriptor. Keep the issue and authorized addresses separate: issue can cross
-an element boundary before the LSU accepts the preceding element's last field.
+Packed and ordinary modes share the issue cursor's address. Packed mode starts
+at the aligned transport word containing `vstart`; ordinary mode starts at the
+scalar base and steps to `vstart` for non-indexed transfers. Keep the ordinary
+authorized element base separate: issue can cross an element boundary before
+the LSU accepts the preceding element's last field.
 
 Packed preparation derives the byte-to-row layout from the sequencer's held
 descriptor and cursor, including while mask reads, alignment, or issue stall.
@@ -256,8 +258,10 @@ accepted prefix. The RV2Wide memory adapter fixtures also check consecutive
 precise commits and younger-attempt suppression on retry/fault. Packed and RV32
 fixtures cover transport and row geometry. The `vector-memory-element-step-rv32`
 and `vector-memory-element-step-rv64` fixtures check the issue and retry addresses
-across segment fields, strides, nonzero `vstart`, and backpressure. The
-`vector-gather-index-rv32` and `vector-gather-index-rv64` fixtures check the
+across segment fields, strides, nonzero `vstart`, and backpressure.
+The `vector-issue-address-rv32` and `vector-issue-address-rv64` fixtures switch
+modes at tail issue and tail authorization, and retry behind younger beats.
+The `vector-gather-index-rv32` and `vector-gather-index-rv64` fixtures check the
 dependent read on the VRF return cycle and after a stall, including high-index
 aliases for both ordinary and EI16 gather.
 

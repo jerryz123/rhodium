@@ -169,6 +169,8 @@ rv5stage-vector-sequencer-rv32	cores-components	cores/common/vector/tests/rsim/e
 rv5stage-vector-sequencer-1024	cores-components	cores/common/vector/tests/rsim/emit-rv5stage-vector-sequencer-1024.rhm	program	cores/common/vector/tests/rsim/rv5stage-vector-sequencer-1024.cpp
 vector-memory-element-step-rv32	cores-components	cores/common/vector/tests/rsim/emit-sequencer.rhm	rv32	cores/common/vector/tests/rsim/memory-element-step.cpp
 vector-memory-element-step-rv64	cores-components	cores/common/vector/tests/rsim/emit-sequencer.rhm	rv64	cores/common/vector/tests/rsim/memory-element-step.cpp
+vector-issue-address-rv32	cores-components	cores/common/vector/tests/rsim/emit-sequencer.rhm	rv32	cores/common/vector/tests/rsim/issue-address.cpp
+vector-issue-address-rv64	cores-components	cores/common/vector/tests/rsim/emit-sequencer.rhm	rv64	cores/common/vector/tests/rsim/issue-address.cpp
 vector-gather-index-rv32	cores-components	cores/common/vector/tests/rsim/emit-sequencer.rhm	rv32	cores/common/vector/tests/rsim/gather-index.cpp
 vector-gather-index-rv64	cores-components	cores/common/vector/tests/rsim/emit-sequencer.rhm	rv64	cores/common/vector/tests/rsim/gather-index.cpp
 adder	language	examples/lop/adder-standard.rhdl	program	rhodium/backend/tests/rsim/adder.cpp

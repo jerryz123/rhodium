@@ -52,7 +52,7 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
   /* Retained descriptor, cursors, and authorization frontier */
 
   reg packed_mode(~init: Bool(#false))
-  reg packed_cursor(VectorPackedCursor(xlen, vlen))
+  reg issue_cursor(VectorPackedCursor(xlen, vlen))
   reg gather_pending(~init: Bool(#false))
   reg gather_index_valid(~init: Bool(#false))
   reg held_gather_index(Bits(index_width(vlen)))
@@ -69,7 +69,6 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
   reg authorized(Count)
   reg authorized_field(Bits(3))
   reg authorized_sequence(Sequence)
-  reg memory_element_address(~init: Bits(xlen.width)(0))
   reg authorized_memory_element_address(~init: Bits(xlen.width)(0))
   reg memory_setup_remaining(~init: Bits(index_width(vlen + 1))(0))
   reg all_issued(~init: Bool(#false))
@@ -132,8 +131,8 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def beat_last = empty ||| ((end === limit) & last_field)
 
 
-  /* Both memory cursors use the accepted descriptor's byte step, but advance
-     independently on issue and authorization. Whole-register transfers are contiguous. */
+  /* Ordinary issue and authorization advance independently by the accepted
+     descriptor's element step. Packed issue advances by transport words instead. */
 
   def fields = descriptor.control.memory_nf.zext(4) + Bits(4)(1)
   def fields_per_element = mux(whole_register_memory, Bits(4)(1), fields)
@@ -155,7 +154,7 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def memory_group_shift = mux(memory_emul < SInt(5)(0), Bits(3)(0), memory_emul.into(Bits(5))[0..3])
   def memory_register = vd + (field.zext(5) << memory_group_shift)
   def memory_field_offset = field.zext(xlen.width) << memory_data_eew
-  def memory_effective_address = memory_element_address + memory_field_offset
+  def memory_effective_address = issue_cursor.address + memory_field_offset
   // Whole-element displacement stays at XLEN until bounds are checked. Extra
   // bits retain both unsigned overflow and the negative slide-up prefix.
   def slide_origin = cursor.zext(xlen.width + 2) + slide_delta
@@ -257,7 +256,7 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def gather_read = occupied & gather_vector & !packed_mode & !all_issued & !clear & !gather_index_valid & !gather_pending & !ordinary_source_blocked.any()
   gather_pending <== gather_read
   preparation.instruction <== instruction
-  preparation.cursor <== packed_cursor
+  preparation.cursor <== issue_cursor
   preparation.prepare <== packed_phase
   preparation.enable <== occupied & packed_mode & !all_issued & !clear
   preparation.blocked_rows <== blocked_rows
@@ -410,7 +409,6 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
     authorized <== start
     authorized_field <== Bits(3)(0)
     authorized_sequence <== Bits(vector_sequence_width(vlen))(0)
-    memory_element_address <== base
     authorized_memory_element_address <== base
     def indexed = request.bits.descriptor.control.memory_addressing.is_one_of(VectorMemoryAddressing.IndexedUnordered, VectorMemoryAddressing.IndexedOrdered)
     def request_whole_register_group_shift = mux_lookup(request.bits.descriptor.control.memory_nf, ~default: Bits(2)(0), [[1, Bits(2)(1)], [3, Bits(2)(2)], [7, Bits(2)(3)]])
@@ -435,17 +433,11 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
     field <== authorized_field
     sequence <== mux(packed_mode, feedback.bits.sequence, authorized_sequence)
     minimum <== authorized
-    memory_element_address <== authorized_memory_element_address
     memory_setup_remaining <== Bits(index_width(vlen + 1))(0)
     all_issued <== compress & (authorized === limit)
   elsewhen occupied:
     when (memory_setup_remaining.any()):
-      memory_element_address <== memory_element_address + memory_element_step
       memory_setup_remaining <== memory_setup_remaining - Bits(index_width(vlen + 1))(1)
-    elsewhen (launch & descriptor.control.memory & !indexed_memory & last_field):
-      memory_element_address <== memory_element_address + memory_element_step
-
-    when (memory_setup_remaining.any()):
       authorized_memory_element_address <== authorized_memory_element_address + memory_element_step
     elsewhen (authorized_event & descriptor.control.memory & !indexed_memory & authorized_last_field):
       authorized_memory_element_address <== authorized_memory_element_address + memory_element_step
@@ -486,7 +478,9 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
     assert(prepare_results[1].valid, "vector_gather_index_matches_preparation")
 
 
-  /* Packed geometry advances on the same sequence transfer as ordinary beats. */
+  /* One issue address holds either an ordinary element base or a packed word
+     address. Packed retry restores the entire rejected cursor; ordinary retry
+     restores only the independently authorized element base. */
 
   when (accepted):
     def incoming = request.bits.descriptor
@@ -494,8 +488,8 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
     def incoming_mask = incoming.control.memory_mode === VectorMemoryMode.Mask
     def incoming_eew = mux(incoming_mask, Bits(2)(0), incoming.control.memory_data_eew)
     def origin = incoming.scalar.zext(68) + vector_field_extent(incoming.state.vstart.zext(68) << incoming_eew, mux(incoming_whole ||| incoming_mask, Bits(3)(0), incoming.control.memory_nf))
-    packed_cursor <== VectorPackedCursor(xlen, vlen):
-      address: origin[0..xlen.width].align_down(vector_word_bytes(xlen))
+    issue_cursor <== VectorPackedCursor(xlen, vlen):
+      address: mux(packed_memory, origin[0..xlen.width].align_down(vector_word_bytes(xlen)), incoming.scalar)
       element: mux(incoming.state.vstart >= Bits(xlen.width)(vlen), Bits(index_width(vlen + 1))(vlen), incoming.state.vstart[0..index_width(vlen + 1)])
       field: Bits(3)(0)
       byte: Bits(vector_byte_offset_width(xlen))(0)
@@ -504,12 +498,18 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
     packed_phase <== VectorPreparePhase.Map
   elsewhen clear:
     packed_phase <== VectorPreparePhase.Map
-    when (retry & packed_mode):
-      packed_cursor <== feedback.bits.packed_layout.before
-  elsewhen (occupied & packed_mode):
-    packed_phase <== mux(launch, VectorPreparePhase.Map, preparation.next_phase)
-    when launch:
-      packed_cursor <== preparation.candidate.after
+    when (retry & !cancel.valid):
+      when packed_mode:
+        issue_cursor <== feedback.bits.packed_layout.before
+      otherwise:
+        issue_cursor <== issue_cursor.updated(~address: authorized_memory_element_address)
+  elsewhen occupied:
+    when packed_mode:
+      packed_phase <== mux(launch, VectorPreparePhase.Map, preparation.next_phase)
+      when launch:
+        issue_cursor <== preparation.candidate.after
+    elsewhen (memory_setup_remaining.any() ||| (launch & descriptor.control.memory & !indexed_memory & last_field)):
+      issue_cursor <== issue_cursor.updated(~address: issue_cursor.address + memory_element_step)
 
 export:
   VectorSequencer
