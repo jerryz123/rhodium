@@ -26,6 +26,11 @@ For non-indexed element transfers, derive the byte step from the retained
 descriptor. Keep the issue and authorized addresses separate: issue can cross
 an element boundary before the LSU accepts the preceding element's last field.
 
+Packed preparation derives the byte-to-row layout from the sequencer's held
+descriptor and cursor, including while mask reads, alignment, or issue stall.
+Once a beat issues, its completion slot retains its layout for assembly and
+retry; the sequencer can already be preparing a younger beat.
+
 For a vector gather, extract the selected VS1 element on the VRF return and
 compare the full index with VLMAX before narrowing it. Bypass that result to
 the dependent VS2 read; only a stalled beat needs the saved index and range flag.

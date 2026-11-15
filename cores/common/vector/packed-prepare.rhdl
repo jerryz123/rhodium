@@ -57,7 +57,6 @@ sync_circuit VectorPackedPrepare(xlen :: XLen, vlen :: VectorLength, Context :: 
   /* Preparation scratch state
      The parent sequencer owns the phase and architectural cursor; these registers hold only preparation data. */
 
-  reg layout(Layout)
   reg byte_mask(Bits(bytes))
   reg low_predicates(Vec(bytes, Bool))
   reg high_predicates(Vec(bytes, Bool))
@@ -124,7 +123,8 @@ sync_circuit VectorPackedPrepare(xlen :: XLen, vlen :: VectorLength, Context :: 
     field := next_field
     byte := next_byte
 
-  def mapped = VectorPackedLayout(xlen, vlen):
+  // The sequencer holds the descriptor and cursor through every preparation phase and issue stall.
+  def layout = VectorPackedLayout(xlen, vlen):
     before: cursor
     after:
       VectorPackedCursor(xlen, vlen):
@@ -145,16 +145,12 @@ sync_circuit VectorPackedPrepare(xlen :: XLen, vlen :: VectorLength, Context :: 
 
   def fast_load = !store & !masked
   def direct_store = store & !masked & !segmented
-  def offered_layout = mux(fast_load ||| direct_store, mapped, layout)
-  // The sequencer holds cursor through stalls, so the mapper's next address stays valid.
-  // Keep the prepared element/field/byte progress and the issued beat's starting checkpoint.
-  def next_cursor = offered_layout.after.updated(~address: mapped.after.address)
-  candidate <== offered_layout.updated(~before: cursor, ~after: next_cursor)
-  candidate_mask <== mux(fast_load ||| direct_store, mapped.live, byte_mask)
+  candidate <== layout
+  candidate_mask <== mux(fast_load ||| direct_store, layout.live, byte_mask)
   candidate_data <== store_data
   fast_store <== direct_store
   ready <== fast_load ||| direct_store ||| (prepare === VectorPreparePhase.Issue)
-  sources_ready <== !vec(for List (lane in 0..bytes): offered_layout.live[lane].into(Bool) & blocked_rows[offered_layout.rows[lane]]).as_bits().any()
+  sources_ready <== !vec(for List (lane in 0..bytes): layout.live[lane].into(Bool) & blocked_rows[layout.rows[lane]]).as_bits().any()
 
 
   /* The mask shadow remains independent of the three general VRF read ports. */
@@ -166,7 +162,6 @@ sync_circuit VectorPackedPrepare(xlen :: XLen, vlen :: VectorLength, Context :: 
   def masks_ready = !blocked_rows[start_mask_row] & !blocked_rows[end_mask_row]
   mask_read.valid <== enable & masks_ready & prepare.is_one_of(VectorPreparePhase.MaskLow, VectorPreparePhase.MaskHigh)
   mask_read.bits <== mux(prepare === VectorPreparePhase.MaskHigh, end_mask, start_mask)[0..index_width(VectorRegisterLayout(vlen, xlen.width).rows_per_register)]
-  // Map owns the layout until issue or restart, so select one predicate per byte on return.
   def returned_predicates = vec(for List (lane in 0..bytes):
                                   mask_result.bits.as_vec(Bool)[layout.elements[lane][0..vector_bit_offset_width(xlen)]])
   def enabled_bytes = vec(for List (lane in 0..bytes):
@@ -179,13 +174,13 @@ sync_circuit VectorPackedPrepare(xlen :: XLen, vlen :: VectorLength, Context :: 
 
   def source_lane = priority_encoder(store_remaining)
   def source_row = layout.rows[source_lane]
-  def first_store_lane = priority_encoder(mapped.live)
-  def mutable last_store_row :: Bits(index_width(VectorRegisterLayout(vlen, xlen.width).depth)) = mapped.rows[first_store_lane]
+  def first_store_lane = priority_encoder(layout.live)
+  def mutable last_store_row :: Bits(index_width(VectorRegisterLayout(vlen, xlen.width).depth)) = layout.rows[first_store_lane]
   for (lane in 0..bytes):
-    last_store_row := mux(mapped.live[lane].into(Bool), mapped.rows[lane], last_store_row)
+    last_store_row := mux(layout.live[lane].into(Bool), layout.rows[lane], last_store_row)
 
   read_enables <== vec([direct_store, direct_store, Bool(#false)]).as_bits()
-  read_addresses <== vec([mapped.rows[first_store_lane], last_store_row, source_row])
+  read_addresses <== vec([layout.rows[first_store_lane], last_store_row, source_row])
   def store_read_pending = store & store_remaining.any()
   def read_step_ready = !store ||| !store_remaining.any() ||| !blocked_rows[source_row]
   for (port in 0..3):
@@ -230,13 +225,12 @@ sync_circuit VectorPackedPrepare(xlen :: XLen, vlen :: VectorLength, Context :: 
 
 
   /* Preparation scratch updates
-     Capture mapped layout, mask responses, and store source data without advancing an independent issue cursor. */
+     Initialize byte masks for each beat, then capture predicate and store data as reads return. */
 
   when (enable & !fast_load & !direct_store):
     when (prepare === VectorPreparePhase.Map):
-      layout <== mapped
-      byte_mask <== mapped.live
-      store_remaining <== mapped.live
+      byte_mask <== layout.live
+      store_remaining <== layout.live
       store_data <== Bits(xlen.width)(0)
     elsewhen ((prepare === VectorPreparePhase.MaskHigh) & masks_ready):
       low_predicates <== returned_predicates

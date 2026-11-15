@@ -213,21 +213,21 @@ sync_circuit VectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen = XLen.X6
     assert(offered_layout.after.address === expected_address, "packed_next_address_is_one_word_ahead")
 
   reg stalled(~init: Bool(#false))
-  reg stalled_cursor(VectorPackedCursor(xlen, vlen))
+  reg stalled_layout(VectorPackedLayout(xlen, vlen))
   stalled <== sequencer.sequence_request.valid & !sequencer.sequence_request.ready & !sequencer.read_flush
   when (sequencer.sequence_request.valid & !sequencer.sequence_request.ready):
-    stalled_cursor <== offered_cursor
+    stalled_layout <== offered_layout
 
   when (stalled & sequencer.sequence_request.valid & !sequencer.read_flush):
-    assert(offered_cursor.as_bits() === stalled_cursor.as_bits(), "packed_stalled_cursor_stable")
+    assert(offered_layout.as_bits() === stalled_layout.as_bits(), "packed_stalled_layout_stable")
 
   reg replay_pending(~init: Bool(#false))
-  reg rejected_cursor(VectorPackedCursor(xlen, vlen))
+  reg rejected_layout(VectorPackedLayout(xlen, vlen))
   when (attempts.egress.valid & retry):
-    rejected_cursor <== engine.resolved.layout.before
+    rejected_layout <== engine.resolved.layout
     replay_pending <== Bool(#true)
   elsewhen (sequenced & replay_pending):
-    assert(offered_cursor.as_bits() === rejected_cursor.as_bits(), "packed_retry_restores_issued_cursor")
+    assert(offered_layout.as_bits() === rejected_layout.as_bits(), "packed_retry_restores_issued_layout")
     replay_pending <== Bool(#false)
 
   token <== issue_path.bits
