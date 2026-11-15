@@ -206,6 +206,25 @@ sync_circuit VectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen = XLen.X6
   issued <== issue_path.fire()
   sequenced <== sequencer.sequence_request.fire()
   sequence_address <== sequencer.sequence_request.bits.context.beat_control.address
+  def offered_cursor = sequencer.sequence_request.bits.context.packed_layout.before
+  reg stalled(~init: Bool(#false))
+  reg stalled_cursor(VectorPackedCursor(xlen, vlen))
+  stalled <== sequencer.sequence_request.valid & !sequencer.sequence_request.ready & !sequencer.read_flush
+  when (sequencer.sequence_request.valid & !sequencer.sequence_request.ready):
+    stalled_cursor <== offered_cursor
+
+  when (stalled & sequencer.sequence_request.valid & !sequencer.read_flush):
+    assert(offered_cursor.as_bits() === stalled_cursor.as_bits(), "packed_stalled_cursor_stable")
+
+  reg replay_pending(~init: Bool(#false))
+  reg rejected_cursor(VectorPackedCursor(xlen, vlen))
+  when (attempts.egress.valid & retry):
+    rejected_cursor <== engine.resolved.layout.before
+    replay_pending <== Bool(#true)
+  elsewhen (sequenced & replay_pending):
+    assert(offered_cursor.as_bits() === rejected_cursor.as_bits(), "packed_retry_restores_issued_cursor")
+    replay_pending <== Bool(#false)
+
   token <== issue_path.bits
   reg was_active(~init: Bool(#false))
   was_active <== active
