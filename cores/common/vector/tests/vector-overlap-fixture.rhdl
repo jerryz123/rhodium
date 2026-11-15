@@ -8,6 +8,7 @@ import:
   "../../fp/bundles.rhdl" open
   "../pipeline.rhdl" open
   "../bundles.rhdl" open
+  "../dependencies.rhdl" open
   "decode.rhdl" open
   lib("cores/common/fp/profile.rhm").fp_transport_profile
   "../../../../riscv/isa/vector-profile.rhm" open
@@ -64,6 +65,14 @@ sync_circuit VectorOverlap(xlen :: XLen):
           PointerMaskControl():
             mode: PointerMaskMode.Disabled
             virtual_address: Bool(#false)
+
+  // The retained owner and the sequencer must agree on every register,
+  // including unused neighbors of a partial group.
+  def descriptor = vector.request.bits.descriptor
+  def claim = vector_destination_claim(xlen, 128, descriptor)
+  def claimed = vec(for List (regno in 0..32): claim.contains(regno)).as_bits()
+  when (vector.request.fire()):
+    assert(claimed === vector_destination_registers(xlen, 128, descriptor), "vector_owner_and_sequencer_claim_same_registers")
 
   vector.packed_memory <== packed_memory
   vector.issue |> to_valid() |> tokens.ingress

@@ -234,6 +234,38 @@ void observe() {}
 
 void falling_update() {}
 
+void check_high_segment_hazards() {
+  phase = 0;
+  vl = 1;
+  vtype = 24; // e64, m1
+  slow = retry_last = cancel = 0;
+  launch(load_insn(26), 64, 0);
+  drain();
+
+  // vlseg5e64.v v27 owns v27..v31. The neighboring register in the
+  // same group is independent, even with all five responses outstanding.
+  memory_count = store_count = 0;
+  slow = 1;
+  launch(load_insn(27) | (4u << 29), 128, 0);
+  while (memory_count < 5)
+    tick();
+  slow = 0;
+  launch(store_insn(26), 1024, 0);
+  while (!store_count)
+    tick();
+  CHECK(stores[0] == 4096 + 64);
+
+  launch(store_insn(31), 1024, 0);
+  for (int field = 0; field < 4; ++field)
+    return_memory(field, 0x100 + field);
+  for (int i = 0; i < 8; ++i)
+    tick();
+  CHECK(store_count == 1);
+  return_memory(4, 0xbeef);
+  drain();
+  CHECK(store_count == 2 && stores[1] == 0xbeef);
+}
+
 void check_fold_owner_reuse() {
   reset = 1;
   tick();
@@ -1076,6 +1108,7 @@ void stimulus() {
       CHECK(fail_split != 2 || retried);
     }
 
+    check_high_segment_hazards();
     check_fold_owner_reuse();
     throw Finished{};
   }

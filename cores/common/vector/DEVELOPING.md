@@ -25,6 +25,13 @@ restores the unauthorized checkpoint without deleting accepted memory ownership.
 Both modes restart numbering from the rejected beat's feedback. The sequencer
 independently counts authorizations to assert that feedback names the oldest
 unauthorized beat.
+
+The sequencer uses a combinational 32-register destination mask. From the same
+bounds, the owner table captures a 16-bit mask of register pairs and two flags:
+omit the first pair's even register or the last pair's odd register. Interior
+pairs always claim both. Owner age, progressive row release, and exact
+outstanding writes still decide whether a particular read must wait.
+
 Packed and ordinary modes share the issue cursor's address. Packed mode starts
 at the aligned transport word containing `vstart`; ordinary mode starts at the
 scalar base and steps to `vstart` for non-indexed transfers. Keep the ordinary
@@ -272,6 +279,8 @@ The overlap fixture covers persistent response ownership across sequencer
 replacement, consecutive faultable indexed stores, middle-element retry/fault
 with delayed accepted responses, partial-word compression after a middle-beat
 retry, and split authorization/retry/fault behind an accepted prefix.
+It compares the owner and sequencer claims at admission and checks that a
+five-field load to `v27`–`v31` blocks a read of `v31` but leaves `v26` available.
 The `vector-masked-load-rv32` and `vector-masked-load-rv64` fixtures retry
 an enabled byte, complete a younger byte first, then read back the whole row
 to check that the delayed write preserves its neighbors.

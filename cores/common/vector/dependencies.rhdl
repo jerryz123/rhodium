@@ -11,8 +11,8 @@ import:
   "../../../riscv/rtl/instruction-fields.rhdl".instruction_field
   "../../../riscv/rtl/vector.rhdl" open
 
-/* Conservatively claims destination register groups until exact pending write rows are known. */
-fun vector_destination_registers(xlen :: XLen, vlen :: VectorLength, descriptor :: VectorDescriptor(xlen)) :~ Bits(32):
+/* Computes the destination interval before the caller chooses its representation. */
+fun destination_bounds(xlen :: XLen, vlen :: VectorLength, descriptor :: VectorDescriptor(xlen)):
   def control = descriptor.control
   def geometry = vector_type(xlen, vlen, descriptor.state.vtype)
   def memory = control.memory
@@ -60,6 +60,44 @@ fun vector_destination_registers(xlen :: XLen, vlen :: VectorLength, descriptor 
 
   def writes = !(memory & control.store) & !(control.integer & control.scalar_destination) & !(control.floating_point & control.floating_scalar_destination)
   def vd = instruction_field(riscv_fields.rd, descriptor.instruction)
-  vec(for List (r in 0..32): writes & (Bits(6)(r) >= vd.zext(6)) & (Bits(6)(r) < vd.zext(6) + count)).as_bits()
+  values(vd, vd.zext(6) + count, writes)
 
-export vector_destination_registers
+/* The sequencer tests all destinations combinationally; no decoded mask is stored here. */
+fun vector_destination_registers(xlen :: XLen, vlen :: VectorLength, descriptor :: VectorDescriptor(xlen)) :~ Bits(32):
+  def (vd :~ Bits(5), end :~ Bits(6), writes :~ Bool) = destination_bounds(xlen, vlen, descriptor)
+  vec(for List (r in 0..32): writes & (Bits(6)(r) >= vd.zext(6)) & (Bits(6)(r) < end)).as_bits()
+
+/* A contiguous claim intersects a run of register pairs. Only its two ends
+   can exclude a member of a covered pair. */
+bundle VectorDestinationClaim():
+  pairs: Mask(16)
+  skip_first_even: Bool
+  skip_last_odd: Bool
+
+  /* Interior pairs include both registers; trim at most one register at each edge. */
+  method contains(claim, regno :: Nat) :: Bool:
+    def pair = regno div 2
+    def previous = if pair == 0 | Bool(#false) | claim.pairs[pair - 1]
+    def following = if pair == 15 | Bool(#false) | claim.pairs[pair + 1]
+    def included = if regno mod 2 == 0
+    | !claim.skip_first_even ||| previous
+    | !claim.skip_last_odd ||| following
+
+    claim.pairs[pair] & included
+
+/* Retains the intersected pairs and whether their boundary members are absent. */
+fun vector_destination_claim(xlen :: XLen, vlen :: VectorLength, descriptor :: VectorDescriptor(xlen)) :~ VectorDestinationClaim():
+  def (vd :~ Bits(5), end :~ Bits(6), writes :~ Bool) = destination_bounds(xlen, vlen, descriptor)
+  def active = writes & (vd.zext(6) < end)
+  // Round the exclusive end up to the next pair boundary; Mask.range clips at v31.
+  def past_pair = end[1..6] +& end[0..1]
+  def pairs = Mask(16).range(vd[1..5], past_pair)
+  VectorDestinationClaim():
+    pairs: mux(active, pairs, Mask(16)(0))
+    skip_first_even: vd[0].into(Bool)
+    skip_last_odd: end[0].into(Bool) & (end < Bits(6)(32))
+
+export:
+  vector_destination_registers
+  VectorDestinationClaim
+  vector_destination_claim

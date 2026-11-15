@@ -61,7 +61,7 @@ sync_circuit VectorInstructions(xlen :: XLen, vlen :: VectorLength, vector_compl
   reg macro_store(Vec(vector_completion_slots, Bool))
   reg macro_fp(Vec(vector_completion_slots, Bool))
   reg macro_serial(Vec(vector_completion_slots, Bool))
-  reg macro_destinations(Vec(vector_completion_slots, Bits(32)))
+  reg macro_destinations(Vec(vector_completion_slots, VectorDestinationClaim()))
   reg macro_classified(Vec(vector_completion_slots, Bool))
   reg macro_progressive(Vec(vector_completion_slots, Bool))
   reg macro_row_frontier(Vec(vector_completion_slots, Bits(row_frontier_width)))
@@ -76,7 +76,7 @@ sync_circuit VectorInstructions(xlen :: XLen, vlen :: VectorLength, vector_compl
   /* Destination-intent classification.
      Only ordinary in-order row schedules can progressively release their group. */
 
-  def destination_registers = vector_destination_registers(xlen, vlen, request.bits)
+  def destination_claim = vector_destination_claim(xlen, vlen, request.bits)
   // These schedules visit destination rows in order. Other schedules retain
   // their whole-group intent until the final beat resolves.
   def requested_control = request.bits.control
@@ -105,7 +105,7 @@ sync_circuit VectorInstructions(xlen :: XLen, vlen :: VectorLength, vector_compl
       macro_valid[owner] <== Bool(#true)
       macro_issued[owner] <== Bool(#false)
       macro_fault[owner] <== Bool(#false)
-      macro_destinations[owner] <== destination_registers
+      macro_destinations[owner] <== destination_claim
       macro_progressive[owner] <== progressive_write
       macro_load[owner] <== request.bits.control.memory & !request.bits.control.store
       macro_store[owner] <== request.bits.control.memory & request.bits.control.store
@@ -135,7 +135,7 @@ sync_circuit VectorInstructions(xlen :: XLen, vlen :: VectorLength, vector_compl
   def row_hazards = for List (row in 0..row_count):
     def pending_owners = for List (owner in 0..vector_completion_slots):
       def future_row = !macro_progressive[owner] ||| (Bits(row_frontier_width)(row) >= macro_row_frontier[owner])
-      def destination_row = macro_destinations[owner][row div rows_per_register].into(Bool)
+      def destination_row = macro_destinations[owner].contains(row div rows_per_register)
       macro_valid[owner] & !macro_classified[owner] & destination_row & future_row
 
     def pending_slots = for List (slot in 0..vector_completion_slots):
