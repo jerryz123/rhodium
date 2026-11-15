@@ -42,7 +42,7 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
   output retained: VectorInstruction(xlen, Context)
   interface cancel(Pulse(), ~role: consumer)
   interface feedback(Valid(VectorFeedback(xlen, vlen, Bits(xlen.width))), ~role: consumer)
-  interface suffix(Decoupled(VectorSequenceContext(xlen, vlen, Context)), ~role: consumer)
+  interface suffix(Decoupled(VectorCompressSuffix(xlen, vlen)), ~role: consumer)
   interface sequence_request(Decoupled(SequenceRequest), ~role: producer)
   interface sequencing_done(Pulse(), ~role: producer)
   input blocked_rows: Vec(VectorRegisterLayout(vlen, xlen.width).depth, Bool)
@@ -310,7 +310,16 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
     suffix.valid: Bits(3)(0)
     packed_mode: preparation.read_enables
 
-  sequence_offer.left.bits.context <== mux(suffix.valid, suffix.bits, beat_context)
+  // Compression holds the descriptor through final authorization. Its suffix
+  // revisits the end position without fetching operands or advancing the cursor.
+  def suffix_control = beat_context.beat_control.updated(
+    ~sequence: suffix.bits.sequence, ~first: suffix.bits.end, ~end: suffix.bits.end,
+    ~last: Bool(#true), ~empty: Bool(#false))
+  def suffix_context = beat_context.updated(~beat_control: suffix_control, ~suffix: Bool(#true), ~suffix_state: suffix.bits.state)
+  when (suffix.valid):
+    assert(occupied & compress, "vector_compression_suffix_has_resident_descriptor")
+
+  sequence_offer.left.bits.context <== mux(suffix.valid, suffix_context, beat_context)
   sequence_offer.left.bits.enables <== offered_read_enables
   sequence_offer.left.bits.addresses <== mux(packed_mode, preparation.read_addresses, ordinary_read_addresses)
   sequence_offer.left.bits.mask_enable <== !suffix.valid & !packed_mode & !empty

@@ -481,11 +481,10 @@ void tick() {
   cycles++;
 }
 
-void run_macro(int sew, int lmul, int count, int start, int op, int mode,
-               int destination, int source1, int source2, bool masked_op,
-               bool inject_retry = 0, bool random_stalls = 1, int retry_at = -1,
-               int round_mode = 0) {
-  int timeout;
+void start_macro(int sew, int lmul, int count, int start, int op, int mode,
+                 int destination, int source1, int source2, bool masked_op,
+                 bool inject_retry = false, bool random_stalls = true,
+                 int retry_at = -1, int round_mode = 0) {
   CHECK(!active && !checking);
   tx_widening = ((op >= 48 && op <= 55));
   tx_narrowing = ((op >= 44 && op <= 47));
@@ -569,7 +568,15 @@ void run_macro(int sew, int lmul, int count, int start, int op, int mode,
   vstart = 0;
   scalar = ~scalar;
   vxrm = (~vxrm) & 3;
-  timeout = 0;
+}
+
+void run_macro(int sew, int lmul, int count, int start, int op, int mode,
+               int destination, int source1, int source2, bool masked_op,
+               bool inject_retry = 0, bool random_stalls = 1, int retry_at = -1,
+               int round_mode = 0) {
+  start_macro(sew, lmul, count, start, op, mode, destination, source1, source2,
+              masked_op, inject_retry, random_stalls, retry_at, round_mode);
+  int timeout = 0;
   while (active || checking) {
     issue_ready = !random_stalls || (random_word() % 4 != 0);
     tick();
@@ -582,6 +589,55 @@ void run_macro(int sew, int lmul, int count, int start, int op, int mode,
   for (int repeat_index = 0; repeat_index < (5); ++repeat_index)
     tick();
   macros++;
+}
+
+void cancel_stalled_compress_suffix() {
+  constexpr int lanes = XLEN / 8, rows = VLEN / XLEN;
+  // Two source rows select one full word plus a nonzero byte for the suffix.
+  initialize_in.pvalid = 1;
+  initialize(5 * rows, low_mask(lanes + 2) & ~UINT64_C(1), UINT64_MAX);
+  tick();
+  initialize(8 * rows + 1, UINT64_MAX, UINT64_MAX);
+  tick();
+  initialize(24 * rows + 1, 0, UINT64_MAX);
+  tick();
+  initialize_in.pvalid = 0;
+  start_macro(0, 0, 2 * lanes, 0, 23, 2, 24, 5, 8, false);
+  for (int i = 0; i < 16; ++i) {
+    eval();
+    if (suffix_pending)
+      break;
+    tick();
+  }
+  issue_ready = 0;
+  for (int i = 0; i < 6; ++i) {
+    eval();
+    CHECK(suffix_pending && !request_ready);
+    tick();
+  }
+  CHECK(checking && tx_beats == 2 && tx_first == 2 * lanes &&
+        tx_compress_count == 1 && tx_compress_buffer == 0xff);
+
+  // Reopen the stalled port on the cancel edge. The very next instruction
+  // copies the old destination, including the byte the suffix must not write.
+  cancel = 1;
+  issue_ready = 1;
+  eval();
+  CHECK(!suffix_pending && !issued && !committed);
+  tick();
+  cancel = 0;
+  checking = false;
+  eval();
+  CHECK(!active && request_ready);
+  run_macro(0, 0, 2 * lanes, 0, 0, 3, 16, 0, 24, false, false, false);
+  CHECK(tx_beats == 2 && memory[16 * rows + 1] == 0);
+
+  // Retrying that same final write instead must restore the authorized byte.
+  const int prior_retries = retries;
+  run_macro(0, 0, 2 * lanes, 0, 23, 2, 24, 5, 8, false, true, false,
+            2 * lanes);
+  CHECK(retries == prior_retries + 1 && tx_beats == 3 &&
+        memory[24 * rows + 1] == 0xff);
 }
 
 int main() {
@@ -611,6 +667,7 @@ int main() {
       tick();
     }
     initialize_in.pvalid = 0;
+    cancel_stalled_compress_suffix();
     // Every SEW/LMUL geometry, including fractional groups, in-place operands,
     // vstart in the middle of a beat, tails, and signed scalar extension.
     for (int sew = 0; sew < SEW_LOG + 1; sew++) {

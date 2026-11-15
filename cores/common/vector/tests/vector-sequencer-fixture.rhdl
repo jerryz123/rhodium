@@ -30,6 +30,7 @@ sync_circuit VectorSequencerFixture(xlen :: XLen, vlen :: VectorLength, vector_e
   input retry_first: Bits(index_width(vlen + 1))
   interface initialize(Valid(VectorRegisterWrite(xlen, vlen)), ~role: consumer)
   output(active, request_ready, legal, issued, committed, retried): Bool
+  output suffix_pending: Bool
   output result: VectorResultBeat(xlen, vlen, VectorRegisterWrite(xlen, vlen))
   def profile = if xlen == XLen.X32 | VectorProfile.Zve32x | VectorProfile.V
   inst decode(VectorTestDecoder(profile, vector_extensions, ~uncared_ones: #true))
@@ -85,6 +86,7 @@ sync_circuit VectorSequencerFixture(xlen :: XLen, vlen :: VectorLength, vector_e
   sequencer.sequence_request |> gate_flow(issue_ready) |> operand_fetch.request
   operand_fetch.flush <== sequencer.read_flush
   operand_fetch.suffix |> sequencer.suffix
+  suffix_pending <== operand_fetch.suffix.valid
   operand_fetch.begin_macro <== sequencer.request.fire()
   for (port in 0..3):
     Array(operand_fetch.reads[port], sequencer.prepare_reads[port]) |> valid_arbiter() |> bank.reads[port]

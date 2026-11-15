@@ -34,7 +34,7 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
   interface mask_read(Valid(Bits(index_width(VectorRegisterLayout(vlen, xlen.width).rows_per_register))), ~role: producer)
   interface mask_result(Valid(Bits(xlen.width)), ~role: consumer)
   interface issue(Decoupled(VectorMicroOp(xlen, vlen, Context)), ~role: producer)
-  interface suffix(Decoupled(SequenceContext), ~role: producer)
+  interface suffix(Decoupled(VectorCompressSuffix(xlen, vlen)), ~role: producer)
   interface alignment(Valid(VectorAlignment(xlen)), ~role: producer)
   input aligned: Bits(xlen.width)
   interface feedback(Valid(VectorFeedback(xlen, vlen, Bits(xlen.width))), ~role: consumer)
@@ -53,8 +53,9 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
   reg authorized_compress_count(~init: Bits(vector_lane_count_width(xlen))(0))
   reg authorized_compress_destination(~init: Bits(index_width(vlen + 1))(0))
   reg compress_flush(~init: Bool(#false))
-  reg compress_context(SequenceContext)
-  reg compress_context_valid(~init: Bool(#false))
+  reg source_end(Bits(index_width(vlen + 1)))
+  reg source_last(Bool)
+  reg source_valid(~init: Bool(#false))
   reg flush_sequence(Bits(vector_sequence_width(vlen)))
   reg authorized_sequence(~init: Bits(vector_sequence_width(vlen))(0))
   reg authorized_end(~init: Bits(index_width(vlen + 1))(0))
@@ -447,15 +448,14 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
     destination: compress_destination
 
   suffix.valid <== compress_flush & !clear
-  suffix.bits <== compress_context.updated(
-    ~suffix: Bool(#true),
-    ~suffix_state: flush_state,
-    ~beat_control: compress_context.beat_control.updated(~sequence: flush_sequence, ~first: compress_context.beat_control.end, ~last: Bool(#true), ~empty: Bool(#false))
-  )
+  suffix.bits <== VectorCompressSuffix(xlen, vlen):
+    sequence: flush_sequence
+    end: source_end
+    state: flush_state
 
   def capture_compression = response.valid & compress & !read_context.suffix & !clear
   def discard_compression = begin_macro ||| (clear & !retry)
-  describe_interface_retained_storage(capture_compression, compress_context_valid & (capture_compression ||| discard_compression), compress_context_valid, ~name: "compression")
+  describe_interface_retained_storage(capture_compression, source_valid & (capture_compression ||| discard_compression), source_valid, ~name: "compression")
   describe_interface_contract(compression_response, suffix, "compression-suffix", ~trace_model: interface_trace_retained(~name: "compression"))
   def returned = direct |> to_decoupled()
   returned |> issue
@@ -477,9 +477,9 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
      Retry restores the authorized frontier; fresh macro admission clears prior state. */
 
   when discard_compression:
-    compress_context_valid <== Bool(#false)
+    source_valid <== Bool(#false)
   elsewhen capture_compression:
-    compress_context_valid <== Bool(#true)
+    source_valid <== Bool(#true)
 
   when (begin_macro):
     authorized_compress_data <== Bits(xlen.width)(0)
@@ -498,7 +498,7 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
     compress_data <== authorized_compress_data
     compress_count <== authorized_compress_count
     compress_destination <== authorized_compress_destination
-    compress_flush <== compress_context_valid & compress_context.beat_control.last & (authorized_end === compress_context.beat_control.end) & authorized_compress_count.any()
+    compress_flush <== source_valid & source_last & (authorized_end === source_end) & authorized_compress_count.any()
     flush_sequence <== authorized_sequence
   elsewhen (clear ||| begin_macro):
     compress_data <== Bits(xlen.width)(0)
@@ -506,7 +506,8 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
     compress_destination <== Bits(index_width(vlen + 1))(0)
     compress_flush <== Bool(#false)
   elsewhen capture_compression:
-    compress_context <== response.bits
+    source_end <== beat_control.end
+    source_last <== beat_control.last
     flush_sequence <== beat_control.sequence + Bits(vector_sequence_width(vlen))(1)
     compress_data <== post_compress_state.data
     compress_count <== post_compress_state.count

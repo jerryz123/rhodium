@@ -40,6 +40,13 @@ For a vector gather, extract the selected VS1 element on the VRF return and
 compare the full index with VLMAX before narrowing it. Bypass that result to
 the dependent VS2 read; only a stalled beat needs the saved index and range flag.
 
+For `vcompress`, the sequencer keeps the descriptor until the last write is
+authorized. Operand fetch returns only the sequence number, source end, and
+partial destination word (data, count, and destination); the sequencer issues
+it under the resident descriptor without another VRF read. Keep the speculative
+partial word separate from the authorized retry checkpoint. Cancellation
+discards the pending write before a new descriptor can be admitted.
+
 Aligned faultable memory beats may sequence on consecutive cycles. Their
 slot-bounded metadata FIFO pairs in-order LSU decisions with the authorized
 frontier; retry flushes only the unaccepted suffix. At checked-memory ingress,
@@ -278,6 +285,9 @@ modes at tail issue and tail authorization, and retry behind younger beats.
 The `vector-gather-index-rv32` and `vector-gather-index-rv64` fixtures check the
 dependent read on the VRF return cycle and after a stall, including high-index
 aliases for both ordinary and EI16 gather.
+The sequencer fixtures also stall a final compression write, cancel as its port
+reopens, and immediately read the old destination with the next instruction.
+They separately retry the final write and check that the authorized byte is restored.
 
 The packed fixtures hold the VRF write grant low throughout stores, checking ring
 wrap, empty stores, and masked segmented retries with delayed/reordered replies.
