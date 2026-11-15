@@ -26,6 +26,10 @@ For non-indexed element transfers, derive the byte step from the retained
 descriptor. Keep the issue and authorized addresses separate: issue can cross
 an element boundary before the LSU accepts the preceding element's last field.
 
+For a vector gather, extract the selected VS1 element on the VRF return and
+compare the full index with VLMAX before narrowing it. Bypass that result to
+the dependent VS2 read; only a stalled beat needs the saved index and range flag.
+
 Aligned faultable memory beats may sequence on consecutive cycles. Their
 slot-bounded metadata FIFO pairs in-order LSU decisions with the authorized
 frontier; retry flushes only the unaccepted suffix. Detect a misaligned element
@@ -247,8 +251,12 @@ accepted prefix. The RV2Wide memory adapter fixtures also check consecutive
 precise commits and younger-attempt suppression on retry/fault. Packed and RV32
 fixtures cover transport and row geometry. The `vector-memory-element-step-rv32`
 and `vector-memory-element-step-rv64` fixtures check the issue and retry addresses
-across segment fields, strides, nonzero `vstart`, and backpressure. The packed fixtures hold the VRF
-write grant low throughout stores, checking ring
+across segment fields, strides, nonzero `vstart`, and backpressure. The
+`vector-gather-index-rv32` and `vector-gather-index-rv64` fixtures check the
+dependent read on the VRF return cycle and after a stall, including high-index
+aliases for both ordinary and EI16 gather.
+
+The packed fixtures hold the VRF write grant low throughout stores, checking ring
 wrap, empty stores, and masked segmented retries with delayed/reordered replies.
 They verify memory contents, unchanged VRF state, and complete response drain.
 Full-row hit checks require same-edge writes past older pending responses and

@@ -55,7 +55,8 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
   reg packed_cursor(VectorPackedCursor(xlen, vlen))
   reg gather_pending(~init: Bool(#false))
   reg gather_index_valid(~init: Bool(#false))
-  reg gather_index_word(Bits(xlen.width))
+  reg held_gather_index(Bits(index_width(vlen)))
+  reg held_gather_in_range(Bool)
   reg packed_phase(~init: VectorPreparePhase.Map)
   inst preparation(VectorPackedPrepare(xlen, vlen, Context))
   packed <== packed_mode
@@ -244,11 +245,14 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
 
   /* Dependent gather read and packed preparation */
 
-  def gather_word = mux(gather_pending, prepare_results[1].bits, gather_index_word)
   def gather_shift = (cursor[0..vector_byte_offset_width(xlen)] << index_sew) ++ Bits(3)(0)
-  def gather_element = gather_word >> gather_shift
-  def gather_index = mux_lookup(index_sew, ~default: gather_element, for List (format in 0..(vector_format_count(xlen) - 1)): [format, gather_element[0..(8 << format)].zext(xlen.width)])
-  def gather_in_range = gather_index < geometry.vlmax.zext(xlen.width)
+  def gather_element = prepare_results[1].bits >> gather_shift
+  def returned_index = mux_lookup(index_sew, ~default: gather_element, for List (format in 0..(vector_format_count(xlen) - 1)): [format, gather_element[0..(8 << format)].zext(xlen.width)])
+  // VLMAX is at most VLEN. Check the entire selected element before dropping high bits.
+  def returned_in_range = returned_index < geometry.vlmax.zext(xlen.width)
+  def index_low = returned_index[0..index_width(vlen)]
+  def gather_index = mux(gather_pending, index_low, held_gather_index)
+  def gather_in_range = mux(gather_pending, returned_in_range, held_gather_in_range)
   def gather_address = slide_base + mux(gather_in_range, (gather_index >> (Bits(2)(vector_byte_offset_width(xlen)) - sew))[0..row_base_width], Bits(row_base_width)(0))
   def gather_read = occupied & gather_vector & !packed_mode & !all_issued & !clear & !gather_index_valid & !gather_pending & !ordinary_source_blocked.any()
   gather_pending <== gather_read
@@ -474,7 +478,8 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
   when (accepted ||| clear ||| (launch & gather_vector)):
     gather_index_valid <== Bool(#false)
   elsewhen (gather_pending & prepare_results[1].valid):
-    gather_index_word <== prepare_results[1].bits
+    held_gather_index <== index_low
+    held_gather_in_range <== returned_in_range
     gather_index_valid <== Bool(#true)
 
   when (gather_pending & !clear):
