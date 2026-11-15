@@ -17,9 +17,8 @@ fun vector_transport_bytes(xlen :: XLen) :: PosInt:
 fun vector_sequence_width(vlen :: VectorLength) :: PosInt:
   index_width(vlen + 1) + 3
 
-/* Captures element, field, byte, and aligned-address progress for exact packed retry. */
+/* Records the logical position within a packed transfer. The sequencer owns its addresses. */
 bundle VectorPackedCursor(xlen :: XLen, vlen :: VectorLength):
-  address: Bits(xlen.width)
   element: Bits(index_width(vlen + 1))
   field: Bits(3)
   byte: Bits(vector_byte_offset_width(xlen))

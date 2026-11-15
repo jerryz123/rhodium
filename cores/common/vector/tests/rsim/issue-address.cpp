@@ -47,13 +47,7 @@ struct Macro {
     f.pfirst = first;
     f.pend = end;
     f.plast = b.plast;
-    if (packed) {
-      f.ppacked_ulayout = c.ppacked_ulayout;
-      CHECK(f.ppacked_ulayout.pbefore.paddress == address);
-      CHECK(f.ppacked_ulayout.pafter.paddress == address + bytes);
-    } else {
-      f.ppacked_ulayout.pbefore.paddress = ~address; // Not the ordinary checkpoint.
-    }
+    if (packed) f.ppacked_ulayout = c.ppacked_ulayout;
     return f;
   }
 };
@@ -61,7 +55,8 @@ struct Macro {
 void run_chain() {
   const Macro chain[] = {
       {false, true, Word(0x100000123ULL), start + 1},
-      {true, false, Word(0x200001001ULL), start + 4 * bytes},
+      // vstart selects the last byte of the address space; beat 1 wraps to zero.
+      {true, false, Word(~Word(0) - start), start + 4 * bytes},
       {false, false, Word(0x300002005ULL), start + 6},
       {true, true, Word(0x400003001ULL), start + 1},
       {false, true, Word(0x500004007ULL), start + 1},
@@ -103,6 +98,13 @@ void run_chain() {
 
     unsigned i = 0;
     if (!op.certified) {
+      if (op.packed) {
+        auto first = issue(0);
+        issue(1); // Speculative address has wrapped; retry still owns the last word.
+        decide(first, true);
+        op.check_beat(0);
+        tick_model(); // Stall before replaying the first partial word.
+      }
       decide(issue(0), false);
       auto rejected = issue(1);
       issue(2);

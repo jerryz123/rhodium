@@ -39,16 +39,20 @@ omit the first pair's even register or the last pair's odd register. Interior
 pairs always claim both. Owner age, progressive row release, and exact
 outstanding writes still decide whether a particular read must wait.
 
-Packed and ordinary modes share the issue cursor's address. Packed mode starts
-at the aligned transport word containing `vstart`; ordinary mode starts at the
-scalar base and steps to `vstart` for non-indexed transfers. Keep the ordinary
-authorized element base separate: issue can cross an element boundary before
-the LSU accepts the preceding element's last field.
+The sequencer keeps two XLEN addresses: the speculative issue address and the
+retry address. Packed mode initializes both to the
+aligned word containing `vstart`. Issue advances one word per transfer;
+authorization advances one word per accepted beat, even for a partial word.
+For ordinary non-indexed transfers these are element bases: both step from the
+scalar base to `vstart`, then advance by the element step after the last segment
+field at their respective frontiers.
 
 Packed preparation derives the byte-to-row layout from the sequencer's held
 descriptor and cursor, including while mask reads, alignment, or issue stall.
-Once a beat issues, its completion slot retains its layout for assembly and
-retry; the sequencer can already be preparing a younger beat.
+On retry, the rejected slot supplies its element, field, byte, and leading-byte
+position. The sequencer restores the issue address from its authorization
+frontier, not the slot or a younger offer. A new descriptor admitted on tail
+authorization initializes both addresses for the new mode.
 
 For a vector gather, extract the selected VS1 element on the VRF return and
 compare the full index with VLMAX before narrowing it. Bypass that result to
@@ -297,7 +301,8 @@ fixtures cover transport and row geometry. The `vector-memory-element-step-rv32`
 and `vector-memory-element-step-rv64` fixtures check the issue and retry addresses
 across segment fields, strides, nonzero `vstart`, and backpressure.
 The `vector-issue-address-rv32` and `vector-issue-address-rv64` fixtures switch
-modes at tail issue and tail authorization, and retry behind younger beats.
+modes at tail issue and tail authorization, stall a retry with younger beats
+outstanding, and check packed replay on both sides of XLEN address wraparound.
 The `vector-gather-index-rv32` and `vector-gather-index-rv64` fixtures check the
 dependent read on the VRF return cycle and after a stall, including high-index
 aliases for both ordinary and EI16 gather.

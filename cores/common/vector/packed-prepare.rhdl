@@ -128,7 +128,6 @@ sync_circuit VectorPackedPrepare(xlen :: XLen, vlen :: VectorLength, Context :: 
     before: cursor
     after:
       VectorPackedCursor(xlen, vlen):
-        address: cursor.address + Bits(xlen.width)(bytes)
         element: element
         field: field
         byte: byte

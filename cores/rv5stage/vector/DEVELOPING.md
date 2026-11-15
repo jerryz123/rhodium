@@ -250,11 +250,12 @@ priority over scheduled store alignment, then buffered load alignment.
 Scheduled ordinary returns and final carry flush arbitrate the sole VRF write port
 without lossy Valid arbitration; there is no second barrel shifter or VRF.
 
-Fallback packed authorization and retry are normalized into the standard sequencer feedback.
-Fallback packed retry restores the rejected beat's complete byte/field/address cursor,
-drops younger read preparation and reservations, and retains accepted responses
-and the partial-row carry. The aligned transport envelope must remain inside
-the MMU certificate. A false certificate selects the original elementwise
+Fallback packed authorization and retry use the standard sequencer feedback.
+The rejected slot supplies the logical position; the sequencer supplies the retry
+address from its authorization frontier. Replay drops younger read preparation
+and reservations but retains accepted responses and the partial-row carry. The
+aligned transport envelope must remain inside the MMU certificate. A false
+certificate selects the original elementwise
 sequencer; never treat a failed precheck as an architectural fault.
 Encoded-zero-stride splats instead use one ordinary LSU attempt. Their
 one-element transfer-word certificate can retire the macro before that attempt while

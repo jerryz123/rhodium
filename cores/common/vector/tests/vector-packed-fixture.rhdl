@@ -215,27 +215,39 @@ sync_circuit VectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen = XLen.X6
   sequenced <== sequencer.sequence_request.fire()
   sequence_address <== sequencer.sequence_request.bits.context.beat_control.address
   def offered_layout = sequencer.sequence_request.bits.context.packed_layout
-  def offered_cursor = offered_layout.before
-  when (sequencer.sequence_request.valid):
-    def expected_address = offered_cursor.address + Bits(xlen.width)(xlen.width / 8)
-    assert(offered_layout.after.address === expected_address, "packed_next_address_is_one_word_ahead")
+  reg expected_next(Bits(xlen.width))
+  reg check_next(~init: Bool(#false))
+  when (sequencer.request.fire() ||| sequencer.read_flush):
+    check_next <== Bool(#false)
+  elsewhen sequenced:
+    expected_next <== sequence_address + Bits(xlen.width)(xlen.width / 8)
+    check_next <== !offered_layout.last
+
+  when (sequenced & check_next):
+    assert(sequence_address === expected_next, "packed_next_address_is_one_word_ahead")
 
   reg stalled(~init: Bool(#false))
   reg stalled_layout(VectorPackedLayout(xlen, vlen))
+  reg stalled_address(Bits(xlen.width))
   stalled <== sequencer.sequence_request.valid & !sequencer.sequence_request.ready & !sequencer.read_flush
   when (sequencer.sequence_request.valid & !sequencer.sequence_request.ready):
     stalled_layout <== offered_layout
+    stalled_address <== sequence_address
 
   when (stalled & sequencer.sequence_request.valid & !sequencer.read_flush):
     assert(offered_layout.as_bits() === stalled_layout.as_bits(), "packed_stalled_layout_stable")
+    assert(sequence_address === stalled_address, "packed_stalled_address_stable")
 
   reg replay_pending(~init: Bool(#false))
   reg rejected_layout(VectorPackedLayout(xlen, vlen))
+  reg rejected_address(Bits(xlen.width))
   when (attempts.egress.valid & retry):
     rejected_layout <== engine.resolved.layout
+    rejected_address <== attempts.egress.bits.address
     replay_pending <== Bool(#true)
   elsewhen (sequenced & replay_pending):
     assert(offered_layout.as_bits() === rejected_layout.as_bits(), "packed_retry_restores_issued_layout")
+    assert(sequence_address === rejected_address, "packed_retry_restores_issued_address")
     replay_pending <== Bool(#false)
 
   token <== issue_path.bits
