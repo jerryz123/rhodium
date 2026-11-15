@@ -167,6 +167,8 @@ rv5stage-memory-arbiter	cores-components	cores/rv5stage/tests/rsim/emit-rv5stage
 rv5stage-vector-sequencer	cores-components	cores/common/vector/tests/rsim/emit-rv5stage-vector-sequencer.rhm	program	cores/common/vector/tests/rsim/rv5stage-vector-sequencer.cpp
 rv5stage-vector-sequencer-rv32	cores-components	cores/common/vector/tests/rsim/emit-rv5stage-vector-sequencer-rv32.rhm	program	cores/common/vector/tests/rsim/rv5stage-vector-sequencer-rv32.cpp
 rv5stage-vector-sequencer-1024	cores-components	cores/common/vector/tests/rsim/emit-rv5stage-vector-sequencer-1024.rhm	program	cores/common/vector/tests/rsim/rv5stage-vector-sequencer-1024.cpp
+vector-memory-element-step-rv32	cores-components	cores/common/vector/tests/rsim/emit-memory-element-step.rhm	rv32	cores/common/vector/tests/rsim/memory-element-step.cpp
+vector-memory-element-step-rv64	cores-components	cores/common/vector/tests/rsim/emit-memory-element-step.rhm	rv64	cores/common/vector/tests/rsim/memory-element-step.cpp
 adder	language	examples/lop/adder-standard.rhdl	program	rhodium/backend/tests/rsim/adder.cpp
 adder4	language	examples/rtl/adder4.rhdl	program	rhodium/backend/tests/rsim/adder4.cpp
 generated-adder	language	examples/rtl/generated-adder.rhdl	program	rhodium/backend/tests/rsim/generated-adder.cpp

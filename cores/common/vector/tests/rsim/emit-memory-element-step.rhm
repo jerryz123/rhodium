@@ -1,0 +1,11 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../sequencer.rhdl".VectorSequencer
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("rhodium/frontend/foundation.rhm") open
+
+def rv32 = elaborate(VectorSequencer(XLen.X32, 128, Bool))
+def rv64 = elaborate(VectorSequencer(XLen.X64, 128, Bool))
+export rv32 rv64

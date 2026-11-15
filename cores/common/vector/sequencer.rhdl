@@ -70,7 +70,6 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
   reg authorized_sequence(Sequence)
   reg memory_element_address(~init: Bits(xlen.width)(0))
   reg authorized_memory_element_address(~init: Bits(xlen.width)(0))
-  reg memory_element_step(~init: Bits(xlen.width)(0))
   reg memory_setup_remaining(~init: Bits(index_width(vlen + 1))(0))
   reg all_issued(~init: Bool(#false))
 
@@ -130,6 +129,15 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def last_field = !segmented_memory ||| (field === descriptor.control.memory_nf)
   def authorized_last_field = !segmented_memory ||| (authorized_field === descriptor.control.memory_nf)
   def beat_last = empty ||| ((end === limit) & last_field)
+
+
+  /* Both memory cursors use the accepted descriptor's byte step, but advance
+     independently on issue and authorization. Whole-register transfers are contiguous. */
+
+  def fields = descriptor.control.memory_nf.zext(4) + Bits(4)(1)
+  def fields_per_element = mux(whole_register_memory, Bits(4)(1), fields)
+  def unit_stride_step = fields_per_element.zext(xlen.width) << descriptor.control.memory_data_eew
+  def memory_element_step = mux(descriptor.control.memory_addressing === VectorMemoryAddressing.Strided, descriptor.stride, unit_stride_step)
 
 
   /* Scheduled VRF address geometry
@@ -376,17 +384,8 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
     instruction <== request.bits
     def start = mux(request.bits.descriptor.control.element_move, Bits(index_width(vlen + 1))(0), request.bits.descriptor.state.vstart[0..index_width(vlen + 1)])
     def base = request.bits.descriptor.scalar
-    def stride = request.bits.descriptor.stride
-    def field_bytes = Bits(xlen.width)(1) << request.bits.descriptor.control.memory_data_eew
-    def fields = request.bits.descriptor.control.memory_nf.zext(xlen.width) + Bits(xlen.width)(1)
     def request_whole_register_memory = request.bits.descriptor.control.memory & (request.bits.descriptor.control.memory_mode === VectorMemoryMode.WholeRegister)
     def request_mask_memory = request.bits.descriptor.control.memory & (request.bits.descriptor.control.memory_mode === VectorMemoryMode.Mask)
-    def segmented_step = fields << request.bits.descriptor.control.memory_data_eew
-    def unit_stride_step = priority_mux(~default: field_bytes):
-      request_whole_register_memory: field_bytes
-      request.bits.descriptor.control.memory_nf.any(): segmented_step
-
-    def element_step = mux(request.bits.descriptor.control.memory_addressing === VectorMemoryAddressing.Strided, stride, unit_stride_step)
     def word_schedule = request.bits.descriptor.control.integer & (request.bits.descriptor.control.mask_logic ||| (request.bits.descriptor.control.scan & (request.bits.descriptor.control.scan_control.result =/= VectorScanResult.Elements)))
     def incoming_control = request.bits.descriptor.control
     def indexed_gather = incoming_control.gather & (incoming_control.operand === VectorOperandMode.Vector)
@@ -409,7 +408,6 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
     authorized_sequence <== Bits(vector_sequence_width(vlen))(0)
     memory_element_address <== base
     authorized_memory_element_address <== base
-    memory_element_step <== element_step
     def indexed = request.bits.descriptor.control.memory_addressing.is_one_of(VectorMemoryAddressing.IndexedUnordered, VectorMemoryAddressing.IndexedOrdered)
     def request_whole_register_group_shift = mux_lookup(request.bits.descriptor.control.memory_nf, ~default: Bits(2)(0), [[1, Bits(2)(1)], [3, Bits(2)(2)], [7, Bits(2)(3)]])
     def request_whole_register_elements = Bits(index_width(vlen + 1))(vlen / 8) >> request.bits.descriptor.control.memory_data_eew

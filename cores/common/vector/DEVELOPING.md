@@ -22,6 +22,9 @@ port counts and scalar scheduling.
 Keep instruction IDs, completion slots, and the sequencer cursor distinct.
 Return routing uses retained slot ownership, never the live descriptor. A retry
 restores the unauthorized checkpoint without deleting accepted memory ownership.
+For non-indexed element transfers, derive the byte step from the retained
+descriptor. Keep the issue and authorized addresses separate: issue can cross
+an element boundary before the LSU accepts the preceding element's last field.
 
 Aligned faultable memory beats may sequence on consecutive cycles. Their
 slot-bounded metadata FIFO pairs in-order LSU decisions with the authorized
@@ -242,7 +245,9 @@ replacement, consecutive faultable indexed stores, middle-element retry/fault
 with delayed accepted responses, and split authorization/retry/fault behind an
 accepted prefix. The RV2Wide memory adapter fixtures also check consecutive
 precise commits and younger-attempt suppression on retry/fault. Packed and RV32
-fixtures cover transport and row geometry. The packed fixtures hold the VRF
+fixtures cover transport and row geometry. The `vector-memory-element-step-rv32`
+and `vector-memory-element-step-rv64` fixtures check the issue and retry addresses
+across segment fields, strides, nonzero `vstart`, and backpressure. The packed fixtures hold the VRF
 write grant low throughout stores, checking ring
 wrap, empty stores, and masked segmented retries with delayed/reordered replies.
 They verify memory contents, unchanged VRF state, and complete response drain.
