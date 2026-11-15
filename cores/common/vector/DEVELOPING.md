@@ -26,6 +26,13 @@ Both modes restart numbering from the rejected beat's feedback. The sequencer
 independently counts authorizations to assert that feedback names the oldest
 unauthorized beat.
 
+Each physical completion slot owns one XLEN word. Ordinary results use it for
+retained write data (notably a multiply-accumulate addend); non-direct packed
+loads use it until byte assembly drains. An ordinary resolution and an immediate
+packed hit are mutually exclusive, but a delayed packed return may write a
+different slot on that same edge. Keep both write paths, the direct-row bypass,
+and the separate per-slot completion and ownership state.
+
 The sequencer uses a combinational 32-register destination mask. From the same
 bounds, the owner table captures a 16-bit mask of register pairs and two flags:
 omit the first pair's even register or the last pair's odd register. Interior

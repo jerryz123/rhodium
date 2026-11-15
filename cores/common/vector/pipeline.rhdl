@@ -158,6 +158,13 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   /* Packed-memory completion routing */
 
   inst packed(VectorPackedLoad(xlen, vlen, vector_completion_slots, vector_completion_slots))
+  inst slot_words(VectorCompletionWords(xlen, vector_completion_slots))
+  completions.retain_word |> slot_words.ordinary
+  packed.retain_hit |> slot_words.packed_hit
+  packed.retain_return |> slot_words.packed_return
+  completions.slot_words <== slot_words.words
+  packed.head_word <== slot_words.words[drain_slot]
+
   def Array(element_decision_input, packed_decision_input) = decision |> fork_valid(2)
   def element_memory_decision = element_decision_input |> filter_valid(_event => !feedback_packed)
   def packed_decision = packed_decision_input |> filter_valid(_event => feedback_packed)

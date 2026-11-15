@@ -57,6 +57,7 @@ void tick() {
     if (attempt_out.pvalid && attempt_out.pbits.pmemory && retry) ++retries;
     if (attempt_out.pvalid && attempt_out.pbits.pmemory && attempt_out.pbits.penabled && !retry) {
       auto &t = attempt_out.pbits;
+      if (packed_access) CHECK(t.ppacked);
       if (t.pstore) put(t.paddress, 1u << t.pmemory_uwidth, t.pstore_udata);
       if (slow) replies.push_back({unsigned(t.pcompletion_utag), Word(hit_data), cycles + 11});
     }
@@ -219,6 +220,41 @@ void overlaps() {
   CHECK(!active);
   check_case(0,37,false,0);
 }
+void concurrent_slot_writes() {
+  constexpr unsigned bytes = W / 8;
+  for (unsigned round = 0; round < 10; ++round) {
+    Word a = 7 + round, b = 11 + round, addend = 0xa505 + round;
+    put(256, bytes, a); put(384, bytes, b); put(512, bytes, addend);
+    put(640, bytes, mask(W)); mem[705] = 0x30 + round;
+    load(8, 256, bytes); load(12, 384, bytes);
+    load(16, 512, bytes); load(24, 640, bytes);
+
+    // Partial packed rows must retain the returned word for byte assembly.
+    packed_access = slow = 1;
+    launch((1u << 25) | (24u << 7) | 7, 0, 1, 0, Word(705));
+    while (replies.empty()) tick();
+    CHECK(replies.size() == 1);
+    replies.front().due = UINT32_MAX;
+    packed_access = slow = 0;
+
+    // The independent full-width vmacc captures its addend one cycle after issue.
+    // Accept the delayed packed word on precisely that edge; neither writer may stall.
+    unsigned before = beats;
+    launch(multiply(45, false, false, false), std::countr_zero(bytes), 1);
+    while (beats == before) tick();
+    CHECK(issue_cycles.back() + 1 == cycles);
+    replies.front().due = cycles;
+    tick();
+    CHECK(replies.empty());
+    drain();
+
+    dump(16, 2048, bytes); dump(24, 2112, bytes);
+    CHECK(get(2048, bytes) == a * b + addend);
+    CHECK(mem[2112] == mem[705]);
+    for (unsigned i = 1; i < bytes; ++i) CHECK(mem[2112 + i] == 0xff);
+  }
+}
+
 int main() {
   return run_test([] {
   reset = 1; schedule_enable = scalar_available = 1;
@@ -237,6 +273,7 @@ int main() {
     }
   }
   overlaps();
+  concurrent_slot_writes();
   std::printf("W%u: %u packed/scalar multiply cases, %u cycles\n",W,cases,cycles);
   });
 }

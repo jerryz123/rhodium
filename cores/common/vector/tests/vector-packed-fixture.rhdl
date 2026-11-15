@@ -5,6 +5,7 @@ import:
   lib("riscv/rtl/trap.rhdl").ExceptionCause
   lib("cores/common/vector-layout.rhm").VectorRegisterLayout
   "../packed-load.rhdl" open
+  "../completion.rhdl".VectorCompletionWords
   "../packed-bundles.rhdl" open
   "../operand-fetch.rhdl" open
   "../sequencer.rhdl" open
@@ -50,6 +51,13 @@ sync_circuit VectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen = XLen.X6
   reg head(~init: Bits(index_width(slots))(0))
   inst slots_owner(VectorSlots(slots))
   engine.head <== head
+  inst words(VectorCompletionWords(xlen, slots))
+  words.ordinary.valid <== Bool(#false)
+  words.ordinary.bits <== dont_care(words.ordinary.bits.type)
+  engine.retain_hit |> words.packed_hit
+  engine.retain_return |> words.packed_return
+  engine.head_word <== words.words[head]
+
   def next_tail = if slots == 1 | Bits(index_width(slots))(0) | tail + operand_fetch.scheduled_return.as_bits().zext(index_width(slots))
   def slot_available = !slots_owner.allocated[next_tail] & (Bool(slots != 1) ||| !operand_fetch.scheduled_return)
   sequencer.sequence_request |> gate_flow(issue_ready & slot_available & alignment_available) |> operand_fetch.request

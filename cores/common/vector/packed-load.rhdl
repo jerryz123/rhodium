@@ -32,6 +32,9 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
   input aligned: Bits(xlen.width)
   interface write(Valid(VectorRegisterWrite(xlen, vlen)), ~role: producer)
   interface released(Valid(Tag), ~role: producer)
+  interface retain_hit(Valid(VectorCompletion(xlen, slots)), ~role: producer)
+  interface retain_return(Valid(VectorCompletion(xlen, slots)), ~role: producer)
+  input head_word: Bits(xlen.width)
   input head: Tag
   input owner: Owner
   input(drain_enable, alignment_available): Bool
@@ -55,7 +58,6 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
   reg entries(Vec(slots, Entry))
   reg completed(~init: Bits(slots)(0).as_vec(Bool))
   reg written(~init: Bits(slots)(0).as_vec(Bool))
-  reg data(Vec(slots, Bits(xlen.width)))
   reg drain_remaining(~init: Bits(bytes)(0))
   reg draining(~init: Bool(#false))
   reg carry_valid(~init: Bool(#false))
@@ -92,7 +94,7 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
   def load_piece = load_alignment & assembly_available
   alignment.valid <== load_alignment
   alignment.bits <== VectorAlignment(xlen):
-    data: data[head]
+    data: head_word
     bytes: rotation
 
 
@@ -153,7 +155,10 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
     for List (slot in 0..slots):
       !entries[slot].store & !entries[slot].segmented & entries[slot].layout.direct_row(entries[slot].mask)
   )
-  def immediate_direct = loads.completed[0].valid & direct_rows[loads.completed[0].bits.tag]
+  def Array(immediate_hit, retained_hit) = loads.completed[0] |> fork_valid(2)
+  retained_hit |> filter_valid(result => !direct_rows[result.tag]) |> retain_hit
+  loads.completed[1] |> filter_valid(result => !direct_rows[result.tag]) |> retain_return
+  def immediate_direct = immediate_hit.valid & direct_rows[immediate_hit.bits.tag]
   def returned = completion |> gate_flow(!direct_rows[completion.bits.tag] ||| (direct_write_available & !immediate_direct)) |> to_valid()
   def returned_direct = returned.valid & direct_rows[returned.bits.tag]
   direct_write <== immediate_direct ||| returned_direct
@@ -166,7 +171,7 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
     data: mux(immediate_direct, loads.completed[0].bits.data, completion.bits.data)
     mask: !Bits(xlen.width)(0)
 
-  def immediate_write = loads.completed[0] |> filter_valid(result => direct_rows[result.tag]) |> map_valid(_result => direct_value)
+  def immediate_write = immediate_hit |> filter_valid(result => direct_rows[result.tag]) |> map_valid(_result => direct_value)
   def delayed_write = inject_interface(Valid(VectorRegisterWrite(xlen, vlen)), ~valid: returned_direct, ~bits: direct_value)
   def assembly_piece = inject_interface(Valid(VectorRegisterWrite(xlen, vlen)), ~valid: load_piece, ~bits: combined)
   def assembled_write = inject_interface(Valid(VectorRegisterWrite(xlen, vlen)), ~valid: write_previous_carry ||| flush_carry ||| split_load ||| full_row, ~bits: assembly_write)
@@ -292,11 +297,6 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
 
       when (direct_write & (direct_tag === tag)):
         written[slot] <== Bool(#true)
-
-    when (delayed_here & !direct_rows[slot]):
-      data[slot] <== loads.completed[1].bits.data
-    elsewhen (immediate_here & !direct_rows[slot]):
-      data[slot] <== loads.completed[0].bits.data
 
 
   /* Exact pending-row claims.

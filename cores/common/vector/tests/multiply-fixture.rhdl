@@ -31,7 +31,7 @@ sync_circuit VectorMultiplyFixture(xlen :: XLen):
   input fp_return_tag: Bits(3)
   input fp_return_value: Bits(xlen.width)
   output fp_launch_tag: Bits(3)
-  input(slow, retry): Bool
+  input(slow, retry, packed_access): Bool
   inst decode(VectorTestDecoder(VectorProfile.V, DefaultVectorExtensions, ~uncared_ones: #true))
   inst vector(VectorExecution(xlen, vlen, Bits(xlen.width), ~packed_multiply: #true, ~multiply_latency: PipelinedMultiplierStages))
   inst multiply(PipelinedMultiplyService(xlen.width, VectorMultiplyTag(slots), ~scheduled_writeback: #true))
@@ -72,7 +72,7 @@ sync_circuit VectorMultiplyFixture(xlen :: XLen):
   vector.schedule_enable <== schedule_enable
   vector.scalar_writeback.ready <== Bool(#true)
   vector.floating_writeback.ready <== Bool(#true)
-  vector.packed_memory <== Bool(#false)
+  vector.packed_memory <== packed_access
   vector.memory_drained <== Bool(#true)
   vector.cancel.valid <== Bool(#false)
   def tokens = vector.issue |> to_valid() |> valid_pipe(3)
