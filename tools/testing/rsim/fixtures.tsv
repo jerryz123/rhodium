@@ -269,7 +269,9 @@ rv5stage-vector-muldiv	cores-vector-functional-1	cores/rv5stage/tests/rsim/emit-
 rv5stage-vector-reduction	cores-vector-functional-2	cores/common/vector/tests/rsim/emit-rv5stage-vector-reduction.rhm	program	cores/common/vector/tests/rsim/rv5stage-vector-reduction.cpp
 rv5stage-vector-mask-512	cores-vector-configurations	cores/common/vector/tests/rsim/emit-rv5stage-vector-mask-512.rhm	program	cores/common/vector/tests/rsim/rv5stage-vector-mask-512.cpp
 rv5stage-vector-packed	cores-vector-functional-2	cores/common/vector/tests/rsim/emit-rv5stage-vector-packed.rhm	program	cores/common/vector/tests/rsim/rv5stage-vector-packed.cpp	target	rheg/runtime/rheg.cc
-rv5stage-vector-overlap	cores-vector-functional-2	cores/common/vector/tests/rsim/emit-rv5stage-vector-overlap.rhm	program	cores/common/vector/tests/rsim/rv5stage-vector-overlap.cpp
+rv5stage-vector-overlap	cores-vector-functional-2	cores/common/vector/tests/rsim/emit-rv5stage-vector-overlap.rhm	rv64	cores/common/vector/tests/rsim/rv5stage-vector-overlap.cpp
+vector-masked-load-rv32	cores-vector-functional-2	cores/common/vector/tests/rsim/emit-rv5stage-vector-overlap.rhm	rv32	cores/common/vector/tests/rsim/masked-load.cpp
+vector-masked-load-rv64	cores-vector-functional-2	cores/common/vector/tests/rsim/emit-rv5stage-vector-overlap.rhm	rv64	cores/common/vector/tests/rsim/masked-load.cpp
 rv5stage-vector-admission	cores-vector-functional-2	cores/rv5stage/tests/rsim/emit-rv5stage-vector-admission.rhm	program	cores/rv5stage/tests/rsim/rv5stage-vector-admission.cpp	target
 vector-admission-one	cores-vector-functional-2	cores/common/vector/tests/rsim/emit-vector-admission.rhm	depth_one	cores/common/vector/tests/rsim/vector-admission.cpp
 vector-admission-two	cores-vector-functional-2	cores/common/vector/tests/rsim/emit-vector-admission.rhm	depth_two	cores/common/vector/tests/rsim/vector-admission.cpp

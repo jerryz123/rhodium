@@ -13,6 +13,7 @@ import:
   "../cosim-source.rhm".describe_cosim_signals
   lib("cores/common/vector-layout.rhm").vector_word_bytes
   lib("rhodium/std/bits.rhdl").Pow2Int
+  lib("rhodium/std/bits.rhdl").expand_mask
   "bundles.rhdl" open
   "geometry.rhdl".vector_packed_multiply
   "../simd-multiplier.rhdl" open
@@ -479,11 +480,17 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def Array(early_memory, checked_memory) = memory_route |> demux_flow(2, _result => !ex_pipe.egress.bits.precertified)
   def checked_beat = checked_memory.bits.beat
   def checkpoint = empty_compress_state(xlen, vlen, checked_beat.first)
+  def write_intent :: VectorRegisterWrite(xlen, vlen) = checked_beat.write
+  def checked_mask = expand_mask(write_intent.byte_enables().as_bits(), 8)
   when (checked_memory.valid):
     assert(checked_beat.compress_state.as_bits() === checkpoint.as_bits(), "vector_checked_memory_checkpoint_is_reconstructible")
+    assert(write_intent.mask === checked_mask, "vector_checked_memory_mask_is_byte_granular")
 
-  // Use only constants and the retained first element in both the pipe and FIFO.
-  checked_memory |> to_valid() |> map_valid(result => result.updated(~beat: result.beat.updated(~compress_state: checkpoint))) |> memory_pipe.ingress
+  // The LSU supplies load data at completion; stores carry their data on the issue token.
+  // Only the destination row and one enable per byte need storage along this path.
+  def checked_write = write_intent.updated(~data: Bits(xlen.width)(0), ~mask: checked_mask)
+  def checked_metadata = checked_beat.updated(~compress_state: checkpoint, ~write: checked_write)
+  checked_memory |> to_valid() |> map_valid(result => result.updated(~beat: checked_metadata)) |> memory_pipe.ingress
 
   // Faultable memory retains its result metadata until the LSU's decision.
   // Slot-bounded metadata follows the ordered authorization frontier, including

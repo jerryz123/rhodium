@@ -9,7 +9,7 @@ import:
   "../pipeline.rhdl" open
   "../bundles.rhdl" open
   "decode.rhdl" open
-  "../../../../riscv/isa/fp-profile.rhm" open
+  lib("cores/common/fp/profile.rhm").fp_transport_profile
   "../../../../riscv/isa/vector-profile.rhm" open
   "../../../../riscv/isa/xlen.rhm" open
   "../../../../riscv/rtl/vector.rhdl" open
@@ -17,28 +17,28 @@ import:
   lib("hardfloat/main.rhdl").RoundingMode
   lib("flow/main.rhdl") open
 
-sync_circuit VectorOverlap():
-  def xlen = XLen.X64
+sync_circuit VectorOverlap(xlen :: XLen):
+  def fp_profile = fp_transport_profile(xlen)
   def slots = 8
   input instruction: Bits(32)
-  input(vl, vtype, scalar, hit_data): Bits(64)
+  input(vl, vtype, scalar, hit_data): Bits(xlen.width)
   input(request_valid, packed_memory, retry, slow, cancel, issue_ready, decision_hold, fault): Bool
   interface response(Decoupled(VectorCompletion(xlen, slots)), ~role: consumer)
-  interface fp_request(Decoupled(FpExecutionRequest(xlen, FloatingPointProfile.D, Bits(3))), ~role: producer)
-  interface fp_result(Decoupled(FpExecutionResult(xlen, FloatingPointProfile.D, Bits(3))), ~role: consumer)
+  interface fp_request(Decoupled(FpExecutionRequest(xlen, fp_profile, Bits(3))), ~role: producer)
+  interface fp_result(Decoupled(FpExecutionResult(xlen, fp_profile, Bits(3))), ~role: consumer)
   interface scalar_result(Valid(RegisterFileWrite(xlen)), ~role: producer)
-  interface attempt(Valid(VectorToken(XLen.X64, Bits(64), slots)), ~role: producer)
-  interface resolution(Valid(VectorToken(XLen.X64, Bits(64), slots)), ~role: producer)
+  interface attempt(Valid(VectorToken(xlen, Bits(xlen.width), slots)), ~role: producer)
+  interface resolution(Valid(VectorToken(xlen, Bits(xlen.width), slots)), ~role: producer)
   output(request_ready, active, issued, issue_finished, sequencing_finished, retired): Bool
   inst decode(VectorTestDecoder())
-  inst vector(VectorExecution(xlen, 128, Bits(64), ~vector_completion_slots: slots))
+  inst vector(VectorExecution(xlen, 128, Bits(xlen.width), ~vector_completion_slots: slots))
   vector.schedule_enable <== issue_ready
   vector.scalar_writeback.ready <== Bool(#true)
   vector.floating_writeback.ready <== Bool(#true)
-  inst tokens(ValidPipe(VectorToken(XLen.X64, Bits(64), slots), 3, ~flushable: #true))
+  inst tokens(ValidPipe(VectorToken(xlen, Bits(xlen.width), slots), 3, ~flushable: #true))
   decode.instruction <== instruction
   vector.request.valid <== request_valid
-  vector.request.bits <== VectorInstruction(xlen, Bits(64)):
+  vector.request.bits <== VectorInstruction(xlen, Bits(xlen.width)):
     context: scalar
     descriptor:
       VectorDescriptor(xlen):
@@ -50,14 +50,14 @@ sync_circuit VectorOverlap():
           RiscvVectorState(xlen):
             vl: vl
             vtype: vtype
-            vstart: Bits(64)(0)
+            vstart: Bits(xlen.width)(0)
             vxrm: Bits(2)(0)
             vxsat: Bool(#false)
 
         control: decode.control
         scalar: scalar
-        floating_scalar: Bits(64)(0)
-        stride: Bits(64)(8)
+        floating_scalar: Bits(xlen.width)(0)
+        stride: Bits(xlen.width)(8)
         masked: !instruction[25].into(Bool)
         rounding_mode: RoundingMode.NearEven
         pointer_masking:
@@ -86,7 +86,7 @@ sync_circuit VectorOverlap():
       slow: slow & token.memory & token.enabled
       data: hit_data
       cause: dont_care(ExceptionCause)
-      fault_address: Bits(64)(0)
+      fault_address: Bits(xlen.width)(0)
   ) |> vector.decision
 
   response |> vector.completion

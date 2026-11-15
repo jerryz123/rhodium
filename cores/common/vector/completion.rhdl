@@ -113,11 +113,12 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
   def element_resolved = compute_maturity.valid ||| memory_accepted
   def resolution_tag = mux(compute_maturity.valid, compute_tag, memory_result.tag)
   def resolution_beat :: VectorResultBeat(xlen, vlen, VectorRegisterWrite(xlen, vlen)) = mux(compute_maturity.valid, compute_beat, memory_beat)
+  def write_intent :: VectorRegisterWrite(xlen, vlen) = resolution_beat.write
   def retained_write = VectorCompletionWrite(xlen, vlen):
-    address: resolution_beat.write.address
-    data: resolution_beat.write.data
-    bytes: vec(for List (byte in 0..vector_word_bytes(xlen)): resolution_beat.write.mask[byte * 8]).as_bits().into(Mask(vector_word_bytes(xlen)))
-    bit_enabled: resolution_beat.write.mask.any()
+    address: write_intent.address
+    data: write_intent.data
+    bytes: write_intent.byte_enables()
+    bit_enabled: write_intent.mask.any()
 
   def retain_result = element_resolved & (resolution_beat.memory ||| resolution_beat.fp_execute ||| resolution_beat.multiply_divide)
   when retain_result:

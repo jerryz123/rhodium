@@ -16,6 +16,10 @@ bundle VectorRegisterWrite(xlen :: XLen, vlen :: VectorLength):
   data: Bits(xlen.width)
   mask: Bits(xlen.width)
 
+  /* Samples the low bit of each byte; this is lossless only for whole-byte enables. */
+  method byte_enables(write) :: Mask(vector_word_bytes(xlen)):
+    vec(for List (byte in 0..vector_word_bytes(xlen)): write.mask[byte * 8]).into(Mask(vector_word_bytes(xlen)))
+
 /* Provides three one-cycle general reads, one mask-shadow read, and one bit-masked write.
    Read-edge forwarding snapshots merged data; writes update general v0 and its shadow
    atomically. */

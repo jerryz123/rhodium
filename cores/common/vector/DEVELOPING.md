@@ -45,7 +45,11 @@ slot-bounded metadata FIFO pairs in-order LSU decisions with the authorized
 frontier; retry flushes only the unaccepted suffix. At checked-memory ingress,
 assert that the compression suffix is empty and its destination is the beat's
 first element. Use those values through the pipe and FIFO; only compute beats
-need an independent compression checkpoint. Detect a misaligned element
+need an independent compression checkpoint. The checked beat retains the VRF
+row and one enable per destination byte, not result data: hits use decision
+data, delayed loads use tagged response data, and store data travels on the
+issue token. Assert that the byte enables expand to the original write mask;
+compute writes can still select individual bits. Detect a misaligned element
 when its registered index/operands return, suppress that cycle's younger read,
 and retain a split barrier until that element's tagged decision. An older
 authorization must not release the barrier. Fault-only-first slot exclusivity
@@ -261,6 +265,9 @@ The overlap fixture covers persistent response ownership across sequencer
 replacement, consecutive faultable indexed stores, middle-element retry/fault
 with delayed accepted responses, partial-word compression after a middle-beat
 retry, and split authorization/retry/fault behind an accepted prefix.
+The `vector-masked-load-rv32` and `vector-masked-load-rv64` fixtures retry
+an enabled byte, complete a younger byte first, then read back the whole row
+to check that the delayed write preserves its neighbors.
 The RV2Wide memory adapter fixtures also check consecutive
 precise commits and younger-attempt suppression on retry/fault. Packed and RV32
 fixtures cover transport and row geometry. The `vector-memory-element-step-rv32`

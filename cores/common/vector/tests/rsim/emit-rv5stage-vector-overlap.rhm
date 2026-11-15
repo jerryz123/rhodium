@@ -3,7 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../vector-overlap-fixture.rhdl" open
+  lib("riscv/isa/xlen.rhm").XLen
   lib("rhodium/frontend/foundation.rhm").elaborate
 
-def program = elaborate(VectorOverlap())
-export program
+def rv32 = elaborate(VectorOverlap(XLen.X32))
+def rv64 = elaborate(VectorOverlap(XLen.X64))
+export rv32 rv64
