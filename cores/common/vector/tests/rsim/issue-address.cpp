@@ -134,4 +134,38 @@ void run_chain() {
   CHECK(!active);
 }
 
-int main() { return run_test(run_chain); }
+void reject_wrong_sequence() {
+  const Macro op{false, false, 0x240, start + 5};
+  op.offer();
+  eval();
+  CHECK(request_out.pready);
+  tick_model();
+  request_in = {};
+  sequence_request_in.pready = 1;
+  for (unsigned n = 0; n < start; ++n) tick_model();
+
+  auto prefix = op.check_beat(0);
+  tick_model();
+  feedback_in.pvalid = 1;
+  feedback_in.pbits = prefix;
+  auto oldest = op.check_beat(1);
+  tick_model(); // Authorize beat 0 while issuing beat 1.
+  feedback_in = {};
+  auto younger = op.check_beat(2);
+  tick_model();
+
+  // All metadata describes the real oldest beat, except for its sequence.
+  sequence_request_in.pready = 0;
+  feedback_in.pvalid = 1;
+  feedback_in.pbits = oldest;
+  feedback_in.pbits.pdisposition = 1; // Retry
+  feedback_in.pbits.psequence = younger.psequence;
+  expect_failure("vector_feedback_is_oldest_unauthorized_operation", [] { tick_model(); });
+}
+
+int main() {
+  return run_test([] {
+    run_chain();
+    reject_wrong_sequence();
+  });
+}

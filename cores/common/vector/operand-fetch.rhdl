@@ -301,11 +301,7 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
     fp_rounding_mode: descriptor.rounding_mode
     control: descriptor.control
     destination: beat_control.destination
-    compress_state:
-      VectorCompressState(xlen, vlen):
-        data: Bits(xlen.width)(0)
-        count: Bits(vector_lane_count_width(xlen))(0)
-        destination: beat_control.first
+    compress_state: empty_compress_state(xlen, vlen, beat_control.first)
 
 
   /* Compression lane selection

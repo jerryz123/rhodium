@@ -22,6 +22,9 @@ port counts and scalar scheduling.
 Keep instruction IDs, completion slots, and the sequencer cursor distinct.
 Return routing uses retained slot ownership, never the live descriptor. A retry
 restores the unauthorized checkpoint without deleting accepted memory ownership.
+Both modes restart numbering from the rejected beat's feedback. The sequencer
+independently counts authorizations to assert that feedback names the oldest
+unauthorized beat.
 Packed and ordinary modes share the issue cursor's address. Packed mode starts
 at the aligned transport word containing `vstart`; ordinary mode starts at the
 scalar base and steps to `vstart` for non-indexed transfers. Keep the ordinary
@@ -39,7 +42,10 @@ the dependent VS2 read; only a stalled beat needs the saved index and range flag
 
 Aligned faultable memory beats may sequence on consecutive cycles. Their
 slot-bounded metadata FIFO pairs in-order LSU decisions with the authorized
-frontier; retry flushes only the unaccepted suffix. Detect a misaligned element
+frontier; retry flushes only the unaccepted suffix. At checked-memory ingress,
+assert that the compression suffix is empty and its destination is the beat's
+first element. Use those values through the pipe and FIFO; only compute beats
+need an independent compression checkpoint. Detect a misaligned element
 when its registered index/operands return, suppress that cycle's younger read,
 and retain a split barrier until that element's tagged decision. An older
 authorization must not release the barrier. Fault-only-first slot exclusivity
@@ -253,8 +259,9 @@ moon run rhodium:check-boundaries
 
 The overlap fixture covers persistent response ownership across sequencer
 replacement, consecutive faultable indexed stores, middle-element retry/fault
-with delayed accepted responses, and split authorization/retry/fault behind an
-accepted prefix. The RV2Wide memory adapter fixtures also check consecutive
+with delayed accepted responses, partial-word compression after a middle-beat
+retry, and split authorization/retry/fault behind an accepted prefix.
+The RV2Wide memory adapter fixtures also check consecutive
 precise commits and younger-attempt suppression on retry/fault. Packed and RV32
 fixtures cover transport and row geometry. The `vector-memory-element-step-rv32`
 and `vector-memory-element-step-rv64` fixtures check the issue and retry addresses

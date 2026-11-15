@@ -932,6 +932,19 @@ void stimulus() {
       tick();
       reset = 0;
       phase = 0;
+      if (rejected) {
+        slow = 0;
+        vl = 2;
+        vtype = 24; // e64, m1: load v5's mask and seed both words of v24.
+        launch(load_insn(5), 0x218, 0); // First mask word = 0x1218.
+        drain();
+        launch(UINT32_C(0x5e003057) | (31u << 15) | (24u << 7), 0, 0); // vmv.v.i v24,-1
+        drain();
+        vl = 16;
+        vtype = 0;
+        launch(index_insn(16), 0, 0); // vid.v v16: source bytes 0..15.
+        drain();
+      }
       vl = 4;
       vtype = 25; // e64, m2: four rows, indices in v2/v3.
       slow = 0;
@@ -963,6 +976,24 @@ void stimulus() {
       for (int i = 0; i < 4; ++i)
         CHECK(checked_addresses[i] == UINT64_C(4352) + 8 * i);
       retry_middle = consecutive_checked = false;
+      if (rejected) {
+        // No reset or intervening instruction: carry bytes 3,4 from the first
+        // source word into a partial destination word completed by bytes 9,12.
+        phase = 0;
+        slow = 0;
+        vl = 16;
+        vtype = 0;
+        launch((23u << 26) | (1u << 25) | (16u << 20) | (5u << 15) |
+                   (2u << 12) | (24u << 7) | 0x57, 0, 0); // vcompress.vm v24,v16,v5
+        drain();
+        vl = 2;
+        vtype = 24;
+        store_count = 0;
+        launch(store_insn(24), 1024, 0);
+        drain();
+        CHECK(store_count == 2 && stores[0] == UINT64_C(0xffffffff0c090403) &&
+              stores[1] == UINT64_MAX);
+      }
     }
 
     // A fault in the middle discards already-issued younger attempts, but not
@@ -971,6 +1002,8 @@ void stimulus() {
     tick();
     reset = 0;
     phase = 0;
+    vl = 4;
+    vtype = 25; // e64, m2: four indexed stores.
     slow = 0;
     store_count = 0;
     launch(load_insn(2), 0, 0);

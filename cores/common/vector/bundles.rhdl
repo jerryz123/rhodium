@@ -92,6 +92,13 @@ bundle VectorCompressState(xlen :: XLen, vlen :: VectorLength):
   count: Bits(vector_lane_count_width(xlen))
   destination: Bits(index_width(vlen + 1))
 
+/* Non-compressing beats have no buffered suffix and start at their first element. */
+fun empty_compress_state(xlen :: XLen, vlen :: VectorLength, first :: Bits(index_width(vlen + 1))) :: VectorCompressState(xlen, vlen):
+  VectorCompressState(xlen, vlen):
+    data: Bits(xlen.width)(0)
+    count: Bits(vector_lane_count_width(xlen))(0)
+    destination: first
+
 /* Carries memory-attempt context and completion identity without retaining SIMD operands. */
 bundle VectorToken(xlen :: XLen, Context :: DataType, vector_completion_slots :: Pow2Int):
   precertified: Bool
@@ -318,6 +325,7 @@ export:
   VectorDescriptor
   VectorInstruction
   VectorCompressState
+  empty_compress_state
   VectorToken
   VectorBeat
   VectorMicroOp

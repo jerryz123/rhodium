@@ -477,7 +477,14 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def compute_beat = compute_result.beat
   def compute_owner = compute_result.owner
   def Array(early_memory, checked_memory) = memory_route |> demux_flow(2, _result => !ex_pipe.egress.bits.precertified)
-  checked_memory |> to_valid() |> memory_pipe.ingress
+  def checked_beat = checked_memory.bits.beat
+  def checkpoint = empty_compress_state(xlen, vlen, checked_beat.first)
+  when (checked_memory.valid):
+    assert(checked_beat.compress_state.as_bits() === checkpoint.as_bits(), "vector_checked_memory_checkpoint_is_reconstructible")
+
+  // Use only constants and the retained first element in both the pipe and FIFO.
+  checked_memory |> to_valid() |> map_valid(result => result.updated(~beat: result.beat.updated(~compress_state: checkpoint))) |> memory_pipe.ingress
+
   // Faultable memory retains its result metadata until the LSU's decision.
   // Slot-bounded metadata follows the ordered authorization frontier, including
   // a split access delayed behind older aligned attempts. Replay drops only

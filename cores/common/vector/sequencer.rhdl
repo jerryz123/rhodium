@@ -68,6 +68,7 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
   reg minimum(Count)
   reg authorized(Count)
   reg authorized_field(Bits(3))
+  // Independent order check for feedback; not a source of replay state.
   reg authorized_sequence(Sequence)
   reg authorized_memory_element_address(~init: Bits(xlen.width)(0))
   reg memory_setup_remaining(~init: Bits(index_width(vlen + 1))(0))
@@ -431,7 +432,7 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
 
     cursor <== restart_cursor
     field <== authorized_field
-    sequence <== mux(packed_mode, feedback.bits.sequence, authorized_sequence)
+    sequence <== feedback.bits.sequence
     minimum <== authorized
     memory_setup_remaining <== Bits(index_width(vlen + 1))(0)
     all_issued <== compress & (authorized === limit)
