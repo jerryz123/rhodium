@@ -206,7 +206,12 @@ sync_circuit VectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen = XLen.X6
   issued <== issue_path.fire()
   sequenced <== sequencer.sequence_request.fire()
   sequence_address <== sequencer.sequence_request.bits.context.beat_control.address
-  def offered_cursor = sequencer.sequence_request.bits.context.packed_layout.before
+  def offered_layout = sequencer.sequence_request.bits.context.packed_layout
+  def offered_cursor = offered_layout.before
+  when (sequencer.sequence_request.valid):
+    def expected_address = offered_cursor.address + Bits(xlen.width)(xlen.width / 8)
+    assert(offered_layout.after.address === expected_address, "packed_next_address_is_one_word_ahead")
+
   reg stalled(~init: Bool(#false))
   reg stalled_cursor(VectorPackedCursor(xlen, vlen))
   stalled <== sequencer.sequence_request.valid & !sequencer.sequence_request.ready & !sequencer.read_flush

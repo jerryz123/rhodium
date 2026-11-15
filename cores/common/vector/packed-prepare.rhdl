@@ -146,9 +146,10 @@ sync_circuit VectorPackedPrepare(xlen :: XLen, vlen :: VectorLength, Context :: 
   def fast_load = !store & !masked
   def direct_store = store & !masked & !segmented
   def offered_layout = mux(fast_load ||| direct_store, mapped, layout)
-  // The sequencer holds cursor through stalls. The issued layout, not preparation
-  // scratch, keeps this beat's starting position for retry after the cursor advances.
-  candidate <== offered_layout.updated(~before: cursor)
+  // The sequencer holds cursor through stalls, so the mapper's next address stays valid.
+  // Keep the prepared element/field/byte progress and the issued beat's starting checkpoint.
+  def next_cursor = offered_layout.after.updated(~address: mapped.after.address)
+  candidate <== offered_layout.updated(~before: cursor, ~after: next_cursor)
   candidate_mask <== mux(fast_load ||| direct_store, mapped.live, byte_mask)
   candidate_data <== store_data
   fast_store <== direct_store
