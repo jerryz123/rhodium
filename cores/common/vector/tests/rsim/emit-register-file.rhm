@@ -1,0 +1,10 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../register-file.rhdl" open
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("rhodium/frontend/foundation.rhm").elaborate
+
+def rv32 = elaborate(VectorRegisterFile(XLen.X32, 128))
+def rv64 = elaborate(VectorRegisterFile(XLen.X64, 128))
+export rv32 rv64

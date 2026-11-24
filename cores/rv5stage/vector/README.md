@@ -148,7 +148,7 @@ standalone vector pipelines default to the XLEN-appropriate IMAFDCV instruction 
 
 [`RV5StageVectorPipeline`](../vector.rhdl) contains the sequencer, a separate
 synchronous operand-fetch stage, a vector bank with three general read ports
-and a dedicated `v0` mask shadow, packed SIMD execution, and private
+and a dedicated `v0` mask read port, packed SIMD execution, and private
 feed-forward operand/result registers.
 Its `request` accepts a legal macro snapshot only at nonspeculative WB. The
 sequencer drives either the local SIMD/shared-service path or its own memory
@@ -305,7 +305,7 @@ launch normally.
 [`VectorOperandFetch`](../../common/vector/operand-fetch.rhdl) owns three synchronous
 general VRF reads supplying `vs2` (or store `vs3`), `vs1`, and
 the old destination for multiply-accumulate operations; a dedicated `v0`
-shadow supplies predication concurrently. The sequencer accepts a read only
+read port supplies predication concurrently. The sequencer accepts a read only
 after its completion slot, execution path, and future fixed write cycle are
 available. The synchronous read response reaches execution at a fixed offset;
 there is no post-read operand queue. Gather performs a scheduled dependent
@@ -384,11 +384,11 @@ through one named vector register. Their effective length is `ceil(vl/8)`, and
 `vstart` is a byte cursor. They require a legal `vtype` because their length
 depends on `vl`, but ignore SEW and LMUL for register geometry. Loads write each
 complete transferred byte through the ordinary bit-enabled VRF port; a load to
-`v0` updates its dedicated mask shadow atomically. Retry, precise faults,
+`v0` is visible through both general and dedicated mask reads. Retry, precise faults,
 ordering, completion slots, and successful `vstart` clearing remain the same as
 ordinary unit-stride memory.
 
-The `vadc`/`vsbc` forms consume the `v0` shadow as one carry/borrow bit per
+The `vadc`/`vsbc` forms consume `v0` as one carry/borrow bit per
 element and execute every body element; `v0` is data, not predication. `vmadc`
 and `vmsbc` pack carry/borrow results into a mask destination and support both
 carry-input and no-carry forms. The fixed carry-input data-result encodings
@@ -491,7 +491,7 @@ on a legal `vtype`; `vstart` identifies the first SEW-wide element to copy.
 Decode rejects misaligned or wrapping source and destination groups. Equal
 source and destination groups are a legal no-op. The sequencer naturally crosses
 VRF row and register boundaries, preserves the pre-`vstart` prefix, and keeps
-the ordinary result-maturity, cancellation, and `v0`-shadow rules.
+the ordinary result-maturity, cancellation, and `v0` read/write rules.
 
 `vmandn.mm`, `vmand.mm`, `vmor.mm`, `vmxor.mm`, `vmorn.mm`, `vmnand.mm`,
 `vmnor.mm`, and `vmxnor.mm` operate on packed one-bit elements. Each operand
@@ -588,7 +588,7 @@ inactive, and tail elements are preserved; an empty body performs no write.
 These rules follow the [RVV slide specification](https://github.com/riscv/riscv-v-spec/blob/master/v-spec.adoc#vector-slide-instructions).
 
 Slides read two adjacent source chunks through general ports while the `v0`
-shadow supplies predication. Byte muxes form one input for the SIMD ALU's
+read port supplies predication. Byte muxes form one input for the SIMD ALU's
 existing XLEN-bit rotate slot; no separate slide barrel shifter or full-vector
 crossbar is instantiated.
 The rotation operates at the full physical word width while write enables retain architectural SEW.
@@ -613,7 +613,7 @@ alignment are checked independently, even for an empty body. Predication,
 nonzero vstart, and inactive/tail preservation follow ordinary integer writes.
 
 Vector-index gathers use two dependent synchronous general reads: index, then
-the addressed data word; the `v0` shadow supplies predication alongside them.
+the addressed data word; the `v0` read port supplies predication alongside them.
 The bank supplies one element every
 two cycles in an unstalled stream after setup. Scalar/immediate forms read
 their selected source word for each destination chunk and broadcast packed
@@ -734,7 +734,7 @@ does not provide 128-bit elements.
 
 The sequencer reads one element from each vector source through general ports;
 fused operations additionally read old `vd`, while square root and `.vf` leave
-`vs1` free. The dedicated `v0` shadow supplies predication. A `.vf` instruction
+`vs1` free. The dedicated `v0` read port supplies predication. A `.vf` instruction
 waits for its scalar FPR producer in Decode and snapshots the forwarded
 architectural value at nonspeculative WB launch. That snapshot is broadcast to
 each element; invalid SEW32 NaN boxes become canonical NaNs at the shared scalar
@@ -862,23 +862,23 @@ store's ordered LSU drain. Interrupt entry waits for vector completion.
 `32 * VLEN / XLEN` general entries of `Bits(XLEN)`, with no reset value. VLEN is a host
 power of two from twice XLEN through 65536 bits. The flat address is
 `register_number * (VLEN / XLEN) + chunk_number`; chunk zero holds the lowest bits.
-`v0` is writable, not a hardwired zero register. A physical shadow of its
-`VLEN / XLEN` chunks supplies the dedicated mask-read port; it is not separate
-architectural state.
+`v0` is writable, not a hardwired zero register. Its `VLEN / XLEN` chunks
+supply the dedicated mask-read port directly from the same storage as the
+general ports, without a replica or read arbitration.
 
 - Three independent `Valid(Address)` reads return `Valid(Bits(XLEN))` exactly one
   cycle later for arbitrary vector rows.
-- One independent `Valid(MaskAddress)` read addresses a chunk within the `v0`
-  shadow and returns `Valid(Bits(XLEN))` exactly one cycle later. It cannot name
+- One independent `Valid(MaskAddress)` read addresses a chunk within `v0`
+  and returns `Valid(Bits(XLEN))` exactly one cycle later. It cannot name
   another vector register. There is no read backpressure; the caller must have
   space for every requested result.
 - One `Valid(VectorRegisterWrite(xlen, vlen))` write carries an address, XLEN-bit data,
   and **XLEN individual bit enables**. Ordinary byte enables are expanded by the
   result adapter. Mask results update individual bits through the same port.
-  Writes to `v0` update its general row and shadow atomically.
+  Writes to `v0` are visible through all four read ports.
 - A read and write sampled at the same edge return the post-write value:
   enabled bits forward new data, disabled bits retain their prior values. This
-  applies identically to general and mask-shadow reads. Later writes cannot
+  applies identically to general and mask reads. Later writes cannot
   change an already captured read response.
 - Synchronous reset clears response validity and suppresses writes. It does
   not initialize or erase architectural storage.
@@ -889,7 +889,7 @@ masked-write semantics without depending on an unspecified SRAM collision mode.
 
 ## Packing boundary
 
-`VectorOperands(xlen, vlen)` takes two source chunks, one `v0` shadow chunk, a
+`VectorOperands(xlen, vlen)` takes two source chunks, one `v0` mask chunk, a
 scalar, a six-bit immediate container, and `VectorPackingControl(vlen)`. It
 emits SIMD operands, element enables, and the first output element. Two-source
 operations therefore leave the third general read port free, and masked

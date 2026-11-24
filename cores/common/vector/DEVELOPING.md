@@ -129,7 +129,7 @@ new payload buffers or instruction-ID reconstruction.
 | `sequencer.rhdl`, `operand-fetch.rhdl` | Single descriptor cursor/checkpoint and fixed-latency operand capture |
 | `instructions.rhdl`, `dependencies.rhdl` | Persistent instruction owners and register-row hazards |
 | `completion.rhdl`, `slots.rhdl` | Result writeback, accepted ownership, and ordered metadata reclamation |
-| `register-file.rhdl`, `packing.rhdl`, `mask.rhdl`, `execute.rhdl` | VRF/mask shadow and packed SIMD operand/result shaping |
+| `register-file.rhdl`, `packing.rhdl`, `mask.rhdl`, `execute.rhdl` | VRF with dedicated v0 read and packed SIMD operand/result shaping |
 | `packed-prepare.rhdl`, `packed-load.rhdl`, `splat-load.rhdl`, `load-response.rhdl` | Packed and splat transport preparation, response assembly, and retained carry |
 | `geometry.rhdl`, `precheck.rhdl` | Scheduling geometry and conservative certification footprints; captured-descriptor queries live on `VectorDescriptor` in `bundles.rhdl` |
 | `backend.rhdl` | Common admission/execution composition, service forwarding, and precise fault transport; no named LSU protocol |
@@ -277,6 +277,14 @@ The generic host clock/response scoreboard helper lives in
 `../tests/rsim/driver.hpp`; named-core memory encodings remain with their caller.
 
 ## Validation
+
+For VRF storage or forwarding changes, run `vector-register-file-rv32` and
+`vector-register-file-rv64`. Their independent word-array oracle covers all
+four simultaneous reads, independent valids, partial-write forwarding, v0
+versus same-chunk aliases in other registers, immutable read snapshots, and reset.
+Run `rv5stage-vector` for VLEN128/256/512 packing and in-place writes, plus
+`vector-masked-load-rv32`, `vector-masked-load-rv64`, and
+`rv5stage-vector-overlap` for production execution and delayed completion.
 
 For extraction or service-boundary changes, run the existing focused fixtures:
 

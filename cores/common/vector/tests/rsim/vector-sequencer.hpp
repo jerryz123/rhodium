@@ -924,7 +924,7 @@ int main() {
       run_macro(sew, 0, 0, 7, 31, 2, 0, 5, 7, 0);
     }
     // Whole-register moves ignore vl and LMUL, copy NREG complete registers,
-    // honor SEW-granular vstart, and naturally update the dedicated v0 shadow.
+    // honor SEW-granular vstart, and naturally update v0 for its dedicated reader.
     for (int sew = 0; sew < SEW_LOG + 1; sew++) {
       for (int registers = 1; registers <= 8; registers *= 2) {
         int effective, lanes;

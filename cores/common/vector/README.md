@@ -87,8 +87,9 @@ fixed-latency write reservation are available together. It releases an instructi
 after its sequencing obligation ends; accepted results may remain outstanding.
 Instruction owners and completion slots preserve identity across successor
 admission. Source/destination row dependencies prevent RAW and WAW violations.
-The VRF has three general read ports, one write port, and a separate `v0` mask
-shadow updated by the same writes.
+The VRF has three general read ports, one write port, and a dedicated `v0` mask
+read port. All four reads use the same storage with one-cycle latency and
+same-edge bit-masked write forwarding; mask reads never contend with general reads.
 
 Compute and certified-memory beats may overlap older delayed results. Faultable
 memory retains an ordered authorization checkpoint while aligned elements
@@ -188,7 +189,7 @@ issue one packed destination beat per cycle when row dependencies, completion
 slots, and write reservations permit. Widening issues two half-source beats per
 source row, each producing one destination row. Masking, partial VL, and vstart
 qualify destination bytes and saturation; inactive bytes remain undisturbed.
-The third VRF port supplies old vd for MACs, while the separate v0 shadow
+The third VRF port supplies old vd for MACs, while the dedicated v0 read port
 supplies predication. Full-width fallback and packed multiplication can overlap.
 
 The read scheduler reserves the sole VRF port six cycles ahead: one operand-read

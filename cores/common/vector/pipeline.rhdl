@@ -754,7 +754,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
 
 
   /* Passive architectural observation
-     Expose the physical VRF write, not the mask shadow's duplicate storage update. */
+     Expose the single physical VRF write, including writes to v0. */
 
   describe_cosim_signals({
     "admitted": request.fire(),

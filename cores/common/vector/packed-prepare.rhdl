@@ -152,7 +152,7 @@ sync_circuit VectorPackedPrepare(xlen :: XLen, vlen :: VectorLength, Context :: 
   sources_ready <== !vec(for List (lane in 0..bytes): layout.live[lane].into(Bool) & blocked_rows[layout.rows[lane]]).as_bits().any()
 
 
-  /* The mask shadow remains independent of the three general VRF read ports. */
+  /* The dedicated mask read remains independent of the three general VRF read ports. */
 
   def start_mask = layout.elements[0] >> vector_bit_offset_width(xlen)
   def end_mask = layout.elements[bytes - 1] >> vector_bit_offset_width(xlen)

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "../../../tests/rsim/driver.hpp"
 
-// Differentially checks vector storage, v0 mask-shadow reads, forwarding, packing, and SIMD writes.
+// Differentially checks vector storage, dedicated v0 reads, forwarding, packing, and SIMD writes.
 
 std::uint64_t memory[256];
 std::uint64_t pending_data, pending_mask;
@@ -230,8 +230,8 @@ void stimulus() {
         mask_read_address = ((address % chunks) & low_mask(16));
         step();
       }
-      // All general ports and the mask shadow collide with v0 masked writes;
-      // disjoint updates accumulate and forward through both physical copies.
+      // All general ports and the dedicated mask port collide with v0 writes;
+      // disjoint updates accumulate and forward to every simultaneous reader.
       read_a = 0;
       read_b = 0;
       read_c = 0;

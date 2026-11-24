@@ -263,6 +263,8 @@ rv2wide-mmu-host-fault	cores-components	cores/superscalar/tests/rsim/emit-rv2wid
 rv2wide-bare-memory	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-mmu.rhm	bare_program	cores/superscalar/tests/rsim/rv2wide-bare-memory.cpp
 rv5stage-chi-requests	cores-memory	cores/rv5stage/tests/rsim/emit-rv5stage-chi-requests.rhm	program	cores/rv5stage/tests/rsim/rv5stage-chi-requests.cpp
 rv5stage-vector	cores-vector-functional-1	cores/common/vector/tests/rsim/emit-rv5stage-vector.rhm	program	cores/common/vector/tests/rsim/rv5stage-vector.cpp
+vector-register-file-rv32	cores-vector-functional-1	cores/common/vector/tests/rsim/emit-register-file.rhm	rv32	cores/common/vector/tests/rsim/register-file.cpp
+vector-register-file-rv64	cores-vector-functional-1	cores/common/vector/tests/rsim/emit-register-file.rhm	rv64	cores/common/vector/tests/rsim/register-file.cpp
 rv5stage-vector-control	cores-vector-functional-1	cores/rv5stage/tests/rsim/emit-rv5stage-vector-control.rhm	program	cores/rv5stage/tests/rsim/rv5stage-vector-control.cpp
 rv5stage-vector-fp	cores-vector-functional-1	cores/rv5stage/tests/rsim/emit-rv5stage-vector-fp.rhm	program	cores/rv5stage/tests/rsim/rv5stage-vector-fp.cpp	target
 rv5stage-vector-muldiv	cores-vector-functional-1	cores/rv5stage/tests/rsim/emit-rv5stage-vector-muldiv.rhm	program	cores/rv5stage/tests/rsim/rv5stage-vector-muldiv.cpp

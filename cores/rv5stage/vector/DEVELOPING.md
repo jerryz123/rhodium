@@ -45,8 +45,7 @@ FP memory round-trips, and ordered reduction through the shared F service.
 The optional compile-target cosim observer follows WB admission through the
 descriptor FIFO to the execution instruction ID. Passive metadata in the parent
 and `../../common/vector/pipeline.rhdl` exports the actual VRF port, its completion owner, and ordered
-instruction drain. Do not use sequencer release to seal a record or count the v0
-shadow as another architectural write. Packed-load metadata selects the
+instruction drain. Do not use sequencer release to seal a record. Packed-load metadata selects the
 returned slot's owner for a direct full-row write, the current head owner for an
 assembled row, or the retained carry owner for a partial row.
 The native RV5Stage adapter retains memory tokens, explicit sequencer element/field identities,
@@ -535,8 +534,8 @@ execution. The parent pipeline reserves completion slots for both memory and
 FP. Dynamic FP rounding is part of each admitted descriptor and issued beat;
 the engine queues operands directly from the private execute stage.
 Fused operations reuse the third general VRF read for old `vd`; comparisons
-retain a mask-destination bit beside their completion slot and write the shared
-`v0` shadow through the sole scheduled VRF write port. Vector-scalar FP checks the
+retain a mask-destination bit beside their completion slot and write the selected
+mask register through the sole scheduled VRF write port. Vector-scalar FP checks the
 FPR scoreboard in Decode, selects the scalar source on the FP adapter's first
 read port at WB launch, and retains the forwarded XLEN-bit value in the admitted
 descriptor. It must not consume a general VRF read port. Do not add vector-only
@@ -660,8 +659,8 @@ Mask-register transfers also remain a distinct memory mode. Iterate
 keep their geometry independent of SEW/LMUL while still rejecting `vill`.
 Reuse singleton E8 address, extraction, completion, and restart machinery; do
 not expand the transfer into one LSU operation per mask bit. Loads into `v0`
-must pass through the sole bit-enabled write port so the general row and mask
-shadow stay atomic.
+must pass through the sole bit-enabled write port so all readers observe the
+same masked update.
 
 Slot selection is the persistent allocation frontier modulo the configured depth. Depth one
 must explicitly produce zero and hold the drain head at zero; `index_width(1)`
@@ -669,14 +668,15 @@ still represents a one-bit hardware value. Keep the count on public token,
 completion, and data-protocol types, not just on the private register arrays.
 
 `../../common/vector/register-file.rhdl` stores a flat `Vec(32 * VLEN / XLEN, Bits(XLEN))` behind three
-general read ports and mirrors the `VLEN / XLEN` physical chunks of `v0` into a
-dedicated address-only mask shadow. Both paths use Flow
+general read ports and an independent mask port restricted to the `VLEN / XLEN`
+chunks of `v0`. Zero-extend the mask address into the general bank; do not
+arbitrate reads or duplicate the data. All four ports use Flow
 `map_valid`/`valid_pipe` to snapshot each read. Forward the bit-merged value at
 the read edge, not a live write mux after the response register. Otherwise a
 later completion could alter a prior read or create an in-place ALU loop. The
-sole write port updates general `v0` storage and its shadow atomically using the
-same bit mask. It uses row-local masked hold feedback, never a destination
-snapshot captured by an earlier micro-op or an indexed read port for merging.
+sole write port updates each row using its bit mask, including v0. It uses
+row-local masked hold feedback, never a destination snapshot captured by an
+earlier micro-op or an indexed read port for merging.
 
 Element moves use a one-token schedule independent of VL; insertion separately
 checks its architectural empty-body condition. Reduction rows use singleton
@@ -833,7 +833,7 @@ The direct SIMD fixture checks the word compactor against an independent lane
 oracle. The sequencer fixtures cover every SEW/LMUL geometry, sparse/dense/empty
 masks, full and partial final chunks, stalls, cancellation, and retained
 checkpoints. The production reduction fixtures initialize and read back the
-vector bank through public LSU traffic and exercise the `v0` shadow through
+vector bank through public LSU traffic and exercise the dedicated `v0` read through
 predication, while the full-core muldiv fixture checks decode, locally accepted
 writes, tail preservation, squash, and illegal vstart.
 Run the RV32/RV64 control fixtures whenever compression legality changes.
@@ -884,14 +884,14 @@ logic network and writes its packed data directly instead of comparison bits.
 The single-register legality rule belongs in decode, not generic VRF geometry.
 Do not make memory/FP scheduling depend on integer-only don't-care controls.
 
-Carry/borrow operations also consume the dedicated `v0` shadow as data. Their
+Carry/borrow operations also consume the dedicated `v0` read as data. Their
 beat enables cover the complete body instead of applying predication, and the
 SIMD guard-bit adder injects the selected `v0` bit independently at each element
 boundary. Keep the architectural carry/borrow bit in `VectorBeat`, not
 as hidden ALU state. `vmadc`/`vmsbc` select the ALU mask result and use ordinary
 mask write packing; `vadc`/`vsbc` select packed data. Decode must reject fixed
 carry-input data results that target `v0` and SEW-wide sources that also name
-`v0`. Retry rereads the retained macro's shadow data with the restarted beat.
+`v0`. Retry rereads the retained macro's mask data with the restarted beat.
 
 The RV32/RV64 sequencer fixtures cover all fourteen move/merge/mask encodings,
 legal SEW/LMUL combinations, single-register mask addressing, overlaps, partial
@@ -942,7 +942,7 @@ mask writes, in-place operations, randomized read-admission stalls, result matur
 and cancellation.
 Whole-register move coverage must include every NREG and SEW, independence from
 `vl` and LMUL, nonzero `vstart`, register-boundary crossing, equal source and
-destination groups, cancellation, and writes to the `v0` shadow.
+destination groups, cancellation, and writes to `v0`.
 The production reduction fixture uses guaranteed-overflow clips to prove that
 mature beats pulse saturation once, and cancellation exposes only its
 already-written prefix.
@@ -952,7 +952,7 @@ Changes to shared CSR payloads also require `riscv-csr` and the RV32/RV64
 For vector memory, run `rv5stage-vector-memory` through the shared real
 core/MMU/router/L1D fixture, plus `rv5stage-vector-config` for packed integer
 regression. The memory bench covers all four EEWs, an EEW/SEW mismatch,
-mask-register byte-count boundaries and `v0` shadow use,
+mask-register byte-count boundaries and dedicated `v0` reads,
 whole-register transfer across a register boundary with `vl` independence and
 an Sv39 fault repaired and restarted at the next register,
 positive/negative/zero stride, indexed and three-field unit-stride,
