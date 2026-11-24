@@ -1,0 +1,10 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../packed-load.rhdl" open
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("rhodium/frontend/foundation.rhm").elaborate
+
+def rv32 = elaborate(VectorPackedLoad(XLen.X32, 128, 4, 2))
+def rv64 = elaborate(VectorPackedLoad(XLen.X64, 128, 4, 2))
+export rv32 rv64

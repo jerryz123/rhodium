@@ -119,6 +119,13 @@ edge; flushing or writing an older row must not attribute its data to the live
 piece. Keep these intrinsic contracts beside the functional controls, without
 new payload buffers or instruction-ID reconstruction.
 
+Packed-load carry retains one mask bit per byte alongside its row and word.
+Reconstruct the existing bit-mask view for row assembly and VRF writes, and
+assert that both merged and split-suffix masks are byte-granular before capture.
+The general VRF write contract still supports individual mask bits. Owner closure
+flushes an accepted partial row even after its last slot drains; write backpressure
+must retain its mask, data, row claim, and owner until that write occurs.
+
 ## Implementation map
 
 | Files | Responsibility |
@@ -331,6 +338,14 @@ store-hit bookkeeping and a backpressured load return, same-cycle packed-load
 lookup and two-cycle hit return, registered-access priority, and retained mixed
 timing retries in both XLENs. Passive cosim capture
 must retain both events independently in the same settled sample.
+
+Run `vector-packed-carry-rv32` and `vector-packed-carry-rv64` for partial-row
+storage changes. Their public-port oracle stalls partial assembly and closed-owner
+flushes, checks foreign-row claims across owner handoff and slot reuse, then
+writes overlapping bytes under the next owner without stale enables. Every
+split position also exercises same-edge prefix write/suffix capture and a stalled
+merge that finishes the next row. Keep both instrumented packed fixtures and
+`rv5stage-vector-overlap` for integration and accepted-byte lineage.
 
 The RV32/RV64 packed fixtures also run production event instrumentation. Their
 byte-level oracle derives VRF contributors from accepted public transport

@@ -1,6 +1,6 @@
 #lang rhodium
-/* Writes aligned packed returns directly and retains partial rows independently of replayable
-   request preparation. */
+/* Writes aligned packed returns directly and retains byte-enabled partial rows independently
+   of replayable request preparation. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -61,7 +61,16 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
   reg drain_remaining(~init: Bits(bytes)(0))
   reg draining(~init: Bool(#false))
   reg carry_valid(~init: Bool(#false))
-  reg carry(VectorRegisterWrite(xlen, vlen))
+  reg carry_address(Bits(index_width(row_count)))
+  reg carry_data_word(Bits(xlen.width))
+  reg carry_byte_enables(Mask(bytes))
+  // Only the retained mask is compressed; row assembly and VRF writes keep
+  // their shared bit-mask view. Packed loads always select whole bytes.
+  def carry = VectorRegisterWrite(xlen, vlen):
+    address: carry_address
+    data: carry_data_word
+    mask: expand_mask(carry_byte_enables.as_bits(), 8)
+
   reg carry_owner(Owner)
   active <== accepted_slots.as_bits().any() ||| carry_valid
   // A closed issue owner cannot add another fragment. Flush its retained
@@ -226,8 +235,7 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
   describe_interface_contract(retained, Array(delayed_write, assembly_piece), "accepted-owners", ~trace_model: interface_trace_retained_bank(~name: "accepted-owners"))
 
   def carry_count_width = index_width(bytes + 1)
-  def carry_bytes = vec(for List (lane in 0..bytes): carry.mask[lane * 8].into(Bool)).as_bits()
-  def carry_count = mux(carry_valid, popcount(carry_bytes), Bits(carry_count_width)(0))
+  def carry_count = mux(carry_valid, popcount(carry_byte_enables.as_bits()), Bits(carry_count_width)(0))
   def replace_carry = split_load ||| full_row ||| flush_carry ||| (load_piece & !same_row)
   def write_carry = write_previous_carry ||| flush_carry ||| ((split_load ||| full_row) & same_row)
   describe_interface_window_storage(
@@ -254,19 +262,25 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
   /* Carry, per-word drain cursor, and response state.
      Prefix/suffix updates share an edge; preserve independent slot-completion collision priority. */
 
+  def suffix_byte_enables = vec(for List (lane in 0..bytes): suffix_mask[lane * 8]).into(Mask(bytes))
+  when load_piece:
+    assert(expand_mask(combined.byte_enables().as_bits(), 8) === combined.mask, "packed_carry_mask_is_byte_granular")
+    assert(expand_mask(suffix_byte_enables.as_bits(), 8) === suffix_mask, "packed_suffix_mask_is_byte_granular")
+
   when split_load:
     carry_valid <== Bool(#true)
     carry_owner <== entry.owner
-    carry <== VectorRegisterWrite(xlen, vlen):
-      address: suffix_row
-      data: aligned
-      mask: suffix_mask
+    carry_address <== suffix_row
+    carry_data_word <== aligned
+    carry_byte_enables <== suffix_byte_enables
   elsewhen full_row:
     carry_valid <== Bool(#false)
   elsewhen (load_piece):
     carry_valid <== Bool(#true)
     carry_owner <== entry.owner
-    carry <== combined
+    carry_address <== combined.address
+    carry_data_word <== combined.data
+    carry_byte_enables <== combined.byte_enables()
   elsewhen flush_carry:
     carry_valid <== Bool(#false)
 
