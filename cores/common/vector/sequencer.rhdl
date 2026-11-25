@@ -139,7 +139,7 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def fields = descriptor.control.memory_nf.zext(4) + Bits(4)(1)
   def fields_per_element = mux(whole_register_memory, Bits(4)(1), fields)
   def unit_stride_step = fields_per_element.zext(xlen.width) << descriptor.control.memory_data_eew
-  def memory_element_step = mux(descriptor.control.memory_addressing === VectorMemoryAddressing.Strided, descriptor.scalar_or_stride, unit_stride_step)
+  def memory_element_step = mux(descriptor.control.memory_addressing === VectorMemoryAddressing.Strided, descriptor.operand_word, unit_stride_step)
   def address_step = mux(packed_mode, Bits(xlen.width)(vector_word_bytes(xlen)), memory_element_step)
 
 
@@ -280,8 +280,13 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
 
   def sequence_offer = interface_link(Decoupled(SequenceRequest), "sequence_offer")
   sequence_offer.left.valid <== occupied & (!all_issued ||| suffix.valid) & !clear
+  // Select for this read only; the resident descriptor still owns the stride.
+  def offered_word = priority_mux(~default: descriptor.operand_word):
+    suffix.valid: suffix.bits.state.data
+    packed_mode: preparation.candidate_data
+
   wire beat_context: VectorSequenceContext(xlen, vlen, Context)
-  beat_context.instruction <== instruction
+  beat_context.instruction <== instruction.updated(~descriptor: descriptor.updated(~operand_word: offered_word))
   beat_context.minimum <== minimum
   beat_context.gather_in_range <== gather_in_range
   beat_context.gather_offset <== gather_index[0..vector_byte_offset_width(xlen)] << sew
@@ -291,7 +296,6 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
   beat_context.packed <== packed_mode
   beat_context.packed_layout <== preparation.candidate
   beat_context.packed_mask <== preparation.candidate_mask
-  beat_context.store_or_suffix_data <== preparation.candidate_data
   beat_context.packed_store_read <== preparation.fast_store
   beat_context.slide_valid <== slide_valid
   beat_context.beat_control <== VectorBeatControl(xlen, vlen):
@@ -320,7 +324,6 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
     ~last: Bool(#true), ~empty: Bool(#false))
   def suffix_context = beat_context.updated(
     ~beat_control: suffix_control, ~suffix: Bool(#true),
-    ~store_or_suffix_data: suffix.bits.state.data,
     ~suffix_count: suffix.bits.state.count, ~suffix_destination: suffix.bits.state.destination
   )
   when (suffix.valid):

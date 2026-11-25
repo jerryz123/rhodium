@@ -57,9 +57,12 @@ pairs always claim both. Owner age, progressive row release, and exact
 outstanding writes still decide whether a particular read must wait.
 
 At admission the sequencer consumes the original memory base and captures one
-`scalar_or_stride` word: the stride for memory, raw FPR bits for FP scalar
-operands, otherwise the GPR operand. Keep that word with the scheduled VRF read
-so a same-edge descriptor replacement cannot change a returning beat.
+`operand_word`: the stride for memory, raw FPR bits for FP scalar operands,
+otherwise the GPR operand. The scheduled VRF read carries one word in the same
+field: a final compression suffix takes precedence over prepared packed data,
+and ordinary reads carry the resident word. Only the offer changes, never the
+resident descriptor. A returning read uses its captured word even if the next
+descriptor has already arrived. Direct packed stores still use aligned VRF data.
 SIMD FP moves check NaN boxing after the read; the FP arithmetic service
 performs its own checks.
 
@@ -101,8 +104,7 @@ the dependent VS2 read; only a stalled beat needs the saved index and range flag
 For `vcompress`, the sequencer keeps the descriptor until the last write is
 authorized. Operand fetch returns only the sequence number, source end, and
 partial destination word (data, count, and destination); the sequencer issues
-it under the resident descriptor without another VRF read. The operand-fetch
-register carries that data in the prepared packed-store word. At EX, compression
+it under the resident descriptor without another VRF read. At EX, compression
 selects the left operand for the destination write, leaving the right operand
 for the remainder; non-compressing beats must not authorize their right operand
 as suffix data. Keep the speculative partial word separate from the authorized retry checkpoint. Cancellation
@@ -366,6 +368,8 @@ five-field load to `v27`–`v31` blocks a read of `v31` but leaves `v26` availab
 The `vector-operand-handoff-rv32` and `vector-operand-handoff-rv64` fixtures
 hold a successor across memory backpressure, accept it on tail authorization,
 and read back the packed load, strided load, integer move, and FP move results.
+They also stall a two-field packed store with its successor offered, check both
+stored fields, and read back the scalar move accepted on the store's tail.
 The `vector-masked-load-rv32` and `vector-masked-load-rv64` fixtures retry
 an enabled byte, complete a younger byte first, then read back the whole row
 to check that the delayed write preserves its neighbors.

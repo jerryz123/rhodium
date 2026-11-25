@@ -95,7 +95,34 @@ int main() {
     readback(8, {0x11112222});
     readback(9, {0x33334444, 0x55556666});
     readback(16, {gpr});
-    readback(17, {sizeof(Word) == 8 ? 0x7fc00000u : unsigned(bad_box)});
+    constexpr unsigned fp_word = sizeof(Word) == 8 ? 0x7fc00000u : unsigned(bad_box);
+    readback(17, {fp_word});
+    while (active) step();
+
+    // A two-field store uses prepared v16/v17 data, not the direct-store bypass.
+    // Hold a different scalar move at admission while the store cannot issue.
+    issue_ready = 0;
+    offer(store | (1u << 29) | (16u << 7), 0x500, 0xbadd, true, 1);
+    accept();
+    constexpr unsigned next_scalar = 0x2468ace;
+    offer(move | (4u << 12) | (18u << 7), next_scalar, 0xbeef, false, 1);
+    for (unsigned i = 0; i < 5; ++i) {
+      CHECK(!issued && !request_ready);
+      step();
+    }
+    issue_ready = 1;
+    eval();
+    pending(0x500, true);
+    CHECK(resolution_out.pbits.pstore && std::uint32_t(resolution_out.pbits.pstore_udata) == gpr);
+    if constexpr (sizeof(Word) == 8) {
+      CHECK((std::uint64_t(resolution_out.pbits.pstore_udata) >> 32) == fp_word);
+    } else {
+      decide();
+      pending(0x504, true);
+      CHECK(resolution_out.pbits.pstore && std::uint32_t(resolution_out.pbits.pstore_udata) == fp_word);
+    }
+    handoff();
+    readback(18, {next_scalar});
     while (active) step();
   });
 }

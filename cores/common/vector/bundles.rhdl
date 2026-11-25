@@ -73,7 +73,8 @@ fun sequence_limit(xlen :: XLen, vlen :: VectorLength, control :: VectorControl(
     whole_register_memory: whole_register_limit
     mask_memory: mask_memory_limit
 
-/* Retains the sequencer's controls, proof, and one selected integer, FP, or stride word. */
+/* Carries controls, proof, and one XLEN word. The resident descriptor holds a scalar
+   or stride; the scheduled offer reuses that field for packed data or a compression suffix. */
 bundle VectorSequenceDescriptor(xlen :: XLen):
   pc: Bits(xlen.width)
   precertified: Bool
@@ -81,7 +82,7 @@ bundle VectorSequenceDescriptor(xlen :: XLen):
   instruction: Bits(32)
   state: VectorSequenceState(xlen)
   control: VectorControl()
-  scalar_or_stride: Bits(xlen.width)
+  operand_word: Bits(xlen.width)
   masked: Bool
   rounding_mode: RoundingMode
   pointer_masking: PointerMaskControl()
@@ -92,11 +93,11 @@ bundle VectorSequenceDescriptor(xlen :: XLen):
 
   /* Selects full-XLEN scalar, immediate, or fixed-one slide displacement before bounds checking. */
   method slide_distance(descriptor) :: Bits(xlen.width):
-    slide_amount(xlen, descriptor.control, descriptor.instruction, descriptor.scalar_or_stride)
+    slide_amount(xlen, descriptor.control, descriptor.instruction, descriptor.operand_word)
 
   /* Selects an unsigned immediate or full-XLEN scalar gather index. */
   method scalar_index(descriptor) :: Bits(xlen.width):
-    gather_operand(xlen, descriptor.control, descriptor.instruction, descriptor.scalar_or_stride)
+    gather_operand(xlen, descriptor.control, descriptor.instruction, descriptor.operand_word)
 
   /* Computes exclusive element progress, including VL-independent whole-register and byte-based
      mask modes. */
@@ -144,7 +145,7 @@ bundle VectorDescriptor(xlen :: XLen):
           vxrm: descriptor.state.vxrm
 
       control: descriptor.control
-      scalar_or_stride: operand
+      operand_word: operand
       masked: descriptor.masked
       rounding_mode: descriptor.rounding_mode
       pointer_masking: descriptor.pointer_masking
@@ -371,7 +372,6 @@ bundle VectorSequenceContext(xlen :: XLen, vlen :: VectorLength, Context :: Data
   packed: Bool
   packed_layout: VectorPackedLayout(xlen, vlen)
   packed_mask: Bits(vector_word_bytes(xlen))
-  store_or_suffix_data: Bits(xlen.width)
   packed_store_read: Bool
   beat_control: VectorBeatControl(xlen, vlen)
   slide_valid: Bits(vector_slide_bytes(xlen))
