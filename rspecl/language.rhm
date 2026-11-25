@@ -109,6 +109,7 @@ fun monitor_model(inputs :: Map, states :: Map, initial :: Map, guarantees :: Ma
 expr.macro 'monitor_view: $line; ...':
   def values(states, initial, updates, record, model_clause, declarations) = model_body()
   def inputs = MutableMap{}
+  def bindings = MutableMap{}
   def guarantees = MutableMap{}
   def attachment = MutableMap{}
   /* A batch field is one pre-edge input to the monitor, not a pin read or a history update. */
@@ -118,6 +119,12 @@ expr.macro 'monitor_view: $line; ...':
     model_clause('def $n = ir.input_ref($key, $sort)')
   for (clause in [line, ...]):
     match clause
+    | 'batch $(n :: Identifier) = present($(e :: Identifier))':
+        batch(n, 'Bool', clause)
+        bindings[field_name(n)] := 'boundary.Presence($(field_name(e)))'
+    | 'batch $(n :: Identifier): $t ... = payload($(e :: Identifier)) when $(gate :: Identifier)':
+        batch(n, '($t ...)', clause)
+        bindings[field_name(n)] := 'boundary.Payload($(field_name(e)), $(field_name(gate)))'
     | 'batch ($(n :: Identifier), ...): $t ...':
         for (id in [n, ...]): batch(id, '($t ...)', clause)
     | 'batch $(n :: Identifier): $t ...': batch(n, '($t ...)', clause)
@@ -140,7 +147,7 @@ expr.macro 'monitor_view: $line; ...':
      ...
      boundary.transaction_view(monitor_model($(map_expr(inputs)), $(map_expr(states)), $(map_expr(initial)),
                                              $(map_expr(guarantees)), $(map_expr(updates))),
-                               $(attachment["publish"]), $(attachment["sample"]))'
+                               $(attachment["publish"]), $(attachment["sample"]), ~bindings: $(map_expr(bindings)))'
 
 /* Read a parameter at its lexical use site so unused non-scalar arguments need no model value. */
 defn.macro 'bind_parameter $id($bound, $key)':

@@ -9,7 +9,7 @@
          (only-in "wiring.rhm" cut_parts leaf_protocol leaf_layout series_wiring wrapper_wiring))
 (provide prove-leaf prove-parent prepare-proved-wiring proved-child-model symbolic-cut-state proved-edge-at view-agrees? pack-pins unpack-pins)
 (provide exn:fail:input-contract? exn:fail:input-contract-goal exn:fail:input-contract-inputs)
-(provide (rename-out [check-phase check-refinement-phase!]))
+(provide check-batch-total! (rename-out [check-phase check-refinement-phase!]))
 (provide symbolic-wrapper-cut symbolic-fifo-cut fifo-cut-inputs fifo-cut-outputs fifo-cut-locals fifo-cut-batch fifo-cut-domain)
 (provide derive-fifo-transactions prove-fifo-transactions compose-fifo-series prove-fifo-wrapper fifo-transactions-for? fifo-transactions-capacity fifo-transactions-width
          fresh-fifo-history fifo-allows? (struct-out fifo-history) (struct-out fifo-events))
@@ -42,6 +42,18 @@
 #| Reject hidden constraints from an observer, relation, or enclosing Rosette query. |#
 (define (clean-vc!)
   (unless (host-equal? (vc) vc-true) (error 'refinement "unexpected ambient verification condition")))
+
+#| Prove an unconditional pin sampler produces a defined, dense batch on every pin valuation.
+   In particular a payload's presence guard is an obligation, not an environment restriction. |#
+(define (check-batch-total! snapshot)
+  (unless (and (zero? (hash-count (hash-ref snapshot "state")))
+               (zero? (hash-count (hash-ref snapshot "assumptions")))
+               (positive? (hash-count (hash-ref snapshot "outputs"))))
+    (error 'batch-sampler "expected an unconditional stateless batch projection"))
+  (define edge (symbolic-spec-edge snapshot))
+  (check-phase 'batch-sampler #t
+               (list (cons 'total (&& (edge-defined edge)
+                                      (andmap observation-care (hash-values (edge-outputs edge))))))))
 
 #| Interpret only the assumptions recorded in the contract being certified, on this query's sample. |#
 (define (allowed-inputs? model inputs)

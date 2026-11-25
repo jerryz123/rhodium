@@ -16,7 +16,7 @@ import:
 
 export declared_ports interface_prefixes Endpoint
 export ready_valid_events bind_event_source
-export transaction_view check_transaction_ports transaction_parts
+export transaction_view check_transaction_ports transaction_parts transaction_batch_model Presence Payload
 export:
   only_space annot: TransactionView
   rename: ScalarPins as rv_pins
@@ -129,11 +129,57 @@ fun bind_event_source(source :: Function.of_arity(1), top :: Module):
   unless view.top === top | error("event view does not match the elaborated top")
   view
 
-/* An unproved description: sample one physical edge, publish selected cycle events, and judge batches with a separate monitor. */
-class TransactionView(sampler :: LeafModel, monitor :: LeafModel, cycle_names :: List.of(String), inputs :: Map, outputs :: Map)
+/* Bind a Boolean batch field to event presence, regardless of the event's payload. */
+class Presence(event :: String)
+
+/* Bind an event value to a batch field; its care must equal the named presence field on every edge. */
+class Payload(event :: String, gate :: String)
+
+/* Compile a total, dense monitor input record from sparse sampler events. Absent data is padding,
+   not a transfer. Keep the original events so their own definedness is also checked. */
+fun project_batch(sampler :: LeafModel, schema :: Map, bindings :: Map):
+  unless sampler.state.length() == 0 && sampler.assumptions.length() == 0 && sampler.outputs.length() == 0
+  | error("expected an unconditional stateless event sampler")
+  unless schema.keys().sort() == bindings.keys().sort() | error("bind every monitor batch field or none")
+  /* Resolve names when constructing the projection, even if the event never fires. */
+  fun event(name :: String) :: Observed:
+    unless sampler.events.has_key(name) | error("unknown sampled event: " ++ name)
+    sampler.events[name]
+  def outputs = for Map ((name, source) in bindings):
+    def expr:
+      match source
+      | Presence(e): event(e).care
+      | Payload(e, gate):
+          unless bindings.has_key(gate) && bindings[gate] is_a Presence
+          | error("payload requires a batch presence field: " ++ gate)
+          def care = event(bindings[gate].event).care
+          def field = event(e)
+          def sort = field.value.type
+          def padding:
+            cond
+            | sort is_a SpecBool: #false
+            | sort is_a SpecBits: 0
+            | ~else: []
+          def paired = choose_if(care, field.care, bool_not(field.care))
+          guard_sample(paired, choose_if(care, field.value, literal(sort, padding)), name)
+    unless spec_type_equal(schema[name], expr.type) | error("batch field type mismatch: " ++ name)
+    values(name, Observed(expr))
+  make_spec(sampler.inputs, {}, {}, outputs, sampler.events, {})
+
+/* An unproved view retains the canonical projection alongside its sampler and independent history monitor. */
+class TransactionView(sampler :: LeafModel, monitor :: LeafModel, cycle_names :: List.of(String), inputs :: Map,
+                      outputs :: Map, bindings :: Map):
+  field batch = if bindings.length() > 0 | project_batch(sampler, monitor.inputs, bindings) | #false
+
+/* Return the executable pin-to-batch model. Applying the same bindings to a candidate sampler
+   is useful for differential checking; neither operation issues or alters proof evidence. */
+fun transaction_batch_model(view :: TransactionView, candidate :: maybe(LeafModel) = #false):
+  unless view.batch | error("transaction view has no batch bindings")
+  if candidate | project_batch(candidate, view.monitor.inputs, view.bindings) | view.batch
 
 /* Collect just the physical pins used by an ordinary event helper. Repeated reads share a direction and sort. */
-fun transaction_view(monitor :: LeafModel, cycle_names :: List.of(String), build :: Function.of_arity(2)):
+fun transaction_view(monitor :: LeafModel, cycle_names :: List.of(String), build :: Function.of_arity(2),
+                     ~bindings: bindings :: Map = {}):
   def ins = MutableMap{}
   def outs = MutableMap{}
   /* Record a directional reference for validation against the elaborated signature. */
@@ -150,7 +196,7 @@ fun transaction_view(monitor :: LeafModel, cycle_names :: List.of(String), build
     unless events.has_key(name) | error("unknown published transaction event: " ++ name)
     name
   unless published.length() == cycle_names.length() | error("duplicate published transaction event")
-  TransactionView(sampler, monitor, cycle_names, ins.snapshot(), outs.snapshot())
+  TransactionView(sampler, monitor, cycle_names, ins.snapshot(), outs.snapshot(), bindings)
 
 /* Binding a cycle model cannot silently reverse an input and an output of identical width. */
 fun check_transaction_ports(view :: TransactionView, ports :: SampledPorts):

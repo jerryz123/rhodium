@@ -3,6 +3,12 @@
 ;; SPDX-License-Identifier: Apache-2.0
 
 (require racket/match rackunit "composition-checks.rkt" "two-tag-rob-transactions.rkt"
+         (only-in "../../../examples/formal/two-tag-rob.rspl" TwoTagROB)
+         (only-in "../../../rspecl/rtl-boundary.rhm" transaction_parts)
+         (only-in "../spec.rhm" spec_snapshot)
+         (only-in "../spec-engine.rkt" fresh-fields spec-edge-at edge-events edge-defined observation-care observation-value)
+         (only-in "../refinement.rkt" check-batch-total!)
+         (only-in "rob-sampler-fixture.rhm" dropped_generation)
          "../../../examples/formal/two-tag-rob-contract.rkt"
          (submod "../../../examples/formal/two-tag-rob-contract.rkt" history-types))
 
@@ -50,6 +56,35 @@
                        (=> (entry-done a) (bveq (entry-data a) (entry-data b)))))))))
 
 (module+ test
+  (test-case "declared batch agrees with the former sparse Racket adapter on every directional pin sample"
+    (define-values (source _monitor ins outs) (transaction_parts (TwoTagROB #:transaction_view #t)))
+    (define raw (spec_snapshot source))
+    (define pins (fresh-fields (hash-ref raw "inputs")))
+    (define edge (spec-edge-at raw (hash) pins))
+    (define fields (edge-events edge))
+    (define (present k) (observation-care (hash-ref fields k)))
+    (define (value k) (observation-value (hash-ref fields k)))
+    ;; This is the old adapter, independent of the new field-to-event bindings.
+    (define expected
+      (rob-events (present "reset") (present "issued") (value "issued") (value "issued_gen")
+                  (response (present "echo_a") (value "echo_a") (value "data_a"))
+                  (response (present "echo_b") (value "echo_b") (value "data_b"))
+                  (present "retired") (value "retired") (value "retired_value")))
+    (define (direction names) (for/hash ([k names]) (values k (hash-ref pins k))))
+    (define actual (sample-rob-events (direction ins) (direction outs)))
+    ;; No restriction on reset, simultaneous events, stalled offers, or uncared pin values.
+    (define (agrees? presence payloads a b)
+      (&& (equal? (presence a) (presence b))
+          (=> (presence a) (andmap (lambda (get) (equal? (get a) (get b))) payloads))))
+    (discharge 'batch-agreement #t
+      (&& (edge-defined edge) (equal? (rob-events-reset expected) (rob-events-reset actual))
+          (agrees? rob-events-grant (list rob-events-grant-tag rob-events-grant-gen) expected actual)
+          (agrees? rob-events-retire (list rob-events-retire-tag rob-events-retire-data) expected actual)
+          (for/and ([lane (list rob-events-a rob-events-b)])
+            (agrees? response-present (list response-gen response-data) (lane expected) (lane actual))))))
+  (test-case "the pre-seal totality check rejects a sampler that loses generation on a grant of A"
+    (check-exn #rx"batch-sampler/total not proved"
+               (lambda () (check-batch-total! (spec_snapshot dropped_generation)))))
   (test-case "sealed IR step agrees with the old Racket transition, without constraining history or batch"
     (define old (fresh-rob-history))
     (define e (fresh-rob-events))

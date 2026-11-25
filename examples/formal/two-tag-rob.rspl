@@ -30,9 +30,19 @@ spec for rtl.TwoTagROB:
   monitor:
     sample rob_events
     publish ["issued", "issued_gen", "retired", "retired_value"]
-    batch (reset, grant, grant_tag, grant_gen, retire, retire_tag): Bool
-    batch (complete_a, echo_a, complete_b, echo_b): Bool
-    batch (data_a, data_b, retire_data): Bits(2)
+    batch reset = present(reset)
+    batch grant = present(issued)
+    batch grant_tag: Bool = payload(issued) when grant
+    batch grant_gen: Bool = payload(issued_gen) when grant
+    batch complete_a = present(echo_a)
+    batch echo_a: Bool = payload(echo_a) when complete_a
+    batch data_a: Bits(2) = payload(data_a) when complete_a
+    batch complete_b = present(echo_b)
+    batch echo_b: Bool = payload(echo_b) when complete_b
+    batch data_b: Bits(2) = payload(data_b) when complete_b
+    batch retire = present(retired)
+    batch retire_tag: Bool = payload(retired) when retire
+    batch retire_data: Bits(2) = payload(retired_value) when retire
 
     state order: Seq(Bool, 2) initially [] as cleared
     state gen_a: Bool initially #false

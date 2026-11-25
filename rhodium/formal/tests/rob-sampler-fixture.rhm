@@ -1,0 +1,18 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../examples/formal/two-tag-rob.rspl".TwoTagROB
+  lib("rspecl/rtl-boundary.rhm").transaction_batch_model
+  lib("rspecl/rtl-boundary.rhm").transaction_parts
+  "../spec.rhm" open
+
+export dropped_generation
+
+// Keep the real monitor, pins, and batch bindings. Change only the generation event's care:
+// B still carries its generation; a grant of A silently loses it.
+def view = TwoTagROB(~transaction_view: #true)
+def values(raw, _, _, _) = transaction_parts(view)
+def generation = raw.events["issued_gen"]
+def faulty_fields = raw.events ++ {"issued_gen": Observed(generation.value, bool_and(generation.care, raw.events["issued"].value))}
+def dropped_generation = transaction_batch_model(view, make_spec(raw.inputs, {}, {}, {}, faulty_fields, {}))

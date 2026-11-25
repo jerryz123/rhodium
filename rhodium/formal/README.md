@@ -200,6 +200,24 @@ retirement to name the oldest live tag:
 ```
 
 `batch` introduces typed lexical inputs to the monitor, not new RTL pins.
+For a sampler-bound monitor, declare where each field comes from:
+
+```rhombus
+    batch grant = present(issued)
+    batch grant_tag: Bool = payload(issued) when grant
+    batch grant_gen: Bool = payload(issued_gen) when grant
+```
+
+A present `issued` event whose payload is false means **grant A**, not “no
+grant.” Here `when grant` requires the source event to be present *exactly*
+when `grant` is true. It is an obligation on the sampler: a grant without
+its generation fails even if that generation would have been false. On idle
+edges, unused payload fields get deterministic padding (false, zero, or the
+empty sequence). Bind every batch field, or leave them all unbound for a
+monitor driven directly by the caller. With bound fields, the outputs of
+`step_spec(transaction_batch_model(view), {}, pins)` are the monitor's inputs;
+`transaction_batch_model` is available from `rspecl/rtl-boundary.rhm`.
+
 `state`, `next`, and ordinary Rhombus helpers work as in the cycle body.
 Each named `guarantee` reports a Boolean for the **same pre-edge batch and
 history**. The reserved output `allowed` is their conjunction. If any guarantee

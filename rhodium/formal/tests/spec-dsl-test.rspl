@@ -19,6 +19,51 @@ def pair_top = elaborate(pairs.QueuePair(1)).top
 def tx = rob_specs.TwoTagROB(~transaction_view: #true)
 def values(_, ref_monitor, _, _) = transaction_parts(tx)
 
+fun one_event(_read, write): {"item": Observed(write("bad", Bool))}
+check:
+  block:
+    spec for rtl.ParamProbe:
+      monitor:
+        sample one_event
+        publish []
+        batch fire = present(absent)
+        guarantee "ok" = fire
+    ParamProbe(~transaction_view: #true)
+  ~throws "unknown sampled event: absent"
+check:
+  block:
+    spec for rtl.ParamProbe:
+      monitor:
+        sample one_event
+        publish []
+        batch fire = present(item)
+        batch word: Bits(1) = payload(item) when fire
+        guarantee "ok" = fire
+    ParamProbe(~transaction_view: #true)
+  ~throws "batch field type mismatch: word"
+check:
+  block:
+    spec for rtl.ParamProbe:
+      monitor:
+        sample one_event
+        publish []
+        batch fire = present(item)
+        batch flag: Bool = payload(item) when flag
+        guarantee "ok" = fire
+    ParamProbe(~transaction_view: #true)
+  ~throws "payload requires a batch presence field: flag"
+check:
+  block:
+    spec for rtl.ParamProbe:
+      monitor:
+        sample one_event
+        publish []
+        batch fire = present(item)
+        batch unbound: Bool
+        guarantee "ok" = fire
+    ParamProbe(~transaction_view: #true)
+  ~throws "bind every monitor batch field or none"
+
 // The monitor has its own lexical scope. A refused batch must not evaluate tail(empty)
 // or append(full), and must hold even scalar state that could otherwise advance.
 def probe_monitor:

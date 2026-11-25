@@ -6,14 +6,14 @@
          (only-in "../../rhodium/formal/refinement.rkt" symbolic-wrapper-cut symbolic-fifo-cut fifo-cut-inputs fifo-cut-outputs
                   fifo-cut-locals fifo-cut-batch fifo-cut-domain fresh-fifo-history fifo-allows?
                   fifo-history-count fifo-history-slots fifo-transactions-width fifo-transactions-capacity
-                  check-refinement-phase!)
+                  check-batch-total! check-refinement-phase!)
          (only-in "two-tag-rob.rspl" TwoTagROB)
          (only-in "../../rhodium/formal/spec.rhm" spec_snapshot)
          (only-in "../../rhodium/formal/spec-engine.rkt" spec-edge-at edge-state edge-next edge-outputs
                   edge-defined edge-legal spec-state-legal? sequence-value sequence-value-slots sequence-value-count
-                  observation-care observation-value edge-events fresh-fields)
+                  observation-care observation-value)
          (only-in "../../rhodium/formal/port-types.rhm" leaf_layout)
-         (only-in "../../rspecl/rtl-boundary.rhm" interface_prefixes transaction_parts)
+         (only-in "../../rspecl/rtl-boundary.rhm" interface_prefixes transaction_parts transaction_batch_model)
          (only-in "../../rhodium/frontend/layers/bool.rhm" Bool))
 (provide certify-rob rob-contract-for? rob-step sample-rob-events symbolic-rob-cut fresh-rob-history fresh-rob-events
          (struct-out response) (struct-out rob-events)
@@ -29,10 +29,10 @@
 (struct rob-history (count head tail) #:transparent)
 (module+ history-types (provide (struct-out entry) (struct-out rob-history))) ; test oracle data, never evidence
 (define unused (entry #f #f #f (bv 0 2)))
-(define-values (sampler-model monitor-model sampled-ins sampled-outs)
-  (transaction_parts (TwoTagROB #:transaction_view #t)))
+(define view (TwoTagROB #:transaction_view #t))
+(define-values (_raw-sampler monitor-model sampled-ins sampled-outs) (transaction_parts view))
 (define monitor (spec_snapshot monitor-model))
-(define sampler (spec_snapshot sampler-model))
+(define sampler (spec_snapshot (transaction_batch_model view)))
 (unless (zero? (hash-count (hash-ref monitor "assumptions")))
   (error 'certify-rob "the public transaction monitor must judge every batch without assumptions"))
 
@@ -99,13 +99,9 @@
       (if (< i n) (entry tag gen done (if done data (bv 0 2))) unused)))
   (rob-history n (first slots) (second slots)))
 
-#| Run one spec-IR edge for either issuer or consumer. Pass every field of the physical batch
-   unchanged; only the monitor decides which simultaneous events are compatible. |#
-(define (monitor-step snapshot old e)
-  (match-define (rob-events reset grant tag gen (response pa ga da) (response pb gb db) pop out word) e)
-  (define pins (hash "reset" reset "grant" grant "grant_tag" tag "grant_gen" gen
-                     "complete_a" pa "echo_a" ga "data_a" da "complete_b" pb "echo_b" gb "data_b" db
-                     "retire" pop "retire_tag" out "retire_data" word))
+#| Run one spec-IR edge over a dense batch, without reinterpreting the sampler or filtering joint events. |#
+(define (monitor-step snapshot old pins)
+  (define reset (hash-ref pins "reset"))
   (define n (rob-history-count old))
   #| Evaluate at each possible length so an unconditional reset produces a concrete verdict
      even from unknown occupancy. Never truncate an out-of-range count into a live allocation. |#
@@ -133,7 +129,11 @@
                  (and (response? r) (boolean? (response-present r)) (boolean? (response-gen r))
                       ((bitvector 2) (response-data r)))))
     (error 'rob-step "mistyped public ROB batch"))
-  (define-values (allowed next _) (monitor-step (seal-monitor evidence) old e))
+  (define pins (hash "reset" reset "grant" grant "grant_tag" tag "grant_gen" gen
+                     "complete_a" (response-present a) "echo_a" (response-gen a) "data_a" (response-data a)
+                     "complete_b" (response-present b) "echo_b" (response-gen b) "data_b" (response-data b)
+                     "retire" pop "retire_tag" out "retire_data" word))
+  (define-values (allowed next _) (monitor-step (seal-monitor evidence) old pins))
   (values allowed next))
 
 #| Project only the child transaction history and the actual parent-local registers.
@@ -157,36 +157,25 @@
      (&& ok (equal? live (hash-ref regs busy)) (=> (hash-ref regs done) live)))
    (rob-history n (first slots) (second slots))))
 
-#| Run the declaration's passive sampler on the actual directional pins. This adapter only
-   packs its sparse fields into the existing public batch; it does not infer transfers. |#
-(define (sample-batch snapshot inputs outputs)
+#| Feed the declared projection's dense output record directly to the monitor. Before sealing
+   we prove each output is present and defined for every physical sample. |#
+(define (sample-fields snapshot inputs outputs)
   (define pins (for/fold ([pins (for/hash ([k sampled-ins]) (values k (hash-ref inputs k)))])
                          ([k sampled-outs]) (hash-set pins k (hash-ref outputs k))))
-  (define fields (edge-events (spec-edge-at snapshot (hash) pins)))
-  #| Sparse presence and payload are distinct even for Boolean or zero-valued data. |#
-  (define (present k) (observation-care (hash-ref fields k)))
-  #| Uncared values do not constrain a permitted public batch. |#
-  (define (value k) (observation-value (hash-ref fields k)))
-  (rob-events (present "reset") (present "issued") (value "issued") (value "issued_gen")
-              (response (present "echo_a") (value "echo_a") (value "data_a"))
-              (response (present "echo_b") (value "echo_b") (value "data_b"))
-              (present "retired") (value "retired") (value "retired_value")))
+  (for/hash ([(name obs) (edge-outputs (spec-edge-at snapshot (hash) pins))])
+    (values name (observation-value obs))))
+
+#| Package already projected fields for existing public event consumers, without decoding any sparse events. |#
+(define (public-batch fields)
+  #| Read a dense batch field, including a present value of false. |#
+  (define (v k) (hash-ref fields k))
+  (rob-events (v "reset") (v "grant") (v "grant_tag") (v "grant_gen")
+              (response (v "complete_a") (v "echo_a") (v "data_a"))
+              (response (v "complete_b") (v "echo_b") (v "data_b"))
+              (v "retire") (v "retire_tag") (v "retire_data")))
 
 #| Sample the wrapper's own public pins for comparison with its sealed child's batch. |#
-(define (sample-rob-events inputs outputs) (sample-batch sampler inputs outputs))
-
-#| Before sealing, prove that sampling is total on arbitrary pins and no joint event
-   can carry a tag without its generation, or a payload without its matching pulse. |#
-(define (check-sampler!)
-  (define edge (spec-edge-at sampler (hash) (fresh-fields (hash-ref sampler "inputs"))))
-  #| The adapter reads a pair as one event; both fields must have identical presence. |#
-  (define (paired x y)
-    (equal? (observation-care (hash-ref (edge-events edge) x))
-            (observation-care (hash-ref (edge-events edge) y))))
-  (check-refinement-phase! 'rob-sampler #t
-    (list (cons 'total (edge-defined edge)) (cons 'grant (paired "issued" "issued_gen"))
-          (cons 'retirement (paired "retired" "retired_value"))
-          (cons 'completion-a (paired "echo_a" "data_a")) (cons 'completion-b (paired "echo_b" "data_b")))))
+(define (sample-rob-events inputs outputs) (public-batch (sample-fields sampler inputs outputs)))
 
 #| Bind a seal to the wrapper's actual child and sample its events without opening the ROB. |#
 (define (symbolic-rob-cut top site evidence)
@@ -196,12 +185,12 @@
   (define-values (ins outs edges ci co)
     (symbolic-wrapper-cut top (leaf_layout top (interface_prefixes top)) Bool site
                           (seal-definition evidence) layout outputs))
-  (values ins outs edges (sample-batch (seal-sampler evidence) ci co)))
+  (values ins outs edges (public-batch (sample-fields (seal-sampler evidence) ci co))))
 
 #| Issue evidence only after reset and every allowed child successor refine the exact monitor
    used by rob-step. There is no caller-supplied decoder, proof callback, or constructor. |#
 (define (certify-rob top child)
-  (check-sampler!)
+  (check-batch-total! sampler)
   (define layout (leaf_layout top (interface_prefixes top)))
   (define cut (symbolic-fifo-cut top layout Bool "order" child))
   (unless (and (= (fifo-transactions-width child) 2) (= (fifo-transactions-capacity child) 2)
@@ -210,8 +199,8 @@
   (define local (hash-ref (fifo-cut-locals cut) "@local"))
   (define inputs (fifo-cut-inputs cut))
   (define outputs (fifo-cut-outputs cut))
-  (define events (sample-rob-events inputs outputs))
-  (define reset (rob-events-reset events))
+  (define fields (sample-fields sampler inputs outputs))
+  (define reset (hash-ref fields "reset"))
   (define a (&& (! reset) (hash-ref outputs "grant_a")))
   (define b (&& (! reset) (hash-ref outputs "grant_b")))
   (define q (fresh-fifo-history child))
@@ -219,7 +208,7 @@
   (define allowed (&& (fifo-cut-domain cut) (fifo-allows? child q (fifo-cut-batch cut) next)))
   (define-values (legal members old) (projection q (edge-state local)))
   (define-values (legal-next members-next actual) (projection next (edge-next local)))
-  (define-values (permitted expected diagnostics) (monitor-step monitor old events))
+  (define-values (permitted expected diagnostics) (monitor-step monitor old fields))
   (define goals
     (append (list (cons 'grants (&& (! (&& a b)) (=> a (hash-ref inputs "issue_a")) (=> b (hash-ref inputs "issue_b"))))
                   (cons 'invariant (&& legal-next members-next)))
@@ -232,10 +221,10 @@
   ;; inductive samples, not timing premises or promised paths from reset.
   (for* ([tag '(#f #t)] [gen '(#f #t)])
     (check-refinement-phase! 'retirement-coverage
-      (&& step (rob-events-retire events) (equal? tag (rob-events-retire-tag events))
+      (&& step (hash-ref fields "retire") (equal? tag (hash-ref fields "retire_tag"))
           (equal? gen (entry-gen (rob-history-head old)))) '()))
   (check-refinement-phase! 'younger-only-coverage
     (&& step (= (rob-history-count old) 2) (! (entry-tag (rob-history-head old)))
         (! (entry-done (rob-history-head old))) (entry-done (rob-history-tail old))
-        (hash-ref inputs "retire.ready") (! (rob-events-retire events))) '())
+        (hash-ref inputs "retire.ready") (! (hash-ref fields "retire"))) '())
   (seal top layout sampler monitor))

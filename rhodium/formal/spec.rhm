@@ -12,7 +12,7 @@ export:
     rename: Model as LeafModel
   rename: same_type as spec_type_equal
   SpecBool SpecBits SpecSeq
-  literal input_ref state_ref choose_if bool_not bool_and bits_equal
+  literal input_ref state_ref choose_if bool_not bool_and bits_equal guard_sample
   seq_empty seq_full seq_front seq_tail seq_append
   Observed make_spec include_sampled_events make_composition step_spec spec_snapshot composition_snapshot
 
@@ -67,6 +67,11 @@ fun state_ref(name :: String, type :: SpecType): Expr("state", type, [], name)
 /* Require a Boolean predicate even when a packed input happens to have width one. */
 fun check_bool(expr :: Expr):
   unless expr.type is_a SpecBool | error("expected a boolean expression")
+
+/* Demand a predicate on the executed path; failure is undefinedness, never an input assumption. */
+fun guard_sample(test :: Expr, value :: Expr, label :: String):
+  check_bool(test)
+  Expr("guarded", value.type, [test, value], label)
 
 /* Form a typed conditional; only its selected branch must be defined on an edge. */
 fun choose_if(test :: Expr, yes :: Expr, no :: Expr):
@@ -175,23 +180,20 @@ fun make_spec(inputs :: Map, state :: Map, initial :: Map, outputs :: Map, event
 fun include_sampled_events(sampler :: Model, outputs :: Map, events :: Map, ~only: names :: maybe(List.of(String)) = #false):
   unless sampler.state.length() == 0 && sampler.outputs.length() == 0 && sampler.events.length() > 0
   | error("expected a stateless event sampler")
-  /* Require a predicate on the executed path, preserving the type and value of the guarded read. */
-  fun guarded(test :: Expr, value :: Expr, label :: String):
-    Expr("guarded", value.type, [test, value], label)
   /* Substitute the cycle's observation only at a physical output reference in the sampler. */
   fun bind(expr :: Expr):
     cond
     | expr.op == "input" && outputs.has_key(expr.datum):
         def field :: Observed = outputs[expr.datum]
         unless same_type(field.value.type, expr.type) | error("event pin type mismatch: " ++ expr.datum)
-        guarded(field.care, field.value, expr.datum)
+        guard_sample(field.care, field.value, expr.datum)
     | ~else: Expr(expr.op, expr.type, expr.args.map(bind), expr.datum)
   def projected = for Map (name in (names || sampler.events.keys())):
     def field :: Observed = sampler.events[name]
     when events.has_key(name) | error("duplicate spec declaration: " ++ name)
     def mutable care = bind(field.care)
     for ((label, predicate) in sampler.assumptions):
-      care := guarded(bind(predicate), care, label)
+      care := guard_sample(bind(predicate), care, label)
     values(name, Observed(bind(field.value), care))
   events ++ projected
 

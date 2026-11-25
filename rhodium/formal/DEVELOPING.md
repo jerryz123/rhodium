@@ -473,9 +473,15 @@ The seal retains the exact sampler and monitor snapshots from the
 [RSPECL declaration](../../examples/formal/two-tag-rob.rspl). The pin sampler
 has no state: cycle execution substitutes cared output expressions into the
 four published fields, and the proof samples the full batch from directional
-physical nets. The ROB adapter packs the sparse fields into its existing
-typed batch; it does not recompute handshakes. Before sealing, prove totality and equal presence within
-each tag/generation or payload/echo pair. A detached view is a candidate
+physical nets. RSPECL lowers each bound payload to a guarded spec expression:
+the payload event's care must equal its declared presence field in both directions.
+The seal retains this projected sampler; Racket only packages its dense outputs
+in the public record. Before sealing, `check-batch-total!` must prove every
+output present and the whole step defined on unconstrained pins. The
+[adapter oracle](tests/two-tag-rob-oracle.rkt) compares presence and cared
+payloads with the former Racket mapping; the dropped-generation fixture fails
+the same pre-seal check and replays as an undefined grant in rspecsim.
+A detached view is a candidate
 specification, never evidence; each mutant must still fail its own semantic
 proof against the same declaration. The monitor's named verdicts diagnose failures before the
 successor check; they are not assumptions. The [representation test](tests/two-tag-rob-monitor.rkt)
