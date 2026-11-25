@@ -305,10 +305,6 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
     last: mux(packed_mode, preparation.candidate.last, beat_last)
     empty: mux(packed_mode, !preparation.candidate.live.any(), empty)
     address: mux(packed_mode, issue_address, memory_effective_address)
-    mask_enabled: vec(for List (bit_index in 0..xlen.width):
-                        def element = cursor.zext(index_width(vlen + 1) + 1) + Bits(index_width(vlen + 1) + 1)(bit_index)
-                        !empty & (element >= minimum.zext(index_width(vlen + 1) + 1)) & (element < end.zext(index_width(vlen + 1) + 1))).as_bits()
-
     destination: mux(segmented_memory, memory_register, vd)
 
   def ordinary_read_enables = vec([!empty, !empty & second_source & !gather_vector, !empty & destination_source]).as_bits()

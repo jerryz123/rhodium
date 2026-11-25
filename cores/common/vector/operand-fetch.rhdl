@@ -69,6 +69,14 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
   def instruction = read_context.instruction
   def minimum = read_context.minimum
   def beat_control = read_context.beat_control
+
+  // Use the returning beat's bounds, even if the sequencer has advanced or replayed.
+  // Widen before adding the lane so an out-of-range element cannot wrap into the mask.
+  def position_width = index_width(vlen + 1) + 1
+  def active_elements = vec(for List (lane in 0..xlen.width):
+                              def element = beat_control.first.zext(position_width) + Bits(position_width)(lane)
+                              !beat_control.empty & (element >= minimum.zext(position_width)) & (element < beat_control.end.zext(position_width))).as_bits()
+
   def descriptor = instruction.descriptor
   def packed = read_context.packed
   def vd = instruction_field(riscv_fields.rd, descriptor.instruction)
@@ -267,7 +275,7 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
   def multiply_enables = (packed_enabled.as_bits() >> mux(multiply_upper, lanes[0..vector_byte_offset_width(xlen)], Bits(vector_byte_offset_width(xlen))(0))).into(Mask(vector_word_bytes(xlen)))
   def enabled_lanes = priority_mux(~default: packed_enabled):
     simd_widening: multiply_enables
-    mask_logic: beat_control.mask_enabled.any().as_bits().zext(vector_word_bytes(xlen)).into(Mask(vector_word_bytes(xlen)))
+    mask_logic: active_elements.any().as_bits().zext(vector_word_bytes(xlen)).into(Mask(vector_word_bytes(xlen)))
     singleton: memory_enabled.as_bits().zext(vector_word_bytes(xlen)).into(Mask(vector_word_bytes(xlen)))
 
   def element_mask_lanes = element_mask_bits[0..vector_word_bytes(xlen)].into(Mask(vector_word_bytes(xlen)))
@@ -283,7 +291,7 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
     destination_data: mux(simd_multiply, results[2].bits, results[2].bits >> destination_shift)
     carry_in: carry_lanes
     select_right: right_selection
-    mask_enabled: beat_control.mask_enabled & mux(scan & descriptor.masked, element_mask_bits, !Bits(xlen.width)(0))
+    mask_enabled: active_elements & mux(scan & descriptor.masked, element_mask_bits, !Bits(xlen.width)(0))
     destination_first: mux(simd_multiply, beat_control.first, packing.operands.first_element)
     element_width: packing.operands.element_width
     // One full-word logic lane computes the mask; mask_enabled controls its
@@ -357,7 +365,7 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
     ~address: beat_control.address,
     ~destination_data: Bits(xlen.width)(0),
     ~carry_in: Mask(vector_word_bytes(xlen))(0),
-    ~mask_enabled: beat_control.mask_enabled,
+    ~mask_enabled: active_elements,
     ~element_width: format,
     ~destination_first: compress_destination,
     ~last: source_final & !needs_flush,

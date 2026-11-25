@@ -97,6 +97,11 @@ row. When both reads name the same row, the second contributes nothing.
 An unmasked segmented store instead uses the live lanes captured at Map.
 Keep the completed mask stable through store gathering and issue stalls.
 
+Ordinary mask operations keep only the beat's bounds across the VRF read.
+On return, operand fetch enables bit `i` when the beat is nonempty and
+`minimum <= first + i < end`, using the captured bounds rather than the live
+cursor. This element mask is independent of the packed transport's byte mask.
+
 For a vector gather, extract the selected VS1 element on the VRF return and
 compare the full index with VLMAX before narrowing it. Bypass that result to
 the dependent VS2 read; only a stalled beat needs the saved index and range flag.

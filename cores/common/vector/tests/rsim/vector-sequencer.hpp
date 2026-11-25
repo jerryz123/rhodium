@@ -645,6 +645,66 @@ void cancel_stalled_compress_suffix() {
         memory[24 * rows + 1] == 0xff);
 }
 
+void retry_masked_scan_tail() {
+  constexpr int rows = VLEN / XLEN, length = XLEN + 3;
+  const auto body = UINT64_C(0xaaaaaaaaaaaaaaaa) & low_mask(XLEN);
+  initialize_in.pvalid = 1;
+  for (int row = 0; row < 2; ++row) {
+    initialize(row, row == 0 ? body : ~word_t(2), UINT64_MAX);
+    tick_model();
+    initialize(7 * rows + row, 0, UINT64_MAX);
+    tick_model();
+  }
+  initialize_in.pvalid = 0;
+
+  // vmsbf.m v3, v7, v0.t: with v7 zero every enabled result bit is set.
+  instruction = (20u << 26) | (7u << 20) | (1u << 15) | (2u << 12) |
+                (3u << 7) | 0x57u;
+  vtype = 3;  // e8,m8
+  vl = length;
+  vstart = 0;
+  request_valid = issue_ready = retry_enable = 1;
+  retry_first = XLEN;
+  eval();
+  CHECK(request_ready && legal);
+  tick_model();
+  request_valid = 0;
+  vl = 1;
+  vstart = XLEN;
+
+  // The full word commits once; the partial word is rejected, then replayed.
+  for (int attempt = 0; attempt < 3; ++attempt) {
+    const bool reject = attempt == 1;
+    for (int wait = 0;; ++wait) {
+      eval();
+      if (committed || retried)
+        break;
+      CHECK(wait < 16);
+      tick_model();
+    }
+    const bool tail = attempt != 0;
+    const word_t mask = tail ? word_t(0b101) : body;
+    CHECK(bool(retried) == reject && bool(committed) == !reject);
+    CHECK(result.pfirst == (tail ? XLEN : 0) &&
+          result.pend == (tail ? length : XLEN) && bool(result.plast) == tail);
+    CHECK(result.pwrite.paddress == 3 * rows + int(tail));
+    CHECK(result.pwrite.pmask == mask);
+    CHECK((result.pwrite.pdata & mask) == mask);
+    tick_model();
+    if (reject) {
+      retry_enable = issue_ready = 0;
+      for (int cycle = 0; cycle < 4; ++cycle) {
+        eval();
+        CHECK(active && !issued && !committed && !retried);
+        tick_model();
+      }
+      issue_ready = 1;
+    }
+  }
+  eval();
+  CHECK(request_ready && !active);
+}
+
 int main() {
   return run_test([] {
     reset = 1;
@@ -1221,6 +1281,7 @@ int main() {
         tick();
     }
     run_macro(0, 0, VLEN / 8, 0, 11, 0, 8, 8, 8, 0);
+    retry_masked_scan_tail();
     std::cout << "macros=" << macros << " beats=" << checks
               << " retries=" << retries << " cycles=" << cycles << "\n";
   });

@@ -349,7 +349,7 @@ bundle VectorFeedback(xlen :: XLen, vlen :: VectorLength, Context :: DataType):
   last: Bool
   compress_state: VectorCompressState(xlen, vlen)
 
-/* Carries only beat-specific progress and masks; invariant controls remain in the descriptor. */
+/* Carries the scheduled beat's bounds, address, and destination through the VRF read. */
 bundle VectorBeatControl(xlen :: XLen, vlen :: VectorLength):
   sequence: Bits(vector_sequence_width(vlen))
   first: Bits(index_width(vlen + 1))
@@ -357,7 +357,6 @@ bundle VectorBeatControl(xlen :: XLen, vlen :: VectorLength):
   last: Bool
   empty: Bool
   address: Bits(xlen.width)
-  mask_enabled: Bits(xlen.width)
   destination: Bits(5)
 
 /* Retains the descriptor, restart bounds, and preparation metadata across fixed VRF latency. */
