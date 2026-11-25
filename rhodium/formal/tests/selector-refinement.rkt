@@ -6,6 +6,12 @@
 (define (view pins _) (values (hash "selected" (observation #t (hash-ref pins "selected"))) (hash)))
 (define (certify model) (prove-leaf selector model interface_prefixes view))
 (define evidence (list verified-arbiter (certify leaf)))
+(define ((flags-view names) pins _)
+  (values (for/hash ([name names])
+            (values name (observation #t (bveq (hash-ref pins name) (bv 1 1)))))
+          (hash)))
+(define routed-evidence
+  (cons (prove-leaf router router_spec interface_prefixes (flags-view '("route_a" "route_b"))) evidence))
 
 (test-case "selector is conditional, not priority RTL; idle and either single lane are legal"
   (check-equal? (map replay '(#f #t #f) '(#f #f #t)) '(0 1 2))
@@ -27,7 +33,25 @@
   (check-exn #rx"violated spec input assumption: exclusive" (lambda () (replay_wiring #t sample)))
   (check-equal? (replay_wiring #f sample) (if (hash-ref sample "accept") (hash-ref sample "word_a") 0)))
 
-(test-case "same-edge conditional guarantees cannot establish each other's input assumptions"
-  (define-values (_ legal goals) (wired-input-obligations circular_graph (hash-ref circular_graph "children")))
-  (check-true (sat? (solve (assert (&& legal (! (cdr (assoc "a/enabled" goals)))
-                                       (! (cdr (assoc "b/enabled" goals)))))))))
+(test-case "admitted router grants establish the selector's assumption under either routing"
+  (define plan (prepare-proved-wiring (routed_cut #f) routed-evidence))
+  (check-not-exn (lambda () (prove-parent plan routed_parent view #:relation (lambda (_ __) #t))))
+  (for ([swap '(#f #t)] [word '(1 2)])
+    (check-equal? (replay_routed #f (hash "reset" #f "accept" #t "request_a" #t "request_b" #t
+                                         "swap" swap "word_a" 1 "word_b" 2)) word)))
+
+(test-case "duplicating a routed grant violates the downstream contract on an actual parent input"
+  (define failure
+    (with-handlers ([exn:fail:input-contract? values]) (prepare-proved-wiring (routed_cut #t) routed-evidence)))
+  (check-equal? (exn:fail:input-contract-goal failure) "lanes/exclusive")
+  (define s (exn:fail:input-contract-inputs failure))
+  (check-true (and (hash-ref s "accept")
+                   (if (hash-ref s "swap") (and (not (hash-ref s "request_a")) (hash-ref s "request_b"))
+                       (hash-ref s "request_a"))))
+  (check-exn #rx"violated spec input assumption: exclusive" (lambda () (replay_routed #t s)))
+  (check-equal? (replay_routed #f s) (hash-ref s "word_a")))
+
+(test-case "two occurrences of one certified leaf cannot justify each other's premises"
+  (define high (prove-leaf high_grant conditional interface_prefixes (flags-view '("grant"))))
+  (check-exn #rx"circular same-edge input contract"
+             (lambda () (prepare-proved-wiring (circular_cut) (list high)))))

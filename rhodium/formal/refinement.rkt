@@ -145,8 +145,8 @@
       (values site (refinement-result-model matched))))
   (define all (for/fold ([all models]) ([(site rtl) locals]) (hash-set all site rtl)))
   (when (for/or ([model (hash-values models)]) (positive? (hash-count (hash-ref model "assumptions"))))
-    (define-values (inputs legal goals) (wired-input-obligations graph all))
-    (check-phase 'child-input legal goals #:inputs inputs))
+    (discharge-wired-inputs! graph all
+                            (lambda (inputs legal goals) (check-phase 'child-input legal goals #:inputs inputs))))
   (proved-cut definition layout graph all))
 
 #| Access the admitted operational model for one occurrence, e.g. to allocate its abstract state. |#

@@ -1,5 +1,5 @@
 #lang rhodium
-/* Demonstrates a masked data selector whose input contract is established by an upstream arbiter. */
+/* Demonstrates direct and routed arbiter grants establishing a masked selector's input contract. */
 // SPDX-License-Identifier: Apache-2.0
 
 import lib("flow/arbiter.rhdl").Arbiter
@@ -33,4 +33,37 @@ sync_circuit GrantedSelector():
   lanes.word_b <== word_b
   selected <== lanes.selected
 
-export LaneSelector GrantedSelector
+/* Encode an optional grant as valid plus a destination bit; swap reverses the destination. */
+circuit LaneRouter():
+  input (grant_a, grant_b, swap): Bool
+  output (route_a, route_b): Bool
+  def valid = grant_a ||| grant_b
+  def destination_b = grant_b ^ swap
+  route_a <== valid & !destination_b
+  route_b <== valid & destination_b
+
+/* Select the destination lane's word after optionally exchanging the two arbiter grants. */
+sync_circuit RoutedSelector():
+  input (request_a, request_b, accept, swap): Bool
+  input (word_a, word_b): Bits(2)
+  output selected: Bits(2)
+
+  inst arb(Arbiter(Bits(2), 2))
+  arb.ingress[0].valid <== request_a
+  arb.ingress[1].valid <== request_b
+  arb.ingress[0].bits <== word_a
+  arb.ingress[1].bits <== word_b
+  arb.egress.ready <== accept
+
+  inst router(LaneRouter())
+  router.grant_a <== arb.ingress[0].ready
+  router.grant_b <== arb.ingress[1].ready
+  router.swap <== swap
+  inst lanes(LaneSelector())
+  lanes.enable_a <== router.route_a
+  lanes.enable_b <== router.route_b
+  lanes.word_a <== word_a
+  lanes.word_b <== word_b
+  selected <== lanes.selected
+
+export LaneSelector GrantedSelector LaneRouter RoutedSelector

@@ -210,13 +210,20 @@ the nonempty conjunction of its named input predicates. The predicates are part
 of the exact spec snapshot matched at reuse. After evidence matching but before
 returning an admitted cut, `prepare-proved-wiring` checks each predicate as
 a goal over unrestricted external samples and independently legal old states.
-It uses the regular wire schedule, including care and physical fanout, but
-replaces **all** conditional output pins by fresh terms during discharge.
-Thus the arbiter's unconditional grants can establish exclusivity, but two
-conditional children cannot justify each other's inputs. This deliberately
-does not chain conditional guarantees, even when an ordered proof might work.
-The solver must also establish upstream definedness. An assumption failure
-names the site and predicate and reports the sampled external inputs.
+The discharge pass follows each predicate's input references through the checked
+wiring. Reading an offer first requires its source occurrence's whole contract,
+then the inputs used in both its care and value. Cache each physical offer for
+the sample, including an arbitrary uncared value shared by all fanout.
+The solver must establish upstream definedness and every named predicate
+before that occurrence becomes available. Revisiting an in-progress contract
+is a same-edge proof cycle, not a counterexample on external inputs. Even two
+instances of the same verified leaf must discharge their premises independently.
+
+The routed example discharges the router using verified arbiter grants, then
+the selector using the router's outputs. Duplicating a routed grant fails
+at `lanes/exclusive`; replay the returned external sample on both wirings.
+The complete parent proof still checks all outputs and child transitions, not
+just the cones used during discharge.
 
 ### Arbiter feeding a ShiftQueue
 

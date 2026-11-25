@@ -1,5 +1,5 @@
 #lang rspecl
-/* Specifies a conditional selector and an unconditional arbitration boundary. */
+/* Specifies conditional selection and lane routing behind unconditional arbitration boundaries. */
 // SPDX-License-Identifier: Apache-2.0
 
 import "granted-selector.rhdl" as rtl
@@ -11,3 +11,13 @@ spec for rtl.LaneSelector:
 spec for rtl.GrantedSelector:
   observe selected = select(accept && request_a, word_a,
                             select(accept && request_b, word_b, const(Bits(2), 0)))
+
+spec for rtl.LaneRouter:
+  assume exclusive = !(grant_a && grant_b)
+  observe route_a = select(swap, grant_b, grant_a)
+  observe route_b = select(swap, grant_a, grant_b)
+
+spec for rtl.RoutedSelector:
+  let active = accept && (request_a || request_b)
+  let select_a = select(swap, !request_a, request_a)
+  observe selected = select(active, select(select_a, word_a, word_b), const(Bits(2), 0))

@@ -53,9 +53,11 @@ of order while retirement must follow issue order and the head's own
 completion. It uses the verified depth-two ArbiterQueue and per-tag busy, done, and generation bits plus two unreset result banks.
 
 Milestone 3 also has a [nontrivial input-contract check](DEVELOPING.md#discharging-a-conditional-childs-inputs):
-an unconditional arbiter establishes a selector's at-most-one enable requirement.
-Raw requests fail before substitution. This covers scalar current-input contracts,
-not stateful protocol assumptions or circular same-edge reasoning.
+an unconditional arbiter establishes a selector's at-most-one enable requirement,
+either directly or through a conditional lane router. The latter discharges
+two contracts in dependency order. Raw requests and duplicated routed grants
+fail before substitution; mutually dependent contracts cannot justify themselves.
+This covers scalar current-input contracts, not stateful protocol assumptions.
 
 | Milestone | What to build | How to tell it works |
 |---|---|---|

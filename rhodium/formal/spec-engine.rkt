@@ -4,7 +4,7 @@
 
 (require racket/match)
 (provide symbolic-spec-edge symbolic-spec-state spec-state-legal? spec-edge-at spec-offers-at wired-edge-at
-         spec-input-assumptions wired-input-obligations
+         spec-input-assumptions discharge-wired-inputs!
          (struct-out edge) (struct-out sequence-value) (struct-out observation))
 
 ;; Only the prefix of slots below count denotes a value; unused slots are unconstrained.
@@ -149,9 +149,9 @@
     (define pred (interpret expr (hash) inputs))
     (values name (&& (result-defined pred) (result-value pred)))))
 
-#| Settle physical wires once. During discharge, conditional outputs are arbitrary physical
-   pins, never their promised values. Fanout still shares a single term. |#
-(define (settle-wires graph children states inputs abstract-conditional?)
+#| Read only requested physical nets, sharing each offer (including uncared values) across fanout.
+   The proof reader checks the source site's contract before consulting its output semantics. |#
+(define (make-wire-reader graph children states inputs before-offer)
   (check-fields (hash-ref graph "inputs") inputs)
   (define expected (hash-ref graph "children"))
   (unless (and (= (hash-count children) (hash-count expected))
@@ -159,42 +159,69 @@
                (equal? (sort (hash-keys children) string<?) (sort (hash-keys states) string<?)))
     (error 'wired-edge-at "child models or occurrence states do not match graph"))
   (define drivers (hash-ref graph "wires"))
-  #| Resolve a sink against one old-state sample of the physical nets. |#
-  (define (wire nets sink) (hash-ref nets (hash-ref drivers sink)))
   #| Qualify names with immutable strings for the cross-language snapshot maps. |#
   (define (pin-name site port) (string->immutable-string (string-append site "." port)))
   #| Read just the inputs on which the scheduled output or complete edge depends. |#
-  (define (bind nets site ports)
-    (for/hash ([p ports]) (values p (wire nets (pin-name site p)))))
-  (define-values (nets defined)
-    (for/fold ([nets inputs] [ok #t]) ([row (hash-ref graph "order")])
-      (match-define (list site port deps) row)
-      (define model (hash-ref children site))
-      (define-values (v safe)
-        (if (and abstract-conditional? (positive? (hash-count (hash-ref model "assumptions"))))
-            (values (fresh (second (second (hash-ref (hash-ref model "outputs") port)))) #t)
-            (spec-pin-at model port (hash-ref states site) (bind nets site deps))))
-      (values (hash-set nets (pin-name site port) v) (&& ok safe))))
-  (values (for/hash ([p (hash-ref graph "outputs")]) (values p (wire nets p)))
-          (for/hash ([(site child) children])
-            (values site (bind nets site (hash-keys (hash-ref child "inputs")))))
-          defined))
+  (define (bind site ports)
+    (for/hash ([p ports]) (values p (wire (pin-name site p)))))
+  (define offers (for/hash ([row (hash-ref graph "order")])
+                   (values (pin-name (first row) (second row)) row)))
+  (define nets (hash-copy inputs))
+  (define defined #t)
+  #| Read the physical driver of this sink. |#
+  (define (wire sink) (offer (hash-ref drivers sink)))
+  #| Evaluate a source once, following the checked care and value dependencies of its offer. |#
+  (define (offer source)
+    (hash-ref! nets source
+               (lambda ()
+                 (match-define (list site port deps) (hash-ref offers source))
+                 (before-offer site)
+                 (define-values (v safe)
+                   (spec-pin-at (hash-ref children site) port (hash-ref states site) (bind site deps)))
+                 (set! defined (&& defined safe))
+                 v)))
+  #| A complete edge includes the definedness of unused output offers as well. |#
+  (define (settle-all!)
+    (for ([row (hash-ref graph "order")]) (offer (pin-name (first row) (second row)))))
+  (values wire bind (lambda () defined) settle-all!))
 
-#| Generate unconditional parent-side goals on independent legal old states and arbitrary inputs.
-   Do not evaluate a conditional child's offers, transitions or guarantees in this query. |#
-(define (wired-input-obligations graph children)
+#| Recover all current input reads of a checked predicate, including reads inside conditional branches. |#
+(define (predicate-ports expr)
+  (match-define (list* op _ datum children) expr)
+  (if (equal? op "input") (list datum) (append-map predicate-ports children)))
+
+#| Discharge each occurrence on the same unrestricted sample. Demand upstream proofs first;
+   a site becomes usable only after the checker returns successfully for all its predicates. |#
+(define (discharge-wired-inputs! graph children check!)
   (define inputs (fresh-fields (hash-ref graph "inputs")))
   (define states (for/hash ([(site child) children]) (values site (symbolic-spec-state child))))
-  (define-values (_ samples defined) (settle-wires graph children states inputs #t))
-  (values inputs (andmap spec-state-legal? (hash-values states))
-          (cons (cons 'upstream-defined defined)
-                (for*/list ([(site child) children]
-                            [(name predicate) (spec-input-assumptions child (hash-ref samples site))])
-                  (cons (format "~a/~a" site name) predicate)))))
+  (define legal (andmap spec-state-legal? (hash-values states)))
+  (define status (make-hash))
+  #| Visiting an active occurrence means its own guarantee is needed before its premises hold. |#
+  (define (admit! site)
+    (case (hash-ref status site #f)
+      [(done) (void)]
+      [(visiting) (error 'child-input "circular same-edge input contract at ~a" site)]
+      [else
+       (define model (hash-ref children site))
+       (define predicates (hash-ref model "assumptions"))
+       (unless (zero? (hash-count predicates))
+         (hash-set! status site 'visiting)
+         (define ports (remove-duplicates (append-map predicate-ports (hash-values predicates))))
+         (define goals (spec-input-assumptions model (bind site ports)))
+         (check! inputs legal
+                 (cons (cons 'upstream-defined (defined?))
+                       (for/list ([name (sort (hash-keys goals) string<?)])
+                         (cons (format "~a/~a" site name) (hash-ref goals name))))))
+       (hash-set! status site 'done)]))
+  (define-values (_ bind defined? _all) (make-wire-reader graph children states inputs admit!))
+  (for-each admit! (sort (hash-keys children) string<?)))
 
 #| Execute the graph on matching snapshots. This low-level step is not a proof of its input contracts. |#
 (define (wired-edge-at graph children states inputs)
-  (define-values (pins samples defined) (settle-wires graph children states inputs #f))
-  (values pins (for/hash ([(site child) children])
-                 (values site (spec-edge-at child (hash-ref states site) (hash-ref samples site))))
-          defined))
+  (define-values (wire bind defined? settle-all!) (make-wire-reader graph children states inputs void))
+  (settle-all!)
+  (values (for/hash ([p (hash-ref graph "outputs")]) (values p (wire p)))
+          (for/hash ([(site child) children])
+            (values site (spec-edge-at child (hash-ref states site) (bind site (hash-keys (hash-ref child "inputs"))))))
+          (defined?)))

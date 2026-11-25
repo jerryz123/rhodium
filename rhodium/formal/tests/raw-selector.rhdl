@@ -1,7 +1,8 @@
 #lang rhodium
 // SPDX-License-Identifier: Apache-2.0
 
-import lib("examples/formal/granted-selector.rhdl").LaneSelector
+import lib("examples/formal/granted-selector.rhdl") open
+import lib("flow/arbiter.rhdl").Arbiter
 
 sync_circuit RawSelector():
   input (request_a, request_b, accept): Bool
@@ -14,4 +15,38 @@ sync_circuit RawSelector():
   lanes.word_b <== word_b
   selected <== lanes.selected
 
-export RawSelector
+sync_circuit DuplicateGrant():
+  input (request_a, request_b, accept, swap): Bool
+  input (word_a, word_b): Bits(2)
+  output selected: Bits(2)
+  inst arb(Arbiter(Bits(2), 2))
+  arb.ingress[0].valid <== request_a
+  arb.ingress[1].valid <== request_b
+  arb.ingress[0].bits <== word_a
+  arb.ingress[1].bits <== word_b
+  arb.egress.ready <== accept
+  inst router(LaneRouter())
+  router.grant_a <== arb.ingress[0].ready
+  router.grant_b <== arb.ingress[1].ready
+  router.swap <== swap
+  inst lanes(LaneSelector())
+  lanes.enable_a <== router.route_a
+  lanes.enable_b <== router.route_a
+  lanes.word_a <== word_a
+  lanes.word_b <== word_b
+  selected <== lanes.selected
+
+circuit HighGrant():
+  input enable: Bool
+  output grant: Bool
+  grant <== Bool(#true)
+
+sync_circuit CircularGrants():
+  output granted: Bool
+  inst a(HighGrant())
+  inst b(HighGrant())
+  a.enable <== b.grant
+  b.enable <== a.grant
+  granted <== a.grant
+
+export RawSelector DuplicateGrant HighGrant CircularGrants

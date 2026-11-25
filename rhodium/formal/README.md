@@ -173,8 +173,16 @@ The [parent RTL](../../examples/formal/granted-selector.rhdl) accepts arbitrary
 requests, including simultaneous ones. Its verified arbiter drives the selector
 with grants. Before using the selector's guarantee, the checker proves its
 assumption from those wires. Driving the enables with the raw requests instead
-yields a counterexample, not a restricted parent proof. Clocked leaf and parent
-refinement currently require unconditional contracts.
+yields a counterexample, not a restricted parent proof.
+
+In the same example, `RoutedSelector` puts a conditional `LaneRouter` between
+the arbiter and the selector. The router passes through or swaps the arbiter's
+two grants. Once its own input contract is proved, its outputs can establish
+the selector's contract. Both requests can still be asserted, and either swap
+setting is legal. Connecting one routed grant to both enables fails at the
+selector, with a parent input sample that replays in rspecsim. A child may
+not use its own or a mutually dependent same-edge guarantee. Clocked leaf and
+parent refinement currently require unconditional contracts.
 
 ### Specify a parent without copying its implementation
 
