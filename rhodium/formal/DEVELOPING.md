@@ -462,8 +462,15 @@ membership, tag uniqueness and canonical encoding inductively. Compare the
 monitor successor against the projected local generation/done bits and (only
 for completed allocations) saved data. Use the same transition for certification
 and consumption; no reset value for either bank is assumed.
-The seal retains the exact [spec-IR monitor snapshot](../../examples/formal/two-tag-rob-monitor.rhm)
-stepped during certification. Its named verdicts diagnose failures before the
+The seal retains the exact sampler and monitor snapshots from the
+[RSPECL declaration](../../examples/formal/two-tag-rob.rspl). The pin sampler
+has no state: cycle execution substitutes cared output expressions into the
+four published fields, and the proof samples the full batch from directional
+physical nets. The ROB adapter packs the sparse fields into its existing
+typed batch; it does not recompute handshakes. Before sealing, prove totality and equal presence within
+each tag/generation or payload/echo pair. A detached view is a candidate
+specification, never evidence; each mutant must still fail its own semantic
+proof against the same declaration. The monitor's named verdicts diagnose failures before the
 successor check; they are not assumptions. The [representation test](tests/two-tag-rob-monitor.rkt)
 checks the ordered slots against independent per-tag banks at all three occupancies.
 The former Racket transition lives only in the [differential oracle](tests/two-tag-rob-oracle.rkt):

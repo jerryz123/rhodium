@@ -4,11 +4,13 @@
 
 (require rackunit "composition-checks.rkt" "two-tag-rob-transactions.rkt"
          "../../../examples/formal/two-tag-rob-contract.rkt"
-         (only-in "../../../examples/formal/two-tag-rob-monitor.rhm" two_tag_rob_monitor)
+         (only-in "../../../examples/formal/two-tag-rob.rspl" TwoTagROB)
+         (only-in "../../../rspecl/rtl-boundary.rhm" transaction_parts)
          (only-in "../spec.rhm" spec_snapshot)
          "../spec-engine.rkt")
 
-(define model (spec_snapshot (two_tag_rob_monitor)))
+(define-values (_sampler monitor _inputs _outputs) (transaction_parts (TwoTagROB #:transaction_view #t)))
+(define model (spec_snapshot monitor))
 
 ;; Transport fields only. In particular, do not suppress events on reset, discard duplicates,
 ;; derive a retirement from a completion, or assume that a batch will be accepted.

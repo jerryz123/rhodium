@@ -7,13 +7,13 @@
                   fifo-cut-locals fifo-cut-batch fifo-cut-domain fresh-fifo-history fifo-allows?
                   fifo-history-count fifo-history-slots fifo-transactions-width fifo-transactions-capacity
                   check-refinement-phase!)
-         (only-in "two-tag-rob-monitor.rhm" two_tag_rob_monitor)
+         (only-in "two-tag-rob.rspl" TwoTagROB)
          (only-in "../../rhodium/formal/spec.rhm" spec_snapshot)
          (only-in "../../rhodium/formal/spec-engine.rkt" spec-edge-at edge-state edge-next edge-outputs
                   edge-defined edge-legal spec-state-legal? sequence-value sequence-value-slots sequence-value-count
-                  observation-care observation-value)
+                  observation-care observation-value edge-events fresh-fields)
          (only-in "../../rhodium/formal/port-types.rhm" leaf_layout)
-         (only-in "../../rspecl/rtl-boundary.rhm" interface_prefixes)
+         (only-in "../../rspecl/rtl-boundary.rhm" interface_prefixes transaction_parts)
          (only-in "../../rhodium/frontend/layers/bool.rhm" Bool))
 (provide certify-rob rob-contract-for? rob-step sample-rob-events symbolic-rob-cut fresh-rob-history fresh-rob-events
          (struct-out response) (struct-out rob-events)
@@ -22,14 +22,17 @@
 
 ;; This module owns exactly one event view. A seal names its exact RTL and physical layout,
 ;; not a child proof, cut, graph or executable cycle model.
-(struct seal (definition layout monitor))
+(struct seal (definition layout sampler monitor))
 (struct response (present gen data) #:transparent)
 (struct rob-events (reset grant grant-tag grant-gen a b retire retire-tag retire-data) #:transparent)
 (struct entry (tag gen done data) #:transparent)
 (struct rob-history (count head tail) #:transparent)
 (module+ history-types (provide (struct-out entry) (struct-out rob-history))) ; test oracle data, never evidence
 (define unused (entry #f #f #f (bv 0 2)))
-(define monitor (spec_snapshot (two_tag_rob_monitor)))
+(define-values (sampler-model monitor-model sampled-ins sampled-outs)
+  (transaction_parts (TwoTagROB #:transaction_view #t)))
+(define monitor (spec_snapshot monitor-model))
+(define sampler (spec_snapshot sampler-model))
 (unless (zero? (hash-count (hash-ref monitor "assumptions")))
   (error 'certify-rob "the public transaction monitor must judge every batch without assumptions"))
 
@@ -154,20 +157,36 @@
      (&& ok (equal? live (hash-ref regs busy)) (=> (hash-ref regs done) live)))
    (rob-history n (first slots) (second slots))))
 
-#| Decode one joint event batch from sampled interface members, identically at producer and consumer. |#
-(define (sample-rob-events inputs outputs)
-  #| Read an input driven by the ROB's environment. |#
-  (define (in k) (hash-ref inputs k))
-  #| Read an output sampled at the same boundary. |#
-  (define (out k) (hash-ref outputs k))
-  (define reset (in "reset"))
-  (define a (&& (! reset) (out "grant_a")))
-  (define b (&& (! reset) (out "grant_b")))
-  #| Reset cancels both completion pulses in the public epoch. |#
-  (define (pulse present gen data) (response (&& (! reset) (in present)) (in gen) (in data)))
-  (rob-events reset (|| a b) b (out "issue_gen")
-                (pulse "complete_a" "complete_gen_a" "result_a") (pulse "complete_b" "complete_gen_b" "result_b")
-                (&& (! reset) (in "retire.ready") (out "retire.valid")) (out "retire.bits") (out "retire_result")))
+#| Run the declaration's passive sampler on the actual directional pins. This adapter only
+   packs its sparse fields into the existing public batch; it does not infer transfers. |#
+(define (sample-batch snapshot inputs outputs)
+  (define pins (for/fold ([pins (for/hash ([k sampled-ins]) (values k (hash-ref inputs k)))])
+                         ([k sampled-outs]) (hash-set pins k (hash-ref outputs k))))
+  (define fields (edge-events (spec-edge-at snapshot (hash) pins)))
+  #| Sparse presence and payload are distinct even for Boolean or zero-valued data. |#
+  (define (present k) (observation-care (hash-ref fields k)))
+  #| Uncared values do not constrain a permitted public batch. |#
+  (define (value k) (observation-value (hash-ref fields k)))
+  (rob-events (present "reset") (present "issued") (value "issued") (value "issued_gen")
+              (response (present "echo_a") (value "echo_a") (value "data_a"))
+              (response (present "echo_b") (value "echo_b") (value "data_b"))
+              (present "retired") (value "retired") (value "retired_value")))
+
+#| Sample the wrapper's own public pins for comparison with its sealed child's batch. |#
+(define (sample-rob-events inputs outputs) (sample-batch sampler inputs outputs))
+
+#| Before sealing, prove that sampling is total on arbitrary pins and no joint event
+   can carry a tag without its generation, or a payload without its matching pulse. |#
+(define (check-sampler!)
+  (define edge (spec-edge-at sampler (hash) (fresh-fields (hash-ref sampler "inputs"))))
+  #| The adapter reads a pair as one event; both fields must have identical presence. |#
+  (define (paired x y)
+    (equal? (observation-care (hash-ref (edge-events edge) x))
+            (observation-care (hash-ref (edge-events edge) y))))
+  (check-refinement-phase! 'rob-sampler #t
+    (list (cons 'total (edge-defined edge)) (cons 'grant (paired "issued" "issued_gen"))
+          (cons 'retirement (paired "retired" "retired_value"))
+          (cons 'completion-a (paired "echo_a" "data_a")) (cons 'completion-b (paired "echo_b" "data_b")))))
 
 #| Bind a seal to the wrapper's actual child and sample its events without opening the ROB. |#
 (define (symbolic-rob-cut top site evidence)
@@ -177,11 +196,12 @@
   (define-values (ins outs edges ci co)
     (symbolic-wrapper-cut top (leaf_layout top (interface_prefixes top)) Bool site
                           (seal-definition evidence) layout outputs))
-  (values ins outs edges (sample-rob-events ci co)))
+  (values ins outs edges (sample-batch (seal-sampler evidence) ci co)))
 
 #| Issue evidence only after reset and every allowed child successor refine the exact monitor
    used by rob-step. There is no caller-supplied decoder, proof callback, or constructor. |#
 (define (certify-rob top child)
+  (check-sampler!)
   (define layout (leaf_layout top (interface_prefixes top)))
   (define cut (symbolic-fifo-cut top layout Bool "order" child))
   (unless (and (= (fifo-transactions-width child) 2) (= (fifo-transactions-capacity child) 2)
@@ -218,4 +238,4 @@
     (&& step (= (rob-history-count old) 2) (! (entry-tag (rob-history-head old)))
         (! (entry-done (rob-history-head old))) (entry-done (rob-history-tail old))
         (hash-ref inputs "retire.ready") (! (rob-events-retire events))) '())
-  (seal top layout monitor))
+  (seal top layout sampler monitor))

@@ -11,13 +11,14 @@ import:
   lib("rhodium/frontend/foundation.rhm").Bool
   lib("rhodium/frontend/layers/interface.rhm") as iface
   lib("rhodium/formal/port-types.rhm") open
-  lib("rhodium/formal/spec.rhm").input_ref
-  lib("rhodium/formal/spec.rhm").SpecExpr
+  lib("rhodium/formal/spec.rhm") open
   lib("rhodium/formal/fifo-view.rhm").make_fifo_view
 
 export declared_ports interface_prefixes Endpoint
 export ready_valid_events bind_event_source
+export transaction_view check_transaction_ports transaction_parts
 export:
+  only_space annot: TransactionView
   rename: ScalarPins as rv_pins
 
 /* Flat logical field schemas and lexical views, with no RTL drivers or implementation state. */
@@ -127,3 +128,38 @@ fun bind_event_source(source :: Function.of_arity(1), top :: Module):
   def view = source(top)
   unless view.top === top | error("event view does not match the elaborated top")
   view
+
+/* An unproved description: sample one physical edge, publish selected cycle events, and judge batches with a separate monitor. */
+class TransactionView(sampler :: LeafModel, monitor :: LeafModel, cycle_names :: List.of(String), inputs :: Map, outputs :: Map)
+
+/* Collect just the physical pins used by an ordinary event helper. Repeated reads share a direction and sort. */
+fun transaction_view(monitor :: LeafModel, cycle_names :: List.of(String), build :: Function.of_arity(2)):
+  def ins = MutableMap{}
+  def outs = MutableMap{}
+  /* Record a directional reference for validation against the elaborated signature. */
+  fun reader(own :: MutableMap, other :: MutableMap):
+    fun (name :: String, sort :: SpecBool || SpecBits):
+      when other.has_key(name) || (own.has_key(name) && !spec_type_equal(own[name], sort))
+      | error("inconsistent transaction pin: " ++ name)
+      own[name] := sort
+      input_ref(name, sort)
+  def events = build(reader(ins, outs), reader(outs, ins))
+  def pins = ins.snapshot() ++ outs.snapshot()
+  def sampler = make_spec(pins, {}, {}, {}, events, {})
+  def published = for Set (name in cycle_names):
+    unless events.has_key(name) | error("unknown published transaction event: " ++ name)
+    name
+  unless published.length() == cycle_names.length() | error("duplicate published transaction event")
+  TransactionView(sampler, monitor, cycle_names, ins.snapshot(), outs.snapshot())
+
+/* Binding a cycle model cannot silently reverse an input and an output of identical width. */
+fun check_transaction_ports(view :: TransactionView, ports :: SampledPorts):
+  for (used in [view.inputs, view.outputs], actual in [ports.inputs, ports.outputs]):
+    for ((name, sort) in used):
+      unless actual.has_key(name) && spec_type_equal(actual[name], sort)
+      | error("transaction pin direction or type mismatch: " ++ name)
+  view
+
+/* Expose the two executable models and directional pin lists, not evidence of implementation correctness. */
+fun transaction_parts(view :: TransactionView):
+  values(view.sampler, view.monitor, PairList[& view.inputs.keys()], PairList[& view.outputs.keys()])

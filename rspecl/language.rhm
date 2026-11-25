@@ -17,6 +17,7 @@ export:
   spec
   rename: boundary.ready_valid_events as ready_valid_events
   rename: boundary.rv_pins as rv_pins
+  rename: boundary.transaction_view as transaction_view
 
 meta:
   import lib("racket/base.rkt").#{syntax-local-context} as expansion_context
@@ -79,6 +80,7 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
   def assumptions = MutableMap{}
   def mutable ignored = []
   def mutable event_source = #false
+  def mutable transaction = #false
   def mutable body = []
   /* Capture a declaration's value at its lexical site, not after later shadowing. */
   fun record(table :: MutableMap, key :: String, rhs :: Syntax, site :: Syntax):
@@ -110,6 +112,9 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
         when event_source | syntax_meta.error("duplicate sampled event source", clause)
         event_source := Syntax.make_temp_id("event_source")
         body := body ++ ['def $event_source = $rhs ...']
+    | 'transactions $rhs ...':
+        when transaction | syntax_meta.error("duplicate transaction view", clause)
+        transaction := '($rhs ...)'
     | 'assume $(n :: Identifier) = $v ...': record(assumptions, field_name(n), 'operand($v ...)', clause)
     | 'next $(n :: Identifier) = $v ...':
         def key = field_name(n)
@@ -119,6 +124,7 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
 
   let [decl, ...] = body
   let [skip, ...] = ignored
+  when transaction && event_source | syntax_meta.error("choose one sampled event source", name)
   def args = if event_source | '(top, ~event_view: view_only :: Boolean = #false)' | '(top)'
   def build = 'ir.make_spec(bound.ports.inputs, $(map_expr(states)), $(map_expr(initial)),
                             cycle_outputs, cycle_events, $(map_expr(updates)), ~assumptions: $(map_expr(assumptions)))'
@@ -128,6 +134,12 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
                 && ![states, outputs, events, assumptions, updates].find(fun (table): table.length() != 0)
   def finish:
     cond
+    | transaction: '«
+         def view = boundary.check_transaction_ports(attached, bound.ports)
+         def cycle_events = ir.include_sampled_events(view.sampler, cycle_outputs, $(map_expr(events)), ~only: view.cycle_names)
+         def checked = check_output_types($build, bound.ports.outputs, [$skip, ...])
+         if tx_only | view | checked
+       »'
     | passive:
         '«
            unless view_only | error("passive-only spec: request ~event_view: #true")
@@ -143,7 +155,7 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
          def cycle_events = $(map_expr(events))
          check_output_types($build, bound.ports.outputs, [$skip, ...])
        »'
-  'fun $name $args:
+  def cycle_body = '«
      def bound = boundary.declared_ports(top, $family, $sync)
      def $pin = ir.input_ref($pin_key, bound.ports.inputs[$pin_key])
      ...
@@ -156,4 +168,15 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
      $decl
      ...
      def cycle_outputs = $(map_expr(outputs))
-     $finish'
+     $finish
+   »'
+  if transaction
+  | '«
+       def attached :: boundary.TransactionView = $transaction
+       fun $name(top = #false, ~transaction_view: tx_only :: Boolean = #false):
+         cond
+         | top: $cycle_body
+         | tx_only: attached
+         | ~else: error("cycle execution requires an elaborated RTL specialization")
+     »'
+  | 'fun $name $args: $cycle_body'

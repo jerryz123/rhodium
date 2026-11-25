@@ -5,10 +5,24 @@ import:
   rhombus.bits.(?) as ?
   lib("examples/formal/two-tag-rob.rhdl") as rtl
   "../../../examples/formal/two-tag-rob.rspl".TwoTagROB
+  lib("rspecl/rtl-boundary.rhm").transaction_parts
   lib("rhodium/frontend/foundation.rhm").elaborate
   "../spec.rhm".step_spec
 
-def rob = TwoTagROB(elaborate(rtl.TwoTagROB()).top)
+def top = elaborate(rtl.TwoTagROB()).top
+def rob = TwoTagROB(top)
+def values(sampler, _, _, _) = transaction_parts(TwoTagROB(top, ~transaction_view: #true))
+def sample = {"reset": #false, "grant_a": #false, "grant_b": #true, "issue_gen": #false,
+              "retire.ready": #true, "retire.valid": #true, "retire.bits": #false, "retire_result": 3,
+              "complete_a": #true, "complete_gen_a": #true, "result_a": 2,
+              "complete_b": #true, "complete_gen_b": #false, "result_b": 0}
+def pulses = {"echo_a": #true, "data_a": 2, "echo_b": #false, "data_b": 0}
+def granted = {"issued": #true, "issued_gen": #false}
+fun sampled(changes): step_spec(sampler, {}, sample ++ changes).events
+check:
+  sampled({}) ~is pulses ++ granted ++ {"retired": #false, "retired_value": 3}
+  sampled({"retire.ready": #false}) ~is pulses ++ granted
+  sampled({"reset": #true}) ~is {"reset": #true}
 def mutable cases = 0
 // Use integer allocation serials. Store the full serial on each live entry and compare only
 // its low bit at the wire boundary, independently of the RTL's retirement-driven toggles.

@@ -10,9 +10,30 @@ import:
   "shift-queue-fixture.rhdl" as pairs
   "queue-pair.rspl" as views
   "../fifo-view.rhm".sample_fifo_events
+  "../../../examples/formal/two-tag-rob.rspl" as rob_specs
+  lib("rspecl/rtl-boundary.rhm").transaction_parts
+  "../spec.rhm".Observed
 
 // Check the actual pre-edge sampler independently of any particular RTL trace or queue state.
 def pair_top = elaborate(pairs.QueuePair(1)).top
+def tx = rob_specs.TwoTagROB(~transaction_view: #true)
+def values(_, ref_monitor, _, _) = transaction_parts(tx)
+check:
+  rob_specs.TwoTagROB(pair_top, ~transaction_view: #true) ~throws "specialization of TwoTagROB"
+check:
+  block:
+    spec for rtl.ParamProbe:
+      transactions transaction_view(ref_monitor, ["sample"], fun (read, _write): {"sample": Observed(read("bad", Bool))})
+      observe bad = #false
+    ParamProbe(elaborate(rtl.ParamProbe(0)).top)
+  ~throws "transaction pin direction or type mismatch: bad"
+check:
+  block:
+    spec for rtl.ParamProbe:
+      transactions transaction_view(ref_monitor, ["sample"], fun (_read, write): {"sample": Observed(write("bad", Bits(1)))})
+      observe bad = #false
+    ParamProbe(elaborate(rtl.ParamProbe(0)).top)
+  ~throws "transaction pin direction or type mismatch: bad"
 def pair_view = views.QueuePair(pair_top, ~event_view: #true)
 check:
   views.QueuePair(pair_top) ~throws "passive-only spec"

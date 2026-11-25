@@ -87,7 +87,7 @@ Use `rob-step` with that evidence, an abstract history and a joint public batch:
 reset, optional grant (tag and issued generation), both completion pulses
 (echo and payload), and optional retirement (tag and payload). It returns
 permission and a successor; use the successor only if the batch is permitted.
-Both certification and `rob-step` execute the same [spec-IR transaction monitor](../../examples/formal/two-tag-rob-monitor.rhm).
+Both certification and `rob-step` execute the monitor from the [same RSPECL declaration](../../examples/formal/two-tag-rob.rspl) as the cycle model.
 Start from `(fresh-rob-history)` with a reset batch to establish an empty log.
 A completion applies to an already-live grant, not a
 grant on that same edge. No retirement deadline is implied, even for a
@@ -189,6 +189,19 @@ Outputs and events do not introduce bindings. An interface input such as
 `observe` describes
 what is visible; `event` describes what happened. On either, `when` controls
 presence, not the payload value. Omit it for an always-present field.
+
+A `transactions` clause attaches a stateless pin sampler and a separate
+history monitor to one `spec for`. In `TwoTagROB(top)`, the sampler reads
+the cycle model's outputs and publishes the existing `issued`, `issued_gen`,
+`retired`, and `retired_value` events. At a proof boundary the same sampler
+reads physical pins; the full batch includes reset and both completion lanes.
+The monitor judges that batch without predicting when a grant or retirement occurs.
+Use `TwoTagROB(top, ~transaction_view: #true)` for the signature-checked
+view. `TwoTagROB(~transaction_view: #true)` returns just the unproved
+description, so a verifier can test a candidate implementation against it.
+Neither form supplies proof evidence. This attachment is built at declaration
+scope and currently supports a fixed transaction schema, not per-specialization
+cycle state or parameters.
 
 Use `Bool`, `Bits(width)` or `Seq(element, capacity)` for types. For host
 configuration decisions, ordinary `if` runs at construction time. For a

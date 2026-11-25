@@ -170,9 +170,9 @@ fun make_spec(inputs :: Map, state :: Map, initial :: Map, outputs :: Map, event
     link(expr)
   Model(inputs, state, initial, outputs, events, updates, assumptions)
 
-/* Inline a stateless pin sampler in a cycle model. A demanded output must be cared for.
-   Sampler-domain checks become definedness obligations, never assumptions on the model. */
-fun include_sampled_events(sampler :: Model, outputs :: Map, events :: Map):
+/* Inline the published fields of a stateless sampler in a cycle model. A demanded output must be
+   cared for; sampler-domain checks become definedness obligations, never assumptions on the model. */
+fun include_sampled_events(sampler :: Model, outputs :: Map, events :: Map, ~only: names :: maybe(List.of(String)) = #false):
   unless sampler.state.length() == 0 && sampler.outputs.length() == 0 && sampler.events.length() > 0
   | error("expected a stateless event sampler")
   /* Require a predicate on the executed path, preserving the type and value of the guarded read. */
@@ -186,7 +186,8 @@ fun include_sampled_events(sampler :: Model, outputs :: Map, events :: Map):
         unless same_type(field.value.type, expr.type) | error("event pin type mismatch: " ++ expr.datum)
         guarded(field.care, field.value, expr.datum)
     | ~else: Expr(expr.op, expr.type, expr.args.map(bind), expr.datum)
-  def projected = for Map ((name, field :: Observed) in sampler.events):
+  def projected = for Map (name in (names || sampler.events.keys())):
+    def field :: Observed = sampler.events[name]
     when events.has_key(name) | error("duplicate spec declaration: " ++ name)
     def mutable care = bind(field.care)
     for ((label, predicate) in sampler.assumptions):
