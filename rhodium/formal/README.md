@@ -8,9 +8,9 @@ Rhodium IR. It checks deterministic combinational behavior with Rosette
 fixed-width bitvectors; it does not participate in elaboration, change Rhodium
 semantics, or get imported by `#lang rhodium`.
 
-Implementation status and future stages are owned by the
-[`formal-engine plan`](PLAN.md). This README documents only the implemented
-public contract.
+This README documents the implemented public contract. The
+[formal plan](PLAN.md) sets out Rhodium's direction: executable specifications,
+leaf refinement proofs, and parent proofs that use verified child models.
 Contributors changing solver semantics, query handling, replay, or coverage
 should read [`DEVELOPING.md`](DEVELOPING.md).
 
@@ -164,8 +164,7 @@ This is not an unbounded or bounded sequential model checker, a four-state
 simulator, a structural equivalence checker, or a synthesis engine. It does
 not assign semantics to invalid one-hot selectors, memory collisions,
 disabled memory reads, external DPI behavior, or other unspecified hardware
-choices. See [`PLAN.md`](PLAN.md) for staged work beyond the implemented
-combinational contract.
+choices.
 
 ## Validation targets
 
