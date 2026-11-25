@@ -20,5 +20,6 @@
          (submod "shift-queue-replay.rkt" test)
          (submod "shift-queue-induction.rkt" test)
          "queue-pair-transaction-order.rkt"
+         (submod "queue-pair-series.rkt" test)
          "spec-symbolic-test.rhm"
          "transition-test.rhm")

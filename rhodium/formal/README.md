@@ -24,7 +24,10 @@ words. This suffices to prove that the kth retirement matches the kth
 acceptance since reset. The contract supplies no cycle pins: it guarantees
 neither immediate admission nor eventual delivery. The [proof example](tests/queue-pair-transaction-order.rkt)
 obtains it with `(verified-queue-pair-transactions-at depth)` and checks event
-batches with `fifo-allows?`.
+batches with `fifo-allows?`. [QueuePairSeries](tests/queue-pair-series.rkt) connects
+`QueuePair(1)` to `QueuePair(2)`. Their transaction contracts suffice to prove
+FIFO retirement and at most six pending words. The chain can refuse the next
+offer with just one word pending; its six-word bound is not a readiness guarantee.
 A separate [arbiter proof](DEVELOPING.md#two-input-fixed-priority-arbiter)
 covers a two-input, two-bit Decoupled arbiter: lane 0 wins ties and each
 output transfer consumes exactly the winning input. A stalled grant is not

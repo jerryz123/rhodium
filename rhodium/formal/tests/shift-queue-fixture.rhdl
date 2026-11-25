@@ -35,6 +35,29 @@ sync_circuit QueuePair(depth :: PosInt = 2):
   valid <== b.egress.valid
   head <== b.egress.bits
 
+// A pure wire between two independently certified transaction endpoints.
+sync_circuit QueuePairSeries(~wrong_ready: _wrong_ready :: Boolean = #false):
+  input offer: Bool
+  input data: Bits(2)
+  input consume: Bool
+  output ready: Bool
+  output valid: Bool
+  output head: Bits(2)
+
+  inst front(QueuePair(1))
+  inst back(QueuePair(2))
+  front.offer <== offer
+  front.data <== data
+  ready <== front.ready
+
+  back.offer <== front.valid
+  back.data <== front.head
+  front.consume <== (if _wrong_ready | consume | back.ready)
+
+  back.consume <== consume
+  valid <== back.valid
+  head <== back.head
+
 // Uses a real diagnostic pin that the public FIFO contract deliberately does not model.
 sync_circuit DiagnosticTap():
   input offer: Bool
@@ -53,4 +76,4 @@ sync_circuit InvertingParent():
   output inverted: Bool
   inverted <== !enable
 
-export InvertingParent GroupedProbe GuardedAssertion QueuePair DiagnosticTap
+export InvertingParent GroupedProbe GuardedAssertion QueuePair QueuePairSeries DiagnosticTap

@@ -6,6 +6,7 @@
          (only-in "../refinement.rkt" fresh-fifo-history fifo-events fifo-allows?
                   fifo-history-count fifo-history-slots fifo-transactions-capacity fifo-transactions-width)
          (only-in "shift-queue-pair.rkt" verified-queue-pair-transactions-at))
+(provide check-retirement-order check-ready-not-entailed)
 
 ;; The observer counts accepted and retired words since reset. For arbitrary ordinal k,
 ;; it remembers the payload on the kth acceptance, independently of the FIFO history.
@@ -43,8 +44,7 @@
     (check-equal? (fifo-transactions-capacity contract) (* 2 depth))
     (check-retirement-order contract)))
 
-(test-case "ready whenever space remains is not entailed by the event contract"
-  (define contract (verified-queue-pair-transactions-at 1))
+(define (check-ready-not-entailed contract)
   (define (fresh) (fresh-fifo-history contract))
   (define old (fresh))
   (define empty (fresh))
@@ -64,5 +64,8 @@
   (check-true (sat? witness))
   (check-false (evaluate ready witness))
   (check-equal? (evaluate (fifo-history-count next) witness) 1)
-  ;; The weaker view permits either choice: the real depth-one RTL picks refusal.
+  ;; The event view permits either choice for this offer.
   (require-feasible (&& allowed space ready)))
+
+(test-case "ready whenever space remains is not entailed by the event contract"
+  (check-ready-not-entailed (verified-queue-pair-transactions-at 1)))

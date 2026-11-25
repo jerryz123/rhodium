@@ -199,6 +199,19 @@ accept/retire. It imports neither child model. From reset and one acceptance,
 both refusal and admission of a second offer are consistent with the contract;
 only the concrete implementation determines which occurs on that edge.
 
+`compose-fifo-series` admits a narrower wiring-only parent using **only** two
+transaction results. It matches the actual child definitions, all three
+valid/ready/data connections (ingress, handoff, egress), and each clock/reset
+driver. This cut accepts scalar ports and no local behavior. An independent
+ready driver is rejected before constructing a shared middle event. The solver
+then ranges over all simultaneous event batches and successors allowed by
+both child relations. It proves the joint external FIFO rule on the downstream
+pending words followed by the upstream words; only the internal transfer is hidden.
+The [series regression](tests/queue-pair-series.rkt) feeds the resulting
+six-word contract to the original ordering observer. Its separate full-RTL
+replay checks refusal on the second offer and a reachable six-word fill/drain;
+that trace is not a premise of the proof.
+
 The [depth-one replay](tests/queue-pair-trace.rhm) steps rspecsim on the extracted
 wiring and sends the same eight input samples and cared pre-edge observations to
 the [native RTL driver](tests/queue-pair-replay.cpp). It checks refusal during

@@ -4,10 +4,10 @@
 
 (require racket/match (only-in racket/base [equal? host-equal?] [eq? host-eq?])
          "engine.rkt" "spec-engine.rkt" (only-in "snapshot.rhm" formal_snapshot) (only-in "spec.rhm" spec_snapshot)
-         (only-in "wiring.rhm" cut_parts leaf_protocol leaf_layout))
+         (only-in "wiring.rhm" cut_parts leaf_protocol leaf_layout scalar_series_wiring))
 (provide prove-leaf prove-parent prepare-proved-wiring proved-child-model symbolic-cut-state proved-edge-at view-agrees? pack-pins unpack-pins)
 (provide exn:fail:input-contract? exn:fail:input-contract-goal exn:fail:input-contract-inputs)
-(provide prove-fifo-transactions fifo-transactions-for? fifo-transactions-capacity fifo-transactions-width
+(provide prove-fifo-transactions compose-fifo-series fifo-transactions-for? fifo-transactions-capacity fifo-transactions-width
          fresh-fifo-history fifo-allows? (struct-out fifo-history) (struct-out fifo-events))
 
 ;; Private constructors. These are live elaboration identities, not transferable certificates.
@@ -282,3 +282,66 @@
   (check-phase 'transaction-reset (&& legal rst) goals)
   (check-phase 'transaction-step (&& legal (! rst)) goals)
   (fifo-transactions (proved-cut-definition plan) ingress egress capacity width))
+
+#| Check the two external handshakes and the internal valid/ready/payload paths against the actual
+   parent drivers. Only this direct, shared-epoch cut licenses identifying the two middle events. |#
+(define (check-series-wiring! top ingress egress a front b back)
+  (define-values (children wires) (scalar_series_wiring top))
+  (unless (and (not (host-equal? a b))
+               (for/and ([site (list a b)] [child (list front back)])
+                 (and (fifo-transactions? child)
+                      (host-eq? (hash-ref children site #f) (fifo-transactions-definition child)))))
+    (error 'fifo-series "transaction evidence does not match the RTL occurrences"))
+  (unless (and (= (fifo-transactions-width front) (fifo-transactions-width back))
+               (andmap (lambda (p) (and (string? p) (not (regexp-match? #rx"[.]" p)))) (append ingress egress))
+               (= 8 (length (remove-duplicates (append '("clock" "reset") ingress egress)))))
+    (error 'fifo-series "incompatible FIFO endpoints"))
+  #| Qualify a physical pin at its actual occurrence. |#
+  (define (pin site p) (string->immutable-string (string-append site "." p)))
+  #| Preserve valid/ready/data order when qualifying a certified endpoint. |#
+  (define (at site pins) (map (lambda (p) (pin site p)) pins))
+  #| Check one driver, reporting the failing RTL sink before any proof hypotheses are built. |#
+  (define (wire! sink source)
+    (unless (host-equal? (hash-ref wires sink #f) source)
+      (error 'fifo-series "expected ~a driven by ~a, got ~a" sink source (hash-ref wires sink #f))))
+  #| Valid and data travel forward; the ready driver travels in the opposite direction. |#
+  (define (link! from to)
+    (match-define (list fv fr fd) from)
+    (match-define (list tv tr td) to)
+    (wire! tv fv) (wire! fr tr) (wire! td fd))
+  (for* ([site (list a b)] [p '("clock" "reset")]) (wire! (pin site p) p))
+  (link! ingress (at a (fifo-transactions-ingress front)))
+  (link! (at a (fifo-transactions-egress front)) (at b (fifo-transactions-ingress back)))
+  (link! (at b (fifo-transactions-egress back)) egress)
+  ;; Four epoch drivers and three links of three wires each; no additional sinks.
+  (unless (= 13 (hash-count wires)) (error 'fifo-series "unexpected parent or child wiring")))
+
+#| Place the downstream live prefix before the upstream live prefix; padding is unobservable.
+   Splitting at concrete offsets keeps projection total even for arbitrary pre-reset counts. |#
+(define (series-history downstream upstream)
+  (match-define (fifo-history n back) downstream)
+  (match-define (fifo-history m front) upstream)
+  (fifo-history (+ n m)
+                (for/fold ([slots (append back front)]) ([split (in-range (length back))])
+                  (if (= split n) (append (take back split) front (drop back split)) slots))))
+
+#| Certify the parent's transaction view over every joint step allowed by the two opaque theorems.
+   No cycle offers are predicted; the checked wires justify sharing one transfer and word. |#
+(define (compose-fifo-series top ingress egress front-site front back-site back)
+  (check-series-wiring! top ingress egress front-site front back-site back)
+  (define width (fifo-transactions-width front))
+  (define capacity (+ (fifo-transactions-capacity front) (fifo-transactions-capacity back)))
+  (define a (fresh-fifo-history front))
+  (define b (fresh-fifo-history back))
+  (define an (fresh-fifo-history front))
+  (define bn (fresh-fifo-history back))
+  (define-symbolic* reset push handoff pop boolean?)
+  (define-symbolic* in middle out (bitvector width))
+  (define allowed (&& (fifo-allows? front a (fifo-events reset push in handoff middle) an)
+                      (fifo-allows? back b (fifo-events reset handoff middle pop out) bn)))
+  (define parent-step
+    (fifo-rule capacity width (series-history b a) (fifo-events reset push in pop out) (series-history bn an)))
+  (define goals (list (cons 'external-history parent-step)))
+  (check-phase 'series-reset (&& reset allowed) goals)
+  (check-phase 'series-step (&& (! reset) allowed) goals)
+  (fifo-transactions top ingress egress capacity width))

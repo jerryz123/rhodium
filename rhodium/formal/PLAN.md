@@ -31,6 +31,8 @@ It now exports a run-local FIFO transaction contract. An
 [event-only consumer](tests/queue-pair-transaction-order.rkt) proves retirement
 order from that contract without stepping the children. This result cannot
 drive cycle pins or require admission whenever space remains.
+The [series parent](tests/queue-pair-series.rkt) now composes two such theorems
+across a checked RTL handoff and exports a six-word FIFO bound and ordering.
 The parent fixtures share an admission check: each
 occurrence needs run-local evidence for its actual implementation and full
 contract. No persistent evidence cache or general parent-logic checker is
@@ -201,9 +203,9 @@ does not qualify. The boundary checks are part of the rule:
   change requires new leaf evidence for that same contract; changing the view
   or a relied-on assumption invalidates the dependent parent claim.
 
-An RTL wiring cut uses the **operational** child spec. The FIFO event consumer
-is the first narrower case that uses only an exported theorem; general
-theorem-only composition remains future work. Parent verification
+Cycle-sensitive RTL cuts use the **operational** child spec. Event-only observers
+and direct series wiring between two certified FIFO endpoints can use exported
+theorems alone; general theorem-only composition remains future work. Parent verification
 must consider all behavior those theorems permit. A theorem-only contract is
 not automatically an executable replacement for simulation.
 

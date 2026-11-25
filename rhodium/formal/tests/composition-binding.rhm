@@ -11,6 +11,7 @@ import:
   lib("rspecl/rtl-boundary.rhm").interface_prefixes
   "../wiring.rhm".leaf_layout
   "shift-queue-fixture.rhdl".QueuePair
+  "shift-queue-fixture.rhdl".QueuePairSeries
   lib("examples/formal/arbiter-queue.rhdl").ArbiterQueue
   lib("examples/formal/buffered-arbiter-queue.rhdl").BufferedArbiterQueue
   lib("examples/formal/gated-arbiter-queue.rhdl").GatedArbiterQueue
@@ -27,11 +28,14 @@ export registered_lane registered_routed registered_duplicate
 export capture_gate arbitrated_capture raw_capture
 export gated_at leaky_at outer_at
 export pair_at fifo_definition arbiter_definition mixed wrong_lane undersized
+export pair_series wrong_ready_series
 export interface_prefixes pin_layout leaf_sites
 export proof_depths parent_at wrong_lane_at fifo_at
 
 // Keep the actual definitions, not generated module names, in one elaboration.
 def pairs = MutableMap{}
+def mutable pair_series = #false
+def mutable wrong_ready_series = #false
 def mutable arbiter_definition = #false
 def fifos = MutableMap{}
 def proof_depths = PairList[1, 2, 3]
@@ -77,6 +81,8 @@ fun inventory():
   raw_capture := materialize_circuit(RawCapture())
   for (d in [1, 2]):
     pairs[d] := materialize_circuit(QueuePair(d))
+  pair_series := materialize_circuit(QueuePairSeries())
+  wrong_ready_series := materialize_circuit(QueuePairSeries(~wrong_ready: #true))
   for (d in proof_depths):
     fifos[d] := materialize_circuit(ShiftQueue(Bits(2), d))
     parents[d] := materialize_circuit(ArbiterQueue(2, ~depth: d))

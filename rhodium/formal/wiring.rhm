@@ -8,7 +8,7 @@ import:
   "parent-local.rhm" open
   "port-types.rhm".sampled_type
 
-export wiring_cut bind_wiring proof_cut cut_parts leaf_protocol leaf_layout
+export wiring_cut scalar_series_wiring bind_wiring proof_cut cut_parts leaf_protocol leaf_layout
 
 /* The first proof profiles have unrestricted traffic: clockless, or one named rising-edge clock. */
 fun leaf_protocol(top :: Module):
@@ -41,6 +41,23 @@ fun port_leaves(p :: Port, prefixes :: Map, visit :: Function.of_arity(2)):
 /* Stop at child signatures. Record creation and selection only route existing wires. */
 fun wiring_cut(top :: Module, interface_prefixes :: Function.of_arity(1)):
   def values(children, wires, _) = extract_cut(top, interface_prefixes, #false)
+  values(children, wires)
+
+/* Read a direct FIFO series connection using physical scalar pin names, never child internals
+   or caller-supplied aliases. Reserve the dot for qualifying a pin by its occurrence. */
+fun scalar_series_wiring(top :: Module):
+  /* Check the clocked signatures before using unqualified physical port names. */
+  fun scalar_ports(m :: Module):
+    unless leaf_protocol(m) == "single-clock-reset" | error("expected a single rising-edge clock")
+    for (p :: Port in m.inputs ++ m.outputs):
+      when p.name.contains(".") || record_type(p.type) || vector_type(p.type)
+      | error("expected unqualified scalar FIFO port: " ++ p.name)
+    {}
+  unless top.inputs.length() == 5 && top.outputs.length() == 3
+  | error("expected only clock/reset and two ready/valid endpoints")
+  def values(children, wires) = wiring_cut(top, scalar_ports)
+  unless children.length() == 2 && !children.keys().find(fun (site): site.contains("."))
+  | error("expected two FIFO occurrences with unqualified names")
   values(children, wires)
 
 /* For proof cuts, retain supported parent operations as one derived local actor. Never visit child bodies. */
