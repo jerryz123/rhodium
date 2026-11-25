@@ -2,7 +2,21 @@
 ;; SPDX-License-Identifier: Apache-2.0
 
 (require rackunit racket/match "../spec-engine.rkt")
-(provide check_fifo check_guard)
+(provide check_fifo check_guard check_concat)
+
+;; For every legal split of asymmetric banks, unconstrained padding must never precede a live word.
+(define (check_concat snapshot)
+  (define e (symbolic-spec-edge snapshot))
+  (define older (hash-ref (edge-inputs e) "older"))
+  (define younger (hash-ref (edge-inputs e) "younger"))
+  (define actual (observation-value (hash-ref (edge-outputs e) "joined")))
+  (for* ([n (in-range 3)] [m (in-range 2)])
+    (define row (&& (bveq (sequence-value-count older) (bv n 2))
+                    (bveq (sequence-value-count younger) (bv m 1))))
+    (define words (append (take (sequence-value-slots older) n) (take (sequence-value-slots younger) m)))
+    (define ok (&& (edge-defined e) (= (bitvector->natural (sequence-value-count actual)) (+ n m))
+                   (equal? (take (sequence-value-slots actual) (+ n m)) words)))
+    (check-true (unsat? (solve (assert (&& row (! ok))))))))
 
 ;; Match only the count and live prefix; unused symbolic cells may contain arbitrary bits.
 (define (matches-queue? q words)

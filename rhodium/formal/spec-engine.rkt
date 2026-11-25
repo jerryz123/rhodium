@@ -62,6 +62,16 @@
     [(list "if" p t f)
      (result (if p t f) (&& (result-defined (first args))
                             (if p (result-defined (second args)) (result-defined (third args)))))]
+    [(list "sequence-concat" (sequence-value n older) (sequence-value m younger))
+     (define capacity (+ (length older) (length younger)))
+     (define wide (bitvector (integer-length capacity)))
+     ;; Insert the younger cells immediately after the live older prefix; padding is not observable.
+     (define slots
+       (for/list ([i (in-range capacity)])
+         (for/fold ([cell (if (< i (length older)) (list-ref older i) (last younger))])
+                   ([word younger] [j (in-naturals)] #:when (<= 0 (- i j) (length older)))
+           (if (bveq n (bv (- i j) (type-of n))) word cell))))
+     (result (sequence-value (bvadd (zero-extend n wide) (zero-extend m wide)) slots) all-defined)]
     [(list* (or "empty" "full" "front" "tail" "append") q rest)
      (match-define (sequence-value n slots) q)
      (define empty (bveq n (count-bv 0 q)))

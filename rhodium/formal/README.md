@@ -230,7 +230,8 @@ monitor driven directly by the caller. With bound fields, the outputs of
 `transaction_batch_model` is available from `rspecl/rtl-boundary.rhm`.
 
 An optional sibling `refinement:` block describes a candidate relation to the
-implementation. It supports one child on the parent's clock and reset.
+implementation. A general transaction monitor supports one child on the parent's
+clock and reset. A [direct FIFO series](#concrete-specification-api) also supports two FIFO occurrences.
 `fifo` reads a certified FIFO's ordered history. Alternatively,
 `child rob: specs.TwoTagROB` names an RTL occurrence and the transaction
 view expected there. Supply its seal to `prove-transaction`; the declaration
@@ -288,7 +289,8 @@ as `bool_and` directly; its host Boolean operators use host truthiness.
 annotation for their nodes, not an unchecked constructor.
 
 Build typed constants with `const(type, value)` and sequence expressions with
-`empty`, `full`, `front`, `tail`, or `append`. To name a typed initial
+`empty`, `full`, `front`, `tail`, `append`, or `seq_concat`. Concatenation preserves
+live elements in operand order and adds the two capacities. To name a typed initial
 constant, write e.g. `state q: Seq(Bits(width), depth) initially [] as cleared`;
 using `cleared` in a reset update is explicit. All `next` clauses read the
 same old state. Omitted updates hold; two updates to one field are an error.
@@ -464,6 +466,11 @@ To obtain those batches from RTL pins, declare a passive view as the body of
 ```rhombus
 spec for rtl.QueuePair:
   events ready_valid_events(reset, rv_pins("offer", "ready", "data"), rv_pins("valid", "consume", "head"))
+  transactions fifo_monitor(2 * depth, 2)
+  refinement:
+    fifo upstream from a: Seq(Bits(2), depth)
+    fifo downstream from b: Seq(Bits(2), depth)
+    relate q = seq_concat(downstream, upstream)
 ```
 
 Each `rv_pins(valid, ready, payload)` descriptor names three physical scalar
@@ -476,6 +483,14 @@ and returns the batch for `step_fifo_monitor`. An asserted reset suppresses
 both transfers; otherwise both can appear in the same batch, even with a
 zero payload. The view reads the actual ready and valid pins. It does not
 drive them, certify the FIFO, or replace a cycle model.
+
+Here `fifo_monitor` (from [fifo-monitor.rhm](fifo-monitor.rhm)) is the public
+promise: ordered two-bit words with at most twice the child depth outstanding
+in each reset epoch. Only the private refinement names occurrences. List the
+two FIFOs in ingress-to-egress order; `seq_concat` joins their live words
+downstream-first, ignoring unused slots. This cut supports direct series
+wiring on a shared clock and reset, not intervening logic. At depth one it
+certifies the two-word bound without promising ready whenever space remains.
 
 The [ShiftQueue spec](../../examples/formal/shift-queue.rspl) and the
 [ArbiterQueue spec](../../examples/formal/arbiter-queue.rspl) each define

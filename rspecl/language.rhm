@@ -8,6 +8,7 @@ import:
   lib("rhodium/formal/spec-dsl.rhm") open
   lib("rhodium/formal/spec.rhm") as ir
   lib("rhodium/formal/port-types.rhm").check_output_types
+  lib("rhodium/formal/fifo-view.rhm") as fifo_view
   "rtl-boundary.rhm" as boundary
 
 export:
@@ -229,6 +230,24 @@ defn.macro 'bind_parameter $id($bound, $key)':
      expr.macro '$id': '$(bound) . parameter($key)'
    »'
 
+/* Lower the two FIFO cuts in physical series order. The user supplies the projection, not a proof callback. */
+expr.macro 'fifo_series_view($view): $line; ...':
+  match [line, ...]
+  | ['fifo $(a :: Identifier) from $(first :: Identifier): $at ...',
+     'fifo $(b :: Identifier) from $(second :: Identifier): $bt ...',
+     'relate q = $rhs ...']:
+      unless field_name(a) != field_name(b) && field_name(first) != field_name(second)
+      | syntax_meta.error("expected two distinct FIFO histories and occurrences", second)
+      'block:
+         def older_type = ($bt ...)
+         def newer_type = ($at ...)
+         def $a = ir.input_ref($(field_name(first)), newer_type)
+         def $b = ir.input_ref($(field_name(second)), older_type)
+         def rel = ir.make_spec({$(field_name(first)): newer_type, $(field_name(second)): older_type},
+                                {}, {}, {"q": ir.Observed($rhs ...)}, {}, {})
+         fifo_view.attach_fifo_series($view, $(field_name(first)), $(field_name(second)), rel)'
+  | ~else: syntax_meta.error("expected two FIFO cuts and relate q for a wiring-only series", [line, ...][0])
+
 /* Compile a circuit-bound body to typed IR; evaluate each clause at its original lexical site. */
 defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ...) ($arr, ...): $line; ...':
   let [pin_key, ...] = [pin.to_source_string(), ...]
@@ -267,13 +286,13 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
     | ~else: model_clause(clause)
 
   let [decl, ...] = declarations()
-  when refinement
+  def fifo_behavior = transaction && event_source
+  when refinement && !fifo_behavior
   | block:
       unless transaction | syntax_meta.error("refinement requires a transaction view", name)
       let [entry, ...] = refinement
       transaction := 'refined_view($transaction): $entry; ...'
   let [skip, ...] = ignored
-  when transaction && event_source | syntax_meta.error("choose one sampled event source", name)
   def args = if event_source | '(top, ~event_view: view_only :: Boolean = #false)' | '(top)'
   def build = 'ir.make_spec(bound.ports.inputs, $(map_expr(states)), $(map_expr(initial)),
                             cycle_outputs, cycle_events, $(map_expr(updates)), ~assumptions: $(map_expr(assumptions)))'
@@ -282,9 +301,22 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
   def no_cycle_clauses = ignored.length() == 0
                          && ![states, outputs, events, assumptions, updates].find(fun (table): table.length() != 0)
   def passive = event_source && no_cycle_clauses
+  when fifo_behavior && !passive | syntax_meta.error("FIFO behavior with sampled events requires a passive spec", name)
   def monitor_only = transaction && no_cycle_clauses
   def finish:
     cond
+    | fifo_behavior:
+        def public_view = 'fifo_view.bind_fifo_behavior(boundary.bind_event_source($event_source, top), $transaction)'
+        def result:
+          cond
+          | refinement:
+              let [entry, ...] = refinement
+              'fifo_series_view($public_view): $entry; ...'
+          | ~else: public_view
+        '«
+           unless view_only | error("passive-only spec: request ~event_view: #true")
+           $result
+         »'
     | monitor_only: '«
          unless tx_only | error("monitor-only spec: request ~transaction_view: #true")
          boundary.check_transaction_ports(attached, bound.ports)
@@ -325,7 +357,7 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
      def cycle_outputs = $(map_expr(outputs))
      $finish
    »'
-  if transaction
+  if transaction && !fifo_behavior
   | '«
        def attached :: boundary.TransactionView = $transaction
        fun $name(top = #false, ~transaction_view: tx_only :: Boolean = #false):

@@ -8,7 +8,7 @@ import:
   "spec.rhm" open
 
 export:
-  SpecExpr Bool select append bits_equal ! && || operand
+  SpecExpr Bool select append seq_concat bits_equal ! && || operand
   rename:
     SpecBits as Bits
     SpecSeq as Seq

@@ -223,6 +223,15 @@ and consumers interpret the same IR with Rosette. The adapter rejects invalid
 mathematical counts before they can wrap, ignores the predecessor count on
 reset, and compares only live successor slots.
 
+Keep the [RSPECL QueuePair induction](tests/queue-pair-refinement.rkt) alongside the
+[handwritten series proof](tests/queue-pair-grouped.rkt). Both use the checked
+RTL handoff and independent child contract edges. Only the RSPECL path reads the
+declared monitor and evaluates the authored relation on the child histories;
+it must establish an empty projected successor on reset and a defined, bounded
+projection and legal public transition on every admitted non-reset edge. Reversing
+the two histories must fail preservation even when every wire is correct. Run
+`moon run rhodium:formal-test` for both paths and the unchanged ordinal observer.
+
 The [event-only consumer](tests/queue-pair-transaction-order.rkt) tracks an
 arbitrary acceptance ordinal and its word. Its induction ranges over **all**
 joint events allowed by the exported relation, including stutter and simultaneous

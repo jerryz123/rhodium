@@ -10,6 +10,8 @@ import:
   "shift-queue-fixture.rhdl" as pairs
   "queue-pair.rspl" as views
   "../fifo-view.rhm".sample_fifo_events
+  "../fifo-view.rhm".fifo_view_behavior
+  "../fifo-monitor.rhm".step_fifo_monitor
   "../../../examples/formal/two-tag-rob.rspl" as rob_specs
   lib("rspecl/rtl-boundary.rhm").transaction_parts
   "../spec.rhm".Observed
@@ -201,6 +203,12 @@ check:
     ParamProbe(elaborate(rtl.ParamProbe(0)).top)
   ~throws "transaction pin direction or type mismatch: bad"
 def pair_view = views.QueuePair(pair_top, ~event_view: #true)
+def pair_behavior = fifo_view_behavior(pair_view)
+check:
+  step_fifo_monitor(pair_behavior, [0], {}) ~is [0]
+  step_fifo_monitor(pair_behavior, [0, 1], {"accepted": 2}) ~is #false
+  step_fifo_monitor(pair_behavior, [0, 1], {"retired": 0, "accepted": 2}) ~is [1, 2]
+  step_fifo_monitor(pair_behavior, [0, 1], {"retired": 1}) ~is #false
 check:
   views.QueuePair(pair_top) ~throws "passive-only spec"
   views.QueuePairSeries(pair_top, ~event_view: #true) ~throws "specialization of QueuePairSeries"

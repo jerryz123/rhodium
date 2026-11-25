@@ -13,7 +13,7 @@ export:
   rename: same_type as spec_type_equal
   SpecBool SpecBits SpecSeq
   literal input_ref state_ref choose_if bool_not bool_and bits_equal guard_sample
-  seq_empty seq_full seq_front seq_tail seq_append
+  seq_empty seq_full seq_front seq_tail seq_append seq_concat
   Observed make_spec include_sampled_events make_composition step_spec spec_snapshot composition_snapshot
 
 interface SpecType
@@ -121,6 +121,13 @@ fun seq_append(seq :: Expr, item :: Expr):
   def type = sequence_type(seq)
   unless same_type(type.element, item.type) | error("sequence element type mismatch")
   Expr("append", type, [seq, item])
+
+/* Concatenate live prefixes in order; the result can hold both operands at full capacity. */
+fun seq_concat(left :: Expr, right :: Expr):
+  def a = sequence_type(left)
+  def b = sequence_type(right)
+  unless same_type(a.element, b.element) | error("sequence element type mismatch")
+  Expr("sequence-concat", SpecSeq(a.element, a.capacity + b.capacity), [left, right])
 
 /* Omit the named output or event field entirely when its care predicate is false. */
 class Observed(value :: Expr, care :: Expr = literal(SpecBool(), #true)):
@@ -245,6 +252,7 @@ fun evaluate(expr :: Expr, state :: Map, inputs :: Map):
   | "bits-equal": arg(0) == arg(1)
   | "empty": arg(0).length() == 0
   | "full": arg(0).length() == expr.args[0].type.capacity
+  | "sequence-concat": arg(0) ++ arg(1)
   | "front" || "tail":
       def seq = arg(0)
       when seq.length() == 0 | error("cannot read or remove from an empty sequence")

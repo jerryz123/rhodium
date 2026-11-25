@@ -2,12 +2,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import "shift-queue-fixture.rhdl" as rtl
+import "../fifo-monitor.rhm".fifo_monitor
 
 fun pair_events(reset):
   ready_valid_events(reset, rv_pins("offer", "ready", "data"), rv_pins("valid", "consume", "head"))
 
 spec for rtl.QueuePair:
   events pair_events(reset)
+  transactions fifo_monitor(2 * depth, 2)
+  refinement:
+    fifo upstream from a: Seq(Bits(2), depth)
+    fifo downstream from b: Seq(Bits(2), depth)
+    relate q = seq_concat(downstream, upstream)
 
 spec for rtl.QueuePairSeries:
   events pair_events(reset)
@@ -18,3 +24,15 @@ fun crossed_pair(top):
     events ready_valid_events(reset, rv_pins("consume", "ready", "data"), rv_pins("valid", "offer", "head"))
   QueuePair(top, ~event_view: #true)
 export crossed_pair
+
+// Same RTL and public monitor, but the upstream word is wrongly treated as older.
+fun reversed_pair(top):
+  spec for rtl.QueuePair:
+    events pair_events(reset)
+    transactions fifo_monitor(2 * depth, 2)
+    refinement:
+      fifo upstream from a: Seq(Bits(2), depth)
+      fifo downstream from b: Seq(Bits(2), depth)
+      relate q = seq_concat(upstream, downstream)
+  QueuePair(top, ~event_view: #true)
+export reversed_pair

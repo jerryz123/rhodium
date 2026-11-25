@@ -17,6 +17,16 @@ fun fifo_row(contents, reset, offer, consume, data):
 
 solver.check_fifo(spec_snapshot(fifo), fifo_row)
 
+def older = input_ref("older", SpecSeq(SpecBits(2), 2))
+def younger = input_ref("younger", SpecSeq(SpecBits(2), 1))
+def joined = make_spec({"older": older.type, "younger": younger.type}, {}, {},
+                       {"joined": Observed(seq_concat(older, younger))}, {}, {})
+for (a in [[], [1], [0, 2]]):
+  for (b in [[], [3]]):
+    check: step_spec(joined, {}, {"older": a, "younger": b}).outputs["joined"] ~is a ++ b
+check: seq_concat(older, literal(SpecSeq(SpecBool(), 1), [])) ~throws "element type mismatch"
+solver.check_concat(spec_snapshot(joined))
+
 // One symbolic flag controls whether each partial operation is executed.
 def flag = SpecBool()
 def seq = SpecSeq(flag, 1)

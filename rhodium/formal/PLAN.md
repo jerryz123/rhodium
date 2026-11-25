@@ -47,6 +47,11 @@ two such leaf results directly. The checked grouped handoff yields bounds two
 and four and ordered retirement without stepping a child cycle model. The
 six-word series reuses those results; the separate cycle proof still owns
 the reachable readiness counterexample.
+For QueuePair(1) the [RSPECL proof](tests/queue-pair-refinement.rkt) now
+certifies the declared two-word FIFO monitor using two verified ShiftQueue
+contracts and a private downstream-first history relation. Its seal feeds
+the existing ordering observer; a crossed handoff or reversed relation earns
+no evidence. This is a direct two-FIFO cut, not general multi-child logic.
 The parent fixtures share an admission check: each
 occurrence needs run-local evidence for its actual implementation and full
 contract. No persistent evidence cache or general parent-logic checker is

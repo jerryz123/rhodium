@@ -92,8 +92,10 @@ fun inventory():
   raw_capture := materialize_circuit(RawCapture())
   for (d in [1, 2]):
     pairs[d] := materialize_circuit(QueuePair(d))
-  for (fault in ["ready", "payload", "mask"]):
-    faulty_pairs[fault] := materialize_circuit(QueuePair(2, ~fault: fault))
+  for (d in [1, 2]):
+    // The mask-as-payload fault is type-correct only at depth two.
+    for (fault in (if d == 1 | ["ready", "payload"] | ["ready", "payload", "mask"])):
+      faulty_pairs[[fault, d]] := materialize_circuit(QueuePair(d, ~fault: fault))
   pair_series := materialize_circuit(QueuePairSeries())
   wrong_ready_series := materialize_circuit(QueuePairSeries(~wrong_ready: #true))
   for (cross_payload in [#true, #false]):
@@ -124,7 +126,7 @@ fun parent_at(depth): parents[depth]
 fun wrong_lane_at(depth): faulty_parents[depth]
 def wrong_lane = wrong_lane_at(2)
 fun pair_at(depth): pairs[depth]
-fun faulty_pair(fault): faulty_pairs[fault]
+fun faulty_pair(fault, depth = 2): faulty_pairs[[fault, depth]]
 fun fifo_at(depth): fifos[depth]
 def fifo_definition = fifo_at(2)
 
