@@ -50,7 +50,10 @@ does not guarantee admission. [GatedArbiterQueue](../../examples/formal/gated-ar
 demonstrates the next boundary: the proof executes the wrapper's own admission
 register but substitutes the verified queue spec. Reset closes admission;
 otherwise the previous edge's enable controls new transfers. Closing the gate
-does not block already accepted words from draining.
+does not block already accepted words from draining. Its [transaction proof](tests/gated-arbiter-queue-transactions.rkt)
+uses only the child's FIFO contract: each public acceptance or retirement
+matches the child's transfer and payload on that edge. Ordering and capacity
+(1, 2, or 3 words) follow without knowing when the child is ready.
 
 [TwoTagROB](../../examples/formal/two-tag-rob.rhdl) uses that same verified
 depth-two ArbiterQueue to remember issue order. Each tag can be live at most

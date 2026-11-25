@@ -75,7 +75,9 @@ lane payload or miswired handoff ready fails wiring admission.
 These proofs do not inspect child RTL state and are not
 quantified over depth. The [gated wrapper](tests/gated-arbiter-queue-order.rkt)
 adds one parent-local admission register while the child remains opaque; this
-is a limited RTL fragment, not arbitrary parent logic. The [two-tag reorder
+is a limited RTL fragment, not arbitrary parent logic. Its [transaction proof](tests/gated-arbiter-queue-transactions.rkt)
+also exports order and capacity at depths 1–3: the wrapper preserves the
+child's accepted and retired batches without using its cycle behavior. The [two-tag reorder
 buffer](tests/two-tag-rob-proof.rkt) now proves that completion may be out
 of order while retirement must follow issue order and the head's own
 completion. It uses the verified depth-two ArbiterQueue and per-tag busy, done, and generation bits plus two unreset result banks.
@@ -227,7 +229,9 @@ does not qualify. The boundary checks are part of the rule:
 
 Cycle-sensitive RTL cuts use the **operational** child spec. Event-only observers
 and direct series wiring between two certified FIFO endpoints can use exported
-theorems alone; general theorem-only composition remains future work. Parent verification
+theorems alone. A one-child wrapper with supported local RTL can also use
+the child's FIFO theorem if it proves that every transfer is preserved.
+General theorem-only composition remains future work. Parent verification
 must consider all behavior those theorems permit. A theorem-only contract is
 not automatically an executable replacement for simulation.
 

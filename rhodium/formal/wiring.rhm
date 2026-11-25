@@ -10,7 +10,7 @@ import:
   "port-types.rhm".leaf_layout
   "port-types.rhm".port_leaves
 
-export wiring_cut series_wiring bind_wiring proof_cut cut_parts leaf_protocol leaf_layout
+export wiring_cut series_wiring wrapper_wiring bind_wiring proof_cut cut_parts leaf_protocol leaf_layout
 
 /* The first proof profiles have unrestricted traffic: clockless, or one named rising-edge clock. */
 fun leaf_protocol(top :: Module):
@@ -34,8 +34,8 @@ fun prefix_reader(interface_prefixes :: Function.of_arity(1)):
 
 /* Decode top ports using the bound parent view and child ports using exact occurrence evidence.
    Record creation/selection follows physical fields, independently of the claimed handshakes. */
-fun series_wiring(top :: Module, top_layout :: PairList, child_layout :: Function.of_arity(2)):
-  unless leaf_protocol(top) == "single-clock-reset" | error("expected a clocked FIFO series parent")
+fun layout_reader(top :: Module, top_layout :: PairList, child_layout :: Function.of_arity(2)):
+  unless leaf_protocol(top) == "single-clock-reset" | error("expected a clocked FIFO parent")
   def layouts = MutableMap{#false: top_layout}
   /* Reconstruct each directional record in physical field order before visiting logical pins. */
   fun read_port(site :: maybe(String), m :: Module, p :: Port, visit :: Function.of_arity(2)):
@@ -61,9 +61,41 @@ fun series_wiring(top :: Module, top_layout :: PairList, child_layout :: Functio
         | ~else:
             unless members == [PairList[p.name, p.type.packed_width()]] | error("FIFO scalar layout mismatch")
             visit(p.name, p.type)
-  def values(children, wires, _) = extract_cut(top, read_port, #false)
+  read_port
+
+/* Admit direct routing only, across two evidence-bound occurrences in the same epoch. */
+fun series_wiring(top :: Module, top_layout :: PairList, child_layout :: Function.of_arity(2)):
+  def values(children, wires, _) = extract_cut(top, layout_reader(top, top_layout, child_layout), #false)
   unless children.length() == 2 | error("expected two FIFO occurrences")
   values(children, wires)
+
+/* Open one transaction boundary: child outputs are independent graph inputs and child inputs
+   are observed sinks. Only actual parent-local RTL is executed, never a child transition. */
+fun wrapper_wiring(top :: Module, top_layout :: PairList, site :: String, child_layout :: Function.of_arity(2),
+                   visible :: PairList, bool :: HardwareType):
+  def read = layout_reader(top, top_layout, child_layout)
+  def inputs = MutableMap{}
+  def outputs = MutableMap{}
+  def child_pins = for Set (pin in visible): pin
+  /* Keep the full environment, but do not expose hidden child outputs to the local graph. */
+  fun boundary(at :: maybe(String), m :: Module, p :: Port, visit :: Function.of_arity(2)):
+    /* Declare each open net in the direction seen from outside the local graph. */
+    fun member(name :: String, type :: HardwareType):
+      unless clock_type(type)
+      | block:
+          when !at && (name.starts_with(site ++ ".") || name.starts_with(local_site ++ "."))
+          | error("ambiguous wrapper endpoint: " ++ name)
+          def pin = if at | at ++ "." ++ name | name
+          def source = if at | p.direction == "output" | p.direction == "input"
+          unless at && source && !(name in child_pins)
+          | (if source | inputs | outputs)[pin] := sampled_type(type, bool)
+      visit(name, type)
+    read(at, m, p, member)
+  def values(children, wires, locals) = extract_cut(top, boundary, bool)
+  unless children.length() == 1 && children.has_key(site) && site != local_site
+         && wires[site ++ ".clock"] == "clock" && wires[site ++ ".reset"] == "reset"
+  | error("expected one transaction child on the direct parent clock/reset")
+  composition_snapshot(make_composition(inputs.snapshot(), outputs.snapshot(), locals, wires.remove(site ++ ".clock")))
 
 /* For proof cuts, retain supported parent operations as one derived local actor. Never visit child bodies. */
 fun extract_cut(top :: Module, read_port :: Function.of_arity(4), bool :: maybe(HardwareType)):

@@ -292,6 +292,9 @@ def g1 = step_spec(gated, g0.next_state, contest ++ {"enable": #true})
 def g2 = step_spec(gated, g1.next_state, contest ++ {"enable": #false})
 def g3 = step_spec(gated, g2.next_state, contest ++ {"enable": #false})
 def g4 = step_spec(gated, g3.next_state, take ++ {"enable": #false})
+def gated_view = GatedArbiterQueue(rtl.gated_at(2), ~event_view: #true)
+fun gated_batch(inputs, enable, edge):
+  sample_fifo_events(gated_view, inputs ++ {"enable": enable} ++ physical_defaults ++ edge.outputs)
 check:
   bridge.proof_cut(elaborate(SeparateRegisterReset()).top, Map{}, rtl_bool, rtl.interface_prefixes) ~throws "expected direct parent clock/reset"
   g0.next_state ~is gated.initial
@@ -301,3 +304,8 @@ check:
   g3.outputs["egress.bits"] ~is 2
   g4.events ~is {"retired": 2}
   g4.next_state ~is gated.initial
+  gated_batch(clear, #true, g0) ~is g0.events
+  gated_batch(contest, #true, g1) ~is g1.events
+  gated_batch(contest, #false, g2) ~is g2.events
+  gated_batch(contest, #false, g3) ~is g3.events
+  gated_batch(take, #false, g4) ~is g4.events

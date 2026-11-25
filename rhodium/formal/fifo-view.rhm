@@ -10,13 +10,14 @@ import:
   "port-types.rhm".leaf_layout
   "port-types.rhm".port_leaves
 
-export make_fifo_view fifo_view_parts fifo_view_layout sample_fifo_events
+export make_fifo_view fifo_view_parts fifo_view_layout fifo_view_bool sample_fifo_events
 
 /* Only the checked binder constructs this passive view of a particular elaborated definition. */
-class FifoView(top :: Module, ingress :: List, egress :: List, width :: PosInt, sampler :: LeafModel, layout :: PairList)
+class FifoView(top :: Module, ingress :: List, egress :: List, width :: PosInt, sampler :: LeafModel, layout :: PairList,
+               bool :: hw.HardwareType)
 
-/* Resolve grouped fields through the same physical layout as the cycle proof. Extra outputs
-   may be hidden by a grouped view; extra environment inputs are not part of this profile. */
+/* Resolve grouped fields in physical order. Keep scalar Boolean control inputs such as enable
+   in the sample without treating them as transfers or imposing conditions on them. */
 fun make_fifo_view(top :: Module, rst :: String, lanes :: List.of(List), egress :: List.of(String),
                    bool :: hw.HardwareType, prefixes :: Map = {}):
   unless lanes.length() == 1 || lanes.length() == 2 | error("expected one or two FIFO ingress lanes")
@@ -28,13 +29,13 @@ fun make_fifo_view(top :: Module, rst :: String, lanes :: List.of(List), egress 
   unless clock && hw.clock_type(clock.type) && rst == "reset" && epoch && hw.reset_type(epoch.type)
          && distinct.length() == names.length()
   | error("expected a synchronous FIFO with distinct scalar handshake pins and sampled reset")
-  /* Flatten only the selected logical members; hidden outputs do not enter the sampler schema. */
+  /* Preserve scalar side inputs; hidden outputs do not enter the sampler schema. */
   fun schema(ports :: List, inputs :: Boolean):
     def fields = MutableMap{}
-    /* Record one logical member and reject unmodeled inputs rather than constraining them. */
+    /* Grouped endpoints may have an independent scalar Bool control, never an omitted lane. */
     fun visit(name :: String, type :: hw.HardwareType):
       cond
-      | name in distinct:
+      | name in distinct || (inputs && prefixes.length() > 0 && top.find_input(name) && hw.type_equal(type, bool)):
           when fields.has_key(name) | error("duplicate FIFO member: " ++ name)
           fields[name] := sampled_type(type, bool)
       | inputs || prefixes.length() == 0: error("unexpected FIFO pin: " ++ name)
@@ -72,7 +73,10 @@ fun make_fifo_view(top :: Module, rst :: String, lanes :: List.of(List), egress 
                 "accepted": Observed(word, bool_and(active, push)),
                 "retired": Observed(outgoing, bool_and(active, bool_and(valid, consume)))}
   FifoView(top, lanes, egress, outgoing.type.width,
-           make_spec(inputs ++ outputs, {}, {}, {}, events, {}, ~assumptions: domain), leaf_layout(top, prefixes))
+           make_spec(inputs ++ outputs, {}, {}, {}, events, {}, ~assumptions: domain), leaf_layout(top, prefixes), bool)
+
+/* Use the same nominal Boolean when lowering the wrapper that supplies the sampled pins. */
+fun fifo_view_bool(view :: FifoView): view.bool
 
 /* Check the physical member order of a passive view against already-proved cycle evidence. */
 fun fifo_view_layout(view :: FifoView): view.layout

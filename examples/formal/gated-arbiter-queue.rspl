@@ -23,9 +23,7 @@ spec for rtl.GatedArbiterQueue:
   observe ingress[1].ready = grant1 when !reset
   observe egress.valid = valid when !reset
   observe egress.bits = front(pending) when !reset && valid
-  event reset = #true when reset
-  event accepted = winner when !reset && push
-  event retired = front(pending) when !reset && pop
+  events ready_valid_events(reset, ingress, egress)
 
   let retained = select(pop, tail(pending), pending)
   next admitting = !reset && enable
