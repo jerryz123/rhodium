@@ -245,11 +245,11 @@ flowchart LR
   Victim -->|yes| Writeback["WriteBackFull"]
   Arrays -->|"granted victim rows"| PacketSlot["One copyback/refill packet"]
   PacketSlot -->|"victim DAT"| Writeback
-  Writeback -->|"completed"| Refill["ReadClean or ReadUnique"]
+  Writeback -->|"granted: launch replacement"| Refill["ReadClean or ReadUnique"]
   Victim -->|no| Refill
   Record --> Install
   Way --> Install
-  Refill -->|"allocating packets by DataID"| PacketSlot
+  Refill -->|"packets by DataID after victim handoff"| PacketSlot
   PacketSlot -->|"one row per SRAM turn"| Install["Install rows<br/>publish metadata after CompAck"]
   Refill -->|"requested old row"| Load
   Install --> Arrays
@@ -335,7 +335,7 @@ victim is dirty, avoiding nonbinding writeback traffic.
 | Store/AMO hit in SharedClean | Retain the current way and issue `ReadUnique` | Merge the mutation while installing; UniqueDirty |
 | Matching SC on a Unique hit | Commit locally without CHI acquisition | UniqueDirty |
 | Failed SC | Return one without CHI traffic or a data-array update | Unchanged |
-| Dirty allocation victim | Issue writeback, stream the granted victim, then issue refill | Victim invalidated before replacement installation |
+| Dirty allocation victim | Start the replacement request while streaming the granted victim | Victim invalidated before accepting replacement data |
 
 L1D supplies the aligned miss address from its retained request until refill
 completion is accepted. The [refill engine](../chi/refill.rhdl) uses that
@@ -380,9 +380,11 @@ from the miss address until copyback completion is accepted. The victim remains
 resident and snoop-visible while awaiting `CompDBIDResp`; its set remains reserved against
 local accesses. A preceding snoop may consume its dirty data and invalidate
 it, in which case copyback reports Invalid without enabled bytes. The grant
-freezes the response state, and the victim is invalidated locally after all
-copyback DAT packets transfer. Only then can the replacement refill start.
-Unrelated load hits retain the existing hit-under-miss behavior.
+freezes the response state and permits a replacement `ReadClean` or `ReadUnique`
+to start, even with one MSHR. Request issue and retry can overlap outgoing DAT.
+Early replacement data is backpressured until copyback completes and the victim
+is invalidated. Neither a second line buffer nor concurrent SRAM reads and
+writes are required. Unrelated load hits retain the existing hit-under-miss behavior.
 
 ## Cache-block management
 

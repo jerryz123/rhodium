@@ -35,6 +35,7 @@ sync_circuit CacheLineWriteback(Context :: DataType, address_width :: PosInt, co
   input victim_state: CHICacheState
   input snoop_pending: Bool
   output granted: Bool
+  interface grant(Valid(Context), ~role: producer)
   output packet_needed: Bool
   output packet_index: Bits(packet_width)
   interface packet(Decoupled(Bits(p.data_width)), ~role: consumer)
@@ -83,7 +84,8 @@ sync_circuit CacheLineWriteback(Context :: DataType, address_width :: PosInt, co
   def response_can_advance = !snoop_pending ||| retry_or_credit
   responses |> gate_flow(response_can_advance) |> control.response
   def response = control.event.bits.flit
-  def grant = control.event.valid & CacheCopyBackResponses.milestone(control.event.bits.effects, "grant")
+  grant.valid <== control.event.valid & CacheCopyBackResponses.milestone(control.event.bits.effects, "grant")
+  grant.bits <== context
   granted <== CacheCopyBackResponses.milestone(control.received, "grant")
   when (control.event.valid):
     assert(response.src_id === home_id, "copyback_response_home")
@@ -92,7 +94,7 @@ sync_circuit CacheLineWriteback(Context :: DataType, address_width :: PosInt, co
     when (!control.event.bits.protocol_credit):
       assert(response.txn_id === Bits(12)(txn_id), "copyback_response_txn")
 
-  when grant:
+  when (grant.valid):
     assert(response.resp === Bits(3)(0), "copyback_completion_has_no_state")
     assert(victim_state =/= CHICacheState.UniqueDirtyPartial, "copyback_complete_dirty_line")
     dbid <== response.dbid_or_group_id
@@ -126,7 +128,7 @@ sync_circuit CacheLineWriteback(Context :: DataType, address_width :: PosInt, co
   control.finish <== completion.fire()
   control.external_progress <== data.fire()
   describe_interface_retained_storage(command_fire, completion.fire(), control.active)
-  describe_interface_contract(returning, Array(control.attempt, data, completion), "copyback-outputs", ~trace_model: interface_trace_retained(~outputs: 3))
+  describe_interface_contract(returning, Array(control.attempt, grant, data, completion), "copyback-outputs", ~trace_model: interface_trace_retained(~outputs: 4))
   when command_fire:
     cursor <== Bits(packet_width)(0)
     data_sent <== Bool(#false)

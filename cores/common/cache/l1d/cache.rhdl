@@ -522,8 +522,8 @@ sync_circuit L1DCache(xlen :: XLen,
   def s4_local = s4_hit_path |> gate_flow(service_responses.ingress.ready) |> to_valid()
 
   /* Refill and victim-writeback commands.
-     Direct acquisition uses live S4 data; a completed eviction resumes the
-     same miss from its L1D record. Neither engine owns a copy of that record. */
+     Direct acquisition uses live S4 data. A granted copyback launches the
+     retained replacement while the victim still owns the data array. */
 
   /* Selects the acquisition and supplies the prefetch flag for launch accounting. */
   fun refill_command(prefetch_write :: Bool, way :: Bits(way_width), install :: Bool) :~ Hardware.of(Miss):
@@ -550,14 +550,23 @@ sync_circuit L1DCache(xlen :: XLen,
   elsewhen (snoop.update.valid & (snoop.update.bits.address.align_down(CacheLineBytes) === victim_line_address.zext(snoop_width))):
     eviction_state <== mux(snoop.update.bits.invalidate, CHICacheState.Invalid, snoop.update.bits.state)
 
-  // Only a demand can evict a dirty victim. Resume the requested line, not the victim.
-  def post_eviction_refills = writeback.completion |> map_flow(_done => refill_command(Bool(#false), retained_way, Bool(#true)))
+  // No other MSHR may allocate during copyback, and this one cannot receive
+  // data until the victim releases its way. Its occupancy is the launch bit.
+  def copyback_active = !writeback.command.ready
+  wire replacement_ready: Bool
+  def replacement = inject_interface(Decoupled(Miss),
+                                     ~valid: writeback.granted & !miss_busy,
+                                     ~bits: refill_command(Bool(#false), retained_way, Bool(#true)),
+                                     ~ready: replacement_ready)
+  describe_interface_retained_storage(writeback.grant.valid, replacement.fire(), writeback.granted & !miss_busy, ~name: "replacement")
+  describe_interface_contract(writeback.grant, Array(replacement), "replacement-acquisition", ~trace_model: interface_trace_retained(~name: "replacement"))
+  writeback.completion.ready <== miss_busy
 
   // Direct launch is an S4 decision, not another pipeline stage. The command
   // fields are meaningful when accepted; the refill contract retains ancestry.
   s4_refill_accepted <== direct_refill_commands.fire()
   s4_refill_opcode <== direct_refill_commands.bits.opcode
-  def head_acquisition = Array(direct_refill_commands, post_eviction_refills) |> arbiter()
+  def head_acquisition = Array(direct_refill_commands, replacement) |> arbiter()
   def writeback_complete = writeback.completion.fire()
   when (!writeback.command.ready):
     assert(miss_active, "l1d_copyback_holds_victim_and_miss")
@@ -648,7 +657,9 @@ sync_circuit L1DCache(xlen :: XLen,
     mutate_refill_word: merged_refill_word
 
   def cache_write = refill_install_word ||| local_mutation_commit ||| store_hit_write
-  assert(!miss_busy ||| writeback.command.ready, "l1d_backing_owner_exclusive")
+  when copyback_active:
+    assert(!miss_busy ||| writeback.granted, "l1d_copyback_granted_before_replacement")
+    assert(!misses.packet.valid & !refill_install_word & !install_line, "l1d_copyback_owns_victim_storage")
 
 
   /* Snoop lookup and data handoff.
@@ -798,7 +809,7 @@ sync_circuit L1DCache(xlen :: XLen,
       probe_address <== address
       candidate_index <== ordinal
       candidate_store <== store
-      def overlap_allowed = miss_busy & !miss_prefetch & miss_install & retained_request.access.is_load_or_store() & (retained_request.locality === RiscvMemoryLocality.Default)
+      def overlap_allowed = miss_busy & !copyback_active & !miss_prefetch & miss_install & retained_request.access.is_load_or_store() & (retained_request.locality === RiscvMemoryLocality.Default)
       def metadata_free = !misses.protect & !probing & !snoop_pending & !snoop_lookup_start & !s0_read_issue & !store_state_write
       probe_window <== eligible & overlap_allowed & metadata_free & !reservation_valid & !misses.occupied.all() & !reserved_set(address[offset_width..(offset_width + set_width)])
   | block:
@@ -1279,16 +1290,18 @@ sync_circuit L1DCache(xlen :: XLen,
   Array(misses.requests, writeback.requests, maintenance.requests) |> arbiter() |> chi.requests
   Array(misses.acknowledgements, snoop.responses) |> arbiter() |> chi.requester_responses
   Array(writeback.data, snoop.data) |> arbiter() |> chi.request_data
-  chi.response_data |> gate_flow(packet_capacity) |> misses.data
+  chi.response_data |> gate_flow(!copyback_active & packet_capacity) |> misses.data
   // Stop new probes, not an already accepted snoop. In particular protect the
   // acknowledged grant until SRAM installation; Home may probe after CompAck.
   def protect_refill = misses.protect
   def protect_core = reservation_protected ||| core_service_count.any()
   def protect_copyback = writeback.granted & (cache_chi_snoop_address(p, snoop_width, chi.snoops.bits.address).align_down(CacheLineBytes) === victim_line_address.zext(snoop_width))
   chi.snoops |> gate_flow(!(protect_refill ||| protect_core ||| protect_copyback)) |> snoop.snoops
-  def writeback_active = !writeback.command.ready
+  // Once granted, copyback needs only outgoing DAT. All subsequent retry
+  // responses (including untagged protocol credits) belong to the refill.
+  def copyback_awaits_grant = copyback_active & !writeback.granted
   def Array(refill_response, writeback_response, maintenance_response) = (
-    chi.responses |> demux_flow(3, _response => mux(maintenance_active, Bits(2)(2), writeback_active.as_bits().zext(2)))
+    chi.responses |> demux_flow(3, _response => mux(maintenance_active, Bits(2)(2), copyback_awaits_grant.as_bits().zext(2)))
   )
   refill_response |> misses.responses
   writeback_response |> writeback.responses

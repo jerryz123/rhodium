@@ -97,7 +97,7 @@ register or imply a delay that is absent from the functional path.
 The refill engine declares retained ownership
 from command acceptance through completion; its resident checkpoint carries S4
 ancestry through the final arbiter and parents each request attempt. Writeback
-residency similarly parents copyback requests/data and post-eviction refill
+residency similarly parents copyback requests/data and grant-triggered refill
 commands. Eviction commands come directly from S4. See the
 [RV5Stage integration trace guide](../../../rv5stage/DEVELOPING.md#pipeline-event-annotations)
 for an example of caller-owned result capture and translation-fault observations.
@@ -108,7 +108,12 @@ Copyback and refill share one packet register, not the snoop register.
 Read the pinned victim only after grant. Keep its packet cursor independent
 of snoop reads; acquire the next packet no earlier than the current transfer.
 The final returning row bypasses into DAT and is captured for a stall.
-After final handoff, invalidate the victim and start the replacement refill.
+Grant permits the retained head to allocate its replacement MSHR. No lookahead
+may allocate during copyback, so occupancy records acceptance without another
+launch bit. Route retry/credit responses to copyback before its grant and to
+the refill afterward. Keep incoming DAT closed until the final victim handoff
+and invalidation; neither outgoing victim DAT nor its completion waits for
+replacement data or Home acceptance of the read.
 For direct installation, hide the selected way at admission. Index incoming
 packets by DataID, apply mutations while writing rows, and retain the requested
 old row for the response. Never write a bypass fill to SRAM. Publish metadata
@@ -214,8 +219,8 @@ the response-only path for both make-invalid opcodes.
    and dirty copyback, reconstruct the victim line from the captured tag and
    the retained request's set, never the snoop/gather set. Hold each engine's
    address stable from command handshake through completion, including retries and stalls.
-   Neither address comes from a live command or snoop. Copyback completion resumes the active miss,
-   not a new S4 request. Only ordinary demand load/store contexts enable
+   Neither address comes from a live command or snoop. Copyback completion hands the shared
+   storage to the replacement; it does not launch another request. Only ordinary demand load/store contexts enable
    hit-under-miss. Protect the whole set in S0 admission and S1 classification.
    An ordinary load or store matching the reserved line may resolve as Slow
    and wait in the authorized request queue; it must perform a fresh lookup

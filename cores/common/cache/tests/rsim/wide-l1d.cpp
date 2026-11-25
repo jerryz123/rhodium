@@ -49,7 +49,7 @@ unsigned accept_request(std::uint64_t address, unsigned opcode) {
   return txn;
 }
 
-void refill_packet(unsigned txn, unsigned i, unsigned resp, Row row) {
+void offer_packet(unsigned txn, unsigned i, unsigned resp, Row row) {
   auto &dat = chi_in.presponse_udata;
   dat.pbits = {};
   dat.pbits.popcode = 4; // CompData
@@ -62,8 +62,12 @@ void refill_packet(unsigned txn, unsigned i, unsigned resp, Row row) {
   dat.pbits.pbyte_uenable = 0xffff;
   dat.pbits.pdata = row;
   dat.pvalid = 1;
+}
+
+void refill_packet(unsigned txn, unsigned i, unsigned resp, Row row) {
+  offer_packet(txn, i, resp, row);
   until([] { return chi_out.presponse_udata.pready; });
-  tick_model(); dat.pvalid = 0;
+  tick_model(); chi_in.presponse_udata.pvalid = 0;
 }
 
 void refill(std::uint64_t address, unsigned opcode, const Line &line) {
@@ -491,6 +495,10 @@ void check_backing_handoff(const Line &victim, Line probed) {
   until([] { return chi_out.presponses.pready; });
   tick_model(); rsp.pvalid = 0;
 
+  // The replacement REQ must transfer while the first victim DAT is stalled.
+  // Keep the first (out-of-order) refill beat offered throughout copyback.
+  const auto txn = accept_request(base+512, 2);
+  offer_packet(txn, 3, 1, replacement[3]);
   const auto &dat = chi_out.prequest_udata;
   auto drain_line = [&](const Line &line, unsigned op, unsigned txn) {
     for (unsigned i = 0; i < 4; ++i) {
@@ -499,14 +507,18 @@ void check_backing_handoff(const Line &victim, Line probed) {
         CHECK(dat.pvalid && dat.pbits.popcode == op && dat.pbits.ptxn_uid == txn);
         CHECK(dat.pbits.pbyte_uenable == 0xffff && dat.pbits.pdata_uid == i && dat.pbits.pdata == line[i]);
         CHECK(!chi_out.prequests.pvalid);
+        if (op == 2) {
+          CHECK(!chi_out.presponse_udata.pready && !core_out.presponse.pvalid);
+          CHECK(!chi_out.prequester_uresponses.pvalid && !core_out.pdrained);
+        }
         tick_model(); eval();
       }
       chi_in.prequest_udata.pready = 1; tick_model(); chi_in.prequest_udata.pready = 0;
     }
   };
   drain_line(victim, 2, 0x55);
-  const auto txn = accept_request(base+512, 2); // ReadClean
-  refill_packet(txn, 3, 1, replacement[3]);
+  until([] { return chi_out.presponse_udata.pready; });
+  tick_model(); chi_in.presponse_udata.pvalid = 0;
 
   auto &snp = chi_in.psnoops;
   snp.pbits = {};

@@ -883,12 +883,16 @@ void check_store_miss_across_copyback() {
   accept_request(WRITE_BACK_FULL, ADDRESS, 1, 6, 1, 0);
   send_core_request(THIRD_ADDRESS + 16, MEMORY_LOAD, ATOMIC_SWAP, 0, 17);
   retry_with_probe(WRITE_BACK_FULL, ADDRESS, 1, 5, PREFETCH_READ_ADDRESS, 120);
+  chi_in.prequest_udata.pready = 0;
   send_response(COMP_DBID_RESP, 1, 85, 0);
+  // The one-MSHR cache routes replacement retry/credit while copyback owns DAT.
+  accept_request(READ_UNIQUE, THIRD_ADDRESS, 0, 6, 1, 0);
+  retry_with_probe(READ_UNIQUE, THIRD_ADDRESS, 0, 3, PREFETCH_WRITE_ADDRESS, 121);
+  grant_dat_credit();
+  tx_dat_pending = 0;
   for (int packet = 0; packet < 4; ++packet)
     accept_copyback_data(packet, victim);
 
-  accept_request(READ_UNIQUE, THIRD_ADDRESS, 0, 6, 1, 0);
-  retry_with_probe(READ_UNIQUE, THIRD_ADDRESS, 0, 3, PREFETCH_WRITE_ADDRESS, 121);
   return_line(THIRD_ADDRESS, THIRD_LINE, 2);
   accept_comp_ack();
   for (int i = 0; i < 16; ++i) {
