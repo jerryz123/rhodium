@@ -1,0 +1,33 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+
+import lib("flow/arbiter.rhdl").Arbiter
+
+// The faulty variant swaps physical lanes but keeps all external lane identities intact.
+circuit ArbiterLeaf(reverse_priority :: Boolean):
+  input v0: Bool
+  input v1: Bool
+  input d0: Bits(2)
+  input d1: Bits(2)
+  input accept: Bool
+  output r0: Bool
+  output r1: Bool
+  output valid: Bool
+  output data: Bits(2)
+  output chosen: Bits(1)
+
+  inst dut(Arbiter(Bits(2), 2))
+  def i0 = if reverse_priority | 1 | 0
+  def i1 = 1 - i0
+  dut.ingress[i0].valid <== v0
+  dut.ingress[i0].bits <== d0
+  dut.ingress[i1].valid <== v1
+  dut.ingress[i1].bits <== d1
+  dut.egress.ready <== accept
+  r0 <== dut.ingress[i0].ready
+  r1 <== dut.ingress[i1].ready
+  valid <== dut.egress.valid
+  data <== dut.egress.bits
+  chosen <== if reverse_priority | Bits(1)(1) - dut.chosen | dut.chosen
+
+export ArbiterLeaf

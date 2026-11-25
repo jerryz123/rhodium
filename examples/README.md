@@ -302,6 +302,14 @@ hardware-preservation contracts.
 
 ### Formal verification
 
+[`formal/fifo-spec.rhm`](formal/fifo-spec.rhm) constructs a FIFO reference model
+without RTL or Rosette; the [rspecsim quick start](../rhodium/formal/README.md#install-and-quick-start)
+executes a simultaneous enqueue and dequeue.
+
+[`formal/arbiter-spec.rhm`](formal/arbiter-spec.rhm) models fixed-priority
+selection without state: the highest-priority valid lane supplies the payload,
+but no transfer occurs until the consumer is ready.
+
 [`formal/equivalence.rhm`](formal/equivalence.rhm) uses the optional Rosette
 consumer to prove that standard-profile and explicitly composed adders are
 behaviorally equivalent. See the [formal guide](../rhodium/formal/README.md)

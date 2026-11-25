@@ -246,6 +246,12 @@ tasks:
     deps: ["check--circt-verilog-differential"]
     inputs: []
     options: { cache: false }
+  formal-spec-test:
+    command: "tools/run-racket-tests.sh rhodium/formal/tests/spec-test.rhm"
+    inputs: []
+    deps: ["racket-cache"]
+    env: *test-env
+    options: *racket-options
   formal-test:
     script: |
       set -e

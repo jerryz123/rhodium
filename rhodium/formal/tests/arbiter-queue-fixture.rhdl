@@ -1,0 +1,34 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "arbiter-override-fixture.rhdl".ArbiterLeaf
+  "shift-queue-fixture.rhdl".Leaf
+
+sync_circuit ArbiterQueue():
+  input v0: Bool
+  input d0: Bits(2)
+  input v1: Bool
+  input d1: Bits(2)
+  input consume: Bool
+  output r0: Bool
+  output r1: Bool
+  output valid: Bool
+  output head: Bits(2)
+
+  inst arb(ArbiterLeaf(#false))
+  inst fifo(Leaf(#false))
+  arb.v0 <== v0
+  arb.d0 <== d0
+  arb.v1 <== v1
+  arb.d1 <== d1
+  arb.accept <== fifo.ready
+  fifo.offer <== arb.valid
+  fifo.data <== arb.data
+  fifo.consume <== consume
+  r0 <== arb.r0
+  r1 <== arb.r1
+  valid <== fifo.valid
+  head <== fifo.head
+
+export ArbiterQueue

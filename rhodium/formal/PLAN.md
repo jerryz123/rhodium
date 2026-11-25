@@ -9,7 +9,11 @@ parent use the verified child model in place of its RTL. The first demonstration
 is a pair of FIFOs: prove the leaf once, then prove ordering in the pair without
 reading either child's RTL registers.
 
-**Implemented today:** the [public API](README.md) checks combinational
+**Implemented today:** [rspecsim](README.md#concrete-specification-api)
+executes a typed reference model and the FIFO example without Rosette. The
+[symbolic spec step](DEVELOPING.md#symbolic-specification-step) interprets the same expressions
+and agrees with the concrete step for the depth-two, two-bit FIFO. The
+[RTL equivalence API](README.md#rtl-equivalence-api) checks combinational
 equivalence. The [internal RTL stepper](DEVELOPING.md#register-transition-foundation)
 provides pre-edge outputs, simultaneous register updates, and partial-operation
 obligations for a supported single-clock hierarchy. It expands child state;
@@ -17,8 +21,21 @@ it does not prove refinement. Rosette stays optional and outside elaboration.
 
 ## Delivery milestones
 
-These milestones are planned, in dependency order. The proof rules below are
-their acceptance contract, not a description of a shipped API.
+All three FIFO milestones are complete for the fixed two-bit, depth-two
+specialization. The [leaf proof](DEVELOPING.md#fixed-shiftqueue-refinement)
+checks reset and preservation, including replay of a faulty payload. The
+[series proof](DEVELOPING.md#two-shiftqueues-in-series) discharges the boundary
+and proves ordering and capacity four using two independent spec states.
+This is a same-run proof of a fixed wiring pattern, not a general substitution
+or evidence-cache API. The depth-one negative example is spec-only.
+
+The [two-input fixed-priority arbiter](DEVELOPING.md#two-input-fixed-priority-arbiter)
+is a second verified leaf. Unlike the FIFO, its cycle outputs depend on
+current inputs. The [arbiter-to-FIFO proof](DEVELOPING.md#arbiter-feeding-a-shiftqueue)
+resolves the two child specs' same-cycle dependencies and proves that each
+dequeue returns the oldest accepted winner in the current reset epoch. Neither
+parent proof inspects child RTL state. The larger reorder-buffer example below
+remains future work.
 
 | Milestone | What to build | How to tell it works |
 |---|---|---|
@@ -105,8 +122,8 @@ reachable. For a fixed specialization the checker must discharge:
    every admitted input has a legal implementation step. Prove partial-operation
    domains and all active ordinary [RTL assertions](../core/README.md#clocked-assertions)
    as obligations. An assertion cannot constrain the search for its own failure.
-   Today the stepper rejects assertion-bearing designs; extraction and checking
-   of those obligations is a prerequisite for accepting such a leaf.
+   The fixed FIFO proof discharges the extracted step obligations at reset
+   and on every related edge.
 3. **Observation and preservation.** For every related invariant state, allowed
    input, and possible implementation step, find a legal spec step with the
    same observation and a related successor satisfying `Inv`. For an invisible

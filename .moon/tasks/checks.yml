@@ -77,6 +77,8 @@ tasks:
       - "rhodium/core/tests/**/*"
       - "rhodium/diagram/**/*"
       - "rhodium/event/**/*"
+      - "rhodium/formal/spec.rhm"
+      - "rhodium/formal/tests/spec-test.rhm"
       - "rhodium/frontend/tests/**/*"
       - "rhodium/lowering/tests/**/*"
       - "rhodium/statistics/**/*"
@@ -84,7 +86,7 @@ tasks:
       - "support/**/*"
       - "@group(language)"
       - "@group(library)"
-    deps: ["check-boundaries", "support-annotation-test", "frontend-test", "std-test", "flow-test", "event-test", "statistics-test", "diagram-test"]
+    deps: ["check-boundaries", "support-annotation-test", "frontend-test", "std-test", "flow-test", "event-test", "statistics-test", "diagram-test", "formal-spec-test"]
     options: { cache: false }
   check--host-backend:
     tags: [ci-check, ci-root, ci-receipt, pool-host]

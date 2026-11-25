@@ -43,7 +43,7 @@ for change validation and configured simulator or benchmark workflows.
   does not require it
 - Verilator and a C++ toolchain for Verilator-based simulations; standalone
   Rsim models require a C++17 toolchain but neither CIRCT nor Verilator
-- Rosette only for optional formal equivalence and RTL transition tests
+- Rosette only for symbolic spec execution and solver-backed RTL checks; rspecsim needs no solver
 
 On a Homebrew-based macOS setup:
 
@@ -313,7 +313,7 @@ SystemVerilog.
   standalone Perfetto export
 - [`rhodium/backend/README.md`](rhodium/backend/README.md) — CIRCT lowering,
   direct SystemVerilog emission, and Rsim C++ simulation
-- [`rhodium/formal/README.md`](rhodium/formal/README.md) — Rosette equivalence and RTL transition semantics
+- [`rhodium/formal/README.md`](rhodium/formal/README.md) — rspecsim concrete spec execution, symbolic specs, and Rosette RTL checks
 - [`tools/testing/README.md`](tools/testing/README.md) and
   [`tools/testing/DEVELOPING.md`](tools/testing/DEVELOPING.md) — running validation and
   maintaining the test architecture

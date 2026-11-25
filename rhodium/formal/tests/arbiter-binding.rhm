@@ -1,0 +1,19 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  "../../../examples/formal/arbiter-spec.rhm".arbiter_spec
+  "arbiter-override-fixture.rhdl".ArbiterLeaf
+  "composition-binding.rhm".arbiter_definition
+  "../snapshot.rhm".formal_snapshot
+  "../spec.rhm" open
+
+export correct faulty model concrete_row
+def correct = formal_snapshot(arbiter_definition)
+def faulty = formal_snapshot(elaborate(ArbiterLeaf(#true)))
+def spec = arbiter_spec(2)
+def model = spec_snapshot(spec)
+fun concrete_row(inputs):
+  def edge = step_spec(spec, Map{}, inputs)
+  PairList[edge.outputs, edge.events]

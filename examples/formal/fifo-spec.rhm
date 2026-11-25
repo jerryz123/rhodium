@@ -1,0 +1,31 @@
+#lang rhombus
+/* Describes a non-bypassing FIFO as a bounded sequence with cycle observations and transfer events. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/formal/spec.rhm") open
+
+export fifo_spec
+
+/* Build a fixed-depth reference model; reset begins an empty epoch and hides ordinary offers. */
+fun fifo_spec(width :: PosInt, depth :: PosInt):
+  def flag = SpecBool()
+  def word = SpecBits(width)
+  def queue = SpecSeq(word, depth)
+  def q = state_ref("q", queue)
+  def data = input_ref("in.data", word)
+  def reset = input_ref("reset", flag)
+  def active = bool_not(reset)
+  def ready = bool_not(seq_full(q))
+  def valid = bool_not(seq_empty(q))
+  def push = bool_and(ready, input_ref("in.valid", flag))
+  def pop = bool_and(valid, input_ref("out.ready", flag))
+  def rest = choose_if(pop, seq_tail(q), q)
+  def next_q = choose_if(reset, literal(queue, []), choose_if(push, seq_append(rest, data), rest))
+  make_spec({"reset": flag, "in.valid": flag, "in.data": word, "out.ready": flag},
+            {"q": queue}, {"q": []},
+            {"in.ready": Observed(ready, active), "out.valid": Observed(valid, active),
+             "out.data": Observed(seq_front(q), bool_and(active, valid))},
+            {"reset": Observed(reset, reset), "enqueue": Observed(data, bool_and(active, push)),
+             "dequeue": Observed(seq_front(q), bool_and(active, pop))},
+            {"q": next_q})

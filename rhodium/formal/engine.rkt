@@ -8,6 +8,7 @@
 
 (provide check_equivalent_snapshots
          interpret_snapshot
+         combinational_sample
          prepare_transition_snapshot
          transition_registers
          symbolic_transition_state
@@ -915,7 +916,7 @@
     (set! occurrences (cons occ occurrences))
     (for ([op (in-list (hash-ref module "operations"))])
       (define opcode (hash-ref op "opcode"))
-      (unless (or (supported? opcode) (member opcode '("rtl.register" "rtl.register_reset")))
+      (unless (or (supported? opcode) (member opcode '("rtl.register" "rtl.register_reset" "verif.assert")))
         (fail occ op (format "register transitions do not support operation ~a" opcode)))
       (when (equal? opcode "rtl.instance")
         (define child (module-by-id (attr op "child_module")))
@@ -1043,6 +1044,22 @@
   ;; Preserve unused operations and outputless occurrences for preflight/domain checks.
   (for* ([occ (in-list occurrences)] [v (in-list (hash-ref (occurrence-module occ) "values"))])
     (resolve occ (hash-ref v "id")))
+  ;; Keep zero-result assertions even in outputless children. Their sampled
+  ;; operands are private ports, never exposed as design outputs or assumptions.
+  (define assertions
+    (for*/list ([occ (in-list occurrences)] [op (in-list (hash-ref (occurrence-module occ) "operations"))]
+                #:when (equal? (hash-ref op "opcode") "verif.assert"))
+      (match-define (list condition clk reset guard) (hash-ref op "operands"))
+      (unless (eq? 'selected-clock (resolve occ clk))
+        (fail occ op "assertion clock does not alias the selected top clock"))
+      (define taps
+        (for/list ([id (in-list (list condition reset guard))])
+          (define tap (format "a~a" (fresh)))
+          (add-output occ op tap (packed-type occ (hash-ref (value occ id) "type") op) (resolve occ id))
+          tap))
+      (hash "taps" taps "label" (attr op "label")
+            "diagnostic" (diagnostic (occurrence-module occ) op "active clocked assertion must hold"
+                                     (occurrence-path occ)))))
   (for ([site (in-list sites)] [reg (in-list registers)])
     (define occ (car site))
     (define op (cdr site))
@@ -1073,7 +1090,7 @@
           "places" (reverse flat-places) "operations" (reverse flat-ops)
           "inputs" (reverse flat-inputs) "outputs" (reverse flat-outputs)))
   (hash "snapshot" (hash "top" 0 "modules" (list flat))
-        "clock" clock "inputs" inputs "registers" registers "outputs" outputs))
+        "clock" clock "inputs" inputs "registers" registers "outputs" outputs "assertions" assertions))
 
 ;; Internal transition primitives, not bounded proof queries. Lower once and
 ;; retain explicit state between calls. Normal combinational APIs keep their
@@ -1106,12 +1123,12 @@
 (define (symbolic_transition_inputs plan)
   (symbolic-transition-bindings (hash-ref plan "inputs")))
 
-#| Check exact keys and widths before binding external state or inputs. |#
-(define (transition-bindings descriptors assignments kind)
+#| Check exact keys and widths before binding a concrete or symbolic sample. |#
+(define (packed-bindings descriptors assignments kind [key "input"] [who 'step_transition])
   (unless (and (hash? assignments)
                (equal? (list->set (hash-keys assignments))
                        (list->set (map (lambda (d) (hash-ref d "name")) descriptors))))
-    (error 'step_transition "~a must assign exactly the declared names" kind))
+    (error who "~a must assign exactly the declared names" kind))
   (for/hash ([entry (in-list descriptors)])
     (define name (hash-ref entry "name"))
     (define width (type-width (hash-ref entry "type")))
@@ -1120,16 +1137,35 @@
       (cond
         [(and (concrete? raw) (exact-integer? raw))
          (unless (<= 0 raw (sub1 (arithmetic-shift 1 width)))
-           (error 'step_transition "~a ~a does not fit its packed width" kind name))
+           (error who "~a ~a does not fit its packed width" kind name))
          (bv raw width)]
         [(equal? (type-of raw) (bitvector width)) raw]
-        [else (error 'step_transition "~a ~a requires an exact-width bitvector or packed natural" kind name)]))
-    (values (hash-ref entry "input") value)))
+        [else (error who "~a ~a requires an exact-width bitvector or packed natural" kind name)]))
+    (values (hash-ref entry key) value)))
+
+#| Preserve source identity for every partial operation, including unused ones in child modules. |#
+(define (domain-obligations collected)
+  (for/list ([obligation (in-list (reverse (unbox collected)))])
+    (hash "kind" "domain" "condition" (validity-obligation-condition obligation)
+          "diagnostic" (diagnostic (validity-obligation-module obligation)
+                                   (validity-obligation-operation obligation)
+                                   "partial operation requires a valid domain on this sampled edge"
+                                   (validity-obligation-path obligation)))))
+
+#| Sample a clockless RTL hierarchy with exact pins and return outputs plus domain obligations.
+   Combinational preflight rejects state and effects; no dummy clock or reset is introduced. |#
+(define (combinational_sample snapshot inputs)
+  (validate-snapshot snapshot)
+  (define-values (_top ports _outputs) (interfaces snapshot))
+  (define pins (packed-bindings ports inputs "inputs" "name" 'combinational_sample))
+  (define collected (box '()))
+  (define outputs (interpret-top-bv snapshot pins collected))
+  (transition-step outputs (hash) (domain-obligations collected)))
 
 #| Observe pre-edge outputs and compute all next-state values simultaneously. |#
 (define (step_transition plan state inputs)
-  (define state-inputs (transition-bindings (transition_registers plan) state "state"))
-  (define data-inputs (transition-bindings (hash-ref plan "inputs") inputs "inputs"))
+  (define state-inputs (packed-bindings (transition_registers plan) state "state"))
+  (define data-inputs (packed-bindings (hash-ref plan "inputs") inputs "inputs"))
   (define all-inputs
     (for/fold ([result state-inputs]) ([(key value) (in-hash data-inputs)])
       (hash-set result key value)))
@@ -1142,17 +1178,18 @@
   (transition-step
    (project (hash-ref plan "outputs") "output")
    (project (transition_registers plan) "next")
-   (for/list ([obligation (in-list (reverse (unbox obligations)))])
-     (hash "condition" (validity-obligation-condition obligation)
-           "diagnostic" (diagnostic (validity-obligation-module obligation)
-                                     (validity-obligation-operation obligation)
-                                     "partial operation requires a valid domain on this sampled edge"
-                                     (validity-obligation-path obligation))))))
+   (append
+    (domain-obligations obligations)
+    (for/list ([site (in-list (hash-ref plan "assertions"))])
+      (match-define (list condition reset guard)
+        (map (lambda (tap) (bveq (hash-ref observed tap) (bv 1 1))) (hash-ref site "taps")))
+      (hash "kind" "assertion" "label" (hash-ref site "label") "diagnostic" (hash-ref site "diagnostic")
+            "condition" (=> (&& guard (! reset)) condition))))))
 
 (define transition_step_outputs transition-step-outputs)
 (define transition_step_state transition-step-state)
 (define transition_step_obligations transition-step-obligations)
-#| Conjoin the step's domain obligations without asserting or proving them. |#
+#| Conjoin domain and active assertion obligations without assuming or proving them. |#
 (define (transition_step_validity step)
   (for/fold ([valid #t]) ([obligation (in-list (transition-step-obligations step))])
     (&& valid (hash-ref obligation "condition"))))

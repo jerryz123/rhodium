@@ -1,0 +1,33 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../spec.rhm" open
+  "../../../examples/formal/fifo-spec.rhm".fifo_spec
+  "spec-symbolic-checks.rkt" as solver
+
+def fifo = fifo_spec(2, 2)
+fun fifo_row(contents, reset, offer, consume, data):
+  def s = step_spec(fifo, {"q": PairList.to_list(contents)},
+                    {"reset": reset, "in.valid": offer, "out.ready": consume, "in.data": data})
+  PairList[s.outputs, s.events, PairList[& s.next_state["q"]]]
+
+solver.check_fifo(spec_snapshot(fifo), fifo_row)
+
+// One symbolic flag controls whether each partial operation is executed.
+def flag = SpecBool()
+def seq = SpecSeq(flag, 1)
+def gate = input_ref("gate", flag)
+def empty = literal(seq, [])
+def full = literal(seq, [#true])
+def bad = seq_front(empty)
+fun guarded(output, event, update):
+  spec_snapshot(make_spec({"gate": flag}, {"q": seq}, {"q": []},
+                          {"out": output}, {"ev": event}, {"q": update}))
+
+def off = Observed(bad, literal(flag, #false))
+solver.check_guard(guarded(Observed(bad, gate), off, empty))
+solver.check_guard(guarded(off, Observed(bool_and(gate, bad)), empty))
+solver.check_guard(guarded(off, off, choose_if(gate, seq_tail(empty), full)))
+solver.check_guard(guarded(off, off, choose_if(gate, seq_append(full, gate), empty)))
+solver.check_guard(guarded(Observed(gate, bool_and(gate, bad)), off, empty))

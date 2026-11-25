@@ -1,0 +1,47 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("rhodium/frontend/kernel.rhm").materialize_circuit
+  "shift-queue-fixture.rhdl".QueuePair
+  "arbiter-queue-fixture.rhdl".ArbiterQueue
+
+export pair_wires mixed_wires fifo_definition arbiter_definition
+
+// Share one specialization inventory so proofs bind by actual definition identity.
+fun inventory():
+  materialize_circuit(QueuePair())
+  ArbiterQueue()
+def inventory_design = elaborate(inventory())
+def pair = inventory_design.design.modules.find(fun (m): m.name == "QueuePair")
+def mixed = inventory_design.top
+
+// Stop at each instance. Read only its signature, not its operations or state.
+fun cut(top):
+  def sources = MutableMap{}
+  def sinks = MutableMap{}
+  def children = MutableMap{}
+  for (op in top.operations):
+    unless ["rtl.input_port", "rtl.output_port", "rtl.instance", "rtl.drive"].find(fun (kind): kind == op.opcode)
+    | error("not a wiring-only parent: " ++ op.opcode)
+  def sites = top.operations.filter(~keep: fun (op): op.opcode == "rtl.instance")
+  for (p in top.inputs): sources[p.value.id] := p.name
+  for (op in sites):
+    def name = op.attribute("name")
+    def child = op.attribute("module")
+    children[name] := child
+    for (p in child.outputs, v in op.results): sources[v.id] := name ++ "." ++ p.name
+  for (op in sites):
+    def prefix = op.attribute("name") ++ "."
+    for (p in op.attribute("module").inputs, place in op.places): sinks[prefix ++ p.name] := sources[place.driver.id]
+  for (p in top.outputs): sinks[p.name] := sources[p.place.driver.id]
+  values(children.snapshot(), sinks.snapshot())
+
+def values(pair_children, pair_wires) = cut(pair)
+def values(mixed_children, mixed_wires) = cut(mixed)
+def fifo_definition = mixed_children["fifo"]
+def arbiter_definition = mixed_children["arb"]
+unless pair_children.length() == 2 && mixed_children.length() == 2
+       && pair_children["a"] === fifo_definition && pair_children["b"] === fifo_definition
+| error("expected both parents to share the proved FIFO specialization")

@@ -1,4 +1,4 @@
-<!-- Documents the optional Rosette formal engine, its supported semantics, API, and focused validation. -->
+<!-- Documents rspecsim concrete specification execution and the optional Rosette formal engine. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Rhodium formal engine
@@ -7,6 +7,24 @@ The formal engine is an optional, solver-backed consumer of verified public
 Rhodium IR. It checks deterministic combinational behavior with Rosette
 fixed-width bitvectors; it does not participate in elaboration, change Rhodium
 semantics, or get imported by `#lang rhodium`.
+**rspecsim** is the [specification library](spec.rhm)'s concrete execution mode:
+it runs a reference model on known inputs and state, without RTL or a solver.
+By contrast, [rsim](../backend/README.md) runs the RTL implementation, and
+Rosette can execute the same specification symbolically on unknown values. A
+[leaf proof](DEVELOPING.md#fixed-shiftqueue-refinement) establishes that the
+two-bit, depth-two ShiftQueue (pipe, flow, and flush disabled) matches its FIFO
+spec on every edge following sampled reset. A [parent proof](DEVELOPING.md#two-shiftqueues-in-series)
+uses two copies of that spec to prove four-word capacity and FIFO ordering for
+the series connection. It does not promise admission whenever there is space
+or eventual delivery. A separate [arbiter proof](DEVELOPING.md#two-input-fixed-priority-arbiter)
+covers a two-input, two-bit Decoupled arbiter: lane 0 wins ties and each
+output transfer consumes exactly the winning input. A stalled grant is not
+locked. When that arbiter feeds the FIFO, the
+[combined proof](DEVELOPING.md#arbiter-feeding-a-shiftqueue) shows that each
+dequeue returns the oldest accepted winner since reset. An offered word that
+was never accepted does not enter the queue. Reset discards pending words;
+the proof promises neither eventual delivery nor fairness between lanes.
+These are fixed proof fixtures, not a public refinement checker.
 
 This README documents the implemented public contract. The
 [formal plan](PLAN.md) sets out Rhodium's direction: executable specifications,
@@ -16,7 +34,23 @@ should read [`DEVELOPING.md`](DEVELOPING.md).
 
 ## Install and quick start
 
-Install Rosette into the active Racket installation:
+To run a specification in rspecsim, import `step_spec` directly. For example, on
+an edge that consumes 1 and accepts 2, the old head remains visible:
+
+```rhombus
+import:
+  lib("rhodium/formal/spec.rhm").step_spec
+  lib("examples/formal/fifo-spec.rhm").fifo_spec
+
+def fifo = fifo_spec(2, 2)
+def edge = step_spec(fifo, {"q": [1]},
+                     {"reset": #false, "in.valid": #true, "in.data": 2, "out.ready": #true})
+// edge.outputs["out.data"] == 1
+// edge.events == {"dequeue": 1, "enqueue": 2}
+// edge.next_state == {"q": [2]}
+```
+
+For **symbolic spec checks or RTL equivalence**, install Rosette into the active Racket installation:
 
 ```sh
 raco pkg install --auto rosette
@@ -37,7 +71,33 @@ differential check:
 moon run rhodium:formal-differential-test
 ```
 
-## Formal API
+## Concrete specification API
+
+`make_spec(inputs, state, initial, outputs, events, updates)` builds an immutable
+model. The first two maps declare separate namespaces of string names and
+types: `SpecBool()`, `SpecBits(width)`, or `SpecSeq(scalar_type, capacity)`.
+Widths and capacities are positive. Values are Booleans, unsigned naturals
+that fit their width, and immutable lists of at most the declared capacity.
+`model.initial` is a complete concrete state, not an assumption about RTL startup.
+
+Build expressions using `literal`, `input_ref`, `state_ref`, Boolean `bool_not` /
+`bool_and`, deterministic `choose_if`, and `seq_empty`, `seq_full`, `seq_front`,
+`seq_tail`, and `seq_append`. Model construction checks the names and types of
+references on both sides of conditionals, even in inactive branches. Output
+and event maps contain `Observed(value, care)` fields; care defaults to true.
+
+`step_spec(model, state, inputs)` takes exact bindings and returns three maps:
+pre-edge `outputs`, the joint `events` on that edge, and `next_state`. False care
+omits the key and does not evaluate its value. An observed false or zero remains
+present. Every update reads the same old state; unassigned fields hold. Reading
+or removing an empty head, or appending to a full sequence, is an error on an
+executed path. Reset and which events it suppresses are authored in the model,
+not imposed by the interpreter. The optional [symbolic step](DEVELOPING.md#symbolic-specification-step)
+has the same care and update semantics; it returns a condition for when partial
+operations are defined instead of throwing on a symbolic input. There is no
+public RTL refinement query yet.
+
+## RTL equivalence API
 
 Import `rhodium/formal/main.rhm` explicitly. Each subject must be a verified
 `DesignElaboration` with an explicit top or a completed core `Module` owned by
@@ -156,8 +216,9 @@ before the requested query.
 | Types | `Clock`, `Reset`, nonpackable values, and types without a positive canonical packed width |
 | Schema coverage | Any operation not listed in the supported-semantics table |
 
-An internal single-clock stepper also executes register-only hierarchies for
-concrete replay and symbolic next-state calculations. It is not a public
+An internal single-clock stepper also executes register-based hierarchies for
+concrete replay and symbolic next-state calculations. It reports clocked RTL
+assertions as obligations on the sampled edge, not assumptions. It is not a public
 sequential proof or refinement API. See the [transition boundary](DEVELOPING.md#register-transition-foundation).
 
 This is not an unbounded or bounded sequential model checker, a four-state
@@ -170,7 +231,8 @@ choices.
 
 | Command | Coverage |
 |---|---|
-| `moon run rhodium:formal-test` | Focused public-API, assumption, operation, hierarchy, aggregate, decode, register stepping, replay, and fail-closed tests after a live Rosette/Z3 probe |
+| `moon run rhodium:formal-spec-test` | rspecsim FIFO steps against an independent list oracle; no solver required |
+| `moon run rhodium:formal-test` | Fixed-priority arbiter and ShiftQueue refinement, FIFO-pair capacity and ordering, arbiter-to-FIFO winner ordering, symbolic/concrete spec agreement, and RTL equivalence, hierarchy, register stepping, replay, and fail-closed tests after a live Rosette/Z3 probe |
 | `moon run rhodium:formal-differential-test` | Independent CIRCT/Verilator replay for structurally different shifts, aggregates, hierarchy, fully cared decode, and assumption-constrained one-hot implementations, plus register traces against native and HDL simulations |
 
 Detailed test ownership and the differential oracle matrix are in

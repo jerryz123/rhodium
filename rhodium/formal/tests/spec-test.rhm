@@ -1,0 +1,91 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../spec.rhm" open
+  "../../../examples/formal/fifo-spec.rhm".fifo_spec
+
+def fifo = fifo_spec(2, 2)
+def flags = [#false, #true]
+def mutable cases = 0
+
+// The oracle enumerates legal transfers from concrete old occupancy, without IR constructors.
+fun check_state(q):
+  def n = q.length()
+  for (reset in flags):
+    for (offer in flags):
+      for (consume in flags):
+        for (word in 0..4):
+          def state = {"q": q}
+          def sample = {"reset": reset, "in.valid": offer, "out.ready": consume, "in.data": word}
+          def step = step_spec(fifo, state, sample)
+          def en = offer && n < 2
+          def de = consume && n > 0
+          def expected_q:
+            cond
+            | reset: []
+            | en && de: [word] // At depth two only a singleton permits both.
+            | de: q.drop(1)
+            | en: q ++ [word]
+            | ~else: q
+          def outputs:
+            cond
+            | reset: Map{}
+            | n == 0: {"in.ready": #true, "out.valid": #false}
+            | ~else: {"in.ready": n == 1, "out.valid": #true, "out.data": q[0]}
+          def events:
+            cond
+            | reset: {"reset": #true}
+            | en && de: {"dequeue": q[0], "enqueue": word}
+            | de: {"dequeue": q[0]}
+            | en: {"enqueue": word}
+            | ~else: Map{}
+          check:
+            step.outputs ~is outputs
+            step.events ~is events
+            step.next_state ~is {"q": expected_q}
+          cases := cases + 1
+
+check_state([])
+for (a in 0..4):
+  check_state([a])
+  for (b in 0..4):
+    check_state([a,b])
+check:
+  cases ~is 672
+  fifo.initial ~is {"q": []}
+
+// Multiple writes must all see the old sample; unspecified state holds.
+def bit = SpecBits(1)
+def swap = make_spec(Map{}, {"x": bit, "y": bit, "held": bit}, {"x": 1, "y": 0, "held": 1},
+                     {"old_x": Observed(state_ref("x", bit))}, Map{},
+                     {"x": state_ref("y", bit), "y": state_ref("x", bit)})
+def swapped = step_spec(swap, swap.initial, Map{})
+check:
+  swapped.outputs ~is {"old_x": 1}
+  swapped.next_state ~is {"x": 0, "y": 1, "held": 1}
+  step_spec(swap, swapped.next_state, Map{}).next_state ~is swap.initial
+
+def seq = SpecSeq(SpecBits(2), 2)
+def empty = literal(seq, [])
+def full = literal(seq, [0,1])
+fun view(expr):
+  make_spec(Map{}, Map{}, Map{}, {"v": Observed(expr)}, Map{}, Map{})
+fun observe(expr):
+  step_spec(view(expr), Map{}, Map{}).outputs
+check:
+  literal(bit, 2) ~throws "does not fit"
+  literal(seq, [0,1,2]) ~throws "capacity"
+  literal(seq, [4]) ~throws "does not fit"
+  Observed(empty, literal(bit, 0)) ~throws "boolean"
+  choose_if(literal(SpecBool(), #true), full, literal(bit, 0)) ~throws "branch type"
+  seq_append(empty, literal(SpecBool(), #false)) ~throws "element type"
+  observe(seq_front(empty)) ~throws "empty sequence"
+  observe(seq_tail(empty)) ~throws "empty sequence"
+  observe(seq_append(full, literal(SpecBits(2), 0))) ~throws "full sequence"
+  view(choose_if(literal(SpecBool(), #true), empty, state_ref("bad", seq))) ~throws "reference"
+  make_spec({"x": bit}, Map{}, Map{}, {"v": Observed(input_ref("x", SpecBool()))}, Map{}, Map{}) ~throws "reference"
+  make_spec(Map{}, {"q": seq}, {"q": []}, Map{}, Map{}, {"q": literal(bit, 0)}) ~throws "update type"
+  make_spec(Map{}, {"x": bit}, {"z": 1}, Map{}, Map{}, Map{}) ~throws "missing spec binding"
+  step_spec(swap, swap.initial, {"extra": 0}) ~throws "exact spec bindings"
+  step_spec(swap, {"x": 2, "y": 0, "held": 1}, Map{}) ~throws "does not fit"

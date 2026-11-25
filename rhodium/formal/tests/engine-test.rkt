@@ -429,6 +429,14 @@
   (operation-design "rtl.onehot_mux"
                     (list (flat-type 3) (flat-type 4) (flat-type 4) (flat-type 4))
                     (flat-type 4)))
+;; The clockless sampler reports partial-operation obligations, not just outputs.
+(define onehot-sample
+  (combinational_sample onehot-snapshot (hash "x0" 1 "x1" 1 "x2" 2 "x3" 3)))
+(check-true (transition_step_validity onehot-sample))
+(check-equal? (map (lambda (o) (hash-ref (hash-ref o "diagnostic") "opcode"))
+                   (transition_step_obligations onehot-sample)) '("rtl.onehot_mux"))
+(check-exn #rx"not exactly one-hot"
+           (lambda () (combinational_sample onehot-snapshot (hash "x0" 0 "x1" 1 "x2" 2 "x3" 3))))
 (for* ([selector+index (in-list '((1 . 1) (2 . 2) (4 . 3)))]
        [a (in-range 16)] [b (in-range 16)] [c (in-range 16)])
   (define selector (car selector+index))

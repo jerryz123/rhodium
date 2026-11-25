@@ -1,0 +1,53 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+
+import lib("flow/shift-queue.rhdl").ShiftQueue
+
+sync_circuit Leaf(corrupt :: Boolean):
+  input offer: Bool
+  input data: Bits(2)
+  input consume: Bool
+  output ready: Bool
+  output valid: Bool
+  output head: Bits(2)
+  output count: Bits(2)
+  output mask: Bits(2)
+
+  inst dut(ShiftQueue(Bits(2), 2, ~pipe: #false, ~flow: #false, ~flushable: #false))
+  dut.ingress.valid <== offer
+  dut.ingress.bits <== data
+  dut.egress.ready <== consume
+  ready <== dut.ingress.ready
+  valid <== dut.egress.valid
+  head <== if corrupt | data | dut.egress.bits
+  count <== dut.count
+  mask <== dut.mask
+
+sync_circuit GuardedAssertion():
+  input enabled: Bool
+  input condition: Bool
+  when enabled:
+    assert(condition, "sampled")
+
+// Only the verified ready/valid cycle interface crosses each child boundary.
+sync_circuit QueuePair():
+  input offer: Bool
+  input data: Bits(2)
+  input consume: Bool
+  output ready: Bool
+  output valid: Bool
+  output head: Bits(2)
+
+  inst a(Leaf(#false))
+  inst b(Leaf(#false))
+  a.offer <== offer
+  a.data <== data
+  a.consume <== b.ready
+  b.offer <== a.valid
+  b.data <== a.head
+  b.consume <== consume
+  ready <== a.ready
+  valid <== b.valid
+  head <== b.head
+
+export Leaf GuardedAssertion QueuePair

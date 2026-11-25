@@ -119,6 +119,8 @@ fun operation_attributes_snapshot(operation :: Operation):
       rkt.hash("index", operation.attribute("index"))
   | "rtl.register" || "rtl.register_reset":
       rkt.hash("name", operation.attribute("name"))
+  | "verif.assert":
+      rkt.hash("label", operation.attribute("label", #false))
   | "rtl.instance":
       def child = operation.attribute("module")
       rkt.hash("name", operation.attribute("name"),

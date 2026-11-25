@@ -1,0 +1,212 @@
+#lang rhombus
+/* Constructs finite, typed specification expressions and executes concrete edges with rspecsim. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  rhombus.bits.(<<) as <<
+
+export:
+  SpecBool SpecBits SpecSeq
+  literal input_ref state_ref choose_if bool_not bool_and
+  seq_empty seq_full seq_front seq_tail seq_append
+  Observed make_spec step_spec spec_snapshot
+
+interface SpecType
+
+/* Logical values are distinct from one-bit packed naturals. */
+class SpecBool():
+  implements SpecType
+
+/* Packed values are unsigned naturals that fit the declared width. */
+class SpecBits(width :: PosInt):
+  implements SpecType
+
+/* An oldest-first bounded sequence contains only its live elements. */
+class SpecSeq(element :: SpecBool || SpecBits, capacity :: PosInt):
+  implements SpecType
+
+/* Constructors below own the types and arity of these immutable IR nodes. */
+class Expr(op :: String, type :: SpecType, args :: List, datum :: String || Boolean || Nat || List = #false)
+
+/* Compare specialized types by structure, not by descriptor identity. */
+fun same_type(a :: SpecType, b :: SpecType):
+  cond
+  | a is_a SpecBits: b is_a SpecBits && a.width == b.width
+  | a is_a SpecSeq: b is_a SpecSeq && a.capacity == b.capacity && same_type(a.element, b.element)
+  | ~else: b is_a SpecBool
+
+/* Reject values outside their finite domain, including inactive or excess sequence slots. */
+fun check_value(type :: SpecType, value :: Boolean || Int || List):
+  cond
+  | type is_a SpecSeq:
+      unless value is_a List && value.length() <= type.capacity
+      | error("expected a list within sequence capacity")
+      for (item in value): check_value(type.element, item)
+  | type is_a SpecBits:
+      unless value is_a Nat && value < (1 << type.width)
+      | error("value does not fit spec bits")
+  | ~else:
+      unless value is_a Boolean | error("expected a spec boolean")
+
+/* Embed a checked, concrete initial or constant value in an expression. */
+fun literal(type :: SpecType, value :: Boolean || Nat || List):
+  check_value(type, value)
+  Expr("literal", type, [], value)
+
+/* Name a sampled input; model construction checks its declared port type. */
+fun input_ref(name :: String, type :: SpecType): Expr("input", type, [], name)
+
+/* Read a state field before the edge, never another field's pending update. */
+fun state_ref(name :: String, type :: SpecType): Expr("state", type, [], name)
+
+/* Require a Boolean predicate even when a packed input happens to have width one. */
+fun check_bool(expr :: Expr):
+  unless expr.type is_a SpecBool | error("expected a boolean expression")
+
+/* Form a typed conditional; only its selected branch must be defined on an edge. */
+fun choose_if(test :: Expr, yes :: Expr, no :: Expr):
+  check_bool(test)
+  unless same_type(yes.type, no.type) | error("conditional branch type mismatch")
+  Expr("if", yes.type, [test, yes, no])
+
+/* Negate a Boolean predicate. */
+fun bool_not(expr :: Expr):
+  check_bool(expr)
+  Expr("not", SpecBool(), [expr])
+
+/* Conjoin two predicates, evaluating the second only when the first holds. */
+fun bool_and(left :: Expr, right :: Expr):
+  check_bool(left)
+  check_bool(right)
+  Expr("and", SpecBool(), [left, right])
+
+/* Reject scalar operands before building a sequence operation. */
+fun sequence_type(seq :: Expr) :: SpecSeq:
+  unless seq.type is_a SpecSeq | error("expected a sequence expression")
+  seq.type
+
+/* Test whether a sequence contains no live items. */
+fun seq_empty(seq :: Expr):
+  sequence_type(seq)
+  Expr("empty", SpecBool(), [seq])
+
+/* Test whether appending another element would exceed capacity. */
+fun seq_full(seq :: Expr):
+  sequence_type(seq)
+  Expr("full", SpecBool(), [seq])
+
+/* Read the oldest element; the selected execution path must be nonempty. */
+fun seq_front(seq :: Expr): Expr("front", sequence_type(seq).element, [seq])
+
+/* Remove the oldest element on a nonempty execution path. */
+fun seq_tail(seq :: Expr): Expr("tail", sequence_type(seq), [seq])
+
+/* Add one live item of the declared element type, subject to available capacity. */
+fun seq_append(seq :: Expr, item :: Expr):
+  def type = sequence_type(seq)
+  unless same_type(type.element, item.type) | error("sequence element type mismatch")
+  Expr("append", type, [seq, item])
+
+/* Omit the named output or event field entirely when its care predicate is false. */
+class Observed(value :: Expr, care :: Expr = literal(SpecBool(), #true)):
+  /* Reject non-Boolean care predicates before executing the model. */
+  constructor (value :: Expr, care :: Expr = literal(SpecBool(), #true)):
+    check_bool(care)
+    super(value, care)
+
+/* A checked model holds separate input and state namespaces and one update per field. */
+class Model(inputs :: Map, state :: Map, initial :: Map, outputs :: Map, events :: Map, updates :: Map)
+
+/* Check exact bindings so absent samples and extra fields cannot silently affect a run. */
+fun check_bindings(schema :: Map, bindings :: Map):
+  unless bindings.length() == schema.length() | error("expected exact spec bindings")
+  for ((name, type) in schema):
+    unless bindings.has_key(name) | error("missing spec binding: " ++ name)
+    check_value(type, bindings[name])
+
+/* Resolve every reference, including in untaken branches, and check update result types. */
+fun make_spec(inputs :: Map, state :: Map, initial :: Map, outputs :: Map, events :: Map, updates :: Map):
+  for (schema in [inputs, state]):
+    for ((name, type) in schema):
+      unless name is_a String && type is_a SpecType | error("invalid spec declaration")
+  check_bindings(state, initial)
+  /* Link expression leaves against declarations rather than guessing from sample values. */
+  fun link(expr :: Expr):
+    when expr.op == "input" || expr.op == "state"
+    | block:
+        def schema = if expr.op == "input" | inputs | state
+        unless schema.has_key(expr.datum) && same_type(schema[expr.datum], expr.type)
+        | error("undeclared or mistyped spec reference: " ++ expr.datum)
+    for (child in expr.args): link(child)
+  for (view in [outputs, events]):
+    for ((name, field) in view):
+      unless name is_a String && field is_a Observed | error("invalid spec observation")
+      link(field.care)
+      link(field.value)
+  for ((name, expr) in updates):
+    unless state.has_key(name) && expr is_a Expr && same_type(state[name], expr.type)
+    | error("unknown state or update type mismatch")
+    link(expr)
+  Model(inputs, state, initial, outputs, events, updates)
+
+/* A step separates pre-edge observations from the state committed on that edge. */
+class Step(outputs :: Map, events :: Map, next_state :: Map)
+
+/* Describe one finite sort using immutable plain data accepted by the optional solver. */
+fun snapshot_type(type :: SpecType):
+  cond
+  | type is_a SpecBool: PairList["bool"]
+  | type is_a SpecBits: PairList["bits", type.width]
+  | type is_a SpecSeq: PairList["seq", type.capacity, snapshot_type(type.element)]
+
+/* Copy one typed expression without executing either branch or a partial operation. */
+fun snapshot_expr(expr :: Expr):
+  def data = if expr.datum is_a List | PairList[& expr.datum] | expr.datum
+  PairList[expr.op, snapshot_type(expr.type), data, & expr.args.map(snapshot_expr)]
+
+/* Snapshot a checked one-edge function; initial state is not a restriction on its arguments. */
+fun spec_snapshot(model :: Model):
+  /* Preserve the instantiated sort of each named input or state field. */
+  fun schema(fields :: Map):
+    for Map ((name, type) in fields): values(name, snapshot_type(type))
+  /* Both care and value must survive translation, even when the value is false. */
+  fun view(fields :: Map):
+    for Map ((name, field) in fields):
+      values(name, PairList[snapshot_expr(field.care), snapshot_expr(field.value)])
+  {"inputs": schema(model.inputs), "state": schema(model.state),
+   "outputs": view(model.outputs), "events": view(model.events),
+   "updates": for Map ((name, expr) in model.updates): values(name, snapshot_expr(expr))}
+
+/* Advance rspecsim one edge on concrete bindings without mutating the caller's state. */
+fun step_spec(model :: Model, state :: Map, inputs :: Map):
+  check_bindings(model.state, state)
+  check_bindings(model.inputs, inputs)
+  /* Interpret conditional and care guards lazily so an inactive partial operation is not executed. */
+  fun evaluate(expr :: Expr):
+    /* Evaluate one operand against this same pre-edge sample. */
+    fun arg(index :: Nat): evaluate(expr.args[index])
+    match expr.op
+    | "input": inputs[expr.datum]
+    | "state": state[expr.datum]
+    | "literal": expr.datum
+    | "if":
+        if arg(0) | arg(1) | arg(2)
+    | "not": !arg(0)
+    | "and": arg(0) && arg(1)
+    | "empty": arg(0).length() == 0
+    | "full": arg(0).length() == expr.args[0].type.capacity
+    | "front" || "tail":
+        def seq = arg(0)
+        when seq.length() == 0 | error("cannot read or remove from an empty sequence")
+        if expr.op == "front" | seq[0] | seq.drop(1)
+    | "append":
+        def seq = arg(0)
+        when seq.length() == expr.type.capacity | error("cannot append to a full sequence")
+        seq ++ [arg(1)]
+  /* An uncared field has no value, which is different from an observed false or zero. */
+  fun observe(view :: Map):
+    for Map (name in view.keys().filter(~keep: fun (key :: String): evaluate(view[key].care))):
+      values(name, evaluate(view[name].value))
+  def next = for Map ((name, old) in state):
+    values(name, if model.updates.has_key(name) | evaluate(model.updates[name]) | old)
+  Step(observe(model.outputs), observe(model.events), next)

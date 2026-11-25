@@ -1,0 +1,29 @@
+#lang rhombus
+/* Models two Decoupled offers with combinational priority for lane zero. */
+// SPDX-License-Identifier: Apache-2.0
+
+import lib("rhodium/formal/spec.rhm") open
+
+export arbiter_spec
+
+/* Select the lowest valid lane anew each sample; no request locks a stalled grant. */
+fun arbiter_spec(width :: PosInt):
+  def flag = SpecBool()
+  def word = SpecBits(width)
+  def index = SpecBits(1)
+  def v0 = input_ref("v0", flag)
+  def v1 = input_ref("v1", flag)
+  def d0 = input_ref("d0", word)
+  def d1 = input_ref("d1", word)
+  def accept = input_ref("accept", flag)
+  def valid = choose_if(v0, literal(flag, #true), v1)
+  def data = choose_if(v0, d0, d1)
+  def r0 = bool_and(accept, v0)
+  def r1 = bool_and(accept, bool_and(bool_not(v0), v1))
+  make_spec({"v0": flag, "v1": flag, "d0": word, "d1": word, "accept": flag},
+            Map{}, Map{},
+            {"r0": Observed(r0), "r1": Observed(r1), "valid": Observed(valid),
+             "data": Observed(data, valid),
+             "chosen": Observed(choose_if(v0, literal(index, 0), literal(index, 1)), valid)},
+            {"in0": Observed(d0, r0), "in1": Observed(d1, r1),
+             "out": Observed(data, bool_and(accept, valid))}, Map{})
