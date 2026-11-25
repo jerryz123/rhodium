@@ -224,7 +224,7 @@ sync_circuit RiscvFpCsrs():
    state.
    Synchronous traps outrank boundary interrupts; architectural state changes suppress
    illegal writes, and shared FP/vector data retains separate host/guest status ownership. */
-sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
+sync_circuit RiscvCsrFile(config :: RiscvCsrConfig, ~sampled_interrupts: sampled_interrupts :: Boolean = #false):
   def hypervisor = config.hypervisor
   def xlen = config.xlen
   def profile = config.floating_point
@@ -850,10 +850,20 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
   command_fault <== candidate_trap
   def synchronous_trap = candidate_trap.updated(~valid: commit.valid & candidate_trap.valid)
 
-  def interrupt :: RiscvInterruptDecision(xlen):
+  def live_interrupt :: RiscvInterruptDecision(xlen):
     if hypervisor
     | resolve_riscv_hypervisor_interrupt(interrupt_pending, state.mie, interrupt_delegation, state.hideleg, state.mstatus, state.vsstatus, context)
     | resolve_riscv_interrupt(xlen, interrupt_pending, state.mie, state.mideleg, state.mstatus, privilege_state)
+
+  // In a pipelined caller, selection belongs to recognition, not delivery.
+  def interrupt :: RiscvInterruptDecision(xlen):
+    if sampled_interrupts
+    | block:
+        output interrupt_candidate: RiscvInterruptDecision(xlen)
+        input accepted_interrupt: RiscvInterruptDecision(xlen)
+        interrupt_candidate <== live_interrupt
+        accepted_interrupt
+    | live_interrupt
 
   def interrupt_take = interrupt_boundary & !synchronous_trap.valid & interrupt.valid
   def synchronous_target :: RiscvTrapTarget:
@@ -1007,7 +1017,7 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig):
 
   writeback_valid <== !trap.valid & ((csr_commit & csr_access_legal) ||| vector_config_commit) & commit.bits.rd.any()
   writeback_value <== mux(vector_config_commit, vector_csrs.configuration_vl, csr_read_value)
-  interrupt_request <== interrupt.valid
+  interrupt_request <== live_interrupt.valid
   wfi <== command_success & (commit.bits.action === RiscvCsrAction.Wfi)
   wfi_wake <== any(interrupt_pending & state.mie)
   privilege <== privilege_state

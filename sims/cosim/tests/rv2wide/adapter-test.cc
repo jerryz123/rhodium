@@ -122,20 +122,33 @@ void reject_bad_vector_depth(Word depth, bool changed, bool overflow) {
 }
 void rv32_boundaries() {
   Collector c; c.reset(0,0,{0,0x8000,{3,false},32,0}); DpiBinding binding(c); std::mt19937 random(0);
-  Sample s; s.boundary.interrupt=1; s.boundary.cause=(Word{1}<<31)|7;
+  Sample s;
+  s.boundary.interrupt_accept=1; s.boundary.interrupts=8; s.boundary.time=20;
+  require(sample(c,binding,0,s,random).empty());
+  s=Sample(); s.boundary.interrupt_kill=1;
+  require(sample(c,binding,1,s,random).empty());
+  s=Sample(); s.boundary.interrupt_accept=1; s.boundary.interrupts=128; s.boundary.time=24;
+  require(sample(c,binding,2,s,random).empty());
+  s=Sample(); s.retire(0,0x7ffc); s.boundary.time=25;
+  auto older=sample(c,binding,3,s,random);
+  require(older.size()==1 && older[0].environment.time==25 && !older[0].environment.interrupt_inputs);
+  s=Sample(); s.boundary.interrupt=1; s.boundary.cause=(Word{1}<<31)|7;
+  s.boundary.interrupt_boundary=1; s.boundary.time=26;
   s.boundary.epc=0x8000; s.boundary.target=0x9000;
-  auto records=sample(c,binding,0,s,random);
+  auto records=sample(c,binding,4,s,random);
   require(records.size()==1 && std::get<Interrupt>(records[0].event).trap.cause==7);
+  require(records[0].environment.interrupt_inputs==128 && records[0].environment.time==24 &&
+          records[0].environment.cycle==4 && records[0].environment.interrupt_boundary);
   s=Sample(); s.lanes[0].split=1; s.lanes[0].pc=0x9000;
   s.lanes[0].memory=1; s.lanes[0].access=2; s.lanes[0].width=2; s.lanes[0].address=0xfffffffd;
-  require(sample(c,binding,1,s,random).empty());
+  require(sample(c,binding,5,s,random).empty());
   s=Sample(); s.physical.fragment_valid=1; s.physical.fragment_address=0xfffffffc;
   s.physical.fragment_virtual=0xfffffffd; s.physical.fragment_mask=14; s.physical.fragment_data=0x33221100;
-  sample(c,binding,2,s,random);
-  s=Sample(); s.physical.fragment_response=1; sample(c,binding,3,s,random);
+  sample(c,binding,6,s,random);
+  s=Sample(); s.physical.fragment_response=1; sample(c,binding,7,s,random);
   s=Sample(); s.lanes[3].pc=0x9000; s.boundary.trap=1; s.boundary.cause=7;
   s.boundary.epc=0x9000; s.boundary.tval=0;
-  records=sample(c,binding,4,s,random);
+  records=sample(c,binding,8,s,random);
   require(records.size()==1);
   const auto& fault=std::get<MemoryEffect>(records[0].effects.at({1,1}));
   require(fault.virtual_address==0 && fault.fragment_offset==3 && fault.byte_mask==1);
@@ -187,6 +200,7 @@ std::string run(unsigned seed) {
     // A multiply writes directly while an unrelated variable result enters RR.
     if (cycle==3) { s.completions[0]={0,1,0x8008,3,1,33}; s.completions[1]={1,1,0x8010,4,1,44}; s.completions[3]={3,1,0x8010,4,1,44}; }
     if (cycle==6) s.completions[3]={3,1,0x8008,3,1,33};
+    if (cycle==7) { s.boundary.interrupt_accept=1; s.boundary.interrupts=128; }
     if (cycle==8) {
       s.retire(0,0x8018,6,66);
       s.lanes[3].pc=0x801c; s.lanes[3].encoding=0;

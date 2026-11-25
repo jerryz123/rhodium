@@ -48,6 +48,11 @@ core's interrupt boundary + next PC ------------> interrupt entry
   when entry is safe. Synchronous exceptions outrank interrupts. Do not
   authorize a successful state-changing command on an interrupt-taking
   boundary: the core must order completion and boundary interrupt entry.
+  By default the bank selects the live interrupt on that edge. With
+  `~sampled_interrupts: #true`, the caller samples `interrupt_candidate`
+  at recognition and returns that decision on `accepted_interrupt` at
+  delivery. It must discard the decision on older recovery. Pending CSR
+  reads, `interrupt_request`, and local WFI wake remain live in either mode.
 - Redirects, translation-flush notifications, pointer-mask changes, permissions,
   and live translation context are outputs. Draining older work, squashing
   younger work, cache/TLB invalidation, and resumption remain core policy.

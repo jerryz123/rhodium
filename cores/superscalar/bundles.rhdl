@@ -733,10 +733,8 @@ bundle SuperscalarBoundaryInstruction(xlen :: XLen):
   fp: SuperscalarFpControl()
   vector: Bool
 
-/* Holds a precise exception or an interrupt boundary, not an executable CSR
-   command. Interrupt selection and delegation remain live in the CSR bank. */
+/* Holds a precise synchronous exception until older work drains. */
 bundle SuperscalarPendingTrap(xlen :: XLen, hypervisor :: Boolean):
-  interrupt: Bool
   instruction: SuperscalarBoundaryInstruction(xlen)
   cause: ExceptionCause
   value: Bits(xlen.width)

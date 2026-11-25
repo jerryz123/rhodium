@@ -1176,6 +1176,107 @@ void csr_access(std::uint64_t pc, int f3, int rd, int rs1, int address,
   drain();
 }
 
+enum class InterruptBoundary { idle, pulse_at_rr, change_source, divide, sync_fault, wrong_path, disable };
+
+void registered_interrupt(InterruptBoundary scenario) {
+  constexpr std::uint64_t pc = 0x6714;
+  reset_core();
+  send(pc - 20, imm(1, 0, 0x700), imm(2, 0, 8));
+  drain();
+  csr_access(pc - 12, 1, 0, 1, 0x305, 0);  // mtvec
+  trap_target = 0x700;
+  csr_access(pc - 8, 1, 0, 2, 0x304, 0);   // mie.MSIE
+  csr_access(pc - 4, 1, 0, 2, 0x300, UINT64_C(0xa00000000));
+
+  auto boundary = pc;
+  if (scenario == InterruptBoundary::disable) {
+    const auto disable = csr(3, 0, 2, 0x300); // older csrrc disables MIE at WB
+    expect_system(pc, disable);
+    stop_at(pc, pc + 4, 3);
+    send(pc, disable, 0, 1, 0, 0);
+    send(pc + 4, imm(6, 0, 6), 0, 1, 0, 0);
+    set_interrupts(16);
+    settle();
+    CHECK(!issued && !fetch_flush_out.pvalid);
+    drain(); // keep MSIP asserted through the CSR redirect and restart
+    send(pc + 4, imm(6, 0, 6), 0, 1);
+    drain();
+    set_interrupts(0);
+    csr_access(pc + 8, 2, 5, 0, 0x341, 0);
+    return;
+  }
+  if (scenario == InterruptBoundary::change_source) {
+    send(pc, imm(2, 0, 136), 0, 1);
+    drain();
+    csr_access(pc + 4, 1, 0, 2, 0x304, 8); // enable both MSIP and MTIP
+    boundary += 8;
+  }
+  if (scenario == InterruptBoundary::sync_fault || scenario == InterruptBoundary::wrong_path) {
+    const bool fault = scenario == InterruptBoundary::sync_fault;
+    if (fault)
+      stop_at(pc, trap_target, 1, 2, UINT32_MAX);
+    else
+      stop_at(pc, pc + 32);
+    send(pc, fault ? UINT32_MAX : jump(0, 32), 0, 1, !fault, 0);
+    send(pc + 4, imm(6, 0, 6), 0, 1, 0, 0);
+    set_interrupts(16);
+    settle();
+    CHECK(!fetch_flush_out.pvalid && !issued);
+    tick();
+    set_interrupts(0);
+    drain(); // only the older recovery may redirect
+    if (fault) {
+      csr_access(trap_target, 2, 5, 0, 0x342, 2);
+      csr_access(trap_target + 4, 2, 5, 0, 0x341, pc);
+    } else {
+      csr_access(pc + 32, 2, 5, 0, 0x341, 0);
+    }
+    return;
+  }
+  if (scenario == InterruptBoundary::pulse_at_rr || scenario == InterruptBoundary::change_source) {
+    send(boundary, imm(6, 0, 6), imm(7, 0, 7), 2, 0, 0);
+  } else if (scenario == InterruptBoundary::divide) {
+    send(pc, m_insn(3, 1, 2, 4), 0, 1);
+    until([] { return expected_completions.size() == 1; }); // retired, not written back
+    boundary += 4;
+  }
+
+  stop_at(boundary, trap_target, 3);
+  set_interrupts(16);
+  settle();
+  CHECK(!fetch_flush_out.pvalid && !redirect_out.pvalid && !issued);
+  tick(); // RR samples eligibility, cause, and delegation together
+  if (scenario == InterruptBoundary::pulse_at_rr)
+    set_interrupts(0);
+  else if (scenario == InterruptBoundary::change_source)
+    set_interrupts(4); // MTIP replaces MSIP; do not change the captured cause
+  settle();
+  CHECK(!redirect_out.pvalid);
+  tick();
+  CHECK(!redirect_out.pvalid);
+  tick();
+  if (scenario == InterruptBoundary::divide) {
+    CHECK(expected_completions.size() == 1 && !redirect_out.pvalid);
+    until([] { return redirect_out.pvalid; });
+    CHECK(expected_completions.size() == 0);
+  }
+  CHECK(redirect_out.pvalid && redirect_out.pbits.pinterrupt &&
+        redirect_out.pbits.ppc == boundary &&
+        redirect_out.pbits.ptarget == trap_target);
+  drain();
+  set_interrupts(0);
+  csr_access(trap_target, 2, 5, 0, 0x341, boundary);
+  csr_access(trap_target + 4, 2, 5, 0, 0x342, UINT64_C(0x8000000000000003));
+  if (scenario == InterruptBoundary::pulse_at_rr) {
+    expect_system(trap_target + 8, 0x30200073);
+    stop_at(trap_target + 8, pc, 3);
+    send(trap_target + 8, 0x30200073, 0, 1, 0, 0);
+    drain();
+    send(pc, imm(6, 0, 6), imm(7, 0, 7));
+    drain();
+  }
+}
+
 // Enter S through real M-mode CSR programming; no internal state pokes.
 void supervisor_timer(std::uint8_t global_enable) {
   std::uint64_t pc = UINT64_C(0x14000);
@@ -2564,6 +2665,11 @@ int main() {
       CHECK(translation_invalidations == before_flushes + int(operation == 0));
     }
 
+    for (auto scenario : {InterruptBoundary::idle, InterruptBoundary::pulse_at_rr, InterruptBoundary::change_source,
+                          InterruptBoundary::divide, InterruptBoundary::sync_fault,
+                          InterruptBoundary::wrong_path, InterruptBoundary::disable})
+      registered_interrupt(scenario);
+
     // Interrupts stop before the oldest unretired instruction and retain the
     // precise boundary while already retired load owners drain.
     reset_core();
@@ -2590,33 +2696,37 @@ int main() {
     csr_access(UINT64_C(0x704), 2, 6, 0, UINT64_C(0x342),
                UINT64_C(0x8000000000000003));
     csr_access(UINT64_C(0x708), 2, 7, 0, UINT64_C(0x343), 0);
-    // Return with MIE restored, then intercept a live pair at WB, neither retires.
+    // Return with MIE restored, then pulse an interrupt while a load drains.
     expect_system(UINT64_C(0x70c), UINT64_C(0x30200073));
     stop_at(UINT64_C(0x70c), UINT64_C(0x651c), 3);
     send(UINT64_C(0x70c), UINT64_C(0x30200073), 0, 1, 0, 0);
     drain();
-    // A withdrawn interrupt restarts at the captured boundary; it must not
-    // take a trap or replace the previous architectural mepc.
+    // Dropping the pin after recognition must not retract the marker.
     hold_responses = 1;
     send(0x68000, imm(3, 0, 0, 3, 3), 0, 1);
     until([&] { return response_count == 1; });
-    stop_at(0x68004, 0x68004, 3);
+    stop_at(0x68004, trap_target, 3);
     set_interrupts(16);
     for (int i = 0; i < 10; ++i) tick();
     set_interrupts(0);
     CHECK(expected_redirects.size() == 1);
     hold_responses = 0;
     drain();
-    csr_access(0x68004, 2, 10, 0, 0x341, 0x651c);
+    csr_access(trap_target, 2, 10, 0, 0x341, 0x68004);
+    expect_system(trap_target + 4, 0x30200073);
+    stop_at(trap_target + 4, 0x68004, 3);
+    send(trap_target + 4, 0x30200073, 0, 1, 0, 0);
+    drain();
 
-    send(UINT64_C(0x651c), imm(8, 0, 8), imm(9, 0, 9), 2, 0, 0);
+    // A pair already past RR is older than a newly sampled interrupt.
+    send(UINT64_C(0x651c), imm(8, 0, 8), imm(9, 0, 9));
     until([&] { return memory_stage(0).pvalid; });
     falling();
-    stop_at(UINT64_C(0x651c), UINT64_C(0x700), 3);
+    stop_at(UINT64_C(0x6524), UINT64_C(0x700), 3);
     set_interrupts(UINT64_C(16));
     drain();
     set_interrupts(0);
-    csr_access(UINT64_C(0x710), 2, 10, 0, UINT64_C(0x341), UINT64_C(0x651c));
+    csr_access(UINT64_C(0x710), 2, 10, 0, UINT64_C(0x341), UINT64_C(0x6524));
 
     // Interrupts cannot abandon a noncancelable split after prefix dispatch.
     // Complete and retire it first, then trap at its sequential successor.
@@ -2656,6 +2766,10 @@ int main() {
     CHECK(sleeping);
     stop_at(UINT64_C(0x6608), UINT64_C(0x6608), 3);
     set_interrupts(UINT64_C(16));
+    settle();
+    CHECK(!redirect_out.pvalid);
+    tick();
+    CHECK(redirect_out.pvalid && !redirect_out.pbits.pinterrupt);
     for (unsigned repeat_index = 0; repeat_index < (3); ++repeat_index)
       tick();
     set_interrupts(0);
@@ -2673,6 +2787,10 @@ int main() {
     drain();
     stop_at(UINT64_C(0x6620), UINT64_C(0x700), 3);
     set_interrupts(UINT64_C(16));
+    settle();
+    CHECK(sleeping && !redirect_out.pvalid);
+    until([] { return redirect_out.pvalid; });
+    CHECK(redirect_out.pvalid && redirect_out.pbits.pinterrupt);
     drain();
     set_interrupts(0);
     csr_access(UINT64_C(0x700), 2, 13, 0, UINT64_C(0x341), UINT64_C(0x6620));
@@ -4483,8 +4601,6 @@ int main() {
                                  : UINT64_C(0x508);
       if (scenario == 0) {
         send(UINT64_C(0x500), imm(8, 0, 8), imm(9, 0, 9), 2, 0, 0);
-        until([&] { return memory_stage(0).pvalid; });
-        falling();
       } else if (scenario == 3) {
         expect_system(UINT64_C(0x500), UINT64_C(0x10500073));
         send(UINT64_C(0x500), UINT64_C(0x10500073), 0, 1, 0, 0);

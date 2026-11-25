@@ -1086,11 +1086,13 @@ including one with `rd=x0`, retains its precise fault until older work drains.
 WB retires only the successful prefix: an older instruction still retires if its
 younger peer faults. `minstret` receives an explicit count of zero, one, or two;
 delayed completion is not a second retirement. Counter writes take priority
-over that instruction's count. Interrupts enter before the oldest unretired WB
-instruction, or at the saved next PC when the pipeline is empty. Synchronous
-faults already selected at WB take priority. Entry waits for accepted work to
-drain, and a canceled interrupt restarts at its retained boundary without losing
-an instruction. No handler observes an outstanding older GPR write.
+over that instruction's count. RR samples an eligible interrupt before issuing
+the oldest buffered instruction. Instructions already past RR can retire. An
+empty or sleeping hart uses the last retired successor as the boundary PC.
+An older redirect, replay, or exception discards the speculative interrupt;
+dropping the interrupt pin alone does not. WB enters the sampled handler only
+after older work drains. The interrupted instruction has not retired and can
+be fetched again on return. No handler observes an outstanding older GPR write.
 
 WFI retires once and flushes younger work, then sleeps until a locally enabled
 interrupt is pending. A globally enabled interrupt takes the normal trap path;

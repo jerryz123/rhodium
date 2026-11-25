@@ -87,6 +87,19 @@ void HartAdapter::resolve(Collector& c, Word instance, Hart& h, const Frame& f) 
   const auto& b = *boundary; const auto& p = *physical;
   h.hpm_overflows |= h.hpm_previous_overflow;
   Environment environment{b.interrupts,b.time,h.cycle,bool(b.interrupt_boundary)};
+  // Only the interrupt record uses the recognition edge's external inputs.
+  // Instructions retiring between RR and WB still sample their own environment.
+  if (b.interrupt) {
+    require(h.interrupt_inputs.has_value() && !b.interrupt_accept, "interrupt without an older RR marker");
+    environment.interrupt_inputs = h.interrupt_inputs->pins;
+    environment.time = h.interrupt_inputs->time;
+    h.interrupt_inputs.reset();
+  }
+  if (b.interrupt_kill) h.interrupt_inputs.reset();
+  if (b.interrupt_accept) {
+    require(!h.interrupt_inputs && !b.interrupt_kill, "overlapping interrupt markers");
+    h.interrupt_inputs = Hart::InterruptInputs{b.interrupts,b.time};
+  }
   if (b.hpm_enabled) environment.hpm_counters.emplace(3,b.hpm_counter);
   environment.hpm_overflows = h.hpm_overflows;
   c.sampled_environment(instance,std::move(environment));
@@ -263,9 +276,9 @@ extern "C" void rhodium_rv2wide_lane(std::int64_t instance, std::int64_t index, 
     adapter.capture(c.sample(),Word(instance),c.epoch(Word(instance)),LaneSample{Word(index),Word(retired),Word(split),Word(pc),Word(encoding),Word(next_pc),Word(fetch_fault),Word(rd),Word(write),Word(data),Word(deferred),Word(service),Word(memory),Word(address),Word(access),Word(width),Word(atomic),Word(store_data),Word(fp),Word(fp_destination),Word(fp_delay),Word(vector)});
   });
 }
-extern "C" void rhodium_rv2wide_boundary(std::int64_t instance, std::int64_t privilege, std::int64_t next_privilege, std::int64_t interrupt, std::int64_t trap, std::int64_t cause, std::int64_t epc, std::int64_t tval, std::int64_t target, std::int64_t target_privilege, std::int64_t interrupts, std::int64_t time, std::int64_t interrupt_boundary, std::int64_t virtualized, std::int64_t next_virtualized, std::int64_t target_virtualized, std::int64_t guest_valid, std::int64_t htval, std::int64_t htinst, std::int64_t hpm_enabled, std::int64_t hpm_counter, std::int64_t hpm_overflow) noexcept {
+extern "C" void rhodium_rv2wide_boundary(std::int64_t instance, std::int64_t privilege, std::int64_t next_privilege, std::int64_t interrupt, std::int64_t trap, std::int64_t cause, std::int64_t epc, std::int64_t tval, std::int64_t target, std::int64_t target_privilege, std::int64_t interrupts, std::int64_t time, std::int64_t interrupt_boundary, std::int64_t virtualized, std::int64_t next_virtualized, std::int64_t target_virtualized, std::int64_t guest_valid, std::int64_t htval, std::int64_t htinst, std::int64_t hpm_enabled, std::int64_t hpm_counter, std::int64_t hpm_overflow, std::int64_t interrupt_accept, std::int64_t interrupt_kill) noexcept {
   dpi_receive_adapter<HartAdapter>([&](HartAdapter& adapter, Collector& c) {
-    adapter.capture(c.sample(),Word(instance),c.epoch(Word(instance)),BoundarySample{Word(privilege),Word(next_privilege),Word(interrupt),Word(trap),Word(cause),Word(epc),Word(tval),Word(target),Word(target_privilege),Word(interrupts),Word(time),Word(interrupt_boundary),Word(virtualized),Word(next_virtualized),Word(target_virtualized),Word(guest_valid),Word(htval),Word(htinst),Word(hpm_enabled),Word(hpm_counter),Word(hpm_overflow)});
+    adapter.capture(c.sample(),Word(instance),c.epoch(Word(instance)),BoundarySample{Word(privilege),Word(next_privilege),Word(interrupt),Word(trap),Word(cause),Word(epc),Word(tval),Word(target),Word(target_privilege),Word(interrupts),Word(time),Word(interrupt_boundary),Word(virtualized),Word(next_virtualized),Word(target_virtualized),Word(guest_valid),Word(htval),Word(htinst),Word(hpm_enabled),Word(hpm_counter),Word(hpm_overflow),Word(interrupt_accept),Word(interrupt_kill)});
   });
 }
 extern "C" void rhodium_rv2wide_completion(std::int64_t instance, std::int64_t index, std::int64_t valid, std::int64_t pc, std::int64_t rd, std::int64_t write, std::int64_t data) noexcept {

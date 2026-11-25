@@ -33,7 +33,8 @@ dpi_import procedure rhodium_rv2wide_fp(instance: Bits(64), index: Bits(64), val
 dpi_import procedure rhodium_rv2wide_boundary(
   instance: Bits(64), privilege: Bits(64), next_privilege: Bits(64), interrupt_take: Bits(64), trap: Bits(64), cause: Bits(64), epc: Bits(64),
   tval: Bits(64), target: Bits(64), target_privilege: Bits(64), interrupts: Bits(64), time: Bits(64), interrupt_boundary: Bits(64),
-  virtualized: Bits(64), next_virtualized: Bits(64), target_virtualized: Bits(64), guest_valid: Bits(64), htval: Bits(64), htinst: Bits(64), hpm_enabled: Bits(64), hpm_counter: Bits(64), hpm_overflow: Bits(64)
+  virtualized: Bits(64), next_virtualized: Bits(64), target_virtualized: Bits(64), guest_valid: Bits(64), htval: Bits(64), htinst: Bits(64), hpm_enabled: Bits(64), hpm_counter: Bits(64), hpm_overflow: Bits(64),
+  interrupt_accept: Bits(64), interrupt_kill: Bits(64)
 )
 
 /* Samples variable service admission, direct multiply return, and their RF write destination. */
@@ -121,7 +122,8 @@ sync_circuit SuperscalarCosimObserver(profile :: SuperscalarPipelineConfig, tap_
     lane(mux(trap_target === RiscvTrapTarget.Machine, PrivilegeMode.Machine, PrivilegeMode.Supervisor).as_bits()),
     lane(riscv_interrupt_pending(xlen, interrupt_inputs)), tap_lane("csr_time_input"), tap_lane("csr_interrupt_boundary"),
     lane(virtualized.as_bits()), lane(mux(mret ||| sret, returned_virtual, virtualized).as_bits()), tap_lane("csr_trap_to_guest"), lane(guest_valid.as_bits()),
-    tap_lane("csr_fault_gpa"), tap_lane("csr_fault_inst"), tap_lane("csr_hpm_enabled"), tap_lane("csr_hpm_counter"), tap_lane("csr_hpm_overflow"), ~enable: active
+    tap_lane("csr_fault_gpa"), tap_lane("csr_fault_inst"), tap_lane("csr_hpm_enabled"), tap_lane("csr_hpm_counter"), tap_lane("csr_hpm_overflow"),
+    tap_lane("rr_interrupt_accept"), tap_lane("interrupt_kill"), ~enable: active
   )
 
   for (index in 0..4):

@@ -1299,8 +1299,8 @@ CHI-snoop wakeup; the fetch fixture checks real LR/STO/SC reservation retention
 and event-trace ownership. Profile and cosim-pass tests cover publication and
 instrumented elaboration. No WRS-specific SoC or CI lane is needed.
 
-The pending-trap register holds the boundary instruction identity, an interrupt
-flag, and the resolved synchronous cause/value independently of the speculative
+The pending-trap register holds the faulting instruction identity and resolved
+synchronous cause/value independently of the speculative
 pipes. Only H profiles carry guest fault details. Do not retain a CSR operation,
 source operand, or branch execution record: a held exception enters the CSR bank
 as an explicit fault, never as a reissued instruction. The passive observation
@@ -1309,11 +1309,16 @@ vector provenance without retaining those fields in an unobserved netlist.
 The separate service record still owns delayed operations that can retire.
 An older accepted load paired with a younger fault
 retires once, preserves its completion owner, and delays trap entry until the
-completion credits, service, and unflushable completion pipe are all empty. Interrupts
-inhibit new WB memory acceptance before retaining the oldest unretired PC.
-If an interrupt disappears while draining, recover to that PC without trap entry.
-An empty-pipeline boundary uses the last retired successor (including branch
-targets), never an arbitrary fetch cursor.
+completion credits, service, and unflushable completion pipe are all empty.
+
+RR inhibits issue and samples the CSR bank's interrupt cause and delegation
+target together. A valid bit travels through EX and MEM to WB; the frozen issue
+window head supplies the PC. For an empty pipeline or WFI, use the saved
+architectural successor, never a fetch cursor. Older recoveries kill the marker
+along with younger instructions. Only the surviving WB marker may authorize
+trap entry, after deferred owners drain. Do not re-arbitrate live sources at
+delivery or gate older retirement on RR recognition. Register the wake-only
+WFI decision separately so the live timer cannot select a same-cycle redirect.
 
 Only system/fault commands enter `RiscvCsrFile.commit`; ordinary instructions
 feed the explicit two-bit retirement count. Superscalar may count an older successful

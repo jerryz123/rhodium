@@ -77,6 +77,7 @@ import:
   lib("riscv/rtl/csr.rhdl") open
   lib("riscv/rtl/privilege.rhdl") open
   lib("riscv/rtl/interrupt.rhdl").RiscvInterrupts
+  lib("riscv/rtl/interrupt.rhdl").RiscvInterruptDecision
   lib("riscv/rtl/cmo.rhdl") open
   lib("riscv/rtl/zihintntl.rhdl") open
   lib("rhodium/std/decode.rhdl") open
@@ -271,7 +272,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
      WB owns CSR commands and retirement; FP and fixed GPR returns use
      explicit reservations rather than independent lane backpressure. */
 
-  inst wb_csrs(RiscvCsrFile(profile.csr_config))
+  inst wb_csrs(RiscvCsrFile(profile.csr_config, ~sampled_interrupts: #true))
   def empty_guest :: RiscvGuestFault() = literal(RiscvGuestFault(), 0)
   def guest_state :: RiscvHypervisorTranslation() = if profile.hypervisor | wb_csrs.guest_translation | literal(RiscvHypervisorTranslation(), 0)
   // Only committed redirects own this slot. An early MEM rejection merely
@@ -640,6 +641,31 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
 
   def rr_pipeline_empty = !any(for List (lane in 0..issue_width): ex_pipe[lane].egress.valid ||| mem_pipe[lane].egress.valid ||| wb_pipe[lane].egress.valid)
 
+
+  /* RR interrupt marker. Freeze the oldest unissued group; only validity
+     advances through EX/MEM/WB. The resident head owns its PC until recovery.
+     An empty or sleeping hart uses the last architectural successor instead. */
+
+  reg ex_interrupt(~init: Bool(#false))
+  reg mem_interrupt(~init: Bool(#false))
+  reg wb_interrupt(~init: Bool(#false))
+  reg interrupt_from_idle(Bool)
+  reg interrupt_choice(RiscvInterruptDecision(xlen))
+  wire interrupt_kill: Bool
+  wire interrupt_delivered: Bool
+  wire interrupt_idle_ready: Bool
+  def interrupt_busy = ex_interrupt ||| mem_interrupt ||| wb_interrupt
+  def rr_interrupt_idle = wb_sleeping ||| !rr_head.count.any()
+  def rr_interrupt_accept = wb_csrs.interrupt_request & !interrupt_busy & !interrupt_kill & (!rr_interrupt_idle ||| interrupt_idle_ready)
+  ex_interrupt <== rr_interrupt_accept
+  mem_interrupt <== ex_interrupt & !interrupt_kill
+  wb_interrupt <== !interrupt_kill & (mem_interrupt ||| (wb_interrupt & !interrupt_delivered))
+  when rr_interrupt_accept:
+    interrupt_choice <== wb_csrs.interrupt_candidate
+    interrupt_from_idle <== rr_interrupt_idle
+
+  wb_csrs.accepted_interrupt <== interrupt_choice
+
   /* Ordering barriers and issue prefix.
      Atomics and CBO.ZERO drain older memory and hold younger memory through
      completion; PAUSE blocks younger issue without blocking accepted returns. */
@@ -689,7 +715,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
           csr_read_wait: rr_csr_read_wait[lane]
   )
   rr_issue.resources <== SuperscalarIssueResources():
-    stop: rr_squash
+    stop: rr_squash ||| wb_csrs.interrupt_request ||| interrupt_busy
     retry_wait: rr_vector_retry_wait
     pause_blocked: rr_pause_blocked
     serialization_ready: rr_pipeline_empty & wb_drained
@@ -1371,9 +1397,9 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   def wb_retained_result = wb_retained_owner.completed(scalar_split.response.bits.response.data, wb_retained_resolution)
 
 
-  /* Precise fault and interrupt retention.
-     New dispatch observes live owners before ready/fault feedback;
-     synchronous faults precede interrupts at the oldest unretired boundary. */
+  /* Precise synchronous fault retention.
+     A fault already past RR is older than the interrupt marker and kills it.
+     Retain the faulting instruction independently of delayed service owners. */
 
   inst wb_fault_retention(OfferRegister(SuperscalarPendingTrap(xlen, profile.hypervisor)))
   def wb_fault_pending = wb_fault_retention.egress.valid
@@ -1423,13 +1449,8 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
 
   // New dispatch observes the live WB pipes, never the returned retained owner.
   // In particular, admission faults cannot feed back into their own request.
-  def wb_raw_fault = any(for List (lane in 0..issue_width): wb_live_valid[lane] & (wb_live_group[lane].resolution.disposition === SuperscalarDisposition.Fault))
-  // Interrupts precede the oldest unretired WB instruction, or use the saved
-  // next PC at an empty-pipeline/sleep boundary. A synchronous fault wins.
-  def wb_idle_boundary = rr_pipeline_empty & wb_pc_known
-  def wb_interrupt_stop = wb_csrs.interrupt_request & !wb_retained_pending & !wb_fault_pending & !wb_raw_fault & (wb_live_valid[0] ||| wb_idle_boundary)
-  def wb_interrupt_pc = mux(wb_valid[0], wb_group_pcs[0], wb_resume_pc)
-  def wb_retirement_unblocked = !wb_fault_pending & !wb_interrupt_stop
+  interrupt_idle_ready <== rr_pipeline_empty & wb_pc_known & !wb_retained_pending & !wb_fault_pending
+  def wb_retirement_unblocked = !wb_fault_pending
   def wb_dispatch_unblocked = !wb_retained_pending & wb_retirement_unblocked
 
   /* Admission prefix: inspect live owners before any ready/fault outcome.
@@ -1789,40 +1810,36 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   def wb_explicit_fault = wb_stop_valid & (wb_selected.resolution.disposition === SuperscalarDisposition.Fault)
   def wb_vector_config = wb_system_control.action === RiscvCsrAction.VectorConfig
   def wb_system_prefix = !any(for List (lane in 0..issue_width): wb_stop[lane] & (!wb_vector_config ||| (Bits(2)(lane) <= wb_system_lane))) & !(wb_retained_capture & (wb_retained_lane <= wb_system_lane))
-  def wb_system = wb_valid[service_index(wb_system_lane)] & wb_system_control.uses_command() & !wb_wait_capture & !wb_fault_pending & !wb_interrupt_stop & wb_system_prefix
+  def wb_system = wb_valid[service_index(wb_system_lane)] & wb_system_control.uses_command() & !wb_wait_capture & !wb_fault_pending & wb_system_prefix
   wb_csr_return <== vec(for List (lane in 0..issue_width): wb_system & (wb_system_lane === Bits(2)(lane)) & wb_csrs.writeback_valid)
   // The CSR port commits an older configuration before taking its younger peer's trap.
   // Existing fault retention carries that trap across the single-command boundary.
   def wb_defer_fault = wb_system & wb_vector_config & wb_explicit_fault
-  def wb_hold_fault = (wb_explicit_fault ||| wb_interrupt_stop) & (!wb_drained ||| wb_defer_fault)
-  def wb_trap_owner :: SuperscalarRetirementCommand(xlen, hypervisor) = mux(wb_interrupt_stop, wb_group[0], wb_selected)
-  def wb_trap_owner_pc = mux(wb_interrupt_stop, wb_group_pcs[0], wb_selected_pc)
-  def wb_trap_instruction = wb_trap_owner.boundary_instruction(wb_trap_owner_pc)
+  def wb_hold_fault = wb_explicit_fault & (!wb_drained ||| wb_defer_fault)
   def wb_target_instruction :: SuperscalarBoundaryInstruction(xlen) = literal(SuperscalarBoundaryInstruction(xlen), 0)
   wb_fault_retention.update.valid <== wb_reject_target ||| wb_hold_fault
   when (wb_reject_target ||| wb_hold_fault):
     wb_pending_redirect <== wb_reject_target
 
-  wb_fault_retention.update.bits.interrupt <== !wb_reject_target & wb_interrupt_stop
   wb_fault_retention.update.bits.instruction <== mux(
     wb_reject_target,
     wb_target_instruction.updated(~pc: wb_rejected_target, ~next_pc: wb_rejected_target, ~fetch_fault: Bool(#true)),
-    wb_trap_instruction.updated(~pc: mux(wb_interrupt_stop, wb_interrupt_pc, wb_trap_instruction.pc))
+    wb_selected.boundary_instruction(wb_selected_pc)
   )
 
-  wb_fault_retention.update.bits.cause <== wb_trap_owner.resolution.cause
-  wb_fault_retention.update.bits.value <== wb_trap_owner.resolution.value
+  wb_fault_retention.update.bits.cause <== wb_selected.resolution.cause
+  wb_fault_retention.update.bits.value <== wb_selected.resolution.value
   if profile.hypervisor
-  | wb_fault_retention.update.bits.guest <== wb_trap_owner.resolution.guest
+  | wb_fault_retention.update.bits.guest <== wb_selected.resolution.guest
   | #void
 
   wb_fault_retention.egress.ready <== wb_drained & !wb_defer_fault
-  def wb_fault_command = wb_drained & !wb_defer_fault & (wb_explicit_fault ||| (wb_fault_pending & !wb_held_trap.interrupt))
+  def wb_fault_command = wb_drained & !wb_defer_fault & (wb_explicit_fault ||| wb_fault_pending)
   def wb_configuration_before_fault = wb_valid[service_index(wb_system_lane)] & wb_vector_config & !any(for List (lane in 0..issue_width): (Bits(2)(lane) <= wb_system_lane) & wb_service_stop[lane])
   def wb_command :: SuperscalarRetirementCommand(xlen, hypervisor) = mux(any(wb_service_stop) & !wb_configuration_before_fault, wb_service_selected, wb_system_token)
   def wb_command_pc = mux(any(wb_service_stop) & !wb_configuration_before_fault, wb_service_selected_pc, wb_system_token_pc)
   def wb_boundary_instruction = mux(wb_fault_pending, wb_held_trap.instruction, wb_command.boundary_instruction(wb_command_pc))
-  def wb_command_exception = mux(wb_fault_pending, !wb_held_trap.interrupt, wb_command.resolution.disposition === SuperscalarDisposition.Fault)
+  def wb_command_exception = wb_fault_pending ||| (wb_command.resolution.disposition === SuperscalarDisposition.Fault)
   wb_csrs.commit.valid <== wb_fault_command ||| wb_system
   wb_csrs.commit.bits <== RiscvCsrCommand(xlen):
     pc: wb_boundary_instruction.pc
@@ -1850,18 +1867,21 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
      Selects trap, interrupt, wake, and replay targets without canceling
      already accepted services or changing their completion ownership. */
 
-  def wb_interrupt_boundary = wb_drained & (wb_interrupt_stop ||| (wb_fault_pending & wb_held_trap.interrupt))
+  def wb_interrupt_boundary = wb_interrupt & wb_drained & !wb_fault_pending
+  interrupt_delivered <== wb_interrupt_boundary
   wb_csrs.interrupt_boundary <== wb_interrupt_boundary
-  wb_csrs.interrupt_pc <== mux(wb_fault_pending, wb_held_trap.instruction.pc, wb_interrupt_pc)
+  wb_csrs.interrupt_pc <== mux(interrupt_from_idle, wb_resume_pc, rr_operand_pcs[0])
   def wb_replay = (wb_stop_valid & (wb_selected.resolution.disposition === SuperscalarDisposition.Replay)) ||| wb_vector_scalar_replay
   def wb_replay_owner = mux(wb_vector_scalar_replay, wb_vector_replay_owner.retirement(), wb_selected)
   def wb_replay_owner_pc = mux(wb_vector_scalar_replay, wb_vector_replay_owner_pc, wb_selected_pc)
-  def wb_wake = wb_sleeping & wb_csrs.wfi_wake
+  reg wb_local_wake(~init: Bool(#false))
+  wb_local_wake <== wb_sleeping & wb_csrs.wfi_wake & !wb_csrs.interrupt_request & !interrupt_busy
+  def wb_wake = wb_sleeping & wb_local_wake
   def wb_system_resume = wb_system & !wb_vector_config & !wb_csr_read & wb_csrs.command_success & !wb_csrs.wfi
   def wb_retained_resume = wb_blocking_retained & wb_retained_complete & (wb_retained_result.resolution.disposition === SuperscalarDisposition.Continue)
   instruction_invalidate.valid <== wb_system_resume & (wb_system_control.fence === SuperscalarFence.Instruction)
   predictor_clear.valid <== translation_flush ||| wb_csrs.trap_event.valid ||| (wb_system & wb_csrs.command_success & wb_system_control.action.is_one_of(RiscvCsrAction.Mret, RiscvCsrAction.Sret))
-  def wb_redirect_valid = wb_csrs.redirect.valid ||| wb_replay ||| wb_system_resume ||| wb_interrupt_boundary ||| wb_wake ||| wb_retained_resume
+  def wb_redirect_valid = wb_csrs.redirect.valid ||| wb_replay ||| wb_system_resume ||| wb_wake ||| wb_retained_resume
   def wb_redirect_disposition = priority_mux(~default: SuperscalarDisposition.System):
     wb_csrs.trap_event.valid & !wb_interrupt_boundary: SuperscalarDisposition.Fault
     wb_replay: SuperscalarDisposition.Replay
@@ -1876,7 +1896,6 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     target:
       priority_mux(~default: wb_command.fetched.sequential_pc.apply(wb_command_pc)):
         wb_csrs.redirect.valid: wb_csrs.redirect.bits
-        wb_interrupt_boundary: wb_csrs.interrupt_pc
         wb_wake: wb_resume_pc
         wb_replay: wb_replay_owner_pc
 
@@ -1891,7 +1910,9 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     trap_cause: wb_csrs.trap_event.cause
 
   def wb_redirect = inject_interface(Valid(SuperscalarRedirect(xlen)), ~valid: wb_redirect_valid, ~bits: wb_redirect_bits)
-  wb_squash <== wb_stop_valid ||| wb_fault_pending ||| wb_reject_target ||| wb_interrupt_stop ||| (wb_system & ((!wb_vector_config & !wb_csr_read) ||| !wb_csrs.command_success)) ||| wb_sleeping ||| (wb_retained_capture & !wb_vector_capture) ||| wb_blocking_retained ||| wb_vector_scalar_replay
+  def wb_older_recovery = wb_stop_valid ||| wb_fault_pending ||| wb_reject_target ||| (wb_system & ((!wb_vector_config & !wb_csr_read) ||| !wb_csrs.command_success)) ||| (wb_retained_capture & !wb_vector_capture) ||| wb_blocking_retained ||| wb_vector_scalar_replay
+  interrupt_kill <== wb_older_recovery ||| mem_branch_redirect ||| wb_wake
+  wb_squash <== wb_older_recovery ||| wb_interrupt_boundary ||| wb_sleeping
   rr_squash <== wb_squash ||| mem_branch_redirect
   fetch_flush.valid <== rr_squash
   redirect.valid <== (wb_redirect.valid & CompactPc.fits(xlen, wb_redirect.bits.target)) ||| (mem_branch_redirect & CompactPc.fits(xlen, mem_redirect_bits.target))
@@ -2169,6 +2190,8 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
      retirement state, or simulator-selected policy. */
 
   describe_cosim_hart("rv2wide", {"profile": profile, "fp_timing": fp_timing}, {
+    "rr_interrupt_accept": rr_interrupt_accept,
+    "interrupt_kill": interrupt_kill,
     "wb_tokens": wb_tokens,
     "wb_pcs": wb_group_pcs,
     "wb_retired": vec(for List (lane in 0..issue_width): retired[lane].valid),

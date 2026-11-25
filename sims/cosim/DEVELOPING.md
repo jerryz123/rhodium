@@ -137,6 +137,9 @@ state and compare `fflags`, not each instruction's exact contribution.
 Keep every current explicit rejection until its observation path is implemented.
 
 Freeze interrupt/time inputs at architectural admission, not delayed completion.
+For superscalar interrupts, the native adapter retains the external pins and
+timer sample from RR recognition until WB delivery or an older recovery. Keep
+instruction environments and the record's cycle number at their own boundaries.
 Do not feed deterministic DUT CSR state into Sail or extract it merely for
 comparison. Raw HPM counts and overflow events are the explicit exception above;
 base cycle/time/instret behavior is unchanged. Autonomous inputs must not become another
