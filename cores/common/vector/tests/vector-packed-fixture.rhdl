@@ -68,6 +68,7 @@ sync_circuit VectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen = XLen.X6
   operand_fetch.feedback.valid <== Bool(#false)
   operand_fetch.feedback.bits <== dont_care(operand_fetch.feedback.bits.type)
   engine.accepted_slots <== slots_owner.accepted
+  engine.slot_owners <== vec(for List (_ in 0..slots): Bits(1)(0))
   engine.drain_enable <== Bool(#true)
   engine.alignment_available <== alignment_available & !operand_fetch.alignment.valid & !sequencer.prepare_alignment.valid
   engine.write_available <== write_available
@@ -130,16 +131,15 @@ sync_circuit VectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen = XLen.X6
   ) |> issue_link.left
 
   (
-    reservation |> to_valid() |> map_valid(operation => VectorPackedReservation(xlen, vlen, slots, 2)):
+    reservation |> to_valid() |> map_valid(operation => VectorPackedReservation(xlen, vlen, slots)):
       tag: tail
       entry:
-        VectorPackedEntry(xlen, vlen, 2):
+        VectorPackedEntry(xlen, vlen):
           sequence: operation.beat.sequence
           layout: operation.packed_layout
           mask: operation.byte_mask
           store: operation.beat.control.store
           segmented: operation.beat.control.memory_nf.any() & !operation.beat.control.memory_mode.is_one_of(VectorMemoryMode.WholeRegister, VectorMemoryMode.Mask)
-          owner: Bits(1)(0)
   ) |> engine.reserve
 
   issue_path |> to_valid() |> attempts.ingress

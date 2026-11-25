@@ -7,4 +7,6 @@ import:
 
 def rv32 = elaborate(VectorPackedLoad(XLen.X32, 128, 4, 2))
 def rv64 = elaborate(VectorPackedLoad(XLen.X64, 128, 4, 2))
-export rv32 rv64
+def one_slot_rv32 = elaborate(VectorPackedLoad(XLen.X32, 128, 1, 2))
+def one_slot_rv64 = elaborate(VectorPackedLoad(XLen.X64, 128, 1, 2))
+export rv32 rv64 one_slot_rv32 one_slot_rv64

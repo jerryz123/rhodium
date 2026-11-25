@@ -130,6 +130,9 @@ edge; flushing or writing an older row must not attribute its data to the live
 piece. Keep these intrinsic contracts beside the functional controls, without
 new payload buffers or instruction-ID reconstruction.
 
+The completion unit records the instruction owner at slot allocation. Packed
+loads read that table by tag for live slots. Capture the head slot's owner
+alongside any partial row: the slot may be reassigned before the carry flushes.
 Packed-load carry retains one mask bit per byte alongside its row and word.
 Reconstruct the existing bit-mask view for row assembly and VRF writes, and
 assert that both merged and split-suffix masks are byte-granular before capture.
@@ -362,6 +365,9 @@ writes overlapping bytes under the next owner without stale enables. Every
 split position also exercises same-edge prefix write/suffix capture and a stalled
 merge that finishes the next row. Keep both instrumented packed fixtures and
 `rv5stage-vector-overlap` for integration and accepted-byte lineage.
+The `vector-packed-carry-reuse-rv32` and `vector-packed-carry-reuse-rv64`
+variants force the successor to reuse the same physical slot while the old
+carry is stalled; check both owners' row hazards before and after the flush.
 
 The RV32/RV64 packed fixtures also run production event instrumentation. Their
 byte-level oracle derives VRF contributors from accepted public transport

@@ -2,7 +2,8 @@
 #include "test.hpp"
 
 using Word = decltype(commit_in.pbits.pdata);
-constexpr unsigned bytes = sizeof(Word), slots = 4;
+constexpr unsigned bytes = sizeof(Word);
+constexpr unsigned slots = std::tuple_size_v<std::remove_reference_t<decltype(accepted_slots)>>;
 constexpr unsigned all_bytes = (1u << bytes) - 1;
 std::array<Word, slots> slot_words{};
 unsigned writes = 0, releases = 0;
@@ -76,13 +77,13 @@ void reserve_row(unsigned row, unsigned enabled, unsigned instruction_owner,
   reserve_in.pbits.ptag = head;
   auto &entry = reserve_in.pbits.pentry;
   entry.pmask = enabled;
-  entry.powner = instruction_owner;
   entry.playout.plive = enabled;
   for (unsigned lane = 0; lane < bytes; ++lane) {
     entry.playout.prows[lane] = row + (split && lane >= split);
     entry.playout.poffsets[lane] = split ? (bytes - split + lane) % bytes : lane;
   }
   step();
+  slot_owners[reserve_in.pbits.ptag] = instruction_owner;
   reserve_in.pvalid = 0;
 }
 
@@ -114,6 +115,7 @@ void handoff(unsigned old_owner, unsigned row) {
   const unsigned start_writes = writes, start_releases = releases;
   closed_owners = {};
   owner = old_owner;
+  const unsigned old_tag = head;
   write_available = 0;
   reserve_row(row, old_mask, old_owner);
   accept(old_data, true);
@@ -134,15 +136,18 @@ void handoff(unsigned old_owner, unsigned row) {
   // Accept the next owner's overlapping row while the old suffix is blocked.
   // Its slot may retain a result, but it cannot merge into the older carry.
   reserve_row(row, young_mask, young_owner);
+  if (slots == 1) CHECK(head == old_tag && slot_owners[old_tag] == young_owner);
+  claim(row, young_owner, true); // Reassignment cannot change the carry's owner.
   accept(young_data);
   for (unsigned cycle = 0; cycle < 5; ++cycle) {
     // Live younger payloads must not replace the accepted old carry.
     commit_in.pbits.pdata = pattern(cycle + 200);
-    reserve_in.pbits.pentry.powner = young_owner;
     settle();
     CHECK(drain_blocked);
     CHECK(!alignment_out.pvalid);
     claim(row, young_owner, true);
+    claim(row, old_owner, true); // The overlapping younger slot is also visible.
+    owner = young_owner;
     step();
   }
   write_available = 1;

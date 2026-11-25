@@ -42,19 +42,18 @@ bundle VectorPackedLayout(xlen :: XLen, vlen :: VectorLength):
     ).as_bits().all()
     mask.all() & aligned
 
-/* Retains one transport's byte enables, direction, layout, and instruction owner. */
-bundle VectorPackedEntry(xlen :: XLen, vlen :: VectorLength, owners :: Pow2Int):
+/* Retains one transport's sequence, byte enables, direction, and layout. */
+bundle VectorPackedEntry(xlen :: XLen, vlen :: VectorLength):
   sequence: Bits(vector_sequence_width(vlen))
   layout: VectorPackedLayout(xlen, vlen)
   mask: Bits(vector_transport_bytes(xlen))
   store: Bool
   segmented: Bool
-  owner: Bits(index_width(owners))
 
 /* Associates a prepared transport with its persistent completion slot. */
-bundle VectorPackedReservation(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, owners :: Pow2Int):
+bundle VectorPackedReservation(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int):
   tag: Bits(index_width(slots))
-  entry: VectorPackedEntry(xlen, vlen, owners)
+  entry: VectorPackedEntry(xlen, vlen)
 
 export:
   vector_sequence_width

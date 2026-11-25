@@ -170,7 +170,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def packed_decision = packed_decision_input |> filter_valid(_event => feedback_packed)
   packed_decision |> packed.commit
   instructions.packed_finished.valid <== packed_decision.valid & (packed_decision.bits.disposition === VectorDisposition.Authorized) & packed.resolved.layout.last
-  instructions.packed_finished.bits <== packed.resolved.owner
+  instructions.packed_finished.bits <== feedback_owner
   def Array(local_completion, packed_completion_input) = completion |> demux_flow(2, event => entry_packed[event.tag])
   packed_completion_input |> packed.completion
   def Array(local_store_completion, packed_store_completion) = store_completed |> fork_valid(2)
@@ -250,6 +250,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   sequencer.packed_memory <== packed_memory
   sequencer.blocked_rows <== foreign_rows
   packed.owner <== current_owner
+  packed.slot_owners <== entry_owner
   packed.closed_owners <== instructions.closed
   packed.accepted_slots <== vec(for List (slot in 0..vector_completion_slots): authorized_slots[slot] & entry_packed[slot])
   packed.head <== drain_slot
@@ -417,16 +418,15 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
 
   scheduled_issue |> issue
   (
-    packed_reservation |> filter_flow(operation => operation.packed) |> to_valid() |> map_valid(operation => VectorPackedReservation(xlen, vlen, vector_completion_slots, vector_completion_slots)):
+    packed_reservation |> filter_flow(operation => operation.packed) |> to_valid() |> map_valid(operation => VectorPackedReservation(xlen, vlen, vector_completion_slots)):
       tag: allocate_slot
       entry:
-        VectorPackedEntry(xlen, vlen, vector_completion_slots):
+        VectorPackedEntry(xlen, vlen):
           sequence: operation.beat.sequence
           layout: operation.packed_layout
           mask: operation.byte_mask
           store: operation.beat.control.store
           segmented: operation.beat.control.memory_nf.any() & !operation.beat.control.memory_mode.is_one_of(VectorMemoryMode.WholeRegister, VectorMemoryMode.Mask)
-          owner: operation.context.owner
   ) |> packed.reserve
 
   writeback_calendar.reserve[2].valid <== operand_fetch.request.fire() & (s1_local_write ||| s1_simd_multiply ||| s1_direct_packed)

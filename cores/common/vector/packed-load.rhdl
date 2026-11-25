@@ -23,8 +23,8 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
   def bytes = xlen.width / 8
   def Tag = Bits(index_width(slots))
   def Owner = Bits(index_width(owner_count))
-  def Entry = VectorPackedEntry(xlen, vlen, owner_count)
-  interface reserve(Valid(VectorPackedReservation(xlen, vlen, slots, owner_count)), ~role: consumer)
+  def Entry = VectorPackedEntry(xlen, vlen)
+  interface reserve(Valid(VectorPackedReservation(xlen, vlen, slots)), ~role: consumer)
   interface commit(Valid(VectorCommit(xlen, slots)), ~role: consumer)
   interface completion(Decoupled(VectorCompletion(xlen, slots)), ~role: consumer)
   interface store_completed(Valid(Tag), ~role: consumer)
@@ -41,6 +41,7 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
   input write_available: Bool
   input direct_write_available: Bool
   input accepted_slots: Vec(slots, Bool)
+  input slot_owners: Vec(slots, Owner)
   input closed_owners: Vec(owner_count, Bool)
   output(busy_rows, foreign_rows): Vec(VectorRegisterLayout(vlen, xlen.width).depth, Bool)
   output(active, drain_blocked): Bool
@@ -75,7 +76,7 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
   active <== accepted_slots.as_bits().any() ||| carry_valid
   // A closed issue owner cannot add another fragment. Flush its retained
   // suffix once all accepted words have drained, including a canceled prefix.
-  def carry_has_slots = vec(for List (s in 0..slots): accepted_slots[s] & (entries[s].owner === carry_owner)).as_bits().any()
+  def carry_has_slots = vec(for List (s in 0..slots): accepted_slots[s] & (slot_owners[s] === carry_owner)).as_bits().any()
   def carry_pending = carry_valid & closed_owners[carry_owner.as_bits()] & !carry_has_slots
   wire direct_write: Bool
   wire release_slot: Bool
@@ -90,6 +91,7 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
      Response arrival may reorder; alignment offers must not depend on the write-port grant. */
 
   def entry = entries[head]
+  def head_owner = slot_owners[head]
   def head_ready = drain_enable & !carry_pending & accepted_slots[head] & completed[head]
   def drainable = head_ready & (entry.store ||| written[head] ||| assembly_available)
   def remaining = mux(draining, drain_remaining, entry.mask)
@@ -193,7 +195,7 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
       write_enabled: result.mask.any()
       write_mask: result.mask
   ) |> write
-  describe_cosim_signals({"write_owner": mux(direct_write, entries[direct_tag].owner, mux(split_load ||| full_row, entry.owner, carry_owner))})
+  describe_cosim_signals({"write_owner": mux(direct_write, slot_owners[direct_tag], mux(split_load ||| full_row, head_owner, carry_owner))})
   when immediate_direct:
     assert(direct_write_available, "packed_hit_has_reserved_write")
 
@@ -269,7 +271,7 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
 
   when split_load:
     carry_valid <== Bool(#true)
-    carry_owner <== entry.owner
+    carry_owner <== head_owner
     carry_address <== suffix_row
     carry_data_word <== aligned
     carry_byte_enables <== suffix_byte_enables
@@ -277,7 +279,7 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
     carry_valid <== Bool(#false)
   elsewhen (load_piece):
     carry_valid <== Bool(#true)
-    carry_owner <== entry.owner
+    carry_owner <== head_owner
     carry_address <== combined.address
     carry_data_word <== combined.data
     carry_byte_enables <== combined.byte_enables()
@@ -326,7 +328,7 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
     mux(accepted_slots[slot] & !entries[slot].store & !written[slot], rows, Bits(row_count)(0))
 
   def foreign_slot_rows = for List (slot in 0..slots):
-    mux(entries[slot].owner =/= owner, slot_rows[slot], Bits(row_count)(0))
+    mux(slot_owners[slot] =/= owner, slot_rows[slot], Bits(row_count)(0))
 
   def foreign_carry_rows = mux(carry_owner =/= owner, carry_rows, Bits(row_count)(0))
   def busy :: Bits(row_count) = tree_reduce([carry_rows] ++ slot_rows, fun (left, right): left ||| right)
