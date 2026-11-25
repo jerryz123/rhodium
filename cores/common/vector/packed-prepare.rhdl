@@ -57,9 +57,7 @@ sync_circuit VectorPackedPrepare(xlen :: XLen, vlen :: VectorLength, Context :: 
   /* Preparation scratch state
      The parent sequencer owns the phase and architectural cursor; these registers hold only preparation data. */
 
-  reg byte_mask(Bits(bytes))
-  reg low_predicates(Vec(bytes, Bool))
-  reg high_predicates(Vec(bytes, Bool))
+  reg byte_mask(Vec(bytes, Bool))
   reg store_data(Bits(xlen.width))
   reg store_remaining(Bits(bytes))
   reg read_row(Address)
@@ -145,7 +143,7 @@ sync_circuit VectorPackedPrepare(xlen :: XLen, vlen :: VectorLength, Context :: 
   def fast_load = !store & !masked
   def direct_store = store & !masked & !segmented
   candidate <== layout
-  candidate_mask <== mux(fast_load ||| direct_store, layout.live, byte_mask)
+  candidate_mask <== mux(fast_load ||| direct_store, layout.live, byte_mask.as_bits())
   candidate_data <== store_data
   fast_store <== direct_store
   ready <== fast_load ||| direct_store ||| (prepare === VectorPreparePhase.Issue)
@@ -161,12 +159,10 @@ sync_circuit VectorPackedPrepare(xlen :: XLen, vlen :: VectorLength, Context :: 
   def masks_ready = !blocked_rows[start_mask_row] & !blocked_rows[end_mask_row]
   mask_read.valid <== enable & masks_ready & prepare.is_one_of(VectorPreparePhase.MaskLow, VectorPreparePhase.MaskHigh)
   mask_read.bits <== mux(prepare === VectorPreparePhase.MaskHigh, end_mask, start_mask)[0..index_width(VectorRegisterLayout(vlen, xlen.width).rows_per_register)]
-  def returned_predicates = vec(for List (lane in 0..bytes):
-                                  mask_result.bits.as_vec(Bool)[layout.elements[lane][0..vector_bit_offset_width(xlen)]])
-  def enabled_bytes = vec(for List (lane in 0..bytes):
-                            def in_low_row = (layout.elements[lane] >> vector_bit_offset_width(xlen)) === start_mask
-                            def predicate = mux(in_low_row, low_predicates[lane], high_predicates[lane])
-                            layout.live[lane].into(Bool) & (!masked ||| predicate)).as_bits()
+  def returned_bytes = layout.live & vec(for List (lane in 0..bytes):
+                                           mask_result.bits.as_vec(Bool)[layout.elements[lane][0..vector_bit_offset_width(xlen)]]).as_bits()
+  def high_lanes = vec(for List (lane in 0..bytes):
+                         (layout.elements[lane] >> vector_bit_offset_width(xlen)) =/= start_mask).as_bits()
 
 
   /* Store-row selection and shared alignment */
@@ -227,17 +223,18 @@ sync_circuit VectorPackedPrepare(xlen :: XLen, vlen :: VectorLength, Context :: 
      Initialize byte masks for each beat, then capture predicate and store data as reads return. */
 
   when (enable & !fast_load & !direct_store):
+    // Each lane captures exactly its own v0 return, even when both reads name the same row.
+    for (lane in 0..bytes):
+      def capture = mux(high_lanes[lane].into(Bool), prepare === VectorPreparePhase.MaskDone, (prepare === VectorPreparePhase.MaskHigh) & masks_ready)
+      when (prepare === VectorPreparePhase.Map):
+        byte_mask[lane] <== layout.live[lane].into(Bool)
+      elsewhen capture:
+        byte_mask[lane] <== returned_bytes[lane].into(Bool)
+
     when (prepare === VectorPreparePhase.Map):
-      byte_mask <== layout.live
       store_remaining <== layout.live
       store_data <== Bits(xlen.width)(0)
-    elsewhen ((prepare === VectorPreparePhase.MaskHigh) & masks_ready):
-      low_predicates <== returned_predicates
-    elsewhen (prepare === VectorPreparePhase.MaskDone):
-      high_predicates <== returned_predicates
     elsewhen ((prepare === VectorPreparePhase.Read) & read_step_ready):
-      // Both rows' predicates are now available, including for a crossing beat.
-      byte_mask <== enabled_bytes
       when store_read_pending:
         read_row <== source_row
         read_lane <== source_lane

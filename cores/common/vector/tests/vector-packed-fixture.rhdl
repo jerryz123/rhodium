@@ -36,6 +36,8 @@ sync_circuit VectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen = XLen.X6
   interface released(Valid(Bits(index_width(slots))), ~role: producer)
   output(request_ready, active, issued, retired, sequenced): Bool
   output sequence_address: Bits(xlen.width)
+  output sequence_valid: Bool
+  output sequence_mask: Bits(xlen.width / 8)
   output token: VectorToken(xlen, Bits(64), slots)
   interface attempt(Valid(VectorToken(xlen, Bits(64), slots)), ~role: producer)
   inst engine(VectorPackedLoad(xlen, vlen, slots, 2))
@@ -213,6 +215,8 @@ sync_circuit VectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen = XLen.X6
   active <== sequencer.active ||| operand_fetch.active ||| engine.active
   issued <== issue_path.fire()
   sequenced <== sequencer.sequence_request.fire()
+  sequence_valid <== sequencer.sequence_request.valid
+  sequence_mask <== sequencer.sequence_request.bits.context.packed_mask
   sequence_address <== sequencer.sequence_request.bits.context.beat_control.address
   def offered_layout = sequencer.sequence_request.bits.context.packed_layout
   reg expected_next(Bits(xlen.width))

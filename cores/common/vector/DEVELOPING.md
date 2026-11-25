@@ -54,6 +54,12 @@ position. The sequencer restores the issue address from its authorization
 frontier, not the slot or a younger offer. A new descriptor admitted on tail
 authorization initializes both addresses for the new mode.
 
+Packed preparation keeps one byte mask per offered beat. The low v0 read
+supplies the low row's live lanes; the high read fills only lanes outside that
+row. When both reads name the same row, the second contributes nothing.
+An unmasked segmented store instead uses the live lanes captured at Map.
+Keep the completed mask stable through store gathering and issue stalls.
+
 For a vector gather, extract the selected VS1 element on the VRF return and
 compare the full index with VLMAX before narrowing it. Bypass that result to
 the dependent VS2 read; only a stalled beat needs the saved index and range flag.

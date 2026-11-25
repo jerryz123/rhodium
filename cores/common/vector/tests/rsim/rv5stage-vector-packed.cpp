@@ -33,6 +33,8 @@ int release_cursor = 0, direct_head_hits = 0, direct_head_returns = 0,
 
 bool all_masked = 0;
 bool hold_write_port = false;
+int expected_stalled_mask = -1;
+bool hold_issue = false;
 
 std::uint64_t memory_word(int address) {
   std::uint64_t value = {};
@@ -49,6 +51,7 @@ void tick() {
     alignment_available = 1;
   }
   write_available = !hold_write_port && (!exercise_stalls || cycle % 5 >= 2);
+  if (hold_issue) issue_ready = 0;
   retry = 0;
   slow = 0;
   hit_data = 0;
@@ -207,6 +210,8 @@ void run_case(std::uint8_t writing, int offset, int size, int fields, int start,
       bank[row] = ((UINT64_C(0x965a3cc369a5965a)) & low_mask(64));
     if (all_masked && row < 128 / 64)
       bank[row] = 0;
+    if (expected_stalled_mask >= 0 && row < 128 / 64)
+      bank[row] = row % 2 ? UINT64_C(0x5555555555555555) : UINT64_C(0xaaaaaaaaaaaaaaaa);
     expected_bank[row] = bank[row];
     initialize_in.pvalid = 1;
     initialize_in.pbits.paddress = ((row)&low_mask(6));
@@ -254,6 +259,19 @@ void run_case(std::uint8_t writing, int offset, int size, int fields, int start,
   CHECK(request_ready);
   tick();
   request_valid = 0;
+  if (expected_stalled_mask >= 0) {
+    hold_issue = true;
+    int samples = 0;
+    for (int timeout = 0; timeout < 64 && samples < 5; ++timeout) {
+      tick();
+      if (sequence_valid) {
+        CHECK(!sequenced && sequence_mask == expected_stalled_mask);
+        ++samples;
+      } else CHECK(samples == 0);
+    }
+    CHECK(samples == 5);
+    hold_issue = false;
+  }
   for (int timeout = 0; timeout < 5000 && retired_count == 0; timeout++)
     tick();
   CHECK(retired_count == 1 && !active);
@@ -330,6 +348,16 @@ void stimulus() {
         run_case(((writing)&low_mask(1)), offset, 0, 1, 0, 0, 0, 1, 3);
       }
     run_case(0, 3, 0, 1, 61, 1, 1, 1, 0, 3, 121);
+    // Two old-row elements then alternating predicates from the next v0 row.
+    expected_stalled_mask = 0x56;
+    run_case(0, 2, 0, 1, 62, 1, 0, 0, 0, 3, 70);
+    // Both reads name the same row. Follow with an unmasked segmented store
+    // to exercise Map initialization rather than the direct-store bypass.
+    expected_stalled_mask = 0xaa;
+    run_case(1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 8);
+    expected_stalled_mask = 0xff;
+    run_case(1, 0, 0, 2, 0, 0, 0, 0, 0, 1, 8);
+    expected_stalled_mask = -1;
     run_case(1, 5, 0, 1, 61, 1, 1, 1, 0, 3, 121);
     for (int writing = 0; writing < 2; writing++) {
       run_case(((writing)&low_mask(1)), 3, 0, 1, 0, 0, 0, 0, 0, 1, 0);
