@@ -33,6 +33,7 @@
          (submod "shift-queue-transactions.rkt" test)
          (submod "queue-pair-grouped.rkt" test)
          (submod "queue-pair-refinement.rkt" test)
+         (submod "parallel-monitors.rkt" test)
          (submod "queue-pair-series.rkt" test)
          "spec-symbolic-test.rhm"
          "transition-test.rhm")

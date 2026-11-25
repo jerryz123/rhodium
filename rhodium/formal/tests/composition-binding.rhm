@@ -23,7 +23,9 @@ import:
   lib("examples/formal/granted-selector.rhdl") open
   lib("examples/formal/gated-capture.rhdl") open
   "raw-selector.rhdl" open
+  "parallel-monitors.rhdl" open
 
+export mark_leaf toggle_leaf mark_pair crossed_marks
 export rob faulty_rob swapped_rob unchecked_rob
 export renamed_logged_rob logged_rob valid_only_logged_rob miswired_logged_rob
 export selector granted_selector raw_selector
@@ -74,7 +76,15 @@ def mutable registered_duplicate = #false
 def mutable capture_gate = #false
 def mutable arbitrated_capture = #false
 def mutable raw_capture = #false
+def mutable mark_leaf = #false
+def mutable toggle_leaf = #false
+def mutable mark_pair = #false
+def mutable crossed_marks = #false
 fun inventory():
+  mark_leaf := materialize_circuit(StickyMark())
+  toggle_leaf := materialize_circuit(ToggleMark())
+  mark_pair := materialize_circuit(ParallelMarks())
+  crossed_marks := materialize_circuit(ParallelMarks(~cross: #true))
   arbiter_definition := materialize_circuit(Arbiter(Bits(2), 2))
   selector := materialize_circuit(LaneSelector())
   granted_selector := materialize_circuit(GrantedSelector())

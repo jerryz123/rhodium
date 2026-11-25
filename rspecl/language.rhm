@@ -153,7 +153,7 @@ expr.macro 'monitor_view: $line; ...':
                                $(attachment["publish"]), $(attachment["sample"]), ~bindings: $(map_expr(bindings)))'
 
 /* Lower implementation-state hints and separate pin-dependent obligations to ordinary spec IR. */
-expr.macro 'refined_view($view): $line; ...':
+expr.macro 'refined_view($view, $attach): $line; ...':
   def values(_, _, _, record, emit, declarations) = model_body()
   def sources = MutableMap{}
   def pins = MutableMap{}
@@ -161,8 +161,13 @@ expr.macro 'refined_view($view): $line; ...':
   def invariants = MutableMap{}
   def checks = MutableMap{}
   def covers = MutableMap{}
-  def mutable site = #false
-  def mutable cut = #false
+  def cuts = MutableMap{}
+  def mutable sites = []
+  /* Keep occurrence identity separate from lexical names and preserve declaration order for protocol checks. */
+  fun occurrence(child :: Syntax, cut :: Syntax, clause :: Syntax):
+    def site = field_name(child)
+    record(cuts, site, cut, clause)
+    sites := sites ++ [site]
   /* Namespace IR references by provenance; author expressions use ordinary lexical bindings. */
   fun source(n :: Syntax, sort :: Syntax, prefix :: String, table :: MutableMap, clause :: Syntax):
     def key = prefix ++ "." ++ field_name(n)
@@ -171,17 +176,14 @@ expr.macro 'refined_view($view): $line; ...':
   for (clause in [line, ...]):
     match clause
     | 'fifo $(n :: Identifier) from $(child :: Identifier): $t ...':
-        when site | syntax_meta.error("expected a single child cut", clause)
-        site := field_name(child)
-        cut := '"fifo." ++ $(field_name(n))'
-        source(n, '($t ...)', "fifo", sources, clause)
+        def prefix = "fifo." ++ field_name(child)
+        occurrence(child, '$(prefix ++ "." ++ field_name(n))', clause)
+        source(n, '($t ...)', prefix, sources, clause)
     | 'child $(child :: Identifier): $spec ...':
-        when site | syntax_meta.error("expected a single child cut", clause)
-        site := field_name(child)
-        cut := '($spec ...)(~transaction_view: #true)'
+        occurrence(child, '($spec ...)(~transaction_view: #true)', clause)
     | 'history $(n :: Identifier) from $(child :: Identifier) . $(field :: Identifier): $t ...':
-        unless site == field_name(child) | syntax_meta.error("history must name the declared child", child)
-        def k = "history." ++ field_name(field)
+        unless cuts.has_key(field_name(child)) | syntax_meta.error("history must name the declared child", child)
+        def k = "history." ++ field_name(child) ++ "." ++ field_name(field)
         def t = record(sources, k, '($t ...)', clause)
         emit('def $n = ir.input_ref($k, $t)')
     | 'local ($(n :: Identifier), ...): $t ...':
@@ -214,7 +216,7 @@ expr.macro 'refined_view($view): $line; ...':
     | 'next $rest ...': syntax_meta.error("refinement has no state updates", clause)
     | 'assume $rest ...': syntax_meta.error("refinement predicates must be proved", clause)
     | ~else: emit(clause)
-  unless site | syntax_meta.error("refinement requires a child cut", [line, ...][0])
+  let [site, ...] = sites
   let [decl, ...] = declarations()
   'block:
      $decl
@@ -222,31 +224,13 @@ expr.macro 'refined_view($view): $line; ...':
      def state_inputs = $(map_expr(sources))
      def rel = ir.make_spec(state_inputs, {}, {}, $(map_expr(relations)), $(map_expr(invariants)), {})
      def edge = ir.make_spec(state_inputs ++ $(map_expr(pins)), {}, {}, $(map_expr(checks)), $(map_expr(covers)), {})
-     boundary.attach_refinement($view, $site, $cut, rel, edge)'
+     $attach($view, PairList[$site, ...], $(map_expr(cuts)), rel, edge)'
 
 /* Read a parameter at its lexical use site so unused non-scalar arguments need no model value. */
 defn.macro 'bind_parameter $id($bound, $key)':
   '«
      expr.macro '$id': '$(bound) . parameter($key)'
    »'
-
-/* Lower the two FIFO cuts in physical series order. The user supplies the projection, not a proof callback. */
-expr.macro 'fifo_series_view($view): $line; ...':
-  match [line, ...]
-  | ['fifo $(a :: Identifier) from $(first :: Identifier): $at ...',
-     'fifo $(b :: Identifier) from $(second :: Identifier): $bt ...',
-     'relate q = $rhs ...']:
-      unless field_name(a) != field_name(b) && field_name(first) != field_name(second)
-      | syntax_meta.error("expected two distinct FIFO histories and occurrences", second)
-      'block:
-         def older_type = ($bt ...)
-         def newer_type = ($at ...)
-         def $a = ir.input_ref($(field_name(first)), newer_type)
-         def $b = ir.input_ref($(field_name(second)), older_type)
-         def rel = ir.make_spec({$(field_name(first)): newer_type, $(field_name(second)): older_type},
-                                {}, {}, {"q": ir.Observed($rhs ...)}, {}, {})
-         fifo_view.attach_fifo_series($view, $(field_name(first)), $(field_name(second)), rel)'
-  | ~else: syntax_meta.error("expected two FIFO cuts and relate q for a wiring-only series", [line, ...][0])
 
 /* Compile a circuit-bound body to typed IR; evaluate each clause at its original lexical site. */
 defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ...) ($arr, ...): $line; ...':
@@ -291,7 +275,7 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
   | block:
       unless transaction | syntax_meta.error("refinement requires a transaction view", name)
       let [entry, ...] = refinement
-      transaction := 'refined_view($transaction): $entry; ...'
+      transaction := 'refined_view($transaction, boundary.attach_refinement): $entry; ...'
   let [skip, ...] = ignored
   def args = if event_source | '(top, ~event_view: view_only :: Boolean = #false)' | '(top)'
   def build = 'ir.make_spec(bound.ports.inputs, $(map_expr(states)), $(map_expr(initial)),
@@ -311,7 +295,7 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
           cond
           | refinement:
               let [entry, ...] = refinement
-              'fifo_series_view($public_view): $entry; ...'
+              'refined_view($public_view, fifo_view.attach_fifo_series): $entry; ...'
           | ~else: public_view
         '«
            unless view_only | error("passive-only spec: request ~event_view: #true")

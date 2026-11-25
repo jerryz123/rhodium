@@ -51,7 +51,9 @@ For QueuePair(1) the [RSPECL proof](tests/queue-pair-refinement.rkt) now
 certifies the declared two-word FIFO monitor using two verified ShiftQueue
 contracts and a private downstream-first history relation. Its seal feeds
 the existing ordering observer; a crossed handoff or reversed relation earns
-no evidence. This is a direct two-FIFO cut, not general multi-child logic.
+no evidence. The same occurrence-based transaction induction also proves
+[two non-FIFO monitors in parallel](tests/parallel-monitors.rspl); direct
+FIFO handoff admission remains a protocol check, not an assumption of induction.
 The parent fixtures share an admission check: each
 occurrence needs run-local evidence for its actual implementation and full
 contract. No persistent evidence cache or general parent-logic checker is

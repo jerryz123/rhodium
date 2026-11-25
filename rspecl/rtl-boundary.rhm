@@ -175,7 +175,7 @@ class TransactionView(sampler :: LeafModel, monitor :: LeafModel, cycle_names ::
 
 /* Attach data, never a proof callback. The relation model can mention only child and register state;
    pin-dependent checks and coverage live in a different model that cannot constrain induction. */
-fun attach_refinement(view :: TransactionView, site :: String, cut :: String || TransactionView, relation :: LeafModel, checks :: LeafModel):
+fun attach_refinement(view :: TransactionView, sites :: PairList, cuts :: Map, relation :: LeafModel, checks :: LeafModel):
   unless view.batch && !view.hints | error("refinement requires one bound transaction monitor")
   unless view.monitor.outputs.has_key("allowed") | error("monitor requires an allowed verdict")
   unless relation.outputs.keys().sort() == view.monitor.state.keys().sort()
@@ -185,14 +185,15 @@ fun attach_refinement(view :: TransactionView, site :: String, cut :: String || 
   for ((k, t) in relation.inputs):
     when k.starts_with("history.")
     | block:
-        def field = k.substring(8..)
+        let [_, site, field] = k.split(".")
+        def cut = cuts[site]
         unless cut is_a TransactionView && cut.monitor.state.has_key(field) && spec_type_equal(t, cut.monitor.state[field])
         | error("unknown or mistyped child monitor state: " ++ field)
   for (table in [view.monitor.outputs, relation.events, checks.outputs, checks.events]):
     for ((name, f) in table):
       unless f.value.type is_a SpecBool | error("expected Boolean refinement predicate: " ++ name)
   TransactionView(view.sampler, view.monitor, view.cycle_names, view.inputs, view.outputs, view.bindings,
-                  PairList[site, cut, spec_snapshot(relation), spec_snapshot(checks)])
+                  PairList[sites, cuts, spec_snapshot(relation), spec_snapshot(checks)])
 
 /* Read only the checked hint schemas and expressions; this is not reusable evidence. */
 fun refinement_parts(view :: TransactionView):

@@ -230,16 +230,18 @@ monitor driven directly by the caller. With bound fields, the outputs of
 `transaction_batch_model` is available from `rspecl/rtl-boundary.rhm`.
 
 An optional sibling `refinement:` block describes a candidate relation to the
-implementation. A general transaction monitor supports one child on the parent's
-clock and reset. A [direct FIFO series](#concrete-specification-api) also supports two FIFO occurrences.
-`fifo` reads a certified FIFO's ordered history. Alternatively,
-`child rob: specs.TwoTagROB` names an RTL occurrence and the transaction
-view expected there. Supply its seal to `prove-transaction`; the declaration
-alone is not evidence. This form requires the wrapper to forward the child's
-sampled public batch on same-named pins. For example,
-`history pending from rob.order: Seq(Bool, 2)` reads abstract monitor state,
-never child registers. A declaration containing only a monitor and its
-refinement is requested with `~transaction_view: #true`; it does not predict cycle outputs.
+implementation. Use one `child` declaration per RTL occurrence on the parent's
+clock and reset; `history pending from rob.order: Seq(Bool, 2)` reads only
+that occurrence's public monitor state. A `fifo` declaration reads the
+certified ordered history instead. Pass `prove-transaction` a map from
+occurrence names to seals (empty for a register-only leaf). Each child samples
+its own driven pins and has independent history, even if two entries use the
+same seal. The parent sampler defines its own events: they need not be
+forwarded on same-named pins. The single-seal wrapper shorthand additionally
+checks whole-batch forwarding when the child is a general monitor.
+See [two independent marks](tests/parallel-monitors.rspl) and
+[QueuePair](#concrete-specification-api) for parallel and series examples.
+A declaration containing only a monitor and its refinement is requested with `~transaction_view: #true`; it does not predict cycle outputs.
 
 To share behavior independently of any circuit, an ordinary RSPECL function may
 return a `monitor:` value. Both ROB specs use the same

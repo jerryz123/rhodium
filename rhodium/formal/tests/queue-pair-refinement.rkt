@@ -2,7 +2,7 @@
 ;; Certify the RSPECL two-word contract from opaque ShiftQueue proofs and exercise its public observer.
 ;; SPDX-License-Identifier: Apache-2.0
 
-(require rackunit "../refinement.rkt" "composition-checks.rkt"
+(require (only-in "../../../rspecl/proof.rkt" prove-transaction) rackunit "../refinement.rkt" "composition-checks.rkt"
          (only-in "composition-binding.rhm" pair_at faulty_pair)
          (only-in "queue-pair.rspl" QueuePair reversed_pair)
          (only-in "shift-queue-transactions.rkt" verified-shift-queue-transactions-at)
@@ -14,7 +14,7 @@
 ;; Evidence can be reused; the two occurrences do not share an abstract queue state.
 (define children (hash "a" leaf "b" leaf))
 (define public (view (pair_at 1)))
-(define result (prove-fifo-series-refinement public children))
+(define result (prove-transaction (pair_at 1) public children))
 
 (module+ test
   (test-case "the RSPECL parent alone proves ordering and a two-word bound, but not ready when space remains"
@@ -34,9 +34,10 @@
                (&& (= (fifo-history-count two) 2) (! (fifo-allows? result two (fifo-events #f #t x #f x) (fresh))))))
   (test-case "a same-width ready or payload miswire fails before substitution"
     (for ([fault '("ready" "payload")] [message (list #rx"expected a.egress.ready" #rx"expected b.ingress.bits")])
-      (check-exn message (lambda () (prove-fifo-series-refinement (view (faulty_pair fault 1)) children)))))
+      (define top (faulty_pair fault 1))
+      (check-exn message (lambda () (prove-transaction top (view top) children)))))
   (test-case "wrong child specialization or wrong history order cannot issue a parent seal"
     (check-exn #rx"evidence does not match the RTL occurrences"
-               (lambda () (prove-fifo-series-refinement public (hash-set children "a" (verified-shift-queue-transactions-at 2)))))
-    (check-exn #rx"rspecl-series-step/preserved not proved"
-               (lambda () (prove-fifo-series-refinement (reversed_pair (pair_at 1)) children)))))
+               (lambda () (prove-transaction (pair_at 1) public (hash-set children "a" (verified-shift-queue-transactions-at 2)))))
+    (check-exn #rx"step/(allowed|successor) not proved"
+               (lambda () (prove-transaction (pair_at 1) (reversed_pair (pair_at 1)) children)))))

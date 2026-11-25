@@ -12,7 +12,7 @@ import:
   "port-types.rhm".port_leaves
 
 export make_fifo_view fifo_view_parts fifo_view_layout fifo_view_bool sample_fifo_events
-export bind_fifo_behavior attach_fifo_series fifo_series_parts fifo_view_behavior
+export bind_fifo_behavior attach_fifo_series fifo_series_parts fifo_view_behavior fifo_behavior_view
 
 /* Only the checked binder constructs this passive view of a particular elaborated definition. */
 class FifoView(top :: Module, ingress :: List, egress :: List, width :: PosInt, sampler :: LeafModel, layout :: PairList,
@@ -26,14 +26,24 @@ fun bind_fifo_behavior(view :: FifoView, model :: LeafModel):
   FifoView(view.top, view.ingress, view.egress, view.width, view.sampler, view.layout, view.bool, model)
 
 /* Keep the implementation relation private; its only inputs are two independent child histories. */
-fun attach_fifo_series(view :: FifoView, first :: String, second :: String, relation :: LeafModel):
-  unless view.behavior && first != second && relation.outputs.keys() == ["q"]
-         && relation.inputs.keys().sort() == [first, second].sort()
-         && relation.state.length() == 0 && relation.events.length() == 0 && relation.assumptions.length() == 0
+fun attach_fifo_series(view :: FifoView, sites :: PairList, cuts :: Map, relation :: LeafModel, checks :: LeafModel):
+  unless view.behavior && sites.length() == 2 && cuts.length() == 2
+         && cuts.keys().sort() == PairList.to_list(sites).sort()
+         && !cuts.values().find(fun (cut): !(cut is_a String))
+         && relation.outputs.keys() == ["q"]
+         && relation.inputs.keys().sort() == cuts.values().sort()
          && spec_type_equal(relation.outputs["q"].value.type, view.behavior.state["q"])
-  | error("expected distinct FIFO occurrences and a relation to the public history q")
+  | error("expected two FIFO histories and a projection to the public history q")
+  for (model in [relation, checks]):
+    unless model.state.length() == 0 && model.assumptions.length() == 0 | error("expected unconditional, stateless hints")
+  for (table in [relation.events, checks.outputs, checks.events]):
+    for ((name, f) in table):
+      unless f.value.type is_a SpecBool | error("expected Boolean refinement predicate: " ++ name)
   FifoView(view.top, view.ingress, view.egress, view.width, view.sampler, view.layout, view.bool, view.behavior,
-           PairList[first, second, spec_snapshot(relation)])
+           PairList[sites, cuts, spec_snapshot(relation), spec_snapshot(checks)])
+
+/* Identify the FIFO protocol adapter without exposing its constructor. */
+fun fifo_behavior_view(v :~ matching(_)): v is_a FifoView
 
 /* Read the declared public monitor, not a proof of the implementation. */
 fun fifo_view_behavior(view :: FifoView): view.behavior

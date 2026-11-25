@@ -1,0 +1,31 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+
+sync_circuit StickyMark():
+  input mark: Bool
+  output marked: Bool
+  reg seen(~init: Bool(#false))
+  when mark:
+    seen <== Bool(#true)
+  marked <== seen
+
+sync_circuit ToggleMark():
+  input mark: Bool
+  output marked: Bool
+  reg seen(~init: Bool(#false))
+  when mark:
+    seen <== !seen
+  marked <== seen
+
+sync_circuit ParallelMarks(~cross: _cross :: Boolean = #false):
+  input (mark_a, mark_b): Bool
+  output (marked_a, marked_b): Bool
+
+  inst a(StickyMark())
+  inst b(ToggleMark())
+  a.mark <== mark_a
+  b.mark <== (if _cross | mark_a | mark_b)
+  marked_a <== a.marked
+  marked_b <== b.marked
+
+export StickyMark ToggleMark ParallelMarks

@@ -3,14 +3,14 @@
 ;; SPDX-License-Identifier: Apache-2.0
 
 (require racket/match (only-in racket/base [equal? host-equal?] [eq? host-eq?])
-         "engine.rkt" "spec-engine.rkt" (only-in "snapshot.rhm" formal_snapshot) (only-in "spec.rhm" spec_snapshot)
+         "engine.rkt" "spec-engine.rkt" "transaction-induction.rkt" (only-in "snapshot.rhm" formal_snapshot) (only-in "spec.rhm" spec_snapshot)
          (only-in "fifo-monitor.rhm" fifo_monitor)
          (only-in "fifo-view.rhm" fifo_view_parts fifo_view_layout fifo_view_bool fifo_view_behavior fifo_series_parts)
-         (only-in "wiring.rhm" cut_parts leaf_protocol leaf_layout series_wiring wrapper_wiring))
+         (only-in "wiring.rhm" cut_parts leaf_protocol leaf_layout series_wiring))
 (provide prove-leaf prove-parent prepare-proved-wiring proved-child-model symbolic-cut-state proved-edge-at view-agrees? pack-pins unpack-pins)
 (provide exn:fail:input-contract? exn:fail:input-contract-goal exn:fail:input-contract-inputs)
 (provide check-batch-total! (rename-out [check-phase check-refinement-phase!]))
-(provide prove-fifo-series-refinement)
+(provide prove-fifo-series-refinement fifo-monitor-site)
 (provide symbolic-wrapper-cut symbolic-fifo-cut fifo-cut-inputs fifo-cut-outputs fifo-cut-locals fifo-cut-batch fifo-cut-domain)
 (provide derive-fifo-transactions prove-fifo-transactions compose-fifo-series prove-fifo-wrapper fifo-transactions-for? fifo-transactions-capacity fifo-transactions-width
          fresh-fifo-history fifo-allows? (struct-out fifo-history) (struct-out fifo-events))
@@ -424,13 +424,12 @@
 
 #| Build an edge, not evidence. Match both opaque contracts to actual occurrences and verify all
    member drivers before sharing the handoff. The two child history transitions remain independent. |#
-(define (fifo-series-edge view front-site front back-site back [monitor #f])
+(define (fifo-series-edge view front-site front back-site back)
   (define-values (top ingress egress width sampler) (fifo_view_parts view))
   (check-series-wiring! top (fifo_view_layout view) ingress egress front-site front back-site back)
   (unless (= width (fifo-transactions-width front)) (error 'fifo-series "parent payload width mismatch"))
-  (define capacity (if monitor (second (hash-ref (hash-ref monitor "state") "q"))
-                       (+ (fifo-transactions-capacity front) (fifo-transactions-capacity back))))
-  (define contract (candidate-fifo view capacity monitor))
+  (define capacity (+ (fifo-transactions-capacity front) (fifo-transactions-capacity back)))
+  (define contract (candidate-fifo view capacity))
   (define a (fresh-fifo-history front))
   (define b (fresh-fifo-history back))
   (define an (fresh-fifo-history front))
@@ -469,42 +468,61 @@
   (check-phase 'series-step (&& (! reset) allowed) goals)
   (checked-fifo-result view contract))
 
-#| Prove the RSPECL projection against the declared public monitor at reset and on every legal
-   child step. The relation is evaluated, never assumed to concatenate the histories correctly. |#
+#| Encode FIFO history without truncating an invalid count or silently treating a non-tag word as false. |#
+(define (fifo-value q sort child)
+  (match-define (list "seq" capacity element) sort)
+  (define width (fifo-transactions-width child))
+  (unless (and (= capacity (fifo-transactions-capacity child))
+               (or (host-equal? element '("bool")) (host-equal? element (list "bits" width))))
+    (error 'refinement "FIFO evidence does not match the declared sequence"))
+  (define n (fifo-history-count q))
+  (define words (fifo-history-slots q))
+  (define tags? (host-equal? element '("bool")))
+  (values (sequence-value (integer->bitvector n (bitvector (integer-length capacity)))
+                          (if tags? (map (lambda (w) (bveq w (bv 1 width))) words) words))
+          (&& (<= 0 n capacity)
+              (for/fold ([ok #t]) ([w words] [i (in-naturals)])
+                (&& ok (=> (&& tags? (< i n)) (|| (bveq w (bv 0 width)) (bveq w (bv 1 width)))))))))
+
+#| Adapt a certified FIFO to an ordinary monitor cut; the mathematical count and optional
+   tag encoding are checked before and after each admitted transition. |#
+(define (fifo-monitor-site child key sort)
+  (unless (fifo-transactions? child) (error 'refinement "expected FIFO transaction evidence"))
+  #| Allocate fresh live histories for this occurrence and sample its actual directional drivers. |#
+  (define (advance ci co _inputs _outputs)
+    (define-values (batch sampled) (sample-cut-pins child ci co))
+    (define old (fresh-fifo-history child))
+    (define next (fresh-fifo-history child))
+    (define-values (pre ok) (fifo-value old sort child))
+    (define-values (post next-ok) (fifo-value next sort child))
+    (define start (hash-ref (spec-initial-state (fifo-transactions-monitor child)) "q"))
+    (define-values (empty _) (fifo-value (fifo-history 0 (sequence-value-slots start)) sort child))
+    (values (&& sampled (fifo-allows? child old batch next)) (hash key pre) ok (hash key post) next-ok (hash key empty)))
+  (monitor-site (fifo-transactions-definition child) (fifo-transactions-layout child)
+                (hash-keys (hash-ref (fifo-transactions-sampler child) "inputs")) advance))
+
+#| The FIFO protocol checks its direct handoff and adapts sparse events to its canonical
+   batch. Wiring evaluation, independent child steps, projection and induction use the shared checker. |#
 (define (prove-fifo-series-refinement view children)
-  (match-define (list first second relation) (fifo_series_parts view))
-  (unless (and (hash? children) (host-equal? (sort (hash-keys children) string<?) (sort (list first second) string<?)))
+  (match-define (list (list a b) cuts relation checks) (fifo_series_parts view))
+  (unless (and (hash? children) (host-equal? (sort (hash-keys children) string<?) (sort (list a b) string<?)))
     (error 'fifo-series "expected evidence for both declared occurrences"))
+  (define-values (top ingress egress width sampler) (fifo_view_parts view))
+  (define layout (fifo_view_layout view))
+  (check-series-wiring! top layout ingress egress a (hash-ref children a) b (hash-ref children b))
   (define monitor (spec_snapshot (fifo_view_behavior view)))
-  (match-define (list "seq" capacity (list "bits" width)) (hash-ref (hash-ref monitor "state") "q"))
-  (define-values (contract a b an bn batch reset allowed)
-    (fifo-series-edge view first (hash-ref children first) second (hash-ref children second) monitor))
-  (for ([(site child) children])
-    (unless (host-equal? (hash-ref (hash-ref relation "inputs") site)
-                         (list "seq" (fifo-transactions-capacity child) (list "bits" width)))
-      (error 'fifo-series "history type does not match occurrence: ~a" site)))
-  #| Keep the mathematical count in range as an obligation, not an implicit truncating cast. |#
-  (define (project front back)
-    (define histories (hash first front second back))
-    (define seqs
-      (for/hash ([(site h) histories])
-        (define bits (integer-length (fifo-transactions-capacity (hash-ref children site))))
-        (values site (sequence-value (integer->bitvector (fifo-history-count h) (bitvector bits)) (fifo-history-slots h)))))
-    (define edge (spec-edge-at relation (hash) seqs))
-    (define obs (hash-ref (edge-outputs edge) "q"))
-    (match-define (sequence-value count slots) (observation-value obs))
-    (values (fifo-history (bitvector->natural count) slots)
-            (&& (for/fold ([ok #t]) ([(site h) histories])
-                  (&& ok (<= 0 (fifo-history-count h) (fifo-transactions-capacity (hash-ref children site)))))
-                (edge-legal edge) (edge-defined edge) (observation-care obs) (<= (bitvector->natural count) capacity))))
-  (define-values (before pre-ok) (project a b))
-  (define-values (after post-ok) (project an bn))
-  (check-phase 'rspecl-series-reset (&& reset allowed)
-               (list (cons 'empty (&& post-ok (= 0 (fifo-history-count after))))
-                     (cons 'initial (fifo-allows? contract (fresh-fifo-history contract) batch after))))
-  (check-phase 'rspecl-series-step (&& (! reset) allowed)
-               (list (cons 'bounded-projection (&& pre-ok post-ok))
-                     (cons 'preserved (fifo-allows? contract before batch after))))
+  (match-define (list "seq" capacity (list "bits" _)) (hash-ref (hash-ref monitor "state") "q"))
+  (define contract (candidate-fifo view capacity monitor))
+  (define sites
+    (for/hash ([(k child) children])
+      (define key (hash-ref cuts k))
+      (values k (fifo-monitor-site child key (hash-ref (hash-ref relation "inputs") key)))))
+  #| Use only top-level sampled events; never construct a presumed middle handshake. |#
+  (define (sample inputs outputs)
+    (define-values (batch ok) (sample-cut-pins contract inputs outputs))
+    (match-define (fifo-events reset push in pop out) batch)
+    (values (hash "reset" reset "push" push "in" in "pop" pop "out" out) ok))
+  (check-monitor-refinement! check-phase top layout (fifo_view_bool view) sites monitor sample relation checks)
   (checked-fifo-result view contract))
 
 ;; One symbolic edge, not a refinement certificate. Only parent pins/local edges and the
@@ -520,25 +538,10 @@
 #| Sample both sides of an exact one-child RTL boundary. Child outputs are arbitrary;
    execute and prove defined only the parent wiring and registers. Issues no evidence. |#
 (define (symbolic-wrapper-cut top layout bool site expected child-layout visible)
-  #| Bind this pin layout only at the requested occurrence of the expected definition. |#
-  (define (layout-at name definition)
-    (unless (and (host-equal? name site) (host-eq? definition expected))
-      (error 'wrapper-cut "transaction evidence does not match the RTL occurrence"))
-    child-layout)
-  (define graph (wrapper_wiring top layout site layout-at visible bool))
-  (define locals (hash-ref graph "children"))
-  (define states (for/hash ([(k model) locals]) (values k (symbolic-spec-state model))))
-  (define inputs (fresh-fields (hash-ref graph "inputs")))
-  (define-values (outputs edges settled) (wired-edge-at graph locals states inputs))
-  (define local-ok (for/fold ([ok settled]) ([e (in-hash-values edges)])
-                     (&& ok (edge-legal e) (edge-defined e) (spec-state-legal? (edge-next e)))))
-  (check-phase 'wrapper-rtl #t (list (cons 'defined local-ok)))
-  (define prefix (string-append site "."))
-  #| Strip the site qualifier only on the child side; at that boundary graph directions reverse. |#
-  (define (side pins child?)
-    (for/hash ([(k v) pins] #:when (host-equal? child? (string-prefix? k prefix)))
-      (values (if child? (string->immutable-string (substring k (string-length prefix))) k) v)))
-  (values (side inputs #f) (side outputs #f) edges (side outputs #t) (side inputs #t)))
+  (define-values (inputs outputs edges pins)
+    (open-monitor-sites top layout bool (hash site (monitor-site expected child-layout visible #f)) check-phase))
+  (match-define (list ci co) (hash-ref pins site))
+  (values inputs outputs edges ci co))
 
 #| Sample the verified FIFO on its actual occurrence without opening its cycle implementation. |#
 (define (symbolic-fifo-cut top layout bool site child)

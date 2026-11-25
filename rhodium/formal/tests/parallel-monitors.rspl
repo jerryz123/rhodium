@@ -1,0 +1,62 @@
+#lang rspecl
+// SPDX-License-Identifier: Apache-2.0
+
+import "parallel-monitors.rhdl" as rtl
+import lib("rhodium/formal/spec.rhm").Observed
+
+fun presence(flag): Observed(const(Bool, #true), flag)
+fun same(a, b): select(a, b, !b)
+fun mark_events(input, output):
+  {"reset": presence(input("reset", Bool)),
+   "mark": presence(input("mark", Bool)), "marked": presence(output("marked", Bool))}
+
+fun mark_monitor(toggle :: Boolean):
+  monitor:
+    sample mark_events
+    publish []
+    batch reset = present(reset)
+    batch mark = present(mark)
+    batch marked = present(marked)
+    state seen: Bool initially #false
+    guarantee "marked" = reset || same(marked, seen)
+    next seen = !reset && select(mark, (if toggle | !seen | const(Bool, #true)), seen)
+
+spec for rtl.StickyMark:
+  transactions mark_monitor(#false)
+  refinement:
+    local (seen): Bool
+    relate seen = seen
+
+spec for rtl.ToggleMark:
+  transactions mark_monitor(#true)
+  refinement:
+    local (seen): Bool
+    relate seen = seen
+
+fun pair_events(input, output):
+  {"reset": presence(input("reset", Bool)),
+   "mark_a": presence(input("mark_a", Bool)), "marked_a": presence(output("marked_a", Bool)),
+   "mark_b": presence(input("mark_b", Bool)), "marked_b": presence(output("marked_b", Bool))}
+
+spec for rtl.ParallelMarks:
+  monitor:
+    sample pair_events
+    publish []
+    batch reset = present(reset)
+    batch mark_a = present(mark_a)
+    batch mark_b = present(mark_b)
+    batch marked_a = present(marked_a)
+    batch marked_b = present(marked_b)
+    state left_seen: Bool initially #false
+    state right_seen: Bool initially #false
+    guarantee "marked-a" = reset || same(marked_a, left_seen)
+    guarantee "marked-b" = reset || same(marked_b, right_seen)
+    next left_seen = !reset && (left_seen || mark_a)
+    next right_seen = !reset && select(mark_b, !right_seen, right_seen)
+  refinement:
+    child a: StickyMark
+    child b: ToggleMark
+    history left_seen from a.seen: Bool
+    history right_seen from b.seen: Bool
+    relate left_seen = left_seen
+    relate right_seen = right_seen
