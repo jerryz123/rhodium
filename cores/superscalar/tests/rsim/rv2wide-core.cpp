@@ -37,6 +37,7 @@ void counted_tick() {
   CHECK(recoveries == unsigned(recovery || rejected_recovery));
 }
 #define tick_model counted_tick
+#include "mem-branch-recovery.hpp"
 #include "driver.hpp"
 using instruction_t =
     std::remove_cvref_t<decltype(instructions_in.pbits.pentries[0])>;
@@ -1406,6 +1407,7 @@ void rejected_redirect_tests() {
 
 int main() {
   return run_test([] {
+    check_mem_branch_recovery(memory_stage_1_out, resolution_1_in);
     reset = 1;
     time_counter = 123;
     hart_id = 7;

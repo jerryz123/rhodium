@@ -1172,13 +1172,14 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   mem_load.unsigned_load <== mem_memory.memory.unsigned
   mem_load.data <== scalar_pipeline.response.bits.data
   wire mem_resolved: Vec(issue_width, SuperscalarResult(xlen, hypervisor))
+  wire mem_next_pcs: Vec(issue_width, Bits(xlen.width))
   for (lane in 0..issue_width):
     def Array(mem_input, mem_context, mem_branch_input) = mem_pipe[lane].egress |> fork_valid(3)
     def mem_output = mem_links[lane].left
     def mem :: SuperscalarResult(xlen, hypervisor) = mem_pipe[lane].egress.bits
     def mem_pc = mem_pipe[lane].pc
     inst mem_resolver(BranchResolver(xlen.width))
-    (mem_branch_input |> filter_valid(_operation => !wb_squash) |> map_valid(_operation => BranchResolverRequest(xlen.width)):
+    (mem_branch_input |> map_valid(_operation => BranchResolverRequest(xlen.width)):
       left: mux(mem.branch.operands_from_older[0], mem_older.egress.bits.resolution.value, mem.resolution.value)
       right: mux(mem.branch.operands_from_older[1], mem_older.egress.bits.resolution.value, mem.right)
       control: mem.branch.control
@@ -1206,6 +1207,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
 
     def mem_taken = mem.branch.update.branch & mem_resolver.result.bits.taken
     def mem_next_pc = mux(mem_taken, mem.address_or_left, mem.fetched.sequential_pc.apply(mem_pc))
+    mem_next_pcs[lane] <== mem_next_pc
     def mem_predicted_pc = mux(mem.fetched.prediction.valid, mem.fetched.prediction.target.expanded(), mem.fetched.sequential_pc.apply(mem_pc))
     def mem_bad_target = mem_taken & mem.address_or_left[0].into(Bool)
     def mem_target_resolution = SuperscalarResolution(xlen):
@@ -1309,20 +1311,23 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     wb_descriptor_lane <== mem_descriptor_lane
     wb_descriptor <== mem_descriptor.updated(~precertified: mem_certified, ~certificate: vector_fast.response.bits)
 
-  /* MEM branch recovery.
-     Correct predictions preserve target-stream work. A correction keeps its
-     resolving token and older peers; older WB recovery still wins. */
+  /* MEM branch recovery. Select the oldest valid mismatch and its successor
+     independently of the lookup. A stop at or before that lane vetoes the
+     correction; a younger stop cannot change the winner or its target. */
 
-  def mem_corrections = for List (lane in 0..issue_width):
-    def older_stops = any(for List (older in 0..lane): mem_pipe[older].egress.valid & ((mem_resolved[older].resolution.disposition =/= SuperscalarDisposition.Continue) ||| mem_resolved[older].branch.mispredicted))
-    mem_pipe[lane].egress.valid & mem_resolved[lane].branch.mispredicted & (mem_resolved[lane].resolution.disposition === SuperscalarDisposition.Continue) & !older_stops
+  def mem_mismatches = for List (lane in 0..issue_width):
+    mem_valid[lane] & mem_resolved[lane].branch.mispredicted
 
-  mem_branch_redirect <== any(mem_corrections) & !wb_squash
-  def mem_branch :: SuperscalarResult(xlen, hypervisor) = priority_mux((for List (lane in 0..issue_width - 1): [mem_corrections[lane], mem_resolved[lane]]), ~default: mem_resolved[issue_width - 1])
+  def mem_vetoes = for List (lane in 0..issue_width):
+    def before_or_at_candidate = !any(for List (older in 0..lane): mem_mismatches[older])
+    before_or_at_candidate & mem_valid[lane] & (mem_resolved[lane].resolution.disposition =/= SuperscalarDisposition.Continue)
+
+  mem_branch_redirect <== any(mem_mismatches) & !any(mem_vetoes) & !wb_squash
+  def mem_branch :: SuperscalarResult(xlen, hypervisor) = priority_mux((for List (lane in 0..issue_width - 1): [mem_mismatches[lane], mem_resolved[lane]]), ~default: mem_resolved[issue_width - 1])
   def mem_pcs = vec(for List (stage in mem_pipe): stage.pc)
-  def mem_branch_pc = priority_mux((for List (lane in 0..issue_width - 1): [mem_corrections[lane], mem_pcs[lane]]), ~default: mem_pcs[issue_width - 1])
+  def mem_branch_pc = priority_mux((for List (lane in 0..issue_width - 1): [mem_mismatches[lane], mem_pcs[lane]]), ~default: mem_pcs[issue_width - 1])
   def mem_prediction_pc = mux(mem_branch.fetched.prediction.valid, mem_branch.fetched.prediction.target.expanded(), mem_branch.fetched.sequential_pc.apply(mem_branch_pc))
-  def mem_actual_pc = mux(mem_branch.branch.taken, mem_branch.address_or_left, mem_branch.fetched.sequential_pc.apply(mem_branch_pc))
+  def mem_actual_pc = priority_mux((for List (lane in 0..issue_width - 1): [mem_mismatches[lane], mem_next_pcs[lane]]), ~default: mem_next_pcs[issue_width - 1])
   def mem_prediction_failure = prediction_failure(
     mem_branch.branch.update.branch, mem_branch.branch.update.conditional,
     ((mem_actual_pc =/= mem_prediction_pc) & (mem_branch.branch.taken ^ (mem_prediction_pc =/= mem_branch.fetched.sequential_pc.apply(mem_branch_pc)))) ||| (mem_branch.fetched.direction.valid & (mem_branch.fetched.direction.taken ^ mem_branch.branch.taken)),
@@ -1333,7 +1338,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   count_prediction_failure(mem_branch_redirect, mem_prediction_failure)
   def mem_redirect_bits = SuperscalarRedirect(xlen):
     pc: mem_branch_pc
-    target: mux(mem_branch.branch.taken, mem_branch.address_or_left, mem_branch.fetched.sequential_pc.apply(mem_branch_pc))
+    target: mem_actual_pc
     resolution: mem_branch.resolution
     interrupt: Bool(#false)
     trap_cause: Bits(xlen.width)(0)

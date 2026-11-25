@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "test.hpp"
+#include "../../../superscalar/tests/rsim/mem-branch-recovery.hpp"
 #include <deque>
 
 struct Expected { std::uint64_t pc; unsigned rd; std::uint64_t value; std::uint32_t raw; };
@@ -128,6 +129,7 @@ void reset_core() {
 }
 int main() {
   return run_test([] {
+    check_mem_branch_recovery(memory_stage_2_out, resolution_2_in);
     reset_core();
     triples = issues3 = 0;
     // Standalone backend groups sustain three expanded instructions per cycle.

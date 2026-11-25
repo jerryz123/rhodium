@@ -726,8 +726,10 @@ A MEM prediction correction clears the instruction buffer, RR, and EX, including
 lookup admission, while preserving its own MEM-to-WB transfer and older WB work.
 An older mispredicted instruction suppresses its same-group younger MEM transfer;
 a correctly predicted taken branch preserves its target-stream peer.
-Recovery selection observes all lanes' resolved MEM outcomes, including stale
-predictions on an ordinary third-lane instruction. WB faults/replays
+Select the oldest valid prediction mismatch and its next PC independently of
+the cache lookup, including stale predictions on nonbranches. A non-Continue
+outcome at or before that lane vetoes the correction; it must never select a
+different target. A younger non-Continue outcome does not veto it. WB faults/replays
 and retained faults override MEM recovery; branches never redirect twice.
 An older same-group memory instruction may reject WB authorization after MEM
 branch recovery; its WB redirect must override that speculative target and
