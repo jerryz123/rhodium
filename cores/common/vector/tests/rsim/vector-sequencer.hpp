@@ -737,6 +737,27 @@ void retry_masked_scan_tail() {
   CHECK(request_ready && !active);
 }
 
+// VS2 is v0 for viota and a fixed zero field for vid. A masked vid uses only
+// the shadow port. Hold physical row zero and observe actual read enables.
+static void scan_read_hazards() {
+  for (unsigned which : {0u,1u,2u}) {
+    const bool iota=which==0, masked=which==2;
+    instruction=(20u<<26) | (unsigned(!masked)<<25) | ((iota?16u:17u)<<15) | (2u<<12) | (8u<<7) | 0x57;
+    vtype=vstart=0; vl=1; issue_ready=block_v0_row=request_valid=1;
+    eval(); CHECK(legal && request_ready); tick_model(); request_valid=0;
+    unsigned completed=0, data_reads=0, mask_reads=0;
+    for(unsigned t=0;t<24;++t) {
+      block_v0_row=t<10; eval();
+      if(t==10) CHECK(completed==unsigned(!iota && !masked));
+      CHECK(!general_reads || (iota && general_reads==1 && !block_v0_row));
+      CHECK(!predicate_read || (masked && !block_v0_row));
+      data_reads+=bool(general_reads); mask_reads+=bool(predicate_read);
+      completed+=bool(committed); tick_model();
+    }
+    CHECK(completed==1 && data_reads==unsigned(iota) && mask_reads==unsigned(masked));
+  }
+}
+
 int main() {
   return run_test([] {
     reset = 1;
@@ -758,6 +779,22 @@ int main() {
     for (int repeat_index = 0; repeat_index < (3); ++repeat_index)
       tick();
     reset = 0;
+    scan_read_hazards();
+    // Check the issued SEW=XLEN operand before the ALU masks a shift count.
+    // Thus the sixth vror.vi bit is observable even on RV32.
+    for (unsigned fn : {0u,37u,20u,21u}) {
+      const word_t expected=fn==0 ? low_mask(XLEN) : fn==21 ? 63 : 31;
+      instruction=(fn<<26)|(1u<<25)|(8u<<20)|(31u<<15)|(3u<<12)|(24u<<7)|0x57;
+      vtype=SEW_LOG<<3; vstart=0; vl=1; scalar=13;
+      issue_ready=request_valid=1; eval(); CHECK(legal && request_ready); tick_model();
+      request_valid=0; instruction=0; scalar=17;
+      unsigned beats=0, writes=0;
+      for (unsigned t=0;t<16;++t) {
+        eval(); if (issued) { CHECK(issued_rhs==expected); ++beats; }
+        writes+=bool(committed); tick_model();
+      }
+      CHECK(beats==1 && writes==1);
+    }
     for (int row = 0; row < DEPTH; row++) {
       initialize_in.pvalid = 1;
       initialize(((row)&low_mask(AW)), word_t(random_word()), UINT64_MAX);
@@ -1037,6 +1074,17 @@ int main() {
     }
     // Slides read across chunks/groups while rotating through the same E64
     // SIMD slot. Golden values come from the original architectural snapshot.
+    // At LMUL2 both ordinary and slide-one forbid an in-place upward slide;
+    // a downward slide can read the original group before overwriting it.
+    vtype=(2u<<3)|1u; vstart=0;
+    for (unsigned mode : {3u,4u,6u,5u}) {
+      if (mode==5 && XLEN==32) continue; // This RV32 fixture uses Zve32x.
+      for (bool up : {false,true}) for (unsigned vd : {8u,24u}) {
+        instruction=((up ? 14u : 15u)<<26) | (1u<<25) | (8u<<20) |
+                    (3u<<15) | (mode<<12) | (vd<<7) | 0x57;
+        eval(); CHECK(bool(legal)==(!up || vd!=8));
+      }
+    }
     for (int sew = 0; sew < SEW_LOG + 1; sew++) {
       for (int lm = 0; lm < 8; lm++) {
         int maximum, lanes;
@@ -1098,6 +1146,18 @@ int main() {
     }
     // Gather reads arbitrary source positions, with a separate EEW16 index
     // stream. Source values are modeled from the admission-time snapshot.
+    // At SEW8/LMUL2, VV requires a pair of VS1 registers, EI16 four;
+    // the identical instruction field in VX/VI names no vector group.
+    vtype=1; vstart=0;
+    for (unsigned index : {9u,10u,12u,24u}) {
+      for (unsigned form=0;form<4;++form) {
+        unsigned mode=form<2 ? 0 : form==2 ? 4 : 3;
+        instruction=((form==1 ? 14u : 12u)<<26) | (1u<<25) | (16u<<20) |
+                    (index<<15) | (mode<<12) | (24u<<7) | 0x57;
+        eval();
+        CHECK(bool(legal)==(form>=2 || (index!=24 && index%(form==1 ? 4 : 2)==0)));
+      }
+    }
     for (int sew = 0; sew < SEW_LOG + 1; sew++) {
       for (int lm = 0; lm < 8; lm++) {
         int maximum, exponent;

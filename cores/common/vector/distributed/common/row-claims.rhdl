@@ -1,0 +1,132 @@
+#lang rhodium
+/* Defines physical-row dependencies and last-use reports for native vector sequencing. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("flow/main.rhdl").Valid
+  "../../bundles.rhdl".VectorDescriptor
+  "../../decode.rhdl" open
+  "../../geometry.rhdl" open
+  "../../../simd-multiplier.rhdl".SimdMultiplyAccumulateStages
+  "row-types.rhdl" open
+  lib("riscv/isa/vector.rhm").VectorLength
+  lib("riscv/isa/xlen.rhm").XLen
+
+/* VLSeq retains the unread predicate and unwritten destination of one load,
+   including rows whose cache replies are buffered behind the VRF port. */
+interface VectorLoadChain(Owner :: DataType):
+  role engine
+  role scoreboard
+  provider engine
+  engine -> scoreboard:
+    owner: Owner
+    unread_v0: PredicateSet
+    unwritten_vd: RowSet
+    write_owner: Owner
+  scoreboard -> engine:
+    older_writes: RowSet
+    older_accesses: RowSet
+
+/* VSSeq reports the source and predicate rows it still needs to capture.
+   Buffered store data and outstanding acknowledgements own neither. */
+interface VectorStoreReadChain(Owner :: DataType):
+  role engine
+  role scoreboard
+  provider engine
+  engine -> scoreboard:
+    owner: Owner
+    unread_vs3: RowSet
+    unread_v0: PredicateSet
+  scoreboard -> engine:
+    older_writes: RowSet
+
+/* VPS owns unread source rows, including the full reachable VS2 group of an irregular gather. */
+interface VectorSpecialReadChain(Owner :: DataType):
+  role engine
+  role scoreboard
+  provider engine
+  engine -> scoreboard:
+    owner: Owner
+    unread: RowSet
+  scoreboard -> engine:
+    older_writes: RowSet
+
+/* Keep predicate reads distinct from ordinary reads of v0: either claim can
+   outlive the other even though both ultimately refer to the same storage. */
+bundle NativeRowClaims():
+  reads: RowSet
+  predicates: PredicateSet
+  writes: RowSet
+
+// From granted read to physical write: VRF read and output stage, plus
+// the feed-forward multiplier stages for a product.
+def ShortWriteDelay = 2
+def ProductWriteDelay = ShortWriteDelay + SimdMultiplyAccumulateStages
+
+/* A reserved write retains its identity after VXSeq advances to another owner. */
+bundle ExecuteDestination(Owner :: DataType):
+  owner: Owner
+  row: RowAddress
+  last: Bool
+
+/* A granted destination moves from the sequencer to a booked write cycle or
+   an independent integer or FP service slot. All remain visible through the physical write. */
+interface VectorExecuteChain(Owner :: DataType):
+  role engine
+  role scoreboard
+  provider engine
+  engine -> scoreboard:
+    owner: Owner
+    unissued: NativeRowClaims()
+    integer_pending: Valid(ExecuteDestination(Owner))
+    fp_pending: Valid(ExecuteDestination(Owner))
+    reserved: Bits(ProductWriteDelay)
+    destinations: Vec(ProductWriteDelay, ExecuteDestination(Owner))
+  scoreboard -> engine:
+    older_writes: RowSet
+    older_accesses: RowSet
+
+/* Selects one physical row on the handshake that consumes its last use. */
+fun row_event(valid :: Bool, row :: Bits(RowAddress.packed_width())) :~ Bits(PhysicalRows):
+  valid.as_bits().zext(PhysicalRows) << row
+
+/* Translate an element boundary into a physical bit offset. A packed mask
+   occupies one bit per element, regardless of SEW or LMUL. */
+fun row_bit_offset(element :: Bits, eew :: Bits(2), packed_mask :: Bool) :~ Bits(element.type.packed_width()+3):
+  mux(packed_mask, element.zext(element.type.packed_width()+3), (element << eew) ++ Bits(3)(0))
+
+/* Initializes execute cursor claims at each operand's EEW. VXSeq also claims unread
+   accumulator rows using its destination cursor, independently of its factors. */
+fun native_row_claims(xlen :: XLen, vlen :: VectorLength, d :: VectorDescriptor(xlen), begin :: Bits(xlen.width), limit :: Bits(xlen.width), ~reads_v0: reads_v0 :: Bool, ~destination_eew: eew :: Bits(2)) :~ NativeRowClaims():
+  def layout = native_row_layout(vlen)
+  def row_byte_bits = bits.length(layout.row_bits / 8 - 1)
+  def byte_width = index_width(layout.vlen + 1)
+  def start = begin[0..byte_width]
+  def end = limit[0..byte_width] - Bits(byte_width)(1)
+  /* Covers every physical row touched by this operand's active element range. */
+  fun span(width :: Bits(2), packed :: Bool) :~ Bits(PhysicalRows):
+    def first = row_bit_offset(start, width, packed)[row_byte_bits+3..byte_width+3]
+    def last = row_bit_offset(end, width, packed)[row_byte_bits+3..byte_width+3]
+    (!RowSet(0) << first) & !(!RowSet(1) << last)
+
+  def packed_destination = d.control.row_layout =/= VectorRowLayout.ElementRows
+  def vd = span(eew, packed_destination) << group_row(d.vd())
+  def predicates = for List (i in 0..layout.rows_per_register):
+    reads_v0 & (start <= Bits(byte_width)((i+1)*layout.row_bits-1)) & (end >= Bits(byte_width)(i*layout.row_bits))
+  NativeRowClaims():
+    reads: RowSet(0)
+    predicates: vec(predicates).as_bits()
+    writes: mux(d.control.sequence === VectorSequence.Insert, scalar_move_claim(xlen, vlen, d, layout.rows_per_register, ~write: #true), vd)
+
+export:
+  VectorSpecialReadChain
+  VectorLoadChain
+  VectorStoreReadChain
+  NativeRowClaims
+  VectorExecuteChain
+  ExecuteDestination
+  ShortWriteDelay
+  ProductWriteDelay
+  native_row_claims
+  row_bit_offset
+  row_event

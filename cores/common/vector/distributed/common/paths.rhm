@@ -1,0 +1,11 @@
+#lang rhombus
+/* Defines the shared ordering of distributed dispatch heads and VLSU cursors. */
+// SPDX-License-Identifier: Apache-2.0
+
+def LoadPath = 0
+def StorePath = 1
+def ExecutePath = 2
+def MemoryPaths = [LoadPath, StorePath]
+def DispatchPaths = MemoryPaths ++ [ExecutePath]
+
+export LoadPath StorePath ExecutePath MemoryPaths DispatchPaths

@@ -10,18 +10,6 @@ import:
   "register-file.rhdl" open
   lib("rhodium/std/bits.rhdl") open
 
-/* Selects a VRF row or replicated scalar/immediate operand. */
-hardware_enum VectorOperandSelect:
-  Vector
-  Scalar
-  Immediate
-
-/* Selects signed-five-bit or unsigned-five/six-bit immediate interpretation. */
-hardware_enum VectorImmediateKind:
-  Signed5
-  Unsigned5
-  Unsigned6
-
 /* Captures element bounds, predication, broadcast selection, and width-change packing policy. */
 bundle VectorPackingControl(vlen :: VectorLength):
   element_width: SimdElementWidth
@@ -30,8 +18,7 @@ bundle VectorPackingControl(vlen :: VectorLength):
   vstart: Bits(index_width(vlen + 1))
   vlmax: Bits(index_width(vlen + 1))
   masked: Bool
-  operand_select: VectorOperandSelect
-  immediate_kind: VectorImmediateKind
+  broadcast_rhs: Bool
   widening: Bool
   narrowing: Bool
   extension: Bool
@@ -61,8 +48,7 @@ bundle VectorNarrowedResult(xlen :: XLen):
    Its local geometry check does not establish architectural register-group legality. */
 circuit VectorOperands(xlen :: XLen, vlen :: VectorLength):
   input control: VectorPackingControl(vlen)
-  input(left, right, mask_word, scalar): Bits(xlen.width)
-  input immediate: Bits(6)
+  input(left, right, mask_word, scalar_operand): Bits(xlen.width)
   output operands: VectorPackedOperands(xlen, vlen)
   output legal: Bool
 
@@ -73,9 +59,6 @@ circuit VectorOperands(xlen :: XLen, vlen :: VectorLength):
   /* Scalar/immediate broadcast and per-format lane enables.
      Element bounds and predication are computed before width-changing paths. */
 
-  def signed_immediate = immediate[0..5].sext(xlen.width)
-  def immediate_value = mux_lookup(control.immediate_kind, [[VectorImmediateKind.Signed5, signed_immediate], [VectorImmediateKind.Unsigned5, immediate[0..5].zext(xlen.width)], [VectorImmediateKind.Unsigned6, immediate.zext(xlen.width)]])
-  def broadcast_source = mux(control.operand_select === VectorOperandSelect.Immediate, immediate_value, scalar)
   def source_mask = (mask_word >> control.first_element[0..vector_bit_offset_width(xlen)])[0..vector_word_bytes(xlen)]
   def alternatives:
     for List (format in 0..vector_format_count(xlen)):
@@ -90,7 +73,7 @@ circuit VectorOperands(xlen :: XLen, vlen :: VectorLength):
 
       VectorPackedOperands(xlen, vlen):
         left: left
-        right: mux(control.operand_select === VectorOperandSelect.Vector, right, vec(for List (_ in 0..lanes): broadcast_source[0..width]).as_bits())
+        right: mux(control.broadcast_rhs, vec(for List (_ in 0..lanes): scalar_operand[0..width]).as_bits(), right)
         element_width: widths[format]
         enabled: enabled.as_bits().into(Mask(vector_word_bytes(xlen)))
         first_element: control.first_element
@@ -152,7 +135,7 @@ circuit VectorResult(xlen :: XLen, vlen :: VectorLength):
   input clip_unsigned: Bool
   input enabled: Mask(vector_word_bytes(xlen))
   input result: SimdAluResult(xlen)
-  output write: VectorRegisterWrite(xlen, vlen)
+  output write: VectorRegisterWrite(xlen.width, vlen)
   output legal: Bool
   output saturated: Bool
 
@@ -179,18 +162,8 @@ circuit VectorResult(xlen :: XLen, vlen :: VectorLength):
     def lanes = (xlen.width / 2) div element_bits
     def elements = for List (lane in 0..lanes):
       def source = result.data[lane * source_bits..(lane + 1) * source_bits]
-      def low = source[0..element_bits]
-      def upper = source[element_bits..source_bits]
-      def result_negative = source[source_bits - 1].into(Bool)
-      def low_negative = low[element_bits - 1].into(Bool)
-      def sign_fill = mux(low_negative, !Bits(element_bits)(0), Bits(element_bits)(0))
-      def unsigned_overflow = upper.any()
-      def signed_overflow = upper =/= sign_fill
-      def overflow = mux(clip_unsigned, unsigned_overflow, signed_overflow)
-      def unsigned_limit = !Bits(element_bits)(0)
-      def signed_limit = mux(result_negative, Bits(element_bits)(1 << (element_bits - 1)), Bits(element_bits)((1 << (element_bits - 1)) - 1))
-      def clipped = mux(clip_unsigned, unsigned_limit, signed_limit)
-      [mux(clip & overflow, clipped, low), (enabled[lane] & clip & overflow).as_bits()]
+      def values(value, overflow) = simd_narrow_lane(element_bits, source, clip, clip_unsigned)
+      [value, (enabled[lane] & overflow).as_bits()]
 
     def low_data :: Bits(xlen.width / 2) = if lanes == 1 | elements[0][0] | concat(elements.map(fun (element :: List): element[0]).reverse())
     def saturation_bits :: Bits(lanes) = if lanes == 1 | elements[0][1] | concat(elements.map(fun (element :: List): element[1]).reverse())
@@ -213,7 +186,7 @@ circuit VectorResult(xlen :: XLen, vlen :: VectorLength):
 
   def effective_result :: SimdAluResult(xlen) = mux(narrowing, narrowed.result, result)
   saturated <== result.saturated ||| (narrowing & narrowed.saturated)
-  write <== VectorRegisterWrite(xlen, vlen):
+  write <== VectorRegisterWrite(xlen.width, vlen):
     address: address[0..address_width]
     data: mux(mask_destination, effective_result.mask_result.as_bits().zext(xlen.width) << first_element[0..vector_bit_offset_width(xlen)], effective_result.data)
     mask: mux(mask_destination, mask_write_mask, expand_mask(effective_result.write_mask.as_bits(), 8))
@@ -226,8 +199,6 @@ circuit VectorResult(xlen :: XLen, vlen :: VectorLength):
   legal <== supported_width & mux(narrowing, half_aligned, aligned) & address_in_bank & mask_in_register
 
 export:
-  VectorOperandSelect
-  VectorImmediateKind
   VectorPackingControl
   VectorPackedOperands
   VectorOperands

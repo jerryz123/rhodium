@@ -1,0 +1,99 @@
+#lang rhodium
+/* Connects the distributed VLSU to independent VRF-side load and store sequencers. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("cores/common/mmu/vector.rhdl") open
+  "../common/paths.rhm" open
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/isa/vector.rhm").VectorLength
+  "../../backend-kind.rhm".vector_dlen
+  lib("rhodium/std/bits.rhdl") open
+  lib("flow/main.rhdl") open
+  "../../bundles.rhdl" open
+  "../common/row-claims.rhdl" open
+  "../../register-file.rhdl".VectorRegisterWrite
+  "../../../cosim-source.rhm".describe_cosim_signals
+  "../common/row-types.rhdl" open
+  "../common/memory-route.rhdl" open
+  "../mem/vlsu.rhdl".VectorVLSU
+  "load-sequencer.rhdl".VectorLoadSequencer
+  "store-sequencer.rhdl".VectorStoreSequencer
+
+/* Dispatch installs the VRF sequencer; a separate address offer must pass
+   memory ordering before the matching cursor can consume any prepared row. */
+sync_circuit VectorRowEngine(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int):
+  def dlen = vector_dlen(vlen)
+  def Owner = Bits(index_width(slots))
+  interface launch[MemoryPaths.length()](Decoupled(MemoryLaunch(xlen, vlen, slots)), ~role: consumer)
+  input stream_owner: Owner
+  interface prepare(Decoupled(MemoryIssue(xlen, vlen, slots)), ~role: consumer)
+  interface checked_element(Decoupled(CheckedIndexElement(xlen, vlen)), ~role: consumer)
+  input(stream_live, stream_store): Bool
+  interface splat(Decoupled(SplatPosition(dlen)), ~role: consumer)
+  interface indices(Decoupled(Bits(dlen)), ~role: consumer)
+  interface store_reads(VectorStoreReadChain(Owner), ~role: engine)
+  interface chain(VectorLoadChain(Owner), ~role: engine)
+  output busy: Bool
+  interface outstanding_store(Valid(Bool), ~role: producer)
+  interface memory(VectorRowMemory(dlen), ~role: requester)
+  interface write(Decoupled(VectorRegisterWrite(dlen, vlen)), ~role: producer)
+  interface read(Decoupled(RowAddress), ~role: producer)
+  interface read_result(Valid(Bits(dlen)), ~role: consumer)
+  interface mask[MemoryPaths.length()](VectorPredicateTap(dlen), ~role: reader)
+  interface issued(Valid(MemoryEvent(slots)), ~role: producer)
+  interface delivered(Valid(MemoryEvent(slots)), ~role: producer)
+  interface finished(Valid(MemoryEvent(slots)), ~role: producer)
+  output unavailable: Vec(MemoryPaths.length(), Bool)
+  inst vlsu(VectorVLSU(xlen, vlen, slots))
+  inst loads(VectorLoadSequencer(xlen, vlen, slots))
+  inst stores(VectorStoreSequencer(xlen, vlen, slots))
+  def Array(load, store) = prepare |> demux_flow(2, entry => entry.command.store)
+  splat |> loads.splat
+  load |> loads.prepare
+  checked_element |> vlsu.checked_element
+  vlsu.stream_live <== stream_live
+  vlsu.stream_store <== stream_store
+  def scatter_live = stream_live & stream_store
+  loads.gather_live <== stream_live & !stream_store
+  loads.gather_row.valid <== checked_element.fire() & !stream_store
+  loads.gather_row.bits <== checked_element.bits.row
+  store |> stores.prepare
+  stores.scatter_live <== scatter_live
+  stores.scatter_owner <== stream_owner
+  vlsu.scatter <=> stores.scatter
+  for (i in MemoryPaths): launch[i] |> vlsu.start[i]
+  loads.rows |> vlsu.masks
+  stores.rows |> vlsu.store_data
+  vlsu.returned |> loads.returned
+  vlsu.load_credits <== loads.held
+  loads.reserve <== vlsu.reserve_load
+  vlsu.memory <=> memory
+  loads.chain <=> chain
+  stores.store_reads <=> store_reads
+  loads.write |> write
+  stores.read |> read
+  read_result |> stores.read_result
+  indices |> vlsu.indices
+  loads.mask <=> mask[LoadPath]
+  stores.mask <=> mask[StorePath]
+  unavailable <== vec([vlsu.resident[LoadPath] ||| loads.busy, vlsu.resident[StorePath] ||| stores.busy])
+  busy <== unavailable.as_bits().any() ||| stores.rows.valid
+  outstanding_store.valid <== vlsu.resident[LoadPath] ^ vlsu.resident[StorePath]
+  outstanding_store.bits <== vlsu.resident[StorePath]
+  vlsu.issued |> issued
+  vlsu.delivered |> delivered
+  // Slice completions feed the iterative checker, not the macro tracker.
+  interface element_drained(Valid(Owner), ~role: producer)
+  Array(loads.element_written, vlsu.element_stored) |> valid_arbiter() |> element_drained
+  assert(!(loads.element_written.valid & vlsu.element_stored.valid), "checked_load_store_drains_are_exclusive")
+  loads.finished.ready <== !vlsu.store_delivered
+  finished.valid <== vlsu.store_delivered ||| loads.finished.valid
+  finished.bits <== mux(vlsu.store_delivered, vlsu.delivered.bits, loads.finished.bits)
+  /* Physical byte effects use the original cache beat, not merged VRF lanes. */
+  fun describe_transfer(prefix :: String, fire :: Bool, ctx :: RowCredit(xlen, vlen, Owner), data :: Bits(dlen)):
+    for Map ((key, value) in {"transfer": fire, "owner": ctx.owner, "singleton": ctx.singleton, "row": ctx.row, "offset": ctx.offset, "va": ctx.va, "pa": ctx.pa, "byte_mask": ctx.enabled, "data": data}):
+      values(prefix ++ key, value)
+  describe_cosim_signals(describe_transfer("load_", vlsu.returned.fire(), vlsu.returned.bits.credit, vlsu.returned.bits.data) ++ describe_transfer("store_", vlsu.stored.valid, vlsu.stored.bits.credit, vlsu.stored.bits.data) ++ {"write": write.fire(), "write_owner": chain.write_owner, "write_row": write.bits.address, "write_data": write.bits.data, "write_mask": write.bits.mask})
+
+export VectorRowEngine

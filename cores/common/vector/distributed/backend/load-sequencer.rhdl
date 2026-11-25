@@ -1,0 +1,166 @@
+#lang rhodium
+/* Prepares load masks and commits returned rows to the VRF under scoreboard control. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/isa/vector.rhm").VectorLength
+  "../../backend-kind.rhm".vector_dlen
+  lib("rhodium/std/bits.rhdl") open
+  lib("flow/main.rhdl") open
+  "../common/row-claims.rhdl" open
+  "../common/row-types.rhdl" open
+  "../common/memory-route.rhdl" open
+  "../common/memory-command.rhdl" open
+  "../mem/segment.rhdl" open
+  "memory-row.rhdl".VectorMemoryRowSequencer
+  "../mem/load-merger.rhdl".VectorLoadMerger
+  "../mem/beat-packer.rhdl".VectorBeatPacker
+  "../../register-file.rhdl".VectorRegisterWrite
+
+/* VLSeq owns its destination until every row is written or skipped. Its two
+   reserved return slots allow L1D to deliver data independently of VRF grants. */
+sync_circuit VectorLoadSequencer(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int):
+  def dlen = vector_dlen(vlen)
+  def Owner = Bits(index_width(slots))
+  interface prepare(Decoupled(MemoryIssue(xlen, vlen, slots)), ~role: consumer)
+  interface rows(Decoupled(OwnedRow(PreparedBeat(vlen), Owner)), ~role: producer)
+  interface returned(Decoupled(ReturnedRow(xlen, vlen, Owner)), ~role: consumer)
+  interface write(Decoupled(VectorRegisterWrite(dlen, vlen)), ~role: producer)
+  interface mask(VectorPredicateTap(dlen), ~role: reader)
+  interface chain(VectorLoadChain(Owner), ~role: engine)
+  interface finished(Decoupled(MemoryEvent(slots)), ~role: producer)
+  output busy: Bool
+  output held: MemoryCreditCount
+  input reserve: Bool
+  input gather_live: Bool
+  def singleton = resolved_issue(prepare.bits.kind)
+  interface splat(Decoupled(SplatPosition(dlen)), ~role: consumer)
+  interface gather_row(Valid(RowAddress), ~role: consumer)
+  reg active(~init: Bool(#false))
+  reg closed(~init: Bool(#false))
+  reg owner(Owner)
+  reg checked(Bool)
+  reg pending(~init: MemoryCreditCount(0))
+  reg streaming(Bool)
+  inst operands(VectorMemoryRowSequencer(xlen, vlen, ~store: #false))
+  def command = prepare.bits.command
+  def values(data_rows, predicate_rows) = memory_command_rows(xlen, vlen, command)
+  def unordered_slice = prepare.bits.kind === MemoryIssueKind.ResolvedStream
+  def reuse = streaming & unordered_slice & closed & (prepare.bits.owner === owner)
+  prepare |> gate_flow(!active ||| reuse) |> map_flow(entry => entry.command) |> to_valid() |> operands.launch
+  def lane_bits = index_width(dlen div 8)
+  reg displacement(Bits(lane_bits))
+  reg elementwise(Bool)
+  reg eew(Bits(2))
+  inst packer(VectorBeatPacker(vlen, ~store: #false))
+  packer.elementwise <== elementwise
+  packer.eew <== eew
+  packer.displacement <== displacement
+  operands.prepared |> packer.source
+  (packer.beat |> map_flow(r => OwnedRow(PreparedBeat(vlen), Owner)):
+     owner: owner
+     payload: r
+  ) |> rows
+  operands.mask <=> mask
+  chain.owner <== owner
+  operands.older_writes <== chain.older_writes
+  operands.singleton <== singleton
+  operands.capacity <== Bool(#true)
+  operands.read.ready <== Bool(#false)
+  operands.read_result.valid <== Bool(#false)
+  operands.read_result.bits <== dont_care(Bits(dlen))
+
+  def loads = returned |> queue(MemoryRowCredits)
+  inst merger(VectorLoadMerger(xlen, vlen, Owner))
+  merger.elementwise <== elementwise
+  merger.displacement <== displacement
+  loads |> merger.beat
+  /* Keep the logical beat stable until every participating field has either
+     written its enabled bytes or advanced without taking the VRF port. */
+  def incoming = command.layout
+  reg layout(SegmentLayout())
+  reg ordinal(~init: Bits(3)(0))
+  def stream = merger.result.bits.address
+  def pos = segment_position(dlen, layout, stream)
+  def values(field, element) = segment_visit(dlen, layout, pos, ordinal)
+  def physical = mux(layout.nf.any(), segment_base(layout, field) + pos.group.zext(RowAddress.packed_width()), stream)
+  def safe = !chain.older_accesses.as_vec(Bool)[physical]
+  def final_field = ordinal === pos.last_ordinal
+  def fragment = VectorRegisterWrite(dlen, vlen):
+    address: physical
+    data: segment_fragment(dlen, layout, merger.result.bits.data, ordinal, element, ~pack: #false)
+    mask: segment_fragment(dlen, layout, merger.result.bits.mask, ordinal, element, ~pack: #false)
+  def normal :: VectorRegisterWrite(dlen, vlen) = mux(layout.nf.any(), fragment, merger.result.bits)
+  def enabled = normal.mask.any()
+  // An encoded x0 stride reads once, at the first active position. Keep the
+  // merged element (including split responses) for later masked writes.
+  reg seed_lane(Bits(lane_bits))
+  reg seed(Bits(math.min(xlen.width, dlen)))
+  reg seeding(Bool)
+  when (prepare.fire()):
+    seeding <== command.seed
+    seed_lane <== command.data.begin[0..lane_bits]
+  def repeat_shift = splat.bits.lane ++ Bits(3)(0)
+  def byte_enables = mux_lookup(splat.bits.eew, ~default: Bits(dlen div 8)(1), for List (n in 0..bits.length(xlen.width div 8)): [n, Bits(dlen div 8)(2 ** (2 ** n) - 1)])
+  def repeated = VectorRegisterWrite(dlen, vlen):
+    address: splat.bits.row
+    data: seed.zext(dlen) << repeat_shift
+    mask: expand_mask(byte_enables << splat.bits.lane, 8)
+  def repeat_safe = !chain.older_accesses.as_vec(Bool)[splat.bits.row]
+  splat.ready <== repeat_safe & !merger.result.valid & write.ready
+  write.bits <== mux(merger.result.valid, normal, repeated)
+  write.valid <== (merger.result.valid & safe & enabled) ||| (!merger.result.valid & splat.valid & repeat_safe)
+  def advance = !enabled ||| (safe & write.ready)
+  merger.result.ready <== final_field & advance
+  when (merger.result.fire() & seeding): seed <== (normal.data >> (seed_lane ++ Bits(3)(0)))[0..math.min(xlen.width, dlen)]
+  def consumed = merger.result.valid & advance
+  when consumed: ordinal <== mux(final_field, Bits(3)(0), ordinal + Bits(3)(1))
+  chain.write_owner <== owner
+  reg unread_v0(~init: PredicateSet(0))
+  reg unwritten_vd(~init: RowSet(0))
+  def row = operands.prepared
+  def skipped = row_event(row.fire() & !row.bits.enabled.any(), row.bits.row)
+  def written = row_event(write.fire(), write.bits.address)
+  chain.unread_v0 <== unread_v0
+  inst segments(VectorSegmentClaims(xlen, vlen))
+  segments.install.valid <== prepare.fire()
+  segments.install.bits <== command
+  segments.consumed <== consumed
+  segments.field <== field
+  segments.stream <== stream
+  segments.skip <== row.fire() & !row.bits.enabled.any()
+  segments.skipped_stream <== row.bits.row
+  def outstanding = mux(layout.nf.any(), segments.claims, unwritten_vd)
+  chain.unwritten_vd <== mux(active, outstanding, RowSet(0))
+  when (prepare.fire()):
+    streaming <== unordered_slice
+    eew <== incoming.eew
+    elementwise <== prepare.bits.kind =/= MemoryIssueKind.Contiguous
+    owner <== prepare.bits.owner
+    checked <== singleton
+    layout <== incoming
+    displacement <== command.displacement
+  unread_v0 <== mux(prepare.fire(), predicate_rows, unread_v0 & !operands.predicate_done)
+  // The checker owns the oldest macro exclusively. Hold the union of its
+  // admitted destinations until drain; adjacent slices can write the same row.
+  when (prepare.fire()): unwritten_vd <== data_rows ||| mux(active & reuse, unwritten_vd, RowSet(0))
+  elsewhen (gather_row.valid): unwritten_vd <== unwritten_vd ||| row_event(Bool(#true), gather_row.bits)
+  elsewhen (!streaming): unwritten_vd <== unwritten_vd & !(skipped ||| written)
+  busy <== active
+  held <== pending
+  interface element_written(Valid(Owner), ~role: producer)
+  element_written.valid <== loads.fire() & loads.bits.credit.element_end
+  element_written.bits <== loads.bits.credit.owner
+  def stream_idle = streaming & closed & !pending.any() & !gather_live
+  finished.valid <== !streaming & closed & !pending.any() & !outstanding.any()
+  finished.bits <== MemoryEvent(slots):
+    owner: owner
+    checked: checked
+  when (prepare.fire() ||| finished.fire() ||| stream_idle): active <== prepare.fire()
+  when (prepare.fire() ||| finished.fire() ||| stream_idle): closed <== Bool(#false)
+  elsewhen (rows.fire() & rows.bits.payload.last): closed <== Bool(#true)
+  when (reserve =/= loads.fire()):
+    pending <== mux(reserve, pending + MemoryCreditCount(1), pending - MemoryCreditCount(1))
+
+export VectorLoadSequencer

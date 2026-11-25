@@ -19,6 +19,8 @@ interface SuperscalarTranslationSpecialization:
   method architectural_xlen() :: XLen
   /* Shares the resolver's physical map with demand, fragment, and page-table permission checks. */
   method physical_map() :: RiscvPhysicalMemoryMap
+  /* Indicates whether this resolver serves faultable distributed vector elements. */
+  method checks_vector_elements() :: Boolean: #false
   /* Sizes the optional physical PTE contribution without allocating dormant clients. */
   method page_walk_clients() :: matching(0) || matching(1)
 

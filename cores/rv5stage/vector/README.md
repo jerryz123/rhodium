@@ -861,7 +861,7 @@ store's ordered LSU drain. Interrupt entry waits for vector completion.
 
 ## Register bank
 
-`VectorRegisterFile(xlen :: XLen, vlen :: VectorLength)` has exactly
+`VectorRegisterFile(xlen.width, vlen)` has exactly
 `32 * VLEN / XLEN` general entries of `Bits(XLEN)`, with no reset value. VLEN is a host
 power of two from twice XLEN through 65536 bits. The flat address is
 `register_number * (VLEN / XLEN) + chunk_number`; chunk zero holds the lowest bits.
@@ -875,7 +875,7 @@ general ports, without a replica or read arbitration.
   and returns `Valid(Bits(XLEN))` exactly one cycle later. It cannot name
   another vector register. There is no read backpressure; the caller must have
   space for every requested result.
-- One `Valid(VectorRegisterWrite(xlen, vlen))` write carries an address, XLEN-bit data,
+- One `Valid(VectorRegisterWrite(xlen.width, vlen))` write carries an address, XLEN-bit data,
   and **XLEN individual bit enables**. Ordinary byte enables are expanded by the
   result adapter. Mask results update individual bits through the same port.
   Writes to `v0` are visible through all four read ports.

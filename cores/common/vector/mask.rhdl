@@ -16,8 +16,9 @@ hardware_enum VectorScanResult:
   Mask
   Elements
 
-/* Selects scan output and first-bit/index policies independently of instruction recognition. */
+/* Projected scan controls: packed_rows sets cursor cadence; the other fields select arithmetic. */
 bundle VectorMaskScanControl():
+  packed_rows: Bool
   result: VectorScanResult
   index: Bool
   include_first: Bool
@@ -25,35 +26,38 @@ bundle VectorMaskScanControl():
 
 /* Computes selected-bit prefixes and next recurrence carry combinationally.
    The caller bounds the enabled bits and owns carry advancement at result maturity. */
-circuit VectorMaskScan(xlen :: XLen):
-  input(source, enabled, first, carry): Bits(xlen.width)
+circuit VectorMaskScan(xlen :: XLen, ~dlen: width :: PosInt = xlen.width):
+  input(source, enabled): Bits(width)
+  input(first, carry): Bits(xlen.width)
   input element_width: SimdElementWidth
   input control: VectorMaskScanControl()
-  output(data, next_carry): Bits(xlen.width)
+  output data: Bits(width)
+  output next_carry: Bits(xlen.width)
   def selected = source & enabled
   // A shared parallel prefix network supplies the total and every lane prefix.
   // One extra count bit represents a fully selected physical word.
-  def counts = for List (index in 0..xlen.width): selected[index].zext(vector_bit_offset_width(xlen) + 1)
+  def Count = Bits(index_width(width + 1))
+  def counts = for List (index in 0..width): selected[index].zext(Count.packed_width())
   def sums = prefix_scan(counts, fun (left, right): left + right)
 
-  def prefixes = [Bits(vector_bit_offset_width(xlen) + 1)(0)] ++ sums
-  def total :: Bits(vector_bit_offset_width(xlen) + 1) = sums[xlen.width - 1]
+  def prefixes = [Count(0)] ++ sums
+  def total :: Bits(Count.packed_width()) = sums[width - 1]
   def count = carry + total.zext(xlen.width)
   def first_set = count_leading_zeros(reverse_bits(selected)).zext(xlen.width)
   def first_result = mux((carry === !Bits(xlen.width)(0)) & selected.any(), first + first_set, carry)
-  def mask = vec(for List (index in 0..xlen.width):
-                   def preceding :: Bits(vector_bit_offset_width(xlen) + 1) = prefixes[index]
+  def mask = vec(for List (index in 0..width):
+                   def preceding :: Bits(Count.packed_width()) = prefixes[index]
                    !carry.any() & !preceding.any() & mux(control.only_first, selected[index].into(Bool), control.include_first ||| !selected[index].into(Bool))).as_bits()
 
   def elements = for List (format in 0..vector_format_count(xlen)):
-    def width = 8 * (2 ** format)
-    vec(for List (lane in 0..(xlen.width / width)):
-          def preceding :: Bits(vector_bit_offset_width(xlen) + 1) = prefixes[lane]
-          mux(control.index, first + Bits(xlen.width)(lane), carry + preceding.zext(xlen.width))[0..width]).as_bits()
+    def lane_width = 8 << format
+    vec(for List (lane in 0..(width div lane_width)):
+          def preceding :: Bits(Count.packed_width()) = prefixes[lane]
+          mux(control.index, first + Bits(xlen.width)(lane), carry + preceding.zext(xlen.width))[0..lane_width]).as_bits()
 
   def packed = mux_lookup(element_width, ~default: elements[0], for List (format in 1..vector_format_count(xlen)): [SimdElementWidth.values()[format], elements[format]])
   next_carry <== mux(control.result === VectorScanResult.First, first_result, count)
-  data <== mux_lookup(control.result, [[VectorScanResult.Count, count], [VectorScanResult.First, first_result], [VectorScanResult.Mask, mask], [VectorScanResult.Elements, packed]])
+  data <== mux_lookup(control.result, ~default: count.zext(width), [[VectorScanResult.First, first_result.zext(width)], [VectorScanResult.Mask, mask], [VectorScanResult.Elements, packed]])
 
 export:
   VectorScanResult

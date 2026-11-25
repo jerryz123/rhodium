@@ -4,11 +4,17 @@
 
 import:
   "profile.rhm".DefaultVectorInstructionOwners
+  lib("riscv/rtl/instruction-fields.rhdl").immediate_bits
+  lib("riscv/isa/zvbb.rhm").VectorRotateImmediate
+  lib("riscv/isa/v.rhm") as v_fields
   lib("riscv/rtl/trap.rhdl").ExceptionCause
   lib("cores/common/mmu/vector.rhdl") open
   lib("cores/common/vector-layout.rhm") open
   lib("rhodium/std/bits.rhdl").Pow2Int
+  lib("rhodium/std/ready-valid.rhdl").Decoupled
   lib("hardfloat/main.rhdl").RoundingMode
+  lib("hardfloat/main.rhdl").FloatFormat
+  lib("riscv/rtl/floating-point.rhdl").riscv_unbox
   "packed-bundles.rhdl" open
   "register-file.rhdl" open
   "decode.rhdl" open
@@ -33,7 +39,7 @@ bundle VectorAlignment(xlen :: XLen):
 fun slide_amount(xlen :: XLen, control :: VectorControl(), instruction :: Bits(32), operand :: Bits(xlen.width)) :~ Bits(xlen.width):
   def immediate = instruction_field(riscv_fields.rs1, instruction)
   priority_mux(~default: operand):
-    control.slide_one: Bits(xlen.width)(1)
+    slide_inserts_scalar(control.permutation): Bits(xlen.width)(1)
     control.operand === VectorOperandMode.Immediate: immediate.zext(xlen.width)
 
 /* Resolves the unsigned gather index without truncating a register operand. */
@@ -61,14 +67,14 @@ fun sequence_limit(xlen :: XLen, vlen :: VectorLength, control :: VectorControl(
   def whole_register_group_shift = mux_lookup(control.memory_nf, ~default: Bits(2)(0), [[1, Bits(2)(1)], [3, Bits(2)(2)], [7, Bits(2)(3)]])
   def whole_register_elements = Bits(index_width(vlen + 1))(vlen / 8) >> control.memory_data_eew
   def whole_register_limit = whole_register_elements << whole_register_group_shift
-  def whole_register_move = control.integer & control.whole_register_move
+  def whole_register_move = control.integer & vector_whole_copy(control)
   def whole_register_move_shift = mux_lookup(control.whole_register_count, ~default: Bits(2)(0), [[2, Bits(2)(1)], [4, Bits(2)(2)], [8, Bits(2)(3)]])
   def whole_register_move_limit = (Bits(index_width(vlen + 1))(vlen / 8) >> state.vtype[3..5]) << whole_register_move_shift
   def mask_memory = control.memory & (control.memory_mode === VectorMemoryMode.Mask)
   def mask_memory_limit = (state.vl[0..index_width(vlen + 1)] + Bits(index_width(vlen + 1))(7)) >> 3
   // Element moves have one bookkeeping beat, not a VL-sized iteration space.
   priority_mux(~default: state.vl[0..index_width(vlen + 1)]):
-    control.element_move: Bits(index_width(vlen + 1))(1)
+    vector_scalar_move(control): Bits(index_width(vlen + 1))(1)
     whole_register_move: whole_register_move_limit
     whole_register_memory: whole_register_limit
     mask_memory: mask_memory_limit
@@ -86,6 +92,34 @@ bundle VectorSequenceDescriptor(xlen :: XLen):
   masked: Bool
   rounding_mode: RoundingMode
   pointer_masking: PointerMaskControl()
+
+  /* Destination or store-data source, which share the same instruction field. */
+  method vd(d) :: Bits(5): instruction_field(v_fields.vd, d.instruction)
+
+  /* First encoded vector source (also the five low immediate bits in VI forms). */
+  method vs1(d) :: Bits(5): instruction_field(v_fields.vs1, d.instruction)
+
+  /* Second encoded vector source. */
+  method vs2(d) :: Bits(5): instruction_field(v_fields.vs2, d.instruction)
+
+  /* Unbox a scalar FP operand at SEW for vector moves, without raising flags. */
+  method unboxed_scalar(d) :: Bits(xlen.width):
+    def cases = for List (n in 1..(vector_format_count(xlen)-1)):
+      def format = if n == 1 | FloatFormat.F16 | FloatFormat.F32
+      [n, riscv_unbox(format, xlen.width, d.operand_word).as_bits().zext(xlen.width)]
+    mux_lookup(d.state.vtype[3..5], ~default: d.operand_word, cases)
+
+  /* Resolve one lane's scalar data before replication. GPRs sign-extend from
+     XLEN; FP lane bits zero-extend after unboxing. Raw FP-service operands
+     and full-width permutation offsets have their own contracts. */
+  method scalar_operand(d, width :: PosInt) :: Bits(width):
+    def raw = immediate_bits(VectorRotateImmediate, d.instruction)
+    def imm = mux_lookup(d.control.immediate_kind, ~default: raw[0..5].sext(width)):
+      VectorImmediateKind.Unsigned5: raw[0..5].zext(width)
+      VectorImmediateKind.Unsigned6: raw.zext(width)
+    mux_lookup(d.control.operand, ~default: d.operand_word.sext(width)):
+      VectorOperandMode.Immediate: imm
+      VectorOperandMode.FloatingScalar: d.unboxed_scalar().zext(width)
 
   /* Tests a captured descriptor for encoded-zero-stride load execution. */
   method zero_stride_load(descriptor) :: Bool:
@@ -150,6 +184,15 @@ bundle VectorDescriptor(xlen :: XLen):
       rounding_mode: descriptor.rounding_mode
       pointer_masking: descriptor.pointer_masking
 
+  /* Destination or store-data source, which share the same instruction field. */
+  method vd(d) :: Bits(5): instruction_field(v_fields.vd, d.instruction)
+
+  /* First encoded vector source (also the five low immediate bits in VI forms). */
+  method vs1(d) :: Bits(5): instruction_field(v_fields.vs1, d.instruction)
+
+  /* Second encoded vector source. */
+  method vs2(d) :: Bits(5): instruction_field(v_fields.vs2, d.instruction)
+
   /* Tests a captured descriptor for encoded-zero-stride load execution. */
   method zero_stride_load(descriptor) :: Bool:
     vector_zero_stride_load_parts(descriptor.control, descriptor.instruction)
@@ -162,9 +205,68 @@ bundle VectorDescriptor(xlen :: XLen):
   method scalar_index(descriptor) :: Bits(xlen.width):
     gather_operand(xlen, descriptor.control, descriptor.instruction, descriptor.scalar)
 
-  /* Computes the same exclusive beat bound before sequencing. */
+  /* Unbox a scalar FP operand at SEW for vector moves, without raising flags. */
+  method unboxed_scalar(d) :: Bits(xlen.width):
+    def cases = for List (n in 1..(vector_format_count(xlen)-1)):
+      def format = if n == 1 | FloatFormat.F16 | FloatFormat.F32
+      [n, riscv_unbox(format, xlen.width, d.floating_scalar).as_bits().zext(xlen.width)]
+    mux_lookup(d.state.sew(), ~default: d.floating_scalar, cases)
+
+  /* Resolve one lane's scalar data before replication. GPRs sign-extend from
+     XLEN; FP lane bits zero-extend after unboxing. Raw FP-service operands
+     and full-width permutation offsets have their own contracts. */
+  method scalar_operand(d, width :: PosInt) :: Bits(width):
+    def raw = immediate_bits(VectorRotateImmediate, d.instruction)
+    def imm = mux_lookup(d.control.immediate_kind, ~default: raw[0..5].sext(width)):
+      VectorImmediateKind.Unsigned5: raw[0..5].zext(width)
+      VectorImmediateKind.Unsigned6: raw.zext(width)
+    mux_lookup(d.control.operand, ~default: d.scalar.sext(width)):
+      VectorOperandMode.Immediate: imm
+      VectorOperandMode.FloatingScalar: d.unboxed_scalar().zext(width)
+
+  /* A register copy's effective length comes from its encoded register count, not VL or LMUL. */
+  method whole_move_limit(d, vlen :: VectorLength) :: Bits(index_width(vlen + 1)):
+    def bytes = d.control.whole_register_count.zext(index_width(vlen + 1)) << bits.length(vlen div 8 - 1)
+    bytes >> d.state.sew()
+
+  /* Computes exclusive element progress, including VL-independent whole-register and byte-based
+     mask modes. */
   method beat_limit(descriptor, vlen :: VectorLength) :: Bits(index_width(vlen + 1)):
     sequence_limit(xlen, vlen, descriptor.control, descriptor.state)
+
+/* Carries the completed range check separately from WB's physical-address proof. */
+bundle VectorCheckedDescriptor(xlen :: XLen):
+  descriptor: VectorDescriptor(xlen)
+  certified: Bool
+  owns_window: Bool
+
+  /* Packed sequencing is safe only for certified unit-stride memory. */
+  method packed_memory(entry) :: Bool:
+    entry.certified & entry.descriptor.control.memory & (entry.descriptor.control.memory_addressing === VectorMemoryAddressing.UnitStride)
+
+/* Names a checked instruction in the ordered macro ring, not a completion slot. */
+bundle VectorDispatchEntry(xlen :: XLen, slots :: Pow2Int):
+  checked: VectorCheckedDescriptor(xlen)
+  owner: Bits(index_width(slots))
+
+/* Selects the architecturally active bytes of a certified, aligned DLEN row. */
+bundle VectorRowRequest(dlen :: PosInt):
+  service: VectorMemoryService
+  element_width: Bits(2)
+  address: Bits(64)
+  store: Bool
+  byte_mask: Bits(vector_row_bytes(dlen))
+  data: Bits(dlen)
+
+/* Accepted rows return exactly one load value or store acknowledgement in request order. */
+interface VectorRowMemory(dlen :: PosInt):
+  role requester
+  role responder
+  provider requester
+  requester -> responder:
+    request: Decoupled(VectorRowRequest(dlen))
+  responder -> requester:
+    response: Decoupled(Bits(dlen))
 
 /* Pairs scalar instruction context with an immutable admitted vector descriptor. */
 bundle VectorInstruction(xlen :: XLen, Context :: DataType):
@@ -237,7 +339,7 @@ bundle VectorBeat(xlen :: XLen, vlen :: VectorLength):
      operand and must never authorize it as suffix data. */
   method compress_state(beat) :: VectorCompressState(xlen, vlen):
     VectorCompressState(xlen, vlen):
-      data: mux(beat.control.integer & beat.control.compress, beat.right, Bits(xlen.width)(0))
+      data: mux(beat.control.integer & (beat.control.permutation === VectorPermutationKind.Compress), beat.right, Bits(xlen.width)(0))
       count: beat.compress_count
       destination: beat.compress_destination
 
@@ -386,7 +488,7 @@ bundle VectorSequenceRequest(xlen :: XLen, vlen :: VectorLength, Context :: Data
 /* Pairs a mature beat with distinct persistent instruction-owner and completion-slot
    identities. */
 bundle VectorOwnedResult(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, owners :: Pow2Int = DefaultVectorInstructionOwners):
-  beat: VectorResultBeat(xlen, vlen, VectorRegisterWrite(xlen, vlen))
+  beat: VectorResultBeat(xlen, vlen, VectorRegisterWrite(xlen.width, vlen))
   tag: Bits(index_width(slots))
   owner: Bits(index_width(owners))
   pc: Bits(xlen.width)
@@ -399,7 +501,7 @@ bundle VectorSlotAllocation(owners :: Pow2Int):
 
 /* Identifies the completed beat and supplies its unshifted result for a dependent fold. */
 bundle VectorDrained(xlen :: XLen, vlen :: VectorLength, owners :: Pow2Int):
-  beat: VectorResultBeat(xlen, vlen, VectorRegisterWrite(xlen, vlen))
+  beat: VectorResultBeat(xlen, vlen, VectorRegisterWrite(xlen.width, vlen))
   owner: Bits(index_width(owners))
   data: Bits(xlen.width)
 
@@ -427,6 +529,10 @@ export:
   VectorAlignment
   vector_sequence_width
   VectorDescriptor
+  VectorCheckedDescriptor
+  VectorDispatchEntry
+  VectorRowMemory
+  VectorRowRequest
   VectorInstruction
   VectorCompressState
   VectorCompressSuffix

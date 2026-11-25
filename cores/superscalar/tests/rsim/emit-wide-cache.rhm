@@ -8,7 +8,7 @@ import:
   "../cache-fixture.rhdl" open
 
 fun program(xlen):
-  elaborate(SuperscalarL1D(test_cache, ~chi: test_fetch_chi, ~context: Bits(16), ~xlen: xlen, ~beat_bytes: 16))
+  elaborate(SuperscalarL1D(test_cache, ~chi: test_fetch_chi, ~context: Bits(16), ~xlen: xlen, ~beat_bytes: xlen.width div 4, ~row_bits: 2 * xlen.width))
 
 def rv32 = program(XLen.X32)
 def rv64 = program(XLen.X64)

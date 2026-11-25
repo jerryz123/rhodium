@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 #include "../events/dpi.h"
+#include <array>
 #include <deque>
 #include <tuple>
 
@@ -17,6 +18,9 @@ struct Dispatch { Word owner, base, eew, instruction, vtype; };
 // Raw address preserves packed element identity; effective address owns faults/VA.
 struct Issue { Word owner, tag, first, destination, packed, enabled, store, address, effective_address, physical, precertified, mask, data; };
 struct Write { Word address, mask, data, local, packed, splat, local_owner, packed_owner, splat_owner; };
+struct RowWrite { Word owner, row, chunk, data, mask, flags_valid, flags; };
+struct RowTransfer { Word owner, store, singleton, row, offset, va, pa, chunk, data, byte_mask; };
+struct StoreRowTransfer : RowTransfer {};
 struct ScalarWrite { Word owner, floating, rd, data; };
 struct Direct { Word tag, data; };
 struct Complete { Word tag, data; };
@@ -36,9 +40,19 @@ class VectorAdapter final : public observation::DpiAdapter {
     auto& frame = frames_[instance];
     if (!frame.sample) { frame.sample = sample; frame.epoch = epoch; }
     require(*frame.sample == sample && frame.epoch == epoch, "unflushed vector sample or mixed epoch");
-    auto& field = std::get<std::optional<Event>>(frame.events);
-    require(!field, "duplicate vector callback");
-    field = event;
+    if constexpr (std::is_same_v<Event, RowWrite> || std::is_base_of_v<RowTransfer, Event>) {
+      auto& chunks = std::get<std::map<Word, Event>>(frame.events);
+      require(chunks.emplace(event.chunk, event).second, "duplicate vector row chunk");
+    } else if constexpr (std::is_same_v<Event, ScalarWrite>) {
+      require(event.floating <= 1, "invalid vector scalar write bank");
+      auto& bank = std::get<ScalarWrites>(frame.events)[event.floating];
+      require(!bank, "duplicate vector write to scalar bank");
+      bank = event;
+    } else {
+      auto& field = std::get<std::optional<Event>>(frame.events);
+      require(!field, "duplicate vector callback");
+      field = event;
+    }
   }
   void flush(observation::Collector&) override {}
   void finish_sample(observation::Collector& collector) override;
@@ -46,9 +60,10 @@ class VectorAdapter final : public observation::DpiAdapter {
   bool admitted(Word instance) const;
 
  private:
-  using Events = std::tuple<std::optional<Cycle>, std::optional<Allocate>, std::optional<Admission>, std::optional<Service>, std::optional<FpService>, std::optional<Dispatch>, std::optional<Issue>, std::optional<Write>, std::optional<ScalarWrite>, std::optional<Direct>, std::optional<Complete>, std::optional<StoreComplete>, std::optional<Translation>, std::optional<FragmentStart>, std::optional<Fragment>, std::optional<Fault>, std::optional<Decision>, std::optional<Drain>>;
+  using ScalarWrites = std::array<std::optional<ScalarWrite>, 2>;
+  using Events = std::tuple<std::optional<Cycle>, std::optional<Allocate>, std::optional<Admission>, std::optional<Service>, std::optional<FpService>, std::optional<Dispatch>, std::optional<Issue>, std::optional<Write>, std::map<Word, RowTransfer>, std::map<Word, StoreRowTransfer>, std::map<Word, RowWrite>, ScalarWrites, std::optional<Direct>, std::optional<Complete>, std::optional<StoreComplete>, std::optional<Translation>, std::optional<FragmentStart>, std::optional<Fragment>, std::optional<Fault>, std::optional<Decision>, std::optional<Drain>>;
   struct Frame { std::optional<Word> sample; Word epoch = 0; Events events; };
-  struct Owner { Id id; Word base, eew, fields, destination, group_shift, count = 0; std::optional<Word> flags; bool fp_reduction = false; };
+  struct Owner { Id id; Word base, eew, fields, destination, group_shift, count = 0; std::optional<Word> flags; bool fp_reduction = false, elementwise_memory = false; };
   struct Slot { Issue issue; Id owner_id; Word access, physical; bool translated, accepted = false, done = false; };
   enum class ServiceKind { Multiply, Divide, FloatingPoint };
   struct ServiceSlot { Id id; Word owner; ServiceKind kind; bool launched = false; };
@@ -74,6 +89,8 @@ VectorAdapter& vector_adapter();
 }
 
 extern "C" {
+void rhodium_vector_row_write(std::int64_t instance, std::int64_t owner, std::int64_t row, std::int64_t chunk, std::int64_t data, std::int64_t mask, std::int64_t flags_valid, std::int64_t flags) noexcept;
+void rhodium_vector_row_transfer(std::int64_t instance, std::int64_t owner, std::int64_t store, std::int64_t singleton, std::int64_t row, std::int64_t offset, std::int64_t va, std::int64_t pa, std::int64_t chunk, std::int64_t data, std::int64_t byte_mask) noexcept;
 void rhodium_vector_scalar_write(std::int64_t instance, std::int64_t owner, std::int64_t floating, std::int64_t rd, std::int64_t data) noexcept;
 void rhodium_vector_fp(std::int64_t instance, std::int64_t allocated, std::int64_t owner, std::int64_t tag, std::int64_t launch, std::int64_t launch_tag, std::int64_t returned, std::int64_t return_tag, std::int64_t flags_valid, std::int64_t flags) noexcept;
 void rhodium_vector_service(std::int64_t instance, std::int64_t allocated, std::int64_t owner, std::int64_t tag, std::int64_t divide, std::int64_t multiply_launch, std::int64_t multiply_tag, std::int64_t divide_launch, std::int64_t divide_tag, std::int64_t multiply_return, std::int64_t multiply_return_tag, std::int64_t divide_return, std::int64_t divide_return_tag, std::int64_t packed) noexcept;

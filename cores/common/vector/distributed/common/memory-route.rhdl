@@ -1,0 +1,87 @@
+#lang rhodium
+/* Selects the distributed vector memory route and describes an authorized cursor installation. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "memory-command.rhdl" open
+  "../../bundles.rhdl" open
+  lib("cores/common/mmu/vector.rhdl") open
+  "../../decode.rhdl" open
+  "../../geometry.rhdl" open
+  "../../precheck.rhdl".vector_bounded_index
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/isa/vector.rhm").VectorLength
+  lib("rhodium/std/bits.rhdl") open
+
+hardware_enum MemoryRoute:
+  Empty
+  Direct
+  Checked
+
+/* The checker has already consumed the index for a resolved element. Only
+   an unordered single-field slice admits a same-page continuation. */
+hardware_enum MemoryIssueKind:
+  Contiguous
+  Stride
+  InlineIndex
+  InlineOrderedIndex
+  Resolved
+  ResolvedOrderedIndex
+  ResolvedStream
+
+/* The same owner and resolved controls drive VRF preparation and address launch. */
+bundle MemoryIssue(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int):
+  command: MemoryCommand(xlen, vlen)
+  owner: Bits(index_width(slots))
+  kind: MemoryIssueKind
+
+/* Translation is an address-launch snapshot, not VRF preparation state. */
+bundle MemoryLaunch(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int):
+  issue: MemoryIssue(xlen, vlen, slots)
+  pages: VectorWindowPages
+  service: VectorMemoryService
+
+/* Checked events discharge one slice; only the checker finishes its macro. */
+bundle MemoryEvent(slots :: Pow2Int):
+  owner: Bits(index_width(slots))
+  checked: Bool
+
+/* Distinguish a WB-validated physical certificate from a retained contiguous
+   translation window. Only the former proves strided or bounded-index issue. */
+fun memory_route(xlen :: XLen, vlen :: VectorLength, d :: VectorDescriptor(xlen), certified :: Bool) :~ MemoryRoute:
+  def c = d.control
+  def stride = (c.memory_addressing === VectorMemoryAddressing.Strided) & d.stride.any() & !d.zero_stride_load() & !d.state.vstart.any() & !c.memory_nf.any() & is_aligned_log2(d.stride, c.memory_data_eew)
+  def supported = (c.memory_addressing === VectorMemoryAddressing.UnitStride) ||| (d.precertified & (stride ||| vector_bounded_index(xlen, c, d.instruction, d.state)))
+  def aligned = is_aligned_log2(d.scalar, vector_data_width(c, d.state.sew()))
+  priority_mux(~default: MemoryRoute.Checked):
+    !c.memory ||| (d.state.vstart >= d.beat_limit(vlen).zext(xlen.width)): MemoryRoute.Empty
+    certified & supported & (c.memory_mode =/= VectorMemoryMode.FaultOnlyFirst) & (vector_indexed_memory(c) ||| aligned): MemoryRoute.Direct
+
+/* Resolve direct cursor controls without changing the architectural descriptor. */
+fun direct_memory_issue(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, entry :: VectorDispatchEntry(xlen, slots)) :~ MemoryIssue(xlen, vlen, slots):
+  def d = entry.checked.descriptor
+  def c = d.control
+  MemoryIssue(xlen, vlen, slots):
+    command: direct_memory_command(xlen, vlen, d, c.memory_addressing =/= VectorMemoryAddressing.UnitStride)
+    owner: entry.owner
+    kind: mux_lookup(c.memory_addressing, ~default: MemoryIssueKind.Contiguous, [
+      [VectorMemoryAddressing.Strided, MemoryIssueKind.Stride],
+      [VectorMemoryAddressing.IndexedOrdered, MemoryIssueKind.InlineOrderedIndex],
+      [VectorMemoryAddressing.IndexedUnordered, MemoryIssueKind.InlineIndex]
+    ])
+
+/* Classify checked issue from the macro, independently of the selected field. */
+fun resolved_issue_kind(control :: VectorControl()) :~ MemoryIssueKind:
+  priority_mux(~default: MemoryIssueKind.Resolved):
+    !control.memory_nf.any() & (control.memory_addressing === VectorMemoryAddressing.IndexedUnordered): MemoryIssueKind.ResolvedStream
+    !control.memory_nf.any() & (control.memory_addressing === VectorMemoryAddressing.IndexedOrdered): MemoryIssueKind.ResolvedOrderedIndex
+
+/* Resolved addresses must never consume a second copy of the index. */
+fun resolved_issue(kind :: MemoryIssueKind) :~ Bool:
+  kind.is_one_of(MemoryIssueKind.Resolved, MemoryIssueKind.ResolvedOrderedIndex, MemoryIssueKind.ResolvedStream)
+
+/* Only these two cursors consume VPS index rows at physical issue. */
+fun inline_index_issue(kind :: MemoryIssueKind) :~ Bool:
+  kind.is_one_of(MemoryIssueKind.InlineIndex, MemoryIssueKind.InlineOrderedIndex)
+
+export MemoryRoute MemoryIssueKind MemoryIssue MemoryLaunch MemoryEvent memory_route direct_memory_issue resolved_issue_kind resolved_issue inline_index_issue

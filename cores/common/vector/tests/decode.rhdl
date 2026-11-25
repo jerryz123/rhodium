@@ -3,6 +3,8 @@
 
 import:
   "../decode.rhdl" open
+  "../../simd-multiplier.rhdl".SimdMultiplySelect
+  "../../multiplier.rhdl".MultiplierMode
   "../mask.rhdl".VectorMaskScanControl
   lib("cores/common/simd-alu.rhdl").SimdAluControl
   lib("rhodium/frontend/support/hardware-literal.rhm").PackedLiteral
@@ -20,20 +22,34 @@ circuit VectorTestDecoder(profile :: VectorProfile = VectorProfile.V, extensions
   // Force the newly released fields high only where their authored care mask is zero.
   // This exercises the real sequencer/legality/execute consumers, not just mask metadata.
   def probe = partial_pattern(VectorControl()):
-    slide_up: Bool(#true)
-    slide_one: Bool(#true)
-    clip_unsigned: Bool(#true)
     left_signed: Bool(#true)
     right_signed: Bool(#true)
-    multiply_result: VectorMultiplyResult.Fractional
-    multiply_destination: Bool(#true)
-    multiply_subtract: Bool(#true)
+    fp:
+      partial_pattern(VectorFpControl()):
+        rounding: VectorFloatRounding.RoundToOdd
+        order: VectorFpOperandOrder.VdFirst
+    division:
+      pattern(VectorDivideControl()):
+        signed_mode: Bool(#true)
+        remainder: Bool(#true)
+    product:
+      partial_pattern(VectorProductControl()):
+        select: SimdMultiplySelect.Fractional
+        mode:
+          pattern(MultiplierMode()):
+            left_signed: Bool(#true)
+            right_signed: Bool(#true)
+        vd_role: VectorProductVdRole.Factor
+        subtract: Bool(#true)
     scan_control: PackedLiteral(VectorMaskScanControl(), 0)
-    invert_logic_result: Bool(#true)
-    invert_comparison: Bool(#true)
-    alu:
-      partial_pattern(SimdAluControl()):
-        signed_compare: Bool(#true)
+    integer_row:
+      partial_pattern(VectorIntegerRowControl()):
+        clip_unsigned: Bool(#true)
+        invert_logic_result: Bool(#true)
+        invert_comparison: Bool(#true)
+        alu:
+          partial_pattern(SimdAluControl()):
+            signed_compare: Bool(#true)
 
   def checked_rows:
     if uncared_ones

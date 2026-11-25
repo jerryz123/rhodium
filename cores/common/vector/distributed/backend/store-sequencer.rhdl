@@ -1,0 +1,98 @@
+#lang rhodium
+/* Owns unread store operands and buffers captured rows independently of cache issue. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/isa/vector.rhm").VectorLength
+  "../../backend-kind.rhm".vector_dlen
+  lib("rhodium/std/bits.rhdl") open
+  lib("flow/main.rhdl") open
+  "../common/row-claims.rhdl" open
+  "../common/row-types.rhdl" open
+  "../common/memory-route.rhdl" open
+  "../common/memory-command.rhdl" open
+  "../mem/segment.rhdl" open
+  "memory-row.rhdl".VectorMemoryRowSequencer
+
+/* Reserve FIFO space before each synchronous read. Release VSSeq on the last capture,
+   not when the VLSU accepts its last row or receives its acknowledgement. */
+sync_circuit VectorStoreSequencer(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int):
+  def dlen = vector_dlen(vlen)
+  def Owner = Bits(index_width(slots))
+  interface prepare(Decoupled(MemoryIssue(xlen, vlen, slots)), ~role: consumer)
+  def Row = OwnedRow(PreparedRow(vlen), Owner)
+  interface rows(Decoupled(Row), ~role: producer)
+  interface store_reads(VectorStoreReadChain(Owner), ~role: engine)
+  interface read(Decoupled(RowAddress), ~role: producer)
+  interface read_result(Valid(Bits(dlen)), ~role: consumer)
+  interface mask(VectorPredicateTap(dlen), ~role: reader)
+  interface scatter(ScatterOperand(dlen), ~role: sequencer)
+  input scatter_live: Bool
+  def singleton = resolved_issue(prepare.bits.kind)
+  input scatter_owner: Owner
+  output busy: Bool
+  inst buffered(Queue(Row, 2))
+  inst capture(VectorMemoryRowSequencer(xlen, vlen, ~store: #true))
+  reg capturing(~init: Bool(#false))
+  reg capture_owner(Owner)
+  reg unread_vs3(RowSet)
+  reg unread_v0(PredicateSet)
+  def values(data_rows, predicate_rows) = memory_command_rows(xlen, vlen, prepare.bits.command)
+  reg segmented(Bool)
+  inst segments(VectorSegmentClaims(xlen, vlen))
+  prepare |> gate_flow(!capturing) |> map_flow(entry => entry.command) |> to_valid() |> capture.launch
+  // Scatter addresses are irregular, but VS3 lanes advance in order. Keep
+  // the last demanded row across page changes, never across instructions.
+  reg resident(~init: Bool(#false))
+  reg row_tag(RowAddress)
+  reg row_data(Bits(dlen))
+  reg reading(~init: Bool(#false))
+  def demand = scatter.demand
+  def hit = resident & (row_tag === demand.bits)
+  def fill = reading & read_result.valid
+  scatter.operand.valid <== demand.valid & (hit ||| fill)
+  scatter.operand.bits <== mux(fill, read_result.bits, row_data)
+  def need = demand.valid & !hit
+  store_reads.owner <== mux(scatter_live, scatter_owner, capture_owner)
+  store_reads.unread_vs3 <== mux(scatter_live, row_event(need, demand.bits), mux(capturing, mux(segmented, segments.claims, unread_vs3), RowSet(0)))
+  store_reads.unread_v0 <== mux(capturing, unread_v0, PredicateSet(0))
+  capture.older_writes <== store_reads.older_writes
+  capture.singleton <== singleton
+  capture.capacity <== buffered.ingress.ready
+  (capture.prepared |> map_flow(r => OwnedRow(PreparedRow(vlen), Owner)):
+     owner: capture_owner
+     payload: r
+  ) |> buffered.ingress
+  segments.install.valid <== prepare.fire()
+  segments.install.bits <== prepare.bits.command
+  segments.consumed <== capture.captured
+  segments.field <== capture.captured_field
+  segments.stream <== capture.prepared.bits.row
+  segments.skip <== capture.prepared.fire() & !capture.prepared.bits.enabled.any()
+  segments.skipped_stream <== capture.prepared.bits.row
+  when (prepare.fire()):
+    capture_owner <== prepare.bits.owner
+    capturing <== Bool(#true)
+    segmented <== prepare.bits.command.layout.nf.any()
+    unread_vs3 <== data_rows
+    unread_v0 <== predicate_rows
+  elsewhen capturing:
+    unread_vs3 <== unread_vs3 & !capture.read_done
+    unread_v0 <== unread_v0 & !capture.predicate_done
+    when (capture.prepared.fire() & capture.prepared.bits.last): capturing <== Bool(#false)
+  def fetch = need & !reading & !store_reads.older_writes.as_vec(Bool)[demand.bits]
+  read.valid <== mux(scatter_live, fetch, capture.read.valid)
+  read.bits <== mux(scatter_live, demand.bits, capture.read.bits)
+  capture.read.ready <== !scatter_live & read.ready
+  read_result |> filter_valid(_data => !reading) |> capture.read_result
+  def missed = scatter_live & read.fire()
+  reading <== missed
+  when missed: row_tag <== demand.bits
+  when fill: row_data <== read_result.bits
+  when (!scatter_live ||| missed ||| fill): resident <== scatter_live & fill
+  capture.mask <=> mask
+  buffered.egress |> rows
+  busy <== capturing
+
+export VectorStoreSequencer

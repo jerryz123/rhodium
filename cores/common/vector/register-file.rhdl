@@ -1,49 +1,53 @@
 #lang rhodium
-/* Implements an XLEN-wide vector bank with three general reads, a dedicated v0 read, and one
-   write. */
+/* Implements a 3R1W vector bank with independent write-forwarded v0 reads at the physical row width. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("riscv/isa/xlen.rhm").XLen
   lib("cores/common/vector-layout.rhm") open
   "../../../riscv/isa/vector.rhm" open
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
-/* Defines a bit-masked write to one XLEN-wide physical vector row. */
-bundle VectorRegisterWrite(xlen :: XLen, vlen :: VectorLength):
-  address: Bits(index_width(VectorRegisterLayout(vlen, xlen.width).depth))
-  data: Bits(xlen.width)
-  mask: Bits(xlen.width)
+/* Defines a bit-masked write to one physical vector row. */
+bundle VectorRegisterWrite(row_bits :: Pow2Int, vlen :: VectorLength):
+  address: Bits(index_width(VectorRegisterLayout(vlen, row_bits).depth))
+  data: Bits(row_bits)
+  mask: Bits(row_bits)
 
   /* Samples the low bit of each byte; this is lossless only for whole-byte enables. */
-  method byte_enables(write) :: Mask(vector_word_bytes(xlen)):
-    vec(for List (byte in 0..vector_word_bytes(xlen)): write.mask[byte * 8]).into(Mask(vector_word_bytes(xlen)))
+  method byte_enables(write) :: Mask(vector_row_bytes(row_bits)):
+    vec(for List (byte in 0..vector_row_bytes(row_bits)): write.mask[byte * 8]).into(Mask(vector_row_bytes(row_bits)))
 
 /* Provides three one-cycle general reads, one independent v0 read, and one bit-masked write.
    All reads snapshot the merged same-edge write from a single architectural bank. */
-sync_circuit VectorRegisterFile(xlen :: XLen, vlen :: VectorLength):
-  def Address = Bits(index_width(VectorRegisterLayout(vlen, xlen.width).depth))
-  def MaskAddress = Bits(index_width(VectorRegisterLayout(vlen, xlen.width).rows_per_register))
+sync_circuit VectorRegisterFile(row_bits :: Pow2Int, vlen :: VectorLength, ~expose_shadow: expose_shadow :: Boolean = #false):
+  def Address = Bits(index_width(VectorRegisterLayout(vlen, row_bits).depth))
+  def MaskAddress = Bits(index_width(VectorRegisterLayout(vlen, row_bits).rows_per_register))
   interface reads[3](Valid(Address), ~role: consumer)
-  interface results[3](Valid(Bits(xlen.width)), ~role: producer)
+  interface results[3](Valid(Bits(row_bits)), ~role: producer)
   interface mask_read(Valid(MaskAddress), ~role: consumer)
-  interface mask_result(Valid(Bits(xlen.width)), ~role: producer)
-  interface write(Valid(VectorRegisterWrite(xlen, vlen)), ~role: consumer)
+  interface mask_result(Valid(Bits(row_bits)), ~role: producer)
+  interface write(Valid(VectorRegisterWrite(row_bits, vlen)), ~role: consumer)
 
   // No architectural reset value; v0 is ordinary writable storage shared by all readers.
-  reg storage(Vec(VectorRegisterLayout(vlen, xlen.width).depth, Bits(xlen.width)))
+  reg storage(Vec(VectorRegisterLayout(vlen, row_bits).depth, Bits(row_bits)))
   def writing = write.valid & !reset_active().into(Bool)
   // Row-local hold feedback implements masked writes without another indexed
   // read mux for read-modify-write on the write port.
-  for (row in 0..VectorRegisterLayout(vlen, xlen.width).depth):
-    when (writing & (write.bits.address === Bits(index_width(VectorRegisterLayout(vlen, xlen.width).depth))(row))):
+  for (row in 0..VectorRegisterLayout(vlen, row_bits).depth):
+    when (writing & (write.bits.address === Bits(index_width(VectorRegisterLayout(vlen, row_bits).depth))(row))):
       storage[row] <== masked_merge(storage[row], write.bits.data, write.bits.mask)
 
   /* Snapshots a general row with same-edge masked-write forwarding. */
-  fun read_word(address :: Bits(index_width(VectorRegisterLayout(vlen, xlen.width).depth))) :~ Bits(xlen.width):
+  fun read_word(address :: Bits(index_width(VectorRegisterLayout(vlen, row_bits).depth))) :~ Bits(row_bits):
     def retained = storage[address]
     mux(writing & (write.bits.address === address), masked_merge(retained, write.bits.data, write.bits.mask), retained)
+
+  if expose_shadow
+  | block:
+      output shadow_rows: Vec(VectorRegisterLayout(vlen, row_bits).rows_per_register, Bits(row_bits))
+      shadow_rows <== vec(for List (row in 0..VectorRegisterLayout(vlen, row_bits).rows_per_register): read_word(Address(row)))
+  | #void
 
   for (port in 0..3):
     reads[port] |> map_valid(address => read_word(address)) |> valid_pipe(1) |> results[port]

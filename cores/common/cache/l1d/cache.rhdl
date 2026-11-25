@@ -88,8 +88,8 @@ sync_circuit L1DCache(xlen :: XLen,
   check_l1d_geometry(physical_width, cache)
   def sets = cache.sets
   def ways = cache.ways
-  unless beat_bytes == width / 8 || beat_bytes == 16
-  | error(~who: #'L1DCache, "beat size must be XLEN bytes or 16")
+  unless beat_bytes >= width / 8 && beat_bytes <= 16
+  | error(~who: #'L1DCache, "beat size must be between XLEN bytes and 16")
 
   def beat_width = beat_bytes * 8
   def words_per_line = cache_line_rows(beat_bytes)

@@ -1,0 +1,81 @@
+#lang rhodium
+/* Aligns logical predicate rows and optional store data into physical cache beats. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("flow/main.rhdl") open
+  lib("rhodium/std/bits.rhdl") open
+  lib("riscv/isa/vector.rhm").VectorLength
+  "../../backend-kind.rhm".vector_dlen
+  "../common/row-types.rhdl" open
+
+/* Span determines which beats exist; v0 determines which bytes to request.
+   Hold the last input through both grants when its span straddles beats,
+   including an empty tail. Load mask packing needs no data rotator or register. */
+sync_circuit VectorBeatPacker(vlen :: VectorLength, ~store: store :: Boolean):
+  def dlen = vector_dlen(vlen)
+  def bytes = dlen div 8
+  def Mask = Bits(bytes)
+  input elementwise: Bool
+  input eew: Bits(2)
+  input displacement: Bits(index_width(bytes))
+  interface source(Decoupled(PreparedRow(vlen)), ~role: consumer)
+  interface beat(Decoupled(PreparedBeat(vlen)), ~role: producer)
+  reg carry_mask(~init: Mask(0))
+  reg tail_pending(~init: Bool(#false))
+  def r = source.bits
+  // Rotate once: high lanes belong to this beat, low lanes to the next.
+  def enabled = ((r.enabled ++ r.enabled) << displacement)[bytes..2 * bytes]
+  def high_lanes = !Mask(0) << displacement
+  def current_mask = carry_mask ||| (enabled & high_lanes)
+  def spill = enabled & !high_lanes
+  // Only vstart, not a predicate hole, can put the first row wholly in the
+  // spill. Range bits are still in register coordinates here.
+  def fits = !Mask(0) >> displacement
+  def current = (r.span & fits).any()
+  def tail = tail_pending ||| (!current & r.last)
+  def split_last = r.last & (r.span & !fits).any() & !tail
+  def emit = current ||| tail
+  // Multi-element offers start row-aligned and walk one element per grant.
+  // A checked singleton supplies its exact offset and the walk stays at zero.
+  def Lane = Bits(index_width(bytes))
+  reg walked(~init: Lane(0))
+  def offset = r.offset ||| walked.zext(index_width(vlen+1))
+  def lane = offset[0..index_width(bytes)]
+  def width = Bits(index_width(bytes)+1)(1) << eew
+  def following = lane.zext(index_width(bytes)+1) + width
+  def element_mask = (!Mask(0) >> (Bits(index_width(bytes)+1)(bytes) - width))
+  def remaining = r.enabled >> following
+  def last_element = !(r.span >> following).any()
+  source.ready <== mux(elementwise, beat.ready & last_element, !emit ||| (beat.ready & !split_last))
+  def data:
+    if store
+    | block:
+        def rotated = ((r.data ++ r.data) << (displacement ++ Bits(3)(0)))[dlen..2 * dlen]
+        reg carry_data(Bits(dlen))
+        when (source.fire()): carry_data <== rotated
+        mux(!displacement.any(), r.data, mux(tail, rotated, masked_merge(rotated, carry_data, expand_mask(carry_mask, 8))))
+    | Bits(dlen)(0)
+  beat.valid <== source.valid & (elementwise ||| emit)
+  def contiguous = PreparedBeat(vlen):
+    row: mux(tail, r.row + RowAddress(1), r.row)
+    offset: mux(tail, r.offset + Bits(index_width(vlen + 1))(bytes), r.offset)
+    data: data
+    enabled: mux(tail, spill, current_mask)
+    continues: !tail & spill.any()
+    last: r.last & !split_last
+  def element = PreparedBeat(vlen):
+    row: r.row
+    offset: offset
+    data: if store | r.data >> (lane ++ Bits(3)(0)) | Bits(dlen)(0)
+    enabled: (r.enabled >> lane) & element_mask
+    continues: remaining.any()
+    last: r.last & last_element
+  beat.bits <== mux(elementwise, element, contiguous)
+  when (beat.fire() & elementwise): walked <== mux(last_element, Lane(0), following[0..index_width(bytes)])
+  when (beat.fire() & !elementwise & split_last): tail_pending <== Bool(#true)
+  elsewhen (source.fire()): tail_pending <== Bool(#false)
+  when (source.fire()):
+    carry_mask <== mux(r.last, Mask(0), spill)
+
+export VectorBeatPacker

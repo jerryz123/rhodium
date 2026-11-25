@@ -1,0 +1,195 @@
+#lang rhodium
+/* Checks WB vector descriptors and hands certified or precise work to ordered dispatch. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("riscv/rtl/trap.rhdl").ExceptionCause
+  "../../bundles.rhdl" open
+  "../../precheck.rhdl" open
+  lib("cores/common/mmu/vector.rhdl") open
+  lib("riscv/isa/xlen.rhm") open
+  lib("riscv/isa/vector.rhm") open
+  lib("rhodium/std/bits.rhdl") open
+  lib("flow/main.rhdl") open
+
+/* Accepts only nonspeculative descriptors. The caller owns WB admission and LSU timing;
+   this controller owns range checks, checked dispatch, pinned-window release, and registered outcomes.
+   Fault is opaque provenance; early certified outcomes carry its zero value. */
+sync_circuit DistributedVectorAdmission(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, Fault :: DataType, ~pipe: pipe :: Boolean, ~dispatch_depth: depth :: Nat = 2, ~release_declined: release_declined :: Boolean = #false):
+  interface request(Decoupled(VectorDescriptor(xlen)), ~role: consumer)
+  interface dispatch(Decoupled(VectorCheckedDescriptor(xlen)), ~role: producer)
+  input allocate_id: Bits(index_width(slots))
+  interface precheck(VectorPrecheck(), ~role: requester)
+  interface sequencing_done(Valid(Bits(index_width(slots))), ~role: consumer)
+  interface precise(Valid(VectorCommit(xlen, slots)), ~role: consumer)
+  input precise_fault: Fault
+  interface outcome(Valid(VectorCommit(xlen, slots)), ~role: producer)
+  output outcome_fault: Fault
+  input requests_idle: Bool
+  output(available, active, certification_pending, loads_pending, stores_pending, fp_pending): Bool
+  input execution_certified: Bool
+
+
+  /* Only an instruction awaiting a range proof needs the checker latch. With
+     zero buffering, WB sees the target reservation's readiness directly. */
+  def count_width = index_width(depth + 1)
+  wire queued_count: Bits(count_width)
+  def checked_path :: Handle:
+    if depth == 0
+    | block:
+        queued_count <== Bits(count_width)(0)
+        interface_link(Decoupled(VectorCheckedDescriptor(xlen)))
+    | block:
+        inst checked_queue(Queue(VectorCheckedDescriptor(xlen), depth, ~pipe: pipe, ~flow: #true))
+        queued_count <== checked_queue.count
+        InterfaceHandle(checked_queue.ingress, checked_queue.egress)
+  def ingress = checked_path.left
+  def egress = checked_path.right
+  reg checking(~init: Bool(#false))
+  reg check_descriptor(VectorDescriptor(xlen))
+  reg waiting_retirement(~init: Bool(#false))
+  reg uncertified_memory(~init: Bool(#false))
+  reg check_started(~init: Bool(#false))
+  reg check_complete(~init: Bool(#false))
+  reg certified(~init: Bool(#false))
+  reg active_precheck(~init: Bool(#false))
+  reg window_owner(Bits(index_width(slots)))
+  def admit = !waiting_retirement & !checking & ingress.ready
+  request.ready <== admit
+  available <== admit
+
+  /* Advance when dispatch or its optional buffer takes the checked descriptor.
+     A range proof never changes the independent WB physical-address certificate. */
+  def head = mux(checking, check_descriptor, request.bits)
+  def head_valid = checking ||| (request.valid & !waiting_retirement)
+  def footprint = vector_footprint(xlen, vlen, head, head.pointer_masking)
+  def needs_check = head.control.memory & !footprint.empty & footprint.eligible & !head.precertified
+  def head_certified = !head.control.memory ||| footprint.empty ||| head.precertified ||| (check_complete & certified)
+  def certification_ready = !needs_check ||| check_complete
+  ingress.valid <== head_valid & certification_ready
+  ingress.bits <== VectorCheckedDescriptor(xlen):
+    descriptor: head
+    certified: head_certified
+    owns_window: needs_check & (!Bool(release_declined) ||| certified)
+
+  def next = egress.bits
+  def operation = next.descriptor
+  def can_dispatch = !operation.control.memory ||| operation.precertified ||| requests_idle
+  egress |> gate_flow(can_dispatch) |> dispatch
+  precheck.request.valid <== (checking ||| request.fire()) & needs_check & !check_started
+  precheck.request.bits <== footprint.range.updated(~first: footprint.range.first.align_down(xlen.width / 8), ~last: footprint.range.last ||| Bits(64)(xlen.width / 8 - 1))
+  def checked = precheck.response |> gate_flow(check_started & !check_complete) |> to_valid()
+  precheck.release.valid <== (Bool(release_declined) & checked.valid & !checked.bits) ||| (sequencing_done.valid & active_precheck & (sequencing_done.bits === window_owner))
+
+
+  /* Architectural outcomes retain precise fault provenance.
+     Empty or successfully certified memory can report early; other outcomes
+     come from precise execution. Both publish through the same registered edge. */
+
+  def empty_memory = inject_interface(Valid(Bits(xlen.width)), ~valid: ingress.fire() & head.control.memory & !head.precertified & footprint.empty, ~bits: head.pc)
+  def checked_memory = checked |> filter_valid(safe => safe) |> map_valid(_safe => head.pc)
+  def early_outcome = Array(empty_memory, checked_memory) |> valid_arbiter() |> map_valid(pc => VectorCommit(xlen, slots)):
+    tag: Bits(index_width(slots))(0)
+    pc: pc
+    disposition: VectorDisposition.Authorized
+    slow: Bool(#false)
+    data: Bits(xlen.width)(0)
+    cause: dont_care(ExceptionCause)
+    fault_address: Bits(xlen.width)(0)
+
+  /* Keeps precise fault provenance attached to its registered architectural outcome. */
+  bundle Retirement():
+    value: VectorCommit(xlen, slots)
+    fault: Fault
+
+  def early = early_outcome |> map_valid(value => Retirement()):
+    value: value
+    fault: literal(Fault, 0)
+
+  def final_outcome = precise |> filter_valid(_event => !execution_certified)
+  def final_retirement = final_outcome |> map_valid(value => Retirement()):
+    value: value
+    fault: precise_fault
+
+  def retirement = Array(early, final_retirement) |> valid_arbiter() |> valid_pipe(1)
+  retirement |> map_valid(event => event.value) |> outcome
+  outcome_fault <== retirement.bits.fault
+
+
+  /* Admission holds and certification status have different release events.
+     Acceptance wins a coincident release in each chain; an early outcome can
+     clear uncertified status before the registered outcome releases admission. */
+
+  def memory_accepted = request.fire() & request.bits.control.memory
+  when (memory_accepted & !request.bits.precertified):
+    waiting_retirement <== Bool(#true)
+  elsewhen (outcome.valid):
+    waiting_retirement <== Bool(#false)
+
+  when memory_accepted:
+    uncertified_memory <== !request.bits.precertified & !early_outcome.valid
+  elsewhen (early_outcome.valid ||| (final_outcome.valid & (final_outcome.bits.disposition === VectorDisposition.Authorized)) ||| outcome.valid):
+    uncertified_memory <== Bool(#false)
+
+
+  /* A range check occupies one reserved credit. Its result and window obligation
+     travel together, including a failed proof that requires precise execution. */
+  when (request.fire() & needs_check):
+    checking <== Bool(#true)
+    check_descriptor <== request.bits
+  elsewhen (ingress.fire()):
+    checking <== Bool(#false)
+
+  describe_interface_queue_storage(1, request.fire() & needs_check, checking & ingress.fire(), Bits(1)(0), Bits(1)(0), checking, !checking, ~name: "checker")
+  describe_interface_contract(request, ingress, "checker", ~trace_model: interface_trace_queue(~name: "checker"))
+
+  when (ingress.fire()):
+    check_started <== Bool(#false)
+    check_complete <== Bool(#false)
+    certified <== Bool(#false)
+  elsewhen (precheck.request.fire()):
+    check_started <== Bool(#true)
+  elsewhen (checked.valid):
+    check_complete <== Bool(#true)
+    certified <== checked.bits
+
+  when (dispatch.fire() & next.owns_window):
+    assert(!active_precheck ||| precheck.release.valid, "vector_window_has_one_owner")
+    active_precheck <== Bool(#true)
+    window_owner <== allocate_id
+  elsewhen (precheck.release.valid):
+    active_precheck <== Bool(#false)
+
+  when (precheck.response.fire()):
+    assert(checking & needs_check, "vector_precheck_has_pending_descriptor")
+
+
+  /* Queued-kind summaries count descriptor transfers, not execution completion.
+     Increment and decrement may coincide, including flow-through dispatch. */
+
+  reg queued_loads(~init: Bits(count_width)(0))
+  reg queued_stores(~init: Bits(count_width)(0))
+  reg queued_fp(~init: Bits(count_width)(0))
+  def incoming = request.bits.control
+  def outgoing = operation.control
+  def descriptor_enqueued = request.fire()
+  def descriptor_dequeued = dispatch.fire()
+  /* Encodes a transfer in the inclusive occupancy width, including a one-entry queue. */
+  fun count_event(event :: Bool):
+    event.as_bits().zext(count_width)
+
+  queued_loads <== queued_loads + count_event(descriptor_enqueued & incoming.memory & !incoming.store) - count_event(descriptor_dequeued & outgoing.memory & !outgoing.store)
+  queued_stores <== queued_stores + count_event(descriptor_enqueued & incoming.memory & incoming.store) - count_event(descriptor_dequeued & outgoing.memory & outgoing.store)
+  queued_fp <== queued_fp + count_event(descriptor_enqueued & incoming.floating_point) - count_event(descriptor_dequeued & outgoing.floating_point)
+  def occupancy = queued_count + count_event(checking)
+  assert(!checking ||| (queued_count < Bits(count_width)(math.max(depth, 1))), "vector_checker_reserves_dispatch_credit")
+  assert((queued_loads <= occupancy) & (queued_stores <= occupancy) & (queued_fp <= occupancy), "vector_queued_kinds_match_occupancy")
+
+  active <== waiting_retirement ||| head_valid ||| egress.valid
+  certification_pending <== uncertified_memory
+  loads_pending <== queued_loads.any()
+  stores_pending <== queued_stores.any()
+  fp_pending <== queued_fp.any()
+
+export:
+  DistributedVectorAdmission

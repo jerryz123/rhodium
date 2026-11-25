@@ -29,7 +29,7 @@ import:
 
 /* Resolves RV64 instruction/data queries using TLBs, retained failures, and a shared walker.
    Queries are combinational; only authorized misses and registered vector probes may allocate walks. */
-sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boolean = #false, ~hypervisor: hypervisor :: Boolean = #true):
+sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: svnapot :: Boolean = #false, ~hypervisor: hypervisor :: Boolean = #true, ~element_checks: element_checks :: Boolean = #false):
   input state: RiscvTranslationState(XLen.X64)
   input invalidate: Bool
   input query: SuperscalarTranslationQuery(XLen.X64)
@@ -50,6 +50,8 @@ sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: 
   inst dtlb(RiscvTranslationTlb(~host_root_epoch: !hypervisor, ~physical_address_width: mapped_width))
   inst walker(RiscvTranslationWalker(~svnapot: svnapot))
   inst vector_window(VectorWindow(config.physical_map))
+  output window_pages: VectorWindowPages
+  window_pages <== vector_window.pages
   vector_precheck <=> vector_window.check
   reg mem_vector(~init: Bool(#false))
   mem_vector <== pipeline_vector
@@ -82,13 +84,34 @@ sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: 
   def instruction_lookup = tlb.lookup(instruction.request.bits, Sv39Access.Fetch, state.privilege, guest_state.virtualized)
   def data_virtual_address = query.address
   def data_demand = query.demand
-  def vector_probe = vector_window.translation.request.valid & !data_demand & !query.busy
+  /* Capture exact probes before arbitrating the DTLB. The same request is
+     held through PTW refill, retaining the full guest fault result. */
+  def exact = interface_link(Decoupled(VectorRange()))
+  wire exact_done: Bool
+  wire exact_mapping: VectorElementMapping()
+  def exact_head :: Endpoint:
+    if element_checks
+    | block:
+        interface element_translation(VectorElementTranslation(), ~role: responder)
+        element_translation.request |> pipe(1) |> exact.left
+        element_translation.response.valid <== exact_done
+        element_translation.response.bits <== exact_mapping
+        exact.right
+    | block:
+        exact.left.valid <== Bool(#false)
+        exact.left.bits <== dont_care(VectorRange())
+        exact.right
+  def exact_probe = exact_head.valid & !data_demand & !query.busy
+  def vector_probe = (vector_window.translation.request.valid ||| exact_head.valid) & !data_demand & !query.busy
   def certified_physical = !query.split & !vector_probe & mux(query.wb_valid, request_vector & vector_fast.request_physical, query.mem_valid & mem_physical)
   vector_window.addresses <== vec(query.mem_address, query.wb_address)
   def window_hit = !query.split & !vector_probe & !certified_physical & mux(query.wb_valid, request_vector & vector_window.hits[1], mem_vector & vector_window.hits[0])
   def window_address = mux(query.wb_valid, vector_window.physical_addresses[1], vector_window.physical_addresses[0])
   def demand_lookup = tlb.data_lookup(data_virtual_address, query.access.translation_access(), query.guest_access)
-  def probe_request = vector_window.translation.request.bits
+  def element_probe = RiscvPageProbeRequest():
+    address: exact_head.bits.first
+    store: exact_head.bits.store
+  def probe_request = mux(exact_probe, element_probe, vector_window.translation.request.bits)
   def probe_access = mux(probe_request.store, Sv39Access.Store, Sv39Access.Load)
   def probe_lookup = tlb.data_lookup(probe_request.address, probe_access)
   def fast_lookup = tlb.data_lookup(vector_fast.request.bits.first, mux(vector_fast.request.bits.store, Sv39Access.Store, Sv39Access.Load))
@@ -153,7 +176,10 @@ sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: 
   def data_result = translated_result.updated(
     ~fault: mux(certified_physical ||| window_hit, RiscvTranslationFault.None, translated_result.fault)
   )
-  vector_window.translation.request.ready <== vector_probe & data_known & !invalidate
+  exact_done <== exact_probe & data_known & !invalidate
+  exact_head.ready <== exact_done
+  exact_mapping <== vector_element_mapping(config.physical_map, exact_head.bits, data_result.physical_address.zext(64), data_pbmt, data_result.fault =/= RiscvTranslationFault.None, riscv_translation_fault_cause(data_result), riscv_guest_exception(data_result, probe_lookup.virtualized).details)
+  vector_window.translation.request.ready <== !exact_probe & vector_probe & data_known & !invalidate
   vector_window.translation.response.valid <== vector_window.translation.request.fire()
   vector_window.translation.response.bits <== translation
   instruction.pbmt <== riscv_host_result(instruction_result).pbmt
@@ -241,12 +267,15 @@ sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: 
 
 
 /* Configures the RV64 resolver and its page-walk client. */
-class SuperscalarSv39Specialization(config :: RiscvHartCHIConfig, svnapot :: Boolean = #false, hypervisor :: Boolean = #true):
+class SuperscalarSv39Specialization(config :: RiscvHartCHIConfig, svnapot :: Boolean = #false, hypervisor :: Boolean = #true, element_checks :: Boolean = #false):
   implements SuperscalarTranslationSpecialization
+
+  /* Exposes exact element probes only for the distributed memory client. */
+  override method checks_vector_elements() :: Boolean: element_checks
 
   /* Builds the configured TLB/walker implementation without changing its query timing. */
   override method circuit() :: CircuitDefinition:
-    SuperscalarSv39Translation(config, ~svnapot: svnapot, ~hypervisor: hypervisor)
+    SuperscalarSv39Translation(config, ~svnapot: svnapot, ~hypervisor: hypervisor, ~element_checks: element_checks)
 
   /* Sv39 resolution and its architectural adapter interfaces are always RV64. */
   override method architectural_xlen() :: XLen:

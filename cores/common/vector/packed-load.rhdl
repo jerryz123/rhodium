@@ -30,7 +30,7 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
   interface store_completed(Valid(Tag), ~role: consumer)
   interface alignment(Valid(VectorAlignment(xlen)), ~role: producer)
   input aligned: Bits(xlen.width)
-  interface write(Valid(VectorRegisterWrite(xlen, vlen)), ~role: producer)
+  interface write(Valid(VectorRegisterWrite(xlen.width, vlen)), ~role: producer)
   interface released(Valid(Tag), ~role: producer)
   interface retain_hit(Valid(VectorCompletion(xlen, slots)), ~role: producer)
   interface retain_return(Valid(VectorCompletion(xlen, slots)), ~role: producer)
@@ -67,7 +67,7 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
   reg carry_byte_enables(Mask(bytes))
   // Only the retained mask is compressed; row assembly and VRF writes keep
   // their shared bit-mask view. Packed loads always select whole bytes.
-  def carry = VectorRegisterWrite(xlen, vlen):
+  def carry = VectorRegisterWrite(xlen.width, vlen):
     address: carry_address
     data: carry_data_word
     mask: expand_mask(carry_byte_enables.as_bits(), 8)
@@ -148,7 +148,7 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
   // prefix and retain its suffix on the same edge, sustaining one beat/cycle.
   def split_load = load_piece & !entry.segmented & suffix.any() & carry_can_merge
   def carry_data = mux(same_row, carry.data, Bits(xlen.width)(0))
-  def combined = VectorRegisterWrite(xlen, vlen):
+  def combined = VectorRegisterWrite(xlen.width, vlen):
     address: target_row
     data: carry_data.masked_merge(piece_data, piece_mask)
     mask: mux(same_row, carry.mask, Bits(xlen.width)(0)) ||| piece_mask
@@ -177,15 +177,15 @@ sync_circuit VectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
   def accepting_head = successful & (wb.bits === head)
   def direct_head_release = drain_enable & !carry_pending & (accepted_slots[head] ||| accepting_head) & direct_write & (direct_tag === head)
   release_slot <== stored_release ||| direct_head_release
-  def direct_value = VectorRegisterWrite(xlen, vlen):
+  def direct_value = VectorRegisterWrite(xlen.width, vlen):
     address: entries[direct_tag].layout.rows[0]
     data: mux(immediate_direct, loads.completed[0].bits.data, completion.bits.data)
     mask: !Bits(xlen.width)(0)
 
   def immediate_write = immediate_hit |> filter_valid(result => direct_rows[result.tag]) |> map_valid(_result => direct_value)
-  def delayed_write = inject_interface(Valid(VectorRegisterWrite(xlen, vlen)), ~valid: returned_direct, ~bits: direct_value)
-  def assembly_piece = inject_interface(Valid(VectorRegisterWrite(xlen, vlen)), ~valid: load_piece, ~bits: combined)
-  def assembled_write = inject_interface(Valid(VectorRegisterWrite(xlen, vlen)), ~valid: write_previous_carry ||| flush_carry ||| split_load ||| full_row, ~bits: assembly_write)
+  def delayed_write = inject_interface(Valid(VectorRegisterWrite(xlen.width, vlen)), ~valid: returned_direct, ~bits: direct_value)
+  def assembly_piece = inject_interface(Valid(VectorRegisterWrite(xlen.width, vlen)), ~valid: load_piece, ~bits: combined)
+  def assembled_write = inject_interface(Valid(VectorRegisterWrite(xlen.width, vlen)), ~valid: write_previous_carry ||| flush_carry ||| split_load ||| full_row, ~bits: assembly_write)
   def write_event = Array(immediate_write, delayed_write, assembled_write) |> valid_arbiter()
   (
     write_event |> trace_valid_event("vector/complete", ~fields: result):

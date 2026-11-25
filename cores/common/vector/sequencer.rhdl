@@ -90,41 +90,37 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def limit = descriptor.beat_limit(vlen)
   def simd_multiply = vector_packed_multiply(xlen, descriptor.control, sew, packed_multiply)
   def lanes = vector_beat_lanes(xlen, vlen, descriptor.control, sew, ~packed_multiply: simd_multiply)
-  def element_move = descriptor.control.element_move
+  def element_move = vector_scalar_move(descriptor.control)
   def whole_register_memory = descriptor.control.memory & (descriptor.control.memory_mode === VectorMemoryMode.WholeRegister)
   def segmented_memory = descriptor.control.memory & !whole_register_memory & descriptor.control.memory_nf.any()
-  def mask_logic = descriptor.control.integer & descriptor.control.mask_logic
-  def scan = descriptor.control.integer & descriptor.control.scan
-  def extension_power = descriptor.control.extension_ratio.as_bits() + Bits(2)(1)
-  def source_sew = sew - extension_power
+  def packed_mask = vector_packed_mask_rows(descriptor.control)
+  def scan = vector_scan(descriptor.control)
   def destination_width = vector_destination_width(descriptor.control, sew)
   def indexed_memory = vector_indexed_memory(descriptor.control)
   def memory_data_eew = mux(indexed_memory, geometry.sew, descriptor.control.memory_data_eew)
   def slide_distance = descriptor.slide_distance()
-  def slide_delta = mux(descriptor.control.slide_up, -slide_distance.zext(xlen.width + 2), slide_distance.zext(xlen.width + 2))
+  def slide_delta = mux(slide_moves_up(descriptor.control.permutation), -slide_distance.zext(xlen.width + 2), slide_distance.zext(xlen.width + 2))
   def index_sew = vector_index_width(descriptor.control, sew)
   def scalar_index = descriptor.scalar_index()
-  def extension = descriptor.control.integer & descriptor.control.extension
-  def wide_vs2 = (descriptor.control.integer ||| descriptor.control.fp_service) & descriptor.control.wide_vs2
-  def fp_narrowing = descriptor.control.fp_service & descriptor.control.narrowing
-  def gather = descriptor.control.integer & descriptor.control.gather
-  def gather_vector = gather & (descriptor.control.operand === VectorOperandMode.Vector)
-  def slide = descriptor.control.slide
-  def compress = descriptor.control.integer & descriptor.control.compress
-  def reduction = (descriptor.control.integer ||| descriptor.control.fp_service) & descriptor.control.reduction
+  def gather = is_register_gather(descriptor.control.permutation)
+  def gather_vector = gather_uses_vs1(descriptor.control.permutation)
+  def slide = is_register_slide(descriptor.control.permutation)
+  def compress = descriptor.control.permutation === VectorPermutationKind.Compress
+  def reduction = vector_reduction(descriptor.control)
+  def first_source = vector_reads_first(descriptor.control)
   def second_source = vector_reads_second(descriptor.control)
   def destination_source = vector_reads_destination(descriptor.control)
   def serialized = (descriptor.control.memory & (!descriptor.precertified ||| descriptor.zero_stride_load())) ||| (scan & !descriptor.control.scan_control.index) ||| compress
   def singleton = vector_single_element(descriptor.control, ~packed_multiply: simd_multiply)
-  def widening = descriptor.control.integer & descriptor.control.widening
-  def narrowing = descriptor.control.integer & descriptor.control.narrowing
-  def width_change = widening ||| narrowing ||| (simd_multiply & descriptor.control.widening)
+  def widening = descriptor.control.integer & widens_result(descriptor.control.width_shape)
+  def narrowing = descriptor.control.integer & (descriptor.control.width_shape === VectorWidthShape.Narrow)
+  def width_change = widening ||| narrowing ||| (simd_multiply & widens_result(descriptor.control.width_shape))
   def retry = feedback.valid & (feedback.bits.disposition === VectorDisposition.Retry)
   def fault = feedback.valid & (feedback.bits.disposition === VectorDisposition.Fault)
   def truncate = feedback.valid & (feedback.bits.disposition === VectorDisposition.Truncate)
   def clear = cancel.valid ||| retry ||| fault ||| truncate
   read_flush <== clear
-  def scalar_destination = descriptor.control.scalar_destination ||| descriptor.control.floating_scalar_destination
+  def scalar_destination = vector_writes_gpr(descriptor.control) ||| vector_writes_fpr(descriptor.control)
   def empty = mux(element_move, !scalar_destination & start_at_or_past_vl, minimum >= limit)
   def next_cursor = cursor.zext(index_width(vlen + 1) + 1) + lanes.zext(index_width(vlen + 1) + 1)
   def end = mux(empty ||| (next_cursor >= limit.zext(index_width(vlen + 1) + 1)), limit, next_cursor[0..index_width(vlen + 1)])
@@ -147,9 +143,7 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
      Register bases and cursor chunks are separate; only the row offsets are
      truncated to the physical bank address width before addition. */
 
-  def source_chunk = mux(mask_logic ||| scan, cursor >> vector_bit_offset_width(xlen), cursor >> (Bits(2)(vector_byte_offset_width(xlen)) - sew))
-  def extension_source_chunk = cursor >> (Bits(2)(vector_byte_offset_width(xlen)) - source_sew)
-  def wide_source_chunk = cursor >> (Bits(2)(vector_byte_offset_width(xlen) - 1) - sew)
+  def source_chunk = mux(packed_mask ||| scan, cursor >> vector_bit_offset_width(xlen), cursor >> (Bits(2)(vector_byte_offset_width(xlen)) - sew))
   def destination_chunk = cursor >> (Bits(2)(vector_byte_offset_width(xlen)) - destination_width)
   def row_base_width = index_width(VectorRegisterLayout(vlen, xlen.width).depth)
   def register_row_shift = bits.length(VectorRegisterLayout(vlen, xlen.width).rows_per_register - 1)
@@ -175,12 +169,12 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def scalar_in_range = scalar_index < geometry.vlmax.zext(xlen.width)
   def scalar_address = slide_base + (scalar_index >> (Bits(2)(vector_byte_offset_width(xlen)) - sew))[0..row_base_width]
 
-  /* First read chooses extension width before wide VS2, then applies the
-     gather/slide address overrides to the ordinary register-and-chunk path. */
+  /* Compute VS2 uses its own EEW; memory and packed masks keep their ordinary
+     chunk geometry. Gather and slide override the resulting address below. */
 
-  def first_source_chunk = priority_mux(~default: source_chunk):
-    extension: extension_source_chunk
-    wide_vs2 ||| fp_narrowing: wide_source_chunk
+  def compute_data = (descriptor.control.dispatch_kind === VectorDispatchKind.Execute) & !packed_mask & !scan
+  def vs2_eew = compute_vs2_eew(descriptor.control.width_shape, sew)
+  def first_source_chunk = mux(compute_data, cursor >> (Bits(2)(vector_byte_offset_width(xlen)) - vs2_eew), source_chunk)
 
   def first_source_register = mux(descriptor.control.memory, memory_register, vs2)
   def first_source_base = first_source_register.zext(row_base_width) << register_row_shift
@@ -212,10 +206,10 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
      Preserve WAW order at the physical destination row before capturing reads. */
 
   def writing = !scalar_destination & !(descriptor.control.memory & descriptor.control.store) & !empty
-  def write_width = sew + ((descriptor.control.integer ||| descriptor.control.multiply_divide ||| descriptor.control.fp_service) & descriptor.control.widening & !reduction).as_bits().zext(2)
+  def write_width = mux(compute_data, compute_dest_eew(descriptor.control.width_shape, sew), sew)
   def write_chunk = priority_mux(~default: cursor >> (Bits(2)(vector_byte_offset_width(xlen)) - write_width)):
     reduction ||| element_move: Bits(index_width(vlen + 1))(0)
-    descriptor.control.mask_destination ||| mask_logic: cursor >> vector_bit_offset_width(xlen)
+    vector_writes_mask(descriptor.control): cursor >> vector_bit_offset_width(xlen)
 
   def write_register = mux(segmented_memory, memory_register, vd)
   def write_base = write_register.zext(row_base_width) << register_row_shift
@@ -231,9 +225,9 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
      their index; the final data read then uses the common scheduled stage. */
 
   def mask_address = (cursor >> vector_bit_offset_width(xlen))[0..index_width(VectorRegisterLayout(vlen, xlen.width).rows_per_register)].zext(row_base_width)
-  def uses_mask = descriptor.masked ||| descriptor.control.carry_input ||| descriptor.control.mask_select
+  def uses_mask = descriptor.masked ||| (!descriptor.control.memory & descriptor.control.reads.v0.is_one_of(VectorV0Role.Carry, VectorV0Role.Selector))
   def ordinary_source_blocked = vec([
-    !empty & blocked_rows[first_address],
+    !empty & first_source & blocked_rows[first_address],
     !empty & second_source & blocked_rows[second_address],
     (!empty & destination_source & blocked_rows[destination_address]) ||| write_wait,
     !empty & uses_mask & blocked_rows[mask_address],
@@ -307,7 +301,7 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
     address: mux(packed_mode, issue_address, memory_effective_address)
     destination: mux(segmented_memory, memory_register, vd)
 
-  def ordinary_read_enables = vec([!empty, !empty & second_source & !gather_vector, !empty & destination_source]).as_bits()
+  def ordinary_read_enables = vec([!empty & first_source, !empty & second_source & !gather_vector, !empty & destination_source]).as_bits()
   def ordinary_read_addresses = vec([mux(gather_vector, gather_address, first_address), second_address, destination_address])
   def offered_read_enables = priority_mux(~default: ordinary_read_enables):
     suffix.valid: Bits(3)(0)
@@ -328,7 +322,7 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
   sequence_offer.left.bits.context <== mux(suffix.valid, suffix_context, beat_context)
   sequence_offer.left.bits.enables <== offered_read_enables
   sequence_offer.left.bits.addresses <== mux(packed_mode, preparation.read_addresses, ordinary_read_addresses)
-  sequence_offer.left.bits.mask_enable <== !suffix.valid & !packed_mode & !empty
+  sequence_offer.left.bits.mask_enable <== !suffix.valid & !packed_mode & !empty & (!scan ||| descriptor.masked)
   sequence_offer.left.bits.mask_address <== (cursor >> vector_bit_offset_width(xlen))[0..index_width(VectorRegisterLayout(vlen, xlen.width).rows_per_register)]
   def offered_sequence = sequence_offer.right |> trace_event("vector/s1.sequence", ~stalls: #true, ~fields: read):
     pc: read.context.instruction.descriptor.pc
@@ -417,17 +411,17 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
       context: request.bits.context
       descriptor: incoming.for_sequencing()
 
-    def start = mux(request.bits.descriptor.control.element_move, Bits(index_width(vlen + 1))(0), request.bits.descriptor.state.vstart[0..index_width(vlen + 1)])
+    def start = mux(vector_scalar_move(request.bits.descriptor.control), Bits(index_width(vlen + 1))(0), request.bits.descriptor.state.vstart[0..index_width(vlen + 1)])
     def request_whole_register_memory = request.bits.descriptor.control.memory & (request.bits.descriptor.control.memory_mode === VectorMemoryMode.WholeRegister)
     def request_mask_memory = request.bits.descriptor.control.memory & (request.bits.descriptor.control.memory_mode === VectorMemoryMode.Mask)
-    def word_schedule = request.bits.descriptor.control.integer & (request.bits.descriptor.control.mask_logic ||| (request.bits.descriptor.control.scan & (request.bits.descriptor.control.scan_control.result =/= VectorScanResult.Elements)))
+    def word_schedule = vector_mask_word(request.bits.descriptor.control)
     def incoming_control = request.bits.descriptor.control
-    def indexed_gather = incoming_control.gather & (incoming_control.operand === VectorOperandMode.Vector)
+    def indexed_gather = gather_uses_vs1(incoming_control.permutation)
     def incoming_simd_multiply = vector_packed_multiply(xlen, incoming_control, request.bits.descriptor.state.vtype[3..5], packed_multiply)
-    def single_schedule = incoming_control.memory ||| incoming_control.fp_service ||| (incoming_control.multiply_divide & !incoming_simd_multiply) ||| (incoming_control.integer & (incoming_control.reduction ||| indexed_gather))
+    def single_schedule = incoming_control.memory ||| incoming_control.fp_service ||| (incoming_control.multiply_divide & !incoming_simd_multiply) ||| (incoming_control.integer & (vector_reduction(incoming_control) ||| indexed_gather))
     def packed_start = vector_aligned_first(xlen, vlen, start, request.bits.descriptor.state.vtype[3..5])
     def width_change_start = start & !(Bits(index_width(vlen + 1))(vector_word_bytes(xlen) / 2 - 1) >> request.bits.descriptor.state.vtype[3..5])
-    def request_width_change = ((incoming_control.integer ||| incoming_control.fp_service) & (incoming_control.widening ||| incoming_control.narrowing)) ||| (incoming_simd_multiply & incoming_control.widening)
+    def request_width_change = ((incoming_control.integer ||| incoming_control.floating_point) & (widens_result(incoming_control.width_shape) ||| (incoming_control.width_shape === VectorWidthShape.Narrow))) ||| (incoming_simd_multiply & widens_result(incoming_control.width_shape))
     def initial_cursor = priority_mux(~default: packed_start):
       word_schedule: start.align_down(xlen.width)
       single_schedule: start

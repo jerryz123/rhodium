@@ -88,4 +88,5 @@ circuit MulRecFN(format :: FloatFormat):
   exception_flags <== round.exception_flags
 
 export:
+  MulRawFN
   MulRecFN

@@ -88,7 +88,7 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
   interface simd_result(Valid(IntegerExecutionResult(SimdMultiplyResult(xlen.width), SlotId)), ~role: consumer)
   interface divide_result(Irrevocable(IntegerExecutionResult(DividerResponse(xlen.width), VectorDivideTag(vector_completion_slots))), ~role: consumer)
   interface drained(Valid(VectorDrained(xlen, vlen, owners)), ~role: producer)
-  interface write(Valid(VectorRegisterWrite(xlen, vlen)), ~role: producer)
+  interface write(Valid(VectorRegisterWrite(xlen.width, vlen)), ~role: producer)
   interface fp_update(Valid(Bits(5)), ~role: producer)
   interface saturate(Pulse(), ~role: producer)
   interface scalar_result(Valid(RegisterFileWrite(xlen)), ~role: producer)
@@ -113,14 +113,14 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
   reg retained_entries(Vec(vector_completion_slots, VectorResultBeat(xlen, vlen, RetainedMask)))
 
   /* Rebuilds a tagged write from the same row that advertises its outstanding hazard. */
-  fun entry_at(slot :: Bits(tag_width)) :: VectorResultBeat(xlen, vlen, VectorRegisterWrite(xlen, vlen)):
+  fun entry_at(slot :: Bits(tag_width)) :: VectorResultBeat(xlen, vlen, VectorRegisterWrite(xlen.width, vlen)):
     def retained = retained_entries[slot]
-    def write = VectorRegisterWrite(xlen, vlen):
+    def write = VectorRegisterWrite(xlen.width, vlen):
       address: entry_write_address[slot]
       data: slot_words[slot]
       mask: retained.write.expand(retained.mask_destination, retained.shift)
 
-    retained.with_write(VectorRegisterWrite(xlen, vlen), write)
+    retained.with_write(VectorRegisterWrite(xlen.width, vlen), write)
 
   reg drain_cursor(~init: Bits(index_width(vector_completion_slots))(0))
   reg allocate_cursor(~init: Bits(index_width(vector_completion_slots))(0))
@@ -134,15 +134,15 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
   def Array(local_compute, scalar_compute, floating_compute) = compute_maturity |> fork_valid(3)
   def Array(hit_attempt, accepted_attempt) = memory_attempt |> fork_valid(2)
   def compute_result = compute_maturity.bits
-  def compute_beat :: VectorResultBeat(xlen, vlen, VectorRegisterWrite(xlen, vlen)) = compute_result.beat
+  def compute_beat :: VectorResultBeat(xlen, vlen, VectorRegisterWrite(xlen.width, vlen)) = compute_result.beat
   def compute_tag = compute_result.tag
   def memory_result = memory_attempt.bits
   def memory_beat = memory_result.beat
   def tagged_compute = compute_maturity.valid & compute_beat.needs_completion_slot()
   def element_resolved = tagged_compute ||| memory_accepted
   def resolution_tag = mux(tagged_compute, compute_tag, memory_result.tag)
-  def resolution_beat :: VectorResultBeat(xlen, vlen, VectorRegisterWrite(xlen, vlen)) = mux(tagged_compute, compute_beat, memory_beat)
-  def write_intent :: VectorRegisterWrite(xlen, vlen) = resolution_beat.write
+  def resolution_beat :: VectorResultBeat(xlen, vlen, VectorRegisterWrite(xlen.width, vlen)) = mux(tagged_compute, compute_beat, memory_beat)
+  def write_intent :: VectorRegisterWrite(xlen.width, vlen) = resolution_beat.write
   def retained_mask = VectorCompletionMask(xlen):
     bytes: write_intent.byte_enables()
     bit_enabled: write_intent.mask.any()
@@ -170,7 +170,7 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
   /* Normalizes one winning result's retained slot, owner, write policy, flags, and saturation. */
   bundle Writeback():
     tag: SlotId
-    beat: VectorResultBeat(xlen, vlen, VectorRegisterWrite(xlen, vlen))
+    beat: VectorResultBeat(xlen, vlen, VectorRegisterWrite(xlen.width, vlen))
     owner: InstructionId
     data: Bits(xlen.width)
     flags: Bits(5)

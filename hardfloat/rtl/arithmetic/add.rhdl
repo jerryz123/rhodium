@@ -190,4 +190,5 @@ circuit AddRecFN(format :: FloatFormat):
   exception_flags <== round.exception_flags
 
 export:
+  AddRawFN
   AddRecFN

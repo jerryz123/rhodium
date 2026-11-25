@@ -1,0 +1,17 @@
+#lang rhombus
+/* Selects an implementation independently of the vector ISA profile. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("riscv/isa/vector.rhm").VectorLength
+
+enum VectorBackendKind
+| Unified
+| Distributed
+
+def DistributedRowsPerRegister :: PosInt = 2
+
+/* Distributed vector registers always occupy two physical rows. */
+fun vector_dlen(vlen :: VectorLength) :: PosInt: vlen div DistributedRowsPerRegister
+
+export DistributedRowsPerRegister VectorBackendKind vector_dlen

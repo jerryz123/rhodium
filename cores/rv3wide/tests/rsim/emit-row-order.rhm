@@ -1,0 +1,23 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("cores/common/vector/backend-kind.rhm") open
+  "../../issue.rhdl".RV3WideIssue
+  lib("cores/superscalar/tests/core-fixture.rhdl").CoreFixture
+  lib("cores/superscalar/profile.rhm").SuperscalarPipelineConfig
+  lib("riscv/isa/vector-profile.rhm").VectorProfile
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("rhodium/backend/rsim-target.rhm").rsim_target
+  lib("rhodium/compile/pipeline.rhm").rtl_pipeline_target
+  lib("cores/common/tests/rsim/port-observers.rhm").port_observer_pass
+
+fun fixture(xlen):
+  def profile = SuperscalarPipelineConfig(~xlen: xlen, ~vector: VectorProfile.Zve32x, ~vector_length: 4 * xlen.width)
+  elaborate(CoreFixture(profile, ~issue: RV3WideIssue(xlen), ~vector_backend: VectorBackendKind.Distributed))
+def program = fixture(XLen.X64)
+def rv32 = fixture(XLen.X32)
+def target = rtl_pipeline_target(rsim_target, [port_observer_pass([
+  ["VectorRowExecute", "observe_vrf_write", [["write_out", "valid"], ["write_out", "bits", "address"]]]
+])])
+export program rv32 target

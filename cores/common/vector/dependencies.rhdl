@@ -1,14 +1,86 @@
 #lang rhodium
-/* Computes conservative destination groups for pending vector read interlocks. */
+/* Computes architectural vector register footprints for dispatch interlocks. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "bundles.rhdl" open
   "decode.rhdl" open
+  "geometry.rhdl" open
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/isa/vector.rhm" open
   "../../../riscv/model/formats.rhm" as riscv_fields
   "../../../riscv/rtl/instruction-fields.rhdl".instruction_field
+  "../../../riscv/rtl/vector.rhdl" open
+
+/* Computes the architectural VD/VS3 footprint, including memory EEW/EMUL and segment fields. */
+fun vector_vd_vs3_registers(xlen :: XLen, vlen :: VectorLength, descriptor :: VectorDescriptor(xlen)) :~ Bits(32):
+  def control = descriptor.control
+  def geometry = vector_type(xlen, vlen, descriptor.state.vtype)
+
+  /* Destination group geometry keeps signed EMUL arithmetic separate from
+     the nonnegative register-count shift. Fractional groups claim one register. */
+
+  def widened = widens_result(control.width_shape)
+  def widening_adjustment = widened.as_bits().zext(5).into(SInt(5))
+  def exponent = geometry.lmul.into(SInt(3)).sext(5) + widening_adjustment
+  def group_shift = mux(exponent < SInt(5)(0), Bits(3)(0), exponent.as_bits()[0..3])
+  def group = Bits(6)(1) << group_shift
+
+  def singleton = vector_writes_mask(control) ||| vector_reduction(control)
+  def count = mux(singleton, Bits(6)(1), group)
+
+  def vector_group = !vector_writes_gpr(control) & !vector_writes_fpr(control)
+  def vd = instruction_field(riscv_fields.rd, descriptor.instruction)
+  def registers = vec(for List (r in 0..32): vector_group & (Bits(6)(r) >= vd.zext(6)) & (Bits(6)(r) < vd.zext(6) + count)).as_bits()
+  def scan = scan_geometry(xlen, vlen, descriptor)
+  priority_mux(~default: registers):
+    control.memory: memory_data_registers(vlen, memory_operand_geometry(xlen, vlen, descriptor), vd)
+    vector_scalar_move(control): scalar_move_claim(xlen, vlen, descriptor, 1, ~write: #true)
+    vector_whole_copy(control): vector_span_cover(vlen, whole_move_span(xlen, vlen, descriptor), vlen div 8, VectorRegisterCount, vd)
+    vector_scan(control): vector_span_cover(vlen, scan.destination, vlen div 8, VectorRegisterCount, vd)
+
+/* Claim ordinary operands by EMUL and special operands by the byte ranges
+   their cursors can visit. A reduction seed is element zero even at large LMUL. */
+fun vector_reader_registers(xlen :: XLen, vlen :: VectorLength, descriptor :: VectorDescriptor(xlen)) :~ Bits(32):
+  def c = descriptor.control
+  def sew = descriptor.state.sew()
+  def widths = execute_widths(c.width_shape, sew)
+  def lmul = descriptor.state.vtype[0..3].into(SInt(3)).sext(5)
+  def beat_emul = lmul + widths.step.zext(5).into(SInt(5)) - sew.zext(5).into(SInt(5))
+  def whole = vector_whole_copy(c)
+  def reduce = vector_reduction(c)
+  /* Log2(operand EMUL) is log2(beat EMUL) minus its row-reuse shift.
+     Fractional groups still claim the one architectural register they occupy. */
+  fun group_mask(lag :: Bits(2)) :~ Bits(5):
+    def emul = beat_emul - lag.zext(5).into(SInt(5))
+    def exponent = priority_mux(~default: emul.as_bits()[0..2]):
+      vector_packed_mask_rows(c): Bits(2)(0)
+      emul < SInt(5)(0): Bits(2)(0)
+    !((Bits(5)(1) << exponent) - Bits(5)(1))
+  def left = group_mask(widths.left_lag)
+  def right = group_mask(widths.right_lag)
+  def dest = group_mask(widths.dest_lag)
+  def reads_v0 = vector_shadow_role(c.reads, descriptor.masked) =/= VectorV0Role.Unused
+  def registers = for List (r in 0..32):
+    def regno = Bits(5)(r)
+    (c.reads.vs2 & !((regno ^ descriptor.vs2()) & left).any()) ||| (c.reads.vs1 & !((regno ^ descriptor.vs1()) & right).any()) ||| (c.reads.old_vd & !((regno ^ descriptor.vd()) & dest).any())
+  def reg_bytes = vlen div 8
+  def perm = permutation_geometry(xlen, vlen, descriptor)
+  def source = vector_element_span(xlen, vlen, descriptor, sew)
+  def scan = scan_geometry(xlen, vlen, descriptor)
+  def explicit_reads = priority_mux(~default: vec(registers).as_bits()):
+    whole: vector_span_cover(vlen, whole_move_span(xlen, vlen, descriptor), reg_bytes, VectorRegisterCount, descriptor.vs2())
+    vector_scan(c): vector_span_cover(vlen, scan.source, reg_bytes, VectorRegisterCount, descriptor.vs2())
+    c.permutation =/= VectorPermutationKind.None: vector_span_cover(vlen, perm.data, reg_bytes, VectorRegisterCount, descriptor.vs2()) ||| vector_span_cover(vlen, perm.indices, reg_bytes, VectorRegisterCount, descriptor.vs1())
+    reduce: vector_span_cover(vlen, source, reg_bytes, VectorRegisterCount, descriptor.vs2()) ||| (Bits(32)(1) << descriptor.vs1())
+  def predicate = mux(vector_scan(c), scan.predicate.begin < scan.predicate.end, reads_v0)
+  def mem = memory_operand_geometry(xlen, vlen, descriptor)
+  def index_regs = vector_span_cover(vlen, mem.indices, reg_bytes, VectorRegisterCount, descriptor.vs2())
+  def store_regs = mux(c.store, memory_data_registers(vlen, mem, descriptor.vd()), Bits(32)(0))
+  def mem_mask = (mem.predicate.begin < mem.predicate.end).as_bits().zext(32)
+  priority_mux(~default: explicit_reads ||| predicate.as_bits().zext(32)):
+    c.memory: index_regs ||| store_regs ||| mem_mask
+    vector_scalar_move(c): scalar_move_claim(xlen, vlen, descriptor, 1, ~write: #false)
 
 /* Computes the destination interval from raw SEW/LMUL, independent of VLMAX or vill. */
 fun destination_bounds(control :: VectorControl(), instruction :: Bits(32), vtype_low :: Bits(8)):
@@ -24,7 +96,7 @@ fun destination_bounds(control :: VectorControl(), instruction :: Bits(32), vtyp
   /* Destination group geometry keeps signed EMUL arithmetic separate from
      the nonnegative register-count shift. Fractional groups claim one register. */
 
-  def widened = (control.integer ||| control.multiply_divide ||| fp_service) & control.widening
+  def widened = (control.integer ||| control.multiply_divide ||| fp_service) & widens_result(control.width_shape)
   def memory_emul_adjustment = memory_eew.zext(5).into(SInt(5)) - sew.zext(5).into(SInt(5))
   def widening_adjustment = widened.as_bits().zext(5).into(SInt(5))
   def emul_adjustment = mux(memory, memory_emul_adjustment, widening_adjustment)
@@ -47,17 +119,17 @@ fun destination_bounds(control :: VectorControl(), instruction :: Bits(32), vtyp
   /* Register coverage follows whole-register, move, and singleton overrides
      before ordinary memory extent or compute group size. */
 
-  def integer_singleton = control.integer & (control.mask_destination ||| control.reduction ||| control.element_move)
-  def fp_service_singleton = fp_service & (control.mask_destination ||| control.reduction)
-  def fp_move_singleton = control.floating_point & !control.fp_service & control.element_move
+  def integer_singleton = control.integer & (vector_writes_mask(control) ||| vector_reduction(control) ||| vector_scalar_move(control))
+  def fp_service_singleton = fp_service & (vector_writes_mask(control) ||| vector_reduction(control))
+  def fp_move_singleton = control.floating_point & !control.fp_service & vector_scalar_move(control)
   def singleton = mask ||| integer_singleton ||| fp_service_singleton ||| fp_move_singleton
   def count = priority_mux(~default: group):
     whole: fields
-    control.integer & control.whole_register_move: control.whole_register_count.zext(6)
+    control.integer & vector_whole_copy(control): control.whole_register_count.zext(6)
     singleton: Bits(6)(1)
     memory: extent
 
-  def writes = !(memory & control.store) & !(control.integer & control.scalar_destination) & !(control.floating_point & control.floating_scalar_destination)
+  def writes = !(memory & control.store) & !(control.integer & vector_writes_gpr(control)) & !(control.floating_point & vector_writes_fpr(control))
   def vd = instruction_field(riscv_fields.rd, instruction)
   values(vd, vd.zext(6) + count, writes)
 
@@ -100,3 +172,4 @@ export:
   vector_destination_registers
   VectorDestinationClaim
   vector_destination_claim
+export vector_vd_vs3_registers vector_reader_registers

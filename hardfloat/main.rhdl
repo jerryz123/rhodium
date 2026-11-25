@@ -59,8 +59,11 @@ export:
   RoundToIntegralRecFN
   Estimate7
   AddRecFN
+  AddRawFN
+  MulRawFN
   MulRecFN
   MulAddRecFN
+  MulAddRecFNToRaw
   DivSqrtOptions
   DivSqrtRecFN
   DivSqrtRecF64MulAddZ31

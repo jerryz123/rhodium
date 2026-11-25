@@ -1,0 +1,167 @@
+#lang rhodium
+/* Holds one VXSeq result row while active elements use the shared scalar FP service. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../fp/bundles.rhdl" open
+  "../../../fp/types.rhdl" open
+  "../../../fp/profile.rhm".fp_transport_profile
+  "../../register-file.rhdl".VectorRegisterWrite
+  "fp-unit.rhdl".fp_half_row
+  "fp-unit.rhdl".fp_narrow_row
+  "../../backend-kind.rhm".vector_dlen
+  "../common/row-claims.rhdl".ExecuteDestination
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/isa/vector.rhm").VectorLength
+  lib("hardfloat/main.rhdl").RoundingMode
+  lib("rhodium/std/bits.rhdl").Pow2Int
+  lib("flow/main.rhdl") open
+
+/* A bit in each bitmap identifies the first halfword of an active element.
+   Fixed-latency operations within a row can pipeline and return in order.
+   An iterative request waits for the preceding lane reply, not a VRF grant. */
+sync_circuit VectorSharedFpRow(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int):
+  def dlen = vector_dlen(vlen)
+  def width = xlen.width
+  def chunks = dlen div 16
+  def Owner = Bits(index_width(slots))
+  def profile = fp_transport_profile(xlen)
+  interface allocate(Valid(ExecuteDestination(Owner)), ~role: consumer)
+  input(capture, wait_for_reply): Bool
+  input(left, right, third, mask): Bits(dlen)
+  input live: Bits(chunks)
+  input precision: FloatPrecision
+  input offset: Bits(index_width(dlen))
+  input mask_fragment: Bool
+  input execution: FloatExecutionControl()
+  input rounding: RoundingMode
+  input(integer_source, integer_result, small_left, small_right, small_dest, upper): Bool
+  output available: Bool
+  interface pending(Valid(ExecuteDestination(Owner)), ~role: producer)
+  interface request(Decoupled(FpExecutionRequest(xlen, profile, Owner)), ~role: producer)
+  interface response(Decoupled(FpExecutionResult(xlen, profile, Owner)), ~role: consumer)
+  interface write(Decoupled(VectorRegisterWrite(dlen, vlen)), ~role: producer)
+  interface flags(Valid(Bits(5)), ~role: producer)
+  reg busy(~init: Bool(#false))
+  reg captured(~init: Bool(#false))
+  reg dest(ExecuteDestination(Owner))
+  reg a(Bits(dlen))
+  reg b(Bits(dlen))
+  reg c(Bits(dlen))
+  reg enables(Bits(dlen))
+  reg base(Bits(index_width(dlen)))
+  reg packed_destination(Bool)
+  reg iterative(Bool)
+  reg unsent(~init: Bits(chunks)(0))
+  reg remaining(~init: Bits(chunks)(0))
+  reg control(FloatingPointControl())
+  reg rm(RoundingMode)
+  reg element_format(FloatPrecision)
+  reg left_format(FloatPrecision)
+  reg right_format(FloatPrecision)
+  reg narrowed(Bool)
+  reg high_half(Bool)
+  reg values_out(Vec(chunks, Bits(16)))
+  reg accrued(Bits(5))
+  reg flags_valid(Bool)
+  available <== !busy
+  pending.valid <== busy
+  pending.bits <== dest
+  def send = priority_encoder_oh(unsent)
+  def reply = priority_encoder_oh(remaining)
+  def in_flight = remaining =/= unsent
+
+  /* Align one captured operand to the scalar transport and NaN-box it.
+     Mixed FP64 rows pre-align their narrower operand to the same lane. */
+  fun operand(row :: Bits(dlen), format :: FloatPrecision) :~ Bits(width):
+    def shifted :: Bits(dlen) = row >> (send.index ++ Bits(4)(0))
+    def raw = shifted[0..width]
+    def boxed = for List (n in [16,32].filter(~keep: fun (n): n < width)):
+      [if n == 16 | FloatPrecision.Half | FloatPrecision.Single, (!Bits(width-n)(0)) ++ raw[0..n]]
+    mux_lookup(format, ~default: raw, boxed)
+
+  request.valid <== unsent.any() & !(iterative & in_flight)
+  request.bits <== FpExecutionRequest(xlen, profile, Owner):
+    tag: dest.owner
+    control: control
+    left: operand(a, left_format)
+    right: operand(b, right_format)
+    third: operand(c, element_format)
+    left_precision: left_format
+    right_precision: right_format
+    third_precision: element_format
+    immediate_index: dont_care(Bits(5))
+    rounding_mode: rm
+  response.ready <== captured & in_flight
+  write.valid <== captured & !remaining.any()
+  def data = values_out.as_bits()
+  def formatted:
+    if xlen == XLen.X64
+    | block:
+        def comparisons = vec(for List (i in 0..(dlen div 64)): values_out[4*i][0]).as_bits()
+        mux(packed_destination, comparisons.zext(dlen) << base, mux(narrowed, fp_narrow_row(data, 64, high_half), data))
+    | data
+  write.bits <== VectorRegisterWrite(dlen, vlen):
+    address: dest.row
+    data: formatted
+    mask: enables
+  flags.valid <== write.fire() & flags_valid
+  flags.bits <== accrued
+  when (allocate.valid):
+    assert(available, "fp_row_has_free_operand_storage")
+    busy <== Bool(#true)
+    dest <== allocate.bits
+  elsewhen (write.fire()): busy <== Bool(#false)
+  when capture: captured <== Bool(#true)
+  elsewhen (write.fire()): captured <== Bool(#false)
+
+  /* Only fixed mixed-width double operations use half of a packed source row. */
+  fun align_source(row :: Bits(dlen), small :: Bool) :~ Bits(dlen):
+    if xlen == XLen.X64
+    | block:
+        def fragment = fp_half_row(row, upper).as_vec(Bits(32))
+        def lanes = vec(for List (i in 0..(dlen div 64)): fragment[i].zext(64)).as_bits()
+        mux(small, lanes, row)
+    | row
+  when capture:
+    a <== align_source(left, small_left)
+    iterative <== wait_for_reply
+    b <== align_source(right, small_right)
+    c <== third
+    element_format <== precision
+    def src = mux(small_left, FloatPrecision.Single, precision)
+    def dst = mux(small_dest, FloatPrecision.Single, precision)
+    left_format <== src
+    right_format <== mux(small_right, FloatPrecision.Single, precision)
+    narrowed <== small_dest
+    high_half <== upper
+    enables <== mask
+    base <== offset
+    packed_destination <== mask_fragment
+    rm <== rounding
+    def blank :: FloatingPointControl() = dont_care(FloatingPointControl())
+    def iw = mux(mux(integer_source, small_left, small_dest), FloatIntegerWidth.Word, FloatIntegerWidth.Long)
+    control <== blank.updated(~registers: blank.registers.updated(~uses_frs1: !integer_source, ~destination: mux(integer_result, FloatDestination.Integer, FloatDestination.FloatingPoint)), ~execution: execution.updated(~source_precision: src, ~destination_precision: dst, ~integer_width: iw))
+  when capture: unsent <== live
+  elsewhen (request.fire()): unsent <== unsent ^ send.as_bits()
+  when capture:
+    remaining <== live
+    flags_valid <== Bool(#false)
+    accrued <== Bits(5)(0)
+  elsewhen (response.fire()):
+    assert((response.bits.tag === dest.owner) & !unsent.as_vec(Bool)[reply.index], "fp_result_has_issued_lane")
+    remaining <== remaining ^ reply.as_bits()
+    for (i in 0..chunks):
+      // Natural alignment fixes the possible source halfword for each format.
+      def slices = for List (n in 0..(if width == 64 | 3 | 2)):
+        def offset = i mod (1 << n)
+        def first = i - offset
+        [n, reply.as_bits()[first].into(Bool), response.bits.value[16*offset..16*(offset+1)]]
+      def pick = element_format.as_bits()
+      def hit = mux_lookup(pick, ~default: slices[0][1], slices.map(fun (s): [s[0],s[1]]))
+      when hit: values_out[i] <== mux_lookup(pick, ~default: slices[0][2], slices.map(fun (s): [s[0],s[2]]))
+    when (response.bits.exception_flags_valid):
+      flags_valid <== Bool(#true)
+      accrued <== accrued ||| response.bits.exception_flags
+
+export VectorSharedFpRow

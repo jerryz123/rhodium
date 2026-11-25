@@ -1,0 +1,274 @@
+#lang rhodium
+/* Owns the distributed VRF and instruction tracker for distributed memory and execute paths. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("cores/common/mmu/vector.rhdl") open
+  "common/paths.rhm" open
+  "../service.rhdl".VectorExecutionService
+  "frontend/admission.rhdl".DistributedVectorAdmission
+  "../../cosim-source.rhm".describe_cosim_signals
+  "../../writeback-calendar.rhdl".WritebackCalendar
+  "backend/instructions.rhdl".DistributedVectorInstructions
+  "backend/row-memory.rhdl".VectorRowEngine
+  "frontend/fault-check.rhdl" open
+  "backend/special-sequencer.rhdl".VectorSpecialSequencer
+  "../decode.rhdl".VectorVpsUse
+  "../decode.rhdl".VectorDispatchKind
+  "../geometry.rhdl".vector_indexed_memory
+  "backend/row-execute.rhdl".VectorRowExecute
+  "backend/scoreboard.rhdl".DistributedVectorScoreboard
+  "backend/register-file.rhdl".DistributedVectorRegisterView
+  "common/row-claims.rhdl".ProductWriteDelay
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/isa/vector.rhm").VectorLength
+  lib("rhodium/std/bits.rhdl") open
+  lib("flow/main.rhdl") open
+  "backend/dispatch.rhdl" open
+  "common/memory-route.rhdl" open
+  "backend/execute-sequencer.rhdl".resolve_row_unit
+  "exu/issue.rhdl".RowUnit
+  "../bundles.rhdl" open
+  "../backend-kind.rhm".vector_dlen
+
+/* Allocates owners in order; memory and execute sequencers release them after their final effect. */
+sync_circuit DistributedVectorBackend(xlen :: XLen, vlen :: VectorLength, Fault :: DataType,
+                                      ~fp32: fp32 :: Boolean = #true, ~fp16: fp16 :: Boolean = #true,
+                                      ~vector_completion_slots: slots :: Pow2Int = 8):
+  interface service(VectorExecutionService(xlen, slots), ~role: executor)
+  interface request(Decoupled(VectorDescriptor(xlen)), ~role: consumer)
+  interface outcome(Valid(VectorCommit(xlen, slots)), ~role: producer)
+  interface precheck(VectorPrecheck(), ~role: requester)
+  interface floating_writeback(Decoupled(Bits(4)), ~role: producer)
+  output outcome_fault: Fault
+  output active: Bool
+  def InstructionId = Bits(index_width(slots))
+  interface row_memory(VectorRowMemory(vector_dlen(vlen)), ~role: requester)
+  interface native_outstanding_store(Valid(Bool), ~role: producer)
+  interface element_translation(VectorElementTranslation(), ~role: requester)
+  input window_pages: VectorWindowPages
+  input memory_drained: Bool
+
+  inst registers(DistributedVectorRegisterView(vlen))
+  inst instructions(DistributedVectorInstructions(xlen, vlen, slots))
+  inst rows(VectorRowEngine(xlen, vlen, slots))
+  inst checker(VectorFaultCheck(xlen, vlen, slots))
+  checker.exact <=> element_translation
+  inst special(VectorSpecialSequencer(xlen, vlen, slots))
+  inst row_alu(VectorRowExecute(xlen, vlen, slots, ~fp32: fp32, ~fp16: fp16))
+  inst claims(DistributedVectorScoreboard(xlen, vlen, slots))
+  inst paths(DistributedVectorDispatch(xlen, slots))
+  claims.next_owner <== instructions.allocate_id
+  claims.drain_owner <== instructions.oldest_id
+  claims.macro_valid <== instructions.live
+  claims.macro_load <== instructions.load_owners
+  claims.macro_store <== instructions.store_owners
+  claims.macro_groups <== instructions.destinations
+  claims.macro_issued <== instructions.closed
+
+  /* Dispatch allocates once. The same owner follows each sequencer. */
+
+  def ingress = interface_link(Decoupled(VectorDispatchEntry(xlen, slots)))
+  def candidate :: VectorCheckedDescriptor(xlen) = ingress.right.bits.checked
+  def descriptor :: VectorDescriptor(xlen) = candidate.descriptor
+  def route = memory_route(xlen, vlen, descriptor, candidate.certified)
+  def row_memory_eligible = route === MemoryRoute.Direct
+  def native_indices = row_memory_eligible & vector_indexed_memory(descriptor.control)
+  def checked_indices = (route === MemoryRoute.Checked) & vector_indexed_memory(descriptor.control)
+  def control = descriptor.control
+  def no_work = mux(control.memory, route === MemoryRoute.Empty, vector_dispatch_empty(xlen, vlen, descriptor))
+  instructions.no_work <== no_work
+  def compute = control.dispatch_kind === VectorDispatchKind.Execute
+  def compute_vps = compute & (control.vps =/= VectorVpsUse.None)
+  def needs_special = native_indices ||| checked_indices ||| (compute_vps & !no_work)
+  reg checking(~init: Bool(#false))
+  // Reserve the index stream at dispatch, before a younger memory operation
+  // can occupy the row engine that the oldest precise checker must drain.
+  def blocked = (needs_special & !special.install_ready) ||| (special.busy & checking & row_memory_eligible)
+  reg checker_reserved(~init: Bool(#false))
+  def tagged = ingress.right |> filter_flow(_entry => !no_work) |> gate_flow(!checker.busy & !checker_reserved & !blocked)
+  special.install.valid <== tagged.fire() & needs_special
+  special.install.bits <== ingress.right.bits
+  when (special.install.valid): checking <== checked_indices
+  when (ingress.right.fire() & !no_work & compute):
+    def unit = resolve_row_unit(xlen, vlen, descriptor, fp32, fp16)
+    assert(unit =/= RowUnit.Unavailable, "distributed_vector_execute_has_route")
+  instructions.reclaimed |> paths.reclaimed
+  paths.memory_busy <== rows.unavailable
+  claims.request.valid <== ingress.right.fire()
+  claims.request.bits <== candidate.descriptor
+  claims.allocation_empty <== no_work
+  def allocating :: VectorCheckedDescriptor(xlen) = tagged.bits.checked
+  paths.native_access <== row_memory_eligible
+  claims.allocation_native <== no_work ||| !allocating.descriptor.control.memory ||| row_memory_eligible
+  def Array(ordered, operands) = tagged |> atomic_fork(2)
+  ordered |> paths.ingress
+  def Issue = MemoryIssue(xlen, vlen, slots)
+  /* Direct preparation and later address launch resolve the same immutable descriptor. */
+  fun direct(entry :: VectorDispatchEntry(xlen, slots)) :~ MemoryIssue(xlen, vlen, slots):
+    direct_memory_issue(xlen, vlen, slots, entry)
+  inst prepare_port(GrantMerge(Issue, 2))
+  def grants = vec([checker.busy, !checker.busy]).into(MaybeOneHot(2))
+  prepare_port.grants <== grants
+  Array(checker.prepare, operands |> filter_flow(_entry => row_memory_eligible) |> map_flow(entry => direct(entry))) <=> prepare_port.ingress
+  prepare_port.egress |> rows.prepare
+  checker.checked_element |> rows.checked_element
+  rows.stream_live <== checker.stream_live
+  rows.stream_store <== checker.store
+  claims.allocation_precise <== !no_work & !allocating.certified
+  special.chain <=> claims.special_reads
+  special.permutation |> row_alu.permutation
+  special.reduction <=> row_alu.reduction
+  def Array(native_rows, checked_rows) = special.rows |> demux_flow(2, _row => checking)
+  native_rows |> map_flow(r => r.data) |> rows.indices
+  checked_rows |> checker.indices
+  rows.store_reads <=> claims.store_reads
+  claims.head_owner <== vec(for List (i in DispatchPaths): if i == ExecutePath | row_alu.chain.owner | paths.heads[i].bits.owner)
+  /* Snapshot direct translation only when the ordered address offer is accepted. */
+  fun direct_launch(entry :: VectorDispatchEntry(xlen, slots)) :~ MemoryLaunch(xlen, vlen, slots):
+    def d = entry.checked.descriptor
+    MemoryLaunch(xlen, vlen, slots):
+      issue: direct(entry)
+      pages: mux(d.precertified, vec([d.certificate.ppn, d.certificate.ppn]), window_pages)
+      service: VectorMemoryService.Cached
+
+  def exact_heads = checker.launch |> demux_flow(2, launch => launch.issue.command.store)
+  def ordinary = for Array (i in MemoryPaths):
+    def head = paths.heads[i]
+    def Array(ordinary, native) = head |> demux_flow(2, _entry => claims.head_native[i])
+    // A follower must still pass the VLSU physical-span check.
+    def follow_peer = rows.outstanding_store.valid & (rows.outstanding_store.bits === Bool(i == LoadPath))
+    def allowed = claims.head_allowed[i] & (memory_drained ||| follow_peer)
+    inst launch_port(GrantMerge(MemoryLaunch(xlen, vlen, slots), 2))
+    launch_port.grants <== grants
+    Array(exact_heads[i], native |> gate_flow(allowed) |> map_flow(entry => direct_launch(entry))) <=> launch_port.ingress
+    launch_port.egress |> rows.launch[i]
+    ordinary |> gate_flow(claims.head_allowed[i])
+  claims.head_issued <== vec(for List (i in DispatchPaths): if i == ExecutePath | Bool(#false) | paths.heads[i].fire())
+  rows.stream_owner <== checker.owner
+
+  /* Each row engine owns its reads and returns. The register view arbitrates physical ports. */
+
+  rows.outstanding_store |> native_outstanding_store
+  rows.chain <=> claims.mem_chain
+  row_alu.chain <=> claims.alu_chain
+  row_alu.launch_owner <== paths.native_execute.bits.owner
+  // WB can count the tail grant only when no other VRF client can take a
+  // required port. Under contention the current read still arbitrates normally.
+  def contested = claims.checked_live ||| (row_alu.read.bits.sources.uses_third() & (rows.unavailable[StorePath] ||| special.busy))
+  inst calendar(WritebackCalendar(1, ProductWriteDelay))
+  calendar.query_client[0] <== Bits(1)(0)
+  calendar.pause <== registers.load_turn
+  row_alu.read_credit <== claims.head_allowed[ExecutePath] & !contested
+  row_alu.fixed_write_credit <== calendar.registered_free[0] & !registers.load_turn
+  paths.native_execute |> map_flow(entry => entry.checked.descriptor) |> row_alu.launch
+  when (special.install.valid & special.busy):
+    assert(row_alu.launch.fire() & row_alu.issued.valid & (row_alu.issued.bits === special.chain.owner), "paired_permutation_turnover_has_one_retiring_cursor")
+  row_alu.read |> gate_flow(claims.head_allowed[ExecutePath]) |> registers.execute_read
+  registers.execute_result |> row_alu.operands
+  def reservation_width = calendar.reserve[0].bits.type.packed_width()
+  calendar.query_delay[0] <== row_alu.reserve.bits.zext(reservation_width)
+  row_alu.reserve |> map_flow(delay => delay.zext(reservation_width)) |> calendar.reserve[0]
+  row_alu.write |> registers.execute_writeback
+
+  checker.splat |> rows.splat
+  checker.pages <== window_pages
+  rows.memory <=> row_memory
+  Array(rows.write, row_alu.shared_write) |> rr_arbiter() |> registers.row_writeback
+  Array(rows.read, special.read) |> rr_arbiter() |> registers.row_read
+  special.lookahead |> registers.lookahead
+  reg index_return(~init: Bool(#false))
+  index_return <== special.read.fire()
+  Array(registers.row_result |> filter_valid(_data => index_return), registers.lookahead_result) |> valid_arbiter() |> special.result
+  registers.row_result |> filter_valid(_data => !index_return) |> rows.read_result
+  rows.mask[StorePath] <=> registers.memory_mask[StorePath]
+  def tap = registers.memory_mask[LoadPath]
+  Array(checker.predicate.sample, rows.mask[LoadPath].sample) |> valid_arbiter() |> tap.sample
+  rows.mask[LoadPath].data <== tap.data
+  checker.predicate.data <== tap.data
+  def checked_finish = rows.finished |> filter_valid(event => event.checked)
+  def direct_finish = rows.finished |> filter_valid(event => !event.checked)
+  def checked_issue = rows.issued |> filter_valid(event => event.checked)
+  checker.drained <== (checked_finish.valid & (checked_finish.bits.owner === checker.owner)) ||| (rows.element_drained.valid & (rows.element_drained.bits === checker.owner))
+  checker.issued <== checked_issue.valid & (checked_issue.bits.owner === checker.owner)
+  when (checked_issue.valid): assert(checker.busy & (checked_issue.bits.owner === checker.owner), "checked_issue_has_live_owner")
+  when (checked_finish.valid): assert(checker.busy & (checked_finish.bits.owner === checker.owner), "checked_finish_has_live_owner")
+  when (rows.element_drained.valid): assert(checker.busy & (rows.element_drained.bits === checker.owner), "checked_element_drain_has_live_owner")
+  def finished = for List (i in 0..slots):
+    def tag = InstructionId(i)
+    (direct_finish.valid & (direct_finish.bits.owner === tag)) ||| (checker.finished & (checker.owner === tag)) ||| (row_alu.finished.valid & (row_alu.finished.bits === tag)) ||| (row_alu.fold_finished.valid & (row_alu.fold_finished.bits === tag))
+  instructions.externally_finished <== vec(finished)
+  instructions.external_fault.valid <== checker.fault.valid
+  instructions.external_fault.bits <== checker.owner
+
+  // Native memory has priority for a simultaneous translation-window release.
+  def sequencing_done = Array(rows.issued |> filter_valid(event => !event.checked) |> map_valid(event => event.owner), inject_interface(Valid(InstructionId), ~valid: checker.release_window, ~bits: checker.owner)) |> valid_arbiter()
+  def check = ordinary |> arbiter()
+  check |> gate_flow((check.bits.owner === instructions.oldest_id) & memory_drained & !rows.busy) |> checker.start
+  when (tagged.fire() & (route === MemoryRoute.Checked)): checker_reserved <== Bool(#true)
+  elsewhen (checker.start.fire()): checker_reserved <== Bool(#false)
+  special.discard <== checker.discard_indices
+  inst admission(DistributedVectorAdmission(xlen, vlen, slots, Fault, ~pipe: #false, ~dispatch_depth: 0, ~release_declined: #true))
+  request |> admission.request
+  /* Allocate once at ordered dispatch. The issue path carries that same owner
+     through backpressure; completion slots remain per-beat execution resources. */
+  admission.allocate_id <== instructions.allocate_id
+  def Array(to_issue, track) = admission.dispatch |> gate_flow(instructions.available) |> atomic_fork(2)
+  def allocation = track |> map_flow(entry => entry.descriptor) |> to_valid()
+  allocation |> instructions.request
+  def allocated = to_issue |> map_flow(entry => VectorDispatchEntry(xlen, slots)):
+    checked: entry
+    owner: instructions.allocate_id
+  allocated |> ingress.left
+  row_alu.fp_request |> service.fp_request
+  service.fp_result |> row_alu.fp_result
+  row_alu.multiply_request |> service.multiply_request
+  service.multiply_result |> row_alu.multiply_result
+  row_alu.divide_request |> service.divide_request
+  service.divide_result |> row_alu.divide_result
+  row_alu.scalar_result |> service.scalar_result
+  row_alu.scalar_writeback |> service.scalar_writeback
+  row_alu.floating_result |> service.floating_result
+  row_alu.floating_writeback |> floating_writeback
+  def own = checker.busy & !checker.certified
+  def normal = admission.precheck
+  def exact = checker.check
+  Array(normal.request |> gate_flow(!own), exact.request |> gate_flow(own)) |> arbiter() |> precheck.request
+  // The owner is retained across the Irrevocable response stall.
+  normal.response.valid <== precheck.response.valid & !own
+  exact.response.valid <== precheck.response.valid & own
+  normal.response.bits <== precheck.response.bits
+  exact.response.bits <== precheck.response.bits
+  precheck.response.ready <== mux(own, exact.response.ready, normal.response.ready)
+  precheck.release.valid <== normal.release.valid ||| exact.release.valid
+  def empty :: VectorCommit(xlen, slots) = literal(VectorCommit(xlen, slots), 0)
+  def success = inject_interface(Valid(VectorCommit(xlen, slots)), ~valid: checker.authorized & !checker.certified, ~bits: empty.updated(~pc: checker.pc, ~disposition: VectorDisposition.Authorized))
+  def failure = checker.fault |> map_valid(f => empty.updated(~pc: checker.pc, ~disposition: VectorDisposition.Fault, ~cause: f.cause, ~fault_address: checker.fault_address))
+  def shortened = checker.truncate |> map_valid(_vl => empty.updated(~pc: checker.pc, ~disposition: VectorDisposition.Truncate))
+  Array(success, failure, shortened) |> valid_arbiter() |> admission.precise
+  admission.execution_certified <== Bool(#false)
+  admission.precise_fault <== checker.fault.bits.guest
+  checker.fault |> map_valid(_f => checker.restart) |> service.fault_start
+  checker.truncate |> service.truncate
+  sequencing_done |> admission.sequencing_done
+  // The single sequencer owns descriptor replacement. LSU isolation belongs
+  // at its first faultable read, not at descriptor installation.
+  admission.requests_idle <== Bool(#true)
+  admission.outcome |> outcome
+  outcome_fault <== admission.outcome_fault
+  service.available <== admission.available
+  instructions.memory_drained <== memory_drained
+  row_alu.fp_update |> service.fp_update
+  service.retire.valid <== outcome.valid & (outcome.bits.disposition =/= VectorDisposition.Fault)
+  instructions.retire |> service.execution_done
+  service.saturate.valid <== row_alu.saturate.valid
+  active <== instructions.active ||| admission.active
+  service.sequencing <== (instructions.live.as_bits() & !instructions.closed.as_bits()).any()
+  service.pending <== instructions.active
+  service.stores_pending <== instructions.stores_pending ||| admission.stores_pending
+  service.loads_pending <== instructions.loads_pending ||| admission.loads_pending
+  service.fp_pending <== instructions.fp_pending ||| admission.fp_pending
+  service.certification_pending <== admission.certification_pending
+  describe_cosim_signals({}, ~components: {"instructions": instructions, "rows": rows, "row_alu": row_alu})
+
+export DistributedVectorBackend

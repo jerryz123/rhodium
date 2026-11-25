@@ -21,8 +21,7 @@ std::uint64_t random_word() {
 }
 
 void step() {
-  std::uint64_t a, b, c, m, x, y, value, lane_mask, data, mask_bits,
-      broadcast_value;
+  std::uint64_t a, b, c, m, x, y, value, lane_mask, data, mask_bits;
   std::uint64_t actual_data, actual_mask;
   int width_bits, out_width, lanes, first, source_lane, position, address;
   bool legal, enabled, expected_valid;
@@ -58,21 +57,6 @@ void step() {
           (!mask_destination || first < vlen_bits);
   data = 0;
   mask_bits = 0;
-  broadcast_value = scalar;
-  if (operand_select == 2) {
-    switch (immediate_kind) {
-    case 1: {
-      broadcast_value =
-          (field(UINT64_C(0), 59, 5) | field(bit_slice(immediate, 0, 5), 5, 0));
-    } break;
-    case 2: {
-      broadcast_value = (field(UINT64_C(0), 58, 6) | field(immediate, 6, 0));
-    } break;
-    default: {
-      broadcast_value = sign_extend(immediate, 5);
-    } break;
-    }
-  }
   if (out_width <= 64) {
     lane_mask = UINT64_C(0xffffffffffffffff) >> (64 - width_bits);
     for (int lane = 0; lane < 64 / out_width; lane++) {
@@ -84,8 +68,7 @@ void step() {
       x = left_wide ? (a >> (lane * out_width)) &
                           (UINT64_C(0xffffffffffffffff) >> (64 - out_width))
                     : (a >> (source_lane * width_bits)) & lane_mask;
-      y = operand_select == 0 ? (b >> (source_lane * width_bits)) & lane_mask
-                              : broadcast_value & lane_mask;
+      y = (broadcast_rhs ? scalar : b >> (source_lane * width_bits)) & lane_mask;
       if (widening && !left_wide && left_signed &&
           bit_slice(x, width_bits - 1, 1))
         x |= ~lane_mask;
@@ -172,15 +155,13 @@ void defaults() {
   vstart = 0;
   vlmax = 1;
   masked = 0;
-  operand_select = 0;
-  immediate_kind = 0;
+  broadcast_rhs = 0;
   widening = 0;
   upper_half = 0;
   left_wide = 0;
   left_signed = 0;
   right_signed = 0;
   scalar = 0;
-  immediate = 0;
   operation = 0;
 }
 
@@ -347,9 +328,7 @@ void stimulus() {
         vstart = (((trial * 3) % (int(vlmax) + 1)) & low_mask(17));
         masked = (trial & 2) != 0;
         mask_destination = (trial % 9) == 0;
-        operand_select = ((trial % 3) & low_mask(2));
-        immediate_kind = ((trial % 3) & low_mask(2));
-        immediate = ((trial)&low_mask(6));
+        broadcast_rhs = trial % 3 != 0;
         scalar = random_word();
         operation = ((trial % 5) & low_mask(3));
         destination = ((trial % 24) & low_mask(5));

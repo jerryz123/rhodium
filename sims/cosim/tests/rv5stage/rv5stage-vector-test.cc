@@ -381,7 +381,232 @@ std::string store_and_load_completion(unsigned seed) {
   return output.str();
 }
 
+void native_row(unsigned xlen, bool store, bool execute = false, Word low_mask = UINT64_MAX, Word high_mask = UINT64_MAX, unsigned enabled = 0xffff, bool floating = false) {
+  Collector collector; collector.reset(0,0,{0,0x8000,{3,false},xlen,256}); DpiBinding binding(collector);
+  auto begin = [&](Word cycle) {
+    collector.begin_sample(cycle);
+    test_rv5stage_vector_cycle(0,0,xlen,256,2,0,0,0,0,0);
+  };
+  begin(0);
+  const Word insn = floating ? 0x02209457 : execute ? 0x02208457 : store ? (load & ~Word{127}) | 0x27 : load;
+  collector.instruction(0,{0,0},instruction(0x8000,insn));
+  test_rv5stage_vector_allocate(0,0,0,1,1,insn);
+  test_rv5stage_vector_dispatch(0,0,0,0x1000,2,insn,16);
+  binding.check(); collector.end_sample();
+  begin(1);
+  constexpr Word lo = 0x7766554433221100, hi = 0xffeeddccbbaa9988;
+  if (execute) {
+    rhodium_vector_row_write(0,0,17,1,hi,high_mask,floating,17);
+    rhodium_vector_row_write(0,0,17,0,lo,low_mask,floating,17);
+  }
+  else {
+    rhodium_vector_row_transfer(0,0,store,0,0,16,0x1010,0xf010,1,hi,enabled >> 8);
+    rhodium_vector_row_transfer(0,0,store,0,0,16,0x1010,0xf010,0,lo,enabled & 255);
+    low_mask = high_mask = 0;
+    for (unsigned i = 0; i < 16; ++i)
+      if (enabled & (1u << i)) (i < 8 ? low_mask : high_mask) |= Word{255} << (8*(i%8));
+    if (!store) {
+      binding.check(); require(collector.end_sample().empty());
+      begin(2);
+      rhodium_vector_row_write(0,0,17,1,hi,high_mask,0,0);
+      rhodium_vector_row_write(0,0,17,0,lo,low_mask,0,0);
+    }
+  }
+  collector.retire(0,{0,0},{0x8004,{3,false}});
+  test_rv5stage_vector_drain(0,0,0);
+  binding.check(); const auto records = collector.end_sample();
+  const unsigned expected_writes = store ? 0 : unsigned(low_mask != 0) + unsigned(high_mask != 0);
+  require(records.size() == 1 && records.front().effects.size() == (execute ? 0 : __builtin_popcount(enabled)) + expected_writes + unsigned(floating));
+  unsigned bytes = 0, writes = 0;
+  for (const auto& [id, effect] : records.front().effects) {
+    if (const auto* w = std::get_if<RegisterWrite>(&effect)) {
+      const bool upper = writes != 0 || !low_mask;
+      require(w->index == 8 && w->bit_offset == 128 + 64*upper && w->mask == (upper ? high_mask : low_mask));
+      require(w->value == (upper ? hi : lo));
+      ++writes;
+    } else if (const auto* csr = std::get_if<CsrUpdate>(&effect)) {
+      require(floating && csr->address == 1 && csr->operation == CsrOperation::SetBits && csr->value == 17);
+    } else {
+      const auto& m = std::get<MemoryEffect>(effect);
+      while (bytes < 16 && !(enabled & (1u << bytes))) ++bytes;
+      require(bytes < 16 && m.access_id == 4 + bytes/4 && m.fragment_offset == bytes%4);
+      require(m.virtual_address == 0x1010 + bytes && m.physical_address == 0xf010 + bytes);
+      require(m.kind == (store ? AccessKind::Store : AccessKind::Load));
+      require(m.write_valid == store && m.read_valid != store);
+      require((store ? m.write_data : m.read_data) == 17*bytes++);
+    }
+  }
+  require((execute || (enabled >> bytes) == 0) && writes == expected_writes);
+  collector.finish();
+}
+
+void simultaneous_native_rows(unsigned xlen, unsigned vlen, bool store_first_callback) {
+  const Word dlen=vlen/2, chunk=(dlen-1)/64;
+  Collector collector; collector.reset(0,0,{0,0x8000,{3,false},xlen,vlen}); DpiBinding binding(collector);
+  auto sample = [&](Word cycle) {
+    collector.begin_sample(cycle);
+    test_rv5stage_vector_cycle(0,0,xlen,vlen,2,0,0,0,0,0);
+  };
+  for (Word owner=0;owner<2;++owner) {
+    sample(owner);
+    const Word insn=owner ? (load & ~Word{127}) | 0x27 : load;
+    collector.instruction(0,{0,owner},instruction(0x8000+4*owner,insn));
+    collector.retire(0,{0,owner},{0x8004+4*owner,{3,false}});
+    test_rv5stage_vector_allocate(0,0,owner,1,1,insn);
+    test_rv5stage_vector_dispatch(0,0,owner,0x1000+16*owner,2,insn,16);
+    binding.check(); require(collector.end_sample().empty());
+  }
+  sample(2);
+  for (bool store : {store_first_callback,!store_first_callback})
+    rhodium_vector_row_transfer(0,store,store,0,0,0,0x1000+16*store,0x4000+16*store,chunk,0x20+store,1);
+  rhodium_vector_row_write(0,0,17,chunk,0x20,255,0,0);
+  for (unsigned owner=0;owner<2;++owner) {
+    if (owner) sample(3);
+    test_rv5stage_vector_drain(0,0,owner);
+    binding.check(); const auto records=collector.end_sample();
+    require(records.size()==1 && records[0].effects.size()==(owner ? 1 : 2));
+    bool found=false;
+    for (const auto& [id,effect] : records[0].effects) {
+      if (const auto* m=std::get_if<MemoryEffect>(&effect)) {
+        found=true;
+        require(m->physical_address==0x4000+16*owner+8*chunk && m->kind==(owner ? AccessKind::Store : AccessKind::Load));
+        require((owner ? m->write_data : m->read_data)==0x20+owner);
+      } else {
+        const auto& w=std::get<RegisterWrite>(effect);
+        require(w.index==8 && w.bit_offset==dlen+chunk*64 && w.mask==255);
+      }
+    }
+    require(found);
+  }
+  collector.finish();
+}
+
+void displaced_native_transfer(unsigned xlen, bool store) {
+  const unsigned vlen=4*xlen, beat_bytes=vlen/16, base=0x1ffc;
+  Collector collector; collector.reset(0,0,{0,0x8000,{3,false},xlen,vlen}); DpiBinding binding(collector);
+  auto sample=[&](unsigned cycle) {
+    collector.begin_sample(cycle);
+    test_rv5stage_vector_cycle(0,0,xlen,vlen,2,0,0,0,0,0);
+  };
+  sample(0);
+  const Word insn=store ? (load & ~Word{127}) | 0x27 : load;
+  collector.instruction(0,{0,0},instruction(0x8000,insn));
+  collector.retire(0,{0,0},{0x8004,{3,false}});
+  test_rv5stage_vector_allocate(0,0,0,1,1,insn);
+  test_rv5stage_vector_dispatch(0,0,0,base,2,insn,16);
+  binding.check(); require(collector.end_sample().empty());
+  sample(1);
+  rhodium_vector_row_transfer(0,0,store,0,0,0,0x2000-beat_bytes,0x61000-beat_bytes,(beat_bytes-1)/8,UINT64_C(0x0403020100000000),0xf0);
+  binding.check(); require(collector.end_sample().empty());
+  sample(2);
+  rhodium_vector_row_transfer(0,0,store,0,0,beat_bytes,0x2000,0x90000,0,0x08070605,0x0f);
+  binding.check(); require(collector.end_sample().empty());
+  sample(3);
+  if (!store) rhodium_vector_row_write(0,0,16,0,UINT64_C(0x0807060504030201),UINT64_MAX,0,0);
+  test_rv5stage_vector_drain(0,0,0);
+  binding.check(); const auto records=collector.end_sample();
+  require(records.size()==1 && records[0].effects.size()==(store ? 8u : 9u));
+  unsigned bytes=0;
+  for (const auto& [id,effect] : records[0].effects) {
+    if (const auto* m=std::get_if<MemoryEffect>(&effect)) {
+      require(m->kind==(store ? AccessKind::Store : AccessKind::Load));
+      require(m->access_id==bytes/4 && m->fragment_offset==bytes%4 && (store ? m->write_data : m->read_data)==bytes+1);
+      require(m->virtual_address==base+bytes && m->physical_address==(bytes<4 ? 0x60ffcu+bytes : 0x90000u+bytes-4));
+      ++bytes;
+    } else {
+      const auto& w=std::get<RegisterWrite>(effect);
+      require(w.index==8 && !w.bit_offset && w.value==UINT64_C(0x0807060504030201) && w.mask==UINT64_MAX);
+    }
+  }
+  require(bytes==8); collector.finish();
+}
+
+void elementwise_row_transfer(unsigned xlen,bool store,unsigned mop,unsigned eew,unsigned fields=1) {
+  Collector collector; collector.reset(0,0,{0,0x8000,{3,false},xlen,4*xlen}); DpiBinding binding(collector);
+  const Word base=0x1056, beat_bytes=xlen/4;
+  const bool indexed=mop!=2;
+  const Word size=1u<<eew;
+  const Word insn=(Word(fields-1)<<29)|(mop<<26)|(1u<<20)|(6u<<15)|((indexed ? 0u : 5u)<<12)|(8u<<7)|(store ? 0x27 : 7);
+  auto sample=[&](unsigned cycle) {
+    collector.begin_sample(cycle); test_rv5stage_vector_cycle(0,0,xlen,4*xlen,2,0,0,0,0,0);
+  };
+  sample(0);
+  collector.instruction(0,{0,0},instruction(0x8000,insn)); collector.retire(0,{0,0},{0x8004,{3,false}});
+  test_rv5stage_vector_allocate(0,0,0,1,1,insn); test_rv5stage_vector_dispatch(0,0,0,base,eew,insn,eew<<3);
+  binding.check(); require(collector.end_sample().empty());
+  // Element 1 is masked. Indexed elements 0 and 2 share an address, not an access ID.
+  unsigned cycle=0;
+  auto address=[&](unsigned i) {return indexed ? (base/beat_bytes+3)*beat_bytes-1 : base-6*i;};
+  for (unsigned i : {0u,2u}) {
+    for(unsigned byte=0;byte<size;) {
+      sample(++cycle);
+      Word va=address(i)+byte, lane=va%beat_bytes;
+      unsigned n=std::min(size-byte,beat_bytes-lane);
+      Word payload=0;
+      for(unsigned b=0;b<n;++b) payload|=Word(0x40+byte+b)<<(8*(lane%8+b));
+      rhodium_vector_row_transfer(0,0,store,fields>1,2*(8+i),size*i+byte,va-lane,0xf000+va-lane,lane/8,payload,((1u<<n)-1)<<(lane%8));
+      binding.check(); require(collector.end_sample().empty());
+      byte+=n;
+    }
+  }
+  sample(++cycle); test_rv5stage_vector_drain(0,0,0); binding.check(); const auto records=collector.end_sample();
+  require(records.size()==1 && records[0].effects.size()==2*size);
+  unsigned n=0;
+  for (const auto& [_,effect]:records[0].effects) {
+    const auto& m=std::get<MemoryEffect>(effect);
+    const unsigned element=n<size ? 0 : 2, byte=n%size;
+    require(m.access_id==element*fields+(fields>1?element:0) && m.fragment_offset==byte && m.virtual_address==address(element)+byte &&
+            m.physical_address==0xf000+m.virtual_address && (store ? m.write_data : m.read_data)==0x40+byte);
+    ++n;
+  }
+  collector.finish();
+}
+
+static void simultaneous_scalar_banks(bool reverse) {
+  Collector collector; collector.reset(0,0,reset_state()); DpiBinding binding(collector);
+  auto begin=[&](unsigned cycle) {
+    collector.begin_sample(cycle); test_rv5stage_vector_cycle(0,0,64,128,2,0,0,0,0,0);
+  };
+  for(Word o=0;o<2;++o) {
+    begin(o);
+    const Word code=o ? 0x42001657 : 0x428822d7;
+    collector.instruction(0,{0,o},instruction(0x8000+4*o,code));
+    collector.retire(0,{0,o},{0x8004+4*o,{3,false}});
+    test_rv5stage_vector_allocate(0,0,o,1,1,code);
+    test_rv5stage_vector_dispatch(0,0,o,0,0,code,0);
+    binding.check(); require(collector.end_sample().empty());
+  }
+  begin(2);
+  for(Word i=0;i<2;++i) {
+    const Word o=i^reverse;
+    rhodium_vector_scalar_write(0,o,o,o?12:5,0x45+o);
+  }
+  binding.check(); require(collector.end_sample().empty());
+  for(Word o=0;o<2;++o) {
+    begin(3+o); test_rv5stage_vector_drain(0,0,o); binding.check();
+    const auto records=collector.end_sample();
+    require(records.size()==1 && records[0].effects.size()==1);
+    const auto& w=std::get<RegisterWrite>(records[0].effects.begin()->second);
+    require(w.bank==(o?Bank::FloatingPoint:Bank::Integer) && w.index==(o?12u:5u) && w.value==0x45+o);
+  }
+  collector.finish();
+}
+
 int main() {
+  for(bool reverse:{false,true}) simultaneous_scalar_banks(reverse);
+  for (unsigned xlen : {32u,64u}) for (bool store : {false,true}) {
+    elementwise_row_transfer(xlen,store,2,1);
+    for(unsigned mop:{0u,1u,2u,3u}) elementwise_row_transfer(xlen,store,mop,1,3);
+    for(unsigned mop:{1u,3u}) for(unsigned e=0;e<=(xlen==32?2u:3u);++e) elementwise_row_transfer(xlen,store,mop,e);
+  }
+  for (unsigned xlen : {32u,64u}) for (bool store : {false,true}) displaced_native_transfer(xlen,store);
+  for (unsigned xlen : {32u,64u}) for (unsigned vlen : {128u,256u,512u})
+    for (bool store_first : {false,true}) simultaneous_native_rows(xlen,vlen,store_first);
+  for (unsigned xlen : {32u, 64u}) for (bool store : {false,true})
+    for (unsigned enabled : {0xffffu, 0xf0f0u, 0x0f00u}) native_row(xlen, store, false, 0, 0, enabled);
+  for (unsigned xlen : {32u, 64u}) for (Word low : {Word{0}, Word{0xff00ff00}}) for (Word high : {Word{0}, Word{0xff000000000000ff}})
+    native_row(xlen, false, true, low, high);
+  for (unsigned xlen : {32u, 64u}) native_row(xlen, false, true, UINT64_MAX, 0, 0xffff, true);
   const auto simultaneous_baseline=store_and_load_completion(0);
   for(unsigned seed=1;seed<64;++seed) require(store_and_load_completion(seed)==simultaneous_baseline);
   for (const auto& [raw,effective] : {std::pair{Word{0x7f00000000001000},Word{0x1000}},

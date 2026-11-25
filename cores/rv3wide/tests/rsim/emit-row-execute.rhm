@@ -1,0 +1,10 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("cores/common/vector/distributed/backend/row-execute.rhdl").VectorRowExecute
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("riscv/isa/xlen.rhm").XLen
+
+def rv32 = elaborate(VectorRowExecute(XLen.X32, 128, 4))
+def rv64 = elaborate(VectorRowExecute(XLen.X64, 256, 4))
+export rv32 rv64

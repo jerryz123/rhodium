@@ -394,15 +394,15 @@ void stimulus() {
     request_valid = 0;
     drain();
 
-    // The tail store must be visible immediately, but must not start checking
-    // until the preceding compute descriptor has left the queue.
+    // The checker can probe a store while the older compute descriptor still
+    // waits for dispatch. The store barrier covers both checking and sequencing.
     clear();
     launch(move_insn(8, 1), UINT64_C(16), 16, 27);
     launch(move_insn(16, 2), UINT64_C(32), 16, 27);
     launch(memory_insn(24, 1), UINT64_C(768), 2, 24);
     settle();
     CHECK(stores_pending && !loads_pending && certification_pending &&
-          !precheck_out.prequest.pvalid);
+          precheck_out.prequest.pvalid);
     // Live input changes must not alter the captured memory range or its PC.
     instruction = move_insn(4, 7);
     scalar = UINT64_C(57005);

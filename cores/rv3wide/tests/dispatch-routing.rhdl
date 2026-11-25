@@ -1,0 +1,75 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("cores/common/vector/tests/decode.rhdl").VectorTestDecoder
+  lib("cores/common/vector/decode.rhdl") open
+  lib("cores/common/vector/dependencies.rhdl") open
+  lib("cores/common/vector/bundles.rhdl").VectorDescriptor
+  lib("cores/common/vector/distributed/backend/execute-sequencer.rhdl").resolve_row_unit
+  lib("cores/common/vector/distributed/exu/issue.rhdl").RowUnit
+  lib("cores/common/vector/distributed/common/memory-route.rhdl") open
+  lib("cores/common/vector/distributed/backend/dispatch.rhdl").vector_dispatch_empty
+  lib("riscv/isa/v.rhm") open
+  lib("riscv/isa/zvbb.rhm").ZvbbInstructions
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/isa/vector-profile.rhm") open
+
+circuit DistributedRouteFixture(xlen :: XLen):
+  def vlen = 4*xlen.width
+  def profile = if xlen == XLen.X64 | VectorProfile.V | VectorProfile.Zve32f
+  def extensions = [VectorExtension.Zvbb, VectorExtension.Zvfh]
+  def catalog = VectorVInstructions.filter(~keep: fun (i): !VectorConfigInstructions.contains(i)) ++ ZvbbInstructions
+  input index: Bits(index_width(catalog.length()))
+  input(masked, certified, fast_proof): Bool
+  input(vtype, vl, start): Bits(xlen.width)
+  input scalar: Bits(xlen.width)
+  input(vs1, vs2, vd): Bits(5)
+  output count: Bits(16)
+  output register_bytes: Bits(8)
+  register_bytes <== Bits(8)(vlen div 8)
+  output instruction: Bits(32)
+  output(legal, routed, empty): Bool
+  count <== Bits(16)(catalog.length())
+  def operands = concat((!masked).as_bits(), vs2, vs1, Bits(3)(0), vd, Bits(7)(0)).zext(32)
+  def encodings = for List (i in catalog): Bits(32)(i.encoding.value)
+  def cares = for List (i in catalog): Bits(32)(i.encoding.care)
+  instruction <== vec(encodings)[index] ||| (operands & !vec(cares)[index])
+  inst decode(VectorTestDecoder(profile, extensions))
+  inst legality(VectorOperationLegality(xlen, vlen, profile, extensions))
+  decode.instruction <== instruction
+  // Give memory hostile compute geometry: restart remains legal and neither
+  // a wide VD nor a wide VS2 may change its data/index register footprint.
+  def decoded :: VectorControl() = decode.control
+  def control = decoded.updated(~sequence: mux(decoded.memory, VectorSequence.Reduction, decoded.sequence),
+                                ~width_shape: mux(decoded.memory, mux(decoded.store, VectorWidthShape.Narrow, VectorWidthShape.Widen), decoded.width_shape))
+  legality.instruction <== instruction
+  legality.control <== control
+  legality.vtype <== vtype
+  legality.vstart <== start
+  legal <== decode.valid & legality.legal
+  def zero :: VectorDescriptor(xlen) = literal(VectorDescriptor(xlen), 0)
+  def d = zero.updated(~control: control, ~instruction: instruction, ~scalar: scalar, ~masked: !instruction[25].into(Bool),
+                       ~precertified: fast_proof, ~state: zero.state.updated(~vl: vl, ~vtype: vtype, ~vstart: start))
+  output(read_claims, write_claims): Bits(32)
+  read_claims <== vector_reader_registers(xlen, vlen, d)
+  // Distributed dispatch treats the active VD/VS3 footprint as reads for stores and writes otherwise.
+  write_claims <== mux(control.memory & control.store, Bits(32)(0), vector_vd_vs3_registers(xlen, vlen, d))
+  empty <== vector_dispatch_empty(xlen, vlen, d)
+  def route = memory_route(xlen, vlen, d, certified)
+  output direct: Bool
+  direct <== route === MemoryRoute.Direct
+  def memory = route =/= MemoryRoute.Empty
+  def unit = resolve_row_unit(xlen, vlen, d, #true, #true)
+  routed <== empty ||| mux(decode.control.memory, memory, unit =/= RowUnit.Unavailable)
+  output(fold, permutation, reduction_seed, data_unit, product, shared_product, local_fp, pipelined_fp, iterative_fp): Bool
+  fold <== decode.control.cursor === VectorComputeCursor.Fold
+  permutation <== decode.control.vps === VectorVpsUse.Permutation
+  reduction_seed <== decode.control.vps === VectorVpsUse.ReductionSeed
+  data_unit <== unit === RowUnit.Data
+  product <== unit === RowUnit.Product
+  shared_product <== unit === RowUnit.SharedProduct
+  local_fp <== unit === RowUnit.LocalFp
+  pipelined_fp <== unit === RowUnit.SharedFpPipelined
+  iterative_fp <== unit === RowUnit.SharedFpIterative
+
+export DistributedRouteFixture

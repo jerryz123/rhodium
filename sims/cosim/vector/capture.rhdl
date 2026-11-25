@@ -49,6 +49,12 @@ dpi_import procedure rhodium_vector_write(
   local_owner: Bits(64), packed_owner: Bits(64), splat_owner: Bits(64)
 )
 
+/* Reports enabled bytes at cache load delivery or irrevocable store acceptance. */
+dpi_import procedure rhodium_vector_row_transfer(instance: Bits(64), owner: Bits(64), store: Bits(64), singleton: Bits(64), row: Bits(64), offset: Bits(64), va: Bits(64), pa: Bits(64), chunk: Bits(64), data: Bits(64), byte_mask: Bits(64))
+
+/* Reports a load or execute result at physical VRF writeback, independently of memory. */
+dpi_import procedure rhodium_vector_row_write(instance: Bits(64), owner: Bits(64), row: Bits(64), chunk: Bits(64), data: Bits(64), mask: Bits(64), flags_valid: Bits(64), flags: Bits(64))
+
 /* Captures direct signals for native settled-cycle interpretation. */
 dpi_import procedure rhodium_vector_direct(instance: Bits(64), tag: Bits(64), data: Bits(64))
 
@@ -92,74 +98,105 @@ fun cosim_vector(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, owners ::
 
   /* Recover a boolean event enable from its declared passive tap. */
   fun flag(name :: String) :~ Bool: taps[name]
+  /* Marshal a physical row as ordered, fixed-size DPI words, padding only the last word. */
+  fun part(name :: String, index :: Nat, word_bits :: PosInt) :~ Bits(64):
+    def value :: Hardware.of(types[name]) = taps[name]
+    def first = index * word_bits
+    def last = math.min(first + word_bits, types[name].packed_width())
+    value.as_bits()[first..last].zext(64)
+
+  def chunks = (vlen div 2 + 63) div 64
+  for (chunk in 0..chunks):
+    for (kind in ["load", "store"]):
+      def rows = "vector_backend_rows_" ++ kind ++ "_"
+      if types.has_key(rows ++ "transfer")
+      | rhodium_vector_row_transfer.call(instance, lane(rows ++ "owner"), Bits(64)(if kind == "store" | 1 | 0), lane(rows ++ "singleton"), lane(rows ++ "row"), lane(rows ++ "offset"), lane(rows ++ "va"), lane(rows ++ "pa"), Bits(64)(chunk), part(rows ++ "data", chunk, 64), part(rows ++ "byte_mask", chunk, 8), ~enable: active & flag(rows ++ "transfer"))
+      | #void
+    def load = "vector_backend_rows_write"
+    if types.has_key(load)
+    | rhodium_vector_row_write.call(instance, lane(load ++ "_owner"), lane(load ++ "_row"), Bits(64)(chunk), part(load ++ "_data", chunk, 64), part(load ++ "_mask", chunk, 64), Bits(64)(0), Bits(64)(0), ~enable: active & flag(load))
+    | #void
+    def alu = "vector_backend_row_alu_"
+    if types.has_key(alu ++ "write")
+    | rhodium_vector_row_write.call(instance, lane(alu ++ "owner"), lane(alu ++ "row"), Bits(64)(chunk), part(alu ++ "data", chunk, 64), part(alu ++ "mask", chunk, 64), lane(alu ++ "floating"), lane(alu ++ "flags"), ~enable: active & flag(alu ++ "write"))
+    | #void
   rhodium_vector_admission.call(instance, ~enable: active & flag("vector_admitted"))
-  rhodium_vector_fp.call(
-    instance, lane("vector_backend_execution_fp_allocate"),
-    lane("vector_backend_execution_service_owner"), lane("vector_backend_execution_service_tag"),
-    lane("vector_backend_execution_fp_launch"), lane("vector_backend_execution_fp_tag"),
-    lane("vector_backend_execution_fp_return"), lane("vector_backend_execution_fp_return_tag"),
-    lane("vector_backend_execution_fp_flags_valid"), lane("vector_backend_execution_fp_flags"), ~enable: active
-  )
-
-  rhodium_vector_service.call(
-    instance, lane("vector_backend_execution_service_allocate"), lane("vector_backend_execution_service_owner"),
-    lane("vector_backend_execution_service_tag"), lane("vector_backend_execution_service_divide"),
-    lane("vector_backend_execution_multiply_launch"), lane("vector_backend_execution_multiply_tag"),
-    lane("vector_backend_execution_divide_launch"), lane("vector_backend_execution_divide_tag"),
-    lane("vector_backend_execution_multiply_return"), lane("vector_backend_execution_multiply_return_tag"),
-    lane("vector_backend_execution_divide_return"), lane("vector_backend_execution_divide_return_tag"), lane("vector_backend_execution_service_packed"), ~enable: active
-  )
-
-  def issued :: VectorToken(xlen, Bits(xlen.width), slots) = taps["vector_backend_execution_memory_token"]
-  def write :: VectorRegisterWrite(xlen, vlen) = taps["vector_backend_execution_write"]
-  def completion :: VectorCompletion(xlen, slots) = taps["vector_memory_completion"]
-  def decision :: VectorCommit(xlen, slots) = taps["vector_backend_execution_memory_decision"]
+  def unified = types.has_key("vector_backend_execution_memory_token")
   def pipeline_valid :: Bool = if types.has_key("mmu_pipeline_valid") | mmu["mmu_pipeline_valid"] | Bool(#false)
   def pipeline_address = if types.has_key("mmu_pipeline_address") | mmu["mmu_pipeline_address"] | Bits(xlen.width)(0)
   rhodium_vector_cycle.call(
-    instance, Bits(64)(xlen.width), Bits(64)(vlen), Bits(64)(slots), Bits(64)(owners), Bits(64)(dispatch_depth), pipeline_valid.as_bits().zext(64),
-    capture_lane(pipeline_address), lane("vector_memory_split"), Bits(64)(if types.has_key("mmu_fragment_completed") || types.has_key("mmu_fragment_response") | 1 | 0),
-    lane("vector_backend_execution_replay"), ~enable: active
+    instance, Bits(64)(xlen.width), Bits(64)(vlen), Bits(64)(slots), Bits(64)(if unified | owners | slots), Bits(64)(dispatch_depth), pipeline_valid.as_bits().zext(64),
+    capture_lane(pipeline_address), (if unified | lane("vector_memory_split") | Bits(64)(0)), Bits(64)(if types.has_key("mmu_fragment_completed") || types.has_key("mmu_fragment_response") | 1 | 0),
+    (if unified | lane("vector_backend_execution_replay") | Bits(64)(0)), ~enable: active
   )
 
+  def allocation = if unified | "vector_backend_execution_" | "vector_backend_instructions_"
+  def reclaim = if unified | "vector_backend_execution_instructions_" | "vector_backend_instructions_"
   rhodium_vector_dispatch.call(
-    instance, lane("vector_backend_execution_owner"), lane("vector_backend_execution_base"), lane("vector_backend_execution_eew"),
-    lane("vector_backend_execution_instruction"), lane("vector_backend_execution_vtype"), ~enable: active & flag("vector_backend_execution_admitted")
+    instance, lane(allocation ++ (if unified | "owner" | "allocated_owner")), lane(allocation ++ "base"), lane(allocation ++ "eew"),
+    lane(allocation ++ "instruction"), lane(allocation ++ "vtype"), ~enable: active & flag(allocation ++ "admitted")
   )
+  rhodium_vector_drain.call(instance, lane(reclaim ++ (if unified | "owner" | "drained_owner")), ~enable: active & flag(reclaim ++ "drained"))
+  def vx = "vector_backend_row_alu_scalar_"
+  if types.has_key(vx ++ "write")
+  | rhodium_vector_scalar_write.call(instance, lane(vx ++ "owner"), lane(vx ++ "floating"), lane(vx ++ "rd"), lane(vx ++ "data"), ~enable: active & flag(vx ++ "write"))
+  | #void
+  if unified
+  | block:
+      rhodium_vector_fp.call(
+        instance, lane("vector_backend_execution_fp_allocate"),
+        lane("vector_backend_execution_service_owner"), lane("vector_backend_execution_service_tag"),
+        lane("vector_backend_execution_fp_launch"), lane("vector_backend_execution_fp_tag"),
+        lane("vector_backend_execution_fp_return"), lane("vector_backend_execution_fp_return_tag"),
+        lane("vector_backend_execution_fp_flags_valid"), lane("vector_backend_execution_fp_flags"), ~enable: active
+      )
 
-  rhodium_vector_issue.call(
-    instance, lane("vector_backend_execution_memory_owner"), capture_lane(issued.completion_tag),
-    lane("vector_backend_execution_memory_first"), lane("vector_backend_execution_memory_destination"), lane("vector_backend_execution_memory_packed"),
-    issued.enabled.as_bits().zext(64), issued.store.as_bits().zext(64), capture_lane(issued.address), lane("vector_backend_execution_memory_effective_address"),
-    capture_lane(issued.physical_address), issued.precertified.as_bits().zext(64),
-    capture_lane(issued.byte_mask), capture_lane(issued.store_data),
-    ~enable: active & flag("vector_backend_execution_memory_issue")
-  )
+      rhodium_vector_service.call(
+        instance, lane("vector_backend_execution_service_allocate"), lane("vector_backend_execution_service_owner"),
+        lane("vector_backend_execution_service_tag"), lane("vector_backend_execution_service_divide"),
+        lane("vector_backend_execution_multiply_launch"), lane("vector_backend_execution_multiply_tag"),
+        lane("vector_backend_execution_divide_launch"), lane("vector_backend_execution_divide_tag"),
+        lane("vector_backend_execution_multiply_return"), lane("vector_backend_execution_multiply_return_tag"),
+        lane("vector_backend_execution_divide_return"), lane("vector_backend_execution_divide_return_tag"), lane("vector_backend_execution_service_packed"), ~enable: active
+      )
 
-  rhodium_vector_write.call(
-    instance, capture_lane(write.address), capture_lane(write.mask), capture_lane(write.data),
-    lane("vector_backend_execution_local_write"), lane("vector_backend_execution_packed_write"), lane("vector_backend_execution_splat_write"),
-    lane("vector_backend_execution_write_owner"), lane("vector_backend_execution_packed_write_owner"), lane("vector_backend_execution_splat_owner"),
-    ~enable: active & flag("vector_backend_execution_write_valid")
-  )
+      def issued :: VectorToken(xlen, Bits(xlen.width), slots) = taps["vector_backend_execution_memory_token"]
+      def write :: VectorRegisterWrite(xlen.width, vlen) = taps["vector_backend_execution_write"]
+      def completion :: VectorCompletion(xlen, slots) = taps["vector_memory_completion"]
+      def decision :: VectorCommit(xlen, slots) = taps["vector_backend_execution_memory_decision"]
+      rhodium_vector_issue.call(
+        instance, lane("vector_backend_execution_memory_owner"), capture_lane(issued.completion_tag),
+        lane("vector_backend_execution_memory_first"), lane("vector_backend_execution_memory_destination"), lane("vector_backend_execution_memory_packed"),
+        issued.enabled.as_bits().zext(64), issued.store.as_bits().zext(64), capture_lane(issued.address), lane("vector_backend_execution_memory_effective_address"),
+        capture_lane(issued.physical_address), issued.precertified.as_bits().zext(64),
+        capture_lane(issued.byte_mask), capture_lane(issued.store_data),
+        ~enable: active & flag("vector_backend_execution_memory_issue")
+      )
 
-  rhodium_vector_direct.call(instance, lane("vector_memory_direct_tag"), lane("vector_memory_direct_data"), ~enable: active & flag("vector_memory_direct"))
-  rhodium_vector_complete.call(instance, capture_lane(completion.tag), capture_lane(completion.data), ~enable: active & flag("vector_memory_completed"))
-  rhodium_vector_store_complete.call(instance, lane("vector_memory_store_completed_tag"), ~enable: active & flag("vector_memory_store_completed"))
-  rhodium_vector_fault.call(instance, lane("vector_memory_fault_tag"), lane("vector_memory_fault_address"), ~enable: active & flag("vector_memory_fault"))
-  rhodium_vector_decision.call(
-    instance, capture_lane(decision.tag), capture_lane(decision.disposition.as_bits()),
-    ~enable: active & flag("vector_backend_execution_memory_decision_valid")
-  )
+      rhodium_vector_write.call(
+        instance, capture_lane(write.address), capture_lane(write.mask), capture_lane(write.data),
+        lane("vector_backend_execution_local_write"), lane("vector_backend_execution_packed_write"), lane("vector_backend_execution_splat_write"),
+        lane("vector_backend_execution_write_owner"), lane("vector_backend_execution_packed_write_owner"), lane("vector_backend_execution_splat_owner"),
+        ~enable: active & flag("vector_backend_execution_write_valid")
+      )
 
-  rhodium_vector_drain.call(instance, lane("vector_backend_execution_instructions_owner"), ~enable: active & flag("vector_backend_execution_instructions_drained"))
-  def floating_write = flag("vector_backend_execution_floating_write_valid")
-  rhodium_vector_scalar_write.call(
-    instance, lane("vector_backend_execution_scalar_write_owner"), floating_write.as_bits().zext(64),
-    mux(floating_write, lane("vector_backend_execution_floating_write_rd"), lane("vector_backend_execution_scalar_write_rd")),
-    mux(floating_write, lane("vector_backend_execution_floating_write_data"), lane("vector_backend_execution_scalar_write_data")),
-    ~enable: active & (floating_write ||| flag("vector_backend_execution_scalar_write_valid"))
-  )
+      rhodium_vector_direct.call(instance, lane("vector_memory_direct_tag"), lane("vector_memory_direct_data"), ~enable: active & flag("vector_memory_direct"))
+      rhodium_vector_complete.call(instance, capture_lane(completion.tag), capture_lane(completion.data), ~enable: active & flag("vector_memory_completed"))
+      rhodium_vector_store_complete.call(instance, lane("vector_memory_store_completed_tag"), ~enable: active & flag("vector_memory_store_completed"))
+      rhodium_vector_fault.call(instance, lane("vector_memory_fault_tag"), lane("vector_memory_fault_address"), ~enable: active & flag("vector_memory_fault"))
+      rhodium_vector_decision.call(
+        instance, capture_lane(decision.tag), capture_lane(decision.disposition.as_bits()),
+        ~enable: active & flag("vector_backend_execution_memory_decision_valid")
+      )
+
+      def floating_write = flag("vector_backend_execution_floating_write_valid")
+      rhodium_vector_scalar_write.call(
+        instance, lane("vector_backend_execution_scalar_write_owner"), floating_write.as_bits().zext(64),
+        mux(floating_write, lane("vector_backend_execution_floating_write_rd"), lane("vector_backend_execution_scalar_write_rd")),
+        mux(floating_write, lane("vector_backend_execution_floating_write_data"), lane("vector_backend_execution_scalar_write_data")),
+        ~enable: active & (floating_write ||| flag("vector_backend_execution_scalar_write_valid"))
+      )
+  | #void
 
   taps
 

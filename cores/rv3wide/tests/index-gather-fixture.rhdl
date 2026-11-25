@@ -1,0 +1,311 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("cores/common/mmu/vector.rhdl") open
+  lib("cores/common/vector/bundles.rhdl") open
+  lib("cores/common/vector/register-file.rhdl").VectorRegisterWrite
+  lib("cores/common/vector/distributed/common/memory-route.rhdl") open
+  lib("cores/common/vector/distributed/common/memory-command.rhdl") open
+  lib("cores/common/vector/distributed/common/row-types.rhdl") open
+  lib("cores/common/vector/distributed/common/row-claims.rhdl") open
+  lib("cores/common/vector/geometry.rhdl").vector_indexed_memory
+  lib("cores/common/vector/distributed/backend/row-memory.rhdl").VectorRowEngine
+  lib("cores/common/vector/distributed/backend/row-execute.rhdl").VectorRowExecute
+  lib("cores/common/vector/distributed/frontend/fault-check.rhdl").VectorFaultCheck
+  lib("cores/common/vector/distributed/backend/special-sequencer.rhdl").VectorSpecialSequencer
+  lib("cores/common/vector/decode.rhdl").VectorVpsUse
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("flow/main.rhdl") open
+
+sync_circuit IndexGatherFixture(xlen :: XLen):
+  def vlen = 4*xlen.width
+  def dlen = vlen div 2
+  def Entry = VectorDispatchEntry(xlen, 4)
+  interface start(Decoupled(Entry), ~role: consumer)
+  interface fault(Valid(VectorElementMapping()), ~role: producer)
+  interface truncate(Valid(Bits(xlen.width)), ~role: producer)
+  output restart: Bits(xlen.width)
+  interface check(VectorPrecheck(), ~role: requester)
+  interface memory(VectorRowMemory(dlen), ~role: requester)
+  interface write(Decoupled(VectorRegisterWrite(dlen, vlen)), ~role: producer)
+  input pages: VectorWindowPages
+  input(indices, predicate, store_data): Bits(dlen)
+  output(authorized, finished, window_released): Bool
+  inst scan(VectorFaultCheck(xlen, vlen, 4))
+  inst rows(VectorRowEngine(xlen, vlen, 4))
+  inst special(VectorSpecialSequencer(xlen, vlen, 4))
+  start |> scan.start
+  special.reduction.update.valid <== Bool(#false)
+  special.reduction.update.bits <== dont_care(Bits(dlen))
+  special.reduction.release.valid <== Bool(#false)
+  special.permutation.ready <== Bool(#false)
+  special.install.valid <== start.fire() & vector_indexed_memory(start.bits.checked.descriptor.control)
+  special.install.bits <== start.bits
+  special.discard <== scan.discard_indices
+  special.rows |> scan.indices
+  rows.indices.valid <== Bool(#false)
+  rows.indices.bits <== dont_care(Bits(dlen))
+  scan.fault |> fault
+  scan.truncate |> truncate
+  restart <== scan.restart
+  def refused = scan.exact.request |> to_valid() |> valid_pipe(1)
+  scan.exact.response.valid <== refused.valid
+  def refused_mapping :: VectorElementMapping() = literal(VectorElementMapping(), 0)
+  scan.exact.response.bits <== refused_mapping.updated(~service: VectorMemoryService.Fault)
+  scan.pages <== pages
+  scan.check <=> check
+  scan.splat |> rows.splat
+  scan.prepare |> rows.prepare
+  scan.checked_element |> rows.checked_element
+  rows.stream_live <== scan.stream_live
+  rows.stream_store <== scan.store
+  output(install, streamed): Bool
+  (scan.launch |> demux_flow(2, launch => launch.issue.command.store)) <=> rows.launch
+  install <== scan.launch.fire()
+  streamed <== scan.checked_element.fire()
+  rows.stream_owner <== scan.owner
+  rows.memory <=> memory
+  rows.write |> write
+  scan.issued <== rows.issued.valid & rows.issued.bits.checked & (rows.issued.bits.owner === scan.owner)
+  scan.drained <== (rows.finished.valid & rows.finished.bits.checked & (rows.finished.bits.owner === scan.owner)) ||| (rows.element_drained.valid & (rows.element_drained.bits === scan.owner))
+  output claimed: RowSet
+  claimed <== rows.chain.unwritten_vd
+  scan.predicate.data <== predicate
+  for (i in 0..2): rows.mask[i].data <== predicate
+  for (hazard in [rows.chain.older_accesses, rows.chain.older_writes, rows.store_reads.older_writes, special.chain.older_writes]):
+    hazard <== RowSet(0)
+  def demand = Array(rows.read, special.read) |> rr_arbiter()
+  demand.ready <== Bool(#true)
+  input block_lookahead: Bool
+  special.lookahead.ready <== !block_lookahead & !rows.read.valid & !special.read.valid
+  def index_grant = special.read.fire() ||| special.lookahead.fire()
+  output index_row: RowAddress
+  index_row <== mux(special.read.valid, special.read.bits, special.lookahead.bits)
+  def granted = inject_interface(Valid(Bits(dlen)), ~valid: index_grant, ~bits: indices)
+  granted |> valid_pipe(1) |> special.result
+  inject_interface(Valid(Bits(dlen)), ~valid: rows.read.fire(), ~bits: store_data) |> valid_pipe(1) |> rows.read_result
+  output prefetched: Bool
+  prefetched <== special.lookahead.fire()
+  output vs3_read: Bool
+  output vs3_row: RowAddress
+  vs3_read <== rows.read.fire()
+  vs3_row <== rows.read.bits
+  authorized <== scan.authorized
+  finished <== scan.finished
+  window_released <== scan.release_window
+
+def rv32 = elaborate(IndexGatherFixture(XLen.X32))
+def rv64 = elaborate(IndexGatherFixture(XLen.X64))
+
+// Architectural test inputs exercise the production command resolver as well
+// as the cursors. Translation remains an independently delayed launch snapshot.
+bundle MemoryFixtureIssue(xlen :: XLen):
+  descriptor: VectorDescriptor(xlen)
+  owner: Bits(2)
+  kind: MemoryIssueKind
+
+bundle MemoryFixtureLaunch(xlen :: XLen):
+  issue: MemoryFixtureIssue(xlen)
+  pages: VectorWindowPages
+  service: VectorMemoryService
+
+fun fixture_issue(xlen :: XLen, vlen, issue :: MemoryFixtureIssue(xlen)) :~ MemoryIssue(xlen, vlen, 4):
+  def d = issue.descriptor
+  MemoryIssue(xlen, vlen, 4):
+    command: mux(resolved_issue(issue.kind), checked_memory_command(xlen, vlen, d, d.scalar, d.state.vstart, Bits(3)(0)), direct_memory_command(xlen, vlen, d, issue.kind =/= MemoryIssueKind.Contiguous))
+    owner: issue.owner
+    kind: issue.kind
+
+sync_circuit RowMemoryFixture(xlen :: XLen, vlen):
+  def dlen = vlen div 2
+  def Owner = Bits(2)
+  inst rows(VectorRowEngine(xlen, vlen, 4))
+  interface launch[2](Decoupled(MemoryFixtureLaunch(xlen)), ~role: consumer)
+  interface prepare(Decoupled(MemoryFixtureIssue(xlen)), ~role: consumer)
+  prepare |> map_flow(i => fixture_issue(xlen, vlen, i)) |> rows.prepare
+  for (i in 0..2):
+    (launch[i] |> map_flow(l => MemoryLaunch(xlen, vlen, 4)):
+       issue: fixture_issue(xlen, vlen, l.issue)
+       pages: l.pages
+       service: l.service
+    ) |> rows.launch[i]
+  input stream_owner: Owner
+  interface checked_element(Decoupled(CheckedIndexElement(xlen, vlen)), ~role: consumer)
+  input(stream_live, stream_store): Bool
+  interface splat(Decoupled(SplatPosition(dlen)), ~role: consumer)
+  interface indices(Decoupled(Bits(dlen)), ~role: consumer)
+  interface store_reads(VectorStoreReadChain(Owner), ~role: engine)
+  interface chain(VectorLoadChain(Owner), ~role: engine)
+  output busy: Bool
+  interface outstanding_store(Valid(Bool), ~role: producer)
+  interface memory(VectorRowMemory(dlen), ~role: requester)
+  interface write(Decoupled(VectorRegisterWrite(dlen, vlen)), ~role: producer)
+  interface read(Decoupled(RowAddress), ~role: producer)
+  interface read_result(Valid(Bits(dlen)), ~role: consumer)
+  interface mask[2](VectorPredicateTap(dlen), ~role: reader)
+  interface issued(Valid(MemoryEvent(4)), ~role: producer)
+  interface delivered(Valid(MemoryEvent(4)), ~role: producer)
+  interface finished(Valid(MemoryEvent(4)), ~role: producer)
+  interface element_drained(Valid(Owner), ~role: producer)
+  output unavailable: Vec(2, Bool)
+  rows.stream_owner <== stream_owner
+  rows.stream_live <== stream_live
+  rows.stream_store <== stream_store
+  checked_element |> rows.checked_element
+  splat |> rows.splat
+  indices |> rows.indices
+  rows.store_reads <=> store_reads
+  rows.chain <=> chain
+  rows.outstanding_store |> outstanding_store
+  rows.memory <=> memory
+  rows.write |> write
+  rows.read |> read
+  read_result |> rows.read_result
+  for (i in 0..2): rows.mask[i] <=> mask[i]
+  rows.issued |> issued
+  rows.delivered |> delivered
+  rows.finished |> finished
+  rows.element_drained |> element_drained
+  busy <== rows.busy
+  unavailable <== rows.unavailable
+
+sync_circuit NativeIndexMemoryFixture(xlen :: XLen, vlen):
+  def dlen = vlen div 2
+  def Owner = Bits(2)
+  inst rows(VectorRowEngine(xlen, vlen, 4))
+  inst special(VectorSpecialSequencer(xlen, vlen, 4))
+  special.reduction.update.valid <== Bool(#false)
+  special.reduction.update.bits <== dont_care(Bits(dlen))
+  special.reduction.release.valid <== Bool(#false)
+  interface launch[2](Decoupled(MemoryFixtureIssue(xlen)), ~role: consumer)
+  special.permutation.ready <== Bool(#false)
+  interface prepare(Decoupled(MemoryFixtureIssue(xlen)), ~role: consumer)
+  rows.splat.valid <== Bool(#false)
+  rows.splat.bits <== dont_care(SplatPosition(dlen))
+  def indexed = inline_index_issue(prepare.bits.kind)
+  prepare |> gate_flow(!indexed ||| !special.busy) |> map_flow(i => fixture_issue(xlen, vlen, i)) |> rows.prepare
+  special.install.valid <== prepare.fire() & indexed
+  def blank :: VectorDispatchEntry(xlen, 4) = literal(VectorDispatchEntry(xlen, 4), 0)
+  special.install.bits <== blank.updated(~owner: prepare.bits.owner, ~checked: blank.checked.updated(~descriptor: prepare.bits.descriptor))
+  special.discard <== Bool(#false)
+  special.rows |> map_flow(r => r.data) |> rows.indices
+  interface index_chain(VectorSpecialReadChain(Owner), ~role: engine)
+  special.chain <=> index_chain
+  interface read(Decoupled(RowAddress), ~role: producer)
+  interface read_result(Valid(Bits(dlen)), ~role: consumer)
+  def demand = Array(rows.read, special.read) |> rr_arbiter()
+  read.valid <== demand.valid ||| special.lookahead.valid
+  read.bits <== mux(demand.valid, demand.bits, special.lookahead.bits)
+  demand.ready <== read.ready
+  special.lookahead.ready <== !demand.valid & read.ready
+  reg index_return(~init: Bool(#false))
+  index_return <== special.read.fire() ||| special.lookahead.fire()
+  read_result |> filter_valid(_d => index_return) |> special.result
+  read_result |> filter_valid(_d => !index_return) |> rows.read_result
+  interface chain(VectorLoadChain(Owner), ~role: engine)
+  interface store_reads(VectorStoreReadChain(Owner), ~role: engine)
+  interface mask[2](VectorPredicateTap(dlen), ~role: reader)
+  interface memory(VectorRowMemory(dlen), ~role: requester)
+  interface write(Decoupled(VectorRegisterWrite(dlen, vlen)), ~role: producer)
+  interface issued(Valid(Owner), ~role: producer)
+  interface delivered(Valid(Owner), ~role: producer)
+  interface finished(Valid(Owner), ~role: producer)
+  input window_pages: VectorWindowPages
+  for (i in 0..2):
+    (launch[i] |> map_flow(issue => MemoryLaunch(xlen, vlen, 4)):
+       issue: fixture_issue(xlen, vlen, issue)
+       pages: mux(issue.descriptor.precertified, vec([issue.descriptor.certificate.ppn, issue.descriptor.certificate.ppn]), window_pages)
+       service: VectorMemoryService.Cached
+    ) |> rows.launch[i]
+    rows.mask[i] <=> mask[i]
+  rows.stream_owner <== Owner(0)
+  rows.memory <=> memory
+  rows.chain <=> chain
+  rows.store_reads <=> store_reads
+  rows.write |> write
+  rows.issued |> map_valid(event => event.owner) |> issued
+  rows.delivered |> map_valid(event => event.owner) |> delivered
+  rows.finished |> map_valid(event => event.owner) |> finished
+  rows.stream_live <== Bool(#false)
+  rows.stream_store <== Bool(#false)
+  rows.checked_element.valid <== Bool(#false)
+  rows.checked_element.bits <== dont_care(CheckedIndexElement(xlen, vlen))
+
+sync_circuit PermuteFixture(xlen :: XLen):
+  def vlen = 4*xlen.width
+  def dlen = vlen div 2
+  inst vps(VectorSpecialSequencer(xlen, vlen, 4))
+  inst vx(VectorRowExecute(xlen, vlen, 4))
+  vps.reduction <=> vx.reduction
+  input gpr_ready: Bool
+  output(gpr_offer, gpr_done): Bool
+  output gpr_data: Bits(xlen.width)
+  vx.scalar_writeback.ready <== gpr_ready
+  gpr_offer <== vx.scalar_writeback.valid
+  gpr_done <== vx.scalar_result.valid
+  gpr_data <== vx.scalar_result.bits.data
+  vx.floating_writeback.ready <== Bool(#false)
+  vx.fp_request.ready <== Bool(#false)
+  vx.fp_result.valid <== Bool(#false)
+  vx.fp_result.bits <== dont_care(vx.fp_result.bits.type)
+  vx.divide_request.ready <== Bool(#false)
+  vx.divide_result.valid <== Bool(#false)
+  vx.divide_result.bits <== dont_care(vx.divide_result.bits.type)
+  vx.multiply_request.ready <== Bool(#false)
+  vx.multiply_result.valid <== Bool(#false)
+  vx.multiply_result.bits <== dont_care(vx.multiply_result.bits.type)
+  vx.shared_write.ready <== Bool(#false)
+  interface start(Decoupled(VectorDispatchEntry(xlen, 4)), ~role: consumer)
+  def control = start.bits.checked.descriptor.control
+  def needs_vps = control.vps =/= VectorVpsUse.None
+  (start |> gate_flow(!needs_vps ||| vps.install_ready) |> map_flow(e => e.checked.descriptor)) |> vx.launch
+  vx.launch_owner <== start.bits.owner
+  output vps_busy: Bool
+  vps_busy <== vps.busy
+  vps.install.valid <== start.fire() & needs_vps
+  vps.install.bits <== start.bits
+  vps.discard <== Bool(#false)
+  vps.rows.ready <== Bool(#false)
+  vps.permutation |> vx.permutation
+  interface read(Decoupled(RowAddress), ~role: producer)
+  interface ahead(Decoupled(RowAddress), ~role: producer)
+  interface result(Valid(Bits(dlen)), ~role: consumer)
+  vps.read |> read
+  vps.lookahead |> ahead
+  result |> vps.result
+  input older_writes: RowSet
+  output unread: RowSet
+  vps.chain.older_writes <== older_writes
+  unread <== vps.chain.unread
+  vx.chain.older_accesses <== RowSet(0)
+  vx.chain.older_writes <== older_writes
+  vx.read_credit <== Bool(#true)
+  input write_available: Bool
+  vx.fixed_write_credit <== write_available
+  input(predicate, upper_predicate, vs2): Bits(dlen)
+  output(read_src, read_rhs): Bool
+  output claimed: RowSet
+  claimed <== vx.chain.unissued.writes
+  (vx.read |> map_flow(r => VectorRowOperands(dlen)):
+     data: vec([vs2, Bits(dlen)(0), Bits(dlen)(0)])
+     predicate: mux(r.mask_row.any(), upper_predicate, predicate)
+  ) |> to_valid() |> valid_pipe(1) |> vx.operands
+  read_src <== vx.read.fire() & vx.read.bits.sources.vector_lhs
+  read_rhs <== vx.read.fire() & vx.read.bits.sources.vector_rhs
+  vx.reserve.ready <== write_available
+  interface write(Valid(VectorRegisterWrite(dlen, vlen)), ~role: producer)
+  vx.write |> write
+  output finish: Bool
+  finish <== vx.finished.valid
+  output write_owner: Bits(2)
+  write_owner <== vx.finished.bits
+  output(reserving, flags, offering_row, accepting_end): Bool
+  reserving <== vx.reserve.valid
+  flags <== vx.fp_update.valid
+  offering_row <== vps.permutation.valid & !vps.permutation.bits.end_of_scan
+  accepting_end <== vps.permutation.fire() & vps.permutation.bits.end_of_scan
+
+def permute32 = elaborate(PermuteFixture(XLen.X32))
+def permute64 = elaborate(PermuteFixture(XLen.X64))
+export rv32 rv64 NativeIndexMemoryFixture RowMemoryFixture permute32 permute64

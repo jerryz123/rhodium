@@ -5,6 +5,8 @@
 
 using Word = decltype(memory_in.prequest.pbits.pmemory.pdata);
 constexpr unsigned bytes = sizeof(Word);
+constexpr unsigned row_bytes = sizeof(row_memory_out.presponse.pbits);
+static_assert(row_bytes == 2*bytes);
 constexpr unsigned size_code = bytes == 4 ? 2 : 3;
 constexpr unsigned word_mask = (1u << bytes) - 1;
 constexpr unsigned base = 0x400;
@@ -12,13 +14,13 @@ std::array<unsigned char, 64> line{};
 std::uint16_t next_context = 0x5300;
 std::deque<std::uint16_t> contexts;
 
-template <class F> void until(F accepted) {
+template <class F> void until(F accepted, unsigned issuing_line = __builtin_LINE()) {
   for (unsigned cycle = 0; cycle < 128; ++cycle) {
     eval();
     if (accepted()) return;
     tick_model();
   }
-  CHECK(false && "cache transfer timed out");
+  throw std::runtime_error("cache transfer timed out waiting at line " + std::to_string(issuing_line));
 }
 
 Word expected(unsigned offset) {
@@ -46,8 +48,8 @@ void service(std::uint64_t address, unsigned op, Word data, unsigned mask, unsig
   req.pvalid = 0;
 }
 
-void complete(Word value) {
-  until([] { return memory_out.presponse.pvalid; });
+void complete(Word value, unsigned issuing_line = __builtin_LINE()) {
+  until([] { return memory_out.presponse.pvalid; }, issuing_line);
   CHECK(!contexts.empty());
   for (unsigned hold = 0; hold < 3; ++hold) {
     CHECK(memory_out.presponse.pvalid && memory_out.presponse.pbits.pdata == value);
@@ -151,15 +153,15 @@ void check_misaligned_requests() {
   }
 }
 
-void fill() {
+void fill(unsigned address = base, unsigned opcode = 7) {
   until([] { return chi_out.prequests.pvalid; });
-  CHECK(chi_out.prequests.pbits.paddress == base && chi_out.prequests.pbits.popcode == 7);
+  CHECK(chi_out.prequests.pbits.paddress == address && chi_out.prequests.pbits.popcode == opcode);
   const auto txn = chi_out.prequests.pbits.ptxn_uid;
   chi_in.prequests.pready = 1; tick_model(); chi_in.prequests.pready = 0;
   for (unsigned row : {3u, 1u, 0u, 2u}) {
     auto &dat = chi_in.presponse_udata;
     dat.pbits = {};
-    dat.pbits.popcode = 4; dat.pbits.presp = 2; dat.pbits.pdata_uid = row;
+    dat.pbits.popcode = 4; dat.pbits.presp = opcode == 7 ? 2 : 1; dat.pbits.pdata_uid = row;
     dat.pbits.ptxn_uid = txn; dat.pbits.ptgt_uid = 3; dat.pbits.psrc_uid = 1;
     dat.pbits.phome_unid_uor_upbha_uor_umismatched_umecid = 1;
     dat.pbits.pbyte_uenable = 0xffff;
@@ -197,7 +199,71 @@ int main() {
     check_misaligned_requests();
     flushed_fetch_before_device_load();
     for (unsigned b = 0; b < line.size(); ++b) line[b] = b + 1;
-    // A committed byte store misses in the top native word of the first row.
+    // A raw row miss refills through the ordinary CHI path. Hold the row
+    // response under backpressure and verify it cannot escape as scalar data.
+    row_memory_in.prequest.pvalid = 1;
+    row_memory_in.prequest.pbits.paddress = base + 64 + 16;
+    row_memory_in.prequest.pbits.pbyte_umask = (1u<<row_bytes)-1;
+    until([] { return row_memory_out.prequest.pready; });
+    tick_model(); row_memory_in.prequest.pvalid = 0;
+    row_memory_in.prequest.pbits.paddress += 16; row_memory_in.prequest.pvalid = 1;
+    until([] { return row_memory_out.prequest.pready; });
+    CHECK(!row_memory_out.presponse.pvalid);
+    tick_model(); row_memory_in.prequest.pvalid = 0;
+    fill(base + 64, 2);
+    until([] { return row_memory_out.presponse.pvalid; });
+    for (unsigned wait = 0; wait < 3; ++wait) {
+      CHECK(row_memory_out.presponse.pvalid && !memory_out.presponse.pvalid);
+      for (unsigned b = 0; b < row_bytes; ++b)
+        CHECK(reinterpret_cast<const unsigned char*>(&row_memory_out.presponse.pbits)[b] == line[16+b]);
+      tick_model(); eval();
+    }
+    row_memory_in.presponse.pready = 1; tick_model(); row_memory_in.presponse.pready = 0;
+    until([] { return row_memory_out.presponse.pvalid; });
+    for (unsigned b=0;b<row_bytes;++b)
+      CHECK(reinterpret_cast<const unsigned char*>(&row_memory_out.presponse.pbits)[b] == line[32+b]);
+    row_memory_in.presponse.pready = 1; tick_model(); row_memory_in.presponse.pready = 0;
+    // Issue a byte at the top lane of the vector row to a device. The RN-I
+    // request is byte-sized; the return stays in that lane until accepted.
+    const unsigned lane=row_bytes-1;
+    constexpr std::uint64_t device_base=UINT64_C(0x100002000);
+    const std::uint64_t device=device_base+lane;
+    uncached_node_id=4;
+    auto& req=row_memory_in.prequest;
+    req.pbits={}; req.pbits.paddress=device_base; req.pbits.pbyte_umask=1u<<lane;
+    req.pbits.pservice=2; req.pvalid=1;
+    until([]{return row_memory_out.prequest.pready;}); tick_model(); req.pvalid=0;
+    until([]{return uncached_chi_out.preq.pvalid;});
+    auto flit=uncached_chi_out.preq.pbits;
+    CHECK(flit.paddress==device && flit.psize_uor_unum_ureq==0 && flit.popcode==4 && !chi_out.prequests.pvalid);
+    uncached_chi_in.preq.pready=1; tick_model(); uncached_chi_in.preq.pready=0;
+    auto& reply=uncached_chi_in.pdat.presponse;
+    reply.pvalid=1; reply.pbits={}; reply.pbits.popcode=4; reply.pbits.ptxn_uid=flit.ptxn_uid;
+    reply.pbits.ptgt_uid=4; reply.pbits.psrc_uid=flit.ptgt_uid;
+    reply.pbits.phome_unid_uor_upbha_uor_umismatched_umecid=flit.ptgt_uid;
+    reinterpret_cast<unsigned char*>(&reply.pbits.pdata)[lane]=0xa7;
+    for(unsigned i=0;i<3;++i){eval(); CHECK(row_memory_out.presponse.pvalid && !memory_out.presponse.pvalid);
+      CHECK(reinterpret_cast<const unsigned char*>(&row_memory_out.presponse.pbits)[lane]==0xa7); tick_model();}
+    row_memory_in.presponse.pready=1; tick_model(); row_memory_in.presponse.pready=reply.pvalid=0;
+    req.pbits.pstore=req.pvalid=1;
+    reinterpret_cast<unsigned char*>(&req.pbits.pdata)[lane]=0xbb;
+    until([]{return row_memory_out.prequest.pready;}); tick_model(); req.pvalid=0;
+    until([]{return uncached_chi_out.preq.pvalid;}); flit=uncached_chi_out.preq.pbits;
+    CHECK(flit.paddress==device && flit.psize_uor_unum_ureq==0 && flit.popcode==28);
+    uncached_chi_in.preq.pready=1; tick_model(); uncached_chi_in.preq.pready=0;
+    auto& rsp=uncached_chi_in.prsp.presponse;
+    rsp.pvalid=1; rsp.pbits={}; rsp.pbits.popcode=6; rsp.pbits.ptxn_uid=flit.ptxn_uid;
+    rsp.pbits.ptgt_uid=4; rsp.pbits.psrc_uid=flit.ptgt_uid; rsp.pbits.pdbid_uor_ugroup_uid=11;
+    until([]{return uncached_chi_out.prsp.presponse.pready;}); tick_model(); rsp.pvalid=0;
+    until([]{return uncached_chi_out.pdat.prequest.pvalid;});
+    auto write=uncached_chi_out.pdat.prequest.pbits;
+    CHECK(write.pbyte_uenable==(1u<<lane) && reinterpret_cast<const unsigned char*>(&write.pdata)[lane]==0xbb);
+    uncached_chi_in.pdat.prequest.pready=1; tick_model(); uncached_chi_in.pdat.prequest.pready=0;
+    rsp.pbits.popcode=4; rsp.pvalid=1; eval();
+    CHECK(row_memory_out.presponse.pvalid && !memory_out.presponse.pvalid && !memory_out.pdrained);
+    row_memory_in.presponse.pready=1; tick_model(); row_memory_in.presponse.pready=rsp.pvalid=0;
+    req.pbits={};
+    // A committed byte store updates the top native word of the first row.
     service(base + 15, 2, Word(0xa5) << (8 * (bytes - 1)), 1u << (bytes - 1), 0);
     fill(); complete(0); line[15] = 0xa5;
     until([] { return memory_out.pdrained; });
@@ -227,5 +293,33 @@ int main() {
     complete(Word(std::int32_t(old)));
     for (unsigned b = 0; b < 4; ++b) line[12 + b] = 0x28394a5bu >> (8 * b);
     lookup(12 - word_offset, false, expected(12 - word_offset), word_mask);
+    // First store acquires a cold line. The second hits the unique copy.
+    // Read every native slice back through the scalar service, as well as
+    // adjacent unchanged rows; neither acknowledgement carries scalar data.
+    for (unsigned r : {1u, 2u}) {
+      auto& req = row_memory_in.prequest;
+      req.pvalid = req.pbits.pstore = 1;
+      req.pbits.paddress = base + 128 + r * row_bytes;
+      const unsigned enabled = r == 1 ? 0x5ac3 : 0x9c35;
+      req.pbits.pbyte_umask = enabled;
+      for (unsigned b=0;b<row_bytes;++b) reinterpret_cast<unsigned char*>(&req.pbits.pdata)[b]=17*(4*r+b/4);
+      until([] { return row_memory_out.prequest.pready; });
+      tick_model(); req.pvalid = 0;
+      CHECK(!row_memory_out.presponse.pvalid);
+    }
+    fill(base + 128, 7);
+    for (unsigned r : {1u, 2u}) {
+      const unsigned enabled = r == 1 ? 0x5ac3 : 0x9c35;
+      until([] { return row_memory_out.presponse.pvalid; });
+      for (unsigned i = 0; i < 3; ++i) {
+        CHECK(row_memory_out.presponse.pvalid && !memory_out.presponse.pvalid);
+        tick_model(); eval();
+      }
+      row_memory_in.presponse.pready = 1; tick_model(); row_memory_in.presponse.pready = 0;
+      for (unsigned b = 0; b < row_bytes; ++b) if (enabled & (1u << b)) line[row_bytes*r+b] = 17*(4*r+b/4);
+    }
+    for (unsigned offset = 0; offset < 64; offset += bytes) {
+      service(base + 128 + offset, 1, 0, word_mask, size_code); complete(expected(offset));
+    }
   });
 }

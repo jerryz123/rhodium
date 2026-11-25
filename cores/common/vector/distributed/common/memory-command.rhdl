@@ -1,0 +1,113 @@
+#lang rhodium
+/* Resolves architectural memory operands into immutable VRF and address sequencer commands. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../bundles.rhdl" open
+  "../../geometry.rhdl" open
+  "../../backend-kind.rhm".vector_dlen
+  "../../precheck.rhdl".vector_field_extent
+  "row-types.rhdl" open
+  lib("cores/common/vector-layout.rhm").vector_row_bytes
+  lib("cores/common/mmu/vector.rhdl") open
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/isa/vector.rhm").VectorLength
+  lib("riscv/rtl/pointer-masking.rhdl").apply_pointer_mask
+  lib("rhodium/std/bits.rhdl") open
+
+/* Field bases advance by max(1, EMUL) registers; offsets are within each field. */
+bundle SegmentLayout():
+  nf: Bits(3)
+  eew: Bits(2)
+  base: RowAddress
+  spacing: Bits(3)
+
+/* Operand geometry is resolved before preparation. No instruction encoding or
+   architectural vector state is needed by a VRF or physical-address cursor.
+   first/last/crosses describe the conservative alias footprint within the two
+   translated pages; displacement aligns register bytes independently of vstart. */
+bundle MemoryCommand(xlen :: XLen, vlen :: VectorLength):
+  layout: SegmentLayout()
+  data: VectorByteSpan(vlen)
+  predicate: VectorByteSpan(vlen)
+  store: Bool
+  masked: Bool
+  seed: Bool
+  address: Bits(xlen.width)
+  stride: Bits(xlen.width)
+  displacement: Bits(index_width(vector_row_bytes(vector_dlen(vlen))))
+  first: Bits(VectorPageOffsetBits)
+  last: Bits(VectorPageOffsetBits)
+  crosses: Bool
+
+/* Direct accesses preserve the macro while resolving mask/whole-register byte
+   extents and the certified physical envelope of strided/indexed accesses. */
+fun direct_memory_command(xlen :: XLen, vlen :: VectorLength, d :: VectorDescriptor(xlen), elementwise :: Bool) :~ MemoryCommand(xlen, vlen):
+  def g = memory_operand_geometry(xlen, vlen, d)
+  def eew = vector_data_width(d.control, d.state.sew())
+  def begin = vector_field_extent(g.data.begin.zext(68), g.nf)[0..xlen.width]
+  def end = vector_field_extent(g.data.end.zext(68), g.nf)[0..xlen.width] - Bits(xlen.width)(1)
+  def first = apply_pointer_mask(xlen, d.scalar + begin, d.pointer_masking)
+  def last = apply_pointer_mask(xlen, d.scalar + end, d.pointer_masking)
+  MemoryCommand(xlen, vlen):
+    layout:
+      SegmentLayout():
+        nf: g.nf
+        eew: eew
+        base: group_row(d.vd())
+        spacing: g.spacing
+    data: g.data
+    predicate: g.predicate
+    store: d.control.store
+    masked: d.masked
+    seed: Bool(#false)
+    address: mux(elementwise, d.scalar, first)
+    stride: d.stride
+    displacement: d.scalar[0..index_width(vector_dlen(vlen) div 8)]
+    first: mux(elementwise, d.certificate.range.first[0..VectorPageOffsetBits], first[0..VectorPageOffsetBits])
+    last: mux(elementwise, d.certificate.range.last[0..VectorPageOffsetBits], last[0..VectorPageOffsetBits])
+    crosses: !elementwise & (first[VectorPageOffsetBits..xlen.width] =/= last[VectorPageOffsetBits..xlen.width])
+
+/* A checked field names its effective address and exact register-relative byte
+   interval. The checker retains the original instruction, VL, and restart index. */
+fun checked_memory_command(xlen :: XLen, vlen :: VectorLength, d :: VectorDescriptor(xlen), address :: Bits(xlen.width), element :: Bits(xlen.width), field :: Bits(3)) :~ MemoryCommand(xlen, vlen):
+  def eew = vector_data_width(d.control, d.state.sew())
+  def spacing = memory_field_spacing(xlen, d)
+  def register_index = d.vd() + (field.zext(5) << spacing)
+  def last = address + (Bits(xlen.width)(1) << eew) - Bits(xlen.width)(1)
+  def Offset = Bits(vector_span_width(vlen))
+  MemoryCommand(xlen, vlen):
+    layout:
+      SegmentLayout():
+        nf: Bits(3)(0)
+        eew: eew
+        base: group_row(register_index)
+        spacing: spacing
+    data:
+      VectorByteSpan(vlen):
+        begin: element[0..vector_span_width(vlen)] << eew
+        end: (element[0..vector_span_width(vlen)] + Offset(1)) << eew
+    predicate: literal(VectorByteSpan(vlen), 0)
+    store: d.control.store
+    masked: Bool(#false)
+    seed: d.zero_stride_load()
+    address: address
+    stride: d.stride
+    displacement: address[0..index_width(vector_dlen(vlen) div 8)]
+    first: address[0..VectorPageOffsetBits]
+    last: last[0..VectorPageOffsetBits]
+    crosses: address[VectorPageOffsetBits..xlen.width] =/= last[VectorPageOffsetBits..xlen.width]
+
+/* Project command spans onto rows; segment claims track each field separately. */
+fun memory_command_rows(xlen :: XLen, vlen :: VectorLength, c :: MemoryCommand(xlen, vlen)):
+  def bytes = vector_dlen(vlen) div 8
+  values(vector_span_cover(vlen, c.data, bytes, PhysicalRows, c.layout.base),
+         vector_span_cover(vlen, c.predicate, bytes, PredicateSet.packed_width(), RegisterRowIndex(0)))
+
+/* Interleave the per-field byte extent for the existing beat and fragment cursors. */
+fun memory_command_span(xlen :: XLen, vlen :: VectorLength, c :: MemoryCommand(xlen, vlen)) :~ VectorByteSpan(vlen):
+  VectorByteSpan(vlen):
+    begin: vector_field_extent(c.data.begin.zext(68), c.layout.nf)[0..vector_span_width(vlen)]
+    end: vector_field_extent(c.data.end.zext(68), c.layout.nf)[0..vector_span_width(vlen)]
+
+export SegmentLayout MemoryCommand direct_memory_command checked_memory_command memory_command_rows memory_command_span

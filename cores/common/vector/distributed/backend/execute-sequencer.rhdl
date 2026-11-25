@@ -1,0 +1,242 @@
+#lang rhodium
+/* Issues hazard-checked arithmetic and permutation rows into reserved VRF write cycles. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("riscv/isa/vector.rhm").VectorLength
+  "../../backend-kind.rhm".vector_dlen
+  "../common/row-types.rhdl" open
+  "../exu/issue.rhdl" open
+  "../../bundles.rhdl".VectorDescriptor
+  "../../decode.rhdl" open
+  "../../geometry.rhdl".execute_widths
+  "../../geometry.rhdl".compute_extent
+  "../common/row-claims.rhdl" open
+  "../../../simd-alu.rhdl" open
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("rhodium/std/bits.rhdl") open
+  lib("cores/common/vector-layout.rhm").vector_format_count
+  lib("cores/common/vector-layout.rhm").vector_row_bytes
+  lib("flow/main.rhdl") open
+
+/* Map the decoded operation to an installed unit. Mixed FP uses the widest operand,
+   not necessarily the architectural SEW. Legality owns architectural restrictions. */
+fun resolve_row_unit(xlen :: XLen, vlen :: VectorLength, d :: VectorDescriptor(xlen), fp32 :: Boolean, fp16 :: Boolean) :~ RowUnit:
+  def c = d.control
+  def sew = d.state.sew()
+  def step = execute_widths(c.width_shape, sew).step
+  def full = Bits(2)(vector_format_count(xlen) - 1)
+  def fits = if vector_dlen(vlen) >= 64 | Bool(#true) | step =/= SimdElementWidth.E64.as_bits()
+  def fp_available = Bool(fp32) & mux_lookup(step, ~default: Bool(#false), [[1, Bool(fp16)], [2, Bool(#true)], [3, Bool(xlen == XLen.X64)]])
+  def product = priority_mux(~default: RowUnit.Unavailable):
+    sew < full: RowUnit.Product
+    (sew === full) & (step === sew): RowUnit.SharedProduct
+  mux_lookup(c.compute_family, ~default: RowUnit.Unavailable, [
+    [VectorComputeFamily.IntegerData, mux(fits, RowUnit.Data, RowUnit.Unavailable)],
+    [VectorComputeFamily.FpData, mux(fits, RowUnit.Data, RowUnit.Unavailable)],
+    [VectorComputeFamily.IntProduct, product],
+    [VectorComputeFamily.IntDivide, mux(sew <= full, RowUnit.SharedDivide, RowUnit.Unavailable)],
+    [VectorComputeFamily.FpArithmetic, mux(fp_available, mux(step === SimdElementWidth.E64.as_bits(), RowUnit.SharedFpPipelined, RowUnit.LocalFp), RowUnit.Unavailable)],
+    [VectorComputeFamily.FpDivSqrt, mux(fp_available, RowUnit.SharedFpIterative, RowUnit.Unavailable)]
+  ])
+
+/* Issue only when sources, destination and the future write cycle are safe. The last read
+   releases the active descriptor; outstanding writes keep their own context. */
+sync_circuit VectorExecuteSequencer(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int):
+  def dlen = vector_dlen(vlen)
+  def row_bytes = vector_row_bytes(dlen)
+  def lane_bits = index_width(row_bytes)
+  def mask_bits = index_width(dlen)
+  def offset_bits = index_width(vlen + 1)
+  def Owner = Bits(index_width(slots))
+  interface launch(Decoupled(VectorDescriptor(xlen)), ~role: consumer)
+  input launch_owner: Owner
+  input launch_unit: RowUnit
+  input read_credit: Bool
+  interface permutation(Decoupled(PermutedRow(dlen)), ~role: consumer)
+  input scan_can_finish: Bool
+  interface scan_finished(Pulse(), ~role: producer)
+  interface issue(VectorRowIssue(dlen, Owner), ~role: scheduler)
+  input older_writes: RowSet
+  input older_accesses: RowSet
+  output source_owner: Owner
+  output unissued: NativeRowClaims()
+  interface read(Decoupled(VectorRowRead()), ~role: producer)
+  interface issued(Valid(Owner), ~role: producer)
+
+  reg active(~init: Bool(#false))
+  reg owner(Owner)
+  reg control(ExecuteOperandControl())
+  reg left(RowAddress)
+  reg right(RowAddress)
+  reg left_end(RowAddress)
+  reg right_end(RowAddress)
+  reg part(Bits(3))
+  reg dest(RowAddress)
+  // The inclusive count spans the largest legal group, not the entire VRF.
+  def GroupRowCount = Bits(offset_bits - lane_bits)
+  reg remaining(GroupRowCount)
+  reg first_element(Bits(mask_bits + 1))
+  reg first_bit(Bits(mask_bits))
+  reg last_bit(Bits(mask_bits))
+  source_owner <== owner
+  def busy_rows = older_writes.as_vec(Bool)
+  def predicate_row = first_element[mask_bits..mask_bits+1]
+  def sources = control.sources
+  def reads_v0 = control.shadow =/= VectorV0Role.Unused
+  def raw = (sources.vector_lhs & busy_rows[left]) ||| (sources.vector_rhs & busy_rows[right]) ||| (reads_v0 & busy_rows[predicate_row.zext(RowAddress.packed_width())])
+  // Older accesses include older writes of vd, so this also interlocks the accumulator read.
+  def unsafe_dest = older_accesses.as_vec(Bool)[dest]
+  issue.route <== control.route
+  reg empty(~init: Bool(#false))
+  def eligible = active & !empty & !raw & !unsafe_dest
+  reg permuting(Bool)
+  reg compress(Bool)
+  def end_token = compress & permutation.bits.end_of_scan
+  def operands_available = !permuting ||| permutation.valid
+  def terminal_offer = active & permuting & permutation.valid & end_token
+  read.valid <== eligible & issue.available & operands_available & !end_token
+  permutation.ready <== active & permuting & mux(end_token, scan_can_finish, eligible & issue.available & read.ready)
+  def finish_scan = (permutation.fire() & end_token) ||| (active & empty & scan_can_finish)
+  scan_finished.valid <== finish_scan
+  read.bits <== VectorRowRead():
+    left: left
+    second: mux(sources.vector_rhs, right, dest)
+    third: dest
+    sources: sources
+    reads_v0: reads_v0
+    mask_row: first_element[mask_bits..mask_bits+1]
+  def last = remaining === GroupRowCount(1)
+  issue.grant.valid <== read.fire()
+  // VPS offers a complete row independently of its consumer's ready. Compress
+  // instead releases on its end-of-scan token, not its last data grant.
+  def data_handoff = last & eligible & operands_available & !compress & read_credit & issue.handoff_credit
+  launch.ready <== !active ||| data_handoff ||| (terminal_offer & scan_can_finish)
+  when (active & launch.fire()): assert(read.fire() ||| (permutation.fire() & end_token), "execute_replacement_requires_tail_transfer")
+  def d :: VectorDescriptor(xlen) = launch.bits
+  def insert = d.control.sequence === VectorSequence.Insert
+  def extent = compute_extent(xlen, vlen, d)
+  def begin = extent.begin
+  def limit = extent.end
+  def special = d.control.vps === VectorVpsUse.Permutation
+  def sew = d.state.sew()
+  def widths = execute_widths(d.control.width_shape, sew)
+  def destination_eew = widths.step - widths.dest_lag
+  def packed_mask = d.control.row_layout === VectorRowLayout.PackedMaskRows
+  def mask_fragment = d.control.row_layout === VectorRowLayout.ElementsToMask
+  def first = begin[0..mask_bits+1]
+  def final_element = limit[0..mask_bits+1] - Bits(mask_bits+1)(1)
+  def begin_bit = row_bit_offset(begin[0..offset_bits], destination_eew, packed_mask)
+  def end_bit = row_bit_offset(limit[0..offset_bits], destination_eew, packed_mask) - Bits(offset_bits+3)(1)
+  def start = row_bit_offset(begin[0..offset_bits], widths.step, packed_mask)[mask_bits..offset_bits+3]
+  def end = (row_bit_offset(limit[0..offset_bits], widths.step, packed_mask) - Bits(offset_bits+3)(1))[mask_bits..offset_bits+3]
+  def value = d.scalar_operand(64)
+  def broadcasts = for List (n in 0..3):
+    def width = 8 * 2 ** n
+    [n, vec(for List (_ in 0..(64 div width)): value[0..width]).as_bits()]
+  /* The final active beat also consumes a truncated row. Check each source
+     separately: the same register can appear twice at different EEWs. */
+  fun last_part(lag :: Bits(2)) :~ Bool:
+    def low = (Bits(3)(1) << lag) - Bits(3)(1)
+    last ||| ((part & low) === low)
+  def next_element = first_element + (Bits(mask_bits + 1)(row_bytes) >> control.widths.step)
+  def final_mask_use = last ||| (next_element[mask_bits..mask_bits+1] =/= predicate_row)
+  // The read always consumes a source fragment, but only the final grant
+  // for this destination transfers its outstanding claim to the write calendar.
+  def final_dest_use = mux(control.mask_fragment, final_mask_use, last_part(control.widths.dest_lag))
+  def empty_claims = NativeRowClaims():
+    reads: RowSet(0)
+    predicates: PredicateSet(0)
+    writes: RowSet(0)
+  reg claims(NativeRowClaims())
+  // The old vd read and destination reservation use the same cursor. Keep
+  // that read live even if a narrow factor overlapping it has had its last use.
+  /* Inclusive physical intervals retain aliased sources independently. */
+  fun unread_span(used :: Bool, cursor :: Bits(RowAddress.packed_width()), end :: Bits(RowAddress.packed_width())) :~ Bits(PhysicalRows):
+    mux(used, (!RowSet(0) << cursor) & !(!RowSet(1) << end), RowSet(0))
+  def unread = unread_span(sources.vector_lhs, left, left_end) ||| unread_span(sources.vector_rhs, right, right_end) ||| mux(sources.accumulator, claims.writes, RowSet(0))
+  unissued <== mux(active & !empty, claims.updated(~reads: unread), empty_claims)
+  issue.grant.bits <== ExecuteDestination(Owner):
+    owner: owner
+    row: dest
+    last: last & !compress
+  when (launch.fire()):
+    def fp :: VectorFpControl() = d.control.fp
+    def roles = d.control.reads
+    def shadow = vector_shadow_role(roles, d.masked)
+    def initial = native_row_claims(xlen, vlen, d, begin, limit, ~reads_v0: shadow =/= VectorV0Role.Unused, ~destination_eew: destination_eew)
+    empty <== !extent.has_body()
+    claims <== initial
+    active <== Bool(#true)
+    owner <== launch_owner
+    permuting <== special
+    compress <== d.control.permutation === VectorPermutationKind.Compress
+    control <== ExecuteOperandControl():
+      data_result: d.control.data_result
+      mask_fragment: mask_fragment
+      integer: d.control.integer_row
+      sew: sew.into(SimdElementWidth)
+      route: launch_unit
+      division: d.control.division
+      widths: widths
+      destination_eew: destination_eew
+      product: d.control.product
+      vxrm: d.state.vxrm.into(SimdRoundingMode)
+      left_signed: d.control.left_signed
+      right_signed: d.control.right_signed
+      fp: fp
+      rounding: fp.resolve_rounding(d.rounding_mode)
+      sources:
+        ExecuteSources():
+          vector_lhs: !special & roles.vs2
+          vector_rhs: !special & roles.vs1
+          accumulator: roles.old_vd
+      shadow: shadow
+      broadcast: mux(insert, value, mux_lookup(sew, ~default: value, broadcasts))
+    left <== group_row(d.vs2(), (start >> widths.left_lag).zext(RowAddress.packed_width()))
+    right <== group_row(d.vs1(), (start >> widths.right_lag).zext(RowAddress.packed_width()))
+    left_end <== group_row(d.vs2(), (end >> widths.left_lag).zext(RowAddress.packed_width()))
+    right_end <== group_row(d.vs1(), (end >> widths.right_lag).zext(RowAddress.packed_width()))
+    part <== start[0..3]
+    dest <== group_row(d.vd(), mux(mask_fragment, first[mask_bits..mask_bits+1].zext(RowAddress.packed_width()), (start >> widths.dest_lag).zext(RowAddress.packed_width())))
+    remaining <== end - start + GroupRowCount(1)
+    first_element <== first & !(Bits(mask_bits+1)(row_bytes-1) >> widths.step)
+    first_bit <== mux(mask_fragment, first[0..mask_bits], begin_bit[0..mask_bits])
+    last_bit <== mux(mask_fragment, final_element[0..mask_bits], end_bit[0..mask_bits])
+  elsewhen finish_scan:
+    active <== Bool(#false)
+  elsewhen (read.fire()):
+    def captured_predicate = (reads_v0 & final_mask_use).as_bits().zext(PredicateSet.packed_width()) << predicate_row
+    claims <== NativeRowClaims():
+      reads: RowSet(0)
+      predicates: claims.predicates & !captured_predicate
+      writes: claims.writes & !row_event(final_dest_use, dest)
+    active <== !last ||| compress
+    remaining <== remaining - GroupRowCount(1)
+    part <== part + Bits(3)(1)
+    when (last_part(control.widths.left_lag)): left <== left + RowAddress(1)
+    when (last_part(control.widths.right_lag)): right <== right + RowAddress(1)
+    when final_dest_use: dest <== dest + RowAddress(1)
+    first_element <== next_element
+    first_bit <== Bits(mask_bits)(0)
+
+  issued.valid <== (read.fire() & last & !compress) ||| finish_scan
+  issued.bits <== owner
+  reg context(ExecuteRowContext(dlen))
+  reg permute_data(Bits(dlen))
+  when (permutation.fire() & !end_token): permute_data <== permutation.bits.data
+  issue.permuted <== permute_data
+  when (read.fire()):
+    def head = !Bits(dlen)(0) << first_bit
+    def tail = mux(last, !Bits(dlen)(0) >> !last_bit, !Bits(dlen)(0))
+    def selected_bytes = mux(permuting, permutation.bits.enabled, !Bits(row_bytes)(0))
+    def half = Bits(dlen)((1 << (dlen div 2))-1)
+    def piece = mux(part[0].into(Bool), !half, half)
+    context <== ExecuteRowContext(dlen):
+      control: control
+      part: part
+      offset: first_element[0..mask_bits]
+      range_mask: head & tail & expand_mask(selected_bytes, 8) & mux(control.widths.dest_lag.any(), piece, !Bits(dlen)(0))
+  issue.context <== context
+
+export VectorExecuteSequencer resolve_row_unit

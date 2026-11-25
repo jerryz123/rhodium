@@ -23,7 +23,7 @@ fun vector_page_permitted(physical_map :: RiscvPhysicalMemoryMap, address :: Bit
   def permitted_regions = for List (region in physical_map.regions):
     def attributes = region.attributes
     // Endpoint membership alone cannot certify a sparse physical address set.
-    if (region.address_set.mask bits.and 4095) == 4095 && attributes.cacheable && (!attributes.device) && attributes.read_idempotent
+    if (region.address_set.mask bits.and (VectorPageBytes - 1)) == (VectorPageBytes - 1) && attributes.cacheable && (!attributes.device) && attributes.read_idempotent
     | region.address_set.matches(address) & mux(store, Bool(attributes.writable), Bool(attributes.readable))
     | Bool(#false)
 
@@ -39,6 +39,7 @@ sync_circuit VectorWindow(physical_map :: RiscvPhysicalMemoryMap):
   output physical_addresses: Vec(2, Bits(64))
   output hits: Vec(2, Bool)
   output owned: Bool
+  output pages: VectorWindowPages
 
   /* Captured range and pinned endpoint mappings.
      The two-page proof is a fallback decision, not an architectural fault. */
@@ -46,9 +47,10 @@ sync_circuit VectorWindow(physical_map :: RiscvPhysicalMemoryMap):
   reg state(~init: VectorWindowState.Idle)
   reg span(VectorRange())
   reg second(~init: Bool(#false))
-  reg first_ppn(Bits(44))
-  reg last_ppn(Bits(44))
+  reg first_ppn(VectorPageNumber)
+  reg last_ppn(VectorPageNumber)
   reg safe(~init: Bool(#false))
+  pages <== vec([first_ppn, last_ppn])
 
 
   /* Probe admission and owned-address lookup.
@@ -56,9 +58,9 @@ sync_circuit VectorWindow(physical_map :: RiscvPhysicalMemoryMap):
      a live check offer whose admission may depend on MMU readiness. */
 
   def admitting = state === VectorWindowState.Idle
-  def first_page = span.first[12..64]
-  def last_page = span.last[12..64]
-  def split = span.first[12..64] =/= span.last[12..64]
+  def first_page = span.first[VectorPageOffsetBits..64]
+  def last_page = span.last[VectorPageOffsetBits..64]
+  def split = first_page =/= last_page
   check.request.ready <== admitting
   check.response.valid <== state === VectorWindowState.Complete
   check.response.bits <== safe
@@ -70,9 +72,9 @@ sync_circuit VectorWindow(physical_map :: RiscvPhysicalMemoryMap):
   owned <== (state === VectorWindowState.Owned) & safe
   for (index in 0..2):
     def address = addresses[index]
-    def page = address[12..64]
+    def page = address[VectorPageOffsetBits..64]
     hits[index] <== owned & (address >= span.first) & (address <= span.last) & ((page === first_page) ||| (page === last_page))
-    physical_addresses[index] <== (mux(page === first_page, first_ppn, last_ppn) ++ address[0..12]).zext(64)
+    physical_addresses[index] <== (mux(page === first_page, first_ppn, last_ppn) ++ address[0..VectorPageOffsetBits]).zext(64)
 
 
   /* Translation proof and endpoint-page permissions.
@@ -81,8 +83,9 @@ sync_circuit VectorWindow(physical_map :: RiscvPhysicalMemoryMap):
 
   def result = translation.response.bits
   def same_leaf = sv39_same_page(span.first, span.last, result.page_size)
-  def result_page = (result.physical_address[12..56] ++ Bits(12)(0)).zext(64)
-  def next_page = result_page + Bits(64)(4096)
+  def result_ppn = vector_page_number(result.physical_address.zext(64))
+  def result_page = (result_ppn ++ Bits(VectorPageOffsetBits)(0)).zext(64)
+  def next_page = result_page + Bits(64)(VectorPageBytes)
   def translation_permitted = !result.fault & !result.access_fault & (result.pbmt === PageMemoryType.PMA)
   def first_page_permitted = vector_page_permitted(physical_map, result_page, span.store)
   def success = translation_permitted & first_page_permitted
@@ -100,12 +103,12 @@ sync_circuit VectorWindow(physical_map :: RiscvPhysicalMemoryMap):
   elsewhen (translation.response.valid):
     assert((state === VectorWindowState.Response) ||| translation.request.fire(), "vector_page_result_has_owner")
     when (!second):
-      first_ppn <== result.physical_address[12..56]
+      first_ppn <== result_ppn
 
     safe <== success & (second ||| !split ||| shared_leaf_permitted)
     state <== mux(needs_second, VectorWindowState.Request, VectorWindowState.Complete)
     when (second ||| (success & split & same_leaf)):
-      last_ppn <== mux(second, result.physical_address[12..56], next_page[12..56])
+      last_ppn <== mux(second, result_ppn, vector_page_number(next_page))
 
     second <== needs_second
   elsewhen (check.request.fire()):

@@ -6,37 +6,240 @@
 import:
   lib("cores/common/vector-layout.rhm") open
   "decode.rhdl" open
-  "../fp/types.rhdl".FloatUnit
+  "bundles.rhdl".VectorDescriptor
+  "../../../riscv/rtl/vector.rhdl".vector_type
   "../../../riscv/isa/vector.rhm" open
   "../../../riscv/isa/xlen.rhm" open
   lib("rhodium/std/bits.rhdl") open
+  lib("rhodium/std/reduction.rhdl").tree_reduce
+
+/* Half-open compute range in element units. A scalar result may be owed even without a source beat. */
+bundle ComputeExtent(xlen :: XLen):
+  begin: Bits(xlen.width)
+  end: Bits(xlen.width)
+  scalar_result: Bool
+
+  /* Compare architectural indices before narrowing them to physical cursor widths. */
+  method has_body(e) :: Bool: e.begin < e.end
+
+/* Extract always visits element zero; insert visits it only for a live body.
+   Whole copies restart at vstart but use their encoded length instead of vl. */
+fun compute_extent(xlen :: XLen, vlen :: VectorLength, d :: VectorDescriptor(xlen)) :~ ComputeExtent(xlen):
+  def sequence = d.control.sequence
+  ComputeExtent(xlen):
+    begin: mux(sequence.is_one_of(VectorSequence.Extract, VectorSequence.Insert), Bits(xlen.width)(0), d.state.vstart)
+    end:
+      mux_lookup(sequence, ~default: d.state.vl):
+        VectorSequence.Extract: Bits(xlen.width)(1)
+        VectorSequence.Insert: (d.state.vstart < d.state.vl).as_bits().zext(xlen.width)
+        VectorSequence.WholeCopy: d.whole_move_limit(vlen).zext(xlen.width)
+    scalar_result: d.control.result_kind.is_one_of(VectorResultKind.Gpr, VectorResultKind.Fpr)
+
+/* Project element zero of a scalar move onto registers (one unit each) or VRF rows.
+   Extract reads only VS2, even at zero VL. Insert writes only VD when its extent is live. */
+fun scalar_move_claim(xlen :: XLen, vlen :: VectorLength, d :: VectorDescriptor(xlen), units_per_register :: Pow2Int,
+                      ~write: write :: Boolean) :~ Bits(VectorRegisterCount * units_per_register):
+  def extent = compute_extent(xlen, vlen, d)
+  def regno = if write | d.vd() | d.vs2()
+  def count = VectorRegisterCount * units_per_register
+  def first = regno.zext(index_width(count)) << bits.length(units_per_register-1)
+  def live = extent.has_body() & (if write | !extent.scalar_result | extent.scalar_result)
+  live.as_bits().zext(count) << first
+
+/* Log2 element width of one execution beat and row-reuse shifts for its operands. */
+bundle ExecuteWidths():
+  step: Bits(2)
+  left_lag: Bits(2)
+  right_lag: Bits(2)
+  dest_lag: Bits(2)
+
+/* A beat covers the widest EEW. A narrower operand reuses one row for 2^lag beats. */
+fun execute_widths(shape :: VectorWidthShape, sew :: Bits(2)) :~ ExecuteWidths():
+  def narrow = shape === VectorWidthShape.Narrow
+  def double_step = widens_result(shape) ||| narrow
+  ExecuteWidths():
+    step: sew + double_step.as_bits().zext(2)
+    left_lag: mux(shape === VectorWidthShape.Widen, Bits(2)(1), extension_shift(shape))
+    right_lag: double_step.as_bits().zext(2)
+    dest_lag: narrow.as_bits().zext(2)
+
+/* Includes headroom for clipping a slide displacement before taking a row index. */
+fun vector_span_width(vlen :: VectorLength) :: PosInt: index_width(vlen+1)+2
+
+/* A half-open interval relative to an operand's base register. Register admission
+   and row sequencing differ only in the granularity used to cover this interval. */
+bundle VectorByteSpan(vlen :: VectorLength):
+  begin: Bits(vector_span_width(vlen))
+  end: Bits(vector_span_width(vlen))
+
+/* Locate the inclusive first and last units of a nonempty operand interval. */
+fun vector_span_bounds(vlen :: VectorLength, s :: VectorByteSpan(vlen), unit_bytes :: PosInt, units :: PosInt, base :: Bits(index_width(units))):
+  def shift = bits.length(unit_bytes-1)
+  def first = base + (s.begin >> shift)[0..index_width(units)]
+  def last = base + ((s.end - Bits(vector_span_width(vlen))(1)) >> shift)[0..index_width(units)]
+  values(first, last)
+
+/* Cover intersecting units, returning zero for an empty or clipped interval. */
+fun vector_span_cover(vlen :: VectorLength, s :: VectorByteSpan(vlen), unit_bytes :: PosInt, units :: PosInt, base :: Bits(index_width(units))) :~ Bits(units):
+  def values(first, last) = vector_span_bounds(vlen, s, unit_bytes, units, base)
+  mux(s.begin < s.end, (!Bits(units)(0) << first) & !(!Bits(units)(1) << last), Bits(units)(0))
+
+/* Ordinary traversal, including the VS2 input of a widening reduction, visits
+   only the elements from vstart to vl, at the source element width. */
+fun vector_element_span(xlen :: XLen, vlen :: VectorLength, d :: VectorDescriptor(xlen), eew :: Bits(2), ~limit: limit :: Bits(xlen.width) = d.state.vl) :~ VectorByteSpan(vlen):
+  def width = vector_span_width(vlen)
+  VectorByteSpan(vlen):
+    begin: d.state.vstart[0..width] << eew
+    end: limit[0..width] << eew
+
+/* Copy only the suffix from vstart to the encoded effective length, for both VS2 and VD. */
+fun whole_move_span(xlen :: XLen, vlen :: VectorLength, d :: VectorDescriptor(xlen)) :~ VectorByteSpan(vlen):
+  vector_element_span(xlen, vlen, d, d.state.sew(), ~limit: d.whole_move_limit(vlen).zext(xlen.width))
+
+/* Pack an element interval into mask bytes; rounding the end must not create
+   a read for an empty body that starts partway through a byte. */
+fun vector_mask_span(xlen :: XLen, vlen :: VectorLength, d :: VectorDescriptor(xlen)) :~ VectorByteSpan(vlen):
+  def width = vector_span_width(vlen)
+  def first = d.state.vstart[0..width] >> 3
+  VectorByteSpan(vlen):
+    begin: first
+    end: mux(d.state.vstart < d.state.vl, (d.state.vl[0..width] + Bits(width)(7)) >> 3, first)
+
+/* Scans keep the explicit packed VS2 mask separate from the optional predicate.
+   Scalar results have no VRF destination; vid has no explicit source. */
+bundle ScanGeometry(vlen :: VectorLength):
+  source: VectorByteSpan(vlen)
+  predicate: VectorByteSpan(vlen)
+  destination: VectorByteSpan(vlen)
+
+/* Resolve the existing scan controls into byte intervals before choosing register or row granularity. */
+fun scan_geometry(xlen :: XLen, vlen :: VectorLength, d :: VectorDescriptor(xlen)) :~ ScanGeometry(vlen):
+  def mask = vector_mask_span(xlen, vlen, d)
+  def none = literal(VectorByteSpan(vlen), 0)
+  def result = d.control.result_kind
+  def destination = priority_mux(~default: none):
+    result === VectorResultKind.Mask: mask
+    result === VectorResultKind.Elements: vector_element_span(xlen, vlen, d, d.state.sew())
+  ScanGeometry(vlen):
+    source: mux(d.control.reads.vs2, mask, none)
+    predicate: mux(d.masked, mask, none)
+    destination: destination
+
+/* Resolved at launch, never carried as additional pipeline state. */
+bundle PermutationGeometry(vlen :: VectorLength):
+  data: VectorByteSpan(vlen)
+  indices: VectorByteSpan(vlen)
+  index_eew: Bits(2)
+  capacity: Bits(vector_span_width(vlen))
+  distance: Bits(vector_span_width(vlen))
+
+/* Clip known slide and broadcast addresses. Indirect gathers can revisit any
+   VS2 element below VLMAX. Compress reads VS1 as packed bits, not SEW indices. */
+fun permutation_geometry(xlen :: XLen, vlen :: VectorLength, d :: VectorDescriptor(xlen)) :~ PermutationGeometry(vlen):
+  def width = vector_span_width(vlen)
+  def Offset = Bits(width)
+  def c = d.control
+  def sew = d.state.sew()
+  def body = vector_element_span(xlen, vlen, d, sew)
+  def slide = is_register_slide(c.permutation)
+  def compress = c.permutation === VectorPermutationKind.Compress
+  def indirect = gather_uses_vs1(c.permutation)
+  def index_eew = vector_index_width(c, sew)
+  def maximum = vector_type(xlen, vlen, d.state.vtype).vlmax
+  def capacity = maximum.zext(width) << sew
+  def amount = mux(slide, d.slide_distance(), d.scalar_index())
+  def distance = mux(amount < maximum.zext(xlen.width), amount[0..width], maximum.zext(width)) << sew
+  /* Clamp before subtracting for slide-up or adding for slide-down. */
+  fun shifted(pos :: Bits(width)) :~ Bits(width):
+    mux(slide_moves_up(c.permutation), mux(pos < distance, Offset(0), pos - distance), mux(pos + distance < capacity, pos + distance, capacity))
+  def first = mux(slide, shifted(body.begin), mux(indirect, Offset(0), distance))
+  def stop = mux(slide, mux(c.permutation === VectorPermutationKind.SlideOneDown, body.end, shifted(body.end)), mux(indirect ||| (distance === capacity), capacity, distance + (Offset(1) << sew)))
+  def indices = vector_element_span(xlen, vlen, d, index_eew)
+  def source_span = VectorByteSpan(vlen):
+    begin: first
+    end: mux(body.begin < body.end, stop, first)
+  def index_span = VectorByteSpan(vlen):
+    begin: mux(compress, d.state.vstart[0..width] >> 3, indices.begin)
+    end: mux(compress, (d.state.vl[0..width] + Offset(7)) >> 3, mux(indirect, indices.end, indices.begin))
+  PermutationGeometry(vlen):
+    data: mux(compress, body, source_span)
+    indices: index_span
+    index_eew: index_eew
+    capacity: capacity
+    distance: distance
 
 /* Recognizes indexed addressing so data EEW and index EEW remain independent. */
 fun vector_indexed_memory(control :: VectorControl()) :~ Bool:
   control.memory & control.memory_addressing.is_one_of(VectorMemoryAddressing.IndexedUnordered, VectorMemoryAddressing.IndexedOrdered)
 
+/* Each segment field has the same register-relative interval. Indices and
+   predicate bits traverse the element range once, not once per field. */
+bundle MemoryOperandGeometry(vlen :: VectorLength):
+  data: VectorByteSpan(vlen)
+  indices: VectorByteSpan(vlen)
+  predicate: VectorByteSpan(vlen)
+  nf: Bits(3)
+  spacing: Bits(3)
+
+/* Field bases advance by max(1, EMUL) architectural registers. */
+fun memory_field_spacing(xlen :: XLen, d :: VectorDescriptor(xlen)) :~ Bits(3):
+  def sew = d.state.sew()
+  def eew = vector_data_width(d.control, sew)
+  def emul = d.state.vtype[0..3].into(SInt(3)).sext(5) + eew.zext(5).into(SInt(5)) - sew.zext(5).into(SInt(5))
+  mux(emul < SInt(5)(0), Bits(3)(0), emul.as_bits()[0..3])
+
+/* Resolve the architectural body before projecting it onto registers or rows.
+   Mask and whole-register transfers are single byte streams, not segments. */
+fun memory_operand_geometry(xlen :: XLen, vlen :: VectorLength, d :: VectorDescriptor(xlen)) :~ MemoryOperandGeometry(vlen):
+  def c = d.control
+  def stream = c.memory_mode.is_one_of(VectorMemoryMode.Mask, VectorMemoryMode.WholeRegister)
+  def limit = mux(stream, d.beat_limit(vlen).zext(xlen.width), d.state.vl)
+  def none = literal(VectorByteSpan(vlen), 0)
+  def live = d.state.vstart < limit
+  MemoryOperandGeometry(vlen):
+    data: mux(live, vector_element_span(xlen, vlen, d, vector_data_width(c, d.state.sew()), ~limit: limit), none)
+    indices: mux(live & vector_indexed_memory(c), vector_element_span(xlen, vlen, d, c.memory_index_eew), none)
+    predicate: mux(live & d.masked & !stream, vector_mask_span(xlen, vlen, d), none)
+    nf: mux(stream, Bits(3)(0), c.memory_nf)
+    spacing: memory_field_spacing(xlen, d)
+
+/* Translate one field's coverage by its register stride for each enabled field.
+   A short segment can touch nonadjacent registers; do not fill the gaps. */
+fun memory_data_registers(vlen :: VectorLength, g :: MemoryOperandGeometry(vlen), vd :: Bits(5)) :~ Bits(VectorRegisterCount):
+  def field = vector_span_cover(vlen, g.data, vlen div 8, VectorRegisterCount, vd)
+  def fields = for List (f in 1..(2 ** g.nf.type.packed_width())):
+    mux(g.nf >= Bits(3)(f), field << (Bits(6)(f) << g.spacing), Bits(VectorRegisterCount)(0))
+  tree_reduce([field] ++ fields, fun (a, b): a ||| b)
+
 /* Selects physical mask-bit beats for mask logic and nonelement scan results. */
 fun vector_mask_word(control :: VectorControl()) :~ Bool:
-  control.integer & (control.mask_logic ||| (control.scan & (control.scan_control.result =/= VectorScanResult.Elements)))
+  vector_packed_mask_rows(control) ||| (vector_scan(control) & control.scan_control.packed_rows)
 
 /* Selects singleton scheduling for memory, services, reductions, element moves, and vector
    gather. */
 fun vector_single_element(control :: VectorControl(), ~packed_multiply: packed_multiply :: Bool = Bool(#false)) :~ Bool:
-  def reduction = (control.integer ||| control.fp_service) & control.reduction
-  def gather_vector = control.integer & control.gather & (control.operand === VectorOperandMode.Vector)
-  control.memory ||| control.fp_service ||| (control.multiply_divide & !packed_multiply) ||| control.element_move ||| reduction ||| gather_vector
+  def reduction = vector_reduction(control)
+  def gather_vector = gather_uses_vs1(control.permutation)
+  control.memory ||| control.fp_service ||| (control.multiply_divide & !packed_multiply) ||| vector_scalar_move(control) ||| reduction ||| gather_vector
 
 /* Packed banks handle subword multiply; full-word multiply and division use scalar services. */
 fun vector_packed_multiply(xlen :: XLen, control :: VectorControl(), sew :: Bits(2), enabled :: Boolean) :~ Bool:
-  Bool(enabled) & control.multiply_divide & !control.divide & (sew < Bits(2)(vector_format_count(xlen) - 1))
+  Bool(enabled) & control.multiply_divide & (control.compute_family === VectorComputeFamily.IntProduct) & (sew < Bits(2)(vector_format_count(xlen) - 1))
 
 /* Identifies multiply-accumulate and fused FP operations that consume old vd. */
 fun vector_reads_destination(control :: VectorControl()) :~ Bool:
-  (control.multiply_divide & control.multiply_accumulate) ||| (control.fp_service & (control.fp_execution.unit === FloatUnit.FusedMultiplyAdd))
+  !control.memory & control.reads.old_vd
 
-/* Identifies schedules needing the second general VRF operand read. */
+/* FP moves route bits without using the FP service's arithmetic controls. */
+fun vector_fp_move(control :: VectorControl()) :~ Bool: control.floating_point & !control.fp_service
+
+/* Unified port zero is also used by non-scan schedules for gathers and memory.
+   A scan uses it only for a cataloged VS2, never for vid's fixed zero field. */
+fun vector_reads_first(control :: VectorControl()) :~ Bool: !vector_scan(control) ||| control.reads.vs2
+
+/* The scan's VS1 field is a function selector, not a second vector operand. */
 fun vector_reads_second(control :: VectorControl()) :~ Bool:
-  control.slide ||| !control.floating_point ||| control.fp_uses_vs1
+  !vector_scan(control) & ((is_register_slide(control.permutation)) ||| !control.floating_point ||| control.reads.vs1)
 
 /* Uses encoded memory EEW for nonindexed transfers and architectural SEW otherwise. */
 fun vector_data_width(control :: VectorControl(), sew :: Bits(2)) :~ Bits(2):
@@ -44,18 +247,18 @@ fun vector_data_width(control :: VectorControl(), sew :: Bits(2)) :~ Bits(2):
 
 /* Adjusts destination width for widening service results that use singleton scheduling. */
 fun vector_destination_width(control :: VectorControl(), sew :: Bits(2)) :~ Bits(2):
-  def widened = control.widening & ((control.multiply_divide & control.multiply_accumulate) ||| control.fp_service)
-  sew + widened.as_bits().zext(2)
+  def result_operand = (control.multiply_divide & (control.compute_family === VectorComputeFamily.IntProduct) & control.reads.old_vd) ||| control.fp_service
+  mux(result_operand, compute_dest_eew(control.width_shape, sew), sew)
 
 /* Selects indexed-memory or EI16-gather index EEW independently of data width. */
 fun vector_index_width(control :: VectorControl(), sew :: Bits(2)) :~ Bits(2):
   priority_mux(~default: sew):
     vector_indexed_memory(control): control.memory_index_eew
-    control.gather_index16: Bits(2)(1)
+    control.permutation === VectorPermutationKind.GatherVectorEI16: Bits(2)(1)
 
 /* Selects physical packed, half-row, mask-bit, or singleton progress for one beat. */
 fun vector_beat_lanes(xlen :: XLen, vlen :: VectorLength, control :: VectorControl(), sew :: Bits(2), ~packed_multiply: packed_multiply :: Bool = Bool(#false)) :~ Bits(index_width(vlen + 1)):
-  def width_change = (control.integer & (control.widening ||| control.narrowing)) ||| (packed_multiply & control.widening)
+  def width_change = (control.integer & (widens_result(control.width_shape) ||| (control.width_shape === VectorWidthShape.Narrow))) ||| (packed_multiply & widens_result(control.width_shape))
   def packed = mux(width_change, Bits(index_width(vlen + 1))(vector_word_bytes(xlen) / 2), Bits(index_width(vlen + 1))(vector_word_bytes(xlen))) >> sew
   priority_mux(~default: packed):
     vector_mask_word(control): Bits(index_width(vlen + 1))(xlen.width)
@@ -65,13 +268,41 @@ fun vector_beat_lanes(xlen :: XLen, vlen :: VectorLength, control :: VectorContr
 fun vector_aligned_first(xlen :: XLen, vlen :: VectorLength, first :: Bits(index_width(vlen + 1)), sew :: Bits(2)) :~ Bits(index_width(vlen + 1)):
   first & !(Bits(index_width(vlen + 1))(vector_word_bytes(xlen) - 1) >> sew)
 
+/* Expands one v0 predicate bit per element into the corresponding native row byte lanes. */
+fun row_predicate_bytes(dlen :: PosInt, eew :: Bits(2), predicate :: Bits(dlen), offset :: Bits(index_width(dlen))) :~ Bits(dlen div 8):
+  def row_bytes = dlen div 8
+  def window = (predicate >> offset)[0..row_bytes]
+  def wider = for List (n in 1..math.min(4, bits.length(row_bytes))):
+    def bytes = 2 ** n
+    [n, expand_mask(window[0..(row_bytes div bytes)], bytes)]
+  mux_lookup(eew, ~default: window, wider)
+
 export:
+  ComputeExtent
+  compute_extent
+  scalar_move_claim
+  vector_span_width
+  VectorByteSpan
+  vector_span_cover
+  vector_span_bounds
+  memory_operand_geometry
+  memory_field_spacing
+  memory_data_registers
+  vector_element_span
+  whole_move_span
+  scan_geometry
+  permutation_geometry
+  ExecuteWidths
+  execute_widths
+  row_predicate_bytes
   vector_indexed_memory
   vector_mask_word
   vector_single_element
   vector_packed_multiply
   vector_reads_destination
+  vector_reads_first
   vector_reads_second
+  vector_fp_move
   vector_data_width
   vector_destination_width
   vector_index_width

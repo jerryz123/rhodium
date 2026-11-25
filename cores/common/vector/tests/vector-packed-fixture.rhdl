@@ -31,8 +31,8 @@ sync_circuit VectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen = XLen.X6
   input(store, masked, request_valid, issue_ready, retry, slow, alignment_available, write_available): Bool
   input hit_data: Bits(64)
   interface response(Decoupled(VectorCompletion(xlen, slots)), ~role: consumer)
-  interface initialize(Valid(VectorRegisterWrite(xlen, vlen)), ~role: consumer)
-  interface written(Valid(VectorRegisterWrite(xlen, vlen)), ~role: producer)
+  interface initialize(Valid(VectorRegisterWrite(xlen.width, vlen)), ~role: consumer)
+  interface written(Valid(VectorRegisterWrite(xlen.width, vlen)), ~role: producer)
   interface released(Valid(Bits(index_width(slots))), ~role: producer)
   output(request_ready, active, issued, retired, sequenced): Bool
   output sequence_address: Bits(xlen.width)
@@ -76,7 +76,7 @@ sync_circuit VectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen = XLen.X6
   engine.store_completed.valid <== Bool(#false)
   engine.store_completed.bits <== dont_care(engine.store_completed.bits.type)
   engine.owner <== Bits(1)(0)
-  inst registers(VectorRegisterFile(xlen, vlen))
+  inst registers(VectorRegisterFile(xlen.width, vlen))
   inst execute(VectorExecute(xlen, vlen))
   inst attempts(ValidPipe(VectorToken(xlen, Bits(64), slots), 3, ~flushable: #true))
   def control :: VectorControl() = literal(VectorControl(), 0)

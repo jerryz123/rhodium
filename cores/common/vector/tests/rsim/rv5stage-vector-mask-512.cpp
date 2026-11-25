@@ -554,6 +554,7 @@ void stimulus() {
   // Preserve the wide-mask regressions: first-set at bits 63, 64, and 511,
   // a scalar popcount of 512, and SEW8 prefix/index wrap beyond 255.
   for (int op = 0; op < 7; op++) {
+    if (op < 2) scan_case(op, 0, 3, 0, 1, true); // Empty result: count zero or first -1.
     for (int pattern = 0; pattern < 6; pattern++) {
       scan_case(op, 0, 3, 512, pattern, pattern == 5);
       scan_case(op, 0, 3, 65, pattern, 1);

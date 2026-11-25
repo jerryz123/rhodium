@@ -58,6 +58,13 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
   resolve.invalidate <== invalidate
   resolve.pipeline_vector <== pipeline_vector
   resolve.request_vector <== request_vector
+  if translation.checks_vector_elements()
+  | block:
+      interface element_translation(VectorElementTranslation(), ~role: responder)
+      output window_pages: VectorWindowPages
+      window_pages <== resolve.window_pages
+      element_translation <=> resolve.element_translation
+  | #void
   vector_precheck <=> resolve.vector_precheck
   vector_fast <=> resolve.vector_fast
   instruction <=> resolve.instruction

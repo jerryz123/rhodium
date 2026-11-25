@@ -196,8 +196,8 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
       memory_ports.memory <=> data_access
       memory_ports.pipeline <=> pipeline_access
 
-  def scalar_data = memory_ports.scalar
-  def scalar_pipeline = memory_ports.scalar_pipeline
+  def scalar_data :: Endpoint = memory_ports.scalar
+  def scalar_pipeline :: Endpoint = memory_ports.scalar_pipeline
 
   def zero = Bits(width)(0)
 
@@ -733,11 +733,11 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def id_cbo = id_management ||| id_control.memory.access.is_cache_block_zero()
   def id_cbo_access = mux(id_management, id_cbo_permission.access, wb_csrs.cbo_zero_access)
   def id_memory_operation = mux(id_management & (id_cbo_permission.operation === CboManagementOperation.Flush), CacheOperation.CacheBlockFlush, id_control.memory.access)
-  def id_vector_instruction = id_control.vector.integer ||| id_control.vector.memory ||| id_control.vector.floating_point ||| id_control.vector.multiply_divide
+  def id_vector_instruction = id_control.vector.dispatch_kind =/= VectorDispatchKind.None
   def id_explicit_guest = Bool(hypervisor) & (id_control.guest_access =/= RiscvGuestMemoryAccess.Normal)
   def id_virtual_instruction = if hypervisor | (id_explicit_guest & wb_csrs.guest_translation.virtualized) ||| (id_cbo & (id_cbo_access === CboAccess.VirtualInstruction)) | Bool(#false)
   def id_guest_illegal = if hypervisor | id_explicit_guest & !wb_csrs.guest_translation.virtualized & (wb_csrs.privilege === PrivilegeMode.User) & !csr_flag(wb_csrs.guest_translation.hstatus, HstatusHU) | Bool(#false)
-  def id_vector_fp_illegal = id_control.vector.floating_point & (Bool(!floating_point_supports_f(profile)) ||| !wb_csrs.fp_enabled ||| (id_control.vector.fp_service & id_control.vector.fp_execution.uses_rounding_mode & (wb_csrs.frm > Bits(3)(4))))
+  def id_vector_fp_illegal = vector_fp_state_illegal(id_control.vector, Bool(floating_point_supports_f(profile)) & wb_csrs.fp_enabled, wb_csrs.frm)
   def id_vector_config_illegal = (id_control.system.action === RiscvCsrAction.VectorConfig) & !wb_csrs.vector_enabled
   def id_cbo_illegal = id_cbo & (id_cbo_access === CboAccess.IllegalInstruction)
   def id_scalar_fp_illegal = id_control.floating_point_valid & (!wb_csrs.fp_enabled ||| (id_control.floating_point.execution.uses_rounding_mode & !id_fp_rounding.valid))
@@ -778,7 +778,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
 
   /* Combines admitted deferred writers with older unreserved FP/vector GPR destinations. */
   fun id_integer_register_busy(index :: Bits(5)):
-    def vector_pending = id_vector_launch_matches(fun (control :: VectorControl(), rd :: Bits(5)): control.integer & control.scalar_destination & (rd === index))
+    def vector_pending = id_vector_launch_matches(fun (control :: VectorControl(), rd :: Bits(5)): vector_writes_gpr(control) & (rd === index))
     def integer_reserved = scoreboard_busy(register_count, wb_scoreboard.busy, index)
     def fp_reserved = scoreboard_busy(register_count, wb_fp_integer_scoreboard.busy, index)
     def reserving = wb_to_id_scoreboard_set_link.right.valid & (wb_to_id_scoreboard_set_link.right.bits === index)
@@ -805,12 +805,12 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def id_mem_csr_pending = mem_input.valid & mem_input.bits.writeback_enable & (mem_input.bits.writeback_source === RV5StageWritebackSelect.Csr) & (mem_input.bits.system.action =/= RiscvCsrAction.VectorConfig)
   def id_deferred_dependency_hazard = id_decode_valid & (id_conflicts_with_deferred(id_ex_deferred ||| id_ex_csr_pending, ex_input.bits.rd) ||| id_conflicts_with_deferred(id_mem_deferred ||| id_mem_csr_pending, mem_input.bits.rd))
   def id_scoreboard_raw_hazard = (id_control.operand.uses_rs1 & id_rs1.any() & id_integer_register_busy(id_rs1)) ||| (id_control.operand.uses_rs2 & id_rs2.any() & id_integer_register_busy(id_rs2))
-  def id_integer_write = id_control.writeback.enable ||| (id_vector_instruction & id_control.vector.integer & id_control.vector.scalar_destination) ||| (id_control.floating_point_valid & (id_control.floating_point.registers.destination === FloatDestination.Integer))
+  def id_integer_write = id_control.writeback.enable ||| (id_vector_instruction & vector_writes_gpr(id_control.vector)) ||| (id_control.floating_point_valid & (id_control.floating_point.registers.destination === FloatDestination.Integer))
   def id_scoreboard_waw_hazard = id_integer_write & id_rd.any() & id_integer_register_busy(id_rd)
 
   /* Combines the FPR scoreboard with older scalar/vector writers not yet reserved at WB. */
   fun id_fp_register_busy(index :: Bits(5)):
-    def vector_pending = id_vector_launch_matches(fun (control :: VectorControl(), rd :: Bits(5)): control.floating_scalar_destination & (rd === index))
+    def vector_pending = id_vector_launch_matches(fun (control :: VectorControl(), rd :: Bits(5)): vector_writes_fpr(control) & (rd === index))
     def reserved = scoreboard_busy(register_count, wb_fp.busy, index)
     def ex_pending = ex_input.valid & ex_input.bits.floating_point_valid & (ex_input.bits.floating_point_control.registers.destination === FloatDestination.FloatingPoint) & (ex_input.bits.rd === index)
     def mem_load_pending = mem_input.valid & mem_input.bits.data_request_valid & mem_input.bits.data_request.context.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint) & (mem_input.bits.data_request.context.writeback.view(RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint).payload.rd === index)
@@ -821,7 +821,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     vector_pending ||| reserved ||| ex_pending ||| mem_load_pending ||| mem_compute_pending ||| wb_pending
 
   def id_fp_source_hazard = id_control.floating_point_valid & ((id_control.floating_point.registers.uses_frs1 & id_fp_register_busy(id_rs1)) ||| (id_control.floating_point.registers.uses_frs2 & id_fp_register_busy(id_rs2)) ||| (id_control.floating_point.registers.uses_frs3 & id_fp_register_busy(id_frs3)))
-  def id_vector_fp_source_hazard = id_control.vector.floating_point & (id_control.vector.operand === VectorOperandMode.FloatingScalar) & id_fp_register_busy(id_rs1)
+  def id_vector_fp_source_hazard = id_control.vector.reads_frs1 & id_fp_register_busy(id_rs1)
   def id_fp_destination_hazard = id_control.floating_point_valid & (id_control.floating_point.registers.destination === FloatDestination.FloatingPoint) & id_fp_register_busy(id_rd)
 
   /* Serialization and execution capacity.
@@ -832,7 +832,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def id_mem_fp_reservation_pending = mem_input.valid & (mem_input.bits.fp_compute ||| (mem_input.bits.data_request_valid & mem_input.bits.data_request.context.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint)))
   def id_wb_fp_reservation_pending = wb.valid & (wb_offer_bits.fp_compute ||| (wb_offer_bits.data_request_valid & wb_offer_bits.data_request.context.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint)))
   def id_older_fp_reservation_pending = id_ex_fp_reservation_pending ||| id_mem_fp_reservation_pending ||| id_wb_fp_reservation_pending
-  def id_vector_fp_destination_hazard = id_control.vector.floating_point & id_control.vector.floating_scalar_destination & (id_fp_register_busy(id_rd) ||| !wb_fp.drained ||| id_older_fp_reservation_pending)
+  def id_vector_fp_destination_hazard = vector_writes_fpr(id_control.vector) & (id_fp_register_busy(id_rd) ||| !wb_fp.drained ||| id_older_fp_reservation_pending)
   def id_ex_serializing = ex_input.valid & (core_serializing_operation(ex_input.bits.system, ex_input.bits.fence, ex_input.bits.instruction) ||| ex_input.bits.memory_operation.into(CacheOperation).is_cache_management())
   def id_mem_serializing = mem_input.valid & (core_serializing_operation(mem_input.bits.system, mem_input.bits.fence, mem_input.bits.raw_instruction) ||| mem_input.bits.data_request.access.into(CacheOperation).is_cache_management())
   def id_wb_serializing = wb_commit_valid & core_serializing_operation(wb_offer_bits.system, wb_offer_bits.fence, wb_offer_bits.raw_instruction)
@@ -898,7 +898,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   /* Only vector-to-FPR writers require exclusive scalar FP ownership. Cover the
      pre-WB admission gap as well as the accepted reservation; VRF-only arithmetic
      uses the ordinary shared-service bookings and need not drain first. */
-  def id_vector_fpr_write_pending = wb_vector_fp_write_pending ||| id_vector_launch_matches(fun (control :: VectorControl(), _rd): control.floating_scalar_destination)
+  def id_vector_fpr_write_pending = wb_vector_fp_write_pending ||| id_vector_launch_matches(fun (control :: VectorControl(), _rd): vector_writes_fpr(control))
   def id_vector_scalar_wait = (id_vector_instruction & wb_vector_integer_write_pending) ||| (id_vector_fpr_write_pending & id_control.floating_point_valid)
   def id_vector_wait = wb_vector_certification_pending ||| wb_vector_slow_admission ||| id_vector_memory_order_pending ||| id_vector_start_pending ||| id_vector_scalar_wait ||| id_vector_state_wait ||| id_vector_memory_wait
   def id_hazard_reasons = RV5StageHazardReasons():
@@ -1077,10 +1077,10 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
          rounding_mode: wb_csrs.frm.into(RoundingMode)
          pointer_masking: wb_vector_context.pointer_masking
 
-  def wb_vector_needs_fp_reservation = wb_vector_launch.bits.control.floating_scalar_destination
+  def wb_vector_needs_fp_reservation = vector_writes_fpr(wb_vector_launch.bits.control)
   def wb_vector_sink_ready = wb_vector.request.ready & (!wb_vector_needs_fp_reservation ||| wb_fp.vector_reserve.ready)
   wb_vector_launch |> filter_valid(_descriptor => !wb_vector_needs_fp_reservation ||| wb_fp.vector_reserve.ready) |> offer_decoupled() |> wb_vector.request
-  wb_vector_launch |> filter_valid(descriptor => descriptor.control.floating_scalar_destination & wb_vector.request.ready) |> map_valid(_descriptor => wb_vector_vd) |> offer_decoupled() |> wb_fp.vector_reserve
+  wb_vector_launch |> filter_valid(descriptor => vector_writes_fpr(descriptor.control) & wb_vector.request.ready) |> map_valid(_descriptor => wb_vector_vd) |> offer_decoupled() |> wb_fp.vector_reserve
   def wb_vector_accepted = wb_vector.request.fire()
   wb_vector_fast <== wb_vector_accepted & wb_vector_fast_candidate & wb_vector_launch.bits.control.memory
   wb_vector_slow_admission <== wb_vector_accepted & wb_vector_launch.bits.control.memory & !wb_vector_fast
@@ -1088,8 +1088,8 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   vector_fast.pipeline_physical <== wb_vector.pipeline_physical
   vector_fast.request_physical <== wb_vector.request_physical
   wb_vector_replay <== wb_vector_launch.valid & !wb_vector_sink_ready
-  wb_vector_launch |> filter_valid(descriptor => wb_vector_accepted & descriptor.control.integer & descriptor.control.scalar_destination & wb_vector_vd.any()) |> map_valid(_descriptor => wb_vector_vd) |> wb_vector_reserve_link.left
-  wb_vector.service.floating_result |> wb_fp.vector_write
+  wb_vector_launch |> filter_valid(descriptor => wb_vector_accepted & vector_writes_gpr(descriptor.control) & wb_vector_vd.any()) |> map_valid(_descriptor => wb_vector_vd) |> wb_vector_reserve_link.left
+  wb_vector.floating_result |> wb_fp.vector_write
   when (wb_fp.vector_reserve.fire()):
     wb_vector_fp_write_pending <== Bool(#true)
   elsewhen (wb_fp.vector_write.valid):

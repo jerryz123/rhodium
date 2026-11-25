@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/common/vector/backend-kind.rhm") open
+  lib("cores/common/vector/distributed/backend.rhdl").DistributedVectorBackend
   "../common/vector/profile.rhm".DefaultVectorInstructionOwners
   lib("cores/common/vector/service.rhdl").VectorExecutionService
   lib("cores/common/cosim-source.rhm").describe_cosim_signals
@@ -23,7 +25,7 @@ import:
 /* Queues six WB-authorized descriptors by default without conflating admission, fault certainty,
    last-beat acceptance, and final execution drain. The scalar core owns age order,
    architectural retirement, and arithmetic/write-port arbitration at these ports. */
-sync_circuit SuperscalarVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_completion_slots: slots :: Pow2Int = 8, ~instruction_owners: owners :: Pow2Int = DefaultVectorInstructionOwners, ~dispatch_depth: dispatch_depth :: PosInt = 6, ~multiply_latency: multiply_latency :: maybe(PosInt) = #false, ~fixed_fp: fixed_fp :: Boolean = #false, ~fp_timing: fp_timing :: FpExecutionTiming = FpExecutionTiming()):
+sync_circuit SuperscalarVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_completion_slots: slots :: Pow2Int = 8, ~vector_backend: vector_backend :: VectorBackendKind = VectorBackendKind.Unified, ~vector_fp32: vector_fp32 :: Boolean = #true, ~vector_fp16: vector_fp16 :: Boolean = #true, ~instruction_owners: owners :: Pow2Int = DefaultVectorInstructionOwners, ~dispatch_depth: dispatch_depth :: PosInt = 6, ~multiply_latency: multiply_latency :: maybe(PosInt) = #false, ~fixed_fp: fixed_fp :: Boolean = #false, ~fp_timing: fp_timing :: FpExecutionTiming = FpExecutionTiming()):
   interface service(VectorExecutionService(xlen, slots), ~role: executor)
   interface request(Decoupled(VectorDescriptor(xlen)), ~role: consumer)
   interface pipeline(SuperscalarPipelineAccess(xlen), ~role: requester)
@@ -36,30 +38,55 @@ sync_circuit SuperscalarVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vect
   interface floating_writeback(Decoupled(Bits(4)), ~role: producer)
   output active: Bool
 
-  inst access(SuperscalarVectorMemory(xlen, slots))
-  inst backend(VectorBackend(xlen, vlen, RiscvGuestFault(), ~vector_completion_slots: slots, ~instruction_owners: owners, ~dispatch_depth: dispatch_depth, ~pipe: #false, ~multiply_latency: multiply_latency, ~packed_multiply: #true, ~fixed_fp: fixed_fp, ~fp_timing: fp_timing))
-  backend.precise_fault <== access.outcome_guest
+  def distributed_rows = (vector_backend == VectorBackendKind.Distributed)
+  inst backend(match vector_backend
+               | VectorBackendKind.Unified: VectorBackend(xlen, vlen, RiscvGuestFault(), ~vector_completion_slots: slots, ~multiply_latency: multiply_latency, ~packed_multiply: #true, ~fixed_fp: fixed_fp, ~fp_timing: fp_timing, ~dispatch_depth: dispatch_depth, ~instruction_owners: owners, ~pipe: #false)
+               | VectorBackendKind.Distributed: DistributedVectorBackend(xlen, vlen, RiscvGuestFault(), ~fp32: vector_fp32, ~fp16: vector_fp16, ~vector_completion_slots: slots))
+  def components = if distributed_rows
+  | block:
+      interface row_memory(VectorRowMemory(vector_dlen(vlen)), ~role: requester)
+      interface element_translation(VectorElementTranslation(), ~role: requester)
+      backend.element_translation <=> element_translation
+      input window_pages: VectorWindowPages
+      interface native_outstanding_store(Valid(Bool), ~role: producer)
+      backend.native_outstanding_store |> native_outstanding_store
+      backend.row_memory <=> row_memory
+      backend.window_pages <== window_pages
+      backend.memory_drained <== memory.drained
+      active <== backend.active
+      for (port :: Endpoint in [pipeline.request, memory.request, split.request]):
+        port.valid <== Bool(#false)
+        port.bits <== dont_care(port.bits.type)
+      memory.response.ready <== Bool(#true)
+      pipeline.commit <== Bool(#false)
+      pipeline_physical <== Bool(#false)
+      request_physical <== Bool(#false)
+      {"backend": backend}
+  | block:
+      inst access(SuperscalarVectorMemory(xlen, slots))
+      backend.precise_fault <== access.outcome_guest
+      access.split <=> split
+      backend.memory_drained <== memory.drained & access.idle
+      active <== backend.active ||| !access.idle
+      backend.issue |> access.issue
+      access.feedback |> backend.decision
+      access.completion |> backend.completion
+      access.store_completed |> backend.store_completed
+      access.outcome |> backend.precise
+      backend.memory_start_ready <== access.memory_start_ready
+      access.pointer_masking <== backend.pointer_masking
+      access.pipeline <=> pipeline
+      access.memory <=> memory
+      pipeline_physical <== access.pipeline_physical
+      request_physical <== access.request_physical
+      {"backend": backend, "memory": access}
   outcome_guest <== backend.outcome_fault
-  access.split <=> split
-  backend.memory_drained <== memory.drained & access.idle
-  active <== backend.active ||| !access.idle
   request |> backend.request
   backend.precheck <=> precheck
   backend.outcome |> outcome
-  backend.issue |> access.issue
-  access.feedback |> backend.decision
-  access.completion |> backend.completion
-  access.store_completed |> backend.store_completed
-  access.outcome |> backend.precise
-  backend.memory_start_ready <== access.memory_start_ready
-  access.pointer_masking <== backend.pointer_masking
-  access.pipeline <=> pipeline
-  access.memory <=> memory
-  pipeline_physical <== access.pipeline_physical
-  request_physical <== access.request_physical
   backend.service <=> service
   backend.floating_writeback |> floating_writeback
-  describe_cosim_signals({"admitted": request.fire()}, ~components: {"backend": backend, "memory": access})
+  describe_cosim_signals({"admitted": request.fire()}, ~components: components)
 
 /* Terminates the optional vector client without allocating a sequencer, VRF, or execution state. */
 sync_circuit SuperscalarVectorDisabled(xlen :: XLen, ~vector_completion_slots: slots :: Pow2Int = 8):

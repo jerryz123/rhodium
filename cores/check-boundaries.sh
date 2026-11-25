@@ -86,6 +86,13 @@ if [[ -n "$shared_named_core_imports" ]]; then
   exit 1
 fi
 
+# Common vector primitives and unified execution must not depend on distributed scheduling.
+if search_sources '^[[:space:]]+(lib\()?"[^"]*distributed/' cores/common/vector/*.rhdl cores/common/vector/*.rhm ||
+   search_sources '^[[:space:]]+(lib\()?"[^"]*(/|^)(pipeline|sequencer|operand-fetch)\.rhdl"' cores/common/vector/distributed; then
+  echo "vector backend dependencies must point toward shared vector primitives" >&2
+  exit 1
+fi
+
 rv2wide_named_core_imports="$(search_sources \
   '^[[:space:]]+(lib\()?"[^" ]*(rv5stage|rv3wide|spike)/' cores/rv2wide || true)"
 if [[ -n "$rv2wide_named_core_imports" ]]; then

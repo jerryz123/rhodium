@@ -6,6 +6,9 @@ import:
   lib("cores/common/mmu/vector.rhdl") open
   "bundles.rhdl" open
   "decode.rhdl" open
+  "geometry.rhdl".vector_indexed_memory
+  lib("riscv/rtl/instruction-fields.rhdl").instruction_field
+  lib("riscv/model/formats.rhm") as fields
   "../../../riscv/isa/vector.rhm" open
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/rtl/pointer-masking.rhdl" open
@@ -20,7 +23,7 @@ bundle VectorFootprintGeometry():
   span_bytes: Bits(68)
   eew: Bits(2)
   reverse: Bool
-  strided: Bool
+  requires_unmasked_pointer: Bool
 
 /* Returns a conservative virtual byte range and optional certification eligibility. */
 bundle VectorFootprint():
@@ -39,7 +42,7 @@ fun vector_fast_start(xlen :: XLen, base :: Bits(xlen.width), geometry :: Vector
   def raw = mux(geometry.reverse, base - offset, base + offset)
   VectorFastStart(xlen):
     address: apply_pointer_mask(xlen, raw, masking)
-    no_wrap: !geometry.start_offset[xlen.width..68].any() & mux(geometry.reverse, base >= offset, raw >= base) & (!geometry.strided ||| (masking.mode === PointerMaskMode.Disabled))
+    no_wrap: !geometry.start_offset[xlen.width..68].any() & mux(geometry.reverse, base >= offset, raw >= base) & (!geometry.requires_unmasked_pointer ||| (masking.mode === PointerMaskMode.Disabled))
 
 /* Checks a prepared start for aligned one-page certification and expands it to whole memory beats.
    Callers may register the start and geometry independently before this combinational step. */
@@ -85,7 +88,7 @@ fun vector_footprint_geometry(xlen :: XLen, vlen :: VectorLength, control :: Vec
     span_bytes: mux(zero_stride, Bits(68)(1) << eew, vector_field_extent((limit - start) << eew, nf))
     eew: eew
     reverse: Bool(#false)
-    strided: Bool(#false)
+    requires_unmasked_pointer: Bool(#false)
 
 /* Rounds a small dynamic stride magnitude up to a power-of-two envelope for optional
    one-page proof. An overlarge envelope selects fallback without changing exact addresses. */
@@ -109,13 +112,26 @@ fun vector_strided_fast_geometry(xlen :: XLen, vlen :: VectorLength, control :: 
     span_bytes: distance + (Bits(68)(1) << eew)
     eew: eew
     reverse: stride[xlen.width - 1].into(Bool)
-    strided: Bool(#true)
+    requires_unmasked_pointer: Bool(#true)
 
-/* Chooses the contiguous/splat or conservative dynamic-stride fast-check geometry. */
-fun vector_fast_footprint_geometry(xlen :: XLen, vlen :: VectorLength, control :: VectorControl(), instruction :: Bits(32), state :: RiscvVectorState(xlen), stride :: Bits(xlen.width)) :~ VectorFootprintGeometry():
+/* A legal ei8 index group is no larger than its aligned data group. Compare
+   their enclosing LMUL groups so a narrow VS2 inside VD/VS3 stays precise. */
+fun vector_bounded_index(xlen :: XLen, control :: VectorControl(), instruction :: Bits(32), state :: RiscvVectorState(xlen)) :~ Bool:
+  def base_mask = !vector_register_group_mask(state.vtype[0..3])
+  def separate = ((instruction_field(fields.rs2, instruction) ^ instruction_field(fields.rd, instruction)) & base_mask).any()
+  vector_indexed_memory(control) & !control.memory_nf.any() & !control.memory_index_eew.any() & !state.vstart.any() & separate
+
+/* Selects a proof before reading any VRF operands. A byte index is unsigned:
+   the last possible element starts at base+255 and spans a full SEW. */
+fun vector_fast_footprint_geometry(xlen :: XLen, vlen :: VectorLength, control :: VectorControl(), instruction :: Bits(32), state :: RiscvVectorState(xlen), stride :: Bits(xlen.width), ~indexed: indexed :: Boolean = #false) :~ VectorFootprintGeometry():
   def ordinary = vector_footprint_geometry(xlen, vlen, control, instruction, state)
   def dynamic_stride = vector_strided_fast_geometry(xlen, vlen, control, state, stride)
-  mux((control.memory_addressing === VectorMemoryAddressing.Strided) & !vector_zero_stride_load_parts(control, instruction), dynamic_stride, ordinary)
+  def regular = mux((control.memory_addressing === VectorMemoryAddressing.Strided) & !vector_zero_stride_load_parts(control, instruction), dynamic_stride, ordinary)
+  if indexed
+  | mux(vector_bounded_index(xlen, control, instruction, state),
+        ordinary.updated(~eligible: Bool(#true), ~start_offset: Bits(68)(0), ~span_bytes: Bits(68)(255) + (Bits(68)(1) << state.sew()), ~eew: Bits(2)(0), ~requires_unmasked_pointer: Bool(#true)),
+        regular)
+  | regular
 
 /* Normalizes a descriptor's range and admits only aligned, nonwrapping footprints within two
    pages. */
@@ -148,6 +164,7 @@ export:
   VectorFootprintGeometry
   vector_footprint_geometry
   vector_fast_footprint_geometry
+  vector_bounded_index
   VectorFootprint
   vector_field_extent
   vector_footprint

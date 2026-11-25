@@ -34,7 +34,7 @@ sync_circuit VectorCertificate(xlen :: XLen, physical_map :: RiscvPhysicalMemory
   def context_current = if bare | Bool(#true) | (check.candidate.virtualized === current.virtualized) & (check.candidate.context.as_bits() === current.context.as_bits())
   check.candidate_current <== (check.candidate.invalidation_epoch === epoch) & context_current
   def address :: Bits(64) = if bare | check.request.bits.first | translation.bits.physical_address.zext(64)
-  def page = address.align_down(4096)
+  def page = address.align_down(VectorPageBytes)
   def page_permitted = vector_page_permitted(physical_map, page, check.request.bits.store)
   def translation_permitted = if bare
   | riscv_bare_address_fits(address)
@@ -42,13 +42,13 @@ sync_circuit VectorCertificate(xlen :: XLen, physical_map :: RiscvPhysicalMemory
   def proof = check.request |> filter_valid(_range => !invalidate & translation_permitted & page_permitted)
   (proof |> map_valid(range => VectorFastCertificate(xlen)):
     range: range
-    ppn: address[12..56]
+    ppn: vector_page_number(address)
     virtualized: if bare | Bool(#false) | current.virtualized
     context: if bare | literal(RiscvGuestTranslationContext(), 0) | current.context
     invalidation_epoch: epoch
   ) |> check.response
 
   when (check.request.valid):
-    assert(check.request.bits.first[12..64] === check.request.bits.last[12..64], "vector_fast_range_is_one_page")
+    assert(check.request.bits.first[VectorPageOffsetBits..64] === check.request.bits.last[VectorPageOffsetBits..64], "vector_fast_range_is_one_page")
 
 export VectorCertificate

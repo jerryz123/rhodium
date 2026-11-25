@@ -13,6 +13,7 @@ import:
   "../../common/fp/types.rhdl" open
   "../../common/vector/bundles.rhdl" open
   "../../common/simd-alu.rhdl" open
+  "../../common/simd-multiplier.rhdl".SimdMultiplySelect
   "../../../rhodium/core/main.rhm" open
   "../../../rhodium/frontend/support/hardware-literal.rhm".PackedLiteral
   lib("hardfloat/main.rhdl").MulAddOperation
@@ -42,23 +43,166 @@ fun control(instruction):
 fun zvbb_control(instruction):
   VectorZvbbCases.find(fun (row): row.input.value_bits == instruction.encoding.value && row.input.care_bits == instruction.encoding.care).output.value
 
+fun fp(decoded): field(decoded, "fp")
+
+fun row_alu(decoded): field(field(decoded, "integer_row"), "alu")
+
 fun core_control(instruction):
   VectorCoreControlCases.find(fun (row): row.input.value_bits == instruction.encoding.value && row.input.care_bits == instruction.encoding.care).output.value
 
 fun zvbb_core_control(instruction):
   VectorZvbbCoreControlCases.find(fun (row): row.input.value_bits == instruction.encoding.value && row.input.care_bits == instruction.encoding.care).output.value
 
+for ([kind, instructions] in [
+       [VectorSequence.Rows, [VADD_VV, VSLIDEUP_VX, VMUL_VV, VDIV_VX, VFADD_VV, VFMV_V_F]],
+       [VectorSequence.Reduction, VectorSameWidthIntegerReductionInstructions ++ VectorFloatingPointReductionInstructions],
+       [VectorSequence.Scan, [VCPOP_M, VIOTA_M, VID_V]], [VectorSequence.Extract, [VMV_X_S, VFMV_F_S]],
+       [VectorSequence.Insert, [VMV_S_X, VFMV_S_F]], [VectorSequence.WholeCopy, VectorWholeRegisterMoveInstructions]]):
+  for (instruction in instructions):
+    check:
+      value(control(instruction), "sequence") ~is kind.packed_value()
+      value(control_pattern(instruction).care, "sequence") ~is 2 ** VectorSequence.packed_width() - 1
+
+for (instruction in VectorConfigInstructions ++ VectorUnitStrideMemoryInstructions ++ VectorIndexedOrderedMemoryInstructions):
+  check:
+    value(control_pattern(instruction).care, "sequence") ~is 0
+    value(control_pattern(instruction).care, "result_kind") ~is 0
+
+// Routing is generated for every compute cube, never constrained for memory or vset.
+for ([cursor, vps, examples] in [
+       [VectorComputeCursor.Row, VectorVpsUse.None, [VADD_VV, VDIV_VX, VFMV_S_F, VMV4R_V]],
+       [VectorComputeCursor.Row, VectorVpsUse.Permutation, [VSLIDEUP_VI, VRGATHER_VV, VFSLIDE1DOWN_VF, VCOMPRESS_VM]],
+       [VectorComputeCursor.Fold, VectorVpsUse.ReductionSeed, [VWREDSUM_VS, VFREDMIN_VS]],
+       [VectorComputeCursor.Fold, VectorVpsUse.None, [VCPOP_M, VIOTA_M, VMV_X_S, VFMV_F_S]]]):
+  for (i in examples):
+    check:
+      value(control(i), "cursor") ~is cursor.packed_value()
+      value(control(i), "vps") ~is vps.packed_value()
+
+for ([identity, instructions] in [
+       [VectorReductionIdentity.Zero, [VREDSUM_VS, VREDOR_VS, VREDXOR_VS, VREDMAXU_VS, VWREDSUMU_VS, VWREDSUM_VS]],
+       [VectorReductionIdentity.AllOnes, [VREDAND_VS, VREDMINU_VS]],
+       [VectorReductionIdentity.SignedMax, [VREDMIN_VS]], [VectorReductionIdentity.SignedMin, [VREDMAX_VS]]]):
+  for (i in instructions):
+    check: value(control(i), "reduction_identity") ~is identity.packed_value()
+
+for (row in VectorControlCases ++ VectorZvbbCases):
+  def compute = value(row.output.value, "configure") == VectorConfigMode.None.packed_value() && value(row.output.value, "memory") == 0
+  def row_cursor = compute && value(row.output.value, "cursor") == VectorComputeCursor.Row.packed_value()
+  def family = value(row.output.value, "compute_family")
+  def data_row = row_cursor && [VectorComputeFamily.IntegerData.packed_value(), VectorComputeFamily.FpData.packed_value()].contains(family)
+  for (enable in ["integer", "floating_point", "reads_frs1", "fp_service", "multiply_divide"]):
+    check value(row.output.care, enable) ~is 1
+    unless compute
+    | check value(row.output.value, enable) ~is 0
+  def integer_fold = compute && value(row.output.value, "integer") == 1 && value(row.output.value, "sequence") == VectorSequence.Reduction.packed_value()
+  check:
+    value(row.output.care, "compute_family") ~is (if compute | 2 ** VectorComputeFamily.packed_width() - 1 | 0)
+    value(row.output.care, "reduction_identity") ~is (if integer_fold | 2 ** VectorReductionIdentity.packed_width() - 1 | 0)
+    value(row.output.care, "row_layout") ~is (if row_cursor | 2 ** VectorRowLayout.packed_width() - 1 | 0)
+    value(row.output.care, "data_result") ~is (if data_row | 2 ** VectorDataResult.packed_width() - 1 | 0)
+    value(row.output.care, "cursor") ~is (if compute | 1 | 0)
+    value(row.output.care, "vps") ~is (if compute | 3 | 0)
+    value(row.output.care, "division") ~is (if compute && value(row.output.value, "compute_family") == VectorComputeFamily.IntDivide.packed_value() | 3 | 0)
+    value(row.output.care, "permutation") ~is (2 ** VectorPermutationKind.packed_width() - 1)
+    value(row.output.care, "result_kind") ~is (if compute | 2 ** VectorResultKind.packed_width() - 1 | 0)
+
+for ([source, examples] in [
+       [VectorDataResult.Alu, [VADD_VV, VMXOR_MM, VFMERGE_VFM, VFMV_V_F]],
+       [VectorDataResult.MaskBits, [VMSEQ_VV, VMADC_VVM, VMSBC_VVM]],
+       [VectorDataResult.CopyVs2, [VMV1R_V, VMV8R_V]],
+       [VectorDataResult.Permutation, [VSLIDEUP_VX, VFSLIDE1DOWN_VF, VRGATHER_VV, VCOMPRESS_VM]]]):
+  for (i in examples):
+    check value(control(i), "data_result") ~is source.packed_value()
+
+for ([layout, examples] in [
+       [VectorRowLayout.ElementRows, [VADD_VV, VADC_VVM, VMV4R_V, VFMV_S_F, VDIV_VX]],
+       [VectorRowLayout.ElementsToMask, [VMSEQ_VV, VMSNE_VX, VMADC_VVM, VMSBC_VVM, VMFEQ_VV]]]):
+  for (i in examples):
+    check: value(control(i), "row_layout") ~is layout.packed_value()
+
+for ([kind, instructions] in [
+       [VectorComputeFamily.IntegerData, [VSLIDEUP_VX, VADD_VV, VMERGE_VXM]],
+       [VectorComputeFamily.FpData, VectorFloatingPointMoveInstructions ++ VectorFloatingPointSlideInstructions],
+       [VectorComputeFamily.IntProduct, [VMUL_VV, VMACC_VV, VWMACC_VX]],
+       [VectorComputeFamily.IntDivide, VectorDivideInstructions],
+       [VectorComputeFamily.FpArithmetic, [VFADD_VV, VFWADD_VV, VFRSQRT7_V]],
+       [VectorComputeFamily.FpDivSqrt, [VFDIV_VV, VFDIV_VF, VFRDIV_VF, VFSQRT_V]]]):
+  for (instruction in instructions):
+    check:
+      value(control(instruction), "compute_family") ~is kind.packed_value()
+      value(control_pattern(instruction).care, "compute_family") ~is 2 ** VectorComputeFamily.packed_width() - 1
+
+for (instruction in VectorConfigInstructions ++ VectorUnitStrideMemoryInstructions):
+  check: value(control_pattern(instruction).care, "compute_family") ~is 0
+
+for ([shape, instructions] in [
+       [VectorWidthShape.Same, [VADD_VV, VMADC_VVM, VFMV_V_F, VDIV_VX]],
+       [VectorWidthShape.Widen, [VWADD_VV, VWMACC_VV, VFWADD_VV]],
+       [VectorWidthShape.WidenWideVs2, [VWADD_WV, VFWADD_WF]],
+       [VectorWidthShape.Narrow, [VNCLIP_WV, VFNCVT_F_F_W]],
+       [VectorWidthShape.Extend2, [VZEXT_VF2]], [VectorWidthShape.Extend4, [VSEXT_VF4]], [VectorWidthShape.Extend8, [VZEXT_VF8]]]):
+  for (instruction in instructions):
+    check:
+      value(control(instruction), "width_shape") ~is shape.packed_value()
+      value(control_pattern(instruction).care, "width_shape") ~is 2 ** VectorWidthShape.packed_width() - 1
+
+for (instruction in VectorConfigInstructions ++ VectorMemoryInstructions):
+  check: value(control_pattern(instruction).care, "width_shape") ~is 0
+
+def permutations = VectorGatherInstructions ++ VectorSlideInstructions ++ [VFSLIDE1UP_VF, VFSLIDE1DOWN_VF, VCOMPRESS_VM]
+check value(NoVectorControl.value, "dispatch_kind") ~is VectorDispatchKind.None.packed_value()
+check value(NoVectorControl.care, "dispatch_kind") ~is 3
+for (row in VectorControlCases ++ VectorZvbbCases):
+  def encoding = row.input.value_bits
+  def expected:
+    cond
+    | bits.field(encoding, 0, 7) == 0x07: VectorDispatchKind.Load
+    | bits.field(encoding, 0, 7) == 0x27: VectorDispatchKind.Store
+    | bits.field(encoding, 12, 15) == 7: VectorDispatchKind.None
+    | ~else: VectorDispatchKind.Execute
+  check:
+    value(row.output.care, "dispatch_kind") ~is 3
+    value(row.output.value, "dispatch_kind") ~is expected.packed_value()
+    value(row.output.value, "memory") ~is (if [VectorDispatchKind.Load, VectorDispatchKind.Store].contains(expected) | 1 | 0)
+    value(row.output.care, "store") ~is value(row.output.value, "memory")
+  when [VectorDispatchKind.Load, VectorDispatchKind.Store].contains(expected)
+  | check value(row.output.value, "store") ~is (if expected == VectorDispatchKind.Store | 1 | 0)
+
+for (instruction in VectorVInstructions):
+  check value(control(instruction), "reads_frs1") ~is (if instruction.operands.map(fun (operand): operand.name).contains("frs1") | 1 | 0)
+  unless permutations.contains(instruction)
+  | check: value(control(instruction), "permutation") ~is VectorPermutationKind.None.packed_value()
+
+for ([instruction, vs2, vs1, old_vd, v0] in [[VMACC_VV, 1, 1, 1, VectorV0Role.Predicate], [VMACC_VX, 1, 0, 1, VectorV0Role.Predicate], [VMV_V_X, 0, 0, 0, VectorV0Role.Unused], [VSLIDEUP_VX, 1, 0, 0, VectorV0Role.Predicate], [VCOMPRESS_VM, 1, 1, 0, VectorV0Role.Unused]]):
+  def roles = field(control(instruction), "reads")
+  def care = field(control_pattern(instruction).care, "reads")
+  check:
+    care.packed_value() ~is (2 ** care.literal_type().packed_width()) - 1
+    [value(roles, "vs2"), value(roles, "vs1"), value(roles, "old_vd"), value(roles, "v0")] ~is [vs2, vs1, old_vd, v0.packed_value()]
+
+for (instruction in VectorSaturatingAddSubtractInstructions ++ VectorNarrowingClipInstructions ++ [VADD_VV, VAND_VV, VAADD_VV, VNSRA_WV, VSSRA_VV, VFMERGE_VFM]):
+  def kind = field(control(instruction), "integer_row")
+  def care = field(control_pattern(instruction).care, "integer_row")
+  check:
+    value(care, "can_saturate") ~is 1
+    value(kind, "can_saturate") ~is (if (VectorSaturatingAddSubtractInstructions ++ VectorNarrowingClipInstructions).contains(instruction) | 1 | 0)
+
+for (instruction in [VAND_VV, VXOR_VV, VSSRA_VV, VNCLIP_WV, VNSRA_WV]):
+  check: value(row_alu(control_pattern(instruction).care), "arithmetic_mode") ~is 0
+
 // Check the emitted relation, not whichever zero/one a minimizer chooses for a wildcard.
 for (instruction in [VADD_VV, VSUB_VX, VAND_VI, VMIN_VV, VMSLT_VV]):
   def care = control_pattern(instruction).care
-  for (name in ["scan_control", "clip_unsigned", "slide_up", "slide_one", "left_signed", "right_signed", "invert_logic_result"]):
+  for (name in ["scan_control", "left_signed", "right_signed"]):
     check: value(care, name) ~is 0
+  check: value(field(care, "integer_row"), "clip_unsigned") ~is 0
 
 for (instruction in [VADD_VV, VAND_VI, VMNAND_MM, VMSBF_M]):
-  check: value(control_pattern(instruction).care, "invert_comparison") ~is 0
+  check: value(field(control_pattern(instruction).care, "integer_row"), "invert_comparison") ~is 0
 
 for (instruction in [VMSEQ_VV, VMSNE_VX]):
-  check: value(field(control_pattern(instruction).care, "alu"), "signed_compare") ~is 0
+  check: value(row_alu(control_pattern(instruction).care), "signed_compare") ~is 0
 
 for (instruction in [VWADD_VV, VNSRL_WV, VNCLIP_WX]):
   check:
@@ -79,30 +223,25 @@ for (instruction in [VCPOP_M, VFIRST_M, VIOTA_M, VID_V]):
     value(care, "index") ~is 1
 
 for (instruction in [VFSGNJ_VV, VFCLASS_V, VFMIN_VV, VMFEQ_VV, VFRSQRT7_V]):
-  check: value(control_pattern(instruction).care, "fp_rounding") ~is 0
+  check: value(fp(control_pattern(instruction).care), "rounding") ~is 0
 
 for (instruction in [VFADD_VV, VFREC7_V, VFCVT_RTZ_X_F_V, VFNCVT_ROD_F_F_W]):
-  check: value(control_pattern(instruction).care, "fp_rounding") ~is 3
+  check: value(fp(control_pattern(instruction).care), "rounding") ~is 3
 
 for (instruction in [VFWCVT_F_F_V, VFNCVT_F_F_W, VFNCVT_ROD_F_F_W]):
-  check: value(field(control_pattern(instruction).care, "fp_execution"), "integer_unsigned") ~is 0
+  check: value(field(fp(control_pattern(instruction).care), "execution"), "integer_unsigned") ~is 0
 
 for (instruction in [VFCVT_X_F_V, VFCVT_F_X_V, VFNCVT_RTZ_X_F_W, VFCVT_XU_F_V]):
-  check: value(field(control_pattern(instruction).care, "fp_execution"), "integer_unsigned") ~is 1
-
-for (instruction in [VFMV_V_F, VFMERGE_VFM, VFMV_F_S, VFMV_S_F]):
-  check:
-    value(control_pattern(instruction).care, "slide_up") ~is 0
-    value(control_pattern(instruction).care, "slide_one") ~is 0
+  check: value(field(fp(control_pattern(instruction).care), "execution"), "integer_unsigned") ~is 1
 
 check:
-  value(control(VMV_X_S), "scalar_destination") ~is 1
+  value(control(VMV_X_S), "result_kind") ~is VectorResultKind.Gpr.packed_value()
   value(control(VFWCVT_F_F_V), "fp_zvfhmin_e16") ~is 1
   value(control(VFNCVT_F_F_W), "fp_zvfhmin_e16") ~is 1
   value(control(VFWCVT_XU_F_V), "fp_zvfhmin_e16") ~is 0
   value(control(VFWCVT_F_XU_V), "fp_wide_float") ~is 1
   value(control(VFNCVT_XU_F_W), "fp_wide_float") ~is 1
-  value(control(VMV_S_X), "element_move") ~is 1
+  value(control(VMV_S_X), "sequence") ~is VectorSequence.Insert.packed_value()
   value(field(core_control(VMV_X_S), "writeback"), "enable") ~is 1
   value(field(core_control(VMV_X_S), "writeback"), "source") ~is RV5StageWritebackSelect.Vector.packed_value()
   value(field(core_control(VMV_S_X), "operand"), "uses_rs1") ~is 1
@@ -114,73 +253,74 @@ check:
   value(control(VSETVLI), "configure") ~is VectorConfigMode.VtypeImmediate.packed_value()
   value(control(VSETIVLI), "configure") ~is VectorConfigMode.AllImmediate.packed_value()
   value(control(VSETVL), "configure") ~is VectorConfigMode.VtypeRegister.packed_value()
-  value(field(control(VSUB_VV), "alu"), "subtract") ~is 1
-  value(control(VRSUB_VX), "swap_operands") ~is 1
-  value(control(VRSUB_VI), "swap_operands") ~is 1
-  value(field(control(VRSUB_VI), "alu"), "subtract") ~is 1
-  value(field(control(VADD_VX), "alu"), "subtract") ~is 0
-  value(field(control(VSADDU_VI), "alu"), "arithmetic_mode") ~is SimdArithmeticMode.SaturateUnsigned.packed_value()
-  value(field(control(VSADD_VV), "alu"), "arithmetic_mode") ~is SimdArithmeticMode.SaturateSigned.packed_value()
-  value(field(control(VSSUBU_VX), "alu"), "subtract") ~is 1
-  value(field(control(VSSUB_VV), "alu"), "arithmetic_mode") ~is SimdArithmeticMode.SaturateSigned.packed_value()
-  value(field(control(VAADDU_VV), "alu"), "arithmetic_mode") ~is SimdArithmeticMode.AverageUnsigned.packed_value()
-  value(field(control(VAADD_VX), "alu"), "arithmetic_mode") ~is SimdArithmeticMode.AverageSigned.packed_value()
-  value(field(control(VASUBU_VV), "alu"), "subtract") ~is 1
-  value(control(VASUB_VX), "rounding") ~is 1
-  value(control(VWADDU_VV), "widening") ~is 1
+  value(row_alu(control(VSUB_VV)), "subtract") ~is 1
+  value(field(control(VSUB_VX), "integer_row"), "swap_operands") ~is 0
+  value(field(control(VRSUB_VX), "integer_row"), "swap_operands") ~is 1
+  value(field(control(VRSUB_VI), "integer_row"), "swap_operands") ~is 1
+  value(row_alu(control(VRSUB_VI)), "subtract") ~is 1
+  value(row_alu(control(VADD_VX)), "subtract") ~is 0
+  value(row_alu(control(VSADDU_VI)), "arithmetic_mode") ~is SimdArithmeticMode.SaturateUnsigned.packed_value()
+  value(row_alu(control(VSADD_VV)), "arithmetic_mode") ~is SimdArithmeticMode.SaturateSigned.packed_value()
+  value(row_alu(control(VSSUBU_VX)), "subtract") ~is 1
+  value(row_alu(control(VSSUB_VV)), "arithmetic_mode") ~is SimdArithmeticMode.SaturateSigned.packed_value()
+  value(row_alu(control(VAADDU_VV)), "arithmetic_mode") ~is SimdArithmeticMode.AverageUnsigned.packed_value()
+  value(row_alu(control(VAADD_VX)), "arithmetic_mode") ~is SimdArithmeticMode.AverageSigned.packed_value()
+  value(row_alu(control(VASUBU_VV)), "subtract") ~is 1
+  value(field(control(VASUB_VX), "integer_row"), "round_shift") ~is 0
+  value(control(VWADDU_VV), "width_shape") ~is VectorWidthShape.Widen.packed_value()
   value(control(VWADDU_VV), "left_signed") ~is 0
   value(control(VWADD_VX), "right_signed") ~is 1
-  value(field(control(VWSUBU_VV), "alu"), "subtract") ~is 1
-  value(field(control(VWADD_VV), "alu"), "subtract") ~is 0
-  value(control(VWADDU_WV), "wide_vs2") ~is 1
+  value(row_alu(control(VWSUBU_VV)), "subtract") ~is 1
+  value(row_alu(control(VWADD_VV)), "subtract") ~is 0
+  value(control(VWADDU_WV), "width_shape") ~is VectorWidthShape.WidenWideVs2.packed_value()
   value(control(VWADDU_WV), "left_signed") ~is 0
   value(control(VWADD_WX), "right_signed") ~is 1
-  value(field(control(VWSUBU_WV), "alu"), "subtract") ~is 1
-  value(field(control(VWADD_WV), "alu"), "subtract") ~is 0
-  value(control(VNSRL_WV), "narrowing") ~is 1
-  value(control(VNSRL_WV), "wide_vs2") ~is 1
-  value(field(control(VNSRL_WI), "alu"), "shift_right") ~is 1
-  value(field(control(VNSRL_WI), "alu"), "arithmetic_shift") ~is 0
-  value(field(control(VNSRA_WX), "alu"), "arithmetic_shift") ~is 1
-  value(control(VSSRL_VV), "rounding") ~is 1
-  value(control(VSSRL_VV), "narrowing") ~is 0
-  value(field(control(VSSRA_VI), "alu"), "arithmetic_shift") ~is 1
-  value(control(VNCLIPU_WV), "rounding") ~is 1
-  value(control(VNCLIPU_WV), "narrowing") ~is 1
-  value(control(VNCLIPU_WV), "clip") ~is 1
-  value(control(VNCLIPU_WV), "clip_unsigned") ~is 1
-  value(control(VNCLIP_WX), "clip_unsigned") ~is 0
-  value(field(control(VAND_VI), "alu"), "logic_select") ~is SimdLogicSelect.And.packed_value()
-  value(field(control(VOR_VV), "alu"), "logic_select") ~is SimdLogicSelect.Or.packed_value()
-  value(field(control(VXOR_VX), "alu"), "logic_select") ~is SimdLogicSelect.Xor.packed_value()
-  value(field(control(VSLL_VI), "alu"), "shift_right") ~is 0
-  value(field(control(VSRL_VI), "alu"), "arithmetic_shift") ~is 0
-  value(field(control(VSRA_VI), "alu"), "arithmetic_shift") ~is 1
-  value(control(VMSNE_VV), "invert_comparison") ~is 1
-  value(control(VMSGT_VI), "swap_operands") ~is 1
-  value(field(control(VMSLEU_VV), "alu"), "comparison_select") ~is SimdComparisonSelect.LessEqual.packed_value()
-  value(field(control(VMSLT_VV), "alu"), "signed_compare") ~is 1
-  value(field(control(VMAX_VV), "alu"), "maximum") ~is 1
-  value(field(control(VMINU_VX), "alu"), "maximum") ~is 0
-  value(control(VCOMPRESS_VM), "compress") ~is 1
+  value(row_alu(control(VWSUBU_WV)), "subtract") ~is 1
+  value(row_alu(control(VWADD_WV)), "subtract") ~is 0
+  value(control(VNSRL_WV), "width_shape") ~is VectorWidthShape.Narrow.packed_value()
+  value(row_alu(control(VNSRL_WI)), "shift_right") ~is 1
+  value(row_alu(control(VNSRL_WI)), "arithmetic_shift") ~is 0
+  value(row_alu(control(VNSRA_WX)), "arithmetic_shift") ~is 1
+  value(field(control(VSSRL_VV), "integer_row"), "round_shift") ~is 1
+  value(control(VSSRL_VV), "width_shape") ~is VectorWidthShape.Same.packed_value()
+  value(row_alu(control(VSSRA_VI)), "arithmetic_shift") ~is 1
+  value(field(control(VNCLIPU_WV), "integer_row"), "round_shift") ~is 1
+  value(control(VNCLIPU_WV), "width_shape") ~is VectorWidthShape.Narrow.packed_value()
+  value(field(control(VNCLIPU_WV), "integer_row"), "clip") ~is 1
+  value(field(control(VNCLIPU_WV), "integer_row"), "clip_unsigned") ~is 1
+  value(field(control(VNCLIP_WX), "integer_row"), "clip_unsigned") ~is 0
+  value(row_alu(control(VAND_VI)), "logic_select") ~is SimdLogicSelect.And.packed_value()
+  value(row_alu(control(VOR_VV)), "logic_select") ~is SimdLogicSelect.Or.packed_value()
+  value(row_alu(control(VXOR_VX)), "logic_select") ~is SimdLogicSelect.Xor.packed_value()
+  value(row_alu(control(VSLL_VI)), "shift_right") ~is 0
+  value(row_alu(control(VSRL_VI)), "arithmetic_shift") ~is 0
+  value(row_alu(control(VSRA_VI)), "arithmetic_shift") ~is 1
+  value(field(control(VMSNE_VV), "integer_row"), "invert_comparison") ~is 1
+  value(field(control(VMSGT_VI), "integer_row"), "swap_operands") ~is 1
+  value(field(control(VMSGTU_VI), "integer_row"), "swap_operands") ~is 1
+  value(row_alu(control(VMSLEU_VV)), "comparison_select") ~is SimdComparisonSelect.LessEqual.packed_value()
+  value(row_alu(control(VMSLT_VV)), "signed_compare") ~is 1
+  value(row_alu(control(VMAX_VV)), "maximum") ~is 1
+  value(row_alu(control(VMINU_VX)), "maximum") ~is 0
+  value(control(VCOMPRESS_VM), "permutation") ~is VectorPermutationKind.Compress.packed_value()
   value(control(VCOMPRESS_VM), "operand") ~is VectorOperandMode.Vector.packed_value()
   value(field(core_control(VCOMPRESS_VM), "operand"), "uses_rs1") ~is 0
   value(field(core_control(VCOMPRESS_VM), "writeback"), "enable") ~is 0
-  value(field(zvbb_control(VANDN_VV), "alu"), "logic_select") ~is SimdLogicSelect.And.packed_value()
-  value(field(zvbb_control(VANDN_VV), "alu"), "invert_right") ~is 1
-  value(field(zvbb_control(VBREV_V), "alu"), "permutation_select") ~is SimdPermutationSelect.ReverseBits.packed_value()
-  value(field(zvbb_control(VBREV8_V), "alu"), "permutation_select") ~is SimdPermutationSelect.ReverseBitsInBytes.packed_value()
-  value(field(zvbb_control(VREV8_V), "alu"), "permutation_select") ~is SimdPermutationSelect.ReverseBytes.packed_value()
-  value(field(zvbb_control(VCLZ_V), "alu"), "count_select") ~is SimdCountSelect.LeadingZeros.packed_value()
-  value(field(zvbb_control(VCTZ_V), "alu"), "count_select") ~is SimdCountSelect.TrailingZeros.packed_value()
-  value(field(zvbb_control(VCPOP_V), "alu"), "count_select") ~is SimdCountSelect.Population.packed_value()
-  value(field(zvbb_control(VROL_VV), "alu"), "shift_right") ~is 0
-  value(field(zvbb_control(VROL_VV), "alu"), "rotate") ~is 1
-  value(field(zvbb_control(VROR_VX), "alu"), "shift_right") ~is 1
-  value(field(zvbb_control(VROR_VX), "alu"), "rotate") ~is 1
+  value(row_alu(zvbb_control(VANDN_VV)), "logic_select") ~is SimdLogicSelect.And.packed_value()
+  value(row_alu(zvbb_control(VANDN_VV)), "invert_right") ~is 1
+  value(row_alu(zvbb_control(VBREV_V)), "permutation_select") ~is SimdPermutationSelect.ReverseBits.packed_value()
+  value(row_alu(zvbb_control(VBREV8_V)), "permutation_select") ~is SimdPermutationSelect.ReverseBitsInBytes.packed_value()
+  value(row_alu(zvbb_control(VREV8_V)), "permutation_select") ~is SimdPermutationSelect.ReverseBytes.packed_value()
+  value(row_alu(zvbb_control(VCLZ_V)), "count_select") ~is SimdCountSelect.LeadingZeros.packed_value()
+  value(row_alu(zvbb_control(VCTZ_V)), "count_select") ~is SimdCountSelect.TrailingZeros.packed_value()
+  value(row_alu(zvbb_control(VCPOP_V)), "count_select") ~is SimdCountSelect.Population.packed_value()
+  value(row_alu(zvbb_control(VROL_VV)), "shift_right") ~is 0
+  value(row_alu(zvbb_control(VROL_VV)), "rotate") ~is 1
+  value(row_alu(zvbb_control(VROR_VX)), "shift_right") ~is 1
+  value(row_alu(zvbb_control(VROR_VX)), "rotate") ~is 1
   value(zvbb_control(VROR_VI), "immediate_kind") ~is VectorImmediateKind.Unsigned6.packed_value()
   value(zvbb_control(VWSLL_VI), "immediate_kind") ~is VectorImmediateKind.Unsigned5.packed_value()
-  value(zvbb_control(VWSLL_VV), "widening") ~is 1
+  value(zvbb_control(VWSLL_VV), "width_shape") ~is VectorWidthShape.Widen.packed_value()
   value(field(zvbb_core_control(VANDN_VX), "operand"), "uses_rs1") ~is 1
   value(field(zvbb_core_control(VBREV_V), "operand"), "uses_rs1") ~is 0
 
@@ -191,11 +331,11 @@ for (instruction in VectorCarryBorrowInstructions, index in 0..15):
   def mask_destination = (index >= 3 && index < 9) || index >= 11
   check:
     value(decoded, "integer") ~is 1
-    value(decoded, "carry_input") ~is (if carry_input | 1 | 0)
-    value(decoded, "mask_destination") ~is (if mask_destination | 1 | 0)
-    value(field(decoded, "alu"), "result_select") ~is SimdResultSelect.Adder.packed_value()
-    value(field(decoded, "alu"), "mask_result_select") ~is SimdMaskResultSelect.CarryBorrow.packed_value()
-    value(field(decoded, "alu"), "subtract") ~is (if index >= 9 | 1 | 0)
+    (value(field(decoded, "reads"), "v0") == VectorV0Role.Carry.packed_value()) ~is carry_input
+    value(decoded, "result_kind") ~is (if mask_destination | VectorResultKind.Mask | VectorResultKind.Elements).packed_value()
+    value(row_alu(decoded), "result_select") ~is SimdResultSelect.Adder.packed_value()
+    value(row_alu(decoded), "mask_result_select") ~is SimdMaskResultSelect.CarryBorrow.packed_value()
+    value(row_alu(decoded), "subtract") ~is (if index >= 9 | 1 | 0)
     value(decoded, "operand") ~is (if form == VectorFixedVVFormat | VectorOperandMode.Vector.packed_value() | (if form == VectorFixedVXFormat | VectorOperandMode.Scalar.packed_value() | VectorOperandMode.Immediate.packed_value()))
     value(field(core_control(instruction), "operand"), "uses_rs1") ~is (if form == VectorFixedVXFormat | 1 | 0)
     value(field(core_control(instruction), "writeback"), "enable") ~is 0
@@ -204,55 +344,54 @@ for (instruction in VectorExtensionInstructions, index in 0..6):
   def decoded = control(instruction)
   check:
     value(decoded, "integer") ~is 1
-    value(decoded, "extension") ~is 1
-    value(decoded, "extension_ratio") ~is (index mod 3)
-    value(decoded, "extension_signed") ~is (if index >= 3 | 1 | 0)
+    value(decoded, "width_shape") ~is [VectorWidthShape.Extend2, VectorWidthShape.Extend4, VectorWidthShape.Extend8][index mod 3].packed_value()
+    value(decoded, "left_signed") ~is (if index >= 3 | 1 | 0)
     value(decoded, "operand") ~is VectorOperandMode.Immediate.packed_value()
-    value(field(decoded, "alu"), "result_select") ~is SimdResultSelect.Select.packed_value()
+    value(row_alu(decoded), "result_select") ~is SimdResultSelect.Select.packed_value()
     value(field(core_control(instruction), "operand"), "uses_rs1") ~is 0
     value(field(core_control(instruction), "operand"), "uses_rs2") ~is 0
     value(field(core_control(instruction), "writeback"), "enable") ~is 0
 
-for (instruction in VectorGatherInstructions, index in 0..4):
+for (instruction in VectorGatherInstructions, index in 0..4, kind in [VectorPermutationKind.GatherVector, VectorPermutationKind.GatherVectorEI16, VectorPermutationKind.GatherBroadcast, VectorPermutationKind.GatherBroadcast]):
   check:
-    value(control(instruction), "gather") ~is 1
-    value(control(instruction), "gather_index16") ~is (if index == 1 | 1 | 0)
+    value(control(instruction), "permutation") ~is kind.packed_value()
+    value(field(control(instruction), "reads"), "vs1") ~is (if index < 2 | 1 | 0)
     value(control(instruction), "operand") ~is (if index < 2 | VectorOperandMode.Vector.packed_value() | (if index == 2 | VectorOperandMode.Scalar.packed_value() | VectorOperandMode.Immediate.packed_value()))
-    value(field(control(instruction), "alu"), "rotate") ~is 1
+    value(row_alu(control(instruction)), "rotate") ~is 1
     value(field(core_control(instruction), "operand"), "uses_rs1") ~is (if index == 2 | 1 | 0)
     value(field(core_control(instruction), "writeback"), "enable") ~is 0
 
-for (instruction in VectorSlideInstructions, index in 0..6):
+for (instruction in VectorSlideInstructions, index in 0..6, kind in [VectorPermutationKind.SlideUp, VectorPermutationKind.SlideUp, VectorPermutationKind.SlideDown, VectorPermutationKind.SlideDown, VectorPermutationKind.SlideOneUp, VectorPermutationKind.SlideOneDown]):
   check:
-    value(control(instruction), "slide") ~is 1
-    value(control(instruction), "slide_up") ~is (if [0, 1, 4].contains(index) | 1 | 0)
-    value(control(instruction), "slide_one") ~is (if index >= 4 | 1 | 0)
+    value(control(instruction), "permutation") ~is kind.packed_value()
     value(control(instruction), "operand") ~is (if [1, 3].contains(index) | VectorOperandMode.Immediate.packed_value() | VectorOperandMode.Scalar.packed_value())
-    value(field(control(instruction), "alu"), "result_select") ~is SimdResultSelect.Shift.packed_value()
-    value(field(control(instruction), "alu"), "rotate") ~is 1
-    value(field(control(instruction), "alu"), "shift_right") ~is 1
+    value(row_alu(control(instruction)), "result_select") ~is SimdResultSelect.Shift.packed_value()
+    value(row_alu(control(instruction)), "rotate") ~is 1
+    value(row_alu(control(instruction)), "shift_right") ~is 1
     value(field(core_control(instruction), "operand"), "uses_rs1") ~is (if [1, 3].contains(index) | 0 | 1)
     value(field(core_control(instruction), "operand"), "uses_rs2") ~is 0
     value(field(core_control(instruction), "writeback"), "enable") ~is 0
 
 for (instruction in VectorIntegerReductionInstructions):
   check:
-    value(control(instruction), "reduction") ~is 1
+    value(control(instruction), "sequence") ~is VectorSequence.Reduction.packed_value()
     value(field(core_control(instruction), "writeback"), "enable") ~is 0
     value(field(core_control(instruction), "operand"), "uses_rs1") ~is 0
 
 for (instruction in VectorWideningIntegerReductionInstructions, index in 0..2):
   check:
-    value(control(instruction), "widening") ~is 1
+    value(control(instruction), "width_shape") ~is VectorWidthShape.Widen.packed_value()
     value(control(instruction), "right_signed") ~is index
-    value(field(control(instruction), "alu"), "result_select") ~is SimdResultSelect.Adder.packed_value()
+    value(row_alu(control(instruction)), "result_select") ~is SimdResultSelect.Adder.packed_value()
 
 for (instruction in VectorMaskScanInstructions, index in 0..7):
   check:
-    value(control(instruction), "scan") ~is 1
-    value(control(instruction), "scalar_destination") ~is (if index < 2 | 1 | 0)
-    value(control(instruction), "mask_destination") ~is (if index >= 2 && index < 5 | 1 | 0)
+    value(control(instruction), "sequence") ~is VectorSequence.Scan.packed_value()
+    value(control(instruction), "result_kind") ~is (if index < 2 | VectorResultKind.Gpr | (if index < 5 | VectorResultKind.Mask | VectorResultKind.Elements)).packed_value()
     value(field(control(instruction), "scan_control"), "index") ~is (if index == 6 | 1 | 0)
+    value(field(control(instruction), "scan_control"), "packed_rows") ~is (if index < 5 | 1 | 0)
+    value(field(control(instruction), "reads"), "vs2") ~is (if index == 6 | 0 | 1)
+    value(field(control(instruction), "reads"), "vs1") ~is 0
     value(field(core_control(instruction), "writeback"), "enable") ~is (if index < 2 | 1 | 0)
     value(field(core_control(instruction), "operand"), "uses_rs1") ~is 0
     value(field(core_control(instruction), "operand"), "uses_rs2") ~is 0
@@ -260,9 +399,9 @@ for (instruction in VectorMaskScanInstructions, index in 0..7):
 for (instruction in VectorMoveMergeInstructions, index in 0..6):
   check:
     value(control(instruction), "integer") ~is 1
-    value(control(instruction), "mask_select") ~is (if index < 3 | 1 | 0)
-    value(control(instruction), "uses_vs2") ~is (if index < 3 | 1 | 0)
-    value(field(control(instruction), "alu"), "result_select") ~is SimdResultSelect.Select.packed_value()
+    (value(field(control(instruction), "reads"), "v0") == VectorV0Role.Selector.packed_value()) ~is (index < 3)
+    value(field(control(instruction), "reads"), "vs2") ~is (if index < 3 | 1 | 0)
+    value(row_alu(control(instruction)), "result_select") ~is SimdResultSelect.Select.packed_value()
     value(control(instruction), "operand") ~is index mod 3
     value(field(core_control(instruction), "operand"), "uses_rs1") ~is (if index mod 3 == 1 | 1 | 0)
     value(field(core_control(instruction), "writeback"), "enable") ~is 0
@@ -270,20 +409,21 @@ for (instruction in VectorMoveMergeInstructions, index in 0..6):
 for (instruction in VectorWholeRegisterMoveInstructions, index in 0..4):
   check:
     value(control(instruction), "integer") ~is 1
-    value(control(instruction), "whole_register_move") ~is 1
+    value(control(instruction), "sequence") ~is VectorSequence.WholeCopy.packed_value()
     value(control(instruction), "whole_register_count") ~is [1, 2, 4, 8][index]
     value(control(instruction), "operand") ~is VectorOperandMode.Vector.packed_value()
-    value(field(control(instruction), "alu"), "result_select") ~is SimdResultSelect.Select.packed_value()
+    value(row_alu(control(instruction)), "result_select") ~is SimdResultSelect.Select.packed_value()
     value(field(core_control(instruction), "operand"), "uses_rs1") ~is 0
     value(field(core_control(instruction), "operand"), "uses_rs2") ~is 0
     value(field(core_control(instruction), "writeback"), "enable") ~is 0
 
 for (instruction in VectorMaskLogicInstructions, index in 0..8):
   check:
-    value(control(instruction), "mask_logic") ~is 1
-    value(control(instruction), "mask_destination") ~is 1
-    value(control(instruction), "invert_logic_result") ~is (if index >= 5 | 1 | 0)
-    value(field(control(instruction), "alu"), "invert_right") ~is (if index == 0 || index == 4 | 1 | 0)
+    value(control(instruction), "compute_family") ~is VectorComputeFamily.IntegerData.packed_value()
+    value(control(instruction), "row_layout") ~is VectorRowLayout.PackedMaskRows.packed_value()
+    value(control(instruction), "result_kind") ~is VectorResultKind.Mask.packed_value()
+    value(field(control(instruction), "integer_row"), "invert_logic_result") ~is (if index >= 5 | 1 | 0)
+    value(row_alu(control(instruction)), "invert_right") ~is (if index == 0 || index == 4 | 1 | 0)
     value(field(core_control(instruction), "operand"), "uses_rs1") ~is 0
     value(field(core_control(instruction), "operand"), "uses_rs2") ~is 0
 
@@ -296,109 +436,150 @@ for (instruction in VectorDivideInstructions, index in 0..8):
     value(decoded, "integer") ~is 0
     value(decoded, "memory") ~is 0
     value(decoded, "floating_point") ~is 0
-    value(decoded, "divide") ~is 1
-    value(decoded, "multiply_accumulate") ~is 0
-    value(decoded, "left_signed") ~is (if [1, 3].contains(operation) | 1 | 0)
+    value(decoded, "compute_family") ~is VectorComputeFamily.IntDivide.packed_value()
+    value(care, "product") ~is 0
+    value(care, "left_signed") ~is 0
+    value(field(decoded, "division"), "signed_mode") ~is (if [1, 3].contains(operation) | 1 | 0)
     value(care, "right_signed") ~is 0
-    value(decoded, "remainder") ~is (if operation >= 2 | 1 | 0)
+    value(field(decoded, "division"), "remainder") ~is (if operation >= 2 | 1 | 0)
     value(decoded, "operand") ~is (if index mod 2 == 0 | VectorOperandMode.Vector.packed_value() | VectorOperandMode.Scalar.packed_value())
     value(care, "store") ~is 0
-    value(care, "mask_destination") ~is 0
+    value(decoded, "result_kind") ~is VectorResultKind.Elements.packed_value()
 
 for (instruction in VectorMultiplyInstructions, index in 0..8):
   def decoded = control(instruction)
   def care = control_pattern(instruction).care
   def operation = index div 2
+  def product = field(decoded, "product")
+  def cared = field(care, "product")
   check:
+    value(cared, "select") ~is 3
     value(decoded, "multiply_divide") ~is 1
-    value(decoded, "divide") ~is 0
-    value(decoded, "left_signed") ~is (if operation >= 2 | 1 | 0)
-    value(decoded, "right_signed") ~is (if operation == 3 | 1 | 0)
-    value(decoded, "multiply_result") ~is (if operation == 1 | VectorMultiplyResult.Low.packed_value() | VectorMultiplyResult.High.packed_value())
-    value(decoded, "multiply_accumulate") ~is 0
-    value(care, "multiply_destination") ~is 0
-    value(care, "multiply_subtract") ~is 0
+    value(decoded, "compute_family") ~is VectorComputeFamily.IntProduct.packed_value()
+    value(cared, "mode") ~is (if operation == 1 | 0 | 3)
+    value(product, "select") ~is (if operation == 1 | SimdMultiplySelect.Low.packed_value() | SimdMultiplySelect.High.packed_value())
+    value(product, "vd_role") ~is VectorProductVdRole.Unused.packed_value()
+    value(cared, "vd_role") ~is 3
+    value(field(decoded, "reads"), "old_vd") ~is 0
+    value(cared, "subtract") ~is 0
     value(decoded, "operand") ~is (if index mod 2 == 0 | VectorOperandMode.Vector.packed_value() | VectorOperandMode.Scalar.packed_value())
+
+  when operation != 1
+  | check:
+      value(field(product, "mode"), "left_signed") ~is (if operation >= 2 | 1 | 0)
+      value(field(product, "mode"), "right_signed") ~is (if operation == 3 | 1 | 0)
 
 for (instruction in VectorFractionalMultiplyInstructions, index in 0..2):
   def decoded = control(instruction)
   def care = control_pattern(instruction).care
+  def product = field(decoded, "product")
+  def cared = field(care, "product")
   check:
+    value(cared, "select") ~is 3
     value(decoded, "multiply_divide") ~is 1
-    value(decoded, "divide") ~is 0
-    value(decoded, "left_signed") ~is 1
-    value(decoded, "right_signed") ~is 1
-    value(decoded, "multiply_result") ~is VectorMultiplyResult.Fractional.packed_value()
-    value(decoded, "multiply_accumulate") ~is 0
-    value(care, "multiply_destination") ~is 0
-    value(care, "multiply_subtract") ~is 0
+    value(decoded, "compute_family") ~is VectorComputeFamily.IntProduct.packed_value()
+    value(field(product, "mode"), "left_signed") ~is 1
+    value(field(product, "mode"), "right_signed") ~is 1
+    value(product, "select") ~is SimdMultiplySelect.Fractional.packed_value()
+    value(product, "vd_role") ~is VectorProductVdRole.Unused.packed_value()
+    value(cared, "vd_role") ~is 3
+    value(field(decoded, "reads"), "old_vd") ~is 0
+    value(cared, "subtract") ~is 0
     value(decoded, "operand") ~is (if index == 0 | VectorOperandMode.Vector.packed_value() | VectorOperandMode.Scalar.packed_value())
 
 for (instruction in VectorWideningMultiplyInstructions, index in 0..6):
   def decoded = control(instruction)
   def care = control_pattern(instruction).care
   def operation = index div 2
+  def product = field(decoded, "product")
+  def cared = field(care, "product")
   check:
+    value(cared, "select") ~is 3
     value(decoded, "multiply_divide") ~is 1
-    value(decoded, "divide") ~is 0
-    value(decoded, "widening") ~is 1
-    value(decoded, "left_signed") ~is (if operation >= 1 | 1 | 0)
-    value(decoded, "right_signed") ~is (if operation == 2 | 1 | 0)
-    value(decoded, "multiply_result") ~is VectorMultiplyResult.Widened.packed_value()
-    value(decoded, "multiply_accumulate") ~is 0
-    value(care, "multiply_destination") ~is 0
-    value(care, "multiply_subtract") ~is 0
+    value(decoded, "compute_family") ~is VectorComputeFamily.IntProduct.packed_value()
+    value(decoded, "width_shape") ~is VectorWidthShape.Widen.packed_value()
+    value(field(product, "mode"), "left_signed") ~is (if operation >= 1 | 1 | 0)
+    value(field(product, "mode"), "right_signed") ~is (if operation == 2 | 1 | 0)
+    value(product, "select") ~is SimdMultiplySelect.Wide.packed_value()
+    value(product, "vd_role") ~is VectorProductVdRole.Unused.packed_value()
+    value(cared, "vd_role") ~is 3
+    value(field(decoded, "reads"), "old_vd") ~is 0
+    value(cared, "subtract") ~is 0
     value(decoded, "operand") ~is (if index mod 2 == 0 | VectorOperandMode.Vector.packed_value() | VectorOperandMode.Scalar.packed_value())
 
 for (instruction in VectorMultiplyAccumulateInstructions, index in 0..8):
   def decoded = control(instruction)
   def care = control_pattern(instruction).care
   def operation = index div 2
+  def product = field(decoded, "product")
+  def cared = field(care, "product")
   check:
+    value(cared, "select") ~is 3
     value(decoded, "multiply_divide") ~is 1
-    value(decoded, "divide") ~is 0
-    value(decoded, "widening") ~is 0
-    value(decoded, "multiply_accumulate") ~is 1
-    value(decoded, "multiply_destination") ~is (if operation >= 2 | 1 | 0)
-    value(decoded, "multiply_subtract") ~is (if operation mod 2 == 1 | 1 | 0)
-    value(care, "left_signed") ~is 0
-    value(care, "right_signed") ~is 0
-    value(care, "multiply_result") ~is 0
+    value(decoded, "compute_family") ~is VectorComputeFamily.IntProduct.packed_value()
+    value(decoded, "width_shape") ~is VectorWidthShape.Same.packed_value()
+    value(product, "vd_role") ~is (if operation >= 2 | VectorProductVdRole.Factor | VectorProductVdRole.Addend).packed_value()
+    value(cared, "vd_role") ~is 3
+    value(field(decoded, "reads"), "old_vd") ~is 1
+    value(product, "subtract") ~is (if operation mod 2 == 1 | 1 | 0)
+    value(field(cared, "mode"), "left_signed") ~is 0
+    value(field(cared, "mode"), "right_signed") ~is 0
+    value(product, "select") ~is SimdMultiplySelect.Low.packed_value()
     value(decoded, "operand") ~is (if index mod 2 == 0 | VectorOperandMode.Vector.packed_value() | VectorOperandMode.Scalar.packed_value())
 
 for (instruction in VectorWideningMultiplyAccumulateInstructions, index in 0..7):
   def decoded = control(instruction)
   def care = control_pattern(instruction).care
+  def product = field(decoded, "product")
+  def cared = field(care, "product")
   check:
+    value(cared, "select") ~is 3
     value(decoded, "multiply_divide") ~is 1
-    value(decoded, "divide") ~is 0
-    value(decoded, "widening") ~is 1
-    value(decoded, "multiply_accumulate") ~is 1
-    value(decoded, "multiply_destination") ~is 0
-    value(decoded, "multiply_subtract") ~is 0
-    value(decoded, "left_signed") ~is (if index == 2 || index == 3 || index == 6 | 1 | 0)
-    value(decoded, "right_signed") ~is (if index >= 2 && index < 6 | 1 | 0)
-    value(care, "multiply_result") ~is 0
+    value(decoded, "compute_family") ~is VectorComputeFamily.IntProduct.packed_value()
+    value(decoded, "width_shape") ~is VectorWidthShape.Widen.packed_value()
+    value(product, "vd_role") ~is VectorProductVdRole.Addend.packed_value()
+    value(cared, "vd_role") ~is 3
+    value(field(decoded, "reads"), "old_vd") ~is 1
+    value(product, "subtract") ~is 0
+    value(field(product, "mode"), "left_signed") ~is (if index == 2 || index == 3 || index == 6 | 1 | 0)
+    value(field(product, "mode"), "right_signed") ~is (if index >= 2 && index < 6 | 1 | 0)
+    value(product, "select") ~is SimdMultiplySelect.Wide.packed_value()
     value(decoded, "operand") ~is (if index mod 2 == 0 && index < 6 | VectorOperandMode.Vector.packed_value() | VectorOperandMode.Scalar.packed_value())
 
 def VectorFloatingPointMovementInstructions = VectorFloatingPointMoveInstructions ++ VectorFloatingPointSlideInstructions
+for ([policy, examples] in [
+       [VectorLocalFpResult.RawThenRound, [VFADD_VV, VFMUL_VF, VFWMACC_VV, VFREDOSUM_VS, VFWREDUSUM_VS]],
+       [VectorLocalFpResult.DirectWithFlags, [VFMIN_VV, VMFLT_VF, VFREC7_V, VFNCVT_ROD_F_F_W, VFREDMIN_VS]],
+       [VectorLocalFpResult.DirectNoFlags, [VFCLASS_V, VFSGNJN_VV]]]):
+  for (instruction in examples):
+    check value(fp(control(instruction)), "local_result") ~is policy.packed_value()
+    check value(fp(control_pattern(instruction).care), "local_result") ~is 3
+for (instruction in [VFDIV_VV, VFSQRT_V, VFMV_V_F, VADD_VV]):
+  check value(fp(control_pattern(instruction).care), "local_result") ~is 0
+
 def VectorFloatingPointServiceInstructions = VectorFloatingPointInstructions.filter(~keep: fun (instruction): !VectorFloatingPointMovementInstructions.contains(instruction))
+check VectorFloatingPointServiceInstructions.length() ~is 95
 for (instruction in VectorFloatingPointServiceInstructions):
   def decoded = control(instruction)
   def care = control_pattern(instruction).care
+  def order = cond
+  | [VFMADD_VV, VFMSUB_VV, VFNMADD_VV, VFNMSUB_VV, VFMADD_VF, VFMSUB_VF, VFNMADD_VF, VFNMSUB_VF].contains(instruction): VectorFpOperandOrder.VdFirst
+  | [VFRSUB_VF, VFRDIV_VF, VMFGT_VF, VMFGE_VF].contains(instruction): VectorFpOperandOrder.RhsFirst
+  | ~else: VectorFpOperandOrder.Vs2First
   check:
     value(decoded, "floating_point") ~is 1
     value(decoded, "fp_service") ~is 1
     value(decoded, "integer") ~is 0
     value(decoded, "memory") ~is 0
-    value(decoded, "fp_uses_vs1") ~is (if instruction.format == VectorUnaryFormat || instruction.format == VectorVFFormat | 0 | 1)
+    value(field(decoded, "reads"), "vs1") ~is (if instruction.format == VectorUnaryFormat || instruction.format == VectorVFFormat | 0 | 1)
     value(decoded, "operand") ~is (if instruction.format == VectorVFFormat | VectorOperandMode.FloatingScalar.packed_value() | VectorOperandMode.Vector.packed_value())
     value(field(core_control(instruction), "operand"), "uses_rs1") ~is 0
-    value(decoded, "mask_destination") ~is (if VectorFloatingPointCompareInstructions.contains(instruction) | 1 | 0)
-    value(decoded, "multiply_destination") ~is (if [VFMADD_VV, VFMSUB_VV, VFNMADD_VV, VFNMSUB_VV, VFMADD_VF, VFMSUB_VF, VFNMADD_VF, VFNMSUB_VF].contains(instruction) | 1 | 0)
-    value(decoded, "reduction") ~is (if VectorFloatingPointReductionInstructions.contains(instruction) | 1 | 0)
+    value(decoded, "result_kind") ~is (if VectorFloatingPointCompareInstructions.contains(instruction) | VectorResultKind.Mask | VectorResultKind.Elements).packed_value()
+    value(fp(decoded), "order") ~is order.packed_value()
+    value(fp(care), "order") ~is 3
+    value(decoded, "sequence") ~is (if VectorFloatingPointReductionInstructions.contains(instruction) | VectorSequence.Reduction | VectorSequence.Rows).packed_value()
     value(care, "store") ~is 0
-    value(care, "mask_destination") ~is 1
+    value(care, "result_kind") ~is 3
 
 for (instruction in VectorFloatingPointMovementInstructions):
   def decoded = control(instruction)
@@ -407,64 +588,59 @@ for (instruction in VectorFloatingPointMovementInstructions):
     value(decoded, "fp_service") ~is 0
     value(decoded, "integer") ~is 0
     value(decoded, "memory") ~is 0
-    value(decoded, "fp_uses_vs1") ~is 0
+    value(field(decoded, "reads"), "vs1") ~is 0
     value(decoded, "operand") ~is (if instruction == VFMV_F_S | VectorOperandMode.Vector | VectorOperandMode.FloatingScalar).packed_value()
     value(field(core_control(instruction), "operand"), "uses_rs1") ~is 0
     value(field(core_control(instruction), "writeback"), "enable") ~is 0
 
 check:
-  value(control(VFMERGE_VFM), "mask_select") ~is 1
-  value(control(VFMV_V_F), "uses_vs2") ~is 0
-  value(control(VFMV_F_S), "element_move") ~is 1
-  value(control(VFMV_F_S), "floating_scalar_destination") ~is 1
-  value(control(VFMV_S_F), "element_move") ~is 1
-  value(control(VFSLIDE1UP_VF), "slide") ~is 1
-  value(control(VFSLIDE1UP_VF), "slide_up") ~is 1
-  value(control(VFSLIDE1DOWN_VF), "slide") ~is 1
+  value(field(control(VFMERGE_VFM), "reads"), "v0") ~is VectorV0Role.Selector.packed_value()
+  value(field(control(VFMV_V_F), "reads"), "vs2") ~is 0
+  value(control(VFMV_F_S), "sequence") ~is VectorSequence.Extract.packed_value()
+  value(control(VFMV_F_S), "result_kind") ~is VectorResultKind.Fpr.packed_value()
+  value(control(VFMV_S_F), "sequence") ~is VectorSequence.Insert.packed_value()
+  value(control(VFSLIDE1UP_VF), "permutation") ~is VectorPermutationKind.SlideOneUp.packed_value()
+  value(control(VFSLIDE1DOWN_VF), "permutation") ~is VectorPermutationKind.SlideOneDown.packed_value()
 
 for (instruction in VectorFloatingPointAddSubtractInstructions):
-  check value(field(control(instruction), "fp_execution"), "unit") ~is FloatUnit.Add.packed_value()
+  check value(field(fp(control(instruction)), "execution"), "unit") ~is FloatUnit.Add.packed_value()
 
 for (instruction in VectorFloatingPointMultiplyDivideInstructions):
-  check value(field(control(instruction), "fp_execution"), "unit") ~is (if [VFMUL_VV, VFMUL_VF].contains(instruction) || VectorWideningFloatingPointMultiplyInstructions.contains(instruction) | FloatUnit.Multiply | FloatUnit.DivideSquareRoot).packed_value()
+  check value(field(fp(control(instruction)), "execution"), "unit") ~is (if [VFMUL_VV, VFMUL_VF].contains(instruction) || VectorWideningFloatingPointMultiplyInstructions.contains(instruction) | FloatUnit.Multiply | FloatUnit.DivideSquareRoot).packed_value()
 
 for (instruction in VectorFloatingPointAddSubtractInstructions ++ VectorFloatingPointMultiplyDivideInstructions):
-  check value(field(control(instruction), "fp_execution"), "uses_rounding_mode") ~is 1
+  check value(field(fp(control(instruction)), "execution"), "uses_rounding_mode") ~is 1
 
 for (instruction in VectorFloatingPointReductionInstructions):
-  def execution = field(control(instruction), "fp_execution")
+  def execution = field(fp(control(instruction)), "execution")
   check:
-    value(control(instruction), "reduction") ~is 1
+    value(control(instruction), "sequence") ~is VectorSequence.Reduction.packed_value()
     value(execution, "unit") ~is (if [VFREDMIN_VS, VFREDMAX_VS].contains(instruction) | FloatUnit.MinMax | FloatUnit.Add).packed_value()
     value(execution, "uses_rounding_mode") ~is (if [VFREDMIN_VS, VFREDMAX_VS].contains(instruction) | 0 | 1)
     value(field(core_control(instruction), "writeback"), "enable") ~is 0
 
 check:
-  value(field(control(VFSUB_VV), "fp_execution"), "add_operation") ~is FloatAddOperation.Subtract.packed_value()
-  value(field(control(VFSQRT_V), "fp_execution"), "divide_operation") ~is FloatDivideOperation.SquareRoot.packed_value()
-  value(field(control(VFRSQRT7_V), "fp_execution"), "unit") ~is FloatUnit.Estimate.packed_value()
-  value(field(control(VFRSQRT7_V), "fp_execution"), "estimate_operation") ~is Estimate7Operation.ReciprocalSquareRoot.packed_value()
-  value(field(control(VFREC7_V), "fp_execution"), "unit") ~is FloatUnit.Estimate.packed_value()
-  value(field(control(VFREC7_V), "fp_execution"), "uses_rounding_mode") ~is 1
-  value(field(control(VFCLASS_V), "fp_execution"), "unit") ~is FloatUnit.Classify.packed_value()
-  value(control(VFCLASS_V), "fp_result") ~is VectorFloatResult.Integer.packed_value()
-  value(field(control(VMFNE_VV), "fp_execution"), "comparison") ~is FloatComparison.NotEqual.packed_value()
-  value(field(control(VMFLT_VV), "fp_execution"), "comparison_signaling") ~is 1
-  value(control(VFRSUB_VF), "swap_operands") ~is 1
-  value(control(VFRDIV_VF), "swap_operands") ~is 1
-  value(control(VMFGT_VF), "swap_operands") ~is 1
-  value(control(VMFGE_VF), "swap_operands") ~is 1
+  value(field(fp(control(VFSUB_VV)), "execution"), "add_operation") ~is FloatAddOperation.Subtract.packed_value()
+  value(field(fp(control(VFSQRT_V)), "execution"), "divide_operation") ~is FloatDivideOperation.SquareRoot.packed_value()
+  value(field(fp(control(VFRSQRT7_V)), "execution"), "unit") ~is FloatUnit.Estimate.packed_value()
+  value(field(fp(control(VFRSQRT7_V)), "execution"), "estimate_operation") ~is Estimate7Operation.ReciprocalSquareRoot.packed_value()
+  value(field(fp(control(VFREC7_V)), "execution"), "unit") ~is FloatUnit.Estimate.packed_value()
+  value(field(fp(control(VFREC7_V)), "execution"), "uses_rounding_mode") ~is 1
+  value(field(fp(control(VFCLASS_V)), "execution"), "unit") ~is FloatUnit.Classify.packed_value()
+  value(fp(control(VFCLASS_V)), "result") ~is VectorFloatResult.Integer.packed_value()
+  value(field(fp(control(VMFNE_VV)), "execution"), "comparison") ~is FloatComparison.NotEqual.packed_value()
+  value(field(fp(control(VMFLT_VV)), "execution"), "comparison_signaling") ~is 1
 
 for (instruction in VectorFloatingPointSignInjectInstructions, index in 0..6):
   def operation = [FloatSignOperation.Copy, FloatSignOperation.Negate, FloatSignOperation.Xor][index mod 3]
-  check value(field(control(instruction), "fp_execution"), "sign_operation") ~is operation.packed_value()
+  check value(field(fp(control(instruction)), "execution"), "sign_operation") ~is operation.packed_value()
 
 for (instruction in VectorFloatingPointMinMaxInstructions ++ [VFREDMIN_VS, VFREDMAX_VS], index in 0..6):
   def operation = [MinMaxOperation.MinimumNumber, MinMaxOperation.MaximumNumber][index mod 2]
-  check value(field(control(instruction), "fp_execution"), "minmax_operation") ~is operation.packed_value()
+  check value(field(fp(control(instruction)), "execution"), "minmax_operation") ~is operation.packed_value()
 
 for (instruction in VectorFloatingPointFusedMultiplyAddInstructions):
-  def execution = field(control(instruction), "fp_execution")
+  def execution = field(fp(control(instruction)), "execution")
   def operation = cond
   | [VFMSAC_VV, VFMSUB_VV, VFMSAC_VF, VFMSUB_VF, VFWMSAC_VV, VFWMSAC_VF].contains(instruction): MulAddOperation.MultiplySubtract
   | [VFNMACC_VV, VFNMADD_VV, VFNMACC_VF, VFNMADD_VF, VFWNMACC_VV, VFWNMACC_VF].contains(instruction): MulAddOperation.NegatedMultiplySubtract
@@ -477,11 +653,10 @@ for (instruction in VectorFloatingPointFusedMultiplyAddInstructions):
 
 for (instruction in VectorWideningFloatingPointAddSubtractInstructions ++ VectorWideningFloatingPointMultiplyInstructions ++ VectorWideningFloatingPointFusedMultiplyAddInstructions ++ VectorWideningFloatingPointReductionInstructions):
   check:
-    value(control(instruction), "widening") ~is 1
-    value(control(instruction), "wide_vs2") ~is (if [VFWADD_WV, VFWADD_WF, VFWSUB_WV, VFWSUB_WF].contains(instruction) | 1 | 0)
+    value(control(instruction), "width_shape") ~is (if [VFWADD_WV, VFWADD_WF, VFWSUB_WV, VFWSUB_WF].contains(instruction) | VectorWidthShape.WidenWideVs2 | VectorWidthShape.Widen).packed_value()
 
 for (instruction in [VFWSUB_VV, VFWSUB_VF, VFWSUB_WV, VFWSUB_WF]):
-  check value(field(control(instruction), "fp_execution"), "add_operation") ~is FloatAddOperation.Subtract.packed_value()
+  check value(field(fp(control(instruction)), "execution"), "add_operation") ~is FloatAddOperation.Subtract.packed_value()
 
 def VectorIntegerToFloatingConversions = [VFCVT_F_XU_V, VFCVT_F_X_V, VFWCVT_F_XU_V, VFWCVT_F_X_V, VFNCVT_F_XU_W, VFNCVT_F_X_W]
 def VectorFloatingResultConversions = VectorIntegerToFloatingConversions ++ [VFWCVT_F_F_V, VFNCVT_F_F_W, VFNCVT_ROD_F_F_W]
@@ -491,15 +666,14 @@ def VectorWideningFloatingPointConversions = [VFWCVT_XU_F_V, VFWCVT_X_F_V, VFWCV
 def VectorNarrowingFloatingPointConversions = [VFNCVT_XU_F_W, VFNCVT_X_F_W, VFNCVT_F_XU_W, VFNCVT_F_X_W, VFNCVT_F_F_W, VFNCVT_ROD_F_F_W, VFNCVT_RTZ_XU_F_W, VFNCVT_RTZ_X_F_W]
 for (instruction in VectorFloatingPointConversionInstructions):
   def decoded = control(instruction)
-  def execution = field(decoded, "fp_execution")
+  def execution = field(fp(decoded), "execution")
   def fixed_rounding = VectorRtzConversions.contains(instruction) || instruction == VFNCVT_ROD_F_F_W
   check:
     value(execution, "unit") ~is FloatUnit.Convert.packed_value()
-    value(decoded, "fp_source") ~is (if VectorIntegerToFloatingConversions.contains(instruction) | VectorFloatSource.Integer | VectorFloatSource.Floating).packed_value()
-    value(decoded, "fp_result") ~is (if VectorFloatingResultConversions.contains(instruction) | VectorFloatResult.Floating | VectorFloatResult.Integer).packed_value()
-    value(decoded, "fp_rounding") ~is (if instruction == VFNCVT_ROD_F_F_W | VectorFloatRounding.RoundToOdd | (if VectorRtzConversions.contains(instruction) | VectorFloatRounding.TowardZero | VectorFloatRounding.Dynamic)).packed_value()
-    value(decoded, "widening") ~is (if VectorWideningFloatingPointConversions.contains(instruction) | 1 | 0)
-    value(decoded, "narrowing") ~is (if VectorNarrowingFloatingPointConversions.contains(instruction) | 1 | 0)
+    value(fp(decoded), "source") ~is (if VectorIntegerToFloatingConversions.contains(instruction) | VectorFloatSource.Integer | VectorFloatSource.Floating).packed_value()
+    value(fp(decoded), "result") ~is (if VectorFloatingResultConversions.contains(instruction) | VectorFloatResult.Floating | VectorFloatResult.Integer).packed_value()
+    value(fp(decoded), "rounding") ~is (if instruction == VFNCVT_ROD_F_F_W | VectorFloatRounding.RoundToOdd | (if VectorRtzConversions.contains(instruction) | VectorFloatRounding.TowardZero | VectorFloatRounding.Dynamic)).packed_value()
+    value(decoded, "width_shape") ~is (if VectorWideningFloatingPointConversions.contains(instruction) | VectorWidthShape.Widen | (if VectorNarrowingFloatingPointConversions.contains(instruction) | VectorWidthShape.Narrow | VectorWidthShape.Same)).packed_value()
     value(execution, "uses_rounding_mode") ~is (if fixed_rounding | 0 | 1)
     value(execution, "integer_unsigned") ~is (if VectorUnsignedConversions.contains(instruction) | 1 | 0)
 

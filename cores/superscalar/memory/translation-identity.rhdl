@@ -27,7 +27,7 @@ import:
 
 /* Resolves Bare queries immediately while preserving vector proof epochs and one-stage hints.
    Architectural addresses remain full-width through physical-map qualification. */
-sync_circuit SuperscalarIdentityTranslation(xlen :: XLen, config :: RiscvHartCHIConfig):
+sync_circuit SuperscalarIdentityTranslation(xlen :: XLen, config :: RiscvHartCHIConfig, ~element_checks: element_checks :: Boolean = #false):
   input state: RiscvTranslationState(xlen)
   input invalidate: Bool
   input query: SuperscalarTranslationQuery(xlen)
@@ -40,6 +40,8 @@ sync_circuit SuperscalarIdentityTranslation(xlen :: XLen, config :: RiscvHartCHI
   output result: SuperscalarAddressResolution()
 
   inst vector_window(VectorWindow(config.physical_map))
+  output window_pages: VectorWindowPages
+  window_pages <== vector_window.pages
   vector_precheck <=> vector_window.check
   vector_window.addresses <== literal(Vec(2, Bits(64)), 0)
   vector_window.translation.request.ready <== !invalidate
@@ -49,6 +51,13 @@ sync_circuit SuperscalarIdentityTranslation(xlen :: XLen, config :: RiscvHartCHI
   vector_window.translation.response.bits <== empty_translation.updated(
     ~physical_address: probe_address[0..56], ~access_fault: !riscv_bare_address_fits(probe_address)
   )
+  if element_checks
+  | block:
+      interface element_translation(VectorElementTranslation(), ~role: responder)
+      (element_translation.request |> pipe(1) |> gate_flow(!invalidate) |> to_valid() |> map_valid(span => vector_element_mapping(
+         config.physical_map, span, span.first, PageMemoryType.PMA, Bool(#false), dont_care(ExceptionCause), literal(RiscvGuestFault(), 0)
+       ))) |> element_translation.response
+  | #void
   assert(!(invalidate & vector_window.owned), "superscalar_bare_vector_window_drained_before_invalidation")
 
   /* Bare certificates retain identity mappings; invalidation still separates admission epochs. */
@@ -104,12 +113,15 @@ sync_circuit SuperscalarIdentityTranslation(xlen :: XLen, config :: RiscvHartCHI
 
 
 /* Configures the identity resolver and its transport without a page-walk client. */
-class SuperscalarIdentitySpecialization(xlen :: XLen, config :: RiscvHartCHIConfig):
+class SuperscalarIdentitySpecialization(xlen :: XLen, config :: RiscvHartCHIConfig, element_checks :: Boolean = #false):
   implements SuperscalarTranslationSpecialization
+
+  /* Exposes exact element probes only for the distributed memory client. */
+  override method checks_vector_elements() :: Boolean: element_checks
 
   /* Selects identity resolution at the requested architectural width and physical map. */
   override method circuit() :: CircuitDefinition:
-    SuperscalarIdentityTranslation(xlen, config)
+    SuperscalarIdentityTranslation(xlen, config, ~element_checks: element_checks)
 
   /* Uses the captured architectural width for both identity resolution and adapter ports. */
   override method architectural_xlen() :: XLen:

@@ -3,10 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/isa/sv39.rhm") as sv39
   "protocol.rhdl".RiscvTranslationResult
   lib("riscv/isa/xlen.rhm").XLen
-  lib("riscv/rtl/svpbmt.rhdl").PageMemoryType
-  lib("riscv/rtl/hypervisor.rhdl").RiscvGuestTranslationContext
+  lib("riscv/rtl/hypervisor.rhdl") open
+  lib("riscv/rtl/trap.rhdl").ExceptionCause
+  lib("riscv/rtl/pma.rhdl").RiscvPhysicalMemoryMap
+  lib("riscv/rtl/svpbmt.rhdl") open
   lib("rhodium/std/ready-valid.rhdl") open
 
 /* Resolves an eligible carried PA or pinned window before ordinary data translation.
@@ -22,6 +25,16 @@ fun vector_data_translation(xlen :: XLen, address :: Bits(xlen.width), translati
       translated: translation.physical_address.zext(64)
   values(pa, mux(physical ||| window, PageMemoryType.PMA, translation.pbmt))
 
+// The certificate carries base-page translations even when the walk hits a superpage.
+def VectorPageBytes = sv39.Sv39PageBytes
+def VectorPageOffsetBits = index_width(VectorPageBytes)
+def VectorPageNumber = Bits(sv39.Sv39PpnBits)
+def VectorWindowPages = Vec(2, VectorPageNumber)
+
+/* Extract the certified physical page number; page offsets are preserved separately. */
+fun vector_page_number(address :: Bits(64)) :~ Bits(VectorPageNumber.packed_width()):
+  address[VectorPageOffsetBits..VectorPageOffsetBits + VectorPageNumber.packed_width()]
+
 /* Bounds one nonspeculative vector macro's virtual byte range and required permission.
    A false check selects exact element execution, never an architectural fault. */
 bundle VectorRange():
@@ -33,7 +46,7 @@ bundle VectorRange():
    for WB validation, independently of the retained fallback page window. */
 bundle VectorFastCertificate(xlen :: XLen):
   range: VectorRange()
-  ppn: Bits(44)
+  ppn: VectorPageNumber
   virtualized: Bool
   context: RiscvGuestTranslationContext()
   invalidation_epoch: Bits(2)
@@ -53,6 +66,54 @@ interface VectorFastCheck(xlen :: XLen):
   responder -> requester:
     response: Valid(VectorFastCertificate(xlen))
     candidate_current: Bool
+
+/* Exact checks cover only the active bytes on one virtual page. They are
+   distinct from range proofs: a successful check also selects a transport. */
+hardware_enum VectorMemoryService:
+  Cached
+  Uncached
+  Device
+  Fault
+
+bundle VectorElementMapping():
+  service: VectorMemoryService
+  page: VectorPageNumber
+  cause: ExceptionCause
+  guest: RiscvGuestFault()
+
+/* Classify the exact translated byte interval, without promoting sub-page
+   permissions to a page proof. Noncacheable elements retain their natural size. */
+fun vector_element_mapping(physical_map :: RiscvPhysicalMemoryMap, span :: VectorRange(), address :: Bits(64), pbmt :: PageMemoryType, translation_fault :: Bool, cause :: ExceptionCause, guest :: RiscvGuestFault()) :~ VectorElementMapping():
+  def last = address +& (span.last - span.first)
+  def physical = physical_map.lookup(address, last)
+  // Endpoints can match a sparse PMA address set while a byte between them does not.
+  // For contiguous regions lookup already suffices; check only sparse regions here.
+  def holes = for List (region in physical_map.regions):
+    def mask = region.address_set.mask
+    def low_mask = mask bits.and bits.not(mask + 1)
+    if low_mask == mask | Bool(#false) | region.address_set.matches(address) & ((address ^ last[0..64]) > Bits(64)(low_mask))
+  def attributes = resolve_memory_attributes(physical, pbmt)
+  def allowed = physical.mapped & !any(holes) & mux(span.store, physical.writable, physical.readable)
+  VectorElementMapping():
+    service:
+      priority_mux(~default: VectorMemoryService.Cached):
+        translation_fault ||| !allowed: VectorMemoryService.Fault
+        attributes.strongly_ordered: VectorMemoryService.Device
+        !attributes.cacheable ||| !attributes.read_idempotent: VectorMemoryService.Uncached
+    page: vector_page_number(address)
+    cause: mux(translation_fault, cause, mux(span.store, ExceptionCause.StoreAccessFault, ExceptionCause.LoadAccessFault))
+    guest: guest
+
+/* A pending lookup waits across TLB misses. Only a definitive translation
+   produces a response; its virtual page offset comes from the retained request. */
+interface VectorElementTranslation():
+  role requester
+  role responder
+  provider requester
+  requester -> responder:
+    request: Decoupled(VectorRange())
+  responder -> requester:
+    response: Valid(VectorElementMapping())
 
 /* Requests a page mapping with the vector macro's access direction. */
 bundle RiscvPageProbeRequest():
@@ -85,9 +146,18 @@ interface VectorPrecheck():
 
 export:
   vector_data_translation
+  VectorPageBytes
+  VectorPageOffsetBits
+  VectorPageNumber
+  VectorWindowPages
+  vector_page_number
   VectorRange
   VectorFastCertificate
   VectorFastCheck
   VectorPrecheck
   RiscvPageProbe
   RiscvPageProbeRequest
+  VectorMemoryService
+  VectorElementMapping
+  VectorElementTranslation
+  vector_element_mapping

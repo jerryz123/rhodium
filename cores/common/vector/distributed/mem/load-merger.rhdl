@@ -1,0 +1,67 @@
+#lang rhodium
+/* Reassembles ordered, aligned cache beats into independently backpressured DLEN register writes. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/isa/vector.rhm").VectorLength
+  lib("rhodium/std/bits.rhdl") open
+  lib("flow/main.rhdl") open
+  "../../backend-kind.rhm".vector_dlen
+  "../../register-file.rhdl".VectorRegisterWrite
+  "../common/row-types.rhdl" open
+
+/* VLSeq retains one owner and displacement until its final write. Bytes below
+   the displacement finish the preceding register row; bytes above it start the
+   next. An incomplete prefix consumes a beat without waiting for a VRF grant. */
+sync_circuit VectorLoadMerger(xlen :: XLen, vlen :: VectorLength, Owner :: DataType):
+  def dlen = vector_dlen(vlen)
+  def bytes = dlen div 8
+  def Mask = Bits(bytes)
+  def Write = VectorRegisterWrite(dlen, vlen)
+  input elementwise: Bool
+  input displacement: Bits(index_width(bytes))
+  interface beat(Decoupled(ReturnedRow(xlen, vlen, Owner)), ~role: consumer)
+  interface result(Decoupled(Write), ~role: producer)
+  reg carry_data(Bits(dlen))
+  reg carry_mask(~init: Mask(0))
+  reg carry_row(RowAddress)
+  reg flush(~init: Bool(#false))
+  def ctx = beat.bits.credit
+  def enabled = ctx.enabled
+  def data = beat.bits.data
+  // The credit names both ends of the lane rotation; negative strides do not
+  // change the increasing architectural element order of VRF writes.
+  def rotation = mux(elementwise, ctx.memory_lane - ctx.offset[0..index_width(bytes)], displacement)
+  def rotated = ((data ++ data) >> (rotation ++ Bits(3)(0)))[0..dlen]
+  def rotated_mask = ((enabled ++ enabled) >> rotation)[0..bytes]
+  def low_lanes = !Mask(0) >> displacement
+  def prefix = rotated_mask & low_lanes
+  def suffix = rotated_mask & !low_lanes
+  def previous = suffix.any()
+  def aligned = !displacement.any()
+  // A later, entirely masked beat will never return. Finish this row at its
+  // last enabled fragment, even when later beats remain in the instruction.
+  def complete_prefix = prefix.any() & !ctx.continues
+  def emit_row = mux(elementwise, !ctx.continues, previous ||| complete_prefix)
+  def joined = masked_merge(carry_data, rotated, expand_mask(!low_lanes, 8))
+  def row_mask = mux(previous, suffix ||| carry_mask, prefix)
+  def assembled = masked_merge(carry_data, rotated, expand_mask(rotated_mask, 8))
+  def assembled_mask = rotated_mask ||| carry_mask
+  def write_mask = mux(elementwise, assembled_mask, mux(aligned, enabled, mux(flush, carry_mask, row_mask)))
+  result.valid <== flush ||| (beat.valid & emit_row)
+  result.bits <== VectorRegisterWrite(dlen, vlen):
+    address: mux(elementwise, ctx.row, mux(flush, carry_row, mux(previous, ctx.row - RowAddress(1), ctx.row)))
+    data: mux(elementwise, assembled, mux(aligned, data, mux(flush, carry_data, mux(previous, joined, rotated))))
+    mask: expand_mask(write_mask, 8)
+  beat.ready <== !flush & (!emit_row ||| result.ready)
+  when (beat.fire()):
+    carry_data <== mux(elementwise, assembled, rotated)
+    carry_row <== ctx.row
+    carry_mask <== mux(elementwise, mux(ctx.continues, assembled_mask, Mask(0)), mux(ctx.continues ||| previous, prefix, Mask(0)))
+    flush <== !elementwise & previous & complete_prefix
+  elsewhen (flush & result.fire()):
+    flush <== Bool(#false)
+    carry_mask <== Mask(0)
+
+export VectorLoadMerger

@@ -3,11 +3,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/isa/vector-profile.rhm").vector_profile_enabled
   "../superscalar/profile.rhm".SuperscalarPipelineConfig
   lib("rhodium/frontend/foundation.rhm").StableCircuitParam
   lib("riscv/isa/profile.rhm").RiscvIsaProfile
   lib("riscv/isa/hart.rhm").RiscvHartDescription
   "../common/csr/config.rhm".RiscvCsrConfig
+
+/* Two double-XLEN rows comprise each architectural vector register. */
+fun rv3wide_vlen(xlen :: XLen) :: PosInt: 4 * xlen.width
 
 /* Retains one validated pipeline configuration; named-core policy can extend this wrapper without duplicating pipeline fields. */
 class RV3WideConfig(pipeline :: SuperscalarPipelineConfig):
@@ -15,6 +20,8 @@ class RV3WideConfig(pipeline :: SuperscalarPipelineConfig):
 
   /* Uses the shared pipeline defaults unless an explicit specialization is supplied. */
   constructor (pipeline :: SuperscalarPipelineConfig = SuperscalarPipelineConfig()):
+    when vector_profile_enabled(pipeline.vector) && pipeline.vector_length != rv3wide_vlen(pipeline.xlen)
+    | error(~who: #'RV3WideConfig, "RV3Wide requires VLEN = 4 * XLEN")
     super(pipeline)
 
   /* Publishes the architecture implemented by the contained pipeline. */
@@ -28,3 +35,4 @@ class RV3WideConfig(pipeline :: SuperscalarPipelineConfig):
 
 export:
   RV3WideConfig
+  rv3wide_vlen

@@ -1,0 +1,396 @@
+#lang rhodium
+/* Executes issued DLEN rows and arbitrates their fixed and variable-latency writeback. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "scalar-integer.rhdl" open
+  "scalar-fp.rhdl".VectorSharedFpRow
+  "../../../fp/types.rhdl" open
+  "../../../fp/bundles.rhdl" open
+  "../../../fp/profile.rhm".fp_transport_profile
+  lib("hardfloat/main.rhdl").FloatFormat
+  "../../muldiv.rhdl".VectorMultiplyTag
+  "../../../integer-execution.rhdl" open
+  "../../../multiplier.rhdl".MultiplierRequest
+  "../../../divider.rhdl" open
+  "../../muldiv.rhdl".VectorDivideTag
+  "fp-unit.rhdl" open
+  lib("riscv/isa/vector.rhm").VectorLength
+  "../../backend-kind.rhm".vector_dlen
+  "../common/row-types.rhdl" open
+  "../../geometry.rhdl".row_predicate_bytes
+  "../../muldiv.rhdl".vector_packed_product
+  "../../register-file.rhdl" open
+  "../common/row-claims.rhdl" open
+  "../../decode.rhdl".VectorFpControl
+  "../../decode.rhdl".VectorLocalFpResult
+  "../../decode.rhdl".VectorIntegerRowControl
+  "../../decode.rhdl".VectorV0Role
+  "../../decode.rhdl".VectorDataResult
+  "issue.rhdl" open
+  "integer-unit.rhdl" open
+  "../../../simd-alu.rhdl".SimdElementWidth
+  "../../../simd-multiplier.rhdl" open
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("rhodium/std/bits.rhdl") open
+  lib("flow/main.rhdl") open
+
+/* One issued read books either a fixed write edge or storage in the selected
+   scalar adapter. Neither adapter borrows the other adapter's credit. */
+sync_circuit VectorExecutionUnit(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~fp32: fp32 :: Boolean, ~fp16: fp16 :: Boolean):
+  def dlen = vector_dlen(vlen)
+  def row_bytes = dlen div 8
+  def Owner = Bits(index_width(slots))
+  interface issue(VectorRowIssue(dlen, Owner), ~role: unit)
+  interface fold(FoldDatapath(dlen, Owner), ~role: unit)
+  input(fold_active, fold_read): Bool
+  input fixed_write_credit: Bool
+  interface fold_book(Valid(ExecuteDestination(Owner)), ~role: consumer)
+  interface integer_pending(Valid(ExecuteDestination(Owner)), ~role: producer)
+  interface fp_pending(Valid(ExecuteDestination(Owner)), ~role: producer)
+  interface published(Valid(ExecuteDestination(Owner)), ~role: producer)
+  output reserved: Bits(ProductWriteDelay)
+  output destinations: Vec(ProductWriteDelay, ExecuteDestination(Owner))
+  interface operands(Valid(VectorRowOperands(dlen)), ~role: consumer)
+  interface reserve(Decoupled(Bits(index_width(ProductWriteDelay + 1))), ~role: producer)
+  interface write(Valid(VectorRegisterWrite(dlen, vlen)), ~role: producer)
+  interface shared_write(Decoupled(VectorRegisterWrite(dlen, vlen)), ~role: producer)
+  output shared_completion_offer: Bool
+  def profile = fp_transport_profile(xlen)
+  interface fp_request(Decoupled(FpExecutionRequest(xlen, profile, Owner)), ~role: producer)
+  interface fp_result(Decoupled(FpExecutionResult(xlen, profile, Owner)), ~role: consumer)
+  def Tag = VectorMultiplyTag(slots)
+  interface multiply_request(Decoupled(IntegerExecutionRequest(MultiplierRequest(xlen.width), Tag)), ~role: producer)
+  interface multiply_result(Irrevocable(IntegerExecutionResult(Bits(2*xlen.width), Tag)), ~role: consumer)
+  def DivTag = VectorDivideTag(slots)
+  interface divide_request(Decoupled(IntegerExecutionRequest(DividerRequest(xlen.width), DivTag)), ~role: producer)
+  interface divide_result(Irrevocable(IntegerExecutionResult(DividerResponse(xlen.width), DivTag)), ~role: consumer)
+  interface fp_update(Valid(Bits(5)), ~role: producer)
+  interface saturate(Pulse(), ~role: producer)
+
+  inst scalar_integer(VectorScalarIntegerRow(xlen, vlen, slots))
+  scalar_integer.request |> multiply_request
+  multiply_result |> scalar_integer.response
+  scalar_integer.divide_request |> divide_request
+  divide_result |> scalar_integer.divide_result
+  wire fp_free: Bool
+  wire fp_flags: Bits(5)
+  wire fp_flags_valid: Bool
+  def route :: RowUnit = issue.route
+  def policy = route.writeback()
+  def shared_int = policy === RowWriteback.IntegerAdapter
+  def shared_fp_route = policy === RowWriteback.FpAdapter
+  def fixed = policy.is_one_of(RowWriteback.ShortFixed, RowWriteback.ProductFixed)
+  scalar_integer.allocate.bits <== issue.grant.bits
+  scalar_integer.allocate.valid <== issue.grant.valid & shared_int
+  scalar_integer.pending |> integer_pending
+  def adapter_credit = (shared_int & scalar_integer.available) ||| (shared_fp_route & fp_free)
+  issue.available <== (fixed & reserve.ready) ||| adapter_credit
+  // Replacement may depend on registered capacity, never live write arbitration.
+  issue.handoff_credit <== (fixed & fixed_write_credit) ||| adapter_credit
+  wire selected_destination: ExecuteDestination(Owner)
+
+  /* Shift only owner and destination toward the promised write edge. A short
+     operation can occupy a hole ahead of an older product. The shared calendar
+     includes other writers; there is no late writeback grant. */
+  def Delay = Bits(index_width(ProductWriteDelay + 1))
+  reserve.bits <== mux(!fold_active & (policy === RowWriteback.ProductFixed), Delay(ProductWriteDelay), Delay(ShortWriteDelay))
+  reserve.valid <== (issue.grant.valid & fixed) ||| fold_book.valid
+  reg fold_return(~init: Bool(#false))
+  fold_return <== fold_read
+  reg booked(~init: Bits(ProductWriteDelay)(0).as_vec(Bool))
+  reg scheduled(Vec(ProductWriteDelay, ExecuteDestination(Owner)))
+  for (i in 0..ProductWriteDelay):
+    def insert = reserve.fire() & (reserve.bits === Delay(i+1))
+    def shifted = if i+1 < ProductWriteDelay | booked[i+1] | Bool(#false)
+    booked[i] <== insert ||| shifted
+    when insert: assert(!shifted, "execute_write_cycle_has_one_owner")
+    def following = if i+1 < ProductWriteDelay | scheduled[i+1] | dont_care(ExecuteDestination(Owner))
+    scheduled[i] <== mux(insert, mux(fold_book.valid, fold_book.bits, issue.grant.bits), following)
+  reserved <== booked.as_bits()
+  destinations <== scheduled
+  def destination = destinations[0]
+  def ctx :: ExecuteRowContext(dlen) = issue.context
+  def control = ctx.control
+  def return_policy = control.route.writeback()
+  def width = math.min(64, dlen)
+  def broadcast = vec(for List (_ in 0..(dlen div width)): control.broadcast[0..width]).as_bits()
+  inst integer(VectorIntegerUnit(dlen))
+  integer.vxrm <== control.vxrm
+  def neutral :: VectorIntegerRowControl() = literal(VectorIntegerRowControl(), 0)
+  def fold_alu = neutral.updated(~alu: neutral.alu.updated(~result_select: fold.selection, ~logic_select: fold.logic, ~maximum: fold.maximum, ~signed_compare: fold.signed_compare))
+  integer.sew <== mux(fold.alu_return, fold.sew, control.sew)
+  integer.left_signed <== control.left_signed
+  integer.right_signed <== control.right_signed
+  integer.control <== mux(fold.alu_return, fold_alu, control.integer)
+  integer.step <== mux(fold.alu_return, fold.sew, control.widths.step.into(SimdElementWidth))
+  integer.left_lag <== mux(fold.alu_return, Bits(2)(0), control.widths.left_lag)
+  integer.right_lag <== mux(fold.alu_return, Bits(2)(0), control.widths.right_lag)
+  integer.narrow <== !fold.alu_return & control.widths.dest_lag.any()
+  integer.part <== ctx.part
+  integer.raw_left <== mux(fold.alu_return, fold.left, operands.bits.data[0])
+  def right = mux(control.sources.vector_rhs, operands.bits.data[1], broadcast)
+  def old_vd = mux(control.sources.vector_rhs, operands.bits.data[2], operands.bits.data[1])
+  integer.raw_right <== mux(fold.alu_return, fold.right, right)
+  fold.alu_result <== integer.result
+  def raw_predicate = row_predicate_bytes(dlen, control.destination_eew, operands.bits.predicate, ctx.offset)
+  def upper = ctx.part[0].into(Bool)
+  def predicate = mux(control.widths.dest_lag.any() & upper, raw_predicate << (row_bytes div 2), raw_predicate)
+  integer.carry_bytes <== mux(!fold.alu_return & (control.shadow === VectorV0Role.Carry), predicate, Bits(row_bytes)(0))
+  integer.select_bytes <== mux(control.shadow === VectorV0Role.Selector, predicate, !Bits(row_bytes)(0))
+  def Payload = if fp32 | ArithmeticRow(dlen) | Bits(dlen)
+
+  /* Embed an integer or product without allocating separate per-unit result FIFOs. */
+  fun integer_payload(value :: Bits(dlen)):
+    if fp32
+    | block:
+        def result = FpRowValue(dlen):
+          data: value
+          flags: Bits(5)(0)
+          flags_valid: Bool(#false)
+        ArithmeticRow(dlen).Direct(result)
+    | value
+  def data_row = mux_lookup(control.data_result, ~default: integer.result):
+    VectorDataResult.MaskBits: integer.mask_bits.zext(dlen) << ctx.offset
+    VectorDataResult.CopyVs2: operands.bits.data[0]
+    VectorDataResult.Permutation: issue.permuted
+  /* Feed-forward multiply: reserve at read issue, never stall a returning
+     product. MACs add or subtract the low product within each SEW lane. */
+
+  inst product(SimdMultiplyAccumulate(dlen, xlen.width / 2))
+  def factors :: SimdMultiplyAccumulateRequest(dlen) = vector_packed_product(dlen, operands.bits.data[0], right, old_vd, control.product, control.sew, control.vxrm, upper)
+  def Array(mul, tag) = operands |> filter_valid(_r => !fold_return & (control.route === RowUnit.Product)) |> map_valid(_r => factors) |> fork_valid(2)
+  mul |> product.request
+  def predicated = control.shadow === VectorV0Role.Predicate
+  // Each source row owns one aligned slice of vd. Predicate, prestart and
+  // tail suppress enables, never the write of an active false comparison.
+  def lane_masks = for List (format in 0..math.min(4, bits.length(row_bytes))):
+    [format, Bits(dlen)((1 << (row_bytes >> format)) - 1)]
+  def fragment = mux_lookup(control.destination_eew, ~default: lane_masks[0][1], lane_masks) << ctx.offset
+  def fragment_mask = fragment & mux(predicated, operands.bits.predicate, !Bits(dlen)(0))
+  def mask = ctx.range_mask & mux(control.mask_fragment, fragment_mask, expand_mask(mux(predicated, predicate, !Bits(row_bytes)(0)), 8))
+  /* The active-element mask lives in source-lane coordinates even for a packed compare result. */
+  fun active_lanes(width :: PosInt) :~ Bits(dlen div width):
+    def packed = mask >> ctx.offset
+    def half_mask = fp_half_row(mask, upper)
+    def narrowing = control.widths.dest_lag.any()
+    vec(for List (i in 0..(dlen div width)): mux(control.mask_fragment, packed[i], mux(narrowing, half_mask[i*(width div 2)], mask[i*width]))).as_bits()
+  def fp :: VectorFpControl() = control.fp
+  def values(a, b, third) = fp.place_operands(Bits(dlen), operands.bits.data[0], right, old_vd)
+  // A local reduction borrows lane zero of the row unit and its normal rounding
+  // stage. It does not book a VRF write for the intermediate accumulator.
+  def short_return = (operands.valid & !fold_return & (return_policy === RowWriteback.ShortFixed)) ||| fold.write_return
+  def internal_free = !short_return & !product.response.valid
+  def fold_local = fold.fp_step.valid & !fold.fp_double & internal_free
+  def numerical = mux(fold_local, fold.fp_control, fp.execution)
+  def local_result = mux(fold_local, fold.fp_local_result, fp.local_result)
+  def rm = mux(fold_local, fold.fp_rounding, control.rounding)
+  /* Each precision uses a packed array; classification and comparisons bypass rounding. */
+  fun packed_fp(format :: FloatFormat):
+    inst lanes(VectorFpLanes(dlen, format))
+    def mixed = mux(fold_local, fold.fp_wide, control.widths.right_lag.any())
+    def lhs = mux(fold_local, fold.accumulator, a)
+    def rhs = mux(fold_local, fold.fp_step.bits, b)
+    def active = mux(fold_local, Bits(dlen div format.ieee_width)(1), active_lanes(format.ieee_width))
+    inst convert(VectorFpMixed(dlen, format))
+    convert.left <== lhs
+    convert.right <== rhs
+    convert.upper <== !fold_local & upper
+    convert.wide_left <== fold_local ||| !control.widths.left_lag.any()
+    convert.narrow_result <== control.widths.dest_lag.any()
+    convert.integer_source <== fp.integer_source()
+    convert.integer_result <== fp.integer_result()
+    convert.unsigned <== fp.execution.integer_unsigned
+    convert.rounding <== rm
+    convert.active <== active
+    lanes.left <== mux(mixed, convert.promoted_left, lhs)
+    lanes.right <== mux(mixed, convert.promoted_right, rhs)
+    lanes.promotion_invalid <== mux(mixed, convert.promotion_invalid, Bits(dlen div format.ieee_width)(0))
+    lanes.third <== third
+    lanes.control <== numerical
+    lanes.mask_fragment <== !fold_local & control.mask_fragment
+    lanes.integer_result <== fp.integer_result()
+    lanes.rounding <== rm
+    lanes.active <== active
+    lanes.offset <== ctx.offset
+    def raw = if format == FloatFormat.F16 | ArithmeticRow(dlen).Half(lanes.raw) | ArithmeticRow(dlen).Single(lanes.raw)
+    def direct = FpRowValue(dlen):
+      data: mux(mixed, convert.direct_data, lanes.direct_data)
+      flags: mux(mixed, convert.direct_flags, lanes.direct_flags)
+      flags_valid: active.any() & (local_result === VectorLocalFpResult.DirectWithFlags)
+    mux(local_result === VectorLocalFpResult.RawThenRound, raw, ArithmeticRow(dlen).Direct(direct))
+  def payload:
+    if fp32
+    | block:
+        def single = packed_fp(FloatFormat.F32)
+        def numeric = if fp16 | mux(mux(fold_local, fold.sew.as_bits(), control.widths.step) === SimdElementWidth.E16.as_bits(), packed_fp(FloatFormat.F16), single) | single
+        mux(fold_local ||| (control.route === RowUnit.LocalFp), numeric, integer_payload(data_row))
+    | data_row
+
+  wire double_step_ready: Bool
+  wire double_feedback: Bool
+  wire double_value: Bits(dlen)
+  wire double_flags: Bits(5)
+  if fp32
+  | block:
+      inst shared_fp(VectorSharedFpRow(xlen, vlen, slots))
+      shared_fp.allocate.valid <== issue.grant.valid & shared_fp_route
+      shared_fp.allocate.bits <== issue.grant.bits
+      shared_fp.capture <== operands.valid & !fold_return & (return_policy === RowWriteback.FpAdapter)
+      shared_fp.wait_for_reply <== control.route === RowUnit.SharedFpIterative
+      shared_fp.left <== a
+      shared_fp.right <== b
+      shared_fp.third <== third
+      shared_fp.mask <== mask
+      shared_fp.mask_fragment <== control.mask_fragment
+      def step = control.widths.step
+      def enabled = for List (n in 1..(if xlen == XLen.X64 | 4 | 3)):
+        def stride = 1 << (n-1)
+        def active = active_lanes(16*stride)
+        [n, vec(for List (i in 0..(dlen div 16)): if i mod stride == 0 | active[i div stride] | Bits(1)(0)).as_bits()]
+      shared_fp.live <== mux_lookup(step, ~default: enabled[0][1], enabled)
+      shared_fp.precision <== mux_lookup(step, ~default: FloatPrecision.Double, [[1, FloatPrecision.Half], [2, FloatPrecision.Single]])
+      shared_fp.offset <== ctx.offset
+      shared_fp.execution <== fp.execution
+      shared_fp.integer_result <== fp.integer_result()
+      shared_fp.integer_source <== fp.integer_source()
+      shared_fp.small_left <== control.widths.left_lag.any()
+      shared_fp.small_right <== control.widths.right_lag.any()
+      shared_fp.small_dest <== control.widths.dest_lag.any()
+      shared_fp.upper <== upper
+      shared_fp.rounding <== control.rounding
+      if xlen == XLen.X64
+      | block:
+          def fold_req = interface_link(Decoupled(fp_request.bits.type))
+          def blank :: FloatingPointControl() = dont_care(FloatingPointControl())
+          def exec = fold.fp_control.updated(~source_precision: FloatPrecision.Double, ~destination_precision: FloatPrecision.Double)
+          def src = fold.fp_step.bits[0..64]
+          fold_req.left.valid <== fold.fp_step.valid & fold.fp_double
+          fold_req.left.bits <== FpExecutionRequest(xlen, profile, Owner):
+            tag: fold.owner
+            control: blank.updated(~registers: blank.registers.updated(~uses_frs1: Bool(#true), ~destination: FloatDestination.FloatingPoint), ~execution: exec)
+            left: fold.accumulator[0..64]
+            right: mux(fold.fp_wide, (!Bits(32)(0)) ++ src[0..32], src)
+            left_precision: FloatPrecision.Double
+            right_precision: mux(fold.fp_wide, FloatPrecision.Single, FloatPrecision.Double)
+            third_precision: FloatPrecision.Double
+            third: dont_care(Bits(64))
+            immediate_index: dont_care(Bits(5))
+            rounding_mode: fold.fp_rounding
+          Array(shared_fp.request, fold_req.right) |> arbiter() |> fp_request
+          double_step_ready <== fold_req.left.ready
+          reg pending_fold(~init: Bool(#false))
+          def Array(elements, feedback) = fp_result |> demux_flow(2, r => pending_fold & (r.tag === fold.owner))
+          elements |> shared_fp.response
+          feedback.ready <== Bool(#true)
+          double_feedback <== feedback.fire()
+          double_value <== feedback.bits.value.zext(dlen)
+          double_flags <== mux(feedback.bits.exception_flags_valid, feedback.bits.exception_flags, Bits(5)(0))
+          when (fold_req.right.fire()): pending_fold <== Bool(#true)
+          elsewhen (feedback.fire()): pending_fold <== Bool(#false)
+      | block:
+          shared_fp.request |> fp_request
+          fp_result |> shared_fp.response
+          double_step_ready <== Bool(#false)
+          double_feedback <== Bool(#false)
+          double_value <== Bits(dlen)(0)
+          double_flags <== Bits(5)(0)
+      fp_free <== shared_fp.available
+      fp_flags <== shared_fp.flags.bits
+      fp_flags_valid <== shared_fp.flags.valid
+      Array(scalar_integer.write, shared_fp.write) |> arbiter() |> shared_write
+      shared_fp.pending |> fp_pending
+      selected_destination <== mux(scalar_integer.write.valid, scalar_integer.pending.bits, shared_fp.pending.bits)
+  | block:
+      double_step_ready <== Bool(#false)
+      double_feedback <== Bool(#false)
+      double_value <== Bits(dlen)(0)
+      double_flags <== Bits(5)(0)
+      scalar_integer.write |> shared_write
+      fp_pending.valid <== Bool(#false)
+      fp_pending.bits <== dont_care(ExecuteDestination(Owner))
+      selected_destination <== scalar_integer.pending.bits
+      fp_request.valid <== Bool(#false)
+      fp_request.bits <== dont_care(fp_request.bits.type)
+      fp_result.ready <== Bool(#false)
+      fp_free <== Bool(#true)
+      fp_flags <== Bits(5)(0)
+      fp_flags_valid <== Bool(#false)
+  // Both routes use one operand store; only a product consumes the MAC factor permutation.
+  def dividing = control.route === RowUnit.SharedDivide
+  (operands |> filter_valid(_r => !fold_return & (return_policy === RowWriteback.IntegerAdapter)) |> map_valid(r => ScalarIntegerRowOperands(dlen)):
+     left: mux(dividing, r.data[0], factors.operands.left)
+     right: right
+     mask: mask
+     sew: control.sew.as_bits()
+     divide: dividing
+     division: control.division
+     mode: control.product.mode
+     multiply_context: factors.context
+  ) |> scalar_integer.operands
+  /* Extract byte enables for products and FP, whose write masks always
+     select whole bytes. Mask-register results retain their full bit enables. */
+  fun byte_enables(bit_mask :: Bits(dlen)) :~ Bits(row_bytes):
+    vec(for List (i in 0..row_bytes): bit_mask[8*i]).as_bits()
+  def product_mask = tag |> map_valid(_r => byte_enables(mask)) |> valid_pipe(SimdMultiplyAccumulateStages)
+  assert(product_mask.valid === product.response.valid, "execute_product_mask_matches_response")
+
+  /* One common output stage separates raw FP arithmetic from rounding. Its
+     payload lives exactly one cycle and cannot be backpressured. */
+  assert(!(short_return & product.response.valid), "execute_returns_have_distinct_write_cycles")
+  fold.fp_step.ready <== mux(fold.fp_double, double_step_ready, internal_free)
+  reg local_return(~init: Bool(#false))
+  local_return <== fold_local
+  reg stored(Payload)
+  reg enabled(Bits(dlen))
+  reg saturated(Bool)
+  when short_return:
+    saturated <== !fold_return & (control.route === RowUnit.Data) & control.integer.can_saturate & (integer.saturated_bytes & byte_enables(mask)).any()
+    def fold_result = FpRowValue(dlen):
+      data: fold.write_data
+      flags: fold.flags
+      flags_valid: fold.flags_valid
+    def fold_payload = if fp32 | ArithmeticRow(dlen).Direct(fold_result) | fold.write_data
+    stored <== mux(fold_return, fold_payload, payload)
+    enabled <== mux(fold_return, fold.write_mask, mask)
+  elsewhen (product.response.valid):
+    saturated <== (product.response.bits.saturated.as_bits() & product_mask.bits).any()
+    stored <== integer_payload(product.response.bits.data)
+    enabled <== expand_mask(product_mask.bits, 8)
+  elsewhen fold_local: stored <== payload
+  reg arriving(~init: Bool(#false))
+  arriving <== short_return ||| product.response.valid
+  assert(arriving === booked[0], "execute_result_arrives_on_reserved_edge")
+  def values(data, flags, flags_valid):
+    if fp32
+    | block:
+        /* Round only numerical intermediates; a direct result already owns its flags. */
+        fun rounded(format :: FloatFormat, raw :: RawFpRow(dlen, format)):
+          inst rnd(VectorFpRound(dlen, format))
+          rnd.raw <== raw
+          rnd.result
+        def T = ArithmeticRow(dlen)
+        def single = rounded(FloatFormat.F32, stored.view(T.Single).payload)
+        def numeric = if fp16 | mux(stored.is(T.Half), rounded(FloatFormat.F16, stored.view(T.Half).payload), single) | single
+        def result :: FpRowValue(dlen) = mux(stored.is(T.Direct), stored.view(T.Direct).payload, numeric)
+        values(result.data, result.flags, result.flags_valid)
+    | values(stored, Bits(5)(0), Bool(#false))
+  fold.fp_feedback.valid <== local_return ||| double_feedback
+  fold.fp_feedback.bits <== mux(double_feedback, double_value, data)
+  fold.feedback_flags <== mux(double_feedback, double_flags, flags)
+  write.valid <== booked[0]
+  write.bits <== VectorRegisterWrite(dlen, vlen):
+    address: destination.row
+    data: data
+    mask: enabled
+  fp_update.valid <== (write.valid & flags_valid) ||| fp_flags_valid
+  fp_update.bits <== mux(write.valid & flags_valid, flags, Bits(5)(0)) ||| mux(fp_flags_valid, fp_flags, Bits(5)(0))
+  saturate.valid <== (write.valid & saturated) ||| scalar_integer.saturate.valid
+  when (write.valid & destination.last):
+    assert(!any(for List (i in 1..ProductWriteDelay): booked[i] & (destinations[i].owner === destination.owner)), "execute_finished_owner_has_no_pending_rows")
+  assert(!(write.valid & shared_write.fire()), "vxu_writes_share_one_physical_port")
+  shared_completion_offer <== shared_write.valid & selected_destination.last
+  published.valid <== write.valid ||| shared_write.fire()
+  published.bits <== mux(shared_write.fire(), selected_destination, destination)
+
+export VectorExecutionUnit

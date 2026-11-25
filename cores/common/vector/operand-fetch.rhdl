@@ -17,6 +17,7 @@ import:
   "../../../riscv/rtl/instruction-fields.rhdl".instruction_field
   "../../../riscv/rtl/floating-point.rhdl".riscv_unbox
   lib("hardfloat/main.rhdl").FloatFormat
+  "../../../riscv/rtl/vector.rhdl" open
   lib("flow/main.rhdl") open
   lib("rhodium/std/bits.rhdl") open
 
@@ -79,11 +80,11 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
                               def element = beat_control.first.zext(position_width) + Bits(position_width)(lane)
                               !beat_control.empty & (element >= minimum.zext(position_width)) & (element < beat_control.end.zext(position_width))).as_bits()
 
-  def descriptor = instruction.descriptor
+  def descriptor :: VectorSequenceDescriptor(xlen) = instruction.descriptor
   def packed = read_context.packed
-  def vd = instruction_field(riscv_fields.rd, descriptor.instruction)
-  def vs1 = instruction_field(riscv_fields.rs1, descriptor.instruction)
-  def vs2 = instruction_field(riscv_fields.rs2, descriptor.instruction)
+  def vd = descriptor.vd()
+  def vs1 = descriptor.vs1()
+  def vs2 = descriptor.vs2()
 
 
   /* Element geometry and operation families.
@@ -95,54 +96,48 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
   def format = mux(mask_word, (if xlen == XLen.X32 | SimdElementWidth.E32 | SimdElementWidth.E64), sew.into(SimdElementWidth))
   def limit = descriptor.beat_limit(vlen)
   def simd_multiply = vector_packed_multiply(xlen, descriptor.control, sew, packed_multiply)
-  def simd_widening = simd_multiply & descriptor.control.widening
+  def simd_widening = simd_multiply & widens_result(descriptor.control.width_shape)
   def lanes = vector_beat_lanes(xlen, vlen, descriptor.control, sew, ~packed_multiply: simd_multiply)
   def destination_width = vector_destination_width(descriptor.control, sew)
   def index_sew = vector_index_width(descriptor.control, sew)
-  def gather = descriptor.control.integer & descriptor.control.gather
-  def gather_vector = !packed & gather & (descriptor.control.operand === VectorOperandMode.Vector)
+  def gather = is_register_gather(descriptor.control.permutation)
+  def gather_vector = !packed & gather_uses_vs1(descriptor.control.permutation)
   def scalar_index = descriptor.scalar_index()
-  def widening = descriptor.control.integer & descriptor.control.widening
-  def narrowing = descriptor.control.integer & descriptor.control.narrowing
+  def widening = descriptor.control.integer & widens_result(descriptor.control.width_shape)
+  def narrowing = descriptor.control.integer & (descriptor.control.width_shape === VectorWidthShape.Narrow)
   def width_change = widening ||| narrowing
-  def whole_register_move = descriptor.control.integer & descriptor.control.whole_register_move
-  def reduction = (descriptor.control.integer ||| descriptor.control.fp_service) & descriptor.control.reduction
-  def extension = descriptor.control.integer & descriptor.control.extension
-  def wide_vs2 = (descriptor.control.integer ||| descriptor.control.fp_service) & descriptor.control.wide_vs2
+  def whole_register_move = vector_whole_copy(descriptor.control)
+  def reduction = vector_reduction(descriptor.control)
+  def extension = descriptor.control.integer & extension_shift(descriptor.control.width_shape).any()
+  def wide_vs2 = (descriptor.control.integer ||| descriptor.control.fp_service) & has_wide_vs2(descriptor.control.width_shape)
   def second_source = !gather_vector & vector_reads_second(descriptor.control)
   def indexed_memory = vector_indexed_memory(descriptor.control)
-  def slide = descriptor.control.slide
-  def scan = descriptor.control.integer & descriptor.control.scan
+  def slide = is_register_slide(descriptor.control.permutation)
+  def scan = vector_scan(descriptor.control)
   def singleton = vector_single_element(descriptor.control, ~packed_multiply: simd_multiply)
-  def mask_logic = descriptor.control.integer & descriptor.control.mask_logic
-  def compress = !packed & descriptor.control.integer & descriptor.control.compress
+  def packed_mask = vector_packed_mask_rows(descriptor.control)
+  def compress = !packed & (descriptor.control.permutation === VectorPermutationKind.Compress)
   def destination_source = vector_reads_destination(descriptor.control)
-  def fp_narrowing = descriptor.control.fp_service & descriptor.control.narrowing
-  def fp_widening = descriptor.control.fp_service & descriptor.control.widening
-  def mask_select = descriptor.control.mask_select
-  def carry_input = descriptor.control.integer & descriptor.control.carry_input
+  def mask_select = !descriptor.control.memory & (descriptor.control.reads.v0 === VectorV0Role.Selector)
+  def carry_input = descriptor.control.integer & (descriptor.control.reads.v0 === VectorV0Role.Carry)
 
 
   /* Floating scalar operands and FP width changes.
      Dedicated FP service keeps its raw scalar; SIMD scalar use checks NaN boxing. */
 
-  def floating_scalar_operand = descriptor.control.floating_point & (descriptor.control.operand === VectorOperandMode.FloatingScalar)
-  def fp_service_scalar_operand = descriptor.control.fp_service & floating_scalar_operand
-  def scalar_unbox_cases = for List (format_index in 1..(vector_format_count(xlen) - 1)):
-    def floating_format = if format_index == 1 | FloatFormat.F16 | FloatFormat.F32
-    [format_index, riscv_unbox(floating_format, xlen.width, descriptor.operand_word).as_bits().zext(xlen.width)]
-
-  def checked_floating_scalar = mux_lookup(sew, ~default: descriptor.operand_word, scalar_unbox_cases)
-  def fp_source_width = (sew + fp_narrowing.as_bits().zext(2)).into(SimdElementWidth)
-  def fp_result_width = (sew + fp_widening.as_bits().zext(2)).into(SimdElementWidth)
+  def fp_service_scalar_operand = descriptor.control.fp_service & descriptor.control.reads_frs1
+  def scalar_operand = descriptor.scalar_operand(xlen.width)
+  def shape = descriptor.control.width_shape
+  def fp_source_width = (sew + (shape === VectorWidthShape.Narrow).as_bits().zext(2)).into(SimdElementWidth)
+  def fp_result_width = compute_dest_eew(shape, sew).into(SimdElementWidth)
 
 
   /* Extension and indexed/gather source placement.
      Gather row selection is prepared by the sequencer; this stage extracts or rotates its data. */
 
   def read_destination_chunk = beat_control.first >> (Bits(2)(vector_byte_offset_width(xlen)) - destination_width)
-  def extension_part = mux_lookup(descriptor.control.extension_ratio):
-    SimdExtensionRatio.By2: read_destination_chunk[0].as_bits().zext(3)
+  def ratio = mux_lookup(shape, ~default: SimdExtensionRatio.By2, [[VectorWidthShape.Extend4, SimdExtensionRatio.By4], [VectorWidthShape.Extend8, SimdExtensionRatio.By8]])
+  def extension_part = mux_lookup(ratio, ~default: read_destination_chunk[0].as_bits().zext(3)):
     SimdExtensionRatio.By4: read_destination_chunk[0..2].zext(3)
     SimdExtensionRatio.By8: read_destination_chunk[0..3]
 
@@ -164,7 +159,7 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
 
   def row_base_width = index_width(VectorRegisterLayout(vlen, xlen.width).depth)
   def slide_distance = descriptor.slide_distance()
-  def slide_delta = mux(descriptor.control.slide_up, -slide_distance.zext(xlen.width + 2), slide_distance.zext(xlen.width + 2))
+  def slide_delta = mux(slide_moves_up(descriptor.control.permutation), -slide_distance.zext(xlen.width + 2), slide_distance.zext(xlen.width + 2))
   def slide_offset = slide_delta[0..vector_byte_offset_width(xlen)] << sew
   def slide_base = vs2.zext(row_base_width) << bits.length(VectorRegisterLayout(vlen, xlen.width).rows_per_register - 1)
 
@@ -191,19 +186,12 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
     vstart: minimum
     vlmax: mux(whole_register_move, limit, geometry.vlmax)
     masked: descriptor.masked & !mask_select & !carry_input
-    operand_select:
-      mux_lookup(descriptor.control.operand):
-        VectorOperandMode.Vector: VectorOperandSelect.Vector
-        VectorOperandMode.Scalar: VectorOperandSelect.Scalar
-        VectorOperandMode.FloatingScalar: VectorOperandSelect.Scalar
-        VectorOperandMode.Immediate: VectorOperandSelect.Immediate
-
-    immediate_kind: descriptor.control.immediate_kind
+    broadcast_rhs: descriptor.control.operand =/= VectorOperandMode.Vector
     widening: widening & !reduction
     narrowing: narrowing
     extension: extension
-    extension_ratio: descriptor.control.extension_ratio
-    extension_signed: descriptor.control.extension_signed
+    extension_ratio: ratio
+    extension_signed: descriptor.control.left_signed
     extension_part: extension_part
     upper_half: width_change & (beat_control.first =/= vector_aligned_first(xlen, vlen, beat_control.first, sew))
     left_wide: wide_vs2
@@ -213,14 +201,13 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
   packing.left <== results[0].bits
   packing.right <== mux(second_source, results[1].bits, Bits(xlen.width)(0))
   packing.mask_word <== mask_result.bits
-  packing.scalar <== mux(floating_scalar_operand & !descriptor.control.fp_service, checked_floating_scalar, descriptor.operand_word)
-  packing.immediate <== concat(descriptor.instruction[26], vs1)
+  packing.scalar_operand <== scalar_operand
 
 
   /* Premerge bytes before the ALU's full-word rotate-right. Scalar insert
      bytes keep their element-local position because the offset is SEW-aligned. */
 
-  def slide_insert_index = mux(descriptor.control.slide_up, Bits(index_width(vlen + 1))(0), limit - Bits(index_width(vlen + 1))(1))
+  def slide_insert_index = mux(slide_moves_up(descriptor.control.permutation), Bits(index_width(vlen + 1))(0), limit - Bits(index_width(vlen + 1))(1))
   def slide_source = vec(
     for List (byte in 0..vector_word_bytes(xlen)):
       def high = Bits(vector_byte_offset_width(xlen))(byte) < slide_offset
@@ -229,27 +216,28 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
       def source = mux(valid, source_byte, Bits(8)(0))
       def destination_byte = Bits(vector_byte_offset_width(xlen))(byte) - slide_offset
       def destination_element = beat_control.first + (destination_byte >> sew).zext(index_width(vlen + 1))
-      def insert = descriptor.control.slide_one & (destination_element === slide_insert_index)
+      def insert = slide_inserts_scalar(descriptor.control.permutation) & (destination_element === slide_insert_index)
       def scalar_bytes = for List (format_index in 1..vector_format_count(xlen)):
         def offset = (byte % (2 ** format_index)) * 8
-        [format_index, packing.scalar[offset..offset + 8]]
+        [format_index, scalar_operand[offset..offset + 8]]
 
-      def scalar_byte = mux_lookup(sew, ~default: packing.scalar[0..8], scalar_bytes)
+      def scalar_byte = mux_lookup(sew, ~default: scalar_operand[0..8], scalar_bytes)
       mux(insert, scalar_byte, source)
   ).as_bits()
 
   def slide_enabled = vec(
     for List (lane in 0..vector_word_bytes(xlen)):
       def destination_element = beat_control.first.zext(xlen.width + 2) + Bits(xlen.width + 2)(lane)
-      !descriptor.control.slide_up ||| descriptor.control.slide_one ||| (destination_element >= slide_distance.zext(xlen.width + 2))
+      (descriptor.control.permutation =/= VectorPermutationKind.SlideUp) ||| (destination_element >= slide_distance.zext(xlen.width + 2))
   ).into(Mask(vector_word_bytes(xlen)))
 
 
   /* Element placement and compute operand selection */
 
-  def memory_shift_width = mux(descriptor.control.fp_service, fp_source_width.into(Bits(2)), sew)
+  def fp_arithmetic = descriptor.control.fp_service
+  def memory_shift_width = mux(fp_arithmetic, fp_source_width.as_bits(), sew)
   def memory_shift = ((beat_control.first[0..vector_byte_offset_width(xlen)] << memory_shift_width) ++ Bits(3)(0))
-  def first_shift_width = mux(descriptor.control.fp_service & descriptor.control.wide_vs2, fp_result_width.into(Bits(2)), memory_shift_width)
+  def first_shift_width = mux(fp_arithmetic, compute_vs2_eew(shape, sew), sew)
   def first_shift = ((beat_control.first[0..vector_byte_offset_width(xlen)] << first_shift_width) ++ Bits(3)(0))
   def indexed_address = beat_control.address + vector_index
   def destination_shift = ((beat_control.first[0..vector_byte_offset_width(xlen)] << destination_width) ++ Bits(3)(0))
@@ -264,7 +252,7 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
   def right_operand = priority_mux(~default: packing.operands.right):
     gather: (gather_offset ++ Bits(3)(0)).zext(xlen.width)
     slide: (slide_offset ++ Bits(3)(0)).zext(xlen.width)
-    mask_logic ||| reduction: results[1].bits
+    packed_mask ||| reduction: results[1].bits
     fp_service_scalar_operand: descriptor.operand_word
     singleton & (descriptor.control.operand === VectorOperandMode.Vector): results[1].bits >> memory_shift
 
@@ -277,7 +265,7 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
   def multiply_enables = (packed_enabled.as_bits() >> mux(multiply_upper, lanes[0..vector_byte_offset_width(xlen)], Bits(vector_byte_offset_width(xlen))(0))).into(Mask(vector_word_bytes(xlen)))
   def enabled_lanes = priority_mux(~default: packed_enabled):
     simd_widening: multiply_enables
-    mask_logic: active_elements.any().as_bits().zext(vector_word_bytes(xlen)).into(Mask(vector_word_bytes(xlen)))
+    packed_mask: active_elements.any().as_bits().zext(vector_word_bytes(xlen)).into(Mask(vector_word_bytes(xlen)))
     singleton: memory_enabled.as_bits().zext(vector_word_bytes(xlen)).into(Mask(vector_word_bytes(xlen)))
 
   def element_mask_lanes = element_mask_bits[0..vector_word_bytes(xlen)].into(Mask(vector_word_bytes(xlen)))
@@ -286,7 +274,7 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
     mask_select: element_mask_lanes
     extension ||| whole_register_move: Mask(vector_word_bytes(xlen))(0)
 
-  def uses_element_mask = scan ||| mask_logic
+  def uses_element_mask = scan ||| packed_mask
   def element_enables = active_elements & mux(scan & descriptor.masked, element_mask_bits, !Bits(xlen.width)(0))
   def old_vd = mux(simd_multiply, results[2].bits, results[2].bits >> destination_shift)
   def operands = VectorBeat(xlen, vlen):
@@ -318,7 +306,7 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
   /* Compression lane selection
      Only nonempty, in-range elements selected by the architectural compression mask participate. */
 
-  inst compactor(SimdCompress(xlen))
+  inst compactor(SimdCompress(xlen.width))
   def compress_mask = results[1].bits >> beat_control.first[0..vector_bit_offset_width(xlen)]
   def compress_selected = vec(
     for List (lane in 0..vector_word_bytes(xlen)):
@@ -477,8 +465,9 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
     assert(returned.ready, "vector_scheduled_read_cannot_stall_after_response")
 
   when (response.valid & !clear & !packed & !read_context.suffix):
-    assert(!(uses_element_mask & destination_source), "vector_element_mask_and_old_vd_are_exclusive")
-    assert(beat_control.empty ||| (results[0].valid & (!second_source ||| results[1].valid) & mask_result.valid & (!destination_source ||| results[2].valid)), "vector_read_context_matches_data_and_mask_ports")
+    def first_ready = !vector_reads_first(descriptor.control) ||| results[0].valid
+    def predicate_ready = (scan & !descriptor.masked) ||| mask_result.valid
+    assert(beat_control.empty ||| (first_ready & (!second_source ||| results[1].valid) & predicate_ready & (!destination_source ||| results[2].valid)), "vector_read_context_matches_data_and_mask_ports")
     assert(singleton ||| mask_word ||| beat_control.empty ||| packing.legal, "vector_packed_read_is_legal")
 
   when (response.valid & !clear & packed & read_context.packed_store_read):

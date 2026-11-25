@@ -1,0 +1,154 @@
+#lang rhodium
+/* Sequences special operands and owns the DLEN reduction accumulator shared with VXSeq. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../bundles.rhdl" open
+  "../../geometry.rhdl" open
+  "../../backend-kind.rhm".vector_dlen
+  "../../decode.rhdl".VectorReductionIdentity
+  "../../decode.rhdl".compute_dest_eew
+  "../common/row-types.rhdl" open
+  "../common/row-claims.rhdl" open
+  "../../decode.rhdl".VectorVpsUse
+  "../exu/permute.rhdl".VectorPermuteCursor
+  lib("flow/main.rhdl") open
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/isa/vector.rhm").VectorLength
+  lib("rhodium/std/bits.rhdl").Pow2Int
+
+/* One instruction owns both slots and the synchronous return tag. Sequential
+   reads alternate slots; a vector gather keeps its index and data rows apart. */
+sync_circuit VectorSpecialSequencer(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int):
+  def dlen = vector_dlen(vlen)
+  def Owner = Bits(index_width(slots))
+  interface install(Valid(VectorDispatchEntry(xlen, slots)), ~role: consumer)
+  input discard: Bool
+  output(busy, install_ready): Bool
+  interface chain(VectorSpecialReadChain(Owner), ~role: engine)
+  interface rows(Decoupled(IndexOperandRow(dlen, Owner)), ~role: producer)
+  interface permutation(Decoupled(PermutedRow(dlen)), ~role: producer)
+  interface reduction(ReductionAccumulator(dlen), ~role: special)
+  interface read(Decoupled(RowAddress), ~role: producer)
+  interface lookahead(Decoupled(RowAddress), ~role: producer)
+  interface result(Valid(Bits(dlen)), ~role: consumer)
+  reg active(~init: Bool(#false))
+  reg owner(Owner)
+  reg head(RowAddress)
+  reg last(RowAddress)
+  reg unread(~init: RowSet(0))
+  reg present(~init: Bits(2)(0).as_vec(Bool))
+  reg data(Vec(2, Bits(dlen)))
+  reg pending(~init: Bool(#false))
+  reg granted_row(RowAddress)
+  reg granted_slot(Bits(1))
+  reg tags(Vec(2, RowAddress))
+  inst perm(VectorPermuteCursor(xlen, vlen))
+  def d :: VectorDescriptor(xlen) = install.bits.checked.descriptor
+  def permuting = !d.control.memory & (d.control.vps === VectorVpsUse.Permutation)
+
+
+  /* Reduction context: initialize every packed lane with its identity, then
+     replace only element zero with VS1. Reuse that storage for all feedback. */
+
+  def reducing = !d.control.memory & (d.control.vps === VectorVpsUse.ReductionSeed)
+  def allocate_fold = install.valid & reducing
+  reg fold(~init: Bool(#false))
+  reg seeded(~init: Bool(#false))
+  reg seed_row(RowAddress)
+  reg seed_size(Bits(2))
+  reg accumulator(Bits(dlen))
+  def memory_install = install.valid & d.control.memory
+  def seed_capture = fold & result.valid
+  def size = compute_dest_eew(d.control.width_shape, d.state.sew())
+  def lane_signs = for List (n in 0..bits.length(xlen.width div 8)):
+    def w = 8 << n
+    [n, vec(for List (_ in 0..(dlen div w)): Bits(w)(1 << (w-1))).as_bits()]
+  def signed_min = mux_lookup(size, ~default: lane_signs[0][1], lane_signs)
+  def fill = mux_lookup(d.control.reduction_identity, ~default: Bits(dlen)(0), [
+    [VectorReductionIdentity.AllOnes, !Bits(dlen)(0)],
+    [VectorReductionIdentity.SignedMax, !signed_min],
+    [VectorReductionIdentity.SignedMin, signed_min]
+  ])
+  def seed_masks = for List (n in 0..bits.length(xlen.width div 8)): [n, Bits(dlen)((1 << (8 << n))-1)]
+  def seed_mask = mux_lookup(seed_size, ~default: seed_masks[0][1], seed_masks)
+  when allocate_fold:
+    fold <== Bool(#true)
+    seeded <== Bool(#false)
+    seed_row <== group_row(d.vs1())
+    seed_size <== size
+    accumulator <== mux(d.control.integer, fill, Bits(dlen)(0))
+  elsewhen (reduction.release.valid): fold <== Bool(#false)
+  elsewhen seed_capture:
+    seeded <== Bool(#true)
+    accumulator <== (accumulator & !seed_mask) ||| (result.bits & seed_mask)
+  elsewhen (reduction.update.valid): accumulator <== reduction.update.bits
+  reduction.value.valid <== fold & seeded
+  reduction.value.bits <== accumulator
+  perm.install.valid <== install.valid & permuting
+  perm.install.bits <== d
+  perm.result |> permutation
+  perm.capture.valid <== result.valid & perm.busy
+  perm.capture.bits <== SpecialRead():
+    row: granted_row
+    slot: granted_slot
+  def window = for List (i in 0..2):
+    def forwarding = result.valid & (granted_slot === Bits(1)(i))
+    SpecialRow(dlen):
+      valid: present[i] ||| forwarding
+      address: mux(forwarding, granted_row, tags[i])
+      data: mux(forwarding, result.bits, data[i])
+  perm.buffer <== vec(window)
+  def next = head + RowAddress(1)
+  def slot = head[0]
+  def available = present[slot]
+  def target = mux(fold, seed_row, mux(perm.busy, mux(perm.demand.valid, perm.demand.bits.row, perm.ahead.bits.row), mux(available, next, head)))
+  def safe = !chain.older_writes.as_vec(Bool)[target]
+  def can_read = active & !discard & !pending
+  read.valid <== safe & mux(fold, !seeded & !pending, mux(perm.busy, perm.demand.valid, can_read & !available))
+  lookahead.valid <== safe & mux(perm.busy, perm.ahead.valid, can_read & available & (head =/= last) & !present[next[0]])
+  read.bits <== mux(fold, seed_row, mux(perm.busy, perm.demand.bits.row, head))
+  lookahead.bits <== mux(perm.busy, perm.ahead.bits.row, next)
+  def grant = read.fire() ||| lookahead.fire()
+  pending <== grant
+  when grant:
+    granted_row <== target
+    granted_slot <== mux(perm.busy, mux(perm.demand.valid, perm.demand.bits.slot, perm.ahead.bits.slot), target[0])
+  rows.valid <== active & available
+  rows.bits <== IndexOperandRow(dlen, Owner):
+    owner: owner
+    row: head
+    data: data[slot]
+  busy <== active ||| perm.busy ||| fold
+  // Only paired register permutations may replace an occupied VPS. A pending
+  // synchronous return can supply the old tail now, never the next owner.
+  install_ready <== !busy ||| (permuting & perm.tail_offered & (!pending ||| result.valid))
+  chain.owner <== owner
+  chain.unread <== mux(fold, row_event(!seeded, seed_row), mux(perm.busy, perm.unread, unread))
+  def indices = memory_operand_geometry(xlen, vlen, d).indices
+  def values(first, end) = vector_span_bounds(vlen, indices, dlen div 8, PhysicalRows, group_row(d.vs2()))
+  when (install.valid):
+    assert(install_ready, "special_install_has_capacity")
+    when busy: assert(perm.result.fire() & !grant, "special_replacement_consumes_tail_without_new_read")
+    owner <== install.bits.owner
+  when memory_install:
+    last <== end
+    unread <== vector_span_cover(vlen, indices, dlen div 8, PhysicalRows, group_row(d.vs2()))
+  elsewhen discard:
+    unread <== RowSet(0)
+  elsewhen (result.valid & active):
+    assert(pending & active, "index_result_has_owner")
+    unread <== unread & !row_event(Bool(#true), granted_row)
+  when (memory_install ||| discard ||| (rows.fire() & (head === last))): active <== memory_install & (indices.begin < indices.end)
+  when memory_install: head <== first
+  elsewhen (rows.fire()): head <== next
+  for (i in 0..2):
+    def fill = result.valid & (granted_slot === Bits(1)(i))
+    def pop = rows.fire() & (slot === Bits(1)(i))
+    when (install.valid ||| discard ||| pop): present[i] <== Bool(#false)
+    elsewhen fill: present[i] <== Bool(#true)
+    when fill:
+      tags[i] <== granted_row
+      data[i] <== result.bits
+
+export VectorSpecialSequencer

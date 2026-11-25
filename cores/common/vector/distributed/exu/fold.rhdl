@@ -1,0 +1,331 @@
+#lang rhodium
+/* Issues ordered floating folds, integer reductions, and mask scans a physical row at a time, using VPS feedback and VXU write reservations. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../decode.rhdl".VectorSequence
+  "../../decode.rhdl".VectorLocalFpResult
+  "../../decode.rhdl".VectorResultKind
+  "issue.rhdl".FoldDatapath
+  "../../bundles.rhdl".VectorDescriptor
+  "../../geometry.rhdl".vector_element_span
+  "../../geometry.rhdl".compute_extent
+  "../../geometry.rhdl".scalar_move_claim
+  "../../geometry.rhdl".scan_geometry
+  "../../geometry.rhdl".vector_span_cover
+  "../../decode.rhdl".compute_dest_eew
+  "../../mask.rhdl" open
+  "../../../fp/profile.rhm".fp_transport_profile
+  "../../../fp/register-file.rhdl".FloatingPointRegisterWrite
+  "../../../fp/types.rhdl".FloatExecutionControl
+  lib("hardfloat/main.rhdl").RoundingMode
+  "../../backend-kind.rhm".vector_dlen
+  "../../../simd-alu.rhdl" open
+  "../../../register-write.rhdl".RegisterFileWrite
+  "../common/row-types.rhdl" open
+  "../common/row-claims.rhdl" open
+  lib("flow/main.rhdl") open
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/isa/vector.rhm").VectorLength
+  lib("rhodium/std/bits.rhdl") open
+
+/* Integer reductions finish with horizontal ALU steps. FP reductions consume
+   one captured source row in element order before requesting the next row. */
+hardware_enum FoldPhase:
+  Idle
+  Source
+  Horizontal
+  Capture
+  Element
+  Feedback
+  Publish
+  Scalar
+  Empty
+
+/* Retain only sequencing policy and observed ALU controls. Seed data and
+   partial vector accumulations live in VPS, not in the instruction descriptor. */
+sync_circuit VectorFoldCursor(xlen :: XLen, vlen :: VectorLength, Owner :: DataType):
+  def dlen = vector_dlen(vlen)
+  def bytes = dlen div 8
+  def mb = index_width(dlen)
+  def Count = Bits(index_width(vlen+1))
+  interface launch(Valid(VectorDescriptor(xlen)), ~role: consumer)
+  input launch_owner: Owner
+  input launch_floating: Bool
+  output busy: Bool
+  output source_owner: Owner
+  output unissued: NativeRowClaims()
+  input(older_writes, older_accesses): RowSet
+  interface reduction(ReductionAccumulator(dlen), ~role: execute)
+  interface read(Decoupled(VectorRowRead()), ~role: producer)
+  interface operands(Valid(VectorRowOperands(dlen)), ~role: consumer)
+  input write_available: Bool
+  output book: Bool
+  output destination: ExecuteDestination(Owner)
+  interface scalar_writeback(Decoupled(Bits(4)), ~role: producer)
+  interface scalar_result(Valid(RegisterFileWrite(xlen)), ~role: producer)
+  def profile = fp_transport_profile(xlen)
+  interface floating_writeback(Decoupled(Bits(4)), ~role: producer)
+  interface floating_result(Valid(FloatingPointRegisterWrite(profile)), ~role: producer)
+  interface finished(Valid(Owner), ~role: producer)
+  interface issued(Valid(Owner), ~role: producer)
+  interface datapath(FoldDatapath(dlen, Owner), ~role: cursor)
+  datapath.accumulator <== reduction.value.bits
+
+  reg phase(~init: FoldPhase.Idle)
+  reg owner(Owner)
+  reg extract(Bool)
+  reg reads_vs2(Bool)
+  reg dense(Bool)
+  reg result_kind(VectorResultKind)
+  reg is_reduce(Bool)
+  reg step(Bits(2))
+  reg floating(Bool)
+  reg row_bits(Bits(dlen))
+  reg active_lanes(Bits(bytes))
+  reg final_row(Bool)
+  reg accrued(Bits(5))
+  reg contributed(Bool)
+  reg execution(FloatExecutionControl())
+  reg local_result(VectorLocalFpResult)
+  reg rounding(RoundingMode)
+  reg signed_input(Bool)
+  reg size(Bits(2))
+  reg scan(VectorMaskScanControl())
+  reg rd(Bits(5))
+  reg src(Bits(5))
+  reg masked(Bool)
+  reg first(Count)
+  reg start(Count)
+  reg end(Count)
+  reg carry(Bits(xlen.width))
+  reg distance(Bits(mb))
+  reg claims(NativeRowClaims())
+  reg op(SimdResultSelect)
+  reg bop(SimdLogicSelect)
+  reg sign(Bool)
+  reg max_op(Bool)
+  def source = phase === FoldPhase.Source
+  def horizontal = phase === FoldPhase.Horizontal
+  def publish = phase === FoldPhase.Publish
+  def scalar = result_kind.is_one_of(VectorResultKind.Gpr, VectorResultKind.Fpr)
+  def wide = step =/= size
+  def count = mux(dense, Count(dlen), Count(bytes) >> mux(floating, size, step))
+  def next = first + count
+  def last = next >= end
+  def src_offset = mux(is_reduce, (first << size) >> index_width(bytes), first >> mb)
+  def src_row = group_row(src, src_offset[0..RowAddress.packed_width()])
+  def pred_row = first[mb..mb+1]
+  def base = group_row(rd)
+  def dst_offset = mux(dense, first >> mb, (first << size) >> index_width(bytes))
+  def dst = mux(is_reduce, base, group_row(rd, dst_offset[0..RowAddress.packed_width()]))
+  def use_source = source & reads_vs2
+  def pred = masked & source
+  def writes = publish ||| (source & !scalar & !is_reduce)
+  def safe_read = !(use_source & older_writes.as_vec(Bool)[src_row]) & !(pred & older_writes.as_vec(Bool)[pred_row.zext(RowAddress.packed_width())])
+  def safe_write = !writes ||| (!older_accesses.as_vec(Bool)[dst] & write_available)
+  busy <== phase =/= FoldPhase.Idle
+  source_owner <== owner
+  datapath.owner <== owner
+  unissued <== mux(busy, claims, literal(NativeRowClaims(), 0))
+  read.valid <== (source ||| horizontal ||| publish) & safe_read & safe_write & (!is_reduce ||| reduction.value.valid)
+  read.bits <== VectorRowRead():
+    left: src_row
+    second: dont_care(RowAddress)
+    third: dont_care(RowAddress)
+    sources:
+      ExecuteSources():
+        vector_lhs: use_source
+        vector_rhs: Bool(#false)
+        accumulator: Bool(#false)
+    reads_v0: pred
+    mask_row: pred_row
+  book <== read.fire() & writes
+  destination <== ExecuteDestination(Owner):
+    row: dst
+    owner: owner
+    last: publish ||| last
+  reg granted(~init: Bool(#false))
+  def scalar_offer = (phase === FoldPhase.Scalar) & !granted
+  scalar_writeback.valid <== scalar_offer & (result_kind === VectorResultKind.Gpr)
+  floating_writeback.valid <== scalar_offer & (result_kind === VectorResultKind.Fpr)
+  floating_writeback.bits <== Bits(4)(1)
+  def reserved = scalar_writeback.fire() ||| floating_writeback.fire()
+  scalar_writeback.bits <== Bits(4)(1)
+  def empty = phase === FoldPhase.Empty
+  def terminal = book & destination.last
+  issued.valid <== terminal ||| reserved ||| empty
+  issued.bits <== owner
+  def result = RegisterFileWrite(xlen):
+    address: rd
+    data: carry
+  def sw = inject_interface(Valid(RegisterFileWrite(xlen)), ~valid: scalar_writeback.fire(), ~bits: result)
+  sw |> valid_pipe(1) |> scalar_result
+  def fw = FloatingPointRegisterWrite(profile):
+    address: rd
+    data: carry
+  inject_interface(Valid(FloatingPointRegisterWrite(profile)), ~valid: floating_writeback.fire(), ~bits: fw) |> valid_pipe(1) |> floating_result
+  def done = inject_interface(Valid(Owner), ~valid: reserved ||| empty, ~bits: owner)
+  done |> valid_pipe(1) |> finished
+
+  /* The SRAM result, mask shadow and recurrence describe the same grant.
+     Only registered context feeds this stage, including on owner replacement. */
+
+  granted <== read.fire()
+  reg ctx_source(Bool)
+  reg ctx_horizontal(Bool)
+  reg ctx_publish(Bool)
+  reg ctx_first(Count)
+  reg ctx_distance(Bits(mb))
+  when (read.fire()):
+    ctx_source <== source
+    ctx_horizontal <== horizontal
+    ctx_publish <== publish
+    ctx_first <== first
+    ctx_distance <== distance
+  def skip = mux(ctx_first < start, start - ctx_first, Count(0))
+  def remaining = end - ctx_first
+  def take = mux(remaining < count, remaining, count)
+  def bound = (!Bits(dlen)(0) << skip) & !(!Bits(dlen)(0) << take)
+  def bits_offset = ctx_first[0..mb]
+  def valid_bits = bound & mux(masked, operands.bits.predicate >> bits_offset, !Bits(dlen)(0))
+  def dest_size = step.into(SimdElementWidth)
+  def byte_cases = for List (n in 0..bits.length(xlen.width div 8)):
+    def w = 1 << n
+    [n, expand_mask(valid_bits[0..(bytes div w)], w)]
+  def byte_mask = mux_lookup(step, ~default: byte_cases[0][1], byte_cases)
+  def active_bits = expand_mask(byte_mask, 8)
+  inst prefix(VectorMaskScan(xlen, ~dlen: dlen))
+  prefix.source <== operands.bits.data[0] >> bits_offset
+  prefix.enabled <== valid_bits
+  prefix.first <== ctx_first.zext(xlen.width)
+  prefix.carry <== carry
+  prefix.control <== scan
+  prefix.element_width <== size.into(SimdElementWidth)
+  def half = ((ctx_first << size) >> (index_width(bytes)-1))[0]
+  def expanded = simd_expand_fragment(dlen, operands.bits.data[0], dest_size, SimdExtensionRatio.By2, half.zext(3), signed_input)
+  def acc = reduction.value.bits
+  datapath.left <== mux(ctx_horizontal, acc >> ctx_distance, mux(wide, expanded, operands.bits.data[0]))
+  datapath.right <== acc
+  datapath.sew <== dest_size
+  datapath.selection <== op
+  datapath.logic <== bop
+  datapath.signed_compare <== sign
+  datapath.maximum <== max_op
+  datapath.alu_return <== granted & is_reduce & !floating & !ctx_publish
+  reduction.update.valid <== datapath.alu_return ||| datapath.fp_feedback.valid
+  reduction.update.bits <== mux(datapath.fp_feedback.valid, datapath.fp_feedback.bits, mux(ctx_horizontal, datapath.alu_result, (datapath.alu_result & active_bits) ||| (acc & !active_bits)))
+  reduction.release.valid <== granted & ctx_publish
+  def lane_bytes = Bits(index_width(bytes+1))(1) << step
+  def low_mask = expand_mask(!(!Bits(bytes)(0) << lane_bytes), 8)
+  datapath.write_data <== mux(is_reduce, acc, prefix.data)
+  datapath.write_mask <== mux(is_reduce, low_mask, mux(dense, valid_bits, active_bits))
+  datapath.write_return <== granted & (ctx_publish ||| (!is_reduce & !scalar))
+
+  /* Last-use advances on a grant, not on a combinational read offer.
+     Keep the private state through its final return; booked writes retain
+     the owner independently once the cursor releases the descriptor. */
+
+  def d :: VectorDescriptor(xlen) = launch.bits
+  def c = d.control
+  def moving = c.sequence === VectorSequence.Extract
+  def reduce = c.sequence === VectorSequence.Reduction
+  def scanning = c.sequence === VectorSequence.Scan
+  def extent = compute_extent(xlen, vlen, d)
+  def packed = scanning & c.scan_control.packed_rows
+  def width = d.state.sew()
+  def initial = extent.begin[0..Count.packed_width()]
+  def limit = extent.end[0..Count.packed_width()]
+  def has_body = extent.has_body()
+  def body = vector_element_span(xlen, vlen, d, width)
+  def scan_spans = scan_geometry(xlen, vlen, d)
+  def src_rows = vector_span_cover(vlen, mux(reduce, body, scan_spans.source), bytes, PhysicalRows, group_row(d.vs2()))
+  def pred_rows = vector_span_cover(vlen, scan_spans.predicate, bytes, PredicateSet.packed_width(), RegisterRowIndex(0))
+  def dst_rows = mux(reduce, row_event(Bool(#true), group_row(d.vd())), vector_span_cover(vlen, scan_spans.destination, bytes, PhysicalRows, group_row(d.vd())))
+  def lane = priority_encoder_oh(active_lanes).index
+  def byte_offset = lane << size
+  datapath.fp_step.valid <== (phase === FoldPhase.Element) & active_lanes.any()
+  datapath.fp_step.bits <== row_bits >> (byte_offset ++ Bits(3)(0))
+  when (launch.valid):
+    assert(!busy, "fold_allocates_idle_cursor")
+    phase <== mux(has_body, FoldPhase.Source, mux(extent.scalar_result, FoldPhase.Scalar, FoldPhase.Empty))
+    owner <== launch_owner
+    extract <== moving
+    reads_vs2 <== c.reads.vs2
+    dense <== packed
+    result_kind <== c.result_kind
+    is_reduce <== reduce
+    floating <== launch_floating
+    accrued <== Bits(5)(0)
+    contributed <== Bool(#false)
+    execution <== c.fp.execution
+    local_result <== c.fp.local_result
+    rounding <== d.rounding_mode
+    step <== compute_dest_eew(c.width_shape, width)
+    signed_input <== c.right_signed
+    size <== width
+    scan <== c.scan_control
+    rd <== d.vd()
+    src <== d.vs2()
+    masked <== d.masked
+    op <== c.integer_row.alu.result_select
+    bop <== c.integer_row.alu.logic_select
+    sign <== c.integer_row.alu.signed_compare
+    max_op <== c.integer_row.alu.maximum
+    first <== initial & !mux(packed, Count(dlen-1), Count(bytes-1) >> width)
+    start <== initial
+    end <== limit
+    claims <== NativeRowClaims():
+      reads: mux(moving, scalar_move_claim(xlen, vlen, d, native_row_layout(vlen).rows_per_register, ~write: #false), mux(has_body, src_rows, RowSet(0)))
+      predicates: mux(has_body, pred_rows, PredicateSet(0))
+      writes: mux(has_body & !extent.scalar_result, dst_rows, RowSet(0))
+  elsewhen (reserved ||| empty): phase <== FoldPhase.Idle
+  elsewhen (read.fire()):
+    def mask_done = last ||| (pred_row =/= next[mb..mb+1])
+    def src_done = last ||| mux(is_reduce, !((next << size)[0..index_width(bytes)]).any(), mask_done)
+    claims <== NativeRowClaims():
+      reads: claims.reads & !row_event(use_source & src_done, src_row)
+      predicates: claims.predicates & !((pred & mask_done).as_bits().zext(PredicateSet.packed_width()) << pred_row)
+      writes: claims.writes & !row_event(writes, dst)
+    when source: first <== next
+    when (source & floating):
+      phase <== FoldPhase.Capture
+      final_row <== last
+    elsewhen (source & last & is_reduce):
+      phase <== mux(lane_bytes === Bits(index_width(bytes+1))(bytes), FoldPhase.Publish, FoldPhase.Horizontal)
+      distance <== Bits(mb)(dlen div 2)
+    elsewhen horizontal:
+      when (distance === (lane_bytes.zext(mb) << 3)): phase <== FoldPhase.Publish
+      distance <== distance >> 1
+    elsewhen ((source & last) ||| publish): phase <== mux(source & scalar, FoldPhase.Scalar, FoldPhase.Idle)
+  elsewhen (phase === FoldPhase.Capture):
+    assert(operands.valid, "fp_fold_has_granted_row")
+    row_bits <== operands.bits.data[0]
+    active_lanes <== valid_bits[0..bytes]
+    phase <== FoldPhase.Element
+  elsewhen (phase === FoldPhase.Element):
+    when (!active_lanes.any()): phase <== mux(final_row, FoldPhase.Publish, FoldPhase.Source)
+    elsewhen (datapath.fp_step.fire()):
+      active_lanes <== active_lanes ^ priority_encoder_oh(active_lanes).as_bits()
+      phase <== FoldPhase.Feedback
+  elsewhen (datapath.fp_feedback.valid):
+    assert(phase === FoldPhase.Feedback, "fp_fold_feedback_has_owner")
+    accrued <== accrued ||| datapath.feedback_flags
+    contributed <== Bool(#true)
+    phase <== FoldPhase.Element
+  datapath.fp_control <== execution
+  datapath.fp_local_result <== local_result
+  datapath.fp_rounding <== rounding
+  datapath.fp_wide <== wide
+  datapath.fp_double <== step === Bits(2)(3)
+  datapath.flags <== accrued
+  datapath.flags_valid <== datapath.write_return & floating & contributed
+  // Integer extracts sign extend; narrower FP values are NaN-boxed without arithmetic.
+  def low = operands.bits.data[0][0..xlen.width]
+  def formats = for List (n in 0..(bits.length(xlen.width div 8)-1)):
+    def w = 8 << n
+    [n, mux(result_kind === VectorResultKind.Fpr, (!Bits(xlen.width-w)(0)) ++ low[0..w], low[0..w].sext(xlen.width))]
+  when (launch.valid): carry <== mux(c.scan_control.result === VectorScanResult.First, !Bits(xlen.width)(0), Bits(xlen.width)(0))
+  elsewhen (granted & ctx_source & !is_reduce): carry <== mux(extract, mux_lookup(size, ~default: low, formats), prefix.next_carry)
+
+export VectorFoldCursor

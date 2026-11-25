@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/isa/vector-profile.rhm").vector_profile_enabled
+  lib("cores/common/vector/backend-kind.rhm") open
   lib("rhodium/core/ir.rhm").Module
   lib("rhodium/frontend/foundation.rhm").CircuitDefinition
   "profile.rhm" open
@@ -30,8 +32,9 @@ import:
 /* Starts from a physical PC and reports ordered retirement and architectural redirects.
    Faults enter the programmed trap vector; only reset permits a new start pulse.
    Distinct instruction, data, and uncached identities separate retained transactions. */
-sync_circuit Superscalar(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~issue: issue :: Module || CircuitDefinition, ~instruction_cache: instruction_cache :: CacheConfig = cache, ~profile: profile :: SuperscalarPipelineConfig = SuperscalarPipelineConfig(~instruction_cache: instruction_cache, ~data_cache: cache), ~data_beat_bytes: data_beat_bytes :: Pow2Int = profile.xlen.width / 8):
+sync_circuit Superscalar(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~issue: issue :: Module || CircuitDefinition, ~instruction_cache: instruction_cache :: CacheConfig = cache, ~profile: profile :: SuperscalarPipelineConfig = SuperscalarPipelineConfig(~instruction_cache: instruction_cache, ~data_cache: cache), ~vector_backend: vector_backend :: VectorBackendKind = VectorBackendKind.Unified, ~data_beat_bytes: data_beat_bytes :: Pow2Int = profile.xlen.width / 8):
   def xlen = profile.xlen
+  def distributed_rows = vector_profile_enabled(profile.vector) && (vector_backend == VectorBackendKind.Distributed)
   def hypervisor = profile.hypervisor
   def issue_width = superscalar_issue_width(xlen, issue)
   unless config.cache_line_bytes == CacheLineBytes
@@ -59,7 +62,7 @@ sync_circuit Superscalar(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfi
   /* Execution and selected cache/translation services.
      Scalar width follows the profile; fetch and physical transport remain 64-bit. */
 
-  inst core(SuperscalarCore(profile, ~issue: issue))
+  inst core(SuperscalarCore(profile, ~issue: issue, ~vector_backend: vector_backend))
   core.interrupts <== interrupts
   core.hart_id <== hart_id
   core.time_counter <== time_counter
@@ -67,9 +70,15 @@ sync_circuit Superscalar(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfi
   inst frontend(SuperscalarFrontend(config, profile, ~group_width: issue_width))
   inst instruction(L1ICache(XLen.X64, instruction_cache, ~chi: config, ~fetch_bits: 64))
   def MemoryContext = SuperscalarMemoryContext(xlen, profile.vector_completion_slots)
-  def translation = if profile.mmu_type == RiscvMmuType.Bare | SuperscalarIdentitySpecialization(xlen, config) | SuperscalarSv39Specialization(config, profile.svnapot, hypervisor)
+  def translation = if profile.mmu_type == RiscvMmuType.Bare | SuperscalarIdentitySpecialization(xlen, config, distributed_rows) | SuperscalarSv39Specialization(config, profile.svnapot, hypervisor, distributed_rows)
   inst mmu(SuperscalarMemoryAdapter(translation, ~context: MemoryContext))
-  inst data(SuperscalarL1D(cache, ~chi: config, ~context: mmu.physical_memory.request.bits.memory.context.type, ~xlen: xlen, ~beat_bytes: data_beat_bytes))
+  inst data(SuperscalarL1D(cache, ~chi: config, ~context: mmu.physical_memory.request.bits.memory.context.type, ~xlen: xlen, ~beat_bytes: data_beat_bytes, ~row_bits: (if distributed_rows | vector_dlen(profile.vector_length) | #false)))
+  if distributed_rows
+  | block:
+      core.element_translation <=> mmu.element_translation
+      core.row_memory <=> data.row_memory
+      core.window_pages <== mmu.window_pages
+  | #void
   describe_cosim_context(core, {"mmu": mmu})
 
 

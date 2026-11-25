@@ -28,13 +28,12 @@ for (key in superscalar_keys ++ superscalar_keys.map(fun (key): key.replace("rv2
   def shape = selection.shape
   def isa = selection.isa
   def resolved = resolve_soc_config(selection)
-  def paired = resolve_soc_config(named_soc_selection(key.replace("rv3wide", "rv2wide")))
-  def expected = soc_architecture(isa)
+  def expected = if selection.core == CoreKind.RV3Wide | soc_architecture(isa, ~vector_length_for: fun (xlen): 4 * xlen.width) | soc_architecture(isa)
   def cache_sets = if shape == SoCShape.Mini | 32 | 64
   def cache_ways = if shape == SoCShape.Simple | 4 | 1
   check:
     resolved.hart.key ~is core_kind_name(selection.core)
-    resolved.hart.profile.pipeline ~is paired.hart.profile.pipeline
+    resolved.hart.profile.pipeline.vector_length ~is expected.vector_length
     named_soc_selection(selection.key) ~is selection
     resolved.description.hart.isa_profile ~is expected.isa
     resolved.description.hart.mmu_type ~is expected.mmu
@@ -49,19 +48,19 @@ for (key in superscalar_keys ++ superscalar_keys.map(fun (key): key.replace("rv2
 
   when isa == IsaPreset.RV32Int || isa == IsaPreset.RV32Max
   | check:
-      resolved.description.hart.vector.vlen ~is 64
+      resolved.description.hart.vector.vlen ~is expected.vector_length
       resolved.description.hart.vector.elen ~is 32
-      resolved.udb().to_yaml().contains("  VLEN: 64") ~is #true
+      resolved.udb().to_yaml().contains("  VLEN: " ++ to_string(expected.vector_length)) ~is #true
       resolved.udb().to_yaml().contains("  PHYS_ADDR_WIDTH: 32") ~is #true
 
   when isa == IsaPreset.RV64Max || isa == IsaPreset.RVA23
   | check:
-      resolved.description.hart.vector.vlen ~is 128
+      resolved.description.hart.vector.vlen ~is expected.vector_length
       resolved.description.hart.vector.elen ~is 64
       resolved.description.hart.isa_profile.isa_extensions.contains("zvfh") ~is #true
       resolved.description.hart.isa_profile.isa_extensions.contains("h") ~is (isa == IsaPreset.RVA23)
       resolved.description.hart.isa_profile.isa_extensions.contains("sha") ~is (isa == IsaPreset.RVA23)
-      resolved.udb().to_yaml().contains("  VLEN: 128") ~is #true
+      resolved.udb().to_yaml().contains("  VLEN: " ++ to_string(expected.vector_length)) ~is #true
 
 def rv32_compiler = gnu_isa_target(rv32.isa.xlen, rv32.isa.isa_extensions)
 check:
@@ -161,8 +160,8 @@ for (core in [CoreKind.RV5Stage, CoreKind.Spike, CoreKind.RV2Wide, CoreKind.RV3W
   def config = resolved.configuration()
   def description = config.description
   check:
-    description.hart.isa_profile ~is rv32.isa
-    description.hart.vector.vlen ~is 64
+    description.hart.isa_profile ~is (if core == CoreKind.RV3Wide | soc_architecture(IsaPreset.RV32Int, ~vector_length_for: fun (xlen): 4 * xlen.width).isa | rv32.isa)
+    description.hart.vector.vlen ~is (if core == CoreKind.RV3Wide | 128 | 64)
     description.hart.vector.elen ~is 32
     description.hart.mmu_type ~is RiscvMmuType.Bare
     description.memory_regions[0].base ~is 0x80000000

@@ -24,17 +24,18 @@ def IntegerMisa = [MisaExtension.A, MisaExtension.B, MisaExtension.I, MisaExtens
 def SupervisorExtensions = ["ssccptr", "sstvecd", "sstvala", "sscounterenw", "ssu64xl"]
 
 /* Authors the RV32, lean scalar RV64, maximal RV64, or RVA23 architecture independently of a named processor's implementation policy. */
-fun soc_architecture(preset :: IsaPreset) :: SoCArchitecture:
+fun soc_architecture(preset :: IsaPreset, ~vector_length_for: vector_length_for :: Function = (fun (xlen): 2 * xlen.width)) :: SoCArchitecture:
   match preset
   | IsaPreset.RV32Int || IsaPreset.RV32Max:
       def fp = preset == IsaPreset.RV32Max
+      def vlen = vector_length_for(XLen.X32)
       def vector = if fp | VectorProfile.Zve32f | VectorProfile.Zve32x
       def extensions = vector_extensions(VectorExtension.Zvbb)
       def scalar = ["i", "m", "a"] ++ (if fp | ["f"] | []) ++ ["c", "b", "za64rs", "zba", "zbb", "zbs", "zcb", "zcmop", "zic64b", "zicbop", "zicboz", "zicbom", "ziccamoa", "ziccif", "zicclsm", "ziccrse"]
-      def names = scalar ++ IntegerHintExtensions ++ IntegerSystemExtensions ++ ["sscofpmf"] ++ vector_profile_isa_extensions(vector, 64, extensions) ++ ["zvkt"]
+      def names = scalar ++ IntegerHintExtensions ++ IntegerSystemExtensions ++ ["sscofpmf"] ++ vector_profile_isa_extensions(vector, vlen, extensions) ++ ["zvkt"]
       SoCArchitecture(
         RiscvIsaProfile(XLen.X32, names, IntegerMisa ++ (if fp | [MisaExtension.F] | []) ++ [MisaExtension.C]),
-        RiscvMmuType.Bare, vector, extensions, 64
+        RiscvMmuType.Bare, vector, extensions, vlen
       )
   | IsaPreset.RV64IMACB || IsaPreset.RV64IMAFDCB:
       def fp = preset == IsaPreset.RV64IMAFDCB
@@ -46,14 +47,15 @@ fun soc_architecture(preset :: IsaPreset) :: SoCArchitecture:
   | IsaPreset.RV64Max || IsaPreset.RVA23:
       // Mandatory RVA23U64/S64 declarations are checked independently in the
       // config/UDB tests; behavioral validation remains implementation-owned.
+      def vlen = vector_length_for(XLen.X64)
       def hypervisor = preset == IsaPreset.RVA23
       def extensions = vector_extensions(VectorExtension.Zvfh, VectorExtension.Zvbb)
       def scalar = ["i", "m", "a", "f", "d", "c", "b"] ++ (if hypervisor | ["h"] | []) ++ ["za64rs", "zba", "zbb", "zbs", "zcb", "zcmop", "zfa", "zfh", "zic64b", "zicbop", "zicboz", "zicbom", "ziccamoa", "ziccif", "zicclsm", "ziccrse", "ssnpm", "supm"]
       def privileged = ["sstc", "svinval", "svpbmt", "svnapot", "smstateen", "ssstateen"] ++ (if hypervisor | ["shcounterenw", "shvstvala", "shtvala", "shvstvecd", "shvsatpa", "shgatpa", "sha"] | [])
-      def names = scalar ++ IntegerHintExtensions ++ IntegerSystemExtensions ++ privileged ++ ["sscofpmf"] ++ SupervisorExtensions ++ vector_profile_isa_extensions(VectorProfile.V, 128, extensions) ++ ["zvkt"]
+      def names = scalar ++ IntegerHintExtensions ++ IntegerSystemExtensions ++ privileged ++ ["sscofpmf"] ++ SupervisorExtensions ++ vector_profile_isa_extensions(VectorProfile.V, vlen, extensions) ++ ["zvkt"]
       SoCArchitecture(
         RiscvIsaProfile(XLen.X64, names, IntegerMisa ++ [MisaExtension.F, MisaExtension.D, MisaExtension.C, MisaExtension.V] ++ (if hypervisor | [MisaExtension.H] | [])),
-        RiscvMmuType.Sv39, VectorProfile.V, extensions, 128
+        RiscvMmuType.Sv39, VectorProfile.V, extensions, vlen
       )
 
 export:

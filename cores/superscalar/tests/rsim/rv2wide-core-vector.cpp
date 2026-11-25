@@ -378,7 +378,7 @@ void step() {
   if (proof_return) proof_pending = false;
   if (proof_accept) { proof_pending = true; ++proof_count; }
   ++cycle;
-  CHECK(cycle < 30000);
+  CHECK(cycle < 32000);
   settle();
 }
 void run(unsigned cycles = 60) { while (cycles--) step(); }
@@ -542,12 +542,19 @@ void vector_configuration_overlap() {
   CHECK(memory_cycles.at(first + 16) == memory_cycles.at(first + 12) + 1);
   extract(18, 7, 7);
 
+  // Only the vector move enters the backend; the vsets update state on the scalar path.
+  for (unsigned offset : {0u, 4u, 8u, 12u})
+    CHECK(!vector_trace::admission_counts.contains(first + offset));
+  CHECK(vector_trace::admission_counts.at(first + 16) == 1);
+
   // vsetvl consumes ordinary forwarded scalar sources; keep-VL uses its new state.
+  const auto register_vset_pc = next_pc + 8;
   stream({addi(10, 0, 8), addi(11, 0, 3),
           0x80007057 | (10 << 20) | (11 << 15) | (12 << 7),
           addi(13, 12, 1), vsetvli(0, 0, 7), vi(23, 0, 13, 4, 19)});
   CHECK(gprs[12] == 3 && gprs[13] == 4);
   extract(19, 7, 4);
+  CHECK(!vector_trace::admission_counts.contains(register_vset_pc));
 
   // Legality must use the new EX state, not the previously committed vill state.
   send(vsetivli(5, 4, 256));
@@ -1245,6 +1252,34 @@ void vector_gpr_owner_overlap() {
   }
   std::cout << "Vector-to-GPR overlap: both WB lanes, x0, queued successors, "
             << replacements << " same-cycle owner replacements\n";
+}
+
+// Certify a store while an older gather owns the sequencer. A younger scalar
+// load of the last word must wait for the actual store, not its early outcome.
+void checked_store_scalar_ordering() {
+  run(120);
+  send(vsetivli(5, 16, 1)); // e8,m2 fits sixteen bytes on both XLENs.
+  CHECK(gprs[5] == 16);
+  send(addi(1, 0, 0x680));
+  send(addi(2, 0, 0x33));
+  send(vi(23, 0, 2, 4, 8)); // vmv.v.x v8,x2
+  run();
+  fast_enabled = false;
+  safe = slow = true;
+  for (unsigned offset = 0; offset < 16; offset += bytes) words[0x680 + offset] = 0;
+  request_block_until = cycle + 50;
+  const auto pc = next_pc;
+  const auto checks = proof_count;
+  stream({vi(12, 8, 8, 0, 24),                         // vrgather.vv v24,v8,v8
+          0x02000027 | (1 << 15) | (8 << 7),          // vse8.v v8,(x1)
+          (12 << 20) | (1 << 15) | (2 << 12) | (10 << 7) | 3, // lw x10,12(x1)
+          addi(11, 10, 1)}, false, true, false);
+  CHECK(proof_count == checks + 1);
+  CHECK(retirement_cycles.at(pc + 4) < vector_trace::dispatch_cycles.at(pc + 4));
+  CHECK(retirement_cycles.at(pc + 8) >= store_writes.at(0x690 - bytes).back());
+  CHECK(gprs[10] == 0x33333333 && gprs[11] == 0x33333334);
+  slow = false;
+  request_block_until = 0;
 }
 
 void vector_memory_start_overlap() {
@@ -2225,6 +2260,14 @@ int main() {
           CHECK(last_cause == 2);
         }
       }
+      // With VS enabled but FS off, the same merge can read x1, but not f1.
+      // The floating form must trap even though neither form uses FP arithmetic.
+      enter_guest(0x6600, 0x0600);
+      const auto integer_merge = vi(23, 8, 1, 4, 17) & ~(1u << 25);
+      const auto fp_merge = vi(23, 8, 1, 5, 17) & ~(1u << 25);
+      send(integer_merge);
+      send(fp_merge, true);
+      CHECK(last_cause == 2 && last_tval == fp_merge);
       enter_guest();
       setvl(1, 8);
       send(vi(0, 8, 8, 1, 17)); // enabled VS FP arithmetic
@@ -2246,7 +2289,7 @@ int main() {
     CHECK(proof_count >= 3);
     CHECK(deferred_count >= 5);
     CHECK(stores >= 2);
-    CHECK(fault_count == (bytes == 8 ? 7 : 1));
+    CHECK(fault_count == (bytes == 8 ? 8 : 1));
     vector_configuration_overlap();
     vector_memory_fast_path();
     paired_vector_configurations();
@@ -2254,6 +2297,7 @@ int main() {
     paired_scalar_configurations();
     independent_vector_scalar_pairs();
     vector_gpr_owner_overlap();
+    checked_store_scalar_ordering();
     vector_memory_start_overlap();
     paired_vector_stores();
     conflict_based_pairing();

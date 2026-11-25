@@ -113,14 +113,62 @@ void VectorAdapter::resolve(observation::Collector& collector, Word instance, Ha
   };
   // Everything in this section reads the pre-edge owner/slot generation. A
   // simultaneous new issue can reuse the tag only after these old effects.
-  if (const auto& write = event.template operator()<ScalarWrite>(); write && (write->rd || write->floating))
-    emit(write->owner, RegisterWrite{write->floating ? Bank::FloatingPoint : Bank::Integer, write->rd, 0, address_mask, write->data});
+  for (const auto& write : std::get<ScalarWrites>(frame.events))
+    if (write && (write->rd || write->floating))
+      emit(write->owner, RegisterWrite{write->floating ? Bank::FloatingPoint : Bank::Integer, write->rd, 0, address_mask, write->data});
   if (const auto& write = event.template operator()<Write>(); write && write->mask) {
     require(write->local + write->packed + write->splat == 1, "VRF write has no unique source");
     const auto index = write->splat ? write->splat_owner : (write->packed ? write->packed_owner : write->local_owner);
     const auto rows = hart.vlen / hart.xlen;
     emit(index, RegisterWrite{Bank::Vector, write->address / rows, (write->address % rows) * hart.xlen, write->mask, write->data});
   }
+  const Word dlen = hart.vlen / 2;
+  auto write_row = [&](Word index, Word row, Word chunk, Word data, Word mask) {
+    require(row < 64 && chunk * 64 < dlen, "invalid distributed row write");
+    if (mask) emit(index, RegisterWrite{Bank::Vector, row / 2, (row % 2) * dlen + 64 * chunk, mask, data});
+  };
+  for (const auto& [chunk, r] : std::get<std::map<Word, RowWrite>>(frame.events)) {
+    write_row(r.owner, r.row, chunk, r.data, r.mask);
+    if (!chunk && r.flags_valid) {
+      require(r.flags <= 31, "invalid native FP flags");
+      auto& flags = owner(hart, r.owner).flags;
+      flags = flags.value_or(0) | r.flags;
+    }
+  }
+  auto transfers = [&](const auto& rows) {
+    std::optional<Word> first_lane;
+    for (const auto& [chunk, r] : rows) {
+      require(chunk * 64 < dlen && r.byte_mask < 256, "invalid distributed memory chunk");
+      const auto& instruction = owner(hart, r.owner);
+      const auto eew = instruction.eew;
+      const Word displacement = instruction.base % (dlen / 8);
+      const bool elementwise = r.singleton || instruction.elementwise_memory;
+      // Bulk segment offsets are already interleaved. A checked singleton
+      // instead names one field's register-relative offset and physical VRF row.
+      Word field = 0;
+      if (r.singleton && instruction.fields > 1) {
+        require(r.row / 2 >= instruction.destination, "field row precedes segment base");
+        field = (r.row / 2 - instruction.destination) >> instruction.group_shift;
+        require(field < instruction.fields, "field row exceeds segment group");
+      }
+      for (unsigned b = 0; b < 8; ++b) {
+        if (!(r.byte_mask & (1u << b))) continue;
+        const Word i = chunk * 8 + b;
+        require(elementwise || r.offset + i >= displacement, "enabled byte precedes vector base");
+        // One elementwise transfer covers contiguous bytes. Its logical offset
+        // names its first enabled lane, even for the suffix of a split element.
+        if (!first_lane) first_lane = i;
+        const Word offset = elementwise ? r.offset + i - *first_lane : r.offset + i - displacement;
+        require(i < dlen / 8, "enabled byte outside distributed row");
+        const Word byte = (r.data >> (8*b)) & 255;
+        const Word access = r.singleton ? (offset >> eew) * instruction.fields + field : offset >> eew;
+        emit(r.owner, MemoryEffect{access, offset & ((Word{1} << eew) - 1), r.store ? AccessKind::Store : AccessKind::Load,
+             (r.va + i) & address_mask, true, r.pa + i, 1, !r.store, bool(r.store), r.store ? 0 : byte, r.store ? byte : 0, AccessResult::Success});
+      }
+    }
+  };
+  transfers(std::get<std::map<Word, RowTransfer>>(frame.events));
+  transfers(std::get<std::map<Word, StoreRowTransfer>>(frame.events));
   auto memory = [&](Word tag, Word data, const Fragment* fragment, bool direct) {
     auto& token = slot(hart, tag);
     auto& instruction = owner(hart, token.issue.owner);
@@ -220,6 +268,7 @@ void VectorAdapter::resolve(observation::Collector& collector, Word instance, Ha
     // only the final result writes the VRF. This is lifecycle classification,
     // not an ISA admission whitelist.
     const auto code = dispatch->instruction, operation = code >> 26;
+    hart.owners[dispatch->owner]->elementwise_memory = ((code >> 26) & 3) != 0;
     hart.owners[dispatch->owner]->fp_reduction = (code & 127) == 0x57 && ((code >> 12) & 7) == 1 &&
         (operation == 1 || operation == 3 || operation == 5 || operation == 7 || operation == 49 || operation == 51);
     hart.pending.pop_front();
@@ -285,6 +334,20 @@ extern "C" void rhodium_vector_issue(std::int64_t instance, std::int64_t owner, 
     adapter.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), Issue{Word(owner), Word(tag), Word(first), Word(destination), Word(packed), Word(enabled), Word(store), Word(address), Word(effective_address), Word(physical), Word(precertified), Word(mask), Word(data)});
   });
 }
+extern "C" void rhodium_vector_row_write(std::int64_t instance, std::int64_t owner, std::int64_t row, std::int64_t chunk, std::int64_t data, std::int64_t mask, std::int64_t flags_valid, std::int64_t flags) noexcept {
+  observation::dpi_receive_adapter<VectorAdapter>([&](VectorAdapter& adapter, observation::Collector& collector) {
+    adapter.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), RowWrite{Word(owner), Word(row), Word(chunk), Word(data), Word(mask), Word(flags_valid), Word(flags)});
+  });
+}
+
+extern "C" void rhodium_vector_row_transfer(std::int64_t instance, std::int64_t owner, std::int64_t store, std::int64_t singleton, std::int64_t row, std::int64_t offset, std::int64_t va, std::int64_t pa, std::int64_t chunk, std::int64_t data, std::int64_t byte_mask) noexcept {
+  observation::dpi_receive_adapter<VectorAdapter>([&](VectorAdapter& adapter, observation::Collector& collector) {
+    const RowTransfer transfer{Word(owner), Word(store), Word(singleton), Word(row), Word(offset), Word(va), Word(pa), Word(chunk), Word(data), Word(byte_mask)};
+    if (store) adapter.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), StoreRowTransfer{transfer});
+    else adapter.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), transfer);
+  });
+}
+
 extern "C" void rhodium_vector_write(std::int64_t instance, std::int64_t address, std::int64_t mask, std::int64_t data, std::int64_t local, std::int64_t packed, std::int64_t splat, std::int64_t local_owner, std::int64_t packed_owner, std::int64_t splat_owner) noexcept {
   observation::dpi_receive_adapter<VectorAdapter>([&](VectorAdapter& adapter, observation::Collector& collector) {
     adapter.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), Write{Word(address), Word(mask), Word(data), Word(local), Word(packed), Word(splat), Word(local_owner), Word(packed_owner), Word(splat_owner)});

@@ -1,0 +1,122 @@
+#lang rhodium
+/* Defines the row-issue contract between the distributed sequencer and execution unit. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("hardfloat/main.rhdl").RoundingMode
+  "../../../fp/types.rhdl".FloatExecutionControl
+  "../../../simd-alu.rhdl" open
+  "../../decode.rhdl".VectorV0Role
+  "../../decode.rhdl".VectorDataResult
+  "../../decode.rhdl".VectorFpControl
+  "../../decode.rhdl".VectorLocalFpResult
+  "../../decode.rhdl".VectorDivideControl
+  "../../decode.rhdl".VectorProductControl
+  "../common/row-types.rhdl" open
+  "../../geometry.rhdl".ExecuteWidths
+  "../common/row-claims.rhdl" open
+  "../../decode.rhdl".VectorIntegerRowControl
+  lib("flow/main.rhdl") open
+
+/* Resource a granted row acquires for writeback; only fixed writes book the calendar. */
+hardware_enum RowWriteback:
+  ShortFixed
+  ProductFixed
+  IntegerAdapter
+  FpAdapter
+  Unavailable
+
+/* The route selects the resource before the read; grant consumes it on the same
+   edge. Context and permutation data accompany the synchronous operand return. */
+hardware_enum RowUnit:
+  Data
+  LocalFp
+  Product
+  SharedProduct
+  SharedDivide
+  SharedFpPipelined
+  SharedFpIterative
+  Unavailable
+  /* Classify the installed datapath, not the opcode: a full-width product uses the integer adapter. */
+  method writeback(unit) :: RowWriteback:
+    mux_lookup(unit, ~default: RowWriteback.Unavailable, [
+      [RowUnit.Data, RowWriteback.ShortFixed], [RowUnit.LocalFp, RowWriteback.ShortFixed],
+      [RowUnit.Product, RowWriteback.ProductFixed],
+      [RowUnit.SharedProduct, RowWriteback.IntegerAdapter], [RowUnit.SharedDivide, RowWriteback.IntegerAdapter],
+      [RowUnit.SharedFpPipelined, RowWriteback.FpAdapter], [RowUnit.SharedFpIterative, RowWriteback.FpAdapter]
+    ])
+
+/* Per-instruction controls used to select and execute captured row operands. */
+bundle ExecuteOperandControl():
+  data_result: VectorDataResult
+  mask_fragment: Bool
+  integer: VectorIntegerRowControl()
+  sew: SimdElementWidth
+  route: RowUnit
+  division: VectorDivideControl()
+  widths: ExecuteWidths()
+  destination_eew: Bits(2)
+  product: VectorProductControl()
+  vxrm: SimdRoundingMode
+  left_signed: Bool
+  right_signed: Bool
+  fp: VectorFpControl()
+  rounding: RoundingMode
+  sources: ExecuteSources()
+  shadow: VectorV0Role
+  broadcast: Bits(64)
+
+/* Metadata accompanies exactly one granted read into the return stage. */
+bundle ExecuteRowContext(dlen :: PosInt):
+  control: ExecuteOperandControl()
+  part: Bits(3)
+  offset: Bits(index_width(dlen))
+  range_mask: Bits(dlen)
+
+interface VectorRowIssue(dlen :: PosInt, Owner :: DataType):
+  role scheduler
+  role unit
+  provider scheduler
+  scheduler -> unit:
+    route: RowUnit
+    grant: Valid(ExecuteDestination(Owner))
+    context: ExecuteRowContext(dlen)
+    permuted: Bits(dlen)
+  unit -> scheduler:
+    available: Bool
+    handoff_credit: Bool
+
+/* Folds borrow the same ALU, FP and VRF write path as normal row issue.
+   Accumulator feedback is internal work, not a register-file write. */
+interface FoldDatapath(dlen :: PosInt, Owner :: DataType):
+  role cursor
+  role unit
+  provider cursor
+  cursor -> unit:
+    owner: Owner
+    accumulator: Bits(dlen)
+    left: Bits(dlen)
+    right: Bits(dlen)
+    write_data: Bits(dlen)
+    write_mask: Bits(dlen)
+    sew: SimdElementWidth
+    selection: SimdResultSelect
+    logic: SimdLogicSelect
+    signed_compare: Bool
+    maximum: Bool
+    fp_step: Decoupled(Bits(dlen))
+    fp_control: FloatExecutionControl()
+    fp_local_result: VectorLocalFpResult
+    fp_rounding: RoundingMode
+    fp_wide: Bool
+    fp_double: Bool
+    flags: Bits(5)
+    flags_valid: Bool
+    write_return: Bool
+    alu_return: Bool
+  unit -> cursor:
+    alu_result: Bits(dlen)
+    fp_feedback: Valid(Bits(dlen))
+    feedback_flags: Bits(5)
+
+export ExecuteOperandControl ExecuteRowContext RowUnit RowWriteback VectorRowIssue FoldDatapath

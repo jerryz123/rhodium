@@ -5,6 +5,6 @@ import:
   lib("riscv/isa/xlen.rhm").XLen
   lib("rhodium/frontend/foundation.rhm").elaborate
 
-def rv32 = elaborate(VectorRegisterFile(XLen.X32, 128))
-def rv64 = elaborate(VectorRegisterFile(XLen.X64, 128))
+def rv32 = elaborate(VectorRegisterFile(XLen.X32.width, 128))
+def rv64 = elaborate(VectorRegisterFile(XLen.X64.width, 128))
 export rv32 rv64

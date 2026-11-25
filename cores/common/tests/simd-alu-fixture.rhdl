@@ -88,7 +88,7 @@ circuit SimdAluFixture(xlen :: XLen):
   mask_result <== alu.result.mask_result.as_bits().zext(8).into(Mask(8))
   write_mask <== alu.result.write_mask.as_bits().zext(8).into(Mask(8))
   saturated <== alu.result.saturated
-  inst compress(SimdCompress(xlen))
+  inst compress(SimdCompress(xlen.width))
   compress.data <== left[0..width]
   compress.element_width <== element_width
   compress.selected <== enabled.as_bits()[0..width / 8].into(Mask(width / 8))

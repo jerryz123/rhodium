@@ -1,0 +1,22 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../pass.rhm".cosim_pass
+  lib("cores/rv3wide/profile.rhm").RV3WideConfig
+  lib("cores/rv3wide/rv3wide.rhdl").RV3Wide
+  lib("cores/superscalar/profile.rhm").SuperscalarPipelineConfig
+  lib("cores/superscalar/tests/cache-fixture.rhdl") open
+  lib("riscv/isa/vector-profile.rhm").VectorProfile
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
+  lib("rhodium/compile/pipeline.rhm").rtl_pipeline_target
+  lib("rhodium/frontend/foundation.rhm").elaborate
+
+def profile = SuperscalarPipelineConfig(~instruction_cache: test_cache, ~data_cache: test_cache, ~vector: VectorProfile.Zve32x, ~vector_length: 256)
+def hart = elaborate(RV3Wide(test_cache, ~chi: test_fetch_chi, ~profile: RV3WideConfig(profile)))
+def instrumented = compile_program(hart, rtl_pipeline_target(rtl_target, [cosim_pass()])).report.backend.design
+for (name in ["rhodium_vector_row_transfer", "rhodium_vector_row_write", "rhodium_vector_scalar_write"], expected in [4, 4, 1]):
+  def counts = for List (m in instrumented.modules):
+    m.operations.filter(~keep: fun (op): op.opcode == "sim.dpi_call" && op.attribute("dpi_import").name == name).length()
+  check:
+    counts.filter(~keep: fun (n): n != 0) ~is [expected]

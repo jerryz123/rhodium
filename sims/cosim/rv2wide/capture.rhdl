@@ -150,15 +150,18 @@ sync_circuit SuperscalarCosimObserver(profile :: SuperscalarPipelineConfig, tap_
       def value :: Hardware.of(tap_types[name]) = vector_taps[name]
       lane(value.as_bits())
 
-    rhodium_vector_translation.call(instance_id, vector_lane_value("vector_memory_request_tag"), mmu_lane("mmu_request_address"), ~enable: active & vector_request & mmu_lane("mmu_request_valid")[0].into(Bool))
-    def offset = mmu_lane("mmu_fragment_virtual")[0..index_width(xlen.width / 8)]
-    rhodium_vector_fragment_start.call(instance_id, mmu_lane("mmu_fragment_address") + offset.zext(64), ~enable: active & vector_split & mmu_lane("mmu_fragment_valid")[0].into(Bool))
-    def shift = concat(offset, Bits(3)(0))
-    rhodium_vector_fragment.call(
-      instance_id, vector_lane_value("vector_memory_split_tag"), mmu_lane("mmu_fragment_virtual"),
-      mmu_lane("mmu_fragment_mask") >> offset, mmu_lane("mmu_fragment_response_data") >> shift, mmu_lane("mmu_fragment_data") >> shift,
-      ~enable: active & vector_split & mmu_lane("mmu_fragment_response")[0].into(Bool)
-    )
+    if tap_types.has_key("vector_memory_request_tag")
+    | block:
+        rhodium_vector_translation.call(instance_id, vector_lane_value("vector_memory_request_tag"), mmu_lane("mmu_request_address"), ~enable: active & vector_request & mmu_lane("mmu_request_valid")[0].into(Bool))
+        def offset = mmu_lane("mmu_fragment_virtual")[0..index_width(xlen.width / 8)]
+        rhodium_vector_fragment_start.call(instance_id, mmu_lane("mmu_fragment_address") + offset.zext(64), ~enable: active & vector_split & mmu_lane("mmu_fragment_valid")[0].into(Bool))
+        def shift = concat(offset, Bits(3)(0))
+        rhodium_vector_fragment.call(
+          instance_id, vector_lane_value("vector_memory_split_tag"), mmu_lane("mmu_fragment_virtual"),
+          mmu_lane("mmu_fragment_mask") >> offset, mmu_lane("mmu_fragment_response_data") >> shift, mmu_lane("mmu_fragment_data") >> shift,
+          ~enable: active & vector_split & mmu_lane("mmu_fragment_response")[0].into(Bool)
+        )
+    | #void
 
   if vectors | capture_vector() | #void
 

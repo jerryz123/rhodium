@@ -1,0 +1,15 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("cores/common/vector/distributed/backend/register-file.rhdl") open
+
+def rv32 = elaborate(DistributedVectorRegisterFile(128))
+def rv64 = elaborate(DistributedVectorRegisterFile(256))
+def grant32 = elaborate(DistributedVectorRegisterView(128))
+def grant64 = elaborate(DistributedVectorRegisterView(256))
+export:
+  rv32
+  rv64
+  grant32
+  grant64

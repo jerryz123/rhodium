@@ -1,0 +1,143 @@
+#lang rhodium
+/* Connects VXSeq and its fold cursor to one execution unit and one synchronous operand port. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../decode.rhdl".VectorComputeCursor
+  "../../../fp/register-file.rhdl".FloatingPointRegisterWrite
+  "../exu/execution-unit.rhdl".VectorExecutionUnit
+  "../../../fp/bundles.rhdl" open
+  "../../../fp/profile.rhm".fp_transport_profile
+  "../../muldiv.rhdl".VectorMultiplyTag
+  "../../../integer-execution.rhdl" open
+  "../../../multiplier.rhdl".MultiplierRequest
+  "../../../divider.rhdl" open
+  "../../muldiv.rhdl".VectorDivideTag
+  lib("riscv/isa/vector.rhm").VectorLength
+  "../../backend-kind.rhm".vector_dlen
+  "../common/row-types.rhdl" open
+  "../../bundles.rhdl".VectorDescriptor
+  "../../register-file.rhdl" open
+  "../common/row-claims.rhdl" open
+  "execute-sequencer.rhdl".VectorExecuteSequencer
+  "execute-sequencer.rhdl".resolve_row_unit
+  "../exu/issue.rhdl".RowUnit
+  "../exu/fold.rhdl".VectorFoldCursor
+  "../../../register-write.rhdl".RegisterFileWrite
+  "../../../cosim-source.rhm".describe_cosim_signals
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("rhodium/std/bits.rhdl") open
+  lib("flow/main.rhdl") open
+
+/* Short and product rows can finish in either order across owners. Rows of one
+   descriptor have the same latency, so its last physical write closes the owner. */
+sync_circuit VectorRowExecute(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~fp32: fp32 :: Boolean = #true, ~fp16: fp16 :: Boolean = #true):
+  def dlen = vector_dlen(vlen)
+  def Owner = Bits(index_width(slots))
+  interface launch(Decoupled(VectorDescriptor(xlen)), ~role: consumer)
+  input launch_owner: Owner
+  interface chain(VectorExecuteChain(Owner), ~role: engine)
+  interface read(Decoupled(VectorRowRead()), ~role: producer)
+  interface operands(Valid(VectorRowOperands(dlen)), ~role: consumer)
+  interface reserve(Decoupled(Bits(index_width(ProductWriteDelay + 1))), ~role: producer)
+  interface write(Valid(VectorRegisterWrite(dlen, vlen)), ~role: producer)
+  interface shared_write(Decoupled(VectorRegisterWrite(dlen, vlen)), ~role: producer)
+  def profile = fp_transport_profile(xlen)
+  interface fp_request(Decoupled(FpExecutionRequest(xlen, profile, Owner)), ~role: producer)
+  interface fp_result(Decoupled(FpExecutionResult(xlen, profile, Owner)), ~role: consumer)
+  def Tag = VectorMultiplyTag(slots)
+  interface multiply_request(Decoupled(IntegerExecutionRequest(MultiplierRequest(xlen.width), Tag)), ~role: producer)
+  interface multiply_result(Irrevocable(IntegerExecutionResult(Bits(2*xlen.width), Tag)), ~role: consumer)
+  def DivTag = VectorDivideTag(slots)
+  interface divide_request(Decoupled(IntegerExecutionRequest(DividerRequest(xlen.width), DivTag)), ~role: producer)
+  interface divide_result(Irrevocable(IntegerExecutionResult(DividerResponse(xlen.width), DivTag)), ~role: consumer)
+  interface finished(Valid(Owner), ~role: producer)
+  interface fp_update(Valid(Bits(5)), ~role: producer)
+  interface saturate(Pulse(), ~role: producer)
+  interface issued(Valid(Owner), ~role: producer)
+  input(read_credit, fixed_write_credit): Bool
+  interface permutation(Decoupled(PermutedRow(dlen)), ~role: consumer)
+  interface reduction(ReductionAccumulator(dlen), ~role: execute)
+  interface scalar_writeback(Decoupled(Bits(4)), ~role: producer)
+  interface scalar_result(Valid(RegisterFileWrite(xlen)), ~role: producer)
+  interface floating_writeback(Decoupled(Bits(4)), ~role: producer)
+  interface floating_result(Valid(FloatingPointRegisterWrite(profile)), ~role: producer)
+  interface fold_finished(Valid(Owner), ~role: producer)
+
+  inst sequencer(VectorExecuteSequencer(xlen, vlen, slots))
+  inst fold(VectorFoldCursor(xlen, vlen, Owner))
+  fold.reduction <=> reduction
+  fold.scalar_writeback |> scalar_writeback
+  fold.scalar_result |> scalar_result
+  fold.floating_writeback |> floating_writeback
+  fold.floating_result |> floating_result
+  fold.finished |> fold_finished
+  inst vxu(VectorExecutionUnit(xlen, vlen, slots, ~fp32: fp32, ~fp16: fp16))
+  sequencer.issue <=> vxu.issue
+  fold.datapath <=> vxu.fold
+  operands |> vxu.operands
+  operands |> fold.operands
+  vxu.fold_active <== fold.busy
+  vxu.fold_book.valid <== fold.book
+  vxu.fold_book.bits <== fold.destination
+  fold.write_available <== reserve.ready
+  vxu.reserve |> reserve
+  vxu.write |> write
+  vxu.fp_update |> fp_update
+  vxu.saturate |> saturate
+  vxu.multiply_request |> multiply_request
+  multiply_result |> vxu.multiply_result
+  vxu.divide_request |> divide_request
+  divide_result |> vxu.divide_result
+  vxu.fp_request |> fp_request
+  fp_result |> vxu.fp_result
+  vxu.integer_pending |> chain.integer_pending
+  vxu.fp_pending |> chain.fp_pending
+  chain.reserved <== vxu.reserved
+  chain.destinations <== vxu.destinations
+  sequencer.read_credit <== read_credit
+  vxu.fixed_write_credit <== fixed_write_credit
+  def folding = launch.bits.control.cursor === VectorComputeCursor.Fold
+  def unit = resolve_row_unit(xlen, vlen, launch.bits, fp32, fp16)
+  sequencer.launch_unit <== unit
+  fold.launch_floating <== unit.is_one_of(RowUnit.LocalFp, RowUnit.SharedFpPipelined)
+  launch.ready <== !fold.busy & sequencer.launch.ready
+  sequencer.launch.valid <== launch.valid & !fold.busy & !folding
+  sequencer.launch.bits <== launch.bits
+  fold.launch.valid <== launch.fire() & folding
+  fold.launch.bits <== launch.bits
+  fold.launch_owner <== launch_owner
+  permutation |> sequencer.permutation
+  sequencer.launch_owner <== launch_owner
+  read.valid <== mux(fold.busy, fold.read.valid, sequencer.read.valid)
+  read.bits <== mux(fold.busy, fold.read.bits, sequencer.read.bits)
+  fold.read.ready <== fold.busy & read.ready
+  sequencer.read.ready <== !fold.busy & read.ready
+  vxu.fold_read <== fold.read.fire()
+  Array(sequencer.issued, fold.issued) |> valid_arbiter() |> issued
+  sequencer.older_writes <== chain.older_writes
+  sequencer.older_accesses <== chain.older_accesses
+  fold.older_writes <== chain.older_writes
+  fold.older_accesses <== chain.older_accesses
+  chain.owner <== mux(fold.busy, fold.source_owner, sequencer.source_owner)
+  chain.unissued <== mux(fold.busy, fold.unissued, sequencer.unissued)
+
+  // A compression tail with no row still waits for its owner's booked writes.
+  def published = vxu.published
+  def completed = published.valid & published.bits.last
+  def scan_writes = for List (i in 0..ProductWriteDelay): vxu.reserved[i].into(Bool) & (vxu.destinations[i].owner === sequencer.source_owner)
+  // A booked last write cannot stall. A scan takes the next free completion
+  // slot; a competing shared final write stays at its FU for that edge.
+  // The token cannot recur until a new scan runs, and never needs VRF ready.
+  def booked_now = vxu.reserved[0].into(Bool)
+  def scan_slot = !any(scan_writes) & !(booked_now & vxu.destinations[0].last)
+  sequencer.scan_can_finish <== scan_slot
+  vxu.shared_write |> gate_flow(!(sequencer.scan_finished.valid & vxu.shared_completion_offer)) |> shared_write
+  when (sequencer.scan_finished.valid): assert(!completed, "scan_has_exclusive_completion_slot")
+  finished.valid <== completed ||| sequencer.scan_finished.valid
+  finished.bits <== mux(completed, published.bits.owner, sequencer.source_owner)
+  def observed = mux(shared_write.fire(), shared_write.bits, write.bits)
+  describe_cosim_signals({"write": published.valid, "owner": published.bits.owner, "row": observed.address, "data": observed.data, "floating": fp_update.valid, "flags": fp_update.bits, "mask": observed.mask,
+                          "scalar_write": scalar_result.valid ||| floating_result.valid, "scalar_floating": floating_result.valid, "scalar_owner": fold_finished.bits, "scalar_rd": mux(floating_result.valid, floating_result.bits.address, scalar_result.bits.address), "scalar_data": mux(floating_result.valid, floating_result.bits.data, scalar_result.bits.data)})
+
+export VectorRowExecute

@@ -291,17 +291,15 @@ circuit MulAddRecFNToRawPostMultiply(format :: FloatFormat):
     signed_exponent: mux(intermediate.c_dominant, c_dominant_exponent, non_dominant_exponent)
     significand: mux(intermediate.c_dominant, c_dominant_significand, non_dominant_significand)
 
-/* Computes the selected signed a*b+c variant with a full product, aligned
-   addend, and one final rounding. All datapath stages are combinational. */
-circuit MulAddRecFN(format :: FloatFormat):
+/* Combines a full product and aligned addend without rounding the intermediate result. */
+circuit MulAddRecFNToRaw(format :: FloatFormat):
   input operation: MulAddOperation
   input a: RecFloat(format)
   input b: RecFloat(format)
   input c: RecFloat(format)
   input rounding_mode: RoundingMode
-  input tininess_mode: TininessMode
-  output out: RecFloat(format)
-  output exception_flags: ExceptionFlags()
+  output invalid_exception: Bool
+  output raw_out: RawFloat(format.exponent_width, (format.significand_width + 2))
 
   inst prepare(MulAddRecFNToRawPreMultiply(format))
   prepare.operation <== operation
@@ -315,15 +313,33 @@ circuit MulAddRecFN(format :: FloatFormat):
   combine.intermediate <== prepare.intermediate
   combine.multiply_add_result <== multiply_add_result
   combine.rounding_mode <== rounding_mode
+  invalid_exception <== combine.invalid_exception
+  raw_out <== combine.raw_out
+
+/* Computes the selected signed a*b+c variant with one final rounding. */
+circuit MulAddRecFN(format :: FloatFormat):
+  input operation: MulAddOperation
+  input(a, b, c): RecFloat(format)
+  input rounding_mode: RoundingMode
+  input tininess_mode: TininessMode
+  output out: RecFloat(format)
+  output exception_flags: ExceptionFlags()
+  inst fused(MulAddRecFNToRaw(format))
+  fused.operation <== operation
+  fused.a <== a
+  fused.b <== b
+  fused.c <== c
+  fused.rounding_mode <== rounding_mode
 
   inst round(RoundRawFNToRecFN(format))
-  round.invalid_exception <== combine.invalid_exception
+  round.invalid_exception <== fused.invalid_exception
   round.infinite_exception <== Bool(#false)
-  round.raw <== combine.raw_out
+  round.raw <== fused.raw_out
   round.rounding_mode <== rounding_mode
   round.tininess_mode <== tininess_mode
   out <== round.out
   exception_flags <== round.exception_flags
 
 export:
+  MulAddRecFNToRaw
   MulAddRecFN

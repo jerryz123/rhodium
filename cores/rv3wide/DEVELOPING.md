@@ -12,7 +12,7 @@ architectural/CSR descriptions, direct core factories, hart, and UDB must use
 that same value. Shared parameter defaults and validation belong in
 `superscalar/profile.rhm`, not duplicated constructors or forwarding fields here.
 The hart independently owns reset/start and CHI wiring. Instantiate the
-`RV3Wide` factory there: it selects both `RV3WideIssue(xlen)` and the 16-byte
+`RV3Wide` factory there: it selects both `RV3WideIssue(xlen)` and the double-XLEN
 coherent data port so the standalone core and SoC do not diverge. `issue.rhdl` owns the three-candidate
 prefix, bounded read borrowing, and last-lane completion reservations. Shared contracts
 and predicates remain under superscalar; neither family imports this policy.
@@ -20,6 +20,12 @@ Do not copy decode or create an independent pipeline. Shared execution derives
 its lane count from the supplied issue signature. Service selectors, FP ownership,
 vector descriptors, and predictor training cover every lane. GPR storage has
 four read ports and three fixed write ports; shared service bandwidth is unchanged.
+
+The factory selects the [distributed vector backend](../common/vector/distributed/backend.rhdl);
+it does not supply individual sequencers or storage. See the
+[vector contributor guide](../common/vector/DEVELOPING.md#distributed-backend) for dispatch,
+row ownership, and focused tests. The [core selection test](../superscalar/tests/vector-register-file-test.rhm)
+checks both backend identity and physical geometry through the named core factories.
 
 The shared profile tests cover configuration and UDB agreement. The existing
 `rv3wide-fetch` behavioral fixture uses `RV3Wide`, so it tests real

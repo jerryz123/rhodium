@@ -240,6 +240,17 @@ int main() {
           for (bool sign_extend : {false, true})
             check_split_load(width, offset, sign_extend);
 
+    // A sub-page read-only device is valid for exactly its mapped bytes.
+    auto probe = [](std::uint64_t first, std::uint64_t last, bool store, unsigned service) {
+      element_translation_in.prequest = {1, {first, last, store}};
+      eval(); CHECK(element_translation_out.prequest.pready); tick_model();
+      element_translation_in.prequest.pvalid = 0; eval();
+      CHECK(element_translation_out.presponse.pvalid && element_translation_out.presponse.pbits.pservice == service);
+      if (service == 3) CHECK(element_translation_out.presponse.pbits.pcause == (store ? 7 : 5));
+      tick_model();
+    };
+    probe(0x2203,0x2203,false,2); probe(0x2203,0x2203,true,3); probe(0x2203,0x2204,false,3);
+    probe(0x10008,0x1000b,false,0); probe(0x100000000010008,0x10000000001000b,false,3);
     for (bool store : {false, true}) {
       vector_fast_in.prequest = {1, {0x10008, 0x100ff, store}};
       eval();
@@ -273,5 +284,16 @@ int main() {
     vector_fast_in.prequest.pvalid = 0;
     eval();
     CHECK(!vector_fast_out.presponse.pvalid);
+    // A 64-bit index in Bare mode must not alias a valid low physical page.
+    for (auto first : {UINT64_C(0x100000000010008), UINT64_C(0x10008)}) {
+      vector_precheck_in.prequest = {1,{first,first+1,0}};
+      eval(); CHECK(vector_precheck_out.prequest.pready); tick_model();
+      vector_precheck_in.prequest.pvalid=0;
+      for(unsigned n=0;n<8 && !vector_precheck_out.presponse.pvalid;++n) tick_model();
+      eval(); CHECK(vector_precheck_out.presponse.pvalid && bool(vector_precheck_out.presponse.pbits)==(first==0x10008));
+      vector_precheck_in.presponse.pready=1; tick_model();
+      vector_precheck_in.prelease.pvalid=1; tick_model(); vector_precheck_in.prelease.pvalid=0;
+      vector_precheck_in.presponse.pready=0;
+    }
   });
 }

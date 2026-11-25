@@ -1,0 +1,148 @@
+#lang rhodium
+/* Traverses active rows and captures predicate bits for the load and store sequencers. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/isa/vector.rhm").VectorLength
+  "../../backend-kind.rhm".vector_dlen
+  lib("rhodium/std/bits.rhdl") open
+  lib("flow/main.rhdl") open
+  "../common/row-claims.rhdl" open
+  "../common/row-types.rhdl" open
+  "../common/memory-command.rhdl" open
+  "../mem/segment.rhdl" open
+
+hardware_enum RowPhase:
+  Idle
+  PrepareMask
+  ReadSource
+  CaptureSource
+  Offer
+
+/* A masked row reads v0 first, so an empty store does not even read VS3. */
+fun first_phase(masked :: Bool, store :: Bool) :~ RowPhase:
+  mux(masked, RowPhase.PrepareMask, mux(store, RowPhase.ReadSource, RowPhase.Offer))
+
+/* Traverses the active row span. Load geometry feeds the ordered issuer;
+   store geometry feeds a reserved FIFO slot directly on VS3 return or mask
+   skip. Neither sequencer waits for a cache response to advance. */
+sync_circuit VectorMemoryRowSequencer(xlen :: XLen, vlen :: VectorLength, ~store: store_path :: Boolean):
+  def dlen = vector_dlen(vlen)
+  def row_bytes = dlen div 8
+  def lane_bits = index_width(row_bytes)
+  def mask_bits = index_width(dlen)
+  def offset_bits = index_width(vlen + 1)
+  interface launch(Valid(MemoryCommand(xlen, vlen)), ~role: consumer)
+  input older_writes: RowSet
+  input(capacity, singleton): Bool
+  output captured: Bool
+  output captured_field: Bits(3)
+  output read_done: RowSet
+  output predicate_done: PredicateSet
+  interface read(Decoupled(RowAddress), ~role: producer)
+  interface read_result(Valid(Bits(dlen)), ~role: consumer)
+  interface mask(VectorPredicateTap(dlen), ~role: reader)
+  interface prepared(Decoupled(PreparedRow(vlen)), ~role: producer)
+
+  reg phase(~init: RowPhase.Idle)
+  def store = Bool(store_path)
+  reg masked(Bool)
+  reg layout(SegmentLayout())
+  def eew = layout.eew
+  reg ordinal(Bits(3))
+  reg captured_mask(Bits(row_bytes))
+  reg row(RowAddress)
+  reg offset(Bits(offset_bits))
+  reg last_row_offset(Bits(offset_bits - lane_bits))
+  reg head(Bits(row_bytes))
+  reg tail(Bits(row_bytes))
+  def last = offset[lane_bits..offset_bits] === last_row_offset
+  def range_mask = head & mux(last, tail, !Bits(row_bytes)(0))
+  def stream = (offset >> lane_bits)[0..RowAddress.packed_width()]
+  def pos = segment_position(dlen, layout, stream)
+  def group_start = pos.group.zext(mask_bits+1) << (Bits(4)(lane_bits) - eew.zext(4))
+  def predicate = range_mask & segment_predicate(dlen, layout, stream, mask.data >> group_start[0..mask_bits])
+  def predicate_row = group_start[mask_bits..mask_bits+1]
+  def busy = older_writes.as_vec(Bool)
+  def sample = capacity & (phase === RowPhase.PrepareMask) & !busy[predicate_row.zext(RowAddress.packed_width())]
+  mask.sample.valid <== sample
+  mask.sample.bits <== predicate_row
+  def values(field, element) = segment_visit(dlen, layout, pos, ordinal)
+  def physical = segment_base(layout, field) + pos.group.zext(RowAddress.packed_width())
+  def enabled = mux(masked, captured_mask, range_mask)
+  def field_live = if store_path | segment_field_enabled(dlen, layout, enabled, ordinal) | Bool(#false)
+  def visit = capacity & (phase === RowPhase.ReadSource)
+  def skip_field = visit & !field_live
+  def visited = read_result.valid ||| skip_field
+  read.valid <== visit & field_live & !busy[physical]
+  read.bits <== physical
+  // VLSeq offers registered masks only. The live v0/VS3 bypass is exclusively
+  // a store capture path; do not couple a load's L1D valid to the VRF arbiter.
+  def skip_store = if store_path | sample & !predicate.any() | Bool(#false)
+  def offer = phase === RowPhase.Offer
+  def more_fields = ordinal =/= pos.last_ordinal
+  prepared.valid <== if store_path | offer ||| (visited & !more_fields) ||| skip_store | offer
+  prepared.bits <== PreparedRow(vlen):
+    row: row
+    offset: offset
+    span: range_mask
+    enabled: mux(skip_store, Bits(row_bytes)(0), enabled)
+    data:
+      if store_path
+      | block:
+          reg assembly(Bits(dlen))
+          def part = segment_fragment(dlen, layout, read_result.bits, ordinal, element, ~pack: #true)
+          def joined = mux(ordinal.any(), assembly, Bits(dlen)(0)) ||| mux(skip_field, Bits(dlen)(0), part)
+          when (visited & more_fields): assembly <== joined
+          mux(layout.nf.any(), joined, read_result.bits)
+      | Bits(dlen)(0)
+    last: last
+
+  def command = launch.bits
+  // Both sequencers sample v0 in logical element order before packing beats.
+  def incoming = command.layout
+  def stream_span = memory_command_span(xlen, vlen, command)
+  def start = stream_span.begin[0..offset_bits]
+  // Only iterative checker slices arrive with a checked address and exactly
+  // one active element. Other commands still start their packer at lane 0.
+  def end = stream_span.end[0..offset_bits] - Bits(offset_bits)(1)
+  def needs_source = store & predicate.any()
+  def next_offset = offset + Bits(offset_bits)(row_bytes)
+  // A group begins on a predicate boundary only when enough whole groups
+  // have elapsed. Retire v0 at the last beat of that predicate row.
+  def next_pos = segment_position(dlen, layout, stream + RowAddress(1))
+  def next_start = next_pos.group.zext(mask_bits+1) << (Bits(4)(lane_bits) - eew.zext(4))
+  def final_mask_use = last ||| (next_start[mask_bits..mask_bits+1] =/= predicate_row)
+  predicate_done <== (sample & final_mask_use).as_bits().zext(PredicateSet.packed_width()) << predicate_row
+  captured <== visited
+  captured_field <== field
+  read_done <== row_event(read_result.valid ||| skip_store, physical)
+  when (launch.valid):
+    phase <== first_phase(command.masked, store)
+    masked <== command.masked
+    layout <== incoming
+    ordinal <== Bits(3)(0)
+    head <== !Bits(row_bytes)(0) << start[0..lane_bits]
+    tail <== !Bits(row_bytes)(0) >> (!end[0..lane_bits])
+    row <== mux(incoming.nf.any(), RowAddress(0), incoming.base) + start[lane_bits..offset_bits].zext(RowAddress.packed_width())
+    offset <== mux(singleton, start, start.align_down(row_bytes))
+    last_row_offset <== end[lane_bits..offset_bits]
+  elsewhen (prepared.fire()):
+    ordinal <== Bits(3)(0)
+    phase <== mux(last, RowPhase.Idle, first_phase(masked, store))
+    head <== !Bits(row_bytes)(0)
+    row <== row + RowAddress(1)
+    offset <== next_offset
+  elsewhen sample:
+    captured_mask <== predicate
+    phase <== mux(needs_source, RowPhase.ReadSource, RowPhase.Offer)
+  elsewhen (read.fire()):
+    phase <== RowPhase.CaptureSource
+  elsewhen (visited & more_fields):
+    phase <== RowPhase.ReadSource
+    ordinal <== ordinal + Bits(3)(1)
+  when (read_result.valid): assert((phase === RowPhase.CaptureSource) & (more_fields ||| prepared.ready), "store_read_has_reserved_row")
+  when skip_store: assert(prepared.ready, "store_skip_has_reserved_row")
+
+export VectorMemoryRowSequencer

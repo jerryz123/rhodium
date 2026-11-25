@@ -1,0 +1,80 @@
+#lang rhodium
+/* Arbitrates distributed sequencer access to DLEN rows and the v0 shadow. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../backend-kind.rhm".vector_dlen
+  "../common/paths.rhm".MemoryPaths
+  lib("riscv/isa/vector.rhm").VectorLength
+  "../common/row-types.rhdl" open
+  lib("cores/common/vector/register-file.rhdl") open
+  lib("rhodium/frontend/foundation.rhm").CircuitDefinition
+  lib("flow/main.rhdl") open
+
+/* Exposes the native DLEN row interface, independent of scalar XLEN. */
+fun DistributedVectorRegisterFile(vlen :: VectorLength) :: CircuitDefinition:
+  VectorRegisterFile(vector_dlen(vlen), vlen, ~expose_shadow: #true)
+
+/* Grants simultaneous independent row reads, arbitrating the third port and the write port. */
+sync_circuit DistributedVectorRegisterView(vlen :: VectorLength):
+  def dlen = vector_dlen(vlen)
+  inst bank(DistributedVectorRegisterFile(vlen))
+  bank.mask_read.valid <== Bool(#false)
+  bank.mask_read.bits <== dont_care(bank.mask_read.bits.type)
+  interface execute_read(Decoupled(VectorRowRead()), ~role: consumer)
+  interface execute_result(Valid(VectorRowOperands(dlen)), ~role: producer)
+  interface memory_mask[MemoryPaths.length()](VectorPredicateTap(dlen), ~role: shadow)
+  for (tap in MemoryPaths): memory_mask[tap].data <== bank.shadow_rows[memory_mask[tap].sample.bits]
+  interface row_read(Decoupled(RowAddress), ~role: consumer)
+  interface row_result(Valid(Bits(dlen)), ~role: producer)
+  interface lookahead(Decoupled(RowAddress), ~role: consumer)
+  interface lookahead_result(Valid(Bits(dlen)), ~role: producer)
+  def sources :: ExecuteSources() = execute_read.bits.sources
+  // Only an otherwise issuable three-source read contends with VSSeq.
+  // A two-source read and a store may both win, even with the same row address.
+  def wants_third = execute_read.valid & sources.uses_third()
+  reg prefer_store(~init: Bool(#true))
+  row_read.ready <== (!wants_third ||| prefer_store)
+  execute_read.ready <== !sources.uses_third() ||| !(row_read.valid & prefer_store)
+  def execute_third = execute_read.fire() & sources.uses_third()
+  // Speculation is invisible to demand arbitration, including its next turn.
+  lookahead.ready <== !row_read.valid & !wants_third
+  when (execute_third): prefer_store <== Bool(#true)
+  elsewhen (row_read.fire()): prefer_store <== Bool(#false)
+  reg granted(~init: Bool(#false))
+  reg execute_predicate(Bits(dlen))
+  granted <== execute_read.fire()
+  when (execute_read.fire() & execute_read.bits.reads_v0): execute_predicate <== bank.shadow_rows[execute_read.bits.mask_row]
+  execute_result.valid <== granted
+  execute_result.bits <== VectorRowOperands(dlen):
+    data: vec(for List (port in 0..3): bank.results[port].bits)
+    predicate: execute_predicate
+  for (port in 0..2):
+    bank.reads[port].valid <== execute_read.fire() & (if port == 0 | sources.vector_lhs | sources.uses_second())
+    bank.reads[port].bits <== (if port == 0 | execute_read.bits.left | execute_read.bits.second)
+  reg store_owner(~init: Bool(#false))
+  store_owner <== row_read.fire()
+  reg borrowed(~init: Bool(#false))
+  borrowed <== lookahead.fire()
+  bank.reads[2].valid <== row_read.fire() ||| execute_third ||| lookahead.fire()
+  bank.reads[2].bits <== mux(execute_third, execute_read.bits.third, mux(row_read.valid, row_read.bits, lookahead.bits))
+  lookahead_result.valid <== borrowed & bank.results[2].valid
+  lookahead_result.bits <== bank.results[2].bits
+  row_result.valid <== bank.results[2].valid & store_owner
+  row_result.bits <== bank.results[2].bits
+
+  interface row_writeback(Decoupled(VectorRegisterWrite(dlen, vlen)), ~role: consumer)
+  interface execute_writeback(Valid(VectorRegisterWrite(dlen, vlen)), ~role: consumer)
+  row_writeback.ready <== !execute_writeback.valid
+  bank.write.valid <== execute_writeback.valid ||| row_writeback.valid
+  bank.write.bits <== mux(execute_writeback.valid, execute_writeback.bits, row_writeback.bits)
+  // A waiting load drains on an unbooked edge. Stop new bookings until it
+  // gets a turn, without changing the edge promised to any in-flight result.
+  output load_turn: Bool
+  reg load_waiting(~init: Bool(#false))
+  load_waiting <== row_writeback.valid & !row_writeback.ready
+  load_turn <== load_waiting
+
+export:
+  DistributedVectorRegisterFile
+  DistributedVectorRegisterView

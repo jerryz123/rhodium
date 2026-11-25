@@ -1,0 +1,224 @@
+#lang rhodium
+/* Computes packed FP arithmetic and width-changing conversions for distributed vector rows. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("hardfloat/main.rhdl") open
+  lib("riscv/rtl/floating-point.rhdl") open
+  "../../../fp/types.rhdl" open
+  lib("rhodium/std/reduction.rhdl").tree_reduce
+
+/* The shared rounder consumes either an add or a fused product with guard and sticky bits. */
+fun raw_number(fmt :: FloatFormat): RawFloat(fmt.exponent_width, fmt.significand_width + 2)
+
+/* One pre-rounding lane, including the invalid-operation indicator. */
+bundle RawLane(format :: FloatFormat):
+  value: raw_number(format)
+  invalid: Bool
+
+/* Count the fixed-width IEEE elements of a physical row. */
+fun fp_lanes(dlen :: PosInt, fmt :: FloatFormat): dlen div fmt.ieee_width
+
+/* Carry the enables with the numerical intermediate, independently of the destination mask format. */
+bundle RawFpRow(dlen :: PosInt, format :: FloatFormat):
+  lanes: Vec(fp_lanes(dlen, format), RawLane(format))
+  active: Bits(fp_lanes(dlen, format))
+  rounding: RoundingMode
+
+bundle FpRowValue(dlen :: PosInt):
+  data: Bits(dlen)
+  flags: Bits(5)
+  flags_valid: Bool
+
+tagged_union ArithmeticRow(dlen :: PosInt):
+  Direct(FpRowValue(dlen))
+  Half(RawFpRow(dlen, FloatFormat.F16))
+  Single(RawFpRow(dlen, FloatFormat.F32))
+
+/* Compute all fixed same-width operations of one precision. Comparisons pack one bit
+   per source lane; their exception gating follows source elements, not VRF bytes. */
+circuit VectorFpLanes(dlen :: PosInt, format :: FloatFormat):
+  def width = format.ieee_width
+  def count = dlen div width
+  input(left, right, third): Bits(dlen)
+  input control: FloatExecutionControl()
+  input(integer_result, mask_fragment): Bool
+  input promotion_invalid: Bits(count)
+  input rounding: RoundingMode
+  input active: Bits(count)
+  input offset: Bits(index_width(dlen))
+  output raw: RawFpRow(dlen, format)
+  output direct_data: Bits(dlen)
+  output direct_flags: Bits(5)
+  def unit = control.unit
+  def lanes = for List (i in 0..count):
+    def a = left.as_vec(IEEEFloat(format))[i]
+    def b = right.as_vec(IEEEFloat(format))[i]
+    def c = third.as_vec(IEEEFloat(format))[i]
+    def ar = a.to_recoded()
+    def br = b.to_recoded()
+    inst add(AddRawFN(format))
+    add.a <== a.to_raw()
+    add.b <== b.to_raw()
+    add.subtract <== control.add_operation === FloatAddOperation.Subtract
+    add.rounding_mode <== rounding
+    inst fused(MulAddRecFNToRaw(format))
+    def product_zero = ((a.to_raw().sign ^ b.to_raw().sign) ++ Bits(width-1)(0)).into(IEEEFloat(format))
+    def mac = unit === FloatUnit.FusedMultiplyAdd
+    fused.a <== ar
+    fused.b <== br
+    fused.c <== mux(mac, c, product_zero).to_recoded()
+    fused.operation <== mux(mac, control.fused_operation, MulAddOperation.MultiplyAdd)
+    fused.rounding_mode <== rounding
+    def sum = unit === FloatUnit.Add
+    def intermediate = RawLane(format):
+      value: mux(sum, add.raw_out, fused.raw_out)
+      invalid: promotion_invalid[i].into(Bool) ||| mux(sum, add.invalid_exception, fused.invalid_exception)
+    inst compare(CompareRecFN(format))
+    compare.a <== ar
+    compare.b <== br
+    compare.signaling <== control.comparison_signaling
+    def bit = mux_lookup(control.comparison, ~default: compare.eq):
+      FloatComparison.NotEqual: !compare.eq
+      FloatComparison.Less: compare.lt
+      FloatComparison.LessEqual: compare.lt ||| compare.eq
+    inst mm(MinMaxRecFN(format))
+    mm.a <== ar
+    mm.b <== br
+    mm.operation <== control.minmax_operation
+    inst estimate(Estimate7(format))
+    estimate.value <== a
+    estimate.operation <== control.estimate_operation
+    estimate.rounding_mode <== rounding
+    inst to_int(RecFNToInteger(format, width))
+    to_int.value <== ar
+    to_int.rounding_mode <== rounding
+    to_int.signed_output <== !control.integer_unsigned
+    inst from_int(IntegerToRecFN(width, format))
+    from_int.value <== a.as_bits()
+    from_int.signed_input <== !control.integer_unsigned
+    from_int.tininess_mode <== TininessMode.AfterRounding
+    from_int.rounding_mode <== rounding
+    def data = mux_lookup(unit, ~default: riscv_sign_inject(format, a, b, control.sign_operation).as_bits()):
+      FloatUnit.Classify: riscv_classify(format, a).zext(width)
+      FloatUnit.MinMax: riscv_canonicalize_nan(format, mm.out.to_ieee()).as_bits()
+      FloatUnit.Estimate: estimate.out.as_bits()
+      FloatUnit.Convert: mux(integer_result, to_int.out, riscv_canonicalize_nan(format, from_int.out.to_ieee()).as_bits())
+    def flags = mux_lookup(unit, ~default: Bits(5)(0)):
+      FloatUnit.MinMax: riscv_exception_flags(mm.exception_flags)
+      FloatUnit.Compare: riscv_exception_flags(compare.exception_flags)
+      FloatUnit.Estimate: riscv_exception_flags(estimate.exception_flags)
+      FloatUnit.Convert: mux(integer_result, riscv_integer_exception_flags(to_int.exception_flags), riscv_exception_flags(from_int.exception_flags))
+    [intermediate, data, bit, mux(active[i].into(Bool), flags, Bits(5)(0))]
+  raw <== RawFpRow(dlen, format):
+    lanes: vec(lanes.map(fun (l): l[0]))
+    active: active
+    rounding: rounding
+  direct_data <== mux(mask_fragment, vec(lanes.map(fun (l): l[2])).as_bits().zext(dlen) << offset, vec(lanes.map(fun (l): l[1])).as_bits())
+  direct_flags <== tree_reduce(lanes.map(fun (l): l[3]), fun (a, b): a ||| b)
+
+/* Round each active arithmetic element once and accrue flags at its reserved VRF edge. */
+circuit VectorFpRound(dlen :: PosInt, format :: FloatFormat):
+  input raw: RawFpRow(dlen, format)
+  output result: FpRowValue(dlen)
+  def lanes = for List (i in 0..(dlen div format.ieee_width)):
+    inst round(RoundRawFNToRecFN(format))
+    round.raw <== raw.lanes[i].value
+    round.invalid_exception <== raw.lanes[i].invalid
+    round.infinite_exception <== Bool(#false)
+    round.rounding_mode <== raw.rounding
+    round.tininess_mode <== TininessMode.AfterRounding
+    [riscv_canonicalize_nan(format, round.out.to_ieee()).as_bits(), mux(raw.active[i].into(Bool), riscv_exception_flags(round.exception_flags), Bits(5)(0))]
+  result <== FpRowValue(dlen):
+    data: vec(lanes.map(fun (l): l[0])).as_bits()
+    flags: tree_reduce(lanes.map(fun (l): l[1]), fun (a, b): a ||| b)
+    flags_valid: raw.active.any()
+
+/* Extract one narrow operand fragment in element order. The same displacement
+   selects the upper fragment for a narrow destination. */
+fun fp_half_row(row :: Bits, upper :: Bool) :~ Bits(row.type.packed_width() div 2):
+  def half = row.type.packed_width() div 2
+  mux(upper, row[half..2*half], row[0..half])
+
+/* Scatter low half-lane results into one half of the destination row, without
+   reading old vd. The sequencer provides the corresponding bit enables. */
+fun fp_narrow_row(data :: Bits, width :: PosInt, upper :: Bool) :~ Bits(data.type.packed_width()):
+  def dlen = data.type.packed_width()
+  def fragment = vec(for List (i in 0..(dlen div width)): data[i*width..i*width+width div 2]).as_bits()
+  mux(upper, fragment ++ Bits(dlen div 2)(0), Bits(dlen div 2)(0) ++ fragment)
+
+/* Mixed conversions use exactly the specified integer width for saturation,
+   and round directly into the final FP format. For widening arithmetic the
+   promoted operands feed the existing F32 FMA/add array, not a second array. */
+circuit VectorFpMixed(dlen :: PosInt, wide :: FloatFormat):
+  def width = wide.ieee_width
+  def half = width div 2
+  def count = dlen div width
+  input(left, right): Bits(dlen)
+  input(upper, wide_left, narrow_result, integer_source, integer_result, unsigned): Bool
+  input rounding: RoundingMode
+  input active: Bits(count)
+  output(promoted_left, promoted_right): Bits(dlen)
+  output promotion_invalid: Bits(count)
+  output direct_data: Bits(dlen)
+  output direct_flags: Bits(5)
+  def lhs = fp_half_row(left, upper).as_vec(Bits(half))
+  def rhs = fp_half_row(right, upper).as_vec(Bits(half))
+  def lanes = for List (i in 0..count):
+    def full = left.as_vec(Bits(width))[i]
+    def src = full.into(IEEEFloat(wide)).to_recoded()
+    inst from_small(IntegerToRecFN(half, wide))
+    from_small.value <== lhs[i]
+    from_small.signed_input <== !unsigned
+    from_small.rounding_mode <== rounding
+    from_small.tininess_mode <== TininessMode.AfterRounding
+    inst to_small(RecFNToInteger(wide, half))
+    to_small.value <== src
+    to_small.signed_output <== !unsigned
+    to_small.rounding_mode <== rounding
+    def from_small_bits = from_small.out.to_ieee().as_bits()
+    def to_small_bits = to_small.out.zext(width)
+    def from_small_flags = riscv_exception_flags(from_small.exception_flags)
+    def to_small_flags = riscv_integer_exception_flags(to_small.exception_flags)
+    if wide == FloatFormat.F16
+    | [full, full, Bool(#false), mux(narrow_result, to_small_bits, from_small_bits), mux(narrow_result, to_small_flags, from_small_flags)]
+    | block:
+        def small = FloatFormat.F16
+        def a = lhs[i].into(IEEEFloat(small)).to_recoded()
+        /* Promotion is exact for finite values. Preserve sNaN invalid separately
+           because the promoted operand is already quiet when the FMA sees it. */
+        fun promote(value :: RecFloat(small)):
+          inst cvt(RecFNToRecFN(small, wide))
+          cvt.value <== value
+          cvt.rounding_mode <== RoundingMode.NearEven
+          cvt.tininess_mode <== TininessMode.AfterRounding
+          [riscv_canonicalize_nan(wide, cvt.out.to_ieee()).as_bits(), cvt.exception_flags.invalid]
+        def pa = promote(a)
+        def pb = promote(rhs[i].into(IEEEFloat(small)).to_recoded())
+        inst demote(RecFNToRecFN(wide, small))
+        demote.value <== src
+        demote.rounding_mode <== rounding
+        demote.tininess_mode <== TininessMode.AfterRounding
+        inst to_big(RecFNToInteger(small, width))
+        to_big.value <== a
+        to_big.signed_output <== !unsigned
+        to_big.rounding_mode <== rounding
+        inst from_big(IntegerToRecFN(width, small))
+        from_big.value <== full
+        from_big.signed_input <== !unsigned
+        from_big.rounding_mode <== rounding
+        from_big.tininess_mode <== TininessMode.AfterRounding
+        def widening = mux(integer_result, to_big.out, mux(integer_source, from_small_bits, pa[0]))
+        def invalid :: Bool = pa[1]
+        def wf = mux(integer_result, riscv_integer_exception_flags(to_big.exception_flags), mux(integer_source, from_small_flags, invalid.as_bits() ++ Bits(4)(0)))
+        def dropping = mux(integer_result, to_small_bits, mux(integer_source, from_big.out.to_ieee().as_bits(), riscv_canonicalize_nan(small, demote.out.to_ieee()).as_bits()).zext(width))
+        def nf = mux(integer_result, to_small_flags, mux(integer_source, riscv_exception_flags(from_big.exception_flags), riscv_exception_flags(demote.exception_flags)))
+        [mux(wide_left, full, pa[0]), pb[0], (!wide_left & pa[1]) ||| pb[1], mux(narrow_result, dropping, widening), mux(narrow_result, nf, wf)]
+  promoted_left <== vec(lanes.map(fun (l): l[0])).as_bits()
+  promoted_right <== vec(lanes.map(fun (l): l[1])).as_bits()
+  promotion_invalid <== vec(lanes.map(fun (l): l[2])).as_bits()
+  def data = vec(lanes.map(fun (l): l[3])).as_bits()
+  direct_data <== mux(narrow_result, fp_narrow_row(data, width, upper), data)
+  direct_flags <== tree_reduce(for List (i in 0..count): mux(active[i].into(Bool), lanes[i][4], Bits(5)(0)), fun (a, b): a ||| b)
+
+export ArithmeticRow FpRowValue RawFpRow VectorFpLanes VectorFpRound VectorFpMixed fp_half_row fp_narrow_row

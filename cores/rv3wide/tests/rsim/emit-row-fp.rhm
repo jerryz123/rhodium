@@ -1,0 +1,23 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("cores/common/vector/backend-kind.rhm") open
+  lib("cores/superscalar/tests/core-fixture.rhdl").CoreFixture
+  lib("cores/superscalar/profile.rhm").SuperscalarPipelineConfig
+  lib("riscv/isa/fp-profile.rhm") open
+  lib("riscv/isa/vector-profile.rhm") open
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("rhodium/backend/rsim-target.rhm").rsim_target
+  lib("rhodium/compile/pipeline.rhm").rtl_pipeline_target
+  lib("cores/common/tests/rsim/port-observers.rhm").port_observer_pass
+  "../../issue.rhdl".RV3WideIssue
+
+def config = SuperscalarPipelineConfig(~floating_point: FloatingPointProfile.D, ~half_precision: HalfPrecisionProfile.Zfhmin, ~vector: VectorProfile.V, ~vector_extensions: [VectorExtension.Zvfh], ~vector_length: 256)
+def program = elaborate(CoreFixture(config, ~issue: RV3WideIssue(XLen.X64), ~vector_backend: VectorBackendKind.Distributed))
+def target = rtl_pipeline_target(rsim_target, [port_observer_pass([
+  ["SuperscalarFp", "observe_fp", [["fixed_issue_in", "valid"], ["vector_request_in", "valid"], ["vector_request_out", "ready"]]],
+  ["SuperscalarFp", "observe_scalar_variable", [["variable_issue_in", "valid"], ["variable_issue_out", "ready"]]],
+  ["VectorRowExecute", "observe_row", [["read_out", "valid"], ["read_in", "ready"], ["write_out", "valid"]]]
+])])
+export program target

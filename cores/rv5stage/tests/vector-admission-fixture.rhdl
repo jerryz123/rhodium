@@ -95,7 +95,8 @@ sync_circuit RV5StageVectorAdmission():
 
   vector.precheck |> precheck
   pipeline_physical <== vector.pipeline_physical
-  def Array(observed, hit_request) = vector.pipeline.request |> fork_valid(2)
+  def pipeline :: Endpoint = vector.pipeline
+  def Array(observed, hit_request) = pipeline.request |> fork_valid(2)
   observed |> accesses
   reg retried(~init: Bool(#false))
   def replay_final = retry_last & !retried & hit_request.valid & (hit_request.bits.address === retry_address)
@@ -112,9 +113,9 @@ sync_circuit RV5StageVectorAdmission():
       outcome: response_outcome
       reason: CachePipelineReason.None
       data: request.address
-  ) |> valid_pipe(1) |> vector.pipeline.response
+  ) |> valid_pipe(1) |> pipeline.response
 
-  vector.pipeline.commit_ready <== Bool(#true)
+  pipeline.commit_ready <== Bool(#true)
   vector.memory.request.ready <== Bool(#true)
   memory_requests.valid <== vector.memory.request.valid
   memory_requests.bits <== vector.memory.request.bits

@@ -14,10 +14,12 @@ import:
   "../../../riscv/rtl/instruction-pattern.rhdl" open
   "../../../riscv/model/instruction.rhm".InstructionSpec
   "../fp/types.rhdl" open
-  "packing.rhdl" open
   "../simd-alu.rhdl" open
+  "../simd-multiplier.rhdl".SimdMultiplySelect
+  "../multiplier.rhdl".MultiplierMode
   "mask.rhdl" open
   "../../../riscv/rtl/floating-point.rhdl".FloatSignOperation
+  lib("hardfloat/main.rhdl").RoundingMode
   lib("hardfloat/main.rhdl").MulAddOperation
   lib("hardfloat/main.rhdl").MinMaxOperation
   lib("hardfloat/main.rhdl").Estimate7Operation
@@ -30,12 +32,146 @@ hardware_enum VectorConfigMode:
   AllImmediate
   VtypeRegister
 
+/* Identifies register permutations and the source and width of gather indices. */
+hardware_enum VectorPermutationKind:
+  None
+  SlideUp
+  SlideDown
+  SlideOneUp
+  SlideOneDown
+  GatherBroadcast
+  GatherVector
+  GatherVectorEI16
+  Compress
+
+/* All slide kinds use a displaced VS2 source. */
+fun is_register_slide(kind :: VectorPermutationKind) :: Bool:
+  kind.is_one_of(VectorPermutationKind.SlideUp, VectorPermutationKind.SlideDown, VectorPermutationKind.SlideOneUp, VectorPermutationKind.SlideOneDown)
+
+/* Upward slides subtract their displacement and forbid destination/source overlap. */
+fun slide_moves_up(kind :: VectorPermutationKind) :: Bool:
+  kind.is_one_of(VectorPermutationKind.SlideUp, VectorPermutationKind.SlideOneUp)
+
+/* Slide-one inserts a scalar at the boundary and always displaces by one element. */
+fun slide_inserts_scalar(kind :: VectorPermutationKind) :: Bool:
+  kind.is_one_of(VectorPermutationKind.SlideOneUp, VectorPermutationKind.SlideOneDown)
+
+/* Only indirect gathers fetch index elements from VS1. */
+fun gather_uses_vs1(kind :: VectorPermutationKind) :: Bool:
+  kind.is_one_of(VectorPermutationKind.GatherVector, VectorPermutationKind.GatherVectorEI16)
+
+/* Selects register gathers independently of their index source. */
+fun is_register_gather(kind :: VectorPermutationKind) :: Bool:
+  (kind === VectorPermutationKind.GatherBroadcast) ||| gather_uses_vs1(kind)
+
+/* Identifies backend work independently of instruction family, VL, and translation. */
+hardware_enum VectorDispatchKind:
+  None
+  Execute
+  Load
+  Store
+
+/* Classifies compute work independently of the executing backend and element width. */
+hardware_enum VectorComputeFamily:
+  IntegerData
+  IntProduct
+  IntDivide
+  FpArithmetic
+  FpDivSqrt
+  FpData
+
+/* Operand traversal is independent of the functional unit performing the arithmetic. */
+hardware_enum VectorSequence:
+  Rows
+  Reduction
+  Scan
+  Extract
+  Insert
+  WholeCopy
+
+/* Which VXSeq cursor traverses a compute instruction. */
+hardware_enum VectorComputeCursor:
+  Row
+  Fold
+
+/* Why a compute instruction needs VPS; indexed memory allocates it separately. */
+hardware_enum VectorVpsUse:
+  None
+  Permutation
+  ReductionSeed
+
+/* Neutral element for the non-seed lanes of a packed integer reduction. */
+hardware_enum VectorReductionIdentity:
+  Zero
+  AllOnes
+  SignedMax
+  SignedMin
+
+/* Architectural compute destination, independent of source layout and traversal. */
+hardware_enum VectorResultKind:
+  Elements
+  Mask
+  Gpr
+  Fpr
+
+/* Physical packing of source and destination rows consumed by the compute row cursor. */
+hardware_enum VectorRowLayout:
+  ElementRows
+  PackedMaskRows
+  ElementsToMask
+
+/* Selects the payload of a fixed-latency data row, independently of its destination enables. */
+hardware_enum VectorDataResult:
+  Alu
+  MaskBits
+  CopyVs2
+  Permutation
+
+/* Element-width relationships relative to SEW; packed-mask layout is independent. */
+hardware_enum VectorWidthShape:
+  Same
+  Widen
+  WidenWideVs2
+  Narrow
+  Extend2
+  Extend4
+  Extend8
+
+/* Widening rows produce a double-SEW destination (also the reduction seed EEW). */
+fun widens_result(shape :: VectorWidthShape) :~ Bool:
+  shape.is_one_of(VectorWidthShape.Widen, VectorWidthShape.WidenWideVs2)
+
+/* Both a .w widening operand and the input to a narrowing operation occupy double SEW. */
+fun has_wide_vs2(shape :: VectorWidthShape) :~ Bool:
+  shape.is_one_of(VectorWidthShape.WidenWideVs2, VectorWidthShape.Narrow)
+
+/* Log2 of the SEW-to-source ratio for extension instructions; zero otherwise. */
+fun extension_shift(shape :: VectorWidthShape) :~ Bits(2):
+  mux_lookup(shape, ~default: Bits(2)(0)):
+    VectorWidthShape.Extend2: Bits(2)(1)
+    VectorWidthShape.Extend4: Bits(2)(2)
+    VectorWidthShape.Extend8: Bits(2)(3)
+
+/* Compute VS2 data EEW, before converting row width to a physical fragment. */
+fun compute_vs2_eew(shape :: VectorWidthShape, sew :: Bits(2)) :~ Bits(2):
+  sew + has_wide_vs2(shape).as_bits().zext(2) - extension_shift(shape)
+
+/* Width of the destination data element; mask packing is selected separately. */
+fun compute_dest_eew(shape :: VectorWidthShape, sew :: Bits(2)) :~ Bits(2):
+  sew + widens_result(shape).as_bits().zext(2)
+
 /* Selects vector, integer scalar, immediate, or FP scalar operand sourcing. */
 hardware_enum VectorOperandMode:
   Vector
   Scalar
   Immediate
   FloatingScalar
+
+/* Selects the extension and number of encoded bits for VI operands. */
+hardware_enum VectorImmediateKind:
+  Signed5
+  Unsigned5
+  Unsigned6
 
 /* Distinguishes floating versus integer source interpretation for vector FP conversion. */
 hardware_enum VectorFloatSource:
@@ -54,12 +190,65 @@ hardware_enum VectorFloatRounding:
   TowardZero
   RoundToOdd
 
-/* Selects low/high, rounded fractional, or widened vector products. */
-hardware_enum VectorMultiplyResult:
-  Low
-  High
-  Fractional
-  Widened
+/* Names the first numerical input; the other two positions follow from the same selection. */
+hardware_enum VectorFpOperandOrder:
+  Vs2First
+  RhsFirst
+  VdFirst
+
+/* Selects the local lane result and whether an active direct result publishes flags. */
+hardware_enum VectorLocalFpResult:
+  RawThenRound
+  DirectWithFlags
+  DirectNoFlags
+
+/* Instruction-owned vector FP controls. Operand placement applies equally to boxed data and its precision tags. */
+bundle VectorFpControl():
+  execution: FloatExecutionControl()
+  local_result: VectorLocalFpResult
+  source: VectorFloatSource
+  result: VectorFloatResult
+  order: VectorFpOperandOrder
+  rounding: VectorFloatRounding
+
+  /* Resolve conversion overrides against this instruction's captured architectural rounding mode. */
+  method resolve_rounding(fp, frm :: RoundingMode) :: RoundingMode:
+    mux_lookup(fp.rounding, ~default: frm, [[VectorFloatRounding.TowardZero, RoundingMode.MinMagnitude], [VectorFloatRounding.RoundToOdd, RoundingMode.Odd]])
+
+  /* Map vs2, the vector/scalar rhs, and old vd to the numerical unit's left, right, and third inputs. */
+  method place_operands(fp, T :: DataType, vs2 :: Hardware.of(T), rhs :: Hardware.of(T), old_vd :: Hardware.of(T)):
+    def reversed = fp.order === VectorFpOperandOrder.RhsFirst
+    def vd_first = fp.order === VectorFpOperandOrder.VdFirst
+    values(mux(vd_first, old_vd, mux(reversed, rhs, vs2)), mux(reversed, vs2, rhs), mux(vd_first, vs2, old_vd))
+
+  /* Classifications and comparisons use the integer return port as well as integer conversions. */
+  method integer_result(fp) :: Bool: fp.result =/= VectorFloatResult.Floating
+
+  /* Integer-to-float conversions consume unboxed integer input bits. */
+  method integer_source(fp) :: Bool: fp.source === VectorFloatSource.Integer
+
+/* Use of the previous destination in an integer product; the RHS is always a factor. */
+hardware_enum VectorProductVdRole:
+  Unused
+  Addend
+  Factor
+
+/* Opcode-owned product controls; SEW, VXRM and the widened half come from the issued beat. */
+bundle VectorProductControl():
+  select: SimdMultiplySelect
+  mode: MultiplierMode()
+  vd_role: VectorProductVdRole
+  subtract: Bool
+
+  /* Return the left factor and retained addend; plain products ignore the addend. */
+  method place_operands(product, width :: PosInt, vs2 :: Bits(width), old_vd :: Bits(width)):
+    def swap = product.vd_role === VectorProductVdRole.Factor
+    values(mux(swap, old_vd, vs2), mux(swap, vs2, old_vd))
+
+/* Both divide operands have the same signedness; the return tag selects quotient or remainder. */
+bundle VectorDivideControl():
+  signed_mode: Bool
+  remainder: Bool
 
 /* Separates unit-stride, strided, and ordered/unordered indexed address generation. */
 hardware_enum VectorMemoryAddressing:
@@ -68,6 +257,11 @@ hardware_enum VectorMemoryAddressing:
   IndexedUnordered
   IndexedOrdered
 
+/* Low register-number bits occupied by an aligned LMUL or EMUL group.
+   Fractional groups reside within one architectural register. */
+fun vector_register_group_mask(exponent :: Bits(3)) :~ Bits(5):
+  mux_lookup(exponent, ~default: Bits(5)(0), [[1, Bits(5)(1)], [2, Bits(5)(3)], [3, Bits(5)(7)]])
+
 /* Distinguishes ordinary, fault-first, whole-register, and mask memory semantics. */
 hardware_enum VectorMemoryMode:
   Ordinary
@@ -75,29 +269,77 @@ hardware_enum VectorMemoryMode:
   WholeRegister
   Mask
 
+/* Distinguishes conditional predication from an explicit v0 data operand. */
+hardware_enum VectorV0Role:
+  Predicate
+  Unused
+  Carry
+  Selector
+
+/* Architectural compute reads, before assigning a register to VXSeq or VPS. */
+bundle VectorReadRoles():
+  vs2: Bool
+  vs1: Bool
+  old_vd: Bool
+  v0: VectorV0Role
+
+/* Ordinary vm=1 forms skip the predicate tap; explicit v0 data operands do not. */
+fun vector_shadow_role(roles :: VectorReadRoles(), masked :: Bool) :~ VectorV0Role:
+  mux((roles.v0 === VectorV0Role.Predicate) & !masked, VectorV0Role.Unused, roles.v0)
+
+/* Use catalog operands, not instruction bit positions: unary selectors and
+   scalar/immediate splats do not name a vector register. */
+fun compute_reads(instruction :: InstructionSpec,
+                  ~old_vd: old_vd :: Boolean = #false,
+                  ~v0: v0 :: VectorV0Role = VectorV0Role.Predicate):
+  def names = instruction.operands.map(fun (operand): operand.name)
+  pattern(VectorReadRoles()):
+    vs2: Bool(names.contains("vs2"))
+    vs1: Bool(names.contains("vs1"))
+    old_vd: Bool(old_vd)
+    v0: if v0 == VectorV0Role.Predicate && !instruction.encoding_fields.contains(vm) | VectorV0Role.Unused | v0
+
+/* Instruction constants for a DLEN integer data row. SEW, VXRM, masks and row position belong to the issued context. */
+bundle VectorIntegerRowControl():
+  alu: SimdAluControl()
+  swap_operands: Bool
+  round_shift: Bool
+  clip: Bool
+  clip_unsigned: Bool
+  invert_logic_result: Bool
+  invert_comparison: Bool
+  can_saturate: Bool
+
+  /* Place the prepared VS2 and RHS on the ALU inputs for normal or reversed operations. */
+  method place_operands(row, width :: PosInt, vs2 :: Bits(width), rhs :: Bits(width)):
+    values(mux(row.swap_operands, rhs, vs2), mux(row.swap_operands, vs2, rhs))
+
 /* Carries vector instruction intent for sequencing, operand packing, shared services, and
    runtime legality. */
 bundle VectorControl():
+  dispatch_kind: VectorDispatchKind
   configure: VectorConfigMode
   integer: Bool
   floating_point: Bool
   fp_service: Bool
+  reads_frs1: Bool
   fp_zvfhmin_e16: Bool
   fp_wide_float: Bool
   multiply_divide: Bool
-  divide: Bool
+  division: VectorDivideControl()
   left_signed: Bool
   right_signed: Bool
-  multiply_result: VectorMultiplyResult
-  multiply_accumulate: Bool
-  multiply_destination: Bool
-  multiply_subtract: Bool
-  remainder: Bool
-  fp_execution: FloatExecutionControl()
-  fp_uses_vs1: Bool
-  fp_source: VectorFloatSource
-  fp_result: VectorFloatResult
-  fp_rounding: VectorFloatRounding
+  product: VectorProductControl()
+  fp: VectorFpControl()
+  compute_family: VectorComputeFamily
+  sequence: VectorSequence
+  cursor: VectorComputeCursor
+  vps: VectorVpsUse
+  result_kind: VectorResultKind
+  row_layout: VectorRowLayout
+  data_result: VectorDataResult
+  width_shape: VectorWidthShape
+  reads: VectorReadRoles()
   memory: Bool
   store: Bool
   memory_mode: VectorMemoryMode
@@ -107,60 +349,86 @@ bundle VectorControl():
   memory_addressing: VectorMemoryAddressing
   operand: VectorOperandMode
   immediate_kind: VectorImmediateKind
-  carry_input: Bool
-  extension: Bool
-  extension_ratio: SimdExtensionRatio
-  extension_signed: Bool
-  mask_destination: Bool
-  mask_logic: Bool
-  mask_select: Bool
-  element_move: Bool
-  whole_register_move: Bool
   whole_register_count: Bits(4)
-  scalar_destination: Bool
-  floating_scalar_destination: Bool
-  reduction: Bool
-  scan: Bool
+  reduction_identity: VectorReductionIdentity
   scan_control: VectorMaskScanControl()
-  slide: Bool
-  slide_up: Bool
-  slide_one: Bool
-  gather: Bool
-  gather_index16: Bool
-  compress: Bool
-  widening: Bool
-  narrowing: Bool
-  rounding: Bool
-  clip: Bool
-  clip_unsigned: Bool
-  wide_vs2: Bool
-  uses_vs2: Bool
-  invert_logic_result: Bool
-  invert_comparison: Bool
-  swap_operands: Bool
-  alu: SimdAluControl()
+  permutation: VectorPermutationKind
+  integer_row: VectorIntegerRowControl()
 
   /* Memory and arithmetic services keep a tag even if a particular beat is masked or hits. */
   method needs_completion_slot(control) :: Bool:
     control.memory ||| control.fp_service ||| control.multiply_divide
 
-def NoVectorControl = partial_pattern(VectorControl()):
-  configure: VectorConfigMode.None
-  integer: Bool(#false)
-  floating_point: Bool(#false)
-  multiply_divide: Bool(#false)
-  memory: Bool(#false)
+
+/* Memory and vset leave sequence uncared; neither moves scalar element zero. */
+fun vector_scalar_move(c :: VectorControl()) :~ Bool:
+  (c.integer ||| c.floating_point) & c.sequence.is_one_of(VectorSequence.Extract, VectorSequence.Insert)
+
+/* Only integer register copies traverse their encoded group independently of VL. */
+fun vector_whole_copy(c :: VectorControl()) :~ Bool: c.integer & (c.sequence === VectorSequence.WholeCopy)
+
+/* Integer and floating reductions consume a seed and fold the active elements. */
+fun vector_reduction(c :: VectorControl()) :~ Bool: (c.integer ||| c.floating_point) & (c.sequence === VectorSequence.Reduction)
+
+/* Only integer scans define the scan-control modifiers. */
+fun vector_scan(c :: VectorControl()) :~ Bool: c.integer & (c.sequence === VectorSequence.Scan)
+
+/* Noncompute rows leave result_kind free; only integer operations can reserve a GPR. */
+fun vector_writes_gpr(c :: VectorControl()) :~ Bool: c.integer & (c.result_kind === VectorResultKind.Gpr)
+
+/* Only floating compute can reserve an FPR, never memory or vset. */
+fun vector_writes_fpr(c :: VectorControl()) :~ Bool: c.floating_point & (c.result_kind === VectorResultKind.Fpr)
+
+/* Packed mask inputs exist only on integer row operations, never on folds or memory. */
+fun vector_packed_mask_rows(c :: VectorControl()) :~ Bool:
+  c.integer & (c.cursor === VectorComputeCursor.Row) & (c.row_layout === VectorRowLayout.PackedMaskRows)
+
+/* Qualify the mask destination for consumers shared with noncompute instructions. */
+fun vector_writes_mask(c :: VectorControl()) :~ Bool: (c.integer ||| c.floating_point) & (c.result_kind === VectorResultKind.Mask)
+
+/* Project the authored family into direct decoder columns, not RTL comparisons on the family tag.
+   Noncompute rows disable all compute consumers and leave the unused family tag unconstrained. */
+fun compute_projection(family :: maybe(VectorComputeFamily), operand :: maybe(VectorOperandMode)):
+  def fp_arithmetic = [VectorComputeFamily.FpArithmetic, VectorComputeFamily.FpDivSqrt].contains(family)
+  def requires_fp = fp_arithmetic || family == VectorComputeFamily.FpData
+  partial_pattern(VectorControl()):
+    compute_family: if family | family | pattern(VectorComputeFamily, _)
+    integer: Bool(family == VectorComputeFamily.IntegerData)
+    floating_point: Bool(requires_fp)
+    reads_frs1: Bool(requires_fp && operand == VectorOperandMode.FloatingScalar)
+    fp_service: Bool(fp_arithmetic)
+    multiply_divide: Bool([VectorComputeFamily.IntProduct, VectorComputeFamily.IntDivide].contains(family))
+
+def InactiveCompute = compute_projection(#false, #false)
+
+/* Generate the memory enable and its qualified direction from the same destination as scalar admission. */
+fun dispatch_projection(kind :: VectorDispatchKind):
+  def memory = [VectorDispatchKind.Load, VectorDispatchKind.Store].contains(kind)
+  partial_pattern(VectorControl()):
+    dispatch_kind: kind
+    memory: Bool(memory)
+    store: if memory | Bool(kind == VectorDispatchKind.Store) | pattern(Bool, _)
+
+def NoVectorControl:
+  def inactive = partial_pattern(VectorControl()):
+    configure: VectorConfigMode.None
+  InactiveCompute.intersection(dispatch_projection(VectorDispatchKind.None)).intersection(inactive).terms[0]
+
+/* All FP families require enabled FP state, but only rounding arithmetic consumes frm. */
+fun vector_fp_state_illegal(control :: VectorControl(), enabled :: Bool, frm :: Bits(3)) :: Bool:
+  control.floating_point & (!enabled ||| (control.fp_service & control.fp.execution.uses_rounding_mode & (frm > Bits(3)(4))))
+
+/* Memory and configuration retain their own controls without acquiring a compute route. */
+fun noncompute_case(instruction :: InstructionSpec, kind :: VectorDispatchKind, fields :: Pattern):
+  DecodeCase(instruction_pattern(instruction), InactiveCompute.intersection(dispatch_projection(kind)).intersection(fields).terms[0])
 
 /* Builds one vset row without admitting vector compute or memory effects. */
 fun config_case(instruction :: InstructionSpec, mode :: VectorConfigMode):
-  DecodeCase(
-    instruction_pattern(instruction),
+  noncompute_case(
+    instruction, VectorDispatchKind.None,
     partial_pattern(VectorControl()):
+      permutation: VectorPermutationKind.None
       configure: mode
-      integer: Bool(#false)
-      floating_point: Bool(#false)
-      multiply_divide: Bool(#false)
-      memory: Bool(#false)
   )
 
 def VectorConfigurationCases = [
@@ -169,95 +437,104 @@ def VectorConfigurationCases = [
   config_case(VSETVL, VectorConfigMode.VtypeRegister)
 ]
 
+/* Add scheduling columns to the same opcode row as its traversal. Memory and vset do not consume them. */
+fun compute_case(instruction :: InstructionSpec, family :: VectorComputeFamily, operand :: VectorOperandMode, sequence :: VectorSequence, permutation :: VectorPermutationKind, result :: VectorResultKind, fields :: Pattern):
+  def fold = [VectorSequence.Reduction, VectorSequence.Scan, VectorSequence.Extract].contains(sequence)
+  def packed_mask = VectorMaskLogicInstructions.contains(instruction)
+  def mask_fragment = result == VectorResultKind.Mask && !packed_mask
+  def route = partial_pattern(VectorControl()):
+    configure: VectorConfigMode.None
+    operand: operand
+    sequence: sequence
+    permutation: permutation
+    result_kind: result
+    row_layout:
+      cond
+      | fold: pattern(VectorRowLayout, _)
+      | packed_mask: VectorRowLayout.PackedMaskRows
+      | mask_fragment: VectorRowLayout.ElementsToMask
+      | ~else: VectorRowLayout.ElementRows
+    data_result:
+      cond
+      | fold || ![VectorComputeFamily.IntegerData, VectorComputeFamily.FpData].contains(family): pattern(VectorDataResult, _)
+      | sequence == VectorSequence.WholeCopy: VectorDataResult.CopyVs2
+      | permutation != VectorPermutationKind.None: VectorDataResult.Permutation
+      | mask_fragment: VectorDataResult.MaskBits
+      | ~else: VectorDataResult.Alu
+    cursor: if fold | VectorComputeCursor.Fold | VectorComputeCursor.Row
+    vps:
+      cond
+      | sequence == VectorSequence.Reduction: VectorVpsUse.ReductionSeed
+      | permutation != VectorPermutationKind.None: VectorVpsUse.Permutation
+      | ~else: VectorVpsUse.None
+  DecodeCase(instruction_pattern(instruction), compute_projection(family, operand).intersection(dispatch_projection(VectorDispatchKind.Execute)).intersection(route).intersection(fields).terms[0])
+
 /* Builds partial packed-integer controls and derives operand/immediate form. Keep scan,
    slide, clipping, and mask modifiers free outside their consumers; both widening and
    narrowing use the signed operand-preparation controls. */
 fun integer_case(instruction :: InstructionSpec, alu :: Pattern,
-                 ~mask: mask :: Boolean = #false,
-                 ~mask_logic: mask_logic :: Boolean = #false,
-                 ~mask_select: mask_select :: Boolean = #false,
-                 ~element_move: element_move :: Boolean = #false,
-                 ~whole_register_move: whole_register_move :: Boolean = #false,
+                 ~result: result :: VectorResultKind = VectorResultKind.Elements,
+                 ~v0: v0 :: VectorV0Role = VectorV0Role.Predicate,
+                 ~sequence: sequence :: VectorSequence = VectorSequence.Rows,
                  ~whole_register_count: whole_register_count :: PosInt = 1,
-                 ~scalar_destination: scalar_destination :: Boolean = #false,
-                 ~reduction: reduction :: Boolean = #false,
-                 ~scan: scan :: Boolean = #false,
-                 ~scan_result: scan_result :: VectorScanResult = VectorScanResult.Count,
-                 ~scan_index: scan_index :: Boolean = #false,
-                 ~include_first: include_first :: Boolean = #false,
-                 ~only_first: only_first :: Boolean = #false,
-                 ~slide: slide :: Boolean = #false,
-                 ~slide_up: slide_up :: Boolean = #false,
-                 ~slide_one: slide_one :: Boolean = #false,
-                 ~gather: gather :: Boolean = #false,
-                 ~gather_index16: gather_index16 :: Boolean = #false,
-                 ~compress: compress :: Boolean = #false,
-                 ~widening: widening :: Boolean = #false,
-                 ~narrowing: narrowing :: Boolean = #false,
-                 ~rounding: rounding :: Boolean = #false,
+                 ~reduction_identity: identity :: VectorReductionIdentity = VectorReductionIdentity.Zero,
+                 ~scan_control: scan_control :: Pattern = pattern(VectorMaskScanControl(), _),
+                 ~permutation: permutation :: VectorPermutationKind = VectorPermutationKind.None,
+                 ~shape: shape :: VectorWidthShape = VectorWidthShape.Same,
+                 ~round_shift: round_shift :: Boolean = #false,
                  ~clip: clip :: Boolean = #false,
                  ~clip_unsigned: clip_unsigned :: Boolean = #false,
-                 ~wide_vs2: wide_vs2 :: Boolean = #false,
                  ~left_signed: left_signed :: Boolean = #false,
                  ~right_signed: right_signed :: Boolean = #false,
-                 ~carry_input: carry_input :: Boolean = #false,
-                 ~extension: extension :: Boolean = #false,
-                 ~extension_ratio: extension_ratio :: SimdExtensionRatio = SimdExtensionRatio.By2,
-                 ~extension_signed: extension_signed :: Boolean = #false,
-                 ~uses_vs2: uses_vs2 :: Boolean = #true,
+
                  ~invert_logic: invert_logic :: Boolean = #false,
                  ~invert: invert :: Boolean = #false,
                  ~swap: swap :: Boolean = #false):
   def form = instruction.format
-  DecodeCase(
-    instruction_pattern(instruction),
+  /* Match authored ALU modes at elaboration; wildcard adder bits on a logic
+     instruction are not permission to update the architectural saturation flag. */
+  fun adder_mode(mode :: SimdArithmeticMode):
+    def match_mode = partial_pattern(SimdAluControl()):
+      result_select: SimdResultSelect.Adder
+      arithmetic_mode: mode
+    match_mode.subsumes(alu)
+  def logic = partial_pattern(SimdAluControl()):
+    result_select: SimdResultSelect.Logic
+  def shifts = partial_pattern(SimdAluControl()):
+    result_select: SimdResultSelect.Shift
+  def adds = partial_pattern(SimdAluControl()):
+    result_select: SimdResultSelect.Adder
+  def widening = [VectorWidthShape.Widen, VectorWidthShape.WidenWideVs2].contains(shape)
+  def narrowing = shape == VectorWidthShape.Narrow
+  def extension = [VectorWidthShape.Extend2, VectorWidthShape.Extend4, VectorWidthShape.Extend8].contains(shape)
+  def scan = sequence == VectorSequence.Scan
+  def operand:
+    cond
+    | [VectorVVFormat, VectorFixedVVFormat, VectorMoveVFormat, VectorWholeRegisterMoveFormat, VectorReadScalarFormat, VectorMaskScalarFormat, VectorMaskUnaryFormat, VectorIndexFormat].contains(form): VectorOperandMode.Vector
+    | [VectorVXFormat, VectorFixedVXFormat, VectorMoveXFormat].contains(form): VectorOperandMode.Scalar
+    | ~else: VectorOperandMode.Immediate
+  compute_case(
+    instruction, VectorComputeFamily.IntegerData, operand, sequence, permutation, result,
     partial_pattern(VectorControl()):
-      configure: VectorConfigMode.None
-      integer: Bool(#true)
-      floating_point: Bool(#false)
-      multiply_divide: Bool(#false)
-      memory: Bool(#false)
-      operand: if [VectorVVFormat, VectorFixedVVFormat, VectorMoveVFormat, VectorWholeRegisterMoveFormat, VectorReadScalarFormat, VectorMaskScalarFormat, VectorMaskUnaryFormat, VectorIndexFormat].contains(form) | VectorOperandMode.Vector | (if [VectorVXFormat, VectorFixedVXFormat, VectorMoveXFormat].contains(form) | VectorOperandMode.Scalar | VectorOperandMode.Immediate)
       immediate_kind: if !form.immediate | pattern(VectorImmediateKind, _) | (if form.immediate.width == 6 | VectorImmediateKind.Unsigned6 | (if form.immediate.signed | VectorImmediateKind.Signed5 | VectorImmediateKind.Unsigned5))
-      carry_input: Bool(carry_input)
-      extension: Bool(extension)
-      extension_ratio: if extension | extension_ratio | pattern(SimdExtensionRatio, _)
-      extension_signed: if extension | Bool(extension_signed) | pattern(Bool, _)
-      mask_destination: Bool(mask)
-      mask_logic: Bool(mask_logic)
-      mask_select: Bool(mask_select)
-      element_move: Bool(element_move)
-      whole_register_move: Bool(whole_register_move)
-      whole_register_count: if whole_register_move | Bits(4)(whole_register_count) | pattern(Bits(4), _)
-      scalar_destination: Bool(scalar_destination)
-      reduction: Bool(reduction)
-      scan: Bool(scan)
-      slide: Bool(slide)
-      slide_up: if slide | Bool(slide_up) | pattern(Bool, _)
-      slide_one: if slide | Bool(slide_one) | pattern(Bool, _)
-      gather: Bool(gather)
-      gather_index16: Bool(gather_index16)
-      compress: Bool(compress)
-      widening: Bool(widening)
-      narrowing: Bool(narrowing)
-      rounding: Bool(rounding)
-      clip: Bool(clip)
-      clip_unsigned: if clip | Bool(clip_unsigned) | pattern(Bool, _)
-      wide_vs2: Bool(wide_vs2)
-      left_signed: if widening || narrowing | Bool(left_signed) | pattern(Bool, _)
+      width_shape: shape
+      reads: compute_reads(instruction, ~v0: v0)
+      whole_register_count: if sequence == VectorSequence.WholeCopy | Bits(4)(whole_register_count) | pattern(Bits(4), _)
+      reduction_identity: if sequence == VectorSequence.Reduction | identity | pattern(VectorReductionIdentity, _)
+      left_signed: if widening || narrowing || extension | Bool(left_signed) | pattern(Bool, _)
       right_signed: if widening || narrowing | Bool(right_signed) | pattern(Bool, _)
-      scan_control:
-        partial_pattern(VectorMaskScanControl()):
-          result: if scan | scan_result | pattern(VectorScanResult, _)
-          index: if scan | Bool(scan_index) | pattern(Bool, _)
-          include_first: if scan && scan_result == VectorScanResult.Mask | Bool(include_first) | pattern(Bool, _)
-          only_first: if scan && scan_result == VectorScanResult.Mask | Bool(only_first) | pattern(Bool, _)
+      scan_control: scan_control
 
-      uses_vs2: Bool(uses_vs2)
-      invert_logic_result: if mask_logic | Bool(invert_logic) | pattern(Bool, _)
-      invert_comparison: if mask && (!mask_logic) && (!scan) | Bool(invert) | pattern(Bool, _)
-      swap_operands: Bool(swap)
-      alu: alu
+      integer_row:
+        partial_pattern(VectorIntegerRowControl()):
+          alu: alu
+          swap_operands: Bool(swap)
+          round_shift: if shifts.subsumes(alu) || adds.subsumes(alu) | Bool(round_shift) | pattern(Bool, _)
+          clip: Bool(clip)
+          clip_unsigned: if clip | Bool(clip_unsigned) | pattern(Bool, _)
+          can_saturate: Bool(clip || adder_mode(SimdArithmeticMode.SaturateSigned) || adder_mode(SimdArithmeticMode.SaturateUnsigned))
+          invert_logic_result: if logic.subsumes(alu) | Bool(invert_logic) | pattern(Bool, _)
+          invert_comparison: if result == VectorResultKind.Mask && (!VectorMaskLogicInstructions.contains(instruction)) && (!scan) | Bool(invert) | pattern(Bool, _)
   )
 
 def vadd_control = partial_pattern(SimdAluControl()):
@@ -419,25 +696,25 @@ def VectorZvbbCases = [
   integer_case(VROR_VV, vror_control),
   integer_case(VROR_VX, vror_control),
   integer_case(VROR_VI, vror_control),
-  integer_case(VWSLL_VV, vsll_control, ~widening: #true),
-  integer_case(VWSLL_VX, vsll_control, ~widening: #true),
-  integer_case(VWSLL_VI, vsll_control, ~widening: #true)
+  integer_case(VWSLL_VV, vsll_control, ~shape: VectorWidthShape.Widen),
+  integer_case(VWSLL_VX, vsll_control, ~shape: VectorWidthShape.Widen),
+  integer_case(VWSLL_VI, vsll_control, ~shape: VectorWidthShape.Widen)
 ]
 
 def VectorSlideCases = [
-  integer_case(VSLIDEUP_VX, vslide_control, ~slide: #true, ~slide_up: #true),
-  integer_case(VSLIDEUP_VI, vslide_control, ~slide: #true, ~slide_up: #true),
-  integer_case(VSLIDEDOWN_VX, vslide_control, ~slide: #true),
-  integer_case(VSLIDEDOWN_VI, vslide_control, ~slide: #true),
-  integer_case(VSLIDE1UP_VX, vslide_control, ~slide: #true, ~slide_up: #true, ~slide_one: #true),
-  integer_case(VSLIDE1DOWN_VX, vslide_control, ~slide: #true, ~slide_one: #true)
+  integer_case(VSLIDEUP_VX, vslide_control, ~permutation: VectorPermutationKind.SlideUp),
+  integer_case(VSLIDEUP_VI, vslide_control, ~permutation: VectorPermutationKind.SlideUp),
+  integer_case(VSLIDEDOWN_VX, vslide_control, ~permutation: VectorPermutationKind.SlideDown),
+  integer_case(VSLIDEDOWN_VI, vslide_control, ~permutation: VectorPermutationKind.SlideDown),
+  integer_case(VSLIDE1UP_VX, vslide_control, ~permutation: VectorPermutationKind.SlideOneUp),
+  integer_case(VSLIDE1DOWN_VX, vslide_control, ~permutation: VectorPermutationKind.SlideOneDown)
 ]
 
 def VectorGatherCases = [
-  integer_case(VRGATHER_VV, vslide_control, ~gather: #true),
-  integer_case(VRGATHEREI16_VV, vslide_control, ~gather: #true, ~gather_index16: #true),
-  integer_case(VRGATHER_VX, vslide_control, ~gather: #true),
-  integer_case(VRGATHER_VI, vslide_control, ~gather: #true)
+  integer_case(VRGATHER_VV, vslide_control, ~permutation: VectorPermutationKind.GatherVector),
+  integer_case(VRGATHEREI16_VV, vslide_control, ~permutation: VectorPermutationKind.GatherVectorEI16),
+  integer_case(VRGATHER_VX, vslide_control, ~permutation: VectorPermutationKind.GatherBroadcast),
+  integer_case(VRGATHER_VI, vslide_control, ~permutation: VectorPermutationKind.GatherBroadcast)
 ]
 
 def vmseq_control = partial_pattern(SimdAluControl()):
@@ -506,6 +783,10 @@ def vmax_control = partial_pattern(SimdAluControl()):
   signed_compare: Bool(#true)
   maximum: Bool(#true)
 
+/* Integer compares schedule data-width source rows and pack one bit per lane. */
+fun compare_case(instruction :: InstructionSpec, alu :: Pattern, ~invert: invert :: Boolean = #false, ~swap: swap :: Boolean = #false):
+  integer_case(instruction, alu, ~result: VectorResultKind.Mask, ~invert: invert, ~swap: swap)
+
 def VectorSameWidthIntegerCases = [
   integer_case(VADD_VV, vadd_control),
   integer_case(VADD_VX, vadd_control),
@@ -532,26 +813,26 @@ def VectorSameWidthIntegerCases = [
   integer_case(VSRA_VV, vsra_control),
   integer_case(VSRA_VX, vsra_control),
   integer_case(VSRA_VI, vsra_control),
-  integer_case(VMSEQ_VV, vmseq_control, ~mask: #true),
-  integer_case(VMSEQ_VX, vmseq_control, ~mask: #true),
-  integer_case(VMSEQ_VI, vmseq_control, ~mask: #true),
-  integer_case(VMSNE_VV, vmsne_control, ~mask: #true, ~invert: #true),
-  integer_case(VMSNE_VX, vmsne_control, ~mask: #true, ~invert: #true),
-  integer_case(VMSNE_VI, vmsne_control, ~mask: #true, ~invert: #true),
-  integer_case(VMSLTU_VV, vmsltu_control, ~mask: #true),
-  integer_case(VMSLTU_VX, vmsltu_control, ~mask: #true),
-  integer_case(VMSLT_VV, vmslt_control, ~mask: #true),
-  integer_case(VMSLT_VX, vmslt_control, ~mask: #true),
-  integer_case(VMSLEU_VV, vmsleu_control, ~mask: #true),
-  integer_case(VMSLEU_VX, vmsleu_control, ~mask: #true),
-  integer_case(VMSLEU_VI, vmsleu_control, ~mask: #true),
-  integer_case(VMSLE_VV, vmsle_control, ~mask: #true),
-  integer_case(VMSLE_VX, vmsle_control, ~mask: #true),
-  integer_case(VMSLE_VI, vmsle_control, ~mask: #true),
-  integer_case(VMSGTU_VX, vmsgtu_control, ~mask: #true, ~swap: #true),
-  integer_case(VMSGTU_VI, vmsgtu_control, ~mask: #true, ~swap: #true),
-  integer_case(VMSGT_VX, vmsgt_control, ~mask: #true, ~swap: #true),
-  integer_case(VMSGT_VI, vmsgt_control, ~mask: #true, ~swap: #true),
+  compare_case(VMSEQ_VV, vmseq_control),
+  compare_case(VMSEQ_VX, vmseq_control),
+  compare_case(VMSEQ_VI, vmseq_control),
+  compare_case(VMSNE_VV, vmsne_control, ~invert: #true),
+  compare_case(VMSNE_VX, vmsne_control, ~invert: #true),
+  compare_case(VMSNE_VI, vmsne_control, ~invert: #true),
+  compare_case(VMSLTU_VV, vmsltu_control),
+  compare_case(VMSLTU_VX, vmsltu_control),
+  compare_case(VMSLT_VV, vmslt_control),
+  compare_case(VMSLT_VX, vmslt_control),
+  compare_case(VMSLEU_VV, vmsleu_control),
+  compare_case(VMSLEU_VX, vmsleu_control),
+  compare_case(VMSLEU_VI, vmsleu_control),
+  compare_case(VMSLE_VV, vmsle_control),
+  compare_case(VMSLE_VX, vmsle_control),
+  compare_case(VMSLE_VI, vmsle_control),
+  compare_case(VMSGTU_VX, vmsgtu_control, ~swap: #true),
+  compare_case(VMSGTU_VI, vmsgtu_control, ~swap: #true),
+  compare_case(VMSGT_VX, vmsgt_control, ~swap: #true),
+  compare_case(VMSGT_VI, vmsgt_control, ~swap: #true),
   integer_case(VMINU_VV, vminu_control),
   integer_case(VMINU_VX, vminu_control),
   integer_case(VMIN_VV, vmin_control),
@@ -563,58 +844,58 @@ def VectorSameWidthIntegerCases = [
 ]
 
 def VectorCarryBorrowCases = [
-  integer_case(VADC_VVM, vcarry_control, ~carry_input: #true),
-  integer_case(VADC_VXM, vcarry_control, ~carry_input: #true),
-  integer_case(VADC_VIM, vcarry_control, ~carry_input: #true),
-  integer_case(VMADC_VVM, vcarry_control, ~mask: #true, ~carry_input: #true),
-  integer_case(VMADC_VXM, vcarry_control, ~mask: #true, ~carry_input: #true),
-  integer_case(VMADC_VIM, vcarry_control, ~mask: #true, ~carry_input: #true),
-  integer_case(VMADC_VV, vcarry_control, ~mask: #true),
-  integer_case(VMADC_VX, vcarry_control, ~mask: #true),
-  integer_case(VMADC_VI, vcarry_control, ~mask: #true),
-  integer_case(VSBC_VVM, vborrow_control, ~carry_input: #true),
-  integer_case(VSBC_VXM, vborrow_control, ~carry_input: #true),
-  integer_case(VMSBC_VVM, vborrow_control, ~mask: #true, ~carry_input: #true),
-  integer_case(VMSBC_VXM, vborrow_control, ~mask: #true, ~carry_input: #true),
-  integer_case(VMSBC_VV, vborrow_control, ~mask: #true),
-  integer_case(VMSBC_VX, vborrow_control, ~mask: #true)
+  integer_case(VADC_VVM, vcarry_control, ~v0: VectorV0Role.Carry),
+  integer_case(VADC_VXM, vcarry_control, ~v0: VectorV0Role.Carry),
+  integer_case(VADC_VIM, vcarry_control, ~v0: VectorV0Role.Carry),
+  integer_case(VMADC_VVM, vcarry_control, ~result: VectorResultKind.Mask, ~v0: VectorV0Role.Carry),
+  integer_case(VMADC_VXM, vcarry_control, ~result: VectorResultKind.Mask, ~v0: VectorV0Role.Carry),
+  integer_case(VMADC_VIM, vcarry_control, ~result: VectorResultKind.Mask, ~v0: VectorV0Role.Carry),
+  integer_case(VMADC_VV, vcarry_control, ~result: VectorResultKind.Mask),
+  integer_case(VMADC_VX, vcarry_control, ~result: VectorResultKind.Mask),
+  integer_case(VMADC_VI, vcarry_control, ~result: VectorResultKind.Mask),
+  integer_case(VSBC_VVM, vborrow_control, ~v0: VectorV0Role.Carry),
+  integer_case(VSBC_VXM, vborrow_control, ~v0: VectorV0Role.Carry),
+  integer_case(VMSBC_VVM, vborrow_control, ~result: VectorResultKind.Mask, ~v0: VectorV0Role.Carry),
+  integer_case(VMSBC_VXM, vborrow_control, ~result: VectorResultKind.Mask, ~v0: VectorV0Role.Carry),
+  integer_case(VMSBC_VV, vborrow_control, ~result: VectorResultKind.Mask),
+  integer_case(VMSBC_VX, vborrow_control, ~result: VectorResultKind.Mask)
 ]
 
 def VectorExtensionCases = [
-  integer_case(VZEXT_VF2, vextension_control, ~extension: #true, ~extension_ratio: SimdExtensionRatio.By2),
-  integer_case(VZEXT_VF4, vextension_control, ~extension: #true, ~extension_ratio: SimdExtensionRatio.By4),
-  integer_case(VZEXT_VF8, vextension_control, ~extension: #true, ~extension_ratio: SimdExtensionRatio.By8),
-  integer_case(VSEXT_VF2, vextension_control, ~extension: #true, ~extension_ratio: SimdExtensionRatio.By2, ~extension_signed: #true),
-  integer_case(VSEXT_VF4, vextension_control, ~extension: #true, ~extension_ratio: SimdExtensionRatio.By4, ~extension_signed: #true),
-  integer_case(VSEXT_VF8, vextension_control, ~extension: #true, ~extension_ratio: SimdExtensionRatio.By8, ~extension_signed: #true)
+  integer_case(VZEXT_VF2, vextension_control, ~shape: VectorWidthShape.Extend2),
+  integer_case(VZEXT_VF4, vextension_control, ~shape: VectorWidthShape.Extend4),
+  integer_case(VZEXT_VF8, vextension_control, ~shape: VectorWidthShape.Extend8),
+  integer_case(VSEXT_VF2, vextension_control, ~shape: VectorWidthShape.Extend2, ~left_signed: #true),
+  integer_case(VSEXT_VF4, vextension_control, ~shape: VectorWidthShape.Extend4, ~left_signed: #true),
+  integer_case(VSEXT_VF8, vextension_control, ~shape: VectorWidthShape.Extend8, ~left_signed: #true)
 ]
 
 def VectorWideningAddSubtractCases = [
-  integer_case(VWADDU_VV, vadd_control, ~widening: #true),
-  integer_case(VWADDU_VX, vadd_control, ~widening: #true),
-  integer_case(VWADD_VV, vadd_control, ~widening: #true, ~left_signed: #true, ~right_signed: #true),
-  integer_case(VWADD_VX, vadd_control, ~widening: #true, ~left_signed: #true, ~right_signed: #true),
-  integer_case(VWSUBU_VV, vsub_control, ~widening: #true),
-  integer_case(VWSUBU_VX, vsub_control, ~widening: #true),
-  integer_case(VWSUB_VV, vsub_control, ~widening: #true, ~left_signed: #true, ~right_signed: #true),
-  integer_case(VWSUB_VX, vsub_control, ~widening: #true, ~left_signed: #true, ~right_signed: #true),
-  integer_case(VWADDU_WV, vadd_control, ~widening: #true, ~wide_vs2: #true),
-  integer_case(VWADDU_WX, vadd_control, ~widening: #true, ~wide_vs2: #true),
-  integer_case(VWADD_WV, vadd_control, ~widening: #true, ~wide_vs2: #true, ~left_signed: #true, ~right_signed: #true),
-  integer_case(VWADD_WX, vadd_control, ~widening: #true, ~wide_vs2: #true, ~left_signed: #true, ~right_signed: #true),
-  integer_case(VWSUBU_WV, vsub_control, ~widening: #true, ~wide_vs2: #true),
-  integer_case(VWSUBU_WX, vsub_control, ~widening: #true, ~wide_vs2: #true),
-  integer_case(VWSUB_WV, vsub_control, ~widening: #true, ~wide_vs2: #true, ~left_signed: #true, ~right_signed: #true),
-  integer_case(VWSUB_WX, vsub_control, ~widening: #true, ~wide_vs2: #true, ~left_signed: #true, ~right_signed: #true)
+  integer_case(VWADDU_VV, vadd_control, ~shape: VectorWidthShape.Widen),
+  integer_case(VWADDU_VX, vadd_control, ~shape: VectorWidthShape.Widen),
+  integer_case(VWADD_VV, vadd_control, ~shape: VectorWidthShape.Widen, ~left_signed: #true, ~right_signed: #true),
+  integer_case(VWADD_VX, vadd_control, ~shape: VectorWidthShape.Widen, ~left_signed: #true, ~right_signed: #true),
+  integer_case(VWSUBU_VV, vsub_control, ~shape: VectorWidthShape.Widen),
+  integer_case(VWSUBU_VX, vsub_control, ~shape: VectorWidthShape.Widen),
+  integer_case(VWSUB_VV, vsub_control, ~shape: VectorWidthShape.Widen, ~left_signed: #true, ~right_signed: #true),
+  integer_case(VWSUB_VX, vsub_control, ~shape: VectorWidthShape.Widen, ~left_signed: #true, ~right_signed: #true),
+  integer_case(VWADDU_WV, vadd_control, ~shape: VectorWidthShape.WidenWideVs2),
+  integer_case(VWADDU_WX, vadd_control, ~shape: VectorWidthShape.WidenWideVs2),
+  integer_case(VWADD_WV, vadd_control, ~shape: VectorWidthShape.WidenWideVs2, ~left_signed: #true, ~right_signed: #true),
+  integer_case(VWADD_WX, vadd_control, ~shape: VectorWidthShape.WidenWideVs2, ~left_signed: #true, ~right_signed: #true),
+  integer_case(VWSUBU_WV, vsub_control, ~shape: VectorWidthShape.WidenWideVs2),
+  integer_case(VWSUBU_WX, vsub_control, ~shape: VectorWidthShape.WidenWideVs2),
+  integer_case(VWSUB_WV, vsub_control, ~shape: VectorWidthShape.WidenWideVs2, ~left_signed: #true, ~right_signed: #true),
+  integer_case(VWSUB_WX, vsub_control, ~shape: VectorWidthShape.WidenWideVs2, ~left_signed: #true, ~right_signed: #true)
 ]
 
 def VectorNarrowingShiftCases = [
-  integer_case(VNSRL_WV, vsrl_control, ~narrowing: #true, ~wide_vs2: #true),
-  integer_case(VNSRL_WX, vsrl_control, ~narrowing: #true, ~wide_vs2: #true),
-  integer_case(VNSRL_WI, vsrl_control, ~narrowing: #true, ~wide_vs2: #true),
-  integer_case(VNSRA_WV, vsra_control, ~narrowing: #true, ~wide_vs2: #true),
-  integer_case(VNSRA_WX, vsra_control, ~narrowing: #true, ~wide_vs2: #true),
-  integer_case(VNSRA_WI, vsra_control, ~narrowing: #true, ~wide_vs2: #true)
+  integer_case(VNSRL_WV, vsrl_control, ~shape: VectorWidthShape.Narrow),
+  integer_case(VNSRL_WX, vsrl_control, ~shape: VectorWidthShape.Narrow),
+  integer_case(VNSRL_WI, vsrl_control, ~shape: VectorWidthShape.Narrow),
+  integer_case(VNSRA_WV, vsra_control, ~shape: VectorWidthShape.Narrow),
+  integer_case(VNSRA_WX, vsra_control, ~shape: VectorWidthShape.Narrow),
+  integer_case(VNSRA_WI, vsra_control, ~shape: VectorWidthShape.Narrow)
 ]
 
 def VectorSaturatingAddSubtractCases = [
@@ -630,104 +911,130 @@ def VectorSaturatingAddSubtractCases = [
   integer_case(VSSUB_VX, vssub_control)
 ]
 def VectorAveragingAddSubtractCases = [
-  integer_case(VAADDU_VV, vaaddu_control, ~rounding: #true),
-  integer_case(VAADDU_VX, vaaddu_control, ~rounding: #true),
-  integer_case(VAADD_VV, vaadd_control, ~rounding: #true),
-  integer_case(VAADD_VX, vaadd_control, ~rounding: #true),
-  integer_case(VASUBU_VV, vasubu_control, ~rounding: #true),
-  integer_case(VASUBU_VX, vasubu_control, ~rounding: #true),
-  integer_case(VASUB_VV, vasub_control, ~rounding: #true),
-  integer_case(VASUB_VX, vasub_control, ~rounding: #true)
+  integer_case(VAADDU_VV, vaaddu_control),
+  integer_case(VAADDU_VX, vaaddu_control),
+  integer_case(VAADD_VV, vaadd_control),
+  integer_case(VAADD_VX, vaadd_control),
+  integer_case(VASUBU_VV, vasubu_control),
+  integer_case(VASUBU_VX, vasubu_control),
+  integer_case(VASUB_VV, vasub_control),
+  integer_case(VASUB_VX, vasub_control)
 ]
 
 def VectorFixedPointShiftCases = [
-  integer_case(VSSRL_VV, vsrl_control, ~rounding: #true),
-  integer_case(VSSRL_VX, vsrl_control, ~rounding: #true),
-  integer_case(VSSRL_VI, vsrl_control, ~rounding: #true),
-  integer_case(VSSRA_VV, vsra_control, ~rounding: #true),
-  integer_case(VSSRA_VX, vsra_control, ~rounding: #true),
-  integer_case(VSSRA_VI, vsra_control, ~rounding: #true)
+  integer_case(VSSRL_VV, vsrl_control, ~round_shift: #true),
+  integer_case(VSSRL_VX, vsrl_control, ~round_shift: #true),
+  integer_case(VSSRL_VI, vsrl_control, ~round_shift: #true),
+  integer_case(VSSRA_VV, vsra_control, ~round_shift: #true),
+  integer_case(VSSRA_VX, vsra_control, ~round_shift: #true),
+  integer_case(VSSRA_VI, vsra_control, ~round_shift: #true)
 ]
 
 def VectorNarrowingClipCases = [
-  integer_case(VNCLIPU_WV, vsrl_control, ~narrowing: #true, ~rounding: #true, ~clip: #true, ~clip_unsigned: #true, ~wide_vs2: #true),
-  integer_case(VNCLIPU_WX, vsrl_control, ~narrowing: #true, ~rounding: #true, ~clip: #true, ~clip_unsigned: #true, ~wide_vs2: #true),
-  integer_case(VNCLIPU_WI, vsrl_control, ~narrowing: #true, ~rounding: #true, ~clip: #true, ~clip_unsigned: #true, ~wide_vs2: #true),
-  integer_case(VNCLIP_WV, vsra_control, ~narrowing: #true, ~rounding: #true, ~clip: #true, ~wide_vs2: #true),
-  integer_case(VNCLIP_WX, vsra_control, ~narrowing: #true, ~rounding: #true, ~clip: #true, ~wide_vs2: #true),
-  integer_case(VNCLIP_WI, vsra_control, ~narrowing: #true, ~rounding: #true, ~clip: #true, ~wide_vs2: #true)
+  integer_case(VNCLIPU_WV, vsrl_control, ~shape: VectorWidthShape.Narrow, ~round_shift: #true, ~clip: #true, ~clip_unsigned: #true),
+  integer_case(VNCLIPU_WX, vsrl_control, ~shape: VectorWidthShape.Narrow, ~round_shift: #true, ~clip: #true, ~clip_unsigned: #true),
+  integer_case(VNCLIPU_WI, vsrl_control, ~shape: VectorWidthShape.Narrow, ~round_shift: #true, ~clip: #true, ~clip_unsigned: #true),
+  integer_case(VNCLIP_WV, vsra_control, ~shape: VectorWidthShape.Narrow, ~round_shift: #true, ~clip: #true),
+  integer_case(VNCLIP_WX, vsra_control, ~shape: VectorWidthShape.Narrow, ~round_shift: #true, ~clip: #true),
+  integer_case(VNCLIP_WI, vsra_control, ~shape: VectorWidthShape.Narrow, ~round_shift: #true, ~clip: #true)
 ]
 
 def VectorIntegerCases = VectorSameWidthIntegerCases ++ VectorCarryBorrowCases ++ VectorExtensionCases ++ VectorWideningAddSubtractCases ++ VectorNarrowingShiftCases ++ VectorSaturatingAddSubtractCases ++ VectorAveragingAddSubtractCases ++ VectorFixedPointShiftCases ++ VectorNarrowingClipCases
 def vselect_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Select
 
-def VectorCompressCases = [integer_case(VCOMPRESS_VM, vselect_control, ~compress: #true)]
+def VectorCompressCases = [integer_case(VCOMPRESS_VM, vselect_control, ~permutation: VectorPermutationKind.Compress)]
 def vorn_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Logic
   logic_select: SimdLogicSelect.Or
   invert_right: Bool(#true)
 
 def VectorMoveMergeCases = [
-  integer_case(VMERGE_VVM, vselect_control, ~mask_select: #true),
-  integer_case(VMERGE_VXM, vselect_control, ~mask_select: #true),
-  integer_case(VMERGE_VIM, vselect_control, ~mask_select: #true),
-  integer_case(VMV_V_V, vselect_control, ~uses_vs2: #false),
-  integer_case(VMV_V_X, vselect_control, ~uses_vs2: #false),
-  integer_case(VMV_V_I, vselect_control, ~uses_vs2: #false)
+  integer_case(VMERGE_VVM, vselect_control, ~v0: VectorV0Role.Selector),
+  integer_case(VMERGE_VXM, vselect_control, ~v0: VectorV0Role.Selector),
+  integer_case(VMERGE_VIM, vselect_control, ~v0: VectorV0Role.Selector),
+  integer_case(VMV_V_V, vselect_control),
+  integer_case(VMV_V_X, vselect_control),
+  integer_case(VMV_V_I, vselect_control)
 ]
 
 def VectorWholeRegisterMoveCases = for List (instruction in VectorWholeRegisterMoveInstructions, register_count in [1, 2, 4, 8]):
-  integer_case(instruction, vselect_control, ~whole_register_move: #true, ~whole_register_count: register_count)
+  integer_case(instruction, vselect_control, ~sequence: VectorSequence.WholeCopy, ~whole_register_count: register_count)
 
 def VectorMaskLogicCases = [
-  integer_case(VMANDN_MM, vandn_control, ~mask: #true, ~mask_logic: #true),
-  integer_case(VMAND_MM, vand_control, ~mask: #true, ~mask_logic: #true),
-  integer_case(VMOR_MM, vor_control, ~mask: #true, ~mask_logic: #true),
-  integer_case(VMXOR_MM, vxor_control, ~mask: #true, ~mask_logic: #true),
-  integer_case(VMORN_MM, vorn_control, ~mask: #true, ~mask_logic: #true),
-  integer_case(VMNAND_MM, vand_control, ~mask: #true, ~mask_logic: #true, ~invert_logic: #true),
-  integer_case(VMNOR_MM, vor_control, ~mask: #true, ~mask_logic: #true, ~invert_logic: #true),
-  integer_case(VMXNOR_MM, vxor_control, ~mask: #true, ~mask_logic: #true, ~invert_logic: #true)
+  integer_case(VMANDN_MM, vandn_control, ~result: VectorResultKind.Mask),
+  integer_case(VMAND_MM, vand_control, ~result: VectorResultKind.Mask),
+  integer_case(VMOR_MM, vor_control, ~result: VectorResultKind.Mask),
+  integer_case(VMXOR_MM, vxor_control, ~result: VectorResultKind.Mask),
+  integer_case(VMORN_MM, vorn_control, ~result: VectorResultKind.Mask),
+  integer_case(VMNAND_MM, vand_control, ~result: VectorResultKind.Mask, ~invert_logic: #true),
+  integer_case(VMNOR_MM, vor_control, ~result: VectorResultKind.Mask, ~invert_logic: #true),
+  integer_case(VMXNOR_MM, vxor_control, ~result: VectorResultKind.Mask, ~invert_logic: #true)
 ]
 
 def VectorElementMoveCases = [
-  integer_case(VMV_X_S, vselect_control, ~element_move: #true, ~scalar_destination: #true),
-  integer_case(VMV_S_X, vselect_control, ~element_move: #true, ~uses_vs2: #false)
+  integer_case(VMV_X_S, vselect_control, ~sequence: VectorSequence.Extract, ~result: VectorResultKind.Gpr),
+  integer_case(VMV_S_X, vselect_control, ~sequence: VectorSequence.Insert)
 ]
 
-def VectorSameWidthIntegerReductionCases = for List (instruction in VectorSameWidthIntegerReductionInstructions, alu in [vadd_control, vand_control, vor_control, vxor_control, vminu_control, vmin_control, vmaxu_control, vmax_control]):
-  integer_case(instruction, alu, ~reduction: #true)
+def VectorSameWidthIntegerReductionCases = [
+  integer_case(VREDSUM_VS, vadd_control, ~sequence: VectorSequence.Reduction, ~reduction_identity: VectorReductionIdentity.Zero),
+  integer_case(VREDAND_VS, vand_control, ~sequence: VectorSequence.Reduction, ~reduction_identity: VectorReductionIdentity.AllOnes),
+  integer_case(VREDOR_VS, vor_control, ~sequence: VectorSequence.Reduction, ~reduction_identity: VectorReductionIdentity.Zero),
+  integer_case(VREDXOR_VS, vxor_control, ~sequence: VectorSequence.Reduction, ~reduction_identity: VectorReductionIdentity.Zero),
+  integer_case(VREDMINU_VS, vminu_control, ~sequence: VectorSequence.Reduction, ~reduction_identity: VectorReductionIdentity.AllOnes),
+  integer_case(VREDMIN_VS, vmin_control, ~sequence: VectorSequence.Reduction, ~reduction_identity: VectorReductionIdentity.SignedMax),
+  integer_case(VREDMAXU_VS, vmaxu_control, ~sequence: VectorSequence.Reduction, ~reduction_identity: VectorReductionIdentity.Zero),
+  integer_case(VREDMAX_VS, vmax_control, ~sequence: VectorSequence.Reduction, ~reduction_identity: VectorReductionIdentity.SignedMin)
+]
 
 def VectorWideningIntegerReductionCases = [
-  integer_case(VWREDSUMU_VS, vadd_control, ~reduction: #true, ~widening: #true),
-  integer_case(VWREDSUM_VS, vadd_control, ~reduction: #true, ~widening: #true, ~right_signed: #true)
+  integer_case(VWREDSUMU_VS, vadd_control, ~sequence: VectorSequence.Reduction, ~reduction_identity: VectorReductionIdentity.Zero, ~shape: VectorWidthShape.Widen),
+  integer_case(VWREDSUM_VS, vadd_control, ~sequence: VectorSequence.Reduction, ~reduction_identity: VectorReductionIdentity.Zero, ~shape: VectorWidthShape.Widen, ~right_signed: #true)
 ]
 
 def VectorIntegerReductionCases = VectorSameWidthIntegerReductionCases ++ VectorWideningIntegerReductionCases
+
+/* Project one scan operation into arithmetic, traversal and architectural destination
+   columns. Register reads are generated independently from the ISA operand list. */
+fun scan_case(instruction :: InstructionSpec, result :: VectorScanResult, ~index: index :: Boolean = #false,
+              ~include_first: include_first :: Boolean = #false, ~only_first: only_first :: Boolean = #false):
+  def dest:
+    cond
+    | result == VectorScanResult.Elements: VectorResultKind.Elements
+    | result == VectorScanResult.Mask: VectorResultKind.Mask
+    | ~else: VectorResultKind.Gpr
+  def controls = partial_pattern(VectorMaskScanControl()):
+    result: result
+    index: Bool(index)
+    packed_rows: Bool(result != VectorScanResult.Elements)
+    include_first: if result == VectorScanResult.Mask | Bool(include_first) | pattern(Bool, _)
+    only_first: if result == VectorScanResult.Mask | Bool(only_first) | pattern(Bool, _)
+  integer_case(instruction, vselect_control, ~sequence: VectorSequence.Scan, ~result: dest, ~scan_control: controls)
+
 def VectorMaskScanCases = [
-  integer_case(VCPOP_M, vselect_control, ~scan: #true, ~scalar_destination: #true),
-  integer_case(VFIRST_M, vselect_control, ~scan: #true, ~scalar_destination: #true, ~scan_result: VectorScanResult.First),
-  integer_case(VMSBF_M, vselect_control, ~scan: #true, ~mask: #true, ~scan_result: VectorScanResult.Mask),
-  integer_case(VMSIF_M, vselect_control, ~scan: #true, ~mask: #true, ~scan_result: VectorScanResult.Mask, ~include_first: #true),
-  integer_case(VMSOF_M, vselect_control, ~scan: #true, ~mask: #true, ~scan_result: VectorScanResult.Mask, ~only_first: #true),
-  integer_case(VIOTA_M, vselect_control, ~scan: #true, ~scan_result: VectorScanResult.Elements),
-  integer_case(VID_V, vselect_control, ~scan: #true, ~scan_result: VectorScanResult.Elements, ~scan_index: #true, ~uses_vs2: #false)
+  scan_case(VCPOP_M, VectorScanResult.Count),
+  scan_case(VFIRST_M, VectorScanResult.First),
+  scan_case(VMSBF_M, VectorScanResult.Mask),
+  scan_case(VMSIF_M, VectorScanResult.Mask, ~include_first: #true),
+  scan_case(VMSOF_M, VectorScanResult.Mask, ~only_first: #true),
+  scan_case(VIOTA_M, VectorScanResult.Elements),
+  scan_case(VID_V, VectorScanResult.Elements, ~index: #true)
 ]
 
-/* Maps the ordered eight-entry unit/strided catalog to load/store direction and data EEW. */
+/* A store names VS3 in the ISA catalog; every load names VD instead. This is an elaboration-time choice. */
+fun memory_case(instruction :: InstructionSpec, fields :: Pattern):
+  def store = instruction.operands.map(fun (operand): operand.name).contains("vs3")
+  noncompute_case(instruction, (if store | VectorDispatchKind.Store | VectorDispatchKind.Load), fields)
+
+/* Maps the ordered eight-entry unit/strided catalog to data EEW. */
 fun memory_cases(instructions :: List.of(InstructionSpec), addressing :: VectorMemoryAddressing):
   for List (instruction in instructions, index in 0..8):
-    DecodeCase(
-      instruction_pattern(instruction),
+    memory_case(
+      instruction,
       partial_pattern(VectorControl()):
+        permutation: VectorPermutationKind.None
         configure: VectorConfigMode.None
-        integer: Bool(#false)
-        floating_point: Bool(#false)
-        fp_service: Bool(#false)
-        multiply_divide: Bool(#false)
-        memory: Bool(#true)
-        store: Bool(index >= 4)
         memory_mode: VectorMemoryMode.Ordinary
         memory_data_eew: Bits(2)(index % 4)
         memory_nf: Bits(3)(0)
@@ -738,16 +1045,11 @@ fun memory_cases(instructions :: List.of(InstructionSpec), addressing :: VectorM
 /* Maps indexed load/store catalogs to index EEW while data width remains runtime SEW. */
 fun indexed_memory_cases(instructions :: List.of(InstructionSpec), addressing :: VectorMemoryAddressing):
   for List (instruction in instructions, index in 0..8):
-    DecodeCase(
-      instruction_pattern(instruction),
+    memory_case(
+      instruction,
       partial_pattern(VectorControl()):
+        permutation: VectorPermutationKind.None
         configure: VectorConfigMode.None
-        integer: Bool(#false)
-        floating_point: Bool(#false)
-        fp_service: Bool(#false)
-        multiply_divide: Bool(#false)
-        memory: Bool(#true)
-        store: Bool(index >= 4)
         memory_mode: VectorMemoryMode.Ordinary
         memory_index_eew: Bits(2)(index % 4)
         memory_nf: Bits(3)(0)
@@ -755,19 +1057,14 @@ fun indexed_memory_cases(instructions :: List.of(InstructionSpec), addressing ::
         operand: VectorOperandMode.Vector
     )
 
-/* Derives data EEW, field count, and load/store direction from segment-catalog order. */
+/* Derives data EEW and field count from segment-catalog order. */
 fun segment_memory_cases(instructions :: List.of(InstructionSpec), addressing :: VectorMemoryAddressing):
   for List (instruction in instructions, index in 0..56):
-    DecodeCase(
-      instruction_pattern(instruction),
+    memory_case(
+      instruction,
       partial_pattern(VectorControl()):
+        permutation: VectorPermutationKind.None
         configure: VectorConfigMode.None
-        integer: Bool(#false)
-        floating_point: Bool(#false)
-        fp_service: Bool(#false)
-        multiply_divide: Bool(#false)
-        memory: Bool(#true)
-        store: Bool(index >= 28)
         memory_mode: VectorMemoryMode.Ordinary
         memory_data_eew: Bits(2)(index % 4)
         memory_nf: Bits(3)(((index % 28) div 4) + 1)
@@ -778,16 +1075,11 @@ fun segment_memory_cases(instructions :: List.of(InstructionSpec), addressing ::
 /* Derives index EEW and field count for ordered/unordered indexed segments. */
 fun indexed_segment_memory_cases(instructions :: List.of(InstructionSpec), addressing :: VectorMemoryAddressing):
   for List (instruction in instructions, index in 0..56):
-    DecodeCase(
-      instruction_pattern(instruction),
+    memory_case(
+      instruction,
       partial_pattern(VectorControl()):
+        permutation: VectorPermutationKind.None
         configure: VectorConfigMode.None
-        integer: Bool(#false)
-        floating_point: Bool(#false)
-        fp_service: Bool(#false)
-        multiply_divide: Bool(#false)
-        memory: Bool(#true)
-        store: Bool(index >= 28)
         memory_mode: VectorMemoryMode.Ordinary
         memory_index_eew: Bits(2)(index % 4)
         memory_nf: Bits(3)(((index % 28) div 4) + 1)
@@ -798,16 +1090,11 @@ fun indexed_segment_memory_cases(instructions :: List.of(InstructionSpec), addre
 /* Builds unit-stride fault-first load rows, including segmented field counts. */
 fun fault_only_first_memory_cases(instructions :: List.of(InstructionSpec)):
   for List (instruction in instructions, index in 0..32):
-    DecodeCase(
-      instruction_pattern(instruction),
+    memory_case(
+      instruction,
       partial_pattern(VectorControl()):
+        permutation: VectorPermutationKind.None
         configure: VectorConfigMode.None
-        integer: Bool(#false)
-        floating_point: Bool(#false)
-        fp_service: Bool(#false)
-        multiply_divide: Bool(#false)
-        memory: Bool(#true)
-        store: Bool(#false)
         memory_mode: VectorMemoryMode.FaultOnlyFirst
         memory_data_eew: Bits(2)(index % 4)
         memory_nf: Bits(3)(if index < 4 | 0 | ((index - 4) div 4) + 1)
@@ -818,16 +1105,11 @@ fun fault_only_first_memory_cases(instructions :: List.of(InstructionSpec)):
 /* Builds byte-stream mask load/store rows independent of ordinary data SEW. */
 fun mask_memory_cases(instructions :: List.of(InstructionSpec)):
   for List (instruction in instructions, index in 0..2):
-    DecodeCase(
-      instruction_pattern(instruction),
+    memory_case(
+      instruction,
       partial_pattern(VectorControl()):
+        permutation: VectorPermutationKind.None
         configure: VectorConfigMode.None
-        integer: Bool(#false)
-        floating_point: Bool(#false)
-        fp_service: Bool(#false)
-        multiply_divide: Bool(#false)
-        memory: Bool(#true)
-        store: Bool(index == 1)
         memory_mode: VectorMemoryMode.Mask
         memory_data_eew: Bits(2)(0)
         memory_nf: Bits(3)(0)
@@ -839,16 +1121,11 @@ fun mask_memory_cases(instructions :: List.of(InstructionSpec)):
 fun whole_register_memory_cases(instructions :: List.of(InstructionSpec)):
   for List (instruction in instructions, index in 0..20):
     def register_index = if index < 16 | index div 4 | index - 16
-    DecodeCase(
-      instruction_pattern(instruction),
+    memory_case(
+      instruction,
       partial_pattern(VectorControl()):
+        permutation: VectorPermutationKind.None
         configure: VectorConfigMode.None
-        integer: Bool(#false)
-        floating_point: Bool(#false)
-        fp_service: Bool(#false)
-        multiply_divide: Bool(#false)
-        memory: Bool(#true)
-        store: Bool(index >= 16)
         memory_mode: VectorMemoryMode.WholeRegister
         memory_data_eew: Bits(2)(if index < 16 | index % 4 | 0)
         memory_nf: Bits(3)([0, 1, 3, 7][register_index])
@@ -870,69 +1147,37 @@ def VectorFaultOnlyFirstMemoryCases = fault_only_first_memory_cases(VectorFaultO
 def VectorMaskMemoryCases = mask_memory_cases(VectorMaskMemoryInstructions)
 def VectorWholeRegisterMemoryCases = whole_register_memory_cases(VectorWholeRegisterMemoryInstructions)
 def VectorMemoryCases = VectorUnitStrideMemoryCases ++ VectorStridedMemoryCases ++ VectorIndexedMemoryCases ++ VectorUnitStrideSegmentMemoryCases ++ VectorStridedSegmentMemoryCases ++ VectorIndexedSegmentMemoryCases ++ VectorFaultOnlyFirstMemoryCases ++ VectorMaskMemoryCases ++ VectorWholeRegisterMemoryCases
-/* Builds shared-service vector FP controls, preserving fixed conversion rounding while
-   leaving the rounding selector free for units that do not consume it. */
-fun floating_point_case(instruction :: InstructionSpec, execution :: Pattern,
-                        ~uses_vs1: uses_vs1 :: Boolean = #true,
-                        ~mask_destination: mask_destination :: Boolean = #false,
-                        ~multiply_destination: multiply_destination :: Boolean = #false,
+/* Generate numerical controls and their local result policy from the same FP unit.
+   Iterative operations never consume a local result; only conversions care about signedness. */
+fun floating_point_case(instruction :: InstructionSpec, unit :: FloatUnit,
+                        ~order: order :: VectorFpOperandOrder = VectorFpOperandOrder.Vs2First,
                         ~operand: operand :: VectorOperandMode = VectorOperandMode.Vector,
-                        ~swap: swap :: Boolean = #false,
                         ~source: source :: VectorFloatSource = VectorFloatSource.Floating,
                         ~result: result :: VectorFloatResult = VectorFloatResult.Floating,
                         ~rounding: rounding :: VectorFloatRounding = VectorFloatRounding.Dynamic,
-                        ~reduction: reduction :: Boolean = #false,
-                        ~widening: widening :: Boolean = #false,
-                        ~narrowing: narrowing :: Boolean = #false,
+                        ~sequence: sequence :: VectorSequence = VectorSequence.Rows,
+                        ~shape: shape :: VectorWidthShape = VectorWidthShape.Same,
                         ~zvfhmin_e16: zvfhmin_e16 :: Boolean = #false,
                         ~wide_float: wide_float :: Boolean = #false,
-                        ~wide_vs2: wide_vs2 :: Boolean = #false):
-  def dynamic_rounding = partial_pattern(FloatExecutionControl()):
-    uses_rounding_mode: Bool(#true)
-
-  DecodeCase(
-    instruction_pattern(instruction),
-    partial_pattern(VectorControl()):
-      configure: VectorConfigMode.None
-      integer: Bool(#false)
-      floating_point: Bool(#true)
-      fp_service: Bool(#true)
-      fp_zvfhmin_e16: Bool(zvfhmin_e16)
-      fp_wide_float: Bool(wide_float)
-      multiply_divide: Bool(#false)
-      memory: Bool(#false)
-      operand: operand
-      fp_execution: execution
-      fp_uses_vs1: Bool(uses_vs1)
-      fp_source: source
-      fp_result: if mask_destination | VectorFloatResult.Mask | result
-      fp_rounding: if rounding != VectorFloatRounding.Dynamic || execution.overlaps(dynamic_rounding) | rounding | pattern(VectorFloatRounding, _)
-      reduction: Bool(reduction)
-      widening: Bool(widening)
-      narrowing: Bool(narrowing)
-      wide_vs2: Bool(wide_vs2)
-      mask_destination: Bool(mask_destination)
-      floating_scalar_destination: Bool(#false)
-      multiply_destination: Bool(multiply_destination)
-      swap_operands: Bool(swap)
-  )
-
-/* Constrains only the selected FP unit's modifiers. Integer conversions explicitly select
-   signedness; FP-to-FP conversions leave the unused integer interpretation free. */
-fun fp_unit(unit :: FloatUnit,
-            ~rounding: rounding :: Boolean = #false,
-            ~fused: fused :: MulAddOperation = MulAddOperation.MultiplyAdd,
-            ~add: add :: FloatAddOperation = FloatAddOperation.Add,
-            ~divide: divide :: FloatDivideOperation = FloatDivideOperation.Divide,
-            ~sign: sign :: FloatSignOperation = FloatSignOperation.Copy,
-            ~minmax: minmax :: MinMaxOperation = MinMaxOperation.MinimumNumber,
-            ~estimate: estimate :: Estimate7Operation = Estimate7Operation.Reciprocal,
-            ~comparison: comparison :: FloatComparison = FloatComparison.Equal,
-            ~signaling: signaling :: Boolean = #false,
-            ~unsigned: unsigned :: Boolean || Pattern = pattern(Bool, _)):
-  partial_pattern(FloatExecutionControl()):
+                        ~uses_frm: uses_frm :: Boolean = #false,
+                        ~fused: fused :: MulAddOperation = MulAddOperation.MultiplyAdd,
+                        ~add: add :: FloatAddOperation = FloatAddOperation.Add,
+                        ~divide: divide :: FloatDivideOperation = FloatDivideOperation.Divide,
+                        ~sign: sign :: FloatSignOperation = FloatSignOperation.Copy,
+                        ~minmax: minmax :: MinMaxOperation = MinMaxOperation.MinimumNumber,
+                        ~estimate: estimate :: Estimate7Operation = Estimate7Operation.Reciprocal,
+                        ~comparison: comparison :: FloatComparison = FloatComparison.Equal,
+                        ~signaling: signaling :: Boolean = #false,
+                        ~unsigned: unsigned :: Boolean || Pattern = pattern(Bool, _)):
+  def local_result = cond
+  | [FloatUnit.Add, FloatUnit.Multiply, FloatUnit.FusedMultiplyAdd].contains(unit): VectorLocalFpResult.RawThenRound
+  | [FloatUnit.SignInject, FloatUnit.Classify].contains(unit): VectorLocalFpResult.DirectNoFlags
+  | [FloatUnit.MinMax, FloatUnit.Compare, FloatUnit.Estimate, FloatUnit.Convert].contains(unit): VectorLocalFpResult.DirectWithFlags
+  | unit == FloatUnit.DivideSquareRoot: pattern(VectorLocalFpResult, _)
+  | ~else: error(~who: #'floating_point_case, "unsupported vector FP unit")
+  def execution = partial_pattern(FloatExecutionControl()):
     unit: unit
-    uses_rounding_mode: Bool(rounding)
+    uses_rounding_mode: Bool(uses_frm)
     fused_operation: if unit == FloatUnit.FusedMultiplyAdd | fused | pattern(MulAddOperation, _)
     add_operation: if unit == FloatUnit.Add | add | pattern(FloatAddOperation, _)
     divide_operation: if unit == FloatUnit.DivideSquareRoot | divide | pattern(FloatDivideOperation, _)
@@ -942,185 +1187,195 @@ fun fp_unit(unit :: FloatUnit,
     comparison: if unit == FloatUnit.Compare | comparison | pattern(FloatComparison, _)
     comparison_signaling: if unit == FloatUnit.Compare | Bool(signaling) | pattern(Bool, _)
     integer_unsigned: if unsigned is_a Boolean | Bool(unsigned) | unsigned
+  compute_case(
+    instruction, (if unit == FloatUnit.DivideSquareRoot | VectorComputeFamily.FpDivSqrt | VectorComputeFamily.FpArithmetic),
+    operand, sequence, VectorPermutationKind.None, (if result == VectorFloatResult.Mask | VectorResultKind.Mask | VectorResultKind.Elements),
+    partial_pattern(VectorControl()):
+      fp_zvfhmin_e16: Bool(zvfhmin_e16)
+      fp_wide_float: Bool(wide_float)
+      width_shape: shape
+      reads: compute_reads(instruction, ~old_vd: VectorFloatingPointFusedMultiplyAddInstructions.contains(instruction))
+      fp:
+        partial_pattern(VectorFpControl()):
+          execution: execution
+          local_result: local_result
+          source: source
+          result: result
+          order: order
+          rounding: if rounding != VectorFloatRounding.Dynamic || uses_frm | rounding | pattern(VectorFloatRounding, _)
+  )
 
 def VectorFloatingPointCases = [
-  floating_point_case(VFADD_VV, fp_unit(FloatUnit.Add, ~rounding: #true)),
-  floating_point_case(VFSUB_VV, fp_unit(FloatUnit.Add, ~rounding: #true, ~add: FloatAddOperation.Subtract)),
-  floating_point_case(VFMUL_VV, fp_unit(FloatUnit.Multiply, ~rounding: #true)),
-  floating_point_case(VFDIV_VV, fp_unit(FloatUnit.DivideSquareRoot, ~rounding: #true)),
-  floating_point_case(VFSQRT_V, fp_unit(FloatUnit.DivideSquareRoot, ~rounding: #true, ~divide: FloatDivideOperation.SquareRoot), ~uses_vs1: #false),
-  floating_point_case(VFRSQRT7_V, fp_unit(FloatUnit.Estimate, ~estimate: Estimate7Operation.ReciprocalSquareRoot), ~uses_vs1: #false),
-  floating_point_case(VFREC7_V, fp_unit(FloatUnit.Estimate, ~rounding: #true), ~uses_vs1: #false),
-  floating_point_case(VFCLASS_V, fp_unit(FloatUnit.Classify), ~uses_vs1: #false, ~result: VectorFloatResult.Integer),
-  floating_point_case(VFSGNJ_VV, fp_unit(FloatUnit.SignInject)),
-  floating_point_case(VFSGNJN_VV, fp_unit(FloatUnit.SignInject, ~sign: FloatSignOperation.Negate)),
-  floating_point_case(VFSGNJX_VV, fp_unit(FloatUnit.SignInject, ~sign: FloatSignOperation.Xor)),
-  floating_point_case(VFMIN_VV, fp_unit(FloatUnit.MinMax)),
-  floating_point_case(VFMAX_VV, fp_unit(FloatUnit.MinMax, ~minmax: MinMaxOperation.MaximumNumber)),
-  floating_point_case(VMFEQ_VV, fp_unit(FloatUnit.Compare), ~mask_destination: #true),
-  floating_point_case(VMFNE_VV, fp_unit(FloatUnit.Compare, ~comparison: FloatComparison.NotEqual), ~mask_destination: #true),
-  floating_point_case(VMFLT_VV, fp_unit(FloatUnit.Compare, ~comparison: FloatComparison.Less, ~signaling: #true), ~mask_destination: #true),
-  floating_point_case(VMFLE_VV, fp_unit(FloatUnit.Compare, ~comparison: FloatComparison.LessEqual, ~signaling: #true), ~mask_destination: #true),
-  floating_point_case(VFMACC_VV, fp_unit(FloatUnit.FusedMultiplyAdd, ~rounding: #true)),
-  floating_point_case(VFMADD_VV, fp_unit(FloatUnit.FusedMultiplyAdd, ~rounding: #true), ~multiply_destination: #true),
-  floating_point_case(VFMSAC_VV, fp_unit(FloatUnit.FusedMultiplyAdd, ~rounding: #true, ~fused: MulAddOperation.MultiplySubtract)),
-  floating_point_case(VFMSUB_VV, fp_unit(FloatUnit.FusedMultiplyAdd, ~rounding: #true, ~fused: MulAddOperation.MultiplySubtract), ~multiply_destination: #true),
-  floating_point_case(VFNMACC_VV, fp_unit(FloatUnit.FusedMultiplyAdd, ~rounding: #true, ~fused: MulAddOperation.NegatedMultiplySubtract)),
-  floating_point_case(VFNMADD_VV, fp_unit(FloatUnit.FusedMultiplyAdd, ~rounding: #true, ~fused: MulAddOperation.NegatedMultiplySubtract), ~multiply_destination: #true),
-  floating_point_case(VFNMSAC_VV, fp_unit(FloatUnit.FusedMultiplyAdd, ~rounding: #true, ~fused: MulAddOperation.NegatedMultiplyAdd)),
-  floating_point_case(VFNMSUB_VV, fp_unit(FloatUnit.FusedMultiplyAdd, ~rounding: #true, ~fused: MulAddOperation.NegatedMultiplyAdd), ~multiply_destination: #true),
-  floating_point_case(VFADD_VF, fp_unit(FloatUnit.Add, ~rounding: #true), ~uses_vs1: #false, ~operand: VectorOperandMode.FloatingScalar),
-  floating_point_case(VFSUB_VF, fp_unit(FloatUnit.Add, ~rounding: #true, ~add: FloatAddOperation.Subtract), ~uses_vs1: #false, ~operand: VectorOperandMode.FloatingScalar),
-  floating_point_case(VFRSUB_VF, fp_unit(FloatUnit.Add, ~rounding: #true, ~add: FloatAddOperation.Subtract), ~uses_vs1: #false, ~operand: VectorOperandMode.FloatingScalar, ~swap: #true),
-  floating_point_case(VFMUL_VF, fp_unit(FloatUnit.Multiply, ~rounding: #true), ~uses_vs1: #false, ~operand: VectorOperandMode.FloatingScalar),
-  floating_point_case(VFDIV_VF, fp_unit(FloatUnit.DivideSquareRoot, ~rounding: #true), ~uses_vs1: #false, ~operand: VectorOperandMode.FloatingScalar),
-  floating_point_case(VFRDIV_VF, fp_unit(FloatUnit.DivideSquareRoot, ~rounding: #true), ~uses_vs1: #false, ~operand: VectorOperandMode.FloatingScalar, ~swap: #true),
-  floating_point_case(VFSGNJ_VF, fp_unit(FloatUnit.SignInject), ~uses_vs1: #false, ~operand: VectorOperandMode.FloatingScalar),
-  floating_point_case(VFSGNJN_VF, fp_unit(FloatUnit.SignInject, ~sign: FloatSignOperation.Negate), ~uses_vs1: #false, ~operand: VectorOperandMode.FloatingScalar),
-  floating_point_case(VFSGNJX_VF, fp_unit(FloatUnit.SignInject, ~sign: FloatSignOperation.Xor), ~uses_vs1: #false, ~operand: VectorOperandMode.FloatingScalar),
-  floating_point_case(VFMIN_VF, fp_unit(FloatUnit.MinMax), ~uses_vs1: #false, ~operand: VectorOperandMode.FloatingScalar),
-  floating_point_case(VFMAX_VF, fp_unit(FloatUnit.MinMax, ~minmax: MinMaxOperation.MaximumNumber), ~uses_vs1: #false, ~operand: VectorOperandMode.FloatingScalar),
-  floating_point_case(VMFEQ_VF, fp_unit(FloatUnit.Compare), ~uses_vs1: #false, ~mask_destination: #true, ~operand: VectorOperandMode.FloatingScalar),
-  floating_point_case(VMFNE_VF, fp_unit(FloatUnit.Compare, ~comparison: FloatComparison.NotEqual), ~uses_vs1: #false, ~mask_destination: #true, ~operand: VectorOperandMode.FloatingScalar),
-  floating_point_case(VMFLT_VF, fp_unit(FloatUnit.Compare, ~comparison: FloatComparison.Less, ~signaling: #true), ~uses_vs1: #false, ~mask_destination: #true, ~operand: VectorOperandMode.FloatingScalar),
-  floating_point_case(VMFLE_VF, fp_unit(FloatUnit.Compare, ~comparison: FloatComparison.LessEqual, ~signaling: #true), ~uses_vs1: #false, ~mask_destination: #true, ~operand: VectorOperandMode.FloatingScalar),
-  floating_point_case(VMFGT_VF, fp_unit(FloatUnit.Compare, ~comparison: FloatComparison.Less, ~signaling: #true), ~uses_vs1: #false, ~mask_destination: #true, ~operand: VectorOperandMode.FloatingScalar, ~swap: #true),
-  floating_point_case(VMFGE_VF, fp_unit(FloatUnit.Compare, ~comparison: FloatComparison.LessEqual, ~signaling: #true), ~uses_vs1: #false, ~mask_destination: #true, ~operand: VectorOperandMode.FloatingScalar, ~swap: #true),
-  floating_point_case(VFMACC_VF, fp_unit(FloatUnit.FusedMultiplyAdd, ~rounding: #true), ~uses_vs1: #false, ~operand: VectorOperandMode.FloatingScalar),
-  floating_point_case(VFMADD_VF, fp_unit(FloatUnit.FusedMultiplyAdd, ~rounding: #true), ~uses_vs1: #false, ~multiply_destination: #true, ~operand: VectorOperandMode.FloatingScalar),
-  floating_point_case(VFMSAC_VF, fp_unit(FloatUnit.FusedMultiplyAdd, ~rounding: #true, ~fused: MulAddOperation.MultiplySubtract), ~uses_vs1: #false, ~operand: VectorOperandMode.FloatingScalar),
-  floating_point_case(VFMSUB_VF, fp_unit(FloatUnit.FusedMultiplyAdd, ~rounding: #true, ~fused: MulAddOperation.MultiplySubtract), ~uses_vs1: #false, ~multiply_destination: #true, ~operand: VectorOperandMode.FloatingScalar),
-  floating_point_case(VFNMACC_VF, fp_unit(FloatUnit.FusedMultiplyAdd, ~rounding: #true, ~fused: MulAddOperation.NegatedMultiplySubtract), ~uses_vs1: #false, ~operand: VectorOperandMode.FloatingScalar),
-  floating_point_case(VFNMADD_VF, fp_unit(FloatUnit.FusedMultiplyAdd, ~rounding: #true, ~fused: MulAddOperation.NegatedMultiplySubtract), ~uses_vs1: #false, ~multiply_destination: #true, ~operand: VectorOperandMode.FloatingScalar),
-  floating_point_case(VFNMSAC_VF, fp_unit(FloatUnit.FusedMultiplyAdd, ~rounding: #true, ~fused: MulAddOperation.NegatedMultiplyAdd), ~uses_vs1: #false, ~operand: VectorOperandMode.FloatingScalar),
-  floating_point_case(VFNMSUB_VF, fp_unit(FloatUnit.FusedMultiplyAdd, ~rounding: #true, ~fused: MulAddOperation.NegatedMultiplyAdd), ~uses_vs1: #false, ~multiply_destination: #true, ~operand: VectorOperandMode.FloatingScalar),
-  floating_point_case(VFREDUSUM_VS, fp_unit(FloatUnit.Add, ~rounding: #true), ~reduction: #true),
-  floating_point_case(VFREDOSUM_VS, fp_unit(FloatUnit.Add, ~rounding: #true), ~reduction: #true),
-  floating_point_case(VFREDMIN_VS, fp_unit(FloatUnit.MinMax), ~reduction: #true),
-  floating_point_case(VFREDMAX_VS, fp_unit(FloatUnit.MinMax, ~minmax: MinMaxOperation.MaximumNumber), ~reduction: #true),
-  floating_point_case(VFWADD_VV, fp_unit(FloatUnit.Add, ~rounding: #true), ~widening: #true),
-  floating_point_case(VFWADD_VF, fp_unit(FloatUnit.Add, ~rounding: #true), ~uses_vs1: #false, ~operand: VectorOperandMode.FloatingScalar, ~widening: #true),
-  floating_point_case(VFWADD_WV, fp_unit(FloatUnit.Add, ~rounding: #true), ~widening: #true, ~wide_vs2: #true),
-  floating_point_case(VFWADD_WF, fp_unit(FloatUnit.Add, ~rounding: #true), ~uses_vs1: #false, ~operand: VectorOperandMode.FloatingScalar, ~widening: #true, ~wide_vs2: #true),
-  floating_point_case(VFWSUB_VV, fp_unit(FloatUnit.Add, ~rounding: #true, ~add: FloatAddOperation.Subtract), ~widening: #true),
-  floating_point_case(VFWSUB_VF, fp_unit(FloatUnit.Add, ~rounding: #true, ~add: FloatAddOperation.Subtract), ~uses_vs1: #false, ~operand: VectorOperandMode.FloatingScalar, ~widening: #true),
-  floating_point_case(VFWSUB_WV, fp_unit(FloatUnit.Add, ~rounding: #true, ~add: FloatAddOperation.Subtract), ~widening: #true, ~wide_vs2: #true),
-  floating_point_case(VFWSUB_WF, fp_unit(FloatUnit.Add, ~rounding: #true, ~add: FloatAddOperation.Subtract), ~uses_vs1: #false, ~operand: VectorOperandMode.FloatingScalar, ~widening: #true, ~wide_vs2: #true),
-  floating_point_case(VFWMUL_VV, fp_unit(FloatUnit.Multiply, ~rounding: #true), ~widening: #true),
-  floating_point_case(VFWMUL_VF, fp_unit(FloatUnit.Multiply, ~rounding: #true), ~uses_vs1: #false, ~operand: VectorOperandMode.FloatingScalar, ~widening: #true),
-  floating_point_case(VFWMACC_VV, fp_unit(FloatUnit.FusedMultiplyAdd, ~rounding: #true), ~widening: #true),
-  floating_point_case(VFWMACC_VF, fp_unit(FloatUnit.FusedMultiplyAdd, ~rounding: #true), ~uses_vs1: #false, ~operand: VectorOperandMode.FloatingScalar, ~widening: #true),
-  floating_point_case(VFWNMACC_VV, fp_unit(FloatUnit.FusedMultiplyAdd, ~rounding: #true, ~fused: MulAddOperation.NegatedMultiplySubtract), ~widening: #true),
-  floating_point_case(VFWNMACC_VF, fp_unit(FloatUnit.FusedMultiplyAdd, ~rounding: #true, ~fused: MulAddOperation.NegatedMultiplySubtract), ~uses_vs1: #false, ~operand: VectorOperandMode.FloatingScalar, ~widening: #true),
-  floating_point_case(VFWMSAC_VV, fp_unit(FloatUnit.FusedMultiplyAdd, ~rounding: #true, ~fused: MulAddOperation.MultiplySubtract), ~widening: #true),
-  floating_point_case(VFWMSAC_VF, fp_unit(FloatUnit.FusedMultiplyAdd, ~rounding: #true, ~fused: MulAddOperation.MultiplySubtract), ~uses_vs1: #false, ~operand: VectorOperandMode.FloatingScalar, ~widening: #true),
-  floating_point_case(VFWNMSAC_VV, fp_unit(FloatUnit.FusedMultiplyAdd, ~rounding: #true, ~fused: MulAddOperation.NegatedMultiplyAdd), ~widening: #true),
-  floating_point_case(VFWNMSAC_VF, fp_unit(FloatUnit.FusedMultiplyAdd, ~rounding: #true, ~fused: MulAddOperation.NegatedMultiplyAdd), ~uses_vs1: #false, ~operand: VectorOperandMode.FloatingScalar, ~widening: #true),
-  floating_point_case(VFWREDUSUM_VS, fp_unit(FloatUnit.Add, ~rounding: #true), ~reduction: #true, ~widening: #true),
-  floating_point_case(VFWREDOSUM_VS, fp_unit(FloatUnit.Add, ~rounding: #true), ~reduction: #true, ~widening: #true),
-  floating_point_case(VFCVT_XU_F_V, fp_unit(FloatUnit.Convert, ~rounding: #true, ~unsigned: #true), ~uses_vs1: #false, ~result: VectorFloatResult.Integer),
-  floating_point_case(VFCVT_X_F_V, fp_unit(FloatUnit.Convert, ~rounding: #true, ~unsigned: #false), ~uses_vs1: #false, ~result: VectorFloatResult.Integer),
-  floating_point_case(VFCVT_F_XU_V, fp_unit(FloatUnit.Convert, ~rounding: #true, ~unsigned: #true), ~uses_vs1: #false, ~source: VectorFloatSource.Integer),
-  floating_point_case(VFCVT_F_X_V, fp_unit(FloatUnit.Convert, ~rounding: #true, ~unsigned: #false), ~uses_vs1: #false, ~source: VectorFloatSource.Integer),
-  floating_point_case(VFCVT_RTZ_XU_F_V, fp_unit(FloatUnit.Convert, ~unsigned: #true), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~rounding: VectorFloatRounding.TowardZero),
-  floating_point_case(VFCVT_RTZ_X_F_V, fp_unit(FloatUnit.Convert, ~unsigned: #false), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~rounding: VectorFloatRounding.TowardZero),
-  floating_point_case(VFWCVT_XU_F_V, fp_unit(FloatUnit.Convert, ~rounding: #true, ~unsigned: #true), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~widening: #true),
-  floating_point_case(VFWCVT_X_F_V, fp_unit(FloatUnit.Convert, ~rounding: #true, ~unsigned: #false), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~widening: #true),
-  floating_point_case(VFWCVT_F_XU_V, fp_unit(FloatUnit.Convert, ~rounding: #true, ~unsigned: #true), ~uses_vs1: #false, ~source: VectorFloatSource.Integer, ~widening: #true, ~wide_float: #true),
-  floating_point_case(VFWCVT_F_X_V, fp_unit(FloatUnit.Convert, ~rounding: #true, ~unsigned: #false), ~uses_vs1: #false, ~source: VectorFloatSource.Integer, ~widening: #true, ~wide_float: #true),
-  floating_point_case(VFWCVT_F_F_V, fp_unit(FloatUnit.Convert, ~rounding: #true), ~uses_vs1: #false, ~widening: #true, ~zvfhmin_e16: #true),
-  floating_point_case(VFWCVT_RTZ_XU_F_V, fp_unit(FloatUnit.Convert, ~unsigned: #true), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~rounding: VectorFloatRounding.TowardZero, ~widening: #true),
-  floating_point_case(VFWCVT_RTZ_X_F_V, fp_unit(FloatUnit.Convert, ~unsigned: #false), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~rounding: VectorFloatRounding.TowardZero, ~widening: #true),
-  floating_point_case(VFNCVT_XU_F_W, fp_unit(FloatUnit.Convert, ~rounding: #true, ~unsigned: #true), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~narrowing: #true, ~wide_float: #true),
-  floating_point_case(VFNCVT_X_F_W, fp_unit(FloatUnit.Convert, ~rounding: #true, ~unsigned: #false), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~narrowing: #true, ~wide_float: #true),
-  floating_point_case(VFNCVT_F_XU_W, fp_unit(FloatUnit.Convert, ~rounding: #true, ~unsigned: #true), ~uses_vs1: #false, ~source: VectorFloatSource.Integer, ~narrowing: #true),
-  floating_point_case(VFNCVT_F_X_W, fp_unit(FloatUnit.Convert, ~rounding: #true, ~unsigned: #false), ~uses_vs1: #false, ~source: VectorFloatSource.Integer, ~narrowing: #true),
-  floating_point_case(VFNCVT_F_F_W, fp_unit(FloatUnit.Convert, ~rounding: #true), ~uses_vs1: #false, ~narrowing: #true, ~zvfhmin_e16: #true),
-  floating_point_case(VFNCVT_ROD_F_F_W, fp_unit(FloatUnit.Convert), ~uses_vs1: #false, ~rounding: VectorFloatRounding.RoundToOdd, ~narrowing: #true),
-  floating_point_case(VFNCVT_RTZ_XU_F_W, fp_unit(FloatUnit.Convert, ~unsigned: #true), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~rounding: VectorFloatRounding.TowardZero, ~narrowing: #true, ~wide_float: #true),
-  floating_point_case(VFNCVT_RTZ_X_F_W, fp_unit(FloatUnit.Convert, ~unsigned: #false), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~rounding: VectorFloatRounding.TowardZero, ~narrowing: #true, ~wide_float: #true)
+  floating_point_case(VFADD_VV, FloatUnit.Add, ~uses_frm: #true),
+  floating_point_case(VFSUB_VV, FloatUnit.Add, ~uses_frm: #true, ~add: FloatAddOperation.Subtract),
+  floating_point_case(VFMUL_VV, FloatUnit.Multiply, ~uses_frm: #true),
+  floating_point_case(VFDIV_VV, FloatUnit.DivideSquareRoot, ~uses_frm: #true),
+  floating_point_case(VFSQRT_V, FloatUnit.DivideSquareRoot, ~uses_frm: #true, ~divide: FloatDivideOperation.SquareRoot),
+  floating_point_case(VFRSQRT7_V, FloatUnit.Estimate, ~estimate: Estimate7Operation.ReciprocalSquareRoot),
+  floating_point_case(VFREC7_V, FloatUnit.Estimate, ~uses_frm: #true),
+  floating_point_case(VFCLASS_V, FloatUnit.Classify, ~result: VectorFloatResult.Integer),
+  floating_point_case(VFSGNJ_VV, FloatUnit.SignInject),
+  floating_point_case(VFSGNJN_VV, FloatUnit.SignInject, ~sign: FloatSignOperation.Negate),
+  floating_point_case(VFSGNJX_VV, FloatUnit.SignInject, ~sign: FloatSignOperation.Xor),
+  floating_point_case(VFMIN_VV, FloatUnit.MinMax),
+  floating_point_case(VFMAX_VV, FloatUnit.MinMax, ~minmax: MinMaxOperation.MaximumNumber),
+  floating_point_case(VMFEQ_VV, FloatUnit.Compare, ~result: VectorFloatResult.Mask),
+  floating_point_case(VMFNE_VV, FloatUnit.Compare, ~comparison: FloatComparison.NotEqual, ~result: VectorFloatResult.Mask),
+  floating_point_case(VMFLT_VV, FloatUnit.Compare, ~comparison: FloatComparison.Less, ~signaling: #true, ~result: VectorFloatResult.Mask),
+  floating_point_case(VMFLE_VV, FloatUnit.Compare, ~comparison: FloatComparison.LessEqual, ~signaling: #true, ~result: VectorFloatResult.Mask),
+  floating_point_case(VFMACC_VV, FloatUnit.FusedMultiplyAdd, ~uses_frm: #true),
+  floating_point_case(VFMADD_VV, FloatUnit.FusedMultiplyAdd, ~uses_frm: #true, ~order: VectorFpOperandOrder.VdFirst),
+  floating_point_case(VFMSAC_VV, FloatUnit.FusedMultiplyAdd, ~uses_frm: #true, ~fused: MulAddOperation.MultiplySubtract),
+  floating_point_case(VFMSUB_VV, FloatUnit.FusedMultiplyAdd, ~uses_frm: #true, ~fused: MulAddOperation.MultiplySubtract, ~order: VectorFpOperandOrder.VdFirst),
+  floating_point_case(VFNMACC_VV, FloatUnit.FusedMultiplyAdd, ~uses_frm: #true, ~fused: MulAddOperation.NegatedMultiplySubtract),
+  floating_point_case(VFNMADD_VV, FloatUnit.FusedMultiplyAdd, ~uses_frm: #true, ~fused: MulAddOperation.NegatedMultiplySubtract, ~order: VectorFpOperandOrder.VdFirst),
+  floating_point_case(VFNMSAC_VV, FloatUnit.FusedMultiplyAdd, ~uses_frm: #true, ~fused: MulAddOperation.NegatedMultiplyAdd),
+  floating_point_case(VFNMSUB_VV, FloatUnit.FusedMultiplyAdd, ~uses_frm: #true, ~fused: MulAddOperation.NegatedMultiplyAdd, ~order: VectorFpOperandOrder.VdFirst),
+  floating_point_case(VFADD_VF, FloatUnit.Add, ~uses_frm: #true, ~operand: VectorOperandMode.FloatingScalar),
+  floating_point_case(VFSUB_VF, FloatUnit.Add, ~uses_frm: #true, ~add: FloatAddOperation.Subtract, ~operand: VectorOperandMode.FloatingScalar),
+  floating_point_case(VFRSUB_VF, FloatUnit.Add, ~uses_frm: #true, ~add: FloatAddOperation.Subtract, ~operand: VectorOperandMode.FloatingScalar, ~order: VectorFpOperandOrder.RhsFirst),
+  floating_point_case(VFMUL_VF, FloatUnit.Multiply, ~uses_frm: #true, ~operand: VectorOperandMode.FloatingScalar),
+  floating_point_case(VFDIV_VF, FloatUnit.DivideSquareRoot, ~uses_frm: #true, ~operand: VectorOperandMode.FloatingScalar),
+  floating_point_case(VFRDIV_VF, FloatUnit.DivideSquareRoot, ~uses_frm: #true, ~operand: VectorOperandMode.FloatingScalar, ~order: VectorFpOperandOrder.RhsFirst),
+  floating_point_case(VFSGNJ_VF, FloatUnit.SignInject, ~operand: VectorOperandMode.FloatingScalar),
+  floating_point_case(VFSGNJN_VF, FloatUnit.SignInject, ~sign: FloatSignOperation.Negate, ~operand: VectorOperandMode.FloatingScalar),
+  floating_point_case(VFSGNJX_VF, FloatUnit.SignInject, ~sign: FloatSignOperation.Xor, ~operand: VectorOperandMode.FloatingScalar),
+  floating_point_case(VFMIN_VF, FloatUnit.MinMax, ~operand: VectorOperandMode.FloatingScalar),
+  floating_point_case(VFMAX_VF, FloatUnit.MinMax, ~minmax: MinMaxOperation.MaximumNumber, ~operand: VectorOperandMode.FloatingScalar),
+  floating_point_case(VMFEQ_VF, FloatUnit.Compare, ~result: VectorFloatResult.Mask, ~operand: VectorOperandMode.FloatingScalar),
+  floating_point_case(VMFNE_VF, FloatUnit.Compare, ~comparison: FloatComparison.NotEqual, ~result: VectorFloatResult.Mask, ~operand: VectorOperandMode.FloatingScalar),
+  floating_point_case(VMFLT_VF, FloatUnit.Compare, ~comparison: FloatComparison.Less, ~signaling: #true, ~result: VectorFloatResult.Mask, ~operand: VectorOperandMode.FloatingScalar),
+  floating_point_case(VMFLE_VF, FloatUnit.Compare, ~comparison: FloatComparison.LessEqual, ~signaling: #true, ~result: VectorFloatResult.Mask, ~operand: VectorOperandMode.FloatingScalar),
+  floating_point_case(VMFGT_VF, FloatUnit.Compare, ~comparison: FloatComparison.Less, ~signaling: #true, ~result: VectorFloatResult.Mask, ~operand: VectorOperandMode.FloatingScalar, ~order: VectorFpOperandOrder.RhsFirst),
+  floating_point_case(VMFGE_VF, FloatUnit.Compare, ~comparison: FloatComparison.LessEqual, ~signaling: #true, ~result: VectorFloatResult.Mask, ~operand: VectorOperandMode.FloatingScalar, ~order: VectorFpOperandOrder.RhsFirst),
+  floating_point_case(VFMACC_VF, FloatUnit.FusedMultiplyAdd, ~uses_frm: #true, ~operand: VectorOperandMode.FloatingScalar),
+  floating_point_case(VFMADD_VF, FloatUnit.FusedMultiplyAdd, ~uses_frm: #true, ~order: VectorFpOperandOrder.VdFirst, ~operand: VectorOperandMode.FloatingScalar),
+  floating_point_case(VFMSAC_VF, FloatUnit.FusedMultiplyAdd, ~uses_frm: #true, ~fused: MulAddOperation.MultiplySubtract, ~operand: VectorOperandMode.FloatingScalar),
+  floating_point_case(VFMSUB_VF, FloatUnit.FusedMultiplyAdd, ~uses_frm: #true, ~fused: MulAddOperation.MultiplySubtract, ~order: VectorFpOperandOrder.VdFirst, ~operand: VectorOperandMode.FloatingScalar),
+  floating_point_case(VFNMACC_VF, FloatUnit.FusedMultiplyAdd, ~uses_frm: #true, ~fused: MulAddOperation.NegatedMultiplySubtract, ~operand: VectorOperandMode.FloatingScalar),
+  floating_point_case(VFNMADD_VF, FloatUnit.FusedMultiplyAdd, ~uses_frm: #true, ~fused: MulAddOperation.NegatedMultiplySubtract, ~order: VectorFpOperandOrder.VdFirst, ~operand: VectorOperandMode.FloatingScalar),
+  floating_point_case(VFNMSAC_VF, FloatUnit.FusedMultiplyAdd, ~uses_frm: #true, ~fused: MulAddOperation.NegatedMultiplyAdd, ~operand: VectorOperandMode.FloatingScalar),
+  floating_point_case(VFNMSUB_VF, FloatUnit.FusedMultiplyAdd, ~uses_frm: #true, ~fused: MulAddOperation.NegatedMultiplyAdd, ~order: VectorFpOperandOrder.VdFirst, ~operand: VectorOperandMode.FloatingScalar),
+  floating_point_case(VFREDUSUM_VS, FloatUnit.Add, ~uses_frm: #true, ~sequence: VectorSequence.Reduction),
+  floating_point_case(VFREDOSUM_VS, FloatUnit.Add, ~uses_frm: #true, ~sequence: VectorSequence.Reduction),
+  floating_point_case(VFREDMIN_VS, FloatUnit.MinMax, ~sequence: VectorSequence.Reduction),
+  floating_point_case(VFREDMAX_VS, FloatUnit.MinMax, ~minmax: MinMaxOperation.MaximumNumber, ~sequence: VectorSequence.Reduction),
+  floating_point_case(VFWADD_VV, FloatUnit.Add, ~uses_frm: #true, ~shape: VectorWidthShape.Widen),
+  floating_point_case(VFWADD_VF, FloatUnit.Add, ~uses_frm: #true, ~operand: VectorOperandMode.FloatingScalar, ~shape: VectorWidthShape.Widen),
+  floating_point_case(VFWADD_WV, FloatUnit.Add, ~uses_frm: #true, ~shape: VectorWidthShape.WidenWideVs2),
+  floating_point_case(VFWADD_WF, FloatUnit.Add, ~uses_frm: #true, ~operand: VectorOperandMode.FloatingScalar, ~shape: VectorWidthShape.WidenWideVs2),
+  floating_point_case(VFWSUB_VV, FloatUnit.Add, ~uses_frm: #true, ~add: FloatAddOperation.Subtract, ~shape: VectorWidthShape.Widen),
+  floating_point_case(VFWSUB_VF, FloatUnit.Add, ~uses_frm: #true, ~add: FloatAddOperation.Subtract, ~operand: VectorOperandMode.FloatingScalar, ~shape: VectorWidthShape.Widen),
+  floating_point_case(VFWSUB_WV, FloatUnit.Add, ~uses_frm: #true, ~add: FloatAddOperation.Subtract, ~shape: VectorWidthShape.WidenWideVs2),
+  floating_point_case(VFWSUB_WF, FloatUnit.Add, ~uses_frm: #true, ~add: FloatAddOperation.Subtract, ~operand: VectorOperandMode.FloatingScalar, ~shape: VectorWidthShape.WidenWideVs2),
+  floating_point_case(VFWMUL_VV, FloatUnit.Multiply, ~uses_frm: #true, ~shape: VectorWidthShape.Widen),
+  floating_point_case(VFWMUL_VF, FloatUnit.Multiply, ~uses_frm: #true, ~operand: VectorOperandMode.FloatingScalar, ~shape: VectorWidthShape.Widen),
+  floating_point_case(VFWMACC_VV, FloatUnit.FusedMultiplyAdd, ~uses_frm: #true, ~shape: VectorWidthShape.Widen),
+  floating_point_case(VFWMACC_VF, FloatUnit.FusedMultiplyAdd, ~uses_frm: #true, ~operand: VectorOperandMode.FloatingScalar, ~shape: VectorWidthShape.Widen),
+  floating_point_case(VFWNMACC_VV, FloatUnit.FusedMultiplyAdd, ~uses_frm: #true, ~fused: MulAddOperation.NegatedMultiplySubtract, ~shape: VectorWidthShape.Widen),
+  floating_point_case(VFWNMACC_VF, FloatUnit.FusedMultiplyAdd, ~uses_frm: #true, ~fused: MulAddOperation.NegatedMultiplySubtract, ~operand: VectorOperandMode.FloatingScalar, ~shape: VectorWidthShape.Widen),
+  floating_point_case(VFWMSAC_VV, FloatUnit.FusedMultiplyAdd, ~uses_frm: #true, ~fused: MulAddOperation.MultiplySubtract, ~shape: VectorWidthShape.Widen),
+  floating_point_case(VFWMSAC_VF, FloatUnit.FusedMultiplyAdd, ~uses_frm: #true, ~fused: MulAddOperation.MultiplySubtract, ~operand: VectorOperandMode.FloatingScalar, ~shape: VectorWidthShape.Widen),
+  floating_point_case(VFWNMSAC_VV, FloatUnit.FusedMultiplyAdd, ~uses_frm: #true, ~fused: MulAddOperation.NegatedMultiplyAdd, ~shape: VectorWidthShape.Widen),
+  floating_point_case(VFWNMSAC_VF, FloatUnit.FusedMultiplyAdd, ~uses_frm: #true, ~fused: MulAddOperation.NegatedMultiplyAdd, ~operand: VectorOperandMode.FloatingScalar, ~shape: VectorWidthShape.Widen),
+  floating_point_case(VFWREDUSUM_VS, FloatUnit.Add, ~uses_frm: #true, ~sequence: VectorSequence.Reduction, ~shape: VectorWidthShape.Widen),
+  floating_point_case(VFWREDOSUM_VS, FloatUnit.Add, ~uses_frm: #true, ~sequence: VectorSequence.Reduction, ~shape: VectorWidthShape.Widen),
+  floating_point_case(VFCVT_XU_F_V, FloatUnit.Convert, ~uses_frm: #true, ~unsigned: #true, ~result: VectorFloatResult.Integer),
+  floating_point_case(VFCVT_X_F_V, FloatUnit.Convert, ~uses_frm: #true, ~unsigned: #false, ~result: VectorFloatResult.Integer),
+  floating_point_case(VFCVT_F_XU_V, FloatUnit.Convert, ~uses_frm: #true, ~unsigned: #true, ~source: VectorFloatSource.Integer),
+  floating_point_case(VFCVT_F_X_V, FloatUnit.Convert, ~uses_frm: #true, ~unsigned: #false, ~source: VectorFloatSource.Integer),
+  floating_point_case(VFCVT_RTZ_XU_F_V, FloatUnit.Convert, ~unsigned: #true, ~result: VectorFloatResult.Integer, ~rounding: VectorFloatRounding.TowardZero),
+  floating_point_case(VFCVT_RTZ_X_F_V, FloatUnit.Convert, ~unsigned: #false, ~result: VectorFloatResult.Integer, ~rounding: VectorFloatRounding.TowardZero),
+  floating_point_case(VFWCVT_XU_F_V, FloatUnit.Convert, ~uses_frm: #true, ~unsigned: #true, ~result: VectorFloatResult.Integer, ~shape: VectorWidthShape.Widen),
+  floating_point_case(VFWCVT_X_F_V, FloatUnit.Convert, ~uses_frm: #true, ~unsigned: #false, ~result: VectorFloatResult.Integer, ~shape: VectorWidthShape.Widen),
+  floating_point_case(VFWCVT_F_XU_V, FloatUnit.Convert, ~uses_frm: #true, ~unsigned: #true, ~source: VectorFloatSource.Integer, ~shape: VectorWidthShape.Widen, ~wide_float: #true),
+  floating_point_case(VFWCVT_F_X_V, FloatUnit.Convert, ~uses_frm: #true, ~unsigned: #false, ~source: VectorFloatSource.Integer, ~shape: VectorWidthShape.Widen, ~wide_float: #true),
+  floating_point_case(VFWCVT_F_F_V, FloatUnit.Convert, ~uses_frm: #true, ~shape: VectorWidthShape.Widen, ~zvfhmin_e16: #true),
+  floating_point_case(VFWCVT_RTZ_XU_F_V, FloatUnit.Convert, ~unsigned: #true, ~result: VectorFloatResult.Integer, ~rounding: VectorFloatRounding.TowardZero, ~shape: VectorWidthShape.Widen),
+  floating_point_case(VFWCVT_RTZ_X_F_V, FloatUnit.Convert, ~unsigned: #false, ~result: VectorFloatResult.Integer, ~rounding: VectorFloatRounding.TowardZero, ~shape: VectorWidthShape.Widen),
+  floating_point_case(VFNCVT_XU_F_W, FloatUnit.Convert, ~uses_frm: #true, ~unsigned: #true, ~result: VectorFloatResult.Integer, ~shape: VectorWidthShape.Narrow, ~wide_float: #true),
+  floating_point_case(VFNCVT_X_F_W, FloatUnit.Convert, ~uses_frm: #true, ~unsigned: #false, ~result: VectorFloatResult.Integer, ~shape: VectorWidthShape.Narrow, ~wide_float: #true),
+  floating_point_case(VFNCVT_F_XU_W, FloatUnit.Convert, ~uses_frm: #true, ~unsigned: #true, ~source: VectorFloatSource.Integer, ~shape: VectorWidthShape.Narrow),
+  floating_point_case(VFNCVT_F_X_W, FloatUnit.Convert, ~uses_frm: #true, ~unsigned: #false, ~source: VectorFloatSource.Integer, ~shape: VectorWidthShape.Narrow),
+  floating_point_case(VFNCVT_F_F_W, FloatUnit.Convert, ~uses_frm: #true, ~shape: VectorWidthShape.Narrow, ~zvfhmin_e16: #true),
+  floating_point_case(VFNCVT_ROD_F_F_W, FloatUnit.Convert, ~rounding: VectorFloatRounding.RoundToOdd, ~shape: VectorWidthShape.Narrow),
+  floating_point_case(VFNCVT_RTZ_XU_F_W, FloatUnit.Convert, ~unsigned: #true, ~result: VectorFloatResult.Integer, ~rounding: VectorFloatRounding.TowardZero, ~shape: VectorWidthShape.Narrow, ~wide_float: #true),
+  floating_point_case(VFNCVT_RTZ_X_F_W, FloatUnit.Convert, ~unsigned: #false, ~result: VectorFloatResult.Integer, ~rounding: VectorFloatRounding.TowardZero, ~shape: VectorWidthShape.Narrow, ~wide_float: #true)
 ]
 
 /* Builds FP move/merge/slide controls that use vector routing without issuing FP arithmetic. */
 fun floating_move_case(instruction :: InstructionSpec,
-                       ~mask_select: mask_select :: Boolean = #false,
-                       ~element_move: element_move :: Boolean = #false,
-                       ~floating_scalar_destination: floating_scalar_destination :: Boolean = #false,
-                       ~slide: slide :: Boolean = #false,
-                       ~slide_up: slide_up :: Boolean = #false,
-                       ~uses_vs2: uses_vs2 :: Boolean = #true):
-  DecodeCase(
-    instruction_pattern(instruction),
+                       ~v0: v0 :: VectorV0Role = VectorV0Role.Predicate,
+                       ~sequence: sequence :: VectorSequence = VectorSequence.Rows,
+                       ~result: result :: VectorResultKind = VectorResultKind.Elements,
+                       ~permutation: permutation :: VectorPermutationKind = VectorPermutationKind.None):
+  compute_case(
+    instruction, VectorComputeFamily.FpData, (if result == VectorResultKind.Fpr | VectorOperandMode.Vector | VectorOperandMode.FloatingScalar), sequence, permutation, result,
     partial_pattern(VectorControl()):
-      configure: VectorConfigMode.None
-      integer: Bool(#false)
-      floating_point: Bool(#true)
-      fp_service: Bool(#false)
+      width_shape: VectorWidthShape.Same
       fp_zvfhmin_e16: Bool(#false)
       fp_wide_float: Bool(#false)
-      multiply_divide: Bool(#false)
-      memory: Bool(#false)
-      operand: if floating_scalar_destination | VectorOperandMode.Vector | VectorOperandMode.FloatingScalar
-      fp_uses_vs1: Bool(#false)
-      mask_select: Bool(mask_select)
-      element_move: Bool(element_move)
-      floating_scalar_destination: Bool(floating_scalar_destination)
-      slide: Bool(slide)
-      slide_up: if slide | Bool(slide_up) | pattern(Bool, _)
-      slide_one: if slide | Bool(#true) | pattern(Bool, _)
-      uses_vs2: Bool(uses_vs2)
-      alu: if slide | vslide_control | vselect_control
+      reads: compute_reads(instruction, ~v0: v0)
+      integer_row:
+        partial_pattern(VectorIntegerRowControl()):
+          swap_operands: Bool(#false)
+          alu: if [VectorPermutationKind.SlideOneUp, VectorPermutationKind.SlideOneDown].contains(permutation) | vslide_control | vselect_control
+          can_saturate: Bool(#false)
   )
 
 def VectorFloatingPointMoveCases = [
-  floating_move_case(VFMERGE_VFM, ~mask_select: #true),
-  floating_move_case(VFMV_V_F, ~uses_vs2: #false),
-  floating_move_case(VFMV_F_S, ~element_move: #true, ~floating_scalar_destination: #true),
-  floating_move_case(VFMV_S_F, ~element_move: #true, ~uses_vs2: #false),
-  floating_move_case(VFSLIDE1UP_VF, ~slide: #true, ~slide_up: #true),
-  floating_move_case(VFSLIDE1DOWN_VF, ~slide: #true)
+  floating_move_case(VFMERGE_VFM, ~v0: VectorV0Role.Selector),
+  floating_move_case(VFMV_V_F),
+  floating_move_case(VFMV_F_S, ~sequence: VectorSequence.Extract, ~result: VectorResultKind.Fpr),
+  floating_move_case(VFMV_S_F, ~sequence: VectorSequence.Insert),
+  floating_move_case(VFSLIDE1UP_VF, ~permutation: VectorPermutationKind.SlideOneUp),
+  floating_move_case(VFSLIDE1DOWN_VF, ~permutation: VectorPermutationKind.SlideOneDown)
 ]
 
 def VectorDivideCases = for List (instruction in VectorDivideInstructions):
-  def signed_left = [VMULH_VV, VMULH_VX, VMULHSU_VV, VMULHSU_VX, VDIV_VV, VDIV_VX, VREM_VV, VREM_VX].contains(instruction)
-  DecodeCase(
-    instruction_pattern(instruction),
+  def signed_mode = [VDIV_VV, VDIV_VX, VREM_VV, VREM_VX].contains(instruction)
+  compute_case(
+    instruction, VectorComputeFamily.IntDivide, (if instruction.format == VectorVXFormat | VectorOperandMode.Scalar | VectorOperandMode.Vector), VectorSequence.Rows, VectorPermutationKind.None, VectorResultKind.Elements,
     partial_pattern(VectorControl()):
-      configure: VectorConfigMode.None
-      integer: Bool(#false)
-      floating_point: Bool(#false)
-      multiply_divide: Bool(#true)
-      memory: Bool(#false)
-      operand: if instruction.format == VectorVXFormat | VectorOperandMode.Scalar | VectorOperandMode.Vector
-      divide: Bool(#true)
-      multiply_accumulate: Bool(#false)
-      left_signed: Bool(signed_left)
-      remainder: Bool([VREM_VV, VREM_VX, VREMU_VV, VREMU_VX].contains(instruction))
+      width_shape: VectorWidthShape.Same
+      reads: compute_reads(instruction)
+      division:
+        pattern(VectorDivideControl()):
+          signed_mode: Bool(signed_mode)
+          remainder: Bool([VREM_VV, VREM_VX, VREMU_VV, VREMU_VX].contains(instruction))
   )
 
 def VectorMultiplyCases = for List (instruction in VectorMultiplyInstructions ++ VectorFractionalMultiplyInstructions ++ VectorWideningMultiplyInstructions ++ VectorMultiplyAccumulateInstructions ++ VectorWideningMultiplyAccumulateInstructions):
   def fractional = VectorFractionalMultiplyInstructions.contains(instruction)
   def widened = (VectorWideningMultiplyInstructions ++ VectorWideningMultiplyAccumulateInstructions).contains(instruction)
-  def accumulate = (VectorMultiplyAccumulateInstructions ++ VectorWideningMultiplyAccumulateInstructions).contains(instruction)
+  def vd_role:
+    cond
+    | [VMADD_VV, VMADD_VX, VNMSUB_VV, VNMSUB_VX].contains(instruction): VectorProductVdRole.Factor
+    | (VectorMultiplyAccumulateInstructions ++ VectorWideningMultiplyAccumulateInstructions).contains(instruction): VectorProductVdRole.Addend
+    | ~else: VectorProductVdRole.Unused
+  def accumulate = vd_role != VectorProductVdRole.Unused
+  def select:
+    cond
+    | widened: SimdMultiplySelect.Wide
+    | fractional: SimdMultiplySelect.Fractional
+    | accumulate || [VMUL_VV, VMUL_VX].contains(instruction): SimdMultiplySelect.Low
+    | ~else: SimdMultiplySelect.High
   def signed_left = fractional || [VMULH_VV, VMULH_VX, VMULHSU_VV, VMULHSU_VX, VWMULSU_VV, VWMULSU_VX, VWMUL_VV, VWMUL_VX, VWMACC_VV, VWMACC_VX, VWMACCUS_VX].contains(instruction)
   def signed_right = fractional || [VMULH_VV, VMULH_VX, VWMUL_VV, VWMUL_VX, VWMACC_VV, VWMACC_VX, VWMACCSU_VV, VWMACCSU_VX].contains(instruction)
-  DecodeCase(
-    instruction_pattern(instruction),
+  compute_case(
+    instruction, VectorComputeFamily.IntProduct, (if instruction.format == VectorVXFormat | VectorOperandMode.Scalar | VectorOperandMode.Vector), VectorSequence.Rows, VectorPermutationKind.None, VectorResultKind.Elements,
     partial_pattern(VectorControl()):
-      configure: VectorConfigMode.None
-      integer: Bool(#false)
-      floating_point: Bool(#false)
-      multiply_divide: Bool(#true)
-      memory: Bool(#false)
-      operand: if instruction.format == VectorVXFormat | VectorOperandMode.Scalar | VectorOperandMode.Vector
-      divide: Bool(#false)
-      left_signed: if accumulate && !widened | pattern(Bool, _) | Bool(signed_left)
-      right_signed: if accumulate && !widened | pattern(Bool, _) | Bool(signed_right)
-      widening: Bool(widened)
-      multiply_accumulate: Bool(accumulate)
-      multiply_destination: if accumulate | Bool([VMADD_VV, VMADD_VX, VNMSUB_VV, VNMSUB_VX].contains(instruction)) | pattern(Bool, _)
-      multiply_subtract: if accumulate | Bool([VNMSAC_VV, VNMSAC_VX, VNMSUB_VV, VNMSUB_VX].contains(instruction)) | pattern(Bool, _)
-      multiply_result: if accumulate | pattern(VectorMultiplyResult, _) | (if fractional | VectorMultiplyResult.Fractional | (if widened | VectorMultiplyResult.Widened | (if [VMUL_VV, VMUL_VX].contains(instruction) | VectorMultiplyResult.Low | VectorMultiplyResult.High)))
+      width_shape: if widened | VectorWidthShape.Widen | VectorWidthShape.Same
+      reads: compute_reads(instruction, ~old_vd: accumulate)
+      product:
+        partial_pattern(VectorProductControl()):
+          select: select
+          mode:
+            partial_pattern(MultiplierMode()):
+              left_signed: if select == SimdMultiplySelect.Low | pattern(Bool, _) | Bool(signed_left)
+              right_signed: if select == SimdMultiplySelect.Low | pattern(Bool, _) | Bool(signed_right)
+          vd_role: vd_role
+          subtract: if accumulate | Bool([VNMSAC_VV, VNMSAC_VX, VNMSUB_VV, VNMSUB_VX].contains(instruction)) | pattern(Bool, _)
   )
 
 def VectorMultiplyDivideCases = VectorDivideCases ++ VectorMultiplyCases
@@ -1152,7 +1407,7 @@ circuit VectorOperationLegality(xlen :: XLen, vlen :: VectorLength, profile :: V
   /* Runtime geometry and schedule limits */
 
   def config = vector_type(xlen, vlen, vtype, ~elen: vector_profile_elen(profile))
-  def requires_zero_start = control.reduction ||| (control.integer & (control.compress ||| (control.scan & !control.scan_control.index)))
+  def requires_zero_start = vector_reduction(control) ||| (control.integer & ((control.permutation === VectorPermutationKind.Compress) ||| (vector_scan(control) & !control.scan_control.index)))
   def start_legal = !requires_zero_start ||| !vstart.any()
   def elen = Bits(2)(if vector_profile_supports_integer64(profile) | 3 | 2)
   def whole_register_memory = control.memory & (control.memory_mode === VectorMemoryMode.WholeRegister)
@@ -1168,23 +1423,23 @@ circuit VectorOperationLegality(xlen :: XLen, vlen :: VectorLength, profile :: V
   def emul = config.lmul.into(SInt(3)).sext(5) + data_eew.zext(5).into(SInt(5)) - config.sew.zext(5).into(SInt(5))
   def memory_index_emul = config.lmul.into(SInt(3)).sext(5) + control.memory_index_eew.zext(5).into(SInt(5)) - config.sew.zext(5).into(SInt(5))
   def widening_emul = config.lmul.into(SInt(3)).sext(5) + SInt(5)(1)
-  def widening = (control.integer ||| control.fp_service ||| control.multiply_divide) & control.widening
-  def narrowing = control.integer & control.narrowing
-  def fp_widening = control.fp_service & control.widening
-  def fp_narrowing = control.fp_service & control.narrowing
-  def extension = control.integer & control.extension
-  def whole_register_move = control.integer & control.whole_register_move
-  def extension_power = control.extension_ratio.as_bits().zext(5) + Bits(5)(1)
+  def widening = (control.dispatch_kind === VectorDispatchKind.Execute) & widens_result(control.width_shape)
+  def narrowing = control.integer & (control.width_shape === VectorWidthShape.Narrow)
+  def fp_widening = control.fp_service & widens_result(control.width_shape)
+  def fp_narrowing = control.fp_service & (control.width_shape === VectorWidthShape.Narrow)
+  def extension = control.integer & extension_shift(control.width_shape).any()
+  def whole_register_move = vector_whole_copy(control)
+  def extension_power = extension_shift(control.width_shape).zext(5)
   def extension_emul = config.lmul.into(SInt(3)).sext(5) - extension_power.into(SInt(5))
   def extension_group = extension_emul.into(Bits(5))[0..3]
   def extension_group_mask = mux_lookup(extension_group, ~default: Bits(5)(0), [[1, Bits(5)(1)], [2, Bits(5)(3)], [3, Bits(5)(7)]])
   def group = mux(control.memory, emul.into(Bits(5))[0..3], config.lmul)
-  def group_mask = mux_lookup(group, ~default: Bits(5)(0), [[1, Bits(5)(1)], [2, Bits(5)(3)], [3, Bits(5)(7)]])
+  def group_mask = vector_register_group_mask(group)
   def memory_group_shift = mux(emul < SInt(5)(0), Bits(3)(0), emul.into(Bits(5))[0..3])
   def memory_fields = control.memory_nf.zext(4) + Bits(4)(1)
   def memory_register_count = memory_fields.zext(7) << memory_group_shift
   def memory_index_group = memory_index_emul.into(Bits(5))[0..3]
-  def memory_index_group_mask = mux_lookup(memory_index_group, ~default: Bits(5)(0), [[1, Bits(5)(1)], [2, Bits(5)(3)], [3, Bits(5)(7)]])
+  def memory_index_group_mask = vector_register_group_mask(memory_index_group)
   def wide_group_mask = mux_lookup(widening_emul.into(Bits(5))[0..3], ~default: Bits(5)(0), [[1, Bits(5)(1)], [2, Bits(5)(3)], [3, Bits(5)(7)]])
   def destination_group = mux(widening, widening_emul.into(Bits(5))[0..3], group)
   def destination_group_mask = mux_lookup(destination_group, ~default: Bits(5)(0), [[1, Bits(5)(1)], [2, Bits(5)(3)], [3, Bits(5)(7)]])
@@ -1243,36 +1498,37 @@ circuit VectorOperationLegality(xlen :: XLen, vlen :: VectorLength, profile :: V
 
   def masked = !instruction_field(vm, instruction).any()
   // Merge reads v0 at EEW=1; the same register cannot also supply SEW data.
-  def merge_sources_legal = !control.mask_select ||| (source2.any() & (!vector_operand ||| source1.any()))
+  def merge_sources_legal = (control.reads.v0 =/= VectorV0Role.Selector) ||| (source2.any() & (!vector_operand ||| source1.any()))
   // Carry-in uses v0 as EEW=1 data, so the same register cannot also supply a
   // SEW-wide source operand in that instruction.
-  def carry_sources_legal = !control.carry_input ||| (source2.any() & (!vector_operand ||| source1.any()))
+  def carry_sources_legal = (control.reads.v0 =/= VectorV0Role.Carry) ||| (source2.any() & (!vector_operand ||| source1.any()))
   def reduction_source2_end = source2.zext(6) + group_mask.zext(6) + Bits(6)(1)
   def reduction_sources_disjoint = (source1.zext(6) < source2.zext(6)) ||| (source1.zext(6) >= reduction_source2_end)
   def widening_reduction_legal = !widening ||| ((config.sew < elen) & reduction_sources_disjoint)
   def reduction_sources_legal = source2_aligned & widening_reduction_legal & (!masked ||| (source1.any() & source2.any()))
-  def scan_mask = control.scan_control.result === VectorScanResult.Mask
+  def scan_mask = control.result_kind === VectorResultKind.Mask
   def scan_overlap = mux(scan_mask, destination === source2, (source2 & !group_mask) === destination)
-  def scan_legal = control.scalar_destination ||| ((!masked ||| destination.any()) & mux(scan_mask, destination =/= source2, destination_aligned & (control.scan_control.index ||| !scan_overlap)))
+  def scan_legal = vector_writes_gpr(control) ||| ((!masked ||| destination.any()) & mux(scan_mask, destination =/= source2, destination_aligned & (!control.reads.vs2 ||| !scan_overlap)))
   // Aligned equal-size groups overlap exactly when their base registers match.
-  def slide_overlap_legal = !control.slide ||| ((!control.slide_up ||| (destination =/= source2)) & (!masked ||| source2.any()))
+  def slide_overlap_legal = !is_register_slide(control.permutation) ||| ((!slide_moves_up(control.permutation) ||| (destination =/= source2)) & (!masked ||| source2.any()))
 
 
   /* Gather's index group may have a different EEW/EMUL. Compare physical
      register intervals before issuing any read, even for an empty body. */
 
   def index_emul = config.lmul.into(SInt(3)).sext(5) + SInt(5)(1) - config.sew.zext(5).into(SInt(5))
-  def index_group = mux(control.gather_index16, index_emul.into(Bits(5))[0..3], config.lmul)
+  def ei16 = control.permutation === VectorPermutationKind.GatherVectorEI16
+  def index_group = mux(ei16, index_emul.into(Bits(5))[0..3], config.lmul)
   def index_mask = mux_lookup(index_group, ~default: Bits(5)(0), [[1, Bits(5)(1)], [2, Bits(5)(3)], [3, Bits(5)(7)]])
   def index_end = source1.zext(6) + index_mask.zext(6) + Bits(6)(1)
   def data_end = source2.zext(6) + group_mask.zext(6) + Bits(6)(1)
   def destination_end = destination.zext(6) + destination_group_mask.zext(6) + Bits(6)(1)
   def index_disjoint = (destination.zext(6) >= index_end) ||| (source1.zext(6) >= destination_end)
   def sources_disjoint = (source2.zext(6) >= index_end) ||| (source1.zext(6) >= data_end)
-  def gather_index_width_legal = !control.gather_index16 ||| ((index_emul >= SInt(5)(-3)) & (index_emul <= SInt(5)(3)) & ((config.sew === Bits(2)(1)) ||| sources_disjoint))
+  def gather_index_width_legal = !ei16 ||| ((index_emul >= SInt(5)(-3)) & (index_emul <= SInt(5)(3)) & ((config.sew === Bits(2)(1)) ||| sources_disjoint))
   def gather_index_legal = !(source1 & index_mask).any() & index_disjoint & (!masked ||| source1.any()) & gather_index_width_legal
   def gather_data_legal = destination_aligned & source2_aligned & (destination =/= source2) & (!masked ||| (destination.any() & source2.any()))
-  def gather_legal = gather_data_legal & (!vector_operand ||| gather_index_legal)
+  def gather_legal = gather_data_legal & (!gather_uses_vs1(control.permutation) ||| gather_index_legal)
   def compress_mask_disjoint = ((source1.zext(6) < destination.zext(6)) ||| (source1.zext(6) >= destination_end)) & ((source1.zext(6) < source2.zext(6)) ||| (source1.zext(6) >= data_end))
   def compress_legal = destination_aligned & source2_aligned & (destination =/= source2) & compress_mask_disjoint
 
@@ -1281,7 +1537,7 @@ circuit VectorOperationLegality(xlen :: XLen, vlen :: VectorLength, profile :: V
 
   def narrow_source2_legal = source2_aligned & widening_overlap_legal(source2)
   def wide_source2_legal = wide_source2_aligned
-  def widening_legal = !widening ||| ((config.sew < elen) & (widening_emul <= SInt(5)(3)) & mux(control.wide_vs2, wide_source2_legal, narrow_source2_legal) & (!vector_operand ||| widening_overlap_legal(source1)))
+  def widening_legal = !widening ||| ((config.sew < elen) & (widening_emul <= SInt(5)(3)) & mux(has_wide_vs2(control.width_shape), wide_source2_legal, narrow_source2_legal) & (!vector_operand ||| widening_overlap_legal(source1)))
   def source1_end = source1.zext(6) + group_mask.zext(6) + Bits(6)(1)
   def wide_source2_end = source2.zext(6) + wide_group_mask.zext(6) + Bits(6)(1)
   def narrowing_sources_disjoint = !vector_operand ||| (source1.zext(6) >= wide_source2_end) ||| (source2.zext(6) >= source1_end)
@@ -1300,20 +1556,20 @@ circuit VectorOperationLegality(xlen :: XLen, vlen :: VectorLength, profile :: V
 
   /* Mask logic always names single registers, regardless of the data LMUL. */
 
-  def integer_source2_legal = !control.uses_vs2 ||| mux((widening ||| narrowing) & control.wide_vs2, wide_source2_aligned, source2_aligned)
-  def integer_destination_legal = mux(control.mask_destination, mask_overlap_legal(source2) & (!vector_operand ||| mask_overlap_legal(source1)), destination_aligned & !(masked & !destination.any()))
+  def integer_source2_legal = !control.reads.vs2 ||| mux((widening ||| narrowing) & has_wide_vs2(control.width_shape), wide_source2_aligned, source2_aligned)
+  def integer_destination_legal = mux(vector_writes_mask(control), mask_overlap_legal(source2) & (!vector_operand ||| mask_overlap_legal(source1)), destination_aligned & !(masked & !destination.any()))
   def ordinary_integer_sources_legal = integer_source2_legal & (!vector_operand ||| source1_aligned)
   def ordinary_integer_overlap_legal = slide_overlap_legal & merge_sources_legal & carry_sources_legal & widening_legal & narrowing_legal
   def ordinary_integer_legal = ordinary_integer_overlap_legal & ordinary_integer_sources_legal & integer_destination_legal
   def selected_integer_legal = priority_mux(~default: ordinary_integer_legal):
     whole_register_move: whole_register_move_legal
     extension: extension_legal
-    control.compress: compress_legal
-    control.gather: gather_legal
-    control.scan: scan_legal
-    control.element_move: Bool(#true)
-    control.reduction: reduction_sources_legal
-    control.mask_logic: Bool(#true)
+    control.permutation === VectorPermutationKind.Compress: compress_legal
+    is_register_gather(control.permutation): gather_legal
+    vector_scan(control): scan_legal
+    vector_scalar_move(control): Bool(#true)
+    vector_reduction(control): reduction_sources_legal
+    vector_packed_mask_rows(control): Bool(#true)
 
   def integer_legal = control.integer & selected_integer_legal
 
@@ -1347,24 +1603,24 @@ circuit VectorOperationLegality(xlen :: XLen, vlen :: VectorLength, profile :: V
   /* Floating-point widths, overlap, and profile restrictions */
 
   def fp_width_change = fp_widening ||| fp_narrowing
-  def fp_reduction = control.floating_point & control.reduction
-  def fp_wide_source2 = fp_narrowing ||| (fp_widening & control.wide_vs2)
+  def fp_reduction = control.floating_point & vector_reduction(control)
+  def fp_wide_source2 = has_wide_vs2(control.width_shape)
   def fp_source2_aligned = mux(fp_wide_source2, wide_source2_aligned, source2_aligned)
-  def fp_element_sources_legal = fp_source2_aligned & (!control.fp_uses_vs1 ||| source1_aligned)
+  def fp_element_sources_legal = fp_source2_aligned & (!control.reads.vs1 ||| source1_aligned)
   def fp_sources_legal = mux(fp_reduction, reduction_sources_legal, fp_element_sources_legal)
-  def fp_destination_legal = fp_reduction ||| mux(control.mask_destination, mask_overlap_legal(source2) & (!control.fp_uses_vs1 ||| mask_overlap_legal(source1)), destination_aligned & !(masked & !destination.any()))
-  def fp_widening_overlap_legal = mux(control.wide_vs2, Bool(#true), widening_overlap_legal(source2)) & (!control.fp_uses_vs1 ||| widening_overlap_legal(source1))
+  def fp_destination_legal = fp_reduction ||| mux(vector_writes_mask(control), mask_overlap_legal(source2) & (!control.reads.vs1 ||| mask_overlap_legal(source1)), destination_aligned & !(masked & !destination.any()))
+  def fp_widening_overlap_legal = mux(has_wide_vs2(control.width_shape), Bool(#true), widening_overlap_legal(source2)) & (!control.reads.vs1 ||| widening_overlap_legal(source1))
   def fp_zvfhmin = Bool(vector_extensions_support_zvfhmin(extensions))
   def fp_zvfh = Bool(vector_extensions_support_zvfh(extensions))
   def fp_e8_legal = (config.sew === Bits(2)(0)) & control.fp_wide_float & fp_zvfh
   def fp_e16_legal = (config.sew === Bits(2)(1)) & (control.fp_wide_float ||| fp_zvfh ||| (control.fp_zvfhmin_e16 & fp_zvfhmin))
-  def fp_narrow_float = (fp_widening & (control.fp_result === VectorFloatResult.Integer)) ||| (fp_narrowing & (control.fp_source === VectorFloatSource.Integer))
+  def fp_narrow_float = (fp_widening & (control.fp.result === VectorFloatResult.Integer)) ||| (fp_narrowing & (control.fp.source === VectorFloatSource.Integer))
   def fp_width_change_profile_legal = mux_lookup(config.sew, ~default: Bool(vector_profile_supports_fp64(profile)) ||| fp_narrow_float, [[0, fp_e8_legal], [1, fp_e16_legal]])
   def fp_width_change_legal = fp_reduction ||| !fp_width_change ||| ((config.sew < elen) & (widening_emul <= SInt(5)(3)) & mux(fp_widening, fp_widening_overlap_legal, narrowing_overlap_legal()))
-  def fp_move_sources_legal = (control.element_move ||| !control.uses_vs2 ||| source2_aligned) & (!control.slide ||| slide_overlap_legal)
-  def fp_move_destination_legal = control.floating_scalar_destination ||| control.element_move ||| (destination_aligned & !(masked & !destination.any()))
+  def fp_move_sources_legal = (vector_scalar_move(control) ||| !control.reads.vs2 ||| source2_aligned) & slide_overlap_legal
+  def fp_move_destination_legal = vector_writes_fpr(control) ||| vector_scalar_move(control) ||| (destination_aligned & !(masked & !destination.any()))
   def fp_service_legal = !(fp_widening & fp_narrowing) & (!fp_width_change ||| fp_width_change_profile_legal) & fp_sources_legal & fp_destination_legal & fp_width_change_legal
-  def fp_move_legal = fp_move_sources_legal & fp_move_destination_legal & (!control.mask_select ||| merge_sources_legal)
+  def fp_move_legal = fp_move_sources_legal & fp_move_destination_legal & ((control.reads.v0 =/= VectorV0Role.Selector) ||| merge_sources_legal)
   def fp_width_legal = Bool(vector_profile_supports_fp32(profile)) & (fp_e8_legal ||| fp_e16_legal ||| mux(Bool(vector_profile_supports_fp64(profile)), config.sew >= Bits(2)(2), config.sew === Bits(2)(2)))
   def fp_legal = control.floating_point & fp_width_legal & mux(control.fp_service, fp_service_legal, fp_move_legal)
 
@@ -1372,7 +1628,7 @@ circuit VectorOperationLegality(xlen :: XLen, vlen :: VectorLength, profile :: V
   /* Multiply/divide profile and register legality */
 
   def multiply_divide_sources_legal = mux(widening, widening_legal, source2_aligned & (!vector_operand ||| source1_aligned))
-  def restricted_elen64_multiply = !control.divide & !control.multiply_accumulate & control.multiply_result.is_one_of(VectorMultiplyResult.High, VectorMultiplyResult.Fractional)
+  def restricted_elen64_multiply = (control.compute_family === VectorComputeFamily.IntProduct) & control.product.select.is_one_of(SimdMultiplySelect.High, SimdMultiplySelect.Fractional)
   def multiply_profile_legal = Bool(vector_profile_is_v(profile)) ||| !((config.sew === Bits(2)(3)) & restricted_elen64_multiply)
   def multiply_divide_legal = control.multiply_divide & multiply_profile_legal & multiply_divide_sources_legal & destination_aligned & !(masked & !destination.any())
 
@@ -1383,18 +1639,58 @@ circuit VectorOperationLegality(xlen :: XLen, vlen :: VectorLength, profile :: V
   legal <== start_legal & (whole_register_legal ||| (!config.vill & (integer_legal ||| ordinary_memory_legal ||| mask_memory_legal ||| fp_legal ||| multiply_divide_legal)))
 
 export:
+  widens_result
+  has_wide_vs2
+  extension_shift
+  compute_vs2_eew
+  compute_dest_eew
+  vector_scalar_move
+  vector_whole_copy
+  vector_reduction
+  vector_scan
+  vector_register_group_mask
   VectorScanResult
   VectorConfigMode
+  VectorPermutationKind
+  gather_uses_vs1
+  is_register_gather
+  is_register_slide
+  slide_moves_up
+  slide_inserts_scalar
+  VectorReadRoles
+  VectorComputeFamily
+  VectorDispatchKind
+  VectorIntegerRowControl
+  VectorSequence
+  VectorComputeCursor
+  VectorVpsUse
+  VectorReductionIdentity
+  VectorResultKind
+  VectorRowLayout
+  VectorDataResult
+  vector_packed_mask_rows
+  vector_writes_gpr
+  vector_writes_fpr
+  vector_writes_mask
+  VectorWidthShape
+  vector_shadow_role
+  VectorV0Role
   VectorOperandMode
   VectorImmediateKind
+  VectorFpControl
+  VectorLocalFpResult
+  VectorFpOperandOrder
   VectorFloatSource
   VectorFloatResult
   VectorFloatRounding
-  VectorMultiplyResult
+  VectorProductControl
+  VectorProductVdRole
+  VectorDivideControl
   VectorMemoryAddressing
   VectorMemoryMode
   VectorControl
   NoVectorControl
+  vector_fp_state_illegal
   VectorConfigurationCases
   VectorIntegerCases
   VectorCarryBorrowCases

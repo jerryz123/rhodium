@@ -1,0 +1,119 @@
+#lang rhodium
+/* Computes one DLEN-wide integer result from two aligned operand rows. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../decode.rhdl".VectorIntegerRowControl
+  "../../../simd-alu.rhdl" open
+  lib("rhodium/std/bits.rhdl").expand_mask
+
+/* Independent SIMD slices prevent cross-element carry and add no pipeline stage. */
+circuit VectorIntegerUnit(dlen :: PosInt):
+  input control: VectorIntegerRowControl()
+  input sew: SimdElementWidth
+  input(left_signed, right_signed): Bool
+  input step: SimdElementWidth
+  input(left_lag, right_lag): Bits(2)
+  input narrow: Bool
+  input part: Bits(3)
+  input vxrm: SimdRoundingMode
+  input(raw_left, raw_right): Bits(dlen)
+  output result: Bits(dlen)
+  output saturated_bytes: Bits(dlen div 8)
+  input carry_bytes: Bits(dlen div 8)
+  input select_bytes: Bits(dlen div 8)
+  output mask_bits: Bits(dlen div 8)
+
+  /* Expand only the fraction consumed by this beat. A wide VS2 bypasses
+     operand expansion even when the other operand advances at half its rate.
+     Only VS2 needs quarter/eighth-row wiring for sign and zero extension. */
+  fun prepare(raw :: Bits(dlen), lag :: Bits(2), signed :: Bool, left :: Boolean) :~ Bits(dlen):
+    def ratio = if left | (lag - Bits(2)(1)).into(SimdExtensionRatio) | SimdExtensionRatio.By2
+    mux(lag.any(), simd_expand_fragment(dlen, raw, step, ratio, part, signed), raw)
+  def alu = control.alu
+  def a = prepare(raw_left, left_lag, left_signed, #true)
+  def b = prepare(raw_right, right_lag, right_signed, #false)
+  def values(left :: Bits(dlen), right :: Bits(dlen)) = control.place_operands(dlen, a, b)
+  def levels = simd_comparison_levels(dlen, left, right, alu.signed_compare, alu.comparison_select)
+  def width = math.min(64, dlen)
+  bundle SliceResult():
+    add: Bits(width)
+    shift: Bits(width)
+    carry: Bits(width div 8)
+    saturation: Bits(width div 8)
+  def arithmetic = for List (i in 0..(dlen div width)):
+    inst slice(SimdArithmeticSlice(width))
+    slice.left <== left[i*width..(i+1)*width]
+    slice.right <== right[i*width..(i+1)*width]
+    slice.element_width <== step
+    slice.mode <== alu.arithmetic_mode
+    slice.subtract <== alu.subtract
+    slice.shift_right <== alu.shift_right
+    slice.arithmetic_shift <== alu.arithmetic_shift
+    slice.rotate <== alu.rotate
+    slice.round_shift <== control.round_shift
+    slice.rounding_mode <== vxrm
+    slice.carry_bytes <== carry_bytes[i*(width div 8)..(i+1)*(width div 8)]
+    SliceResult():
+      add: slice.add_data
+      shift: slice.shift_data
+      carry: slice.carry_borrow
+      saturation: slice.saturated_bytes
+  def adder_saturation = vec(for List (slice :: SliceResult() in arithmetic): slice.saturation).as_bits()
+  def fragments = for List (level in levels, sew in SimdElementWidth.values(), format in 0..4):
+    def bytes = 1 << format
+    def bits_per_lane = for List (lane :: SimdElementPredicates() in level, index in 0..level.length()):
+      def lanes = width div (8*bytes)
+      def slice :: SliceResult() = arithmetic[index div lanes]
+      def carry = slice.carry[index mod lanes].into(Bool)
+      mux(alu.mask_result_select === SimdMaskResultSelect.CarryBorrow, carry, lane.comparison ^ control.invert_comparison)
+    [sew, vec(bits_per_lane).as_bits().zext(dlen div 8)]
+  mask_bits <== mux_lookup(sew, ~default: fragments[0][1], fragments)
+  // Replicate each lane's ordering decision across its bytes before selecting data.
+  def less_by_width = for List (level in levels, sew in SimdElementWidth.values(), format in 0..4):
+    def less_bytes = for List (byte in 0..(dlen div 8)):
+      def lane :: SimdElementPredicates() = level[byte >> format]
+      lane.less
+    [sew, vec(less_bytes).as_bits()]
+  def less = mux_lookup(sew, ~default: less_by_width[0][1], less_by_width)
+  def minmax = alu.result_select === SimdResultSelect.MinMax
+  def choose_right = mux(minmax, mux(alu.maximum, less, !less), select_bytes)
+  def slices = for List (i in 0..(dlen div width)):
+    def a = left[i * width..(i + 1) * width]
+    def b = right[i * width..(i + 1) * width]
+    def values(permuted, counted) = simd_bitmanip(width, a, step, alu.count_select, alu.permutation_select)
+    def logic = simd_logic(width, alu.logic_select, a, mux(alu.invert_right, !b, b))
+    def selected = for List (j in 0..(width div 8)):
+      mux(choose_right[i*(width div 8)+j].into(Bool), b[8*j..8*(j+1)], a[8*j..8*(j+1)])
+    def selected_data = vec(selected).as_bits()
+    def slice :: SliceResult() = arithmetic[i]
+    mux_lookup(alu.result_select, ~default: mux(control.invert_logic_result, !logic, logic), [
+      [SimdResultSelect.Adder, slice.add],
+      [SimdResultSelect.Permute, permuted],
+      [SimdResultSelect.Count, counted],
+      [SimdResultSelect.Select, selected_data],
+      [SimdResultSelect.MinMax, selected_data],
+      [SimdResultSelect.Shift, slice.shift]
+    ])
+  def data = vec(slices).as_bits()
+  /* Each wide source row supplies half a destination. Deposit the data and
+     saturation in physical byte coordinates; never read or merge old vd. */
+  def halves = for List (format in 0..math.min(3, bits.length(dlen div 8)-1)):
+    def bits = 8 << format
+    def lanes = for List (i in 0..(dlen div (2*bits))):
+      def values(value, saturated) = simd_narrow_lane(bits, data[i*2*bits..(i+1)*2*bits], control.clip, control.clip_unsigned)
+      [value, saturated]
+    [SimdElementWidth.values()[format], vec(lanes.map(fun (l): l[0])).as_bits(),
+     expand_mask(vec(lanes.map(fun (l): l[1])).as_bits(), bits div 8)]
+  /* Select the low or high destination fragment without a barrel shift. */
+  fun deposit(low :: Bits) :~ Bits(2*low.type.packed_width()):
+    def zero = Bits(low.type.packed_width())(0)
+    mux(part[0].into(Bool), low ++ zero, zero ++ low)
+  def half_data = mux_lookup(sew, ~default: halves[0][1], halves.map(fun (h): [h[0], h[1]]))
+  def half_sat = mux_lookup(sew, ~default: halves[0][2], halves.map(fun (h): [h[0], h[2]]))
+  result <== priority_mux(~default: data):
+    narrow: deposit(half_data)
+    left_lag.any() & !right_lag.any(): left
+  saturated_bytes <== mux(narrow, deposit(half_sat), adder_saturation)
+
+export VectorIntegerUnit

@@ -1,0 +1,282 @@
+#lang rhodium
+/* Checks active vector memory elements at retirement and issues translated slices to the VLSU. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../common/memory-route.rhdl" open
+  "../common/memory-command.rhdl" open
+  "../common/row-types.rhdl" open
+  "../../bundles.rhdl" open
+  "../../decode.rhdl" open
+  "../../geometry.rhdl".vector_indexed_memory
+  "../../geometry.rhdl".vector_data_width
+  lib("riscv/rtl/trap.rhdl").ExceptionCause
+  "../../backend-kind.rhm".vector_dlen
+  lib("cores/common/mmu/vector.rhdl") open
+  lib("riscv/isa/vector.rhm").VectorLength
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/rtl/pointer-masking.rhdl") open
+  lib("flow/main.rhdl") open
+  lib("rhodium/std/bits.rhdl") open
+
+hardware_enum CheckPhase:
+  Idle
+  Seek
+  Predicate
+  Splat
+  Check
+  Result
+  Prepare
+  Launch
+  AwaitIssue
+  Finish
+  Translate
+  Translation
+  Fault
+
+/* Scan ahead once the VLSU owns an element and its translations. Final cache
+   issue authorizes retirement; precise restart waits for the prefix to drain. */
+sync_circuit VectorFaultCheck(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int):
+  def dlen = vector_dlen(vlen)
+  def Entry = VectorDispatchEntry(xlen, slots)
+  def Word = Bits(xlen.width)
+  interface start(Decoupled(Entry), ~role: consumer)
+  interface exact(VectorElementTranslation(), ~role: requester)
+  interface fault(Valid(VectorElementMapping()), ~role: producer)
+  interface truncate(Valid(Word), ~role: producer)
+  output(fault_address, restart): Word
+  interface splat(Decoupled(SplatPosition(dlen)), ~role: producer)
+  output(certified, release_window): Bool
+  input pages: VectorWindowPages
+  interface prepare(Decoupled(MemoryIssue(xlen, vlen, slots)), ~role: producer)
+  interface launch(Decoupled(MemoryLaunch(xlen, vlen, slots)), ~role: producer)
+  interface checked_element(Decoupled(CheckedIndexElement(xlen, vlen)), ~role: producer)
+  output stream_live: Bool
+  interface indices(Decoupled(IndexOperandRow(dlen, Bits(index_width(slots)))), ~role: consumer)
+  output discard_indices: Bool
+  interface predicate(VectorPredicateTap(dlen), ~role: reader)
+  interface check(VectorPrecheck(), ~role: requester)
+  input(issued, drained): Bool
+  output(busy, authorized, finished): Bool
+  output pc: Word
+  output owner: Bits(index_width(slots))
+  output store: Bool
+  reg phase(~init: CheckPhase.Idle)
+  reg second(~init: Bool(#false))
+  reg exact_pages(VectorWindowPages)
+  reg exact_slice(~init: Bool(#false))
+  reg mapping(VectorElementMapping())
+  reg entry(Entry)
+  reg element(Word)
+  reg field(~init: Bits(3)(0))
+  reg segment_address(Word)
+  reg repeat_load(~init: Bool(#false))
+  reg outstanding(~init: MemoryCreditCount(0))
+  reg awaiting_issue(~init: Bool(#false))
+  reg page_owned(~init: Bool(#false))
+  reg owned_vpn(Bits(xlen.width - VectorPageOffsetBits))
+  def d :: VectorDescriptor(xlen) = entry.checked.descriptor
+  def eew = d.control.memory_index_eew
+  def next = element + Word(1)
+  certified <== entry.checked.certified
+  def strided = d.control.memory_addressing === VectorMemoryAddressing.Strided
+  def indexed = vector_indexed_memory(d.control)
+  def data_eew = vector_data_width(d.control, d.state.sew())
+  def nf = mux(d.control.memory_mode.is_one_of(VectorMemoryMode.Ordinary, VectorMemoryMode.FaultOnlyFirst), d.control.memory_nf, Bits(3)(0))
+  def segmented = nf.any()
+  def last_field = field === nf
+  def stepped = strided ||| (segmented & !indexed)
+  def step_bytes = mux(strided, d.stride, (nf.zext(xlen.width) + Word(1)) << data_eew)
+  def last = next === d.beat_limit(vlen).zext(xlen.width)
+  def byte_offset = element[0..index_width(vlen+1)] << eew
+  def lane_bits = index_width(dlen div 8)
+  def row = group_row(d.vs2(), byte_offset[lane_bits..index_width(vlen+1)].zext(RowAddress.packed_width()))
+  def hit = !indexed ||| indices.valid
+  def lane = byte_offset[0..lane_bits]
+  def bits_at_lane = indices.bits.data >> (lane ++ Bits(3)(0))
+  def offset = mux_lookup(eew, ~default: bits_at_lane[0..xlen.width],
+                          for List (w in 0..bits.length(xlen.width div 8)): [w, bits_at_lane[0..(8 * 2 ** w)].zext(xlen.width)])
+  def base = mux(stepped, segment_address, d.scalar + mux(indexed, offset, element << data_eew))
+  def raw = base + (field.zext(xlen.width) << data_eew)
+  def first = apply_pointer_mask(xlen, raw, d.pointer_masking)
+  def extent = (Word(1) << data_eew) - Word(1)
+  def end = apply_pointer_mask(xlen, raw + extent, d.pointer_masking)
+  def contiguous = (end >= first) & ((end - first) === extent)
+  def vpn = first[VectorPageOffsetBits..xlen.width]
+  def single_page = vpn === end[VectorPageOffsetBits..xlen.width]
+  def page_hit = contiguous & single_page & page_owned & (owned_vpn === vpn)
+  def checking = phase === CheckPhase.Check
+  def sampling = phase === CheckPhase.Predicate
+  predicate.sample.valid <== sampling & d.masked
+  predicate.sample.bits <== element[index_width(dlen)..index_width(dlen)+1]
+  def skip = sampling & hit & d.masked & !predicate.data.as_vec(Bool)[element[0..index_width(dlen)]]
+  busy <== phase =/= CheckPhase.Idle
+  start.ready <== !busy
+  discard_indices <== indexed & (phase === CheckPhase.Fault)
+  // A rejected envelope is not a fault. Probe the exact active bytes of
+  // each touched page with the same privilege context as scalar demand.
+  def suffix = end.align_down(VectorPageBytes)
+  exact.request.valid <== phase === CheckPhase.Translate
+  exact.request.bits <== VectorRange():
+    first: mux(second, suffix, first).zext(64)
+    last: mux(!single_page & !second, first ||| Word(VectorPageBytes - 1), end).zext(64)
+    store: d.control.store
+  def resolved = exact.response.valid
+  def answer = exact.response.bits
+  def uncached = answer.service.is_one_of(VectorMemoryService.Uncached, VectorMemoryService.Device)
+  def io_misaligned = uncached & (first & extent).any()
+  def failed = (answer.service === VectorMemoryService.Fault) ||| io_misaligned
+  when resolved:
+    assert((phase === CheckPhase.Translation) ||| exact.request.fire(), "vector_exact_reply_has_owner")
+    mapping <== answer.updated(~cause: mux(io_misaligned, mux(d.control.store, ExceptionCause.StoreAccessFault, ExceptionCause.LoadAccessFault), answer.cause))
+    exact_pages[second.as_bits()] <== answer.page
+  // Once a segment touches I/O, validate its remaining fields before emitting
+  // that first non-idempotent effect. Contiguous fields span at most two pages:
+  // VPN parity identifies each mapping even when the physical pages are disjoint.
+  reg checking_io(~init: Bool(#false))
+  reg issuing_io(~init: Bool(#false))
+  reg first_io_field(Bits(3))
+  reg io_pages(VectorWindowPages)
+  reg io_services(Vec(8, VectorMemoryService))
+  def save_io = resolved & !failed & segmented & (uncached ||| checking_io)
+  def checked_field = save_io & (single_page ||| second)
+  when save_io:
+    io_pages[mux(second, end, first)[VectorPageOffsetBits]] <== answer.page
+    io_services[field] <== answer.service
+    when (!checking_io): first_io_field <== field
+  def mapped = mux(exact_slice, exact_pages, pages)
+  def pinned = vec([io_pages[first[VectorPageOffsetBits]], io_pages[end[VectorPageOffsetBits]]])
+  def slice_pages = mux(issuing_io, pinned, mux(certified & d.precertified, vec([d.certificate.ppn, d.certificate.ppn]), mapped))
+  def slice_service = mux(issuing_io, io_services[field], mux(exact_slice, mapping.service, VectorMemoryService.Cached))
+  // Only a resolved fault can stop the scan. A later FOF fault retires at
+  // the segment index, independent of its field, mask holes, and vstart.
+  def stopped = (phase === CheckPhase.Fault) & !outstanding.any()
+  def shorten = (d.control.memory_mode === VectorMemoryMode.FaultOnlyFirst) & element.any()
+  fault.valid <== stopped & !shorten
+  truncate.valid <== stopped & shorten
+  truncate.bits <== element
+  fault.bits <== mapping
+  fault_address <== mux(second, suffix, first)
+  restart <== element
+  // Reuse only an explicitly certified full page. A straddling element
+  // requests its exact byte extent and never installs a reusable proof.
+  check.request.valid <== checking & !certified & contiguous & !page_owned
+  check.request.bits <== VectorRange():
+    first: mux(single_page, vpn ++ Bits(VectorPageOffsetBits)(0), first).zext(64)
+    last: mux(single_page, end ||| Word(VectorPageBytes - 1), end).zext(64)
+    store: d.control.store
+  check.response.ready <== phase === CheckPhase.Result
+  // Resolve the physical slice explicitly. Restart, FOF, and field progression
+  // continue to use the immutable architectural descriptor retained above.
+  def kind = resolved_issue_kind(d.control)
+  prepare.bits <== MemoryIssue(xlen, vlen, slots):
+    owner: entry.owner
+    command: checked_memory_command(xlen, vlen, d, first, element, field)
+    kind: kind
+  launch.bits <== MemoryLaunch(xlen, vlen, slots):
+    issue: prepare.bits
+    pages: slice_pages
+    service: slice_service
+  def unordered = kind === MemoryIssueKind.ResolvedStream
+  def limit = mux(unordered, MemoryCreditCount(MemoryRowCredits), MemoryCreditCount(1))
+  stream_live <== busy & unordered
+  def hot = stream_live & page_hit
+  def data_offset = element[0..index_width(vlen+1)] << d.state.sew()
+  checked_element.valid <== hot & (checking ||| (sampling & hit & !skip)) & (outstanding < limit)
+  checked_element.bits <== CheckedIndexElement(xlen, vlen):
+    address: first
+    row: group_row(d.vd(), data_offset[lane_bits..index_width(vlen+1)].zext(RowAddress.packed_width()))
+    offset: data_offset
+  def installing = (phase === CheckPhase.Prepare) & (outstanding < limit)
+  def scatter = stream_live & d.control.store
+  // VSSeq reads the admitted scatter cursor's row on demand; it needs no
+  // separate descriptor installation, even on the first page.
+  prepare.valid <== (installing & !scatter) ||| (checking & page_hit & !hot & (outstanding < limit))
+  launch.valid <== (phase === CheckPhase.Launch) ||| (installing & scatter)
+  // Exact mappings are captured by the VLSU at launch, never reused as page proofs.
+  // Snapshot ownership passes to the address cursor at launch. Its last
+  // physical fragment can be stalled even after the scanner reaches vl.
+  def accepted = launch.fire() ||| checked_element.fire()
+  def issue_pending = accepted ||| (awaiting_issue & !issued)
+  def position = element[0..index_width(vlen+1)] << data_eew
+  splat.valid <== (phase === CheckPhase.Splat) & !outstanding.any()
+  splat.bits <== SplatPosition(dlen):
+    row: group_row(d.vd(), position[lane_bits..index_width(vlen+1)].zext(RowAddress.packed_width()))
+    lane: position[0..lane_bits]
+    eew: data_eew
+  def advance = (accepted & last_field) ||| skip ||| splat.fire()
+  def next_offset = next[0..index_width(vlen+1)] << eew
+  indices.ready <== indexed & advance & (last ||| (next_offset[lane_bits..index_width(vlen+1)] =/= byte_offset[lane_bits..index_width(vlen+1)]))
+  when (advance & indexed): assert(hit & (indices.bits.row === row) & (indices.bits.owner === entry.owner), "checked_element_has_its_index_row")
+  def scan_done = advance & last
+  def replace_page = checking & page_owned & !page_hit
+  check.release.valid <== replace_page ||| (page_owned & scan_done) ||| (accepted & !issuing_io & !certified & !single_page & !exact_slice) ||| (check.response.fire() & !check.response.bits)
+  when (check.release.valid): page_owned <== Bool(#false)
+  elsewhen (check.response.fire() & single_page):
+    page_owned <== Bool(#true)
+    owned_vpn <== vpn
+  def final_issue = ((phase === CheckPhase.AwaitIssue) & issued) ||| (scan_done & !issue_pending)
+  def complete = (final_issue ||| (phase === CheckPhase.Finish)) & (outstanding === drained.as_bits().zext(MemoryCreditCount.packed_width()))
+  authorized <== final_issue
+  finished <== complete ||| stopped
+  release_window <== finished & entry.checked.owns_window
+  pc <== d.pc
+  owner <== entry.owner
+  store <== d.control.store
+  when (accepted ||| issued): awaiting_issue <== accepted
+  when (accepted =/= drained): outstanding <== mux(drained, outstanding - MemoryCreditCount(1), outstanding + MemoryCreditCount(1))
+  when (start.fire() ||| accepted ||| advance ||| checked_field):
+    second <== Bool(#false)
+    exact_slice <== Bool(#false)
+  elsewhen resolved:
+    exact_slice <== Bool(#true)
+    when (!failed & !single_page): second <== Bool(#true)
+  def seek = phase === CheckPhase.Seek
+  when (start.fire() ||| advance):
+    field <== Bits(3)(0)
+    checking_io <== Bool(#false)
+    issuing_io <== Bool(#false)
+  elsewhen checked_field:
+    checking_io <== !last_field
+    issuing_io <== last_field
+    field <== mux(last_field, mux(checking_io, first_io_field, field), field + Bits(3)(1))
+  elsewhen accepted: field <== field + Bits(3)(1)
+  when (start.fire()):
+    segment_address <== start.bits.checked.descriptor.scalar
+    repeat_load <== Bool(#false)
+  elsewhen (stepped & (seek ||| advance)):
+    when (!d.zero_stride_load()): segment_address <== segment_address + step_bytes
+    when (accepted & d.zero_stride_load()): repeat_load <== Bool(#true)
+  when finished: phase <== CheckPhase.Idle
+  elsewhen (start.fire()):
+    entry <== start.bits
+    def incoming :: VectorDescriptor(xlen) = start.bits.checked.descriptor
+    def unit_segment = (incoming.control.memory_addressing === VectorMemoryAddressing.UnitStride) & incoming.control.memory_mode.is_one_of(VectorMemoryMode.Ordinary, VectorMemoryMode.FaultOnlyFirst) & incoming.control.memory_nf.any()
+    def seek_start = (unit_segment ||| (incoming.control.memory_addressing === VectorMemoryAddressing.Strided)) & !incoming.zero_stride_load() & incoming.state.vstart.any()
+    element <== mux(seek_start, Word(0), incoming.state.vstart)
+    phase <== priority_mux(~default: CheckPhase.Predicate):
+      incoming.state.vstart >= incoming.beat_limit(vlen).zext(xlen.width): CheckPhase.Finish
+      seek_start: CheckPhase.Seek
+  elsewhen seek:
+    element <== next
+    when (next === d.state.vstart): phase <== CheckPhase.Predicate
+  elsewhen advance:
+    element <== next
+    phase <== mux(last, mux(issue_pending, CheckPhase.AwaitIssue, CheckPhase.Finish), CheckPhase.Predicate)
+  elsewhen accepted: phase <== mux(issuing_io ||| certified, CheckPhase.Prepare, CheckPhase.Check)
+  elsewhen (sampling & hit): phase <== mux(repeat_load, CheckPhase.Splat, mux(certified, CheckPhase.Prepare, CheckPhase.Check))
+  elsewhen (checking & !contiguous & !page_owned): phase <== CheckPhase.Translate
+  elsewhen (check.request.fire()): phase <== CheckPhase.Result
+  elsewhen (check.response.fire()): phase <== mux(check.response.bits, CheckPhase.Prepare, CheckPhase.Translate)
+  elsewhen resolved: phase <== mux(failed, CheckPhase.Fault, mux((!single_page & !second) ||| (checked_field & !last_field), CheckPhase.Translate, CheckPhase.Prepare))
+  elsewhen (exact.request.fire()): phase <== CheckPhase.Translation
+  elsewhen (prepare.fire()): phase <== CheckPhase.Launch
+  elsewhen final_issue: phase <== CheckPhase.Finish
+
+  when issued: assert(awaiting_issue & outstanding.any(), "checked_last_fragment_has_a_launched_element")
+  when drained: assert(outstanding.any(), "checked_drain_has_an_executing_element")
+  when accepted:
+    assert(!awaiting_issue ||| issued, "checked_address_cursor_advances_in_order")
+    assert(outstanding < limit, "checked_slice_has_capacity")
+
+export VectorFaultCheck

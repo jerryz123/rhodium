@@ -221,6 +221,34 @@ vec-search	language	examples/rtl/vec-search.rhdl	program	rhodium/backend/tests/r
 bundle-update	language	rhodium/backend/tests/rsim/emit-bundle-update.rhm	program	rhodium/backend/tests/rsim/bundle-update.cpp
 rv2wide-core	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-core.rhm	program	cores/superscalar/tests/rsim/rv2wide-core.cpp	target	sims/statistics/collector.cc
 rv3wide-core	cores-components	cores/rv3wide/tests/rsim/emit-core.rhm	program	cores/rv3wide/tests/rsim/core.cpp
+rv3wide-vector-geometry-smallest	cores-components	cores/rv3wide/tests/rsim/emit-vector-dispatch.rhm	smallest	cores/rv3wide/tests/rsim/vector-geometry.cpp
+rv3wide-vector-geometry-rv32	cores-components	cores/rv3wide/tests/rsim/emit-vector-dispatch.rhm	rv32	cores/rv3wide/tests/rsim/vector-geometry.cpp
+rv3wide-vector-geometry-wider	cores-components	cores/rv3wide/tests/rsim/emit-vector-dispatch.rhm	wider	cores/rv3wide/tests/rsim/vector-geometry.cpp
+rv3wide-dispatch-routes-rv32	cores-components	cores/rv3wide/tests/rsim/emit-vector-dispatch.rhm	route32	cores/rv3wide/tests/rsim/dispatch-routes.cpp
+rv3wide-dispatch-routes-rv64	cores-components	cores/rv3wide/tests/rsim/emit-vector-dispatch.rhm	route64	cores/rv3wide/tests/rsim/dispatch-routes.cpp
+rv3wide-vector-dispatch	cores-components	cores/rv3wide/tests/rsim/emit-vector-dispatch.rhm	queues	cores/rv3wide/tests/rsim/vector-dispatch.cpp
+rv3wide-row-memory-rv32	cores-components	cores/rv3wide/tests/rsim/emit-row-memory.rhm	rv32	cores/rv3wide/tests/rsim/row-memory.cpp	target
+rv3wide-row-memory-rv64	cores-components	cores/rv3wide/tests/rsim/emit-row-memory.rhm	rv64	cores/rv3wide/tests/rsim/row-memory.cpp	target
+rv3wide-index-gather-rv32	cores-components	cores/rv3wide/tests/index-gather-fixture.rhdl	rv32	cores/rv3wide/tests/rsim/index-gather.cpp
+rv3wide-index-gather-rv64	cores-components	cores/rv3wide/tests/index-gather-fixture.rhdl	rv64	cores/rv3wide/tests/rsim/index-gather.cpp
+rv3wide-row-execute-rv32	cores-components	cores/rv3wide/tests/rsim/emit-row-execute.rhm	rv32	cores/rv3wide/tests/rsim/row-execute.cpp
+rv3wide-permute-rv32	cores-components	cores/rv3wide/tests/index-gather-fixture.rhdl	permute32	cores/rv3wide/tests/rsim/permute.cpp
+rv3wide-permute-rv64	cores-components	cores/rv3wide/tests/index-gather-fixture.rhdl	permute64	cores/rv3wide/tests/rsim/permute.cpp
+rv3wide-row-execute-rv64	cores-components	cores/rv3wide/tests/rsim/emit-row-execute.rhm	rv64	cores/rv3wide/tests/rsim/row-execute.cpp
+rv3wide-row-window-rv32	cores-components	cores/rv3wide/tests/rsim/emit-row-memory.rhm	unit32	cores/rv3wide/tests/rsim/row-window.cpp
+rv3wide-row-window-rv64	cores-components	cores/rv3wide/tests/rsim/emit-row-memory.rhm	unit64	cores/rv3wide/tests/rsim/row-window.cpp
+rv3wide-load-merge-rv32	cores-components	cores/rv3wide/tests/rsim/emit-row-memory.rhm	indexed32	cores/rv3wide/tests/rsim/load-merge.cpp
+rv3wide-load-merge-rv64	cores-components	cores/rv3wide/tests/rsim/emit-row-memory.rhm	indexed64	cores/rv3wide/tests/rsim/load-merge.cpp
+rv3wide-store-merge-rv32	cores-components	cores/rv3wide/tests/rsim/emit-row-memory.rhm	merge32	cores/rv3wide/tests/rsim/store-merge.cpp
+rv3wide-store-merge-rv64	cores-components	cores/rv3wide/tests/rsim/emit-row-memory.rhm	unit64	cores/rv3wide/tests/rsim/store-merge.cpp
+rv3wide-row-fp	cores-components	cores/rv3wide/tests/rsim/emit-row-fp.rhm	program	cores/rv3wide/tests/rsim/row-fp.cpp	target
+rv3wide-row-store-order	cores-components	cores/rv3wide/tests/rsim/emit-row-order.rhm	program	cores/rv3wide/tests/rsim/row-order.cpp	target
+rv3wide-row-store-order-rv32	cores-components	cores/rv3wide/tests/rsim/emit-row-order.rhm	rv32	cores/rv3wide/tests/rsim/row-order.cpp	target
+rv3wide-vector	cores-components	cores/rv3wide/tests/rsim/emit-vector-dispatch.rhm	program	cores/superscalar/tests/rsim/rv2wide-vector.cpp
+rv3wide-vrf-rv32	cores-components	cores/rv3wide/tests/rsim/emit-vector-register-file.rhm	rv32	cores/rv3wide/tests/rsim/vector-register-file.cpp
+rv3wide-row-read-grant-rv32	cores-components	cores/rv3wide/tests/rsim/emit-vector-register-file.rhm	grant32	cores/rv3wide/tests/rsim/row-read-grant.cpp
+rv3wide-row-read-grant-rv64	cores-components	cores/rv3wide/tests/rsim/emit-vector-register-file.rhm	grant64	cores/rv3wide/tests/rsim/row-read-grant.cpp
+rv3wide-vrf-rv64	cores-components	cores/rv3wide/tests/rsim/emit-vector-register-file.rhm	rv64	cores/rv3wide/tests/rsim/vector-register-file.cpp
 rv3wide-services	cores-components	cores/rv3wide/tests/rsim/emit-services.rhm	program	cores/rv3wide/tests/rsim/services.cpp
 rv2wide-issue-window	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-issue-window.rhm	program	cores/superscalar/tests/rsim/rv2wide-issue-window.cpp
 rv2wide-issue-window-h	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-issue-window.rhm	guest_program	cores/superscalar/tests/rsim/rv2wide-issue-window.cpp

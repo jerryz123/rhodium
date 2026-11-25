@@ -188,6 +188,22 @@ The general VRF write contract still supports individual mask bits. Owner closur
 flushes an accepted partial row even after its last slot drains; write backpressure
 must retain its mask, data, row claim, and owner until that write occurs.
 
+### Distributed backend
+
+RV3Wide selects [distributed/backend.rhdl](distributed/backend.rhdl) at elaboration.
+It owns the row register file and the instruction tracker. Admission allocates
+owners in order; load, store, execute and special sequencers issue independently
+subject to older claims. A VRF read releases a source at last use, while a
+destination stays claimed through its accepted write. A checker-owned memory
+operation retains fault and translation-window ownership until its issue or
+drain event. Scalar service results carry their original tags back to the VXU.
+
+Inside `distributed/`, `frontend/` owns precise checks and admission,
+`backend/` owns the scheduler, scoreboard, register-file grants and sequencers,
+`mem/` owns physical requests and response alignment, and `exu/` owns arithmetic.
+RV5Stage and RV2Wide continue to use [backend.rhdl](backend.rhdl) and its
+single sequencer; neither imports distributed scheduling logic.
+
 ## Implementation map
 
 | Files | Responsibility |

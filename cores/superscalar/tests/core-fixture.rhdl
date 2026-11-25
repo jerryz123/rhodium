@@ -3,6 +3,7 @@
 
 import:
   lib("cores/common/mmu/context.rhdl").RiscvTranslationState
+  lib("cores/common/vector/backend-kind.rhm") open
   lib("cores/common/pc.rhdl").CompactPc
   lib("rhodium/frontend/layers/statistics.rhm").stat_count
   lib("cores/common/bpred/statistics.rhdl") open
@@ -80,7 +81,7 @@ import:
   "../core.rhdl".SuperscalarCore
   "instruction-fixture.rhdl" open
 
-sync_circuit CoreFixture(profile :: SuperscalarPipelineConfig = SuperscalarPipelineConfig(), ~issue: issue :: Module || CircuitDefinition = RV2WideIssue(profile.xlen), ~fp_timing: selected_fp_timing :: FpExecutionTiming = FpExecutionTiming()):
+sync_circuit CoreFixture(profile :: SuperscalarPipelineConfig = SuperscalarPipelineConfig(), ~issue: issue :: Module || CircuitDefinition = RV2WideIssue(profile.xlen), ~vector_backend: vector_backend :: VectorBackendKind = VectorBackendKind.Unified, ~fp_timing: selected_fp_timing :: FpExecutionTiming = FpExecutionTiming()):
   def xlen = profile.xlen
   def issue_width = superscalar_issue_width(xlen, issue)
   def hypervisor = profile.hypervisor
@@ -117,7 +118,15 @@ sync_circuit CoreFixture(profile :: SuperscalarPipelineConfig = SuperscalarPipel
   interface vector_fast(VectorFastCheck(xlen), ~role: requester)
   output(pipeline_vector, request_vector): Bool
 
-  inst core(SuperscalarCore(profile, ~issue: issue, ~fp_timing: selected_fp_timing))
+  inst core(SuperscalarCore(profile, ~issue: issue, ~fp_timing: selected_fp_timing, ~vector_backend: vector_backend))
+  if vector_profile_enabled(profile.vector) && (vector_backend == VectorBackendKind.Distributed)
+  | block:
+      interface row_memory(VectorRowMemory(vector_dlen(profile.vector_length)), ~role: requester)
+      core.row_memory <=> row_memory
+      interface element_translation(VectorElementTranslation(), ~role: requester)
+      core.element_translation <=> element_translation
+      core.window_pages <== literal(VectorWindowPages, 0)
+  | #void
   def packet :: PacketObservation(xlen, hypervisor, issue_width) = instructions.bits
   (instructions |> map_flow(_packet => packet.captured(instructions.valid & core.instructions.ready))) |> core.instructions
   for (lane in 0..issue_width):

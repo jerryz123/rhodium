@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/common/vector/decode.rhdl").VectorDispatchKind
   "decode/core-ctrl.rhdl".SuperscalarControl
   lib("cores/common/operand.rhdl") open
   lib("cores/common/alu.rhdl").AluResultSelect
@@ -110,7 +111,7 @@ fun superscalar_pairing(controls :: Vec(2, SuperscalarControl()), valid :: Vec(2
   def memory_address = superscalar_zero_offset_memory(younger, instructions[1])
   def store_data = !younger.fp.valid & (younger.memory.access === CacheOperation.Store)
   def branch_operand = younger.branch.resolver.enable & !younger.branch.resolver.unconditional
-  def vector_scalar = !younger.vector.memory & (younger.vector.integer ||| younger.vector.floating_point ||| younger.vector.multiply_divide) & younger.operand.uses_rs1
+  def vector_scalar = (younger.vector.dispatch_kind === VectorDispatchKind.Execute) & younger.operand.uses_rs1
   def is_auipc = DecodeGen([DecodeCase(instruction_pattern(rv32.AUIPC), Bool(#true))], ~default: Bool(#false))
   def is_addi = DecodeGen([DecodeCase(instruction_pattern(rv32.ADDI), Bool(#true))], ~default: Bool(#false))
   def auipc_addi = is_auipc(instructions[0]) & is_addi(instructions[1])

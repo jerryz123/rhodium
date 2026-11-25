@@ -1,0 +1,113 @@
+#lang rhodium
+/* Retains instruction lifetimes and register-row hazards until their accepted work has drained. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../cosim-source.rhm".describe_cosim_signals
+  "../../bundles.rhdl" open
+  "../../dependencies.rhdl".vector_vd_vs3_registers
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/isa/vector.rhm").VectorLength
+  lib("rhodium/std/bits.rhdl") open
+  lib("flow/main.rhdl") open
+
+/* Allocates distributed instruction owners in order and reclaims only after final write or memory drain. */
+sync_circuit DistributedVectorInstructions(xlen :: XLen, vlen :: VectorLength, owners :: Pow2Int):
+  def tag_width = index_width(owners)
+  interface request(Valid(VectorDescriptor(xlen)), ~role: consumer)
+  interface external_fault(Valid(Bits(tag_width)), ~role: consumer)
+  input externally_finished: Vec(owners, Bool)
+  input(no_work, memory_drained): Bool
+  interface retire(Pulse(), ~role: producer)
+  interface reclaimed(Valid(Bits(tag_width)), ~role: producer)
+  output(live, closed, load_owners, store_owners): Vec(owners, Bool)
+  output destinations: Vec(owners, Bits(32))
+  output(oldest_id, allocate_id): Bits(tag_width)
+  output(available, active, loads_pending, stores_pending, fp_pending): Bool
+  reg macro_valid(~init: Bits(owners)(0).as_vec(Bool))
+  reg macro_load(Vec(owners, Bool))
+  reg macro_store(Vec(owners, Bool))
+  reg macro_fp(Vec(owners, Bool))
+  reg macro_groups(Vec(owners, Bits(32)))
+  reg macro_issued(~init: Bits(owners)(0).as_vec(Bool))
+  reg macro_fault(~init: Bits(owners)(0).as_vec(Bool))
+  reg next_owner(~init: Bits(tag_width)(0))
+  reg drain_owner(~init: Bits(tag_width)(0))
+  reg store_barrier(~init: Bool(#false))
+
+  live <== macro_valid
+  load_owners <== macro_load
+  store_owners <== macro_store
+  destinations <== macro_groups
+  oldest_id <== drain_owner
+
+  def register_group = vector_vd_vs3_registers(xlen, vlen, request.bits)
+
+  /* Issue closure and ordered owner reclamation.
+     Allocation wins a collision. Cancellation closes unissued/unauthorized work;
+     already accepted slots still drain. */
+
+  def macro_complete = macro_valid[drain_owner] & macro_issued[drain_owner]
+  for (owner in 0..owners):
+    def owner_tag = Bits(tag_width)(owner)
+    def allocate_owner = request.valid & (next_owner === owner_tag)
+    def reclaim_owner = macro_complete & (drain_owner === owner_tag)
+    when allocate_owner:
+      macro_valid[owner] <== Bool(#true)
+      macro_issued[owner] <== no_work
+      macro_fault[owner] <== Bool(#false)
+      macro_groups[owner] <== mux(no_work, Bits(32)(0), register_group)
+      macro_load[owner] <== !no_work & request.bits.control.memory & !request.bits.control.store
+      macro_store[owner] <== !no_work & request.bits.control.memory & request.bits.control.store
+      macro_fp[owner] <== !no_work & request.bits.control.floating_point
+    elsewhen reclaim_owner:
+      macro_valid[owner] <== Bool(#false)
+    elsewhen (externally_finished[owner]):
+      macro_fault[owner] <== external_fault.valid & (external_fault.bits === owner_tag)
+      macro_issued[owner] <== Bool(#true)
+      macro_groups[owner] <== Bits(32)(0)
+
+  when macro_complete:
+    drain_owner <== wrap_increment(drain_owner, owners)
+
+
+  /* Allocation and pending-work summaries.
+     A committed store barrier outlives macro reclamation until memory drains. */
+
+  when (request.valid):
+    next_owner <== wrap_increment(next_owner, owners)
+
+  active <== macro_valid.as_bits().any()
+  def store_macro_pending = vec(for List (owner in 0..owners): macro_valid[owner] & macro_store[owner]).as_bits().any()
+  stores_pending <== store_barrier ||| store_macro_pending
+  loads_pending <== vec(for List (owner in 0..owners): macro_valid[owner] & macro_load[owner]).as_bits().any()
+  fp_pending <== vec(for List (owner in 0..owners): macro_valid[owner] & macro_fp[owner]).as_bits().any()
+  when (request.valid & !no_work & request.bits.control.memory & request.bits.control.store):
+    store_barrier <== Bool(#true)
+  elsewhen (store_barrier & !store_macro_pending & memory_drained):
+    store_barrier <== Bool(#false)
+
+
+  /* Retirement versus ownership release.
+     Faulted macros reclaim their owner but do not emit successful retirement. */
+
+  retire.valid <== macro_complete & !macro_fault[drain_owner]
+  reclaimed.valid <== macro_complete
+  reclaimed.bits <== drain_owner
+  allocate_id <== next_owner
+  available <== !macro_valid[next_owner]
+  when (request.valid):
+    assert(available, "vector_dispatch_owner_free")
+  closed <== macro_issued
+  describe_cosim_signals({
+    "admitted": request.valid,
+    "allocated_owner": next_owner,
+    "base": request.bits.scalar,
+    "instruction": request.bits.instruction,
+    "vtype": request.bits.state.vtype,
+    "eew": mux(request.bits.instruction[26].into(Bool), request.bits.state.vtype[3..5], request.bits.instruction[12..14]),
+    "drained": macro_complete,
+    "drained_owner": drain_owner
+  })
+
+export DistributedVectorInstructions

@@ -1,0 +1,172 @@
+#lang rhodium
+/* Sequences a VXSeq operand row through shared integer services and gathers its active results for one VRF write. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../simd-multiplier.rhdl" open
+  "../../../simd-alu.rhdl".SimdElementWidth
+  "../common/row-claims.rhdl".ExecuteDestination
+  "../../register-file.rhdl".VectorRegisterWrite
+  "../../muldiv.rhdl".VectorMultiplyTag
+  "../../muldiv.rhdl".VectorDivideTag
+  "../../muldiv.rhdl".vector_divide_request
+  "../../decode.rhdl".VectorDivideControl
+  "../../muldiv.rhdl".vector_divide_value
+  "../../../divider.rhdl" open
+  "../../../integer-execution.rhdl" open
+  "../../../multiplier.rhdl" open
+  "../../backend-kind.rhm".vector_dlen
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/isa/vector.rhm").VectorLength
+  lib("flow/main.rhdl") open
+  lib("rhodium/std/bits.rhdl").Pow2Int
+
+/* Retains the numeric operation and enabled bytes of one synchronous operand return.
+   Only multiplication needs an addend or rounding control. */
+bundle ScalarIntegerRowOperands(dlen :: PosInt):
+  left: Bits(dlen)
+  right: Bits(dlen)
+  mask: Bits(dlen)
+  sew: Bits(2)
+  divide: Bool
+  division: VectorDivideControl()
+  mode: MultiplierMode()
+  multiply_context: SimdMultiplyContext(dlen)
+
+/* A granted read claims the row before its operands arrive. Capture both operands
+   once, then send only enabled lanes. Requests and returns advance independently;
+   the selected service returns in issue order. A row uses only one service. */
+sync_circuit VectorScalarIntegerRow(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int):
+  def width = xlen.width
+  def dlen = vector_dlen(vlen)
+  def lanes = dlen div width
+  def Word = Bits(width)
+  def word_bytes = width div 8
+  def row_bytes = dlen div 8
+  def Enables = Bits(row_bytes)
+  def Owner = Bits(index_width(slots))
+  def Tag = VectorMultiplyTag(slots)
+  def Dest = ExecuteDestination(Owner)
+  interface allocate(Valid(Dest), ~role: consumer)
+  interface operands(Valid(ScalarIntegerRowOperands(dlen)), ~role: consumer)
+  interface saturate(Pulse(), ~role: producer)
+  output available: Bool
+  interface pending(Valid(Dest), ~role: producer)
+  interface request(Decoupled(IntegerExecutionRequest(MultiplierRequest(width), Tag)), ~role: producer)
+  interface response(Irrevocable(IntegerExecutionResult(Bits(2*width), Tag)), ~role: consumer)
+  def DivTag = VectorDivideTag(slots)
+  interface divide_request(Decoupled(IntegerExecutionRequest(DividerRequest(width), DivTag)), ~role: producer)
+  interface divide_result(Irrevocable(IntegerExecutionResult(DividerResponse(width), DivTag)), ~role: consumer)
+  interface write(Decoupled(VectorRegisterWrite(dlen, vlen)), ~role: producer)
+
+  reg occupied(~init: Bool(#false))
+  reg captured(~init: Bool(#false))
+  reg destination(Dest)
+  reg lhs(Vec(lanes, Word))
+  reg rhs(Vec(lanes, Word))
+  reg addends(Vec(lanes, Word))
+  reg mode(MultiplierMode())
+  reg control(SimdMultiplyControl())
+  reg dividing(Bool)
+  reg division(VectorDivideControl())
+  reg sew(Bits(2))
+  reg row_saturated(Bool)
+  reg enabled(Bits(dlen))
+  reg unsent(~init: Enables(0))
+  reg unreturned(~init: Enables(0))
+  reg results(Vec(row_bytes, Bits(8)))
+  /* Each bitmap names only the first byte of an active element. Clearing one
+     bit advances directly to the next request, including across masked holes. */
+  def formats = if width == 64 | [0, 1, 2, 3] | [0, 1, 2]
+  def starts = for List (e in formats):
+    [e, vec(for List (i in 0..row_bytes): Bool(i mod (1 << e) == 0)).as_bits()]
+  def byte_enables = vec(for List (i in 0..row_bytes): operands.bits.mask[8*i]).as_bits()
+  def live = byte_enables & mux_lookup(operands.bits.sew, ~default: starts[0][1], starts)
+  def send = priority_encoder_oh(unsent)
+  def send_lane = send.as_bits()
+  def returning = priority_encoder_oh(unreturned)
+  def return_lane = returning.as_bits()
+  /* Select the physical XLEN word first; a subword divide also selects its
+     byte offset inside that word. Multiplication always uses a whole word. */
+  fun word_select(bits :: Bits(row_bytes)) :~ MaybeOneHot(lanes):
+    vec(for List (i in 0..lanes): bits[i*word_bytes..(i+1)*word_bytes].any()).into(MaybeOneHot(lanes))
+  def source = word_select(send_lane)
+  def target = word_select(return_lane)
+  def left = source.mux(for List (i in 0..lanes): lhs[i], ~default: Word(0))
+  def right = source.mux(for List (i in 0..lanes): rhs[i], ~default: Word(0))
+  def send_shift = send.index[0..index_width(word_bytes)] ++ Bits(3)(0)
+  def return_byte = returning.index[0..index_width(word_bytes)]
+  def blank_tag :: VectorMultiplyTag(slots) = literal(Tag, 0)
+  pending.valid <== occupied
+  pending.bits <== destination
+  available <== !occupied
+  request.valid <== unsent.any() & !dividing
+  request.bits <== IntegerExecutionRequest(MultiplierRequest(width), Tag):
+    tag: blank_tag.updated(~slot: destination.owner)
+    operands:
+      MultiplierRequest(width):
+        left: left
+        right: right
+        mode: mode
+  divide_request.valid <== unsent.any() & dividing
+  divide_request.bits <== vector_divide_request(xlen, slots, destination.owner, sew, division, left >> send_shift, right >> send_shift)
+  response.ready <== occupied & captured & !dividing
+  divide_result.ready <== occupied & captured & dividing
+  def sent = request.fire() ||| divide_request.fire()
+  def received = response.fire() ||| divide_result.fire()
+  write.valid <== occupied & captured & !unreturned.any()
+  write.bits <== VectorRegisterWrite(dlen, vlen):
+    address: destination.row
+    data: results.as_bits()
+    mask: enabled
+  saturate.valid <== write.fire() & row_saturated
+
+  /* Format one scalar reply, not a row of parallel products. XLEN is static;
+     retained addends and rounding control belong to this row even after VXSeq advances. */
+  def full_product = SimdMultiplyProducts(width):
+    element_width: if width == 64 | SimdElementWidth.E64 | SimdElementWidth.E32
+    data: response.bits.value
+  def context = SimdMultiplyContext(width):
+    addend: target.mux(for List (i in 0..lanes): addends[i], ~default: Word(0))
+    control: control
+  def formatted = simd_multiply_result(width, full_product, context)
+  def value = mux(dividing, vector_divide_value(xlen, slots, divide_result.bits) << (return_byte ++ Bits(3)(0)), formatted.data)
+  def element_bytes = mux_lookup(sew, ~default: Bits(word_bytes)(1), for List (e in formats): [e, Bits(word_bytes)((1 << (1 << e)) - 1)])
+  def written_bytes = element_bytes << return_byte
+  when (allocate.valid):
+    assert(available, "scalar_integer_row_requires_credit")
+    destination <== allocate.bits
+    occupied <== Bool(#true)
+    captured <== Bool(#false)
+  elsewhen (operands.valid):
+    captured <== Bool(#true)
+  elsewhen (write.fire()):
+    occupied <== Bool(#false)
+    captured <== Bool(#false)
+
+  when (operands.valid):
+    lhs <== operands.bits.left.as_vec(Word)
+    rhs <== operands.bits.right.as_vec(Word)
+    mode <== operands.bits.mode
+    dividing <== operands.bits.divide
+    division <== operands.bits.division
+    sew <== operands.bits.sew
+    addends <== operands.bits.multiply_context.addend.as_vec(Word)
+    control <== operands.bits.multiply_context.control
+    enabled <== operands.bits.mask
+  when (operands.valid):
+    unsent <== live
+  elsewhen sent: unsent <== unsent ^ send_lane
+  when (operands.valid):
+    unreturned <== live
+    row_saturated <== Bool(#false)
+  elsewhen received:
+    unreturned <== unreturned ^ return_lane
+    row_saturated <== row_saturated ||| (!dividing & formatted.saturated[0])
+    def owner = mux(dividing, divide_result.bits.tag.slot, response.bits.tag.slot)
+    assert(unreturned.any() & !(return_lane & unsent).any() & (owner === destination.owner), "scalar_integer_return_has_issued_lane")
+    for (i in 0..row_bytes):
+      def byte = i mod word_bytes
+      when (target[i div word_bytes] & written_bytes[byte].into(Bool)): results[i] <== value[8*byte..8*(byte+1)]
+
+export VectorScalarIntegerRow ScalarIntegerRowOperands

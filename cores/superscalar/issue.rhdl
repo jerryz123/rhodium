@@ -4,6 +4,8 @@
 
 import:
   lib("cores/common/instruction-hint.rhdl").InstructionHint
+  lib("cores/common/vector/decode.rhdl").vector_writes_fpr
+  lib("cores/common/vector/decode.rhdl").VectorDispatchKind
   lib("rhodium/core/ir.rhm").Module
   lib("rhodium/frontend/foundation.rhm").CircuitDefinition
   lib("rhodium/frontend/foundation.rhm").circuit_signature
@@ -21,7 +23,6 @@ import:
   lib("cores/common/csr/protocol.rhdl").csr_pure_read
   lib("cores/common/cache/operation.rhdl").CacheOperation
   lib("cores/common/fp/types.rhdl") open
-  lib("cores/common/vector/decode.rhdl").VectorOperandMode
 
 /* Carries decoded candidates, not granted instructions; presence must not depend on readiness. */
 bundle SuperscalarIssueCandidate(xlen :: XLen):
@@ -106,12 +107,12 @@ bundle SuperscalarIssueTraits():
 /* Extracts common decoded properties without choosing any instruction's admission. */
 fun superscalar_issue_traits(xlen :: XLen, candidate :: SuperscalarIssueCandidate(xlen)) :~ SuperscalarIssueTraits():
   def control = candidate.control
-  def vector = control.vector.integer ||| control.vector.memory ||| control.vector.floating_point ||| control.vector.multiply_divide
+  def vector = control.vector.dispatch_kind =/= VectorDispatchKind.None
   def long = control.muldiv.service =/= SuperscalarLongOperation.None
   def variable_fp = control.fp.valid & (control.fp.bits.execution.unit === FloatUnit.DivideSquareRoot)
   def deferred = control.memory.access.is_memory() ||| long ||| candidate.late_gpr ||| vector
   def writes = candidate.decodable & control.writeback.enable & candidate.rd.any()
-  def vector_frs1 = vector & control.vector.floating_point & (control.vector.operand === VectorOperandMode.FloatingScalar)
+  def vector_frs1 = control.vector.reads_frs1
   SuperscalarIssueTraits():
     deferred: deferred
     writes: writes
@@ -121,7 +122,7 @@ fun superscalar_issue_traits(xlen :: XLen, candidate :: SuperscalarIssueCandidat
     vector_config: control.system.action === RiscvCsrAction.VectorConfig
     vector_frs1: vector_frs1
     fpr_reads: control.fp.valid ||| vector_frs1
-    fpr_writes: (control.fp.valid & (control.fp.bits.registers.destination === FloatDestination.FloatingPoint)) ||| (vector & control.vector.floating_point & control.vector.floating_scalar_destination)
+    fpr_writes: (control.fp.valid & (control.fp.bits.registers.destination === FloatDestination.FloatingPoint)) ||| (vector & vector_writes_fpr(control.vector))
     system: candidate.decodable & superscalar_serializing_operation(control.system, candidate.instruction)
     csr: candidate.decodable & (control.system.csr =/= RiscvCsrOperation.None)
     branch: candidate.decodable & control.branch.resolver.enable

@@ -5,6 +5,8 @@
 import:
   rhombus/meta open
 
+def VectorRegisterCount :: PosInt = 32
+
 def VectorLengths = [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
 
 /* Recognizes the supported architectural power-of-two vector register lengths. */
@@ -71,7 +73,7 @@ class VectorConfig(vlen :: VectorLength, sew :: VectorSEW, lmul :: VectorLMUL):
 
   /* Checks base-register alignment and containment within the 32-register architectural file. */
   method legal_group(base :: Nat) :: Boolean:
-    base mod registers == 0 && base + registers <= 32
+    base mod registers == 0 && base + registers <= VectorRegisterCount
 
   /* Selects the deterministic minimum of AVL and this configuration's VLMAX. */
   method select_vl(avl :: Nat) :: Nat:
@@ -148,6 +150,7 @@ fun vector_data_overlap_legal(source :: VectorConfig, source_base :: Nat,
   | ~else: vector_lmul(source.lmul) >= 1 && source_end == destination_end
 
 export:
+  VectorRegisterCount
   VectorLengths
   VectorLength
   VectorSEW

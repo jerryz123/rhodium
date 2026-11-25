@@ -1,0 +1,210 @@
+#lang rhodium
+/* Forms slide, gather and compressed destination rows from the two shared VPS operand slots. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../bundles.rhdl".VectorDescriptor
+  "../../decode.rhdl" open
+  "../../../simd-alu.rhdl" open
+  "../../backend-kind.rhm".vector_dlen
+  lib("cores/common/vector-layout.rhm").vector_format_count
+  "../common/row-types.rhdl" open
+  lib("riscv/isa/vector.rhm").VectorLength
+  lib("riscv/isa/xlen.rhm").XLen
+  "../../geometry.rhdl".permutation_geometry
+  "../../geometry.rhdl".vector_span_width
+  "../../geometry.rhdl".vector_span_cover
+  lib("rhodium/std/bits.rhdl") open
+  lib("flow/main.rhdl") open
+
+/* Only the operand cursor lives here. VXSeq independently schedules each
+   destination write. One row accumulator suffices for arbitrary gather order. */
+sync_circuit VectorPermuteCursor(xlen :: XLen, vlen :: VectorLength):
+  def dlen = vector_dlen(vlen)
+  def bytes = dlen div 8
+  def lanes = index_width(bytes)
+  def Count = Bits(index_width(vlen+1))
+  def Offset = Bits(vector_span_width(vlen))
+  def element_bits = math.min(64, dlen)
+  interface install(Valid(VectorDescriptor(xlen)), ~role: consumer)
+  input buffer: Vec(2, SpecialRow(dlen))
+  interface capture(Valid(SpecialRead()), ~role: consumer)
+  interface demand(Valid(SpecialRead()), ~role: producer)
+  interface ahead(Valid(SpecialRead()), ~role: producer)
+  interface result(Decoupled(PermutedRow(dlen)), ~role: producer)
+  output unread: RowSet
+  output busy: Bool
+  output tail_offered: Bool
+
+  reg active(~init: Bool(#false))
+  reg kind(VectorPermutationKind)
+  def slide = is_register_slide(kind)
+  def compress = kind === VectorPermutationKind.Compress
+  def slide_one = slide_inserts_scalar(kind)
+  reg insert_value(Bits(xlen.width))
+  def up = slide_moves_up(kind)
+  def indexed = gather_uses_vs1(kind)
+  reg scan_done(Bool)
+  reg sew(Bits(2))
+  reg index_eew(Bits(2))
+  reg vs2(Bits(5))
+  reg vs1(Bits(5))
+  reg limit(Offset)
+  reg cursor(Offset)
+  reg capacity(Offset)
+  reg distance(Offset)
+  reg source_begin(Offset)
+  reg source_end(Offset)
+  reg element(Count)
+  reg data_claims(RowSet)
+  reg index_claims(RowSet)
+  busy <== active
+  unread <== mux(active, data_claims ||| index_claims, RowSet(0))
+  def d :: VectorDescriptor(xlen) = install.bits
+  def size = d.state.sew()
+  def geometry = permutation_geometry(xlen, vlen, d)
+  def first = d.state.vstart[0..Count.packed_width()]
+  def end = d.state.vl[0..Count.packed_width()]
+  def first_byte = first.zext(Offset.packed_width()) << size
+  def end_byte = end.zext(Offset.packed_width()) << size
+  /* Maps a logical byte to its DLEN row within the named register group. */
+  fun row_number(base :: Bits(5), pos :: Bits(Offset.packed_width())) :~ Bits(RowAddress.packed_width()):
+    group_row(base, (pos >> lanes)[0..RowAddress.packed_width()])
+
+
+  /* Operand addressing: slides use adjacent rows; gathers first resolve VS1
+     when the source index is not already known at dispatch. */
+
+  def origin = cursor + mux(up, -distance, distance)
+  def lower = origin.align_down(bytes)
+  def upper = lower + Offset(bytes)
+  def rotation = origin[0..lanes]
+  /* An interval can begin or end in a fractional register or a partial row. */
+  fun used(pos :: Bits(Offset.packed_width())) :~ Bool:
+    (pos < source_end) & (pos + Offset(bytes) > source_begin) & (source_end > source_begin)
+  def low = row_number(vs2, lower)
+  def high = row_number(vs2, upper)
+  def low_used = used(lower)
+  def high_used = rotation.any() & used(upper)
+  def element_pos = element.zext(Offset.packed_width())
+  def idx_offset = mux(compress, element_pos >> 3, element_pos << index_eew)
+  def idx_row = row_number(vs1, idx_offset)
+  /* Extract one unsigned element, retaining its full width for bounds checks. */
+  fun pick(row :: Bits(dlen), offset :: Bits(Offset.packed_width()), eew :: Bits(2)) :~ Bits(element_bits):
+    def shifted = row >> (offset[0..lanes] ++ Bits(3)(0))
+    mux_lookup(eew, ~default: shifted[0..element_bits], for List (n in 0..bits.length(element_bits div 8 - 1)): [n, shifted[0..(8 << n)].zext(element_bits)])
+  def index = pick(buffer[0].data, idx_offset, index_eew)
+  def in_range = index < (capacity >> sew).zext(element_bits)
+  def target = mux(compress, cursor, mux(indexed, index[0..Count.packed_width()].zext(Offset.packed_width()) << sew, distance))
+  def source = row_number(vs2, target)
+  def valid_source = mux(indexed, in_range, distance < capacity)
+  /* Slide slots alternate by row; vector gathers keep VS1 and VS2 separate. */
+  fun hit(slot :: Bits(1), address :: Bits(RowAddress.packed_width())) :~ Bool:
+    buffer[slot].valid & (buffer[slot].address === address)
+  def miss_first = mux(slide, low_used & !hit(low[0], low), (indexed ||| compress) & !hit(Bits(1)(0), idx_row))
+  def miss_second = mux(slide, high_used & !hit(high[0], high), (valid_source ||| compress) & !hit(Bits(1)(1), source))
+  def wanted = mux(slide, mux(miss_first, low, high), mux(miss_first, idx_row, source))
+  demand.valid <== active & !(compress & scan_done) & (miss_first ||| miss_second)
+  demand.bits <== SpecialRead():
+    row: wanted
+    slot: mux(slide, wanted[0], (!miss_first).as_bits())
+
+  def next_pos = mux(rotation.any(), upper + Offset(bytes), upper)
+  def following = row_number(vs2, next_pos)
+  def more = cursor + Offset(bytes) < limit
+  ahead.bits <== SpecialRead():
+    row: following
+    slot: following[0]
+
+
+  /* Assemble one destination row. Slides merge before rotating; irregular
+     gathers deposit only the current element into the row accumulator. */
+
+  def merged = vec(for List (b in 0..bytes): mux(Bits(lanes)(b) < rotation, buffer[high[0]].data, buffer[low[0]].data)[8*b..8*b+8]).as_bits()
+  def rotated = ((merged ++ merged) >> (rotation ++ Bits(3)(0)))[0..dlen]
+  def inside = vec(for List (b in 0..bytes): origin + Offset(b) < capacity).as_bits()
+  def prefix = vec(for List (b in 0..bytes): cursor + Offset(b) >= distance).as_bits()
+  def insert_at = mux(up, Offset(0), limit - distance)
+  def slide_bytes = for List (b in 0..bytes):
+    def pos = cursor + Offset(b)
+    def byte_cases = for List (n in 1..vector_format_count(xlen)):
+      def offset = 8 * (b % (2 ** n))
+      [n, insert_value[offset..offset+8]]
+    def scalar_byte = mux_lookup(sew, ~default: insert_value[0..8], byte_cases)
+    mux(slide_one & (pos >= insert_at) & (pos < insert_at + distance), scalar_byte, mux(inside[b].into(Bool), rotated[8*b..8*b+8], Bits(8)(0)))
+  def value = mux(valid_source, pick(buffer[1].data, target, sew), Bits(element_bits)(0))
+  def broadcast = mux_lookup(sew, ~default: Bits(dlen)(0), for List (n in 0..(bits.length(element_bits div 8 - 1)+1)): [n, vec(for List (_ in 0..(dlen div (8 << n))): value[0..(8 << n)]).as_bits()])
+  def next_element = element + Count(1)
+  def dest_byte = element.zext(Offset.packed_width()) << sew
+  def next_byte = next_element.zext(Offset.packed_width()) << sew
+  def row_done = !indexed ||| !next_byte[0..lanes].any() ||| (next_byte === limit)
+  def shift = dest_byte[0..lanes] ++ Bits(3)(0)
+  def select = ((!Bits(dlen)(0) >> (Bits(index_width(dlen+1))(dlen) - (Bits(index_width(dlen+1))(8) << sew))) << shift)
+  reg assembled(Bits(dlen))
+  def updated = (assembled & !select) ||| ((value.zext(dlen) << shift) & select)
+  def ready = active & !miss_first & !miss_second
+
+  // Scan a DLEN source row at a time. VS1 is an explicit selection mask,
+  // not the execution predicate. Only a sub-row suffix survives a row grant.
+  def Fill = Bits(lanes+1)
+  reg fill(Fill)
+  def row_elements = Count(bytes) >> sew
+  def mask_window = buffer[0].data >> element[0..index_width(dlen)]
+  inst compact(SimdCompress(dlen))
+  compact.data <== buffer[1].data
+  compact.element_width <== sew.into(SimdElementWidth)
+  def selected = for List (i in 0..bytes):
+    mask_window[i].into(Bool) & (cursor + (Offset(i) << sew) < limit)
+  compact.selected <== vec(selected).into(Mask(bytes))
+  def appended = compact.compressed.count.zext(lanes+2) << sew
+  def total = fill.zext(lanes+2) + appended
+  def full = total >= Bits(lanes+2)(bytes)
+  def combined = assembled.zext(2*dlen) ||| (compact.compressed.data.zext(2*dlen) << (fill ++ Bits(3)(0)))
+  def consume = ready & compress & !scan_done & (!full ||| result.ready)
+  def terminal = compress & scan_done & !fill.any()
+  def row_available = ready & row_done
+  result.valid <== mux(compress, active & (scan_done ||| (ready & full)), row_available)
+  tail_offered <== mux(compress, active & terminal, row_available & !more)
+  result.bits <== PermutedRow(dlen):
+    end_of_scan: terminal
+    data: mux(compress, mux(scan_done, assembled, combined[0..dlen]), mux(slide, vec(slide_bytes).as_bits(), mux(indexed, updated, broadcast)))
+    enabled: mux(compress & scan_done, !(!Bits(bytes)(0) << fill), mux(kind === VectorPermutationKind.SlideUp, prefix, !Bits(bytes)(0)))
+  ahead.valid <== slide & result.fire() & more & used(next_pos) & !hit(following[0], following)
+  when (install.valid):
+    active <== Bool(#true)
+    kind <== d.control.permutation
+    scan_done <== Bool(#false)
+    fill <== Fill(0)
+    assembled <== Bits(dlen)(0)
+    insert_value <== d.scalar_operand(xlen.width)
+    sew <== size
+    index_eew <== geometry.index_eew
+    vs2 <== d.vs2()
+    vs1 <== d.vs1()
+    cursor <== first_byte.align_down(bytes)
+    limit <== end_byte
+    source_begin <== geometry.data.begin
+    source_end <== geometry.data.end
+    capacity <== geometry.capacity
+    distance <== geometry.distance
+    element <== first
+    data_claims <== vector_span_cover(vlen, geometry.data, bytes, PhysicalRows, group_row(d.vs2()))
+    index_claims <== vector_span_cover(vlen, geometry.indices, bytes, PhysicalRows, group_row(d.vs1()))
+  elsewhen active:
+    when (capture.valid):
+      def captured = RowSet(1) << capture.bits.row
+      when (!indexed & (!compress ||| capture.bits.slot.any())): data_claims <== data_claims & !captured
+      when ((indexed ||| compress) & !capture.bits.slot.any()): index_claims <== index_claims & !captured
+    when consume:
+      element <== element + row_elements
+      scan_done <== !more
+      fill <== total[0..lanes].zext(lanes+1)
+      assembled <== mux(full, combined[dlen..2*dlen], combined[0..dlen])
+    elsewhen (compress & result.fire()): fill <== Fill(0)
+    elsewhen (indexed & ready & (!row_done ||| result.fire())):
+      element <== next_element
+      assembled <== updated
+    when (consume ||| (!compress & result.fire())): cursor <== cursor + Offset(bytes)
+    when (result.fire()): active <== mux(compress, !terminal, more)
+
+export VectorPermuteCursor

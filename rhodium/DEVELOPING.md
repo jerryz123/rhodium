@@ -271,6 +271,12 @@ XLEN, `std/bits.rhdl`, and ready-valid. The backend and pipeline adapters import
 this common interface rather than redeclaring arithmetic/results/status ports.
 LSU contracts, admission timing, precise outcomes, and FPR scheduling policy
 remain outside the interface.
+
+`cores/common/vector/distributed/` consumes the same execution service, shared
+decode and operand geometry, the common MMU proof types, the SIMD integer
+datapaths, and HardFloat arithmetic. Superscalar owns the adapter to its
+ordered memory service. Shared vector primitives must not import distributed
+sequencers, their functional units, or named core configurations.
 The superscalar bundles, frontend, MMU, and cache adapter import
 `riscv/rtl/svpbmt.rhdl` for PBMT metadata and effective attributes.
 Its request bundles additionally import the

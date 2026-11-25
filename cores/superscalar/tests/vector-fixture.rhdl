@@ -2,6 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/common/fp/div-sqrt.rhdl").FpDivSqrtFHalf
+  lib("cores/common/fp/div-sqrt.rhdl").FpDivSqrtDHalf
+  lib("cores/common/integer-service.rhdl").DivideService
+  lib("cores/common/vector/muldiv.rhdl").VectorDivideTag
+  lib("cores/common/vector/muldiv.rhdl").VectorMultiplyTag
+  lib("cores/common/multiplier.rhdl").MultiplierRequest
+  lib("cores/common/integer-execution.rhdl") open
+  lib("cores/common/vector/backend-kind.rhm") open
+  lib("cores/common/vector/decode.rhdl").vector_fp_state_illegal
+  lib("riscv/isa/vector.rhm").VectorLength
+  lib("riscv/isa/vector-profile.rhm") open
   "../vector.rhdl" open
   "../bundles.rhdl" open
   lib("cores/common/vector/bundles.rhdl") open
@@ -14,28 +25,98 @@ import:
   lib("hardfloat/main.rhdl").RoundingMode
   lib("flow/main.rhdl") open
 
-sync_circuit SuperscalarVectorFixture():
-  def xlen = XLen.X64
+sync_circuit SuperscalarVectorFixture(~xlen: xlen :: XLen = XLen.X64, ~vlen: vlen :: VectorLength = 128, ~vector_backend: vector_backend :: VectorBackendKind = VectorBackendKind.Unified, ~extensions: extensions :: List.of(VectorExtension) = DefaultVectorExtensions):
+  input frm: RoundingMode
+  input vxrm: Bits(2)
+  output saturated: Bool
+  output fp_flags_valid: Bool
+  output fp_flags: Bits(5)
+  input stride: Bits(xlen.width)
+  input start_index: Bits(xlen.width)
   input instruction: Bits(32)
-  input(vl, vtype, scalar, pc): Bits(64)
+  input(vl, vtype, scalar, pc): Bits(xlen.width)
   input(request_valid, certificate_valid, precheck_safe): Bool
   interface pipeline(SuperscalarPipelineAccess(xlen), ~role: requester)
   interface memory(SuperscalarMemory(xlen, SuperscalarMemoryContext(xlen, 4)), ~role: requester)
   interface split(RiscvSplitAccess(xlen, Bool), ~role: requester)
   output(request_ready, active, sequencing, loads_pending, stores_pending, checking, released, done): Bool
+  output checked_range: VectorRange()
   output(outcome_valid, fault_start_valid): Bool
-  output(outcome_pc, fault_address, fault_cause, fault_start): Bits(64)
+  output(outcome_pc, fault_address, fault_cause, fault_start): Bits(xlen.width)
   output disposition: VectorDisposition
   output(scalar_valid, scalar_reserve): Bool
   output scalar_delay: Bits(4)
   output scalar_rd: Bits(5)
-  output scalar_data: Bits(64)
-  inst decode(VectorTestDecoder())
-  inst vector(SuperscalarVectorPipeline(xlen, 128, ~vector_completion_slots: 4))
+  output scalar_data: Bits(xlen.width)
+  inst decode(VectorTestDecoder(VectorProfile.V, extensions))
+  inst vector(SuperscalarVectorPipeline(xlen, vlen, ~vector_completion_slots: 4, ~vector_backend: vector_backend))
+  wire fp_source: Bits(xlen.width)
+  if (vector_backend == VectorBackendKind.Distributed)
+  | block:
+      input(stall_gpr, stall_fpr): Bool
+      input(disable_fp, separate_fpr): Bool
+      input fpr_source: Bits(xlen.width)
+      output(fp_illegal, reads_frs1): Bool
+      fp_illegal <== vector_fp_state_illegal(decode.control, !disable_fp, frm.as_bits())
+      reads_frs1 <== decode.control.reads_frs1
+      fp_source <== mux(separate_fpr, fpr_source, scalar)
+      interface truncate(Valid(Bits(xlen.width)), ~role: producer)
+      vector.service.truncate |> truncate
+      output(gpr_booking, fpr_booking, fpr_valid): Bool
+      output fpr_data: Bits(xlen.width)
+      gpr_booking <== vector.service.scalar_writeback.valid
+      fpr_booking <== vector.floating_writeback.valid
+      fpr_valid <== vector.service.floating_result.valid
+      fpr_data <== vector.service.floating_result.bits.data
+      vector.service.scalar_writeback.ready <== !stall_gpr
+      vector.floating_writeback.ready <== !stall_fpr
+      interface row_memory(VectorRowMemory(vector_dlen(vlen)), ~role: requester)
+      input window_pages: VectorWindowPages
+      input exact_mapping: VectorElementMapping()
+      output exact_offer: Bool
+      output exact_span: VectorRange()
+      exact_offer <== vector.element_translation.request.valid
+      exact_span <== vector.element_translation.request.bits
+      vector.element_translation.request |> to_valid() |> map_valid(_r => exact_mapping) |> valid_pipe(1) |> vector.element_translation.response
+      vector.window_pages <== window_pages
+      vector.row_memory <=> row_memory
+      def Tag = VectorMultiplyTag(4)
+      interface product(Decoupled(IntegerExecutionRequest(MultiplierRequest(xlen.width), Tag)), ~role: producer)
+      interface product_result(Irrevocable(IntegerExecutionResult(Bits(2*xlen.width), Tag)), ~role: consumer)
+      vector.service.multiply_request |> product
+      product_result |> vector.service.multiply_result
+      inst divider(DivideService(xlen.width, VectorDivideTag(4)))
+      input(divide_enable, divide_release): Bool
+      output(divide_sent, divide_returned): Bool
+      vector.service.divide_request |> gate_flow(divide_enable) |> divider.request
+      divider.result |> gate_flow(divide_release) |> queue(1) |> vector.service.divide_result
+      divide_sent <== divider.request.fire()
+      divide_returned <== vector.service.divide_result.fire()
+      def fp_div = if xlen == XLen.X64 | FpDivSqrtDHalf | FpDivSqrtFHalf
+      inst fp_divider(fp_div(xlen, Bits(index_width(4))))
+      input(fp_div_enable, fp_div_release): Bool
+      output(fp_div_sent, fp_div_returned): Bool
+      vector.service.fp_request |> gate_flow(fp_div_enable) |> fp_divider.request
+      fp_divider.completion |> gate_flow(fp_div_release) |> vector.service.fp_result
+      fp_div_sent <== fp_divider.request.fire()
+      fp_div_returned <== vector.service.fp_result.fire()
+  | block:
+      fp_source <== scalar
+      vector.service.scalar_writeback.ready <== Bool(#true)
+      vector.floating_writeback.ready <== Bool(#true)
+      vector.service.fp_request.ready <== Bool(#false)
+      vector.service.fp_result.valid <== Bool(#false)
+      vector.service.fp_result.bits <== dont_care(vector.service.fp_result.bits.type)
+      vector.service.multiply_request.ready <== Bool(#false)
+      vector.service.multiply_result.valid <== Bool(#false)
+      vector.service.multiply_result.bits <== dont_care(vector.service.multiply_result.bits.type)
+      vector.service.divide_request.ready <== Bool(#false)
+      vector.service.divide_result.valid <== Bool(#false)
+      vector.service.divide_result.bits <== dont_care(vector.service.divide_result.bits.type)
   def empty_certificate :: VectorFastCertificate(xlen) = literal(VectorFastCertificate(xlen), 0)
   def certified_range = VectorRange():
-    first: scalar & !Bits(64)(0xfff)
-    last: scalar ||| Bits(64)(0xfff)
+    first: scalar.zext(64) & !Bits(64)(0xfff)
+    last: scalar.zext(64) ||| Bits(64)(0xfff)
     store: decode.control.store
 
   decode.instruction <== instruction
@@ -43,22 +124,22 @@ sync_circuit SuperscalarVectorFixture():
   vector.request.bits <== VectorDescriptor(xlen):
     pc: pc
     precertified: certificate_valid
-    certificate: empty_certificate.updated(~ppn: scalar[12..56], ~range: certified_range)
+    certificate: empty_certificate.updated(~ppn: vector_page_number(scalar.zext(64)), ~range: certified_range)
     instruction: instruction
     state:
       RiscvVectorState(xlen):
         vl: vl
         vtype: vtype
-        vstart: Bits(64)(0)
-        vxrm: Bits(2)(0)
+        vstart: start_index
+        vxrm: vxrm
         vxsat: Bool(#false)
 
     control: decode.control
     scalar: scalar
-    floating_scalar: Bits(64)(0)
-    stride: Bits(64)(8)
+    floating_scalar: fp_source
+    stride: stride
     masked: !instruction[25].into(Bool)
-    rounding_mode: RoundingMode.NearEven
+    rounding_mode: frm
     pointer_masking: literal(PointerMaskControl(), 0)
 
   vector.pipeline <=> pipeline
@@ -66,30 +147,23 @@ sync_circuit SuperscalarVectorFixture():
   vector.split <=> split
   def proof = vector.precheck.request |> to_valid() |> map_valid(_range => precheck_safe) |> valid_pipe(1) |> to_decoupled() |> queue(1)
   proof |> vector.precheck.response
-  vector.service.scalar_writeback.ready <== Bool(#true)
-  vector.floating_writeback.ready <== Bool(#true)
-  vector.service.fp_request.ready <== Bool(#false)
-  vector.service.fp_result.valid <== Bool(#false)
-  vector.service.fp_result.bits <== dont_care(vector.service.fp_result.bits.type)
-  vector.service.multiply_request.ready <== Bool(#false)
-  vector.service.multiply_result.valid <== Bool(#false)
-  vector.service.multiply_result.bits <== dont_care(vector.service.multiply_result.bits.type)
-  vector.service.divide_request.ready <== Bool(#false)
-  vector.service.divide_result.valid <== Bool(#false)
-  vector.service.divide_result.bits <== dont_care(vector.service.divide_result.bits.type)
+  fp_flags_valid <== vector.service.fp_update.valid
+  saturated <== vector.service.saturate.valid
+  fp_flags <== vector.service.fp_update.bits
   request_ready <== vector.request.ready
   active <== vector.active
   sequencing <== vector.service.sequencing
   loads_pending <== vector.service.loads_pending
   stores_pending <== vector.service.stores_pending
   checking <== vector.precheck.request.fire()
+  checked_range <== vector.precheck.request.bits
   released <== vector.precheck.release.valid
   done <== vector.service.execution_done.valid
   outcome_valid <== vector.outcome.valid
   outcome_pc <== vector.outcome.bits.pc
   disposition <== vector.outcome.bits.disposition
   fault_address <== vector.outcome.bits.fault_address
-  fault_cause <== vector.outcome.bits.cause.as_bits().zext(64)
+  fault_cause <== vector.outcome.bits.cause.as_bits().zext(xlen.width)
   fault_start_valid <== vector.service.fault_start.valid
   fault_start <== vector.service.fault_start.bits
   scalar_valid <== vector.service.scalar_result.valid

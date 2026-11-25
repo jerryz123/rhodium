@@ -1,0 +1,51 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../memory/attachment.rhdl".SuperscalarL1D
+  lib("cores/rv3wide/profile.rhm").RV3WideConfig
+  lib("cores/rv3wide/rv3wide.rhdl").RV3Wide
+  lib("cores/rv2wide/rv2wide.rhdl").RV2Wide
+  lib("cores/rv2wide/profile.rhm").RV2WideConfig
+  "../profile.rhm".SuperscalarPipelineConfig
+  "cache-fixture.rhdl" open
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/isa/hart.rhm").RiscvMmuType
+  lib("riscv/isa/vector-profile.rhm").VectorProfile
+
+fun child(parent, name):
+  parent.operations.find(fun (op): op.opcode == "rtl.instance" && op.attribute("name") == name).attribute("module")
+
+fun check_storage(core, xlen, vlen, row_bits):
+  def pipeline = SuperscalarPipelineConfig(~xlen: xlen, ~mmu_type: RiscvMmuType.Bare, ~instruction_cache: test_cache, ~data_cache: test_cache, ~vector: VectorProfile.Zve32x, ~vector_length: vlen)
+  def profile = if core == RV3Wide | RV3WideConfig(pipeline) | RV2WideConfig(pipeline)
+  def design = compile_program(elaborate(core(test_cache, ~chi: test_fetch_chi, ~profile: profile)), rtl_target).report.design
+  def top = design.modules.find(fun (m): m.name == "Superscalar")
+  def backend = child(child(child(top, "core"), "vector"), "backend")
+  check:
+    backend.name ~is (if core == RV3Wide | "DistributedVectorBackend" | "VectorBackend")
+  when core == RV3Wide
+  | check:
+      child(backend, "checker").name ~is "VectorFaultCheck"
+      child(backend, "rows").name ~is "VectorRowEngine"
+      child(backend, "row_alu").name ~is "VectorRowExecute"
+      child(backend, "paths").name ~is "DistributedVectorDispatch"
+  def execution = if core == RV3Wide | backend | child(backend, "execution")
+  check:
+    child(execution, "instructions").name ~is (if core == RV3Wide | "DistributedVectorInstructions" | "VectorInstructions")
+  def registers = child(execution, "registers")
+  def bank = if row_bits == xlen.width | registers | child(registers, "bank")
+  check:
+    bank.find_output("results_2_out").type.field("bits").type.width ~is row_bits
+    bank.find_input("reads_0_in").type.field("bits").type.width ~is bits.length(32 * (vlen div row_bits) - 1)
+    bank.find_input("mask_read_in").type.field("bits").type.width ~is bits.length(vlen div row_bits - 1)
+
+check:
+  elaborate(SuperscalarL1D(test_cache, ~chi: test_fetch_chi, ~xlen: XLen.X32, ~beat_bytes: 8, ~row_bits: 128)) ~throws "DLEN must equal"
+  RV3WideConfig(SuperscalarPipelineConfig(~vector: VectorProfile.Zve32x, ~vector_length: 128)) ~throws "VLEN = 4 * XLEN"
+
+for (xlen in [XLen.X32, XLen.X64]):
+  check_storage(RV3Wide, xlen, 4 * xlen.width, 2 * xlen.width)
+check_storage(RV2Wide, XLen.X64, 256, 64)

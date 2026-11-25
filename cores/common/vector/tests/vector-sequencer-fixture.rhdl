@@ -21,34 +21,40 @@ import:
   lib("hardfloat/main.rhdl").RoundingMode
   lib("flow/main.rhdl") open
 
-sync_circuit VectorSequencerFixture(xlen :: XLen, vlen :: VectorLength, vector_extensions :: List.of(VectorExtension) = DefaultVectorExtensions):
+sync_circuit VectorSequencerFixture(xlen :: XLen, vlen :: VectorLength, vector_extensions :: List.of(VectorExtension) = [VectorExtension.Zvbb]):
   input instruction: Bits(32)
   input(vtype, vl, vstart, scalar): Bits(xlen.width)
   input floating_scalar: Bits(xlen.width)
   input vxrm: Bits(2)
   input(request_valid, issue_ready, cancel, retry_enable): Bool
+  input block_v0_row: Bool
   input retry_first: Bits(index_width(vlen + 1))
-  interface initialize(Valid(VectorRegisterWrite(xlen, vlen)), ~role: consumer)
+  interface initialize(Valid(VectorRegisterWrite(xlen.width, vlen)), ~role: consumer)
   output(active, request_ready, legal, issued, committed, retried): Bool
   output suffix_pending: Bool
-  output result: VectorResultBeat(xlen, vlen, VectorRegisterWrite(xlen, vlen))
+  output general_reads: Bits(3)
+  output issued_rhs: Bits(xlen.width)
+  output predicate_read: Bool
+  output result: VectorResultBeat(xlen, vlen, VectorRegisterWrite(xlen.width, vlen))
   def profile = if xlen == XLen.X32 | VectorProfile.Zve32x | VectorProfile.V
   inst decode(VectorTestDecoder(profile, vector_extensions, ~uncared_ones: #true))
   inst operation_legality(VectorOperationLegality(xlen, vlen, profile, vector_extensions))
   inst sequencer(VectorSequencer(xlen, vlen, Bits(xlen.width)))
-  sequencer.blocked_rows <== Bits(VectorRegisterLayout(vlen, xlen.width).depth)(0).as_vec(Bool)
+  sequencer.blocked_rows <== block_v0_row.as_bits().zext(VectorRegisterLayout(vlen, xlen.width).depth).as_vec(Bool)
   sequencer.packed_memory <== Bool(#false)
   sequencer.alignment_available <== Bool(#false)
   sequencer.aligned <== Bits(xlen.width)(0)
   sequencer.prepare_mask_result.valid <== Bool(#false)
   sequencer.prepare_mask_result.bits <== Bits(xlen.width)(0)
   inst operand_fetch(VectorOperandFetch(xlen, vlen, Bits(xlen.width)))
+  general_reads <== vec(for List (port in 0..3): operand_fetch.reads[port].valid).as_bits()
+  predicate_read <== operand_fetch.mask_read.valid
   operand_fetch.aligned <== Bits(xlen.width)(0)
-  inst bank(VectorRegisterFile(xlen, vlen))
+  inst bank(VectorRegisterFile(xlen.width, vlen))
   inst execute(VectorExecute(xlen, vlen))
   execute.alignment.valid <== Bool(#false)
   execute.alignment.bits <== dont_care(VectorAlignment(xlen))
-  inst pipeline(ValidPipe(VectorResultBeat(xlen, vlen, VectorRegisterWrite(xlen, vlen)), 3, ~flushable: #true))
+  inst pipeline(ValidPipe(VectorResultBeat(xlen, vlen, VectorRegisterWrite(xlen.width, vlen)), 3, ~flushable: #true))
   decode.instruction <== instruction
   operation_legality.instruction <== instruction
   operation_legality.control <== decode.control
@@ -103,7 +109,7 @@ sync_circuit VectorSequencerFixture(xlen :: XLen, vlen :: VectorLength, vector_e
   pipeline.ingress.valid <== operand_fetch.issue.fire()
   pipeline.ingress.bits <== execute.result
   def retained_control = sequencer.retained.descriptor.control
-  def serialized = retained_control.integer & (retained_control.scan ||| retained_control.compress)
+  def serialized = retained_control.integer & ((vector_scan(retained_control) & !retained_control.scan_control.index) ||| (retained_control.permutation === VectorPermutationKind.Compress))
   def retry = pipeline.egress.valid & retry_enable & (pipeline.egress.bits.first === retry_first) & !cancel & serialized
   pipeline.flush <== cancel ||| retry
   def authorization = pipeline.egress.valid & !retry & !cancel
@@ -128,6 +134,7 @@ sync_circuit VectorSequencerFixture(xlen :: XLen, vlen :: VectorLength, vector_e
   request_ready <== sequencer.request.ready
   active <== sequencer.active ||| operand_fetch.active
   issued <== operand_fetch.issue.fire()
+  issued_rhs <== operand_fetch.issue.bits.beat.right
   committed <== authorization
   retried <== retry
   result <== pipeline.egress.bits

@@ -3,6 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../../common/cache/operation.rhdl".CacheOperation
+  lib("riscv/rtl/atomic.rhdl").RiscvAtomicOperation
+  lib("riscv/rtl/zihintntl.rhdl").RiscvMemoryLocality
+  lib("cores/common/vector/bundles.rhdl").VectorRowMemory
+  lib("cores/common/mmu/vector.rhdl").VectorMemoryService
   lib("cores/common/fetch/protocol.rhdl") open
   "../../common/cache/access.rhdl" open
   "../../common/cache/uncached-instruction.rhdl".UncachedInstructionMemory
@@ -21,10 +26,29 @@ import:
   lib("rhodium/std/bits.rhdl") open
   lib("chi/protocol/channels.rhdl") open
 
+/* A row transaction retains its lane for uncached completion; scalar clients retain their own context. */
+bundle SuperscalarRowContext(Context :: DataType, beat_bytes :: Pow2Int):
+  row: Bool
+  lane: Bits(index_width(beat_bytes))
+  scalar: Context
+
 /* Admits coherent RAM to L1D and exact-width device/noncacheable accesses to a committed IOMSHR.
    IO drains older cache work and blocks younger accesses through final response consumption.
    Accepted operations retain ordered, nonfaulting completion ownership through all redirects. */
-sync_circuit SuperscalarL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~context: Context :: DataType = Bool, ~service_queue_depth: service_queue_depth :: PosInt = 2, ~xlen: xlen :: XLen = XLen.X64, ~beat_bytes: beat_bytes :: Pow2Int = xlen.width / 8):
+sync_circuit SuperscalarL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~context: Context :: DataType = Bool, ~service_queue_depth: service_queue_depth :: PosInt = 2, ~xlen: xlen :: XLen = XLen.X64, ~beat_bytes: beat_bytes :: Pow2Int = xlen.width / 8, ~row_bits: row_bits :: maybe(Pow2Int) = #false):
+  unless row_bits == #false || row_bits == 8 * beat_bytes
+  | error(~who: #'SuperscalarL1D, "vector DLEN must equal the L1D data port width")
+  def Tag = if row_bits | SuperscalarRowContext(Context, beat_bytes) | Context
+  def Reply = MemoryResponse(Bits(if row_bits | row_bits | xlen.width), Tag)
+  /* Keeps reply ownership and the uncached row offset with the accepted request. */
+  fun row_tag(row :: Bool, lane :: Bits(index_width(beat_bytes)), context :: Hardware.of(Context)) :~ SuperscalarRowContext(Context, beat_bytes):
+    SuperscalarRowContext(Context, beat_bytes):
+      row: row
+      lane: lane
+      scalar: context
+  /* Scalar-only specializations carry no native owner or lane through their memory path. */
+  fun scalar_tag(context :: Hardware.of(Context)) :~ Hardware.of(Tag):
+    if row_bits | row_tag(Bool(#false), dont_care(Bits(index_width(beat_bytes))), context) | context
   def bytes = xlen.width / 8
   input node_id: Bits(config.flit.node_id_width)
   input uncached_node_id: Bits(config.flit.node_id_width)
@@ -40,7 +64,7 @@ sync_circuit SuperscalarL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHICo
   /* Coherent storage and ordered uncached transport.
      Data and fetch share transport, but accepted data drain excludes the younger fetch owner. */
 
-  inst storage(L1DCache(xlen, cache, ~chi: config, ~context: Context, ~service_queue_depth: service_queue_depth, ~beat_bytes: beat_bytes))
+  inst storage(L1DCache(xlen, cache, ~chi: config, ~context: Tag, ~service_queue_depth: service_queue_depth, ~beat_bytes: beat_bytes))
   storage.node_id <== node_id
   chi <=> storage.chi
   inst uncached(UncachedInstructionMemory(XLen.X64, config, Bool, 64))
@@ -48,13 +72,17 @@ sync_circuit SuperscalarL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHICo
   uncached.instruction.flush <== instruction.flush
   uncached.node_id <== uncached_node_id
   uncached.chi <=> uncached_chi
-  def cache_reply = map_flow(response => MemoryResponse(Bits(xlen.width), Context)):
-    data: response.data[0..xlen.width]
+  def cache_reply = map_flow(response => MemoryResponse(Bits(if row_bits | row_bits | xlen.width), Tag)):
+    data: if row_bits | response.data | response.data[0..xlen.width]
     context: response.context
-  def io_reply = map_flow(response => MemoryResponse(Bits(xlen.width), Context)):
-    data: response.data[0..xlen.width] << (response.context.offset ++ Bits(3)(0))
+  def io_reply = map_flow(response => MemoryResponse(Bits(if row_bits | row_bits | xlen.width), Tag)):
+    data:
+      if row_bits
+      | mux(response.context.context.row, response.data.zext(row_bits) << (response.context.context.lane ++ Bits(3)(0)), (response.data[0..xlen.width] << (response.context.offset ++ Bits(3)(0))).zext(row_bits))
+      | response.data[0..xlen.width] << (response.context.offset ++ Bits(3)(0))
     context: response.context.context
-  def ordering = attach_ordered_memory(storage.core, uncached.core, memory.response, XLen.X64, SuperscalarUncachedContext(Context),
+  def replies = interface_link(Decoupled(Reply))
+  def ordering = attach_ordered_memory(storage.core, uncached.core, replies.left, XLen.X64, SuperscalarUncachedContext(Tag),
                                        ~physical_map: config.physical_map, ~cache_reply: cache_reply, ~io_reply: io_reply)
 
 
@@ -119,30 +147,25 @@ sync_circuit SuperscalarL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHICo
   def Array(cached, uncached_requests, local_management) = route_committed_request(admitted, admission.route)
   // A statically uncached region has no cached copies. Complete after drain,
   // without issuing an invented load/store to a possibly side-effecting device.
-  (local_management |> map_flow(request => MemoryResponse(Bits(xlen.width), Context)):
-    data: Bits(xlen.width)(0)
-    context: request.context
+  (local_management |> map_flow(request => MemoryResponse(Bits(if row_bits | row_bits | xlen.width), Tag)):
+    data: Bits(if row_bits | row_bits | xlen.width)(0)
+    context: scalar_tag(request.context)
   ) |> ordering.management
-  def Array(authorized, authorized_index) = cached |> gate_flow(!ordered_busy) |> atomic_fork(2)
-  authorized_index |> to_valid() |> map_valid(request => mux(atomic_request, request.address[0..xlen.width], request.address[0..xlen.width].align_down(bytes))) |> storage.virtual_lookup
-  (
-    authorized |> map_flow(payload):
+  def scalar_cached = cached |> map_flow(payload):
       def native = payload.into(AddressedPhysicalMemoryBeatReq(xlen, Context, bytes, 64))
       def address = native.address[0..xlen.width]
       // Zero initializes raw_beat (when present); completion context comes from the request.
-      def scalar :: PhysicalMemoryBeatReq(xlen, Context, beat_bytes) = literal(PhysicalMemoryBeatReq(xlen, Context, beat_bytes), 0)
+      def scalar :: PhysicalMemoryBeatReq(xlen, Tag, beat_bytes) = literal(PhysicalMemoryBeatReq(xlen, Tag, beat_bytes), 0)
       scalar.updated(
         ~address: mux(atomic_request, address, address.align_down(bytes)), ~byte_mask: place_word_byte_mask(address, native.byte_mask, beat_bytes),
         ~width: mux(atomic_request, native.width, if xlen == XLen.X32 | MemoryWidth.Word | MemoryWidth.Double), ~unsigned: native.unsigned,
-        ~context: native.context, ~data: native.data.zext(beat_bytes * 8), ~access: native.access, ~atomic: native.atomic, ~locality: native.locality
+        ~context: scalar_tag(native.context), ~data: native.data.zext(beat_bytes * 8), ~access: native.access, ~atomic: native.atomic, ~locality: native.locality
       )
-  ) |> ordering.cached
 
-  (
-    uncached_requests |> map_flow(request => UncachedMemoryReq(XLen.X64, SuperscalarUncachedContext(Context))):
+  def scalar_io = uncached_requests |> map_flow(request => UncachedMemoryReq(XLen.X64, SuperscalarUncachedContext(Tag))):
       device: admission.strongly_ordered
       request:
-        PhysicalMemoryReq(XLen.X64, SuperscalarUncachedContext(Context)):
+        PhysicalMemoryReq(XLen.X64, SuperscalarUncachedContext(Tag)):
           byte_mask: place_word_byte_mask(request.address, request.byte_mask, 8)
           address: request.address
           access: request.access
@@ -151,11 +174,56 @@ sync_circuit SuperscalarL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHICo
           unsigned: Bool(#true)
           data: if xlen == XLen.X64 | request.data >> (request.address[0..3] ++ Bits(3)(0)) | (request.data >> (request.address[0..2] ++ Bits(3)(0))).zext(64)
           context:
-            SuperscalarUncachedContext(Context):
+            SuperscalarUncachedContext(Tag):
               offset: if xlen == XLen.X64 | request.address[0..3] | request.address[0..2].zext(3)
-              context: request.context
+              context: scalar_tag(request.context)
           locality: request.locality
-  ) |> ordering.uncached
+  def cache_clients :: Endpoint:
+    if row_bits
+    | block:
+        interface row_memory(VectorRowMemory(row_bits), ~role: responder)
+        def Array(cached_rows, io_rows) = row_memory.request |> demux_flow(2, row => row.service =/= VectorMemoryService.Cached)
+        def wide_request = cached_rows |> map_flow(row):
+          def base :: PhysicalMemoryBeatReq(xlen, Tag, beat_bytes) = literal(PhysicalMemoryBeatReq(xlen, Tag, beat_bytes), 0)
+          def data = base.updated(~address: row.address[0..xlen.width], ~byte_mask: row.byte_mask, ~data: row.data,
+                                  ~width: (if xlen == XLen.X32 | MemoryWidth.Word | MemoryWidth.Double),
+                                  ~access: mux(row.store, CacheOperation.Store, CacheOperation.Load),
+                                  ~context: row_tag(Bool(#true), Bits(index_width(beat_bytes))(0), dont_care(Context)))
+          if beat_bytes == bytes | data | data.updated(~raw_beat: Bool(#true))
+        def row_io = io_rows |> map_flow(row):
+          def lane = priority_encoder(row.byte_mask)
+          def address = row.address ||| lane.zext(64)
+          UncachedMemoryReq(XLen.X64, SuperscalarUncachedContext(Tag)):
+            device: row.service === VectorMemoryService.Device
+            request:
+              PhysicalMemoryReq(XLen.X64, SuperscalarUncachedContext(Tag)):
+                address: address
+                width: row.element_width.into(MemoryWidth)
+                unsigned: Bool(#true)
+                access: mux(row.store, CacheOperation.Store, CacheOperation.Load)
+                atomic: dont_care(RiscvAtomicOperation)
+                byte_mask: ((row.byte_mask >> lane) << address[0..3])[0..8]
+                data: (row.data >> (lane ++ Bits(3)(0)))[0..64]
+                locality: RiscvMemoryLocality.Default
+                context:
+                  SuperscalarUncachedContext(Tag):
+                    offset: Bits(3)(0)
+                    context: row_tag(Bool(#true), lane, dont_care(Context))
+        Array(scalar_io, row_io) |> rr_arbiter() |> ordering.uncached
+        def Array(narrow, wide) = replies.right |> demux_flow(2, reply => reply.context.row)
+        wide |> map_flow(reply => reply.data) |> row_memory.response
+        (narrow |> map_flow(reply => MemoryResponse(Bits(xlen.width), Context)):
+          data: reply.data[0..xlen.width]
+          context: reply.context.scalar
+        ) |> memory.response
+        Array(scalar_cached, wide_request) |> rr_arbiter()
+    | block:
+        scalar_io |> ordering.uncached
+        replies.right |> memory.response
+        scalar_cached
+  def Array(service, lookup) = cache_clients |> gate_flow(!ordered_busy) |> atomic_fork(2)
+  lookup |> to_valid() |> map_valid(req => req.address) |> storage.virtual_lookup
+  service |> ordering.cached
 
 
   /* Admission faults report the original address. Accepted cache service completes without a late fault. */

@@ -69,29 +69,30 @@ sync_circuit RV5StageVectorControlFixture(vlen :: VectorLength):
   base_decoded_valid <== base_decoder.valid
   configuration <== decoder.control.vector.configure.as_bits()
   operand <== decoder.control.vector.operand.as_bits()
-  arithmetic_mode <== decoder.control.vector.alu.arithmetic_mode.as_bits()
-  multiply_result <== decoder.control.vector.multiply_result.as_bits()
-  mask_destination <== decoder.control.vector.mask_destination
-  carry_input <== decoder.control.vector.carry_input
-  extension <== decoder.control.vector.extension
-  extension_ratio <== decoder.control.vector.extension_ratio.as_bits()
-  extension_signed <== decoder.control.vector.extension_signed
-  mask_result_select <== decoder.control.vector.alu.mask_result_select.as_bits()[0].into(Bool)
-  invert_comparison <== decoder.control.vector.invert_comparison
-  swap_operands <== decoder.control.vector.swap_operands
-  widening <== decoder.control.vector.widening
-  narrowing <== decoder.control.vector.narrowing
+  arithmetic_mode <== decoder.control.vector.integer_row.alu.arithmetic_mode.as_bits()
+  multiply_result <== decoder.control.vector.product.select.as_bits()
+  mask_destination <== vector_writes_mask(decoder.control.vector)
+  carry_input <== decoder.control.vector.reads.v0 === VectorV0Role.Carry
+  extension <== extension_shift(decoder.control.vector.width_shape).any()
+  extension_ratio <== extension_shift(decoder.control.vector.width_shape) - Bits(2)(1)
+  extension_signed <== decoder.control.vector.left_signed
+  mask_result_select <== decoder.control.vector.integer_row.alu.mask_result_select.as_bits()[0].into(Bool)
+  invert_comparison <== decoder.control.vector.integer_row.invert_comparison
+  swap_operands <== decoder.control.vector.integer_row.swap_operands
+  widening <== widens_result(decoder.control.vector.width_shape)
+  narrowing <== (decoder.control.vector.width_shape === VectorWidthShape.Narrow)
   fp_zvfhmin_e16 <== decoder.control.vector.fp_zvfhmin_e16
   fp_wide_float <== decoder.control.vector.fp_wide_float
-  rounding <== decoder.control.vector.rounding
-  clip <== decoder.control.vector.clip
-  clip_unsigned <== decoder.control.vector.clip_unsigned
-  wide_vs2 <== decoder.control.vector.wide_vs2
-  left_signed <== decoder.control.vector.left_signed
-  right_signed <== decoder.control.vector.right_signed
-  subtract <== decoder.control.vector.alu.subtract
-  divide <== decoder.control.vector.divide
-  divide_remainder <== decoder.control.vector.remainder
+  rounding <== decoder.control.vector.integer_row.round_shift
+  clip <== decoder.control.vector.integer_row.clip
+  clip_unsigned <== decoder.control.vector.integer_row.clip_unsigned
+  wide_vs2 <== has_wide_vs2(decoder.control.vector.width_shape)
+  def product = decoder.control.vector.multiply_divide & (decoder.control.vector.compute_family === VectorComputeFamily.IntProduct)
+  left_signed <== mux(product, decoder.control.vector.product.mode.left_signed, decoder.control.vector.left_signed)
+  right_signed <== mux(product, decoder.control.vector.product.mode.right_signed, decoder.control.vector.right_signed)
+  subtract <== decoder.control.vector.integer_row.alu.subtract
+  divide <== decoder.control.vector.multiply_divide & (decoder.control.vector.compute_family === VectorComputeFamily.IntDivide)
+  divide_remainder <== decoder.control.vector.division.remainder
   csrs.interrupts <== literal(RiscvInterrupts(), 0)
   csrs.hart_id <== Bits(xlen.width)(0)
   csrs.time_counter <== Bits(64)(0)

@@ -6,6 +6,7 @@ import:
   lib("cores/common/mmu/context.rhdl").GuestMemoryReq
   lib("cores/common/fetch/fault.rhdl") open
   lib("cores/common/mmu/context.rhdl").RiscvTranslationState
+  lib("cores/common/vector/backend-kind.rhm") open
   lib("cores/common/pc.rhdl") open
   lib("cores/common/fetch/redirect.rhdl") open
   lib("rhodium/core/ir.rhm").Module
@@ -35,6 +36,7 @@ import:
   lib("cores/common/vector/decode.rhdl") open
   lib("cores/common/vector/bundles.rhdl") open
   lib("cores/common/vector/precheck.rhdl") open
+  lib("cores/common/vector/distributed/common/memory-route.rhdl") open
   lib("cores/common/mmu/vector.rhdl") open
   lib("riscv/isa/vector-profile.rhm") open
   lib("riscv/rtl/vector.rhdl") open
@@ -102,7 +104,7 @@ fun pending_destination(xlen :: XLen, hypervisor :: Boolean, address :: Bits(5),
    The supplied issue circuit owns admission; each lane has a fixed GPR write port.
    Every lane can own a shared service; issue preserves the existing shared bandwidth.
    Resolution inputs qualify the corresponding live MEM token in the same cycle. */
-sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarPipelineConfig(), ~issue: issue :: Module || CircuitDefinition, ~fp_timing: selected_fp_timing :: FpExecutionTiming = FpExecutionTiming()):
+sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarPipelineConfig(), ~issue: issue :: Module || CircuitDefinition, ~vector_backend: vector_backend :: VectorBackendKind = VectorBackendKind.Unified, ~fp_timing: selected_fp_timing :: FpExecutionTiming = FpExecutionTiming()):
   def xlen = profile.xlen
   def hypervisor = profile.hypervisor
   def issue_width = superscalar_issue_width(xlen, issue)
@@ -147,6 +149,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
 
   def fp_enabled = floating_point_supports_f(profile.floating_point)
   def vector_enabled = vector_profile_enabled(profile.vector)
+  def distributed_rows = vector_enabled && (vector_backend == VectorBackendKind.Distributed)
   def vector_elen = vector_profile_elen(if vector_enabled | profile.vector | VectorProfile.Zve32x)
   def vector_slots = profile.vector_completion_slots
   def fp_timing = selected_fp_timing.at_least(2)
@@ -173,13 +176,21 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   inst vector(
     if vector_enabled
     | SuperscalarVectorPipeline(
-        xlen, profile.vector_length,
-        ~vector_completion_slots: vector_slots, ~instruction_owners: profile.vector_instruction_owners,
-        ~dispatch_depth: profile.vector_dispatch_depth,
+        xlen, profile.vector_length, ~vector_backend: vector_backend, ~vector_fp32: vector_profile_supports_fp32(profile.vector), ~vector_fp16: vector_extensions_support_zvfh(profile.vector_extensions),
+        ~vector_completion_slots: vector_slots, ~instruction_owners: profile.vector_instruction_owners, ~dispatch_depth: profile.vector_dispatch_depth,
         ~fixed_fp: #true, ~fp_timing: fp_timing
       )
     | SuperscalarVectorDisabled(xlen, ~vector_completion_slots: vector_slots)
   )
+  if distributed_rows
+  | block:
+      interface row_memory(VectorRowMemory(vector_dlen(profile.vector_length)), ~role: requester)
+      interface element_translation(VectorElementTranslation(), ~role: requester)
+      vector.element_translation <=> element_translation
+      input window_pages: VectorWindowPages
+      vector.row_memory <=> row_memory
+      vector.window_pages <== window_pages
+  | #void
   vector.memory <=> memory_ports.vector_memory
   vector.pipeline <=> memory_ports.vector_pipeline
   vector.split <=> memory_ports.vector_split
@@ -282,7 +293,8 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   wb_csrs.interrupts <== interrupts
   wb_csrs.hart_id <== hart_id[0..xlen.width]
   wb_csrs.time_counter <== time_counter
-  inst fp(if fp_enabled | SuperscalarFp(xlen, fp_timing, ~half_precision: profile.execution_half_precision, ~zfa: profile.zfa, ~vector_slots: vector_slots) | SuperscalarFpDisabled(xlen, ~vector_slots: vector_slots))
+  def VectorFpTag = Bits(index_width(vector_slots))
+  inst fp(if fp_enabled | SuperscalarFp(xlen, fp_timing, ~half_precision: profile.execution_half_precision, ~zfa: profile.zfa, ~vector_slots: vector_slots, ~vector_tag: VectorFpTag) | SuperscalarFpDisabled(xlen, ~vector_slots: vector_slots, ~vector_tag: VectorFpTag))
   vector.floating_writeback |> fp.vector_writeback
   wb_csrs.fp_update.valid <== fp.state_update.valid ||| vector.service.fp_update.valid ||| vector.service.floating_result.valid
   wb_csrs.fp_update.bits <== mux(fp.state_update.valid, fp.state_update.bits, Bits(5)(0)) ||| mux(vector.service.fp_update.valid, vector.service.fp_update.bits, Bits(5)(0))
@@ -417,16 +429,12 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   def rr_normalized = vec(for List (lane in 0..issue_width): superscalar_normalize_move(rr_head.entries[lane].instruction))
   def rr_decoded :: Vec(issue_width, DecodeResult(SuperscalarControl())) = vec(for List (lane in 0..issue_width): rr_decode(rr_normalized[lane]))
   def rr_controls :: Vec(issue_width, SuperscalarControl()) = vec(for List (lane in 0..issue_width): rr_decoded[lane].value)
-  def rr_vector = for List (lane in 0..issue_width):
-    def control = rr_controls[lane].vector
-    control.integer ||| control.memory ||| control.floating_point ||| control.multiply_divide
+  def rr_vector = for List (lane in 0..issue_width): rr_controls[lane].vector.dispatch_kind =/= VectorDispatchKind.None
 
   def rr_vector_illegal = for List (lane in 0..issue_width):
     def control = rr_controls[lane].vector
     def vector_state_disabled = (rr_vector[lane] ||| (control.configure =/= VectorConfigMode.None)) & !wb_csrs.vector_enabled
-    def rounding_illegal = control.fp_service & control.fp_execution.uses_rounding_mode & (wb_csrs.frm > Bits(3)(4))
-    def floating_point_illegal = control.floating_point & (!wb_csrs.fp_enabled ||| rounding_illegal)
-    vector_state_disabled ||| (rr_vector[lane] & floating_point_illegal)
+    vector_state_disabled ||| vector_fp_state_illegal(control, wb_csrs.fp_enabled, wb_csrs.frm)
 
   def rr_vector_config = for List (lane in 0..issue_width): rr_controls[lane].system.action === RiscvCsrAction.VectorConfig
 
@@ -471,7 +479,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
      Read probes may repeat while RR waits; future fixed return capacity
      is reserved only when its instruction is admitted. */
 
-  def rr_vector_frs1 = for List (lane in 0..issue_width): rr_vector[lane] & rr_controls[lane].vector.floating_point & (rr_controls[lane].vector.operand === VectorOperandMode.FloatingScalar)
+  def rr_vector_frs1 = for List (lane in 0..issue_width): rr_controls[lane].vector.reads_frs1
   def rr_fp_lane = rr_decision.owners.fp
   def rr_fp_control :: FloatingPointControl() = rr_controls[service_index(rr_fp_lane)].fp.bits
   fp.read_addresses <== vec(rr_rs1[service_index(rr_fp_lane)], rr_rs2[service_index(rr_fp_lane)], rr_head.entries[service_index(rr_fp_lane)].instruction[27..32])
@@ -487,7 +495,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     def producer_matches = for List (producer in rr_producers):
       def token :: SuperscalarResult(xlen, hypervisor) = producer.bits
       def scalar_writes_fpr = token.fp.valid & (token.fp.bits.registers.destination === FloatDestination.FloatingPoint)
-      def vector_writes_fpr = token.vector.floating_point & token.vector.floating_scalar_destination
+      def vector_writes_fpr = token.vector.floating_scalar_destination
       producer.valid & (scalar_writes_fpr ||| vector_writes_fpr) & (token.rd === address)
 
     def pending = registered_pending ||| any(producer_matches)
@@ -613,7 +621,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
       def ex_control = ex_pipe[lane].egress.bits.control.vector
       def mem_control :: SuperscalarVectorLane() = mem_pipe[lane].egress.bits.vector
       def wb_control :: SuperscalarVectorLane() = wb_pipe[lane].egress.bits.vector
-      def ex_vector = ex_pipe[lane].egress.valid & (ex_control.integer ||| ex_control.memory ||| ex_control.floating_point ||| ex_control.multiply_divide)
+      def ex_vector = ex_pipe[lane].egress.valid & (ex_control.dispatch_kind =/= VectorDispatchKind.None)
       def mem_vector = mem_pipe[lane].egress.valid & mem_control.operation
       def wb_vector = wb_pipe[lane].egress.valid & wb_control.operation
       ex_vector ||| mem_vector ||| wb_vector
@@ -623,8 +631,8 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   def rr_vector_blocked = for List (lane in 0..issue_width):
     def control :: SuperscalarControl() = rr_controls[lane]
     def floating_source_pending = rr_vector_frs1[lane] & rr_fp_busy(rr_rs1[lane])
-    def floating_destination_blocked = control.vector.floating_point & control.vector.floating_scalar_destination & (wb_vector_fpr_pending ||| rr_fp_busy(rr_rd[lane]))
-    def integer_result_claim = control.vector.integer & control.vector.scalar_destination & control.writeback.enable & rr_rd[lane].any()
+    def floating_destination_blocked = vector_writes_fpr(control.vector) & (wb_vector_fpr_pending ||| rr_fp_busy(rr_rd[lane]))
+    def integer_result_claim = vector_writes_gpr(control.vector) & control.writeback.enable & rr_rd[lane].any()
     def vector_execution_blocked = rr_vector[lane] & ((integer_result_claim & !wb_vector_scalar_available) ||| floating_source_pending ||| floating_destination_blocked)
     def integer_destination_pending = control.writeback.enable & scoreboard_busy(32, wb_vector_scoreboard.busy, rr_rd[lane])
     def memory_order_blocked = control.memory.access.is_memory() & (vector.service.stores_pending ||| (control.memory.access.store_fault_class() & vector.service.loads_pending))
@@ -879,7 +887,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     ex_vector_legality.control <== ex.control.vector
     ex_vector_legality.vtype <== ex_vector_state.vtype
     ex_vector_legality.vstart <== ex_vector_state.vstart
-    def ex_is_vector = ex.control.vector.integer ||| ex.control.vector.memory ||| ex.control.vector.floating_point ||| ex.control.vector.multiply_divide
+    def ex_is_vector = ex.control.vector.dispatch_kind =/= VectorDispatchKind.None
     def ex_vector_illegal = (ex_is_vector & !ex_vector_legality.legal) ||| (ex_is_vector_config & ex_configuration.illegal)
     def ex_executable = !ex.illegal & !ex_vector_illegal & !ex.virtual_instruction & !ex_fetch_fault.valid
     def ex_pair_immediate = ex.operands.rewrite.immediate.sext(xlen.width)
@@ -906,7 +914,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     def ex_address = apply_pointer_mask(xlen, ex_raw_address, ex_mask)
     ex_lookup_addresses[lane] <== ex_address
     // Only the proposed range is meaningful before MEM supplies a certificate.
-    def ex_vector_geometry = vector_fast_footprint_geometry(xlen, profile.vector_length, ex.control.vector, ex.fetched.instruction, ex_vector_state, ex.operands.rs2)
+    def ex_vector_geometry = vector_fast_footprint_geometry(xlen, profile.vector_length, ex.control.vector, ex.fetched.instruction, ex_vector_state, ex.operands.rs2, ~indexed: distributed_rows)
     def ex_vector_start = vector_fast_start(xlen, ex.operands.rs1, ex_vector_geometry, ex_mask)
     def ex_vector_footprint = vector_fast_range(xlen, ex_vector_start, ex_vector_geometry, ex.control.vector.store)
     def ex_data_guest:
@@ -1006,8 +1014,8 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
         SuperscalarVectorLane():
           operation: ex_is_vector
           floating_point: ex.control.vector.floating_point
-          floating_scalar_destination: ex.control.vector.floating_scalar_destination
-          integer_destination: ex.control.vector.integer & ex.control.vector.scalar_destination
+          floating_scalar_destination: vector_writes_fpr(ex.control.vector)
+          integer_destination: vector_writes_gpr(ex.control.vector)
           memory: ex.control.vector.memory
           store: ex.control.vector.store
           configure: ex.control.vector.configure
@@ -1444,13 +1452,23 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   def wb_vector = wb_live_group[service_index(wb_vector_lane)]
   def wb_vector_offer = wb_dispatch[service_index(wb_vector_lane)] & (if vector_enabled | wb_vector.vector.operation | Bool(#false))
   def wb_vector_pc = wb_live_pcs[service_index(wb_vector_lane)]
-  def wb_vector_ordered = !wb_vector.vector.memory ||| (wb_prior_memory_drained & !wb_memory_completion.pending & !wb_ordered_memory_pending)
-  def wb_vector_gpr_write = wb_vector.vector.integer_destination & wb_vector.write
-  def wb_vector_results_available = !wb_vector_gpr_write ||| wb_vector_scalar_available
-  def wb_vector_fpr_available = !wb_vector.vector.floating_scalar_destination ||| !wb_vector.vector.floating_point ||| !wb_vector_fpr_pending ||| fp.vector_written.valid
   vector_fast.candidate <== wb_descriptor.certificate
   def wb_vector_masking_current = wb_descriptor.pointer_masking.as_bits() === wb_csrs.pointer_masking.as_bits()
   def wb_vector_certified = wb_descriptor.precertified & vector_fast.candidate_current & wb_vector_masking_current
+  // A certified opposite-kind operation can reserve its own access and
+  // datapath entries. This is not permission to issue a cache request.
+  def wb_follow_native:
+    if distributed_rows
+    | block:
+        def store = wb_vector.vector.store
+        def outstanding = vector.native_outstanding_store
+        def route = memory_route(xlen, profile.vector_length, wb_descriptor, wb_vector_certified)
+        outstanding.valid & (outstanding.bits =/= store) & !scalar_memory.ordered_busy & (route === MemoryRoute.Direct)
+    | Bool(#false)
+  def wb_vector_ordered = !wb_vector.vector.memory ||| ((wb_prior_memory_drained ||| wb_follow_native) & !wb_memory_completion.pending & !wb_ordered_memory_pending)
+  def wb_vector_gpr_write = wb_vector.vector.integer_destination & wb_vector.write
+  def wb_vector_results_available = !wb_vector_gpr_write ||| wb_vector_scalar_available
+  def wb_vector_fpr_available = !wb_vector.vector.floating_scalar_destination ||| !wb_vector_fpr_pending ||| fp.vector_written.valid
   def wb_vector_eligible = wb_vector_ordered & wb_vector_results_available & wb_vector_fpr_available
   // Credit predicts the older descriptor's acceptance without depending on
   // a request qualified by the younger scalar service's own outcome.
@@ -1485,7 +1503,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
 
   wb_vector_scoreboard.set.valid <== wb_vector_accepted & wb_vector_gpr_write
   wb_vector_scoreboard.set.bits <== wb_vector.rd
-  fp.vector_reserve.valid <== wb_vector_accepted & wb_vector.vector.floating_point & wb_vector.vector.floating_scalar_destination
+  fp.vector_reserve.valid <== wb_vector_accepted & wb_vector.vector.floating_scalar_destination
   fp.vector_reserve.bits <== wb_vector.rd
 
   // Only a nonzero GPR writer claims this owner; unrelated vector descriptors

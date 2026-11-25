@@ -64,7 +64,7 @@ for (xlen in [XLen.X32, XLen.X64]):
   check:
     cache_payload_bits(child(child(core, "data"), "storage").find_input("core_in")) ~is xlen.width
     wide_adapter.find_input("memory_in").type.field("request").type.field("bits").type.field("memory").type.field("data").type.width ~is xlen.width
-    cache_payload_bits(child(wide_adapter, "storage").find_input("core_in")) ~is 128
+    cache_payload_bits(child(wide_adapter, "storage").find_input("core_in")) ~is 2 * xlen.width
   def memory = child(core, "mmu")
   def execution = design.modules.find(fun (module_def): module_def.name == "SuperscalarCore")
   def retired = core.find_output("retired_0_out").type.field("bits").type

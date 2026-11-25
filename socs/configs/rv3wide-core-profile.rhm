@@ -18,7 +18,7 @@ fun rv3wide_soc_profile(shape :: SoCShape, preset :: IsaPreset) :: RV3WideConfig
   | SoCShape.Simple: CacheConfig(64, 4)
   | SoCShape.Tiled8Core: CacheConfig(64, 1)
   | SoCShape.Tiled4Core: CacheConfig(64, 1)
-  def architecture = soc_architecture(preset)
+  def architecture = soc_architecture(preset, ~vector_length_for: rv3wide_vlen)
   def has = architecture.has
   def compressed = CCompressedExtensions ++ (if has("zcb") | [CompressedExtension.Zcb] | []) ++ (if has("zcmop") | [CompressedExtension.Zcmop] | [])
   def pipeline = SuperscalarPipelineConfig(

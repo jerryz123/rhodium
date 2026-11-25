@@ -29,7 +29,7 @@ sync_circuit VectorSplatLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
   interface completion(Valid(VectorCompletion(xlen, slots)), ~role: consumer)
   interface mask_read(Valid(MaskAddress), ~role: producer)
   interface mask_result(Valid(Bits(xlen.width)), ~role: consumer)
-  interface write(Valid(VectorRegisterWrite(xlen, vlen)), ~role: producer)
+  interface write(Valid(VectorRegisterWrite(xlen.width, vlen)), ~role: producer)
   input blocked_rows: Vec(VectorRegisterLayout(vlen, xlen.width).depth, Bool)
   input(write_available, mask_read_available): Bool
   output pending_rows: Vec(VectorRegisterLayout(vlen, xlen.width).depth, Bool)
@@ -115,7 +115,7 @@ sync_circuit VectorSplatLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
   def next_row = row + Bits(Row.width)(1)
   def row_done = can_advance & (next_row === row_limit[0..Row.width])
   write.valid <== can_advance & has_enabled_bytes
-  write.bits <== VectorRegisterWrite(xlen, vlen):
+  write.bits <== VectorRegisterWrite(xlen.width, vlen):
     address: address
     data: repeated
     mask: byte_mask

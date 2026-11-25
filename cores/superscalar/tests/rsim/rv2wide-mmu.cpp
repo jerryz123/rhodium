@@ -1044,7 +1044,7 @@ int main() {
     tick_model();
     vector_precheck_in.prequest.pvalid = 0;
     walk_at(0x500ff8, (UINT64_C(22) << 10) | 0xcf);
-    walk_at(0x501007, (UINT64_C(23) << 10) | 0xcf);
+    walk_at(0x501007, (UINT64_C(20) << 10) | 0xcf);
     eval();
     CHECK(vector_precheck_out.presponse.pvalid && vector_precheck_out.presponse.pbits);
     vector_precheck_in.presponse.pready = 1;
@@ -1059,7 +1059,7 @@ int main() {
     probe(0x500ff8, speculative_access::load, speculative_access::normal, speculative_access::slow);
     vector_access = 1;
     data_hit(0x500ff8, 0x16ff8);
-    data_hit(0x501000, 0x17000);
+    data_hit(0x501000, 0x14000);
     vector_access = 0;
     vector_precheck_in.prelease.pvalid = 1;
     tick_model();
@@ -1080,6 +1080,11 @@ int main() {
     vector_precheck_in.prelease.pvalid = 1;
     tick_model();
     vector_precheck_in.prelease.pvalid = 0;
+    // Exact element translation reuses the failed walk with the same context.
+    element_translation_in.prequest = {1,{0x600000,0x600000,0}};
+    eval(); CHECK(element_translation_out.prequest.pready); tick_model(); element_translation_in.prequest.pvalid = 0;
+    eval(); CHECK(element_translation_out.presponse.pvalid && element_translation_out.presponse.pbits.pservice == 3);
+    CHECK(element_translation_out.presponse.pbits.pcause == 13 && !physical_valid); tick_model();
     // Cold speculative certification never allocates a page walk or a fallback window.
     fence();
     vector_fast_in.prequest = {1, {0x500008, 0x50000f, 0}};
@@ -1355,6 +1360,13 @@ int main() {
           wb_fault_bits.pguest.pguest_uvirtual_uaddress &&
           wb_fault_bits.pguest.pguest_uphysical_uaddress == 0x20000 &&
           wb_fault_bits.pguest.paccess == 1 && !physical_valid);
+    wb_valid=fetch_valid=0;
+    element_translation_in.prequest={1,{0x500038,0x50003b,0}};
+    eval(); CHECK(element_translation_out.prequest.pready); tick_model(); element_translation_in.prequest.pvalid=0;
+    eval(); auto mapping=element_translation_out.presponse.pbits;
+    CHECK(element_translation_out.presponse.pvalid && mapping.pservice==3 && mapping.pcause==21);
+    CHECK(mapping.pguest.pguest_uvirtual_uaddress && mapping.pguest.pguest_uphysical_uaddress==0x20000 && mapping.pguest.paccess==1);
+    tick_model(); fetch_valid=wb_valid=1;
     guest_state.phgatp += 4;
     eval();
     CHECK(fetch_resolution.pdisposition == 2 && !wb_fault);

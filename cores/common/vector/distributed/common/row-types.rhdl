@@ -1,0 +1,179 @@
+#lang rhodium
+/* Defines distributed VRF row geometry and synchronous operand bundles. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("flow/main.rhdl").Valid
+  lib("flow/main.rhdl").Pulse
+  lib("cores/common/vector-layout.rhm").vector_row_bytes
+  lib("riscv/isa/xlen.rhm").XLen
+  "../../backend-kind.rhm" open
+  lib("riscv/isa/vector.rhm") open
+  lib("cores/common/vector-layout.rhm").VectorRegisterLayout
+
+def RegisterSet = Bits(VectorRegisterCount)
+def PhysicalRows = VectorRegisterCount * DistributedRowsPerRegister
+def RowAddress = Bits(index_width(PhysicalRows))
+def RowSet = Bits(PhysicalRows)
+def RegisterRowIndex = Bits(index_width(DistributedRowsPerRegister))
+def PredicateSet = Bits(DistributedRowsPerRegister)
+
+/* A captured VS2 operand stays tagged and stable through its last consumer. */
+bundle IndexOperandRow(dlen :: PosInt, Owner :: DataType):
+  owner: Owner
+  row: RowAddress
+  data: Bits(dlen)
+
+/* A resident or returning VRF row in the special sequencer's two operand slots. */
+bundle SpecialRow(dlen :: PosInt):
+  valid: Bool
+  address: RowAddress
+  data: Bits(dlen)
+
+/* Selects the VRF source and the buffer slot that must retain its return. */
+bundle SpecialRead():
+  row: RowAddress
+  slot: Bits(1)
+
+/* VPS supplies the seed and retains intermediate lane sums. VXSeq's final
+   ALU return releases the buffer; no partial result is written to the VRF. */
+interface ReductionAccumulator(dlen :: PosInt):
+  role special
+  role execute
+  provider special
+  special -> execute:
+    value: Valid(Bits(dlen))
+  execute -> special:
+    update: Valid(Bits(dlen))
+    release: Pulse()
+
+/* VPS emits prepared rows, or a compression end-of-scan token with no destination. */
+bundle PermutedRow(dlen :: PosInt):
+  end_of_scan: Bool
+  data: Bits(dlen)
+  enabled: Bits(vector_row_bytes(dlen))
+
+/* A dedicated combinational v0 read. The address always selects data; valid
+   marks the edge on which the sequencer samples it, not a request for a grant. */
+interface VectorPredicateTap(dlen :: PosInt):
+  role reader
+  role shadow
+  provider shadow
+  reader -> shadow:
+    sample: Valid(RegisterRowIndex)
+  shadow -> reader:
+    data: Bits(dlen)
+
+// Metadata and returned load data reserve from one physical memory issue budget.
+def MemoryRowCredits = 2
+def MemoryCreditCount = Bits(index_width(MemoryRowCredits + 1))
+
+/* Locate a row within a group, relative to the base architectural register. */
+fun group_row(regno :: Bits(index_width(VectorRegisterCount)), offset :: Bits(RowAddress.packed_width()) = RowAddress(0)) :~ Bits(RowAddress.packed_width()):
+  (regno ++ RegisterRowIndex(0)) + offset
+
+/* Maps every architectural register to exactly two DLEN rows. */
+fun native_row_layout(vlen :: VectorLength): VectorRegisterLayout(vlen, vector_dlen(vlen))
+
+/* Port 0 reads vs2. Vector RHS takes port 1; old vd uses the next free port. */
+bundle ExecuteSources():
+  vector_lhs: Bool
+  vector_rhs: Bool
+  accumulator: Bool
+
+  /* Either a vector RHS or a scalar-form accumulator requires port 1. */
+  method uses_second(s) :: Bool: s.vector_rhs ||| s.accumulator
+
+  /* Only a vector-vector accumulate competes with store capture for port 2. */
+  method uses_third(s) :: Bool: s.vector_rhs & s.accumulator
+
+/* The selected physical ports and optional predicate shadow fire atomically. */
+bundle VectorRowRead():
+  left: RowAddress
+  second: RowAddress
+  third: RowAddress
+  sources: ExecuteSources()
+  reads_v0: Bool
+  mask_row: RegisterRowIndex
+
+/* Synchronous return for one native beat; only granted data and shadow operands are meaningful. */
+bundle VectorRowOperands(dlen :: PosInt):
+  data: Vec(3, Bits(dlen))
+  predicate: Bits(dlen)
+
+/* Offset names the logical row base, or the exact byte for a checked indexed
+   singleton. Span, enables and data always remain in register-row coordinates.
+   Empty rows delimit the range without allocating a memory transaction. */
+bundle PreparedRow(vlen :: VectorLength):
+  row: RowAddress
+  offset: Bits(index_width(vlen + 1))
+  span: Bits(vector_row_bytes(vector_dlen(vlen)))
+  enabled: Bits(vector_row_bytes(vector_dlen(vlen)))
+  data: Bits(vector_dlen(vlen))
+  last: Bool
+
+/* One position in the aligned address stream. A zero enable advances the
+   cursor without L1D traffic. continues refers to the current logical row,
+   not the instruction: some of its enabled bytes lie in the next beat. */
+bundle PreparedBeat(vlen :: VectorLength):
+  row: RowAddress
+  offset: Bits(index_width(vlen + 1))
+  enabled: Bits(vector_row_bytes(vector_dlen(vlen)))
+  data: Bits(vector_dlen(vlen))
+  continues: Bool
+  last: Bool
+
+/* A certified element of the resident indexed instruction. The page, owner and
+   width stay installed; offset is the byte position in the VD or VS3 group. */
+bundle CheckedIndexElement(xlen :: XLen, vlen :: VectorLength):
+  address: Bits(xlen.width)
+  row: RowAddress
+  offset: Bits(index_width(vlen + 1))
+
+/* Positions one repeated load value in a DLEN destination row, without issuing memory. */
+bundle SplatPosition(dlen :: PosInt):
+  row: RowAddress
+  lane: Bits(index_width(vector_row_bytes(dlen)))
+  eew: Bits(2)
+
+/* VSIQ holds the requested VS3 row until its element's final grant. VSSeq
+   owns the retained data and marks it valid only for the requested row. */
+interface ScatterOperand(dlen :: PosInt):
+  role issuer
+  role sequencer
+  provider sequencer
+  issuer -> sequencer:
+    demand: Valid(RowAddress)
+  sequencer -> issuer:
+    operand: Valid(Bits(dlen))
+
+/* Retains the owner, destination and observed addresses of one accepted cache row. */
+bundle RowCredit(xlen :: XLen, vlen :: VectorLength, Owner :: DataType):
+  owner: Owner
+  store: Bool
+  singleton: Bool
+  row: RowAddress
+  offset: Bits(index_width(vlen + 1))
+  enabled: Bits(vector_row_bytes(vector_dlen(vlen)))
+  continues: Bool
+  // Last physical fragment of an independently certified unordered slice.
+  element_end: Bool
+  memory_lane: Bits(index_width(vector_row_bytes(vector_dlen(vlen))))
+  va: Bits(xlen.width)
+  pa: Bits(64)
+
+/* Tags a prepared mask or store-data row for its admitted address cursor. */
+bundle OwnedRow(Payload :: DataType, Owner :: DataType):
+  owner: Owner
+  payload: Payload
+
+/* Carries the original destination and enabled bytes with a returned cache row. */
+bundle ReturnedRow(xlen :: XLen, vlen :: VectorLength, Owner :: DataType):
+  credit: RowCredit(xlen, vlen, Owner)
+  data: Bits(vector_dlen(vlen))
+
+export RegisterSet PhysicalRows RowAddress RowSet RegisterRowIndex PredicateSet group_row MemoryRowCredits MemoryCreditCount
+export PreparedRow PreparedBeat CheckedIndexElement OwnedRow RowCredit ReturnedRow native_row_layout ExecuteSources VectorRowRead VectorRowOperands
+export VectorPredicateTap ScatterOperand IndexOperandRow
+export SplatPosition SpecialRow SpecialRead PermutedRow
+export ReductionAccumulator

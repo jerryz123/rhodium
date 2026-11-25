@@ -56,7 +56,7 @@ for (core in ["rv5stage", "rv2wide", "rv3wide", "spike"]):
   for (isa in ["rv32int", "rv32max"]):
     def rv32 = riscv_udb_configuration("simple-" ++ core ++ "-" ++ isa)
     def yaml = rv32.to_yaml()
-    for (parameter in ["MXLEN: 32", "VLEN: 64", "ELEN: 32", "VECTOR_LS_INDEX_MAX_EEW: \"32\""]):
+    for (parameter in ["MXLEN: 32", (if core == "rv3wide" | "VLEN: 128" | "VLEN: 64"), "ELEN: 32", "VECTOR_LS_INDEX_MAX_EEW: \"32\""]):
       check: yaml.contains("  " ++ parameter) ~is #true
 
     check: yaml.contains("  PHYS_ADDR_WIDTH: 32") ~is #true
@@ -93,7 +93,7 @@ for (core in ["rv5stage", "spike", "rv2wide", "rv3wide"]):
       check: gnu_isa_target(hart.xlen, hart.isa_profile.isa_extensions).march.contains(name) ~is #false
 
     for (parameter in ["MXLEN: 64", "UXLEN: [64]", "SXLEN: [64]", "CACHE_BLOCK_SIZE: 64",
-                       "VLEN: 128", "ELEN: 64", "MISALIGNED_LDST: true", "VECTOR_LS_MISALIGNED_LEGAL: true",
+                       (if core == "rv3wide" | "VLEN: 256" | "VLEN: 128"), "ELEN: 64", "MISALIGNED_LDST: true", "VECTOR_LS_MISALIGNED_LEGAL: true",
                        "SATP_MODE_BARE: true", "STVAL_WIDTH: 64", "U_MODE_ENDIANNESS: \"little\"", "S_MODE_ENDIANNESS: \"little\"",
                        "NON_STANDARD_EXTENSION_IMPLEMENTED: false", "WFI_FINITE: false", "WFI_U_MODE: false", "HPM_COUNTER3_WIDTH: 64"]):
       check: configuration.to_yaml().contains("  " ++ parameter) ~is #true

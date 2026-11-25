@@ -1,0 +1,46 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("cores/common/vector/backend-kind.rhm") open
+  lib("cores/superscalar/tests/vector-fixture.rhdl").SuperscalarVectorFixture
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/isa/vector-profile.rhm").VectorExtension
+  "../index-gather-fixture.rhdl".RowMemoryFixture
+  "../index-gather-fixture.rhdl".NativeIndexMemoryFixture
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("rhodium/backend/rsim-target.rhm").rsim_target
+  lib("rhodium/compile/pipeline.rhm").rtl_pipeline_target
+  lib("cores/common/tests/rsim/port-observers.rhm").port_observer_pass
+
+fun fixture(xlen):
+  elaborate(SuperscalarVectorFixture(~xlen: xlen, ~vlen: 256, ~vector_backend: VectorBackendKind.Distributed, ~extensions: [VectorExtension.Zvbb]))
+def rv32 = fixture(XLen.X32)
+def rv64 = fixture(XLen.X64)
+def target = rtl_pipeline_target(rsim_target, [port_observer_pass([
+  ["VectorRowEngine", "observe_memory_issue", [["issued_out", "valid"], ["issued_out", "bits", "owner"], ["issued_out", "bits", "checked"]]],
+  ["VectorRowEngine", "observe_memory_finish", [["finished_out", "valid"], ["finished_out", "bits", "owner"], ["finished_out", "bits", "checked"]]],
+  ["VectorRowEngine", "observe_element_drain", [["element_drained_out", "valid"], ["element_drained_out", "bits"]]],
+  ["DistributedVectorAdmission", "observe_window_done", [["sequencing_done_in", "valid"], ["sequencing_done_in", "bits"]]],
+  ["VectorRowEngine", "observe_memory_launch", [["launch_0_in", "valid"], ["launch_0_out", "ready"], ["launch_1_in", "valid"], ["launch_1_out", "ready"]]],
+  ["VectorSpecialSequencer", "observe_special_install", [["install_in", "valid"]]],
+  ["VectorRowExecute", "observe_execute_launch", [["launch_in", "valid"], ["launch_out", "ready"]]],
+  ["VectorRowEngine", "observe_row_write", [["write_out", "valid"], ["write_in", "ready"], ["write_out", "bits", "address"]]],
+  ["VectorRowEngine", "observe_store_capture", [["read_result_in", "valid"]]],
+  ["VectorRowExecute", "observe_execute_read", [
+    ["read_out", "valid"], ["read_in", "ready"], ["read_out", "bits", "left"],
+    ["chain_out", "unissued", "reads"], ["chain_out", "unissued", "writes"], ["chain_out", "unissued", "predicates"]
+  ]],
+  ["VectorRowExecute", "observe_execute_write", [["write_out", "valid"], ["write_out", "bits", "address"]]],
+  ["VectorRegisterFile", "observe_vrf_reads", [["reads_0_in", "valid"], ["reads_1_in", "valid"], ["reads_2_in", "valid"]]],
+  ["VectorLoadSequencer", "observe_load_mask", [["mask_out", "sample", "valid"], ["mask_out", "sample", "bits"]]],
+  ["VectorRowExecute", "observe_shared_fp", [["fp_request_out", "valid"]]],
+  ["VectorVLSU", "observe_direct_index", [["indices_in", "valid"], ["indices_out", "ready"]]],
+  ["VectorFaultCheck", "observe_checked_index", [["indices_in", "valid"], ["indices_out", "ready"]]],
+  ["DistributedVectorRegisterView", "observe_mac_ports", [["execute_read_in", "valid"], ["execute_read_out", "ready"], ["row_read_in", "valid"], ["row_read_out", "ready"]]]
+])])
+def unit32 = elaborate(RowMemoryFixture(XLen.X32, 256))
+def unit64 = elaborate(RowMemoryFixture(XLen.X64, 256))
+def merge32 = elaborate(RowMemoryFixture(XLen.X32, 128))
+def indexed32 = elaborate(NativeIndexMemoryFixture(XLen.X32, 128))
+def indexed64 = elaborate(NativeIndexMemoryFixture(XLen.X64, 256))
+export rv32 rv64 target unit32 unit64 merge32 indexed32 indexed64

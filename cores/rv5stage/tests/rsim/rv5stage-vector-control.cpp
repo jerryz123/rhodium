@@ -492,23 +492,23 @@ void stimulus() {
           subtract);
     instruction = UINT64_C(0x2221a0d7);
     settle(); // vaaddu.vv v1,v2,v3
-    CHECK(decoded_valid && legal && arithmetic_mode == 3 && rounding &&
+    CHECK(decoded_valid && legal && arithmetic_mode == 3 && !rounding &&
           !subtract);
     instruction = UINT64_C(0x2e21a0d7);
     settle(); // vasub.vv v1,v2,v3
-    CHECK(decoded_valid && legal && arithmetic_mode == 4 && rounding &&
+    CHECK(decoded_valid && legal && arithmetic_mode == 4 && !rounding &&
           subtract);
     instruction = UINT64_C(0x9e2180d7);
     settle(); // vsmul.vv v1,v2,v3
     CHECK(decoded_valid && legal == (64 == 64) && !divide && left_signed &&
-          right_signed && multiply_result == 2);
+          right_signed && multiply_result == 3);
     // Widening multiply shares doubled-EMUL alignment and overlap policy with
     // widening add/sub while retaining singleton shared-multiplier execution.
     test_vtype = 0;
     instruction = UINT64_C(0xe3012457);
     settle(); // vwmulu.vv v8,v16,v2, unmasked
     CHECK(decoded_valid && legal == (64 == 64) && widening && !divide &&
-          !left_signed && !right_signed && multiply_result == 3);
+          !left_signed && !right_signed && multiply_result == 2);
     instruction = UINT64_C(0xee916457);
     settle(); // vwmul.vx v8,v9,x2, unmasked; high-source overlap
     CHECK(decoded_valid && legal == (64 == 64) && widening && left_signed &&
