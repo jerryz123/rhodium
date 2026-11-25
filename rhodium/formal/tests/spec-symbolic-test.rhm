@@ -3,10 +3,10 @@
 
 import:
   "../spec.rhm" open
-  "../../../examples/formal/fifo-spec.rhm".fifo_spec
+  "../../../examples/formal/shift-queue.rspl".ShiftQueue
   "spec-symbolic-checks.rkt" as solver
 
-def fifo = fifo_spec(2, 2)
+def fifo = ShiftQueue(2, 2)
 fun fifo_row(contents, reset, offer, consume, data):
   def s = step_spec(fifo, {"q": PairList.to_list(contents)},
                     {"reset": reset, "in.valid": offer, "out.ready": consume, "in.data": data})

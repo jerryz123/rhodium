@@ -49,8 +49,14 @@
   (filter symbol? (filter values (map syntax-atom items))))
 
 #| Selects an inherited declaration kind or one authored in the head. |#
-(define (find-declaration-kind head inherited-kind)
+(define (find-declaration-kind head tail inherited-kind)
   (or inherited-kind
+      (and (= (length head) 2)
+           (eq? (syntax-atom (car head)) 'spec)
+           (symbol? (syntax-atom (cadr head)))
+           (= (length tail) 1)
+           (eq? (form-tag (car tail)) 'block)
+           'spec)
       (for/first ([kind (in-list '(class constructor method fun))]
                   #:when (member kind (direct-symbols head)))
         kind)))
@@ -75,7 +81,7 @@
               [parens-index (form-index items 'parens)])
          (and parens-index
               (let* ([head (take items parens-index)]
-                     [kind (find-declaration-kind head inherited-kind)]
+                     [kind (find-declaration-kind head (drop items (add1 parens-index)) inherited-kind)]
                      [name (and kind
                                 (find-declaration-name kind head inherited-kind))])
                 (and kind
@@ -254,7 +260,7 @@
 
 #| Recognizes the source extensions subject to annotation policy. |#
 (define (rhombus-source-path? path)
-  (member (path-get-extension path) '(#".rhm" #".rhdl")))
+  (member (path-get-extension path) '(#".rhm" #".rhdl" #".rspl")))
 
 #| Identifies paths exempted by a tests directory component. |#
 (define (tests-path? path)
@@ -340,7 +346,7 @@
   (define source-paths (append scope-paths supplied-paths))
   (when (null? source-paths)
     (raise-user-error 'check-parameter-annotations
-                      "provide at least one .rhm/.rhdl file or directory"))
+                      "provide at least one .rhm/.rhdl/.rspl file or directory"))
   (define problems
     (append*
      (for/list ([path (in-list (collect-source-files source-paths))])

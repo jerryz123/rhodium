@@ -1,0 +1,11 @@
+#lang rhombus/and_meta
+/* Exposes lexical Rhombus and model-building operations as the solver-independent #lang rspecl. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  rhombus
+  lib("rhodium/formal/spec-dsl.rhm") open
+
+export:
+  all_from(rhombus)
+  all_from(lib("rhodium/formal/spec-dsl.rhm"))

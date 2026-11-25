@@ -29,6 +29,9 @@ fileGroups:
     - "rhodium/backend/tests/*-test.rhm"
   test-formal:
     - "rhodium/formal/tests/suite.rkt"
+  test-formal-spec:
+    - "rhodium/formal/tests/spec-test.rhm"
+    - "rhodium/formal/tests/spec-dsl-test.rspl"
   test-lop-frontend:
     - "rhodium/frontend/tests/*equivalence-test.rhm"
   test-lop-backend:
@@ -74,7 +77,7 @@ fileGroups:
   examples-cores:
     - "examples/cores/**/*.{rhm,rhdl}"
   examples-formal:
-    - "examples/formal/**/*.{rhm,rhdl}"
+    - "examples/formal/**/*.{rhm,rhdl,rspl}"
   examples-rv5stage:
     - "examples/rv5stage/**/*.{rhm,rhdl}"
   examples:
@@ -247,7 +250,7 @@ tasks:
     inputs: []
     options: { cache: false }
   formal-spec-test:
-    command: "tools/run-racket-tests.sh rhodium/formal/tests/spec-test.rhm"
+    command: "tools/run-racket-tests.sh @files(test-formal-spec)"
     inputs: []
     deps: ["racket-cache"]
     env: *test-env

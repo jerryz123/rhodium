@@ -33,8 +33,21 @@ The independent [spec.rhm](spec.rhm) owns typed expression construction,
 reference validation and rspecsim, the concrete single-edge interpreter. It does not import
 the hardware graph or the solver. Keep new operators as typed data with
 defined behavior on partial inputs, not callbacks that a symbolic interpreter
-would have to reverse-engineer. The [FIFO example](../../examples/formal/fifo-spec.rhm)
+would have to reverse-engineer. The [FIFO example](../../examples/formal/shift-queue.rspl)
 is a client, not a privileged opcode.
+
+[The RSPECL reader and language profile](../../rspecl/language.rhm) expose
+[spec-dsl.rhm](spec-dsl.rhm) to `.rspl` authors without loading the RTL or
+Rosette engines. Named declarations lower to the anonymous `spec:` expression;
+parameterized declarations use ordinary Rhombus function parameters. Keep one
+implementation of the model body for both forms.
+It collects named declarations and rejects duplicate fields before assembling
+the maps. Emit each right-hand side at its original lexical site: a later
+`let` must not change an earlier output. Rhombus expands expressions,
+operators and helper calls, including imported bindings. Only their resulting
+typed IR crosses the interpreter boundary. The [surface tests](tests/spec-dsl-test.rspl)
+exercise a separately imported helper, lexical shadowing, host short-circuiting
+and partial sequence reads; the proof bindings use the same model unchanged.
 
 ### Symbolic specification step
 
@@ -140,7 +153,7 @@ evidence. Run `moon run rhodium:formal-test` to reproduce these checks.
 ### Two-input fixed-priority arbiter
 
 [The arbiter proof](tests/arbiter-refinement.rkt) compares a clockless wrapper
-of `Arbiter(Bits(2), 2)` with its [stateless spec](../../examples/formal/arbiter-spec.rhm).
+of `Arbiter(Bits(2), 2)` with its [stateless spec](../../examples/formal/arbiter.rspl).
 `combinational_sample(snapshot, pins)` accepts exact-name, exact-width
 bitvectors or fitting naturals and returns outputs and partial-operation
 obligations, including those in child instances. Combinational preflight

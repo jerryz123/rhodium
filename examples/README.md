@@ -302,11 +302,11 @@ hardware-preservation contracts.
 
 ### Formal verification
 
-[`formal/fifo-spec.rhm`](formal/fifo-spec.rhm) constructs a FIFO reference model
+[`formal/shift-queue.rspl`](formal/shift-queue.rspl) defines `spec ShiftQueue`, a FIFO reference model
 without RTL or Rosette; the [rspecsim quick start](../rhodium/formal/README.md#install-and-quick-start)
 executes a simultaneous enqueue and dequeue.
 
-[`formal/arbiter-spec.rhm`](formal/arbiter-spec.rhm) models fixed-priority
+[`formal/arbiter.rspl`](formal/arbiter.rspl) defines `spec Arbiter` for fixed-priority
 selection without state: the highest-priority valid lane supplies the payload,
 but no transfer occurs until the consumer is ready.
 

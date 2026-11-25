@@ -82,10 +82,10 @@ prevent an environment from *offering* that action.
 Separate the pure spec IR and concrete interpreter from the solver adapter.
 Keep the existing [RTL stepper](DEVELOPING.md#register-transition-foundation)
 as the implementation semantics. Neither spec values nor Rosette terms become
-RTL values, and ordinary elaboration does not run proofs. Proposed Rhombus
-forms `spec`, `state`, and `action` construct the model; `refinement` binds a
-model, an observation view, and a state relation. A `theorem` is a separate
-obligation, not a step. Syntax is illustrative; these semantics come first.
+RTL values, and ordinary elaboration does not run proofs. The implemented
+[spec block](README.md#author-an-executable-spec) declares inputs, state,
+cycle outputs, guarded events, and simultaneous updates. Refinement bindings
+and theorem obligations remain separate proof code; a theorem is not a step.
 
 ## Observation, time, and reset
 

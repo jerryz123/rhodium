@@ -32,7 +32,7 @@ while IFS= read -r -d '' path; do
   esac
 
   case "$path" in
-    *.rhm|*.rhdl|*.rkt|*.rktd|*.rfpl|*.invalid|*.c|*.cc|*.cpp|*.h|*.hpp|*.sv|*.svh|*.v|*.py|*.sh|*.S|*.ld|*.tcl|*.sql|*.el|*.md|*.mlir|*.yaml|*.yml|*.ini|*.mk|*.inc|*.in|*.txt|*.gitignore|.gitmodules|Makefile|*/Makefile|*/CMakeLists.txt|.githooks/pre-commit)
+    *.rhm|*.rhdl|*.rspl|*.rkt|*.rktd|*.rfpl|*.invalid|*.c|*.cc|*.cpp|*.h|*.hpp|*.sv|*.svh|*.v|*.py|*.sh|*.S|*.ld|*.tcl|*.sql|*.el|*.md|*.mlir|*.yaml|*.yml|*.ini|*.mk|*.inc|*.in|*.txt|*.gitignore|.gitmodules|Makefile|*/Makefile|*/CMakeLists.txt|.githooks/pre-commit)
       ;;
     *)
       continue

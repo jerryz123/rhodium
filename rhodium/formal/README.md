@@ -1,4 +1,4 @@
-<!-- Documents rspecsim concrete specification execution and the optional Rosette formal engine. -->
+<!-- Documents spec authoring, rspecsim concrete execution, and the optional Rosette formal engine. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Rhodium formal engine
@@ -7,6 +7,7 @@ The formal engine is an optional, solver-backed consumer of verified public
 Rhodium IR. It checks deterministic combinational behavior with Rosette
 fixed-width bitvectors; it does not participate in elaboration, change Rhodium
 semantics, or get imported by `#lang rhodium`.
+Author executable specifications in `.rspl` files using `#lang rspecl`.
 **rspecsim** is the [specification library](spec.rhm)'s concrete execution mode:
 it runs a reference model on known inputs and state, without RTL or a solver.
 By contrast, [rsim](../backend/README.md) runs the RTL implementation, and
@@ -40,9 +41,9 @@ an edge that consumes 1 and accepts 2, the old head remains visible:
 ```rhombus
 import:
   lib("rhodium/formal/spec.rhm").step_spec
-  lib("examples/formal/fifo-spec.rhm").fifo_spec
+  lib("examples/formal/shift-queue.rspl").ShiftQueue
 
-def fifo = fifo_spec(2, 2)
+def fifo = ShiftQueue(2, 2)
 def edge = step_spec(fifo, {"q": [1]},
                      {"reset": #false, "in.valid": #true, "in.data": 2, "out.ready": #true})
 // edge.outputs["out.data"] == 1
@@ -70,6 +71,66 @@ differential check:
 ```sh
 moon run rhodium:formal-differential-test
 ```
+
+## Author an executable spec
+
+Start a `.rspl` file with `#lang rspecl`. Name a spec for a particular RTL
+circuit after that circuit: `spec ShiftQueue(width :: PosInt, depth :: PosInt):`
+in `shift-queue.rspl` corresponds to `ShiftQueue` in `shift-queue.rhdl`.
+`ShiftQueue(2, 2)` constructs a checked model; it does not advance an edge.
+The name is a convention, not a binding or a proof: the refinement fixture
+still selects the RTL configuration and spec explicitly. Use qualified imports
+if one module needs both. An independent or shared contract can use its own name.
+
+For a fixed model, omit the parameter list. For example, this pending flag reports its
+**old** value even on the edge that clears it:
+
+```rhombus
+#lang rspecl
+
+fun both(a :: SpecExpr, b :: SpecExpr): a && b
+
+spec PendingFlag:
+  input clear: Bool
+  state pending: Bool initially #true
+  output busy = pending
+  event cleared = pending when both(clear, pending)
+  next pending = pending && !clear
+```
+
+`PendingFlag` is the model itself. Anonymous `spec:` remains available when
+a model is needed as an expression. All three forms use the same checked
+spec IR without building RTL or running a solver.
+
+Inputs and state introduce lexical bindings. Helpers such as `both` can live
+in the block, outside it, or in an imported library. Their ordinary Rhombus
+bodies build expressions once per model construction; the interpreters never
+call them on an edge. `def`, `fun`, and `let` retain their Rhombus scope.
+Outputs and events do not introduce bindings. A dotted input such as
+`in.valid` is a lexical namespace member with the public key `"in.valid"`.
+`output` describes
+what is visible; `event` describes what happened. On either, `when` controls
+presence, not the payload value. Omit it for an always-present field.
+
+Use `Bool`, `Bits(width)` or `Seq(element, capacity)` for types. For host
+configuration decisions, ordinary `if` runs at construction time. For a
+sampled condition, use `select(test, yes, no)`: a model node is a Rhombus
+object, not a host Boolean. Helpers defined in `#lang rspecl` get the spec
+operators automatically. A helper in an ordinary `.rhm` module can import
+them from [spec-dsl.rhm](spec-dsl.rhm) or use typed IR constructors such
+as `bool_and` directly; its host Boolean operators use host truthiness.
+`SpecExpr` is a type
+annotation for their nodes, not an unchecked constructor.
+
+Build typed constants with `const(type, value)` and sequence expressions with
+`empty`, `full`, `front`, `tail`, or `append`. To name a typed initial
+constant, write e.g. `state q: Seq(Bits(width), depth) initially [] as cleared`;
+using `cleared` in a reset update is explicit. All `next` clauses read the
+same old state. Omitted updates hold; two updates to one field are an error.
+
+See the [arbiter](../../examples/formal/arbiter.rspl) for combinational
+priority and the [FIFO](../../examples/formal/shift-queue.rspl) for guarded head
+reads and an explicit simultaneous enqueue/dequeue update.
 
 ## Concrete specification API
 

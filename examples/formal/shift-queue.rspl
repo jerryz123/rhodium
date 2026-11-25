@@ -1,0 +1,27 @@
+#lang rspecl
+/* Describes a non-bypassing FIFO as a bounded sequence with cycle observations and transfer events. */
+// SPDX-License-Identifier: Apache-2.0
+
+export ShiftQueue
+
+/* Build a fixed-depth reference model; reset begins an empty epoch and hides ordinary offers. */
+spec ShiftQueue(width :: PosInt, depth :: PosInt):
+  input reset: Bool
+  input in.valid: Bool
+  input in.data: Bits(width)
+  input out.ready: Bool
+  state q: Seq(Bits(width), depth) initially [] as cleared
+
+  let ready = !full(q)
+  let valid = !empty(q)
+  let push = ready && in.valid
+  let pop = valid && out.ready
+  output in.ready = ready when !reset
+  output out.valid = valid when !reset
+  output out.data = front(q) when !reset && valid
+  event reset = reset when reset
+  event enqueue = in.data when !reset && push
+  event dequeue = front(q) when !reset && pop
+
+  let rest = select(pop, tail(q), q)
+  next q = select(reset, cleared, select(push, append(rest, in.data), rest))

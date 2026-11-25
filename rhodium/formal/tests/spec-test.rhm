@@ -3,9 +3,9 @@
 
 import:
   "../spec.rhm" open
-  "../../../examples/formal/fifo-spec.rhm".fifo_spec
+  "../../../examples/formal/shift-queue.rspl".ShiftQueue
 
-def fifo = fifo_spec(2, 2)
+def fifo = ShiftQueue(2, 2)
 def flags = [#false, #true]
 def mutable cases = 0
 

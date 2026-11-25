@@ -313,7 +313,7 @@ SystemVerilog.
   standalone Perfetto export
 - [`rhodium/backend/README.md`](rhodium/backend/README.md) — CIRCT lowering,
   direct SystemVerilog emission, and Rsim C++ simulation
-- [`rhodium/formal/README.md`](rhodium/formal/README.md) — rspecsim concrete spec execution, symbolic specs, and Rosette RTL checks
+- [`rhodium/formal/README.md`](rhodium/formal/README.md) — author `.rspl` specifications with `#lang rspecl`, run them with rspecsim, and verify RTL with Rosette
 - [`tools/testing/README.md`](tools/testing/README.md) and
   [`tools/testing/DEVELOPING.md`](tools/testing/DEVELOPING.md) — running validation and
   maintaining the test architecture

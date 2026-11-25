@@ -1,0 +1,7 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+
+import "../spec.rhm" open
+export both
+
+fun both(left :: SpecExpr, right :: SpecExpr): bool_and(left, right)

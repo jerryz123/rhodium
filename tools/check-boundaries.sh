@@ -10,9 +10,9 @@ search_sources() {
   local pattern="$1"
   shift
   if command -v rg >/dev/null 2>&1; then
-    rg -n "$pattern" "$@" --glob '*.rhm' --glob '*.rhdl' --glob '*.rkt' --glob '!**/tests/**'
+    rg -n "$pattern" "$@" --glob '*.rhm' --glob '*.rhdl' --glob '*.rspl' --glob '*.rkt' --glob '!**/tests/**'
   else
-    find "$@" -type f \( -name '*.rhm' -o -name '*.rhdl' -o -name '*.rkt' \) \
+    find "$@" -type f \( -name '*.rhm' -o -name '*.rhdl' -o -name '*.rspl' -o -name '*.rkt' \) \
       ! -path '*/tests/*' \
       -exec grep -nHE "$pattern" {} +
   fi
@@ -22,9 +22,9 @@ search_test_sources() {
   local pattern="$1"
   shift
   if command -v rg >/dev/null 2>&1; then
-    rg -n "$pattern" "$@" --glob '*.rhm' --glob '*.rhdl' --glob '*.rkt'
+    rg -n "$pattern" "$@" --glob '*.rhm' --glob '*.rhdl' --glob '*.rspl' --glob '*.rkt'
   else
-    find "$@" -type f \( -name '*.rhm' -o -name '*.rhdl' -o -name '*.rkt' \) \
+    find "$@" -type f \( -name '*.rhm' -o -name '*.rhdl' -o -name '*.rspl' -o -name '*.rkt' \) \
       -exec grep -nHE "$pattern" {} +
   fi
 }

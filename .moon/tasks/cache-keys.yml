@@ -23,6 +23,7 @@ tasks:
       - "@files(test-diagram)"
       - "@files(test-backend)"
       - "@files(test-compile)"
+      - "@files(test-formal-spec)"
       - "@files(test-rfpl)"
       - "@files(test-devicetree)"
       - "@files(test-noc)"

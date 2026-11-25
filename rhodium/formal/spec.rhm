@@ -3,9 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  rhombus/meta.annot
   rhombus.bits.(<<) as <<
 
 export:
+  only_space annot:
+    rename: Expr as SpecExpr
   SpecBool SpecBits SpecSeq
   literal input_ref state_ref choose_if bool_not bool_and
   seq_empty seq_full seq_front seq_tail seq_append

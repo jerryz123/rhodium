@@ -7,16 +7,16 @@ import:
   "composition-binding.rhm" open
   "../snapshot.rhm".formal_snapshot
   "../spec.rhm" open
-  "../../../examples/formal/fifo-spec.rhm".fifo_spec
+  "../../../examples/formal/shift-queue.rspl".ShiftQueue
 
 export snapshot faulty_snapshot guarded_snapshot spec_row fifo_snapshot initial_contents pair_wires unit_fifo_snapshot
 
 def snapshot = formal_snapshot(fifo_definition)
 def faulty_snapshot = formal_snapshot(elaborate(Leaf(#true)))
 def guarded_snapshot = formal_snapshot(elaborate(GuardedAssertion()))
-def fifo = fifo_spec(2, 2)
+def fifo = ShiftQueue(2, 2)
 def fifo_snapshot = spec_snapshot(fifo)
-def unit_fifo_snapshot = spec_snapshot(fifo_spec(2, 1))
+def unit_fifo_snapshot = spec_snapshot(ShiftQueue(2, 1))
 def initial_contents = PairList[& fifo.initial["q"]]
 fun spec_row(contents, sample):
   def edge = step_spec(fifo, {"q": PairList.to_list(contents)}, sample)

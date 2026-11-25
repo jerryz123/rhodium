@@ -1,0 +1,121 @@
+#lang rspecl
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../spec.rhm".step_spec
+  "spec-helper.rhm".both as handshake
+
+def stalled = #false
+spec Qualified:
+  input offered: Bool
+  input ready: Bool
+  fun accepted(ready): handshake(offered, ready)
+  fun apply_to(f, pin): f(pin)
+  def fired = apply_to(accepted, ready)
+  output transfer = fired
+  output offered_only = apply_to(accepted, offered)
+  output prior = stalled
+  let stalled = !fired
+  output stalled_or_idle = stalled
+  event transfer = offered when fired
+for (a in [#false, #true]):
+  for (b in [#false, #true]):
+    def edge = step_spec(Qualified, Map{}, {"offered": a, "ready": b})
+    check:
+      edge.outputs ~is {"transfer": a && b, "offered_only": a, "prior": #false, "stalled_or_idle": !(a && b)}
+      edge.events ~is (if a && b | {"transfer": #true} | Map{})
+
+check:
+  (#false && error("not reached")) ~is #false
+  (#true || error("not reached")) ~is #true
+
+// A specialization chooses the type; a port is a separate lexical model value.
+spec Swap(word_width :: PosInt):
+  input width: Bool
+  input bus.enable: Bool
+  def Word = Bits(word_width)
+  state x: Word initially 2 as start_x
+  state y: Word initially 0
+  state held: Bool initially #true
+  let active = width || bus.enable && !held
+  output old = x when active
+  event old = y when active
+  next x = select(active, y, start_x)
+  next y = x
+
+def m = Swap(3)
+def fire = step_spec(m, m.initial, {"width": #true, "bus.enable": #true})
+def idle = step_spec(m, fire.next_state, {"width": #false, "bus.enable": #true})
+check:
+  fire.outputs ~is {"old": 2}
+  fire.events ~is {"old": 0}
+  fire.next_state ~is {"x": 0, "y": 2, "held": #true}
+  idle.outputs ~is Map{}
+  idle.events ~is Map{}
+  idle.next_state ~is m.initial
+  Swap(1) ~throws "does not fit"
+  Swap(0) ~throws "PosInt"
+
+def lazy_view:
+  spec:
+    state q: Seq(Bool, 1) initially []
+    output present_false = !empty(q) && front(q)
+    output present_true = empty(q) || front(q)
+    event payload = front(q) when !empty(q)
+check:
+  step_spec(lazy_view, lazy_view.initial, Map{}).outputs ~is {"present_false": #false, "present_true": #true}
+  step_spec(lazy_view, lazy_view.initial, Map{}).events ~is Map{}
+
+check:
+  ~eval
+  import lib("rhodium/formal/spec-dsl.rhm") open
+  spec:
+    input a: Bool
+    input a: Bool
+  ~throws "duplicate spec declaration: a"
+
+check:
+  ~eval
+  import lib("rhodium/formal/spec-dsl.rhm") open
+  spec:
+    output a.b = #true
+    output a.b = #false
+  ~throws "duplicate spec declaration: a.b"
+
+check:
+  ~eval
+  import lib("rhodium/formal/spec-dsl.rhm") open
+  spec:
+    state s: Bool initially #true
+    next s = #false
+    next s = #true
+  ~throws "duplicate spec declaration: s"
+
+check:
+  ~eval
+  import lib("rhodium/formal/spec-dsl.rhm") open
+  spec:
+    input pin: Bool
+    next pin = #true
+  ~throws "next requires a declared state"
+
+check:
+  ~eval
+  import lib("rhodium/formal/spec-dsl.rhm") open
+  spec:
+    output result = missing when #false
+  ~throws "missing"
+
+check:
+  block:
+    spec:
+      input word: Bits(1)
+      output echo = word when word
+  ~throws "boolean"
+
+// A helper is called to build a node; returning the function itself is not an edge operation.
+check:
+  block:
+    spec:
+      output wrong = handshake
+  ~throws "SpecExpr"

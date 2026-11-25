@@ -31,7 +31,7 @@ next_content="$(mktemp "$metadata_dir/.source-content.XXXXXX")"
 trap 'rm -f -- "$next_manifest" "$next_content"' EXIT
 
 git -C "$repo_dir" ls-files --cached --others --exclude-standard -- \
-  '*.rkt' '*.rhm' '*.rhdl' | LC_ALL=C sort -u | while IFS= read -r source; do
+  '*.rkt' '*.rhm' '*.rhdl' '*.rspl' | LC_ALL=C sort -u | while IFS= read -r source; do
     if [[ -f "$repo_dir/$source" ]]; then
       printf '%s\n' "$source"
     fi

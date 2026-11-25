@@ -167,6 +167,7 @@ tasks:
     command: noop
     deps: ["formal-test"]
     inputs:
+      - "rspecl/**/*"
       - "rhodium/formal/**/*"
       - "examples/formal/**/*"
       - "@group(language)"
