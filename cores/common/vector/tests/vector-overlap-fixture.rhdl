@@ -24,7 +24,7 @@ sync_circuit VectorOverlap(xlen :: XLen, ~instruction_owners: owners :: Pow2Int 
   def fp_profile = fp_transport_profile(xlen)
   def slots = 8
   input instruction: Bits(32)
-  input(vl, vtype, scalar, hit_data): Bits(xlen.width)
+  input(vl, vtype, scalar, fp_scalar, hit_data): Bits(xlen.width)
   input(request_valid, packed_memory, retry, slow, cancel, issue_ready, decision_hold, fault): Bool
   interface response(Decoupled(VectorCompletion(xlen, slots)), ~role: consumer)
   interface fp_request(Decoupled(FpExecutionRequest(xlen, fp_profile, Bits(3))), ~role: producer)
@@ -61,7 +61,7 @@ sync_circuit VectorOverlap(xlen :: XLen, ~instruction_owners: owners :: Pow2Int 
 
         control: decode.control
         scalar: scalar
-        floating_scalar: Bits(xlen.width)(0)
+        floating_scalar: fp_scalar
         stride: Bits(xlen.width)(8)
         masked: !instruction[25].into(Bool)
         rounding_mode: RoundingMode.NearEven

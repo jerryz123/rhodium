@@ -121,10 +121,9 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
   def fp_service_scalar_operand = descriptor.control.fp_service & floating_scalar_operand
   def scalar_unbox_cases = for List (format_index in 1..(vector_format_count(xlen) - 1)):
     def floating_format = if format_index == 1 | FloatFormat.F16 | FloatFormat.F32
-    [format_index, riscv_unbox(floating_format, xlen.width, descriptor.floating_scalar).as_bits().zext(xlen.width)]
+    [format_index, riscv_unbox(floating_format, xlen.width, descriptor.scalar_or_stride).as_bits().zext(xlen.width)]
 
-  def checked_floating_scalar = mux_lookup(sew, ~default: descriptor.floating_scalar, scalar_unbox_cases)
-  def floating_scalar = mux(descriptor.control.fp_service, descriptor.floating_scalar, checked_floating_scalar)
+  def checked_floating_scalar = mux_lookup(sew, ~default: descriptor.scalar_or_stride, scalar_unbox_cases)
   def fp_source_width = (sew + fp_narrowing.as_bits().zext(2)).into(SimdElementWidth)
   def fp_result_width = (sew + fp_widening.as_bits().zext(2)).into(SimdElementWidth)
 
@@ -165,14 +164,7 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
      Admission reserves the return cycle; this stage has no post-read stall queue. */
 
   def can_read = !clear & (!compress_flush ||| request.bits.context.suffix)
-  /* Only one scalar register file supplies this beat. Alias the descriptor's two
-     scalar views before the register, without unboxing or truncating either source. */
-  def incoming = request.bits.context.instruction
-  def source = incoming.descriptor
-  def use_fpr = source.control.floating_point & (source.control.operand === VectorOperandMode.FloatingScalar)
-  def scalar_word = mux(use_fpr, source.floating_scalar, source.scalar)
-  def read_instruction = incoming.updated(~descriptor: source.updated(~scalar: scalar_word, ~floating_scalar: scalar_word))
-  request |> gate_flow(can_read) |> to_valid() |> map_valid(read => read.context.updated(~instruction: read_instruction)) |> context_pipe.ingress
+  request |> gate_flow(can_read) |> to_valid() |> map_valid(read => read.context) |> context_pipe.ingress
   context_pipe.flush <== clear
   def launch = request.fire()
   reads[0].valid <== launch & request.bits.enables[0].into(Bool)
@@ -212,7 +204,7 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
   packing.left <== results[0].bits
   packing.right <== mux(second_source, results[1].bits, Bits(xlen.width)(0))
   packing.mask_word <== mask_result.bits
-  packing.scalar <== mux(floating_scalar_operand, floating_scalar, descriptor.scalar)
+  packing.scalar <== mux(floating_scalar_operand & !descriptor.control.fp_service, checked_floating_scalar, descriptor.scalar_or_stride)
   packing.immediate <== concat(descriptor.instruction[26], vs1)
 
 
@@ -264,7 +256,7 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
     gather: (gather_offset ++ Bits(3)(0)).zext(xlen.width)
     slide: (slide_offset ++ Bits(3)(0)).zext(xlen.width)
     mask_logic ||| reduction: results[1].bits
-    fp_service_scalar_operand: floating_scalar
+    fp_service_scalar_operand: descriptor.scalar_or_stride
     singleton & (descriptor.control.operand === VectorOperandMode.Vector): results[1].bits >> memory_shift
 
   def packed_lanes = mux(beat_control.empty, Mask(vector_word_bytes(xlen))(0), packing.operands.enabled)

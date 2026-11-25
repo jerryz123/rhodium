@@ -39,7 +39,7 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
   interface prepare_mask_read(Valid(Bits(index_width(VectorRegisterLayout(vlen, xlen.width).rows_per_register))), ~role: producer)
   interface prepare_mask_result(Valid(Bits(xlen.width)), ~role: consumer)
   interface prepare_alignment(Valid(VectorAlignment(xlen)), ~role: producer)
-  output retained: VectorInstruction(xlen, Context)
+  output retained: VectorSequencedInstruction(xlen, Context)
   interface cancel(Pulse(), ~role: consumer)
   interface feedback(Valid(VectorFeedback(xlen, vlen, Bits(xlen.width))), ~role: consumer)
   interface suffix(Decoupled(VectorCompressSuffix(xlen, vlen)), ~role: consumer)
@@ -62,7 +62,7 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
   inst preparation(VectorPackedPrepare(xlen, vlen, Context))
   packed <== packed_mode
   reg occupied(~init: Bool(#false))
-  reg instruction(VectorInstruction(xlen, Context))
+  reg instruction(VectorSequencedInstruction(xlen, Context))
   reg cursor(Count)
   reg field(Bits(3))
   reg sequence(Sequence)
@@ -139,7 +139,7 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def fields = descriptor.control.memory_nf.zext(4) + Bits(4)(1)
   def fields_per_element = mux(whole_register_memory, Bits(4)(1), fields)
   def unit_stride_step = fields_per_element.zext(xlen.width) << descriptor.control.memory_data_eew
-  def memory_element_step = mux(descriptor.control.memory_addressing === VectorMemoryAddressing.Strided, descriptor.stride, unit_stride_step)
+  def memory_element_step = mux(descriptor.control.memory_addressing === VectorMemoryAddressing.Strided, descriptor.scalar_or_stride, unit_stride_step)
   def address_step = mux(packed_mode, Bits(xlen.width)(vector_word_bytes(xlen)), memory_element_step)
 
 
@@ -390,7 +390,7 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
   /* Both frontiers start at the same address. Packed mode starts in the word
      containing vstart and skips its leading bytes; ordinary mode walks from base. */
 
-  def incoming = request.bits.descriptor
+  def incoming :: VectorDescriptor(xlen) = request.bits.descriptor
   def incoming_whole = incoming.control.memory_mode === VectorMemoryMode.WholeRegister
   def incoming_mask = incoming.control.memory_mode === VectorMemoryMode.Mask
   def incoming_eew = mux(incoming_mask, Bits(2)(0), incoming.control.memory_data_eew)
@@ -412,7 +412,10 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
   elsewhen accepted:
     packed_mode <== packed_memory
     occupied <== Bool(#true)
-    instruction <== request.bits
+    instruction <== VectorSequencedInstruction(xlen, Context):
+      context: request.bits.context
+      descriptor: incoming.for_sequencing()
+
     def start = mux(request.bits.descriptor.control.element_move, Bits(index_width(vlen + 1))(0), request.bits.descriptor.state.vstart[0..index_width(vlen + 1)])
     def request_whole_register_memory = request.bits.descriptor.control.memory & (request.bits.descriptor.control.memory_mode === VectorMemoryMode.WholeRegister)
     def request_mask_memory = request.bits.descriptor.control.memory & (request.bits.descriptor.control.memory_mode === VectorMemoryMode.Mask)

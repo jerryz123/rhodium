@@ -56,8 +56,15 @@ omit the first pair's even register or the last pair's odd register. Interior
 pairs always claim both. Owner age, progressive row release, and exact
 outstanding writes still decide whether a particular read must wait.
 
-The sequencer keeps two XLEN addresses: the speculative issue address and the
-retry address. Packed mode initializes both to the
+At admission the sequencer consumes the original memory base and captures one
+`scalar_or_stride` word: the stride for memory, raw FPR bits for FP scalar
+operands, otherwise the GPR operand. Keep that word with the scheduled VRF read
+so a same-edge descriptor replacement cannot change a returning beat.
+SIMD FP moves check NaN boxing after the read; the FP arithmetic service
+performs its own checks.
+
+The sequencer keeps two independent XLEN addresses: the speculative issue
+address and the retry address. Packed mode initializes both to the
 aligned word containing `vstart`. Issue advances one word per transfer;
 authorization advances one word per accepted beat, even for a partial word.
 For ordinary non-indexed transfers these are element bases: both step from the
@@ -90,10 +97,6 @@ selects the left operand for the destination write, leaving the right operand
 for the remainder; non-compressing beats must not authorize their right operand
 as suffix data. Keep the speculative partial word separate from the authorized retry checkpoint. Cancellation
 discards the pending write before a new descriptor can be admitted.
-
-Select the integer or FP scalar before the fixed-latency VRF return register.
-Keep the selected word raw: SIMD FP moves check NaN boxing after the read,
-whereas the FP arithmetic service performs its own checks.
 
 Aligned faultable memory beats may sequence on consecutive cycles. Their
 slot-bounded metadata FIFO pairs in-order LSU decisions with the authorized
@@ -347,6 +350,9 @@ with delayed accepted responses, partial-word compression after a middle-beat
 retry, and split authorization/retry/fault behind an accepted prefix.
 It compares the owner and sequencer claims at admission and checks that a
 five-field load to `v27`–`v31` blocks a read of `v31` but leaves `v26` available.
+The `vector-operand-handoff-rv32` and `vector-operand-handoff-rv64` fixtures
+hold a successor across memory backpressure, accept it on tail authorization,
+and read back the packed load, strided load, integer move, and FP move results.
 The `vector-masked-load-rv32` and `vector-masked-load-rv64` fixtures retry
 an enabled byte, complete a younger byte first, then read back the whole row
 to check that the delayed write preserves its neighbors.

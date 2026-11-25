@@ -34,7 +34,7 @@ sync_circuit VectorPackedPrepare(xlen :: XLen, vlen :: VectorLength, Context :: 
   def bytes = vector_word_bytes(xlen)
   def Address = Bits(index_width(VectorRegisterLayout(vlen, xlen.width).depth))
   def Layout = VectorPackedLayout(xlen, vlen)
-  input instruction: VectorInstruction(xlen, Context)
+  input instruction: VectorSequencedInstruction(xlen, Context)
   input cursor: VectorPackedCursor(xlen, vlen)
   input prepare: VectorPreparePhase
   input(enable, alignment_available): Bool

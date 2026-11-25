@@ -12,9 +12,8 @@ import:
   "../../../riscv/rtl/vector.rhdl" open
 
 /* Computes the destination interval before the caller chooses its representation. */
-fun destination_bounds(xlen :: XLen, vlen :: VectorLength, descriptor :: VectorDescriptor(xlen)):
-  def control = descriptor.control
-  def geometry = vector_type(xlen, vlen, descriptor.state.vtype)
+fun destination_bounds(xlen :: XLen, vlen :: VectorLength, control :: VectorControl(), instruction :: Bits(32), vtype :: Bits(xlen.width)):
+  def geometry = vector_type(xlen, vlen, vtype)
   def memory = control.memory
   def fp_service = control.floating_point & control.fp_service
   def whole = memory & (control.memory_mode === VectorMemoryMode.WholeRegister)
@@ -59,12 +58,12 @@ fun destination_bounds(xlen :: XLen, vlen :: VectorLength, descriptor :: VectorD
     memory: extent
 
   def writes = !(memory & control.store) & !(control.integer & control.scalar_destination) & !(control.floating_point & control.floating_scalar_destination)
-  def vd = instruction_field(riscv_fields.rd, descriptor.instruction)
+  def vd = instruction_field(riscv_fields.rd, instruction)
   values(vd, vd.zext(6) + count, writes)
 
 /* The sequencer tests all destinations combinationally; no decoded mask is stored here. */
-fun vector_destination_registers(xlen :: XLen, vlen :: VectorLength, descriptor :: VectorDescriptor(xlen)) :~ Bits(32):
-  def (vd :~ Bits(5), end :~ Bits(6), writes :~ Bool) = destination_bounds(xlen, vlen, descriptor)
+fun vector_destination_registers(xlen :: XLen, vlen :: VectorLength, descriptor :: VectorDescriptor(xlen) || VectorSequenceDescriptor(xlen)) :~ Bits(32):
+  def (vd :~ Bits(5), end :~ Bits(6), writes :~ Bool) = destination_bounds(xlen, vlen, descriptor.control, descriptor.instruction, descriptor.state.vtype)
   vec(for List (r in 0..32): writes & (Bits(6)(r) >= vd.zext(6)) & (Bits(6)(r) < end)).as_bits()
 
 /* A contiguous claim intersects a run of register pairs. Only its two ends
@@ -87,7 +86,7 @@ bundle VectorDestinationClaim():
 
 /* Retains the intersected pairs and whether their boundary members are absent. */
 fun vector_destination_claim(xlen :: XLen, vlen :: VectorLength, descriptor :: VectorDescriptor(xlen)) :~ VectorDestinationClaim():
-  def (vd :~ Bits(5), end :~ Bits(6), writes :~ Bool) = destination_bounds(xlen, vlen, descriptor)
+  def (vd :~ Bits(5), end :~ Bits(6), writes :~ Bool) = destination_bounds(xlen, vlen, descriptor.control, descriptor.instruction, descriptor.state.vtype)
   def active = writes & (vd.zext(6) < end)
   // Round the exclusive end up to the next pair boundary; Mask.range clips at v31.
   def past_pair = end[1..6] +& end[0..1]

@@ -196,7 +196,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def memory_accepted = element_memory_decision.valid & (element_memory_decision.bits.disposition === VectorDisposition.Authorized)
   sequencer.sequencing_done |> sequencing_done
   wire issue_tail: Bool
-  def current_descriptor :: VectorDescriptor(xlen) = sequencer.retained.descriptor
+  def current_descriptor :: VectorSequenceDescriptor(xlen) = sequencer.retained.descriptor
   def current_detached = current_descriptor.precertified & !current_descriptor.zero_stride_load()
   def serialized_done = sequencer.sequencing_done.valid & ((!current_detached & instructions.memory[current_owner]) ||| instructions.serial[current_owner] ||| cancel.valid)
   issue_done.valid <== issue_tail ||| serialized_done

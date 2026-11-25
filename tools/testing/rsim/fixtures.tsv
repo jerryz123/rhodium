@@ -278,6 +278,8 @@ vector-packed-carry-reuse-rv64	cores-vector-functional-2	cores/common/vector/tes
 rv5stage-vector-overlap	cores-vector-functional-2	cores/common/vector/tests/rsim/emit-rv5stage-vector-overlap.rhm	rv64	cores/common/vector/tests/rsim/rv5stage-vector-overlap.cpp
 vector-eight-owner-overlap	cores-vector-functional-2	cores/common/vector/tests/rsim/emit-rv5stage-vector-overlap.rhm	eight_owners	cores/common/vector/tests/rsim/rv5stage-vector-overlap.cpp
 vector-four-owners-eight-tags	cores-vector-functional-2	cores/common/vector/tests/rsim/emit-rv5stage-vector-overlap.rhm	rv64	cores/common/vector/tests/rsim/instruction-owners.cpp
+vector-operand-handoff-rv32	cores-vector-functional-2	cores/common/vector/tests/rsim/emit-rv5stage-vector-overlap.rhm	rv32	cores/common/vector/tests/rsim/operand-handoff.cpp
+vector-operand-handoff-rv64	cores-vector-functional-2	cores/common/vector/tests/rsim/emit-rv5stage-vector-overlap.rhm	rv64	cores/common/vector/tests/rsim/operand-handoff.cpp
 vector-local-alu-rv32	cores-vector-functional-2	cores/common/vector/tests/rsim/emit-rv5stage-vector-overlap.rhm	rv32	cores/common/vector/tests/rsim/local-alu.cpp
 vector-local-alu-rv64	cores-vector-functional-2	cores/common/vector/tests/rsim/emit-rv5stage-vector-overlap.rhm	rv64	cores/common/vector/tests/rsim/local-alu.cpp
 vector-completion-row-rv32	cores-vector-functional-2	cores/common/vector/tests/rsim/emit-rv5stage-vector-overlap.rhm	slots32	cores/common/vector/tests/rsim/completion-row.cpp

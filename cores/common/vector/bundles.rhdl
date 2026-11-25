@@ -29,6 +29,72 @@ bundle VectorAlignment(xlen :: XLen):
   data: Bits(xlen.width)
   bytes: Bits(vector_byte_offset_width(xlen))
 
+/* Resolves a slide's immediate, fixed-one, or full-width register distance. */
+fun slide_amount(xlen :: XLen, control :: VectorControl(), instruction :: Bits(32), operand :: Bits(xlen.width)) :~ Bits(xlen.width):
+  def immediate = instruction_field(riscv_fields.rs1, instruction)
+  priority_mux(~default: operand):
+    control.slide_one: Bits(xlen.width)(1)
+    control.operand === VectorOperandMode.Immediate: immediate.zext(xlen.width)
+
+/* Resolves the unsigned gather index without truncating a register operand. */
+fun gather_operand(xlen :: XLen, control :: VectorControl(), instruction :: Bits(32), operand :: Bits(xlen.width)) :~ Bits(xlen.width):
+  def immediate = instruction_field(riscv_fields.rs1, instruction)
+  mux(control.operand === VectorOperandMode.Immediate, immediate.zext(xlen.width), operand)
+
+/* Derives the exclusive element limit for ordinary, whole-register and mask operations. */
+fun sequence_limit(xlen :: XLen, vlen :: VectorLength, control :: VectorControl(), state :: RiscvVectorState(xlen)) :~ Bits(index_width(vlen + 1)):
+  // Whole-register transfers ignore vl and vtype; encoded EEW counts their elements.
+  def whole_register_memory = control.memory & (control.memory_mode === VectorMemoryMode.WholeRegister)
+  def whole_register_group_shift = mux_lookup(control.memory_nf, ~default: Bits(2)(0), [[1, Bits(2)(1)], [3, Bits(2)(2)], [7, Bits(2)(3)]])
+  def whole_register_elements = Bits(index_width(vlen + 1))(vlen / 8) >> control.memory_data_eew
+  def whole_register_limit = whole_register_elements << whole_register_group_shift
+  def whole_register_move = control.integer & control.whole_register_move
+  def whole_register_move_shift = mux_lookup(control.whole_register_count, ~default: Bits(2)(0), [[2, Bits(2)(1)], [4, Bits(2)(2)], [8, Bits(2)(3)]])
+  def whole_register_move_limit = (Bits(index_width(vlen + 1))(vlen / 8) >> state.vtype[3..5]) << whole_register_move_shift
+  def mask_memory = control.memory & (control.memory_mode === VectorMemoryMode.Mask)
+  def mask_memory_limit = (state.vl[0..index_width(vlen + 1)] + Bits(index_width(vlen + 1))(7)) >> 3
+  // Element moves have one bookkeeping beat, not a VL-sized iteration space.
+  priority_mux(~default: state.vl[0..index_width(vlen + 1)]):
+    control.element_move: Bits(index_width(vlen + 1))(1)
+    whole_register_move: whole_register_move_limit
+    whole_register_memory: whole_register_limit
+    mask_memory: mask_memory_limit
+
+/* Retains the sequencer's controls, proof, and one selected integer, FP, or stride word. */
+bundle VectorSequenceDescriptor(xlen :: XLen):
+  pc: Bits(xlen.width)
+  precertified: Bool
+  certificate: VectorFastCertificate(xlen)
+  instruction: Bits(32)
+  state: RiscvVectorState(xlen)
+  control: VectorControl()
+  scalar_or_stride: Bits(xlen.width)
+  masked: Bool
+  rounding_mode: RoundingMode
+  pointer_masking: PointerMaskControl()
+
+  /* Tests a captured descriptor for encoded-zero-stride load execution. */
+  method zero_stride_load(descriptor) :: Bool:
+    vector_zero_stride_load_parts(descriptor.control, descriptor.instruction)
+
+  /* Selects full-XLEN scalar, immediate, or fixed-one slide displacement before bounds checking. */
+  method slide_distance(descriptor) :: Bits(xlen.width):
+    slide_amount(xlen, descriptor.control, descriptor.instruction, descriptor.scalar_or_stride)
+
+  /* Selects an unsigned immediate or full-XLEN scalar gather index. */
+  method scalar_index(descriptor) :: Bits(xlen.width):
+    gather_operand(xlen, descriptor.control, descriptor.instruction, descriptor.scalar_or_stride)
+
+  /* Computes exclusive element progress, including VL-independent whole-register and byte-based
+     mask modes. */
+  method beat_limit(descriptor, vlen :: VectorLength) :: Bits(index_width(vlen + 1)):
+    sequence_limit(xlen, vlen, descriptor.control, descriptor.state)
+
+/* Pairs caller context with the selected operand rather than the original admission inputs. */
+bundle VectorSequencedInstruction(xlen :: XLen, Context :: DataType):
+  context: Context
+  descriptor: VectorSequenceDescriptor(xlen)
+
 /* Snapshots macro controls, architectural vector state, scalar operands, and optional page
    proof. */
 bundle VectorDescriptor(xlen :: XLen):
@@ -45,42 +111,40 @@ bundle VectorDescriptor(xlen :: XLen):
   rounding_mode: RoundingMode
   pointer_masking: PointerMaskControl()
 
+  /* Keeps only the word that later beats consume; the original base seeds the
+     two memory frontiers at admission and is not a sequenced operand. */
+  method for_sequencing(descriptor) :: VectorSequenceDescriptor(xlen):
+    def operand = priority_mux(~default: descriptor.scalar):
+      descriptor.control.memory: descriptor.stride
+      descriptor.control.floating_point & (descriptor.control.operand === VectorOperandMode.FloatingScalar): descriptor.floating_scalar
+
+    VectorSequenceDescriptor(xlen):
+      pc: descriptor.pc
+      precertified: descriptor.precertified
+      certificate: descriptor.certificate
+      instruction: descriptor.instruction
+      state: descriptor.state
+      control: descriptor.control
+      scalar_or_stride: operand
+      masked: descriptor.masked
+      rounding_mode: descriptor.rounding_mode
+      pointer_masking: descriptor.pointer_masking
+
   /* Tests a captured descriptor for encoded-zero-stride load execution. */
   method zero_stride_load(descriptor) :: Bool:
     vector_zero_stride_load_parts(descriptor.control, descriptor.instruction)
 
   /* Selects full-XLEN scalar, immediate, or fixed-one slide displacement before bounds checking. */
   method slide_distance(descriptor) :: Bits(xlen.width):
-    def immediate = instruction_field(riscv_fields.rs1, descriptor.instruction)
-    priority_mux(~default: descriptor.scalar):
-      descriptor.control.slide_one: Bits(xlen.width)(1)
-      descriptor.control.operand === VectorOperandMode.Immediate: immediate.zext(xlen.width)
+    slide_amount(xlen, descriptor.control, descriptor.instruction, descriptor.scalar)
 
   /* Selects an unsigned immediate or full-XLEN scalar gather index. */
   method scalar_index(descriptor) :: Bits(xlen.width):
-    def immediate = instruction_field(riscv_fields.rs1, descriptor.instruction)
-    mux(descriptor.control.operand === VectorOperandMode.Immediate, immediate.zext(xlen.width), descriptor.scalar)
+    gather_operand(xlen, descriptor.control, descriptor.instruction, descriptor.scalar)
 
-  /* Computes exclusive element progress, including VL-independent whole-register and byte-based
-     mask modes. */
+  /* Computes the same exclusive beat bound before sequencing. */
   method beat_limit(descriptor, vlen :: VectorLength) :: Bits(index_width(vlen + 1)):
-    def control = descriptor.control
-    // Whole-register transfers ignore vl and vtype; encoded EEW counts their elements.
-    def whole_register_memory = control.memory & (control.memory_mode === VectorMemoryMode.WholeRegister)
-    def whole_register_group_shift = mux_lookup(control.memory_nf, ~default: Bits(2)(0), [[1, Bits(2)(1)], [3, Bits(2)(2)], [7, Bits(2)(3)]])
-    def whole_register_elements = Bits(index_width(vlen + 1))(vlen / 8) >> control.memory_data_eew
-    def whole_register_limit = whole_register_elements << whole_register_group_shift
-    def whole_register_move = control.integer & control.whole_register_move
-    def whole_register_move_shift = mux_lookup(control.whole_register_count, ~default: Bits(2)(0), [[2, Bits(2)(1)], [4, Bits(2)(2)], [8, Bits(2)(3)]])
-    def whole_register_move_limit = (Bits(index_width(vlen + 1))(vlen / 8) >> descriptor.state.vtype[3..5]) << whole_register_move_shift
-    def mask_memory = control.memory & (control.memory_mode === VectorMemoryMode.Mask)
-    def mask_memory_limit = (descriptor.state.vl[0..index_width(vlen + 1)] + Bits(index_width(vlen + 1))(7)) >> 3
-    // Element moves have one bookkeeping beat, not a VL-sized iteration space.
-    priority_mux(~default: descriptor.state.vl[0..index_width(vlen + 1)]):
-      control.element_move: Bits(index_width(vlen + 1))(1)
-      whole_register_move: whole_register_move_limit
-      whole_register_memory: whole_register_limit
-      mask_memory: mask_memory_limit
+    sequence_limit(xlen, vlen, descriptor.control, descriptor.state)
 
 /* Pairs scalar instruction context with an immutable admitted vector descriptor. */
 bundle VectorInstruction(xlen :: XLen, Context :: DataType):
@@ -278,7 +342,7 @@ bundle VectorBeatControl(xlen :: XLen, vlen :: VectorLength):
 
 /* Retains the descriptor, restart bounds, and preparation metadata across fixed VRF latency. */
 bundle VectorSequenceContext(xlen :: XLen, vlen :: VectorLength, Context :: DataType):
-  instruction: VectorInstruction(xlen, Context)
+  instruction: VectorSequencedInstruction(xlen, Context)
   minimum: Bits(index_width(vlen + 1))
   gather_in_range: Bool
   gather_offset: Bits(vector_byte_offset_width(xlen))
@@ -332,6 +396,8 @@ bundle VectorSlotState(xlen :: XLen, vlen :: VectorLength, owners :: Pow2Int):
   writes: Bool
 
 export:
+  VectorSequenceDescriptor
+  VectorSequencedInstruction
   vector_zero_stride_load_parts
   VectorDrained
   VectorOwnedResult
