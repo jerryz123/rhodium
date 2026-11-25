@@ -60,6 +60,88 @@ meta:
     | '$v ... when $c ...': 'ir.Observed(operand($v ...), operand($c ...))'
     | ~else: 'ir.Observed(operand($rhs))'
 
+  /* Share lexical state, initial constants and simultaneous next clauses between cycle and monitor bodies. */
+  fun model_body():
+    def states = MutableMap{}
+    def initial = MutableMap{}
+    def updates = MutableMap{}
+    def mutable body = []
+    /* Capture a declaration's value at its lexical site, not after later shadowing. */
+    fun record(table :: MutableMap, key :: String, rhs :: Syntax, site :: Syntax):
+      when table.has_key(key) | syntax_meta.error("duplicate spec declaration: " ++ key, site)
+      def id = Syntax.make_temp_id(key)
+      body := body ++ ['def $id = $rhs']
+      table[key] := id
+      id
+    /* An optional lexical alias exposes the typed initial constant without implying reset. */
+    fun state_clause(n :: Syntax, t :: Syntax, v :: Syntax, alias_id :: maybe(Syntax), site :: Syntax):
+      def key = field_name(n)
+      def type = record(states, key, t, site)
+      def start = record(initial, key, v, site)
+      body := body ++ ['def $n = ir.state_ref($key, $type)']
+      when alias_id | body := body ++ ['def $alias_id = ir.literal($type, $start)']
+    /* Leave ordinary Rhombus definitions and helper calls in their original lexical order. */
+    fun model_clause(clause :: Syntax):
+      match clause
+      | 'state $(n :: Identifier): $t ... initially $v ... as $(id :: Identifier)':
+          state_clause(n, '$t ...', '($v ...)', id, clause)
+      | 'state $(n :: Identifier): $t ... initially $v ...':
+          state_clause(n, '$t ...', '($v ...)', #false, clause)
+      | 'next $(n :: Identifier) = $v ...':
+          def key = field_name(n)
+          unless states.has_key(key) | syntax_meta.error("next requires a declared state: " ++ key, n)
+          record(updates, key, 'operand($v ...)', clause)
+      | ~else: body := body ++ [clause]
+    values(states, initial, updates, record, model_clause, fun (): body)
+
+/* A monitor verdict is observable, not an assumption. Reject the entire batch before any update is evaluated. */
+fun monitor_model(inputs :: Map, states :: Map, initial :: Map, guarantees :: Map, updates :: Map):
+  def mutable allowed = operand(#true)
+  for (name in guarantees.keys().sort()):
+    allowed := ir.bool_and(allowed, guarantees[name])
+  def outputs = for Map ((name, predicate) in guarantees):
+    values(name, ir.Observed(predicate))
+  def guarded = for Map ((name, rhs) in updates):
+    values(name, ir.choose_if(allowed, rhs, ir.state_ref(name, states[name])))
+  ir.make_spec(inputs, states, initial, outputs ++ {"allowed": ir.Observed(allowed)}, {}, guarded)
+
+/* Compile the fixed batch vocabulary in declaration scope, independently of the cycle model's RTL pins. */
+expr.macro 'monitor_view: $line; ...':
+  def values(states, initial, updates, record, model_clause, declarations) = model_body()
+  def inputs = MutableMap{}
+  def guarantees = MutableMap{}
+  def attachment = MutableMap{}
+  /* A batch field is one pre-edge input to the monitor, not a pin read or a history update. */
+  fun batch(n :: Syntax, type :: Syntax, site :: Syntax):
+    def key = field_name(n)
+    def sort = record(inputs, key, type, site)
+    model_clause('def $n = ir.input_ref($key, $sort)')
+  for (clause in [line, ...]):
+    match clause
+    | 'batch ($(n :: Identifier), ...): $t ...':
+        for (id in [n, ...]): batch(id, '($t ...)', clause)
+    | 'batch $(n :: Identifier): $t ...': batch(n, '($t ...)', clause)
+    | 'guarantee $label = $rhs ...':
+        def key = label.unwrap()
+        unless key is_a String && key != "" | syntax_meta.error("expected a nonempty guarantee string", label)
+        when key == "allowed" | syntax_meta.error("allowed is the combined monitor verdict", label)
+        record(guarantees, key, 'operand($rhs ...)', clause)
+    | 'sample $s ...': record(attachment, "sample", '($s ...)', clause)
+    | 'publish $names ...': record(attachment, "publish", '($names ...)', clause)
+    | 'assume $rest ...': syntax_meta.error("a monitor judges batches with guarantees, not assumptions", clause)
+    | ~else: model_clause(clause)
+  unless attachment.has_key("sample") && attachment.has_key("publish") && guarantees.length() > 0
+  | syntax_meta.error("monitor requires sample, publish, and at least one guarantee", [line, ...][0])
+  for (key in inputs.keys()):
+    when states.has_key(key) | syntax_meta.error("batch and state share a name: " ++ key, [line, ...][0])
+  let [decl, ...] = declarations()
+  'block:
+     $decl
+     ...
+     boundary.transaction_view(monitor_model($(map_expr(inputs)), $(map_expr(states)), $(map_expr(initial)),
+                                             $(map_expr(guarantees)), $(map_expr(updates))),
+                               $(attachment["publish"]), $(attachment["sample"]))'
+
 /* Read a parameter at its lexical use site so unused non-scalar arguments need no model value. */
 defn.macro 'bind_parameter $id($bound, $key)':
   '«
@@ -72,57 +154,34 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
   let [key, ...] = [cfg.to_source_string(), ...]
   let [ep_key, ...] = [ep.to_source_string(), ...]
   let [arr_key, ...] = [arr.to_source_string(), ...]
-  def states = MutableMap{}
-  def initial = MutableMap{}
   def outputs = MutableMap{}
   def events = MutableMap{}
-  def updates = MutableMap{}
   def assumptions = MutableMap{}
   def mutable ignored = []
   def mutable event_source = #false
   def mutable transaction = #false
-  def mutable body = []
-  /* Capture a declaration's value at its lexical site, not after later shadowing. */
-  fun record(table :: MutableMap, key :: String, rhs :: Syntax, site :: Syntax):
-    when table.has_key(key) | syntax_meta.error("duplicate spec declaration: " ++ key, site)
-    def id = Syntax.make_temp_id(key)
-    body := body ++ ['def $id = $rhs']
-    table[key] := id
-    id
-  /* An optional lexical alias exposes the typed initial constant without implying reset. */
-  fun state_clause(n :: Syntax, t :: Syntax, v :: Syntax, alias_id :: maybe(Syntax), site :: Syntax):
-    def key = field_name(n)
-    def type = record(states, key, t, site)
-    def start = record(initial, key, v, site)
-    body := body ++ ['def $n = ir.state_ref($key, $type)']
-    when alias_id | body := body ++ ['def $alias_id = ir.literal($type, $start)']
-
+  def values(states, initial, updates, record, model_clause, declarations) = model_body()
   for (clause in [line, ...]):
     match clause
     | 'input $n ...: $t': syntax_meta.error("inputs come from the RTL declaration", clause)
     | 'ignore $n ...': ignored := ignored ++ [field_name('$n ...')]
     | 'observe $n ... = $v ...': record(outputs, field_name('$n ...'), observation('$v ...'), clause)
-    | 'state $(n :: Identifier): $t ... initially $v ... as $(id :: Identifier)':
-        state_clause(n, '$t ...', '($v ...)', id, clause)
-    | 'state $(n :: Identifier): $t ... initially $v ...':
-        state_clause(n, '$t ...', '($v ...)', #false, clause)
     | 'output $n ... = $v ...': record(outputs, field_name('$n ...'), observation('$v ...'), clause)
     | 'event $n ... = $v ...': record(events, field_name('$n ...'), observation('$v ...'), clause)
     | 'events $rhs ...':
         when event_source | syntax_meta.error("duplicate sampled event source", clause)
         event_source := Syntax.make_temp_id("event_source")
-        body := body ++ ['def $event_source = $rhs ...']
+        model_clause('def $event_source = $rhs ...')
+    | 'monitor: $entry; ...':
+        when transaction | syntax_meta.error("duplicate transaction view", clause)
+        transaction := 'monitor_view: $entry; ...'
     | 'transactions $rhs ...':
         when transaction | syntax_meta.error("duplicate transaction view", clause)
         transaction := '($rhs ...)'
     | 'assume $(n :: Identifier) = $v ...': record(assumptions, field_name(n), 'operand($v ...)', clause)
-    | 'next $(n :: Identifier) = $v ...':
-        def key = field_name(n)
-        unless states.has_key(key) | syntax_meta.error("next requires a declared state: " ++ key, n)
-        record(updates, key, 'operand($v ...)', clause)
-    | ~else: body := body ++ [clause]
+    | ~else: model_clause(clause)
 
-  let [decl, ...] = body
+  let [decl, ...] = declarations()
   let [skip, ...] = ignored
   when transaction && event_source | syntax_meta.error("choose one sampled event source", name)
   def args = if event_source | '(top, ~event_view: view_only :: Boolean = #false)' | '(top)'

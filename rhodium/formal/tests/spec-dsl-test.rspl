@@ -18,6 +18,97 @@ import:
 def pair_top = elaborate(pairs.QueuePair(1)).top
 def tx = rob_specs.TwoTagROB(~transaction_view: #true)
 def values(_, ref_monitor, _, _) = transaction_parts(tx)
+
+// The monitor has its own lexical scope. A refused batch must not evaluate tail(empty)
+// or append(full), and must hold even scalar state that could otherwise advance.
+def probe_monitor:
+  spec for rtl.ParamProbe:
+    monitor:
+      sample fun (_read, write): {"sample": Observed(write("bad", Bool))}
+      publish ["sample"]
+      batch (take, value): Bool
+      state q: Seq(Bool, 1) initially []
+      state previous: Bool initially #true
+      state older: Bool initially #false
+      guarantee "can-take" = !take || !empty(q)
+      guarantee "can-put" = take || !full(q)
+      let accepted_value = handshake(!take, value)
+      next q = select(take, tail(q), append(q, accepted_value))
+      next previous = value
+      next older = previous
+    observe bad = #false
+  def values(_, model, _, _) = transaction_parts(ParamProbe(elaborate(rtl.ParamProbe(0)).top, ~transaction_view: #true))
+  model
+fun probe_edge(old, take, value):
+  step_spec(probe_monitor, old, {"take": take, "value": value})
+def refused_empty = probe_edge(probe_monitor.initial, #true, #false)
+def put = probe_edge(probe_monitor.initial, #false, #false)
+def refused_full = probe_edge(put.next_state, #false, #true)
+check:
+  refused_empty.outputs ~is {"allowed": #false, "can-take": #false, "can-put": #true}
+  refused_empty.next_state ~is probe_monitor.initial
+  put.outputs ~is {"allowed": #true, "can-take": #true, "can-put": #true}
+  put.next_state ~is {"q": [#false], "previous": #false, "older": #true}
+  refused_full.outputs ~is {"allowed": #false, "can-take": #true, "can-put": #false}
+  refused_full.next_state ~is put.next_state
+  probe_edge(put.next_state, #true, #true).next_state ~is {"q": [], "previous": #true, "older": #false}
+check:
+  block:
+    spec for rtl.ParamProbe:
+      monitor:
+        sample fun (_, _write): {}
+        publish []
+        batch word: Bits(1)
+        guarantee "bad-sort" = word
+      observe bad = #false
+    ParamProbe(~transaction_view: #true)
+  ~throws "expected a boolean expression"
+check:
+  ~eval
+  import lib("rspecl/language.rhm").spec
+  import lib("rhodium/formal/tests/spec-dsl-fixture.rhdl") as rtl
+  spec for rtl.ParamProbe:
+    monitor:
+      guarantee "capacity" = #true
+      guarantee "capacity" = #false
+  ~throws "duplicate spec declaration: capacity"
+check:
+  ~eval
+  import lib("rspecl/language.rhm").spec
+  import lib("rhodium/formal/tests/spec-dsl-fixture.rhdl") as rtl
+  spec for rtl.ParamProbe:
+    monitor:
+      guarantee "allowed" = #true
+  ~throws "allowed is the combined monitor verdict"
+check:
+  ~eval
+  import lib("rspecl/language.rhm").spec
+  import lib("rhodium/formal/tests/spec-dsl-fixture.rhdl") as rtl
+  spec for rtl.ParamProbe:
+    monitor:
+      sample sampler
+      publish []
+      guarantee "ok" = #true
+      batch flag: Bool
+      state flag: Bool initially #false
+  ~throws "batch and state share a name: flag"
+check:
+  ~eval
+  import lib("rspecl/language.rhm").spec
+  import lib("rhodium/formal/tests/spec-dsl-fixture.rhdl") as rtl
+  spec for rtl.ParamProbe:
+    monitor:
+      batch flag: Bool
+      next flag = #true
+  ~throws "next requires a declared state: flag"
+check:
+  ~eval
+  import lib("rspecl/language.rhm").spec
+  import lib("rhodium/formal/tests/spec-dsl-fixture.rhdl") as rtl
+  spec for rtl.ParamProbe:
+    monitor:
+      assume precondition = #true
+  ~throws "a monitor judges batches with guarantees, not assumptions"
 check:
   rob_specs.TwoTagROB(pair_top, ~transaction_view: #true) ~throws "specialization of TwoTagROB"
 check:

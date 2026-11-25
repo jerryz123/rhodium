@@ -190,8 +190,24 @@ Outputs and events do not introduce bindings. An interface input such as
 what is visible; `event` describes what happened. On either, `when` controls
 presence, not the payload value. Omit it for an always-present field.
 
-A `transactions` clause attaches a stateless pin sampler and a separate
-history monitor to one `spec for`. In `TwoTagROB(top)`, the sampler reads
+A `monitor:` block inside `spec for` describes which joint event batches are
+legal and how each legal batch changes transaction history. For example, this
+excerpt from [TwoTagROB](../../examples/formal/two-tag-rob.rspl) requires a
+retirement to name the oldest live tag:
+
+```rhombus
+    guarantee "oldest-tag" = !retire || (live && same(retire_tag, head))
+```
+
+`batch` introduces typed lexical inputs to the monitor, not new RTL pins.
+`state`, `next`, and ordinary Rhombus helpers work as in the cycle body.
+Each named `guarantee` reports a Boolean for the **same pre-edge batch and
+history**. The reserved output `allowed` is their conjunction. If any guarantee
+fails, its diagnostic remains visible and all history holds; no `next`
+expression is evaluated. An accepted batch applies all updates simultaneously.
+
+`sample` selects the stateless pin sampler; `publish` lists the sampler
+events exposed by the cycle model. In `TwoTagROB(top)`, the sampler reads
 the cycle model's outputs and publishes the existing `issued`, `issued_gen`,
 `retired`, and `retired_value` events. At a proof boundary the same sampler
 reads physical pins; the full batch includes reset and both completion lanes.
@@ -201,7 +217,8 @@ view. `TwoTagROB(~transaction_view: #true)` returns just the unproved
 description, so a verifier can test a candidate implementation against it.
 Neither form supplies proof evidence. This attachment is built at declaration
 scope and currently supports a fixed transaction schema, not per-specialization
-cycle state or parameters.
+cycle state or parameters. The lower-level `transactions transaction_view(...)`
+form can attach an already-built monitor instead.
 
 Use `Bool`, `Bits(width)` or `Seq(element, capacity)` for types. For host
 configuration decisions, ordinary `if` runs at construction time. For a

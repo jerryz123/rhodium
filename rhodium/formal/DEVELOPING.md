@@ -65,6 +65,13 @@ typed IR crosses the interpreter boundary. The [surface tests](tests/spec-dsl-te
 exercise a separately imported helper, lexical shadowing, host short-circuiting
 and partial sequence reads; the proof bindings use the same model unchanged.
 
+Cycle and monitor bodies share the lexical `state`/`next` lowering. For a
+`monitor:`, bind batch names as spec inputs, emit every guarantee as an
+always-present Boolean output, and guard each update with their conjunction.
+Keep this in the language profile: both rspecsim and Rosette already implement
+guarded evaluation. The sampler, the translation from sparse sampled events to
+typed batch fields, and the decision to issue proof evidence remain separate.
+
 ### Symbolic specification step
 
 `spec_snapshot(model)` copies the checked input/state schemas, typed expressions,
