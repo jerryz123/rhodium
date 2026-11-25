@@ -78,9 +78,10 @@ For certified unit-stride segments of two through eight fields, the same port
 transfers interleaved bytes in memory order. The VLSU separates a load beat
 into field fragments; VLSeq accepts each active fragment on its masked VRF write.
 VSSeq gathers store fields into one DLEN beat at a time. It can read one ready
-field per cycle, including across unmasked beat boundaries when the VLSU has
-room for the next beat. Masked beats sample their own predicate before reading;
-a field with no enabled lanes needs no VRF read.
+field per cycle across beat boundaries when the VLSU has room for the next beat.
+For a masked store, VSSeq can sample the successor's predicate while visiting
+the current beat. A field with no enabled lanes needs no VRF read, and a later
+v0 overwrite cannot change the saved byte enables.
 A younger instruction cannot consume a partially written field row.
 Strided, indexed, and fault-only-first segments stay on the element path.
 Nonsegmented `vlse` and `vsse` use the same L1D port with a validated one-page

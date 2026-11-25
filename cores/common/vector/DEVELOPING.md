@@ -220,10 +220,13 @@ stores, advance the field ordinal on grant or mask skip. Carry that visit's
 placement and field identity to the return stage: it updates the single DLEN
 assembly register and releases the field obligation while the next field can
 issue. The final return transfers the assembled beat and releases its field
-regardless of the next grant. At that edge an unmasked successor may issue
-ordinal zero using its own geometry and post-transfer FIFO credit. A denial
-leaves its cursor at zero; a grant starts its assembly from zero on return.
-Masked successors still start with their own predicate sample.
+regardless of the next grant. A masked store uses the mask-only slot to sample
+the successor while visiting the current beat. Release that v0 row only on its
+last sample, accounting for all interleaved beats in the segment group. At the
+boundary, ordinal zero may issue or skip using the saved enables and post-transfer
+FIFO credit. On denial keep the enables and retry at zero; if the sample was
+blocked, use the normal predicate phase. A wholly empty successor takes its own
+ordered FIFO slot, never the outgoing beat's slot.
 Scatter row reuse stays in VSSeq.
 RV5Stage and RV2Wide continue to use [backend.rhdl](backend.rhdl) and its
 single sequencer; neither imports distributed scheduling logic.

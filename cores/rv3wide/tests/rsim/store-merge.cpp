@@ -164,7 +164,7 @@ static void segmented_store(unsigned fields,unsigned eew,unsigned lmul=0,Boundar
 
 // With three fields and two element lanes per beat, the middle beat wraps
 // from field 2 of element 0 to field 0 of element 1. Only one lane is live.
-static void masked_segment(bool second) {
+static void masked_segment(bool second,bool late_mask=false) {
   constexpr unsigned size=bytes/2, eew=bytes==8 ? 2 : 3, first_row=2*vs3;
   constexpr unsigned lo=(1u<<size)-1, hi=lo<<size, full=lo|hi;
   const unsigned blocked=second ? 2 : 0;
@@ -177,11 +177,13 @@ static void masked_segment(bool second) {
   launch_1_in.pbits.ppages[0]=0x60; prepare_in.pbits=launch_1_in.pbits.pissue;
   launch_1_in.pvalid=prepare_in.pvalid=1; tick_model(); launch_1_in.pvalid=prepare_in.pvalid=0;
   unsigned grants=0,returns=0,samples=0,sent=0,acks=0,done=0,field=0;
-  bool returning=false, denied=false, saw_claims=false;
+  bool returning=false, denied=false, saw_claims=false, boundary=false, overwritten=false;
   for(unsigned t=0;t<120 && !done;++t) {
     // In the middle beat the blocked row is masked off. In the last beat it
     // is either genuinely needed (second) or the entire beat is empty.
     store_reads_in.polder_uwrites=t<25 && (second || returns>=1) ? 1ull<<(first_row+2*blocked) : 0;
+    const bool wait_v0=t<2 || (late_mask && samples==1 && t<12);
+    if(wait_v0) store_reads_in.polder_uwrites|=1;
     read_in.pready=denied || grants!=1; // deny one live offer, including across another field's return
     read_result_in.pvalid=returning;
     Row src; for(unsigned b=0;b<bytes;++b) src[b]=0x10*field+b;
@@ -189,15 +191,25 @@ static void masked_segment(bool second) {
     memory_in.prequest.pready=t>=40;
     memory_in.presponse.pvalid=t>=55 && acks<sent;
     eval();
+    const bool sample=mask_1_out.psample.pvalid;
+    CHECK(store_reads_out.punread_uv0==(samples<3 ? 1u : 0u));
+    if(wait_v0) CHECK(!sample);
+    if(returning && grants==(second ? 1u : 2u)) {
+      // Rotating successor starts with field 2 or 1. The port denies field 1
+      // on this exact edge; a late predicate must not delay the outgoing beat.
+      CHECK(!boundary && bool(read_out.pvalid)==!late_mask);
+      if(!late_mask) CHECK(samples>=(second ? 3u : 2u) && read_out.pbits==first_row+2*grants);
+      boundary=true;
+    }
     if(t==20) {
-      CHECK(!sent && returns==(second ? 2u : 3u));
-      // Field 0 is free after the wrapping beat. The last beat may still
-      // need its mask sampled if both VLSU slots hold earlier live beats.
+      CHECK(!sent && overwritten && returns==(second ? 2u : 3u));
+      // The final v0 sample is independent of FIFO space. The empty final
+      // beat releases its VS3 obligations only when it takes its ordered slot.
       const auto tail_claims=(1ull<<(first_row+2)) | (1ull<<(first_row+4));
-      CHECK(store_reads_out.punread_uvs3==(second ? 1ull<<(first_row+4) : samples<3 ? tail_claims : 0));
+      CHECK(store_reads_out.punread_uvs3==(second ? 1ull<<(first_row+4) : tail_claims));
       saw_claims=true;
     }
-    samples+=mask_1_out.psample.pvalid;
+    if(sample) { CHECK(samples<3 && mask_1_out.psample.pbits==0); ++samples; }
     if(returning) ++returns;
     returning=read_out.pvalid && read_in.pready;
     if(read_out.pvalid) {
@@ -219,8 +231,62 @@ static void masked_segment(bool second) {
     acks+=memory_in.presponse.pvalid && memory_out.presponse.pready;
     if(finished_out.pvalid) { CHECK(acks==2); ++done; }
     tick_model();
+    if(sample && samples==3) {
+      CHECK(!sent && !memory_in.prequest.pready);
+      predicate[0]^=3; // A younger v0 write after last use must not change the retained byte enables.
+      std::memcpy(&mask_1_in.pdata,predicate.data(),bytes);
+      overwritten=true;
+    }
   }
-  CHECK(done && denied && saw_claims && grants==3 && returns==3 && samples==3);
+  CHECK(done && denied && boundary && overwritten && saw_claims && grants==3 && returns==3 && samples==3);
+}
+
+// Each beat visits four of five fields. The 8th-to-9th visit crosses a
+// boundary on two skips: neither an older writer nor VRF denial may stall it.
+static void masked_boundary_skip() {
+  constexpr unsigned size=bytes/4, eew=bytes==8 ? 1 : 2;
+  prepare_in={}; launch_0_in={}; launch_1_in={}; memory_in={}; read_result_in={}; store_reads_in={};
+  auto &d=launch_1_in.pbits.pissue.pdescriptor;
+  d.pscalar=0x4000; d.pinstruction=vs3<<7; d.pcontrol.pstore=1; d.pmasked=1; d.pcontrol.pmemory_unf=4;
+  d.pstate.pvl=3; d.pstate.pvtype=eew<<3; d.pcontrol.pmemory_udata_ueew=eew;
+  launch_1_in.pbits.ppages[0]=0x60; prepare_in.pbits=launch_1_in.pbits.pissue;
+  Row pred{}; pred[0]=5; std::memcpy(&mask_1_in.pdata,pred.data(),bytes);
+  launch_1_in.pvalid=prepare_in.pvalid=1; tick_model(); launch_1_in.pvalid=prepare_in.pvalid=0;
+  unsigned samples=0,slot=0,field=0,sent=0,acks=0; bool returning=false,done=false;
+  for(unsigned t=0;t<60 && !done;++t) {
+    const bool live=slot<15 && slot/5!=1;
+    read_in.pready=slot!=8;
+    store_reads_in.polder_uwrites=slot==8 ? 1ull<<(2*(vs3+3)) : 0;
+    read_result_in.pvalid=returning;
+    Row src; for(unsigned b=0;b<bytes;++b) src[b]=field*16+b;
+    std::memcpy(&read_result_in.pbits,src.data(),bytes);
+    memory_in.prequest.pready=1; memory_in.presponse.pvalid=acks<sent;
+    eval();
+    if(t) {
+      CHECK(bool(read_out.pvalid)==live);
+      if(live) { field=slot%5; CHECK(read_out.pbits==2*(vs3+field) && read_in.pready); }
+      ++slot;
+    } else CHECK(!read_out.pvalid);
+    returning=read_out.pvalid && read_in.pready;
+    samples+=mask_1_out.psample.pvalid;
+    if(memory_out.prequest.pvalid) {
+      const auto &req=memory_out.prequest.pbits;
+      CHECK(sent<4 && req.paddress==0x60000+sent*bytes);
+      unsigned mask=0;
+      for(unsigned b=0;b<bytes;++b) {
+        unsigned i=sent*4+b/size;
+        if(i<15 && i/5!=1) {
+          mask|=1u<<b;
+          CHECK(reinterpret_cast<const unsigned char*>(&req.pdata)[b]==(i%5)*16+(i/5)*size+b%size);
+        }
+      }
+      CHECK(req.pbyte_umask==mask); ++sent;
+    }
+    acks+=memory_in.presponse.pvalid && memory_out.presponse.pready;
+    done=finished_out.pvalid;
+    tick_model();
+  }
+  CHECK(done && samples==4 && sent==4 && acks==4);
 }
 
 // Six e8 rows start in the last slice of v0 row 0 and finish in row 1.
@@ -304,6 +370,8 @@ int main() {
     segmented_store(3,two_lanes_eew,0,Boundary::Open,true);
     masked_segment(false);
     masked_segment(true);
+    masked_segment(false,true);
+    masked_boundary_skip();
     for (unsigned d=1;d<bytes;++d) {
       exercise(d,0,2*bytes,0);
       exercise(d,bytes-1,bytes+1,0);

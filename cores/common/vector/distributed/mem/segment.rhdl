@@ -26,6 +26,7 @@ fun by_shape(dlen :: PosInt, layout :: SegmentLayout(), build :: Function.of_ari
 /* Position in an interleaved group at the beginning of one logical memory beat. */
 bundle SegmentPosition(element_bits :: PosInt):
   group: Bits(index_width(MaxBeats))
+  ends_group: Bool
   first_field: Bits(3)
   first_element: Bits(element_bits)
   last_ordinal: Bits(3)
@@ -40,6 +41,7 @@ fun segment_position(dlen :: PosInt, layout :: SegmentLayout(), stream :: Bits(R
       def slot = (beat mod n)*lanes
       SegmentPosition(index_width(dlen div 8)):
         group: Bits(index_width(MaxBeats))(beat div n)
+        ends_group: Bool(beat mod n == n-1)
         first_field: Bits(3)(slot mod n)
         first_element: Bits(index_width(dlen div 8))(slot div n)
         last_ordinal: Bits(3)(math.min(n, lanes)-1)
