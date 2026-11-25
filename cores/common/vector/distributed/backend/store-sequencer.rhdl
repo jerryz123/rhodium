@@ -17,9 +17,10 @@ import:
 
 /* Reserve FIFO space before each synchronous read. Release VSSeq on the last capture,
    not when the VLSU accepts its last row or receives its acknowledgement. */
-sync_circuit VectorStoreSequencer(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int):
+sync_circuit VectorStoreSequencer(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~trace_isa: trace_isa :: maybe(String) = #false):
   def dlen = vector_dlen(vlen)
   def Owner = Bits(index_width(slots))
+  input trace_instructions: Vec(slots, VectorTraceInstruction(xlen))
   interface prepare(Decoupled(MemoryIssue(xlen, vlen, slots)), ~role: consumer)
   def Row = OwnedRow(PreparedRow(vlen), Owner)
   interface rows(Decoupled(Row), ~role: producer)
@@ -60,7 +61,15 @@ sync_circuit VectorStoreSequencer(xlen :: XLen, vlen :: VectorLength, slots :: P
   capture.older_writes <== store_reads.older_writes
   capture.singleton <== singleton
   capture.capacity <== buffered.ingress.ready
-  (capture.prepared |> map_flow(r => OwnedRow(PreparedRow(vlen), Owner)):
+  def prepared = capture.prepared |> trace_event("vector/store.sequence", ~stalls: #true, ~fields: row):
+    pc: trace_instructions[capture_owner].pc
+    instruction(~format: "riscv", ~isa: trace_isa || (if xlen == XLen.X32 | "rv32imafdcv" | "rv64imafdcv"), ~pc: "pc"): trace_instructions[capture_owner].instruction
+    owner(~format: "unsigned"): capture_owner
+    row(~format: "unsigned"): row.row
+    offset(~format: "unsigned"): row.offset
+    enabled: row.enabled
+    last: row.last
+  (prepared |> map_flow(r => OwnedRow(PreparedRow(vlen), Owner)):
      owner: capture_owner
      payload: r
   ) |> buffered.ingress

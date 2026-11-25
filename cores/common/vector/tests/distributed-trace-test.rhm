@@ -1,0 +1,36 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("cores/common/vector/distributed/backend.rhdl").DistributedVectorBackend
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/rtl/hypervisor.rhdl").RiscvGuestFault
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
+  lib("rhodium/event/main.rhm").infer_event_manifest
+
+// These are public capture schemas consumed by the Perfetto disassembler,
+// including special read paths not exercised by every vector benchmark.
+def labels = ["vector/execute.sequence", "vector/load.sequence", "vector/store.sequence",
+              "vector/special.sequence", "vector/special.lookahead", "vector/load.agen", "vector/store.agen"]
+for (xlen in [XLen.X32, XLen.X64]):
+  def isa = "rv" ++ to_string(xlen.width) ++ "imafdcv_zvbb"
+  def program = elaborate(DistributedVectorBackend(xlen, 4 * xlen.width, RiscvGuestFault(), ~trace_isa: isa))
+  def rtl = compile_program(program, rtl_target).report.elaboration
+  def manifest = infer_event_manifest(rtl, ~partial: #true)
+  check:
+    manifest.sites.map(fun (site): site.label).sort() ~is (labels ++ labels.map(fun (label): label ++ ".stall")).sort()
+  for (site in manifest.sites):
+    def pc = site.fields.find(fun (field): field.name == "pc")
+    def instruction = site.fields.find(fun (field): field.name == "instruction")
+    def owner = site.fields.find(fun (field): field.name == "owner")
+    check:
+      [pc.width, pc.encoding] ~is [xlen.width, "hex"]
+      [instruction.width, instruction.encoding, instruction.isa, instruction.pc] ~is [32, "riscv", isa, "pc"]
+      [owner.width, owner.encoding] ~is [3, "unsigned"]
+    when site.label.contains(".agen")
+    | check:
+        for List (name in ["cursor", "va", "pa", "byte_mask", "split_suffix"]):
+          site.fields.find(fun (field): field.name == name).width
+        ~is [xlen.width, xlen.width, 64, (2 * xlen.width) div 8, 1]

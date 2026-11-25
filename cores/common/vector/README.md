@@ -184,6 +184,33 @@ Tracing distinguishes `vector/complete` (execution results and actual packed-loa
 VRF writes) from `vector/slot.release` (ordered packed transport bookkeeping,
 including stores). A slot release can coincide with an unrelated result completion.
 
+### Distributed sequence tracing
+
+RV3Wide selects the distributed backend, with independent execution and memory
+sequencers. Traced builds expose `vector/execute.sequence` for accepted execute
+operand reads (including reductions), `vector/load.sequence` for prepared load
+masks entering the beat packer, and `vector/store.sequence` for captured or
+skipped rows entering the store FIFO. Special operand demand and lookahead reads
+appear on `vector/special.sequence` and `vector/special.lookahead` respectively.
+These are sequencing transfers, not instruction admission or completion.
+
+`vector/load.agen` and `vector/store.agen` instead show physical request
+fragments at the VLSU-to-L1D handshake. Each transfer reports the virtual cursor,
+aligned fragment VA and PA, byte mask, and whether this is a split suffix.
+A fully masked skip has no address event; an access split across two requests
+has two. Stalls here mean the selected request was offered but not accepted,
+not that a cursor was waiting for operands, selection, or issue credit.
+
+Each event is named by its disassembled instruction and captures its PC,
+instruction-owner slot, and row information. The PC and instruction are
+snapshotted at owner allocation, so overlapping sequencers retain the identity
+of their own instruction even when a younger descriptor is dispatched. Owner
+slots are reused; they are not global instruction IDs.
+Stall spans show backpressure on an existing offer, not hazards that suppress
+the offer altogether. Observation-only snapshots do not affect scheduling or
+add pipeline stages. Partial tracing may mark ancestry unknown across unmodeled scheduler
+boundaries; instruction labels do not invent causal edges across those gaps.
+
 ### Packed integer multiplication
 
 `VectorExecution(..., ~packed_multiply: #true)` selects dedicated packed

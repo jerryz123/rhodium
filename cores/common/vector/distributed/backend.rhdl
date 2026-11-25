@@ -20,6 +20,7 @@ import:
   "backend/scoreboard.rhdl".DistributedVectorScoreboard
   "backend/register-file.rhdl".DistributedVectorRegisterView
   "common/row-claims.rhdl".ProductWriteDelay
+  "common/row-types.rhdl".VectorTraceInstruction
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/isa/vector.rhm").VectorLength
   lib("rhodium/std/bits.rhdl") open
@@ -34,6 +35,7 @@ import:
 /* Allocates owners in order; memory and execute sequencers release them after their final effect. */
 sync_circuit DistributedVectorBackend(xlen :: XLen, vlen :: VectorLength, Fault :: DataType,
                                       ~fp32: fp32 :: Boolean = #true, ~fp16: fp16 :: Boolean = #true,
+                                      ~trace_isa: trace_isa :: maybe(String) = #false,
                                       ~vector_completion_slots: slots :: Pow2Int = 8):
   interface service(VectorExecutionService(xlen, slots), ~role: executor)
   interface request(Decoupled(VectorDescriptor(xlen)), ~role: consumer)
@@ -51,7 +53,12 @@ sync_circuit DistributedVectorBackend(xlen :: XLen, vlen :: VectorLength, Fault 
 
   inst registers(DistributedVectorRegisterView(vlen))
   inst instructions(DistributedVectorInstructions(xlen, vlen, slots))
-  inst rows(VectorRowEngine(xlen, vlen, slots))
+  def instruction_isa = trace_isa || (if xlen == XLen.X32 | "rv32imafdcv" | "rv64imafdcv")
+  // Only event captures consume these snapshots. No scheduling or datapath
+  // signal depends on them; synthesis can discard the entire observation cone.
+  reg trace_instructions(Vec(slots, VectorTraceInstruction(xlen)))
+  inst rows(VectorRowEngine(xlen, vlen, slots, ~trace_isa: instruction_isa))
+  rows.trace_instructions <== trace_instructions
   inst checker(VectorFaultCheck(xlen, vlen, slots))
   checker.exact <=> element_translation
   inst special(VectorSpecialSequencer(xlen, vlen, slots))
@@ -164,7 +171,20 @@ sync_circuit DistributedVectorBackend(xlen :: XLen, vlen :: VectorLength, Fault 
   paths.native_execute |> map_flow(entry => entry.checked.descriptor) |> row_alu.launch
   when (special.install.valid & special.busy):
     assert(row_alu.launch.fire() & row_alu.issued.valid & (row_alu.issued.bits === special.chain.owner), "paired_permutation_turnover_has_one_retiring_cursor")
-  row_alu.read |> gate_flow(claims.head_allowed[ExecutePath]) |> registers.execute_read
+  (row_alu.read |> trace_event("vector/execute.sequence", ~stalls: #true, ~fields: row):
+     pc: trace_instructions[row_alu.chain.owner].pc
+     instruction(~format: "riscv", ~isa: instruction_isa, ~pc: "pc"): trace_instructions[row_alu.chain.owner].instruction
+     owner(~format: "unsigned"): row_alu.chain.owner
+     vs2_row(~format: "unsigned"): row.left
+     second_row(~format: "unsigned"): row.second
+     accumulator_row(~format: "unsigned"): row.third
+     reads_vs2: row.sources.vector_lhs
+     reads_vs1: row.sources.vector_rhs
+     reads_accumulator: row.sources.accumulator
+     reads_mask: row.reads_v0
+     mask_row(~format: "unsigned"): row.mask_row
+     ordering_wait: !claims.head_allowed[ExecutePath]
+  ) |> gate_flow(claims.head_allowed[ExecutePath]) |> registers.execute_read
   registers.execute_result |> row_alu.operands
   def reservation_width = calendar.reserve[0].bits.type.packed_width()
   calendar.query_delay[0] <== row_alu.reserve.bits.zext(reservation_width)
@@ -175,8 +195,18 @@ sync_circuit DistributedVectorBackend(xlen :: XLen, vlen :: VectorLength, Fault 
   checker.pages <== window_pages
   rows.memory <=> row_memory
   Array(rows.write, row_alu.shared_write) |> rr_arbiter() |> registers.row_writeback
-  Array(rows.read, special.read) |> rr_arbiter() |> registers.row_read
-  special.lookahead |> registers.lookahead
+  def special_read = special.read |> trace_event("vector/special.sequence", ~stalls: #true, ~fields: row):
+    pc: trace_instructions[special.chain.owner].pc
+    instruction(~format: "riscv", ~isa: instruction_isa, ~pc: "pc"): trace_instructions[special.chain.owner].instruction
+    owner(~format: "unsigned"): special.chain.owner
+    row(~format: "unsigned"): row
+  Array(rows.read, special_read) |> rr_arbiter() |> registers.row_read
+  (special.lookahead |> trace_event("vector/special.lookahead", ~stalls: #true, ~fields: row):
+     pc: trace_instructions[special.chain.owner].pc
+     instruction(~format: "riscv", ~isa: instruction_isa, ~pc: "pc"): trace_instructions[special.chain.owner].instruction
+     owner(~format: "unsigned"): special.chain.owner
+     row(~format: "unsigned"): row
+  ) |> registers.lookahead
   reg index_return(~init: Bool(#false))
   index_return <== special.read.fire()
   Array(registers.row_result |> filter_valid(_data => index_return), registers.lookahead_result) |> valid_arbiter() |> special.result
@@ -216,6 +246,10 @@ sync_circuit DistributedVectorBackend(xlen :: XLen, vlen :: VectorLength, Fault 
   def Array(to_issue, track) = admission.dispatch |> gate_flow(instructions.available) |> atomic_fork(2)
   def allocation = track |> map_flow(entry => entry.descriptor) |> to_valid()
   allocation |> instructions.request
+  when (allocation.valid):
+    trace_instructions[instructions.allocate_id] <== VectorTraceInstruction(xlen):
+      pc: allocation.bits.pc
+      instruction: allocation.bits.instruction
   def allocated = to_issue |> map_flow(entry => VectorDispatchEntry(xlen, slots)):
     checked: entry
     owner: instructions.allocate_id

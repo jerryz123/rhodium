@@ -204,6 +204,20 @@ Inside `distributed/`, `frontend/` owns precise checks and admission,
 RV5Stage and RV2Wide continue to use [backend.rhdl](backend.rhdl) and its
 single sequencer; neither imports distributed scheduling logic.
 
+Keep the [distributed sequence checkpoints](README.md#distributed-sequence-tracing)
+on existing handshakes: shared execute and special read ports in `backend.rhdl`,
+load preparation before packing in `backend/load-sequencer.rhdl`, and store
+capture before buffering in `backend/store-sequencer.rhdl`. Owner captures must
+describe the transferring cursor, including fold selection and same-edge
+replacement, rather than the next dispatch offer. The backend captures only
+`VectorTraceInstruction` at owner allocation and indexes that bank using each
+cursor's current owner. Memory sequencers receive the same observation bank;
+they must not resample a live descriptor during a checked slice or retry.
+These values feed event captures only, never functional controls or payloads.
+Forward the core's selected ISA string for disassembly. Validate labels and PC
+against scalar WB in regenerated vector benchmark traces, including owner reuse,
+and compare cycle counts to the unmodified run.
+
 ## Implementation map
 
 | Files | Responsibility |

@@ -22,9 +22,10 @@ import:
 
 /* Dispatch installs the VRF sequencer; a separate address offer must pass
    memory ordering before the matching cursor can consume any prepared row. */
-sync_circuit VectorRowEngine(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int):
+sync_circuit VectorRowEngine(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~trace_isa: trace_isa :: maybe(String) = #false):
   def dlen = vector_dlen(vlen)
   def Owner = Bits(index_width(slots))
+  input trace_instructions: Vec(slots, VectorTraceInstruction(xlen))
   interface launch[MemoryPaths.length()](Decoupled(MemoryLaunch(xlen, vlen, slots)), ~role: consumer)
   input stream_owner: Owner
   interface prepare(Decoupled(MemoryIssue(xlen, vlen, slots)), ~role: consumer)
@@ -45,9 +46,12 @@ sync_circuit VectorRowEngine(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
   interface delivered(Valid(MemoryEvent(slots)), ~role: producer)
   interface finished(Valid(MemoryEvent(slots)), ~role: producer)
   output unavailable: Vec(MemoryPaths.length(), Bool)
-  inst vlsu(VectorVLSU(xlen, vlen, slots))
-  inst loads(VectorLoadSequencer(xlen, vlen, slots))
-  inst stores(VectorStoreSequencer(xlen, vlen, slots))
+  inst vlsu(VectorVLSU(xlen, vlen, slots, ~trace_isa: trace_isa))
+  vlsu.trace_instructions <== trace_instructions
+  inst loads(VectorLoadSequencer(xlen, vlen, slots, ~trace_isa: trace_isa))
+  inst stores(VectorStoreSequencer(xlen, vlen, slots, ~trace_isa: trace_isa))
+  loads.trace_instructions <== trace_instructions
+  stores.trace_instructions <== trace_instructions
   def Array(load, store) = prepare |> demux_flow(2, entry => entry.command.store)
   splat |> loads.splat
   load |> loads.prepare

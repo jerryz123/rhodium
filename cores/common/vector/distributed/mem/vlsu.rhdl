@@ -40,11 +40,12 @@ fun physical_overlap(xlen :: XLen, a :: RowFootprint(), b :: RowFootprint()) :~ 
 /* Install older cursors first (enforced by the dispatch scoreboard). A resident
    peer gates only overlapping physical spans. Arbitrate row offers at L1D;
    return each load with its original credit and consume store ACKs locally. */
-sync_circuit VectorVLSU(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int):
+sync_circuit VectorVLSU(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~trace_isa: trace_isa :: maybe(String) = #false):
   def dlen = vector_dlen(vlen)
   def row_bytes = dlen div 8
   def Owner = Bits(index_width(slots))
   def Credit = RowCredit(xlen, vlen, Owner)
+  input trace_instructions: Vec(slots, VectorTraceInstruction(xlen))
   interface start[MemoryPaths.length()](Decoupled(MemoryLaunch(xlen, vlen, slots)), ~role: consumer)
   interface checked_element(Decoupled(CheckedIndexElement(xlen, vlen)), ~role: consumer)
   input(stream_live, stream_store): Bool
@@ -190,14 +191,34 @@ sync_circuit VectorVLSU(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int):
   def Array(empty, live) = fragments.right |> demux_flow(2, r => r.enabled.any())
   empty.ready <== Bool(#true)
   def Array(request, metadata) = live |> gate_flow((load_credits + awaiting[StorePath]) < MemoryCreditCount(MemoryRowCredits)) |> atomic_fork(2)
-  (request |> map_flow(r => VectorRowRequest(dlen)):
-     service: services[selected]
-     element_width: eews[selected]
-     address: physical
-     store: store
-     byte_mask: enabled
-     data: payload
-  ) |> memory.request
+  def physical_request = request |> map_flow(_r => VectorRowRequest(dlen)):
+    service: services[selected]
+    element_width: eews[selected]
+    address: physical
+    store: store
+    byte_mask: enabled
+    data: payload
+
+  // The VLSU has already chosen and locked the issuing cursor. Split the
+  // observation by that grant, then rejoin without arbitration or storage.
+  def offers = physical_request |> demux_flow(2, req => req.store)
+  inst agen(GrantMerge(VectorRowRequest(dlen), 2))
+  agen.grants <== port.grants
+  for (i in MemoryPaths):
+    def identity = trace_instructions[owners[i]]
+    def label = if i == LoadPath | "vector/load.agen" | "vector/store.agen"
+    (offers[i] |> trace_event(label, ~stalls: #true, ~fields: req):
+       pc: identity.pc
+       instruction(~format: "riscv", ~isa: trace_isa || (if xlen == XLen.X32 | "rv32imafdcv" | "rv64imafdcv"), ~pc: "pc"): identity.instruction
+       owner(~format: "unsigned"): owners[i]
+       row(~format: "unsigned"): prepared.bits.row
+       cursor: cursor
+       va: address
+       pa: req.address
+       byte_mask: req.byte_mask
+       split_suffix: second
+    ) |> agen.ingress[i]
+  agen.egress |> memory.request
 
   def issue_context = RowCredit(xlen, vlen, Owner):
     owner: owners[selected]

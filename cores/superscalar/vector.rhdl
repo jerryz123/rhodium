@@ -25,7 +25,7 @@ import:
 /* Queues six WB-authorized descriptors by default without conflating admission, fault certainty,
    last-beat acceptance, and final execution drain. The scalar core owns age order,
    architectural retirement, and arithmetic/write-port arbitration at these ports. */
-sync_circuit SuperscalarVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_completion_slots: slots :: Pow2Int = 8, ~vector_backend: vector_backend :: VectorBackendKind = VectorBackendKind.Unified, ~vector_fp32: vector_fp32 :: Boolean = #true, ~vector_fp16: vector_fp16 :: Boolean = #true, ~instruction_owners: owners :: Pow2Int = DefaultVectorInstructionOwners, ~dispatch_depth: dispatch_depth :: PosInt = 6, ~multiply_latency: multiply_latency :: maybe(PosInt) = #false, ~fixed_fp: fixed_fp :: Boolean = #false, ~fp_timing: fp_timing :: FpExecutionTiming = FpExecutionTiming()):
+sync_circuit SuperscalarVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_completion_slots: slots :: Pow2Int = 8, ~vector_backend: vector_backend :: VectorBackendKind = VectorBackendKind.Unified, ~vector_fp32: vector_fp32 :: Boolean = #true, ~vector_fp16: vector_fp16 :: Boolean = #true, ~instruction_owners: owners :: Pow2Int = DefaultVectorInstructionOwners, ~dispatch_depth: dispatch_depth :: PosInt = 6, ~multiply_latency: multiply_latency :: maybe(PosInt) = #false, ~fixed_fp: fixed_fp :: Boolean = #false, ~fp_timing: fp_timing :: FpExecutionTiming = FpExecutionTiming(), ~trace_isa: trace_isa :: maybe(String) = #false):
   interface service(VectorExecutionService(xlen, slots), ~role: executor)
   interface request(Decoupled(VectorDescriptor(xlen)), ~role: consumer)
   interface pipeline(SuperscalarPipelineAccess(xlen), ~role: requester)
@@ -40,8 +40,8 @@ sync_circuit SuperscalarVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vect
 
   def distributed_rows = (vector_backend == VectorBackendKind.Distributed)
   inst backend(match vector_backend
-               | VectorBackendKind.Unified: VectorBackend(xlen, vlen, RiscvGuestFault(), ~vector_completion_slots: slots, ~multiply_latency: multiply_latency, ~packed_multiply: #true, ~fixed_fp: fixed_fp, ~fp_timing: fp_timing, ~dispatch_depth: dispatch_depth, ~instruction_owners: owners, ~pipe: #false)
-               | VectorBackendKind.Distributed: DistributedVectorBackend(xlen, vlen, RiscvGuestFault(), ~fp32: vector_fp32, ~fp16: vector_fp16, ~vector_completion_slots: slots))
+               | VectorBackendKind.Unified: VectorBackend(xlen, vlen, RiscvGuestFault(), ~vector_completion_slots: slots, ~multiply_latency: multiply_latency, ~packed_multiply: #true, ~fixed_fp: fixed_fp, ~fp_timing: fp_timing, ~dispatch_depth: dispatch_depth, ~instruction_owners: owners, ~pipe: #false, ~trace_isa: trace_isa)
+               | VectorBackendKind.Distributed: DistributedVectorBackend(xlen, vlen, RiscvGuestFault(), ~fp32: vector_fp32, ~fp16: vector_fp16, ~vector_completion_slots: slots, ~trace_isa: trace_isa))
   def components = if distributed_rows
   | block:
       interface row_memory(VectorRowMemory(vector_dlen(vlen)), ~role: requester)

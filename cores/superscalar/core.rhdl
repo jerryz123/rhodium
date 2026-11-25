@@ -179,7 +179,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     | SuperscalarVectorPipeline(
         xlen, profile.vector_length, ~vector_backend: vector_backend, ~vector_fp32: vector_profile_supports_fp32(profile.vector), ~vector_fp16: vector_extensions_support_zvfh(profile.vector_extensions),
         ~vector_completion_slots: vector_slots, ~instruction_owners: profile.vector_instruction_owners, ~dispatch_depth: profile.vector_dispatch_depth,
-        ~fixed_fp: #true, ~fp_timing: fp_timing
+        ~fixed_fp: #true, ~fp_timing: fp_timing, ~trace_isa: trace_isa
       )
     | SuperscalarVectorDisabled(xlen, ~vector_completion_slots: vector_slots)
   )

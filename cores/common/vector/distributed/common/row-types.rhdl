@@ -18,6 +18,11 @@ def RowSet = Bits(PhysicalRows)
 def RegisterRowIndex = Bits(index_width(DistributedRowsPerRegister))
 def PredicateSet = Bits(DistributedRowsPerRegister)
 
+/* Observation-only instruction identity; owner allocation snapshots it once for all sequencers. */
+bundle VectorTraceInstruction(xlen :: XLen):
+  pc: Bits(xlen.width)
+  instruction: Bits(32)
+
 /* A captured VS2 operand stays tagged and stable through its last consumer. */
 bundle IndexOperandRow(dlen :: PosInt, Owner :: DataType):
   owner: Owner
@@ -177,3 +182,4 @@ export PreparedRow PreparedBeat CheckedIndexElement OwnedRow RowCredit ReturnedR
 export VectorPredicateTap ScatterOperand IndexOperandRow
 export SplatPosition SpecialRow SpecialRead PermutedRow
 export ReductionAccumulator
+export VectorTraceInstruction

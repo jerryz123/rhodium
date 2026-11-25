@@ -20,9 +20,10 @@ import:
 
 /* VLSeq owns its destination until every row is written or skipped. Its two
    reserved return slots allow L1D to deliver data independently of VRF grants. */
-sync_circuit VectorLoadSequencer(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int):
+sync_circuit VectorLoadSequencer(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~trace_isa: trace_isa :: maybe(String) = #false):
   def dlen = vector_dlen(vlen)
   def Owner = Bits(index_width(slots))
+  input trace_instructions: Vec(slots, VectorTraceInstruction(xlen))
   interface prepare(Decoupled(MemoryIssue(xlen, vlen, slots)), ~role: consumer)
   interface rows(Decoupled(OwnedRow(PreparedBeat(vlen), Owner)), ~role: producer)
   interface returned(Decoupled(ReturnedRow(xlen, vlen, Owner)), ~role: consumer)
@@ -57,7 +58,15 @@ sync_circuit VectorLoadSequencer(xlen :: XLen, vlen :: VectorLength, slots :: Po
   packer.elementwise <== elementwise
   packer.eew <== eew
   packer.displacement <== displacement
-  operands.prepared |> packer.source
+  (operands.prepared |> trace_event("vector/load.sequence", ~stalls: #true, ~fields: row):
+     pc: trace_instructions[owner].pc
+     instruction(~format: "riscv", ~isa: trace_isa || (if xlen == XLen.X32 | "rv32imafdcv" | "rv64imafdcv"), ~pc: "pc"): trace_instructions[owner].instruction
+     owner(~format: "unsigned"): owner
+     row(~format: "unsigned"): row.row
+     offset(~format: "unsigned"): row.offset
+     enabled: row.enabled
+     last: row.last
+  ) |> packer.source
   (packer.beat |> map_flow(r => OwnedRow(PreparedBeat(vlen), Owner)):
      owner: owner
      payload: r

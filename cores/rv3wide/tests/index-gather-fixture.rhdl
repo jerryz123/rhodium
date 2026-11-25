@@ -36,6 +36,12 @@ sync_circuit IndexGatherFixture(xlen :: XLen):
   inst rows(VectorRowEngine(xlen, vlen, 4))
   inst special(VectorSpecialSequencer(xlen, vlen, 4))
   start |> scan.start
+  reg trace_instructions(Vec(4, VectorTraceInstruction(xlen)))
+  when (start.fire()):
+    trace_instructions[start.bits.owner] <== VectorTraceInstruction(xlen):
+      pc: start.bits.checked.descriptor.pc
+      instruction: start.bits.checked.descriptor.instruction
+  rows.trace_instructions <== trace_instructions
   special.reduction.update.valid <== Bool(#false)
   special.reduction.update.bits <== dont_care(Bits(dlen))
   special.reduction.release.valid <== Bool(#false)
@@ -124,6 +130,12 @@ sync_circuit RowMemoryFixture(xlen :: XLen, vlen):
   interface launch[2](Decoupled(MemoryFixtureLaunch(xlen)), ~role: consumer)
   interface prepare(Decoupled(MemoryFixtureIssue(xlen)), ~role: consumer)
   prepare |> map_flow(i => fixture_issue(xlen, vlen, i)) |> rows.prepare
+  reg trace_instructions(Vec(4, VectorTraceInstruction(xlen)))
+  when (prepare.fire()):
+    trace_instructions[prepare.bits.owner] <== VectorTraceInstruction(xlen):
+      pc: prepare.bits.descriptor.pc
+      instruction: prepare.bits.descriptor.instruction
+  rows.trace_instructions <== trace_instructions
   for (i in 0..2):
     (launch[i] |> map_flow(l => MemoryLaunch(xlen, vlen, 4)):
        issue: fixture_issue(xlen, vlen, l.issue)
@@ -185,6 +197,12 @@ sync_circuit NativeIndexMemoryFixture(xlen :: XLen, vlen):
   rows.splat.bits <== dont_care(SplatPosition(dlen))
   def indexed = inline_index_issue(prepare.bits.kind)
   prepare |> gate_flow(!indexed ||| !special.busy) |> map_flow(i => fixture_issue(xlen, vlen, i)) |> rows.prepare
+  reg trace_instructions(Vec(4, VectorTraceInstruction(xlen)))
+  when (prepare.fire()):
+    trace_instructions[prepare.bits.owner] <== VectorTraceInstruction(xlen):
+      pc: prepare.bits.descriptor.pc
+      instruction: prepare.bits.descriptor.instruction
+  rows.trace_instructions <== trace_instructions
   special.install.valid <== prepare.fire() & indexed
   def blank :: VectorDispatchEntry(xlen, 4) = literal(VectorDispatchEntry(xlen, 4), 0)
   special.install.bits <== blank.updated(~owner: prepare.bits.owner, ~checked: blank.checked.updated(~descriptor: prepare.bits.descriptor))
