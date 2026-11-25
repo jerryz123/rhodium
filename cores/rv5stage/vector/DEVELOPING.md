@@ -164,8 +164,8 @@ Uncertified memory retains its descriptor through the final external decision an
 its successor on the authorized final-feedback edge; dependent scans and
 compression retain theirs through internal result maturity. Stateless
 index scans release on their final read-request transfer like ordinary compute.
-Reductions release their descriptor at the tail read and retain recurrence in
-owner-indexed state. Reductions, dependent scans, and compression
+Reductions release their descriptor at the tail read; the tagged final result
+does not update the shared fold continuation. Reductions, dependent scans, and compression
 wait for older operand preparation to drain before admission. Ordinary compute
 and elementwise memory, including zero-stride splats, can overlap it: the fixed read pipeline issues older
 scheduled beats before a younger memory beat can receive replay feedback.
@@ -682,15 +682,15 @@ Element moves use a one-token schedule independent of VL; insertion separately
 checks its architectural empty-body condition. Reduction rows use singleton
 source reads and a fixed seed address. Integer reductions may sequence one beat
 per cycle: a read issues in the following cycle, and its result matures before
-the next beat consumes that owner's accumulator at EX. The parent substitutes
-the owner accumulator for subsequent seeds at EX and updates it only at
-maturity. Keep FP reductions and dependent scans behind their owner-local
+the next beat consumes the shared accumulator at EX. The parent substitutes
+the continuation for subsequent seeds and updates it only on nonfinal folds.
+Keep FP reductions and dependent scans behind their owner-local
 feedback gate; do not use that gate for fixed-latency integer reductions.
 The tail read hands off the sequencer; its completion
-slot and owner-scoped recurrence state retain the older macro independently.
+slot retains the older result independently.
 Floating-point reductions retain their owner-local gate until an active fold
-drains from the shared FP service, then advance that owner's accumulator from
-the ordered result. Inactive folds bypass the service and retain the accumulator;
+drains from the shared FP service. A nonfinal result can advance the accumulator
+only for the still-active owner. Inactive folds bypass the service and retain the accumulator;
 active intermediate folds update `fflags` but only the final fold carries a VRF
 write mask. This implements both sum variants as the permitted ordered fold and
 gives an all-masked nonzero body an exact seed copy with no FP exception

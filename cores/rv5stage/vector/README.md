@@ -269,7 +269,7 @@ Younger work waits only for conflicting destination or mask rows; another
 zero-stride splat waits for the single splat engine to drain. Retry or fault
 feedback cannot admit a successor. Index scans
 release on their final read like ordinary compute. Reductions release at their
-tail read while owner-local recurrence and completion state finish independently. A dependent
+tail read; an outstanding final result can complete independently of the next fold. A dependent
 consumer waits for each needed XLEN-bit VRF row rather than the entire older
 instruction. Same-width elementwise compute releases its conservative
 destination-group claim row by row as results resolve; exact outstanding

@@ -43,8 +43,8 @@ import:
   lib("flow/main.rhdl") open
 
 /* Composes one sequencer with fixed operand capture, SIMD execution, and persistent owners.
-   Reserves future writes before nonstallable reads or fixed-service launches; owner-indexed
-   recurrences, packed carry, and splats survive replacement of the sequencing descriptor. */
+   Reserves future writes before nonstallable reads or fixed-service launches;
+   tagged results, packed carry, and splats survive replacement of the sequencing descriptor. */
 sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: DataType,
                              ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8,
                              ~trace_isa: trace_isa :: maybe(String) = #false,
@@ -178,7 +178,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   packed_store_completion |> filter_valid(tag => entry_packed[tag]) |> packed.store_completed
 
 
-  /* Sequencing, operand capture, and owner-indexed recurrence state */
+  /* Sequencing, operand capture, and the shared fold continuation */
 
   inst sequencer(VectorSequencer(xlen, vlen, OwnedContext(), ~trace_isa: trace_isa, ~packed_multiply: packed_multiply))
   reg memory_started(~init: Bool(#false))
@@ -186,7 +186,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   inst operand_fetch(VectorOperandFetch(xlen, vlen, OwnedContext(), ~packed_multiply: packed_multiply))
   inst registers(VectorRegisterFile(xlen, vlen))
   reg serial_fold_inflight(~init: Bits(vector_completion_slots)(0).as_vec(Bool))
-  reg recurrence(Vec(vector_completion_slots, Bits(xlen.width)))
+  reg recurrence(Bits(xlen.width))
   def retry = element_memory_decision.valid & (element_memory_decision.bits.disposition === VectorDisposition.Retry)
   def fault = element_memory_decision.valid & (element_memory_decision.bits.disposition === VectorDisposition.Fault)
   def truncating = element_memory_decision.valid & (element_memory_decision.bits.disposition === VectorDisposition.Truncate)
@@ -463,12 +463,12 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   ) |> to_valid() |> ex_pipe.ingress
 
   def ex_beat = ex_pipe.egress.bits.beat
-  def ex_owner = ex_pipe.egress.bits.owner
   def ex_reduction = (ex_beat.control.integer ||| ex_beat.control.fp_service) & ex_beat.control.reduction
-  def ex_recurrence = recurrence[ex_owner]
-  def ex_effective_beat = ex_beat.updated(~right: mux(ex_reduction & ex_beat.first.any(), ex_recurrence, ex_beat.right))
+  def ex_effective_beat = ex_beat.updated(~right: mux(ex_reduction & ex_beat.first.any(), recurrence, ex_beat.right))
   execute.beat <== ex_effective_beat
-  execute.scan_carry <== ex_recurrence
+  // Dependent scans start at element zero. Seed in EX, not on younger admission.
+  def scan_seed = mux(ex_beat.control.scan_control.result === VectorScanResult.First, !Bits(xlen.width)(0), Bits(xlen.width)(0))
+  execute.scan_carry <== mux(ex_beat.first.any(), recurrence, scan_seed)
   def Array(ex_operands, ex_progress) = ex_pipe.egress |> fork_valid(2)
   def executed = ex_operands |> map_valid(operation => VectorOwnedResult(xlen, vlen, vector_completion_slots)):
     beat: mux(operation.splat, execute.result.updated(~last: Bool(#true), ~write: execute.result.write.updated(~mask: Bits(xlen.width)(0))), execute.result)
@@ -586,30 +586,30 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   assert(!(decision.valid & compute_maturity.valid), "vector_attempt_has_one_resolution")
 
 
-  /* Recurrence state belongs to an instruction, not a completion slot. A scan
-     starts at admission; a reduction takes element zero's seed from its operand.
-     Integer folds and scans advance at compute maturity, FP folds at drain. */
+  /* Only a nonfinal beat can feed another beat. Integer/scan EX is in issue order;
+     an accepted FP result may outlive cancellation and belongs to its tagged slot,
+     but may advance the continuation only while its sequencer still owns the fold. */
 
-  def incoming = request.bits.descriptor.control
-  def seed_scan = incoming.integer & incoming.scan & !incoming.scan_control.index
-  def scan_seed = mux(incoming.scan_control.result === VectorScanResult.First, !Bits(xlen.width)(0), Bits(xlen.width)(0))
   def compute_fold = compute_beat.scan ||| (compute_beat.reduction & !compute_beat.floating_point)
   def compute_fold_value = mux(compute_beat.scan, compute_beat.scan_carry, compute_beat.write.data)
+  def continue_compute = compute_maturity.valid & compute_fold & !compute_beat.last
+  def fp_fold = drain & head_result.floating_point & head_result.reduction
+  // FP reductions release at the tail read, before the tail can reach the service.
+  def continue_fp = fp_fold & sequencer.active & !cancel.valid & (completions.drained.bits.owner === current_owner)
+  when continue_fp:
+    assert(!head_result.last, "vector_fp_continuation_precedes_tail")
+
+  assert(!(continue_compute & continue_fp), "vector_fold_continuation_has_one_writer")
+  when continue_compute:
+    recurrence <== compute_fold_value
+  elsewhen continue_fp:
+    recurrence <== drained_data
+
   for (owner in 0..vector_completion_slots):
     def owner_tag = Bits(tag_width)(owner)
     def allocate_owner = request.fire() & (next_owner === owner_tag)
     def compute_here = compute_maturity.valid & (compute_owner === owner_tag)
-    def fold_resolved = compute_here & compute_fold
-    def fp_fold_drained = drain & (completions.drained.bits.owner === owner_tag) & head_result.floating_point & head_result.reduction
-    assert(!(fold_resolved & fp_fold_drained), "vector_recurrence_has_one_writer_per_owner")
-    assert(!allocate_owner ||| !(fold_resolved ||| fp_fold_drained), "vector_recurrence_owner_free_on_allocation")
-    when (allocate_owner & seed_scan):
-      recurrence[owner] <== scan_seed
-    elsewhen fold_resolved:
-      recurrence[owner] <== compute_fold_value
-    elsewhen fp_fold_drained:
-      recurrence[owner] <== drained_data
-
+    def fp_fold_drained = fp_fold & (completions.drained.bits.owner === owner_tag)
     def owner_replaced = allocate_owner ||| (cancel.valid & (current_owner === owner_tag))
     def owner_replayed = (retry ||| fault ||| truncating) & (feedback_owner === owner_tag)
     def scan_resolved = compute_here & compute_beat.scan

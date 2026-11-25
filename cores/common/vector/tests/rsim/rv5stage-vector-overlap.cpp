@@ -33,6 +33,7 @@ std::uint64_t checked_addresses[16];
 std::uint64_t overlap_older_context = 0, overlap_memory_context = 0;
 
 int fp_tags[8], memory_tags[8];
+std::uint64_t fp_right[8];
 
 std::uint64_t stores[8];
 
@@ -58,8 +59,8 @@ std::uint32_t splat_insn(int rd, std::uint8_t masked = 0) {
   return UINT64_C(0x8007007) | (masked ? UINT64_C(0) : UINT64_C(0x2000000)) |
          (((rd)&low_mask(32)) << 7);
 }
-std::uint32_t reduction_insn(int vd) {
-  return UINT64_C(0x2002057) | (UINT64_C(8) << 20) | (UINT64_C(3) << 15) |
+std::uint32_t reduction_insn(int vd, unsigned seed = 3) {
+  return UINT64_C(0x2002057) | (UINT64_C(8) << 20) | (seed << 15) |
          (((vd)&low_mask(32)) << 7);
 }
 std::uint32_t index_insn(int vd) {
@@ -110,6 +111,10 @@ void tick() {
       phase1_issue_count++;
     }
     if (phase >= 26 && issued) {
+      if (phase == 32 && checked_issues) {
+        // Consecutive beats in each fold; two idle issue cycles at handoff.
+        CHECK(cycle - checked_last_issue == (checked_issues == 2 ? 3 : 1));
+      }
       if (consecutive_checked && checked_issues)
         CHECK(cycle == checked_last_issue + 1);
       checked_last_issue = cycle;
@@ -129,6 +134,7 @@ void tick() {
       retried = 1;
     if (fp_request_out.pvalid && fp_request_in.pready) {
       CHECK(fp_count < 8);
+      fp_right[fp_count] = fp_request_out.pbits.pright;
       fp_tags[fp_count++] = int(fp_request_out.pbits.ptag);
     }
     if (attempt_out.pvalid && !cancel) {
@@ -287,7 +293,7 @@ void check_fold_owner_reuse() {
     while (!fp_count) tick();
 
     // Return nonzero FP data on the scan's admission edge or one edge later,
-    // after its seed is resident but before it issues. Neither may corrupt it.
+    // before its first read issues. Neither may corrupt the new scan.
     const bool first = (round % 2 == 0);
     vl = 128;
     vtype = 3; // e8, m8
@@ -321,6 +327,61 @@ void check_fold_owner_reuse() {
     drain();
     CHECK(store_count == 1 && stores[0] == fp_value);
   }
+}
+
+void check_fold_continuations() {
+  phase = 0;
+  vtype = 24; // e64, m1: two elements per register.
+  vl = 2;
+  launch(0x5e003057u | (2u << 15) | (8u << 7), 0, 0);
+  launch(0x5e003057u | (3u << 15) | (3u << 7), 0, 0);
+  drain();
+
+  // Cancel after the first, nonfinal FP fold was accepted by the service.
+  // While its return is pending, the successor must obtain and keep its own partial sum.
+  const auto fp_fold = [](unsigned vd) {
+    return (1u << 26) | (1u << 25) | (8u << 20) | (3u << 15) |
+           (1u << 12) | (vd << 7) | 0x57u;
+  };
+  fp_count = 0;
+  launch(fp_fold(22), 0, 0);
+  while (fp_count < 1) tick();
+  cancel = 1;
+  tick();
+  cancel = 0;
+  launch(fp_fold(24), 0, 0);
+  while (fp_count < 2) tick();
+  CHECK(fp_tags[0] != fp_tags[1] && fp_right[0] == 3 && fp_right[1] == 3);
+  issue_ready = 0;
+  return_fp(1, 0x1234); // Successor's first fold, not yet consumed.
+  return_fp(0, 0xbad);  // Canceled owner's accepted result still drains.
+  issue_ready = 1;
+  while (fp_count < 3) tick();
+  CHECK(fp_right[2] == 0x1234);
+  return_fp(2, 0x5678);
+  drain();
+  vl = 1;
+  store_count = 0;
+  launch(store_insn(24), 1024, 0);
+  drain();
+  CHECK(store_count == 1 && stores[0] == 0x5678);
+
+  // Both integer folds must issue their two beats at the original cadence.
+  // Different initial operands expose a stale carry on the younger first beat.
+  vl = 2;
+  phase = 32;
+  checked_issues = 0;
+  launch(reduction_insn(24), 0, 0);
+  launch(reduction_insn(25, 8), 0, 0);
+  drain();
+  CHECK(checked_issues == 4);
+  phase = 0;
+  store_count = 0;
+  vl = 1;
+  launch(store_insn(24), 1024, 0);
+  launch(store_insn(25), 1024, 0);
+  drain();
+  CHECK(store_count == 2 && stores[0] == 7 && stores[1] == 6);
 }
 
 void stimulus() {
@@ -524,7 +585,7 @@ void stimulus() {
     cancel = 0;
     issue_ready = 1;
     drain();
-    // A reduction retains only owner-local recurrence and completion state.
+    // A reduction's tagged completion can outlive its sequencing state.
     // Its tail hands off the sequencer before the final result retires.
     phase = 9;
     vl = 2;
@@ -1110,6 +1171,7 @@ void stimulus() {
 
     check_high_segment_hazards();
     check_fold_owner_reuse();
+    check_fold_continuations();
     throw Finished{};
   }
 }

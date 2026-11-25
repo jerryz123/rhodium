@@ -180,16 +180,18 @@ the caller still owns cross-word carry and its maturity-qualified update.
 The `rv5stage-vector-reduction` fixture checks scan masks, iota/count results,
 and compression through the production pipeline and LSU readback.
 
-`pipeline.rhdl` keeps one XLEN recurrence word per instruction owner, not per
-beat. An owner cannot be both a scan and a reduction, or be reallocated while
-an accepted slot can still return. A dependent scan seeds its word on admission
-(all ones for `vfirst`, zero otherwise); `vid` needs no carry. Reductions take
-the first seed from the operand. Preserve integer/scan updates at compute
-maturity and FP updates at drain, including concurrent writes to different
-owners. Replay/cancellation affects scheduling, not an older owner's data.
+`pipeline.rhdl` keeps one XLEN continuation for the next dependent beat.
+The first scan beat selects its seed in EX (all ones for `vfirst`, zero
+otherwise); reductions take the seed from their operand. Admission must not
+overwrite the word: an older tail may still need it in EX. Nonfinal integer
+folds and scans advance it in issue order at compute maturity. Nonfinal FP
+folds advance it at drain only for the still-active sequencing owner. Final
+and canceled-owner FP returns complete their tagged slots normally without
+changing the continuation. Keep the per-owner interlocks independent of the data.
 Use `rv5stage-vector-reduction`, `rv5stage-vector-fp`, and `rv5stage-vector-overlap`
 for these paths; the overlap fixture admits a scan alongside a delayed FP return
-and repeats through owner-ring wrap.
+and repeats through owner-ring wrap. It also returns a canceled nonfinal FP
+fold after its successor's first result, and checks back-to-back integer issue timing.
 
 Packed multiplication reserves calendar client 2 before its synchronous reads,
 with a six-cycle delay through operand capture, EX, and the four-stage numeric

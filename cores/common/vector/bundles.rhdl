@@ -300,8 +300,7 @@ bundle VectorSlotAllocation(slots :: Pow2Int):
   owner: Bits(index_width(slots))
   packed: Bool
 
-/* Returns the retained result beat and unshifted service data to owner-indexed recurrence
-   state. */
+/* Identifies the completed beat and supplies its unshifted result for a dependent fold. */
 bundle VectorDrained(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int):
   beat: VectorResultBeat(xlen, vlen, VectorRegisterWrite(xlen, vlen))
   owner: Bits(index_width(slots))
