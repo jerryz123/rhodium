@@ -86,7 +86,12 @@ paths into RV5Stage's combined scalar port merely to share wiring.
 sharing the numeric lanes and timing pipeline. The scheduled adapter owns
 variable-result aging; the buffered adapter owns completion credits and held
 arbitration. Neither mode duplicates the arithmetic datapath or adds latency
-to the other mode.
+to the other mode. When all fixed latencies are at least two, capture the
+accepted operands, controls, rounding mode, and tag once at `returns.issue`.
+Select the remaining result delay from that captured request. Keep calendar
+updates on the original launch edge. If any class needs a one-cycle return,
+use the live request for the entire specialization: mixing live and delayed
+requests would allow two operations to need the same arithmetic unit at once.
 
 The divide/sqrt bank admits one request across all enabled precisions. Capture
 its opaque tag and format on the request transfer and select terminal data and
@@ -103,7 +108,7 @@ preserve independent second/third operands for fused operations. Request
 retagging must copy the selected word without reconstructing a second bank.
 
 `FpExecutionResult.value` is selected by the decoded destination at the numeric
-boundary, before the fixed delays and buffered-return queue. Keep integer
+boundary, before the result registers and buffered-return queue. Keep integer
 normalization, FP boxing, cross-precision selection, and flags there; retagging
 and caller adapters forward the one value without duplicating result banks.
 The opaque tag remains unchanged, with destination interpretation owned by the

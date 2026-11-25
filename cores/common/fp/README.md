@@ -61,13 +61,13 @@ resolution and accrued architectural flags belong to the caller.
 Guaranteed transfer structure:
 
 ```text
-decoded operands + opaque tag
-            |
-     fixed/variable dispatch
-       /              \
- fixed arithmetic   divide/sqrt (retained terminal result)
- selected fixed delay    |
-       \                /
+     decoded operands + opaque tag
+                   |
+                dispatch
+               /        \
+  fixed FP pipeline      divide/sqrt
+  (configured latency)   (holds completed result)
+               \        /
          completion arbitration -> tagged result
 ```
 
@@ -78,8 +78,10 @@ another precision cannot launch on the edge that releases the current result.
 [`FpExecutionTiming`](timing.rhdl) supplies the execution and scheduling contract:
 single/half arithmetic, double arithmetic, and other fixed operations have
 independently configurable delays. Defaults preserve the current two-cycle
-return. Each fixed lane has initiation interval one. These are nonstallable delays around combinational arithmetic,
-not a claim of balanced arithmetic stages. Launch arbitration prevents two
+return. Each fixed lane accepts one operation per cycle. When every class has
+at least two cycles, the first stage captures the accepted request; arithmetic
+and result registers use the remaining cycles. A specialization with a one-cycle
+class computes from the live request. Launch arbitration prevents two
 different-latency operations from claiming the same return cycle.
 The default service reserves `timing.maximum + 2` fixed-response slots and fairly merges
 fixed and variable completions into its held result. With

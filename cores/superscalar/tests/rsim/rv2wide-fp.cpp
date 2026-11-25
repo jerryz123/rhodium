@@ -141,6 +141,73 @@ void check_scalar_identity(const ScalarRequest &request) {
   CHECK(actual.pspeculative == request.ptag.pspeculative && actual.pdirect == request.ptag.pdirect);
 }
 
+enum class ScalarOutcome { retire, killed_in_ex, killed_before_wb };
+
+void fixed_owner_handoff(ScalarOutcome outcome) {
+  initialize();
+  auto scalar = scalar_add(7);
+  scalar.pleft = scalar.pright; // 2 + 2 = 4; distinct from either vector result.
+  const auto first = addition(1);
+  auto last = addition(5);
+  last.pright = last.pleft; // 1 + 1 = 2
+  constexpr auto four = UINT64_C(0x4010000000000000);
+
+  // Cycle 0: vector launches while RR books next cycle's scalar slot.
+  // Seed the scalar destination so a write from a killed owner is observable.
+  read_addresses = {7, 0, 0};
+  load_hit_in.pvalid = 1;
+  load_hit_in.pbits.powner.prd = 7;
+  load_hit_in.pbits.pprecision = 2;
+  load_hit_in.pbits.pdata = three;
+  vector_request_in.pvalid = book_in.pvalid = 1;
+  vector_request_in.pbits = first;
+  book_in.pbits = probe = scalar.pcontrol;
+  eval();
+  CHECK(available && vector_request_out.pready);
+  tick_model();
+
+  // Cycle 1: a killed EX booking is a bubble, not a grant to the waiting vector.
+  load_hit_in.pvalid = book_in.pvalid = 0;
+  fixed_issue_in.pvalid = outcome != ScalarOutcome::killed_in_ex;
+  fixed_issue_in.pbits = scalar;
+  vector_request_in.pbits = last;
+  eval();
+  CHECK(!vector_request_out.pready && !vector_result_out.pvalid && !completion_out.pvalid);
+  tick_model();
+
+  // Cycle 2: the next vector launches as the first returns.
+  fixed_issue_in.pvalid = 0;
+  fixed_issue_in.pbits = {};
+  eval();
+  CHECK(vector_request_out.pready && !completion_out.pvalid);
+  check_result(1);
+  tick_model();
+
+  // Cycle 3: only an authorized scalar may complete or forward to its FPR.
+  vector_request_in.pvalid = 0;
+  vector_request_in.pbits = {};
+  const bool retire = outcome == ScalarOutcome::retire;
+  authorize_in.pvalid = retire;
+  authorize_in.pbits = scalar;
+  eval();
+  CHECK(!vector_result_out.pvalid && bool(completion_out.pvalid) == retire);
+  if (retire) {
+    check_scalar_identity(scalar);
+    CHECK(completion_out.pbits.pvalue == four);
+  }
+  CHECK(read_values[0] == (retire ? four : three));
+  tick_model();
+
+  // Cycle 4: the last vector returns once, even if the scalar was squashed.
+  authorize_in.pvalid = 0;
+  eval();
+  CHECK(!completion_out.pvalid && vector_result_out.pvalid);
+  CHECK(vector_result_out.pbits.ptag == 5 && vector_result_out.pbits.pvalue == first.pright);
+  CHECK(read_values[0] == (retire ? four : three));
+  tick_model();
+  CHECK(!completion_out.pvalid && !vector_result_out.pvalid && drained);
+}
+
 void direct_fpr_and_loads() {
   initialize();
   vector_reserve_in.pvalid = load_reserve_in.pvalid = 1;
@@ -328,6 +395,8 @@ int main() {
   return run_test([] {
     fixed_returns(false);
     fixed_returns(true);
+    for (auto outcome : {ScalarOutcome::retire, ScalarOutcome::killed_in_ex, ScalarOutcome::killed_before_wb})
+      fixed_owner_handoff(outcome);
     variable_backpressure();
     direct_fpr_and_loads();
     fpr_calendar_collisions();

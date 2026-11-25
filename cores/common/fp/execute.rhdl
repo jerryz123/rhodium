@@ -130,19 +130,33 @@ sync_circuit FpExecutionService(
   def return_available = !(pending_returns & return_selection).any()
   wire fixed_launch: Bool
   pending_returns <== (pending_returns ||| mux(fixed_launch, return_selection, Bits(timing.maximum + 1)(0))) >> 1
-  /* Routes one combinational result through its selected nonstallable delay. */
+  inst returns(if scheduled_writeback | FpScheduledReturns(ExecutionRequest, Result) | FpBufferedReturns(ExecutionRequest, Result, timing.maximum + 2))
+  fixed_request |> gate_flow(return_available) |> returns.request
+  fixed_launch <== returns.issue.valid
+
+
+  /* Fixed execution: capture the accepted request before arithmetic whenever
+     every class has a spare cycle. A one-cycle class needs the live datapath;
+     keep that whole specialization on one shared combinational unit. */
+
+  def request_stages = if timing.latencies.contains(1) | 0 | 1
+  def operands = if request_stages == 0
+  | returns.issue
+  | block:
+      inst accepted_request(ValidPipe(ExecutionRequest, 1))
+      returns.issue |> accepted_request.ingress
+      accepted_request.egress
+
+  /* Computes from this issue token and delays its result by the remaining cycles. */
   fun timed_result(source :: Endpoint) :: Endpoint:
+    fixed.request <== source.bits
     def paths = source |> fork_valid(timing.latencies.length())
     def results = for Array (latency in timing.latencies, index in 0..timing.latencies.length()):
-      paths[index] |> filter_valid(operation => timing.latency(operation.control.execution) === Bits(timing.width)(latency)) |> map_valid(_operation => fixed.completion) |> valid_pipe(latency)
+      paths[index] |> filter_valid(operation => timing.latency(operation.control.execution) === Bits(timing.width)(latency)) |> map_valid(_operation => fixed.completion) |> valid_pipe(latency - request_stages)
 
     results |> valid_arbiter()
 
-  inst returns(if scheduled_writeback | FpScheduledReturns(ExecutionRequest, Result) | FpBufferedReturns(ExecutionRequest, Result, timing.maximum + 2))
-  fixed_request |> gate_flow(return_available) |> returns.request
-  fixed.request <== returns.issue.bits
-  fixed_launch <== returns.issue.valid
-  timed_result(returns.issue) |> returns.completion
+  timed_result(operands) |> returns.completion
   div_sqrt.completion |> returns.variable
   returns.result |> result
   fixed_admission_available <== returns.fixed_admission_available
