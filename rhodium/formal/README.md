@@ -39,17 +39,27 @@ does not block already accepted words from draining.
 
 [TwoTagROB](../../examples/formal/two-tag-rob.rhdl) uses that same verified
 depth-two ArbiterQueue to remember issue order. Each tag can be live at most
-once. A wins when both tags are eligible. A completion pulse marks a tag
-that was live **before** the edge; a pulse on its issue edge is ignored.
-The first such pulse captures the tag's two-bit `result_a` or `result_b`;
+once. A wins when both tags are eligible. On a grant, sample `issue_gen`
+alongside the winning tag; there is no issue token on a non-grant edge.
+Each tag's grants alternate generation 0, 1, 0, … independently. A completion
+pulse must echo its issue bit on `complete_gen_a` or `complete_gen_b` and
+its tag must already be live **before** the edge. An idle, issue-edge, or
+wrong-generation completion has no effect on that allocation.
+The first matching pulse captures the tag's two-bit `result_a` or `result_b`;
 later pulses for that issue cannot overwrite it. Retirement offers the completed
 head's tag on `retire.bits` and its word on `retire_result`. Both share the
 same valid/ready handshake and remain stable while stalled (unless reset).
 The result has no meaning while invalid.
 Completing B while an unfinished A is ahead of it cannot retire either tag.
 A retired tag becomes eligible for reissue on the next edge; synchronous reset
-discards outstanding work. This [spec](../../examples/formal/two-tag-rob.rspl)
-covers tag and result integrity, not generation numbers or eventual completion.
+discards outstanding work and restarts both generation sequences at zero.
+
+The [spec](../../examples/formal/two-tag-rob.rspl) guarantees rejection of a
+duplicate from the immediately previous use of the same tag **within a reset
+epoch**. It does not identify the true age of a matching response. After two
+reuses, or after reset, an old token may match again. Systems needing protection
+there must drain old responses or prevent token reuse until they can no longer
+arrive. No eventual completion is assumed.
 These proofs cover the stated specializations. They share an internal run-local
 refinement checker; they are not a parameter-universal proof.
 

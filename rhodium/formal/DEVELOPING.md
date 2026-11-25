@@ -280,20 +280,29 @@ independent admission and history spec. Check reset and preservation at depths
 an unacknowledged word retiring. That replay is not an input to certification.
 
 The [two-tag ROB proof](tests/two-tag-rob-proof.rkt) relates four parent
-scoreboard bits, two unreset payload banks, and the queue's live tag words to
+busy/done bits, two per-tag generation bits, two unreset payload banks, and the queue's live tag words to
 an issue history and the first result of each completed tag. The proof starts
 the banks symbolically and relates their contents only while their tags are
-complete; the local model's concrete simulation seed is not a reset assumption. Require canonical tag encoding, uniqueness in the live
+complete; the local model's concrete simulation seed is not a reset assumption.
+For each tag the RTL advances its bit at retirement, the reference at issue:
+their bits are opposite while live and equal while idle. Require canonical tag encoding, uniqueness in the live
 prefix, exact busy membership, and no completed idle tag. The reset case
 starts from unrelated states; the preservation case assumes no traffic
 restrictions. The “either done” mutant must fail induction and retire A early
 on an actual reset/issue A/issue B/complete B/drain trace. The swapped-bank
 mutant passes the tag-only projection but fails on cared outputs. A separate
 stall lemma checks adjacent samples with unrestricted next inputs; full RTL
-replays exercise duplicate completions while A is stalled. The independent
-[rspecsim oracle](tests/two-tag-rob-test.rhm) stores completion on each ordered
-entry and checks all 61 architecturally distinct states against all 64 control
-samples with representative payloads. Induction covers arbitrary two-bit inputs.
+replays exercise duplicate completions while A is stalled. For each lane, check
+that only its grant advances its next token and that a wrong-generation pulse
+has the same effect as no pulse, leaving the other lane's traffic unrestricted.
+The ignore-generation mutant must fail preservation and retire stale A0 data
+during A1. A second reuse shows why the alternating bit cannot protect A2 from A0.
+
+The independent [rspecsim oracle](tests/two-tag-rob-test.rhm) records integer
+allocation serials on entries and compares their low bits only at the interface.
+It exercises all 61 tag/data states against 64 control samples with representative
+payloads and generations, plus an independent generation/echo matrix with both
+tags pending (4,928 concrete cases total). Induction uses unrestricted inputs.
 Run `moon run rhodium:formal-spec-test rhodium:formal-test`.
 
 ## Extend supported semantics

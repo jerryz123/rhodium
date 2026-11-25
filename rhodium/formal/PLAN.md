@@ -50,7 +50,7 @@ adds one parent-local admission register while the child remains opaque; this
 is a limited RTL fragment, not arbitrary parent logic. The [two-tag reorder
 buffer](tests/two-tag-rob-proof.rkt) now proves that completion may be out
 of order while retirement must follow issue order and the head's own
-completion. It uses the verified depth-two ArbiterQueue and four local control bits plus two unreset result banks.
+completion. It uses the verified depth-two ArbiterQueue and per-tag busy, done, and generation bits plus two unreset result banks.
 
 | Milestone | What to build | How to tell it works |
 |---|---|---|
@@ -243,7 +243,8 @@ a functional FIFO model is not a performance model without a timing contract.
 
 The implemented reorder-buffer demonstration covers fixed tags A and B and
 their first two-bit completion results, including stability under backpressure.
-Distinguishing generations of reused tags and architectural squash remain
-beyond that proof. Unbounded
+One-bit issue tokens distinguish adjacent generations within a reset epoch.
+Rejection of old responses across token wrap or reset, and architectural squash,
+remain beyond that proof. Unbounded
 liveness, fairness, memory primitives, multiple clocks, parameter-universal
 proofs, and RTL generation from specifications are outside the first delivery.

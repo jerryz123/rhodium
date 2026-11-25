@@ -1,17 +1,18 @@
 #lang rhodium
-/* Retires each tag with its first completion result in issue order through a buffered arbiter. */
+/* Qualifies completions by tag and one-bit generation and retires the first matching result in issue order through a buffered arbiter. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("flow/main.rhdl") open
   "arbiter-queue.rhdl".ArbiterQueue
 
-/* Lane A has issue priority. Only an already-live tag observes its completion pulse;
-   retirement releases its tag for reissue on the following edge. */
+/* Lane A has issue priority. On grant, issue_gen names this allocation. Retirement releases the tag
+   with the opposite generation; reset restarts both tags at zero. */
 sync_circuit TwoTagROB():
   input (issue_a, issue_b, complete_a, complete_b): Bool
+  input (complete_gen_a, complete_gen_b): Bool
   input (result_a, result_b): Bits(2)
-  output (grant_a, grant_b): Bool
+  output (grant_a, grant_b, issue_gen): Bool
   output retire_result: Bits(2)
   interface retire(Irrevocable(Bool), ~role: producer)
 
@@ -20,12 +21,20 @@ sync_circuit TwoTagROB():
   reg done_a(~init: Bool(#false))
   reg done_b(~init: Bool(#false))
 
+  /* The live generation stays constant through stalls. Only that tag's retirement advances it. */
+  reg gen_a(~init: Bool(#false))
+  reg gen_b(~init: Bool(#false))
+  def matches_a = complete_gen_a.as_bits() === gen_a.as_bits()
+  def matches_b = complete_gen_b.as_bits() === gen_b.as_bits()
+  def capture_a = busy_a & !done_a & complete_a & matches_a
+  def capture_b = busy_b & !done_b & complete_b & matches_b
+
   // No reset on data: only a live, completed tag owns an observable result.
   reg saved_a(Bits(2))
   reg saved_b(Bits(2))
-  when (busy_a & !done_a & complete_a):
+  when capture_a:
     saved_a <== result_a
-  when (busy_b & !done_b & complete_b):
+  when capture_b:
     saved_b <== result_b
 
   inst order(ArbiterQueue(2, ~depth: 2))
@@ -37,6 +46,7 @@ sync_circuit TwoTagROB():
   def issued_b = order.ingress[1].fire()
   grant_a <== issued_a
   grant_b <== issued_b
+  issue_gen <== mux(issued_b, gen_b, gen_a)
 
   def head_b = order.egress.bits === Bits(2)(1)
   def head_done = mux(head_b, done_b, done_a)
@@ -48,9 +58,14 @@ sync_circuit TwoTagROB():
   def retired_a = retired & !head_b
   def retired_b = retired & head_b
 
+  when retired_a:
+    gen_a <== !gen_a
+  when retired_b:
+    gen_b <== !gen_b
+
   busy_a <== issued_a ||| (busy_a & !retired_a)
   busy_b <== issued_b ||| (busy_b & !retired_b)
-  done_a <== busy_a & !retired_a & (done_a ||| complete_a)
-  done_b <== busy_b & !retired_b & (done_b ||| complete_b)
+  done_a <== !retired_a & (done_a ||| capture_a)
+  done_b <== !retired_b & (done_b ||| capture_b)
 
 export TwoTagROB

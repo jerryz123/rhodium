@@ -1,5 +1,5 @@
 #lang rspecl
-/* Models oldest-first issue history and the first completion result of each live tag. */
+/* Models oldest-first issue history and the first completion result of each live tag and generation. */
 // SPDX-License-Identifier: Apache-2.0
 
 import "two-tag-rob.rhdl" as rtl
@@ -11,6 +11,9 @@ spec for rtl.TwoTagROB:
   state finished_a: Bool initially #false
   state finished_b: Bool initially #false
 
+  // The spec counts issues modulo two. While a tag is live its issued bit is the opposite of its next bit.
+  state next_gen_a: Bool initially #false
+  state next_gen_b: Bool initially #false
   state value_a: Bits(2) initially 0 as unused
   state value_b: Bits(2) initially 0
 
@@ -25,6 +28,13 @@ spec for rtl.TwoTagROB:
   let available = live && select(head_b, finished_b, finished_a)
   let pop = available && retire.ready
 
+  /* Compare the returned bit with the previous issue, not the next allocation. */
+  fun echoed_live(next_bit :: SpecExpr, echo :: SpecExpr): select(next_bit, !echo, echo)
+  let response_a = complete_a && echoed_live(next_gen_a, complete_gen_a)
+  let response_b = complete_b && echoed_live(next_gen_b, complete_gen_b)
+  let issued_bit = select(b, next_gen_b, next_gen_a)
+  observe issue_gen = issued_bit when !reset && (a || b)
+  event issued_gen = issued_bit when !reset && (a || b)
   observe grant_a = a when !reset
   observe grant_b = b when !reset
   observe retire.valid = available when !reset
@@ -37,10 +47,12 @@ spec for rtl.TwoTagROB:
 
   let retained = select(pop, tail(history), history)
   next history = select(reset, cleared, select(a || b, append(retained, b), retained))
-  next finished_a = !reset && has_a && !(pop && !head_b) && (finished_a || complete_a)
-  next finished_b = !reset && has_b && !(pop && head_b) && (finished_b || complete_b)
+  next next_gen_a = !reset && select(a, !next_gen_a, next_gen_a)
+  next next_gen_b = !reset && select(b, !next_gen_b, next_gen_b)
+  next finished_a = !reset && has_a && !(pop && !head_b) && (finished_a || response_a)
+  next finished_b = !reset && has_b && !(pop && head_b) && (finished_b || response_b)
   // Canonicalize inactive spec values; the RTL banks need not hold zero there.
   next value_a = select(reset || !has_a || (pop && !head_b), unused,
-                        select(!finished_a && complete_a, result_a, value_a))
+                        select(!finished_a && response_a, result_a, value_a))
   next value_b = select(reset || !has_b || (pop && head_b), unused,
-                        select(!finished_b && complete_b, result_b, value_b))
+                        select(!finished_b && response_b, result_b, value_b))

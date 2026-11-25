@@ -10,21 +10,24 @@ import:
 
 def rob = TwoTagROB(elaborate(rtl.TwoTagROB()).top)
 def mutable cases = 0
-// The oracle stores (tag, done, first result) on each ordered entry, not in per-tag banks.
-fun check_edge(entries, mask):
+// Use integer allocation serials. Store the full serial on each live entry and compare only
+// its low bit at the wire boundary, independently of the RTL's retirement-driven toggles.
+fun check_edge(rows, mask, serials, echoes):
   def reset = mask ? 0
   def request = [mask ? 1, mask ? 2]
   def pulse = [mask ? 3, mask ? 4]
   def ready = mask ? 5
   def incoming = [if ready | 1 | 0, if request[0] | 2 | 3]
   fun index(tag): if tag | 1 | 0
-  fun state(rows):
+  def entries = rows.map(fun (r): r ++ [serials[index(r[0])] - 1])
+  fun state(rows, counts):
     def finished = rows.filter(~keep: fun (r): r[1]).map(fun (r): r[0])
     fun payload(tag):
       def matches = rows.filter(~keep: fun (r): r[0] == tag && r[1])
       if matches.length() == 0 | 0 | matches[0][2]
-    {"value_a": payload(#false), "value_b": payload(#true), "history": rows.map(fun (r): r[0]), "finished_a": #false in finished, "finished_b": #true in finished}
-  def old = state(entries)
+    {"next_gen_a": counts[0] ? 0, "next_gen_b": counts[1] ? 0,
+     "value_a": payload(#false), "value_b": payload(#true), "history": rows.map(fun (r): r[0]), "finished_a": #false in finished, "finished_b": #true in finished}
+  def old = state(entries, serials)
   def eligible = [#false,#true].filter(~keep: fun (tag): request[index(tag)] && !(tag in old["history"]))
   def issued = if eligible.length() == 0 | [] | [eligible[0]]
   def a = #false in issued
@@ -34,23 +37,28 @@ fun check_edge(entries, mask):
   def remain = if pop | entries.drop(1) | entries
   def after = for List (row in remain):
     def i = index(row[0])
-    if !row[1] && pulse[i] | [row[0], #true, incoming[i]] | row
-  def expected = if reset | [] | after ++ issued.map(fun (tag): [tag, #false, 0])
+    if !row[1] && pulse[i] && echoes[i] == (row[3] ? 0) | [row[0], #true, incoming[i], row[3]] | row
+  def expected = if reset | [] | after ++ issued.map(fun (tag): [tag, #false, 0, serials[index(tag)]])
+  def counts = if reset | [0,0] | [serials[0] + (if a | 1 | 0), serials[1] + (if b | 1 | 0)]
   def input = {"reset": reset, "issue_a": request[0], "issue_b": request[1],
+               "complete_gen_a": echoes[0], "complete_gen_b": echoes[1],
                "result_a": incoming[0], "result_b": incoming[1], "complete_a": pulse[0], "complete_b": pulse[1], "retire.ready": ready}
   def result = step_spec(rob, old, input)
   def offers = {"grant_a": a, "grant_b": b, "retire.valid": valid}
   def data = if valid | {"retire.bits": entries[0][0], "retire_result": entries[0][2]} | {}
-  def push_event = if a || b | {"issued": b} | {}
+  def issued_bit = serials[index(b)] ? 0
+  def issue_pin = if a || b | {"issue_gen": issued_bit} | {}
+  def push_event = if a || b | {"issued": b, "issued_gen": issued_bit} | {}
   def pop_event = if pop | {"retired": entries[0][0], "retired_value": entries[0][2]} | {}
   check:
-    result.outputs ~is (if reset | {} | offers ++ data)
+    result.outputs ~is (if reset | {} | offers ++ data ++ issue_pin)
     result.events ~is (if reset | {} | push_event ++ pop_event)
-    result.next_state ~is state(expected)
+    result.next_state ~is state(expected, counts)
   cases := cases + 1
 
 fun exercise(rows):
-  for (mask in 0..64): check_edge(rows, mask)
+  for (mask in 0..64):
+    check_edge(rows, mask, [if mask ? 1 | 2 | 3, if mask ? 2 | 4 | 5], [mask ? 5, mask ? 3])
 exercise([])
 // For each tag, the five owned-result states are pending or completed with 0..3.
 fun entries(tag): [[tag, #false, 0]] ++ (for List (v in 0..4): [tag, #true, v])
@@ -58,4 +66,9 @@ for (tag in [#false,#true]):
   for (old in entries(tag)):
     exercise([old])
     for (young in entries(!tag)): exercise([old, young])
-check: cases ~is 3904
+// Cross both parities and both echoes independently, especially when both pulses arrive together.
+for (n in 0..16):
+  for (mask in 0..64):
+    check_edge([[#false,#false,0],[#true,#false,0]], mask,
+               [if n ? 0 | 3 | 2, if n ? 1 | 5 | 4], [n ? 2, n ? 3])
+check: cases ~is 4928

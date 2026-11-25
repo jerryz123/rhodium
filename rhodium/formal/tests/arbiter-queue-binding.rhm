@@ -52,12 +52,13 @@ fun rob_case():
   fun tag_fields(fields): fields.remove("value_a").remove("value_b")
   def tags = make_spec(full.inputs, tag_fields(full.state), tag_fields(full.initial),
                        full.outputs.remove("retire_result"), full.events.remove("retired_value"), tag_fields(full.updates))
-  values(cut(rob), full, cut(faulty_rob), cut(swapped_rob), tags)
+  values(cut(rob), full, cut(faulty_rob), cut(swapped_rob), tags, cut(unchecked_rob))
 fun rob_replay(variant):
   match variant
   | "correct": replay_rtl(rob)
   | "any-done": replay_rtl(faulty_rob)
   | "swapped": replay_rtl(swapped_rob)
+  | "ignore-generation": replay_rtl(unchecked_rob)
   | ~else: error("unknown ROB replay variant")
 
 fun gated_case(depth):
