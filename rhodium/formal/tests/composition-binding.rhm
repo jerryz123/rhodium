@@ -16,12 +16,15 @@ import:
   lib("examples/formal/buffered-arbiter-queue.rhdl").BufferedArbiterQueue
   lib("examples/formal/gated-arbiter-queue.rhdl").GatedArbiterQueue
   lib("examples/formal/two-tag-rob.rhdl").TwoTagROB
+  lib("examples/formal/logged-two-tag-rob.rhdl").LoggedTwoTagROB
+  "valid-only-logged-rob.rhdl".ValidOnlyLoggedROB
   "faulty-rob.rhdl".FaultyROB
   lib("examples/formal/granted-selector.rhdl") open
   lib("examples/formal/gated-capture.rhdl") open
   "raw-selector.rhdl" open
 
 export rob faulty_rob swapped_rob unchecked_rob
+export logged_rob valid_only_logged_rob
 export selector granted_selector raw_selector
 export router routed_selector duplicate_grant high_grant circular_grants
 export registered_lane registered_routed registered_duplicate
@@ -48,6 +51,8 @@ def faulty_buffered_tops = MutableMap{}
 def parents = MutableMap{}
 def faulty_parents = MutableMap{}
 def mutable rob = #false
+def mutable logged_rob = #false
+def mutable valid_only_logged_rob = #false
 def mutable unchecked_rob = #false
 def mutable swapped_rob = #false
 def mutable faulty_rob = #false
@@ -98,6 +103,8 @@ fun inventory():
     outer[d] := materialize_circuit(BufferedArbiterQueue(2, ~depth: d))
     faulty_parents[d] := materialize_circuit(WrongLane(2, d))
   rob := materialize_circuit(TwoTagROB())
+  logged_rob := materialize_circuit(LoggedTwoTagROB())
+  valid_only_logged_rob := materialize_circuit(ValidOnlyLoggedROB())
   faulty_rob := materialize_circuit(FaultyROB("any-done"))
   swapped_rob := materialize_circuit(FaultyROB("swapped"))
   unchecked_rob := materialize_circuit(FaultyROB("ignore-generation"))

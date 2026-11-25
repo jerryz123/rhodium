@@ -456,12 +456,19 @@ during A1. A second reuse shows why the alternating bit cannot protect A2 from A
 The [ROB transaction regression](tests/two-tag-rob-transactions.rkt) shares
 `symbolic-fifo-cut` with the gated proof. Only the parent RTL has an executable
 edge; the child supplies a sampler domain and FIFO relation on arbitrary
-history successors. The [issuer and monitor](../../examples/formal/two-tag-rob-contract.rkt)
-project occupied FIFO slots into ordered public allocations. Check local busy
+history successors. The [issuer](../../examples/formal/two-tag-rob-contract.rkt)
+projects occupied FIFO slots into ordered public allocations. Check local busy
 membership, tag uniqueness and canonical encoding inductively. Compare the
 monitor successor against the projected local generation/done bits and (only
 for completed allocations) saved data. Use the same transition for certification
 and consumption; no reset value for either bank is assumed.
+The seal retains the exact [spec-IR monitor snapshot](../../examples/formal/two-tag-rob-monitor.rhm)
+stepped during certification. Its named verdicts diagnose failures before the
+successor check; they are not assumptions. The [representation test](tests/two-tag-rob-monitor.rkt)
+checks the ordered slots against independent per-tag banks at all three occupancies.
+The former Racket transition lives only in the [differential oracle](tests/two-tag-rob-oracle.rkt):
+compare the public verdict on arbitrary batches and the ordered live history on
+accepted ones, including payloads only for completed allocations.
 Check FIFO order separately from completion safety: the any-done mutant
 preserves order but can retire A after only B completes. Chain the five
 contract edges from reset to check that distinction; the full-RTL replay
@@ -480,6 +487,16 @@ arbitrary grant ordinal. Abstract slots appear in its inductive relation,
 never as inputs to the observer's updates. For timing, reach a completed
 head from reset and check both a repeatable idle self-loop and a retirement
 from the same state.
+
+For the [hardware recorder proof](tests/logged-two-tag-rob.rkt), use
+`symbolic-rob-cut` to match the seal to the actual occurrence and apply the
+issuer's pin decoder to its driven inputs and unconstrained outputs. Check
+the wrapper's public batch and record readback before assuming `rob-step`.
+Prove reset, transfer, and hold from arbitrary local register contents; do
+not seed the two data registers with zero. The cut interprets the RTL cast
+from sampled Reset to Bits(1) used by `reset_active()`. Keep the full-RTL
+replay separate: stall the first completed B=3, then raise ready. A valid-only
+recorder exposes B's commit one edge early.
 
 The independent [rspecsim oracle](tests/two-tag-rob-test.rhm) records integer
 allocation serials on entries and compares their low bits only at the interface.

@@ -61,8 +61,8 @@ fun lower_local(ops :: List, sources :: MutableMap, sinks :: MutableMap, bool ::
           when constants.has_key(source.id) | constants[result.id] := constants[source.id]
           cond
           | logical && bits_type(source.type) && source.type.width == 1: predicate(tap(source))
-          | packed_one && type_equal(source.type, bool): packed_bit(tap(source))
-          | ~else: error("expected a cast between Bool and Bits(1)")
+          | packed_one && (type_equal(source.type, bool) || reset_type(source.type)): packed_bit(tap(source))
+          | ~else: error("expected Bool/Bits(1) conversion or sampled Reset to Bits(1)")
       | "rtl.eq":
           unless packed_one | error("expected a one-bit packed equality result")
           packed_bit(bits_equal(tap(op.operands[0]), tap(op.operands[1])))

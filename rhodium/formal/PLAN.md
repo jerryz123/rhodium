@@ -85,11 +85,17 @@ The [transaction-only ROB proof](tests/two-tag-rob-transactions.rkt) now
 establishes oldest-grant retirement, the two-tag bound, and the first
 matching-generation completion payload on each retirement, without stepping
 the queue's cycle spec. The swapped-bank mutant fails on payload alone.
-This now issues [run-local ROB transaction evidence](../../examples/formal/two-tag-rob-contract.rkt).
+This now issues [run-local ROB transaction evidence](../../examples/formal/two-tag-rob-contract.rkt)
+for the [executable spec-IR monitor](../../examples/formal/two-tag-rob-monitor.rhm);
+the issuer and every consumer step that same monitor snapshot.
 An independent [commit-log observer](tests/rob-commit-log.rkt) proves the
 kth retirement records the kth grant's tag and first matching-generation
 payload using only public event batches. This is reusable event evidence,
 not a cycle replacement or a guarantee of progress.
+The [last-commit RTL wrapper](../../examples/formal/logged-two-tag-rob.rhdl)
+now consumes that seal at a physical child occurrence: its [proof](tests/logged-two-tag-rob.rkt)
+shows that reset invalidates the record and only a retirement handshake can
+replace it. A valid-only write is rejected and replayed from reset.
 
 Milestone 3 also has a [nontrivial input-contract check](DEVELOPING.md#discharging-a-conditional-childs-inputs):
 an unconditional arbiter establishes a selector's at-most-one enable requirement,

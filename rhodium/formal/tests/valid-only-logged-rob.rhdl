@@ -1,0 +1,47 @@
+#lang rhodium
+/* Mutates the commit recorder to capture stalled retirement offers. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("flow/main.rhdl") open
+  lib("examples/formal/two-tag-rob.rhdl").TwoTagROB
+
+/* Forward the ROB interface unchanged; has_commit qualifies the saved tag and payload. */
+sync_circuit ValidOnlyLoggedROB():
+  input (issue_a, issue_b, complete_a, complete_b): Bool
+  input (complete_gen_a, complete_gen_b): Bool
+  input (result_a, result_b): Bits(2)
+  output (grant_a, grant_b, issue_gen): Bool
+  output retire_result: Bits(2)
+  interface retire(Irrevocable(Bool), ~role: producer)
+  output (has_commit, last_tag): Bool
+  output last_payload: Bits(2)
+
+  inst rob(TwoTagROB())
+  rob.issue_a <== issue_a
+  rob.issue_b <== issue_b
+  rob.complete_a <== complete_a
+  rob.complete_b <== complete_b
+  rob.complete_gen_a <== complete_gen_a
+  rob.complete_gen_b <== complete_gen_b
+  rob.result_a <== result_a
+  rob.result_b <== result_b
+  grant_a <== rob.grant_a
+  grant_b <== rob.grant_b
+  issue_gen <== rob.issue_gen
+  rob.retire |> retire
+  retire_result <== rob.retire_result
+
+  reg occupied(~init: Bool(#false))
+  reg tag(Bits(1))
+  reg payload(Bits(2))
+  def capture = rob.retire.valid & !reset_active().into(Bool)
+  when capture:
+    occupied <== Bool(#true)
+    tag <== rob.retire.bits.as_bits()
+    payload <== rob.retire_result
+  has_commit <== occupied
+  last_tag <== tag.into(Bool)
+  last_payload <== payload
+
+export ValidOnlyLoggedROB

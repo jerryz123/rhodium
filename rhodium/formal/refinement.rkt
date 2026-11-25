@@ -10,7 +10,7 @@
 (provide prove-leaf prove-parent prepare-proved-wiring proved-child-model symbolic-cut-state proved-edge-at view-agrees? pack-pins unpack-pins)
 (provide exn:fail:input-contract? exn:fail:input-contract-goal exn:fail:input-contract-inputs)
 (provide (rename-out [check-phase check-refinement-phase!]))
-(provide symbolic-fifo-cut fifo-cut-inputs fifo-cut-outputs fifo-cut-locals fifo-cut-batch fifo-cut-domain)
+(provide symbolic-wrapper-cut symbolic-fifo-cut fifo-cut-inputs fifo-cut-outputs fifo-cut-locals fifo-cut-batch fifo-cut-domain)
 (provide derive-fifo-transactions prove-fifo-transactions compose-fifo-series prove-fifo-wrapper fifo-transactions-for? fifo-transactions-capacity fifo-transactions-width
          fresh-fifo-history fifo-allows? (struct-out fifo-history) (struct-out fifo-events))
 
@@ -448,23 +448,20 @@
 (struct fifo-cut (inputs outputs locals batch domain))
 
 #| Read one passive batch from the physical drivers of this occurrence, sharing their values. |#
-(define (sample-cut-pins evidence prefix inputs outputs)
+(define (sample-cut-pins evidence inputs outputs)
   (sampled-fifo-batch evidence
     (for/hash ([k (hash-keys (hash-ref (fifo-transactions-sampler evidence) "inputs"))])
-      (define pin (string->immutable-string (string-append prefix k)))
-      (values k (hash-ref inputs pin (lambda () (hash-ref outputs pin)))))))
+      (values k (hash-ref inputs k (lambda () (hash-ref outputs k)))))))
 
-#| Open an actual one-child RTL parent with arbitrary environment, child output pins and local
-   state. Prove local definedness before any hypothesis on the FIFO batch or its histories. |#
-(define (symbolic-fifo-cut top layout bool site child)
-  (unless (fifo-transactions? child) (error 'fifo-wrapper "expected FIFO transaction evidence"))
-  #| Only the exact proved child occurrence can supply a layout or a sampler-domain guarantee. |#
+#| Sample both sides of an exact one-child RTL boundary. Child outputs are arbitrary;
+   execute and prove defined only the parent wiring and registers. Issues no evidence. |#
+(define (symbolic-wrapper-cut top layout bool site expected child-layout visible)
+  #| Bind this pin layout only at the requested occurrence of the expected definition. |#
   (define (layout-at name definition)
-    (unless (and (host-equal? name site) (host-eq? definition (fifo-transactions-definition child)))
-      (error 'fifo-wrapper "transaction evidence does not match the RTL occurrence"))
-    (fifo-transactions-layout child))
-  (define graph
-    (wrapper_wiring top layout site layout-at (hash-keys (hash-ref (fifo-transactions-sampler child) "inputs")) bool))
+    (unless (and (host-equal? name site) (host-eq? definition expected))
+      (error 'wrapper-cut "transaction evidence does not match the RTL occurrence"))
+    child-layout)
+  (define graph (wrapper_wiring top layout site layout-at visible bool))
   (define locals (hash-ref graph "children"))
   (define states (for/hash ([(k model) locals]) (values k (symbolic-spec-state model))))
   (define inputs (fresh-fields (hash-ref graph "inputs")))
@@ -473,11 +470,20 @@
                      (&& ok (edge-legal e) (edge-defined e) (spec-state-legal? (edge-next e)))))
   (check-phase 'wrapper-rtl #t (list (cons 'defined local-ok)))
   (define prefix (string-append site "."))
-  (define-values (inside child-ok) (sample-cut-pins child prefix inputs outputs))
-  #| The closed occurrence's nets are used by its sampler, not exported as parent observations. |#
-  (define (public pins)
-    (for/hash ([(k v) pins] #:unless (string-prefix? k prefix)) (values k v)))
-  (fifo-cut (public inputs) (public outputs) edges inside child-ok))
+  #| Strip the site qualifier only on the child side; at that boundary graph directions reverse. |#
+  (define (side pins child?)
+    (for/hash ([(k v) pins] #:when (host-equal? child? (string-prefix? k prefix)))
+      (values (if child? (string->immutable-string (substring k (string-length prefix))) k) v)))
+  (values (side inputs #f) (side outputs #f) edges (side outputs #t) (side inputs #t)))
+
+#| Sample the verified FIFO on its actual occurrence without opening its cycle implementation. |#
+(define (symbolic-fifo-cut top layout bool site child)
+  (unless (fifo-transactions? child) (error 'fifo-wrapper "expected FIFO transaction evidence"))
+  (define-values (inputs outputs edges ci co)
+    (symbolic-wrapper-cut top layout bool site (fifo-transactions-definition child) (fifo-transactions-layout child)
+                          (hash-keys (hash-ref (fifo-transactions-sampler child) "inputs"))))
+  (define-values (inside child-ok) (sample-cut-pins child ci co))
+  (fifo-cut inputs outputs edges inside child-ok))
 
 #| Transfer an opaque FIFO theorem through a single wrapper whose RTL preserves entire event
    batches. The bounded history is the child's transaction history, not operational state. |#
@@ -489,7 +495,7 @@
     (symbolic-fifo-cut top (fifo_view_layout view) (fifo_view_bool view) site child))
   (define reset (hash-ref inputs "reset"))
   (define result (candidate-fifo view (fifo-transactions-capacity child)))
-  (define-values (outside parent-ok) (sample-cut-pins result "" inputs outputs))
+  (define-values (outside parent-ok) (sample-cut-pins result inputs outputs))
   #| Inactive payload is unconstrained. An active transfer must agree in both directions. |#
   (define (same-transfer? fires word)
     (&& (equal? (fires inside) (fires outside))

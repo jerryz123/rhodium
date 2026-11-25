@@ -1,0 +1,71 @@
+#lang rhombus
+/* Builds an executable spec-IR monitor for public TwoTagROB event batches, without predicting their timing. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/formal/spec.rhm") as ir
+  lib("rhodium/formal/spec-dsl.rhm") open
+
+export two_tag_rob_monitor
+
+/* Order is a bounded tag sequence; each live tag owns its issued generation and first result.
+   The allowed output judges the entire pre-edge batch, and a rejected batch leaves state alone. */
+fun two_tag_rob_monitor():
+  def word = Bits(2)
+  def queue = Seq(Bool, 2)
+  def inputs = {"reset": Bool, "grant": Bool, "grant_tag": Bool, "grant_gen": Bool,
+                "complete_a": Bool, "echo_a": Bool, "data_a": word,
+                "complete_b": Bool, "echo_b": Bool, "data_b": word,
+                "retire": Bool, "retire_tag": Bool, "retire_data": word}
+  def state = {"order": queue, "gen_a": Bool, "done_a": Bool, "saved_a": word,
+               "gen_b": Bool, "done_b": Bool, "saved_b": word}
+  def initial = {"order": [], "gen_a": #false, "done_a": #false, "saved_a": 0,
+                 "gen_b": #false, "done_b": #false, "saved_b": 0}
+  /* Read an observed event field at its declared sort. */
+  fun pin(name :: String): ir.input_ref(name, inputs[name])
+  /* Read a history field before any event on this edge takes effect. */
+  fun old(name :: String): ir.state_ref(name, state[name])
+  /* Compare logical tag or generation bits without casting them to packed data. */
+  fun same(x :: SpecExpr, y :: SpecExpr): select(x, y, !y)
+
+  def order = old("order")
+  def live = !empty(order)
+  def two = full(order)
+  def head = select(live, front(order), #false)
+  def second = select(two, front(tail(order)), #false)
+  /* Search only live slots; retiring a tag does not make it grantable on the same edge. */
+  fun contains(tag :: SpecExpr): (live && same(tag, head)) || (two && same(tag, second))
+  def grant = pin("grant")
+  def tag = pin("grant_tag")
+  def retire = pin("retire")
+  def reset = pin("reset")
+  def done = select(head, old("done_b"), old("done_a"))
+  def saved = select(head, old("saved_b"), old("saved_a"))
+  def oldest_ok = !retire || (live && same(pin("retire_tag"), head))
+  def completed_ok = !retire || done
+  def payload_ok = !retire || ir.bits_equal(pin("retire_data"), saved)
+  def grant_ok = !grant || (!contains(tag) && (!two || retire))
+  def quiet = !(grant || retire || pin("complete_a") || pin("complete_b"))
+  def epoch_ok = !reset || quiet
+  def history_ok = reset || !two || !same(head, second)
+  def allowed = epoch_ok && history_ok && grant_ok && oldest_ok && completed_ok && payload_ok
+  def rest = select(retire, tail(order), order)
+  def next_order = select(reset, const(queue, []), select(grant, append(rest, tag), rest))
+
+  /* A grant starts an unfinished allocation; simultaneous pulses apply only to old live tags.
+     Idle banks and data for unfinished allocations have no observable value. */
+  fun lane(suffix :: String, is_b :: Boolean):
+    def gen_key = "gen_" ++ suffix
+    def done_key = "done_" ++ suffix
+    def data_key = "saved_" ++ suffix
+    def mine = operand(is_b)
+    def allocate = grant && same(tag, mine)
+    def capture = contains(mine) && !old(done_key) && pin("complete_" ++ suffix) && same(pin("echo_" ++ suffix), old(gen_key))
+    {gen_key: select(allowed && allocate, pin("grant_gen"), old(gen_key)),
+     done_key: select(allowed && allocate, #false, old(done_key) || (allowed && capture)),
+     data_key: select(allowed && capture, pin("data_" ++ suffix), old(data_key))}
+  def updates = {"order": select(allowed, next_order, order)} ++ lane("a", #false) ++ lane("b", #true)
+  // Expose the same conjuncts for issuer diagnostics; the single verdict controls the updates.
+  def verdicts = {"allowed": allowed, "epoch": epoch_ok, "history": history_ok, "fresh-grant": grant_ok,
+                  "oldest-tag": oldest_ok, "completed-before-retirement": completed_ok, "retired-payload": payload_ok}
+  ir.make_spec(inputs, state, initial, (for Map ((k, v) in verdicts): values(k, ir.Observed(v))), {}, updates)

@@ -87,10 +87,20 @@ Use `rob-step` with that evidence, an abstract history and a joint public batch:
 reset, optional grant (tag and issued generation), both completion pulses
 (echo and payload), and optional retirement (tag and payload). It returns
 permission and a successor; use the successor only if the batch is permitted.
+Both certification and `rob-step` execute the same [spec-IR transaction monitor](../../examples/formal/two-tag-rob-monitor.rhm).
 Start from `(fresh-rob-history)` with a reset batch to establish an empty log.
 A completion applies to an already-live grant, not a
 grant on that same edge. No retirement deadline is implied, even for a
 completed head: an idle batch may leave the abstract history unchanged.
+
+[LoggedTwoTagROB](../../examples/formal/logged-two-tag-rob.rhdl) forwards
+the ROB interface and adds a one-entry record of the last retirement. A reset
+edge clears `has_commit`; until the first transfer, `last_tag` and
+`last_payload` have no specified initial value. On a non-reset edge with
+`retire.valid && retire.ready`, the next record contains the retiring tag
+and its first matching-generation completion payload. Otherwise the record
+holds, even when the stalled offer differs from the saved record. The
+[proof](tests/logged-two-tag-rob.rkt) needs no child offer-stability or timing guarantee.
 
 The [spec](../../examples/formal/two-tag-rob.rspl) guarantees rejection of a
 duplicate from the immediately previous use of the same tag **within a reset
