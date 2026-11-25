@@ -16,9 +16,16 @@ bundle ReservationWaitResult():
   illegal_instruction: Bool
   virtual_instruction: Bool
 
+/* Encodes a held decision without retaining another copy of the WB instruction. */
+hardware_enum ReservationWaitOutcome:
+  Waiting
+  Normal
+  IllegalInstruction
+  VirtualInstruction
+
 /* Restarts the saturating 12-bit timer on capture; wake beats both timeout classes.
-   Completion remains valid while the caller's active owner is eligible to finish. */
-sync_circuit ReservationWait():
+   Optionally hold the terminal outcome so WB does not depend on live wake signals. */
+sync_circuit ReservationWait(~register_outcome: register_outcome :: Boolean = #false):
   interface capture(Pulse(), ~role: consumer)
   input(active, reservation_valid, interrupt_wake, short_timeout, trap_on_timeout, virtual_trap_on_timeout): Bool
   interface completion(Valid(ReservationWaitResult()), ~role: producer)
@@ -27,14 +34,33 @@ sync_circuit ReservationWait():
   def wake = !reservation_valid ||| interrupt_wake
   def expired = count.all()
   def timeout = expired & (short_timeout ||| trap_on_timeout ||| virtual_trap_on_timeout)
-  completion.valid <== active & (wake ||| timeout)
-  completion.bits <== ReservationWaitResult():
+  def result = ReservationWaitResult():
     illegal_instruction: !wake & !short_timeout & trap_on_timeout
     virtual_instruction: !wake & !short_timeout & !trap_on_timeout & virtual_trap_on_timeout
 
+  if register_outcome
+  | block:
+      reg outcome(~init: ReservationWaitOutcome.Waiting)
+      // Capture starts a new owner. Wake on that edge counts, but the old
+      // timer and old owner's timeout controls must not classify the new one.
+      when (capture.valid):
+        outcome <== mux(wake, ReservationWaitOutcome.Normal, ReservationWaitOutcome.Waiting)
+      elsewhen (active & (outcome === ReservationWaitOutcome.Waiting) & (wake ||| timeout)):
+        outcome <== priority_mux(~default: ReservationWaitOutcome.Normal):
+          result.illegal_instruction: ReservationWaitOutcome.IllegalInstruction
+          result.virtual_instruction: ReservationWaitOutcome.VirtualInstruction
+
+      completion.valid <== active & (outcome =/= ReservationWaitOutcome.Waiting)
+      completion.bits <== ReservationWaitResult():
+        illegal_instruction: outcome === ReservationWaitOutcome.IllegalInstruction
+        virtual_instruction: outcome === ReservationWaitOutcome.VirtualInstruction
+  | block:
+      completion.valid <== active & (wake ||| timeout)
+      completion.bits <== result
+
   when (capture.valid):
     count <== Bits(12)(0)
-  elsewhen (active & !completion.valid & !expired):
+  elsewhen (active & !wake & !completion.valid & !expired):
     count <== count + Bits(12)(1)
 
 export:

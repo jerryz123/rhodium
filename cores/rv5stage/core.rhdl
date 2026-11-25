@@ -455,11 +455,10 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def Array(wb_retirement_path, wb_fp_path, wb_memory_path) = wb_input |> fork_valid(3)
   def Array(wb_live_path, wb_scalar_retention_path, wb_vector_retention_path) = wb_retirement_path |> fork_valid(3)
 
-  /* Reservation-wait owner.
-     Wake levels beat timeout, including reservation loss on entry;
-     NTO shares a TW/VTW bound, with TW's illegal-instruction trap first. */
+  /* Reservation-wait owner. Sample wake versus timeout at the wait engine;
+     only its registered decision releases WB or supplies the trap cause. */
 
-  inst wb_wait(ReservationWait())
+  inst wb_wait(ReservationWait(~register_outcome: #true))
   wb_wait.active <== wb_reservation_wait_pending
   wb_wait.reservation_valid <== scalar_data.reservation_valid
   wb_wait.interrupt_wake <== wb_csrs.wfi_wake
@@ -676,11 +675,13 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
 
   /* Frontend start, recovery, and cursor.
      Seeds fetch once after reset; software in the reset image owns boot
-     waiting. Architectural redirects precede the retired successor. */
+     waiting. WRS capture blocks issue immediately, but S0 may use its
+     reserved space on that edge. The retained wait pauses ordinary fetch;
+     recovery and redirect do not wait for that pause. */
 
   reg if_architectural_pc(~init: reset_pc)
   def if_start = inject_interface(Valid(Bits(width)), ~valid: !if_started, ~bits: reset_pc)
-  def if_fetch_valid = !wb_split_pending & !wb_split_accepted & if_started & !if_pause_active & !if_pause_commit & !if_squash & !wb_csrs.interrupt_request & !if_waiting_for_interrupt & !wb_reservation_wait_pending & !wb_reservation_wait_accept
+  def if_fetch_valid = !wb_split_pending & !wb_split_accepted & if_started & !if_pause_active & !if_pause_commit & !if_squash & !wb_csrs.interrupt_request & !if_waiting_for_interrupt & !wb_reservation_wait_pending
   frontend_control.active <== if_fetch_valid
   def rejected_redirect_flush = inject_interface(Valid(Bits(width)), ~valid: wb_redirect_pending ||| wb_reject_target ||| (mem_redirect & !CompactPc.fits(xlen, mem_to_if_redirect_link.right.bits)), ~bits: wb_redirect_pc)
   Array(rejected_redirect_flush, mem_to_if_exception_link.right, mem_to_if_replay_link.right) |> valid_arbiter() |> frontend_control.flush

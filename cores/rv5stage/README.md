@@ -1388,14 +1388,18 @@ the TiledSoC RV5Stage configuration explicitly enables it. Zawrs adds no single-
 
 WRS serializes behind older authorized work and is accepted only at WB. A
 pending instruction retains its retirement context outside the feed-forward
-pipeline, blocks younger issue, and pauses Fetch without blocking coherence
-service. The data interface's `reservation_valid` is the cache-owned LR/SC
+pipeline and blocks younger issue immediately. The capture edge can still
+launch one ordinary fetch if space is reserved. From the next cycle the
+pending wait pauses ordinary fetch, not redirects or coherence service.
+The data interface's `reservation_valid` is the cache-owned LR/SC
 level, forwarded unchanged through the memory router and MMU. An invalid
 reservation or a locally enabled pending interrupt completes the wait,
 regardless of global interrupt enable. Level observation covers invalidation
 before entry as well as during waiting; completing WRS does not clear LR state.
 
-`WRS.STO` completes after at most 4,096 pending cycles. `WRS.NTO` has no normal
+`WRS.STO` selects normal completion by the 4,096th pending edge. WB uses the
+registered decision in the following cycle, even if the wake level has changed.
+`WRS.NTO` has no normal
 timeout, but below M-mode with `mstatus.TW=1` the same bound raises an illegal
 instruction exception with the original PC and instruction. In VS/VU, when
 `mstatus.TW=0` and `hstatus.VTW=1`, that bound instead raises a virtual-instruction

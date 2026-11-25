@@ -454,8 +454,10 @@ fragments. Admission squashes younger work; success restarts at the next PC,
 and fault enters the trap path with the retained instruction and fragment VA.
 No split load reserves a deferred destination: successful completion uses normal
 WB or the FPR load-hit port. Interrupts/context changes wait for this owner.
-Keep WRS timeout/wake policy, maintenance
-completion/fault policy, and architectural commit gating in `core.rhdl`.
+The core qualifies WRS timeout policy from the owner's privilege and CSRs.
+`ReservationWait` registers wake versus timeout; only that saved decision
+may release a wait or supply its exception. Keep maintenance completion/fault
+policy and architectural commit gating in `core.rhdl`.
 Grant selection follows pending ownership, then gates completion; arbitration
 must not fall through to younger live WB while a resident is unfinished.
 Explicit forks separate WB arrival, memory observation, FP issue, and retirement
@@ -1088,18 +1090,23 @@ service outside the cooldown gate.
 For WB-owned Zawrs waiting and the cache-owned reservation observation path:
 
 ```sh
-FIXTURES='rv5stage-zawrs rv5stage-wfi rv5stage-dcache rv5stage-memory-router rv5stage-mmu-replay' python3 tools/testing/rsim/run.py
+python3 tools/testing/rsim/run.py --fixture rv5stage-zawrs --fixture rv5stage-hypervisor-core --fixture rv5stage-wfi
 ```
 
 The WRS bench checks retirement deltas through CSRs, original trap PC/value,
 globally masked and enabled interrupt wake, timeout and privilege policy, and
-invalidation before and during entry. `rv5stage-hypervisor-core` additionally
+invalidation before and during entry. It observes the wait engine's capture
+edge to check a one-edge reservation loss, wake on the timeout edge, and
+rearming between consecutive waits. A younger store fetched on capture must
+not issue while waiting: normal wake consumes it without refetch, whereas
+a TW timeout redirects on the completion edge and discards the store.
+`rv5stage-hypervisor-core` additionally
 checks VS/VU `hstatus.VTW` timeouts, `mstatus.TW` priority, short waits, and
 reservation-loss/interrupt wakeups through the retained WB owner. Guest NTO
 timeouts raise virtual-instruction only when TW does not require illegal-instruction;
 ordinary wakeups win over either timeout, and STO never traps for TW/VTW.
-Cache and adapter benches cover the
-reservation level independently of instruction waiting. Keep pending WRS
+The `rv5stage-dcache`, `rv5stage-memory-router`, and `rv5stage-mmu-replay`
+benches cover the reservation level independently of instruction waiting. Keep pending WRS
 context in the core, LR/SC state in L1D, and timer/interrupt policy independent
 of physical clock gating. Select Zawrs through `RV5StageExtensions`, keeping
 core decoder selection, ISA descriptions, and UDB claims derived from that

@@ -347,7 +347,7 @@ rv5stage-speculative-access	cores-memory	cores/rv5stage/tests/rsim/emit-rv5stage
 rv5stage-mmu-replay	cores-memory	cores/rv5stage/tests/rsim/emit-rv5stage-mmu-replay.rhm	program	cores/rv5stage/tests/rsim/rv5stage-mmu-replay.cpp
 rv5stage-interrupt	cores-execution-control	cores/rv5stage/tests/rsim/emit-rv5stage-interrupt.rhm	program	cores/rv5stage/tests/rsim/rv5stage-interrupt.cpp
 rv5stage-wfi	cores-execution-control	cores/rv5stage/tests/rsim/emit-rv5stage-wfi.rhm	program	cores/rv5stage/tests/rsim/rv5stage-wfi.cpp
-rv5stage-zawrs	cores-execution-control	cores/rv5stage/tests/rsim/emit-rv5stage-zawrs.rhm	program	cores/rv5stage/tests/rsim/rv5stage-zawrs.cpp
+rv5stage-zawrs	cores-execution-control	cores/rv5stage/tests/rsim/emit-rv5stage-zawrs.rhm	program	cores/rv5stage/tests/rsim/rv5stage-zawrs.cpp	target
 rv5stage-pause	cores-execution-control	cores/rv5stage/tests/rsim/emit-rv5stage-pause.rhm	program	cores/rv5stage/tests/rsim/rv5stage-pause.cpp
 rv5stage-ntl	cores-memory	cores/rv5stage/tests/rsim/emit-rv5stage-ntl.rhm	program	cores/rv5stage/tests/rsim/rv5stage-ntl.cpp
 instruction-memory32	cores-memory	cores/common/fetch/tests/rsim/emit-instruction-memory.rhm	word	cores/common/fetch/tests/rsim/instruction-memory.cpp

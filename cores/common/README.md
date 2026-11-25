@@ -170,8 +170,11 @@ partial control relation; it does not impose serialization or trap policy.
 `reservation_valid` or `interrupt_wake` completes normally, ahead of timeout.
 A short wait completes normally at timeout; an unbounded wait times out only
 when the caller enables `trap_on_timeout` or `virtual_trap_on_timeout`. The former
-wins if both apply. `completion` is a Valid level until the caller releases its
-active owner, with separate illegal/virtual-instruction flags. The caller owns
+wins if both apply. By default, the active owner's `completion` reflects the
+live inputs. With `~register_outcome: #true`, wake on the capture edge counts
+for the new owner; otherwise the first wake or timeout sampled while active
+fixes the result. Completion is visible after that edge and held while active,
+with separate illegal/virtual-instruction flags. The caller owns
 privilege qualification, instruction retention, trap values, and retirement.
 
 ### Writeback calendar
