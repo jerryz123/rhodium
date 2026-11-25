@@ -17,7 +17,6 @@ import:
   "../../../riscv/rtl/instruction-fields.rhdl".instruction_field
   "../../../riscv/rtl/floating-point.rhdl".riscv_unbox
   lib("hardfloat/main.rhdl").FloatFormat
-  "../../../riscv/rtl/vector.rhdl" open
   lib("flow/main.rhdl") open
   lib("rhodium/std/bits.rhdl") open
 
@@ -80,7 +79,7 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
   /* Element geometry and operation families.
      These instruction-derived choices are combinational, not another pipeline payload. */
 
-  def geometry = vector_type(xlen, vlen, descriptor.state.vtype)
+  def geometry = descriptor.state.geometry(vlen)
   def sew = vector_data_width(descriptor.control, geometry.sew)
   def mask_word = vector_mask_word(descriptor.control)
   def format = mux(mask_word, (if xlen == XLen.X32 | SimdElementWidth.E32 | SimdElementWidth.E64), sew.into(SimdElementWidth))

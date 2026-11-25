@@ -4,18 +4,18 @@
 using Word = decltype(prepare_results_1_in.pbits);
 constexpr unsigned vlen = 128, row_bytes = sizeof(Word), rows = vlen / (8 * row_bytes);
 
-void gather(bool ei16, unsigned sew, unsigned lmul, Word index, bool stall) {
+void gather(bool ei16, unsigned sew, unsigned lmul, Word index, bool stall, Word type_flags = 0) {
   constexpr unsigned start = 1, vs1 = 16, vs2 = 8;
   const unsigned bytes = 1u << sew, index_bytes = ei16 ? 2 : bytes;
   const unsigned vlmax = ((vlen / 8) << lmul) / bytes;
-  const bool in_range = index < vlmax;
+  const bool in_range = !(type_flags >> 8) && lmul != 4 && index < vlmax;
   request_in = {};
   auto &d = request_in.pbits.pdescriptor;
   d.pinstruction = (vs2 << 20) | (vs1 << 15);
   d.pcontrol.pinteger = 1;
   d.pcontrol.pgather = 1;
   d.pcontrol.pgather_uindex16 = ei16;
-  d.pstate.pvtype = (sew << 3) | lmul;
+  d.pstate.pvtype = type_flags | (sew << 3) | lmul;
   d.pstate.pvstart = start;
   d.pstate.pvl = start + 1;
   request_in.pvalid = 1;
@@ -68,6 +68,12 @@ int main() {
     reset = 0;
     constexpr unsigned native_sew = row_bytes == 8 ? 3 : 2;
     for (bool stall : {false, true}) {
+      // Same low byte: policy bits do not affect VLMAX, but every higher bit does.
+      constexpr Word policy = 3u << 6;
+      gather(false, 0, 0, 5, stall, policy);
+      for (unsigned bit = 8; bit < 8 * row_bytes; ++bit)
+        gather(false, 0, 0, 5, stall, policy | (Word(1) << bit));
+      gather(false, 0, 4, 0, stall, policy); // Reserved LMUL also gives VLMAX=0.
       gather(false, 0, 3, 127, stall); // Last valid index at maximum VLMAX.
       gather(false, native_sew, 3, 5, stall);
       gather(false, native_sew, 3, (Word(1) << (8 * row_bytes - 1)) | 5, stall);

@@ -16,7 +16,6 @@ import:
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/model/formats.rhm" as riscv_fields
   "../../../riscv/rtl/instruction-fields.rhdl".instruction_field
-  "../../../riscv/rtl/vector.rhdl" open
   "../../../riscv/rtl/pointer-masking.rhdl" open
   lib("flow/main.rhdl") open
   lib("rhodium/std/bits.rhdl") open
@@ -85,7 +84,7 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def vs2 = instruction_field(riscv_fields.rs2, descriptor.instruction)
   retained <== instruction
   // Instruction-derived geometry is combinational, not another pipeline payload.
-  def geometry = vector_type(xlen, vlen, descriptor.state.vtype)
+  def geometry = descriptor.state.geometry(vlen)
   def sew = vector_data_width(descriptor.control, geometry.sew)
   def mask_word = vector_mask_word(descriptor.control)
   def limit = descriptor.beat_limit(vlen)

@@ -12,7 +12,6 @@ import:
   "../../../riscv/isa/vector.rhm" open
   "../../../riscv/model/formats.rhm" as riscv_fields
   "../../../riscv/rtl/instruction-fields.rhdl".instruction_field
-  "../../../riscv/rtl/vector.rhdl" open
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
@@ -74,7 +73,7 @@ sync_circuit VectorPackedPrepare(xlen :: XLen, vlen :: VectorLength, Context :: 
   def eew = mux(mask_transfer, Bits(2)(0), descriptor.control.memory_data_eew)
   def nf = mux(whole ||| mask_transfer, Bits(3)(0), descriptor.control.memory_nf)
   def segmented = nf.any()
-  def geometry = vector_type(xlen, vlen, descriptor.state.vtype)
+  def geometry = descriptor.state.geometry(vlen)
   def emul = geometry.lmul.into(SInt(3)).sext(5) + eew.zext(5).into(SInt(5)) - geometry.sew.zext(5).into(SInt(5))
   def group_shift = mux(emul < SInt(5)(0), Bits(3)(0), emul.as_bits()[0..3])
   def limit = priority_mux(~default: descriptor.state.vl[0..index_width(vlen + 1)]):

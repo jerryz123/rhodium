@@ -495,6 +495,41 @@ void kill_younger(std::uint32_t instruction) {
   run(12);
   CHECK(retired_pcs.contains(branch_pc) && !retired_pcs.contains(branch_pc + 4));
 }
+void vector_type_readback() {
+  constexpr unsigned policy_type = 0xd0; // e32,m1,ta,ma
+  constexpr auto vill = UINT64_C(1) << (8 * bytes - 1);
+  constexpr auto set_from_x10 = 0x80007057u | (10 << 20) | (11 << 15) | (5 << 7);
+  constexpr auto read_type = 0xc21023f3u; // csrr x7,vtype
+  constexpr auto read_vl = 0xc2002473u;   // csrr x8,vl
+  const auto move = vi(23, 0, 12, 4, 20); // vmv.v.x v20,x12
+  constexpr unsigned avl = 2; // e32,m1 fits two elements even on the VLEN64 fixture.
+  send(addi(11, 0, avl));
+  for (unsigned bit : {8u, 16u, 8 * bytes - 1}) {
+    send(addi(10, 0, 1));
+    send((bit << 20) | (10 << 15) | (1 << 12) | (10 << 7) | 0x13); // slli x10,x10,bit
+    send(addi(10, 10, policy_type));
+    send(set_from_x10);
+    CHECK(gprs[5] == 0);
+    send(read_type);
+    send(read_vl);
+    CHECK(gprs[7] == vill && gprs[8] == 0);
+    send(move, true);
+    CHECK(last_cause == 2 && last_tval == move);
+
+    send(addi(10, 0, policy_type));
+    send(set_from_x10);
+    CHECK(gprs[5] == avl);
+    send(read_type);
+    send(read_vl);
+    CHECK(gprs[7] == policy_type && gprs[8] == avl);
+    send(addi(12, 0, bit + 1));
+    send(move);
+    send(vi(16, 20, 0, 2, 7)); // vmv.x.s x7,v20
+    send(addi(8, 7, 1));
+    CHECK(gprs[8] == bit + 2);
+  }
+}
+
 void vector_configuration_overlap() {
   // MEM forwarding supplies dependent AVL and vtype; a gap exercises WB forwarding.
   const auto first = next_pc;
@@ -2225,6 +2260,7 @@ int main() {
     vector_memory_branch_pairs();
     speculative_scalar_authorization();
     pc_region_pairing();
+    vector_type_readback();
     run();
     successor_carry_boundaries();
     for (unsigned cause : {0u, 1u, 12u}) fetch_fault_roundtrip(cause);

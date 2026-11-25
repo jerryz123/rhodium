@@ -63,6 +63,11 @@ so a same-edge descriptor replacement cannot change a returning beat.
 SIMD FP moves check NaN boxing after the read; the FP arithmetic service
 performs its own checks.
 
+The sequenced descriptor and scheduled reads retain the low byte of `vtype`
+and one flag for any set upper bit. Use the flag for geometry legality, alongside
+the low SEW/LMUL checks. Architectural CSR reads, configuration forwarding, and
+the admission trace use the original XLEN state, not this execution encoding.
+
 Element moves capture the full unsigned XLEN comparison `vstart >= vl` on
 that same admission edge. A move to a vector element uses the bit to suppress
 its write; a move from element zero to a GPR or FPR still runs. Keep the
@@ -373,7 +378,10 @@ The `vector-element-move-rv32` and `vector-element-move-rv64` fixtures check
 high-bit aliases, scalar destinations, and same-edge replacement of a stalled move.
 The `vector-gather-index-rv32` and `vector-gather-index-rv64` fixtures check the
 dependent read on the VRF return cycle and after a stall, including high-index
-aliases for both ordinary and EI16 gather.
+aliases for both ordinary and EI16 gather. They distinguish the policy bits
+from every reserved upper `vtype` bit. The RV32/RV64 `rv2wide-core-vector`
+fixtures check architectural `vsetvl`, CSR readback, and vector execution
+before and after clearing `vill`.
 The sequencer fixtures also stall a final compression write, cancel as its port
 reopens, and immediately read the old destination with the next instruction.
 They separately retry the final write and check that the authorized byte is restored.

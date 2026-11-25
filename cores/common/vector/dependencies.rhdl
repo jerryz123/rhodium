@@ -9,26 +9,26 @@ import:
   "../../../riscv/isa/vector.rhm" open
   "../../../riscv/model/formats.rhm" as riscv_fields
   "../../../riscv/rtl/instruction-fields.rhdl".instruction_field
-  "../../../riscv/rtl/vector.rhdl" open
 
-/* Computes the destination interval before the caller chooses its representation. */
-fun destination_bounds(xlen :: XLen, vlen :: VectorLength, control :: VectorControl(), instruction :: Bits(32), vtype :: Bits(xlen.width)):
-  def geometry = vector_type(xlen, vlen, vtype)
+/* Computes the destination interval from raw SEW/LMUL, independent of VLMAX or vill. */
+fun destination_bounds(control :: VectorControl(), instruction :: Bits(32), vtype_low :: Bits(8)):
+  def sew = vtype_low[3..5]
+  def lmul = vtype_low[0..3]
   def memory = control.memory
   def fp_service = control.floating_point & control.fp_service
   def whole = memory & (control.memory_mode === VectorMemoryMode.WholeRegister)
   def mask = memory & (control.memory_mode === VectorMemoryMode.Mask)
   def indexed = control.memory_addressing.is_one_of(VectorMemoryAddressing.IndexedOrdered, VectorMemoryAddressing.IndexedUnordered)
-  def memory_eew = mux(indexed, geometry.sew, control.memory_data_eew)
+  def memory_eew = mux(indexed, sew, control.memory_data_eew)
 
   /* Destination group geometry keeps signed EMUL arithmetic separate from
      the nonnegative register-count shift. Fractional groups claim one register. */
 
   def widened = (control.integer ||| control.multiply_divide ||| fp_service) & control.widening
-  def memory_emul_adjustment = memory_eew.zext(5).into(SInt(5)) - geometry.sew.zext(5).into(SInt(5))
+  def memory_emul_adjustment = memory_eew.zext(5).into(SInt(5)) - sew.zext(5).into(SInt(5))
   def widening_adjustment = widened.as_bits().zext(5).into(SInt(5))
   def emul_adjustment = mux(memory, memory_emul_adjustment, widening_adjustment)
-  def exponent = geometry.lmul.into(SInt(3)).sext(5) + emul_adjustment
+  def exponent = lmul.into(SInt(3)).sext(5) + emul_adjustment
   def group_shift = mux(exponent < SInt(5)(0), Bits(3)(0), exponent.as_bits()[0..3])
   def group = Bits(6)(1) << group_shift
   def fields = control.memory_nf.zext(6) + Bits(6)(1)
@@ -63,7 +63,7 @@ fun destination_bounds(xlen :: XLen, vlen :: VectorLength, control :: VectorCont
 
 /* The sequencer tests all destinations combinationally; no decoded mask is stored here. */
 fun vector_destination_registers(xlen :: XLen, vlen :: VectorLength, descriptor :: VectorDescriptor(xlen) || VectorSequenceDescriptor(xlen)) :~ Bits(32):
-  def (vd :~ Bits(5), end :~ Bits(6), writes :~ Bool) = destination_bounds(xlen, vlen, descriptor.control, descriptor.instruction, descriptor.state.vtype)
+  def (vd :~ Bits(5), end :~ Bits(6), writes :~ Bool) = destination_bounds(descriptor.control, descriptor.instruction, descriptor.state.vtype[0..8])
   vec(for List (r in 0..32): writes & (Bits(6)(r) >= vd.zext(6)) & (Bits(6)(r) < end)).as_bits()
 
 /* A contiguous claim intersects a run of register pairs. Only its two ends
@@ -86,7 +86,7 @@ bundle VectorDestinationClaim():
 
 /* Retains the intersected pairs and whether their boundary members are absent. */
 fun vector_destination_claim(xlen :: XLen, vlen :: VectorLength, descriptor :: VectorDescriptor(xlen)) :~ VectorDestinationClaim():
-  def (vd :~ Bits(5), end :~ Bits(6), writes :~ Bool) = destination_bounds(xlen, vlen, descriptor.control, descriptor.instruction, descriptor.state.vtype)
+  def (vd :~ Bits(5), end :~ Bits(6), writes :~ Bool) = destination_bounds(descriptor.control, descriptor.instruction, descriptor.state.vtype[0..8])
   def active = writes & (vd.zext(6) < end)
   // Round the exclusive end up to the next pair boundary; Mask.range clips at v31.
   def past_pair = end[1..6] +& end[0..1]

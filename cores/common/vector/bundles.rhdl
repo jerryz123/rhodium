@@ -41,8 +41,21 @@ fun gather_operand(xlen :: XLen, control :: VectorControl(), instruction :: Bits
   def immediate = instruction_field(riscv_fields.rs1, instruction)
   mux(control.operand === VectorOperandMode.Immediate, immediate.zext(xlen.width), operand)
 
+/* Captures the CSR fields used after admission. Only the low byte of vtype is
+   meaningful to execution; any set higher bit makes the encoding illegal. */
+bundle VectorSequenceState(xlen :: XLen):
+  vl: Bits(xlen.width)
+  vtype: Bits(8)
+  vtype_upper_nonzero: Bool
+  vxrm: Bits(2)
+
+  /* Decodes execution geometry with the architectural decoder. One reserved
+     bit represents all high bits; this encoding is not for CSR readback. */
+  method geometry(state, vlen :: VectorLength) :: RiscvVectorType(xlen, vlen):
+    vector_type(xlen, vlen, (state.vtype_upper_nonzero.as_bits() ++ state.vtype).zext(xlen.width))
+
 /* Derives the exclusive element limit for ordinary, whole-register and mask operations. */
-fun sequence_limit(xlen :: XLen, vlen :: VectorLength, control :: VectorControl(), state :: RiscvVectorState(xlen)) :~ Bits(index_width(vlen + 1)):
+fun sequence_limit(xlen :: XLen, vlen :: VectorLength, control :: VectorControl(), state :: RiscvVectorState(xlen) || VectorSequenceState(xlen)) :~ Bits(index_width(vlen + 1)):
   // Whole-register transfers ignore vl and vtype; encoded EEW counts their elements.
   def whole_register_memory = control.memory & (control.memory_mode === VectorMemoryMode.WholeRegister)
   def whole_register_group_shift = mux_lookup(control.memory_nf, ~default: Bits(2)(0), [[1, Bits(2)(1)], [3, Bits(2)(2)], [7, Bits(2)(3)]])
@@ -66,7 +79,7 @@ bundle VectorSequenceDescriptor(xlen :: XLen):
   precertified: Bool
   certificate: VectorFastCertificate(xlen)
   instruction: Bits(32)
-  state: RiscvVectorState(xlen)
+  state: VectorSequenceState(xlen)
   control: VectorControl()
   scalar_or_stride: Bits(xlen.width)
   masked: Bool
@@ -123,7 +136,13 @@ bundle VectorDescriptor(xlen :: XLen):
       precertified: descriptor.precertified
       certificate: descriptor.certificate
       instruction: descriptor.instruction
-      state: descriptor.state
+      state:
+        VectorSequenceState(xlen):
+          vl: descriptor.state.vl
+          vtype: descriptor.state.vtype[0..8]
+          vtype_upper_nonzero: descriptor.state.vtype[8..xlen.width].any()
+          vxrm: descriptor.state.vxrm
+
       control: descriptor.control
       scalar_or_stride: operand
       masked: descriptor.masked
