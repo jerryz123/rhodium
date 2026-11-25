@@ -3,6 +3,7 @@
 
 import:
   "../../../examples/formal/arbiter-queue.rspl".ArbiterQueue
+  "../../../examples/formal/gated-arbiter-queue.rspl".GatedArbiterQueue
   "../../../examples/formal/arbiter.rspl".Arbiter
   "../../../examples/formal/shift-queue.rspl".ShiftQueue
   lib("examples/formal/arbiter-queue.rhdl") as design
@@ -13,6 +14,7 @@ import:
   "../snapshot.rhm".formal_snapshot
   "composition-binding.rhm" open
   "arbiter-queue-fixture.rhdl".SeparateReset
+export gated_case gated_replay
 export buffered_cut separate_reset_cut
 export ordering_case correct_model wrong_lane_model undersized_model
 export alternate_cut swapped_view_cut fresh_cut
@@ -39,6 +41,15 @@ fun separate_reset_cut():
   def values(children, _) = wiring_cut(top, interface_prefixes)
   def child = children["storage"]
   proof_cut(top, Map.by(===){child: ShiftQueue(child)}, Bool, interface_prefixes)
+
+fun gated_case(depth):
+  def child = parent_at(depth)
+  def models = Map.by(===){child: ArbiterQueue(child)}
+  fun candidate(top): proof_cut(top, models, Bool, interface_prefixes)
+  values(candidate(gated_at(depth)), GatedArbiterQueue(gated_at(depth)), candidate(leaky_at(depth)))
+
+fun gated_replay(depth, leaky):
+  replay_rtl(if leaky | leaky_at(depth) | gated_at(depth))
 
 fun buffered_cut(depth):
   def parent = parent_at(depth)

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import lib("flow/main.rhdl") open
+import lib("examples/formal/arbiter-queue.rhdl").ArbiterQueue
 
 // Acknowledge the actual winner, but enqueue lane one's payload even when lane zero wins.
 sync_circuit WrongLane(width :: PosInt, depth :: PosInt):
@@ -31,4 +32,31 @@ circuit SeparateReset():
   ingress |> storage.ingress
   storage.egress |> egress
 
-export WrongLane Undersized SeparateReset
+// Hide the grant when closed but leave valid connected, creating a privately accepted word.
+sync_circuit LeakyGate(width :: PosInt, ~depth: depth :: PosInt = 2):
+  input enable: Bool
+  interface ingress[2](Decoupled(Bits(width)), ~role: consumer)
+  interface egress(Irrevocable(Bits(width)), ~role: producer)
+
+  reg gate_open(~init: Bool(#false))
+  gate_open <== enable
+  inst queue(ArbiterQueue(width, ~depth: depth))
+  for (i in 0..2):
+    queue.ingress[i].valid <== ingress[i].valid
+    queue.ingress[i].bits <== ingress[i].bits
+    ingress[i].ready <== gate_open & queue.ingress[i].ready
+
+  queue.egress |> egress
+
+// The state is legal RTL but its independent reset cannot establish the proof's reset epoch.
+circuit SeparateRegisterReset():
+  input clock: Clock
+  input reset: Reset
+  input local_reset: Reset
+  input enable: Bool
+  output admitted: Bool
+  reg held(~clock: clock, ~reset: local_reset, ~init: Bool(#false))
+  held <== enable
+  admitted <== held
+
+export SeparateRegisterReset LeakyGate WrongLane Undersized SeparateReset

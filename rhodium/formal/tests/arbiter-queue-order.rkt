@@ -11,7 +11,7 @@
          (only-in "arbiter-queue-binding.rhm" ordering_case separate_reset_cut alternate_cut swapped_view_cut fresh_cut
                   undersized_rtl correct_rtl one_slot_rtl depth_two_contract))
 
-(provide verified-arbiter-queue-at)
+(provide verified-arbiter-queue-at (rename-out [observe observe-arbiter-queue]))
 
 (define (inputs reset v0 d0 v1 d1 consume)
   (hash "reset" reset "ingress[0].valid" v0 "ingress[0].bits" d0 "ingress[1].valid" v1 "ingress[1].bits" d1 "egress.ready" consume))

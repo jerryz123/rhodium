@@ -14,8 +14,9 @@ import:
   "shift-queue-fixture.rhdl".QueuePair
   lib("examples/formal/arbiter-queue.rhdl").ArbiterQueue
   lib("examples/formal/buffered-arbiter-queue.rhdl").BufferedArbiterQueue
+  lib("examples/formal/gated-arbiter-queue.rhdl").GatedArbiterQueue
 
-export outer_at
+export gated_at leaky_at outer_at
 export pair pair_wires fifo_definition arbiter_definition mixed wrong_lane undersized
 export interface_prefixes pin_layout leaf_sites
 export proof_depths parent_at wrong_lane_at fifo_at
@@ -25,6 +26,8 @@ def mutable pair = #false
 def mutable arbiter_definition = #false
 def fifos = MutableMap{}
 def proof_depths = PairList[1, 2, 3]
+def gated = MutableMap{}
+def leaky = MutableMap{}
 def outer = MutableMap{}
 def parents = MutableMap{}
 def faulty_parents = MutableMap{}
@@ -35,11 +38,15 @@ fun inventory():
   for (d in proof_depths):
     fifos[d] := materialize_circuit(ShiftQueue(Bits(2), d))
     parents[d] := materialize_circuit(ArbiterQueue(2, ~depth: d))
+    gated[d] := materialize_circuit(GatedArbiterQueue(2, ~depth: d))
+    leaky[d] := materialize_circuit(LeakyGate(2, ~depth: d))
     outer[d] := materialize_circuit(BufferedArbiterQueue(2, ~depth: d))
     faulty_parents[d] := materialize_circuit(WrongLane(2, d))
   undersized := materialize_circuit(Undersized(2))
   ArbiterQueue(2)
 def mixed = elaborate(inventory()).top
+fun gated_at(depth): gated[depth]
+fun leaky_at(depth): leaky[depth]
 fun outer_at(depth): outer[depth]
 fun parent_at(depth): parents[depth]
 fun wrong_lane_at(depth): faulty_parents[depth]

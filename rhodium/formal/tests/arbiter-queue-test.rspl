@@ -3,8 +3,10 @@
 
 import:
   "../../../examples/formal/arbiter-queue.rspl".ArbiterQueue
+  "../../../examples/formal/gated-arbiter-queue.rspl".GatedArbiterQueue
   lib("examples/formal/arbiter-queue.rhdl") as design
   "shift-queue-fixture.rhdl" as leaves
+  "arbiter-queue-fixture.rhdl".SeparateRegisterReset
   lib("flow/shift-queue.rhdl") as fifo_rtl
   lib("flow/arbiter.rhdl") as arb_rtl
   lib("rhodium/frontend/foundation.rhm").Bits as RtlBits
@@ -229,3 +231,20 @@ def mistyped = Map.by(===){rtl.arbiter_definition: Arbiter(rtl.arbiter_definitio
 check:
   bridge.bind_wiring(rtl.mixed, Map{}, rtl_bool, rtl.interface_prefixes) ~throws "unbound RTL child"
   bridge.bind_wiring(rtl.mixed, mistyped, rtl_bool, rtl.interface_prefixes) ~throws "mistyped RTL/spec pin"
+
+// rspecsim sees the old admission bit, including when enable changes on the transfer edge.
+def gated = GatedArbiterQueue(rtl.gated_at(2))
+def g0 = step_spec(gated, {"admitting": #true, "pending": [1]}, clear ++ {"enable": #true})
+def g1 = step_spec(gated, g0.next_state, contest ++ {"enable": #true})
+def g2 = step_spec(gated, g1.next_state, contest ++ {"enable": #false})
+def g3 = step_spec(gated, g2.next_state, contest ++ {"enable": #false})
+def g4 = step_spec(gated, g3.next_state, take ++ {"enable": #false})
+check:
+  bridge.proof_cut(elaborate(SeparateRegisterReset()).top, Map{}, rtl_bool, rtl.interface_prefixes) ~throws "expected direct parent clock/reset"
+  g0.next_state ~is gated.initial
+  g1.events ~is {}
+  g2.events ~is {"accepted": 2}
+  g3.events ~is {}
+  g3.outputs["egress.bits"] ~is 2
+  g4.events ~is {"retired": 2}
+  g4.next_state ~is gated.initial

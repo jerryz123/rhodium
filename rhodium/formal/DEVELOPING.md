@@ -212,8 +212,9 @@ The [bridge](wiring.rhm) reads the parent operations and child signatures,
 then substitutes models by exact child definition. The fixture identifies the
 arbiter and FIFO sites by their circuit declarations, not generated names. It follows direct scalar
 wires and directional interface records, including
-indexed lanes. Record creation and selection route individual members; parent
-computation and state are rejected. A child clock must connect directly to
+indexed lanes. Record creation and selection route individual members. The
+concrete wiring bridge stops there; proof cuts also support the local RTL
+fragment described below. A child clock must connect directly to
 the parent clock. The cut uses the same logical member names as the leaf spec.
 Unused unmodeled outputs (count/mask)
 are allowed; a parent consuming one is rejected. The bridge constructs a
@@ -258,7 +259,25 @@ only that ArbiterQueue result and a one-slot ShiftQueue result. Its ordered
 backlog is the tail's live words followed by the front's pending winners.
 It proves head retirement, suffix retention, winner append, and occupancy
 conservation, and exercises a reachable fill/stall/drain trace for each front
-depth. Run `moon run rhodium:formal-spec-test rhodium:formal-test`.
+depth.
+
+### Parent-local RTL with an opaque child
+
+The [local lowering](parent-local.rhm) reads operations from the completed
+parent, not a second model supplied by the proof author. It adds one reserved
+`@local` graph participant for one-bit constants, literal casts to Bool,
+Boolean AND, and directly clocked, synchronously reset Boolean registers. The current register is an old-state output; its actual driver
+and reset value determine the successor. Local taps and child outputs use
+the same per-output dependency schedule, including fresh values on uncared
+pins. Each real instance still requires matching refinement evidence.
+Unsupported operations or non-direct clock/reset domains are rejected.
+
+The [gated proof](tests/gated-arbiter-queue-order.rkt) relates exactly one
+parent register and the verified queue's pending sequence to the wrapper's
+independent admission and history spec. Check reset and preservation at depths
+1–3. The leaky fixture fails preservation; a separate full-RTL replay shows
+an unacknowledged word retiring. That replay is not an input to certification.
+Run `moon run rhodium:formal-spec-test rhodium:formal-test`.
 
 ## Extend supported semantics
 

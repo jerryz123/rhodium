@@ -27,7 +27,7 @@ now checks reset and preservation separately for depths 1, 2, and 3;
 the faulty-payload replay remains at depth 2. The
 [series proof](DEVELOPING.md#two-shiftqueues-in-series) discharges the boundary
 and proves ordering and capacity four using two independent spec states.
-The parent fixtures share an admission check for wiring-only cuts: each
+The parent fixtures share an admission check: each
 occurrence needs run-local evidence for its actual implementation and full
 contract. No persistent evidence cache or general parent-logic checker is
 implemented. The two-queue depth-one readiness example is spec-only;
@@ -45,7 +45,9 @@ itself authorize substitution. The [next level](tests/buffered-arbiter-queue-ord
 proves ordered retirement with an additional one-slot FIFO using only the
 ArbiterQueue and FIFO specs. Wrong-lane wiring fails induction and cannot
 supply that result. These proofs do not inspect child RTL state and are not
-quantified over depth. The larger reorder-buffer example below
+quantified over depth. The [gated wrapper](tests/gated-arbiter-queue-order.rkt)
+adds one parent-local admission register while the child remains opaque; this
+is a limited Boolean RTL fragment, not arbitrary parent logic. The larger reorder-buffer example below
 remains future work.
 
 | Milestone | What to build | How to tell it works |

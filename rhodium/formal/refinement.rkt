@@ -1,11 +1,11 @@
 #lang rosette
-#| Proves leaf and wiring-only parent refinement and admits their results at exact RTL child occurrences. |#
+#| Proves leaf and parent refinement across verified child boundaries and admits their results at exact RTL child occurrences. |#
 ;; SPDX-License-Identifier: Apache-2.0
 
 (require racket/match (only-in racket/base [equal? host-equal?] [eq? host-eq?])
          "engine.rkt" "spec-engine.rkt" (only-in "snapshot.rhm" formal_snapshot) (only-in "spec.rhm" spec_snapshot)
          (only-in "wiring.rhm" cut_parts leaf_protocol leaf_layout))
-(provide prove-leaf prove-parent prepare-proved-wiring proved-child-model proved-edge-at view-agrees? pack-pins unpack-pins)
+(provide prove-leaf prove-parent prepare-proved-wiring proved-child-model symbolic-cut-state proved-edge-at view-agrees? pack-pins unpack-pins)
 
 ;; Private constructors. These are live elaboration identities, not transferable certificates.
 ;; Both supported protocols quantify over unrestricted external input samples.
@@ -115,7 +115,7 @@
 #| Before any parent query, resolve each site's exact definition and full spec (start, sorts,
    care, values, events and updates). One proof may cover several occurrences, not their states. |#
 (define (prepare-proved-wiring cut results)
-  (define-values (definition layout graph definitions layouts) (cut_parts cut))
+  (define-values (definition layout graph definitions layouts locals) (cut_parts cut))
   (unless (and (list? results) (andmap refinement-result? results))
     (error 'prepare-proved-wiring "expected completed refinement results"))
   (define models
@@ -130,10 +130,15 @@
                                               (host-equal? target (refinement-result-model r)))) candidates))
       (unless matched (error 'prepare-proved-wiring "evidence does not cover contract at ~a" site))
       (values site (refinement-result-model matched))))
-  (proved-cut definition layout graph models))
+  (proved-cut definition layout graph
+              (for/fold ([all models]) ([(site rtl) locals]) (hash-set all site rtl))))
 
 #| Access the admitted operational model for one occurrence, e.g. to allocate its abstract state. |#
 (define (proved-child-model plan site) (hash-ref (proved-cut-models plan) site))
+
+#| Allocate one independent abstract state per child and the actual local RTL register fields, if any. |#
+(define (symbolic-cut-state plan)
+  (for/hash ([(site model) (proved-cut-models plan)]) (values site (symbolic-spec-state model))))
 
 #| Step an admitted cut without inspecting child RTL or accepting replacement models from the caller. |#
 (define (proved-edge-at plan states inputs)
@@ -151,8 +156,7 @@
     (unless (host-equal? (hash-ref (hash-ref graph "output-types") k #f) (second (second field)))
       (error 'prove-parent "parent output schema mismatch: ~a" k)))
   (define spec (symbolic-spec-edge model))
-  (define states (for/hash ([(site child) (proved-cut-models plan)])
-                   (values site (symbolic-spec-state child))))
+  (define states (symbolic-cut-state plan))
   (define-values (pins edges settled) (proved-edge-at plan states (edge-inputs spec)))
   (define after (for/hash ([(site e) edges]) (values site (edge-next e))))
   (define-values (outputs events) (observe pins (edge-inputs spec)))

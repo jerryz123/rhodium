@@ -31,7 +31,11 @@ The [nested example](../../examples/formal/buffered-arbiter-queue.rhdl) adds
 a one-entry ShiftQueue after that proved ArbiterQueue. Using only those two
 specs, the outer proof shows that every retirement returns the oldest accepted
 winner and that at most `depth + 1` words are pending. Available space alone
-does not guarantee admission.
+does not guarantee admission. [GatedArbiterQueue](../../examples/formal/gated-arbiter-queue.rhdl)
+demonstrates the next boundary: the proof executes the wrapper's own admission
+register but substitutes the verified queue spec. Reset closes admission;
+otherwise the previous edge's enable controls new transfers. Closing the gate
+does not block already accepted words from draining.
 These proofs cover the stated specializations. They share an internal run-local
 refinement checker; they are not a parameter-universal proof.
 
@@ -206,7 +210,7 @@ care). A depth-one FIFO result cannot stand in for a depth-two FIFO, even if
 their ready/valid interfaces look alike. Two occurrences of one proved
 specialization can reuse its result, with independent state. A refinement result
 does not survive re-elaboration. It justifies substituting that child, not
-assuming that the parent wired it correctly. A wiring-only parent becomes a
+assuming that the parent wired it correctly. A supported parent becomes a
 verified child only after its own reset, edge, and observation obligations
 pass. The wrong-lane ArbiterQueue has proved children but earns no such result.
 

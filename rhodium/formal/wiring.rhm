@@ -1,10 +1,11 @@
 #lang rhombus
-/* Builds a spec execution graph from a completed wiring-only RTL parent and explicit leaf bindings. */
+/* Builds a spec execution graph from parent-local RTL and explicit child boundaries without expanding child implementations. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "../core/main.rhm" open
   "spec.rhm" open
+  "parent-local.rhm" open
   "port-types.rhm".sampled_type
 
 export wiring_cut bind_wiring proof_cut cut_parts leaf_protocol leaf_layout
@@ -39,6 +40,11 @@ fun port_leaves(p :: Port, prefixes :: Map, visit :: Function.of_arity(2)):
 
 /* Stop at child signatures. Record creation and selection only route existing wires. */
 fun wiring_cut(top :: Module, interface_prefixes :: Function.of_arity(1)):
+  def values(children, wires, _) = extract_cut(top, interface_prefixes, #false)
+  values(children, wires)
+
+/* For proof cuts, retain supported parent operations as one derived local actor. Never visit child bodies. */
+fun extract_cut(top :: Module, interface_prefixes :: Function.of_arity(1), bool :: maybe(HardwareType)):
   unless top.finished | error("expected completed RTL parent")
   def sources = MutableMap{}
   def sinks = MutableMap{}
@@ -54,6 +60,9 @@ fun wiring_cut(top :: Module, interface_prefixes :: Function.of_arity(1)):
     def fields = interface_prefixes(child)
     for (p in child.outputs, v in op.results):
       sources[v.id] := port_leaves(p, fields, fun (name, _): site ++ "." ++ name)
+  def local_ops = top.operations.filter(~keep: fun (op :: Operation): local_opcode(op.opcode))
+  when bool && local_ops.length() > 0 && children.has_key(local_site)
+  | error("reserved local RTL site: " ++ local_site)
   for (op in top.operations):
     match op.opcode
     | "rtl.record_get":
@@ -61,7 +70,10 @@ fun wiring_cut(top :: Module, interface_prefixes :: Function.of_arity(1)):
     | "rtl.record_create":
         sources[op.results[0].id] := for Map (f in op.attribute("fields"), v in op.operands): values(f, sources[v.id])
     | "rtl.input_port" || "rtl.output_port" || "rtl.drive" || "rtl.instance": #void
-    | ~else: error("not a wiring-only parent: " ++ op.opcode)
+    | ~else:
+        unless bool | error("not a wiring-only parent: " ++ op.opcode)
+        unless local_opcode(op.opcode) | error("unsupported parent operation: " ++ op.opcode)
+        sources[op.results[0].id] := local_site ++ "." ++ local_output(op.results[0])
   /* Preserve the member correspondence of whole-record connections as well as partial drives. */
   fun connect(p :: Port, fields :: Map, prefix :: String, driver :: Value):
     def pins = port_leaves(p, fields, fun (name, _): prefix ++ name)
@@ -75,7 +87,11 @@ fun wiring_cut(top :: Module, interface_prefixes :: Function.of_arity(1)):
     def fields = interface_prefixes(child)
     for (p in child.inputs, place in op.places): connect(p, fields, site ++ ".", place.driver)
   for (p in top.outputs): connect(p, prefixes, "", p.place.driver)
-  values(children.snapshot(), sinks.snapshot())
+  def locals:
+    if bool && local_ops.length() > 0
+    | {local_site: lower_local(local_ops, sources, sinks, bool)}
+    | {}
+  values(children.snapshot(), sinks.snapshot(), locals)
 
 /* Substitute by exact definition identity, checking sampled member types and direct clocking. */
 fun bind_wiring(top :: Module, bindings :: Map, bool :: HardwareType, interface_prefixes :: Function.of_arity(1)):
@@ -83,7 +99,7 @@ fun bind_wiring(top :: Module, bindings :: Map, bool :: HardwareType, interface_
   link_cut(top, bindings, bool, interface_prefixes, children, wires)
 
 /* A run-local cut carries the actual child definitions alongside the graph built from that same cut. */
-class ProofCut(top :: Module, layout :: PairList, graph :: Map, definitions :: Map, layouts :: Map)
+class ProofCut(top :: Module, layout :: PairList, graph :: Map, definitions :: Map, layouts :: Map, locals :: Map)
 
 /* Build an unproved candidate without snapshotting the child implementations. */
 fun proof_cut(top :: Module, bindings :: Map, bool :: HardwareType, interface_prefixes :: Function.of_arity(1)):
@@ -92,20 +108,21 @@ fun proof_cut(top :: Module, bindings :: Map, bool :: HardwareType, interface_pr
   fun fields(module_def :: Module):
     unless prefixes.has_key(module_def) | prefixes[module_def] := interface_prefixes(module_def)
     prefixes[module_def]
-  def values(children, wires) = wiring_cut(top, fields)
-  def model = link_cut(top, bindings, bool, fields, children, wires)
+  def values(children, wires, locals) = extract_cut(top, fields, bool)
+  def model = link_cut(top, bindings, bool, fields, children, wires, locals)
   for ((site, child) in children):
     when leaf_protocol(child) == "single-clock-reset" && wires.get(site ++ ".reset", #false) != "reset"
     | error("expected direct parent reset at " ++ site)
   def layouts = for Map ((site, child) in children): values(site, leaf_layout(child, fields(child)))
-  ProofCut(top, leaf_layout(top, fields(top)), composition_snapshot(model), children, layouts)
+  ProofCut(top, leaf_layout(top, fields(top)), composition_snapshot(model), children, layouts,
+           for Map ((site, rtl) in locals): values(site, spec_snapshot(rtl)))
 
 /* Only a cut constructed from a completed RTL parent may enter evidence preflight. */
-fun cut_parts(cut :: ProofCut): values(cut.top, cut.layout, cut.graph, cut.definitions, cut.layouts)
+fun cut_parts(cut :: ProofCut): values(cut.top, cut.layout, cut.graph, cut.definitions, cut.layouts, cut.locals)
 
 /* Check a single extraction before constructing either a concrete model or a proof candidate. */
 fun link_cut(top :: Module, bindings :: Map, bool :: HardwareType, interface_prefixes :: Function.of_arity(1),
-             children :: Map, wires :: Map):
+             children :: Map, wires :: Map, locals :: Map = {}):
   def names = MutableSet{}
   def clocks = MutableSet{}
   /* Keep each public sample, omitting only the named rising-edge clock. */
@@ -155,8 +172,10 @@ fun link_cut(top :: Module, bindings :: Map, bool :: HardwareType, interface_pre
     unless seen.length() == model.inputs.length() + model.outputs.length()
     | error("spec pin missing from RTL signature: " ++ site)
     values(site, model)
+  for ((site, model :: LeafModel) in locals):
+    for (key in model.outputs.keys()): names.add(site ++ "." ++ key)
   def connected = for Map (sink in wires.keys().filter(~keep: fun (k :: String): !(k in clocks))):
     def source = wires[sink]
     unless source in names | error("parent uses an unmodeled child output or clock: " ++ source)
     values(sink, source)
-  make_composition(inputs, outputs, models, connected)
+  make_composition(inputs, outputs, models ++ locals, connected)
