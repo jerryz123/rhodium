@@ -238,7 +238,7 @@ sync_circuit CacheLineRefill(Context :: DataType,
 
 /* Routes tagged RetryAck to its acquisition. Credits have no transaction ID:
    retain up to one per outstanding attempt until a matching home/type is known. */
-sync_circuit CacheRefillRetryRouter(p :: CHIFlitParams, count :: PosInt):
+sync_circuit CacheRefillRetryRouter(p :: CHIFlitParams, count :: PosInt, ~copyback: copyback :: Boolean = #false):
   def id_width = index_width(count)
   input node_id: Bits(p.node_id_width)
   interface incoming(Decoupled(CHIRspFlit(p)), ~role: consumer)
@@ -252,7 +252,7 @@ sync_circuit CacheRefillRetryRouter(p :: CHIFlitParams, count :: PosInt):
   def key = rsp.src_id ++ rsp.pcrd_type
   def is_credit = rsp.opcode === CHIRspOpcode.PCrdGrant
   def direct = incoming.valid & !is_credit
-  def owner = priority_encoder(vec(for List (i in 0..count): rsp.txn_id === Bits(12)(cache_mshr_txn_id(i))))
+  def owner = priority_encoder(vec(for List (i in 0..count): rsp.txn_id === Bits(12)(if copyback && i == count - 1 | 1 | cache_mshr_txn_id(i))))
   /* Selects an escrowed grant only after the named retry identifies its class. */
   fun matching(slot :: Nat):
     vec(for List (i in 0..count): waiting[slot] & occupied[i] & (needs[slot] === credits[i]))

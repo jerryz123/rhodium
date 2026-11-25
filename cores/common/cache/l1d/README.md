@@ -150,7 +150,9 @@ or reuse a read result owned by another request. An outstanding miss still keeps
 The number of line-acquisition entries (MSHRs) is a host parameter: one by
 default and two on RV3Wide. Behind an ordinary default-locality load or
 authorized store, another such request can acquire a missing line in a
-distinct set with a clean or invalid victim. A younger load issues
+distinct set, including when both allocations displace dirty victims. Each MSHR
+reserves its victim independently; one writeback engine drains the reserved victims.
+A younger load issues
 `ReadClean`; a younger store issues `ReadUnique`. Either line may fill first.
 Installing the younger line frees its slot, but neither writes the store's
 bytes nor produces a requester response. A snoop can take the clean line
@@ -159,7 +161,7 @@ before the store reaches the head; the store then reacquires permission.
 Same-line waiters share an acquisition if it covers the needed permission.
 Offsets, store masks and data, and caller contexts stay in the ordered path.
 A store needing a shared-to-unique upgrade waits for the head, as do atomics
-and cache-management operations; lookahead does not pass these barriers.
+and cache-management operations; demand issue does not pass these barriers.
 The request window holds at least one line's worth of rows plus one request
 for the following line.
 
@@ -275,11 +277,13 @@ decide whether its egress drains, but cannot feed back combinationally into
 acceptance.
 The same queue retains ordinary same-line waiters while an acquisition is
 occupied; a full queue rejects admission so the caller retains or retries its request.
-When the queue is empty and the SRAM port is available, an early virtual lookup
+In the single-MSHR configuration, when the queue is empty and the SRAM port
+is available, an early virtual lookup
 reads the arrays in parallel with translation and PMA checks. Its permitted
 physical request bypasses the queue into the lookup pipeline at the read edge.
 Otherwise, accepted physical requests enter the queue and later index using
-their unchanged page-offset bits. Queued requests always precede fresh demands.
+their unchanged page-offset bits. The multi-MSHR configuration issues from the
+registered demand window. Queued requests always precede fresh demands.
 A one-stage `Pipe` retains S3 request context alongside the synchronous SRAM
 lookup. Tag comparison and word/state selection feed an elastic S4 result
 register. S4 checks access ownership and LR/SC reservation, chooses eviction
@@ -295,9 +299,9 @@ authorized processing path, not the CPU pipeline. Queueing and rereads can delay
 these stages, so they are not fixed cycles after authorization. A reread returns
 to S2 admission without repeating architectural authorization.
 
-An older S4 miss or mutation stops younger S3 advancement. The cache retains
-that younger request, discards its array result, and rereads after the older
-operation completes. Pending snoops may use the arrays while the retained
+An older S4 miss or mutation stops younger retirement. With multiple MSHRs,
+ordinary requests may still use S3 to reserve a missing line or share an
+existing acquisition. Their data and permissions are checked again at the head. Pending snoops may use the arrays while the retained
 request waits; replay then observes updated tags, coherence state, and data.
 Only requests with reserved downstream capacity enter S4; its retained result
 waits until the selected local operation or transaction can advance.
@@ -337,15 +341,12 @@ victim is dirty, avoiding nonbinding writeback traffic.
 | Failed SC | Return one without CHI traffic or a data-array update | Unchanged |
 | Dirty allocation victim | Start the replacement request while streaming the granted victim | Victim invalidated before accepting replacement data |
 
-L1D supplies the aligned miss address from its retained request until refill
-completion is accepted. The [refill engine](../chi/refill.rhdl) uses that
-address for every attempt and retains its own CHI retry state. Each accepted
-`CompData` packet identifies its SRAM rows by DataID. An allocating miss
-backpressures DAT when the current packet cannot drain. L1D supplies the destination way
-and original response context from the shared registers; only a miss captures
-the allocation and installation policy.
-A direct miss starts the refill on its S4 acceptance edge; after a dirty
-eviction the refill uses the original request address, not the victim address.
+Each MSHR retains its target line, destination way, and installation policy.
+Its [refill engine](../chi/refill.rhdl) retries the target address, never the
+victim address. Each accepted `CompData` packet identifies its SRAM rows by
+DataID. An allocating miss backpressures DAT when the current packet cannot
+drain. A younger store acquires the line without merging store bytes; those
+bytes and the response context stay with the ordered request.
 
 Shared cache lines are fixed at 64 bytes, and L1D rejects a refill carrying `PassDirty`. With the
 repository's default 128-bit DAT width, four packets form a line. Installation
@@ -382,7 +383,7 @@ local accesses. A preceding snoop may consume its dirty data and invalidate
 it, in which case copyback reports Invalid without enabled bytes. The grant
 freezes the response state and permits a replacement `ReadClean` or `ReadUnique`
 to start, even with one MSHR. Request issue and retry can overlap outgoing DAT.
-Early replacement data is backpressured until copyback completes and the victim
+After grant, incoming data is backpressured until copyback completes and the victim
 is invalidated. Neither a second line buffer nor concurrent SRAM reads and
 writes are required. Unrelated load hits retain the existing hit-under-miss behavior.
 

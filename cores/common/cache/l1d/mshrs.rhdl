@@ -29,6 +29,20 @@ sync_circuit L1DMSHRs(count :: Int.in(1 ..= 4094), width :: PosInt, ways :: PosI
   def Result = CacheLineRefillResult(Target, width)
   input node_id: Bits(p.node_id_width)
   input ordered_ready: Bool
+  input dirty: Bool
+  input victim_address: Bits(width)
+  input victim_state: CHICacheState
+  input snoop_update: Bool
+  input snoop_line: Bits(width)
+  input snoop_state: CHICacheState
+  interface evict(Decoupled(Bits(index_width(count))), ~role: producer)
+  input evict_active: Bool
+  interface grant(Valid(Bits(index_width(count))), ~role: consumer)
+  input granted: Bool
+  output evict_address: Bits(width)
+  output evict_way: Bits(index_width(ways))
+  output evict_state: CHICacheState
+  interface copy_responses(Decoupled(CHIRspFlit(p)), ~role: producer)
   interface allocate(Decoupled(Command), ~role: consumer)
   interface complete(Decoupled(Result), ~role: producer)
   interface packet(Valid(CacheLineChunk(p.data_bytes)), ~role: producer)
@@ -44,20 +58,43 @@ sync_circuit L1DMSHRs(count :: Int.in(1 ..= 4094), width :: PosInt, ways :: PosI
   interface data(Decoupled(CHIDatFlit(p)), ~role: consumer)
 
   wire free: Vec(count, Bool)
+  reg pending(~init: Bits(count)(0).as_vec(Bool))
+  reg queued(~init: Bits(count)(0).as_vec(Bool))
+  reg saved(Vec(count, Command))
+  reg victims(Vec(count, Bits(width)))
+  reg states(Vec(count, CHICacheState))
+  reg owner(Bits(index_width(count)))
   occupied <== (!free.as_bits()).as_vec(Bool)
   reg next_slot(~init: Bits(index_width(count))(0))
   def chosen :: CircularPriorityChoice(count, index_width(count)) = circular_priority_onehot(free, next_slot)
-  def commands = allocate |> demux_flow(count, _request => chosen.index)
+  def commands = allocate |> gate_flow(chosen.valid) |> demux_flow(count, _request => chosen.index)
   when (allocate.fire()):
     next_slot <== wrap_increment(chosen.index, count)
   def returns = data |> demux_flow(count, dat => priority_encoder(vec(for List (i in 0..count): dat.txn_id === Bits(12)(cache_mshr_txn_id(i)))))
+  // Unissued victims stay snoop-visible. The active engine pins its selected
+  // slot until final DAT, independently of any other slot's read or retry.
+  def waiting = priority_encoder_oh(queued)
+  def selected = mux(waiting.valid, waiting.index, chosen.index)
+  inst victims_out(GrantMerge(Bits(index_width(count)), count))
+  victims_out.grants <== vec(for List (i in 0..count): selected === Bits(index_width(count))(i)).into(MaybeOneHot(count))
+  victims_out.egress |> evict
+  def slot = mux(evict_active, owner, selected)
+  def bypass = !evict_active & !waiting.valid
+  evict_address <== mux(bypass, victim_address, victims[slot])
+  evict_way <== mux(bypass, allocate.bits.context.way, saved[slot].context.way)
+  evict_state <== mux(bypass, victim_state, states[slot])
+  when (evict.fire()): owner <== selected
   def retry_ports:
     if count == 1
-    | Array(responses)
     | block:
-        inst credits(CacheRefillRetryRouter(p, count))
+        def Array(read, copy) = responses |> demux_flow(2, _rsp => (evict_active & !granted).as_bits())
+        copy |> copy_responses
+        Array(read)
+    | block:
+        inst credits(CacheRefillRetryRouter(p, count + 1, ~copyback: #true))
         credits.node_id <== node_id
         responses |> credits.incoming
+        credits.outgoing[count] |> copy_responses
         for Array (i in 0..count): credits.outgoing[i]
 
   inst reads(Arbiter(CHIReqFlit(p), count))
@@ -71,14 +108,45 @@ sync_circuit L1DMSHRs(count :: Int.in(1 ..= 4094), width :: PosInt, ways :: PosI
   wire installing: Vec(count, Bool)
   wire writes: Vec(count, Bool)
   wire chunks: Vec(count, CacheLineChunk(p.data_bytes))
+  wire selected_ready: Vec(count, Bool)
+  wire resume_ready: Vec(count, Bool)
+  def grants = grant |> fork_valid(count)
   for (i in 0..count):
     inst engine(CacheLineRefill(Target, width, config, ~slot: i))
     engine.node_id <== node_id
-    free[i] <== engine.command.ready
-    targets[i] <== engine.active_context
-    acquiring_unique[i] <== engine.acquiring_unique
-    engine.line_address <== mux(free[i], allocate.bits.context.address, engine.active_context.address)
-    commands[i] |> engine.command
+    free[i] <== engine.command.ready & !pending[i]
+    targets[i] <== mux(pending[i], saved[i].context, engine.active_context)
+    acquiring_unique[i] <== mux(pending[i], saved[i].opcode === CHIReqOpcode.ReadUnique, engine.acquiring_unique)
+    def id = Bits(index_width(count))(i)
+    def Array(clean, victim) = commands[i] |> demux_flow(2, _command => dirty.as_bits())
+    victim.ready <== free[i]
+    def reservation = inject_interface(Decoupled(Bits(index_width(count))), ~valid: queued[i] ||| victim.fire(), ~bits: id, ~ready: selected_ready[i])
+    reservation |> victims_out.ingress[i]
+    def victim_name = "victim-" ++ to_string(i)
+    describe_interface_window_storage(1, victim.fire() & !reservation.fire(), queued[i] & reservation.fire(), queued[i], Bool(#false), [queued[i]], ~live: !queued[i], ~name: victim_name)
+    describe_interface_contract(victim, reservation, victim_name, ~trace_model: interface_trace_window(~name: victim_name))
+    def launch = granted & (owner === id) & pending[i]
+    def resumed = inject_interface(Decoupled(Command), ~valid: launch, ~bits: saved[i], ~ready: resume_ready[i])
+    def granted_slot = grants[i] |> filter_valid(slot => slot === id)
+    def name = "replacement-" ++ to_string(i)
+    describe_interface_retained_storage(granted_slot.valid, resumed.fire(), launch, ~name: name)
+    describe_interface_contract(granted_slot, resumed, name, ~trace_model: interface_trace_retained(~name: name))
+    Array(clean, resumed) |> arbiter() |> engine.command
+    engine.line_address <== mux(engine.command.ready, engine.command.bits.context.address, engine.active_context.address)
+    when (victim.fire()):
+      pending[i] <== Bool(#true)
+      saved[i] <== victim.bits
+      victims[i] <== victim_address
+    elsewhen (resumed.fire()):
+      pending[i] <== Bool(#false)
+    when (evict.fire() & (selected === id)):
+      queued[i] <== Bool(#false)
+    elsewhen (victim.fire()):
+      queued[i] <== Bool(#true)
+    when (victim.fire()):
+      states[i] <== victim_state
+    elsewhen (snoop_update & pending[i] & (victims[i] === snoop_line)):
+      states[i] <== snoop_state
     returns[i] |> engine.response_data
     retry_ports[i] |> engine.responses
     engine.requests |> reads.ingress[i]

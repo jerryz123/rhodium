@@ -86,6 +86,15 @@ void response(Row expected, unsigned context = 0x97, bool access_fault = false) 
   core_in.presponse.pready = 1; tick_model(); core_in.presponse.pready = 0;
 }
 
+void retry_response(unsigned opcode, unsigned txn, unsigned credit) {
+  auto &r = chi_in.presponses;
+  r.pbits = {}; r.pbits.popcode = opcode; r.pbits.ptxn_uid = txn;
+  r.pbits.psrc_uid = 1; r.pbits.ptgt_uid = 3; r.pbits.ppcrd_utype = credit;
+  r.pvalid = 1;
+  until([] { return chi_out.presponses.pready; });
+  tick_model(); r.pvalid = 0;
+}
+
 void check_overlapping_loads(const Line &a, const Line &b, bool reverse) {
   // Same bank parity but distinct sets. Four A waiters and two B waiters
   // must consume just two CHI requests, each retaining its own byte offset.
@@ -99,17 +108,9 @@ void check_overlapping_loads(const Line &a, const Line &b, bool reverse) {
   CHECK(ta != tb);
   request(other + 48, load, {}, 0xffff, true, 0x21);
   if (reverse) {
-    auto rsp = [&](unsigned opcode, unsigned txn, unsigned credit) {
-      auto &r = chi_in.presponses;
-      r.pbits = {}; r.pbits.popcode = opcode; r.pbits.ptxn_uid = txn;
-      r.pbits.psrc_uid = 1; r.pbits.ptgt_uid = 3; r.pbits.ppcrd_utype = credit;
-      r.pvalid = 1;
-      until([] { return chi_out.presponses.pready; });
-      tick_model(); r.pvalid = 0;
-    };
     // Untagged grants in the opposite order to tagged RetryAcks.
-    rsp(7, 0, 5); rsp(7, 0, 6);
-    rsp(3, ta, 6); rsp(3, tb, 5);
+    retry_response(7, 0, 5); retry_response(7, 0, 6);
+    retry_response(3, ta, 6); retry_response(3, tb, 5);
     until([] { return chi_out.prequests.pvalid; });
     CHECK(!chi_out.prequests.pbits.pallow_uretry && chi_out.prequests.pbits.ppcrd_utype == 6);
     CHECK(accept_request(base, 2) == ta);
@@ -285,7 +286,7 @@ void check_miss_barrier(const Line &a, const Line &b, bool reservation_barrier) 
   refill(last, 2, a); response(a[2], 3);
 }
 
-void check_store_lookahead(Line a, Line b, bool invalidate) {
+void check_store_miss_admission(Line a, Line b, bool invalidate) {
   constexpr unsigned addr_b = base+64, addr_c = base+128;
   const Row patch{{0x11112222, 0x33334444, 0x55556666, 0x77778888}};
   request(base, store, patch, 0x000f, true, 1);
@@ -359,7 +360,7 @@ void check_shared_upgrade_barrier(const Line &a, const Line &b) {
   request(addr_b, store, a[0], 0xffff, true, 2);
   request(addr_c, load, {}, 0xffff, true, 3);
   // The clean acquisition for B does not cover B's store. Even after
-  // B installs SharedClean, the walker cannot skip the required upgrade.
+  // B installs SharedClean, issue cannot pass the blocked upgrade.
   for (unsigned i = 0; i < 4; ++i) refill_packet(tb, i, 1, b[i]);
   for (unsigned i = 0; i < 16; ++i) {
     eval(); CHECK(!chi_out.prequests.pvalid && !core_out.presponse.pvalid); tick_model();
@@ -649,6 +650,63 @@ void check_high_store_rows(const Line &low, const Line &high) {
   hit(ram + 48, load, high[2]);
 }
 
+void check_two_dirty_misses(const Line &a, const Line &b, bool probe_waiting_victim) {
+  reset = 1; tick_model(); reset = 0;
+  for (auto off : {0u, 64u, 256u, 320u}) {
+    const Line &line = off % 256 == 0 ? a : b;
+    request(base+off, store, line[0]); refill(base+off, 7, line); response({});
+  }
+  auto grant = [&](unsigned dbid) {
+    auto &rsp = chi_in.presponses;
+    rsp.pbits = {}; rsp.pbits.popcode = 5; rsp.pbits.psrc_uid = 1;
+    rsp.pbits.ptgt_uid = 3; rsp.pbits.ptxn_uid = 1; rsp.pbits.pdbid_uor_ugroup_uid = dbid;
+    rsp.pvalid = 1; until([] { return chi_out.presponses.pready; }); tick_model(); rsp.pvalid = 0;
+  };
+  auto drain = [&](unsigned dbid, const Line &line, bool valid) {
+    for (unsigned i = 0; i < 4; ++i) {
+      auto &d = chi_out.prequest_udata;
+      until([&] { return d.pvalid; });
+      CHECK(d.pbits.popcode == 2 && d.pbits.ptxn_uid == dbid && d.pbits.pdata_uid == i);
+      CHECK(d.pbits.pbyte_uenable == (valid ? 0xffff : 0));
+      if (valid) CHECK(d.pbits.pdata == line[i]);
+      chi_in.prequest_udata.pready = 1; tick_model(); chi_in.prequest_udata.pready = 0;
+    }
+  };
+  request(base+512, store, b[1], 0xffff, true, 1);
+  CHECK(accept_request(base, 0x1b) == 1);
+  if (!probe_waiting_victim) grant(0x51);
+  request(base+576, store, a[1], 0xffff, true, 2);
+  for (int i = 0; i < 8; ++i) tick_model();
+  if (probe_waiting_victim) {
+    // B must already own this victim. An unallocated B would subsequently see
+    // an invalid way and issue no WriteBackFull at all.
+    snoop_dirty_line(base+64, b, 0x53);
+    grant(0x51);
+  }
+  const auto ta = accept_request(base+512, 7);
+  drain(0x51, a, true);
+  CHECK(accept_request(base+64, 0x1b) == 1); // A's replacement still has no data.
+  // Home can return A's data or retry B's eviction before granting B.
+  refill_packet(ta, 2, 2, a[2]);
+  if (probe_waiting_victim) {
+    retry_response(7, 0, 5);
+    retry_response(3, 1, 5);
+    until([] { return chi_out.prequests.pvalid; });
+    CHECK(!chi_out.prequests.pbits.pallow_uretry && chi_out.prequests.pbits.ppcrd_utype == 5);
+    CHECK(accept_request(base+64, 0x1b) == 1);
+  }
+  grant(0x52);
+  const auto tb = accept_request(base+576, 7);
+  CHECK(tb != ta);
+  drain(0x52, b, !probe_waiting_victim);
+  for (unsigned i = 0; i < 4; ++i) refill_packet(tb, i, 2, b[i]);
+  for (int i = 0; i < 8; ++i) { eval(); CHECK(!core_out.presponse.pvalid); tick_model(); }
+  for (unsigned i : {0u, 1u, 3u}) refill_packet(ta, i, 2, a[i]);
+  response({}, 1); response({}, 2);
+  request(base+512, load); response(b[1]);
+  request(base+576, load); response(a[1]);
+}
+
 int main() {
   return run_test([] {
     reset = 1; tick_model(); reset = 0;
@@ -669,7 +727,8 @@ int main() {
       reset = 1; tick_model(); reset = 0;
       check_miss_barrier(a, b, reverse);
       reset = 1; tick_model(); reset = 0;
-      check_store_lookahead(a, b, reverse);
+      check_store_miss_admission(a, b, reverse);
+      check_two_dirty_misses(a, b, reverse);
       reset = 1; tick_model(); reset = 0;
       check_store_behind_load(a, b, reverse);
       reset = 1; tick_model(); reset = 0;
