@@ -488,6 +488,10 @@ is built locally with compiler 0.20.3 and installed under an identity-keyed
 `.tools/` path. Linux downloads that compiler from a checksum-pinned release;
 macOS requires an explicit local compiler. The model build never edits the
 submodule, and changing its gitlink or patch bytes changes the emulator path.
+The installer selects upstream's `BUILD_RELEASE=ON` independently of CMake's
+optimization preset so `--version` retains ACT's required release identifier.
+Configure from the materialized source directory so upstream Git discovery
+cannot identify the enclosing Rhodium checkout as the Sail revision.
 Cache and package identity use the gitlink, ordered patches, and compiler
 version, not the emulator's release string alone. The installed executable and
 embedded library must come from the same source identity.
@@ -581,7 +585,7 @@ and header/runner contracts together. The shared linker layout keeps test data
 addresses equal between Sail signature payloads and self-checking DUT payloads;
 model-specific text and HTIF mailboxes follow test data and stack.
 
-At ACT pin `ea22c06859691c5e2b44ef1fe4f7e06a8f1e4256`, native vector-FP
+At ACT pin `2a1ab1f8947b6aa68419d48de3787f9e1be3e9da`, native vector-FP
 generation supplies operand widths and separate scalar/broadcast register
 groups. Native privileged generators use record-counted trap signature storage,
 UDB counter guards, and bounded LR/SC retries. Do not restore the retired
@@ -594,6 +598,9 @@ then enables the selected filter before the workload; its upstream implementatio
 replaces the former RV32 split-counter preload patch. Suite merges and renames,
 including the expanded hypervisor framework, require fresh generation and
 complete inventory-based reporting rather than an old filename/count baseline.
+Native WFI counter cases now avoid taken interrupts whose retirement boundary
+and handler work vary by implementation; the downstream handler-normalization
+patch is retired. Regenerate reference signatures with the new native cases.
 Generated UDB headers live in `work/<config>/env`. Keep the native all-suite
 selection and required Sail 0.16 check unchanged; refresh dependencies against
 ACT's lockfile before generation. The platform provides both external-interrupt

@@ -113,6 +113,8 @@ static std::unique_ptr<SpikeCoreModel> check_store_conditional(bool rv64, bool d
   config.isa = rv64 ? "rv64ima_zicsr" : "rv32ima_zicsr";
   config.privilege = "msu";
   config.max_vaddr_bits = translated ? 39 : 0;
+  // Retain both the page-table and operand lines: upstream no longer caches PTEs separately.
+  config.data_cache_ways = translated ? 2 : 1;
   config.pmp_regions = 0;
   auto model = std::make_unique<SpikeCoreModel>(config);
   std::vector<std::uint32_t> code = {
@@ -559,14 +561,25 @@ int main() {
 
   // An AMO must request a unique line before reading it, complete its update
   // without another RTL transaction, and reject a region without atomic PMA.
-  std::array<std::unique_ptr<SpikeCoreModel>, 2> amo_models;
-  for (bool allowed : {true, false}) {
+  std::array<std::unique_ptr<SpikeCoreModel>, 4> amo_models;
+  for (unsigned variant = 0; variant < amo_models.size(); ++variant) {
+    const bool allowed = variant & 1, translated = variant & 2;
     Configuration amo_configuration;
     amo_configuration.reset_vector = 0x1000;
     amo_configuration.isa = "rv64ima_zicsr";
     amo_configuration.privilege = "msu";
-    amo_models[allowed] = std::make_unique<SpikeCoreModel>(amo_configuration);
-    auto& amo_model = *amo_models[allowed];
+    amo_configuration.max_vaddr_bits = translated ? 39 : 0;
+    amo_configuration.pmp_regions = 0;
+    amo_configuration.data_cache_ways = translated ? 2 : 1;
+    amo_models[variant] = std::make_unique<SpikeCoreModel>(amo_configuration);
+    auto& amo_model = *amo_models[variant];
+    std::vector<std::uint32_t> amo_code = {0x000020b7, 0x00100113, 0x0020a1af, 0x0000006f};
+    if (translated) {
+      // Sv39 plus MPRV forces the operand through fresh page walks without a TLB hit.
+      amo_code.insert(amo_code.begin(), {0x00400313, 0x00100393, 0x03f39393, 0x00736333,
+                                        0x18031073, 0x00020337, 0x000013b7, 0x80038393,
+                                        0x00736333, 0x30031073});
+    }
     Inputs amo_inputs;
     std::size_t amo_classifications = 0;
     std::size_t amo_acquires = 0;
@@ -589,16 +602,23 @@ int main() {
       if (amo_outputs.instruction_request_valid) {
         next.instruction_request_ready = true;
         next.instruction_response_valid = true;
-        next.instruction_response_line[0] = 0x00100113000020b7ULL;
-        next.instruction_response_line[1] = 0x0000006f0020a1afULL;
+        assert(amo_outputs.instruction_request_address == 0x1000);
+        std::memcpy(next.instruction_response_line.data(), amo_code.data(), amo_code.size() * 4);
       }
       if (amo_outputs.acquire_request_valid) {
+        next.acquire_request_ready = true;
+        next.acquire_response_valid = true;
+        if (amo_outputs.acquire_request_address == 0x4000) {
+          assert(translated && !amo_outputs.acquire_request_unique);
+          next.acquire_response_state = 1;
+          next.acquire_response_line[0] = 0xcf;
+          amo_inputs = next;
+          continue;
+        }
         assert(allowed);
         assert(amo_outputs.acquire_request_address == 0x2000);
         assert(amo_outputs.acquire_request_unique);
         ++amo_acquires;
-        next.acquire_request_ready = true;
-        next.acquire_response_valid = true;
         next.acquire_response_state = 2;
         next.acquire_response_line[0] = 7;
       }

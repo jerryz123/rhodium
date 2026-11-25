@@ -292,10 +292,11 @@ def project_architecture(default, udb, csr_warl=None):
     stateen = model_extensions["Stateen"]
     writable = "CSRBit_Writable"
     zero = "CSRBit_ReadOnlyZero"
+    csrind = writable if "S" in extensions and extensions.keys() & {"Smcsrind", "Sscsrind"} else zero
     stateen["mstateen0"].update(SE0=writable, ENVCFG=writable if "S" in extensions else zero,
-                              CONTEXT=zero, P1P13=writable if "H" in extensions and params["MXLEN"] == 32 else zero,
+                              CSRIND=csrind, CONTEXT=zero, P1P13=writable if "H" in extensions and params["MXLEN"] == 32 else zero,
                               SRMCFG=writable if "Ssqosid" in extensions else zero, FCSR=zero, C=zero)
-    stateen["hstateen0"].update(ENVCFG=writable if "S" in extensions else zero, CONTEXT=zero, FCSR=zero, C=zero)
+    stateen["hstateen0"].update(ENVCFG=writable if "S" in extensions else zero, CSRIND=csrind, CONTEXT=zero, FCSR=zero, C=zero)
     stateen["sstateen0"].update(FCSR=zero, C=zero)
     base = default["base"]
     # Sdtrig is disabled above for harts without triggers, including tselect.

@@ -8,12 +8,12 @@ events to zero without changing Sscofpmf overflow/filter fields or implementing
 counter events. PMM normalization covers all pointer-masking controls.
 
 diff --git a/config/config.json.in b/config/config.json.in
-index dceaf4aa..a6b8fbfe 100644
+index ea0fb294..91eba8eb 100644
 --- a/config/config.json.in
 +++ b/config/config.json.in
-@@ -22,6 +22,10 @@
-     // in the extensions with this field below.
-     "misa_implemented": true,
+@@ -27,6 +27,10 @@
+       "has_non_standard_extensions": false
+     },
      "writable_fiom": true,
 +    // Implementation-specific CSR WARL choices; defaults preserve native behavior.
 +    "hedeleg": {"delegatable_bits": {"len": 64, "value": "0xCB1FF"}},
@@ -23,7 +23,7 @@ index dceaf4aa..a6b8fbfe 100644
      // HPM counters (hpmcounter31 .. hpmcounter3) are supported
      // (i.e. are not read-only zero). A set bit specifies that the
 diff --git a/model/core/counters.sail b/model/core/counters.sail
-index e257aeb0..c0fa5c60 100644
+index c1b7a574..5c0c3d66 100644
 --- a/model/core/counters.sail
 +++ b/model/core/counters.sail
 @@ -150,9 +150,21 @@ function hpmidx_from_bits(b : bits(5)) -> hpmidx = {
@@ -59,10 +59,10 @@ index e257aeb0..c0fa5c60 100644
  }
  
 diff --git a/model/core/interrupt_regs.sail b/model/core/interrupt_regs.sail
-index 756d0c0f..f1b26426 100644
+index 637ec130..5b096734 100644
 --- a/model/core/interrupt_regs.sail
 +++ b/model/core/interrupt_regs.sail
-@@ -404,7 +404,7 @@ function hedeleg_writable_mask() -> bits(64) =
+@@ -417,7 +417,7 @@ function hedeleg_writable_mask() -> bits(64) =
    ].bits
  
  private function legalize_hedeleg(_m : Medeleg, v : bits(64)) -> Medeleg =
@@ -72,10 +72,10 @@ index 756d0c0f..f1b26426 100644
  private function legalize_hideleg(m : Minterrupts, v : xlenbits) -> Minterrupts = {
    let v = Mk_Minterrupts(v);
 diff --git a/model/core/sys_regs.sail b/model/core/sys_regs.sail
-index f62d5aba..2f350339 100644
+index a5d7378a..0261a1c8 100644
 --- a/model/core/sys_regs.sail
 +++ b/model/core/sys_regs.sail
-@@ -347,7 +347,7 @@ private function legalize_hstatus(h : Hstatus, v : bits(64)) -> Hstatus = {
+@@ -357,7 +357,7 @@ private function legalize_hstatus(h : Hstatus, v : bits(64)) -> Hstatus = {
    let v = Mk_Hstatus(v);
    [h with
      // HUPMM controls pointer masking for HLV.*/HSV in U-mode (effective VU)
@@ -84,7 +84,7 @@ index f62d5aba..2f350339 100644
      // We don't currently support changing VSXL
      // VSXL = v[VSXL]
      HUKTE = if currentlyEnabled(Ext_Svukte) then v[HUKTE] else 0b0,
-@@ -399,7 +399,7 @@ private function legalize_mseccfg(o : Seccfg, v : bits(64)) -> Seccfg = {
+@@ -409,7 +409,7 @@ private function legalize_mseccfg(o : Seccfg, v : bits(64)) -> Seccfg = {
  
    let v = Mk_Seccfg(v);
    [o with
@@ -93,25 +93,25 @@ index f62d5aba..2f350339 100644
      MLPE  = if hartSupports(Ext_Zicfilp) then v[MLPE] else 0b0,
      SSEED = if sseed_read_only_zero then 0b0 else v[SSEED],
      USEED = if useed_read_only_zero then 0b0 else v[USEED],
-@@ -513,7 +513,7 @@ private function legalize_menvcfg(o : MEnvcfg, v : bits(64)) -> MEnvcfg = {
+@@ -533,7 +533,7 @@ private function legalize_menvcfg(o : MEnvcfg, v : bits(64)) -> MEnvcfg = {
      CBCFE = if currentlyEnabled(Ext_Zicbom) then v[CBCFE] else 0b0,
-     CBIE = if currentlyEnabled(Ext_Zicbom) then legalize_xenvcfg_cbie(o[CBIE], v[CBIE]) else 0b00,
+     CBIE = if currentlyEnabled(Ext_Zicbom) then legalize_xenvcfg_cbie(menvcfg_legal_cbie, o[CBIE], v[CBIE]) else 0b00,
      STCE = if currentlyEnabled(Ext_Sstc) then v[STCE] else 0b0,
 -    PMM = if currentlyEnabled(Ext_Smnpm) & is_supported_pmm(PM_SMNPM, pmm_mode(v[PMM])) then v[PMM] else o[PMM],
 +    PMM = if currentlyEnabled(Ext_Smnpm) & is_supported_pmm(PM_SMNPM, pmm_mode(v[PMM])) then v[PMM] else if (config base.pmm_unsupported_write_to_disabled : bool) then 0b00 else o[PMM],
      DTE = if hartSupports(Ext_Ssdbltrp) then v[DTE] else 0b0,
      ADUE = if currentlyEnabled(Ext_Svadu) then v[ADUE] else 0b0,
-     PBMTE = if currentlyEnabled(Ext_Svpbmt) then v[PBMTE] else 0b0,
-@@ -536,7 +536,7 @@ private function legalize_senvcfg(o : SEnvcfg, v : bits(64)) -> SEnvcfg = {
+     CDE = if currentlyEnabled(Ext_Smcdeleg) then v[CDE] else 0b0,
+@@ -557,7 +557,7 @@ private function legalize_senvcfg(o : SEnvcfg, v : bits(64)) -> SEnvcfg = {
      CBZE = if currentlyEnabled(Ext_Zicboz) then v[CBZE] else 0b0,
      CBCFE = if currentlyEnabled(Ext_Zicbom) then v[CBCFE] else 0b0,
-     CBIE = if currentlyEnabled(Ext_Zicbom) then legalize_xenvcfg_cbie(o[CBIE], v[CBIE]) else 0b00,
+     CBIE = if currentlyEnabled(Ext_Zicbom) then legalize_xenvcfg_cbie(senvcfg_legal_cbie, o[CBIE], v[CBIE]) else 0b00,
 -    PMM = if currentlyEnabled(Ext_Ssnpm) & is_supported_pmm(PM_SSNPM, pmm_mode(v[PMM])) then v[PMM] else o[PMM],
 +    PMM = if currentlyEnabled(Ext_Ssnpm) & is_supported_pmm(PM_SSNPM, pmm_mode(v[PMM])) then v[PMM] else if (config base.pmm_unsupported_write_to_disabled : bool) then 0b00 else o[PMM],
      UKTE = if currentlyEnabled(Ext_Svukte) then v[UKTE] else 0b0,
      // Other extensions are not implemented yet so all other fields are read only zero.
    ]
-@@ -552,7 +552,7 @@ private function legalize_henvcfg(h : HEnvcfg, v : bits(64)) -> HEnvcfg = {
+@@ -573,7 +573,7 @@ private function legalize_henvcfg(h : HEnvcfg, v : bits(64)) -> HEnvcfg = {
      PBMTE = if currentlyEnabled(Ext_Svpbmt) & menvcfg[PBMTE] == 0b1 then v[PBMTE] else 0b0,
      ADUE  = if currentlyEnabled(Ext_Svadu) & menvcfg[ADUE] == 0b1 then v[ADUE] else 0b0,
      DTE   = if currentlyEnabled(Ext_Ssdbltrp) then v[DTE] else 0b0,
@@ -119,4 +119,4 @@ index f62d5aba..2f350339 100644
 +    PMM  = if currentlyEnabled(Ext_Ssnpm) & is_supported_pmm(PM_SSNPM, pmm_mode(v[PMM])) then v[PMM] else if (config base.pmm_unsupported_write_to_disabled : bool) then 0b00 else h[PMM],
      CBZE  = if currentlyEnabled(Ext_Zicboz) then v[CBZE]  else 0b0,
      CBCFE = if currentlyEnabled(Ext_Zicbom) then v[CBCFE] else 0b0,
-     CBIE  = if currentlyEnabled(Ext_Zicbom) then legalize_xenvcfg_cbie(h[CBIE], v[CBIE]) else 0b00,
+     CBIE  = if currentlyEnabled(Ext_Zicbom) then legalize_xenvcfg_cbie(henvcfg_legal_cbie, h[CBIE], v[CBIE]) else 0b00,

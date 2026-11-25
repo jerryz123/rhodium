@@ -18,7 +18,7 @@ diff --git a/c_emulator/riscv_platform_if.h b/c_emulator/riscv_platform_if.h
    virtual bool host_interrupt_boundary(unit);
 +  virtual bool host_wrs_early_wake(unit);
  
-   virtual unit fetch_callback(sbits opcode);
+   virtual unit fetch_callback(sbits pc, sbits opcode);
  
 diff --git a/c_emulator/riscv_platform_if.cpp b/c_emulator/riscv_platform_if.cpp
 --- a/c_emulator/riscv_platform_if.cpp

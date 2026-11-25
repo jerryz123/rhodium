@@ -31,12 +31,14 @@ The queue is ordered so each change can be reviewed and removed independently:
 13. `0017-delegate-only-implemented-hypervisor-interrupts.patch` keeps zero-GEILEN SGEIP nondelegatable.
 14. `0019-implement-sscofpmf-counter.patch` implements counter 3, mode filters, precise inhibit/write suppression, overflow and local interrupts.
 15. `0022-mask-unimplemented-guest-interrupt-enable.patch` keeps both SGEIE aliases zero while preserving VS interrupt enables.
-16. `0024-keep-hedeleg-fault-bits-writable.patch` keeps H-mandated software-check and hardware-error delegation writable.
-17. `0025-scope-store-conditional.patch` prepares coherent SC ownership before reservation matching and ends the scope on every exit.
+16. `0025-scope-store-conditional.patch` prepares coherent SC ownership before reservation matching and ends the scope on every exit.
+17. `0026-reuse-atomic-translation.patch` retains the checked AMO/SC operand mapping for one scope, preventing page-table callbacks after coherent ownership is pinned.
 
-At upstream pin `2c300cd90eb74bb79f3fcdd58596a6f8d842d01c`, ISA profile
+At upstream pin `3d774fe978d8cf6f7e08a7c5c8f8e9dad05bed68`, ISA profile
 properties, RV32 delegation CSRs, P1P13 gating, CSRIND gating, and overflow
-interrupt ordering are native. Their former downstream patches are retired.
+interrupt ordering are native. Mandatory `hedeleg` software-check and
+hardware-error delegation bits are also writable natively; patch 0024 is
+retired while its native CSR regression remains. Retired numbers are not reused.
 See [the RISC-V contributor guide](../DEVELOPING.md) for validation ownership.
 
 When advancing the submodule, apply each patch with `git apply --check`, remove

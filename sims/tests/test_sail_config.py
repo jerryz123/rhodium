@@ -55,6 +55,23 @@ class SailConfigurationTest(unittest.TestCase):
         self.assertEqual(stateen["mstateen0"]["SRMCFG"], "CSRBit_ReadOnlyZero")
         self.assertEqual(stateen["mstateen0"]["ENVCFG"], "CSRBit_ReadOnlyZero")
 
+    def test_csr_indirection_state_enable_follows_advertised_extensions(self):
+        for extension in (None, "Smcsrind", "Sscsrind"):
+            with self.subTest(extension=extension):
+                udb = vector_udb()
+                udb["implemented_extensions"].append({"name": "S", "version": "1.13.0"})
+                if extension:
+                    udb["implemented_extensions"].append({"name": extension, "version": "1.0.0"})
+                default = self.default()
+                default["extensions"].update(S={"supported": False}, Smcsrind={"supported": False},
+                                             Sscsrind={"supported": False})
+                for register in ("mstateen0", "hstateen0"):
+                    default["extensions"]["Stateen"][register]["CSRIND"] = "CSRBit_Writable"
+                model = project_architecture(default, udb)
+                expected = "CSRBit_Writable" if extension else "CSRBit_ReadOnlyZero"
+                for register in ("mstateen0", "hstateen0"):
+                    self.assertEqual(model["extensions"]["Stateen"][register]["CSRIND"], expected)
+
     def test_fixed_reservation_regions_follow_the_udb_strategy(self):
         for size in (64, 128):
             udb = vector_udb()

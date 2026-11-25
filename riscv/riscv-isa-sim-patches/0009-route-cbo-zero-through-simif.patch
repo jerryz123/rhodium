@@ -10,10 +10,10 @@ the zero must acquire ownership and become dirty in its cache. Preserve the
 direct-memory path and let such simulators handle only the fallback.
 
 diff --git a/riscv/mmu.h b/riscv/mmu.h
-index fa50b602..01887634 100644
+index cc643c1e..2d83432e 100644
 --- a/riscv/mmu.h
 +++ b/riscv/mmu.h
-@@ -246,6 +246,9 @@ public:
+@@ -245,6 +245,9 @@ public:
        if (tracer.interested_in_range(paddr, paddr + blocksz, STORE))
          tracer.trace(paddr, blocksz, STORE);
        memset(host_addr, 0, blocksz);
@@ -21,7 +21,7 @@ index fa50b602..01887634 100644
 +      if (tracer.interested_in_range(paddr, paddr + blocksz, STORE))
 +        tracer.trace(paddr, blocksz, STORE);
      } else {
-       throw trap_store_access_fault((proc) ? proc->state.v : false, transformed_addr, 0, 0);
+       throw trap_store_access_fault(access_info.effective_virt, transformed_addr, 0, 0);
      }
 diff --git a/riscv/simif.h b/riscv/simif.h
 index cef41a82..c4298bdd 100644

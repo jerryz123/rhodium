@@ -34,7 +34,7 @@ index 798ca70c..7a0e0614 100644
 +  virtual fbits host_hpm_counter(fbits index);
 +  virtual fbits host_hpm_overflows(unit);
  
-   virtual unit fetch_callback(sbits opcode);
+   virtual unit fetch_callback(sbits pc, sbits opcode);
  
 diff --git a/model/core/counters.sail b/model/core/counters.sail
 index c0fa5c60..9039a847 100644

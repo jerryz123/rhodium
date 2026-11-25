@@ -89,10 +89,14 @@ fi
 compiler_library="$("$compiler" --dir)"
 compilation_path_flags --build "$work_dir" --map "$work_dir/source=/rhodium/sail-riscv" \
   --map "$compiler_library=/rhodium/sail-runtime"
-cmake -S "$work_dir/source" -B "$work_dir/build" -DSAIL_BIN="$compiler" \
-  "-DCMAKE_C_FLAGS=$path_flags_shell" "-DCMAKE_CXX_FLAGS=$path_flags_shell" \
-  -DCMAKE_BUILD_TYPE=Release -DDOWNLOAD_GMP=OFF -DENABLE_RISCV_TESTS=OFF \
-  -DFIRST_PARTY_TESTS=OFF -DSTATIC=OFF -DBUILD_SHARED_LIBS=OFF
+(
+  # Git version discovery must not inspect the enclosing Rhodium checkout.
+  cd "$work_dir/source"
+  cmake -S . -B "$work_dir/build" -DSAIL_BIN="$compiler" \
+    "-DCMAKE_C_FLAGS=$path_flags_shell" "-DCMAKE_CXX_FLAGS=$path_flags_shell" \
+    -DCMAKE_BUILD_TYPE=Release -DBUILD_RELEASE=ON -DDOWNLOAD_GMP=OFF -DENABLE_RISCV_TESTS=OFF \
+    -DFIRST_PARTY_TESTS=OFF -DSTATIC=OFF -DBUILD_SHARED_LIBS=OFF
+)
 cmake --build "$work_dir/build" --target sail_riscv_sim --parallel "${SAIL_BUILD_JOBS:-2}"
 mkdir -p "$work_dir/install/bin" "$(dirname "$install_dir")"
 install -m 755 "$work_dir/build/c_emulator/sail_riscv_sim" "$work_dir/install/bin/sail_riscv_sim"
@@ -116,7 +120,10 @@ while IFS= read -r licence; do
   mkdir -p "$work_dir/install/licences/$(dirname "$relative")"
   install -m 644 "$licence" "$work_dir/install/licences/$relative"
 done < <(find "$source_dir/dependencies" -type f \( -iname 'LICENSE*' -o -iname 'LICENCE*' -o -iname 'COPYING*' \))
-[[ "$("$work_dir/install/bin/sail_riscv_sim" --version)" == 0.16 ]]
+if [[ "$("$work_dir/install/bin/sail_riscv_sim" --version)" != 0.16 ]]; then
+  echo "Installed Sail model must report release 0.16" >&2
+  exit 1
+fi
 printf '%s\n' "$identity" > "$work_dir/install/.complete"
 printf '%s\n' "$path_policy" > "$work_dir/install/.path-policy"
 if [[ -d "$install_dir" ]]; then

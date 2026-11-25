@@ -41,6 +41,8 @@ hardware cycles; ACT records this reference-only counting difference.
 Our no-trigger harts disable Sail's native Sdtrig extension so optional selector
 accesses trap, including OpenSBI's trigger probe. MISA mutability is projected
 per extension, and Stateen fields use native writable/read-only choices.
+Stateen's `CSRIND` control is read-only zero unless the hart supports S and
+either Smcsrind or Sscsrind.
 For H profiles, the current supported transformed-instruction policy is the
 UDB's always-zero choice; other policies fail instead of inheriting Sail defaults.
 

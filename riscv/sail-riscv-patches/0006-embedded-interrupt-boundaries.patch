@@ -8,7 +8,7 @@ host provides input pins, never a selected cause or trap target. Platform pins
 remain separate from writable mip state, including CSR read-modify-write.
 
 diff --git a/c_emulator/riscv_platform_if.cpp b/c_emulator/riscv_platform_if.cpp
-index 0ce5f6b4..7b93f52c 100644
+index 2847ef9d..dca5de39 100644
 --- a/c_emulator/riscv_platform_if.cpp
 +++ b/c_emulator/riscv_platform_if.cpp
 @@ -17,6 +17,7 @@ bool PlatformInterface::host_memory_write(fbits, int64_t, lbits) { return false;
@@ -20,7 +20,7 @@ index 0ce5f6b4..7b93f52c 100644
  // We must provide default implementations so the automatically generated
  // model_test() function can instantiate hart::Model.
 diff --git a/c_emulator/riscv_platform_if.h b/c_emulator/riscv_platform_if.h
-index d0b37b12..f9e8a3d7 100644
+index 7d5b8e1f..2862bd43 100644
 --- a/c_emulator/riscv_platform_if.h
 +++ b/c_emulator/riscv_platform_if.h
 @@ -38,6 +38,7 @@ public:
@@ -29,10 +29,10 @@ index d0b37b12..f9e8a3d7 100644
    virtual fbits host_time(unit);
 +  virtual bool host_interrupt_boundary(unit);
  
-   virtual unit fetch_callback(sbits opcode);
+   virtual unit fetch_callback(sbits pc, sbits opcode);
  
 diff --git a/model/postlude/step.sail b/model/postlude/step.sail
-index 14daa916..07a0c213 100644
+index dabe907f..771f102c 100644
 --- a/model/postlude/step.sail
 +++ b/model/postlude/step.sail
 @@ -112,6 +112,10 @@ private function run_hart_waiting(_step_no : nat, wr: WaitReason, instr_info : i

@@ -15,5 +15,5 @@
 0017-delegate-only-implemented-hypervisor-interrupts.patch
 0019-implement-sscofpmf-counter.patch
 0022-mask-unimplemented-guest-interrupt-enable.patch
-0024-keep-hedeleg-fault-bits-writable.patch
 0025-scope-store-conditional.patch
+0026-reuse-atomic-translation.patch

@@ -8,12 +8,12 @@ and Stateen permissions. The opt-in defaults off; existing Sdtrig behavior
 and field widths are unchanged by the default writable masks.
 
 diff --git a/config/config.json.in b/config/config.json.in
-index a6b8fbf..59874cd 100644
+index 91eba8eb..8fb4e303 100644
 --- a/config/config.json.in
 +++ b/config/config.json.in
-@@ -22,6 +22,10 @@
-     // in the extensions with this field below.
-     "misa_implemented": true,
+@@ -27,6 +27,10 @@
+       "has_non_standard_extensions": false
+     },
      "writable_fiom": true,
 +    // Context registers may be implemented without any debug triggers.
 +    "independent_context_csrs": false,
@@ -23,10 +23,10 @@ index a6b8fbf..59874cd 100644
      "hedeleg": {"delegatable_bits": {"len": 64, "value": "0xCB1FF"}},
      "hpm_events": {"restricted": false, "supported": []},
 diff --git a/model/core/platform_config.sail b/model/core/platform_config.sail
-index fb35142..bb10b98 100644
+index 3d5b7d8d..23821055 100644
 --- a/model/core/platform_config.sail
 +++ b/model/core/platform_config.sail
-@@ -228,6 +228,7 @@ let sdtrig_max_chain_limit : nat = config extensions.Sdtrig.mcontrol6.max_chain_
+@@ -256,6 +256,7 @@ let sdtrig_max_chain_limit : nat = config extensions.Sdtrig.mcontrol6.max_chain_
  let sdtrig_has_mcontext : bool = config extensions.Sdtrig.mcontext.supported
  let sdtrig_has_hcontext : bool = config extensions.Sdtrig.hcontext.supported
  let sdtrig_has_scontext : bool = config extensions.Sdtrig.scontext.supported
@@ -35,10 +35,10 @@ index fb35142..bb10b98 100644
  type num_triggers : Int = config extensions.Sdtrig.num_triggers
  // The number of bits to index the triggers needs to fit into `tselect`,
 diff --git a/model/extensions/Sdtrig/sdtrig_regs.sail b/model/extensions/Sdtrig/sdtrig_regs.sail
-index 3f243b6..88a80a5 100644
+index 2d1e35e3..b1a44924 100644
 --- a/model/extensions/Sdtrig/sdtrig_regs.sail
 +++ b/model/extensions/Sdtrig/sdtrig_regs.sail
-@@ -114,29 +114,29 @@ function tcontrol_mret_from_mmode() -> unit = {
+@@ -121,10 +121,10 @@ let scontext_mask : bits(32) = zero_extend(ones(sdtrig_scontext_width))
  
  register scontext : SContext = Mk_SContext(zeros())
  mapping clause csr_name_map = 0x5a8  <-> "scontext"
@@ -48,9 +48,10 @@ index 3f243b6..88a80a5 100644
  function clause write_CSR(0x5a8, value) = {
 -  let v = Mk_SContext(value);
 +  let v = Mk_SContext(value & (config base.scontext_writable_mask : xlenbits));
-   scontext = [scontext with data = v[data]];
+   scontext = [scontext with data = v[data] & scontext_mask];
    Ok(scontext.bits)
  }
+@@ -134,19 +134,19 @@ let hcontext_mask : bits(14) = zero_extend(ones(sdtrig_hcontext_width))
  
  register mcontext : MContext = Mk_MContext(zeros())
  mapping clause csr_name_map = 0x7a8  <-> "mcontext"
@@ -60,7 +61,7 @@ index 3f243b6..88a80a5 100644
  function clause write_CSR(0x7a8, value) = {
 -  let v = Mk_MContext(value);
 +  let v = Mk_MContext(value & (config base.mcontext_writable_mask : xlenbits));
-   mcontext = [mcontext with hcontext = v[hcontext]];
+   mcontext = [mcontext with hcontext = v[hcontext] & hcontext_mask];
    Ok(mcontext.bits)
  }
  
@@ -71,39 +72,39 @@ index 3f243b6..88a80a5 100644
  function clause write_CSR(0x6a8, value) = {
 -  let v = Mk_MContext(value);
 +  let v = Mk_MContext(value & (config base.mcontext_writable_mask : xlenbits));
-   mcontext = [mcontext with hcontext = v[hcontext]];
+   mcontext = [mcontext with hcontext = v[hcontext] & hcontext_mask];
    Ok(mcontext.bits)
  }
 diff --git a/model/extensions/Stateen/stateen_regs.sail b/model/extensions/Stateen/stateen_regs.sail
-index bae888b..504190b 100644
+index e3b65059..ba4f1f39 100644
 --- a/model/extensions/Stateen/stateen_regs.sail
 +++ b/model/extensions/Stateen/stateen_regs.sail
-@@ -58,7 +58,7 @@ function legalize_mstateen0(m : Mstateen0, v : bits(64)) -> Mstateen0 = {
-   [m with
+@@ -60,7 +60,7 @@ function legalize_mstateen0(m : Mstateen0, v : bits(64)) -> Mstateen0 = {
      SE0     = legalize_csr_bit(mstateen0_se0, true, v[SE0]),
      ENVCFG  = legalize_csr_bit(mstateen0_envcfg, currentlyEnabled(Ext_S), v[ENVCFG]),
+     CSRIND  = legalize_csr_bit(mstateen0_csrind, currentlyEnabled(Ext_Sscsrind), v[CSRIND]),
 -    CONTEXT = legalize_csr_bit(mstateen0_context, currentlyEnabled(Ext_Sdtrig) & (sdtrig_has_scontext | sdtrig_has_hcontext), v[CONTEXT]),
 +    CONTEXT = legalize_csr_bit(mstateen0_context, (currentlyEnabled(Ext_Sdtrig) | independent_context_csrs) & (sdtrig_has_scontext | sdtrig_has_hcontext), v[CONTEXT]),
      P1P13   = legalize_csr_bit(mstateen0_p1p13, delegh_csrs_are_defined & currentlyEnabled(Ext_H) & xlen == 32, v[P1P13]),
      SRMCFG  = legalize_csr_bit(mstateen0_srmcfg, currentlyEnabled(Ext_Ssqosid), v[SRMCFG]),
      FCSR    = legalize_csr_bit(mstateen0_fcsr, hartSupports(Ext_Zfinx) & (misa[F] == 0b0), v[FCSR]),
-@@ -133,7 +133,7 @@ function legalize_hstateen0(h : Hstateen0, v : bits(64)) -> Hstateen0 = {
-   [h with
+@@ -136,7 +136,7 @@ function legalize_hstateen0(h : Hstateen0, v : bits(64)) -> Hstateen0 = {
      SE0     = v[SE0], // bit 63 of hstateen is always writable
      ENVCFG  = legalize_csr_bit(hstateen0_envcfg, true, v[ENVCFG]),
+     CSRIND  = legalize_csr_bit(hstateen0_csrind, currentlyEnabled(Ext_Sscsrind), v[CSRIND]),
 -    CONTEXT = legalize_csr_bit(hstateen0_context, currentlyEnabled(Ext_Sdtrig) & sdtrig_has_scontext, v[CONTEXT]),
 +    CONTEXT = legalize_csr_bit(hstateen0_context, (currentlyEnabled(Ext_Sdtrig) | independent_context_csrs) & sdtrig_has_scontext, v[CONTEXT]),
      FCSR    = legalize_csr_bit(hstateen0_fcsr, hartSupports(Ext_Zfinx) & (misa[F] == 0b0), v[FCSR]),
      C       = legalize_csr_bit(hstateen0_c, true, v[C]),
    ];
 diff --git a/model/postlude/validate_config.sail b/model/postlude/validate_config.sail
-index 80a20dd..558a1cf 100644
+index 599a33ca..454fb4bf 100644
 --- a/model/postlude/validate_config.sail
 +++ b/model/postlude/validate_config.sail
-@@ -1119,13 +1119,13 @@ private function check_stateen_config() -> bool = {
-   };
+@@ -1244,14 +1244,14 @@ private function check_stateen_config() -> bool = {
    if hartSupports(Ext_Smstateen) then {
      valid = check_stateen_bit_feature("mstateen0.ENVCFG",  mstateen0_envcfg,  hartSupports(Ext_S)) & valid;
+     valid = check_stateen_bit_feature("mstateen0.CSRIND",  mstateen0_csrind,  (hartSupports(Ext_Sscsrind) | hartSupports(Ext_Smcsrind)) & hartSupports(Ext_S)) & valid;
 -    valid = check_stateen_bit_feature("mstateen0.CONTEXT", mstateen0_context, hartSupports(Ext_Sdtrig) & (sdtrig_has_scontext | sdtrig_has_hcontext)) & valid;
 +    valid = check_stateen_bit_feature("mstateen0.CONTEXT", mstateen0_context, (hartSupports(Ext_Sdtrig) | independent_context_csrs) & (sdtrig_has_scontext | sdtrig_has_hcontext)) & valid;
      valid = check_stateen_bit_feature("mstateen0.P1P13",   mstateen0_p1p13,   delegh_csrs_are_defined & hartSupports(Ext_H) & xlen == 32) & valid;
@@ -111,6 +112,7 @@ index 80a20dd..558a1cf 100644
      valid = check_stateen_bit_feature("mstateen0.FCSR",    mstateen0_fcsr,    hartSupports(Ext_Zfinx)) & valid;
    };
    if hartSupports(Ext_H) then {
+     valid = check_stateen_bit_feature("hstateen0.CSRIND",  hstateen0_csrind,  (hartSupports(Ext_Sscsrind) | hartSupports(Ext_Smcsrind)) & hartSupports(Ext_S)) & valid;
 -    valid = check_stateen_bit_feature("hstateen0.CONTEXT", hstateen0_context, hartSupports(Ext_Sdtrig) & sdtrig_has_scontext) & valid;
 +    valid = check_stateen_bit_feature("hstateen0.CONTEXT", hstateen0_context, (hartSupports(Ext_Sdtrig) | independent_context_csrs) & sdtrig_has_scontext) & valid;
      valid = check_stateen_bit_feature("hstateen0.FCSR",    hstateen0_fcsr,    hartSupports(Ext_Zfinx)) & valid;

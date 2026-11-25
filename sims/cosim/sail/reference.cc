@@ -308,7 +308,7 @@ class SailReference::Implementation final : private RuntimeLease, public hart::M
   }
   fbits host_hpm_counter(fbits index) override { return inputs_->hpm_counters.at(index); }
   fbits host_hpm_overflows(unit) override { return inputs_ ? inputs_->hpm_overflows : 0; }
-  unit fetch_callback(sbits opcode) override {
+  unit fetch_callback(sbits, sbits opcode) override {
     result_.instruction = static_cast<std::uint32_t>(opcode.bits);
     result_.instruction_bytes = opcode.len / 8;
     // Only the base A word/doubleword forms are qualified here. Sail still owns
@@ -338,20 +338,20 @@ class SailReference::Implementation final : private RuntimeLease, public hart::M
     }
     return UNIT;
   }
-  unit xreg_full_write_callback(const_sail_string, sbits reg, sbits value) override {
+  unit xreg_write_callback(sbits reg, sbits value) override {
     if (reg.bits) result_.writes.push_back({RegisterWrite::Bank::Integer, static_cast<unsigned>(reg.bits), bytes_of(value.bits, value.len / 8)});
     return UNIT;
   }
-  unit freg_write_callback(unsigned reg, sbits value) override {
-    result_.writes.push_back({RegisterWrite::Bank::FloatingPoint, reg, bytes_of(value.bits, value.len / 8)});
+  unit freg_write_callback(std::uint64_t reg, sbits value) override {
+    result_.writes.push_back({RegisterWrite::Bank::FloatingPoint, static_cast<unsigned>(reg), bytes_of(value.bits, value.len / 8)});
     return UNIT;
   }
-  unit vreg_write_callback(unsigned reg, lbits value) override {
-    result_.writes.push_back({RegisterWrite::Bank::Vector, reg, bytes_of(value)});
+  unit vreg_write_callback(std::uint64_t reg, lbits value) override {
+    result_.writes.push_back({RegisterWrite::Bank::Vector, static_cast<unsigned>(reg), bytes_of(value)});
     return UNIT;
   }
-  unit csr_full_write_callback(const_sail_string, unsigned reg, sbits value) override {
-    result_.writes.push_back({RegisterWrite::Bank::Csr, reg, bytes_of(value.bits, value.len / 8)});
+  unit csr_write_callback(std::uint64_t reg, sbits value) override {
+    result_.writes.push_back({RegisterWrite::Bank::Csr, static_cast<unsigned>(reg), bytes_of(value.bits, value.len / 8)});
     return UNIT;
   }
   unit trap_callback(bool interrupt, fbits cause) override {

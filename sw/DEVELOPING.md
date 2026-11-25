@@ -422,7 +422,7 @@ the new gitlink before `moon run rhodium:arch-test-setup`, which initializes the
 index-recorded revision. Keep its checkout pristine. Rebase only the remaining
 downstream contracts in `riscv-arch-test-patches/`; prefer landed upstream
 generators and fixes over retaining a second implementation.
-At pin `ea22c06859691c5e2b44ef1fe4f7e06a8f1e4256`, ACT requires Sail model
+At pin `2a1ab1f8947b6aa68419d48de3787f9e1be3e9da`, ACT requires Sail model
 0.16 and bundles UDB 0.1.18 with udb-gen 0.1.17. Refresh its isolated Python and Ruby dependencies
 with the ordinary setup target, then generate all canonical suites in a fresh
 ACT build root. Preserve each core's own UDB configuration and reference

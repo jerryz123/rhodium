@@ -149,6 +149,11 @@ without reusable attribute grants, both with and without an invalidating snoop
 during the ownership wait. It checks failure status, preservation of the newer
 line contents, and a later ordinary store after either SC outcome.
 The RV64 doubleword cases also run through Sv39 translation with MPRV set.
+Translated SC and AMO fixtures retain separate page-table and operand cache
+lines now that upstream no longer has a private PTE cache. The AMO fixture
+checks allowed and denied physical atomic access with and without MPRV. Keep
+the exact ownership, success/failure and dirty-byte assertions: completing
+another page walk inside a pinned scope must not become an allowed callback.
 
 Run the focused host contract check with:
 

@@ -25,22 +25,17 @@ The current queue contains independent fixes:
 3. `0014-program-su-wrs-timer-directly.patch` lets platforms without lower-mode
    timer MMIO protection arm the WRS wakeup timer without consuming its delay
    inside multiple T-SBI memory calls.
-4. `0016-normalize-wfi-interrupt-retirement.patch` measures and removes the
-   timing-dependent machine-timer handler body from the Sm/U Zicntr WFI delta,
-   alongside the existing wait-loop tally. Only these counter suites opt into
-   handler instrumentation. Fixed handler entry/exit work and WFI retirement
-   remain checked, as do the ordinary interrupt signatures. MTIE stays disabled
-   until the counter baseline is captured, including for U-mode. Accounting is
-   XLEN-modular and needs no optional `mcountinhibit` CSR; the standard M-mode
-   handler does not support nested traps.
+4. `0017-configurable-compiler-flags.patch` lets the target supply its native
+   compiler flags without changing the canonical suite inventory.
 
 Retired patch numbers are not reused. Canonical vector suite expansion and
-counter-inhibit handling are now supplied upstream.
-For changes to the WFI accounting patch, rebuild both counter suites with their
-own reference signatures and run all Simple core/ISA configurations. Include
-Sail cosim on both RTL cores and XLENs, and a DUT-only extra-instruction negative
-control to verify that normalization still catches incorrect retirement outside
-the measured handler body. Keep platform interrupt latency and profiles intact.
+counter-inhibit handling are now supplied upstream. At pin
+`2a1ab1f8947b6aa68419d48de3787f9e1be3e9da`, native counter tests avoid measuring
+WFI with a taken interrupt: retirement at that boundary and handler instruction
+counts are implementation-dependent. Patch 0016 and its handler instrumentation
+are retired. Native pending/wakeup WFI cases still exercise counter behavior;
+regenerate both counter suites and their reference signatures for both XLENs
+instead of preserving the old taken-interrupt inventory.
 
 To inspect the patched source without generating tests, run:
 
@@ -49,6 +44,6 @@ moon run rhodium:act-source
 ```
 
 The materialized source defaults to
-`/tmp/rhodium-arch-test/source/riscv-arch-test`. A patch can also be inspected
+`.rhodium-cache/moon/act/source`. A patch can also be inspected
 directly against the clean submodule with `git apply --check`; the build never
 applies it to the submodule working tree itself.

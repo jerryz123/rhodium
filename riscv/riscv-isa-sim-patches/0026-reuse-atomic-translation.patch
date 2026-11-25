@@ -1,0 +1,122 @@
+Subject: [PATCH] Reuse checked translations inside coherent atomic scopes
+Purpose: Complete page walks before pinning an AMO or SC physical operand.
+SPDX-License-Identifier: Apache-2.0
+
+Upstream no longer has a separate PTE cache. MPRV and logged accesses cannot
+rely on a TLB hit, so a second translation may read page tables after the
+embedding pins its atomic line. Retain the checked operand mapping only for
+that instruction's scope; reset it on success, reservation failure and traps.
+Keep normal alignment, trigger, logging and physical-access paths intact.
+
+diff --git a/riscv/mmu.cc b/riscv/mmu.cc
+index 6b288090..110dc302 100644
+--- a/riscv/mmu.cc
++++ b/riscv/mmu.cc
+@@ -255,7 +255,8 @@ void mmu_t::load_slow_path_intrapage(reg_t len, uint8_t* bytes, mem_access_info_
+   auto [tlb_hit, host_addr, paddr] = access_tlb(tlb_load, vaddr, TLB_FLAGS);
+   bool special = access_info.flags.is_special_access() && !access_info.flags.lr;
+   if (!tlb_hit || special) {
+-    paddr = translate(access_info, len);
++    if (auto prepared = prepared_atomic_address(vaddr, len)) paddr = *prepared;
++    else paddr = translate(access_info, len);
+     host_addr = (uintptr_t)sim->addr_to_mem(paddr);
+ 
+     if (!special)
+@@ -348,7 +349,8 @@ void mmu_t::store_slow_path_intrapage(reg_t len, const uint8_t* bytes, mem_acces
+   reg_t vaddr = access_info.vaddr;
+   auto [tlb_hit, host_addr, paddr] = access_tlb(tlb_store, vaddr, TLB_FLAGS);
+   if (!tlb_hit || access_info.flags.is_special_access()) {
+-    paddr = translate(access_info, len);
++    if (auto prepared = prepared_atomic_address(vaddr, len)) paddr = *prepared;
++    else paddr = translate(access_info, len);
+     host_addr = (uintptr_t)sim->addr_to_mem(paddr);
+ 
+     if (proc && proc->extension_enabled(EXT_ZICCID)) {
+diff --git a/riscv/mmu.h b/riscv/mmu.h
+index 0bffb347..3e81e773 100644
+--- a/riscv/mmu.h
++++ b/riscv/mmu.h
+@@ -18,6 +18,7 @@
+ #include <cassert>
+ #include <cstddef>
+ #include <cstdlib>
++#include <optional>
+ 
+ // virtual memory configuration
+ #define PGSHIFT 12
+@@ -201,11 +202,14 @@ public:
+   }
+ 
+   struct amo_guard_t {
+-    simif_t* sim;
+-    explicit amo_guard_t(simif_t* sim) : sim(sim) {}
++    mmu_t* mmu;
++    explicit amo_guard_t(mmu_t* mmu) : mmu(mmu) {}
+     amo_guard_t(const amo_guard_t&) = delete;
+     amo_guard_t& operator=(const amo_guard_t&) = delete;
+-    ~amo_guard_t() { sim->amo_end(); }
++    ~amo_guard_t() {
++      mmu->atomic_translation.reset();
++      mmu->sim->amo_end();
++    }
+   };
+ 
+   amo_guard_t begin_amo(reg_t addr, size_t len, xlate_flags_t flags = {}) {
+@@ -218,7 +222,8 @@ public:
+       refill_tlb(addr, paddr, sim->addr_to_mem(paddr), LOAD);
+     if (!sim->amo_begin(paddr, len))
+       throw trap_store_access_fault(access_info.effective_virt, access_info.transformed_vaddr, 0, 0);
+-    return amo_guard_t(sim);
++    atomic_translation = atomic_translation_t{addr, paddr, len};
++    return amo_guard_t(this);
+   }
+ 
+   // template for functions that perform an atomic memory operation
+@@ -310,9 +315,11 @@ public:
+       paddr = translate(generate_access_info(vaddr, STORE, {}), size);
+ 
+     if (sim->lrsc_accessible(paddr, size, true) &&
+-        sim->store_conditional_begin(paddr, size))
++        sim->store_conditional_begin(paddr, size)) {
++      atomic_translation = atomic_translation_t{vaddr, paddr, size};
+       // Checked reservation set subsumes paddr
+       return !((load_reservation_address ^ paddr) & load_reservation_set_mask);
++    }
+ 
+     // SC to non-reservable region: report the PMM-masked effective vaddr.
+     auto access_info = generate_access_info(vaddr, STORE, {});
+@@ -323,9 +330,12 @@ public:
+   bool store_conditional(reg_t addr, T val)
+   {
+     struct sc_guard_t {
+-      simif_t* sim;
+-      ~sc_guard_t() { sim->store_conditional_end(); }
+-    } guard{sim};
++      mmu_t* mmu;
++      ~sc_guard_t() {
++        mmu->atomic_translation.reset();
++        mmu->sim->store_conditional_end();
++      }
++    } guard{this};
+     bool have_reservation = check_load_reservation(addr, sizeof(T));
+ 
+     if (have_reservation)
+@@ -432,6 +442,18 @@ public:
+   }
+ 
+ private:
++  // Reuse only the already checked operand translation during one coherent atomic scope.
++  struct atomic_translation_t { reg_t vaddr, paddr; size_t size; };
++  std::optional<atomic_translation_t> atomic_translation;
++
++  std::optional<reg_t> prepared_atomic_address(reg_t vaddr, reg_t len) const {
++    if (atomic_translation && len <= atomic_translation->size &&
++        vaddr >= atomic_translation->vaddr &&
++        vaddr - atomic_translation->vaddr <= atomic_translation->size - len)
++      return atomic_translation->paddr + (vaddr - atomic_translation->vaddr);
++    return std::nullopt;
++  }
++
+   simif_t* sim;
+   processor_t* proc;
+   memtracer_list_t tracer;

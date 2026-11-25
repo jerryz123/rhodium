@@ -284,6 +284,9 @@ void check_machine_counters(unsigned xlen) {
   auto config = jsoncons::json::parse(configuration(xlen));
   config["extensions"]["Zicntr"]["supported"] = false;
   config["extensions"]["Zihpm"]["supported"] = false;
+  // The paired Smcdeleg/Ssccfg extensions require mcountinhibit; test its independent absence.
+  config["extensions"]["Smcdeleg"]["supported"] = false;
+  config["extensions"]["Ssccfg"]["supported"] = false;
   config["base"]["mcountinhibit"]["supported"] = true;
   config["base"]["mcountinhibit"]["writable_bits"]["value"] = "0x8";
   {
@@ -301,6 +304,11 @@ void check_machine_counters(unsigned xlen) {
   }
   config["base"]["mcountinhibit"]["supported"] = false;
   config["base"]["mcountinhibit"]["writable_bits"]["value"] = "0x0";
+  config["extensions"]["Smcdeleg"]["supported"] = true;
+  config["extensions"]["Ssccfg"]["supported"] = true;
+  rejects<std::invalid_argument>([&] { SailReference invalid(config.to_string(), ram, backing); });
+  config["extensions"]["Smcdeleg"]["supported"] = false;
+  config["extensions"]["Ssccfg"]["supported"] = false;
   SailReference model(config.to_string(), ram, backing);
   program(model, ram, {0x320020f3});
   auto absent_inhibit = model.step();
