@@ -3,7 +3,7 @@
 ;; SPDX-License-Identifier: Apache-2.0
 
 (require racket/match)
-(provide symbolic-spec-edge symbolic-spec-state spec-edge-at spec-offers-at wired-edge-at
+(provide symbolic-spec-edge symbolic-spec-state spec-state-legal? spec-edge-at spec-offers-at wired-edge-at
          (struct-out edge) (struct-out sequence-value) (struct-out observation))
 
 ;; Only the prefix of slots below count denotes a value; unused slots are unconstrained.
@@ -28,6 +28,9 @@
 (define (legal-value? v)
   (or (not (sequence-value? v))
       (bvule (sequence-value-count v) (count-bv (length (sequence-value-slots v)) v))))
+
+#| Test only the representation of an old or next state, without assuming anything about wired inputs. |#
+(define (spec-state-legal? state) (andmap legal-value? (hash-values state)))
 
 #| Encode a checked literal; zero padding has no observable meaning. |#
 (define (literal type data)

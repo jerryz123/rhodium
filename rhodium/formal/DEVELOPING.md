@@ -220,10 +220,11 @@ are allowed; a parent consuming one is rejected. The bridge constructs a
 graph, not a proof certificate. For symbolic substitution, `proof_cut` keeps
 the actual occurrence definitions and sampled layouts alongside the graph.
 `prepare-proved-wiring` compares them and the complete spec snapshots against
-opaque successful leaf results, before any parent solver query. The admitted
+opaque successful refinement results, before any parent solver query. The admitted
 plan supplies the models to `proved-edge-at`; no child registers are expanded
 and no new models may be passed at step time. This check does not discharge
-the parent's own obligations. Both executors settle each output once from
+the parent's own obligations. For reusable evidence, clocked children must
+sample the parent clock and reset directly. Both executors settle each output once from
 its old-state care/value dependencies; all child updates see the same edge.
 An uncared internal pin is false/zero in concrete replay and fresh per
 source in Rosette, never a guaranteed payload.
@@ -243,8 +244,21 @@ fixture acknowledges the winning lane but routes lane one's payload to the FIFO;
 reset, contest, and drain expose the error. The undersized fixture instantiates
 a one-entry FIFO. After reset and two offers without a dequeue, its real RTL
 rejects the second word, while the depth-two contract and correct RTL accept. This replay does not substitute
-the depth-two certificate for the smaller child. Run
-`moon run rhodium:formal-spec-test rhodium:formal-test`.
+the depth-two certificate for the smaller child.
+
+`prove-parent` uses the admitted cut's actual parent identity and sampled
+layout. It quantifies over independent child spec states and external inputs;
+from reset it establishes the reference start and relation, then checks that
+every related edge agrees on cared pins and transfers and preserves the
+relation. A failed or unknown obligation returns no evidence. The wrong-lane
+fixture fails preservation even though both of its child results are valid.
+
+The [nested ordering proof](tests/buffered-arbiter-queue-order.rkt) admits
+only that ArbiterQueue result and a one-slot ShiftQueue result. Its ordered
+backlog is the tail's live words followed by the front's pending winners.
+It proves head retirement, suffix retention, winner append, and occupancy
+conservation, and exercises a reachable fill/stall/drain trace for each front
+depth. Run `moon run rhodium:formal-spec-test rhodium:formal-test`.
 
 ## Extend supported semantics
 

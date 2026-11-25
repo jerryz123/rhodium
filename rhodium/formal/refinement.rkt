@@ -1,16 +1,16 @@
 #lang rosette
-#| Checks fixed leaf refinement obligations and admits their results at exact RTL child occurrences. |#
+#| Proves leaf and wiring-only parent refinement and admits their results at exact RTL child occurrences. |#
 ;; SPDX-License-Identifier: Apache-2.0
 
 (require racket/match (only-in racket/base [equal? host-equal?] [eq? host-eq?])
          "engine.rkt" "spec-engine.rkt" (only-in "snapshot.rhm" formal_snapshot) (only-in "spec.rhm" spec_snapshot)
          (only-in "wiring.rhm" cut_parts leaf_protocol leaf_layout))
-(provide prove-leaf prepare-proved-wiring proved-child-model proved-edge-at view-agrees? pack-pins unpack-pins)
+(provide prove-leaf prove-parent prepare-proved-wiring proved-child-model proved-edge-at view-agrees? pack-pins unpack-pins)
 
 ;; Private constructors. These are live elaboration identities, not transferable certificates.
 ;; Both supported protocols quantify over unrestricted external input samples.
-(struct leaf-result (definition model protocol layout))
-(struct proved-cut (graph models))
+(struct refinement-result (definition model protocol layout))
+(struct proved-cut (definition layout graph models))
 
 #| Pack the public logical samples in declared physical member order. |#
 (define (pack-pins layout samples)
@@ -33,15 +33,15 @@
 
 #| Reject hidden constraints from an observer, relation, or enclosing Rosette query. |#
 (define (clean-vc!)
-  (unless (host-equal? (vc) vc-true) (error 'prove-leaf "unexpected ambient verification condition")))
+  (unless (host-equal? (vc) vc-true) (error 'refinement "unexpected ambient verification condition")))
 
 #| Never issue evidence from an infeasible premise, failed obligation, or unknown solver answer. |#
 (define (check-phase name premise goals)
   (clean-vc!)
-  (unless (sat? (solve (assert premise))) (error 'prove-leaf "~a: infeasible or unknown domain" name))
+  (unless (sat? (solve (assert premise))) (error 'refinement "~a: infeasible or unknown domain" name))
   (for ([goal goals])
     (define answer (solve (assert (&& premise (! (cdr goal))))))
-    (unless (unsat? answer) (error 'prove-leaf "~a/~a not proved: ~a" name (car goal) answer))))
+    (unless (unsat? answer) (error 'refinement "~a/~a not proved: ~a" name (car goal) answer))))
 
 #| Compare observation names and care, and compare values exactly when cared about. |#
 (define (view-agrees? actual expected)
@@ -62,6 +62,18 @@
      (&& (bveq n (bv (length start) (type-of n)))
          (for/fold ([ok #t]) ([slot (sequence-value-slots value)] [word start])
            (&& ok (at-start? slot element word))))]))
+
+#| Establish the declared start and relation at reset, then preserve them on every related edge. |#
+(define (check-synchronous! model spec old-domain related-old related-next common)
+  (define reset (hash-ref (edge-inputs spec) "reset"))
+  (unless (boolean? reset) (error 'refinement "expected Boolean synchronous reset"))
+  (define next (edge-next spec))
+  (define start (for/fold ([ok #t]) ([(k type) (hash-ref model "state")])
+                  (&& ok (at-start? (hash-ref next k) type (hash-ref (hash-ref model "initial") k)))))
+  (define legal (&& old-domain (edge-legal spec)))
+  (define goals (list* (cons 'successor related-next) (cons 'legal-next (spec-state-legal? next)) common))
+  (check-phase 'reset (&& legal reset) (cons (cons 'initial start) goals))
+  (check-phase 'preservation (&& legal related-old) goals))
 
 #| Take the snapshot of the definition being certified. The binding supplies trusted physical
    observation care and event decoding and, for synchronous leaves, an abstraction relation. |#
@@ -93,39 +105,32 @@
           (cons 'transfers (view-agrees? events (edge-events spec)))))
   (cond
     [plan
-     (define reset (hash-ref inputs "reset"))
-     (unless (boolean? reset) (error 'prove-leaf "expected Boolean synchronous reset"))
-     (define next (edge-next spec))
-     (define related-next (cons 'successor (relation (transition_step_state rtl) next)))
-     (define start (for/fold ([ok #t]) ([(k type) (hash-ref model "state")])
-                     (&& ok (at-start? (hash-ref next k) type (hash-ref (hash-ref model "initial") k)))))
-     (define related-old (relation old (edge-state spec)))
-     (check-phase 'reset (&& (edge-legal spec) reset) (list* (cons 'initial start) related-next common))
-     (check-phase 'preservation (&& (edge-legal spec) related-old) (cons related-next common))]
+     (check-synchronous! model spec #t (relation old (edge-state spec))
+                         (relation (transition_step_state rtl) (edge-next spec)) common)]
     [else
      (unless (zero? (hash-count (edge-state spec))) (error 'prove-leaf "expected a stateless model"))
      (check-phase 'combinational #t (cons (cons 'domain (edge-legal spec)) common))])
-  (leaf-result definition model protocol layout))
+  (refinement-result definition model protocol layout))
 
 #| Before any parent query, resolve each site's exact definition and full spec (start, sorts,
    care, values, events and updates). One proof may cover several occurrences, not their states. |#
 (define (prepare-proved-wiring cut results)
-  (define-values (graph definitions layouts) (cut_parts cut))
-  (unless (and (list? results) (andmap leaf-result? results))
-    (error 'prepare-proved-wiring "expected completed leaf proof results"))
+  (define-values (definition layout graph definitions layouts) (cut_parts cut))
+  (unless (and (list? results) (andmap refinement-result? results))
+    (error 'prepare-proved-wiring "expected completed refinement results"))
   (define models
     (for/hash ([(site definition) definitions])
-      (define candidates (filter (lambda (r) (host-eq? definition (leaf-result-definition r))) results))
+      (define candidates (filter (lambda (r) (host-eq? definition (refinement-result-definition r))) results))
       (when (null? candidates)
         (error 'prepare-proved-wiring "no evidence for RTL specialization at ~a" site))
       (define target (hash-ref (hash-ref graph "children") site))
       (define protocol (leaf_protocol definition))
-      (define matched (findf (lambda (r) (and (host-equal? protocol (leaf-result-protocol r))
-                                              (host-equal? (hash-ref layouts site) (leaf-result-layout r))
-                                              (host-equal? target (leaf-result-model r)))) candidates))
+      (define matched (findf (lambda (r) (and (host-equal? protocol (refinement-result-protocol r))
+                                              (host-equal? (hash-ref layouts site) (refinement-result-layout r))
+                                              (host-equal? target (refinement-result-model r)))) candidates))
       (unless matched (error 'prepare-proved-wiring "evidence does not cover contract at ~a" site))
-      (values site (leaf-result-model matched))))
-  (proved-cut graph models))
+      (values site (refinement-result-model matched))))
+  (proved-cut definition layout graph models))
 
 #| Access the admitted operational model for one occurrence, e.g. to allocate its abstract state. |#
 (define (proved-child-model plan site) (hash-ref (proved-cut-models plan) site))
@@ -133,3 +138,35 @@
 #| Step an admitted cut without inspecting child RTL or accepting replacement models from the caller. |#
 (define (proved-edge-at plan states inputs)
   (wired-edge-at (proved-cut-graph plan) (proved-cut-models plan) states inputs))
+
+#| Prove the external contract of an admitted synchronous cut. The plan owns the implementation
+   identity; the caller supplies only the reference model, external observer and state relation. |#
+(define (prove-parent plan spec-model observe #:relation relation)
+  (clean-vc!)
+  (define model (spec_snapshot spec-model))
+  (define graph (proved-cut-graph plan))
+  (unless (host-equal? (hash-ref graph "inputs") (hash-ref model "inputs"))
+    (error 'prove-parent "parent input schema mismatch"))
+  (for ([(k field) (hash-ref model "outputs")])
+    (unless (host-equal? (hash-ref (hash-ref graph "output-types") k #f) (second (second field)))
+      (error 'prove-parent "parent output schema mismatch: ~a" k)))
+  (define spec (symbolic-spec-edge model))
+  (define states (for/hash ([(site child) (proved-cut-models plan)])
+                   (values site (symbolic-spec-state child))))
+  (define-values (pins edges settled) (proved-edge-at plan states (edge-inputs spec)))
+  (define after (for/hash ([(site e) edges]) (values site (edge-next e))))
+  (define-values (outputs events) (observe pins (edge-inputs spec)))
+  ;; The observer defines care and transfers, but cannot replace a physical value on a cared pin.
+  (define physical (for/hash ([(k field) outputs])
+                     (values k (observation (observation-care field) (hash-ref pins k)))))
+  (define common
+    (list (cons 'children
+                (for/fold ([ok settled]) ([e (hash-values edges)])
+                  (&& ok (edge-legal e) (edge-defined e) (spec-state-legal? (edge-next e)))))
+          (cons 'defined (edge-defined spec))
+          (cons 'outputs (view-agrees? outputs (edge-outputs spec)))
+          (cons 'physical-pins (view-agrees? physical (edge-outputs spec)))
+          (cons 'transfers (view-agrees? events (edge-events spec)))))
+  (check-synchronous! model spec (andmap spec-state-legal? (hash-values states))
+                      (relation states (edge-state spec)) (relation after (edge-next spec)) common)
+  (refinement-result (proved-cut-definition plan) model "single-clock-reset" (proved-cut-layout plan)))

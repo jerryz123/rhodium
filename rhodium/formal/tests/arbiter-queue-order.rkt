@@ -3,12 +3,15 @@
 ;; SPDX-License-Identifier: Apache-2.0
 
 (require rackunit racket/match "../refinement.rkt" "composition-checks.rkt" "../spec-engine.rkt"
+         (only-in "../spec.rhm" spec_snapshot)
          (only-in "../engine.rkt" prepare_transition_snapshot step_transition symbolic_transition_state
                   transition_step_state transition_step_outputs transition_step_validity)
          (only-in "arbiter-refinement.rkt" verified-arbiter)
          (only-in "shift-queue-induction.rkt" verified-fifo-at proof_depths)
-         (only-in "arbiter-queue-binding.rhm" ordering_case alternate_cut swapped_view_cut fresh_cut
+         (only-in "arbiter-queue-binding.rhm" ordering_case separate_reset_cut alternate_cut swapped_view_cut fresh_cut
                   undersized_rtl correct_rtl one_slot_rtl depth_two_contract))
+
+(provide verified-arbiter-queue-at)
 
 (define (inputs reset v0 d0 v1 d1 consume)
   (hash "reset" reset "ingress[0].valid" v0 "ingress[0].bits" d0 "ingress[1].valid" v1 "ingress[1].bits" d1 "egress.ready" consume))
@@ -17,9 +20,7 @@
   (match-define (list cut arb-site fifo-site) candidate)
   (list (prepare-proved-wiring cut results) arb-site fifo-site))
 
-(define (advance candidate state x)
-  (match-define (list plan arb-site fifo-site) candidate)
-  (define-values (p edges ok) (proved-edge-at plan (hash arb-site (hash) fifo-site state) x))
+(define (boundary p x)
   (define rst (hash-ref x "reset"))
   (define take0 (&& (! rst) (hash-ref x "ingress[0].valid") (hash-ref p "ingress[0].ready")))
   (define take1 (&& (! rst) (hash-ref x "ingress[1].valid") (hash-ref p "ingress[1].ready")))
@@ -28,6 +29,16 @@
   (define events (hash "reset" (observation rst #t)
                        "accepted" (observation (|| take0 take1) (if take0 (hash-ref x "ingress[0].bits") (hash-ref x "ingress[1].bits")))
                        "retired" (observation pop (hash-ref p "egress.bits"))))
+  (define outputs (for/hash ([(k v) p])
+                    (values k (observation (if (equal? k "egress.bits") (&& (! rst) (hash-ref p "egress.valid")) (! rst)) v))))
+  (values outputs events take0 take1))
+(define (observe p x)
+  (define-values (out events _a _b) (boundary p x))
+  (values out events))
+(define (advance candidate state x)
+  (match-define (list plan arb-site fifo-site) candidate)
+  (define-values (p edges ok) (proved-edge-at plan (hash arb-site (hash) fifo-site state) x))
+  (define-values (_out events take0 take1) (boundary p x))
   (define arb (hash-ref edges arb-site))
   (define fifo (hash-ref edges fifo-site))
   (sample p events arb fifo take0 take1
@@ -56,7 +67,11 @@
 (define-symbolic* d0 d1 (bitvector 2))
 
 (define (check-ordering depth)
-  (define-values (candidate contract wrong) (ordering_case depth))
+  (define-values (candidate reference wrong) (ordering_case depth))
+  (define contract (spec_snapshot reference))
+  (define (certify graph)
+    (prove-parent (first graph) reference observe
+                  #:relation (lambda (states parent) (related depth (hash-ref states (third graph)) parent))))
   (define results (list verified-arbiter (verified-fifo-at depth)))
   (define graph (admit candidate results))
   (define wrong-graph (admit wrong results))
@@ -74,7 +89,6 @@
   (define legal (&& (bvule n (bv depth (type-of n))) (edge-legal ref)))
   (define base (&& legal rst))
   (define step (&& legal (related depth state history)))
-  (define next (edge-next (sample-fifo impl)))
   (define pop (observation-care (event ref "retired")))
 
   (test-case "each occupancy is feasible and concurrent transfers respect this depth"
@@ -89,17 +103,13 @@
     (require-feasible (&& step v0 v1 pop (bveq n (bv depth (type-of n))) (! (sample-take0 impl)) (! (sample-take1 impl))))
     (require-feasible (&& base (observation-care (event (sample-arb impl) "out")))))
 
-  (test-case "reset establishes and each edge preserves the independently authored parent contract"
-    (discharge 'domains legal (&& (sample-safe impl) (edge-defined ref)))
-    (discharge 'reset base (&& (agrees? impl ref) (related depth next (edge-next ref))
-                               (bveq (sequence-value-count (hash-ref next "q")) (bv 0 (type-of n)))))
-    (discharge 'public-observations step (agrees? impl ref))
-    (discharge 'ordered-live-words step (related depth next (edge-next ref)))
+  (test-case "the children exchange exactly one winner"
     (discharge 'single-winner legal (! (&& (sample-take0 impl) (sample-take1 impl))))
     (discharge 'internal-handoff legal
                (=> (! rst) (same-event (event (sample-arb impl) "out") (event (sample-fifo impl) "enqueue")))))
 
   (test-case "actual wrong-lane RTL admits the winner but violates the same contract on drain"
+    (check-exn #rx"preservation/successor not proved" (lambda () (certify wrong-graph)))
     (define reset (inputs #t #f d0 #f d1 #f))
     (define tie (inputs #f #t d0 #t d1 #f))
     (define drain (inputs #f #f d0 #f d1 #t))
@@ -119,7 +129,8 @@
                (&& gs bs (edge-defined c0) (edge-defined c1) (edge-defined c2)
                    (agrees? ga c1) (agrees? ba c1) (sample-take0 ba) (agrees? gr c2) (! (agrees? br c2))
                    (matches? (event c2 "retired") #t d0)
-                   (matches? (hash-ref (sample-events br) "retired") #t d1)))))
+                   (matches? (hash-ref (sample-events br) "retired") #t d1))))
+  (certify graph))
 
 (test-case "preflight rejects unrelated or absent evidence before a parent edge is constructed"
   (define-values (candidate _ wrong) (ordering_case 2))
@@ -127,8 +138,9 @@
              (lambda () (admit candidate (list verified-arbiter (verified-fifo-at 1)))))
   (check-exn #rx"no evidence for RTL specialization"
              (lambda () (admit candidate (list (verified-fifo-at 2)))))
-  (check-exn #rx"expected completed leaf proof results"
+  (check-exn #rx"expected completed refinement results"
              (lambda () (admit wrong (list verified-arbiter (hash)))))
+  (check-exn #rx"expected direct parent reset at storage" separate_reset_cut)
   (define right (list verified-arbiter (verified-fifo-at 2)))
   (for ([change-start? '(#t #f)])
     (check-exn #rx"evidence does not cover contract"
@@ -138,8 +150,10 @@
   (check-exn #rx"no evidence for RTL specialization"
              (lambda () (prepare-proved-wiring (fresh_cut) right))))
 
-(for ([depth proof_depths])
-  (with-check-info (['depth depth]) (check-ordering depth)))
+(define verified-parents
+  (for/hash ([depth proof_depths])
+    (values depth (with-check-info (['depth depth]) (check-ordering depth)))))
+(define (verified-arbiter-queue-at depth) (hash-ref verified-parents depth))
 
 (test-case "depth-two parent with a one-entry RTL FIFO rejects the second uncontested offer"
   ;; Compare the faulty RTL with the correct depth-two declaration's contract. Its leaf

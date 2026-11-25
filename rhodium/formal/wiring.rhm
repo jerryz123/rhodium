@@ -83,7 +83,7 @@ fun bind_wiring(top :: Module, bindings :: Map, bool :: HardwareType, interface_
   link_cut(top, bindings, bool, interface_prefixes, children, wires)
 
 /* A run-local cut carries the actual child definitions alongside the graph built from that same cut. */
-class ProofCut(graph :: Map, definitions :: Map, layouts :: Map)
+class ProofCut(top :: Module, layout :: PairList, graph :: Map, definitions :: Map, layouts :: Map)
 
 /* Build an unproved candidate without snapshotting the child implementations. */
 fun proof_cut(top :: Module, bindings :: Map, bool :: HardwareType, interface_prefixes :: Function.of_arity(1)):
@@ -94,11 +94,14 @@ fun proof_cut(top :: Module, bindings :: Map, bool :: HardwareType, interface_pr
     prefixes[module_def]
   def values(children, wires) = wiring_cut(top, fields)
   def model = link_cut(top, bindings, bool, fields, children, wires)
+  for ((site, child) in children):
+    when leaf_protocol(child) == "single-clock-reset" && wires.get(site ++ ".reset", #false) != "reset"
+    | error("expected direct parent reset at " ++ site)
   def layouts = for Map ((site, child) in children): values(site, leaf_layout(child, fields(child)))
-  ProofCut(composition_snapshot(model), children, layouts)
+  ProofCut(top, leaf_layout(top, fields(top)), composition_snapshot(model), children, layouts)
 
 /* Only a cut constructed from a completed RTL parent may enter evidence preflight. */
-fun cut_parts(cut :: ProofCut): values(cut.graph, cut.definitions, cut.layouts)
+fun cut_parts(cut :: ProofCut): values(cut.top, cut.layout, cut.graph, cut.definitions, cut.layouts)
 
 /* Check a single extraction before constructing either a concrete model or a proof candidate. */
 fun link_cut(top :: Module, bindings :: Map, bool :: HardwareType, interface_prefixes :: Function.of_arity(1),

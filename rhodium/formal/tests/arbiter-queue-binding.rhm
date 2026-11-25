@@ -12,6 +12,8 @@ import:
   "../spec.rhm" open
   "../snapshot.rhm".formal_snapshot
   "composition-binding.rhm" open
+  "arbiter-queue-fixture.rhdl".SeparateReset
+export buffered_cut separate_reset_cut
 export ordering_case correct_model wrong_lane_model undersized_model
 export alternate_cut swapped_view_cut fresh_cut
 export undersized_rtl correct_rtl one_slot_rtl depth_two_contract
@@ -30,7 +32,19 @@ fun ordering_case(depth):
     def values(children, _) = wiring_cut(parent, interface_prefixes)
     def values(arb, fifo) = leaf_sites(children)
     PairList[proof_cut(parent, bindings(depth), Bool, interface_prefixes), arb, fifo]
-  values(candidate(top), spec_snapshot(ArbiterQueue(top)), candidate(wrong_lane_at(depth)))
+  values(candidate(top), ArbiterQueue(top), candidate(wrong_lane_at(depth)))
+
+fun separate_reset_cut():
+  def top = elaborate(SeparateReset()).top
+  def values(children, _) = wiring_cut(top, interface_prefixes)
+  def child = children["storage"]
+  proof_cut(top, Map.by(===){child: ShiftQueue(child)}, Bool, interface_prefixes)
+
+fun buffered_cut(depth):
+  def parent = parent_at(depth)
+  def tail = fifo_at(1)
+  def models = Map.by(===){parent: ArbiterQueue(parent), tail: ShiftQueue(tail)}
+  proof_cut(outer_at(depth), models, Bool, interface_prefixes)
 
 // Same implementation and transition function, but change either the reset state or event view.
 fun alternate_cut(change_start):

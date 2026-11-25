@@ -1,0 +1,97 @@
+#lang rosette
+;; Prove ordered winner retirement across an opaque ArbiterQueue and a one-entry ShiftQueue.
+;; SPDX-License-Identifier: Apache-2.0
+
+(require rackunit "../refinement.rkt" "../spec-engine.rkt" "composition-checks.rkt"
+         (only-in "arbiter-queue-binding.rhm" buffered_cut)
+         (only-in "arbiter-queue-order.rkt" verified-arbiter-queue-at)
+         (only-in "shift-queue-induction.rkt" proof_depths verified-fifo-at))
+
+(define (inputs reset v0 d0 v1 d1 ready)
+  (hash "reset" reset "ingress[0].valid" v0 "ingress[0].bits" d0
+        "ingress[1].valid" v1 "ingress[1].bits" d1 "egress.ready" ready))
+(define (size q) (bitvector->natural (sequence-value-count q)))
+(define (slot q pos)
+  (for/fold ([v (bv 0 2)]) ([word (sequence-value-slots q)] [i (in-naturals)])
+    (if (= i pos) word v)))
+
+(for ([depth proof_depths])
+  (test-case (format "nested spec-only ordering: front depth ~a, tail depth 1" depth)
+    (define cut (buffered_cut depth))
+    ;; A verified tail, or a graph that has merely admitted its children, is not a parent result.
+    (check-exn #rx"no evidence for RTL specialization"
+               (lambda () (prepare-proved-wiring cut (list (verified-fifo-at 1)))))
+    (when (> depth 1)
+      (check-exn #rx"no evidence for RTL specialization"
+                 (lambda () (prepare-proved-wiring cut (list (verified-arbiter-queue-at 1) (verified-fifo-at 1))))))
+    (define plan (prepare-proved-wiring cut (list (verified-arbiter-queue-at depth) (verified-fifo-at 1))))
+    (check-exn #rx"expected completed refinement results"
+               (lambda () (prepare-proved-wiring cut (list plan (verified-fifo-at 1)))))
+    (define states (for/hash ([site '("front" "tail_fifo")])
+                     (values site (symbolic-spec-state (proved-child-model plan site)))))
+    (check-equal? (hash-keys (hash-ref states "front")) '("pending"))
+    (check-equal? (hash-keys (hash-ref states "tail_fifo")) '("q"))
+    (define (tail s) (hash-ref (hash-ref s "tail_fifo") "q"))
+    (define (front s) (hash-ref (hash-ref s "front") "pending"))
+    (define (count s) (+ (size (tail s)) (size (front s))))
+    ;; The output buffer holds the oldest prefix. Empty/padding slots are never observed.
+    (define (word s i)
+      (define n (size (tail s)))
+      (if (< i n) (slot (tail s) i) (slot (front s) (- i n))))
+    (define (tick s x)
+      (define-values (pins edges settled) (proved-edge-at plan s x))
+      (values pins (for/hash ([(k e) edges]) (values k (edge-next e)))
+              (for/fold ([ok settled]) ([e (hash-values edges)])
+                (&& ok (edge-legal e) (edge-defined e) (spec-state-legal? (edge-next e))))))
+    (define-symbolic* rst v0 v1 ready boolean?)
+    (define-symbolic* d0 d1 (bitvector 2))
+    (define-values (pins next safe) (tick states (inputs rst v0 d0 v1 d1 ready)))
+    (define legal (andmap spec-state-legal? (hash-values states)))
+    (define active (&& legal (! rst)))
+    (define a (&& v0 (hash-ref pins "ingress[0].ready")))
+    (define b (&& v1 (hash-ref pins "ingress[1].ready")))
+    (define push (|| a b))
+    (define valid (hash-ref pins "egress.valid"))
+    (define pop (&& ready valid))
+    (define removed (if pop 1 0))
+    (define kept (- (count states) removed))
+    (require-feasible (&& legal rst (= (count states) (add1 depth))))
+    (require-feasible (&& active a v1 pop))
+    (require-feasible (&& active b (! ready)))
+    (discharge 'defined-and-legal legal safe)
+    (discharge 'reset-flushes (&& legal rst) (= (count next) 0))
+    (discharge 'winner active (&& (! (&& a b)) (=> b (! v0))))
+    (discharge 'oldest-offered active
+               (=> valid (&& (> (count states) 0) (bveq (hash-ref pins "egress.bits") (word states 0)))))
+    (discharge 'capacity-and-conservation active
+               (&& (= (count next) (+ kept (if push 1 0))) (<= (count next) (add1 depth))))
+    (for ([i (in-range (add1 depth))])
+      (discharge 'retained-prefix active (=> (< i kept) (bveq (word next i) (word states (+ i removed))))))
+    (discharge 'append-winner active (=> push (bveq (word next kept) (if a d0 d1))))
+
+    ;; A reachable witness: park the first winner in the tail, fill the front, stall, then drain.
+    (define current states)
+    (define (drive x)
+      (define-values (p n ok) (tick current x))
+      (discharge 'trace-defined legal ok)
+      (set! current n)
+      p)
+    (define zero (bv 0 2))
+    (define idle (inputs #f #f zero #f zero #f))
+    (define drain (hash-set idle "egress.ready" #t))
+    (define (offer i)
+      (define p (drive (inputs #f #t (bv i 2) #t (bv (+ i 1) 2) #f)))
+      (discharge 'reachable-winner legal (&& (hash-ref p "ingress[0].ready") (! (hash-ref p "ingress[1].ready")))))
+    (drive (hash-set idle "reset" #t))
+    (offer 0)
+    (drive idle)
+    (for ([i (in-range 1 (add1 depth))]) (offer i))
+    (define stalled (drive (inputs #f #t zero #t zero #f)))
+    (discharge 'reachable-full legal (&& (= (count current) (add1 depth))
+                                         (! (hash-ref stalled "ingress[0].ready"))
+                                         (! (hash-ref stalled "ingress[1].ready"))))
+    (for ([i (in-range (add1 depth))])
+      (unless (zero? i) (drive drain)) ; Non-flowing tail refills on the intervening edge.
+      (define p (drive drain))
+      (discharge 'reachable-retirement legal (&& (hash-ref p "egress.valid") (bveq (hash-ref p "egress.bits") (bv i 2)))))
+    (discharge 'drained legal (= (count current) 0))))

@@ -274,6 +274,7 @@ fun composition_snapshot(model :: Composition):
   {"children": for Map ((site, child) in model.children): values(site, spec_snapshot(child)),
    "inputs": for Map ((k, t) in model.inputs): values(k, snapshot_type(t)),
    "outputs": PairList[& model.outputs.keys()],
+   "output-types": for Map ((k, t) in model.outputs): values(k, snapshot_type(t)),
    "wires": model.wires,
    "order": for PairList (o in model.order): PairList[o.site, o.port, PairList[& o.deps]]}
 

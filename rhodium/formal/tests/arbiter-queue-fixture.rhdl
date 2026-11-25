@@ -20,4 +20,15 @@ sync_circuit Undersized(width :: PosInt):
   interface egress(Irrevocable(Bits(width)), ~role: producer)
   ingress |> arbiter() |> shift_queue(1) |> egress
 
-export WrongLane Undersized
+// A direct wire, but a different reset epoch: child evidence cannot establish parent reset.
+circuit SeparateReset():
+  input clock: Clock
+  input reset: Reset
+  input child_reset: Reset
+  interface ingress(Decoupled(Bits(2)), ~role: consumer)
+  interface egress(Irrevocable(Bits(2)), ~role: producer)
+  inst storage(ShiftQueue(Bits(2), 1), ~clock: clock, ~reset: child_reset)
+  ingress |> storage.ingress
+  storage.egress |> egress
+
+export WrongLane Undersized SeparateReset

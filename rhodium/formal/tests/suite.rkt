@@ -5,6 +5,7 @@
 (require "aggregate-test.rhm"
          (submod "arbiter-refinement.rkt" test)
          "arbiter-queue-order.rkt"
+         "buffered-arbiter-queue-order.rkt"
          "api-test.rhm"
          "assumption-test.rhm"
          "decode-test.rhm"

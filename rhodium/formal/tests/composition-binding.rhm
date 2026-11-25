@@ -13,7 +13,9 @@ import:
   "../wiring.rhm".leaf_layout
   "shift-queue-fixture.rhdl".QueuePair
   lib("examples/formal/arbiter-queue.rhdl").ArbiterQueue
+  lib("examples/formal/buffered-arbiter-queue.rhdl").BufferedArbiterQueue
 
+export outer_at
 export pair pair_wires fifo_definition arbiter_definition mixed wrong_lane undersized
 export interface_prefixes pin_layout leaf_sites
 export proof_depths parent_at wrong_lane_at fifo_at
@@ -23,6 +25,7 @@ def mutable pair = #false
 def mutable arbiter_definition = #false
 def fifos = MutableMap{}
 def proof_depths = PairList[1, 2, 3]
+def outer = MutableMap{}
 def parents = MutableMap{}
 def faulty_parents = MutableMap{}
 def mutable undersized = #false
@@ -32,10 +35,12 @@ fun inventory():
   for (d in proof_depths):
     fifos[d] := materialize_circuit(ShiftQueue(Bits(2), d))
     parents[d] := materialize_circuit(ArbiterQueue(2, ~depth: d))
+    outer[d] := materialize_circuit(BufferedArbiterQueue(2, ~depth: d))
     faulty_parents[d] := materialize_circuit(WrongLane(2, d))
   undersized := materialize_circuit(Undersized(2))
   ArbiterQueue(2)
 def mixed = elaborate(inventory()).top
+fun outer_at(depth): outer[depth]
 fun parent_at(depth): parents[depth]
 fun wrong_lane_at(depth): faulty_parents[depth]
 def wrong_lane = wrong_lane_at(2)
