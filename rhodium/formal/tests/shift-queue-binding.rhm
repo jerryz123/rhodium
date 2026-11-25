@@ -12,7 +12,7 @@ import:
   "../spec.rhm" open
   "../../../examples/formal/shift-queue.rspl".ShiftQueue
 
-export snapshot faulty_snapshot guarded_snapshot spec_row fifo_snapshot pair_wires unit_fifo_snapshot fifo_root bad_root in_layout out_layout
+export snapshot faulty_snapshot guarded_snapshot spec_row fifo_snapshot fifo_root bad_root in_layout out_layout
 export interface_prefixes proof_depths fifo_case pair_proof_cut
 
 def snapshot = formal_snapshot(fifo_definition)
@@ -24,13 +24,14 @@ def faulty_snapshot = formal_snapshot(bad)
 def guarded_snapshot = formal_snapshot(elaborate(GuardedAssertion()))
 def fifo = ShiftQueue(fifo_definition)
 def fifo_snapshot = spec_snapshot(fifo)
-def unit_fifo_snapshot = spec_snapshot(ShiftQueue(fifo_at(1)))
 // Prove the actual FIFO occurrence's definition; specialization suffixes are not stable names.
 fun fifo_case(depth):
   def leaf = fifo_at(depth)
   def model = ShiftQueue(leaf)
   values(leaf, leaf.name, model)
-def pair_proof_cut = proof_cut(pair, Map.by(===){fifo_definition: fifo}, Bool, interface_prefixes)
+fun pair_proof_cut(depth):
+  def leaf = fifo_at(depth)
+  proof_cut(pair_at(depth), Map.by(===){leaf: ShiftQueue(leaf)}, Bool, interface_prefixes)
 fun spec_row(contents, sample):
   def edge = step_spec(fifo, {"q": PairList.to_list(contents)}, sample)
   PairList[edge.outputs, edge.events, PairList[& edge.next_state["q"]]]

@@ -9,7 +9,6 @@ import:
   "arbiter-queue-fixture.rhdl" open
   lib("rhodium/frontend/kernel.rhm").materialize_circuit
   lib("rspecl/rtl-boundary.rhm").interface_prefixes
-  "../wiring.rhm".wiring_cut
   "../wiring.rhm".leaf_layout
   "shift-queue-fixture.rhdl".QueuePair
   lib("examples/formal/arbiter-queue.rhdl").ArbiterQueue
@@ -27,12 +26,12 @@ export router routed_selector duplicate_grant high_grant circular_grants
 export registered_lane registered_routed registered_duplicate
 export capture_gate arbitrated_capture raw_capture
 export gated_at leaky_at outer_at
-export pair pair_wires fifo_definition arbiter_definition mixed wrong_lane undersized
+export pair_at fifo_definition arbiter_definition mixed wrong_lane undersized
 export interface_prefixes pin_layout leaf_sites
 export proof_depths parent_at wrong_lane_at fifo_at
 
 // Keep the actual definitions, not generated module names, in one elaboration.
-def mutable pair = #false
+def pairs = MutableMap{}
 def mutable arbiter_definition = #false
 def fifos = MutableMap{}
 def proof_depths = PairList[1, 2, 3]
@@ -76,7 +75,8 @@ fun inventory():
   capture_gate := materialize_circuit(GatedCapture())
   arbitrated_capture := materialize_circuit(ArbitratedCapture())
   raw_capture := materialize_circuit(RawCapture())
-  pair := materialize_circuit(QueuePair())
+  for (d in [1, 2]):
+    pairs[d] := materialize_circuit(QueuePair(d))
   for (d in proof_depths):
     fifos[d] := materialize_circuit(ShiftQueue(Bits(2), d))
     parents[d] := materialize_circuit(ArbiterQueue(2, ~depth: d))
@@ -97,8 +97,7 @@ fun outer_at(depth): outer[depth]
 fun parent_at(depth): parents[depth]
 fun wrong_lane_at(depth): faulty_parents[depth]
 def wrong_lane = wrong_lane_at(2)
-def values(pair_children, pair_wires) = wiring_cut(pair, interface_prefixes)
-def values(mixed_children, _) = wiring_cut(mixed, interface_prefixes)
+fun pair_at(depth): pairs[depth]
 fun fifo_at(depth): fifos[depth]
 def fifo_definition = fifo_at(2)
 
@@ -111,9 +110,5 @@ fun leaf_sites(children):
     matches[0]
   unless children.length() == 2 | error("expected exactly two Flow children")
   values(unique_site(arbiter_definition), unique_site(fifo_definition))
-unless pair_children.length() == 2 && mixed_children.length() == 2
-       && pair_children["a"] === fifo_definition && pair_children["b"] === fifo_definition
-| error("expected both parents to share the proved FIFO specialization")
-
 
 fun pin_layout(top): leaf_layout(top, interface_prefixes(top))

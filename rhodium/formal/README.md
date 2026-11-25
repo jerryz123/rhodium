@@ -16,9 +16,11 @@ Rosette can execute the same specification symbolically on unknown values. A
 two-bit ShiftQueue (pipe, flow, and flush disabled) matches its FIFO spec on
 every edge following sampled reset, separately at depths 1, 2, and 3.
 A [parent proof](DEVELOPING.md#two-shiftqueues-in-series)
-uses two depth-two copies to prove four-word capacity and FIFO ordering for
-the series connection. It does not promise admission whenever there is space
-or eventual delivery. A separate [arbiter proof](DEVELOPING.md#two-input-fixed-priority-arbiter)
+proves FIFO ordering and capacities of two and four words for pairs of depth-one
+and depth-two queues, respectively. A depth-one pair can refuse a second
+word while moving the first word to its empty downstream stage. The transaction
+contract guarantees neither immediate admission nor eventual delivery.
+A separate [arbiter proof](DEVELOPING.md#two-input-fixed-priority-arbiter)
 covers a two-input, two-bit Decoupled arbiter: lane 0 wins ties and each
 output transfer consumes exactly the winning input. A stalled grant is not
 locked. When that arbiter feeds the FIFO, the

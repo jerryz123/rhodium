@@ -21,17 +21,17 @@ it does not prove refinement. Rosette stays optional and outside elaboration.
 
 ## Delivery milestones
 
-All three FIFO milestones are complete for the fixed two-bit, depth-two
-specialization. The [leaf proof](DEVELOPING.md#shiftqueue-refinement-by-depth)
+All three FIFO milestones are complete for two-bit queues at depths one and
+two. The [leaf proof](DEVELOPING.md#shiftqueue-refinement-by-depth)
 now checks reset and preservation separately for depths 1, 2, and 3;
 the faulty-payload replay remains at depth 2. The
 [series proof](DEVELOPING.md#two-shiftqueues-in-series) discharges the boundary
-and proves ordering and capacity four using two independent spec states.
+and proves ordering and capacities two and four using two independent spec states.
 The parent fixtures share an admission check: each
 occurrence needs run-local evidence for its actual implementation and full
 contract. No persistent evidence cache or general parent-logic checker is
-implemented. The two-queue depth-one readiness example is spec-only;
-the ArbiterQueue capacity mismatch is replayed against actual RTL.
+implemented. The depth-one pair's readiness counterexample is replayed in
+rspecsim and compiled RTL; the ArbiterQueue capacity mismatch is also replayed against RTL.
 
 The [two-input fixed-priority arbiter](DEVELOPING.md#two-input-fixed-priority-arbiter)
 is a second verified leaf. Unlike the FIFO, its cycle outputs depend on

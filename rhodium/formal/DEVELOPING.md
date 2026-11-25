@@ -166,9 +166,9 @@ The leaf proof runs once on the shared definition and releases its exact spec
 only after the initialization, preservation, and feasibility checks pass.
 Both occurrences admit the same leaf result. There is no persistent certificate.
 The [parent proof](tests/shift-queue-pair.rkt)
-checks the direct netlist, including the common clock/reset, and allocates just
-`a.q` and `b.q`. A changed topology or a consumer of a hidden port such as
-`mask` does not qualify.
+steps the extracted wiring, including the common clock/reset, and allocates just
+`a.q` and `b.q`. Evidence for the wrong depth or a consumer of a hidden
+port such as `mask` does not qualify.
 
 The spec engine resolves pre-edge offers from each child's old state and reset
 before binding the handshake inputs. A missing input dependency is an error,
@@ -180,10 +180,15 @@ The external transaction sequence is the live contents of B followed by A.
 Reset empties it; otherwise an external dequeue removes its oldest word and
 an enqueue appends the offered word. A middle handshake agrees at both ends
 and does not by itself change this sequence. The solver checks length and each
-live successor position, including simultaneous transfers. A reset/fill/drain
-trace attains capacity four. Another edge has one free slot but no input
-admission. The depth-one readiness example uses specs only, not depth-two RTL
-evidence. Run `moon run rhodium:formal-test` to reproduce these checks.
+live successor position, including simultaneous external transfers. Reset/fill/drain
+traces attain capacities two and four at child depths one and two. Run
+`moon run rhodium:formal-test` to reproduce the proofs.
+
+The [depth-one replay](tests/queue-pair-trace.rhm) steps rspecsim on the extracted
+wiring and sends the same eight input samples and cared pre-edge observations to
+the [native RTL driver](tests/queue-pair-replay.cpp). It checks refusal during
+an internal handoff, successful retry, and ordered drain. This replay runs in
+`moon run rhodium:formal-differential-test`; the parent proof never expands child RTL.
 
 ### Two-input fixed-priority arbiter
 

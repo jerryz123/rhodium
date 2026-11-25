@@ -15,7 +15,7 @@ sync_circuit GuardedAssertion():
     assert(condition, "sampled")
 
 // Only the verified ready/valid cycle interface crosses each child boundary.
-sync_circuit QueuePair():
+sync_circuit QueuePair(depth :: PosInt = 2):
   input offer: Bool
   input data: Bits(2)
   input consume: Bool
@@ -23,8 +23,8 @@ sync_circuit QueuePair():
   output valid: Bool
   output head: Bits(2)
 
-  inst a(ShiftQueue(Bits(2), 2))
-  inst b(ShiftQueue(Bits(2), 2))
+  inst a(ShiftQueue(Bits(2), depth))
+  inst b(ShiftQueue(Bits(2), depth))
   a.ingress.valid <== offer
   a.ingress.bits <== data
   a.egress.ready <== b.ingress.ready

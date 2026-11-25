@@ -13,23 +13,28 @@ ROOT = Path(__file__).resolve().parents[3]
 HERE = Path(__file__).resolve().parent
 
 
-def run(command, work, label):
+def run(command, work, label, *, stdin=None):
     result = subprocess.run([str(item) for item in command], cwd=ROOT,
                             env=dict(os.environ, PLTCOLLECTS=str(ROOT) + os.pathsep),
-                            capture_output=True, text=True, timeout=600)
+                            capture_output=True, input=stdin, text=True, timeout=600)
     (work / f"{label}.log").write_text(result.stdout + result.stderr)
     if result.returncode:
         raise RuntimeError(f"{label} failed; see {work / (label + '.log')}")
     return result.stdout
 
 
+def build_native(folder, sources, bench):
+    exe = folder / "sim"
+    run([*shlex.split(os.environ.get("CXX", "c++")), "-std=c++20", "-O1", "-g",
+         "-fsanitize=address,undefined", "-fno-sanitize-recover=all", "-I", folder,
+         *sources, bench, "-o", exe], folder, "build")
+    return exe
+
+
 def build_model(folder, target, top):
     bench = folder / "driver.cpp"
     if target == "rsim":
-        exe = folder / "sim"
-        run([*shlex.split(os.environ.get("CXX", "c++")), "-std=c++20", "-O1", "-g",
-             "-fsanitize=address,undefined", "-fno-sanitize-recover=all", "-I", folder,
-             folder / f"{top}.cpp", bench, "-o", exe], folder, "build")
+        return build_native(folder, [folder / f"{top}.cpp"], bench)
     else:
         source = folder / f"{top}.sv"
         if target == "circt":
@@ -42,6 +47,19 @@ def build_model(folder, target, top):
              "--Mdir", build, source, bench], folder, "build")
         exe = build / f"V{top}"
     return exe
+
+
+def replay_queue_pair(work):
+    fixture = (HERE / "queue-pair-trace.rhm").relative_to(ROOT)
+    racket = ROOT / "tools/run-racket.sh"
+    run([racket, ROOT / "tools/testing/rsim/emit.rhm", work, "queue-pair",
+         fixture, "program", "-"], work, "emit-queue-pair")
+    folder = work / "queue-pair"
+    trace = run([racket, "-e", f'(begin (require (file "{fixture}")) (display (replay)))'],
+                folder, "rspecsim")
+    exe = build_native(folder, sorted(folder.glob("*.cpp")), HERE / "queue-pair-replay.cpp")
+    run([exe], folder, "simulate", stdin=trace)
+    print("Depth-one QueuePair: ready-timing witness agrees in rspecsim and native RTL")
 
 
 def oracle():
@@ -89,6 +107,7 @@ def main():
     args = parser.parse_args()
     work = Path(tempfile.mkdtemp(prefix="rhodium-transition-replay-"))
     try:
+        replay_queue_pair(work)
         targets = ("rsim", "verilog") + (("circt",) if args.circt else ())
         for target in targets:
             folder = work / target

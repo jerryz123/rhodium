@@ -1,0 +1,41 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("rhodium/frontend/foundation.rhm").Bool
+  lib("rspecl/rtl-boundary.rhm").interface_prefixes
+  lib("examples/formal/shift-queue.rspl").ShiftQueue
+  "../wiring.rhm" open
+  "../spec.rhm".step_spec
+  "shift-queue-fixture.rhdl".QueuePair
+
+export program replay
+def program = elaborate(QueuePair(1))
+
+// Drive the compiled RTL with the same samples that produced these rspecsim observations.
+fun replay():
+  def top = program.top
+  def values(children, _) = wiring_cut(top, interface_prefixes)
+  def leaf = children["a"]
+  def model = bind_wiring(top, Map.by(===){leaf: ShiftQueue(leaf)}, Bool, interface_prefixes)
+  def mutable state = model.initial
+  fun row(reset, offer, word, consume, expected):
+    def sample = {"reset": reset, "offer": offer, "data": word, "consume": consume}
+    def edge = step_spec(model, state, sample)
+    unless edge.outputs == expected
+    | error("rspecsim sample, observed, expected: " ++ to_string([sample, edge.outputs, expected]))
+    state := edge.next_state
+    fun bit(b): if b | 1 | 0
+    fun pin(k): if edge.outputs.has_key(k) | bit(edge.outputs[k]) | -1
+    String.join([bit(reset), bit(offer), word, bit(consume), pin("ready"), pin("valid"),
+                 edge.outputs.get("head", -1)].map(to_string), " ")
+  String.join([
+    row(#true,  #false, 0, #false, {}),
+    row(#false, #true,  1, #false, {"ready": #true,  "valid": #false}), // accept x
+    row(#false, #true,  2, #false, {"ready": #false, "valid": #false}), // A -> B; refuse y
+    row(#false, #true,  2, #false, {"ready": #true,  "valid": #true, "head": 1}), // retry y; now full
+    row(#false, #false, 0, #true,  {"ready": #false, "valid": #true, "head": 1}), // retire x
+    row(#false, #false, 0, #true,  {"ready": #false, "valid": #false}), // A -> B
+    row(#false, #false, 0, #true,  {"ready": #true,  "valid": #true, "head": 2}), // retire y
+    row(#false, #false, 0, #true,  {"ready": #true,  "valid": #false})], "\n") ++ "\n"
