@@ -19,7 +19,7 @@ def view = TwoTagROB(top, ~transaction_view: #true)
 def values(sampler, monitor, _, _) = transaction_parts(view)
 def batch = transaction_batch_model(view)
 
-// Execute the same public recorder monitor independently of the proof, including tag A (false).
+// Bind both public behaviors to the parent pins, independently of the proof.
 def logged_top = elaborate(logged_rtl.LoggedTwoTagROB()).top
 def logged_view = LoggedTwoTagROB(logged_top, ~transaction_view: #true)
 def values(_, recorder, _, _) = transaction_parts(logged_view)
@@ -27,26 +27,42 @@ def recorder_batch = transaction_batch_model(logged_view)
 def offer = {"reset": #false, "retire.valid": #true, "retire.ready": #false,
              "retire.bits": #false, "retire_result": 3,
              "has_commit": #false, "last_tag": #true, "last_payload": 1}
-fun record_edge(old, pins):
-  step_spec(recorder, old, step_spec(recorder_batch, {}, offer ++ pins).outputs)
-def stall = record_edge(recorder.initial, {})
-def capture = record_edge(stall.next_state, {"retire.ready": #true})
 def recorded = {"has_commit": #true, "last_tag": #false, "last_payload": 3}
-check:
-  LoggedTwoTagROB(logged_top) ~throws "monitor-only spec"
-  stall.outputs["allowed"] ~is #true
-  stall.next_state ~is recorder.initial
-  capture.next_state ~is {"occupied": #true, "tag": #false, "data": 3}
-  record_edge(capture.next_state, recorded).outputs["allowed"] ~is #true
-  record_edge(capture.next_state, recorded).next_state ~is capture.next_state
-  record_edge(capture.next_state, recorded ++ {"last_payload": 1}).outputs["allowed"] ~is #false
-  record_edge(capture.next_state, recorded ++ {"reset": #true}).next_state["occupied"] ~is #false
-
 def sample = {"reset": #false, "grant_a": #false, "grant_b": #true, "issue_gen": #false,
               "retire.ready": #true, "retire.valid": #true, "retire.bits": #false, "retire_result": 3,
               "complete_a": #true, "complete_gen_a": #true, "result_a": 2,
               "complete_b": #true, "complete_gen_b": #false, "result_b": 0}
 def pulses = {"echo_a": #true, "data_a": 2, "echo_b": #false, "data_b": 0}
+
+// Only one retirement event drives order and capture. Neither history advances on a rejected sample.
+def quiet = sample ++ offer ++ {"grant_b": #false, "complete_a": #false, "complete_b": #false}
+fun record_edge(old, changes):
+  def observed = step_spec(recorder_batch, {}, quiet ++ changes).outputs
+  step_spec(recorder, old, observed)
+def empty_trace = record_edge(recorder.initial, {"reset": #true}).next_state
+def allocate = record_edge(empty_trace, {"grant_a": #true, "issue_gen": #true})
+def early = record_edge(allocate.next_state, {"retire.ready": #true})
+def first = record_edge(allocate.next_state, {"complete_a": #true, "complete_gen_a": #true, "result_a": 3})
+def duplicate = record_edge(first.next_state, {"complete_a": #true, "complete_gen_a": #true, "result_a": 1})
+def save = record_edge(duplicate.next_state, {"retire.ready": #true})
+def bad_record = record_edge(save.next_state, {"grant_b": #true})
+check:
+  LoggedTwoTagROB(logged_top) ~throws "monitor-only spec"
+  allocate.next_state["order"] ~is [#false]
+  allocate.next_state["gen_a"] ~is #true
+  early.outputs["completed-before-retirement"] ~is #false
+  early.outputs["allowed"] ~is #false
+  early.next_state ~is allocate.next_state
+  duplicate.next_state["occupied"] ~is #false
+  save.outputs["allowed"] ~is #true
+  save.next_state["order"] ~is []
+  save.next_state["data"] ~is 3
+  bad_record.outputs["record-valid"] ~is #false
+  bad_record.next_state ~is save.next_state
+  record_edge(save.next_state, recorded).outputs["allowed"] ~is #true
+  record_edge(save.next_state, recorded ++ {"last_payload": 1}).outputs["allowed"] ~is #false
+  record_edge(save.next_state, recorded ++ {"reset": #true}).next_state["occupied"] ~is #false
+
 def granted = {"issued": #true, "issued_gen": #false}
 fun sampled(changes): step_spec(sampler, {}, sample ++ changes).events
 check:

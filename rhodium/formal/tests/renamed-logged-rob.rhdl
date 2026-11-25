@@ -1,0 +1,47 @@
+#lang rhodium
+/* Uses the reference recorder wiring with a different child occurrence name. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("flow/main.rhdl") open
+  lib("examples/formal/two-tag-rob.rhdl").TwoTagROB
+
+/* Forward the ROB interface unchanged; has_commit qualifies the saved tag and payload. */
+sync_circuit RenamedLoggedROB():
+  input (issue_a, issue_b, complete_a, complete_b): Bool
+  input (complete_gen_a, complete_gen_b): Bool
+  input (result_a, result_b): Bits(2)
+  output (grant_a, grant_b, issue_gen): Bool
+  output retire_result: Bits(2)
+  interface retire(Irrevocable(Bool), ~role: producer)
+  output (has_commit, last_tag): Bool
+  output last_payload: Bits(2)
+
+  inst engine(TwoTagROB())
+  engine.issue_a <== issue_a
+  engine.issue_b <== issue_b
+  engine.complete_a <== complete_a
+  engine.complete_b <== complete_b
+  engine.complete_gen_a <== complete_gen_a
+  engine.complete_gen_b <== complete_gen_b
+  engine.result_a <== result_a
+  engine.result_b <== result_b
+  grant_a <== engine.grant_a
+  grant_b <== engine.grant_b
+  issue_gen <== engine.issue_gen
+  engine.retire |> retire
+  retire_result <== engine.retire_result
+
+  reg occupied(~init: Bool(#false))
+  reg tag(Bits(1))
+  reg payload(Bits(2))
+  def capture = engine.retire.fire() & !reset_active().into(Bool)
+  when capture:
+    occupied <== Bool(#true)
+    tag <== engine.retire.bits.as_bits()
+    payload <== engine.retire_result
+  has_commit <== occupied
+  last_tag <== tag.into(Bool)
+  last_payload <== payload
+
+export RenamedLoggedROB

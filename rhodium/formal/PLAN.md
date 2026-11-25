@@ -95,7 +95,10 @@ not a cycle replacement or a guarantee of progress.
 The [last-commit RTL wrapper](../../examples/formal/logged-two-tag-rob.rhdl)
 now consumes that seal at a physical child occurrence. Its [RSPECL refinement](../../examples/formal/logged-two-tag-rob.rspl)
 issues reusable recorder evidence: [readback after capture](tests/logged-refinement.rkt)
-uses only that evidence. The [independent handwritten proof](tests/logged-two-tag-rob.rkt)
+uses only that evidence. A parent-owned ordered-retirement contract lets the
+[ordinal observer](tests/logged-ordinal.rkt) connect that record to the kth
+grant and first matching-generation response using the same parent seal and
+one joint public sample, unchanged when the child is renamed. The [independent handwritten proof](tests/logged-two-tag-rob.rkt)
 retains the reset-to-stall replay of a valid-only write. This cut covers one
 forwarded transaction boundary, not arbitrary adapters or multiple sealed children.
 

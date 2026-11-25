@@ -2,51 +2,22 @@
 ;; Prove an ordinal commit-log property using only the sealed ROB contract and public events.
 ;; SPDX-License-Identifier: Apache-2.0
 
-(require rackunit "composition-checks.rkt" "rob-observer-records.rkt")
+(require rackunit "composition-checks.rkt" "rob-observer-records.rkt" "ordered-retirement-observer.rkt"
+         (only-in "../../../examples/formal/two-tag-rob.rspl" TwoTagROB)
+         (only-in "../../../rspecl/proof.rkt" transaction-step)
+         (only-in "../../../rspecl/rtl-boundary.rhm" transaction_parts)
+         (only-in "../spec.rhm" spec_snapshot)
+         (only-in "../spec-engine.rkt" fresh-fields symbolic-spec-state))
 
-;; Observe arbitrary zero-based k. No slot or hardware value is read to update log state:
-;; abstract slots are used only to state the induction invariant.
 (define (check-commit-log evidence)
-  (define-symbolic* k grants retirements integer?)
-  (define-symbolic* tag generation matched boolean?)
-  (define-symbolic* first-data (bitvector 2))
-  (define old (fresh-rob-history))
-  (define e (fresh-rob-events))
-  (define-values (allowed next) (rob-step evidence old e))
-  (define grant (rob-events-grant e))
-  (define pop (rob-events-retire e))
-  (define kth-grant (&& grant (= k grants)))
-  ;; The log appends exactly (retire-tag, retire-data) per retirement; this is
-  ;; the write-enable for entry k, so no unbounded array is needed.
-  (define kth-log (&& pop (= k retirements)))
-  (define tracked (<= retirements k (sub1 grants)))
-  (define pulse (if tag (rob-events-b e) (rob-events-a e)))
-  (define capture (&& tracked (! matched) (response-present pulse) (equal? generation (response-gen pulse))))
-  (define (inv h g r t gen done word)
-    (&& (<= 0 r g) (= (rob-history-count h) (- g r))
-        (for/fold ([ok #t]) ([slot (list (rob-history-head h) (rob-history-tail h))] [i (in-naturals)])
-          (&& ok (=> (&& (= k (+ r i)) (< k g))
-                     (&& (equal? t (entry-tag slot)) (equal? gen (entry-gen slot))
-                         (equal? done (entry-done slot)) (=> done (bveq word (entry-data slot)))))))))
-  (define base (&& (>= k 0) allowed (rob-events-reset e)))
-  (define step (&& (>= k 0) allowed (! (rob-events-reset e))
-                   (inv old grants retirements tag generation matched first-data)))
-  (require-feasible (&& base (= (rob-history-count old) 2)))
-  (discharge 'log-reset base (&& (! grant) (! pop) (inv next 0 0 #f #f #f (bv 0 2))))
-  (discharge 'log-preserved step
-             (inv next (+ grants (if grant 1 0)) (+ retirements (if pop 1 0))
-                  (if kth-grant (rob-events-grant-tag e) tag)
-                  (if kth-grant (rob-events-grant-gen e) generation)
-                  (if kth-grant #f (|| matched capture))
-                  (if capture (response-data pulse) first-data)))
-  (discharge 'kth-commit step
-             (=> kth-log (&& tracked matched (equal? (rob-events-retire-tag e) tag)
-                             (bveq (rob-events-retire-data e) first-data))))
-  ;; Grants, completions and retirement are not serialized by the induction premises.
-  (require-feasible (&& step kth-grant pop))
-  (require-feasible (&& step capture (< retirements k) pop))
-  (for* ([t '(#f #t)] [gen '(#f #t)])
-    (require-feasible (&& step kth-log grant (equal? tag t) (equal? generation gen)))))
+  (define view (TwoTagROB #:transaction_view #t))
+  (define-values (_ monitor _i _o) (transaction_parts view))
+  (define model (spec_snapshot monitor))
+  (define old (symbolic-spec-state model))
+  (define batch (fresh-fields (hash-ref model "inputs")))
+  (define-values (ok next) (transaction-step evidence view old batch))
+  (define-values (_capture _tag _data) (check-ordinal-edge old batch ok next))
+  (void))
 
 ;; Reach a completed head from reset. An idle self-loop can repeat any number of times;
 ;; retirement from that very same state is also permitted, not required.

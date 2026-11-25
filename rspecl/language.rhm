@@ -15,6 +15,8 @@ export:
   all_from(lib("rhodium/formal/spec-dsl.rhm")):
     except operand
   spec
+  rename: monitor_view as monitor
+  rename: boundary.combine_transactions as combine_transactions
   rename: boundary.ready_valid_events as ready_valid_events
   rename: boundary.rv_pins as rv_pins
   rename: boundary.transaction_view as transaction_view

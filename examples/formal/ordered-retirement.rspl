@@ -1,0 +1,90 @@
+#lang rspecl
+/* Defines the public ordered-retirement protocol independently of any RTL declaration or occurrence. */
+// SPDX-License-Identifier: Apache-2.0
+
+import lib("rhodium/formal/spec.rhm") as ir
+export ordered_retirement retirement_events
+
+/* A retirement is a non-reset handshake; its tag and payload are one observation. */
+fun retirement_events(input :: Function.of_arity(2), output :: Function.of_arity(2)):
+  def rst = input("reset", Bool)
+  def take = !rst && output("retire.valid", Bool) && input("retire.ready", Bool)
+  {"reset": ir.Observed(const(Bool, #true), rst),
+   "retired": ir.Observed(output("retire.bits", Bool), take),
+   "retired_value": ir.Observed(output("retire_result", Bits(2)), take)}
+
+/* Decode one joint pre-edge sample. Only the four issued/retired fields belong to the
+   cycle API; the monitor also needs reset and the two independent completion pulses. */
+fun ordered_events(input :: Function.of_arity(2), output :: Function.of_arity(2)):
+  def word = Bits(2)
+  def rst = input("reset", Bool)
+  def grant_b = output("grant_b", Bool)
+  def grant = !rst && (output("grant_a", Bool) || grant_b)
+  def issued = {"issued": ir.Observed(grant_b, grant), "issued_gen": ir.Observed(output("issue_gen", Bool), grant)}
+  /* Each lane's generation and data are sampled together, before any issue or retirement update. */
+  fun lane(suffix :: String):
+    def present = !rst && input("complete_" ++ suffix, Bool)
+    {"echo_" ++ suffix: ir.Observed(input("complete_gen_" ++ suffix, Bool), present),
+     "data_" ++ suffix: ir.Observed(input("result_" ++ suffix, word), present)}
+  retirement_events(input, output) ++ issued ++ lane("a") ++ lane("b")
+
+/* False denotes A; true denotes B. Membership comes from the live issue history,
+   not a copy of the implementation's busy bits. */
+fun ordered_retirement():
+  monitor:
+    sample ordered_events
+    publish ["issued", "issued_gen", "retired", "retired_value"]
+    batch reset = present(reset)
+    batch grant = present(issued)
+    batch grant_tag: Bool = payload(issued) when grant
+    batch grant_gen: Bool = payload(issued_gen) when grant
+    batch complete_a = present(echo_a)
+    batch echo_a: Bool = payload(echo_a) when complete_a
+    batch data_a: Bits(2) = payload(data_a) when complete_a
+    batch complete_b = present(echo_b)
+    batch echo_b: Bool = payload(echo_b) when complete_b
+    batch data_b: Bits(2) = payload(data_b) when complete_b
+    batch retire = present(retired)
+    batch retire_tag: Bool = payload(retired) when retire
+    batch retire_data: Bits(2) = payload(retired_value) when retire
+
+    state order: Seq(Bool, 2) initially [] as cleared
+    state gen_a: Bool initially #false
+    state done_a: Bool initially #false
+    state saved_a: Bits(2) initially 0
+    state gen_b: Bool initially #false
+    state done_b: Bool initially #false
+    state saved_b: Bits(2) initially 0
+
+    /* Compare logical tags or generations without casting them to packed words. */
+    fun same(x :: SpecExpr, y :: SpecExpr): select(x, y, !y)
+    let live = !empty(order)
+    let two = full(order)
+    let head = select(live, front(order), #false)
+    let second = select(two, front(tail(order)), #false)
+    /* Membership is pre-edge: retiring a tag does not make it grantable on the same edge. */
+    fun contains(tag :: SpecExpr): (live && same(tag, head)) || (two && same(tag, second))
+
+    guarantee "epoch" = !reset || !(grant || retire || complete_a || complete_b)
+    guarantee "history" = reset || !two || !same(head, second)
+    guarantee "fresh-grant" = !grant || (!contains(grant_tag) && (!two || retire))
+    guarantee "oldest-tag" = !retire || (live && same(retire_tag, head))
+    guarantee "completed-before-retirement" = !retire || select(head, done_b, done_a)
+    guarantee "retired-payload" = !retire || bits_equal(retire_data, select(head, saved_b, saved_a))
+
+    let rest = select(retire, tail(order), order)
+    next order = select(reset, cleared, select(grant, append(rest, grant_tag), rest))
+
+    /* Only the first matching response for an already live allocation writes its result. */
+    fun captures(tag :: Boolean, done :: SpecExpr, pulse :: SpecExpr, echo :: SpecExpr, gen :: SpecExpr):
+      contains(const(Bool, tag)) && !done && pulse && same(echo, gen)
+    let capture_a = captures(#false, done_a, complete_a, echo_a, gen_a)
+    let capture_b = captures(#true, done_b, complete_b, echo_b, gen_b)
+    let allocate_a = grant && !grant_tag
+    let allocate_b = grant && grant_tag
+    next gen_a = select(allocate_a, grant_gen, gen_a)
+    next gen_b = select(allocate_b, grant_gen, gen_b)
+    next done_a = !allocate_a && (done_a || capture_a)
+    next done_b = !allocate_b && (done_b || capture_b)
+    next saved_a = select(capture_a, data_a, saved_a)
+    next saved_b = select(capture_b, data_b, saved_b)

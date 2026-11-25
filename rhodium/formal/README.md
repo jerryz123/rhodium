@@ -107,8 +107,11 @@ and its first matching-generation completion payload. Otherwise the record
 holds, even when the stalled offer differs from the saved record. Its
 [RSPECL spec](../../examples/formal/logged-two-tag-rob.rspl) and the sealed
 ROB suffice to issue a new seal for the recorder. A [consumer](tests/logged-refinement.rkt)
-uses that parent seal alone to prove readback after capture. The seal describes
-retirements and the record, not grant order or when a retirement must occur.
+uses that parent seal alone to prove readback after capture. The public contract also declares ordered retirement on the parent pins: the [ordinal readback proof](tests/logged-ordinal.rkt)
+shows that the sample immediately following the kth retirement in a reset epoch,
+unless it is itself a reset, reads back the kth grant's tag and its first matching-generation completion
+payload. This holds even on back-to-back retirements; it does not promise that
+the kth retirement occurs.
 
 The [spec](../../examples/formal/two-tag-rob.rspl) guarantees rejection of a
 duplicate from the immediately previous use of the same tag **within a reset
@@ -236,6 +239,15 @@ sampled public batch on same-named pins. For example,
 `history pending from rob.order: Seq(Bool, 2)` reads abstract monitor state,
 never child registers. A declaration containing only a monitor and its
 refinement is requested with `~transaction_view: #true`; it does not predict cycle outputs.
+
+To share behavior independently of any circuit, an ordinary RSPECL function may
+return a `monitor:` value. Both ROB specs use the same
+[ordered-retirement helper](../../examples/formal/ordered-retirement.rspl).
+The recorder uses `transactions combine_transactions(ordered_retirement(), last_record())`:
+shared events and batch fields must have the same definition; state and named
+guarantees must have distinct owners. One accepted batch updates both histories,
+and a rejected batch updates neither. A consumer uses `transaction-step` with
+the parent seal and the parent's flat public batch; no child occurrence name is visible.
 
 `local` reads only parent registers. `relate` gives each monitor state field an implementation
 expression and optional care condition. For example, `relate saved_a = saved_a

@@ -3,18 +3,26 @@
 ;; SPDX-License-Identifier: Apache-2.0
 
 (require rackunit "composition-checks.rkt" "two-tag-rob-transactions.rkt"
-         (only-in "composition-binding.rhm" logged_rob valid_only_logged_rob miswired_logged_rob rob)
+         (only-in "composition-binding.rhm" logged_rob valid_only_logged_rob miswired_logged_rob renamed_logged_rob rob)
          (only-in "../../../examples/formal/logged-two-tag-rob.rspl" LoggedTwoTagROB)
          (only-in "../../../examples/formal/two-tag-rob.rspl" TwoTagROB)
          "../../../rspecl/proof.rkt" (only-in "../../../rspecl/rtl-boundary.rhm" transaction_parts)
          (only-in "../spec.rhm" spec_snapshot)
          (only-in "../spec-engine.rkt" fresh-fields symbolic-spec-state))
-(provide verified-logged-transactions)
+(provide verified-logged-transactions verified-renamed-transactions)
 
 (define view (LoggedTwoTagROB logged_rob #:transaction_view #t))
 (define verified-logged-transactions (prove-transaction logged_rob view verified-rob-transactions))
 
+(define verified-renamed-transactions
+  (prove-transaction renamed_logged_rob view verified-rob-transactions #:child-site "engine"))
+
 (module+ test
+  (test-case "renaming changes only the private occurrence binding"
+    (check-exn #rx"transaction evidence does not match the RTL occurrence"
+               (lambda () (prove-transaction renamed_logged_rob view verified-rob-transactions)))
+    (check-true (transaction-for? verified-renamed-transactions renamed_logged_rob view))
+    (check-false (transaction-for? verified-logged-transactions renamed_logged_rob view)))
   (test-case "parent seal is specific to this occurrence and this public contract"
     (check-true (transaction-for? verified-logged-transactions logged_rob view))
     (check-false (transaction-for? verified-logged-transactions valid_only_logged_rob view))
@@ -39,8 +47,8 @@
     (define f (fresh-fields (hash-ref m "inputs")))
     (define-values (accept after) (transaction-step verified-logged-transactions view old e))
     (define-values (read-back unused-next) (transaction-step verified-logged-transactions view after f))
-    (define capture (&& accept (hash-ref e "fire") read-back (! (hash-ref f "reset"))))
-    (for ([tag '(#f #t)]) (require-feasible (&& capture (equal? (hash-ref e "retired_tag") tag))))
+    (define capture (&& accept (hash-ref e "retire") read-back (! (hash-ref f "reset"))))
+    (for ([tag '(#f #t)]) (require-feasible (&& capture (equal? (hash-ref e "retire_tag") tag))))
     (discharge 'captured-retirement capture
-               (&& (hash-ref f "valid") (equal? (hash-ref f "last_tag") (hash-ref e "retired_tag"))
-                   (bveq (hash-ref f "last_payload") (hash-ref e "retired_data"))))))
+               (&& (hash-ref f "valid") (equal? (hash-ref f "last_tag") (hash-ref e "retire_tag"))
+                   (bveq (hash-ref f "last_payload") (hash-ref e "retire_data"))))))

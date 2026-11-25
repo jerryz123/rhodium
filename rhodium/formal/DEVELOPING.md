@@ -531,6 +531,10 @@ Bind its abstract pre/post histories separately from parent registers and
 check the parent relation at reset and at each admitted successor. The downstream
 readback test must use only the newly issued parent seal. A dropped grant
 generation must fail forwarding, whereas valid-only capture must fail preservation.
+Keep the public ordered-retirement monitor separate from the refinement binding.
+The ordinal observer uses only the parent seal, batch and abstract history. Run
+it unchanged on the renamed-child fixture with only the private proof-site
+binding changed, and check both back-to-back retirement and an idle self-loop.
 
 The independent [rspecsim oracle](tests/two-tag-rob-test.rhm) records integer
 allocation serials on entries and compares their low bits only at the interface.

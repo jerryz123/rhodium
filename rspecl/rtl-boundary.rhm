@@ -18,6 +18,7 @@ export declared_ports interface_prefixes Endpoint
 export ready_valid_events bind_event_source
 export transaction_view check_transaction_ports transaction_parts transaction_batch_model Presence Payload
 export attach_refinement refinement_parts
+export combine_transactions
 export:
   only_space annot: TransactionView
   rename: ScalarPins as rv_pins
@@ -196,6 +197,48 @@ fun attach_refinement(view :: TransactionView, site :: String, cut :: String || 
 /* Read only the checked hint schemas and expressions; this is not reusable evidence. */
 fun refinement_parts(view :: TransactionView):
   view.hints || error("transaction view has no refinement block")
+
+/* Conjoin public behaviors on one flat event vocabulary, without carrying either one's implementation
+   hints. Shared pin and event definitions must agree; histories and named guarantees have one owner. */
+fun combine_transactions(left :: TransactionView, right :: TransactionView):
+  for (v in [left, right]):
+    unless v.batch && v.monitor.assumptions.length() == 0 && v.monitor.events.length() == 0
+    | error("expected an unconditional, bound public monitor")
+  /* Never silently choose between conflicting event definitions or variable owners. */
+  fun compatible(a :: Map, b :: Map, agrees :: Function.of_arity(2)):
+    for ((name, x) in a):
+      when b.has_key(name) && !agrees(x, b[name]) | error("conflicting public field: " ++ name)
+  /* Reject overlapping names when no merge is meaningful. */
+  fun disjoint(a :: Map, b :: Map): compatible(a, b, fun (x, y): #false)
+  disjoint(left.inputs, right.outputs)
+  disjoint(left.outputs, right.inputs)
+  compatible(left.inputs, right.inputs, spec_type_equal)
+  compatible(left.outputs, right.outputs, spec_type_equal)
+  def a = left.monitor
+  def b = right.monitor
+  disjoint(a.state, b.state)
+  compatible(a.inputs, b.inputs, spec_type_equal)
+  def ao = a.outputs.remove("allowed")
+  def bo = b.outputs.remove("allowed")
+  disjoint(ao, bo)
+  def equal = fun (x, y): x == y
+  compatible(spec_snapshot(left.sampler)["events"], spec_snapshot(right.sampler)["events"], equal)
+  compatible(spec_snapshot(left.batch)["outputs"], spec_snapshot(right.batch)["outputs"], equal)
+  /* A hidden verdict cannot authorize the other monitor's update. */
+  fun accepts(m :: LeafModel):
+    def v = m.outputs["allowed"]
+    bool_and(v.care, v.value)
+  def allowed = bool_and(accepts(a), accepts(b))
+  def state = a.state ++ b.state
+  def updates = for Map ((name, rhs) in a.updates ++ b.updates):
+    values(name, choose_if(allowed, rhs, state_ref(name, state[name])))
+  def model = make_spec(a.inputs ++ b.inputs, state, a.initial ++ b.initial,
+                        ao ++ bo ++ {"allowed": Observed(allowed)}, {}, updates)
+  def inputs = left.inputs ++ right.inputs
+  def outputs = left.outputs ++ right.outputs
+  def sampler = make_spec(inputs ++ outputs, {}, {}, {}, left.sampler.events ++ right.sampler.events, {})
+  def names = left.cycle_names ++ right.cycle_names.filter(~keep: fun (n): !(n in left.cycle_names))
+  TransactionView(sampler, model, names, inputs, outputs, left.bindings ++ right.bindings)
 
 /* Return the executable pin-to-batch model. Applying the same bindings to a candidate sampler
    is useful for differential checking; neither operation issues or alters proof evidence. */

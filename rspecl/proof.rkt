@@ -136,8 +136,11 @@
 
 #| Prove initialization and preservation with an arbitrary monitor state and every admitted child
    edge. Relation hints are conclusions on reset and next state, never environment premises. |#
-(define (prove-transaction top view child)
+(define (prove-transaction top view child #:child-site [implementation-site #f])
   (match-define (list site cut relation checks) (refinement_parts view))
+  ;; A private binding may select a renamed occurrence; the cut still checks definition,
+  ;; view, clock/reset and actual wiring before admitting any child guarantee.
+  (define actual-site (or implementation-site site))
   (define-values (_ monitor-model ins outs) (transaction_parts view))
   (define monitor (spec_snapshot monitor-model))
   (define sampler (spec_snapshot (transaction_batch_model view)))
@@ -145,7 +148,7 @@
   (check-batch-total! sampler)
   (define layout (leaf_layout top (interface_prefixes top)))
   (define-values (inputs outputs locals domain before ok after next-ok child-initial)
-    (if (string? cut) (fifo-boundary top layout site cut relation child) (sealed-boundary top site cut child)))
+    (if (string? cut) (fifo-boundary top layout actual-site cut relation child) (sealed-boundary top actual-site cut child)))
   (define local (hash-ref locals "@local"))
   (define reset (hash-ref inputs "reset"))
   (define batch (sample sampler ins outs inputs outputs))

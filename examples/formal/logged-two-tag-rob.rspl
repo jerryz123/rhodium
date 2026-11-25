@@ -1,33 +1,31 @@
 #lang rspecl
-/* Specifies the last retirement record and proves its capture against the sealed ROB at the forwarded boundary. */
+/* Specifies ordered grants, completions, retirements and last-record readback on the public pins. */
 // SPDX-License-Identifier: Apache-2.0
 
 import "logged-two-tag-rob.rhdl" as rtl
 import "two-tag-rob.rspl" as specs
+import "ordered-retirement.rspl" open
 import lib("rhodium/formal/spec.rhm").Observed
 
 /* Sample a retirement on handshake, and the pre-edge record whenever it is valid. */
 fun recorder_events(input :: Function.of_arity(2), output :: Function.of_arity(2)):
-  def reset = input("reset", Bool)
-  def retire = !reset && output("retire.valid", Bool) && input("retire.ready", Bool)
   def recorded = output("has_commit", Bool)
-  {"reset": Observed(const(Bool, #true), reset),
-   "retire": Observed(output("retire.bits", Bool), retire),
-   "retire_data": Observed(output("retire_result", Bits(2)), retire),
-   "record": Observed(output("last_tag", Bool), recorded),
-   "record_data": Observed(output("last_payload", Bits(2)), recorded)}
+  def readback = {"record": Observed(output("last_tag", Bool), recorded),
+                  "record_data": Observed(output("last_payload", Bits(2)), recorded)}
+  retirement_events(input, output) ++ readback
 
 /* Logical bits may be tag A (false); event presence, not payload truth, signals capture. */
 fun same(x :: SpecExpr, y :: SpecExpr): select(x, y, !y)
 
-spec for rtl.LoggedTwoTagROB:
+/* Add last-record readback to the same retirement handshake as the ordering behavior. */
+fun last_record():
   monitor:
     sample recorder_events
     publish []
     batch reset = present(reset)
-    batch fire = present(retire)
-    batch retired_tag: Bool = payload(retire) when fire
-    batch retired_data: Bits(2) = payload(retire_data) when fire
+    batch retire = present(retired)
+    batch retire_tag: Bool = payload(retired) when retire
+    batch retire_data: Bits(2) = payload(retired_value) when retire
     batch valid = present(record)
     batch last_tag: Bool = payload(record) when valid
     batch last_payload: Bits(2) = payload(record_data) when valid
@@ -35,12 +33,15 @@ spec for rtl.LoggedTwoTagROB:
     state occupied: Bool initially #false
     state tag: Bool initially #false
     state data: Bits(2) initially 0
-    guarantee "reset-quiets-retirement" = !reset || !fire
+    guarantee "reset-quiets-retirement" = !reset || !retire
     guarantee "record-valid" = reset || same(valid, occupied)
     guarantee "record-value" = reset || !valid || (same(last_tag, tag) && bits_equal(last_payload, data))
-    next occupied = !reset && (occupied || fire)
-    next tag = select(fire, retired_tag, tag)
-    next data = select(fire, retired_data, data)
+    next occupied = !reset && (occupied || retire)
+    next tag = select(retire, retire_tag, tag)
+    next data = select(retire, retire_data, data)
+
+spec for rtl.LoggedTwoTagROB:
+  transactions combine_transactions(ordered_retirement(), last_record())
 
   refinement:
     child rob: specs.TwoTagROB
@@ -57,14 +58,25 @@ spec for rtl.LoggedTwoTagROB:
     history b_done from rob.done_b: Bool
     history a_data from rob.saved_a: Bits(2)
     history b_data from rob.saved_b: Bits(2)
-    batch fired from fire: Bool
-    batch who from retired_tag: Bool
-    batch word from retired_data: Bits(2)
-    let head = select(empty(pending), #false, front(pending))
-    check completed_oldest = !fired || (!empty(pending) && same(who, head) && select(head, b_done, a_done)
-                                         && bits_equal(word, select(head, b_data, a_data)))
-    cover capture_a = fired && !who
-    cover capture_b = fired && who
+    history a_gen from rob.gen_a: Bool
+    history b_gen from rob.gen_b: Bool
+    let live = !empty(pending)
+    let head = select(live, front(pending), #false)
+    let two = full(pending)
+    let last = select(two, front(tail(pending)), #false)
+    let has_a = (live && !head) || (two && !last)
+    let has_b = (live && head) || (two && last)
+    relate order = pending
+    relate gen_a = a_gen when has_a
+    relate gen_b = b_gen when has_b
+    relate done_a = a_done when has_a
+    relate done_b = b_done when has_b
+    relate saved_a = a_data when has_a && a_done
+    relate saved_b = b_data when has_b && b_done
+    batch taking from retire: Bool
+    batch who from retire_tag: Bool
+    cover capture_a = taking && !who
+    cover capture_b = taking && who
     input ready from retire.ready: Bool
     output offered from retire.valid: Bool
     cover first_stall = offered && !ready && !occupied

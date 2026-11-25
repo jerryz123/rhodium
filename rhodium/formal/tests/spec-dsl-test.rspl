@@ -19,6 +19,17 @@ def pair_top = elaborate(pairs.QueuePair(1)).top
 def tx = rob_specs.TwoTagROB(~transaction_view: #true)
 def values(_, ref_monitor, _, _) = transaction_parts(tx)
 
+// Agreement is on the event definition, not just the batch name and sort.
+fun misbound_retirement():
+  monitor:
+    sample fun (read, _write): {"retired": Observed(read("retire.ready", Bool))}
+    publish []
+    batch retire = present(retired)
+    guarantee "other" = #true
+check:
+  combine_transactions(tx, misbound_retirement()) ~throws "conflicting public field: retired"
+  combine_transactions(tx, tx) ~throws "conflicting public field"
+
 // A false pin must not make the preservation premise false. The state relation
 // has no sampled pin inputs; pins may appear only in edge checks and covers.
 check:
