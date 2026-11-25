@@ -92,7 +92,7 @@ static void segmented_store(unsigned fields,unsigned eew,unsigned lmul=0) {
   // Only the second beat aliases this following load via a different VA.
   auto &probe=launch_0_in.pbits.pissue.pdescriptor; probe={}; probe.pscalar=0x8000; probe.pstate.pvl=1;
   launch_0_in.pbits.ppages[0]=0x90;
-  unsigned captures=0,sent=0,acks=0,finishes=0,stalls=0,read_row=0;
+  unsigned captures=0,sent=0,acks=0,finishes=0,stalls=0,read_row=0,last_grant=0;
   bool returning=false;
   for(unsigned t=0;t<300 && !finishes;++t) {
     read_in.pready=1; store_reads_in.polder_uwrites=t<15 ? UINT64_C(1)<<(16+field_rows) : 0;
@@ -113,7 +113,12 @@ static void segmented_store(unsigned fields,unsigned eew,unsigned lmul=0) {
     if(t==35 && fields==2) CHECK(captures==4 && sent==0);
     if(returning) ++captures;
     returning=read_out.pvalid && read_in.pready;
-    if(returning) { read_row=read_out.pbits; CHECK(read_row==16+field_rows*((captures/visits*lanes+captures%visits)%fields)); }
+    if(returning) {
+      read_row=read_out.pbits;
+      CHECK(read_row==16+field_rows*((captures/visits*lanes+captures%visits)%fields));
+      if(captures%visits && captures!=1) CHECK(t==last_grant+1);
+      last_grant=t;
+    }
     if(memory_out.prequest.pvalid) {
       const auto &req=memory_out.prequest.pbits;
       CHECK(req.pstore && req.paddress==(sent ? 0x90000u+(sent-1)*bytes : 0x61000u-bytes));
@@ -129,6 +134,67 @@ static void segmented_store(unsigned fields,unsigned eew,unsigned lmul=0) {
     finishes+=finished_out.pvalid; tick_model();
   }
   CHECK(finishes==1 && sent==fields && acks==fields && stalls && captures==fields*visits);
+}
+
+// With three fields and two element lanes per beat, the middle beat wraps
+// from field 2 of element 0 to field 0 of element 1. Only one lane is live.
+static void masked_segment(bool second) {
+  constexpr unsigned size=bytes/2, eew=bytes==8 ? 2 : 3, first_row=2*vs3;
+  constexpr unsigned lo=(1u<<size)-1, hi=lo<<size, full=lo|hi;
+  const unsigned blocked=second ? 2 : 0;
+  Row predicate{}; predicate[0]=1u<<second;
+  std::memcpy(&mask_1_in.pdata,predicate.data(),bytes);
+  prepare_in={}; launch_0_in={}; launch_1_in={}; memory_in={}; read_result_in={}; store_reads_in={};
+  auto &d=launch_1_in.pbits.pissue.pdescriptor;
+  d.pscalar=0x4000; d.pinstruction=vs3<<7; d.pcontrol.pstore=1; d.pmasked=1;
+  d.pstate.pvl=2; d.pstate.pvtype=eew<<3; d.pcontrol.pmemory_udata_ueew=eew; d.pcontrol.pmemory_unf=2;
+  launch_1_in.pbits.ppages[0]=0x60; prepare_in.pbits=launch_1_in.pbits.pissue;
+  launch_1_in.pvalid=prepare_in.pvalid=1; tick_model(); launch_1_in.pvalid=prepare_in.pvalid=0;
+  unsigned grants=0,returns=0,samples=0,sent=0,acks=0,done=0,field=0;
+  bool returning=false, denied=false, saw_claims=false;
+  for(unsigned t=0;t<120 && !done;++t) {
+    // In the middle beat the blocked row is masked off. In the last beat it
+    // is either genuinely needed (second) or the entire beat is empty.
+    store_reads_in.polder_uwrites=t<25 && (second || returns>=1) ? 1ull<<(first_row+2*blocked) : 0;
+    read_in.pready=denied || grants!=1; // deny one live offer, including across another field's return
+    read_result_in.pvalid=returning;
+    Row src; for(unsigned b=0;b<bytes;++b) src[b]=0x10*field+b;
+    std::memcpy(&read_result_in.pbits,src.data(),bytes);
+    memory_in.prequest.pready=t>=40;
+    memory_in.presponse.pvalid=t>=55 && acks<sent;
+    eval();
+    if(t==20) {
+      CHECK(!sent && returns==(second ? 2u : 3u));
+      // Field 0 is free after the wrapping beat. The last beat may still
+      // need its mask sampled if both VLSU slots hold earlier live beats.
+      const auto tail_claims=(1ull<<(first_row+2)) | (1ull<<(first_row+4));
+      CHECK(store_reads_out.punread_uvs3==(second ? 1ull<<(first_row+4) : samples<3 ? tail_claims : 0));
+      saw_claims=true;
+    }
+    samples+=mask_1_out.psample.pvalid;
+    if(returning) ++returns;
+    returning=read_out.pvalid && read_in.pready;
+    if(read_out.pvalid) {
+      CHECK(grants<3 && read_out.pbits==first_row+2*grants);
+      if(returning) field=grants++;
+      else denied=true;
+    }
+    if(memory_out.prequest.pvalid) {
+      const auto &req=memory_out.prequest.pbits;
+      unsigned beat=sent+second, mask=beat==1 ? (second ? hi : lo) : full;
+      CHECK(sent<2 && req.pstore && req.paddress==0x60000+beat*bytes && req.pbyte_umask==mask);
+      Row data; std::memcpy(data.data(),&req.pdata,bytes);
+      for(unsigned b=0;b<bytes;++b) if(mask & (1u<<b)) {
+        const unsigned slot=2*beat+b/size;
+        CHECK(data[b]==0x10*(slot%3)+size*second+b%size);
+      }
+      sent+=memory_in.prequest.pready;
+    }
+    acks+=memory_in.presponse.pvalid && memory_out.presponse.pready;
+    if(finished_out.pvalid) { CHECK(acks==2); ++done; }
+    tick_model();
+  }
+  CHECK(done && denied && saw_claims && grants==3 && returns==3 && samples==3);
 }
 
 // Six e8 rows start in the last slice of v0 row 0 and finish in row 1.
@@ -205,6 +271,8 @@ int main() {
     segmented_store(2,1,1); // Short m2 fields: read v8 and v10, never v9 or v11.
     for(unsigned n=2;n<=8;++n)
       for(unsigned e=0;(1u<<e)<=bytes/2;++e) segmented_store(n,e);
+    masked_segment(false);
+    masked_segment(true);
     for (unsigned d=1;d<bytes;++d) {
       exercise(d,0,2*bytes,0);
       exercise(d,bytes-1,bytes+1,0);

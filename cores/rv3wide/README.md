@@ -77,7 +77,8 @@ Whole-register loads and stores use the encoded EEW and group size, not VL.
 For certified unit-stride segments of two through eight fields, the same port
 transfers interleaved bytes in memory order. The VLSU separates a load beat
 into field fragments; VLSeq accepts each active fragment on its masked VRF write.
-VSSeq gathers store fields into one beat.
+VSSeq gathers store fields into one DLEN beat at a time. Within a beat it can
+read one ready field per cycle; a field with no enabled lanes needs no VRF read.
 A younger instruction cannot consume a partially written field row.
 Strided, indexed, and fault-only-first segments stay on the element path.
 Nonsegmented `vlse` and `vsse` use the same L1D port with a validated one-page

@@ -215,8 +215,12 @@ independent of same-cycle forwarded writes. Reserve room for issued skips too:
 they carry packing/termination state. Release v0 on its last accepted sample;
 release VS3 on synchronous capture or when a sampled mask proves it unused.
 These can release different VS3 rows on one edge. Count a merger dequeue as
-free space only when the entire buffered
-source row transfers. Segmented assembly and scatter row reuse stay in VSSeq.
+free space only when the entire buffered source row transfers. For segmented
+stores, advance the field ordinal on grant or mask skip. Carry that visit's
+placement and field identity to the return stage: it updates the single DLEN
+assembly register and releases the field obligation while the next field can
+issue. Advance the beat only after its final visit drains into the VLSU.
+Scatter row reuse stays in VSSeq.
 RV5Stage and RV2Wide continue to use [backend.rhdl](backend.rhdl) and its
 single sequencer; neither imports distributed scheduling logic.
 
