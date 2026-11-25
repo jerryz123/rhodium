@@ -7,6 +7,8 @@
          (only-in "wiring.rhm" cut_parts leaf_protocol leaf_layout))
 (provide prove-leaf prove-parent prepare-proved-wiring proved-child-model symbolic-cut-state proved-edge-at view-agrees? pack-pins unpack-pins)
 (provide exn:fail:input-contract? exn:fail:input-contract-goal exn:fail:input-contract-inputs)
+(provide prove-fifo-transactions fifo-transactions-for? fifo-transactions-capacity fifo-transactions-width
+         fresh-fifo-history fifo-allows? (struct-out fifo-history) (struct-out fifo-events))
 
 ;; Private constructors. These are live elaboration identities, not transferable certificates.
 ;; A conditional result carries its current-input premises in the exact model snapshot.
@@ -145,6 +147,8 @@
 (define (admit-wiring cut results parent)
   (define-values (definition layout graph definitions layouts locals) (cut_parts cut))
   (when parent (check-parent-schema! graph parent))
+  (when (and (list? results) (ormap fifo-transactions? results))
+    (error 'prepare-proved-wiring "transaction-only evidence cannot supply cycle pins"))
   (unless (and (list? results) (andmap refinement-result? results))
     (error 'prepare-proved-wiring "expected completed refinement results"))
   (define models
@@ -205,3 +209,76 @@
                       (relation states (edge-state spec)) (relation after (edge-next spec)) common
                       #:allowed-inputs (allowed-inputs? model (edge-inputs spec)))
   (refinement-result (proved-cut-definition plan) model "single-clock-reset" (proved-cut-layout plan)))
+
+;; Only certification can construct evidence. No child states, transition plan, or cycle pins escape.
+(struct fifo-transactions (definition ingress egress capacity width))
+(struct fifo-history (count slots) #:transparent)
+(struct fifo-events (reset accepted? accepted retired? retired) #:transparent)
+
+#| Match the exact run-local definition and ordered endpoint mapping, not just width and capacity. |#
+(define (fifo-transactions-for? result definition ingress egress)
+  (and (fifo-transactions? result) (host-eq? definition (fifo-transactions-definition result))
+       (host-equal? ingress (fifo-transactions-ingress result))
+       (host-equal? egress (fifo-transactions-egress result))))
+
+#| Allocate a candidate pending sequence; only its live prefix participates in the contract. |#
+(define (fresh-fifo-history result)
+  (define-symbolic* count integer?)
+  (fifo-history count (for/list ([i (in-range (fifo-transactions-capacity result))])
+                        (define-symbolic* word (bitvector (fifo-transactions-width result)))
+                        word)))
+
+#| The producer proves, and consumers may assume, exactly this relation on joint public events.
+   An empty event may stutter even below capacity. There is no ready, latency, or progress constraint. |#
+(define (fifo-rule capacity width old events next)
+  (match-define (fifo-events reset push in pop out) events)
+  (match-define (fifo-history n slots) old)
+  (match-define (fifo-history m new-slots) next)
+  (unless (and (integer? n) (integer? m) (= capacity (length slots) (length new-slots))
+               (andmap boolean? (list reset push pop))
+               (andmap (bitvector width) (list* in out (append slots new-slots))))
+    (error 'fifo-transactions "mistyped FIFO history or events"))
+  (define kept (- n (if pop 1 0)))
+  (&& (<= 0 m capacity)
+      (if reset (&& (! push) (! pop) (= m 0))
+          (&& (<= 0 n capacity) (=> pop (&& (> n 0) (bveq out (car slots))))
+              (= m (+ kept (if push 1 0)))
+              (for/fold ([ok #t]) ([i (in-naturals)] [word new-slots] [prior slots]
+                                    [following (append (cdr slots) (list (last slots)))])
+                (&& ok (=> (< i m) (bveq word (if (< i kept) (if pop following prior) in)))))))))
+
+#| Describe every allowed event step for this proved instance; a cycle-model result is not accepted. |#
+(define (fifo-allows? evidence old events next)
+  (fifo-rule (fifo-transactions-capacity evidence) (fifo-transactions-width evidence) old events next))
+
+#| Prove a FIFO projection of an admitted synchronous cut. Each endpoint names (valid ready bits) at the
+   external boundary. The proof author supplies only the state abstraction, never the handshakes. |#
+(define (prove-fifo-transactions plan capacity ingress egress project)
+  (unless (exact-positive-integer? capacity) (error 'fifo-transactions "expected positive capacity"))
+  (define graph (proved-cut-graph plan))
+  (match-define (list offer ready data) ingress)
+  (match-define (list valid consume head) egress)
+  (define inputs (hash-ref graph "inputs"))
+  (define outputs (hash-ref graph "output-types"))
+  (match-define (list "bits" width) (hash-ref inputs data))
+  (unless (and (= 4 (hash-count inputs)) (= 7 (length (remove-duplicates (cons "reset" (append ingress egress)))))
+               (andmap (lambda (p) (equal? (hash-ref inputs p) '("bool"))) (list "reset" offer consume))
+               (andmap (lambda (p) (equal? (hash-ref outputs p) '("bool"))) (list ready valid))
+               (equal? (hash-ref outputs head) (list "bits" width)))
+    (error 'fifo-transactions "expected single ready/valid FIFO boundary"))
+  (define-symbolic* rst offered consuming boolean?)
+  (define-symbolic* word (bitvector width))
+  (define states (symbolic-cut-state plan))
+  (define-values (pins edges settled)
+    (proved-edge-at plan states (hash "reset" rst offer offered data word consume consuming)))
+  (define events (fifo-events rst (&& (! rst) offered (hash-ref pins ready)) word
+                              (&& (! rst) consuming (hash-ref pins valid)) (hash-ref pins head)))
+  (define next (for/hash ([(site e) edges]) (values site (edge-next e))))
+  (define legal (andmap spec-state-legal? (hash-values states)))
+  (define goals
+    (list (cons 'children (for/fold ([ok settled]) ([e (hash-values edges)])
+                            (&& ok (edge-legal e) (edge-defined e) (spec-state-legal? (edge-next e)))))
+          (cons 'event-relation (fifo-rule capacity width (project states) events (project next)))))
+  (check-phase 'transaction-reset (&& legal rst) goals)
+  (check-phase 'transaction-step (&& legal (! rst)) goals)
+  (fifo-transactions (proved-cut-definition plan) ingress egress capacity width))

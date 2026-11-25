@@ -19,6 +19,6 @@
          "snapshot-test.rhm"
          (submod "shift-queue-replay.rkt" test)
          (submod "shift-queue-induction.rkt" test)
-         "shift-queue-pair.rkt"
+         "queue-pair-transaction-order.rkt"
          "spec-symbolic-test.rhm"
          "transition-test.rhm")

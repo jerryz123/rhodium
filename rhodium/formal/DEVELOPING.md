@@ -184,6 +184,21 @@ live successor position, including simultaneous external transfers. Reset/fill/d
 traces attain capacities two and four at child depths one and two. Run
 `moon run rhodium:formal-test` to reproduce the proofs.
 
+[FIFO transaction certification](refinement.rkt) derives the joint event
+from the two named external handshakes. The caller projects the old and new
+cut states into pending words; reset and preservation must prove the same
+`fifo-allows?` relation that downstream clients consume. Certification also
+discharges child definedness and legality. A successful result retains the
+definition, endpoint mapping, width, and capacity bound, not a steppable cut.
+It cannot serve as cycle evidence for `prepare-proved-wiring`.
+
+The [event-only consumer](tests/queue-pair-transaction-order.rkt) tracks an
+arbitrary acceptance ordinal and its word. Its induction ranges over **all**
+joint events allowed by the exported relation, including stutter and simultaneous
+accept/retire. It imports neither child model. From reset and one acceptance,
+both refusal and admission of a second offer are consistent with the contract;
+only the concrete implementation determines which occurs on that edge.
+
 The [depth-one replay](tests/queue-pair-trace.rhm) steps rspecsim on the extracted
 wiring and sends the same eight input samples and cared pre-edge observations to
 the [native RTL driver](tests/queue-pair-replay.cpp). It checks refusal during

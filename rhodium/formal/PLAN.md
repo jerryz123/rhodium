@@ -27,6 +27,10 @@ now checks reset and preservation separately for depths 1, 2, and 3;
 the faulty-payload replay remains at depth 2. The
 [series proof](DEVELOPING.md#two-shiftqueues-in-series) discharges the boundary
 and proves ordering and capacities two and four using two independent spec states.
+It now exports a run-local FIFO transaction contract. An
+[event-only consumer](tests/queue-pair-transaction-order.rkt) proves retirement
+order from that contract without stepping the children. This result cannot
+drive cycle pins or require admission whenever space remains.
 The parent fixtures share an admission check: each
 occurrence needs run-local evidence for its actual implementation and full
 contract. No persistent evidence cache or general parent-logic checker is
@@ -197,8 +201,9 @@ does not qualify. The boundary checks are part of the rule:
   change requires new leaf evidence for that same contract; changing the view
   or a relied-on assumption invalidates the dependent parent claim.
 
-Initially the parent uses the **operational** child spec. Later it may use only
-exported, proved theorems if they suffice for its obligation. Parent verification
+An RTL wiring cut uses the **operational** child spec. The FIFO event consumer
+is the first narrower case that uses only an exported theorem; general
+theorem-only composition remains future work. Parent verification
 must consider all behavior those theorems permit. A theorem-only contract is
 not automatically an executable replacement for simulation.
 

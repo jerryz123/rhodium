@@ -18,8 +18,13 @@ every edge following sampled reset, separately at depths 1, 2, and 3.
 A [parent proof](DEVELOPING.md#two-shiftqueues-in-series)
 proves FIFO ordering and capacities of two and four words for pairs of depth-one
 and depth-two queues, respectively. A depth-one pair can refuse a second
-word while moving the first word to its empty downstream stage. The transaction
-contract guarantees neither immediate admission nor eventual delivery.
+word while moving the first word to its empty downstream stage. A consumer
+of the exported transaction contract sees reset, accepted words, and retired
+words. This suffices to prove that the kth retirement matches the kth
+acceptance since reset. The contract supplies no cycle pins: it guarantees
+neither immediate admission nor eventual delivery. The [proof example](tests/queue-pair-transaction-order.rkt)
+obtains it with `(verified-queue-pair-transactions-at depth)` and checks event
+batches with `fifo-allows?`.
 A separate [arbiter proof](DEVELOPING.md#two-input-fixed-priority-arbiter)
 covers a two-input, two-bit Decoupled arbiter: lane 0 wins ties and each
 output transfer consumes exactly the winning input. A stalled grant is not

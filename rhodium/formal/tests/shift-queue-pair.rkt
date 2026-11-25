@@ -4,7 +4,9 @@
 
 (require rackunit "../refinement.rkt" "composition-checks.rkt" "../spec-engine.rkt"
          (only-in "shift-queue-induction.rkt" verified-fifo-at)
-         (only-in "shift-queue-binding.rhm" pair_proof_cut))
+         (only-in "shift-queue-binding.rhm" pair_proof_cut)
+         (only-in "composition-binding.rhm" pair_at))
+(provide verified-queue-pair-transactions-at)
 
 (struct pair-step (states a b defined ready valid head) #:transparent)
 (define (advance plan states rst offer data consume)
@@ -33,22 +35,26 @@
 (define (check-pair depth)
   (define capacity (* 2 depth))
   (define cut (pair_proof_cut depth))
-  (define plan (prepare-proved-wiring cut (list (verified-fifo-at depth))))
+  (define children (list (verified-fifo-at depth)))
+  (define plan (prepare-proved-wiring cut children))
   (define states (symbolic-cut-state plan))
   (define-symbolic* rst offer consume boolean?)
   (define-symbolic* data (bitvector 2))
   (define p (advance plan states rst offer data consume))
   (define a (pair-step-a p))
   (define b (pair-step-b p))
-  (define next (pair-step-states p))
-  (define before (occupancy states))
-  (define after (occupancy next))
   (define push (&& (! rst) offer (pair-step-ready p)))
   (define pop (&& (! rst) consume (pair-step-valid p)))
   (define middle (event a "dequeue"))
   (define valid (legal-states states))
-  (define removed (if pop 1 0))
-  (define kept (- before removed))
+  (define (project s [bound capacity])
+    (fifo-history (occupancy s) (for/list ([i (in-range bound)]) (word-at s i))))
+  (define ingress '("offer" "ready" "data"))
+  (define egress '("valid" "consume" "head"))
+  (define (certify projection [bound capacity])
+    (prove-fifo-transactions plan bound ingress egress projection))
+  ;; Issue evidence outside rackunit: a failing obligation must abort, not just record a test failure.
+  (define transactions (certify project))
 
   (test-case "both real occurrences require the matching leaf proof and have independent abstract states"
     (define other-depth (if (= depth 1) 2 1))
@@ -76,19 +82,26 @@
     (check-exn #rx"spec binding" (lambda ()
       (spec-edge-at fifo state (hash-set (edge-inputs a) "ingress.bits" (bv 0 1))))))
 
-  (test-case "reset, handoffs and external transactions preserve order and capacity on every edge"
-    (discharge 'epoch valid (&& (matches? (event a "reset") rst #t) (matches? (event b "reset") rst #t)
-                                (=> rst (= after 0))))
+  (test-case "the internal handoff agrees and only external transfers appear in the public batch"
+    (discharge 'epoch valid (&& (matches? (event a "reset") rst #t) (matches? (event b "reset") rst #t)))
     (discharge 'middle valid (same-event middle (event b "enqueue")))
     (discharge 'external valid (&& (matches? (event a "enqueue") push data)
-                                   (matches? (event b "dequeue") pop (pair-step-head p))))
-    (discharge 'oldest valid (=> pop (&& (> before 0) (bveq (pair-step-head p) (word-at states 0)))))
-    (discharge 'conservation valid (= after (if rst 0 (+ kept (if push 1 0)))))
-    (for ([i (in-range capacity)])
-      (discharge (list 'ordered-slot i) valid
-                 (=> (< i after) (bveq (word-at next i) (if (< i kept) (word-at states (+ i removed)) data)))))
-    (discharge 'capacity valid (&& (legal-states next) (<= after capacity)
-                                   (=> (&& push (! pop)) (< before capacity)))))
+                                   (matches? (event b "dequeue") pop (pair-step-head p)))))
+
+  (test-case "evidence is specialization-bound; a false capacity or payload projection cannot certify"
+    (check-true (fifo-transactions-for? transactions (pair_at depth) ingress egress))
+    (check-false (fifo-transactions-for? transactions (pair_at (if (= depth 1) 2 1)) ingress egress))
+    (check-false (fifo-transactions-for? transactions (pair_at depth) egress ingress))
+    (define too-small (sub1 capacity))
+    (check-exn #rx"transaction-step/event-relation not proved"
+               (lambda () (certify (lambda (s) (project s too-small)) too-small)))
+    (check-exn #rx"transaction-step/event-relation not proved"
+               (lambda () (certify (lambda (s)
+                 (fifo-history (occupancy s) (make-list capacity (bv 0 2))))))))
+
+  (test-case "a cycle-sensitive parent cannot substitute the event-only proof for a pin model"
+    (check-exn #rx"transaction-only evidence cannot supply cycle pins"
+               (lambda () (prepare-proved-wiring cut (list transactions)))))
 
   (test-case "capacity is attainable and all accepted words drain in order from reset"
     (define empty (pair-step-states (advance plan states #t #f (bv 0 2) #f)))
@@ -118,7 +131,10 @@
     (discharge 'space-without-admission valid (! (pair-step-ready bubble)))
     (define rest-out (if (= depth 1) (handoff first-out #f (bv 0 2) #t) first-out))
     (define drained (foldl (lambda (w s) (drain s w)) rest-out (rest words)))
-    (discharge 'drained valid (= 0 (occupancy drained)))))
+    (discharge 'drained valid (= 0 (occupancy drained))))
+  transactions)
 
-(for ([depth '(1 2)])
-  (with-check-info (['depth depth]) (check-pair depth)))
+(define proved-pairs
+  (for/hash ([depth '(1 2)])
+    (values depth (with-check-info (['depth depth]) (check-pair depth)))))
+(define (verified-queue-pair-transactions-at depth) (hash-ref proved-pairs depth))
