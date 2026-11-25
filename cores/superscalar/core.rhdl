@@ -124,7 +124,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   interface retired[issue_width](Valid(SuperscalarRetirement(xlen, hypervisor)), ~role: producer)
   interface prefetch(Valid(CachePrefetchReq(64)), ~role: producer)
   interface redirect(Valid(SuperscalarRedirect(xlen)), ~role: producer)
-  interface fetch_flush(Pulse(), ~role: producer)
+  interface fetch_discard(Pulse(), ~role: producer)
   interface instruction_invalidate(Pulse(), ~role: producer)
   interface branch_update(Valid(BranchUpdate(xlen)), ~role: producer)
   interface predictor_restore(Pulse(), ~role: producer)
@@ -1322,7 +1322,8 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     def before_or_at_candidate = !any(for List (older in 0..lane): mem_mismatches[older])
     before_or_at_candidate & mem_valid[lane] & (mem_resolved[lane].resolution.disposition =/= SuperscalarDisposition.Continue)
 
-  mem_branch_redirect <== any(mem_mismatches) & !any(mem_vetoes) & !wb_squash
+  def mem_correct = any(mem_mismatches) & !any(mem_vetoes)
+  mem_branch_redirect <== mem_correct & !wb_squash
   def mem_branch :: SuperscalarResult(xlen, hypervisor) = priority_mux((for List (lane in 0..issue_width - 1): [mem_mismatches[lane], mem_resolved[lane]]), ~default: mem_resolved[issue_width - 1])
   def mem_pcs = vec(for List (stage in mem_pipe): stage.pc)
   def mem_branch_pc = priority_mux((for List (lane in 0..issue_width - 1): [mem_mismatches[lane], mem_pcs[lane]]), ~default: mem_pcs[issue_width - 1])
@@ -1929,11 +1930,11 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     trap_cause: wb_csrs.trap_event.cause
 
   def wb_redirect = inject_interface(Valid(SuperscalarRedirect(xlen)), ~valid: wb_redirect_valid, ~bits: wb_redirect_bits)
-  def wb_older_recovery = wb_stop_valid ||| wb_fault_pending ||| wb_reject_target ||| (wb_system & ((!wb_vector_config & !wb_csr_read) ||| !wb_csrs.command_success)) ||| (wb_retained_capture & !wb_vector_capture) ||| wb_blocking_retained ||| wb_vector_scalar_replay
+  def wb_stop_stream = wb_stop_valid ||| wb_fault_pending ||| (wb_system & ((!wb_vector_config & !wb_csr_read) ||| !wb_csrs.command_success)) ||| (wb_retained_capture & !wb_vector_capture) ||| wb_blocking_retained ||| wb_vector_scalar_replay
+  def wb_older_recovery = wb_stop_stream ||| wb_reject_target
   interrupt_kill <== wb_older_recovery ||| mem_branch_redirect ||| wb_wake
   wb_squash <== wb_older_recovery ||| wb_interrupt_boundary ||| wb_sleeping
   rr_squash <== wb_squash ||| mem_branch_redirect
-  fetch_flush.valid <== rr_squash
   redirect.valid <== (wb_redirect.valid & CompactPc.fits(xlen, wb_redirect.bits.target)) ||| (mem_branch_redirect & CompactPc.fits(xlen, mem_redirect_bits.target))
   redirect.bits <== mux(wb_redirect.valid, wb_redirect.bits, mem_redirect_bits)
 
@@ -1962,6 +1963,10 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   def wb_bad_branch = for List (lane in 0..issue_width):
     wb_retire[lane] & wb_tokens[lane].branch.taken & !CompactPc.fits(xlen, wb_tokens[lane].address)
 
+  /* Every WB redirect discards the stream, including one whose target cannot
+     restart fetch. Keep the target mux and its fits check off the discard path. */
+
+  fetch_discard.valid <== wb_stop_stream ||| wb_interrupt_boundary ||| wb_sleeping ||| wb_redirect.valid ||| any(wb_bad_branch) ||| mem_correct
   def wb_addresses = vec(for List (lane in 0..issue_width): wb_tokens[lane].address)
   wb_reject_target <== (wb_redirect.valid & !CompactPc.fits(xlen, wb_redirect.bits.target)) ||| (!wb_redirect.valid & any(wb_bad_branch))
   wb_rejected_target <== mux(wb_redirect.valid, wb_redirect.bits.target, priority_mux((for List (lane in 0..issue_width - 1): [wb_bad_branch[lane], wb_addresses[lane]]), ~default: wb_addresses[issue_width - 1]))

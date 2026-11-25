@@ -39,13 +39,15 @@ import:
   lib("cores/common/vector/decode.rhdl").VectorConfigMode
 
 
-/* Resolves an S1 virtual PC combinationally; a miss requests local fetch replay. */
+/* Probes a candidate S1 PC combinationally. Discard vetoes instruction-walk
+   admission, not TLB classification or an independently owned data walk. */
 interface SuperscalarInstructionTranslation(xlen :: XLen):
   role requester
   role responder
   provider requester
   requester -> responder:
     request: Valid(Bits(xlen.width))
+    discard: Bool
 
   responder -> requester:
     address: Bits(64)

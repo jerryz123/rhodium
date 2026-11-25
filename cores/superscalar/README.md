@@ -176,10 +176,11 @@ complete instruction is available, it emits that instruction without waiting
 for the next block. Predicted-taken cuts and the single-RAS-action restriction
 still delimit packets; cross-block assembly does not waive execution hazards.
 The source must follow redirects and supply instructions in program order;
-the standalone slice does not fetch instructions itself. `fetch_flush: Pulse()`
+the standalone slice does not fetch instructions itself. `fetch_discard: Pulse()`
 immediately cancels younger fetch work, even while a fault is waiting for older
 memory work to drain. Stop fetching on that pulse until a redirect or explicit
-restart supplies the next PC; a simultaneous redirect takes priority.
+restart supplies the next PC. Every redirect accompanies discard: a valid
+target restarts on that edge, while a rejected target never starts a fetch.
 Connect `instruction_invalidate: Pulse()` to instruction-cache invalidation;
 it accompanies the successful WB FENCE.I successor redirect and is distinct
 from a speculative fetch flush.

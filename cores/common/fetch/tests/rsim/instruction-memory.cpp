@@ -30,6 +30,7 @@ void drive() {}
 
 void observe() {
   {
+    defer(cache_in.pdemand_upresent, !reset && cache_out.prequest.pvalid);
     if (reset || cache_out.pflush)
       defer(cache_in.presponse,
             std::remove_cvref_t<decltype(cache_in.presponse)>{});
@@ -72,6 +73,15 @@ void stimulus() {
     tick();
     CHECK(core_out.presponse.pvalid && !core_out.presponse.pbits.preplay &&
           core_out.presponse.pbits.pdata == UINT64_C(4100));
+    // Consumer cancellation suppresses the public response, not its raw
+    // registered lookup. No edge occurs while the flush is pulsed here.
+    core_in.pflush = 1;
+    cache_in.presponse.pvalid = 0;
+    settle();
+    CHECK(cache_in.pdemand_upresent && !core_out.presponse.pvalid &&
+          !core_out.presponse.pbits.preplay && core_out.presponse.pbits.pdata == 4100);
+    core_in.pflush = 0;
+    cache_in.presponse.pvalid = 1;
     core_in.prequest.pvalid = 0;
     tick();
     cache_replay = 1;

@@ -30,6 +30,8 @@ interface InstructionCacheLookup(address_width :: PosInt, fetch_bits :: PosInt):
 
   responder -> requester:
     response: Valid(InstructionCacheResult(fetch_bits))
+    // Raw S2 demand presence, before flush. Only response.valid delivers a result.
+    demand_present: Bool
 
 export:
   InstructionCacheReq

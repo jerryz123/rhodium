@@ -987,10 +987,15 @@ both that list and the FP profile into the shared expander; C includes Zcd when
 D is selected. CSR specialization and ISA/UDB metadata consume the same list.
 Zcb expands to existing scalar controls, and C.MOP expands to an operand-free
 ADDI x0,x0,0; neither needs another execution decoder or scheduling policy.
-The core's immediate `fetch_flush` pulse also stops fetch during a retained WB
+The core's immediate `fetch_discard` pulse also stops fetch during a retained WB
 fault, before its drained public redirect. A simultaneous redirect supplies the
 new cursor; otherwise fetch remains stopped. Buffer credits alone cannot express
 this cancellation because a cleared buffer can still be rejecting admission.
+Compute discard from recovery intent, not the selected WB target's fits check.
+S2 can preview physical bytes and replay while the cache cancels delivery.
+Only a surviving local offer or an admitted restart may issue. The Sv39
+resolver probes the raw S1 PC, but discard vetoes only instruction-walk
+admission: it neither cancels an owned PTE reply nor blocks data-side demand.
 
 The data adapter exposes the shared cache's `pipeline_lookup` (EX virtual index)
 and `CachePipelineAccess` (MEM physical resolution, following WB store commit).

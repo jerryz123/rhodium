@@ -79,9 +79,14 @@ import:
   lib("rhodium/frontend/foundation.rhm").CircuitDefinition
   "../issue.rhdl".superscalar_issue_width
   "../core.rhdl".SuperscalarCore
+  "../fetch/frontend.rhdl".SuperscalarFrontend
+  "../memory/translation-sv39.rhdl".SuperscalarSv39Translation
+  "../memory/translation.rhdl".SuperscalarTranslationQuery
+  lib("cores/common/mmu/translation.rhdl").RiscvTranslationMemory
+  "../../common/chi-hart.rhdl".RiscvHartCHIConfig
   "instruction-fixture.rhdl" open
 
-sync_circuit CoreFixture(profile :: SuperscalarPipelineConfig = SuperscalarPipelineConfig(), ~issue: issue :: Module || CircuitDefinition = RV2WideIssue(profile.xlen), ~vector_backend: vector_backend :: VectorBackendKind = VectorBackendKind.Unified, ~fp_timing: selected_fp_timing :: FpExecutionTiming = FpExecutionTiming(), ~owns_translation_epoch: owns_translation_epoch :: Boolean = #false):
+sync_circuit CoreFixture(profile :: SuperscalarPipelineConfig = SuperscalarPipelineConfig(), ~issue: issue :: Module || CircuitDefinition = RV2WideIssue(profile.xlen), ~vector_backend: vector_backend :: VectorBackendKind = VectorBackendKind.Unified, ~fp_timing: selected_fp_timing :: FpExecutionTiming = FpExecutionTiming(), ~owns_translation_epoch: owns_translation_epoch :: Boolean = #false, ~fetch_collision: fetch_config :: maybe(RiscvHartCHIConfig) = #false):
   def xlen = profile.xlen
   def issue_width = superscalar_issue_width(xlen, issue)
   def hypervisor = profile.hypervisor
@@ -143,7 +148,71 @@ sync_circuit CoreFixture(profile :: SuperscalarPipelineConfig = SuperscalarPipel
 
   core.prefetch <=> prefetch
   core.redirect <=> redirect
-  core.fetch_flush <=> fetch_flush
+  core.fetch_discard <=> fetch_flush
+  if fetch_config
+  | block:
+      // Inject instructions at issue independently of fetch so that a real MEM
+      // jump resolves on exactly the desired pair of frontend pipeline stages.
+      inst fetch(SuperscalarFrontend(fetch_config, profile, ~group_width: issue_width))
+      inst resolve(SuperscalarSv39Translation(fetch_config, ~hypervisor: #false))
+      interface fetch_start(Valid(Bits(64)), ~role: consumer)
+      interface array_lookup(Decoupled(Bits(64)), ~role: producer)
+      interface pte(RiscvTranslationMemory(), ~role: requester)
+      input prime: Bool
+      input physical_replay: Bool
+      output(s1_live, s1_miss, s1_discard, s2_physical, fetch_packet): Bool
+      output s1_address: Bits(64)
+      fetch_start |> fetch.start
+      core.redirect |> fetch.redirect
+      core.fetch_discard |> fetch.discard
+      core.instruction_invalidate |> fetch.invalidate
+      core.branch_update |> fetch.branch_update
+      core.predictor_restore |> fetch.predictor_restore
+      core.predictor_clear |> fetch.predictor_clear
+      core.direction_update |> fetch.direction_update
+      core.ras_resolution |> fetch.ras_resolution
+      core.history_commit |> fetch.history_commit
+      core.history_restore |> fetch.history_restore
+      fetch.virtual_lookup |> array_lookup
+      fetch.instructions.ready <== Bool(#true)
+      fetch_packet <== fetch.instructions.valid
+      reg physical(~init: Bool(#false))
+      physical <== fetch.memory.request.valid
+      s2_physical <== physical
+      fetch.memory.response.valid <== physical & !fetch.memory.flush
+      fetch.memory.response.bits.data <== Bits(64)(0x0000001300000013)
+      fetch.memory.response.bits.access_fault <== Bool(#false)
+      fetch.memory.response.bits.replay <== physical_replay
+
+      resolve.instruction.request.valid <== prime ||| fetch.translation.request.valid
+      resolve.instruction.request.bits <== mux(prime, Bits(64)(0x1ff8), fetch.translation.request.bits)
+      resolve.instruction.discard <== !prime & fetch.translation.discard
+      fetch.translation.resolution <== resolve.instruction.resolution
+      fetch.translation.address <== resolve.instruction.address
+      fetch.translation.pbmt <== resolve.instruction.pbmt
+      s1_live <== fetch.translation.request.valid
+      s1_address <== fetch.translation.request.bits
+      s1_miss <== resolve.instruction.resolution.disposition === SuperscalarDisposition.Replay
+      s1_discard <== fetch.translation.discard
+      resolve.pte <=> pte
+      def empty_state :: RiscvTranslationState(xlen) = literal(RiscvTranslationState(xlen), 0)
+      resolve.state <== empty_state.updated(~privilege: PrivilegeMode.Supervisor, ~satp: Bits(64)(0x8000000000000003))
+      resolve.invalidate <== Bool(#false)
+      resolve.query <== literal(SuperscalarTranslationQuery(xlen), 0)
+      resolve.pipeline_vector <== Bool(#false)
+      resolve.request_vector <== Bool(#false)
+      resolve.vector_fast.request.valid <== Bool(#false)
+      resolve.vector_fast.request.bits <== literal(VectorRange(), 0)
+      resolve.vector_fast.candidate <== literal(VectorFastCertificate(xlen), 0)
+      resolve.vector_fast.pipeline_physical <== Bool(#false)
+      resolve.vector_fast.request_physical <== Bool(#false)
+      resolve.vector_precheck.request.valid <== Bool(#false)
+      resolve.vector_precheck.request.bits <== literal(VectorRange(), 0)
+      resolve.vector_precheck.release.valid <== Bool(#false)
+      resolve.vector_precheck.response.ready <== Bool(#true)
+      resolve.prefetch.valid <== Bool(#false)
+      resolve.prefetch.bits <== literal(CachePrefetchReq(64), 0)
+  | #void
   core.instruction_invalidate <=> instruction_invalidate
   core.branch_update <=> branch_update
   core.predictor_restore <=> predictor_restore

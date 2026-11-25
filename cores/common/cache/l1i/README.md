@@ -65,6 +65,7 @@ its assembly or issue policy here.
 | Frontend → cache | `flush` | Kill speculative lookups and detach the refill's fault consumer; a simultaneously accepted virtual lookup starts the new fetch epoch |
 | Frontend → cache | `invalidate_all` | Also invalidate resident lines and prevent old refill installation |
 | Cache → requester | `response: Valid(InstructionCacheResult)` | Registered S2 `data`, `access_fault`, and `replay`; never backpressured |
+| Cache → requester | `demand_present` | The registered S2 lookup belongs to a demand, before flush or invalidation. It permits a combinational preview, not consumption or refill admission. |
 
 The separate `virtual_lookup: Decoupled(Bits(XLEN))` port launches S0 SRAM
 reads without waiting for ITLB/PMA resolution. A surviving S1 physical request

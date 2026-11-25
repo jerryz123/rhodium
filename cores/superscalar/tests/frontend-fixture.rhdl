@@ -46,7 +46,7 @@ sync_circuit FrontendFixture(config :: RiscvHartCHIConfig, profile :: Superscala
   (frontend.instructions |> map_flow(packet => observe_packet(xlen, hypervisor, group_width, packet))) |> instructions
   start |> frontend.start
   redirect |> frontend.redirect
-  flush |> frontend.flush
+  frontend.discard.valid <== flush.valid ||| redirect.valid
   frontend.memory <=> memory
   invalidate |> frontend.invalidate
   frontend.virtual_lookup <=> virtual_lookup

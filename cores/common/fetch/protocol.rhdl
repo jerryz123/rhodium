@@ -19,7 +19,8 @@ bundle PhysicalInstructionResp(fetch_bits :: PosInt):
   access_fault: Bool
 
 /* Pairs physical S1 requests with S2 cache, fault, or replay outcomes.
-   Invalidation and consumer cancellation are separate caller-owned controls. */
+   A held S2 request can preview response.bits across a consumer flush;
+   only response.valid authorizes consumption. Invalidation is independent. */
 interface PhysicalInstructionLookup(address_width :: PosInt, fetch_bits :: PosInt):
   role requester
   role responder

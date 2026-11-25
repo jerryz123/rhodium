@@ -102,6 +102,7 @@ sync_circuit SuperscalarCacheFixture():
   mmu.state <== core.translation_state
   mmu.invalidate <== core.translation_flush
   mmu.instruction.request.valid <== Bool(#false)
+  mmu.instruction.discard <== Bool(#false)
   mmu.instruction.request.bits <== Bits(64)(0)
   instructions |> core.instructions
   core.retired <=> retired

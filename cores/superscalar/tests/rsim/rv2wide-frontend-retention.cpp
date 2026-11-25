@@ -36,7 +36,7 @@ void cycle() {
   const bool request = !reset && memory_out.prequest.pvalid &&
                        !memory_out.ps1_ukill && !memory_out.pflush;
   const auto address = memory_out.prequest.pbits.paddress;
-  const bool translation_retry = replay_translation_once && translation_out.prequest.pvalid &&
+  const bool translation_retry = replay_translation_once && translation_out.prequest.pvalid && !translation_out.pdiscard &&
                                  translation_out.prequest.pbits == prefix_pc + 2;
   if (translation_retry) CHECK(!request);
   bool next_replay = false;

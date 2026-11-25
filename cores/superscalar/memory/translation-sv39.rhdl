@@ -221,7 +221,7 @@ sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: 
   def same_active_data = walk_live & walk_data & walk_lookup.same_request(data_lookup)
   def instruction_miss = instruction.request.valid & !instruction_known
   def choose_data = pending_data ||| data_miss
-  walker.request.valid <== !walk_live & !cancel & !invalidate & (choose_data ||| instruction_miss)
+  walker.request.valid <== !walk_live & !cancel & !invalidate & (choose_data ||| (instruction_miss & !instruction.discard))
 
   // SATP writes discard the pending owner before it can launch under a different host root.
   def pending_walk:

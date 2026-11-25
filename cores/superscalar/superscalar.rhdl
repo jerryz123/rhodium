@@ -95,7 +95,7 @@ sync_circuit Superscalar(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfi
   frontend.translation <=> mmu.instruction
   start |> frontend.start
   frontend.instructions |> core.instructions
-  core.fetch_flush |> frontend.flush
+  core.fetch_discard |> frontend.discard
   core.instruction_invalidate |> frontend.invalidate
   core.branch_update |> frontend.branch_update
   core.predictor_restore |> frontend.predictor_restore

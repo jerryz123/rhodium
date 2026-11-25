@@ -221,6 +221,7 @@ vec-search	language	examples/rtl/vec-search.rhdl	program	rhodium/backend/tests/r
 bundle-update	language	rhodium/backend/tests/rsim/emit-bundle-update.rhm	program	rhodium/backend/tests/rsim/bundle-update.cpp
 rv2wide-core	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-core.rhm	program	cores/superscalar/tests/rsim/rv2wide-core.cpp	target	sims/statistics/collector.cc
 rv3wide-core	cores-components	cores/rv3wide/tests/rsim/emit-core.rhm	program	cores/rv3wide/tests/rsim/core.cpp
+rv3wide-fetch-discard	cores-components	cores/rv3wide/tests/rsim/emit-fetch-discard.rhm	program	cores/rv3wide/tests/rsim/fetch-discard.cpp
 rv3wide-vector-geometry-smallest	cores-components	cores/rv3wide/tests/rsim/emit-vector-dispatch.rhm	smallest	cores/rv3wide/tests/rsim/vector-geometry.cpp
 rv3wide-vector-geometry-rv32	cores-components	cores/rv3wide/tests/rsim/emit-vector-dispatch.rhm	rv32	cores/rv3wide/tests/rsim/vector-geometry.cpp
 rv3wide-vector-geometry-wider	cores-components	cores/rv3wide/tests/rsim/emit-vector-dispatch.rhm	wider	cores/rv3wide/tests/rsim/vector-geometry.cpp

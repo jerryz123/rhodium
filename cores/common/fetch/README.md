@@ -34,7 +34,10 @@ Every surviving S1 request produces an S2 outcome one cycle later. `s1_kill`
 suppresses the new attempt without suppressing the preceding S2 result.
 Cacheable attempts use L1I's data/access-fault/replay result. An uncached attempt
 returns replay immediately while one retained read runs; a later retry consumes
-its completed bytes. There is no additional stage on cache hits.
+its completed bytes. There is no additional stage on cache hits. For a live S2
+attempt, `response.bits` previews the outcome even when a simultaneous flush
+suppresses `response.valid`. This lets fetch compute a local successor in
+parallel with recovery; the preview never authorizes delivery or a new read.
 
 The following illustrates the retained uncached owner:
 

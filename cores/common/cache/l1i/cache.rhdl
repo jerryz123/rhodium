@@ -247,14 +247,16 @@ sync_circuit L1ICache(xlen :: XLen, cache :: CacheConfig, ~chi: config :: RiscvH
   /* S2 misses return replay immediately. The refill engine alone owns the
      accepted CHI transaction; successful installation is observed by a retry. */
 
-  def Array(refill_attempts, lookup_results) = lookup.egress |> filter_valid(_result => !cache_flush) |> fork_valid(2)
-  (refill_attempts |> filter_valid(result => result.outcome === L1ILookupOutcome.Miss)
+  def Array(refill_attempts, lookup_results) = lookup.egress |> fork_valid(2)
+  (refill_attempts |> filter_valid(result => !cache_flush & (result.outcome === L1ILookupOutcome.Miss))
     |> map_valid(result => CacheLineReadCommand(Bits(way_width), width)):
          line_address: (result.line_number ++ Bits(offset_width)(0)).zext(width)
          context: result.way
   ) |> offer_decoupled() |> refill.command
 
-  (lookup_results |> filter_valid(result => !result.prefetch) |> map_valid(result => InstructionCacheResult(fetch_bits)):
+  def demand = lookup_results |> filter_valid(result => !result.prefetch)
+  core.demand_present <== demand.valid
+  (demand |> filter_valid(_result => !cache_flush) |> map_valid(result => InstructionCacheResult(fetch_bits)):
     data: result.data
     access_fault: result.outcome.is_one_of(L1ILookupOutcome.AddressFault, L1ILookupOutcome.RefillFault)
     replay: result.outcome === L1ILookupOutcome.Miss

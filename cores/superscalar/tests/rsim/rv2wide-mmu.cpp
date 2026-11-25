@@ -483,24 +483,28 @@ int main() {
     wb_valid = 0;
     // A pulsed older WB miss is remembered while an instruction walk runs.
     // Dropping the fetch consumer (ordinary replay) must not restart that walk.
-    fence();
-    fetch_valid = 1;
-    wait_request(UINT64_C(0x10000));
-    address = UINT64_C(0x500008);
-    wb_valid = 1;
-    tick_model();
-    falling();
-    wb_valid = 0;
-    fetch_valid = 0;
-    reply(UINT64_C(0x10000), (UINT64_C(17) << 10) | 1);
-    reply(UINT64_C(0x11010), (UINT64_C(18) << 10) | 1);
-    reply(UINT64_C(0x12000), (UINT64_C(20) << 10) | UINT64_C(0xcb));
-    // Even a new fetch miss cannot take the next walker slot from retained WB.
-    fetch_valid = 1;
-    fetch_address = UINT64_C(0x402000);
-    walk_data((UINT64_C(21) << 10) | UINT64_C(0xc7));
-    fetch_valid = 0;
-    fetch_address = UINT64_C(0x400000);
+    for (bool discard : {false, true}) {
+      fence();
+      fetch_valid = 1;
+      wait_request(UINT64_C(0x10000));
+      address = UINT64_C(0x500008);
+      wb_valid = 1;
+      tick_model();
+      falling();
+      wb_valid = 0;
+      fetch_valid = 0;
+      reply(UINT64_C(0x10000), (UINT64_C(17) << 10) | 1);
+      reply(UINT64_C(0x11010), (UINT64_C(18) << 10) | 1);
+      reply(UINT64_C(0x12000), (UINT64_C(20) << 10) | UINT64_C(0xcb));
+      // WB keeps priority over a live fetch; a discard cannot veto WB either.
+      fetch_valid = 1;
+      fetch_discard = discard;
+      fetch_address = UINT64_C(0x402000);
+      walk_data((UINT64_C(21) << 10) | UINT64_C(0xc7));
+      fetch_discard = 0;
+      fetch_valid = 0;
+      fetch_address = UINT64_C(0x400000);
+    }
     // An accepted fetch PTE survives cancellation. A normal WB transaction can
     // issue while that old response is outstanding; FIFO ownership distinguishes both.
     fence();
