@@ -75,9 +75,10 @@ discards outstanding work and restarts both generation sequences at zero.
 The [transaction-only retirement proof](tests/two-tag-rob-transactions.rkt)
 establishes a narrower guarantee using only the child FIFO contract: at most
 two granted tags are outstanding. Each retirement is the oldest outstanding
-grant, and **that allocation** received a matching completion on an earlier edge. It
-does not require the queue to offer its head on any particular cycle. Grant
-priority, stalled offers and result data remain claims of the cycle proof.
+grant, and its `retire_result` equals the payload of **that allocation's first
+matching-generation completion** on an earlier edge. Later pulses cannot
+replace it, even while retirement is stalled. This proof checks data on
+transfer only; grant priority and stability of a stalled offer remain cycle claims.
 
 The [spec](../../examples/formal/two-tag-rob.rspl) guarantees rejection of a
 duplicate from the immediately previous use of the same tag **within a reset

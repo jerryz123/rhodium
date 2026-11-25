@@ -457,13 +457,20 @@ The [ROB transaction regression](tests/two-tag-rob-transactions.rkt) shares
 `symbolic-fifo-cut` with the gated proof. Only the parent RTL has an executable
 edge; the child supplies a sampler domain and FIFO relation on arbitrary
 history successors. The monitor tracks each public grant's advertised token
-and remembers earlier matching completions while the tag is live. Inductively
-relate those tickets to local busy/done/generation bits and the live tags in
-the FIFO history. Do not assume the head payload is meaningful before a transfer.
+and latches the first matching input payload while the tag is live. First
+relate the tickets to local busy/done/generation bits and the live tags in
+the FIFO history without using the result banks. Then relate the saved
+bank to the ticket's payload only while that ticket is complete. Compare
+`retire_result` only on a transfer; no reset value for either bank is assumed.
 Check FIFO order separately from completion safety: the any-done mutant
 preserves order but can retire A after only B completes. Chain the five
 contract edges from reset to check that distinction; the full-RTL replay
 above is an independent check.
+The swapped-bank mutant must pass tag safety and bank preservation but fail
+the retired-payload check. Exercise both tops from reset: grant A then B,
+complete B=3 then A=1, and send matching duplicates A=2 and B=0 on a
+stalled offer. Check feasibility of both drain handshakes before checking
+their tags and data; the trace is not a latency requirement.
 
 The independent [rspecsim oracle](tests/two-tag-rob-test.rhm) records integer
 allocation serials on entries and compares their low bits only at the interface.
