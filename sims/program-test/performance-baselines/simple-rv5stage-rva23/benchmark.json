@@ -39,8 +39,8 @@
     "rtl/soc/hart/l1i/icache_miss": 30
   },
   "mm.riscv": {
-    "cycles": 384477,
-    "rtl/soc/hart/core/issue_1": 284424,
+    "cycles": 384489,
+    "rtl/soc/hart/core/issue_1": 284422,
     "rtl/soc/hart/core/mispredict_direct_target": 0,
     "rtl/soc/hart/core/mispredict_direction": 571,
     "rtl/soc/hart/core/mispredict_indirect_target": 2,
@@ -91,8 +91,8 @@
     "rtl/soc/hart/l1i/icache_miss": 36
   },
   "spmv.riscv": {
-    "cycles": 108458,
-    "rtl/soc/hart/core/issue_1": 52858,
+    "cycles": 107946,
+    "rtl/soc/hart/core/issue_1": 49926,
     "rtl/soc/hart/core/mispredict_direct_target": 0,
     "rtl/soc/hart/core/mispredict_direction": 661,
     "rtl/soc/hart/core/mispredict_indirect_target": 7,
@@ -169,8 +169,8 @@
     "rtl/soc/hart/l1i/icache_miss": 30
   },
   "vvadd.riscv": {
-    "cycles": 23394,
-    "rtl/soc/hart/core/issue_1": 10489,
+    "cycles": 23435,
+    "rtl/soc/hart/core/issue_1": 10297,
     "rtl/soc/hart/core/mispredict_direct_target": 1,
     "rtl/soc/hart/core/mispredict_direction": 59,
     "rtl/soc/hart/core/mispredict_indirect_target": 7,

@@ -75,17 +75,17 @@
     "rtl/soc/hart/core/instruction/icache_miss": 62
   },
   "matmult-int": {
-    "cycles": 80334,
-    "rtl/soc/hart/core/core/issue_1": 32465,
-    "rtl/soc/hart/core/core/issue_2": 20394,
+    "cycles": 80678,
+    "rtl/soc/hart/core/core/issue_1": 33537,
+    "rtl/soc/hart/core/core/issue_2": 20049,
     "rtl/soc/hart/core/core/mispredict_direct_target": 0,
     "rtl/soc/hart/core/core/mispredict_direction": 84,
     "rtl/soc/hart/core/core/mispredict_indirect_target": 1,
     "rtl/soc/hart/core/core/mispredict_nonbranch": 0,
     "rtl/soc/hart/core/core/mispredict_ras_action": 0,
     "rtl/soc/hart/core/core/mispredict_return_target": 0,
-    "rtl/soc/hart/core/core/retired_slot0": 36113,
-    "rtl/soc/hart/core/core/retired_slot1": 12666,
+    "rtl/soc/hart/core/core/retired_slot0": 36473,
+    "rtl/soc/hart/core/core/retired_slot1": 12306,
     "rtl/soc/hart/core/data/storage/dcache_miss": 397,
     "rtl/soc/hart/core/instruction/icache_miss": 23
   },
