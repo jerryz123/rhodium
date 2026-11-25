@@ -1,0 +1,208 @@
+#lang rhombus
+/* Lowers occurrence-local register state and assertion taps into a concrete single-clock step plan. */
+// SPDX-License-Identifier: Apache-2.0
+
+import "preflight.rhm" open
+
+export prepare_transition_snapshot
+
+/* Bind each child input to its parent's driver; repeated definitions never share state. */
+class Occurrence(mod :: Map, path :: String, bindings :: Map, children :: MutableMap)
+
+/* Resolve a numeric ID in the current definition's table. */
+fun row(occ :: Occurrence, table :: String, id :: Int):
+  find_by_id(occ.mod[table], id, table)
+
+/* Return the value driving a place in this occurrence. */
+fun driver(occ :: Occurrence, id :: Int): row(occ, "places", id)["driver"]
+
+/* The serialized plan uses content-keyed maps and pair lists to preserve the Racket snapshot ABI. */
+/* Attribute synthetic operations to their source, including structural private ports. */
+fun source_op(occ :: Occurrence, op :: maybe(Map), id :: Int, code :: String,
+              args :: PairList, results :: PairList, places :: PairList, attrs :: Map):
+  Map.by(is_now){
+    "id": id, "opcode": code, "operands": args, "results": results, "places": places,
+    "attributes": attrs, "location": if op | op["location"] | "<transition>",
+    "origin": if op | op["origin"] | "register transition",
+    "source_module": occ.mod["name"], "source_path": occ.path, "source_operation_id": op && op["id"]}
+
+/* Raise an ordinary diagnostic for solver-free callers without a result adapter. */
+fun raise_diagnostic(d :: Map): error(d["message"])
+
+/* Inventory occurrences before following data drivers, then validate the resulting combinational snapshot. */
+fun prepare_transition_snapshot(snapshot :: Map, clock :~ matching(_), reject :: Function.of_arity(1) = raise_diagnostic):
+  def occurrences = MutableList[]
+  def sites = MutableList[]
+  /* Reject a non-representable operation at the original hierarchy path. */
+  fun fail(occ :: Occurrence, op :: maybe(Map), message :: String):
+    reject_diagnostic(diagnostic(occ.mod, op, message, occ.path), reject)
+  /* Sample reset as one data bit, but never allocate a data word for a clock. */
+  fun packed(occ :: Occurrence, t :: Map, op :: maybe(Map) = #false):
+    match to_string(t["kind"])
+    | "clock": fail(occ, op, "a clock may only drive the selected register clock through structural aliases")
+    | "reset":
+        unless t["width"] == 1 | error("malformed Reset width")
+        t.set("kind", "flat")
+    | ~else: t
+  /* Build the occurrence tree in pre-order, checking recursive hierarchy and input arity. */
+  fun visit(mod :: Map, path :: String, bindings :: Map, ancestors :: Set):
+    def id = mod["id"]
+    when id in ancestors | error("recursive module hierarchy at " ++ path)
+    def occ = Occurrence(mod, path, bindings, MutableMap{})
+    occurrences.add(occ)
+    for (op in mod["operations"]):
+      def code :: ReadableString.to_string = op["opcode"]
+      unless supported_opcode(code) || code in {"rtl.register", "rtl.register_reset", "verif.assert"}
+      | fail(occ, op, "register transitions do not support operation " ++ code)
+      when code == "rtl.instance"
+      | block:
+          def attrs = op["attributes"]
+          def child = find_module(snapshot, attrs["child_module"])
+          unless child["inputs"].length() == op["places"].length() | error("instance input arity mismatch")
+          def ports = for Map (p in child["inputs"], place in op["places"]): values(p["value"], [occ, driver(occ, place)])
+          occ.children[op["id"]] := visit(child, path ++ "." ++ attrs["name"], ports, ancestors ++ {id})
+    occ
+  def top = find_module(snapshot, snapshot["top"])
+  def root = visit(top, to_string(top["name"]), {}, Set{})
+  def clocks = (for List (p in top["inputs"]): p).filter(~keep: fun (p): p["type"]["kind"] is_now "clock")
+  unless clocks.length() == 1 && clock is_now clocks[0]["name"]
+  | fail(root, #false, "select the single top-level Clock input explicitly")
+  def mutable next_id = 0
+  /* IDs share one deterministic namespace for lowered operations, places and values. */
+  fun fresh():
+    next_id := next_id + 1
+    next_id
+  def vs = MutableList[]
+  def ops = MutableList[]
+  def ins = MutableList[]
+  def outs = MutableList[]
+  def places = MutableList[]
+  def memo = MutableMap{}
+  def active = MutableSet{}
+  /* Add a value and keep its producer linked by ID in the flat snapshot. */
+  fun add_value(id :: Int, op_id :: Int, name :: maybe(ReadableString), t :: Map):
+    vs.add(Map.by(is_now){"id": id, "name": name, "type": t, "defining_operation": op_id})
+  /* Current state and sampled top inputs both become independent flat input ports. */
+  fun add_input(occ :: Occurrence, name :: String, t :: Map):
+    def id = fresh()
+    def op_id = fresh()
+    add_value(id, op_id, name, t)
+    ops.add(source_op(occ, #false, op_id, "rtl.input_port", PairList[], PairList[id], PairList[], Map.by(is_now){}))
+    ins.add(Map.by(is_now){"name": name, "direction": "input", "type": t, "value": id})
+    id
+  /* Expose a next state, assertion tap or top output as a driven flat place. */
+  fun add_output(occ :: Occurrence, op :: maybe(Map), name :: String, t :: Map, id :: Int):
+    def pid = fresh()
+    def oid = fresh()
+    places.add(Map.by(is_now){"id": pid, "name": name, "type": t, "owner_operation": oid, "driver": id})
+    ops.add(source_op(occ, op, oid, "rtl.output_port", PairList[], PairList[], PairList[pid], Map.by(is_now){}))
+    outs.add(Map.by(is_now){"name": name, "direction": "output", "type": t, "place": pid, "driver": id})
+  def clk = #'selected_clock
+  memo[[root.path, clocks[0]["value"]]] := clk
+  def inputs = for PairList (p in top["inputs"]):
+    keep_when p != clocks[0]
+    def name = "i" ++ to_string(ins.length())
+    def t = packed(root, p["type"])
+    memo[[root.path, p["value"]]] := add_input(root, name, t)
+    Map.by(is_now){"name": p["name"], "input": name, "type": t}
+  for (occ in occurrences):
+    for (op in occ.mod["operations"]):
+      def code :: ReadableString.to_string = op["opcode"]
+      when code == "rtl.register" || code == "rtl.register_reset"
+      | block:
+          unless op["operands"].length() == (if code == "rtl.register_reset" | 3 | 1)
+                 && op["results"].length() == 1 && op["places"].length() == 1
+          | error("malformed register arity")
+          sites.add([occ, op])
+  def seen = MutableSet{}
+  def registers = for PairList ([occ, op] in sites, i in 0..):
+    def q = op["results"][0]
+    def t = packed(occ, row(occ, "values", q)["type"], op)
+    def name = occ.path ++ "." ++ op["attributes"]["name"]
+    when name in seen | error("duplicate register occurrence identity")
+    seen.add(name)
+    def input = "s" ++ to_string(i)
+    memo[[occ.path, q]] := add_input(occ, input, t)
+    Map.by(is_now){
+      "name": name, "input": input, "next": "n" ++ to_string(i), "type": t,
+      "module_path": occ.path, "operation_id": op["id"], "location": op["location"], "origin": op["origin"]}
+  /* Follow only the demanded driver; preallocated Q values break legal inter-instance feedback. */
+  fun resolve(occ :: Occurrence, id :: Int):
+    def key = [occ.path, id]
+    cond
+    | memo.has_key(key): memo[key]
+    | ~else:
+        when key in active | error("combinational cycle at " ++ to_string(key))
+        active.add(key)
+        def v = row(occ, "values", id)
+        def op = row(occ, "operations", v["defining_operation"])
+        def code :: ReadableString.to_string = op["opcode"]
+        def result:
+          match code
+          | "rtl.input_port":
+              let [parent, source] = occ.bindings[id]
+              resolve(parent, source)
+          | "rtl.wire": resolve(occ, driver(occ, op["places"][0]))
+          | "rtl.instance":
+              def child = occ.children[op["id"]]
+              def outputs = child.mod["outputs"]
+              def index = PairList.to_list(op["results"]).index(id)
+              resolve(child, outputs[index]["driver"])
+          | ~else:
+              def t = packed(occ, v["type"], op)
+              def args = for PairList (arg in op["operands"]): resolve(occ, arg)
+              when clk in args | fail(occ, op, "clock used as data or derived logic")
+              unless op["results"].length() == 1 | error("expected a single data result")
+              def nid = fresh()
+              def oid = fresh()
+              add_value(nid, oid, v["name"], t)
+              ops.add(source_op(occ, op, oid, code, args, PairList[nid], PairList[], op["attributes"]))
+              nid
+        active.remove(key)
+        memo[key] := result
+        result
+  // Unused partial operations and zero-output child assertions still generate obligations.
+  for (occ in occurrences):
+    for (v in occ.mod["values"]): resolve(occ, v["id"])
+  def assertions = MutableList[]
+  for (occ in occurrences):
+    for (op in occ.mod["operations"]):
+      keep_when op["opcode"] is_now "verif.assert"
+      let PairList[condition, clock_id, reset, guard] = op["operands"]
+      unless resolve(occ, clock_id) == clk | fail(occ, op, "assertion clock does not alias the selected top clock")
+      def taps = for PairList (id in [condition, reset, guard]):
+        def tap = "a" ++ to_string(fresh())
+        add_output(occ, op, tap, packed(occ, row(occ, "values", id)["type"], op), resolve(occ, id))
+        tap
+      assertions.add(Map.by(is_now){
+        "taps": taps, "label": op["attributes"]["label"],
+        "diagnostic": diagnostic(occ.mod, op, "active clocked assertion must hold", occ.path)})
+  for ([occ, op] in sites, reg in registers):
+    def args = op["operands"]
+    unless resolve(occ, args[0]) == clk | fail(occ, op, "register clock does not alias the selected top clock")
+    def d = resolve(occ, driver(occ, op["places"][0]))
+    def t = reg["type"]
+    def next_value:
+      if args.length() == 3
+      | block:
+          def id = fresh()
+          def oid = fresh()
+          add_value(id, oid, reg["next"], t)
+          ops.add(source_op(occ, op, oid, "rtl.mux_lookup", PairList[resolve(occ, args[1]), d, resolve(occ, args[2])],
+                            PairList[id], PairList[], Map.by(is_now){"keys": PairList[1]}))
+          id
+      | d
+    add_output(occ, op, reg["next"], t, next_value)
+  def outputs = for PairList (p in top["outputs"], i in 0..):
+    def name = "o" ++ to_string(i)
+    def t = packed(root, p["type"])
+    add_output(root, #false, name, t, resolve(root, p["driver"]))
+    Map.by(is_now){"name": p["name"], "output": name, "type": t}
+  def flat = Map.by(is_now){
+    "id": 0, "name": top["name"], "values": PairList[& vs], "places": PairList[& places],
+    "operations": PairList[& ops], "inputs": PairList[& ins], "outputs": PairList[& outs]}
+  def lowered = Map.by(is_now){"top": 0, "modules": PairList[flat]}
+  validate_snapshot(lowered, reject)
+  Map.by(is_now){
+    "snapshot": lowered, "clock": clock, "inputs": inputs, "registers": registers,
+    "outputs": outputs, "assertions": PairList[& assertions]}

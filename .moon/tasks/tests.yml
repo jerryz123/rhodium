@@ -30,6 +30,7 @@ fileGroups:
   test-formal:
     - "rhodium/formal/tests/suite.rkt"
   test-formal-spec:
+    - "rhodium/formal/tests/concrete-plan-test.rhm"
     - "rhodium/formal/tests/arbiter-queue-test.rspl"
     - "rhodium/formal/tests/two-tag-rob-test.rhm"
     - "rhodium/formal/tests/spec-test.rhm"

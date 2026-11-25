@@ -7,7 +7,7 @@
          (only-in "spec.rhm" spec_snapshot monitor_projection)
          (only-in "fifo-monitor.rhm" fifo_monitor)
          (only-in "fifo-view.rhm" fifo_view_parts fifo_view_layout fifo_view_bool fifo_view_behavior fifo_series_parts)
-         (only-in "wiring.rhm" cut_parts leaf_protocol leaf_layout series_wiring))
+         (only-in "wiring.rhm" cut_parts leaf_protocol leaf_layout check_fifo_series_wiring))
 (provide prove-leaf prove-parent prepare-proved-wiring proved-child-model symbolic-cut-state proved-edge-at view-agrees? pack-pins unpack-pins)
 (provide exn:fail:input-contract? exn:fail:input-contract-goal exn:fail:input-contract-inputs)
 (provide check-batch-total! check-cycle-monitor! (rename-out [check-phase check-refinement-phase!]))
@@ -395,49 +395,16 @@
   (unless (= (length lanes) 1) (error 'fifo-wiring "expected a single FIFO ingress"))
   (first lanes))
 
-#| Check the two external handshakes and the internal valid/ready/payload paths against the actual
-   parent drivers. Only this direct, shared-epoch cut licenses identifying the two middle events. |#
+#| Only sealed FIFO evidence may supply occurrence identity and endpoints for a handoff proof. |#
 (define (check-series-wiring! top layout ingress egress a front b back)
-  (unless (and (not (host-equal? a b)) (fifo-transactions? front) (fifo-transactions? back))
+  (unless (and (fifo-transactions? front) (fifo-transactions? back))
     (error 'fifo-series "transaction evidence does not match the RTL occurrences"))
-  #| Only release the recorded physical-to-logical layout to its proved RTL occurrence. |#
-  (define (layout-at site definition)
-    (define child (cond [(host-equal? site a) front] [(host-equal? site b) back] [else #f]))
-    (unless (and child (host-eq? definition (fifo-transactions-definition child)))
-      (error 'fifo-series "transaction evidence does not match the RTL occurrences"))
-    (fifo-transactions-layout child))
-  ;; No unmodeled top pins, and no qualified parent member may alias an occurrence pin.
-  (define top-pins
-    (for*/list ([direction layout] [members (in-hash-values direction)] [member members]) (first member)))
-  (define endpoints (append (list "reset") (append* ingress) egress))
-  (unless (and (= (fifo-transactions-width front) (fifo-transactions-width back))
-               (= (length ingress) (length (fifo-transactions-ingress front)))
-               (host-equal? (sort top-pins string<?) (sort endpoints string<?))
-               (for/and ([p top-pins])
-                 (not (or (string-prefix? p (string-append a ".")) (string-prefix? p (string-append b "."))))))
-    (error 'fifo-series "incompatible FIFO endpoints"))
-  (define-values (_ wires) (series_wiring top layout layout-at))
-  #| Qualify a physical pin at its actual occurrence. |#
-  (define (pin site p) (string->immutable-string (string-append site "." p)))
-  #| Preserve valid/ready/data order when qualifying a certified endpoint. |#
-  (define (at site pins) (map (lambda (p) (pin site p)) pins))
-  #| Check one driver, reporting the failing RTL sink before any proof hypotheses are built. |#
-  (define (wire! sink source)
-    (unless (host-equal? (hash-ref wires sink #f) source)
-      (error 'fifo-series "expected ~a driven by ~a, got ~a" sink source (hash-ref wires sink #f))))
-  #| Valid and data travel forward; the ready driver travels in the opposite direction. |#
-  (define (link! from to)
-    (match-define (list fv fr fd) from)
-    (match-define (list tv tr td) to)
-    (wire! tv fv) (wire! fr tr) (wire! td fd))
-  (for* ([site (list a b)] [p '("clock" "reset")]) (wire! (pin site p) p))
-  (for ([lane ingress] [front-lane (fifo-transactions-ingress front)])
-    (link! lane (at a front-lane)))
-  (link! (at a (fifo-transactions-egress front)) (at b (single-ingress (fifo-transactions-ingress back))))
-  (link! (at b (fifo-transactions-egress back)) egress)
-  ;; Four epoch drivers, three pins per ingress lane, one handoff and one egress.
-  (unless (= (+ 4 (* 3 (+ 2 (length ingress)))) (hash-count wires))
-    (error 'fifo-series "unexpected parent or child wiring")))
+  #| Project only concrete interface metadata, never the symbolic transition or issuance authority. |#
+  (define (endpoint child)
+    (hash "definition" (fifo-transactions-definition child) "layout" (fifo-transactions-layout child)
+          "width" (fifo-transactions-width child) "ingress" (fifo-transactions-ingress child)
+          "egress" (fifo-transactions-egress child)))
+  (check_fifo_series_wiring top layout ingress egress a (endpoint front) b (endpoint back)))
 
 #| Place the downstream live prefix before the upstream live prefix; padding is unobservable.
    Splitting at concrete offsets keeps projection total even for arbitrary pre-reset counts. |#

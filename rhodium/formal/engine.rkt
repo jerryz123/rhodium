@@ -4,7 +4,10 @@
 
 (require racket/list
          racket/match
-         racket/set)
+         racket/set
+         (rename-in "preflight.rhm" [find_by_id find-by-id] [find_module find-module]
+                    [port_map port-map] [validate_assumptions validate-assumptions])
+         (prefix-in plan: "transition-plan.rhm"))
 
 (provide check_equivalent_snapshots
          interpret_snapshot
@@ -34,43 +37,6 @@
 ;; opaque engine results as unrestricted foreign values.
 (define formal_engine_result formal-engine-result?)
 
-(define supported-opcodes
-  (set "rtl.input_port"
-       "rtl.output_port"
-       "rtl.wire"
-       "rtl.drive"
-       "rtl.instance"
-       "rtl.constant"
-       "rtl.not"
-       "rtl.and"
-       "rtl.or"
-       "rtl.any"
-       "rtl.all"
-       "rtl.xor"
-       "rtl.add"
-       "rtl.mul"
-       "rtl.urem"
-       "rtl.sub"
-       "rtl.shl"
-       "rtl.shru"
-       "rtl.shrs"
-       "rtl.eq"
-       "rtl.ult"
-       "rtl.slt"
-       "rtl.mux_lookup"
-       "rtl.decode"
-       "rtl.onehot_mux"
-       "rtl.cast"
-       "rtl.concat"
-       "rtl.extract"
-       "rtl.zext"
-       "rtl.sext"
-       "rtl.trunc"
-       "rtl.record_create"
-       "rtl.record_get"
-       "rtl.vector_create"
-       "rtl.vector_get"))
-
 #| Return the outcome tag used by the Rhombus facade. |#
 (define (engine_result_status result)
   (formal-engine-result-status result))
@@ -91,242 +57,17 @@
 (define (engine_result_diagnostic result)
   (formal-engine-result-diagnostic result))
 
-#| Read a mandatory snapshot field or report the malformed record. |#
-(define (required hash key [context "snapshot"])
-  (hash-ref hash key
-            (lambda ()
-              (error 'rhodium-formal "~a is missing required field ~s" context key))))
+#| Preserve the public unsupported result while concrete validation stays solver-free. |#
+(define (reject-diagnostic d)
+  (raise (exn:fail:formal:unsupported (hash-ref d "message") (current-continuation-marks) d)))
 
-#| Resolve a module-local numeric identity in its owning table. |#
-(define (find-by-id values id context)
-  (or (findf (lambda (value) (equal? (required value "id" context) id)) values)
-      (error 'rhodium-formal "~a references missing id ~a" context id)))
-
-#| Resolve a reachable module definition within a design snapshot. |#
-(define (find-module snapshot id)
-  (find-by-id (required snapshot "modules" "formal snapshot") id "module"))
-
-#| Recover source identity and occurrence path, including after register lowering. |#
-(define (diagnostic module operation message [path #f])
-  (hash "module" (or (and operation (hash-ref operation "source_module" #f))
-                       (and module (required module "name" "module")))
-        "module_path" (or (and operation (hash-ref operation "source_path" #f))
-                          path (and module (required module "name" "module")))
-        "opcode" (and operation (required operation "opcode" "operation"))
-        "operation_id" (and operation (hash-ref operation "source_operation_id"
-                                                 (lambda () (required operation "id" "operation"))))
-        "location" (and operation (required operation "location" "operation"))
-        "origin" (and operation (required operation "origin" "operation"))
-        "message" message))
-
-#| Stop translation with a structured diagnostic rather than assigning arbitrary semantics. |#
-(define (unsupported module operation message [path #f])
-  (raise
-   (exn:fail:formal:unsupported
-    message
-    (current-continuation-marks)
-    (diagnostic module operation message path))))
-
-#| Require a determinate positive packed width before constructing a bitvector. |#
-(define (positive-width type module [operation #f])
-  (define kind (required type "kind" "type"))
-  (define width (required type "width" "type"))
-  (unless (and (member kind '("flat" "record" "vector"))
-               (exact-positive-integer? width))
-    (unsupported module operation
-                 (format "formal engine does not support hardware type ~a"
-                         (required type "text" "type"))))
-  width)
-
-#| Check that the type and its nested elements have supported packed representations. |#
-(define (validate-type type module [operation #f])
-  (positive-width type module operation)
-  (match (required type "kind" "type")
-    ["record"
-     (for ([field (in-list (required type "fields" "record type"))])
-       (required field "name" "record field")
-       (validate-type (required field "type" "record field") module operation))]
-    ["vector"
-     (unless (exact-positive-integer? (required type "length" "vector type"))
-       (error 'rhodium-formal "vector snapshot has invalid length"))
-     (validate-type (required type "element_type" "vector type") module operation)]
-    [_ (void)]))
-
-#| Check opcode-specific arity, attributes, and domains required for translation. |#
-(define (validate-operation module operation module-ids)
-  (define opcode (required operation "opcode" "operation"))
-  (unless (set-member? supported-opcodes opcode)
-    (unsupported module operation
-                 (format "formal milestone 1 does not support operation ~a" opcode)))
-  (define operands (required operation "operands" "operation"))
-  (define results (required operation "results" "operation"))
-  (define places (required operation "places" "operation"))
-  (define attributes (required operation "attributes" "operation"))
-  #| Reject an operation with a malformed operand, result, or place count. |#
-  (define (arity expected-operands expected-results expected-places)
-    (unless (and (or (not expected-operands) (= (length operands) expected-operands))
-                 (or (not expected-results) (= (length results) expected-results))
-                 (or (not expected-places) (= (length places) expected-places)))
-      (error 'rhodium-formal "operation ~a has malformed snapshot arity" opcode)))
-  (match opcode
-    [(or "rtl.input_port") (arity 0 1 0)]
-    [(or "rtl.output_port") (arity 0 0 1)]
-    [(or "rtl.wire") (arity 0 1 1)]
-    [(or "rtl.drive") (arity 1 0 1)]
-    [(or "rtl.constant")
-     (arity 0 1 0)
-     (required attributes "value" "constant attributes")]
-    [(or "rtl.not" "rtl.cast") (arity 1 1 0)]
-    ["rtl.extract"
-     (arity 1 1 0)
-     (required attributes "high" "extract attributes")
-     (required attributes "low" "extract attributes")]
-    [(or "rtl.zext" "rtl.sext" "rtl.trunc")
-     (arity 1 1 0)
-     (required attributes "target_width" "extension or truncation attributes")]
-    ["rtl.record_get"
-     (arity 1 1 0)
-     (required attributes "field" "record projection attributes")]
-    ["rtl.vector_get"
-     (arity 1 1 0)
-     (required attributes "index" "vector projection attributes")]
-    [(or "rtl.and" "rtl.or" "rtl.xor" "rtl.add" "rtl.mul" "rtl.sub" "rtl.urem"
-         "rtl.shl" "rtl.shru" "rtl.shrs" "rtl.eq" "rtl.ult" "rtl.slt")
-     (arity 2 1 0)]
-    [(or "rtl.mux_lookup")
-     (arity #f 1 0)
-     (define keys (required attributes "keys" "mux attributes"))
-     (unless (and (>= (length operands) 3)
-                  (= (length keys) (- (length operands) 2)))
-       (error 'rhodium-formal "mux snapshot has inconsistent keys and operands"))]
-    ["rtl.onehot_mux"
-     (arity #f 1 0)
-     (unless (>= (length operands) 2)
-       (error 'rhodium-formal "one-hot mux snapshot requires a selector and choices"))
-     (define selector-width
-       (value-width (module-value module (first operands))))
-     (unless (= (sub1 (length operands)) selector-width)
-       (error 'rhodium-formal "one-hot mux snapshot choice count does not match selector width"))
-     (define result-width
-       (value-width (module-value module (first results))))
-     (for ([choice-id (in-list (rest operands))])
-       (unless (= (value-width (module-value module choice-id)) result-width)
-         (error 'rhodium-formal "one-hot mux snapshot choice width does not match result")))]
-    ["rtl.decode"
-     (arity 1 1 0)
-     (define cases (required attributes "cases" "decode attributes"))
-     (define default-value
-       (required attributes "default_value" "decode attributes"))
-     (define default-care
-       (required attributes "default_care" "decode attributes"))
-     (unless (list? cases)
-       (error 'rhodium-formal "decode cases must be a list"))
-     (define input-width
-       (value-width (module-value module (first operands))))
-     (define output-width
-       (value-width (module-value module (first results))))
-     #| Check that both packed masks fit and the value sets only cared bits. |#
-     (define (pattern-valid? value care width)
-       (define limit (arithmetic-shift 1 width))
-       (and (exact-nonnegative-integer? value)
-            (exact-nonnegative-integer? care)
-            (< value limit)
-            (< care limit)
-            (= value (bitwise-and value care))))
-     (for ([row (in-list cases)] [index (in-naturals)])
-       (unless (and (list? row) (= (length row) 4))
-         (error 'rhodium-formal "decode case ~a is malformed" index))
-       (unless (pattern-valid? (first row) (second row) input-width)
-         (error 'rhodium-formal "decode case ~a input is malformed" index))
-       (unless (pattern-valid? (third row) (fourth row) output-width)
-         (error 'rhodium-formal "decode case ~a output is malformed" index)))
-     (unless (pattern-valid? default-value default-care output-width)
-       (error 'rhodium-formal "decode default is malformed"))
-     #| Detect two decode rows that can match the same input. |#
-     (define (patterns-overlap? left right)
-       (zero?
-        (bitwise-and (bitwise-xor (first left) (first right))
-                     (bitwise-and (second left) (second right)))))
-     (for* ([left-index (in-range (length cases))]
-            [right-index (in-range (add1 left-index) (length cases))])
-       (when (patterns-overlap? (list-ref cases left-index)
-                                (list-ref cases right-index))
-         (error 'rhodium-formal "decode cases ~a and ~a overlap"
-                left-index right-index)))
-     (define full-output-care (sub1 (arithmetic-shift 1 output-width)))
-     (unless (and (= default-care full-output-care)
-                  (for/and ([row (in-list cases)])
-                    (= (fourth row) full-output-care)))
-       (unsupported module operation
-                    "formal milestone 1 supports rtl.decode only when every output bit is cared"))]
-    [(or "rtl.any" "rtl.all")
-     (arity #f 1 0)
-     (unless (and (pair? operands)
-                  (= 1 (value-width (module-value module (first results)))))
-       (error 'rhodium-formal "reduction requires operands and a one-bit result"))]
-    [(or "rtl.concat")
-     (arity #f 1 0)
-     (unless (>= (length operands) 2)
-       (error 'rhodium-formal "concat snapshot has fewer than two operands"))]
-    ["rtl.record_create"
-     (arity #f 1 0)
-     (unless (positive? (length operands))
-       (error 'rhodium-formal "record construction snapshot has no operands"))
-     (unless (= (length (required attributes "fields" "record construction attributes"))
-                (length operands))
-       (error 'rhodium-formal "record snapshot has inconsistent fields and operands"))]
-    ["rtl.vector_create"
-     (arity #f 1 0)
-     (unless (positive? (length operands))
-       (error 'rhodium-formal "vector construction snapshot has no operands"))]
-    ["rtl.instance"
-     (arity 0 #f #f)
-     (define child-id (required attributes "child_module" "instance attributes"))
-     (required attributes "name" "instance attributes")
-     (unless (set-member? module-ids child-id)
-       (error 'rhodium-formal "instance references missing child module ~a" child-id))]
-    [_ (void)]))
-
-#| Preflight all ports, values, places, and operations of one module. |#
-(define (validate-module snapshot module)
-  (for ([port (in-list (append (required module "inputs" "module")
-                               (required module "outputs" "module")))])
-    (validate-type (required port "type" "port") module))
-  (for ([value (in-list (required module "values" "module"))])
-    (validate-type (required value "type" "value") module))
-  (for ([place (in-list (required module "places" "module"))])
-    (validate-type (required place "type" "place") module)
-    (unless (exact-nonnegative-integer? (required place "driver" "place"))
-      (error 'rhodium-formal "place ~a has no final driver"
-             (required place "name" "place"))))
-  (define module-ids
-    (for/set ([candidate (in-list (required snapshot "modules" "formal snapshot"))])
-      (required candidate "id" "module")))
-  (for ([operation (in-list (required module "operations" "module"))])
-    (validate-operation module operation module-ids)))
-
-#| Validates the top module and every referenced module before symbolic execution. |#
-(define (validate-snapshot snapshot)
-  (define modules (required snapshot "modules" "formal snapshot"))
-  (unless (pair? modules)
-    (error 'rhodium-formal "formal snapshot has no modules"))
-  (find-module snapshot (required snapshot "top" "formal snapshot"))
-  (for ([module (in-list modules)])
-    (validate-module snapshot module))
-  #t)
+#| Validate all concrete operations before interpreting any symbolic value. |#
+(define (validate-snapshot snapshot) (validate_snapshot snapshot reject-diagnostic))
 
 #| Report unsupported semantics before starting a solver query. |#
 (define (preflight_snapshot snapshot)
-  (with-handlers ([exn:fail:formal:unsupported?
-                   (lambda (exception)
-                     (formal-engine-result
-                      "unsupported"
-                      (exn-message exception)
-                      '()
-                      '()
-                      (exn:fail:formal:unsupported-diagnostic exception)))])
-    (validate-snapshot snapshot)
-    #f))
+  (define d (snapshot_diagnostic snapshot))
+  (and d (formal-engine-result "unsupported" (hash-ref d "message") '() '() d)))
 
 #| Read the type's canonical bitvector width. |#
 (define (type-width type)
@@ -615,67 +356,8 @@
   (define top (find-module snapshot top-id))
   (interpret-module snapshot top-id inputs (required top "name" "top module") obligations))
 
-#| Return the top definition and its input and output port lists. |#
-(define (interfaces snapshot)
-  (define top (find-module snapshot (required snapshot "top" "formal snapshot")))
-  (values top
-          (required top "inputs" "top module")
-          (required top "outputs" "top module")))
-
-#| Index port descriptors by their public names. |#
-(define (port-map ports)
-  (for/hash ([port (in-list ports)])
-    (values (required port "name" "port") port)))
-
-#| Check packed input constraints before passing them to the solver. |#
-(define (validate-assumptions assumptions input-ports)
-  (unless (list? assumptions)
-    (error 'rhodium-formal "formal assumptions must be a list"))
-  (define inputs (port-map input-ports))
-  (for ([assumption (in-list assumptions)] [index (in-naturals)])
-    (unless (hash? assumption)
-      (error 'rhodium-formal "formal assumption ~a is malformed" index))
-    (define kind (required assumption "kind" "formal assumption"))
-    (unless (member kind '("input_pattern" "onehot"))
-      (error 'rhodium-formal "formal assumption ~a has an unknown kind" index))
-    (define name (required assumption "port" "formal input assumption"))
-    (unless (and (string? name) (hash-has-key? inputs name))
-      (error 'rhodium-formal "formal assumption ~a references unknown input ~a" index name))
-    (when (equal? kind "input_pattern")
-      (define value (required assumption "value" "formal input assumption"))
-      (define care (required assumption "care" "formal input assumption"))
-      (define width
-        (type-width (required (hash-ref inputs name) "type" "input port")))
-      (define limit (arithmetic-shift 1 width))
-      (unless (and (exact-nonnegative-integer? value)
-                   (exact-nonnegative-integer? care)
-                   (< value limit)
-                   (< care limit)
-                   (= value (bitwise-and value care)))
-        (error 'rhodium-formal "formal assumption ~a has an invalid packed pattern" index))))
-  #t)
-
-#| Match top input and output signatures before sharing symbolic inputs. |#
-(define (check-interface left-snapshot right-snapshot)
-  (define-values (left-top left-inputs left-outputs) (interfaces left-snapshot))
-  (define-values (_right-top right-inputs right-outputs) (interfaces right-snapshot))
-  #| Compare both port sets in one direction of the hardware interface. |#
-  (define (check-kind kind left-ports right-ports)
-    (define left-map (port-map left-ports))
-    (define right-map (port-map right-ports))
-    (unless (equal? (sort (hash-keys left-map) string<?)
-                    (sort (hash-keys right-map) string<?))
-      (unsupported left-top #f
-                   (format "formal subjects have different ~a port names" kind)))
-    (for ([name (in-list (hash-keys left-map))])
-      (define left-width (type-width (required (hash-ref left-map name) "type" "port")))
-      (define right-width (type-width (required (hash-ref right-map name) "type" "port")))
-      (unless (= left-width right-width)
-        (unsupported left-top #f
-                     (format "formal subjects have different widths for ~a port ~a" kind name)))))
-  (check-kind "input" left-inputs right-inputs)
-  (check-kind "output" left-outputs right-outputs)
-  (values left-top left-inputs left-outputs right-inputs right-outputs))
+#| Route mismatched concrete interfaces through the public diagnostic boundary. |#
+(define (check-interface left right) (check_interface left right reject-diagnostic))
 
 #| Complete a solver value and decode it as a packed natural for replay. |#
 (define (model-natural value solution)
@@ -791,12 +473,7 @@
             "Rosette solver returned an unknown result while checking formal assumptions")]))))
 
 #| Interpret both designs on shared inputs and solve for a differing output. |#
-(define (run-equivalence-query left-snapshot right-snapshot assumptions solve-query)
-  (validate-snapshot left-snapshot)
-  (validate-snapshot right-snapshot)
-  (define-values (left-top left-inputs left-outputs _right-inputs _right-outputs)
-    (check-interface left-snapshot right-snapshot))
-  (validate-assumptions assumptions left-inputs)
+(define (run-equivalence-query left-snapshot right-snapshot assumptions solve-query left-top left-inputs left-outputs)
   (define symbolic-inputs (make-symbolic-inputs left-inputs))
   (define obligations (box '()))
   (define left-values (interpret-top-bv left-snapshot symbolic-inputs obligations))
@@ -847,14 +524,14 @@
     ;; exception wrapper so unsupported IR remains a typed formal result.
     (validate-snapshot left-snapshot)
     (validate-snapshot right-snapshot)
-    (define-values (_left-top left-inputs _left-outputs
+    (define-values (left-top left-inputs left-outputs
                               _right-inputs _right-outputs)
       (check-interface left-snapshot right-snapshot))
     (validate-assumptions assumptions left-inputs)
     (define isolated
       (with-terms '()
         (with-vc vc-true
-          (run-equivalence-query left-snapshot right-snapshot assumptions solve-query))))
+          (run-equivalence-query left-snapshot right-snapshot assumptions solve-query left-top left-inputs left-outputs))))
     (cond
       [(normal? isolated) (result-value isolated)]
       [else (raise (result-value isolated))])))
@@ -874,235 +551,9 @@
   (for/hash ([(name value) (in-hash (interpret-top-bv snapshot bitvector-inputs))])
     (values name (bitvector->natural value))))
 
-;; Each occurrence owns distinct state, even when several instances share a module.
-(struct occurrence (module path bindings children) #:transparent)
-
-#| Flatten occurrences into one combinational current-state to next-state relation. |#
-(define (lower-register-transition snapshot clock supported? reject)
-  (define modules (hash-ref snapshot "modules"))
-  #| Find the definition for a child module or the designated top. |#
-  (define (module-by-id id)
-    (or (findf (lambda (m) (= (hash-ref m "id") id)) modules)
-        (error 'register-transition "missing module ~a" id)))
-  (define top (module-by-id (hash-ref snapshot "top")))
-  #| Resolve an IR identifier in the supplied occurrence-local table. |#
-  (define (lookup rows id)
-    (or (findf (lambda (row) (= (hash-ref row "id") id)) rows)
-        (error 'register-transition "missing IR id ~a" id)))
-  #| Read a required opcode attribute from a lowering source. |#
-  (define (attr op name) (hash-ref (hash-ref op "attributes") name))
-  #| Find a source value in the module that owns this occurrence. |#
-  (define (value occ id) (lookup (hash-ref (occurrence-module occ) "values") id))
-  #| Follow a source place to the value that drives it. |#
-  (define (driver occ id)
-    (hash-ref (lookup (hash-ref (occurrence-module occ) "places") id) "driver"))
-  #| Report the original occurrence when transition lowering cannot preserve semantics. |#
-  (define (fail occ op message)
-    (reject (occurrence-module occ) op message (occurrence-path occ)))
-  #| Treat sampled reset as data but reject clocks in data positions. |#
-  (define (packed-type occ type [op #f])
-    (match (hash-ref type "kind")
-      ["clock" (fail occ op "a clock may only drive the selected register clock through structural aliases")]
-      ["reset"
-       (unless (= 1 (hash-ref type "width")) (error 'register-transition "malformed Reset width"))
-       (hash-set type "kind" "flat")]
-      [_ type]))
-  (define occurrences '())
-  #| Bind and inventory each instance separately while rejecting recursive containment. |#
-  (define (visit module path bindings ancestors)
-    (define id (hash-ref module "id"))
-    (when (member id ancestors) (error 'register-transition "recursive module hierarchy at ~a" path))
-    (define occ (occurrence module path bindings (make-hash)))
-    (set! occurrences (cons occ occurrences))
-    (for ([op (in-list (hash-ref module "operations"))])
-      (define opcode (hash-ref op "opcode"))
-      (unless (or (supported? opcode) (member opcode '("rtl.register" "rtl.register_reset" "verif.assert")))
-        (fail occ op (format "register transitions do not support operation ~a" opcode)))
-      (when (equal? opcode "rtl.instance")
-        (define child (module-by-id (attr op "child_module")))
-        (define ports (hash-ref child "inputs"))
-        (define places (hash-ref op "places"))
-        (unless (= (length ports) (length places)) (error 'register-transition "instance input arity mismatch"))
-        (define bindings
-          (for/hash ([port (in-list ports)] [place (in-list places)])
-            (values (hash-ref port "value") (cons occ (driver occ place)))))
-        (hash-set! (occurrence-children occ) (hash-ref op "id")
-                   (visit child (string-append path "." (attr op "name")) bindings (cons id ancestors)))))
-    occ)
-  (define root (visit top (hash-ref top "name") (hash) '()))
-  (set! occurrences (reverse occurrences))
-  (define clocks (filter (lambda (port) (equal? "clock" (hash-ref (hash-ref port "type") "kind")))
-                         (hash-ref top "inputs")))
-  (unless (and (string? clock) (= (length clocks) 1) (equal? clock (hash-ref (car clocks) "name")))
-    (fail root #f "select the single top-level Clock input explicitly"))
-  (define next-id 0)
-  #| Allocate an unused identity in the synthetic combinational module. |#
-  (define (fresh) (set! next-id (add1 next-id)) next-id)
-  (define flat-values '())
-  (define flat-ops '())
-  (define flat-inputs '())
-  (define flat-outputs '())
-  (define flat-places '())
-  (define memo (make-hash))
-  (define active (mutable-set))
-  #| Qualify a source value ID with its instance path before caching. |#
-  (define (key occ id) (cons (occurrence-path occ) id))
-  #| Attach original module, operation, and location to a synthetic opcode. |#
-  (define (source-op occ op id opcode operands results places attributes)
-    (hash "id" id "opcode" opcode "operands" operands "results" results "places" places
-          "attributes" attributes "location" (if op (hash-ref op "location") "<transition>")
-          "origin" (if op (hash-ref op "origin") "register transition")
-          "source_module" (hash-ref (occurrence-module occ) "name")
-          "source_path" (occurrence-path occ) "source_operation_id" (and op (hash-ref op "id"))))
-  #| Create a synthetic input port and return its value ID. |#
-  (define (add-input occ name type)
-    (define id (fresh))
-    (define op-id (fresh))
-    (set! flat-values (cons (hash "id" id "name" name "type" type "defining_operation" op-id) flat-values))
-    (set! flat-ops (cons (source-op occ #f op-id "rtl.input_port" '() (list id) '() (hash)) flat-ops))
-    (set! flat-inputs (cons (hash "name" name "direction" "input" "type" type "value" id) flat-inputs))
-    id)
-  #| Expose a computed value as a driven synthetic output port. |#
-  (define (add-output occ op name type id)
-    (define place-id (fresh))
-    (define op-id (fresh))
-    (set! flat-places (cons (hash "id" place-id "name" name "type" type
-                                  "owner_operation" op-id "driver" id) flat-places))
-    (set! flat-ops (cons (source-op occ op op-id "rtl.output_port" '() '() (list place-id) (hash)) flat-ops))
-    (set! flat-outputs (cons (hash "name" name "direction" "output" "type" type
-                                   "place" place-id "driver" id) flat-outputs)))
-  (hash-set! memo (key root (hash-ref (car clocks) "value")) 'selected-clock)
-  (define inputs
-    (for/list ([port (in-list (hash-ref top "inputs"))] #:unless (equal? port (car clocks)))
-      (define name (format "i~a" (length flat-inputs)))
-      (define type (packed-type root (hash-ref port "type")))
-      (hash-set! memo (key root (hash-ref port "value")) (add-input root name type))
-      (hash "name" (hash-ref port "name") "input" name "type" type)))
-  (define sites
-    (for*/list ([occ (in-list occurrences)]
-                [op (in-list (hash-ref (occurrence-module occ) "operations"))]
-                #:when (member (hash-ref op "opcode") '("rtl.register" "rtl.register_reset")))
-      (define reset? (equal? (hash-ref op "opcode") "rtl.register_reset"))
-      (unless (and (= (length (hash-ref op "operands")) (if reset? 3 1))
-                   (= (length (hash-ref op "results")) 1) (= (length (hash-ref op "places")) 1))
-        (error 'register-transition "malformed register arity"))
-      (cons occ op)))
-  (define registers
-    (for/list ([site (in-list sites)] [index (in-naturals)])
-      (define occ (car site))
-      (define op (cdr site))
-      (define current (car (hash-ref op "results")))
-      (define type (packed-type occ (hash-ref (value occ current) "type") op))
-      ;; Rhombus maps use stable-key equality: externally supplied immutable
-      ;; state keys must match these identifiers, not mutable Racket strings.
-      (define name (string->immutable-string (string-append (occurrence-path occ) "." (attr op "name"))))
-      (define input (format "s~a" index))
-      (hash-set! memo (key occ current) (add-input occ input type))
-      (hash "name" name "input" input "next" (format "n~a" index) "type" type
-            "module_path" (occurrence-path occ) "operation_id" (hash-ref op "id")
-            "location" (hash-ref op "location") "origin" (hash-ref op "origin"))))
-  (unless (= (length registers) (set-count (list->set (map (lambda (r) (hash-ref r "name")) registers))))
-    (error 'register-transition "duplicate register occurrence identity"))
-  ;; Resolve one value at a time. Eagerly evaluating all child inputs would create
-  ;; false combinational recursion for legal feedback through a child's register.
-  #| Follow only the needed instance bindings so register feedback breaks recursion. |#
-  (define (resolve occ id)
-    (define k (key occ id))
-    (cond
-      [(hash-has-key? memo k) (hash-ref memo k)]
-      [(set-member? active k) (error 'register-transition "combinational cycle at ~a" k)]
-      [else
-       (set-add! active k)
-       (define original (value occ id))
-       (define op (lookup (hash-ref (occurrence-module occ) "operations") (hash-ref original "defining_operation")))
-       (define result
-         (match (hash-ref op "opcode")
-           ["rtl.input_port"
-            (define binding (hash-ref (occurrence-bindings occ) id))
-            (resolve (car binding) (cdr binding))]
-           ["rtl.wire" (resolve occ (driver occ (car (hash-ref op "places"))))]
-           ["rtl.instance"
-            (define child (hash-ref (occurrence-children occ) (hash-ref op "id")))
-            (define index (index-of (hash-ref op "results") id))
-            (define port (list-ref (hash-ref (occurrence-module child) "outputs") index))
-            (resolve child (hash-ref port "driver"))]
-           [_
-            (define type (packed-type occ (hash-ref original "type") op))
-            (define operands (map (lambda (v) (resolve occ v)) (hash-ref op "operands")))
-            (when (member 'selected-clock operands) (fail occ op "clock used as data or derived logic"))
-            (define new-id (fresh))
-            (define op-id (fresh))
-            (unless (= 1 (length (hash-ref op "results"))) (error 'register-transition "expected a single data result"))
-            (set! flat-values (cons (hash "id" new-id "name" (hash-ref original "name") "type" type
-                                          "defining_operation" op-id) flat-values))
-            (set! flat-ops (cons (source-op occ op op-id (hash-ref op "opcode") operands (list new-id) '()
-                                            (hash-ref op "attributes")) flat-ops))
-            new-id]))
-       (set-remove! active k)
-       (hash-set! memo k result)
-       result]))
-  ;; Preserve unused operations and outputless occurrences for preflight/domain checks.
-  (for* ([occ (in-list occurrences)] [v (in-list (hash-ref (occurrence-module occ) "values"))])
-    (resolve occ (hash-ref v "id")))
-  ;; Keep zero-result assertions even in outputless children. Their sampled
-  ;; operands are private ports, never exposed as design outputs or assumptions.
-  (define assertions
-    (for*/list ([occ (in-list occurrences)] [op (in-list (hash-ref (occurrence-module occ) "operations"))]
-                #:when (equal? (hash-ref op "opcode") "verif.assert"))
-      (match-define (list condition clk reset guard) (hash-ref op "operands"))
-      (unless (eq? 'selected-clock (resolve occ clk))
-        (fail occ op "assertion clock does not alias the selected top clock"))
-      (define taps
-        (for/list ([id (in-list (list condition reset guard))])
-          (define tap (format "a~a" (fresh)))
-          (add-output occ op tap (packed-type occ (hash-ref (value occ id) "type") op) (resolve occ id))
-          tap))
-      (hash "taps" taps "label" (attr op "label")
-            "diagnostic" (diagnostic (occurrence-module occ) op "active clocked assertion must hold"
-                                     (occurrence-path occ)))))
-  (for ([site (in-list sites)] [reg (in-list registers)])
-    (define occ (car site))
-    (define op (cdr site))
-    (define operands (hash-ref op "operands"))
-    (unless (eq? 'selected-clock (resolve occ (car operands)))
-      (fail occ op "register clock does not alias the selected top clock"))
-    (define next (resolve occ (driver occ (car (hash-ref op "places")))))
-    (define type (hash-ref reg "type"))
-    (define next-value
-      (if (= 3 (length operands))
-          (let ([id (fresh)] [op-id (fresh)])
-            (set! flat-values (cons (hash "id" id "name" (hash-ref reg "next") "type" type
-                                          "defining_operation" op-id) flat-values))
-            (set! flat-ops (cons (source-op occ op op-id "rtl.mux_lookup"
-                                            (list (resolve occ (second operands)) next (resolve occ (third operands)))
-                                            (list id) '() (hash "keys" '(1))) flat-ops))
-            id)
-          next))
-    (add-output occ op (hash-ref reg "next") type next-value))
-  (define outputs
-    (for/list ([port (in-list (hash-ref top "outputs"))] [index (in-naturals)])
-      (define name (format "o~a" index))
-      (define type (packed-type root (hash-ref port "type")))
-      (add-output root #f name type (resolve root (hash-ref port "driver")))
-      (hash "name" (hash-ref port "name") "output" name "type" type)))
-  (define flat
-    (hash "id" 0 "name" (hash-ref top "name") "values" (reverse flat-values)
-          "places" (reverse flat-places) "operations" (reverse flat-ops)
-          "inputs" (reverse flat-inputs) "outputs" (reverse flat-outputs)))
-  (hash "snapshot" (hash "top" 0 "modules" (list flat))
-        "clock" clock "inputs" inputs "registers" registers "outputs" outputs "assertions" assertions))
-
-;; Internal transition primitives, not bounded proof queries. Lower once and
-;; retain explicit state between calls. Normal combinational APIs keep their
-;; existing preflight and do not silently acquire sequential semantics.
-#| Lower and validate a reusable step plan for one selected clock. |#
+#| Adapt concrete single-clock lowering diagnostics to the engine's result protocol. |#
 (define (prepare_transition_snapshot snapshot clock)
-  (define plan
-    (lower-register-transition snapshot clock
-                               (lambda (opcode) (set-member? supported-opcodes opcode))
-                               unsupported))
-  (validate-snapshot (hash-ref plan "snapshot"))
-  plan)
+  (plan:prepare_transition_snapshot snapshot clock reject-diagnostic))
 
 #| Expose independently named state slots for each register occurrence. |#
 (define (transition_registers plan) (hash-ref plan "registers"))

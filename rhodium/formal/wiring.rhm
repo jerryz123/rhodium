@@ -10,7 +10,7 @@ import:
   "port-types.rhm".leaf_layout
   "port-types.rhm".port_leaves
 
-export wiring_cut series_wiring wrapper_wiring bind_wiring proof_cut cut_parts leaf_protocol leaf_layout
+export wiring_cut series_wiring check_fifo_series_wiring wrapper_wiring bind_wiring proof_cut cut_parts leaf_protocol leaf_layout
 
 /* The first proof profiles have unrestricted traffic: clockless, or one named rising-edge clock. */
 fun leaf_protocol(top :: Module):
@@ -63,11 +63,57 @@ fun layout_reader(top :: Module, top_layout :: PairList, child_layout :: Functio
             visit(p.name, p.type)
   read_port
 
-/* Admit direct routing only, across two evidence-bound occurrences in the same epoch. */
+/* Extract a direct, two-occurrence wiring cut with the supplied physical layouts. */
 fun series_wiring(top :: Module, top_layout :: PairList, child_layout :: Function.of_arity(2)):
   def values(children, wires, _) = extract_cut(top, layout_reader(top, top_layout, child_layout), #false)
   unless children.length() == 2 | error("expected two FIFO occurrences")
   values(children, wires)
+
+/* Verify the complete physical handoff from concrete endpoint descriptors; this check never issues evidence. */
+fun check_fifo_series_wiring(top :: Module, layout :: PairList, ingress :: PairList, egress :: PairList,
+                             a :: ReadableString.to_string, front :: Map, b :: ReadableString.to_string, back :: Map):
+  def mismatch = "transaction evidence does not match the RTL occurrences"
+  when a == b | error(mismatch)
+  def descriptors = {a: front, b: back}
+  /* Release a child layout only to the occurrence of its exact definition. */
+  fun layout_at(site :: String, m :: Module):
+    def child = descriptors.get(site, #false)
+    unless child && child["definition"] === m | error(mismatch)
+    child["layout"]
+  def pins = MutableList[]
+  for (direction in layout):
+    for ((_, members) in direction):
+      for (member in members): pins.add(member[0])
+  def endpoints = MutableList["reset"]
+  for (lane in ingress):
+    for (p in lane): endpoints.add(p)
+  for (p in egress): endpoints.add(p)
+  unless front["width"] == back["width"] && ingress.length() == front["ingress"].length()
+         && pins.snapshot().sort() == endpoints.snapshot().sort()
+         && !(pins.snapshot().find(fun (p): p.starts_with(a ++ ".") || p.starts_with(b ++ ".")))
+  | error("incompatible FIFO endpoints")
+  def values(_, wires) = series_wiring(top, layout, layout_at)
+  /* Qualify all three endpoint members at their RTL occurrence. */
+  fun at(site :: String, members :: PairList):
+    for PairList (p in members): site ++ "." ++ p
+  /* Compare the actual driver, retaining the failing sink in the diagnostic. */
+  fun wire(sink :: String, source :: String):
+    def actual = wires.get(sink, #false)
+    unless actual == source | error("expected " ++ sink ++ " driven by " ++ source ++ ", got " ++ to_string(actual))
+  /* Forward valid and data; reverse ready. */
+  fun link(from :: PairList, to :: PairList):
+    let PairList[fv, fr, fd] = from
+    let PairList[tv, tr, td] = to
+    wire(tv, fv)
+    wire(fr, tr)
+    wire(td, fd)
+  for (site in [a,b]):
+    for (p in ["clock","reset"]): wire(site ++ "." ++ p, p)
+  for (lane in ingress, f in front["ingress"]): link(lane, at(a, f))
+  unless back["ingress"].length() == 1 | error("expected a single FIFO ingress")
+  link(at(a, front["egress"]), at(b, back["ingress"][0]))
+  link(at(b, back["egress"]), egress)
+  unless wires.length() == 4 + 3 * (2 + ingress.length()) | error("unexpected parent or child wiring")
 
 /* Open the declared transaction occurrences: child outputs are independent graph inputs and child inputs
    are observed sinks. Only actual parent-local RTL is executed, never a child transition. */

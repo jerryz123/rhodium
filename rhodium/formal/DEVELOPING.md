@@ -17,15 +17,19 @@ replays any model concretely before returning it.
 ```mermaid
 flowchart LR
   Subject["Verified design and explicit top"] --> Snapshot["snapshot.rhm<br/>closed supported hierarchy"]
-  Query["FormalQuery input assumptions"] --> Engine["engine.rkt<br/>Rosette translation and solving"]
-  Snapshot --> Engine
+  Query["FormalQuery input assumptions"] --> Preflight["preflight.rhm<br/>concrete checks"]
+  Snapshot --> Preflight
+  Preflight --> Engine["engine.rkt<br/>Rosette translation and solving"]
   Engine --> Replay["Concrete replay"]
   Replay --> Result["Equivalence result or counterexample"]
 ```
 
 [`main.rhm`](main.rhm) owns the public Rhombus API and result construction.
 [`snapshot.rhm`](snapshot.rhm) owns backend-independent traversal and immutable
-input to the RTL solver boundary. [`engine.rkt`](engine.rkt) interprets only RTL;
+input to the RTL solver boundary. [`preflight.rhm`](preflight.rhm) checks packed
+types, operation shapes, decode domains, port compatibility and input constraints
+without importing Rosette. Unsupported semantics carry source diagnostics;
+malformed snapshots are errors. [`engine.rkt`](engine.rkt) interprets only RTL;
 the symbolic spec interpreter consumes a separate format. Core, frontend, and backend packages must not import
 the formal engine.
 
@@ -94,7 +98,8 @@ the solver checks coverage, definedness and disagreement over arbitrary padding.
 
 ### Register-transition foundation
 
-The internal engine API `prepare_transition_snapshot(snapshot, clock)` lowers a
+The solver-free [transition planner](transition-plan.rhm), also exposed by the
+engine as `prepare_transition_snapshot(snapshot, clock)`, lowers a
 verified single-clock hierarchy once. It expands each register occurrence into
 a synthetic current-state input and next-state output of a combinational
 snapshot; the existing packed interpreter owns all arithmetic and aggregate
@@ -249,7 +254,8 @@ both refusal and admission of a second offer are consistent with the contract;
 only the concrete implementation determines which occurs on that edge.
 
 `compose-fifo-series` admits a narrower wiring-only parent using **only** two
-transaction results. It matches the actual child definitions, valid/ready/data
+transaction results. Rosette checks that both results are sealed; the concrete
+[Rhombus wiring check](wiring.rhm) matches the actual child definitions, valid/ready/data
 on each external ingress lane, the single handoff and egress, and each clock/reset
 driver. The parent can have scalar or grouped ports; the cut allows no local behavior.
 For each child occurrence, the checker obtains the certified physical-port

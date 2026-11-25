@@ -1,0 +1,46 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "transition-fixture.rhm" as fixture
+  "../preflight.rhm" open
+  "../transition-plan.rhm" open
+  "../wiring.rhm".check_fifo_series_wiring
+  "../fifo-view.rhm" open
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  "shift-queue-fixture.rhdl" as rtl
+  "queue-pair.rspl".QueuePair
+  lib("examples/formal/shift-queue.rspl").ShiftQueue
+
+// Unsealed metadata suffices to check the netlist, but the checker returns no proof.
+fun check_handoff(fault):
+  def top = elaborate(rtl.QueuePair(1, ~fault: fault)).top
+  def parent = QueuePair(top, ~event_view: #true)
+  def values(_, lanes, out, _, _) = fifo_view_parts(parent)
+  def child = top.operations.find(fun (op): op.opcode == "rtl.instance").attribute("module")
+  def view = ShiftQueue(child, ~event_view: #true)
+  def values(_, ins, outs, width, _) = fifo_view_parts(view)
+  def endpoint = {"definition": child, "layout": fifo_view_layout(view), "width": width, "ingress": ins, "egress": outs}
+  check_fifo_series_wiring(top, fifo_view_layout(parent), lanes, out, "a", endpoint, "b", endpoint)
+
+check:
+  check_handoff("") ~is #void
+  check_handoff("ready") ~throws "expected a.egress.ready driven by b.ingress.ready, got consume"
+  check_handoff("payload") ~throws "expected b.ingress.bits driven by a.egress.bits, got data"
+
+def plan = prepare_transition_snapshot(fixture.snapshot, "clock")
+def partial = prepare_transition_snapshot(fixture.partial_snapshot, "clock")
+def flat = partial["snapshot"]["modules"][0]
+def registers = for List (r in plan["registers"]): r["name"]
+
+check:
+  registers ~is ["Transition.count","Transition.p1","Transition.p2","Transition.packed",
+                 "Transition.a.q","Transition.b.q","Transition.hidden.q"]
+  snapshot_diagnostic(plan["snapshot"]) ~is #false
+  snapshot_diagnostic(fixture.snapshot)["module"] ~is "Transition"
+  prepare_transition_snapshot(fixture.two_clock_snapshot, "first") ~throws "single top-level Clock"
+  flat["outputs"].length() ~is 2
+  (for List (op in flat["operations"]):
+     keep_when op["opcode"] == "rtl.urem"
+     op["source_path"]) ~is ["Partial.a","Partial.b"]
+  validate_assumptions(PairList[{"kind":"onehot","port":"missing"}], flat["inputs"]) ~throws "unknown input"

@@ -1,0 +1,213 @@
+#lang rhombus
+/* Checks concrete snapshot shapes, packed domains, and query interfaces before symbolic execution. */
+// SPDX-License-Identifier: Apache-2.0
+
+import rhombus.bits as bits
+
+export required find_by_id find_module diagnostic supported_opcode validate_snapshot interfaces port_map
+export validate_assumptions check_interface snapshot_diagnostic reject_diagnostic
+
+/* Read a mandatory field; false is a valid stored value. */
+fun required(row :: Map, key :: String, context :: String = "snapshot"):
+  unless row.has_key(key) | error(context ++ " is missing required field " ++ repr(key))
+  row[key]
+
+/* Resolve an identity in its owning table, not in another occurrence. */
+fun find_by_id(rows :: PairList, id :: Int, context :: String):
+  rows.find(fun (row): required(row, "id", context) == id)
+    || error(context ++ " references missing id " ++ to_string(id))
+
+/* Resolve a definition from the snapshot's module inventory. */
+fun find_module(snapshot :: Map, id :: Int):
+  find_by_id(required(snapshot, "modules", "formal snapshot"), id, "module")
+
+/* Preserve original operation and occurrence attribution after flattening. */
+fun diagnostic(mod :: maybe(Map), op :: maybe(Map), message :: ReadableString, path :: maybe(ReadableString) = #false):
+  def name = mod && required(mod, "name", "module")
+  Map.by(is_now){
+    "module": (op && op.get("source_module", #false)) || name,
+    "module_path": (op && op.get("source_path", #false)) || path || name,
+    "opcode": op && required(op, "opcode", "operation"),
+    "operation_id": op && (if op.has_key("source_operation_id") | op["source_operation_id"] | required(op, "id", "operation")),
+    "location": op && required(op, "location", "operation"),
+    "origin": op && required(op, "origin", "operation"),
+    "message": message}
+
+/* A rejecting adapter normally escapes or raises; never continue if it accidentally returns. */
+fun reject_diagnostic(d :: Map, reject :: Function.of_arity(1)):
+  reject(d)
+  error(d["message"])
+
+/* One arity table defines the combinational subset; false means variable count. */
+def shapes:
+  def result = MutableMap{}
+  for ((shape, ops) in {
+    [0, 1, 0]: ["input_port", "constant"], [0, 0, 1]: ["output_port"], [0, 1, 1]: ["wire"],
+    [1, 0, 1]: ["drive"], [0, #false, #false]: ["instance"],
+    [1, 1, 0]: ["not", "cast", "decode", "extract", "zext", "sext", "trunc", "record_get", "vector_get"],
+    [2, 1, 0]: ["and", "or", "xor", "add", "mul", "sub", "urem", "shl", "shru", "shrs", "eq", "ult", "slt"],
+    [#false, 1, 0]: ["mux_lookup", "onehot_mux", "any", "all", "concat", "record_create", "vector_create"]
+  }):
+    for (op in ops): result["rtl." ++ op] := shape
+  result.snapshot()
+
+/* Used by hierarchy lowering before it encounters a clock or register. */
+fun supported_opcode(opcode :: String): shapes.has_key(opcode)
+
+/* Only allow types whose whole packed representation is determined. */
+fun validate_type(t :: Map, mod :: Map, reject :: Function.of_arity(1)):
+  def kind :: ReadableString.to_string = required(t, "kind", "type")
+  def width = required(t, "width", "type")
+  unless kind in {"flat","record","vector"} && width is_a PosInt
+  | reject_diagnostic(diagnostic(mod, #false, "formal engine does not support hardware type " ++ required(t, "text", "type")), reject)
+  match kind
+  | "record":
+      for (f in required(t, "fields", "record type")):
+        required(f, "name", "record field")
+        validate_type(required(f, "type", "record field"), mod, reject)
+  | "vector":
+      unless required(t, "length", "vector type") is_a PosInt | error("vector snapshot has invalid length")
+      validate_type(required(t, "element_type", "vector type"), mod, reject)
+  | ~else: #void
+
+/* A packed value must fit, and bits outside its care mask must be zero. */
+fun pattern_valid(v :~ matching(_), c :~ matching(_), w :: Int):
+  v is_a NonnegInt && c is_a NonnegInt && bits.length(c) <= w && v == (v bits.and c)
+
+/* Validate row shape and disjointness before classifying partial outputs as unsupported. */
+fun validate_decode(attrs :: Map, iw :: Int, ow :: Int, reject_partial :: Function.of_arity(0)):
+  def rows = required(attrs, "cases", "decode attributes")
+  def d = required(attrs, "default_value", "decode attributes")
+  def c = required(attrs, "default_care", "decode attributes")
+  unless rows is_a PairList | error("decode cases must be a list")
+  for (row in rows, i in 0..):
+    def label = "decode case " ++ to_string(i)
+    unless row is_a PairList && row.length() == 4 | error(label ++ " is malformed")
+    unless pattern_valid(row[0], row[1], iw) | error(label ++ " input is malformed")
+    unless pattern_valid(row[2], row[3], ow) | error(label ++ " output is malformed")
+  unless pattern_valid(d, c, ow) | error("decode default is malformed")
+  for (a in rows, i in 0..):
+    for (b in rows, j in 0..):
+      when j > i && ((a[0] bits.xor b[0]) bits.and a[1] bits.and b[1]) == 0
+      | error("decode cases " ++ to_string(i) ++ " and " ++ to_string(j) ++ " overlap")
+  def full = 2 ** ow - 1
+  when c != full || rows.find(fun (row): row[3] != full) | reject_partial()
+
+/* Check each operation's arity, attributes and cross-references. */
+fun validate_op(mod :: Map, op :: Map, ids :: Set, reject :: Function.of_arity(1)):
+  def code :: ReadableString.to_string = required(op, "opcode", "operation")
+  unless supported_opcode(code) | reject_diagnostic(diagnostic(mod, op, "formal milestone 1 does not support operation " ++ code), reject)
+  def args = required(op, "operands", "operation")
+  def results = required(op, "results", "operation")
+  def places = required(op, "places", "operation")
+  def attrs = required(op, "attributes", "operation")
+  def n = args.length()
+  for (k in [n, results.length(), places.length()], expected in shapes[code]):
+    when expected && k != expected | error("operation " ++ code ++ " has malformed snapshot arity")
+  /* Read a packed width only for operations whose shape depends on it. */
+  fun width(id :: Int):
+    def v = find_by_id(required(mod, "values", "module"), id, "value")
+    required(required(v, "type", "value"), "width", "type")
+  match code
+  | "rtl.constant": required(attrs, "value", "constant attributes")
+  | "rtl.extract":
+      required(attrs, "high", "extract attributes")
+      required(attrs, "low", "extract attributes")
+  | "rtl.zext" || "rtl.sext" || "rtl.trunc": required(attrs, "target_width", "extension or truncation attributes")
+  | "rtl.record_get": required(attrs, "field", "record projection attributes")
+  | "rtl.vector_get": required(attrs, "index", "vector projection attributes")
+  | "rtl.mux_lookup":
+      def keys = required(attrs, "keys", "mux attributes")
+      unless n >= 3 && keys.length() == n - 2 | error("mux snapshot has inconsistent keys and operands")
+  | "rtl.onehot_mux":
+      unless n >= 2 | error("one-hot mux snapshot requires a selector and choices")
+      unless n - 1 == width(args[0]) | error("one-hot mux snapshot choice count does not match selector width")
+      def w = width(results[0])
+      for (id in args.rest):
+        unless width(id) == w | error("one-hot mux snapshot choice width does not match result")
+  | "rtl.decode":
+      validate_decode(attrs, width(args[0]), width(results[0]),
+                      fun (): reject_diagnostic(diagnostic(mod, op, "formal milestone 1 supports rtl.decode only when every output bit is cared"), reject))
+  | "rtl.any" || "rtl.all":
+      unless n > 0 && width(results[0]) == 1 | error("reduction requires operands and a one-bit result")
+  | "rtl.concat":
+      unless n >= 2 | error("concat snapshot has fewer than two operands")
+  | "rtl.record_create":
+      unless n > 0 | error("record construction snapshot has no operands")
+      unless required(attrs, "fields", "record construction attributes").length() == n
+      | error("record snapshot has inconsistent fields and operands")
+  | "rtl.vector_create":
+      unless n > 0 | error("vector construction snapshot has no operands")
+  | "rtl.instance":
+      def id = required(attrs, "child_module", "instance attributes")
+      required(attrs, "name", "instance attributes")
+      unless id in ids | error("instance references missing child module " ++ to_string(id))
+  | ~else: #void
+
+/* Walk every definition, including unused operations and outputless instances. */
+fun validate_snapshot(snapshot :: Map, reject :: Function.of_arity(1)):
+  def mods = required(snapshot, "modules", "formal snapshot")
+  when mods == PairList[] | error("formal snapshot has no modules")
+  find_module(snapshot, required(snapshot, "top", "formal snapshot"))
+  def ids = for Set (m in mods): required(m, "id", "module")
+  for (m in mods):
+    for (kind in ["inputs", "outputs", "values", "places"]):
+      def context:
+        match kind
+        | "values": "value"
+        | "places": "place"
+        | ~else: "port"
+      for (row in required(m, kind, "module")):
+        validate_type(required(row, "type", context), m, reject)
+        when kind == "places" && !(required(row, "driver", context) is_a NonnegInt)
+        | error("place " ++ required(row, "name", context) ++ " has no final driver")
+    for (op in required(m, "operations", "module")): validate_op(m, op, ids, reject)
+  #true
+
+/* Return the first unsupported diagnostic, or false; malformed snapshots still raise. */
+fun snapshot_diagnostic(snapshot :: Map):
+  try ~escape_as escape:
+    validate_snapshot(snapshot, escape)
+    #false
+
+/* Read both directed port lists from the selected top. */
+fun interfaces(snapshot :: Map):
+  def top = find_module(snapshot, required(snapshot, "top", "formal snapshot"))
+  values(top, required(top, "inputs", "top module"), required(top, "outputs", "top module"))
+
+/* Use current string contents for names, including Racket callers' mutable strings. */
+fun port_map(ports :: PairList):
+  for Map.by(is_now) (port in ports): values(required(port, "name", "port"), port)
+
+/* Reject unknown assumption kinds, ports and ill-formed packed masks before solving. */
+fun validate_assumptions(assumptions :~ matching(_), ports :: PairList):
+  unless assumptions is_a PairList | error("formal assumptions must be a list")
+  def inputs = port_map(ports)
+  for (a in assumptions, i in 0..):
+    def label = "formal assumption " ++ to_string(i)
+    unless a is_a Map | error(label ++ " is malformed")
+    def kind = required(a, "kind", "formal assumption")
+    unless kind is_now "input_pattern" || kind is_now "onehot" | error(label ++ " has an unknown kind")
+    def name = required(a, "port", "formal input assumption")
+    unless name is_a ReadableString && inputs.has_key(name) | error(label ++ " references unknown input " ++ to_string(name))
+    when kind is_now "input_pattern"
+    | block:
+        def v = required(a, "value", "formal input assumption")
+        def c = required(a, "care", "formal input assumption")
+        def w = required(required(inputs[name], "type", "input port"), "width", "type")
+        unless pattern_valid(v, c, w) | error(label ++ " has an invalid packed pattern")
+  #true
+
+/* Match names and packed widths before two subjects share symbolic inputs. */
+fun check_interface(left :: Map, right :: Map, reject :: Function.of_arity(1)):
+  def values(top, li, lo) = interfaces(left)
+  def values(_, ri, ro) = interfaces(right)
+  for (kind in ["input","output"], lp in [li,lo], rp in [ri,ro]):
+    def a = port_map(lp)
+    def b = port_map(rp)
+    unless a.length() == b.length() && (for all (name in a.keys()): b.has_key(name))
+    | reject_diagnostic(diagnostic(top, #false, "formal subjects have different " ++ kind ++ " port names"), reject)
+    for ((name, p) in a):
+      unless required(required(p, "type", "port"), "width", "type") == required(required(b[name], "type", "port"), "width", "type")
+      | reject_diagnostic(diagnostic(top, #false, "formal subjects have different widths for " ++ kind ++ " port " ++ name), reject)
+  values(top, li, lo, ri, ro)
