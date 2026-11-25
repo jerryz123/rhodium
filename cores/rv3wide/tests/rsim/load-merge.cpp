@@ -89,8 +89,8 @@ void exercise(unsigned shift,unsigned first,unsigned limit,unsigned eew,unsigned
 }
 
 static void segmented_fragments(unsigned fields, unsigned eew, bool skip_upper=false) {
-  // One physical row per field. Stall in the middle of a beat and check
-  // that a field becomes available only on its own final accepted write.
+  // One physical row per field. Buffer the last beat behind the penultimate
+  // beat's stalled final write; only accepted fragments retire row claims.
   prepare_in={}; launch_0_in={}; launch_1_in={}; memory_in={}; chain_in={}; mask_0_in={};
   auto &d=launch_0_in.pbits.pdescriptor;
   d.pinstruction=8<<7; d.pcontrol.pmemory_unf=fields-1; d.pscalar=0x4000-bytes;
@@ -104,14 +104,19 @@ static void segmented_fragments(unsigned fields, unsigned eew, bool skip_upper=f
   unsigned sent=0,returned=0,grants=0,finished=0,stalls=0;
   auto rowbit=[](unsigned r){return UINT64_C(1)<<r;};
   const unsigned beats=skip_upper ? 1 : fields;
+  const unsigned held_grant=std::max(1u,beats-1)*visits-1;
+  bool successor_due=false;
   for(unsigned t=0;t<220 && !finished;++t) {
     memory_in.prequest.pready=1;
-    memory_in.presponse.pvalid=returned<sent && t>=(returned ? 40u : 10u);
+    const bool successor=beats>1 && returned==beats-1;
+    memory_in.presponse.pvalid=returned<sent && t>=10 && (!successor || stalls>0);
     std::array<unsigned char,bytes> data;
     for(unsigned b=0;b<bytes;++b) data[b]=17+bytes*returned+b;
     std::memcpy(&memory_in.presponse.pbits,data.data(),bytes);
-    write_in.pready=grants!=1 || t>=30;
+    write_in.pready=grants!=held_grant || (stalls>=2 && returned==beats);
     eval();
+    if(stalls && grants==held_grant) CHECK(write_out.pvalid);
+    if(successor_due) CHECK(write_out.pvalid && write_in.pready);
     std::uint64_t expected_claims=0;
     for(unsigned i=grants;i<beats*visits;++i)
       expected_claims |= rowbit(16+2*((i/visits*lanes+i%visits)%fields));
@@ -120,7 +125,11 @@ static void segmented_fragments(unsigned fields, unsigned eew, bool skip_upper=f
       CHECK(sent<beats && memory_out.prequest.pbits.paddress==(sent ? 0x90000u+(sent-1)*bytes : 0x61000u-bytes));
       CHECK(memory_out.prequest.pbits.pbyte_umask==((1u<<bytes)-1)); ++sent;
     }
-    returned+=memory_in.presponse.pvalid && memory_out.presponse.pready;
+    if(memory_in.presponse.pvalid && memory_out.presponse.pready) {
+      if(successor) CHECK(grants==held_grant && write_out.pvalid && !write_in.pready);
+      ++returned;
+    }
+    successor_due=false;
     if(write_out.pvalid) {
       const unsigned beat=grants/visits, field=(beat*lanes+grants%visits)%fields;
       const auto &w=write_out.pbits;
@@ -132,7 +141,10 @@ static void segmented_fragments(unsigned fields, unsigned eew, bool skip_upper=f
         CHECK(mask[b]==(stream/bytes==beat ? 255 : 0));
         if(mask[b]) CHECK(value[b]==17+stream);
       }
-      if(write_in.pready) ++grants; else ++stalls;
+      if(write_in.pready) {
+        successor_due=beats>1 && grants==held_grant;
+        ++grants;
+      } else ++stalls;
     }
     finished+=finished_out.pvalid; tick_model();
   }
