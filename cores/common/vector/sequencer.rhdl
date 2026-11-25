@@ -286,11 +286,12 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
   beat_context.gather_in_range <== gather_in_range
   beat_context.gather_offset <== gather_index[0..vector_byte_offset_width(xlen)] << sew
   beat_context.suffix <== Bool(#false)
-  beat_context.suffix_state <== literal(VectorCompressState(xlen, vlen), 0)
+  beat_context.suffix_count <== Bits(vector_lane_count_width(xlen))(0)
+  beat_context.suffix_destination <== Bits(index_width(vlen + 1))(0)
   beat_context.packed <== packed_mode
   beat_context.packed_layout <== preparation.candidate
   beat_context.packed_mask <== preparation.candidate_mask
-  beat_context.packed_data <== preparation.candidate_data
+  beat_context.store_or_suffix_data <== preparation.candidate_data
   beat_context.packed_store_read <== preparation.fast_store
   beat_context.slide_valid <== slide_valid
   beat_context.beat_control <== VectorBeatControl(xlen, vlen):
@@ -317,7 +318,11 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def suffix_control = beat_context.beat_control.updated(
     ~sequence: suffix.bits.sequence, ~first: suffix.bits.end, ~end: suffix.bits.end,
     ~last: Bool(#true), ~empty: Bool(#false))
-  def suffix_context = beat_context.updated(~beat_control: suffix_control, ~suffix: Bool(#true), ~suffix_state: suffix.bits.state)
+  def suffix_context = beat_context.updated(
+    ~beat_control: suffix_control, ~suffix: Bool(#true),
+    ~store_or_suffix_data: suffix.bits.state.data,
+    ~suffix_count: suffix.bits.state.count, ~suffix_destination: suffix.bits.state.destination
+  )
   when (suffix.valid):
     assert(occupied & compress, "vector_compression_suffix_has_resident_descriptor")
 

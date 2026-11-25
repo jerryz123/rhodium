@@ -815,10 +815,17 @@ void stimulus() {
     li(10, UINT64_C(4280));
     emit(UINT64_C(0x53307)); // fld f6,0(x10): invalid FP32 NaN box
     vset(2, 4);
+    // Consecutive moves name the same register number in different files.
+    // Only f6 is subject to NaN-box checks; x6 must stay bit-exact.
+    li(6, 0x12345);
     vec(UINT64_C(23), 18, 0, 6, 0, 5);
+    vec(UINT64_C(23), 19, 0, 6, 0, 4); // vmv.v.x v19,x6
     vstore(18, UINT64_C(10224), 2);
+    vstore(19, 11024, 2);
     for (int i = 0; i < 4; i++)
       expect_store(UINT64_C(10224) + i * 4, UINT64_C(0x7fc00000), 2);
+    for (int i = 0; i < 4; i++)
+      expect_store(11024 + i * 4, 0x12345, 2);
     // Vector destinations are unchanged at vl=0 for insertion and FP slides.
     vset(2, 4);
     vload(15, UINT64_C(4592), 2);

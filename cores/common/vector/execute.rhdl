@@ -249,7 +249,7 @@ circuit VectorExecute(xlen :: XLen, vlen :: VectorLength, ~packed_multiply: pack
     saturated: beat.control.integer & packing.saturated
     shift: result_shift
     write: selected_write
-    compress_state: beat.compress_state
+    compress_state: beat.compress_state()
 
 export:
   VectorExecute

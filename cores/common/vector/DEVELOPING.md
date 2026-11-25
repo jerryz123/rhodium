@@ -84,9 +84,16 @@ the dependent VS2 read; only a stalled beat needs the saved index and range flag
 For `vcompress`, the sequencer keeps the descriptor until the last write is
 authorized. Operand fetch returns only the sequence number, source end, and
 partial destination word (data, count, and destination); the sequencer issues
-it under the resident descriptor without another VRF read. Keep the speculative
-partial word separate from the authorized retry checkpoint. Cancellation
+it under the resident descriptor without another VRF read. The operand-fetch
+register carries that data in the prepared packed-store word. At EX, compression
+selects the left operand for the destination write, leaving the right operand
+for the remainder; non-compressing beats must not authorize their right operand
+as suffix data. Keep the speculative partial word separate from the authorized retry checkpoint. Cancellation
 discards the pending write before a new descriptor can be admitted.
+
+Select the integer or FP scalar before the fixed-latency VRF return register.
+Keep the selected word raw: SIMD FP moves check NaN boxing after the read,
+whereas the FP arithmetic service performs its own checks.
 
 Aligned faultable memory beats may sequence on consecutive cycles. Their
 slot-bounded metadata FIFO pairs in-order LSU decisions with the authorized

@@ -146,7 +146,16 @@ bundle VectorBeat(xlen :: XLen, vlen :: VectorLength):
   fp_rounding_mode: RoundingMode
   control: VectorControl()
   destination: Bits(5)
-  compress_state: VectorCompressState(xlen, vlen)
+  compress_count: Bits(vector_lane_count_width(xlen))
+  compress_destination: Bits(index_width(vlen + 1))
+
+  /* Compression emits left and checkpoints right. Other operations use right as an
+     operand and must never authorize it as suffix data. */
+  method compress_state(beat) :: VectorCompressState(xlen, vlen):
+    VectorCompressState(xlen, vlen):
+      data: mux(beat.control.integer & beat.control.compress, beat.right, Bits(xlen.width)(0))
+      count: beat.compress_count
+      destination: beat.compress_destination
 
 /* Pairs instruction context with an ordinary beat or packed transport metadata. */
 bundle VectorMicroOp(xlen :: XLen, vlen :: VectorLength, Context :: DataType):
@@ -274,11 +283,12 @@ bundle VectorSequenceContext(xlen :: XLen, vlen :: VectorLength, Context :: Data
   gather_in_range: Bool
   gather_offset: Bits(vector_byte_offset_width(xlen))
   suffix: Bool
-  suffix_state: VectorCompressState(xlen, vlen)
+  suffix_count: Bits(vector_lane_count_width(xlen))
+  suffix_destination: Bits(index_width(vlen + 1))
   packed: Bool
   packed_layout: VectorPackedLayout(xlen, vlen)
   packed_mask: Bits(vector_word_bytes(xlen))
-  packed_data: Bits(xlen.width)
+  store_or_suffix_data: Bits(xlen.width)
   packed_store_read: Bool
   beat_control: VectorBeatControl(xlen, vlen)
   slide_valid: Bits(vector_slide_bytes(xlen))

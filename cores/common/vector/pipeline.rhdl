@@ -467,7 +467,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
       precertified: operation.context.precertified
   ) |> to_valid() |> ex_pipe.ingress
 
-  def ex_beat = ex_pipe.egress.bits.beat
+  def ex_beat :: VectorBeat(xlen, vlen) = ex_pipe.egress.bits.beat
   def ex_reduction = (ex_beat.control.integer ||| ex_beat.control.fp_service) & ex_beat.control.reduction
   def ex_effective_beat = ex_beat.updated(~right: mux(ex_reduction & ex_beat.first.any(), recurrence, ex_beat.right))
   execute.beat <== ex_effective_beat
@@ -645,7 +645,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
       cause: event.cause
       fault_address: event.fault_address
       last: mux(early_memory_progress, ex_beat.last ||| ex_pipe.egress.bits.splat, checked_memory_beat.last)
-      compress_state: mux(early_memory_progress, ex_beat.compress_state, checked_memory_beat.compress_state)
+      compress_state: mux(early_memory_progress, empty_compress_state(xlen, vlen, ex_beat.first), checked_memory_beat.compress_state)
       packed_layout: dont_care(VectorPackedLayout(xlen, vlen))
 
   // Progress metadata comes directly from the registered beat, never through
@@ -659,7 +659,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
     cause: dont_care(ExceptionCause)
     fault_address: Bits(xlen.width)(0)
     last: operation.beat.last
-    compress_state: operation.beat.compress_state
+    compress_state: ex_beat.compress_state()
     packed_layout: dont_care(VectorPackedLayout(xlen, vlen))
 
   def feedback_matches_current = (feedback_owner === current_owner) & (instructions.memory[feedback_owner] ||| instructions.serial[feedback_owner])
@@ -674,7 +674,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
     cause: dont_care(ExceptionCause)
     fault_address: Bits(xlen.width)(0)
     last: Bool(#false)
-    compress_state: operation.beat.compress_state
+    compress_state: empty_compress_state(xlen, vlen, operation.beat.first)
     packed_layout: dont_care(VectorPackedLayout(xlen, vlen))
 
   def delayed_splat_skip = splat_skip_feedback |> valid_pipe(1)

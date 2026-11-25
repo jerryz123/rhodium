@@ -457,6 +457,11 @@ void tick() {
               int(result.pcompress_ustate.pcount) == tx_compress_count &&
               int(result.pcompress_ustate.pdestination) ==
                   tx_compress_destination);
+      } else {
+        // A nonzero arithmetic right operand must not become retry data.
+        CHECK(result.pcompress_ustate.pdata == 0 &&
+              result.pcompress_ustate.pcount == 0 &&
+              result.pcompress_ustate.pdestination == result.pfirst);
       }
       if (tx_dense && tx_beats != 0)
         // A final compression suffix becomes prepared at the source response,

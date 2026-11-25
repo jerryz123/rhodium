@@ -165,7 +165,14 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
      Admission reserves the return cycle; this stage has no post-read stall queue. */
 
   def can_read = !clear & (!compress_flush ||| request.bits.context.suffix)
-  request |> gate_flow(can_read) |> to_valid() |> map_valid(read => read.context) |> context_pipe.ingress
+  /* Only one scalar register file supplies this beat. Alias the descriptor's two
+     scalar views before the register, without unboxing or truncating either source. */
+  def incoming = request.bits.context.instruction
+  def source = incoming.descriptor
+  def use_fpr = source.control.floating_point & (source.control.operand === VectorOperandMode.FloatingScalar)
+  def scalar_word = mux(use_fpr, source.floating_scalar, source.scalar)
+  def read_instruction = incoming.updated(~descriptor: source.updated(~scalar: scalar_word, ~floating_scalar: scalar_word))
+  request |> gate_flow(can_read) |> to_valid() |> map_valid(read => read.context.updated(~instruction: read_instruction)) |> context_pipe.ingress
   context_pipe.flush <== clear
   def launch = request.fire()
   reads[0].valid <== launch & request.bits.enables[0].into(Bool)
@@ -302,7 +309,8 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
     fp_rounding_mode: descriptor.rounding_mode
     control: descriptor.control
     destination: beat_control.destination
-    compress_state: empty_compress_state(xlen, vlen, beat_control.first)
+    compress_count: Bits(vector_lane_count_width(xlen))(0)
+    compress_destination: beat_control.first
 
 
   /* Compression lane selection
@@ -364,10 +372,11 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
     ~last: source_final & !needs_flush,
     ~empty: !emits_write,
     ~left: combined[0..xlen.width],
-    ~right: Bits(xlen.width)(0),
+    ~right: post_compress_state.data,
     ~enabled: Mask(vector_word_bytes(xlen)).prefix(emitted_count),
     ~select_right: Mask(vector_word_bytes(xlen))(0),
-    ~compress_state: post_compress_state
+    ~compress_count: post_compress_state.count,
+    ~compress_destination: post_compress_state.destination
   )
 
   /* Forms the final partial compression write from its retained suffix without new VRF reads. */
@@ -394,11 +403,8 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
       fp_rounding_mode: descriptor.rounding_mode
       control: descriptor.control
       destination: vd
-      compress_state:
-        VectorCompressState(xlen, vlen):
-          data: Bits(xlen.width)(0)
-          count: Bits(vector_lane_count_width(xlen))(0)
-          destination: state.destination + state.count.zext(index_width(vlen + 1))
+      compress_count: Bits(vector_lane_count_width(xlen))(0)
+      compress_destination: state.destination + state.count.zext(index_width(vlen + 1))
 
   def Array(direct_response, compression_response) = response |> fork_valid(2)
 
@@ -420,15 +426,20 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
     data: packed_source
     bytes: packed_rotation
 
-  def packed_operands = operands.updated(~left: mux(read_context.packed_store_read, aligned, read_context.packed_data), ~enabled: read_context.packed_mask.into(Mask(vector_word_bytes(xlen))))
+  def packed_operands = operands.updated(~left: mux(read_context.packed_store_read, aligned, read_context.store_or_suffix_data), ~enabled: read_context.packed_mask.into(Mask(vector_word_bytes(xlen))))
 
 
   /* Scheduled result selection
      A retained suffix wins over packed metadata, then compression, then
      ordinary compute operands; selection introduces no post-read storage. */
 
+  def returned_suffix = VectorCompressState(xlen, vlen):
+    data: read_context.store_or_suffix_data
+    count: read_context.suffix_count
+    destination: read_context.suffix_destination
+
   def selected_beat = priority_mux(~default: operands):
-    read_context.suffix: compression_flush_beat(read_context.suffix_state)
+    read_context.suffix: compression_flush_beat(returned_suffix)
     packed: packed_operands
     compress: compress_beat
 
