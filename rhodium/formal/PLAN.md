@@ -33,6 +33,9 @@ order from that contract without stepping the children. This result cannot
 drive cycle pins or require admission whenever space remains.
 The [series parent](tests/queue-pair-series.rkt) now composes two such theorems
 across a checked RTL handoff and exports a six-word FIFO bound and ordering.
+The [executable event monitor](fifo-monitor.rhm) now gives rspecsim and Rosette
+one transaction model: equivalence to the original relation is checked at
+capacities two, four, and six, and rspecsim replays the six-word parent trace.
 The parent fixtures share an admission check: each
 occurrence needs run-local evidence for its actual implementation and full
 contract. No persistent evidence cache or general parent-logic checker is

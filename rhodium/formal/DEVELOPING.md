@@ -190,7 +190,12 @@ cut states into pending words; reset and preservation must prove the same
 `fifo-allows?` relation that downstream clients consume. Certification also
 discharges child definedness and legality. A successful result retains the
 definition, endpoint mapping, width, and capacity bound, not a steppable cut.
-It cannot serve as cycle evidence for `prepare-proved-wiring`.
+It cannot serve as cycle evidence for `prepare-proved-wiring`. The
+[FIFO monitor](fifo-monitor.rhm) defines the relation once in typed spec IR.
+rspecsim returns the concrete live words on an allowed batch; certification
+and consumers interpret the same IR with Rosette. The adapter rejects invalid
+mathematical counts before they can wrap, ignores the predecessor count on
+reset, and compares only live successor slots.
 
 The [event-only consumer](tests/queue-pair-transaction-order.rkt) tracks an
 arbitrary acceptance ordinal and its word. Its induction ranges over **all**
@@ -209,8 +214,11 @@ both child relations. It proves the joint external FIFO rule on the downstream
 pending words followed by the upstream words; only the internal transfer is hidden.
 The [series regression](tests/queue-pair-series.rkt) feeds the resulting
 six-word contract to the original ordering observer. Its separate full-RTL
-replay checks refusal on the second offer and a reachable six-word fill/drain;
-that trace is not a premise of the proof.
+replay sends observed handshakes to the concrete monitor, including refusal on
+the second offer and a six-word fill/drain. Corrupting the first retirement
+after the same prefix is rejected. The trace is not a proof premise. A separate
+symbolic regression checks both directions against the previous arithmetic
+relation at capacities two, four, and six, including arbitrary slot padding.
 
 The [depth-one replay](tests/queue-pair-trace.rhm) steps rspecsim on the extracted
 wiring and sends the same eight input samples and cared pre-edge observations to

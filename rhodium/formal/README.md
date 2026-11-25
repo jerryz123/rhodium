@@ -316,6 +316,23 @@ has the same care and update semantics; it returns a condition for when partial
 operations are defined instead of throwing on a symbolic input. There is no
 public RTL refinement query yet.
 
+To check an observed FIFO trace without running Rosette, import
+[`fifo-monitor.rhm`](fifo-monitor.rhm) and build `fifo_monitor(capacity, width)`.
+Start with an empty list after reset and pass each batch to `step_fifo_monitor`:
+
+```rhombus
+def monitor = fifo_monitor(2, 3)
+step_fifo_monitor(monitor, [5], {"retired": 5, "accepted": 0}) // [0]
+step_fifo_monitor(monitor, [5], {"retired": 0})                // #false
+```
+
+A list (including `[]`) is the new oldest-first history; `#false` rejects the
+batch. Unknown event names or ill-typed payloads are input errors. An empty
+batch holds the history; `{"reset": #true}` clears it and cannot accompany a
+transfer. Retirement checks the **old** head, so a full FIFO can replace one
+word in a joint batch, but an empty FIFO cannot retire a new arrival. These
+are permitted observations, not predictions of ready, valid, or progress.
+
 ## RTL equivalence API
 
 Import `rhodium/formal/main.rhm` explicitly. Each subject must be a verified

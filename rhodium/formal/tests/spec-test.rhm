@@ -3,6 +3,7 @@
 
 import:
   "../spec.rhm" open
+  "../fifo-monitor.rhm" open
   lib("flow/shift-queue.rhdl") as rtl
   lib("rhodium/frontend/foundation.rhm").Bits
   lib("rhodium/frontend/foundation.rhm").elaborate
@@ -11,6 +12,23 @@ import:
 def fifo = ShiftQueue(elaborate(rtl.ShiftQueue(Bits(2), 2)).top)
 def flags = [#false, #true]
 def mutable cases = 0
+
+def monitor = fifo_monitor(2, 2)
+fun replay(q, batch): step_fifo_monitor(monitor, q, batch)
+check:
+  replay([], Map{}) ~is []
+  replay([2], Map{}) ~is [2]
+  replay([2, 1], {"reset": #true}) ~is []
+  replay([], {"accepted": 0}) ~is [0]
+  replay([2, 1], {"retired": 2, "accepted": 0}) ~is [1, 0]
+  replay([3], {"retired": 3}) ~is []
+  replay([2], {"retired": 1}) ~is #false
+  replay([], {"retired": 0, "accepted": 0}) ~is #false
+  replay([2, 1], {"accepted": 0}) ~is #false
+  replay([], {"reset": #true, "accepted": 1}) ~is #false
+  replay([1], {"reset": #true, "retired": 1}) ~is #false
+  replay([], {"ready": #true}) ~throws "unknown FIFO event"
+  replay([], {"accepted": 4}) ~throws "does not fit"
 
 // The oracle enumerates legal transfers from concrete old occupancy, without IR constructors.
 fun check_state(q):

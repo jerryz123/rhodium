@@ -1,0 +1,41 @@
+#lang rhombus
+/* Defines the executable transaction contract for an oldest-first bounded FIFO. */
+// SPDX-License-Identifier: Apache-2.0
+
+import: "spec.rhm" open
+export: fifo_monitor step_fifo_monitor
+
+/* Interpret joint observations, retiring the old head before appending an accepted word.
+   Guard partial sequence operations even on rejected batches. No cycle pins are modeled. */
+fun fifo_monitor(capacity :: PosInt, width :: PosInt):
+  def flag = SpecBool()
+  def word = SpecBits(width)
+  def queue = SpecSeq(word, capacity)
+  def q = state_ref("q", queue)
+  def reset = input_ref("reset", flag)
+  def push = input_ref("push", flag)
+  def pop = input_ref("pop", flag)
+  def incoming = input_ref("in", word)
+  def outgoing = input_ref("out", word)
+  def yes = literal(flag, #true)
+  def head_ok = choose_if(pop, bool_and(bool_not(seq_empty(q)), bits_equal(seq_front(q), outgoing)), yes)
+  def space_ok = choose_if(bool_and(push, bool_not(pop)), bool_not(seq_full(q)), yes)
+  def allowed = choose_if(reset, bool_and(bool_not(push), bool_not(pop)), bool_and(head_ok, space_ok))
+  def rest = choose_if(pop, seq_tail(q), q)
+  def changed = choose_if(reset, literal(queue, []), choose_if(push, seq_append(rest, incoming), rest))
+  make_spec({"reset": flag, "push": flag, "in": word, "pop": flag, "out": word},
+            {"q": queue}, {"q": []}, {"allowed": Observed(allowed)}, Map{},
+            {"q": choose_if(allowed, changed, q)})
+
+/* Replay one sparse batch. Return the new live words or #false for a forbidden transition;
+   malformed observations and ill-typed histories are caller errors. */
+fun step_fifo_monitor(model :: LeafModel, pending :: List, events :: Map):
+  for (key in events.keys()):
+    unless key == "reset" || key == "accepted" || key == "retired"
+    | error("unknown FIFO event")
+  def push = events.has_key("accepted")
+  def pop = events.has_key("retired")
+  def step = step_spec(model, {"q": pending},
+                       {"reset": events.get("reset", #false), "push": push, "pop": pop,
+                        "in": events.get("accepted", 0), "out": events.get("retired", 0)})
+  if step.outputs["allowed"] | step.next_state["q"] | #false

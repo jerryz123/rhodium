@@ -4,6 +4,7 @@
 
 (require racket/match (only-in racket/base [equal? host-equal?] [eq? host-eq?])
          "engine.rkt" "spec-engine.rkt" (only-in "snapshot.rhm" formal_snapshot) (only-in "spec.rhm" spec_snapshot)
+         (only-in "fifo-monitor.rhm" fifo_monitor)
          (only-in "wiring.rhm" cut_parts leaf_protocol leaf_layout scalar_series_wiring))
 (provide prove-leaf prove-parent prepare-proved-wiring proved-child-model symbolic-cut-state proved-edge-at view-agrees? pack-pins unpack-pins)
 (provide exn:fail:input-contract? exn:fail:input-contract-goal exn:fail:input-contract-inputs)
@@ -211,7 +212,7 @@
   (refinement-result (proved-cut-definition plan) model "single-clock-reset" (proved-cut-layout plan)))
 
 ;; Only certification can construct evidence. No child states, transition plan, or cycle pins escape.
-(struct fifo-transactions (definition ingress egress capacity width))
+(struct fifo-transactions (definition ingress egress capacity width monitor))
 (struct fifo-history (count slots) #:transparent)
 (struct fifo-events (reset accepted? accepted retired? retired) #:transparent)
 
@@ -228,9 +229,15 @@
                         (define-symbolic* word (bitvector (fifo-transactions-width result)))
                         word)))
 
-#| The producer proves, and consumers may assume, exactly this relation on joint public events.
-   An empty event may stutter even below capacity. There is no ready, latency, or progress constraint. |#
-(define (fifo-rule capacity width old events next)
+#| Create a candidate contract; only successful certification returns it to callers. |#
+(define (candidate-fifo definition ingress egress capacity width)
+  (fifo-transactions definition ingress egress capacity width (spec_snapshot (fifo_monitor capacity width))))
+
+#| Apply the same monitor as rspecsim. Bridge mathematical occupancies to finite sequence
+   counts without admitting wraparound, and compare only the successor's live prefix. |#
+(define (fifo-allows? evidence old events next)
+  (define capacity (fifo-transactions-capacity evidence))
+  (define width (fifo-transactions-width evidence))
   (match-define (fifo-events reset push in pop out) events)
   (match-define (fifo-history n slots) old)
   (match-define (fifo-history m new-slots) next)
@@ -238,18 +245,17 @@
                (andmap boolean? (list reset push pop))
                (andmap (bitvector width) (list* in out (append slots new-slots))))
     (error 'fifo-transactions "mistyped FIFO history or events"))
-  (define kept (- n (if pop 1 0)))
-  (&& (<= 0 m capacity)
-      (if reset (&& (! push) (! pop) (= m 0))
-          (&& (<= 0 n capacity) (=> pop (&& (> n 0) (bveq out (car slots))))
-              (= m (+ kept (if push 1 0)))
-              (for/fold ([ok #t]) ([i (in-naturals)] [word new-slots] [prior slots]
-                                    [following (append (cdr slots) (list (last slots)))])
-                (&& ok (=> (< i m) (bveq word (if (< i kept) (if pop following prior) in)))))))))
-
-#| Describe every allowed event step for this proved instance; a cycle-model result is not accepted. |#
-(define (fifo-allows? evidence old events next)
-  (fifo-rule (fifo-transactions-capacity evidence) (fifo-transactions-width evidence) old events next))
+  (define count-width (integer-length capacity))
+  (define count (for/fold ([v (bv 0 count-width)]) ([i (in-range 1 (add1 capacity))])
+                  (if (= n i) (bv i count-width) v)))
+  (define e (spec-edge-at (fifo-transactions-monitor evidence) (hash "q" (sequence-value count slots))
+                          (hash "reset" reset "push" push "in" in "pop" pop "out" out)))
+  (match-define (sequence-value after words) (hash-ref (edge-next e) "q"))
+  (&& (|| reset (<= 0 n capacity)) (edge-defined e)
+      (observation-value (hash-ref (edge-outputs e) "allowed"))
+      (= m (bitvector->natural after))
+      (for/fold ([ok #t]) ([i (in-naturals)] [actual new-slots] [expected words])
+        (&& ok (=> (< i m) (bveq actual expected))))))
 
 #| Prove a FIFO projection of an admitted synchronous cut. Each endpoint names (valid ready bits) at the
    external boundary. The proof author supplies only the state abstraction, never the handshakes. |#
@@ -275,13 +281,14 @@
                               (&& (! rst) consuming (hash-ref pins valid)) (hash-ref pins head)))
   (define next (for/hash ([(site e) edges]) (values site (edge-next e))))
   (define legal (andmap spec-state-legal? (hash-values states)))
+  (define contract (candidate-fifo (proved-cut-definition plan) ingress egress capacity width))
   (define goals
     (list (cons 'children (for/fold ([ok settled]) ([e (hash-values edges)])
                             (&& ok (edge-legal e) (edge-defined e) (spec-state-legal? (edge-next e)))))
-          (cons 'event-relation (fifo-rule capacity width (project states) events (project next)))))
+          (cons 'event-relation (fifo-allows? contract (project states) events (project next)))))
   (check-phase 'transaction-reset (&& legal rst) goals)
   (check-phase 'transaction-step (&& legal (! rst)) goals)
-  (fifo-transactions (proved-cut-definition plan) ingress egress capacity width))
+  contract)
 
 #| Check the two external handshakes and the internal valid/ready/payload paths against the actual
    parent drivers. Only this direct, shared-epoch cut licenses identifying the two middle events. |#
@@ -331,6 +338,7 @@
   (check-series-wiring! top ingress egress front-site front back-site back)
   (define width (fifo-transactions-width front))
   (define capacity (+ (fifo-transactions-capacity front) (fifo-transactions-capacity back)))
+  (define contract (candidate-fifo top ingress egress capacity width))
   (define a (fresh-fifo-history front))
   (define b (fresh-fifo-history back))
   (define an (fresh-fifo-history front))
@@ -340,8 +348,8 @@
   (define allowed (&& (fifo-allows? front a (fifo-events reset push in handoff middle) an)
                       (fifo-allows? back b (fifo-events reset handoff middle pop out) bn)))
   (define parent-step
-    (fifo-rule capacity width (series-history b a) (fifo-events reset push in pop out) (series-history bn an)))
+    (fifo-allows? contract (series-history b a) (fifo-events reset push in pop out) (series-history bn an)))
   (define goals (list (cons 'external-history parent-step)))
   (check-phase 'series-reset (&& reset allowed) goals)
   (check-phase 'series-step (&& (! reset) allowed) goals)
-  (fifo-transactions top ingress egress capacity width))
+  contract)
