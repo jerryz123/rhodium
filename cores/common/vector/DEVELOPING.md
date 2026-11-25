@@ -116,8 +116,11 @@ first element. Use those values through the pipe and FIFO; only compute beats
 need an independent compression checkpoint. The checked beat retains the VRF
 row and one enable per destination byte, not result data: hits use decision
 data, delayed loads use tagged response data, and store data travels on the
-issue token. Assert that the byte enables expand to the original write mask;
-compute writes can still select individual bits. Detect a misaligned element
+issue token. All vector memory decode rows explicitly disable FP service.
+At checked-memory ingress, assert that the VRF write shift is byte-aligned and
+the byte enables expand to the original write mask. Retain the byte offset;
+arithmetic-service controls are fixed on this route. Compute writes can still
+select individual bits. Detect a misaligned element
 when its registered index/operands return, suppress that cycle's younger read,
 and retain a split barrier until that element's tagged decision. An older
 authorization must not release the barrier. Fault-only-first slot exclusivity

@@ -13,6 +13,7 @@ import:
   "../fp/timing.rhdl" open
   "../cosim-source.rhm".describe_cosim_signals
   lib("cores/common/vector-layout.rhm").vector_word_bytes
+  lib("cores/common/vector-layout.rhm").vector_bit_offset_width
   lib("rhodium/std/bits.rhdl").Pow2Int
   lib("rhodium/std/bits.rhdl").expand_mask
   "bundles.rhdl" open
@@ -489,19 +490,33 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def compute_result = compute_maturity.bits
   def compute_beat = compute_result.beat
   def compute_owner = compute_result.owner
+
+
+  /* Faultable memory: retain progress and byte placement until the LSU decides
+     the beat. The route fixes the service controls; load data arrives separately. */
+
   def Array(early_memory, checked_memory) = memory_route |> demux_flow(2, _result => !ex_pipe.egress.bits.precertified)
   def checked_beat = checked_memory.bits.beat
   def checkpoint = empty_compress_state(xlen, vlen, checked_beat.first)
   def write_intent :: VectorRegisterWrite(xlen, vlen) = checked_beat.write
   def checked_mask = expand_mask(write_intent.byte_enables().as_bits(), 8)
+  def byte_offset = checked_beat.shift[3..vector_bit_offset_width(xlen)]
   when (checked_memory.valid):
+    assert(checked_beat.memory & !(checked_beat.floating_point ||| checked_beat.multiply_divide ||| checked_beat.reduction ||| checked_beat.mask_destination),
+           "vector_checked_memory_has_no_arithmetic_service")
+    assert(!checked_beat.shift[0..3].any(), "vector_checked_memory_shift_is_byte_aligned")
     assert(checked_beat.compress_state.as_bits() === checkpoint.as_bits(), "vector_checked_memory_checkpoint_is_reconstructible")
     assert(write_intent.mask === checked_mask, "vector_checked_memory_mask_is_byte_granular")
 
   // The LSU supplies load data at completion; stores carry their data on the issue token.
-  // Only the destination row and one enable per byte need storage along this path.
   def checked_write = write_intent.updated(~data: Bits(xlen.width)(0), ~mask: checked_mask)
-  def checked_metadata = checked_beat.updated(~compress_state: checkpoint, ~write: checked_write)
+  def checked_metadata = checked_beat.updated(
+    ~memory: Bool(#true), ~floating_point: Bool(#false), ~fp_execute: Bool(#false),
+    ~multiply_divide: Bool(#false), ~multiply_execute: Bool(#false), ~divide: Bool(#false),
+    ~multiply_accumulate: Bool(#false), ~multiply_subtract: Bool(#false),
+    ~reduction: Bool(#false), ~mask_destination: Bool(#false),
+    ~shift: byte_offset ++ Bits(3)(0), ~compress_state: checkpoint, ~write: checked_write)
+
   checked_memory |> to_valid() |> map_valid(result => result.updated(~beat: checked_metadata)) |> memory_pipe.ingress
 
   // Faultable memory retains its result metadata until the LSU's decision.

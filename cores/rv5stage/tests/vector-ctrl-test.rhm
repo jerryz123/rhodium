@@ -520,6 +520,11 @@ for (instruction in VectorIntegerInstructions):
   | check:
       value(decoded, "immediate_kind") ~is (if instruction.format.immediate.signed | VectorImmediateKind.Signed5 | VectorImmediateKind.Unsigned5).packed_value()
 
+for (row in VectorMemoryCases):
+  check:
+    value(row.output.care, "fp_service") ~is 1
+    value(row.output.value, "fp_service") ~is 0
+
 for (instructions in [VectorUnitStrideMemoryInstructions, VectorStridedMemoryInstructions], addressing in [VectorMemoryAddressing.UnitStride, VectorMemoryAddressing.Strided]):
   for (instruction in instructions, index in 0..8):
     def decoded = control(instruction)
@@ -637,5 +642,5 @@ for (vlen in [128, 256, 512, 65536]):
     beat.field("destination_first").type.packed_width() ~is beat.field("end").type.packed_width()
     beat.field("sequence").type.packed_width() ~is vector_sequence_width(vlen)
     feedback.field("sequence").type.packed_width() ~is beat.field("sequence").type.packed_width()
-    beat.field("compress_state").type.field("destination").type.packed_width() ~is beat.field("end").type.packed_width()
+    beat.field("compress_destination").type.packed_width() ~is beat.field("end").type.packed_width()
     feedback.field("compress_state").type.field("destination").type.packed_width() ~is beat.field("end").type.packed_width()

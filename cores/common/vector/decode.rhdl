@@ -724,6 +724,7 @@ fun memory_cases(instructions :: List.of(InstructionSpec), addressing :: VectorM
         configure: VectorConfigMode.None
         integer: Bool(#false)
         floating_point: Bool(#false)
+        fp_service: Bool(#false)
         multiply_divide: Bool(#false)
         memory: Bool(#true)
         store: Bool(index >= 4)
@@ -743,6 +744,7 @@ fun indexed_memory_cases(instructions :: List.of(InstructionSpec), addressing ::
         configure: VectorConfigMode.None
         integer: Bool(#false)
         floating_point: Bool(#false)
+        fp_service: Bool(#false)
         multiply_divide: Bool(#false)
         memory: Bool(#true)
         store: Bool(index >= 4)
@@ -762,6 +764,7 @@ fun segment_memory_cases(instructions :: List.of(InstructionSpec), addressing ::
         configure: VectorConfigMode.None
         integer: Bool(#false)
         floating_point: Bool(#false)
+        fp_service: Bool(#false)
         multiply_divide: Bool(#false)
         memory: Bool(#true)
         store: Bool(index >= 28)
@@ -781,6 +784,7 @@ fun indexed_segment_memory_cases(instructions :: List.of(InstructionSpec), addre
         configure: VectorConfigMode.None
         integer: Bool(#false)
         floating_point: Bool(#false)
+        fp_service: Bool(#false)
         multiply_divide: Bool(#false)
         memory: Bool(#true)
         store: Bool(index >= 28)
@@ -800,6 +804,7 @@ fun fault_only_first_memory_cases(instructions :: List.of(InstructionSpec)):
         configure: VectorConfigMode.None
         integer: Bool(#false)
         floating_point: Bool(#false)
+        fp_service: Bool(#false)
         multiply_divide: Bool(#false)
         memory: Bool(#true)
         store: Bool(#false)
@@ -819,6 +824,7 @@ fun mask_memory_cases(instructions :: List.of(InstructionSpec)):
         configure: VectorConfigMode.None
         integer: Bool(#false)
         floating_point: Bool(#false)
+        fp_service: Bool(#false)
         multiply_divide: Bool(#false)
         memory: Bool(#true)
         store: Bool(index == 1)
@@ -839,6 +845,7 @@ fun whole_register_memory_cases(instructions :: List.of(InstructionSpec)):
         configure: VectorConfigMode.None
         integer: Bool(#false)
         floating_point: Bool(#false)
+        fp_service: Bool(#false)
         multiply_divide: Bool(#false)
         memory: Bool(#true)
         store: Bool(index >= 16)

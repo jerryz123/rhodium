@@ -40,6 +40,16 @@ static void drain() {
   while (active) step();
 }
 
+static void respond(unsigned tag, Word data) {
+  response_in.pvalid = 1;
+  response_in.pbits.ptag = tag;
+  response_in.pbits.pdata = data;
+  eval();
+  while (!response_out.pready) step();
+  step();
+  response_in = {};
+}
+
 int main() {
   return run_test([] {
     reset = issue_ready = decision_hold = 1;
@@ -50,7 +60,7 @@ int main() {
     constexpr unsigned unmasked = 1u << 25;
     constexpr unsigned load_word = unmasked | (word_eew << 12) | 0x07;
     const Word original = static_cast<Word>(UINT64_C(0xf1e2d3c4b5a69788));
-    const Word mask = 2u | (1u << (bytes - 1));
+    const Word mask = 2u | (3u << (bytes - 2));
     for (unsigned vd : {0u, 8u}) {
       launch(load_word | (vd << 7), 0x100);
       CHECK(pending(0x100).penabled);
@@ -60,11 +70,11 @@ int main() {
     }
 
     // Masked vle8.v v8,(base),v0.t: reject byte 1 once, then accept it slow.
-    // Let the last byte hit while the replayed byte's completion is outstanding.
+    // Let the penultimate byte hit and accept the last byte slow.
     vl = bytes;
     vtype = 0;
     launch((8u << 7) | 0x07, 0x200);
-    unsigned delayed_tag = 0;
+    unsigned replay_tag = 0, last_tag = 0;
     for (unsigned lane = 0; lane < bytes; ++lane) {
       auto token = pending(0x200 + lane);
       CHECK(!token.pprecertified && !token.ppacked && !token.pstore);
@@ -75,7 +85,11 @@ int main() {
         retry = 0;
         token = pending(0x201);
         CHECK(token.penabled && !token.ppacked && !token.pstore);
-        delayed_tag = token.pcompletion_utag;
+        replay_tag = token.pcompletion_utag;
+        slow = 1;
+      } else if (lane == bytes - 1) {
+        last_tag = token.pcompletion_utag;
+        CHECK(last_tag != replay_tag);
         slow = 1;
       }
       hit_data = ~Word(0) - 0x2c; // Low byte 0xd3; poison upper bytes.
@@ -87,13 +101,11 @@ int main() {
       CHECK(active && !resolution_out.pvalid);
       step();
     }
-    response_in.pvalid = 1;
-    response_in.pbits.ptag = delayed_tag;
-    response_in.pbits.pdata = ~Word(0) - 0xa5; // Low byte 0x5a.
-    eval();
-    while (!response_out.pready) step();
+    // Return in reverse order. Each tag must retain its own byte offset.
+    respond(last_tag, ~Word(0) - 0x3e); // Low byte 0xc1.
     step();
-    response_in = {};
+    CHECK(active);
+    respond(replay_tag, ~Word(0) - 0xa5); // Low byte 0x5a.
     drain();
 
     vl = 1;
@@ -102,7 +114,8 @@ int main() {
     const auto readback = pending(0x300);
     CHECK(readback.pstore && readback.penabled);
     for (unsigned lane = 0; lane < bytes; ++lane) {
-      const auto expected = lane == 1 ? 0x5a : lane == bytes - 1 ? 0xd3 : (original >> (8 * lane)) & 0xff;
+      const auto expected = lane == 1 ? 0x5a : lane == bytes - 1 ? 0xc1 :
+                            lane == bytes - 2 ? 0xd3 : (original >> (8 * lane)) & 0xff;
       CHECK(((readback.pstore_udata >> (8 * lane)) & 0xff) == expected);
     }
     decide();
