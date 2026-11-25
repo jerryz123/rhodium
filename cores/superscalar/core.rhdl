@@ -105,7 +105,7 @@ fun pending_destination(xlen :: XLen, hypervisor :: Boolean, address :: Bits(5),
    The supplied issue circuit owns admission; each lane has a fixed GPR write port.
    Every lane can own a shared service; issue preserves the existing shared bandwidth.
    Resolution inputs qualify the corresponding live MEM token in the same cycle. */
-sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarPipelineConfig(), ~issue: issue :: Module || CircuitDefinition, ~vector_backend: vector_backend :: VectorBackendKind = VectorBackendKind.Unified, ~fp_timing: selected_fp_timing :: FpExecutionTiming = FpExecutionTiming()):
+sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarPipelineConfig(), ~issue: issue :: Module || CircuitDefinition, ~vector_backend: vector_backend :: VectorBackendKind = VectorBackendKind.Unified, ~fp_timing: selected_fp_timing :: FpExecutionTiming = FpExecutionTiming(), ~owns_translation_epoch: owns_translation_epoch :: Boolean = #false):
   def xlen = profile.xlen
   def hypervisor = profile.hypervisor
   def issue_width = superscalar_issue_width(xlen, issue)
@@ -1300,10 +1300,14 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     def token :: SuperscalarResult(xlen, hypervisor) = result.bits
     result.valid & token.vector.operation & (token.resolution.disposition === SuperscalarDisposition.Continue)
 
+  // Only a surviving MEM owner crosses this edge. A CSR change that could
+  // reinterpret its address squashes it; the MMU suppresses proofs on invalidation.
+  def mem_masking_current = mem_descriptor.pointer_masking.as_bits() === wb_csrs.pointer_masking.as_bits()
+  def mem_certified = (mem_descriptor_lane === mem_vector_lane) & vector_fast.response.valid & mem_masking_current
   when (any(mem_vector_claims)):
     assert(mem_descriptor_lane === superscalar_service_lane(mem_vector_claims), "superscalar_mem_vector_handoff")
     wb_descriptor_lane <== mem_descriptor_lane
-    wb_descriptor <== mem_descriptor.updated(~precertified: (mem_descriptor_lane === mem_vector_lane) & vector_fast.response.valid, ~certificate: vector_fast.response.bits)
+    wb_descriptor <== mem_descriptor.updated(~precertified: mem_certified, ~certificate: vector_fast.response.bits)
 
   /* MEM branch recovery.
      Correct predictions preserve target-stream work. A correction keeps its
@@ -1474,8 +1478,18 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   def wb_vector_offer = wb_dispatch[service_index(wb_vector_lane)] & (if vector_enabled | wb_vector.vector.operation | Bool(#false))
   def wb_vector_pc = wb_live_pcs[service_index(wb_vector_lane)]
   vector_fast.candidate <== wb_descriptor.certificate
-  def wb_vector_masking_current = wb_descriptor.pointer_masking.as_bits() === wb_csrs.pointer_masking.as_bits()
-  def wb_vector_certified = wb_descriptor.precertified & vector_fast.candidate_current & wb_vector_masking_current
+  // The hart owns every context change and invalidation of its attached MMU.
+  // An independently managed translation service can still revoke a proof at WB.
+  def wb_vector_certified = if owns_translation_epoch
+  | wb_descriptor.precertified
+  | wb_descriptor.precertified & vector_fast.candidate_current
+
+  when (wb_vector_offer & wb_descriptor.precertified):
+    assert(wb_descriptor.pointer_masking.as_bits() === wb_csrs.pointer_masking.as_bits(), "superscalar_mem_proof_mask_survives_to_wb")
+    if owns_translation_epoch
+    | assert(vector_fast.candidate_current, "superscalar_mem_proof_context_survives_to_wb")
+    | #void
+
   // A certified opposite-kind operation can reserve its own access and
   // datapath entries. This is not permission to issue a cache request.
   def wb_follow_native:

@@ -62,7 +62,7 @@ sync_circuit Superscalar(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfi
   /* Execution and selected cache/translation services.
      Scalar width follows the profile; fetch and physical transport remain 64-bit. */
 
-  inst core(SuperscalarCore(profile, ~issue: issue, ~vector_backend: vector_backend))
+  inst core(SuperscalarCore(profile, ~issue: issue, ~vector_backend: vector_backend, ~owns_translation_epoch: #true))
   core.interrupts <== interrupts
   core.hart_id <== hart_id
   core.time_counter <== time_counter

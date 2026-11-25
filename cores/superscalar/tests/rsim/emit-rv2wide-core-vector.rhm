@@ -15,7 +15,7 @@ import:
   "../../profile.rhm".SuperscalarPipelineConfig
 
 // Scalar Zfhmin plus full Zvfh exercises the wider execution capability without scalar Zfh.
-def program = elaborate(CoreFixture(SuperscalarPipelineConfig(~floating_point: FloatingPointProfile.D, ~half_precision: HalfPrecisionProfile.Zfhmin, ~vector: VectorProfile.V, ~vector_extensions: [VectorExtension.Zvfh, VectorExtension.Zvbb], ~hypervisor: #true, ~smstateen: #true), ~fp_timing: FpExecutionTiming(3, 5, 2)))
+def program = elaborate(CoreFixture(SuperscalarPipelineConfig(~floating_point: FloatingPointProfile.D, ~half_precision: HalfPrecisionProfile.Zfhmin, ~vector: VectorProfile.V, ~vector_extensions: [VectorExtension.Zvfh, VectorExtension.Zvbb], ~hypervisor: #true, ~smstateen: #true), ~fp_timing: FpExecutionTiming(3, 5, 2), ~owns_translation_epoch: #true))
 def rv32_program = elaborate(CoreFixture(SuperscalarPipelineConfig(~xlen: XLen.X32, ~vector: VectorProfile.Zve32x, ~vector_length: 64)))
 
 fun site_header(manifest):

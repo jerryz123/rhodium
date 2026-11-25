@@ -1486,8 +1486,16 @@ metadata from the vector lookup. Failure never allocates a walk or produces a
 speculative fault.
 Bare memory supplies the same contract using identity mappings and page PMAs.
 
-WB revalidates context, invalidation epoch, and pointer masking, then retires an
-accepted certified memory descriptor normally. Only uncertified memory enters
+MEM checks that the descriptor's pointer mask still matches and registers the
+proof with the surviving descriptor. In the integrated hart WB uses that bit:
+the MMU suppresses proofs on an invalidate, and an older trap, return, or
+context-changing CSR write squashes the MEM/WB transfer. There is no holding
+stage between proof and dispatch. Assertions at WB check both mask and MMU
+context/epoch against the actual candidate. Revisit this boundary if WB gains
+a stall or translation can change independently. With an external MMU,
+`candidate_current` remains a live WB veto.
+
+An accepted certified descriptor retires normally. Only uncertified memory enters
 the retained WB owner and its younger scalar WB authorization barrier. Keep
 the shared admission controller's existing precertified bypass of page proof
 and execution quiescence; do not relax the precise fallback or scalar-memory

@@ -14,6 +14,7 @@ Request lookup{}, commit_owner{};
 bool lookup_live = false, proof_pending = false, slow = false, safe = true;
 bool guest_fault = false;
 bool fast_enabled = false, fast_current = true;
+unsigned proof_epoch = 0;
 unsigned fast_checks = 0;
 unsigned cycle = 0, stores = 0, proof_count = 0, deferred_count = 0;
 unsigned redirect_count = 0, response_delay = 12;
@@ -237,13 +238,16 @@ void settle() {
   vector_precheck_in.presponse.pbits = safe;
   vector_fast_in.presponse.pvalid = 0;
   vector_fast_in.presponse.pbits = {};
-  vector_fast_in.pcandidate_ucurrent = fast_current;
   split_in.prequest.pready = 1;
   split_in.presponse.pvalid = 0;
   eval();
-  vector_fast_in.presponse.pvalid = fast_enabled && vector_fast_out.prequest.pvalid;
+  vector_fast_in.pcandidate_ucurrent = fast_current &&
+      vector_fast_out.pcandidate.pinvalidation_uepoch == proof_epoch;
+  vector_fast_in.presponse.pvalid = fast_enabled && vector_fast_out.prequest.pvalid &&
+      !translation_flush && (!local_epoch || fast_current);
   vector_fast_in.presponse.pbits.prange = vector_fast_out.prequest.pbits;
   vector_fast_in.presponse.pbits.pppn = (vector_fast_out.prequest.pbits.pfirst >> 12) + 1;
+  vector_fast_in.presponse.pbits.pinvalidation_uepoch = proof_epoch;
   for (unsigned lane = 0; lane < 2; ++lane) {
     auto &resolution = lane ? resolution_1_in : resolution_0_in;
     const auto &stage = lane ? memory_stage_1_out : memory_stage_0_out;
@@ -366,8 +370,10 @@ void step() {
   const bool proof_return = vector_precheck_in.presponse.pvalid && vector_precheck_out.presponse.pready;
   const auto next_lookup = pipeline_out.prequest.pbits.pmemory;
   const auto next_live = pipeline_out.prequest.pvalid;
+  const bool invalidate_proofs = translation_flush;
   vector_trace::sample();
   tick_model();
+  if (invalidate_proofs) proof_epoch = (proof_epoch + 1) & 3;
   vector_trace::check();
   if (interrupt_after_admission && vector_trace::admission.accepted &&
       vector_trace::admission.pc == authorization_owner)
@@ -654,8 +660,8 @@ void vector_memory_fast_path() {
   run(20);
   CHECK(stores == stores_before && proof_count == proofs_before);
 
-  // A stale certificate takes precise authorization without an unconditional
-  // frontend restart when no younger instruction reaches the WB barrier.
+  // The local MMU withholds the MEM proof; the independent MMU vetoes it at WB.
+  // Both must use precise authorization without an unconditional frontend restart.
   fast_current = false;
   const auto redirects_before = redirect_count;
   const auto fallback_pc = next_pc;
@@ -665,6 +671,38 @@ void vector_memory_fast_path() {
   CHECK(retirement_cycles.at(fallback_pc) > memory_cycles.at(fallback_pc) + 1);
   CHECK(words[0x400] == (bytes == 8 ? UINT64_C(0x0123012301230123) : UINT64_C(0x01230123)));
   fast_current = true;
+
+  // A successful MEM proof must not leak past an older same-group fault.
+  const auto fault_pc = next_pc;
+  const auto admissions = vector_trace::admissions, checks = fast_checks;
+  const auto writes = store_writes[0x1400].size();
+  resolve_disposition = 1;
+  resolve_pc = fault_pc;
+  stream({addi(12, 0, 17), store}, true);
+  resolve_pc = 0;
+  run(30);
+  CHECK(fast_checks == checks + 1 && last_fault_pc == fault_pc);
+  CHECK(memory_cycles.at(fault_pc) == memory_cycles.at(fault_pc + 4));
+  CHECK(!retired_pcs.contains(fault_pc + 4) && vector_trace::admissions == admissions);
+  CHECK(store_writes[0x1400].size() == writes);
+
+  // On replay the pair gets a fresh lookup. Only the second proof can admit a store.
+  resolve_disposition = 2;
+  resolve_pc = next_pc;
+  stream({addi(12, 0, 18), store}, false, true);
+  run(60);
+  CHECK(fast_checks == checks + 3 && vector_trace::admissions == admissions + 1);
+  CHECK(store_writes[0x1400].size() == writes + 1 && gprs[12] == 18);
+
+  if (local_epoch) {
+    const auto before = proof_epoch;
+    const auto fence_pc = next_pc;
+    stream({0x12000073, store}, false, true); // sfence.vma; vector store
+    run(60);
+    CHECK(proof_epoch == ((before + 1) & 3));
+    CHECK(retirement_cycles.at(fence_pc) < retirement_cycles.at(fence_pc + 4));
+    CHECK(vector_trace::admissions == admissions + 2 && store_writes[0x1400].size() == writes + 2);
+  }
 
   // Crossing a page is deliberately not a fast candidate, even if both pages are safe.
   send(0x000010b7); // lui x1,1

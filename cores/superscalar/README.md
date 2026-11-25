@@ -1353,6 +1353,10 @@ Standalone callers supply WB-authorized, nonspeculative `VectorDescriptor` reque
 certification, shared FP/multiply/divide services, and scalar write reservations.
 Standalone `SuperscalarCore` integrations also connect `vector_fast` to their MEM
 translation service; withholding a certificate selects the ordinary fallback.
+An external service may also revoke a certificate at WB via `candidate_current`.
+The integrated hart sets `~owns_translation_epoch: #true`: its core supplies
+all MMU context and invalidation, so a surviving MEM certificate is final for
+the following WB cycle. Leave this option off for independently managed MMUs.
 Only the caller may retire an instruction, publish a fault, or grant a scalar
 register write. A scalar redirect must not cancel an accepted descriptor.
 
