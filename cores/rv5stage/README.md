@@ -794,7 +794,7 @@ this boundary does not introduce a reorder buffer or precise late bus faults.
 | Missed/busy/uncached load or atomic result | Transaction and GPR reservation accepted at WB | L1D or uncached response to the deferred completion arbiter |
 | Pipelined multiply | Decode reserves the following EX launch and future GPR write cycle; EX directly starts three-stage arithmetic; WB authorizes the result and reserves the GPR | Scheduled deferred write; squashed results are discarded |
 | Iterative multiply | Scalar request slot reserved in Decode; GPR reserved and request queued at WB; shared service arbitrates independently | Deferred completion arbiter |
-| Integer divide/remainder | Decode reserves the idle shared divider through WB; WB directly launches authorized operands and reserves the GPR; no waiting-request buffers | Divider retains its result until the deferred completion arbiter accepts it |
+| Integer divide/remainder | Decode reserves the idle divider for a scalar request; WB reserves its GPR. Scalar and vector requests share a registered handoff before arithmetic. | One owner spans handoff, execution, and stalled result; a new request may replace a consumed result on the same edge |
 | FP result targeting an integer register | FP request and GPR reservation accepted at WB | FP completion to deferred completion arbiter |
 | FP result targeting an FP register | FP request and FPR reservation accepted at WB | FP pipeline's internal FP register-file port |
 | FP load hit | EX request, parallel MEM lookup | Scalar WB to FP load-hit port, without a deferred reservation |

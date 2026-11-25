@@ -397,13 +397,12 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def wb_vector_divide_request_link = interface_link(Decoupled(IntegerExecutionRequest(DividerRequest(width), wb_vector_divide_tag)))
   def wb_vector_divide_result_link = interface_link(Irrevocable(IntegerExecutionResult(DividerResponse(width), wb_vector_divide_tag)))
 
-  /* Routes shared divider returns using retained scalar/vector owner tags. */
+  /* Identifies the result recipient across divider admission, execution, and stalls. */
   tagged_union DivideOwner():
     Scalar(RV5StageDivideTag())
     Vector(wb_vector_divide_tag)
 
-  inst wb_divide_execution(DivideService(width, DivideOwner()))
-  reg wb_divide_busy(~init: Bool(#false))
+  inst wb_divide_execution(RV5StageDivideService(width, DivideOwner()))
   wire id_divide_reserved: Bool
   reg id_vector_divide_turn(~init: Bool(#false))
   def wb_vector_divide_request = wb_vector_divide_request_link.right |> gate_flow(!id_divide_reserved)
@@ -861,7 +860,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def wb_commit_has_divide = wb_commit_valid & (wb_commit_bits.writeback_source === RV5StageWritebackSelect.Divide) & wb_commit_bits.write_enable & wb_commit_bits.rd.any()
   def id_wb_has_divide = wb.valid & (wb_offer_bits.writeback_source === RV5StageWritebackSelect.Divide) & wb_offer_bits.write_enable & wb_offer_bits.rd.any()
   def id_divide_in_flight = id_ex_has_divide ||| id_mem_has_divide ||| id_wb_has_divide
-  def id_divide_resource_hazard = id_needs_divider & !id_fault & (wb_divide_busy ||| id_vector_divide_turn ||| id_divide_in_flight)
+  def id_divide_resource_hazard = id_needs_divider & !id_fault & (wb_divide_execution.busy ||| id_vector_divide_turn ||| id_divide_in_flight)
   def id_fp_execution_control = id_control.floating_point.execution
   id_fp_execution <== id_fp_execution_control
   def id_fp_fixed = id_control.floating_point_valid & !id_fp_execution_control.unit.is_one_of(FloatUnit.Memory, FloatUnit.DivideSquareRoot)
@@ -1089,7 +1088,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   vector_fast.request_physical <== wb_vector.request_physical
   wb_vector_replay <== wb_vector_launch.valid & !wb_vector_sink_ready
   wb_vector_launch |> filter_valid(descriptor => wb_vector_accepted & vector_writes_gpr(descriptor.control) & wb_vector_vd.any()) |> map_valid(_descriptor => wb_vector_vd) |> wb_vector_reserve_link.left
-  wb_vector.floating_result |> wb_fp.vector_write
+  wb_vector.service.floating_result |> wb_fp.vector_write
   when (wb_fp.vector_reserve.fire()):
     wb_vector_fp_write_pending <== Bool(#true)
   elsewhen (wb_fp.vector_write.valid):
@@ -1852,11 +1851,6 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     wb_completed_fp_integer_scoreboard_clear
   ) = wb_completion_arbiter.egress |> to_valid() |> fork_valid(3)
   wb_completed_register_write |> map_valid(completion => completion.write) |> wb_deferred_completion_write
-
-  when (wb_divide_execution.request.fire()):
-    wb_divide_busy <== Bool(#true)
-  elsewhen (wb_divide_execution.result.fire()):
-    wb_divide_busy <== Bool(#false)
 
   when (!wb_vector_divide_request_link.right.valid ||| wb_vector_divide_request.fire()):
     id_vector_divide_turn <== Bool(#false)

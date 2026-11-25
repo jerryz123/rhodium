@@ -22,6 +22,7 @@ Divide held_divide{};
 bool multiply_stalled = false, divide_stalled = false;
 unsigned multiply_sent = 0, divide_sent = 0, multiply_received = 0,
          divide_received = 0;
+unsigned divide_replacements = 0;
 unsigned cycles = 0, replacements = 0, scalar_cycle = 0, scalar_received = 0,
          scalar_canceled = 0;
 __int128 operand(std::uint64_t value, bool signed_mode) {
@@ -80,6 +81,7 @@ void step(bool in_reset, bool drain) {
   if (reset) {
     multiply_sent = divide_sent = multiply_received = divide_received = 0;
     multiply_stalled = divide_stalled = false;
+    divide_replacements = 0;
     replacements = scalar_cycle = scalar_received = scalar_canceled = 0;
     history = {};
     authorized = {};
@@ -135,6 +137,9 @@ void step(bool in_reset, bool drain) {
       ++replacements;
   }
   if (divide_request_in.pvalid && divide_request_out.pready) {
+    CHECK(divide_sent == divide_received);
+    if (divide_result_out.pvalid && divide_result_in.pready)
+      ++divide_replacements;
     auto a = operand(div.poperands.pdividend, div.poperands.psigned_umode);
     auto b = operand(div.poperands.pdivisor, div.poperands.psigned_umode);
     quotients[divide_sent++] = {div.ptag, b ? std::uint64_t(a / b) : UINT64_MAX,
@@ -165,6 +170,7 @@ int main() {
       step(true, false);
     while (multiply_received != 24 || divide_received != 24)
       step(false, true);
+    CHECK(divide_replacements == 23);
     CHECK(replacements > 0 && scalar_received > 30 && scalar_canceled > 10);
   });
 }

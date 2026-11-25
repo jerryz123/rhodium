@@ -5,6 +5,7 @@
 import:
   "../common/integer-execution.rhdl" open
   "../common/multiplier.rhdl" open
+  "../common/divider.rhdl" open
   "../common/integer-service.rhdl" open
   "profile.rhm".RV5StageMultiplierKind
   lib("flow/main.rhdl") open
@@ -19,5 +20,24 @@ sync_circuit RV5StageMultiplyService(kind :: RV5StageMultiplierKind, width :: Po
   selected.result |> result
 
 
+/* Capture the arbitrated operands before the divider's magnitude and early-out
+   logic. The handoff is the first cycle of a single reservation, not a queue
+   for another division. A consumed result may be replaced on the same edge. */
+sync_circuit RV5StageDivideService(width :: PosInt, Tag :: DataType):
+  interface request(Decoupled(IntegerExecutionRequest(DividerRequest(width), Tag)), ~role: consumer)
+  interface result(Irrevocable(IntegerExecutionResult(DividerResponse(width), Tag)), ~role: producer)
+  output busy: Bool
+
+  inst execution(DivideService(width, Tag))
+  execution.result |> result
+  reg occupied(~init: Bool(#false))
+  busy <== occupied
+  request |> gate_flow(!occupied ||| result.fire()) |> pipe(1) |> execution.request
+  when (request.fire()):
+    occupied <== Bool(#true)
+  elsewhen (result.fire()):
+    occupied <== Bool(#false)
+
 export:
   RV5StageMultiplyService
+  RV5StageDivideService

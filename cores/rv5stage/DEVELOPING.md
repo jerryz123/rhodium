@@ -335,8 +335,10 @@ identifies the scalar owner, so no ticket allocator or cancellation table is
 needed. Pipeline recovery must not flush authorization for committed older work.
 Iterative multiply still enqueues from authorized WB commit, with a one-entry
 scalar request queue reserved in ID, scalar staging, and vector-first arbitration.
-Integer division instead reserves an idle shared service in ID and launches
-directly from authorized WB, without scalar or shared waiting-request queues.
+Integer division instead reserves an idle shared service in ID. Authorized WB
+and vector requests arbitrate before a one-cycle handoff to operand normalization.
+The handoff captures operands and tag together; it adds one cycle to each divide
+without adding capacity for another outstanding owner.
 Both use operand payloads from the normal WB token; retained CMO and WRS contexts
 must not select arithmetic operands. The divider's registered busy bit spans
 request acceptance through result consumption and survives speculative flush.
