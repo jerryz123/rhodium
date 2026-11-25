@@ -35,6 +35,7 @@ sync_circuit L1DMSHRs(count :: Int.in(1 ..= 4094), width :: PosInt, ways :: PosI
   output packet_target: Target
   output occupied: Vec(count, Bool)
   output targets: Vec(count, Target)
+  output acquiring_unique: Vec(count, Bool)
   output protect: Bool
   output install_pending: Bool
   interface requests(Decoupled(CHIReqFlit(p)), ~role: producer)
@@ -75,6 +76,7 @@ sync_circuit L1DMSHRs(count :: Int.in(1 ..= 4094), width :: PosInt, ways :: PosI
     engine.node_id <== node_id
     free[i] <== engine.command.ready
     targets[i] <== engine.active_context
+    acquiring_unique[i] <== engine.acquiring_unique
     engine.line_address <== mux(free[i], allocate.bits.context.address, engine.active_context.address)
     commands[i] |> engine.command
     returns[i] |> engine.response_data

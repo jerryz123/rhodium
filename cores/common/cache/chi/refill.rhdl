@@ -55,6 +55,7 @@ sync_circuit CacheLineRefill(Context :: DataType,
   // The caller owns this aligned address from command.fire() through completion.fire().
   input line_address: Bits(address_width)
   output active_context: Context
+  output acquiring_unique: Bool
   interface command(Decoupled(CacheLineRefillCommand(Context)),
                     ~role: consumer)
 
@@ -78,6 +79,7 @@ sync_circuit CacheLineRefill(Context :: DataType,
   reg opcode(~init: CHIReqOpcode.ReadClean)
   reg context(Context)
   active_context <== context
+  acquiring_unique <== opcode === CHIReqOpcode.ReadUnique
   reg home_id(~init: Bits(p.node_id_width)(0))
   reg dbid(~init: Bits(12)(0))
   reg response_state(~init: CHIResponseState.Invalid)

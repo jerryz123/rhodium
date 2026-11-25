@@ -64,7 +64,7 @@ fun check_l1d_geometry(width :: PosInt, cache :: CacheConfig):
 
 
 /* Combines a fixed-cycle speculative hit path, explicitly authorized stores, and queued S3/S4 slow service.
-   The ordered service window can overlap two distinct-set load acquisitions without reordering
+   The ordered service window can overlap distinct-set line acquisitions without reordering
    completions. Coherent snoops, LR/SC, and refill installation own explicit SRAM turns. */
 sync_circuit L1DCache(xlen :: XLen,
                       cache :: CacheConfig,
@@ -760,19 +760,22 @@ sync_circuit L1DCache(xlen :: XLen,
   def array_read_set = array_read_address[offset_width..(offset_width + set_width)]
 
   /* Walk the stationary ordered request window while other misses own SRAM.
-     A completed or merged load is skipped, not removed. A side effect, dirty
-     victim, or conflicting reserved set remains an ordering barrier. */
+     Look ahead for permission only. Even when a younger store's line fills
+     first, only the ordered head may apply its bytes or return a response. */
 
   def ordinal_width = index_width(window_depth + 2)
   reg cursor(~init: Bits(ordinal_width)(0))
   reg probing(~init: Bool(#false))
   reg probe_line(Bits(width))
+  reg probe_store(Bool)
   reg next_cursor(Bits(ordinal_width))
   wire candidate_index: Bits(ordinal_width)
+  wire candidate_store: Bool
   if mshr_count > 1
   | block:
       def mutable address :: Bits(width) = retained_line_address
       def mutable eligible = Bool(#false)
+      def mutable store = Bool(#false)
       def mutable ordinal = Bits(ordinal_width)(0)
       for (n in 0..(window_depth + 1)):
         def index = window_depth - n
@@ -781,40 +784,47 @@ sync_circuit L1DCache(xlen :: XLen,
         def addr :: Bits(width) = if index == 0 | s3_address.zext(width) | entry.address
         def line = addr.align_down(CacheLineBytes)
         def valid = if index == 0 | s3_lookup.egress.valid | service_requests.mask[q].into(Bool)
-        def load:
-          if index == 0
-          | !s3_lookup.egress.bits.prefetch & (s3_request.access === CacheOperation.Load) & (s3_request.locality === RiscvMemoryLocality.Default)
-          | (entry.access === CacheOperation.Load) & (entry.locality === RiscvMemoryLocality.Default)
-        def merged = vec(for List (i in 0..mshr_count): misses.occupied[i] & (misses.targets[i].address === line)).any()
-        def select = valid & (Bits(ordinal_width)(index) >= cursor) & (!load ||| !merged)
+        def request = if index == 0 | s3_request | entry
+        def demand = if index == 0 | !s3_lookup.egress.bits.prefetch | Bool(#true)
+        def ordinary = demand & request.access.is_load_or_store() & (request.locality === RiscvMemoryLocality.Default)
+        def needs_unique = request.access.is_store()
+        def covering = for List (i in 0..mshr_count):
+          misses.occupied[i] & (misses.targets[i].address === line) & (!needs_unique ||| misses.acquiring_unique[i])
+        def select = valid & (Bits(ordinal_width)(index) >= cursor) & (!ordinary ||| !vec(covering).any())
         address := mux(select, line, address)
-        eligible := mux(select, load, eligible)
+        eligible := mux(select, ordinary, eligible)
+        store := mux(select, needs_unique, store)
         ordinal := mux(select, Bits(ordinal_width)(index), ordinal)
       probe_address <== address
       candidate_index <== ordinal
-      def overlap_allowed = miss_busy & !miss_prefetch & miss_install & (retained_request.access === CacheOperation.Load)
+      candidate_store <== store
+      def overlap_allowed = miss_busy & !miss_prefetch & miss_install & retained_request.access.is_load_or_store() & (retained_request.locality === RiscvMemoryLocality.Default)
       def metadata_free = !misses.protect & !probing & !snoop_pending & !snoop_lookup_start & !s0_read_issue & !store_state_write
       probe_window <== eligible & overlap_allowed & metadata_free & !reservation_valid & !misses.occupied.all() & !reserved_set(address[offset_width..(offset_width + set_width)])
   | block:
       probe_window <== Bool(#false)
       probe_address <== Bits(width)(0)
       candidate_index <== Bits(ordinal_width)(0)
+      candidate_store <== Bool(#false)
 
   probing <== probe_window
   when probe_window:
     probe_line <== probe_address
+    probe_store <== candidate_store
     next_cursor <== candidate_index + Bits(ordinal_width)(1)
 
   def probe_set = probe_line[offset_width..(offset_width + set_width)]
   def probe_tag = probe_line[(offset_width + set_width)..physical_width]
   def probe_valids = valid_lines[probe_set]
-  def probe_hit = vec(for List (w in 0..ways): probe_valids[w] & (arrays.tags.response.bits[w] === probe_tag)).any()
+  def probe_matches = vec(for List (w in 0..ways): probe_valids[w] & (arrays.tags.response.bits[w] === probe_tag))
+  def probe_hit = probe_matches.any()
+  def probe_owned = vec(for List (w in 0..ways): probe_matches[w] & arrays.states.response.bits[w].into(CHICacheState).is_unique()).any()
   def probe_way = plru_replacement_way(ways, probe_valids, replacement_state[probe_set])
   def probe_clean = !probe_valids[probe_way] ||| !arrays.states.response.bits[probe_way].into(CHICacheState).is_dirty()
   def probe_resolved = probing & miss_busy & !misses.protect & !snoop_pending
   def acquire = probe_resolved & !probe_hit & probe_clean
   def window_command = CacheLineRefillCommand(Target):
-    opcode: CHIReqOpcode.ReadClean
+    opcode: mux(probe_store, CHIReqOpcode.ReadUnique, CHIReqOpcode.ReadClean)
     context:
       L1DMissTarget(width, ways):
         address: probe_line
@@ -827,7 +837,7 @@ sync_circuit L1DCache(xlen :: XLen,
   def window_allocated = window_acquisition.fire()
   when (!miss_busy):
     cursor <== Bits(ordinal_width)(0)
-  elsewhen ((probe_resolved & probe_hit) ||| window_allocated):
+  elsewhen ((probe_resolved & probe_hit & (!probe_store ||| probe_owned)) ||| window_allocated):
     cursor <== next_cursor
   when window_allocated:
     assert(!reserved_set(probe_set) & arrays.tags.response.valid & arrays.states.response.valid, "l1d_mshr_distinct_probed_set")

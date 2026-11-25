@@ -122,11 +122,16 @@ Each engine displays its `dcache/refill` residency at `dcache/mshr[i]/refill`
 under the enclosing hart; query either entry using the same `dcache/refill` label.
 
 The ordered head owns its context and any mutation. Requests behind it remain
-in FIFO order while the lookahead cursor probes default-locality loads.
-Advance the cursor on a resident hit or accepted acquisition, not on a dirty
-victim or a conflicting set. Held SRAM packets retain their install set/way.
+in FIFO order while the cursor probes default-locality loads and authorized
+stores. Skip same-line waiters only when the live MSHR's opcode covers their
+permission. Advance on a sufficient resident hit or accepted acquisition, not
+on a required upgrade, dirty victim, or conflicting set. A younger store
+acquisition installs the unmodified packets with the granted clean state.
+Only the head rechecks permission, mutates bytes, and returns its context.
+Held packets retain their own install set/way.
 The wide L1D fixture fills B before A, reuses B’s CHI ID for C, and checks
-A/B/C data and contexts under backpressure; it also exercises the reverse case.
+ordered data and contexts under backpressure. For stores it also snoops B
+before mutation, invalidates it, and checks masked writes after reacquisition.
 
 The RV64 D-cache fixture checks both grant orderings with two dirty lines;
 `cache-wide-l1d` queues a dirty miss behind a local AMO, checks a load hit

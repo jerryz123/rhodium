@@ -148,17 +148,20 @@ or reuse a read result owned by another request. An outstanding miss still keeps
 `drained` false; fences and ordered IO retain their existing completion rules.
 
 The number of line-acquisition entries (MSHRs) is a host parameter: one by
-default and two on RV3Wide. Each entry can service the ordered head or acquire
-a younger ordinary load with default locality. Concurrent acquisitions must
-use distinct sets; a younger miss needs an invalid or clean victim. Installing
-a line releases its slot immediately, even if another, older miss is still
-outstanding. The cache does not look past an intervening store, atomic, or
-cache-management operation.
-Same-line waiters share the acquisition; offsets and caller contexts remain in
-the ordered request path. Either line can install first, but installation of the
-younger line does not produce a response. Waiters recheck the resident line
-in order, including after a snoop. The request window holds at least one line's
-worth of rows plus one request for the following line.
+default and two on RV3Wide. Behind an ordinary default-locality load or
+authorized store, another such request can acquire a missing line in a
+distinct set with a clean or invalid victim. A younger load issues
+`ReadClean`; a younger store issues `ReadUnique`. Either line may fill first.
+Installing the younger line frees its slot, but neither writes the store's
+bytes nor produces a requester response. A snoop can take the clean line
+before the store reaches the head; the store then reacquires permission.
+
+Same-line waiters share an acquisition if it covers the needed permission.
+Offsets, store masks and data, and caller contexts stay in the ordered path.
+A store needing a shared-to-unique upgrade waits for the head, as do atomics
+and cache-management operations; lookahead does not pass these barriers.
+The request window holds at least one line's worth of rows plus one request
+for the following line.
 
 Requests carry `locality: RiscvMemoryLocality` (`Default`, `P1`, `Pall`,
 `S1`, `All`). L1D retains the complete request, including locality, from

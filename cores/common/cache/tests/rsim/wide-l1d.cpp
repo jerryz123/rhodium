@@ -262,23 +262,110 @@ void check_store_stream(const Line &a, const Line &b, bool backpressure) {
     snoop_dirty_line(base + 64*line, expected[line], 0x30 + line);
 }
 
-void check_miss_barrier(const Line &a, const Line &b, bool store_barrier) {
-  const unsigned middle = base + (store_barrier ? 64 : 256);
+void check_miss_barrier(const Line &a, const Line &b, bool reservation_barrier) {
+  const unsigned middle = base + (reservation_barrier ? 64 : 256);
   constexpr unsigned last = base + 128;
   request(base, load, {}, 0xffff, true, 1);
   const auto ta = accept_request(base, 2);
-  request(middle, store_barrier ? store : load, b[0], 0xffff, true, 2);
+  request(middle, reservation_barrier ? lr : load, {}, reservation_barrier ? 0xff : 0xffff, !reservation_barrier, 2);
   request(last + 32, load, {}, 0xffff, true, 3);
-  // Neither a store nor a distinct tag in A's set may be skipped to reach C.
+  // Neither LR nor a distinct tag in A's set may be skipped to reach C.
   for (unsigned i = 0; i < 12; ++i) {
     eval(); CHECK(!chi_out.prequests.pvalid && !core_out.presponse.pvalid);
     tick_model();
   }
   for (unsigned i = 0; i < 4; ++i) refill_packet(ta, i, 1, a[i]);
   response(a[0], 1);
-  refill(middle, store_barrier ? 7 : 2, b);
-  response(store_barrier ? Row{} : b[0], 2);
+  refill(middle, reservation_barrier ? 7 : 2, b);
+  response(reservation_barrier ? Row{{b[0].words[0], b[0].words[1], 0, 0}} : b[0], 2);
   refill(last, 2, a); response(a[2], 3);
+}
+
+void check_store_lookahead(Line a, Line b, bool invalidate) {
+  constexpr unsigned addr_b = base+64, addr_c = base+128;
+  const Row patch{{0x11112222, 0x33334444, 0x55556666, 0x77778888}};
+  request(base, store, patch, 0x000f, true, 1);
+  const auto ta = accept_request(base, 7);
+  request(base, store, patch, 0x00f0, true, 2);
+  request(base+16, store, patch, 0x0f00, true, 3);
+  request(addr_b, store, patch, 0xf000, true, 4);
+  const auto tb = accept_request(addr_b, 7);
+  CHECK(ta != tb);
+  request(addr_c, load, {}, 0xffff, true, 5);
+  for (unsigned i : {1u, 3u, 2u, 0u}) refill_packet(tb, i, 2, b[i]);
+  const auto tc = accept_request(addr_c, 2);
+  CHECK(tc == tb && !core_out.presponse.pvalid);
+  for (unsigned i = 0; i < 4; ++i) refill_packet(tc, i, 1, a[i]);
+  for (unsigned i = 0; i < 10; ++i) {
+    eval(); CHECK(!chi_out.prequests.pvalid && !core_out.presponse.pvalid && !core_out.pdrained);
+    tick_model();
+  }
+  if (invalidate) {
+    // SnpOnce proves B is resident and clean; SnpCleanInvalid then removes it.
+    for (unsigned opcode : {3u, 9u}) {
+      auto &snp = chi_in.psnoops;
+      snp.pbits = {}; snp.pbits.paddress = addr_b >> 3; snp.pbits.popcode = opcode;
+      snp.pbits.psrc_uid = 1; snp.pbits.ptxn_uid = 0x53; snp.pvalid = 1;
+      until([] { return chi_out.psnoops.pready; }); tick_model(); snp.pvalid = 0;
+      until([] { return chi_out.prequester_uresponses.pvalid; });
+      const auto &rsp = chi_out.prequester_uresponses.pbits;
+      CHECK(rsp.ptxn_uid == 0x53 && rsp.presp == (opcode == 3 ? 2 : 0));
+      CHECK(!chi_out.prequest_udata.pvalid && !core_out.presponse.pvalid);
+      tick_model();
+    }
+    b[0] = a[2]; // Reacquire different bytes supplied by the new owner.
+  }
+  for (unsigned i = 0; i < 4; ++i) refill_packet(ta, i, 2, a[i]);
+  response({}, 1); response({}, 2); response({}, 3);
+  if (invalidate) refill(addr_b, 7, b);
+  response({}, 4); response(a[0], 5);
+  a[0].words[0] = patch.words[0]; a[0].words[1] = patch.words[1];
+  a[1].words[2] = patch.words[2]; b[0].words[3] = patch.words[3];
+  snoop_dirty_line(base, a, 0x54);
+  snoop_dirty_line(addr_b, b, 0x55);
+  eval(); CHECK(!core_out.presponse.pvalid && !chi_out.prequests.pvalid && core_out.pdrained);
+}
+
+void check_store_behind_load(const Line &a, Line b, bool same_line) {
+  const unsigned addr_b = same_line ? base : base+64;
+  request(base, load, {}, 0xffff, true, 1);
+  const auto ta = accept_request(base, 2);
+  request(addr_b, store, a[1], 0x000f, true, 2);
+  if (same_line) {
+    for (unsigned i = 0; i < 10; ++i) {
+      eval(); CHECK(!chi_out.prequests.pvalid); tick_model();
+    }
+  } else {
+    refill(addr_b, 7, b);
+    eval(); CHECK(!core_out.presponse.pvalid);
+  }
+  for (unsigned i = 0; i < 4; ++i) refill_packet(ta, i, 1, a[i]);
+  response(a[0], 1);
+  if (same_line) refill(addr_b, 7, b);
+  response({}, 2);
+  b[0].words[0] = a[1].words[0];
+  request(addr_b, load); response(b[0]);
+}
+
+void check_shared_upgrade_barrier(const Line &a, const Line &b) {
+  constexpr unsigned addr_b = base+64, addr_c = base+128;
+  request(base, load); const auto ta = accept_request(base, 2);
+  request(addr_b, load, {}, 0xffff, true, 1);
+  const auto tb = accept_request(addr_b, 2);
+  request(addr_b, store, a[0], 0xffff, true, 2);
+  request(addr_c, load, {}, 0xffff, true, 3);
+  // The clean acquisition for B does not cover B's store. Even after
+  // B installs SharedClean, the walker cannot skip the required upgrade.
+  for (unsigned i = 0; i < 4; ++i) refill_packet(tb, i, 1, b[i]);
+  for (unsigned i = 0; i < 16; ++i) {
+    eval(); CHECK(!chi_out.prequests.pvalid && !core_out.presponse.pvalid); tick_model();
+  }
+  for (unsigned i = 0; i < 4; ++i) refill_packet(ta, i, 1, a[i]);
+  response(a[0]); response(b[0], 1);
+  refill(addr_b, 7, b);
+  refill(addr_c, 2, b);
+  response({}, 2); response(b[0], 3);
+  request(addr_b, load); response(a[0]);
 }
 
 void check_maintenance_retry(const Line &younger_line) {
@@ -570,7 +657,13 @@ int main() {
       reset = 1; tick_model(); reset = 0;
       check_miss_barrier(a, b, reverse);
       reset = 1; tick_model(); reset = 0;
+      check_store_lookahead(a, b, reverse);
+      reset = 1; tick_model(); reset = 0;
+      check_store_behind_load(a, b, reverse);
+      reset = 1; tick_model(); reset = 0;
     }
+    check_shared_upgrade_barrier(a, b);
+    reset = 1; tick_model(); reset = 0;
     // Read a whole row on a miss. Retain the result under backpressure.
     request(base + 256 + 48, load);
     refill(base + 256, 2, b); response(b[3]);
