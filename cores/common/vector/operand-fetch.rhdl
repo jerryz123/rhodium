@@ -45,10 +45,12 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
 
   inst context_pipe(ValidPipe(SequenceContext, 1, ~flushable: #true))
   inst packing(VectorOperands(xlen, vlen))
-  reg compress_data(~init: Bits(xlen.width)(0))
+  // A full word is emitted, never retained; even at SEW8 the top byte is unused.
+  def remainder_width = xlen.width - 8
+  reg compress_data(~init: Bits(remainder_width)(0))
   reg compress_count(~init: Bits(vector_lane_count_width(xlen))(0))
   reg compress_destination(~init: Bits(index_width(vlen + 1))(0))
-  reg authorized_compress_data(~init: Bits(xlen.width)(0))
+  reg authorized_compress_data(~init: Bits(remainder_width)(0))
   reg authorized_compress_count(~init: Bits(vector_lane_count_width(xlen))(0))
   reg authorized_compress_destination(~init: Bits(index_width(vlen + 1))(0))
   reg compress_flush(~init: Bool(#false))
@@ -452,7 +454,7 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
   /* Suffix handoff and scheduled-return checks */
 
   def flush_state = VectorCompressState(xlen, vlen):
-    data: compress_data
+    data: compress_data.zext(xlen.width)
     count: compress_count
     destination: compress_destination
 
@@ -492,13 +494,14 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
     source_valid <== Bool(#true)
 
   when (begin_macro):
-    authorized_compress_data <== Bits(xlen.width)(0)
+    authorized_compress_data <== Bits(remainder_width)(0)
     authorized_compress_count <== Bits(vector_lane_count_width(xlen))(0)
     authorized_compress_destination <== Bits(index_width(vlen + 1))(0)
     authorized_sequence <== Bits(vector_sequence_width(vlen))(0)
     authorized_end <== Bits(index_width(vlen + 1))(0)
   elsewhen (feedback.valid & (feedback.bits.disposition === VectorDisposition.Authorized)):
-    authorized_compress_data <== feedback.bits.compress_state.data
+    assert(!feedback.bits.compress_state.data[remainder_width..xlen.width].any(), "vector_authorized_compression_remainder_fits")
+    authorized_compress_data <== feedback.bits.compress_state.data[0..remainder_width]
     authorized_compress_count <== feedback.bits.compress_state.count
     authorized_compress_destination <== feedback.bits.compress_state.destination
     authorized_sequence <== authorized_sequence + Bits(vector_sequence_width(vlen))(1)
@@ -511,7 +514,7 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
     compress_flush <== source_valid & source_last & (authorized_end === source_end) & authorized_compress_count.any()
     flush_sequence <== authorized_sequence
   elsewhen (clear ||| begin_macro):
-    compress_data <== Bits(xlen.width)(0)
+    compress_data <== Bits(remainder_width)(0)
     compress_count <== Bits(vector_lane_count_width(xlen))(0)
     compress_destination <== Bits(index_width(vlen + 1))(0)
     compress_flush <== Bool(#false)
@@ -519,12 +522,13 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
     source_end <== beat_control.end
     source_last <== beat_control.last
     flush_sequence <== beat_control.sequence + Bits(vector_sequence_width(vlen))(1)
-    compress_data <== post_compress_state.data
+    assert(!post_compress_state.data[remainder_width..xlen.width].any(), "vector_speculative_compression_remainder_fits")
+    compress_data <== post_compress_state.data[0..remainder_width]
     compress_count <== post_compress_state.count
     compress_destination <== post_compress_state.destination
     compress_flush <== needs_flush
   elsewhen flush_enqueue:
-    compress_data <== Bits(xlen.width)(0)
+    compress_data <== Bits(remainder_width)(0)
     compress_count <== Bits(vector_lane_count_width(xlen))(0)
     compress_destination <== compress_destination + compress_count.zext(index_width(vlen + 1))
     compress_flush <== Bool(#false)

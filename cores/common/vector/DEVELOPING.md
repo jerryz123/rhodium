@@ -115,8 +115,11 @@ partial destination word (data, count, and destination); the sequencer issues
 it under the resident descriptor without another VRF read. At EX, compression
 selects the left operand for the destination write, leaving the right operand
 for the remainder; non-compressing beats must not authorize their right operand
-as suffix data. Keep the speculative partial word separate from the authorized retry checkpoint. Cancellation
-discards the pending write before a new descriptor can be admitted.
+as suffix data. The speculative remainder and the authorized retry checkpoint
+each retain only the low `XLEN - 8` data bits: once a full word is emitted,
+at most one word minus one byte remains. Their counts and destinations stay
+independent. Cancellation discards the pending write before a new descriptor
+can be admitted.
 
 Aligned faultable memory beats may sequence on consecutive cycles. Their
 slot-bounded metadata FIFO pairs in-order LSU decisions with the authorized
@@ -404,6 +407,8 @@ before and after clearing `vill`.
 The sequencer fixtures also stall a final compression write, cancel as its port
 reopens, and immediately read the old destination with the next instruction.
 They separately retry the final write and check that the authorized byte is restored.
+For a maximum-length SEW8 remainder, they retry the second source beat and
+the final write separately, then read back both rows, including the untouched byte.
 
 The packed fixtures hold the VRF write grant low throughout stores, checking ring
 wrap, empty stores, and masked segmented retries with delayed/reordered replies.

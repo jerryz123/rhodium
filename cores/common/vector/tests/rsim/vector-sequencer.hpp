@@ -645,6 +645,38 @@ void cancel_stalled_compress_suffix() {
         memory[24 * rows + 1] == 0xff);
 }
 
+void retry_maximum_compress_remainder() {
+  constexpr int bytes = XLEN / 8, rows = VLEN / XLEN;
+  // Select every byte except the first. Both source beats leave bytes-1
+  // high-bit-set bytes in the remainder; the final destination byte stays 0xff.
+  for (int retry_at : {bytes, 2 * bytes}) {
+    initialize_in.pvalid = 1;
+    initialize(5 * rows, low_mask(2 * bytes) & ~UINT64_C(1), UINT64_MAX);
+    tick();
+    for (int row = 0; row < 2; ++row) {
+      std::uint64_t source = 0;
+      for (int lane = 0; lane < bytes; ++lane)
+        source |= std::uint64_t(0x80 + row * bytes + lane) << (8 * lane);
+      initialize(8 * rows + row, source, UINT64_MAX);
+      tick();
+      initialize(24 * rows + row, UINT64_MAX, UINT64_MAX);
+      tick();
+    }
+    initialize_in.pvalid = 0;
+
+    const int prior_retries = retries;
+    run_macro(0, 0, 2 * bytes, 0, 23, 2, 24, 5, 8, false, true, true, retry_at);
+    CHECK(retries == prior_retries + 1 && tx_beats == 3);
+
+    // Copy v24 to v16 so the oracle observes the actual VRF after replay.
+    run_macro(0, 0, 2 * bytes, 0, 0, 3, 16, 0, 24, false, false, false);
+    for (int i = 0; i < 2 * bytes; ++i) {
+      const unsigned expected = i == 2 * bytes - 1 ? 0xff : 0x81 + i;
+      CHECK(((memory[16 * rows + i / bytes] >> (8 * (i % bytes))) & 0xff) == expected);
+    }
+  }
+}
+
 void retry_masked_scan_tail() {
   constexpr int rows = VLEN / XLEN, length = XLEN + 3;
   const auto body = UINT64_C(0xaaaaaaaaaaaaaaaa) & low_mask(XLEN);
@@ -733,6 +765,7 @@ int main() {
     }
     initialize_in.pvalid = 0;
     cancel_stalled_compress_suffix();
+    retry_maximum_compress_remainder();
     // Every SEW/LMUL geometry, including fractional groups, in-place operands,
     // vstart in the middle of a beat, tails, and signed scalar extension.
     for (int sew = 0; sew < SEW_LOG + 1; sew++) {
