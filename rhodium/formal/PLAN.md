@@ -36,6 +36,9 @@ across a checked RTL handoff and exports a six-word FIFO bound and ordering.
 The [executable event monitor](fifo-monitor.rhm) now gives rspecsim and Rosette
 one transaction model: equivalence to the original relation is checked at
 capacities two, four, and six, and rspecsim replays the six-word parent trace.
+The [bound FIFO views](tests/queue-pair.rspl) now declare which physical
+handshakes form those batches. Certification and replay execute the same
+passive sampler; the series proof still checks the physical handoff independently.
 The parent fixtures share an admission check: each
 occurrence needs run-local evidence for its actual implementation and full
 contract. No persistent evidence cache or general parent-logic checker is

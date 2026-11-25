@@ -184,8 +184,11 @@ live successor position, including simultaneous external transfers. Reset/fill/d
 traces attain capacities two and four at child depths one and two. Run
 `moon run rhodium:formal-test` to reproduce the proofs.
 
-[FIFO transaction certification](refinement.rkt) derives the joint event
-from the two named external handshakes. The caller projects the old and new
+[FIFO transaction certification](refinement.rkt) takes a [bound view](tests/queue-pair.rspl),
+not two hand-written endpoint lists. RSPECL checks the declaration's circuit
+family; the [view binder](fifo-view.rhm) checks the actual module's port names,
+directions, sorts, and clock/reset. It builds a stateless spec-IR sampler over
+both inputs and outputs. The cut must match that exact module. The caller projects the old and new
 cut states into pending words; reset and preservation must prove the same
 `fifo-allows?` relation that downstream clients consume. Certification also
 discharges child definedness and legality. A successful result retains the
@@ -208,13 +211,17 @@ only the concrete implementation determines which occurs on that edge.
 transaction results. It matches the actual child definitions, all three
 valid/ready/data connections (ingress, handoff, egress), and each clock/reset
 driver. This cut accepts scalar ports and no local behavior. An independent
-ready driver is rejected before constructing a shared middle event. The solver
-then ranges over all simultaneous event batches and successors allowed by
-both child relations. It proves the joint external FIFO rule on the downstream
+ready driver is rejected before sharing any symbolic pins. After that check,
+three unconstrained (valid, ready, payload) triples represent the two external
+links and the handoff. The checker interprets both child samplers and the
+parent sampler on those links and proves they are defined for every sample.
+It ranges over all successors allowed by both child relations, without using
+any cycle timing guarantee. It proves the joint external FIFO rule on the downstream
 pending words followed by the upstream words; only the internal transfer is hidden.
 The [series regression](tests/queue-pair-series.rkt) feeds the resulting
 six-word contract to the original ordering observer. Its separate full-RTL
-replay sends observed handshakes to the concrete monitor, including refusal on
+replay runs the same declared parent sampler in rspecsim and sends the resulting
+batches to the concrete monitor, including refusal on
 the second offer and a six-word fill/drain. Corrupting the first retirement
 after the same prefix is rejected. The trace is not a proof premise. A separate
 symbolic regression checks both directions against the previous arithmetic

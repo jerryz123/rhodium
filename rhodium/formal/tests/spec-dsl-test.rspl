@@ -7,6 +7,44 @@ import:
   lib("rhodium/frontend/foundation.rhm").elaborate
   lib("rhodium/frontend/tests/sync-composed.rhdl") as sync
   "spec-dsl-fixture.rhdl" as rtl
+  "shift-queue-fixture.rhdl" as pairs
+  "queue-pair.rspl" as views
+  "../fifo-view.rhm".sample_fifo_events
+
+// Check the actual pre-edge sampler independently of any particular RTL trace or queue state.
+def pair_top = elaborate(pairs.QueuePair(1)).top
+def pair_view = views.QueuePair(pair_top)
+def flags = [0, 1]
+for (rst in flags):
+  for (offer in flags):
+    for (ready in flags):
+      for (valid in flags):
+        for (consume in flags):
+          def pins = {"reset": rst, "offer": offer, "ready": ready, "data": 0,
+                      "valid": valid, "consume": consume, "head": 3}
+          def accepted = if offer == 1 && ready == 1 | {"accepted": 0} | Map{}
+          def retired = if valid == 1 && consume == 1 | {"retired": 3} | Map{}
+          check:
+            sample_fifo_events(pair_view, pins) ~is (if rst == 1 | {"reset": #true} | accepted ++ retired)
+
+check:
+  block:
+    spec for pairs.QueuePair:
+      fifo_transactions(reset, ingress(ready, offer, data), egress(valid, consume, head))
+    QueuePair(pair_top)
+  ~throws "wrong FIFO pin name or direction"
+check:
+  block:
+    spec for pairs.QueuePair:
+      fifo_transactions(reset, ingress(offer, ready, data), egress(valid, offer, head))
+    QueuePair(pair_top)
+  ~throws "distinct scalar handshake pins"
+check:
+  block:
+    spec for pairs.QueuePair:
+      fifo_transactions(reset, ingress(data, ready, offer), egress(valid, consume, head))
+    QueuePair(pair_top)
+  ~throws "equal-width FIFO payload pins"
 
 // Exercise visibility from a consumer, not just lexical lookup inside the defining module.
 import "spec-exports-fixture.rspl" as api

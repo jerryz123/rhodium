@@ -1,0 +1,17 @@
+#lang rspecl
+// SPDX-License-Identifier: Apache-2.0
+
+import "shift-queue-fixture.rhdl" as rtl
+
+spec for rtl.QueuePair:
+  fifo_transactions(reset, ingress(offer, ready, data), egress(valid, consume, head))
+
+spec for rtl.QueuePairSeries:
+  fifo_transactions(reset, ingress(offer, ready, data), egress(valid, consume, head))
+
+// A well-typed but false claim: the environment's consume is not an ingress offer.
+fun crossed_pair(top):
+  spec for rtl.QueuePair:
+    fifo_transactions(reset, ingress(consume, ready, data), egress(valid, offer, head))
+  QueuePair(top)
+export crossed_pair

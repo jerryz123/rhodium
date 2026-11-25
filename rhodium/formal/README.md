@@ -333,6 +333,24 @@ transfer. Retirement checks the **old** head, so a full FIFO can replace one
 word in a joint batch, but an empty FIFO cannot retire a new arrival. These
 are permitted observations, not predictions of ready, valid, or progress.
 
+To obtain those batches from RTL pins, declare a passive view as the body of
+`spec for`, as in the [QueuePair and QueuePairSeries specs](tests/queue-pair.rspl):
+
+```rhombus
+spec for rtl.QueuePair:
+  fifo_transactions(reset, ingress(offer, ready, data), egress(valid, consume, head))
+```
+
+Each triple is **(valid, ready, payload)**, with directions checked against
+the elaborated circuit. This first profile covers one scalar ingress, one
+scalar egress, and the standard sampled clock/reset. Bind it with
+`QueuePair(top)`. Then [`sample_fifo_events(view, pins)`](fifo-view.rhm) takes
+one map containing all pre-edge input and output samples except the clock
+and returns the batch for `step_fifo_monitor`. An asserted reset suppresses
+both transfers; otherwise both can appear in the same batch, even with a
+zero payload. The view reads the actual ready and valid pins. It does not
+drive them, certify the FIFO, or replace a cycle model.
+
 ## RTL equivalence API
 
 Import `rhodium/formal/main.rhm` explicitly. Each subject must be a verified

@@ -1,0 +1,58 @@
+#lang rhombus
+/* Binds scalar FIFO handshakes on an actual module to one passive pre-edge spec-IR sampler. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../core/ir.rhm".Module
+  "../core/types.rhm" as hw
+  "spec.rhm" open
+  "port-types.rhm".sampled_type
+
+export make_fifo_view fifo_view_parts sample_fifo_events
+
+/* Only the checked binder constructs this passive view of a particular elaborated definition. */
+class FifoView(top :: Module, ingress :: List, egress :: List, width :: PosInt, sampler :: LeafModel)
+
+/* Bind the single-clock scalar FIFO profile and compile its joint event sampler to pure spec IR. */
+fun make_fifo_view(top :: Module, names :: List.of(String), bool :: hw.HardwareType):
+  let [rst, iv, ir, iw, ov, or_pin, ow] = names
+  def distinct = for Set (name in names): name
+  def clock = top.find_input("clock")
+  def epoch = top.find_input(rst)
+  unless clock && hw.clock_type(clock.type) && rst == "reset" && epoch && hw.reset_type(epoch.type)
+         && distinct.length() == 7 && top.inputs.length() == 5 && top.outputs.length() == 3
+  | error("expected a synchronous FIFO with distinct scalar handshake pins and sampled reset")
+  def inputs = for Map (p in top.inputs):
+    keep_when p.name != "clock"
+    values(p.name, sampled_type(p.type, bool))
+  def outputs = for Map (p in top.outputs): values(p.name, sampled_type(p.type, bool))
+  /* Reject a reversed direction or an unknown pin even when its packed width would match. */
+  fun pin(schema :: Map, key :: String):
+    unless schema.has_key(key) | error("wrong FIFO pin name or direction: " ++ key)
+    input_ref(key, schema[key])
+  def reset = pin(inputs, rst)
+  def offer = pin(inputs, iv)
+  def ready = pin(outputs, ir)
+  def incoming = pin(inputs, iw)
+  def valid = pin(outputs, ov)
+  def consume = pin(inputs, or_pin)
+  def outgoing = pin(outputs, ow)
+  unless incoming.type is_a SpecBits && spec_type_equal(incoming.type, outgoing.type)
+  | error("expected equal-width FIFO payload pins")
+  def active = bool_not(reset)
+  def events = {"reset": Observed(literal(SpecBool(), #true), reset),
+                "accepted": Observed(incoming, bool_and(active, bool_and(offer, ready))),
+                "retired": Observed(outgoing, bool_and(active, bool_and(valid, consume)))}
+  FifoView(top, [iv, ir, iw], [ov, or_pin, ow], incoming.type.width,
+           make_spec(inputs ++ outputs, {}, {}, {}, events, {}))
+
+/* Expose checked pin roles for structural wiring verification and the sampler for symbolic execution. */
+fun fifo_view_parts(view :: FifoView):
+  values(view.top, PairList[& view.ingress], PairList[& view.egress], view.width, view.sampler)
+
+/* Sample concrete pre-edge pins in rspecsim; normalize raw one-bit control values but not payloads. */
+fun sample_fifo_events(view :: FifoView, pins :: Map):
+  def values_by_name = for Map ((name, value) in pins):
+    def flag = view.sampler.inputs.get(name, #false) is_a SpecBool
+    values(name, if flag && value is_a Int && (value == 0 || value == 1) | value == 1 | value)
+  step_spec(view.sampler, {}, values_by_name).events

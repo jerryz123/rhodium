@@ -5,6 +5,7 @@
 (require racket/match (only-in racket/base [equal? host-equal?] [eq? host-eq?])
          "engine.rkt" "spec-engine.rkt" (only-in "snapshot.rhm" formal_snapshot) (only-in "spec.rhm" spec_snapshot)
          (only-in "fifo-monitor.rhm" fifo_monitor)
+         (only-in "fifo-view.rhm" fifo_view_parts)
          (only-in "wiring.rhm" cut_parts leaf_protocol leaf_layout scalar_series_wiring))
 (provide prove-leaf prove-parent prepare-proved-wiring proved-child-model symbolic-cut-state proved-edge-at view-agrees? pack-pins unpack-pins)
 (provide exn:fail:input-contract? exn:fail:input-contract-goal exn:fail:input-contract-inputs)
@@ -212,12 +213,13 @@
   (refinement-result (proved-cut-definition plan) model "single-clock-reset" (proved-cut-layout plan)))
 
 ;; Only certification can construct evidence. No child states, transition plan, or cycle pins escape.
-(struct fifo-transactions (definition ingress egress capacity width monitor))
+(struct fifo-transactions (definition ingress egress capacity width sampler monitor))
 (struct fifo-history (count slots) #:transparent)
 (struct fifo-events (reset accepted? accepted retired? retired) #:transparent)
 
 #| Match the exact run-local definition and ordered endpoint mapping, not just width and capacity. |#
-(define (fifo-transactions-for? result definition ingress egress)
+(define (fifo-transactions-for? result view)
+  (define-values (definition ingress egress width sampler) (fifo_view_parts view))
   (and (fifo-transactions? result) (host-eq? definition (fifo-transactions-definition result))
        (host-equal? ingress (fifo-transactions-ingress result))
        (host-equal? egress (fifo-transactions-egress result))))
@@ -230,8 +232,21 @@
                         word)))
 
 #| Create a candidate contract; only successful certification returns it to callers. |#
-(define (candidate-fifo definition ingress egress capacity width)
-  (fifo-transactions definition ingress egress capacity width (spec_snapshot (fifo_monitor capacity width))))
+(define (candidate-fifo view capacity)
+  (define-values (definition ingress egress width sampler) (fifo_view_parts view))
+  (fifo-transactions definition ingress egress capacity width
+                     (spec_snapshot sampler) (spec_snapshot (fifo_monitor capacity width))))
+
+#| Interpret the declared passive sampler, preserving presence even for a zero payload. |#
+(define (sampled-fifo-batch contract pins)
+  (define e (spec-edge-at (fifo-transactions-sampler contract) (hash) pins))
+  (define events (edge-events e))
+  (define accepted (hash-ref events "accepted"))
+  (define retired (hash-ref events "retired"))
+  (values (fifo-events (observation-care (hash-ref events "reset"))
+                       (observation-care accepted) (observation-value accepted)
+                       (observation-care retired) (observation-value retired))
+          (&& (edge-legal e) (edge-defined e))))
 
 #| Apply the same monitor as rspecsim. Bridge mathematical occupancies to finite sequence
    counts without admitting wraparound, and compare only the successor's live prefix. |#
@@ -257,33 +272,27 @@
       (for/fold ([ok #t]) ([i (in-naturals)] [actual new-slots] [expected words])
         (&& ok (=> (< i m) (bveq actual expected))))))
 
-#| Prove a FIFO projection of an admitted synchronous cut. Each endpoint names (valid ready bits) at the
-   external boundary. The proof author supplies only the state abstraction, never the handshakes. |#
-(define (prove-fifo-transactions plan capacity ingress egress project)
+#| Prove a FIFO projection of an admitted synchronous cut using its bound transaction view.
+   The proof author supplies the state abstraction, never the handshakes. |#
+(define (prove-fifo-transactions plan capacity view project)
   (unless (exact-positive-integer? capacity) (error 'fifo-transactions "expected positive capacity"))
-  (define graph (proved-cut-graph plan))
-  (match-define (list offer ready data) ingress)
-  (match-define (list valid consume head) egress)
-  (define inputs (hash-ref graph "inputs"))
-  (define outputs (hash-ref graph "output-types"))
-  (match-define (list "bits" width) (hash-ref inputs data))
-  (unless (and (= 4 (hash-count inputs)) (= 7 (length (remove-duplicates (cons "reset" (append ingress egress)))))
-               (andmap (lambda (p) (equal? (hash-ref inputs p) '("bool"))) (list "reset" offer consume))
-               (andmap (lambda (p) (equal? (hash-ref outputs p) '("bool"))) (list ready valid))
-               (equal? (hash-ref outputs head) (list "bits" width)))
-    (error 'fifo-transactions "expected single ready/valid FIFO boundary"))
+  (define contract (candidate-fifo view capacity))
+  (unless (host-eq? (fifo-transactions-definition contract) (proved-cut-definition plan))
+    (error 'fifo-transactions "view does not match the RTL cut"))
+  (define ingress (fifo-transactions-ingress contract))
+  (define egress (fifo-transactions-egress contract))
   (define-symbolic* rst offered consuming boolean?)
-  (define-symbolic* word (bitvector width))
+  (define-symbolic* word (bitvector (fifo-transactions-width contract)))
   (define states (symbolic-cut-state plan))
-  (define-values (pins edges settled)
-    (proved-edge-at plan states (hash "reset" rst offer offered data word consume consuming)))
-  (define events (fifo-events rst (&& (! rst) offered (hash-ref pins ready)) word
-                              (&& (! rst) consuming (hash-ref pins valid)) (hash-ref pins head)))
+  (define inputs (hash "reset" rst (first ingress) offered (third ingress) word (second egress) consuming))
+  (define-values (pins edges settled) (proved-edge-at plan states inputs))
+  (define sample (for/fold ([m inputs]) ([(k v) pins]) (hash-set m k v)))
+  (define-values (events sample-ok) (sampled-fifo-batch contract sample))
   (define next (for/hash ([(site e) edges]) (values site (edge-next e))))
   (define legal (andmap spec-state-legal? (hash-values states)))
-  (define contract (candidate-fifo (proved-cut-definition plan) ingress egress capacity width))
   (define goals
-    (list (cons 'children (for/fold ([ok settled]) ([e (hash-values edges)])
+    (list (cons 'sampler sample-ok)
+          (cons 'children (for/fold ([ok settled]) ([e (hash-values edges)])
                             (&& ok (edge-legal e) (edge-defined e) (spec-state-legal? (edge-next e)))))
           (cons 'event-relation (fifo-allows? contract (project states) events (project next)))))
   (check-phase 'transaction-reset (&& legal rst) goals)
@@ -334,21 +343,37 @@
 
 #| Certify the parent's transaction view over every joint step allowed by the two opaque theorems.
    No cycle offers are predicted; the checked wires justify sharing one transfer and word. |#
-(define (compose-fifo-series top ingress egress front-site front back-site back)
+(define (compose-fifo-series view front-site front back-site back)
+  (define-values (top ingress egress width sampler) (fifo_view_parts view))
   (check-series-wiring! top ingress egress front-site front back-site back)
-  (define width (fifo-transactions-width front))
+  (unless (= width (fifo-transactions-width front)) (error 'fifo-series "parent payload width mismatch"))
   (define capacity (+ (fifo-transactions-capacity front) (fifo-transactions-capacity back)))
-  (define contract (candidate-fifo top ingress egress capacity width))
+  (define contract (candidate-fifo view capacity))
   (define a (fresh-fifo-history front))
   (define b (fresh-fifo-history back))
   (define an (fresh-fifo-history front))
   (define bn (fresh-fifo-history back))
-  (define-symbolic* reset push handoff pop boolean?)
-  (define-symbolic* in middle out (bitvector width))
-  (define allowed (&& (fifo-allows? front a (fifo-events reset push in handoff middle) an)
-                      (fifo-allows? back b (fifo-events reset handoff middle pop out) bn)))
+  (define-symbolic* reset boolean?)
+  #| Unconstrained observations, not offers driven by a child model. |#
+  (define (fresh-link)
+    (define-symbolic* valid ready boolean?)
+    (define-symbolic* payload (bitvector width))
+    (list valid ready payload))
+  (define in (fresh-link))
+  (define handoff (fresh-link))
+  (define out (fresh-link))
+  #| Wire one declared sampler to the shared triples justified by the structural check. |#
+  (define (sample child incoming outgoing)
+    (define pins (append (fifo-transactions-ingress child) (fifo-transactions-egress child)))
+    (sampled-fifo-batch child (for/fold ([m (hash "reset" reset)]) ([k pins] [v (append incoming outgoing)])
+                                (hash-set m k v))))
+  (define-values (front-batch front-ok) (sample front in handoff))
+  (define-values (back-batch back-ok) (sample back handoff out))
+  (define-values (parent-batch parent-ok) (sample contract in out))
+  (check-phase 'series-samplers #t (list (cons 'defined (&& front-ok back-ok parent-ok))))
+  (define allowed (&& (fifo-allows? front a front-batch an) (fifo-allows? back b back-batch bn)))
   (define parent-step
-    (fifo-allows? contract (series-history b a) (fifo-events reset push in pop out) (series-history bn an)))
+    (fifo-allows? contract (series-history b a) parent-batch (series-history bn an)))
   (define goals (list (cons 'external-history parent-step)))
   (check-phase 'series-reset (&& reset allowed) goals)
   (check-phase 'series-step (&& (! reset) allowed) goals)

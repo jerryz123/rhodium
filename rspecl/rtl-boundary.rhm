@@ -12,8 +12,10 @@ import:
   lib("rhodium/frontend/layers/interface.rhm") as iface
   lib("rhodium/formal/port-types.rhm") open
   lib("rhodium/formal/spec.rhm").input_ref
+  lib("rhodium/formal/fifo-view.rhm").make_fifo_view
 
 export declared_ports interface_prefixes Endpoint
+export bind_fifo_view
 
 /* Flat logical field schemas and lexical views, with no RTL drivers or implementation state. */
 class Boundary(ports :: SampledPorts, endpoints :: Map, arrays :: Map, parameters :: Map):
@@ -82,3 +84,9 @@ fun declared_ports(top :: Module, family :: CircuitIdentity, synchronous :: Bool
       | p.direction == "input": ins[p.name] := sampled_type(p.type, Bool)
       | ~else: outs[p.name] := sampled_type(p.type, Bool)
   Boundary(SampledPorts(ins.snapshot(), outs.snapshot()), endpoints.snapshot(), arrays.snapshot(), parameters)
+
+/* Require the named RTL family before handing its actual scalar ports to the transaction binder. */
+fun bind_fifo_view(top :: Module, family :: CircuitIdentity, synchronous :: Boolean, names :: List.of(String)):
+  checked_circuit_parameters(top, family)
+  unless synchronous | error("expected a synchronous FIFO")
+  make_fifo_view(top, names, Bool)

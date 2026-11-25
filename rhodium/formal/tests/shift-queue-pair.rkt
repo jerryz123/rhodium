@@ -5,6 +5,7 @@
 (require rackunit "../refinement.rkt" "composition-checks.rkt" "../spec-engine.rkt"
          (only-in "shift-queue-induction.rkt" verified-fifo-at)
          (only-in "shift-queue-binding.rhm" pair_proof_cut)
+         (only-in "queue-pair.rspl" QueuePair crossed_pair)
          (only-in "composition-binding.rhm" pair_at))
 (provide verified-queue-pair-transactions-at)
 
@@ -49,10 +50,9 @@
   (define valid (legal-states states))
   (define (project s [bound capacity])
     (fifo-history (occupancy s) (for/list ([i (in-range bound)]) (word-at s i))))
-  (define ingress '("offer" "ready" "data"))
-  (define egress '("valid" "consume" "head"))
+  (define view (QueuePair (pair_at depth)))
   (define (certify projection [bound capacity])
-    (prove-fifo-transactions plan bound ingress egress projection))
+    (prove-fifo-transactions plan bound view projection))
   ;; Issue evidence outside rackunit: a failing obligation must abort, not just record a test failure.
   (define transactions (certify project))
 
@@ -89,9 +89,15 @@
                                    (matches? (event b "dequeue") pop (pair-step-head p)))))
 
   (test-case "evidence is specialization-bound; a false capacity or payload projection cannot certify"
-    (check-true (fifo-transactions-for? transactions (pair_at depth) ingress egress))
-    (check-false (fifo-transactions-for? transactions (pair_at (if (= depth 1) 2 1)) ingress egress))
-    (check-false (fifo-transactions-for? transactions (pair_at depth) egress ingress))
+    (define other (QueuePair (pair_at (if (= depth 1) 2 1))))
+    (define crossed (crossed_pair (pair_at depth)))
+    (check-true (fifo-transactions-for? transactions view))
+    (check-false (fifo-transactions-for? transactions other))
+    (check-false (fifo-transactions-for? transactions crossed))
+    (check-exn #rx"transaction-step/event-relation not proved"
+               (lambda () (prove-fifo-transactions plan capacity crossed project)))
+    (check-exn #rx"view does not match the RTL cut"
+               (lambda () (prove-fifo-transactions plan capacity other project)))
     (define too-small (sub1 capacity))
     (check-exn #rx"transaction-step/event-relation not proved"
                (lambda () (certify (lambda (s) (project s too-small)) too-small)))
