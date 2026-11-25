@@ -20,7 +20,7 @@ for (xlen in [XLen.X32, XLen.X64]):
   def rtl = compile_program(program, rtl_target).report.elaboration
   def manifest = infer_event_manifest(rtl, ~partial: #true)
   check:
-    manifest.sites.map(fun (site): site.label).sort() ~is (labels ++ labels.map(fun (label): label ++ ".stall")).sort()
+    manifest.sites.map(fun (site): site.label).sort() ~is (labels ++ ["vector/store.sequence"] ++ labels.map(fun (label): label ++ ".stall")).sort()
   for (site in manifest.sites):
     def pc = site.fields.find(fun (field): field.name == "pc")
     def instruction = site.fields.find(fun (field): field.name == "instruction")

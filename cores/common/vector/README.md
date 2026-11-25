@@ -190,16 +190,19 @@ RV3Wide selects the distributed backend, with independent execution and memory
 sequencers. Traced builds expose `vector/execute.sequence` for accepted execute
 operand reads (including reductions), `vector/load.sequence` for accepted
 load writes to the VRF, and `vector/store.sequence` for captured or
-skipped rows entering the store FIFO. Special operand demand and lookahead reads
-appear on `vector/special.sequence` and `vector/special.lookahead` respectively.
+skipped rows entering the store FIFO. On streaming scatter, the same track
+records each VS3 row captured from the VRF. Special operand demand and
+lookahead reads appear on `vector/special.sequence` and `vector/special.lookahead` respectively.
 These are sequencing transfers, not instruction admission or completion.
 
 `vector/load.agen` and `vector/store.agen` instead show physical request
 fragments at the VLSU-to-L1D handshake. Each transfer reports the virtual cursor,
 aligned fragment VA and PA, byte mask, and whether this is a split suffix.
 A fully masked skip has no address event; an access split across two requests
-has two. Stalls here mean the selected request was offered but not accepted,
-not that a cursor was waiting for operands, selection, or issue credit.
+has two. Each store request links to the sequence events that supplied its
+enabled bytes. A displaced beat can have two row parents. Split element
+requests and subsequent scatter elements can share one captured row. AGEN
+stalls begin when the VLSU offers the selected request and L1D withholds ready.
 
 `vector/load.return` shows a physical response fragment accepted into the VLSU's
 load-return queue, tagged with the original request owner and byte mask.

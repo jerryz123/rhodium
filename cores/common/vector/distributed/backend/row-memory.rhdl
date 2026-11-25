@@ -67,9 +67,17 @@ sync_circuit VectorRowEngine(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
   vlsu.scatter <=> stores.scatter
   for (i in MemoryPaths): launch[i] |> vlsu.start[i]
   loads.rows |> vlsu.masks
-  stores.rows |> vlsu.store_data
-  stores.room_after_capture <== vlsu.store_room_after_capture
   def isa = trace_isa || (if xlen == XLen.X32 | "rv32imafdcv" | "rv64imafdcv")
+  (stores.rows |> trace_event("vector/store.sequence", ~stalls: #true, ~fields: entry):
+     pc: trace_instructions[entry.owner].pc
+     instruction(~format: "riscv", ~isa: isa, ~pc: "pc"): trace_instructions[entry.owner].instruction
+     owner(~format: "unsigned"): entry.owner
+     row(~format: "unsigned"): entry.payload.row
+     offset(~format: "unsigned"): entry.payload.offset
+     enabled: entry.payload.enabled
+     last: entry.payload.last
+  ) |> vlsu.store_data
+  stores.room_after_capture <== vlsu.store_room_after_capture
   loads.return_setup |> vlsu.load_setup
   vlsu.load_result |> loads.result
   vlsu.load_visit |> loads.visit

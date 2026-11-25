@@ -176,11 +176,11 @@ sync_circuit VectorVLSU(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~t
   normal_load.ready <== !gathering & load_port.left.ready
   def admitted_load = load_port.right
   def load_rows = admitted_load |> gate_flow(!reserve_for_store ||| !admitted_load.bits.enabled.any())
-  def store_port = interface_link(Decoupled(PreparedBeat(vlen)))
-  store_port.left.valid <== mux(scattering, scatter.operand.valid, store_merger.beat.valid)
-  store_port.left.bits <== mux(scattering, element_beat, store_merger.beat.bits)
-  store_merger.beat.ready <== !scattering & store_port.left.ready
-  def store_rows = store_port.right
+  def scatter_beat = scatter.operand |> map_valid(_data => element_beat) |> offer_decoupled()
+  inst store_port(GrantMerge(PreparedBeat(vlen), 2))
+  store_port.grants <== vec([!scattering, scattering]).into(MaybeOneHot(2))
+  Array(store_merger.beat, scatter_beat) <=> store_port.ingress
+  def store_rows = store_port.egress
   reg locked(~init: Bool(#false))
   reg locked_store(Bool)
   def store = mux(locked, locked_store, store_rows.valid & (older_store ||| !load_rows.valid))
@@ -213,6 +213,9 @@ sync_circuit VectorVLSU(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~t
   fragments.left.valid <== prepared.valid
   fragments.left.bits <== prepared.bits
   prepared.ready <== fragments.left.ready & !prefix
+  // Both fragments use the offered element. Only elementwise paths split
+  // here, so both grants inherit the same operand while ready holds it.
+  describe_interface_contract(prepared, fragments.left, "physical-fragment", ~trace_model: interface_trace_combinational())
   def Array(empty, live) = fragments.right |> demux_flow(2, r => r.enabled.any())
   empty.ready <== Bool(#true)
   inst credits(Queue(RowCredit(xlen, vlen, Owner), MemoryRowCredits))

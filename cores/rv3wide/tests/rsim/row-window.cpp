@@ -38,6 +38,8 @@ void offer_operands(bool store) {
 void exercise(bool store, bool masked) {
   auto& launch_in = store ? launch_1_in : launch_0_in;
   auto& launch_out = store ? launch_1_out : launch_0_out;
+  constexpr auto sequence = row_sites::vector_store_sequence, agen = row_sites::vector_store_agen;
+  const auto first_row = next_event(sequence), first_agen = next_event(agen);
   const unsigned start = masked ? 1 : 0;
   launch_in.pbits = {};
   launch_in.pbits.pissue.pdescriptor.pstate.pvl = masked ? 59 : 32;
@@ -164,6 +166,12 @@ void exercise(bool store, bool masked) {
   eval();
   CHECK(finished_count==1 && !busy && launch_out.pready && !finished_out.pvalid && !issued_out.pvalid);
   CHECK(source_reads==(store ? 2u:0u));
+  if (store) {
+    CHECK(next_event(sequence) == first_row + (masked ? 4 : 2));
+    CHECK(next_event(agen) == first_agen + 2);
+    for (unsigned i=0; i<2; ++i)
+      CHECK(parent_sequences({agen, first_agen+i}, sequence) == std::set<std::uint64_t>{first_row+i});
+  }
 }
 
 // Occupancy is per instruction: holding a returned load off the VRF does not
@@ -241,6 +249,74 @@ void displaced_lineage(unsigned length, bool segmented=false) {
       expected.insert(reply+(8+byte)/16);
     CHECK(parent_sequences({w,write+i},r)==expected);
   }
+}
+
+// A displaced contiguous store can join two rows. A resolved halfword
+// splits one row across two requests. A scatter reuses its captured VS3
+// for a subsequent element in the same row without a second register read.
+enum class StorePath { contiguous, resolved, scatter };
+void store_lineage(StorePath path, std::uint32_t predicate=UINT32_MAX) {
+  const bool element = path != StorePath::contiguous;
+  const bool scatter = path == StorePath::scatter;
+  constexpr auto agen = row_sites::vector_store_agen;
+  const auto sequence = scatter ? row_sites::scatter_capture : row_sites::vector_store_sequence;
+  const auto first = next_event(sequence), request = next_event(agen);
+  launch_1_in={}; memory_in={}; read_result_in={}; checked_element_in={};
+  auto& issue=launch_1_in.pbits.pissue;
+  auto& d=issue.pdescriptor;
+  issue.powner=2;
+  issue.pkind=scatter ? 6 : (element ? 4 : 0); // ResolvedStream, Resolved, Contiguous.
+  d.pmasked=predicate!=UINT32_MAX;
+  mask_1_in.pdata.words={predicate,0,0,0};
+  d.pscalar=element ? 15 : 8;
+  d.pstate.pvl=element ? 2 : 32;
+  d.pstate.pvtype=element ? 8 : 0;
+  d.pinstruction=8u<<7;
+  d.pcontrol.pmemory=1;
+  d.pcontrol.pstore=1;
+  d.pcontrol.pmemory_udata_ueew=element ? 1 : 0;
+  stream_live=stream_store=scatter;
+  stream_owner=issue.powner;
+  launch_1_in.pvalid=1;
+  if (!scatter) offer_operands(true);
+  eval(); CHECK(launch_1_out.pready && (scatter || prepare_out.pready));
+  tick_model(); prepare_in.pvalid=launch_1_in.pvalid=0;
+  unsigned sent=0, returned=0, reads=0;
+  const unsigned expected=element && !scatter ? 2 : 3;
+  bool continued=false, done=false;
+  for (unsigned t=0; t<100 && !done; ++t) {
+    read_in.pready=1;
+    memory_in.prequest.pready=t>8 && t%3!=0;
+    memory_in.presponse.pvalid=returned<sent;
+    checked_element_in.pvalid=scatter && !continued && sent==2;
+    checked_element_in.pbits.paddress=20;
+    checked_element_in.pbits.prow=16;
+    checked_element_in.pbits.poffset=2;
+    eval();
+    continued |= checked_element_in.pvalid && checked_element_out.pready;
+    if (memory_out.prequest.pvalid && memory_in.prequest.pready) {
+      CHECK(sent<expected && memory_out.prequest.pbits.pstore);
+      ++sent;
+    }
+    returned+=memory_in.presponse.pvalid && memory_out.presponse.pready;
+    const bool reading=read_out.pvalid && read_in.pready;
+    reads+=reading;
+    done=scatter ? returned==expected : finished_out.pvalid;
+    tick_model(); read_result_in.pvalid=reading;
+  }
+  stream_live=stream_store=0; checked_element_in={}; memory_in={}; read_result_in={};
+  CHECK(done && sent==expected && returned==sent && reads==(element ? 1u : 2u));
+  CHECK(next_event(sequence)==first+reads && next_event(agen)==request+sent);
+  for (unsigned i=0; i<sent; ++i) {
+    std::set<std::uint64_t> parents;
+    if (element) parents.insert(first);
+    else for (unsigned byte=0; byte<32; ++byte) {
+      if ((8+byte)/16==i && ((predicate>>byte)&1))
+        parents.insert(first+byte/16);
+    }
+    CHECK(parent_sequences({agen,request+i},sequence)==parents);
+  }
+  tick_model();
 }
 
 // The seed halfword straddles two physical beats. Later splat writes must
@@ -479,5 +555,10 @@ int main() {
     blocked_store_source();
     for (bool store : {false,true}) independent_starts(store);
     splat_lineage();
+    store_lineage(StorePath::contiguous);
+    store_lineage(StorePath::contiguous,0xff00ffff); // Middle beat uses only carry.
+    store_lineage(StorePath::contiguous,0xffff00ff); // Middle beat uses only the live row.
+    store_lineage(StorePath::resolved);
+    store_lineage(StorePath::scatter);
   });
 }

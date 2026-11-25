@@ -44,8 +44,9 @@ def unit32 = elaborate(RowMemoryFixture(XLen.X32, 256))
 def unit64 = elaborate(RowMemoryFixture(XLen.X64, 256))
 fun site_header(manifest):
   def constants = for List (site in manifest.sites, index in 0..manifest.sites.length()):
-    keep_when site.label.starts_with("vector/load.") && !site.label.ends_with(".stall")
-    "constexpr unsigned " ++ site.label.replace("/", "_").replace(".", "_") ++ " = " ++ to_string(index) ++ ";\n"
+    keep_when (site.label.starts_with("vector/load.") || site.label.starts_with("vector/store.")) && !site.label.ends_with(".stall")
+    def label = if site.label == "vector/store.sequence" && !site.fields.find(fun (field): field.name == "offset") | "scatter_capture" | site.label
+    "constexpr unsigned " ++ label.replace("/", "_").replace(".", "_") ++ " = " ++ to_string(index) ++ ";\n"
   "namespace row_sites {\n" ++ String.join(constants, "") ++ "}\n"
 def window_target = traced_target(site_header, EventInstrumentationConfig(~partial: #true), ~before: [port_observer_pass([
   ["VectorLoadSequencer", "observe_load_grant", [

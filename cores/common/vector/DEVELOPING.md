@@ -233,7 +233,9 @@ single sequencer; neither imports distributed scheduling logic.
 
 Keep the [distributed sequence checkpoints](README.md#distributed-sequence-tracing)
 on existing handshakes: shared execute and special read ports in `backend.rhdl` and store
-capture before buffering in `backend/store-sequencer.rhdl`. Trace the physical
+FIFO admission in `backend/row-memory.rhdl`. Streaming scatter observes VS3
+capture and reuse in `backend/store-sequencer.rhdl`. The store packer selects
+the live row and the retained spill independently according to enabled lanes. Trace the physical
 return in `mem/vlsu.rhdl` using the response credit's owner, and the accepted VRF
 write in `backend/row-memory.rhdl` using the load chain's write owner. Owner captures must
 describe the transferring cursor, including fold selection and same-edge

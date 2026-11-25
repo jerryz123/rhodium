@@ -50,9 +50,15 @@ sync_circuit VectorStoreSequencer(xlen :: XLen, vlen :: VectorLength, slots :: P
   reg reading(~init: Bool(#false))
   def demand = scatter.demand
   def hit = resident & (row_tag === demand.bits)
-  def fill = reading & read_result.valid
+  def Array(row_return, scatter_return) = read_result |> fork_valid(2)
+  def captured = scatter_return |> filter_valid(_data => reading) |> trace_valid_event("vector/store.sequence", ~when: scatter_live, ~fields: _data):
+    pc: trace_instructions[scatter_owner].pc
+    instruction(~format: "riscv", ~isa: trace_isa || (if xlen == XLen.X32 | "rv32imafdcv" | "rv64imafdcv"), ~pc: "pc"): trace_instructions[scatter_owner].instruction
+    owner(~format: "unsigned"): scatter_owner
+    row(~format: "unsigned"): row_tag
+  def fill = captured.valid
   scatter.operand.valid <== demand.valid & (hit ||| fill)
-  scatter.operand.bits <== mux(fill, read_result.bits, row_data)
+  scatter.operand.bits <== mux(fill, captured.bits, row_data)
   def need = demand.valid & !hit
   store_reads.owner <== mux(scatter_live, scatter_owner, capture_owner)
   store_reads.unread_vs3 <== mux(scatter_live, row_event(need, demand.bits), mux(capturing, mux(segmented, segments.claims, unread_vs3), RowSet(0)))
@@ -61,15 +67,7 @@ sync_circuit VectorStoreSequencer(xlen :: XLen, vlen :: VectorLength, slots :: P
   capture.singleton <== singleton
   capture.capacity <== rows.ready
   capture.room_after_capture <== room_after_capture
-  def prepared = capture.prepared |> trace_event("vector/store.sequence", ~stalls: #true, ~fields: row):
-    pc: trace_instructions[capture_owner].pc
-    instruction(~format: "riscv", ~isa: trace_isa || (if xlen == XLen.X32 | "rv32imafdcv" | "rv64imafdcv"), ~pc: "pc"): trace_instructions[capture_owner].instruction
-    owner(~format: "unsigned"): capture_owner
-    row(~format: "unsigned"): row.row
-    offset(~format: "unsigned"): row.offset
-    enabled: row.enabled
-    last: row.last
-  (prepared |> map_flow(r => OwnedRow(PreparedRow(vlen), Owner)):
+  (capture.prepared |> map_flow(r => OwnedRow(PreparedRow(vlen), Owner)):
      owner: capture_owner
      payload: r
   ) |> rows
@@ -94,12 +92,19 @@ sync_circuit VectorStoreSequencer(xlen :: XLen, vlen :: VectorLength, slots :: P
   read.valid <== mux(scatter_live, fetch, capture.read.valid)
   read.bits <== mux(scatter_live, demand.bits, capture.read.bits)
   capture.read.ready <== !scatter_live & read.ready
-  read_result |> filter_valid(_data => !reading) |> capture.read_result
+  row_return |> filter_valid(_data => !reading) |> capture.read_result
   def missed = scatter_live & read.fire()
   reading <== missed
   when missed: row_tag <== demand.bits
-  when fill: row_data <== read_result.bits
+  when fill: row_data <== captured.bits
   when (!scatter_live ||| missed ||| fill): resident <== scatter_live & fill
+  // On return the operand bypasses the row register. Later elements may
+  // reuse its identity until a new read or the end of the scatter stream.
+  describe_interface_window_storage(
+    1, fill & scatter_live, (resident & (missed ||| fill ||| !scatter_live)).as_bits(),
+    resident.as_bits(), Bool(#false), [hit & !fill], ~live: fill
+  )
+  describe_interface_contract(captured, scatter.operand, "scatter-row", ~trace_model: interface_trace_window())
   capture.mask <=> mask
   busy <== capturing
 
