@@ -63,6 +63,11 @@ so a same-edge descriptor replacement cannot change a returning beat.
 SIMD FP moves check NaN boxing after the read; the FP arithmetic service
 performs its own checks.
 
+Element moves capture the full unsigned XLEN comparison `vstart >= vl` on
+that same admission edge. A move to a vector element uses the bit to suppress
+its write; a move from element zero to a GPR or FPR still runs. Keep the
+comparison ahead of any narrowing to the sequencer's cursor width.
+
 The sequencer keeps two independent XLEN addresses: the speculative issue
 address and the retry address. Packed mode initializes both to the
 aligned word containing `vstart`. Issue advances one word per transfer;
@@ -364,6 +369,8 @@ across segment fields, strides, nonzero `vstart`, and backpressure.
 The `vector-issue-address-rv32` and `vector-issue-address-rv64` fixtures switch
 modes at tail issue and tail authorization, stall a retry with younger beats
 outstanding, and check packed replay on both sides of XLEN address wraparound.
+The `vector-element-move-rv32` and `vector-element-move-rv64` fixtures check
+high-bit aliases, scalar destinations, and same-edge replacement of a stalled move.
 The `vector-gather-index-rv32` and `vector-gather-index-rv64` fixtures check the
 dependent read on the VRF return cycle and after a stall, including high-index
 aliases for both ordinary and EI16 gather.

@@ -51,6 +51,7 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
 
   /* Retained descriptor, cursors, and authorization frontier */
 
+  reg start_at_or_past_vl(Bool)
   reg packed_mode(~init: Bool(#false))
   reg issue_address(Bits(xlen.width))
   reg issue_cursor(VectorPackedCursor(xlen, vlen))
@@ -125,7 +126,7 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def clear = cancel.valid ||| retry ||| fault ||| truncate
   read_flush <== clear
   def scalar_destination = descriptor.control.scalar_destination ||| descriptor.control.floating_scalar_destination
-  def empty = mux(element_move, !scalar_destination & (descriptor.state.vstart >= descriptor.state.vl), minimum >= limit)
+  def empty = mux(element_move, !scalar_destination & start_at_or_past_vl, minimum >= limit)
   def next_cursor = cursor.zext(index_width(vlen + 1) + 1) + lanes.zext(index_width(vlen + 1) + 1)
   def end = mux(empty ||| (next_cursor >= limit.zext(index_width(vlen + 1) + 1)), limit, next_cursor[0..index_width(vlen + 1)])
   def last_field = !segmented_memory ||| (field === descriptor.control.memory_nf)
@@ -410,6 +411,8 @@ sync_circuit VectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: Data
     authorized_field <== Bits(3)(0)
     authorized_sequence <== Bits(vector_sequence_width(vlen))(0)
   elsewhen accepted:
+    // Compare before narrowing to cursor width; a high vstart must not alias element zero.
+    start_at_or_past_vl <== incoming.state.vstart >= incoming.state.vl
     packed_mode <== packed_memory
     occupied <== Bool(#true)
     instruction <== VectorSequencedInstruction(xlen, Context):
