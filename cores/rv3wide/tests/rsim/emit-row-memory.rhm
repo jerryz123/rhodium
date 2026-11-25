@@ -11,6 +11,8 @@ import:
   lib("rhodium/backend/rsim-target.rhm").rsim_target
   lib("rhodium/compile/pipeline.rhm").rtl_pipeline_target
   lib("cores/common/tests/rsim/port-observers.rhm").port_observer_pass
+  lib("rhodium/event/instrument.rhm").EventInstrumentationConfig
+  lib("rhodium/event/tests/rsim/trace-sites.rhm").traced_target
 
 fun fixture(xlen):
   elaborate(SuperscalarVectorFixture(~xlen: xlen, ~vlen: 256, ~vector_backend: VectorBackendKind.Distributed, ~extensions: [VectorExtension.Zvbb]))
@@ -40,7 +42,13 @@ def target = rtl_pipeline_target(rsim_target, [port_observer_pass([
 ])])
 def unit32 = elaborate(RowMemoryFixture(XLen.X32, 256))
 def unit64 = elaborate(RowMemoryFixture(XLen.X64, 256))
+fun site_header(manifest):
+  def constants = for List (site in manifest.sites, index in 0..manifest.sites.length()):
+    keep_when site.label.starts_with("vector/load.") && !site.label.ends_with(".stall")
+    "constexpr unsigned " ++ site.label.replace("/", "_").replace(".", "_") ++ " = " ++ to_string(index) ++ ";\n"
+  "namespace row_sites {\n" ++ String.join(constants, "") ++ "}\n"
+def window_target = traced_target(site_header, EventInstrumentationConfig(~partial: #true))
 def merge32 = elaborate(RowMemoryFixture(XLen.X32, 128))
 def indexed32 = elaborate(NativeIndexMemoryFixture(XLen.X32, 128))
 def indexed64 = elaborate(NativeIndexMemoryFixture(XLen.X64, 256))
-export rv32 rv64 target unit32 unit64 merge32 indexed32 indexed64
+export rv32 rv64 target unit32 unit64 window_target merge32 indexed32 indexed64

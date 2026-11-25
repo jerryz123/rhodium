@@ -235,8 +235,8 @@ rv3wide-row-execute-rv32	cores-components	cores/rv3wide/tests/rsim/emit-row-exec
 rv3wide-permute-rv32	cores-components	cores/rv3wide/tests/index-gather-fixture.rhdl	permute32	cores/rv3wide/tests/rsim/permute.cpp
 rv3wide-permute-rv64	cores-components	cores/rv3wide/tests/index-gather-fixture.rhdl	permute64	cores/rv3wide/tests/rsim/permute.cpp
 rv3wide-row-execute-rv64	cores-components	cores/rv3wide/tests/rsim/emit-row-execute.rhm	rv64	cores/rv3wide/tests/rsim/row-execute.cpp
-rv3wide-row-window-rv32	cores-components	cores/rv3wide/tests/rsim/emit-row-memory.rhm	unit32	cores/rv3wide/tests/rsim/row-window.cpp
-rv3wide-row-window-rv64	cores-components	cores/rv3wide/tests/rsim/emit-row-memory.rhm	unit64	cores/rv3wide/tests/rsim/row-window.cpp
+rv3wide-row-window-rv32	cores-components	cores/rv3wide/tests/rsim/emit-row-memory.rhm	unit32	cores/rv3wide/tests/rsim/row-window.cpp	window_target	rheg/runtime/rheg.cc
+rv3wide-row-window-rv64	cores-components	cores/rv3wide/tests/rsim/emit-row-memory.rhm	unit64	cores/rv3wide/tests/rsim/row-window.cpp	window_target	rheg/runtime/rheg.cc
 rv3wide-load-merge-rv32	cores-components	cores/rv3wide/tests/rsim/emit-row-memory.rhm	indexed32	cores/rv3wide/tests/rsim/load-merge.cpp
 rv3wide-load-merge-rv64	cores-components	cores/rv3wide/tests/rsim/emit-row-memory.rhm	indexed64	cores/rv3wide/tests/rsim/load-merge.cpp
 rv3wide-store-merge-rv32	cores-components	cores/rv3wide/tests/rsim/emit-row-memory.rhm	merge32	cores/rv3wide/tests/rsim/store-merge.cpp

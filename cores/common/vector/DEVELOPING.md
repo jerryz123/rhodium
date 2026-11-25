@@ -207,7 +207,9 @@ single sequencer; neither imports distributed scheduling logic.
 Keep the [distributed sequence checkpoints](README.md#distributed-sequence-tracing)
 on existing handshakes: shared execute and special read ports in `backend.rhdl`,
 load preparation before packing in `backend/load-sequencer.rhdl`, and store
-capture before buffering in `backend/store-sequencer.rhdl`. Owner captures must
+capture before buffering in `backend/store-sequencer.rhdl`. In `backend/row-memory.rhdl`,
+trace the return-queue ingress using the response credit's owner and the accepted
+VRF write using the load chain's write owner. Owner captures must
 describe the transferring cursor, including fold selection and same-edge
 replacement, rather than the next dispatch offer. The backend captures only
 `VectorTraceInstruction` at owner allocation and indexes that bank using each

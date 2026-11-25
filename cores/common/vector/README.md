@@ -188,8 +188,8 @@ including stores). A slot release can coincide with an unrelated result completi
 
 RV3Wide selects the distributed backend, with independent execution and memory
 sequencers. Traced builds expose `vector/execute.sequence` for accepted execute
-operand reads (including reductions), `vector/load.sequence` for prepared load
-masks entering the beat packer, and `vector/store.sequence` for captured or
+operand reads (including reductions), `vector/load.sequence` for accepted
+load writes to the VRF, and `vector/store.sequence` for captured or
 skipped rows entering the store FIFO. Special operand demand and lookahead reads
 appear on `vector/special.sequence` and `vector/special.lookahead` respectively.
 These are sequencing transfers, not instruction admission or completion.
@@ -200,6 +200,14 @@ aligned fragment VA and PA, byte mask, and whether this is a split suffix.
 A fully masked skip has no address event; an access split across two requests
 has two. Stalls here mean the selected request was offered but not accepted,
 not that a cursor was waiting for operands, selection, or issue credit.
+
+For loads, `vector/load.prepare` shows the logical row and enabled bytes before
+packing; it can coincide with `load.agen`. `vector/load.return` shows a physical
+response fragment accepted into VLSeq's return queue, tagged with the original
+request owner and byte mask. `load.sequence` reports the physical VRF destination
+row and bit write mask only when the write port grants it. Returns can therefore
+run ahead of a stalled write. Split or segmented accesses need not have one
+return per write, and a fully masked row produces no synthetic return or write.
 
 Each event is named by its disassembled instruction and captures its PC,
 instruction-owner slot, and row information. The PC and instruction are

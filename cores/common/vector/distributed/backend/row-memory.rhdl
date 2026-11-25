@@ -69,13 +69,29 @@ sync_circuit VectorRowEngine(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
   for (i in MemoryPaths): launch[i] |> vlsu.start[i]
   loads.rows |> vlsu.masks
   stores.rows |> vlsu.store_data
-  vlsu.returned |> loads.returned
+  def isa = trace_isa || (if xlen == XLen.X32 | "rv32imafdcv" | "rv64imafdcv")
+  (vlsu.returned |> trace_event("vector/load.return", ~stalls: #true, ~fields: reply):
+     pc: trace_instructions[reply.credit.owner].pc
+     instruction(~format: "riscv", ~isa: isa, ~pc: "pc"): trace_instructions[reply.credit.owner].instruction
+     owner(~format: "unsigned"): reply.credit.owner
+     row(~format: "unsigned"): reply.credit.row
+     offset(~format: "unsigned"): reply.credit.offset
+     pa: reply.credit.pa
+     byte_mask: reply.credit.enabled
+  ) |> loads.returned
   vlsu.load_credits <== loads.held
   loads.reserve <== vlsu.reserve_load
   vlsu.memory <=> memory
   loads.chain <=> chain
   stores.store_reads <=> store_reads
-  loads.write |> write
+  def write_owner = loads.chain.write_owner
+  (loads.write |> trace_event("vector/load.sequence", ~stalls: #true, ~fields: wr):
+     pc: trace_instructions[write_owner].pc
+     instruction(~format: "riscv", ~isa: isa, ~pc: "pc"): trace_instructions[write_owner].instruction
+     owner(~format: "unsigned"): write_owner
+     row(~format: "unsigned"): wr.address
+     write_mask: wr.mask
+  ) |> write
   stores.read |> read
   read_result |> stores.read_result
   indices |> vlsu.indices

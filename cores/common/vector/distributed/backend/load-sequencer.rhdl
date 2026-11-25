@@ -58,7 +58,7 @@ sync_circuit VectorLoadSequencer(xlen :: XLen, vlen :: VectorLength, slots :: Po
   packer.elementwise <== elementwise
   packer.eew <== eew
   packer.displacement <== displacement
-  (operands.prepared |> trace_event("vector/load.sequence", ~stalls: #true, ~fields: row):
+  (operands.prepared |> trace_event("vector/load.prepare", ~stalls: #true, ~fields: row):
      pc: trace_instructions[owner].pc
      instruction(~format: "riscv", ~isa: trace_isa || (if xlen == XLen.X32 | "rv32imafdcv" | "rv64imafdcv"), ~pc: "pc"): trace_instructions[owner].instruction
      owner(~format: "unsigned"): owner

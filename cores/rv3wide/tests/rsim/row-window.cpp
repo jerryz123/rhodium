@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "test.hpp"
+#include "test-sites.h"
 
 using Row = std::array<std::uint32_t,4>;
 constexpr Row data(unsigned r) { return {0x44556600u+r,0xfedcba98u-r,r,0x77889900u+r}; }
@@ -21,6 +22,7 @@ void exercise(bool store, bool masked) {
   launch_in.pbits.pissue.pdescriptor.pstate.pvtype = 1; // e8,m2
   launch_in.pbits.pissue.pdescriptor.pcontrol.pstore = store;
   launch_in.pbits.pissue.pdescriptor.pmasked = masked;
+  launch_in.pbits.pissue.pdescriptor.ppc = 0x1000 + 4 * masked + 8 * store;
   const bool aliases_v0 = store && masked;
   launch_in.pbits.pissue.pdescriptor.pinstruction = (aliases_v0 ? 0u : 8u) << 7;
   launch_in.pbits.pissue.pdescriptor.pscalar = 0x3ff0;
@@ -55,6 +57,17 @@ void exercise(bool store, bool masked) {
   unsigned predicate_claim=masked;
   const Row predicate{0xa8011043u,0,0,0};
   auto source = [&](unsigned r) { return aliases_v0 && r==0 ? predicate : data(r); };
+  static std::uint64_t return_serial = 0, write_serial = 0;
+  const auto check_transfer = [&](unsigned site, std::uint64_t& serial, bool fired, unsigned row) {
+    const rheg::Ref ref{site, serial};
+    const auto& graph = rheg::graph();
+    CHECK(graph.nodes.contains(ref) == fired);
+    if (!fired) return;
+    CHECK(graph.field(ref, "row").unsigned_value() == row);
+    CHECK(graph.field(ref, "owner").unsigned_value() == 3);
+    CHECK(graph.field(ref, "pc").unsigned_value() == launch_in.pbits.pissue.pdescriptor.ppc);
+    ++serial;
+  };
   for (unsigned t=1;t<150;++t) {
     read_in.pready=1;
     mask_0_in.pdata.words=mask_1_in.pdata.words=predicate;
@@ -94,7 +107,9 @@ void exercise(bool store, bool masked) {
       }
     }
     if (issued_out.pvalid) { CHECK(issued_out.pbits.powner==3 && requests==2 && !responses); ++tails; }
-    if (memory_in.presponse.pvalid && memory_out.presponse.pready) ++responses;
+    const bool returned = memory_in.presponse.pvalid && memory_out.presponse.pready;
+    const unsigned returned_row = 16 + responses;
+    if (returned) ++responses;
     // Returned data or an occupied, stalled VRF port is not a release.
     // Ignore the two empty tail rows; they can release without a grant.
     const auto vd=chain_out.punwritten_uvd;
@@ -116,7 +131,11 @@ void exercise(bool store, bool masked) {
     }
     source_return=read_out.pvalid && read_in.pready;
     if (source_return) { CHECK(store && read_out.pbits==source_base+source_reads); source_row=source_reads++; }
+    const bool written = write_out.pvalid && write_in.pready;
+    const unsigned destination = write_out.pbits.paddress;
     tick_model();
+    check_transfer(row_sites::vector_load_return, return_serial, !store && returned, returned_row);
+    check_transfer(row_sites::vector_load_sequence, write_serial, written, destination);
     if (finished_count) break;
   }
   eval();
@@ -126,12 +145,31 @@ void exercise(bool store, bool masked) {
 
 // Occupancy is per instruction: holding a returned load off the VRF does not
 // prevent VLIQ delivery, but does prevent replacement of that load's VLSeq.
-void single_load() {
+void single_load(bool fully_masked) {
   launch_0_in={}; memory_in={}; write_in={}; chain_in={};
   memory_in.prequest.pready=1;
   launch_0_in.pbits.pissue.powner=3; launch_0_in.pbits.pissue.pdescriptor.pstate.pvl=16; launch_0_in.pbits.pissue.pdescriptor.pinstruction=8<<7;
+  launch_0_in.pbits.pissue.pdescriptor.pmasked=fully_masked;
+  mask_0_in.pdata={};
   launch_0_in.pvalid=1; offer_operands(false); eval(); CHECK(launch_0_out.pready && prepare_out.pready); tick_model();
   prepare_in.pvalid=launch_0_in.pvalid=0;
+  if (fully_masked) {
+    const auto& graph = rheg::graph();
+    const auto count = [&](unsigned site) {
+      return std::count_if(graph.nodes.begin(), graph.nodes.end(), [&](const auto& entry) { return entry.first.site == site; });
+    };
+    const std::array sites{row_sites::vector_load_prepare, row_sites::vector_load_agen,
+                           row_sites::vector_load_return, row_sites::vector_load_sequence};
+    const std::array before{count(sites[0]), count(sites[1]), count(sites[2]), count(sites[3])};
+    for (unsigned wait=0; ; ++wait) {
+      eval(); CHECK(wait<20 && !memory_out.prequest.pvalid && !write_out.pvalid);
+      const bool finished=finished_out.pvalid;
+      tick_model();
+      if (finished) break;
+    }
+    for (unsigned i=0; i<sites.size(); ++i) CHECK(count(sites[i])==before[i]+(i==0));
+    return;
+  }
   eval(); CHECK(memory_out.prequest.pvalid && issued_out.pvalid); tick_model();
   memory_in.presponse.pvalid=1; memory_in.presponse.pbits.words=data(0);
   eval(); CHECK(memory_out.presponse.pready); tick_model(); memory_in.presponse.pvalid=0;
@@ -324,9 +362,11 @@ void independent_starts(bool older_store) {
 
 int main() {
   return run_test([] {
+    rheg::graph().bind_manifest(rheg_generated::manifest());
     reset=1; tick_model(); reset=0;
     for (bool store : {false,true}) for (bool masked : {false,true}) exercise(store,masked);
-    single_load();
+    single_load(false);
+    single_load(true);
     writeback_window();
     for (bool store : {false,true}) for (bool alias : {false,true}) physical_ranges(store,alias);
     blocked_store_source();
