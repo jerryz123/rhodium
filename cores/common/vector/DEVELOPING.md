@@ -232,8 +232,7 @@ RV5Stage and RV2Wide continue to use [backend.rhdl](backend.rhdl) and its
 single sequencer; neither imports distributed scheduling logic.
 
 Keep the [distributed sequence checkpoints](README.md#distributed-sequence-tracing)
-on existing handshakes: shared execute and special read ports in `backend.rhdl`,
-load preparation before packing in `backend/load-sequencer.rhdl`, and store
+on existing handshakes: shared execute and special read ports in `backend.rhdl` and store
 capture before buffering in `backend/store-sequencer.rhdl`. Trace the physical
 return in `mem/vlsu.rhdl` using the response credit's owner, and the accepted VRF
 write in `backend/row-memory.rhdl` using the load chain's write owner. Owner captures must

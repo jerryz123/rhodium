@@ -4,6 +4,7 @@
 
 enum IssueKind : unsigned { contiguous, stride_kind, inline_index, inline_ordered, resolved, resolved_ordered_index };
 constexpr unsigned bytes=sizeof(memory_in.presponse.pbits);
+constexpr unsigned row_credits=5;
 unsigned byte_at(unsigned va) { return (va*13u+(va>>8))&255; }
 
 void exercise(unsigned shift,unsigned first,unsigned limit,unsigned eew,unsigned vd=8,
@@ -62,7 +63,7 @@ void exercise(unsigned shift,unsigned first,unsigned limit,unsigned eew,unsigned
       sent+=memory_in.prequest.pready;
     }
     returned+=memory_in.presponse.pvalid && memory_out.presponse.pready;
-    CHECK(sent-returned<=2);
+    CHECK(sent-returned<=row_credits);
     if (issued_out.pvalid) { ++issued; CHECK(sent==count && issued_out.pbits==2); }
     if (delivered_out.pvalid) { ++delivered; CHECK(returned==count); }
     if (write_out.pvalid) {
@@ -228,7 +229,7 @@ static void strided_peer(bool store,int stride,bool masked) {
       sent+=memory_in.prequest.pready;
     }
     replies+=memory_in.presponse.pvalid && memory_out.presponse.pready;
-    CHECK(sent-replies<=2);
+    CHECK(sent-replies<=row_credits);
     done+=finished_out.pvalid; tick_model();
     if(launch) { peer.pvalid=0; admitted=true; }
   }
@@ -275,7 +276,8 @@ static void indexed_bytes(bool store, bool ordered, bool mask_hole) {
       }
     }
     memory_in.prequest.pready=sent<2 || t%3!=0;
-    memory_in.presponse.pvalid=acks<sent && t>=last_issue+8;
+    // Delay unordered replies until all five active bytes have reserved credits.
+    memory_in.presponse.pvalid=acks<sent && t>=last_issue+8 && (ordered || sent==live.size());
     const unsigned response_pa=physical+offsets[acks%offsets.size()];
     auto *rsp=reinterpret_cast<unsigned char*>(&memory_in.presponse.pbits);
     for(unsigned b=0;b<bytes;++b) rsp[b]=byte_at((response_pa&~(bytes-1))+b);
@@ -288,7 +290,7 @@ static void indexed_bytes(bool store, bool ordered, bool mask_hole) {
       if(prior_row<16) { CHECK(prior_row==8+index_reads && t>=(index_reads ? 18u : 8u)); ++index_reads; }
       else { CHECK(store && prior_row==16+data_reads); ++data_reads; }
     }
-    const unsigned limit=ordered ? 1 : 2;
+    const unsigned limit=ordered ? 1 : row_credits;
     if(sent-acks==limit && !memory_in.presponse.pvalid) { CHECK(!memory_out.prequest.pvalid); blocked=true; }
     if(memory_out.prequest.pvalid) {
       CHECK(sent<live.size() && sent-acks<limit);
@@ -297,7 +299,7 @@ static void indexed_bytes(bool store, bool ordered, bool mask_hole) {
       CHECK(bool(req.pstore)==store && req.paddress==(addr&~(bytes-1)) && req.pbyte_umask==(1u<<lane));
       if(store) CHECK(reinterpret_cast<const unsigned char*>(&req.pdata)[lane]==0x40+live[sent]);
       if(memory_in.prequest.pready) {
-        // The second active element uses the other credit without a reply.
+        // The second active element can issue before the first reply.
         // A masked lane costs a cursor cycle, but never takes a credit.
         if(!ordered && sent==1) CHECK(!acks && t==last_issue+live[1]);
         ++sent; last_issue=t;
@@ -380,7 +382,7 @@ static void wide_indexed(bool store,bool ordered,unsigned eew) {
       if(prior<16) { CHECK(prior==8+indices); ++indices; }
     }
     if(memory_out.prequest.pvalid) {
-      CHECK(sent<expected.size() && sent-acks<(ordered?1u:2u));
+      CHECK(sent<expected.size() && sent-acks<(ordered?1u:row_credits));
       const auto& f=expected[sent]; const auto& req=memory_out.prequest.pbits;
       unsigned lane=f.pa%bytes;
       CHECK(req.paddress==f.pa-lane && req.pbyte_umask==((1u<<f.count)-1)<<lane && bool(req.pstore)==store);
@@ -388,7 +390,7 @@ static void wide_indexed(bool store,bool ordered,unsigned eew) {
         CHECK(reinterpret_cast<const unsigned char*>(&req.pdata)[lane+b]==0x40+f.logical+b);
       if(memory_in.prequest.pready) ++sent; else ++suffix_stalls;
     }
-    if(t==39) CHECK(acks==0 && sent==(ordered?1u:2u));
+    if(t==39) CHECK(acks==0 && sent==(ordered?1u:row_credits));
     acks+=memory_in.presponse.pvalid && memory_out.presponse.pready;
     peak=std::max(peak,sent-acks);
     if(write_out.pvalid) {
@@ -406,7 +408,7 @@ static void wide_indexed(bool store,bool ordered,unsigned eew) {
     if(finished_out.pvalid) { CHECK(acks==expected.size()); ++done; }
     tick_model();
   }
-  CHECK(done && !unread_indices && indices==2 && sent==expected.size() && suffix_stalls==5 && peak==(ordered?1u:2u));
+  CHECK(done && !unread_indices && indices==2 && sent==expected.size() && suffix_stalls==5 && peak==(ordered?1u:row_credits));
   CHECK(store ? grant==0 : grant==destinations.size() && stalls==5);
 }
 

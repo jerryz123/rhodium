@@ -96,7 +96,7 @@ several data rows before another VRF read is needed. Gather and scatter share
 one index sequencer: it can read the next index row on an unused VRF port cycle,
 without issuing memory or taking the port from store data. A masked element uses no
 credit. An active element crossing a DLEN boundary issues two masked beats.
-Unordered accesses can have two beats outstanding; ordered accesses wait for
+Unordered accesses can have up to five beats outstanding; ordered accesses wait for
 the preceding load response or store ACK.
 Single-field wider-index instructions do not need this certificate. At WB the
 checker reads unsigned VS2 offsets at their encoded width and checks only the
@@ -105,7 +105,7 @@ active elements, in order. Consecutive accesses wholly inside the same certified
 probe nor replace the page; an element crossing a page boundary uses an exact
 two-page check. Once the VLSU accepts an element and its translations, the
 checker can probe the next active element without waiting for L1D to grant
-the first one. For ordinary cacheable mappings, up to two checked
+the first one. For ordinary cacheable mappings, up to five checked
 unordered elements can be in flight. Within a certified page, unordered
 gathers and scatters can issue adjacent elements on consecutive cycles when
 their operands are resident and credits are available. Scatters reuse each
@@ -119,8 +119,9 @@ Overlapping data/index groups stay on the precise path.
 Each row enables only bytes selected by `vstart`, `vl`, and the element predicate;
 a fully disabled physical beat advances without issuing a cache request. A failed range check falls back to
 precise element accesses rather than raising a fault on a masked-off address.
-VLIQ and VSIQ advance separate address cursors over one L1D port with two
-shared row credits. The two start ports are independent: a blocked start cannot
+VLIQ and VSIQ advance separate address cursors over one L1D port with five
+shared row credits. Admission uses registered occupancy, not same-cycle credit
+release. The two start ports are independent: a blocked start cannot
 hide an eligible head of the other kind. Delivery of the final physical load reply
 to the VLSU return buffer ends the memory dependency; it need not wait for a VRF
 grant. VLSeq has no return FIFO: it takes a formatted result only when older

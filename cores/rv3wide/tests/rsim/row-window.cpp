@@ -167,16 +167,15 @@ void single_load(bool fully_masked) {
     const auto count = [&](unsigned site) {
       return std::count_if(graph.nodes.begin(), graph.nodes.end(), [&](const auto& entry) { return entry.first.site == site; });
     };
-    const std::array sites{row_sites::vector_load_prepare, row_sites::vector_load_agen,
-                           row_sites::vector_load_return, row_sites::vector_load_sequence};
-    const std::array before{count(sites[0]), count(sites[1]), count(sites[2]), count(sites[3])};
+    const std::array sites{row_sites::vector_load_agen, row_sites::vector_load_return, row_sites::vector_load_sequence};
+    const std::array before{count(sites[0]), count(sites[1]), count(sites[2])};
     for (unsigned wait=0; ; ++wait) {
       eval(); CHECK(wait<20 && !memory_out.prequest.pvalid && !write_out.pvalid);
       const bool finished=finished_out.pvalid;
       tick_model();
       if (finished) break;
     }
-    for (unsigned i=0; i<sites.size(); ++i) CHECK(count(sites[i])==before[i]+(i==0));
+    for (unsigned i=0; i<sites.size(); ++i) CHECK(count(sites[i])==before[i]);
     return;
   }
   eval(); CHECK(memory_out.prequest.pvalid && issued_out.pvalid); tick_model();
@@ -192,24 +191,28 @@ void single_load(bool fully_masked) {
   eval(); CHECK(launch_0_out.pready);
 }
 
-// A WAR hazard blocks only writeback. Cache returns, a stalled write port,
-// and a launch of the third row must never turn two reservations into three.
-void writeback_window() {
+// Feed three-cycle L1 hit replies, or hold the VRF to fill the registered window.
+void writeback_window(bool block_write) {
+  constexpr unsigned credits=5, rows=12, claims=(1u<<rows)-1;
   launch_0_in={}; memory_in={}; chain_in={}; write_in={};
   memory_in.prequest.pready=write_in.pready=1;
-  chain_in.polder_uaccesses=std::uint64_t(1)<<16;
+  chain_in.polder_uaccesses=std::uint64_t(block_write)<<16;
   launch_0_in.pbits.ppages[0]=0x60;
-  launch_0_in.pbits.pissue.pdescriptor.pstate.pvl=48; launch_0_in.pbits.pissue.pdescriptor.pstate.pvtype=1;
+  launch_0_in.pbits.pissue.pdescriptor.pstate.pvl=rows*16; launch_0_in.pbits.pissue.pdescriptor.pstate.pvtype=3; // e8,m8
   launch_0_in.pbits.pissue.pdescriptor.pinstruction=8u<<7; launch_0_in.pbits.pissue.powner=2;
   launch_0_in.pvalid=1; offer_operands(false); eval(); CHECK(launch_0_out.pready && prepare_out.pready); tick_model(); prepare_in.pvalid=launch_0_in.pvalid=0;
   unsigned requests=0, responses=0, grants=0, finishes=0;
+  unsigned cycle=0;
+  std::array<unsigned,rows> accepted{};
   auto edge=[&] {
-    memory_in.presponse.pvalid=responses<requests;
+    memory_in.presponse.pvalid=responses<requests && cycle>=accepted[responses]+3;
     memory_in.presponse.pbits.words=data(responses);
     eval();
-    CHECK(chain_out.punwritten_uvd==(std::uint64_t(7u & (7u<<grants))<<16));
+    CHECK(chain_out.punwritten_uvd==(std::uint64_t(claims & (claims<<grants))<<16));
     if (memory_out.prequest.pvalid) {
-      CHECK(requests<3 && memory_out.prequest.pbits.paddress==0x60000+16*requests);
+      CHECK(requests<rows && memory_out.prequest.pbits.paddress==0x60000+16*requests);
+      accepted[requests]=cycle;
+      if (!block_write) CHECK(cycle==accepted[0]+requests);
       ++requests;
     }
     responses+=memory_in.presponse.pvalid && memory_out.presponse.pready;
@@ -219,19 +222,25 @@ void writeback_window() {
       grants+=write_in.pready;
     }
     finishes+=finished_out.pvalid;
-    CHECK(requests-grants<=2 && (!finishes || grants==3));
-    tick_model();
+    CHECK(requests-grants<=credits && (!finishes || grants==rows));
+    tick_model(); ++cycle;
   };
+  if (!block_write) {
+    for (unsigned t=0;t<rows+10 && !finishes;++t) edge();
+    CHECK(requests==rows && responses==rows && grants==rows && finishes==1);
+    return;
+  }
   for (unsigned t=0;t<10;++t) edge();
-  CHECK(requests==2 && responses==2 && !grants);
+  CHECK(requests==credits && responses==credits && !grants);
   chain_in.polder_uaccesses=0; write_in.pready=0;
   for (unsigned t=0;t<8;++t) { eval(); CHECK(write_out.pvalid); edge(); }
-  CHECK(requests==2 && !grants);
-  write_in.pready=1; edge(); write_in.pready=0;
+  CHECK(requests==credits && !grants);
+  write_in.pready=1; edge(); CHECK(requests==credits && grants==1);
+  write_in.pready=0; edge(); CHECK(requests==credits+1);
   for (unsigned t=0;t<8;++t) edge();
-  CHECK(requests==3 && responses==3 && grants==1);
-  write_in.pready=1; for (unsigned t=0;t<6;++t) edge();
-  CHECK(grants==3 && finishes==1);
+  CHECK(requests==credits+1 && responses==credits+1 && grants==1);
+  write_in.pready=1; for (unsigned t=0;t<rows+8 && !finishes;++t) edge();
+  CHECK(grants==rows && finishes==1);
 }
 
 // An older cursor crosses from PPN 0x60 to PPN 0x90. A different VA mapped
@@ -378,7 +387,8 @@ int main() {
     for (bool store : {false,true}) for (bool masked : {false,true}) exercise(store,masked);
     single_load(false);
     single_load(true);
-    writeback_window();
+    writeback_window(false);
+    writeback_window(true);
     for (bool store : {false,true}) for (bool alias : {false,true}) physical_ranges(store,alias);
     blocked_store_source();
     for (bool store : {false,true}) independent_starts(store);

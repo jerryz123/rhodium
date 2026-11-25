@@ -12,7 +12,7 @@ import:
 
 // These are public capture schemas consumed by the Perfetto disassembler,
 // including special read paths not exercised by every vector benchmark.
-def labels = ["vector/execute.sequence", "vector/load.prepare", "vector/load.return", "vector/load.sequence", "vector/store.sequence",
+def labels = ["vector/execute.sequence", "vector/load.return", "vector/load.sequence", "vector/store.sequence",
               "vector/special.sequence", "vector/special.lookahead", "vector/load.agen", "vector/store.agen"]
 for (xlen in [XLen.X32, XLen.X64]):
   def isa = "rv" ++ to_string(xlen.width) ++ "imafdcv_zvbb"

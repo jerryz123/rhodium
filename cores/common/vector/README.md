@@ -201,12 +201,11 @@ A fully masked skip has no address event; an access split across two requests
 has two. Stalls here mean the selected request was offered but not accepted,
 not that a cursor was waiting for operands, selection, or issue credit.
 
-For loads, `vector/load.prepare` shows the logical row and enabled bytes before
-packing; it can coincide with `load.agen`. `vector/load.return` shows a physical
-response fragment accepted into the VLSU's load-return queue, tagged with the original
-request owner and byte mask. `load.sequence` reports the physical VRF destination
-row and bit write mask when VLSeq takes a formatted result on its VRF grant. Returns can therefore
-run ahead of a stalled write. Split or segmented accesses need not have one
+`vector/load.return` shows a physical response fragment accepted into the VLSU's
+load-return queue, tagged with the original request owner and byte mask.
+`load.sequence` reports the physical VRF destination row and bit write mask when
+VLSeq takes a formatted result on its VRF grant. Returns can therefore run
+ahead of a stalled write. Split or segmented accesses need not have one
 return per write, and a fully masked row produces no synthetic return or write.
 
 Each event is named by its disassembled instruction and captures its PC,

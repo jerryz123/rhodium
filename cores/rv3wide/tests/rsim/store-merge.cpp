@@ -66,7 +66,7 @@ void exercise(unsigned displacement, unsigned first, unsigned limit, unsigned ee
       if (stalled) { held=data; ++stalls; } else ++accepted;
     }
     acks+=memory_in.presponse.pvalid && memory_out.presponse.pready;
-    CHECK(accepted-acks<=2);
+    CHECK(accepted-acks<=5);
     if (issued_out.pvalid) { CHECK(accepted==beats && issued_out.pbits.powner==3); ++tails; }
     if (finished_out.pvalid) { CHECK(acks==beats && finished_out.pbits.powner==3); ++done; }
     tick_model();

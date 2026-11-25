@@ -18,10 +18,9 @@ import:
   "../../register-file.rhdl".VectorRegisterWrite
 
 /* VLSeq retains row claims and consumes enabled VLSU fragments only on the VRF grant. */
-sync_circuit VectorLoadSequencer(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~trace_isa: trace_isa :: maybe(String) = #false):
+sync_circuit VectorLoadSequencer(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int):
   def dlen = vector_dlen(vlen)
   def Owner = Bits(index_width(slots))
-  input trace_instructions: Vec(slots, VectorTraceInstruction(xlen))
   interface prepare(Decoupled(MemoryIssue(xlen, vlen, slots)), ~role: consumer)
   interface rows(Decoupled(OwnedRow(PreparedBeat(vlen), Owner)), ~role: producer)
   interface result(Decoupled(VectorRegisterWrite(dlen, vlen)), ~role: consumer)
@@ -55,15 +54,7 @@ sync_circuit VectorLoadSequencer(xlen :: XLen, vlen :: VectorLength, slots :: Po
   packer.elementwise <== elementwise
   packer.eew <== eew
   packer.displacement <== displacement
-  (operands.prepared |> trace_event("vector/load.prepare", ~stalls: #true, ~fields: row):
-     pc: trace_instructions[owner].pc
-     instruction(~format: "riscv", ~isa: trace_isa || (if xlen == XLen.X32 | "rv32imafdcv" | "rv64imafdcv"), ~pc: "pc"): trace_instructions[owner].instruction
-     owner(~format: "unsigned"): owner
-     row(~format: "unsigned"): row.row
-     offset(~format: "unsigned"): row.offset
-     enabled: row.enabled
-     last: row.last
-  ) |> packer.source
+  operands.prepared |> packer.source
   (packer.beat |> map_flow(r => OwnedRow(PreparedBeat(vlen), Owner)):
      owner: owner
      payload: r

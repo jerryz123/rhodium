@@ -69,8 +69,8 @@ interface VectorPredicateTap(dlen :: PosInt):
   shadow -> reader:
     data: Bits(dlen)
 
-// Metadata and returned load data reserve from one physical memory issue budget.
-def MemoryRowCredits = 2
+// Five shared fragment credits cover L1 hit issue through registered credit reuse.
+def MemoryRowCredits = 5
 def MemoryCreditCount = Bits(index_width(MemoryRowCredits + 1))
 
 /* Locate a row within a group, relative to the base architectural register. */

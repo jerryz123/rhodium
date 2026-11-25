@@ -185,7 +185,7 @@ void page_run(bool enable_bad, bool masked_tail=false, bool stall_vrf=false) {
         CHECK(reinterpret_cast<const unsigned char*>(&w.pmask)[i]==(i==e%bytes ? 255 : 0));
       CHECK(reinterpret_cast<const unsigned char*>(&w.pdata)[e%bytes]==0x40+written);
       if(stall_vrf && !write_in.pready) {
-        CHECK(issued==2 && installs==1 && streams==1 && !finished && !authorized);
+        CHECK(issued>=2 && issued<=5 && installs==1 && !finished && !authorized);
         CHECK(claimed & (1ull<<16));
         ++stalled;
       }
@@ -386,7 +386,7 @@ void page_scatter(bool delay_ack, bool deny=false) {
         last=t; ++issued;
       }
     }
-    if(delay_ack && issued && t<first+15) CHECK(issued<=2 && !authorized && !finished && !acks);
+    if(delay_ack && issued && t<first+15) CHECK(issued<=5 && !authorized && !finished && !acks);
     acks+=memory_in.presponse.pvalid && memory_out.presponse.pready;
     auth+=authorized;
     if(deny) {

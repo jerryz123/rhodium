@@ -334,7 +334,7 @@ int main() {
     CHECK(index_proof && loads==first_load+1 && cycle<release_at);
     send(0x0ff0000f);
     CHECK(loads==first_load+3 && replies==loads && retire_cycle>last_reply);
-    // An unordered store may occupy both credits. A scalar FENCE following
+    // An unordered store may have multiple unacknowledged beats. A scalar FENCE following
     // it must wait for all three active bytes, not just issue or the first ACK.
     indexed_scatter=true; first_store=requests; release_at=cycle+80;
     send((1u<<26)|(1u<<25)|(8u<<20)|(1u<<15)|(12u<<7)|0x27u); // vsuxei8.v v12,(x1),v8

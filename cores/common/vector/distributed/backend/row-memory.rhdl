@@ -48,9 +48,8 @@ sync_circuit VectorRowEngine(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
   output unavailable: Vec(MemoryPaths.length(), Bool)
   inst vlsu(VectorVLSU(xlen, vlen, slots, ~trace_isa: trace_isa))
   vlsu.trace_instructions <== trace_instructions
-  inst loads(VectorLoadSequencer(xlen, vlen, slots, ~trace_isa: trace_isa))
+  inst loads(VectorLoadSequencer(xlen, vlen, slots))
   inst stores(VectorStoreSequencer(xlen, vlen, slots, ~trace_isa: trace_isa))
-  loads.trace_instructions <== trace_instructions
   stores.trace_instructions <== trace_instructions
   def Array(load, store) = prepare |> demux_flow(2, entry => entry.command.store)
   splat |> vlsu.splat
