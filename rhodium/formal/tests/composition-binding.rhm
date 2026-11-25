@@ -29,11 +29,13 @@ export capture_gate arbitrated_capture raw_capture
 export gated_at leaky_at outer_at
 export pair_at fifo_definition arbiter_definition mixed wrong_lane undersized
 export pair_series wrong_ready_series
+export faulty_pair
 export interface_prefixes pin_layout leaf_sites
 export proof_depths parent_at wrong_lane_at fifo_at
 
 // Keep the actual definitions, not generated module names, in one elaboration.
 def pairs = MutableMap{}
+def faulty_pairs = MutableMap{}
 def mutable pair_series = #false
 def mutable wrong_ready_series = #false
 def mutable arbiter_definition = #false
@@ -81,6 +83,8 @@ fun inventory():
   raw_capture := materialize_circuit(RawCapture())
   for (d in [1, 2]):
     pairs[d] := materialize_circuit(QueuePair(d))
+  for (fault in ["ready", "payload", "mask"]):
+    faulty_pairs[fault] := materialize_circuit(QueuePair(2, ~fault: fault))
   pair_series := materialize_circuit(QueuePairSeries())
   wrong_ready_series := materialize_circuit(QueuePairSeries(~wrong_ready: #true))
   for (d in proof_depths):
@@ -104,6 +108,7 @@ fun parent_at(depth): parents[depth]
 fun wrong_lane_at(depth): faulty_parents[depth]
 def wrong_lane = wrong_lane_at(2)
 fun pair_at(depth): pairs[depth]
+fun faulty_pair(fault): faulty_pairs[fault]
 fun fifo_at(depth): fifos[depth]
 def fifo_definition = fifo_at(2)
 

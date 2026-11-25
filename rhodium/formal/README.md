@@ -15,16 +15,18 @@ Rosette can execute the same specification symbolically on unknown values. A
 [leaf proof](DEVELOPING.md#shiftqueue-refinement-by-depth) establishes that the
 two-bit ShiftQueue (pipe, flow, and flush disabled) matches its FIFO spec on
 every edge following sampled reset, separately at depths 1, 2, and 3.
-A [parent proof](DEVELOPING.md#two-shiftqueues-in-series)
-proves FIFO ordering and capacities of two and four words for pairs of depth-one
-and depth-two queues, respectively. A depth-one pair can refuse a second
+A [transaction-only parent proof](tests/queue-pair-grouped.rkt) checks the
+grouped handoff in the actual RTL and uses only the two ShiftQueue transaction
+contracts to prove FIFO ordering and bounds of two and four words for pairs
+of depth-one and depth-two queues, respectively. A separate
+[cycle proof](DEVELOPING.md#two-shiftqueues-in-series) shows a depth-one pair can refuse a second
 word while moving the first word to its empty downstream stage. A consumer
 of the exported transaction contract sees reset, accepted words, and retired
 words. This suffices to prove that the kth retirement matches the kth
 acceptance since reset. The contract supplies no cycle pins: it guarantees
-neither immediate admission nor eventual delivery. The [proof example](tests/queue-pair-transaction-order.rkt)
-obtains it with `(verified-queue-pair-transactions-at depth)` and checks event
-batches with `fifo-allows?`. [QueuePairSeries](tests/queue-pair-series.rkt) connects
+neither immediate admission nor eventual delivery. Pass `(grouped-pair-at depth)`
+to the [ordering observer](tests/queue-pair-transaction-order.rkt), which checks
+event batches with `fifo-allows?`. [QueuePairSeries](tests/queue-pair-series.rkt) connects
 `QueuePair(1)` to `QueuePair(2)`. Their transaction contracts suffice to prove
 FIFO retirement and at most six pending words. The chain can refuse the next
 offer with just one word pending; its six-word bound is not a readiness guarantee.

@@ -6,13 +6,13 @@
          (only-in "../refinement.rkt" compose-fifo-series fifo-transactions-for? fifo-transactions-capacity)
          (only-in "composition-binding.rhm" pair_series wrong_ready_series)
          (only-in "queue-pair.rspl" QueuePairSeries)
-         (only-in "shift-queue-pair.rkt" verified-queue-pair-transactions-at)
+         (only-in "queue-pair-grouped.rkt" grouped-pair-at)
          (only-in "queue-pair-transaction-order.rkt" check-retirement-order check-ready-not-entailed))
 (provide verified-queue-pair-series)
 
 (define series-view (QueuePairSeries pair_series))
-(define front (verified-queue-pair-transactions-at 1))
-(define back (verified-queue-pair-transactions-at 2))
+(define front (grouped-pair-at 1))
+(define back (grouped-pair-at 2))
 (define (certify view a b) (compose-fifo-series view "front" a "back" b))
 (define verified-queue-pair-series (certify series-view front back))
 

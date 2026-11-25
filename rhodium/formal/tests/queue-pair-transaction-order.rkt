@@ -4,8 +4,7 @@
 
 (require rackunit "composition-checks.rkt"
          (only-in "../refinement.rkt" fresh-fifo-history fifo-events fifo-allows?
-                  fifo-history-count fifo-history-slots fifo-transactions-capacity fifo-transactions-width)
-         (only-in "shift-queue-pair.rkt" verified-queue-pair-transactions-at))
+                  fifo-history-count fifo-history-slots fifo-transactions-capacity fifo-transactions-width))
 (provide check-retirement-order check-ready-not-entailed)
 
 ;; The observer counts accepted and retired words since reset. For arbitrary ordinal k,
@@ -40,12 +39,6 @@
   ;; It is not a premise or a conclusion of the ordering theorem.
   (&& step (< retired k accepted) (! push) (! pop)))
 
-(for ([depth '(1 2)])
-  (test-case (format "event-only retirement order for child depth ~a" depth)
-    (define contract (verified-queue-pair-transactions-at depth))
-    (check-equal? (fifo-transactions-capacity contract) (* 2 depth))
-    (require-feasible (check-retirement-order contract))))
-
 (define (check-ready-not-entailed contract)
   (define (fresh) (fresh-fifo-history contract))
   (define old (fresh))
@@ -70,5 +63,12 @@
   ;; The event view permits either choice for this offer.
   (require-feasible (&& allowed space ready)))
 
-(test-case "ready whenever space remains is not entailed by the event contract"
-  (check-ready-not-entailed (verified-queue-pair-transactions-at 1)))
+(module+ test
+  (require (only-in "shift-queue-pair.rkt" verified-queue-pair-transactions-at))
+  (for ([depth '(1 2)])
+    (test-case (format "event-only retirement order for child depth ~a" depth)
+      (define contract (verified-queue-pair-transactions-at depth))
+      (check-equal? (fifo-transactions-capacity contract) (* 2 depth))
+      (require-feasible (check-retirement-order contract))))
+  (test-case "ready whenever space remains is not entailed by the event contract"
+    (check-ready-not-entailed (verified-queue-pair-transactions-at 1))))

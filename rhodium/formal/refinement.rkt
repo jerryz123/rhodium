@@ -6,7 +6,7 @@
          "engine.rkt" "spec-engine.rkt" (only-in "snapshot.rhm" formal_snapshot) (only-in "spec.rhm" spec_snapshot)
          (only-in "fifo-monitor.rhm" fifo_monitor)
          (only-in "fifo-view.rhm" fifo_view_parts fifo_view_layout)
-         (only-in "wiring.rhm" cut_parts leaf_protocol leaf_layout scalar_series_wiring))
+         (only-in "wiring.rhm" cut_parts leaf_protocol leaf_layout series_wiring))
 (provide prove-leaf prove-parent prepare-proved-wiring proved-child-model symbolic-cut-state proved-edge-at view-agrees? pack-pins unpack-pins)
 (provide exn:fail:input-contract? exn:fail:input-contract-goal exn:fail:input-contract-inputs)
 (provide derive-fifo-transactions prove-fifo-transactions compose-fifo-series fifo-transactions-for? fifo-transactions-capacity fifo-transactions-width
@@ -341,12 +341,15 @@
 #| Check the two external handshakes and the internal valid/ready/payload paths against the actual
    parent drivers. Only this direct, shared-epoch cut licenses identifying the two middle events. |#
 (define (check-series-wiring! top ingress egress a front b back)
-  (define-values (children wires) (scalar_series_wiring top))
-  (unless (and (not (host-equal? a b))
-               (for/and ([site (list a b)] [child (list front back)])
-                 (and (fifo-transactions? child)
-                      (host-eq? (hash-ref children site #f) (fifo-transactions-definition child)))))
+  (unless (and (not (host-equal? a b)) (fifo-transactions? front) (fifo-transactions? back))
     (error 'fifo-series "transaction evidence does not match the RTL occurrences"))
+  #| Only release the recorded physical-to-logical layout to its proved RTL occurrence. |#
+  (define (layout-at site definition)
+    (define child (cond [(host-equal? site a) front] [(host-equal? site b) back] [else #f]))
+    (unless (and child (host-eq? definition (fifo-transactions-definition child)))
+      (error 'fifo-series "transaction evidence does not match the RTL occurrences"))
+    (fifo-transactions-layout child))
+  (define-values (_ wires) (series_wiring top layout-at))
   (unless (and (= (fifo-transactions-width front) (fifo-transactions-width back))
                (andmap (lambda (p) (and (string? p) (not (regexp-match? #rx"[.]" p)))) (append ingress egress))
                (= 8 (length (remove-duplicates (append '("clock" "reset") ingress egress)))))

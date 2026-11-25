@@ -162,8 +162,7 @@ obligations on the projected live sequence. The [leaf transaction regression](te
 applies the same retirement invariant at each depth. A separate coverage query
 asks whether the tracked word can stall behind an older word: UNSAT at depth
 one and SAT at depths two and three. Neither answer restricts the theorem.
-The direct series-wiring checker
-still requires scalar ports; the grouped view does not broaden that wiring rule.
+The direct series checker can use these results at grouped child boundaries.
 
 Run `moon run rhodium:formal-test` to reproduce the proof. A failed induction
 query alone is not a trace from reset. For the faulty leaf, the test obtains a
@@ -224,17 +223,25 @@ only the concrete implementation determines which occurs on that edge.
 `compose-fifo-series` admits a narrower wiring-only parent using **only** two
 transaction results. It matches the actual child definitions, all three
 valid/ready/data connections (ingress, handoff, egress), and each clock/reset
-driver. This cut accepts scalar ports and no local behavior. An independent
-ready driver is rejected before sharing any symbolic pins. After that check,
+driver. The parent interface is scalar and the cut allows no local behavior.
+For each child occurrence, the checker obtains the certified physical-port
+layout only after matching the exact definition. It follows RTL record creation
+and field selection in the parent to identify the actual driver of every sink.
+The [grouped QueuePair proof](tests/queue-pair-grouped.rkt) uses two independent
+transaction histories, even though both sites reuse the same ShiftQueue evidence.
+It needs neither child cycle state nor RTL registers. An independent ready
+driver, external data substituted at the handoff, or routing the hidden mask
+as head data is rejected before sharing any symbolic pins. After that check,
 three unconstrained (valid, ready, payload) triples represent the two external
 links and the handoff. The checker interprets both child samplers and the
 parent sampler on those links and proves they are defined for every sample.
 It ranges over all successors allowed by both child relations, without using
 any cycle timing guarantee. It proves the joint external FIFO rule on the downstream
 pending words followed by the upstream words; only the internal transfer is hidden.
-The [series regression](tests/queue-pair-series.rkt) feeds the resulting
-six-word contract to the original ordering observer. Its separate full-RTL
-replay runs the same declared parent sampler in rspecsim and sends the resulting
+The [series regression](tests/queue-pair-series.rkt) composes the two grouped-proof
+results again and feeds the resulting six-word contract to the original ordering
+observer. Its separate full-RTL replay runs the same declared parent sampler in
+rspecsim and sends the resulting
 batches to the concrete monitor, including refusal on
 the second offer and a six-word fill/drain. Corrupting the first retirement
 after the same prefix is rejected. The trace is not a proof premise. A separate

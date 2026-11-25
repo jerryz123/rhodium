@@ -42,6 +42,11 @@ passive sampler; the series proof still checks the physical handoff independentl
 The [ShiftQueue transaction proof](tests/shift-queue-transactions.rkt) now
 derives this weaker contract directly from verified cycle evidence at depths
 1–3 using grouped handshakes, without rechecking RTL or exposing diagnostics.
+The [transaction-only QueuePair proof](tests/queue-pair-grouped.rkt) now consumes
+two such leaf results directly. The checked grouped handoff yields bounds two
+and four and ordered retirement without stepping a child cycle model. The
+six-word series reuses those results; the separate cycle proof still owns
+the reachable readiness counterexample.
 The parent fixtures share an admission check: each
 occurrence needs run-local evidence for its actual implementation and full
 contract. No persistent evidence cache or general parent-logic checker is

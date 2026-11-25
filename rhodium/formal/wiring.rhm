@@ -10,7 +10,7 @@ import:
   "port-types.rhm".leaf_layout
   "port-types.rhm".port_leaves
 
-export wiring_cut scalar_series_wiring bind_wiring proof_cut cut_parts leaf_protocol leaf_layout
+export wiring_cut series_wiring bind_wiring proof_cut cut_parts leaf_protocol leaf_layout
 
 /* The first proof profiles have unrestricted traffic: clockless, or one named rising-edge clock. */
 fun leaf_protocol(top :: Module):
@@ -22,43 +22,71 @@ fun leaf_protocol(top :: Module):
 
 /* Stop at child signatures. Record creation and selection only route existing wires. */
 fun wiring_cut(top :: Module, interface_prefixes :: Function.of_arity(1)):
-  def values(children, wires, _) = extract_cut(top, interface_prefixes, #false)
+  def values(children, wires, _) = extract_cut(top, prefix_reader(interface_prefixes), #false)
   values(children, wires)
 
-/* Read a direct FIFO series connection using physical scalar pin names, never child internals
-   or caller-supplied aliases. Reserve the dot for qualifying a pin by its occurrence. */
-fun scalar_series_wiring(top :: Module):
-  /* Check the clocked signatures before using unqualified physical port names. */
-  fun scalar_ports(m :: Module):
-    unless leaf_protocol(m) == "single-clock-reset" | error("expected a single rising-edge clock")
-    for (p :: Port in m.inputs ++ m.outputs):
-      when p.name.contains(".") || record_type(p.type) || vector_type(p.type)
-      | error("expected unqualified scalar FIFO port: " ++ p.name)
-    {}
-  unless top.inputs.length() == 5 && top.outputs.length() == 3
-  | error("expected only clock/reset and two ready/valid endpoints")
-  def values(children, wires) = wiring_cut(top, scalar_ports)
-  unless children.length() == 2 && !children.keys().find(fun (site): site.contains("."))
-  | error("expected two FIFO occurrences with unqualified names")
+/* Cycle cuts use the logical member names supplied by the RTL interface adapter. */
+fun prefix_reader(interface_prefixes :: Function.of_arity(1)):
+  def cached = MutableMap.by(===){}
+  fun (_, m, p, visit):
+    unless cached.has_key(m) | cached[m] := interface_prefixes(m)
+    port_leaves(p, cached[m], visit)
+
+/* Decode child records in physical field order using the layout certified for that occurrence.
+   Names in the wire map are logical; record creation/selection still follows actual RTL fields. */
+fun series_wiring(top :: Module, child_layout :: Function.of_arity(2)):
+  unless leaf_protocol(top) == "single-clock-reset" && top.inputs.length() == 5 && top.outputs.length() == 3
+  | error("expected a scalar FIFO parent with clock/reset and two ready/valid endpoints")
+  def layouts = MutableMap{}
+  /* A scalar top cannot alias a qualified child pin. Each site has its own verified layout. */
+  fun read_port(site :: maybe(String), m :: Module, p :: Port, visit :: Function.of_arity(2)):
+    cond
+    | !site:
+        when p.name.contains(".") || record_type(p.type) || vector_type(p.type)
+        | error("expected unqualified scalar FIFO parent port: " ++ p.name)
+        visit(p.name, p.type)
+    | ~else:
+        unless layouts.has_key(site)
+        | block:
+            when site.contains(".") || leaf_protocol(m) != "single-clock-reset"
+            | error("invalid FIFO occurrence: " ++ site)
+            layouts[site] := child_layout(site, m)
+        cond
+        | clock_type(p.type): visit("clock", p.type)
+        | ~else:
+            let PairList[inputs, outputs] = layouts[site]
+            def layout = if p.direction == "input" | inputs | outputs
+            def members = PairList.to_list(layout[p.name])
+            cond
+            | record_type(p.type):
+                unless members.length() == p.type.fields.length() | error("FIFO record layout mismatch")
+                for Map (field in p.type.fields, member in members):
+                  let PairList[name, width] = member
+                  unless name.ends_with("." ++ field.name) && width == field.type.packed_width()
+                  | error("FIFO member layout mismatch: " ++ field.name)
+                  values(field.name, visit(name, field.type))
+            | ~else:
+                unless members == [PairList[p.name, p.type.packed_width()]] | error("FIFO scalar layout mismatch")
+                visit(p.name, p.type)
+  def values(children, wires, _) = extract_cut(top, read_port, #false)
+  unless children.length() == 2 | error("expected two FIFO occurrences")
   values(children, wires)
 
 /* For proof cuts, retain supported parent operations as one derived local actor. Never visit child bodies. */
-fun extract_cut(top :: Module, interface_prefixes :: Function.of_arity(1), bool :: maybe(HardwareType)):
+fun extract_cut(top :: Module, read_port :: Function.of_arity(4), bool :: maybe(HardwareType)):
   unless top.finished | error("expected completed RTL parent")
   def sources = MutableMap{}
   def sinks = MutableMap{}
   def children = MutableMap{}
-  def prefixes = interface_prefixes(top)
   def sites = top.operations.filter(~keep: fun (op :: Operation): op.opcode == "rtl.instance")
   for (p in top.inputs):
-    sources[p.value.id] := port_leaves(p, prefixes, fun (name, _): name)
+    sources[p.value.id] := read_port(#false, top, p, fun (name, _): name)
   for (op in sites):
     def site = op.attribute("name")
     def child = op.attribute("module")
     children[site] := child
-    def fields = interface_prefixes(child)
     for (p in child.outputs, v in op.results):
-      sources[v.id] := port_leaves(p, fields, fun (name, _): site ++ "." ++ name)
+      sources[v.id] := read_port(site, child, p, fun (name, _): site ++ "." ++ name)
   def local_ops = top.operations.filter(~keep: fun (op :: Operation): local_opcode(op.opcode))
   when bool && local_ops.length() > 0 && children.has_key(local_site)
   | error("reserved local RTL site: " ++ local_site)
@@ -74,8 +102,9 @@ fun extract_cut(top :: Module, interface_prefixes :: Function.of_arity(1), bool 
         unless local_opcode(op.opcode) | error("unsupported parent operation: " ++ op.opcode)
         sources[op.results[0].id] := local_site ++ "." ++ local_output(op.results[0])
   /* Preserve the member correspondence of whole-record connections as well as partial drives. */
-  fun connect(p :: Port, fields :: Map, prefix :: String, driver :: Value):
-    def pins = port_leaves(p, fields, fun (name, _): prefix ++ name)
+  fun connect(site :: maybe(String), m :: Module, p :: Port, driver :: Value):
+    def prefix = if site | site ++ "." | ""
+    def pins = read_port(site, m, p, fun (name, _): prefix ++ name)
     def source = sources[driver.id]
     if pins is_a Map
     | for ((field, pin) in pins): sinks[pin] := source[field]
@@ -83,9 +112,8 @@ fun extract_cut(top :: Module, interface_prefixes :: Function.of_arity(1), bool 
   for (op in sites):
     def site = op.attribute("name")
     def child = children[site]
-    def fields = interface_prefixes(child)
-    for (p in child.inputs, place in op.places): connect(p, fields, site ++ ".", place.driver)
-  for (p in top.outputs): connect(p, prefixes, "", p.place.driver)
+    for (p in child.inputs, place in op.places): connect(site, child, p, place.driver)
+  for (p in top.outputs): connect(#false, top, p, p.place.driver)
   def locals:
     if bool && local_ops.length() > 0
     | {local_site: lower_local(local_ops, sources, sinks, bool)}
@@ -107,7 +135,7 @@ fun proof_cut(top :: Module, bindings :: Map, bool :: HardwareType, interface_pr
   fun fields(module_def :: Module):
     unless prefixes.has_key(module_def) | prefixes[module_def] := interface_prefixes(module_def)
     prefixes[module_def]
-  def values(children, wires, locals) = extract_cut(top, fields, bool)
+  def values(children, wires, locals) = extract_cut(top, prefix_reader(fields), bool)
   def model = link_cut(top, bindings, bool, fields, children, wires, locals)
   for ((site, child) in children):
     when leaf_protocol(child) == "single-clock-reset" && wires.get(site ++ ".reset", #false) != "reset"

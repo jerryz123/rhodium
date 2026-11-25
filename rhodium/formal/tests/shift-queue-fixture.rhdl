@@ -14,8 +14,8 @@ sync_circuit GuardedAssertion():
   when enabled:
     assert(condition, "sampled")
 
-// Only the verified ready/valid cycle interface crosses each child boundary.
-sync_circuit QueuePair(depth :: PosInt = 2):
+// The default wiring supports both the cycle proof and the transaction-only cut.
+sync_circuit QueuePair(depth :: PosInt = 2, ~fault: _fault :: String = ""):
   input offer: Bool
   input data: Bits(2)
   input consume: Bool
@@ -27,13 +27,13 @@ sync_circuit QueuePair(depth :: PosInt = 2):
   inst b(ShiftQueue(Bits(2), depth))
   a.ingress.valid <== offer
   a.ingress.bits <== data
-  a.egress.ready <== b.ingress.ready
+  a.egress.ready <== (if _fault == "ready" | consume | b.ingress.ready)
   b.ingress.valid <== a.egress.valid
-  b.ingress.bits <== a.egress.bits
+  b.ingress.bits <== (if _fault == "payload" | data | a.egress.bits)
   b.egress.ready <== consume
   ready <== a.ingress.ready
   valid <== b.egress.valid
-  head <== b.egress.bits
+  head <== (if _fault == "mask" | b.mask | b.egress.bits)
 
 // A pure wire between two independently certified transaction endpoints.
 sync_circuit QueuePairSeries(~wrong_ready: _wrong_ready :: Boolean = #false):
