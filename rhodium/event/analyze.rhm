@@ -669,7 +669,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
   fun collect_instances(module_def :: Module, path :: List.of(String)):
     for (scope in module_trace_instances(module_def)):
       when sites.find(fun (site): site.instance_path.length() >= path.length() && site.instance_path.take(path.length()) == path)
-      | instances := instances ++ [EventInstance(occurrence_prefix(path), scope.label, path, scope.value)]
+      | instances := instances ++ [EventInstance(occurrence_prefix(path), scope.label, path, scope.value, scope.group)]
 
     for (op in module_def.operations):
       when op.opcode == "rtl.instance"

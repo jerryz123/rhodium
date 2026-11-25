@@ -63,11 +63,16 @@ fun json_dependency(dependency :: EventDependency):
     "latency_cycles": dependency.latency_cycles
   }
 
+/* Encodes a scope's runtime identity schema and its optional display-only parent. */
+fun json_instance(scope :: EventInstance):
+  {"id": scope.id, "label": scope.label, "width": scope.value.type.packed_width()}
+    ++ (if scope.group | {"under": scope.group} | {})
+
 /* Emits deterministic event-graph JSON, including optional partial-coverage gaps and hierarchy identity bindings. */
 fun event_manifest_to_json(manifest :: EventManifest):
   def instances:
     if manifest.instances.length() > 0
-    | {"instances": manifest.instances.map(fun (scope): {"id": scope.id, "label": scope.label, "width": scope.value.type.packed_width()}),
+    | {"instances": manifest.instances.map(json_instance),
        "site_instances": manifest.sites.map(fun (site): instance_indices(manifest, site))}
     | {}
 

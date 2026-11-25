@@ -76,8 +76,8 @@ fun trace_parents(child :: Endpoint, parents :: List.of(Endpoint)):
   describe_interface_event_parents(child, parents)
 
 /* Labels the current module's hierarchy with a stable runtime identity. */
-fun trace_instance(label :: String, identity :: HardwareEntity):
-  describe_trace_instance(label, identity)
+fun trace_instance(label :: String, identity :: HardwareEntity, ~under: group :: maybe(String) = #false):
+  describe_trace_instance(label, identity, ~under: group)
 
 /* Connects a child event to a previously retained parent event without
    changing the ready-valid datapath. The named retained-storage declaration

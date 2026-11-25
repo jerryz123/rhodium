@@ -112,7 +112,7 @@ void instance_context(const std::string& path) {
     {"id":"a/stall","label":"unit/result.stall","kind":"stall","observation_of":"a/result","payload_width":0,"fields":[]},
     {"id":"a/resident","label":"unit/resident","kind":"residency","payload_width":0,"fields":[]}
   ],"dependencies":[{"parent":"a/request","child":"a/result"},{"parent":"b/request","child":"b/result"},{"parent":"a/request","child":"a/stall"},{"parent":"a/request","child":"a/resident"}],
-  "instances":[{"id":"top","label":"chip","width":8},{"id":"top/a","label":"hart","width":8},{"id":"top/b","label":"hart","width":64}],
+  "instances":[{"id":"top","label":"chip","width":8},{"id":"top/a","label":"hart","width":8,"under":"unit"},{"id":"top/b","label":"hart","width":64,"under":"unit"}],
   "site_instances":[[0,1],[0,1],[0,2],[0,2],[0,1],[0,1]]})",
     {0,0,0,0,0,0}, {{0,1},{2,3},{0,4},{0,5}}, {{},{},{},{},{},{}}, {5},
     {{"top","chip",8},{"top/a","hart",8},{"top/b","hart",64}}, {{0,1},{0,1},{0,2},{0,2},{0,1},{0,1}}};

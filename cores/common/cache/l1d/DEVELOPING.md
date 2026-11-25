@@ -10,7 +10,7 @@ This guide owns implementation placement and contributor validation.
 ## Architecture and ownership
 
 The L1D package owns the data-access protocol, synchronous arrays, hit path,
-coherence state, mutation, blocking allocation/acquisition, replacement, and
+coherence state, mutation, MSHR allocation, replacement, and
 LR/SC reservation. The shared [IO-MSHR](../io-mshr.rhdl) owns nonallocating
 request retention; the integrating core owns virtual translation, alignment
 faults, PMA routing, ordering between cache and IO service, architectural fences,
@@ -114,6 +114,20 @@ packets by DataID, apply mutations while writing rows, and retain the requested
 old row for the response. Never write a bypass fill to SRAM. Publish metadata
 only after the final write, CompAck, and any previously admitted snoop.
 
+[`mshrs.rhdl`](mshrs.rhdl) instantiates one retryable engine per entry.
+Allocation rotates among free entries. Slot 0 uses CHI ID 0; further slots
+use index + 2, reserving IDs 1 and 2 for writeback and maintenance. DAT and
+RetryAck name the slot; untagged PCrdGrant matches a pending home/type pair.
+Each engine displays its `dcache/refill` residency at `dcache/mshr[i]/refill`
+under the enclosing hart; query either entry using the same `dcache/refill` label.
+
+The ordered head owns its context and any mutation. Requests behind it remain
+in FIFO order while the lookahead cursor probes default-locality loads.
+Advance the cursor on a resident hit or accepted acquisition, not on a dirty
+victim or a conflicting set. Held SRAM packets retain their install set/way.
+The wide L1D fixture fills B before A, reuses B’s CHI ID for C, and checks
+A/B/C data and contexts under backpressure; it also exercises the reverse case.
+
 The RV64 D-cache fixture checks both grant orderings with two dirty lines;
 `cache-wide-l1d` queues a dirty miss behind a local AMO, checks a load hit
 in another set while the AMO response and copyback grant are stalled, then
@@ -198,9 +212,9 @@ the response-only path for both make-invalid opcodes.
    after completion and must not observe the refill buffer directly. Such a
    parked head owns no SRAM port and does not block independent load hits. Keep
    the queue's positive depth specialized by `service_queue_depth`; it bounds
-   accepted waiters but does not add miss entries. Replay every independent
-   second miss and every unsupported same-line operation rather than allocating
-   another owner. Do not weaken store authorization, ordered-queue barriers, or
+   accepted waiters in single-slot mode. Only the authorized load window may
+   allocate a concurrent acquisition; speculative lookups still replay
+   independent misses. Do not weaken store authorization, ordered-queue barriers, or
    `drained` when enabling independent load reads or same-line waiters.
    Preserve registered read ownership across an installation or snoop arriving
    between S0 and S1; never steal an array cycle from older work.

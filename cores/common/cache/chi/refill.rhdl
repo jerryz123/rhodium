@@ -8,6 +8,7 @@ import:
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
   lib("chi/protocol/flits.rhdl") open
+  lib("chi/protocol/params.rhdl").CHIFlitParams
   lib("chi/protocol/protocol.rhdl") open
   lib("chi/protocol/coherence.rhdl") open
   lib("chi/transactions/retryable-transaction.rhdl").CHIRetryableTransactionControl
@@ -25,12 +26,19 @@ bundle CacheLineRefillResult(Context :: DataType,
   state: CHIResponseState
   pass_dirty: Bool
 
+/* Slots use stable request/return identities, leaving IDs 1 and 2 for writeback and maintenance. */
+fun cache_mshr_txn_id(slot :: Nat) :: Nat:
+  if slot == 0 | 0 | slot + 2
+
 /* Retains one retryable ReadClean/ReadUnique transaction and emits each accepted packet for storage.
    Completion waits for all unique packets and CompAck acceptance; the last arriving packet owns
    the ack. */
 sync_circuit CacheLineRefill(Context :: DataType,
                              address_width :: PosInt,
-                             config :: RiscvHartCHIConfig):
+                             config :: RiscvHartCHIConfig,
+                             ~slot: slot :: Nat = 0):
+  def txn_id = cache_mshr_txn_id(slot)
+  trace_instance("mshr", Bits(12)(slot), ~under: "dcache")
   def p = config.flit
   unless CacheLineBytes >= p.data_bytes
   | error(~who: #'CacheLineRefill,
@@ -46,6 +54,7 @@ sync_circuit CacheLineRefill(Context :: DataType,
   input node_id: Bits(p.node_id_width)
   // The caller owns this aligned address from command.fire() through completion.fire().
   input line_address: Bits(address_width)
+  output active_context: Context
   interface command(Decoupled(CacheLineRefillCommand(Context)),
                     ~role: consumer)
 
@@ -68,6 +77,7 @@ sync_circuit CacheLineRefill(Context :: DataType,
   reg acknowledgement_sent(~init: Bool(#false))
   reg opcode(~init: CHIReqOpcode.ReadClean)
   reg context(Context)
+  active_context <== context
   reg home_id(~init: Bits(p.node_id_width)(0))
   reg dbid(~init: Bits(12)(0))
   reg response_state(~init: CHIResponseState.Invalid)
@@ -104,12 +114,12 @@ sync_circuit CacheLineRefill(Context :: DataType,
       line_address,
       CHITransferSize.Bytes64,
       opcode,
-      Bits(12)(0),
+      Bits(12)(txn_id),
       Bool(#true),
       Bool(#true),
       attempt.allow_retry,
       attempt.pcrd_type
-    ))
+    ).updated(~return_txn_id_or_stash_lpid: Bits(12)(txn_id)))
     |> requests
 
   responses |> control.response
@@ -124,7 +134,7 @@ sync_circuit CacheLineRefill(Context :: DataType,
            "line_refill_retry_response_home")
 
   when retry_ack_fire:
-    assert(incoming_response.txn_id === Bits(12)(0),
+    assert(incoming_response.txn_id === Bits(12)(txn_id),
            "line_refill_retry_txn_id")
 
 
@@ -148,7 +158,7 @@ sync_circuit CacheLineRefill(Context :: DataType,
   when data_fire:
     assert(incoming_data.opcode === CHIDatOpcode.CompData,
            "line_refill_response_is_comp_data")
-    assert(incoming_data.txn_id === Bits(12)(0),
+    assert(incoming_data.txn_id === Bits(12)(txn_id),
            "line_refill_response_txn_id")
     assert(incoming_data.tgt_id === node_id,
            "line_refill_response_target")
@@ -224,7 +234,58 @@ sync_circuit CacheLineRefill(Context :: DataType,
   elsewhen acknowledgement_fire:
     acknowledgement_sent <== Bool(#true)
 
+/* Routes tagged RetryAck to its acquisition. Credits have no transaction ID:
+   retain up to one per outstanding attempt until a matching home/type is known. */
+sync_circuit CacheRefillRetryRouter(p :: CHIFlitParams, count :: PosInt):
+  def id_width = index_width(count)
+  input node_id: Bits(p.node_id_width)
+  interface incoming(Decoupled(CHIRspFlit(p)), ~role: consumer)
+  interface outgoing[count](Decoupled(CHIRspFlit(p)), ~role: producer)
+  def Credit = Bits(p.node_id_width + 4)
+  reg occupied(~init: Bits(count)(0).as_vec(Bool))
+  reg credits(Vec(count, Credit))
+  reg waiting(~init: Bits(count)(0).as_vec(Bool))
+  reg needs(Vec(count, Credit))
+  def rsp = incoming.bits
+  def key = rsp.src_id ++ rsp.pcrd_type
+  def is_credit = rsp.opcode === CHIRspOpcode.PCrdGrant
+  def direct = incoming.valid & !is_credit
+  def owner = priority_encoder(vec(for List (i in 0..count): rsp.txn_id === Bits(12)(cache_mshr_txn_id(i))))
+  /* Selects an escrowed grant only after the named retry identifies its class. */
+  fun matching(slot :: Nat):
+    vec(for List (i in 0..count): waiting[slot] & occupied[i] & (needs[slot] === credits[i]))
+  def match_rows = vec(for List (i in 0..count): matching(i))
+  def clients = priority_encoder_oh(vec(for List (i in 0..count): match_rows[i].any()))
+  def client = clients.index
+  def entry = priority_encoder(match_rows[client])
+  def grant = clients.valid
+  def available = priority_encoder_oh(!occupied.as_bits())
+  def out_slot = mux(direct, owner, client)
+  def out_ready = vec(for List (i in 0..count): outgoing[i].ready)[out_slot]
+  def deliver = !direct & grant & out_ready
+  incoming.ready <== mux(is_credit, available.valid, out_ready)
+  def store = incoming.fire() & is_credit
+  def retry = incoming.fire() & (rsp.opcode === CHIRspOpcode.RetryAck)
+  def generated = cache_chi_response(p, credits[entry][4..(4 + p.node_id_width)], node_id, Bits(12)(0), CHIRspOpcode.PCrdGrant).updated(~pcrd_type: credits[entry][0..4])
+  for (i in 0..count):
+    def id = Bits(id_width)(i)
+    outgoing[i].valid <== (direct ||| grant) & (out_slot === id)
+    outgoing[i].bits <== mux(direct, rsp, generated)
+    when (store & (available.index === id)):
+      assert(rsp.tgt_id === node_id, "l1d_credit_target")
+      occupied[i] <== Bool(#true)
+      credits[i] <== key
+    elsewhen (deliver & (entry === id)):
+      occupied[i] <== Bool(#false)
+    when (retry & (owner === id)):
+      waiting[i] <== Bool(#true)
+      needs[i] <== key
+    elsewhen (deliver & (client === id)):
+      waiting[i] <== Bool(#false)
+
 export:
+  cache_mshr_txn_id
+  CacheRefillRetryRouter
   CacheLineRefillCommand
   CacheLineRefillResult
   CacheLineRefill

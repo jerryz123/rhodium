@@ -945,18 +945,18 @@ fun module_interface_transforms(module_def :: Module):
   module_def.metadata_for(interface_transform_group_namespace)
 
 /* Instance context is hierarchy metadata, never transaction payload or lineage. */
-class TraceInstance(label :: String, value :: Value):
+class TraceInstance(label :: String, value :: Value, group :: maybe(String)):
   implements ModuleMetadataPayload
   /* Rebind the traced object while preserving its user-visible label. */
   override method remap_ir(remap :: Function.of_arity(1)):
-    TraceInstance(label, remap(value))
+    TraceInstance(label, remap(value), group)
 
 /* Returns hierarchy identity annotations attached to this module. */
 fun module_trace_instances(module_def :: Module):
   module_def.metadata_for("rhodium.interface.trace-instance")
 
 /* Attaches one local 1-to-64-bit Bits identity and label outside hardware conditionals, rejecting duplicate or finished-module annotations. */
-fun describe_trace_instance(label :: AsciiIdentifier, identity :: HardwareEntity):
+fun describe_trace_instance(label :: AsciiIdentifier, identity :: HardwareEntity, ~under: group :: maybe(AsciiIdentifier) = #false):
   kernel.reject_unsupported_conditional_effect("instance context", Location(), "declare instance context outside hardware control flow")
   def module_def = kernel.active_module()
   when module_def.finished | error(~who: #'describe_trace_instance, "cannot annotate a finished module")
@@ -967,7 +967,7 @@ fun describe_trace_instance(label :: AsciiIdentifier, identity :: HardwareEntity
   when module_trace_instances(module_def).length() > 0
   | error(~who: #'describe_trace_instance, "instance context already declared")
 
-  module_def.add_metadata("rhodium.interface.trace-instance", TraceInstance(label, value))
+  module_def.add_metadata("rhodium.interface.trace-instance", TraceInstance(label, value, group))
 
 /* Returns the module's local checkpoint annotations. */
 fun module_interface_events(module_def :: Module):

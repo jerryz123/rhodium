@@ -15,5 +15,5 @@ def config = RiscvHartCHIConfig(test_cache_flit, 64, test_cache_uncached_config.
   RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0x400001000, 0xff), rom), test_cache_uncached_home)
 ])
 
-def program = elaborate(L1DCache(XLen.X64, CacheConfig(4, 2), ~chi: config, ~context: Bits(8), ~beat_bytes: 16))
+def program = elaborate(L1DCache(XLen.X64, CacheConfig(4, 2), ~chi: config, ~context: Bits(8), ~beat_bytes: 16, ~mshr_count: 2))
 export program

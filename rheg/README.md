@@ -102,7 +102,11 @@ current epoch and require additional memory proportional to the retained graph.
 ## Instance context
 
 Optional manifest `instances` entries define `{id, label, width}` for hardware
-scopes. `site_instances` gives each site's ordered outer-to-inner scope indices.
+scopes. An optional `under` names a display group inside the enclosing scope:
+for example, `"under": "dcache"` puts `mshr[0]` alongside other cache tracks.
+The matching leading component of an event label is displayed only once; its
+original label remains in the track metadata. `site_instances` gives each
+site's ordered outer-to-inner scope indices.
 An epoch's trace envelope holds registrations as
 `{"scope": 0, "value": "2", "cycle": "17"}` in its optional `instances` array.
 Values and cycles are decimal strings; scopes are numeric manifest indices.

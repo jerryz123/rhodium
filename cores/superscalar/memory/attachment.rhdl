@@ -35,7 +35,7 @@ bundle SuperscalarRowContext(Context :: DataType, beat_bytes :: Pow2Int):
 /* Admits coherent RAM to L1D and exact-width device/noncacheable accesses to a committed IOMSHR.
    IO drains older cache work and blocks younger accesses through final response consumption.
    Accepted operations retain ordered, nonfaulting completion ownership through all redirects. */
-sync_circuit SuperscalarL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~context: Context :: DataType = Bool, ~service_queue_depth: service_queue_depth :: PosInt = 2, ~xlen: xlen :: XLen = XLen.X64, ~beat_bytes: beat_bytes :: Pow2Int = xlen.width / 8, ~row_bits: row_bits :: maybe(Pow2Int) = #false):
+sync_circuit SuperscalarL1D(cache :: CacheConfig, ~mshr_count: mshr_count :: PosInt = 1, ~chi: config :: RiscvHartCHIConfig, ~context: Context :: DataType = Bool, ~service_queue_depth: service_queue_depth :: PosInt = 2, ~xlen: xlen :: XLen = XLen.X64, ~beat_bytes: beat_bytes :: Pow2Int = xlen.width / 8, ~row_bits: row_bits :: maybe(Pow2Int) = #false):
   unless row_bits == #false || row_bits == 8 * beat_bytes
   | error(~who: #'SuperscalarL1D, "vector DLEN must equal the L1D data port width")
   def Tag = if row_bits | SuperscalarRowContext(Context, beat_bytes) | Context
@@ -64,7 +64,7 @@ sync_circuit SuperscalarL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHICo
   /* Coherent storage and ordered uncached transport.
      Data and fetch share transport, but accepted data drain excludes the younger fetch owner. */
 
-  inst storage(L1DCache(xlen, cache, ~chi: config, ~context: Tag, ~service_queue_depth: service_queue_depth, ~beat_bytes: beat_bytes))
+  inst storage(L1DCache(xlen, cache, ~chi: config, ~context: Tag, ~service_queue_depth: service_queue_depth, ~beat_bytes: beat_bytes, ~mshr_count: mshr_count))
   storage.node_id <== node_id
   chi <=> storage.chi
   inst uncached(UncachedInstructionMemory(XLen.X64, config, Bool, 64))

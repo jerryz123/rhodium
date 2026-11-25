@@ -89,7 +89,8 @@ fun cache_chi_request(p :: CHIFlitParams,
     early_write_acknowledge: early_write_acknowledge
 
   // On WriteNoSnp the shared bit means DoDWT; these engines route DAT through
-  // the Home. ReturnTxnID is inapplicable on Requester-to-Home traffic.
+  // the Home. The line-acquisition engine supplies its DAT return identity;
+  // writes do not use ReturnTxnID.
   inactive.updated(
     ~tag_op: CHITagOp.Invalid,
     ~exp_comp_ack: expect_comp_ack,

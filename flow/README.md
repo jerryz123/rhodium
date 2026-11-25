@@ -787,7 +787,10 @@ disabled, input readiness depends only on registered fullness; output readiness
 still controls payload shifting. Both modules export the configured
 `shift_queue(depth, ~pipe: ..., ~flow: ...)` stage for endpoint chains,
 payload/protocol seeds, and reusable disconnected handles. Use an explicit
-instance when `count` or `mask` is needed. Positive depth and host Boolean
+instance when `count` or `mask` is needed. With `~inspect: #true`, the instance
+also exposes the registered `entries: Vec(depth, T)` in FIFO order. Only
+mask-qualified entries are valid; inspection neither accepts nor removes data.
+Positive depth and host Boolean
 options are required; reset empties occupancy without resetting payload.
 `~flushable: #true` adds an explicit `flush: Bool` input; configured stages
 accept `~flush: signal`. Flush empties occupancy on the edge, overriding

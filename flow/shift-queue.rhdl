@@ -14,7 +14,8 @@ sync_circuit ShiftQueue(T :: DataType,
                         depth :: PosInt,
                         ~pipe: pipe :: Boolean = #false,
                         ~flow: flow :: Boolean = #false,
-                        ~flushable: flushable :: Boolean = #false):
+                        ~flushable: flushable :: Boolean = #false,
+                        ~inspect: inspect :: Boolean = #false):
   interface ingress(Decoupled(T), ~role: consumer)
   def Egress = if flow | Decoupled(T) | Irrevocable(T)
   interface egress(Egress, ~role: producer)
@@ -30,6 +31,12 @@ sync_circuit ShiftQueue(T :: DataType,
 
   reg occupied(~init: vec(for List (_ in 0..depth): Bool(#false)))
   reg payload(Vec(depth, T))
+  // Inspection observes the registered window; only mask-qualified entries exist.
+  if inspect
+  | block:
+      output entries: Vec(depth, T)
+      entries <== payload
+  | #void
   def full = occupied[depth - 1]
   ingress.ready <== if pipe | !full ||| egress.ready | !full
   egress.valid <== if flow | occupied[0] ||| ingress.valid | occupied[0]

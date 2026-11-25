@@ -41,6 +41,10 @@ unsigned accept_request(std::uint64_t address, unsigned opcode) {
   until([] { return chi_out.prequests.pvalid; });
   CHECK(chi_out.prequests.pbits.paddress == address && chi_out.prequests.pbits.popcode == opcode);
   const auto txn = chi_out.prequests.pbits.ptxn_uid;
+  if (opcode == 2 || opcode == 7) {
+    CHECK(chi_out.prequests.pbits.preturn_utxn_uid_uor_ustash_ulpid == txn);
+    CHECK(chi_out.prequests.pbits.preturn_unid_uor_ustash_unid_uor_udata_utarget == 3);
+  }
   chi_in.prequests.pready = 1; tick_model(); chi_in.prequests.pready = 0;
   return txn;
 }
@@ -78,6 +82,81 @@ void response(Row expected, unsigned context = 0x97, bool access_fault = false) 
   core_in.presponse.pready = 1; tick_model(); core_in.presponse.pready = 0;
 }
 
+void check_overlapping_loads(const Line &a, const Line &b, bool reverse) {
+  // Same bank parity but distinct sets. Four A waiters and two B waiters
+  // must consume just two CHI requests, each retaining its own byte offset.
+  constexpr unsigned other = base + 128;
+  request(base, load, {}, 0xffff, true, 0x10);
+  const auto ta = accept_request(base, 2);
+  for (unsigned i = 1; i < 4; ++i)
+    request(base + 16*i, load, {}, 0xffff, true, 0x10+i);
+  request(other + 16, load, {}, 0xffff, true, 0x20);
+  const auto tb = accept_request(other, 2);
+  CHECK(ta != tb);
+  request(other + 48, load, {}, 0xffff, true, 0x21);
+  if (reverse) {
+    auto rsp = [&](unsigned opcode, unsigned txn, unsigned credit) {
+      auto &r = chi_in.presponses;
+      r.pbits = {}; r.pbits.popcode = opcode; r.pbits.ptxn_uid = txn;
+      r.pbits.psrc_uid = 1; r.pbits.ptgt_uid = 3; r.pbits.ppcrd_utype = credit;
+      r.pvalid = 1;
+      until([] { return chi_out.presponses.pready; });
+      tick_model(); r.pvalid = 0;
+    };
+    // Untagged grants in the opposite order to tagged RetryAcks.
+    rsp(7, 0, 5); rsp(7, 0, 6);
+    rsp(3, ta, 6); rsp(3, tb, 5);
+    until([] { return chi_out.prequests.pvalid; });
+    CHECK(!chi_out.prequests.pbits.pallow_uretry && chi_out.prequests.pbits.ppcrd_utype == 6);
+    CHECK(accept_request(base, 2) == ta);
+    until([] { return chi_out.prequests.pvalid; });
+    CHECK(!chi_out.prequests.pbits.pallow_uretry && chi_out.prequests.pbits.ppcrd_utype == 5);
+    CHECK(accept_request(other, 2) == tb);
+  }
+  for (unsigned i : {2u, 0u, 3u, 1u})
+    refill_packet(reverse ? tb : ta, i, 1, (reverse ? b : a)[i]);
+  until([] { return chi_out.prequester_uresponses.pvalid; });
+  CHECK(chi_out.prequester_uresponses.pbits.popcode == 2); // CompAck before the other line returns
+  for (unsigned i = 0; i < 8; ++i) {
+    eval();
+    CHECK(!core_out.pdrained && !chi_out.prequests.pvalid);
+    if (reverse) CHECK(!core_out.presponse.pvalid);
+    tick_model();
+  }
+  for (unsigned i : {1u, 3u, 0u, 2u})
+    refill_packet(reverse ? ta : tb, i, 1, (reverse ? a : b)[i]);
+  for (unsigned i = 0; i < 4; ++i) response(a[i], 0x10+i);
+  response(b[1], 0x20); response(b[3], 0x21);
+  eval(); CHECK(core_out.pdrained && !chi_out.prequests.pvalid);
+}
+
+void check_mshr_reuse(const Line &a, const Line &b, bool b_first) {
+  constexpr unsigned addr_b = base + 128, addr_c = base + 64;
+  request(base + 16, load, {}, 0xffff, true, 0xa1);
+  const auto ta = accept_request(base, 2);
+  request(addr_b + 32, load, {}, 0xffff, true, 0xb2);
+  const auto tb = accept_request(addr_b, 2);
+  CHECK(ta != tb);
+  request(addr_b + 16, load, {}, 0xffff, true, 0xb1);
+  request(addr_c + 48, load, {}, 0xffff, true, 0xc3);
+  for (unsigned i : {1u, 0u, 3u, 2u})
+    refill_packet(b_first ? tb : ta, i, 1, (b_first ? b : a)[i]);
+  const auto tc = accept_request(addr_c, 2);
+  CHECK(tc == (b_first ? tb : ta));
+  for (unsigned i : {2u, 3u, 0u, 1u})
+    refill_packet(tc, i, 1, a[3-i]);
+  for (unsigned i = 0; i < 8; ++i) {
+    eval(); CHECK(!chi_out.prequests.pvalid && !core_out.pdrained);
+    if (b_first) CHECK(!core_out.presponse.pvalid);
+    tick_model();
+  }
+  for (unsigned i = 0; i < 4; ++i)
+    refill_packet(b_first ? ta : tb, i, 1, (b_first ? a : b)[i]);
+  response(a[1], 0xa1); response(b[2], 0xb2);
+  response(b[1], 0xb1); response(a[0], 0xc3);
+  eval(); CHECK(core_out.pdrained && !chi_out.prequests.pvalid);
+}
+
 void check_consecutive_hits(unsigned address, const Line &line) {
   request(address, load, {}, 0xffff, true, 0x21);
   const auto first_accept = test_cycles;
@@ -106,6 +185,25 @@ void check_consecutive_hits(unsigned address, const Line &line) {
   }
   for (unsigned i : {3u, 0u, 2u, 1u})
     response(line[i], 0x30+i);
+}
+
+void check_miss_barrier(const Line &a, const Line &b, bool store_barrier) {
+  const unsigned middle = base + (store_barrier ? 64 : 256);
+  constexpr unsigned last = base + 128;
+  request(base, load, {}, 0xffff, true, 1);
+  const auto ta = accept_request(base, 2);
+  request(middle, store_barrier ? store : load, b[0], 0xffff, true, 2);
+  request(last + 32, load, {}, 0xffff, true, 3);
+  // Neither a store nor a distinct tag in A's set may be skipped to reach C.
+  for (unsigned i = 0; i < 12; ++i) {
+    eval(); CHECK(!chi_out.prequests.pvalid && !core_out.presponse.pvalid);
+    tick_model();
+  }
+  for (unsigned i = 0; i < 4; ++i) refill_packet(ta, i, 1, a[i]);
+  response(a[0], 1);
+  refill(middle, store_barrier ? 7 : 2, b);
+  response(store_barrier ? Row{} : b[0], 2);
+  refill(last, 2, a); response(a[2], 3);
 }
 
 void check_maintenance_retry(const Line &younger_line) {
@@ -388,6 +486,14 @@ int main() {
         a[i].words[j] = 0x01020304u * (1 + i * 4 + j);
         b[i].words[j] = ~a[i].words[j];
       }
+    for (bool reverse : {true, false}) {
+      check_mshr_reuse(a, b, reverse);
+      reset = 1; tick_model(); reset = 0;
+      check_overlapping_loads(a, b, reverse);
+      reset = 1; tick_model(); reset = 0;
+      check_miss_barrier(a, b, reverse);
+      reset = 1; tick_model(); reset = 0;
+    }
     // Read a whole row on a miss. Retain the result under backpressure.
     request(base + 256 + 48, load);
     refill(base + 256, 2, b); response(b[3]);

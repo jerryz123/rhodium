@@ -136,7 +136,10 @@ an RTL assertion enforces this even during idle cycles. It is not a selector
 for per-transaction track routing.
 
 Perfetto groups become, for example, `hart[2]/dcache/s1.access`, retaining
-the existing event label hierarchy. Different hardware instances remain
+the existing event label hierarchy. Use `trace_instance("mshr", slot, ~under: "dcache")`
+to place the numbered scope inside a shared display group. An event labeled
+`dcache/refill` then appears at `hart[2]/dcache/mshr[0]/refill`; its query
+label remains `dcache/refill`. Different hardware instances remain
 different tracks even when their identity values match. Instance context does
 not change event identity, add causal edges, or propagate along Flow edges:
 a shared cache belongs to its own scope, not the requesting hart's scope.

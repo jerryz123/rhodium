@@ -17,6 +17,7 @@ def traced = instrument_events(fixture_instances_rtl)
 def manifest = traced.manifest
 check:
   manifest.instances.map(fun (scope): scope.label) ~is ["chip", "hart", "hart", "bank"]
+  manifest.instances.map(fun (scope): scope.group) ~is [#false, "unit", "unit", "unit"]
   manifest.instances.map(fun (scope): scope.id) ~is ["EventInstances", "EventInstances/a", "EventInstances/b", "EventInstances/bank"]
   manifest.sites.length() ~is 6
   manifest.dependencies.length() ~is 3
@@ -24,6 +25,7 @@ check:
   emit_circt(traced.instrumented.design).contains("rheg_instance") ~is #true
   verify_design(traced.instrumented.design) ~is #void
   event_manifest_to_json(manifest).contains("site_instances") ~is #true
+  event_manifest_to_json(manifest).contains("\"under\":\"unit\"") ~is #true
   event_manifest_to_cpp(manifest).contains("\"bank\"") ~is #true
   fixture.invalid("wide") ~throws "width 1..64"
   fixture.invalid("name") ~throws "AsciiIdentifier"

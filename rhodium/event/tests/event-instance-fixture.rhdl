@@ -18,7 +18,7 @@ sync_circuit EventInstanceLeaf():
 
 sync_circuit EventInstanceLane(label :: String, width :: PosInt):
   input identity: Bits(width)
-  trace_instance(label, identity)
+  trace_instance(label, identity, ~under: "unit")
   interface ingress(Valid(Bits(8)), ~role: consumer)
   interface egress(Valid(Bits(8)), ~role: producer)
   inst leaf(EventInstanceLeaf())

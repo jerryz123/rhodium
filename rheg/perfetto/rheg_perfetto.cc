@@ -91,6 +91,8 @@ struct Description {
   Manifest manifest;
   std::string top;
   std::vector<Site> sites;
+  // Optional static display parent of each instance, relative to its enclosing scope.
+  std::vector<std::string> instance_groups;
   std::vector<std::uint32_t> track_sites;
   std::vector<bool> shared_tracks;
   std::vector<Site> track_displays;
@@ -145,9 +147,14 @@ Description describe(const Json& json, const PerfettoTrackGroups& track_groups =
   }
   if (json.contains("instances")) {
     require(json.at("instances").is_array(), "instances must be an array");
-    for (const auto& scope : json.at("instances"))
+    for (const auto& scope : json.at("instances")) {
       result.manifest.instances.push_back({scope.at("id").get<std::string>(), scope.at("label").get<std::string>(),
                                           static_cast<std::uint32_t>(number(scope.at("width"), 64))});
+      auto group = scope.value("under", std::string{});
+      require(!scope.contains("under") || (!group.empty() && group.find('/') == std::string::npos),
+              "instance display parent must be a single group");
+      result.instance_groups.push_back(std::move(group));
+    }
     require(json.at("site_instances").is_array(), "site_instances must be an array");
     for (const auto& membership : json.at("site_instances")) {
       require(membership.is_array(), "instance membership must be an array");
@@ -515,11 +522,24 @@ struct PerfettoWriter::Impl {
     const auto scopes_for = [&](std::size_t i) {
       return manifest.site_instances.empty() ? std::vector<std::uint32_t>{} : manifest.site_instances.at(i);
     };
+    std::vector<GroupKey> track_parents(description.sites.size());
     for (std::size_t i = 0; i < description.sites.size(); ++i) {
       if (description.track_sites[i] != i) continue;
-      auto scopes = scopes_for(i);
-      for (auto prefix = scopes; !prefix.empty(); prefix.pop_back()) groups.emplace(GroupKey{prefix, ""}, 0);
-      for (auto path = description.track_displays[i].group; !path.empty(); path = parent_path(path))
+      std::vector<std::uint32_t> scopes;
+      auto remaining = description.track_displays[i].group;
+      for (auto scope : scopes_for(i)) {
+        const auto& under = description.instance_groups.at(scope);
+        if (!under.empty()) {
+          groups.emplace(GroupKey{scopes, under}, 0);
+          // The event identity may already include the enclosing facility.
+          if (remaining == under) remaining.clear();
+          else if (remaining.rfind(under + "/", 0) == 0) remaining.erase(0, under.size() + 1);
+        }
+        scopes.push_back(scope);
+        groups.emplace(GroupKey{scopes, ""}, 0);
+      }
+      track_parents[i] = {scopes, remaining};
+      for (auto path = remaining; !path.empty(); path = parent_path(path))
         groups.emplace(GroupKey{scopes, path}, 0);
     }
     auto next_track = root_track;
@@ -533,7 +553,7 @@ struct PerfettoWriter::Impl {
     // Lexical prefix order emits parents before children, independently of site order.
     for (const auto& [key, uuid] : groups) {
       const auto& [scopes, path] = key;
-      const auto parent = parent_path(path);
+      const auto parent = path.empty() ? description.instance_groups.at(scopes.back()) : parent_path(path);
       auto parent_scopes = scopes;
       if (path.empty()) parent_scopes.pop_back();
       const auto parent_uuid = parent.empty() && parent_scopes.empty() ? root_track : groups.at({parent_scopes, parent});
@@ -574,7 +594,8 @@ struct PerfettoWriter::Impl {
       if (description.track_sites[i] != i) continue;
       std::string track, pkt;
       const auto& display = description.track_displays[i];
-      integer(track, 1, i + 1); integer(track, 5, display.group.empty() && scopes_for(i).empty() ? root_track : groups.at({scopes_for(i), display.group}));
+      const auto& parent = track_parents[i];
+      integer(track, 1, i + 1); integer(track, 5, parent.first.empty() && parent.second.empty() ? root_track : groups.at(parent));
       bytes(track, 2, display.track_name); integer(track, 15, 2);
       auto site = site_description(i);
       if (description.grouped_tracks.count(i)) {

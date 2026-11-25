@@ -1,0 +1,99 @@
+#lang rhodium
+/* Allocates interchangeable line acquisitions and arbiters their CHI and SRAM handoffs. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../chi/flits.rhdl" open
+  "../chi/refill.rhdl" open
+  "../geometry.rhdl" open
+  lib("chi/protocol/flits.rhdl") open
+  lib("chi/protocol/coherence.rhdl") open
+  lib("rhodium/std/bits.rhdl") open
+  lib("flow/main.rhdl") open
+  lib("flow/circular-priority.rhdl") open
+
+/* Reserves a line and way. Only an acquisition issued for the service head
+   consumes its response destination or applies the retained mutation. */
+bundle L1DMissTarget(width :: PosInt, ways :: PosInt):
+  address: Bits(width)
+  way: Bits(index_width(ways))
+  ordered: Bool
+  install: Bool
+
+/* Each allocated entry owns its destination until all rows install and its
+   completion transfers. The request window, not this file, owns response order. */
+sync_circuit L1DMSHRs(count :: Int.in(1 ..= 4094), width :: PosInt, ways :: PosInt, config :: RiscvHartCHIConfig):
+  def p = config.flit
+  def Target = L1DMissTarget(width, ways)
+  def Command = CacheLineRefillCommand(Target)
+  def Result = CacheLineRefillResult(Target, width)
+  input node_id: Bits(p.node_id_width)
+  input ordered_ready: Bool
+  interface allocate(Decoupled(Command), ~role: consumer)
+  interface complete(Decoupled(Result), ~role: producer)
+  interface packet(Valid(CacheLineChunk(p.data_bytes)), ~role: producer)
+  output packet_target: Target
+  output occupied: Vec(count, Bool)
+  output targets: Vec(count, Target)
+  output protect: Bool
+  output install_pending: Bool
+  interface requests(Decoupled(CHIReqFlit(p)), ~role: producer)
+  interface acknowledgements(Decoupled(CHIRspFlit(p)), ~role: producer)
+  interface responses(Decoupled(CHIRspFlit(p)), ~role: consumer)
+  interface data(Decoupled(CHIDatFlit(p)), ~role: consumer)
+
+  wire free: Vec(count, Bool)
+  occupied <== (!free.as_bits()).as_vec(Bool)
+  reg next_slot(~init: Bits(index_width(count))(0))
+  def chosen :: CircularPriorityChoice(count, index_width(count)) = circular_priority_onehot(free, next_slot)
+  def commands = allocate |> demux_flow(count, _request => chosen.index)
+  when (allocate.fire()):
+    next_slot <== wrap_increment(chosen.index, count)
+  def returns = data |> demux_flow(count, dat => priority_encoder(vec(for List (i in 0..count): dat.txn_id === Bits(12)(cache_mshr_txn_id(i)))))
+  def retry_ports:
+    if count == 1
+    | Array(responses)
+    | block:
+        inst credits(CacheRefillRetryRouter(p, count))
+        credits.node_id <== node_id
+        responses |> credits.incoming
+        for Array (i in 0..count): credits.outgoing[i]
+
+  inst reads(Arbiter(CHIReqFlit(p), count))
+  inst acks(Arbiter(CHIRspFlit(p), count))
+  inst results(Arbiter(Result, count))
+  reads.egress |> requests
+  acks.egress |> acknowledgements
+  results.egress |> complete
+
+  wire metadata_pending: Vec(count, Bool)
+  wire installing: Vec(count, Bool)
+  wire writes: Vec(count, Bool)
+  wire chunks: Vec(count, CacheLineChunk(p.data_bytes))
+  for (i in 0..count):
+    inst engine(CacheLineRefill(Target, width, config, ~slot: i))
+    engine.node_id <== node_id
+    free[i] <== engine.command.ready
+    targets[i] <== engine.active_context
+    engine.line_address <== mux(free[i], allocate.bits.context.address, engine.active_context.address)
+    commands[i] |> engine.command
+    returns[i] |> engine.response_data
+    retry_ports[i] |> engine.responses
+    engine.requests |> reads.ingress[i]
+    engine.acknowledgements |> acks.ingress[i]
+    engine.completion |> gate_flow(!engine.active_context.ordered ||| ordered_ready) |> results.ingress[i]
+    metadata_pending[i] <== engine.acknowledgements.valid ||| engine.completion.valid
+    installing[i] <== engine.completion.valid & engine.active_context.install
+    writes[i] <== engine.packet_write.valid
+    chunks[i] <== engine.packet_write.bits
+
+  protect <== metadata_pending.any()
+  install_pending <== installing.any()
+  def writer = priority_encoder_oh(writes)
+  packet.valid <== writer.valid
+  packet.bits <== chunks[writer.index]
+  packet_target <== targets[writer.index]
+
+export:
+  L1DMissTarget
+  L1DMSHRs

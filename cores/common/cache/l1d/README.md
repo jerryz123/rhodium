@@ -1,4 +1,4 @@
-<!-- Specifies the shared cache's write-back L1D, single-miss ownership, and independent load-hit policy. -->
+<!-- Specifies the shared write-back L1D's request ordering, miss overlap, and coherence policy. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Shared data cache
@@ -17,7 +17,7 @@ Contributors changing the L1D implementation should read
 
 | Property | Current contract |
 |---|---|
-| Organization | Non-aliasing VIPT, set-associative, write-back, write-allocate; one outstanding miss with independent load hits and same-line authorized waiters |
+| Organization | Non-aliasing VIPT, set-associative, write-back, write-allocate; same-line waiters and a configurable number of distinct-set load misses |
 | Geometry | Power-of-two sets from 2 through 64, positive ways, fixed 64-byte lines; see [shared geometry](../README.md#entry-point) |
 | Core throughput | One uncontended load hit per cycle; owned store hits retire into four committed entries |
 | Core protocol | Fixed-cycle lookup/resolution and next-cycle store authorization; ordered `Decoupled` slow requests and backpressurable slow responses |
@@ -26,7 +26,7 @@ Contributors changing the L1D implementation should read
 | CHI traffic | `ReadClean`, `ReadUnique`, retryable `WriteBackFull` with `CopyBackWriteData`, nonallocating `WriteUniquePtl`, cache-block maintenance, `CompAck`, `SnpResp`, and dirty `SnpRespData` |
 | Prefetch | Demand-priority Valid event; read intent uses `ReadClean`, write intent uses `ReadUnique`, and neither responds or mutates data |
 
-`L1DCache(xlen, cache, ~chi: config, ~context: Context, ~service_queue_depth: 2)` accepts
+`L1DCache(xlen, cache, ~chi: config, ~context: Context, ~service_queue_depth: 2, ~mshr_count: 1)` accepts
 `XLen.X32` or `XLen.X64`. The cache configuration supplies set/way geometry;
 the positive service-queue depth bounds authorized requests and same-line
 waiters, while the required CHI configuration supplies flit geometry and the
@@ -119,7 +119,7 @@ pipeline loads hit resident lines in other cache sets. Waiting for CHI requests,
 retry credit, response packets, CompAck acceptance, or a stalled victim packet
 does not itself occupy the SRAM ports. Independent load hits retain the normal
 S0/S1 lookup timing and may complete before the older miss. The authorized slow
-request/response path remains ordered and supports only one miss at a time.
+request/response path remains ordered, even when two lines fill out of order.
 
 The entire miss set is reserved from acquisition/allocation through final
 installation (or non-allocating completion), including the victim and other
@@ -129,7 +129,7 @@ observing partial refill data, then performs a fresh tag/state lookup after the
 miss completes. This collapses ordinary same-line load traffic when the first
 transaction installs a usable line; a waiter may instead miss again after a
 non-allocating refill or when it needs stronger ownership. An independent
-second miss, a different-line same-set access, or an ordinary store to another
+second speculative miss, a different-line same-set access, or an ordinary store to another
 line still replays during this interval. LR/SC, atomic, cache-block, and
 prefetch transactions do not become waiters. Queued older requests and retained
 lookup stages remain ordering barriers rather than being bypassed
@@ -140,9 +140,19 @@ Gather, refill installation, mutation, and snoop array activity retain priority.
 Loads replay on conflicting cycles and never observe partially installed data
 or reuse a read result owned by another request. An outstanding miss still keeps
 `drained` false; fences and ordered IO retain their existing completion rules.
-This remains a single-MSHR cache: waiters relookup after completion rather than
-receiving data directly from the refill engine, and no independent second miss
-can become outstanding.
+
+The number of line-acquisition entries (MSHRs) is a host parameter: one by
+default and two on RV3Wide. Each entry can service the ordered head or acquire
+a younger ordinary load with default locality. Concurrent acquisitions must
+use distinct sets; a younger miss needs an invalid or clean victim. Installing
+a line releases its slot immediately, even if another, older miss is still
+outstanding. The cache does not look past an intervening store, atomic, or
+cache-management operation.
+Same-line waiters share the acquisition; offsets and caller contexts remain in
+the ordered request path. Either line can install first, but installation of the
+younger line does not produce a response. Waiters recheck the resident line
+in order, including after a snoop. The request window holds at least one line's
+worth of rows plus one request for the following line.
 
 Requests carry `locality: RiscvMemoryLocality` (`Default`, `P1`, `Pall`,
 `S1`, `All`). L1D retains the complete request, including locality, from
@@ -252,7 +262,7 @@ On the authorized transaction path, a `Queue` with configurable positive depth
 a function of registered queue occupancy. Tag, state, and data results may
 decide whether its egress drains, but cannot feed back combinationally into
 acceptance.
-The same queue retains ordinary same-line waiters while the single miss entry is
+The same queue retains ordinary same-line waiters while an acquisition is
 occupied; a full queue rejects admission so the caller retains or retries its request.
 When the queue is empty and the SRAM port is available, an early virtual lookup
 reads the arrays in parallel with translation and PMA checks. Its permitted
