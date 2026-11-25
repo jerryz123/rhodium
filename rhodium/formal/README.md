@@ -342,7 +342,7 @@ spec for rtl.QueuePair:
 ```
 
 Each triple is **(valid, ready, payload)**, with directions checked against
-the elaborated circuit. This first profile covers one scalar ingress, one
+the elaborated circuit. This form covers one scalar ingress, one
 scalar egress, and the standard sampled clock/reset. Bind it with
 `QueuePair(top)`. Then [`sample_fifo_events(view, pins)`](fifo-view.rhm) takes
 one map containing all pre-edge input and output samples except the clock
@@ -350,6 +350,15 @@ and returns the batch for `step_fifo_monitor`. An asserted reset suppresses
 both transfers; otherwise both can appear in the same batch, even with a
 zero payload. The view reads the actual ready and valid pins. It does not
 drive them, certify the FIFO, or replace a cycle model.
+
+For grouped ready/valid endpoints, the [ShiftQueue transaction view](../../examples/formal/shift-queue-transactions.rspl)
+uses `fifo_transactions(reset, ingress, egress)`. The sampler takes the logical
+`valid`, `ready`, and `bits` members of those groups and reset. It does not take
+`count` or `mask`. For two-bit ShiftQueues at depths 1, 2, and 3 (no pipe, flow,
+or flush), this view is proved from the existing cycle contract: the kth word
+retired must be the kth word accepted since reset, and occupancy is bounded by
+depth. A client of the transaction result alone cannot infer readiness or
+read the physical occupancy mask.
 
 ## RTL equivalence API
 

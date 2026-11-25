@@ -1,0 +1,8 @@
+#lang rspecl
+/* Observes only reset and completed transfers on ShiftQueue's grouped interfaces. */
+// SPDX-License-Identifier: Apache-2.0
+
+import lib("flow/shift-queue.rhdl") as rtl
+
+spec for rtl.ShiftQueue:
+  fifo_transactions(reset, ingress, egress)

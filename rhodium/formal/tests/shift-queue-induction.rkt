@@ -70,6 +70,19 @@
 
 
 (module+ test
+  (require (only-in "shift-queue-binding.rhm" without_head_promise)
+           (only-in "../../../examples/formal/shift-queue-transactions.rspl" ShiftQueue))
+  (test-case "an uncared physical payload cannot certify a FIFO, even with a correct abstract dequeue event"
+    (define-values (leaf root model) (fifo_case 2))
+    (define (observe ports inputs)
+      (define-values (outputs events) (rtl-observations ports inputs))
+      (values (hash-set outputs "egress.bits" (observation #f (hash-ref ports "egress.bits"))) events))
+    (define weakened
+      (prove-leaf leaf (without_head_promise model) interface_prefixes observe
+                  #:relation (lambda (rtl s) (related 2 (string-append root ".occupied")
+                                                       (string-append root ".payload") rtl (hash-ref s "q")))))
+    (check-exn #rx"cycle-to-fifo-step/event-relation not proved"
+               (lambda () (derive-fifo-transactions weakened (ShiftQueue leaf) "q"))))
   (test-case "a symbolic payload defect yields a reachable mismatch, not just an induction witness"
     (define spec (symbolic-spec-edge fifo_snapshot))
     (define inputs (edge-inputs spec))

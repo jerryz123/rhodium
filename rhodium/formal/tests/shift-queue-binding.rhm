@@ -14,6 +14,7 @@ import:
 
 export snapshot faulty_snapshot guarded_snapshot spec_row fifo_snapshot fifo_root bad_root in_layout out_layout
 export interface_prefixes proof_depths fifo_case pair_proof_cut
+export without_head_promise
 
 def snapshot = formal_snapshot(fifo_definition)
 def bad = elaborate(CorruptQueue()).top
@@ -29,6 +30,10 @@ fun fifo_case(depth):
   def leaf = fifo_at(depth)
   def model = ShiftQueue(leaf)
   values(leaf, leaf.name, model)
+fun without_head_promise(model):
+  def never = literal(SpecBool(), #false)
+  def outputs = model.outputs ++ {"egress.bits": Observed(model.outputs["egress.bits"].value, never)}
+  make_spec(model.inputs, model.state, model.initial, outputs, model.events, model.updates)
 fun pair_proof_cut(depth):
   def leaf = fifo_at(depth)
   proof_cut(pair_at(depth), Map.by(===){leaf: ShiftQueue(leaf)}, Bool, interface_prefixes)

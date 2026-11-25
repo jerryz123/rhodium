@@ -18,7 +18,7 @@
 
 (module+ test
   (require (only-in "../refinement.rkt" fresh-fifo-history fifo-history-count fifo-history-slots fifo-events fifo-allows?)
-           (only-in "composition-checks.rkt" discharge)
+           (only-in "composition-checks.rkt" discharge require-feasible)
            (only-in racket/treelist treelist treelist->list)
            (only-in "../fifo-view.rhm" sample_fifo_events)
            (only-in "../fifo-monitor.rhm" fifo_monitor step_fifo_monitor))
@@ -49,7 +49,7 @@
   (test-case "series evidence binds the actual parent and suffices for the unchanged ordering observer"
     (check-true (fifo-transactions-for? verified-queue-pair-series series-view))
     (check-equal? (fifo-transactions-capacity verified-queue-pair-series) 6)
-    (check-retirement-order verified-queue-pair-series)
+    (require-feasible (check-retirement-order verified-queue-pair-series))
     (check-ready-not-entailed verified-queue-pair-series))
 
   (test-case "an independent ready driver breaks the handoff, and same-shaped children are not interchangeable"

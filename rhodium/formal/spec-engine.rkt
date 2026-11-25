@@ -3,7 +3,7 @@
 ;; SPDX-License-Identifier: Apache-2.0
 
 (require racket/match)
-(provide symbolic-spec-edge symbolic-spec-state spec-state-legal? spec-edge-at spec-offers-at wired-edge-at
+(provide symbolic-spec-edge symbolic-spec-state spec-state-legal? spec-edge-at spec-offers-at spec-pin-at wired-edge-at
          spec-input-assumptions discharge-wired-inputs!
          (struct-out edge) (struct-out sequence-value) (struct-out observation))
 

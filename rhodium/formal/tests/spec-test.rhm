@@ -8,8 +8,18 @@ import:
   lib("rhodium/frontend/foundation.rhm").Bits
   lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../examples/formal/shift-queue.rspl".ShiftQueue
+  "../../../examples/formal/shift-queue-transactions.rspl" as tx
+  "../fifo-view.rhm".sample_fifo_events
 
-def fifo = ShiftQueue(elaborate(rtl.ShiftQueue(Bits(2), 2)).top)
+def top = elaborate(rtl.ShiftQueue(Bits(2), 2)).top
+def fifo = ShiftQueue(top)
+def grouped = tx.ShiftQueue(top)
+def simultaneous = {"reset": 0, "ingress.valid": 1, "ingress.ready": 1, "ingress.bits": 0,
+                    "egress.ready": 1, "egress.valid": 1, "egress.bits": 3}
+check:
+  sample_fifo_events(grouped, simultaneous) ~is {"accepted": 0, "retired": 3}
+  sample_fifo_events(grouped, simultaneous ++ {"reset": 1}) ~is {"reset": #true}
+  sample_fifo_events(grouped, simultaneous ++ {"mask": 3}) ~throws "exact spec bindings"
 def flags = [#false, #true]
 def mutable cases = 0
 

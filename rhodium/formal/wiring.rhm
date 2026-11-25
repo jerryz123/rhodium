@@ -7,6 +7,8 @@ import:
   "spec.rhm" open
   "parent-local.rhm" open
   "port-types.rhm".sampled_type
+  "port-types.rhm".leaf_layout
+  "port-types.rhm".port_leaves
 
 export wiring_cut scalar_series_wiring bind_wiring proof_cut cut_parts leaf_protocol leaf_layout
 
@@ -17,26 +19,6 @@ fun leaf_protocol(top :: Module):
   | clocks.length() == 0: "combinational"
   | clocks.length() == 1 && clocks[0].name == "clock" && clocks[0].direction == "input": "single-clock-reset"
   | ~else: error("unsupported leaf clock boundary")
-
-/* Record logical sampled names and widths in each physical pin's most-significant-first order. */
-fun leaf_layout(top :: Module, prefixes :: Map):
-  /* A scalar is a one-member word, while interface records retain declaration order. */
-  fun layout(ports :: List):
-    for Map (p in ports.filter(~keep: fun (p :: Port): !clock_type(p.type))):
-      def fields:
-        if prefixes.has_key(p.name)
-        | for List (f in p.type.fields): PairList[prefixes[p.name] ++ "." ++ f.name, f.type.packed_width()]
-        | [PairList[p.name, p.type.packed_width()]]
-      values(p.name, PairList[& fields])
-  PairList[layout(top.inputs), layout(top.outputs)]
-
-/* Give a scalar port or each member of a declared directional record its public endpoint name. */
-fun port_leaves(p :: Port, prefixes :: Map, visit :: Function.of_arity(2)):
-  cond
-  | prefixes.has_key(p.name):
-      for Map (f in p.type.fields):
-        values(f.name, visit(prefixes[p.name] ++ "." ++ f.name, f.type))
-  | ~else: visit(p.name, p.type)
 
 /* Stop at child signatures. Record creation and selection only route existing wires. */
 fun wiring_cut(top :: Module, interface_prefixes :: Function.of_arity(1)):

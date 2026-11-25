@@ -4,12 +4,35 @@
 
 import:
   "../core/types.rhm" as hw
+  "../core/ir.rhm".Module
+  "../core/ir.rhm".Port
   "spec.rhm" open
 
 export sampled_type SampledPorts check_output_types
+export leaf_layout port_leaves
 
 /* Detached input/output sorts for one sampled edge; contains no module, drivers, or live RTL values. */
 class SampledPorts(inputs :: Map, outputs :: Map)
+
+/* Record logical sampled names and widths in each physical pin's most-significant-first order. */
+fun leaf_layout(top :: Module, prefixes :: Map):
+  /* A scalar is a one-member word, while interface records retain declaration order. */
+  fun layout(ports :: List):
+    for Map (p in ports.filter(~keep: fun (p :: Port): !hw.clock_type(p.type))):
+      def fields:
+        if prefixes.has_key(p.name)
+        | for List (f in p.type.fields): PairList[prefixes[p.name] ++ "." ++ f.name, f.type.packed_width()]
+        | [PairList[p.name, p.type.packed_width()]]
+      values(p.name, PairList[& fields])
+  PairList[layout(top.inputs), layout(top.outputs)]
+
+/* Give a scalar port or each member of a declared directional record its public endpoint name. */
+fun port_leaves(p :: Port, prefixes :: Map, visit :: Function.of_arity(2)):
+  cond
+  | prefixes.has_key(p.name):
+      for Map (f in p.type.fields):
+        values(f.name, visit(prefixes[p.name] ++ "." ++ f.name, f.type))
+  | ~else: visit(p.name, p.type)
 
 /* Convert nominal Bool and Reset to logical samples, leaving Bits(1) as a packed word. */
 fun sampled_type(type :: hw.HardwareType, bool :: hw.HardwareType):

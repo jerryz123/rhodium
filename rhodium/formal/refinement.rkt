@@ -5,11 +5,11 @@
 (require racket/match (only-in racket/base [equal? host-equal?] [eq? host-eq?])
          "engine.rkt" "spec-engine.rkt" (only-in "snapshot.rhm" formal_snapshot) (only-in "spec.rhm" spec_snapshot)
          (only-in "fifo-monitor.rhm" fifo_monitor)
-         (only-in "fifo-view.rhm" fifo_view_parts)
+         (only-in "fifo-view.rhm" fifo_view_parts fifo_view_layout)
          (only-in "wiring.rhm" cut_parts leaf_protocol leaf_layout scalar_series_wiring))
 (provide prove-leaf prove-parent prepare-proved-wiring proved-child-model symbolic-cut-state proved-edge-at view-agrees? pack-pins unpack-pins)
 (provide exn:fail:input-contract? exn:fail:input-contract-goal exn:fail:input-contract-inputs)
-(provide prove-fifo-transactions compose-fifo-series fifo-transactions-for? fifo-transactions-capacity fifo-transactions-width
+(provide derive-fifo-transactions prove-fifo-transactions compose-fifo-series fifo-transactions-for? fifo-transactions-capacity fifo-transactions-width
          fresh-fifo-history fifo-allows? (struct-out fifo-history) (struct-out fifo-events))
 
 ;; Private constructors. These are live elaboration identities, not transferable certificates.
@@ -213,7 +213,7 @@
   (refinement-result (proved-cut-definition plan) model "single-clock-reset" (proved-cut-layout plan)))
 
 ;; Only certification can construct evidence. No child states, transition plan, or cycle pins escape.
-(struct fifo-transactions (definition ingress egress capacity width sampler monitor))
+(struct fifo-transactions (definition layout ingress egress capacity width sampler monitor))
 (struct fifo-history (count slots) #:transparent)
 (struct fifo-events (reset accepted? accepted retired? retired) #:transparent)
 
@@ -221,6 +221,7 @@
 (define (fifo-transactions-for? result view)
   (define-values (definition ingress egress width sampler) (fifo_view_parts view))
   (and (fifo-transactions? result) (host-eq? definition (fifo-transactions-definition result))
+       (host-equal? (fifo_view_layout view) (fifo-transactions-layout result))
        (host-equal? ingress (fifo-transactions-ingress result))
        (host-equal? egress (fifo-transactions-egress result))))
 
@@ -234,7 +235,7 @@
 #| Create a candidate contract; only successful certification returns it to callers. |#
 (define (candidate-fifo view capacity)
   (define-values (definition ingress egress width sampler) (fifo_view_parts view))
-  (fifo-transactions definition ingress egress capacity width
+  (fifo-transactions definition (fifo_view_layout view) ingress egress capacity width
                      (spec_snapshot sampler) (spec_snapshot (fifo_monitor capacity width))))
 
 #| Interpret the declared passive sampler, preserving presence even for a zero payload. |#
@@ -272,12 +273,50 @@
       (for/fold ([ok #t]) ([i (in-naturals)] [actual new-slots] [expected words])
         (&& ok (=> (< i m) (bveq actual expected))))))
 
+#| Weaken a proved, unconditional cycle contract to its sampled FIFO transfers. Only the
+   certified snapshot is stepped; a cycle output outside care is an arbitrary physical value. |#
+(define (derive-fifo-transactions cycle view history-field)
+  (define-values (definition ingress egress width sampler) (fifo_view_parts view))
+  (unless (and (refinement-result? cycle) (host-eq? definition (refinement-result-definition cycle))
+               (host-equal? (fifo_view_layout view) (refinement-result-layout cycle))
+               (host-equal? (refinement-result-protocol cycle) "single-clock-reset"))
+    (error 'derive-fifo-transactions "expected cycle evidence for this exact definition and member layout"))
+  (define model (refinement-result-model cycle))
+  (unless (zero? (hash-count (hash-ref model "assumptions")))
+    (error 'derive-fifo-transactions "conditional cycle evidence cannot export an unconditional FIFO contract"))
+  (define capacity
+    (match (hash-ref (hash-ref model "state") history-field #f)
+      [(list "seq" n (list "bits" w)) #:when (= width w) n]
+      [_ (error 'derive-fifo-transactions "expected a cycle-spec sequence of FIFO words: ~a" history-field)]))
+  (define contract (candidate-fifo view capacity))
+  (define e (symbolic-spec-edge model))
+  (define inputs (edge-inputs e))
+  (define reset (hash-ref inputs "reset"))
+  (define-values (pins pins-ok)
+    (for/fold ([pins inputs] [ok #t]) ([k (list (second ingress) (first egress) (third egress))])
+      (unless (hash-has-key? (edge-outputs e) k)
+        (error 'derive-fifo-transactions "cycle evidence does not cover output ~a" k))
+      (define-values (v defined) (spec-pin-at model k (edge-state e) inputs))
+      (values (hash-set pins k v) (&& ok defined))))
+  (define-values (batch sampler-ok) (sampled-fifo-batch contract pins))
+  #| Project the cycle spec's bounded sequence, never its unused slot padding or RTL registers. |#
+  (define (history state)
+    (match-define (sequence-value n slots) (hash-ref state history-field))
+    (fifo-history (bitvector->natural n) slots))
+  (define goals
+    (list (cons 'defined (&& (edge-defined e) pins-ok sampler-ok (spec-state-legal? (edge-next e))))
+          (cons 'event-relation (fifo-allows? contract (history (edge-state e)) batch (history (edge-next e))))))
+  (check-phase 'cycle-to-fifo-reset (&& (edge-legal e) reset) goals)
+  (check-phase 'cycle-to-fifo-step (&& (edge-legal e) (! reset)) goals)
+  contract)
+
 #| Prove a FIFO projection of an admitted synchronous cut using its bound transaction view.
    The proof author supplies the state abstraction, never the handshakes. |#
 (define (prove-fifo-transactions plan capacity view project)
   (unless (exact-positive-integer? capacity) (error 'fifo-transactions "expected positive capacity"))
   (define contract (candidate-fifo view capacity))
-  (unless (host-eq? (fifo-transactions-definition contract) (proved-cut-definition plan))
+  (unless (and (host-eq? (fifo-transactions-definition contract) (proved-cut-definition plan))
+               (host-equal? (fifo_view_layout view) (proved-cut-layout plan)))
     (error 'fifo-transactions "view does not match the RTL cut"))
   (define ingress (fifo-transactions-ingress contract))
   (define egress (fifo-transactions-egress contract))

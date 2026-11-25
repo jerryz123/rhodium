@@ -16,6 +16,7 @@ import:
 
 export declared_ports interface_prefixes Endpoint
 export bind_fifo_view
+export bind_grouped_fifo_view
 
 /* Flat logical field schemas and lexical views, with no RTL drivers or implementation state. */
 class Boundary(ports :: SampledPorts, endpoints :: Map, arrays :: Map, parameters :: Map):
@@ -90,3 +91,13 @@ fun bind_fifo_view(top :: Module, family :: CircuitIdentity, synchronous :: Bool
   checked_circuit_parameters(top, family)
   unless synchronous | error("expected a synchronous FIFO")
   make_fifo_view(top, names, Bool)
+
+/* Resolve two real interface groups to their directional valid, ready, and bits members. */
+fun bind_grouped_fifo_view(top :: Module, family :: CircuitIdentity, synchronous :: Boolean,
+                           reset :: String, incoming :: String, outgoing :: String):
+  def bound = declared_ports(top, family, synchronous)
+  unless synchronous && bound.endpoints.has_key(incoming) && bound.endpoints.has_key(outgoing)
+  | error("expected two declared synchronous FIFO interface groups")
+  def names = for List (group in [incoming, outgoing]):
+    [group ++ ".valid", group ++ ".ready", group ++ ".bits"]
+  make_fifo_view(top, [reset] ++ names[0] ++ names[1], Bool, interface_prefixes(top))

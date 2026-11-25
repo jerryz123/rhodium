@@ -1,5 +1,5 @@
 #lang rosette
-;; Proves an observer's retirement-order theorem using only QueuePair's exported event contract.
+;; Proves an observer's retirement-order theorem from an exported FIFO transaction contract.
 ;; SPDX-License-Identifier: Apache-2.0
 
 (require rackunit "composition-checks.rkt"
@@ -31,24 +31,27 @@
   (discharge 'new-epoch base (&& (! push) (! pop) (invariant next 0 0 remembered)))
   (require-feasible (&& step kth-in pop))
   (require-feasible (&& step kth-out push))
-  (require-feasible (&& step (< retired k accepted) (! push) (! pop)))
   (discharge 'observer-preserved step
              (invariant next (+ accepted (if push 1 0)) (+ retired (if pop 1 0))
                         (if kth-in in remembered)))
   (discharge 'kth-retirement step (=> kth-out (&& (< k accepted) (bveq out remembered))))
-  (discharge 'pending-bound step (<= 0 (fifo-history-count next) (fifo-transactions-capacity contract))))
+  (discharge 'pending-bound step (<= 0 (fifo-history-count next) (fifo-transactions-capacity contract)))
+  ;; Return the independent coverage query: can k wait *behind* the head on an idle edge?
+  ;; It is not a premise or a conclusion of the ordering theorem.
+  (&& step (< retired k accepted) (! push) (! pop)))
 
 (for ([depth '(1 2)])
   (test-case (format "event-only retirement order for child depth ~a" depth)
     (define contract (verified-queue-pair-transactions-at depth))
     (check-equal? (fifo-transactions-capacity contract) (* 2 depth))
-    (check-retirement-order contract)))
+    (require-feasible (check-retirement-order contract))))
 
 (define (check-ready-not-entailed contract)
   (define (fresh) (fresh-fifo-history contract))
   (define old (fresh))
   (define empty (fresh))
-  (define one (fresh))
+  (define already-pending? (> (fifo-transactions-capacity contract) 1))
+  (define before (if already-pending? (fresh) empty))
   (define next (fresh))
   (define x (bv 1 2))
   (define y (bv 2 2))
@@ -57,13 +60,13 @@
   (define-symbolic* ready boolean?)
   (define prefix
     (&& (fifo-allows? contract old (fifo-events #t #f x #f x) empty)
-        (fifo-allows? contract empty (fifo-events #f #t x #f x) one)))
-  (define allowed (&& prefix (fifo-allows? contract one (fifo-events #f ready y #f x) next)))
-  (define space (< (fifo-history-count one) (fifo-transactions-capacity contract)))
+        (if already-pending? (fifo-allows? contract empty (fifo-events #f #t x #f x) before) #t)))
+  (define allowed (&& prefix (fifo-allows? contract before (fifo-events #f ready y #f x) next)))
+  (define space (< (fifo-history-count before) (fifo-transactions-capacity contract)))
   (define witness (solve (assert (&& allowed (! (=> space ready))))))
   (check-true (sat? witness))
   (check-false (evaluate ready witness))
-  (check-equal? (evaluate (fifo-history-count next) witness) 1)
+  (check-equal? (evaluate (fifo-history-count next) witness) (if already-pending? 1 0))
   ;; The event view permits either choice for this offer.
   (require-feasible (&& allowed space ready)))
 

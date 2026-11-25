@@ -32,10 +32,17 @@ defn.macro 'spec for $prefix ... . $(name :: Identifier): $line; ...':
 
 /* Both contexts obtain the constructor name and lexical boundary from the RTL declaration. */
 defn.macro
+| 'define_spec $prefix ... . $(name :: Identifier): fifo_transactions($(reset :: Identifier), $(incoming :: Identifier), $(outgoing :: Identifier))':
+    '$prefix ... . $(name) . describe_boundary grouped_fifo $name: ($reset, $incoming, $outgoing)'
 | 'define_spec $prefix ... . $(name :: Identifier): fifo_transactions($reset, ingress($iv, $ir, $iw), egress($ov, $or, $ow))':
     '$prefix ... . $(name) . describe_boundary declared_fifo $name: ($reset, $iv, $ir, $iw, $ov, $or, $ow)'
 | 'define_spec $prefix ... . $(name :: Identifier): $line; ...':
     '$prefix ... . $(name) . describe_boundary declared_spec $name: $line; ...'
+
+/* Bind the standard grouped ready/valid interface without spelling physical record ports. */
+defn.macro 'grouped_fifo $name($family, $sync) $pins $cfg $ep $arr: ($reset, $incoming, $outgoing)':
+  'fun $name(top): boundary.bind_grouped_fifo_view(top, $family, $sync, $(reset.to_source_string()),
+                                                   $(incoming.to_source_string()), $(outgoing.to_source_string()))'
 
 /* A transaction view samples both sides of physical handshakes; it does not drive outputs. */
 defn.macro 'declared_fifo $name($family, $sync) $pins $cfg $ep $arr: ($(port :: Identifier), ...)':

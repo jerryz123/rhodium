@@ -1,5 +1,5 @@
 #lang rhombus
-/* Binds scalar FIFO handshakes on an actual module to one passive pre-edge spec-IR sampler. */
+/* Binds scalar or grouped FIFO handshakes on an elaborated module to a passive pre-edge sampler. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -7,25 +7,40 @@ import:
   "../core/types.rhm" as hw
   "spec.rhm" open
   "port-types.rhm".sampled_type
+  "port-types.rhm".leaf_layout
+  "port-types.rhm".port_leaves
 
-export make_fifo_view fifo_view_parts sample_fifo_events
+export make_fifo_view fifo_view_parts fifo_view_layout sample_fifo_events
 
 /* Only the checked binder constructs this passive view of a particular elaborated definition. */
-class FifoView(top :: Module, ingress :: List, egress :: List, width :: PosInt, sampler :: LeafModel)
+class FifoView(top :: Module, ingress :: List, egress :: List, width :: PosInt, sampler :: LeafModel, layout :: PairList)
 
-/* Bind the single-clock scalar FIFO profile and compile its joint event sampler to pure spec IR. */
-fun make_fifo_view(top :: Module, names :: List.of(String), bool :: hw.HardwareType):
+/* Resolve grouped fields through the same physical layout as the cycle proof. Extra outputs
+   may be hidden by a grouped view; extra environment inputs are not part of this profile. */
+fun make_fifo_view(top :: Module, names :: List.of(String), bool :: hw.HardwareType, prefixes :: Map = {}):
   let [rst, iv, ir, iw, ov, or_pin, ow] = names
   def distinct = for Set (name in names): name
   def clock = top.find_input("clock")
   def epoch = top.find_input(rst)
   unless clock && hw.clock_type(clock.type) && rst == "reset" && epoch && hw.reset_type(epoch.type)
-         && distinct.length() == 7 && top.inputs.length() == 5 && top.outputs.length() == 3
+         && distinct.length() == 7
   | error("expected a synchronous FIFO with distinct scalar handshake pins and sampled reset")
-  def inputs = for Map (p in top.inputs):
-    keep_when p.name != "clock"
-    values(p.name, sampled_type(p.type, bool))
-  def outputs = for Map (p in top.outputs): values(p.name, sampled_type(p.type, bool))
+  /* Flatten only the selected logical members; hidden outputs do not enter the sampler schema. */
+  fun schema(ports :: List, inputs :: Boolean):
+    def fields = MutableMap{}
+    /* Record one logical member and reject unmodeled inputs rather than constraining them. */
+    fun visit(name :: String, type :: hw.HardwareType):
+      cond
+      | name in distinct:
+          when fields.has_key(name) | error("duplicate FIFO member: " ++ name)
+          fields[name] := sampled_type(type, bool)
+      | inputs || prefixes.length() == 0: error("unexpected FIFO pin: " ++ name)
+      | ~else: #void
+    for (p in ports):
+      unless p.name == "clock" | port_leaves(p, prefixes, visit)
+    fields.snapshot()
+  def inputs = schema(top.inputs, #true)
+  def outputs = schema(top.outputs, #false)
   /* Reject a reversed direction or an unknown pin even when its packed width would match. */
   fun pin(schema :: Map, key :: String):
     unless schema.has_key(key) | error("wrong FIFO pin name or direction: " ++ key)
@@ -44,7 +59,10 @@ fun make_fifo_view(top :: Module, names :: List.of(String), bool :: hw.HardwareT
                 "accepted": Observed(incoming, bool_and(active, bool_and(offer, ready))),
                 "retired": Observed(outgoing, bool_and(active, bool_and(valid, consume)))}
   FifoView(top, [iv, ir, iw], [ov, or_pin, ow], incoming.type.width,
-           make_spec(inputs ++ outputs, {}, {}, {}, events, {}))
+           make_spec(inputs ++ outputs, {}, {}, {}, events, {}), leaf_layout(top, prefixes))
+
+/* Check the physical member order of a passive view against already-proved cycle evidence. */
+fun fifo_view_layout(view :: FifoView): view.layout
 
 /* Expose checked pin roles for structural wiring verification and the sampler for symbolic execution. */
 fun fifo_view_parts(view :: FifoView):
