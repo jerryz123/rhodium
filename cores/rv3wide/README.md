@@ -131,8 +131,10 @@ the single write port; dependent consumers see each row only after its write.
 VLSeq can capture the next row's predicate while an older aliasing store delays
 address issue. After its last use of a v0 row, a younger instruction may overwrite
 that row; the eventual request uses the captured byte mask.
-Stores share a general VRF read port. Unmasked, single-field stores can read
-one DLEN row per cycle while the port and source rows are available. The VLSU
+Stores share a general VRF read port. Single-field stores can sequence one
+DLEN row per cycle while the port, operands and VLSU slots are available.
+Masked stores sample the v0 shadow one stage ahead: a fully masked row advances in
+order without reading VS3, and later v0 writes cannot change its decision. The VLSU
 buffers up to two captured or promised rows independently of L1D; a stalled
 cache cannot force VSSeq to reread a captured operand. A store consuming an
 older load can capture its first row while the second is still pending. A later VRF overwrite does not

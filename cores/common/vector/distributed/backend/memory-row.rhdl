@@ -20,9 +20,9 @@ hardware_enum RowPhase:
   CaptureSource
   Offer
 
-/* A masked row reads v0 first, so an empty store does not even read VS3. */
-fun first_phase(masked :: Bool, store :: Bool) :~ RowPhase:
-  mux(masked, RowPhase.PrepareMask, mux(store, RowPhase.ReadSource, RowPhase.Offer))
+/* Single-field stores pipeline predicate sampling and issue; other paths use a separate mask phase. */
+fun first_phase(masked :: Bool, store :: Bool, segmented :: Bool) :~ RowPhase:
+  mux(masked & (!store ||| segmented), RowPhase.PrepareMask, mux(store, RowPhase.ReadSource, RowPhase.Offer))
 
 /* Traverses the active row span. Load geometry feeds the ordered issuer;
    store geometry feeds a reserved FIFO slot directly on VS3 return or mask
@@ -49,6 +49,7 @@ sync_circuit VectorMemoryRowSequencer(xlen :: XLen, vlen :: VectorLength, ~store
   def store = Bool(store_path)
   reg masked(Bool)
   reg layout(SegmentLayout())
+  def plain_store = store & !layout.nf.any()
   def eew = layout.eew
   reg ordinal(Bits(3))
   reg captured_mask(Bits(row_bytes))
@@ -62,37 +63,72 @@ sync_circuit VectorMemoryRowSequencer(xlen :: XLen, vlen :: VectorLength, ~store
   def stream = (offset >> lane_bits)[0..RowAddress.packed_width()]
   def pos = segment_position(dlen, layout, stream)
   def group_start = pos.group.zext(mask_bits+1) << (Bits(4)(lane_bits) - eew.zext(4))
-  def predicate = range_mask & segment_predicate(dlen, layout, stream, mask.data >> group_start[0..mask_bits])
   def predicate_row = group_start[mask_bits..mask_bits+1]
   def busy = older_writes.as_vec(Bool)
-  def sample = capacity & (phase === RowPhase.PrepareMask) & !busy[predicate_row.zext(RowAddress.packed_width())]
-  mask.sample.valid <== sample
-  mask.sample.bits <== predicate_row
+  def predicate_safe = !busy[predicate_row.zext(RowAddress.packed_width())]
+  def sample = capacity & (phase === RowPhase.PrepareMask) & predicate_safe
   def values(field, element) = segment_visit(dlen, layout, pos, ordinal)
   def physical = segment_base(layout, field) + pos.group.zext(RowAddress.packed_width())
   def enabled = mux(masked, captured_mask, range_mask)
   def field_live = if store_path | segment_field_enabled(dlen, layout, enabled, ordinal) | Bool(#false)
-  def visit = capacity & (phase === RowPhase.ReadSource)
+  def visit = !plain_store & capacity & (phase === RowPhase.ReadSource)
   def skip_field = visit & !field_live
   def visited = read_result.valid ||| skip_field
-  /* The cursor still names the returning row. For a plain store, offer the
-     following VS3 row on this edge without releasing its claim. If denied,
-     the cursor advances normally and retries that read in ReadSource. */
-  def overlap = store & !masked & !layout.nf.any() & !last & (phase === RowPhase.CaptureSource) & read_result.valid & room_after_capture
-  def read_address = mux(overlap, row + RowAddress(1), physical)
-  read.valid <== (overlap ||| (visit & field_live)) & !busy[read_address]
+  /* Issue one row decision into a reserved VLSU slot. A skip uses the same
+     return stage as a synchronous read: it cannot overtake a live row or
+     compete with its response. Only metadata crosses the clock edge. */
+  reg pending(~init: Bool(#false))
+  reg issued_row(RowAddress)
+  reg issued_offset(Bits(offset_bits))
+  reg issued_span(Bits(row_bytes))
+  reg issued_last(Bool)
+  def row_return = pending & (!captured_mask.any() ||| read_result.valid)
+  reg mask_valid(~init: Bool(#false))
+  reg issue_predicate(Bits(row_bytes))
+  def eligible = plain_store & (phase === RowPhase.ReadSource) & capacity & (!pending ||| (row_return & room_after_capture)) & (!masked ||| mask_valid)
+  def issue_mask = mux(masked, issue_predicate, range_mask)
+  def read_address = mux(plain_store, row, physical)
+  read.valid <== ((eligible & issue_mask.any()) ||| (visit & field_live)) & !busy[read_address]
   read.bits <== read_address
-  // VLSeq offers registered masks only. The live v0/VS3 bypass is exclusively
-  // a store capture path; do not couple a load's L1D valid to the VRF arbiter.
+  def skip = eligible & !issue_mask.any()
+  def decided = (plain_store & read.fire()) ||| skip
+  /* Register the forwarded v0 slice before it gates VRF arbitration. On issue,
+     refill that metadata slot from the following row, including across v0 rows.
+     A sampled mask alone reserves neither a VS3 read nor a VLSU data slot. */
+  def next_offset = offset + Bits(offset_bits)(row_bytes)
+  def next_pos = segment_position(dlen, layout, stream + RowAddress(1))
+  def next_start = next_pos.group.zext(mask_bits+1) << (Bits(4)(lane_bits) - eew.zext(4))
+  def next_last = next_offset[lane_bits..offset_bits] === last_row_offset
+  def lookahead = masked & decided & !last
+  def sample_start = mux(lookahead, next_start, group_start)
+  def sample_row = sample_start[mask_bits..mask_bits+1]
+  def sample_range = mux(lookahead, mux(next_last, tail, !Bits(row_bytes)(0)), range_mask)
+  def predicate = sample_range & segment_predicate(dlen, layout, mux(lookahead, stream + RowAddress(1), stream), mask.data >> sample_start[0..mask_bits])
+  def fill_mask = plain_store & masked & (phase === RowPhase.ReadSource) & (!mask_valid ||| lookahead) & !busy[sample_row.zext(RowAddress.packed_width())]
+  def sampled = sample ||| fill_mask
+  mask.sample.bits <== sample_row
+  mask.sample.valid <== sampled
+  when (fill_mask ||| decided): mask_valid <== fill_mask
+  when fill_mask: issue_predicate <== predicate
+  when (decided ||| row_return): pending <== decided
+  when decided:
+    issued_row <== row
+    issued_offset <== offset
+    issued_span <== range_mask
+    issued_last <== last
+    captured_mask <== issue_mask
+  elsewhen sample: captured_mask <== predicate
+  // Segmented stores can offer an empty beat at mask capture. VLSeq and
+  // single-field stores only offer rows with registered predicate metadata.
   def skip_store = if store_path | sample & !predicate.any() | Bool(#false)
   def offer = phase === RowPhase.Offer
   def more_fields = ordinal =/= pos.last_ordinal
-  prepared.valid <== if store_path | offer ||| (visited & !more_fields) ||| skip_store | offer
+  prepared.valid <== if store_path | mux(plain_store, row_return, offer ||| (visited & !more_fields) ||| skip_store) | offer
   prepared.bits <== PreparedRow(vlen):
-    row: row
-    offset: offset
-    span: range_mask
-    enabled: mux(skip_store, Bits(row_bytes)(0), enabled)
+    row: mux(plain_store, issued_row, row)
+    offset: mux(plain_store, issued_offset, offset)
+    span: mux(plain_store, issued_span, range_mask)
+    enabled: mux(plain_store, captured_mask, mux(skip_store, Bits(row_bytes)(0), enabled))
     data:
       if store_path
       | block:
@@ -102,7 +138,7 @@ sync_circuit VectorMemoryRowSequencer(xlen :: XLen, vlen :: VectorLength, ~store
           when (visited & more_fields): assembly <== joined
           mux(layout.nf.any(), joined, read_result.bits)
       | Bits(dlen)(0)
-    last: last
+    last: mux(plain_store, issued_last, last)
 
   def command = launch.bits
   // Both sequencers sample v0 in logical element order before packing beats.
@@ -113,18 +149,18 @@ sync_circuit VectorMemoryRowSequencer(xlen :: XLen, vlen :: VectorLength, ~store
   // one active element. Other commands still start their packer at lane 0.
   def end = stream_span.end[0..offset_bits] - Bits(offset_bits)(1)
   def needs_source = store & predicate.any()
-  def next_offset = offset + Bits(offset_bits)(row_bytes)
   // A group begins on a predicate boundary only when enough whole groups
   // have elapsed. Retire v0 at the last beat of that predicate row.
-  def next_pos = segment_position(dlen, layout, stream + RowAddress(1))
-  def next_start = next_pos.group.zext(mask_bits+1) << (Bits(4)(lane_bits) - eew.zext(4))
-  def final_mask_use = last ||| (next_start[mask_bits..mask_bits+1] =/= predicate_row)
-  predicate_done <== (sample & final_mask_use).as_bits().zext(PredicateSet.packed_width()) << predicate_row
+  def after_next = next_start + (Bits(mask_bits+1)(row_bytes) >> eew)
+  def final_mask_use = mux(lookahead, next_last ||| (after_next[mask_bits..mask_bits+1] =/= sample_row), last ||| (next_start[mask_bits..mask_bits+1] =/= sample_row))
+  predicate_done <== (sampled & final_mask_use).as_bits().zext(PredicateSet.packed_width()) << sample_row
   captured <== visited
   captured_field <== field
-  read_done <== row_event(read_result.valid ||| skip_store, physical)
+  // A captured empty predicate proves VS3 is unused even before its ordered skip enters the VLSU.
+  def unused_source = row_event(fill_mask & !predicate.any(), mux(lookahead, row + RowAddress(1), row))
+  read_done <== row_event(read_result.valid ||| skip_store, mux(plain_store, issued_row, physical)) ||| unused_source
   when (launch.valid):
-    phase <== first_phase(command.masked, store)
+    phase <== first_phase(command.masked, store, incoming.nf.any())
     masked <== command.masked
     layout <== incoming
     ordinal <== Bits(3)(0)
@@ -133,21 +169,21 @@ sync_circuit VectorMemoryRowSequencer(xlen :: XLen, vlen :: VectorLength, ~store
     row <== mux(incoming.nf.any(), RowAddress(0), incoming.base) + start[lane_bits..offset_bits].zext(RowAddress.packed_width())
     offset <== mux(singleton, start, start.align_down(row_bytes))
     last_row_offset <== end[lane_bits..offset_bits]
-  elsewhen (prepared.fire()):
+  elsewhen (decided ||| (!plain_store & prepared.fire())):
     ordinal <== Bits(3)(0)
-    phase <== mux(last, RowPhase.Idle, mux(overlap & read.fire(), RowPhase.CaptureSource, first_phase(masked, store)))
+    phase <== mux(last, RowPhase.Idle, first_phase(masked, store, layout.nf.any()))
     head <== !Bits(row_bytes)(0)
     row <== row + RowAddress(1)
     offset <== next_offset
   elsewhen sample:
-    captured_mask <== predicate
     phase <== mux(needs_source, RowPhase.ReadSource, RowPhase.Offer)
   elsewhen (read.fire()):
     phase <== RowPhase.CaptureSource
   elsewhen (visited & more_fields):
     phase <== RowPhase.ReadSource
     ordinal <== ordinal + Bits(3)(1)
-  when (read_result.valid): assert((phase === RowPhase.CaptureSource) & (more_fields ||| prepared.ready), "store_read_has_reserved_row")
+  when (read_result.valid): assert(mux(plain_store, pending & captured_mask.any() & prepared.ready, (phase === RowPhase.CaptureSource) & (more_fields ||| prepared.ready)), "store_read_has_reserved_row")
+  when row_return: assert(prepared.ready, "store_row_decision_has_reserved_ingress")
   when skip_store: assert(prepared.ready, "store_skip_has_reserved_row")
 
 export VectorMemoryRowSequencer

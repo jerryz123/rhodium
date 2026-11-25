@@ -131,6 +131,74 @@ static void segmented_store(unsigned fields,unsigned eew,unsigned lmul=0) {
   CHECK(finishes==1 && sent==fields && acks==fields && stalls && captures==fields*visits);
 }
 
+// Six e8 rows start in the last slice of v0 row 0 and finish in row 1.
+// Overwrite each shadow row immediately after last use, even with L1D blocked.
+static void masked_pipeline(bool stalls) {
+  constexpr unsigned first=7, count=6, base=0x60000, full=(1u<<bytes)-1;
+  std::array<Row,2> shadow{};
+  std::array<unsigned,count> enables{};
+  std::vector<unsigned> live;
+  for(unsigned i=0;i<count;++i) {
+    unsigned bits=(0x5555u << (i%2)) & full;
+    if(stalls && (i==2 || i>=4)) bits=0;
+    const unsigned r=first+i;
+    for(unsigned b=0;b<bytes;++b) if(bits & (1u<<b)) {
+      const auto bit=(r%8)*bytes+b;
+      shadow[r/8][bit/8] |= 1u<<(bit%8);
+    }
+    enables[i]=bits & (i ? full : full-1) & (i+1==count ? full>>1 : full);
+    if(enables[i]) live.push_back(i);
+  }
+  prepare_in={}; launch_0_in={}; launch_1_in={}; memory_in={}; read_result_in={}; store_reads_in={};
+  auto& d=launch_1_in.pbits.pissue.pdescriptor;
+  d.pscalar=0x4000; d.pinstruction=vs3<<7; d.pcontrol.pstore=1; d.pmasked=1;
+  d.pstate.pvtype=3; d.pstate.pvstart=first*bytes+1; d.pstate.pvl=(first+count)*bytes-1;
+  launch_1_in.pbits.pissue.powner=2; prepare_in.pbits=launch_1_in.pbits.pissue;
+  launch_1_in.pbits.ppages[0]=launch_1_in.pbits.ppages[1]=base>>12;
+  launch_1_in.pvalid=prepare_in.pvalid=1; eval(); CHECK(prepare_out.pready && launch_1_out.pready);
+  tick_model(); launch_1_in.pvalid=prepare_in.pvalid=0;
+
+  unsigned samples=0, reads=0, sent=0, acks=0, done=0, rdata=0;
+  bool returning=false;
+  for(unsigned t=0;t<100 && !done;++t) {
+    store_reads_in.polder_uwrites=stalls ? ((t<3 ? 1u : 0u) | (1ull<<(2*vs3+first+2))) : 0;
+    read_in.pready=!stalls || t!=4;
+    read_result_in.pvalid=returning;
+    Row src; src.fill(0x80+rdata);
+    std::memcpy(&read_result_in.pbits,src.data(),bytes);
+    memory_in.prequest.pready=!stalls || t>=16;
+    memory_in.presponse.pvalid=acks<sent && (!stalls || t>=22);
+    eval();
+    const unsigned tap=mask_1_out.psample.pbits;
+    std::memcpy(&mask_1_in.pdata,shadow[tap].data(),bytes); eval();
+    const bool sample=mask_1_out.psample.pvalid, grant=read_out.pvalid && read_in.pready;
+    CHECK(store_reads_out.punread_uv0 == (samples==0 ? 3u : samples<count ? 2u : 0u));
+    if(!stalls && t>0 && t<=count) CHECK(grant);
+    if(stalls && t<3) CHECK(!sample && !grant);
+    if(stalls && t==4) CHECK(!sample && read_out.pvalid && !grant);
+    if(stalls && t>=8 && t<16) CHECK(reads==2 && !read_out.pvalid && !sent);
+    if(sample) {
+      CHECK(samples<count && tap==(first+samples)/8);
+      ++samples;
+    }
+    if(read_out.pvalid) CHECK(reads<live.size() && read_out.pbits==2*vs3+first+live[reads]);
+    if(grant) rdata=live[reads++];
+    if(memory_out.prequest.pvalid) {
+      CHECK(sent<live.size());
+      const auto i=live[sent]; const auto& req=memory_out.prequest.pbits;
+      CHECK(req.pstore && req.paddress==base+(first+i)*bytes && req.pbyte_umask==enables[i]);
+      for(unsigned b=0;b<bytes;++b) if(enables[i] & (1u<<b))
+        CHECK(reinterpret_cast<const unsigned char*>(&req.pdata)[b]==0x80+i);
+      sent+=memory_in.prequest.pready;
+    }
+    acks+=memory_in.presponse.pvalid && memory_out.presponse.pready;
+    if(finished_out.pvalid) { CHECK(acks==live.size() && finished_out.pbits.powner==2); ++done; }
+    tick_model(); returning=grant;
+    if(sample && (samples==1 || samples==count)) shadow[tap].fill(0xff);
+  }
+  CHECK(done && samples==count && reads==live.size() && sent==reads);
+}
+
 int main() {
   return run_test([] {
     reset=1; tick_model(); reset=0;
@@ -144,5 +212,7 @@ int main() {
       exercise(d,0,bytes-d,0);
     }
     for (unsigned eew=1;(1u<<eew)<bytes;++eew) exercise(1u<<eew,0,2*bytes>>eew,eew);
+    masked_pipeline(false);
+    masked_pipeline(true);
   });
 }

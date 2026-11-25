@@ -206,12 +206,17 @@ at request acceptance and frees the credit when the merger consumes that beat.
 Install its layout on VLSeq preparation, not on address issue: those handshakes
 can stall independently. The formatter advances empty fields without a write;
 VLSeq consumes every enabled output fragment on the corresponding VRF grant.
-On the store side, the VLSU owns both ingress slots. VSSeq's cursor stays on
-the returning row until capture. On that edge it may read the next unmasked,
-single-field row if the VLSU can also hold its response. Count a merger dequeue
-as free space only when the entire buffered source row transfers. A denied
-read retries at the advanced cursor; never release the next row's claim on the
-preceding capture. Segmented assembly and scatter row reuse stay in VSSeq.
+On the store side, the VLSU owns both ingress slots. For single-field stores
+VSSeq advances on a granted VS3 read or an accepted mask skip. The one-cycle
+return stage keeps the row, span, enables and tail for that decision, not a
+copy of VS3. Sample one forwarded v0 slice ahead into a mask-only register;
+it promises no data slot until the row issues. This keeps VRF grant arbitration
+independent of same-cycle forwarded writes. Reserve room for issued skips too:
+they carry packing/termination state. Release v0 on its last accepted sample;
+release VS3 on synchronous capture or when a sampled mask proves it unused.
+These can release different VS3 rows on one edge. Count a merger dequeue as
+free space only when the entire buffered
+source row transfers. Segmented assembly and scatter row reuse stay in VSSeq.
 RV5Stage and RV2Wide continue to use [backend.rhdl](backend.rhdl) and its
 single sequencer; neither imports distributed scheduling logic.
 
