@@ -51,6 +51,7 @@ sync_circuit VectorLoadReturn(xlen :: XLen, vlen :: VectorLength, Owner :: DataT
   element_drained.valid <== loads.fire() & loads.bits.credit.element_end
   element_drained.bits <== loads.bits.credit.owner
   reg ordinal(~init: Bits(3)(0))
+  merger.field_lanes <== segment_field_lanes(dlen, layout, ordinal)
   def stream = merger.result.bits.address
   def pos = segment_position(dlen, layout, stream)
   def values(field, element) = segment_visit(dlen, layout, pos, ordinal)
@@ -77,6 +78,16 @@ sync_circuit VectorLoadReturn(xlen :: XLen, vlen :: VectorLength, Owner :: DataT
   def advance = !enabled ||| result.ready
   merger.result.ready <== final_field & advance
   when (merger.result.fire() & seeding): seed <== (normal.data >> (seed_lane ++ Bits(3)(0)))[0..math.min(xlen.width, dlen)]
+  // A normal field reads the current merge; a splat rereads the seed captured
+  // at its original grant. This window describes provenance, not a data FIFO.
+  def capture_seed = merger.result.fire() & seeding
+  reg seed_valid(~init: Bool(#false))
+  when (setup.valid ||| capture_seed): seed_valid <== capture_seed
+  describe_interface_window_storage(
+    1, capture_seed, (seed_valid & (setup.valid ||| capture_seed)).as_bits(),
+    seed_valid.as_bits(), Bool(#false), [!merger.result.valid], ~live: merger.result.valid
+  )
+  describe_interface_contract(merger.result, result, "field-or-seed", ~trace_model: interface_trace_window())
   def consumed = merger.result.valid & advance
   when consumed: ordinal <== mux(final_field, Bits(3)(0), ordinal + Bits(3)(1))
   // Empty fields advance the segment cursor but never appear on the write port.

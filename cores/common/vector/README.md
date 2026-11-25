@@ -207,6 +207,9 @@ load-return queue, tagged with the original request owner and byte mask.
 VLSeq takes a formatted result on its VRF grant. Returns can therefore run
 ahead of a stalled write. Split or segmented accesses need not have one
 return per write, and a fully masked row produces no synthetic return or write.
+Each load return links to its accepted AGEN fragment. Each VRF write links to
+the returns that supplied its enabled bytes, including bytes retained across
+beats, field visits, or repeated writes from a splat seed.
 
 Each event is named by its disassembled instruction and captures its PC,
 instruction-owner slot, and row information. The PC and instruction are

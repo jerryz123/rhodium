@@ -21,6 +21,7 @@ sync_circuit VectorLoadMerger(xlen :: XLen, vlen :: VectorLength, Owner :: DataT
   def Write = VectorRegisterWrite(dlen, vlen)
   input elementwise: Bool
   input displacement: Bits(index_width(bytes))
+  input field_lanes: Bits(bytes)
   interface beat(Decoupled(ReturnedRow(xlen, vlen, Owner)), ~role: consumer)
   interface result(Decoupled(Write), ~role: producer)
   reg carry_data(Bits(dlen))
@@ -55,13 +56,39 @@ sync_circuit VectorLoadMerger(xlen :: XLen, vlen :: VectorLength, Owner :: DataT
     data: mux(elementwise, assembled, mux(aligned, data, mux(flush, carry_data, mux(previous, joined, rotated))))
     mask: expand_mask(write_mask, 8)
   beat.ready <== !flush & (!emit_row ||| result.ready)
+  def keep = mux(elementwise, ctx.continues, ctx.continues ||| previous)
+  def appended = mux(keep, mux(elementwise, rotated_mask, prefix), Mask(0))
   when (beat.fire()):
     carry_data <== mux(elementwise, assembled, rotated)
     carry_row <== ctx.row
-    carry_mask <== mux(elementwise, mux(ctx.continues, assembled_mask, Mask(0)), mux(ctx.continues ||| previous, prefix, Mask(0)))
+    carry_mask <== appended ||| mux(elementwise & keep, carry_mask, Mask(0))
     flush <== !elementwise & previous & complete_prefix
   elsewhen (flush & result.fire()):
     flush <== Bool(#false)
     carry_mask <== Mask(0)
+
+
+  /* Carry ancestry follows enabled bytes in destination-lane order. A split
+     beat can finish the current row and become the carry for the next one on
+     the same edge. Field visits see only their own bytes, including while the
+     merger is holding its result for a later visit. */
+
+  def count = popcount(carry_mask)
+  def replace = (beat.fire() & (!elementwise ||| !keep)) ||| (flush & result.fire())
+  def held = mux(flush, carry_mask, mux(elementwise, carry_mask & !rotated_mask, mux(!aligned & previous, carry_mask, Mask(0))))
+  def live = mux(elementwise ||| aligned, rotated_mask, mux(previous, suffix, prefix))
+  // Compact the selected lanes into the window's occupied-byte coordinates.
+  def required :: Bits(bytes) = held & field_lanes
+  def mutable selected :: Bits(bytes) = Mask(0)
+  for (i in 0..bytes):
+    def lane = bytes - 1 - i
+    selected := mux(carry_mask[lane].into(Bool), (selected << 1) ||| required[lane].zext(bytes), selected)
+
+  describe_interface_window_storage(
+    bytes, beat.fire() & appended.any(), mux(replace, count, Bits(index_width(bytes+1))(0)),
+    count, Bool(#false), for List (lane in 0..bytes): selected[lane].into(Bool),
+    ~append_count: popcount(appended), ~live: !flush & (live & field_lanes).any()
+  )
+  describe_interface_contract(beat, result, "row-assembly", ~trace_model: interface_trace_window())
 
 export VectorLoadMerger

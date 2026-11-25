@@ -14,6 +14,20 @@ extern "C" void observe_load_grant(Word resetting, Word valid, Word ready, Word 
 }
 constexpr Row data(unsigned r) { return {0x44556600u+r,0xfedcba98u-r,r,0x77889900u+r}; }
 
+std::uint64_t next_event(unsigned site) {
+  const auto& nodes=rheg::graph().nodes;
+  return std::count_if(nodes.begin(),nodes.end(),[&](const auto& n){return n.first.site==site;});
+}
+
+std::set<std::uint64_t> parent_sequences(rheg::Ref child, unsigned site) {
+  std::set<std::uint64_t> refs;
+  for(const auto& [parent,target]:rheg::graph().edges) if(target.site==child.site && target.sequence==child.sequence) {
+    CHECK(parent.site==site);
+    refs.insert(parent.sequence);
+  }
+  return refs;
+}
+
 void offer_operands(bool store) {
   prepare_in.pvalid=1;
   prepare_in.pbits=store ? launch_1_in.pbits.pissue : launch_0_in.pbits.pissue;
@@ -163,19 +177,15 @@ void single_load(bool fully_masked) {
   launch_0_in.pvalid=1; offer_operands(false); eval(); CHECK(launch_0_out.pready && prepare_out.pready); tick_model();
   prepare_in.pvalid=launch_0_in.pvalid=0;
   if (fully_masked) {
-    const auto& graph = rheg::graph();
-    const auto count = [&](unsigned site) {
-      return std::count_if(graph.nodes.begin(), graph.nodes.end(), [&](const auto& entry) { return entry.first.site == site; });
-    };
     const std::array sites{row_sites::vector_load_agen, row_sites::vector_load_return, row_sites::vector_load_sequence};
-    const std::array before{count(sites[0]), count(sites[1]), count(sites[2])};
+    const std::array before{next_event(sites[0]), next_event(sites[1]), next_event(sites[2])};
     for (unsigned wait=0; ; ++wait) {
       eval(); CHECK(wait<20 && !memory_out.prequest.pvalid && !write_out.pvalid);
       const bool finished=finished_out.pvalid;
       tick_model();
       if (finished) break;
     }
-    for (unsigned i=0; i<sites.size(); ++i) CHECK(count(sites[i])==before[i]);
+    for (unsigned i=0; i<sites.size(); ++i) CHECK(next_event(sites[i])==before[i]);
     return;
   }
   eval(); CHECK(memory_out.prequest.pvalid && issued_out.pvalid); tick_model();
@@ -189,6 +199,79 @@ void single_load(bool fully_masked) {
   write_in.pready=1; tick_model(); eval();
   CHECK(finished_out.pvalid && finished_out.pbits.powner==3); tick_model();
   eval(); CHECK(launch_0_out.pready);
+}
+
+// Reconstruct byte ownership independently of the merger. The 20-byte case
+// flushes its last row from carry alone; 32 bytes share the middle return.
+// At e64 with two fields, each field visit uses only one side of that merge.
+void displaced_lineage(unsigned length, bool segmented=false) {
+  constexpr auto a=row_sites::vector_load_agen, r=row_sites::vector_load_return, w=row_sites::vector_load_sequence;
+  const auto agen=next_event(a), reply=next_event(r), write=next_event(w);
+  launch_0_in={}; memory_in={}; write_in={}; chain_in={};
+  auto& d=launch_0_in.pbits.pissue.pdescriptor;
+  d.pscalar=8; d.pstate.pvl=segmented ? length/16 : length; d.pinstruction=8u<<7;
+  if(segmented) { d.pcontrol.pmemory_unf=1; d.pcontrol.pmemory_udata_ueew=3; d.pstate.pvtype=3u<<3; }
+  launch_0_in.pbits.pissue.powner=2;
+  launch_0_in.pvalid=1; offer_operands(false); eval();
+  CHECK(launch_0_out.pready && prepare_out.pready);
+  tick_model(); prepare_in.pvalid=launch_0_in.pvalid=0;
+  unsigned sent=0,returned=0,written=0; bool done=false;
+  for(unsigned t=0;t<80 && !done;++t) {
+    memory_in.prequest.pready=t>=4;
+    memory_in.presponse.pvalid=t>=10 && returned<sent;
+    memory_in.presponse.pbits.words=data(returned);
+    write_in.pready=t>=18;
+    eval();
+    if(memory_out.prequest.pvalid && memory_in.prequest.pready) {
+      CHECK(memory_out.prequest.pbits.paddress==16u*sent); ++sent;
+    }
+    returned+=memory_in.presponse.pvalid && memory_out.presponse.pready;
+    written+=write_out.pvalid && write_in.pready;
+    done=finished_out.pvalid;
+    tick_model();
+  }
+  const unsigned visit_bytes=segmented ? 8 : 16;
+  CHECK(done && sent==(8+length+15)/16 && returned==sent && written==(length+visit_bytes-1)/visit_bytes);
+  for(unsigned i=0;i<returned;++i) {
+    CHECK(parent_sequences({r,reply+i},a)==std::set<std::uint64_t>{agen+i});
+  }
+  for(unsigned i=0;i<written;++i) {
+    std::set<std::uint64_t> expected;
+    for(unsigned byte=i*visit_bytes;byte<std::min(length,(i+1)*visit_bytes);++byte)
+      expected.insert(reply+(8+byte)/16);
+    CHECK(parent_sequences({w,write+i},r)==expected);
+  }
+}
+
+// The seed halfword straddles two physical beats. Later splat writes must
+// inherit both parents without a new memory request or a live return.
+void splat_lineage() {
+  launch_0_in={}; memory_in={}; write_in={}; chain_in={}; splat_in={};
+  constexpr unsigned return_site=row_sites::vector_load_return, write_site=row_sites::vector_load_sequence;
+  const auto first=next_event(return_site), write=next_event(write_site);
+  auto& issue=launch_0_in.pbits.pissue; auto& d=issue.pdescriptor;
+  issue.pkind=4; issue.powner=2; d.pscalar=15; d.pstate.pvl=3; d.pstate.pvtype=8;
+  d.pinstruction=8u<<7; d.pcontrol.pmemory=1; d.pcontrol.pmemory_uaddressing=1; d.pcontrol.pmemory_udata_ueew=1;
+  launch_0_in.pvalid=1; offer_operands(false); eval();
+  CHECK(launch_0_out.pready && prepare_out.pready);
+  tick_model(); prepare_in.pvalid=launch_0_in.pvalid=0;
+  unsigned sent=0,replies=0,writes=0;
+  for(unsigned t=0;t<50 && writes<3;++t) {
+    memory_in.prequest.pready=1; memory_in.presponse.pvalid=replies<sent;
+    write_in.pready=t%3!=0;
+    splat_in.pvalid=writes>0; splat_in.pbits.prow=16; splat_in.pbits.plane=2*writes; splat_in.pbits.peew=1;
+    eval();
+    sent+=memory_out.prequest.pvalid;
+    replies+=memory_in.presponse.pvalid && memory_out.presponse.pready;
+    writes+=write_out.pvalid && write_in.pready;
+    tick_model();
+  }
+  splat_in.pvalid=0;
+  CHECK(sent==2 && replies==2 && writes==3);
+  for(unsigned i=0;i<writes;++i) {
+    const std::set<std::uint64_t> expected{first,first+1};
+    CHECK(parent_sequences({write_site,write+i},return_site)==expected);
+  }
 }
 
 // Feed three-cycle L1 hit replies, or hold the VRF to fill the registered window.
@@ -387,10 +470,14 @@ int main() {
     for (bool store : {false,true}) for (bool masked : {false,true}) exercise(store,masked);
     single_load(false);
     single_load(true);
+    displaced_lineage(20);
+    displaced_lineage(32);
+    displaced_lineage(32,true);
     writeback_window(false);
     writeback_window(true);
     for (bool store : {false,true}) for (bool alias : {false,true}) physical_ranges(store,alias);
     blocked_store_source();
     for (bool store : {false,true}) independent_starts(store);
+    splat_lineage();
   });
 }

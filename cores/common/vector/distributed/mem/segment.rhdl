@@ -76,15 +76,18 @@ fun segment_fragment(dlen :: PosInt, layout :: SegmentLayout(), data :: Bits(dle
     vec(parts).as_bits()
   by_shape(dlen, layout, route) << (if pack | memory_shift | field_shift)
 
-/* A store need not wait for a source when none of this field's memory lanes
-   are enabled. Test only byte strobes; never introduce a data-path dependency. */
-fun segment_field_enabled(dlen :: PosInt, layout :: SegmentLayout(), mask :: Bits(dlen div 8), ordinal :: Bits(3)) :~ Bool:
+/* Memory-coordinate byte lanes belonging to one field visit. */
+fun segment_field_lanes(dlen :: PosInt, layout :: SegmentLayout(), ordinal :: Bits(3)) :~ Bits(dlen div 8):
   /* Byte strobes at every Nth element, relative to the first occurrence. */
   fun stripes(n :: PosInt, size :: PosInt):
     def lanes = dlen div (8*size)
     expand_mask(vec(for List (i in 0..lanes): Bool(i mod n == 0)).as_bits(), size)
   def shift = ordinal.zext(index_width(dlen div 8)+1) << layout.eew
-  ((mask >> shift) & by_shape(dlen, layout, stripes)).any()
+  by_shape(dlen, layout, stripes) << shift
+
+/* A store need not wait for its source when no byte of this field is enabled. */
+fun segment_field_enabled(dlen :: PosInt, layout :: SegmentLayout(), mask :: Bits(dlen div 8), ordinal :: Bits(3)) :~ Bool:
+  (mask & segment_field_lanes(dlen, layout, ordinal)).any()
 
 /* Repeat each v0 bit over every field of its element; index using the logical
    stream beat, not the displaced physical cache address. */
@@ -133,4 +136,4 @@ sync_circuit VectorSegmentClaims(xlen :: XLen, vlen :: VectorLength):
     groups.zext(PhysicalRows) << segment_base(layout, Bits(3)(f))
   claims <== tree_reduce(rows, fun (a,b): a ||| b)
 
-export segment_position segment_visit segment_base segment_fragment segment_field_enabled segment_predicate VectorSegmentClaims
+export segment_position segment_visit segment_base segment_fragment segment_field_lanes segment_field_enabled segment_predicate VectorSegmentClaims
