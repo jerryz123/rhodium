@@ -18,12 +18,14 @@ import:
   lib("examples/formal/two-tag-rob.rhdl").TwoTagROB
   "faulty-rob.rhdl".FaultyROB
   lib("examples/formal/granted-selector.rhdl") open
+  lib("examples/formal/gated-capture.rhdl") open
   "raw-selector.rhdl" open
 
 export rob faulty_rob swapped_rob unchecked_rob
 export selector granted_selector raw_selector
 export router routed_selector duplicate_grant high_grant circular_grants
 export registered_lane registered_routed registered_duplicate
+export capture_gate arbitrated_capture raw_capture
 export gated_at leaky_at outer_at
 export pair pair_wires fifo_definition arbiter_definition mixed wrong_lane undersized
 export interface_prefixes pin_layout leaf_sites
@@ -55,6 +57,9 @@ def mutable circular_grants = #false
 def mutable registered_lane = #false
 def mutable registered_routed = #false
 def mutable registered_duplicate = #false
+def mutable capture_gate = #false
+def mutable arbitrated_capture = #false
+def mutable raw_capture = #false
 fun inventory():
   arbiter_definition := materialize_circuit(Arbiter(Bits(2), 2))
   selector := materialize_circuit(LaneSelector())
@@ -68,6 +73,9 @@ fun inventory():
   registered_lane := materialize_circuit(RegisteredLaneSelector())
   registered_routed := materialize_circuit(RegisteredRoutedSelector())
   registered_duplicate := materialize_circuit(DuplicateGrant(~registered: #true))
+  capture_gate := materialize_circuit(GatedCapture())
+  arbitrated_capture := materialize_circuit(ArbitratedCapture())
+  raw_capture := materialize_circuit(RawCapture())
   pair := materialize_circuit(QueuePair())
   for (d in proof_depths):
     fifos[d] := materialize_circuit(ShiftQueue(Bits(2), d))

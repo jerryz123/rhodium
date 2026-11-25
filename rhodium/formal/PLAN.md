@@ -61,6 +61,10 @@ The registered selector extends this to a clocked leaf: reset clears the
 word with any enables, and non-reset edges capture or hold it under the
 discharged grant contract. This covers stateful guarantees under scalar
 current-input contracts, not history-dependent protocol assumptions.
+A [conditional parent](../../examples/formal/gated-capture.rspl) now discharges
+the selector's premise from its own contract and wiring. The next level
+reuses the wrapper as an opaque child and discharges that contract anew;
+the outer arbiter needs no restriction on simultaneous requests.
 
 | Milestone | What to build | How to tell it works |
 |---|---|---|

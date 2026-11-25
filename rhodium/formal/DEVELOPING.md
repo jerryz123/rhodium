@@ -235,6 +235,23 @@ At the parent cut, the relation mentions the stored word in the child's spec,
 never its RTL register. The duplicated-grant witness replays after a sampled
 reset, and changing only its reset bit makes the same enables legal.
 
+For a composite block with an input contract, pass the raw `proof_cut` and
+`#:child-evidence` to `prove-parent`. After matching signatures and evidence,
+the checker evaluates the parent snapshot's named predicates on each query's
+external inputs. They are premises for ordered child discharge and for the
+parent's reset and preservation obligations. This path returns only refinement
+evidence bound to the full parent snapshot, never a separately steppable cut.
+`prepare-proved-wiring` still admits children only on unrestricted external
+inputs. On reuse, the outer proof must match and discharge the parent's exact
+contract at the occurrence before using its outputs.
+
+The GatedCapture regression uses only registered-selector evidence inside the
+wrapper, then only arbiter and wrapper evidence outside it. Removing the
+wrapper premise fails the inner child check; substituting a premise-free
+wrapper spec with the original evidence fails matching. The raw-request
+fixture reports `gate/capture_exclusive` on the bad edge and replays the same
+two requests with capture disabled and with reset asserted.
+
 ### Arbiter feeding a ShiftQueue
 
 The [example RTL](../../examples/formal/arbiter-queue.rhdl) owns the wiring and port

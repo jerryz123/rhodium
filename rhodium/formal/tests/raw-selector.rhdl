@@ -3,6 +3,7 @@
 
 import lib("examples/formal/granted-selector.rhdl") open
 import lib("flow/arbiter.rhdl").Arbiter
+import lib("examples/formal/gated-capture.rhdl").GatedCapture
 
 sync_circuit RawSelector():
   input (request_a, request_b, accept): Bool
@@ -50,4 +51,16 @@ sync_circuit CircularGrants():
   b.enable <== a.grant
   granted <== a.grant
 
-export RawSelector DuplicateGrant HighGrant CircularGrants
+sync_circuit RawCapture():
+  input (request_a, request_b, capture): Bool
+  input (word_a, word_b): Bits(2)
+  output selected: Bits(2)
+  inst gate(GatedCapture())
+  gate.grant_a <== request_a
+  gate.grant_b <== request_b
+  gate.capture <== capture
+  gate.word_a <== word_a
+  gate.word_b <== word_b
+  selected <== gate.selected
+
+export RawSelector DuplicateGrant HighGrant CircularGrants RawCapture

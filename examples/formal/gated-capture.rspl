@@ -1,0 +1,18 @@
+#lang rspecl
+/* Specifies a grant-conditioned capture wrapper and its unrestricted request-driven parent. */
+// SPDX-License-Identifier: Apache-2.0
+
+import "gated-capture.rhdl" as rtl
+
+spec for rtl.GatedCapture:
+  assume capture_exclusive = reset || !capture || !(grant_a && grant_b)
+  state held: Bits(2) initially 0 as cleared
+  observe selected = held when !reset
+  let grant_word = select(grant_b, word_b, select(grant_a, word_a, held))
+  next held = select(reset, cleared, select(capture, grant_word, held))
+
+spec for rtl.ArbitratedCapture:
+  state saved: Bits(2) initially 0 as cleared
+  observe selected = saved when !reset
+  let take = capture && (request_a || request_b)
+  next saved = select(reset, cleared, select(take, select(request_a, word_a, word_b), saved))

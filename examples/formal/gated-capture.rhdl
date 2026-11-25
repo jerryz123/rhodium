@@ -1,0 +1,41 @@
+#lang rhodium
+/* Gates a registered selector's grants and supplies them from an arbiter one level up. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "granted-selector.rhdl".RegisteredLaneSelector
+  lib("flow/arbiter.rhdl").Arbiter
+
+/* Forward grants only on capture edges; the selector owns the stored word and reset. */
+sync_circuit GatedCapture():
+  input (grant_a, grant_b, capture): Bool
+  input (word_a, word_b): Bits(2)
+  output selected: Bits(2)
+  inst lanes(RegisteredLaneSelector())
+  lanes.enable_a <== capture & grant_a
+  lanes.enable_b <== capture & grant_b
+  lanes.word_a <== word_a
+  lanes.word_b <== word_b
+  selected <== lanes.selected
+
+/* Capture the highest-priority request's word, allowing both lanes to request together. */
+sync_circuit ArbitratedCapture():
+  input (request_a, request_b, capture): Bool
+  input (word_a, word_b): Bits(2)
+  output selected: Bits(2)
+  inst arb(Arbiter(Bits(2), 2))
+  arb.ingress[0].valid <== request_a
+  arb.ingress[1].valid <== request_b
+  arb.ingress[0].bits <== word_a
+  arb.ingress[1].bits <== word_b
+  arb.egress.ready <== capture
+
+  inst gate(GatedCapture())
+  gate.grant_a <== arb.ingress[0].ready
+  gate.grant_b <== arb.ingress[1].ready
+  gate.capture <== capture
+  gate.word_a <== word_a
+  gate.word_b <== word_b
+  selected <== gate.selected
+
+export GatedCapture ArbitratedCapture

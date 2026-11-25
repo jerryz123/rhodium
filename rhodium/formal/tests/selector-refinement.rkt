@@ -62,7 +62,8 @@
 (define (certify-registered model)
   (prove-leaf registered_lane model interface_prefixes registered-view
               #:relation (lambda (rtl spec) (bveq (hash-ref rtl registered_key) (hash-ref spec "last_word")))))
-(define clocked-evidence (list verified-arbiter verified-router (certify-registered registered_spec)))
+(define verified-register (certify-registered registered_spec))
+(define clocked-evidence (list verified-arbiter verified-router verified-register))
 
 (test-case "conditional clocked evidence needs feasible reset and active phases and a valid successor"
   (check-exn #rx"reset: infeasible or unknown domain" (lambda () (certify-registered (registered_variant "never-reset"))))
@@ -92,3 +93,42 @@
   (check-equal? (registered_trace #t (list clear hold)) '(#f 0))
   (check-exn #rx"violated spec input assumption: exclusive" (lambda () (registered_trace #t (list clear s))))
   (check-equal? (registered_trace #f (list clear s hold)) (list #f 0 (hash-ref s "word_a"))))
+
+;; A parent is certified conditionally without handing the caller a conditionally steppable cut.
+(define (certify-gate model)
+  (prove-parent (gate_cut) model registered-view #:child-evidence (list verified-register)
+                #:relation (lambda (cut spec) (bveq (hash-ref (hash-ref cut "lanes") "last_word") (hash-ref spec "held")))))
+(define verified-gate (certify-gate gate_spec))
+(define capture-evidence (list verified-arbiter verified-gate))
+(define (certify-outer raw)
+  (prove-parent (capture_cut raw) capture_spec registered-view #:child-evidence capture-evidence
+                #:relation (lambda (cut spec) (bveq (hash-ref (hash-ref cut "gate") "held") (hash-ref spec "saved")))))
+
+(test-case "conditional wrapper needs its declared premise and both feasible clock phases"
+  (check-exn #rx"lanes/exclusive not proved" (lambda () (prepare-proved-wiring (gate_cut) (list verified-register))))
+  (check-exn #rx"lanes/exclusive not proved" (lambda () (certify-gate (gate_variant "unrestricted"))))
+  (check-exn #rx"reset: infeasible or unknown domain" (lambda () (certify-gate (gate_variant "never-reset"))))
+  (check-exn #rx"preservation: infeasible or unknown domain" (lambda () (certify-gate (gate_variant "only-reset")))))
+
+(test-case "outer parent uses only arbiter and wrapper evidence, with the wrapper premise intact"
+  (check-not-exn (lambda () (certify-outer #f)))
+  (check-exn #rx"evidence does not cover contract at gate"
+             (lambda () (prepare-proved-wiring (capture_cut #f (gate_variant "unrestricted")) capture-evidence)))
+  (define both (hash "reset" #f "capture" #t "request_a" #t "request_b" #t "word_a" 1 "word_b" 2))
+  (define clear (hash-set both "reset" #t))
+  (define hold (hash-set both "capture" #f))
+  (define b (hash-set both "request_a" #f))
+  (check-equal? (capture_trace #f (list clear both hold b hold clear hold)) '(#f 0 1 1 2 #f 0)))
+
+(test-case "raw requests fail at the wrapper boundary only when actively capturing off reset"
+  (define failure (with-handlers ([exn:fail:input-contract? values]) (certify-outer #t)))
+  (check-equal? (exn:fail:input-contract-goal failure) "gate/capture_exclusive")
+  (define s (exn:fail:input-contract-inputs failure))
+  (check-false (hash-ref s "reset"))
+  (check-true (and (hash-ref s "capture") (hash-ref s "request_a") (hash-ref s "request_b")))
+  (define clear (hash-set s "reset" #t))
+  (define hold (hash-set s "capture" #f))
+  (define b (hash-set* s "request_a" #f "word_b" 3))
+  (check-exn #rx"violated spec input assumption: capture_exclusive" (lambda () (capture_trace #t (list clear s))))
+  (check-equal? (capture_trace #t (list clear b hold hold clear hold)) '(#f 0 3 3 #f 0))
+  (check-equal? (capture_trace #f (list clear s hold)) (list #f 0 (hash-ref s "word_a"))))

@@ -3,6 +3,7 @@
 
 import:
   lib("examples/formal/granted-selector.rspl") open
+  lib("examples/formal/gated-capture.rspl") open
   lib("examples/formal/arbiter.rspl").Arbiter
   lib("rhodium/frontend/layers/bool.rhm").Bool
   "composition-binding.rhm" open
@@ -14,6 +15,7 @@ export selector interface_prefixes leaf parent cut without_assumption impossible
 export high_grant conditional circular_cut
 export router router_spec routed_parent routed_cut replay_routed
 export registered_lane registered_spec registered_key registered_parent registered_cut registered_variant registered_trace
+export gate_spec capture_spec gate_cut capture_cut gate_variant capture_trace
 def leaf = LaneSelector(selector)
 def parent = GrantedSelector(granted_selector)
 def router_spec = LaneRouter(router)
@@ -21,6 +23,8 @@ def routed_parent = RoutedSelector(routed_selector)
 def registered_spec = RegisteredLaneSelector(registered_lane)
 def registered_key = registered_lane.name ++ ".captured"
 def registered_parent = RegisteredRoutedSelector(registered_routed)
+def gate_spec = GatedCapture(capture_gate)
+def capture_spec = ArbitratedCapture(arbitrated_capture)
 fun with_assumptions(predicates):
   make_spec(leaf.inputs, leaf.state, leaf.initial, leaf.outputs, leaf.events, leaf.updates,
             ~assumptions: predicates)
@@ -46,17 +50,25 @@ fun replay_routed(duplicate, inputs):
   def graph = routed_graph(bind_wiring, duplicate)
   step_spec(graph, graph.initial, inputs).outputs["selected"]
 fun registered_cut(duplicate): routed_graph(proof_cut, duplicate, #true)
-fun registered_variant(mode):
-  def s = registered_spec
+fun phase_variant(s, mode):
   def reset = input_ref("reset", SpecBool())
   def assumptions:
     match mode
-    | "only-reset": {"phase": reset}
-    | "never-reset": {"phase": bool_not(reset)}
+    | "only-reset": s.assumptions ++ {"phase": reset}
+    | "never-reset": s.assumptions ++ {"phase": bool_not(reset)}
     | "unrestricted": {}
   make_spec(s.inputs, s.state, s.initial, s.outputs, s.events, s.updates, ~assumptions: assumptions)
-fun registered_trace(duplicate, samples):
-  def graph = routed_graph(bind_wiring, duplicate, #true)
+fun registered_variant(mode): phase_variant(registered_spec, mode)
+fun gate_variant(mode): phase_variant(gate_spec, mode)
+fun gate_cut():
+  proof_cut(capture_gate, Map.by(===){registered_lane: registered_spec}, Bool, interface_prefixes)
+fun capture_graph(build, raw, gate):
+  def models = Map.by(===){capture_gate: gate, arbiter_definition: Arbiter(arbiter_definition)}
+  build(if raw | raw_capture | arbitrated_capture, models, Bool, interface_prefixes)
+fun capture_cut(raw, gate = gate_spec): capture_graph(proof_cut, raw, gate)
+fun capture_trace(raw, samples): selected_trace(capture_graph(bind_wiring, raw, gate_spec), samples)
+fun registered_trace(duplicate, samples): selected_trace(routed_graph(bind_wiring, duplicate, #true), samples)
+fun selected_trace(graph, samples):
   def mutable state = graph.initial
   for PairList (sample in samples):
     def edge = step_spec(graph, state, sample)

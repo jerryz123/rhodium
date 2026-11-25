@@ -9,7 +9,7 @@
 (provide exn:fail:input-contract? exn:fail:input-contract-goal exn:fail:input-contract-inputs)
 
 ;; Private constructors. These are live elaboration identities, not transferable certificates.
-;; A conditional leaf result carries its current-input premises in the exact model snapshot.
+;; A conditional result carries its current-input premises in the exact model snapshot.
 (struct refinement-result (definition model protocol layout))
 (struct proved-cut (definition layout graph models))
 (struct exn:fail:input-contract exn:fail (goal inputs) #:transparent)
@@ -36,6 +36,10 @@
 #| Reject hidden constraints from an observer, relation, or enclosing Rosette query. |#
 (define (clean-vc!)
   (unless (host-equal? (vc) vc-true) (error 'refinement "unexpected ambient verification condition")))
+
+#| Interpret only the assumptions recorded in the contract being certified, on this query's sample. |#
+(define (allowed-inputs? model inputs)
+  (andmap identity (hash-values (spec-input-assumptions model inputs))))
 
 #| Never issue evidence from an infeasible premise, failed obligation, or unknown solver answer. |#
 (define (check-phase name premise goals #:inputs [inputs #f])
@@ -96,7 +100,7 @@
   (define model (spec_snapshot spec-model))
   (define spec (symbolic-spec-edge model))
   (define inputs (edge-inputs spec))
-  (define allowed (andmap identity (hash-values (spec-input-assumptions model inputs))))
+  (define allowed (allowed-inputs? model inputs))
   (define layout (leaf_layout definition (prefixes definition)))
   (define packed (pack-pins (first layout) inputs))
   (define plan (and relation (prepare_transition_snapshot snapshot "clock")))
@@ -124,10 +128,23 @@
                   (cons (cons 'domain (edge-legal spec)) common))])
   (refinement-result definition model protocol layout))
 
-#| Before any parent query, resolve each site's exact definition and full spec (start, sorts,
-   care, values, events and updates). One proof may cover several occurrences, not their states. |#
+#| A publicly steppable plan requires child contracts to hold without any caller assumptions. |#
 (define (prepare-proved-wiring cut results)
+  (admit-wiring cut results #f))
+
+#| Bind input predicates and cared output values to the cut's actual external signature. |#
+(define (check-parent-schema! graph model)
+  (unless (host-equal? (hash-ref graph "inputs") (hash-ref model "inputs"))
+    (error 'prove-parent "parent input schema mismatch"))
+  (for ([(k field) (hash-ref model "outputs")])
+    (unless (host-equal? (hash-ref (hash-ref graph "output-types") k #f) (second (second field)))
+      (error 'prove-parent "parent output schema mismatch: ~a" k))))
+
+#| Match exact occurrence evidence, then discharge ordered goals. A cut admitted under a
+   parent contract stays private to the proof of that same snapshot. |#
+(define (admit-wiring cut results parent)
   (define-values (definition layout graph definitions layouts locals) (cut_parts cut))
+  (when parent (check-parent-schema! graph parent))
   (unless (and (list? results) (andmap refinement-result? results))
     (error 'prepare-proved-wiring "expected completed refinement results"))
   (define models
@@ -144,8 +161,10 @@
       (values site (refinement-result-model matched))))
   (define all (for/fold ([all models]) ([(site rtl) locals]) (hash-set all site rtl)))
   (when (for/or ([model (hash-values models)]) (positive? (hash-count (hash-ref model "assumptions"))))
-    (discharge-wired-inputs! graph all
-                            (lambda (inputs legal goals) (check-phase 'child-input legal goals #:inputs inputs))))
+    (discharge-wired-inputs!
+     graph all (lambda (inputs legal goals)
+                 (define domain (if parent (&& legal (allowed-inputs? parent inputs)) legal))
+                 (check-phase 'child-input domain goals #:inputs inputs))))
   (proved-cut definition layout graph all))
 
 #| Access the admitted operational model for one occurrence, e.g. to allocate its abstract state. |#
@@ -159,19 +178,13 @@
 (define (proved-edge-at plan states inputs)
   (wired-edge-at (proved-cut-graph plan) (proved-cut-models plan) states inputs))
 
-#| Prove the external contract of an admitted synchronous cut. The plan owns the implementation
-   identity; the caller supplies only the reference model, external observer and state relation. |#
-(define (prove-parent plan spec-model observe #:relation relation)
+#| Prove a synchronous parent from an unrestricted plan, or discharge a raw cut with
+   child evidence inside this proof. Only the full parent contract can leave as evidence. |#
+(define (prove-parent cut spec-model observe #:relation relation #:child-evidence [results #f])
   (clean-vc!)
   (define model (spec_snapshot spec-model))
-  (define graph (proved-cut-graph plan))
-  (unless (zero? (hash-count (hash-ref model "assumptions")))
-    (error 'prove-parent "parent contracts must be unconditional"))
-  (unless (host-equal? (hash-ref graph "inputs") (hash-ref model "inputs"))
-    (error 'prove-parent "parent input schema mismatch"))
-  (for ([(k field) (hash-ref model "outputs")])
-    (unless (host-equal? (hash-ref (hash-ref graph "output-types") k #f) (second (second field)))
-      (error 'prove-parent "parent output schema mismatch: ~a" k)))
+  (define plan (cond [results (admit-wiring cut results model)]
+                     [else (check-parent-schema! (proved-cut-graph cut) model) cut]))
   (define spec (symbolic-spec-edge model))
   (define states (symbolic-cut-state plan))
   (define-values (pins edges settled) (proved-edge-at plan states (edge-inputs spec)))
@@ -189,5 +202,6 @@
           (cons 'physical-pins (view-agrees? physical (edge-outputs spec)))
           (cons 'transfers (view-agrees? events (edge-events spec)))))
   (check-synchronous! model spec (andmap spec-state-legal? (hash-values states))
-                      (relation states (edge-state spec)) (relation after (edge-next spec)) common)
+                      (relation states (edge-state spec)) (relation after (edge-next spec)) common
+                      #:allowed-inputs (allowed-inputs? model (edge-inputs spec)))
   (refinement-result (proved-cut-definition plan) model "single-clock-reset" (proved-cut-layout plan)))

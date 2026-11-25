@@ -190,8 +190,17 @@ or both enables and clears the word on the sampled edge. The pre-edge word
 is not observed during reset. On other edges the output shows the previously
 captured word; one enable captures its lane for the next sample, and neither
 enable leaves the word unchanged. The parent has no input restriction.
-Leaf assumptions must admit both a reset and a non-reset sample; they may not
-refer to history. Parent contracts must still be unconditional.
+For a clocked contract, assumptions must admit both a reset and a non-reset
+sample; they may not refer to history.
+
+An assumption can also belong to a parent. In the [GatedCapture spec](../../examples/formal/gated-capture.rspl),
+`assume capture_exclusive = reset || !capture || !(grant_a && grant_b)` permits
+both grants on reset or while capture is disabled. The [wrapper RTL](../../examples/formal/gated-capture.rhdl)
+gates the enables, so that contract suffices for its registered selector. A
+successful proof certifies the wrapper **with** its assumption. One level up,
+`ArbitratedCapture` proves the assumption using arbiter grants and accepts
+unrestricted requests: on an enabled tie it stores lane A's word. Wiring raw
+requests to the wrapper instead fails when both request on an enabled non-reset edge.
 
 ### Specify a parent without copying its implementation
 
