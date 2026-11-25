@@ -124,14 +124,14 @@ combinational query API retains its existing restrictions.
 The shared [run-local checker](refinement.rkt) takes a completed definition,
 its executable spec, the interface naming function, and an independent
 observer. It snapshots the definition and spec itself. A clockless leaf is
-checked over every input sample. For a single rising clock and active-high
+checked over every input sample allowed by its spec. For a single rising clock and active-high
 sampled reset, supply a state relation, not a premise: the checker builds the
 reset and preservation domains and requires them to be feasible. Reset starts
 with unconstrained RTL state and must establish both the declared spec start
 and the relation. Both phases discharge RTL obligations, spec definedness,
 cared physical outputs and event agreement. Callers own the interpretation of
-care and transfer events and the abstraction relation. There is no option to
-restrict external traffic. A counterexample, unknown, or ambient constraint
+care and transfer events and the abstraction relation. Only input assumptions
+in the matched leaf contract can restrict external traffic. A counterexample, unknown, or ambient constraint
 cannot mint a result.
 
 [The leaf proof](tests/shift-queue-induction.rkt) uses one symbolic input sample
@@ -144,8 +144,8 @@ and 3 together; each leaf proof starts from the exact FIFO definition found
 in its parent's wiring. Each occupancy from empty through full must be feasible.
 On the first sampled reset, the RTL state is unrestricted, including holes
 where the depth permits them. The solver checks that the successor represents the declared empty
-spec start. The induction step assumes only a legal related old state; inputs,
-including subsequent resets, are unrestricted. Separate queries establish RTL
+spec start. The same reset proof covers later resets. The non-reset induction
+step assumes only a legal related old state; FIFO traffic is unrestricted. Separate queries establish RTL
 assertions and operation domains, spec definedness, cycle observations, the
 joint event, and the successor relation. Care must match even when the value
 is absent, and a valid head is observed even under backpressure. Count and mask
@@ -224,6 +224,16 @@ the selector using the router's outputs. Duplicating a routed grant fails
 at `lanes/exclusive`; replay the returned external sample on both wirings.
 The complete parent proof still checks all outputs and child transitions, not
 just the cones used during discharge.
+
+For a clocked leaf, conjoin the same current-input predicates with both phase
+domains. Reset must be feasible and establish the relation without assuming
+it; preservation must be feasible from a related state with reset *deasserted*.
+Putting reset in the guard is an author decision, not an implicit exemption.
+The registered selector regression removes the guard to expose a bad successor
+and tries reset-only and non-reset-only guards to check phase non-vacuity.
+At the parent cut, the relation mentions the stored word in the child's spec,
+never its RTL register. The duplicated-grant witness replays after a sampled
+reset, and changing only its reset bit makes the same enables legal.
 
 ### Arbiter feeding a ShiftQueue
 

@@ -13,10 +13,14 @@ import:
 export selector interface_prefixes leaf parent cut without_assumption impossible replay replay_wiring
 export high_grant conditional circular_cut
 export router router_spec routed_parent routed_cut replay_routed
+export registered_lane registered_spec registered_key registered_parent registered_cut registered_variant registered_trace
 def leaf = LaneSelector(selector)
 def parent = GrantedSelector(granted_selector)
 def router_spec = LaneRouter(router)
 def routed_parent = RoutedSelector(routed_selector)
+def registered_spec = RegisteredLaneSelector(registered_lane)
+def registered_key = registered_lane.name ++ ".captured"
+def registered_parent = RegisteredRoutedSelector(registered_routed)
 fun with_assumptions(predicates):
   make_spec(leaf.inputs, leaf.state, leaf.initial, leaf.outputs, leaf.events, leaf.updates,
             ~assumptions: predicates)
@@ -28,13 +32,36 @@ fun cut(raw, model):
 fun replay_wiring(raw, inputs):
   def graph = bind_wiring(if raw | raw_selector | granted_selector, bindings(leaf), Bool, interface_prefixes)
   step_spec(graph, graph.initial, inputs).outputs["selected"]
-fun routed_graph(build, duplicate):
-  build(if duplicate | duplicate_grant | routed_selector, bindings(leaf) ++ Map.by(===){router: router_spec},
-        Bool, interface_prefixes)
+fun routed_graph(build, duplicate, registered = #false):
+  def top:
+    if registered
+    | (if duplicate | registered_duplicate | registered_routed)
+    | (if duplicate | duplicate_grant | routed_selector)
+  def lanes = if registered | registered_lane | selector
+  def models = Map.by(===){arbiter_definition: Arbiter(arbiter_definition), router: router_spec,
+                           lanes: (if registered | registered_spec | leaf)}
+  build(top, models, Bool, interface_prefixes)
 fun routed_cut(duplicate): routed_graph(proof_cut, duplicate)
 fun replay_routed(duplicate, inputs):
   def graph = routed_graph(bind_wiring, duplicate)
   step_spec(graph, graph.initial, inputs).outputs["selected"]
+fun registered_cut(duplicate): routed_graph(proof_cut, duplicate, #true)
+fun registered_variant(mode):
+  def s = registered_spec
+  def reset = input_ref("reset", SpecBool())
+  def assumptions:
+    match mode
+    | "only-reset": {"phase": reset}
+    | "never-reset": {"phase": bool_not(reset)}
+    | "unrestricted": {}
+  make_spec(s.inputs, s.state, s.initial, s.outputs, s.events, s.updates, ~assumptions: assumptions)
+fun registered_trace(duplicate, samples):
+  def graph = routed_graph(bind_wiring, duplicate, #true)
+  def mutable state = graph.initial
+  for PairList (sample in samples):
+    def edge = step_spec(graph, state, sample)
+    state := edge.next_state
+    edge.outputs.get("selected", #false)
 fun replay(a, b):
   step_spec(leaf, {}, {"enable_a": a, "enable_b": b, "word_a": 1, "word_b": 2}).outputs["selected"]
 

@@ -9,7 +9,7 @@
 (provide exn:fail:input-contract? exn:fail:input-contract-goal exn:fail:input-contract-inputs)
 
 ;; Private constructors. These are live elaboration identities, not transferable certificates.
-;; A conditional combinational result carries its premises in the exact model snapshot.
+;; A conditional leaf result carries its current-input premises in the exact model snapshot.
 (struct refinement-result (definition model protocol layout))
 (struct proved-cut (definition layout graph models))
 (struct exn:fail:input-contract exn:fail (goal inputs) #:transparent)
@@ -72,17 +72,18 @@
          (for/fold ([ok #t]) ([slot (sequence-value-slots value)] [word start])
            (&& ok (at-start? slot element word))))]))
 
-#| Establish the declared start and relation at reset, then preserve them on every related edge. |#
-(define (check-synchronous! model spec old-domain related-old related-next common)
+#| Every permitted reset must establish the start and relation from arbitrary old RTL state.
+   Check the non-reset domain separately so a reset-only contract cannot pass preservation. |#
+(define (check-synchronous! model spec old-domain related-old related-next common #:allowed-inputs [allowed #t])
   (define reset (hash-ref (edge-inputs spec) "reset"))
   (unless (boolean? reset) (error 'refinement "expected Boolean synchronous reset"))
   (define next (edge-next spec))
   (define start (for/fold ([ok #t]) ([(k type) (hash-ref model "state")])
                   (&& ok (at-start? (hash-ref next k) type (hash-ref (hash-ref model "initial") k)))))
-  (define legal (&& old-domain (edge-legal spec)))
+  (define legal (&& old-domain (edge-legal spec) allowed))
   (define goals (list* (cons 'successor related-next) (cons 'legal-next (spec-state-legal? next)) common))
   (check-phase 'reset (&& legal reset) (cons (cons 'initial start) goals))
-  (check-phase 'preservation (&& legal related-old) goals))
+  (check-phase 'preservation (&& legal (! reset) related-old) goals))
 
 #| Take the snapshot of the definition being certified. The binding supplies trusted physical
    observation care and event decoding and, for synchronous leaves, an abstraction relation. |#
@@ -95,9 +96,7 @@
   (define model (spec_snapshot spec-model))
   (define spec (symbolic-spec-edge model))
   (define inputs (edge-inputs spec))
-  (define assumptions (spec-input-assumptions model inputs))
-  (when (and relation (positive? (hash-count assumptions)))
-    (error 'prove-leaf "input assumptions require a combinational leaf"))
+  (define allowed (andmap identity (hash-values (spec-input-assumptions model inputs))))
   (define layout (leaf_layout definition (prefixes definition)))
   (define packed (pack-pins (first layout) inputs))
   (define plan (and relation (prepare_transition_snapshot snapshot "clock")))
@@ -118,10 +117,10 @@
   (cond
     [plan
      (check-synchronous! model spec #t (relation old (edge-state spec))
-                         (relation (transition_step_state rtl) (edge-next spec)) common)]
+                         (relation (transition_step_state rtl) (edge-next spec)) common #:allowed-inputs allowed)]
     [else
      (unless (zero? (hash-count (edge-state spec))) (error 'prove-leaf "expected a stateless model"))
-     (check-phase 'combinational (andmap identity (hash-values assumptions))
+     (check-phase 'combinational allowed
                   (cons (cons 'domain (edge-legal spec)) common))])
   (refinement-result definition model protocol layout))
 

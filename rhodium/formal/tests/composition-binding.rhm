@@ -23,6 +23,7 @@ import:
 export rob faulty_rob swapped_rob unchecked_rob
 export selector granted_selector raw_selector
 export router routed_selector duplicate_grant high_grant circular_grants
+export registered_lane registered_routed registered_duplicate
 export gated_at leaky_at outer_at
 export pair pair_wires fifo_definition arbiter_definition mixed wrong_lane undersized
 export interface_prefixes pin_layout leaf_sites
@@ -51,6 +52,9 @@ def mutable routed_selector = #false
 def mutable duplicate_grant = #false
 def mutable high_grant = #false
 def mutable circular_grants = #false
+def mutable registered_lane = #false
+def mutable registered_routed = #false
+def mutable registered_duplicate = #false
 fun inventory():
   arbiter_definition := materialize_circuit(Arbiter(Bits(2), 2))
   selector := materialize_circuit(LaneSelector())
@@ -61,6 +65,9 @@ fun inventory():
   duplicate_grant := materialize_circuit(DuplicateGrant())
   high_grant := materialize_circuit(HighGrant())
   circular_grants := materialize_circuit(CircularGrants())
+  registered_lane := materialize_circuit(RegisteredLaneSelector())
+  registered_routed := materialize_circuit(RegisteredRoutedSelector())
+  registered_duplicate := materialize_circuit(DuplicateGrant(~registered: #true))
   pair := materialize_circuit(QueuePair())
   for (d in proof_depths):
     fifos[d] := materialize_circuit(ShiftQueue(Bits(2), d))

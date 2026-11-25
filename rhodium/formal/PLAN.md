@@ -57,7 +57,10 @@ an unconditional arbiter establishes a selector's at-most-one enable requirement
 either directly or through a conditional lane router. The latter discharges
 two contracts in dependency order. Raw requests and duplicated routed grants
 fail before substitution; mutually dependent contracts cannot justify themselves.
-This covers scalar current-input contracts, not stateful protocol assumptions.
+The registered selector extends this to a clocked leaf: reset clears the
+word with any enables, and non-reset edges capture or hold it under the
+discharged grant contract. This covers stateful guarantees under scalar
+current-input contracts, not history-dependent protocol assumptions.
 
 | Milestone | What to build | How to tell it works |
 |---|---|---|

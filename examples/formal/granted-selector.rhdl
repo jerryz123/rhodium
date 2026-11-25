@@ -1,5 +1,5 @@
 #lang rhodium
-/* Demonstrates direct and routed arbiter grants establishing a masked selector's input contract. */
+/* Demonstrates arbiter grants establishing the contracts of combinational and registered selectors. */
 // SPDX-License-Identifier: Apache-2.0
 
 import lib("flow/arbiter.rhdl").Arbiter
@@ -42,12 +42,9 @@ circuit LaneRouter():
   route_a <== valid & !destination_b
   route_b <== valid & destination_b
 
-/* Select the destination lane's word after optionally exchanging the two arbiter grants. */
-sync_circuit RoutedSelector():
-  input (request_a, request_b, accept, swap): Bool
-  input (word_a, word_b): Bits(2)
-  output selected: Bits(2)
-
+/* Build the shared arbitration and routing stages; return the two destination enables. */
+fun routed_grants(request_a :: Bool, request_b :: Bool, accept :: Bool, swap :: Bool,
+                  word_a :: Bits(2), word_b :: Bits(2)):
   inst arb(Arbiter(Bits(2), 2))
   arb.ingress[0].valid <== request_a
   arb.ingress[1].valid <== request_b
@@ -59,11 +56,46 @@ sync_circuit RoutedSelector():
   router.grant_a <== arb.ingress[0].ready
   router.grant_b <== arb.ingress[1].ready
   router.swap <== swap
+  [router.route_a, router.route_b]
+
+/* Select the destination lane's word after optionally exchanging the two arbiter grants. */
+sync_circuit RoutedSelector():
+  input (request_a, request_b, accept, swap): Bool
+  input (word_a, word_b): Bits(2)
+  output selected: Bits(2)
+  def [a, b] = routed_grants(request_a, request_b, accept, swap, word_a, word_b)
   inst lanes(LaneSelector())
-  lanes.enable_a <== router.route_a
-  lanes.enable_b <== router.route_b
+  lanes.enable_a <== a
+  lanes.enable_b <== b
   lanes.word_a <== word_a
   lanes.word_b <== word_b
   selected <== lanes.selected
 
-export LaneSelector GrantedSelector LaneRouter RoutedSelector
+/* Reset clears the captured word. An active edge captures the masked data; idle holds. */
+sync_circuit RegisteredLaneSelector():
+  input (enable_a, enable_b): Bool
+  input (word_a, word_b): Bits(2)
+  output selected: Bits(2)
+  reg captured(~init: Bits(2)(0))
+  def a = mux(enable_a, word_a, Bits(2)(0))
+  def b = mux(enable_b, word_b, Bits(2)(0))
+  def capture = enable_a ||| enable_b
+  when capture:
+    captured <== a ||| b
+
+  selected <== captured
+
+/* Capture the routed destination word on a grant and retain it through subsequent idle edges. */
+sync_circuit RegisteredRoutedSelector():
+  input (request_a, request_b, accept, swap): Bool
+  input (word_a, word_b): Bits(2)
+  output selected: Bits(2)
+  def [a, b] = routed_grants(request_a, request_b, accept, swap, word_a, word_b)
+  inst lanes(RegisteredLaneSelector())
+  lanes.enable_a <== a
+  lanes.enable_b <== b
+  lanes.word_a <== word_a
+  lanes.word_b <== word_b
+  selected <== lanes.selected
+
+export LaneSelector GrantedSelector LaneRouter RoutedSelector RegisteredLaneSelector RegisteredRoutedSelector

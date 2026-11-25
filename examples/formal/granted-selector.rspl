@@ -1,5 +1,5 @@
 #lang rspecl
-/* Specifies conditional selection and lane routing behind unconditional arbitration boundaries. */
+/* Specifies same-cycle selection and retained capture behind unconditional arbitration boundaries. */
 // SPDX-License-Identifier: Apache-2.0
 
 import "granted-selector.rhdl" as rtl
@@ -21,3 +21,16 @@ spec for rtl.RoutedSelector:
   let active = accept && (request_a || request_b)
   let select_a = select(swap, !request_a, request_a)
   observe selected = select(active, select(select_a, word_a, word_b), const(Bits(2), 0))
+
+spec for rtl.RegisteredLaneSelector:
+  state last_word: Bits(2) initially 0 as cleared
+  assume exclusive = reset || !(enable_a && enable_b)
+  observe selected = last_word when !reset
+  next last_word = select(reset, cleared, select(enable_a, word_a, select(enable_b, word_b, last_word)))
+
+spec for rtl.RegisteredRoutedSelector:
+  state retained: Bits(2) initially 0 as cleared
+  let active = accept && (request_a || request_b)
+  let select_a = select(swap, !request_a, request_a)
+  observe selected = retained when !reset
+  next retained = select(reset, cleared, select(active, select(select_a, word_a, word_b), retained))

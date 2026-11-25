@@ -15,7 +15,7 @@ sync_circuit RawSelector():
   lanes.word_b <== word_b
   selected <== lanes.selected
 
-sync_circuit DuplicateGrant():
+sync_circuit DuplicateGrant(~registered: registered :: Boolean = #false):
   input (request_a, request_b, accept, swap): Bool
   input (word_a, word_b): Bits(2)
   output selected: Bits(2)
@@ -29,7 +29,8 @@ sync_circuit DuplicateGrant():
   router.grant_a <== arb.ingress[0].ready
   router.grant_b <== arb.ingress[1].ready
   router.swap <== swap
-  inst lanes(LaneSelector())
+  def storage = if registered | RegisteredLaneSelector() | LaneSelector()
+  inst lanes(storage)
   lanes.enable_a <== router.route_a
   lanes.enable_b <== router.route_a
   lanes.word_a <== word_a

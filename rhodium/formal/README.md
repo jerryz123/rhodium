@@ -162,7 +162,7 @@ See the [arbiter](../../examples/formal/arbiter.rspl) for combinational
 priority and the [FIFO](../../examples/formal/shift-queue.rspl) for guarded head
 reads and an explicit simultaneous enqueue/dequeue update.
 
-A combinational leaf can declare a named Boolean input assumption. For example,
+A combinational or single-clock leaf can declare a named Boolean input assumption. For example,
 the [two-lane selector](../../examples/formal/granted-selector.rspl) declares
 `assume exclusive = !(enable_a && enable_b)`. Neither lane need be enabled:
 idle returns zero. One enabled lane returns its word. Both enabled is outside
@@ -181,8 +181,17 @@ two grants. Once its own input contract is proved, its outputs can establish
 the selector's contract. Both requests can still be asserted, and either swap
 setting is legal. Connecting one routed grant to both enables fails at the
 selector, with a parent input sample that replays in rspecsim. A child may
-not use its own or a mutually dependent same-edge guarantee. Clocked leaf and
-parent refinement currently require unconditional contracts.
+not use its own or a mutually dependent same-edge guarantee.
+
+`RegisteredRoutedSelector` uses the same arbiter and router to feed a
+`RegisteredLaneSelector`. Its leaf contract is
+`assume exclusive = reset || !(enable_a && enable_b)`: reset permits either
+or both enables and clears the word on the sampled edge. The pre-edge word
+is not observed during reset. On other edges the output shows the previously
+captured word; one enable captures its lane for the next sample, and neither
+enable leaves the word unchanged. The parent has no input restriction.
+Leaf assumptions must admit both a reset and a non-reset sample; they may not
+refer to history. Parent contracts must still be unconditional.
 
 ### Specify a parent without copying its implementation
 
