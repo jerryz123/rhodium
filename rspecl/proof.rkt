@@ -1,5 +1,5 @@
 #lang rosette
-#| Proves RSPECL transaction monitors across a verified FIFO cut using checked state relations. |#
+#| Proves RSPECL transaction monitors across one FIFO or forwarded sealed child using checked state relations. |#
 ;; SPDX-License-Identifier: Apache-2.0
 
 (require racket/match (only-in racket/base [eq? same?] [equal? same-schema?])
@@ -81,12 +81,12 @@
               (for/fold ([ok #t]) ([w words] [i (in-naturals)])
                 (&& ok (=> (&& tags? (< i n)) (|| (bveq w (bv 0 width)) (bveq w (bv 1 width)))))))))
 
-#| Resolve the declared sources against real old/new local registers and the independent child history. |#
-(define (hint-edge snapshot fifo sequence regs [inputs #f] [outputs #f] [batch #f])
+#| Resolve the declared sources against real local registers and the independent abstract child history. |#
+(define (hint-edge snapshot history regs [inputs #f] [outputs #f] [batch #f])
   (define args
     (for/hash ([key (hash-keys (hash-ref snapshot "inputs"))])
       (values key
-        (if (same-schema? key fifo) sequence
+        (if (hash-has-key? history key) (hash-ref history key)
             (match (regexp-match #px"^([^.]+)[.](.+)$" key)
               [(list _ prefix name)
                (define source (match prefix ["local" regs] ["input" inputs] ["output" outputs] ["batch" batch]))
@@ -105,31 +105,53 @@
       (for/fold ([ok #t]) ([(key obs) (edge-outputs projection)])
         (&& ok (=> (observation-care obs) (equivalent-value? (observation-value obs) (hash-ref state key)))))))
 
-#| Prove initialization and preservation with an arbitrary monitor state and arbitrary admitted
-   child successor. Relation hints are conclusions on reset and next state, never environment premises. |#
-(define (prove-transaction top view child)
-  (match-define (list site fifo relation checks) (refinement_parts view))
-  (define-values (_ monitor-model ins outs) (transaction_parts view))
-  (define monitor (spec_snapshot monitor-model))
-  (define sampler (spec_snapshot (transaction_batch_model view)))
-  (unless (zero? (hash-count (hash-ref monitor "assumptions"))) (error 'refinement "conditional monitor"))
-  (check-batch-total! sampler)
-  (define layout (leaf_layout top (interface_prefixes top)))
+#| Open a FIFO theorem at the designated occurrence; histories are independently quantified
+   and the theorem, not a FIFO cycle implementation, constrains their relationship. |#
+(define (fifo-boundary top layout site fifo relation child)
   (define cut (symbolic-fifo-cut top layout Bool site child))
-  (define local (hash-ref (fifo-cut-locals cut) "@local"))
-  (define inputs (fifo-cut-inputs cut))
-  (define outputs (fifo-cut-outputs cut))
-  (define reset (hash-ref inputs "reset"))
-  (define batch (sample sampler ins outs inputs outputs))
   (define q (fresh-fifo-history child))
   (define next (fresh-fifo-history child))
   (define domain (&& (fifo-cut-domain cut) (fifo-allows? child q (fifo-cut-batch cut) next)))
   (define fifo-sort (hash-ref (hash-ref relation "inputs") fifo))
   (define-values (before ok) (fifo-value q fifo-sort child))
   (define-values (after next-ok) (fifo-value next fifo-sort child))
-  (define pre (hint-edge relation fifo before (edge-state local)))
-  (define post (hint-edge relation fifo after (edge-next local)))
-  (define side (hint-edge checks fifo before (edge-state local) inputs outputs batch))
+  (values (fifo-cut-inputs cut) (fifo-cut-outputs cut) (fifo-cut-locals cut) domain
+          (hash fifo before) ok (hash fifo after) next-ok #f))
+
+#| Keep public monitor state separate from both local registers and parent monitor state. |#
+(define (history-fields state)
+  (for/hash ([(k v) state]) (values (string-append "history." k) v)))
+
+#| Check the whole forwarded child batch on arbitrary cut pins, before using child legality.
+   Only the sealed monitor steps. There is no child RTL or predicted ready/valid timing here. |#
+(define (sealed-boundary top site expected child)
+  (define-values (inputs outputs locals inside) (transaction-cut top site child expected))
+  (define outside (sample-transaction child expected inputs outputs))
+  (check-refinement-phase! 'child-wiring #t (list (cons 'forwarded-batch (equal? inside outside))))
+  (define model (seal-monitor child))
+  (define old (symbolic-spec-state model))
+  (define-values (domain next) (transaction-step child expected old inside))
+  (values inputs outputs locals domain (history-fields old) #t (history-fields next) #t
+          (history-fields (spec-initial-state model))))
+
+#| Prove initialization and preservation with an arbitrary monitor state and every admitted child
+   edge. Relation hints are conclusions on reset and next state, never environment premises. |#
+(define (prove-transaction top view child)
+  (match-define (list site cut relation checks) (refinement_parts view))
+  (define-values (_ monitor-model ins outs) (transaction_parts view))
+  (define monitor (spec_snapshot monitor-model))
+  (define sampler (spec_snapshot (transaction_batch_model view)))
+  (unless (zero? (hash-count (hash-ref monitor "assumptions"))) (error 'refinement "conditional monitor"))
+  (check-batch-total! sampler)
+  (define layout (leaf_layout top (interface_prefixes top)))
+  (define-values (inputs outputs locals domain before ok after next-ok child-initial)
+    (if (string? cut) (fifo-boundary top layout site cut relation child) (sealed-boundary top site cut child)))
+  (define local (hash-ref locals "@local"))
+  (define reset (hash-ref inputs "reset"))
+  (define batch (sample sampler ins outs inputs outputs))
+  (define pre (hint-edge relation before (edge-state local)))
+  (define post (hint-edge relation after (edge-next local)))
+  (define side (hint-edge checks before (edge-state local) inputs outputs batch))
   (define old (symbolic-spec-state monitor))
   (define step (spec-edge-at monitor old batch))
   (define base (&& reset domain (spec-state-legal? old)))
@@ -140,8 +162,12 @@
             (for/list ([(k v) (edge-outputs side)]) (cons k (holds v)))
             (list (cons 'checks-defined (edge-defined side)) (cons 'allowed (allowed? step))
                   (cons 'successor (related? post next-ok (edge-next step))))))
+  (define initial (spec-initial-state monitor))
   (check-refinement-phase! 'reset base
-    (cons (cons 'initial (related? post next-ok (spec-initial-state monitor))) goals))
+    (append (if child-initial
+                (list (cons 'child-initial (related? (hint-edge relation child-initial (edge-next local)) #t initial)))
+                '())
+            (list (cons 'initial (related? post next-ok initial))) goals))
   (check-refinement-phase! 'step active goals)
   (for ([(k v) (edge-events side)]) (check-refinement-phase! k (&& active (holds v)) '()))
   (seal top layout view sampler monitor ins outs))

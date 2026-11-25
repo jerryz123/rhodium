@@ -104,8 +104,11 @@ edge clears `has_commit`; until the first transfer, `last_tag` and
 `last_payload` have no specified initial value. On a non-reset edge with
 `retire.valid && retire.ready`, the next record contains the retiring tag
 and its first matching-generation completion payload. Otherwise the record
-holds, even when the stalled offer differs from the saved record. The
-[proof](tests/logged-two-tag-rob.rkt) needs no child offer-stability or timing guarantee.
+holds, even when the stalled offer differs from the saved record. Its
+[RSPECL spec](../../examples/formal/logged-two-tag-rob.rspl) and the sealed
+ROB suffice to issue a new seal for the recorder. A [consumer](tests/logged-refinement.rkt)
+uses that parent seal alone to prove readback after capture. The seal describes
+retirements and the record, not grant order or when a retirement must occur.
 
 The [spec](../../examples/formal/two-tag-rob.rspl) guarantees rejection of a
 duplicate from the immediately previous use of the same tag **within a reset
@@ -224,9 +227,17 @@ monitor driven directly by the caller. With bound fields, the outputs of
 `transaction_batch_model` is available from `rspecl/rtl-boundary.rhm`.
 
 An optional sibling `refinement:` block describes a candidate relation to the
-implementation. For the supported single-clock, one-FIFO-child cut, `fifo`
-reads only the certified child's ordered history and `local` reads only
-parent registers. `relate` gives each monitor state field an implementation
+implementation. It supports one child on the parent's clock and reset.
+`fifo` reads a certified FIFO's ordered history. Alternatively,
+`child rob: specs.TwoTagROB` names an RTL occurrence and the transaction
+view expected there. Supply its seal to `prove-transaction`; the declaration
+alone is not evidence. This form requires the wrapper to forward the child's
+sampled public batch on same-named pins. For example,
+`history pending from rob.order: Seq(Bool, 2)` reads abstract monitor state,
+never child registers. A declaration containing only a monitor and its
+refinement is requested with `~transaction_view: #true`; it does not predict cycle outputs.
+
+`local` reads only parent registers. `relate` gives each monitor state field an implementation
 expression and optional care condition. For example, `relate saved_a = saved_a
 when done_a` does not require the unreset payload bank to be zero. Auxiliary
 `invariant` predicates must hold after reset and be preserved, too. Pin- and

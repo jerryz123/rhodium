@@ -159,7 +159,7 @@ expr.macro 'refined_view($view): $line; ...':
   def checks = MutableMap{}
   def covers = MutableMap{}
   def mutable site = #false
-  def mutable fifo = #false
+  def mutable cut = #false
   /* Namespace IR references by provenance; author expressions use ordinary lexical bindings. */
   fun source(n :: Syntax, sort :: Syntax, prefix :: String, table :: MutableMap, clause :: Syntax):
     def key = prefix ++ "." ++ field_name(n)
@@ -168,10 +168,19 @@ expr.macro 'refined_view($view): $line; ...':
   for (clause in [line, ...]):
     match clause
     | 'fifo $(n :: Identifier) from $(child :: Identifier): $t ...':
-        when site | syntax_meta.error("expected a single FIFO child cut", clause)
+        when site | syntax_meta.error("expected a single child cut", clause)
         site := field_name(child)
-        fifo := "fifo." ++ field_name(n)
+        cut := '"fifo." ++ $(field_name(n))'
         source(n, '($t ...)', "fifo", sources, clause)
+    | 'child $(child :: Identifier): $spec ...':
+        when site | syntax_meta.error("expected a single child cut", clause)
+        site := field_name(child)
+        cut := '($spec ...)(~transaction_view: #true)'
+    | 'history $(n :: Identifier) from $(child :: Identifier) . $(field :: Identifier): $t ...':
+        unless site == field_name(child) | syntax_meta.error("history must name the declared child", child)
+        def k = "history." ++ field_name(field)
+        def t = record(sources, k, '($t ...)', clause)
+        emit('def $n = ir.input_ref($k, $t)')
     | 'local ($(n :: Identifier), ...): $t ...':
         for (id in [n, ...]): source(id, '($t ...)', "local", sources, clause)
     | 'input ($(n :: Identifier), ...): $t ...':
@@ -182,6 +191,10 @@ expr.macro 'refined_view($view): $line; ...':
         emit('def $n = ir.input_ref($k, $t)')
     | 'output ($(n :: Identifier), ...): $t ...':
         for (id in [n, ...]): source(id, '($t ...)', "output", pins, clause)
+    | 'output $(n :: Identifier) from $path ...: $t ...':
+        def k = "output." ++ field_name('$path ...')
+        def t = record(pins, k, '($t ...)', clause)
+        emit('def $n = ir.input_ref($k, $t)')
     | 'batch $(n :: Identifier) from $(key :: Identifier): $t ...':
         def k = "batch." ++ field_name(key)
         def t = record(pins, k, '($t ...)', clause)
@@ -198,7 +211,7 @@ expr.macro 'refined_view($view): $line; ...':
     | 'next $rest ...': syntax_meta.error("refinement has no state updates", clause)
     | 'assume $rest ...': syntax_meta.error("refinement predicates must be proved", clause)
     | ~else: emit(clause)
-  unless site | syntax_meta.error("refinement requires a FIFO child cut", [line, ...][0])
+  unless site | syntax_meta.error("refinement requires a child cut", [line, ...][0])
   let [decl, ...] = declarations()
   'block:
      $decl
@@ -206,7 +219,7 @@ expr.macro 'refined_view($view): $line; ...':
      def state_inputs = $(map_expr(sources))
      def rel = ir.make_spec(state_inputs, {}, {}, $(map_expr(relations)), $(map_expr(invariants)), {})
      def edge = ir.make_spec(state_inputs ++ $(map_expr(pins)), {}, {}, $(map_expr(checks)), $(map_expr(covers)), {})
-     boundary.attach_refinement($view, $site, $fifo, rel, edge)'
+     boundary.attach_refinement($view, $site, $cut, rel, edge)'
 
 /* Read a parameter at its lexical use site so unused non-scalar arguments need no model value. */
 defn.macro 'bind_parameter $id($bound, $key)':
@@ -264,10 +277,16 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
                             cycle_outputs, cycle_events, $(map_expr(updates)), ~assumptions: $(map_expr(assumptions)))'
   // A passive declaration has no cycle clauses to validate. Even one such clause keeps
   // the full-model path, so requesting a view cannot hide an incomplete cycle spec.
-  def passive = event_source && ignored.length() == 0
-                && ![states, outputs, events, assumptions, updates].find(fun (table): table.length() != 0)
+  def no_cycle_clauses = ignored.length() == 0
+                         && ![states, outputs, events, assumptions, updates].find(fun (table): table.length() != 0)
+  def passive = event_source && no_cycle_clauses
+  def monitor_only = transaction && no_cycle_clauses
   def finish:
     cond
+    | monitor_only: '«
+         unless tx_only | error("monitor-only spec: request ~transaction_view: #true")
+         boundary.check_transaction_ports(attached, bound.ports)
+       »'
     | transaction: '«
          def view = boundary.check_transaction_ports(attached, bound.ports)
          def cycle_events = ir.include_sampled_events(view.sampler, cycle_outputs, $(map_expr(events)), ~only: view.cycle_names)

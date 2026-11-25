@@ -93,9 +93,11 @@ kth retirement records the kth grant's tag and first matching-generation
 payload using only public event batches. This is reusable event evidence,
 not a cycle replacement or a guarantee of progress.
 The [last-commit RTL wrapper](../../examples/formal/logged-two-tag-rob.rhdl)
-now consumes that seal at a physical child occurrence: its [proof](tests/logged-two-tag-rob.rkt)
-shows that reset invalidates the record and only a retirement handshake can
-replace it. A valid-only write is rejected and replayed from reset.
+now consumes that seal at a physical child occurrence. Its [RSPECL refinement](../../examples/formal/logged-two-tag-rob.rspl)
+issues reusable recorder evidence: [readback after capture](tests/logged-refinement.rkt)
+uses only that evidence. The [independent handwritten proof](tests/logged-two-tag-rob.rkt)
+retains the reset-to-stall replay of a valid-only write. This cut covers one
+forwarded transaction boundary, not arbitrary adapters or multiple sealed children.
 
 Milestone 3 also has a [nontrivial input-contract check](DEVELOPING.md#discharging-a-conditional-childs-inputs):
 an unconditional arbiter establishes a selector's at-most-one enable requirement,

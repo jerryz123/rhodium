@@ -309,7 +309,7 @@ hardware-preservation contracts.
 | GatedCapture / ArbitratedCapture | [Gated capture behind an arbiter](formal/gated-capture.rhdl) | [A parent assumption proved again at its outer boundary](formal/gated-capture.rspl) |
 | ShiftQueue | [Flow queue](../flow/shift-queue.rhdl) | [Cycle model with ready/valid events](formal/shift-queue.rspl) |
 | TwoTagROB | [Two-tag reorder buffer](formal/two-tag-rob.rhdl) | [Cycle behavior, event monitor, and checked FIFO/register refinement](formal/two-tag-rob.rspl) |
-| LoggedTwoTagROB | [Last-commit recorder](formal/logged-two-tag-rob.rhdl) | [Handshake and stall proof](../rhodium/formal/tests/logged-two-tag-rob.rkt) using only the sealed ROB contract |
+| LoggedTwoTagROB | [Last-commit recorder](formal/logged-two-tag-rob.rhdl) | [RSPECL spec](formal/logged-two-tag-rob.rspl) binds the sealed ROB; [readback proof](../rhodium/formal/tests/logged-refinement.rkt) uses only the recorder seal |
 | GatedArbiterQueue | [Registered admission wrapper](formal/gated-arbiter-queue.rhdl) | [Admission and ordered drain](formal/gated-arbiter-queue.rspl) |
 | ArbiterQueue | [Parent wiring](formal/arbiter-queue.rhdl) connecting the Flow leaves | [Cycle model with two-lane ready/valid events](formal/arbiter-queue.rspl) |
 

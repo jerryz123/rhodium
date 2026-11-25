@@ -15,6 +15,7 @@
          (submod "two-tag-rob-transactions.rkt" test)
          (submod "rob-commit-log.rkt" test)
          (submod "logged-two-tag-rob.rkt" test)
+         (submod "logged-refinement.rkt" test)
          (submod "two-tag-rob-monitor.rkt" test)
          (submod "two-tag-rob-oracle.rkt" test)
          "api-test.rhm"

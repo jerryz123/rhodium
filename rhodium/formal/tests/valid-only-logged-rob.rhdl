@@ -1,13 +1,12 @@
 #lang rhodium
-/* Mutates the commit recorder to capture stalled retirement offers. */
+/* Isolates two recorder faults: capturing a stalled offer, or dropping the forwarded grant generation. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("flow/main.rhdl") open
   lib("examples/formal/two-tag-rob.rhdl").TwoTagROB
 
-/* Forward the ROB interface unchanged; has_commit qualifies the saved tag and payload. */
-sync_circuit ValidOnlyLoggedROB():
+sync_circuit ValidOnlyLoggedROB(~drop_generation: drop_generation :: Boolean = #false):
   input (issue_a, issue_b, complete_a, complete_b): Bool
   input (complete_gen_a, complete_gen_b): Bool
   input (result_a, result_b): Bits(2)
@@ -28,14 +27,15 @@ sync_circuit ValidOnlyLoggedROB():
   rob.result_b <== result_b
   grant_a <== rob.grant_a
   grant_b <== rob.grant_b
-  issue_gen <== rob.issue_gen
+  issue_gen <== (if drop_generation | Bool(#false) | rob.issue_gen)
   rob.retire |> retire
   retire_result <== rob.retire_result
 
   reg occupied(~init: Bool(#false))
   reg tag(Bits(1))
   reg payload(Bits(2))
-  def capture = rob.retire.valid & !reset_active().into(Bool)
+  def enable = if drop_generation | rob.retire.fire() | rob.retire.valid
+  def capture = enable & !reset_active().into(Bool)
   when capture:
     occupied <== Bool(#true)
     tag <== rob.retire.bits.as_bits()

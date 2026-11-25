@@ -24,7 +24,7 @@ import:
   "raw-selector.rhdl" open
 
 export rob faulty_rob swapped_rob unchecked_rob
-export logged_rob valid_only_logged_rob
+export logged_rob valid_only_logged_rob miswired_logged_rob
 export selector granted_selector raw_selector
 export router routed_selector duplicate_grant high_grant circular_grants
 export registered_lane registered_routed registered_duplicate
@@ -53,6 +53,7 @@ def faulty_parents = MutableMap{}
 def mutable rob = #false
 def mutable logged_rob = #false
 def mutable valid_only_logged_rob = #false
+def mutable miswired_logged_rob = #false
 def mutable unchecked_rob = #false
 def mutable swapped_rob = #false
 def mutable faulty_rob = #false
@@ -105,6 +106,7 @@ fun inventory():
   rob := materialize_circuit(TwoTagROB())
   logged_rob := materialize_circuit(LoggedTwoTagROB())
   valid_only_logged_rob := materialize_circuit(ValidOnlyLoggedROB())
+  miswired_logged_rob := materialize_circuit(ValidOnlyLoggedROB(~drop_generation: #true))
   faulty_rob := materialize_circuit(FaultyROB("any-done"))
   swapped_rob := materialize_circuit(FaultyROB("swapped"))
   unchecked_rob := materialize_circuit(FaultyROB("ignore-generation"))

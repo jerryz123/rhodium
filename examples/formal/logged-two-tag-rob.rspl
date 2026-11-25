@@ -1,0 +1,71 @@
+#lang rspecl
+/* Specifies the last retirement record and proves its capture against the sealed ROB at the forwarded boundary. */
+// SPDX-License-Identifier: Apache-2.0
+
+import "logged-two-tag-rob.rhdl" as rtl
+import "two-tag-rob.rspl" as specs
+import lib("rhodium/formal/spec.rhm").Observed
+
+/* Sample a retirement on handshake, and the pre-edge record whenever it is valid. */
+fun recorder_events(input :: Function.of_arity(2), output :: Function.of_arity(2)):
+  def reset = input("reset", Bool)
+  def retire = !reset && output("retire.valid", Bool) && input("retire.ready", Bool)
+  def recorded = output("has_commit", Bool)
+  {"reset": Observed(const(Bool, #true), reset),
+   "retire": Observed(output("retire.bits", Bool), retire),
+   "retire_data": Observed(output("retire_result", Bits(2)), retire),
+   "record": Observed(output("last_tag", Bool), recorded),
+   "record_data": Observed(output("last_payload", Bits(2)), recorded)}
+
+/* Logical bits may be tag A (false); event presence, not payload truth, signals capture. */
+fun same(x :: SpecExpr, y :: SpecExpr): select(x, y, !y)
+
+spec for rtl.LoggedTwoTagROB:
+  monitor:
+    sample recorder_events
+    publish []
+    batch reset = present(reset)
+    batch fire = present(retire)
+    batch retired_tag: Bool = payload(retire) when fire
+    batch retired_data: Bits(2) = payload(retire_data) when fire
+    batch valid = present(record)
+    batch last_tag: Bool = payload(record) when valid
+    batch last_payload: Bits(2) = payload(record_data) when valid
+
+    state occupied: Bool initially #false
+    state tag: Bool initially #false
+    state data: Bits(2) initially 0
+    guarantee "reset-quiets-retirement" = !reset || !fire
+    guarantee "record-valid" = reset || same(valid, occupied)
+    guarantee "record-value" = reset || !valid || (same(last_tag, tag) && bits_equal(last_payload, data))
+    next occupied = !reset && (occupied || fire)
+    next tag = select(fire, retired_tag, tag)
+    next data = select(fire, retired_data, data)
+
+  refinement:
+    child rob: specs.TwoTagROB
+    local (occupied): Bool
+    local (tag): Bits(1)
+    local (payload): Bits(2)
+    relate occupied = occupied
+    relate tag = bits_equal(tag, const(Bits(1), 1)) when occupied
+    relate data = payload when occupied
+
+    // Use the child's abstract pre-edge history, never its RTL register banks.
+    history pending from rob.order: Seq(Bool, 2)
+    history a_done from rob.done_a: Bool
+    history b_done from rob.done_b: Bool
+    history a_data from rob.saved_a: Bits(2)
+    history b_data from rob.saved_b: Bits(2)
+    batch fired from fire: Bool
+    batch who from retired_tag: Bool
+    batch word from retired_data: Bits(2)
+    let head = select(empty(pending), #false, front(pending))
+    check completed_oldest = !fired || (!empty(pending) && same(who, head) && select(head, b_done, a_done)
+                                         && bits_equal(word, select(head, b_data, a_data)))
+    cover capture_a = fired && !who
+    cover capture_b = fired && who
+    input ready from retire.ready: Bool
+    output offered from retire.valid: Bool
+    cover first_stall = offered && !ready && !occupied
+    cover holding_stall = offered && !ready && occupied

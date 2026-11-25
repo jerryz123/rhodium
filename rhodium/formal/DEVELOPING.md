@@ -523,6 +523,15 @@ from sampled Reset to Bits(1) used by `reset_active()`. Keep the full-RTL
 replay separate: stall the first completed B=3, then raise ready. A valid-only
 recorder exposes B's commit one edge early.
 
+Keep that handwritten proof independent of the [declarative recorder proof](tests/logged-refinement.rkt).
+For a `child` cut, match both the expected view and the actual RTL definition
+at the named site, then prove equality of the entire forwarded batch on arbitrary
+pins **before** applying child legality. Step only the sealed child's monitor.
+Bind its abstract pre/post histories separately from parent registers and
+check the parent relation at reset and at each admitted successor. The downstream
+readback test must use only the newly issued parent seal. A dropped grant
+generation must fail forwarding, whereas valid-only capture must fail preservation.
+
 The independent [rspecsim oracle](tests/two-tag-rob-test.rhm) records integer
 allocation serials on entries and compares their low bits only at the interface.
 It exercises all 61 tag/data states against 64 control samples with representative
