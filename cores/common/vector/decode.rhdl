@@ -140,6 +140,10 @@ bundle VectorControl():
   swap_operands: Bool
   alu: SimdAluControl()
 
+  /* Memory and arithmetic services keep a tag even if a particular beat is masked or hits. */
+  method needs_completion_slot(control) :: Bool:
+    control.memory ||| control.fp_service ||| control.multiply_divide
+
 def NoVectorControl = partial_pattern(VectorControl()):
   configure: VectorConfigMode.None
   integer: Bool(#false)

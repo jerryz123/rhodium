@@ -82,8 +82,11 @@ nonspeculative descriptor
                                   +-> caller's LSU -> decisions / tagged returns
 ```
 
-The sequencer advances only when operands, completion ownership, and any
-fixed-latency write reservation are available together. It releases an instruction
+Local ALU beats reserve their fixed write cycle without consuming a completion
+slot. An independent add can therefore issue even when every slot holds an
+outstanding load. Its destination remains protected until writeback. Memory
+and arithmetic services (including fixed-latency SIMD multiply) still require
+a slot. The sequencer releases an instruction
 after its sequencing obligation ends; accepted results may remain outstanding.
 Instruction owners and completion slots preserve identity across successor
 admission. Source/destination row dependencies prevent RAW and WAW violations.

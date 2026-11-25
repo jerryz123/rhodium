@@ -425,7 +425,7 @@ void stimulus() {
     request_valid = 0;
     // Continue beyond the owner-ring depth to check zero-dead-time handoff.
     for (int destination = 10; destination < 24; destination++)
-      // v17 reuses v9's completion slot; v18 must not see its old write metadata.
+      // v17 reuses v9's instruction owner; v18 must not see its old destination claim.
       launch(add_insn_source(destination, destination == 18 ? 9 : 2),
              ((destination - 8) & low_mask(64)) << 4, 0);
     drain();

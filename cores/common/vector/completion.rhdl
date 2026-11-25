@@ -133,13 +133,14 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
   def Array(local_compute, scalar_compute, floating_compute) = compute_maturity |> fork_valid(3)
   def Array(hit_attempt, accepted_attempt) = memory_attempt |> fork_valid(2)
   def compute_result = compute_maturity.bits
-  def compute_beat = compute_result.beat
+  def compute_beat :: VectorResultBeat(xlen, vlen, VectorRegisterWrite(xlen, vlen)) = compute_result.beat
   def compute_tag = compute_result.tag
   def memory_result = memory_attempt.bits
   def memory_beat = memory_result.beat
-  def element_resolved = compute_maturity.valid ||| memory_accepted
-  def resolution_tag = mux(compute_maturity.valid, compute_tag, memory_result.tag)
-  def resolution_beat :: VectorResultBeat(xlen, vlen, VectorRegisterWrite(xlen, vlen)) = mux(compute_maturity.valid, compute_beat, memory_beat)
+  def tagged_compute = compute_maturity.valid & compute_beat.needs_completion_slot()
+  def element_resolved = tagged_compute ||| memory_accepted
+  def resolution_tag = mux(tagged_compute, compute_tag, memory_result.tag)
+  def resolution_beat :: VectorResultBeat(xlen, vlen, VectorRegisterWrite(xlen, vlen)) = mux(tagged_compute, compute_beat, memory_beat)
   def write_intent :: VectorRegisterWrite(xlen, vlen) = resolution_beat.write
   def retained_mask = VectorCompletionMask(xlen):
     bytes: write_intent.byte_enables()
@@ -271,7 +272,8 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
     destination(~format: "unsigned"): operation.beat.destination
     write_enabled: operation.beat.write.mask.any()
 
-  def finishing_head = finished.valid & (finished.bits.tag === drain_cursor)
+  def tagged_finish = finished.valid & (!local_result.valid ||| tagged_compute)
+  def finishing_head = tagged_finish & (finished.bits.tag === drain_cursor)
   def drain = !entry_packed[drain_cursor] & ((authorized_slots[drain_cursor] & completed[drain_cursor]) ||| finishing_head)
 
 
@@ -348,7 +350,7 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
   slots.reserve.bits <== allocate_cursor
   def durable = element_resolved ||| packed_accept.valid
   def durable_tag = priority_mux(~default: decision.bits.tag):
-    compute_maturity.valid: compute_tag
+    tagged_compute: compute_tag
     packed_accept.valid: packed_accept.bits
 
   slots.accept.valid <== durable
@@ -392,7 +394,7 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
     // completed bit behind after releasing its owner on the same edge.
     when (releasing ||| (reserve.valid & (allocate_cursor === tag))):
       completed[slot] <== Bool(#false)
-    elsewhen ((finished.valid & (finished.bits.tag === tag)) ||| (store_completed.valid & (store_completed.bits === tag)) ||| (acknowledged.valid & (acknowledged.bits.tag === tag))):
+    elsewhen ((tagged_finish & (finished.bits.tag === tag)) ||| (store_completed.valid & (store_completed.bits === tag)) ||| (acknowledged.valid & (acknowledged.bits.tag === tag))):
       completed[slot] <== Bool(#true)
 
 

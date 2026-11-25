@@ -7,6 +7,7 @@ import:
   lib("cores/common/vector-layout.rhm") open
   "bundles.rhdl" open
   "dependencies.rhdl" open
+  "register-file.rhdl".VectorRegisterWrite
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/isa/vector.rhm" open
   lib("rhodium/std/bits.rhdl").Pow2Int
@@ -51,7 +52,7 @@ sync_circuit VectorInstructions(xlen :: XLen, vlen :: VectorLength, vector_compl
   def layout = VectorRegisterLayout(vlen, xlen.width)
   def row_count = layout.depth
   def rows_per_register = layout.rows_per_register
-  def compute_beat = compute_maturity.bits.beat
+  def compute_beat :: VectorResultBeat(xlen, vlen, VectorRegisterWrite(xlen, vlen)) = compute_maturity.bits.beat
   def compute_owner = compute_maturity.bits.owner
   def element_resolved = resolved.valid
   def resolution_beat = resolved.bits.beat
@@ -93,13 +94,16 @@ sync_circuit VectorInstructions(xlen :: XLen, vlen :: VectorLength, vector_compl
 
   def owner_has_slots = vec(for List (slot in 0..vector_completion_slots): slots[slot].allocated & (slots[slot].owner === drain_owner)).as_bits().any()
   def owner_has_splat = splat_active & (splat_owner === drain_owner)
-  def macro_complete = macro_valid[drain_owner] & macro_issued[drain_owner] & !owner_has_slots & !packed_drain_blocked & !owner_has_splat
+  // The final local beat has issued but is not yet durable until this EX edge.
+  def local_in_ex = compute_maturity.valid & !compute_beat.needs_completion_slot()
+  def owner_in_ex = local_in_ex & (compute_owner === drain_owner)
+  def macro_complete = macro_valid[drain_owner] & macro_issued[drain_owner] & !owner_has_slots & !owner_in_ex & !packed_drain_blocked & !owner_has_splat
   for (owner in 0..vector_completion_slots):
     def owner_tag = Bits(tag_width)(owner)
     def unauthorized = vec(for List (slot in 0..vector_completion_slots): slots[slot].allocated & !slots[slot].accepted & (slots[slot].owner === owner_tag)).as_bits().any()
     def allocate_owner = request.valid & (next_owner === owner_tag)
     def reclaim_owner = macro_complete & (drain_owner === owner_tag)
-    def cancel_owner = cancel.valid & macro_valid[owner] & (!macro_issued[owner] ||| unauthorized)
+    def cancel_owner = cancel.valid & macro_valid[owner] & (!macro_issued[owner] ||| unauthorized ||| (local_in_ex & (compute_owner === owner_tag)))
     def finish_owner = finished.valid & (finished.bits.owner === owner_tag)
     when allocate_owner:
       macro_valid[owner] <== Bool(#true)

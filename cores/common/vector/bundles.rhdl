@@ -184,6 +184,10 @@ bundle VectorResultBeat(xlen :: XLen, vlen :: VectorLength, Write :: DataType):
   write: Write
   compress_state: VectorCompressState(xlen, vlen)
 
+  /* Classifies slot ownership by the issued route, not by whether this beat wrote a result. */
+  method needs_completion_slot(beat) :: Bool:
+    beat.memory ||| beat.floating_point ||| beat.multiply_divide
+
   /* Changes write representation without changing the result's owner, routing, or progress. */
   method with_write(beat, To :: DataType, write :: Hardware.of(To)) :: VectorResultBeat(xlen, vlen, To):
     VectorResultBeat(xlen, vlen, To):

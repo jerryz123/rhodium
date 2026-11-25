@@ -203,8 +203,9 @@ ownership. Persistent slots retain route and owner identity across descriptor
 replacement. Keep front admission, sequencing release, execution allocation,
 compute maturity or memory acceptance, service-result arrival, and drain distinct.
 
-Every issued ordinary beat, including immediate integer results, reserves a slot
-in one persistent ring. Encoded-zero-stride masked prefix probes return feedback
+Local ALU beats write directly from EX on their reserved cycle and bypass the
+completion ring. Memory and shared arithmetic services (including SIMD multiply)
+retain tags. Encoded-zero-stride masked prefix probes return feedback
 without issuing a beat or reserving a slot. Packed beats share the ring's
 allocation/acceptance/drain frontier;
 their layout and partial-row carry retain independent completion ownership.
@@ -215,8 +216,8 @@ VRF sources. Older pending writes block reads by XLEN-bit row; `../../common/vec
 computes conservative destination groups while pending writes have not yet
 resolved to individual rows. For monotonic same-width elementwise compute,
 `../../common/vector/instructions.rhdl` advances an owner-local row frontier when the last beat for a
-row resolves. The result's exact completion slot already owns that row until
-its actual write, so this handoff needs no speculative issue-time write address
+row resolves. A local result writes on that edge; a deferred result's slot owns
+the row until its actual write. This needs no speculative issue-time write address
 or operand-fetch reservation. Irregular and replayable schedules keep their
 whole-group claim until final resolution. The sequencer checks the next
 destination row as well as source rows, and packed loads check their mapped

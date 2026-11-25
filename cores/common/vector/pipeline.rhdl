@@ -34,6 +34,7 @@ import:
   "execute.rhdl" open
   "mask.rhdl".VectorScanResult
   "register-file.rhdl" open
+  "decode.rhdl".VectorControl
   "decode.rhdl".VectorMemoryMode
   "decode.rhdl".VectorOperandMode
   "../fp/register-file.rhdl".FloatingPointRegisterWrite
@@ -263,7 +264,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   /* A read commits only after its fixed-latency consumers have been granted. */
 
   cancel |> sequencer.cancel
-  def s1_control = sequencer.sequence_request.bits.context.instruction.descriptor.control
+  def s1_control :: VectorControl() = sequencer.sequence_request.bits.context.instruction.descriptor.control
   def s1_owner = sequencer.sequence_request.bits.context.instruction.context.owner
   def s1_service = s1_control.fp_service ||| s1_control.multiply_divide
   def s1_packed = sequencer.sequence_request.bits.context.packed
@@ -280,10 +281,12 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
     s1_packed_load: Bits(4)(3)
     s1_control.memory: Bits(4)(4)
   def s1_calendar_delay = s1_write_delay.zext(calendar_width)
-  def s1_next_slot = if vector_completion_slots == 1 | Bits(tag_width)(0) | allocate_slot + operand_fetch.scheduled_return.as_bits().zext(tag_width)
+  def returning_control :: VectorControl() = operand_fetch.issue.bits.beat.control
+  def returning_tagged = operand_fetch.scheduled_return & returning_control.needs_completion_slot()
+  def s1_next_slot = if vector_completion_slots == 1 | Bits(tag_width)(0) | allocate_slot + returning_tagged.as_bits().zext(tag_width)
   def s1_fault_only_first = s1_control.memory & (s1_control.memory_mode === VectorMemoryMode.FaultOnlyFirst)
-  def s1_slot_available = !allocated[s1_next_slot] & (Bool(vector_completion_slots != 1) ||| !operand_fetch.scheduled_return) & (!s1_fault_only_first ||| (!allocated.as_bits().any() & !operand_fetch.scheduled_return))
-  def returning_control = operand_fetch.issue.bits.beat.control
+  def s1_tag_available = !allocated[s1_next_slot] & (Bool(vector_completion_slots != 1) ||| !returning_tagged) & (!s1_fault_only_first ||| (!allocated.as_bits().any() & !returning_tagged))
+  def s1_slot_available = !s1_control.needs_completion_slot() ||| s1_tag_available
   // Consecutive integer reduction reads are safe: their results mature before
   // the following beat consumes the owner accumulator at EX. FP folds and
   // dependent scans still wait for their variable or serialized feedback.
@@ -436,7 +439,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def packed_write_cycle = inject_interface(Valid(SlotId), ~valid: operand_fetch.request.fire() & s1_direct_packed, ~bits: s1_next_slot) |> valid_pipe(3)
   packed.direct_write_available <== !completions.compute_writeback & (!writeback_calendar.occupied[0].into(Bool) ||| packed_write_cycle.valid)
   when (operand_fetch.scheduled_return):
-    assert(slot_available, "vector_scheduled_read_has_completion_slot")
+    assert(!returning_control.needs_completion_slot() ||| slot_available, "vector_tagged_read_has_completion_slot")
     assert(!replay, "vector_replay_kills_scheduled_read")
     assert(!serial_fold_inflight[issue_owner], "vector_scheduled_read_has_recurrence_capacity")
     assert(scheduled_issue.fire() ||| splat_skip.valid, "vector_scheduled_read_issues_without_stall")
@@ -449,8 +452,8 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   issue_tail <== scheduled_issue.fire() & operand_fetch.issue.bits.beat.last & !(issued_memory_checkpoint ||| issued_recurrence_checkpoint)
 
 
-  /* All routes use one persistent allocation order, including immediate ALU
-     results. No unbackpressurable write can collide with an older completion. */
+  /* Local ALU beats carry their owner to the reserved EX write; their tag is unused.
+     Memory and service operations share the persistent allocation order. */
 
   (
     operands |> filter_flow(operation => !operation.packed) |> map_flow(operation => OwnedBeat()):
@@ -731,7 +734,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
 
   completions.replay.valid <== replay
   completions.packed_release.valid <== packed.released.valid
-  completions.reserve.valid <== issue.fire()
+  completions.reserve.valid <== issue.fire() & returning_control.needs_completion_slot()
   completions.reserve.bits <== VectorSlotAllocation(vector_completion_slots):
     owner: operand_fetch.issue.bits.context.owner
     packed: operand_fetch.issue.bits.packed

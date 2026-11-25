@@ -26,14 +26,22 @@ Both modes restart numbering from the rejected beat's feedback. The sequencer
 independently counts authorizations to assert that feedback names the oldest
 unauthorized beat.
 
-Each physical completion slot owns one XLEN word. Ordinary results use it for
+Local ALU beats bypass the slot ring at read scheduling, issue, EX resolution,
+and completion. Their tag field is unused. The registered EX owner covers the
+last issue-to-maturity cycle for retirement and cancellation; destination
+claims advance at maturity, never at issue. Keep masked or empty service beats
+in their original route, including SIMD multiply. The `vector-local-alu-rv32`
+and `vector-local-alu-rv64` fixtures exercise independent and dependent compute
+while all eight accepted memory tags are live.
+
+Each physical completion slot owns one XLEN word. Tagged results use it for
 retained write data (notably a multiply-accumulate addend); non-direct packed
 loads use it until byte assembly drains. An ordinary resolution and an immediate
 packed hit are mutually exclusive, but a delayed packed return may write a
 different slot on that same edge. Keep both write paths, the direct-row bypass,
 and the separate per-slot completion and ownership state.
 
-Ordinary resolution captures one destination row per slot. Row-hazard queries
+Each ordinary tagged beat records its destination row at resolution. Row-hazard queries
 use it while a write is outstanding; delayed writeback reads the same row by
 return tag. Keep immediate writes on the live result and release the row hazard
 at writeback, even when an older slot delays metadata reclamation.
