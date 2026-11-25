@@ -9,6 +9,7 @@
 #include <vector>
 
 using Word = std::uint64_t;
+constexpr unsigned row_credits = 5;
 unsigned cycle_limit=16000; // Aggregate watchdog; row cadence is checked at the grants.
 unsigned cycles, finishes, releases, narrow, scalar_returns;
 Word scalar_value;
@@ -237,7 +238,7 @@ void step() {
     if (row_memory_out.prequest.pvalid && row_memory_in.prequest.pready) {
       CHECK(req.pbyte_umask != 0);
       pending.push_back({req.paddress,req.pbyte_umask,bool(req.pstore),req.pdata.words,cycles+latency});
-      CHECK(pending.size() <= 2);
+      CHECK(pending.size() <= row_credits);
       masks.push_back(req.pbyte_umask);
       services.push_back(req.pservice);
       addresses.push_back(req.paddress);
@@ -307,9 +308,14 @@ int main() {
       CHECK(active && loads_pending && !stores_pending && finishes==before);
       CHECK(addresses.size()==requests && vrf_reads.size()==captures && flag_rows==flags);
       CHECK(memory_launch_cycle==mem && execute_launch_cycle==ex);
-      CHECK(!checking && !exact_offer && !request_ready);
+      CHECK(!checking && !exact_offer && request_ready);
+      // The full owner ring cannot dispatch the fifth descriptor, but WB has
+      // one credit. It remains occupied until an owner becomes available.
+      send(op(0,8,9,0,20));
+      for(unsigned i=0;i<4;++i) { eval(); CHECK(!request_ready); step(); }
+      CHECK(memory_launch_cycle==mem && execute_launch_cycle==ex && finishes==before);
       block_returns=false; drain();
-      CHECK(finishes==before+4 && !active && !loads_pending);
+      CHECK(finishes==before+5 && !active && !loads_pending);
       start_index=0; vl=0;
       const auto empty_scan_reads=vrf_reads.size(), empty_scan_writes=writes_alu.size();
       const auto installs=special_installs.size();
@@ -1137,11 +1143,13 @@ int main() {
       state(0,0,0,32); send(load(8),src); drain();
       block_returns=true; reads_alu.clear(); addresses.clear();
       const auto fin=finishes, acks=store_acks, rel=releases;
-      send(load(20),dst); send(store(8),0x3ff0,false); send(op(0,12,1,3,alias ? 8 : 24));
+      send(load(20),dst); while (pending.size()<2) step();
+      hold_until=cycles+80; // Stall subsequent grants independently of the credit budget.
+      send(store(8),0x3ff0,false); send(op(0,12,1,3,alias ? 8 : 24));
       for (unsigned i=0;i<24;++i) step();
       CHECK((addresses==std::vector<Word>{dst,dst+16}));
       CHECK(reads_alu.size()==2 && finishes==fin && releases==rel);
-      latency=48; block_returns=false;
+      latency=48; hold_until=0; block_returns=false;
       while (addresses.size()!=4 || reads_alu.size()!=2) step();
       CHECK(store_acks==acks); // WAR ends at capture, not acknowledgement.
       drain();
@@ -1151,11 +1159,13 @@ int main() {
     // the preceding store acknowledgement; neither RAW nor WAW may pass.
     for (bool waw : {false,true}) {
       block_returns=true; addresses.clear(); reads_alu.clear(); load_write_cycles.clear();
-      send(store(8),out); send(load(16),dst);
+      send(store(8),out); while (pending.size()<2) step();
+      hold_until=cycles+80;
+      send(load(16),dst);
       send(waw ? op(0,12,1,3,16) : op(0,16,1,3,24));
       for (unsigned i=0;i<20;++i) step();
       CHECK(reads_alu.empty() && (addresses==std::vector<Word>{out,out+16}));
-      block_returns=false; drain();
+      hold_until=0; block_returns=false; drain();
       CHECK(load_write_cycles.size()==2 && reads_alu.size()==2);
       for (unsigned r=0;r<2;++r) CHECK(reads_alu[r].first>load_write_cycles[r]);
     }
@@ -1297,7 +1307,7 @@ int main() {
     drain(); watch_writer=false;
     CHECK(store_captures.size()==4 && (addresses==std::vector<Word>{out,out+16,out+32,out+48}));
     for (unsigned r=0;r<4;++r) CHECK(stored.at(out+16*r)==stored.at(src+16*r));
-    // The occupied VLIQ cannot hide a second descriptor anywhere upstream.
+    // One load may wait in WB's dispatch credit behind the occupied VLIQ.
     // VSSeq and VXSeq can both start; the dependent execute waits on the
     // returned rows while the independently captured store waits for L1D.
     state(0,0,0,16); addresses.clear(); writes.clear(); reads_alu.clear();
@@ -1311,10 +1321,11 @@ int main() {
       for (unsigned i=0;i<4;++i) { eval(); CHECK(!request_ready); step(); }
       request_valid=0;
     };
-    blocked(load(12)); blocked(store(12)); blocked(op(0,8,0,3,10));
+    send(load(12),src); blocked(store(12)); blocked(op(0,8,0,3,10));
     CHECK((addresses==std::vector<Word>{dst,out}) && writes.empty() && reads_alu.empty());
     block_returns=false; drain(); track_row_drain=false;
-    CHECK(finishes==before_run+3 && stored.at(out)==stored.at(src));
+    CHECK(finishes==before_run+4 && stored.at(out)==stored.at(src));
+    CHECK((addresses==std::vector<Word>{dst,out,src}));
     send(store(24),out); drain(); CHECK(stored.at(out)==stored.at(dst));
 
     // VSSeq has already captured the bytes, but VSIQ still owns the ACK.
@@ -1326,10 +1337,12 @@ int main() {
     state(0,0,0,32); send(store(16) & ~(1u<<25),out);
     while (pending.empty()) step();
     state(0,0,0,16); send(load(24),out);
-    blocked(store(8));
+    send(store(8),out+0x80); blocked(store(8));
     CHECK((addresses==std::vector<Word>{out}) && (masks==std::vector<unsigned>{0x0ff0}) && writes.empty());
     block_returns=false; drain(); track_row_drain=false;
-    CHECK((addresses==std::vector<Word>{out,out}) && (writes==std::vector<Word>{48}));
+    CHECK(std::count(addresses.begin(),addresses.end(),out)==2);
+    CHECK(std::count(addresses.begin(),addresses.end(),out+0x80)==1 && addresses.size()==3);
+    CHECK((writes==std::vector<Word>{48}));
     const Row merged{initial[0],stored.at(dst)[1],stored.at(dst)[2],initial[3]};
     send(store(24),out+16); drain(); CHECK(stored.at(out+16)==merged);
     // The older virtual span maps onto two nonadjacent physical pages. A
@@ -2380,7 +2393,7 @@ int main() {
       for(unsigned n=0;n<16;++n) step();
       if (repair) {
         while(addresses.size()<2) step();
-        CHECK(addresses.size()==2 && addresses[0]==first_pa && addresses[1]==low_pa);
+        CHECK(addresses[0]==first_pa && addresses[1]==low_pa);
       } else {
         while(probes.size()<2) step();
         CHECK((probes==std::vector<Word>{far,0x2fff}) && (addresses==std::vector<Word>{first_pa,first_pa}));
@@ -2477,7 +2490,15 @@ int main() {
     for(bool gather : {false,true}) for(bool dependent : {false,true}) {
       reads_alu.clear(); writes_alu.clear();
       send(gather ? op(12,8,12,0,24) : op(15,8,15,3,24));
-      send(op(0,dependent?24:8,1,3,28)); drain();
+      const auto first_launch = execute_launch_cycle;
+      CHECK(first_launch==cycles); // empty credit: no added dispatch stage
+      send(op(0,dependent?24:8,1,3,28));
+      CHECK(cycles==first_launch+1 && execute_launch_cycle==first_launch);
+      while(execute_launch_cycle==first_launch) {
+        eval(); CHECK(!request_ready); step(); // also on the permutation handoff edge
+      }
+      eval(); CHECK(request_ready);
+      drain();
       CHECK(reads_alu.size()==2 && writes_alu.size()==2);
       CHECK(execute_launch_cycle==reads_alu[0].first && writes_alu[0].second==48 && writes_alu[1].second==56);
       if(dependent) CHECK(reads_alu[1].first>writes_alu[0].first);

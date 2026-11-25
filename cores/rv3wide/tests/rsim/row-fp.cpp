@@ -13,6 +13,7 @@ extern "C" void observe_scalar_variable(Word resetting, Word valid, Word ready) 
 Word pc = 0x8000, retired, replay;
 Word pair_pc;
 unsigned pair_retire[2], pair_replays, pair_products;
+bool pair_in_mem;
 std::array<Word,32> regs{};
 std::vector<unsigned> launches, reads, writes;
 extern "C" void observe_fp(Word resetting, Word scalar, Word shared_vector, Word ready) {
@@ -34,6 +35,8 @@ void step() {
   memory_in.pdrained = 1;
   eval();
   if (!reset) {
+    if (pair_pc && memory_stage_0_out.pvalid && memory_stage_0_out.pbits.ppc==pair_pc &&
+        memory_stage_1_out.pvalid && memory_stage_1_out.pbits.ppc==pair_pc+4) pair_in_mem=true;
     if (redirect_out.pvalid) {
       const auto& r = redirect_out.pbits;
       if (r.presolution.pdisposition == 1)
@@ -133,26 +136,36 @@ int main() {
     for (unsigned n=0;n<40;++n) step();
     send(0x001022f3); CHECK(regs[5]==16);
 
-    // A younger scalar multiply must not launch on speculative tail credit.
-    // Offer the pair while a previous execute is reading its eight rows.
+    // A scalar multiply can follow a vector admitted on real credit. Repeat
+    // with the sole credit occupied: neither member may retire twice on replay.
     send(0x00300393); // addi x7,x0,3
-    send(op(0,1,8,8,0,24)); // vadd.vv
-    pair_pc=pc; pc+=8;
-    instructions_in={};
-    instructions_in.pvalid=1; instructions_in.pbits.pcount=2;
-    for (unsigned n=0;n<2;++n) {
-      auto& i=instructions_in.pbits.pentries[n];
-      i.ppc=pair_pc+4*n; i.psequential_upc=i.ppc+4;
-      i.pinstruction=i.praw_uinstruction=n ? 0x02738333 : op(0,1,8,8,1,16);
+    send(0x04000413); // x8 = 64 elements, long enough to fill the credit before the pair
+    send((19u<<20)|(8u<<15)|0x7057); // vsetvli x0,x8,e32,m8
+    for (bool full : {false,true}) {
+      send(op(0,1,8,8,0,24)); // vadd.vv occupies execute
+      if (full) send(op(0,1,8,8,0,24)); // second descriptor waits in admission
+      pair_pc=pc; pc+=8;
+      pair_in_mem=false;
+      pair_retire[0]=pair_retire[1]=pair_products=pair_replays=0;
+      instructions_in={};
+      instructions_in.pvalid=1; instructions_in.pbits.pcount=2;
+      for (unsigned n=0;n<2;++n) {
+        auto& i=instructions_in.pbits.pentries[n];
+        i.ppc=pair_pc+4*n; i.psequential_upc=i.ppc+4;
+        i.pinstruction=i.praw_uinstruction=n ? 0x02738333 : op(0,1,8,8,1,16);
+      }
+      while (!pair_retire[1] || !pair_products) {
+        eval(); bool accepted=instructions_in.pvalid && instructions_out.pready;
+        step();
+        if (accepted) instructions_in.pvalid=0;
+        if (replay==pair_pc) { instructions_in.pvalid=1; replay=0; }
+      }
+      for (unsigned n=0;n<48;++n) step();
+      CHECK(pair_in_mem && bool(pair_replays)==full);
+      CHECK(pair_retire[0]==1 && pair_retire[1]==1 && pair_products==1 && regs[6]==9);
+      pair_pc=0;
     }
-    while (!pair_retire[1] || !pair_products) {
-      eval(); bool accepted=instructions_in.pvalid && instructions_out.pready;
-      step();
-      if (accepted) instructions_in.pvalid=0;
-      if (replay==pair_pc) { instructions_in.pvalid=1; replay=0; }
-    }
-    for (unsigned n=0;n<16;++n) step();
-    CHECK(pair_replays && pair_retire[0]==1 && pair_retire[1]==1 && pair_products==1 && regs[6]==9);
+    send(0xc0007057 | 19u<<20 | 31u<<15); // restore e32,m8, VL=31
 
     // Compare writes v0 in fragments; a dependent predicated add must see the
     // finished mask. Only element zero (the sNaN) compares false.

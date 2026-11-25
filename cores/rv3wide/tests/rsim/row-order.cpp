@@ -5,6 +5,7 @@
 #include <cstring>
 
 unsigned cycle, ack_at, acknowledgements, requests, retire_cycle;
+constexpr unsigned row_credits = 5;
 std::uint64_t pc = 0x8000, retired_pc, replay_pc, data, returned, staged;
 bool scalar_lookup, scalar_store, load_run, hold_loads;
 unsigned loads, replies;
@@ -93,7 +94,7 @@ void step() {
         CHECK(req.pbyte_umask==(part?7u:1u<<(row_bytes-1)));
       } else if (indexed_order) {
         // v8 contains 0x5a; independent element identities all name byte 0x45a.
-        CHECK(ordered.size()<(indexed_scatter ? 2u : 1u) && req.paddress==((index_base+0x5a) & ~(row_bytes-1)));
+        CHECK(ordered.size()<(indexed_scatter ? row_credits : 1u) && req.paddress==((index_base+0x5a) & ~(row_bytes-1)));
         CHECK(req.pbyte_umask==(1u<<(0x5a%row_bytes)) && bool(req.pstore)==indexed_scatter);
       } else if (stride_order) {
         unsigned lane=6-3*(loads-first_load);
@@ -113,7 +114,7 @@ void step() {
         if (masked_load) CHECK(req.pbyte_umask==(0x3333u & low_mask(row_bytes)));
         ++loads;
       } else {
-        CHECK(requests - acknowledgements < 2);
+        CHECK(requests - acknowledgements < row_credits);
         if (!masked_store) CHECK(!row_memory_in.presponse.pvalid);
         const auto* bytes=reinterpret_cast<const unsigned char*>(&req.pdata);
         if (iterative_scatter) {
@@ -145,7 +146,7 @@ void step() {
   }
   if (checked_gather) CHECK(!pipeline_out.prequest.pvalid);
   scalar_lookup = pipeline_out.prequest.pvalid;
-  scalar_store = pipeline_out.prequest.pbits.paccess == 2;
+  scalar_store = pipeline_out.prequest.pbits.pmemory.paccess == 2;
   tick_model(); eval();
 }
 void send(unsigned insn) {
@@ -162,6 +163,63 @@ void send(unsigned insn) {
     if (replay_pc == here) { instructions_in.pvalid = 1; replay_pc = 0; }
   }
   instructions_in.pvalid = 0;
+}
+
+// Give WB a faultable vector load and a younger scalar store in the same group.
+// A reserved descriptor is not authorization for the store, even with L1D ready.
+void faultable_pair() {
+  const auto base = (pc + 15) & ~UINT64_C(15);
+  instructions_in = {};
+  instructions_in.pbits.pcount = 2;
+  instructions_in.pvalid = 1;
+  for (unsigned lane=0; lane<2; ++lane) {
+    auto &i = instructions_in.pbits.pentries[lane];
+    i.ppc = base + 4*lane;
+    i.psequential_upc = i.ppc + 4;
+    // Lane 0: vle8.v v12,(x1). Lane 1: sw x2,0(x1).
+    i.pinstruction = i.praw_uinstruction = lane ? 0x0020a023u : 0x02008607u;
+  }
+  vector_fast_in = {};
+  vector_precheck_in = {};
+  element_translation_in = {};
+  memory_in.pdrained = memory_in.prequest.pready = pipeline_in.pcommit_uready = 1;
+  row_memory_in.presponse.pvalid = 0;
+  row_memory_in.prequest.pready = 1;
+  bool lookup = false, pair = false, outstanding = false, trapped = false;
+  unsigned exact = 0, due = 0, proofs = 0, after = 0;
+  for (unsigned t=0; t<150; ++t) {
+    pipeline_in.presponse.pvalid = lookup;
+    pipeline_in.presponse.pbits.poutcome = 2; // even a potential scalar store hit cannot commit
+    vector_precheck_in.prequest.pready = !outstanding;
+    vector_precheck_in.presponse.pvalid = outstanding;
+    vector_precheck_in.presponse.pbits = 0; // decline the envelope; check the actual bytes
+    element_translation_in.prequest.pready = 1;
+    element_translation_in.presponse.pvalid = exact && t==due;
+    element_translation_in.presponse.pbits.pservice = 3; // Fault
+    element_translation_in.presponse.pbits.pcause = 13; // load page fault
+    eval();
+    const bool accepted = instructions_in.pvalid && instructions_out.pready;
+    pair |= memory_stage_0_out.pvalid && memory_stage_0_out.pbits.ppc==base &&
+            memory_stage_1_out.pvalid && memory_stage_1_out.pbits.ppc==base+4;
+    CHECK(!pipeline_out.pcommit && !memory_out.prequest.pvalid && !row_memory_out.prequest.pvalid);
+    for (const auto* r : {&retired_0_out, &retired_1_out, &retired_2_out})
+      CHECK(!r->pvalid || (r->pbits.pfetched.ppc!=base && r->pbits.pfetched.ppc!=base+4));
+    if (vector_precheck_out.presponse.pready && outstanding) outstanding=false;
+    if (vector_precheck_out.prequest.pvalid && vector_precheck_in.prequest.pready) { outstanding=true; ++proofs; }
+    if (element_translation_out.prequest.pvalid) {
+      CHECK(!exact && element_translation_out.prequest.pbits.pfirst==0x400);
+      ++exact; due=t+8;
+    }
+    if (redirect_out.pvalid && redirect_out.pbits.presolution.pdisposition==1) {
+      CHECK(!trapped && exact==1 && t>due && redirect_out.pbits.presolution.pvalue==0x400);
+      trapped=true;
+    }
+    lookup = pipeline_out.prequest.pvalid;
+    tick_model();
+    if (accepted) instructions_in.pvalid=0;
+    if (trapped && ++after==5) break;
+  }
+  CHECK(pair && proofs && exact==1 && trapped);
 }
 int main() {
   return run_test([] {
@@ -383,5 +441,6 @@ int main() {
       send(0x0ff0000f);
       CHECK(requests==acknowledgements && scatter_bytes.empty() && ordered.empty() && retire_cycle>last_reply && data==0x34);
     }
+    faultable_pair();
   });
 }

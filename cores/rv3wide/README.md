@@ -53,7 +53,13 @@ Vector-enabled RV3Wide uses a 64-row 3R1W vector register file. Its row width
 (DLEN) matches L1D, and VLEN is twice DLEN: 128 bits on RV32 and 256 on RV64. Register `vN` occupies rows
 `2*N` and `2*N+1`, low bits first. The load, store, and execute sequencers each have an independent read of the two-row v0 shadow.
 All see concurrent masked writes. VXSeq receives the predicate with its synchronous operands; load and store sample it during row preparation.
-Checked instructions dispatch in program order directly into one-entry contexts:
+
+WB has one registered vector admission credit. A descriptor dispatches on its
+acceptance edge if the required sequencers are ready and no range check is
+needed. Otherwise the same latch holds it for checking or for dispatch; WB
+cannot reuse that credit until the cycle after it drains. Acceptance alone
+does not authorize a faultable vector memory instruction or its younger scalar
+store. Checked instructions dispatch in program order into one-entry contexts:
 
 | Instruction | Memory-side entry | VRF-side sequencer |
 |---|---|---|
