@@ -47,7 +47,12 @@ fun site_header(manifest):
     keep_when site.label.starts_with("vector/load.") && !site.label.ends_with(".stall")
     "constexpr unsigned " ++ site.label.replace("/", "_").replace(".", "_") ++ " = " ++ to_string(index) ++ ";\n"
   "namespace row_sites {\n" ++ String.join(constants, "") ++ "}\n"
-def window_target = traced_target(site_header, EventInstrumentationConfig(~partial: #true))
+def window_target = traced_target(site_header, EventInstrumentationConfig(~partial: #true), ~before: [port_observer_pass([
+  ["VectorLoadSequencer", "observe_load_grant", [
+    ["result_in", "valid"], ["result_out", "ready"], ["result_in", "bits", "address"],
+    ["write_out", "valid"], ["write_in", "ready"], ["write_out", "bits", "address"]
+  ]]
+])])
 def merge32 = elaborate(RowMemoryFixture(XLen.X32, 128))
 def indexed32 = elaborate(NativeIndexMemoryFixture(XLen.X32, 128))
 def indexed64 = elaborate(NativeIndexMemoryFixture(XLen.X64, 256))

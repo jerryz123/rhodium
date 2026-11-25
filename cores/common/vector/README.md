@@ -203,9 +203,9 @@ not that a cursor was waiting for operands, selection, or issue credit.
 
 For loads, `vector/load.prepare` shows the logical row and enabled bytes before
 packing; it can coincide with `load.agen`. `vector/load.return` shows a physical
-response fragment accepted into VLSeq's return queue, tagged with the original
+response fragment accepted into the VLSU's load-return queue, tagged with the original
 request owner and byte mask. `load.sequence` reports the physical VRF destination
-row and bit write mask only when the write port grants it. Returns can therefore
+row and bit write mask when VLSeq takes a formatted result on its VRF grant. Returns can therefore
 run ahead of a stalled write. Split or segmented accesses need not have one
 return per write, and a fully masked row produces no synthetic return or write.
 

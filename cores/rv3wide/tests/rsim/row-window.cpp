@@ -3,6 +3,15 @@
 #include "test-sites.h"
 
 using Row = std::array<std::uint32_t,4>;
+using Word = std::uint64_t;
+unsigned stalled_results = 0, granted_results = 0;
+extern "C" void observe_load_grant(Word resetting, Word valid, Word ready, Word row,
+                                   Word write_valid, Word write_ready, Word destination) {
+  if (resetting) return;
+  CHECK(bool(valid && ready) == bool(write_valid && write_ready));
+  if (valid && ready) { CHECK(row == destination); ++granted_results; }
+  if (valid && !ready) ++stalled_results;
+}
 constexpr Row data(unsigned r) { return {0x44556600u+r,0xfedcba98u-r,r,0x77889900u+r}; }
 
 void offer_operands(bool store) {
@@ -278,6 +287,7 @@ void physical_ranges(bool older_store, bool alias) {
 // Hold the older store's source read. The younger load can issue first,
 // but its blocked writeback must not starve either store address or ACK.
 void blocked_store_source() {
+  const auto stalled_before = stalled_results, granted_before = granted_results;
   launch_1_in={}; prepare_in={}; memory_in={}; write_in={}; chain_in={}; read_result_in={};
   read_in.pready=0;
   launch_1_in.pvalid=prepare_in.pvalid=1;
@@ -317,6 +327,7 @@ void blocked_store_source() {
     tick_model(); read_result_in.pvalid=capture;
   }
   CHECK(finished==3 && sent==4 && received==4);
+  CHECK(stalled_results > stalled_before && granted_results == granted_before + 2);
 }
 
 // A valid offer to an occupied start port must not hide its eligible peer.

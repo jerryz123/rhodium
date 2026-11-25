@@ -75,8 +75,9 @@ translated physical page, even when consecutive virtual pages are not physically
 Certified mask transfers use byte offsets and round VL up to a whole byte.
 Whole-register loads and stores use the encoded EEW and group size, not VL.
 For certified unit-stride segments of two through eight fields, the same port
-transfers interleaved bytes in memory order. VLSeq separates a beat with one
-masked VRF write per active field; VSSeq gathers its fields into one beat.
+transfers interleaved bytes in memory order. The VLSU separates a load beat
+into field fragments; VLSeq accepts each active fragment on its masked VRF write.
+VSSeq gathers store fields into one beat.
 A younger instruction cannot consume a partially written field row.
 Strided, indexed, and fault-only-first segments stay on the element path.
 Nonsegmented `vlse` and `vsse` use the same L1D port with a validated one-page
@@ -116,8 +117,10 @@ a fully disabled physical beat advances without issuing a cache request. A faile
 precise element accesses rather than raising a fault on a masked-off address.
 VLIQ and VSIQ advance separate address cursors over one L1D port with two
 shared row credits. The two start ports are independent: a blocked start cannot
-hide an eligible head of the other kind. Delivery to the load sequencer ends the
-memory dependency; older VRF readers can still delay the register write. A certified load and store can overlap in either order
+hide an eligible head of the other kind. Delivery of the final physical load reply
+to the VLSU return buffer ends the memory dependency; it need not wait for a VRF
+grant. VLSeq has no return FIFO: it takes a formatted result only when older
+VRF accesses permit the write and the single port grants it. A certified load and store can overlap in either order
 only if their translated byte ranges are disjoint. Distinct virtual addresses
 may alias; mask holes are conservatively treated as accessed. A load credit
 lasts until the merger consumes its cache beat, a store credit through its ordered acknowledgement.

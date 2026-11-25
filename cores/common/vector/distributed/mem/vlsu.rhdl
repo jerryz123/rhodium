@@ -14,6 +14,9 @@ import:
   "../../bundles.rhdl".VectorRowRequest
   "../common/row-types.rhdl" open
   "beat-packer.rhdl".VectorBeatPacker
+  "load-return.rhdl".VectorLoadReturn
+  "../common/memory-command.rhdl" open
+  "../../register-file.rhdl".VectorRegisterWrite
   "../common/memory-route.rhdl" open
 
 
@@ -39,9 +42,10 @@ fun physical_overlap(xlen :: XLen, a :: RowFootprint(), b :: RowFootprint()) :~ 
 
 /* Install older cursors first (enforced by the dispatch scoreboard). A resident
    peer gates only overlapping physical spans. Arbitrate row offers at L1D;
-   return each load with its original credit and consume store ACKs locally. */
+   buffer and format load replies independently of store ACKs. */
 sync_circuit VectorVLSU(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~trace_isa: trace_isa :: maybe(String) = #false):
   def dlen = vector_dlen(vlen)
+  def isa = trace_isa || (if xlen == XLen.X32 | "rv32imafdcv" | "rv64imafdcv")
   def row_bytes = dlen div 8
   def Owner = Bits(index_width(slots))
   def Credit = RowCredit(xlen, vlen, Owner)
@@ -53,14 +57,26 @@ sync_circuit VectorVLSU(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~t
   interface indices(Decoupled(Bits(dlen)), ~role: consumer)
   interface masks(Decoupled(OwnedRow(PreparedBeat(vlen), Owner)), ~role: consumer)
   interface store_data(Decoupled(OwnedRow(PreparedRow(vlen), Owner)), ~role: consumer)
-  interface returned(Decoupled(ReturnedRow(xlen, vlen, Owner)), ~role: producer)
+  interface load_result(Decoupled(VectorRegisterWrite(dlen, vlen)), ~role: producer)
+  interface load_setup(Valid(LoadReturnSetup(dlen)), ~role: consumer)
+  interface load_visit(Valid(LoadFieldVisit()), ~role: producer)
+  interface element_loaded(Valid(Owner), ~role: producer)
+  interface splat(Decoupled(SplatPosition(dlen)), ~role: consumer)
+  interface loaded(Valid(ReturnedRow(xlen, vlen, Owner)), ~role: producer)
   interface memory(VectorRowMemory(dlen), ~role: requester)
   interface issued(Valid(MemoryEvent(slots)), ~role: producer)
   interface delivered(Valid(MemoryEvent(slots)), ~role: producer)
   interface stored(Valid(ReturnedRow(xlen, vlen, Owner)), ~role: producer)
   output resident: Vec(MemoryPaths.length(), Bool)
-  input load_credits: MemoryCreditCount
-  output reserve_load: Bool
+  inst load_return(VectorLoadReturn(xlen, vlen, Owner))
+  load_setup |> load_return.setup
+  splat |> load_return.splat
+  load_return.result |> load_result
+  load_return.visit |> load_visit
+  load_return.element_drained |> element_loaded
+  def load_credits = load_return.credits
+  output returns_pending: Bool
+  returns_pending <== load_credits.any()
   reg occupied(~init: Bits(MemoryPaths.length())(0).as_vec(Bool))
   reg sequencing(~init: Bits(MemoryPaths.length())(0).as_vec(Bool))
   reg owners(Vec(MemoryPaths.length(), Owner))
@@ -209,7 +225,7 @@ sync_circuit VectorVLSU(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~t
     def label = if i == LoadPath | "vector/load.agen" | "vector/store.agen"
     (offers[i] |> trace_event(label, ~stalls: #true, ~fields: req):
        pc: identity.pc
-       instruction(~format: "riscv", ~isa: trace_isa || (if xlen == XLen.X32 | "rv32imafdcv" | "rv64imafdcv"), ~pc: "pc"): identity.instruction
+       instruction(~format: "riscv", ~isa: isa, ~pc: "pc"): identity.instruction
        owner(~format: "unsigned"): owners[i]
        row(~format: "unsigned"): prepared.bits.row
        cursor: cursor
@@ -239,13 +255,23 @@ sync_circuit VectorVLSU(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~t
       credit: ctx
       data: data
   def Array(load, ack) = paired |> demux_flow(2, r => r.credit.store)
-  load |> returned
+  (load |> trace_event("vector/load.return", ~stalls: #true, ~fields: reply):
+     pc: trace_instructions[reply.credit.owner].pc
+     instruction(~format: "riscv", ~isa: isa, ~pc: "pc"): trace_instructions[reply.credit.owner].instruction
+     owner(~format: "unsigned"): reply.credit.owner
+     row(~format: "unsigned"): reply.credit.row
+     offset(~format: "unsigned"): reply.credit.offset
+     pa: reply.credit.pa
+     byte_mask: reply.credit.enabled
+  ) |> load_return.returned
+  loaded.valid <== load.fire()
+  loaded.bits <== load.bits
   ack.ready <== Bool(#true)
   when (prepared.valid):
     locked <== !fragments.left.ready
     locked_store <== store
   def accepted = memory.request.fire()
-  reserve_load <== accepted & !store
+  load_return.reserve <== accepted & !store
   indices.ready <== prepared.fire() & inline_index & ((lane === !StoreLane(0)) ||| prepared.bits.last)
   def tail = prepared.fire() & prepared.bits.last
   checked_element.ready <== occupied[path] & streaming[path] & (!sequencing[path] ||| (tail & (store === stream_store)))

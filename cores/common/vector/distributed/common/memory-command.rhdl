@@ -22,6 +22,19 @@ bundle SegmentLayout():
   base: RowAddress
   spacing: Bits(3)
 
+/* Captured with the VRF-side load owner; address issue may happen later. */
+bundle LoadReturnSetup(dlen :: PosInt):
+  layout: SegmentLayout()
+  displacement: Bits(index_width(vector_row_bytes(dlen)))
+  elementwise: Bool
+  seed: Bool
+  seed_lane: Bits(index_width(vector_row_bytes(dlen)))
+
+/* An assembled segment field was written or skipped; both advance its claim. */
+bundle LoadFieldVisit():
+  field: Bits(3)
+  stream: RowAddress
+
 /* Operand geometry is resolved before preparation. No instruction encoding or
    architectural vector state is needed by a VRF or physical-address cursor.
    first/last/crosses describe the conservative alias footprint within the two
@@ -110,4 +123,4 @@ fun memory_command_span(xlen :: XLen, vlen :: VectorLength, c :: MemoryCommand(x
     begin: vector_field_extent(c.data.begin.zext(68), c.layout.nf)[0..vector_span_width(vlen)]
     end: vector_field_extent(c.data.end.zext(68), c.layout.nf)[0..vector_span_width(vlen)]
 
-export SegmentLayout MemoryCommand direct_memory_command checked_memory_command memory_command_rows memory_command_span
+export LoadReturnSetup LoadFieldVisit SegmentLayout MemoryCommand direct_memory_command checked_memory_command memory_command_rows memory_command_span

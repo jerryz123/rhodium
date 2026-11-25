@@ -53,7 +53,7 @@ sync_circuit VectorRowEngine(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
   loads.trace_instructions <== trace_instructions
   stores.trace_instructions <== trace_instructions
   def Array(load, store) = prepare |> demux_flow(2, entry => entry.command.store)
-  splat |> loads.splat
+  splat |> vlsu.splat
   load |> loads.prepare
   checked_element |> vlsu.checked_element
   vlsu.stream_live <== stream_live
@@ -70,17 +70,10 @@ sync_circuit VectorRowEngine(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
   loads.rows |> vlsu.masks
   stores.rows |> vlsu.store_data
   def isa = trace_isa || (if xlen == XLen.X32 | "rv32imafdcv" | "rv64imafdcv")
-  (vlsu.returned |> trace_event("vector/load.return", ~stalls: #true, ~fields: reply):
-     pc: trace_instructions[reply.credit.owner].pc
-     instruction(~format: "riscv", ~isa: isa, ~pc: "pc"): trace_instructions[reply.credit.owner].instruction
-     owner(~format: "unsigned"): reply.credit.owner
-     row(~format: "unsigned"): reply.credit.row
-     offset(~format: "unsigned"): reply.credit.offset
-     pa: reply.credit.pa
-     byte_mask: reply.credit.enabled
-  ) |> loads.returned
-  vlsu.load_credits <== loads.held
-  loads.reserve <== vlsu.reserve_load
+  loads.return_setup |> vlsu.load_setup
+  vlsu.load_result |> loads.result
+  vlsu.load_visit |> loads.visit
+  loads.returns_pending <== vlsu.returns_pending
   vlsu.memory <=> memory
   loads.chain <=> chain
   stores.store_reads <=> store_reads
@@ -105,8 +98,8 @@ sync_circuit VectorRowEngine(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
   vlsu.delivered |> delivered
   // Slice completions feed the iterative checker, not the macro tracker.
   interface element_drained(Valid(Owner), ~role: producer)
-  Array(loads.element_written, vlsu.element_stored) |> valid_arbiter() |> element_drained
-  assert(!(loads.element_written.valid & vlsu.element_stored.valid), "checked_load_store_drains_are_exclusive")
+  Array(vlsu.element_loaded, vlsu.element_stored) |> valid_arbiter() |> element_drained
+  assert(!(vlsu.element_loaded.valid & vlsu.element_stored.valid), "checked_load_store_drains_are_exclusive")
   loads.finished.ready <== !vlsu.store_delivered
   finished.valid <== vlsu.store_delivered ||| loads.finished.valid
   finished.bits <== mux(vlsu.store_delivered, vlsu.delivered.bits, loads.finished.bits)
@@ -114,6 +107,6 @@ sync_circuit VectorRowEngine(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
   fun describe_transfer(prefix :: String, fire :: Bool, ctx :: RowCredit(xlen, vlen, Owner), data :: Bits(dlen)):
     for Map ((key, value) in {"transfer": fire, "owner": ctx.owner, "singleton": ctx.singleton, "row": ctx.row, "offset": ctx.offset, "va": ctx.va, "pa": ctx.pa, "byte_mask": ctx.enabled, "data": data}):
       values(prefix ++ key, value)
-  describe_cosim_signals(describe_transfer("load_", vlsu.returned.fire(), vlsu.returned.bits.credit, vlsu.returned.bits.data) ++ describe_transfer("store_", vlsu.stored.valid, vlsu.stored.bits.credit, vlsu.stored.bits.data) ++ {"write": write.fire(), "write_owner": chain.write_owner, "write_row": write.bits.address, "write_data": write.bits.data, "write_mask": write.bits.mask})
+  describe_cosim_signals(describe_transfer("load_", vlsu.loaded.valid, vlsu.loaded.bits.credit, vlsu.loaded.bits.data) ++ describe_transfer("store_", vlsu.stored.valid, vlsu.stored.bits.credit, vlsu.stored.bits.data) ++ {"write": write.fire(), "write_owner": chain.write_owner, "write_row": write.bits.address, "write_data": write.bits.data, "write_mask": write.bits.mask})
 
 export VectorRowEngine

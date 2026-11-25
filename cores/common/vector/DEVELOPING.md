@@ -201,15 +201,20 @@ drain event. Scalar service results carry their original tags back to the VXU.
 Inside `distributed/`, `frontend/` owns precise checks and admission,
 `backend/` owns the scheduler, scoreboard, register-file grants and sequencers,
 `mem/` owns physical requests and response alignment, and `exu/` owns arithmetic.
+The VLSU's [load-return path](distributed/mem/load-return.rhdl) reserves capacity
+at request acceptance and frees the credit when the merger consumes that beat.
+Install its layout on VLSeq preparation, not on address issue: those handshakes
+can stall independently. The formatter advances empty fields without a write;
+VLSeq consumes every enabled output fragment on the corresponding VRF grant.
 RV5Stage and RV2Wide continue to use [backend.rhdl](backend.rhdl) and its
 single sequencer; neither imports distributed scheduling logic.
 
 Keep the [distributed sequence checkpoints](README.md#distributed-sequence-tracing)
 on existing handshakes: shared execute and special read ports in `backend.rhdl`,
 load preparation before packing in `backend/load-sequencer.rhdl`, and store
-capture before buffering in `backend/store-sequencer.rhdl`. In `backend/row-memory.rhdl`,
-trace the return-queue ingress using the response credit's owner and the accepted
-VRF write using the load chain's write owner. Owner captures must
+capture before buffering in `backend/store-sequencer.rhdl`. Trace the physical
+return in `mem/vlsu.rhdl` using the response credit's owner, and the accepted VRF
+write in `backend/row-memory.rhdl` using the load chain's write owner. Owner captures must
 describe the transferring cursor, including fold selection and same-edge
 replacement, rather than the next dispatch offer. The backend captures only
 `VectorTraceInstruction` at owner allocation and indexes that bank using each

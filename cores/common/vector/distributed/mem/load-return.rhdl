@@ -1,0 +1,88 @@
+#lang rhodium
+/* Absorbs ordered VLSU load replies and formats enabled fragments for unbuffered VLSeq writeback. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/isa/vector.rhm").VectorLength
+  lib("rhodium/std/bits.rhdl") open
+  lib("flow/main.rhdl") open
+  "../../backend-kind.rhm".vector_dlen
+  "../../register-file.rhdl".VectorRegisterWrite
+  "../common/memory-command.rhdl" open
+  "../common/row-types.rhdl" open
+  "load-merger.rhdl".VectorLoadMerger
+  "segment.rhdl" open
+
+/* Reserve one slot per accepted physical request, including split fragments.
+   Return the credit on merger input consumption, not FIFO insertion or macro retirement. */
+sync_circuit VectorLoadReturn(xlen :: XLen, vlen :: VectorLength, Owner :: DataType):
+  def dlen = vector_dlen(vlen)
+  def lane_bits = index_width(dlen div 8)
+  interface setup(Valid(LoadReturnSetup(dlen)), ~role: consumer)
+  interface returned(Decoupled(ReturnedRow(xlen, vlen, Owner)), ~role: consumer)
+  interface splat(Decoupled(SplatPosition(dlen)), ~role: consumer)
+  interface result(Decoupled(VectorRegisterWrite(dlen, vlen)), ~role: producer)
+  interface visit(Valid(LoadFieldVisit()), ~role: producer)
+  interface element_drained(Valid(Owner), ~role: producer)
+  input reserve: Bool
+  output credits: MemoryCreditCount
+  reg pending(~init: MemoryCreditCount(0))
+  def loads = returned |> queue(MemoryRowCredits)
+
+  reg layout(SegmentLayout())
+  reg elementwise(Bool)
+  reg displacement(Bits(lane_bits))
+  reg seed_lane(Bits(lane_bits))
+  reg seeding(Bool)
+  when (setup.valid):
+    layout <== setup.bits.layout
+    elementwise <== setup.bits.elementwise
+    displacement <== setup.bits.displacement
+    seeding <== setup.bits.seed
+    seed_lane <== setup.bits.seed_lane
+  inst merger(VectorLoadMerger(xlen, vlen, Owner))
+  merger.elementwise <== elementwise
+  merger.displacement <== displacement
+  loads |> merger.beat
+  when (reserve =/= loads.fire()):
+    pending <== mux(reserve, pending + MemoryCreditCount(1), pending - MemoryCreditCount(1))
+  credits <== pending
+  element_drained.valid <== loads.fire() & loads.bits.credit.element_end
+  element_drained.bits <== loads.bits.credit.owner
+  reg ordinal(~init: Bits(3)(0))
+  def stream = merger.result.bits.address
+  def pos = segment_position(dlen, layout, stream)
+  def values(field, element) = segment_visit(dlen, layout, pos, ordinal)
+  def physical = mux(layout.nf.any(), segment_base(layout, field) + pos.group.zext(RowAddress.packed_width()), stream)
+  def final_field = ordinal === pos.last_ordinal
+  def fragment = VectorRegisterWrite(dlen, vlen):
+    address: physical
+    data: segment_fragment(dlen, layout, merger.result.bits.data, ordinal, element, ~pack: #false)
+    mask: segment_fragment(dlen, layout, merger.result.bits.mask, ordinal, element, ~pack: #false)
+  def normal :: VectorRegisterWrite(dlen, vlen) = mux(layout.nf.any(), fragment, merger.result.bits)
+  def enabled = normal.mask.any()
+  // An encoded x0 stride reads once, at the first active position. Keep the
+  // merged element (including split responses) for later masked writes.
+  reg seed(Bits(math.min(xlen.width, dlen)))
+  def repeat_shift = splat.bits.lane ++ Bits(3)(0)
+  def byte_enables = mux_lookup(splat.bits.eew, ~default: Bits(dlen div 8)(1), for List (n in 0..bits.length(xlen.width div 8)): [n, Bits(dlen div 8)(2 ** (2 ** n) - 1)])
+  def repeated = VectorRegisterWrite(dlen, vlen):
+    address: splat.bits.row
+    data: seed.zext(dlen) << repeat_shift
+    mask: expand_mask(byte_enables << splat.bits.lane, 8)
+  splat.ready <== !merger.result.valid & result.ready
+  result.bits <== mux(merger.result.valid, normal, repeated)
+  result.valid <== (merger.result.valid & enabled) ||| (!merger.result.valid & splat.valid)
+  def advance = !enabled ||| result.ready
+  merger.result.ready <== final_field & advance
+  when (merger.result.fire() & seeding): seed <== (normal.data >> (seed_lane ++ Bits(3)(0)))[0..math.min(xlen.width, dlen)]
+  def consumed = merger.result.valid & advance
+  when consumed: ordinal <== mux(final_field, Bits(3)(0), ordinal + Bits(3)(1))
+  // Empty fields advance the segment cursor but never appear on the write port.
+  visit.valid <== consumed
+  visit.bits <== LoadFieldVisit():
+    field: field
+    stream: stream
+
+export VectorLoadReturn
