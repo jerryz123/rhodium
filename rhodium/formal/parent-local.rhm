@@ -5,6 +5,7 @@
 import:
   "../core/main.rhm" open
   "spec.rhm" open
+  "port-types.rhm".sampled_type
 
 export local_site local_opcode local_output lower_local
 
@@ -13,7 +14,8 @@ def local_site = "@local"
 
 /* Only these opcodes have a local interpretation; other parent logic fails closed. */
 fun local_opcode(opcode :: String):
-  opcode == "rtl.constant" || opcode == "rtl.cast" || opcode == "rtl.and" || opcode == "rtl.register_reset"
+  opcode in {"rtl.constant", "rtl.cast", "rtl.not", "rtl.and", "rtl.or",
+             "rtl.eq", "rtl.mux_lookup", "rtl.register_reset"}
 
 /* Give each local result an endpoint distinct from sampled operand ports. */
 fun local_output(value :: Value): "v" ++ to_string(value.id)
@@ -27,31 +29,48 @@ fun lower_local(ops :: List, sources :: MutableMap, sinks :: MutableMap, bool ::
   def updates = MutableMap{}
   def constants = MutableMap{}
   def bit = SpecBool()
+  def one_bit = SpecBits(1)
+  /* Preserve the RTL distinction between Bool and its one-bit packed representation. */
+  fun packed_bit(test :: SpecExpr): choose_if(test, literal(one_bit, 1), literal(one_bit, 0))
+  /* Interpret an already width-checked one-bit control as a logical condition. */
+  fun predicate(word :: SpecExpr): bits_equal(word, literal(one_bit, 1))
   /* A tap receives the once-settled physical net, including arbitrary values on uncared child pins. */
   fun tap(value :: Value):
-    unless type_equal(value.type, bool) || reset_type(value.type) | error("expected Boolean local RTL operand")
+    def type = sampled_type(value.type, bool)
     def name = "i" ++ to_string(value.id)
-    inputs[name] := bit
+    inputs[name] := type
     sinks[local_site ++ "." ++ name] := sources[value.id]
-    input_ref(name, bit)
+    input_ref(name, type)
   for (op :: Operation in ops):
     def result = op.results[0]
     def logical = type_equal(result.type, bool)
-    unless logical || (op.opcode == "rtl.constant" && bits_type(result.type) && result.type.width == 1)
-    | error("expected Boolean local RTL or a one-bit literal: " ++ op.opcode)
+    def packed_one = bits_type(result.type) && result.type.width == 1
+    def packed_result = packed_one && (op.opcode == "rtl.cast" || op.opcode == "rtl.eq")
+    unless logical || packed_result || (op.opcode == "rtl.constant" && bits_type(result.type))
+    | error("unsupported local RTL result type: " ++ op.opcode)
     def expr:
       match op.opcode
       | "rtl.constant":
           def n = op.attribute("value")
-          unless n == 0 || n == 1 | error("expected one-bit local constant")
+          when logical && n != 0 && n != 1 | error("expected Boolean constant")
           constants[result.id] := n
-          if logical | literal(bit, n == 1) | literal(SpecBits(1), n)
+          if logical | literal(bit, n == 1) | literal(sampled_type(result.type, bool), n)
       | "rtl.cast":
           def source = op.operands[0]
-          unless bits_type(source.type) && source.type.width == 1 && constants.has_key(source.id)
-          | error("only one-bit literal casts to Bool are supported in local RTL")
-          constants[result.id] := constants[source.id]
-          literal(bit, constants[result.id] == 1)
+          when constants.has_key(source.id) | constants[result.id] := constants[source.id]
+          cond
+          | logical && bits_type(source.type) && source.type.width == 1: predicate(tap(source))
+          | packed_one && type_equal(source.type, bool): packed_bit(tap(source))
+          | ~else: error("expected a cast between Bool and Bits(1)")
+      | "rtl.eq":
+          unless packed_one | error("expected a one-bit packed equality result")
+          packed_bit(bits_equal(tap(op.operands[0]), tap(op.operands[1])))
+      | "rtl.not": bool_not(tap(op.operands[0]))
+      | "rtl.or": bool_not(bool_and(bool_not(tap(op.operands[0])), bool_not(tap(op.operands[1]))))
+      | "rtl.mux_lookup":
+          unless op.attribute("keys") == [1] && op.operands.length() == 3
+          | error("expected a binary Boolean mux")
+          choose_if(predicate(tap(op.operands[0])), tap(op.operands[2]), tap(op.operands[1]))
       | "rtl.and": bool_and(tap(op.operands[0]), tap(op.operands[1]))
       | "rtl.register_reset":
           def [clk, rst, init] = op.operands

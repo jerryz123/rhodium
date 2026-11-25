@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../../../examples/formal/two-tag-rob.rspl".TwoTagROB
   "../../../examples/formal/arbiter-queue.rspl".ArbiterQueue
   "../../../examples/formal/gated-arbiter-queue.rspl".GatedArbiterQueue
   "../../../examples/formal/arbiter.rspl".Arbiter
@@ -14,6 +15,7 @@ import:
   "../snapshot.rhm".formal_snapshot
   "composition-binding.rhm" open
   "arbiter-queue-fixture.rhdl".SeparateReset
+export rob_case rob_replay
 export gated_case gated_replay
 export buffered_cut separate_reset_cut
 export ordering_case correct_model wrong_lane_model undersized_model
@@ -41,6 +43,13 @@ fun separate_reset_cut():
   def values(children, _) = wiring_cut(top, interface_prefixes)
   def child = children["storage"]
   proof_cut(top, Map.by(===){child: ShiftQueue(child)}, Bool, interface_prefixes)
+
+fun rob_case():
+  def child = parent_at(2)
+  def models = Map.by(===){child: ArbiterQueue(child)}
+  fun cut(top): proof_cut(top, models, Bool, interface_prefixes)
+  values(cut(rob), TwoTagROB(rob), cut(faulty_rob))
+fun rob_replay(wrong): replay_rtl(if wrong | faulty_rob | rob)
 
 fun gated_case(depth):
   def child = parent_at(depth)

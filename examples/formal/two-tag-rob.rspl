@@ -1,0 +1,35 @@
+#lang rspecl
+/* Models oldest-first issue history and the tags that have completed since issue. */
+// SPDX-License-Identifier: Apache-2.0
+
+import "two-tag-rob.rhdl" as rtl
+
+/* False denotes A; true denotes B. Membership comes from the live issue history,
+   not a copy of the implementation's busy bits. */
+spec for rtl.TwoTagROB:
+  state history: Seq(Bool, 2) initially [] as cleared
+  state finished_a: Bool initially #false
+  state finished_b: Bool initially #false
+
+  let live = !empty(history)
+  let two = full(history)
+  let head_b = select(live, front(history), #false)
+  let last_b = select(two, front(tail(history)), #false)
+  let has_a = (live && !head_b) || (two && !last_b)
+  let has_b = (live && head_b) || (two && last_b)
+  let a = issue_a && !has_a && !two
+  let b = issue_b && !has_b && !two && !a
+  let available = live && select(head_b, finished_b, finished_a)
+  let pop = available && retire.ready
+
+  observe grant_a = a when !reset
+  observe grant_b = b when !reset
+  observe retire.valid = available when !reset
+  observe retire.bits = head_b when !reset && available
+  event issued = b when !reset && (a || b)
+  event retired = head_b when !reset && pop
+
+  let retained = select(pop, tail(history), history)
+  next history = select(reset, cleared, select(a || b, append(retained, b), retained))
+  next finished_a = !reset && has_a && !(pop && !head_b) && (finished_a || complete_a)
+  next finished_b = !reset && has_b && !(pop && head_b) && (finished_b || complete_b)

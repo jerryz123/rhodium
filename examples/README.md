@@ -306,6 +306,7 @@ hardware-preservation contracts.
 |---|---|---|
 | Arbiter | [Flow arbiter](../flow/arbiter.rhdl) | [Fixed-priority selection and transfers](formal/arbiter.rspl) |
 | ShiftQueue | [Flow queue](../flow/shift-queue.rhdl) | [Bounded sequence with enqueue and dequeue](formal/shift-queue.rspl) |
+| TwoTagROB | [Two-tag reorder buffer](formal/two-tag-rob.rhdl) | [Only a completed head may retire](formal/two-tag-rob.rspl) |
 | GatedArbiterQueue | [Registered admission wrapper](formal/gated-arbiter-queue.rhdl) | [Admission and ordered drain](formal/gated-arbiter-queue.rspl) |
 | ArbiterQueue | [Parent wiring](formal/arbiter-queue.rhdl) connecting the Flow leaves | [Accepted winners retire in order](formal/arbiter-queue.rspl) |
 

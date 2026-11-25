@@ -47,8 +47,10 @@ ArbiterQueue and FIFO specs. Wrong-lane wiring fails induction and cannot
 supply that result. These proofs do not inspect child RTL state and are not
 quantified over depth. The [gated wrapper](tests/gated-arbiter-queue-order.rkt)
 adds one parent-local admission register while the child remains opaque; this
-is a limited Boolean RTL fragment, not arbitrary parent logic. The larger reorder-buffer example below
-remains future work.
+is a limited RTL fragment, not arbitrary parent logic. The [two-tag reorder
+buffer](tests/two-tag-rob-proof.rkt) now proves that completion may be out
+of order while retirement must follow issue order and the head's own
+completion. It uses the verified depth-two ArbiterQueue and four local bits.
 
 | Milestone | What to build | How to tell it works |
 |---|---|---|
@@ -239,8 +241,8 @@ checker rather than accidentally equating these quantifiers. Mixed RTL/spec
 simulation must respect the same observation boundary as formal substitution;
 a functional FIFO model is not a performance model without a timing contract.
 
-After the parent proof, use a reorder buffer as a larger demonstration: prove
-queue and arbiter contracts independently, then prove ordered architectural
-retirement from their contracts and the parent's local state. Unbounded
+The implemented reorder-buffer demonstration covers fixed tags A and B.
+Carrying result payloads, distinguishing generations of reused tags, and
+architectural squash remain beyond that proof. Unbounded
 liveness, fairness, memory primitives, multiple clocks, parameter-universal
 proofs, and RTL generation from specifications are outside the first delivery.

@@ -7,6 +7,7 @@
          "arbiter-queue-order.rkt"
          "buffered-arbiter-queue-order.rkt"
          "gated-arbiter-queue-order.rkt"
+         "two-tag-rob-proof.rkt"
          "api-test.rhm"
          "assumption-test.rhm"
          "decode-test.rhm"

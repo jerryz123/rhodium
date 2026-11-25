@@ -12,7 +12,7 @@ export:
     rename: Model as LeafModel
   rename: same_type as spec_type_equal
   SpecBool SpecBits SpecSeq
-  literal input_ref state_ref choose_if bool_not bool_and
+  literal input_ref state_ref choose_if bool_not bool_and bits_equal
   seq_empty seq_full seq_front seq_tail seq_append
   Observed make_spec make_composition step_spec spec_snapshot composition_snapshot
 
@@ -84,6 +84,11 @@ fun bool_and(left :: Expr, right :: Expr):
   check_bool(left)
   check_bool(right)
   Expr("and", SpecBool(), [left, right])
+
+/* Compare packed words of the same width without equating Bits(1) with a logical Bool. */
+fun bits_equal(left :: Expr, right :: Expr):
+  unless left.type is_a SpecBits && same_type(left.type, right.type) | error("expected equal-width packed words")
+  Expr("bits-equal", SpecBool(), [left, right])
 
 /* Reject scalar operands before building a sequence operation. */
 fun sequence_type(seq :: Expr) :: SpecSeq:
@@ -195,6 +200,7 @@ fun evaluate(expr :: Expr, state :: Map, inputs :: Map):
       if arg(0) | arg(1) | arg(2)
   | "not": !arg(0)
   | "and": arg(0) && arg(1)
+  | "bits-equal": arg(0) == arg(1)
   | "empty": arg(0).length() == 0
   | "full": arg(0).length() == expr.args[0].type.capacity
   | "front" || "tail":

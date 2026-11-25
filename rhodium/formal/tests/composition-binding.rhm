@@ -15,7 +15,10 @@ import:
   lib("examples/formal/arbiter-queue.rhdl").ArbiterQueue
   lib("examples/formal/buffered-arbiter-queue.rhdl").BufferedArbiterQueue
   lib("examples/formal/gated-arbiter-queue.rhdl").GatedArbiterQueue
+  lib("examples/formal/two-tag-rob.rhdl").TwoTagROB
+  "any-done-rob.rhdl".AnyDoneROB
 
+export rob faulty_rob
 export gated_at leaky_at outer_at
 export pair pair_wires fifo_definition arbiter_definition mixed wrong_lane undersized
 export interface_prefixes pin_layout leaf_sites
@@ -31,6 +34,8 @@ def leaky = MutableMap{}
 def outer = MutableMap{}
 def parents = MutableMap{}
 def faulty_parents = MutableMap{}
+def mutable rob = #false
+def mutable faulty_rob = #false
 def mutable undersized = #false
 fun inventory():
   arbiter_definition := materialize_circuit(Arbiter(Bits(2), 2))
@@ -42,6 +47,8 @@ fun inventory():
     leaky[d] := materialize_circuit(LeakyGate(2, ~depth: d))
     outer[d] := materialize_circuit(BufferedArbiterQueue(2, ~depth: d))
     faulty_parents[d] := materialize_circuit(WrongLane(2, d))
+  rob := materialize_circuit(TwoTagROB())
+  faulty_rob := materialize_circuit(AnyDoneROB())
   undersized := materialize_circuit(Undersized(2))
   ArbiterQueue(2)
 def mixed = elaborate(inventory()).top

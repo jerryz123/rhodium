@@ -53,6 +53,7 @@
     [(list "state") (result (hash-ref state data) #t)]
     [(list "input") (result (hash-ref inputs data) #t)]
     [(list "literal") (result (literal type data) #t)]
+    [(list "bits-equal" p q) (result (bveq p q) all-defined)]
     [(list "not" p) (result (! p) all-defined)]
     [(list "and" p q)
      (result (&& p q) (&& (result-defined (first args)) (=> p (result-defined (second args)))))]

@@ -77,6 +77,10 @@ fun view(expr):
 fun observe(expr):
   step_spec(view(expr), Map{}, Map{}).outputs
 check:
+  observe(bits_equal(literal(SpecBits(2), 2), literal(SpecBits(2), 2))) ~is {"v": #true}
+  observe(bits_equal(literal(SpecBits(2), 2), literal(SpecBits(2), 0))) ~is {"v": #false}
+  bits_equal(literal(bit, 1), literal(SpecBits(2), 1)) ~throws "equal-width"
+  bits_equal(literal(bit, 1), literal(SpecBool(), #true)) ~throws "equal-width"
   literal(bit, 2) ~throws "does not fit"
   literal(seq, [0,1,2]) ~throws "capacity"
   literal(seq, [4]) ~throws "does not fit"

@@ -36,6 +36,16 @@ demonstrates the next boundary: the proof executes the wrapper's own admission
 register but substitutes the verified queue spec. Reset closes admission;
 otherwise the previous edge's enable controls new transfers. Closing the gate
 does not block already accepted words from draining.
+
+[TwoTagROB](../../examples/formal/two-tag-rob.rhdl) uses that same verified
+depth-two ArbiterQueue to remember issue order. Each tag can be live at most
+once. A wins when both tags are eligible. A completion pulse marks a tag
+that was live **before** the edge; a pulse on its issue edge is ignored.
+Retirement offers only the completed head and holds that tag under backpressure.
+Completing B while an unfinished A is ahead of it cannot retire either tag.
+A retired tag becomes eligible for reissue on the next edge; synchronous reset
+discards outstanding work. This [spec](../../examples/formal/two-tag-rob.rspl)
+covers tags only, not result payloads, generation numbers, or eventual completion.
 These proofs cover the stated specializations. They share an internal run-local
 refinement checker; they are not a parameter-universal proof.
 
@@ -224,7 +234,8 @@ that fit their width, and immutable lists of at most the declared capacity.
 `model.initial` is a complete concrete state, not an assumption about RTL startup.
 
 Build expressions using `literal`, `input_ref`, `state_ref`, Boolean `bool_not` /
-`bool_and`, deterministic `choose_if`, and `seq_empty`, `seq_full`, `seq_front`,
+`bool_and`, `bits_equal` for equal-width packed operands, deterministic `choose_if`,
+and `seq_empty`, `seq_full`, `seq_front`,
 `seq_tail`, and `seq_append`. Model construction checks the names and types of
 references on both sides of conditionals, even in inactive branches. Output
 and event maps contain `Observed(value, care)` fields; care defaults to true.
