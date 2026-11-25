@@ -4,7 +4,7 @@
 
 import:
   "../test-configs.rhm".TestConfigs
-  "../test-config-data.rkt".test_config_names
+  "../test-config-data.rhm".test_config_names
   lib("socs/configs/selection.rhm") open
   lib("socs/configs/resolve.rhm").resolve_soc_config
   lib("socs/configs/metadata.rhm") open

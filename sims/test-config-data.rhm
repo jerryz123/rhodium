@@ -1,0 +1,13 @@
+#lang rhombus
+/* Reads the ordered CI config names without importing hardware configuration. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  rhombus/meta open
+  rhombus/runtime_path
+export test_config_names
+
+runtime_path.def inventory: "test-configs.txt"
+def test_config_names = for List (line in filesystem.read_lines(inventory)):
+  keep_when line != "" && !line.starts_with("#")
+  line

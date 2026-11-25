@@ -2,7 +2,7 @@
 /* Defines explicit typed config axes and canonical shape-core-ISA identities. */
 // SPDX-License-Identifier: Apache-2.0
 
-import: "selection-data.rkt".selection_rows
+import: "selection-data.rhm".selection_rows
 
 /* Selects compact internal RAM, single-core external memory, or explicit four-/eight-hart tiled topologies. */
 enum SoCShape | Mini | Simple | Tiled4Core | Tiled8Core

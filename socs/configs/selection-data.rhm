@@ -1,0 +1,13 @@
+#lang rhombus
+/* Reads the shared selector table into ordered rows of key, shape, core, and ISA. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  rhombus/meta open
+  rhombus/runtime_path
+export selection_rows
+
+runtime_path.def table: "selections.tsv"
+def selection_rows = for List (line in filesystem.read_lines(table)):
+  keep_when line != "" && !line.starts_with("#")
+  line.split()
