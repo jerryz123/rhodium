@@ -2,21 +2,24 @@
 ;; Prove the external ArbiterQueue contract for the RTL-derived graph with both leaves substituted.
 ;; SPDX-License-Identifier: Apache-2.0
 
-(require rackunit racket/match "member-pins.rkt" "composition-checks.rkt" "../spec-engine.rkt"
+(require rackunit racket/match "../refinement.rkt" "composition-checks.rkt" "../spec-engine.rkt"
          (only-in "../engine.rkt" prepare_transition_snapshot step_transition symbolic_transition_state
                   transition_step_state transition_step_outputs transition_step_validity)
          (only-in "arbiter-refinement.rkt" verified-arbiter)
          (only-in "shift-queue-induction.rkt" verified-fifo-at proof_depths)
-         (only-in "arbiter-queue-binding.rhm" ordering_case
+         (only-in "arbiter-queue-binding.rhm" ordering_case alternate_cut swapped_view_cut fresh_cut
                   undersized_rtl correct_rtl one_slot_rtl depth_two_contract))
 
 (define (inputs reset v0 d0 v1 d1 consume)
   (hash "reset" reset "ingress[0].valid" v0 "ingress[0].bits" d0 "ingress[1].valid" v1 "ingress[1].bits" d1 "egress.ready" consume))
 (struct sample (ports events arb fifo take0 take1 safe) #:transparent)
-(define (advance fifo-model candidate state x)
-  (match-define (list graph arb-site fifo-site) candidate)
-  (define certified (hash arb-site verified-arbiter fifo-site fifo-model))
-  (define-values (p edges ok) (wired-edge-at graph certified (hash arb-site (hash) fifo-site state) x))
+(define (admit candidate results)
+  (match-define (list cut arb-site fifo-site) candidate)
+  (list (prepare-proved-wiring cut results) arb-site fifo-site))
+
+(define (advance candidate state x)
+  (match-define (list plan arb-site fifo-site) candidate)
+  (define-values (p edges ok) (proved-edge-at plan (hash arb-site (hash) fifo-site state) x))
   (define rst (hash-ref x "reset"))
   (define take0 (&& (! rst) (hash-ref x "ingress[0].valid") (hash-ref p "ingress[0].ready")))
   (define take1 (&& (! rst) (hash-ref x "ingress[1].valid") (hash-ref p "ingress[1].ready")))
@@ -53,13 +56,16 @@
 (define-symbolic* d0 d1 (bitvector 2))
 
 (define (check-ordering depth)
-  (define-values (graph contract wrong-graph) (ordering_case depth))
-  (define fifo (verified-fifo-at depth))
+  (define-values (candidate contract wrong) (ordering_case depth))
+  (define results (list verified-arbiter (verified-fifo-at depth)))
+  (define graph (admit candidate results))
+  (define wrong-graph (admit wrong results))
+  (define fifo (proved-child-model (first graph) (third graph)))
   (define state (symbolic-spec-state fifo))
   (define history (symbolic-spec-state contract))
   (define-symbolic* rst v0 v1 consume boolean?)
   (define x (inputs rst v0 d0 v1 d1 consume))
-  (define impl (advance fifo graph state x))
+  (define impl (advance graph state x))
   (define ref (spec-edge-at contract history x))
   (define n (sequence-value-count (hash-ref state "q")))
   (unless (and (= depth (length (sequence-value-slots (hash-ref state "q"))))
@@ -98,9 +104,9 @@
     (define tie (inputs #f #t d0 #t d1 #f))
     (define drain (inputs #f #f d0 #f d1 #t))
     (define (replay candidate)
-      (define cleared (advance fifo candidate state reset))
-      (define accepted (advance fifo candidate (edge-next (sample-fifo cleared)) tie))
-      (define retired (advance fifo candidate (edge-next (sample-fifo accepted)) drain))
+      (define cleared (advance candidate state reset))
+      (define accepted (advance candidate (edge-next (sample-fifo cleared)) tie))
+      (define retired (advance candidate (edge-next (sample-fifo accepted)) drain))
       (values accepted retired (&& (sample-safe cleared) (sample-safe accepted) (sample-safe retired))))
     (define-values (ga gr gs) (replay graph))
     (define-values (ba br bs) (replay wrong-graph))
@@ -114,6 +120,23 @@
                    (agrees? ga c1) (agrees? ba c1) (sample-take0 ba) (agrees? gr c2) (! (agrees? br c2))
                    (matches? (event c2 "retired") #t d0)
                    (matches? (hash-ref (sample-events br) "retired") #t d1)))))
+
+(test-case "preflight rejects unrelated or absent evidence before a parent edge is constructed"
+  (define-values (candidate _ wrong) (ordering_case 2))
+  (check-exn #rx"no evidence for RTL specialization"
+             (lambda () (admit candidate (list verified-arbiter (verified-fifo-at 1)))))
+  (check-exn #rx"no evidence for RTL specialization"
+             (lambda () (admit candidate (list (verified-fifo-at 2)))))
+  (check-exn #rx"expected completed leaf proof results"
+             (lambda () (admit wrong (list verified-arbiter (hash)))))
+  (define right (list verified-arbiter (verified-fifo-at 2)))
+  (for ([change-start? '(#t #f)])
+    (check-exn #rx"evidence does not cover contract"
+               (lambda () (prepare-proved-wiring (alternate_cut change-start?) right))))
+  (check-exn #rx"evidence does not cover contract"
+             (lambda () (prepare-proved-wiring (swapped_view_cut) right)))
+  (check-exn #rx"no evidence for RTL specialization"
+             (lambda () (prepare-proved-wiring (fresh_cut) right))))
 
 (for ([depth proof_depths])
   (with-check-info (['depth depth]) (check-ordering depth)))

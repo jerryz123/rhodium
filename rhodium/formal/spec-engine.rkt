@@ -138,7 +138,7 @@
 (define (symbolic-spec-edge snapshot)
   (spec-edge-at snapshot (symbolic-spec-state snapshot) (fresh-fields (hash-ref snapshot "inputs"))))
 
-#| Execute the boundary graph against the leaf snapshots supplied by the caller's proofs.
+#| Execute a spec graph against matching leaf snapshots. This low-level step does not check proof evidence.
    Return physical public pins, individual child edges, and the scheduling definedness obligation. |#
 (define (wired-edge-at graph children states inputs)
   (check-fields (hash-ref graph "inputs") inputs)

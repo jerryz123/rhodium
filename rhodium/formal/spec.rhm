@@ -169,7 +169,7 @@ fun snapshot_expr(expr :: Expr):
   def data = if expr.datum is_a List | PairList[& expr.datum] | expr.datum
   PairList[expr.op, snapshot_type(expr.type), data, & expr.args.map(snapshot_expr)]
 
-/* Snapshot a checked one-edge function; initial state is not a restriction on its arguments. */
+/* Include the declared start for reset proofs without constraining a symbolic old state. */
 fun spec_snapshot(model :: Model):
   /* Preserve the instantiated sort of each named input or state field. */
   fun schema(fields :: Map):
@@ -179,6 +179,7 @@ fun spec_snapshot(model :: Model):
     for Map ((name, field) in fields):
       values(name, PairList[snapshot_expr(field.care), snapshot_expr(field.value)])
   {"inputs": schema(model.inputs), "state": schema(model.state),
+   "initial": for Map ((k, v) in model.initial): values(k, if v is_a List | PairList[& v] | v),
    "outputs": view(model.outputs), "events": view(model.events),
    "updates": for Map ((name, expr) in model.updates): values(name, snapshot_expr(expr))}
 

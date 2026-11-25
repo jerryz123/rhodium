@@ -9,13 +9,13 @@ import:
   "../snapshot.rhm".formal_snapshot
   "../spec.rhm" open
 
-export in_layout out_layout correct faulty model concrete_row
-def in_layout = pin_layout(arbiter_definition, arbiter_definition.inputs)
-def out_layout = pin_layout(arbiter_definition, arbiter_definition.outputs)
+export interface_prefixes arbiter_definition bad_definition in_layout out_layout correct faulty model arbiter_spec concrete_row
+def PairList[in_layout, out_layout] = pin_layout(arbiter_definition)
 def correct = formal_snapshot(arbiter_definition)
-def faulty = formal_snapshot(elaborate(ReversedArbiter()))
-def spec = Arbiter(arbiter_definition)
-def model = spec_snapshot(spec)
+def bad_definition = elaborate(ReversedArbiter()).top
+def faulty = formal_snapshot(bad_definition)
+def arbiter_spec = Arbiter(arbiter_definition)
+def model = spec_snapshot(arbiter_spec)
 fun concrete_row(inputs):
-  def edge = step_spec(spec, Map{}, inputs)
+  def edge = step_spec(arbiter_spec, Map{}, inputs)
   PairList[edge.outputs, edge.events]

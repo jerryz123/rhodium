@@ -1,7 +1,7 @@
 #lang rosette
 ;; SPDX-License-Identifier: Apache-2.0
 
-(require racket/match rackunit "member-pins.rkt" "../engine.rkt" "shift-queue-binding.rhm")
+(require racket/match rackunit (only-in "../refinement.rkt" pack-pins unpack-pins) "../engine.rkt" "shift-queue-binding.rhm")
 (provide fault-state occ payload plan faulty pins sample reset start replay (struct-out mismatch))
 
 (define occ (string-append fifo_root ".occupied"))

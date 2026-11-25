@@ -5,18 +5,22 @@ import:
   "../../../examples/formal/arbiter-queue.rspl".ArbiterQueue
   "../../../examples/formal/arbiter.rspl".Arbiter
   "../../../examples/formal/shift-queue.rspl".ShiftQueue
+  lib("examples/formal/arbiter-queue.rhdl") as design
+  lib("rhodium/frontend/foundation.rhm").elaborate
   lib("rhodium/frontend/layers/bool.rhm").Bool
   "../wiring.rhm" open
   "../spec.rhm" open
   "../snapshot.rhm".formal_snapshot
   "composition-binding.rhm" open
 export ordering_case correct_model wrong_lane_model undersized_model
+export alternate_cut swapped_view_cut fresh_cut
 export undersized_rtl correct_rtl one_slot_rtl depth_two_contract
 
+fun bindings(depth):
+  Map.by(===){arbiter_definition: Arbiter(arbiter_definition),
+              fifo_at(depth): ShiftQueue(fifo_at(depth))}
 fun wiring(top, depth):
-  def bindings = Map.by(===){arbiter_definition: Arbiter(arbiter_definition),
-                             fifo_at(depth): ShiftQueue(fifo_at(depth))}
-  bind_wiring(top, bindings, Bool, interface_prefixes)
+  bind_wiring(top, bindings(depth), Bool, interface_prefixes)
 def correct_model = wiring(mixed, 2)
 def wrong_lane_model = wiring(wrong_lane, 2)
 def undersized_model = wiring(undersized, 1)
@@ -25,12 +29,40 @@ fun ordering_case(depth):
   fun candidate(parent):
     def values(children, _) = wiring_cut(parent, interface_prefixes)
     def values(arb, fifo) = leaf_sites(children)
-    PairList[composition_snapshot(wiring(parent, depth)), arb, fifo]
+    PairList[proof_cut(parent, bindings(depth), Bool, interface_prefixes), arb, fifo]
   values(candidate(top), spec_snapshot(ArbiterQueue(top)), candidate(wrong_lane_at(depth)))
+
+// Same implementation and transition function, but change either the reset state or event view.
+fun alternate_cut(change_start):
+  def fifo = ShiftQueue(fifo_definition)
+  def initial = if change_start | {"q": [0]} | fifo.initial
+  def events = if change_start | fifo.events | fifo.events.remove("enqueue")
+  def alternate = make_spec(fifo.inputs, fifo.state, initial, fifo.outputs, events, fifo.updates)
+  proof_cut(mixed, Map.by(===){arbiter_definition: Arbiter(arbiter_definition), fifo_definition: alternate},
+            Bool, interface_prefixes)
+
+// Logical names and types still match, but this observer interchanges the two physical lanes.
+fun swapped_view_cut():
+  def swap = {"ingress[0]": "ingress[1]", "ingress[1]": "ingress[0]"}
+  fun prefixes(top):
+    def original = interface_prefixes(top)
+    if top === arbiter_definition
+    | for Map ((pin, name) in original): values(pin, swap.get(name, name))
+    | original
+  proof_cut(mixed, bindings(2), Bool, prefixes)
+
+// Even byte-for-byte identical contracts in a fresh elaboration are not this run's proved definitions.
+fun fresh_cut():
+  def top = elaborate(design.ArbiterQueue(2)).top
+  def values(children, _) = wiring_cut(top, interface_prefixes)
+  def values(a, f) = leaf_sites(children)
+  def models = Map.by(===){children[a]: Arbiter(children[a]), children[f]: ShiftQueue(children[f])}
+  proof_cut(top, models, Bool, interface_prefixes)
 
 // Lazily snapshot complete hardware only for the depth-fault replay, never for substitution.
 fun replay_rtl(top):
-  values(formal_snapshot(top), pin_layout(top, top.inputs), pin_layout(top, top.outputs))
+  def PairList[inputs, outputs] = pin_layout(top)
+  values(formal_snapshot(top), inputs, outputs)
 fun undersized_rtl(): replay_rtl(undersized)
 fun correct_rtl(): replay_rtl(mixed)
 fun one_slot_rtl(): replay_rtl(parent_at(1))

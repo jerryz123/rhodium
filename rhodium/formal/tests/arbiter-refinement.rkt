@@ -3,7 +3,7 @@
 ;; SPDX-License-Identifier: Apache-2.0
 
 (require rackunit racket/match (only-in racket/base [equal? host-equal?])
-         "member-pins.rkt" "../engine.rkt" "../spec-engine.rkt" "arbiter-binding.rhm")
+         "../refinement.rkt" "../engine.rkt" "../spec-engine.rkt" "arbiter-binding.rhm")
 (provide verified-arbiter)
 
 (define (pins in) (pack-pins in_layout in))
@@ -25,15 +25,8 @@
                 "in1" (observation (&& (hash-ref in "ingress[1].valid") r1) (hash-ref in "ingress[1].bits"))
                 "out" (observation (&& valid (hash-ref in "egress.ready")) data))))
 
-(define (agrees? actual expected)
-  (unless (equal? (sort (hash-keys actual) string<?) (sort (hash-keys expected) string<?))
-    (error 'arbiter-view "observation schema mismatch"))
-  (for/fold ([ok #t]) ([(k x) actual])
-    (define y (hash-ref expected k))
-    (&& ok (equal? (observation-care x) (observation-care y))
-        (=> (observation-care x) (equal? (observation-value x) (observation-value y))))))
-
-(define-values (out events) (views (unpack-pins out_layout (transition_step_outputs rtl)) in))
+(define (observe rtl inputs) (views (unpack-pins out_layout (transition_step_outputs rtl)) inputs))
+(define-values (out events) (observe rtl in))
 (define-values (bad-out bad-events) (views (unpack-pins out_layout (transition_step_outputs bad)) in))
 (define (transfer k) (observation-care (hash-ref events k)))
 (define (word k) (observation-value (hash-ref events k)))
@@ -45,20 +38,22 @@
 ;; Release this specific spec only after every obligation holds for arbitrary input pins.
 (define verified-arbiter
   (begin
-    (unless (and (zero? (hash-count (edge-state spec))) (zero? (hash-count (edge-next spec))))
-      (error 'arbiter-proof "expected a stateless spec"))
-    (prove 'spec-domain (&& (edge-legal spec) (edge-defined spec)))
-    (prove 'rtl-domain (transition_step_validity rtl))
-    (prove 'priority-ready-and-payload (agrees? out (edge-outputs spec)))
-    (prove 'joint-transfers (agrees? events (edge-events spec)))
     (prove 'one-accepted-source
            (&& (! (&& (transfer "in0") (transfer "in1")))
                (equal? (transfer "out") (|| (transfer "in0") (transfer "in1")))
                (=> (transfer "in0") (bveq (word "in0") (word "out")))
                (=> (transfer "in1") (bveq (word "in1") (word "out")))))
-    model))
+    (prove-leaf arbiter_definition arbiter_spec interface_prefixes views)))
 
 (module+ test
+  (check-exn #rx"combinational/outputs not proved"
+             (lambda () (prove-leaf bad_definition arbiter_spec interface_prefixes views)))
+  ;; An observer that reports the spec's answer cannot hide the faulty RTL's actual pin values.
+  (check-exn #rx"combinational/physical-pins not proved"
+             (lambda () (prove-leaf bad_definition arbiter_spec interface_prefixes
+                                    (lambda (_ inputs)
+                                      (define ref (spec-edge-at model (hash) inputs))
+                                      (values (edge-outputs ref) (edge-events ref))))))
   (define (sample v0 d0 v1 d1 accept)
     (hash "ingress[0].valid" v0 "ingress[1].valid" v1 "egress.ready" accept "ingress[0].bits" d0 "ingress[1].bits" d1))
   (define (plain h) (for/hash ([(k v) h]) (values k v)))
@@ -93,7 +88,7 @@
     (define result
       (solve (assert (&& (hash-ref in "ingress[0].valid") (hash-ref in "ingress[1].valid") (hash-ref in "egress.ready")
                          (! (bveq (hash-ref in "ingress[0].bits") (hash-ref in "ingress[1].bits")))
-                         (! (agrees? bad-out (edge-outputs spec))) (! (agrees? bad-events (edge-events spec)))))))
+                         (! (view-agrees? bad-out (edge-outputs spec))) (! (view-agrees? bad-events (edge-events spec)))))))
     (check-true (sat? result))
     (define full (complete-solution result (symbolics (hash-values in))))
     (define s (for/hash ([(k x) in])

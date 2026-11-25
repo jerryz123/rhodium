@@ -2,9 +2,9 @@
 ;; Proves reset-scoped transaction ordering and capacity across two contract-level FIFO cuts.
 ;; SPDX-License-Identifier: Apache-2.0
 
-(require rackunit "composition-checks.rkt"
-         "../spec-engine.rkt" (only-in "shift-queue-induction.rkt" verified-fifo)
-         (only-in "shift-queue-binding.rhm" pair_wires unit_fifo_snapshot))
+(require rackunit "../refinement.rkt" "composition-checks.rkt"
+         "../spec-engine.rkt" (only-in "shift-queue-induction.rkt" verified-fifo-at)
+         (only-in "shift-queue-binding.rhm" pair_proof_cut pair_wires unit_fifo_snapshot))
 
 ;; The contract is specialized to this direct netlist, not inferred from module names.
 ;; Require every sink, including clock/reset; no parent logic or count/mask consumers.
@@ -65,6 +65,9 @@
   (for/fold ([ok (= (occupancy s) (length words))]) ([w words] [i (in-naturals)])
     (&& ok (bveq (word-at s i) w))))
 
+(define proved (prepare-proved-wiring pair_proof_cut (list (verified-fifo-at 2))))
+(define verified-fifo (proved-child-model proved "a"))
+(check-eq? verified-fifo (proved-child-model proved "b"))
 (define states (fresh-states verified-fifo))
 (define-symbolic* rst offer consume boolean?)
 (define-symbolic* data (bitvector 2))

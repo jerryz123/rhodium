@@ -27,7 +27,8 @@ dequeue returns the oldest accepted winner since reset at all three tested
 depths. An offered word that
 was never accepted does not enter the queue. Reset discards pending words;
 the proof promises neither eventual delivery nor fairness between lanes.
-These are fixed proof fixtures, not a public refinement checker.
+These proofs cover the stated specializations. They share an internal run-local
+refinement checker; they are not a parameter-universal proof.
 
 This README documents the implemented public contract. The
 [formal plan](PLAN.md) sets out Rhodium's direction: executable specifications,
@@ -192,6 +193,15 @@ the actual child instances and compares the result with the independent
 contract. It checks ordering at the external ports, not by assuming the FIFO
 received the winner. Run `moon run rhodium:formal-spec-test` for concrete
 replay or `moon run rhodium:formal-test` for induction.
+
+Concrete composition accepts ordinary specs. For formal substitution, each
+child must have a successful leaf proof for that exact elaborated definition,
+sampled port layout, and contract (including initial state and observation
+care). A depth-one FIFO result cannot stand in for a depth-two FIFO, even if
+their ready/valid interfaces look alike. Two occurrences of one proved
+specialization can reuse its result, with independent state. A leaf result
+does not survive re-elaboration. It justifies substituting that child, not
+assuming that the parent wired it correctly.
 
 ## Concrete specification API
 

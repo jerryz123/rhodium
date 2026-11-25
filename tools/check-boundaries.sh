@@ -214,6 +214,7 @@ unexpected_racket="$(find rhodium -type f -name '*.rkt' \
   ! -path 'rhodium/base/main.rkt' \
   ! -path 'rhodium/base/lang/reader.rkt' \
   ! -path 'rhodium/formal/engine.rkt' \
+  ! -path 'rhodium/formal/refinement.rkt' \
   ! -path 'rhodium/formal/spec-engine.rkt' -print)"
 if [[ -n "$unexpected_racket" ]]; then
   echo "only #lang reader shims and the Rosette formal engine may use the .rkt extension" >&2

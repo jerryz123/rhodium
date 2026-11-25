@@ -27,8 +27,10 @@ now checks reset and preservation separately for depths 1, 2, and 3;
 the faulty-payload replay remains at depth 2. The
 [series proof](DEVELOPING.md#two-shiftqueues-in-series) discharges the boundary
 and proves ordering and capacity four using two independent spec states.
-This is a same-run proof of a fixed wiring pattern, not a general substitution
-or evidence-cache API. The two-queue depth-one readiness example is spec-only;
+The two parent fixtures share an admission check for wiring-only cuts: each
+occurrence needs run-local evidence for its actual implementation and full
+contract. No persistent evidence cache or general parent-logic checker is
+implemented. The two-queue depth-one readiness example is spec-only;
 the ArbiterQueue capacity mismatch is replayed against actual RTL.
 
 The [two-input fixed-priority arbiter](DEVELOPING.md#two-input-fixed-priority-arbiter)

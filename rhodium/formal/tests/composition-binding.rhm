@@ -10,10 +10,11 @@ import:
   lib("rhodium/frontend/kernel.rhm").materialize_circuit
   lib("rspecl/rtl-boundary.rhm").interface_prefixes
   "../wiring.rhm".wiring_cut
+  "../wiring.rhm".leaf_layout
   "shift-queue-fixture.rhdl".QueuePair
   lib("examples/formal/arbiter-queue.rhdl").ArbiterQueue
 
-export pair_wires fifo_definition arbiter_definition mixed wrong_lane undersized
+export pair pair_wires fifo_definition arbiter_definition mixed wrong_lane undersized
 export interface_prefixes pin_layout leaf_sites
 export proof_depths parent_at wrong_lane_at fifo_at
 
@@ -57,12 +58,4 @@ unless pair_children.length() == 2 && mixed_children.length() == 2
 | error("expected both parents to share the proved FIFO specialization")
 
 
-/* Physical pins in packed record order (most significant member first), for independent RTL replay. */
-fun pin_layout(top, ports):
-  def prefixes = interface_prefixes(top)
-  for Map (p in ports.filter(~keep: fun (p): p.name != "clock")):
-    def fields:
-      if prefixes.has_key(p.name)
-      | for List (f in p.type.fields): PairList[prefixes[p.name] ++ "." ++ f.name, f.type.packed_width()]
-      | [PairList[p.name, p.type.packed_width()]]
-    values(p.name, PairList[& fields])
+fun pin_layout(top): leaf_layout(top, interface_prefixes(top))

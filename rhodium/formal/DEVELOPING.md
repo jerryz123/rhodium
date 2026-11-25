@@ -119,6 +119,19 @@ combinational query API retains its existing restrictions.
 
 ### ShiftQueue refinement by depth
 
+The shared [run-local checker](refinement.rkt) takes a completed definition,
+its executable spec, the interface naming function, and an independent
+observer. It snapshots the definition and spec itself. A clockless leaf is
+checked over every input sample. For a single rising clock and active-high
+sampled reset, supply a state relation, not a premise: the checker builds the
+reset and preservation domains and requires them to be feasible. Reset starts
+with unconstrained RTL state and must establish both the declared spec start
+and the relation. Both phases discharge RTL obligations, spec definedness,
+cared physical outputs and event agreement. Callers own the interpretation of
+care and transfer events and the abstraction relation. There is no option to
+restrict external traffic. A counterexample, unknown, or ambient constraint
+cannot mint a result.
+
 [The leaf proof](tests/shift-queue-induction.rkt) uses one symbolic input sample
 for the RTL and the executable spec, but allocates their old states independently.
 For spec length `n <= depth`, RTL slot `i` must be occupied exactly when `i < n`;
@@ -149,7 +162,8 @@ definition twice. The [composition binding](tests/composition-binding.rhm) reads
 parent's ports, drivers, and instance signatures, not its children's bodies.
 The leaf proof runs once on the shared definition and releases its exact spec
 only after the initialization, preservation, and feasibility checks pass.
-There is no persistent certificate. The [parent proof](tests/shift-queue-pair.rkt)
+Both occurrences admit the same leaf result. There is no persistent certificate.
+The [parent proof](tests/shift-queue-pair.rkt)
 checks the direct netlist, including the common clock/reset, and allocates just
 `a.q` and `b.q`. A changed topology or a consumer of a hidden port such as
 `mask` does not qualify.
@@ -203,7 +217,13 @@ computation and state are rejected. A child clock must connect directly to
 the parent clock. The cut uses the same logical member names as the leaf spec.
 Unused unmodeled outputs (count/mask)
 are allowed; a parent consuming one is rejected. The bridge constructs a
-graph, not a proof certificate. Both executors settle each output once from
+graph, not a proof certificate. For symbolic substitution, `proof_cut` keeps
+the actual occurrence definitions and sampled layouts alongside the graph.
+`prepare-proved-wiring` compares them and the complete spec snapshots against
+opaque successful leaf results, before any parent solver query. The admitted
+plan supplies the models to `proved-edge-at`; no child registers are expanded
+and no new models may be passed at step time. This check does not discharge
+the parent's own obligations. Both executors settle each output once from
 its old-state care/value dependencies; all child updates see the same edge.
 An uncared internal pin is false/zero in concrete replay and fresh per
 source in Rosette, never a guaranteed payload.
