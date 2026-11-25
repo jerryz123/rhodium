@@ -417,9 +417,15 @@ sync_circuit L1DCache(xlen :: XLen,
   wire retire_head: Bool
   wire classified: Bool
   reg s3_behind(~init: Bool(#false))
-  def concurrent = Bool(mshr_count > 1) & miss_busy & !miss_prefetch & miss_install & retained_request.access.is_load_or_store()
   def Index = Bits(index_width(window_depth + 3))
   reg parked(~init: Index(0))
+  /* Only ordinary loads can retire while unrelated MSHRs own array sets.
+     A fresh S3 lookup must still prove the hit before S4 takes the request. */
+  fun replayable_load(request :: PhysicalMemoryBeatReq(xlen, Context, beat_bytes)) :~ Bool:
+    (request.access === CacheOperation.Load) & (request.locality === RiscvMemoryLocality.Default) & !reserved_set(request.address[offset_width..(offset_width + set_width)])
+
+  def replay_head = Bool(mshr_count > 1) & miss_busy & !miss_active & parked.any() & replayable_load(service_requests.egress.bits)
+  def concurrent = Bool(mshr_count > 1) & miss_busy & !miss_prefetch & miss_install & retained_request.access.is_load_or_store() & !replay_head
   def s3_demand_live = s3_lookup.egress.valid & !s3_lookup.egress.bits.prefetch
   def issue_index = mux(concurrent, parked, Index(0)) + (s3_demand_live & (concurrent ||| !s3_behind)).as_bits().zext(index_width(window_depth + 3))
   def Array(ordinary_endpoint, management_endpoint) = (
@@ -435,7 +441,9 @@ sync_circuit L1DCache(xlen :: XLen,
         head.ready <== retire_head
         def next_request = service_requests.entries[issue_index[0..index_width(window_depth + 1)]]
         wire issue_ready: Bool
-        def issue = inject_interface(Decoupled(Request), ~valid: (issue_index < service_requests.count.zext(index_width(window_depth + 3))) & !next_request.access.into(CacheOperation).is_cache_management(), ~bits: next_request, ~ready: issue_ready)
+        // Pipeline the next head only if it too belongs to the replayable prefix.
+        def may_issue = !replay_head ||| ((issue_index < parked) & replayable_load(next_request))
+        def issue = inject_interface(Decoupled(Request), ~valid: may_issue & (issue_index < service_requests.count.zext(index_width(window_depth + 3))) & !next_request.access.into(CacheOperation).is_cache_management(), ~bits: next_request, ~ready: issue_ready)
         def selected = for List (i in 0..(window_depth + 1)): issue_index === Index(i)
         describe_interface_window_storage(window_depth + 1, service_requests.ingress.fire(), dequeue_demand.as_bits().zext(index_width(window_depth + 2)), service_requests.count, Bool(#false), selected, ~name: "demand")
         describe_interface_contract(issue_parent, issue, "demand-issue", ~trace_model: interface_trace_window(~name: "demand"))
@@ -554,7 +562,9 @@ sync_circuit L1DCache(xlen :: XLen,
   // Each branch uses the resolved metadata and its matching retained request
   // until the consumer accepts the event.
   def Array(s4_hit_path, s4_transaction_path) = s4_path |> demux_flow(2, _result => s4_needs_refill.as_bits())
-  def s4_local = s4_hit_path |> gate_flow(service_responses.ingress.ready) |> to_valid()
+  // Installation gets the replacement-state write port before a retiring hit.
+  wire install_line: Bool
+  def s4_local = s4_hit_path |> gate_flow(service_responses.ingress.ready & !install_line) |> to_valid()
 
   /* Refill and victim-writeback commands.
      Direct acquisition uses live S4 data. A granted copyback launches the
@@ -598,7 +608,7 @@ sync_circuit L1DCache(xlen :: XLen,
   misses.complete.ready <== refill_can_complete & !writeback.granted
   def completed = misses.complete.bits
   def complete_refill = misses.complete.fire() & completed.context.ordered
-  def install_line = misses.complete.fire() & completed.context.install
+  install_line <== misses.complete.fire() & completed.context.install
   def install_refill = install_line & completed.context.ordered
   def install_set = completed.line_address[offset_width..(offset_width + set_width)]
   def install_way = completed.context.way
@@ -716,7 +726,8 @@ sync_circuit L1DCache(xlen :: XLen,
   def retained_array_work_idle = !maintenance_active & !snoop_reading & !pending_mutation_valid
   def backing_engines_ready = !miss_busy & writeback.command.ready
   def arrays_available = retained_array_work_idle & !s4_needs_refill & !local_mutation
-  def s3_can_advance = s4_result.ingress.ready & arrays_available & backing_engines_ready & !snoop_pending
+  def s3_can_advance = s4_result.ingress.ready & arrays_available & (backing_engines_ready ||| replay_head) & !snoop_pending
+  def head_read_turn = s3_can_advance & (!replay_head ||| (!backing_port_busy & !snoop_lookup_start & !snoop_metadata_pending & !snoop.update.valid & !store_state_write))
   def classify_turn = concurrent & !misses.protect & !snoop_pending & !snoop_reading & !snoop_lookup_start & !store_state_write & !writeback_complete & !reservation_valid
   def issue_turn = classify_turn & !s0_read_issue
   def standard = !s3_lookup.egress.bits.prefetch & s3_request.access.is_load_or_store() & (s3_request.locality === RiscvMemoryLocality.Default)
@@ -726,7 +737,7 @@ sync_circuit L1DCache(xlen :: XLen,
   def independent = !reserved_set(s3_set)
   def can_park = covered ||| (independent & s3_hit_way.valid & (!s3_request.access.is_store() ||| s3_state.is_unique()))
   def classify = classify_turn & standard & s3_read_valid & arrays.tags.response.valid & arrays.states.response.valid
-  def retry_head = s3_behind & !miss_busy
+  def retry_head = s3_behind & (!miss_busy ||| replay_head)
   def s3_plain_store = !s3_lookup.egress.bits.prefetch & s3_request.access.is_store()
   // A concurrent store can invalidate an old data read or change a victim's
   // dirty status. Only another proved owned store is independent of both.
@@ -757,7 +768,7 @@ sync_circuit L1DCache(xlen :: XLen,
   classified <== held.fire()
   (
     primary
-      |> gate_flow(s3_can_advance & s3_lookup_usable)
+      |> gate_flow(s3_can_advance & s3_lookup_usable & (!miss_busy ||| (replay_head & s3_hit_way.valid & s3_state.is_valid())))
       |> map_flow(lookup => L1DResolved(way_width)):
         prefetch: lookup.prefetch
         prefetch_write: lookup.prefetch_write
@@ -784,7 +795,7 @@ sync_circuit L1DCache(xlen :: XLen,
       when (s3_lookup.egress.fire()):
         assert(!(s3_matches[left] & s3_matches[right]), "l1d_core_hit_unique")
 
-  def s2_retry = s3_lookup.egress.valid & ((s3_can_advance & !s3_behind & !s3_lookup_usable & (!store_hit_write ||| s3_plain_store)) ||| (issue_turn & !s3_read_valid))
+  def s2_retry = s3_lookup.egress.valid & ((head_read_turn & !s3_behind & !s3_lookup_usable & (!store_hit_write ||| s3_plain_store)) ||| (issue_turn & !s3_read_valid))
 
   /* Shared read admission and store draining.
      Speculative reads cannot take an SRAM port from older work or establish
@@ -822,7 +833,7 @@ sync_circuit L1DCache(xlen :: XLen,
   stat_count("dcache_miss", misses.allocate.fire() & !(misses.allocate.bits.context.ordered & s4_prefetch))
 
   def array_read_data_address = array_read_address[row_offset_width..(offset_width + set_width)]
-  def s2_admit = !management_waiting & (s3_can_advance ||| issue_turn) & !s2_retry & stores.empty & !s2_store_candidate.egress.valid
+  def s2_admit = !management_waiting & (head_read_turn ||| issue_turn) & !s2_retry & stores.empty & !s2_store_candidate.egress.valid
   // Admission checked the full address before queueing. Preserve the byte offset
   // and every payload field, including the optional raw-row transfer mode.
   wire admitted: AddressedPhysicalMemoryBeatReq(xlen, Context, beat_bytes, retained_width)

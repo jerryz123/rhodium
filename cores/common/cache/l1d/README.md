@@ -160,6 +160,9 @@ before the store reaches the head; the store then reacquires permission.
 
 Same-line waiters share an acquisition if it covers the needed permission.
 Offsets, store masks and data, and caller contexts stay in the ordered path.
+Once the older miss completes, ordinary load waiters at the head can return
+from an installed line while another set is still filling. Each waiter must
+hit on a fresh lookup; no response bypasses an older request.
 A store needing a shared-to-unique upgrade waits for the head, as do atomics
 and cache-management operations; demand issue does not pass these barriers.
 The request window holds at least one line's worth of rows plus one request

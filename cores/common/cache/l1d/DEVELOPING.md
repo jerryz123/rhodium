@@ -138,6 +138,11 @@ set, incompatible upgrade, or nonordinary request cannot be skipped. A slot may
 reserve a dirty victim before the writeback engine is free. Replay the ordered
 head against current permissions before consuming data or writing bytes: snoops
 can invalidate previously acquired lines. Only retirement returns a context.
+After the ordered miss releases its context, prioritize ordinary head loads
+from the classified prefix whose sets are no longer reserved. Use a free
+array-read cycle, verify the hit in S3, and give refill installation priority
+over the S4 hit's replacement-state update. Stores and atomics do not use
+this early retirement path.
 Held packets retain their own install set/way.
 The wide L1D fixture fills B before A, reuses B’s CHI ID for C, and checks
 ordered data and contexts under backpressure. For stores it also snoops B

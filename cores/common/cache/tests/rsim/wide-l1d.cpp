@@ -122,17 +122,46 @@ void check_overlapping_loads(const Line &a, const Line &b, bool reverse) {
     refill_packet(reverse ? tb : ta, i, 1, (reverse ? b : a)[i]);
   until([] { return chi_out.prequester_uresponses.pvalid; });
   CHECK(chi_out.prequester_uresponses.pbits.popcode == 2); // CompAck before the other line returns
+  if (!reverse) refill_packet(tb, 1, 1, b[1]);
   for (unsigned i = 0; i < 8; ++i) {
     eval();
     CHECK(!core_out.pdrained && !chi_out.prequests.pvalid);
     if (reverse) CHECK(!core_out.presponse.pvalid);
     tick_model();
   }
+  if (!reverse) {
+    // B has written a partial packet but cannot install. A's waiters must
+    // return the correct rows despite B's use of the same data SRAM port.
+    for (unsigned i = 0; i < 4; ++i) response(a[i], 0x10+i);
+    eval(); CHECK(!core_out.presponse.pvalid && !core_out.pdrained);
+  }
   for (unsigned i : {1u, 3u, 0u, 2u})
-    refill_packet(reverse ? ta : tb, i, 1, (reverse ? a : b)[i]);
-  for (unsigned i = 0; i < 4; ++i) response(a[i], 0x10+i);
+    if (reverse || i != 1) refill_packet(reverse ? ta : tb, i, 1, (reverse ? a : b)[i]);
+  if (reverse) for (unsigned i = 0; i < 4; ++i) response(a[i], 0x10+i);
   response(b[1], 0x20); response(b[3], 0x21);
   eval(); CHECK(core_out.pdrained && !chi_out.prequests.pvalid);
+}
+
+void check_invalidated_head(const Line &a, const Line &b) {
+  constexpr unsigned cached = base+64, other = base+128;
+  request(cached, load); refill(cached, 2, a); response(a[0]);
+  request(base, load, {}, 0xffff, true, 1);
+  const auto first = accept_request(base, 2);
+  request(cached+16, load, {}, 0xffff, true, 2);
+  request(other, load, {}, 0xffff, true, 3);
+  const auto last = accept_request(other, 2); // The middle load was classified as a hit.
+  auto &snp = chi_in.psnoops;
+  snp.pbits = {}; snp.pbits.paddress = cached >> 3; snp.pbits.popcode = 9; // SnpCleanInvalid
+  snp.pbits.psrc_uid = 1; snp.pbits.ptxn_uid = 0x53; snp.pvalid = 1;
+  until([] { return chi_out.psnoops.pready; }); tick_model(); snp.pvalid = 0;
+  until([] { return chi_out.prequester_uresponses.pvalid; });
+  CHECK(chi_out.prequester_uresponses.pbits.ptxn_uid == 0x53);
+  tick_model();
+  for (unsigned i = 0; i < 4; ++i) refill_packet(first, i, 1, a[i]);
+  response(a[0], 1);
+  for (unsigned i = 0; i < 8; ++i) { eval(); CHECK(!core_out.presponse.pvalid); tick_model(); }
+  for (unsigned i = 0; i < 4; ++i) refill_packet(last, i, 1, a[i]);
+  refill(cached, 2, b); response(b[1], 2); response(a[0], 3);
 }
 
 void check_mshr_reuse(const Line &a, const Line &b, bool b_first) {
@@ -733,6 +762,8 @@ int main() {
       check_store_behind_load(a, b, reverse);
       reset = 1; tick_model(); reset = 0;
     }
+    check_invalidated_head(a, b);
+    reset = 1; tick_model(); reset = 0;
     check_shared_upgrade_barrier(a, b);
     reset = 1; tick_model(); reset = 0;
     // Read a whole row on a miss. Retain the result under backpressure.
