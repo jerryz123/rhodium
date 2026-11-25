@@ -347,8 +347,6 @@
   (hash "kind" "input_pattern" "port" port "value" value "care" care))
 (define (onehot-assumption port)
   (hash "kind" "onehot" "port" port))
-(define (output-target port value care)
-  (hash "port" port "value" value "care" care))
 (check-equal? (engine_result_status
                (check_equivalent_snapshots add-design reversed-add-design))
               "equivalent")
@@ -406,147 +404,6 @@
 (check-true (regexp-match? #rx"checking formal assumptions"
                            (engine_result_message unknown-assumption-result)))
 (check-equal? assumption-solver-calls 1)
-
-(define reachable-add
-  (check_reachable_snapshot add-design (output-target "y" 5 #b1111)))
-(check-equal? (reachability_result_status reachable-add) "reachable")
-(check-equal? (hash-ref (reachability_result_output reachable-add) "port") "y")
-(check-equal? (hash-ref (reachability_result_output reachable-add) "value") 5)
-(define reachable-add-inputs
-  (for/hash ([entry (in-list (reachability_result_inputs reachable-add))])
-    (values (hash-ref entry "port") (hash-ref entry "value"))))
-(check-equal? (hash-ref (interpret_snapshot add-design reachable-add-inputs) "y") 5)
-
-(define partial-reachable-add
-  (check_reachable_snapshot add-design (output-target "y" #b1000 #b1100)))
-(check-equal? (reachability_result_status partial-reachable-add) "reachable")
-(check-equal?
- (bitwise-and (hash-ref (reachability_result_output partial-reachable-add) "value")
-              #b1100)
- #b1000)
-
-(define assumed-reachable-add
-  (check_reachable_snapshot
-   add-design
-   (output-target "y" 5 #b1111)
-   (list (input-assumption "x0" 1 #b1111))))
-(check-equal? (reachability_result_status assumed-reachable-add) "reachable")
-(check-equal?
- (hash-ref (findf (lambda (entry) (equal? (hash-ref entry "port") "x0"))
-                  (reachability_result_inputs assumed-reachable-add))
-           "value")
- 1)
-
-(define constant-seven-design
-  (operation-design "rtl.constant" '() (flat-type 4) (hash "value" 7)))
-(define unreachable-constant
-  (check_reachable_snapshot constant-seven-design (output-target "y" 8 #b1111)))
-(check-equal? (reachability_result_status unreachable-constant) "unreachable")
-(check-equal? (reachability_result_inputs unreachable-constant) '())
-(check-false (reachability_result_output unreachable-constant))
-
-(define proved-constant
-  (check_property_snapshot constant-seven-design (output-target "y" 7 #b1111)))
-(check-equal? (property_result_status proved-constant) "proved")
-(check-equal? (property_result_inputs proved-constant) '())
-(check-false (property_result_output proved-constant))
-(define constant-property-counterexample
-  (check_property_snapshot constant-seven-design (output-target "y" 8 #b1111)))
-(check-equal? (property_result_status constant-property-counterexample)
-              "counterexample")
-(check-equal? (hash-ref (property_result_output constant-property-counterexample) "value")
-              7)
-
-(define assumed-proved-add
-  (check_property_snapshot
-   add-design
-   (output-target "y" 5 #b1111)
-   (list (input-assumption "x0" 1 #b1111)
-         (input-assumption "x1" 4 #b1111))))
-(check-equal? (property_result_status assumed-proved-add) "proved")
-(define add-property-counterexample
-  (check_property_snapshot add-design (output-target "y" 0 #b1000)))
-(check-equal? (property_result_status add-property-counterexample)
-              "counterexample")
-(define add-property-inputs
-  (for/hash ([entry (in-list (property_result_inputs add-property-counterexample))])
-    (values (hash-ref entry "port") (hash-ref entry "value"))))
-(define add-property-output
-  (hash-ref (interpret_snapshot add-design add-property-inputs) "y"))
-(check-equal? add-property-output
-              (hash-ref (property_result_output add-property-counterexample) "value"))
-(check-not-equal? (bitwise-and add-property-output #b1000) 0)
-
-(define vacuous-reachability
-  (check_reachable_snapshot
-   add-design
-   (output-target "y" 5 #b1111)
-   (list (input-assumption "x0" 0 #b1111)
-         (input-assumption "x0" 1 #b1111))))
-(check-equal? (reachability_result_status vacuous-reachability) "vacuous")
-(check-true (regexp-match? #rx"unsatisfiable"
-                           (reachability_result_message vacuous-reachability)))
-(define vacuous-property
-  (check_property_snapshot
-   add-design
-   (output-target "y" 5 #b1111)
-   (list (input-assumption "x0" 0 #b1111)
-         (input-assumption "x0" 1 #b1111))))
-(check-equal? (property_result_status vacuous-property) "vacuous")
-(check-true (regexp-match? #rx"unsatisfiable"
-                           (property_result_message vacuous-property)))
-
-(define reachability-solver-calls 0)
-(define unknown-reachability
-  (check_reachable_snapshot
-   add-design
-   (output-target "y" 5 #b1111)
-   #:solve (lambda (_query)
-             (set! reachability-solver-calls (add1 reachability-solver-calls))
-             'forced-unknown)))
-(check-equal? (reachability_result_status unknown-reachability) "unknown")
-(check-equal? reachability-solver-calls 1)
-(define property-solver-calls 0)
-(define unknown-property
-  (check_property_snapshot
-   add-design
-   (output-target "y" 5 #b1111)
-   #:solve (lambda (_query)
-             (set! property-solver-calls (add1 property-solver-calls))
-             'forced-unknown)))
-(check-equal? (property_result_status unknown-property) "unknown")
-(check-equal? property-solver-calls 1)
-
-(for ([target+message
-       (in-list
-        (list
-         (cons "not-a-hash" #rx"output pattern is malformed")
-         (cons (hash "port" "y" "value" 0) #rx"missing required field")
-         (cons (output-target "missing" 0 1) #rx"unknown output")
-         (cons (output-target "y" 16 15) #rx"invalid packed pattern")
-         (cons (output-target "y" 8 7) #rx"invalid packed pattern")))])
-  (define malformed-reachability-solver-called? #f)
-  (check-exn
-   (cdr target+message)
-   (lambda ()
-     (check_reachable_snapshot
-      add-design
-      (car target+message)
-      #:solve (lambda (_query)
-                (set! malformed-reachability-solver-called? #t)
-                'forced-unknown))))
-  (check-false malformed-reachability-solver-called?))
-(define malformed-property-solver-called? #f)
-(check-exn
- #rx"unknown output"
- (lambda ()
-   (check_property_snapshot
-    add-design
-    (output-target "missing" 0 1)
-    #:solve (lambda (_query)
-              (set! malformed-property-solver-called? #t)
-              'forced-unknown))))
-(check-false malformed-property-solver-called?)
 
 (for ([assumptions+message
        (in-list
@@ -643,47 +500,9 @@
              (set! onehot-validity-solver-calls (add1 onehot-validity-solver-calls))
              'forced-unknown)))
 (check-equal? (engine_result_status unknown-onehot-validity) "unknown")
-(check-true (regexp-match? #rx"one-hot validity"
+(check-true (regexp-match? #rx"operation validity"
                            (engine_result_message unknown-onehot-validity)))
 (check-equal? onehot-validity-solver-calls 1)
-
-(define reachable-onehot
-  (check_reachable_snapshot onehot-snapshot
-                            (output-target "y" 7 #b1111)
-                            onehot-query))
-(check-equal? (reachability_result_status reachable-onehot) "reachable")
-(check-not-false
- (member
-  (hash-ref (findf (lambda (entry) (equal? (hash-ref entry "port") "x0"))
-                   (reachability_result_inputs reachable-onehot))
-            "value")
-  '(1 2 4)))
-(define unsupported-onehot-reachability
-  (check_reachable_snapshot onehot-snapshot (output-target "y" 7 #b1111)))
-(check-equal? (reachability_result_status unsupported-onehot-reachability)
-              "unsupported")
-(check-equal? (hash-ref (reachability_result_diagnostic unsupported-onehot-reachability)
-                        "opcode")
-              "rtl.onehot_mux")
-(define proved-onehot-contract
-  (check_property_snapshot onehot-snapshot
-                           (output-target "y" 0 0)
-                           onehot-query))
-(check-equal? (property_result_status proved-onehot-contract) "proved")
-(define onehot-property-counterexample
-  (check_property_snapshot onehot-snapshot
-                           (output-target "y" 7 #b1111)
-                           onehot-query))
-(check-equal? (property_result_status onehot-property-counterexample)
-              "counterexample")
-(check-not-equal? (hash-ref (property_result_output onehot-property-counterexample) "value")
-                  7)
-(define unsupported-onehot-property
-  (check_property_snapshot onehot-snapshot (output-target "y" 0 0)))
-(check-equal? (property_result_status unsupported-onehot-property) "unsupported")
-(check-equal? (hash-ref (property_result_diagnostic unsupported-onehot-property)
-                        "opcode")
-              "rtl.onehot_mux")
 
 (check-exn
  #rx"choice count"

@@ -1,0 +1,8 @@
+#lang rhombus
+// Runs solver and concrete register-transition oracles on snapshots produced by the public Builder.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "transition-fixture.rhm" as fixture
+  "transition-checks.rkt".#{check-transitions}
+
+#{check-transitions}(fixture.snapshot, fixture.partial_snapshot, fixture.two_clock_snapshot)

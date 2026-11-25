@@ -1,0 +1,90 @@
+#lang rhombus
+// Builds register-transition fixtures with hierarchical feedback, packed state, and unused partial operations.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../core/main.rhm" open
+  "../snapshot.rhm".formal_snapshot
+
+export program snapshot partial_snapshot two_clock_snapshot
+
+def design = Design()
+def b = Builder(design)
+def cell = b.module("Cell")
+def cell_clock = b.input(cell, "clock", Clock)
+def cell_data = b.input(cell, "data", Bits(3))
+def cell_out = b.output(cell, "out", Bits(3))
+def cell_reg = b.register(cell, "q", Bits(3), cell_clock)
+b.drive(cell_reg.next, cell_data)
+b.drive(cell_out, cell_reg.current)
+b.finish(cell)
+
+def hidden = b.module("Hidden")
+def hidden_clock = b.input(hidden, "clock", Clock)
+def hidden_reg = b.register(hidden, "q", Bits(1), hidden_clock)
+b.drive(hidden_reg.next, b.bit_not(hidden, hidden_reg.current))
+b.finish(hidden)
+
+def top = b.module("Transition")
+def clock = b.input(top, "clock", Clock)
+def reset = b.input(top, "reset", Reset)
+def data = b.input(top, "data", Bits(3))
+def clock_alias = b.wire(top, "clock_alias", Clock)
+b.drive(clock_alias, clock)
+def count = b.register(top, "count", Bits(3), clock, reset, b.constant(top, Bits(3), 5))
+def p1 = b.register(top, "p1", Bits(3), clock)
+def p2 = b.register(top, "p2", Bits(3), clock)
+def packed = b.register(top, "packed", VectorType(2, Bits(2)), clock)
+def one = b.constant(top, Bits(3), 1)
+b.drive(count.next, b.add(top, count.current, one))
+b.drive(p1.next, data)
+b.drive(p2.next, p1.current)
+b.drive(packed.next, b.vector_create(top, VectorType(2, Bits(2)), [b.extract(top, data, 1, 0), b.vector_get(top, packed.current, 0)]))
+def a = b.instance(top, cell, "a")
+def z = b.instance(top, cell, "b")
+def invisible = b.instance(top, hidden, "hidden")
+b.drive(a.input("clock"), b.read(clock_alias))
+b.drive(z.input("clock"), b.read(clock_alias))
+b.drive(invisible.input("clock"), clock)
+b.drive(a.input("data"), b.add(top, z.output("out"), one))
+b.drive(z.input("data"), b.add(top, a.output("out"), one))
+for (name in ["count_out", "p1_out", "p2_out", "left", "right", "packed_out"],
+     value in [count.current, p1.current, p2.current, a.output("out"), z.output("out"), b.cast(top, packed.current, Bits(4))]):
+  b.drive(b.output(top, name, value.type), value)
+b.finish(top)
+def program = DesignElaboration(design, top)
+def snapshot = formal_snapshot(program)
+
+def partial_snapshot:
+  def d = Design()
+  def builder = Builder(d)
+  def child = builder.module("PartialChild")
+  def clk = builder.input(child, "clock", Clock)
+  def sel = builder.input(child, "selector", Bits(2))
+  def divisor = builder.input(child, "divisor", Bits(3))
+  def q = builder.register(child, "q", Bits(3), clk)
+  builder.drive(q.next, q.current)
+  builder.onehot_mux(child, sel, [q.current, divisor])
+  builder.urem(child, q.current, divisor)
+  builder.finish(child)
+  def parent = builder.module("Partial")
+  def parent_clk = builder.input(parent, "clock", Clock)
+  def parent_sel = builder.input(parent, "selector", Bits(2))
+  def parent_divisor = builder.input(parent, "divisor", Bits(3))
+  for (name in ["a", "b"]):
+    def inst = builder.instance(parent, child, name)
+    builder.drive(inst.input("clock"), parent_clk)
+    builder.drive(inst.input("selector"), parent_sel)
+    builder.drive(inst.input("divisor"), parent_divisor)
+  builder.finish(parent)
+  formal_snapshot(parent)
+
+def two_clock_snapshot:
+  def d = Design()
+  def builder = Builder(d)
+  def m = builder.module("TwoClocks")
+  def first = builder.input(m, "first", Clock)
+  def second = builder.input(m, "second", Clock)
+  def q = builder.register(m, "q", Bits(1), second)
+  builder.drive(q.next, q.current)
+  builder.finish(m)
+  formal_snapshot(m)

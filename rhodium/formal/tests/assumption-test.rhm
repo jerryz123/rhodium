@@ -58,10 +58,10 @@ check:
   vacuous_result.describe().contains("unsatisfiable") ~is #true
   vacuous_result.assignments.length() ~is 0
   vacuous_result.differences.length() ~is 0
-  check_equivalent(add, subtract, "not-a-query") ~throws "must be a FormalQuery"
+  check_equivalent(add, subtract, "not-a-query") ~throws "annotation: FormalQuery"
   check_equivalent(add,
                    subtract,
-                   FormalQuery(["not-an-assumption"])) ~throws "must be a FormalInputAssumption"
+                   FormalQuery(["not-an-assumption"])) ~throws "annotation: List.of(FormalAssumption)"
   check_equivalent(add,
                    subtract,
                    FormalQuery([FormalInputAssumption("missing", 0)])) ~throws "unknown input"
@@ -73,4 +73,4 @@ check:
                    FormalQuery([FormalInputAssumption("b", 8, 0b0111)])) ~throws "invalid packed pattern"
   check_equivalent(add,
                    subtract,
-                   FormalQuery([FormalInputAssumption("b", 0, #true)])) ~throws "invalid care mask"
+                   FormalQuery([FormalInputAssumption("b", 0, #true)])) ~throws "annotation: maybe(Nat)"

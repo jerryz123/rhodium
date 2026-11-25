@@ -173,7 +173,7 @@ the broad `moon run rhodium:test` aggregate:
 
 | Target | Work performed |
 |---|---|
-| `moon run rhodium:formal-test` | Probe Rosette and Z3, then run the formal API, semantics, reachability, property, witness, and fail-closed suite |
+| `moon run rhodium:formal-test` | Probe Rosette and Z3, then run the equivalence, register-transition, replay, and fail-closed suite |
 | `moon run rhodium:examples-formal` | Run the optional formal example |
 | `moon run rhodium:formal-differential-test` | Replay selected formal models independently through CIRCT and Verilator |
 

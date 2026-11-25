@@ -54,16 +54,6 @@ module formal_differential_tb;
   integer model_onehot_c = 3;
   integer model_onehot_reference = 1;
   integer model_onehot_defect = 2;
-  integer model_reach_selector = 1;
-  integer model_reach_a = 7;
-  integer model_reach_b = 0;
-  integer model_reach_c = 0;
-  integer model_reach_output = 7;
-  integer model_property_selector = 1;
-  integer model_property_a = 0;
-  integer model_property_b = 0;
-  integer model_property_c = 0;
-  integer model_property_output = 0;
   integer expected_shift_left;
   integer expected_shift_right;
   integer expected_pair_sum;
@@ -127,16 +117,6 @@ module formal_differential_tb;
     void'($value$plusargs("ONEHOT_C=%d", model_onehot_c));
     void'($value$plusargs("ONEHOT_REFERENCE=%d", model_onehot_reference));
     void'($value$plusargs("ONEHOT_DEFECT=%d", model_onehot_defect));
-    void'($value$plusargs("REACH_SELECTOR=%d", model_reach_selector));
-    void'($value$plusargs("REACH_A=%d", model_reach_a));
-    void'($value$plusargs("REACH_B=%d", model_reach_b));
-    void'($value$plusargs("REACH_C=%d", model_reach_c));
-    void'($value$plusargs("REACH_OUTPUT=%d", model_reach_output));
-    void'($value$plusargs("PROPERTY_SELECTOR=%d", model_property_selector));
-    void'($value$plusargs("PROPERTY_A=%d", model_property_a));
-    void'($value$plusargs("PROPERTY_B=%d", model_property_b));
-    void'($value$plusargs("PROPERTY_C=%d", model_property_c));
-    void'($value$plusargs("PROPERTY_OUTPUT=%d", model_property_output));
 
     high = 0;
     low = 0;
@@ -300,26 +280,6 @@ module formal_differential_tb;
       else $fatal(1, "Rosette one-hot defect replay mismatch");
     assert (onehot_reference != onehot_defect)
       else $fatal(1, "Rosette one-hot counterexample did not reproduce");
-
-    onehot_selector = model_reach_selector[2:0];
-    onehot_a = model_reach_a[3:0];
-    onehot_b = model_reach_b[3:0];
-    onehot_c = model_reach_c[3:0];
-    #1;
-    assert (onehot_candidate == model_reach_output[3:0])
-      else $fatal(1, "Rosette reachability witness output mismatch");
-    assert (onehot_candidate == 4'd7)
-      else $fatal(1, "Rosette reachability witness missed its target");
-
-    onehot_selector = model_property_selector[2:0];
-    onehot_a = model_property_a[3:0];
-    onehot_b = model_property_b[3:0];
-    onehot_c = model_property_c[3:0];
-    #1;
-    assert (onehot_candidate == model_property_output[3:0])
-      else $fatal(1, "Rosette property counterexample output mismatch");
-    assert (onehot_candidate != 4'd7)
-      else $fatal(1, "Rosette property counterexample did not violate its target");
 
     $display("formal differential simulation passed");
     $finish;

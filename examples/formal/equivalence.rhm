@@ -3,16 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("rhodium/compile/program.rhm").compile_program
-  lib("rhodium/compile/rtl.rhm").rtl_target
   "../../rhodium/formal/main.rhm" open
   "../lop/adder-standard.rhdl" as standard
   "../lop/adder-composed.rhdl" as composed
 
-def standard_design = compile_program(standard.program, rtl_target).report.design
-def composed_design = compile_program(composed.program, rtl_target).report.design
-
-def result = check_equivalent(standard_design, composed_design)
+def result = check_equivalent(standard.program, composed.program)
 
 check:
   result.equivalent() ~is #true

@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
-repo_dir="$(cd "$(dirname "$0")/../.." && pwd)"
+repo_dir="$(cd "$(dirname "$0")/../../.." && pwd)"
 model_file="$(mktemp /tmp/rhodium-formal-models.XXXXXX)"
 trap 'rm -f "$model_file"' EXIT
 
@@ -22,8 +22,6 @@ expected_keys=(
   DECODE_SELECTOR DECODE_REFERENCE DECODE_DEFECT
   ONEHOT_SELECTOR ONEHOT_A ONEHOT_B ONEHOT_C
   ONEHOT_REFERENCE ONEHOT_DEFECT
-  REACH_SELECTOR REACH_A REACH_B REACH_C REACH_OUTPUT
-  PROPERTY_SELECTOR PROPERTY_A PROPERTY_B PROPERTY_C PROPERTY_OUTPUT
 )
 for key in "${expected_keys[@]}"; do
   if [[ "$(grep -Ec "^${key}=[0-9]+$" "$model_file")" != 1 ]]; then
@@ -41,3 +39,5 @@ fi
 env FORMAL_REPLAY_FILE="$model_file" \
   FIXTURE=formal-differential \
   bash tools/testing/circt/run.sh --simulate-only
+
+python3 rhodium/formal/tests/run-transition.py --circt

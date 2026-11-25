@@ -1,0 +1,113 @@
+#lang rosette
+;; Checks concrete and symbolic register transitions against independent packed-state oracles.
+;; SPDX-License-Identifier: Apache-2.0
+(require rackunit racket/list racket/string "../engine.rkt")
+(provide check-transitions transition-trace-lines)
+
+(define (naturals bindings)
+  (for/hash ([(name value) (in-hash bindings)]) (values name (bitvector->natural value))))
+
+;; Only observe fully defined state after two initialization edges: reset loads
+;; count, and sampled data fills the resetless pipelines. The unrelated feedback
+;; pair remains unspecified in HDL and is deliberately absent from this transcript.
+(define (transition-trace-lines snapshot)
+  (define plan (prepare_transition_snapshot snapshot "clock"))
+  (define state (for/hash ([reg (in-list (transition_registers plan))])
+                  (values (hash-ref reg "name") 0)))
+  (define rows
+    (for/list ([cycle (in-range 40)])
+      (define reset (if (member cycle '(0 1 12 31)) 1 0))
+      (define step (step_transition plan state (hash "reset" reset "data" (modulo (* cycle 3) 8))))
+      (define output (naturals (transition_step_outputs step)))
+      (set! state (transition_step_state step))
+      (and (>= cycle 2)
+           (format "~a ~a ~a ~a ~a" cycle (hash-ref output "count_out")
+                   (hash-ref output "p1_out") (hash-ref output "p2_out") (hash-ref output "packed_out")))))
+  (string-append (string-join (filter values rows) "\n") "\n"))
+
+(define (check-transitions snapshot partial-snapshot two-clock-snapshot)
+  (define plan (prepare_transition_snapshot snapshot "clock"))
+  (define names (map (lambda (reg) (hash-ref reg "name")) (transition_registers plan)))
+  (check-equal? names '("Transition.count" "Transition.p1" "Transition.p2" "Transition.packed"
+                       "Transition.a.q" "Transition.b.q" "Transition.hidden.q"))
+  (check-equal? plan (prepare_transition_snapshot snapshot "clock"))
+  (define initial
+    (hash "Transition.count" 7 "Transition.p1" 3 "Transition.p2" 6
+          "Transition.packed" 9 "Transition.a.q" 1 "Transition.b.q" 5 "Transition.hidden.q" 1))
+  (define (oracle state reset data)
+    (hash "Transition.count" (if (= reset 1) 5 (modulo (add1 (hash-ref state "Transition.count")) 8))
+          "Transition.p1" data "Transition.p2" (hash-ref state "Transition.p1")
+          "Transition.packed" (+ (modulo data 4) (* 4 (modulo (hash-ref state "Transition.packed") 4)))
+          "Transition.a.q" (modulo (add1 (hash-ref state "Transition.b.q")) 8)
+          "Transition.b.q" (modulo (add1 (hash-ref state "Transition.a.q")) 8)
+          "Transition.hidden.q" (- 1 (hash-ref state "Transition.hidden.q"))))
+  (define (observe state)
+    (hash "count_out" (hash-ref state "Transition.count") "p1_out" (hash-ref state "Transition.p1")
+          "p2_out" (hash-ref state "Transition.p2") "packed_out" (hash-ref state "Transition.packed")
+          "left" (hash-ref state "Transition.a.q") "right" (hash-ref state "Transition.b.q")))
+  ;; Exhaustive small state/input/reset cross-product, plus a multi-edge trace.
+  (for* ([count (in-range 8)] [left (in-range 8)] [right (in-range 8)]
+         [reset (in-range 2)] [data (in-range 8)])
+    (define state (hash-set (hash-set (hash-set initial "Transition.count" count) "Transition.a.q" left) "Transition.b.q" right))
+    (define result (step_transition plan state (hash "reset" reset "data" data)))
+    (check-equal? (naturals (transition_step_outputs result)) (observe state))
+    (check-equal? (naturals (transition_step_state result)) (oracle state reset data))
+    (check-true (transition_step_validity result)))
+  (for/fold ([state initial]) ([cycle (in-range 40)])
+    (define reset (if (member cycle '(0 1 12 31)) 1 0))
+    (define data (modulo (* cycle 3) 8))
+    (define result (step_transition plan state (hash "reset" reset "data" data)))
+    (check-equal? (naturals (transition_step_outputs result)) (observe state))
+    (define next (naturals (transition_step_state result)))
+    (check-equal? next (oracle state reset data))
+    next)
+  ;; Zero steps means the supplied initial state, not implicit power-on reset.
+  (define symbolic-state (symbolic_transition_state plan))
+  (define symbolic-inputs (symbolic_transition_inputs plan))
+  (define step (step_transition plan symbolic-state symbolic-inputs))
+  (define before (transition_step_outputs step))
+  (define after (transition_step_state step))
+  (define reset (hash-ref symbolic-inputs "reset"))
+  (define old-count (hash-ref symbolic-state "Transition.count"))
+  (define expected-count (if (bveq reset (bv 1 1)) (bv 5 3) (bvadd old-count (bv 1 3))))
+  (check-true (unsat? (solve (assert (! (bveq (hash-ref after "Transition.count") expected-count))))))
+  (check-true (unsat? (solve (assert (! (bveq (hash-ref before "count_out") old-count))))))
+  ;; A resettable register can initially differ from its reset value; two child
+  ;; occurrences and two fresh initial-state allocations must remain independent.
+  (check-true (sat? (solve (assert (! (bveq old-count (bv 5 3)))))))
+  (check-true (sat? (solve (assert (! (bveq (hash-ref symbolic-state "Transition.a.q")
+                                         (hash-ref symbolic-state "Transition.b.q")))))))
+  (define independent (symbolic_transition_state plan))
+  (check-true (sat? (solve (assert (! (bveq old-count (hash-ref independent "Transition.count")))))))
+  (define second-step (step_transition plan after (hash "reset" 0 "data" 2)))
+  (check-true (unsat? (solve (assert (! (bveq (hash-ref (transition_step_state second-step) "Transition.p2")
+                                           (hash-ref symbolic-inputs "data")))))))
+  (check-equal? initial (hash "Transition.count" 7 "Transition.p1" 3 "Transition.p2" 6
+                              "Transition.packed" 9 "Transition.a.q" 1 "Transition.b.q" 5 "Transition.hidden.q" 1))
+  (check-exn #rx"exactly the declared names" (lambda () (step_transition plan (hash) (hash "reset" 0 "data" 0))))
+  (check-exn #rx"exactly the declared names" (lambda () (step_transition plan initial (hash "reset" 0 "data" 0 "clock" 1))))
+  (check-exn #rx"packed width" (lambda () (step_transition plan (hash-set initial "Transition.count" 8) (hash "reset" 0 "data" 0))))
+  (check-exn #rx"exact-width" (lambda () (step_transition plan initial (hash "reset" (bv 0 2) "data" 0))))
+  (check-exn #rx"single top-level Clock" (lambda () (prepare_transition_snapshot snapshot "missing")))
+  (check-exn #rx"single top-level Clock" (lambda () (prepare_transition_snapshot two-clock-snapshot "first")))
+  ;; Domain obligations include unused partial operations in outputless children.
+  (define partial (prepare_transition_snapshot partial-snapshot "clock"))
+  (define pstate (symbolic_transition_state partial))
+  (define pins (symbolic_transition_inputs partial))
+  (define pstep (step_transition partial pstate pins))
+  (check-equal? (length (transition_step_obligations pstep)) 4)
+  (check-equal? (sort (remove-duplicates
+                      (map (lambda (o) (hash-ref (hash-ref o "diagnostic") "module_path"))
+                           (transition_step_obligations pstep))) string<?)
+                '("Partial.a" "Partial.b"))
+  (define valid (transition_step_validity pstep))
+  (check-true (sat? (solve (assert valid))))
+  (check-true (sat? (solve (assert (! valid)))))
+  (check-true (unsat? (solve (assert (&& valid (bveq (hash-ref pins "divisor") (bv 0 3)))))))
+  (for ([invalid-selector '(0 3)])
+    (check-true (unsat? (solve (assert (&& valid (bveq (hash-ref pins "selector") (bv invalid-selector 2))))))))
+  (define good (step_transition partial (hash "Partial.a.q" 1 "Partial.b.q" 6) (hash "selector" 1 "divisor" 3)))
+  (check-true (transition_step_validity good))
+  (check-equal? (naturals (transition_step_state good)) (hash "Partial.a.q" 1 "Partial.b.q" 6))
+  (check-exn #rx"not exactly one-hot" (lambda () (step_transition partial (hash "Partial.a.q" 1 "Partial.b.q" 6) (hash "selector" 0 "divisor" 3))))
+  (check-exn #rx"divisor is zero" (lambda () (step_transition partial (hash "Partial.a.q" 1 "Partial.b.q" 6) (hash "selector" 1 "divisor" 0)))))

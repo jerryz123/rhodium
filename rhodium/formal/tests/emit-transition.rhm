@@ -1,0 +1,24 @@
+#lang rhombus
+// Emits one transition fixture and its Rosette trace for independent native and HDL replay.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("racket/base.rkt") as rkt
+  lib("racket/file.rkt") as file
+  "transition-fixture.rhm" as fixture
+  "transition-checks.rkt".#{transition-trace-lines}
+  "../../compile/program.rhm".compile_program
+  "../../backend/rsim-target.rhm".rsim_target
+  "../../backend/verilog-target.rhm".verilog_target
+  "../../backend/circt-target.rhm".circt_target
+
+def args = rkt.#{current-command-line-arguments}()
+def directory = rkt.#{vector-ref}(args, 0)
+def target:
+  match rkt.#{vector-ref}(args, 1)
+  | "rsim": rsim_target
+  | "verilog": verilog_target
+  | "circt": circt_target
+  | ~else: error("unknown transition replay target")
+for (artifact in compile_program(fixture.program, target).artifacts):
+  file.#{display-to-file}(artifact.content, rkt.#{build-path}(directory, artifact.name), ~exists: #'#{truncate/replace})
+file.#{display-to-file}(#{transition-trace-lines}(fixture.snapshot), rkt.#{build-path}(directory, "expected.txt"), ~exists: #'#{truncate/replace})

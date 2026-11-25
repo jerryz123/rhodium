@@ -52,7 +52,7 @@ flowchart LR
 | [`analysis/`](analysis/README.md) | Clock-analysis compile target and internal certification |
 | [`compile/`](compile/README.md) | Explicit target compilation, artifacts, and lowering decisions |
 | [`backend/`](backend/README.md) | CIRCT lowering and emitted hardware |
-| [`formal/`](formal/README.md) | Rosette-backed equivalence, reachability, and combinational properties |
+| [`formal/`](formal/README.md) | Rosette-backed combinational equivalence and internal RTL transition semantics |
 | [`diagram/`](diagram/README.md) | Logical hierarchy, interface, and flow views |
 | [`event/`](event/README.md) | Compiler-inferred event dependencies and opt-in linear DPI instrumentation |
 

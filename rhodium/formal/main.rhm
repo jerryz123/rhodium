@@ -1,5 +1,5 @@
 #lang rhombus
-// Exposes typed combinational equivalence, reachability, and output-property queries over verified Rhodium subjects.
+/* Exposes typed combinational equivalence and replayable differences over verified RTL. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -16,27 +16,24 @@ export:
   FormalDiagnostic
   FormalInputAssumption
   FormalOneHotAssumption
-  FormalOutputPattern
-  FormalOutputWitness
-  FormalPropertyResult
   FormalQuery
-  FormalReachabilityResult
   FormalResult
   check_equivalent
-  check_output_property
-  check_reachable
 
 interface FormalAssumption
 
+/* Stores one named input's type and packed counterexample value. */
 class FormalAssignment(port :: String,
                        type :: HardwareType,
                        packed_value :: Nat)
 
+/* Records both concrete output values at a mismatching port. */
 class FormalDifference(port :: String,
                        type :: HardwareType,
                        left_value :: Nat,
                        right_value :: Nat)
 
+/* Identifies an unsupported occurrence or solver failure at its source. */
 class FormalDiagnostic(module_path :: maybe(String),
                        opcode :: maybe(String),
                        operation_id :: maybe(Nat),
@@ -44,35 +41,35 @@ class FormalDiagnostic(module_path :: maybe(String),
                        origin :: maybe(String),
                        message :: String)
 
+/* Constrains the cared bits of one named top input. */
 class FormalInputAssumption(port :: String,
                             value :: Nat,
                             care :: maybe(Nat) = #false):
   implements FormalAssumption
 
+/* Requires exactly one set bit in the named packed input. */
 class FormalOneHotAssumption(port :: String):
   implements FormalAssumption
 
-class FormalOutputPattern(port :: String,
-                          value :: Nat,
-                          care :: maybe(Nat) = #false)
-
-class FormalOutputWitness(port :: String,
-                          type :: HardwareType,
-                          packed_value :: Nat)
-
+/* Groups conjunctive input assumptions applied to both designs. */
 class FormalQuery(assumptions :: List.of(FormalAssumption) = [])
 
+/* Carries the outcome, replay data, diagnostics, and assumptions for one comparison. */
 class FormalResult(status :: String,
                    assignments :: List.of(FormalAssignment) = [],
                    differences :: List.of(FormalDifference) = [],
                    diagnostic :: maybe(FormalDiagnostic) = #false,
                    assumptions :: List.of(FormalAssumption) = []):
+  /* Test whether all paired outputs agree under the query assumptions. */
   method equivalent(): status == "equivalent"
   method counterexample(): status == "counterexample"
+  /* Test whether the input assumptions admit no assignment. */
   method vacuous(): status == "vacuous"
   method unsupported(): status == "unsupported"
+  /* Distinguish solver uncertainty from a conclusive comparison. */
   method unknown(): status == "unknown"
 
+  /* Summarize the status and any diagnostic or output mismatch count. */
   method describe():
     match status
     | "equivalent": "equivalent"
@@ -82,54 +79,7 @@ class FormalResult(status :: String,
         if diagnostic | status ++ ": " ++ diagnostic.message | status
     | ~else: status
 
-class FormalReachabilityResult(status :: String,
-                               target :: FormalOutputPattern,
-                               assignments :: List.of(FormalAssignment) = [],
-                               output :: maybe(FormalOutputWitness) = #false,
-                               diagnostic :: maybe(FormalDiagnostic) = #false,
-                               assumptions :: List.of(FormalAssumption) = []):
-  method reachable(): status == "reachable"
-  method unreachable(): status == "unreachable"
-  method vacuous(): status == "vacuous"
-  method unsupported(): status == "unsupported"
-  method unknown(): status == "unknown"
-
-  method describe():
-    match status
-    | "reachable":
-        if output
-        | String.append("reachable with ", output.port, " = ",
-                        to_string(output.packed_value))
-        | "reachable"
-    | "unreachable": "unreachable"
-    | "vacuous" || "unsupported" || "unknown":
-        if diagnostic | status ++ ": " ++ diagnostic.message | status
-    | ~else: status
-
-class FormalPropertyResult(status :: String,
-                           target :: FormalOutputPattern,
-                           assignments :: List.of(FormalAssignment) = [],
-                           output :: maybe(FormalOutputWitness) = #false,
-                           diagnostic :: maybe(FormalDiagnostic) = #false,
-                           assumptions :: List.of(FormalAssumption) = []):
-  method proved(): status == "proved"
-  method counterexample(): status == "counterexample"
-  method vacuous(): status == "vacuous"
-  method unsupported(): status == "unsupported"
-  method unknown(): status == "unknown"
-
-  method describe():
-    match status
-    | "proved": "proved"
-    | "counterexample":
-        if output
-        | String.append("counterexample with ", output.port, " = ",
-                        to_string(output.packed_value))
-        | "counterexample"
-    | "vacuous" || "unsupported" || "unknown":
-        if diagnostic | status ++ ": " ++ diagnostic.message | status
-    | ~else: status
-
+/* Validate assumptions against the top and encode them as immutable solver inputs. */
 fun formal_query_snapshot(query :: FormalQuery,
                           top :: Module,
                           who :: Symbol):
@@ -163,27 +113,7 @@ fun formal_query_snapshot(query :: FormalQuery,
 
   PairList[& snapshots]
 
-fun formal_output_pattern_snapshot(target :: FormalOutputPattern,
-                                   top :: Module,
-                                   who :: Symbol):
-  def port = top.outputs.find(fun (candidate): candidate.name == target.port)
-  unless port
-  | error(~who: who,
-          "formal output target references unknown output " ++ target.port)
-
-  def width = port.type.packed_width()
-  def care:
-    if target.care is_a Nat
-    | target.care
-    | (1 << width) - 1
-
-  def limit = 1 << width
-  unless target.value < limit && care < limit && (target.value bits.and care) == target.value
-  | error(~who: who,
-          "formal output target has an invalid packed pattern")
-
-  rkt.hash("port", target.port, "value", target.value, "care", care)
-
+/* Find the first mismatch between the two public port signatures. */
 fun interface_error(left_top :: Module, right_top :: Module):
   fun compare(kind :: String,
               left_ports :: List.of(Port),
@@ -214,15 +144,19 @@ fun interface_error(left_top :: Module, right_top :: Module):
   def input_error = compare("input", left_top.inputs, right_top.inputs)
   input_error || compare("output", left_top.outputs, right_top.outputs)
 
+/* Attach an interface-level explanation to the top module. */
 fun interface_diagnostic(top :: Module, message :: String):
   FormalDiagnostic(top.name, #false, #false, #false, #false, message)
 
+/* Access a required field in an engine result record. */
 fun entry_value(entry :: ReadableMap, key :: String):
   rkt.#{hash-ref}(entry, key)
 
-fun optional_string(value :: maybe(String)):
+/* Normalize diagnostic text from Racket, including mutable occurrence paths. */
+fun optional_string(value :: maybe(satisfying(rkt.#{string?}))):
   value ?> to_string
 
+/* Recover the occurrence and source information for a solver diagnostic. */
 fun convert_diagnostic(raw :: maybe(ReadableMap)):
   raw ?> fun (raw):
     FormalDiagnostic(optional_string(entry_value(raw, "module_path")),
@@ -232,6 +166,7 @@ fun convert_diagnostic(raw :: maybe(ReadableMap)):
                      optional_string(entry_value(raw, "origin")),
                      to_string(entry_value(raw, "message")))
 
+/* Associate concrete assignments and differences with their Rhodium port types. */
 fun convert_engine_result(raw :: satisfying(engine.formal_engine_result),
                           left_top :: Module,
                           query :: FormalQuery):
@@ -271,6 +206,7 @@ fun convert_engine_result(raw :: satisfying(engine.formal_engine_result),
                convert_diagnostic(engine.engine_result_diagnostic(raw)),
                query.assumptions)
 
+/* Compare verified tops over shared inputs and replay any counterexample. */
 fun check_equivalent(left :: DesignElaboration || Module || Design,
                      right :: DesignElaboration || Module || Design,
                      query :: FormalQuery = FormalQuery()):
@@ -288,115 +224,3 @@ fun check_equivalent(left :: DesignElaboration || Module || Design,
       left_top,
       query
     )
-
-fun convert_reachability_result(raw :: satisfying(engine.formal_reachability_result),
-                                top :: Module,
-                                target :: FormalOutputPattern,
-                                query :: FormalQuery):
-  def status = to_string(engine.reachability_result_status(raw))
-  def raw_assignments = PairList.to_list(engine.reachability_result_inputs(raw))
-  def assignments:
-    raw_assignments.map(
-      fun (entry):
-        def name = to_string(entry_value(entry, "port"))
-        def port = top.inputs.find(fun (candidate): candidate.name == name)
-        unless port
-        | error(~who: #'check_reachable,
-                "formal engine returned an unknown input port " ++ name)
-
-        FormalAssignment(name, port.type, entry_value(entry, "value"))
-    )
-
-  def raw_output = engine.reachability_result_output(raw)
-  def output:
-    if raw_output
-    | block:
-        def name = to_string(entry_value(raw_output, "port"))
-        def port = top.outputs.find(fun (candidate): candidate.name == name)
-        unless port
-        | error(~who: #'check_reachable,
-                "formal engine returned an unknown output port " ++ name)
-
-        FormalOutputWitness(name, port.type, entry_value(raw_output, "value"))
-    | #false
-
-  FormalReachabilityResult(
-    status,
-    target,
-    assignments,
-    output,
-    convert_diagnostic(engine.reachability_result_diagnostic(raw)),
-    query.assumptions
-  )
-
-fun check_reachable(subject :: DesignElaboration || Module || Design,
-                    target :: FormalOutputPattern,
-                    query :: FormalQuery = FormalQuery()):
-  def top = formal_subject_top(subject)
-  def target_snapshot = formal_output_pattern_snapshot(target, top, #'check_reachable)
-  def query_snapshot = formal_query_snapshot(query, top, #'check_reachable)
-  convert_reachability_result(
-    engine.check_reachable_snapshot(formal_snapshot(subject),
-                                    target_snapshot,
-                                    query_snapshot),
-    top,
-    target,
-    query
-  )
-
-fun convert_property_result(raw :: satisfying(engine.formal_property_result),
-                            top :: Module,
-                            target :: FormalOutputPattern,
-                            query :: FormalQuery):
-  def status = to_string(engine.property_result_status(raw))
-  def raw_assignments = PairList.to_list(engine.property_result_inputs(raw))
-  def assignments:
-    raw_assignments.map(
-      fun (entry):
-        def name = to_string(entry_value(entry, "port"))
-        def port = top.inputs.find(fun (candidate): candidate.name == name)
-        unless port
-        | error(~who: #'check_output_property,
-                "formal engine returned an unknown input port " ++ name)
-
-        FormalAssignment(name, port.type, entry_value(entry, "value"))
-    )
-
-  def raw_output = engine.property_result_output(raw)
-  def output:
-    if raw_output
-    | block:
-        def name = to_string(entry_value(raw_output, "port"))
-        def port = top.outputs.find(fun (candidate): candidate.name == name)
-        unless port
-        | error(~who: #'check_output_property,
-                "formal engine returned an unknown output port " ++ name)
-
-        FormalOutputWitness(name, port.type, entry_value(raw_output, "value"))
-    | #false
-
-  FormalPropertyResult(
-    status,
-    target,
-    assignments,
-    output,
-    convert_diagnostic(engine.property_result_diagnostic(raw)),
-    query.assumptions
-  )
-
-fun check_output_property(subject :: DesignElaboration || Module || Design,
-                          target :: FormalOutputPattern,
-                          query :: FormalQuery = FormalQuery()):
-  def top = formal_subject_top(subject)
-  def target_snapshot:
-    formal_output_pattern_snapshot(target, top, #'check_output_property)
-
-  def query_snapshot = formal_query_snapshot(query, top, #'check_output_property)
-  convert_property_result(
-    engine.check_property_snapshot(formal_snapshot(subject),
-                                   target_snapshot,
-                                   query_snapshot),
-    top,
-    target,
-    query
-  )

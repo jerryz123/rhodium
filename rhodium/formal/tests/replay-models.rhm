@@ -19,29 +19,6 @@ fun require_counterexample(label, left, right, query = FormalQuery()):
 
   result
 
-fun require_reachable(label, subject, target, query = FormalQuery()):
-  def result = check_reachable(subject, target, query)
-  unless result.reachable()
-  | error(~who: #'replay_models,
-          label ++ " did not produce a reachability witness: " ++ result.describe())
-
-  result
-
-fun require_property_proved(label, subject, target, query = FormalQuery()):
-  def result = check_output_property(subject, target, query)
-  unless result.proved()
-  | error(~who: #'replay_models,
-          label ++ " did not prove: " ++ result.describe())
-
-fun require_property_counterexample(label, subject, target,
-                                    query = FormalQuery()):
-  def result = check_output_property(subject, target, query)
-  unless result.counterexample()
-  | error(~who: #'replay_models,
-          label ++ " did not produce a property counterexample: " ++ result.describe())
-
-  result
-
 fun assignment(result, port):
   def found = result.assignments.find(fun (candidate): candidate.port == port)
   unless found
@@ -121,35 +98,3 @@ emit("ONEHOT_B", assignment(onehot_result, "b"))
 emit("ONEHOT_C", assignment(onehot_result, "c"))
 emit("ONEHOT_REFERENCE", onehot_difference.left_value)
 emit("ONEHOT_DEFECT", onehot_difference.right_value)
-
-def reachability_result:
-  require_reachable("one-hot output",
-                    fixture.onehot_candidate,
-                    FormalOutputPattern("result", 7),
-                    onehot_query)
-
-emit("REACH_SELECTOR", assignment(reachability_result, "selector"))
-emit("REACH_A", assignment(reachability_result, "a"))
-emit("REACH_B", assignment(reachability_result, "b"))
-emit("REACH_C", assignment(reachability_result, "c"))
-emit("REACH_OUTPUT", reachability_result.output.packed_value)
-
-require_property_proved(
-  "fixed one-hot output",
-  fixture.onehot_candidate,
-  FormalOutputPattern("result", 7),
-  FormalQuery([FormalOneHotAssumption("selector"),
-               FormalInputAssumption("a", 7),
-               FormalInputAssumption("b", 7),
-               FormalInputAssumption("c", 7)]))
-def property_result:
-  require_property_counterexample("unconstrained one-hot output",
-                                  fixture.onehot_candidate,
-                                  FormalOutputPattern("result", 7),
-                                  onehot_query)
-
-emit("PROPERTY_SELECTOR", assignment(property_result, "selector"))
-emit("PROPERTY_A", assignment(property_result, "a"))
-emit("PROPERTY_B", assignment(property_result, "b"))
-emit("PROPERTY_C", assignment(property_result, "c"))
-emit("PROPERTY_OUTPUT", property_result.output.packed_value)

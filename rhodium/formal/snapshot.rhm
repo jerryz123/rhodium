@@ -10,9 +10,11 @@ export:
   formal_subject_top
   formal_snapshot
 
+/* Convert a Rhombus list to the list representation read by Racket. */
 fun to_pair_list(elements :: List):
   PairList[& elements]
 
+/* Require an explicitly selected, owned top rather than guessing a design root. */
 fun formal_subject_top(subject :: DesignElaboration || Module || Design):
   cond
   | subject is_a DesignElaboration:
@@ -30,6 +32,7 @@ fun formal_subject_top(subject :: DesignElaboration || Module || Design):
       error(~who: #'formal_snapshot,
             "formal subject must be a DesignElaboration or completed Module")
 
+/* Encode the packed layout or special kind of a hardware type. */
 fun type_snapshot(type :: HardwareType):
   cond
   | scalar_data_type(type):
@@ -64,12 +67,14 @@ fun type_snapshot(type :: HardwareType):
                "text", type.describe(),
                "width", type.packed_width())
 
+/* Record a value's type and its defining operation identity. */
 fun value_snapshot(value :: Value):
   rkt.hash("id", value.id,
            "name", value.name,
            "type", type_snapshot(value.type),
            "defining_operation", value.defining_op_id)
 
+/* Record the owning operation and driver for a writable place. */
 fun place_snapshot(place :: Place):
   rkt.hash("id", place.id,
            "name", place.name,
@@ -77,6 +82,7 @@ fun place_snapshot(place :: Place):
            "owner_operation", place.owner_op_id,
            "driver", place.driver?.id)
 
+/* Encode port direction, type, and graph bindings for later interpretation. */
 fun port_snapshot(port :: Port):
   rkt.hash("name", port.name,
            "direction", port.direction,
@@ -85,6 +91,7 @@ fun port_snapshot(port :: Port):
            "place", port.place?.id,
            "driver", port.place?.driver?.id)
 
+/* Copy only attributes required to interpret the supported opcodes. */
 fun operation_attributes_snapshot(operation :: Operation):
   match operation.opcode
   | "rtl.constant":
@@ -110,6 +117,8 @@ fun operation_attributes_snapshot(operation :: Operation):
       rkt.hash("field", operation.attribute("field"))
   | "rtl.vector_get":
       rkt.hash("index", operation.attribute("index"))
+  | "rtl.register" || "rtl.register_reset":
+      rkt.hash("name", operation.attribute("name"))
   | "rtl.instance":
       def child = operation.attribute("module")
       rkt.hash("name", operation.attribute("name"),
@@ -117,6 +126,7 @@ fun operation_attributes_snapshot(operation :: Operation):
   | ~else:
       rkt.hash()
 
+/* Detach an opcode, its bindings, and its source identity from live IR. */
 fun operation_snapshot(operation :: Operation):
   rkt.hash(
     "id", operation.id,
@@ -129,6 +139,7 @@ fun operation_snapshot(operation :: Operation):
     "origin", operation.origin.describe()
   )
 
+/* Collect one module's ordered ports and local graph tables. */
 fun module_snapshot(module_def :: Module):
   rkt.hash(
     "id", module_def.id,
@@ -140,8 +151,10 @@ fun module_snapshot(module_def :: Module):
     "operations", to_pair_list(module_def.operations.map(operation_snapshot))
   )
 
+/* Collect each reachable definition once starting from the explicit top. */
 fun reachable_modules(top :: Module):
   def mutable modules = []
+  /* Record this definition once, then follow its child instances. */
   fun visit(module_def :: Module):
     unless modules.find(fun (candidate): candidate === module_def)
     | modules := modules ++ [module_def]

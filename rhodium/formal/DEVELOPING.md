@@ -17,17 +17,47 @@ replays any model concretely before returning it.
 ```mermaid
 flowchart LR
   Subject["Verified design and explicit top"] --> Snapshot["snapshot.rhm<br/>closed supported hierarchy"]
-  Query["FormalQuery and output pattern"] --> Engine["engine.rkt<br/>Rosette translation and solving"]
+  Query["FormalQuery input assumptions"] --> Engine["engine.rkt<br/>Rosette translation and solving"]
   Snapshot --> Engine
   Engine --> Replay["Concrete replay"]
-  Replay --> Result["Formal result or witness"]
+  Replay --> Result["Equivalence result or counterexample"]
 ```
 
 [`main.rhm`](main.rhm) owns the public Rhombus API and result construction.
 [`snapshot.rhm`](snapshot.rhm) owns backend-independent traversal and immutable
-input to the solver boundary. [`engine.rkt`](engine.rkt) is the sole Rosette
+input to the solver boundary. [`engine.rkt`](engine.rkt) is the sole production Rosette
 interoperability module. Core, frontend, and backend packages must not import
 the formal engine.
+
+### Register-transition foundation
+
+The internal engine API `prepare_transition_snapshot(snapshot, clock)` lowers a
+verified single-clock hierarchy once. It expands each register occurrence into
+a synthetic current-state input and next-state output of a combinational
+snapshot; the existing packed interpreter owns all arithmetic and aggregate
+semantics. Resolve instance ports lazily by value, not by eagerly evaluating all
+child inputs: feedback through a child register must not become a false
+combinational cycle. Retain outputless instances, unused partial operations,
+and occurrence/source diagnostics. Unsupported operations fail before lowering.
+
+`transition_registers(plan)` returns deterministic descriptors keyed by
+`Top.instance.register`. `symbolic_transition_state(plan)` creates independent,
+unconstrained bitvectors for every register, including resettable registers;
+`symbolic_transition_inputs(plan)` creates fresh data/reset samples, excluding
+the selected clock. These are internal solver objects, not authoring values.
+
+`step_transition(plan, state, inputs)` requires complete, exact-name assignments
+with packed naturals or exact-width bitvectors. It returns pre-edge outputs and
+a separate simultaneous next-state map, without mutating the plan or prior
+state. Reset selects the reset value only on that sampled edge. There is no
+implicit initialization, reset prefix, input forcing, or clock waveform: one
+call means one rising edge of the explicitly selected top-level Clock. Only
+structural clock aliases are admitted.
+
+The step also returns domain obligations for partial operations, including
+unused operations in outputless children. `transition_step_validity(step)` is
+their conjunction, **not a proof**. Concrete invalid domains are rejected. The
+public combinational query API retains its existing restrictions.
 
 ## Extend supported semantics
 
@@ -45,7 +75,9 @@ the formal engine.
 6. Add focused valid, counterexample, unsupported, invalid-argument, and vacuous
    coverage as applicable.
 
-Sequential state, memories, assertions, DPI, partial values, and new operations
+Outside the internal register-transition path, sequential state remains unsupported.
+The stepper rejects verification effects, including ordinary RTL assertions.
+Memories, DPI, partial values, and new operations
 remain unsupported until each receives an explicit semantic model. Do not
 silently ignore a reachable operation or restrict the query to one convenient
 backward slice.
@@ -65,9 +97,8 @@ Result statuses must distinguish proved facts, counterexamples, vacuity,
 unsupported semantics, and solver uncertainty. Invalid API arguments remain
 errors rather than formal statuses.
 
-Any returned assignment must be complete, nonnegative, and replayable. Preserve
-the complete concrete output value even when a target pattern cares about only
-some bits.
+Every counterexample must contain complete, nonnegative input assignments and
+concrete differences at the paired outputs.
 
 ## Validation
 
@@ -87,9 +118,19 @@ moon run rhodium:formal-differential-test
 The differential test exercises all 128 reduced-width unequal-shift inputs, 80
 aggregate layouts and projections, 256 hierarchical arithmetic inputs, eight
 decode selectors, and 12,288 valid one-hot selections against independent
-SystemVerilog oracles. It also covers a constrained reachability witness, a
-proved output property, and a property counterexample.
+SystemVerilog oracles.
 
 The formal target performs a live Rosette/Z3 probe under an isolated compiled
 root. State the actual solver and external-tool coverage run; an import-only
 probe is not equivalent to solving or differential replay.
+
+`tests/transition-test.rhm` applies concrete recurrence oracles and solver checks
+to snapshots built with the public Builder: counter wrap/reset, pre-update
+sampling, resetless pipelines, packed vector state, repeated child registers,
+hierarchical feedback, outputless state, explicit initial-state validation, and
+partial-operation obligations. It is included in `moon run rhodium:formal-test`.
+`tests/run-transition.py --circt` compares a defined pre-edge trace with an
+independent Python recurrence, native rsim under sanitizers, direct SV, and
+CIRCT SV. It runs in `moon run rhodium:formal-differential-test`; undefined startup values
+are not compared, and uninitialized unrelated feedback state is not treated as
+portable zero. All generated artifacts are temporary.

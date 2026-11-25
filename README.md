@@ -43,7 +43,7 @@ for change validation and configured simulator or benchmark workflows.
   does not require it
 - Verilator and a C++ toolchain for Verilator-based simulations; standalone
   Rsim models require a C++17 toolchain but neither CIRCT nor Verilator
-- Rosette only for optional equivalence, reachability, and output-property tests
+- Rosette only for optional formal equivalence and RTL transition tests
 
 On a Homebrew-based macOS setup:
 
@@ -313,8 +313,7 @@ SystemVerilog.
   standalone Perfetto export
 - [`rhodium/backend/README.md`](rhodium/backend/README.md) — CIRCT lowering,
   direct SystemVerilog emission, and Rsim C++ simulation
-- [`rhodium/formal/README.md`](rhodium/formal/README.md) — Rosette equivalence,
-  reachability, and output properties
+- [`rhodium/formal/README.md`](rhodium/formal/README.md) — Rosette equivalence and RTL transition semantics
 - [`tools/testing/README.md`](tools/testing/README.md) and
   [`tools/testing/DEVELOPING.md`](tools/testing/DEVELOPING.md) — running validation and
   maintaining the test architecture
@@ -385,8 +384,7 @@ Current capabilities include:
   Verilator-based simulation harnesses, within each backend's supported subset.
 - Ordered RTL instrumentation passes, including event tracing, with verified
   output graphs and preserved top-level interfaces and instance paths.
-- Optional Rosette-backed equivalence, reachability, and universal output
-  properties over verified IR.
+- Optional Rosette-backed combinational equivalence over verified IR.
 - Backend-independent clock/reset inventory, temporal-provenance reports, CDC
   violations, and structurally verified stable-level crossing evidence.
 - Logical diagrams plus RFPL physical annotations that leave logical IR and
