@@ -335,6 +335,14 @@ bundle VectorBeat(xlen :: XLen, vlen :: VectorLength):
   compress_count: Bits(vector_lane_count_width(xlen))
   compress_destination: Bits(index_width(vlen + 1))
 
+  /* Extracts and the final scalar scan beat produce one integer register write. */
+  method returns_gpr(beat) :: Bool:
+    vector_writes_gpr(beat.control) & (vector_scalar_move(beat.control) ||| (vector_scan(beat.control) & beat.last))
+
+  /* Only a scalar FP extract writes an FPR; vector FP arithmetic writes the VRF. */
+  method returns_fpr(beat) :: Bool:
+    vector_writes_fpr(beat.control) & vector_scalar_move(beat.control)
+
   /* Compression emits left and checkpoints right. Other operations use right as an
      operand and must never authorize it as suffix data. */
   method compress_state(beat) :: VectorCompressState(xlen, vlen):

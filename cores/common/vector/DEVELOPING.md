@@ -228,10 +228,17 @@ single sequencer; neither imports distributed scheduling logic.
 | `profile.rhm` | Shared scalar/vector capability validation and execution half-precision selection |
 | `fp.rhdl`, `muldiv.rhdl` | Shared arithmetic operands and tagged result conversion |
 
-Packed multiply selection is a host choice on `VectorExecution`, forwarded to
-the sequencer, operand fetch, and execute geometry. The shared
-`vector_packed_multiply` predicate keeps subword bank selection consistent;
-full-width operations remain singleton scalar-service requests. Keep source
+Packed multiply selection is a host choice on `VectorExecution`. Scheduling
+and operand issue use the same `vector_packed_multiply` predicate. Once the
+operand mask is known, the accepted issue beat carries its FP, multiply/divide,
+and packed-product enables through the flushable EX register. EX uses those
+enables for result formatting and service dispatch. Packed products use the
+per-lane write mask even if lane zero is inactive; singleton services launch
+only for an enabled lane zero. GPR and FPR return strobes capture a live
+non-memory issue on the same edge as the EX operands, with the same replay
+kill. EX still supplies the destination and formatted data; the mature beat
+checks that neither a return nor a same-cycle owner replacement moved.
+Keep source
 rows narrow for widening multiplication: the numeric formatter selects the
 product half, while operand fetch remaps that half's enables and reads a full
 destination-width old-vd row. Do not widen inputs through the ALU packing path.

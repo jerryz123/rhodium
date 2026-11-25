@@ -71,6 +71,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   /* Carries a resolved operand beat and its separate instruction owner/completion slot through
      execution. */
   bundle OwnedBeat():
+    services: VectorBeatServices()
     beat: VectorBeat(xlen, vlen)
     tag: SlotId
     owner: InstructionId
@@ -150,7 +151,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   /* Fixed execute and memory-result stages */
 
   inst ex_pipe(ValidPipe(OwnedBeat(), 1, ~flushable: #true))
-  inst execute(VectorExecute(xlen, vlen, ~packed_multiply: packed_multiply))
+  inst execute(VectorExecute(xlen, vlen))
   inst memory_pipe(ValidPipe(OwnedResult, 2, ~flushable: #true))
   def decision_tag = decision.bits.tag
   def feedback_packed = entry_packed[decision_tag]
@@ -458,6 +459,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
 
   (
     operands |> filter_flow(operation => !operation.packed) |> map_flow(operation => OwnedBeat()):
+      services: vector_beat_services(xlen, vlen, operation.beat, ~packed_multiply: packed_multiply)
       beat: operation.beat
       tag: allocate_slot
       owner: operation.context.owner
@@ -466,10 +468,20 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
       precertified: operation.context.precertified
   ) |> to_valid() |> ex_pipe.ingress
 
+  /* Scalar return strobes share the EX transfer and flush edge. These beats
+     cannot wait for a variable-latency service; only their data is formed in EX. */
+  def entering :: VectorBeat(xlen, vlen) = ex_pipe.ingress.bits.beat
+  def entering_compute = ex_pipe.ingress.valid & !replay & !entering.control.memory
+  reg ex_gpr_return(~init: Bool(#false))
+  reg ex_fpr_return(~init: Bool(#false))
+  ex_gpr_return <== entering_compute & entering.returns_gpr()
+  ex_fpr_return <== entering_compute & entering.returns_fpr()
+
   def ex_beat :: VectorBeat(xlen, vlen) = ex_pipe.egress.bits.beat
   def ex_reduction = (ex_beat.control.integer ||| ex_beat.control.fp_service) & vector_reduction(ex_beat.control)
   def ex_effective_beat = ex_beat.updated(~right: mux(ex_reduction & ex_beat.first.any(), recurrence, ex_beat.right))
   execute.beat <== ex_effective_beat
+  execute.services <== ex_pipe.egress.bits.services
   // Dependent scans start at element zero. Seed in EX, not on younger admission.
   def scan_seed = mux(ex_beat.control.scan_control.result === VectorScanResult.First, !Bits(xlen.width)(0), Bits(xlen.width)(0))
   execute.scan_carry <== mux(ex_beat.first.any(), recurrence, scan_seed)
@@ -484,7 +496,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def Array(compute_route, memory_route) = executed |> to_decoupled() |> demux_flow(2, result => result.beat.memory)
   def compute_maturity = compute_route |> to_valid()
   def Array(fp_compute, multiply_compute, divide_compute, completion_compute, instruction_compute, resolution_compute, simd_compute) = compute_maturity |> fork_valid(7)
-  def ex_simd_multiply = vector_packed_multiply(xlen, ex_effective_beat.control, ex_effective_beat.element_width.as_bits(), packed_multiply)
+  def ex_simd_multiply = ex_pipe.egress.bits.services.packed_product
   def compute_result = compute_maturity.bits
   def compute_beat = compute_result.beat
   def compute_owner = compute_result.owner
@@ -759,8 +771,12 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   assert(!(completions.write.valid & packed.write.valid) & !(splat.write.valid & (completions.write.valid ||| packed.write.valid)), "vector_write_owners_exclusive")
   completions.fp_update |> fp_update
   completions.saturate |> saturate
-  completions.scalar_result |> scalar_result
-  completions.floating_result |> floating_result
+  scalar_result.valid <== ex_gpr_return
+  scalar_result.bits <== completions.scalar_result.bits
+  floating_result.valid <== ex_fpr_return
+  floating_result.bits <== completions.floating_result.bits
+  assert(ex_gpr_return === completions.scalar_result.valid, "vector_gpr_strobe_matches_mature_beat")
+  assert(ex_fpr_return === completions.floating_result.valid, "vector_fpr_strobe_matches_mature_beat")
 
   /* Instruction resolution and retirement */
 

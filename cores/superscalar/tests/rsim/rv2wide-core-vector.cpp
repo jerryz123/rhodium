@@ -32,6 +32,7 @@ std::map<std::uint64_t, unsigned> memory_cycles;
 std::map<std::uint64_t, unsigned> retirement_cycles;
 std::map<std::uint64_t, unsigned> retirement_lanes;
 std::map<unsigned, unsigned> vector_fpr_write_cycles;
+std::map<unsigned, unsigned> vector_fpr_write_counts;
 std::map<std::uint64_t, std::uint64_t> retirement_values;
 struct GprCompletion { unsigned cycle, rd, instruction; std::uint64_t value; };
 std::map<std::uint64_t, std::vector<GprCompletion>> gpr_completions;
@@ -189,7 +190,10 @@ extern "C" void superscalar_vector_admission(std::uint64_t resetting, std::uint6
   if (!resetting && valid && ready)
     vector_trace::admission_cycles.emplace(pc, cycle);
   if (!resetting && valid && !ready) ++vector_trace::rejections;
-  if (!resetting && floating_write) vector_fpr_write_cycles[floating_address] = cycle;
+  if (!resetting && floating_write) {
+    vector_fpr_write_cycles[floating_address] = cycle;
+    ++vector_fpr_write_counts[floating_address];
+  }
 }
 extern "C" void superscalar_vector_dispatch(std::uint64_t resetting, std::uint64_t valid,
     std::uint64_t ready, std::uint64_t pc, std::uint64_t instruction, std::uint64_t released) {
@@ -1292,6 +1296,39 @@ void vector_gpr_owner_overlap() {
             << replacements << " same-cycle owner replacements\n";
 }
 
+void masked_scan_gpr_returns() {
+  run(60);
+  // Each source byte is 0x55 and each mask byte is 0x0c: only bit 2 survives.
+  setvl(0, bytes * 2);
+  send(addi(2, 0, 0x55));
+  send(vi(23, 0, 2, 4, 8));
+  send(addi(2, 0, 0x0c));
+  send(vi(23, 0, 2, 4, 0));
+
+  for (unsigned vl : {bytes * 8 + 3, 0u}) {
+    send(addi(2, 0, vl));
+    send(vsetvli(5, 2, 3)); // e8,m8: one full mask word and three more bits, or empty
+    CHECK(gprs[5] == vl);
+    for (unsigned op : {16u, 17u}) { // vcpop.m / vfirst.m, masked by v0
+      const auto pc = next_pc;
+      const auto scan = vi(16, 8, op, 2, 22) & ~(1u << 25);
+      resolve_pc = pc; // Replay the first attempt before the descriptor is authorized.
+      resolve_disposition = 2;
+      stream({scan, addi(23, 22, 1)}, false, true);
+      run(20);
+      const auto expected = op == 16 ? (vl ? bytes + 1u : 0u) :
+          (vl ? UINT64_C(2) : (bytes == 8 ? UINT64_MAX : UINT32_MAX));
+      const auto &beats = vector_trace::sequence_cycles.at(pc);
+      const auto &returns = gpr_completions.at(pc);
+      CHECK(vector_trace::admission_counts.at(pc) == 1);
+      CHECK(beats.size() == (vl ? 2 : 1));
+      CHECK(returns.size() == 1 && returns.front().cycle > beats.back());
+      CHECK(returns.front().rd == 22 && returns.front().value == expected);
+      CHECK(gprs[23] == ((expected + 1) & (bytes == 8 ? UINT64_MAX : UINT32_MAX)));
+    }
+  }
+}
+
 // Certify a store while an older gather owns the sequencer. A younger scalar
 // load of the last word must wait for the actual store, not its early outcome.
 void checked_store_scalar_ordering() {
@@ -1630,6 +1667,14 @@ void conflict_based_pairing() {
     run(40);
     const auto vector_read = vi(23, 0, 3, 5, 9);
     const auto vector_write = vi(16, 8, 0, 1, 3); // vfmv.f.s f3,v8
+    const auto prior_writes = vector_fpr_write_counts[3];
+    kill_younger(vector_write);
+    run(20);
+    CHECK(vector_fpr_write_counts[3] == prior_writes);
+    resolve_pc = next_pc;
+    resolve_disposition = 2;
+    stream({vector_write, read}, false, true);
+    CHECK(vector_fpr_write_counts[3] == prior_writes + 1 && gprs[12] == 7);
     // Two FPR read bundles conflict even with different source registers.
     send((0x69u << 25) | (2 << 15) | (4 << 7) | 0x53);
     const auto read_other = (0x61u << 25) | (4 << 15) | (12 << 7) | 0x53;
@@ -2335,6 +2380,7 @@ int main() {
     paired_scalar_configurations();
     independent_vector_scalar_pairs();
     vector_gpr_owner_overlap();
+    masked_scan_gpr_returns();
     checked_store_scalar_ordering();
     vector_memory_start_overlap();
     paired_vector_stores();

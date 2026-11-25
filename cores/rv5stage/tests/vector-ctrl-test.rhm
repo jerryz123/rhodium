@@ -95,6 +95,12 @@ for (row in VectorControlCases ++ VectorZvbbCases):
     check value(row.output.care, enable) ~is 1
     unless compute
     | check value(row.output.value, enable) ~is 0
+
+  when compute && value(row.output.value, "result_kind") == VectorResultKind.Gpr.packed_value()
+  | check:
+      value(row.output.value, "fp_service") ~is 0
+      value(row.output.value, "multiply_divide") ~is 0
+
   def integer_fold = compute && value(row.output.value, "integer") == 1 && value(row.output.value, "sequence") == VectorSequence.Reduction.packed_value()
   check:
     value(row.output.care, "compute_family") ~is (if compute | 2 ** VectorComputeFamily.packed_width() - 1 | 0)

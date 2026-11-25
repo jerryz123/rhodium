@@ -113,8 +113,10 @@ void check_case(unsigned sew, unsigned op, bool vx, unsigned variant, unsigned r
   std::array<std::uint8_t,64> expected{};
   for (unsigned i = 0; i < (wide ? 64u : 32u); ++i) expected[i] = mem[512+i];
   bool expect_sat = false;
+  unsigned active_elements = 0;
   for (unsigned i = start; i < length; ++i) {
     if (masked && !(mem[i/8] & (1u << (i%8)))) continue;
+    ++active_elements;
     auto a = get(256+i*bytes, bytes), b = vx ? std::uint64_t(scalar_value)&mask(bits) : get(384+i*bytes, bytes);
     auto old = get(512+i*outbytes, outbytes);
     bool sa = fractional || op == 38 || op == 39 || op == 58 || op == 59 || op == 61 || op == 62;
@@ -137,7 +139,7 @@ void check_case(unsigned sew, unsigned op, bool vx, unsigned variant, unsigned r
     else if (op == 47) result = old - result;
     for (unsigned j = 0; j < outbytes; ++j) expected[i*outbytes+j] = result >> (8*j);
   }
-  const unsigned oldbeats=beats, oldscalar=scalar_count, oldsat=saturation;
+  const unsigned oldbeats=beats, oldscalar=scalar_count, oldsat=saturation, oldfp=fp_count;
   issue_cycles.clear();
   // Packed work must not depend on scalar multiplier readiness.
   scalar_available = bits == W;
@@ -147,8 +149,9 @@ void check_case(unsigned sew, unsigned op, bool vx, unsigned variant, unsigned r
   const unsigned first = start & ~(lanes-1);
   CHECK(beats-oldbeats == (length-first+lanes-1)/lanes);
   CHECK((saturation != oldsat) == expect_sat);
+  CHECK(scalar_count - oldscalar == (bits == W ? active_elements : 0));
+  CHECK(fp_count == oldfp);
   if (bits < W) {
-    CHECK(scalar_count == oldscalar);
     // The first bankful runs without inter-beat bubbles, including widened beats.
     for (unsigned i = 1; i < std::min<std::size_t>(8,issue_cycles.size()); ++i)
       CHECK(issue_cycles[i] == issue_cycles[i-1]+1);
@@ -194,6 +197,16 @@ void overlaps() {
   for (unsigned i=0;i<1024;++i) mem[i]=0;
   for (unsigned i=0;i<32;++i) { mem[256+i]=2; mem[384+i]=3; }
   load(8,256); load(12,384); load(16,512); load(20,640); load(24,768);
+  // Follow a packed product with a fully masked FP beat. With no FP reply
+  // offered, the second instruction must finish locally and leave vd intact.
+  load(0,0);
+  const unsigned prior_fp = fp_count;
+  launch(multiply(37,false,false,false),0,32);
+  launch((8u<<20)|(12u<<15)|(1u<<12)|(20u<<7)|0x57,2,1);
+  drain();
+  CHECK(fp_count == prior_fp);
+  dump(20,2048,4); CHECK(get(2048,4) == 0);
+
   // Older full-width requests wait at the scalar boundary while younger
   // subword beats use the dedicated banks. Both return calendars stay live.
   scalar_available=0;

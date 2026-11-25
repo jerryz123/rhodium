@@ -4,7 +4,6 @@
 
 import:
   "decode.rhdl".vector_writes_gpr
-  "decode.rhdl".vector_writes_fpr
   "decode.rhdl".vector_packed_mask_rows
   "decode.rhdl".vector_writes_mask
   "decode.rhdl".VectorPermutationKind
@@ -32,11 +31,27 @@ import:
   lib("rhodium/std/ready-valid.rhdl") open
   lib("rhodium/std/bits.rhdl").expand_mask
 
+/* Arithmetic service enables travel with the operand beat. A packed product
+   still launches when lane zero is masked; its write mask selects the live lanes. */
+bundle VectorBeatServices():
+  floating: Bool
+  multiply_divide: Bool
+  packed_product: Bool
+
+/* Resolves service selection once the operand mask is known, before EX. */
+fun vector_beat_services(xlen :: XLen, vlen :: VectorLength, beat :: VectorBeat(xlen, vlen), ~packed_multiply: packed_multiply :: Boolean = #false) :~ VectorBeatServices():
+  def packed = vector_packed_multiply(xlen, beat.control, beat.element_width.as_bits(), packed_multiply)
+  VectorBeatServices():
+    floating: beat.control.fp_service & beat.enabled[0]
+    multiply_divide: beat.control.multiply_divide & (packed ||| beat.enabled[0])
+    packed_product: packed
+
 /* Adapts one beat to the shared SIMD ALU, mask scanner, and destination packer.
    Packed memory alignment reuses the full-word rotate slice; the parent owns
    write scheduling, service completion, and recurrence advancement. */
-circuit VectorExecute(xlen :: XLen, vlen :: VectorLength, ~packed_multiply: packed_multiply :: Boolean = #false):
+circuit VectorExecute(xlen :: XLen, vlen :: VectorLength):
   input beat: VectorBeat(xlen, vlen)
+  input services: VectorBeatServices()
   input scan_carry: Bits(xlen.width)
   interface alignment(Valid(VectorAlignment(xlen)), ~role: consumer)
   output aligned: Bits(xlen.width)
@@ -60,12 +75,12 @@ circuit VectorExecute(xlen :: XLen, vlen :: VectorLength, ~packed_multiply: pack
   def sliding = is_register_slide(beat.control.permutation)
   def gathering = is_register_gather(beat.control.permutation)
   def gather_vector = gather_uses_vs1(beat.control.permutation)
-  def scalar_destination = vector_writes_gpr(beat.control) & (element_move ||| (scanning & beat.last))
-  def floating_scalar_destination = vector_writes_fpr(beat.control) & element_move
+  def scalar_destination = beat.returns_gpr()
+  def floating_scalar_destination = beat.returns_fpr()
   def any_scalar_destination = scalar_destination ||| floating_scalar_destination
   def widening_reduction = integer_reduction & widens_result(beat.control.width_shape)
   def first_lane_enabled = beat.enabled[0]
-  def simd_multiply = vector_packed_multiply(xlen, beat.control, beat.element_width.as_bits(), packed_multiply)
+  def simd_multiply = services.packed_product
 
 
   /* Reduction operand widening
@@ -251,11 +266,11 @@ circuit VectorExecute(xlen :: XLen, vlen :: VectorLength, ~packed_multiply: pack
     element_width: beat.element_width
     memory: beat.control.memory
     floating_point: beat.control.fp_service
-    fp_execute: beat.control.fp_service & first_lane_enabled
+    fp_execute: services.floating
     mask_destination: fp_mask_destination
     fp_result: beat.control.fp.result
     multiply_divide: beat.control.multiply_divide
-    multiply_execute: beat.control.multiply_divide & (simd_multiply ||| first_lane_enabled)
+    multiply_execute: services.multiply_divide
     divide: beat.control.compute_family === VectorComputeFamily.IntDivide
     multiply_accumulate: multiply_accumulate
     multiply_subtract: multiply_accumulate & beat.control.product.subtract
@@ -267,3 +282,5 @@ circuit VectorExecute(xlen :: XLen, vlen :: VectorLength, ~packed_multiply: pack
 
 export:
   VectorExecute
+  VectorBeatServices
+  vector_beat_services

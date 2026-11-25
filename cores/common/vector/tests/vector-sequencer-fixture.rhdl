@@ -105,6 +105,7 @@ sync_circuit VectorSequencerFixture(xlen :: XLen, vlen :: VectorLength, vector_e
   sequencer.cancel.valid <== cancel
   operand_fetch.issue.ready <== Bool(#true)
   execute.beat <== operand_fetch.issue.bits.beat
+  execute.services <== vector_beat_services(xlen, vlen, operand_fetch.issue.bits.beat)
   execute.scan_carry <== Bits(xlen.width)(0)
   pipeline.ingress.valid <== operand_fetch.issue.fire()
   pipeline.ingress.bits <== execute.result

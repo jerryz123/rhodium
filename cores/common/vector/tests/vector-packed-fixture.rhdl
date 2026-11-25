@@ -210,6 +210,7 @@ sync_circuit VectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen = XLen.X6
   engine.aligned <== execute.aligned
   assert(!engine.alignment.valid ||| alignment_available, "packed_alignment_obeys_availability")
   execute.beat <== literal(VectorBeat(xlen, vlen), 0)
+  execute.services <== literal(VectorBeatServices(), 0)
   execute.scan_carry <== Bits(xlen.width)(0)
   request_ready <== launches.left.ready
   active <== sequencer.active ||| operand_fetch.active ||| engine.active

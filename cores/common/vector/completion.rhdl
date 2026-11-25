@@ -305,10 +305,14 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
     assert(!completed[divide_result.bits.tag.slot], "vector_divide_result_completes_once")
 
 
-  /* Scalar destination outputs */
+  /* Scalar destination outputs. Integer extracts and the final GPR scan beat
+     complete locally; their return credit does not depend on arithmetic-service selection. */
+
+  when (compute_maturity.valid & compute_beat.scalar_destination):
+    assert(compute_completes_now, "vector_gpr_return_is_local")
 
   (
-    scalar_compute |> filter_valid(result => compute_completes_now & result.beat.scalar_destination)
+    scalar_compute |> filter_valid(result => result.beat.scalar_destination)
       |> map_valid(result => RegisterFileWrite(xlen)):
            address: result.beat.destination
            data: result.beat.write.data[0..xlen.width]
