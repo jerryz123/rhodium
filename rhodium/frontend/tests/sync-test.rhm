@@ -136,3 +136,12 @@ check:
   verify_design(local_reset_design) ~is #void
   verify_design(local_reset_child_design) ~is #void
   verify_design(explicit_nested_design) ~is #void
+
+for (width in [1, 5]):
+  def expected = composed_fixture.EchoIO(width)
+  def actual = elaborate(composed_fixture.Echo(width)).top
+  check:
+    signature_equal(expected, module_signature(actual)) ~is #true
+    actual.find_output("echo").place.driver === actual.find_input("payload").value ~is #true
+check:
+  elaborate(composed_fixture.ExtraPort()) ~throws "do not match the shared signature"

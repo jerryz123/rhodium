@@ -30,6 +30,7 @@ fileGroups:
   test-formal:
     - "rhodium/formal/tests/suite.rkt"
   test-formal-spec:
+    - "rhodium/formal/tests/arbiter-queue-test.rspl"
     - "rhodium/formal/tests/spec-test.rhm"
     - "rhodium/formal/tests/spec-dsl-test.rspl"
   test-lop-frontend:

@@ -19,7 +19,9 @@ realistic program:
 - Use `lop/` only when comparing authoring surfaces that construct equivalent
   public IR.
 - Keep RFPL annotations beside their logical design in `rfpl/`; keep optional
-  solver-backed examples in `formal/`.
+  solver-backed examples in `formal/`. Keep example-owned RTL alongside its spec.
+  For a library circuit, import its owning declaration directly in the spec.
+  Put deliberately faulty variants in the formal tests.
 
 Do not use an example as the only specification of a feature. The owning
 package README defines the public contract; the example demonstrates it.

@@ -1,0 +1,14 @@
+#lang rhodium
+/* Connects a two-lane fixed-priority arbiter to a FIFO whose capacity is public configuration. */
+// SPDX-License-Identifier: Apache-2.0
+
+import lib("flow/main.rhdl") open
+
+/* Arbitrate lane zero first and buffer each accepted word until the output accepts it. */
+sync_circuit ArbiterQueue(width :: PosInt, ~depth: depth :: PosInt = 2):
+  interface ingress[2](Decoupled(Bits(width)), ~role: consumer)
+  interface egress(Irrevocable(Bits(width)), ~role: producer)
+
+  ingress |> arbiter() |> shift_queue(depth) |> egress
+
+export ArbiterQueue

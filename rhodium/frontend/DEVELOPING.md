@@ -94,6 +94,12 @@ change would make elaboration depend on call order. `build_circuit` also tracks
 active declaration identities to reject recursive elaboration before a partial
 module escapes.
 
+Keep the cache key separate from the boundary visible to a spec. Both circuit
+macros describe non-private argument positions once on the family identity.
+On a cache miss the kernel retains only their resolved integer and Boolean
+values in module metadata. Private and non-scalar arguments still participate
+in specialization exactly as before; do not drop them from the cache key.
+
 When changing generator binding syntax, update parameter normalization in
 [`support/generator-parameters.rhm`](support/generator-parameters.rhm) and test
 positional arguments, keywords, defaults, dependent annotations, stable reuse,

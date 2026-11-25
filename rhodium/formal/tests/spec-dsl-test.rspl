@@ -4,11 +4,58 @@
 import:
   "../spec.rhm".step_spec
   "spec-helper.rhm".both as handshake
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("rhodium/frontend/tests/sync-composed.rhdl") as sync
+  "spec-dsl-fixture.rhdl" as rtl
+
+// Exercise visibility from a consumer, not just lexical lookup inside the defining module.
+import "spec-exports-fixture.rspl" as api
+check:
+  step_spec(api.ParamProbe(elaborate(rtl.ParamProbe(0)).top), Map{}, Map{}).outputs ~is {"bad": #false}
+  api.local_model(elaborate(rtl.Swap(2)).top).outputs["old"].value.type.width ~is 2
+check:
+  ~eval
+  import lib("rhodium/formal/tests/spec-exports-fixture.rspl") as api
+  api.private_value()
+  ~throws "private_value: no such imported identifier"
+check:
+  ~eval
+  import lib("rhodium/formal/tests/spec-exports-fixture.rspl") as api
+  api.Swap
+  ~throws "Swap: no such imported identifier"
+
+// Outer bindings must not be shadowed by either spelling of a private keyword control.
+def fault = #false
+def _fault = #false
+spec for rtl.ParamProbe:
+  observe bad = fault || _fault
+  event offset_sample = const(Bits(4), offset - seed) when enabled
+  event disabled = #true when !enabled
+fun sample_probe(top):
+  step_spec(ParamProbe(top), Map{}, Map{})
+def default_probe = sample_probe(elaborate(rtl.ParamProbe(-2)).top)
+def enabled_probe = sample_probe(elaborate(rtl.ParamProbe(-2, ~gate: #true, ~fault: #true)).top)
+check:
+  default_probe.events ~is {"disabled": #true}
+  enabled_probe.events ~is {"offset_sample": 1}
+  enabled_probe.outputs ~is {"bad": #false}
+  sample_probe(elaborate(rtl.ParamProbe(-2, ~amount: 4, ~gate: #true)).top).events ~is {"offset_sample": 6}
+check:
+  block:
+    spec for rtl.ParamProbe:
+      observe bad = extra
+    ParamProbe(elaborate(rtl.ParamProbe(0)).top)
+  ~throws "not an integer or Boolean RTL parameter: extra"
+
+spec for sync.Echo:
+  observe echo = payload when !reset
+def echo_model = Echo(elaborate(sync.Echo(3)).top)
+check:
+  step_spec(echo_model, Map{}, {"payload": 6, "reset": #false}).outputs ~is {"echo": 6}
+  step_spec(echo_model, Map{}, {"payload": 6, "reset": #true}).outputs ~is Map{}
 
 def stalled = #false
-spec Qualified:
-  input offered: Bool
-  input ready: Bool
+spec for rtl.Qualified:
   fun accepted(ready): handshake(offered, ready)
   fun apply_to(f, pin): f(pin)
   def fired = apply_to(accepted, ready)
@@ -18,9 +65,10 @@ spec Qualified:
   let stalled = !fired
   output stalled_or_idle = stalled
   event transfer = offered when fired
+def qualified = Qualified(elaborate(rtl.Qualified()).top)
 for (a in [#false, #true]):
   for (b in [#false, #true]):
-    def edge = step_spec(Qualified, Map{}, {"offered": a, "ready": b})
+    def edge = step_spec(qualified, Map{}, {"offered": a, "ready": b})
     check:
       edge.outputs ~is {"transfer": a && b, "offered_only": a, "prior": #false, "stalled_or_idle": !(a && b)}
       edge.events ~is (if a && b | {"transfer": #true} | Map{})
@@ -30,22 +78,21 @@ check:
   (#true || error("not reached")) ~is #true
 
 // A specialization chooses the type; a port is a separate lexical model value.
-spec Swap(word_width :: PosInt):
-  input width: Bool
-  input bus.enable: Bool
+spec for rtl.Swap:
   def Word = Bits(word_width)
   state x: Word initially 2 as start_x
   state y: Word initially 0
   state held: Bool initially #true
-  let active = width || bus.enable && !held
+  let active = width || enable && !held
   output old = x when active
   event old = y when active
   next x = select(active, y, start_x)
   next y = x
 
-def m = Swap(3)
-def fire = step_spec(m, m.initial, {"width": #true, "bus.enable": #true})
-def idle = step_spec(m, fire.next_state, {"width": #false, "bus.enable": #true})
+fun swap(width): Swap(elaborate(rtl.Swap(width)).top)
+def m = swap(3)
+def fire = step_spec(m, m.initial, {"width": #true, "enable": #true})
+def idle = step_spec(m, fire.next_state, {"width": #false, "enable": #true})
 check:
   fire.outputs ~is {"old": 2}
   fire.events ~is {"old": 0}
@@ -53,39 +100,41 @@ check:
   idle.outputs ~is Map{}
   idle.events ~is Map{}
   idle.next_state ~is m.initial
-  Swap(1) ~throws "does not fit"
-  Swap(0) ~throws "PosInt"
+  swap(1) ~throws "does not fit"
+  swap(0) ~throws "PosInt"
 
-def lazy_view:
-  spec:
-    state q: Seq(Bool, 1) initially []
-    output present_false = !empty(q) && front(q)
-    output present_true = empty(q) || front(q)
-    event payload = front(q) when !empty(q)
+spec for rtl.LazyView:
+  state q: Seq(Bool, 1) initially []
+  output present_false = !empty(q) && front(q)
+  output present_true = empty(q) || front(q)
+  event payload = front(q) when !empty(q)
+def lazy_view = LazyView(elaborate(rtl.LazyView()).top)
 check:
   step_spec(lazy_view, lazy_view.initial, Map{}).outputs ~is {"present_false": #false, "present_true": #true}
   step_spec(lazy_view, lazy_view.initial, Map{}).events ~is Map{}
 
 check:
   ~eval
-  import lib("rhodium/formal/spec-dsl.rhm") open
-  spec:
-    input a: Bool
-    input a: Bool
-  ~throws "duplicate spec declaration: a"
+  import lib("rspecl/language.rhm").spec
+  import lib("rhodium/formal/tests/spec-dsl-fixture.rhdl") as rtl
+  spec for rtl.Swap:
+    input width: Bool
+  ~throws "inputs come from the RTL declaration"
 
 check:
   ~eval
-  import lib("rhodium/formal/spec-dsl.rhm") open
-  spec:
-    output a.b = #true
-    output a.b = #false
-  ~throws "duplicate spec declaration: a.b"
+  import lib("rspecl/language.rhm").spec
+  import lib("rhodium/formal/tests/spec-dsl-fixture.rhdl") as rtl
+  spec for rtl.Swap:
+    observe old = width
+    observe old = width
+  ~throws "duplicate spec declaration: old"
 
 check:
   ~eval
-  import lib("rhodium/formal/spec-dsl.rhm") open
-  spec:
+  import lib("rspecl/language.rhm").spec
+  import lib("rhodium/formal/tests/spec-dsl-fixture.rhdl") as rtl
+  spec for rtl.Swap:
     state s: Bool initially #true
     next s = #false
     next s = #true
@@ -93,29 +142,32 @@ check:
 
 check:
   ~eval
-  import lib("rhodium/formal/spec-dsl.rhm") open
-  spec:
-    input pin: Bool
-    next pin = #true
+  import lib("rspecl/language.rhm").spec
+  import lib("rhodium/formal/tests/spec-dsl-fixture.rhdl") as rtl
+  spec for rtl.Swap:
+    next width = #true
   ~throws "next requires a declared state"
 
 check:
   ~eval
-  import lib("rhodium/formal/spec-dsl.rhm") open
-  spec:
-    output result = missing when #false
+  import lib("rspecl/language.rhm").spec
+  import lib("rhodium/formal/tests/spec-dsl-fixture.rhdl") as rtl
+  import lib("rhodium/frontend/foundation.rhm").elaborate
+  spec for rtl.Swap:
+    observe old = missing when #false
+  Swap(elaborate(rtl.Swap(3)).top)
   ~throws "missing"
 
 check:
   block:
-    spec:
-      input word: Bits(1)
-      output echo = word when word
+    spec for sync.Echo:
+      observe echo = payload when payload
+    Echo(elaborate(sync.Echo(1)).top)
   ~throws "boolean"
 
-// A helper is called to build a node; returning the function itself is not an edge operation.
 check:
   block:
-    spec:
-      output wrong = handshake
+    spec for sync.Echo:
+      observe echo = handshake
+    Echo(elaborate(sync.Echo(1)).top)
   ~throws "SpecExpr"

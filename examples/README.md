@@ -302,13 +302,16 @@ hardware-preservation contracts.
 
 ### Formal verification
 
-[`formal/shift-queue.rspl`](formal/shift-queue.rspl) defines `spec ShiftQueue`, a FIFO reference model
-without RTL or Rosette; the [rspecsim quick start](../rhodium/formal/README.md#install-and-quick-start)
-executes a simultaneous enqueue and dequeue.
+| Example | RTL | Executable spec |
+|---|---|---|
+| Arbiter | [Flow arbiter](../flow/arbiter.rhdl) | [Fixed-priority selection and transfers](formal/arbiter.rspl) |
+| ShiftQueue | [Flow queue](../flow/shift-queue.rhdl) | [Bounded sequence with enqueue and dequeue](formal/shift-queue.rspl) |
+| ArbiterQueue | [Parent wiring](formal/arbiter-queue.rhdl) connecting the Flow leaves | [Accepted winners retire in order](formal/arbiter-queue.rspl) |
 
-[`formal/arbiter.rspl`](formal/arbiter.rspl) defines `spec Arbiter` for fixed-priority
-selection without state: the highest-priority valid lane supplies the payload,
-but no transfer occurs until the consumer is ready.
+The leaf specs import the Flow declarations directly. ArbiterQueue is example-owned,
+so its spec imports the sibling RTL. The parent spec keeps an independent history of
+accepted words; it does not instantiate either child. The [rspecsim quick start](../rhodium/formal/README.md#install-and-quick-start)
+shows how to run a concrete FIFO transfer.
 
 [`formal/equivalence.rhm`](formal/equivalence.rhm) uses the optional Rosette
 consumer to prove that standard-profile and explicitly composed adders are

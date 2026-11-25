@@ -1,0 +1,24 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("flow/shift-queue.rhdl").ShiftQueue
+  lib("rhodium/std/ready-valid.rhdl") open
+
+// Expose incoming data instead of the stored head, preserving occupancy and flow control.
+sync_circuit CorruptQueue():
+  interface ingress(Decoupled(Bits(2)), ~role: consumer)
+  interface egress(Irrevocable(Bits(2)), ~role: producer)
+  output count: Bits(2)
+  output mask: Bits(2)
+  inst dut(ShiftQueue(Bits(2), 2))
+  dut.ingress.valid <== ingress.valid
+  dut.ingress.bits <== ingress.bits
+  ingress.ready <== dut.ingress.ready
+  dut.egress.ready <== egress.ready
+  egress.valid <== dut.egress.valid
+  egress.bits <== ingress.bits
+  count <== dut.count
+  mask <== dut.mask
+
+export CorruptQueue

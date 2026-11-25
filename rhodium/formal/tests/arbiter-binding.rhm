@@ -4,15 +4,17 @@
 import:
   lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../examples/formal/arbiter.rspl".Arbiter
-  "arbiter-override-fixture.rhdl".ArbiterLeaf
-  "composition-binding.rhm".arbiter_definition
+  "arbiter-override-fixture.rhdl".ReversedArbiter
+  "composition-binding.rhm" open
   "../snapshot.rhm".formal_snapshot
   "../spec.rhm" open
 
-export correct faulty model concrete_row
+export in_layout out_layout correct faulty model concrete_row
+def in_layout = pin_layout(arbiter_definition, arbiter_definition.inputs)
+def out_layout = pin_layout(arbiter_definition, arbiter_definition.outputs)
 def correct = formal_snapshot(arbiter_definition)
-def faulty = formal_snapshot(elaborate(ArbiterLeaf(#true)))
-def spec = Arbiter(2)
+def faulty = formal_snapshot(elaborate(ReversedArbiter()))
+def spec = Arbiter(arbiter_definition)
 def model = spec_snapshot(spec)
 fun concrete_row(inputs):
   def edge = step_spec(spec, Map{}, inputs)

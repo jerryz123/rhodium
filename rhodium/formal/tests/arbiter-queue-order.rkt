@@ -1,139 +1,149 @@
 #lang rosette
-;; Proves reset-scoped ordering of accepted lane payloads using only the two verified child specs.
+;; Prove the external ArbiterQueue contract for the RTL-derived graph with both leaves substituted.
 ;; SPDX-License-Identifier: Apache-2.0
 
-(require rackunit "composition-checks.rkt" "../spec-engine.rkt"
+(require rackunit racket/match "member-pins.rkt" "composition-checks.rkt" "../spec-engine.rkt"
+         (only-in "../engine.rkt" prepare_transition_snapshot step_transition symbolic_transition_state
+                  transition_step_state transition_step_outputs transition_step_validity)
          (only-in "arbiter-refinement.rkt" verified-arbiter)
-         (only-in "shift-queue-induction.rkt" verified-fifo)
-         (only-in "composition-binding.rhm" mixed_wires))
+         (only-in "shift-queue-induction.rkt" verified-fifo-at proof_depths)
+         (only-in "arbiter-queue-binding.rhm" ordering_case
+                  undersized_rtl correct_rtl one_slot_rtl depth_two_contract))
 
-(define topology
-  (hash "arb.v0" "v0" "arb.d0" "d0" "arb.v1" "v1" "arb.d1" "d1"
-        "arb.accept" "fifo.ready" "fifo.offer" "arb.valid" "fifo.data" "arb.data"
-        "fifo.clock" "clock" "fifo.reset" "reset" "fifo.consume" "consume"
-        "r0" "arb.r0" "r1" "arb.r1" "valid" "fifo.valid" "head" "fifo.head"))
-(define cut (check-cut mixed_wires topology))
 (define (inputs reset v0 d0 v1 d1 consume)
-  (hash "reset" reset "v0" v0 "d0" d0 "v1" v1 "d1" d1 "consume" consume))
-(struct sample (arb fifo offers-ok take0 take1 pop valid head) #:transparent)
+  (hash "reset" reset "ingress[0].valid" v0 "ingress[0].bits" d0 "ingress[1].valid" v1 "ingress[1].bits" d1 "egress.ready" consume))
+(struct sample (ports events arb fifo take0 take1 safe) #:transparent)
+(define (advance fifo-model candidate state x)
+  (match-define (list graph arb-site fifo-site) candidate)
+  (define certified (hash arb-site verified-arbiter fifo-site fifo-model))
+  (define-values (p edges ok) (wired-edge-at graph certified (hash arb-site (hash) fifo-site state) x))
+  (define rst (hash-ref x "reset"))
+  (define take0 (&& (! rst) (hash-ref x "ingress[0].valid") (hash-ref p "ingress[0].ready")))
+  (define take1 (&& (! rst) (hash-ref x "ingress[1].valid") (hash-ref p "ingress[1].ready")))
+  (define pop (&& (! rst) (hash-ref x "egress.ready") (hash-ref p "egress.valid")))
+  ;; Decode the actual transfers only at the external boundary, never from FIFO enqueue/dequeue.
+  (define events (hash "reset" (observation rst #t)
+                       "accepted" (observation (|| take0 take1) (if take0 (hash-ref x "ingress[0].bits") (hash-ref x "ingress[1].bits")))
+                       "retired" (observation pop (hash-ref p "egress.bits"))))
+  (define arb (hash-ref edges arb-site))
+  (define fifo (hash-ref edges fifo-site))
+  (sample p events arb fifo take0 take1
+          (&& ok (edge-legal arb) (edge-defined arb) (edge-legal fifo) (edge-defined fifo))))
 
-;; No fixed-point assumption: FIFO offers depend only on q/reset, then the
-;; arbiter is fully bound, then the FIFO can commit its simultaneous step.
-(define (advance state x [wires cut])
-  (define (wire nets sink) (hash-ref nets (hash-ref wires sink)))
-  (define rst (wire x "fifo.reset"))
-  (define-values (offer ok) (spec-offers-at verified-fifo state (hash "reset" rst)))
-  (define f-nets (hash-set* x "fifo.ready" (pin (hash-ref offer "in.ready") boolean?)
-                            "fifo.valid" (pin (hash-ref offer "out.valid") boolean?)
-                            "fifo.head" (pin (hash-ref offer "out.data") (bitvector 2))))
-  (define arb (spec-edge-at verified-arbiter (hash)
-                            (for/hash ([k '("v0" "d0" "v1" "d1" "accept")])
-                              (values k (wire f-nets (string-append "arb." k))))))
-  (define nets
-    (for/fold ([ns f-nets]) ([k '("r0" "r1" "valid" "data")])
-      (hash-set ns (string-append "arb." k)
-                (pin (hash-ref (edge-outputs arb) k) (if (equal? k "data") (bitvector 2) boolean?)))))
-  (define fifo (spec-edge-at verified-fifo state
-                             (hash "reset" rst "in.valid" (wire nets "fifo.offer")
-                                   "in.data" (wire nets "fifo.data") "out.ready" (wire nets "fifo.consume"))))
-  (sample arb fifo ok
-          (&& (! rst) (hash-ref x "v0") (wire nets "r0"))
-          (&& (! rst) (hash-ref x "v1") (wire nets "r1"))
-          (&& (! rst) (hash-ref x "consume") (wire nets "valid"))
-          (wire nets "valid") (wire nets "head")))
+;; Compare all external values cared about by the contract, and presence as well as payload for events.
+(define (agrees? impl ref)
+  (define (keys h) (sort (hash-keys h) string<?))
+  (unless (and (equal? (keys (sample-ports impl)) (keys (edge-outputs ref)))
+               (equal? (keys (sample-events impl)) (keys (edge-events ref))))
+    (error 'arbiter-queue "external schemas differ"))
+  (&& (for/fold ([ok #t]) ([(k expected) (edge-outputs ref)])
+        (&& ok (=> (observation-care expected)
+                   (equal? (hash-ref (sample-ports impl) k) (observation-value expected)))))
+      (for/fold ([ok #t]) ([(k expected) (edge-events ref)])
+        (&& ok (same-event (hash-ref (sample-events impl) k) expected)))))
 
-;; Independent transaction oracle: it sees only accepted external words, not
-;; chosen, arbiter-to-FIFO events, or the child implementation's queue update.
-(struct history (n first second) #:transparent)
-(define (history-word h i) (if (= i 0) (history-first h) (history-second h)))
-(define (related state h)
+;; The proof relation mentions only abstract live words, not either child's RTL state or padding.
+(define (related depth state reference)
   (define q (hash-ref state "q"))
-  (define n (history-n h))
-  (&& (<= 0 n 2) (= n (bitvector->natural (sequence-value-count q)))
-      (for/fold ([ok #t]) ([w (sequence-value-slots q)] [i (in-naturals)])
-        (&& ok (=> (< i n) (bveq w (history-word h i)))))))
-(define empty (history 0 (bv 0 2) (bv 0 2)))
-(define (update h x e)
-  (define drop (if (sample-pop e) 1 0))
-  (define kept (- (history-n h) drop))
-  (define push (|| (sample-take0 e) (sample-take1 e)))
-  (define word (if (sample-take0 e) (hash-ref x "d0") (hash-ref x "d1")))
-  (define (at i) (if (< i kept) (history-word h (+ i drop)) word))
-  (history (if (hash-ref x "reset") 0 (+ kept (if push 1 0))) (at 0) (at 1)))
+  (define history (hash-ref reference "pending"))
+  (define n (sequence-value-count q))
+  (&& (bvule n (bv depth (type-of n))) (bveq n (sequence-value-count history))
+      (for/fold ([ok #t]) ([w (sequence-value-slots q)] [p (sequence-value-slots history)] [i (in-naturals)])
+        (&& ok (=> (bvugt n (bv i (type-of n))) (bveq w p))))))
+(define-symbolic* d0 d1 (bitvector 2))
 
-(define state (symbolic-spec-state verified-fifo))
-(define-symbolic* rst v0 v1 consume boolean?)
-(define-symbolic* d0 d1 first-word second-word (bitvector 2))
-(define-symbolic* n integer?)
-(define h (history n first-word second-word))
-(define x (inputs rst v0 d0 v1 d1 consume))
-(define e (advance state x))
-(define a (sample-arb e))
-(define f (sample-fifo e))
-(define legal (bvule (sequence-value-count (hash-ref state "q")) (bv 2 2)))
-(define step (related state h))
-(define base (&& legal rst))
-(define room (< n 2))
-(define push (|| (sample-take0 e) (sample-take1 e)))
-(define accepted-data (if (sample-take0 e) d0 d1))
+(define (check-ordering depth)
+  (define-values (graph contract wrong-graph) (ordering_case depth))
+  (define fifo (verified-fifo-at depth))
+  (define state (symbolic-spec-state fifo))
+  (define history (symbolic-spec-state contract))
+  (define-symbolic* rst v0 v1 consume boolean?)
+  (define x (inputs rst v0 d0 v1 d1 consume))
+  (define impl (advance fifo graph state x))
+  (define ref (spec-edge-at contract history x))
+  (define n (sequence-value-count (hash-ref state "q")))
+  (unless (and (= depth (length (sequence-value-slots (hash-ref state "q"))))
+               (= depth (length (sequence-value-slots (hash-ref history "pending")))))
+    (error 'arbiter-queue "child and parent must model the requested depth ~a" depth))
+  (define legal (&& (bvule n (bv depth (type-of n))) (edge-legal ref)))
+  (define base (&& legal rst))
+  (define step (&& legal (related depth state history)))
+  (define next (edge-next (sample-fifo impl)))
+  (define pop (observation-care (event ref "retired")))
 
-(test-case "actual mixed cut; feasible reset, contests, stalls, and simultaneous transfers"
-  (check-equal? (hash-keys state) '("q"))
-  (check-equal? (hash-count (edge-state a)) 0)
-  (check-exn #rx"outside the verified" (lambda () (check-cut (hash-set cut "fifo.data" "d1") topology)))
-  (require-feasible (&& base (bveq (sequence-value-count (hash-ref state "q")) (bv 2 2))))
-  (require-feasible (&& step v0 v1 (sample-take0 e) (sample-pop e)))
-  (require-feasible (&& step (sample-take1 e)))
-  (require-feasible (&& step (! rst) (= n 2) v0 v1 (! push)))
-  ;; No reset on the arbiter: don't assume its electrical handshake disappears.
-  (require-feasible (&& base (observation-care (event a "out")))))
+  (test-case "each occupancy is feasible and concurrent transfers respect this depth"
+    (require-feasible (&& base (bveq n (bv depth (type-of n))) (! (related depth state history))))
+    (for ([k (in-range (add1 depth))])
+      (require-feasible (&& step (bveq n (bv k (type-of n))))))
+    (if (= depth 1)
+        ;; A single non-pipelined slot cannot accept and retire on the same edge.
+        (discharge 'one-slot-no-replacement step (! (&& pop (|| (sample-take0 impl) (sample-take1 impl)))))
+        (require-feasible (&& step v0 v1 (sample-take0 impl) pop)))
+    (require-feasible (&& step (sample-take1 impl)))
+    (require-feasible (&& step v0 v1 pop (bveq n (bv depth (type-of n))) (! (sample-take0 impl)) (! (sample-take1 impl))))
+    (require-feasible (&& base (observation-care (event (sample-arb impl) "out")))))
 
-(test-case "reset empties the history; legal wired child steps for all external pins"
-  (discharge 'domains legal (&& (sample-offers-ok e) (edge-legal a) (edge-legal f) (edge-defined a) (edge-defined f)))
-  (discharge 'reset-start base (&& (related (edge-next f) empty) (! push) (! (sample-pop e))))
-  (discharge 'reset-event legal (matches? (event f "reset") rst #t)))
+  (test-case "reset establishes and each edge preserves the independently authored parent contract"
+    (discharge 'domains legal (&& (sample-safe impl) (edge-defined ref)))
+    (discharge 'reset base (&& (agrees? impl ref) (related depth next (edge-next ref))
+                               (bveq (sequence-value-count (hash-ref next "q")) (bv 0 (type-of n)))))
+    (discharge 'public-observations step (agrees? impl ref))
+    (discharge 'ordered-live-words step (related depth next (edge-next ref)))
+    (discharge 'single-winner legal (! (&& (sample-take0 impl) (sample-take1 impl))))
+    (discharge 'internal-handoff legal
+               (=> (! rst) (same-event (event (sample-arb impl) "out") (event (sample-fifo impl) "enqueue")))))
 
-(test-case "external acceptances, internal handoff and inductive ordered output"
-  (discharge 'lane0 step (equal? (sample-take0 e) (&& (! rst) room v0)))
-  (discharge 'lane1 step (equal? (sample-take1 e) (&& (! rst) room (! v0) v1)))
-  (discharge 'one-source legal (! (&& (sample-take0 e) (sample-take1 e))))
-  (discharge 'arbiter-handoffs legal
-             (=> (! rst) (&& (matches? (event a "in0") (sample-take0 e) d0)
-                             (matches? (event a "in1") (sample-take1 e) d1)
-                             (same-event (event a "out") (event f "enqueue")))))
-  (discharge 'fifo-handoffs legal (&& (matches? (event f "enqueue") push accepted-data)
-                                      (matches? (event f "dequeue") (sample-pop e) (sample-head e))))
-  (discharge 'visible-head step (=> (! rst) (&& (equal? (sample-valid e) (> n 0))
-                                                (=> (> n 0) (bveq (sample-head e) first-word)))))
-  (discharge 'accepted-history-preserved step (related (edge-next f) (update h x e))))
+  (test-case "actual wrong-lane RTL admits the winner but violates the same contract on drain"
+    (define reset (inputs #t #f d0 #f d1 #f))
+    (define tie (inputs #f #t d0 #t d1 #f))
+    (define drain (inputs #f #f d0 #f d1 #t))
+    (define (replay candidate)
+      (define cleared (advance fifo candidate state reset))
+      (define accepted (advance fifo candidate (edge-next (sample-fifo cleared)) tie))
+      (define retired (advance fifo candidate (edge-next (sample-fifo accepted)) drain))
+      (values accepted retired (&& (sample-safe cleared) (sample-safe accepted) (sample-safe retired))))
+    (define-values (ga gr gs) (replay graph))
+    (define-values (ba br bs) (replay wrong-graph))
+    (define c0 (spec-edge-at contract history reset))
+    (define c1 (spec-edge-at contract (edge-next c0) tie))
+    (define c2 (spec-edge-at contract (edge-next c1) drain))
+    (define distinct (&& legal (! (bveq d0 d1))))
+    (require-feasible (&& distinct (! (agrees? br c2))))
+    (discharge 'replay distinct
+               (&& gs bs (edge-defined c0) (edge-defined c1) (edge-defined c2)
+                   (agrees? ga c1) (agrees? ba c1) (sample-take0 ba) (agrees? gr c2) (! (agrees? br c2))
+                   (matches? (event c2 "retired") #t d0)
+                   (matches? (hash-ref (sample-events br) "retired") #t d1)))))
 
-(test-case "a full FIFO can retire without accepting the stalled winner; a later tie selects anew"
-  (define (check-edge s rst v0 d0 v1 d1 ready take0 take1 out)
-    (define row (advance s (inputs rst v0 (bv d0 2) v1 (bv d1 2) ready)))
-    (discharge 'trace legal
-               (&& (equal? (sample-take0 row) take0) (equal? (sample-take1 row) take1)
-                   (matches? (event (sample-fifo row) "dequeue") (number? out) (bv (or out 0) 2))))
-    (edge-next (sample-fifo row)))
-  (define s0 (check-edge state #t #t 0 #t 1 #t #f #f #f))
-  (define s1 (check-edge s0 #f #f 0 #t 1 #f #f #t #f))
-  (define s2 (check-edge s1 #f #t 2 #t 3 #f #t #f #f))
-  (define s3 (check-edge s2 #f #f 0 #t 3 #t #f #f 1))
-  (define s4 (check-edge s3 #f #t 0 #t 3 #t #t #f 2))
-  (define s5 (check-edge s4 #f #f 0 #f 3 #t #f #f 0))
-  (discharge 'drained legal (related s5 empty)))
+(for ([depth proof_depths])
+  (with-check-info (['depth depth]) (check-ordering depth)))
 
-(test-case "ordering oracle detects a losing-lane payload substituted at the handoff"
-  ;; Bypass only the structural check for this deliberately faulty spec wiring.
-  (define bad-cut (hash-set cut "fifo.data" "d1"))
-  (define (observe wires)
-    (define cleared (advance state (inputs #t #f d0 #f d1 #f) wires))
-    (define tied (advance (edge-next (sample-fifo cleared)) (inputs #f #t d0 #t d1 #f) wires))
-    (define drain (advance (edge-next (sample-fifo tied)) (inputs #f #f d0 #f d1 #t) wires))
-    (values tied drain))
-  (define-values (good g) (observe cut))
-  (define-values (bad b) (observe bad-cut))
-  (define distinct (&& legal (! (bveq d0 d1))))
-  (require-feasible distinct)
-  (discharge 'wrong-lane-replay distinct
-             (&& (sample-take0 good) (sample-take0 bad) (sample-pop g) (sample-pop b)
-                 (bveq (sample-head g) d0) (bveq (sample-head b) d1) (! (bveq (sample-head b) d0)))))
+(test-case "depth-two parent with a one-entry RTL FIFO rejects the second uncontested offer"
+  ;; Compare the faulty RTL with the correct depth-two declaration's contract. Its leaf
+  ;; certificate does not cover this child. Observe only the external handshake.
+  (define reset (inputs #t #f d0 #f d1 #f))
+  (define first (inputs #f #t d0 #f d1 #f))
+  (define second (inputs #f #t d1 #f d0 #f))
+  (define (rtl-trace design)
+    (define-values (snapshot inputs outputs) (design))
+    (define p (prepare_transition_snapshot snapshot "clock"))
+    (define (tick s x) (step_transition p s (pack-pins inputs x)))
+    (define z (tick (symbolic_transition_state p) reset))
+    (define a (tick (transition_step_state z) first))
+    (define b (tick (transition_step_state a) second))
+    (define (grant e) (bveq (hash-ref (unpack-pins outputs (transition_step_outputs e)) "ingress[0].ready") (bv 1 1)))
+    (values (grant a) (grant b) (&& (transition_step_validity z)
+                                   (transition_step_validity a) (transition_step_validity b))))
+  (define-values (g1 g2 good-ok) (rtl-trace correct_rtl))
+  (define-values (b1 b2 bad-ok) (rtl-trace undersized_rtl))
+  ;; With no injected fault, requesting depth one must really specialize the RTL too.
+  (define-values (s1 s2 single-ok) (rtl-trace one_slot_rtl))
+  (define z (spec-edge-at depth_two_contract (symbolic-spec-state depth_two_contract) reset))
+  (define a (spec-edge-at depth_two_contract (edge-next z) first))
+  (define b (spec-edge-at depth_two_contract (edge-next a) second))
+  (define want (event b "accepted"))
+  (require-feasible (&& (edge-legal z) good-ok bad-ok (observation-care want) (! b2)))
+  (discharge 'public-depth (edge-legal z)
+             (&& good-ok bad-ok (edge-defined z) (edge-defined a) (edge-defined b)
+                 (matches? (event a "accepted") #t d0) (matches? want #t d1)
+                 g1 b1 g2 (! b2) single-ok s1 (! s2))))

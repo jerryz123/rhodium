@@ -4,8 +4,124 @@
 
 import:
   rhombus
+  rhombus/meta open
   lib("rhodium/formal/spec-dsl.rhm") open
+  lib("rhodium/formal/spec.rhm") as ir
+  lib("rhodium/formal/port-types.rhm").check_output_types
+  "rtl-boundary.rhm" as boundary
 
 export:
   all_from(rhombus)
-  all_from(lib("rhodium/formal/spec-dsl.rhm"))
+  all_from(lib("rhodium/formal/spec-dsl.rhm")):
+    except operand
+  spec
+
+meta:
+  import lib("racket/base.rkt").#{syntax-local-context} as expansion_context
+
+/* A module declaration publishes its constructor. An interactive declaration has no module exports. */
+decl.macro 'spec for $prefix ... . $(name :: Identifier): $line; ...':
+  def build = 'define_spec $prefix ... . $name: $line; ...'
+  if expansion_context() == #'module
+  | '«$build; export $name»'
+  | build
+
+/* In a definition body the same constructor is local, including when it shadows a module spec. */
+defn.macro 'spec for $prefix ... . $(name :: Identifier): $line; ...':
+  'define_spec $prefix ... . $name: $line; ...'
+
+/* Both contexts obtain the constructor name and lexical boundary from the RTL declaration. */
+defn.macro 'define_spec $prefix ... . $(name :: Identifier): $line; ...':
+  '$prefix ... . $(name) . describe_boundary declared_spec $name: $line; ...'
+
+meta:
+  /* Only external declaration names are strings; expression identifiers remain lexical syntax. */
+  fun field_name(stx :: Syntax):
+    match stx
+    | '$(a :: Identifier)': to_string(a.unwrap())
+    | '$(a :: Identifier) . $(b :: Identifier)': field_name(a) ++ "." ++ field_name(b)
+    | '$(a :: Identifier)[$i] . $(b :: Identifier)':
+        unless i.unwrap() is_a Nat | syntax_meta.error("expected a literal nonnegative lane index", i)
+        field_name(a) ++ "[" ++ to_string(i.unwrap()) ++ "]." ++ field_name(b)
+    | ~else: syntax_meta.error("expected a spec field name", stx)
+
+  /* Emit the immutable schema or view expected by the existing model constructor. */
+  fun map_expr(entries :: ReadableMap):
+    let [key, ...] = entries.keys()
+    let [value, ...] = [entries[key], ...]
+    'Map{$key: $value, ...}'
+
+  /* Split the optional care clause without inspecting either Rhombus expression. */
+  fun observation(rhs :: Syntax):
+    match rhs
+    | '$v ... when $c ...': 'ir.Observed(operand($v ...), operand($c ...))'
+    | ~else: 'ir.Observed(operand($rhs))'
+
+/* Read a parameter at its lexical use site so unused non-scalar arguments need no model value. */
+defn.macro 'bind_parameter $id($bound, $key)':
+  '«
+     expr.macro '$id': '$(bound) . parameter($key)'
+   »'
+
+/* Compile a circuit-bound body to typed IR; evaluate each clause at its original lexical site. */
+defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ...) ($arr, ...): $line; ...':
+  let [pin_key, ...] = [pin.to_source_string(), ...]
+  let [key, ...] = [cfg.to_source_string(), ...]
+  let [ep_key, ...] = [ep.to_source_string(), ...]
+  let [arr_key, ...] = [arr.to_source_string(), ...]
+  def states = MutableMap{}
+  def initial = MutableMap{}
+  def outputs = MutableMap{}
+  def events = MutableMap{}
+  def updates = MutableMap{}
+  def mutable ignored = []
+  def mutable body = []
+  /* Capture a declaration's value at its lexical site, not after later shadowing. */
+  fun record(table :: MutableMap, key :: String, rhs :: Syntax, site :: Syntax):
+    when table.has_key(key) | syntax_meta.error("duplicate spec declaration: " ++ key, site)
+    def id = Syntax.make_temp_id(key)
+    body := body ++ ['def $id = $rhs']
+    table[key] := id
+    id
+  /* An optional lexical alias exposes the typed initial constant without implying reset. */
+  fun state_clause(n :: Syntax, t :: Syntax, v :: Syntax, alias_id :: maybe(Syntax), site :: Syntax):
+    def key = field_name(n)
+    def type = record(states, key, t, site)
+    def start = record(initial, key, v, site)
+    body := body ++ ['def $n = ir.state_ref($key, $type)']
+    when alias_id | body := body ++ ['def $alias_id = ir.literal($type, $start)']
+
+  for (clause in [line, ...]):
+    match clause
+    | 'input $n ...: $t': syntax_meta.error("inputs come from the RTL declaration", clause)
+    | 'ignore $n ...': ignored := ignored ++ [field_name('$n ...')]
+    | 'observe $n ... = $v ...': record(outputs, field_name('$n ...'), observation('$v ...'), clause)
+    | 'state $(n :: Identifier): $t ... initially $v ... as $(id :: Identifier)':
+        state_clause(n, '$t ...', '($v ...)', id, clause)
+    | 'state $(n :: Identifier): $t ... initially $v ...':
+        state_clause(n, '$t ...', '($v ...)', #false, clause)
+    | 'output $n ... = $v ...': record(outputs, field_name('$n ...'), observation('$v ...'), clause)
+    | 'event $n ... = $v ...': record(events, field_name('$n ...'), observation('$v ...'), clause)
+    | 'next $(n :: Identifier) = $v ...':
+        def key = field_name(n)
+        unless states.has_key(key) | syntax_meta.error("next requires a declared state: " ++ key, n)
+        record(updates, key, 'operand($v ...)', clause)
+    | ~else: body := body ++ [clause]
+
+  let [decl, ...] = body
+  let [skip, ...] = ignored
+  'fun $name(top):
+     def bound = boundary.declared_ports(top, $family, $sync)
+     def $pin = ir.input_ref($pin_key, bound.ports.inputs[$pin_key])
+     ...
+     bind_parameter $cfg(bound, $key)
+     ...
+     def $ep :: boundary.Endpoint = bound.endpoints[$ep_key]
+     ...
+     def $arr :: List.of(boundary.Endpoint) = bound.arrays[$arr_key]
+     ...
+     $decl
+     ...
+     def model = ir.make_spec(bound.ports.inputs, $(map_expr(states)), $(map_expr(initial)),
+                              $(map_expr(outputs)), $(map_expr(events)), $(map_expr(updates)))
+     check_output_types(model, bound.ports.outputs, [$skip, ...])'

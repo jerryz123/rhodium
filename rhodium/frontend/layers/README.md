@@ -719,6 +719,24 @@ invented merely because ambient reset exists. Explicit `~clock` and `~reset`
 controls are rejected while a sync domain is active; use an ordinary `circuit`
 for an explicit clock boundary.
 
+To share port names, directions, and types without elaborating a module, import
+`sync_signature` from [port-signature.rhm](../port-signature.rhm). For example:
+
+```rhombus
+sync_signature EchoIO(width :: PosInt):
+  input payload: Bits(width)
+  output echo: Bits(width)
+
+sync_circuit Echo(width :: PosInt) using EchoIO(width):
+  echo <== payload
+```
+
+`EchoIO(8)` is a detached `ModuleSignature`; its physical inputs start with
+`clock` and `reset`. The circuit body gets lexical bindings for the declared
+data ports, and its finished boundary must match exactly. A [behavioral
+specification](../../formal/README.md#specify-a-parent-without-copying-its-implementation)
+binds to the elaborated circuit declaration, which exposes these input names.
+
 `reset_when(condition)` creates a nested domain whose reset is the active
 ambient reset OR a readable one-bit data or `Reset` condition. Nested scopes
 compose by ORing each added condition:

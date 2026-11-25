@@ -1,34 +1,23 @@
 #lang rhodium
 // SPDX-License-Identifier: Apache-2.0
 
-import:
-  "arbiter-override-fixture.rhdl".ArbiterLeaf
-  "shift-queue-fixture.rhdl".Leaf
+import lib("flow/main.rhdl") open
 
-sync_circuit ArbiterQueue():
-  input v0: Bool
-  input d0: Bits(2)
-  input v1: Bool
-  input d1: Bits(2)
-  input consume: Bool
-  output r0: Bool
-  output r1: Bool
-  output valid: Bool
-  output head: Bits(2)
+// Acknowledge the actual winner, but enqueue lane one's payload even when lane zero wins.
+sync_circuit WrongLane(width :: PosInt, depth :: PosInt):
+  interface ingress[2](Decoupled(Bits(width)), ~role: consumer)
+  interface egress(Irrevocable(Bits(width)), ~role: producer)
+  def winner = ingress |> arbiter()
+  inst storage(ShiftQueue(Bits(width), depth))
+  storage.ingress.valid <== winner.valid
+  storage.ingress.bits <== ingress[1].bits
+  winner.ready <== storage.ingress.ready
+  storage.egress |> egress
 
-  inst arb(ArbiterLeaf(#false))
-  inst fifo(Leaf(#false))
-  arb.v0 <== v0
-  arb.d0 <== d0
-  arb.v1 <== v1
-  arb.d1 <== d1
-  arb.accept <== fifo.ready
-  fifo.offer <== arb.valid
-  fifo.data <== arb.data
-  fifo.consume <== consume
-  r0 <== arb.r0
-  r1 <== arb.r1
-  valid <== fifo.valid
-  head <== fifo.head
+// Deliberately too small for the depth-two reference contract.
+sync_circuit Undersized(width :: PosInt):
+  interface ingress[2](Decoupled(Bits(width)), ~role: consumer)
+  interface egress(Irrevocable(Bits(width)), ~role: producer)
+  ingress |> arbiter() |> shift_queue(1) |> egress
 
-export ArbiterQueue
+export WrongLane Undersized

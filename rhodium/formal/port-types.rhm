@@ -1,0 +1,36 @@
+#lang rhombus
+/* Projects scalar RTL port descriptors into the sampled sorts used by specs and wiring graphs. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../core/types.rhm" as hw
+  "spec.rhm" open
+
+export sampled_type SampledPorts check_output_types
+
+/* Detached input/output sorts for one sampled edge; contains no module, drivers, or live RTL values. */
+class SampledPorts(inputs :: Map, outputs :: Map)
+
+/* Convert nominal Bool and Reset to logical samples, leaving Bits(1) as a packed word. */
+fun sampled_type(type :: hw.HardwareType, bool :: hw.HardwareType):
+  cond
+  | hw.reset_type(type) || hw.type_equal(type, bool): SpecBool()
+  | hw.bits_type(type): SpecBits(type.width)
+  | ~else: error("unsupported sampled port type: " ++ type.describe())
+
+/* Check names and sorts even for observations whose care guard happens to be false. */
+fun check_output_types(model :: LeafModel, expected :: Map, ignored :: List.of(String) = []):
+  def seen = MutableSet{}
+  for (name in ignored):
+    unless expected.has_key(name) && !model.outputs.has_key(name) && !(name in seen)
+    | error("invalid ignored output: " ++ name)
+    seen.add(name)
+  for (name in model.outputs.keys()):
+    unless expected.has_key(name) | error("observation is not a signature output: " ++ name)
+  for ((name, type) in expected):
+    unless name in seen
+    | block:
+        unless model.outputs.has_key(name) | error("missing output observation: " ++ name)
+        unless spec_type_equal(model.outputs[name].value.type, type)
+        | error("output observation type mismatch: " ++ name)
+  model

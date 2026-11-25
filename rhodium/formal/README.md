@@ -12,17 +12,19 @@ Author executable specifications in `.rspl` files using `#lang rspecl`.
 it runs a reference model on known inputs and state, without RTL or a solver.
 By contrast, [rsim](../backend/README.md) runs the RTL implementation, and
 Rosette can execute the same specification symbolically on unknown values. A
-[leaf proof](DEVELOPING.md#fixed-shiftqueue-refinement) establishes that the
-two-bit, depth-two ShiftQueue (pipe, flow, and flush disabled) matches its FIFO
-spec on every edge following sampled reset. A [parent proof](DEVELOPING.md#two-shiftqueues-in-series)
-uses two copies of that spec to prove four-word capacity and FIFO ordering for
+[leaf proof](DEVELOPING.md#shiftqueue-refinement-by-depth) establishes that the
+two-bit ShiftQueue (pipe, flow, and flush disabled) matches its FIFO spec on
+every edge following sampled reset, separately at depths 1, 2, and 3.
+A [parent proof](DEVELOPING.md#two-shiftqueues-in-series)
+uses two depth-two copies to prove four-word capacity and FIFO ordering for
 the series connection. It does not promise admission whenever there is space
 or eventual delivery. A separate [arbiter proof](DEVELOPING.md#two-input-fixed-priority-arbiter)
 covers a two-input, two-bit Decoupled arbiter: lane 0 wins ties and each
 output transfer consumes exactly the winning input. A stalled grant is not
 locked. When that arbiter feeds the FIFO, the
-[combined proof](DEVELOPING.md#arbiter-feeding-a-shiftqueue) shows that each
-dequeue returns the oldest accepted winner since reset. An offered word that
+[combined proof](DEVELOPING.md#arbiter-feeding-a-shiftqueue) shows that a
+dequeue returns the oldest accepted winner since reset at all three tested
+depths. An offered word that
 was never accepted does not enter the queue. Reset discards pending words;
 the proof promises neither eventual delivery nor fairness between lanes.
 These are fixed proof fixtures, not a public refinement checker.
@@ -41,12 +43,15 @@ an edge that consumes 1 and accepts 2, the old head remains visible:
 ```rhombus
 import:
   lib("rhodium/formal/spec.rhm").step_spec
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("rhodium/frontend/foundation.rhm").Bits
+  lib("flow/shift-queue.rhdl") as rtl
   lib("examples/formal/shift-queue.rspl").ShiftQueue
 
-def fifo = ShiftQueue(2, 2)
+def fifo = ShiftQueue(elaborate(rtl.ShiftQueue(Bits(2), 2)).top)
 def edge = step_spec(fifo, {"q": [1]},
-                     {"reset": #false, "in.valid": #true, "in.data": 2, "out.ready": #true})
-// edge.outputs["out.data"] == 1
+                     {"reset": #false, "ingress.valid": #true, "ingress.bits": 2, "egress.ready": #true})
+// edge.outputs["egress.bits"] == 1
 // edge.events == {"dequeue": 1, "enqueue": 2}
 // edge.next_state == {"q": [2]}
 ```
@@ -74,41 +79,32 @@ moon run rhodium:formal-differential-test
 
 ## Author an executable spec
 
-Start a `.rspl` file with `#lang rspecl`. Name a spec for a particular RTL
-circuit after that circuit: `spec ShiftQueue(width :: PosInt, depth :: PosInt):`
-in `shift-queue.rspl` corresponds to `ShiftQueue` in `shift-queue.rhdl`.
-`ShiftQueue(2, 2)` constructs a checked model; it does not advance an edge.
-The name is a convention, not a binding or a proof: the refinement fixture
-still selects the RTL configuration and spec explicitly. Use qualified imports
-if one module needs both. An independent or shared contract can use its own name.
-
-For a fixed model, omit the parameter list. For example, this pending flag reports its
-**old** value even on the edge that clears it:
+Start a `.rspl` file with `#lang rspecl`. For an existing circuit, import its
+module as `rtl` and write `spec for rtl.ShiftQueue:`. At module scope this
+automatically exports `ShiftQueue`; ordinary helpers stay private unless explicitly
+exported. A spec inside a function or block stays local. The resulting
+`ShiftQueue(top)` takes one completed specialization; constructing it checks
+the declaration identity, but does not prove refinement or advance an edge.
+This is the only RSPECL declaration form. A clockless circuit uses the same
+syntax as a synchronous one. For example, this contract specifies only the
+carry output of the [full adder](../../examples/rtl/full-adder.rhdl):
 
 ```rhombus
 #lang rspecl
+import lib("examples/rtl/full-adder.rhdl") as rtl
 
-fun both(a :: SpecExpr, b :: SpecExpr): a && b
-
-spec PendingFlag:
-  input clear: Bool
-  state pending: Bool initially #true
-  output busy = pending
-  event cleared = pending when both(clear, pending)
-  next pending = pending && !clear
+spec for rtl.FullAdder:
+  observe cout = (a && b) || (cin && (a || b))
+  ignore sum
 ```
 
-`PendingFlag` is the model itself. Anonymous `spec:` remains available when
-a model is needed as an expression. All three forms use the same checked
-spec IR without building RTL or running a solver.
-
-Inputs and state introduce lexical bindings. Helpers such as `both` can live
+RTL inputs and spec state introduce lexical bindings. Helpers can live
 in the block, outside it, or in an imported library. Their ordinary Rhombus
 bodies build expressions once per model construction; the interpreters never
 call them on an edge. `def`, `fun`, and `let` retain their Rhombus scope.
-Outputs and events do not introduce bindings. A dotted input such as
-`in.valid` is a lexical namespace member with the public key `"in.valid"`.
-`output` describes
+Outputs and events do not introduce bindings. An interface input such as
+`ingress.valid` has the public key `"ingress.valid"`.
+`observe` describes
 what is visible; `event` describes what happened. On either, `when` controls
 presence, not the payload value. Omit it for an always-present field.
 
@@ -131,6 +127,71 @@ same old state. Omitted updates hold; two updates to one field are an error.
 See the [arbiter](../../examples/formal/arbiter.rspl) for combinational
 priority and the [FIFO](../../examples/formal/shift-queue.rspl) for guarded head
 reads and an explicit simultaneous enqueue/dequeue update.
+
+### Specify a parent without copying its implementation
+
+The [ArbiterQueue contract](../../examples/formal/arbiter-queue.rspl) predicts
+observable grants, head data, and transfers using one sequence of accepted
+external words. The [RHDL circuit](../../examples/formal/arbiter-queue.rhdl) owns its
+two Decoupled input lanes (`ingress[0]`, `ingress[1]`) and one Irrevocable
+output (`egress`). Bind the model once, before simulating or solving:
+
+```rhombus
+#lang rspecl
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("examples/formal/arbiter-queue.rhdl").ArbiterQueue as RtlArbiterQueue
+  lib("examples/formal/arbiter-queue.rspl").ArbiterQueue
+
+def top = elaborate(RtlArbiterQueue(4, ~depth: 2)).top
+def model = ArbiterQueue(top)
+```
+
+In the spec file, import the circuit module as `rtl` and start the body with:
+
+```rhombus
+spec for rtl.ArbiterQueue:
+  state pending: Seq(ingress[0].bits.type, depth) initially [] as cleared
+```
+
+The declaration defines `ArbiterQueue(top)`. It accepts any completed
+specialization of that circuit family, not an unrelated circuit with the
+same ports. Directly declared scalar inputs (including grouped declarations)
+and the synchronous circuit’s implicit `reset` are lexical bindings. A clockless
+`circuit` has no implicit controls. Directly declared interfaces expose sampled
+input members (`ingress.bits`, `ingress[0].valid`) and output observation names
+(`egress.valid`, `ingress[0].ready`). Directions and sorts come from the
+elaborated interface, not from the spelling of a flattened wire. In ArbiterQueue,
+`ingress[0].bits.type` comes from the input; `depth` comes from the parent’s resolved
+constructor arguments, not a sampled input or a measurement of its child.
+Integer and Boolean arguments (including keyword defaults) are available
+by their local binding names. Prefix a binding with `_` to keep it private.
+Local helpers and imports work as in ordinary Rhombus. Ports generated only
+by runtime helpers do not introduce lexical names. Declare an input on the
+circuit boundary if the spec needs to reference it by name.
+
+For a synchronous spec, `step_spec` samples one clock edge; clock is not a data
+input. For the stateless arbiter it evaluates one input sample. An observation such
+as `observe egress.bits = front(pending) when !reset && valid` supplies the expected
+value and its care condition, not a port declaration. Every signature output
+must have exactly one correctly typed observation or be explicitly excluded
+with `ignore`. The FIFO excludes `count` and `mask`: neither is a guarantee
+that a parent may use when substituting the FIFO spec. Scalar `Bool` and `Bits(n)`
+are supported; `Bits(1)` is not `Bool`. Events and abstract state belong to
+the spec, not the physical signature. Once constructed, the model steps
+without the RTL module.
+
+On a non-reset edge with room,
+lane 0 wins a tie. Retirement removes the oldest word; a full queue may
+retire but cannot accept on that same edge. Reset clears the sequence and
+hides the grants and head. Run it like any leaf with `step_spec`.
+
+The [RHDL parent](../../examples/formal/arbiter-queue.rhdl) alone defines the wiring.
+The fixed proof substitutes the verified Arbiter and ShiftQueue models at
+the actual child instances and compares the result with the independent
+contract. It checks ordering at the external ports, not by assuming the FIFO
+received the winner. Run `moon run rhodium:formal-spec-test` for concrete
+replay or `moon run rhodium:formal-test` for induction.
 
 ## Concrete specification API
 

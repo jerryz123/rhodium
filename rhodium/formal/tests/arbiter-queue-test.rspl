@@ -1,0 +1,231 @@
+#lang rspecl
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../examples/formal/arbiter-queue.rspl".ArbiterQueue
+  lib("examples/formal/arbiter-queue.rhdl") as design
+  "shift-queue-fixture.rhdl" as leaves
+  lib("flow/shift-queue.rhdl") as fifo_rtl
+  lib("flow/arbiter.rhdl") as arb_rtl
+  lib("rhodium/frontend/foundation.rhm").Bits as RtlBits
+  "spec-helper.rhm".both as conjunction
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("rhodium/core/signature.rhm").signature_equal
+  lib("rhodium/core/signature.rhm").module_signature
+  "../spec.rhm".step_spec
+  "../spec.rhm".make_composition
+  "arbiter-queue-binding.rhm".correct_model
+  "arbiter-queue-binding.rhm".wrong_lane_model
+  "arbiter-queue-binding.rhm".undersized_model
+  "composition-binding.rhm" as rtl
+  lib("rhodium/frontend/layers/bool.rhm").Bool as rtl_bool
+  "../wiring.rhm" as bridge
+  "../../../examples/formal/arbiter.rspl".Arbiter
+  "../../../examples/formal/shift-queue.rspl".ShiftQueue
+
+// Grouped port names are lexical: a helper can shadow one and an import can consume both.
+spec for leaves.GroupedProbe:
+  fun gated(enabled): conjunction(enabled, condition)
+  event sampled = gated(!enabled) when !reset
+def probe_top = elaborate(leaves.GroupedProbe()).top
+def other_top = elaborate(leaves.GuardedAssertion()).top
+def probe = GroupedProbe(probe_top)
+check:
+  signature_equal(module_signature(probe_top), module_signature(other_top)) ~is #true
+  GroupedProbe(other_top) ~throws "expected a completed specialization of GroupedProbe"
+  step_spec(probe, Map{}, {"reset": #false, "enabled": #false, "condition": #true}).events ~is {"sampled": #true}
+  step_spec(probe, Map{}, {"reset": #false, "enabled": #true, "condition": #true}).events ~is {"sampled": #false}
+
+def parent = ArbiterQueue(rtl.mixed)
+def wide_top = elaborate(design.ArbiterQueue(4, ~depth: 3)).top
+def wide = ArbiterQueue(wide_top)
+check:
+  signature_equal(module_signature(rtl.mixed), module_signature(rtl.wrong_lane)) ~is #true
+  signature_equal(module_signature(wide_top), module_signature(rtl.mixed)) ~is #false
+  wide.inputs["ingress[0].bits"].width ~is 4
+  wide.outputs["egress.bits"].value.type.width ~is 4
+  parent.inputs.has_key("clock") ~is #false
+
+// These are contracts of the library declarations, not of a same-shaped test wrapper.
+def payload = RtlBits(2)
+def fifo = ShiftQueue(rtl.fifo_definition)
+check:
+  fifo.outputs.keys().sort() ~is ["egress.bits", "egress.valid", "ingress.ready"]
+  Arbiter(rtl.arbiter_definition).inputs.has_key("reset") ~is #false
+  Arbiter(elaborate(arb_rtl.Arbiter(payload, 3)).top) ~throws "requires two lanes"
+  ShiftQueue(elaborate(fifo_rtl.ShiftQueue(payload, 2, ~pipe: #true)).top) ~throws "requires pipe, flow, and flushable disabled"
+  ShiftQueue(elaborate(fifo_rtl.ShiftQueue(payload, 2, ~flow: #true)).top) ~throws "requires pipe, flow, and flushable disabled"
+  ShiftQueue(elaborate(fifo_rtl.ShiftQueue(payload, 2, ~flushable: #true)).top) ~throws "requires pipe, flow, and flushable disabled"
+
+// Each variant describes the same RTL declaration in a fresh lexical scope.
+check:
+  block:
+    spec for design.ArbiterQueue:
+      ignore typo
+    ArbiterQueue(rtl.mixed)
+  ~throws "invalid ignored output: typo"
+
+check:
+  block:
+    spec for design.ArbiterQueue:
+      ignore egress.bits
+      ignore egress.bits
+    ArbiterQueue(rtl.mixed)
+  ~throws "invalid ignored output: egress.bits"
+
+check:
+  block:
+    spec for design.ArbiterQueue:
+      ignore ingress[0].ready
+      observe ingress[0].ready = ingress[0].valid
+    ArbiterQueue(rtl.mixed)
+  ~throws "invalid ignored output: ingress[0].ready"
+
+check:
+  block:
+    spec for design.ArbiterQueue:
+      observe ingress[0].ready = ingress[0].valid
+      observe ingress[1].ready = ingress[1].valid
+      observe egress.valid = !reset
+    ArbiterQueue(rtl.mixed)
+  ~throws "missing output observation: egress.bits"
+
+check:
+  block:
+    spec for design.ArbiterQueue:
+      observe ingress[0].valid = #true
+    ArbiterQueue(rtl.mixed)
+  ~throws "not a signature output: ingress[0].valid"
+
+check:
+  ~eval
+  import lib("rspecl/language.rhm").spec
+  import lib("rhodium/frontend/foundation.rhm").elaborate
+  import lib("examples/formal/arbiter-queue.rhdl") as design
+  spec for design.ArbiterQueue:
+    observe ingress[0].ready = egress.bits
+  ArbiterQueue(elaborate(design.ArbiterQueue(2)).top)
+  ~throws "bits"
+
+def width_contract:
+  spec for design.ArbiterQueue:
+    observe ingress[0].ready = ingress[0].valid
+    observe ingress[1].ready = ingress[1].valid
+    observe egress.valid = !reset
+    observe egress.bits = const(Bits(1), 0)
+  ArbiterQueue
+check:
+  width_contract(rtl.mixed) ~throws "type mismatch: egress.bits"
+  width_contract(elaborate(design.ArbiterQueue(1)).top).inputs["ingress[0].bits"].width ~is 1
+
+// Bind both sides to a real four-bit specialization, then transfer words that cannot fit in two bits.
+def values(wide_children, _) = bridge.wiring_cut(wide_top, rtl.interface_prefixes)
+def values(wide_arb, wide_fifo) = rtl.leaf_sites(wide_children)
+def wide_bindings = Map.by(===){wide_children[wide_arb]: Arbiter(wide_children[wide_arb]),
+                                wide_children[wide_fifo]: ShiftQueue(wide_children[wide_fifo])}
+def wide_impl = bridge.bind_wiring(wide_top, wide_bindings, rtl_bool, rtl.interface_prefixes)
+def tap = elaborate(leaves.DiagnosticTap()).top
+def values(taps, _) = bridge.wiring_cut(tap, rtl.interface_prefixes)
+def tapped = taps["fifo"]
+def bindings = Map.by(===){tapped: ShiftQueue(tapped)}
+check:
+  bridge.wiring_cut(elaborate(leaves.InvertingParent()).top, rtl.interface_prefixes) ~throws "not a wiring-only parent"
+  bridge.bind_wiring(tap, bindings, rtl_bool, rtl.interface_prefixes) ~throws "parent uses an unmodeled child output or clock: fifo.mask"
+
+def word = {"reset": #false, "ingress[0].valid": #true, "ingress[1].valid": #true, "ingress[0].bits": 14, "ingress[1].bits": 9, "egress.ready": #false}
+def wide_accept = step_spec(wide, wide.initial, word)
+def wide_tied = step_spec(wide_impl, wide_impl.initial, word)
+def wide_drain = word ++ {"ingress[0].valid": #false, "ingress[1].valid": #false, "egress.ready": #true}
+check:
+  wide_accept.events ~is {"accepted": 14}
+  wide_tied.outputs ~is wide_accept.outputs
+  step_spec(wide, wide_accept.next_state, wide_drain).events ~is {"retired": 14}
+  step_spec(wide_impl, wide_tied.next_state, wide_drain).outputs["egress.bits"] ~is 14
+
+// No dequeues: compare four consecutive offers under three public depth declarations.
+fun admissions(model):
+  def offer = word ++ {"ingress[0].bits": 0, "ingress[1].bits": 0, "ingress[1].valid": #false}
+  def mutable s = step_spec(model, model.initial, offer ++ {"reset": #true}).next_state
+  for List (i in 0..4):
+    def edge = step_spec(model, s, offer ++ {"ingress[0].bits": i})
+    s := edge.next_state
+    edge.outputs["ingress[0].ready"]
+def one_slot = ArbiterQueue(elaborate(design.ArbiterQueue(2, ~depth: 1)).top)
+check:
+  admissions(one_slot) ~is [#true, #false, #false, #false]
+  admissions(parent) ~is [#true, #true, #false, #false]
+  admissions(wide) ~is [#true, #true, #true, #false]
+  admissions(wide_impl) ~is admissions(wide)
+  admissions(undersized_model) ~is [#true, #false, #false, #false]
+  // Matching pins do not turn a deliberately different parent into the reference declaration.
+  signature_equal(module_signature(rtl.undersized), module_signature(rtl.mixed)) ~is #true
+  ArbiterQueue(rtl.undersized) ~throws "expected a completed specialization of ArbiterQueue"
+def mutable rtl_state = correct_model.initial
+fun tick(s, reset, v0, d0, v1, d1, consume):
+  def x = {"reset": reset, "ingress[0].valid": v0, "ingress[0].bits": d0, "ingress[1].valid": v1, "ingress[1].bits": d1, "egress.ready": consume}
+  def expected = step_spec(parent, s, x)
+  def impl = step_spec(correct_model, rtl_state, x)
+  rtl_state := impl.next_state
+  for ((pin, value) in expected.outputs):
+    check: impl.outputs[pin] ~is value
+  expected
+def start = tick(parent.initial, #true, #true, 0, #true, 1, #true)
+def one = tick(start.next_state, #false, #false, 0, #true, 1, #false)
+def two = tick(one.next_state, #false, #true, 2, #true, 3, #false)
+def stall = tick(two.next_state, #false, #true, 0, #true, 3, #false)
+def pop = tick(stall.next_state, #false, #false, 0, #true, 3, #true)
+def both = tick(pop.next_state, #false, #true, 0, #true, 3, #true)
+def drain = tick(both.next_state, #false, #false, 0, #false, 3, #true)
+def refill = tick(drain.next_state, #false, #true, 3, #false, 0, #false)
+def full = tick(refill.next_state, #false, #true, 1, #false, 0, #false)
+def flush = tick(full.next_state, #true, #true, 0, #true, 3, #true)
+check:
+  start.events ~is {"reset": #true}
+  start.outputs.has_key("egress.valid") ~is #false
+  one.outputs ~is {"ingress[0].ready": #false, "ingress[1].ready": #true, "egress.valid": #false}
+  one.events ~is {"accepted": 1}
+  two.events ~is {"accepted": 2}
+  stall.events ~is Map{}
+  stall.outputs ~is {"ingress[0].ready": #false, "ingress[1].ready": #false, "egress.valid": #true, "egress.bits": 1}
+  pop.events ~is {"retired": 1}
+  both.events ~is {"accepted": 0, "retired": 2}
+  drain.events ~is {"retired": 0}
+  drain.next_state ~is parent.initial
+  flush.events ~is {"reset": #true}
+  flush.next_state ~is parent.initial
+  rtl_state ~is correct_model.initial
+
+// Execute the *RTL-derived* faulty graph: the public acknowledgment still says lane zero won.
+fun rewire(wires):
+  make_composition(correct_model.inputs, correct_model.outputs, correct_model.children, wires)
+def bad = wrong_lane_model
+def contest = {"reset": #false, "ingress[0].valid": #true, "ingress[0].bits": 2, "ingress[1].valid": #true, "ingress[1].bits": 3, "egress.ready": #false}
+def clear = contest ++ {"reset": #true}
+def take = contest ++ {"ingress[0].valid": #false, "ingress[1].valid": #false, "egress.ready": #true}
+def tied = step_spec(bad, step_spec(bad, bad.initial, clear).next_state, contest)
+def wrong = step_spec(bad, tied.next_state, take)
+def want = step_spec(parent, step_spec(parent, parent.initial, clear).next_state, contest)
+def retired = step_spec(parent, want.next_state, take)
+def wires = correct_model.wires
+def values(children, _) = bridge.wiring_cut(rtl.mixed, rtl.interface_prefixes)
+def values(arb_site, fifo_site) = rtl.leaf_sites(children)
+fun arb_pin(member): arb_site ++ "." ++ member
+fun fifo_pin(member): fifo_site ++ "." ++ member
+check:
+  tied.outputs["ingress[0].ready"] ~is #true
+  tied.outputs["ingress[1].ready"] ~is #false
+  want.events ~is {"accepted": 2}
+  retired.events ~is {"retired": 2}
+  wrong.outputs["egress.valid"] ~is #true
+  wrong.outputs["egress.bits"] ~is 3
+  rewire(wires ++ {arb_pin("egress.ready"): arb_pin("ingress[0].ready")}) ~throws "combinational cycle"
+  rewire(wires ++ {fifo_pin("ingress.bits"): "ingress[0].valid"}) ~throws "type mismatch"
+  rewire(wires ++ {arb_pin("egress.ready"): fifo_pin("reset")}) ~throws "unknown or reversed"
+  rewire(wires.remove(fifo_pin("reset"))) ~throws "undriven"
+
+// A child requires an exact definition binding and a width-matched contract.
+def mistyped = Map.by(===){rtl.arbiter_definition: Arbiter(rtl.arbiter_definition),
+                           rtl.fifo_definition: ShiftQueue(elaborate(fifo_rtl.ShiftQueue(RtlBits(3), 2)).top)}
+check:
+  bridge.bind_wiring(rtl.mixed, Map{}, rtl_bool, rtl.interface_prefixes) ~throws "unbound RTL child"
+  bridge.bind_wiring(rtl.mixed, mistyped, rtl_bool, rtl.interface_prefixes) ~throws "mistyped RTL/spec pin"

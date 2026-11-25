@@ -4,10 +4,10 @@
 
 import:
   rhombus/meta open
-  "../kernel.rhm".new_circuit_identity as kernel_new_circuit_identity
   "../support/clocking.rhm".ambient_reset_active
   "../support/clocking.rhm".ambient_reset_when
   "../support/clocking.rhm".build_sync_circuit
+  "../support/declared-boundary.rhm".declare_boundary
   "../support/fields.rhm".HardwareFields
   "../support/fields.rhm".CircuitMemberFields
   "../support/fields.rhm".ValueSurfaceFields
@@ -29,7 +29,15 @@ expr.macro 'reset_when($condition): $(body :: Block)':
                       fun ():
                         $parsed_body)'
 
-defn.macro 'sync_circuit $(name :: Identifier)($(argument :: GeneratorParameter), ...): $body; ...':
+/* Expand detached signature ports into the ordinary synchronous circuit body before elaboration. */
+defn.macro
+| 'sync_circuit $(name :: Identifier)($arg, ...) using $sig ... ($actual, ...): $body; ...':
+    '$sig ... ($actual, ...) ~rtl plain_sync_circuit $name($arg, ...): $body; ...'
+| 'sync_circuit $name($arg, ...): $body; ...':
+    'plain_sync_circuit $name($arg, ...) (): $body; ...'
+
+/* Retain synchronous generator parameters and instance-member information for ordinary ports. */
+defn.macro 'plain_sync_circuit $(name :: Identifier)($(argument :: GeneratorParameter), ...) ($setup, ...): $body; ...':
   def circuit_name = name.to_source_string()
   def implementation_name = Syntax.make_id(circuit_name ++ "_sync_circuit", name)
   def parameter_names = [argument.binding.to_source_string(), ...]
@@ -188,18 +196,23 @@ defn.macro 'sync_circuit $(name :: Identifier)($(argument :: GeneratorParameter)
     | '$(binding :: Identifier) :: $annotation': #void
     | ~else: required_positional := #false
 
+  def build = 'build_sync_circuit(circuit_identity, $circuit_name, [$argument.binding, ...], implementation)'
+  def values(setup_lines, result):
+    match '($setup, ...)'
+    | '()': values([], build)
+    | '($binding, $signature, $verify)': values(['def $binding = $signature'], '$verify($binding, $build)')
+  let [setup_line, ...] = setup_lines
   def definition = '«
-     def circuit_identity = kernel_new_circuit_identity($circuit_name)
+     declare_boundary $name(circuit_identity, #true) ($parameter_binding, ...): $body; ...
      /* Delegates synchronous module specialization with normalized arguments and the authored body. */
      fun $implementation_name($argument, ...):
+       $setup_line
+       ...
        /* Runs the authored synchronous body inside the clock/reset domain established by build_sync_circuit. */
        fun implementation():
          $body
          ...
-       build_sync_circuit(circuit_identity,
-                          $circuit_name,
-                          [$argument.binding, ...],
-                          implementation)
+       $result
    »'
   if [argument, ...].length() == 0
   | '«

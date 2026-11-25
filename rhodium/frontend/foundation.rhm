@@ -8,6 +8,7 @@ import:
     except: Bits
 
   "support/bits-type.rhm".Bits
+  "support/declared-boundary.rhm".declare_boundary
   "kernel.rhm".StableCircuitParam
   "kernel.rhm".CircuitIdentity
   "kernel.rhm".CircuitDefinition
@@ -22,7 +23,6 @@ import:
   "kernel.rhm".output as kernel_output
   "kernel.rhm".build_circuit as kernel_build_circuit
   "kernel.rhm".run_circuit_finalizers as kernel_run_circuit_finalizers
-  "kernel.rhm".new_circuit_identity as kernel_new_circuit_identity
   "kernel.rhm".run_elaboration as kernel_run_elaboration
   "kernel.rhm".connect as kernel_connect
   "support/fields.rhm".HardwareFields
@@ -239,7 +239,7 @@ defn.macro 'circuit $(name :: Identifier)($(argument :: GeneratorParameter), ...
     | ~else: required_positional := #false
 
   def definition = '«
-     def circuit_identity = kernel_new_circuit_identity($circuit_name)
+     declare_boundary $name(circuit_identity, #false) ($parameter_binding, ...): $body; ...
      /* Normalizes generator arguments and delegates module specialization to the shared elaboration kernel. */
      fun $implementation_name($argument, ...):
        /* Runs the authored circuit body and drains deferred construction finalizers. */

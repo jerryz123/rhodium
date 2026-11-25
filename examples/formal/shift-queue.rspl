@@ -2,26 +2,25 @@
 /* Describes a non-bypassing FIFO as a bounded sequence with cycle observations and transfer events. */
 // SPDX-License-Identifier: Apache-2.0
 
-export ShiftQueue
+import lib("flow/shift-queue.rhdl") as rtl
 
 /* Build a fixed-depth reference model; reset begins an empty epoch and hides ordinary offers. */
-spec ShiftQueue(width :: PosInt, depth :: PosInt):
-  input reset: Bool
-  input in.valid: Bool
-  input in.data: Bits(width)
-  input out.ready: Bool
-  state q: Seq(Bits(width), depth) initially [] as cleared
+spec for rtl.ShiftQueue:
+  when pipe || flow || flushable | error("ShiftQueue contract requires pipe, flow, and flushable disabled")
+  ignore count
+  ignore mask
+  state q: Seq(ingress.bits.type, depth) initially [] as cleared
 
   let ready = !full(q)
   let valid = !empty(q)
-  let push = ready && in.valid
-  let pop = valid && out.ready
-  output in.ready = ready when !reset
-  output out.valid = valid when !reset
-  output out.data = front(q) when !reset && valid
+  let push = ready && ingress.valid
+  let pop = valid && egress.ready
+  observe ingress.ready = ready when !reset
+  observe egress.valid = valid when !reset
+  observe egress.bits = front(q) when !reset && valid
   event reset = reset when reset
-  event enqueue = in.data when !reset && push
+  event enqueue = ingress.bits when !reset && push
   event dequeue = front(q) when !reset && pop
 
   let rest = select(pop, tail(q), q)
-  next q = select(reset, cleared, select(push, append(rest, in.data), rest))
+  next q = select(reset, cleared, select(push, append(rest, ingress.bits), rest))

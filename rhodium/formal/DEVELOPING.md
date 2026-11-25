@@ -37,11 +37,27 @@ would have to reverse-engineer. The [FIFO example](../../examples/formal/shift-q
 is a client, not a privileged opcode.
 
 [The RSPECL reader and language profile](../../rspecl/language.rhm) expose
-[spec-dsl.rhm](spec-dsl.rhm) to `.rspl` authors without loading the RTL or
-Rosette engines. Named declarations lower to the anonymous `spec:` expression;
-parameterized declarations use ordinary Rhombus function parameters. Keep one
-implementation of the model body for both forms.
-It collects named declarations and rejects duplicate fields before assembling
+[spec-dsl.rhm](spec-dsl.rhm) to `.rspl` authors without loading Rosette.
+The profile handles `spec for` in two Rhombus contexts: a module declaration
+exports the generated constructor, while a local definition only binds it.
+Both expand through the same constructor builder; ordinary helpers retain
+Rhombus export rules.
+For `spec for rtl.Name`, both circuit forms use the declaration's namespace to supply
+scalar input, interface, indexed interface, and non-private parameter names at expansion time. RSPECL
+introduces lexical bindings in the spec's scope; model construction checks
+the actual top's family identity before reading its ports or configuration.
+Parameter references read only the retained integer or Boolean values, so
+an unused type descriptor or function never enters the model.
+[The RTL boundary adapter](../../rspecl/rtl-boundary.rhm) projects each
+interface direction record into logical member names. Only input members
+can build expressions; output members are observation targets. The leaf proofs
+pack and unpack the actual library ports in declared record order. Explicit `ignore` excludes
+an output from the leaf guarantee, never from the RTL itself.
+The frontend does not import RSPECL, and the spec body is not scanned for
+unbound names. The profile neither elaborates a second module nor passes one
+into the behavioral model. [port-types.rhm](port-types.rhm) checks observation
+names and sorts. All sampled data inputs remain in the schema, even unused ones.
+The DSL collects named declarations and rejects duplicate fields before assembling
 the maps. Emit each right-hand side at its original lexical site: a later
 `let` must not change an earlier output. Rhombus expands expressions,
 operators and helper calls, including imported bindings. Only their resulting
@@ -101,15 +117,18 @@ not assumed. `transition_step_validity(step)` conjoins all obligations; it is
 **not a proof**. Concrete invalid operation domains are rejected. The public
 combinational query API retains its existing restrictions.
 
-### Fixed ShiftQueue refinement
+### ShiftQueue refinement by depth
 
 [The leaf proof](tests/shift-queue-induction.rkt) uses one symbolic input sample
 for the RTL and the executable spec, but allocates their old states independently.
-For spec length `n <= 2`, RTL slot `i` must be occupied exactly when `i < n`;
+For spec length `n <= depth`, RTL slot `i` must be occupied exactly when `i < n`;
 only then must its two-bit payload equal spec item `i`. Slot zero is the head.
 
-On the first sampled reset, the RTL state is unrestricted, including occupancy
-mask `10`. The solver checks that the successor represents the declared empty
+The [proof inventory](tests/composition-binding.rhm) elaborates depths 1, 2,
+and 3 together; each leaf proof starts from the exact FIFO definition found
+in its parent's wiring. Each occupancy from empty through full must be feasible.
+On the first sampled reset, the RTL state is unrestricted, including holes
+where the depth permits them. The solver checks that the successor represents the declared empty
 spec start. The induction step assumes only a legal related old state; inputs,
 including subsequent resets, are unrestricted. Separate queries establish RTL
 assertions and operation domains, spec definedness, cycle observations, the
@@ -152,8 +171,8 @@ evidence. Run `moon run rhodium:formal-test` to reproduce these checks.
 
 ### Two-input fixed-priority arbiter
 
-[The arbiter proof](tests/arbiter-refinement.rkt) compares a clockless wrapper
-of `Arbiter(Bits(2), 2)` with its [stateless spec](../../examples/formal/arbiter.rspl).
+[The arbiter proof](tests/arbiter-refinement.rkt) compares the clockless Flow circuit
+`Arbiter(Bits(2), 2)` with its [stateless spec](../../examples/formal/arbiter.rspl).
 `combinational_sample(snapshot, pins)` accepts exact-name, exact-width
 bitvectors or fitting naturals and returns outputs and partial-operation
 obligations, including those in child instances. Combinational preflight
@@ -170,24 +189,42 @@ The proof is part of `moon run rhodium:formal-test`.
 
 ### Arbiter feeding a ShiftQueue
 
-The [mixed parent](tests/arbiter-queue-fixture.rhdl) wires FIFO ready to arbiter
-accept, and arbiter valid/data to FIFO offer/data. The [binding](tests/composition-binding.rhm)
-extracts those connections from the parent and gives the leaf proofs the very
-definitions instantiated there. The [ordering proof](tests/arbiter-queue-order.rkt)
-uses the specs returned by those proofs in the same run. Resolve FIFO offers
-from old state and reset, evaluate the combinational arbiter, then step the
-FIFO. No child RTL registers, assumed wire equations, or stable-request
-assumptions enter the parent proof.
+The [example RTL](../../examples/formal/arbiter-queue.rhdl) owns the wiring and port
+signature. Payload width specializes both leaves. The parent's requested
+depth is retained automatically and forwarded to the FIFO. The
+spec reads that parent constant at construction, not child metadata or state.
+The proof binds the external contract to the same elaborated top used for substitution.
+The [bridge](wiring.rhm) reads the parent operations and child signatures,
+then substitutes models by exact child definition. The fixture identifies the
+arbiter and FIFO sites by their circuit declarations, not generated names. It follows direct scalar
+wires and directional interface records, including
+indexed lanes. Record creation and selection route individual members; parent
+computation and state are rejected. A child clock must connect directly to
+the parent clock. The cut uses the same logical member names as the leaf spec.
+Unused unmodeled outputs (count/mask)
+are allowed; a parent consuming one is rejected. The bridge constructs a
+graph, not a proof certificate. Both executors settle each output once from
+its old-state care/value dependencies; all child updates see the same edge.
+An uncared internal pin is false/zero in concrete replay and fresh per
+source in Rosette, never a guaranteed payload.
 
-The independent reference history counts only external handshakes on non-reset
-edges. Remove the oldest word on dequeue, then append the accepted lane's input
-on that edge. Reset clears the history even if the resetless arbiter indicates
-a handshake. The induction relates the history's length and live words to the
-FIFO spec and checks its visible head even while stalled. A directed trace
-distinguishes a stalled offer from a later accepted winner. A negative control
-keeps lane 0's acknowledgment but wires lane 1's data into the FIFO: the
-structural check rejects it, and replaying that wiring through the specs
-produces the wrong word on drain. Run `moon run rhodium:formal-test`.
+The [ordering proof](tests/arbiter-queue-order.rkt) steps the
+[external contract](../../examples/formal/arbiter-queue.rspl) independently of
+the composition. At each depth it substitutes the FIFO proved in that run and
+the shared stateless arbiter. The history and abstract FIFO must fit the
+declared capacity and agree on length and live words, not padding. A one-slot
+FIFO cannot admit while retiring; the larger specializations must exhibit
+such an edge. Prove reset from unrelated legal states, then check cared
+output pins, externally decoded transfer events, and successor agreement.
+Both [faulty parents](tests/arbiter-queue-fixture.rhdl) have the same interface as
+the correct parent but are separate circuit declarations. Always build the reference
+contract from the correct parent at the requested depth. At each depth the wrong-lane
+fixture acknowledges the winning lane but routes lane one's payload to the FIFO;
+reset, contest, and drain expose the error. The undersized fixture instantiates
+a one-entry FIFO. After reset and two offers without a dequeue, its real RTL
+rejects the second word, while the depth-two contract and correct RTL accept. This replay does not substitute
+the depth-two certificate for the smaller child. Run
+`moon run rhodium:formal-spec-test rhodium:formal-test`.
 
 ## Extend supported semantics
 

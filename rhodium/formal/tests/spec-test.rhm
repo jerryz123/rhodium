@@ -3,9 +3,12 @@
 
 import:
   "../spec.rhm" open
+  lib("flow/shift-queue.rhdl") as rtl
+  lib("rhodium/frontend/foundation.rhm").Bits
+  lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../examples/formal/shift-queue.rspl".ShiftQueue
 
-def fifo = ShiftQueue(2, 2)
+def fifo = ShiftQueue(elaborate(rtl.ShiftQueue(Bits(2), 2)).top)
 def flags = [#false, #true]
 def mutable cases = 0
 
@@ -17,7 +20,7 @@ fun check_state(q):
       for (consume in flags):
         for (word in 0..4):
           def state = {"q": q}
-          def sample = {"reset": reset, "in.valid": offer, "out.ready": consume, "in.data": word}
+          def sample = {"reset": reset, "ingress.valid": offer, "egress.ready": consume, "ingress.bits": word}
           def step = step_spec(fifo, state, sample)
           def en = offer && n < 2
           def de = consume && n > 0
@@ -31,8 +34,8 @@ fun check_state(q):
           def outputs:
             cond
             | reset: Map{}
-            | n == 0: {"in.ready": #true, "out.valid": #false}
-            | ~else: {"in.ready": n == 1, "out.valid": #true, "out.data": q[0]}
+            | n == 0: {"ingress.ready": #true, "egress.valid": #false}
+            | ~else: {"ingress.ready": n == 1, "egress.valid": #true, "egress.bits": q[0]}
           def events:
             cond
             | reset: {"reset": #true}

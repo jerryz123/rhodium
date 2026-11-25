@@ -24,6 +24,7 @@ alias 'all':
 export:
   StableCircuitParam
   CircuitIdentity
+  checked_circuit_parameters
   HardwareEntity
   DeferredHardwareValue
   StaticHardwareValue
@@ -224,8 +225,29 @@ class RegisterPath(materialize_current :: Function.of_arity(0),
   /* Returns the stored next-state place without reading the register. */
   override method drive_hardware(location :: Location): next
 
-/* Identifies one circuit declaration independently of its display name or specializations. */
-class CircuitIdentity(name :: String)
+/* Identifies a declaration and the positions of its non-private generator bindings. */
+class CircuitIdentity(name :: String, parameter_slots :: Map = Map{})
+
+/* Retains only detached contract values on the finished module, not arbitrary host arguments. */
+class CircuitBoundary(family :: CircuitIdentity, parameters :: Map):
+  implements ModuleMetadataPayload
+  /* A family token and scalar constants do not reference the copied hardware graph. */
+  override method remap_ir(remap :: Function.of_arity(1)): this
+
+/* Return this specialization's scalar arguments only after checking its declaration identity. */
+fun checked_circuit_parameters(top :: Module, family :: CircuitIdentity):
+  def boundary = top.finished && top.metadata_for("rhodium.circuit.family").find(
+    fun (entry :: CircuitBoundary): entry.family === family)
+  unless boundary
+  | error("expected a completed specialization of " ++ family.name)
+  boundary.parameters
+
+/* Arguments have already been normalized by ordinary host call semantics, including defaults. */
+fun circuit_boundary(family :: CircuitIdentity, arguments :: List):
+  def params = for Map ((key, slot) in family.parameter_slots):
+    keep_when arguments[slot] is_a (Int || Boolean)
+    values(key, arguments[slot])
+  CircuitBoundary(family, params)
 
 /* A layer-owned immutable description of grouped circuit members.
    Descriptors contain no live IR; the kernel owns attachment and validation timing. */
@@ -570,6 +592,7 @@ fun build_circuit(identity :: CircuitIdentity,
       def active_circuit = ActiveCircuit(identity, name)
       context.active_circuits := context.active_circuits ++ [active_circuit]
       def module_def = context.builder.module(context.allocate_symbol(name))
+      module_def.add_metadata("rhodium.circuit.family", circuit_boundary(identity, arguments))
       parameterize { current_module: module_def }:
         implementation()
         // Direct kernel clients get a fallback flush. Frontend circuit wrappers

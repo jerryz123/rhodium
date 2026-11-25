@@ -1,0 +1,14 @@
+#lang rspecl
+// SPDX-License-Identifier: Apache-2.0
+
+import "spec-dsl-fixture.rhdl" as rtl
+
+fun private_value(): #false
+spec for rtl.ParamProbe:
+  observe bad = private_value()
+
+fun local_model(top):
+  spec for rtl.Swap:
+    observe old = const(Bits(word_width), 0)
+  Swap(top)
+export local_model

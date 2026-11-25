@@ -2,24 +2,22 @@
 /* Models two Decoupled offers with combinational priority for lane zero. */
 // SPDX-License-Identifier: Apache-2.0
 
-export Arbiter
+import lib("flow/arbiter.rhdl") as rtl
 
 /* Select the lowest valid lane anew each sample; no request locks a stalled grant. */
-spec Arbiter(width :: PosInt):
-  input v0: Bool
-  input v1: Bool
-  input d0: Bits(width)
-  input d1: Bits(width)
-  input accept: Bool
-  let valid = v0 || v1
-  let data = select(v0, d0, d1)
-  let r0 = accept && v0
-  let r1 = accept && (!v0 && v1)
-  output r0 = r0
-  output r1 = r1
-  output valid = valid
-  output data = data when valid
-  output chosen = select(v0, const(Bits(1), 0), const(Bits(1), 1)) when valid
-  event in0 = d0 when r0
-  event in1 = d1 when r1
-  event out = data when accept && valid
+spec for rtl.Arbiter:
+  unless n == 2 | error("Arbiter contract requires two lanes")
+  let first = ingress[0]
+  let second = ingress[1]
+  let valid = first.valid || second.valid
+  let data = select(first.valid, first.bits, second.bits)
+  let r0 = egress.ready && first.valid
+  let r1 = egress.ready && (!first.valid && second.valid)
+  observe ingress[0].ready = r0
+  observe ingress[1].ready = r1
+  observe egress.valid = valid
+  observe egress.bits = data when valid
+  observe chosen = select(first.valid, const(Bits(1), 0), const(Bits(1), 1)) when valid
+  event in0 = first.bits when r0
+  event in1 = second.bits when r1
+  event out = data when egress.ready && valid

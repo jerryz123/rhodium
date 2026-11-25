@@ -1,0 +1,116 @@
+#lang rhombus
+/* Builds a spec execution graph from a completed wiring-only RTL parent and explicit leaf bindings. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../core/main.rhm" open
+  "spec.rhm" open
+  "port-types.rhm".sampled_type
+
+export wiring_cut bind_wiring
+
+/* Give a scalar port or each member of a declared directional record its public endpoint name. */
+fun port_leaves(p :: Port, prefixes :: Map, visit :: Function.of_arity(2)):
+  cond
+  | prefixes.has_key(p.name):
+      for Map (f in p.type.fields):
+        values(f.name, visit(prefixes[p.name] ++ "." ++ f.name, f.type))
+  | ~else: visit(p.name, p.type)
+
+/* Stop at child signatures. Record creation and selection only route existing wires. */
+fun wiring_cut(top :: Module, interface_prefixes :: Function.of_arity(1)):
+  unless top.finished | error("expected completed RTL parent")
+  def sources = MutableMap{}
+  def sinks = MutableMap{}
+  def children = MutableMap{}
+  def prefixes = interface_prefixes(top)
+  def sites = top.operations.filter(~keep: fun (op :: Operation): op.opcode == "rtl.instance")
+  for (p in top.inputs):
+    sources[p.value.id] := port_leaves(p, prefixes, fun (name, _): name)
+  for (op in sites):
+    def site = op.attribute("name")
+    def child = op.attribute("module")
+    children[site] := child
+    def fields = interface_prefixes(child)
+    for (p in child.outputs, v in op.results):
+      sources[v.id] := port_leaves(p, fields, fun (name, _): site ++ "." ++ name)
+  for (op in top.operations):
+    match op.opcode
+    | "rtl.record_get":
+        sources[op.results[0].id] := sources[op.operands[0].id][op.attribute("field")]
+    | "rtl.record_create":
+        sources[op.results[0].id] := for Map (f in op.attribute("fields"), v in op.operands): values(f, sources[v.id])
+    | "rtl.input_port" || "rtl.output_port" || "rtl.drive" || "rtl.instance": #void
+    | ~else: error("not a wiring-only parent: " ++ op.opcode)
+  /* Preserve the member correspondence of whole-record connections as well as partial drives. */
+  fun connect(p :: Port, fields :: Map, prefix :: String, driver :: Value):
+    def pins = port_leaves(p, fields, fun (name, _): prefix ++ name)
+    def source = sources[driver.id]
+    if pins is_a Map
+    | for ((field, pin) in pins): sinks[pin] := source[field]
+    | sinks[pins] := source
+  for (op in sites):
+    def site = op.attribute("name")
+    def child = children[site]
+    def fields = interface_prefixes(child)
+    for (p in child.inputs, place in op.places): connect(p, fields, site ++ ".", place.driver)
+  for (p in top.outputs): connect(p, prefixes, "", p.place.driver)
+  values(children.snapshot(), sinks.snapshot())
+
+/* Substitute by exact definition identity, checking sampled member types and direct clocking. */
+fun bind_wiring(top :: Module, bindings :: Map, bool :: HardwareType, interface_prefixes :: Function.of_arity(1)):
+  def values(children, wires) = wiring_cut(top, interface_prefixes)
+  def names = MutableSet{}
+  def clocks = MutableSet{}
+  /* Keep each public sample, omitting only the named rising-edge clock. */
+  fun schema(ports :: List):
+    def result = MutableMap{}
+    for (p in ports.filter(~keep: fun (p :: Port): !clock_type(p.type))):
+      /* Add one public sample with its nominal hardware sort. */
+      fun add_sample(key :: String, type :: HardwareType):
+        names.add(key)
+        result[key] := sampled_type(type, bool)
+      port_leaves(p, interface_prefixes(top), add_sample)
+    result.snapshot()
+  unless top.inputs.find(fun (p :: Port): p.name == "clock" && clock_type(p.type))
+         && top.inputs.filter(~keep: fun (p :: Port): clock_type(p.type)).length() == 1
+         && !top.outputs.find(fun (p :: Port): clock_type(p.type))
+  | error("expected one parent clock input named clock")
+  def inputs = schema(top.inputs)
+  def outputs = schema(top.outputs)
+  def models = for Map ((site, child) in children):
+    unless bindings.has_key(child) | error("unbound RTL child definition: " ++ site)
+    def model :: LeafModel = bindings[child]
+    def seen = MutableSet{}
+    def prefixes = interface_prefixes(child)
+    for (p in child.inputs ++ child.outputs):
+      cond
+      | clock_type(p.type):
+          def pin = site ++ "." ++ p.name
+          unless p.direction == "input" && p.name == "clock" && wires[pin] == "clock"
+          | error("expected direct parent clock at " ++ pin)
+          clocks.add(pin)
+      | ~else:
+          /* Validate one directed member before exposing it to the composition. */
+          fun bind_sample(key :: String, type :: HardwareType):
+            def pin = site ++ "." ++ key
+            def input = p.direction == "input"
+            def fields = if input | model.inputs | model.outputs
+            cond
+            | fields.has_key(key):
+                def t = if input | fields[key] | fields[key].value.type
+                unless !(key in seen) && spec_type_equal(t, sampled_type(type, bool))
+                | error("ambiguous or mistyped RTL/spec pin: " ++ pin)
+                names.add(pin)
+                seen.add(key)
+            | input: error("unbound RTL/spec pin: " ++ pin)
+            | ~else: #void
+          port_leaves(p, prefixes, bind_sample)
+    unless seen.length() == model.inputs.length() + model.outputs.length()
+    | error("spec pin missing from RTL signature: " ++ site)
+    values(site, model)
+  def connected = for Map (sink in wires.keys().filter(~keep: fun (k :: String): !(k in clocks))):
+    def source = wires[sink]
+    unless source in names | error("parent uses an unmodeled child output or clock: " ++ source)
+    values(sink, source)
+  make_composition(inputs, outputs, models, connected)

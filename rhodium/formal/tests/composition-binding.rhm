@@ -3,45 +3,66 @@
 
 import:
   lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("rhodium/frontend/foundation.rhm").Bits
+  lib("flow/arbiter.rhdl").Arbiter
+  lib("flow/shift-queue.rhdl").ShiftQueue
+  "arbiter-queue-fixture.rhdl" open
   lib("rhodium/frontend/kernel.rhm").materialize_circuit
+  lib("rspecl/rtl-boundary.rhm").interface_prefixes
+  "../wiring.rhm".wiring_cut
   "shift-queue-fixture.rhdl".QueuePair
-  "arbiter-queue-fixture.rhdl".ArbiterQueue
+  lib("examples/formal/arbiter-queue.rhdl").ArbiterQueue
 
-export pair_wires mixed_wires fifo_definition arbiter_definition
+export pair_wires fifo_definition arbiter_definition mixed wrong_lane undersized
+export interface_prefixes pin_layout leaf_sites
+export proof_depths parent_at wrong_lane_at fifo_at
 
-// Share one specialization inventory so proofs bind by actual definition identity.
+// Keep the actual definitions, not generated module names, in one elaboration.
+def mutable pair = #false
+def mutable arbiter_definition = #false
+def fifos = MutableMap{}
+def proof_depths = PairList[1, 2, 3]
+def parents = MutableMap{}
+def faulty_parents = MutableMap{}
+def mutable undersized = #false
 fun inventory():
-  materialize_circuit(QueuePair())
-  ArbiterQueue()
-def inventory_design = elaborate(inventory())
-def pair = inventory_design.design.modules.find(fun (m): m.name == "QueuePair")
-def mixed = inventory_design.top
+  arbiter_definition := materialize_circuit(Arbiter(Bits(2), 2))
+  pair := materialize_circuit(QueuePair())
+  for (d in proof_depths):
+    fifos[d] := materialize_circuit(ShiftQueue(Bits(2), d))
+    parents[d] := materialize_circuit(ArbiterQueue(2, ~depth: d))
+    faulty_parents[d] := materialize_circuit(WrongLane(2, d))
+  undersized := materialize_circuit(Undersized(2))
+  ArbiterQueue(2)
+def mixed = elaborate(inventory()).top
+fun parent_at(depth): parents[depth]
+fun wrong_lane_at(depth): faulty_parents[depth]
+def wrong_lane = wrong_lane_at(2)
+def values(pair_children, pair_wires) = wiring_cut(pair, interface_prefixes)
+def values(mixed_children, _) = wiring_cut(mixed, interface_prefixes)
+fun fifo_at(depth): fifos[depth]
+def fifo_definition = fifo_at(2)
 
-// Stop at each instance. Read only its signature, not its operations or state.
-fun cut(top):
-  def sources = MutableMap{}
-  def sinks = MutableMap{}
-  def children = MutableMap{}
-  for (op in top.operations):
-    unless ["rtl.input_port", "rtl.output_port", "rtl.instance", "rtl.drive"].find(fun (kind): kind == op.opcode)
-    | error("not a wiring-only parent: " ++ op.opcode)
-  def sites = top.operations.filter(~keep: fun (op): op.opcode == "rtl.instance")
-  for (p in top.inputs): sources[p.value.id] := p.name
-  for (op in sites):
-    def name = op.attribute("name")
-    def child = op.attribute("module")
-    children[name] := child
-    for (p in child.outputs, v in op.results): sources[v.id] := name ++ "." ++ p.name
-  for (op in sites):
-    def prefix = op.attribute("name") ++ "."
-    for (p in op.attribute("module").inputs, place in op.places): sinks[prefix ++ p.name] := sources[place.driver.id]
-  for (p in top.outputs): sinks[p.name] := sources[p.place.driver.id]
-  values(children.snapshot(), sinks.snapshot())
-
-def values(pair_children, pair_wires) = cut(pair)
-def values(mixed_children, mixed_wires) = cut(mixed)
-def fifo_definition = mixed_children["fifo"]
-def arbiter_definition = mixed_children["arb"]
+// Resolve roles by declaration identity (including across elaborations), never by generated instance names.
+fun leaf_sites(children):
+  fun family(module_def): module_def.metadata_for("rhodium.circuit.family")[0].family
+  fun unique_site(exemplar):
+    def matches = children.keys().filter(~keep: fun (site): family(children[site]) === family(exemplar))
+    unless matches.length() == 1 | error("expected one instance of " ++ exemplar.name)
+    matches[0]
+  unless children.length() == 2 | error("expected exactly two Flow children")
+  values(unique_site(arbiter_definition), unique_site(fifo_definition))
 unless pair_children.length() == 2 && mixed_children.length() == 2
        && pair_children["a"] === fifo_definition && pair_children["b"] === fifo_definition
 | error("expected both parents to share the proved FIFO specialization")
+
+
+/* Physical pins in packed record order (most significant member first), for independent RTL replay. */
+fun pin_layout(top, ports):
+  def prefixes = interface_prefixes(top)
+  for Map (p in ports.filter(~keep: fun (p): p.name != "clock")):
+    def fields:
+      if prefixes.has_key(p.name)
+      | for List (f in p.type.fields): PairList[prefixes[p.name] ++ "." ++ f.name, f.type.packed_width()]
+      | [PairList[p.name, p.type.packed_width()]]
+    values(p.name, PairList[& fields])

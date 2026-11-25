@@ -3,7 +3,7 @@
 ;; SPDX-License-Identifier: Apache-2.0
 
 (require racket/match)
-(provide symbolic-spec-edge symbolic-spec-state spec-edge-at spec-offers-at
+(provide symbolic-spec-edge symbolic-spec-state spec-edge-at spec-offers-at wired-edge-at
          (struct-out edge) (struct-out sequence-value) (struct-out observation))
 
 ;; Only the prefix of slots below count denotes a value; unused slots are unconstrained.
@@ -109,6 +109,16 @@
   (check-fields (hash-ref snapshot "inputs") available #t)
   (view (hash-ref snapshot "outputs") state available))
 
+#| Settle one scheduled output with its care and payload dependencies. An uncared
+   wire is a fresh physical value, shared by all consumers of this evaluation. |#
+(define (spec-pin-at snapshot port state available)
+  (check-fields (hash-ref snapshot "state") state)
+  (check-fields (hash-ref snapshot "inputs") available #t)
+  (define field (hash-ref (hash-ref snapshot "outputs") port))
+  (define-values (obs ok) (view (hash port field) state available))
+  (define offer (hash-ref obs port))
+  (values (if (observation-care offer) (observation-value offer) (fresh (second (second field)))) ok))
+
 #| Step explicitly wired old state and inputs, including previously produced successor terms. |#
 (define (spec-edge-at snapshot state inputs)
   (check-fields (hash-ref snapshot "state") state)
@@ -127,3 +137,30 @@
 #| Build a one-edge formula on independent old state and inputs, without asserting any obligation. |#
 (define (symbolic-spec-edge snapshot)
   (spec-edge-at snapshot (symbolic-spec-state snapshot) (fresh-fields (hash-ref snapshot "inputs"))))
+
+#| Execute the boundary graph against the leaf snapshots supplied by the caller's proofs.
+   Return physical public pins, individual child edges, and the scheduling definedness obligation. |#
+(define (wired-edge-at graph children states inputs)
+  (check-fields (hash-ref graph "inputs") inputs)
+  (unless (and (equal? children (for/hash ([(k v) (hash-ref graph "children")]) (values k v)))
+               (equal? (sort (hash-keys children) string<?) (sort (hash-keys states) string<?)))
+    (error 'wired-edge-at "child models or occurrence states do not match graph"))
+  (define drivers (hash-ref graph "wires"))
+  #| Resolve a sink against one old-state sample of the physical nets. |#
+  (define (wire nets sink) (hash-ref nets (hash-ref drivers sink)))
+  #| Qualify names with immutable strings for the cross-language snapshot maps. |#
+  (define (pin-name site port) (string->immutable-string (string-append site "." port)))
+  #| Read just the inputs on which the scheduled output or complete edge depends. |#
+  (define (bind nets site ports)
+    (for/hash ([p ports]) (values p (wire nets (pin-name site p)))))
+  (define-values (nets defined)
+    (for/fold ([nets inputs] [ok #t]) ([row (hash-ref graph "order")])
+      (match-define (list site port deps) row)
+      (define-values (v safe)
+        (spec-pin-at (hash-ref children site) port (hash-ref states site) (bind nets site deps)))
+      (values (hash-set nets (pin-name site port) v) (&& ok safe))))
+  (values (for/hash ([p (hash-ref graph "outputs")]) (values p (wire nets p)))
+          (for/hash ([(site child) children])
+            (values site (spec-edge-at child (hash-ref states site)
+                                       (bind nets site (hash-keys (hash-ref child "inputs"))))))
+          defined))

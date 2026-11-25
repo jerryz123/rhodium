@@ -1,0 +1,30 @@
+#lang rspecl
+/* Specifies the public priority, admission, and retirement behavior of a buffered two-lane interface. */
+// SPDX-License-Identifier: Apache-2.0
+
+import "arbiter-queue.rhdl" as rtl
+
+/* Record accepted external words, oldest first. A full queue cannot accept on its retirement edge. */
+spec for rtl.ArbiterQueue:
+  state pending: Seq(ingress[0].bits.type, depth) initially [] as cleared
+
+  let first = ingress[0]
+  let second = ingress[1]
+  let room = !full(pending)
+  let grant0 = room && first.valid
+  let grant1 = room && !first.valid && second.valid
+  let push = grant0 || grant1
+  let winner = select(grant0, first.bits, second.bits)
+  let valid = !empty(pending)
+  let pop = valid && egress.ready
+
+  observe ingress[0].ready = grant0 when !reset
+  observe ingress[1].ready = grant1 when !reset
+  observe egress.valid = valid when !reset
+  observe egress.bits = front(pending) when !reset && valid
+  event reset = #true when reset
+  event accepted = winner when !reset && push
+  event retired = front(pending) when !reset && pop
+
+  let retained = select(pop, tail(pending), pending)
+  next pending = select(reset, cleared, select(push, append(retained, winner), retained))

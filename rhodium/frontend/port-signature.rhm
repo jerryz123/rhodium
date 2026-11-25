@@ -1,0 +1,71 @@
+#lang rhombus/and_meta
+/* Declares a detached synchronous port signature and exposes its names to lexical consumers. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  rhombus/meta open
+  "foundation.rhm".input
+  "foundation.rhm".output
+  "foundation.rhm" as rtl
+  "../core/signature.rhm".signature_equal
+
+export sync_signature
+
+/* Check the finished, ordered physical interface, including ports introduced indirectly by helpers. */
+fun checked_circuit(signature :: rtl.ModuleSignature, circuit :: rtl.CircuitDefinition):
+  unless signature_equal(signature, rtl.circuit_signature(circuit))
+  | error("circuit ports do not match the shared signature")
+  circuit
+
+meta:
+  /* Introduce port bindings in the consumer's scope, but evaluate types in the signature's scope. */
+  fun expand_use(tail :: Syntax, ctor :: Syntax, inputs :: List, outputs :: List):
+    match tail
+    | '($arg, ...) ~rtl $consumer $(name :: Identifier)($param, ...): $body; ...':
+        let [inkey, ...] = inputs
+        let [outkey, ...] = outputs
+        let [inp, ...] = inputs.map(fun (k :: String): Syntax.make_id(k, name))
+        let [out, ...] = outputs.map(fun (k :: String): Syntax.make_id(k, name))
+        '$consumer $name($param, ...) (sig, $ctor($arg, ...), checked_circuit):
+           input $inp: sig.input($inkey).type
+           ...
+           output $out: sig.output($outkey).type
+           ...
+           $body
+           ...'
+    | ~else: syntax_meta.error("expected a specialized port signature", tail)
+
+/* Build the physical signature once per specialization, with the ambient sync controls first. */
+defn.macro 'sync_signature $(name :: Identifier)($param, ...): $clause; ...':
+  def ctor = Syntax.make_temp_id(name)
+  def mutable inputs = []
+  def mutable outputs = []
+  def mutable in_ports = []
+  def mutable out_ports = []
+  for (c in [clause, ...]):
+    match c
+    | '$dir $(pin :: Identifier): $t':
+        def key = pin.to_source_string()
+        def port = 'rtl.PortSignature($key, $t)'
+        match dir
+        | 'input':
+            inputs := inputs ++ [key]
+            in_ports := in_ports ++ [port]
+        | 'output':
+            outputs := outputs ++ [key]
+            out_ports := out_ports ++ [port]
+        | ~else: syntax_meta.error("expected input or output", dir)
+    | ~else: syntax_meta.error("expected a named, typed port", c)
+  let [inp, ...] = in_ports
+  let [out, ...] = out_ports
+  let [inkey, ...] = inputs
+  let [outkey, ...] = outputs
+  '«
+     /* Specialize ordered port types without executing a circuit implementation. */
+     fun $ctor($param, ...):
+       rtl.ModuleSignature([rtl.PortSignature("clock", rtl.Clock), rtl.PortSignature("reset", rtl.Reset), $inp, ...],
+                           [$out, ...])
+     def $name = $ctor
+     defn.macro '$name $('$')tail $('...')':
+       expand_use('$('$')tail $('...')', '$ctor', [$inkey, ...], [$outkey, ...])
+   »'

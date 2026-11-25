@@ -4,20 +4,31 @@
 import:
   lib("rhodium/frontend/foundation.rhm").elaborate
   "shift-queue-fixture.rhdl" open
+  "corrupt-queue.rhdl".CorruptQueue
   "composition-binding.rhm" open
   "../snapshot.rhm".formal_snapshot
   "../spec.rhm" open
   "../../../examples/formal/shift-queue.rspl".ShiftQueue
 
-export snapshot faulty_snapshot guarded_snapshot spec_row fifo_snapshot initial_contents pair_wires unit_fifo_snapshot
+export snapshot faulty_snapshot guarded_snapshot spec_row fifo_snapshot pair_wires unit_fifo_snapshot fifo_root bad_root in_layout out_layout
+export proof_depths fifo_case
 
 def snapshot = formal_snapshot(fifo_definition)
-def faulty_snapshot = formal_snapshot(elaborate(Leaf(#true)))
+def bad = elaborate(CorruptQueue()).top
+def bad_root = bad.name ++ ".dut"
+def fifo_root = fifo_definition.name
+def in_layout = pin_layout(fifo_definition, fifo_definition.inputs)
+def out_layout = pin_layout(fifo_definition, fifo_definition.outputs)
+def faulty_snapshot = formal_snapshot(bad)
 def guarded_snapshot = formal_snapshot(elaborate(GuardedAssertion()))
-def fifo = ShiftQueue(2, 2)
+def fifo = ShiftQueue(fifo_definition)
 def fifo_snapshot = spec_snapshot(fifo)
-def unit_fifo_snapshot = spec_snapshot(ShiftQueue(2, 1))
-def initial_contents = PairList[& fifo.initial["q"]]
+def unit_fifo_snapshot = spec_snapshot(ShiftQueue(fifo_at(1)))
+// Prove the actual FIFO occurrence's definition; specialization suffixes are not stable names.
+fun fifo_case(depth):
+  def leaf = fifo_at(depth)
+  def model = ShiftQueue(leaf)
+  values(formal_snapshot(leaf), leaf.name, pin_layout(leaf, leaf.outputs), spec_snapshot(model), PairList[& model.initial["q"]])
 fun spec_row(contents, sample):
   def edge = step_spec(fifo, {"q": PairList.to_list(contents)}, sample)
   PairList[edge.outputs, edge.events, PairList[& edge.next_state["q"]]]

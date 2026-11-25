@@ -1,0 +1,84 @@
+#lang rhombus/and_meta
+/* Detaches scalar and interface-member samples from an elaborated circuit for RSPECL. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  rhombus/meta open
+  lib("rhodium/core/ir.rhm").Module
+  lib("rhodium/core/types.rhm") as hw
+  lib("rhodium/frontend/kernel.rhm").CircuitIdentity
+  lib("rhodium/frontend/kernel.rhm").checked_circuit_parameters
+  lib("rhodium/frontend/foundation.rhm").Bool
+  lib("rhodium/frontend/layers/interface.rhm") as iface
+  lib("rhodium/formal/port-types.rhm") open
+  lib("rhodium/formal/spec.rhm").input_ref
+
+export declared_ports interface_prefixes Endpoint
+
+/* Flat logical field schemas and lexical views, with no RTL drivers or implementation state. */
+class Boundary(ports :: SampledPorts, endpoints :: Map, arrays :: Map, parameters :: Map):
+  /* A non-scalar argument is not part of the model and is only diagnosed if referenced. */
+  method parameter(name :: String):
+    unless parameters.has_key(name) | error("not an integer or Boolean RTL parameter: " ++ name)
+    parameters[name]
+
+annot.macro 'Endpoint':
+  annot_meta.pack_predicate('fun (v): v is_a Map', '(($(statinfo_meta.dot_provider_key), endpoint_dot))')
+dot.macro 'endpoint_dot $left $dot $right':
+  '$left [$(right.to_source_string())]'
+
+/* Resolve group array indices once for both lexical references and netlist cuts. */
+fun group_prefixes(top :: Module):
+  def prefixes = MutableMap{}
+  for (array in iface.module_interface_array_groups(top)):
+    for (g in array.groups, i in 0..array.groups.length()):
+      prefixes[g.name] := array.name ++ "[" ++ to_string(i) ++ "]"
+  prefixes.snapshot()
+
+/* Map each physical directional record to its public interface or indexed lane name. */
+fun interface_prefixes(top :: Module):
+  def prefixes = group_prefixes(top)
+  def physical = MutableMap{}
+  for (g in iface.module_interface_groups(top)):
+    for (b in g.bindings): physical[b.port_name] := prefixes.get(g.name, g.name)
+  physical.snapshot()
+
+/* Split directional records using their real group bindings, not a physical-port naming convention. */
+fun declared_ports(top :: Module, family :: CircuitIdentity, synchronous :: Boolean):
+  def parameters = checked_circuit_parameters(top, family)
+  def ins = MutableMap{}
+  def outs = MutableMap{}
+  def endpoints = MutableMap{}
+  def arrays = MutableMap{}
+  def covered = MutableSet{}
+  def prefixes = group_prefixes(top)
+  def array_groups = iface.module_interface_array_groups(top)
+  for (g in iface.module_interface_groups(top)):
+    def prefix = prefixes.get(g.name, g.name)
+    def members = MutableMap{}
+    for (b in g.bindings):
+      def input = b.direction.from_role != g.role
+      def p = if input | top.find_input(b.port_name) | top.find_output(b.port_name)
+      unless p && hw.type_equal(p.type, b.direction.type) && !(b.port_name in covered)
+      | error("invalid interface binding: " ++ b.port_name)
+      covered.add(b.port_name)
+      for (f in b.direction.type.fields):
+        def key = prefix ++ "." ++ f.name
+        def sort = sampled_type(f.type, Bool)
+        if input
+        | block:
+            ins[key] := sort
+            members[f.name] := input_ref(key, sort)
+        | outs[key] := sort
+    endpoints[prefix] := members.snapshot()
+  for (a in array_groups):
+    arrays[a.name] := a.groups.map(fun (g): endpoints[prefixes[g.name]])
+  for (p in top.inputs ++ top.outputs):
+    unless p.name in covered
+    | cond
+      | hw.clock_type(p.type):
+          unless synchronous && p.name == "clock" && p.direction == "input"
+          | error("unsupported clock on sampled boundary: " ++ p.name)
+      | p.direction == "input": ins[p.name] := sampled_type(p.type, Bool)
+      | ~else: outs[p.name] := sampled_type(p.type, Bool)
+  Boundary(SampledPorts(ins.snapshot(), outs.snapshot()), endpoints.snapshot(), arrays.snapshot(), parameters)

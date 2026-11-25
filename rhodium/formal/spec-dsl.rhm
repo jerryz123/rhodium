@@ -1,5 +1,5 @@
 #lang rhombus/and_meta
-/* Embeds lexical spec declarations and expression-building operators in ordinary Rhombus. */
+/* Provides the typed expression operators shared by RSPECL and ordinary Rhombus helpers. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,7 +8,7 @@ import:
   "spec.rhm" open
 
 export:
-  spec SpecExpr Bool select append ! && ||
+  SpecExpr Bool select append ! && || operand
   rename:
     SpecBits as Bits
     SpecSeq as Seq
@@ -55,89 +55,3 @@ expr.macro '$a && $b':
 expr.macro '$a || $b':
   ~order: logical_disjunction
   'combine($a, fun (): $b, #true)'
-
-meta:
-  /* Only external declaration names are strings; expression identifiers remain lexical syntax. */
-  fun field_name(stx :: Syntax):
-    match stx
-    | '$(a :: Identifier)': to_string(a.unwrap())
-    | '$(a :: Identifier) . $(b :: Identifier)': field_name(a) ++ "." ++ field_name(b)
-    | ~else: syntax_meta.error("expected a spec field name", stx)
-
-  /* Emit the immutable schema or view expected by the existing model constructor. */
-  fun map_expr(entries :: ReadableMap):
-    let [key, ...] = entries.keys()
-    let [value, ...] = [entries[key], ...]
-    'Map{$key: $value, ...}'
-
-  /* Split the optional care clause without inspecting either Rhombus expression. */
-  fun observation(rhs :: Syntax):
-    match rhs
-    | '$v ... when $c ...': 'Observed(operand($v ...), operand($c ...))'
-    | ~else: 'Observed(operand($rhs))'
-
-/* Name a specialization function or a fixed model; both use the anonymous spec expression. */
-defn.macro
-| 'spec $(name :: Identifier)($arg, ...): $line; ...':
-    'fun $name($arg, ...): (spec: $line; ...)'
-| 'spec $(name :: Identifier): $line; ...':
-    'def $name = (spec: $line; ...)'
-| 'spec: $line; ...':
-    '(spec: $line; ...)'
-
-/* Retain clause order and use-site scopes. Only declarations contribute fields to the model. */
-expr.macro 'spec: $line; ...':
-  def inputs = MutableMap{}
-  def states = MutableMap{}
-  def initial = MutableMap{}
-  def outputs = MutableMap{}
-  def events = MutableMap{}
-  def updates = MutableMap{}
-  def namespaces = MutableSet{}
-  def mutable body = []
-  /* Capture a declaration's value at its lexical site, not after later shadowing. */
-  fun record(table :: MutableMap, key :: String, rhs :: Syntax, site :: Syntax):
-    when table.has_key(key) | syntax_meta.error("duplicate spec declaration: " ++ key, site)
-    def id = Syntax.make_temp_id(key)
-    body := body ++ ['def $id = $rhs']
-    table[key] := id
-    id
-  /* An optional lexical alias exposes the typed initial constant without implying reset. */
-  fun state_clause(n :: Syntax, t :: Syntax, v :: Syntax, alias_id :: maybe(Syntax), site :: Syntax):
-    def key = field_name(n)
-    def type = record(states, key, t, site)
-    def start = record(initial, key, v, site)
-    body := body ++ ['def $n = state_ref($key, $type)']
-    when alias_id | body := body ++ ['def $alias_id = literal($type, $start)']
-
-  for (clause in [line, ...]):
-    match clause
-    | 'input $n ...: $t':
-        def key = field_name('$n ...')
-        def type = record(inputs, key, t, clause)
-        match '$n ...'
-        | '$(prefix :: Identifier) . $(member :: Identifier)':
-            unless field_name(prefix) in namespaces
-            | block:
-                namespaces.add(field_name(prefix))
-                body := body ++ ['namespace $prefix']
-        | ~else: #void
-        body := body ++ ['def $n ... = input_ref($key, $type)']
-    | 'state $(n :: Identifier): $t ... initially $v ... as $(id :: Identifier)':
-        state_clause(n, '$t ...', '($v ...)', id, clause)
-    | 'state $(n :: Identifier): $t ... initially $v ...':
-        state_clause(n, '$t ...', '($v ...)', #false, clause)
-    | 'output $n ... = $v ...': record(outputs, field_name('$n ...'), observation('$v ...'), clause)
-    | 'event $n ... = $v ...': record(events, field_name('$n ...'), observation('$v ...'), clause)
-    | 'next $(n :: Identifier) = $v ...':
-        def key = field_name(n)
-        unless states.has_key(key) | syntax_meta.error("next requires a declared state: " ++ key, n)
-        record(updates, key, 'operand($v ...)', clause)
-    | ~else: body := body ++ [clause]
-
-  let [decl, ...] = body
-  'block:
-     $decl
-     ...
-     make_spec($(map_expr(inputs)), $(map_expr(states)), $(map_expr(initial)),
-               $(map_expr(outputs)), $(map_expr(events)), $(map_expr(updates)))'

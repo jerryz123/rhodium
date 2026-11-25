@@ -108,6 +108,16 @@ See the [program contract](../lowering/README.md) for direct Builder usage.
 
 ### Circuit families and explicit tops
 
+Each elaborated `circuit` or `sync_circuit` retains its integer and Boolean
+constructor arguments under their local binding names. For example,
+`~depth: depth :: PosInt = 2` makes `depth` available to a spec as 2 when
+omitted, or as the supplied value. These are constants, not ports.
+An underscore-prefixed binding is private: `~fault: _fault :: Boolean = #false`
+keeps the caller’s keyword but excludes the control from the spec. Body
+locals and non-scalar host values are not captured. Lookup never searches
+children. For a spec that uses this, see
+[the ArbiterQueue contract](../formal/README.md#specify-a-parent-without-copying-its-implementation).
+
 Library extensions can separate a known physical interface from construction
 of its implementation with a `CircuitReference`:
 

@@ -1,0 +1,37 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../examples/formal/arbiter-queue.rspl".ArbiterQueue
+  "../../../examples/formal/arbiter.rspl".Arbiter
+  "../../../examples/formal/shift-queue.rspl".ShiftQueue
+  lib("rhodium/frontend/layers/bool.rhm").Bool
+  "../wiring.rhm" open
+  "../spec.rhm" open
+  "../snapshot.rhm".formal_snapshot
+  "composition-binding.rhm" open
+export ordering_case correct_model wrong_lane_model undersized_model
+export undersized_rtl correct_rtl one_slot_rtl depth_two_contract
+
+fun wiring(top, depth):
+  def bindings = Map.by(===){arbiter_definition: Arbiter(arbiter_definition),
+                             fifo_at(depth): ShiftQueue(fifo_at(depth))}
+  bind_wiring(top, bindings, Bool, interface_prefixes)
+def correct_model = wiring(mixed, 2)
+def wrong_lane_model = wiring(wrong_lane, 2)
+def undersized_model = wiring(undersized, 1)
+fun ordering_case(depth):
+  def top = parent_at(depth)
+  fun candidate(parent):
+    def values(children, _) = wiring_cut(parent, interface_prefixes)
+    def values(arb, fifo) = leaf_sites(children)
+    PairList[composition_snapshot(wiring(parent, depth)), arb, fifo]
+  values(candidate(top), spec_snapshot(ArbiterQueue(top)), candidate(wrong_lane_at(depth)))
+
+// Lazily snapshot complete hardware only for the depth-fault replay, never for substitution.
+fun replay_rtl(top):
+  values(formal_snapshot(top), pin_layout(top, top.inputs), pin_layout(top, top.outputs))
+fun undersized_rtl(): replay_rtl(undersized)
+fun correct_rtl(): replay_rtl(mixed)
+fun one_slot_rtl(): replay_rtl(parent_at(1))
+def depth_two_contract = spec_snapshot(ArbiterQueue(parent_at(2)))

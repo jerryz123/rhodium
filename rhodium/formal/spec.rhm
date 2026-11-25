@@ -9,10 +9,12 @@ import:
 export:
   only_space annot:
     rename: Expr as SpecExpr
+    rename: Model as LeafModel
+  rename: same_type as spec_type_equal
   SpecBool SpecBits SpecSeq
   literal input_ref state_ref choose_if bool_not bool_and
   seq_empty seq_full seq_front seq_tail seq_append
-  Observed make_spec step_spec spec_snapshot
+  Observed make_spec make_composition step_spec spec_snapshot composition_snapshot
 
 interface SpecType
 
@@ -180,36 +182,131 @@ fun spec_snapshot(model :: Model):
    "outputs": view(model.outputs), "events": view(model.events),
    "updates": for Map ((name, expr) in model.updates): values(name, snapshot_expr(expr))}
 
-/* Advance rspecsim one edge on concrete bindings without mutating the caller's state. */
-fun step_spec(model :: Model, state :: Map, inputs :: Map):
+/* Interpret guards lazily, so an inactive partial operation is not executed. */
+fun evaluate(expr :: Expr, state :: Map, inputs :: Map):
+  /* Evaluate one operand against this same pre-edge sample. */
+  fun arg(index :: Nat): evaluate(expr.args[index], state, inputs)
+  match expr.op
+  | "input": inputs[expr.datum]
+  | "state": state[expr.datum]
+  | "literal": expr.datum
+  | "if":
+      if arg(0) | arg(1) | arg(2)
+  | "not": !arg(0)
+  | "and": arg(0) && arg(1)
+  | "empty": arg(0).length() == 0
+  | "full": arg(0).length() == expr.args[0].type.capacity
+  | "front" || "tail":
+      def seq = arg(0)
+      when seq.length() == 0 | error("cannot read or remove from an empty sequence")
+      if expr.op == "front" | seq[0] | seq.drop(1)
+  | "append":
+      def seq = arg(0)
+      when seq.length() == expr.type.capacity | error("cannot append to a full sequence")
+      seq ++ [arg(1)]
+
+/* Advance one leaf against an exact sample of its state and physical inputs. */
+fun step_leaf(model :: Model, state :: Map, inputs :: Map):
   check_bindings(model.state, state)
   check_bindings(model.inputs, inputs)
-  /* Interpret conditional and care guards lazily so an inactive partial operation is not executed. */
-  fun evaluate(expr :: Expr):
-    /* Evaluate one operand against this same pre-edge sample. */
-    fun arg(index :: Nat): evaluate(expr.args[index])
-    match expr.op
-    | "input": inputs[expr.datum]
-    | "state": state[expr.datum]
-    | "literal": expr.datum
-    | "if":
-        if arg(0) | arg(1) | arg(2)
-    | "not": !arg(0)
-    | "and": arg(0) && arg(1)
-    | "empty": arg(0).length() == 0
-    | "full": arg(0).length() == expr.args[0].type.capacity
-    | "front" || "tail":
-        def seq = arg(0)
-        when seq.length() == 0 | error("cannot read or remove from an empty sequence")
-        if expr.op == "front" | seq[0] | seq.drop(1)
-    | "append":
-        def seq = arg(0)
-        when seq.length() == expr.type.capacity | error("cannot append to a full sequence")
-        seq ++ [arg(1)]
-  /* An uncared field has no value, which is different from an observed false or zero. */
+  /* Omit uncared observations, keeping observed false and zero intact. */
   fun observe(view :: Map):
-    for Map (name in view.keys().filter(~keep: fun (key :: String): evaluate(view[key].care))):
-      values(name, evaluate(view[name].value))
+    for Map (name in view.keys().filter(~keep: fun (key :: String): evaluate(view[key].care, state, inputs))):
+      values(name, evaluate(view[name].value, state, inputs))
   def next = for Map ((name, old) in state):
-    values(name, if model.updates.has_key(name) | evaluate(model.updates[name]) | old)
+    values(name, if model.updates.has_key(name) | evaluate(model.updates[name], state, inputs) | old)
   Step(observe(model.outputs), observe(model.events), next)
+
+/* A leaf instance output can settle once its care and payload input pins are bound. */
+class Offer(site :: String, port :: String, deps :: List)
+
+/* Wiring-only parent; each occurrence owns a separate old state and one simultaneous edge. */
+class Composition(inputs :: Map, outputs :: Map, children :: Map, wires :: Map,
+                  order :: List, initial :: Map)
+
+/* Collect all input references, including in conditional payloads and care expressions. */
+fun dependencies(expr :: Expr, names :: MutableSet):
+  when expr.op == "input" | names.add(expr.datum)
+  for (child in expr.args): dependencies(child, names)
+
+/* Link named scalar endpoints, check exact drivers, and order old-state offers without a fixed point. */
+fun make_composition(inputs :: Map, outputs :: Map, children :: Map, wires :: Map):
+  def sources = MutableMap{}
+  def sinks = MutableMap{}
+  def pending = MutableMap{}
+  /* A pin has one direction and a finite scalar type; sequences remain private state. */
+  fun declare(table :: MutableMap, key :: String, type :: SpecType):
+    when sources.has_key(key) || sinks.has_key(key) | error("duplicate composition endpoint: " ++ key)
+    when type is_a SpecSeq | error("composition pins must be scalar: " ++ key)
+    table[key] := type
+  for ((key, type) in inputs): declare(sources, key, type)
+  for ((key, type) in outputs): declare(sinks, key, type)
+  for ((site, child :: Model) in children):
+    def prefix = site ++ "."
+    for ((port, type) in child.inputs): declare(sinks, prefix ++ port, type)
+    for ((port, field) in child.outputs):
+      declare(sources, prefix ++ port, field.value.type)
+      def deps = MutableSet{}
+      dependencies(field.care, deps)
+      dependencies(field.value, deps)
+      pending[prefix ++ port] := Offer(site, port, for List (dep in deps): dep)
+  for ((sink, src) in wires):
+    unless sinks.has_key(sink) && sources.has_key(src) | error("unknown or reversed wire: " ++ sink ++ " <== " ++ src)
+    unless same_type(sinks[sink], sources[src]) | error("wire type mismatch: " ++ sink ++ " <== " ++ src)
+  for (sink in sinks.keys()): unless wires.has_key(sink) | error("undriven composition pin: " ++ sink)
+  def mutable order = []
+  /* A source no longer pending is either external or already settled. */
+  fun is_ready(key :: String):
+    def offer = pending[key]
+    !offer.deps.find(fun (d :: String): pending.has_key(wires[offer.site ++ "." ++ d]))
+  while pending.length() > 0:
+    def ready = pending.keys().filter(~keep: is_ready)
+    when ready.length() == 0 | error("combinational cycle in composition wiring")
+    for (key in ready):
+      order := order ++ [pending[key]]
+      pending.remove(key)
+  Composition(inputs, outputs, children, wires, order,
+              for Map ((site, child) in children): values(site, child.initial))
+
+/* Export the checked wire graph, external schema, schedule, and specialized leaf models. */
+fun composition_snapshot(model :: Composition):
+  {"children": for Map ((site, child) in model.children): values(site, spec_snapshot(child)),
+   "inputs": for Map ((k, t) in model.inputs): values(k, snapshot_type(t)),
+   "outputs": PairList[& model.outputs.keys()],
+   "wires": model.wires,
+   "order": for PairList (o in model.order): PairList[o.site, o.port, PairList[& o.deps]]}
+
+/* Settle physical pins once, preserving care on exported observations; commit all children together. */
+fun step_composition(model :: Composition, state :: Map, inputs :: Map):
+  check_bindings(model.inputs, inputs)
+  unless state.keys().length() == model.children.length() | error("expected exact instance states")
+  def nets = MutableMap{}
+  def cared = MutableMap{}
+  for ((k, v) in inputs):
+    nets[k] := v
+    cared[k] := #true
+  /* Bind only the pins required at this point in the dependency schedule. */
+  fun bind(site :: String, ports :: List):
+    for Map (p in ports): values(p, nets[model.wires[site ++ "." ++ p]])
+  for (o in model.order):
+    def field = model.children[o.site].outputs[o.port]
+    def args = bind(o.site, o.deps)
+    def key = o.site ++ "." ++ o.port
+    def care = evaluate(field.care, state[o.site], args)
+    cared[key] := care
+    def physical:
+      cond
+      | care: evaluate(field.value, state[o.site], args)
+      | field.value.type is_a SpecBool: #false
+      | ~else: 0
+    nets[key] := physical
+  def next = for Map ((site, child) in model.children):
+    def edge = step_leaf(child, state[site], bind(site, child.inputs.keys()))
+    values(site, edge.next_state)
+  Step(for Map (k in model.outputs.keys().filter(~keep: fun (k :: String): cared[model.wires[k]])):
+         values(k, nets[model.wires[k]]),
+       Map{}, next)
+
+/* Run one concrete rspecsim edge for either a leaf or a structural parent. */
+fun step_spec(model :: Model || Composition, state :: Map, inputs :: Map):
+  if model is_a Model | step_leaf(model, state, inputs) | step_composition(model, state, inputs)

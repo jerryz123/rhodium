@@ -22,18 +22,23 @@ it does not prove refinement. Rosette stays optional and outside elaboration.
 ## Delivery milestones
 
 All three FIFO milestones are complete for the fixed two-bit, depth-two
-specialization. The [leaf proof](DEVELOPING.md#fixed-shiftqueue-refinement)
-checks reset and preservation, including replay of a faulty payload. The
+specialization. The [leaf proof](DEVELOPING.md#shiftqueue-refinement-by-depth)
+now checks reset and preservation separately for depths 1, 2, and 3;
+the faulty-payload replay remains at depth 2. The
 [series proof](DEVELOPING.md#two-shiftqueues-in-series) discharges the boundary
 and proves ordering and capacity four using two independent spec states.
 This is a same-run proof of a fixed wiring pattern, not a general substitution
-or evidence-cache API. The depth-one negative example is spec-only.
+or evidence-cache API. The two-queue depth-one readiness example is spec-only;
+the ArbiterQueue capacity mismatch is replayed against actual RTL.
 
 The [two-input fixed-priority arbiter](DEVELOPING.md#two-input-fixed-priority-arbiter)
 is a second verified leaf. Unlike the FIFO, its cycle outputs depend on
 current inputs. The [arbiter-to-FIFO proof](DEVELOPING.md#arbiter-feeding-a-shiftqueue)
-resolves the two child specs' same-cycle dependencies and proves that each
-dequeue returns the oldest accepted winner in the current reset epoch. Neither
+derives the parent wiring from elaborated RHDL and substitutes the verified
+children there. An [independent parent contract](../../examples/formal/arbiter-queue.rspl)
+records external winners, not child events or instance connections. The proof
+establishes separately at depths 1, 2, and 3 that each dequeue returns the
+oldest accepted winner since reset. It is not quantified over depth. Neither
 parent proof inspects child RTL state. The larger reorder-buffer example below
 remains future work.
 
@@ -83,8 +88,8 @@ Separate the pure spec IR and concrete interpreter from the solver adapter.
 Keep the existing [RTL stepper](DEVELOPING.md#register-transition-foundation)
 as the implementation semantics. Neither spec values nor Rosette terms become
 RTL values, and ordinary elaboration does not run proofs. The implemented
-[spec block](README.md#author-an-executable-spec) declares inputs, state,
-cycle outputs, guarded events, and simultaneous updates. Refinement bindings
+[spec block](README.md#author-an-executable-spec) binds to a circuit’s inputs and declares state,
+cycle observations, guarded events, and simultaneous updates. Refinement bindings
 and theorem obligations remain separate proof code; a theorem is not a step.
 
 ## Observation, time, and reset

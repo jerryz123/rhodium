@@ -7,6 +7,7 @@ import:
   lib("rhodium/frontend/layers/sequential.rhm") open
   lib("rhodium/frontend/layers/hierarchy.rhm") open
   lib("rhodium/frontend/layers/sync.rhm") open
+  lib("rhodium/frontend/port-signature.rhm").sync_signature
   "../../../examples/lop/counter-composed.rhdl".Counter
 
 sync_circuit LocalResetCounter():
@@ -45,7 +46,19 @@ sync_circuit ExplicitNestedBoundary():
   child.reset <== child_reset
   count <== child.count
 
+sync_signature EchoIO(width :: PosInt):
+  input payload: Bits(width)
+  output echo: Bits(width)
+
+sync_circuit Echo(width :: PosInt) using EchoIO(width):
+  echo <== payload
+
+sync_circuit ExtraPort() using EchoIO(1):
+  input extra: Bits(1)
+  echo <== payload
+
 export:
+  EchoIO Echo ExtraPort
   LocalResetCounter
   LocalResetChildTop
   ExplicitNestedBoundary

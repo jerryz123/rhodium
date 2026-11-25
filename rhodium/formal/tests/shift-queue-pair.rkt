@@ -10,9 +10,9 @@
 ;; Require every sink, including clock/reset; no parent logic or count/mask consumers.
 (define expected-wires
   (hash "a.clock" "clock" "b.clock" "clock" "a.reset" "reset" "b.reset" "reset"
-        "a.offer" "offer" "a.data" "data" "a.consume" "b.ready"
-        "b.offer" "a.valid" "b.data" "a.head" "b.consume" "consume"
-        "ready" "a.ready" "valid" "b.valid" "head" "b.head"))
+        "a.ingress.valid" "offer" "a.ingress.bits" "data" "a.egress.ready" "b.ingress.ready"
+        "b.ingress.valid" "a.egress.valid" "b.ingress.bits" "a.egress.bits" "b.egress.ready" "consume"
+        "ready" "a.ingress.ready" "valid" "b.egress.valid" "head" "b.egress.bits"))
 (define cut (check-cut pair_wires expected-wires))
 
 (define (fresh-states model)
@@ -29,15 +29,15 @@
     (for/fold ([nets external] [ok #t]) ([(name state) states])
       (define (k suffix) (string-append name suffix))
       (define-values (out defined) (spec-offers-at model state (hash "reset" (wire external (k ".reset")))))
-      (values (hash-set* nets (k ".ready") (pin (hash-ref out "in.ready") boolean?)
-                         (k ".valid") (pin (hash-ref out "out.valid") boolean?)
-                         (k ".head") (pin (hash-ref out "out.data") (bitvector 2)))
+      (values (hash-set* nets (k ".ingress.ready") (pin (hash-ref out "ingress.ready") boolean?)
+                         (k ".egress.valid") (pin (hash-ref out "egress.valid") boolean?)
+                         (k ".egress.bits") (pin (hash-ref out "egress.bits") (bitvector 2)))
               (&& ok defined))))
   (define (step name)
     (define (input suffix) (wire nets (string-append name suffix)))
     (spec-edge-at model (hash-ref states name)
-                  (hash "reset" (input ".reset") "in.valid" (input ".offer")
-                        "in.data" (input ".data") "out.ready" (input ".consume"))))
+                  (hash "reset" (input ".reset") "ingress.valid" (input ".ingress.valid")
+                        "ingress.bits" (input ".ingress.bits") "egress.ready" (input ".egress.ready"))))
   (define a (step "a"))
   (define b (step "b"))
   (pair-step (hash "a" (edge-next a) "b" (edge-next b)) a b offers-ok
@@ -99,15 +99,15 @@
   (require-feasible (&& valid push pop (observation-care middle)))
   ;; A proposed narrower child assumption is satisfiable but not implied by this wiring.
   (check-exn #rx"not discharged" (lambda ()
-    (admit-children! (bveq (hash-ref (edge-inputs a) "in.data") (bv 0 2)) #t)))
-  (check-exn #rx"outside the verified" (lambda () (check-cut (hash-set expected-wires "b.data" "a.mask") expected-wires))))
+    (admit-children! (bveq (hash-ref (edge-inputs a) "ingress.bits") (bv 0 2)) #t)))
+  (check-exn #rx"outside the verified" (lambda () (check-cut (hash-set expected-wires "b.ingress.bits" "a.mask") expected-wires))))
 
 (test-case "explicit spec bindings reject missing dependencies and ill-typed wires"
   (define state (hash-ref states "a"))
   (check-exn #rx"no value found" (lambda () (spec-offers-at verified-fifo state (hash))))
   (check-exn #rx"spec binding" (lambda () (spec-edge-at verified-fifo state (hash "reset" rst))))
   (check-exn #rx"spec binding" (lambda ()
-    (spec-edge-at verified-fifo state (hash-set (edge-inputs a) "in.data" (bv 0 1))))))
+    (spec-edge-at verified-fifo state (hash-set (edge-inputs a) "ingress.bits" (bv 0 1))))))
 
 (test-case "joint handshakes, reset epochs, FIFO order, and four-word capacity"
   (discharge 'epoch valid (&& (matches? (event a "reset") rst #t) (matches? (event b "reset") rst #t)

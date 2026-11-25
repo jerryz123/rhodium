@@ -1,0 +1,54 @@
+#lang rhombus/and_meta
+/* Publishes lexical input, interface and configuration names for consumers of a circuit declaration. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  rhombus/meta open
+  "../kernel.rhm".CircuitIdentity
+
+export declare_boundary
+
+meta:
+  /* Introduce names in the consumer's scope; the elaborated top supplies specialization values. */
+  fun expand_boundary(tail :: Syntax, family :: Syntax, sync :: Boolean, groups :: List):
+    match tail
+    | '$consumer $(name :: Identifier): $body; ...':
+        def names = groups[0] ++ groups[1] ++ groups[2] ++ groups[3]
+        def unique = for Set (n in names): n
+        unless names.length() == unique.length() | syntax_meta.error("ambiguous public boundary name", name)
+        let [ids, ...] = for List (g in groups):
+          let [id, ...] = g.map(fun (s :: String): Syntax.make_id(s, name))
+          '($id, ...)'
+        '$consumer $name($family, $sync) $ids ...: $body; ...'
+    | ~else: syntax_meta.error("expected a declaration boundary consumer", tail)
+
+/* Describe only names declared directly in source; never run a circuit to discover lexical names. */
+defn.macro 'declare_boundary $name($family, $sync) ($arg, ...): $body; ...':
+  def mutable pins = if sync.unwrap() | ["reset"] | []
+  def args = [arg.to_source_string(), ...]
+  def slots = for List (i in 0..args.length()):
+    keep_when !args[i].starts_with("_")
+    i
+  def mutable endpoints = []
+  def mutable arrays = []
+  for (item in [body, ...]):
+    match item
+    | 'input $(id :: Identifier): $t': pins := pins ++ [id.to_source_string()]
+    | 'input ($(id :: Identifier), ...): $t': pins := pins ++ [id.to_source_string(), ...]
+    | 'interface $(id :: Identifier)[$n]($arg, ...)': arrays := arrays ++ [id.to_source_string()]
+    | 'interface $(id :: Identifier)($arg, ...)': endpoints := endpoints ++ [id.to_source_string()]
+    | ~else: #void
+  let [p, ...] = pins
+  let [index, ...] = slots
+  let [c, ...] = slots.map(fun (i :: Nat): args[i])
+  let [e, ...] = endpoints
+  let [a, ...] = arrays
+  '«
+     def $family = CircuitIdentity($(name.to_source_string()), Map{$c: $index, ...})
+     defn.macro 'request $('$')consumer $('$')local: $('$')clause; $('...')':
+       expand_boundary('$('$')consumer $('$')local: $('$')clause; $('...')', '$family', $sync,
+                       [[$p, ...], [$c, ...], [$e, ...], [$a, ...]])
+     namespace $name:
+       export:
+         rename: request as describe_boundary
+   »'

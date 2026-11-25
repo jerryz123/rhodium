@@ -1,0 +1,29 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+
+circuit Qualified():
+  input (offered, ready): Bool
+  output (transfer, offered_only, prior, stalled_or_idle): Bool
+  transfer <== offered & ready
+  offered_only <== offered
+  prior <== Bool(#false)
+  stalled_or_idle <== !(offered & ready)
+
+circuit Swap(word_width :: PosInt):
+  input (width, enable): Bool
+  output old: Bits(word_width)
+  old <== Bits(word_width)(0)
+
+circuit LazyView():
+  output (present_false, present_true): Bool
+  present_false <== Bool(#false)
+  present_true <== Bool(#true)
+
+// Host values are deliberately not all scalar; ordinary defaults may reference earlier arguments.
+circuit ParamProbe(seed :: Int, ~amount: offset :: Int = seed + 1,
+                   ~gate: enabled :: Boolean = #false, ~extra: extra = "local",
+                   ~fault: _fault :: Boolean = #false):
+  output bad: Bool
+  bad <== Bool(_fault)
+
+export Qualified Swap LazyView ParamProbe

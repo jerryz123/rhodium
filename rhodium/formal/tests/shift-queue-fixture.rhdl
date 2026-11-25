@@ -3,25 +3,10 @@
 
 import lib("flow/shift-queue.rhdl").ShiftQueue
 
-sync_circuit Leaf(corrupt :: Boolean):
-  input offer: Bool
-  input data: Bits(2)
-  input consume: Bool
-  output ready: Bool
-  output valid: Bool
-  output head: Bits(2)
-  output count: Bits(2)
-  output mask: Bits(2)
-
-  inst dut(ShiftQueue(Bits(2), 2, ~pipe: #false, ~flow: #false, ~flushable: #false))
-  dut.ingress.valid <== offer
-  dut.ingress.bits <== data
-  dut.egress.ready <== consume
-  ready <== dut.ingress.ready
-  valid <== dut.egress.valid
-  head <== if corrupt | data | dut.egress.bits
-  count <== dut.count
-  mask <== dut.mask
+// Same sampled signature as GuardedAssertion, but a distinct declaration.
+sync_circuit GroupedProbe():
+  input (enabled, condition): Bool
+  #void
 
 sync_circuit GuardedAssertion():
   input enabled: Bool
@@ -38,16 +23,34 @@ sync_circuit QueuePair():
   output valid: Bool
   output head: Bits(2)
 
-  inst a(Leaf(#false))
-  inst b(Leaf(#false))
-  a.offer <== offer
-  a.data <== data
-  a.consume <== b.ready
-  b.offer <== a.valid
-  b.data <== a.head
-  b.consume <== consume
-  ready <== a.ready
-  valid <== b.valid
-  head <== b.head
+  inst a(ShiftQueue(Bits(2), 2))
+  inst b(ShiftQueue(Bits(2), 2))
+  a.ingress.valid <== offer
+  a.ingress.bits <== data
+  a.egress.ready <== b.ingress.ready
+  b.ingress.valid <== a.egress.valid
+  b.ingress.bits <== a.egress.bits
+  b.egress.ready <== consume
+  ready <== a.ingress.ready
+  valid <== b.egress.valid
+  head <== b.egress.bits
 
-export Leaf GuardedAssertion QueuePair
+// Uses a real diagnostic pin that the public FIFO contract deliberately does not model.
+sync_circuit DiagnosticTap():
+  input offer: Bool
+  input data: Bits(2)
+  input consume: Bool
+  output mask: Bits(2)
+  inst fifo(ShiftQueue(Bits(2), 2))
+  fifo.ingress.valid <== offer
+  fifo.ingress.bits <== data
+  fifo.egress.ready <== consume
+  mask <== fifo.mask
+
+// A parent that transforms a signal is not a wiring-only cut.
+sync_circuit InvertingParent():
+  input enable: Bool
+  output inverted: Bool
+  inverted <== !enable
+
+export InvertingParent GroupedProbe GuardedAssertion QueuePair DiagnosticTap

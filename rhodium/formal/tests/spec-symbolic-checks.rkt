@@ -34,13 +34,13 @@
                ([old queues] [reset '(#f #t)] [offer '(#f #t)] [consume '(#f #t)] [word words])
       (set! cases (add1 cases))
       (define row (&& (matches-queue? q old) (equal? (hash-ref in "reset") reset)
-                      (equal? (hash-ref in "in.valid") offer) (equal? (hash-ref in "out.ready") consume)
-                      (bveq (hash-ref in "in.data") (bv word 2))))
+                      (equal? (hash-ref in "ingress.valid") offer) (equal? (hash-ref in "egress.ready") consume)
+                      (bveq (hash-ref in "ingress.bits") (bv word 2))))
       ;; Exhibit a witness per row: a generator that aliases two inputs must not
       ;; get a vacuous agreement result for combinations it can no longer represent.
       (define binding (hash (sequence-value-count q) (bv (length old) 2)
-                            (hash-ref in "reset") reset (hash-ref in "in.valid") offer
-                            (hash-ref in "out.ready") consume (hash-ref in "in.data") (bv word 2)))
+                            (hash-ref in "reset") reset (hash-ref in "ingress.valid") offer
+                            (hash-ref in "egress.ready") consume (hash-ref in "ingress.bits") (bv word 2)))
       (define witness (sat (for/fold ([h binding]) ([slot (sequence-value-slots q)] [v old])
                              (hash-set h slot (bv v 2)))))
       (check-true (evaluate (&& row (edge-legal e)) witness))

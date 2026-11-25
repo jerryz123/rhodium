@@ -49,14 +49,8 @@
   (filter symbol? (filter values (map syntax-atom items))))
 
 #| Selects an inherited declaration kind or one authored in the head. |#
-(define (find-declaration-kind head tail inherited-kind)
+(define (find-declaration-kind head inherited-kind)
   (or inherited-kind
-      (and (= (length head) 2)
-           (eq? (syntax-atom (car head)) 'spec)
-           (symbol? (syntax-atom (cadr head)))
-           (= (length tail) 1)
-           (eq? (form-tag (car tail)) 'block)
-           'spec)
       (for/first ([kind (in-list '(class constructor method fun))]
                   #:when (member kind (direct-symbols head)))
         kind)))
@@ -81,7 +75,7 @@
               [parens-index (form-index items 'parens)])
          (and parens-index
               (let* ([head (take items parens-index)]
-                     [kind (find-declaration-kind head (drop items (add1 parens-index)) inherited-kind)]
+                     [kind (find-declaration-kind head inherited-kind)]
                      [name (and kind
                                 (find-declaration-name kind head inherited-kind))])
                 (and kind
