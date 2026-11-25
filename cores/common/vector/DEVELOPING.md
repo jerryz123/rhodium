@@ -33,6 +33,11 @@ packed hit are mutually exclusive, but a delayed packed return may write a
 different slot on that same edge. Keep both write paths, the direct-row bypass,
 and the separate per-slot completion and ownership state.
 
+Ordinary resolution captures one destination row per slot. Row-hazard queries
+use it while a write is outstanding; delayed writeback reads the same row by
+return tag. Keep immediate writes on the live result and release the row hazard
+at writeback, even when an older slot delays metadata reclamation.
+
 The sequencer uses a combinational 32-register destination mask. From the same
 bounds, the owner table captures a 16-bit mask of register pairs and two flags:
 omit the first pair's even register or the last pair's odd register. Interior
@@ -290,6 +295,11 @@ The generic host clock/response scoreboard helper lives in
 `../tests/rsim/driver.hpp`; named-core memory encodings remain with their caller.
 
 ## Validation
+
+Run `vector-completion-row-rv32` and `vector-completion-row-rv64` when changing
+completion-slot row ownership. They check writeback under backpressure, an
+older return on the edge a younger row resolves, out-of-order hazard release,
+and reuse of both physical slots for different rows.
 
 For VRF storage or forwarding changes, run `vector-register-file-rv32` and
 `vector-register-file-rv64`. Their independent word-array oracle covers all

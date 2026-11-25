@@ -3,9 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../vector-overlap-fixture.rhdl" open
+  "../../completion.rhdl".VectorCompletionUnit
   lib("riscv/isa/xlen.rhm").XLen
   lib("rhodium/frontend/foundation.rhm").elaborate
 
 def rv32 = elaborate(VectorOverlap(XLen.X32))
 def rv64 = elaborate(VectorOverlap(XLen.X64))
-export rv32 rv64
+def slots32 = elaborate(VectorCompletionUnit(XLen.X32, 128, 2))
+def slots64 = elaborate(VectorCompletionUnit(XLen.X64, 128, 2))
+export rv32 rv64 slots32 slots64

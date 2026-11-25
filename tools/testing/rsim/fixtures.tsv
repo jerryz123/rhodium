@@ -274,6 +274,8 @@ rv5stage-vector-packed	cores-vector-functional-2	cores/common/vector/tests/rsim/
 vector-packed-carry-rv32	cores-vector-functional-2	cores/common/vector/tests/rsim/emit-packed-carry.rhm	rv32	cores/common/vector/tests/rsim/packed-carry.cpp
 vector-packed-carry-rv64	cores-vector-functional-2	cores/common/vector/tests/rsim/emit-packed-carry.rhm	rv64	cores/common/vector/tests/rsim/packed-carry.cpp
 rv5stage-vector-overlap	cores-vector-functional-2	cores/common/vector/tests/rsim/emit-rv5stage-vector-overlap.rhm	rv64	cores/common/vector/tests/rsim/rv5stage-vector-overlap.cpp
+vector-completion-row-rv32	cores-vector-functional-2	cores/common/vector/tests/rsim/emit-rv5stage-vector-overlap.rhm	slots32	cores/common/vector/tests/rsim/completion-row.cpp
+vector-completion-row-rv64	cores-vector-functional-2	cores/common/vector/tests/rsim/emit-rv5stage-vector-overlap.rhm	slots64	cores/common/vector/tests/rsim/completion-row.cpp
 vector-masked-load-rv32	cores-vector-functional-2	cores/common/vector/tests/rsim/emit-rv5stage-vector-overlap.rhm	rv32	cores/common/vector/tests/rsim/masked-load.cpp
 vector-masked-load-rv64	cores-vector-functional-2	cores/common/vector/tests/rsim/emit-rv5stage-vector-overlap.rhm	rv64	cores/common/vector/tests/rsim/masked-load.cpp
 rv5stage-vector-admission	cores-vector-functional-2	cores/rv5stage/tests/rsim/emit-rv5stage-vector-admission.rhm	program	cores/rv5stage/tests/rsim/rv5stage-vector-admission.cpp	target

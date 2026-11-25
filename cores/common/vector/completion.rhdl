@@ -26,17 +26,13 @@ import:
 
 /* Stores byte enables or a singleton FP mask enable, reusing the beat's bit position.
    Arbitrary immediate mask writes bypass this retained representation. */
-bundle VectorCompletionWrite(xlen :: XLen, vlen :: VectorLength):
-  address: Bits(index_width(VectorRegisterLayout(vlen, xlen.width).depth))
+bundle VectorCompletionMask(xlen :: XLen):
   bytes: Mask(vector_word_bytes(xlen))
   bit_enabled: Bool
 
-  /* Restores the write from its slot word and byte or singleton-bit mask. */
-  method expand(write, data :: Bits(xlen.width), mask_destination :: Bool, shift :: Bits(vector_bit_offset_width(xlen))) :: VectorRegisterWrite(xlen, vlen):
-    VectorRegisterWrite(xlen, vlen):
-      address: write.address
-      data: data
-      mask: mux(mask_destination, write.bit_enabled.as_bits().zext(xlen.width) << shift, expand_mask(write.bytes.as_bits(), 8))
+  /* Restores the VRF bit mask from whole-byte enables or the FP mask bit position. */
+  method expand(write, mask_destination :: Bool, shift :: Bits(vector_bit_offset_width(xlen))) :: Bits(xlen.width):
+    mux(mask_destination, write.bit_enabled.as_bits().zext(xlen.width) << shift, expand_mask(write.bytes.as_bits(), 8))
 
 /* Holds one word per physical slot. Ordinary resolution and a packed hit share
    the resolution edge; an older packed response can write another slot on that edge. */
@@ -112,13 +108,18 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
   def allocated = slots.allocated
   def authorized_slots = slots.accepted
   reg completed(~init: Bits(vector_completion_slots)(0).as_vec(Bool))
-  def RetainedWrite = VectorCompletionWrite(xlen, vlen)
-  reg retained_entries(Vec(vector_completion_slots, VectorResultBeat(xlen, vlen, RetainedWrite)))
+  def RetainedMask = VectorCompletionMask(xlen)
+  reg retained_entries(Vec(vector_completion_slots, VectorResultBeat(xlen, vlen, RetainedMask)))
 
-  /* Selects compact storage before decoding its byte or singleton-bit mask. */
+  /* Rebuilds a tagged write from the same row that advertises its outstanding hazard. */
   fun entry_at(slot :: Bits(tag_width)) :: VectorResultBeat(xlen, vlen, VectorRegisterWrite(xlen, vlen)):
     def retained = retained_entries[slot]
-    retained.with_write(VectorRegisterWrite(xlen, vlen), retained.write.expand(slot_words[slot], retained.mask_destination, retained.shift))
+    def write = VectorRegisterWrite(xlen, vlen):
+      address: entry_write_address[slot]
+      data: slot_words[slot]
+      mask: retained.write.expand(retained.mask_destination, retained.shift)
+
+    retained.with_write(VectorRegisterWrite(xlen, vlen), write)
 
   reg drain_cursor(~init: Bits(index_width(vector_completion_slots))(0))
   reg allocate_cursor(~init: Bits(index_width(vector_completion_slots))(0))
@@ -140,8 +141,7 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
   def resolution_tag = mux(compute_maturity.valid, compute_tag, memory_result.tag)
   def resolution_beat :: VectorResultBeat(xlen, vlen, VectorRegisterWrite(xlen, vlen)) = mux(compute_maturity.valid, compute_beat, memory_beat)
   def write_intent :: VectorRegisterWrite(xlen, vlen) = resolution_beat.write
-  def retained_write = VectorCompletionWrite(xlen, vlen):
-    address: write_intent.address
+  def retained_mask = VectorCompletionMask(xlen):
     bytes: write_intent.byte_enables()
     bit_enabled: write_intent.mask.any()
 
@@ -152,7 +152,7 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
     data: write_intent.data
 
   when retain_result:
-    assert(retained_write.expand(write_intent.data, resolution_beat.mask_destination, resolution_beat.shift).mask === write_intent.mask, "vector_retained_write_mask_is_lossless")
+    assert(retained_mask.expand(resolution_beat.mask_destination, resolution_beat.shift) === write_intent.mask, "vector_retained_write_mask_is_lossless")
 
 
   /* Completion order is independent of metadata reclamation. Slow loads wait
@@ -381,7 +381,7 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
     when resolving:
       // Only service metadata/operands and memory routing outlive execution.
       when (resolution_beat.memory ||| resolution_beat.fp_execute ||| resolution_beat.multiply_divide):
-        retained_entries[slot] <== resolution_beat.with_write(RetainedWrite, retained_write)
+        retained_entries[slot] <== resolution_beat.with_write(RetainedMask, retained_mask)
 
       entry_write_address[slot] <== resolution_beat.write.address
       entry_writes[slot] <== resolution_beat.write.mask.any()
