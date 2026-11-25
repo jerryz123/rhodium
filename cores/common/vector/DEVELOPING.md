@@ -219,7 +219,11 @@ free space only when the entire buffered source row transfers. For segmented
 stores, advance the field ordinal on grant or mask skip. Carry that visit's
 placement and field identity to the return stage: it updates the single DLEN
 assembly register and releases the field obligation while the next field can
-issue. Advance the beat only after its final visit drains into the VLSU.
+issue. The final return transfers the assembled beat and releases its field
+regardless of the next grant. At that edge an unmasked successor may issue
+ordinal zero using its own geometry and post-transfer FIFO credit. A denial
+leaves its cursor at zero; a grant starts its assembly from zero on return.
+Masked successors still start with their own predicate sample.
 Scatter row reuse stays in VSSeq.
 RV5Stage and RV2Wide continue to use [backend.rhdl](backend.rhdl) and its
 single sequencer; neither imports distributed scheduling logic.

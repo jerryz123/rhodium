@@ -77,14 +77,21 @@ void exercise(unsigned displacement, unsigned first, unsigned limit, unsigned ee
     CHECK(ram[i]==(beat0+i>=begin && beat0+i<end ? original(beat0+i-base) : 0xc5));
 }
 
-static void segmented_store(unsigned fields,unsigned eew,unsigned lmul=0) {
+enum class Boundary { Open, DenyPort, BlockWriter };
+
+static void segmented_store(unsigned fields,unsigned eew,unsigned lmul=0,Boundary boundary=Boundary::Open,bool two_groups=false) {
   // Block the second field, then L1D. Each field has an independent last
   // capture, even when the first field in a beat rotates.
   prepare_in={}; launch_1_in={}; launch_0_in={}; memory_in={}; read_result_in={}; store_reads_in={};
   auto &d=launch_1_in.pbits.pissue.pdescriptor;
   const unsigned size=1u<<eew, lanes=bytes/size, visits=std::min(lanes,fields);
   const unsigned field_rows=2u<<lmul;
-  d.pstate.pvl=lanes; d.pstate.pvtype=(eew<<3)|lmul; d.pcontrol.pmemory_udata_ueew=eew; d.pcontrol.pstore=1; d.pcontrol.pmemory_unf=fields-1;
+  const unsigned beats=fields*(two_groups ? 2 : 1);
+  auto address=[&](unsigned visit) {
+    const unsigned beat=visit/visits, field=(beat*lanes+visit%visits)%fields;
+    return 2*vs3+field_rows*field+beat/fields;
+  };
+  d.pstate.pvl=(beats/fields)*lanes; d.pstate.pvtype=(eew<<3)|lmul; d.pcontrol.pmemory_udata_ueew=eew; d.pcontrol.pstore=1; d.pcontrol.pmemory_unf=fields-1;
   d.pscalar=0x4000-bytes; d.pinstruction=vs3<<7;
   launch_1_in.pbits.pissue.powner=2; prepare_in.pbits=launch_1_in.pbits.pissue;
   launch_1_in.pbits.ppages[0]=0x60; launch_1_in.pbits.ppages[1]=0x90;
@@ -93,29 +100,46 @@ static void segmented_store(unsigned fields,unsigned eew,unsigned lmul=0) {
   auto &probe=launch_0_in.pbits.pissue.pdescriptor; probe={}; probe.pscalar=0x8000; probe.pstate.pvl=1;
   launch_0_in.pbits.ppages[0]=0x90;
   unsigned captures=0,sent=0,acks=0,finishes=0,stalls=0,read_row=0,last_grant=0;
-  bool returning=false;
+  bool returning=false,saw_denial=false,saw_no_credit=false;
   for(unsigned t=0;t<300 && !finishes;++t) {
-    read_in.pready=1; store_reads_in.polder_uwrites=t<15 ? UINT64_C(1)<<(16+field_rows) : 0;
+    const bool first_boundary=returning && captures+1==visits;
+    read_in.pready=!(first_boundary && boundary==Boundary::DenyPort);
+    store_reads_in.polder_uwrites=t<15 ? UINT64_C(1)<<(16+field_rows) : 0;
+    if(first_boundary && boundary==Boundary::BlockWriter)
+      store_reads_in.polder_uwrites |= UINT64_C(1)<<address(visits);
     read_result_in.pvalid=returning;
     Row data;
-    for(unsigned b=0;b<bytes;++b) data[b]=(0x11+((read_row-16)/field_rows)*0x19+b)&255;
-    if(captures>=fields*visits) data.fill(0xcc);
+    for(unsigned b=0;b<bytes;++b) data[b]=(0x11+((read_row-16)/field_rows)*0x19+((read_row-16)%field_rows)*bytes+b)&255;
+    if(captures>=beats*visits) data.fill(0xcc);
     std::memcpy(&read_result_in.pbits,data.data(),bytes);
-    memory_in.prequest.pready=t>=45 && t%4==0;
-    memory_in.presponse.pvalid=t>=75 && t%3==0 && acks<sent;
+    memory_in.prequest.pready=two_groups || (t>=45 && t%4==0);
+    memory_in.presponse.pvalid=acks<sent && (two_groups || (t>=75 && t%3==0));
     eval();
     std::uint64_t claims=0;
-    for(unsigned i=captures;i<fields*visits;++i)
-      claims |= UINT64_C(1)<<(16+field_rows*((i/visits*lanes+i%visits)%fields));
+    for(unsigned i=captures;i<beats*visits;++i) claims |= UINT64_C(1)<<address(i);
     CHECK(store_reads_out.punread_uvs3==claims);
     CHECK(!launch_0_out.pready);
     if(t==12) CHECK(captures==1 && sent==0);
     if(t==35 && fields==2) CHECK(captures==4 && sent==0);
+    if(first_boundary) {
+      CHECK(bool(read_out.pvalid)==(boundary!=Boundary::BlockWriter));
+      if(read_out.pvalid) CHECK(read_out.pbits==address(visits));
+      saw_denial=!read_out.pvalid || !read_in.pready;
+    }
+    if(saw_denial && captures==visits && !returning) CHECK(read_out.pvalid && read_in.pready && read_out.pbits==address(visits));
+    // The first two beats fill both FIFO slots while L1D is stopped. Do not
+    // even offer the third beat's first read on the second beat's final return.
+    if(!two_groups && fields>2 && t<45 && captures+unsigned(returning)==2*visits) {
+      CHECK(!sent && !read_out.pvalid);
+      saw_no_credit=true;
+    }
+    if(two_groups && returning && captures+1==fields*visits)
+      CHECK(read_out.pvalid && read_in.pready && read_out.pbits==address(fields*visits));
     if(returning) ++captures;
     returning=read_out.pvalid && read_in.pready;
     if(returning) {
       read_row=read_out.pbits;
-      CHECK(read_row==16+field_rows*((captures/visits*lanes+captures%visits)%fields));
+      CHECK(read_row==address(captures));
       if(captures%visits && captures!=1) CHECK(t==last_grant+1);
       last_grant=t;
     }
@@ -133,7 +157,9 @@ static void segmented_store(unsigned fields,unsigned eew,unsigned lmul=0) {
     acks+=memory_in.presponse.pvalid && memory_out.presponse.pready;
     finishes+=finished_out.pvalid; tick_model();
   }
-  CHECK(finishes==1 && sent==fields && acks==fields && stalls && captures==fields*visits);
+  CHECK(finishes==1 && sent==beats && acks==beats && (two_groups || stalls) && captures==beats*visits);
+  CHECK(saw_denial==(boundary!=Boundary::Open));
+  CHECK(saw_no_credit==(!two_groups && fields>2));
 }
 
 // With three fields and two element lanes per beat, the middle beat wraps
@@ -271,6 +297,11 @@ int main() {
     segmented_store(2,1,1); // Short m2 fields: read v8 and v10, never v9 or v11.
     for(unsigned n=2;n<=8;++n)
       for(unsigned e=0;(1u<<e)<=bytes/2;++e) segmented_store(n,e);
+    // Two lanes and three fields rotate the first VS3 field 0 -> 2 -> 1.
+    constexpr unsigned two_lanes_eew=bytes==8 ? 2 : 3;
+    segmented_store(3,two_lanes_eew,0,Boundary::DenyPort);
+    segmented_store(3,two_lanes_eew,0,Boundary::BlockWriter);
+    segmented_store(3,two_lanes_eew,0,Boundary::Open,true);
     masked_segment(false);
     masked_segment(true);
     for (unsigned d=1;d<bytes;++d) {

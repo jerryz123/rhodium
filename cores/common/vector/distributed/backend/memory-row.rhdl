@@ -62,24 +62,31 @@ sync_circuit VectorMemoryRowSequencer(xlen :: XLen, vlen :: VectorLength, ~store
   def range_mask = head & mux(last, tail, !Bits(row_bytes)(0))
   def stream = (offset >> lane_bits)[0..RowAddress.packed_width()]
   def pos = segment_position(dlen, layout, stream)
+  def next_pos = segment_position(dlen, layout, stream + RowAddress(1))
   def group_start = pos.group.zext(mask_bits+1) << (Bits(4)(lane_bits) - eew.zext(4))
   def predicate_row = group_start[mask_bits..mask_bits+1]
   def busy = older_writes.as_vec(Bool)
   def predicate_safe = !busy[predicate_row.zext(RowAddress.packed_width())]
   def sample = capacity & (phase === RowPhase.PrepareMask) & predicate_safe
   def values(field, element) = segment_visit(dlen, layout, pos, ordinal)
-  def physical = segment_base(layout, field) + pos.group.zext(RowAddress.packed_width())
   def enabled = mux(masked, captured_mask, range_mask)
   def field_live = if store_path | segment_field_enabled(dlen, layout, enabled, ordinal) | Bool(#false)
-  // Only the field cursor runs ahead. Keep the enclosing beat, layout and mask
-  // stable through the final return so every fragment uses the same assembly.
+  // The return owns the current beat until it transfers, independently of
+  // whether the VRF grants the successor's first field on the same edge.
   reg field_pending(~init: Bool(#false))
   reg issued_skip(Bool)
   reg issued_ordinal(Bits(3))
   reg issued_field(Bits(3))
   reg issued_element(Bits(lane_bits))
   def field_return = field_pending & (issued_skip ||| read_result.valid)
-  def final_return = field_return & (phase === RowPhase.DrainFields)
+  def at_boundary = phase === RowPhase.DrainFields
+  def final_return = field_return & at_boundary
+  // A nonempty unmasked successor starts at byte zero, even on a partial tail.
+  // The outgoing beat owns today's ingress slot; the next needs its own credit.
+  def handoff = final_return & !last & !masked & capacity & room_after_capture
+  def issue_field = mux(at_boundary, next_pos.first_field, field)
+  def issue_group = mux(at_boundary, next_pos.group, pos.group)
+  def physical = segment_base(layout, issue_field) + issue_group.zext(RowAddress.packed_width())
   def visit = store & layout.nf.any() & capacity & (phase === RowPhase.ReadSource) & (!field_pending ||| field_return)
   def skip_field = visit & !field_live
   /* Issue one row decision into a reserved VLSU slot. A skip uses the same
@@ -96,22 +103,22 @@ sync_circuit VectorMemoryRowSequencer(xlen :: XLen, vlen :: VectorLength, ~store
   def eligible = plain_store & (phase === RowPhase.ReadSource) & capacity & (!pending ||| (row_return & room_after_capture)) & (!masked ||| mask_valid)
   def issue_mask = mux(masked, issue_predicate, range_mask)
   def read_address = mux(plain_store, row, physical)
-  read.valid <== ((eligible & issue_mask.any()) ||| (visit & field_live)) & !busy[read_address]
+  read.valid <== ((eligible & issue_mask.any()) ||| (visit & field_live) ||| handoff) & !busy[read_address]
   read.bits <== read_address
-  def field_issue = skip_field ||| (visit & read.fire())
+  def handoff_grant = handoff & read.fire()
+  def field_issue = skip_field ||| (visit & read.fire()) ||| handoff_grant
   when (field_issue ||| field_return): field_pending <== field_issue
   when field_issue:
     issued_skip <== skip_field
-    issued_ordinal <== ordinal
-    issued_field <== field
-    issued_element <== element
+    issued_ordinal <== mux(at_boundary, Bits(3)(0), ordinal)
+    issued_field <== issue_field
+    issued_element <== mux(at_boundary, next_pos.first_element, element)
   def skip = eligible & !issue_mask.any()
   def decided = (plain_store & read.fire()) ||| skip
   /* Register the forwarded v0 slice before it gates VRF arbitration. On issue,
      refill that metadata slot from the following row, including across v0 rows.
      A sampled mask alone reserves neither a VS3 read nor a VLSU data slot. */
   def next_offset = offset + Bits(offset_bits)(row_bytes)
-  def next_pos = segment_position(dlen, layout, stream + RowAddress(1))
   def next_start = next_pos.group.zext(mask_bits+1) << (Bits(4)(lane_bits) - eew.zext(4))
   def next_last = next_offset[lane_bits..offset_bits] === last_row_offset
   def lookahead = masked & decided & !last
@@ -184,8 +191,9 @@ sync_circuit VectorMemoryRowSequencer(xlen :: XLen, vlen :: VectorLength, ~store
     offset <== mux(singleton, start, start.align_down(row_bytes))
     last_row_offset <== end[lane_bits..offset_bits]
   elsewhen (decided ||| (!plain_store & prepared.fire())):
-    ordinal <== Bits(3)(0)
-    phase <== mux(last, RowPhase.Idle, first_phase(masked, store, layout.nf.any()))
+    ordinal <== handoff_grant.as_bits().zext(3)
+    phase <== mux(handoff_grant & !next_pos.last_ordinal.any(), RowPhase.DrainFields,
+                  mux(last, RowPhase.Idle, first_phase(masked, store, layout.nf.any())))
     head <== !Bits(row_bytes)(0)
     row <== row + RowAddress(1)
     offset <== next_offset
