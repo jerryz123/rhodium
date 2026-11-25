@@ -243,6 +243,19 @@ See [two independent marks](tests/parallel-monitors.rspl) and
 [QueuePair](#concrete-specification-api) for parallel and series examples.
 A declaration containing only a monitor and its refinement is requested with `~transaction_view: #true`; it does not predict cycle outputs.
 
+If the cycle spec is already proved, use
+`(derive-transaction cycle-proof top view projection)` from [rspecl/proof.rkt](../../rspecl/proof.rkt).
+This proves a weaker view without reopening the implementation or its children.
+For [ArbitratedCapture](../../examples/formal/gated-capture.rspl), the projection
+`(hash "previous" "saved")` relates the monitor's previous winner to the cycle spec's saved word.
+On a capture, `selected` shows that previous word, not the winner entering on the same edge.
+A monitor may instead use a stateless spec IR projection whose inputs name cycle state
+and whose outputs describe the monitor state. Projection invariants must themselves be proved.
+For a FIFO event view, name the cycle sequence with `(hash "q" "q")` (or its actual
+cycle field name); its type supplies the capacity and word width. Only unconditional
+single-clock reset proofs qualify. A hidden output cannot be sampled; outside its care
+condition a declared output may have any value.
+
 To share behavior independently of any circuit, an ordinary RSPECL function may
 return a `monitor:` value. Both ROB specs use the same
 [ordered-retirement helper](../../examples/formal/ordered-retirement.rspl).

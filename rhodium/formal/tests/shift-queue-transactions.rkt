@@ -2,6 +2,7 @@
 ;; SPDX-License-Identifier: Apache-2.0
 
 (require rackunit "../refinement.rkt"
+         (only-in "../../../rspecl/proof.rkt" derive-transaction)
          (only-in "composition-binding.rhm" fifo_at)
          (only-in "shift-queue-induction.rkt" verified-fifo-at proof_depths)
          (only-in "../../../examples/formal/shift-queue.rspl" ShiftQueue))
@@ -10,7 +11,8 @@
 ;; Only store a result after both implication queries pass.
 (define proved
   (for/hash ([depth proof_depths])
-    (values depth (derive-fifo-transactions (verified-fifo-at depth) (ShiftQueue (fifo_at depth) #:event_view #t) "q"))))
+    (define top (fifo_at depth))
+    (values depth (derive-transaction (verified-fifo-at depth) top (ShiftQueue top #:event_view #t) (hash "q" "q")))))
 (define (verified-shift-queue-transactions-at depth) (hash-ref proved depth))
 
 (module+ test

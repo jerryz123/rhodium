@@ -158,14 +158,17 @@ joint event, and the successor relation. Care must match even when the value
 is absent, and a valid head is observed even under backpressure. Count and mask
 ports are not part of the exported view.
 
-[`derive-fifo-transactions`](refinement.rkt) weakens the issued cycle evidence
-without reopening child RTL. It matches the exact definition and physical
-member layout, requires an unconditional clocked result, and takes the capacity
-and payload type from the named sequence in the certified spec. It steps that
-snapshot on an arbitrary legal old state and input, not its concrete initial
-state. Uncared outputs are fresh physical values; the sampler must agree with
-the FIFO monitor for all of them. Reset and preservation are separate
-obligations on the projected live sequence. The [leaf transaction regression](tests/shift-queue-transactions.rkt)
+[`check-cycle-monitor!`](refinement.rkt) admits the exact unconditional clocked
+definition and member layout, then steps only its certified cycle snapshot.
+Each sampled output gets one shared physical value, arbitrary outside care.
+The FIFO adapter infers capacity and width from the named cycle sequence;
+other monitors use the bound dense sampler from their RSPECL declaration.
+Both pass a state-only projection and the monitor to the [same induction](transaction-induction.rkt)
+as the hierarchical checker. Reset establishes the relation without a related-old
+premise. Active edges must preserve it; definedness and the sampler domain
+are goals, never premises. The [capture regression](tests/selector-refinement.rkt)
+rejects a same-edge winner expectation and an invariant that excludes a legal capture.
+The [leaf transaction regression](tests/shift-queue-transactions.rkt)
 applies the same retirement invariant at each depth. A separate coverage query
 asks whether the tracked word can stall behind an older word: UNSAT at depth
 one and SAT at depths two and three. Neither answer restricts the theorem.

@@ -122,6 +122,10 @@ A [conditional parent](../../examples/formal/gated-capture.rspl) now discharges
 the selector's premise from its own contract and wiring. The next level
 reuses the wrapper as an opaque child and discharges that contract anew;
 the outer arbiter needs no restriction on simultaneous requests.
+The proved outer cycle spec also implies a transaction view: readback on a capture
+is the previous winning word. The [derivation](tests/selector-refinement.rkt)
+uses the same cycle-to-monitor induction as ShiftQueue without reopening either
+implementation. Expecting the new winner on that edge fails preservation.
 
 | Milestone | What to build | How to tell it works |
 |---|---|---|

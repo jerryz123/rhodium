@@ -1,8 +1,19 @@
 #lang rspecl
-/* Specifies a grant-conditioned capture wrapper and its unrestricted request-driven parent. */
+/* Specifies conditional capture and the parent's cycle behavior and pre-edge capture transactions. */
 // SPDX-License-Identifier: Apache-2.0
 
 import "gated-capture.rhdl" as rtl
+import lib("rhodium/formal/spec.rhm").Observed
+export capture_events
+
+/* A capture reports both the incoming winning word and the old register's public readback. */
+fun capture_events(read :: Function.of_arity(2), output :: Function.of_arity(2)):
+  def rst = read("reset", Bool)
+  def a = read("request_a", Bool)
+  def fire = !rst && read("capture", Bool) && (a || read("request_b", Bool))
+  def winner = select(a, read("word_a", Bits(2)), read("word_b", Bits(2)))
+  {"reset": Observed(const(Bool, #true), rst),
+   "captured": Observed(winner, fire), "readback": Observed(output("selected", Bits(2)), fire)}
 
 spec for rtl.GatedCapture:
   assume capture_exclusive = reset || !capture || !(grant_a && grant_b)
@@ -16,3 +27,14 @@ spec for rtl.ArbitratedCapture:
   observe selected = saved when !reset
   let take = capture && (request_a || request_b)
   next saved = select(reset, cleared, select(take, select(request_a, word_a, word_b), saved))
+
+  monitor:
+    sample capture_events
+    publish []
+    batch reset = present(reset)
+    batch fire = present(captured)
+    batch winner: Bits(2) = payload(captured) when fire
+    batch readback: Bits(2) = payload(readback) when fire
+    state previous: Bits(2) initially 0
+    guarantee "previous-on-capture" = !fire || bits_equal(readback, previous)
+    next previous = select(reset, const(Bits(2), 0), select(fire, winner, previous))

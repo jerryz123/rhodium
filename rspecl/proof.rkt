@@ -1,5 +1,5 @@
 #lang rosette
-#| Proves RSPECL transaction monitors across occurrence-indexed sealed children using checked state relations. |#
+#| Certifies RSPECL transaction monitors from proved cycle specs or occurrence-indexed child contracts. |#
 ;; SPDX-License-Identifier: Apache-2.0
 
 (require racket/match (only-in racket/base [eq? same?] [equal? same-schema?])
@@ -9,7 +9,7 @@
          (only-in "../rhodium/formal/spec.rhm" spec_snapshot)
          (only-in "../rhodium/formal/port-types.rhm" leaf_layout)
          (only-in "../rhodium/frontend/layers/bool.rhm" Bool))
-(provide prove-transaction transaction-for? transaction-step transaction-cut sample-transaction)
+(provide prove-transaction derive-transaction transaction-for? transaction-step transaction-cut sample-transaction)
 
 ;; Run-local evidence, constructed only at the end of the induction. Identity includes the
 ;; exact contract, not merely a family name or an equivalent-looking physical interface.
@@ -73,6 +73,32 @@
             (history-fields site (spec-initial-state model))))
   (monitor-site (seal-top child) (seal-layout child) (seal-outs child) advance))
 
+#| Only these issuers supply the proof procedure. Always seal exactly the monitor and dense
+   public sampler used in the successful proof, irrespective of where its evidence came from. |#
+(define (certify-view top view prove!)
+  (define-values (_ model ins outs) (transaction_parts view))
+  (define monitor (spec_snapshot model))
+  (define sampler (spec_snapshot (transaction_batch_model view)))
+  (unless (zero? (hash-count (hash-ref monitor "assumptions"))) (error 'refinement "conditional monitor"))
+  (check-batch-total! sampler)
+  (define layout (leaf_layout top (interface_prefixes top)))
+  (prove! model monitor layout ins outs (lambda (i o) (values (sample sampler ins outs i o) #t)))
+  (seal top layout view sampler monitor ins outs))
+
+#| Weaken unconditional cycle evidence to a public transaction view without opening RTL.
+   A FIFO event view infers its monitor's capacity from the designated cycle sequence. |#
+(define (derive-transaction cycle top view projection)
+  (cond
+    [(fifo_behavior_view view)
+     (define-values (expected _i _o _w _s) (fifo_view_parts view))
+     (unless (and (same? top expected) (hash? projection) (same-schema? (hash-keys projection) '("q")))
+       (error 'cycle-view "expected the bound FIFO top and a projection for q"))
+     (derive-fifo-transactions cycle view (hash-ref projection "q"))]
+    [else
+     (certify-view top view
+       (lambda (model _monitor layout ins outs sample)
+         (check-cycle-monitor! cycle top layout model projection ins outs sample)))]))
+
 #| Bind existing transaction evidence to exact RTL sites, then dispatch only the public
    protocol adapter. All parent obligations run through the same monitor-cut induction. |#
 (define (prove-transaction top view children #:child-site [implementation-site #f])
@@ -98,12 +124,6 @@
          (values (or implementation-site site)
                  (if (string? cut) (fifo-monitor-site child cut (hash-ref (hash-ref relation "inputs") cut))
                      (sealed-site site cut child single-evidence?)))))
-     (define-values (_ monitor-model ins outs) (transaction_parts view))
-     (define monitor (spec_snapshot monitor-model))
-     (define sampler (spec_snapshot (transaction_batch_model view)))
-     (unless (zero? (hash-count (hash-ref monitor "assumptions"))) (error 'refinement "conditional monitor"))
-     (check-batch-total! sampler)
-     (define layout (leaf_layout top (interface_prefixes top)))
-     (check-monitor-refinement! check-refinement-phase! top layout Bool bindings monitor
-       (lambda (inputs outputs) (values (sample sampler ins outs inputs outputs) #t)) relation checks)
-     (seal top layout view sampler monitor ins outs)]))
+     (certify-view top view
+       (lambda (_model monitor layout _ins _outs sample)
+         (check-monitor-refinement! check-refinement-phase! top layout Bool bindings monitor sample relation checks)))]))

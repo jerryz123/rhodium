@@ -81,7 +81,7 @@
       (prove-leaf leaf (without_head_promise model) interface_prefixes observe
                   #:relation (lambda (rtl s) (related 2 (string-append root ".occupied")
                                                        (string-append root ".payload") rtl (hash-ref s "q")))))
-    (check-exn #rx"cycle-to-fifo-step/event-relation not proved"
+    (check-exn #rx"cycle-view-step/allowed not proved"
                (lambda () (derive-fifo-transactions weakened (ShiftQueue leaf #:event_view #t) "q"))))
   (test-case "a symbolic payload defect yields a reachable mismatch, not just an induction witness"
     (define spec (symbolic-spec-edge fifo_snapshot))

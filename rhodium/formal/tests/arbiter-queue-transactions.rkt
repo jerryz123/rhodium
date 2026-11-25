@@ -30,8 +30,8 @@
       (check-ready-not-entailed result)))
   (test-case "a well-typed but incorrect sampler cannot export reusable evidence"
     (define cycle (verified-arbiter-queue-at 2))
-    (for ([fault '("payload" "ready")] [goal '(#rx"cycle-to-fifo-step/event-relation not proved"
-                                                #rx"cycle-to-fifo-step/sampler-domain not proved")])
+    (for ([fault '("payload" "ready")] [goal '(#rx"cycle-view-step/(allowed|successor) not proved"
+                                                #rx"cycle-view-step/sampler-domain not proved")])
       (define bad (crossed_sampler fault))
       (check-false (fifo-transactions-for? (verified-arbiter-queue-transactions-at 2) bad))
       (check-exn goal (lambda () (derive-fifo-transactions cycle bad "pending"))))))

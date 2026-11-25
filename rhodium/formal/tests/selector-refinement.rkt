@@ -1,7 +1,13 @@
 #lang rosette
 ;; SPDX-License-Identifier: Apache-2.0
 
-(require rackunit "selector-binding.rhm" "arbiter-refinement.rkt" "../refinement.rkt" "../spec-engine.rkt")
+(require rackunit "selector-binding.rhm" "arbiter-refinement.rkt" "../refinement.rkt" "../spec-engine.rkt"
+         "../../../rspecl/proof.rkt"
+         (only-in "../../../rspecl/rtl-boundary.rhm" transaction_parts)
+         (only-in "../spec.rhm" spec_snapshot)
+         (only-in "composition-binding.rhm" arbitrated_capture capture_gate)
+         (only-in "../../../examples/formal/gated-capture.rspl" ArbitratedCapture)
+         (prefix-in faulty: "capture-derivation.rspl"))
 
 (define (view pins _) (values (hash "selected" (observation #t (hash-ref pins "selected"))) (hash)))
 (define (certify model) (prove-leaf selector model interface_prefixes view))
@@ -103,6 +109,7 @@
 (define (certify-outer raw)
   (prove-parent (capture_cut raw) capture_spec registered-view #:child-evidence capture-evidence
                 #:relation (lambda (cut spec) (bveq (hash-ref (hash-ref cut "gate") "held") (hash-ref spec "saved")))))
+(define verified-capture (certify-outer #f))
 
 (test-case "conditional wrapper needs its declared premise and both feasible clock phases"
   (check-exn #rx"lanes/exclusive not proved" (lambda () (prepare-proved-wiring (gate_cut) (list verified-register))))
@@ -111,7 +118,6 @@
   (check-exn #rx"preservation: infeasible or unknown domain" (lambda () (certify-gate (gate_variant "only-reset")))))
 
 (test-case "outer parent uses only arbiter and wrapper evidence, with the wrapper premise intact"
-  (check-not-exn (lambda () (certify-outer #f)))
   (check-exn #rx"evidence does not cover contract at gate"
              (lambda () (prepare-proved-wiring (capture_cut #f (gate_variant "unrestricted")) capture-evidence)))
   (define both (hash "reset" #f "capture" #t "request_a" #t "request_b" #t "word_a" 1 "word_b" 2))
@@ -119,6 +125,49 @@
   (define hold (hash-set both "capture" #f))
   (define b (hash-set both "request_a" #f))
   (check-equal? (capture_trace #f (list clear both hold b hold clear hold)) '(#f 0 1 1 2 #f 0)))
+
+(test-case "derive pre-edge capture readback from the sealed cycle spec, then replay only public pins"
+  (define v (ArbitratedCapture arbitrated_capture #:transaction_view #t))
+  (define result (derive-transaction verified-capture arbitrated_capture v (faulty:capture_relation #f)))
+  (check-true (transaction-for? result arbitrated_capture v))
+  (define (step old rst capture a b readback)
+    (define batch (sample-transaction result v
+                    (hash "reset" rst "capture" capture "request_a" a "request_b" b
+                          "word_a" (bv 1 2) "word_b" (bv 2 2)) (hash "selected" (bv readback 2))))
+    (define-values (ok next) (transaction-step result v old batch))
+    (check-true ok)
+    next)
+  (define empty (step (hash "previous" (bv 3 2)) #t #t #t #t 3))
+  (define one (step empty #f #t #t #t 0))
+  (define held (step one #f #f #f #t 3)) ; an idle edge does not sample readback
+  (define two (step held #f #t #f #t 1))
+  (check-equal? two (hash "previous" (bv 2 2)))
+  (check-equal? (step two #t #t #f #t 3) empty)
+  (define wrong (faulty:ArbitratedCapture arbitrated_capture #:transaction_view #t))
+  (check-exn #rx"cycle-view-step/new-on-capture not proved"
+             (lambda () (derive-transaction verified-capture arbitrated_capture wrong (hash "previous" "saved"))))
+  ;; Reach the timing mismatch from reset. Replay the old readback from the existing wired cycle oracle.
+  (define first (hash "reset" #f "capture" #t "request_a" #t "request_b" #t "word_a" 1 "word_b" 2))
+  (define trace (capture_trace #f (list (hash-set first "reset" #t) first)))
+  (check-equal? trace '(#f 0))
+  (define seen (sample-transaction result v (hash-set* first "word_a" (bv 1 2) "word_b" (bv 2 2))
+                                   (hash "selected" (bv (second trace) 2))))
+  (define-values (_ bad-model _ins _outs) (transaction_parts wrong))
+  (define snap (spec_snapshot bad-model))
+  (define mismatch (spec-edge-at snap (spec-initial-state snap) seen))
+  (check-true (edge-defined mismatch))
+  (check-false (observation-value (hash-ref (edge-outputs mismatch) "new-on-capture")))
+  (check-exn #rx"cycle-view-reset/cleared-output not proved"
+             (lambda () (derive-transaction verified-capture arbitrated_capture
+                          (faulty:reset_readback arbitrated_capture) (hash))))
+  (check-exn #rx"expected Boolean monitor verdicts"
+             (lambda () (derive-transaction verified-capture arbitrated_capture (faulty:packed_verdict) (hash))))
+  (check-exn #rx"cycle-view-step/successor not proved"
+             (lambda () (derive-transaction verified-capture arbitrated_capture v (faulty:capture_relation #t))))
+  (check-exn #rx"missing or mistyped cycle state: word_a"
+             (lambda () (derive-transaction verified-capture arbitrated_capture v (hash "previous" "word_a"))))
+  (check-exn #rx"conditional cycle evidence"
+             (lambda () (derive-transaction verified-gate capture_gate v (hash "previous" "held")))))
 
 (test-case "raw requests fail at the wrapper boundary only when actively capturing off reset"
   (define failure (with-handlers ([exn:fail:input-contract? values]) (certify-outer #t)))

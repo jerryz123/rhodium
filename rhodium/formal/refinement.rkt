@@ -3,13 +3,14 @@
 ;; SPDX-License-Identifier: Apache-2.0
 
 (require racket/match (only-in racket/base [equal? host-equal?] [eq? host-eq?])
-         "engine.rkt" "spec-engine.rkt" "transaction-induction.rkt" (only-in "snapshot.rhm" formal_snapshot) (only-in "spec.rhm" spec_snapshot)
+         "engine.rkt" "spec-engine.rkt" "transaction-induction.rkt" (only-in "snapshot.rhm" formal_snapshot)
+         (only-in "spec.rhm" spec_snapshot monitor_projection)
          (only-in "fifo-monitor.rhm" fifo_monitor)
          (only-in "fifo-view.rhm" fifo_view_parts fifo_view_layout fifo_view_bool fifo_view_behavior fifo_series_parts)
          (only-in "wiring.rhm" cut_parts leaf_protocol leaf_layout series_wiring))
 (provide prove-leaf prove-parent prepare-proved-wiring proved-child-model symbolic-cut-state proved-edge-at view-agrees? pack-pins unpack-pins)
 (provide exn:fail:input-contract? exn:fail:input-contract-goal exn:fail:input-contract-inputs)
-(provide check-batch-total! (rename-out [check-phase check-refinement-phase!]))
+(provide check-batch-total! check-cycle-monitor! (rename-out [check-phase check-refinement-phase!]))
 (provide prove-fifo-series-refinement fifo-monitor-site)
 (provide symbolic-wrapper-cut symbolic-fifo-cut fifo-cut-inputs fifo-cut-outputs fifo-cut-locals fifo-cut-batch fifo-cut-domain)
 (provide derive-fifo-transactions prove-fifo-transactions compose-fifo-series prove-fifo-wrapper fifo-transactions-for? fifo-transactions-capacity fifo-transactions-width
@@ -298,42 +299,67 @@
       (for/fold ([ok #t]) ([i (in-naturals)] [actual new-slots] [expected words])
         (&& ok (=> (< i m) (bveq actual expected))))))
 
-#| Weaken a proved, unconditional cycle contract to its sampled FIFO transfers. Only the
-   certified snapshot is stepped; a cycle output outside care is an arbitrary physical value. |#
-(define (derive-fifo-transactions cycle view history-field)
-  (define-values (definition ingress egress width sampler) (fifo_view_parts view))
+#| Admit only the certified unconditional clocked specialization, never a replacement model. |#
+(define (certified-cycle-model cycle definition layout)
   (unless (and (refinement-result? cycle) (host-eq? definition (refinement-result-definition cycle))
-               (host-equal? (fifo_view_layout view) (refinement-result-layout cycle))
+               (host-equal? layout (refinement-result-layout cycle))
                (host-equal? (refinement-result-protocol cycle) "single-clock-reset"))
-    (error 'derive-fifo-transactions "expected cycle evidence for this exact definition and member layout"))
+    (error 'cycle-view "expected cycle evidence for this exact definition and member layout"))
   (define model (refinement-result-model cycle))
   (unless (zero? (hash-count (hash-ref model "assumptions")))
-    (error 'derive-fifo-transactions "conditional cycle evidence cannot export an unconditional FIFO contract"))
+    (error 'cycle-view "conditional cycle evidence cannot export an unconditional transaction contract"))
+  model)
+
+#| Prove a public monitor using only certified cycle state and public pre-edge pins. Both
+   issuers keep the checked sampler with the evidence; this low-level check issues none. |#
+(define (check-cycle-monitor! cycle definition layout monitor-model relation ins outs sample)
+  (define model (certified-cycle-model cycle definition layout))
+  (define monitor (spec_snapshot monitor-model))
+  (unless (zero? (hash-count (hash-ref monitor "assumptions"))) (error 'cycle-view "conditional monitor"))
+  (define projection (monitor_projection monitor-model relation))
+  (for ([names (list ins outs)] [direction layout])
+    (define members (map car (append* (hash-values direction))))
+    (for ([name names])
+      (unless (member name members) (error 'cycle-view "unknown pin or wrong direction: ~a" name))))
+  (define sources (hash-ref projection "inputs"))
+  (for ([(name sort) sources])
+    (unless (host-equal? sort (hash-ref (hash-ref model "state") name #f))
+      (error 'cycle-view "missing or mistyped cycle state: ~a" name)))
+  #| Re-evaluate the same IR over old, next and initial cycle state, never monitor or RTL state. |#
+  (define (project state)
+    (spec-edge-at projection (hash) (for/hash ([k (hash-keys sources)]) (values k (hash-ref state k)))))
+  (define e (symbolic-spec-edge model))
+  (define inputs (edge-inputs e))
+  (define-values (outputs pins-ok)
+    (for/fold ([pins (hash)] [ok #t]) ([k (remove-duplicates outs)])
+      (unless (hash-has-key? (edge-outputs e) k)
+        (error 'cycle-view "cycle evidence does not cover output ~a" k))
+      ;; Allocate one physical value per output, shared by all reads even when outside care.
+      (define-values (v defined) (spec-pin-at model k (edge-state e) inputs))
+      (values (hash-set pins k v) (&& ok defined))))
+  (define-values (batch sampler-ok)
+    (sample (for/hash ([k ins]) (values k (hash-ref inputs k))) outputs))
+  (check-monitor-edge! (lambda (phase premise goals) (check-phase (format "cycle-view-~a" phase) premise goals))
+                       monitor batch (hash-ref inputs "reset") (edge-legal e)
+                       (project (edge-state e)) (project (edge-next e)) (project (spec-initial-state model))
+                       (list (cons 'sampler-domain sampler-ok)
+                             (cons 'defined (&& (edge-defined e) pins-ok (spec-state-legal? (edge-next e)))))))
+
+#| Preserve the FIFO event API and canonical history monitor; induction is protocol independent. |#
+(define (derive-fifo-transactions cycle view history-field)
+  (define-values (definition ingress egress width sampler) (fifo_view_parts view))
+  (define layout (fifo_view_layout view))
+  (define model (certified-cycle-model cycle definition layout))
   (define capacity
     (match (hash-ref (hash-ref model "state") history-field #f)
       [(list "seq" n (list "bits" w)) #:when (= width w) n]
       [_ (error 'derive-fifo-transactions "expected a cycle-spec sequence of FIFO words: ~a" history-field)]))
-  (define contract (candidate-fifo view capacity))
-  (define e (symbolic-spec-edge model))
-  (define inputs (edge-inputs e))
-  (define reset (hash-ref inputs "reset"))
-  (define-values (pins pins-ok)
-    (for/fold ([pins inputs] [ok #t]) ([k (append (map second ingress) (list (first egress) (third egress)))])
-      (unless (hash-has-key? (edge-outputs e) k)
-        (error 'derive-fifo-transactions "cycle evidence does not cover output ~a" k))
-      (define-values (v defined) (spec-pin-at model k (edge-state e) inputs))
-      (values (hash-set pins k v) (&& ok defined))))
-  (define-values (batch sampler-ok) (sampled-fifo-batch contract pins))
-  #| Project the cycle spec's bounded sequence, never its unused slot padding or RTL registers. |#
-  (define (history state)
-    (match-define (sequence-value n slots) (hash-ref state history-field))
-    (fifo-history (bitvector->natural n) slots))
-  (define goals
-    (list (cons 'sampler-domain sampler-ok)
-          (cons 'defined (&& (edge-defined e) pins-ok (spec-state-legal? (edge-next e))))
-          (cons 'event-relation (fifo-allows? contract (history (edge-state e)) batch (history (edge-next e))))))
-  (check-phase 'cycle-to-fifo-reset (&& (edge-legal e) reset) goals)
-  (check-phase 'cycle-to-fifo-step (&& (edge-legal e) (! reset)) goals)
+  (define monitor (fifo_monitor capacity width))
+  (define contract (candidate-fifo view capacity (spec_snapshot monitor)))
+  (define outs (append (map second ingress) (list (first egress) (third egress))))
+  (define ins (remove* outs (hash-keys (hash-ref (fifo-transactions-sampler contract) "inputs"))))
+  (check-cycle-monitor! cycle definition layout monitor (hash "q" history-field) ins outs
+                        (lambda (inputs outputs) (fifo-monitor-batch contract inputs outputs)))
   (checked-fifo-result view contract))
 
 #| Prove a FIFO projection of an admitted synchronous cut using its bound transaction view.
@@ -517,13 +543,15 @@
     (for/hash ([(k child) children])
       (define key (hash-ref cuts k))
       (values k (fifo-monitor-site child key (hash-ref (hash-ref relation "inputs") key)))))
-  #| Use only top-level sampled events; never construct a presumed middle handshake. |#
-  (define (sample inputs outputs)
-    (define-values (batch ok) (sample-cut-pins contract inputs outputs))
-    (match-define (fifo-events reset push in pop out) batch)
-    (values (hash "reset" reset "push" push "in" in "pop" pop "out" out) ok))
-  (check-monitor-refinement! check-phase top layout (fifo_view_bool view) sites monitor sample relation checks)
+  (check-monitor-refinement! check-phase top layout (fifo_view_bool view) sites monitor
+                             (lambda (i o) (fifo-monitor-batch contract i o)) relation checks)
   (checked-fifo-result view contract))
+
+#| Feed the canonical FIFO monitor its dense batch while retaining the sampler's domain obligation. |#
+(define (fifo-monitor-batch contract inputs outputs)
+  (define-values (batch ok) (sample-cut-pins contract inputs outputs))
+  (match-define (fifo-events reset push in pop out) batch)
+  (values (hash "reset" reset "push" push "in" in "pop" pop "out" out) ok))
 
 ;; One symbolic edge, not a refinement certificate. Only parent pins/local edges and the
 ;; verified child's transfer batch/domain escape; there is no child cycle state.

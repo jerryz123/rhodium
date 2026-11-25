@@ -4,7 +4,7 @@
 
 (require racket/match (only-in racket/base [equal? same-schema?] [eq? same?])
          "spec-engine.rkt" (only-in "wiring.rhm" wrapper_wiring))
-(provide (struct-out monitor-site) open-monitor-sites check-monitor-refinement! monitor-allowed?)
+(provide (struct-out monitor-site) open-monitor-sites check-monitor-refinement! check-monitor-edge! monitor-allowed?)
 
 ;; A private proof strategy supplies these adapters from already checked evidence.
 ;; Neither a descriptor nor successful use of this low-level checker is reusable evidence.
@@ -101,6 +101,19 @@
   (define pre (hint-edge relation before local-old))
   (define post (hint-edge relation after local-next))
   (define side (hint-edge checks before local-old inputs outputs batch))
+  (check-monitor-edge! check! monitor batch reset domain pre post
+                       (hint-edge relation child-initial local-next)
+                       (list (cons 'sampler sampler-ok)) #:pre-ok ok #:post-ok next-ok #:side side))
+
+#| Discharge the same monitor induction for a checked RTL cut or a certified cycle-spec edge.
+   Only the old relation restricts active steps. Reset ignores it, and sampler definedness,
+   auxiliary invariants and the successor relation are conclusions. |#
+(define (check-monitor-edge! check! monitor batch reset domain pre post initial-projection obligations
+                             #:pre-ok [ok #t] #:post-ok [next-ok #t] #:side [side #f])
+  (define verdicts (hash-ref monitor "outputs"))
+  (unless (and (hash-has-key? verdicts "allowed")
+               (for/and ([field (in-hash-values verdicts)]) (same-schema? (second (second field)) '("bool"))))
+    (error 'refinement "expected Boolean monitor verdicts including allowed"))
   (define old (symbolic-spec-state monitor))
   (define step (spec-edge-at monitor old batch))
   (define base (&& reset domain (spec-state-legal? old)))
@@ -108,13 +121,15 @@
   (define goals
     (append (for/list ([k (sort (hash-keys (edge-outputs step)) string<?)] #:unless (same-schema? k "allowed"))
               (cons k (holds (hash-ref (edge-outputs step) k))))
-            (for/list ([(k v) (edge-outputs side)]) (cons k (holds v)))
-            (list (cons 'sampler sampler-ok) (cons 'checks-defined (edge-defined side)) (cons 'allowed (monitor-allowed? step))
+            (if side (append (for/list ([(k v) (edge-outputs side)]) (cons k (holds v)))
+                             (list (cons 'checks-defined (edge-defined side)))) '())
+            obligations
+            (list (cons 'allowed (monitor-allowed? step))
                   (cons 'successor (related? post next-ok (edge-next step))))))
   (define initial (spec-initial-state monitor))
   (check! 'reset base
     (append (list (cons 'initial (related? post next-ok initial))
-                  (cons 'child-initial (related? (hint-edge relation child-initial local-next) #t initial))) goals))
+                  (cons 'declared-initial (related? initial-projection #t initial))) goals))
   (check! 'step active goals)
-  (for ([(k v) (edge-events side)]) (check! k (&& active (holds v)) '()))
+  (when side (for ([(k v) (edge-events side)]) (check! k (&& active (holds v)) '())))
   (void))

@@ -14,7 +14,7 @@ export:
   SpecBool SpecBits SpecSeq
   literal input_ref state_ref choose_if bool_not bool_and bits_equal guard_sample
   seq_empty seq_full seq_front seq_tail seq_append seq_concat
-  Observed make_spec include_sampled_events make_composition step_spec spec_snapshot composition_snapshot
+  Observed make_spec include_sampled_events make_composition step_spec spec_snapshot composition_snapshot monitor_projection
 
 interface SpecType
 
@@ -203,6 +203,26 @@ fun include_sampled_events(sampler :: Model, outputs :: Map, events :: Map, ~onl
       care := guard_sample(bind(predicate), care, label)
     values(name, Observed(bind(field.value), care))
   events ++ projected
+
+/* Check a monitor-state projection. A field rename map is shorthand for stateless typed IR;
+   the proof binds its inputs exclusively to certified cycle state, never to sampled pins. */
+fun monitor_projection(monitor :: Model, relation :: Model || Map):
+  def model:
+    cond
+    | relation is_a Model: relation
+    | ~else:
+        unless relation.keys().sort() == monitor.state.keys().sort() | error("project every monitor state field")
+        def inputs = for Map ((name, field :: String) in relation): values(field, monitor.state[name])
+        def outputs = for Map ((name, field) in relation): values(name, Observed(input_ref(field, monitor.state[name])))
+        make_spec(inputs, {}, {}, outputs, {}, {})
+  unless model.state.length() == 0 && model.assumptions.length() == 0
+         && model.outputs.keys().sort() == monitor.state.keys().sort()
+  | error("expected an unconditional state projection covering the monitor")
+  for ((name, field) in model.outputs):
+    unless same_type(field.value.type, monitor.state[name]) | error("projection type mismatch: " ++ name)
+  for ((name, invariant) in model.events):
+    unless invariant.value.type is_a SpecBool | error("expected Boolean projection invariant: " ++ name)
+  spec_snapshot(model)
 
 /* A step separates pre-edge observations from the state committed on that edge. */
 class Step(outputs :: Map, events :: Map, next_state :: Map)
