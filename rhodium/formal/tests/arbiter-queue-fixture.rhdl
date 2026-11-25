@@ -59,4 +59,19 @@ circuit SeparateRegisterReset():
   held <== enable
   admitted <== held
 
-export SeparateRegisterReset LeakyGate WrongLane Undersized SeparateReset
+// Keep both actual child specializations; change exactly one width-correct driver in each variant.
+sync_circuit FaultyBuffered(~cross_payload: _cross_payload :: Boolean):
+  interface ingress[2](Decoupled(Bits(2)), ~role: consumer)
+  interface egress(Irrevocable(Bits(2)), ~role: producer)
+  inst front(ArbiterQueue(2, ~depth: 2))
+  inst tail_fifo(ShiftQueue(Bits(2), 1))
+  for (i in 0..2):
+    ingress[i].ready <== front.ingress[i].ready
+    front.ingress[i].valid <== ingress[i].valid
+    front.ingress[i].bits <== ingress[if _cross_payload && i == 0 | 1 | i].bits
+  tail_fifo.ingress.valid <== front.egress.valid
+  tail_fifo.ingress.bits <== front.egress.bits
+  front.egress.ready <== (if _cross_payload | tail_fifo.ingress.ready | egress.ready)
+  tail_fifo.egress |> egress
+
+export SeparateRegisterReset LeakyGate WrongLane Undersized SeparateReset FaultyBuffered

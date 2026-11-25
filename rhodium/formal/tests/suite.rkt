@@ -8,6 +8,7 @@
          "arbiter-queue-order.rkt"
          (submod "arbiter-queue-transactions.rkt" test)
          "buffered-arbiter-queue-order.rkt"
+         (submod "buffered-arbiter-queue-transactions.rkt" test)
          "gated-arbiter-queue-order.rkt"
          "two-tag-rob-proof.rkt"
          "api-test.rhm"

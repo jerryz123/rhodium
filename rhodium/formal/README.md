@@ -40,9 +40,12 @@ depths. An offered word that
 was never accepted does not enter the queue. Reset discards pending words;
 the proof promises neither eventual delivery nor fairness between lanes.
 The [nested example](../../examples/formal/buffered-arbiter-queue.rhdl) adds
-a one-entry ShiftQueue after that proved ArbiterQueue. Using only those two
-specs, the outer proof shows that every retirement returns the oldest accepted
-winner and that at most `depth + 1` words are pending. Available space alone
+a one-entry ShiftQueue after that proved ArbiterQueue. Its [event spec](../../examples/formal/buffered-arbiter-queue.rspl)
+observes just the external handshakes. Once the RTL wiring is checked, the
+[ordering proof](tests/buffered-arbiter-queue-transactions.rkt) uses only the
+two child transaction contracts: every retirement returns the oldest accepted
+word, and at most 2, 3, or 4 words are pending for front depths 1, 2, or 3.
+It does not need to know which lane wins a tie. Available space alone
 does not guarantee admission. [GatedArbiterQueue](../../examples/formal/gated-arbiter-queue.rhdl)
 demonstrates the next boundary: the proof executes the wrapper's own admission
 register but substitutes the verified queue spec. Reset closes admission;

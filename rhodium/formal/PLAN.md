@@ -67,8 +67,12 @@ now uses the ready/valid events declared in the cycle spec and projects its
 actual ingress transfers and exports order and capacity, not arbitration policy.
 The [next level](tests/buffered-arbiter-queue-order.rkt)
 proves ordered retirement with an additional one-slot FIFO using only the
-ArbiterQueue and FIFO specs. Wrong-lane wiring fails induction and cannot
-supply that result. These proofs do not inspect child RTL state and are not
+ArbiterQueue and FIFO specs. The same parent now has a
+[transaction-only proof](tests/buffered-arbiter-queue-transactions.rkt) at
+capacities 2, 3, and 4: the checker verifies both ingress lanes and the
+internal handoff, then composes only the exported child contracts. A crossed
+lane payload or miswired handoff ready fails wiring admission.
+These proofs do not inspect child RTL state and are not
 quantified over depth. The [gated wrapper](tests/gated-arbiter-queue-order.rkt)
 adds one parent-local admission register while the child remains opaque; this
 is a limited RTL fragment, not arbitrary parent logic. The [two-tag reorder

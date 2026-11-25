@@ -32,42 +32,35 @@ fun prefix_reader(interface_prefixes :: Function.of_arity(1)):
     unless cached.has_key(m) | cached[m] := interface_prefixes(m)
     port_leaves(p, cached[m], visit)
 
-/* Decode child records in physical field order using the layout certified for that occurrence.
-   Names in the wire map are logical; record creation/selection still follows actual RTL fields. */
-fun series_wiring(top :: Module, child_layout :: Function.of_arity(2)):
-  unless leaf_protocol(top) == "single-clock-reset" && top.inputs.length() == 5 && top.outputs.length() == 3
-  | error("expected a scalar FIFO parent with clock/reset and two ready/valid endpoints")
-  def layouts = MutableMap{}
-  /* A scalar top cannot alias a qualified child pin. Each site has its own verified layout. */
+/* Decode top ports using the bound parent view and child ports using exact occurrence evidence.
+   Record creation/selection follows physical fields, independently of the claimed handshakes. */
+fun series_wiring(top :: Module, top_layout :: PairList, child_layout :: Function.of_arity(2)):
+  unless leaf_protocol(top) == "single-clock-reset" | error("expected a clocked FIFO series parent")
+  def layouts = MutableMap{#false: top_layout}
+  /* Reconstruct each directional record in physical field order before visiting logical pins. */
   fun read_port(site :: maybe(String), m :: Module, p :: Port, visit :: Function.of_arity(2)):
+    unless layouts.has_key(site)
+    | block:
+        when site.contains(".") || leaf_protocol(m) != "single-clock-reset"
+        | error("invalid FIFO occurrence: " ++ site)
+        layouts[site] := child_layout(site, m)
     cond
-    | !site:
-        when p.name.contains(".") || record_type(p.type) || vector_type(p.type)
-        | error("expected unqualified scalar FIFO parent port: " ++ p.name)
-        visit(p.name, p.type)
+    | clock_type(p.type): visit("clock", p.type)
     | ~else:
-        unless layouts.has_key(site)
-        | block:
-            when site.contains(".") || leaf_protocol(m) != "single-clock-reset"
-            | error("invalid FIFO occurrence: " ++ site)
-            layouts[site] := child_layout(site, m)
+        let PairList[inputs, outputs] = layouts[site]
+        def layout = if p.direction == "input" | inputs | outputs
+        def members = PairList.to_list(layout[p.name])
         cond
-        | clock_type(p.type): visit("clock", p.type)
+        | record_type(p.type):
+            unless members.length() == p.type.fields.length() | error("FIFO record layout mismatch")
+            for Map (field in p.type.fields, member in members):
+              let PairList[name, width] = member
+              unless name.ends_with("." ++ field.name) && width == field.type.packed_width()
+              | error("FIFO member layout mismatch: " ++ field.name)
+              values(field.name, visit(name, field.type))
         | ~else:
-            let PairList[inputs, outputs] = layouts[site]
-            def layout = if p.direction == "input" | inputs | outputs
-            def members = PairList.to_list(layout[p.name])
-            cond
-            | record_type(p.type):
-                unless members.length() == p.type.fields.length() | error("FIFO record layout mismatch")
-                for Map (field in p.type.fields, member in members):
-                  let PairList[name, width] = member
-                  unless name.ends_with("." ++ field.name) && width == field.type.packed_width()
-                  | error("FIFO member layout mismatch: " ++ field.name)
-                  values(field.name, visit(name, field.type))
-            | ~else:
-                unless members == [PairList[p.name, p.type.packed_width()]] | error("FIFO scalar layout mismatch")
-                visit(p.name, p.type)
+            unless members == [PairList[p.name, p.type.packed_width()]] | error("FIFO scalar layout mismatch")
+            visit(p.name, p.type)
   def values(children, wires, _) = extract_cut(top, read_port, #false)
   unless children.length() == 2 | error("expected two FIFO occurrences")
   values(children, wires)

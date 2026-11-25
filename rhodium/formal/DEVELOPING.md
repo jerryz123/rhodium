@@ -224,9 +224,9 @@ both refusal and admission of a second offer are consistent with the contract;
 only the concrete implementation determines which occurs on that edge.
 
 `compose-fifo-series` admits a narrower wiring-only parent using **only** two
-transaction results. It matches the actual child definitions, all three
-valid/ready/data connections (ingress, handoff, egress), and each clock/reset
-driver. The parent interface is scalar and the cut allows no local behavior.
+transaction results. It matches the actual child definitions, valid/ready/data
+on each external ingress lane, the single handoff and egress, and each clock/reset
+driver. The parent can have scalar or grouped ports; the cut allows no local behavior.
 For each child occurrence, the checker obtains the certified physical-port
 layout only after matching the exact definition. It follows RTL record creation
 and field selection in the parent to identify the actual driver of every sink.
@@ -235,9 +235,10 @@ transaction histories, even though both sites reuse the same ShiftQueue evidence
 It needs neither child cycle state nor RTL registers. An independent ready
 driver, external data substituted at the handoff, or routing the hidden mask
 as head data is rejected before sharing any symbolic pins. After that check,
-three unconstrained (valid, ready, payload) triples represent the two external
-links and the handoff. The checker interprets both child samplers and the
-parent sampler on those links and proves they are defined for every sample.
+each lane, the handoff, and the egress get independent symbolic triples.
+The checker proves the parent sampler is defined wherever both certified
+child samplers are defined. For two lanes, the front contract guarantees at
+most one transfer outside reset; it does not prohibit simultaneous offers.
 It ranges over all successors allowed by both child relations, without using
 any cycle timing guarantee. It proves the joint external FIFO rule on the downstream
 pending words followed by the upstream words; only the internal transfer is hidden.
@@ -373,8 +374,8 @@ Neither the physical view nor the helper callback enters the cycle snapshot.
 Its exclusivity predicate is a domain check in rspecsim and a **conclusion**
 of the reset/step solver queries, never a premise. Crossed payload bindings
 fail the FIFO relation; crossing an ingress ready with egress valid permits
-a double transfer and fails the sampler-domain obligation. Single-ingress
-series wiring remains a separate, narrower proof rule.
+a double transfer and fails the sampler-domain obligation. A series parent
+can reuse this proved exclusivity only after checking each lane's wiring.
 
 Both [faulty parents](tests/arbiter-queue-fixture.rhdl) have the same interface as
 the correct parent but are separate circuit declarations. Always build the reference
@@ -398,6 +399,12 @@ backlog is the tail's live words followed by the front's pending winners.
 It proves head retirement, suffix retention, winner append, and occupancy
 conservation, and exercises a reachable fill/stall/drain trace for each front
 depth.
+
+The [transaction-only proof](tests/buffered-arbiter-queue-transactions.rkt)
+establishes the same order and occupancy bounds (2, 3, 4) from the two
+child transaction results alone. The parent declares only its external
+events. Crossed lane data and handoff ready driven by the outer consumer
+are rejected by the structural check, before any FIFO reasoning.
 
 ### Parent-local RTL with an opaque child
 

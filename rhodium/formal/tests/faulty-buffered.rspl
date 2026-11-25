@@ -1,0 +1,7 @@
+#lang rspecl
+// SPDX-License-Identifier: Apache-2.0
+
+import "arbiter-queue-fixture.rhdl" as rtl
+
+spec for rtl.FaultyBuffered:
+  events ready_valid_events(reset, ingress, egress)

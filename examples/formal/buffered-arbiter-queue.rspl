@@ -1,0 +1,8 @@
+#lang rspecl
+/* Observes external accepted winners and retirements without specifying either stage's timing. */
+// SPDX-License-Identifier: Apache-2.0
+
+import "buffered-arbiter-queue.rhdl" as rtl
+
+spec for rtl.BufferedArbiterQueue:
+  events ready_valid_events(reset, ingress, egress)

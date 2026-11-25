@@ -342,14 +342,14 @@
   (check-phase 'transaction-step (&& legal (! rst)) goals)
   contract)
 
-#| The direct-cut and series profiles connect exactly one handshake at each endpoint. |#
+#| Direct cuts and the internal series handoff consume a single ingress handshake. |#
 (define (single-ingress lanes)
   (unless (= (length lanes) 1) (error 'fifo-wiring "expected a single FIFO ingress"))
   (first lanes))
 
 #| Check the two external handshakes and the internal valid/ready/payload paths against the actual
    parent drivers. Only this direct, shared-epoch cut licenses identifying the two middle events. |#
-(define (check-series-wiring! top ingress egress a front b back)
+(define (check-series-wiring! top layout ingress egress a front b back)
   (unless (and (not (host-equal? a b)) (fifo-transactions? front) (fifo-transactions? back))
     (error 'fifo-series "transaction evidence does not match the RTL occurrences"))
   #| Only release the recorded physical-to-logical layout to its proved RTL occurrence. |#
@@ -358,11 +358,17 @@
     (unless (and child (host-eq? definition (fifo-transactions-definition child)))
       (error 'fifo-series "transaction evidence does not match the RTL occurrences"))
     (fifo-transactions-layout child))
-  (define-values (_ wires) (series_wiring top layout-at))
+  ;; No unmodeled top pins, and no qualified parent member may alias an occurrence pin.
+  (define top-pins
+    (for*/list ([direction layout] [members (in-hash-values direction)] [member members]) (first member)))
+  (define endpoints (append (list "reset") (append* ingress) egress))
   (unless (and (= (fifo-transactions-width front) (fifo-transactions-width back))
-               (andmap (lambda (p) (and (string? p) (not (regexp-match? #rx"[.]" p)))) (append ingress egress))
-               (= 8 (length (remove-duplicates (append '("clock" "reset") ingress egress)))))
+               (= (length ingress) (length (fifo-transactions-ingress front)))
+               (host-equal? (sort top-pins string<?) (sort endpoints string<?))
+               (for/and ([p top-pins])
+                 (not (or (string-prefix? p (string-append a ".")) (string-prefix? p (string-append b "."))))))
     (error 'fifo-series "incompatible FIFO endpoints"))
+  (define-values (_ wires) (series_wiring top layout layout-at))
   #| Qualify a physical pin at its actual occurrence. |#
   (define (pin site p) (string->immutable-string (string-append site "." p)))
   #| Preserve valid/ready/data order when qualifying a certified endpoint. |#
@@ -377,11 +383,13 @@
     (match-define (list tv tr td) to)
     (wire! tv fv) (wire! fr tr) (wire! td fd))
   (for* ([site (list a b)] [p '("clock" "reset")]) (wire! (pin site p) p))
-  (link! ingress (at a (single-ingress (fifo-transactions-ingress front))))
+  (for ([lane ingress] [front-lane (fifo-transactions-ingress front)])
+    (link! lane (at a front-lane)))
   (link! (at a (fifo-transactions-egress front)) (at b (single-ingress (fifo-transactions-ingress back))))
   (link! (at b (fifo-transactions-egress back)) egress)
-  ;; Four epoch drivers and three links of three wires each; no additional sinks.
-  (unless (= 13 (hash-count wires)) (error 'fifo-series "unexpected parent or child wiring")))
+  ;; Four epoch drivers, three pins per ingress lane, one handoff and one egress.
+  (unless (= (+ 4 (* 3 (+ 2 (length ingress)))) (hash-count wires))
+    (error 'fifo-series "unexpected parent or child wiring")))
 
 #| Place the downstream live prefix before the upstream live prefix; padding is unobservable.
    Splitting at concrete offsets keeps projection total even for arbitrary pre-reset counts. |#
@@ -396,7 +404,7 @@
    No cycle offers are predicted; the checked wires justify sharing one transfer and word. |#
 (define (compose-fifo-series view front-site front back-site back)
   (define-values (top ingress egress width sampler) (fifo_view_parts view))
-  (check-series-wiring! top (single-ingress ingress) egress front-site front back-site back)
+  (check-series-wiring! top (fifo_view_layout view) ingress egress front-site front back-site back)
   (unless (= width (fifo-transactions-width front)) (error 'fifo-series "parent payload width mismatch"))
   (define capacity (+ (fifo-transactions-capacity front) (fifo-transactions-capacity back)))
   (define contract (candidate-fifo view capacity))
@@ -410,19 +418,22 @@
     (define-symbolic* valid ready boolean?)
     (define-symbolic* payload (bitvector width))
     (list valid ready payload))
-  (define in (fresh-link))
+  (define lanes (for/list ([_ ingress]) (fresh-link)))
   (define handoff (fresh-link))
   (define out (fresh-link))
-  #| Wire one declared sampler to the shared triples justified by the structural check. |#
-  (define (sample child incoming outgoing)
-    (define pins (append (single-ingress (fifo-transactions-ingress child)) (fifo-transactions-egress child)))
-    (sampled-fifo-batch child (for/fold ([m (hash "reset" reset)]) ([k pins] [v (append incoming outgoing)])
+  #| Bind independent ingress triples and the shared handoff only after checking their physical drivers. |#
+  (define (sample child inputs outgoing)
+    (define pins (append (append* (fifo-transactions-ingress child)) (fifo-transactions-egress child)))
+    (sampled-fifo-batch child (for/fold ([m (hash "reset" reset)]) ([k pins] [v (append (append* inputs) outgoing)])
                                 (hash-set m k v))))
-  (define-values (front-batch front-ok) (sample front in handoff))
-  (define-values (back-batch back-ok) (sample back handoff out))
-  (define-values (parent-batch parent-ok) (sample contract in out))
-  (check-phase 'series-samplers #t (list (cons 'defined (&& front-ok back-ok parent-ok))))
-  (define allowed (&& (fifo-allows? front a front-batch an) (fifo-allows? back b back-batch bn)))
+  (define-values (front-batch front-ok) (sample front lanes handoff))
+  (define-values (back-batch back-ok) (sample back (list handoff) out))
+  (define-values (parent-batch parent-ok) (sample contract lanes out))
+  ;; Every issuance path proves its own sampler domain. Only sealed child results supply
+  ;; these guarantees at matched occurrences. Never assume the parent's domain or arbiter policy.
+  (define child-domain (&& front-ok back-ok))
+  (check-phase 'series-samplers child-domain (list (cons 'defined parent-ok)))
+  (define allowed (&& child-domain (fifo-allows? front a front-batch an) (fifo-allows? back b back-batch bn)))
   (define parent-step
     (fifo-allows? contract (series-history b a) parent-batch (series-history bn an)))
   (define goals (list (cons 'external-history parent-step)))

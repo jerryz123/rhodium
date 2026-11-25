@@ -26,7 +26,7 @@ export selector granted_selector raw_selector
 export router routed_selector duplicate_grant high_grant circular_grants
 export registered_lane registered_routed registered_duplicate
 export capture_gate arbitrated_capture raw_capture
-export gated_at leaky_at outer_at
+export gated_at leaky_at outer_at faulty_buffered
 export pair_at fifo_definition arbiter_definition mixed wrong_lane undersized
 export pair_series wrong_ready_series
 export faulty_pair
@@ -44,6 +44,7 @@ def proof_depths = PairList[1, 2, 3]
 def gated = MutableMap{}
 def leaky = MutableMap{}
 def outer = MutableMap{}
+def faulty_buffered_tops = MutableMap{}
 def parents = MutableMap{}
 def faulty_parents = MutableMap{}
 def mutable rob = #false
@@ -87,6 +88,8 @@ fun inventory():
     faulty_pairs[fault] := materialize_circuit(QueuePair(2, ~fault: fault))
   pair_series := materialize_circuit(QueuePairSeries())
   wrong_ready_series := materialize_circuit(QueuePairSeries(~wrong_ready: #true))
+  for (cross_payload in [#true, #false]):
+    faulty_buffered_tops[cross_payload] := materialize_circuit(FaultyBuffered(~cross_payload: cross_payload))
   for (d in proof_depths):
     fifos[d] := materialize_circuit(ShiftQueue(Bits(2), d))
     parents[d] := materialize_circuit(ArbiterQueue(2, ~depth: d))
@@ -104,6 +107,7 @@ def mixed = elaborate(inventory()).top
 fun gated_at(depth): gated[depth]
 fun leaky_at(depth): leaky[depth]
 fun outer_at(depth): outer[depth]
+fun faulty_buffered(cross_payload): faulty_buffered_tops[cross_payload]
 fun parent_at(depth): parents[depth]
 fun wrong_lane_at(depth): faulty_parents[depth]
 def wrong_lane = wrong_lane_at(2)

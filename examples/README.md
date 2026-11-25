@@ -316,8 +316,9 @@ The leaf specs import the Flow declarations directly. ArbiterQueue is example-ow
 so its spec imports the sibling RTL. The parent spec keeps an independent history of
 accepted words; it does not instantiate either child. The [rspecsim quick start](../rhodium/formal/README.md#install-and-quick-start)
 shows how to run a concrete FIFO transfer. [BufferedArbiterQueue](formal/buffered-arbiter-queue.rhdl)
-places a one-entry ShiftQueue after ArbiterQueue. Its [ordering proof](../rhodium/formal/tests/buffered-arbiter-queue-order.rkt)
-uses only the two immediate child specs.
+places a one-entry ShiftQueue after ArbiterQueue. Its [passive spec](formal/buffered-arbiter-queue.rspl)
+observes external transfers. Its [ordering proof](../rhodium/formal/tests/buffered-arbiter-queue-transactions.rkt)
+checks the RTL connections and uses only the two child transaction contracts.
 
 [`formal/equivalence.rhm`](formal/equivalence.rhm) uses the optional Rosette
 consumer to prove that standard-profile and explicitly composed adders are
