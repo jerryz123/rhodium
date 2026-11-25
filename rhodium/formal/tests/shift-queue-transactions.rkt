@@ -4,20 +4,20 @@
 (require rackunit "../refinement.rkt"
          (only-in "composition-binding.rhm" fifo_at)
          (only-in "shift-queue-induction.rkt" verified-fifo-at proof_depths)
-         (only-in "../../../examples/formal/shift-queue-transactions.rspl" ShiftQueue))
+         (only-in "../../../examples/formal/shift-queue.rspl" ShiftQueue))
 (provide verified-shift-queue-transactions-at)
 
 ;; Only store a result after both implication queries pass.
 (define proved
   (for/hash ([depth proof_depths])
-    (values depth (derive-fifo-transactions (verified-fifo-at depth) (ShiftQueue (fifo_at depth)) "q"))))
+    (values depth (derive-fifo-transactions (verified-fifo-at depth) (ShiftQueue (fifo_at depth) #:event_view #t) "q"))))
 (define (verified-shift-queue-transactions-at depth) (hash-ref proved depth))
 
 (module+ test
   (require (only-in "queue-pair-transaction-order.rkt" check-retirement-order check-ready-not-entailed))
   (for ([depth proof_depths])
     (test-case (format "ShiftQueue's proved cycle model implies FIFO ordering at depth ~a" depth)
-      (define view (ShiftQueue (fifo_at depth)))
+      (define view (ShiftQueue (fifo_at depth) #:event_view #t))
       (define transactions (verified-shift-queue-transactions-at depth))
       (check-true (fifo-transactions-for? transactions view))
       (check-equal? (fifo-transactions-capacity transactions) depth)

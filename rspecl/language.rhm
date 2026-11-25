@@ -16,6 +16,7 @@ export:
     except operand
   spec
   rename: boundary.ready_valid_events as ready_valid_events
+  rename: boundary.rv_pins as rv_pins
 
 meta:
   import lib("racket/base.rkt").#{syntax-local-context} as expansion_context
@@ -32,23 +33,8 @@ defn.macro 'spec for $prefix ... . $(name :: Identifier): $line; ...':
   'define_spec $prefix ... . $name: $line; ...'
 
 /* Both contexts obtain the constructor name and lexical boundary from the RTL declaration. */
-defn.macro
-| 'define_spec $prefix ... . $(name :: Identifier): fifo_transactions($(reset :: Identifier), $(incoming :: Identifier), $(outgoing :: Identifier))':
-    '$prefix ... . $(name) . describe_boundary grouped_fifo $name: ($reset, $incoming, $outgoing)'
-| 'define_spec $prefix ... . $(name :: Identifier): fifo_transactions($reset, ingress($iv, $ir, $iw), egress($ov, $or, $ow))':
-    '$prefix ... . $(name) . describe_boundary declared_fifo $name: ($reset, $iv, $ir, $iw, $ov, $or, $ow)'
-| 'define_spec $prefix ... . $(name :: Identifier): $line; ...':
-    '$prefix ... . $(name) . describe_boundary declared_spec $name: $line; ...'
-
-/* Bind the standard grouped ready/valid interface without spelling physical record ports. */
-defn.macro 'grouped_fifo $name($family, $sync) $pins $cfg $ep $arr: ($reset, $incoming, $outgoing)':
-  'fun $name(top): boundary.bind_grouped_fifo_view(top, $family, $sync, $(reset.to_source_string()),
-                                                   $(incoming.to_source_string()), $(outgoing.to_source_string()))'
-
-/* A transaction view samples both sides of physical handshakes; it does not drive outputs. */
-defn.macro 'declared_fifo $name($family, $sync) $pins $cfg $ep $arr: ($(port :: Identifier), ...)':
-  let [key, ...] = [port.to_source_string(), ...]
-  'fun $name(top): boundary.bind_fifo_view(top, $family, $sync, [$key, ...])'
+defn.macro 'define_spec $prefix ... . $(name :: Identifier): $line; ...':
+  '$prefix ... . $(name) . describe_boundary declared_spec $name: $line; ...'
 
 meta:
   /* Only external declaration names are strings; expression identifiers remain lexical syntax. */
@@ -133,18 +119,27 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
 
   let [decl, ...] = body
   let [skip, ...] = ignored
-  def args = if event_source | '(top, ~event_view: view_only = #false)' | '(top)'
+  def args = if event_source | '(top, ~event_view: view_only :: Boolean = #false)' | '(top)'
   def build = 'ir.make_spec(bound.ports.inputs, $(map_expr(states)), $(map_expr(initial)),
                             cycle_outputs, cycle_events, $(map_expr(updates)), ~assumptions: $(map_expr(assumptions)))'
+  // A passive declaration has no cycle clauses to validate. Even one such clause keeps
+  // the full-model path, so requesting a view cannot hide an incomplete cycle spec.
+  def passive = event_source && ignored.length() == 0
+                && ![states, outputs, events, assumptions, updates].find(fun (table): table.length() != 0)
   def finish:
-    if event_source
-    | '«
-         def view = $event_source(top)
+    cond
+    | passive:
+        '«
+           unless view_only | error("passive-only spec: request ~event_view: #true")
+           boundary.bind_event_source($event_source, top)
+         »'
+    | event_source: '«
+         def view = boundary.bind_event_source($event_source, top)
          def cycle_events = ir.include_sampled_events(view.sampler, cycle_outputs, $(map_expr(events)))
          def checked = check_output_types($build, bound.ports.outputs, [$skip, ...])
          if view_only | view | checked
        »'
-    | '«
+    | ~else: '«
          def cycle_events = $(map_expr(events))
          check_output_types($build, bound.ports.outputs, [$skip, ...])
        »'

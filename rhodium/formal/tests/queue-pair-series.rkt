@@ -10,7 +10,7 @@
          (only-in "queue-pair-transaction-order.rkt" check-retirement-order check-ready-not-entailed))
 (provide verified-queue-pair-series)
 
-(define series-view (QueuePairSeries pair_series))
+(define series-view (QueuePairSeries pair_series #:event_view #t))
 (define front (grouped-pair-at 1))
 (define back (grouped-pair-at 2))
 (define (certify view a b) (compose-fifo-series view "front" a "back" b))
@@ -54,7 +54,7 @@
 
   (test-case "an independent ready driver breaks the handoff, and same-shaped children are not interchangeable"
     (check-exn #rx"expected front.consume driven by back.ready, got consume"
-               (lambda () (certify (QueuePairSeries wrong_ready_series) front back)))
+               (lambda () (certify (QueuePairSeries wrong_ready_series #:event_view #t) front back)))
     (check-exn #rx"evidence does not match the RTL occurrences"
                (lambda () (certify series-view back front))))
 

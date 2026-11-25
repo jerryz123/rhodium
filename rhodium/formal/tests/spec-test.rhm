@@ -8,12 +8,11 @@ import:
   lib("rhodium/frontend/foundation.rhm").Bits
   lib("rhodium/frontend/foundation.rhm").elaborate
   "../../../examples/formal/shift-queue.rspl".ShiftQueue
-  "../../../examples/formal/shift-queue-transactions.rspl" as tx
   "../fifo-view.rhm".sample_fifo_events
 
 def top = elaborate(rtl.ShiftQueue(Bits(2), 2)).top
 def fifo = ShiftQueue(top)
-def grouped = tx.ShiftQueue(top)
+def grouped = ShiftQueue(top, ~event_view: #true)
 def simultaneous = {"reset": 0, "ingress.valid": 1, "ingress.ready": 1, "ingress.bits": 0,
                     "egress.ready": 1, "egress.valid": 1, "egress.bits": 3}
 check:
@@ -67,13 +66,16 @@ fun check_state(q):
           def events:
             cond
             | reset: {"reset": #true}
-            | en && de: {"dequeue": q[0], "enqueue": word}
-            | de: {"dequeue": q[0]}
-            | en: {"enqueue": word}
+            | en && de: {"retired": q[0], "accepted": word}
+            | de: {"retired": q[0]}
+            | en: {"accepted": word}
             | ~else: Map{}
+          // Give uncared pins concrete values, including asserted handshakes during reset.
+          def pins = sample ++ {"ingress.ready": #true, "egress.valid": #true, "egress.bits": 3} ++ step.outputs
           check:
             step.outputs ~is outputs
             step.events ~is events
+            sample_fifo_events(grouped, pins) ~is events
             step.next_state ~is {"q": expected_q}
           cases := cases + 1
 

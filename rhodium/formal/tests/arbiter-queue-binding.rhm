@@ -92,7 +92,7 @@ fun buffered_cut(depth):
 fun alternate_cut(change_start):
   def fifo = ShiftQueue(fifo_definition)
   def initial = if change_start | {"q": [0]} | fifo.initial
-  def events = if change_start | fifo.events | fifo.events.remove("enqueue")
+  def events = if change_start | fifo.events | fifo.events.remove("accepted")
   def alternate = make_spec(fifo.inputs, fifo.state, initial, fifo.outputs, events, fifo.updates)
   proof_cut(mixed, Map.by(===){arbiter_definition: Arbiter(arbiter_definition), fifo_definition: alternate},
             Bool, interface_prefixes)

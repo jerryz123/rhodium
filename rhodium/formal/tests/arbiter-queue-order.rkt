@@ -106,7 +106,7 @@
   (test-case "the children exchange exactly one winner"
     (discharge 'single-winner legal (! (&& (sample-take0 impl) (sample-take1 impl))))
     (discharge 'internal-handoff legal
-               (=> (! rst) (same-event (event (sample-arb impl) "out") (event (sample-fifo impl) "enqueue")))))
+               (=> (! rst) (same-event (event (sample-arb impl) "out") (event (sample-fifo impl) "accepted")))))
 
   (test-case "actual wrong-lane RTL admits the winner but violates the same contract on drain"
     (check-exn #rx"preservation/successor not proved" (lambda () (certify wrong-graph)))

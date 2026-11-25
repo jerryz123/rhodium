@@ -46,11 +46,11 @@
   (define b (pair-step-b p))
   (define push (&& (! rst) offer (pair-step-ready p)))
   (define pop (&& (! rst) consume (pair-step-valid p)))
-  (define middle (event a "dequeue"))
+  (define middle (event a "retired"))
   (define valid (legal-states states))
   (define (project s [bound capacity])
     (fifo-history (occupancy s) (for/list ([i (in-range bound)]) (word-at s i))))
-  (define view (QueuePair (pair_at depth)))
+  (define view (QueuePair (pair_at depth) #:event_view #t))
   (define (certify projection [bound capacity])
     (prove-fifo-transactions plan bound view projection))
   ;; Issue evidence outside rackunit: a failing obligation must abort, not just record a test failure.
@@ -84,12 +84,12 @@
 
   (test-case "the internal handoff agrees and only external transfers appear in the public batch"
     (discharge 'epoch valid (&& (matches? (event a "reset") rst #t) (matches? (event b "reset") rst #t)))
-    (discharge 'middle valid (same-event middle (event b "enqueue")))
-    (discharge 'external valid (&& (matches? (event a "enqueue") push data)
-                                   (matches? (event b "dequeue") pop (pair-step-head p)))))
+    (discharge 'middle valid (same-event middle (event b "accepted")))
+    (discharge 'external valid (&& (matches? (event a "accepted") push data)
+                                   (matches? (event b "retired") pop (pair-step-head p)))))
 
   (test-case "evidence is specialization-bound; a false capacity or payload projection cannot certify"
-    (define other (QueuePair (pair_at (if (= depth 1) 2 1))))
+    (define other (QueuePair (pair_at (if (= depth 1) 2 1)) #:event_view #t))
     (define crossed (crossed_pair (pair_at depth)))
     (check-true (fifo-transactions-for? transactions view))
     (check-false (fifo-transactions-for? transactions other))
@@ -124,7 +124,7 @@
       (define e (advance plan s #f offer w consume))
       (discharge 'internal-only valid
                  (&& (= (occupancy s) 1) (! (pair-step-ready e)) (! (pair-step-valid e))
-                     (observation-care (event (pair-step-a e) "dequeue"))
+                     (observation-care (event (pair-step-a e) "retired"))
                      (holds-words (pair-step-states e) (list (word-at s 0)))))
       (pair-step-states e))
     ;; At depth one the offered second word is refused on the handoff edge.

@@ -9,7 +9,7 @@
 (provide grouped-pair-at)
 
 (define (certify top front back)
-  (compose-fifo-series (QueuePair top) "a" front "b" back))
+  (compose-fifo-series (QueuePair top #:event_view #t) "a" front "b" back))
 (define proved
   (for/hash ([depth '(1 2)])
     (define leaf (verified-shift-queue-transactions-at depth))
@@ -25,7 +25,7 @@
   (for ([depth '(1 2)])
     (test-case (format "two grouped depth-~a FIFO contracts imply order and capacity" depth)
       (define result (grouped-pair-at depth))
-      (check-true (fifo-transactions-for? result (QueuePair (pair_at depth))))
+      (check-true (fifo-transactions-for? result (QueuePair (pair_at depth) #:event_view #t)))
       (check-equal? (fifo-transactions-capacity result) (* 2 depth))
       (require-feasible (check-retirement-order result))
       (check-ready-not-entailed result)))

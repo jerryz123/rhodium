@@ -135,15 +135,15 @@ def bindings = Map.by(===){tapped: ShiftQueue(tapped)}
 check:
   block:
     spec for fifo_rtl.ShiftQueue:
-      fifo_transactions(reset, egress, ingress)
-    ShiftQueue(tapped)
+      events ready_valid_events(reset, egress, ingress)
+    ShiftQueue(tapped, ~event_view: #true)
   ~throws "wrong FIFO pin name or direction"
 check:
   block:
     spec for fifo_rtl.ShiftQueue:
-      fifo_transactions(reset, ingress, mask)
-    ShiftQueue(tapped)
-  ~throws "expected two declared synchronous FIFO interface groups"
+      events ready_valid_events(reset, ingress, rv_pins("egress.valid", "egress.ready", "mask"))
+    ShiftQueue(tapped, ~event_view: #true)
+  ~throws "expected a physical scalar port"
 check:
   bridge.wiring_cut(elaborate(leaves.InvertingParent()).top, rtl.interface_prefixes) ~throws "not a wiring-only parent"
   bridge.bind_wiring(tap, bindings, rtl_bool, rtl.interface_prefixes) ~throws "parent uses an unmodeled child output or clock: fifo.mask"

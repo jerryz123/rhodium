@@ -201,7 +201,10 @@ traces attain capacities two and four at child depths one and two. Run
 not two hand-written endpoint lists. RSPECL checks the declaration's circuit
 family; the [view binder](fifo-view.rhm) checks the actual module's port names,
 directions, sorts, and clock/reset. It builds a stateless spec-IR sampler over
-both inputs and outputs. The cut must match that exact module. The caller projects the old and new
+both inputs and outputs. An events-only body binds the helper to that module
+without constructing a cycle model. A body with any cycle clauses still checks
+the full model, even when only its event view is requested. The cut must match
+that exact module. The caller projects the old and new
 cut states into pending words; reset and preservation must prove the same
 `fifo-allows?` relation that downstream clients consume. Certification also
 discharges child definedness and legality. A successful result retains the

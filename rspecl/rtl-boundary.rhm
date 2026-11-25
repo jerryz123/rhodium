@@ -16,9 +16,9 @@ import:
   lib("rhodium/formal/fifo-view.rhm").make_fifo_view
 
 export declared_ports interface_prefixes Endpoint
-export bind_fifo_view
-export bind_grouped_fifo_view
-export ready_valid_events
+export ready_valid_events bind_event_source
+export:
+  rename: ScalarPins as rv_pins
 
 /* Flat logical field schemas and lexical views, with no RTL drivers or implementation state. */
 class Boundary(ports :: SampledPorts, endpoints :: Map, arrays :: Map, parameters :: Map):
@@ -29,6 +29,11 @@ class Boundary(ports :: SampledPorts, endpoints :: Map, arrays :: Map, parameter
 
 /* A lexical group retains its elaborated name; cycle expressions can read only its inputs. */
 class Group(name :: String, inputs :: Map)
+
+/* Explicit (valid, ready, payload) roles for three physical scalar ports, resolved at binding. */
+class ScalarPins(valid :: String, ready :: String, payload :: String)
+
+annot.macro 'ReadyValidEndpoint': 'Group || ScalarPins'
 
 /* Read an input member without accidentally exposing the group's metadata as a port. */
 fun group_input(group :: Group, key :: String): group.inputs[key]
@@ -94,33 +99,31 @@ fun declared_ports(top :: Module, family :: CircuitIdentity, synchronous :: Bool
       | ~else: outs[p.name] := sampled_type(p.type, Bool)
   Boundary(SampledPorts(ins.snapshot(), outs.snapshot()), endpoints.snapshot(), arrays.snapshot(), parameters)
 
-/* Require the named RTL family before handing its actual scalar ports to the transaction binder. */
-fun bind_fifo_view(top :: Module, family :: CircuitIdentity, synchronous :: Boolean, names :: List.of(String)):
-  checked_circuit_parameters(top, family)
-  unless synchronous | error("expected a synchronous FIFO")
-  let [rst, iv, ir, iw, ov, or_pin, ow] = names
-  make_fifo_view(top, rst, [[iv, ir, iw]], [ov, or_pin, ow], Bool)
-
-/* Resolve a single ingress or a two-lane ingress array and one egress from declared groups. */
-fun bind_grouped_fifo_view(top :: Module, family :: CircuitIdentity, synchronous :: Boolean,
-                           reset :: String, incoming :: String, outgoing :: String):
-  def bound = declared_ports(top, family, synchronous)
-  unless synchronous && (bound.endpoints.has_key(incoming) || bound.arrays.has_key(incoming))
-         && bound.endpoints.has_key(outgoing)
-  | error("expected two declared synchronous FIFO interface groups")
-  def lanes = if bound.arrays.has_key(incoming) | bound.arrays[incoming] | bound.endpoints[incoming]
-  grouped_view(top, reset, lanes, bound.endpoints[outgoing])
-
-/* Bind the actual member roles before a sampler is used for either replay or certification. */
-fun grouped_view(top :: Module, reset :: String, incoming :: Group || List.of(Group), outgoing :: Group):
-  /* Project the valid/ready/payload roles of a declared group, including its physical array index. */
-  fun members(group :: Group): [group.name ++ ".valid", group.name ++ ".ready", group.name ++ ".bits"]
-  def lanes = if incoming is_a Group | [incoming] | incoming
-  when incoming is_a List && lanes.length() != 2 | error("expected two FIFO ingress lanes")
-  make_fifo_view(top, reset, lanes.map(members), members(outgoing), Bool, interface_prefixes(top))
+/* Keep group provenance; explicit descriptors may name only real scalar pins, not flattened aliases. */
+fun endpoint_members(top :: Module, endpoint :: ReadyValidEndpoint):
+  match endpoint
+  | Group(name, _): [name ++ ".valid", name ++ ".ready", name ++ ".bits"]
+  | ScalarPins(v, r, w):
+      def names = [v, r, w]
+      for (name in names):
+        def port = top.find_input(name) || top.find_output(name)
+        unless port && !hw.record_type(port.type) && !hw.vector_type(port.type)
+        | error("expected a physical scalar port: " ++ name)
+      names
 
 /* An ordinary function over lexical endpoints. Its result binds one checked sampler for both
    cycle events and passive replay; it neither chooses a winner nor supplies proof evidence. */
-fun ready_valid_events(reset :: SpecExpr, incoming :: Group || List.of(Group), outgoing :: Group):
+fun ready_valid_events(reset :: SpecExpr, incoming :: ReadyValidEndpoint || List.of(ReadyValidEndpoint),
+                       outgoing :: ReadyValidEndpoint):
   unless reset.op == "input" | error("expected a sampled reset input")
-  fun (top :: Module): grouped_view(top, reset.datum, incoming, outgoing)
+  def lanes = if incoming is_a List | incoming | [incoming]
+  when incoming is_a List && lanes.length() != 2 | error("expected two FIFO ingress lanes")
+  fun (top :: Module):
+    make_fifo_view(top, reset.datum, lanes.map(fun (lane): endpoint_members(top, lane)),
+                   endpoint_members(top, outgoing), Bool, interface_prefixes(top))
+
+/* An ordinary helper may close over a view. Do not let it substitute a different elaborated top. */
+fun bind_event_source(source :: Function.of_arity(1), top :: Module):
+  def view = source(top)
+  unless view.top === top | error("event view does not match the elaborated top")
+  view

@@ -30,8 +30,8 @@
    (hash "ingress.ready" (observation (! rst) ready) "egress.valid" (observation (! rst) valid)
          "egress.bits" (observation (&& (! rst) valid) head))
    (hash "reset" (observation rst #t)
-         "enqueue" (observation (&& (! rst) ready (hash-ref inputs "ingress.valid")) (hash-ref inputs "ingress.bits"))
-         "dequeue" (observation (&& (! rst) valid (hash-ref inputs "egress.ready")) head))))
+         "accepted" (observation (&& (! rst) ready (hash-ref inputs "ingress.valid")) (hash-ref inputs "ingress.bits"))
+         "retired" (observation (&& (! rst) valid (hash-ref inputs "egress.ready")) head))))
 
 ;; No ambient RTL invariant on reset. The inductive edge starts with independently
 ;; allocated RTL and abstract states, related only by length and the live payloads.
@@ -71,8 +71,8 @@
 
 (module+ test
   (require (only-in "shift-queue-binding.rhm" without_head_promise)
-           (only-in "../../../examples/formal/shift-queue-transactions.rspl" ShiftQueue))
-  (test-case "an uncared physical payload cannot certify a FIFO, even with a correct abstract dequeue event"
+           (only-in "../../../examples/formal/shift-queue.rspl" ShiftQueue))
+  (test-case "an uncared physical payload cannot certify a FIFO, even with a correct abstract retirement event"
     (define-values (leaf root model) (fifo_case 2))
     (define (observe ports inputs)
       (define-values (outputs events) (rtl-observations ports inputs))
@@ -82,7 +82,7 @@
                   #:relation (lambda (rtl s) (related 2 (string-append root ".occupied")
                                                        (string-append root ".payload") rtl (hash-ref s "q")))))
     (check-exn #rx"cycle-to-fifo-step/event-relation not proved"
-               (lambda () (derive-fifo-transactions weakened (ShiftQueue leaf) "q"))))
+               (lambda () (derive-fifo-transactions weakened (ShiftQueue leaf #:event_view #t) "q"))))
   (test-case "a symbolic payload defect yields a reachable mismatch, not just an induction witness"
     (define spec (symbolic-spec-edge fifo_snapshot))
     (define inputs (edge-inputs spec))

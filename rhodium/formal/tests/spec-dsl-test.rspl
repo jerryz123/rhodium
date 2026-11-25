@@ -13,7 +13,16 @@ import:
 
 // Check the actual pre-edge sampler independently of any particular RTL trace or queue state.
 def pair_top = elaborate(pairs.QueuePair(1)).top
-def pair_view = views.QueuePair(pair_top)
+def pair_view = views.QueuePair(pair_top, ~event_view: #true)
+check:
+  views.QueuePair(pair_top) ~throws "passive-only spec"
+  views.QueuePairSeries(pair_top, ~event_view: #true) ~throws "specialization of QueuePairSeries"
+check:
+  block:
+    spec for pairs.QueuePair:
+      events fun (top): pair_view
+    QueuePair(elaborate(pairs.QueuePair(2)).top, ~event_view: #true)
+  ~throws "event view does not match the elaborated top"
 def flags = [0, 1]
 for (rst in flags):
   for (offer in flags):
@@ -30,21 +39,28 @@ for (rst in flags):
 check:
   block:
     spec for pairs.QueuePair:
-      fifo_transactions(reset, ingress(ready, offer, data), egress(valid, consume, head))
-    QueuePair(pair_top)
+      events ready_valid_events(reset, rv_pins("ready", "offer", "data"), rv_pins("valid", "consume", "head"))
+    QueuePair(pair_top, ~event_view: #true)
   ~throws "wrong FIFO pin name or direction"
 check:
   block:
     spec for pairs.QueuePair:
-      fifo_transactions(reset, ingress(offer, ready, data), egress(valid, offer, head))
-    QueuePair(pair_top)
+      events ready_valid_events(reset, rv_pins("offer", "ready", "data"), rv_pins("valid", "offer", "head"))
+    QueuePair(pair_top, ~event_view: #true)
   ~throws "distinct scalar handshake pins"
 check:
   block:
     spec for pairs.QueuePair:
-      fifo_transactions(reset, ingress(data, ready, offer), egress(valid, consume, head))
-    QueuePair(pair_top)
+      events ready_valid_events(reset, rv_pins("data", "ready", "offer"), rv_pins("valid", "consume", "head"))
+    QueuePair(pair_top, ~event_view: #true)
   ~throws "equal-width FIFO payload pins"
+check:
+  block:
+    spec for pairs.QueuePair:
+      observe ready = offer
+      events ready_valid_events(reset, rv_pins("offer", "ready", "data"), rv_pins("valid", "consume", "head"))
+    QueuePair(pair_top, ~event_view: #true)
+  ~throws "undeclared or mistyped spec reference"
 
 // Exercise visibility from a consumer, not just lexical lookup inside the defining module.
 import "spec-exports-fixture.rspl" as api

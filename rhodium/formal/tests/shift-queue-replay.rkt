@@ -32,11 +32,11 @@
   (define ready (= 1 (port "ingress.ready")))
   (define valid (= 1 (port "egress.valid")))
   (define cycle (hash "ingress.ready" ready "egress.valid" valid))
-  (define en (if (and ready (hash-ref s "ingress.valid")) (hash "enqueue" (hash-ref s "ingress.bits")) (hash)))
+  (define en (if (and ready (hash-ref s "ingress.valid")) (hash "accepted" (hash-ref s "ingress.bits")) (hash)))
   (if (hash-ref s "reset")
       (values (hash) (hash "reset" #t))
       (values (if valid (hash-set cycle "egress.bits" (port "egress.bits")) cycle)
-              (if (and valid (hash-ref s "egress.ready")) (hash-set en "dequeue" (port "egress.bits")) en))))
+              (if (and valid (hash-ref s "egress.ready")) (hash-set en "retired" (port "egress.bits")) en))))
 
 ;; Zero-based edge index; retain the startup bits and entire input prefix for replay.
 (struct mismatch (start prefix edge field expected actual) #:transparent)

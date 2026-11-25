@@ -3,15 +3,18 @@
 
 import "shift-queue-fixture.rhdl" as rtl
 
+fun pair_events(reset):
+  ready_valid_events(reset, rv_pins("offer", "ready", "data"), rv_pins("valid", "consume", "head"))
+
 spec for rtl.QueuePair:
-  fifo_transactions(reset, ingress(offer, ready, data), egress(valid, consume, head))
+  events pair_events(reset)
 
 spec for rtl.QueuePairSeries:
-  fifo_transactions(reset, ingress(offer, ready, data), egress(valid, consume, head))
+  events pair_events(reset)
 
 // A well-typed but false claim: the environment's consume is not an ingress offer.
 fun crossed_pair(top):
   spec for rtl.QueuePair:
-    fifo_transactions(reset, ingress(consume, ready, data), egress(valid, offer, head))
-  QueuePair(top)
+    events ready_valid_events(reset, rv_pins("consume", "ready", "data"), rv_pins("valid", "offer", "head"))
+  QueuePair(top, ~event_view: #true)
 export crossed_pair

@@ -18,9 +18,7 @@ spec for rtl.ShiftQueue:
   observe ingress.ready = ready when !reset
   observe egress.valid = valid when !reset
   observe egress.bits = front(q) when !reset && valid
-  event reset = reset when reset
-  event enqueue = ingress.bits when !reset && push
-  event dequeue = front(q) when !reset && pop
+  events ready_valid_events(reset, ingress, egress)
 
   let rest = select(pop, tail(q), q)
   next q = select(reset, cleared, select(push, append(rest, ingress.bits), rest))

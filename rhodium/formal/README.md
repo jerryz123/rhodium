@@ -98,7 +98,7 @@ def fifo = ShiftQueue(elaborate(rtl.ShiftQueue(Bits(2), 2)).top)
 def edge = step_spec(fifo, {"q": [1]},
                      {"reset": #false, "ingress.valid": #true, "ingress.bits": 2, "egress.ready": #true})
 // edge.outputs["egress.bits"] == 1
-// edge.events == {"dequeue": 1, "enqueue": 2}
+// edge.events == {"retired": 1, "accepted": 2}
 // edge.next_state == {"q": [2]}
 ```
 
@@ -340,39 +340,38 @@ To obtain those batches from RTL pins, declare a passive view as the body of
 
 ```rhombus
 spec for rtl.QueuePair:
-  fifo_transactions(reset, ingress(offer, ready, data), egress(valid, consume, head))
+  events ready_valid_events(reset, rv_pins("offer", "ready", "data"), rv_pins("valid", "consume", "head"))
 ```
 
-Each triple is **(valid, ready, payload)**, with directions checked against
-the elaborated circuit. This form covers one scalar ingress, one
-scalar egress, and the standard sampled clock/reset. Bind it with
-`QueuePair(top)`. Then [`sample_fifo_events(view, pins)`](fifo-view.rhm) takes
+Each `rv_pins(valid, ready, payload)` descriptor names three physical scalar
+ports. Their directions and types are checked against the elaborated circuit.
+Bind the sampler with `QueuePair(top, ~event_view: #true)`. Without that
+keyword the request is for a cycle model, which this declaration does not
+provide. [`sample_fifo_events(view, pins)`](fifo-view.rhm) takes
 one map containing all pre-edge input and output samples except the clock
 and returns the batch for `step_fifo_monitor`. An asserted reset suppresses
 both transfers; otherwise both can appear in the same batch, even with a
 zero payload. The view reads the actual ready and valid pins. It does not
 drive them, certify the FIFO, or replace a cycle model.
 
-For grouped ready/valid endpoints, the [ShiftQueue transaction view](../../examples/formal/shift-queue-transactions.rspl)
-uses `fifo_transactions(reset, ingress, egress)`. The sampler takes the logical
-`valid`, `ready`, and `bits` members of those groups and reset. It does not take
-`count` or `mask`. For two-bit ShiftQueues at depths 1, 2, and 3 (no pipe, flow,
-or flush), this view is proved from the existing cycle contract: the kth word
-retired must be the kth word accepted since reset, and occupancy is bounded by
-depth. A client of the transaction result alone cannot infer readiness or
-read the physical occupancy mask.
-
-The [ArbiterQueue spec](../../examples/formal/arbiter-queue.rspl) defines its
-cycle behavior and includes its transaction events in the same body:
+The [ShiftQueue spec](../../examples/formal/shift-queue.rspl) and the
+[ArbiterQueue spec](../../examples/formal/arbiter-queue.rspl) each define
+their cycle behavior and transaction events in the same body:
 
 ```rhombus
   events ready_valid_events(reset, ingress, egress)
 ```
 
 `ready_valid_events` is an ordinary function of the lexical reset and endpoints.
-`ArbiterQueue(top)` executes its events against the cycle model's observations;
-`ArbiterQueue(top, ~event_view: #true)` gives the same sampler for independent
-pin replay and transaction proofs. Each lane fires on
+`ShiftQueue(top)` runs the cycle model; `ShiftQueue(top, ~event_view: #true)`
+returns its passive sampler for pin replay and transaction proofs. It samples
+reset and each endpoint's `valid`, `ready`, and `bits`, not `count` or `mask`.
+For two-bit ShiftQueues at depths 1–3 with pipe, flow, and flush disabled,
+retirements preserve acceptance order since reset and occupancy is bounded
+by depth. The transaction result does not promise readiness whenever space remains.
+
+`ArbiterQueue(top, ~event_view: #true)` works the same way with two ingress
+lanes. Each lane fires on
 its own `valid && ready`. Two requests are fine; **two transfers on a
 non-reset edge are not**. Concrete sampling rejects such a sample, and
 certification must prove it impossible. The accepted word comes from the
