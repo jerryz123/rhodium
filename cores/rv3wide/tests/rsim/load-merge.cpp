@@ -410,9 +410,63 @@ static void wide_indexed(bool store,bool ordered,unsigned eew) {
   CHECK(store ? grant==0 : grant==destinations.size() && stalls==5);
 }
 
+// Check the read pipeline at the production DLEN, including a denied lookahead,
+// two promised ingress slots, and immutable data after the source claim drops.
+static void store_ingress(bool stalled) {
+  constexpr unsigned rows = 6, first_row = 16, base = 0x60000;
+  launch_0_in={}; launch_1_in={}; prepare_in={}; memory_in={}; read_result_in={};
+  store_reads_in={}; index_chain_in={}; chain_in={};
+  auto& d=launch_1_in.pbits.pdescriptor;
+  d.pcontrol.pstore=1; d.pinstruction=8u<<7; d.pscalar=0x4000;
+  d.pstate.pvtype=2; d.pstate.pvstart=2; d.pstate.pvl=rows*bytes-1; // e8,m4
+  window_pages[0]=window_pages[1]=base>>12;
+  launch_1_in.pbits.powner=2; prepare_in.pbits=launch_1_in.pbits;
+  launch_1_in.pvalid=prepare_in.pvalid=1; eval(); CHECK(prepare_out.pready && launch_1_out.pready);
+  tick_model(); launch_1_in.pvalid=prepare_in.pvalid=0;
+
+  unsigned reads=0, captures=0, sent=0, acks=0, done=0;
+  bool returning=false;
+  for(unsigned t=0;t<100 && !done;++t) {
+    read_in.pready=!stalled || t!=5;
+    store_reads_in.polder_uwrites=stalled && t<5 ? 1ull<<(first_row+1) : 0;
+    read_result_in.pvalid=returning;
+    auto* src=reinterpret_cast<unsigned char*>(&read_result_in.pbits);
+    for(unsigned b=0;b<bytes;++b) src[b]=returning ? byte_at(base+captures*bytes+b) : 0xdd;
+    memory_in.prequest.pready=!stalled || t>=16;
+    memory_in.presponse.pvalid=acks<sent && (!stalled || t>=24);
+    eval();
+    CHECK(store_reads_out.punread_uvs3 == (((1ull<<rows)-(1ull<<captures))<<first_row));
+    const bool grant=read_out.pvalid && read_in.pready;
+    if(!stalled && t<rows) CHECK(grant);
+    if(stalled && t==1) CHECK(!read_out.pvalid); // row 1 still belongs to an older writer
+    if(stalled && t==5) CHECK(read_out.pvalid && !grant);
+    if(stalled && t>=8 && t<16) CHECK(reads==2 && captures==2 && !read_out.pvalid);
+    if(grant) { CHECK(reads<rows && read_out.pbits==first_row+reads); ++reads; }
+    if(returning) ++captures;
+    if(memory_out.prequest.pvalid) {
+      const auto& req=memory_out.prequest.pbits;
+      const unsigned address=base+sent*bytes;
+      unsigned mask=(1u<<bytes)-1;
+      if(!sent) mask &= ~3u;
+      if(sent+1==rows) mask >>= 1;
+      CHECK(sent<rows && req.pstore && req.paddress==address && req.pbyte_umask==mask);
+      for(unsigned b=0;b<bytes;++b) if(mask & (1u<<b))
+        CHECK(reinterpret_cast<const unsigned char*>(&req.pdata)[b]==byte_at(address+b));
+      sent+=memory_in.prequest.pready;
+    }
+    CHECK(reads-sent<=2);
+    acks+=memory_in.presponse.pvalid && memory_out.presponse.pready;
+    if(finished_out.pvalid) { CHECK(acks==rows && finished_out.pbits==2); ++done; }
+    tick_model(); returning=grant;
+  }
+  CHECK(done && reads==rows && captures==rows && sent==rows);
+}
+
 int main() {
   return run_test([] {
     reset=1; tick_model(); reset=0;
+    store_ingress(false);
+    store_ingress(true);
     exercise(bytes-5,1,2,2,8,false,UINT64_MAX,true); // checked e32 lane 1, physically disjoint pages
     for(bool store:{false,true}) for(bool ordered:{false,true}) for(bool hole:{false,true}) indexed_bytes(store,ordered,hole);
     for(unsigned e=1;e<=(bytes==8 ? 2u : 3u);++e)

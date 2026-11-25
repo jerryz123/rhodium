@@ -138,7 +138,16 @@ sync_circuit VectorVLSU(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~t
   store_merger.eew <== eews[StorePath]
   store_merger.elementwise <== kinds[StorePath] =/= MemoryIssueKind.Contiguous
   store_merger.displacement <== store_displacement
-  admitted_rows(store_data, StorePath) |> store_merger.source
+  /* The two ingress slots hold captured VS3 data even before address launch.
+     A returning read already owns one slot. Only promise its successor space
+     if the FIFO is empty or the merger removes its head on this edge. */
+  inst store_buffer(Queue(OwnedRow(PreparedRow(vlen), Owner), 2))
+  store_data |> store_buffer.ingress
+  admitted_rows(store_buffer.egress, StorePath) |> store_merger.source
+  output store_room_after_capture: Bool
+  store_room_after_capture <== !store_buffer.count.any() ||| store_buffer.egress.fire()
+  output store_data_pending: Bool
+  store_data_pending <== store_buffer.egress.valid
   // A younger load waiting on WAR may pin its credit through VRF grant.
   // Leave one credit for the older store to drain its buffered VS3 rows.
   def reserve_for_store = older_store & sequencing[StorePath] & (load_credits >= MemoryCreditCount(MemoryRowCredits - 1))

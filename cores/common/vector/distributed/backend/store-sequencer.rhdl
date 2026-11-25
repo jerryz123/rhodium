@@ -1,5 +1,5 @@
 #lang rhodium
-/* Owns unread store operands and buffers captured rows independently of cache issue. */
+/* Sequences store operands and hands captured rows to reserved VLSU ingress slots. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -15,8 +15,7 @@ import:
   "../mem/segment.rhdl" open
   "memory-row.rhdl".VectorMemoryRowSequencer
 
-/* Reserve FIFO space before each synchronous read. Release VSSeq on the last capture,
-   not when the VLSU accepts its last row or receives its acknowledgement. */
+/* Release VSSeq on the last operand capture into the VLSU, independently of cache issue and acknowledgement. */
 sync_circuit VectorStoreSequencer(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~trace_isa: trace_isa :: maybe(String) = #false):
   def dlen = vector_dlen(vlen)
   def Owner = Bits(index_width(slots))
@@ -24,6 +23,7 @@ sync_circuit VectorStoreSequencer(xlen :: XLen, vlen :: VectorLength, slots :: P
   interface prepare(Decoupled(MemoryIssue(xlen, vlen, slots)), ~role: consumer)
   def Row = OwnedRow(PreparedRow(vlen), Owner)
   interface rows(Decoupled(Row), ~role: producer)
+  input room_after_capture: Bool
   interface store_reads(VectorStoreReadChain(Owner), ~role: engine)
   interface read(Decoupled(RowAddress), ~role: producer)
   interface read_result(Valid(Bits(dlen)), ~role: consumer)
@@ -33,7 +33,6 @@ sync_circuit VectorStoreSequencer(xlen :: XLen, vlen :: VectorLength, slots :: P
   def singleton = resolved_issue(prepare.bits.kind)
   input scatter_owner: Owner
   output busy: Bool
-  inst buffered(Queue(Row, 2))
   inst capture(VectorMemoryRowSequencer(xlen, vlen, ~store: #true))
   reg capturing(~init: Bool(#false))
   reg capture_owner(Owner)
@@ -60,7 +59,8 @@ sync_circuit VectorStoreSequencer(xlen :: XLen, vlen :: VectorLength, slots :: P
   store_reads.unread_v0 <== mux(capturing, unread_v0, PredicateSet(0))
   capture.older_writes <== store_reads.older_writes
   capture.singleton <== singleton
-  capture.capacity <== buffered.ingress.ready
+  capture.capacity <== rows.ready
+  capture.room_after_capture <== room_after_capture
   def prepared = capture.prepared |> trace_event("vector/store.sequence", ~stalls: #true, ~fields: row):
     pc: trace_instructions[capture_owner].pc
     instruction(~format: "riscv", ~isa: trace_isa || (if xlen == XLen.X32 | "rv32imafdcv" | "rv64imafdcv"), ~pc: "pc"): trace_instructions[capture_owner].instruction
@@ -72,7 +72,7 @@ sync_circuit VectorStoreSequencer(xlen :: XLen, vlen :: VectorLength, slots :: P
   (prepared |> map_flow(r => OwnedRow(PreparedRow(vlen), Owner)):
      owner: capture_owner
      payload: r
-  ) |> buffered.ingress
+  ) |> rows
   segments.install.valid <== prepare.fire()
   segments.install.bits <== prepare.bits.command
   segments.consumed <== capture.captured
@@ -101,7 +101,6 @@ sync_circuit VectorStoreSequencer(xlen :: XLen, vlen :: VectorLength, slots :: P
   when fill: row_data <== read_result.bits
   when (!scatter_live ||| missed ||| fill): resident <== scatter_live & fill
   capture.mask <=> mask
-  buffered.egress |> rows
   busy <== capturing
 
 export VectorStoreSequencer

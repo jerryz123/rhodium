@@ -35,7 +35,7 @@ sync_circuit VectorMemoryRowSequencer(xlen :: XLen, vlen :: VectorLength, ~store
   def offset_bits = index_width(vlen + 1)
   interface launch(Valid(MemoryCommand(xlen, vlen)), ~role: consumer)
   input older_writes: RowSet
-  input(capacity, singleton): Bool
+  input(capacity, room_after_capture, singleton): Bool
   output captured: Bool
   output captured_field: Bits(3)
   output read_done: RowSet
@@ -75,8 +75,13 @@ sync_circuit VectorMemoryRowSequencer(xlen :: XLen, vlen :: VectorLength, ~store
   def visit = capacity & (phase === RowPhase.ReadSource)
   def skip_field = visit & !field_live
   def visited = read_result.valid ||| skip_field
-  read.valid <== visit & field_live & !busy[physical]
-  read.bits <== physical
+  /* The cursor still names the returning row. For a plain store, offer the
+     following VS3 row on this edge without releasing its claim. If denied,
+     the cursor advances normally and retries that read in ReadSource. */
+  def overlap = store & !masked & !layout.nf.any() & !last & (phase === RowPhase.CaptureSource) & read_result.valid & room_after_capture
+  def read_address = mux(overlap, row + RowAddress(1), physical)
+  read.valid <== (overlap ||| (visit & field_live)) & !busy[read_address]
+  read.bits <== read_address
   // VLSeq offers registered masks only. The live v0/VS3 bypass is exclusively
   // a store capture path; do not couple a load's L1D valid to the VRF arbiter.
   def skip_store = if store_path | sample & !predicate.any() | Bool(#false)
@@ -130,7 +135,7 @@ sync_circuit VectorMemoryRowSequencer(xlen :: XLen, vlen :: VectorLength, ~store
     last_row_offset <== end[lane_bits..offset_bits]
   elsewhen (prepared.fire()):
     ordinal <== Bits(3)(0)
-    phase <== mux(last, RowPhase.Idle, first_phase(masked, store))
+    phase <== mux(last, RowPhase.Idle, mux(overlap & read.fire(), RowPhase.CaptureSource, first_phase(masked, store)))
     head <== !Bits(row_bytes)(0)
     row <== row + RowAddress(1)
     offset <== next_offset

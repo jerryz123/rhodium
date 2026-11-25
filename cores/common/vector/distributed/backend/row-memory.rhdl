@@ -69,6 +69,7 @@ sync_circuit VectorRowEngine(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
   for (i in MemoryPaths): launch[i] |> vlsu.start[i]
   loads.rows |> vlsu.masks
   stores.rows |> vlsu.store_data
+  stores.room_after_capture <== vlsu.store_room_after_capture
   def isa = trace_isa || (if xlen == XLen.X32 | "rv32imafdcv" | "rv64imafdcv")
   loads.return_setup |> vlsu.load_setup
   vlsu.load_result |> loads.result
@@ -91,7 +92,7 @@ sync_circuit VectorRowEngine(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
   loads.mask <=> mask[LoadPath]
   stores.mask <=> mask[StorePath]
   unavailable <== vec([vlsu.resident[LoadPath] ||| loads.busy, vlsu.resident[StorePath] ||| stores.busy])
-  busy <== unavailable.as_bits().any() ||| stores.rows.valid
+  busy <== unavailable.as_bits().any() ||| vlsu.store_data_pending
   outstanding_store.valid <== vlsu.resident[LoadPath] ^ vlsu.resident[StorePath]
   outstanding_store.bits <== vlsu.resident[StorePath]
   vlsu.issued |> issued

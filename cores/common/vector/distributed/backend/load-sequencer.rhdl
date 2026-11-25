@@ -73,6 +73,7 @@ sync_circuit VectorLoadSequencer(xlen :: XLen, vlen :: VectorLength, slots :: Po
   operands.older_writes <== chain.older_writes
   operands.singleton <== singleton
   operands.capacity <== Bool(#true)
+  operands.room_after_capture <== Bool(#false)
   operands.read.ready <== Bool(#false)
   operands.read_result.valid <== Bool(#false)
   operands.read_result.bits <== dont_care(Bits(dlen))
