@@ -144,7 +144,7 @@ sync_circuit SuperscalarCosimObserver(profile :: SuperscalarPipelineConfig, tap_
 
   /* Supplies configured queue depth and physical provenance to the shared vector observer. */
   fun capture_vector():
-    def vector_taps = cosim_vector(xlen, profile.vector_length, profile.vector_completion_slots, profile.vector_dispatch_depth, tap_types, taps, instance_id, active)
+    def vector_taps = cosim_vector(xlen, profile.vector_length, profile.vector_completion_slots, profile.vector_instruction_owners, profile.vector_dispatch_depth, tap_types, taps, instance_id, active)
     /* Widen exactly typed shared-vector taps for the physical provenance adapter. */
     fun vector_lane_value(name :: String) :~ Bits(64):
       def value :: Hardware.of(tap_types[name]) = vector_taps[name]

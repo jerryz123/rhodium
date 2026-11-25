@@ -20,6 +20,10 @@ GPR writes use `../register-write.rhdl`. They are independent of register-file
 port counts and scalar scheduling.
 
 Keep instruction IDs, completion slots, and the sequencer cursor distinct.
+Size macro state and owner-age comparisons by instruction-owner depth, but
+size response tags, service queues, and slot reclamation by completion depth.
+The `vector-four-owners-eight-tags` fixture fills both rings independently and
+returns load tags in reverse order across owner wraparound.
 Return routing uses retained slot ownership, never the live descriptor. A retry
 restores the unauthorized checkpoint without deleting accepted memory ownership.
 Both modes restart numbering from the rejected beat's feedback. The sequencer

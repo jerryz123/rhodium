@@ -71,11 +71,11 @@ Store-hit bookkeeping has its own callback beside the data-completion callback;
 both may occur in one sample. Preserve their distinct tags and reconstruct the
 store from its retained request, never from an unrelated returned load payload.
 
-The passive cycle capture carries descriptor dispatch depth separately from
-execution-slot capacity. RV2Wide supplies its configured depth; RV5Stage supplies
-its fixed two-entry depth. Both remain stable within a reset epoch. The native
-pending-identity FIFO checks that depth, allowing simultaneous admission/dispatch
-without conflating queued descriptors with already-dispatched execution owners.
+The passive cycle capture reports three capacities: pending descriptors, live
+instruction owners, and tagged beats. Each must remain stable within a reset
+epoch. Size the pending FIFO, owner table, and memory/service tag tables from
+their respective capacities. RV5Stage supplies a two-entry dispatch depth
+and its configured owner and tag depths; superscalar profiles configure all three.
 
 `SailChecker::check` captures reference pre-state, prepares environmental inputs,
 steps Sail, then compares control flow, traps, registers, reported FP flag effects,

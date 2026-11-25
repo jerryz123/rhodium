@@ -27,6 +27,12 @@ outputs. [RV5Stage's adapter](../../rv5stage/vector.rhdl) and
 [the superscalar adapter](../../superscalar/vector.rhdl) connect this service to their
 respective scalar WB and LSU boundaries through `VectorBackend`.
 
+`~instruction_owners` bounds the number of live vector instructions;
+`~vector_completion_slots` bounds outstanding tagged beats. Both depths are
+powers of two. The defaults are four instruction owners and eight completion
+slots: one load can still use all eight tags. RV5Stage and superscalar profiles
+expose the owner depth as `~vector_instruction_owners`.
+
 [`backend.rhdl`](backend.rhdl) composes `VectorAdmission` with `VectorExecution`
 for WB-admitted descriptors. It exposes memory issue, decision, completion,
 store acknowledgement, and precise-outcome streams, with caller-typed fault

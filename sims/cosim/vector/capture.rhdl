@@ -30,7 +30,7 @@ dpi_import procedure rhodium_vector_fp(
 
 /* Captures queue geometry and cycle signals for native settled-cycle interpretation. */
 dpi_import procedure rhodium_vector_cycle(
-  instance: Bits(64), xlen: Bits(64), vlen: Bits(64), slots: Bits(64), dispatch_depth: Bits(64), pipeline_valid: Bits(64), pipeline_address: Bits(64),
+  instance: Bits(64), xlen: Bits(64), vlen: Bits(64), slots: Bits(64), owners: Bits(64), dispatch_depth: Bits(64), pipeline_valid: Bits(64), pipeline_address: Bits(64),
   split: Bits(64), has_fragments: Bits(64), replay: Bits(64)
 )
 
@@ -81,7 +81,7 @@ dpi_import procedure rhodium_vector_scalar_write(instance: Bits(64), owner: Bits
 
 /* Samples real pre-edge events and the configured dispatch depth without state or feedback.
    The native hart adapter resolves callback order before the generic collector publishes. */
-fun cosim_vector(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, dispatch_depth :: PosInt, types :: Map, mmu :: Map, instance :: Bits(64), active :: Bool):
+fun cosim_vector(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, owners :: Pow2Int, dispatch_depth :: PosInt, types :: Map, mmu :: Map, instance :: Bits(64), active :: Bool):
   def taps = for Map (name in types.keys(#true).filter(~keep: fun (name): name.starts_with("vector_"))):
     values(name, observer_input(name, types[name]))
 
@@ -117,7 +117,7 @@ fun cosim_vector(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, dispatch_
   def pipeline_valid :: Bool = if types.has_key("mmu_pipeline_valid") | mmu["mmu_pipeline_valid"] | Bool(#false)
   def pipeline_address = if types.has_key("mmu_pipeline_address") | mmu["mmu_pipeline_address"] | Bits(xlen.width)(0)
   rhodium_vector_cycle.call(
-    instance, Bits(64)(xlen.width), Bits(64)(vlen), Bits(64)(slots), Bits(64)(dispatch_depth), pipeline_valid.as_bits().zext(64),
+    instance, Bits(64)(xlen.width), Bits(64)(vlen), Bits(64)(slots), Bits(64)(owners), Bits(64)(dispatch_depth), pipeline_valid.as_bits().zext(64),
     capture_lane(pipeline_address), lane("vector_memory_split"), Bits(64)(if types.has_key("mmu_fragment_completed") || types.has_key("mmu_fragment_response") | 1 | 0),
     lane("vector_backend_execution_replay"), ~enable: active
   )

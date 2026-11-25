@@ -5,6 +5,7 @@
 import:
   "../common/profile.rhm" open
   "../common/vector/profile.rhm".check_vector_profile
+  "../common/vector/profile.rhm".DefaultVectorInstructionOwners
   "../common/csr/config.rhm".RiscvCsrConfig
   "../common/fp/profile.rhm".check_fp_profile
   "../common/cache/config.rhm" open
@@ -138,7 +139,8 @@ class RV5StageConfig(xlen :: XLen,
                      vector :: VectorProfile,
                      vector_extensions :: List.of(VectorExtension),
                      vector_length :: VectorLength,
-                     vector_completion_slots :: Pow2Int):
+                     vector_completion_slots :: Pow2Int,
+                     vector_instruction_owners :: Pow2Int):
   implements StableCircuitParam
 
   /* Rejects unsupported translation, privilege, FP, and vector combinations before elaboration. */
@@ -151,7 +153,8 @@ class RV5StageConfig(xlen :: XLen,
                ~vector: vector :: VectorProfile = DefaultVectorProfile,
                ~vector_extensions: vector_extensions :: List.of(VectorExtension) = DefaultVectorExtensions,
                ~vector_length: vector_length :: VectorLength = 128,
-               ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8):
+               ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8,
+               ~vector_instruction_owners: vector_instruction_owners :: Pow2Int = DefaultVectorInstructionOwners):
     check_fp_profile(
       xlen,
       extensions.floating_point,
@@ -182,13 +185,13 @@ class RV5StageConfig(xlen :: XLen,
     when vector_profile_enabled(vector) && vector_length < 2 * xlen.width
     | error(~who: #'RV5StageConfig, "the integrated vector pipeline requires at least two XLEN-wide rows per register")
 
-    super(xlen, extensions, mmu_mode, cache_geometry, data_cache_service_queue_depth, multiplier, vector, vector_extensions, vector_length, vector_completion_slots)
+    super(xlen, extensions, mmu_mode, cache_geometry, data_cache_service_queue_depth, multiplier, vector, vector_extensions, vector_length, vector_completion_slots, vector_instruction_owners)
 
   /* Reapplies configuration checks after a specialization parameter changes. */
   reconstructor (xlen, extensions, mmu_mode, cache_geometry,
                  data_cache_service_queue_depth, multiplier, vector,
                  vector_extensions, vector_length,
-                 vector_completion_slots):
+                 vector_completion_slots, vector_instruction_owners):
     RV5StageConfig(
       ~xlen: xlen,
       ~extensions: extensions,
@@ -199,7 +202,8 @@ class RV5StageConfig(xlen :: XLen,
       ~vector: vector,
       ~vector_extensions: vector_extensions,
       ~vector_length: vector_length,
-      ~vector_completion_slots: vector_completion_slots
+      ~vector_completion_slots: vector_completion_slots,
+      ~vector_instruction_owners: vector_instruction_owners
     )
 
   /* Derives ISA names and MISA bits from the same choices used to build hardware. */

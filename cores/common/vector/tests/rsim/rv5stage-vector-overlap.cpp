@@ -105,8 +105,11 @@ void tick() {
     if (retired)
       retired_count++;
     if (phase == 1 && issued) {
-      if (phase1_issue_count != 0)
-        CHECK(cycle == phase1_last_issue + 1);
+      if (phase1_issue_count != 0) {
+        // Four owners fill one cycle before the oldest can be reused.
+        const bool refill_gap = owner_capacity == 4 && phase1_issue_count % 4 == 0;
+        CHECK(cycle == phase1_last_issue + 1 + refill_gap);
+      }
       phase1_last_issue = cycle;
       phase1_issue_count++;
     }
@@ -423,7 +426,7 @@ void stimulus() {
       tick();
     while (!launch_seen);
     request_valid = 0;
-    // Continue beyond the owner-ring depth to check zero-dead-time handoff.
+    // Continue beyond the owner-ring depth to check admission across wrap.
     for (int destination = 10; destination < 24; destination++)
       // v17 reuses v9's instruction owner; v18 must not see its old destination claim.
       launch(add_insn_source(destination, destination == 18 ? 9 : 2),

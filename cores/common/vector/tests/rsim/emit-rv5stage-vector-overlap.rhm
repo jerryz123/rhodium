@@ -9,6 +9,7 @@ import:
 
 def rv32 = elaborate(VectorOverlap(XLen.X32))
 def rv64 = elaborate(VectorOverlap(XLen.X64))
+def eight_owners = elaborate(VectorOverlap(XLen.X64, ~instruction_owners: 8))
 def slots32 = elaborate(VectorCompletionUnit(XLen.X32, 128, 2))
 def slots64 = elaborate(VectorCompletionUnit(XLen.X64, 128, 2))
-export rv32 rv64 slots32 slots64
+export rv32 rv64 eight_owners slots32 slots64

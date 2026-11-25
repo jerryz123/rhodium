@@ -174,7 +174,8 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     if vector_enabled
     | SuperscalarVectorPipeline(
         xlen, profile.vector_length,
-        ~vector_completion_slots: vector_slots, ~dispatch_depth: profile.vector_dispatch_depth,
+        ~vector_completion_slots: vector_slots, ~instruction_owners: profile.vector_instruction_owners,
+        ~dispatch_depth: profile.vector_dispatch_depth,
         ~fixed_fp: #true, ~fp_timing: fp_timing
       )
     | SuperscalarVectorDisabled(xlen, ~vector_completion_slots: vector_slots)

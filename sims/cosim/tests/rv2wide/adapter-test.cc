@@ -45,15 +45,15 @@ void vector_owners(unsigned seed) {
   constexpr Word instruction = 0x02000457; // vadd.vv v8,v0,v0
   for (Word cycle=0;cycle<4;++cycle) {
     Sample s;
-    std::vector<std::function<void()>> calls = {[]{ rhodium_vector_cycle(0,32,64,2,2,0,0,0,1,0); }};
+    std::vector<std::function<void()>> calls = {[]{ rhodium_vector_cycle(0,32,64,2,4,2,0,0,0,1,0); }};
     if (cycle==0) {
       auto& lane=s.retire(0,0x8000); lane.vector=1; lane.encoding=instruction;
       s.retire(1,0x8004,1,7);
       calls.push_back([]{ rhodium_vector_admission(0); });
     }
-    if (cycle==1) calls.push_back([]{ rhodium_vector_dispatch(0,0,0,0,instruction,0); });
-    if (cycle==2) calls.push_back([]{ rhodium_vector_write(0,16,15,0x44332211,1,0,0,0,0,0); });
-    if (cycle==3) calls.push_back([]{ rhodium_vector_drain(0,0); });
+    if (cycle==1) calls.push_back([]{ rhodium_vector_dispatch(0,3,0,0,instruction,0); });
+    if (cycle==2) calls.push_back([]{ rhodium_vector_write(0,16,15,0x44332211,1,0,0,3,0,0); });
+    if (cycle==3) calls.push_back([]{ rhodium_vector_drain(0,3); });
     auto emitted=sample(c,binding,cycle,s,random,std::move(calls));
     if (cycle<3) require(emitted.empty());
     records.insert(records.end(),emitted.begin(),emitted.end());
@@ -71,7 +71,7 @@ void vector_admission_depth(unsigned seed, Word depth, unsigned xlen) {
   Word cycle=0;
   auto frame=[&](bool admit, bool dispatch, bool drain, Word order) {
     Sample s;
-    std::vector<std::function<void()>> calls = {[=]{ rhodium_vector_cycle(0,xlen,2*xlen,8,depth,0,0,0,0,0); }};
+    std::vector<std::function<void()>> calls = {[=]{ rhodium_vector_cycle(0,xlen,2*xlen,8,4,depth,0,0,0,0,0); }};
     if (admit) {
       auto& lane=s.retire(0,0x8000+4*order); lane.vector=1; lane.encoding=instruction;
       calls.push_back([]{ rhodium_vector_admission(0); });
@@ -110,7 +110,7 @@ void reject_bad_vector_depth(Word depth, bool changed, bool overflow) {
       if (overflow) {
         auto& lane=s.retire(0,0x8000+4*cycle); lane.vector=1; lane.encoding=0x02000457;
       }
-      std::vector<std::function<void()>> calls = {[=]{ rhodium_vector_cycle(0,32,64,8,depth+(changed?cycle:0),0,0,0,0,0); }};
+      std::vector<std::function<void()>> calls = {[=]{ rhodium_vector_cycle(0,32,64,8,4,depth+(changed?cycle:0),0,0,0,0,0); }};
       if (overflow) calls.push_back([]{ rhodium_vector_admission(0); });
       sample(c,binding,cycle,s,random,std::move(calls));
     }
@@ -147,7 +147,7 @@ void vector_fault(unsigned seed) {
   constexpr Word instruction=(1U<<25)|(6<<15)|(8<<7)|7; // vle8.v v8,(x6)
   for (Word cycle=0;cycle<5;++cycle) {
     Sample s;
-    std::vector<std::function<void()>> calls = {[]{ rhodium_vector_cycle(0,32,64,2,2,0,0,0,1,0); }};
+    std::vector<std::function<void()>> calls = {[]{ rhodium_vector_cycle(0,32,64,2,4,2,0,0,0,1,0); }};
     if (cycle==0) {
       auto& lane=s.lanes[0]; lane.split=1; lane.vector=1; lane.encoding=instruction; lane.pc=0x8000;
       calls.push_back([]{ rhodium_vector_admission(0); });

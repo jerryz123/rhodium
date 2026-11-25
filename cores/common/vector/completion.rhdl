@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "profile.rhm".DefaultVectorInstructionOwners
   lib("cores/common/fp/profile.rhm").fp_transport_profile
   lib("cores/common/integer-execution.rhdl") open
   lib("cores/common/register-write.rhdl") open
@@ -63,13 +64,13 @@ sync_circuit VectorCompletionWords(xlen :: XLen, slots :: Pow2Int):
    port.
    Persistent slots retain routing and destination metadata, not completed result data;
    actual writes may finish out of order while metadata is reclaimed in allocation order. */
-sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_completion_slots :: Pow2Int, ~fixed_multiply: fixed_multiply :: Boolean = #false):
+sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_completion_slots :: Pow2Int, ~instruction_owners: owners :: Pow2Int = DefaultVectorInstructionOwners, ~fixed_multiply: fixed_multiply :: Boolean = #false):
   def tag_width = index_width(vector_completion_slots)
-  def InstructionId = Bits(tag_width)
+  def InstructionId = Bits(index_width(owners))
   def SlotId = Bits(tag_width)
-  def Result = VectorOwnedResult(xlen, vlen, vector_completion_slots)
+  def Result = VectorOwnedResult(xlen, vlen, vector_completion_slots, owners)
   def fp_profile = fp_transport_profile(xlen)
-  interface reserve(Valid(VectorSlotAllocation(vector_completion_slots)), ~role: consumer)
+  interface reserve(Valid(VectorSlotAllocation(owners)), ~role: consumer)
   interface compute_maturity(Valid(Result), ~role: consumer)
   interface memory_attempt(Valid(Result), ~role: consumer)
   interface decision(Valid(VectorCommit(xlen, vector_completion_slots)), ~role: consumer)
@@ -86,13 +87,13 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
   interface multiply_result(Irrevocable(IntegerExecutionResult(Bits(xlen.width * 2), VectorMultiplyTag(vector_completion_slots))), ~role: consumer)
   interface simd_result(Valid(IntegerExecutionResult(SimdMultiplyResult(xlen.width), SlotId)), ~role: consumer)
   interface divide_result(Irrevocable(IntegerExecutionResult(DividerResponse(xlen.width), VectorDivideTag(vector_completion_slots))), ~role: consumer)
-  interface drained(Valid(VectorDrained(xlen, vlen, vector_completion_slots)), ~role: producer)
+  interface drained(Valid(VectorDrained(xlen, vlen, owners)), ~role: producer)
   interface write(Valid(VectorRegisterWrite(xlen, vlen)), ~role: producer)
   interface fp_update(Valid(Bits(5)), ~role: producer)
   interface saturate(Pulse(), ~role: producer)
   interface scalar_result(Valid(RegisterFileWrite(xlen)), ~role: producer)
   interface floating_result(Valid(FloatingPointRegisterWrite(fp_profile)), ~role: producer)
-  output state: Vec(vector_completion_slots, VectorSlotState(xlen, vlen, vector_completion_slots))
+  output state: Vec(vector_completion_slots, VectorSlotState(xlen, vlen, owners))
   output(allocate_slot, accept_slot, drain_slot): SlotId
 
 
@@ -401,7 +402,7 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
   /* Completion observation and read-only slot state */
 
   drained.valid <== finished.valid
-  drained.bits <== VectorDrained(xlen, vlen, vector_completion_slots):
+  drained.bits <== VectorDrained(xlen, vlen, owners):
     beat: finished.bits.beat
     owner: finished.bits.owner
     data: finished.bits.data
@@ -410,7 +411,7 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
   drain_slot <== drain_cursor
   accept_slot <== accept_cursor
   state <== vec(for List (s in 0..vector_completion_slots):
-                 VectorSlotState(xlen, vlen, vector_completion_slots):
+                 VectorSlotState(xlen, vlen, owners):
                    allocated: allocated[s]
                    accepted: authorized_slots[s]
                    packed: entry_packed[s]

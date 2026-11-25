@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "profile.rhm".DefaultVectorInstructionOwners
   lib("cores/common/vector/service.rhdl").VectorExecutionService
   lib("cores/common/vector/admission.rhdl") open
   lib("cores/common/mmu/vector.rhdl") open
@@ -21,6 +22,7 @@ import:
    owns fixed lookup timing, translation faults, split transactions, and physical memory drain. */
 sync_circuit VectorBackend(xlen :: XLen, vlen :: VectorLength, Fault :: DataType,
                            ~vector_completion_slots: slots :: Pow2Int = 8,
+                           ~instruction_owners: owners :: Pow2Int = DefaultVectorInstructionOwners,
                            ~dispatch_depth: dispatch_depth :: PosInt = 2,
                            ~pipe: pipe :: Boolean,
                            ~trace_isa: trace_isa :: maybe(String) = #false,
@@ -46,7 +48,7 @@ sync_circuit VectorBackend(xlen :: XLen, vlen :: VectorLength, Fault :: DataType
   output store: Bool
   output pointer_masking: PointerMaskControl()
 
-  inst execution(VectorExecution(xlen, vlen, Bits(xlen.width), ~vector_completion_slots: slots, ~trace_isa: trace_isa, ~multiply_latency: multiply_latency, ~packed_multiply: packed_multiply, ~fixed_fp: fixed_fp, ~fp_timing: fp_timing))
+  inst execution(VectorExecution(xlen, vlen, Bits(xlen.width), ~vector_completion_slots: slots, ~instruction_owners: owners, ~trace_isa: trace_isa, ~multiply_latency: multiply_latency, ~packed_multiply: packed_multiply, ~fixed_fp: fixed_fp, ~fp_timing: fp_timing))
   inst admission(VectorAdmission(xlen, vlen, slots, Fault, ~pipe: pipe, ~dispatch_depth: dispatch_depth))
   request |> admission.request
   admission.dispatch |> execution.request

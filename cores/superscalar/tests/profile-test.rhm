@@ -48,6 +48,11 @@ check:
   (RV3WideConfig() is_a RV2WideConfig) ~is #false
   rv3wide_udb_configuration(RV3WideConfig(), "shared", "Shared two-wide pipeline", 44) ~is rv2wide_udb_configuration(RV2WideConfig(), "shared", "Shared two-wide pipeline", 44)
   integer.vector_dispatch_depth ~is 6
+  integer.vector_instruction_owners ~is 4
+  configured_shared.vector_instruction_owners ~is 4
+  SuperscalarPipelineConfig(~vector_instruction_owners: 8).vector_completion_slots ~is 8
+  SuperscalarPipelineConfig(~vector_instruction_owners: 8).vector_instruction_owners ~is 8
+  SuperscalarPipelineConfig(~vector_instruction_owners: 3) ~throws "Pow2Int"
   SuperscalarPipelineConfig(~vector_dispatch_depth: 1).vector_dispatch_depth ~is 1
   SuperscalarPipelineConfig(~vector_dispatch_depth: 4).vector_dispatch_depth ~is 4
   SuperscalarPipelineConfig(~vector_dispatch_depth: 8).vector_dispatch_depth ~is 8

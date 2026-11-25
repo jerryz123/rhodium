@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../common/vector/profile.rhm".DefaultVectorInstructionOwners
   lib("cores/common/vector/service.rhdl").VectorExecutionService
   lib("cores/common/cosim-source.rhm").describe_cosim_signals
   lib("cores/common/vector/backend.rhdl") open
@@ -22,7 +23,7 @@ import:
 /* Queues six WB-authorized descriptors by default without conflating admission, fault certainty,
    last-beat acceptance, and final execution drain. The scalar core owns age order,
    architectural retirement, and arithmetic/write-port arbitration at these ports. */
-sync_circuit SuperscalarVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_completion_slots: slots :: Pow2Int = 8, ~dispatch_depth: dispatch_depth :: PosInt = 6, ~multiply_latency: multiply_latency :: maybe(PosInt) = #false, ~fixed_fp: fixed_fp :: Boolean = #false, ~fp_timing: fp_timing :: FpExecutionTiming = FpExecutionTiming()):
+sync_circuit SuperscalarVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_completion_slots: slots :: Pow2Int = 8, ~instruction_owners: owners :: Pow2Int = DefaultVectorInstructionOwners, ~dispatch_depth: dispatch_depth :: PosInt = 6, ~multiply_latency: multiply_latency :: maybe(PosInt) = #false, ~fixed_fp: fixed_fp :: Boolean = #false, ~fp_timing: fp_timing :: FpExecutionTiming = FpExecutionTiming()):
   interface service(VectorExecutionService(xlen, slots), ~role: executor)
   interface request(Decoupled(VectorDescriptor(xlen)), ~role: consumer)
   interface pipeline(SuperscalarPipelineAccess(xlen), ~role: requester)
@@ -36,7 +37,7 @@ sync_circuit SuperscalarVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vect
   output active: Bool
 
   inst access(SuperscalarVectorMemory(xlen, slots))
-  inst backend(VectorBackend(xlen, vlen, RiscvGuestFault(), ~vector_completion_slots: slots, ~dispatch_depth: dispatch_depth, ~pipe: #false, ~multiply_latency: multiply_latency, ~packed_multiply: #true, ~fixed_fp: fixed_fp, ~fp_timing: fp_timing))
+  inst backend(VectorBackend(xlen, vlen, RiscvGuestFault(), ~vector_completion_slots: slots, ~instruction_owners: owners, ~dispatch_depth: dispatch_depth, ~pipe: #false, ~multiply_latency: multiply_latency, ~packed_multiply: #true, ~fixed_fp: fixed_fp, ~fp_timing: fp_timing))
   backend.precise_fault <== access.outcome_guest
   outcome_guest <== backend.outcome_fault
   access.split <=> split

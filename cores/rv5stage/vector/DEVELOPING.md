@@ -398,8 +398,9 @@ retries, fault/truncation, no-write completions, stalled issue, direct completio
 slot reuse, and pending reset. The multi-slot case returns younger responses
 first. Keep `rv5stage-vector-reduction`, `rv5stage-vector-config`, and the vector
 memory/FP/muldiv fixtures as functional regressions for the affected paths.
-`rv5stage-vector-overlap` checks consecutive issue for independent single-beat
-compute macros and independently delays FP and memory responses to check
+`rv5stage-vector-overlap` checks the issue cadence across four-owner wrap;
+`vector-eight-owner-overlap` runs the same independent single-beat stream and
+requires consecutive issue across eight-owner wrap. Both delay FP and memory responses to check
 registered read-tail and authorized memory-tail replacement, compute-to-memory
 admission with older prepared beats, FP-to-store row chaining, route changes
 with old responses outstanding, final memory-beat replay,

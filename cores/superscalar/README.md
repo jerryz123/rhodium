@@ -1256,7 +1256,8 @@ invent ancestry from equal PCs or reused transaction IDs.
 ## Vector execution
 
 `SuperscalarPipelineConfig` selects optional `vector`, `vector_length`, and
-`vector_completion_slots` parameters, plus `vector_extensions` for optional
+`vector_completion_slots` parameters. `vector_instruction_owners` limits live instructions
+independently and defaults to four; completion slots default to eight. Select `vector_extensions` for optional
 Zvbb, Zvfhmin, and Zvfh operations. The default remains `VectorProfile.None`.
 Zvfh requires scalar Zfhmin or Zfh. The shared FP datapath supports the union of
 scalar and vector half-precision operations without widening scalar decode.

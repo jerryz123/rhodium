@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "profile.rhm".DefaultVectorInstructionOwners
   lib("cores/common/vector-layout.rhm") open
   "bundles.rhdl" open
   "register-file.rhdl" open
@@ -16,8 +17,8 @@ import:
 /* Retains one encoded-zero-stride load value and its macro owner beyond sequencing.
    Writes selected destination rows with cached mask words and publishes unfinished
    row/mask claims so younger work cannot overwrite unread sources or pending writes. */
-sync_circuit VectorSplatLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int):
-  def Owner = Bits(index_width(slots))
+sync_circuit VectorSplatLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~instruction_owners: owners :: Pow2Int = DefaultVectorInstructionOwners):
+  def Owner = Bits(index_width(owners))
   def Row = Bits(index_width(VectorRegisterLayout(vlen, xlen.width).depth + 1))
   def MaskAddress = Bits(index_width(VectorRegisterLayout(vlen, xlen.width).rows_per_register))
   interface launch(Valid(VectorInstruction(xlen, Owner)), ~role: consumer)

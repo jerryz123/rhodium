@@ -7,6 +7,8 @@ import:
   lib("riscv/isa/fp-profile.rhm") open
   lib("riscv/isa/vector-profile.rhm") open
 
+def DefaultVectorInstructionOwners :: PosInt = 4
+
 /* Enforces vector ELEN, scalar FP, and half-precision dependencies for the selected XLEN. */
 fun check_vector_profile(xlen :: XLen,
                          floating_point :: FloatingPointProfile,
@@ -35,5 +37,6 @@ fun vector_execution_half_precision(half_precision :: HalfPrecisionProfile,
   | ~else: HalfPrecisionProfile.None
 
 export:
+  DefaultVectorInstructionOwners
   check_vector_profile
   vector_execution_half_precision

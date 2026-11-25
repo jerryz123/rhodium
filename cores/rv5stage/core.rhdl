@@ -1017,7 +1017,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
 
   inst wb_vector(
     if vector_enabled
-    | RV5StageVectorPipeline(xlen, vector_length, ~vector_completion_slots: vector_completion_slots, ~trace_isa: trace_isa, ~multiply_latency: if wb_pipelined_multiplier | PipelinedMultiplierStages | #false, ~fixed_fp: #true, ~fp_timing: fp_timing, ~hypervisor: hypervisor)
+    | RV5StageVectorPipeline(xlen, vector_length, ~vector_completion_slots: vector_completion_slots, ~instruction_owners: core_profile.vector_instruction_owners, ~trace_isa: trace_isa, ~multiply_latency: if wb_pipelined_multiplier | PipelinedMultiplierStages | #false, ~fixed_fp: #true, ~fp_timing: fp_timing, ~hypervisor: hypervisor)
     | DisabledRV5StageVectorPipeline(xlen, ~vector_completion_slots: vector_completion_slots, ~hypervisor: hypervisor)
   )
 

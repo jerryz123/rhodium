@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "profile.rhm".DefaultVectorInstructionOwners
   lib("riscv/rtl/trap.rhdl").ExceptionCause
   lib("cores/common/mmu/vector.rhdl") open
   lib("cores/common/vector-layout.rhm") open
@@ -292,31 +293,31 @@ bundle VectorSequenceRequest(xlen :: XLen, vlen :: VectorLength, Context :: Data
 
 /* Pairs a mature beat with distinct persistent instruction-owner and completion-slot
    identities. */
-bundle VectorOwnedResult(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int):
+bundle VectorOwnedResult(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, owners :: Pow2Int = DefaultVectorInstructionOwners):
   beat: VectorResultBeat(xlen, vlen, VectorRegisterWrite(xlen, vlen))
   tag: Bits(index_width(slots))
-  owner: Bits(index_width(slots))
+  owner: Bits(index_width(owners))
   pc: Bits(xlen.width)
   splat: Bool
 
 /* Claims a completion slot for one instruction owner and ordinary/packed route. */
-bundle VectorSlotAllocation(slots :: Pow2Int):
-  owner: Bits(index_width(slots))
+bundle VectorSlotAllocation(owners :: Pow2Int):
+  owner: Bits(index_width(owners))
   packed: Bool
 
 /* Identifies the completed beat and supplies its unshifted result for a dependent fold. */
-bundle VectorDrained(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int):
+bundle VectorDrained(xlen :: XLen, vlen :: VectorLength, owners :: Pow2Int):
   beat: VectorResultBeat(xlen, vlen, VectorRegisterWrite(xlen, vlen))
-  owner: Bits(index_width(slots))
+  owner: Bits(index_width(owners))
   data: Bits(xlen.width)
 
 /* Publishes read-only allocation, acceptance, and exact pending-row metadata for routing and
    hazards. */
-bundle VectorSlotState(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int):
+bundle VectorSlotState(xlen :: XLen, vlen :: VectorLength, owners :: Pow2Int):
   allocated: Bool
   accepted: Bool
   packed: Bool
-  owner: Bits(index_width(slots))
+  owner: Bits(index_width(owners))
   write_address: Bits(index_width(VectorRegisterLayout(vlen, xlen.width).depth))
   writes: Bool
 

@@ -254,8 +254,10 @@ instruction: the replacement's first read occurs in the following cycle, never
 from an incoming or speculative descriptor. Operand fetch retains each plan's
 controls and owner through VRF latency and issue backpressure, independently of
 sequencer replacement. Independent single-beat instructions can therefore read
-and issue on consecutive cycles. The completion-slot owner ring retains older
-issued work. Elementwise memory, including encoded-zero-stride loads, can also enter the sequencer while older
+and issue on consecutive cycles while an instruction owner is available. With
+the default four owners, a sustained stream of independent one-beat adds issues
+four beats, then waits one cycle for an owner; eight owners sustain one per cycle
+in the same stream. Elementwise memory, including encoded-zero-stride loads, can also enter the sequencer while older
 ordinary compute beats remain in operand fetch; those beats issue first.
 MEM-certified ordinary memory uses the same final-read handoff as compute;
 captured physical requests retain downstream cache-retry ownership. Uncertified
@@ -278,10 +280,11 @@ schedules retain the conservative group claim through their final result. All
 operands are captured before issue. The sequencer never alternates between
 instructions or delegates replay to a service instruction queue.
 
-`RV5StageConfig(~vector_completion_slots: n)` configures the memory completion
-window independently of VLEN; `n` must be a positive power of two and defaults
-to eight. Standalone `RV5StageVectorPipeline` accepts the same keyword.
-Storage depth and tag width derive from this count, with a one-bit zero index
+`RV5StageConfig` defaults to four live instructions (`~vector_instruction_owners`)
+and eight tagged beats (`~vector_completion_slots`). Both depths must be powers
+of two and are independent of each other and VLEN. Standalone
+`RV5StageVectorPipeline` takes `~instruction_owners` and `~vector_completion_slots`.
+Completion storage depth and tag width derive from the beat count, with a one-bit zero index
 for a single slot. Slots are reserved before issue and released only after
 ordered metadata reclamation after writeback; a smaller window can reduce memory throughput.
 The integrated core propagates the count through every LSU adapter. Standalone

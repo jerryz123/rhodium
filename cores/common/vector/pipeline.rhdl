@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "profile.rhm".DefaultVectorInstructionOwners
   lib("riscv/rtl/trap.rhdl").ExceptionCause
   lib("cores/common/fp/profile.rhm").fp_transport_profile
   lib("cores/common/integer-execution.rhdl") open
@@ -48,13 +49,14 @@ import:
    tagged results, packed carry, and splats survive replacement of the sequencing descriptor. */
 sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: DataType,
                              ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8,
+                             ~instruction_owners: owners :: Pow2Int = DefaultVectorInstructionOwners,
                              ~trace_isa: trace_isa :: maybe(String) = #false,
                              ~multiply_latency: multiply_latency :: maybe(PosInt) = #false,
                              ~packed_multiply: packed_multiply :: Boolean = #false,
                              ~fixed_fp: fixed_fp :: Boolean = #false,
                              ~fp_timing: fp_timing :: FpExecutionTiming = FpExecutionTiming()):
   def tag_width = index_width(vector_completion_slots)
-  def InstructionId = Bits(tag_width)
+  def InstructionId = Bits(index_width(owners))
   def SlotId = Bits(tag_width)
 
   /* Captures scalar context, instruction identity, and optional physical-page proof with
@@ -77,7 +79,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
     splat: Bool
     precertified: Bool
 
-  def OwnedResult = VectorOwnedResult(xlen, vlen, vector_completion_slots)
+  def OwnedResult = VectorOwnedResult(xlen, vlen, vector_completion_slots, owners)
   def fp_profile = fp_transport_profile(xlen)
   def FpRequest = FpExecutionRequest(xlen, fp_profile, Bits(index_width(vector_completion_slots)))
   def FpResult = FpExecutionResult(xlen, fp_profile, Bits(index_width(vector_completion_slots)))
@@ -122,7 +124,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
 
   /* State owners are independent of the currently retained descriptor. */
 
-  inst instructions(VectorInstructions(xlen, vlen, vector_completion_slots))
+  inst instructions(VectorInstructions(xlen, vlen, vector_completion_slots, ~instruction_owners: owners))
   active <== instructions.active
   stores_pending <== instructions.stores_pending
   loads_pending <== instructions.loads_pending
@@ -130,8 +132,8 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def next_owner = instructions.allocate_id
   def current_owner = instructions.sequencing_id
   def foreign_rows = instructions.blocked_rows
-  inst splat(VectorSplatLoad(xlen, vlen, vector_completion_slots))
-  inst completions(VectorCompletionUnit(xlen, vlen, vector_completion_slots, ~fixed_multiply: multiply_latency != #false))
+  inst splat(VectorSplatLoad(xlen, vlen, vector_completion_slots, ~instruction_owners: owners))
+  inst completions(VectorCompletionUnit(xlen, vlen, vector_completion_slots, ~instruction_owners: owners, ~fixed_multiply: multiply_latency != #false))
   def calendar_span = math.max(8, fp_timing.maximum)
   def calendar_width = index_width(calendar_span + 1)
   inst writeback_calendar(WritebackCalendar(3, calendar_span))
@@ -158,7 +160,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
 
   /* Packed-memory completion routing */
 
-  inst packed(VectorPackedLoad(xlen, vlen, vector_completion_slots, vector_completion_slots))
+  inst packed(VectorPackedLoad(xlen, vlen, vector_completion_slots, owners))
   inst slot_words(VectorCompletionWords(xlen, vector_completion_slots))
   completions.retain_word |> slot_words.ordinary
   packed.retain_hit |> slot_words.packed_hit
@@ -186,7 +188,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def current_packed = sequencer.packed
   inst operand_fetch(VectorOperandFetch(xlen, vlen, OwnedContext(), ~packed_multiply: packed_multiply))
   inst registers(VectorRegisterFile(xlen, vlen))
-  reg serial_fold_inflight(~init: Bits(vector_completion_slots)(0).as_vec(Bool))
+  reg serial_fold_inflight(~init: Bits(owners)(0).as_vec(Bool))
   reg recurrence(Bits(xlen.width))
   def retry = element_memory_decision.valid & (element_memory_decision.bits.disposition === VectorDisposition.Retry)
   def fault = element_memory_decision.valid & (element_memory_decision.bits.disposition === VectorDisposition.Fault)
@@ -244,7 +246,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   instructions.splat_owner <== splat.owner
   instructions.splat_rows <== splat.pending_rows
   instructions.finished.valid <== issue_done.valid
-  instructions.finished.bits <== VectorIssueFinished(vector_completion_slots):
+  instructions.finished.bits <== VectorIssueFinished(owners):
     owner: finished_owner
     fault: fault ||| cancel.valid
 
@@ -473,7 +475,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   def scan_seed = mux(ex_beat.control.scan_control.result === VectorScanResult.First, !Bits(xlen.width)(0), Bits(xlen.width)(0))
   execute.scan_carry <== mux(ex_beat.first.any(), recurrence, scan_seed)
   def Array(ex_operands, ex_progress) = ex_pipe.egress |> fork_valid(2)
-  def executed = ex_operands |> map_valid(operation => VectorOwnedResult(xlen, vlen, vector_completion_slots)):
+  def executed = ex_operands |> map_valid(operation => VectorOwnedResult(xlen, vlen, vector_completion_slots, owners)):
     beat: mux(operation.splat, execute.result.updated(~last: Bool(#true), ~write: execute.result.write.updated(~mask: Bits(xlen.width)(0))), execute.result)
     tag: operation.tag
     owner: operation.owner
@@ -567,11 +569,11 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   cond
   | packed_multiply:
       inst multiply(SimdMultiplyAccumulate(xlen.width, xlen.width / 2))
-      def Array(simd_operands, simd_owners) = simd_launch |> fork_valid(2)
+      def Array(simd_operands, simd_tags) = simd_launch |> fork_valid(2)
       simd_operands |> map_valid(_result => vector_simd_multiply_request(xlen, vlen, ex_effective_beat)) |> multiply.request
-      def owners = simd_owners |> map_valid(result => result.tag) |> valid_pipe(SimdMultiplyAccumulateStages)
+      def tags = simd_tags |> map_valid(result => result.tag) |> valid_pipe(SimdMultiplyAccumulateStages)
       (multiply.response |> map_valid(result => IntegerExecutionResult(SimdMultiplyResult(xlen.width), SlotId)):
-         tag: owners.bits
+         tag: tags.bits
          value: result
       ) |> completions.simd_result
   | ~else:
@@ -608,8 +610,8 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   elsewhen continue_fp:
     recurrence <== drained_data
 
-  for (owner in 0..vector_completion_slots):
-    def owner_tag = Bits(tag_width)(owner)
+  for (owner in 0..owners):
+    def owner_tag = InstructionId(owner)
     def allocate_owner = request.fire() & (next_owner === owner_tag)
     def compute_here = compute_maturity.valid & (compute_owner === owner_tag)
     def fp_fold_drained = fp_fold & (completions.drained.bits.owner === owner_tag)
@@ -735,7 +737,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   completions.replay.valid <== replay
   completions.packed_release.valid <== packed.released.valid
   completions.reserve.valid <== issue.fire() & returning_control.needs_completion_slot()
-  completions.reserve.bits <== VectorSlotAllocation(vector_completion_slots):
+  completions.reserve.bits <== VectorSlotAllocation(owners):
     owner: operand_fetch.issue.bits.context.owner
     packed: operand_fetch.issue.bits.packed
 

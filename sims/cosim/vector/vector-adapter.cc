@@ -42,7 +42,7 @@ extern "C" void rhodium_vector_admission(std::int64_t instance) noexcept {
   });
 }
 VectorAdapter::Owner& VectorAdapter::owner(Hart& hart, Word index) {
-  require(index < hart.capacity && hart.owners[index].has_value(), "effect has no live instruction owner");
+  require(index < hart.owners.size() && hart.owners[index].has_value(), "effect has no live instruction owner");
   return *hart.owners[index];
 }
 VectorAdapter::Slot& VectorAdapter::slot(Hart& hart, Word index) {
@@ -57,18 +57,18 @@ void VectorAdapter::finish_sample(observation::Collector& collector) {
     const auto& cycle = std::get<std::optional<Cycle>>(frame.events);
     require(cycle.has_value(), "missing active-cycle sample");
     require((cycle->xlen == 32 || cycle->xlen == 64) && cycle->vlen >= cycle->xlen &&
-            std::has_single_bit(cycle->vlen) && std::has_single_bit(cycle->slots) && cycle->dispatch_depth > 0, "invalid vector geometry");
+            std::has_single_bit(cycle->vlen) && std::has_single_bit(cycle->slots) && std::has_single_bit(cycle->owners) && cycle->dispatch_depth > 0, "invalid vector geometry");
     auto found = harts_.find(instance);
     if (found == harts_.end() || found->second.epoch != frame.epoch) {
       Hart initial{};
       initial.epoch = frame.epoch; initial.xlen = cycle->xlen; initial.vlen = cycle->vlen; initial.capacity = cycle->slots;
       initial.dispatch_depth = cycle->dispatch_depth;
-      initial.owners.resize(cycle->slots); initial.slots.resize(cycle->slots);
+      initial.owners.resize(cycle->owners); initial.slots.resize(cycle->slots);
       initial.services.resize(cycle->slots);
       found = harts_.insert_or_assign(instance, std::move(initial)).first;
     }
     auto& hart = found->second;
-    require(hart.xlen == cycle->xlen && hart.vlen == cycle->vlen && hart.capacity == cycle->slots && hart.dispatch_depth == cycle->dispatch_depth, "geometry changed within an epoch");
+    require(hart.xlen == cycle->xlen && hart.vlen == cycle->vlen && hart.capacity == cycle->slots && hart.owners.size() == cycle->owners && hart.dispatch_depth == cycle->dispatch_depth, "geometry changed within an epoch");
     resolve(collector, instance, hart, frame);
   }
   frames_.clear();
@@ -205,7 +205,7 @@ void VectorAdapter::resolve(observation::Collector& collector, Word instance, Ha
     } else collector.seal(instance, id, 5, 0);
   }
   if (const auto& dispatch = event.template operator()<Dispatch>(); dispatch) {
-    require(dispatch->owner < hart.capacity && !hart.owners[dispatch->owner] && !hart.pending.empty(), "invalid execution allocation");
+    require(dispatch->owner < hart.owners.size() && !hart.owners[dispatch->owner] && !hart.pending.empty(), "invalid execution allocation");
     const auto lmul = int(dispatch->vtype & 3) - int(dispatch->vtype & 4);
     const int emul = lmul + int(dispatch->eew) - int((dispatch->vtype >> 3) & 7);
     const auto subop = (dispatch->instruction >> 20) & 31;
@@ -270,9 +270,9 @@ void VectorAdapter::resolve(observation::Collector& collector, Word instance, Ha
   hart.hit_physical = cycle.pipeline_address;
 }
 
-extern "C" void rhodium_vector_cycle(std::int64_t instance, std::int64_t xlen, std::int64_t vlen, std::int64_t slots, std::int64_t dispatch_depth, std::int64_t pipeline_valid, std::int64_t pipeline_address, std::int64_t split, std::int64_t has_fragments, std::int64_t replay) noexcept {
+extern "C" void rhodium_vector_cycle(std::int64_t instance, std::int64_t xlen, std::int64_t vlen, std::int64_t slots, std::int64_t owners, std::int64_t dispatch_depth, std::int64_t pipeline_valid, std::int64_t pipeline_address, std::int64_t split, std::int64_t has_fragments, std::int64_t replay) noexcept {
   observation::dpi_receive_adapter<VectorAdapter>([&](VectorAdapter& adapter, observation::Collector& collector) {
-    adapter.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), Cycle{Word(xlen), Word(vlen), Word(slots), Word(dispatch_depth), Word(pipeline_valid), Word(pipeline_address), Word(split), Word(has_fragments), Word(replay)});
+    adapter.capture(collector.sample(), Word(instance), collector.epoch(Word(instance)), Cycle{Word(xlen), Word(vlen), Word(slots), Word(owners), Word(dispatch_depth), Word(pipeline_valid), Word(pipeline_address), Word(split), Word(has_fragments), Word(replay)});
   });
 }
 extern "C" void rhodium_vector_dispatch(std::int64_t instance, std::int64_t owner, std::int64_t base, std::int64_t eew, std::int64_t instruction, std::int64_t vtype) noexcept {

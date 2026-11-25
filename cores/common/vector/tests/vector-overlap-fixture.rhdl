@@ -9,6 +9,8 @@ import:
   "../pipeline.rhdl" open
   "../bundles.rhdl" open
   "../dependencies.rhdl" open
+  "../profile.rhm".DefaultVectorInstructionOwners
+  lib("rhodium/std/bits.rhdl").Pow2Int
   "decode.rhdl" open
   lib("cores/common/fp/profile.rhm").fp_transport_profile
   "../../../../riscv/isa/vector-profile.rhm" open
@@ -18,7 +20,7 @@ import:
   lib("hardfloat/main.rhdl").RoundingMode
   lib("flow/main.rhdl") open
 
-sync_circuit VectorOverlap(xlen :: XLen):
+sync_circuit VectorOverlap(xlen :: XLen, ~instruction_owners: owners :: Pow2Int = DefaultVectorInstructionOwners):
   def fp_profile = fp_transport_profile(xlen)
   def slots = 8
   input instruction: Bits(32)
@@ -31,8 +33,10 @@ sync_circuit VectorOverlap(xlen :: XLen):
   interface attempt(Valid(VectorToken(xlen, Bits(xlen.width), slots)), ~role: producer)
   interface resolution(Valid(VectorToken(xlen, Bits(xlen.width), slots)), ~role: producer)
   output(request_ready, active, issued, issue_finished, sequencing_finished, retired): Bool
+  output owner_capacity: Bits(index_width(owners + 1))
+  owner_capacity <== Bits(index_width(owners + 1))(owners)
   inst decode(VectorTestDecoder())
-  inst vector(VectorExecution(xlen, 128, Bits(xlen.width), ~vector_completion_slots: slots))
+  inst vector(VectorExecution(xlen, 128, Bits(xlen.width), ~vector_completion_slots: slots, ~instruction_owners: owners))
   vector.schedule_enable <== issue_ready
   vector.scalar_writeback.ready <== Bool(#true)
   vector.floating_writeback.ready <== Bool(#true)
