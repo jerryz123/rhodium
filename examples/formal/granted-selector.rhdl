@@ -1,0 +1,36 @@
+#lang rhodium
+/* Demonstrates a masked data selector whose input contract is established by an upstream arbiter. */
+// SPDX-License-Identifier: Apache-2.0
+
+import lib("flow/arbiter.rhdl").Arbiter
+
+/* Combine enabled words in parallel; with at most one enable this returns the selected word. */
+circuit LaneSelector():
+  input (enable_a, enable_b): Bool
+  input (word_a, word_b): Bits(2)
+  output selected: Bits(2)
+  def a = mux(enable_a, word_a, Bits(2)(0))
+  def b = mux(enable_b, word_b, Bits(2)(0))
+  selected <== a ||| b
+
+/* Present unrestricted requests to the arbiter and select only from the lanes it grants. */
+sync_circuit GrantedSelector():
+  input (request_a, request_b, accept): Bool
+  input (word_a, word_b): Bits(2)
+  output selected: Bits(2)
+
+  inst arb(Arbiter(Bits(2), 2))
+  arb.ingress[0].valid <== request_a
+  arb.ingress[1].valid <== request_b
+  arb.ingress[0].bits <== word_a
+  arb.ingress[1].bits <== word_b
+  arb.egress.ready <== accept
+
+  inst lanes(LaneSelector())
+  lanes.enable_a <== arb.ingress[0].ready
+  lanes.enable_b <== arb.ingress[1].ready
+  lanes.word_a <== word_a
+  lanes.word_b <== word_b
+  selected <== lanes.selected
+
+export LaneSelector GrantedSelector

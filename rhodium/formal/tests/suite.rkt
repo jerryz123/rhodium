@@ -4,6 +4,7 @@
 
 (require "aggregate-test.rhm"
          (submod "arbiter-refinement.rkt" test)
+         "selector-refinement.rkt"
          "arbiter-queue-order.rkt"
          "buffered-arbiter-queue-order.rkt"
          "gated-arbiter-queue-order.rkt"

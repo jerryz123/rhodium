@@ -17,8 +17,11 @@ import:
   lib("examples/formal/gated-arbiter-queue.rhdl").GatedArbiterQueue
   lib("examples/formal/two-tag-rob.rhdl").TwoTagROB
   "faulty-rob.rhdl".FaultyROB
+  lib("examples/formal/granted-selector.rhdl") open
+  "raw-selector.rhdl".RawSelector
 
 export rob faulty_rob swapped_rob unchecked_rob
+export selector granted_selector raw_selector
 export gated_at leaky_at outer_at
 export pair pair_wires fifo_definition arbiter_definition mixed wrong_lane undersized
 export interface_prefixes pin_layout leaf_sites
@@ -39,8 +42,14 @@ def mutable unchecked_rob = #false
 def mutable swapped_rob = #false
 def mutable faulty_rob = #false
 def mutable undersized = #false
+def mutable selector = #false
+def mutable granted_selector = #false
+def mutable raw_selector = #false
 fun inventory():
   arbiter_definition := materialize_circuit(Arbiter(Bits(2), 2))
+  selector := materialize_circuit(LaneSelector())
+  granted_selector := materialize_circuit(GrantedSelector())
+  raw_selector := materialize_circuit(RawSelector())
   pair := materialize_circuit(QueuePair())
   for (d in proof_depths):
     fifos[d] := materialize_circuit(ShiftQueue(Bits(2), d))

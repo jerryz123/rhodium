@@ -1,0 +1,36 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("examples/formal/granted-selector.rspl") open
+  lib("examples/formal/arbiter.rspl").Arbiter
+  lib("rhodium/frontend/layers/bool.rhm").Bool
+  "composition-binding.rhm" open
+  "../wiring.rhm".proof_cut
+  "../wiring.rhm".bind_wiring
+  "../spec.rhm" open
+
+export selector interface_prefixes leaf parent cut without_assumption impossible replay circular_graph replay_wiring
+def leaf = LaneSelector(selector)
+def parent = GrantedSelector(granted_selector)
+fun with_assumptions(predicates):
+  make_spec(leaf.inputs, leaf.state, leaf.initial, leaf.outputs, leaf.events, leaf.updates,
+            ~assumptions: predicates)
+def without_assumption = with_assumptions({})
+def impossible = with_assumptions(leaf.assumptions ++ {"both": bool_not(leaf.assumptions["exclusive"])})
+fun bindings(model): Map.by(===){selector: model, arbiter_definition: Arbiter(arbiter_definition)}
+fun cut(raw, model):
+  proof_cut(if raw | raw_selector | granted_selector, bindings(model), Bool, interface_prefixes)
+fun replay_wiring(raw, inputs):
+  def graph = bind_wiring(if raw | raw_selector | granted_selector, bindings(leaf), Bool, interface_prefixes)
+  step_spec(graph, graph.initial, inputs).outputs["selected"]
+fun replay(a, b):
+  step_spec(leaf, {}, {"enable_a": a, "enable_b": b, "word_a": 1, "word_b": 2}).outputs["selected"]
+
+// Each output is specified as high only under its own input contract. The offer
+// schedule is acyclic, but using those promises to prove one another would be circular.
+def flag = SpecBool()
+def conditional = make_spec({"enable": flag}, {}, {}, {"grant": Observed(literal(flag, #true))}, {}, {},
+                            ~assumptions: {"enabled": input_ref("enable", flag)})
+def cross_wires = {"a.enable": "b.grant", "b.enable": "a.grant"}
+def circular_graph = composition_snapshot(make_composition({}, {}, {"a": conditional, "b": conditional}, cross_wires))

@@ -1,0 +1,17 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+
+import lib("examples/formal/granted-selector.rhdl").LaneSelector
+
+sync_circuit RawSelector():
+  input (request_a, request_b, accept): Bool
+  input (word_a, word_b): Bits(2)
+  output selected: Bits(2)
+  inst lanes(LaneSelector())
+  lanes.enable_a <== request_a
+  lanes.enable_b <== request_b
+  lanes.word_a <== word_a
+  lanes.word_b <== word_b
+  selected <== lanes.selected
+
+export RawSelector

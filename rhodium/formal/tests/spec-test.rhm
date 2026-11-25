@@ -94,5 +94,9 @@ check:
   make_spec({"x": bit}, Map{}, Map{}, {"v": Observed(input_ref("x", SpecBool()))}, Map{}, Map{}) ~throws "reference"
   make_spec(Map{}, {"q": seq}, {"q": []}, Map{}, Map{}, {"q": literal(bit, 0)}) ~throws "update type"
   make_spec(Map{}, {"x": bit}, {"z": 1}, Map{}, Map{}, Map{}) ~throws "missing spec binding"
+  make_spec({}, {}, {}, {}, {}, {}, ~assumptions: {"width": literal(bit, 1)}) ~throws "boolean"
+  make_spec({}, {"ok": SpecBool()}, {"ok": #true}, {}, {}, {},
+            ~assumptions: {"old": bool_not(state_ref("ok", SpecBool()))}) ~throws "only scalar inputs"
+  make_spec({}, {}, {}, {}, {}, {}, ~assumptions: {"missing": input_ref("go", SpecBool())}) ~throws "reference"
   step_spec(swap, swap.initial, {"extra": 0}) ~throws "exact spec bindings"
   step_spec(swap, {"x": 2, "y": 0, "held": 1}, Map{}) ~throws "does not fit"

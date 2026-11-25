@@ -68,10 +68,12 @@ and partial sequence reads; the proof bindings use the same model unchanged.
 ### Symbolic specification step
 
 `spec_snapshot(model)` copies the checked input/state schemas, typed expressions,
-care predicates and updates. The internal [spec-engine.rkt](spec-engine.rkt)
+care predicates, input assumptions and updates. The internal [spec-engine.rkt](spec-engine.rkt)
 entry point `symbolic-spec-edge` consumes that snapshot and returns one edge
 from fresh pre-edge state and input terms, **not** a run from `model.initial`.
-Its `legal` predicate excludes out-of-range sequence counts only. Sequences
+Its `legal` predicate excludes out-of-range sequence counts only. Use
+`spec-input-assumptions` separately: the same predicates are premises at a
+conditional leaf and proof obligations at its parent. Sequences
 use a bitvector count and fixed scalar slots; only the live prefix is meaningful.
 The result has separate output/event maps of (care, value) and simultaneous
 next-state terms. Compare presence first and payload only when present.
@@ -200,6 +202,21 @@ consume neither input. The negative fixture swaps the physical priority lanes
 and maps grants back to external lane identities. The solver's contested
 transfer replays as opposite winners and payloads in concrete RTL and rspecsim.
 The proof is part of `moon run rhodium:formal-test`.
+
+### Discharging a conditional child's inputs
+
+The [selector regression](tests/selector-refinement.rkt) proves the leaf on
+the nonempty conjunction of its named input predicates. The predicates are part
+of the exact spec snapshot matched at reuse. After evidence matching but before
+returning an admitted cut, `prepare-proved-wiring` checks each predicate as
+a goal over unrestricted external samples and independently legal old states.
+It uses the regular wire schedule, including care and physical fanout, but
+replaces **all** conditional output pins by fresh terms during discharge.
+Thus the arbiter's unconditional grants can establish exclusivity, but two
+conditional children cannot justify each other's inputs. This deliberately
+does not chain conditional guarantees, even when an ordered proof might work.
+The solver must also establish upstream definedness. An assumption failure
+names the site and predicate and reports the sampled external inputs.
 
 ### Arbiter feeding a ShiftQueue
 

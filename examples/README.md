@@ -305,6 +305,7 @@ hardware-preservation contracts.
 | Example | RTL | Executable spec |
 |---|---|---|
 | Arbiter | [Flow arbiter](../flow/arbiter.rhdl) | [Fixed-priority selection and transfers](formal/arbiter.rspl) |
+| GrantedSelector | [Arbiter grants drive a masked selector](formal/granted-selector.rhdl) | [Discharging the selector's input assumption](formal/granted-selector.rspl) |
 | ShiftQueue | [Flow queue](../flow/shift-queue.rhdl) | [Bounded sequence with enqueue and dequeue](formal/shift-queue.rspl) |
 | TwoTagROB | [Two-tag reorder buffer](formal/two-tag-rob.rhdl) | [Ordered retirement with generation-matched results](formal/two-tag-rob.rspl) |
 | GatedArbiterQueue | [Registered admission wrapper](formal/gated-arbiter-queue.rhdl) | [Admission and ordered drain](formal/gated-arbiter-queue.rspl) |

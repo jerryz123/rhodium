@@ -125,7 +125,8 @@ class Observed(value :: Expr, care :: Expr = literal(SpecBool(), #true)):
     super(value, care)
 
 /* A checked model holds separate input and state namespaces and one update per field. */
-class Model(inputs :: Map, state :: Map, initial :: Map, outputs :: Map, events :: Map, updates :: Map)
+class Model(inputs :: Map, state :: Map, initial :: Map, outputs :: Map, events :: Map, updates :: Map,
+            assumptions :: Map)
 
 /* Check exact bindings so absent samples and extra fields cannot silently affect a run. */
 fun check_bindings(schema :: Map, bindings :: Map):
@@ -135,7 +136,8 @@ fun check_bindings(schema :: Map, bindings :: Map):
     check_value(type, bindings[name])
 
 /* Resolve every reference, including in untaken branches, and check update result types. */
-fun make_spec(inputs :: Map, state :: Map, initial :: Map, outputs :: Map, events :: Map, updates :: Map):
+fun make_spec(inputs :: Map, state :: Map, initial :: Map, outputs :: Map, events :: Map, updates :: Map,
+              ~assumptions: assumptions :: Map = {}):
   for (schema in [inputs, state]):
     for ((name, type) in schema):
       unless name is_a String && type is_a SpecType | error("invalid spec declaration")
@@ -148,6 +150,15 @@ fun make_spec(inputs :: Map, state :: Map, initial :: Map, outputs :: Map, event
         unless schema.has_key(expr.datum) && same_type(schema[expr.datum], expr.type)
         | error("undeclared or mistyped spec reference: " ++ expr.datum)
     for (child in expr.args): link(child)
+  /* Input contracts use only total scalar expressions over the current sample. */
+  fun check_input_expr(expr :: Expr):
+    when expr.op == "state" || expr.type is_a SpecSeq | error("assumption must use only scalar inputs")
+    for (child in expr.args): check_input_expr(child)
+  for ((name, expr) in assumptions):
+    unless name is_a String && expr is_a Expr | error("invalid named input assumption")
+    check_bool(expr)
+    check_input_expr(expr)
+    link(expr)
   for (view in [outputs, events]):
     for ((name, field) in view):
       unless name is_a String && field is_a Observed | error("invalid spec observation")
@@ -157,7 +168,7 @@ fun make_spec(inputs :: Map, state :: Map, initial :: Map, outputs :: Map, event
     unless state.has_key(name) && expr is_a Expr && same_type(state[name], expr.type)
     | error("unknown state or update type mismatch")
     link(expr)
-  Model(inputs, state, initial, outputs, events, updates)
+  Model(inputs, state, initial, outputs, events, updates, assumptions)
 
 /* A step separates pre-edge observations from the state committed on that edge. */
 class Step(outputs :: Map, events :: Map, next_state :: Map)
@@ -186,6 +197,7 @@ fun spec_snapshot(model :: Model):
   {"inputs": schema(model.inputs), "state": schema(model.state),
    "initial": for Map ((k, v) in model.initial): values(k, if v is_a List | PairList[& v] | v),
    "outputs": view(model.outputs), "events": view(model.events),
+   "assumptions": for Map ((name, expr) in model.assumptions): values(name, snapshot_expr(expr)),
    "updates": for Map ((name, expr) in model.updates): values(name, snapshot_expr(expr))}
 
 /* Interpret guards lazily, so an inactive partial operation is not executed. */
@@ -216,6 +228,8 @@ fun evaluate(expr :: Expr, state :: Map, inputs :: Map):
 fun step_leaf(model :: Model, state :: Map, inputs :: Map):
   check_bindings(model.state, state)
   check_bindings(model.inputs, inputs)
+  for ((name, expr) in model.assumptions):
+    unless evaluate(expr, state, inputs) | error("violated spec input assumption: " ++ name)
   /* Omit uncared observations, keeping observed false and zero intact. */
   fun observe(view :: Map):
     for Map (name in view.keys().filter(~keep: fun (key :: String): evaluate(view[key].care, state, inputs))):

@@ -4,6 +4,7 @@
 
 (require racket/match)
 (provide symbolic-spec-edge symbolic-spec-state spec-state-legal? spec-edge-at spec-offers-at wired-edge-at
+         spec-input-assumptions wired-input-obligations
          (struct-out edge) (struct-out sequence-value) (struct-out observation))
 
 ;; Only the prefix of slots below count denotes a value; unused slots are unconstrained.
@@ -142,11 +143,19 @@
 (define (symbolic-spec-edge snapshot)
   (spec-edge-at snapshot (symbolic-spec-state snapshot) (fresh-fields (hash-ref snapshot "inputs"))))
 
-#| Execute a spec graph against matching leaf snapshots. This low-level step does not check proof evidence.
-   Return physical public pins, individual child edges, and the scheduling definedness obligation. |#
-(define (wired-edge-at graph children states inputs)
+#| Evaluate named scalar input predicates without asserting them in the ambient VC. |#
+(define (spec-input-assumptions model inputs)
+  (for/hash ([(name expr) (hash-ref model "assumptions")])
+    (define pred (interpret expr (hash) inputs))
+    (values name (&& (result-defined pred) (result-value pred)))))
+
+#| Settle physical wires once. During discharge, conditional outputs are arbitrary physical
+   pins, never their promised values. Fanout still shares a single term. |#
+(define (settle-wires graph children states inputs abstract-conditional?)
   (check-fields (hash-ref graph "inputs") inputs)
-  (unless (and (equal? children (for/hash ([(k v) (hash-ref graph "children")]) (values k v)))
+  (define expected (hash-ref graph "children"))
+  (unless (and (= (hash-count children) (hash-count expected))
+               (for/and ([(site model) children]) (equal? model (hash-ref expected site #f)))
                (equal? (sort (hash-keys children) string<?) (sort (hash-keys states) string<?)))
     (error 'wired-edge-at "child models or occurrence states do not match graph"))
   (define drivers (hash-ref graph "wires"))
@@ -160,11 +169,32 @@
   (define-values (nets defined)
     (for/fold ([nets inputs] [ok #t]) ([row (hash-ref graph "order")])
       (match-define (list site port deps) row)
+      (define model (hash-ref children site))
       (define-values (v safe)
-        (spec-pin-at (hash-ref children site) port (hash-ref states site) (bind nets site deps)))
+        (if (and abstract-conditional? (positive? (hash-count (hash-ref model "assumptions"))))
+            (values (fresh (second (second (hash-ref (hash-ref model "outputs") port)))) #t)
+            (spec-pin-at model port (hash-ref states site) (bind nets site deps))))
       (values (hash-set nets (pin-name site port) v) (&& ok safe))))
   (values (for/hash ([p (hash-ref graph "outputs")]) (values p (wire nets p)))
           (for/hash ([(site child) children])
-            (values site (spec-edge-at child (hash-ref states site)
-                                       (bind nets site (hash-keys (hash-ref child "inputs"))))))
+            (values site (bind nets site (hash-keys (hash-ref child "inputs")))))
+          defined))
+
+#| Generate unconditional parent-side goals on independent legal old states and arbitrary inputs.
+   Do not evaluate a conditional child's offers, transitions or guarantees in this query. |#
+(define (wired-input-obligations graph children)
+  (define inputs (fresh-fields (hash-ref graph "inputs")))
+  (define states (for/hash ([(site child) children]) (values site (symbolic-spec-state child))))
+  (define-values (_ samples defined) (settle-wires graph children states inputs #t))
+  (values inputs (andmap spec-state-legal? (hash-values states))
+          (cons (cons 'upstream-defined defined)
+                (for*/list ([(site child) children]
+                            [(name predicate) (spec-input-assumptions child (hash-ref samples site))])
+                  (cons (format "~a/~a" site name) predicate)))))
+
+#| Execute the graph on matching snapshots. This low-level step is not a proof of its input contracts. |#
+(define (wired-edge-at graph children states inputs)
+  (define-values (pins samples defined) (settle-wires graph children states inputs #f))
+  (values pins (for/hash ([(site child) children])
+                 (values site (spec-edge-at child (hash-ref states site) (hash-ref samples site))))
           defined))

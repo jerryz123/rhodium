@@ -52,6 +52,11 @@ buffer](tests/two-tag-rob-proof.rkt) now proves that completion may be out
 of order while retirement must follow issue order and the head's own
 completion. It uses the verified depth-two ArbiterQueue and per-tag busy, done, and generation bits plus two unreset result banks.
 
+Milestone 3 also has a [nontrivial input-contract check](DEVELOPING.md#discharging-a-conditional-childs-inputs):
+an unconditional arbiter establishes a selector's at-most-one enable requirement.
+Raw requests fail before substitution. This covers scalar current-input contracts,
+not stateful protocol assumptions or circular same-edge reasoning.
+
 | Milestone | What to build | How to tell it works |
 |---|---|---|
 | 1. Execute a specification | Define the cycle and transaction views, a finite deterministic spec IR, and a concrete interpreter. Use a bounded sequence as the FIFO model; choose surface syntax after the step semantics work. | An independent oracle checks idle, enqueue, dequeue, simultaneous transfer, reset from nonempty, and ignored payload when invalid. Concrete and symbolic steps agree for a small finite specialization. |

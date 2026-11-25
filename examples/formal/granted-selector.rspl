@@ -1,0 +1,13 @@
+#lang rspecl
+/* Specifies a conditional selector and an unconditional arbitration boundary. */
+// SPDX-License-Identifier: Apache-2.0
+
+import "granted-selector.rhdl" as rtl
+
+spec for rtl.LaneSelector:
+  assume exclusive = !(enable_a && enable_b)
+  observe selected = select(enable_a, word_a, select(enable_b, word_b, const(Bits(2), 0)))
+
+spec for rtl.GrantedSelector:
+  observe selected = select(accept && request_a, word_a,
+                            select(accept && request_b, word_b, const(Bits(2), 0)))

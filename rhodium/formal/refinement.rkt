@@ -6,11 +6,13 @@
          "engine.rkt" "spec-engine.rkt" (only-in "snapshot.rhm" formal_snapshot) (only-in "spec.rhm" spec_snapshot)
          (only-in "wiring.rhm" cut_parts leaf_protocol leaf_layout))
 (provide prove-leaf prove-parent prepare-proved-wiring proved-child-model symbolic-cut-state proved-edge-at view-agrees? pack-pins unpack-pins)
+(provide exn:fail:input-contract? exn:fail:input-contract-goal exn:fail:input-contract-inputs)
 
 ;; Private constructors. These are live elaboration identities, not transferable certificates.
-;; Both supported protocols quantify over unrestricted external input samples.
+;; A conditional combinational result carries its premises in the exact model snapshot.
 (struct refinement-result (definition model protocol layout))
 (struct proved-cut (definition layout graph models))
+(struct exn:fail:input-contract exn:fail (goal inputs) #:transparent)
 
 #| Pack the public logical samples in declared physical member order. |#
 (define (pack-pins layout samples)
@@ -36,11 +38,18 @@
   (unless (host-equal? (vc) vc-true) (error 'refinement "unexpected ambient verification condition")))
 
 #| Never issue evidence from an infeasible premise, failed obligation, or unknown solver answer. |#
-(define (check-phase name premise goals)
+(define (check-phase name premise goals #:inputs [inputs #f])
   (clean-vc!)
   (unless (sat? (solve (assert premise))) (error 'refinement "~a: infeasible or unknown domain" name))
   (for ([goal goals])
     (define answer (solve (assert (&& premise (! (cdr goal))))))
+    (when (and inputs (string? (car goal)) (sat? answer))
+      (define full (complete-solution answer (symbolics (hash-values inputs))))
+      (define sample (for/hash ([(k v) inputs])
+                       (define x (evaluate v full))
+                       (values k (if (bv? x) (bitvector->natural x) x))))
+      (raise (exn:fail:input-contract (format "~a/~a not proved: ~a" name (car goal) sample)
+                                     (current-continuation-marks) (car goal) sample)))
     (unless (unsat? answer) (error 'refinement "~a/~a not proved: ~a" name (car goal) answer))))
 
 #| Compare observation names and care, and compare values exactly when cared about. |#
@@ -86,6 +95,9 @@
   (define model (spec_snapshot spec-model))
   (define spec (symbolic-spec-edge model))
   (define inputs (edge-inputs spec))
+  (define assumptions (spec-input-assumptions model inputs))
+  (when (and relation (positive? (hash-count assumptions)))
+    (error 'prove-leaf "input assumptions require a combinational leaf"))
   (define layout (leaf_layout definition (prefixes definition)))
   (define packed (pack-pins (first layout) inputs))
   (define plan (and relation (prepare_transition_snapshot snapshot "clock")))
@@ -109,7 +121,8 @@
                          (relation (transition_step_state rtl) (edge-next spec)) common)]
     [else
      (unless (zero? (hash-count (edge-state spec))) (error 'prove-leaf "expected a stateless model"))
-     (check-phase 'combinational #t (cons (cons 'domain (edge-legal spec)) common))])
+     (check-phase 'combinational (andmap identity (hash-values assumptions))
+                  (cons (cons 'domain (edge-legal spec)) common))])
   (refinement-result definition model protocol layout))
 
 #| Before any parent query, resolve each site's exact definition and full spec (start, sorts,
@@ -130,8 +143,11 @@
                                               (host-equal? target (refinement-result-model r)))) candidates))
       (unless matched (error 'prepare-proved-wiring "evidence does not cover contract at ~a" site))
       (values site (refinement-result-model matched))))
-  (proved-cut definition layout graph
-              (for/fold ([all models]) ([(site rtl) locals]) (hash-set all site rtl))))
+  (define all (for/fold ([all models]) ([(site rtl) locals]) (hash-set all site rtl)))
+  (when (for/or ([model (hash-values models)]) (positive? (hash-count (hash-ref model "assumptions"))))
+    (define-values (inputs legal goals) (wired-input-obligations graph all))
+    (check-phase 'child-input legal goals #:inputs inputs))
+  (proved-cut definition layout graph all))
 
 #| Access the admitted operational model for one occurrence, e.g. to allocate its abstract state. |#
 (define (proved-child-model plan site) (hash-ref (proved-cut-models plan) site))
@@ -150,6 +166,8 @@
   (clean-vc!)
   (define model (spec_snapshot spec-model))
   (define graph (proved-cut-graph plan))
+  (unless (zero? (hash-count (hash-ref model "assumptions")))
+    (error 'prove-parent "parent contracts must be unconditional"))
   (unless (host-equal? (hash-ref graph "inputs") (hash-ref model "inputs"))
     (error 'prove-parent "parent input schema mismatch"))
   (for ([(k field) (hash-ref model "outputs")])

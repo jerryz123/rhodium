@@ -162,6 +162,20 @@ See the [arbiter](../../examples/formal/arbiter.rspl) for combinational
 priority and the [FIFO](../../examples/formal/shift-queue.rspl) for guarded head
 reads and an explicit simultaneous enqueue/dequeue update.
 
+A combinational leaf can declare a named Boolean input assumption. For example,
+the [two-lane selector](../../examples/formal/granted-selector.rspl) declares
+`assume exclusive = !(enable_a && enable_b)`. Neither lane need be enabled:
+idle returns zero. One enabled lane returns its word. Both enabled is outside
+the contract; rspecsim rejects that sample. Assumptions may use current scalar
+inputs and constants, not state or history. Multiple assumptions are conjoined.
+
+The [parent RTL](../../examples/formal/granted-selector.rhdl) accepts arbitrary
+requests, including simultaneous ones. Its verified arbiter drives the selector
+with grants. Before using the selector's guarantee, the checker proves its
+assumption from those wires. Driving the enables with the raw requests instead
+yields a counterexample, not a restricted parent proof. Clocked leaf and parent
+refinement currently require unconditional contracts.
+
 ### Specify a parent without copying its implementation
 
 The [ArbiterQueue contract](../../examples/formal/arbiter-queue.rspl) predicts
@@ -246,6 +260,7 @@ types: `SpecBool()`, `SpecBits(width)`, or `SpecSeq(scalar_type, capacity)`.
 Widths and capacities are positive. Values are Booleans, unsigned naturals
 that fit their width, and immutable lists of at most the declared capacity.
 `model.initial` is a complete concrete state, not an assumption about RTL startup.
+The optional `~assumptions` map binds names to Boolean input predicates.
 
 Build expressions using `literal`, `input_ref`, `state_ref`, Boolean `bool_not` /
 `bool_and`, `bits_equal` for equal-width packed operands, deterministic `choose_if`,
