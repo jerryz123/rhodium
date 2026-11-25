@@ -1502,6 +1502,13 @@ context/epoch against the actual candidate. Revisit this boundary if WB gains
 a stall or translation can change independently. With an external MMU,
 `candidate_current` remains a live WB veto.
 
+For the distributed backend, MEM also classifies whether this descriptor
+would take the direct route **if certified**, and captures that bit on the
+same edge as the descriptor. Only WB can let it follow an older opposite-kind
+vector memory operation: the proof must still be valid, and WB must check
+the live outstanding owner and scalar memory ordering. The shape bit alone
+does not permit dispatch, retirement, or a physical request.
+
 An accepted certified descriptor retires normally. Only uncertified memory enters
 the retained WB owner and its younger scalar WB authorization barrier. Keep
 the shared admission controller's existing precertified bypass of page proof

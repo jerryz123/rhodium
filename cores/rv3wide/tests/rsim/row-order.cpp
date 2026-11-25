@@ -9,7 +9,9 @@ constexpr unsigned row_credits = 5;
 std::uint64_t pc = 0x8000, retired_pc, replay_pc, data, returned, staged;
 bool scalar_lookup, scalar_store, load_run, hold_loads;
 unsigned loads, replies;
-bool mixed, stride_order, indexed_order, indexed_scatter, index_proof;
+bool certificate_current = true;
+unsigned fast_proofs;
+bool mixed, stride_order, indexed_order, indexed_scatter, index_proof, whole_load;
 unsigned first_load, index_base=0x400, checked_address, checked_bytes;
 bool checked_gather;
 bool wide_scatter;
@@ -38,7 +40,7 @@ void step() {
   row_memory_in.presponse.pvalid = mixed ? !ordered.empty() && cycle >= release_at
                                : load_run ? loads != replies && !hold_loads
                                             : requests != acknowledgements && cycle >= ack_at;
-  vector_fast_in.pcandidate_ucurrent = 1;
+  vector_fast_in.pcandidate_ucurrent = certificate_current;
   eval();
   if(iterative_scatter || checked_gather) {
     vector_precheck_in.prequest.pready=(cycle%4)!=0;
@@ -66,6 +68,7 @@ void step() {
   vector_fast_in.presponse.pbits.pppn = 0;
   eval();
   if (!reset) {
+    if (vector_fast_in.presponse.pvalid) ++fast_proofs;
     for (const auto* r : {&retired_0_out, &retired_1_out, &retired_2_out})
       if (r->pvalid) { retired_pc = r->pbits.pfetched.ppc; returned = r->pbits.pdata; retire_cycle = cycle; }
     if (redirect_out.pvalid) {
@@ -75,7 +78,10 @@ void step() {
     if (row_memory_out.prequest.pvalid && row_memory_in.prequest.pready) {
       const auto& req = row_memory_out.prequest.pbits;
       const unsigned row_bytes=sizeof(req.pdata);
-      if (iterative_scatter) {
+      if (whole_load) {
+        CHECK(!req.pstore && req.paddress==0x440u+(loads-first_load)*row_bytes);
+        CHECK(req.pbyte_umask==low_mask(row_bytes));
+      } else if (iterative_scatter) {
         CHECK(req.pstore && req.paddress==0x400 && req.pbyte_umask==4);
         CHECK(ordered.size()==(unordered_slices ? requests-first_store : 0));
         if (!unordered_slices && requests==first_store) release_at=cycle+32;
@@ -149,12 +155,15 @@ void step() {
   scalar_store = pipeline_out.prequest.pbits.pmemory.paccess == 2;
   tick_model(); eval();
 }
-void send(unsigned insn) {
-  const auto here = pc; pc += 4;
+void offer(unsigned insn, std::uint64_t here) {
   instructions_in = {};
   instructions_in.pvalid = instructions_in.pbits.pcount = 1;
   auto& i = instructions_in.pbits.pentries[0];
   i.ppc = here; i.psequential_upc = here + 4; i.pinstruction = i.praw_uinstruction = insn;
+}
+void send(unsigned insn) {
+  const auto here = pc; pc += 4;
+  offer(insn, here);
   while (retired_pc != here) {
     eval();
     bool accepted = instructions_in.pvalid && instructions_out.pready;
@@ -163,6 +172,25 @@ void send(unsigned insn) {
     if (replay_pc == here) { instructions_in.pvalid = 1; replay_pc = 0; }
   }
   instructions_in.pvalid = 0;
+}
+
+// Revoke a successful MEM proof at the WB edge while the opposite-kind
+// owner is still live. WB must replay this PC, not start a checked load.
+void revoke_following_load(unsigned insn) {
+  const auto proofs = fast_proofs, old_loads = loads, acks = acknowledgements;
+  offer(insn, pc);
+  for (unsigned n=0; n<24 && replay_pc!=pc; ++n) {
+    eval();
+    bool accepted = instructions_in.pvalid && instructions_out.pready;
+    step();
+    if (accepted) instructions_in.pvalid=0;
+    if (fast_proofs!=proofs) certificate_current=false;
+    CHECK(retired_pc!=pc && loads==old_loads && acknowledgements==acks);
+    CHECK(!vector_precheck_out.prequest.pvalid);
+  }
+  CHECK(fast_proofs==proofs+1 && !certificate_current && replay_pc==pc);
+  replay_pc=0;
+  certificate_current=true;
 }
 
 // Give WB a faultable vector load and a younger scalar store in the same group.
@@ -269,6 +297,33 @@ int main() {
       CHECK(ordered.empty() && retire_cycle > last_reply);
       CHECK(replies == old_loads+1 && acknowledgements == old_stores+1);
     }
+    // A certified two-field unit-stride load can retire behind a disjoint
+    // unacknowledged store. With the same descriptor but a revoked proof it cannot.
+    send(0xc00072d7 | (1u<<15)); // VL=1, e8,m1
+    const auto before_segment=loads, before_ack=acknowledgements;
+    release_at=cycle+200;
+    send(0x02008427); while (ordered.empty()) step();
+    constexpr unsigned segment_load=0x22018607; // vlseg2e8.v v12,(x3)
+    revoke_following_load(segment_load);
+    send(segment_load);
+    while (loads==before_segment) { CHECK(cycle+1<release_at); step(); }
+    CHECK(acknowledgements==before_ack && ordered.size()==2 && !ordered.back());
+    release_at=cycle+1; send(0x0ff0000f);
+    CHECK(replies==before_segment+1 && ordered.empty());
+
+    // A whole-register load ignores VL=0. Hold both replies: the following
+    // empty segment store cannot follow it as Direct or issue any fragment.
+    send(0xc00072d7); // VL=0
+    whole_load=true; first_load=loads; release_at=cycle+80;
+    send(0x02818807); // vl1re8.v v16,(x3)
+    while (loads!=first_load+2) { CHECK(cycle+1<release_at); step(); }
+    const auto before_empty=fast_proofs, empty_stores=requests;
+    send(0x22008427); // vsseg2e8.v v8,(x1)
+    CHECK(retire_cycle>last_reply && replies==first_load+2 && ordered.empty());
+    CHECK(fast_proofs==before_empty && requests==empty_stores);
+    whole_load=false;
+    send(0xc00072d7 | (sizeof(row_memory_in.presponse.pbits)<<15));
+
     // One DLEN row on each production geometry. Keep the store outstanding
     // while VLSeq captures the 0x33 predicate and VXSeq overwrites v0.
     send((23u<<26)|(1u<<25)|(2u<<15)|(4u<<12)|0x57); // vmv.v.x v0,x2

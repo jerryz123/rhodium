@@ -1306,10 +1306,23 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   // reinterpret its address squashes it; the MMU suppresses proofs on invalidation.
   def mem_masking_current = mem_descriptor.pointer_masking.as_bits() === wb_csrs.pointer_masking.as_bits()
   def mem_certified = (mem_descriptor_lane === mem_vector_lane) & vector_fast.response.valid & mem_masking_current
-  when (any(mem_vector_claims)):
+  def mem_vector_handoff = any(mem_vector_claims)
+  when mem_vector_handoff:
     assert(mem_descriptor_lane === superscalar_service_lane(mem_vector_claims), "superscalar_mem_vector_handoff")
     wb_descriptor_lane <== mem_descriptor_lane
     wb_descriptor <== mem_descriptor.updated(~precertified: mem_certified, ~certificate: vector_fast.response.bits)
+
+  /* MEM classifies the descriptor assuming a valid physical proof. Capture
+     the shape bit with its owner; it cannot authorize anything by itself. */
+  def wb_direct_if_certified = if distributed_rows
+  | block:
+      reg direct(Bool)
+      def proven = mem_descriptor.updated(~precertified: Bool(#true))
+      when mem_vector_handoff:
+        direct <== memory_route(xlen, profile.vector_length, proven, Bool(#true)) === MemoryRoute.Direct
+
+      direct
+  | Bool(#false)
 
   /* MEM branch recovery. Select the oldest valid mismatch and its successor
      independently of the lookup. A stop at or before that lane vetoes the
@@ -1503,8 +1516,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     | block:
         def store = wb_vector.vector.store
         def outstanding = vector.native_outstanding_store
-        def route = memory_route(xlen, profile.vector_length, wb_descriptor, wb_vector_certified)
-        outstanding.valid & (outstanding.bits =/= store) & !scalar_memory.ordered_busy & (route === MemoryRoute.Direct)
+        wb_direct_if_certified & wb_vector_certified & outstanding.valid & (outstanding.bits =/= store) & !scalar_memory.ordered_busy
     | Bool(#false)
   def wb_vector_ordered = !wb_vector.vector.memory ||| ((wb_prior_memory_drained ||| wb_follow_native) & !wb_memory_completion.pending & !wb_ordered_memory_pending)
   def wb_vector_gpr_write = wb_vector.vector.integer_destination & wb_vector.write
