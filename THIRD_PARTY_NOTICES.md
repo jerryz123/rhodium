@@ -36,7 +36,9 @@ the repository's Apache-2.0 license does not replace those terms:
 
 CoreMark is used only from its pinned upstream checkout. Its license, result
 reporting conditions, acceptable-use terms, and trademark notice remain in
-[`sw/coremark/LICENSE.md`](sw/coremark/LICENSE.md).
+[`sw/coremark/LICENSE.md`](sw/coremark/LICENSE.md), which includes both the
+original EEMBC terms and Apache-2.0 text. Preserve the applicable upstream
+source headers and notices.
 Rhodium uses CoreMark as a short functional workload and does not report a
 benchmark score.
 
@@ -109,8 +111,8 @@ own notices. The build-local model package retains those license files.
 
 OpenSBI's pinned upstream checkout remains pristine. The ordered
 [`sw/opensbi-patches/series`](sw/opensbi-patches/series) adapts HTIF initialization
-only in a build-local copy. OpenSBI and the upstream-derived patch retain the
-BSD-2-Clause license, which remains in
+and C11 compiler compatibility only in a build-local copy. OpenSBI and the
+upstream-derived patches retain the BSD-2-Clause license, which remains in
 [`sw/opensbi/COPYING.BSD`](sw/opensbi/COPYING.BSD).
 
 ## Buildroot Linux workload

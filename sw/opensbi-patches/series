@@ -1,3 +1,4 @@
-# Initializes firmware-owned HTIF reset while preserving DT-discovered console selection.
+# Orders build-local OpenSBI HTIF reset and C11 compiler compatibility adaptations.
 # SPDX-License-Identifier: Apache-2.0
 0001-generic-direct-htif.patch
+0002-rpmi-mm-scope-response-declaration.patch

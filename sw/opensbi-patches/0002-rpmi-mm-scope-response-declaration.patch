@@ -1,0 +1,23 @@
+Keep RPMI memory-management response declarations inside a C11 case block.
+SPDX-License-Identifier: BSD-2-Clause
+
+Clang rejects a declaration immediately after a case label under OpenSBI's
+C11 warning-as-error build. Scope the GET_ATTRIBUTES case without changing
+its payload processing or fall-through behavior. Apply only to build-local sources.
+
+diff --git a/lib/utils/mpxy/fdt_mpxy_rpmi_bridge_mm.c b/lib/utils/mpxy/fdt_mpxy_rpmi_bridge_mm.c
+--- a/lib/utils/mpxy/fdt_mpxy_rpmi_bridge_mm.c
++++ b/lib/utils/mpxy/fdt_mpxy_rpmi_bridge_mm.c
+@@ -158,4 +158,4 @@ static int mpxy_rpmi_mm_complete(struct mpxy_bridge_src_ctx *src,
+ 	switch (src->header.service_id) {
+-		case RPMI_MM_SRV_GET_ATTRIBUTES:
++		case RPMI_MM_SRV_GET_ATTRIBUTES: {
+ 			struct rpmi_mm_get_attributes_rsp *attr_rsp;
+ 			attr_rsp = 	(struct rpmi_mm_get_attributes_rsp *)payload;
+@@ -165,5 +165,6 @@ static int mpxy_rpmi_mm_complete(struct mpxy_bridge_src_ctx *src,
+ 			mm_shmem.size = le32_to_cpu(attr_rsp->mma.shmem_size);
+ 			attr_rsp->status = RPMI_SUCCESS;
+ 			break;
++		}
+ 
+ 		case RPMI_MM_SRV_COMMUNICATE:

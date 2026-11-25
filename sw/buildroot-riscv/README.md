@@ -24,9 +24,11 @@ without building software. Select `simple-rv5stage-rva23` or
 `simple-rv2wide-rva23` for RTL, using the normal simulator options. The intended
 initial qualification order is Spike, RV5Stage, then RV2Wide.
 
-Buildroot is pinned at tag `2026.08.1` (gitlink `7fdeadb3b9f12f78e5fccca914d7fef47090ab9a`);
-Linux is checksum-pinned to `6.18.7`. The existing OpenSBI pin and FW_JUMP builder
-are reused. Buildroot supplies the static musl userspace toolchain and projects
+Buildroot is pinned to upstream `master` at
+`a5f3c5d1a42bec0df855753e6c85848d8fdf5746`, rather than the previous
+`2026.08.1` release line. Linux is checksum-pinned to `6.18.7`. The OpenSBI pin
+and FW_JUMP builder are shared with the firmware workload.
+Buildroot supplies the static musl userspace toolchain and projects
 the selected target's compiler ISA, including vector extensions, into its config.
 
 ## Boot and artifact contract
