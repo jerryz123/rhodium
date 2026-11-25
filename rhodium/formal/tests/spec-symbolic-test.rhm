@@ -34,3 +34,19 @@ solver.check_guard(guarded(off, Observed(bool_and(gate, bad)), empty))
 solver.check_guard(guarded(off, off, choose_if(gate, seq_tail(empty), full)))
 solver.check_guard(guarded(off, off, choose_if(gate, seq_append(full, gate), empty)))
 solver.check_guard(guarded(Observed(gate, bool_and(gate, bad)), off, empty))
+
+// A demanded uncared pin and a violated sampler domain are undefined, not excluded inputs.
+def pin = input_ref("pin", flag)
+def sample_inputs = {"gate": flag, "pin": flag}
+def observe_pin = make_spec(sample_inputs, {}, {}, {}, {"ev": Observed(pin, gate)}, {})
+def limit_domain = make_spec(sample_inputs, {}, {}, {}, {"ev": Observed(pin)}, {},
+                             ~assumptions: {"outside": bool_not(gate)})
+for ([source, output] in [[observe_pin, off], [limit_domain, Observed(gate)]]):
+  def outputs = {"pin": output}
+  def events = include_sampled_events(source, outputs, {})
+  def model = make_spec({"gate": flag}, {}, {}, outputs, events, {})
+  check:
+    step_spec(model, {}, {"gate": #true}) ~throws "undefined event sample"
+    step_spec(model, {}, {"gate": #false}).events ~is (if source === observe_pin | {} | {"ev": #false})
+    include_sampled_events(source, outputs, {"ev": off}) ~throws "duplicate spec declaration"
+  solver.check_guard(spec_snapshot(model))

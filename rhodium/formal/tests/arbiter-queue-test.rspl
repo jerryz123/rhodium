@@ -3,6 +3,7 @@
 
 import:
   "../../../examples/formal/arbiter-queue.rspl".ArbiterQueue
+  "../fifo-view.rhm".sample_fifo_events
   "../../../examples/formal/gated-arbiter-queue.rspl".GatedArbiterQueue
   lib("examples/formal/arbiter-queue.rhdl") as design
   "shift-queue-fixture.rhdl" as leaves
@@ -19,6 +20,7 @@ import:
   "arbiter-queue-binding.rhm".correct_model
   "arbiter-queue-binding.rhm".wrong_lane_model
   "arbiter-queue-binding.rhm".undersized_model
+  "arbiter-queue-binding.rhm".crossed_sampler
   "composition-binding.rhm" as rtl
   lib("rhodium/frontend/layers/bool.rhm").Bool as rtl_bool
   "../wiring.rhm" as bridge
@@ -216,6 +218,44 @@ def bad = wrong_lane_model
 def contest = {"reset": #false, "ingress[0].valid": #true, "ingress[0].bits": 2, "ingress[1].valid": #true, "ingress[1].bits": 3, "egress.ready": #false}
 def clear = contest ++ {"reset": #true}
 def take = contest ++ {"ingress[0].valid": #false, "ingress[1].valid": #false, "egress.ready": #true}
+
+// Passing the helper as a value must preserve its pin-domain obligation on the cycle path too.
+def dual_grant:
+  spec for design.ArbiterQueue:
+    let transfers = ready_valid_events
+    events transfers(reset, ingress, egress)
+    observe ingress[0].ready = #true
+    observe ingress[1].ready = #true
+    observe egress.valid = #false
+    observe egress.bits = ingress[0].bits when #false
+  ArbiterQueue(rtl.mixed)
+check:
+  step_spec(dual_grant, {}, clear).events ~is {"reset": #true}
+  step_spec(dual_grant, {}, contest) ~throws "exclusive-ingress"
+
+// Sample a reachable contest from reset and drain its winner. Supply arbitrary physical
+// values only for pins outside cycle-spec care; they must not affect the transaction batch.
+def physical_defaults = {"ingress[0].ready": #true, "ingress[1].ready": #true,
+                         "egress.valid": #true, "egress.bits": 0}
+for (depth in [1, 2, 3]):
+  def top = rtl.parent_at(depth)
+  def model = ArbiterQueue(top)
+  def view = ArbiterQueue(top, ~event_view: #true)
+  fun sample(inputs, edge): sample_fifo_events(view, inputs ++ physical_defaults ++ edge.outputs)
+  def z = step_spec(model, model.initial, clear)
+  def win = step_spec(model, z.next_state, contest)
+  def drain = step_spec(model, win.next_state, take)
+  def second_only = contest ++ {"ingress[0].valid": #false}
+  def second = step_spec(model, drain.next_state, second_only)
+  check:
+    sample(clear, z) ~is {"reset": #true}
+    sample(contest, win) ~is {"accepted": 2}
+    sample(take, drain) ~is {"retired": 2}
+    sample(second_only, second) ~is {"accepted": 3}
+    // A passive observer follows actual handshakes, even on pins a different arbiter would drive.
+    sample_fifo_events(view, contest ++ physical_defaults ++ {"ingress[0].ready": #false}) ~is {"accepted": 3}
+    sample_fifo_events(view, contest ++ physical_defaults) ~throws "exclusive-ingress"
+
 def tied = step_spec(bad, step_spec(bad, bad.initial, clear).next_state, contest)
 def wrong = step_spec(bad, tied.next_state, take)
 def want = step_spec(parent, step_spec(parent, parent.initial, clear).next_state, contest)
@@ -229,6 +269,7 @@ check:
   tied.outputs["ingress[0].ready"] ~is #true
   tied.outputs["ingress[1].ready"] ~is #false
   want.events ~is {"accepted": 2}
+  sample_fifo_events(crossed_sampler("payload"), contest ++ physical_defaults ++ want.outputs) ~is {"accepted": 3}
   retired.events ~is {"retired": 2}
   wrong.outputs["egress.valid"] ~is #true
   wrong.outputs["egress.bits"] ~is 3

@@ -238,16 +238,19 @@
   (fifo-transactions definition (fifo_view_layout view) ingress egress capacity width
                      (spec_snapshot sampler) (spec_snapshot (fifo_monitor capacity width))))
 
-#| Interpret the declared passive sampler, preserving presence even for a zero payload. |#
+#| Interpret the declared passive sampler. Its pin-domain predicates are obligations on the
+   sampled hardware, never constraints on the cycle states or inputs the solver explores. |#
 (define (sampled-fifo-batch contract pins)
-  (define e (spec-edge-at (fifo-transactions-sampler contract) (hash) pins))
+  (define sampler (fifo-transactions-sampler contract))
+  (define e (spec-edge-at sampler (hash) pins))
   (define events (edge-events e))
   (define accepted (hash-ref events "accepted"))
   (define retired (hash-ref events "retired"))
   (values (fifo-events (observation-care (hash-ref events "reset"))
                        (observation-care accepted) (observation-value accepted)
                        (observation-care retired) (observation-value retired))
-          (&& (edge-legal e) (edge-defined e))))
+          (&& (edge-legal e) (edge-defined e)
+              (allowed-inputs? sampler pins))))
 
 #| Apply the same monitor as rspecsim. Bridge mathematical occupancies to finite sequence
    counts without admitting wraparound, and compare only the successor's live prefix. |#
@@ -293,7 +296,7 @@
   (define inputs (edge-inputs e))
   (define reset (hash-ref inputs "reset"))
   (define-values (pins pins-ok)
-    (for/fold ([pins inputs] [ok #t]) ([k (list (second ingress) (first egress) (third egress))])
+    (for/fold ([pins inputs] [ok #t]) ([k (append (map second ingress) (list (first egress) (third egress)))])
       (unless (hash-has-key? (edge-outputs e) k)
         (error 'derive-fifo-transactions "cycle evidence does not cover output ~a" k))
       (define-values (v defined) (spec-pin-at model k (edge-state e) inputs))
@@ -304,7 +307,8 @@
     (match-define (sequence-value n slots) (hash-ref state history-field))
     (fifo-history (bitvector->natural n) slots))
   (define goals
-    (list (cons 'defined (&& (edge-defined e) pins-ok sampler-ok (spec-state-legal? (edge-next e))))
+    (list (cons 'sampler-domain sampler-ok)
+          (cons 'defined (&& (edge-defined e) pins-ok (spec-state-legal? (edge-next e))))
           (cons 'event-relation (fifo-allows? contract (history (edge-state e)) batch (history (edge-next e))))))
   (check-phase 'cycle-to-fifo-reset (&& (edge-legal e) reset) goals)
   (check-phase 'cycle-to-fifo-step (&& (edge-legal e) (! reset)) goals)
@@ -318,7 +322,7 @@
   (unless (and (host-eq? (fifo-transactions-definition contract) (proved-cut-definition plan))
                (host-equal? (fifo_view_layout view) (proved-cut-layout plan)))
     (error 'fifo-transactions "view does not match the RTL cut"))
-  (define ingress (fifo-transactions-ingress contract))
+  (define ingress (single-ingress (fifo-transactions-ingress contract)))
   (define egress (fifo-transactions-egress contract))
   (define-symbolic* rst offered consuming boolean?)
   (define-symbolic* word (bitvector (fifo-transactions-width contract)))
@@ -337,6 +341,11 @@
   (check-phase 'transaction-reset (&& legal rst) goals)
   (check-phase 'transaction-step (&& legal (! rst)) goals)
   contract)
+
+#| The direct-cut and series profiles connect exactly one handshake at each endpoint. |#
+(define (single-ingress lanes)
+  (unless (= (length lanes) 1) (error 'fifo-wiring "expected a single FIFO ingress"))
+  (first lanes))
 
 #| Check the two external handshakes and the internal valid/ready/payload paths against the actual
    parent drivers. Only this direct, shared-epoch cut licenses identifying the two middle events. |#
@@ -368,8 +377,8 @@
     (match-define (list tv tr td) to)
     (wire! tv fv) (wire! fr tr) (wire! td fd))
   (for* ([site (list a b)] [p '("clock" "reset")]) (wire! (pin site p) p))
-  (link! ingress (at a (fifo-transactions-ingress front)))
-  (link! (at a (fifo-transactions-egress front)) (at b (fifo-transactions-ingress back)))
+  (link! ingress (at a (single-ingress (fifo-transactions-ingress front))))
+  (link! (at a (fifo-transactions-egress front)) (at b (single-ingress (fifo-transactions-ingress back))))
   (link! (at b (fifo-transactions-egress back)) egress)
   ;; Four epoch drivers and three links of three wires each; no additional sinks.
   (unless (= 13 (hash-count wires)) (error 'fifo-series "unexpected parent or child wiring")))
@@ -387,7 +396,7 @@
    No cycle offers are predicted; the checked wires justify sharing one transfer and word. |#
 (define (compose-fifo-series view front-site front back-site back)
   (define-values (top ingress egress width sampler) (fifo_view_parts view))
-  (check-series-wiring! top ingress egress front-site front back-site back)
+  (check-series-wiring! top (single-ingress ingress) egress front-site front back-site back)
   (unless (= width (fifo-transactions-width front)) (error 'fifo-series "parent payload width mismatch"))
   (define capacity (+ (fifo-transactions-capacity front) (fifo-transactions-capacity back)))
   (define contract (candidate-fifo view capacity))
@@ -406,7 +415,7 @@
   (define out (fresh-link))
   #| Wire one declared sampler to the shared triples justified by the structural check. |#
   (define (sample child incoming outgoing)
-    (define pins (append (fifo-transactions-ingress child) (fifo-transactions-egress child)))
+    (define pins (append (single-ingress (fifo-transactions-ingress child)) (fifo-transactions-egress child)))
     (sampled-fifo-batch child (for/fold ([m (hash "reset" reset)]) ([k pins] [v (append incoming outgoing)])
                                 (hash-set m k v))))
   (define-values (front-batch front-ok) (sample front in handoff))

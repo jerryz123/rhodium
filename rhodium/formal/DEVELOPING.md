@@ -358,6 +358,21 @@ declared capacity and agree on length and live words, not padding. A one-slot
 FIFO cannot admit while retiring; the larger specializations must exhibit
 such an edge. Prove reset from unrelated legal states, then check cared
 output pins, externally decoded transfer events, and successor agreement.
+
+The [two-lane transaction proof](tests/arbiter-queue-transactions.rkt) takes
+only that parent certificate, its bound view, and the sequence field `pending`.
+The `events` clause captures a helper expression at its lexical site. Its
+stateless sampler is bound once per construction: cycle execution substitutes
+the model's observed outputs into the event expressions, while the passive
+view still reads external pins. A demanded but uncared output is undefined,
+and a sampler domain remains a proof obligation in both interpretations.
+Neither the physical view nor the helper callback enters the cycle snapshot.
+Its exclusivity predicate is a domain check in rspecsim and a **conclusion**
+of the reset/step solver queries, never a premise. Crossed payload bindings
+fail the FIFO relation; crossing an ingress ready with egress valid permits
+a double transfer and fails the sampler-domain obligation. Single-ingress
+series wiring remains a separate, narrower proof rule.
+
 Both [faulty parents](tests/arbiter-queue-fixture.rhdl) have the same interface as
 the correct parent but are separate circuit declarations. Always build the reference
 contract from the correct parent at the requested depth. At each depth the wrong-lane

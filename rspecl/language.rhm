@@ -15,6 +15,7 @@ export:
   all_from(lib("rhodium/formal/spec-dsl.rhm")):
     except operand
   spec
+  rename: boundary.ready_valid_events as ready_valid_events
 
 meta:
   import lib("racket/base.rkt").#{syntax-local-context} as expansion_context
@@ -91,6 +92,7 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
   def updates = MutableMap{}
   def assumptions = MutableMap{}
   def mutable ignored = []
+  def mutable event_source = #false
   def mutable body = []
   /* Capture a declaration's value at its lexical site, not after later shadowing. */
   fun record(table :: MutableMap, key :: String, rhs :: Syntax, site :: Syntax):
@@ -118,6 +120,10 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
         state_clause(n, '$t ...', '($v ...)', #false, clause)
     | 'output $n ... = $v ...': record(outputs, field_name('$n ...'), observation('$v ...'), clause)
     | 'event $n ... = $v ...': record(events, field_name('$n ...'), observation('$v ...'), clause)
+    | 'events $rhs ...':
+        when event_source | syntax_meta.error("duplicate sampled event source", clause)
+        event_source := Syntax.make_temp_id("event_source")
+        body := body ++ ['def $event_source = $rhs ...']
     | 'assume $(n :: Identifier) = $v ...': record(assumptions, field_name(n), 'operand($v ...)', clause)
     | 'next $(n :: Identifier) = $v ...':
         def key = field_name(n)
@@ -127,7 +133,22 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
 
   let [decl, ...] = body
   let [skip, ...] = ignored
-  'fun $name(top):
+  def args = if event_source | '(top, ~event_view: view_only = #false)' | '(top)'
+  def build = 'ir.make_spec(bound.ports.inputs, $(map_expr(states)), $(map_expr(initial)),
+                            cycle_outputs, cycle_events, $(map_expr(updates)), ~assumptions: $(map_expr(assumptions)))'
+  def finish:
+    if event_source
+    | '«
+         def view = $event_source(top)
+         def cycle_events = ir.include_sampled_events(view.sampler, cycle_outputs, $(map_expr(events)))
+         def checked = check_output_types($build, bound.ports.outputs, [$skip, ...])
+         if view_only | view | checked
+       »'
+    | '«
+         def cycle_events = $(map_expr(events))
+         check_output_types($build, bound.ports.outputs, [$skip, ...])
+       »'
+  'fun $name $args:
      def bound = boundary.declared_ports(top, $family, $sync)
      def $pin = ir.input_ref($pin_key, bound.ports.inputs[$pin_key])
      ...
@@ -139,7 +160,5 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
      ...
      $decl
      ...
-     def model = ir.make_spec(bound.ports.inputs, $(map_expr(states)), $(map_expr(initial)),
-                              $(map_expr(outputs)), $(map_expr(events)), $(map_expr(updates)),
-                              ~assumptions: $(map_expr(assumptions)))
-     check_output_types(model, bound.ports.outputs, [$skip, ...])'
+     def cycle_outputs = $(map_expr(outputs))
+     $finish'

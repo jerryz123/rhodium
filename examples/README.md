@@ -310,7 +310,7 @@ hardware-preservation contracts.
 | ShiftQueue | [Flow queue](../flow/shift-queue.rhdl) | [Cycle model](formal/shift-queue.rspl) and [grouped FIFO transaction view](formal/shift-queue-transactions.rspl) |
 | TwoTagROB | [Two-tag reorder buffer](formal/two-tag-rob.rhdl) | [Ordered retirement with generation-matched results](formal/two-tag-rob.rspl) |
 | GatedArbiterQueue | [Registered admission wrapper](formal/gated-arbiter-queue.rhdl) | [Admission and ordered drain](formal/gated-arbiter-queue.rspl) |
-| ArbiterQueue | [Parent wiring](formal/arbiter-queue.rhdl) connecting the Flow leaves | [Accepted winners retire in order](formal/arbiter-queue.rspl) |
+| ArbiterQueue | [Parent wiring](formal/arbiter-queue.rhdl) connecting the Flow leaves | [Cycle model with two-lane ready/valid events](formal/arbiter-queue.rspl) |
 
 The leaf specs import the Flow declarations directly. ArbiterQueue is example-owned,
 so its spec imports the sibling RTL. The parent spec keeps an independent history of

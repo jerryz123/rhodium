@@ -12,11 +12,13 @@ import:
   lib("rhodium/frontend/layers/interface.rhm") as iface
   lib("rhodium/formal/port-types.rhm") open
   lib("rhodium/formal/spec.rhm").input_ref
+  lib("rhodium/formal/spec.rhm").SpecExpr
   lib("rhodium/formal/fifo-view.rhm").make_fifo_view
 
 export declared_ports interface_prefixes Endpoint
 export bind_fifo_view
 export bind_grouped_fifo_view
+export ready_valid_events
 
 /* Flat logical field schemas and lexical views, with no RTL drivers or implementation state. */
 class Boundary(ports :: SampledPorts, endpoints :: Map, arrays :: Map, parameters :: Map):
@@ -25,10 +27,16 @@ class Boundary(ports :: SampledPorts, endpoints :: Map, arrays :: Map, parameter
     unless parameters.has_key(name) | error("not an integer or Boolean RTL parameter: " ++ name)
     parameters[name]
 
+/* A lexical group retains its elaborated name; cycle expressions can read only its inputs. */
+class Group(name :: String, inputs :: Map)
+
+/* Read an input member without accidentally exposing the group's metadata as a port. */
+fun group_input(group :: Group, key :: String): group.inputs[key]
+
 annot.macro 'Endpoint':
-  annot_meta.pack_predicate('fun (v): v is_a Map', '(($(statinfo_meta.dot_provider_key), endpoint_dot))')
+  annot_meta.pack_predicate('fun (v): v is_a Group', '(($(statinfo_meta.dot_provider_key), endpoint_dot))')
 dot.macro 'endpoint_dot $left $dot $right':
-  '$left [$(right.to_source_string())]'
+  'group_input($left, $(right.to_source_string()))'
 
 /* Resolve group array indices once for both lexical references and netlist cuts. */
 fun group_prefixes(top :: Module):
@@ -73,7 +81,7 @@ fun declared_ports(top :: Module, family :: CircuitIdentity, synchronous :: Bool
             ins[key] := sort
             members[f.name] := input_ref(key, sort)
         | outs[key] := sort
-    endpoints[prefix] := members.snapshot()
+    endpoints[prefix] := Group(prefix, members.snapshot())
   for (a in array_groups):
     arrays[a.name] := a.groups.map(fun (g): endpoints[prefixes[g.name]])
   for (p in top.inputs ++ top.outputs):
@@ -90,14 +98,29 @@ fun declared_ports(top :: Module, family :: CircuitIdentity, synchronous :: Bool
 fun bind_fifo_view(top :: Module, family :: CircuitIdentity, synchronous :: Boolean, names :: List.of(String)):
   checked_circuit_parameters(top, family)
   unless synchronous | error("expected a synchronous FIFO")
-  make_fifo_view(top, names, Bool)
+  let [rst, iv, ir, iw, ov, or_pin, ow] = names
+  make_fifo_view(top, rst, [[iv, ir, iw]], [ov, or_pin, ow], Bool)
 
-/* Resolve two real interface groups to their directional valid, ready, and bits members. */
+/* Resolve a single ingress or a two-lane ingress array and one egress from declared groups. */
 fun bind_grouped_fifo_view(top :: Module, family :: CircuitIdentity, synchronous :: Boolean,
                            reset :: String, incoming :: String, outgoing :: String):
   def bound = declared_ports(top, family, synchronous)
-  unless synchronous && bound.endpoints.has_key(incoming) && bound.endpoints.has_key(outgoing)
+  unless synchronous && (bound.endpoints.has_key(incoming) || bound.arrays.has_key(incoming))
+         && bound.endpoints.has_key(outgoing)
   | error("expected two declared synchronous FIFO interface groups")
-  def names = for List (group in [incoming, outgoing]):
-    [group ++ ".valid", group ++ ".ready", group ++ ".bits"]
-  make_fifo_view(top, [reset] ++ names[0] ++ names[1], Bool, interface_prefixes(top))
+  def lanes = if bound.arrays.has_key(incoming) | bound.arrays[incoming] | bound.endpoints[incoming]
+  grouped_view(top, reset, lanes, bound.endpoints[outgoing])
+
+/* Bind the actual member roles before a sampler is used for either replay or certification. */
+fun grouped_view(top :: Module, reset :: String, incoming :: Group || List.of(Group), outgoing :: Group):
+  /* Project the valid/ready/payload roles of a declared group, including its physical array index. */
+  fun members(group :: Group): [group.name ++ ".valid", group.name ++ ".ready", group.name ++ ".bits"]
+  def lanes = if incoming is_a Group | [incoming] | incoming
+  when incoming is_a List && lanes.length() != 2 | error("expected two FIFO ingress lanes")
+  make_fifo_view(top, reset, lanes.map(members), members(outgoing), Bool, interface_prefixes(top))
+
+/* An ordinary function over lexical endpoints. Its result binds one checked sampler for both
+   cycle events and passive replay; it neither chooses a winner nor supplies proof evidence. */
+fun ready_valid_events(reset :: SpecExpr, incoming :: Group || List.of(Group), outgoing :: Group):
+  unless reset.op == "input" | error("expected a sampled reset input")
+  fun (top :: Module): grouped_view(top, reset.datum, incoming, outgoing)

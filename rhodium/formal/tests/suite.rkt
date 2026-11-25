@@ -6,6 +6,7 @@
          (submod "arbiter-refinement.rkt" test)
          "selector-refinement.rkt"
          "arbiter-queue-order.rkt"
+         (submod "arbiter-queue-transactions.rkt" test)
          "buffered-arbiter-queue-order.rkt"
          "gated-arbiter-queue-order.rkt"
          "two-tag-rob-proof.rkt"

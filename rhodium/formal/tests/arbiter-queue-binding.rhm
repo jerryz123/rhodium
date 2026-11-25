@@ -13,6 +13,7 @@ import:
   "../wiring.rhm" open
   "../spec.rhm" open
   "../snapshot.rhm".formal_snapshot
+  "../fifo-view.rhm".make_fifo_view
   "composition-binding.rhm" open
   "arbiter-queue-fixture.rhdl".SeparateReset
 export rob_case rob_replay
@@ -21,6 +22,17 @@ export buffered_cut separate_reset_cut
 export ordering_case correct_model wrong_lane_model undersized_model
 export alternate_cut swapped_view_cut fresh_cut
 export undersized_rtl correct_rtl one_slot_rtl depth_two_contract
+export crossed_sampler
+
+// Keep the real layout and sorts but swap either the two payloads or two output controls.
+fun crossed_sampler(fault):
+  def bad_word = fault == "payload"
+  unless bad_word || fault == "ready" | error("unknown sampler fault")
+  def lanes = [["ingress[0].valid", "ingress[0].ready", if bad_word | "ingress[1].bits" | "ingress[0].bits"],
+               ["ingress[1].valid", if bad_word | "ingress[1].ready" | "egress.valid",
+                if bad_word | "ingress[0].bits" | "ingress[1].bits"]]
+  make_fifo_view(mixed, "reset", lanes, [if bad_word | "egress.valid" | "ingress[1].ready", "egress.ready", "egress.bits"],
+                 Bool, interface_prefixes(mixed))
 
 fun bindings(depth):
   Map.by(===){arbiter_definition: Arbiter(arbiter_definition),

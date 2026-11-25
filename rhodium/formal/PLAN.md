@@ -61,7 +61,11 @@ children there. An [independent parent contract](../../examples/formal/arbiter-q
 records external winners, not child events or instance connections. The proof
 establishes separately at depths 1, 2, and 3 that each dequeue returns the
 oldest accepted winner since reset. Its successful refinement result can
-itself authorize substitution. The [next level](tests/buffered-arbiter-queue-order.rkt)
+itself authorize substitution. A [two-lane transaction proof](tests/arbiter-queue-transactions.rkt)
+now uses the ready/valid events declared in the cycle spec and projects its
+`pending` sequence without reopening either child. It proves exclusivity of
+actual ingress transfers and exports order and capacity, not arbitration policy.
+The [next level](tests/buffered-arbiter-queue-order.rkt)
 proves ordered retirement with an additional one-slot FIFO using only the
 ArbiterQueue and FIFO specs. Wrong-lane wiring fails induction and cannot
 supply that result. These proofs do not inspect child RTL state and are not

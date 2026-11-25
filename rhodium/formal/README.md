@@ -362,6 +362,25 @@ retired must be the kth word accepted since reset, and occupancy is bounded by
 depth. A client of the transaction result alone cannot infer readiness or
 read the physical occupancy mask.
 
+The [ArbiterQueue spec](../../examples/formal/arbiter-queue.rspl) defines its
+cycle behavior and includes its transaction events in the same body:
+
+```rhombus
+  events ready_valid_events(reset, ingress, egress)
+```
+
+`ready_valid_events` is an ordinary function of the lexical reset and endpoints.
+`ArbiterQueue(top)` executes its events against the cycle model's observations;
+`ArbiterQueue(top, ~event_view: #true)` gives the same sampler for independent
+pin replay and transaction proofs. Each lane fires on
+its own `valid && ready`. Two requests are fine; **two transfers on a
+non-reset edge are not**. Concrete sampling rejects such a sample, and
+certification must prove it impossible. The accepted word comes from the
+lane that actually fired. For two-bit words at depths 1–3, the cycle proof
+implies that retirements preserve acceptance order and pending words never
+exceed depth. This weaker view does not promise which lane wins, when either
+lane is ready, or whether a waiting lane will ever be served.
+
 ## RTL equivalence API
 
 Import `rhodium/formal/main.rhm` explicitly. Each subject must be a verified

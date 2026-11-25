@@ -54,6 +54,7 @@
     [(list "state") (result (hash-ref state data) #t)]
     [(list "input") (result (hash-ref inputs data) #t)]
     [(list "literal") (result (literal type data) #t)]
+    [(list "guarded" predicate value) (result value (&& predicate all-defined))]
     [(list "bits-equal" p q) (result (bveq p q) all-defined)]
     [(list "not" p) (result (! p) all-defined)]
     [(list "and" p q)
