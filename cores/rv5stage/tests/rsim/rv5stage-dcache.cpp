@@ -1213,13 +1213,13 @@ void stimulus() {
     send_core_request(ADDRESS + UINT64_C(40), MEMORY_STORE, ATOMIC_SWAP,
                       STORE_DATA_2, UINT64_C(0));
     CHECK(!core_out.presponse.pvalid);
-    // The immediately following load initially reads the pre-store SRAM word.
-    // Its retained request must reread after the older mutation commits.
+    // S4 acknowledges the owned store as it writes. The retained younger
+    // load must reread rather than return the pre-store SRAM word.
     send_core_request(ADDRESS + UINT64_C(40), MEMORY_LOAD, ATOMIC_SWAP,
                       UINT64_C(0), UINT64_C(6));
     CHECK(!core_out.presponse.pvalid);
     tick();
-    CHECK(!core_out.presponse.pvalid);
+    CHECK(core_out.presponse.pvalid);
     expect_core_response(UINT64_C(0), WRITEBACK_ACK_KIND, UINT64_C(0));
     expect_core_response(STORE_DATA_2, WRITEBACK_INTEGER_KIND, UINT64_C(6));
     tick();

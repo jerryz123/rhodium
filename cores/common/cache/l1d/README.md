@@ -19,7 +19,7 @@ Contributors changing the L1D implementation should read
 |---|---|
 | Organization | Non-aliasing VIPT, set-associative, write-back, write-allocate; same-line waiters and a configurable number of distinct-set load misses |
 | Geometry | Power-of-two sets from 2 through 64, positive ways, fixed 64-byte lines; see [shared geometry](../README.md#entry-point) |
-| Core throughput | One uncontended load hit per cycle; owned store hits retire into four committed entries |
+| Core throughput | One uncontended load hit or authorized ordinary owned-store hit per cycle; speculative store hits use the four-entry committed store buffer |
 | Core protocol | Fixed-cycle lookup/resolution and next-cycle store authorization; ordered `Decoupled` slow requests and backpressurable slow responses |
 | Coherence states | Invalid, SharedClean, UniqueClean, and UniqueDirty |
 | Allocation | Lowest invalid way, otherwise per-set tree PLRU |
@@ -86,6 +86,12 @@ the internal drain produces no second response. The parent checks translation,
 read/write permissions, alignment, and non-device cacheability before admission.
 
 ### Committed stores and SRAM arbitration
+
+An already-authorized ordinary store (including a vector row) takes a different
+path from a speculative scalar store. On an owned hit it writes its enabled
+bytes and queues the ordered acknowledgement together. Consecutive stores can
+do this every cycle, including the first write to a unique clean line. A
+missing line or ownership upgrade still uses the ordered miss path.
 
 Four FIFO entries retain positioned data, byte mask, physical row number, selected
 way, and whether the coherence state needs marking dirty. Loads compare all
@@ -222,7 +228,9 @@ flowchart LR
   Resolved -->|load hit| Load["LoadGen"]
   Lookup -->|"same S3-to-S4 edge"| Record["Original request + selected row"]
   Record --> Load
-  Resolved -->|"owned mutation or miss"| Way["Retained selected way"]
+  Resolved -->|"owned ordinary store: masked write"| Arrays
+  Resolved -->|"owned ordinary store: same transfer"| Response
+  Resolved -->|"AMO, SC, zero, or miss"| Way["Retained selected way"]
   Record --> Mutate
   Way --> Mutate
   Load -->|"old AMO value"| Mutate["StoreGen + atomic ALU<br/>byte-lane update"]

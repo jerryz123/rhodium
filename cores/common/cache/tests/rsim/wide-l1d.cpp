@@ -187,6 +187,81 @@ void check_consecutive_hits(unsigned address, const Line &line) {
     response(line[i], 0x30+i);
 }
 
+void snoop_dirty_line(unsigned address, const Line &expected, unsigned txn) {
+  auto &snp = chi_in.psnoops;
+  snp.pbits = {};
+  snp.pbits.paddress = address >> 3; snp.pbits.popcode = 9; snp.pbits.psrc_uid = 1;
+  snp.pbits.ptxn_uid = txn; snp.pvalid = 1;
+  until([] { return chi_out.psnoops.pready; }); tick_model(); snp.pvalid = 0;
+  for (unsigned i = 0; i < 4; ++i) {
+    until([] { return chi_out.prequest_udata.pvalid; });
+    const auto &dat = chi_out.prequest_udata.pbits;
+    CHECK(dat.popcode == 1 && dat.ptxn_uid == txn && dat.pdata_uid == i);
+    CHECK(dat.pbyte_uenable == 0xffff && dat.pdata == expected[i]);
+    chi_in.prequest_udata.pready = 1; tick_model(); chi_in.prequest_udata.pready = 0;
+  }
+}
+
+void check_store_stream(const Line &a, const Line &b, bool backpressure) {
+  Line expected[] = {a,b};
+  for (unsigned line = 0; line < 2; ++line) {
+    const auto address = base + line*64;
+    request(address, lr, {}, 0xff, false);
+    refill(address, 7, expected[line]);
+    response(Row{{expected[line][0].words[0], expected[line][0].words[1], 0, 0}});
+  }
+  // Alternate owned (initially clean) sets, writing one word per masked row.
+  // Finish with overlapping writes and a load of the immediately preceding row.
+  constexpr unsigned n = 18;
+  unsigned sent = 0, received = 0, previous_response = 0;
+  for (unsigned cycle = 0; cycle < 96 && received <= n; ++cycle) {
+    const auto index = sent < 16 ? sent % 8 : 0;
+    const auto line = index % 2, row = index / 2, lane = sent % 4;
+    const auto addr = base + 64*line + 16*row;
+    const auto value = 0xc0010000u + sent;
+    auto &req = core_in.prequest;
+    req.pbits = {};
+    req.pvalid = sent <= n;
+    req.pbits.paddress = addr;
+    req.pbits.praw_ubeat = 1;
+    req.pbits.pwidth = doubleword;
+    req.pbits.paccess = sent == n ? load : store;
+    req.pbits.pcontext = sent;
+    req.pbits.pbyte_umask = sent == n ? 0xffff : 0xf << (4*lane);
+    req.pbits.pdata.words[lane] = value;
+    virtual_lookup_in.pvalid = req.pvalid;
+    virtual_lookup_in.pbits = addr;
+    core_in.presponse.pready = !backpressure || cycle < 4 || cycle >= 20;
+    eval();
+    CHECK(!chi_out.prequests.pvalid);
+    if (req.pvalid && core_out.prequest.pready) {
+      if (!backpressure) CHECK(sent == cycle);
+      if (sent < n) expected[line][row].words[lane] = value;
+      ++sent;
+    }
+    const auto &rsp = core_out.presponse;
+    if (rsp.pvalid) {
+      CHECK(!rsp.pbits.paccess_ufault && rsp.pbits.pcontext == received);
+      CHECK(rsp.pbits.pdata == (received == n ? expected[0][0] : Row{}));
+      if (core_in.presponse.pready) {
+        if (!backpressure && received && received < n) CHECK(previous_response+1 == cycle);
+        previous_response = cycle;
+        ++received;
+      }
+    }
+    tick_model();
+  }
+  CHECK(received == n+1);
+  core_in.prequest.pvalid = 0; virtual_lookup_in.pvalid = 0; core_in.presponse.pready = 0;
+  for (unsigned line = 0; line < 2; ++line)
+    for (unsigned row = 0; row < 4; ++row) {
+      request(base + 64*line + 16*row, load);
+      response(expected[line][row]);
+    }
+  for (unsigned line = 0; line < 2; ++line)
+    snoop_dirty_line(base + 64*line, expected[line], 0x30 + line);
+}
+
 void check_miss_barrier(const Line &a, const Line &b, bool store_barrier) {
   const unsigned middle = base + (store_barrier ? 64 : 256);
   constexpr unsigned last = base + 128;
@@ -487,6 +562,8 @@ int main() {
         b[i].words[j] = ~a[i].words[j];
       }
     for (bool reverse : {true, false}) {
+      check_store_stream(a, b, reverse);
+      reset = 1; tick_model(); reset = 0;
       check_mshr_reuse(a, b, reverse);
       reset = 1; tick_model(); reset = 0;
       check_overlapping_loads(a, b, reverse);
@@ -539,17 +616,7 @@ int main() {
     a[3].words[2] = b[0].words[0]; a[3].words[3] = b[0].words[1];
     hit(base + 48, load, a[3]);
     // SnpCleanInvalid returns every byte of the dirty line, not duplicated low halves.
-    auto &snp = chi_in.psnoops;
-    snp.pbits.paddress = base >> 3; snp.pbits.popcode = 9; snp.pbits.psrc_uid = 1;
-    snp.pbits.ptxn_uid = 0x32; snp.pvalid = 1;
-    until([] { return chi_out.psnoops.pready; }); tick_model(); snp.pvalid = 0;
-    for (unsigned i = 0; i < 4; ++i) {
-      until([] { return chi_out.prequest_udata.pvalid; });
-      auto &dat = chi_out.prequest_udata.pbits;
-      CHECK(dat.popcode == 1 && dat.ptxn_uid == 0x32 && dat.pdata_uid == i);
-      CHECK(dat.pbyte_uenable == 0xffff && dat.pdata == a[i]);
-      chi_in.prequest_udata.pready = 1; tick_model(); chi_in.prequest_udata.pready = 0;
-    }
+    snoop_dirty_line(base, a, 0x32);
     check_backing_handoff(a, b);
     check_partial_install(a, b);
     check_retained_address(a, b);

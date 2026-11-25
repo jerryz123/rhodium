@@ -598,7 +598,10 @@ sync_circuit L1DCache(xlen :: XLen,
      An owned AMO uses the same extracted old value for the ALU and response.
      The SRAM write does not change the retained row. */
 
-  def local_mutation = s4_mutation & s4_owned_mutation
+  // An authorized ordinary store needs no old row. Write its enabled bytes
+  // and produce its ordered completion on the same S4 transfer.
+  def store_hit_write = s4_local.valid & s4_store & s4_owned_mutation
+  def local_mutation = !s4_store & s4_owned_mutation
   def local_mutation_capture = local_mutation & s4_local.valid
   def pending_mutation_access = retained_request.access
   // Owned hits keep the SRAM until the complete block is zero. No new CHI
@@ -644,7 +647,7 @@ sync_circuit L1DCache(xlen :: XLen,
     refill_access.is_cache_block_zero(): Bits(beat_width)(0).as_vec(Bits(8))
     mutate_refill_word: merged_refill_word
 
-  def cache_write = refill_install_word ||| local_mutation_commit
+  def cache_write = refill_install_word ||| local_mutation_commit ||| store_hit_write
   assert(!miss_busy ||| writeback.command.ready, "l1d_backing_owner_exclusive")
 
 
@@ -689,6 +692,13 @@ sync_circuit L1DCache(xlen :: XLen,
   def backing_engines_ready = !miss_busy & writeback.command.ready
   def arrays_available = retained_array_work_idle & !s4_needs_refill & !local_mutation
   def s3_can_advance = s4_result.ingress.ready & arrays_available & backing_engines_ready & !snoop_pending
+  def s3_plain_store = !s3_lookup.egress.bits.prefetch & s3_request.access.is_store()
+  // A concurrent store can invalidate an old data read or change a victim's
+  // dirty status. Only another proved owned store is independent of both.
+  def s3_lookup_usable = s3_read_valid & mux(
+    store_hit_write, s3_plain_store & s3_hit_way.valid & s3_state.is_unique(),
+    s3_plain_store ||| arrays.data.response.valid
+  )
   // Gating retains blocked requests; only admitted reads enter the elastic S4
   // result register. A stalled request is reread when S4 has capacity.
   def s3_observed = s3_lookup.egress |> trace_event("dcache/s3.lookup", ~stalls: #true, ~fields: lookup):
@@ -698,7 +708,7 @@ sync_circuit L1DCache(xlen :: XLen,
 
   (
     s3_observed
-      |> gate_flow(s3_can_advance & s3_read_valid)
+      |> gate_flow(s3_can_advance & s3_lookup_usable)
       |> map_flow(lookup => L1DResolved(way_width)):
         prefetch: lookup.prefetch
         prefetch_write: lookup.prefetch_write
@@ -724,7 +734,7 @@ sync_circuit L1DCache(xlen :: XLen,
       when (s3_lookup.egress.fire()):
         assert(!(s3_matches[left] & s3_matches[right]), "l1d_core_hit_unique")
 
-  def s2_retry = s3_lookup.egress.valid & !s3_read_valid & s3_can_advance
+  def s2_retry = s3_lookup.egress.valid & !s3_lookup_usable & s3_can_advance & (!store_hit_write ||| s3_plain_store)
 
   /* Shared read admission and store draining.
      Speculative reads cannot take an SRAM port from older work or establish
@@ -874,7 +884,7 @@ sync_circuit L1DCache(xlen :: XLen,
   def array_lookup_issue = s0_read_issue ||| s2_retry ||| (s2_admit & s3_lookup.ingress.ready & (s2_queued ||| virtual_lookup.valid ||| s2_prefetch))
   s3_read_valid <== s2_issue ||| s2_retry
   when (s3_lookup.egress.fire()):
-    assert(arrays.tags.response.valid & arrays.states.response.valid & arrays.data.response.valid, "l1d_s3_array_response_valid")
+    assert(arrays.tags.response.valid & arrays.states.response.valid & (s3_plain_store ||| arrays.data.response.valid), "l1d_s3_array_response_valid")
 
   when service_request_accept:
     assert(virtual_lookup.valid, "l1d_physical_request_has_virtual_lookup")
@@ -890,7 +900,7 @@ sync_circuit L1DCache(xlen :: XLen,
 
   def s4_load_hit = s4_local.valid & s4_load & s4_hit & (!s4_lr ||| s4_state.is_unique())
   def s4_failed_sc = s4_local.valid & s4_sc & !s4_sc_authorized
-  def produces_response = maintenance_complete ||| s4_load_hit ||| local_mutation_complete ||| s4_failed_sc ||| (complete_refill & !miss_prefetch)
+  def produces_response = maintenance_complete ||| s4_load_hit ||| store_hit_write ||| local_mutation_complete ||| s4_failed_sc ||| (complete_refill & !miss_prefetch)
   def response_data = priority_mux(~default: Bits(beat_width)(0)):
     maintenance_complete: Bits(beat_width)(0)
     retained_raw_beat & (s4_access === CacheOperation.Load): service_row
@@ -920,13 +930,16 @@ sync_circuit L1DCache(xlen :: XLen,
      preserving the existing priority among independent engine owners. */
 
   def retained_way_mask = cache_way_mask(cache, retained_way)
+  def store_hit_way = s4_result.egress.bits.hit_way
+  arrays.dirty_set <== retained_set
+  arrays.dirty_ways <== mux(store_hit_write & !s4_state.is_dirty(), cache_way_mask(cache, store_hit_way), Mask(cache.ways)(0))
   def snoop_update_way_mask = cache_way_mask(cache, snoop_way)
   def full_byte_mask = !Mask(beat_bytes)(0)
   def refill_lane_mask = cache_lane_mask(cache, packet_way, beat_bytes, full_byte_mask)
   def local_mutation_lane_mask = cache_lane_mask(cache, retained_way, beat_bytes, mux(pending_zero, full_byte_mask, retained_request.byte_mask.into(Mask(beat_bytes))))
   def line_write_bytes = priority_mux(~default: refill_install_data):
     store_drain: draining_store.data.as_vec(Bits(8))
-    local_mutation_commit: local_store_word_data
+    local_mutation_commit ||| store_hit_write: local_store_word_data
     !packet_ordered: refill_install_bytes
 
   def store_way_mask = cache_way_mask(cache, draining_store.way)
@@ -1006,19 +1019,20 @@ sync_circuit L1DCache(xlen :: XLen,
   def copy_more = writeback.packet_index =/= Bits(index_width(cache_line_rows(p.data_bytes)))(cache_line_rows(p.data_bytes) - 1)
   def copy_read = writeback.packet_needed & !snoop_reading & (!(copy_packet_held ||| copy_last_return) ||| (writeback.packet.fire() & copy_more))
   backing_port_busy <== copy_read ||| refill_install_word ||| install_line
-  def array_data_read = (s0_read_issue & s0_load) ||| s2_retry ||| (array_lookup_issue & !s0_read_issue)
+  def array_data_read = !store_hit_write & ((s0_read_issue & s0_load) ||| (array_lookup_issue & !s0_read_issue))
   def data_port_owner = priority_mux(~default: L1DArrayOwner.Service):
     s0_read_issue: L1DArrayOwner.Pipeline
     gather_issue: L1DArrayOwner.Gather
     copy_read: L1DArrayOwner.Gather
     refill_install_word: L1DArrayOwner.Refill
-    local_mutation_commit: L1DArrayOwner.Mutation
+    local_mutation_commit ||| store_hit_write: L1DArrayOwner.Mutation
     store_drain: L1DArrayOwner.StoreDrain
 
   def data_port_request = ReadWriteRequest(data_address_width, Bits(8), data_lanes):
     address: (
       priority_mux(~default: array_read_data_address):
         store_drain: draining_store.row_number[0..data_address_width]
+        store_hit_write: retained_address[row_offset_width..(offset_width + set_width)]
         local_mutation_commit: local_mutation_address
         cache_write: refill_install_address
         gather_issue: gather_address
@@ -1030,6 +1044,7 @@ sync_circuit L1DCache(xlen :: XLen,
     mask: (
       priority_mux(~default: refill_lane_mask):
         store_drain: store_lane_mask
+        store_hit_write: cache_lane_mask(cache, store_hit_way, beat_bytes, retained_request.byte_mask.into(Mask(beat_bytes)))
         local_mutation_commit: local_mutation_lane_mask
     )
 

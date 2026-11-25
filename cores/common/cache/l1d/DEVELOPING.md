@@ -179,7 +179,12 @@ the response-only path for both make-invalid opcodes.
    crosses an elastic `Pipe` before S4 checks permissions and launches
    transactions. Reserve S4 capacity before advancing S3. Retain and reread
    younger S3 requests blocked by older S4 work or snoops; never retain their
-   stale array results across mutation, refill, or coherence service. Include
+   stale array results across mutation, refill, or coherence service. An
+   ordinary owned store writes directly on S4 transfer; S3 may advance another
+   owned store using metadata alone. Reread a younger load or potential victim
+   rather than using pre-write data or dirty state. Permissions have one SRAM
+   port; the per-way dirty bit has a separate write port and explicitly forwards
+   same-set writes on a simultaneous lookup. Include
    both stages in drain and maintenance ordering, but let snoops pass a retained
    S3 request once its outstanding read and S4 have drained.
 3. Publish refill metadata only after the last word, and invalidate a dirty
