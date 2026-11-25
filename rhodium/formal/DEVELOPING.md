@@ -453,6 +453,18 @@ has the same effect as no pulse, leaving the other lane's traffic unrestricted.
 The ignore-generation mutant must fail preservation and retire stale A0 data
 during A1. A second reuse shows why the alternating bit cannot protect A2 from A0.
 
+The [ROB transaction regression](tests/two-tag-rob-transactions.rkt) shares
+`symbolic-fifo-cut` with the gated proof. Only the parent RTL has an executable
+edge; the child supplies a sampler domain and FIFO relation on arbitrary
+history successors. The monitor tracks each public grant's advertised token
+and remembers earlier matching completions while the tag is live. Inductively
+relate those tickets to local busy/done/generation bits and the live tags in
+the FIFO history. Do not assume the head payload is meaningful before a transfer.
+Check FIFO order separately from completion safety: the any-done mutant
+preserves order but can retire A after only B completes. Chain the five
+contract edges from reset to check that distinction; the full-RTL replay
+above is an independent check.
+
 The independent [rspecsim oracle](tests/two-tag-rob-test.rhm) records integer
 allocation serials on entries and compares their low bits only at the interface.
 It exercises all 61 tag/data states against 64 control samples with representative

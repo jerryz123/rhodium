@@ -12,6 +12,7 @@
          "gated-arbiter-queue-order.rkt"
          (submod "gated-arbiter-queue-transactions.rkt" test)
          "two-tag-rob-proof.rkt"
+         (submod "two-tag-rob-transactions.rkt" test)
          "api-test.rhm"
          "assumption-test.rhm"
          "decode-test.rhm"

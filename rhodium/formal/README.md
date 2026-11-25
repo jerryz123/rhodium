@@ -72,6 +72,13 @@ Completing B while an unfinished A is ahead of it cannot retire either tag.
 A retired tag becomes eligible for reissue on the next edge; synchronous reset
 discards outstanding work and restarts both generation sequences at zero.
 
+The [transaction-only retirement proof](tests/two-tag-rob-transactions.rkt)
+establishes a narrower guarantee using only the child FIFO contract: at most
+two granted tags are outstanding. Each retirement is the oldest outstanding
+grant, and **that allocation** received a matching completion on an earlier edge. It
+does not require the queue to offer its head on any particular cycle. Grant
+priority, stalled offers and result data remain claims of the cycle proof.
+
 The [spec](../../examples/formal/two-tag-rob.rspl) guarantees rejection of a
 duplicate from the immediately previous use of the same tag **within a reset
 epoch**. It does not identify the true age of a matching response. After two

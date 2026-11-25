@@ -81,6 +81,10 @@ child's accepted and retired batches without using its cycle behavior. The [two-
 buffer](tests/two-tag-rob-proof.rkt) now proves that completion may be out
 of order while retirement must follow issue order and the head's own
 completion. It uses the verified depth-two ArbiterQueue and per-tag busy, done, and generation bits plus two unreset result banks.
+The [transaction-only ROB proof](tests/two-tag-rob-transactions.rkt) now
+establishes oldest-grant retirement, a prior matching-generation completion,
+and the two-tag bound without stepping the queue's cycle spec. This is a
+parent-specific safety theorem, not a reusable cycle model or a result-data proof.
 
 Milestone 3 also has a [nontrivial input-contract check](DEVELOPING.md#discharging-a-conditional-childs-inputs):
 an unconditional arbiter establishes a selector's at-most-one enable requirement,
