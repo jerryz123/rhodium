@@ -266,8 +266,8 @@ depth.
 The [local lowering](parent-local.rhm) reads operations from the completed
 parent, not a second model supplied by the proof author. It adds one reserved
 `@local` graph participant for packed constants and comparisons, casts
-between Bool and Bits(1), Boolean NOT/AND/OR, binary Boolean muxes, and
-directly clocked, synchronously reset Boolean registers. The current register is an old-state output; its actual driver
+between Bool and Bits(1), Boolean NOT/AND/OR, binary muxes on Boolean or packed data, synchronously reset Boolean registers,
+and directly clocked packed registers without reset. The current register is an old-state output; its actual driver
 and reset value determine the successor. Local taps and child outputs use
 the same per-output dependency schedule, including fresh values on uncared
 pins. Each real instance still requires matching refinement evidence.
@@ -280,14 +280,20 @@ independent admission and history spec. Check reset and preservation at depths
 an unacknowledged word retiring. That replay is not an input to certification.
 
 The [two-tag ROB proof](tests/two-tag-rob-proof.rkt) relates four parent
-scoreboard bits and the queue's live two-bit words to a Boolean issue history
-and completion set. Require canonical tag encoding, uniqueness in the live
+scoreboard bits, two unreset payload banks, and the queue's live tag words to
+an issue history and the first result of each completed tag. The proof starts
+the banks symbolically and relates their contents only while their tags are
+complete; the local model's concrete simulation seed is not a reset assumption. Require canonical tag encoding, uniqueness in the live
 prefix, exact busy membership, and no completed idle tag. The reset case
 starts from unrelated states; the preservation case assumes no traffic
 restrictions. The “either done” mutant must fail induction and retire A early
-on an actual reset/issue A/issue B/complete B/drain trace. The independent
+on an actual reset/issue A/issue B/complete B/drain trace. The swapped-bank
+mutant passes the tag-only projection but fails on cared outputs. A separate
+stall lemma checks adjacent samples with unrestricted next inputs; full RTL
+replays exercise duplicate completions while A is stalled. The independent
 [rspecsim oracle](tests/two-tag-rob-test.rhm) stores completion on each ordered
-entry and checks all 13 legal states against all 64 external input samples.
+entry and checks all 61 architecturally distinct states against all 64 control
+samples with representative payloads. Induction covers arbitrary two-bit inputs.
 Run `moon run rhodium:formal-spec-test rhodium:formal-test`.
 
 ## Extend supported semantics

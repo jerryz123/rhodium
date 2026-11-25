@@ -15,7 +15,7 @@ def local_site = "@local"
 /* Only these opcodes have a local interpretation; other parent logic fails closed. */
 fun local_opcode(opcode :: String):
   opcode in {"rtl.constant", "rtl.cast", "rtl.not", "rtl.and", "rtl.or",
-             "rtl.eq", "rtl.mux_lookup", "rtl.register_reset"}
+             "rtl.eq", "rtl.mux_lookup", "rtl.register", "rtl.register_reset"}
 
 /* Give each local result an endpoint distinct from sampled operand ports. */
 fun local_output(value :: Value): "v" ++ to_string(value.id)
@@ -46,7 +46,8 @@ fun lower_local(ops :: List, sources :: MutableMap, sinks :: MutableMap, bool ::
     def logical = type_equal(result.type, bool)
     def packed_one = bits_type(result.type) && result.type.width == 1
     def packed_result = packed_one && (op.opcode == "rtl.cast" || op.opcode == "rtl.eq")
-    unless logical || packed_result || (op.opcode == "rtl.constant" && bits_type(result.type))
+    def packed_data = bits_type(result.type) && op.opcode in {"rtl.constant", "rtl.mux_lookup", "rtl.register"}
+    unless logical || packed_result || packed_data
     | error("unsupported local RTL result type: " ++ op.opcode)
     def expr:
       match op.opcode
@@ -69,9 +70,21 @@ fun lower_local(ops :: List, sources :: MutableMap, sinks :: MutableMap, bool ::
       | "rtl.or": bool_not(bool_and(bool_not(tap(op.operands[0])), bool_not(tap(op.operands[1]))))
       | "rtl.mux_lookup":
           unless op.attribute("keys") == [1] && op.operands.length() == 3
-          | error("expected a binary Boolean mux")
+          | error("expected a binary mux with a one-bit selector")
           choose_if(predicate(tap(op.operands[0])), tap(op.operands[2]), tap(op.operands[1]))
       | "rtl.and": bool_and(tap(op.operands[0]), tap(op.operands[1]))
+      | "rtl.register":
+          def [clk] = op.operands
+          unless bits_type(result.type) && sources[clk.id] == "clock" | error("expected a directly clocked packed register")
+          def name = op.attribute("name")
+          when state.has_key(name) | error("duplicate parent register name: " ++ name)
+          def type = sampled_type(result.type, bool)
+          state[name] := type
+          // make_spec needs a concrete simulation seed. Proof cuts allocate fresh symbolic
+          // old state for every register, including on reset; the actual D has no reset mux.
+          initial[name] := 0
+          updates[name] := tap(op.places[0].driver)
+          state_ref(name, type)
       | "rtl.register_reset":
           def [clk, rst, init] = op.operands
           unless sources[clk.id] == "clock" && sources[rst.id] == "reset" && constants.has_key(init.id)

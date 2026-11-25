@@ -41,11 +41,15 @@ does not block already accepted words from draining.
 depth-two ArbiterQueue to remember issue order. Each tag can be live at most
 once. A wins when both tags are eligible. A completion pulse marks a tag
 that was live **before** the edge; a pulse on its issue edge is ignored.
-Retirement offers only the completed head and holds that tag under backpressure.
+The first such pulse captures the tag's two-bit `result_a` or `result_b`;
+later pulses for that issue cannot overwrite it. Retirement offers the completed
+head's tag on `retire.bits` and its word on `retire_result`. Both share the
+same valid/ready handshake and remain stable while stalled (unless reset).
+The result has no meaning while invalid.
 Completing B while an unfinished A is ahead of it cannot retire either tag.
 A retired tag becomes eligible for reissue on the next edge; synchronous reset
 discards outstanding work. This [spec](../../examples/formal/two-tag-rob.rspl)
-covers tags only, not result payloads, generation numbers, or eventual completion.
+covers tag and result integrity, not generation numbers or eventual completion.
 These proofs cover the stated specializations. They share an internal run-local
 refinement checker; they are not a parameter-universal proof.
 

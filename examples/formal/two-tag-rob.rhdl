@@ -1,5 +1,5 @@
 #lang rhodium
-/* Retires two independently completed tags in issue order through a buffered arbiter. */
+/* Retires each tag with its first completion result in issue order through a buffered arbiter. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -10,13 +10,23 @@ import:
    retirement releases its tag for reissue on the following edge. */
 sync_circuit TwoTagROB():
   input (issue_a, issue_b, complete_a, complete_b): Bool
+  input (result_a, result_b): Bits(2)
   output (grant_a, grant_b): Bool
+  output retire_result: Bits(2)
   interface retire(Irrevocable(Bool), ~role: producer)
 
   reg busy_a(~init: Bool(#false))
   reg busy_b(~init: Bool(#false))
   reg done_a(~init: Bool(#false))
   reg done_b(~init: Bool(#false))
+
+  // No reset on data: only a live, completed tag owns an observable result.
+  reg saved_a(Bits(2))
+  reg saved_b(Bits(2))
+  when (busy_a & !done_a & complete_a):
+    saved_a <== result_a
+  when (busy_b & !done_b & complete_b):
+    saved_b <== result_b
 
   inst order(ArbiterQueue(2, ~depth: 2))
   order.ingress[0].valid <== issue_a & !busy_a
@@ -32,6 +42,7 @@ sync_circuit TwoTagROB():
   def head_done = mux(head_b, done_b, done_a)
   retire.valid <== order.egress.valid & head_done
   retire.bits <== head_b
+  retire_result <== mux(head_b, saved_b, saved_a)
   order.egress.ready <== retire.ready & head_done
   def retired = retire.fire()
   def retired_a = retired & !head_b

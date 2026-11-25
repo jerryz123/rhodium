@@ -1,5 +1,5 @@
 #lang rspecl
-/* Models oldest-first issue history and the tags that have completed since issue. */
+/* Models oldest-first issue history and the first completion result of each live tag. */
 // SPDX-License-Identifier: Apache-2.0
 
 import "two-tag-rob.rhdl" as rtl
@@ -10,6 +10,9 @@ spec for rtl.TwoTagROB:
   state history: Seq(Bool, 2) initially [] as cleared
   state finished_a: Bool initially #false
   state finished_b: Bool initially #false
+
+  state value_a: Bits(2) initially 0 as unused
+  state value_b: Bits(2) initially 0
 
   let live = !empty(history)
   let two = full(history)
@@ -26,6 +29,9 @@ spec for rtl.TwoTagROB:
   observe grant_b = b when !reset
   observe retire.valid = available when !reset
   observe retire.bits = head_b when !reset && available
+  let result = select(head_b, value_b, value_a)
+  observe retire_result = result when !reset && available
+  event retired_value = result when !reset && pop
   event issued = b when !reset && (a || b)
   event retired = head_b when !reset && pop
 
@@ -33,3 +39,8 @@ spec for rtl.TwoTagROB:
   next history = select(reset, cleared, select(a || b, append(retained, b), retained))
   next finished_a = !reset && has_a && !(pop && !head_b) && (finished_a || complete_a)
   next finished_b = !reset && has_b && !(pop && head_b) && (finished_b || complete_b)
+  // Canonicalize inactive spec values; the RTL banks need not hold zero there.
+  next value_a = select(reset || !has_a || (pop && !head_b), unused,
+                        select(!finished_a && complete_a, result_a, value_a))
+  next value_b = select(reset || !has_b || (pop && head_b), unused,
+                        select(!finished_b && complete_b, result_b, value_b))

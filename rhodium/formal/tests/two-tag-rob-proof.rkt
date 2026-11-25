@@ -3,6 +3,7 @@
 ;; SPDX-License-Identifier: Apache-2.0
 
 (require rackunit "../refinement.rkt" "../spec-engine.rkt" "composition-checks.rkt"
+         (only-in "../spec.rhm" spec_snapshot)
          (only-in "../engine.rkt" prepare_transition_snapshot symbolic_transition_state step_transition
                   transition_step_state transition_step_validity transition_step_outputs)
          (only-in "arbiter-queue-binding.rhm" rob_case rob_replay)
@@ -13,7 +14,7 @@
   (bvugt n (bv i (type-of n))))
 
 ;; Only the live prefix matters. Its encoding is exact: no aliases for A or B.
-(define (related states ref)
+(define (tag-related states ref)
   (define regs (hash-ref states "@local"))
   (define tags (hash-ref (hash-ref states "order") "pending"))
   (define history (hash-ref ref "history"))
@@ -32,47 +33,76 @@
       (equal? (hash-ref regs "done_b") (hash-ref ref "finished_b"))
       (=> (hash-ref ref "finished_a") a?) (=> (hash-ref ref "finished_b") b?)))
 
+(define (related states ref)
+  (define regs (hash-ref states "@local"))
+  (&& (tag-related states ref)
+      (=> (hash-ref ref "finished_a") (bveq (hash-ref regs "saved_a") (hash-ref ref "value_a")))
+      (=> (hash-ref ref "finished_b") (bveq (hash-ref regs "saved_b") (hash-ref ref "value_b")))))
+
 (define (observe p x)
   (define active (! (hash-ref x "reset")))
   (define take-a (&& (hash-ref x "issue_a") (hash-ref p "grant_a")))
   (define take-b (&& (hash-ref x "issue_b") (hash-ref p "grant_b")))
   (define valid (hash-ref p "retire.valid"))
   (values (for/hash ([(k v) p])
-            (values k (observation (if (equal? k "retire.bits") (&& active valid) active) v)))
+            (values k (observation (if (member k '("retire.bits" "retire_result")) (&& active valid) active) v)))
           (hash "issued" (observation (&& active (|| take-a take-b)) take-b)
+                "retired_value" (observation (&& active valid (hash-ref x "retire.ready")) (hash-ref p "retire_result"))
                 "retired" (observation (&& active valid (hash-ref x "retire.ready")) (hash-ref p "retire.bits")))))
 
+(define (observe-tags p x)
+  (define-values (outputs events) (observe p x))
+  (values (hash-remove outputs "retire_result") (hash-remove events "retired_value")))
+
 (test-case "a tag cannot be reissued while live, and only its own completion unlocks the oldest tag"
-  (define-values (correct reference incorrect) (rob_case))
+  (define-values (correct reference incorrect swapped tags) (rob_case))
   (define (admit cut) (prepare-proved-wiring cut (list (verified-arbiter-queue-at 2))))
   (check-exn #rx"no evidence for RTL specialization" (lambda () (prepare-proved-wiring correct '())))
   (define plan (admit correct))
   (define s (symbolic-cut-state plan))
   (check-equal? (sort (hash-keys s) string<?) '("@local" "order"))
-  (check-equal? (sort (hash-keys (hash-ref s "@local")) string<?) '("busy_a" "busy_b" "done_a" "done_b"))
+  (check-equal? (sort (hash-keys (hash-ref s "@local")) string<?) '("busy_a" "busy_b" "done_a" "done_b" "saved_a" "saved_b"))
   (check-equal? (hash-keys (hash-ref s "order")) '("pending"))
+  ;; The banks have no reset mux: on the reset edge their physical D can hold or
+  ;; capture according to the old enable, even though both next values are uncared.
+  (define x (hash-set (edge-inputs (symbolic-spec-edge (spec_snapshot reference))) "reset" #t))
+  (define before (hash-ref s "@local"))
+  (define-values (_pins edges ok) (proved-edge-at plan s x))
+  (define local (hash-ref edges "@local"))
+  (define cap (&& (hash-ref before "busy_a") (! (hash-ref before "done_a")) (hash-ref x "complete_a")))
+  (define legal (andmap spec-state-legal? (hash-values s)))
+  (require-feasible (&& legal cap (! (bveq (hash-ref x "result_a") (hash-ref before "saved_a")))))
+  (require-feasible (&& legal (! cap) (bveq (hash-ref before "saved_a") (bv 3 2))))
+  (discharge 'unreset-d legal (&& ok (edge-defined local)
+                                  (bveq (hash-ref (edge-next local) "saved_a")
+                                        (if cap (hash-ref x "result_a") (hash-ref before "saved_a")))))
   (prove-parent plan reference observe #:relation related)
+  ;; Same faulty implementation and child proof. Only the observable contract changes.
+  (define swapped-plan (admit swapped))
+  (prove-parent swapped-plan tags observe-tags #:relation tag-related)
+  (check-exn #rx"preservation/outputs not proved"
+             (lambda () (prove-parent swapped-plan reference observe #:relation related)))
   (check-exn #rx"preservation/successor not proved"
              (lambda () (prove-parent (admit incorrect) reference observe #:relation related))))
 
 ;; Independent physical RTL replay; the inductive proof above never snapshots the child's registers.
-(define (runner wrong?)
-  (define-values (snapshot in out) (rob_replay wrong?))
+(define (runner variant)
+  (define-values (snapshot in out) (rob_replay variant))
   (define rtl (prepare_transition_snapshot snapshot "clock"))
   (define state (symbolic_transition_state rtl))
-  (lambda (#:reset [reset #f] #:a [a #f] #:b [b #f] #:ca [ca #f] #:cb [cb #f] #:ready [ready #f])
-    (define x (hash "reset" reset "issue_a" a "issue_b" b "complete_a" ca "complete_b" cb "retire.ready" ready))
+  (lambda (#:reset [reset #f] #:a [a #f] #:b [b #f] #:ca [ca #f] #:cb [cb #f] #:va [va (bv 0 2)] #:vb [vb (bv 0 2)] #:ready [ready #f])
+    (define x (hash "reset" reset "issue_a" a "issue_b" b "complete_a" ca "complete_b" cb "result_a" va "result_b" vb "retire.ready" ready))
     (define e (step_transition rtl state (pack-pins in x)))
     (set! state (transition_step_state e))
     (discharge 'rtl-defined #t (transition_step_validity e))
-    (for/hash ([(k v) (unpack-pins out (transition_step_outputs e))]) (values k (bveq v (bv 1 1))))))
+    (for/hash ([(k v) (unpack-pins out (transition_step_outputs e))]) (values k (if (equal? k "retire_result") v (bveq v (bv 1 1)))))))
 
 (define (port p k) (hash-ref p k))
 (define (offer p tag-b?) (&& (port p "retire.valid") (equal? (port p "retire.bits") tag-b?)))
 
 (test-case "A then B; B completes first and cannot retire A"
   (for ([faulty? '(#f #t)])
-    (define tick (runner faulty?))
+    (define tick (runner (if faulty? "any-done" "correct")))
     (tick #:reset #t)
     (define first (tick #:a #t #:b #t))
     (define second (tick #:a #t #:b #t))
@@ -90,3 +120,37 @@
                      (&& (offer stall #f) (! (port stall "grant_a")) (! (port stall "grant_b"))
                          (offer a #f) (! (port a "grant_a")) (offer b #t) (port b "grant_a")
                          (! (port again "retire.valid"))))))))
+
+(test-case "a stalled completed head keeps its tag and first result for arbitrary next traffic"
+  (define-values (_impl model _early _swap _tags) (rob_case))
+  (define ref (spec_snapshot model))
+  (define old (symbolic-spec-edge ref))
+  (define inputs (edge-inputs (symbolic-spec-edge ref)))
+  (define next (spec-edge-at ref (edge-next old) inputs))
+  (define (pin edge name) (observation-value (hash-ref (edge-outputs edge) name)))
+  (define stall (&& (edge-legal old) (! (hash-ref (edge-inputs old) "reset"))
+                    (pin old "retire.valid") (! (hash-ref (edge-inputs old) "retire.ready"))
+                    (! (hash-ref inputs "reset"))))
+  (require-feasible stall)
+  (discharge 'stable-offer stall
+             (&& (edge-defined old) (edge-defined next) (pin next "retire.valid")
+                 (equal? (pin old "retire.bits") (pin next "retire.bits"))
+                 (bveq (pin old "retire_result") (pin next "retire_result")))))
+
+(test-case "reverse completions B=3 then A=1; stalls, duplicate completions and swapped output banks"
+  (for ([swapped? '(#f #t)])
+    (define tick (runner (if swapped? "swapped" "correct")))
+    (tick #:reset #t)
+    (tick #:a #t)
+    (tick #:b #t)
+    (tick #:cb #t #:vb (bv 3 2))
+    (define blocked (tick #:ca #t #:va (bv 1 2) #:ready #t))
+    (define stalled (tick #:ca #t #:va (bv 2 2) #:cb #t #:vb (bv 0 2)))
+    (define held (tick))
+    (define a (tick #:ready #t))
+    (define b (tick #:ready #t))
+    (discharge 'tags-and-results #t
+               (&& (! (port blocked "retire.valid"))
+                   (for/fold ([ok #t]) ([p (list stalled held a)])
+                     (&& ok (offer p #f) (bveq (port p "retire_result") (bv (if swapped? 3 1) 2))))
+                   (offer b #t) (bveq (port b "retire_result") (bv (if swapped? 1 3) 2))))))

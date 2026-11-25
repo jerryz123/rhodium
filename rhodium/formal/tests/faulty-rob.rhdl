@@ -5,16 +5,26 @@ import:
   lib("flow/main.rhdl") open
   lib("examples/formal/arbiter-queue.rhdl").ArbiterQueue
 
-// Same two-tag protocol, but a younger completion incorrectly unlocks an unfinished head.
-sync_circuit AnyDoneROB():
+// Select exactly one fault: swap the two output banks, or unlock the head on either completion.
+sync_circuit FaultyROB(swap_banks :: Boolean):
   input (issue_a, issue_b, complete_a, complete_b): Bool
+  input (result_a, result_b): Bits(2)
   output (grant_a, grant_b): Bool
+  output retire_result: Bits(2)
   interface retire(Irrevocable(Bool), ~role: producer)
 
   reg busy_a(~init: Bool(#false))
   reg busy_b(~init: Bool(#false))
   reg done_a(~init: Bool(#false))
   reg done_b(~init: Bool(#false))
+
+  // No reset on data: only a live, completed tag owns an observable result.
+  reg saved_a(Bits(2))
+  reg saved_b(Bits(2))
+  when (busy_a & !done_a & complete_a):
+    saved_a <== result_a
+  when (busy_b & !done_b & complete_b):
+    saved_b <== result_b
 
   inst order(ArbiterQueue(2, ~depth: 2))
   order.ingress[0].valid <== issue_a & !busy_a
@@ -27,9 +37,10 @@ sync_circuit AnyDoneROB():
   grant_b <== issued_b
 
   def head_b = order.egress.bits === Bits(2)(1)
-  def head_done = done_a ||| done_b
+  def head_done = if swap_banks | mux(head_b, done_b, done_a) | done_a ||| done_b
   retire.valid <== order.egress.valid & head_done
   retire.bits <== head_b
+  retire_result <== (if swap_banks | mux(head_b, saved_a, saved_b) | mux(head_b, saved_b, saved_a))
   order.egress.ready <== retire.ready & head_done
   def retired = retire.fire()
   def retired_a = retired & !head_b
@@ -40,4 +51,4 @@ sync_circuit AnyDoneROB():
   done_a <== busy_a & !retired_a & (done_a ||| complete_a)
   done_b <== busy_b & !retired_b & (done_b ||| complete_b)
 
-export AnyDoneROB
+export FaultyROB
