@@ -42,6 +42,7 @@ sync_circuit DistributedVectorInstructions(xlen :: XLen, vlen :: VectorLength, o
   oldest_id <== drain_owner
 
   def register_group = vector_vd_vs3_registers(xlen, vlen, request.bits)
+  def nonempty_store = !no_work & request.bits.control.memory & request.bits.control.store
 
   /* Issue closure and ordered owner reclamation.
      Allocation wins a collision. Cancellation closes unissued/unauthorized work;
@@ -58,7 +59,7 @@ sync_circuit DistributedVectorInstructions(xlen :: XLen, vlen :: VectorLength, o
       macro_fault[owner] <== Bool(#false)
       macro_groups[owner] <== mux(no_work, Bits(32)(0), register_group)
       macro_load[owner] <== !no_work & request.bits.control.memory & !request.bits.control.store
-      macro_store[owner] <== !no_work & request.bits.control.memory & request.bits.control.store
+      macro_store[owner] <== nonempty_store
       macro_fp[owner] <== !no_work & request.bits.control.floating_point
     elsewhen reclaim_owner:
       macro_valid[owner] <== Bool(#false)
@@ -72,17 +73,21 @@ sync_circuit DistributedVectorInstructions(xlen :: XLen, vlen :: VectorLength, o
 
 
   /* Allocation and pending-work summaries.
-     A committed store barrier outlives macro reclamation until memory drains. */
+     Admission sets the barrier on the same edge as its store owner. The owner
+     scan only controls release; it is not on the scalar ordering path. */
 
   when (request.valid):
     next_owner <== wrap_increment(next_owner, owners)
 
   active <== macro_valid.as_bits().any()
   def store_macro_pending = vec(for List (owner in 0..owners): macro_valid[owner] & macro_store[owner]).as_bits().any()
-  stores_pending <== store_barrier ||| store_macro_pending
+  stores_pending <== store_barrier
   loads_pending <== vec(for List (owner in 0..owners): macro_valid[owner] & macro_load[owner]).as_bits().any()
   fp_pending <== vec(for List (owner in 0..owners): macro_valid[owner] & macro_fp[owner]).as_bits().any()
-  when (request.valid & !no_work & request.bits.control.memory & request.bits.control.store):
+  when store_macro_pending:
+    assert(store_barrier, "distributed_live_store_requires_barrier")
+
+  when (request.valid & nonempty_store):
     store_barrier <== Bool(#true)
   elsewhen (store_barrier & !store_macro_pending & memory_drained):
     store_barrier <== Bool(#false)

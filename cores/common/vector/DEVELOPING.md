@@ -198,6 +198,11 @@ destination stays claimed through its accepted write. A checker-owned memory
 operation retains fault and translation-window ownership until its issue or
 drain event. Scalar service results carry their original tags back to the VXU.
 
+Scalar store ordering sees queued stores plus the instruction tracker's registered
+store barrier. Every nonempty store sets the barrier when its owner is allocated.
+Use the live-owner scan to clear the barrier after memory drains, not to drive
+the scalar ordering signal: reclamation and physical drain can occur separately.
+
 Inside `distributed/`, `frontend/` owns precise checks and admission,
 `backend/` owns the scheduler, scoreboard, register-file grants and sequencers,
 `mem/` owns physical requests and response alignment, and `exu/` owns arithmetic.

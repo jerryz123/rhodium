@@ -1514,8 +1514,13 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   def wb_follow_native:
     if distributed_rows
     | block:
-        def store = wb_vector.vector.store
+        // MEM captured this kind with the surviving descriptor. Its value
+        // while stale is not an offer; WB still qualifies age and dispatch.
+        def store = wb_descriptor.control.store
         def outstanding = vector.native_outstanding_store
+        when (wb_vector_offer & wb_vector.vector.memory):
+          assert(store === wb_vector.vector.store, "superscalar_native_offer_kind_matches_owner")
+
         wb_direct_if_certified & wb_vector_certified & outstanding.valid & (outstanding.bits =/= store) & !scalar_memory.ordered_busy
     | Bool(#false)
   def wb_vector_ordered = !wb_vector.vector.memory ||| ((wb_prior_memory_drained ||| wb_follow_native) & !wb_memory_completion.pending & !wb_ordered_memory_pending)
@@ -1636,10 +1641,19 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
 
   def wb_slow = wb_memory_active & !wb_memory_capture & (wb_memory.cache_outcome === CachePipelineOutcome.Slow)
   def wb_store_hit = wb_memory_active & wb_memory.memory.access.is_store() & (wb_memory.cache_outcome === CachePipelineOutcome.StoreHit)
-  def wb_older_vector_memory = wb_live_valid[service_index(wb_vector_lane)] & wb_vector.vector.memory & (wb_vector_lane < wb_memory_lane)
-  def wb_vector_store_pending = vector.service.stores_pending ||| (wb_older_vector_memory & wb_vector.vector.store)
-  def wb_vector_load_pending = vector.service.loads_pending ||| (wb_older_vector_memory & !wb_vector.vector.store)
-  def wb_memory_blocked = scalar_memory.ordered_busy ||| wb_ordered_memory_pending ||| wb_vector_store_pending ||| (wb_memory.memory.access.store_fault_class() & wb_vector_load_pending)
+  // Issue admits at most one scalar memory owner per group. Only preceding
+  // live vector stores block its load; any preceding vector memory blocks its store.
+  def wb_group_memory_conflict = any(
+    for List (lane in 1..issue_width):
+      def scalar = wb_live_group[lane]
+      def older_conflict = any(
+        for List (older in 0..lane):
+          def v = wb_live_group[older].vector
+          wb_live_valid[older] & v.operation & v.memory & (v.store ||| scalar.memory.access.store_fault_class())
+      )
+      wb_live_valid[lane] & scalar.memory_active & older_conflict
+  )
+  def wb_memory_blocked = scalar_memory.ordered_busy ||| wb_ordered_memory_pending ||| vector.service.stores_pending ||| (wb_memory.memory.access.store_fault_class() & vector.service.loads_pending) ||| wb_group_memory_conflict
   def wb_prior_drained = wb_memory_completion.drained & scalar_memory.drained & ex_multiply.drained & wb_divide.drained & !wb_completion_count.any() & !rr_completion.valid & fp.drained & !vector.active & !wb_vector_scalar_pending & !wb_vector_fpr_pending
   scalar_split.request.valid <== wb_retained_ready & !wb_management & !wb_reservation_waiting & !wb_retained_vector
   memory_ports.scalar_guest_access <== wb_retained_owner.guest_access

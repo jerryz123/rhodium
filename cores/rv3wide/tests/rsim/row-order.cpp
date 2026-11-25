@@ -193,6 +193,43 @@ void revoke_following_load(unsigned insn) {
   certificate_current=true;
 }
 
+// Replay the older scalar lane after MEM has selected the younger vector.
+// Its stale descriptor must not admit a row while the older row is outstanding.
+void squash_following_vector(unsigned insn, bool store) {
+  const auto base = (pc + 15) & ~UINT64_C(15);
+  constexpr unsigned nop = 0x00000013;
+  offer(nop, base);
+  instructions_in.pbits.pcount = 2;
+  auto& younger = instructions_in.pbits.pentries[1];
+  younger.ppc = base + 4;
+  younger.psequential_upc = base + 8;
+  younger.pinstruction = younger.praw_uinstruction = insn;
+  const auto prior_retirement = retire_cycle;
+  bool saw_pair = false;
+  for (unsigned n = 0; n < 24; ++n) {
+    eval();
+    const bool accepted = instructions_in.pvalid && instructions_out.pready;
+    if (memory_stage_0_out.pvalid && memory_stage_0_out.pbits.ppc == base) {
+      CHECK(memory_stage_1_out.pvalid && memory_stage_1_out.pbits.ppc == base + 4);
+      saw_pair = true;
+      resolution_0_in.pvalid = 1;
+      resolution_0_in.pbits.pdisposition = 2; // Replay
+    }
+    step();
+    if (accepted) instructions_in.pvalid = 0;
+    resolution_0_in = {};
+    CHECK(retire_cycle == prior_retirement && ordered.size() == 1);
+    CHECK(!vector_precheck_out.prequest.pvalid);
+  }
+  CHECK(saw_pair && replay_pc == base);
+  // WB still exposes the squashed descriptor's certificate, not the older row's.
+  const auto& stale = vector_fast_out.pcandidate.prange;
+  CHECK(stale.pfirst == (store ? 0x400u : 0x440u) && bool(stale.pstore) == store);
+  replay_pc = 0;
+  pc = base;
+  send(nop); // The caller then reissues the vector instruction at its original PC.
+}
+
 // Give WB a faultable vector load and a younger scalar store in the same group.
 // A reserved descriptor is not authorization for the store, even with L1D ready.
 void faultable_pair() {
@@ -249,6 +286,91 @@ void faultable_pair() {
   }
   CHECK(pair && proofs && exact==1 && trapped);
 }
+// Observe the scalar store-commit or slow-load handshake, not just retirement:
+// replaying a scalar after an early side effect would otherwise look correct.
+void check_memory_prefix(unsigned v, unsigned s, bool vector_store, bool scalar_store,
+                         unsigned older_disposition = 0) {
+  dut.inputs = {};
+  reset = 1; eval(); tick_model(); reset = 0;
+  memory_in.pdrained = memory_in.prequest.pready = pipeline_in.pcommit_uready = 1;
+  row_memory_in.prequest.pready = vector_fast_in.pcandidate_ucurrent = 1;
+  std::uint64_t setup_pc = 0x8000;
+  for (unsigned insn : {0x60000093u, 0x30009073u, 0xc000f2d7u}) { // VS enabled, VL=1
+    offer(insn, setup_pc);
+    bool retired = false;
+    for (unsigned t = 0; t < 24 && !retired; ++t) {
+      eval();
+      const bool take = instructions_in.pvalid && instructions_out.pready;
+      retired = retired_0_out.pvalid && retired_0_out.pbits.pfetched.ppc == setup_pc;
+      tick_model();
+      if (take) instructions_in.pvalid = 0;
+    }
+    CHECK(retired);
+    setup_pc += 4;
+  }
+
+  constexpr std::uint64_t base = 0x8040;
+  const unsigned count = 1 + std::max(v, s);
+  offer(0x13, base);
+  instructions_in.pbits.pcount = count;
+  for (unsigned i = 0; i < count; ++i) {
+    auto& entry = instructions_in.pbits.pentries[i];
+    entry.ppc = base + 4*i; entry.psequential_upc = entry.ppc + 4;
+    entry.pinstruction = entry.praw_uinstruction =
+        i == v ? (vector_store ? 0x02000427u : 0x02000607u) : // vse8 / vle8
+        i == s ? (scalar_store ? 0x00002023u : 0x00002503u) : 0x13u; // sw / lw / nop
+  }
+  const bool conflict = v < s && (vector_store || scalar_store);
+  bool lookup = false, saw_group = false, saw_redirect = false, vector_retired = false;
+  unsigned commits = 0, slow_requests = 0, rows = 0;
+  for (unsigned t = 0; t < 30; ++t) {
+    resolution_0_in = {};
+    pipeline_in.presponse.pvalid = lookup;
+    pipeline_in.presponse.pbits.poutcome = scalar_store ? 2 : 0; // StoreHit or Slow
+    eval();
+    if (memory_stage_0_out.pvalid && memory_stage_0_out.pbits.ppc == base) {
+      CHECK(memory_stage_1_out.pvalid && memory_stage_1_out.pbits.ppc == base + 4);
+      if (count == 3) CHECK(memory_stage_2_out.pvalid && memory_stage_2_out.pbits.ppc == base + 8);
+      saw_group = true;
+      resolution_0_in.pvalid = older_disposition != 0;
+      resolution_0_in.pbits.pdisposition = older_disposition;
+      resolution_0_in.pbits.pcause = 13;
+    }
+    vector_fast_in.presponse.pvalid = vector_fast_out.prequest.pvalid;
+    vector_fast_in.presponse.pbits.prange = vector_fast_out.prequest.pbits;
+    eval();
+    const bool take = instructions_in.pvalid && instructions_out.pready;
+    lookup = pipeline_out.prequest.pvalid;
+    commits += pipeline_out.pcommit;
+    slow_requests += memory_out.prequest.pvalid; // ready held high
+    rows += row_memory_out.prequest.pvalid; // ready held high, response withheld
+    for (const auto* r : {&retired_0_out, &retired_1_out, &retired_2_out})
+      vector_retired |= r->pvalid && r->pbits.pfetched.ppc == base + 4*v;
+    if (older_disposition)
+      CHECK(!retired_0_out.pvalid && !retired_1_out.pvalid && !retired_2_out.pvalid);
+    if (redirect_out.pvalid) {
+      const auto& redirect = redirect_out.pbits;
+      if (older_disposition)
+        saw_redirect |= redirect.ppc == base && redirect.presolution.pdisposition == older_disposition &&
+                        (older_disposition == 1 || redirect.ptarget == base);
+      else
+        saw_redirect |= redirect.presolution.pdisposition == 2 && redirect.ptarget == base + 4*s;
+    }
+    tick_model();
+    if (take) instructions_in.pvalid = 0;
+  }
+  CHECK(saw_group);
+  const bool allowed = !older_disposition && !conflict;
+  CHECK(commits == unsigned(allowed && scalar_store));
+  CHECK(slow_requests == unsigned(allowed && !scalar_store));
+  if (older_disposition) CHECK(saw_redirect && rows == 0);
+  else {
+    CHECK(saw_redirect == conflict);
+    if (v < s) CHECK(vector_retired);
+    if (conflict) CHECK(rows == 1);
+  }
+}
+
 int main() {
   return run_test([] {
     reset = 1; step(); step(); reset = 0;
@@ -288,6 +410,7 @@ int main() {
       release_at = cycle + 300; // allow both requests, but no response
       send(store_first ? store : load);
       while (ordered.empty()) step();
+      squash_following_vector(store_first ? load : store, !store_first);
       send(store_first ? load : store);
       while (ordered.size() != 2) { CHECK(cycle+1 < release_at); step(); }
       CHECK(ordered.front() == store_first && ordered.back() != store_first);
@@ -497,5 +620,15 @@ int main() {
       CHECK(requests==acknowledgements && scatter_bytes.empty() && ordered.empty() && retire_cycle>last_reply && data==0x34);
     }
     faultable_pair();
+    for (unsigned v = 0; v < 3; ++v) for (unsigned s = 0; s < 3; ++s) {
+      if (v == s) continue;
+      for (bool vs : {false, true}) for (bool ss : {false, true})
+        check_memory_prefix(v, s, vs, ss);
+    }
+    for (unsigned stop : {1u, 2u}) { // Older fault or replay vetoes both younger lanes.
+      check_memory_prefix(1, 2, false, false, stop);
+      check_memory_prefix(1, 2, false, true, stop);
+      check_memory_prefix(2, 1, true, false, stop);
+    }
   });
 }

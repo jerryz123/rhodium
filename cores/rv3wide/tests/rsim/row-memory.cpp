@@ -41,7 +41,7 @@ extern "C" void observe_shared_fp(Word resetting, Word valid) {
 }
 bool lookup, lookup_store, overlapped_read;
 unsigned latency = 3;
-bool block_returns, requests_always_ready, track_row_drain;
+bool block_returns, requests_always_ready, track_row_drain, hold_memory_drain;
 std::vector<Word> addresses, writes;
 std::vector<unsigned> request_cycles, load_return_cycles, load_write_cycles;
 using Row = std::array<std::uint32_t,4>;
@@ -187,7 +187,7 @@ void step() {
   pipeline_in.presponse.pvalid = lookup;
   pipeline_in.presponse.pbits.poutcome = (refuse_page && lookup_address >= 0xf000) ? 4 : lookup_store ? 2 : 1;
   pipeline_in.pcommit_uready = 1;
-  memory_in.pdrained = !track_row_drain || pending.empty();
+  memory_in.pdrained = !hold_memory_drain && (!track_row_drain || pending.empty());
   row_memory_in.prequest.pready = cycles >= hold_until && (requests_always_ready || cycles % 4 != 0);
   row_memory_in.presponse.pvalid = !pending.empty() && !block_returns && cycles >= pending.front().due;
   if (!pending.empty()) {
@@ -3357,5 +3357,26 @@ int main() {
       CHECK(flag_rows==flags+unsigned(i>=2));
       send(store(16)|(6u<<12),out); drain(); CHECK(get_lane(out,0,4)==family_result[i]);
     }
+
+    // A scalar observer must see the store even after the last vector owner
+    // is reclaimed, until the memory system independently reports drain.
+    cycle_limit = cycles + 80;
+    const auto before_store = finishes, before_ack = store_acks;
+    state(0,0,0,1);
+    block_returns = true;
+    send(store(8), out);
+    while (pending.empty()) step();
+    CHECK(stores_pending && active && pending.size() == 1);
+    hold_memory_drain = true;
+    block_returns = false;
+    do {
+      step();
+      CHECK(stores_pending);
+    } while (active || !pending.empty());
+    CHECK(finishes == before_store + 1 && store_acks == before_ack + 1);
+    for (unsigned i = 0; i < 4; ++i) { step(); CHECK(stores_pending); }
+    hold_memory_drain = false;
+    step();
+    CHECK(!stores_pending);
   });
 }

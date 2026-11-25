@@ -662,9 +662,11 @@ descriptor. Neither direction consumes final retirement feedback. Keep scalar
 capture/replay independent of vector capture to preserve this acyclic ordering.
 Older rejection suppresses every younger service effect; younger rejection/fault
 preserves the accepted older instruction and recovers only the unsuccessful
-suffix. Include the older same-group vector memory operation in scalar memory
-ordering summaries; a younger vector memory descriptor waits for same-group
-scalar memory to drain. Do not add instruction-pair permission predicates.
+suffix. Each scalar memory lane checks only its live predecessors: an earlier
+vector store blocks a scalar load, and either vector memory kind blocks a
+store-class access. Outstanding work from earlier groups is checked separately.
+A younger vector memory descriptor still waits for same-group scalar memory
+to drain. Do not add instruction-pair permission predicates.
 Two configurations contend for the CSR command; two FP operand/control owners
 contend for the selected FPR read bundle; RAS actions and fixed return collisions
 retain their existing capacity checks. Do not recreate permitted-pair predicates
@@ -1505,9 +1507,10 @@ a stall or translation can change independently. With an external MMU,
 For the distributed backend, MEM also classifies whether this descriptor
 would take the direct route **if certified**, and captures that bit on the
 same edge as the descriptor. Only WB can let it follow an older opposite-kind
-vector memory operation: the proof must still be valid, and WB must check
-the live outstanding owner and scalar memory ordering. The shape bit alone
-does not permit dispatch, retirement, or a physical request.
+vector memory operation: WB compares the descriptor's load/store kind with
+the live outstanding owner's kind and checks the proof and scalar memory
+ordering. A squash can leave the descriptor populated; without a live WB
+offer it cannot dispatch, retire, or issue a physical request.
 
 An accepted certified descriptor retires normally. Only uncertified memory enters
 the retained WB owner and its younger scalar WB authorization barrier. Keep
