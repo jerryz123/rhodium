@@ -100,7 +100,10 @@ Keep the completed mask stable through store gathering and issue stalls.
 Ordinary mask operations keep only the beat's bounds across the VRF read.
 On return, operand fetch enables bit `i` when the beat is nonempty and
 `minimum <= first + i < end`, using the captured bounds rather than the live
-cursor. This element mask is independent of the packed transport's byte mask.
+cursor. Integer scans and mask logic carry their element enables in the same
+EX word that integer MACs and fused FP use for old `vd`. For a masked scan the
+word already includes the v0 predicate. Packed transport byte enables remain
+separate.
 
 For a vector gather, extract the selected VS1 element on the VRF return and
 compare the full index with VLMAX before narrowing it. Bypass that result to
@@ -375,6 +378,10 @@ hold a successor across memory backpressure, accept it on tail authorization,
 and read back the packed load, strided load, integer move, and FP move results.
 They also stall a two-field packed store with its successor offered, check both
 stored fields, and read back the scalar move accepted on the store's tail.
+For the shared EX word, these fixtures follow mask logic with `vfmacc.vv`
+and `vfmadd.vv`, checking all three boxed operands across FP backpressure.
+The RV32/RV64 multiply fixtures check consecutive mask and integer MAC beats
+with the multiplier stalled, then read back both destinations.
 The `vector-masked-load-rv32` and `vector-masked-load-rv64` fixtures retry
 an enabled byte, complete a younger byte first, then read back the whole row
 to check that the delayed write preserves its neighbors.

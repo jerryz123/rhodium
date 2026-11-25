@@ -54,6 +54,39 @@ static void handoff() {
   eval();
 }
 
+static Word mask_to_fused(bool old_vd_is_product, Word old_vd) {
+  // vmand.mm v19,v9,v8 immediately precedes vfmacc.vv or vfmadd.vv v18,v9,v8.
+  offer((25u << 26) | unmasked | (9u << 20) | (8u << 15) | (2u << 12) | (19u << 7) | 0x57, 0, 0, false, 1);
+  accept();
+  offer(((old_vd_is_product ? 40u : 44u) << 26) | unmasked | (8u << 20) | (9u << 15) |
+        (1u << 12) | (18u << 7) | 0x57, 0, 0, false, 1);
+  accept();
+  while (!fp_request_out.pvalid) step();
+  const auto tag = fp_request_out.pbits.ptag;
+  const auto boxed = [](Word word) { return ~Word(UINT32_MAX) | word; };
+  for (unsigned i = 0; i < 3; ++i) {
+    const auto& req = fp_request_out.pbits;
+    CHECK(fp_request_out.pvalid && !fp_request_in.pready && req.ptag == tag);
+    CHECK(req.pleft == boxed(old_vd_is_product ? old_vd : 0x11112222));
+    CHECK(req.pright == boxed(0x33334444));
+    CHECK(req.pthird == boxed(old_vd_is_product ? 0x11112222 : old_vd));
+    step();
+  }
+  fp_request_in.pready = 1;
+  step();
+  fp_request_in.pready = 0;
+  const Word writeback = old_vd + 1;
+  fp_result_in.pbits.ptag = tag;
+  fp_result_in.pbits.pvalue = boxed(writeback);
+  fp_result_in.pvalid = 1;
+  eval();
+  while (!fp_result_out.pready) step();
+  step();
+  fp_result_in.pvalid = 0;
+  while (active) step();
+  return writeback;
+}
+
 int main() {
   return run_test([] {
     reset = issue_ready = decision_hold = 1;
@@ -124,5 +157,8 @@ int main() {
     handoff();
     readback(18, {next_scalar});
     while (active) step();
+    const Word acc = mask_to_fused(false, next_scalar);
+    const Word product = mask_to_fused(true, acc);
+    readback(18, {static_cast<unsigned>(product)});
   });
 }

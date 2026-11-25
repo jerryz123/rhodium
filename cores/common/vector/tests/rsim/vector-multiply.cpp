@@ -161,6 +161,35 @@ void check_case(unsigned sew, unsigned op, bool vx, unsigned variant, unsigned r
     }
   }
 }
+void mask_to_mac() {
+  constexpr unsigned bytes = W / 8;
+  constexpr Word old_vd = 0x12345;
+  put(256, bytes, 6); put(384, bytes, 3); put(512, bytes, old_vd);
+  put(640, bytes, mask(W));
+  load(8, 256, bytes); load(12, 384, bytes);
+  load(16, 512, bytes); load(20, 640, bytes);
+
+  // vmand.mm changes only bits 1 and 2 of v20. The immediately following
+  // full-width vmacc needs v16's old value, not that two-bit write mask.
+  issue_cycles.clear();
+  const unsigned prior_launches = scalar_count;
+  scalar_available = 0;
+  constexpr auto vmand_mm = (25u << 26) | (1u << 25) | (8u << 20) |
+                            (12u << 15) | (2u << 12) | (20u << 7) | 0x57u;
+  launch(vmand_mm, 0, 3, 1);
+  launch(multiply(45, false, false, false), std::countr_zero(bytes), 1);
+  while (issue_cycles.size() < 2) tick();
+  CHECK(issue_cycles[1] == issue_cycles[0] + 1);
+  for (unsigned i = 0; i < 3; ++i) tick();
+  CHECK(scalar_count == prior_launches);
+  scalar_available = 1;
+  drain();
+  CHECK(scalar_count == prior_launches + 1);
+  dump(20, 2048, bytes); dump(16, 2112, bytes);
+  CHECK(get(2048, bytes) == (mask(W) ^ 4));
+  CHECK(get(2112, bytes) == old_vd + 6 * 3);
+}
+
 void overlaps() {
   for (unsigned i=0;i<1024;++i) mem[i]=0;
   for (unsigned i=0;i<32;++i) { mem[256+i]=2; mem[384+i]=3; }
@@ -272,6 +301,7 @@ int main() {
       check_case(sew,39,vx,variant,rm,true); ++cases;
     }
   }
+  mask_to_mac();
   overlaps();
   concurrent_slot_writes();
   std::printf("W%u: %u packed/scalar multiply cases, %u cycles\n",W,cases,cycles);

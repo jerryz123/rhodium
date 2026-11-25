@@ -284,18 +284,19 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
     mask_select: element_mask_lanes
     extension ||| whole_register_move: Mask(vector_word_bytes(xlen))(0)
 
+  def uses_element_mask = scan ||| mask_logic
+  def element_enables = active_elements & mux(scan & descriptor.masked, element_mask_bits, !Bits(xlen.width)(0))
+  def old_vd = mux(simd_multiply, results[2].bits, results[2].bits >> destination_shift)
   def operands = VectorBeat(xlen, vlen):
     address: mux(indexed_memory, indexed_address, beat_control.address)
     left: left_operand
     right: right_operand
-    destination_data: mux(simd_multiply, results[2].bits, results[2].bits >> destination_shift)
+    mask_or_old_vd: mux(uses_element_mask, element_enables, old_vd)
     carry_in: carry_lanes
     select_right: right_selection
-    mask_enabled: active_elements & mux(scan & descriptor.masked, element_mask_bits, !Bits(xlen.width)(0))
     destination_first: mux(simd_multiply, beat_control.first, packing.operands.first_element)
     element_width: packing.operands.element_width
-    // One full-word logic lane computes the mask; mask_enabled controls its
-    // independently writable architectural elements at the result port.
+    // Mask logic uses one compute lane but writes individual bits using element_enables.
     enabled: enabled_lanes
     sequence: beat_control.sequence
     first: beat_control.first
@@ -363,9 +364,8 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
 
   def compress_beat = operands.updated(
     ~address: beat_control.address,
-    ~destination_data: Bits(xlen.width)(0),
+    ~mask_or_old_vd: Bits(xlen.width)(0),
     ~carry_in: Mask(vector_word_bytes(xlen))(0),
-    ~mask_enabled: active_elements,
     ~element_width: format,
     ~destination_first: compress_destination,
     ~last: source_final & !needs_flush,
@@ -390,11 +390,10 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
       address: Bits(xlen.width)(0)
       left: state.data
       right: Bits(xlen.width)(0)
-      destination_data: Bits(xlen.width)(0)
+      mask_or_old_vd: Bits(xlen.width)(0)
       enabled: Mask(vector_word_bytes(xlen)).prefix(state.count)
       carry_in: Mask(vector_word_bytes(xlen))(0)
       select_right: Mask(vector_word_bytes(xlen))(0)
-      mask_enabled: Bits(xlen.width)(0)
       element_width: format
       fp_source_width: format
       fp_result_width: format
@@ -476,6 +475,7 @@ sync_circuit VectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: D
     assert(returned.ready, "vector_scheduled_read_cannot_stall_after_response")
 
   when (response.valid & !clear & !packed & !read_context.suffix):
+    assert(!(uses_element_mask & destination_source), "vector_element_mask_and_old_vd_are_exclusive")
     assert(beat_control.empty ||| (results[0].valid & (!second_source ||| results[1].valid) & mask_result.valid & (!destination_source ||| results[2].valid)), "vector_read_context_matches_data_and_mask_ports")
     assert(singleton ||| mask_word ||| beat_control.empty ||| packing.legal, "vector_packed_read_is_legal")
 

@@ -57,7 +57,7 @@ fun vector_simd_multiply_request(xlen :: XLen, vlen :: VectorLength, beat :: Vec
   SimdMultiplyAccumulateRequest(xlen.width):
     operands:
       SimdMultiplyRequest(xlen.width):
-        left: mux(destination_product, beat.destination_data, beat.left)
+        left: mux(destination_product, beat.mask_or_old_vd, beat.left)
         right: beat.right
         mode:
           MultiplierMode():
@@ -66,7 +66,7 @@ fun vector_simd_multiply_request(xlen :: XLen, vlen :: VectorLength, beat :: Vec
         element_width: beat.element_width
     context:
       SimdMultiplyContext(xlen.width):
-        addend: mux(destination_product, beat.left, beat.destination_data)
+        addend: mux(destination_product, beat.left, beat.mask_or_old_vd)
         control: vector_multiply_control(result, accumulate, beat.control.multiply_subtract, beat.rounding_mode, upper)
 
 /* Sign- or zero-extends one SEW element into the physical integer execution width. */
@@ -89,7 +89,7 @@ fun vector_multiply_request(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int
 
     operands:
       MultiplierRequest(xlen.width):
-        left: vector_integer_operand(xlen, mux(beat.control.multiply_accumulate & beat.control.multiply_destination, beat.destination_data, beat.left), sew, beat.control.left_signed)
+        left: vector_integer_operand(xlen, mux(beat.control.multiply_accumulate & beat.control.multiply_destination, beat.mask_or_old_vd, beat.left), sew, beat.control.left_signed)
         right: vector_integer_operand(xlen, beat.right, sew, beat.control.right_signed)
         mode:
           MultiplierMode():

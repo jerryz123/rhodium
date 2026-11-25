@@ -71,7 +71,7 @@ circuit VectorExecute(xlen :: XLen, vlen :: VectorLength, ~packed_multiply: pack
   /* Scan and SIMD operand routing */
 
   scan.source <== beat.left
-  scan.enabled <== beat.mask_enabled
+  scan.enabled <== beat.mask_or_old_vd
   scan.first <== beat.first.zext(xlen.width)
   scan.carry <== scan_carry
   scan.element_width <== beat.element_width
@@ -144,7 +144,7 @@ circuit VectorExecute(xlen :: XLen, vlen :: VectorLength, ~packed_multiply: pack
 
   def scan_write_mask = priority_mux(~default: packing.write.mask):
     beat.control.scalar_destination: Bits(xlen.width)(0)
-    beat.control.mask_destination: beat.mask_enabled
+    beat.control.mask_destination: beat.mask_or_old_vd
     beat.empty: Bits(xlen.width)(0)
 
   def scan_write = packing.write.updated(~data: scan.data, ~mask: scan_write_mask)
@@ -158,7 +158,7 @@ circuit VectorExecute(xlen :: XLen, vlen :: VectorLength, ~packed_multiply: pack
   def multiply_accumulate = beat.control.multiply_divide & !beat.control.divide & beat.control.multiply_accumulate
   // Mask logical operands are already packed one bit per element. Reuse the
   // ALU logic network, but write bits rather than repacking comparisons.
-  def mask_write = packing.write.updated(~data: mux(beat.control.invert_logic_result, !alu.result.data, alu.result.data), ~mask: beat.mask_enabled)
+  def mask_write = packing.write.updated(~data: mux(beat.control.invert_logic_result, !alu.result.data, alu.result.data), ~mask: beat.mask_or_old_vd)
   def singleton_width = mux(beat.control.fp_service, beat.fp_result_width.into(Bits(2)), beat.element_width.into(Bits(2)) + widening_singleton.as_bits().zext(2))
   def element_shift = (beat.first[0..vector_byte_offset_width(xlen)] << singleton_width) ++ Bits(3)(0)
   def element_mask = mux_lookup(singleton_width, ~default: Bits(xlen.width)(0xff)):
@@ -168,7 +168,7 @@ circuit VectorExecute(xlen :: XLen, vlen :: VectorLength, ~packed_multiply: pack
 
   def destination_base = beat.destination.zext(index_width(VectorRegisterLayout(vlen, xlen.width).depth)) << bits.length(VectorRegisterLayout(vlen, xlen.width).rows_per_register - 1)
   def destination_row = (beat.first >> (Bits(2)(vector_byte_offset_width(xlen)) - singleton_width))[0..index_width(VectorRegisterLayout(vlen, xlen.width).depth)]
-  def multiply_accumulator = mux(beat.control.multiply_destination, beat.left, beat.destination_data)
+  def multiply_accumulator = mux(beat.control.multiply_destination, beat.left, beat.mask_or_old_vd)
   def singleton_data = priority_mux(~default: Bits(xlen.width)(0)):
     multiply_accumulate: multiply_accumulator
     gather_vector: alu.result.data

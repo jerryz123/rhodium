@@ -218,11 +218,11 @@ bundle VectorBeat(xlen :: XLen, vlen :: VectorLength):
   address: Bits(xlen.width)
   left: Bits(xlen.width)
   right: Bits(xlen.width)
-  destination_data: Bits(xlen.width)
+  // Scans and mask logic use element enables; MACs and fused FP use the old destination.
+  mask_or_old_vd: Bits(xlen.width)
   enabled: Mask(vector_word_bytes(xlen))
   carry_in: Mask(vector_word_bytes(xlen))
   select_right: Mask(vector_word_bytes(xlen))
-  mask_enabled: Bits(xlen.width)
   element_width: SimdElementWidth
   fp_source_width: SimdElementWidth
   fp_result_width: SimdElementWidth
