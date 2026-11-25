@@ -80,6 +80,18 @@ matching-generation completion** on an earlier edge. Later pulses cannot
 replace it, even while retirement is stalled. This proof checks data on
 transfer only; grant priority and stability of a stalled offer remain cycle claims.
 
+The [ROB event contract](../../examples/formal/two-tag-rob-contract.rkt)
+exports `(certify-rob top child-evidence)` for the actual depth-two child and
+`rob-contract-for?` to check the resulting evidence against an elaborated top.
+Use `rob-step` with that evidence, an abstract history and a joint public batch:
+reset, optional grant (tag and issued generation), both completion pulses
+(echo and payload), and optional retirement (tag and payload). It returns
+permission and a successor; use the successor only if the batch is permitted.
+Start from `(fresh-rob-history)` with a reset batch to establish an empty log.
+A completion applies to an already-live grant, not a
+grant on that same edge. No retirement deadline is implied, even for a
+completed head: an idle batch may leave the abstract history unchanged.
+
 The [spec](../../examples/formal/two-tag-rob.rspl) guarantees rejection of a
 duplicate from the immediately previous use of the same tag **within a reset
 epoch**. It does not identify the true age of a matching response. After two

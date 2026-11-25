@@ -308,7 +308,7 @@ hardware-preservation contracts.
 | GrantedSelector / RoutedSelector / RegisteredRoutedSelector | [Direct or routed grants with same-cycle or registered selection](formal/granted-selector.rhdl) | [Ordered input contracts, reset, capture, and hold](formal/granted-selector.rspl) |
 | GatedCapture / ArbitratedCapture | [Gated capture behind an arbiter](formal/gated-capture.rhdl) | [A parent assumption proved again at its outer boundary](formal/gated-capture.rspl) |
 | ShiftQueue | [Flow queue](../flow/shift-queue.rhdl) | [Cycle model with ready/valid events](formal/shift-queue.rspl) |
-| TwoTagROB | [Two-tag reorder buffer](formal/two-tag-rob.rhdl) | [Ordered retirement with generation-matched results](formal/two-tag-rob.rspl) |
+| TwoTagROB | [Two-tag reorder buffer](formal/two-tag-rob.rhdl) | [Cycle spec](formal/two-tag-rob.rspl) and [certified retirement events](formal/two-tag-rob-contract.rkt) |
 | GatedArbiterQueue | [Registered admission wrapper](formal/gated-arbiter-queue.rhdl) | [Admission and ordered drain](formal/gated-arbiter-queue.rspl) |
 | ArbiterQueue | [Parent wiring](formal/arbiter-queue.rhdl) connecting the Flow leaves | [Cycle model with two-lane ready/valid events](formal/arbiter-queue.rspl) |
 

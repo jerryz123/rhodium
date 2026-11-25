@@ -85,7 +85,11 @@ The [transaction-only ROB proof](tests/two-tag-rob-transactions.rkt) now
 establishes oldest-grant retirement, the two-tag bound, and the first
 matching-generation completion payload on each retirement, without stepping
 the queue's cycle spec. The swapped-bank mutant fails on payload alone.
-This remains a parent-specific safety theorem, not reusable parent evidence.
+This now issues [run-local ROB transaction evidence](../../examples/formal/two-tag-rob-contract.rkt).
+An independent [commit-log observer](tests/rob-commit-log.rkt) proves the
+kth retirement records the kth grant's tag and first matching-generation
+payload using only public event batches. This is reusable event evidence,
+not a cycle replacement or a guarantee of progress.
 
 Milestone 3 also has a [nontrivial input-contract check](DEVELOPING.md#discharging-a-conditional-childs-inputs):
 an unconditional arbiter establishes a selector's at-most-one enable requirement,

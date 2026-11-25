@@ -9,6 +9,7 @@
          (only-in "wiring.rhm" cut_parts leaf_protocol leaf_layout series_wiring wrapper_wiring))
 (provide prove-leaf prove-parent prepare-proved-wiring proved-child-model symbolic-cut-state proved-edge-at view-agrees? pack-pins unpack-pins)
 (provide exn:fail:input-contract? exn:fail:input-contract-goal exn:fail:input-contract-inputs)
+(provide (rename-out [check-phase check-refinement-phase!]))
 (provide symbolic-fifo-cut fifo-cut-inputs fifo-cut-outputs fifo-cut-locals fifo-cut-batch fifo-cut-domain)
 (provide derive-fifo-transactions prove-fifo-transactions compose-fifo-series prove-fifo-wrapper fifo-transactions-for? fifo-transactions-capacity fifo-transactions-width
          fresh-fifo-history fifo-allows? (struct-out fifo-history) (struct-out fifo-events))

@@ -456,12 +456,12 @@ during A1. A second reuse shows why the alternating bit cannot protect A2 from A
 The [ROB transaction regression](tests/two-tag-rob-transactions.rkt) shares
 `symbolic-fifo-cut` with the gated proof. Only the parent RTL has an executable
 edge; the child supplies a sampler domain and FIFO relation on arbitrary
-history successors. The monitor tracks each public grant's advertised token
-and latches the first matching input payload while the tag is live. First
-relate the tickets to local busy/done/generation bits and the live tags in
-the FIFO history without using the result banks. Then relate the saved
-bank to the ticket's payload only while that ticket is complete. Compare
-`retire_result` only on a transfer; no reset value for either bank is assumed.
+history successors. The [issuer and monitor](../../examples/formal/two-tag-rob-contract.rkt)
+project occupied FIFO slots into ordered public allocations. Check local busy
+membership, tag uniqueness and canonical encoding inductively. Compare the
+monitor successor against the projected local generation/done bits and (only
+for completed allocations) saved data. Use the same transition for certification
+and consumption; no reset value for either bank is assumed.
 Check FIFO order separately from completion safety: the any-done mutant
 preserves order but can retire A after only B completes. Chain the five
 contract edges from reset to check that distinction; the full-RTL replay
@@ -471,6 +471,15 @@ the retired-payload check. Exercise both tops from reset: grant A then B,
 complete B=3 then A=1, and send matching duplicates A=2 and B=0 on a
 stalled offer. Check feasibility of both drain handshakes before checking
 their tags and data; the trace is not a latency requirement.
+
+Only a successful reset and preservation proof issues a seal for the sampled
+definition and layout. The [commit-log observer](tests/rob-commit-log.rkt)
+receives that seal, not a cut or child theorem. It counts public grants and
+retirements since reset and remembers the first matching response for an
+arbitrary grant ordinal. Abstract slots appear in its inductive relation,
+never as inputs to the observer's updates. For timing, reach a completed
+head from reset and check both a repeatable idle self-loop and a retirement
+from the same state.
 
 The independent [rspecsim oracle](tests/two-tag-rob-test.rhm) records integer
 allocation serials on entries and compares their low bits only at the interface.

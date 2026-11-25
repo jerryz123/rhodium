@@ -79,7 +79,7 @@ fileGroups:
   examples-cores:
     - "examples/cores/**/*.{rhm,rhdl}"
   examples-formal:
-    - "examples/formal/**/*.{rhm,rhdl,rspl}"
+    - "examples/formal/**/*.{rhm,rhdl,rspl,rkt}"
   examples-rv5stage:
     - "examples/rv5stage/**/*.{rhm,rhdl}"
   examples:
