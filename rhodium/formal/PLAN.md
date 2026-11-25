@@ -85,8 +85,8 @@ The [transaction-only ROB proof](tests/two-tag-rob-transactions.rkt) now
 establishes oldest-grant retirement, the two-tag bound, and the first
 matching-generation completion payload on each retirement, without stepping
 the queue's cycle spec. The swapped-bank mutant fails on payload alone.
-This now issues [run-local ROB transaction evidence](../../examples/formal/two-tag-rob-contract.rkt)
-for the [sampler and monitor in its RSPECL declaration](../../examples/formal/two-tag-rob.rspl);
+The [shared checker](../../rspecl/proof.rkt) now issues run-local transaction evidence
+using the [monitor and implementation relation in the ROB spec](../../examples/formal/two-tag-rob.rspl);
 the issuer and every consumer step that same monitor snapshot.
 An independent [commit-log observer](tests/rob-commit-log.rkt) proves the
 kth retirement records the kth grant's tag and first matching-generation

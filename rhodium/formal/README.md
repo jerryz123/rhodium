@@ -80,15 +80,20 @@ matching-generation completion** on an earlier edge. Later pulses cannot
 replace it, even while retirement is stalled. This proof checks data on
 transfer only; grant priority and stability of a stalled offer remain cycle claims.
 
-The [ROB event contract](../../examples/formal/two-tag-rob-contract.rkt)
-exports `(certify-rob top child-evidence)` for the actual depth-two child and
-`rob-contract-for?` to check the resulting evidence against an elaborated top.
-Use `rob-step` with that evidence, an abstract history and a joint public batch:
-reset, optional grant (tag and issued generation), both completion pulses
-(echo and payload), and optional retirement (tag and payload). It returns
-permission and a successor; use the successor only if the batch is permitted.
-Both certification and `rob-step` execute the monitor from the [same RSPECL declaration](../../examples/formal/two-tag-rob.rspl) as the cycle model.
-Start from `(fresh-rob-history)` with a reset batch to establish an empty log.
+The [ROB spec](../../examples/formal/two-tag-rob.rspl) describes the implementation
+relation alongside the monitor. With the elaborated RTL `top` and the existing
+FIFO evidence for its child, use the [shared proof API](../../rspecl/proof.rkt):
+
+```racket
+(define view (TwoTagROB top #:transaction_view #t))
+(define evidence (prove-transaction top view child-evidence))
+(define-values (permitted next) (transaction-step evidence view old-state batch))
+```
+
+Only use `next` when `permitted` holds. The public batch is reset, optional
+grant (tag and generation), both completion pulses (echo and payload), and
+optional retirement (tag and payload). An RTL parent can use `transaction-cut`
+to bind the seal to an actual child occurrence without reopening its registers.
 A completion applies to an already-live grant, not a
 grant on that same edge. No retirement deadline is implied, even for a
 completed head: an idle batch may leave the abstract history unchanged.
@@ -217,6 +222,17 @@ empty sequence). Bind every batch field, or leave them all unbound for a
 monitor driven directly by the caller. With bound fields, the outputs of
 `step_spec(transaction_batch_model(view), {}, pins)` are the monitor's inputs;
 `transaction_batch_model` is available from `rspecl/rtl-boundary.rhm`.
+
+An optional sibling `refinement:` block describes a candidate relation to the
+implementation. For the supported single-clock, one-FIFO-child cut, `fifo`
+reads only the certified child's ordered history and `local` reads only
+parent registers. `relate` gives each monitor state field an implementation
+expression and optional care condition. For example, `relate saved_a = saved_a
+when done_a` does not require the unreset payload bank to be zero. Auxiliary
+`invariant` predicates must hold after reset and be preserved, too. Pin- and
+batch-dependent `check` obligations and `cover` feasibility queries cannot
+restrict the inductive relation. Neither the hints nor a concrete replay
+authorize substitution; only a successful proof does.
 
 `state`, `next`, and ordinary Rhombus helpers work as in the cycle body.
 Each named `guarantee` reports a Boolean for the **same pre-edge batch and

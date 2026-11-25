@@ -2,7 +2,7 @@
 ;; Prove an ordinal commit-log property using only the sealed ROB contract and public events.
 ;; SPDX-License-Identifier: Apache-2.0
 
-(require rackunit "composition-checks.rkt" "../../../examples/formal/two-tag-rob-contract.rkt")
+(require rackunit "composition-checks.rkt" "rob-observer-records.rkt")
 
 ;; Observe arbitrary zero-based k. No slot or hardware value is read to update log state:
 ;; abstract slots are used only to state the induction invariant.

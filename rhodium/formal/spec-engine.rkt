@@ -3,7 +3,7 @@
 ;; SPDX-License-Identifier: Apache-2.0
 
 (require racket/match)
-(provide symbolic-spec-edge symbolic-spec-state fresh-fields spec-state-legal? spec-edge-at spec-offers-at spec-pin-at wired-edge-at
+(provide symbolic-spec-edge symbolic-spec-state spec-initial-state fresh-fields spec-state-legal? spec-edge-at spec-offers-at spec-pin-at wired-edge-at
          spec-input-assumptions discharge-wired-inputs!
          (struct-out edge) (struct-out sequence-value) (struct-out observation))
 
@@ -83,6 +83,11 @@
 
 #| Allocate a distinct abstract state for one occurrence, not an implicit initial state. |#
 (define (symbolic-spec-state snapshot) (fresh-fields (hash-ref snapshot "state")))
+
+#| Encode every declared initial value, including bounded sequences, in the symbolic stepper's representation. |#
+(define (spec-initial-state snapshot)
+  (for/hash ([(name sort) (hash-ref snapshot "state")])
+    (values name (literal sort (hash-ref (hash-ref snapshot "initial") name)))))
 
 #| Check solver sorts and shapes without assuming any domain predicate on symbolic counts. |#
 (define (fits? type v)

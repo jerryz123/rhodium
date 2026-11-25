@@ -3,17 +3,22 @@
 ;; SPDX-License-Identifier: Apache-2.0
 
 (require rackunit "composition-checks.rkt"
-         "two-tag-rob-transactions.rkt" "../../../examples/formal/two-tag-rob-contract.rkt"
+         "two-tag-rob-transactions.rkt" "../../../rspecl/proof.rkt"
+         (only-in "../../../examples/formal/two-tag-rob.rspl" TwoTagROB)
+         (only-in "../../../rspecl/rtl-boundary.rhm" transaction_parts)
+         (only-in "../spec.rhm" spec_snapshot)
          (only-in "composition-binding.rhm" logged_rob valid_only_logged_rob rob pin_layout)
-         (only-in "../spec-engine.rkt" edge-state edge-next)
+         (only-in "../spec-engine.rkt" edge-state edge-next symbolic-spec-state sequence-value-count sequence-value-slots)
          (only-in "../snapshot.rhm" formal_snapshot)
          (only-in "../engine.rkt" prepare_transition_snapshot symbolic_transition_state step_transition
                   transition_step_state transition_step_validity transition_step_outputs)
          (only-in "../refinement.rkt" pack-pins unpack-pins check-refinement-phase!))
 
+(define view (TwoTagROB #:transaction_view #t))
+(define-values (_raw monitor _ins _outs) (transaction_parts view))
 (define (prove-recorder top seal)
-  (define-values (inputs outputs locals child) (symbolic-rob-cut top "rob" seal))
-  (define public (sample-rob-events inputs outputs))
+  (define-values (inputs outputs locals child) (transaction-cut top "rob" seal view))
+  (define public (sample-transaction seal view inputs outputs))
   ;; Check the parent boundary before using any history or protocol assumptions.
   (check-refinement-phase! 'recorder-wiring #t (list (cons 'public-events (equal? public child))))
   (define local (hash-ref locals "@local"))
@@ -26,20 +31,23 @@
     (list (cons 'record (&& (equal? (hash-ref outputs "has_commit") (valid old))
                             (equal? (hash-ref outputs "last_tag") (tag old))
                             (bveq (hash-ref outputs "last_payload") (data old))))))
-  (define h (fresh-rob-history))
-  (define-values (allowed _) (rob-step seal h child))
+  (define h (symbolic-spec-state (spec_snapshot monitor)))
+  (define-values (allowed _) (transaction-step seal view h child))
   (define reset (hash-ref inputs "reset"))
   (define fire (&& (hash-ref outputs "retire.valid") (hash-ref inputs "retire.ready")))
   (define same-word (&& (equal? (tag next) (tag old)) (bveq (data next) (data old))))
   (check-refinement-phase! 'recorder-reset (&& allowed reset)
     (list (cons 'empty (! (valid next))) (cons 'no-capture same-word)))
   (define capture (&& allowed (! reset) fire))
-  (define head (rob-history-head h))
+  (define order (hash-ref h "order"))
+  (define head (first (sequence-value-slots order)))
+  (define (bank a b) (if head (hash-ref h b) (hash-ref h a)))
   (check-refinement-phase! 'recorder-capture capture
     (list (cons 'recorded (&& (valid next) (equal? (tag next) (hash-ref outputs "retire.bits"))
                               (bveq (data next) (hash-ref outputs "retire_result"))))
-          (cons 'completed-oldest (&& (> (rob-history-count h) 0) (entry-done head)
-                                      (equal? (tag next) (entry-tag head)) (bveq (data next) (entry-data head))))))
+          (cons 'completed-oldest (&& (> (bitvector->natural (sequence-value-count order)) 0)
+                                      (bank "done_a" "done_b") (equal? (tag next) head)
+                                      (bveq (data next) (bank "saved_a" "saved_b"))))))
   (define no-fire (&& allowed (! reset) (! fire)))
   (check-refinement-phase! 'recorder-no-transfer no-fire
     (list (cons 'hold (&& (equal? (valid next) (valid old)) same-word))))
@@ -47,7 +55,7 @@
   (for ([occupied '(#f #t)])
     (require-feasible (&& no-fire (hash-ref outputs "retire.valid") (equal? occupied (valid old)))))
   (for ([t '(#f #t)])
-    (require-feasible (&& capture (equal? (entry-tag head) t) (! (bveq (data old) (entry-data head))))))
+    (require-feasible (&& capture (equal? head t) (! (bveq (data old) (bank "saved_a" "saved_b"))))))
   (require-feasible (&& allowed reset fire (valid old))))
 
 ;; Independent full-RTL replay, not a premise of the inductive proof. Outputs are pre-edge.
@@ -85,7 +93,7 @@
                (lambda () (prove-recorder valid_only_logged_rob verified-rob-transactions))))
   (test-case "a seal for a ROB cannot substitute for its internal order queue"
     (check-exn #rx"transaction evidence does not match the RTL occurrence"
-               (lambda () (symbolic-rob-cut rob "order" verified-rob-transactions))))
+               (lambda () (transaction-cut rob "order" verified-rob-transactions view))))
   (test-case "physical replay from reset: first stalled B=3 is not a commit"
     (replay-first-stall logged_rob #f)
     (replay-first-stall valid_only_logged_rob #t)))

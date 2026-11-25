@@ -149,6 +149,65 @@ expr.macro 'monitor_view: $line; ...':
                                              $(map_expr(guarantees)), $(map_expr(updates))),
                                $(attachment["publish"]), $(attachment["sample"]), ~bindings: $(map_expr(bindings)))'
 
+/* Lower implementation-state hints and separate pin-dependent obligations to ordinary spec IR. */
+expr.macro 'refined_view($view): $line; ...':
+  def values(_, _, _, record, emit, declarations) = model_body()
+  def sources = MutableMap{}
+  def pins = MutableMap{}
+  def relations = MutableMap{}
+  def invariants = MutableMap{}
+  def checks = MutableMap{}
+  def covers = MutableMap{}
+  def mutable site = #false
+  def mutable fifo = #false
+  /* Namespace IR references by provenance; author expressions use ordinary lexical bindings. */
+  fun source(n :: Syntax, sort :: Syntax, prefix :: String, table :: MutableMap, clause :: Syntax):
+    def key = prefix ++ "." ++ field_name(n)
+    def t = record(table, key, sort, clause)
+    emit('def $n = ir.input_ref($key, $t)')
+  for (clause in [line, ...]):
+    match clause
+    | 'fifo $(n :: Identifier) from $(child :: Identifier): $t ...':
+        when site | syntax_meta.error("expected a single FIFO child cut", clause)
+        site := field_name(child)
+        fifo := "fifo." ++ field_name(n)
+        source(n, '($t ...)', "fifo", sources, clause)
+    | 'local ($(n :: Identifier), ...): $t ...':
+        for (id in [n, ...]): source(id, '($t ...)', "local", sources, clause)
+    | 'input ($(n :: Identifier), ...): $t ...':
+        for (id in [n, ...]): source(id, '($t ...)', "input", pins, clause)
+    | 'input $(n :: Identifier) from $path ...: $t ...':
+        def k = "input." ++ field_name('$path ...')
+        def t = record(pins, k, '($t ...)', clause)
+        emit('def $n = ir.input_ref($k, $t)')
+    | 'output ($(n :: Identifier), ...): $t ...':
+        for (id in [n, ...]): source(id, '($t ...)', "output", pins, clause)
+    | 'batch $(n :: Identifier) from $(key :: Identifier): $t ...':
+        def k = "batch." ++ field_name(key)
+        def t = record(pins, k, '($t ...)', clause)
+        emit('def $n = ir.input_ref($k, $t)')
+    | 'relate $(n :: Identifier) = $rhs ...':
+        record(relations, field_name(n), observation('$rhs ...'), clause)
+    | 'invariant $(n :: Identifier) = $rhs ...':
+        record(invariants, field_name(n), 'ir.Observed(operand($rhs ...))', clause)
+    | 'check $(n :: Identifier) = $rhs ...':
+        record(checks, field_name(n), 'ir.Observed(operand($rhs ...))', clause)
+    | 'cover $(n :: Identifier) = $rhs ...':
+        record(covers, field_name(n), 'ir.Observed(operand($rhs ...))', clause)
+    | 'state $rest ...': syntax_meta.error("refinement reads state; declare state in the monitor", clause)
+    | 'next $rest ...': syntax_meta.error("refinement has no state updates", clause)
+    | 'assume $rest ...': syntax_meta.error("refinement predicates must be proved", clause)
+    | ~else: emit(clause)
+  unless site | syntax_meta.error("refinement requires a FIFO child cut", [line, ...][0])
+  let [decl, ...] = declarations()
+  'block:
+     $decl
+     ...
+     def state_inputs = $(map_expr(sources))
+     def rel = ir.make_spec(state_inputs, {}, {}, $(map_expr(relations)), $(map_expr(invariants)), {})
+     def edge = ir.make_spec(state_inputs ++ $(map_expr(pins)), {}, {}, $(map_expr(checks)), $(map_expr(covers)), {})
+     boundary.attach_refinement($view, $site, $fifo, rel, edge)'
+
 /* Read a parameter at its lexical use site so unused non-scalar arguments need no model value. */
 defn.macro 'bind_parameter $id($bound, $key)':
   '«
@@ -167,6 +226,7 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
   def mutable ignored = []
   def mutable event_source = #false
   def mutable transaction = #false
+  def mutable refinement = #false
   def values(states, initial, updates, record, model_clause, declarations) = model_body()
   for (clause in [line, ...]):
     match clause
@@ -182,6 +242,9 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
     | 'monitor: $entry; ...':
         when transaction | syntax_meta.error("duplicate transaction view", clause)
         transaction := 'monitor_view: $entry; ...'
+    | 'refinement: $entry; ...':
+        when refinement | syntax_meta.error("duplicate refinement block", clause)
+        refinement := [entry, ...]
     | 'transactions $rhs ...':
         when transaction | syntax_meta.error("duplicate transaction view", clause)
         transaction := '($rhs ...)'
@@ -189,6 +252,11 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
     | ~else: model_clause(clause)
 
   let [decl, ...] = declarations()
+  when refinement
+  | block:
+      unless transaction | syntax_meta.error("refinement requires a transaction view", name)
+      let [entry, ...] = refinement
+      transaction := 'refined_view($transaction): $entry; ...'
   let [skip, ...] = ignored
   when transaction && event_source | syntax_meta.error("choose one sampled event source", name)
   def args = if event_source | '(top, ~event_view: view_only :: Boolean = #false)' | '(top)'

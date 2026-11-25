@@ -3,7 +3,7 @@
 ;; SPDX-License-Identifier: Apache-2.0
 
 (require rackunit "composition-checks.rkt" "two-tag-rob-transactions.rkt"
-         "../../../examples/formal/two-tag-rob-contract.rkt"
+         "rob-observer-records.rkt"
          (only-in "../../../examples/formal/two-tag-rob.rspl" TwoTagROB)
          (only-in "../../../rspecl/rtl-boundary.rhm" transaction_parts)
          (only-in "../spec.rhm" spec_snapshot)

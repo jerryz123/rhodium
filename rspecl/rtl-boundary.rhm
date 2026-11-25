@@ -17,6 +17,7 @@ import:
 export declared_ports interface_prefixes Endpoint
 export ready_valid_events bind_event_source
 export transaction_view check_transaction_ports transaction_parts transaction_batch_model Presence Payload
+export attach_refinement refinement_parts
 export:
   only_space annot: TransactionView
   rename: ScalarPins as rv_pins
@@ -168,8 +169,27 @@ fun project_batch(sampler :: LeafModel, schema :: Map, bindings :: Map):
 
 /* An unproved view retains the canonical projection alongside its sampler and independent history monitor. */
 class TransactionView(sampler :: LeafModel, monitor :: LeafModel, cycle_names :: List.of(String), inputs :: Map,
-                      outputs :: Map, bindings :: Map):
+                      outputs :: Map, bindings :: Map, hints :: maybe(PairList) = #false):
   field batch = if bindings.length() > 0 | project_batch(sampler, monitor.inputs, bindings) | #false
+
+/* Attach data, never a proof callback. The relation model can mention only FIFO and register state;
+   pin-dependent checks and coverage live in a different model that cannot constrain induction. */
+fun attach_refinement(view :: TransactionView, site :: String, fifo :: String, relation :: LeafModel, checks :: LeafModel):
+  unless view.batch && !view.hints | error("refinement requires one bound transaction monitor")
+  unless view.monitor.outputs.has_key("allowed") | error("monitor requires an allowed verdict")
+  unless relation.outputs.keys().sort() == view.monitor.state.keys().sort()
+  | error("relate every monitor state field exactly once")
+  for ((k, f) in relation.outputs):
+    unless spec_type_equal(f.value.type, view.monitor.state[k]) | error("relation type mismatch: " ++ k)
+  for (table in [view.monitor.outputs, relation.events, checks.outputs, checks.events]):
+    for ((name, f) in table):
+      unless f.value.type is_a SpecBool | error("expected Boolean refinement predicate: " ++ name)
+  TransactionView(view.sampler, view.monitor, view.cycle_names, view.inputs, view.outputs, view.bindings,
+                  PairList[site, fifo, spec_snapshot(relation), spec_snapshot(checks)])
+
+/* Read only the checked hint schemas and expressions; this is not reusable evidence. */
+fun refinement_parts(view :: TransactionView):
+  view.hints || error("transaction view has no refinement block")
 
 /* Return the executable pin-to-batch model. Applying the same bindings to a candidate sampler
    is useful for differential checking; neither operation issues or alters proof evidence. */

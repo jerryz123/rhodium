@@ -19,6 +19,25 @@ def pair_top = elaborate(pairs.QueuePair(1)).top
 def tx = rob_specs.TwoTagROB(~transaction_view: #true)
 def values(_, ref_monitor, _, _) = transaction_parts(tx)
 
+// A false pin must not make the preservation premise false. The state relation
+// has no sampled pin inputs; pins may appear only in edge checks and covers.
+check:
+  block:
+    spec for rtl.ParamProbe:
+      monitor:
+        sample fun (_read, write): {"value": Observed(write("bad", Bool))}
+        publish []
+        batch sampled = present(value)
+        state flag: Bool initially #true
+        guarantee "ok" = #true
+      refinement:
+        fifo words from queue: Seq(Bool, 1)
+        output (bad): Bool
+        invariant hide_bad = !bad
+        relate flag = empty(words)
+    ParamProbe(~transaction_view: #true)
+  ~throws "undeclared or mistyped spec reference: output.bad"
+
 fun one_event(_read, write): {"item": Observed(write("bad", Bool))}
 check:
   block:

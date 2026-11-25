@@ -85,6 +85,41 @@ spec for rtl.TwoTagROB:
     next saved_a = select(capture_a, data_a, saved_a)
     next saved_b = select(capture_b, data_b, saved_b)
 
+  // Private induction hints, not statements that a consumer may assume about this RTL.
+  refinement:
+    fifo tags from order: Seq(Bool, 2)
+    local (busy_a, busy_b, gen_a, gen_b, done_a, done_b): Bool
+    local (saved_a, saved_b): Bits(2)
+    let live = !empty(tags)
+    let two = full(tags)
+    let head = select(live, front(tags), #false)
+    let last = select(two, front(tail(tags)), #false)
+    invariant unique = !two || select(head, !last, last)
+    let has_a = (live && !head) || (two && !last)
+    let has_b = (live && head) || (two && last)
+    invariant owns_a = select(busy_a, has_a, !has_a)
+    invariant owns_b = select(busy_b, has_b, !has_b)
+    invariant completed_live = (!done_a || busy_a) && (!done_b || busy_b)
+    relate order = tags
+    relate gen_a = gen_a when busy_a
+    relate gen_b = gen_b when busy_b
+    relate done_a = done_a when busy_a
+    relate done_b = done_b when busy_b
+    relate saved_a = saved_a when done_a
+    relate saved_b = saved_b when done_b
+
+    input (reset, issue_a, issue_b): Bool
+    input ready from retire.ready: Bool
+    output (grant_a, grant_b): Bool
+    batch retiring from retire: Bool
+    batch retired_tag from retire_tag: Bool
+    check grants = reset || (!(grant_a && grant_b) && (!grant_a || issue_a) && (!grant_b || issue_b))
+    cover retire_a0 = retiring && !retired_tag && !gen_a
+    cover retire_a1 = retiring && !retired_tag && gen_a
+    cover retire_b0 = retiring && retired_tag && !gen_b
+    cover retire_b1 = retiring && retired_tag && gen_b
+    cover younger_only = two && !head && !done_a && done_b && ready && !retiring
+
   state history: Seq(Bool, 2) initially [] as cleared
   state finished_a: Bool initially #false
   state finished_b: Bool initially #false

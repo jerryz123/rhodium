@@ -9,8 +9,7 @@
          (only-in "../spec-engine.rkt" fresh-fields spec-edge-at edge-events edge-defined observation-care observation-value)
          (only-in "../refinement.rkt" check-batch-total!)
          (only-in "rob-sampler-fixture.rhm" dropped_generation)
-         "../../../examples/formal/two-tag-rob-contract.rkt"
-         (submod "../../../examples/formal/two-tag-rob-contract.rkt" history-types))
+         "../../../rspecl/proof.rkt" "rob-observer-records.rkt")
 
 (define unused (entry #f #f #f (bv 0 2)))
 (define empty-history (rob-history 0 unused unused))
@@ -71,7 +70,8 @@
                   (response (present "echo_b") (value "echo_b") (value "data_b"))
                   (present "retired") (value "retired") (value "retired_value")))
     (define (direction names) (for/hash ([k names]) (values k (hash-ref pins k))))
-    (define actual (sample-rob-events (direction ins) (direction outs)))
+    (define actual (public-batch (sample-transaction verified-rob-transactions (TwoTagROB #:transaction_view #t)
+                                                  (direction ins) (direction outs))))
     ;; No restriction on reset, simultaneous events, stalled offers, or uncared pin values.
     (define (agrees? presence payloads a b)
       (&& (equal? (presence a) (presence b))
@@ -80,8 +80,8 @@
       (&& (edge-defined edge) (equal? (rob-events-reset expected) (rob-events-reset actual))
           (agrees? rob-events-grant (list rob-events-grant-tag rob-events-grant-gen) expected actual)
           (agrees? rob-events-retire (list rob-events-retire-tag rob-events-retire-data) expected actual)
-          (for/and ([lane (list rob-events-a rob-events-b)])
-            (agrees? response-present (list response-gen response-data) (lane expected) (lane actual))))))
+          (for/fold ([ok #t]) ([lane (list rob-events-a rob-events-b)])
+            (&& ok (agrees? response-present (list response-gen response-data) (lane expected) (lane actual)))))))
   (test-case "the pre-seal totality check rejects a sampler that loses generation on a grant of A"
     (check-exn #rx"batch-sampler/total not proved"
                (lambda () (check-batch-total! (spec_snapshot dropped_generation)))))

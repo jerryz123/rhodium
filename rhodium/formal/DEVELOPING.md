@@ -463,8 +463,12 @@ during A1. A second reuse shows why the alternating bit cannot protect A2 from A
 The [ROB transaction regression](tests/two-tag-rob-transactions.rkt) shares
 `symbolic-fifo-cut` with the gated proof. Only the parent RTL has an executable
 edge; the child supplies a sampler domain and FIFO relation on arbitrary
-history successors. The [issuer](../../examples/formal/two-tag-rob-contract.rkt)
-projects occupied FIFO slots into ordered public allocations. Check local busy
+history successors. The [issuer](../../rspecl/proof.rkt) evaluates the two
+hint models generated from `refinement:`: a state-only projection and a
+separate model for pin checks and coverage. Start with arbitrary physical state;
+reset must relate the physical successor both to the monitor's declared initial
+state and to its reset successor. On non-reset edges quantify over all legal
+related monitor states, including unconstrained inactive banks. Check local busy
 membership, tag uniqueness and canonical encoding inductively. Compare the
 monitor successor against the projected local generation/done bits and (only
 for completed allocations) saved data. Use the same transition for certification
@@ -475,8 +479,9 @@ has no state: cycle execution substitutes cared output expressions into the
 four published fields, and the proof samples the full batch from directional
 physical nets. RSPECL lowers each bound payload to a guarded spec expression:
 the payload event's care must equal its declared presence field in both directions.
-The seal retains this projected sampler; Racket only packages its dense outputs
-in the public record. Before sealing, `check-batch-total!` must prove every
+The seal retains this projected sampler; the parent reads its dense output record
+directly. The independent test oracles retain their historical record adapters.
+Before sealing, `check-batch-total!` must prove every
 output present and the whole step defined on unconstrained pins. The
 [adapter oracle](tests/two-tag-rob-oracle.rkt) compares presence and cared
 payloads with the former Racket mapping; the dropped-generation fixture fails
@@ -509,9 +514,9 @@ head from reset and check both a repeatable idle self-loop and a retirement
 from the same state.
 
 For the [hardware recorder proof](tests/logged-two-tag-rob.rkt), use
-`symbolic-rob-cut` to match the seal to the actual occurrence and apply the
+`transaction-cut` to match the seal to the actual occurrence and apply the
 issuer's pin decoder to its driven inputs and unconstrained outputs. Check
-the wrapper's public batch and record readback before assuming `rob-step`.
+the wrapper's public batch and record readback before using `transaction-step`.
 Prove reset, transfer, and hold from arbitrary local register contents; do
 not seed the two data registers with zero. The cut interprets the RTL cast
 from sampled Reset to Bits(1) used by `reset_active()`. Keep the full-RTL
