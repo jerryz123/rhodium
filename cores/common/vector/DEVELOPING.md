@@ -206,8 +206,15 @@ the scalar ordering signal: reclamation and physical drain can occur separately.
 Inside `distributed/`, `frontend/` owns precise checks and admission,
 `backend/` owns the scheduler, scoreboard, register-file grants and sequencers,
 `mem/` owns physical requests and response alignment, and `exu/` owns arithmetic.
-The VLSU's [load-return path](distributed/mem/load-return.rhdl) reserves capacity
-at request acceptance and frees the credit when the merger consumes that beat.
+The VLSU tracks eight ordered request contexts and buffers five returned load
+beats. Normally it reserves return space at request acceptance. Only an
+oldest, direct, unmasked, single-field contiguous cached load may use free
+metadata without reserved data space. Compare the resident cursor with the
+live reclamation frontier so an already-issued load can qualify as it ages.
+A displaced prefix can enter the merger without its suffix; a completed row
+needs only the fair VRF grant, never a later cache reply. Keep every accepted
+load in the [pending count](distributed/mem/load-return.rhdl) until the merger
+consumes its beat, including replies still held by L1D.
 Install its layout on VLSeq preparation, not on address issue: those handshakes
 can stall independently. The formatter advances empty fields without a write;
 VLSeq consumes every enabled output fragment on the corresponding VRF grant.

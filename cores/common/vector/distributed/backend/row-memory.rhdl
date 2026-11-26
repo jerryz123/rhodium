@@ -47,6 +47,8 @@ sync_circuit VectorRowEngine(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
   interface finished(Valid(MemoryEvent(slots)), ~role: producer)
   output unavailable: Vec(MemoryPaths.length(), Bool)
   inst vlsu(VectorVLSU(xlen, vlen, slots, ~trace_isa: trace_isa))
+  input oldest_owner: Owner
+  vlsu.oldest_owner <== oldest_owner
   vlsu.trace_instructions <== trace_instructions
   inst loads(VectorLoadSequencer(xlen, vlen, slots))
   inst stores(VectorStoreSequencer(xlen, vlen, slots, ~trace_isa: trace_isa))

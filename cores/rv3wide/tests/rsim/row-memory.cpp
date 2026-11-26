@@ -9,7 +9,7 @@
 #include <vector>
 
 using Word = std::uint64_t;
-constexpr unsigned row_credits = 5;
+constexpr unsigned metadata_entries = 8;
 unsigned cycle_limit=16000; // Aggregate watchdog; row cadence is checked at the grants.
 unsigned cycles, finishes, releases, narrow, scalar_returns;
 Word scalar_value;
@@ -238,7 +238,7 @@ void step() {
     if (row_memory_out.prequest.pvalid && row_memory_in.prequest.pready) {
       CHECK(req.pbyte_umask != 0);
       pending.push_back({req.paddress,req.pbyte_umask,bool(req.pstore),req.pdata.words,cycles+latency});
-      CHECK(pending.size() <= row_credits);
+      CHECK(pending.size() <= metadata_entries);
       masks.push_back(req.pbyte_umask);
       services.push_back(req.pservice);
       addresses.push_back(req.paddress);
@@ -3378,5 +3378,30 @@ int main() {
     hold_memory_drain = false;
     step();
     CHECK(!stores_pending);
+
+    // Delay a displaced oldest load, then return six fragments during a
+    // younger FMA. Those fragments alone must yield five complete rows.
+    cycle_limit=cycles+320;
+    state(0,3,0,256); requests_always_ready=true; block_returns=true;
+    load_return_cycles.clear(); load_write_cycles.clear(); writes_alu.clear();
+    send(load(0),src+8);
+    for(unsigned i=0;i<24;++i) step();
+    CHECK(pending.size()==metadata_entries && load_return_cycles.empty());
+    state(2,3,0,64); send(op(0x2c,8,16,1,24));
+    while(writes_alu.size()<2) step();
+    const auto denied=blocked_load_writes;
+    block_returns=false;
+    while(load_return_cycles.size()<6) step();
+    block_returns=true;
+    while(load_write_cycles.size()<5) step();
+    CHECK(blocked_load_writes>denied && load_return_cycles.size()==6);
+    block_returns=false; drain();
+    CHECK(load_write_cycles.size()==16 && load_return_cycles.size()==17 && writes_alu.size()==16);
+    state(0,3,0,256); send(store(0),out); drain();
+    for(unsigned i=0;i<256;++i) {
+      const Word addr=src+8+i;
+      const Row& expected=stored.contains(addr & ~Word(15)) ? stored.at(addr & ~Word(15)) : initial;
+      CHECK(get_lane(out,i,1)==(expected[(addr%16)/4]>>(8*(addr%4)) & 255u));
+    }
   });
 }

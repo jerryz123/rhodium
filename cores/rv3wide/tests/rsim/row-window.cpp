@@ -351,11 +351,16 @@ void splat_lineage() {
 }
 
 // Feed three-cycle L1 hit replies, or hold the VRF to fill the registered window.
-void writeback_window(bool block_write) {
-  constexpr unsigned credits=5, rows=12, claims=(1u<<rows)-1;
+enum class Window { hit_stream, younger, promote, masked_oldest };
+void writeback_window(Window scenario) {
+  constexpr unsigned credits=5, metadata=8, rows=16, claims=(1u<<rows)-1;
+  const bool block_write=scenario!=Window::hit_stream, masked=scenario==Window::masked_oldest;
+  oldest_owner=masked ? 2 : 1;
   launch_0_in={}; memory_in={}; chain_in={}; write_in={};
-  memory_in.prequest.pready=write_in.pready=1;
-  chain_in.polder_uaccesses=std::uint64_t(block_write)<<16;
+  memory_in.prequest.pready=1; write_in.pready=!masked;
+  chain_in.polder_uaccesses=std::uint64_t(block_write && !masked)<<16;
+  launch_0_in.pbits.pissue.pdescriptor.pmasked=masked;
+  mask_0_in.pdata.words.fill(~0u);
   launch_0_in.pbits.ppages[0]=0x60;
   launch_0_in.pbits.pissue.pdescriptor.pstate.pvl=rows*16; launch_0_in.pbits.pissue.pdescriptor.pstate.pvtype=3; // e8,m8
   launch_0_in.pbits.pissue.pdescriptor.pinstruction=8u<<7; launch_0_in.pbits.pissue.powner=2;
@@ -381,7 +386,9 @@ void writeback_window(bool block_write) {
       grants+=write_in.pready;
     }
     finishes+=finished_out.pvalid;
-    CHECK(requests-grants<=credits && (!finishes || grants==rows));
+    CHECK(requests-responses<=metadata && responses-grants<=credits);
+    if (oldest_owner!=2 || masked) CHECK(requests-grants<=credits);
+    CHECK(!finishes || grants==rows);
     tick_model(); ++cycle;
   };
   if (!block_write) {
@@ -389,16 +396,25 @@ void writeback_window(bool block_write) {
     CHECK(requests==rows && responses==rows && grants==rows && finishes==1);
     return;
   }
-  for (unsigned t=0;t<10;++t) edge();
+  for (unsigned t=0;t<24;++t) edge();
   CHECK(requests==credits && responses==credits && !grants);
   chain_in.polder_uaccesses=0; write_in.pready=0;
+  if (scenario==Window::promote) {
+    oldest_owner=2;
+    for (unsigned t=0;t<metadata+3;++t) edge();
+    CHECK(requests==credits+metadata && responses==credits && !grants);
+    write_in.pready=1;
+    for (unsigned t=0;t<rows+12 && !finishes;++t) edge();
+    CHECK(grants==rows && finishes==1);
+    return;
+  }
   for (unsigned t=0;t<8;++t) { eval(); CHECK(write_out.pvalid); edge(); }
   CHECK(requests==credits && !grants);
   write_in.pready=1; edge(); CHECK(requests==credits && grants==1);
   write_in.pready=0; edge(); CHECK(requests==credits+1);
   for (unsigned t=0;t<8;++t) edge();
   CHECK(requests==credits+1 && responses==credits+1 && grants==1);
-  write_in.pready=1; for (unsigned t=0;t<rows+8 && !finishes;++t) edge();
+  write_in.pready=1; for (unsigned t=0;t<3*rows && !finishes;++t) edge();
   CHECK(grants==rows && finishes==1);
 }
 
@@ -549,8 +565,8 @@ int main() {
     displaced_lineage(20);
     displaced_lineage(32);
     displaced_lineage(32,true);
-    writeback_window(false);
-    writeback_window(true);
+    for (auto scenario : {Window::hit_stream, Window::younger, Window::promote, Window::masked_oldest})
+      writeback_window(scenario);
     for (bool store : {false,true}) for (bool alias : {false,true}) physical_ranges(store,alias);
     blocked_store_source();
     for (bool store : {false,true}) independent_starts(store);

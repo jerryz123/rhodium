@@ -49,6 +49,7 @@ sync_circuit VectorVLSU(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~t
   def row_bytes = dlen div 8
   def Owner = Bits(index_width(slots))
   def Credit = RowCredit(xlen, vlen, Owner)
+  input oldest_owner: Owner
   input trace_instructions: Vec(slots, VectorTraceInstruction(xlen))
   interface start[MemoryPaths.length()](Decoupled(MemoryLaunch(xlen, vlen, slots)), ~role: consumer)
   interface checked_element(Decoupled(CheckedIndexElement(xlen, vlen)), ~role: consumer)
@@ -90,7 +91,9 @@ sync_circuit VectorVLSU(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~t
   reg first_pages(Vec(MemoryPaths.length(), Bits(xlen.width - VectorPageOffsetBits)))
   reg spans(Vec(MemoryPaths.length(), RowFootprint()))
   reg older_store(Bool)
-  reg awaiting(~init: literal(Vec(MemoryPaths.length(), MemoryCreditCount), 0))
+  def RequestCount = Bits(index_width(MemoryRequestEntries + 1))
+  reg awaiting(~init: literal(Vec(MemoryPaths.length(), RequestCount), 0))
+  reg independent_load(Bool)
 
   resident <== occupied
   def first_rows = for List (i in MemoryPaths):
@@ -120,6 +123,10 @@ sync_circuit VectorVLSU(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~t
       spans[i] <== footprint
     mux(by_element, command.address, command.address.align_down(row_bytes))
   when (start[LoadPath].fire() ||| start[StorePath].fire()): older_store <== start[LoadPath].fire()
+  def load_start = start[LoadPath]
+  when (load_start.fire()):
+    def issue = load_start.bits.issue
+    independent_load <== (issue.kind === MemoryIssueKind.Contiguous) & (load_start.bits.service === VectorMemoryService.Cached) & !issue.command.masked & !issue.command.layout.nf.any()
   assert(!(start[LoadPath].fire() & start[StorePath].fire()), "older_vector_memory_cursor_installed_first")
   /* Prefer the older ready cursor. Hold the selected offer until accepted, even
      if the other cursor becomes ready while L1D is stalled. */
@@ -150,7 +157,7 @@ sync_circuit VectorVLSU(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~t
   store_data_pending <== store_buffer.egress.valid
   // A younger load waiting on WAR may pin its credit through VRF grant.
   // Leave one credit for the older store to drain its buffered VS3 rows.
-  def reserve_for_store = older_store & sequencing[StorePath] & (load_credits >= MemoryCreditCount(MemoryRowCredits - 1))
+  def reserve_for_store = older_store & sequencing[StorePath] & (load_credits >= MemoryPendingCount(MemoryRowCredits - 1))
   // Same-page elements replace the current address and operand lane, not its
   // translation or owner. Split beats hold both fields until their suffix fires.
   reg gathered(~init: Bool(#false))
@@ -218,10 +225,14 @@ sync_circuit VectorVLSU(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~t
   describe_interface_contract(prepared, fragments.left, "physical-fragment", ~trace_model: interface_trace_combinational())
   def Array(empty, live) = fragments.right |> demux_flow(2, r => r.enabled.any())
   empty.ready <== Bool(#true)
-  inst credits(Queue(RowCredit(xlen, vlen, Owner), MemoryRowCredits))
+  inst credits(Queue(Credit, MemoryRequestEntries))
+  // Only the oldest direct load can let replies wait at L1D: a prefix can
+  // enter the merger alone and an enabled write needs only a fair VRF grant.
+  def oldest_load = !store & independent_load & (owners[LoadPath] === oldest_owner)
+  def reserved_room = (load_credits + awaiting[StorePath]) < MemoryPendingCount(MemoryRowCredits)
   // Observe only offers for which the sibling metadata FIFO can accept.
   // Consequently the only remaining AGEN backpressure is memory.request.ready.
-  def admitted = live |> gate_flow(((load_credits + awaiting[StorePath]) < MemoryCreditCount(MemoryRowCredits)) & credits.ingress.ready)
+  def admitted = live |> gate_flow((reserved_room ||| oldest_load) & credits.ingress.ready)
   def physical_request = admitted |> map_flow(_r => VectorRowRequest(dlen)):
     service: services[selected]
     element_width: eews[selected]
@@ -336,6 +347,6 @@ sync_circuit VectorVLSU(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~t
     when launching: addresses[i] <== first_rows[i]
     elsewhen replacing: addresses[i] <== checked_element.bits.address
     elsewhen (prepared.fire() & chosen): addresses[i] <== addresses[i] + steps[i]
-    when (issuing =/= returning): awaiting[i] <== mux(issuing, awaiting[i] + MemoryCreditCount(1), awaiting[i] - MemoryCreditCount(1))
+    when (issuing =/= returning): awaiting[i] <== mux(issuing, awaiting[i] + RequestCount(1), awaiting[i] - RequestCount(1))
 
 export VectorVLSU

@@ -14,8 +14,8 @@ import:
   "load-merger.rhdl".VectorLoadMerger
   "segment.rhdl" open
 
-/* Reserve one slot per accepted physical request, including split fragments.
-   Return the credit on merger input consumption, not FIFO insertion or macro retirement. */
+/* Track accepted load fragments through merger consumption, including those
+   still at L1D. Only the five already-returned rows require local data slots. */
 sync_circuit VectorLoadReturn(xlen :: XLen, vlen :: VectorLength, Owner :: DataType):
   def dlen = vector_dlen(vlen)
   def lane_bits = index_width(dlen div 8)
@@ -26,8 +26,8 @@ sync_circuit VectorLoadReturn(xlen :: XLen, vlen :: VectorLength, Owner :: DataT
   interface visit(Valid(LoadFieldVisit()), ~role: producer)
   interface element_drained(Valid(Owner), ~role: producer)
   input reserve: Bool
-  output credits: MemoryCreditCount
-  reg pending(~init: MemoryCreditCount(0))
+  output credits: MemoryPendingCount
+  reg pending(~init: MemoryPendingCount(0))
   def loads = returned |> queue(MemoryRowCredits)
 
   reg layout(SegmentLayout())
@@ -46,7 +46,7 @@ sync_circuit VectorLoadReturn(xlen :: XLen, vlen :: VectorLength, Owner :: DataT
   merger.displacement <== displacement
   loads |> merger.beat
   when (reserve =/= loads.fire()):
-    pending <== mux(reserve, pending + MemoryCreditCount(1), pending - MemoryCreditCount(1))
+    pending <== mux(reserve, pending + MemoryPendingCount(1), pending - MemoryPendingCount(1))
   credits <== pending
   element_drained.valid <== loads.fire() & loads.bits.credit.element_end
   element_drained.bits <== loads.bits.credit.owner

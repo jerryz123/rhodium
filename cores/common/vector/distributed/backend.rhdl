@@ -67,6 +67,7 @@ sync_circuit DistributedVectorBackend(xlen :: XLen, vlen :: VectorLength, Fault 
   inst paths(DistributedVectorDispatch(xlen, slots))
   claims.next_owner <== instructions.allocate_id
   claims.drain_owner <== instructions.oldest_id
+  rows.oldest_owner <== instructions.oldest_id
   claims.macro_valid <== instructions.live
   claims.macro_load <== instructions.load_owners
   claims.macro_store <== instructions.store_owners

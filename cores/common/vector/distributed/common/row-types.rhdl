@@ -72,6 +72,9 @@ interface VectorPredicateTap(dlen :: PosInt):
 // Five shared fragment credits cover L1 hit issue through registered credit reuse.
 def MemoryRowCredits = 5
 def MemoryCreditCount = Bits(index_width(MemoryRowCredits + 1))
+def MemoryRequestEntries = 8
+// Pending load work includes requests still at L1D and rows buffered at the VLSU.
+def MemoryPendingCount = Bits(index_width(MemoryRequestEntries + MemoryRowCredits + 1))
 
 /* Locate a row within a group, relative to the base architectural register. */
 fun group_row(regno :: Bits(index_width(VectorRegisterCount)), offset :: Bits(RowAddress.packed_width()) = RowAddress(0)) :~ Bits(RowAddress.packed_width()):
@@ -177,7 +180,7 @@ bundle ReturnedRow(xlen :: XLen, vlen :: VectorLength, Owner :: DataType):
   credit: RowCredit(xlen, vlen, Owner)
   data: Bits(vector_dlen(vlen))
 
-export RegisterSet PhysicalRows RowAddress RowSet RegisterRowIndex PredicateSet group_row MemoryRowCredits MemoryCreditCount
+export RegisterSet PhysicalRows RowAddress RowSet RegisterRowIndex PredicateSet group_row MemoryRowCredits MemoryCreditCount MemoryRequestEntries MemoryPendingCount
 export PreparedRow PreparedBeat CheckedIndexElement OwnedRow RowCredit ReturnedRow native_row_layout ExecuteSources VectorRowRead VectorRowOperands
 export VectorPredicateTap ScatterOperand IndexOperandRow
 export SplatPosition SpecialRow SpecialRead PermutedRow

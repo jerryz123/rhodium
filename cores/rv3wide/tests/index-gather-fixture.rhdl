@@ -34,6 +34,7 @@ sync_circuit IndexGatherFixture(xlen :: XLen):
   output(authorized, finished, window_released): Bool
   inst scan(VectorFaultCheck(xlen, vlen, 4))
   inst rows(VectorRowEngine(xlen, vlen, 4))
+  rows.oldest_owner <== scan.owner
   inst special(VectorSpecialSequencer(xlen, vlen, 4))
   start |> scan.start
   reg trace_instructions(Vec(4, VectorTraceInstruction(xlen)))
@@ -127,6 +128,8 @@ sync_circuit RowMemoryFixture(xlen :: XLen, vlen):
   def dlen = vlen div 2
   def Owner = Bits(2)
   inst rows(VectorRowEngine(xlen, vlen, 4))
+  input oldest_owner: Owner
+  rows.oldest_owner <== oldest_owner
   interface launch[2](Decoupled(MemoryFixtureLaunch(xlen)), ~role: consumer)
   interface prepare(Decoupled(MemoryFixtureIssue(xlen)), ~role: consumer)
   prepare |> map_flow(i => fixture_issue(xlen, vlen, i)) |> rows.prepare
@@ -186,6 +189,7 @@ sync_circuit NativeIndexMemoryFixture(xlen :: XLen, vlen):
   def dlen = vlen div 2
   def Owner = Bits(2)
   inst rows(VectorRowEngine(xlen, vlen, 4))
+  rows.oldest_owner <== Owner(0)
   inst special(VectorSpecialSequencer(xlen, vlen, 4))
   special.reduction.update.valid <== Bool(#false)
   special.reduction.update.bits <== dont_care(Bits(dlen))
