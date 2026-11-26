@@ -258,6 +258,11 @@ bundle VectorRowRequest(dlen :: PosInt):
   byte_mask: Bits(vector_row_bytes(dlen))
   data: Bits(dlen)
 
+/* Echoes the accepted operation kind so a store ACK needs no load destination metadata. */
+bundle VectorRowResponse(dlen :: PosInt):
+  store: Bool
+  data: Bits(dlen)
+
 /* Accepted rows return exactly one load value or store acknowledgement in request order. */
 interface VectorRowMemory(dlen :: PosInt):
   role requester
@@ -266,7 +271,7 @@ interface VectorRowMemory(dlen :: PosInt):
   requester -> responder:
     request: Decoupled(VectorRowRequest(dlen))
   responder -> requester:
-    response: Decoupled(Bits(dlen))
+    response: Decoupled(VectorRowResponse(dlen))
 
 /* Pairs scalar instruction context with an immutable admitted vector descriptor. */
 bundle VectorInstruction(xlen :: XLen, Context :: DataType):
@@ -541,6 +546,7 @@ export:
   VectorDispatchEntry
   VectorRowMemory
   VectorRowRequest
+  VectorRowResponse
   VectorInstruction
   VectorCompressState
   VectorCompressSuffix

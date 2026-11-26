@@ -5,7 +5,7 @@
 
 using Word = decltype(memory_in.prequest.pbits.pmemory.pdata);
 constexpr unsigned bytes = sizeof(Word);
-constexpr unsigned row_bytes = sizeof(row_memory_out.presponse.pbits);
+constexpr unsigned row_bytes = sizeof(row_memory_out.presponse.pbits.pdata);
 static_assert(row_bytes == 2*bytes);
 constexpr unsigned size_code = bytes == 4 ? 2 : 3;
 constexpr unsigned word_mask = (1u << bytes) - 1;
@@ -213,15 +213,15 @@ int main() {
     fill(base + 64, 2);
     until([] { return row_memory_out.presponse.pvalid; });
     for (unsigned wait = 0; wait < 3; ++wait) {
-      CHECK(row_memory_out.presponse.pvalid && !memory_out.presponse.pvalid);
+      CHECK(row_memory_out.presponse.pvalid && !row_memory_out.presponse.pbits.pstore && !memory_out.presponse.pvalid);
       for (unsigned b = 0; b < row_bytes; ++b)
-        CHECK(reinterpret_cast<const unsigned char*>(&row_memory_out.presponse.pbits)[b] == line[16+b]);
+        CHECK(reinterpret_cast<const unsigned char*>(&row_memory_out.presponse.pbits.pdata)[b] == line[16+b]);
       tick_model(); eval();
     }
     row_memory_in.presponse.pready = 1; tick_model(); row_memory_in.presponse.pready = 0;
     until([] { return row_memory_out.presponse.pvalid; });
     for (unsigned b=0;b<row_bytes;++b)
-      CHECK(reinterpret_cast<const unsigned char*>(&row_memory_out.presponse.pbits)[b] == line[32+b]);
+      CHECK(reinterpret_cast<const unsigned char*>(&row_memory_out.presponse.pbits.pdata)[b] == line[32+b]);
     row_memory_in.presponse.pready = 1; tick_model(); row_memory_in.presponse.pready = 0;
     // Issue a byte at the top lane of the vector row to a device. The RN-I
     // request is byte-sized; the return stays in that lane until accepted.
@@ -243,7 +243,7 @@ int main() {
     reply.pbits.phome_unid_uor_upbha_uor_umismatched_umecid=flit.ptgt_uid;
     reinterpret_cast<unsigned char*>(&reply.pbits.pdata)[lane]=0xa7;
     for(unsigned i=0;i<3;++i){eval(); CHECK(row_memory_out.presponse.pvalid && !memory_out.presponse.pvalid);
-      CHECK(reinterpret_cast<const unsigned char*>(&row_memory_out.presponse.pbits)[lane]==0xa7); tick_model();}
+      CHECK(reinterpret_cast<const unsigned char*>(&row_memory_out.presponse.pbits.pdata)[lane]==0xa7); tick_model();}
     row_memory_in.presponse.pready=1; tick_model(); row_memory_in.presponse.pready=reply.pvalid=0;
     req.pbits.pstore=req.pvalid=1;
     reinterpret_cast<unsigned char*>(&req.pbits.pdata)[lane]=0xbb;
@@ -260,7 +260,7 @@ int main() {
     CHECK(write.pbyte_uenable==(1u<<lane) && reinterpret_cast<const unsigned char*>(&write.pdata)[lane]==0xbb);
     uncached_chi_in.pdat.prequest.pready=1; tick_model(); uncached_chi_in.pdat.prequest.pready=0;
     rsp.pbits.popcode=4; rsp.pvalid=1; eval();
-    CHECK(row_memory_out.presponse.pvalid && !memory_out.presponse.pvalid && !memory_out.pdrained);
+    CHECK(row_memory_out.presponse.pvalid && row_memory_out.presponse.pbits.pstore && !memory_out.presponse.pvalid && !memory_out.pdrained);
     row_memory_in.presponse.pready=1; tick_model(); row_memory_in.presponse.pready=rsp.pvalid=0;
     req.pbits={};
     // A committed byte store updates the top native word of the first row.
@@ -312,7 +312,7 @@ int main() {
       const unsigned enabled = r == 1 ? 0x5ac3 : 0x9c35;
       until([] { return row_memory_out.presponse.pvalid; });
       for (unsigned i = 0; i < 3; ++i) {
-        CHECK(row_memory_out.presponse.pvalid && !memory_out.presponse.pvalid);
+        CHECK(row_memory_out.presponse.pvalid && row_memory_out.presponse.pbits.pstore && !memory_out.presponse.pvalid);
         tick_model(); eval();
       }
       row_memory_in.presponse.pready = 1; tick_model(); row_memory_in.presponse.pready = 0;

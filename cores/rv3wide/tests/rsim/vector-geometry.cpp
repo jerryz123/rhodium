@@ -3,10 +3,10 @@
 #include <cstring>
 #include <deque>
 
-using Row = decltype(row_memory_in.presponse.pbits);
+using Row = decltype(row_memory_in.presponse.pbits.pdata);
 constexpr unsigned bytes = sizeof(Row);
 std::array<unsigned char, 2*bytes> source{}, result{};
-std::deque<Row> replies;
+std::deque<decltype(row_memory_in.presponse.pbits)> replies;
 unsigned loads, stores;
 
 void step() {
@@ -25,7 +25,7 @@ void step() {
     if (r.pstore) std::memcpy(result.data()+count*bytes,&r.pdata,bytes);
     else std::memcpy(&value,source.data()+count*bytes,bytes);
     for (unsigned i=0;i<bytes;++i) CHECK((r.pbyte_umask>>i)&1);
-    replies.push_back(value); ++count;
+    auto& reply = replies.emplace_back(); reply.pstore = r.pstore; reply.pdata = value; ++count;
   }
   CHECK(!pipeline_out.prequest.pvalid);
   tick_model();

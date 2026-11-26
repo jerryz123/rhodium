@@ -2,7 +2,7 @@
 #include "test.hpp"
 #include <cstring>
 
-constexpr unsigned bytes = sizeof(memory_in.presponse.pbits);
+constexpr unsigned bytes = sizeof(memory_in.presponse.pbits.pdata);
 unsigned probes, releases, requests, returns, writes, authorizations, completions;
 bool fault_next, delay_proof, proof_pending, overlap;
 
@@ -11,7 +11,7 @@ void step() {
   check_in.presponse.pvalid = proof_pending && !delay_proof;
   check_in.presponse.pbits = !(fault_next && probes == (overlap ? 3u : 2u));
   memory_in.presponse.pvalid = returns < requests;
-  std::memset(&memory_in.presponse.pbits, 0x11 * (returns + 1), bytes);
+  std::memset(&memory_in.presponse.pbits.pdata, 0x11 * (returns + 1), bytes);
   eval();
   if (check_in.presponse.pvalid && check_out.presponse.pready) proof_pending = false;
   if (check_out.prequest.pvalid && check_in.prequest.pready) {
@@ -151,7 +151,7 @@ void page_run(bool enable_bad, bool masked_tail=false, bool stall_vrf=false) {
     check_in.presponse.pvalid=pending && t>=reply_at;
     check_in.presponse.pbits=good;
     memory_in.presponse.pvalid=returned<issued;
-    std::memset(&memory_in.presponse.pbits,0x40+returned,bytes);
+    std::memset(&memory_in.presponse.pbits.pdata,0x40+returned,bytes);
     if(stall_vrf && stalled==8) write_in.pready=1;
     if(enable_bad && checks==2 && t>=reply_at+8) write_in.pready=1;
     eval();
@@ -225,7 +225,7 @@ unsigned slice_latency(bool store, bool ordered, unsigned sew, unsigned lane, bo
   else std::memcpy(&indices,offsets,bytes);
   for(unsigned i=0;i<bytes;++i) {
     reinterpret_cast<unsigned char*>(&ports::store_data)[i]=0x40+i;
-    reinterpret_cast<unsigned char*>(&memory_in.presponse.pbits)[i]=0x80+i;
+    reinterpret_cast<unsigned char*>(&memory_in.presponse.pbits.pdata)[i]=0x80+i;
   }
   auto& d=start_in.pbits.pchecked.pdescriptor;
   d.pstate.pvstart=element; d.pstate.pvl=element+1; d.pstate.pvtype=sew<<3;
@@ -240,6 +240,7 @@ unsigned slice_latency(bool store, bool ordered, unsigned sew, unsigned lane, bo
     check_in.presponse.pbits=1; pages[0]=0x80;
     memory_in.prequest.pready=offer_at && t>=offer_at+3;
     memory_in.presponse.pvalid=issued && !returned;
+    memory_in.presponse.pbits.pstore=store;
     eval();
     if(start_in.pvalid) CHECK(start_out.pready);
     if(check_out.prequest.pvalid) {
@@ -293,7 +294,8 @@ void stream_split_beat(bool store) {
     check_in.presponse.pvalid=reply; check_in.presponse.pbits=1; pages[0]=0x80;
     memory_in.prequest.pready=issued!=2 || stalls==4;
     memory_in.presponse.pvalid=returned<issued;
-    std::memset(&memory_in.presponse.pbits,0x50+returned,bytes);
+    std::memset(&memory_in.presponse.pbits.pdata,0x50+returned,bytes);
+    memory_in.presponse.pbits.pstore=store;
     eval();
     if(vs3_read) {
       for(unsigned i=0;i<bytes;++i) reinterpret_cast<unsigned char*>(&ports::store_data)[i]=0x30+(vs3_row-16)*bytes+i;
@@ -360,6 +362,7 @@ void page_scatter(bool delay_ack, bool deny=false) {
     check_in.presponse.pvalid=reply; check_in.presponse.pbits=probes==1;
     memory_in.prequest.pready=!delay_ack || issued<2 || t%5!=0;
     memory_in.presponse.pvalid=acks<issued && (!delay_ack || t>=first+15);
+    memory_in.presponse.pbits.pstore=1;
     eval();
     if(check_out.prequest.pvalid) {
       CHECK(check_out.prequest.pbits.pstore && probes<(deny?2u:1u));
@@ -486,7 +489,7 @@ void overlapping_restart(unsigned shape) {
     for(unsigned t=0;t<400 && !done;++t) {
       check_in.presponse.pvalid=pending; check_in.presponse.pbits=safe;
       memory_in.presponse.pvalid=ret<issue;
-      std::memset(&memory_in.presponse.pbits,0x90+ret,bytes);
+      std::memset(&memory_in.presponse.pbits.pdata,0x90+ret,bytes);
       write_in.pready=retry || write!=bad-1 || stalls==10;
       eval();
       if(index_row>=first_row && index_row<first_row+4)
@@ -548,7 +551,7 @@ void owned_window(bool ordered) {
   for(unsigned t=0;t<130 && !done;++t) {
     memory_in.prequest.pready=t>=4;
     memory_in.presponse.pvalid=replies<sent;
-    std::memset(&memory_in.presponse.pbits,0x73,bytes);
+    std::memset(&memory_in.presponse.pbits.pdata,0x73,bytes);
     // Allow the first element to finish, but hold the final element after
     // its reply. The macro's window must survive this physical write stall.
     write_in.pready=grants==0 || held>=9;

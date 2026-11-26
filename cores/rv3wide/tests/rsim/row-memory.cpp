@@ -191,8 +191,9 @@ void step() {
   row_memory_in.prequest.pready = cycles >= hold_until && (requests_always_ready || cycles % 4 != 0);
   row_memory_in.presponse.pvalid = !pending.empty() && !block_returns && cycles >= pending.front().due;
   if (!pending.empty()) {
+    row_memory_in.presponse.pbits.pstore = pending.front().store;
     Word address = pending.front().address;
-    row_memory_in.presponse.pbits.words = stored.contains(address) ? stored.at(address) : initial;
+    row_memory_in.presponse.pbits.pdata.words = stored.contains(address) ? stored.at(address) : initial;
   }
   eval();
   if(iterative) {
@@ -238,7 +239,8 @@ void step() {
     if (row_memory_out.prequest.pvalid && row_memory_in.prequest.pready) {
       CHECK(req.pbyte_umask != 0);
       pending.push_back({req.paddress,req.pbyte_umask,bool(req.pstore),req.pdata.words,cycles+latency});
-      CHECK(pending.size() <= metadata_entries);
+      const auto stores = std::count_if(pending.begin(), pending.end(), [](const auto& r) { return r.store; });
+      CHECK(stores <= 5 && pending.size() - stores <= metadata_entries);
       masks.push_back(req.pbyte_umask);
       services.push_back(req.pservice);
       addresses.push_back(req.paddress);
@@ -931,20 +933,22 @@ int main() {
         CHECK(bit(out)==(i>=first && i<end ? truth[fn-0x18] : a));
       }
     }
-    // The older store still needs v0[1], but never touches v0[0]. Delay
-    // its ACKs while XOR rewrites v0 and the younger load consumes row 0.
+    // The older store still needs v0[1], but never touches v0[0]. Hold the
+    // request port so VS3 cannot finish capturing the predicated store;
+    // merely delaying ACKs does not keep its register source live.
     constexpr Word old_pred=0xe000, flip_pred=0xe100, store_base=0xf000;
     for(unsigned r=0;r<2;++r) {
       stored[old_pred+16*r].fill(0x55555555); stored[flip_pred+16*r].fill(~0u);
     }
     state(0,0,0,32); send(load(0),old_pred); send(load(8),flip_pred); drain();
     block_returns=true; writes_alu.clear(); addresses.clear(); masks.clear(); load_mask_samples.clear();
+    hold_until=cycles+80;
     state(0,3,128,256); send(store(16) & ~(1u<<25),store_base);
     state(0,3,0,256); send(op(0x1b,0,8,2,0)); send(load(24) & ~(1u<<25),src);
     for(unsigned i=0;i<32;++i) step();
     CHECK(writes_alu.size()==1 && writes_alu.front().second==0 && !load_mask_samples.empty());
     for(auto [sample,row]:load_mask_samples) CHECK(row==0 && sample>writes_alu.front().first);
-    block_returns=false; drain();
+    hold_until=cycles; block_returns=false; drain();
     CHECK(writes_alu.size()==2 && writes_alu.back().second==1 && load_mask_samples.back().second==1);
     for(auto [sample,row]:load_mask_samples) CHECK(sample>writes_alu.at(row).first);
     unsigned loads=0,stores=0;

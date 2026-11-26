@@ -7,6 +7,7 @@ import:
   lib("riscv/rtl/atomic.rhdl").RiscvAtomicOperation
   lib("riscv/rtl/zihintntl.rhdl").RiscvMemoryLocality
   lib("cores/common/vector/bundles.rhdl").VectorRowMemory
+  lib("cores/common/vector/bundles.rhdl").VectorRowResponse
   lib("cores/common/mmu/vector.rhdl").VectorMemoryService
   lib("cores/common/fetch/protocol.rhdl") open
   "../../common/cache/access.rhdl" open
@@ -29,6 +30,7 @@ import:
 /* A row transaction retains its lane for uncached completion; scalar clients retain their own context. */
 bundle SuperscalarRowContext(Context :: DataType, beat_bytes :: Pow2Int):
   row: Bool
+  store: Bool
   lane: Bits(index_width(beat_bytes))
   scalar: Context
 
@@ -41,14 +43,15 @@ sync_circuit SuperscalarL1D(cache :: CacheConfig, ~mshr_count: mshr_count :: Pos
   def Tag = if row_bits | SuperscalarRowContext(Context, beat_bytes) | Context
   def Reply = MemoryResponse(Bits(if row_bits | row_bits | xlen.width), Tag)
   /* Keeps reply ownership and the uncached row offset with the accepted request. */
-  fun row_tag(row :: Bool, lane :: Bits(index_width(beat_bytes)), context :: Hardware.of(Context)) :~ SuperscalarRowContext(Context, beat_bytes):
+  fun row_tag(row :: Bool, store :: Bool, lane :: Bits(index_width(beat_bytes)), context :: Hardware.of(Context)) :~ SuperscalarRowContext(Context, beat_bytes):
     SuperscalarRowContext(Context, beat_bytes):
       row: row
+      store: store
       lane: lane
       scalar: context
   /* Scalar-only specializations carry no native owner or lane through their memory path. */
   fun scalar_tag(context :: Hardware.of(Context)) :~ Hardware.of(Tag):
-    if row_bits | row_tag(Bool(#false), dont_care(Bits(index_width(beat_bytes))), context) | context
+    if row_bits | row_tag(Bool(#false), Bool(#false), dont_care(Bits(index_width(beat_bytes))), context) | context
   def bytes = xlen.width / 8
   input node_id: Bits(config.flit.node_id_width)
   input uncached_node_id: Bits(config.flit.node_id_width)
@@ -188,7 +191,7 @@ sync_circuit SuperscalarL1D(cache :: CacheConfig, ~mshr_count: mshr_count :: Pos
           def data = base.updated(~address: row.address[0..xlen.width], ~byte_mask: row.byte_mask, ~data: row.data,
                                   ~width: (if xlen == XLen.X32 | MemoryWidth.Word | MemoryWidth.Double),
                                   ~access: mux(row.store, CacheOperation.Store, CacheOperation.Load),
-                                  ~context: row_tag(Bool(#true), Bits(index_width(beat_bytes))(0), dont_care(Context)))
+                                  ~context: row_tag(Bool(#true), row.store, Bits(index_width(beat_bytes))(0), dont_care(Context)))
           if beat_bytes == bytes | data | data.updated(~raw_beat: Bool(#true))
         def row_io = io_rows |> map_flow(row):
           def lane = priority_encoder(row.byte_mask)
@@ -208,10 +211,13 @@ sync_circuit SuperscalarL1D(cache :: CacheConfig, ~mshr_count: mshr_count :: Pos
                 context:
                   SuperscalarUncachedContext(Tag):
                     offset: Bits(3)(0)
-                    context: row_tag(Bool(#true), lane, dont_care(Context))
+                    context: row_tag(Bool(#true), row.store, lane, dont_care(Context))
         Array(scalar_io, row_io) |> rr_arbiter() |> ordering.uncached
         def Array(narrow, wide) = replies.right |> demux_flow(2, reply => reply.context.row)
-        wide |> map_flow(reply => reply.data) |> row_memory.response
+        (wide |> map_flow(reply => VectorRowResponse(row_bits)):
+          store: reply.context.store
+          data: reply.data
+        ) |> row_memory.response
         (narrow |> map_flow(reply => MemoryResponse(Bits(xlen.width), Context)):
           data: reply.data[0..xlen.width]
           context: reply.context.scalar

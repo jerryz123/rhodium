@@ -127,8 +127,10 @@ Overlapping data/index groups stay on the precise path.
 Each row enables only bytes selected by `vstart`, `vl`, and the element predicate;
 a fully disabled physical beat advances without issuing a cache request. A failed range check falls back to
 precise element accesses rather than raising a fault on a masked-off address.
-VLIQ and VSIQ advance separate address cursors over one L1D port. They normally
-share five row credits. An oldest, direct, unmasked, single-field contiguous
+VLIQ and VSIQ advance separate address cursors over one L1D port. Loads normally
+reserve one of five return slots; stores independently track up to five outstanding
+ACKs. The older eligible cursor wins, so a full store tracker cannot hide a
+disjoint load with return space. An oldest, direct, unmasked, single-field contiguous
 cached load can instead have up to eight physical requests awaiting replies;
 the VLSU still buffers only five returned beats. Admission uses registered
 occupancy, not same-cycle credit release. The two start ports are independent: a blocked start cannot

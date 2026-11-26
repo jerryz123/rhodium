@@ -3,7 +3,7 @@
 #include <cstring>
 
 enum IssueKind : unsigned { contiguous, stride_kind, inline_index, inline_ordered, resolved, resolved_ordered_index };
-constexpr unsigned bytes=sizeof(memory_in.presponse.pbits);
+constexpr unsigned bytes=sizeof(memory_in.presponse.pbits.pdata);
 constexpr unsigned row_credits=5;
 unsigned byte_at(unsigned va) { return (va*13u+(va>>8))&255; }
 
@@ -48,7 +48,7 @@ void exercise(unsigned shift,unsigned first,unsigned limit,unsigned eew,unsigned
     memory_in.presponse.pvalid=returned<sent && t>=10 && t%4!=0;
     std::array<unsigned char,bytes> payload;
     for (unsigned i=0;i<bytes;++i) payload[i]=byte_at((returned<count ? beats[returned] : 0)+i);
-    std::memcpy(&memory_in.presponse.pbits,payload.data(),bytes);
+    std::memcpy(&memory_in.presponse.pbits.pdata,payload.data(),bytes);
     // A previous reader can hold the first destination while VLSeq absorbs
     // the physical prefix. After WAR clears, stall the actual write port too.
     chain_in.polder_uaccesses=t<20 ? UINT64_C(1)<<(2*vd+row0) : 0;
@@ -112,7 +112,7 @@ static void segmented_fragments(unsigned fields, unsigned eew, bool skip_upper=f
     memory_in.presponse.pvalid=returned<sent && t>=10 && (!successor || stalls>0);
     std::array<unsigned char,bytes> data;
     for(unsigned b=0;b<bytes;++b) data[b]=17+bytes*returned+b;
-    std::memcpy(&memory_in.presponse.pbits,data.data(),bytes);
+    std::memcpy(&memory_in.presponse.pbits.pdata,data.data(),bytes);
     write_in.pready=grants!=held_grant || (stalls>=2 && returned==beats);
     eval();
     if(stalls && grants==held_grant) CHECK(write_out.pvalid);
@@ -192,12 +192,13 @@ static void strided_peer(bool store,int stride,bool masked) {
     memory_in.prequest.pready=t%4!=0;
     const bool hold=replies==total-1 && ack_stalls<10;
     memory_in.presponse.pvalid=replies<sent && !hold && t%3!=0;
+    memory_in.presponse.pbits.pstore=replies<total ? store : !store;
     Data cache{},src{};
     for(unsigned b=0;b<bytes;++b) {
       cache[b]=cache_byte((pa_of(replies)&~(bytes-1))+b);
       src[b]=source_byte(read_row*bytes+b);
     }
-    std::memcpy(&memory_in.presponse.pbits,cache.data(),bytes);
+    std::memcpy(&memory_in.presponse.pbits.pdata,cache.data(),bytes);
     std::memcpy(&read_result_in.pbits,src.data(),bytes);
     read_result_in.pvalid=returning; read_in.pready=1;
     write_in.pready=write_stalls>=8;
@@ -290,8 +291,9 @@ static void indexed_bytes(bool store, bool ordered, bool mask_hole) {
     memory_in.prequest.pready=sent<2 || t%3!=0;
     // Delay unordered replies until all five active bytes have reserved credits.
     memory_in.presponse.pvalid=acks<sent && t>=last_issue+8 && (ordered || sent==live.size());
+    memory_in.presponse.pbits.pstore=store;
     const unsigned response_pa=physical+offsets[acks%offsets.size()];
-    auto *rsp=reinterpret_cast<unsigned char*>(&memory_in.presponse.pbits);
+    auto *rsp=reinterpret_cast<unsigned char*>(&memory_in.presponse.pbits.pdata);
     for(unsigned b=0;b<bytes;++b) rsp[b]=byte_at((response_pa&~(bytes-1))+b);
     write_in.pready=write_stalls>=5;
     eval(); CHECK(index_chain_out.punread==unread);
@@ -382,8 +384,9 @@ static void wide_indexed(bool store,bool ordered,unsigned eew) {
     }
     memory_in.prequest.pready=sent!=2 || suffix_stalls>=5;
     memory_in.presponse.pvalid=acks<sent && (acks || t>=40) && t%4==0;
+    memory_in.presponse.pbits.pstore=store;
     const auto& response=expected[acks%expected.size()];
-    auto* data=reinterpret_cast<unsigned char*>(&memory_in.presponse.pbits);
+    auto* data=reinterpret_cast<unsigned char*>(&memory_in.presponse.pbits.pdata);
     for(unsigned b=0;b<bytes;++b) data[b]=byte_at(response.pa/bytes*bytes+b);
     write_in.pready=stalls>=5; eval();
     CHECK(index_chain_out.punread==unread_indices);
@@ -448,6 +451,7 @@ static void store_ingress(bool stalled) {
     for(unsigned b=0;b<bytes;++b) src[b]=returning ? byte_at(base+captures*bytes+b) : 0xdd;
     memory_in.prequest.pready=!stalled || t>=16;
     memory_in.presponse.pvalid=acks<sent && (!stalled || t>=24);
+    memory_in.presponse.pbits.pstore=1;
     eval();
     CHECK(store_reads_out.punread_uvs3 == (((1ull<<rows)-(1ull<<captures))<<first_row));
     const bool grant=read_out.pvalid && read_in.pready;

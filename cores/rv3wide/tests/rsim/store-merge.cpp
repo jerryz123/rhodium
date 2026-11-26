@@ -2,7 +2,7 @@
 #include "test.hpp"
 #include <cstring>
 
-constexpr unsigned bytes=sizeof(memory_in.presponse.pbits), vs3=8;
+constexpr unsigned bytes=sizeof(memory_in.presponse.pbits.pdata), vs3=8;
 using Row=std::array<unsigned char, bytes>;
 
 void exercise(unsigned displacement, unsigned first, unsigned limit, unsigned eew) {
@@ -35,6 +35,7 @@ void exercise(unsigned displacement, unsigned first, unsigned limit, unsigned ee
     std::memcpy(&read_result_in.pbits,vrf[read_row].data(),bytes);
     memory_in.prequest.pready=t>=30 && t%5==0;
     memory_in.presponse.pvalid=t>=60 && t%7==0 && acks<accepted;
+    memory_in.presponse.pbits.pstore=1;
     eval(); CHECK(store_reads_out.punread_uvs3==claims && !store_reads_out.punread_uv0);
     CHECK(!launch_0_out.pready && !mask_1_out.psample.pvalid);
     if (returning) claims &= ~(UINT64_C(1)<<(2*vs3+read_row));
@@ -114,6 +115,7 @@ static void segmented_store(unsigned fields,unsigned eew,unsigned lmul=0,Boundar
     std::memcpy(&read_result_in.pbits,data.data(),bytes);
     memory_in.prequest.pready=two_groups || (t>=45 && t%4==0);
     memory_in.presponse.pvalid=acks<sent && (two_groups || (t>=75 && t%3==0));
+    memory_in.presponse.pbits.pstore=1;
     eval();
     std::uint64_t claims=0;
     for(unsigned i=captures;i<beats*visits;++i) claims |= UINT64_C(1)<<address(i);
@@ -190,6 +192,7 @@ static void masked_segment(bool second,bool late_mask=false) {
     std::memcpy(&read_result_in.pbits,src.data(),bytes);
     memory_in.prequest.pready=t>=40;
     memory_in.presponse.pvalid=t>=55 && acks<sent;
+    memory_in.presponse.pbits.pstore=1;
     eval();
     const bool sample=mask_1_out.psample.pvalid;
     CHECK(store_reads_out.punread_uv0==(samples<3 ? 1u : 0u));
@@ -261,6 +264,7 @@ static void masked_boundary_skip() {
     Row src; for(unsigned b=0;b<bytes;++b) src[b]=field*16+b;
     std::memcpy(&read_result_in.pbits,src.data(),bytes);
     memory_in.prequest.pready=1; memory_in.presponse.pvalid=acks<sent;
+    memory_in.presponse.pbits.pstore=1;
     eval();
     if(t) {
       CHECK(bool(read_out.pvalid)==live);
@@ -326,6 +330,7 @@ static void masked_pipeline(bool stalls) {
     std::memcpy(&read_result_in.pbits,src.data(),bytes);
     memory_in.prequest.pready=!stalls || t>=16;
     memory_in.presponse.pvalid=acks<sent && (!stalls || t>=22);
+    memory_in.presponse.pbits.pstore=1;
     eval();
     const unsigned tap=mask_1_out.psample.pbits;
     std::memcpy(&mask_1_in.pdata,shadow[tap].data(),bytes); eval();

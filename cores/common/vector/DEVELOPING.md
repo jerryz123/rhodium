@@ -206,8 +206,12 @@ the scalar ordering signal: reclamation and physical drain can occur separately.
 Inside `distributed/`, `frontend/` owns precise checks and admission,
 `backend/` owns the scheduler, scoreboard, register-file grants and sequencers,
 `mem/` owns physical requests and response alignment, and `exu/` owns arithmetic.
-The VLSU tracks eight ordered request contexts and buffers five returned load
-beats. Normally it reserves return space at request acceptance. Only an
+The VLSU tracks eight load contexts and buffers five returned load beats.
+Store acknowledgements use a separate five-entry FIFO of element-boundary bits;
+the resident store cursor owns them until drain. Both cached and uncached replies
+echo the request kind in order. Check each cursor's capacity before arbitrating;
+neither a store ACK nor a masked skip needs a load slot. Normally a load reserves
+return space at request acceptance so a blocked VRF cannot strand a later store ACK. Only an
 oldest, direct, unmasked, single-field contiguous cached load may use free
 metadata without reserved data space. Compare the resident cursor with the
 live reclamation frontier so an already-issued load can qualify as it ages.

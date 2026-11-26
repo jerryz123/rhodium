@@ -36,7 +36,8 @@ void step() {
   pipeline_in.presponse.pbits.poutcome = scalar_store ? 2 : 1;
   pipeline_in.presponse.pbits.pdata = data;
   row_memory_in.prequest.pready = !hold_requests;
-  std::memset(&row_memory_in.presponse.pbits,0x33,sizeof(row_memory_in.presponse.pbits));
+  row_memory_in.presponse.pbits.pstore = mixed ? !ordered.empty() && ordered.front() : !load_run;
+  std::memset(&row_memory_in.presponse.pbits.pdata,0x33,sizeof(row_memory_in.presponse.pbits.pdata));
   row_memory_in.presponse.pvalid = mixed ? !ordered.empty() && cycle >= release_at
                                : load_run ? loads != replies && !hold_loads
                                             : requests != acknowledgements && cycle >= ack_at;
@@ -58,7 +59,7 @@ void step() {
   }
   if(indexed_order && vector_fast_out.prequest.pvalid) {
     const auto& span=vector_fast_out.prequest.pbits;
-    const unsigned word=sizeof(row_memory_in.presponse.pbits)/2;
+    const unsigned word=sizeof(row_memory_in.presponse.pbits.pdata)/2;
     const unsigned last=index_base+255+(wide_scatter?3:0);
     CHECK(last<=0xfff && span.pfirst==(index_base&~(word-1)) && span.plast==(last|(word-1)));
     index_proof=true;
@@ -376,7 +377,7 @@ int main() {
     reset = 1; step(); step(); reset = 0;
     send(0x60000093); send(0x30009073); // mstatus.VS
     send(0x40000093); send(0x03300113); // x1=address, x2=0x33
-    send(0xc00072d7 | (sizeof(row_memory_in.presponse.pbits)<<15)); // vsetivli: one full DLEN row, e8,m1
+    send(0xc00072d7 | (sizeof(row_memory_in.presponse.pbits.pdata)<<15)); // vsetivli: one full DLEN row, e8,m1
     send((23u<<26)|(1u<<25)|(2u<<15)|(4u<<12)|(8u<<7)|0x57);
     for (unsigned younger : {0x0000a503u, 0x0020a023u, 0x0ff0000fu}) { // lw, sw, fence rw,rw
       data = 0;
@@ -445,7 +446,7 @@ int main() {
     CHECK(retire_cycle>last_reply && replies==first_load+2 && ordered.empty());
     CHECK(fast_proofs==before_empty && requests==empty_stores);
     whole_load=false;
-    send(0xc00072d7 | (sizeof(row_memory_in.presponse.pbits)<<15));
+    send(0xc00072d7 | (sizeof(row_memory_in.presponse.pbits.pdata)<<15));
 
     // One DLEN row on each production geometry. Keep the store outstanding
     // while VLSeq captures the 0x33 predicate and VXSeq overwrites v0.
@@ -481,7 +482,7 @@ int main() {
     // Four rows share one predicate row. With L1D blocked, VSSeq can capture
     // exactly two rows. Those sources may be overwritten, but v0 must survive.
     mixed=false; masked_store=true;
-    constexpr unsigned row_bytes=sizeof(row_memory_in.presponse.pbits);
+    constexpr unsigned row_bytes=sizeof(row_memory_in.presponse.pbits.pdata);
     send((4*row_bytes<<20) | (4u<<7) | 0x13); // x4 = VL
     send((1u<<20) | (4u<<15) | 0x72d7);      // vsetvli x5,x4,e8,m2
     send(0x05a00313);                         // x6 = 0x5a

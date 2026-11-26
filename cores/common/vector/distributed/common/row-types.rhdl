@@ -69,8 +69,9 @@ interface VectorPredicateTap(dlen :: PosInt):
   shadow -> reader:
     data: Bits(dlen)
 
-// Five shared fragment credits cover L1 hit issue through registered credit reuse.
+// Separate load-data and store-ACK windows cover L1 hits through registered credit reuse.
 def MemoryRowCredits = 5
+def MemoryStoreAckEntries = 5
 def MemoryCreditCount = Bits(index_width(MemoryRowCredits + 1))
 def MemoryRequestEntries = 8
 // Pending load work includes requests still at L1D and rows buffered at the VLSU.
@@ -158,7 +159,6 @@ interface ScatterOperand(dlen :: PosInt):
 /* Retains the owner, destination and observed addresses of one accepted cache row. */
 bundle RowCredit(xlen :: XLen, vlen :: VectorLength, Owner :: DataType):
   owner: Owner
-  store: Bool
   singleton: Bool
   row: RowAddress
   offset: Bits(index_width(vlen + 1))
@@ -180,7 +180,7 @@ bundle ReturnedRow(xlen :: XLen, vlen :: VectorLength, Owner :: DataType):
   credit: RowCredit(xlen, vlen, Owner)
   data: Bits(vector_dlen(vlen))
 
-export RegisterSet PhysicalRows RowAddress RowSet RegisterRowIndex PredicateSet group_row MemoryRowCredits MemoryCreditCount MemoryRequestEntries MemoryPendingCount
+export RegisterSet PhysicalRows RowAddress RowSet RegisterRowIndex PredicateSet group_row MemoryRowCredits MemoryCreditCount MemoryRequestEntries MemoryStoreAckEntries MemoryPendingCount
 export PreparedRow PreparedBeat CheckedIndexElement OwnedRow RowCredit ReturnedRow native_row_layout ExecuteSources VectorRowRead VectorRowOperands
 export VectorPredicateTap ScatterOperand IndexOperandRow
 export SplatPosition SpecialRow SpecialRead PermutedRow

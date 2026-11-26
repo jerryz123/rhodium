@@ -101,7 +101,8 @@ void exercise(bool store, bool masked) {
     // Unmasked loads have an always-ready request port: demand consecutive accepts.
     memory_in.prequest.pready = !masked || (first_offer && t>=first_offer+5);
     memory_in.presponse.pvalid = tails && responses<2 && t>40;
-    memory_in.presponse.pbits.words=data(responses);
+    memory_in.presponse.pbits.pstore = store;
+    memory_in.presponse.pbits.pdata.words=data(responses);
     write_in.pready = first_write && t>=first_write+8;
     eval();
     CHECK(store_reads_out.punread_uvs3==unread && store_reads_out.punread_uv0==(store ? predicate_claim : 0));
@@ -197,7 +198,7 @@ void single_load(bool fully_masked) {
     return;
   }
   eval(); CHECK(memory_out.prequest.pvalid && issued_out.pvalid); tick_model();
-  memory_in.presponse.pvalid=1; memory_in.presponse.pbits.words=data(0);
+  memory_in.presponse.pvalid=1; memory_in.presponse.pbits.pdata.words=data(0);
   eval(); CHECK(memory_out.presponse.pready); tick_model(); memory_in.presponse.pvalid=0;
   eval(); CHECK(delivered_out.pvalid && delivered_out.pbits.powner==3); tick_model();
   for (unsigned n=0;n<5;++n) {
@@ -227,7 +228,7 @@ void displaced_lineage(unsigned length, bool segmented=false) {
   for(unsigned t=0;t<80 && !done;++t) {
     memory_in.prequest.pready=t>=4;
     memory_in.presponse.pvalid=t>=10 && returned<sent;
-    memory_in.presponse.pbits.words=data(returned);
+    memory_in.presponse.pbits.pdata.words=data(returned);
     write_in.pready=t>=18;
     eval();
     if(memory_out.prequest.pvalid && memory_in.prequest.pready) {
@@ -288,6 +289,7 @@ void store_lineage(StorePath path, std::uint32_t predicate=UINT32_MAX) {
     read_in.pready=1;
     memory_in.prequest.pready=t>8 && t%3!=0;
     memory_in.presponse.pvalid=returned<sent;
+    memory_in.presponse.pbits.pstore=1;
     checked_element_in.pvalid=scatter && !continued && sent==2;
     checked_element_in.pbits.paddress=20;
     checked_element_in.pbits.prow=16;
@@ -370,7 +372,7 @@ void writeback_window(Window scenario) {
   std::array<unsigned,rows> accepted{};
   auto edge=[&] {
     memory_in.presponse.pvalid=responses<requests && cycle>=accepted[responses]+3;
-    memory_in.presponse.pbits.words=data(responses);
+    memory_in.presponse.pbits.pdata.words=data(responses);
     eval();
     CHECK(chain_out.punwritten_uvd==(std::uint64_t(claims & (claims<<grants))<<16));
     if (memory_out.prequest.pvalid) {
@@ -447,6 +449,7 @@ void physical_ranges(bool older_store, bool alias) {
   for (unsigned n=0;n<60;++n) {
     memory_in.prequest.pready=n>=6;
     memory_in.presponse.pvalid=n>=20 && responses<requests;
+    memory_in.presponse.pbits.pstore=older_store;
     write_in.pready=n>=30;
     eval();
     CHECK(bool(peer_out.pready)==(!alias || delivered));
@@ -489,7 +492,8 @@ void blocked_store_source() {
     read_in.pready=t>=3;
     memory_in.prequest.pready=t>=10; // held load offer cannot switch to the now-ready store
     memory_in.presponse.pvalid=received<sent && t>=15;
-    memory_in.presponse.pbits.words=data(received);
+    memory_in.presponse.pbits.pstore=received==1 || received==2;
+    memory_in.presponse.pbits.pdata.words=data(received);
     write_in.pready=(finished&2)!=0; // wait for store owner 3 before granting either load write
     eval();
     if (memory_out.prequest.pvalid) {
@@ -514,6 +518,71 @@ void blocked_store_source() {
   CHECK(stalled_results > stalled_before && granted_results == granted_before + 2);
 }
 
+// Fill the older store's ACK window with more VS3 rows available. A disjoint
+// younger load can use all five reserved data slots with writeback stopped;
+// the remaining stores and their ACKs must subsequently pass those held rows.
+void independent_row_credits() {
+  launch_0_in={}; launch_1_in={}; prepare_in={}; chain_in={}; read_result_in={};
+  memory_in={}; write_in={}; read_in.pready=memory_in.prequest.pready=1;
+  oldest_owner=3;
+  auto& s=launch_1_in.pbits.pissue;
+  s.powner=3; s.pdescriptor.pcontrol.pstore=1; s.pdescriptor.pinstruction=8u<<7;
+  s.pdescriptor.pstate.pvl=128; s.pdescriptor.pstate.pvtype=2; // e8,m4: eight rows
+  launch_1_in.pbits.ppages[0]=0x60;
+  auto& l=launch_0_in.pbits.pissue;
+  l.powner=0; l.pdescriptor.pinstruction=16u<<7;
+  l.pdescriptor.pstate.pvl=80; l.pdescriptor.pstate.pvtype=2;
+  launch_0_in.pbits.ppages[0]=0x70;
+  unsigned stores=0, loads=0, acks=0, returns=0, writes=0, finished=0;
+  std::array<bool,13> kinds{};
+  bool respond=false;
+  auto edge=[&] {
+    const auto head=acks+returns;
+    memory_in.presponse.pvalid=respond && head<stores+loads;
+    memory_in.presponse.pbits.pstore=memory_in.presponse.pvalid && kinds[head];
+    memory_in.presponse.pbits.pdata.words=data(returns);
+    eval();
+    if (memory_out.prequest.pvalid) {
+      const auto& req=memory_out.prequest.pbits;
+      CHECK(stores+loads<kinds.size());
+      kinds[stores+loads]=req.pstore;
+      if (req.pstore) { CHECK(stores<8 && req.paddress==0x60000+16*stores); ++stores; }
+      else { CHECK(loads<5 && req.paddress==0x70000+16*loads); ++loads; }
+    }
+    if (memory_in.presponse.pvalid) {
+      CHECK(memory_out.presponse.pready);
+      if (kinds[head]) ++acks; else ++returns;
+    }
+    if (write_out.pvalid && write_in.pready) {
+      CHECK(write_out.pbits.pdata.words==data(writes)); ++writes;
+    }
+    if (finished_out.pvalid) {
+      const auto owner=finished_out.pbits.powner;
+      CHECK(owner==3 ? acks==8 : owner==0 && writes==5);
+      finished|=1u<<owner;
+    }
+    const bool read=read_out.pvalid && read_in.pready;
+    tick_model(); read_result_in.pvalid=read;
+  };
+  launch_1_in.pvalid=1; offer_operands(true);
+  eval(); CHECK(launch_1_out.pready && prepare_out.pready); edge();
+  launch_1_in.pvalid=prepare_in.pvalid=0;
+  for (unsigned n=0;n<30;++n) edge();
+  CHECK(stores==5 && !acks);
+  launch_0_in.pvalid=1; offer_operands(false);
+  eval(); CHECK(launch_0_out.pready && prepare_out.pready); edge();
+  launch_0_in.pvalid=prepare_in.pvalid=0;
+  for (unsigned n=0;n<25;++n) edge();
+  CHECK(stores==5 && loads==5 && !acks && !writes);
+  respond=true;
+  for (unsigned n=0;n<60 && !(finished&(1u<<3));++n) edge();
+  CHECK(stores==8 && acks==8 && returns==5 && !writes && finished==(1u<<3));
+  write_in.pready=1;
+  for (unsigned n=0;n<30 && writes<5;++n) edge();
+  for (unsigned n=0;n<4;++n) edge();
+  CHECK(writes==5 && finished==((1u<<3)|1u));
+}
+
 // A valid offer to an occupied start port must not hide its eligible peer.
 // Each head has a real descriptor; only the admitted pair may reach L1D.
 void independent_starts(bool older_store) {
@@ -536,13 +605,15 @@ void independent_starts(bool older_store) {
   tick_model(); launch_0_in.pvalid=launch_1_in.pvalid=prepare_in.pvalid=0;
   read_in.pready=1;
   unsigned sent=0,returned=0,done=0,seen=0;
+  std::array<bool,2> kinds{};
   for (unsigned t=0;t<40 && done!=3;++t) {
     memory_in.prequest.pready=t>4; memory_in.presponse.pvalid=returned<sent;
+    memory_in.presponse.pbits.pstore=returned<sent && kinds[returned];
     write_in.pready=1; eval();
     if (memory_out.prequest.pvalid && memory_in.prequest.pready) {
       const auto& r=memory_out.prequest.pbits;
       CHECK(r.paddress==(r.pstore ? 0x43000u : 0x31000u));
-      CHECK(!(seen & (1u<<r.pstore))); seen|=1u<<r.pstore; ++sent;
+      CHECK(!(seen & (1u<<r.pstore))); seen|=1u<<r.pstore; kinds[sent++]=r.pstore;
     }
     returned+=memory_out.presponse.pready && memory_in.presponse.pvalid;
     if (finished_out.pvalid) {
@@ -569,6 +640,7 @@ int main() {
       writeback_window(scenario);
     for (bool store : {false,true}) for (bool alias : {false,true}) physical_ranges(store,alias);
     blocked_store_source();
+    independent_row_credits();
     for (bool store : {false,true}) independent_starts(store);
     splat_lineage();
     store_lineage(StorePath::contiguous);
