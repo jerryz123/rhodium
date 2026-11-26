@@ -92,7 +92,10 @@ invalidate translations or cancel accepted page-table response ownership.
    retained request or local reread. A request transferred with instruction
    flush replaces the old S1 context; a flush without transfer clears it. Gate
    S1 walk initiation and physical resolution with the frontend's
-   younger-attempt kill.
+   younger-attempt kill. At S2, classify the candidate word and access fault
+   independently of physical response valid. A local fault or replay has
+   priority; a missing physical response forces replay. Only a surviving,
+   non-replayed outcome delivers its word and fault to Decode.
 3. Keep page faults distinct from physical PTE access faults and suppress every
    rejected physical resolution before it reaches a cache or device. Early
    virtual SRAM reads are permitted, but cannot create a successful cache token

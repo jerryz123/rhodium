@@ -361,7 +361,7 @@ void observe() {
                   UINT64_C(1),
                   {word_at(address),
                    address == fault_address || noncanonical,
-                   UINT64_C(0)}, replay});
+                   replay}, replay}); // Poison the replayed word; only its retry may reach decode.
       }
     }
     if (!reset && memory_out.pflush && !restart_valid && !flush)
@@ -441,6 +441,7 @@ void replay_straddling_return(unsigned action, Continuation outcome) {
   for (unsigned i = 0; i < 4; ++i) {
     falling();
     CHECK(memory_out.prequest.pvalid && memory_out.prequest.pbits.paddress == base + 772);
+    CHECK(!fetched_out.pvalid || fetched_out.pbits.ppc != base + 770);
     CHECK(prefix_actions == 1 && return_repairs == 0);
   }
   if (outcome == Continuation::Fault)
@@ -452,12 +453,20 @@ void replay_straddling_return(unsigned action, Continuation outcome) {
     falling();
   CHECK(!s2_response.replay && s2_response.pbits.pword == word_at(base + 772));
   if (outcome == Continuation::Flush) {
+    s2_response.pbits.paccess_ufault = true;
     start(0x1200); // Cancel the retry on the edge that would publish its repair.
     expect_pc(0x1200, 0x1204);
+    CHECK(!fetched_out.pbits.pfault.pvalid);
   } else if (outcome == Continuation::Fault) {
     expect_pc(base + 770, base + 774, 1, 0, base + 772);
+    for (unsigned i = 0; i < 3; ++i) {
+      falling();
+      CHECK(fetched_out.pvalid && fetched_out.pbits.ppc == base + 770 &&
+            fetch_page_fault(fetched_out.pbits) && fetch_fault_address(fetched_out.pbits) == base + 772);
+    }
   } else {
     expect_pc(base + 770, base + 516, 0, action);
+    CHECK(!fetched_out.pbits.pfault.pvalid);
     output_ready = 1;
     expect_pc(base + 516, base + (action == 2 ? 260 : 774), 0, 2);
   }

@@ -68,6 +68,7 @@ bool instruction_blocked = UINT64_C(0);
 bool instruction_return_valid = UINT64_C(0);
 
 bool instruction_return_replay = UINT64_C(0);
+bool instruction_return_access_fault = false;
 
 std::uint32_t instruction_return_word;
 
@@ -268,7 +269,7 @@ void certify_contended_hit() {
 }
 
 // Model frontend-owned replay explicitly. The MMU never reissues S0 itself.
-void fetch_word(std::uint64_t address) {
+void fetch_word(std::uint64_t address, bool stale_physical_fault = false) {
   bool complete;
   complete = 0;
   for (int attempts = 0; !complete && attempts < 1000; attempts++) {
@@ -280,9 +281,18 @@ void fetch_word(std::uint64_t address) {
     tick();
     instruction_request_valid = 0;
     tick();
+    if (stale_physical_fault) {
+      instruction_return_valid = true;
+      instruction_return_access_fault = true;
+      settle();
+      CHECK(!instruction_out.presponse.pbits.preplay && instruction_out.presponse.pbits.presponse.ppage_ufault &&
+            !instruction_out.presponse.pbits.presponse.paccess_ufault);
+    }
     CHECK(instruction_out.presponse.pvalid);
     complete = !instruction_out.presponse.pbits.preplay;
     tick();
+    if (stale_physical_fault)
+      instruction_return_access_fault = false;
   }
   CHECK(complete);
 }
@@ -293,6 +303,45 @@ void flush_fetch() {
   tick();
   falling();
   instruction_flush = 0;
+}
+
+void check_s2_fault_delivery() {
+  falling();
+  instruction_phase = true;
+  instruction_blocked = true; // This probe supplies its own S2 response.
+  instruction_address = PHYSICAL_ADDRESS;
+  instruction_request_valid = true;
+  settle();
+  CHECK(instruction_out.prequest.pready);
+  tick();
+  instruction_request_valid = false;
+  CHECK(instruction_memory_out.prequest.pvalid);
+  tick();
+
+  // Keep the same S2 owner and fault bits while changing only delivery.
+  instruction_return_replay = false;
+  instruction_return_access_fault = true;
+  auto &result = instruction_out.presponse;
+  settle();
+  CHECK(result.pvalid && !result.pbits.preplay && result.pbits.presponse.paccess_ufault);
+  instruction_return_valid = false;
+  settle();
+  CHECK(result.pvalid && result.pbits.preplay);
+  instruction_return_valid = true;
+  instruction_return_replay = true;
+  settle();
+  CHECK(result.pvalid && result.pbits.preplay);
+  instruction_return_replay = false;
+  instruction_flush = true;
+  settle();
+  CHECK(!result.pvalid);
+  tick();
+  instruction_flush = false;
+  instruction_return_access_fault = false;
+  instruction_blocked = false;
+  instruction_phase = false;
+  settle();
+  CHECK(!result.pvalid);
 }
 
 // Drive PTE timing explicitly, so a replay can land before acceptance,
@@ -449,7 +498,7 @@ void check_instruction_fault_epoch(bool invalidate_on_completion) {
     tick();
     instruction_fault_expected = 1;
     fetch_word(PHYSICAL_ADDRESS); // Consume the transient fault.
-    fetch_word(PHYSICAL_ADDRESS); // Replay from the persistent fault entry.
+    fetch_word(PHYSICAL_ADDRESS, true); // Cached local page fault beats a stale physical fault.
     instruction_fault_expected = 0;
   }
   CHECK(manual_pte_requests == ptes_before + 1 &&
@@ -626,7 +675,7 @@ void drive() {
     instruction_memory_in.presponse.pvalid = instruction_return_valid;
     instruction_memory_in.presponse.pbits = {
         .pdata = instruction_return_word,
-        .paccess_ufault = UINT64_C(0),
+        .paccess_ufault = instruction_return_access_fault,
         .preplay = instruction_return_replay};
     data_memory_in.prequest.pready = memory_ready;
     data_memory_in.prequest_ufault = UINT64_C(0);
@@ -1502,6 +1551,8 @@ void stimulus() {
     CHECK(instruction_out.presponse.pvalid &&
           instruction_out.presponse.pbits.presponse.paccess_ufault);
     tick();
+
+    check_s2_fault_delivery();
 
     // Consecutive S0 attempts retain their own S1 addresses and return replay
     // when physical service is blocked. The frontend explicitly retries them.

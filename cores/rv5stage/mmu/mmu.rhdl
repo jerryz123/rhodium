@@ -419,12 +419,15 @@ sync_circuit RV5StageMmu(xlen :: XLen,
 
   def s2_local = instruction_s2.egress.bits
   def s2_local_result = s2_local.replay ||| s2_local.response.page_fault ||| s2_local.response.access_fault
+  // Preview the fault just like the word. A local outcome wins; an absent
+  // physical response forces replay, and flush cancels the entire outcome.
+  def s2_access_fault = mux(s2_local_result, s2_local.response.access_fault, instruction_memory.response.bits.access_fault)
   def resolved = instruction_s2.egress |> filter_valid(_result => !instruction.flush) |> map_valid(result):
     wire selected: RV5StageFetchResult(hypervisor)
     selected.replay <== mux(s2_local_result, result.replay, !instruction_memory.response.valid ||| instruction_memory.response.bits.replay)
     selected.response.word <== instruction_memory.response.bits.data
     selected.response.page_fault <== result.response.page_fault
-    selected.response.access_fault <== result.response.access_fault ||| (!s2_local_result & instruction_memory.response.valid & instruction_memory.response.bits.access_fault)
+    selected.response.access_fault <== s2_access_fault
     if hypervisor
     | selected.response.guest <== result.response.guest
     | #void
