@@ -130,9 +130,9 @@ request/response path remains ordered, even when two lines fill out of order.
 The entire miss set is reserved from acquisition/allocation through final
 installation (or non-allocating completion), including the victim and other
 ways. An ordinary load or store to the outstanding line resolves as slow and
-may enter the configurable authorized request queue. It waits there without
-observing partial refill data, then performs a fresh tag/state lookup after the
-miss completes. This collapses ordinary same-line load traffic when the first
+may enter the configurable authorized request queue. Unless served by the
+ordered load forwarding described below, it performs a fresh tag/state lookup
+after the miss completes. This collapses ordinary same-line load traffic when the first
 transaction installs a usable line; a waiter may instead miss again after a
 non-allocating refill or when it needs stronger ownership. An independent
 second speculative miss, a different-line same-set access, or an ordinary store to another
@@ -143,7 +143,7 @@ speculatively, except that a same-line waiter parked behind the active miss
 owns no SRAM port and does not block independent load hits.
 
 Gather, refill installation, mutation, and snoop array activity retain priority.
-Loads replay on conflicting cycles and never observe partially installed data
+Speculative pipeline loads replay on conflicting cycles and never observe partially installed data
 or reuse a read result owned by another request. An outstanding miss still keeps
 `drained` false; fences and ordered IO retain their existing completion rules.
 
@@ -160,9 +160,12 @@ before the store reaches the head; the store then reacquires permission.
 
 Same-line waiters share an acquisition if it covers the needed permission.
 Offsets, store masks and data, and caller contexts stay in the ordered path.
-Once the older miss completes, ordinary load waiters at the head can return
-from an installed line while another set is still filling. Each waiter must
-hit on a fresh lookup; no response bypasses an older request.
+With multiple MSHRs, an allocating ordinary load can return on the cycle its
+row is written, before the tag becomes visible. Once that response is queued,
+the next classified, same-line ordinary load can take its own row the same way.
+No response bypasses an older request. If the row arrives out of order, the
+response queue is full, or a matching snoop intervenes, waiters fall back to
+a fresh lookup. They can hit an installed line while another set is still filling.
 A store needing a shared-to-unique upgrade waits for the head, as do atomics
 and cache-management operations; demand issue does not pass these barriers.
 The request window holds at least one line's worth of rows plus one request
@@ -304,7 +307,8 @@ to S2 admission without repeating architectural authorization.
 
 An older S4 miss or mutation stops younger retirement. With multiple MSHRs,
 ordinary requests may still use S3 to reserve a missing line or share an
-existing acquisition. Their data and permissions are checked again at the head. Pending snoops may use the arrays while the retained
+existing acquisition. Only the head can use an ordered refill row; otherwise
+data and permissions are checked again by lookup. Pending snoops may use the arrays while the retained
 request waits; replay then observes updated tags, coherence state, and data.
 Only requests with reserved downstream capacity enter S4; its retained result
 waits until the selected local operation or transaction can advance.

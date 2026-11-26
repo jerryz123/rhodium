@@ -234,6 +234,8 @@ sync_circuit L1DCache(xlen :: XLen,
   reg miss_allocation(Bool)
   reg miss_install(Bool)
   reg miss_prefetch(Bool)
+  reg miss_replied(~init: Bool(#false))
+  reg miss_probed(~init: Bool(#false))
   // Only the requested old row survives the transaction. Refill and granted
   // victim DAT take turns in the packet register; snoops have their own.
   reg service_row(Bits(beat_width))
@@ -451,9 +453,10 @@ sync_circuit L1DCache(xlen :: XLen,
   )
   def ordinary_requests :: Endpoint = ordinary_endpoint
   def management_requests :: Endpoint = management_endpoint
-  when classified:
+  def remove_parked = retire_head & parked.any()
+  when (classified & !remove_parked):
     parked <== parked + Index(1)
-  elsewhen (retire_head & parked.any()):
+  elsewhen (remove_parked & !classified):
     parked <== parked - Index(1)
   def management_waiting = management_requests.valid
   // Admission checked the full address; the CHI retry record needs only mapped line bits.
@@ -604,7 +607,7 @@ sync_circuit L1DCache(xlen :: XLen,
   def refill_packet_last = if rows_per_packet == 1 | Bool(#true) | refill_row[0..packet_offset_bits].all()
   def packet_capacity = !refill_packet_live ||| (refill_install_word & refill_packet_last)
   def refill_can_complete = !snoop_pending & !snoop_reading & !refill_packet_live & !pending_mutation_valid
-  misses.ordered_ready <== miss_prefetch ||| service_responses.ingress.ready
+  misses.ordered_ready <== miss_prefetch ||| miss_replied ||| service_responses.ingress.ready
   misses.complete.ready <== refill_can_complete & !writeback.granted
   def completed = misses.complete.bits
   def complete_refill = misses.complete.fire() & completed.context.ordered
@@ -622,10 +625,6 @@ sync_circuit L1DCache(xlen :: XLen,
   def refill_access = retained_request.access
   def refill_word_index = retained_address[row_offset_width..offset_width]
   def service_load_unsigned = (retained_request.access === CacheOperation.Load) & retained_request.unsigned
-  service_load_gen.address <== retained_address
-  service_load_gen.data <== service_row
-  service_load_gen.width <== retained_request.width
-  service_load_gen.unsigned_load <== service_load_unsigned
   def refill_mutation = !miss_prefetch & refill_access.needs_unique()
 
   /* Local mutation datapath.
@@ -671,6 +670,25 @@ sync_circuit L1DCache(xlen :: XLen,
   def refill_store_byte_mask = retained_request.byte_mask.as_vec(Bool)
   def install_offset = if rows_per_packet == 1 | Bits(1)(0) | refill_row[0..packet_offset_bits]
   def refill_install_bytes = backing_packet[install_offset].as_vec(Bits(8))
+
+  /* Forward the live installation row only to the next ordered ordinary load.
+     A missed opportunity (reordered DAT, backpressure, or probe) falls back to
+     normal completion/replay. No response holds a packet or exposes a partial tag. */
+  def waiter :: PhysicalMemoryBeatReq(xlen, Context, beat_bytes) = service_requests.egress.bits
+  def matching_probe = snoop.address.align_down(CacheLineBytes) === retained_line_address.zext(snoop_width)
+  def ordered_load_row = refill_install_word & packet_ordered & miss_active & !miss_prefetch & (refill_access === CacheOperation.Load)
+  def probe_clear = !miss_probed & !snoop_pending & !chi.snoops.valid
+  def forward_turn = Bool(mshr_count > 1) & ordered_load_row & probe_clear & service_responses.ingress.ready
+  def forward_leader = forward_turn & !miss_replied & (refill_row === refill_word_index)
+  def waiting_load = parked.any() & service_requests.egress.valid & (waiter.access === CacheOperation.Load) & (waiter.locality === RiscvMemoryLocality.Default)
+  def waiter_row_matches = (waiter.address.align_down(CacheLineBytes) === retained_line_address) & (refill_row === waiter.address[row_offset_width..offset_width])
+  def forward_waiter = forward_turn & miss_replied & waiting_load & waiter_row_matches
+  def forward_row = forward_leader ||| forward_waiter
+  def load_row = mux(forward_row, refill_install_bytes.as_bits(), service_row)
+  service_load_gen.address <== mux(forward_waiter, waiter.address, retained_address)
+  service_load_gen.data <== load_row
+  service_load_gen.width <== mux(forward_waiter, waiter.width, retained_request.width)
+  service_load_gen.unsigned_load <== mux(forward_waiter, waiter.unsigned, service_load_unsigned)
   def mutate_refill_word = refill_mutation & (refill_row === refill_word_index)
   def merged_refill_word = vec(
     for List (byte_index in 0..beat_bytes):
@@ -766,9 +784,12 @@ sync_circuit L1DCache(xlen :: XLen,
         ordered: Bool(#false)
         install: Bool(#true)
   classified <== held.fire()
+  // A classified load whose response slot is unavailable must remain
+  // replayable: retaining a hit in S4 would block snoops during backpressure.
+  def wait_for_response = parked.any() & (s3_request.access === CacheOperation.Load) & !service_responses.ingress.ready
   (
     primary
-      |> gate_flow(s3_can_advance & s3_lookup_usable & (!miss_busy ||| (replay_head & s3_hit_way.valid & s3_state.is_valid())))
+      |> gate_flow(s3_can_advance & s3_lookup_usable & !wait_for_response & (!miss_busy ||| (replay_head & s3_hit_way.valid & s3_state.is_valid())))
       |> map_flow(lookup => L1DResolved(way_width)):
         prefetch: lookup.prefetch
         prefetch_write: lookup.prefetch_write
@@ -781,7 +802,7 @@ sync_circuit L1DCache(xlen :: XLen,
   ) |> s4_result.ingress
 
   def capture_s4 = s4_result.ingress.fire()
-  retire_head <== capture_s4 & !s3_lookup.egress.bits.prefetch
+  retire_head <== (capture_s4 & !s3_lookup.egress.bits.prefetch) ||| forward_waiter
   when capture_s4:
     assert(!pending_mutation_valid & !miss_active & !maintenance_active & !maintenance.command.fire(), "l1d_s4_request_not_owned_by_slow_service")
     retained_request <== s3_request
@@ -901,17 +922,17 @@ sync_circuit L1DCache(xlen :: XLen,
 
   def s4_load_hit = s4_local.valid & s4_load & s4_hit & (!s4_lr ||| s4_state.is_unique())
   def s4_failed_sc = s4_local.valid & s4_sc & !s4_sc_authorized
-  def produces_response = maintenance_complete ||| s4_load_hit ||| store_hit_write ||| local_mutation_complete ||| s4_failed_sc ||| (complete_refill & !miss_prefetch)
+  def produces_response = maintenance_complete ||| s4_load_hit ||| store_hit_write ||| local_mutation_complete ||| s4_failed_sc ||| forward_row ||| (complete_refill & !miss_prefetch & !miss_replied)
   def response_data = priority_mux(~default: Bits(beat_width)(0)):
     maintenance_complete: Bits(beat_width)(0)
-    retained_raw_beat & (s4_access === CacheOperation.Load): service_row
+    mux(forward_waiter, is_raw_beat(waiter), retained_raw_beat) & (s4_access === CacheOperation.Load): load_row
     s4_access.returns_old_value(): scalar_response(service_load_gen.value)
     s4_failed_sc: Bits(beat_width)(1)
 
   def response = PhysicalMemoryBeatResp(xlen, Context, beat_bytes):
     access_fault: maintenance_complete & (maintenance_done.bits.error =/= CHIRespErr.OK)
     data: response_data
-    context: retained_request.context
+    context: mux(forward_waiter, waiter.context, retained_request.context)
 
   inject_interface(Valid(PhysicalMemoryBeatResp(xlen, Context, beat_bytes)), ~valid: produces_response, ~bits: response) |> to_decoupled() |> service_responses.ingress
   when produces_response:
@@ -1088,6 +1109,7 @@ sync_circuit L1DCache(xlen :: XLen,
     pending_zero_index <== pending_zero_index + Bits(word_index_width)(1)
 
   when miss_capture:
+    miss_replied <== Bool(#false)
     miss_active <== Bool(#true)
     miss_allows_hits <== !s4_prefetch & s4_access.is_load_or_store()
     miss_allocation <== !s4_hit & !s4_bypass_refill
@@ -1096,6 +1118,13 @@ sync_circuit L1DCache(xlen :: XLen,
   elsewhen complete_refill:
     miss_active <== Bool(#false)
     miss_allows_hits <== Bool(#false)
+    miss_replied <== Bool(#false)
+  elsewhen forward_leader:
+    miss_replied <== Bool(#true)
+  when miss_capture:
+    miss_probed <== matching_probe & (snoop_pending ||| snoop_lookup_start)
+  elsewhen (miss_active & matching_probe & snoop_lookup_start):
+    miss_probed <== Bool(#true)
 
   /* Word-at-a-time snoop gathering. The retained read owner selects its
      way from the synchronous response independently of subsequent requests. */

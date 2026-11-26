@@ -137,12 +137,18 @@ line acquisition, observes a sufficient hit, or allocates an MSHR. A conflicting
 set, incompatible upgrade, or nonordinary request cannot be skipped. A slot may
 reserve a dirty victim before the writeback engine is free. Replay the ordered
 head against current permissions before consuming data or writing bytes: snoops
-can invalidate previously acquired lines. Only retirement returns a context.
+can invalidate previously acquired lines. The one exception is the installing
+row of the active ordered load miss: enqueue the leader's response first, then
+only forward to a classified ordinary load at the FIFO head matching the line
+and row. A matching probe disables further forwarding for that miss. Never
+hold installation or CompAck for a forwarded response or publish a partial tag.
 After the ordered miss releases its context, prioritize ordinary head loads
 from the classified prefix whose sets are no longer reserved. Use a free
 array-read cycle, verify the hit in S3, and give refill installation priority
 over the S4 hit's replacement-state update. Stores and atomics do not use
-this early retirement path.
+this early retirement path. If forwarded responses fill the response FIFO,
+keep the next classified load replayable in S3 rather than retaining a hit
+in S4 that would block probes until the requester drains.
 Held packets retain their own install set/way.
 The wide L1D fixture fills B before A, reuses B’s CHI ID for C, and checks
 ordered data and contexts under backpressure. For stores it also snoops B
@@ -233,8 +239,8 @@ the response-only path for both make-invalid opcodes.
    replacement read. Only ordinary demand load/store contexts enable
    hit-under-miss. Protect the whole set in S0 admission and S1 classification.
    An ordinary load or store matching the reserved line may resolve as Slow
-   and wait in the authorized request queue; it must perform a fresh lookup
-   after completion and must not observe the refill buffer directly. Such a
+   and wait in the authorized request queue; unless it takes the ordered
+   forwarding turn described above, it must perform a fresh lookup. Such a
    parked head owns no SRAM port and does not block independent load hits. Keep
    the queue's positive depth specialized by `service_queue_depth`; it bounds
    accepted waiters in single-slot mode. Only the authorized demand path may

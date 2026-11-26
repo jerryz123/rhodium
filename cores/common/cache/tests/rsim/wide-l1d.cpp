@@ -164,6 +164,65 @@ void check_invalidated_head(const Line &a, const Line &b) {
   refill(cached, 2, b); response(b[1], 2); response(a[0], 3);
 }
 
+void check_refill_forwarding(Line a, bool probe) {
+  a[1].words[1] = 0x800000ab;
+  request(base, load, {}, 0xffff, true, 1);
+  const auto ta = accept_request(base, 2);
+  request(base + 20, load, {}, 0xf0, false, 2, word);
+  request(base + 32, load, {}, 0xffff, true, 3);
+  for (unsigned i = 0; i < 8; ++i) tick_model();
+  // An out-of-order waiter beat cannot pass the demand. It must be replayed.
+  refill_packet(ta, 2, 1, a[2]);
+  for (unsigned i = 0; i < 4; ++i) { eval(); CHECK(!core_out.presponse.pvalid); tick_model(); }
+  refill_packet(ta, 0, 1, a[0]);
+  response(a[0], 1); // No last DAT or CompAck yet.
+  if (probe) {
+    auto &snp = chi_in.psnoops;
+    snp.pbits = {}; snp.pbits.paddress = base >> 3; snp.pbits.popcode = 3; // SnpOnce
+    snp.pbits.psrc_uid = 1; snp.pbits.ptxn_uid = 0x56; snp.pvalid = 1;
+    until([] { return chi_out.psnoops.pready; }); tick_model(); snp.pvalid = 0;
+    until([] { return chi_out.prequester_uresponses.pvalid; });
+    CHECK(chi_out.prequester_uresponses.pbits.ptxn_uid == 0x56);
+    CHECK(chi_out.prequester_uresponses.pbits.presp == 0); // Invalid, not SharedClean.
+    tick_model();
+  }
+  refill_packet(ta, 1, 1, a[1]);
+  const Row scalar{{0x800000ab, 0xffffffff, 0, 0}};
+  if (!probe) response(scalar, 2);
+  for (unsigned i = 0; i < 5; ++i) {
+    eval(); CHECK(!core_out.presponse.pvalid && !core_out.pdrained && !chi_out.prequester_uresponses.pvalid);
+    tick_model();
+  }
+  refill_packet(ta, 3, 1, a[3]);
+  if (probe) response(scalar, 2);
+  response(a[2], 3);
+  eval(); CHECK(core_out.pdrained && !core_out.presponse.pvalid);
+}
+
+void check_full_forward_responses(const Line &a, const Line &b) {
+  request(base, load, {}, 0xffff, true, 1);
+  const auto ta = accept_request(base, 2);
+  request(base + 16, load, {}, 0xffff, true, 2);
+  request(base + 32, load, {}, 0xffff, true, 3);
+  for (unsigned i = 0; i < 8; ++i) tick_model();
+  for (unsigned i = 0; i < 4; ++i) refill_packet(ta, i, 1, a[i]);
+  // With both response slots occupied, CHI can still acknowledge and install.
+  until([] { return chi_out.prequester_uresponses.pvalid; });
+  CHECK(chi_out.prequester_uresponses.pbits.popcode == 2);
+  tick_model();
+  auto &snp = chi_in.psnoops;
+  snp.pbits = {}; snp.pbits.paddress = base >> 3; snp.pbits.popcode = 9;
+  snp.pbits.psrc_uid = 1; snp.pbits.ptxn_uid = 0x57; snp.pvalid = 1;
+  until([] { return chi_out.psnoops.pready; }); tick_model(); snp.pvalid = 0;
+  until([] { return chi_out.prequester_uresponses.pvalid; });
+  CHECK(chi_out.prequester_uresponses.pbits.ptxn_uid == 0x57); tick_model();
+  response(a[0], 1); response(a[1], 2);
+  // The third waiter never received a row. Its lookup sees the invalidation.
+  refill(base, 2, b); response(b[2], 3);
+  until([] { return core_out.pdrained; });
+  CHECK(!core_out.presponse.pvalid);
+}
+
 void check_mshr_reuse(const Line &a, const Line &b, bool b_first) {
   constexpr unsigned addr_b = base + 128, addr_c = base + 64;
   request(base + 16, load, {}, 0xffff, true, 0xa1);
@@ -748,6 +807,8 @@ int main() {
         b[i].words[j] = ~a[i].words[j];
       }
     for (bool reverse : {true, false}) {
+      check_refill_forwarding(a, reverse);
+      reset = 1; tick_model(); reset = 0;
       check_store_stream(a, b, reverse);
       reset = 1; tick_model(); reset = 0;
       check_mshr_reuse(a, b, reverse);
@@ -762,6 +823,8 @@ int main() {
       check_store_behind_load(a, b, reverse);
       reset = 1; tick_model(); reset = 0;
     }
+    check_full_forward_responses(a, b);
+    reset = 1; tick_model(); reset = 0;
     check_invalidated_head(a, b);
     reset = 1; tick_model(); reset = 0;
     check_shared_upgrade_barrier(a, b);
