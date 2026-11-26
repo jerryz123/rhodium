@@ -21,4 +21,14 @@ def target = rtl_pipeline_target(rsim_target, [port_observer_pass([
   ]],
   ["RV5StageVectorPipeline", "test_vector_fp_overlap", [["service_out", "fp_pending"]]]
 ])])
-export program target
+def fault_target = rtl_pipeline_target(rsim_target, [port_observer_pass([
+  ["RV5StageInstructionBuffer", "test_fault_decode", [
+    ["fetched_out", "valid"], ["fetched_in", "ready"], ["fetched_out", "bits", "pc"],
+    ["fetched_out", "bits", "instruction"], ["fetched_out", "bits", "fault", "valid"]
+  ]],
+  ["RV5StageFpService", "test_fp_booking", [["id_admitted"]]],
+  ["RV5StageFpScalar", "test_vector_booking", [
+    ["vector_reserve_in", "valid"], ["vector_reserve_out", "ready"]
+  ]]
+])])
+export program target fault_target

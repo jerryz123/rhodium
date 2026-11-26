@@ -298,6 +298,7 @@ vector-register-file-rv32	cores-vector-functional-1	cores/common/vector/tests/rs
 vector-register-file-rv64	cores-vector-functional-1	cores/common/vector/tests/rsim/emit-register-file.rhm	rv64	cores/common/vector/tests/rsim/register-file.cpp
 rv5stage-vector-control	cores-vector-functional-1	cores/rv5stage/tests/rsim/emit-rv5stage-vector-control.rhm	program	cores/rv5stage/tests/rsim/rv5stage-vector-control.cpp
 rv5stage-vector-fp	cores-vector-functional-1	cores/rv5stage/tests/rsim/emit-rv5stage-vector-fp.rhm	program	cores/rv5stage/tests/rsim/rv5stage-vector-fp.cpp	target
+rv5stage-fetch-fault-reservations	cores-vector-functional-1	cores/rv5stage/tests/rsim/emit-rv5stage-vector-fp.rhm	program	cores/rv5stage/tests/rsim/rv5stage-fetch-fault-reservations.cpp	fault_target
 rv5stage-vector-muldiv	cores-vector-functional-1	cores/rv5stage/tests/rsim/emit-rv5stage-vector-muldiv.rhm	program	cores/rv5stage/tests/rsim/rv5stage-vector-muldiv.cpp
 rv5stage-vector-reduction	cores-vector-functional-2	cores/common/vector/tests/rsim/emit-rv5stage-vector-reduction.rhm	program	cores/common/vector/tests/rsim/rv5stage-vector-reduction.cpp
 rv5stage-vector-mask-512	cores-vector-configurations	cores/common/vector/tests/rsim/emit-rv5stage-vector-mask-512.rhm	program	cores/common/vector/tests/rsim/rv5stage-vector-mask-512.cpp

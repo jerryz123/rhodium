@@ -109,6 +109,37 @@ void check_parcel_ownership() {
 }
 
 void check_fault_boundaries() {
+  // An upper first parcel may look like a long prefix, but a fault there is
+  // immediately complete. Decode must not consume a second word or keep a residual.
+  offer(0x502, 0x10d30001, 2);
+  packets_in.pbits.ppage_ufault = 1;
+  fetched_in.pready = 0;
+  settle();
+  for (int i = 0; i < 3; ++i) {
+    CHECK(fetched_out.pvalid && !packets_out.pready && fetch_page_fault(fetched_out.pbits) &&
+          fetched_out.pbits.ppc == 0x502 && !fetched_out.pbits.pfault.pcontinuation &&
+          fetch_fault_address(fetched_out.pbits) == 0x502);
+    edge_step();
+  }
+  falling();
+  fetched_in.pready = 1;
+  settle();
+  CHECK(packets_out.pready);
+  edge_step();
+
+  // A standalone retained C.ADDI does not acquire the next packet's fault.
+  offer(0x520, 0x00850085);
+  edge_step();
+  offer(0x524, 0x00108153);
+  packets_in.pbits.paccess_ufault = 1;
+  settle();
+  expect_instruction(0x522, 0x85);
+  CHECK(!fetched_out.pbits.pfault.pvalid && !packets_out.pready);
+  edge_step();
+  expect_instruction(0x524, 0x00108153);
+  CHECK(fetch_access_fault(fetched_out.pbits) && packets_out.pready);
+  edge_step();
+
   offer(0x600, 0);
   packets_in.pbits.ppage_ufault = 1;
   packets_in.pbits.paccess_ufault = 1;
@@ -225,7 +256,14 @@ void stimulus() {
     packets_in.pbits.ppage_ufault = 1;
     settle();
     CHECK(fetch_page_fault(fetched_out.pbits) && !fetched_out.pbits.pcompressed_uillegal &&
-          fetched_out.pbits.psequential_upc == 252 && fetched_out.pbits.pinstruction == 0);
+          fetched_out.pbits.psequential_upc == 252);
+    edge_step();
+    offer(252, 0x850085);
+    const auto candidate = fetched_out.pbits.pinstruction;
+    packets_in.pbits.ppage_ufault = 1;
+    settle();
+    CHECK(candidate != 0x85 && fetched_out.pbits.pinstruction == candidate &&
+          fetch_page_fault(fetched_out.pbits) && !fetched_out.pbits.pfault.pcontinuation);
     edge_step();
     offer(UINT64_C(256), UINT64_C(0x100093));
     expect_instruction(UINT64_C(256),

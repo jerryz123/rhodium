@@ -39,7 +39,11 @@ existing access-before-page priority and carries `RiscvGuestFault` directly;
 EX reconstructs the fault address from the exact instruction PC and continuation
 bit. The queue's boundary bit selects PC expansion independently. Preserve GPA
 byte adjustment only for explicit faults, leaving implicit PTE GPAs unchanged.
-Cache responses and raw queue flags keep their existing format and timing.
+Assemble and expand candidate bits independently of fault classification. A
+first-parcel fault issues without waiting for another word; only a retained
+long prefix can fault on its continuation. ID ignores the candidate's operand
+dependencies and makes no execution reservation on a fetch fault. Older
+pipeline barriers and WB trap-drain ordering still apply.
 
 The core may consume fetch and predictor protocols and use the RAS classifier
 when resolving an instruction. Tests remain under [`../tests/`](../tests/), and
@@ -105,6 +109,9 @@ word left for ordinary instruction decode.
 The `rv32` and `h` instruction-buffer variants also cover fault-address wrap,
 positive canonical boundaries, backpressure, access/page priority, and explicit
 versus implicit guest GPA provenance. Keep the same native oracle across variants.
+The `rv5stage-fetch-fault-reservations` fixture compares the same scalar FP and
+vector-to-FPR candidates with and without a fetch fault while an older FPR load
+is outstanding.
 
 After changing layout or imports, run `moon run rhodium:check-boundaries` and confirm no old
 paths remain. Direct predictor behavior is covered by the shared `bpred-btb`

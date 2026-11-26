@@ -68,6 +68,12 @@ bundle RV5StageFetchPacket(xlen :: XLen, hypervisor :: Boolean):
         low.fetch_address(packet.outcome.is(Outcome.Fault) & details.boundary)
     | packet.pc
 
+  /* Tests packet failure without decoding its cause or the overlapping prediction payload. */
+  method faulted(packet) :: Bool:
+    if xlen == XLen.X64
+    | packet.outcome.is(RV5StageQueueOutcome(xlen).Fault)
+    | packet.page_fault ||| packet.access_fault
+
   /* Qualifies the page-fault payload by the mutually exclusive outcome tag. */
   method page_faulted(packet) :: Bool:
     if xlen == XLen.X64
