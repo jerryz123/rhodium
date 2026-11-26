@@ -237,7 +237,7 @@
      (prove-fifo-series-refinement view children)]
     [else
      (define premises (declared-premises top parent-spec))
-     (match-define (list sites cuts relation checks) (refinement_parts view))
+     (match-define (list sites cuts relation checks direct) (refinement_parts view))
      (define single? (= 1 (length sites)))
      (when (and implementation-site (not single?)) (error 'refinement "site override requires one child"))
      ;; The original single-seal calling convention asks for a forwarded batch proof.
@@ -262,7 +262,7 @@
        (lambda (_model monitor layout _ins _outs sample-parent)
          (check-monitor-refinement! check-refinement-phase! top layout Bool bindings monitor sample-parent relation checks
                                     #:combinational (combinational-sites drivers) #:parent-premises premises
-                                    #:check-links check-links
+                                    #:check-links check-links #:direct-wires direct
                                     #:input-history (and req (input-history-at req)))
          premises)
        #:requirement req)]))

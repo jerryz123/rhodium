@@ -57,11 +57,10 @@ treat a matching batch schema as proof that two monitors agree.
 2. **Remove the privileged FIFO composition path one consumer at a time.**
    ShiftQueue's ordering observer now reads its generic seal at depths 1–3;
    unmigrated parents still obtain independently proved legacy evidence.
-   Next migrate QueuePair(1), then
-   QueuePair(2), QueuePairSeries, and the arbiter/ROB consumers. Use ordinary
-   `child`, `history` and `relate` with the actual elaborated pins. If the
-   spec cannot describe a handoff check, add a typed, protocol-neutral
-   obligation and demonstrate it on a non-FIFO cut as well. Preserve the
+   QueuePair(1) now proves its two-word public seal from generic ShiftQueue
+   seals using `child`, `history`, and `relate`. Its `direct_wires` obligation
+   also checks a non-FIFO parallel cut. Next validate QueuePair(2) on this
+   path, then migrate QueuePairSeries and the arbiter/ROB consumers. Preserve the
    two-lane exclusivity obligation; it is not an environment assumption.
    Keep the ordering observer's theorem unchanged, the 2/4/6-word bounds,
    fill/drain replay, and the crossed-ready, wrong-payload, reversed-history
@@ -134,8 +133,8 @@ certifies the declared two-word FIFO monitor using two verified ShiftQueue
 contracts and a private downstream-first history relation. Its seal feeds
 the existing ordering observer; a crossed handoff or reversed relation earns
 no evidence. The same occurrence-based transaction induction also proves
-[two non-FIFO monitors in parallel](tests/parallel-monitors.rspl); direct
-FIFO handoff admission remains a protocol check, not an assumption of induction.
+[two non-FIFO monitors in parallel](tests/parallel-monitors.rspl); both
+check the declared direct wiring against RTL before induction.
 The parent fixtures share an admission check: each
 occurrence needs run-local evidence for its actual implementation and full
 contract. No persistent evidence cache or general parent-logic checker is

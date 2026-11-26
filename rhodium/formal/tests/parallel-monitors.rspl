@@ -56,6 +56,7 @@ spec for rtl.ParallelMarks:
   refinement:
     child a: StickyMark
     child b: ToggleMark
+    direct_wires {"a.mark": "mark_a", "b.mark": "mark_b", "marked_a": "a.marked", "marked_b": "b.marked"}
     history left_seen from a.seen: Bool
     history right_seen from b.seen: Bool
     relate left_seen = left_seen

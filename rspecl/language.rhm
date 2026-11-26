@@ -153,7 +153,7 @@ expr.macro 'monitor_view: $line; ...':
                                $(attachment["publish"]), $(attachment["sample"]), ~bindings: $(map_expr(bindings)))'
 
 /* Lower implementation-state hints and separate pin-dependent obligations to ordinary spec IR. */
-expr.macro 'refined_view($view, $attach): $line; ...':
+expr.macro 'refined_view($view, $attach, $parent): $line; ...':
   def values(_, _, _, record, emit, declarations) = model_body()
   def sources = MutableMap{}
   def pins = MutableMap{}
@@ -162,6 +162,7 @@ expr.macro 'refined_view($view, $attach): $line; ...':
   def checks = MutableMap{}
   def covers = MutableMap{}
   def cuts = MutableMap{}
+  def mutable direct = #false
   def mutable sites = []
   /* Keep occurrence identity separate from lexical names and preserve declaration order for protocol checks. */
   fun occurrence(child :: Syntax, cut :: Syntax, clause :: Syntax):
@@ -180,7 +181,11 @@ expr.macro 'refined_view($view, $attach): $line; ...':
         occurrence(child, '$(prefix ++ "." ++ field_name(n))', clause)
         source(n, '($t ...)', prefix, sources, clause)
     | 'child $(child :: Identifier): $spec ...':
-        occurrence(child, '($spec ...)(~transaction_view: #true)', clause)
+        occurrence(child, 'boundary.child_transaction($parent, $(field_name(child)), ($spec ...))', clause)
+    | 'direct_wires $rhs ...':
+        when direct | syntax_meta.error("duplicate direct wiring contract", clause)
+        direct := Syntax.make_temp_id("direct_wires")
+        emit('def $direct :: Map.of(String, String) = $rhs ...')
     | 'history $(n :: Identifier) from $(child :: Identifier) . $(field :: Identifier): $t ...':
         unless cuts.has_key(field_name(child)) | syntax_meta.error("history must name the declared child", child)
         def k = "history." ++ field_name(child) ++ "." ++ field_name(field)
@@ -226,7 +231,9 @@ expr.macro 'refined_view($view, $attach): $line; ...':
      def state_inputs = $(map_expr(sources))
      def rel = ir.make_spec(state_inputs, {}, {}, $(map_expr(relations)), $(map_expr(invariants)), {})
      def edge = ir.make_spec(state_inputs ++ $(map_expr(pins)), {}, {}, $(map_expr(checks)), $(map_expr(covers)), {})
-     $attach($view, PairList[$site, ...], $(map_expr(cuts)), rel, edge)'
+     $(if direct
+       | '$attach($view, PairList[$site, ...], $(map_expr(cuts)), rel, edge, $direct)'
+       | '$attach($view, PairList[$site, ...], $(map_expr(cuts)), rel, edge)')'
 
 /* Compile a private abstraction at the cycle declaration's lexical site, not in the public monitor. */
 expr.macro 'cycle_relation($cycle): $line; ...':
@@ -301,7 +308,7 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
     | 'refinement: $entry; ...':
         when refinement | syntax_meta.error("duplicate refinement block", clause)
         refinement := [entry, ...]
-        def cut_forms = {"child", "fifo", "history", "local", "input", "output", "batch", "check", "cover"}
+        def cut_forms = {"child", "fifo", "history", "local", "input", "output", "batch", "check", "cover", "direct_wires"}
         when has_cycle && !refinement.find(fun (c): has_head(c, cut_forms))
         | block:
             projection := Syntax.make_temp_id("cycle_projection")
@@ -317,14 +324,14 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
   let [decl, ...] = declarations()
   def specialized = transaction && bound_events
   def fifo_behavior = transaction && event_source && !specialized
-  when bound_events && !(has_cycle && transaction)
-  | syntax_meta.error("a named event reader needs a cycle and a transaction view", name)
+  when bound_events && !transaction
+  | syntax_meta.error("a named event reader needs a transaction view", name)
   when projection && !transaction && !event_source | syntax_meta.error("cycle refinement requires a transaction view", name)
   when refinement && !projection && !fifo_behavior
   | block:
       unless transaction | syntax_meta.error("refinement requires a transaction view", name)
       let [entry, ...] = refinement
-      transaction := 'refined_view($transaction, boundary.attach_refinement): $entry; ...'
+      transaction := 'refined_view($transaction, boundary.attach_refinement, $(if specialized | 'top' | '#false')): $entry; ...'
   let [skip, ...] = ignored
   def args:
     cond
@@ -353,6 +360,12 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
   def monitor_only = transaction && no_cycle_clauses
   def finish:
     cond
+    | specialized && passive: '«
+         cond
+         | tx_only: specialized_view(top, fun (): boundary.check_transaction_ports($transaction, bound.ports))
+         | view_only: $bound_events
+         | ~else: error("passive-only spec: request a transaction or event view")
+       »'
     | specialized: '«
          def view = specialized_view(top, fun (): boundary.check_transaction_ports($transaction, bound.ports))
          def cycle_events = ir.include_sampled_events(view.sampler, cycle_outputs, $(map_expr(events)), ~only: view.cycle_names)
@@ -365,7 +378,7 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
           cond
           | refinement:
               let [entry, ...] = refinement
-              'refined_view($public_view, fifo_view.attach_fifo_series): $entry; ...'
+              'refined_view($public_view, fifo_view.attach_fifo_series, top): $entry; ...'
           | ~else: public_view
         '«
            unless view_only | error("passive-only spec: request ~event_view: #true")

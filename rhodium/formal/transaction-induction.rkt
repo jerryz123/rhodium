@@ -16,7 +16,7 @@
 #| Open the parent only. An arbitrary physical output at each occurrence is one shared
    net for all its RTL sinks. Return per-site pin pairs, not any child implementation state. |#
 (define (open-monitor-sites top layout bool sites check! #:combinational [comb (hash)] #:parent-premises [premises (hash)]
-                            #:check-links [check-links void])
+                            #:check-links [check-links void] #:direct-wires [direct #f])
   #| Reject a same-shaped substitute before interpreting the recorded port layout. |#
   (define (layout-at name definition)
     (define actor (hash-ref comb name #f))
@@ -30,7 +30,7 @@
                   (for/hash ([(k s) sites]) (values k (monitor-site-visible s))) layout-at bool
                   (for/hash ([(k actor) comb]) (values k (combinational-site-model actor)))
                   (for/hash ([(k s) sites] #:when (same-schema? (leaf_protocol (monitor-site-definition s)) "combinational"))
-                    (values k #t))))
+                    (values k #t)) direct))
   (define locals (hash-ref graph "children"))
   (define states (for/hash ([(k model) locals]) (values k (symbolic-spec-state model))))
   (define inputs (fresh-fields (hash-ref graph "inputs")))
@@ -138,9 +138,10 @@
    Each advance allocates independent abstract state, even when two sites use the same evidence. |#
 (define (check-monitor-refinement! check! top layout bool sites monitor sample relation checks #:combinational [comb (hash)]
                                    #:parent-premises [premises (hash)] #:check-links [check-links void]
-                                   #:input-history [input-history #f])
+                                   #:input-history [input-history #f] #:direct-wires [direct #f])
   (define-values (inputs outputs locals pin-pairs allowed)
-    (open-monitor-sites top layout bool sites check! #:combinational comb #:parent-premises premises #:check-links check-links))
+    (open-monitor-sites top layout bool sites check! #:combinational comb #:parent-premises premises
+                        #:check-links check-links #:direct-wires direct))
   #| Child histories must be disjoint; neither declaration order nor equal field names can alias them. |#
   (define (join a b)
     (for/fold ([h a]) ([(k v) b])

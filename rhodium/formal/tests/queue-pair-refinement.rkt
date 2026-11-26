@@ -2,23 +2,24 @@
 ;; Certify the RSPECL two-word contract from opaque ShiftQueue proofs and exercise its public observer.
 ;; SPDX-License-Identifier: Apache-2.0
 
-(require (only-in "../../../rspecl/proof.rkt" prove-transaction) rackunit "../refinement.rkt" "composition-checks.rkt"
+(require (only-in "../../../rspecl/proof.rkt" prove-transaction transaction-for?) rackunit "fifo-observer-input.rkt" "composition-checks.rkt"
          (only-in "composition-binding.rhm" pair_at faulty_pair)
          (only-in "queue-pair.rspl" QueuePair reversed_pair)
-         (only-in "shift-queue-transactions.rkt" verified-shift-queue-transactions-at)
+         (only-in "shift-queue-transactions.rkt" shift-queue-seal-at)
          (only-in "queue-pair-transaction-order.rkt" check-retirement-order check-ready-not-entailed))
-(provide (rename-out [result verified-depth-one-queue-pair]))
+(provide (rename-out [seal verified-depth-one-queue-pair]))
 
-(define (view top) (QueuePair top #:event_view #t))
-(define leaf (verified-shift-queue-transactions-at 1))
+(define (view top) (QueuePair top #:transaction_view #t))
+(define leaf (shift-queue-seal-at 1))
 ;; Evidence can be reused; the two occurrences do not share an abstract queue state.
 (define children (hash "a" leaf "b" leaf))
 (define public (view (pair_at 1)))
-(define result (prove-transaction (pair_at 1) public children))
+(define seal (prove-transaction (pair_at 1) public children))
+(define result (observe-fifo-seal seal (pair_at 1) public))
 
 (module+ test
   (test-case "the RSPECL parent alone proves ordering and a two-word bound, but not ready when space remains"
-    (check-true (fifo-transactions-for? result public))
+    (check-true (transaction-for? seal (pair_at 1) public))
     (check-equal? (fifo-transactions-capacity result) 2)
     (require-feasible (check-retirement-order result))
     (check-ready-not-entailed result))
@@ -33,11 +34,15 @@
     (discharge 'two-word-limit prefix
                (&& (= (fifo-history-count two) 2) (! (fifo-allows? result two (fifo-events #f #t x #f x) (fresh))))))
   (test-case "a same-width ready or payload miswire fails before substitution"
-    (for ([fault '("ready" "payload")] [message (list #rx"expected a.egress.ready" #rx"expected b.ingress.bits")])
+    (for ([fault '("ready" "payload")]
+          [message (list #rx"expected a.egress.ready driven by b.ingress.ready, got consume"
+                         #rx"expected b.ingress.bits driven by a.egress.bits, got data")])
       (define top (faulty_pair fault 1))
-      (check-exn message (lambda () (prove-transaction top (view top) children)))))
+      (check-exn message (lambda () (prove-transaction top (view top) children)))
+      ;; A view built on the correct parent must not bypass checking this proof's actual RTL.
+      (check-exn message (lambda () (prove-transaction top public children)))))
   (test-case "wrong child specialization or wrong history order cannot issue a parent seal"
-    (check-exn #rx"evidence does not match the RTL occurrences"
-               (lambda () (prove-transaction (pair_at 1) public (hash-set children "a" (verified-shift-queue-transactions-at 2)))))
-    (check-exn #rx"step/(allowed|successor) not proved"
+    (check-exn #rx"expected certified evidence for this transaction view"
+               (lambda () (prove-transaction (pair_at 1) public (hash-set children "a" (shift-queue-seal-at 2)))))
+    (check-exn #rx"step/(allowed|retire-oldest|successor) not proved"
                (lambda () (prove-transaction (pair_at 1) (reversed_pair (pair_at 1)) children)))))

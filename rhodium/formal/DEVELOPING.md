@@ -302,14 +302,18 @@ mathematical counts before they can wrap, ignores the predecessor count on
 reset, and compares only live successor slots.
 
 Keep the [RSPECL QueuePair induction](tests/queue-pair-refinement.rkt) alongside the
-[handwritten series proof](tests/queue-pair-grouped.rkt). Both use the checked
-RTL handoff and independent child contract edges. The
+[handwritten series proof](tests/queue-pair-grouped.rkt). The generic proof
+uses the same depth-one ShiftQueue seal twice, specializing the expected child
+view at each actual RTL occurrence. Both proofs use independent child histories.
+For an authored `direct_wires` map, the wiring extractor must reject local
+logic, compare every sink to its actual driver, and check shared clock/reset
+before either child verdict is available. Recheck on the proof's top even if
+the caller supplies a view previously bound to good RTL. The
 [transaction induction](transaction-induction.rkt) opens all declared occurrences
 on one actual wire graph, interprets only parent-local RTL, and checks the same
 reset and preservation obligations for QueuePair and [two parallel monitors](tests/parallel-monitors.rkt).
-A protocol adapter supplies the public batch and an independent monitor step
-per occurrence. It may reject bad wiring before induction; it must not supply
-the relation as a theorem or mint evidence on its own. Only the RSPECL path reads the
+The generic path samples the public batch and steps each child's sealed monitor;
+the wiring declaration supplies neither a theorem nor evidence. Only the RSPECL path reads the
 declared monitor and evaluates the authored relation on the child histories;
 it must establish an empty projected successor on reset and a defined, bounded
 projection and legal public transition on every admitted non-reset edge. Reversing

@@ -613,18 +613,23 @@ To obtain those batches from RTL pins, declare a passive view as the body of
 
 ```rhombus
 spec for rtl.QueuePair:
-  events ready_valid_events(reset, rv_pins("offer", "ready", "data"), rv_pins("valid", "consume", "head"))
-  transactions fifo_monitor(2 * depth, 2)
+  events transfers = pair_events(reset)
+  transactions fifo_monitor(2 * depth, data.type.width, transfers)
   refinement:
-    fifo upstream from a: Seq(Bits(2), depth)
-    fifo downstream from b: Seq(Bits(2), depth)
+    direct_wires pair_wires
+    child a: ShiftQueue
+    child b: ShiftQueue
+    history upstream from a.q: Seq(data.type, depth)
+    history downstream from b.q: Seq(data.type, depth)
     relate q = seq_concat(downstream, upstream)
 ```
 
-Each `rv_pins(valid, ready, payload)` descriptor names three physical scalar
+In the example, `pair_events` uses two `rv_pins(valid, ready, payload)`
+descriptors. Each names three physical scalar
 ports. Their directions and types are checked against the elaborated circuit.
-Bind the sampler with `QueuePair(top, ~event_view: #true)`. Without that
-keyword the request is for a cycle model, which this declaration does not
+Request the passive pin sampler with `QueuePair(top, ~event_view: #true)`
+or the generic monitor with `QueuePair(top, ~transaction_view: #true)`. Without
+a view keyword the request is for a cycle model, which this declaration does not
 provide. [`sample_fifo_events(view, pins)`](fifo-view.rhm) takes
 one map containing all pre-edge input and output samples except the clock
 and returns the batch for `step_fifo_monitor`. An asserted reset suppresses
@@ -632,12 +637,13 @@ both transfers; otherwise both can appear in the same batch, even with a
 zero payload. The view reads the actual ready and valid pins. It does not
 drive them, certify the FIFO, or replace a cycle model.
 
-Here `fifo_monitor` (from [fifo-monitor.rhm](fifo-monitor.rhm)) is the public
+Here `fifo_monitor` (from [rspecl/fifo.rspl](../../rspecl/fifo.rspl)) is the public
 promise: ordered two-bit words with at most twice the child depth outstanding
-in each reset epoch. Only the private refinement names occurrences. List the
-two FIFOs in ingress-to-egress order; `seq_concat` joins their live words
-downstream-first, ignoring unused slots. This cut supports direct series
-wiring on a shared clock and reset, not intervening logic. At depth one it
+in each reset epoch. Only the private refinement names occurrences.
+`direct_wires` is a complete map from data/control sinks to expected RTL
+drivers, including the parent boundary. The checker verifies shared clock and
+reset separately; intervening logic is not a direct wire. `seq_concat`
+joins the independent child histories downstream-first, ignoring unused slots. At depth one it
 certifies the two-word bound without promising ready whenever space remains.
 
 The [ShiftQueue spec](../../examples/formal/shift-queue.rspl) uses one pin
