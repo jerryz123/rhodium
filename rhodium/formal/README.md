@@ -601,6 +601,13 @@ transfer. Retirement checks the **old** head, so a full FIFO can replace one
 word in a joint batch, but an empty FIFO cannot retire a new arrival. These
 are permitted observations, not predictions of ready, valid, or progress.
 
+For an RSPECL transaction view, [`rspecl/fifo.rspl`](../../rspecl/fifo.rspl)
+exports `fifo_monitor(capacity, width, sampler)`. Supply an ordinary two-argument
+pin sampler that returns a `reset` event and word-valued `accepted` and
+`retired` events. Presence denotes the event, so a zero word still transfers.
+The view starts empty and holds its live history on any rejected batch. This
+helper does not issue evidence or replace the monitor used by existing proofs.
+
 To obtain those batches from RTL pins, declare a passive view as the body of
 `spec for`, as in the [QueuePair and QueuePairSeries specs](tests/queue-pair.rspl):
 

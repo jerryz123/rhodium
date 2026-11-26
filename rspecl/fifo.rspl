@@ -1,0 +1,25 @@
+#lang rspecl
+/* Builds a bounded FIFO transaction monitor over a caller's reset, accepted, and retired events. */
+// SPDX-License-Identifier: Apache-2.0
+
+export fifo_monitor
+
+/* Judge one joint batch against the old queue. A retirement frees space for a simultaneous
+   acceptance, but cannot consume an arrival from the same batch when the queue was empty. */
+fun fifo_monitor(capacity :: PosInt, width :: PosInt, sampler :: Function.of_arity(2)):
+  def word = Bits(width)
+  monitor:
+    sample sampler
+    publish ["reset", "accepted", "retired"]
+    batch reset = present(reset)
+    batch push = present(accepted)
+    batch in: word = payload(accepted) when push
+    batch pop = present(retired)
+    batch out: word = payload(retired) when pop
+    state q: Seq(word, capacity) initially [] as cleared
+
+    guarantee "reset-without-transfer" = !reset || !(push || pop)
+    guarantee "retire-oldest" = !pop || (!empty(q) && bits_equal(front(q), out))
+    guarantee "space-for-accept" = !push || pop || !full(q)
+    let remaining = select(pop, tail(q), q)
+    next q = select(reset, cleared, select(push, append(remaining, in), remaining))

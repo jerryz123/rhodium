@@ -1,0 +1,14 @@
+#lang rspecl
+// SPDX-License-Identifier: Apache-2.0
+
+import lib("rspecl/fifo.rspl").fifo_monitor
+import lib("rhodium/formal/spec.rhm").Observed
+export fifo_view
+
+// Independently driven strobes preserve reset/transfer collisions; the sampler promises no timing.
+fun fifo_view(capacity :: PosInt):
+  fun events(read :: Function.of_arity(2), output :: Function.of_arity(2)):
+    {"reset": Observed(const(Bool, #true), read("reset", Bool)),
+     "accepted": Observed(read("in", Bits(2)), read("push", Bool)),
+     "retired": Observed(output("out", Bits(2)), output("pop", Bool))}
+  fifo_monitor(capacity, 2, events)
