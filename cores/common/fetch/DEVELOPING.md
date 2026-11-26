@@ -32,7 +32,9 @@ python3 tools/testing/rsim/run.py --fixture instruction-memory32 --fixture instr
 
 They cover cached throughput, explicit replay, full-width replies, S1 kill,
 exactly-once uncached reads, stale address/attribute replacement, access faults,
-and independent invalidation/cancellation. Integration changes additionally use
+and independent invalidation/cancellation. Use `rv3wide-fetch-discard` to
+check a retiring fence against an S2 cache hit and a younger ITLB miss,
+including when the restart stalls. Integration changes additionally use
 `rv5stage-fetch-throughput`, `rv5stage-mmu-replay`, `rv5stage-uncached`,
 `rv5stage-io-mshr`, `rv2wide-fetch`, and `rv3wide-fetch`. Run the repository
 boundary audit after changing imports or ownership. Tests and generated native

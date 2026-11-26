@@ -82,6 +82,7 @@ import:
   "../fetch/frontend.rhdl".SuperscalarFrontend
   "../memory/translation-sv39.rhdl".SuperscalarSv39Translation
   "../memory/translation.rhdl".SuperscalarTranslationQuery
+  lib("cores/common/fetch/memory.rhdl").InstructionMemoryRouter
   lib("cores/common/mmu/translation.rhdl").RiscvTranslationMemory
   "../../common/chi-hart.rhdl".RiscvHartCHIConfig
   "instruction-fixture.rhdl" open
@@ -151,17 +152,19 @@ sync_circuit CoreFixture(profile :: SuperscalarPipelineConfig = SuperscalarPipel
   core.fetch_discard <=> fetch_flush
   if fetch_config
   | block:
-      // Inject instructions at issue independently of fetch so that a real MEM
-      // jump resolves on exactly the desired pair of frontend pipeline stages.
+      // Issue a real MEM jump or WB fence independently of the frontend's S1/S2 pair.
       inst fetch(SuperscalarFrontend(fetch_config, profile, ~group_width: issue_width))
       inst resolve(SuperscalarSv39Translation(fetch_config, ~hypervisor: #false))
+      inst router(InstructionMemoryRouter(64, 64, ~executable_address_width: fetch_config.physical_map.executable_address_width))
       interface fetch_start(Valid(Bits(64)), ~role: consumer)
       interface array_lookup(Decoupled(Bits(64)), ~role: producer)
       interface pte(RiscvTranslationMemory(), ~role: requester)
       input prime: Bool
       input physical_replay: Bool
+      input cache_word: Bits(64)
       output(s1_live, s1_miss, s1_discard, s2_physical, fetch_packet): Bool
       output s1_address: Bits(64)
+      output fetched_instruction: Bits(32)
       fetch_start |> fetch.start
       core.redirect |> fetch.redirect
       core.fetch_discard |> fetch.discard
@@ -176,13 +179,19 @@ sync_circuit CoreFixture(profile :: SuperscalarPipelineConfig = SuperscalarPipel
       fetch.virtual_lookup |> array_lookup
       fetch.instructions.ready <== Bool(#true)
       fetch_packet <== fetch.instructions.valid
+      fetched_instruction <== fetch.instructions.bits.entries[0].instruction
+      fetch.memory <=> router.core
       reg physical(~init: Bool(#false))
-      physical <== fetch.memory.request.valid
+      physical <== router.cache.request.valid
       s2_physical <== physical
-      fetch.memory.response.valid <== physical & !fetch.memory.flush
-      fetch.memory.response.bits.data <== Bits(64)(0x0000001300000013)
-      fetch.memory.response.bits.access_fault <== Bool(#false)
-      fetch.memory.response.bits.replay <== physical_replay
+      router.cache.demand_present <== physical
+      router.cache.response.valid <== physical & !router.cache.flush & !router.cache.invalidate_all
+      router.cache.response.bits.data <== cache_word
+      router.cache.response.bits.access_fault <== Bool(#false)
+      router.cache.response.bits.replay <== physical_replay
+      router.uncached.request.ready <== Bool(#false)
+      router.uncached.response.valid <== Bool(#false)
+      router.uncached.response.bits <== literal(router.uncached.response.bits.type, 0)
 
       resolve.instruction.request.valid <== prime ||| fetch.translation.request.valid
       resolve.instruction.request.bits <== mux(prime, Bits(64)(0x1ff8), fetch.translation.request.bits)

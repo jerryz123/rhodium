@@ -72,14 +72,14 @@ sync_circuit InstructionMemoryRouter(address_width :: PosInt, fetch_bits :: PosI
      Cache misses, missing replies, and stale replies replay without exposing
      a completion belonging to another physical request. */
 
-  def unavailable = InstructionCacheResult(fetch_bits):
-    data: Bits(fetch_bits)(0)
-    access_fault: Bool(#false)
-    replay: Bool(#true)
+  // Invalidation replays a present demand; it need not change the bytes
+  // feeding predecode. Only a valid, non-replayed response can deliver them.
+  def cached_current = cache.demand_present & !core.invalidate_all
+  def cached_result = InstructionCacheResult(fetch_bits):
+    data: mux(cache.demand_present, cache.response.bits.data, Bits(fetch_bits)(0))
+    access_fault: cached_current & cache.response.bits.access_fault
+    replay: !cached_current ||| cache.response.bits.replay
 
-  // Keep a missing demand a replay, but do not let a same-cycle consumer
-  // flush zero the bytes feeding predecode. Only core.response.valid publishes.
-  def cached_result = mux(cache.demand_present & !core.invalidate_all, cache.response.bits, unavailable)
   def uncached_result = InstructionCacheResult(fetch_bits):
     data: mux(completed_match, response.data, Bits(fetch_bits)(0))
     access_fault: completed_match & response.access_fault

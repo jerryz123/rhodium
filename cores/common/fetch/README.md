@@ -38,6 +38,9 @@ its completed bytes. There is no additional stage on cache hits. For a live S2
 attempt, `response.bits` previews the outcome even when a simultaneous flush
 suppresses `response.valid`. This lets fetch compute a local successor in
 parallel with recovery; the preview never authorizes delivery or a new read.
+A simultaneous cache invalidation forces a cached demand to replay and suppresses
+its access fault, but leaves its bytes available to predecode. Consume bytes
+only on a valid, non-replayed, non-faulting response.
 
 The following illustrates the retained uncached owner:
 

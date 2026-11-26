@@ -80,6 +80,22 @@ void stimulus() {
     settle();
     CHECK(cache_in.pdemand_upresent && !core_out.presponse.pvalid &&
           !core_out.presponse.pbits.preplay && core_out.presponse.pbits.pdata == 4100);
+    // Invalidation vetoes fault and delivery, not the present predecode word.
+    core_in.pinvalidate_uall = 1;
+    cache_in.presponse.pbits.paccess_ufault = 1;
+    for (bool flush : {true, false}) {
+      core_in.pflush = flush;
+      settle();
+      CHECK(bool(core_out.presponse.pvalid) == !flush);
+      CHECK(core_out.presponse.pbits.preplay && !core_out.presponse.pbits.paccess_ufault);
+      CHECK(core_out.presponse.pbits.pdata == 4100 && !uncached_out.prequest.pvalid);
+    }
+    cache_in.pdemand_upresent = 0;
+    settle();
+    CHECK(core_out.presponse.pvalid && core_out.presponse.pbits.preplay &&
+          !core_out.presponse.pbits.paccess_ufault && core_out.presponse.pbits.pdata == 0);
+    core_in.pinvalidate_uall = 0;
+    cache_in.presponse.pbits.paccess_ufault = 0;
     core_in.pflush = 0;
     cache_in.presponse.pvalid = 1;
     core_in.prequest.pvalid = 0;
