@@ -14,7 +14,7 @@
 (define receipt (StallConsumer stall_sink #:transaction_view #t))
 (define wrapped (StallConsumerWrapper stall_wrapper #:transaction_view #t))
 (define outside (BufferedStallConsumer stall_parent #:transaction_view #t))
-(define fifo-only (verified-shift-queue-transactions-at 1))
+(define fifo-only (shift-queue-seal-at 1))
 (define producer (derive-transaction (verified-fifo-at 1) fifo offer 'adjacent-samples))
 (define consumer (prove-transaction stall_sink receipt (hash) #:requires required_offer))
 (define (forward top requirement)

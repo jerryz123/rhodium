@@ -243,7 +243,11 @@ The [leaf transaction regression](tests/shift-queue-transactions.rkt)
 applies the same retirement invariant at each depth. A separate coverage query
 asks whether the tracked word can stall behind an older word: UNSAT at depth
 one and SAT at depths two and three. Neither answer restricts the theorem.
-The direct series checker can use these results at grouped child boundaries.
+ShiftQueue derives a generic seal for its specialized RSPECL monitor. The
+[observer reader](tests/fifo-observer-input.rkt) checks the exact top, view
+and absence of premises, then calls `transaction-step`; it supplies no FIFO
+transition of its own. The direct series checker still expects the legacy
+evidence type, independently derived on demand from the same cycle proof.
 
 Run `moon run rhodium:formal-test` to reproduce the proof. A failed induction
 query alone is not a trace from reset. For the faulty leaf, the test obtains a

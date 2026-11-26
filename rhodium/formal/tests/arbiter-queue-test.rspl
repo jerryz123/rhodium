@@ -11,6 +11,7 @@ import:
   lib("flow/shift-queue.rhdl") as fifo_rtl
   lib("flow/arbiter.rhdl") as arb_rtl
   lib("rhodium/frontend/foundation.rhm").Bits as RtlBits
+  lib("rspecl/fifo.rspl").fifo_monitor
   "spec-helper.rhm".both as conjunction
   lib("rhodium/frontend/foundation.rhm").elaborate
   lib("rhodium/core/signature.rhm").signature_equal
@@ -62,6 +63,16 @@ check:
   ShiftQueue(elaborate(fifo_rtl.ShiftQueue(payload, 2, ~flushable: #true)).top) ~throws "requires pipe, flow, and flushable disabled"
 
 // Each variant describes the same RTL declaration in a fresh lexical scope.
+check:
+  block:
+    spec for design.ArbiterQueue:
+      state q: Seq(Bits(2), depth) initially []
+      next q = q
+      events transfers = ready_valid_events(reset, ingress, egress)
+      transactions fifo_monitor(depth, 2, transfers)
+    ArbiterQueue(rtl.mixed, ~transaction_view: #true)
+  ~throws "requires an unconditional stateless sampler"
+
 check:
   block:
     spec for design.ArbiterQueue:

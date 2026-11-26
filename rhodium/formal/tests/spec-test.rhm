@@ -19,6 +19,15 @@ check:
   sample_fifo_events(grouped, simultaneous) ~is {"accepted": 0, "retired": 3}
   sample_fifo_events(grouped, simultaneous ++ {"reset": 1}) ~is {"reset": #true}
   sample_fifo_events(grouped, simultaneous ++ {"mask": 3}) ~throws "exact spec bindings"
+
+// Sample and advance a different payload width through the actual specialized monitor.
+def wide = ShiftQueue(elaborate(rtl.ShiftQueue(Bits(4), 1)).top, ~transaction_view: #true)
+def pins = {"reset": #false, "ingress.valid": #true, "ingress.ready": #true, "ingress.bits": 14,
+            "egress.ready": #false, "egress.valid": #false, "egress.bits": 0}
+def batch = step_spec(wide.batch, {}, pins).outputs
+check:
+  step_spec(wide.monitor, {"q": []}, batch).next_state["q"] ~is [14]
+  step_spec(wide.monitor, {"q": [14]}, batch).outputs["allowed"] ~is #false
 def flags = [#false, #true]
 def mutable cases = 0
 

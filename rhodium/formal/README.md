@@ -606,7 +606,7 @@ exports `fifo_monitor(capacity, width, sampler)`. Supply an ordinary two-argumen
 pin sampler that returns a `reset` event and word-valued `accepted` and
 `retired` events. Presence denotes the event, so a zero word still transfers.
 The view starts empty and holds its live history on any rejected batch. This
-helper does not issue evidence or replace the monitor used by existing proofs.
+helper describes behavior; only a successful refinement proof issues evidence.
 
 To obtain those batches from RTL pins, declare a passive view as the body of
 `spec for`, as in the [QueuePair and QueuePairSeries specs](tests/queue-pair.rspl):
@@ -640,24 +640,26 @@ downstream-first, ignoring unused slots. This cut supports direct series
 wiring on a shared clock and reset, not intervening logic. At depth one it
 certifies the two-word bound without promising ready whenever space remains.
 
-The [ShiftQueue spec](../../examples/formal/shift-queue.rspl) and the
-[ArbiterQueue spec](../../examples/formal/arbiter-queue.rspl) each define
-their cycle behavior and transaction events in the same body:
+The [ShiftQueue spec](../../examples/formal/shift-queue.rspl) uses one pin
+sampler for cycle events, passive replay, and its generic transaction monitor:
 
 ```rhombus
-  events ready_valid_events(reset, ingress, egress)
+  events transfers = ready_valid_events(reset, ingress, egress)
+  transactions fifo_monitor(depth, ingress.bits.type.width, transfers)
 ```
 
 `ready_valid_events` is an ordinary function of the lexical reset and endpoints.
 `ShiftQueue(top)` runs the cycle model; `ShiftQueue(top, ~event_view: #true)`
-returns its passive sampler for pin replay and transaction proofs. It samples
+returns its passive sampler. `ShiftQueue(top, ~transaction_view: #true)`
+returns the monitor specialized to that elaborated top. A named event reader
+requires an unconditional sampler: it cannot erase a pin-domain obligation. It samples
 reset and each endpoint's `valid`, `ready`, and `bits`, not `count` or `mask`.
 For two-bit ShiftQueues at depths 1–3 with pipe, flow, and flush disabled,
 retirements preserve acceptance order since reset and occupancy is bounded
 by depth. The transaction result does not promise readiness whenever space remains.
 
-`ArbiterQueue(top, ~event_view: #true)` works the same way with two ingress
-lanes. Each lane fires on
+The [ArbiterQueue spec](../../examples/formal/arbiter-queue.rspl) still uses
+the passive FIFO view with two ingress lanes. Each lane fires on
 its own `valid && ready`. Two requests are fine; **two transfers on a
 non-reset edge are not**. Concrete sampling rejects such a sample, and
 certification must prove it impossible. The accepted word comes from the

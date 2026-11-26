@@ -265,6 +265,7 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
   def assumptions = MutableMap{}
   def mutable ignored = []
   def mutable event_source = #false
+  def mutable bound_events = #false
   def mutable transaction = #false
   def mutable refinement = #false
   def mutable projection = #false
@@ -283,6 +284,13 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
     | 'observe $n ... = $v ...': record(outputs, field_name('$n ...'), observation('$v ...'), clause)
     | 'output $n ... = $v ...': record(outputs, field_name('$n ...'), observation('$v ...'), clause)
     | 'event $n ... = $v ...': record(events, field_name('$n ...'), observation('$v ...'), clause)
+    | 'events $(reader :: Identifier) = $rhs ...':
+        when event_source | syntax_meta.error("duplicate sampled event source", clause)
+        event_source := Syntax.make_temp_id("event_source")
+        bound_events := Syntax.make_temp_id("sampled_ports")
+        model_clause('def $event_source = $rhs ...')
+        model_clause('def $bound_events = boundary.bind_event_source($event_source, top)')
+        model_clause('def $reader = boundary.event_reader($(bound_events) . sampler, bound.ports)')
     | 'events $rhs ...':
         when event_source | syntax_meta.error("duplicate sampled event source", clause)
         event_source := Syntax.make_temp_id("event_source")
@@ -307,7 +315,10 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
     | ~else: model_clause(clause)
 
   let [decl, ...] = declarations()
-  def fifo_behavior = transaction && event_source
+  def specialized = transaction && bound_events
+  def fifo_behavior = transaction && event_source && !specialized
+  when bound_events && !(has_cycle && transaction)
+  | syntax_meta.error("a named event reader needs a cycle and a transaction view", name)
   when projection && !transaction && !event_source | syntax_meta.error("cycle refinement requires a transaction view", name)
   when refinement && !projection && !fifo_behavior
   | block:
@@ -317,6 +328,10 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
   let [skip, ...] = ignored
   def args:
     cond
+    | specialized:
+        if projection
+        | '(top, ~event_view: view_only :: Boolean = #false, ~transaction_view: tx_only :: Boolean = #false, ~cycle_derivation: derive :: Boolean = #false)'
+        | '(top, ~event_view: view_only :: Boolean = #false, ~transaction_view: tx_only :: Boolean = #false)'
     | projection && event_source: '(top, ~event_view: view_only :: Boolean = #false, ~cycle_derivation: derive :: Boolean = #false)'
     | event_source: '(top, ~event_view: view_only :: Boolean = #false)'
     | ~else: '(top)'
@@ -338,6 +353,12 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
   def monitor_only = transaction && no_cycle_clauses
   def finish:
     cond
+    | specialized: '«
+         def view = specialized_view(top, fun (): boundary.check_transaction_ports($transaction, bound.ports))
+         def cycle_events = ir.include_sampled_events(view.sampler, cycle_outputs, $(map_expr(events)), ~only: view.cycle_names)
+         def checked = check_output_types($build, bound.ports.outputs, [$skip, ...])
+         $(result_expr('cond | tx_only: view | view_only: $bound_events | ~else: checked'))
+       »'
     | fifo_behavior:
         def public_view = 'fifo_view.bind_fifo_behavior(boundary.bind_event_source($event_source, top), $transaction)'
         def result:
@@ -390,8 +411,16 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
      def cycle_outputs = $(map_expr(outputs))
      $finish
    »'
-  if transaction && !fifo_behavior
-  | '«
+  cond
+  | specialized: '«
+       def views = WeakMutableMap.by(===){}
+       fun specialized_view(top, build):
+         unless views.has_key(top) | views[top] := build()
+         views[top]
+       fun $name $args: $cycle_body
+     »'
+  | transaction && !fifo_behavior:
+     '«
        def attached :: boundary.TransactionView = $transaction
        fun $name $tx_args:
          cond
@@ -399,4 +428,4 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
          | tx_only: attached
          | ~else: error("cycle execution requires an elaborated RTL specialization")
      »'
-  | 'fun $name $args: $cycle_body'
+  | ~else: 'fun $name $args: $cycle_body'

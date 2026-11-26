@@ -15,7 +15,7 @@ import:
   lib("rhodium/formal/fifo-view.rhm").make_fifo_view
 
 export declared_ports interface_prefixes Endpoint
-export ready_valid_events bind_event_source
+export ready_valid_events bind_event_source event_reader
 export transaction_view check_transaction_ports transaction_parts transaction_batch_model Presence Payload
 export attach_refinement refinement_parts
 export combine_transactions
@@ -130,6 +130,22 @@ fun bind_event_source(source :: Function.of_arity(1), top :: Module):
   def view = source(top)
   unless view.top === top | error("event view does not match the elaborated top")
   view
+
+/* Reuse a bound sampler's event expressions and register their actual pin directions with
+   a transaction view. A domain predicate must never disappear into an unconditional sampler. */
+fun event_reader(sampler :: LeafModel, ports :: SampledPorts):
+  unless sampler.state.length() == 0 && sampler.outputs.length() == 0 && sampler.assumptions.length() == 0
+  | error("a transaction event reader requires an unconditional stateless sampler")
+  fun (read :: Function.of_arity(2), output :: Function.of_arity(2)):
+    /* Substitute directional reads at the leaves of both data and care expressions. */
+    fun bind(expr :: SpecExpr):
+      cond
+      | expr.op != "input": expr with (args = expr.args.map(bind))
+      | ports.inputs.has_key(expr.datum): read(expr.datum, expr.type)
+      | ports.outputs.has_key(expr.datum): output(expr.datum, expr.type)
+      | ~else: error("unknown sampled pin: " ++ expr.datum)
+    for Map ((name, field :: Observed) in sampler.events):
+      values(name, Observed(bind(field.value), bind(field.care)))
 
 /* Bind a Boolean batch field to event presence, regardless of the event's payload. */
 class Presence(event :: String)

@@ -48,15 +48,16 @@ treat a matching batch schema as proof that two monitors agree.
 
 ### Migration order and exit tests
 
-1. **FIFO behavior in RSPECL (complete; no callers migrated).** The
+1. **FIFO behavior in RSPECL (complete).** The
    [ordinary helper](../../rspecl/fifo.rspl) accepts a capacity, word width
    and event sampler. Its [equivalence proof](tests/fifo-monitor-equivalence.rkt)
    compares arbitrary batches for two-bit words at capacities 2, 4 and 6:
    the verdicts agree, accepted batches produce equal live contents, and
-   rejected batches hold each monitor's own history. The existing issuer
-   still uses the original monitor.
+   rejected batches hold each monitor's own history.
 2. **Remove the privileged FIFO composition path one consumer at a time.**
-   Start with ShiftQueue's derived transaction view and QueuePair(1), then
+   ShiftQueue's ordering observer now reads its generic seal at depths 1–3;
+   unmigrated parents still obtain independently proved legacy evidence.
+   Next migrate QueuePair(1), then
    QueuePair(2), QueuePairSeries, and the arbiter/ROB consumers. Use ordinary
    `child`, `history` and `relate` with the actual elaborated pins. If the
    spec cannot describe a handoff check, add a typed, protocol-neutral

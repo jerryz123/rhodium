@@ -2,9 +2,7 @@
 ;; Proves an observer's retirement-order theorem from an exported FIFO transaction contract.
 ;; SPDX-License-Identifier: Apache-2.0
 
-(require rackunit "composition-checks.rkt"
-         (only-in "../refinement.rkt" fresh-fifo-history fifo-events fifo-allows?
-                  fifo-history-count fifo-history-slots fifo-transactions-capacity fifo-transactions-width))
+(require rackunit "composition-checks.rkt" "fifo-observer-input.rkt")
 (provide check-retirement-order check-ready-not-entailed)
 
 ;; The observer counts accepted and retired words since reset. For arbitrary ordinal k,
