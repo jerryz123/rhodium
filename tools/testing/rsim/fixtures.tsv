@@ -395,6 +395,8 @@ event-fesvr	protocols	rhodium/event/tests/rsim/emit-event-fesvr.rhm	program	rhod
 event-vector	cores-vector-functional-1	rhodium/event/tests/rsim/emit-event-vector.rhm	program	rhodium/event/tests/rsim/event-vector.cpp	target	rhodium/event/tests/rsim/event-vector-oracle.cpp rheg/runtime/rheg.cc
 cache-compack	cores-cache	cores/common/cache/tests/rsim/emit-cache-compack.rhm	program	cores/common/cache/tests/rsim/cache-compack.cpp	target	cores/common/cache/tests/rsim/cache-compack-oracle.cpp rheg/runtime/rheg.cc
 cache-wide-l1d	cores-cache	cores/common/cache/tests/rsim/emit-wide-l1d.rhm	program	cores/common/cache/tests/rsim/wide-l1d.cpp
+cache-banked-l1d	cores-cache	cores/common/cache/tests/rsim/emit-banked-l1d.rhm	program	cores/common/cache/tests/rsim/banked-l1d.cpp
+cache-banked-l1d-rv32	cores-cache	cores/common/cache/tests/rsim/emit-banked-l1d.rhm	rv32	cores/common/cache/tests/rsim/banked-l1d-rv32.cpp
 cache-copyback	cores-cache	cores/common/cache/tests/rsim/emit-cache-copyback.rhm	program	cores/common/cache/tests/rsim/cache-copyback.cpp	target	cores/common/cache/tests/rsim/cache-copyback-oracle.cpp rheg/runtime/rheg.cc
 riscv-walk-trace	cores-components	cores/common/mmu/tests/rsim/emit-riscv-walk-trace.rhm	program	cores/common/mmu/tests/rsim/riscv-walk-trace.cpp	target	cores/common/mmu/tests/rsim/riscv-walk-trace-oracle.cpp rheg/runtime/rheg.cc
 rv5stage-fetch-source	cores-execution-frontend	cores/rv5stage/tests/rsim/emit-rv5stage-fetch-source.rhm	program	cores/rv5stage/tests/rsim/rv5stage-fetch-source.cpp	target	cores/rv5stage/tests/rsim/rv5stage-fetch-source-oracle.cpp rheg/runtime/rheg.cc

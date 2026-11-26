@@ -44,7 +44,7 @@ same contained pipeline config; there is still only one execution implementation
 
 Fetch remains eight bytes per cycle, issue/retirement support three lanes, and the
 GPR file is 4R3W. Pipeline payloads come from `cores/superscalar/bundles.rhdl`.
-RV3Wide's coherent L1D reads a double-XLEN row per way: 64 bits on RV32 and 128 bits on RV64.
+RV3Wide's [row-banked L1D](../common/cache/banked-l1d/README.md) reads a double-XLEN row per way: 64 bits on RV32 and 128 bits on RV64.
 It has two interchangeable miss slots: independent loads to distinct sets can
 fill out of order, while authorized load responses remain in request order.
 The LSU still issues one native word per request; a wider row does not issue

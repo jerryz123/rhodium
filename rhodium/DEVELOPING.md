@@ -245,6 +245,8 @@ atomic, and locality types. `config.rhm` uses core index-width calculation and
 the stable generator-parameter contract. L1D uses Flow, `std/bits.rhdl`,
 `std/plru.rhdl`, and `std/read-write.rhdl`; arrays additionally use
 `std/sync-ram.rhdl`, and the store buffer uses `std/reduction.rhdl`.
+The banked L1D owns its multi-slot controller and uses Flow’s `ValidPipe` for
+bank selection; both implementations use the same CHI engines and store buffer.
 L1I uses the same Flow, Bits, PLRU, read-write, and SyncRam APIs, plus shared
 prefetch types. Its physical block result contains data/access-fault/replay,
 never named-core translation metadata. `cores/common/fetch/protocol.rhdl`

@@ -10,7 +10,7 @@ This guide owns implementation placement and contributor validation.
 ## Architecture and ownership
 
 The L1D package owns the data-access protocol, synchronous arrays, hit path,
-coherence state, mutation, MSHR allocation, replacement, and
+coherence state, mutation, single-miss allocation, replacement, and
 LR/SC reservation. The shared [IO-MSHR](../io-mshr.rhdl) owns nonallocating
 request retention; the integrating core owns virtual translation, alignment
 faults, PMA routing, ordering between cache and IO service, architectural fences,
@@ -81,7 +81,6 @@ Event lineage follows the intrinsic queue/elastic/fixed-latency contracts of
 the named service queue, S3 pipe, and S4 result register; callers do not restate
 them. S3 observes lookup advancement before its gate, with a stall companion;
 S4 observes ordered resolutions one cycle after the lookup advances to S4.
-A concurrent S3 acquisition does not retire a demand or create an S4 event.
 Direct refill acceptance and command fields are captured on S4, before
 arbitration with post-eviction work, not on a separate numbered stage.
 The shared `dcache/s1.access` checkpoint belongs on physical resolution before
@@ -99,8 +98,7 @@ The refill engine declares retained ownership
 from command acceptance through completion; its resident checkpoint carries S4
 ancestry through the final arbiter and parents each request attempt. Writeback
 residency similarly parents copyback requests/data and grant-triggered refill
-commands. The allocating demand owns the victim reservation; a queued victim
-retains its ancestry until it acquires the writeback engine. See the
+commands. The retained demand owns its victim through copyback. See the
 [RV5Stage integration trace guide](../../../rv5stage/DEVELOPING.md#pipeline-event-annotations)
 for an example of caller-owned result capture and translation-fault observations.
 
@@ -110,64 +108,16 @@ Copyback and refill share one packet register, not the snoop register.
 Read the pinned victim only after grant. Keep its packet cursor independent
 of snoop reads; acquire the next packet no earlier than the current transfer.
 The final returning row bypasses into DAT and is captured for a stall.
-Reserve the target, way, and dirty victim in the allocating MSHR. A single
-writeback engine takes a reserved victim, with its slot ID as context. The
-grant releases only that slot's direct replacement read. Snoops update a waiting
-victim before grant, even if another slot is using the engine. Let unrelated
-refills drain while awaiting grant; accept the grant between packets, then
-hold incoming DAT off the shared packet register until final victim handoff.
-RetryAck names its transaction; a multi-slot cache escrows untagged credits
-for both reads and writeback. No victim DAT waits for a replacement read.
+Hold the target, way and victim tag in the retained miss record. Grant starts
+that miss's replacement acquisition, but the victim stays pinned and incoming
+refill data stays backpressured until copyback completes. No victim DAT waits
+for a replacement read.
 For direct installation, hide the selected way at admission. Index incoming
 packets by DataID, apply mutations while writing rows, and retain the requested
 old row for the response. Never write a bypass fill to SRAM. Publish metadata
 only after the final write, CompAck, and any previously admitted snoop.
 
-[`mshrs.rhdl`](mshrs.rhdl) instantiates one retryable engine per entry.
-Allocation rotates among free entries. Slot 0 uses CHI ID 0; further slots
-use index + 2, reserving IDs 1 and 2 for writeback and maintenance. DAT and
-RetryAck name the slot; untagged PCrdGrant matches a pending home/type pair.
-Each engine displays its `dcache/refill` residency at `dcache/mshr[i]/refill`
-under the enclosing hart; query either entry using the same `dcache/refill` label.
-
-Multi-slot L1D shares one line of staging among concurrent dirty-victim
-`ReadClean` allocations. The MSHR reserves the buffer and the victim
-together. Route that slot's DAT by transaction ID even while copyback owns
-the SRAM; send CompAck independently of victim release. Track arrived packets
-by DataID and drain them through the existing installation port only after
-the owning victim completes. Keep the MSHR until every buffered row installs
-or an accepted snoop to the unpublished line discards it. Never block a victim
-probe on the staged line's CompAck. Only clean acquisitions with their demand
-still in the ordered window can discard a line this way.
-
-For multi-slot service, S2 issues the next unclassified entry in FIFO order to
-the same S3 tag lookup used by the head. The classified prefix stays in the
-request window until retirement. An ordinary request attaches to a covering
-line acquisition, observes a sufficient hit, or allocates an MSHR. A conflicting
-set, incompatible upgrade, or nonordinary request cannot be skipped. A slot may
-reserve a dirty victim before the writeback engine is free. Replay the ordered
-head against current permissions before consuming data or writing bytes: snoops
-can invalidate previously acquired lines. The one exception is the installing
-row of the active ordered load miss: enqueue the leader's response first, then
-only forward to a classified ordinary load at the FIFO head matching the line
-and row. A matching probe disables further forwarding for that miss. Never
-hold installation or CompAck for a forwarded response or publish a partial tag.
-After the ordered miss releases its context, replay ordinary loads and stores
-at the head of the classified prefix only in unreserved sets. Recheck the hit
-in S3; a store needs unique permission. In S4, installation has priority over
-the replacement update, and refill writes and gather/copyback reads have
-priority over the store's masked write. The write and ACK are one transfer.
-If no response slot remains for the hit, leave it replayable in S3 rather
-than blocking probes in S4. Atomics and ownership upgrades cannot retire this way.
-Held packets retain their own install set/way.
-The wide L1D fixture fills B before A, reuses B’s CHI ID for C, and checks
-ordered data and contexts under backpressure. For stores it also snoops B
-before mutation, invalidates it, and checks masked writes after reacquisition.
-The two-dirty-victim case snoops B before its writeback starts, retries its
-writeback, and checks B-first installation with ordered responses and bytes.
-The buffered-load case withholds both copyback grants through reordered
-replacement DAT and CompAck. It probes either the dirty victim or the staged
-clean replacement, checks every returned row, and verifies older-first responses.
+Different-set miss-under-miss and its validation belong to the [banked L1D](../banked-l1d/DEVELOPING.md).
 
 The RV64 D-cache fixture checks both grant orderings with two dirty lines;
 `cache-wide-l1d` queues a dirty miss behind a local AMO, checks a load hit
@@ -240,25 +190,21 @@ the response-only path for both make-invalid opcodes.
    can consume its S4 request as the next S3 request replaces it. A miss or
    local mutation instead takes ownership in place and captures the selected
    way. Let the S4 token leave; do not overwrite the request on that edge or
-   while the slow owner is live. The head miss owns it from MSHR allocation
+   while the slow owner is live. The head miss owns it from acquisition or eviction
    through refill completion, including retries and stalls. A local mutation holds it through the SRAM update (the final row
    for block zero). Extract the local AMO operand and response from the
    captured hit word; a miss instead selects its addressed refill row. Derive
-   each reserved set and line from its MSHR's target. Reconstruct a
-   victim address from the allocating lookup's tag and set. Drive the shared
-   reader from the granted victim's slot, not the service head or snoop set.
+   the reserved set from the retained request and the victim line from that set
+   and the retained victim tag.
    Keep transaction addresses stable across retries and stalls. Copyback
    completion releases the shared packet register; it does not launch another
    replacement read. Only ordinary demand load/store contexts enable
    hit-under-miss. Protect the whole set in S0 admission and S1 classification.
    An ordinary load or store matching the reserved line may resolve as Slow
-   and wait in the authorized request queue; unless it takes the ordered
-   forwarding turn described above, it must perform a fresh lookup. Such a
+   and wait in the authorized request queue; perform a fresh lookup after the miss completes. Such a
    parked head owns no SRAM port and does not block independent load hits. Keep
    the queue's positive depth specialized by `service_queue_depth`; it bounds
-   accepted waiters in single-slot mode. Only the authorized demand path may
-   allocate a concurrent acquisition; speculative lookups still replay
-   independent misses. Do not weaken store authorization, ordered-queue barriers, or
+   accepted waiters, not outstanding acquisitions. Do not weaken store authorization, ordered-queue barriers, or
    `drained` when enabling independent load reads or same-line waiters.
    Preserve registered read ownership across an installation or snoop arriving
    between S0 and S1; never steal an array cycle from older work.

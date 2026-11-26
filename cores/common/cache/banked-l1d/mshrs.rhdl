@@ -1,5 +1,5 @@
 #lang rhodium
-/* Allocates interchangeable line acquisitions and arbiters their CHI and SRAM handoffs. */
+/* Owns the banked L1D's interchangeable miss slots and pending victims. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -22,7 +22,7 @@ bundle L1DMissTarget(width :: PosInt, ways :: PosInt):
 
 /* Each allocated entry owns its destination until all rows install and its
    completion transfers. The request window, not this file, owns response order. */
-sync_circuit L1DMSHRs(count :: Int.in(1 ..= 4094), width :: PosInt, ways :: PosInt, config :: RiscvHartCHIConfig):
+sync_circuit L1DMSHRs(count :: Int.in(2 ..= 4094), width :: PosInt, ways :: PosInt, config :: RiscvHartCHIConfig):
   def p = config.flit
   def Target = L1DMissTarget(width, ways)
   def Command = CacheLineRefillCommand(Target)
@@ -87,18 +87,10 @@ sync_circuit L1DMSHRs(count :: Int.in(1 ..= 4094), width :: PosInt, ways :: PosI
   evict_way <== mux(bypass, allocate.bits.context.way, saved[slot].context.way)
   evict_state <== mux(bypass, victim_state, states[slot])
   when (evict.fire()): owner <== selected
-  def retry_ports:
-    if count == 1
-    | block:
-        def Array(read, copy) = responses |> demux_flow(2, _rsp => (evict_active & !granted).as_bits())
-        copy |> copy_responses
-        Array(read)
-    | block:
-        inst credits(CacheRefillRetryRouter(p, count + 1, ~copyback: #true))
-        credits.node_id <== node_id
-        responses |> credits.incoming
-        credits.outgoing[count] |> copy_responses
-        for Array (i in 0..count): credits.outgoing[i]
+  inst credits(CacheRefillRetryRouter(p, count + 1, ~copyback: #true))
+  credits.node_id <== node_id
+  responses |> credits.incoming
+  credits.outgoing[count] |> copy_responses
 
   inst reads(Arbiter(CHIReqFlit(p), count))
   inst acks(Arbiter(CHIRspFlit(p), count))
@@ -123,8 +115,8 @@ sync_circuit L1DMSHRs(count :: Int.in(1 ..= 4094), width :: PosInt, ways :: PosI
   reg discarded(~init: Bool(#false))
   reg present(~init: Bits(packets)(0))
   reg payload(Vec(packets, Bits(p.data_width)))
-  def staging = Bool(count > 1) & buffered
-  def reserve = Bool(count > 1) & allocate.fire() & dirty & !staging & !allocate.bits.context.ordered & (allocate.bits.opcode === CHIReqOpcode.ReadClean)
+  def staging = buffered
+  def reserve = allocate.fire() & dirty & !staging & !allocate.bits.context.ordered & (allocate.bits.opcode === CHIReqOpcode.ReadClean)
   def buffer_target = saved[buffer_slot].context
   def drop = probe.valid & (probe.bits.align_down(CacheLineBytes) === buffer_target.address)
   wire buffered_write: Vec(count, Bool)
@@ -186,7 +178,7 @@ sync_circuit L1DMSHRs(count :: Int.in(1 ..= 4094), width :: PosInt, ways :: PosI
     elsewhen (snoop_update & (pending[i] ||| staged) & (victims[i] === snoop_line)):
       states[i] <== snoop_state
     returns[i] |> gate_flow(staged ||| packet_ready) |> engine.response_data
-    retry_ports[i] |> engine.responses
+    credits.outgoing[i] |> engine.responses
     engine.requests |> reads.ingress[i]
     engine.acknowledgements |> acks.ingress[i]
     def publishable = !staged ||| (released & (discarded ||| !present.any()))

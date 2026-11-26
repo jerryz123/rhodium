@@ -375,6 +375,7 @@ tasks:
       - "@group(shared-core)"
       - "@group(architecture)"
       - "@group(fixtures--rsim-core-cache)"
+      - "cores/common/cache/tests/rsim/wide-l1d-contract.hpp"
     deps: ["racket-cache"]
     options: *racket-options
   check--rsim-protocols:

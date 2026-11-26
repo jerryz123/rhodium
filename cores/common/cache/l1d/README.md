@@ -1,4 +1,4 @@
-<!-- Specifies the shared write-back L1D's request ordering, miss overlap, and coherence policy. -->
+<!-- Specifies the shared write-back L1D's request ordering, single-miss service, and coherence policy. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Shared data cache
@@ -17,7 +17,7 @@ Contributors changing the L1D implementation should read
 
 | Property | Current contract |
 |---|---|
-| Organization | Non-aliasing VIPT, set-associative, write-back, write-allocate; same-line waiters and a configurable number of distinct-set load misses |
+| Organization | Non-aliasing VIPT, set-associative, write-back, write-allocate; one outstanding line miss; additional authorized requests wait in FIFO order |
 | Geometry | Power-of-two sets from 2 through 64, positive ways, fixed 64-byte lines; see [shared geometry](../README.md#entry-point) |
 | Core throughput | One uncontended load hit or authorized ordinary owned-store hit per cycle; speculative store hits use the four-entry committed store buffer |
 | Core protocol | Fixed-cycle lookup/resolution and next-cycle store authorization; ordered `Decoupled` slow requests and backpressurable slow responses |
@@ -26,7 +26,7 @@ Contributors changing the L1D implementation should read
 | CHI traffic | `ReadClean`, `ReadUnique`, retryable `WriteBackFull` with `CopyBackWriteData`, nonallocating `WriteUniquePtl`, cache-block maintenance, `CompAck`, `SnpResp`, and dirty `SnpRespData` |
 | Prefetch | Demand-priority Valid event; read intent uses `ReadClean`, write intent uses `ReadUnique`, and neither responds or mutates data |
 
-`L1DCache(xlen, cache, ~chi: config, ~context: Context, ~service_queue_depth: 2, ~mshr_count: 1)` accepts
+`L1DCache(xlen, cache, ~chi: config, ~context: Context, ~service_queue_depth: 2)` accepts
 `XLen.X32` or `XLen.X64`. The cache configuration supplies set/way geometry;
 the positive service-queue depth bounds authorized requests and same-line
 waiters, while the required CHI configuration supplies flit geometry and the
@@ -125,13 +125,12 @@ pipeline loads hit resident lines in other cache sets. Waiting for CHI requests,
 retry credit, response packets, CompAck acceptance, or a stalled victim packet
 does not itself occupy the SRAM ports. Independent load hits retain the normal
 S0/S1 lookup timing and may complete before the older miss. The authorized slow
-request/response path remains ordered, even when two lines fill out of order.
+request/response path remains ordered.
 
 The entire miss set is reserved from acquisition/allocation through final
 installation (or non-allocating completion), including the victim and other
 ways. An ordinary load or store to the outstanding line resolves as slow and
-may enter the configurable authorized request queue. Unless served by the
-ordered load forwarding described below, it performs a fresh tag/state lookup
+may enter the configurable authorized request queue. It performs a fresh tag/state lookup
 after the miss completes. This collapses ordinary same-line load traffic when the first
 transaction installs a usable line; a waiter may instead miss again after a
 non-allocating refill or when it needs stronger ownership. An independent
@@ -147,32 +146,7 @@ Speculative pipeline loads replay on conflicting cycles and never observe partia
 or reuse a read result owned by another request. An outstanding miss still keeps
 `drained` false; fences and ordered IO retain their existing completion rules.
 
-The number of line-acquisition entries (MSHRs) is a host parameter: one by
-default and two on RV3Wide. Behind an ordinary default-locality load or
-authorized store, another such request can acquire a missing line in a
-distinct set, including when both allocations displace dirty victims. Each MSHR
-reserves its victim independently; one writeback engine drains the reserved victims.
-A younger load issues
-`ReadClean`; a younger store issues `ReadUnique`. Either line may fill first.
-Installing the younger line frees its slot, but neither writes the store's
-bytes nor produces a requester response. A snoop can take the clean line
-before the store reaches the head; the store then reacquires permission.
-
-Same-line waiters share an acquisition if it covers the needed permission.
-Offsets, store masks and data, and caller contexts stay in the ordered path.
-With multiple MSHRs, an allocating ordinary load can return on the cycle its
-row is written, before the tag becomes visible. Once that response is queued,
-the next classified, same-line ordinary load can take its own row the same way.
-No response bypasses an older request. If the row arrives out of order, the
-response queue is full, or a matching snoop intervenes, waiters fall back to
-a fresh lookup. A classified ordinary load or authorized store at the head can
-retire while another set is still filling. A store must hit a line that is
-still uniquely owned; it writes its enabled bytes and ACKs together on a free
-data-port cycle. No younger response passes that store.
-A store needing a shared-to-unique upgrade waits for the head, as do atomics
-and cache-management operations; demand issue does not pass these barriers.
-The request window holds at least one line's worth of rows plus one request
-for the following line.
+The [banked L1D](../banked-l1d/README.md) implements distinct-set miss-under-miss for RV3Wide.
 
 Requests carry `locality: RiscvMemoryLocality` (`Default`, `P1`, `Pall`,
 `S1`, `All`). L1D retains the complete request, including locality, from
@@ -257,13 +231,10 @@ flowchart LR
   Arrays -->|"granted victim rows"| PacketSlot["One copyback/refill packet"]
   PacketSlot -->|"victim DAT"| Writeback
   Writeback -->|"direct path: launch on grant"| Refill["ReadClean or ReadUnique"]
-  Victim -->|"concurrent ReadClean with buffer reserved"| Refill
   Victim -->|no| Refill
   Record --> Install
   Way --> Install
   Refill -->|"packets by DataID after victim handoff"| PacketSlot
-  Refill -->|"early clean DAT"| Staged["One shared replacement line"]
-  Staged -->|"after owning victim handoff"| PacketSlot
   PacketSlot -->|"one row per SRAM turn"| Install["Install rows<br/>publish metadata after CompAck"]
   Refill -->|"requested old row"| Load
   Install --> Arrays
@@ -289,13 +260,12 @@ decide whether its egress drains, but cannot feed back combinationally into
 acceptance.
 The same queue retains ordinary same-line waiters while an acquisition is
 occupied; a full queue rejects admission so the caller retains or retries its request.
-In the single-MSHR configuration, when the queue is empty and the SRAM port
+When the queue is empty and the SRAM port
 is available, an early virtual lookup
 reads the arrays in parallel with translation and PMA checks. Its permitted
 physical request bypasses the queue into the lookup pipeline at the read edge.
 Otherwise, accepted physical requests enter the queue and later index using
-their unchanged page-offset bits. The multi-MSHR configuration issues from the
-registered demand window. Queued requests always precede fresh demands.
+their unchanged page-offset bits. Queued requests always precede fresh demands.
 A one-stage `Pipe` retains S3 request context alongside the synchronous SRAM
 lookup. Tag comparison and word/state selection feed an elastic S4 result
 register. S4 checks access ownership and LR/SC reservation, chooses eviction
@@ -311,10 +281,7 @@ authorized processing path, not the CPU pipeline. Queueing and rereads can delay
 these stages, so they are not fixed cycles after authorization. A reread returns
 to S2 admission without repeating architectural authorization.
 
-An older S4 miss or mutation stops younger retirement. With multiple MSHRs,
-ordinary requests may still use S3 to reserve a missing line or share an
-existing acquisition. Only the head can use an ordered refill row; otherwise
-data and permissions are checked again by lookup. Pending snoops may use the arrays while the retained
+An older S4 miss or mutation stops younger retirement. Younger requests wait in order. Pending snoops may use the arrays while the retained
 request waits; replay then observes updated tags, coherence state, and data.
 Only requests with reserved downstream capacity enter S4; its retained result
 waits until the selected local operation or transaction can advance.
@@ -354,12 +321,11 @@ victim is dirty, avoiding nonbinding writeback traffic.
 | Failed SC | Return one without CHI traffic or a data-array update | Unchanged |
 | Dirty allocation victim | Start the replacement request while streaming the granted victim | Victim invalidated before accepting replacement data |
 
-Each MSHR retains its target line, destination way, and installation policy.
+The retained demand supplies the target line, destination way, and installation policy.
 Its [refill engine](../chi/refill.rhdl) retries the target address, never the
 victim address. Each accepted `CompData` packet identifies its SRAM rows by
 DataID. An allocating miss backpressures DAT when the current packet cannot
-drain. A younger store acquires the line without merging store bytes; those
-bytes and the response context stay with the ordered request.
+drain.
 
 Shared cache lines are fixed at 64 bytes, and L1D rejects a refill carrying `PassDirty`. With the
 repository's default 128-bit DAT width, four packets form a line. Installation
@@ -395,16 +361,9 @@ resident and snoop-visible while awaiting `CompDBIDResp`; its set remains reserv
 local accesses. A preceding snoop may consume its dirty data and invalidate
 it, in which case copyback reports Invalid without enabled bytes. The grant
 freezes the response state and permits a replacement `ReadClean` or `ReadUnique`
-to start, even with one MSHR. Request issue and retry can overlap outgoing DAT.
+to start. Request issue and retry can overlap outgoing DAT.
 The direct path backpressures incoming data after grant until copyback completes
-and the victim is invalidated. With multiple MSHRs, one concurrent (not
-head-issued) `ReadClean` that would evict a dirty line can instead reserve a
-shared line buffer and issue before its grant. The whole replacement can
-return and be acknowledged while the dirty victim is still snoopable. The
-buffer does not make the replacement a cache hit: installation waits for that
-victim's final handoff. A snoop to the unpublished replacement discards the
-clean copy; the queued load rechecks the cache and can reacquire it. This
-does not change response order. Other acquisitions keep the direct path.
+and the victim is invalidated.
 
 ## Cache-block management
 

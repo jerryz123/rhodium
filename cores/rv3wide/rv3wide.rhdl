@@ -15,7 +15,7 @@ import:
 /* Projects configuration without inserting an RTL wrapper or changing pipeline timing. */
 fun RV3Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~instruction_cache: instruction_cache :: CacheConfig = cache, ~profile: profile :: RV3WideConfig = RV3WideConfig(SuperscalarPipelineConfig(~instruction_cache: instruction_cache, ~data_cache: cache))) :: CircuitDefinition:
   def pipeline = profile.pipeline
-  Superscalar(cache, ~mshr_count: 2, ~chi: config, ~instruction_cache: instruction_cache, ~profile: pipeline, ~issue: RV3WideIssue(pipeline.xlen), ~data_beat_bytes: (2 * pipeline.xlen.width div 8), ~vector_backend: VectorBackendKind.Distributed)
+  Superscalar(cache, ~banked_l1d: #true, ~chi: config, ~instruction_cache: instruction_cache, ~profile: pipeline, ~issue: RV3WideIssue(pipeline.xlen), ~data_beat_bytes: (2 * pipeline.xlen.width div 8), ~vector_backend: VectorBackendKind.Distributed)
 
 export:
   RV3Wide

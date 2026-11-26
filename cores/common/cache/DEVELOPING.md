@@ -25,6 +25,7 @@ vector slots, trap causes, or core/PTW routing decisions into cache state.
 | `prefetch.rhdl` | Aligned whole-line PMA/PBMT classification and the one-cycle register for admitted physical hints |
 | `operation.rhdl`, `protocol.rhdl` | Physical operations, fixed-cycle lookup, authorization, completion |
 | `l1d/cache.rhdl` | SRAM scheduling, set-isolated hit-under-miss, retained service, coherence, LR/SC |
+| `banked-l1d/cache.rhdl`, `banked-l1d/arrays.rhdl` | RV3Wide demand and service scheduling, row-bank arbitration and return routing; see the [banked L1D](banked-l1d/README.md) |
 | `l1i/cache.rhdl`, `l1i/protocol.rhdl` | Width-selected instruction-block lookup, snapshot residency, replay, invalidation |
 | `chi/line-read.rhdl` | Ownership-free coherent RAM and immutable ROM snapshots with opaque context |
 | `l1d/arrays.rhdl`, `l1d/store-buffer.rhdl` | Synchronous storage and committed byte hazards |
@@ -126,6 +127,11 @@ For CHI engine changes also run `cache-compack` and `cache-copyback`;
 for store-buffer changes run `cache-store-buffer`.
 For row-width changes run `cache-wide-l1d` (coherent service, speculation,
 masked stores, and dirty snoops) and `load-store-wide` (scalar lane placement).
+Run `cache-banked-l1d` for the same ordered service and coherence contract plus
+same-bank replay, different-bank demand hits, and dirty-victim/refill overlap.
+Run `cache-banked-l1d-rv32` for eight-byte rows and multi-row CHI packets.
+Keep bank scheduling and multi-MSHR allocation in the fork. Both caches reuse
+the store buffer and CHI engines; the simple cache owns just one active miss.
 Keep the native data-array instance used by the Mini SRAM map intact; the
 16-byte specialization instantiates a separate byte-masked data SRAM per way.
 The standalone copyback, store-buffer, instruction-cache, and acknowledgement

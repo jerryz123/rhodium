@@ -1,0 +1,152 @@
+#lang rhodium
+/* Implements set-interleaved tag banks and row-interleaved data banks for the wide L1D. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("flow/main.rhdl").ValidPipe
+  "../config.rhm" open
+  "../../../../riscv/isa/xlen.rhm" open
+  lib("chi/protocol/coherence.rhdl").CHICacheState
+  lib("rhodium/std/bits.rhdl") open
+  lib("rhodium/std/read-write.rhdl") open
+  lib("rhodium/std/sync-ram.rhdl") open
+
+/* Reads all ways in parallel; only the selected, byte-enabled way receives a write.
+   Each SyncRam occurrence describes exactly one row per address, not a ways-wide macro. */
+sync_circuit CacheWayDataRam(depth :: PosInt, beat_bytes :: Pow2Int, ways :: PosInt):
+  def address_width = index_width(depth)
+  interface port(ReadWritePort(address_width, Bits(8), ways * beat_bytes), ~role: responder)
+  def rows = for List (way in 0..ways):
+    inst bank(SyncRam1RW(depth, Bits(8), beat_bytes))
+    def mask = port.request.bits.mask.as_bits()[(way * beat_bytes)..((way + 1) * beat_bytes)]
+    bank.port.request.valid <== port.request.valid & (!port.request.bits.write ||| mask.any())
+    bank.port.request.bits <== ReadWriteRequest(address_width, Bits(8), beat_bytes):
+      address: port.request.bits.address
+      write: port.request.bits.write
+      data: vec(for List (byte in 0..beat_bytes): port.request.bits.data[way * beat_bytes + byte])
+      mask: mask.into(Mask(beat_bytes))
+
+    if way == 0 | port.response.valid <== bank.port.response.valid | #void
+    for List (byte in 0..beat_bytes): bank.port.response.bits[byte]
+
+  port.response.bits <== vec(for List (lane in 0..(ways * beat_bytes)): rows[lane div beat_bytes][lane % beat_bytes])
+
+/* Stores one way's dirty bits. Only a mark-dirty store can coincide with a
+   lookup; forward that set bit without relying on SRAM collision behavior. */
+sync_circuit BankDirtyWay(depth :: PosInt):
+  input(read_valid, write_valid, value): Bool
+  input(read_set, write_set): Bits(index_width(depth))
+  output modified: Bool
+  sync_mem dirty(depth, Bits(1)):
+    read
+    write
+  def collision = write_valid & (read_set === write_set)
+  reg forward(~init: Bool(#false))
+  forward <== read_valid & collision
+  when (read_valid & collision): assert(value, "l1d_concurrent_dirty_write_sets_bit")
+  dirty.read.enable <== (read_valid & !collision).as_bits()
+  dirty.read.address <== read_set
+  dirty.write.enable <== write_valid.as_bits()
+  dirty.write.address <== write_set
+  dirty.write.data <== value.as_bits()
+  modified <== forward ||| dirty.read.data.into(Bool)
+
+/* Validity lives in L1D. Resident ways need only shared/unique permission and a
+   dirty bit. A store changes the latter without taking the next lookup's port. */
+sync_circuit BankResidentStates(depth :: PosInt, ways :: PosInt):
+  interface port(ReadWritePort(index_width(depth), CHICacheState, ways), ~role: responder)
+  input dirty_set: Bits(index_width(depth))
+  input dirty_ways: Mask(ways)
+  inst permissions(SyncRam1RW(depth, Bool, ways))
+  def req = port.request.bits
+  permissions.port.request.valid <== port.request.valid
+  permissions.port.request.bits <== ReadWriteRequest(index_width(depth), Bool, ways):
+    address: req.address
+    write: req.write
+    mask: req.mask
+    data: vec(for List (way in 0..ways): req.data[way].into(CHICacheState).is_unique())
+  port.response.valid <== permissions.port.response.valid
+  def read = port.request.valid & !req.write
+  def replace = port.request.valid & req.write
+  assert(!(replace & dirty_ways.any()), "l1d_state_writers_exclusive")
+  for (way in 0..ways):
+    inst dirty(BankDirtyWay(depth))
+    def mark = dirty_ways.as_bits()[way].into(Bool)
+    def state = req.data[way].into(CHICacheState)
+    def replace_way = replace & req.mask.as_bits()[way].into(Bool)
+    when replace_way:
+      assert(state.is_one_of(CHICacheState.SharedClean, CHICacheState.SharedDirty, CHICacheState.UniqueClean, CHICacheState.UniqueDirty), "l1d_full_resident_state")
+    dirty.read_valid <== read
+    dirty.read_set <== req.address
+    dirty.write_valid <== mark ||| replace_way
+    dirty.write_set <== mux(mark, dirty_set, req.address)
+    dirty.value <== mark ||| state.is_dirty()
+    port.response.bits[way] <== mux(
+      permissions.port.response.bits[way],
+      mux(dirty.modified, CHICacheState.UniqueDirty, CHICacheState.UniqueClean),
+      mux(dirty.modified, CHICacheState.SharedDirty, CHICacheState.SharedClean))
+
+/* Route pre-granted operations to independent 1RW SRAMs. Each requester keeps
+   its own registered read-bank select, so simultaneous results cannot alias. */
+fun route_banks(ports :: List.of(Endpoint), banks :: List.of(Endpoint), depth :: PosInt, T :: DataType, lanes :: PosInt):
+  def n = banks.length()
+  def select_width = index_width(n)
+  def local_width = index_width(depth div n)
+  for (bank_index in 0..n):
+    def bank :: Endpoint = banks[bank_index]
+    def hits = for List (port :: Endpoint in ports):
+      port.request.valid & (port.request.bits.address[0..select_width] === Bits(select_width)(bank_index))
+    def grant = vec(hits).into(MaybeOneHot(ports.length()))
+    assert((vec(hits).as_bits() & (vec(hits).as_bits() - Bits(ports.length())(1))) === Bits(ports.length())(0), "l1d_one_request_per_bank")
+    def requests = for List (port :: Endpoint in ports): port.request.bits
+    def req = grant.mux(requests, ~default: requests[0])
+    bank.request.valid <== vec(hits).any()
+    bank.request.bits <== ReadWriteRequest(local_width, T, lanes):
+      address: (req.address >> select_width)[0..local_width]
+      write: req.write
+      mask: req.mask
+      data: req.data
+  for (port :: Endpoint in ports):
+    inst read_bank(ValidPipe(Bits(select_width), 1))
+    read_bank.ingress.valid <== port.request.valid & !port.request.bits.write
+    read_bank.ingress.bits <== port.request.bits.address[0..select_width]
+    port.response.valid <== read_bank.egress.valid
+    port.response.bits <== vec(for List (bank :: Endpoint in banks): bank.response.bits)[read_bank.egress.bits]
+
+
+/* Demand and service lookups have independent return paths. Refill writes
+   and copyback reads address data banks directly without occupying either lookup. */
+sync_circuit BankedL1DArrays(xlen :: XLen, cache :: CacheConfig, tag_width :: PosInt, word_bytes :: Pow2Int = xlen.width / 8):
+  def depth = cache.sets * (CacheLineBytes / word_bytes)
+  def tag_banks = math.min(4, cache.sets)
+  def sets_per_bank = cache.sets div tag_banks
+  def tags_type = ReadWritePort(cache.set_width, Bits(tag_width), cache.ways)
+  def states_type = ReadWritePort(cache.set_width, CHICacheState, cache.ways)
+  def data_type = ReadWritePort(index_width(depth), Bits(8), cache.ways * word_bytes)
+  interface tags(tags_type, ~role: responder)
+  interface states(states_type, ~role: responder)
+  interface data(data_type, ~role: responder)
+  interface demand_tags(tags_type, ~role: responder)
+  interface demand_states(states_type, ~role: responder)
+  interface demand_data(data_type, ~role: responder)
+  interface victim(data_type, ~role: responder)
+  interface fill(data_type, ~role: responder)
+  input dirty_set: Bits(cache.set_width)
+  input dirty_ways: Mask(cache.ways)
+  def tag_ports = for List (_bank in 0..tag_banks):
+    inst tag_bank(SyncRam1RW(sets_per_bank, Bits(tag_width), cache.ways))
+    tag_bank.port
+  def state_ports = for List (b in 0..tag_banks):
+    inst state_bank(BankResidentStates(sets_per_bank, cache.ways))
+    state_bank.dirty_set <== (dirty_set >> index_width(tag_banks))[0..index_width(sets_per_bank)]
+    state_bank.dirty_ways <== mux(dirty_set[0..index_width(tag_banks)] === Bits(index_width(tag_banks))(b), dirty_ways, Mask(cache.ways)(0))
+    state_bank.port
+  def data_ports = for List (_bank in 0..4):
+    inst row_bank(CacheWayDataRam(depth div 4, word_bytes, cache.ways))
+    row_bank.port
+  route_banks([tags, demand_tags], tag_ports, cache.sets, Bits(tag_width), cache.ways)
+  route_banks([states, demand_states], state_ports, cache.sets, CHICacheState, cache.ways)
+  route_banks([data, demand_data, victim, fill], data_ports, depth, Bits(8), cache.ways * word_bytes)
+
+export:
+  BankedL1DArrays

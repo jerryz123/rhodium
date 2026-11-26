@@ -32,7 +32,7 @@ import:
 /* Starts from a physical PC and reports ordered retirement and architectural redirects.
    Faults enter the programmed trap vector; only reset permits a new start pulse.
    Distinct instruction, data, and uncached identities separate retained transactions. */
-sync_circuit Superscalar(cache :: CacheConfig, ~mshr_count: mshr_count :: PosInt = 1, ~chi: config :: RiscvHartCHIConfig, ~issue: issue :: Module || CircuitDefinition, ~instruction_cache: instruction_cache :: CacheConfig = cache, ~profile: profile :: SuperscalarPipelineConfig = SuperscalarPipelineConfig(~instruction_cache: instruction_cache, ~data_cache: cache), ~vector_backend: vector_backend :: VectorBackendKind = VectorBackendKind.Unified, ~data_beat_bytes: data_beat_bytes :: Pow2Int = profile.xlen.width / 8):
+sync_circuit Superscalar(cache :: CacheConfig, ~banked_l1d: banked_l1d :: Boolean = #false, ~chi: config :: RiscvHartCHIConfig, ~issue: issue :: Module || CircuitDefinition, ~instruction_cache: instruction_cache :: CacheConfig = cache, ~profile: profile :: SuperscalarPipelineConfig = SuperscalarPipelineConfig(~instruction_cache: instruction_cache, ~data_cache: cache), ~vector_backend: vector_backend :: VectorBackendKind = VectorBackendKind.Unified, ~data_beat_bytes: data_beat_bytes :: Pow2Int = profile.xlen.width / 8):
   def xlen = profile.xlen
   def distributed_rows = vector_profile_enabled(profile.vector) && (vector_backend == VectorBackendKind.Distributed)
   def hypervisor = profile.hypervisor
@@ -72,7 +72,7 @@ sync_circuit Superscalar(cache :: CacheConfig, ~mshr_count: mshr_count :: PosInt
   def MemoryContext = SuperscalarMemoryContext(xlen, profile.vector_completion_slots)
   def translation = if profile.mmu_type == RiscvMmuType.Bare | SuperscalarIdentitySpecialization(xlen, config, distributed_rows) | SuperscalarSv39Specialization(config, profile.svnapot, hypervisor, distributed_rows)
   inst mmu(SuperscalarMemoryAdapter(translation, ~context: MemoryContext))
-  inst data(SuperscalarL1D(cache, ~mshr_count: mshr_count, ~chi: config, ~context: mmu.physical_memory.request.bits.memory.context.type, ~xlen: xlen, ~beat_bytes: data_beat_bytes, ~row_bits: (if distributed_rows | vector_dlen(profile.vector_length) | #false)))
+  inst data(SuperscalarL1D(cache, ~banked_l1d: banked_l1d, ~chi: config, ~context: mmu.physical_memory.request.bits.memory.context.type, ~xlen: xlen, ~beat_bytes: data_beat_bytes, ~row_bits: (if distributed_rows | vector_dlen(profile.vector_length) | #false)))
   if distributed_rows
   | block:
       core.element_translation <=> mmu.element_translation
