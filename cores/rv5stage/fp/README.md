@@ -30,8 +30,9 @@ output. It also provides a `Decoupled` load-reservation input, a `Valid` load
 completion, a separate WB `Valid` load-hit input, one-cycle `Valid` store request/response pulses, a `Valid`
 architectural-state update, the FPR busy mask, and a drained indicator. The
 disabled implementation rejects FP work and reports itself drained.
-`fixed_reserved` selects the previously booked EX operand-read slot even when
-that instruction is killed, keeping WB readiness independent of EX cancellation.
+`fixed_reserved` gives EX read port 1 even when its launch is killed. Otherwise
+the scalar adapter reads `wb_read_address` for either a divide/sqrt operand or
+the vector snapshot. A read alone does not authorize execution or reserve a destination.
 
 The common interface also exposes a `Decoupled` vector-destination reservation
 and a `Valid` vector write. A reservation marks one FPR busy before a vector

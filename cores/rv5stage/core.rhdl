@@ -1037,7 +1037,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   inst wb_vector_retirement(OfferRegister(RV5StageRetirementCommand(xlen, vector_completion_slots, hypervisor)))
   def wb_vector_context = wb_input.bits.vector_context
   def wb_vector_vd = instruction_field(riscv_fields.rd, wb_vector_context.instruction)
-  wb_fp.snapshot_read_address <== if vector_enabled | instruction_field(riscv_fields.rs1, wb_vector_context.instruction) | Bits(5)(0)
+  wb_fp.wb_read_address <== wb_input.bits.fp_issue.frs1
   if vector_enabled
   | block:
       inst ex_vector_operation_legality(VectorOperationLegality(xlen, vector_length, core_profile.vector, vector_extensions))
@@ -1085,6 +1085,10 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   wb_vector_launch |> filter_valid(_descriptor => !wb_vector_needs_fp_reservation ||| wb_fp.vector_reserve.ready) |> offer_decoupled() |> wb_vector.request
   wb_vector_launch |> filter_valid(descriptor => vector_writes_fpr(descriptor.control) & wb_vector.request.ready) |> map_valid(_descriptor => wb_vector_vd) |> offer_decoupled() |> wb_fp.vector_reserve
   def wb_vector_accepted = wb_vector.request.fire()
+  when (wb_vector_accepted & wb_vector_context.control.reads_frs1):
+    assert(!ex_fp_granted, "vector_snapshot_owns_fpr_read")
+    assert(wb_input.bits.fp_issue.frs1 === instruction_field(riscv_fields.rs1, wb_vector_context.instruction), "vector_snapshot_uses_wb_rs1")
+
   wb_vector_fast <== wb_vector_accepted & wb_vector_fast_candidate & wb_vector_launch.bits.control.memory
   wb_vector_slow_admission <== wb_vector_accepted & wb_vector_launch.bits.control.memory & !wb_vector_fast
   wb_vector_slow_restart <== wb_vector_slow_admission & (mem_input.valid ||| ex_input.valid)

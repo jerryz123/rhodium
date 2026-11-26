@@ -22,18 +22,34 @@ int expected_width[512];
 
 int pc = 0, expected_count = 0, stores = 0, cycles = 0, load_delay = 0;
 
-std::uint64_t overlap_pc;
+std::uint64_t overlap_pc, handoff_divide_pc, handoff_snapshot_pc;
+int divide_launch = -1, snapshot_accept = -1, divide_return = -1;
 std::vector<bool> scalar_overlap_launch, vector_fp_live;
 
 extern "C" void test_scalar_fp_overlap(std::uint64_t rst,
                                       std::uint64_t valid,
-                                      std::uint64_t context) {
+                                      std::uint64_t context,
+                                      std::uint64_t wb_valid, std::uint64_t wb_ready, std::uint64_t wb_pc,
+                                      std::uint64_t done_valid, std::uint64_t done_ready, std::uint64_t done_pc) {
   scalar_overlap_launch.push_back(!rst && valid && context == overlap_pc);
+  if (!rst && wb_valid && wb_ready && wb_pc == handoff_divide_pc) {
+    CHECK(divide_launch < 0);
+    divide_launch = cycles;
+  }
+  if (!rst && done_valid && done_ready && done_pc == handoff_divide_pc) {
+    CHECK(divide_return < 0);
+    divide_return = cycles;
+  }
 }
 
 extern "C" void test_vector_fp_overlap(std::uint64_t rst,
-                                      std::uint64_t pending) {
+                                      std::uint64_t pending, std::uint64_t valid, std::uint64_t ready,
+                                      std::uint64_t request_pc, std::uint64_t operand) {
   vector_fp_live.push_back(!rst && pending);
+  if (!rst && valid && ready && request_pc == handoff_snapshot_pc) {
+    CHECK(snapshot_accept < 0 && operand == UINT64_C(0xffffffff3f000000));
+    snapshot_accept = cycles;
+  }
 }
 
 data_resp_bits_t pending_load;
@@ -743,7 +759,16 @@ void stimulus() {
     vload(19, UINT64_C(4616), 2);
     li(5, UINT64_C(0x3f000000));
     emit(UINT64_C(0xf0028453));        // fmv.w.x f8,x5: 0.5
-    vec(UINT64_C(23), 10, 0, 8, 0, 5); // vfmv.v.f
+    // Adjacent WB users read different FPRs: the divide takes f4 (3.0),
+    // then the vector move snapshots f8 (0.5) while the divide is outstanding.
+    handoff_divide_pc = pc * 4;
+    emit(0x181275d3);                  // fdiv.s f11,f4,f1,dyn
+    handoff_snapshot_pc = pc * 4;
+    vec(UINT64_C(23), 10, 0, 8, 0, 5); // vfmv.v.f v10,f8
+    emit(0xe00581d3);                  // fmv.x.w x3,f11
+    li(10, 11056);
+    emit(0x353023);
+    expect_store(11056, 0x40400000, 3);
     vec(UINT64_C(31), 0, 19, 2, 0, 3); // vmsgt.vi: lanes 2 and 3
     vec(UINT64_C(23), 11, 8, 8, 1, 5); // vfmerge.vfm
     vec(UINT64_C(14), 12, 8, 8, 0, 5); // vfslide1up.vf
@@ -1052,5 +1077,6 @@ int main() {
     for (std::size_t i = 0; i < scalar_overlap_launch.size(); ++i)
       overlapped |= scalar_overlap_launch[i] && vector_fp_live[i];
     CHECK(overlapped);
+    CHECK(divide_launch >= 0 && divide_launch < snapshot_accept && snapshot_accept < divide_return);
   });
 }

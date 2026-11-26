@@ -160,6 +160,7 @@ cache-store-buffer	cores-components	cores/common/cache/tests/rsim/emit-cache-sto
 fesvr-mmio	protocols	sims/tests/rsim/emit-fesvr-mmio.rhm	program	sims/tests/rsim/fesvr-mmio.cpp
 bpred-bht	cores-components	cores/common/bpred/tests/rsim/emit-bpred-bht.rhm	program	cores/common/bpred/tests/rsim/bpred-bht.cpp
 rv5stage-fp-pipeline	cores-components	cores/rv5stage/tests/rsim/emit-rv5stage-fp-pipeline.rhm	program	cores/rv5stage/tests/rsim/rv5stage-fp-pipeline.cpp
+rv5stage-fp-read-owner	cores-components	cores/rv5stage/tests/rsim/emit-rv5stage-fp-pipeline.rhm	scheduled	cores/rv5stage/tests/rsim/rv5stage-fp-read-owner.cpp
 rv5stage-integer-execution	cores-components	cores/rv5stage/tests/rsim/emit-rv5stage-integer-execution.rhm	program	cores/rv5stage/tests/rsim/rv5stage-integer-execution.cpp
 rv5stage-writeback	cores-components	cores/rv5stage/tests/rsim/emit-rv5stage-writeback.rhm	program	cores/rv5stage/tests/rsim/rv5stage-writeback.cpp
 rv5stage-divide	cores-components	cores/rv5stage/tests/rsim/emit-rv5stage-divide.rhm	program	cores/rv5stage/tests/rsim/rv5stage-divide.cpp

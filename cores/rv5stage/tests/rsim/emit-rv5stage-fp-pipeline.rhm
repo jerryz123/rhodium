@@ -18,4 +18,8 @@ def program = elaborate(pipeline.RV5StageFpPipeline(
   )
 )
 
-export program
+def scheduled = elaborate(pipeline.RV5StageFpScalar(
+  XLen.X64, FloatingPointProfile.D, Bits(8), ~speculative_fixed: #true
+))
+
+export program scheduled

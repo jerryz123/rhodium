@@ -17,9 +17,14 @@ import:
 def program = elaborate(RV5StageCoreFixture(RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D, ~half_precision: HalfPrecisionProfile.Zfh), ~vector: VectorProfile.V, ~vector_extensions: vector_extensions(VectorExtension.Zvfh), ~vector_length: 128), ~reset_address: 0, ~fp_timing: FpExecutionTiming(3, 4, 2)))
 def target = rtl_pipeline_target(rsim_target, [port_observer_pass([
   ["RV5StageFpScalar", "test_scalar_fp_overlap", [
-    ["fixed_issue_in", "valid"], ["fixed_issue_in", "bits", "context"]
+    ["fixed_issue_in", "valid"], ["fixed_issue_in", "bits", "context"],
+    ["issue_in", "valid"], ["issue_out", "ready"], ["issue_in", "bits", "context"],
+    ["completion_out", "valid"], ["completion_in", "ready"], ["completion_out", "bits", "context"]
   ]],
-  ["RV5StageVectorPipeline", "test_vector_fp_overlap", [["service_out", "fp_pending"]]]
+  ["RV5StageVectorPipeline", "test_vector_fp_overlap", [
+    ["service_out", "fp_pending"], ["request_in", "valid"], ["request_out", "ready"],
+    ["request_in", "bits", "pc"], ["request_in", "bits", "floating_scalar"]
+  ]]
 ])])
 def fault_target = rtl_pipeline_target(rsim_target, [port_observer_pass([
   ["RV5StageInstructionBuffer", "test_fault_decode", [

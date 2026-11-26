@@ -47,8 +47,12 @@ ports as their active counterparts, so core wiring does not branch on FP support
    Never let a killed fixed result write registers, flags, or observation events.
    Authorized older results must survive younger redirects. Deferred loads also
    reserve only at WB; rejected WB work replays without architectural effects.
-2. Preserve the enabled/disabled interface shape. Read port 0 serves scalar
-   issue or the read-only WB vector-scalar snapshot while issue is idle.
+2. Preserve the enabled/disabled interface shape. The registered EX booking
+   selects FPR read port 1, even when a squash cancels the launch. Otherwise
+   its address is the MEM/WB instruction's `rs1`, shared by scalar divide/sqrt
+   and the vector scalar snapshot. Keep execution authorization out of this
+   address mux and retain same-cycle FPR write forwarding. Standalone issue
+   and idle snapshots supply independent addresses at the outer wrapper.
 3. Keep vector FPR reservation/write separate from arithmetic. Reserve before
    macro admission, exclude scalar FP work until completion, and clear only
    on the authorized write. Never feed that write back into its own admission.
@@ -70,7 +74,7 @@ when wrapper semantics change. Generated output remains untracked.
 ```sh
 tools/run-racket-tests.sh cores/common/fp/tests/decode-test.rhm \
   cores/rv5stage/tests/fp-pipeline-test.rhm cores/rv5stage/tests/core-ctrl-test.rhm
-python3 tools/testing/rsim/run.py --fixture rv5stage-fp-pipeline
+python3 tools/testing/rsim/run.py --fixture rv5stage-fp-pipeline --fixture rv5stage-fp-read-owner
 FIXTURES='rv5stage-core-rv32f rv5stage-core-rv64d' \
   bash tools/testing/circt/run.sh --simulate-only
 ```
