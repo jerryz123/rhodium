@@ -1,4 +1,4 @@
-<!-- Defines Rhodium's formal roadmap, refinement contracts, and acceptance criteria for compositional proofs. -->
+<!-- Plans the migration from demonstrated hierarchical refinement to reusable, spec-authored proofs. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Rhodium formal plan: executable specifications and hierarchical refinement
@@ -19,7 +19,88 @@ provides pre-edge outputs, simultaneous register updates, and partial-operation
 obligations for a supported single-clock hierarchy. It expands child state;
 it does not prove refinement. Rosette stays optional and outside elaboration.
 
+## Active roadmap: reusable refinement
+
+The [three original milestones](#delivery-milestones) are delivered for the
+stated FIFO specializations. The next delivery is about **who has to write
+proof code**: for a supported block, an author supplies RTL and an RSPECL spec,
+including any private refinement hints. A caller selects a specialization and
+supplies evidence for its immediate children. It should not need a new Rosette
+procedure, evidence type, or knowledge of a grandchild to obtain a proof.
+
+### What belongs where
+
+| Finding in the current implementation | Destination |
+|---|---|
+| [FIFO behavior](fifo-monitor.rhm) builds a bounded sequence monitor by hand. The [view binder](fifo-view.rhm) recognizes that exact monitor; the [language](../../rspecl/language.rhm) treats the combination of events and transactions as FIFO-specific. | A parameterized, importable `.rspl` monitor and pin-sampling helpers. The owning spec chooses them explicitly. No FIFO opcode, reserved history name, or second spec for the same module. |
+| [Series and wrapper issuers](refinement.rkt) know about FIFO evidence, upstream/downstream order, and transfer transport. [QueuePair](tests/queue-pair.rspl) already declares the concatenation; QueuePairSeries still relies on the handwritten series rule. | The parent's private `refinement:` names child occurrences, projects their public histories, and declares the handoff to check. Ordinary monitor induction or exact forwarding issues the result. Keep physical wiring checks; do not replace them with an assumed internal event. |
+| [ShiftQueue's leaf harness](tests/shift-queue-induction.rkt) knows the occupied-prefix encoding, live slots and physical observation rules. The `relate q = q` in its spec is a **cycle-to-monitor** projection, not the missing **RTL-to-cycle** relation. | Put the encoding and care of live slots in the leaf's private checked hints. Derive actual observations from RTL pins, independently of expected spec outputs. Keep coverage, fault injection and independent replay in tests. |
+| [TwoTagROB](../../examples/formal/two-tag-rob.rspl) already owns its generation, ownership and payload invariants; the [logged parent](../../examples/formal/logged-two-tag-rob.rspl) consumes public history. The ROB still imports its tag order via the privileged FIFO cut. The [stall harness](tests/stalled-offer.rkt) still selects the supplier and forwarding strategy. | Keep the existing ROB semantics in RSPECL. Replace the FIFO cut with an ordinary typed child history, proving any tag conversion on live entries. Move wiring roles and required/provided view choices into private spec declarations; the caller supplies seals, not a proof script. |
+
+**Trust boundary:** ordinary Rhombus helpers may construct typed spec IR.
+A relation, invariant, or pin mapping in `.rspl` is a *candidate to check*,
+never evidence. The engine still owns actual RTL pin and occurrence identity,
+types, clock/reset, care and definedness, feasible domains, independent child
+states, initialization and preservation, and issuance of sealed results.
+Keep adjacent-sample induction and exact forwarding as generic rules. Do
+not put solver callbacks in specs, infer guarantees from a module name, or
+treat a matching batch schema as proof that two monitors agree.
+
+### Migration order and exit tests
+
+1. **First patch: express the FIFO monitor in RSPECL; change no issuer yet.**
+   Use an ordinary helper with element width and capacity, not new syntax.
+   Compare its accepted/rejected batches **and successor live history on
+   every legal batch** against the existing monitor at capacities 2, 4 and 6.
+   Include reset, idle, simultaneous retire/accept, inactive payload, and
+   rejection holding history. Check behavior, not snapshot text. Keep the old
+   path operational until the replacement can produce independently checked evidence.
+2. **Remove the privileged FIFO composition path one consumer at a time.**
+   Start with ShiftQueue's derived transaction view and QueuePair(1), then
+   QueuePair(2), QueuePairSeries, and the arbiter/ROB consumers. Use ordinary
+   `child`, `history` and `relate` with the actual elaborated pins. If the
+   spec cannot describe a handoff check, add a typed, protocol-neutral
+   obligation and demonstrate it on a non-FIFO cut as well. Preserve the
+   two-lane exclusivity obligation; it is not an environment assumption.
+   Keep the ordering observer's theorem unchanged, the 2/4/6-word bounds,
+   fill/drain replay, and the crossed-ready, wrong-payload, reversed-history
+   and ready-when-space negatives. Retire the FIFO-specific dispatch and
+   issuer only once no production consumer needs them; a compatibility
+   observer may read generic evidence but must not mint it.
+3. **Make proof setup declarative.** Pilot the private RTL-to-cycle relation
+   on ShiftQueue at depths 1–3, then check the same leaf entry point on the
+   combinational Arbiter. Move only the facts the proof needs; retain the
+   handwritten harnesses as differential oracles. For parents, drive the
+   existing generic obligations from the spec's declared child views and
+   supplier roles. Reprove the wrapped stalled receipt and logged ROB without
+   a per-module issuer. Wrong occurrence, missing supplier, FIFO-only evidence
+   for stability, swapped bank and valid-only capture must still fail.
+4. **Prove reuse on an independent design.** Use the library
+   [OfferRegister](../../flow/offer-register.rhdl), whose occupied word may be
+   replaced *during a stall*. Prove that a simultaneous transfer and update
+   delivers the old word and retains the new one. Reuse the seal in a parent;
+   reject an irrevocable/stable-offer claim and replay reset, install A,
+   replace with B while stalled, then consume B. The deliverable is a spec,
+   a thin invocation and tests, with **no block-specific engine change**.
+   A missing general capability is a separate proposal with two clients and
+   a failing negative test, not an exception for OfferRegister.
+
+Done means one supported proof path for FIFO and non-FIFO monitors, at least
+one independent library adoption, and no new required companion proof file
+per module. Keep the existing finite, single-clock safety scope. Stronger
+monitor implication, persistent proof caching, fairness and additional RTL
+semantics are not prerequisites for this migration.
+
 ## Delivery milestones
+
+| Delivered milestone | Acceptance evidence |
+|---|---|
+| Execute a specification | Concrete and symbolic steps agree on the finite FIFO specialization. |
+| Prove a leaf | Reset and inductive preservation pass for ShiftQueue at depths 1–3; a faulty payload replays from reset. |
+| Prove a parent | Independent child specs give QueuePair ordering and capacity without child RTL registers. The depth-one ready-when-space counterexample remains reachable. |
+
+<details>
+<summary>Delivered examples, proof scope, and regression references</summary>
 
 All three FIFO milestones are complete for two-bit queues at depths one and
 two. The [leaf proof](DEVELOPING.md#shiftqueue-refinement-by-depth)
@@ -125,13 +206,46 @@ the outer arbiter needs no restriction on simultaneous requests.
 The proved outer cycle spec also implies a transaction view: readback on a capture
 is the previous winning word. The [derivation](tests/selector-refinement.rkt)
 uses the same cycle-to-monitor induction as ShiftQueue without reopening either
-implementation. Expecting the new winner on that edge fails preservation.
+implementation. Both declarations now own their private cycle-to-monitor relation;
+the issuer needs the certified cycle, top, and spec constructor, not a separate
+projection supplied by the proof harness. Expecting the new winner on that edge
+fails preservation.
 
-| Milestone | What to build | How to tell it works |
-|---|---|---|
-| 1. Execute a specification | Define the cycle and transaction views, a finite deterministic spec IR, and a concrete interpreter. Use a bounded sequence as the FIFO model; choose surface syntax after the step semantics work. | An independent oracle checks idle, enqueue, dequeue, simultaneous transfer, reset from nonempty, and ignored payload when invalid. Concrete and symbolic steps agree for a small finite specialization. |
-| 2. Prove a leaf | Bind one register-backed FIFO configuration to the model with a state relation. Use bounded replay to debug it, then check initialization, active RTL assertions, operation domains, observation agreement, and inductive preservation. | All obligations pass for the stated configuration. A defect in the returned payload produces a reachable mismatch that replays from reset. A bounded pass alone cannot authorize substitution. |
-| 3. Prove a parent | Connect two verified FIFO cycle models, discharge their input assumptions, and prove the parent's transaction-order and capacity contract. | The proof inventory contains two independent child spec states and no child RTL registers. Ordering passes; the stronger exact-readiness claim fails on the depth-one example below. An undischarged child assumption prevents reuse. |
+An independent route now proves the same parent guarantee from the gate's
+conditional transaction contract. The verified combinational arbiter establishes
+`gate/capture_exclusive` on the wired pins before the parent uses the gate's
+identical event monitor. Raw requests fail at premise discharge; a crossed
+payload fails batch comparison even when exclusivity holds. The exported parent
+has no input premise. The general transaction proof also uses that checked
+boundary to prove a different parent monitor: one bit tracks whether the
+gate's previous winning word was zero. The reset and step relation uses only
+the gate's public history. The same one-bit observer also passes using only the
+two child transaction contracts. The arbiter's public verdict establishes the
+gate's pin premise; exclusivity alone admits the gate but cannot prove winner
+readback. Duplicating a grant fails on the actual pins, and mutually dependent
+same-edge premises cannot authorize one another. This covers acyclic discharge
+of current-input predicates, not history-dependent environmental assumptions.
+The gate contract can itself be proved by forwarding the registered selector's
+transaction contract: the gate retains its declared pin assumption, and only
+the outer arbiter discharges it. Neither composition needs a whole-gate cycle
+proof. Dropping the gate premise fails at the inner selector; duplicating the
+arbiter grant still fails at the outer gate.
+The general monitor proof can also project the selector's full word to one bit
+at the gate while retaining that same assumption. The outer proof discharges
+the assumption and uses only the zero bit; it cannot certify exact nonzero
+readback. Both routes use the same RTL and input contract.
+
+The first history-dependent input requirement is [stalled-offer stability](../../examples/formal/stalled-offer.rspl).
+ShiftQueue(1)'s verified cycle behavior establishes a promise across adjacent
+samples; a consumer uses it to remember the first stalled word through acceptance.
+Only the pending bit is public receipt history; the consumer proves a private
+relation between the input monitor's stalled word and its own recorder.
+A forwarding wrapper retains the requirement on its own pins. The outer parent
+discharges it with the queue's seal, without naming or opening the recorder.
+This covers safety after reset on a shared clock, not eventual acceptance or
+arbitrary temporal logic.
+
+</details>
 
 ## What a module promises
 
