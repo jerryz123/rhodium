@@ -795,41 +795,81 @@ void check_high_store_rows(const Line &low, const Line &high) {
   hit(ram + 48, load, high[2]);
 }
 
-void check_two_dirty_misses(const Line &a, const Line &b, bool probe_waiting_victim) {
+void prepare_dirty_pair(const Line &a, const Line &b) {
   reset = 1; tick_model(); reset = 0;
   for (auto off : {0u, 64u, 256u, 320u}) {
     const Line &line = off % 256 == 0 ? a : b;
     request(base+off, store, line[0]); refill(base+off, 7, line); response({});
   }
-  auto grant = [&](unsigned dbid) {
-    auto &rsp = chi_in.presponses;
-    rsp.pbits = {}; rsp.pbits.popcode = 5; rsp.pbits.psrc_uid = 1;
-    rsp.pbits.ptgt_uid = 3; rsp.pbits.ptxn_uid = 1; rsp.pbits.pdbid_uor_ugroup_uid = dbid;
-    rsp.pvalid = 1; until([] { return chi_out.presponses.pready; }); tick_model(); rsp.pvalid = 0;
-  };
-  auto drain = [&](unsigned dbid, const Line &line, bool valid) {
-    for (unsigned i = 0; i < 4; ++i) {
-      auto &d = chi_out.prequest_udata;
-      until([&] { return d.pvalid; });
-      CHECK(d.pbits.popcode == 2 && d.pbits.ptxn_uid == dbid && d.pbits.pdata_uid == i);
-      CHECK(d.pbits.pbyte_uenable == (valid ? 0xffff : 0));
-      if (valid) CHECK(d.pbits.pdata == line[i]);
-      chi_in.prequest_udata.pready = 1; tick_model(); chi_in.prequest_udata.pready = 0;
-    }
-  };
   request(base+512, store, b[1], 0xffff, true, 1);
   CHECK(accept_request(base, 0x1b) == 1);
-  if (!probe_waiting_victim) grant(0x51);
+}
+
+void grant_copyback(unsigned dbid) {
+  auto &rsp = chi_in.presponses;
+  rsp.pbits = {}; rsp.pbits.popcode = 5; rsp.pbits.psrc_uid = 1;
+  rsp.pbits.ptgt_uid = 3; rsp.pbits.ptxn_uid = 1; rsp.pbits.pdbid_uor_ugroup_uid = dbid;
+  rsp.pvalid = 1; until([] { return chi_out.presponses.pready; }); tick_model(); rsp.pvalid = 0;
+}
+
+void drain_copyback(unsigned dbid, const Line &line, bool valid) {
+  for (unsigned i = 0; i < 4; ++i) {
+    auto &d = chi_out.prequest_udata;
+    until([&] { return d.pvalid; });
+    CHECK(d.pbits.popcode == 2 && d.pbits.ptxn_uid == dbid && d.pbits.pdata_uid == i);
+    CHECK(d.pbits.pbyte_uenable == (valid ? 0xffff : 0));
+    if (valid) CHECK(d.pbits.pdata == line[i]);
+    chi_in.prequest_udata.pready = 1; tick_model(); chi_in.prequest_udata.pready = 0;
+  }
+}
+
+void check_buffered_replacement(const Line &a, const Line &b, bool invalidate_replacement) {
+  prepare_dirty_pair(a, b);
+  request(base+576+32, load, {}, 0xffff, true, 2);
+  request(base+576+48, load, {}, 0xffff, true, 3);
+  const auto tb = accept_request(base+576, 2);
+  // No copyback grant for either victim. All DATs and CompAck must pass.
+  for (unsigned i : {3u, 1u, 0u, 2u}) refill_packet(tb, i, 1, a[i]);
+  until([] { return chi_out.prequester_uresponses.pvalid; });
+  CHECK(chi_out.prequester_uresponses.pbits.popcode == 2); tick_model();
+  if (invalidate_replacement) {
+    auto &snp = chi_in.psnoops;
+    snp.pbits = {}; snp.pbits.paddress = (base+576) >> 3; snp.pbits.popcode = 9;
+    snp.pbits.psrc_uid = 1; snp.pbits.ptxn_uid = 0x60; snp.pvalid = 1;
+    until([] { return chi_out.psnoops.pready; }); tick_model(); snp.pvalid = 0;
+    until([] { return chi_out.prequester_uresponses.pvalid; });
+    CHECK(chi_out.prequester_uresponses.pbits.ptxn_uid == 0x60 && chi_out.prequester_uresponses.pbits.presp == 0);
+    tick_model();
+  } else {
+    snoop_dirty_line(base+64, b, 0x53);
+  }
+  grant_copyback(0x51);
+  const auto ta = accept_request(base+512, 7);
+  drain_copyback(0x51, a, true);
+  CHECK(accept_request(base+64, 0x1b) == 1);
+  grant_copyback(0x52); drain_copyback(0x52, b, invalidate_replacement);
+  for (unsigned i = 0; i < 16; ++i) { eval(); CHECK(!core_out.presponse.pvalid); tick_model(); }
+  for (unsigned i = 0; i < 4; ++i) refill_packet(ta, i, 2, a[i]);
+  response({}, 1);
+  if (invalidate_replacement) refill(base+576, 2, b);
+  const auto &expected = invalidate_replacement ? b : a;
+  response(expected[2], 2); response(expected[3], 3);
+  for (unsigned i = 0; i < 4; ++i) { request(base+576+16*i, load); response(expected[i]); }
+}
+
+void check_two_dirty_misses(const Line &a, const Line &b, bool probe_waiting_victim) {
+  prepare_dirty_pair(a, b);
+  if (!probe_waiting_victim) grant_copyback(0x51);
   request(base+576, store, a[1], 0xffff, true, 2);
   for (int i = 0; i < 8; ++i) tick_model();
   if (probe_waiting_victim) {
     // B must already own this victim. An unallocated B would subsequently see
     // an invalid way and issue no WriteBackFull at all.
     snoop_dirty_line(base+64, b, 0x53);
-    grant(0x51);
+    grant_copyback(0x51);
   }
   const auto ta = accept_request(base+512, 7);
-  drain(0x51, a, true);
+  drain_copyback(0x51, a, true);
   CHECK(accept_request(base+64, 0x1b) == 1); // A's replacement still has no data.
   // Home can return A's data or retry B's eviction before granting B.
   refill_packet(ta, 2, 2, a[2]);
@@ -840,10 +880,10 @@ void check_two_dirty_misses(const Line &a, const Line &b, bool probe_waiting_vic
     CHECK(!chi_out.prequests.pbits.pallow_uretry && chi_out.prequests.pbits.ppcrd_utype == 5);
     CHECK(accept_request(base+64, 0x1b) == 1);
   }
-  grant(0x52);
+  grant_copyback(0x52);
   const auto tb = accept_request(base+576, 7);
   CHECK(tb != ta);
-  drain(0x52, b, !probe_waiting_victim);
+  drain_copyback(0x52, b, !probe_waiting_victim);
   for (unsigned i = 0; i < 4; ++i) refill_packet(tb, i, 2, b[i]);
   for (int i = 0; i < 8; ++i) { eval(); CHECK(!core_out.presponse.pvalid); tick_model(); }
   for (unsigned i : {0u, 1u, 3u}) refill_packet(ta, i, 2, a[i]);
@@ -878,6 +918,7 @@ int main() {
       reset = 1; tick_model(); reset = 0;
       check_store_miss_admission(a, b, reverse);
       check_two_dirty_misses(a, b, reverse);
+      check_buffered_replacement(a, b, reverse);
       reset = 1; tick_model(); reset = 0;
       check_store_behind_load(a, b, reverse);
       reset = 1; tick_model(); reset = 0;

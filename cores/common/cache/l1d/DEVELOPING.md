@@ -112,7 +112,7 @@ of snoop reads; acquire the next packet no earlier than the current transfer.
 The final returning row bypasses into DAT and is captured for a stall.
 Reserve the target, way, and dirty victim in the allocating MSHR. A single
 writeback engine takes a reserved victim, with its slot ID as context. The
-grant releases only that slot's replacement read. Snoops update a waiting
+grant releases only that slot's direct replacement read. Snoops update a waiting
 victim before grant, even if another slot is using the engine. Let unrelated
 refills drain while awaiting grant; accept the grant between packets, then
 hold incoming DAT off the shared packet register until final victim handoff.
@@ -129,6 +129,16 @@ use index + 2, reserving IDs 1 and 2 for writeback and maintenance. DAT and
 RetryAck name the slot; untagged PCrdGrant matches a pending home/type pair.
 Each engine displays its `dcache/refill` residency at `dcache/mshr[i]/refill`
 under the enclosing hart; query either entry using the same `dcache/refill` label.
+
+Multi-slot L1D shares one line of staging among concurrent dirty-victim
+`ReadClean` allocations. The MSHR reserves the buffer and the victim
+together. Route that slot's DAT by transaction ID even while copyback owns
+the SRAM; send CompAck independently of victim release. Track arrived packets
+by DataID and drain them through the existing installation port only after
+the owning victim completes. Keep the MSHR until every buffered row installs
+or an accepted snoop to the unpublished line discards it. Never block a victim
+probe on the staged line's CompAck. Only clean acquisitions with their demand
+still in the ordered window can discard a line this way.
 
 For multi-slot service, S2 issues the next unclassified entry in FIFO order to
 the same S3 tag lookup used by the head. The classified prefix stays in the
@@ -155,6 +165,9 @@ ordered data and contexts under backpressure. For stores it also snoops B
 before mutation, invalidates it, and checks masked writes after reacquisition.
 The two-dirty-victim case snoops B before its writeback starts, retries its
 writeback, and checks B-first installation with ordered responses and bytes.
+The buffered-load case withholds both copyback grants through reordered
+replacement DAT and CompAck. It probes either the dirty victim or the staged
+clean replacement, checks every returned row, and verifies older-first responses.
 
 The RV64 D-cache fixture checks both grant orderings with two dirty lines;
 `cache-wide-l1d` queues a dirty miss behind a local AMO, checks a load hit

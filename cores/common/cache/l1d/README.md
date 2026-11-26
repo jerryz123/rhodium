@@ -256,11 +256,14 @@ flowchart LR
   Victim -->|yes| Writeback["WriteBackFull"]
   Arrays -->|"granted victim rows"| PacketSlot["One copyback/refill packet"]
   PacketSlot -->|"victim DAT"| Writeback
-  Writeback -->|"granted: launch replacement"| Refill["ReadClean or ReadUnique"]
+  Writeback -->|"direct path: launch on grant"| Refill["ReadClean or ReadUnique"]
+  Victim -->|"concurrent ReadClean with buffer reserved"| Refill
   Victim -->|no| Refill
   Record --> Install
   Way --> Install
   Refill -->|"packets by DataID after victim handoff"| PacketSlot
+  Refill -->|"early clean DAT"| Staged["One shared replacement line"]
+  Staged -->|"after owning victim handoff"| PacketSlot
   PacketSlot -->|"one row per SRAM turn"| Install["Install rows<br/>publish metadata after CompAck"]
   Refill -->|"requested old row"| Load
   Install --> Arrays
@@ -393,9 +396,15 @@ local accesses. A preceding snoop may consume its dirty data and invalidate
 it, in which case copyback reports Invalid without enabled bytes. The grant
 freezes the response state and permits a replacement `ReadClean` or `ReadUnique`
 to start, even with one MSHR. Request issue and retry can overlap outgoing DAT.
-After grant, incoming data is backpressured until copyback completes and the victim
-is invalidated. Neither a second line buffer nor concurrent SRAM reads and
-writes are required. Unrelated load hits retain the existing hit-under-miss behavior.
+The direct path backpressures incoming data after grant until copyback completes
+and the victim is invalidated. With multiple MSHRs, one concurrent (not
+head-issued) `ReadClean` that would evict a dirty line can instead reserve a
+shared line buffer and issue before its grant. The whole replacement can
+return and be acknowledged while the dirty victim is still snoopable. The
+buffer does not make the replacement a cache hit: installation waits for that
+victim's final handoff. A snoop to the unpublished replacement discards the
+clean copy; the queued load rechecks the cache and can reacquire it. This
+does not change response order. Other acquisitions keep the direct path.
 
 ## Cache-block management
 

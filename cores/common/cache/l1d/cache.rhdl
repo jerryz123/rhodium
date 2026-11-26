@@ -600,6 +600,9 @@ sync_circuit L1DCache(xlen :: XLen,
   misses.snoop_state <== mux(snoop.update.bits.invalidate, CHICacheState.Invalid, snoop.update.bits.state)
   writeback.completion.ready <== Bool(#true)
   def writeback_complete = writeback.completion.fire()
+  misses.evict_done <== writeback_complete
+  misses.probe.valid <== snoop.lookup.valid & (snoop.lookup.bits === snoop.lookup.bits[0..width].zext(snoop_width))
+  misses.probe.bits <== snoop.lookup.bits[0..width]
 
 
   /* Stream refill packets to the reserved way. An accepted snoop has first
@@ -1306,7 +1309,8 @@ sync_circuit L1DCache(xlen :: XLen,
   Array(misses.requests, writeback.requests, maintenance.requests) |> arbiter() |> chi.requests
   Array(misses.acknowledgements, snoop.responses) |> arbiter() |> chi.requester_responses
   Array(writeback.data, snoop.data) |> arbiter() |> chi.request_data
-  chi.response_data |> gate_flow(!writeback.granted & !writeback.grant.valid & packet_capacity) |> misses.data
+  misses.packet_ready <== !writeback.granted & !writeback.grant.valid & packet_capacity
+  chi.response_data |> misses.data
   // Stop new probes, not an already accepted snoop. In particular protect the
   // acknowledged grant until SRAM installation; Home may probe after CompAck.
   def protect_refill = misses.protect
