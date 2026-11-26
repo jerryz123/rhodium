@@ -32,6 +32,38 @@ std::uint32_t random_word() {
   rng ^= rng << 5;
   return rng;
 }
+
+void check_saved_advance() {
+  constexpr auto boundary = UINT64_C(1) << 38; // First noncanonical positive Sv39 PC.
+  active = space = 1;
+  attempts_in.pready = 0;
+  restart_in.pvalid = replay_in.pvalid = 1;
+  restart_in.pbits = boundary - 6; // Halfword-aligned, not word-aligned.
+  replay_in.pbits.ppc = 0x2000;
+  replay_in.pbits.pcontinuation = 1;
+  replay_in.pbits.pcontinuation_utarget.plow = 0x3000;
+  tick();
+  restart_in = {};
+  replay_in = {};
+  eval();
+  CHECK(attempts_out.pvalid && attempts_out.pbits.ppc == boundary - 6 &&
+        !attempts_out.pbits.pcontinuation && !stage1_out.pvalid);
+  tick(); // Still blocked: neither contender may advance the held restart.
+
+  attempts_in.pready = 1;
+  tick();
+  eval();
+  CHECK(attempts_out.pvalid && attempts_out.pbits.ppc == boundary - 4);
+  tick(); // Second consecutive ordinary transfer must carry across bit 38.
+  clear = 1;
+  tick();
+  clear = 0;
+  eval();
+  // S1 can no longer supply its own successor. Inspect the saved candidate
+  // with admission disabled: clear preserves its logical PC without advancing it.
+  CHECK(!stage1_out.pvalid && !attempts_out.pvalid && attempts_out.pbits.ppc == boundary);
+}
+
 int main() {
   return run_test([] {
     reset = 1;
@@ -42,6 +74,10 @@ int main() {
     restart_in = {};
     replay_in = {};
     attempts_in = {};
+    tick();
+    reset = 0;
+    check_saved_advance();
+    reset = 1;
     tick();
     reset = 0;
 

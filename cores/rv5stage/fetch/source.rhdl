@@ -18,17 +18,22 @@ bundle RV5StageFetchAttempt(xlen :: XLen):
   continuation_target: CompactPc(xlen)
   prediction: BranchPrediction(xlen, xlen.width)
 
-/* Retains the last cursor update and its trace owner; the caller supplies the reset fallback. */
+/* Retains the selected PC and its trace owner. An accepted sequential advance
+   is applied on read, in parallel with the live S0 candidates. */
 sync_circuit RV5StageFetchCursor(xlen :: XLen):
   interface update(Valid(RV5StageFetchAttempt(xlen)), ~role: consumer)
+  input advance: Bool
   interface stored(Valid(RV5StageFetchAttempt(xlen)), ~role: producer)
   reg occupied(~init: Bool(#false))
   reg payload(RV5StageFetchAttempt(xlen))
+  reg advance_word(Bool)
+  def saved_pc = mux(advance_word, payload.pc.align_down(4) + Bits(xlen.width)(4), payload.pc)
   stored.valid <== occupied
-  stored.bits <== payload
+  stored.bits <== payload.updated(~pc: saved_pc)
   when (update.valid):
     occupied <== Bool(#true)
     payload <== update.bits
+    advance_word <== advance
 
   describe_interface_retained_storage(update.valid, occupied & update.valid, occupied)
   describe_interface_contract(update, stored, "cursor", ~trace_model: interface_trace_retained())
@@ -173,10 +178,12 @@ sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: PosInt = 32, ras_e
      restart, clear, accepted sequential advance, replay, then predicted successor.
      Restart retains its target even when the same-cycle replacement transfers. */
 
+  def sequential_update = advanced |> to_valid() |> filter_valid(_attempt => !command)
+  cursor.advance <== sequential_update.valid
   Array(
     restart_update |> map_valid(attempt => attempt.updated(~continuation_target: saved.bits.continuation_target)),
     saved_clear |> filter_valid(_attempt => clear.valid) |> map_valid(attempt => attempt.updated(~continuation: Bool(#false))),
-    advanced |> to_valid() |> filter_valid(_attempt => !command) |> map_valid(attempt => attempt.updated(~pc: attempt.pc.align_down(4) + Bits(width)(4), ~continuation: Bool(#false), ~continuation_target: saved.bits.continuation_target)),
+    sequential_update |> map_valid(attempt => attempt.updated(~continuation: Bool(#false), ~continuation_target: saved.bits.continuation_target)),
     replay_update |> filter_valid(_attempt => !command),
     next_update |> filter_valid(_attempt => !command)
   ) |> valid_arbiter() |> cursor.update

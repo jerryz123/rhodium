@@ -82,6 +82,10 @@ encoding. Only speculative destinations may alias.
 The cursor, S1, and S2 retain a straddling prediction's destination as a
 `CompactPc`, including through replay. Expand it only when selecting it as
 the next PC; the fetch attempt's own PC stays XLEN-wide for boundary faults.
+For an ordinary accepted offer, the cursor stores that PC with an advance
+bit and computes the next aligned word on read. A restart stores its exact
+target even if it transfers; a replay retained without transfer also stays
+exact. Clearing the continuation preserves the logical saved PC.
 The source uses the predictors' normalized hints, and the scanner normalizes direct-jump
 and live-return fallbacks before publishing both packet metadata and redirects.
 Do not truncate a retained prediction independently of the address fetch followed.
