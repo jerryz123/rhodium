@@ -22,3 +22,6 @@ spec for rtl.ShiftQueue:
 
   let rest = select(pop, tail(q), q)
   next q = select(reset, cleared, select(push, append(rest, ingress.bits), rest))
+
+  refinement:
+    relate q = q

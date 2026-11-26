@@ -15,6 +15,7 @@ export:
   literal input_ref state_ref choose_if bool_not bool_and bits_equal guard_sample
   seq_empty seq_full seq_front seq_tail seq_append seq_concat
   Observed make_spec include_sampled_events make_composition step_spec spec_snapshot composition_snapshot monitor_projection
+  cycle_state_projection input_premise_snapshot
 
 interface SpecType
 
@@ -204,6 +205,27 @@ fun include_sampled_events(sampler :: Model, outputs :: Map, events :: Map, ~onl
     values(name, Observed(bind(field.value), care))
   events ++ projected
 
+/* Rebind lexical cycle-state expressions as inputs to a stateless induction hint. Pins cannot enter
+   through helpers, observation care, or invariants. The issuer checks the certified state's sorts again. */
+fun cycle_state_projection(cycle :: Model, fields :: Map, invariants :: Map):
+  def inputs = MutableMap{}
+  /* Convert state leaves only; a sampled input is never an abstraction of persistent state. */
+  fun bind(expr :: Expr):
+    match expr.op
+    | "state":
+        unless cycle.state.has_key(expr.datum) && same_type(cycle.state[expr.datum], expr.type)
+        | error("unknown or mistyped cycle state: " ++ expr.datum)
+        inputs[expr.datum] := expr.type
+        input_ref(expr.datum, expr.type)
+    | "input": error("cycle projection cannot read sampled pin: " ++ expr.datum)
+    | ~else: Expr(expr.op, expr.type, expr.args.map(bind), expr.datum)
+  /* Care is part of the projection and has the same source restrictions as its value. */
+  fun observations(table :: Map):
+    for Map ((key, field :: Observed) in table): values(key, Observed(bind(field.value), bind(field.care)))
+  def outs = observations(fields)
+  def predicates = observations(invariants)
+  make_spec(inputs.snapshot(), {}, {}, outs, predicates, {})
+
 /* Check a monitor-state projection. A field rename map is shorthand for stateless typed IR;
    the proof binds its inputs exclusively to certified cycle state, never to sampled pins. */
 fun monitor_projection(monitor :: Model, relation :: Model || Map):
@@ -239,6 +261,10 @@ fun snapshot_expr(expr :: Expr):
   def data = if expr.datum is_a List | PairList[& expr.datum] | expr.datum
   PairList[expr.op, snapshot_type(expr.type), data, & expr.args.map(snapshot_expr)]
 
+/* Export just the validated current-input predicates; no cycle outputs or state are premises. */
+fun input_premise_snapshot(model :: Model):
+  for Map ((name, expr) in model.assumptions): values(name, snapshot_expr(expr))
+
 /* Include the declared start for reset proofs without constraining a symbolic old state. */
 fun spec_snapshot(model :: Model):
   /* Preserve the instantiated sort of each named input or state field. */
@@ -251,7 +277,7 @@ fun spec_snapshot(model :: Model):
   {"inputs": schema(model.inputs), "state": schema(model.state),
    "initial": for Map ((k, v) in model.initial): values(k, if v is_a List | PairList[& v] | v),
    "outputs": view(model.outputs), "events": view(model.events),
-   "assumptions": for Map ((name, expr) in model.assumptions): values(name, snapshot_expr(expr)),
+   "assumptions": input_premise_snapshot(model),
    "updates": for Map ((name, expr) in model.updates): values(name, snapshot_expr(expr))}
 
 /* Interpret guards lazily, so an inactive partial operation is not executed. */

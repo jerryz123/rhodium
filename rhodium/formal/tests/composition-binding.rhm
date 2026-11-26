@@ -24,14 +24,17 @@ import:
   lib("examples/formal/gated-capture.rhdl") open
   "raw-selector.rhdl" open
   "parallel-monitors.rhdl" open
+  lib("examples/formal/stalled-offer.rhdl") open
+  "changing-offer.rhdl" open
 
 export mark_leaf toggle_leaf mark_pair crossed_marks
+export stall_sink stall_wrapper stall_parent changing_offer transfer_only_wrapper
 export rob faulty_rob swapped_rob unchecked_rob
 export renamed_logged_rob logged_rob valid_only_logged_rob miswired_logged_rob
 export selector granted_selector raw_selector
 export router routed_selector duplicate_grant high_grant circular_grants
 export registered_lane registered_routed registered_duplicate
-export capture_gate arbitrated_capture raw_capture
+export capture_gate arbitrated_capture raw_capture duplicate_capture
 export gated_at leaky_at outer_at faulty_buffered
 export pair_at fifo_definition arbiter_definition mixed wrong_lane undersized
 export pair_series wrong_ready_series
@@ -76,11 +79,22 @@ def mutable registered_duplicate = #false
 def mutable capture_gate = #false
 def mutable arbitrated_capture = #false
 def mutable raw_capture = #false
+def mutable duplicate_capture = #false
 def mutable mark_leaf = #false
 def mutable toggle_leaf = #false
 def mutable mark_pair = #false
 def mutable crossed_marks = #false
+def mutable stall_sink = #false
+def mutable stall_wrapper = #false
+def mutable transfer_only_wrapper = #false
+def mutable stall_parent = #false
+def mutable changing_offer = #false
 fun inventory():
+  stall_sink := materialize_circuit(StallConsumer())
+  stall_wrapper := materialize_circuit(StallConsumerWrapper())
+  transfer_only_wrapper := materialize_circuit(TransferOnlyWrapper())
+  stall_parent := materialize_circuit(BufferedStallConsumer())
+  changing_offer := materialize_circuit(ChangingOffer())
   mark_leaf := materialize_circuit(StickyMark())
   toggle_leaf := materialize_circuit(ToggleMark())
   mark_pair := materialize_circuit(ParallelMarks())
@@ -100,6 +114,7 @@ fun inventory():
   capture_gate := materialize_circuit(GatedCapture())
   arbitrated_capture := materialize_circuit(ArbitratedCapture())
   raw_capture := materialize_circuit(RawCapture())
+  duplicate_capture := materialize_circuit(DuplicateCaptureGrant())
   for (d in [1, 2]):
     pairs[d] := materialize_circuit(QueuePair(d))
   for (d in [1, 2]):

@@ -243,18 +243,144 @@ See [two independent marks](tests/parallel-monitors.rspl) and
 [QueuePair](#concrete-specification-api) for parallel and series examples.
 A declaration containing only a monitor and its refinement is requested with `~transaction_view: #true`; it does not predict cycle outputs.
 
-If the cycle spec is already proved, use
-`(derive-transaction cycle-proof top view projection)` from [rspecl/proof.rkt](../../rspecl/proof.rkt).
-This proves a weaker view without reopening the implementation or its children.
-For [ArbitratedCapture](../../examples/formal/gated-capture.rspl), the projection
-`(hash "previous" "saved")` relates the monitor's previous winner to the cycle spec's saved word.
-On a capture, `selected` shows that previous word, not the winner entering on the same edge.
-A monitor may instead use a stateless spec IR projection whose inputs name cycle state
-and whose outputs describe the monitor state. Projection invariants must themselves be proved.
-For a FIFO event view, name the cycle sequence with `(hash "q" "q")` (or its actual
-cycle field name); its type supplies the capacity and word width. Only unconditional
-single-clock reset proofs qualify. A hidden output cannot be sampled; outside its care
-condition a declared output may have any value.
+If the cycle spec is already proved, the spec can declare how each monitor field
+relates to its own cycle state. For example, [ArbitratedCapture](../../examples/formal/gated-capture.rspl)
+says:
+
+```rhombus
+refinement:
+  relate previous = saved
+```
+
+Call `(derive-transaction cycle-proof top ArbitratedCapture)` from [rspecl/proof.rkt](../../rspecl/proof.rkt).
+Pass the spec constructor, not a field map. The checker proves that reset
+establishes the relation and that each legal edge preserves it. On a capture,
+`selected` must show the previous word, not that edge's winner. The same form
+derives [ShiftQueue](../../examples/formal/shift-queue.rspl) ordering with `relate q = q`;
+the projected sequence determines capacity, and its element width must match the endpoint.
+
+Projection expressions, optional care conditions and auxiliary invariants may
+use lexical helpers over cycle state, but not current pins. Invariants are
+proved, not assumed. Stateful derivation uses a single-clock reset proof; outside its
+care condition a sampled output may have any value. FIFO evidence still requires
+an unconditional cycle proof. General monitors retain any named input premises
+from the certified cycle proof. These predicates concern **physical input pins**,
+not event batches. Inspect them with `transaction-input-premises`; until they
+are discharged, `transaction-for?` does not authorize unconditional use, and
+sampling, stepping or opening an event-only cut directly is rejected.
+
+For a wrapper forwarding one monitor, use:
+
+```racket
+(prove-forwarded-transaction top parent-view "gate" gate-proof gate-view
+                             #:combinational (hash "arb" arbiter-proof))
+```
+
+This matches the child occurrences to their evidence, proves the gate's
+premises on its actual drivers, then compares every field of the two sampled
+batches. The monitors must have identical initial state, guarantees and updates.
+The arbiter supplies an unconditional, stateless cycle guarantee, not RTL;
+the gate supplies transaction evidence only. The resulting parent seal can
+be used by an event-only observer. Simultaneous requests are legal: it is the
+arbiter's **grants**, not the environment's requests, that must be exclusive.
+
+If the wrapper itself requires a pin assumption, pass its RSPECL declaration
+instead of the bare view. For example, the gate proof needs only the verified
+selector transaction contract:
+
+```racket
+(define selector-proof
+  (derive-transaction selector-cycle-proof selector-top RegisteredLaneSelector))
+(define gate-proof
+  (prove-forwarded-transaction gate-top GatedCapture "lanes" selector-proof
+                               (RegisteredLaneSelector #:transaction_view #t)))
+```
+
+The gate drives each enable with `capture && grant`. Its declared
+`capture_exclusive` therefore establishes the selector's `exclusive` premise.
+The gate proof checks reset and non-reset feasibility and retains
+`capture_exclusive`; it does not use the gate's cycle behavior as evidence.
+Passing the bare gate view asks for an unconditional theorem and fails on two
+active grants. A consumer must discharge the retained predicate on its wiring
+before using the gate's guarantee.
+
+If the parent keeps different history, pass the combinational evidence to
+`prove-transaction` and declare the relation to the child's public history:
+
+```racket
+(prove-transaction top previous_zero_view (hash "gate" gate-proof)
+                   #:combinational (hash "arb" arbiter-proof))
+```
+
+The [one-bit view](../../examples/formal/gated-capture.rspl) promises that,
+on capture, readback is zero exactly when the previous winner was zero
+(initially true after reset). It does not promise which nonzero word is read.
+The checker proves the same pin premises first, then proves the relation
+at reset and across active edges. It does not require identical monitors.
+
+The same parent can use **two transaction contracts** and no executable child:
+
+```racket
+(define grant-proof
+  (derive-transaction arbiter-cycle-proof arbiter-top (Arbiter #:transaction_view #t) (hash)))
+(prove-transaction top transaction_zero_view (hash "arb" grant-proof "gate" gate-proof))
+```
+
+The [clockless grant monitor](../../examples/formal/arbiter.rspl) has no history
+to project. It samples the two physical grant pins independently on every sample.
+Exclusivity is enough to use the gate contract, but not enough to say which
+word the parent captured. The lane-priority guarantees supply that second fact.
+Only already-admitted source contracts may justify another child's pin premise;
+circular same-edge justifications are rejected.
+
+To export **only the zero bit** from the gate itself, prove its alternate view
+under the pin assumptions of its existing declaration:
+
+```racket
+(define gate-bit-proof
+  (prove-transaction gate-top (zero_gate gate-top #:transaction_view #t)
+                     (hash "lanes" selector-proof) #:under GatedCapture))
+(prove-transaction top zero_from_bit_view (hash "arb" grant-proof "gate" gate-bit-proof))
+```
+
+`#:under` contributes only the declaration's named input predicates, not its
+cycle behavior. Omitting it requests an unconditional proof. The gate result
+retains `capture_exclusive`; the outer arbiter discharges it and exports an
+unconditional result. On a capture following a winner of 1, a readback of 3
+satisfies this contract just as 1 does. This is a limit of the one-bit
+guarantee, not a behavior claimed for the RTL. The direct FIFO series proof
+continues to require an unconditional contract.
+
+A [stalled-offer monitor](../../examples/formal/stalled-offer.rspl) samples
+**valid and payload before transfer**. After any non-reset edge with valid high
+and ready low, the next sample must still be valid with the same word, including
+on a handshake. Reset cancels the obligation; nothing requires ready to rise.
+Derive this guarantee from ShiftQueue(1)'s verified cycle spec with the
+`'adjacent-samples` projection strategy. FIFO transaction ordering alone
+cannot supply it: two traces can retire the same words but differ while stalled.
+
+The recorder's proof uses `#:requires required_offer` on its input pins.
+Its public receipt remembers only `pending`. Inside the recorder's
+`refinement:`, `required (last): Bits(2)` reads the input monitor's own
+history. The checker proves that the RTL's saved word equals `last` while
+tracking a stall; that word is not part of the receipt history available to a
+parent. A thin wrapper can forward the same receipt, but must retain the
+stable-offer requirement on its **own** input pins:
+
+```racket
+(define wrapper-proof
+  (prove-forwarded-transaction wrapper-top wrapper-receipt "recorder" recorder-proof recorder-receipt
+                               #:requires wrapper_offer))
+(prove-transaction buffered-top buffered-receipt (hash "fifo" queue-proof "sink" wrapper-proof)
+                   #:suppliers (hash "sink" "fifo"))
+```
+
+The forwarding proof checks that the external `payload` drives the recorder's
+`word` on every valid sample, including stalls. It checks the other input
+fields and the outgoing receipt as well. Only the outer proof, which connects
+ShiftQueue's sealed stability guarantee, is unconditional. It proves that a
+handshake following a stall reads back the **first** stalled word without
+knowing the recorder's occurrence name or inspecting its registers.
 
 To share behavior independently of any circuit, an ordinary RSPECL function may
 return a `monitor:` value. Both ROB specs use the same

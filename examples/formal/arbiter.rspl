@@ -3,6 +3,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import lib("flow/arbiter.rhdl") as rtl
+import lib("rhodium/formal/spec.rhm").Observed
+
+/* Sample the two grant pins independently; neither requests nor a decoded winner imply a grant. */
+fun grant_events(read :: Function.of_arity(2), output :: Function.of_arity(2)):
+  /* Encode a sampled Boolean pin as event presence, including when its peer is asserted. */
+  fun flag(pin :: SpecExpr): Observed(const(Bool, #true), pin)
+  {"a": flag(read("ingress[0].valid", Bool)), "b": flag(read("ingress[1].valid", Bool)),
+   "ready": flag(read("egress.ready", Bool)),
+   "ga": flag(output("ingress[0].ready", Bool)), "gb": flag(output("ingress[1].ready", Bool))}
+export grant_events
 
 /* Select the lowest valid lane anew each sample; no request locks a stalled grant. */
 spec for rtl.Arbiter:
@@ -21,3 +31,14 @@ spec for rtl.Arbiter:
   event in0 = first.bits when r0
   event in1 = second.bits when r1
   event out = data when egress.ready && valid
+  monitor:
+    sample grant_events
+    publish []
+    batch a = present(a)
+    batch b = present(b)
+    batch ready = present(ready)
+    batch ga = present(ga)
+    batch gb = present(gb)
+    guarantee "exclusive" = !(ga && gb)
+    guarantee "first-grant" = select(ready && a, ga, !ga)
+    guarantee "second-grant" = select(ready && !a && b, gb, !gb)

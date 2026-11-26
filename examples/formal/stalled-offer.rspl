@@ -1,0 +1,93 @@
+#lang rspecl
+/* Separates the queue's pin-level stability promise from its consumer's first-stalled-word receipt. */
+// SPDX-License-Identifier: Apache-2.0
+
+import lib("flow/shift-queue.rhdl") as queues
+import "stalled-offer.rhdl" as rtl
+import lib("rhodium/formal/spec.rhm").Observed
+
+/* Payload is observable whenever valid, not just on retirement; reset starts a new epoch. */
+fun offer_events(rst :: SpecExpr, valid :: SpecExpr, ready :: SpecExpr, word :: SpecExpr):
+  def one = const(Bool, #true)
+  {"reset": Observed(one, rst), "offer": Observed(word, !rst && valid), "ready": Observed(one, !rst && ready)}
+
+/* Read the real producer-side members of the grouped egress interface. */
+fun queue_sample(read :: Function, output :: Function):
+  offer_events(read("reset", Bool), output("egress.valid", Bool), read("egress.ready", Bool), output("egress.bits", Bits(2)))
+
+/* The consumer assumption samples only inputs, never its remembered output. */
+fun input_sample(word_pin :: String):
+  fun (read :: Function, output :: Function):
+    offer_events(read("reset", Bool), read("valid", Bool), read("ready", Bool), read(word_pin, Bits(2)))
+
+/* A stalled offer remains visible and unchanged on the very next non-reset edge, even if accepted. */
+fun stable_offer(sampler :: Function.of_arity(2)):
+  monitor:
+    sample sampler
+    publish []
+    batch rst = present(reset)
+    batch offered = present(offer)
+    batch ready = present(ready)
+    batch word: Bits(2) = payload(offer) when offered
+    state pending: Bool initially #false
+    state last: Bits(2) initially 0
+    guarantee "stable-valid" = rst || !pending || offered
+    guarantee "stable-payload" = rst || !pending || bits_equal(last, word)
+    next pending = offered && !ready
+    next last = select(offered && !ready, word, const(Bits(2), 0))
+
+spec for queues.ShiftQueue:
+  transactions stable_offer(queue_sample)
+
+def required_offer = stable_offer(input_sample("word"))
+def wrapper_offer = stable_offer(input_sample("payload"))
+export required_offer wrapper_offer
+
+/* The recorder output is meaningful for this theorem only when the sink actually transfers. */
+fun receipt_events(rst :: SpecExpr, valid :: SpecExpr, ready :: SpecExpr, word :: SpecExpr, saved :: SpecExpr):
+  offer_events(rst, valid, ready, word) ++ {"receipt": Observed(saved, !rst && valid && ready)}
+
+/* Bind the same receipt to the word input exposed by either recorder boundary. */
+fun sink_receipt(word_pin :: String):
+  fun (read :: Function, output :: Function):
+    receipt_events(read("reset", Bool), read("valid", Bool), read("ready", Bool), read(word_pin, Bits(2)), output("remembered", Bits(2)))
+
+/* Bind that same receipt to the public wrapper; valid and word now come from outputs. */
+fun wrapper_receipt(read :: Function, output :: Function):
+  receipt_events(read("reset", Bool), output("valid", Bool), read("consume", Bool), output("word", Bits(2)), output("remembered", Bits(2)))
+
+/* Check pre-edge readback on a handshake following a stall; do not require a handshake to occur. */
+fun receipt(sampler :: Function.of_arity(2)):
+  monitor:
+    sample sampler
+    publish []
+    batch offered = present(offer)
+    batch ready = present(ready)
+    batch word: Bits(2) = payload(offer) when offered
+    batch fire = present(receipt)
+    batch saved: Bits(2) = payload(receipt) when fire
+    state pending: Bool initially #false
+    guarantee "first-stalled-word" = !pending || !fire || bits_equal(saved, word)
+    next pending = offered && !ready
+
+spec for rtl.StallConsumer:
+  transactions receipt(sink_receipt("word"))
+  refinement:
+    local (tracking): Bool
+    local (saved): Bits(2)
+    required (pending): Bool
+    required (last): Bits(2)
+    invariant same_stall = select(tracking, pending, !pending)
+    invariant first_word = !tracking || bits_equal(saved, last)
+    relate pending = tracking
+
+spec for rtl.StallConsumerWrapper:
+  transactions receipt(sink_receipt("payload"))
+
+spec for rtl.BufferedStallConsumer:
+  transactions receipt(wrapper_receipt)
+  refinement:
+    child fifo: ShiftQueue
+    child sink: StallConsumerWrapper
+    history held from sink.pending: Bool
+    relate pending = held

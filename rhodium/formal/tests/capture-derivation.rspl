@@ -2,14 +2,20 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import lib("examples/formal/gated-capture.rhdl") as rtl
-import lib("examples/formal/gated-capture.rspl").capture_events
+import lib("examples/formal/gated-capture.rspl") as public
+import lib("examples/formal/arbiter.rspl") as grants
+import lib("examples/formal/granted-selector.rspl") as selectors
+import lib("flow/arbiter.rhdl") as flow
+import "raw-selector.rhdl" as raw
 import "../spec.rhm" as ir
 import lib("rspecl/rtl-boundary.rhm").Presence
 
 // Same public sampler, wrong temporal contract: pre-edge readback cannot bypass the register.
 spec for rtl.ArbitratedCapture:
+  state saved: Bits(2) initially 0
+  observe selected = saved when !reset
   monitor:
-    sample capture_events
+    sample public.capture_events
     publish []
     batch reset = present(reset)
     batch fire = present(captured)
@@ -19,12 +25,108 @@ spec for rtl.ArbitratedCapture:
     guarantee "new-on-capture" = !fire || bits_equal(readback, winner)
     next previous = select(reset, const(Bits(2), 0), select(fire, winner, previous))
 
-// The invariant variant tries to exclude a legitimate capture of a nonzero word.
-fun capture_relation(restrict :: Boolean):
-  def saved = ir.input_ref("saved", Bits(2))
-  def invariants = if restrict | {"zero": ir.Observed(bits_equal(saved, const(Bits(2), 0)))} | {}
-  ir.make_spec({"saved": Bits(2)}, {}, {}, {"previous": ir.Observed(saved)}, invariants, {})
-export capture_relation
+  refinement:
+    relate previous = saved
+
+// Exercise private hints against the original, certified cycle model and public monitor.
+fun faulty_projection(kind :: String):
+  spec for rtl.ArbitratedCapture:
+    state saved: Bits(2) initially 0
+    observe selected = saved when !reset
+    transactions public.ArbitratedCapture(~transaction_view: #true)
+    refinement:
+      let alias = if kind == "pin" | word_a | saved
+      let zero = bits_equal(saved, const(Bits(2), 0))
+      invariant restricted = (if kind == "invariant" | zero | #true)
+      relate previous = (if kind == "sort" | zero | alias) when (if kind == "care" | !reset | #true)
+  ArbitratedCapture
+export faulty_projection
+
+// Same public monitor, wiring and child; only the candidate projection is inverted.
+def inverted_zero_view:
+  spec for rtl.ArbitratedCapture:
+    transactions public.previous_zero_monitor
+    refinement:
+      child gate: public.GatedCapture
+      history word from gate.previous: Bits(2)
+      relate previous_was_zero = !bits_equal(word, const(Bits(2), 0))
+  ArbitratedCapture(~transaction_view: #true)
+export inverted_zero_view
+
+// In one case reset cannot establish the projection; in the other, the cover is outside the parent contract.
+fun bad_gate_view(invert :: Boolean):
+  spec for rtl.GatedCapture:
+    transactions public.gate_zero_monitor
+    refinement:
+      child lanes: selectors.RegisteredLaneSelector
+      history word from lanes.previous: Bits(2)
+      let zero = bits_equal(word, const(Bits(2), 0))
+      relate previous_was_zero = (if invert | !zero | zero)
+      input (grant_a, grant_b, capture): Bool
+      cover double_capture = capture && grant_a && grant_b
+  GatedCapture(~transaction_view: #true)
+export bad_gate_view
+
+// Guessing a representative for nonzero cannot justify the original exact-word guarantee.
+def exact_from_bit:
+  spec for rtl.ArbitratedCapture:
+    transactions public.ArbitratedCapture(~transaction_view: #true)
+    refinement:
+      child arb: grants.Arbiter
+      child gate: public.zero_gate
+      history was_zero from gate.previous_was_zero: Bool
+      relate previous = select(was_zero, const(Bits(2), 0), const(Bits(2), 1))
+  ArbitratedCapture(~transaction_view: #true)
+export exact_from_bit
+
+// This real, weaker theorem permits either lane or no grant regardless of requests.
+spec for flow.Arbiter:
+  monitor:
+    sample grants.grant_events
+    publish []
+    batch ga = present(ga)
+    batch gb = present(gb)
+    guarantee "exclusive" = !(ga && gb)
+
+// A grant cannot be promised merely because lane B requests during a contest.
+def bad_priority:
+  spec for flow.Arbiter:
+    monitor:
+      sample grants.grant_events
+      publish []
+      batch a = present(a)
+      batch b = present(b)
+      batch ready = present(ready)
+      batch gb = present(gb)
+      guarantee "b-wins-contest" = !(a && b && ready) || gb
+  Arbiter(~transaction_view: #true)
+export bad_priority
+
+spec for raw.HighGrant:
+  monitor:
+    sample fun (_, out): {"grant": ir.Observed(const(Bool, #true), out("grant", Bool))}
+    publish []
+    batch grant = present(grant)
+    guarantee "always-grants" = grant
+
+spec for raw.CircularGrants:
+  monitor:
+    sample fun (_, out): {"grant": ir.Observed(const(Bool, #true), out("granted", Bool))}
+    publish []
+    batch grant = present(grant)
+    guarantee "always-grants" = grant
+  refinement:
+    child a: HighGrant
+    child b: HighGrant
+
+// Keep the identical public monitor and gate premise, but observe lane B's word for lane A.
+fun crossed_payload():
+  def view = public.ArbitratedCapture(~transaction_view: #true)
+  fun crossed(read, output):
+    fun word(name, sort): read((if name == "word_a" | "word_b" | name), sort)
+    public.capture_events(word, output)
+  transaction_view(view.monitor, [], crossed, ~bindings: view.bindings)
+export crossed_payload
 
 // Reset establishes the next saved word, not the physical pre-edge selected output.
 fun reset_readback(top):

@@ -1,0 +1,29 @@
+#lang rspecl
+/* Defines the sampled capture and previous-word contract shared across selector boundaries. */
+// SPDX-License-Identifier: Apache-2.0
+
+import lib("rhodium/formal/spec.rhm").Observed
+export capture_sample capture_monitor
+
+/* Read pre-edge data only on a non-reset capture with an enabled lane. */
+fun capture_sample(read :: Function.of_arity(2), output :: Function.of_arity(2),
+                   enabled :: SpecExpr, lane_a :: String, lane_b :: String):
+  def rst = read("reset", Bool)
+  def a = read(lane_a, Bool)
+  def fire = !rst && enabled && (a || read(lane_b, Bool))
+  def winner = select(a, read("word_a", Bits(2)), read("word_b", Bits(2)))
+  {"reset": Observed(const(Bool, #true), rst),
+   "captured": Observed(winner, fire), "readback": Observed(output("selected", Bits(2)), fire)}
+
+/* Reset forgets the old word; a capture reports it before committing the new winner. */
+fun capture_monitor(sampler :: Function.of_arity(2)):
+  monitor:
+    sample sampler
+    publish []
+    batch reset = present(reset)
+    batch fire = present(captured)
+    batch winner: Bits(2) = payload(captured) when fire
+    batch readback: Bits(2) = payload(readback) when fire
+    state previous: Bits(2) initially 0
+    guarantee "previous-on-capture" = !fire || bits_equal(readback, previous)
+    next previous = select(reset, const(Bits(2), 0), select(fire, winner, previous))

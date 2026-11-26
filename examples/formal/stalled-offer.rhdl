@@ -1,0 +1,50 @@
+#lang rhodium
+/* Records the first stalled offer and connects that consumer to a one-word ShiftQueue. */
+// SPDX-License-Identifier: Apache-2.0
+
+import lib("flow/shift-queue.rhdl").ShiftQueue
+
+/* Remember the first word seen under backpressure, not the last word before transfer. */
+sync_circuit StallConsumer():
+  input (valid, ready): Bool
+  input word: Bits(2)
+  output remembered: Bits(2)
+  reg tracking(~init: Bool(#false))
+  reg saved(Bits(2))
+  def stall = valid & !ready
+  tracking <== stall
+  def first_stall = stall & !tracking
+  when first_stall:
+    saved <== word
+  remembered <== saved
+
+/* Forward every offered payload to the recorder, including samples before acceptance. */
+sync_circuit StallConsumerWrapper():
+  input (valid, ready): Bool
+  input payload: Bits(2)
+  output remembered: Bits(2)
+  inst recorder(StallConsumer())
+  recorder.valid <== valid
+  recorder.ready <== ready
+  recorder.word <== payload
+  remembered <== recorder.remembered
+
+/* The queue supplies a stable offer to the wrapper; the inner recorder is not a direct child. */
+sync_circuit BufferedStallConsumer():
+  input (offer, consume): Bool
+  input data: Bits(2)
+  output valid: Bool
+  output (word, remembered): Bits(2)
+  inst fifo(ShiftQueue(Bits(2), 1))
+  fifo.ingress.valid <== offer
+  fifo.ingress.bits <== data
+  fifo.egress.ready <== consume
+  inst sink(StallConsumerWrapper())
+  sink.valid <== fifo.egress.valid
+  sink.ready <== consume
+  sink.payload <== fifo.egress.bits
+  valid <== fifo.egress.valid
+  word <== fifo.egress.bits
+  remembered <== sink.remembered
+
+export StallConsumer StallConsumerWrapper BufferedStallConsumer

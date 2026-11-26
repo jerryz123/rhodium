@@ -5,20 +5,20 @@
 (require racket/match (only-in racket/base [equal? host-equal?] [eq? host-eq?])
          "engine.rkt" "spec-engine.rkt" "transaction-induction.rkt" (only-in "snapshot.rhm" formal_snapshot)
          (only-in "spec.rhm" spec_snapshot monitor_projection)
-         (only-in "fifo-monitor.rhm" fifo_monitor)
+         (only-in "fifo-monitor.rhm" fifo_monitor projected_fifo_capacity)
          (only-in "fifo-view.rhm" fifo_view_parts fifo_view_layout fifo_view_bool fifo_view_behavior fifo_series_parts)
          (only-in "wiring.rhm" cut_parts leaf_protocol leaf_layout check_fifo_series_wiring))
 (provide prove-leaf prove-parent prepare-proved-wiring proved-child-model symbolic-cut-state proved-edge-at view-agrees? pack-pins unpack-pins)
 (provide exn:fail:input-contract? exn:fail:input-contract-goal exn:fail:input-contract-inputs)
 (provide check-batch-total! check-cycle-monitor! (rename-out [check-phase check-refinement-phase!]))
-(provide prove-fifo-series-refinement fifo-monitor-site)
+(provide prove-fifo-series-refinement fifo-monitor-site certified-combinational-site)
 (provide symbolic-wrapper-cut symbolic-fifo-cut fifo-cut-inputs fifo-cut-outputs fifo-cut-locals fifo-cut-batch fifo-cut-domain)
 (provide derive-fifo-transactions prove-fifo-transactions compose-fifo-series prove-fifo-wrapper fifo-transactions-for? fifo-transactions-capacity fifo-transactions-width
          fresh-fifo-history fifo-allows? (struct-out fifo-history) (struct-out fifo-events))
 
 ;; Private constructors. These are live elaboration identities, not transferable certificates.
 ;; A conditional result carries its current-input premises in the exact model snapshot.
-(struct refinement-result (definition model protocol layout))
+(struct refinement-result (definition model protocol layout spec))
 (struct proved-cut (definition layout graph models))
 (struct exn:fail:input-contract exn:fail (goal inputs) #:transparent)
 
@@ -146,7 +146,7 @@
      (unless (zero? (hash-count (edge-state spec))) (error 'prove-leaf "expected a stateless model"))
      (check-phase 'combinational allowed
                   (cons (cons 'domain (edge-legal spec)) common))])
-  (refinement-result definition model protocol layout))
+  (refinement-result definition model protocol layout spec-model))
 
 #| A publicly steppable plan requires child contracts to hold without any caller assumptions. |#
 (define (prepare-proved-wiring cut results)
@@ -226,7 +226,7 @@
   (check-synchronous! model spec (andmap spec-state-legal? (hash-values states))
                       (relation states (edge-state spec)) (relation after (edge-next spec)) common
                       #:allowed-inputs (allowed-inputs? model (edge-inputs spec)))
-  (refinement-result (proved-cut-definition plan) model "single-clock-reset" (proved-cut-layout plan)))
+  (refinement-result (proved-cut-definition plan) model "single-clock-reset" (proved-cut-layout plan) spec-model))
 
 ;; Only certification can construct evidence. No child states, transition plan, or cycle pins escape.
 (struct fifo-transactions (definition layout ingress egress capacity width sampler monitor))
@@ -299,66 +299,127 @@
       (for/fold ([ok #t]) ([i (in-naturals)] [actual new-slots] [expected words])
         (&& ok (=> (< i m) (bveq actual expected))))))
 
-#| Admit only the certified unconditional clocked specialization, never a replacement model. |#
-(define (certified-cycle-model cycle definition layout)
+#| Only a sealed, unconditional stateless cycle proof can supply a combinational driver in a transaction cut. |#
+(define (certified-combinational-site proof)
+  (unless (and (refinement-result? proof) (host-equal? "combinational" (refinement-result-protocol proof))
+               (zero? (hash-count (hash-ref (refinement-result-model proof) "assumptions")))
+               (zero? (hash-count (hash-ref (refinement-result-model proof) "state"))))
+    (error 'transaction-cut "expected unconditional combinational cycle evidence"))
+  (combinational-site (refinement-result-definition proof) (refinement-result-layout proof) (refinement-result-spec proof)))
+
+#| Match the certified specialization and protocol. Only an issuer retaining pin premises may weaken a conditional proof. |#
+(define (certified-cycle-model cycle definition layout [retain? #f] [protocol "single-clock-reset"])
   (unless (and (refinement-result? cycle) (host-eq? definition (refinement-result-definition cycle))
                (host-equal? layout (refinement-result-layout cycle))
-               (host-equal? (refinement-result-protocol cycle) "single-clock-reset"))
+               (host-equal? (refinement-result-protocol cycle) protocol))
     (error 'cycle-view "expected cycle evidence for this exact definition and member layout"))
   (define model (refinement-result-model cycle))
-  (unless (zero? (hash-count (hash-ref model "assumptions")))
+  (unless (or retain? (zero? (hash-count (hash-ref model "assumptions"))))
     (error 'cycle-view "conditional cycle evidence cannot export an unconditional transaction contract"))
   model)
 
 #| Prove a public monitor using only certified cycle state and public pre-edge pins. Both
    issuers keep the checked sampler with the evidence; this low-level check issues none. |#
-(define (check-cycle-monitor! cycle definition layout monitor-model relation ins outs sample)
-  (define model (certified-cycle-model cycle definition layout))
+(define (check-cycle-monitor! cycle definition layout monitor-model relation ins outs sample #:retain-premises? [retain? #f])
+  (define protocol (if retain? (leaf_protocol definition) "single-clock-reset"))
+  (define model (certified-cycle-model cycle definition layout retain? protocol))
   (define monitor (spec_snapshot monitor-model))
   (unless (zero? (hash-count (hash-ref monitor "assumptions"))) (error 'cycle-view "conditional monitor"))
-  (define projection (monitor_projection monitor-model relation))
+  (define adjacent? (host-eq? relation 'adjacent-samples))
+  (when (and adjacent? (or (not (host-equal? protocol "single-clock-reset"))
+                           (positive? (hash-count (hash-ref model "assumptions")))))
+    (error 'cycle-view "adjacent samples require unconditional clocked cycle evidence"))
+  (define projection (and (not adjacent?) (monitor_projection monitor-model relation)))
   (for ([names (list ins outs)] [direction layout])
     (define members (map car (append* (hash-values direction))))
     (for ([name names])
       (unless (member name members) (error 'cycle-view "unknown pin or wrong direction: ~a" name))))
-  (define sources (hash-ref projection "inputs"))
+  (define sources (if projection (hash-ref projection "inputs") (hash)))
   (for ([(name sort) sources])
     (unless (host-equal? sort (hash-ref (hash-ref model "state") name #f))
       (error 'cycle-view "missing or mistyped cycle state: ~a" name)))
   #| Re-evaluate the same IR over old, next and initial cycle state, never monitor or RTL state. |#
   (define (project state)
     (spec-edge-at projection (hash) (for/hash ([k (hash-keys sources)]) (values k (hash-ref state k)))))
+  #| Each sample sees one physical value per output, fresh outside care and shared by every read. |#
+  (define (read-edge e)
+    (define inputs (edge-inputs e))
+    (define-values (outputs pins-ok)
+      (for/fold ([pins (hash)] [ok #t]) ([k (remove-duplicates outs)])
+        (unless (hash-has-key? (edge-outputs e) k)
+          (error 'cycle-view "cycle evidence does not cover output ~a" k))
+        (define-values (v defined) (spec-pin-at model k (edge-state e) inputs))
+        (values (hash-set pins k v) (&& ok defined))))
+    (define-values (batch ok) (sample (for/hash ([k ins]) (values k (hash-ref inputs k))) outputs))
+    (values batch ok pins-ok))
   (define e (symbolic-spec-edge model))
   (define inputs (edge-inputs e))
-  (define-values (outputs pins-ok)
-    (for/fold ([pins (hash)] [ok #t]) ([k (remove-duplicates outs)])
-      (unless (hash-has-key? (edge-outputs e) k)
-        (error 'cycle-view "cycle evidence does not cover output ~a" k))
-      ;; Allocate one physical value per output, shared by all reads even when outside care.
-      (define-values (v defined) (spec-pin-at model k (edge-state e) inputs))
-      (values (hash-set pins k v) (&& ok defined))))
-  (define-values (batch sampler-ok)
-    (sample (for/hash ([k ins]) (values k (hash-ref inputs k))) outputs))
-  (check-monitor-edge! (lambda (phase premise goals) (check-phase (format "cycle-view-~a" phase) premise goals))
-                       monitor batch (hash-ref inputs "reset") (edge-legal e)
-                       (project (edge-state e)) (project (edge-next e)) (project (spec-initial-state model))
-                       (list (cons 'sampler-domain sampler-ok)
-                             (cons 'defined (&& (edge-defined e) pins-ok (spec-state-legal? (edge-next e)))))))
+  (define-values (batch sampler-ok pins-ok) (read-edge e))
+  (define domain (&& (edge-legal e) (allowed-inputs? model inputs)))
+  (define obligations (list (cons 'sampler-domain sampler-ok)
+                            (cons 'defined (&& (edge-defined e) pins-ok (spec-state-legal? (edge-next e))))))
+  (cond
+    [adjacent?
+     ;; Reset is the base. For induction, the earlier edge has already passed;
+     ;; rejected batches hold monitor history and are not reachable predecessors.
+     (define old (symbolic-spec-state monitor))
+     (define first (spec-edge-at monitor old batch))
+     (define legal (&& domain (spec-state-legal? old)))
+     (define initial (spec-initial-state monitor))
+     #| Check each named guarantee with its care bit on the sampled edge. |#
+     (define (verdicts step)
+       (for/list ([(name obs) (edge-outputs step)])
+         (unless (boolean? (observation-value obs)) (error 'cycle-view "expected Boolean verdict: ~a" name))
+         (cons name (&& (observation-care obs) (observation-value obs)))))
+     (check-phase 'adjacent-first legal
+       (cons (cons 'next-defined (&& (edge-defined first) (spec-state-legal? (edge-next first)))) obligations))
+     (check-phase 'adjacent-reset (&& legal (hash-ref inputs "reset"))
+       (append (list (cons 'reset-allowed (monitor-allowed? first))
+                     (cons 'initial (for/fold ([ok #t]) ([(k v) initial])
+                                      (&& ok (equivalent-value? v (hash-ref (edge-next first) k))))))
+               (verdicts first)))
+     (define later (spec-edge-at model (edge-next e) (fresh-fields (hash-ref model "inputs"))))
+     (define-values (b ok p) (read-edge later))
+     (define second (spec-edge-at monitor (edge-next first) b))
+     (check-phase 'adjacent-pair (&& legal (monitor-allowed? first))
+       (cons (cons 'defined (&& ok p (edge-legal later) (edge-defined later) (monitor-allowed? second)))
+             (verdicts second)))]
+    [(host-equal? protocol "combinational")
+     (unless (and (zero? (hash-count (hash-ref monitor "state"))) (zero? (hash-count (hash-ref projection "events"))))
+       (error 'cycle-view "a clockless monitor must be stateless with no projection invariants"))
+     (define step (spec-edge-at monitor (hash) batch))
+     (define outputs (edge-outputs step))
+     (for ([(name obs) outputs])
+       (unless (boolean? (observation-value obs)) (error 'cycle-view "expected Boolean verdict: ~a" name)))
+     (check-phase 'cycle-view-combinational domain
+       (append obligations
+               (for/list ([name (sort (hash-keys outputs) string<?)] #:unless (host-equal? name "allowed"))
+                 (define obs (hash-ref outputs name))
+                 (cons name (&& (observation-care obs) (observation-value obs))))
+               (list (cons 'allowed (monitor-allowed? step)))))]
+    [else
+     (check-monitor-edge! (lambda (phase premise goals) (check-phase (format "cycle-view-~a" phase) premise goals))
+                          monitor batch (hash-ref inputs "reset") domain
+                          (project (edge-state e)) (project (edge-next e)) (project (spec-initial-state model))
+                          obligations)])
+  (hash-ref model "assumptions"))
 
 #| Preserve the FIFO event API and canonical history monitor; induction is protocol independent. |#
-(define (derive-fifo-transactions cycle view history-field)
+(define (derive-fifo-transactions cycle view relation)
   (define-values (definition ingress egress width sampler) (fifo_view_parts view))
   (define layout (fifo_view_layout view))
   (define model (certified-cycle-model cycle definition layout))
   (define capacity
-    (match (hash-ref (hash-ref model "state") history-field #f)
-      [(list "seq" n (list "bits" w)) #:when (= width w) n]
-      [_ (error 'derive-fifo-transactions "expected a cycle-spec sequence of FIFO words: ~a" history-field)]))
+    (if (string? relation)
+        (match (hash-ref (hash-ref model "state") relation #f)
+          [(list "seq" n (list "bits" w)) #:when (= width w) n]
+          [_ (error 'derive-fifo-transactions "expected a cycle-spec sequence of FIFO words: ~a" relation)])
+        (projected_fifo_capacity relation width)))
   (define monitor (fifo_monitor capacity width))
   (define contract (candidate-fifo view capacity (spec_snapshot monitor)))
   (define outs (append (map second ingress) (list (first egress) (third egress))))
   (define ins (remove* outs (hash-keys (hash-ref (fifo-transactions-sampler contract) "inputs"))))
-  (check-cycle-monitor! cycle definition layout monitor (hash "q" history-field) ins outs
+  (check-cycle-monitor! cycle definition layout monitor (if (string? relation) (hash "q" relation) relation) ins outs
                         (lambda (inputs outputs) (fifo-monitor-batch contract inputs outputs)))
   (checked-fifo-result view contract))
 
@@ -533,7 +594,7 @@
 #| Sample both sides of an exact one-child RTL boundary. Child outputs are arbitrary;
    execute and prove defined only the parent wiring and registers. Issues no evidence. |#
 (define (symbolic-wrapper-cut top layout bool site expected child-layout visible)
-  (define-values (inputs outputs edges pins)
+  (define-values (inputs outputs edges pins _unrestricted)
     (open-monitor-sites top layout bool (hash site (monitor-site expected child-layout visible #f)) check-phase))
   (match-define (list ci co) (hash-ref pins site))
   (values inputs outputs edges ci co))

@@ -34,14 +34,15 @@ fun prefix_reader(interface_prefixes :: Function.of_arity(1)):
 
 /* Decode top ports using the bound parent view and child ports using exact occurrence evidence.
    Record creation/selection follows physical fields, independently of the claimed handshakes. */
-fun layout_reader(top :: Module, top_layout :: PairList, child_layout :: Function.of_arity(2)):
+fun layout_reader(top :: Module, top_layout :: PairList, child_layout :: Function.of_arity(2), comb :: Map = {}):
   unless leaf_protocol(top) == "single-clock-reset" | error("expected a clocked transaction parent")
   def layouts = MutableMap{#false: top_layout}
   /* Reconstruct each directional record in physical field order before visiting logical pins. */
   fun read_port(site :: maybe(String), m :: Module, p :: Port, visit :: Function.of_arity(2)):
     unless layouts.has_key(site)
     | block:
-        when site.contains(".") || leaf_protocol(m) != "single-clock-reset"
+        def protocol = if comb.has_key(site) | "combinational" | "single-clock-reset"
+        when site.contains(".") || leaf_protocol(m) != protocol
         | error("invalid transaction occurrence: " ++ site)
         layouts[site] := child_layout(site, m)
     cond
@@ -118,17 +119,19 @@ fun check_fifo_series_wiring(top :: Module, layout :: PairList, ingress :: PairL
 /* Open the declared transaction occurrences: child outputs are independent graph inputs and child inputs
    are observed sinks. Only actual parent-local RTL is executed, never a child transition. */
 fun wrapper_wiring(top :: Module, top_layout :: PairList, visible :: Map, child_layout :: Function.of_arity(2),
-                   bool :: HardwareType):
-  def read = layout_reader(top, top_layout, child_layout)
+                   bool :: HardwareType, comb :: Map = {}, clockless_monitors :: Map = {}):
+  // Both profiles are clockless, but only cycle evidence supplies an executable graph actor.
+  def read = layout_reader(top, top_layout, child_layout, comb ++ clockless_monitors)
   def inputs = MutableMap{}
   def outputs = MutableMap{}
-  def sites = visible.keys()
+  when comb.keys().find(visible.has_key) | error("overlapping monitor and combinational sites")
+  def sites = visible.keys() ++ comb.keys()
   when local_site in sites | error("reserved transaction occurrence")
   /* Keep the full environment, but do not expose hidden child outputs to the local graph. */
   fun boundary(at :: maybe(String), m :: Module, p :: Port, visit :: Function.of_arity(2)):
     /* Declare each open net in the direction seen from outside the local graph. */
     fun member(name :: String, type :: HardwareType):
-      unless clock_type(type)
+      unless clock_type(type) || comb.has_key(at)
       | block:
           when !at && (sites ++ [local_site]).find(fun (site): name.starts_with(site ++ "."))
           | error("ambiguous wrapper endpoint: " ++ name)
@@ -141,11 +144,13 @@ fun wrapper_wiring(top :: Module, top_layout :: PairList, visible :: Map, child_
   def values(children, wires, locals) = extract_cut(top, boundary, bool)
   unless children.keys().sort() == sites.sort() | error("transaction evidence does not match the RTL occurrences")
   def mutable data_wires = wires
-  for (site in sites):
-    unless wires[site ++ ".clock"] == "clock" && wires[site ++ ".reset"] == "reset"
-    | error("expected direct parent clock/reset at " ++ site)
-    data_wires := data_wires.remove(site ++ ".clock")
-  composition_snapshot(make_composition(inputs.snapshot(), outputs.snapshot(), locals, data_wires))
+  for (site in visible.keys()):
+    unless clockless_monitors.has_key(site)
+    | block:
+        unless wires[site ++ ".clock"] == "clock" && wires[site ++ ".reset"] == "reset"
+        | error("expected direct parent clock/reset at " ++ site)
+        data_wires := data_wires.remove(site ++ ".clock")
+  composition_snapshot(make_composition(inputs.snapshot(), outputs.snapshot(), locals ++ comb, data_wires))
 
 /* For proof cuts, retain supported parent operations as one derived local actor. Never visit child bodies. */
 fun extract_cut(top :: Module, read_port :: Function.of_arity(4), bool :: maybe(HardwareType)):

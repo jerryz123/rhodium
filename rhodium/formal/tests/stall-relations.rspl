@@ -1,0 +1,46 @@
+#lang rspecl
+// SPDX-License-Identifier: Apache-2.0
+import lib("examples/formal/stalled-offer.rhdl") as rtl
+import lib("examples/formal/stalled-offer.rspl") as public
+
+// Keep the actual receipt sampler, verdict and updates. Replace only the proof hints.
+def receipt = public.StallConsumer(~transaction_view: #true) with (hints = #false)
+
+def unrestricted:
+  spec for rtl.StallConsumer:
+    transactions receipt
+    refinement:
+      local (tracking): Bool
+      relate pending = tracking
+  StallConsumer(~transaction_view: #true)
+export unrestricted
+
+spec for rtl.StallConsumer:
+  transactions receipt
+  refinement:
+    local (tracking): Bool
+    local (saved): Bits(2)
+    required (pending): Bool
+    required (last): Bits(2)
+    invariant same_stall = select(tracking, pending, !pending)
+    invariant first_word = !tracking || bits_equal(saved, last)
+    // True after reset; false on the first stall carrying any nonzero word.
+    invariant stalled_zero = !tracking || bits_equal(last, const(Bits(2), 0))
+    relate pending = tracking
+
+fun parent_reads_private():
+  spec for rtl.BufferedStallConsumer:
+    transactions (public.BufferedStallConsumer(~transaction_view: #true) with (hints = #false))
+    refinement:
+      child fifo: public.ShiftQueue
+      child sink: public.StallConsumerWrapper
+      history held from sink.pending: Bool
+      history private_word from sink.last: Bits(2)
+      relate pending = held
+  BufferedStallConsumer(~transaction_view: #true)
+export parent_reads_private
+
+// Equal pin projections alone are insufficient: both requirements must start the same history.
+def original = public.wrapper_offer.monitor
+def other_epoch = public.wrapper_offer with (monitor = original with (initial = original.initial ++ {"pending": #true}))
+export other_epoch

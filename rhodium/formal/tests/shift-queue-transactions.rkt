@@ -12,7 +12,7 @@
 (define proved
   (for/hash ([depth proof_depths])
     (define top (fifo_at depth))
-    (values depth (derive-transaction (verified-fifo-at depth) top (ShiftQueue top #:event_view #t) (hash "q" "q")))))
+    (values depth (derive-transaction (verified-fifo-at depth) top ShiftQueue))))
 (define (verified-shift-queue-transactions-at depth) (hash-ref proved depth))
 
 (module+ test

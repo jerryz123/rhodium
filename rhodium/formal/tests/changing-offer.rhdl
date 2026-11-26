@@ -1,0 +1,35 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+import lib("flow/shift-queue.rhdl").ShiftQueue
+import lib("examples/formal/stalled-offer.rhdl") open
+
+sync_circuit ChangingOffer():
+  input (offer, consume): Bool
+  input data: Bits(2)
+  output valid: Bool
+  output (word, remembered): Bits(2)
+  inst fifo(ShiftQueue(Bits(2), 1))
+  fifo.ingress.valid <== offer
+  fifo.ingress.bits <== data
+  fifo.egress.ready <== consume
+  inst sink(StallConsumerWrapper())
+  sink.valid <== fifo.egress.valid
+  sink.ready <== consume
+  // Transfer payload is always correct; only samples under backpressure can differ.
+  def offered_word = mux(consume, fifo.egress.bits, data)
+  sink.payload <== offered_word
+  word <== offered_word
+  valid <== fifo.egress.valid
+  remembered <== sink.remembered
+
+sync_circuit TransferOnlyWrapper():
+  input (valid, ready): Bool
+  input payload: Bits(2)
+  output remembered: Bits(2)
+  inst recorder(StallConsumer())
+  recorder.valid <== valid
+  recorder.ready <== ready
+  recorder.word <== mux(ready, payload, Bits(2)(0))
+  remembered <== recorder.remembered
+
+export ChangingOffer TransferOnlyWrapper

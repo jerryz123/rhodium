@@ -3,17 +3,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import "gated-capture.rhdl" as rtl
-import lib("rhodium/formal/spec.rhm").Observed
+import "arbiter.rspl" as grants
+import "granted-selector.rspl" as selectors
+import "capture-history.rspl" open
 export capture_events
 
-/* A capture reports both the incoming winning word and the old register's public readback. */
+/* Sample the public requests at the unrestricted parent boundary. */
 fun capture_events(read :: Function.of_arity(2), output :: Function.of_arity(2)):
-  def rst = read("reset", Bool)
-  def a = read("request_a", Bool)
-  def fire = !rst && read("capture", Bool) && (a || read("request_b", Bool))
-  def winner = select(a, read("word_a", Bits(2)), read("word_b", Bits(2)))
-  {"reset": Observed(const(Bool, #true), rst),
-   "captured": Observed(winner, fire), "readback": Observed(output("selected", Bits(2)), fire)}
+  capture_sample(read, output, read("capture", Bool), "request_a", "request_b")
+
+/* At the gate only the grant pins are visible; exclusivity is a pin premise, not a batch verdict. */
+fun grant_events(read :: Function.of_arity(2), output :: Function.of_arity(2)):
+  capture_sample(read, output, read("capture", Bool), "grant_a", "grant_b")
 
 spec for rtl.GatedCapture:
   assume capture_exclusive = reset || !capture || !(grant_a && grant_b)
@@ -22,19 +23,82 @@ spec for rtl.GatedCapture:
   let grant_word = select(grant_b, word_b, select(grant_a, word_a, held))
   next held = select(reset, cleared, select(capture, grant_word, held))
 
+  transactions capture_monitor(grant_events)
+  refinement:
+    relate previous = held
+
 spec for rtl.ArbitratedCapture:
   state saved: Bits(2) initially 0 as cleared
   observe selected = saved when !reset
   let take = capture && (request_a || request_b)
   next saved = select(reset, cleared, select(take, select(request_a, word_a, word_b), saved))
 
+  transactions capture_monitor(capture_events)
+
+  refinement:
+    relate previous = saved
+
+/* A weaker observer: all nonzero winners are indistinguishable, including on readback. */
+fun zero_monitor(sampler :: Function.of_arity(2)):
   monitor:
-    sample capture_events
+    sample sampler
     publish []
     batch reset = present(reset)
     batch fire = present(captured)
     batch winner: Bits(2) = payload(captured) when fire
     batch readback: Bits(2) = payload(readback) when fire
-    state previous: Bits(2) initially 0
-    guarantee "previous-on-capture" = !fire || bits_equal(readback, previous)
-    next previous = select(reset, const(Bits(2), 0), select(fire, winner, previous))
+    state previous_was_zero: Bool initially #true
+    let zero = const(Bits(2), 0)
+    let read_zero = bits_equal(readback, zero)
+    guarantee "previous-was-zero" = !fire || select(previous_was_zero, read_zero, !read_zero)
+    next previous_was_zero = reset || select(fire, bits_equal(winner, zero), previous_was_zero)
+
+def previous_zero_monitor = zero_monitor(capture_events)
+def gate_zero_monitor = zero_monitor(grant_events)
+
+/* Project the selector's public word to one bit, using only gate events at this boundary. */
+def zero_gate:
+  spec for rtl.GatedCapture:
+    transactions gate_zero_monitor
+    refinement:
+      child lanes: selectors.RegisteredLaneSelector
+      history word from lanes.previous: Bits(2)
+      relate previous_was_zero = bits_equal(word, const(Bits(2), 0))
+  GatedCapture
+export zero_gate gate_zero_monitor
+
+/* Check this alternate view against the gate's public history, independent of the parent's cycle spec. */
+def previous_zero_view:
+  spec for rtl.ArbitratedCapture:
+    transactions previous_zero_monitor
+    refinement:
+      child gate: GatedCapture
+      history word from gate.previous: Bits(2)
+      relate previous_was_zero = bits_equal(word, const(Bits(2), 0))
+  ArbitratedCapture(~transaction_view: #true)
+export previous_zero_monitor previous_zero_view
+
+/* Use the same one-bit monitor and history projection with two public transaction contracts. */
+fun zero_from_grants(producer :: Function):
+  spec for rtl.ArbitratedCapture:
+    transactions previous_zero_monitor
+    refinement:
+      child arb: producer
+      child gate: GatedCapture
+      history word from gate.previous: Bits(2)
+      relate previous_was_zero = bits_equal(word, const(Bits(2), 0))
+  ArbitratedCapture(~transaction_view: #true)
+def transaction_zero_view = zero_from_grants(grants.Arbiter)
+export transaction_zero_view zero_from_grants
+
+/* At the outer boundary the gate's zero bit is sufficient; no full-word history is available. */
+def zero_from_bit_view:
+  spec for rtl.ArbitratedCapture:
+    transactions previous_zero_monitor
+    refinement:
+      child arb: grants.Arbiter
+      child gate: zero_gate
+      history was_zero from gate.previous_was_zero: Bool
+      relate previous_was_zero = was_zero
+  ArbitratedCapture(~transaction_view: #true)
+export zero_from_bit_view

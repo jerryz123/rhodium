@@ -3,7 +3,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import: "spec.rhm" open
-export: fifo_monitor step_fifo_monitor
+export: fifo_monitor step_fifo_monitor projected_fifo_capacity
+
+/* Select the canonical monitor size from the projected live sequence, not the RTL or a caller's bound. */
+fun projected_fifo_capacity(relation :: LeafModel, width :: PosInt):
+  def q = relation.outputs.get("q", #false)
+  unless q && q.value.type is_a SpecSeq && spec_type_equal(q.value.type.element, SpecBits(width))
+  | error("expected a cycle-spec sequence of FIFO words for q")
+  q.value.type.capacity
 
 /* Interpret joint observations, retiring the old head before appending an accepted word.
    Guard partial sequence operations even on rejected batches. No cycle pins are modeled. */

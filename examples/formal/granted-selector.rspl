@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import "granted-selector.rhdl" as rtl
+import "capture-history.rspl" open
 
 spec for rtl.LaneSelector:
   assume exclusive = !(enable_a && enable_b)
@@ -22,11 +23,18 @@ spec for rtl.RoutedSelector:
   let select_a = select(swap, !request_a, request_a)
   observe selected = select(active, select(select_a, word_a, word_b), const(Bits(2), 0))
 
+/* The selector captures whenever either enable is high; reset suppresses capture. */
+fun selector_events(read :: Function.of_arity(2), output :: Function.of_arity(2)):
+  capture_sample(read, output, const(Bool, #true), "enable_a", "enable_b")
+
 spec for rtl.RegisteredLaneSelector:
   state last_word: Bits(2) initially 0 as cleared
   assume exclusive = reset || !(enable_a && enable_b)
   observe selected = last_word when !reset
   next last_word = select(reset, cleared, select(enable_a, word_a, select(enable_b, word_b, last_word)))
+  transactions capture_monitor(selector_events)
+  refinement:
+    relate previous = last_word
 
 spec for rtl.RegisteredRoutedSelector:
   state retained: Bits(2) initially 0 as cleared

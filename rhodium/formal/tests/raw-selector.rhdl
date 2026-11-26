@@ -63,4 +63,22 @@ sync_circuit RawCapture():
   gate.word_b <== word_b
   selected <== gate.selected
 
-export RawSelector DuplicateGrant HighGrant CircularGrants RawCapture
+sync_circuit DuplicateCaptureGrant():
+  input (request_a, request_b, capture): Bool
+  input (word_a, word_b): Bits(2)
+  output selected: Bits(2)
+  inst arb(Arbiter(Bits(2), 2))
+  arb.ingress[0].valid <== request_a
+  arb.ingress[1].valid <== request_b
+  arb.ingress[0].bits <== word_a
+  arb.ingress[1].bits <== word_b
+  arb.egress.ready <== capture
+  inst gate(GatedCapture())
+  gate.grant_a <== arb.ingress[0].ready
+  gate.grant_b <== arb.ingress[0].ready
+  gate.capture <== capture
+  gate.word_a <== word_a
+  gate.word_b <== word_b
+  selected <== gate.selected
+
+export RawSelector DuplicateGrant HighGrant CircularGrants RawCapture DuplicateCaptureGrant

@@ -52,6 +52,26 @@ check:
   ~throws "undeclared or mistyped spec reference: output.bad"
 
 fun one_event(_read, write): {"item": Observed(write("bad", Bool))}
+
+// A private relation captures ordinary helpers and bindings at the refinement block's lexical site.
+check:
+  block:
+    spec for rtl.ParamProbe:
+      state bit: Bool initially #false
+      observe bad = bit
+      let chosen = bit
+      monitor:
+        sample one_event
+        publish []
+        batch fire = present(item)
+        state flag: Bool initially #false
+        guarantee "ok" = #true
+      refinement:
+        relate flag = handshake(chosen, chosen)
+      let chosen = !bit
+    def values(_, rel) = ParamProbe(elaborate(rtl.ParamProbe(0)).top, ~cycle_derivation: #true)
+    step_spec(rel, {}, {"bit": #true}).outputs
+  ~is {"flag": #true}
 check:
   block:
     spec for rtl.ParamProbe:

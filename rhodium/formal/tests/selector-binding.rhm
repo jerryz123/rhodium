@@ -15,7 +15,7 @@ export selector interface_prefixes leaf parent cut without_assumption impossible
 export high_grant conditional circular_cut
 export router router_spec routed_parent routed_cut replay_routed
 export registered_lane registered_spec registered_key registered_parent registered_cut registered_variant registered_trace
-export gate_spec capture_spec gate_cut capture_cut gate_variant capture_trace
+export gate_spec capture_spec gate_cut capture_cut gate_variant capture_trace duplicate_capture_trace
 def leaf = LaneSelector(selector)
 def parent = GrantedSelector(granted_selector)
 def router_spec = LaneRouter(router)
@@ -67,6 +67,9 @@ fun capture_graph(build, raw, gate):
   build(if raw | raw_capture | arbitrated_capture, models, Bool, interface_prefixes)
 fun capture_cut(raw, gate = gate_spec): capture_graph(proof_cut, raw, gate)
 fun capture_trace(raw, samples): selected_trace(capture_graph(bind_wiring, raw, gate_spec), samples)
+fun duplicate_capture_trace(samples):
+  def bindings = Map.by(===){capture_gate: gate_spec, arbiter_definition: Arbiter(arbiter_definition)}
+  selected_trace(bind_wiring(duplicate_capture, bindings, Bool, interface_prefixes), samples)
 fun registered_trace(duplicate, samples): selected_trace(routed_graph(bind_wiring, duplicate, #true), samples)
 fun selected_trace(graph, samples):
   def mutable state = graph.initial

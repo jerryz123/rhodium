@@ -163,13 +163,79 @@ joint event, and the successor relation. Care must match even when the value
 is absent, and a valid head is observed even under backpressure. Count and mask
 ports are not part of the exported view.
 
-[`check-cycle-monitor!`](refinement.rkt) admits the exact unconditional clocked
+[`check-cycle-monitor!`](refinement.rkt) admits the exact certified cycle
 definition and member layout, then steps only its certified cycle snapshot.
 Each sampled output gets one shared physical value, arbitrary outside care.
-The FIFO adapter infers capacity and width from the named cycle sequence;
+The spec constructor returns the same public view plus a private state-only
+IR model when the issuer requests `~cycle_derivation`. Lower `relate` and
+`invariant` in the cycle's lexical scope; rebind state references, reject pins
+even in care predicates, and match source sorts to the **certified** cycle model.
+Never use a freshly constructed cycle model as proof evidence. The FIFO adapter
+infers capacity from the projected sequence and checks the endpoint width;
 other monitors use the bound dense sampler from their RSPECL declaration.
-Both pass a state-only projection and the monitor to the [same induction](transaction-induction.rkt)
-as the hierarchical checker. Reset establishes the relation without a related-old
+The four-argument low-level derivation still accepts explicit checked projections.
+When a general monitor is derived under input assumptions, retain the exact
+named predicate IR from the certified snapshot in the seal. Never evaluate a
+conditional guarantee as a standalone event step. At a transaction cut, bind
+its premises to the actual occurrence inputs and prove them before using
+**that occurrence's** verdict. Each open output is a fresh source net shared
+by its sinks. Trace the free nets in each wired predicate to their owners,
+recursively admit those owners, then prove the predicate under their public
+step verdicts on these same pins. Use arbitrary legal histories, not the parent
+relation. Reject a visit back to an occurrence being admitted. Unconditional
+stateless cycle evidence can alternatively drive the cut as a scheduled actor.
+Clockless monitor sites are open nets, never scheduled cycle actors; issue
+their stateless seals by checking every named guarantee on a symbolic sample.
+Reject wrong occurrences and combinational cycles. Whole-batch forwarding uses
+the identical public monitor and fieldwise symbolic equivalence, so it needs
+neither a gate-state projection nor a new monitor induction at the parent.
+For a different parent monitor, `prove-transaction` passes the admitted
+combinational sites to the same pin check before using the dependent monitor.
+The one-bit capture regression relates only the child's public `previous` word
+to the parent's zero flag. Raw double grants must fail the named pin check;
+an inverted relation on good wiring must fail reset initialization instead.
+Keep the two-transaction version independent: its weak producer must pass
+admission and fail the parent's readback guarantee, while duplicated grant
+wiring fails admission and replays in rspecsim.
+
+For an adjacent-sample monitor, check reset from arbitrary legal cycle and
+monitor state, then step the certified cycle twice with independent inputs.
+An admitted first edge is the induction hypothesis; every second edge must
+pass, including reset and the handshake that ends a stall. Keep off-care
+output values arbitrary. Allocate independent old states for the required
+input monitor and the public receipt, and step both on the same physical
+sample. Bind `required` hints to the input monitor's old, successor, or
+declared initial state for the corresponding relation check. Reset must be
+admitted without assuming the relation, restore the input monitor's own
+initial state, and establish the relation. An admitted active edge must
+preserve it. Never add required history to the child state exported at a
+parent cut. To discharge the requirement, require an unconditional supplier
+of the identical monitor, direct clock/reset, and fieldwise equality of the
+independently sampled batches *before* using child verdicts. Alternatively,
+an exact-receipt forwarding wrapper may retain the requirement: compare its
+external input batch to its child's actual input batch on unrestricted pins
+before admitting the child. Match the full requirement monitor (including
+initial state and updates), verify receipt forwarding separately, and seal the
+wrapper's sampler, not the child's. The [stalled-offer regression](tests/stalled-offer.rkt)
+checks both cuts and replays stall-only payload faults in RTL and rspecsim.
+
+For conditional forwarding, take the named, input-only predicate snapshot
+from the bound parent declaration. Evaluate it on external pins only, check
+reset and non-reset feasibility separately, and use that domain for wrapper
+definedness, child admission and forwarded batch equality. Seal exactly those
+predicates. The capture regression obtains gate evidence this way from the
+selector seal, checks concrete active captures on both lanes, and keeps the
+whole-gate cycle derivation as an independent cross-check.
+
+For general monitor induction, `#:under` supplies the same input-only snapshot
+independently of the selected view. Seed the joint child-step domain with the
+allowed parent inputs returned by the pin check; reset, preservation, side checks
+and coverage must all use it. Seal the snapshot only after induction succeeds.
+The one-bit gate regression rejects a double-capture cover outside this domain;
+the outer regression cannot recover an exact nonzero word from the zero bit.
+
+Cycle derivation and hierarchical monitor refinement pass their state projections
+to the [same induction](transaction-induction.rkt). Reset establishes the relation without a related-old
 premise. Active edges must preserve it; definedness and the sampler domain
 are goals, never premises. The [capture regression](tests/selector-refinement.rkt)
 rejects a same-edge winner expectation and an invariant that excludes a legal capture.

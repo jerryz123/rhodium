@@ -1,0 +1,11 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import lib("rspecl/rtl-boundary.rhm") open
+import "../spec.rhm".step_spec
+export replay_sample
+
+fun replay_sample(view, previous, pins):
+  def values(_, monitor, _, _) = transaction_parts(view)
+  def batch = step_spec(transaction_batch_model(view), {}, pins).outputs
+  def result = step_spec(monitor, previous || monitor.initial, batch)
+  values(result.next_state, result.outputs)
