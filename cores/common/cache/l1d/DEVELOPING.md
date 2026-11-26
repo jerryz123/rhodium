@@ -142,13 +142,13 @@ row of the active ordered load miss: enqueue the leader's response first, then
 only forward to a classified ordinary load at the FIFO head matching the line
 and row. A matching probe disables further forwarding for that miss. Never
 hold installation or CompAck for a forwarded response or publish a partial tag.
-After the ordered miss releases its context, prioritize ordinary head loads
-from the classified prefix whose sets are no longer reserved. Use a free
-array-read cycle, verify the hit in S3, and give refill installation priority
-over the S4 hit's replacement-state update. Stores and atomics do not use
-this early retirement path. If forwarded responses fill the response FIFO,
-keep the next classified load replayable in S3 rather than retaining a hit
-in S4 that would block probes until the requester drains.
+After the ordered miss releases its context, replay ordinary loads and stores
+at the head of the classified prefix only in unreserved sets. Recheck the hit
+in S3; a store needs unique permission. In S4, installation has priority over
+the replacement update, and refill writes and gather/copyback reads have
+priority over the store's masked write. The write and ACK are one transfer.
+If no response slot remains for the hit, leave it replayable in S3 rather
+than blocking probes in S4. Atomics and ownership upgrades cannot retire this way.
 Held packets retain their own install set/way.
 The wide L1D fixture fills B before A, reuses B’s CHI ID for C, and checks
 ordered data and contexts under backpressure. For stores it also snoops B

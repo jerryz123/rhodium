@@ -165,7 +165,10 @@ row is written, before the tag becomes visible. Once that response is queued,
 the next classified, same-line ordinary load can take its own row the same way.
 No response bypasses an older request. If the row arrives out of order, the
 response queue is full, or a matching snoop intervenes, waiters fall back to
-a fresh lookup. They can hit an installed line while another set is still filling.
+a fresh lookup. A classified ordinary load or authorized store at the head can
+retire while another set is still filling. A store must hit a line that is
+still uniquely owned; it writes its enabled bytes and ACKs together on a free
+data-port cycle. No younger response passes that store.
 A store needing a shared-to-unique upgrade waits for the head, as do atomics
 and cache-management operations; demand issue does not pass these barriers.
 The request window holds at least one line's worth of rows plus one request
@@ -498,7 +501,8 @@ associativities use a padded tree whose unused leaves are never eligible victims
 
 - Prefetches are not buffered, cannot run under a miss, and may delay a later
   demand once an admitted miss or ownership acquisition has launched.
-- The cache has no store hit-under-miss, autonomous prefetcher, or background writeback.
+- Speculative stores do not hit under a miss. The cache has no autonomous
+  prefetcher or background writeback.
 - L1D and L1I have no direct coherence connection; instruction coherence uses
   the parent core's fence/invalidation sequence and independent CHI snoops.
 - Dirty replacement supports full-line `WriteBackFull`, not partial copyback

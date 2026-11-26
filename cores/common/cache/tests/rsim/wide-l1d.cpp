@@ -419,6 +419,63 @@ void check_store_miss_admission(Line a, Line b, bool invalidate) {
   eval(); CHECK(!core_out.presponse.pvalid && !chi_out.prequests.pvalid && core_out.pdrained);
 }
 
+void check_store_head_under_refill(Line a, const Line &b, unsigned packet_delay) {
+  constexpr unsigned other = base + 128;
+  request(base, store, b[0], 0xffff, true, 1);
+  const auto ta = accept_request(base, 7);
+  request(base+16, store, b[1], 0x00f0, true, 2);
+  request(base+16, load, {}, 0xffff, true, 3);
+  request(other, load, {}, 0xffff, true, 4);
+  const auto tb = accept_request(other, 2);
+  CHECK(ta != tb);
+  for (unsigned i = 0; i < 4; ++i) refill_packet(ta, i, 2, a[i]);
+  for (unsigned i = 0; i < packet_delay; ++i) tick_model();
+  refill_packet(tb, 1, 1, b[1]); // Compete for the SRAM; leave B incomplete.
+
+  response({}, 1); response({}, 2);
+  a[0] = b[0]; a[1].words[1] = b[1].words[1];
+  response(a[1], 3);
+  eval(); CHECK(!core_out.presponse.pvalid && !core_out.pdrained);
+  for (unsigned i : {0u, 2u, 3u}) refill_packet(tb, i, 1, b[i]);
+  response(b[0], 4);
+  request(other+16, load); response(b[1]);
+  snoop_dirty_line(base, a, 0x58);
+}
+
+void check_store_replay_permission(Line a, const Line &b, bool invalidate) {
+  request(base, load);
+  const auto warm = accept_request(base, 2);
+  for (unsigned i = 0; i < 4; ++i) refill_packet(warm, i, 2, a[i]); // UniqueClean
+  response(a[0]);
+  request(base+64, load, {}, 0xffff, true, 1);
+  const auto first = accept_request(base+64, 2);
+  request(base, store, b[0], 0x000f, true, 2);
+  request(base+128, load, {}, 0xffff, true, 3);
+  const auto last = accept_request(base+128, 2); // Store has been classified.
+  if (invalidate) {
+    auto &snp = chi_in.psnoops;
+    snp.pbits = {}; snp.pbits.paddress = base >> 3; snp.pbits.popcode = 9;
+    snp.pbits.psrc_uid = 1; snp.pbits.ptxn_uid = 0x59; snp.pvalid = 1;
+    until([] { return chi_out.psnoops.pready; }); tick_model(); snp.pvalid = 0;
+    until([] { return chi_out.prequester_uresponses.pvalid; });
+    CHECK(chi_out.prequester_uresponses.pbits.ptxn_uid == 0x59); tick_model();
+  }
+  for (unsigned i = 0; i < 4; ++i) refill_packet(first, i, 1, a[i]);
+  response(a[0], 1);
+  if (!invalidate) response({}, 2); // Mark the clean line dirty before last fills.
+  for (unsigned i = 0; i < 8; ++i) {
+    eval(); CHECK(!core_out.presponse.pvalid); tick_model();
+  }
+  for (unsigned i = 0; i < 4; ++i) refill_packet(last, i, 1, b[i]);
+  if (invalidate) {
+    a = b;
+    refill(base, 7, a); response({}, 2);
+  }
+  response(b[0], 3);
+  a[0].words[0] = b[0].words[0];
+  snoop_dirty_line(base, a, 0x5a);
+}
+
 void check_store_behind_load(const Line &a, Line b, bool same_line) {
   const unsigned addr_b = same_line ? base : base+64;
   request(base, load, {}, 0xffff, true, 1);
@@ -807,6 +864,8 @@ int main() {
         b[i].words[j] = ~a[i].words[j];
       }
     for (bool reverse : {true, false}) {
+      check_store_replay_permission(a, b, reverse);
+      reset = 1; tick_model(); reset = 0;
       check_refill_forwarding(a, reverse);
       reset = 1; tick_model(); reset = 0;
       check_store_stream(a, b, reverse);
@@ -821,6 +880,10 @@ int main() {
       check_two_dirty_misses(a, b, reverse);
       reset = 1; tick_model(); reset = 0;
       check_store_behind_load(a, b, reverse);
+      reset = 1; tick_model(); reset = 0;
+    }
+    for (unsigned delay = 0; delay < 8; ++delay) {
+      check_store_head_under_refill(a, b, delay);
       reset = 1; tick_model(); reset = 0;
     }
     check_full_forward_responses(a, b);

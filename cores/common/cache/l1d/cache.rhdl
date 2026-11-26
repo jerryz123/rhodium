@@ -421,12 +421,12 @@ sync_circuit L1DCache(xlen :: XLen,
   reg s3_behind(~init: Bool(#false))
   def Index = Bits(index_width(window_depth + 3))
   reg parked(~init: Index(0))
-  /* Only ordinary loads can retire while unrelated MSHRs own array sets.
-     A fresh S3 lookup must still prove the hit before S4 takes the request. */
-  fun replayable_load(request :: PhysicalMemoryBeatReq(xlen, Context, beat_bytes)) :~ Bool:
-    (request.access === CacheOperation.Load) & (request.locality === RiscvMemoryLocality.Default) & !reserved_set(request.address[offset_width..(offset_width + set_width)])
+  /* A parked ordinary demand may retry outside reserved sets. S3 rechecks
+     read permission for a load or exclusive ownership for a store. */
+  fun replayable_demand(request :: PhysicalMemoryBeatReq(xlen, Context, beat_bytes)) :~ Bool:
+    request.access.is_load_or_store() & (request.locality === RiscvMemoryLocality.Default) & !reserved_set(request.address[offset_width..(offset_width + set_width)])
 
-  def replay_head = Bool(mshr_count > 1) & miss_busy & !miss_active & parked.any() & replayable_load(service_requests.egress.bits)
+  def replay_head = Bool(mshr_count > 1) & miss_busy & !miss_active & parked.any() & replayable_demand(service_requests.egress.bits)
   def concurrent = Bool(mshr_count > 1) & miss_busy & !miss_prefetch & miss_install & retained_request.access.is_load_or_store() & !replay_head
   def s3_demand_live = s3_lookup.egress.valid & !s3_lookup.egress.bits.prefetch
   def issue_index = mux(concurrent, parked, Index(0)) + (s3_demand_live & (concurrent ||| !s3_behind)).as_bits().zext(index_width(window_depth + 3))
@@ -444,7 +444,7 @@ sync_circuit L1DCache(xlen :: XLen,
         def next_request = service_requests.entries[issue_index[0..index_width(window_depth + 1)]]
         wire issue_ready: Bool
         // Pipeline the next head only if it too belongs to the replayable prefix.
-        def may_issue = !replay_head ||| ((issue_index < parked) & replayable_load(next_request))
+        def may_issue = !replay_head ||| ((issue_index < parked) & replayable_demand(next_request))
         def issue = inject_interface(Decoupled(Request), ~valid: may_issue & (issue_index < service_requests.count.zext(index_width(window_depth + 3))) & !next_request.access.into(CacheOperation).is_cache_management(), ~bits: next_request, ~ready: issue_ready)
         def selected = for List (i in 0..(window_depth + 1)): issue_index === Index(i)
         describe_interface_window_storage(window_depth + 1, service_requests.ingress.fire(), dequeue_demand.as_bits().zext(index_width(window_depth + 2)), service_requests.count, Bool(#false), selected, ~name: "demand")
@@ -565,9 +565,11 @@ sync_circuit L1DCache(xlen :: XLen,
   // Each branch uses the resolved metadata and its matching retained request
   // until the consumer accepts the event.
   def Array(s4_hit_path, s4_transaction_path) = s4_path |> demux_flow(2, _result => s4_needs_refill.as_bits())
-  // Installation gets the replacement-state write port before a retiring hit.
+  // Installation owns replacement state. A store also needs the data port
+  // on the actual write/ACK cycle, not merely on its earlier tag lookup.
   wire install_line: Bool
-  def s4_local = s4_hit_path |> gate_flow(service_responses.ingress.ready & !install_line) |> to_valid()
+  def store_port_busy = Bool(mshr_count > 1) & s4_store & (backing_port_busy ||| gather_issue)
+  def s4_local = s4_hit_path |> gate_flow(service_responses.ingress.ready & !install_line & !store_port_busy) |> to_valid()
 
   /* Refill and victim-writeback commands.
      Direct acquisition uses live S4 data. A granted copyback launches the
@@ -784,12 +786,14 @@ sync_circuit L1DCache(xlen :: XLen,
         ordered: Bool(#false)
         install: Bool(#true)
   classified <== held.fire()
-  // A classified load whose response slot is unavailable must remain
-  // replayable: retaining a hit in S4 would block snoops during backpressure.
-  def wait_for_response = parked.any() & (s3_request.access === CacheOperation.Load) & !service_responses.ingress.ready
+  // Keep a parked hit in S3 if its response slot is unavailable or an
+  // older S4 hit will take the last slot. Snoop progress cannot depend on WB.
+  def last_slot_claimed = replay_head & s4_valid & service_responses.count.any()
+  def wait_for_response = parked.any() & s3_request.access.is_load_or_store() & (!service_responses.ingress.ready ||| last_slot_claimed)
+  def replay_hit = replay_head & s3_hit_way.valid & mux(s3_plain_store, s3_state.is_unique(), s3_state.is_valid())
   (
     primary
-      |> gate_flow(s3_can_advance & s3_lookup_usable & !wait_for_response & (!miss_busy ||| (replay_head & s3_hit_way.valid & s3_state.is_valid())))
+      |> gate_flow(s3_can_advance & s3_lookup_usable & !wait_for_response & (!miss_busy ||| replay_hit))
       |> map_flow(lookup => L1DResolved(way_width)):
         prefetch: lookup.prefetch
         prefetch_write: lookup.prefetch_write
