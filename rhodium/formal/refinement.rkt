@@ -127,14 +127,16 @@
   (define old (and plan (symbolic_transition_state plan)))
   (define rtl (if plan (step_transition plan old packed) (combinational_sample snapshot packed)))
   (define ports (unpack-pins (second layout) (transition_step_outputs rtl)))
-  (define-values (outputs events) (observe ports inputs))
+  (define-values (outputs events observations-defined)
+    (call-with-values (lambda () (observe ports inputs))
+      (case-lambda [(outs evs) (values outs evs #t)] [(outs evs ok) (values outs evs ok)])))
   ;; Even a mistaken observer must not be able to relabel a cared physical output's value.
   (define physical (for/hash ([(key field) outputs])
                      (define bits (hash-ref ports key))
                      (define v (if (boolean? (observation-value field)) (bveq bits (bv 1 1)) bits))
                      (values key (observation (observation-care field) v))))
   (define common
-    (list (cons 'rtl-domain (transition_step_validity rtl)) (cons 'defined (edge-defined spec))
+    (list (cons 'rtl-domain (transition_step_validity rtl)) (cons 'defined (&& observations-defined (edge-defined spec)))
           (cons 'outputs (view-agrees? outputs (edge-outputs spec)))
           (cons 'physical-pins (view-agrees? physical (edge-outputs spec)))
           (cons 'transfers (view-agrees? events (edge-events spec)))))

@@ -10,12 +10,13 @@ import:
   lib("rhodium/frontend/foundation.rhm").elaborate
   "shift-queue-fixture.rhdl" as rtl
   "queue-pair.rspl".QueuePair
+  "queue-pair.rspl".FaultyQueuePair
   lib("examples/formal/shift-queue.rspl").ShiftQueue
 
 // Unsealed metadata suffices to check the netlist, but the checker returns no proof.
 fun check_handoff(fault):
-  def top = elaborate(rtl.QueuePair(1, ~fault: fault)).top
-  def parent = QueuePair(top, ~event_view: #true)
+  def top = elaborate(if fault == "" | rtl.QueuePair(1) | rtl.FaultyQueuePair(1, fault)).top
+  def parent = (if fault == "" | QueuePair | FaultyQueuePair)(top, ~event_view: #true)
   def values(_, lanes, out, _, _) = fifo_view_parts(parent)
   def child = top.operations.find(fun (op): op.opcode == "rtl.instance").attribute("module")
   def view = ShiftQueue(child, ~event_view: #true)

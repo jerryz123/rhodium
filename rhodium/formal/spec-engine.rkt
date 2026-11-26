@@ -56,6 +56,7 @@
     [(list "literal") (result (literal type data) #t)]
     [(list "guarded" predicate value) (result value (&& predicate all-defined))]
     [(list "bits-equal" p q) (result (bveq p q) all-defined)]
+    [(list "bits-slice" word) (result (extract (+ data (second type) -1) data word) all-defined)]
     [(list "not" p) (result (! p) all-defined)]
     [(list "and" p q)
      (result (&& p q) (&& (result-defined (first args)) (=> p (result-defined (second args)))))]

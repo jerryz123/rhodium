@@ -1,0 +1,25 @@
+#lang rhodium
+/* Connects two equal-depth ShiftQueues through a direct ready/valid handoff. */
+// SPDX-License-Identifier: Apache-2.0
+
+import lib("flow/shift-queue.rhdl").ShiftQueue
+
+/* The upstream queue accepts offers; the downstream queue supplies the oldest word. */
+sync_circuit QueuePair(depth :: PosInt = 2):
+  input offer: Bool
+  input data: Bits(2)
+  input consume: Bool
+  output ready: Bool
+  output valid: Bool
+  output head: Bits(2)
+  inst a(ShiftQueue(Bits(2), depth))
+  inst b(ShiftQueue(Bits(2), depth))
+  a.ingress.valid <== offer
+  a.ingress.bits <== data
+  ready <== a.ingress.ready
+  a.egress |> b.ingress
+  b.egress.ready <== consume
+  valid <== b.egress.valid
+  head <== b.egress.bits
+
+export QueuePair

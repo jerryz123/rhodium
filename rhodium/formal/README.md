@@ -15,7 +15,7 @@ Rosette can execute the same specification symbolically on unknown values. A
 [leaf proof](DEVELOPING.md#shiftqueue-refinement-by-depth) establishes that the
 two-bit ShiftQueue (pipe, flow, and flush disabled) matches its FIFO spec on
 every edge following sampled reset, separately at depths 1, 2, and 3.
-A [transaction-only parent proof](tests/queue-pair-grouped.rkt) checks the
+A [transaction-only parent refinement](../../examples/formal/queue-pair.rspl) checks the
 grouped handoff in the actual RTL and uses only the two ShiftQueue transaction
 contracts to prove FIFO ordering and bounds of two and four words for pairs
 of depth-one and depth-two queues, respectively. A separate
@@ -154,6 +154,23 @@ For **symbolic spec checks or RTL equivalence**, install Rosette into the active
 ```sh
 raco pkg install --auto rosette
 ```
+
+To prove a design from its RTL and spec, run the [QueuePair example](../../examples/formal/prove-queue-pair.rhm)
+from the repository root:
+
+```sh
+PLTCOLLECTS="$PWD": tools/run-racket.sh examples/formal/prove-queue-pair.rhm
+```
+
+The example calls `prove_design(top, spec.QueuePair)` from [the generic runner](../../rspecl/runner.rkt).
+It proves the [ShiftQueue spec](../../examples/formal/shift-queue.rspl) on the actual
+depth-two child definition first. Its private `rtl_refinement:` maps occupied
+slots to cycle state and declares when actual output pins matter; its
+`refinement:` maps cycle state to the public transaction history.
+[QueuePair](../../examples/formal/queue-pair.rspl) names its two child occurrences,
+checks the RTL handoff, and relates their independent public histories to a FIFO
+of capacity four. The result is reusable transaction evidence, not a promise
+about when `ready` will rise. No test harness or precomputed evidence is needed.
 
 Run the focused formal suite. It first probes Rosette and its solver under the
 persistent isolated build cache, then runs the Rhodium formal tests:
@@ -609,7 +626,7 @@ The view starts empty and holds its live history on any rejected batch. This
 helper describes behavior; only a successful refinement proof issues evidence.
 
 To obtain those batches from RTL pins, declare a passive view as the body of
-`spec for`, as in the [QueuePair and QueuePairSeries specs](tests/queue-pair.rspl):
+`spec for`, as in [QueuePair](../../examples/formal/queue-pair.rspl) and the [QueuePairSeries fixture](tests/queue-pair.rspl):
 
 ```rhombus
 spec for rtl.QueuePair:
@@ -643,8 +660,9 @@ in each reset epoch. Only the private refinement names occurrences.
 `direct_wires` is a complete map from data/control sinks to expected RTL
 drivers, including the parent boundary. The checker verifies shared clock and
 reset separately; intervening logic is not a direct wire. `seq_concat`
-joins the independent child histories downstream-first, ignoring unused slots. At depth one it
-certifies the two-word bound without promising ready whenever space remains.
+joins the independent child histories downstream-first, ignoring unused slots.
+The generic proof certifies a two-word bound at depth one and a four-word
+bound at depth two. Neither contract promises ready whenever space remains.
 
 The [ShiftQueue spec](../../examples/formal/shift-queue.rspl) uses one pin
 sampler for cycle events, passive replay, and its generic transaction monitor:

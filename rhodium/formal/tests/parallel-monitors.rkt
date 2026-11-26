@@ -1,7 +1,7 @@
 #lang rosette
 ;; SPDX-License-Identifier: Apache-2.0
 
-(require rackunit "../../../rspecl/proof.rkt" "parallel-monitors.rspl"
+(require rackunit "../../../rspecl/proof.rkt" "../../../rspecl/runner.rkt" "parallel-monitors.rspl"
          (only-in "composition-binding.rhm" mark_leaf toggle_leaf mark_pair crossed_marks))
 
 (module+ test
@@ -10,6 +10,12 @@
   (define children (hash "a" leaf "b" toggle))
   (define view (ParallelMarks mark_pair #:transaction_view #t))
   (define result (prove-transaction mark_pair view children))
+  (test-case "the design runner needs neither FIFO-specific state nor an external child map"
+    (check-true (transaction-for? (prove-design mark_pair ParallelMarks) mark_pair view))
+    (define correct (clocked_mark #f #f))
+    (check-true (transaction-for? (prove-design mark_leaf correct) mark_leaf (correct mark_leaf #:transaction_view #t)))
+    (check-exn #rx"reset/successor not proved" (lambda () (prove-design mark_leaf (clocked_mark #t #f))))
+    (check-exn #rx"reset/outputs not proved" (lambda () (prove-design mark_leaf (clocked_mark #f #t)))))
   (test-case "independent public histories: either or both occurrences can be marked after reset"
     (check-true (transaction-for? result mark_pair view))
     (for* ([a '(#f #t)] [b '(#f #t)])

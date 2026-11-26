@@ -5,6 +5,20 @@
 import lib("flow/shift-queue.rhdl") as rtl
 import lib("rspecl/fifo.rspl").fifo_monitor
 
+/* Occupied bit i qualifies payload word i; stale words do not enter the abstraction. */
+fun live_slots(flags :: SpecExpr, words :: SpecExpr, depth :: PosInt, width :: PosInt):
+  def vacant = const(Seq(Bits(width), 1), [])
+  def mutable compact = const(Bool, #true)
+  def mutable previous = const(Bool, #true)
+  def slots = for List (i in 0..depth):
+    def live = bits_equal(bits_slice(flags, i, 1), const(Bits(1), 1))
+    compact := compact && (!live || previous)
+    previous := live
+    select(live, append(vacant, bits_slice(words, i * width, width)), vacant)
+  def mutable contents = slots[0]
+  for (slot in slots.drop(1)): contents := seq_concat(contents, slot)
+  values(contents, compact)
+
 /* Build a fixed-depth reference model; reset begins an empty epoch and hides ordinary offers. */
 spec for rtl.ShiftQueue:
   when pipe || flow || flushable | error("ShiftQueue contract requires pipe, flow, and flushable disabled")
@@ -27,3 +41,15 @@ spec for rtl.ShiftQueue:
 
   refinement:
     relate q = q
+
+  rtl_refinement:
+    register occupied: Bits(depth)
+    register payload: Bits(depth * ingress.bits.type.width)
+    def values(contents, compact) = live_slots(occupied, payload, depth, ingress.bits.type.width)
+    invariant occupied_prefix = compact
+    relate q = contents
+    pin rst from reset
+    pin offered from egress.valid
+    care ingress.ready = !rst
+    care egress.valid = !rst
+    care egress.bits = !rst && offered

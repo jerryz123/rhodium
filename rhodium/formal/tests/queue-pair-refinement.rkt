@@ -1,48 +1,69 @@
 #lang rosette
-;; Certify the RSPECL two-word contract from opaque ShiftQueue proofs and exercise its public observer.
+;; Prove the two- and four-word QueuePair contracts from generic ShiftQueue seals.
 ;; SPDX-License-Identifier: Apache-2.0
 
 (require (only-in "../../../rspecl/proof.rkt" prove-transaction transaction-for?) rackunit "fifo-observer-input.rkt" "composition-checks.rkt"
+         (only-in "../../../rspecl/runner.rkt" prove-design)
          (only-in "composition-binding.rhm" pair_at faulty_pair)
-         (only-in "queue-pair.rspl" QueuePair reversed_pair)
+         (only-in "../../../examples/formal/queue-pair.rspl" QueuePair)
+         (only-in "queue-pair.rspl" reversed_pair)
          (only-in "shift-queue-transactions.rkt" shift-queue-seal-at)
          (only-in "queue-pair-transaction-order.rkt" check-retirement-order check-ready-not-entailed))
-(provide (rename-out [seal verified-depth-one-queue-pair]))
+(provide queue-pair-seal-at verified-depth-one-queue-pair)
 
 (define (view top) (QueuePair top #:transaction_view #t))
-(define leaf (shift-queue-seal-at 1))
+(define depths '(1 2))
 ;; Evidence can be reused; the two occurrences do not share an abstract queue state.
-(define children (hash "a" leaf "b" leaf))
-(define public (view (pair_at 1)))
-(define seal (prove-transaction (pair_at 1) public children))
-(define result (observe-fifo-seal seal (pair_at 1) public))
+(define (children-at depth)
+  (define leaf (shift-queue-seal-at depth))
+  (hash "a" leaf "b" leaf))
+(define seals
+  (for/hash ([depth depths])
+    (define top (pair_at depth))
+    (values depth (prove-design top QueuePair))))
+(define (queue-pair-seal-at depth) (hash-ref seals depth))
+(define verified-depth-one-queue-pair (queue-pair-seal-at 1))
 
 (module+ test
-  (test-case "the RSPECL parent alone proves ordering and a two-word bound, but not ready when space remains"
-    (check-true (transaction-for? seal (pair_at 1) public))
-    (check-equal? (fifo-transactions-capacity result) 2)
-    (require-feasible (check-retirement-order result))
-    (check-ready-not-entailed result))
-  (test-case "both words can be pending in a reset epoch; the public contract forbids accepting a third without retirement"
-    (define (fresh) (fresh-fifo-history result))
-    (define old (fresh)) (define empty (fresh)) (define one (fresh)) (define two (fresh))
-    (define x (bv 1 2)) (define y (bv 2 2))
-    (define prefix (&& (fifo-allows? result old (fifo-events #t #f x #f x) empty)
-                       (fifo-allows? result empty (fifo-events #f #t x #f x) one)
-                       (fifo-allows? result one (fifo-events #f #t y #f x) two)))
-    (require-feasible prefix)
-    (discharge 'two-word-limit prefix
-               (&& (= (fifo-history-count two) 2) (! (fifo-allows? result two (fifo-events #f #t x #f x) (fresh))))))
-  (test-case "a same-width ready or payload miswire fails before substitution"
-    (for ([fault '("ready" "payload")]
-          [message (list #rx"expected a.egress.ready driven by b.ingress.ready, got consume"
-                         #rx"expected b.ingress.bits driven by a.egress.bits, got data")])
-      (define top (faulty_pair fault 1))
-      (check-exn message (lambda () (prove-transaction top (view top) children)))
-      ;; A view built on the correct parent must not bypass checking this proof's actual RTL.
-      (check-exn message (lambda () (prove-transaction top public children)))))
-  (test-case "wrong child specialization or wrong history order cannot issue a parent seal"
-    (check-exn #rx"expected certified evidence for this transaction view"
-               (lambda () (prove-transaction (pair_at 1) public (hash-set children "a" (shift-queue-seal-at 2)))))
-    (check-exn #rx"step/(allowed|retire-oldest|successor) not proved"
-               (lambda () (prove-transaction (pair_at 1) (reversed_pair (pair_at 1)) children)))))
+  (for ([depth depths])
+    (define top (pair_at depth))
+    (define public (view top))
+    (define seal (queue-pair-seal-at depth))
+    (define result (observe-fifo-seal seal top public))
+    (define children (children-at depth))
+    (define capacity (* 2 depth))
+    (test-case (format "QueuePair(~a): ordered retirements, capacity ~a, no ready guarantee" depth capacity)
+      (check-true (transaction-for? seal top public))
+      (check-equal? (fifo-transactions-capacity result) capacity)
+      (require-feasible (check-retirement-order result))
+      (check-ready-not-entailed result))
+    (test-case (format "QueuePair(~a): reset and fill to ~a; no further acceptance without retirement" depth capacity)
+      (define (fresh) (fresh-fifo-history result))
+      (define pad (bv 0 2))
+      (define empty (fresh))
+      (define reset (fifo-allows? result (fresh) (fifo-events #t #f pad #f pad) empty))
+      (define-values (full prefix)
+        (for/fold ([old empty] [legal reset]) ([i (in-range capacity)])
+          (define next (fresh))
+          (values next (&& legal (fifo-allows? result old (fifo-events #f #t (bv i 2) #f pad) next)))))
+      ;; This is feasibility in the event contract; the independent cycle test witnesses RTL fill/drain.
+      (require-feasible prefix)
+      (define-symbolic* offered (bitvector 2))
+      (discharge 'full-limit prefix
+                 (&& (= (fifo-history-count full) capacity)
+                     (! (fifo-allows? result full (fifo-events #f #t offered #f pad) (fresh))))))
+    (test-case (format "QueuePair(~a): reject same-width miswires on the actual RTL" depth)
+      (define (reject fault message)
+        (define bad (faulty_pair fault depth))
+        ;; The correct declaration is nominal; test the bad RTL using the known-good public view.
+        (check-exn message (lambda () (prove-transaction bad public children))))
+      (reject "ready" #rx"expected a[.]egress[.]ready driven by b[.]ingress[.]ready, got consume")
+      (reject "payload" #rx"expected b[.]ingress[.]bits driven by a[.]egress[.]bits, got data")
+      (when (= depth 2)
+        (reject "mask" #rx"expected head driven by b[.]egress[.]bits, got b[.]mask")))
+    (test-case (format "QueuePair(~a): wrong child depth or reversed history cannot issue evidence" depth)
+      (define wrong-leaf (shift-queue-seal-at (if (= depth 1) 2 1)))
+      (check-exn #rx"expected certified evidence for this transaction view"
+                 (lambda () (prove-transaction top public (hash-set children "a" wrong-leaf))))
+      (check-exn #rx"step/(allowed|retire-oldest|successor) not proved"
+                 (lambda () (prove-transaction top (reversed_pair top) children))))))

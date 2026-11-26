@@ -17,7 +17,7 @@ import:
 export declared_ports interface_prefixes Endpoint
 export ready_valid_events bind_event_source event_reader
 export transaction_view check_transaction_ports transaction_parts transaction_batch_model Presence Payload
-export attach_refinement refinement_parts child_transaction
+export attach_refinement refinement_parts child_transaction child_definition checked_leaf_hints
 export combine_transactions
 export:
   only_space annot: TransactionView
@@ -212,14 +212,30 @@ fun attach_refinement(view :: TransactionView, sites :: PairList, cuts :: Map, r
   TransactionView(view.sampler, view.monitor, view.cycle_names, view.inputs, view.outputs, view.bindings,
                   PairList[sites, cuts, spec_snapshot(relation), spec_snapshot(checks), direct])
 
+/* Return only the direct instance definition from the elaborated parent. */
+fun child_definition(top :: Module, site :: String):
+  def instance = top.find_instance(site)
+  unless instance | error("no such direct RTL occurrence: " ++ site)
+  instance.attribute("module")
+
+/* Reject incomplete abstractions, mistyped predicates or missing physical observation care. */
+fun checked_leaf_hints(cycle :: LeafModel, relation :: LeafModel, masks :: LeafModel):
+  unless relation.outputs.keys().sort() == cycle.state.keys().sort()
+         && masks.outputs.keys().sort() == cycle.outputs.keys().sort()
+  | error("RTL refinement must project every cycle field and specify care for every observed pin")
+  for ((name, field) in relation.outputs):
+    unless spec_type_equal(field.value.type, cycle.state[name]) | error("RTL projection type mismatch: " ++ name)
+  for (fields in [relation.events, masks.outputs]):
+    for ((name, field) in fields):
+      unless field.value.type is_a SpecBool | error("expected a Boolean RTL predicate: " ++ name)
+  PairList[spec_snapshot(relation), spec_snapshot(masks)]
+
 /* Specialize against the actual occurrence's definition. Detached declarations may use only
    a child contract that is itself available without an elaborated top. */
 fun child_transaction(top :: maybe(Module), site :: String, spec :: Function):
   cond
   | top:
-      def instance = top.find_instance(site)
-      unless instance | error("no such direct RTL occurrence: " ++ site)
-      spec(instance.attribute("module"), ~transaction_view: #true)
+      spec(child_definition(top, site), ~transaction_view: #true)
   | ~else: spec(~transaction_view: #true)
 
 /* Read only the checked hint schemas and expressions; this is not reusable evidence. */

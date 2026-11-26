@@ -2,6 +2,7 @@
 ;; SPDX-License-Identifier: Apache-2.0
 
 (require rackunit "../refinement.rkt"
+         (only-in "../../../rspecl/runner.rkt" prove-design)
          (only-in "../../../rspecl/proof.rkt" derive-transaction transaction-for?)
          (only-in "composition-binding.rhm" fifo_at)
          (only-in "shift-queue-induction.rkt" verified-fifo-at proof_depths)
@@ -12,7 +13,7 @@
 (define proved
   (for/hash ([depth proof_depths])
     (define top (fifo_at depth))
-    (values depth (derive-transaction (verified-fifo-at depth) top ShiftQueue))))
+    (values depth (prove-design top ShiftQueue))))
 (define (shift-queue-seal-at depth) (hash-ref proved depth))
 
 ;; Unmigrated parents require the old evidence type. Prove it separately on demand;

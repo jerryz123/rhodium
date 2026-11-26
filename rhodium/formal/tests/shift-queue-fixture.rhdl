@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import lib("flow/shift-queue.rhdl").ShiftQueue
+import lib("examples/formal/queue-pair.rhdl").QueuePair
 
 // Same sampled signature as GuardedAssertion, but a distinct declaration.
 sync_circuit GroupedProbe():
@@ -14,8 +15,8 @@ sync_circuit GuardedAssertion():
   when enabled:
     assert(condition, "sampled")
 
-// The default wiring supports both the cycle proof and the transaction-only cut.
-sync_circuit QueuePair(depth :: PosInt = 2, ~fault: _fault :: String = ""):
+// Isolate the three same-width miswirings from the correct example's RTL family.
+sync_circuit FaultyQueuePair(depth :: PosInt, _fault :: String):
   input offer: Bool
   input data: Bits(2)
   input consume: Bool
@@ -76,4 +77,4 @@ sync_circuit InvertingParent():
   output inverted: Bool
   inverted <== !enable
 
-export InvertingParent GroupedProbe GuardedAssertion QueuePair QueuePairSeries DiagnosticTap
+export InvertingParent GroupedProbe GuardedAssertion QueuePair FaultyQueuePair QueuePairSeries DiagnosticTap

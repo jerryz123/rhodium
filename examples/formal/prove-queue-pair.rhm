@@ -1,0 +1,14 @@
+#lang rhombus
+/* Proves a four-word QueuePair from its elaborated RTL and its spec's ShiftQueue child declarations. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("rspecl/runner.rkt").prove_design
+  "queue-pair.rhdl" as rtl
+  "queue-pair.rspl" as spec
+
+module main:
+  def top = elaborate(rtl.QueuePair(2)).top
+  def seal = prove_design(top, spec.QueuePair)
+  println("Proved QueuePair(2) from ShiftQueue RTL: ordered FIFO contract, capacity 4")

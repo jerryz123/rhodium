@@ -11,6 +11,7 @@ import:
   lib("rspecl/rtl-boundary.rhm").interface_prefixes
   "../wiring.rhm".leaf_layout
   "shift-queue-fixture.rhdl".QueuePair
+  "shift-queue-fixture.rhdl".FaultyQueuePair
   "shift-queue-fixture.rhdl".QueuePairSeries
   lib("examples/formal/arbiter-queue.rhdl").ArbiterQueue
   lib("examples/formal/buffered-arbiter-queue.rhdl").BufferedArbiterQueue
@@ -120,7 +121,7 @@ fun inventory():
   for (d in [1, 2]):
     // The mask-as-payload fault is type-correct only at depth two.
     for (fault in (if d == 1 | ["ready", "payload"] | ["ready", "payload", "mask"])):
-      faulty_pairs[[fault, d]] := materialize_circuit(QueuePair(d, ~fault: fault))
+      faulty_pairs[[fault, d]] := materialize_circuit(FaultyQueuePair(d, fault))
   pair_series := materialize_circuit(QueuePairSeries())
   wrong_ready_series := materialize_circuit(QueuePairSeries(~wrong_ready: #true))
   for (cross_payload in [#true, #false]):

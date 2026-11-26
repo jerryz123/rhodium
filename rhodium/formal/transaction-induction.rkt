@@ -5,7 +5,8 @@
 (require racket/match (only-in racket/base [equal? same-schema?] [eq? same?])
          "spec-engine.rkt" (only-in "wiring.rhm" wrapper_wiring leaf_protocol))
 (provide (struct-out monitor-site) (struct-out guarded-site) (struct-out combinational-site)
-         open-monitor-sites check-monitor-refinement! check-monitor-edge! monitor-allowed? equivalent-value?)
+         open-monitor-sites check-monitor-refinement! check-monitor-edge! monitor-allowed? equivalent-value?
+         (rename-out [related? projection-related?]))
 
 ;; A private proof strategy supplies these adapters from already checked evidence.
 ;; Neither a descriptor nor successful use of this low-level checker is reusable evidence.

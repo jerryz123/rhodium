@@ -3,7 +3,7 @@
 ;; SPDX-License-Identifier: Apache-2.0
 
 (require (only-in "../refinement.rkt" compose-fifo-series)
-         (only-in "queue-pair.rspl" QueuePair)
+         (only-in "queue-pair.rspl" QueuePair FaultyQueuePair)
          (only-in "composition-binding.rhm" pair_at)
          (only-in "shift-queue-transactions.rkt" verified-shift-queue-transactions-at))
 (provide grouped-pair-at)
@@ -31,7 +31,8 @@
       (check-ready-not-entailed result)))
   (test-case "member drivers are checked before handoff events are shared"
     (define leaf (verified-shift-queue-transactions-at 2))
-    (define (fault kind) (lambda () (certify (faulty_pair kind) leaf leaf)))
+    (define (fault kind) (lambda () (compose-fifo-series (FaultyQueuePair (faulty_pair kind) #:event_view #t)
+                                                      "a" leaf "b" leaf)))
     (check-exn #rx"expected a.egress.ready driven by b.ingress.ready, got consume" (fault "ready"))
     (check-exn #rx"expected b.ingress.bits driven by a.egress.bits, got data" (fault "payload"))
     (check-exn #rx"expected head driven by b.egress.bits, got b.mask" (fault "mask"))

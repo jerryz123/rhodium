@@ -1,0 +1,26 @@
+#lang rspecl
+/* Specifies external FIFO transactions and checks their refinement across two ShiftQueue occurrences. */
+// SPDX-License-Identifier: Apache-2.0
+
+import "queue-pair.rhdl" as rtl
+import "shift-queue.rspl".ShiftQueue
+import lib("rspecl/fifo.rspl").fifo_monitor
+
+/* Bind the public handshake to its scalar pins; no child timing guarantee escapes. */
+fun pair_events(reset :: SpecExpr):
+  ready_valid_events(reset, rv_pins("offer", "ready", "data"), rv_pins("valid", "consume", "head"))
+
+def pair_wires = {"a.ingress.valid": "offer", "a.ingress.bits": "data", "ready": "a.ingress.ready",
+                  "b.ingress.valid": "a.egress.valid", "b.ingress.bits": "a.egress.bits", "a.egress.ready": "b.ingress.ready",
+                  "valid": "b.egress.valid", "head": "b.egress.bits", "b.egress.ready": "consume"}
+
+spec for rtl.QueuePair:
+  events transfers = pair_events(reset)
+  transactions fifo_monitor(2 * depth, data.type.width, transfers)
+  refinement:
+    direct_wires pair_wires
+    child a: ShiftQueue
+    child b: ShiftQueue
+    history upstream from a.q: Seq(data.type, depth)
+    history downstream from b.q: Seq(data.type, depth)
+    relate q = seq_concat(downstream, upstream)

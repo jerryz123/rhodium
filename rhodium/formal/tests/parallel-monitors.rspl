@@ -27,6 +27,23 @@ spec for rtl.StickyMark:
     local (seen): Bool
     relate seen = seen
 
+fun clocked_mark(wrong_state, wrong_care):
+  spec for rtl.StickyMark:
+    state remembered: Bool initially #false
+    observe marked = remembered when !reset
+    next remembered = !reset && (remembered || mark)
+    transactions mark_monitor(#false)
+    refinement:
+      relate seen = remembered
+    rtl_refinement:
+      register seen: Bool
+      relate remembered = (if wrong_state | !seen | seen)
+      pin rst from reset
+      care marked = (if wrong_care | const(Bool, #true) | !rst)
+  StickyMark
+
+export clocked_mark
+
 spec for rtl.ToggleMark:
   transactions mark_monitor(#true)
   refinement:

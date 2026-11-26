@@ -261,6 +261,40 @@ defn.macro 'bind_parameter $id($bound, $key)':
      expr.macro '$id': '$(bound) . parameter($key)'
    »'
 
+/* Build two stateless checked models. The state projection can read only registers;
+   observation care can read only physical pins. Neither model contributes assumptions. */
+expr.macro 'rtl_relation($cycle, $ports): $line; ...':
+  def values(_, _, _, record, emit, declarations) = model_body()
+  def regs = MutableMap{}
+  def pins = MutableMap{}
+  def states = MutableMap{}
+  def checks = MutableMap{}
+  def cares = MutableMap{}
+  for (line in [line, ...]):
+    match line
+    | 'register $(n :: Identifier): $t ...':
+        def key = field_name(n)
+        def sort = record(regs, key, '($t ...)', line)
+        emit('def $n = ir.input_ref($key, $sort)')
+    | 'pin $(n :: Identifier) from $path ...':
+        def key = field_name('$path ...')
+        def sort = record(pins, key, '($(ports) . inputs ++ $(ports) . outputs)[$key]', line)
+        emit('def $n = ir.input_ref($key, $sort)')
+    | 'relate $(n :: Identifier) = $rhs ...':
+        record(states, field_name(n), 'ir.Observed(operand($rhs ...))', line)
+    | 'invariant $(n :: Identifier) = $rhs ...':
+        record(checks, field_name(n), 'ir.Observed(operand($rhs ...))', line)
+    | 'care $path ... = $rhs ...':
+        record(cares, field_name('$path ...'), 'ir.Observed(operand($rhs ...))', line)
+    | ~else: emit(line)
+  let [decl, ...] = declarations()
+  'block:
+     $decl
+     ...
+     def rel = ir.make_spec($(map_expr(regs)), {}, {}, $(map_expr(states)), $(map_expr(checks)), {})
+     def masks = ir.make_spec($(map_expr(pins)), {}, {}, $(map_expr(cares)), {}, {})
+     boundary.checked_leaf_hints($cycle, rel, masks)'
+
 /* Compile a circuit-bound body to typed IR; evaluate each clause at its original lexical site. */
 defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ...) ($arr, ...): $line; ...':
   let [pin_key, ...] = [pin.to_source_string(), ...]
@@ -276,6 +310,8 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
   def mutable transaction = #false
   def mutable refinement = #false
   def mutable projection = #false
+  def mutable rtl_hint = #false
+  def child_specs = MutableMap{}
   def values(states, initial, updates, record, model_clause, declarations) = model_body()
   def clauses = [line, ...]
   /* Distinguish a cycle spec from a monitor-only cut, independent of clause order. */
@@ -305,9 +341,20 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
     | 'monitor: $entry; ...':
         when transaction | syntax_meta.error("duplicate transaction view", clause)
         transaction := 'monitor_view: $entry; ...'
+    | 'rtl_refinement: $entry; ...':
+        when rtl_hint | syntax_meta.error("duplicate RTL refinement", clause)
+        rtl_hint := Syntax.make_temp_id("rtl_relation")
+        model_clause('fun $rtl_hint(cycle :: ir.LeafModel):
+                        rtl_relation(cycle, bound.ports): $entry; ...')
     | 'refinement: $entry; ...':
         when refinement | syntax_meta.error("duplicate refinement block", clause)
         refinement := [entry, ...]
+        for (item in refinement):
+          match item
+          | 'child $(n :: Identifier): $s ...':
+              def site = field_name(n)
+              child_specs[site] := 'PairList[boundary.child_definition(top, $site), ($s ...)]'
+          | ~else: #void
         def cut_forms = {"child", "fifo", "history", "local", "input", "output", "batch", "check", "cover", "direct_wires"}
         when has_cycle && !refinement.find(fun (c): has_head(c, cut_forms))
         | block:
@@ -324,6 +371,8 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
   let [decl, ...] = declarations()
   def specialized = transaction && bound_events
   def fifo_behavior = transaction && event_source && !specialized
+  when rtl_hint && !(transaction && !fifo_behavior && projection)
+  | syntax_meta.error("RTL refinement requires a sampled cycle with a transaction projection", name)
   when bound_events && !transaction
   | syntax_meta.error("a named event reader needs a transaction view", name)
   when projection && !transaction && !event_source | syntax_meta.error("cycle refinement requires a transaction view", name)
@@ -337,15 +386,20 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
     cond
     | specialized:
         if projection
-        | '(top, ~event_view: view_only :: Boolean = #false, ~transaction_view: tx_only :: Boolean = #false, ~cycle_derivation: derive :: Boolean = #false)'
-        | '(top, ~event_view: view_only :: Boolean = #false, ~transaction_view: tx_only :: Boolean = #false)'
+        | '(top, ~event_view: view_only :: Boolean = #false, ~transaction_view: tx_only :: Boolean = #false, ~cycle_derivation: derive :: Boolean = #false, ~proof_plan: plan :: Boolean = #false)'
+        | '(top, ~event_view: view_only :: Boolean = #false, ~transaction_view: tx_only :: Boolean = #false, ~proof_plan: plan :: Boolean = #false)'
     | projection && event_source: '(top, ~event_view: view_only :: Boolean = #false, ~cycle_derivation: derive :: Boolean = #false)'
     | event_source: '(top, ~event_view: view_only :: Boolean = #false)'
     | ~else: '(top)'
   def tx_args:
     if projection
-    | '(top = #false, ~transaction_view: tx_only :: Boolean = #false, ~cycle_derivation: derive :: Boolean = #false)'
-    | '(top = #false, ~transaction_view: tx_only :: Boolean = #false)'
+    | '(top = #false, ~transaction_view: tx_only :: Boolean = #false, ~cycle_derivation: derive :: Boolean = #false, ~proof_plan: plan :: Boolean = #false)'
+    | '(top = #false, ~transaction_view: tx_only :: Boolean = #false, ~proof_plan: plan :: Boolean = #false)'
+  def parent_plan = 'PairList["parent", view, $(map_expr(child_specs))]'
+  def leaf_plan:
+    if rtl_hint
+    | 'PairList["leaf", top.name, checked, view, $projection(checked), $rtl_hint(checked)]'
+    | 'error("cycle spec has no RTL refinement")'
   /* Return the same public view for consumers. Only a proof request also builds the private relation. */
   fun result_expr(normal :: Syntax):
     if projection | 'if derive | values(view, $projection(checked)) | $normal' | normal
@@ -362,7 +416,9 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
     cond
     | specialized && passive: '«
          cond
-         | tx_only: specialized_view(top, fun (): boundary.check_transaction_ports($transaction, bound.ports))
+         | plan || tx_only:
+             def view = specialized_view(top, fun (): boundary.check_transaction_ports($transaction, bound.ports))
+             if plan | $parent_plan | view
          | view_only: $bound_events
          | ~else: error("passive-only spec: request a transaction or event view")
        »'
@@ -370,7 +426,9 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
          def view = specialized_view(top, fun (): boundary.check_transaction_ports($transaction, bound.ports))
          def cycle_events = ir.include_sampled_events(view.sampler, cycle_outputs, $(map_expr(events)), ~only: view.cycle_names)
          def checked = check_output_types($build, bound.ports.outputs, [$skip, ...])
-         $(result_expr('cond | tx_only: view | view_only: $bound_events | ~else: checked'))
+         cond
+         | plan: $leaf_plan
+         | ~else: $(result_expr('cond | tx_only: view | view_only: $bound_events | ~else: checked'))
        »'
     | fifo_behavior:
         def public_view = 'fifo_view.bind_fifo_behavior(boundary.bind_event_source($event_source, top), $transaction)'
@@ -385,14 +443,15 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
            $result
          »'
     | monitor_only: '«
-         unless tx_only | error("monitor-only spec: request ~transaction_view: #true")
-         boundary.check_transaction_ports(attached, bound.ports)
+         unless plan || tx_only | error("monitor-only spec: request ~transaction_view: #true")
+         def view = boundary.check_transaction_ports(attached, bound.ports)
+         if plan | $parent_plan | view
        »'
     | transaction: '«
          def view = boundary.check_transaction_ports(attached, bound.ports)
          def cycle_events = ir.include_sampled_events(view.sampler, cycle_outputs, $(map_expr(events)), ~only: view.cycle_names)
          def checked = check_output_types($build, bound.ports.outputs, [$skip, ...])
-         $(result_expr('if tx_only | view | checked'))
+         if plan | $leaf_plan | $(result_expr('if tx_only | view | checked'))
        »'
     | passive:
         '«

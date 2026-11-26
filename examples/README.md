@@ -308,7 +308,8 @@ hardware-preservation contracts.
 | GrantedSelector / RoutedSelector / RegisteredRoutedSelector | [Direct or routed grants with same-cycle or registered selection](formal/granted-selector.rhdl) | [Ordered input contracts, reset, capture, and hold](formal/granted-selector.rspl) |
 | GatedCapture / ArbitratedCapture | [Gated capture behind an arbiter](formal/gated-capture.rhdl) | [A gate assumption discharged by the arbiter](formal/gated-capture.rspl), using the selector's [shared capture monitor](formal/capture-history.rspl) |
 | BufferedStallConsumer | [A one-word queue feeding a wrapped recorder](formal/stalled-offer.rhdl) | [A stable-offer requirement forwarded by the wrapper and discharged by the queue](formal/stalled-offer.rspl) |
-| ShiftQueue | [Flow queue](../flow/shift-queue.rhdl) | [Cycle model with ready/valid events](formal/shift-queue.rspl) |
+| ShiftQueue | [Flow queue](../flow/shift-queue.rhdl) | [Cycle model, RTL register relation, and ordered transfer contract](formal/shift-queue.rspl) |
+| QueuePair | [Two ShiftQueues in series](formal/queue-pair.rhdl) | [Direct handoff and ordered public history](formal/queue-pair.rspl); [run the four-word proof](formal/prove-queue-pair.rhm) |
 | TwoTagROB | [Two-tag reorder buffer](formal/two-tag-rob.rhdl) | [Cycle behavior, event monitor, and checked FIFO/register refinement](formal/two-tag-rob.rspl) |
 | LoggedTwoTagROB | [Last-commit recorder](formal/logged-two-tag-rob.rhdl) | [RSPECL spec](formal/logged-two-tag-rob.rspl) combines ordered retirement with readback on its own ports; [grant-to-record proof](../rhodium/formal/tests/logged-ordinal.rkt) uses only the recorder seal |
 | GatedArbiterQueue | [Registered admission wrapper](formal/gated-arbiter-queue.rhdl) | [Admission and ordered drain](formal/gated-arbiter-queue.rspl) |

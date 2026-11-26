@@ -116,6 +116,10 @@ fun view(expr):
 fun observe(expr):
   step_spec(view(expr), Map{}, Map{}).outputs
 check:
+  observe(bits_slice(literal(SpecBits(6), 44), 2, 3)) ~is {"v": 3}
+  observe(bits_slice(literal(SpecBits(6), 0), 4, 2)) ~is {"v": 0}
+  bits_slice(literal(SpecBits(6), 44), 4, 3) ~throws "slice outside packed word"
+  bits_slice(empty, 0, 1) ~throws "slice outside packed word"
   observe(bits_equal(literal(SpecBits(2), 2), literal(SpecBits(2), 2))) ~is {"v": #true}
   observe(bits_equal(literal(SpecBits(2), 2), literal(SpecBits(2), 0))) ~is {"v": #false}
   bits_equal(literal(bit, 1), literal(SpecBits(2), 1)) ~throws "equal-width"

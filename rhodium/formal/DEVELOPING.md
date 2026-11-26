@@ -146,7 +146,13 @@ care and transfer events and the abstraction relation. Only input assumptions
 in the matched leaf contract can restrict external traffic. A counterexample, unknown, or ambient constraint
 cannot mint a result.
 
-[The leaf proof](tests/shift-queue-induction.rkt) uses one symbolic input sample
+[ShiftQueue's spec](../../examples/formal/shift-queue.rspl) owns the private RTL
+encoding. Its `rtl_refinement:` builds two stateless IR expressions: the
+state projection and its invariant read registers; the care predicates read
+physical pins. The [design runner](../../rspecl/runner.rkt) checks these at reset
+and preservation, separately samples actual event pins, and derives the transaction
+seal only after the cycle check succeeds. It has no knowledge of queue slots or depth.
+The [independent handwritten oracle](tests/shift-queue-induction.rkt) uses one symbolic input sample
 for the RTL and the executable spec, but allocates their old states independently.
 For spec length `n <= depth`, RTL slot `i` must be occupied exactly when `i < n`;
 only then must its two-bit payload equal spec item `i`. Slot zero is the head.
@@ -257,7 +263,7 @@ first differing observation and that the same trace passes on the correct leaf.
 
 ### Two ShiftQueues in series
 
-[QueuePair](tests/shift-queue-fixture.rhdl) instantiates the same verified leaf
+[QueuePair](../../examples/formal/queue-pair.rhdl) instantiates the same verified leaf
 definition twice. The [composition binding](tests/composition-binding.rhm) reads the
 parent's ports, drivers, and instance signatures, not its children's bodies.
 The leaf proof runs once on the shared definition and releases its exact spec
@@ -301,13 +307,19 @@ and consumers interpret the same IR with Rosette. The adapter rejects invalid
 mathematical counts before they can wrap, ignores the predecessor count on
 reset, and compares only live successor slots.
 
-Keep the [RSPECL QueuePair induction](tests/queue-pair-refinement.rkt) alongside the
-[handwritten series proof](tests/queue-pair-grouped.rkt). The generic proof
-uses the same depth-one ShiftQueue seal twice, specializing the expected child
-view at each actual RTL occurrence. Both proofs use independent child histories.
+Keep the correct [QueuePair refinement](../../examples/formal/queue-pair.rspl)
+with its RTL. The [standalone entry](../../examples/formal/prove-queue-pair.rhm)
+only supplies the elaborated top and spec to the runner; its imports must stay
+outside tests. The [regression harness](tests/queue-pair-refinement.rkt) exercises
+depths one and two alongside the [handwritten series oracle](tests/queue-pair-grouped.rkt).
+At each depth the runner uses the
+matching ShiftQueue seal twice, specializing the expected child view at each
+actual RTL occurrence. Both proofs use independent child histories. At depth
+two, the mask is the same width as the payload: driving `head` from `b.mask`
+must fail the wire check, not a width check.
 For an authored `direct_wires` map, the wiring extractor must reject local
 logic, compare every sink to its actual driver, and check shared clock/reset
-before either child verdict is available. Recheck on the proof's top even if
+before using the child evidence in parent induction. Recheck on the proof's top even if
 the caller supplies a view previously bound to good RTL. The
 [transaction induction](transaction-induction.rkt) opens all declared occurrences
 on one actual wire graph, interprets only parent-local RTL, and checks the same

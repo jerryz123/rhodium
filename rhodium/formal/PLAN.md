@@ -33,8 +33,8 @@ procedure, evidence type, or knowledge of a grandchild to obtain a proof.
 | Finding in the current implementation | Destination |
 |---|---|
 | [FIFO behavior](fifo-monitor.rhm) builds a bounded sequence monitor by hand. The [view binder](fifo-view.rhm) recognizes that exact monitor; the [language](../../rspecl/language.rhm) treats the combination of events and transactions as FIFO-specific. | A parameterized, importable `.rspl` monitor and pin-sampling helpers. The owning spec chooses them explicitly. No FIFO opcode, reserved history name, or second spec for the same module. |
-| [Series and wrapper issuers](refinement.rkt) know about FIFO evidence, upstream/downstream order, and transfer transport. [QueuePair](tests/queue-pair.rspl) already declares the concatenation; QueuePairSeries still relies on the handwritten series rule. | The parent's private `refinement:` names child occurrences, projects their public histories, and declares the handoff to check. Ordinary monitor induction or exact forwarding issues the result. Keep physical wiring checks; do not replace them with an assumed internal event. |
-| [ShiftQueue's leaf harness](tests/shift-queue-induction.rkt) knows the occupied-prefix encoding, live slots and physical observation rules. The `relate q = q` in its spec is a **cycle-to-monitor** projection, not the missing **RTL-to-cycle** relation. | Put the encoding and care of live slots in the leaf's private checked hints. Derive actual observations from RTL pins, independently of expected spec outputs. Keep coverage, fault injection and independent replay in tests. |
+| [Series and wrapper issuers](refinement.rkt) know about FIFO evidence, upstream/downstream order, and transfer transport. [QueuePair](../../examples/formal/queue-pair.rspl) already declares the concatenation; QueuePairSeries still relies on the handwritten series rule. | The parent's private `refinement:` names child occurrences, projects their public histories, and declares the handoff to check. Ordinary monitor induction or exact forwarding issues the result. Keep physical wiring checks; do not replace them with an assumed internal event. |
+| [ShiftQueue](../../examples/formal/shift-queue.rspl) owns both its RTL-to-cycle and cycle-to-monitor relations. Its [handwritten oracle](tests/shift-queue-induction.rkt) is independent. | Use this split when porting other leaves: register encodings and physical observation rules belong in checked spec hints, not the runner. Keep coverage, fault injection and replay in tests. |
 | [TwoTagROB](../../examples/formal/two-tag-rob.rspl) already owns its generation, ownership and payload invariants; the [logged parent](../../examples/formal/logged-two-tag-rob.rspl) consumes public history. The ROB still imports its tag order via the privileged FIFO cut. The [stall harness](tests/stalled-offer.rkt) still selects the supplier and forwarding strategy. | Keep the existing ROB semantics in RSPECL. Replace the FIFO cut with an ordinary typed child history, proving any tag conversion on live entries. Move wiring roles and required/provided view choices into private spec declarations; the caller supplies seals, not a proof script. |
 
 **Trust boundary:** ordinary Rhombus helpers may construct typed spec IR.
@@ -57,19 +57,19 @@ treat a matching batch schema as proof that two monitors agree.
 2. **Remove the privileged FIFO composition path one consumer at a time.**
    ShiftQueue's ordering observer now reads its generic seal at depths 1–3;
    unmigrated parents still obtain independently proved legacy evidence.
-   QueuePair(1) now proves its two-word public seal from generic ShiftQueue
-   seals using `child`, `history`, and `relate`. Its `direct_wires` obligation
-   also checks a non-FIFO parallel cut. Next validate QueuePair(2) on this
-   path, then migrate QueuePairSeries and the arbiter/ROB consumers. Preserve the
+   QueuePair(1) and QueuePair(2) now prove their two- and four-word bounds
+   from generic ShiftQueue seals using `child`, `history`, and `relate`. Their
+   `direct_wires` obligation also checks a non-FIFO parallel cut. Next use
+   the two parent seals to migrate QueuePairSeries, then the arbiter/ROB consumers. Preserve the
    two-lane exclusivity obligation; it is not an environment assumption.
    Keep the ordering observer's theorem unchanged, the 2/4/6-word bounds,
    fill/drain replay, and the crossed-ready, wrong-payload, reversed-history
    and ready-when-space negatives. Retire the FIFO-specific dispatch and
    issuer only once no production consumer needs them; a compatibility
    observer may read generic evidence but must not mint it.
-3. **Make proof setup declarative.** Pilot the private RTL-to-cycle relation
-   on ShiftQueue at depths 1–3, then check the same leaf entry point on the
-   combinational Arbiter. Move only the facts the proof needs; retain the
+3. **Make proof setup declarative.** ShiftQueue and QueuePair now have a
+   [standalone proof](../../examples/formal/prove-queue-pair.rhm). Extend the
+   same entry point to the combinational Arbiter. Move only the facts the proof needs; retain the
    handwritten harnesses as differential oracles. For parents, drive the
    existing generic obligations from the spec's declared child views and
    supplier roles. Reprove the wrapped stalled receipt and logged ROB without
@@ -128,9 +128,9 @@ two such leaf results directly. The checked grouped handoff yields bounds two
 and four and ordered retirement without stepping a child cycle model. The
 six-word series reuses those results; the separate cycle proof still owns
 the reachable readiness counterexample.
-For QueuePair(1) the [RSPECL proof](tests/queue-pair-refinement.rkt) now
-certifies the declared two-word FIFO monitor using two verified ShiftQueue
-contracts and a private downstream-first history relation. Its seal feeds
+For each child depth (one and two), the [RSPECL proof](../../examples/formal/queue-pair.rspl)
+certifies the declared FIFO monitor using two verified ShiftQueue occurrences
+and a private downstream-first history relation. Each parent seal feeds
 the existing ordering observer; a crossed handoff or reversed relation earns
 no evidence. The same occurrence-based transaction induction also proves
 [two non-FIFO monitors in parallel](tests/parallel-monitors.rspl); both
