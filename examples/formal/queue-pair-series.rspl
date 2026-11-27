@@ -13,9 +13,6 @@ spec for rtl.QueuePairSeries:
   refinement:
     child front: QueuePair
     child back: QueuePair
-    direct_wires {"front.offer": "offer", "front.data": "data", "ready": "front.ready",
-                  "back.offer": "front.valid", "back.data": "front.head", "front.consume": "back.ready",
-                  "back.consume": "consume", "valid": "back.valid", "head": "back.head"}
     // The first pair can hold two words, the second four. The ones already downstream will leave first.
     history upstream from front.q: Seq(data.type, 2)
     history downstream from back.q: Seq(data.type, 4)

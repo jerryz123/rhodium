@@ -153,9 +153,9 @@ instance name. `prove_design(top, spec)` takes the **constructor**, not
 child and no others. There is no fallback to recursive proof. Swapping the
 two QueuePair seals fails: their specializations and public views differ.
 
-The [series spec](../examples/formal/queue-pair-series.rspl) still has to check
-the handoff and relate the downstream history followed by the upstream history
-to its six-word FIFO. A successful proof returns an opaque seal for that
+The [series spec](../examples/formal/queue-pair-series.rspl) relates the downstream
+history followed by the upstream history to its six-word FIFO. The runner checks
+this relation on the actual RTL handoff. A successful proof returns an opaque seal for that
 specialization and contract. It does **not** promise that `ready` is high
 whenever space remains, or that every word eventually retires.
 

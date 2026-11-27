@@ -43,7 +43,8 @@
     (check-exn #rx"attempted to reprove a child" (lambda () (prove-design pair_series cut)))
     (for ([invalid (list (hash) (hash-remove children "back") (hash-set children "extra" small))])
       (check-exn #rx"#:children expected occurrences" (lambda () (prove-design pair_series cut #:children invalid))))
-    (check-exn #rx"expected front[.]consume driven by back[.]ready, got consume"
+    ;; The broken handoff must violate the FIFO proof, not just a prescribed topology.
+    (check-exn #rx"step/space-for-accept not proved"
                (lambda () (prove-design wrong_ready_series cut #:children children)))
     (check-exn #rx"expected certified evidence for this transaction view"
                (lambda () (prove-design pair_series cut #:children (hash "front" large "back" small))))

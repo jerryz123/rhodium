@@ -192,14 +192,14 @@ prove_design(top, spec.QueuePairSeries, ~children: {"front": front, "back": back
 In Racket the keyword is `#:children`. Omitting it selects recursive proof.
 Supplying it disables child proof for this call: missing and extra names are
 errors, and each seal must match the actual RTL definition and declared public
-view. The parent still proves its wiring, discharges child premises at the pins,
-and checks its own contract. No grandchildren or persistent cache are needed.
+view. The parent still discharges child premises at the actual RTL pins and
+proves its own contract. No grandchildren or persistent cache are needed.
 
-The [series spec](../../examples/formal/queue-pair-series.rspl) checks the middle
-valid, data, and reverse-ready wires. It puts the downstream pair's pending words
-before the upstream pair's: an internal transfer moves a word between them
-without changing the combined sequence. The series proof does not inspect
-the ShiftQueue instances or registers inside either pair.
+The [series spec](../../examples/formal/queue-pair-series.rspl) puts the downstream
+pair's pending words before the upstream pair's. The runner follows the elaborated
+RTL wiring to prove that an internal transfer preserves this combined sequence.
+The spec needs neither a pin map nor access to the ShiftQueue instances or
+registers inside either pair.
 
 Run the focused formal suite. It first probes Rosette and its solver under the
 persistent isolated build cache, then runs the Rhodium formal tests:
