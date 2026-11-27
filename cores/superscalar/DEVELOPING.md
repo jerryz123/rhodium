@@ -273,11 +273,15 @@ and visible/consumable window entries. Fetch blocks remain eight bytes, assemble
 storage remains three blocks, and the issue window remains eight entries. The
 assembler examines at most two contiguous blocks; if a third instruction needs
 a third block, emit the complete prefix and retain its suffix for the next cycle.
-The ordered scan ends after a fault or taken prediction and before a second RAS
-action. Select repair history from the accepted tail, and qualify all prediction
-and RAS effects with the packet transfer. Keep block trace ancestry separate
-from instruction count: a three-instruction packet still has at most two block
-parents. Window trace views replicate accepted packet ownership for each of its
+Candidate offsets depend only on parcel length bits. A first-parcel fault delivers
+one parcel even at byte six; a healthy 32-bit prefix needs its contiguous suffix
+before it can deliver an instruction or a continuation fault. The accepted prefix
+ends after a fault or taken prediction and before a second RAS action. A younger
+fault must not suppress an older taken branch. Select repair history from the
+accepted tail, and qualify all prediction and RAS effects with the packet
+transfer. Keep block trace ancestry separate from instruction count: a
+three-instruction packet still has at most two block parents. Window trace
+views replicate accepted packet ownership for each of its
 appended instructions and consume only the caller-selected oldest prefix.
 Do not widen two-operand bundles, retirement feedback, or backend stage state
 when changing frontend group width.

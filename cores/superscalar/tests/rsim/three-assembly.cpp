@@ -228,6 +228,55 @@ void continuation_faults() {
   }
 }
 
+void ordered_branch_and_fault() {
+  constexpr std::uint64_t base = 0x8000;
+  auto fault = block(base + 8, UINT64_C(0x040000ef040000ef)); // stale calls in the failed block
+  fault.pfault.pvalid = true;
+  fault.pfault.pcause = 12;
+  fault.pfault.pvalue = base + 8;
+  for (bool call : {false, true}) {
+    clear_assembly();
+    enqueue(block(base + 4, std::uint64_t(call ? 0x040000ef : 0x13) << 32));
+    blocks_in.pvalid = true;
+    blocks_in.pbits = fault;
+    // The fault arrives on bypass, then stays resident across backpressure.
+    for (unsigned cycle = 0; cycle < 3; ++cycle) {
+      eval();
+      CHECK(instructions_out.pvalid && instructions_out.pbits.pcount == (call ? 1 : 2));
+      const auto &older = instructions_out.pbits.pentries[0];
+      CHECK(older.ppc == base + 4 && !older.pfault.pvalid && bool(older.pprediction.pvalid) == call);
+      if (!call) {
+        const auto &younger = instructions_out.pbits.pentries[1];
+        CHECK(younger.pfault.pvalid && younger.pfault.pcause == 12 && parcel_fault_address(younger) == base + 8);
+        CHECK(younger.psequential_upc == base + 10 && !younger.pprediction.pvalid);
+      }
+      CHECK(!repair_out.pvalid && !discover_out.pvalid && !speculate_out.pvalid);
+      tick_model();
+      blocks_in = {};
+    }
+    instructions_in.pready = true;
+    eval();
+    CHECK(bool(repair_out.pvalid) == call && bool(discover_out.pvalid) == call && bool(speculate_out.pvalid) == call);
+    if (call) CHECK(repair_out.pbits.ptarget == base + 68 && speculate_out.pbits.preturn_uaddress == base + 8);
+    tick_model();
+    eval();
+    CHECK(!instructions_out.pvalid && !repair_out.pvalid && !discover_out.pvalid && !speculate_out.pvalid);
+    tick_model();
+    CHECK(available == 3);
+  }
+
+  // At byte six a failed first parcel must not wait for a second block,
+  // even when the untrusted low bits suggest an uncompressed instruction.
+  clear_assembly();
+  auto last = block(base + 6, UINT64_C(0x00ef000000000000));
+  last.pfault = fault.pfault;
+  last.pfault.pvalue = base + 6;
+  enqueue(last);
+  const auto &entry = instructions_out.pbits.pentries[0];
+  CHECK(instructions_out.pvalid && instructions_out.pbits.pcount == 1 && entry.pfault.pvalid);
+  CHECK(parcel_fault_address(entry) == base + 6 && entry.psequential_upc == base + 8 && !entry.pprediction.pvalid);
+}
+
 int main() {
   return run_test([] {
     reset = true;
@@ -237,6 +286,7 @@ int main() {
     stalled_history_bypass();
     third_lane_control();
     continuation_faults();
+    ordered_branch_and_fault();
     // Clear must suppress both resident and live-bypass offers.
     clear_assembly();
     blocks_in.pvalid = true;

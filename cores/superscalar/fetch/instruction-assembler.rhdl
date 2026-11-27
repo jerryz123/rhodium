@@ -246,9 +246,8 @@ sync_circuit SuperscalarInstructionAssembler(profile :: SuperscalarPipelineConfi
   reg repairing(~init: Bool(#false))
   def discard = clear.valid ||| repairing
   reg consumed(~init: Bits(3)(0))
-  def start = first_block.address()[1..3].zext(4) + consumed.zext(4)
+  def start = first_block.pc.low[1..3].zext(4) + consumed.zext(4)
   def window = (second_block.data ++ first_block.data) >> (start ++ Bits(4)(0))
-  def parcels = Bits(4)(4) - start + mux(second_present, Bits(4)(4), Bits(4)(0))
   def first_pc = first_block.address() + (consumed.zext(xlen.width) << 1)
   wire fetched: Vec(group_width, SuperscalarInstruction(xlen, hypervisor))
   wire included: Vec(group_width, Bool)
@@ -257,9 +256,10 @@ sync_circuit SuperscalarInstructionAssembler(profile :: SuperscalarPipelineConfi
   wire entry_repairs: Vec(group_width, Bool)
 
 
-  /* Ordered parcel scan and prediction validation.
-     Each lane advances by the preceding instruction's length. Stop the prefix at
-     a fault, taken prediction, missing continuation, or second RAS action. */
+  /* Candidate parcel scan and ordered delivery.
+     Only instruction bytes determine the next candidate boundary. Faults, a missing
+     continuation, a taken branch or a second RAS action cut the delivered prefix;
+     none changes the bytes or target examined by a later candidate. */
 
   def mutable offset = Bits(4)(0)
   def mutable prefix = first_present
@@ -278,30 +278,35 @@ sync_circuit SuperscalarInstructionAssembler(profile :: SuperscalarPipelineConfi
     def position = start + lane_offset
     def in_second = position >= Bits(4)(4)
     def owner = mux(in_second, second_block, first_block)
-    def size = mux(compressed ||| owner.fault_value().valid, Bits(4)(1), Bits(4)(2))
+    def size = mux(compressed, Bits(4)(1), Bits(4)(2))
     def next_offset = lane_offset + size
-    def crosses = !in_second & ((position + size) > Bits(4)(4))
+    def owner_fault = owner.fault_value().valid
+    def needs_suffix_block = !compressed & (position[0..2] === Bits(2)(3))
+    def crosses = !in_second & needs_suffix_block & !owner_fault
+    // A first-parcel fault is complete by itself, even at byte six. A healthy
+    // two-parcel instruction starting there must wait for its exact continuation.
+    def first_available = !in_second ||| second_present
+    def complete = first_available & (owner_fault ||| !needs_suffix_block ||| (!in_second & second_present))
     def fetch_fault = mux(in_second ||| crosses, second_block.fault_value(), first_block.fault_value())
     def fault :: FetchBlockFault(xlen, hypervisor) = mux(first_block.fault_value().valid, first_block.fault_value(), fetch_fault)
     inst decoded(SuperscalarPredecode(profile))
     decoded.raw <== raw
     def canonical = decoded.canonical
-    def legal = !fault.valid & decoded.legal
-    def control_flow = !fault.valid & decoded.control_flow
-    def action = mux(control_flow, decoded.action, RasAction.None)
+    def action = mux(fault.valid, RasAction.None, decoded.action)
     def predicted :: BranchPrediction(xlen, xlen.width) = mux(crosses & !owner.prediction_value().valid, second_block.prediction_value(), owner.prediction_value())
     def parcel = pc[1..3]
     def histories = mux(in_second, second_histories, first_histories)
     def ordinary_direction = owner.directions[parcel].checkpoint(owner.direction_row, histories[parcel])
     def direction :: SuperscalarDirectionCheckpoint() = mux(crosses, second_block.prefix_value(), ordinary_direction)
-    def bht_branch = direction.valid & control_flow & decoded.conditional
-    def known = mux(bht_branch, direction.taken, predicted.valid & (predicted.pc === pc) & (predicted.compressed === compressed) & control_flow)
-    def immediate_control_flow = legal & decoded.immediate
+    def bht_branch = direction.valid & decoded.conditional
+    def known = mux(bht_branch, direction.taken, predicted.valid & (predicted.pc === pc) & (predicted.compressed === compressed) & decoded.control_flow)
+    def immediate_control_flow = decoded.immediate
     def immediate_target = prediction_target(xlen, compact_pc_width(xlen), pc + decoded.offset)
-    def direct = legal & (canonical[0..7] === Bits(7)(0x6f))
-    def returning = legal & action.is_one_of(RasAction.Pop, RasAction.PopPush) & ras_head_valid
+    def direct = decoded.legal & (canonical[0..7] === Bits(7)(0x6f))
+    def returning = decoded.action.is_one_of(RasAction.Pop, RasAction.PopPush) & ras_head_valid
     def fallback = !known & (direct ||| returning)
-    def sequential_pc = pc + (size.zext(xlen.width) << 1)
+    def delivered_size = mux(owner_fault, Bits(4)(1), size)
+    def sequential_pc = pc + (delivered_size.zext(xlen.width) << 1)
     def return_target = prediction_target(xlen, compact_pc_width(xlen), ras_head)
     def predicted_target :: Bits(xlen.width) = priority_mux(~default: return_target):
       immediate_control_flow: immediate_target
@@ -309,7 +314,7 @@ sync_circuit SuperscalarInstructionAssembler(profile :: SuperscalarPipelineConfi
       known: predicted.target
 
     def updates_ras = action =/= RasAction.None
-    def lane_valid = prefix & (parcels >= next_offset) & !(ras_used & updates_ras)
+    def lane_valid = prefix & complete & !(ras_used & updates_ras)
     def parcel_fault = fault.at_parcel(crosses & !first_block.fault_value().valid)
     when (lane_valid & fault.valid):
       assert(parcel_fault.address(pc) === fault.value, "superscalar_assembly_fault_parcel")
@@ -318,7 +323,7 @@ sync_circuit SuperscalarInstructionAssembler(profile :: SuperscalarPipelineConfi
     packet_count := mux(lane_valid, Bits(2)(lane + 1), packet_count)
     used_parcels := mux(lane_valid, next_offset, used_parcels)
     any_fault := any_fault ||| (lane_valid & fault.valid)
-    any_cut := any_cut ||| (lane_valid & (known ||| fallback))
+    any_cut := any_cut ||| (lane_valid & !fault.valid & (known ||| fallback))
     tail_lane := mux(lane_valid, Bits(index_width(group_width))(lane), tail_lane)
     ras_lane := mux(lane_valid & updates_ras, Bits(index_width(group_width))(lane), ras_lane)
     ras_used := ras_used ||| (lane_valid & updates_ras)
@@ -347,7 +352,9 @@ sync_circuit SuperscalarInstructionAssembler(profile :: SuperscalarPipelineConfi
 
   def used :: Bits(4) = used_parcels
   def end = start + used
-  def uses_second = end > Bits(4)(4)
+  // A fault in the first block consumes only its own parcel; any apparent
+  // continuation in the failed bytes cannot release a second block.
+  def uses_second = !first_block.fault_value().valid & (end > Bits(4)(4))
   def cut :: Bool = any_cut
   def packet_fault :: Bool = any_fault
   instructions.valid <== included[0] & !discard & !pause
