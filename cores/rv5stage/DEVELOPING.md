@@ -338,21 +338,20 @@ identifies the scalar owner, so no ticket allocator or cancellation table is
 needed. Pipeline recovery must not flush authorization for committed older work.
 Iterative multiply still enqueues from authorized WB commit, with a one-entry
 scalar request queue reserved in ID, scalar staging, and vector-first arbitration.
-Integer division instead reserves an idle shared service in ID. Authorized WB
-and vector requests arbitrate before a one-cycle handoff to operand normalization.
-The handoff captures operands and tag together; it adds one cycle to each divide
-without adding capacity for another outstanding owner.
+Integer division instead reserves an idle shared service in ID. A queued vector
+wins a fresh contest. If a scalar was waiting when the vector transferred,
+it gets the first idle edge after the result; if another hazard still blocks
+Decode, the turn expires. The grant gates Decode, not the other way around.
+Registered EX/MEM/WB tokens then reserve the port for that scalar. Only
+authorized WB launches it; squash releases the reservation without a request.
+The existing one-cycle handoff captures operands and tag together before the
+iterative divider, without adding capacity for another outstanding owner.
 Both use operand payloads from the normal WB token; retained CMO and WRS contexts
 must not select arithmetic operands. The divider's registered busy bit spans
 request acceptance through result consumption and survives speculative flush.
-Existing ID/EX/MEM/WB token validity reserves a scalar's future launch against
-vector requests; cancellation releases that claim without another payload owner.
-A waiting vector gets the next turn after a scalar reservation, preventing
-successive scalar launches from starving it. ID admission reads registered
-ownership, not arbitration readiness, so the reservation gate cannot feed back
-into its own admission. The service retains only the active owner and its
-backpressured terminal result. Standalone elastic wrappers remain available
-for callers that do not promise immediate result consumption.
+The service retains only the active owner and its backpressured terminal result.
+Standalone elastic wrappers remain available for callers that do not promise
+immediate result consumption.
 The vector multiplier request queue retains operands from accepted feed-forward
 beats during shared-service contention and bypasses when empty. Result tags
 retain selection and destination metadata until consumption.

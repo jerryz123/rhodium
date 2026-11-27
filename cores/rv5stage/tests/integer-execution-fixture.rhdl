@@ -17,6 +17,10 @@ sync_circuit RV5StageIntegerExecutionFixture():
   interface multiply_request(Decoupled(IntegerExecutionRequest(MultiplierRequest(64), Bits(8))), ~role: consumer)
   interface multiply_result(Irrevocable(IntegerExecutionResult(Bits(128), Bits(8))), ~role: producer)
   interface divide_request(Decoupled(IntegerExecutionRequest(DividerRequest(64), Bits(8))), ~role: consumer)
+  interface scalar_divide(Decoupled(IntegerExecutionRequest(DividerRequest(64), Bits(8))), ~role: consumer)
+  input scalar_waiting: Bool
+  input scalar_reserved: Bool
+  output divide_available: Bool
   interface divide_result(Irrevocable(IntegerExecutionResult(DividerResponse(64), Bits(8))), ~role: producer)
   interface scalar_issue(Valid(RV5StageMultiplyIssue(XLen.X64)), ~role: consumer)
   interface scalar_authorize(Valid(Bits(5)), ~role: consumer)
@@ -26,7 +30,14 @@ sync_circuit RV5StageIntegerExecutionFixture():
   inst divide(RV5StageDivideService(64, Bits(8)))
   multiply_request |> multiply.request
   multiply.result |> multiply_result
-  divide_request |> divide.request
+  inst owner(RV5StageDivideOwnership(IntegerExecutionRequest(DividerRequest(64), Bits(8))))
+  owner.busy <== divide.busy
+  owner.scalar_waiting <== scalar_waiting
+  owner.reserved <== scalar_reserved
+  divide_available <== owner.scalar_available
+  scalar_divide |> owner.scalar
+  divide_request |> owner.vector
+  owner.request |> divide.request
   divide.result |> divide_result
   inst scalar(RV5StageMultiplyScalar(XLen.X64, ~speculative: #true))
   inst fixed(RV5StageMultiplyService(RV5StageMultiplierKind.Pipelined, 64, RV5StageMultiplyTag(), ~scheduled_writeback: #true))

@@ -157,8 +157,124 @@ void step(bool in_reset, bool drain) {
   ++cycles;
   CHECK(cycles <= 5000);
 }
+void check_divide_ownership() {
+  reset = 1;
+  scalar_divide_in = {};
+  scalar_waiting = scalar_reserved = 0;
+  divide_request_in = {};
+  divide_result_in = {};
+  tick_model();
+  reset = 0;
+
+  auto offer = [](auto &port, unsigned tag) {
+    port.pvalid = 1;
+    port.pbits.ptag = tag;
+    port.pbits.poperands.pdividend = tag;
+    port.pbits.poperands.pdivisor = 0;
+  };
+  auto wait_for = [](unsigned tag) {
+    for (unsigned i = 0; i < 100; ++i) {
+      eval();
+      if (divide_result_out.pvalid) {
+        CHECK(divide_result_out.pbits.ptag == tag);
+        CHECK(divide_result_out.pbits.pvalue.premainder == tag);
+        return;
+      }
+      tick_model();
+    }
+    throw std::runtime_error("missing divider result");
+  };
+
+  // A queued vector wins a fresh contest. The next vector cannot steal the
+  // scalar's promised idle edge, even when the first result is consumed.
+  scalar_waiting = 1;
+  offer(divide_request_in, 1);
+  eval();
+  CHECK(divide_request_out.pready && !divide_available);
+  tick_model();
+  offer(divide_request_in, 2);
+  wait_for(1);
+  divide_result_in.pready = 1;
+  eval();
+  CHECK(!divide_request_out.pready && !divide_available);
+  tick_model();
+  divide_result_in.pready = 0;
+  eval();
+  CHECK(divide_available && !divide_request_out.pready);
+  tick_model();
+  scalar_reserved = 1;
+  scalar_waiting = 0;
+  eval();
+  CHECK(!divide_available && !divide_request_out.pready);
+  tick_model();
+
+  // Squash drops the resident pipeline claim without a WB launch. The same
+  // vector offer transfers immediately and must be the next returned tag.
+  scalar_reserved = 0;
+  eval();
+  CHECK(divide_request_out.pready);
+  tick_model();
+  divide_request_in.pvalid = 0;
+  wait_for(2);
+  divide_result_in.pready = 1;
+  tick_model();
+  divide_result_in.pready = 0;
+
+  // A surviving scalar still owns WB when a vector appears. Its stalled
+  // result must remain unchanged and can be replaced on the consuming edge.
+  scalar_waiting = 1;
+  eval();
+  CHECK(divide_available);
+  tick_model();
+  scalar_waiting = 0;
+  scalar_reserved = 1;
+  offer(scalar_divide_in, 3);
+  offer(divide_request_in, 4);
+  eval();
+  CHECK(scalar_divide_out.pready && !divide_request_out.pready);
+  tick_model();
+  scalar_divide_in.pvalid = scalar_reserved = 0;
+  wait_for(3);
+  const auto held = divide_result_out;
+  for (unsigned i = 0; i < 4; ++i) {
+    eval();
+    CHECK(same(held, divide_result_out) && !divide_request_out.pready);
+    tick_model();
+  }
+  divide_result_in.pready = 1;
+  eval();
+  CHECK(same(held, divide_result_out) && divide_request_out.pready);
+  tick_model();
+  divide_request_in.pvalid = 0;
+  wait_for(4);
+  tick_model();
+
+  // The grant is an opportunity, not a reservation: if Decode remains
+  // blocked by another hazard, the queued vector wins the following edge.
+  scalar_waiting = 1;
+  divide_result_in.pready = 0;
+  offer(divide_request_in, 5);
+  eval();
+  CHECK(divide_request_out.pready && !divide_available);
+  tick_model();
+  offer(divide_request_in, 6);
+  wait_for(5);
+  divide_result_in.pready = 1;
+  tick_model();
+  eval();
+  CHECK(divide_available && !divide_request_out.pready);
+  tick_model();
+  eval();
+  CHECK(!divide_available && divide_request_out.pready);
+  tick_model();
+  divide_request_in.pvalid = scalar_waiting = 0;
+  wait_for(6);
+  tick_model();
+}
+
 int main() {
   return run_test([] {
+    check_divide_ownership();
     for (unsigned i = 0; i < 4; ++i)
       step(true, false);
     do {

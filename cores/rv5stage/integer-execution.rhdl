@@ -20,6 +20,37 @@ sync_circuit RV5StageMultiplyService(kind :: RV5StageMultiplierKind, width :: Po
   selected.result |> result
 
 
+/* Select the shared port from resident scalar ownership, independently of final
+   Decode admission. A queued vector wins a fresh contest; after it transfers,
+   a waiting scalar gets one idle edge to claim the service, not an indefinite
+   lock if another Decode hazard prevents issue. */
+sync_circuit RV5StageDivideOwnership(Request :: DataType):
+  input busy: Bool
+  input reserved: Bool
+  input scalar_waiting: Bool
+  output scalar_available: Bool
+  interface scalar(Decoupled(Request), ~role: consumer)
+  interface vector(Decoupled(Request), ~role: consumer)
+  interface request(Decoupled(Request), ~role: producer)
+
+  reg scalar_turn(~init: Bool(#false))
+  scalar_available <== !busy & !reserved & (scalar_turn ||| !vector.valid)
+
+  inst selection(GrantMerge(Request, 2))
+  selection.grants <== vec([reserved, !reserved]).into(MaybeOneHot(2))
+  scalar |> selection.ingress[0]
+  vector |> gate_flow(!scalar_turn) |> selection.ingress[1]
+  selection.egress |> request
+
+  when (vector.fire()):
+    scalar_turn <== scalar_waiting
+  elsewhen (!scalar_waiting ||| reserved ||| !busy):
+    scalar_turn <== Bool(#false)
+
+  when (scalar.valid):
+    assert(reserved, "scalar_divider_launch_has_pipeline_owner")
+
+
 /* Capture the arbitrated operands before the divider's magnitude and early-out
    logic. The handoff is the first cycle of a single reservation, not a queue
    for another division. A consumed result may be replaced on the same edge. */
@@ -40,4 +71,5 @@ sync_circuit RV5StageDivideService(width :: PosInt, Tag :: DataType):
 
 export:
   RV5StageMultiplyService
+  RV5StageDivideOwnership
   RV5StageDivideService
