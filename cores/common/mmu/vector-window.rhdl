@@ -41,16 +41,18 @@ sync_circuit VectorWindow(physical_map :: RiscvPhysicalMemoryMap):
   output owned: Bool
   output pages: VectorWindowPages
 
-  /* Captured range and pinned endpoint mappings.
-     The two-page proof is a fallback decision, not an architectural fault. */
+  /* Only certified cacheable pages are observable. Narrow the saved PPNs,
+     not the translated addresses used for both endpoint permission checks. */
 
+  def cacheable_width = physical_map.address_width_for(fun (attributes): attributes.cacheable)
+  def ppn_width = math.max(1, math.min(VectorPageNumber.packed_width(), cacheable_width - VectorPageOffsetBits))
   reg state(~init: VectorWindowState.Idle)
   reg span(VectorRange())
   reg second(~init: Bool(#false))
-  reg first_ppn(VectorPageNumber)
-  reg last_ppn(VectorPageNumber)
+  reg first_ppn(Bits(ppn_width))
+  reg last_ppn(Bits(ppn_width))
   reg safe(~init: Bool(#false))
-  pages <== vec([first_ppn, last_ppn])
+  pages <== vec([first_ppn.zext(VectorPageNumber.packed_width()), last_ppn.zext(VectorPageNumber.packed_width())])
 
 
   /* Probe admission and owned-address lookup.
@@ -103,12 +105,12 @@ sync_circuit VectorWindow(physical_map :: RiscvPhysicalMemoryMap):
   elsewhen (translation.response.valid):
     assert((state === VectorWindowState.Response) ||| translation.request.fire(), "vector_page_result_has_owner")
     when (!second):
-      first_ppn <== result_ppn
+      first_ppn <== result_ppn[0..ppn_width]
 
     safe <== success & (second ||| !split ||| shared_leaf_permitted)
     state <== mux(needs_second, VectorWindowState.Request, VectorWindowState.Complete)
     when (second ||| (success & split & same_leaf)):
-      last_ppn <== mux(second, result_ppn, vector_page_number(next_page))
+      last_ppn <== mux(second, result_ppn, vector_page_number(next_page))[0..ppn_width]
 
     second <== needs_second
   elsewhen (check.request.fire()):

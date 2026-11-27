@@ -138,6 +138,32 @@ void data_hit(std::uint64_t va, std::uint64_t pa, int operation = 1) {
   // No acceptance: inspect the authorization path without allocating a reply.
   wb_valid = 0;
 }
+void start_window(std::uint64_t first, std::uint64_t last) {
+  vector_precheck_in.prequest = {1, {first, last, 0}};
+  vector_precheck_in.presponse.pready = 0;
+  eval();
+  CHECK(vector_precheck_out.prequest.pready);
+  tick_model();
+  vector_precheck_in.prequest = {};
+}
+void accept_window(bool safe) {
+  // Neither a different live range nor a stalled response changes the pinned mappings.
+  vector_precheck_in.prequest.pbits = {0, 7, 1};
+  for (unsigned stall = 0; stall < 3; ++stall) {
+    eval();
+    CHECK(vector_precheck_out.presponse.pvalid && vector_precheck_out.presponse.pbits == safe);
+    CHECK(!vector_precheck_out.prequest.pready && !physical_valid && !wb_fault);
+    tick_model();
+  }
+  vector_precheck_in.presponse.pready = 1;
+  tick_model();
+  vector_precheck_in.presponse.pready = 0;
+}
+void release_window() {
+  vector_precheck_in.prelease.pvalid = 1;
+  tick_model();
+  vector_precheck_in.prelease.pvalid = 0;
+}
 // The MEM hit is partial, not permission to dispatch. On the next edge WB
 // must select its captured VA/access even when a different MEM request is live.
 void crossing_probe(std::uint64_t va, bool store, unsigned ppn, unsigned last_ppn,
@@ -1067,23 +1093,53 @@ int main() {
     // Admission probes two distinct pages through the ordinary DTLB/walker.
     // Once certified, vector attempts use the pinned mappings without another walk.
     satp = UINT64_C(0x8000000000000010);
+    constexpr std::uint64_t high_ram_ppn = UINT64_C(1) << 20; // The mapped page at 4 GiB.
+    constexpr std::uint64_t alias_ppn = (UINT64_C(1) << 32) | 22; // Same low bits as PA 0x16000.
+    for (bool bad_second : {false, true}) {
+      fence();
+      start_window(0x500ff8, 0x501007);
+      walk_at(0x500ff8, ((bad_second ? high_ram_ppn : alias_ppn) << 10) | 0xcf);
+      if (bad_second)
+        walk_at(0x501007, (alias_ppn << 10) | 0xcf);
+      accept_window(false);
+      release_window();
+    }
+    // A single 2 MiB leaf proves both translations, not both PMAs.
+    // The last cacheable byte of low RAM is 0x1ffff.
+    for (bool inside : {true, false}) {
+      fence();
+      const std::uint64_t va = inside ? 0x41eff8 : 0x41fff8;
+      start_window(va, va + 15);
+      walk_at(va, 0xcf, 1);
+      accept_window(inside);
+      if (inside) {
+        vector_access = 1;
+        data_hit(va, 0x1eff8);
+        data_hit(va + 8, 0x1f000);
+        vector_access = 0;
+      }
+      release_window();
+    }
+    // The last page of a 64 KiB NAPOT leaf cannot certify the next VA.
+    // It maps through a separate PTE to 4 GiB, not to adjacent PA 0x20000.
     fence();
-    vector_precheck_in.prequest.pvalid = 1;
-    vector_precheck_in.prequest.pbits = {UINT64_C(0x500ff8), UINT64_C(0x501007), 0};
-    vector_precheck_in.presponse.pready = 0;
-    eval();
-    CHECK(vector_precheck_out.prequest.pready);
-    tick_model();
-    vector_precheck_in.prequest.pvalid = 0;
+    start_window(0x50fff8, 0x510007);
+    walk_at(0x50fff8, (UINT64_C(1) << 63) | (UINT64_C(0x18) << 10) | 0xcf);
+    walk_at(0x510007, (high_ram_ppn << 10) | 0xcf);
+    accept_window(true);
+    vector_access = 1;
+    data_hit(0x50fff8, 0x1fff8);
+    data_hit(0x510000, high_ram_ppn << 12);
+    vector_access = 0;
+    release_window();
+
+    fence();
+    start_window(0x500ff8, 0x501007);
     walk_at(0x500ff8, (UINT64_C(22) << 10) | 0xcf);
-    walk_at(0x501007, (UINT64_C(20) << 10) | 0xcf);
-    eval();
-    CHECK(vector_precheck_out.presponse.pvalid && vector_precheck_out.presponse.pbits);
-    vector_precheck_in.presponse.pready = 1;
-    tick_model();
-    vector_precheck_in.presponse.pready = 0;
-    crossing_probe(0x500ff8, false, 22, 20, true);
-    crossing_probe(0x500ff8, true, 22, 20, true);
+    walk_at(0x501007, (high_ram_ppn << 10) | 0xcf);
+    accept_window(true);
+    crossing_probe(0x500ff8, false, 22, high_ram_ppn, true);
+    crossing_probe(0x500ff8, true, 22, high_ram_ppn, true);
     // Replace all eight DTLB entries while the vector window owns both pages.
     for (unsigned page = 0; page < 8; ++page) {
       const unsigned va = 0x700000 + page * 4096;
@@ -1093,27 +1149,15 @@ int main() {
     probe(0x500ff8, speculative_access::load, speculative_access::normal, speculative_access::slow);
     vector_access = 1;
     data_hit(0x500ff8, 0x16ff8);
-    data_hit(0x501000, 0x14000);
+    data_hit(0x501000, high_ram_ppn << 12);
     vector_access = 0;
-    vector_precheck_in.prelease.pvalid = 1;
-    tick_model();
-    vector_precheck_in.prelease.pvalid = 0;
+    release_window();
     // A rejected page proof is a fallback decision, not a speculative trap.
     fence();
-    vector_precheck_in.prequest.pvalid = 1;
-    vector_precheck_in.prequest.pbits = {UINT64_C(0x600000), UINT64_C(0x600007), 0};
-    tick_model();
-    vector_precheck_in.prequest.pvalid = 0;
+    start_window(0x600000, 0x600007);
     walk_at(0x600000, 0);
-    eval();
-    CHECK(vector_precheck_out.presponse.pvalid && !vector_precheck_out.presponse.pbits);
-    CHECK(!wb_fault);
-    vector_precheck_in.presponse.pready = 1;
-    tick_model();
-    vector_precheck_in.presponse.pready = 0;
-    vector_precheck_in.prelease.pvalid = 1;
-    tick_model();
-    vector_precheck_in.prelease.pvalid = 0;
+    accept_window(false);
+    release_window();
     // Exact element translation reuses the failed walk with the same context.
     element_translation_in.prequest = {1,{0x600000,0x600000,0}};
     eval(); CHECK(element_translation_out.prequest.pready); tick_model(); element_translation_in.prequest.pvalid = 0;

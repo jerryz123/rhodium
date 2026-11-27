@@ -288,8 +288,9 @@ int main() {
     vector_fast_in.prequest.pvalid = 0;
     eval();
     CHECK(!vector_fast_out.presponse.pvalid);
-    // A 64-bit index in Bare mode must not alias a valid low physical page.
-    for (auto first : {UINT64_C(0x100000000010008), UINT64_C(0x10008)}) {
+    // Neither an address above the 56-bit probe nor one just above this
+    // fixture's 17-bit cacheable range may alias RAM at 0x10008.
+    for (auto first : {UINT64_C(0x100000000010008), UINT64_C(0x30008), UINT64_C(0x10008)}) {
       vector_precheck_in.prequest = {1,{first,first+1,0}};
       eval(); CHECK(vector_precheck_out.prequest.pready); tick_model();
       vector_precheck_in.prequest.pvalid=0;
