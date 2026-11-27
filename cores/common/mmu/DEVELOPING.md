@@ -83,6 +83,10 @@ Preserve these invariants when extending the components:
   the last byte offset and page-crossing bit with the full first VA; validate
   adjacency before discarding the offered end VPN. Lookup must check the
   complete VPN and both inclusive byte bounds, not just page parity.
+- Exact element checks select a transport, not just cacheable RAM. Check
+  the full translated byte interval before narrowing its PPN to the width of
+  all mapped regions, including devices. Only successful mappings consume
+  the page; fault and guest provenance do not come from this compact PPN.
 - `VectorCertificate` owns only the epoch register and combinational proof.
   Its Bare specialization uses the full 64-bit identity address for PMA checks
   before extracting PPN, emits zero/nonvirtual context, and compares only

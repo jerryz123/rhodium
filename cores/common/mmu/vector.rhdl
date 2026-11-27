@@ -101,13 +101,18 @@ fun vector_element_mapping(physical_map :: RiscvPhysicalMemoryMap, span :: Vecto
     if low_mask == mask | Bool(#false) | region.address_set.matches(address) & ((address ^ last[0..64]) > Bits(64)(low_mask))
   def attributes = resolve_memory_attributes(physical, pbmt)
   def allowed = physical.mapped & !any(holes) & mux(span.store, physical.writable, physical.readable)
+
+  // Only a successful service consumes the PPN. Bound it by all mapped bytes,
+  // including MMIO; the fault decision above still sees both full endpoints.
+  def mapped_width = physical_map.address_width_for(fun (_attributes): #true)
+  def ppn_width = math.max(1, math.min(VectorPageNumber.packed_width(), mapped_width - VectorPageOffsetBits))
   VectorElementMapping():
     service:
       priority_mux(~default: VectorMemoryService.Cached):
         translation_fault ||| !allowed: VectorMemoryService.Fault
         attributes.strongly_ordered: VectorMemoryService.Device
         !attributes.cacheable ||| !attributes.read_idempotent: VectorMemoryService.Uncached
-    page: vector_page_number(address)
+    page: vector_page_number(address)[0..ppn_width].zext(VectorPageNumber.packed_width())
     cause: mux(translation_fault, cause, mux(span.store, ExceptionCause.StoreAccessFault, ExceptionCause.LoadAccessFault))
     guest: guest
 

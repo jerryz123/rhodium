@@ -2192,9 +2192,21 @@ int main() {
       CHECK((exact_probes==std::vector<Word>{0xefff,0xf000}) && addresses.empty());
       CHECK(faults==prior+1 && last_fault==0xf000 && last_vstart==1 && last_cause==(writing?15u:13u));
       refuse_page=false; state(0,0,last_vstart,2); exact_probes.clear(); services.clear();
-      send(ins,0xeffd,false); drain();
-      CHECK((exact_probes==std::vector<Word>{0xefff,0xf000}) && (addresses==std::vector<Word>{0xeff0,0xf000}));
+      remap_exact=true;
+      hold_until=cycle_limit;
+      send(ins,0xeffd,false);
+      while(!stalled) step();
+      CHECK((exact_probes==std::vector<Word>{0xefff,0xf000}) && addresses.empty());
+      // Both pages must already be pinned. Change the live reply while the
+      // device field is held, then check both nonadjacent physical addresses.
+      exact_mapping.ppage=0xbad;
+      for(unsigned t=0;t<5;++t) step();
+      CHECK(stalled && addresses.empty());
+      hold_until=0; drain();
+      CHECK((addresses==std::vector<Word>{(mapped_page(0xefff)<<12)|0xff0,mapped_page(0xf000)<<12}));
+      CHECK(exact_probes.size()==2 && faults==prior+1);
       CHECK((services==std::vector<unsigned>{2,0}));
+      remap_exact=false;
       segment_device=false;
     }
     // Mask is per segment. Segment one crosses onto the denied page but

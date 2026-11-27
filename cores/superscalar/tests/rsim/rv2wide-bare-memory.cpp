@@ -247,10 +247,21 @@ int main() {
       element_translation_in.prequest.pvalid = 0; eval();
       CHECK(element_translation_out.presponse.pvalid && element_translation_out.presponse.pbits.pservice == service);
       if (service == 3) CHECK(element_translation_out.presponse.pbits.pcause == (store ? 7 : 5));
+      else CHECK(element_translation_out.presponse.pbits.ppage == (first >> 12));
       tick_model();
     };
     probe(0x2203,0x2203,false,2); probe(0x2203,0x2203,true,3); probe(0x2203,0x2204,false,3);
     probe(0x10008,0x1000b,false,0); probe(0x100000000010008,0x10000000001000b,false,3);
+    // These devices have identical low 32 bits. The next pair aliases them
+    // at the compact page width, but neither is present in the physical map.
+    for (bool store : {false, true}) {
+      probe(0x2000, 0x2007, store, 2);
+      probe(0x100002000, 0x100002007, store, 2);
+      probe(0x200002000, 0x200002007, store, 3);
+      probe(0x300002000, 0x300002007, store, 3);
+      probe(0x200010008, 0x20001000b, store, 3);
+      probe(0x1000020ff, 0x100002100, store, 3);
+    }
     for (bool store : {false, true}) {
       vector_fast_in.prequest = {1, {0x10ff8, 0x11007, store}};
       eval(); CHECK(vector_fast_out.presponse.pvalid && vector_fast_out.presponse.pbits.pppn == 0x10);
