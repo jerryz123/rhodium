@@ -111,6 +111,9 @@ above to [`broadcast_monitor(width, transfers)`](broadcast.rspl). It samples
 the `reset` input and tracks which recipients still need the old word.
 The last recipient may take that word on the edge accepting its replacement;
 the monitor promises neither when a recipient is ready nor that it ever retires.
+Compare [Broadcast](../examples/formal/broadcast.rspl), which can accept on that
+edge, with [QueuedFork](../examples/formal/queued-fork.rspl), which waits for
+both queues to have space. Both use the same monitor.
 
 ## Prove a leaf or a parent
 

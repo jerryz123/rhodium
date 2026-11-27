@@ -3,6 +3,7 @@
 
 import lib("rhodium/std/ready-valid.rhdl") open
 import lib("flow/broadcast.rhdl").Broadcast
+import lib("examples/formal/queued-fork.rhdl").QueuedFork
 import lib("examples/formal/broadcast.rspl") as spec
 import lib("rhodium/formal/spec.rhm").step_spec
 
@@ -24,10 +25,11 @@ sync_circuit ClearBothBroadcast():
     pending <== vec([Bool(#false), Bool(#false)])
 
 def good_top = elaborate(Broadcast(Bits(2), 2)).top
+def queued_top = elaborate(QueuedFork()).top
 def bad_top = elaborate(ClearBothBroadcast()).top
 def bad_root = bad_top.name
 def model = spec.Broadcast(good_top)
 fun cycle_row(old, inputs):
   def edge = step_spec(model, old || model.initial, inputs)
   values(edge.next_state, edge.events)
-export good_top bad_top bad_root cycle_row
+export good_top queued_top bad_top bad_root cycle_row

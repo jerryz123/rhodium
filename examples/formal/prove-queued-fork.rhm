@@ -1,0 +1,18 @@
+#lang rhombus
+/* Certifies a buffered fork's broadcast transactions from previously proved fork and queue contracts. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("rspecl/runner.rkt") as proof
+  "queued-fork.rhdl" as rtl
+  "queued-fork.rspl" as spec
+  "atomic-fork.rspl".AtomicFork
+  "shift-queue.rspl".ShiftQueue
+
+module main:
+  def top = elaborate(rtl.QueuedFork()).top
+  def fork = proof.prove_design(proof.child_definition(top, "fork"), AtomicFork)
+  def queue = proof.prove_design(proof.child_definition(top, "left"), ShiftQueue)
+  def seal = proof.prove_design(top, spec.QueuedFork, ~children: {"fork": fork, "left": queue, "right": queue})
+  println("Proved QueuedFork: both recipients get their own ordered copy, independent of ready timing")

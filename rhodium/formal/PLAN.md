@@ -118,8 +118,9 @@ treat a matching batch schema as proof that two monitors agree.
    The [Broadcast proof](../../examples/formal/prove-broadcast.rhm) uses a
    [two-recipient monitor](../../rspecl/broadcast.rspl) that tracks copies owed
    independently of the implementation. Only the leaf refinement reads the
-   pending mask and payload. The next reuse check is to apply the same monitor
-   to an AtomicFork feeding two one-entry queues, without requiring the same ready timing.
+   pending mask and payload. [QueuedFork](../../examples/formal/prove-queued-fork.rhm)
+   proves the same monitor from AtomicFork and two one-entry queue contracts. The two
+   implementations need not agree on ingress readiness when the last recipient drains.
    A missing general capability is a separate proposal with two clients and
    a failing negative test, not an exception for OfferRegister.
 

@@ -3,8 +3,11 @@
 
 (require rackunit racket/match "composition-checks.rkt" "stall-replay.rhm" "clear-both-broadcast.rhdl"
          (only-in "../../../examples/formal/broadcast.rspl" Broadcast)
-         (only-in "../../../rspecl/runner.rkt" prove-design)
-         (only-in "../../../rspecl/proof.rkt" transaction-step)
+         (only-in "../../../examples/formal/queued-fork.rspl" QueuedFork)
+         (only-in "../../../examples/formal/atomic-fork.rspl" AtomicFork)
+         (only-in "../../../examples/formal/shift-queue.rspl" ShiftQueue)
+         (only-in "../../../rspecl/runner.rkt" prove-design child_definition)
+         (only-in "../../../rspecl/proof.rkt" transaction-step transaction-for?)
          (only-in "../../../rspecl/rtl-boundary.rhm" transaction_parts interface_prefixes)
          (only-in "../spec.rhm" spec_snapshot)
          (only-in "../spec-engine.rkt" spec-initial-state)
@@ -47,13 +50,13 @@
                             (lambda (_ #:proof_plan request)
                               (list "leaf" bad_root cycle public projection hints))))))
 
-  ;; Read the RTL's actual output pins before each tick. Drive the reference cycle model
-  ;; with inputs only, and independently feed the observed RTL batch to the public monitor.
-  (define (replay top rows)
+  ;; Read the uncut RTL's actual output pins before each tick. Only those public samples
+  ;; drive the monitor; a matching transaction history need not have matching input-ready cycles.
+  (define (replay top public rows)
     (define plan (prepare_transition_snapshot (formal_snapshot top) "clock"))
     (match-define (list ins outs) (leaf_layout top (interface_prefixes top)))
     (define start (for/hash ([r (transition_registers plan)]) (values (hash-ref r "name") 0)))
-    (for/fold ([regs start] [state #f] [history #f] [log '()] #:result (reverse log)) ([row rows])
+    (for/fold ([regs start] [history #f] [log '()] #:result (reverse log)) ([row rows])
       (match-define (list rst offered data l r) row)
       (define pins (hash "reset" rst "ingress.valid" offered "ingress.bits" data
                          "egress[0].ready" l "egress[1].ready" r))
@@ -63,13 +66,11 @@
         (for/fold ([p pins]) ([(k v) (unpack-pins outs (transition_step_outputs e))])
           (define n (bitvector->natural v))
           (hash-set p k (if (string-suffix? k ".bits") n (= n 1)))))
-      (define-values (new observed) (cycle_row state pins))
-      (define-values (h verdict) (replay_sample view history all))
-      (define (plain m) (for/hash ([(k v) m]) (values k v)))
+      (define-values (h verdict) (replay_sample public history all))
+      (define events (for/hash ([(k v) (sample_events public all)]) (values k v)))
       (define failed (for/list ([(k ok) verdict] #:unless (or ok (equal? k "allowed"))) k))
       (check-equal? (hash-ref verdict "allowed") (null? failed))
-      (values (transition_step_state e) new h
-              (cons (list (plain observed) (plain (sample_events view all)) failed) log))))
+      (values (transition_step_state e) h (cons (list events failed) log))))
 
   (test-case "replay: stalled right retires A as B arrives; clear-both instead loses A"
     (define prefix '((#t #t 3 #t #t) (#f #t 1 #f #f) (#f #t 2 #f #f)
@@ -77,8 +78,45 @@
     (define trace (append prefix '((#f #f 0 #f #f) (#f #f 0 #f #t) (#f #f 0 #t #f))))
     (define expected (list (hash "reset" #t) (hash "accepted" 1) (hash) (hash "left" 1)
                            (hash "accepted" 2 "right" 1) (hash) (hash "right" 2) (hash "left" 2)))
-    (define good (replay good_top trace))
-    (check-equal? good (for/list ([events expected]) (list events events '())))
-    (define bad (replay bad_top prefix))
+    ;; The monolithic Broadcast also has a cycle spec: check it from inputs alone.
+    (for/fold ([state #f]) ([row trace] [events expected])
+      (match-define (list rst offered data l r) row)
+      (define-values (next observed) (cycle_row state (hash "reset" rst "ingress.valid" offered "ingress.bits" data
+                                                            "egress[0].ready" l "egress[1].ready" r)))
+      (check-equal? (for/hash ([(k v) observed]) (values k v)) events)
+      next)
+    (define good (replay good_top view trace))
+    (check-equal? good (for/list ([events expected]) (list events '())))
+    (define bad (replay bad_top view prefix))
     (check-equal? (drop-right bad 1) (take good 4))
-    (check-equal? (last bad) (list (list-ref expected 4) (hash "accepted" 2) '("right-space")))))
+    (check-equal? (last bad) (list (hash "accepted" 2) '("right-space"))))
+
+  (define queued-view (QueuedFork queued_top #:transaction_view #t))
+  (test-case "compose from supplied seals only, with independent histories for the identical queue occurrences"
+    (define fork (prove-design (child_definition queued_top "fork") AtomicFork))
+    (define fifo (prove-design (child_definition queued_top "left") ShiftQueue))
+    (define parent (without-child-proofs QueuedFork queued_top))
+    (define queues (hash "left" fifo "right" fifo))
+    (check-exn #rx"expected occurrences" (lambda () (prove-design queued_top parent #:children queues)))
+    (check-true (transaction-for? (prove-design queued_top parent #:children (hash-set queues "fork" fork))
+                                  queued_top queued-view)))
+
+  (for ([left-first? '(#t #f)])
+    (test-case (format "same broadcast contract, different admission edge; left first: ~a" left-first?)
+      (define first (if left-first? "left" "right"))
+      (define last (if left-first? "right" "left"))
+      ;; Offer B continuously through the final retirement of A and the following stalled edge.
+      (define rows (list '(#t #f 0 #f #f) '(#f #t 0 #f #f)
+                         (list #f #t 3 left-first? (not left-first?))
+                         (list #f #t 3 (not left-first?) left-first?)
+                         '(#f #t 3 #f #f)
+                         (list #f #f 0 (not left-first?) left-first?)
+                         (list #f #f 0 left-first? (not left-first?))))
+      (define (expected early?)
+        (for/list ([events (list (hash "reset" #t) (hash "accepted" 0) (hash first 0)
+                                 (if early? (hash last 0 "accepted" 3) (hash last 0))
+                                 (if early? (hash) (hash "accepted" 3))
+                                 (hash last 3) (hash first 3))])
+          (list events '())))
+      (check-equal? (replay good_top view rows) (expected #t))
+      (check-equal? (replay queued_top queued-view rows) (expected #f)))))
