@@ -149,8 +149,28 @@ void check_host_walk_owner() {
   defaults();
   virtualized = 0;
   vs_mode = 1;
+  // Neither idle bus activity nor a valid but canceled offer admits a walk.
+  const auto previous = accepted_virtual;
+  for (unsigned i = 0; i < 4; ++i) {
+    command_valid = i & 1;
+    cancel = command_valid;
+    address = next + i;
+    vs_root = 0x30 + i;
+    g_root = 0x80 + i;
+    vs_mode = i & 1;
+    eval();
+    CHECK(bool(command_ready) == !cancel && !memory_valid && !completed);
+    tick_model();
+    CHECK(accepted_virtual == previous && !memory_valid && !completed);
+  }
+  cancel = 0;
+  vs_mode = 1;
+  vs_root = 5;
   launch(first, FETCH);
-  wait_read(0x1008);
+  vs_root = 9;
+  eval();
+  CHECK(accepted_virtual == first && memory_valid && memory_address == 0x5008);
+  wait_read(0x5008);
   memory_ready = 1;
   tick_model();
   memory_ready = 0;
@@ -174,15 +194,18 @@ void check_host_walk_owner() {
   const auto bad = next ^ (UINT64_C(1) << 53);
   stall_host_fault(bad, STORE, next, LOAD);
   finish(PAGE, bad, STORE, 0);
+  vs_root = 0x15;
   launch(next, LOAD);
+  vs_root = 0x33;
   address = first;
   access = FETCH;
   command_valid = 1;
   // All three VPN indices and the final byte offset must come from next.
-  reply(0x1ff0, entry(2, 1));
+  reply(0x15ff0, entry(2, 1));
   reply(0x2048, entry(3, 1));
   reply(0x31a0, entry(0xabc, VR));
   for (int i = 0; i < 3; ++i) {
+    vs_root = 0x40 + i;
     eval();
     CHECK(completed && !command_ready && accepted_virtual == next &&
           result_virtual == next && result_address == 0xabc567 && result_access == LOAD);

@@ -53,11 +53,14 @@ Preserve these invariants when extending the components:
 - Capture all context at walk admission. Later live requests cannot change a
   pending PTE's permission checks, PBMT, or completion provenance. The walker
   uses its accepted lookup for host and VS traversal, G-only walks, and the
-  original VA and access kind on completion. Prewrite the default host page
-  fault in Idle, including the admission edge; a noncanonical request goes
-  directly to Complete. CheckAddress and PTE phases may prepare an outcome
-  before it is valid. Only entry into Complete publishes it, and its payload
-  must then hold under backpressure. Only a nested G walk needs a separate GPA:
+  original VA and access kind on completion. Prewrite the candidate root
+  frame and default host page fault on every Idle edge. Only a request
+  transfer admits the walk; a canceled or invalid offer cannot launch a PTE
+  read. Once admitted, no live root may overwrite the frame. A noncanonical
+  host request goes directly to Complete. CheckAddress and PTE phases may
+  prepare an outcome before it is valid. Only entry into Complete publishes
+  it, and its payload must then hold under backpressure. Only a nested G walk
+  needs a separate GPA:
   the address of a VS PTE or the final VS translation. The saved VS frame holds
   table PPN, level, and inherited global status, not a copy of the original VA.
   Use the walker's lookup for fill and fault correlation rather than recapturing

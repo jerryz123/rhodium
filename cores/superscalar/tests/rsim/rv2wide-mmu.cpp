@@ -534,6 +534,18 @@ int main() {
     tick_model();
     falling();
     wb_valid = 0;
+    // Two cold misses on the same edge: WB wins. Different root-level VPNs
+    // distinguish the owners on the very first PTE request of each walk.
+    fence();
+    fetch_address = UINT64_C(0x40400000);
+    fetch_valid = 1;
+    offer_wb(UINT64_C(0x500008));
+    walk_data((UINT64_C(21) << 10) | UINT64_C(0xc7));
+    walk_at(UINT64_C(0x40400000), (UINT64_C(20) << 10) | UINT64_C(0xcb));
+    CHECK(fetch_resolution.pdisposition == 0 && fetch_physical == UINT64_C(0x14000));
+    fetch_valid = 0;
+    fetch_address = UINT64_C(0x400000);
+
     // A pulsed older WB miss is remembered while an instruction walk runs.
     // Dropping the fetch consumer (ordinary replay) must not restart that walk.
     for (bool discard : {false, true}) {

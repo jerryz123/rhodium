@@ -206,21 +206,24 @@ sync_circuit RiscvTranslationWalker(~svnapot: svnapot :: Boolean = #false,
       virtual_stage & !operation.virtualized: outcome(RiscvTranslationFault.None, Bits(56)(0), zero_leaf)
 
 
-  /* Traversal state updates
-     Cancellation and drain precede new admission, address checks, PTE responses, and completion. */
+  /* Idle prepares the current candidate's root even without an offer. Only
+     a transfer admits the lookup; occupied walks never sample the live root. */
+  when idle:
+    def context = request.bits.context
+    def paged_vs = context.vs_mode === RiscvVSMode.Sv39
+    frame <== root_frame(mux(paged_vs, context.vs_root_ppn, context.g_root_ppn))
+    when request_fire:
+      vs_leaf <== zero_leaf
+      phase <== mux(paged_vs, RiscvPageWalkPhase.Virtual, RiscvPageWalkPhase.GuestFinal)
+      def host_first_state = mux(host_va_canonical, RiscvPageWalkState.Request, RiscvPageWalkState.Complete)
+      state <== mux(!request.bits.virtualized & paged_vs, host_first_state, RiscvPageWalkState.CheckAddress)
 
-  when cancel:
+  /* Once occupied, cancellation and drain precede traversal and completion. */
+  elsewhen cancel:
     // Keep the memory owner even after its architectural consumer disappears.
     state <== mux(owns_response & !memory.response.valid, RiscvPageWalkState.Drain, RiscvPageWalkState.Idle)
   elsewhen ((state === RiscvPageWalkState.Drain) & memory.response.valid):
     state <== RiscvPageWalkState.Idle
-  elsewhen request_fire:
-    vs_leaf <== zero_leaf
-    phase <== mux(request.bits.context.vs_mode === RiscvVSMode.Sv39, RiscvPageWalkPhase.Virtual, RiscvPageWalkPhase.GuestFinal)
-    frame <== root_frame(mux(request.bits.context.vs_mode === RiscvVSMode.Sv39, request.bits.context.vs_root_ppn, request.bits.context.g_root_ppn))
-    def direct_host_walk = !request.bits.virtualized & (request.bits.context.vs_mode === RiscvVSMode.Sv39)
-    def host_first_state = mux(host_va_canonical, RiscvPageWalkState.Request, RiscvPageWalkState.Complete)
-    state <== mux(direct_host_walk, host_first_state, RiscvPageWalkState.CheckAddress)
   elsewhen (checking_address & bad_address):
     state <== RiscvPageWalkState.Complete
   elsewhen (checking_address & !virtual_stage & guest_bare & implicit_access):
