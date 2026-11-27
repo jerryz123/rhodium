@@ -6,7 +6,7 @@
          (only-in "../refinement.rkt" compose-fifo-series fifo-transactions-for? fifo-transactions-capacity)
          (only-in "composition-binding.rhm" pair_series wrong_ready_series)
          (only-in "../../../examples/formal/queue-pair-series.rspl" QueuePairSeries)
-         (only-in "queue-pair.rspl" WrongReadySeries reversed_series)
+         (only-in "queue-pair.rspl" WrongReadySeries reversed_series wrong_capacity_series)
          (only-in "queue-pair-grouped.rkt" grouped-pair-at)
          (only-in "queue-pair-transaction-order.rkt" check-retirement-order check-ready-not-entailed))
 (define series-view (QueuePairSeries pair_series #:event_view #t))
@@ -18,7 +18,7 @@
 (module+ test
   (require (only-in "../refinement.rkt" fresh-fifo-history fifo-history-count fifo-history-slots fifo-events fifo-allows?)
            (only-in "../../../rspecl/runner.rkt" prove-design)
-           (only-in "../../../rspecl/proof.rkt" prove-transaction transaction-for?)
+           (only-in "../../../rspecl/proof.rkt" transaction-for?)
            (prefix-in observer: "fifo-observer-input.rkt")
            (only-in "queue-pair-refinement.rkt" queue-pair-seal-at)
            (only-in "composition-checks.rkt" discharge require-feasible without-child-proofs)
@@ -30,26 +30,31 @@
   (define cut (without-child-proofs QueuePairSeries pair_series))
   (define children (hash "front" (queue-pair-seal-at 1) "back" (queue-pair-seal-at 2)))
   (test-case "the generic six-word seal proves the same ordinal theorem and does not promise ready"
-    (define seal (prove-design pair_series cut #:children children))
+    (define seal (prove-design pair_series QueuePairSeries #:children children))
     (check-true (transaction-for? seal pair_series public))
     (define reader (observer:observe-fifo-seal seal pair_series public))
     (check-equal? (observer:fifo-transactions-capacity reader) 6)
     (require-feasible (check-retirement-order reader))
     (check-ready-not-entailed reader))
 
-  (test-case "generic induction rejects the miswire, exchanged seals, and upstream-first history"
+  (test-case "shared contracts require the declared sites, actual occurrences, and exact capacities"
     (define small (queue-pair-seal-at 1))
     (define large (queue-pair-seal-at 2))
-    (check-exn #rx"attempted to reprove a child" (lambda () (prove-design pair_series cut)))
+    (check-exn #rx"shared child contract requires supplied evidence" (lambda () (prove-design pair_series QueuePairSeries)))
     (for ([invalid (list (hash) (hash-remove children "back") (hash-set children "extra" small))])
-      (check-exn #rx"#:children expected occurrences" (lambda () (prove-design pair_series cut #:children invalid))))
+      (check-exn #rx"#:children expected occurrences" (lambda () (prove-design pair_series QueuePairSeries #:children invalid))))
+    (check-exn #rx"expected certified evidence for the actual RTL occurrence"
+               (lambda () (prove-design pair_series QueuePairSeries #:children (hash "front" large "back" small))))
+    ;; Correct seals at their actual sites, but the requested capacities are wrong.
+    (check-exn #rx"expected certified evidence for the exact public contract"
+               (lambda () (prove-design pair_series wrong_capacity_series #:children children))))
+
+  (test-case "with the right contracts, induction still rejects broken wiring and upstream-first history"
     ;; The broken handoff must violate the FIFO proof, not just a prescribed topology.
     (check-exn #rx"step/space-for-accept not proved"
                (lambda () (prove-design wrong_ready_series cut #:children children)))
-    (check-exn #rx"expected certified evidence for this transaction view"
-               (lambda () (prove-design pair_series cut #:children (hash "front" large "back" small))))
     (check-exn #rx"step/(allowed|retire-oldest|successor) not proved"
-               (lambda () (prove-transaction pair_series (reversed_series pair_series) children))))
+               (lambda () (prove-design pair_series reversed_series #:children children))))
 
   ;; Independent arithmetic relation from before the executable monitor. Quantify over
   ;; arbitrary counts and slot padding, not just well-formed, reachable concrete states.

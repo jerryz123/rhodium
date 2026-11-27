@@ -3,7 +3,7 @@
 
 import "shift-queue-fixture.rhdl" as rtl
 import lib("examples/formal/queue-pair-series.rhdl") as series
-import lib("rspecl/fifo.rspl").fifo_monitor
+import lib("rspecl/fifo.rspl") open
 import lib("examples/formal/shift-queue.rspl").ShiftQueue
 import lib("examples/formal/queue-pair.rspl").QueuePair
 export QueuePair
@@ -17,19 +17,23 @@ spec for rtl.FaultyQueuePair:
 spec for rtl.WrongReadySeries:
   events pair_events(reset)
 
-// Same two children and same total capacity, but the middle handoff no longer preserves this history.
-fun reversed_series(top):
+// Keep the total bound six, so both mutants type-check before evidence or induction rejects them.
+fun candidate_series(front_capacity :: PosInt, reverse :: Boolean):
+  def back_capacity = 6 - front_capacity
   spec for series.QueuePairSeries:
-    events transfers = pair_events(reset)
+    def handshakes = pair_events(reset)
+    events transfers = handshakes
     transactions fifo_monitor(6, data.type.width, transfers)
     refinement:
-      child front: QueuePair
-      child back: QueuePair
-      history upstream from front.q: Seq(data.type, 2)
-      history downstream from back.q: Seq(data.type, 4)
-      relate q = seq_concat(upstream, downstream)
-  QueuePairSeries(top, ~transaction_view: #true)
-export reversed_series
+      child front: fifo_contract(front_capacity, data.type.width, handshakes)
+      child back: fifo_contract(back_capacity, data.type.width, handshakes)
+      history upstream from front.q: Seq(data.type, front_capacity)
+      history downstream from back.q: Seq(data.type, back_capacity)
+      relate q = if reverse | seq_concat(upstream, downstream) | seq_concat(downstream, upstream)
+  QueuePairSeries
+def reversed_series = candidate_series(2, #true)
+def wrong_capacity_series = candidate_series(4, #false)
+export reversed_series wrong_capacity_series
 
 // A well-typed but false claim: the environment's consume is not an ingress offer.
 fun crossed_pair(top):

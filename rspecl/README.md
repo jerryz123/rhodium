@@ -160,8 +160,8 @@ module main:
 instance name. `prove_design(top, spec)` takes the **constructor**, not
 `spec(top)`, and recursively obtains child evidence. With `~children:`
 (`#:children` in Racket's `prove-design`), the map must supply every declared
-child and no others. There is no fallback to recursive proof. Swapping the
-two QueuePair seals fails: their specializations and public views differ.
+child and no others. There is no fallback to recursive proof. A shared
+contract has no proof recipe, so its seal must be supplied.
 
 A parent can also name an implementation-independent contract, as in
 `child fanout: broadcast_contract` in [BroadcastReceipt](../examples/formal/broadcast-receipt.rspl).
@@ -176,8 +176,12 @@ identical executable public IR: published events, pin directions, batch
 sampling, initial history, verdicts and updates. Matching event names is not
 enough. It does not search for an implementation or prove monitor implication.
 
-The [series spec](../examples/formal/queue-pair-series.rspl) relates the downstream
-history followed by the upstream history to its six-word FIFO. The runner checks
+The [series spec](../examples/formal/queue-pair-series.rspl) uses
+[`fifo_contract(capacity, width, source)`](fifo.rspl) to require a two-word FIFO
+at `front` and a four-word FIFO at `back`. It passes the ready/valid event
+*source*, not the parent's sampled events: the same pin names are read separately
+on each child. The parent joins the downstream history followed by the upstream
+history to describe its six-word FIFO. The runner checks
 this relation on the actual RTL handoff. A successful proof returns an opaque seal for that
 specialization and contract. It does **not** promise that `ready` is high
 whenever space remains, or that every word eventually retires.

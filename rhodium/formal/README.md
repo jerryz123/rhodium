@@ -182,14 +182,16 @@ To use two proved parents as children, run the [six-word example](../../examples
 PLTCOLLECTS="$PWD": tools/run-racket.sh examples/formal/prove-queue-pair-series.rhm
 ```
 
-If `front` and `back` are already proved for this elaboration, pass their
-seals by RTL occurrence name:
+Prove `front` and `back` for this elaboration, then pass their seals by RTL
+occurrence name. The series spec requires two- and four-word FIFO contracts;
+only the caller needs to know which implementation to prove.
 
 ```rhombus
 prove_design(top, spec.QueuePairSeries, ~children: {"front": front, "back": back})
 ```
 
-In Racket the keyword is `#:children`. Omitting it selects recursive proof.
+In Racket the keyword is `#:children`. Omitting it selects recursive proof
+for children with a proof recipe; shared FIFO contracts require supplied seals.
 Supplying it disables child proof for this call: missing and extra names are
 errors, and each seal must match the actual RTL definition and declared public
 view. The parent still discharges child premises at the actual RTL pins and

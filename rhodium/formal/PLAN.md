@@ -58,8 +58,8 @@ treat a matching batch schema as proof that two monitors agree.
    ShiftQueue's ordering observer reads its generic seal at depths 1–3.
    QueuePair(1) and QueuePair(2) now prove their two- and four-word bounds
    from generic ShiftQueue seals using `child`, `history`, and `relate` on
-   the elaborated wiring. QueuePairSeries
-   reuses the two generic parent seals for the six-word contract.
+   the elaborated wiring. QueuePairSeries requires shared FIFO contracts of
+   capacities two and four for the six-word proof; only its caller names QueuePair.
    [ArbiterQueue](../../examples/formal/prove-arbiter-queue.rhm) now proves
    depths 1–3 from the Arbiter transfer and ShiftQueue FIFO contracts; two-lane
    exclusivity is a checked guarantee, not an environment assumption.

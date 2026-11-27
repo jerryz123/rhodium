@@ -1,18 +1,19 @@
 #lang rspecl
-/* Relates a six-word FIFO to the public histories of two directly connected QueuePairs. */
+/* Proves six-word ordering from the two directly connected children's bounded FIFO contracts. */
 // SPDX-License-Identifier: Apache-2.0
 
 import "queue-pair-series.rhdl" as rtl
-import "queue-pair.rspl".QueuePair
-import lib("rspecl/fifo.rspl").fifo_monitor
+import lib("rspecl/fifo.rspl") open
 
 spec for rtl.QueuePairSeries:
-  events transfers = ready_valid_events(reset, rv_pins("offer", "ready", "data"), rv_pins("valid", "consume", "head"))
+  def handshakes = ready_valid_events(reset, rv_pins("offer", "ready", "data"), rv_pins("valid", "consume", "head"))
+  events transfers = handshakes
   // Only the two outer handshakes count here. Moving a word between the pairs neither adds nor removes a word.
   transactions fifo_monitor(6, data.type.width, transfers)
   refinement:
-    child front: QueuePair
-    child back: QueuePair
+    // Both children have the same pin convention as the parent, but different storage bounds.
+    child front: fifo_contract(2, data.type.width, handshakes)
+    child back: fifo_contract(4, data.type.width, handshakes)
     // The first pair can hold two words, the second four. The ones already downstream will leave first.
     history upstream from front.q: Seq(data.type, 2)
     history downstream from back.q: Seq(data.type, 4)

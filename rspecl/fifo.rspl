@@ -1,8 +1,8 @@
 #lang rspecl
-/* Builds a bounded FIFO transaction monitor over a caller's reset, accepted, and retired events. */
+/* Builds bounded FIFO monitors and shared child contracts over reset, accepted, and retired events. */
 // SPDX-License-Identifier: Apache-2.0
 
-export fifo_monitor
+export fifo_monitor fifo_contract
 
 /* Judge one joint batch against the old queue. A retirement frees space for a simultaneous
    acceptance, but cannot consume an arrival from the same batch when the queue was empty. */
@@ -23,3 +23,9 @@ fun fifo_monitor(capacity :: PosInt, width :: PosInt, sampler :: Function.of_ari
     guarantee "space-for-accept" = pop || !full(q) when push
     let remaining = select(pop, tail(q), q)
     next q = select(reset, cleared, select(push, append(remaining, in), remaining))
+
+/* Require this capacity and word width at a child. Bind the source to that child's pins,
+   rather than using a sampler already bound to the parent's ports. */
+fun fifo_contract(capacity :: PosInt, width :: PosInt, source :: Function.of_arity(1)):
+  shared_contract(fun (_groups :: Map, sample :: Function.of_arity(1)):
+                    fifo_monitor(capacity, width, sample(source)))
