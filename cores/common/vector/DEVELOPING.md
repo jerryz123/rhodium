@@ -296,8 +296,10 @@ enables for result formatting and service dispatch. Packed products use the
 per-lane write mask even if lane zero is inactive; singleton services launch
 only for an enabled lane zero. GPR and FPR return strobes capture a live
 non-memory issue on the same edge as the EX operands, with the same replay
-kill. EX still supplies the destination and formatted data; the mature beat
-checks that neither a return nor a same-cycle owner replacement moved.
+kill. For `vfmv.f.s`, the registered EX destination and VS2 element zero
+drive the FPR write directly, with NaN boxing at the element width. Do not
+route it through the general VRF write-data mux. The mature beat checks
+that neither a return nor a same-cycle owner replacement moved.
 Keep source
 rows narrow for widening multiplication: the numeric formatter selects the
 product half, while operand fetch remaps that half's enables and reads a full

@@ -773,10 +773,17 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
   completions.saturate |> saturate
   scalar_result.valid <== ex_gpr_return
   scalar_result.bits <== completions.scalar_result.bits
-  floating_result.valid <== ex_fpr_return
-  floating_result.bits <== completions.floating_result.bits
   assert(ex_gpr_return === completions.scalar_result.valid, "vector_gpr_strobe_matches_mature_beat")
-  assert(ex_fpr_return === completions.floating_result.valid, "vector_fpr_strobe_matches_mature_beat")
+
+  /* Only vfmv.f.s owns this port. Its registered EX operand and destination
+     bypass the VRF result mux, including for same-cycle scalar forwarding. */
+  floating_result.valid <== ex_fpr_return
+  floating_result.bits <== FloatingPointRegisterWrite(fp_profile):
+    address: ex_beat.destination
+    data: ex_beat.fpr_extract()
+
+  def fpr_matures = compute_maturity.valid & compute_beat.floating_scalar_destination & !compute_beat.fp_execute & !compute_beat.multiply_execute
+  assert(ex_fpr_return === fpr_matures, "vector_fpr_strobe_matches_mature_beat")
 
   /* Instruction resolution and retirement */
 

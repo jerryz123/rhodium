@@ -1053,6 +1053,36 @@ void stimulus() {
     vec(0, 10, 8, 8);
     signature(UINT64_C(8), UINT64_C(8416), 0);
     signature(UINT64_C(1), UINT64_C(8424), 0);
+
+    // An adjacent fdiv.s must see a boxed 6.0, not the unrelated upper lane.
+    memory_words[160] = UINT64_C(0xdeadbeef40c00000);
+    vset(2, 2);
+    vload(20, 4096 + 160 * 8, 2);
+    li(5, 0x40000000);
+    emit(0xf0000053u | (5u << 15) | (13u << 7)); // fmv.w.x f13,x5 (2.0)
+    vec(16, 9, 20, 0, 0, 1);                    // vfmv.f.s f9,v20
+    emit(0x18000053u | (13u << 20) | (9u << 15) | (12u << 7)); // fdiv.s f12,f9,f13
+    li(10, 11064);
+    emit(0x3027u | (12u << 20) | (10u << 15)); // fsd f12,0(x10)
+    expect_store(11064, UINT64_C(0xffffffff40400000), 3);
+
+    // This exact square uses both halves of the E64 element. A wrong-path
+    // extract from v20 must not overwrite f9 before the second square root.
+    memory_words[161] = UINT64_C(0x3ff0000010000004); // (1 + 2^-25)^2
+    vset(3, 1);
+    vload(21, 4096 + 161 * 8, 3);
+    vec(16, 9, 21, 0, 0, 1);
+    for (int i = 0; i < 2; ++i) {
+      if (i == 1) {
+        emit(0x0080006f); // jal x0,+8
+        vec(16, 9, 20, 0, 0, 1);
+      }
+      emit(0x5a000053u | (9u << 15) | (12u << 7)); // fsqrt.d f12,f9
+      li(10, 11072 + i * 8);
+      emit(0x3027u | (12u << 20) | (10u << 15));
+      expect_store(11072 + i * 8, UINT64_C(0x3ff0000008000000), 3);
+    }
+    CHECK(pc <= 3840 / 4);
     program_words[UINT64_C(3840) / 4] = UINT64_C(
         874521075); // expose unexpected mcause through the public memory port
     program_words[UINT64_C(3844) / 4] = UINT64_C(0x303023);

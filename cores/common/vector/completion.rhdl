@@ -17,10 +17,8 @@ import:
   "slots.rhdl" open
   "muldiv.rhdl" open
   "../simd-multiplier.rhdl".SimdMultiplyResult
-  "../simd-alu.rhdl".SimdElementWidth
   "../divider.rhdl" open
   "register-file.rhdl" open
-  "../fp/register-file.rhdl".FloatingPointRegisterWrite
   "../../../riscv/isa/vector.rhm" open
   "../../../riscv/isa/xlen.rhm" open
   lib("flow/main.rhdl") open
@@ -92,7 +90,6 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
   interface fp_update(Valid(Bits(5)), ~role: producer)
   interface saturate(Pulse(), ~role: producer)
   interface scalar_result(Valid(RegisterFileWrite(xlen)), ~role: producer)
-  interface floating_result(Valid(FloatingPointRegisterWrite(fp_profile)), ~role: producer)
   output state: Vec(vector_completion_slots, VectorSlotState(xlen, vlen, owners))
   output(allocate_slot, accept_slot, drain_slot): SlotId
 
@@ -131,7 +128,7 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
   /* Compute and memory resolution context */
 
   def memory_accepted = decision.valid & (decision.bits.disposition === VectorDisposition.Authorized)
-  def Array(local_compute, scalar_compute, floating_compute) = compute_maturity |> fork_valid(3)
+  def Array(local_compute, scalar_compute) = compute_maturity |> fork_valid(2)
   def Array(hit_attempt, accepted_attempt) = memory_attempt |> fork_valid(2)
   def compute_result = compute_maturity.bits
   def compute_beat :: VectorResultBeat(xlen, vlen, VectorRegisterWrite(xlen.width, vlen)) = compute_result.beat
@@ -317,24 +314,6 @@ sync_circuit VectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_com
            address: result.beat.destination
            data: result.beat.write.data[0..xlen.width]
   ) |> scalar_result
-
-  (
-    floating_compute |> filter_valid(result => compute_completes_now & result.beat.floating_scalar_destination)
-      |> map_valid(result):
-           def data = result.beat.write.data
-           def element_width = result.beat.element_width
-           def boxed_data:
-             if xlen == XLen.X32
-             | mux(element_width === SimdElementWidth.E16, (!Bits(16)(0)) ++ data[0..16], data[0..32])
-             | mux_lookup(element_width, ~default: data):
-                 SimdElementWidth.E16: (!Bits(48)(0)) ++ data[0..16]
-                 SimdElementWidth.E32: (!Bits(32)(0)) ++ data[0..32]
-
-           FloatingPointRegisterWrite(fp_profile):
-             address: result.beat.destination
-             data: boxed_data
-  ) |> floating_result
-
 
   /* Architectural VRF writes, flags, and saturation */
 

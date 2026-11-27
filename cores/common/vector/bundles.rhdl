@@ -14,7 +14,9 @@ import:
   lib("rhodium/std/ready-valid.rhdl").Decoupled
   lib("hardfloat/main.rhdl").RoundingMode
   lib("hardfloat/main.rhdl").FloatFormat
+  lib("hardfloat/main.rhdl").IEEEFloat
   lib("riscv/rtl/floating-point.rhdl").riscv_unbox
+  lib("riscv/rtl/floating-point.rhdl").riscv_nan_box
   "packed-bundles.rhdl" open
   "register-file.rhdl" open
   "decode.rhdl" open
@@ -347,6 +349,16 @@ bundle VectorBeat(xlen :: XLen, vlen :: VectorLength):
   /* Only a scalar FP extract writes an FPR; vector FP arithmetic writes the VRF. */
   method returns_fpr(beat) :: Bool:
     vector_writes_fpr(beat.control) & vector_scalar_move(beat.control)
+
+  /* vfmv.f.s copies VS2 element zero from left, boxing narrow encodings
+     without inspecting or canonicalizing the floating-point payload. */
+  method fpr_extract(beat) :: Bits(xlen.width):
+    def cases = for List (n in 1..(vector_format_count(xlen) - 1)):
+      def format = if n == 1 | FloatFormat.F16 | FloatFormat.F32
+      def element = beat.left[0..format.ieee_width].into(IEEEFloat(format))
+      [n, riscv_nan_box(format, element, xlen.width)]
+
+    mux_lookup(beat.element_width.as_bits(), ~default: beat.left, cases)
 
   /* Compression emits left and checkpoints right. Other operations use right as an
      operand and must never authorize it as suffix data. */
