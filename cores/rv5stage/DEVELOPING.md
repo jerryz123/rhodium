@@ -230,10 +230,13 @@ only younger attempts: the scanner already corrected the current packet.
 The host `fetch-admission-test.rhm` guards these timing boundaries using
 hierarchical port-leaf dependencies.
 
-The frontend uses `ShiftQueue(Packet, 5, ~flow: #true)` without same-cycle full
-replacement. A reserved S2 result converts through checked `to_decoupled` into
-the queue. Empty-queue bypass feeds the core IBuf and Decode in the S2 cycle;
-there is no separate IF/ID register. The IBuf stores only one leftover halfword
+The frontend uses five stationary packet slots without same-cycle full
+replacement. Each registered S2 attempt prewrites the free tail slot; a
+replay, killed attempt, or consumed empty bypass does not advance the tail.
+Only logical pushes and pops change occupancy; recovery resets both pointers
+and the count without clearing payloads. Empty-queue bypass feeds the core
+IBuf and Decode in the S2 cycle; there is no separate IF/ID register.
+The IBuf stores only one leftover halfword
 with its PC and prediction metadata; faulting packets remain in the queue until
 consumed. Packet consumption is not instruction
 consumption: an incomplete instruction may consume a packet without issuing,
@@ -499,8 +502,9 @@ Only reset seeds and unmodeled upstream control owners remain unknown.
 The intrinsic flushable pipes connect S0 through `frontend/s1.lookup` and
 `frontend/s2.outcome`, which captures replay, admission, and admitted fault flags.
 Only admitted outcomes pass the Flow filter into packet storage; no
-additional checkpoint represents that same-cycle admission. ShiftQueue owns
-its shifting-window contract and explicit flush. Core-side assembly declares
+additional checkpoint represents that same-cycle admission. The packet slots
+trace FIFO order using logical pushes, pops, empty bypass and flush, not
+speculative payload writes. Core-side assembly declares
 a depth-one window using actual residual capture/release, clear, and independent
 resident/live contribution predicates. A word can parent two compressed
 instructions; a straddle has two word parents, including a faulting continuation.

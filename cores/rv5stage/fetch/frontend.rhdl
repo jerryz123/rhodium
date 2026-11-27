@@ -19,6 +19,59 @@ tagged_union RV5StageFetchCorrection(xlen :: XLen):
   Repair(RV5StageFetchRepair(xlen))
   Fallback(BranchPrediction(xlen, xlen.width))
 
+/* S2 owns a free tail slot before it knows the lookup outcome. Prewrite its
+   packet there; only an admitted, non-bypassed packet advances the tail.
+   Reads and recovery change ownership, never move or clear packet payloads. */
+sync_circuit RV5StageFetchSlots(Packet :: DataType, depth :: PosInt):
+  input reserved: Bool
+  input flush: Bool
+  interface ingress(Decoupled(Packet), ~role: consumer)
+  interface egress(Decoupled(Packet), ~role: producer)
+  def Count = Bits(index_width(depth + 1))
+  output count: Count
+
+  def Index = Bits(index_width(depth))
+  reg head(~init: Index(0))
+  reg tail(~init: Index(0))
+  reg occupancy(~init: Count(0))
+  reg payload(Vec(depth, Packet))
+  def empty = occupancy === Count(0)
+  def full = occupancy === Count(depth)
+  count <== occupancy
+  ingress.ready <== !full
+  egress.valid <== !empty ||| ingress.valid
+  egress.bits <== mux(empty, ingress.bits, payload[head])
+
+  for (i in 0..depth):
+    when (reserved & (tail === Index(i))):
+      payload[i] <== ingress.bits
+
+  assert(!reserved ||| !full, "fetch_s2_tail_is_free")
+  assert(!ingress.valid ||| reserved, "fetch_packet_has_s2_reservation")
+
+  /* Logical FIFO movement. Empty bypass consumes no slot; simultaneous
+     push/pop rotates both pointers and leaves occupancy unchanged. */
+
+  def push = ingress.fire() & !(empty & egress.ready)
+  def pop = !empty & egress.fire()
+  when flush:
+    head <== Index(0)
+    tail <== Index(0)
+    occupancy <== Count(0)
+  otherwise:
+    when push:
+      tail <== wrap_increment(tail, depth)
+
+    when pop:
+      head <== wrap_increment(head, depth)
+
+    when (push ^ pop):
+      occupancy <== mux(push, occupancy + Count(1), occupancy - Count(1))
+
+  // Trace logical FIFO ownership, not speculative writes into free slots.
+  describe_interface_window_storage(depth, push, pop.as_bits().zext(Count.width), count, flush, [!empty], ~live: empty)
+  describe_interface_contract(ingress, egress, "data", ~kind: "fetch-slots", ~trace_model: interface_trace_window())
+
 /* Reserves capacity from registered queue/S1/S2 occupancy and pairs fixed-cycle
    memory outcomes with scanned packets. Recovery clears the epoch; replay and
    late repair discard only younger attempts. */
@@ -50,9 +103,10 @@ sync_circuit RV5StageFrontend(core_profile :: RV5StageConfig, ~btb_entries: btb_
 
   inst source(RV5StageFetchSource(xlen, btb_entries, ras_entries))
   inst scan(RV5StageFetchScan(core_profile))
-  inst queue(ShiftQueue(QueuePacket, packet_capacity, ~flow: #true, ~flushable: #true))
+  inst queue(RV5StageFetchSlots(QueuePacket, packet_capacity))
   inst s2(ValidPipeAlwaysCapture(RV5StageFetchAttempt(xlen), 1, ~flushable: #true))
   queue.flush <== recovery
+  queue.reserved <== s2.egress.valid
 
 
   /* Predictor repair and fallback feedback.

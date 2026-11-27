@@ -47,8 +47,11 @@ int request_checks = 0, output_checks = 0, local_flushes = 0;
 
 bool continuous_requests = 0, continuous_outputs = 0;
 std::deque<std::uint64_t> expected_requests;
+constexpr int slot_stream = 19;
 
 std::uint32_t word_at(std::uint64_t address) {
+  if (mode == slot_stream)
+    return (std::uint32_t((address >> 2) & 0xfff) << 20) | 0x13; // Distinct ADDIs, one per packet.
   if (mode == 15)
     address -= return_program_base;
   if (mode == 16)
@@ -474,10 +477,65 @@ void replay_straddling_return(unsigned action, Continuation outcome) {
   tracked_action = 0;
 }
 
+void check_reserved_slots() {
+  constexpr std::uint64_t base = 0x4000, restart = 0x8100;
+  initialize(slot_stream);
+  output_ready = 0;
+  replay_once_address = base + 8;
+  start(base);
+  while (!fetched_out.pvalid)
+    falling();
+  unsigned retries = 0, buffered = 0;
+  // Stall the empty bypass until all five words are resident. A poisoned
+  // replay of the third word must not replace either older word.
+  for (unsigned i = 0; i < 14; ++i) {
+    CHECK(fetched_out.pvalid && fetched_out.pbits.ppc == base &&
+          fetched_out.pbits.pinstruction == word_at(base) && !fetched_out.pbits.pfault.pvalid);
+    retries += s2_response.pvalid && s2_response.replay;
+    buffered += s2_response.pvalid && !s2_response.replay;
+    falling();
+  }
+  CHECK(retries == 1 && buffered == 5 && !memory_out.prequest.pvalid);
+
+  output_ready = 1;
+  unsigned delivered = 0, simultaneous = 0;
+  while (delivered < 32) {
+    settle();
+    CHECK(fetched_out.pvalid && fetched_out.pbits.ppc == base + 4 * delivered &&
+          fetched_out.pbits.pinstruction == word_at(base + 4 * delivered) &&
+          !fetched_out.pbits.pfault.pvalid);
+    const bool admitting = s2_response.pvalid && !s2_response.replay;
+    CHECK(buffered || admitting);
+    simultaneous += buffered && admitting;
+    buffered += admitting;
+    --buffered;
+    ++delivered;
+    falling();
+  }
+  CHECK(simultaneous >= 20); // Repeated concurrent push/pop over several wraps.
+
+  output_ready = 0;
+  CHECK(buffered && s2_response.pvalid);
+  start(restart); // Kill queued old words and the old S2 prewrite on this edge.
+  expect_pc(restart, restart + 4);
+  for (unsigned i = 0; i < 3; ++i) {
+    CHECK(fetched_out.pvalid && fetched_out.pbits.ppc == restart &&
+          fetched_out.pbits.pinstruction == word_at(restart) && !fetched_out.pbits.pfault.pvalid);
+    falling();
+  }
+  output_ready = 1;
+  for (unsigned i = 1; i <= 8; ++i) {
+    const auto pc = restart + 4 * i;
+    expect_pc(pc, pc + 4);
+    CHECK(fetched_out.pbits.pinstruction == word_at(pc) && !fetched_out.pbits.pfault.pvalid);
+  }
+}
+
 void stimulus() {
   reset = 1;
   {
     fallback_trace_bind();
+    check_reserved_slots();
     // The Success variant must preserve the target's own high bits, not the PC's.
     constexpr auto high_target = UINT64_C(0xffffffc000000200);
     initialize(0);
