@@ -30,6 +30,11 @@ import:
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
+/* Route the shared read port to the fold cursor for its entire residency. */
+fun select_execute_read(fold_busy :: Bool, normal :: Endpoint, fold :: Endpoint) :~ Endpoint:
+  def grants = vec([!fold_busy, fold_busy]).into(MaybeOneHot(2))
+  grant_merge(grants, Array(normal, fold))
+
 /* Short and product rows can finish in either order across owners. Rows of one
    descriptor have the same latency, so its last physical write closes the owner. */
 sync_circuit VectorRowExecute(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~fp32: fp32 :: Boolean = #true, ~fp16: fp16 :: Boolean = #true):
@@ -109,10 +114,7 @@ sync_circuit VectorRowExecute(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
   fold.launch.valid <== launch.fire() & folding
   fold.launch.bits <== command
   permutation |> sequencer.permutation
-  read.valid <== mux(fold.busy, fold.read.valid, sequencer.read.valid)
-  read.bits <== mux(fold.busy, fold.read.bits, sequencer.read.bits)
-  fold.read.ready <== fold.busy & read.ready
-  sequencer.read.ready <== !fold.busy & read.ready
+  select_execute_read(fold.busy, sequencer.read, fold.read) |> read
   vxu.fold_read <== fold.read.fire()
   Array(sequencer.issued, fold.issued) |> valid_arbiter() |> issued
   sequencer.older_writes <== chain.older_writes
@@ -140,4 +142,4 @@ sync_circuit VectorRowExecute(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
   describe_cosim_signals({"write": published.valid, "owner": published.bits.owner, "row": observed.address, "data": observed.data, "floating": fp_update.valid, "flags": fp_update.bits, "mask": observed.mask,
                           "scalar_write": scalar_result.valid ||| floating_result.valid, "scalar_floating": floating_result.valid, "scalar_owner": fold_finished.bits, "scalar_rd": mux(floating_result.valid, floating_result.bits.address, scalar_result.bits.address), "scalar_data": mux(floating_result.valid, floating_result.bits.data, scalar_result.bits.data)})
 
-export VectorRowExecute
+export VectorRowExecute select_execute_read

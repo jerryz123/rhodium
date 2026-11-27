@@ -17,4 +17,10 @@ fun traced_target(site_header, config = EventInstrumentationConfig(), ~before: b
 
   rtl_pipeline_target(rsim_target, before ++ [RTLPass("event-trace", transform)])
 
-export traced_target
+// For fixtures whose labels are C++ identifiers, bind names to compiler-assigned sites.
+fun named_site_header(manifest):
+  def constants = for List (site in manifest.sites, index in 0..manifest.sites.length()):
+    "constexpr unsigned site_" ++ site.label ++ " = " ++ to_string(index) ++ ";\n"
+  String.join(constants, "")
+
+export traced_target named_site_header

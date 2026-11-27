@@ -224,12 +224,8 @@ sync_circuit CHIRamOperationScheduler(p :: CHIFlitParams,
   def write_eligible = write_request.valid & write_completions.request.ready
   def select_write = write_eligible & (!read_eligible ||| prefer_write)
   def select_read = read_eligible & !select_write
-  read_request.ready <== select_read
-  write_request.ready <== select_write
-  read_completions.request.valid <== select_read
-  read_completions.request.bits <== read_request.bits
-  write_completions.request.valid <== select_write
-  write_completions.request.bits <== write_request.bits
+  read_request |> gate_flow(select_read) |> read_completions.request
+  write_request |> gate_flow(select_write) |> write_completions.request
   when select_read:
     prefer_write <== Bool(#true)
   elsewhen select_write:
@@ -241,11 +237,9 @@ sync_circuit CHIRamOperationScheduler(p :: CHIFlitParams,
      determines which reservation lane receives it. */
 
   valid_owner_mux(select_write, write_completions.issue, read_completions.issue) |> issue
-  def completion_is_write = completion.bits.memory_operation.write
-  read_completions.completion.valid <== completion.valid & !completion_is_write
-  read_completions.completion.bits <== completion.bits
-  write_completions.completion.valid <== completion.valid & completion_is_write
-  write_completions.completion.bits <== completion.bits
+  def Array(read_lane, write_lane) = completion |> fork_valid(2)
+  read_lane |> filter_valid(beat => !beat.memory_operation.write) |> read_completions.completion
+  write_lane |> filter_valid(beat => beat.memory_operation.write) |> write_completions.completion
   read_completions.response <=> read_response
   write_completions.response <=> write_response
 
@@ -267,11 +261,10 @@ circuit CHIRamCompletionRouter(p :: CHIFlitParams,
   /* Read DAT completion: hold the packet and slot until output transfer.
      Only the last packet releases the transaction slot. */
 
-  def read = read_completion.bits
-  def read_operation = read.memory_operation
-  read_completion.ready <== read_response.ready
-  read_response.valid <== read_completion.valid
-  read_response.bits <== chi_sn_read_completion(p, node_id, read_operation.request, read_operation.data_id, read.data)
+  (read_completion |> map_flow(~stable: #true, beat):
+     def operation = beat.memory_operation
+     chi_sn_read_completion(p, node_id, operation.request, operation.data_id, beat.data)
+  ) |> read_response
 
 
   /* Write RSP completion: intermediate backend packets drain without RSP;
@@ -365,6 +358,9 @@ fun build_chi_ram_controller(config :: CHIRamConfig,
 
   def allocated_read_fire = allocated_reads.fire()
   def read_operation_fire = read_operations.ingress.fire()
+  describe_interface_retained_storage(allocated_read_fire, read_operation_fire & final_read_data, read_active, ~name: "read-allocation")
+  describe_interface_contract(allocated_reads, read_operations.ingress, "read-beats",
+                              ~trace_model: interface_trace_retained(~name: "read-allocation"))
   when allocated_read_fire:
     def request :: CHIReqFlit(p) = allocated_reads.bits.request
     read_active <== Bool(#true)

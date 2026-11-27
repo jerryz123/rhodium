@@ -139,6 +139,7 @@ chi-read-once	protocols	chi/tests/rsim/emit-chi-read-once.rhm	program	chi/tests/
 chi-read-stream	protocols	chi/tests/rsim/emit-chi-read-stream.rhm	program	chi/tests/rsim/chi-read-stream.cpp
 chi-transfer-fragmenter	protocols	chi/tests/rsim/emit-chi-transfer-fragmenter.rhm	program	chi/tests/rsim/chi-transfer-fragmenter.cpp
 chi-fragmenter-metadata	protocols	chi/tests/rsim/emit-chi-fragmenter-metadata.rhm	program	chi/tests/rsim/chi-fragmenter-metadata.cpp
+chi-ram-read-trace	protocols	chi/tests/ram-read-trace-fixture.rhdl	program	chi/tests/rsim/ram-read-trace.cpp	target	rheg/runtime/rheg.cc
 chi-ram	protocols	examples/chi/ram.rhdl	ram_program	chi/tests/rsim/chi-ram.cpp
 chi-home	protocols	examples/chi/home.rhdl	home_program	chi/tests/rsim/chi-home.cpp
 chi-monitor	protocols	chi/tests/rsim/emit-chi-monitor.rhm	program	chi/tests/rsim/chi-monitor.cpp
@@ -235,6 +236,7 @@ rv3wide-row-memory-rv32	cores-components	cores/rv3wide/tests/rsim/emit-row-memor
 rv3wide-row-memory-rv64	cores-components	cores/rv3wide/tests/rsim/emit-row-memory.rhm	rv64	cores/rv3wide/tests/rsim/row-memory.cpp	target
 rv3wide-index-gather-rv32	cores-components	cores/rv3wide/tests/index-gather-fixture.rhdl	rv32	cores/rv3wide/tests/rsim/index-gather.cpp
 rv3wide-index-gather-rv64	cores-components	cores/rv3wide/tests/index-gather-fixture.rhdl	rv64	cores/rv3wide/tests/rsim/index-gather.cpp
+vector-read-selection	cores-components	cores/common/vector/tests/read-selection.rhdl	program	cores/common/vector/tests/rsim/read-selection.cpp	target	rheg/runtime/rheg.cc
 rv3wide-row-execute-rv32	cores-components	cores/rv3wide/tests/rsim/emit-row-execute.rhm	rv32	cores/rv3wide/tests/rsim/row-execute.cpp
 rv3wide-permute-rv32	cores-components	cores/rv3wide/tests/index-gather-fixture.rhdl	permute32	cores/rv3wide/tests/rsim/permute.cpp
 rv3wide-permute-rv64	cores-components	cores/rv3wide/tests/index-gather-fixture.rhdl	permute64	cores/rv3wide/tests/rsim/permute.cpp

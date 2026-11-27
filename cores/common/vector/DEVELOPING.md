@@ -260,9 +260,10 @@ the live row and the retained spill independently according to enabled lanes. Tr
 return in `mem/vlsu.rhdl` using the response credit's owner, and the accepted VRF
 write in `backend/row-memory.rhdl` using the load chain's write owner. Owner captures must
 describe the transferring cursor, including fold selection and same-edge
-replacement, rather than the next dispatch offer. The backend captures only
-`VectorTraceInstruction` at owner allocation and indexes that bank using each
-cursor's current owner. Memory sequencers receive the same observation bank;
+replacement, rather than the next dispatch offer. The `vector-read-selection`
+rsim fixture checks which read supplied each event under backpressure in both modes.
+The backend captures only `VectorTraceInstruction` at owner allocation and indexes
+that bank using each cursor's current owner. Memory sequencers receive the same observation bank;
 they must not resample a live descriptor during a checked slice or retry.
 These values feed event captures only, never functional controls or payloads.
 Forward the core's selected ISA string for disassembly. A PC or owner number

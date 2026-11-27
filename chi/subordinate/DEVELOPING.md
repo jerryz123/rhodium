@@ -64,7 +64,9 @@ backpressure from RSP progress. Non-pipelined operation and DBID queues prevent
 response readiness from propagating into CHI request admission. The shared
 scheduler fairly selects one backend issue per cycle. Transaction slots accept
 simultaneous read and write retirements. Storage and DPI policy remain
-backend-owned.
+backend-owned. The read expander captures lineage when it accepts an allocation
+and releases it when the final DataID enters the operation queue. Each queued
+beat then carries its own copy through backend issue, completion, and DAT stalls.
 Static configuration checks run in the shared constructors; request alignment,
 range, mask, and poison assertions remain runtime controller checks. Do not
 repeat constructor invariants in either concrete memory circuit.
@@ -104,7 +106,9 @@ behavioral benches in [`../tests/circt/`](../tests/circt/).
 
 - Slot/controller changes: RAM configuration and DPI ABI host tests,
   `chi-ram` including simultaneous allocation/DAT, incomplete reset, and the
-  expected invalid-request assertion; native DPI memory; Mini/Single SoC smoke.
+  expected invalid-request assertion, native DPI memory, and Mini/Single SoC smoke.
+  Run `chi-ram-read-trace` for per-beat request ancestry across stalled DAT and
+  two outstanding reads.
   Test public behavior, not incidental hierarchy or instance counts.
 - Range handling: RAM and BootROM top-of-address-space windows, plus the
   standard-library `transfer-range` arithmetic fixture.

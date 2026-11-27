@@ -1,0 +1,18 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("flow/main.rhdl") open
+  "../distributed/backend/row-execute.rhdl".select_execute_read
+  "../distributed/common/row-types.rhdl".VectorRowRead
+  lib("rhodium/event/tests/rsim/trace-sites.rhm") open
+
+sync_circuit ReadSelection():
+  interface normal(Decoupled(VectorRowRead()), ~role: consumer)
+  interface fold(Decoupled(VectorRowRead()), ~role: consumer)
+  interface read(Decoupled(VectorRowRead()), ~role: producer)
+  input fold_busy: Bool
+  select_execute_read(fold_busy, normal |> trace_event("normal"), fold |> trace_event("fold")) |> trace_event("read") |> read
+
+def program = elaborate(ReadSelection())
+def target = traced_target(named_site_header)
+export program target
