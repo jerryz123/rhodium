@@ -10,6 +10,12 @@ import "raw-selector.rhdl" as raw
 import "../spec.rhm" as ir
 import lib("rspecl/rtl-boundary.rhm").Presence
 
+// Same forwarding claim and child contract, but no restriction on the actual gate inputs.
+spec for rtl.GatedCapture:
+  transactions public.GatedCapture(~transaction_view: #true)
+  refinement:
+    forward lanes: selectors.RegisteredLaneSelector
+
 // Same public sampler, wrong temporal contract: pre-edge readback cannot bypass the register.
 spec for rtl.ArbitratedCapture:
   state saved: Bits(2) initially 0

@@ -483,7 +483,10 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
     cond
     | forward_args:
         let [site, spec] = forward_args
-        'PairList["forward", view, $site, $spec, $need]'
+        // A bare view requests unconditional forwarding. With pin assumptions the
+        // checker also needs the bound declaration to extract the parent's premises.
+        def contract = if assumptions.length() > 0 | name | 'view'
+        'PairList["forward", $contract, $site, $spec, $need]'
     | adjacent_source: 'PairList["adjacent", view, $adjacent_source]'
     | ~else: 'PairList["parent", view, $(map_expr(child_specs)), $need, $(map_expr(suppliers))]'
   def leaf_plan:

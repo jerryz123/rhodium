@@ -64,9 +64,9 @@
              [(list "leaf" root cycle base _ hints)
               (derive-transaction (prove-rtl-cycle definition root cycle base hints) definition view 'adjacent-samples)]
              [_ (error 'prove-design "adjacent samples require a proved RTL cycle leaf")])]
-          [(list "forward" view site child-spec requirement)
+          [(list "forward" contract site child-spec requirement)
            (define child (child_definition definition site))
-           (prove-forwarded-transaction definition view site (visit child child-spec)
+           (prove-forwarded-transaction definition contract site (visit child child-spec)
                                         (child-spec child #:transaction_view #t) #:requires requirement)]
           [(list "parent" view children requirement suppliers)
            (prove-transaction definition view

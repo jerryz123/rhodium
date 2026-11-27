@@ -232,9 +232,11 @@ For conditional forwarding, take the named, input-only predicate snapshot
 from the bound parent declaration. Evaluate it on external pins only, check
 reset and non-reset feasibility separately, and use that domain for wrapper
 definedness, child admission and forwarded batch equality. Seal exactly those
-predicates. The capture regression obtains gate evidence this way from the
-selector seal, checks concrete active captures on both lanes, and keeps the
-whole-gate cycle derivation as an independent cross-check.
+predicates. For `forward` with declared input assumptions, the runner passes
+the wrapper declaration to the checker; a bare transaction view requests an
+unconditional proof. The [gate regression](tests/selector-refinement.rkt) checks
+the runner's retained predicate against an independent whole-gate cycle proof
+and replays the selector admission failure when the assumption is omitted.
 
 For general monitor induction, `#:under` supplies the same input-only snapshot
 independently of the selected view. Seed the joint child-step domain with the

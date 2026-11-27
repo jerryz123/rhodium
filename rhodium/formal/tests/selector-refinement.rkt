@@ -203,25 +203,25 @@
 
 (define (prove-gate declaration)
   (prove-forwarded-transaction capture_gate declaration "lanes" selector-contract selector-events))
-(define gate-contract (prove-gate GatedCapture))
+(define gate-contract (prove-design capture_gate GatedCapture))
 (define ((gate-with mode) top #:transaction_view [tx? #f])
   (if tx? (GatedCapture top #:transaction_view #t) (gate_variant mode)))
 
 (test-case "the composed gate retains exactly the independently cycle-derived pin contract"
-  (define cycle-gate (derive-transaction verified-gate capture_gate GatedCapture))
+  ;; Independent route: the handwritten cycle proof owns this projection, not the forwarding plan.
+  (define cycle-gate (derive-transaction verified-gate capture_gate gate-events (hash "previous" "held")))
   (define premises (transaction-input-premises gate-contract gate-events))
   (check-equal? premises (transaction-input-premises cycle-gate gate-events))
+  (check-equal? premises (transaction-input-premises (prove-gate GatedCapture) gate-events))
   (define (allows? rst capture a b)
     (define pins (hash "reset" rst "capture" capture "grant_a" a "grant_b" b))
     (hash-ref (spec-input-assumptions (hash "assumptions" premises) pins) "capture_exclusive"))
-  (check-true (allows? #t #t #t #t))
-  (check-true (allows? #f #f #t #t))
-  (check-true (allows? #f #t #t #f))
-  (check-true (allows? #f #t #f #t))
-  (check-false (allows? #f #t #t #t)))
+  (for* ([rst '(#f #t)] [capture '(#f #t)] [a '(#f #t)] [b '(#f #t)])
+    (check-equal? (allows? rst capture a b) (or rst (not capture) (not (and a b))))))
 
 (test-case "without the gate assumption the selector rejects an actual double enable"
-  (define failure (with-handlers ([exn:fail:input-contract? values]) (prove-gate (gate-with "unrestricted"))))
+  (define failure (with-handlers ([exn:fail:input-contract? values]) (prove-design capture_gate faulty:GatedCapture)))
+  (check-exn #rx"lanes/exclusive not proved" (lambda () (prove-gate (gate-with "unrestricted"))))
   (check-equal? (exn:fail:input-contract-goal failure) "lanes/exclusive")
   (define w (exn:fail:input-contract-inputs failure))
   (for ([k '("grant_a" "grant_b" "capture" "lanes.enable_a" "lanes.enable_b")]) (check-true (hash-ref w k)))

@@ -563,8 +563,10 @@ sample; they may not refer to history.
 An assumption can also belong to a parent. In the [GatedCapture spec](../../examples/formal/gated-capture.rspl),
 `assume capture_exclusive = reset || !capture || !(grant_a && grant_b)` permits
 both grants on reset or while capture is disabled. The [wrapper RTL](../../examples/formal/gated-capture.rhdl)
-gates the enables, so that contract suffices for its registered selector. A
-successful proof certifies the wrapper **with** its assumption. One level up,
+gates the enables. The [standalone gate proof](../../examples/formal/prove-gated-capture.rhm)
+checks exclusivity at those enable pins and checks that the gate and selector
+report the same capture and pre-edge readback. Its result retains
+`capture_exclusive`; it cannot be stepped as an unconditional contract. One level up,
 `ArbitratedCapture` proves the assumption using arbiter grants and accepts
 unrestricted requests: on an enabled tie it stores lane A's word. Wiring raw
 requests to the wrapper instead fails when both request on an enabled non-reset edge.

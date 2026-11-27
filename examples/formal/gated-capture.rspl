@@ -25,7 +25,7 @@ spec for rtl.GatedCapture:
 
   transactions capture_monitor(grant_events)
   refinement:
-    relate previous = held
+    forward lanes: selectors.RegisteredLaneSelector
 
 spec for rtl.ArbitratedCapture:
   state saved: Bits(2) initially 0 as cleared

@@ -1,0 +1,13 @@
+#lang rhombus
+/* Proves capture-event forwarding from the registered selector under the gate's input premise. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("rspecl/runner.rkt").prove_design
+  "gated-capture.rhdl" as rtl
+  "gated-capture.rspl" as spec
+
+module main:
+  def seal = prove_design(elaborate(rtl.GatedCapture()).top, spec.GatedCapture)
+  println("Proved GatedCapture from the selector contract: off-reset captures require exclusive grants")
