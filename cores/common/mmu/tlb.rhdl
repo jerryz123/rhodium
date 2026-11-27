@@ -13,18 +13,31 @@ import:
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
-/* Stores a mapping's address identity, translation roots, and independently checked stage
-   leaves. */
-bundle RiscvTlbEntry():
+/* Root-tagged host/guest mapping. Only the final physical page is bounded by
+   the platform map; the guest page remains intact for fault reporting. */
+bundle RiscvTlbEntry(ppn_width :: Int.in(1, 44) = 44):
   valid: Bool
   virtualized: Bool
   page_size: Sv39PageSize
   vpn: Bits(52)
-  ppn: Bits(44)
+  ppn: Bits(ppn_width)
+  outside_map: Bool
   guest_ppn: Bits(52)
   context: RiscvGuestTranslationContext()
   vs_leaf: Sv39Pte()
   g_leaf: Sv39Pte()
+
+  /* Match the page and translation identity, including HS MXR for implicit
+     G-stage PTE reads. Current privilege, SUM, and VS MXR are rechecked. */
+  method matches(entry, request :: RiscvTlbLookup()) :: Bool:
+    def left = entry.context
+    def right = request.context
+    def host_page = request.virtual_address.sv39_canonical() & sv39_same_page(entry.vpn[0..27] ++ Bits(12)(0), request.virtual_address[0..39], entry.page_size)
+    def same_page = mux(entry.virtualized, entry.vpn === request.virtual_address[12..64], host_page)
+    def same_modes = (left.vs_mode === right.vs_mode) & (left.g_mode === right.g_mode)
+    def same_roots = (left.vs_root_ppn === right.vs_root_ppn) & (left.g_root_ppn === right.g_root_ppn)
+    def same_controls = (left.vs_pbmte === right.vs_pbmte) & (left.g_pbmte === right.g_pbmte) & (left.hs_mxr === right.hs_mxr)
+    entry.valid & (entry.virtualized === request.virtualized) & same_page & same_modes & same_roots & same_controls
 
 /* Host Sv39 translations within one root epoch. The integrating MMU invalidates
    on every root write and suppresses stale fills; privilege and A/D checks stay live. */
@@ -36,21 +49,6 @@ bundle RiscvHostTlbEntry(ppn_width :: Int.in(1, 44) = 44):
   outside_map: Bool
   pbmte: Bool
   vs_leaf: Sv39Pte()
-
-/* Matches page and captured translation identity; current privilege, SUM, and VS MXR are
-   rechecked. */
-fun riscv_tlb_matches(entry :: RiscvTlbEntry(), request :: RiscvTlbLookup()) :~ Bool:
-  def left = entry.context
-  def right = request.context
-  // SUM, VS MXR, and privilege are rechecked at lookup. HS MXR additionally
-  // authorizes implicit G-stage PTE reads, whose leaves are not kept here;
-  // changing it conservatively rewalks instead of reusing that lost proof.
-  def host_page = request.virtual_address.sv39_canonical() & sv39_same_page(entry.vpn[0..27] ++ Bits(12)(0), request.virtual_address[0..39], entry.page_size)
-  def same_page = mux(entry.virtualized, entry.vpn === request.virtual_address[12..64], host_page)
-  def same_modes = (left.vs_mode === right.vs_mode) & (left.g_mode === right.g_mode)
-  def same_roots = (left.vs_root_ppn === right.vs_root_ppn) & (left.g_root_ppn === right.g_root_ppn)
-  def same_controls = (left.vs_pbmte === right.vs_pbmte) & (left.g_pbmte === right.g_pbmte) & (left.hs_mxr === right.hs_mxr)
-  entry.valid & (entry.virtualized === request.virtualized) & same_page & same_modes & same_roots & same_controls
 
 /* Keeps a nonfaulting probe's permission, address and memory type together when selecting a TLB. */
 bundle RiscvPrefetchProbe():
@@ -95,7 +93,7 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8, ~host_root_epoch: h
 
   def index_bits = index_width(entry_count)
   def ppn_width = math.max(1, math.min(44, physical_address_width - 12))
-  def Entry = if host_root_epoch | RiscvHostTlbEntry(ppn_width) | RiscvTlbEntry()
+  def Entry = if host_root_epoch | RiscvHostTlbEntry(ppn_width) | RiscvTlbEntry(ppn_width)
   def Bank = Vec(entry_count, Entry)
   reg entries(Bank, ~init: literal(Bank, 0))
   reg replacement(~init: Bits(index_bits)(0))
@@ -108,7 +106,7 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8, ~host_root_epoch: h
         def entry = entries[index].into(Entry)
         def same_page = sv39_same_page(entry.vpn ++ Bits(12)(0), request.virtual_address[0..39], entry.page_size)
         entry.valid & !request.virtualized & (request.context.vs_mode === RiscvVSMode.Sv39) & (entry.pbmte === request.context.vs_pbmte) & request.virtual_address.sv39_canonical() & same_page
-    | riscv_tlb_matches(entries[index], request)
+    | entries[index].into(Entry).matches(request)
 
   def matches = vec(for List (index in 0..entry_count): entry_matches(index, lookup))
   def selected_index = priority_encoder(matches)
@@ -116,9 +114,9 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8, ~host_root_epoch: h
 
   /* A high normalized base poisons the whole entry. For a narrow map, bits
      supplied by this access's superpage offset can also exceed the bound. */
-  fun outside_map(index :: Bits(index_bits), physical :: Bits(56)) :~ Bool:
-    if host_root_epoch && physical_address_width < 56
-    | entries[index].into(RiscvHostTlbEntry(ppn_width)).outside_map ||| physical[physical_address_width..56].any()
+  fun outside_map(base_outside :: Bool, physical :: Bits(56)) :~ Bool:
+    if physical_address_width < 56
+    | base_outside ||| physical[physical_address_width..56].any()
     | Bool(#false)
 
 
@@ -142,7 +140,7 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8, ~host_root_epoch: h
     bare & !riscv_bare_address_fits(lookup.virtual_address): RiscvTranslationFault.AccessFault
     vs_fault: RiscvTranslationFault.PageFault
     g_fault: RiscvTranslationFault.GuestPageFault
-    !bare & outside_map(selected_index, translated): RiscvTranslationFault.AccessFault
+    !bare & outside_map(selected.outside_map, translated): RiscvTranslationFault.AccessFault
 
   // Invalidation wins at the state-update edge. Do not feed a WB-owned fence
   // back through hit/readiness into the retirement decision that creates it.
@@ -185,7 +183,7 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8, ~host_root_epoch: h
   // With both stages Bare, the original address must fit before truncation to the physical port.
   def probe_bare_overflow = probe_bare & !riscv_bare_address_fits(probe.virtual_address)
   def probe_translated = sv39_physical_address(probe.virtual_address, probe_entry.ppn.zext(44), probe_entry.page_size)
-  def probe_outside = !probe_bare & outside_map(probe_index, probe_translated)
+  def probe_outside = !probe_bare & outside_map(probe_entry.outside_map, probe_translated)
   probe_fault <== probe_hit & (probe_bare_overflow ||| probe_outside ||| !probe_permissions.any())
 
 
@@ -237,21 +235,24 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8, ~host_root_epoch: h
   def fill_matches = vec(for List (index in 0..entry_count): entry_matches(index, fill.bits.request))
   def fill_index = mux(fill_matches.any(), priority_encoder(fill_matches), replacement)
   def base_ppn = sv39_base_ppn(fill.bits.result.physical_address[12..56], fill.bits.result.page_size)
+  def ppn = base_ppn[0..ppn_width]
+  def base_outside = if ppn_width == 44 | Bool(#false) | base_ppn[ppn_width..44].any()
   def next_entry = if host_root_epoch
   | RiscvHostTlbEntry(ppn_width):
       valid: Bool(#true)
       vpn: fill.bits.request.virtual_address[12..39]
       page_size: fill.bits.result.page_size
-      ppn: base_ppn[0..ppn_width]
-      outside_map: if ppn_width == 44 | Bool(#false) | base_ppn[ppn_width..44].any()
+      ppn: ppn
+      outside_map: base_outside
       pbmte: fill.bits.request.context.vs_pbmte
       vs_leaf: fill.bits.result.vs_leaf
-  | RiscvTlbEntry():
+  | RiscvTlbEntry(ppn_width):
       valid: Bool(#true)
       virtualized: fill.bits.request.virtualized
       page_size: fill.bits.result.page_size
       vpn: fill.bits.request.virtual_address[12..64]
-      ppn: base_ppn
+      ppn: ppn
+      outside_map: base_outside
       guest_ppn: fill.bits.result.guest_physical_address[12..64]
       context: fill.bits.request.context
       vs_leaf: fill.bits.result.vs_leaf

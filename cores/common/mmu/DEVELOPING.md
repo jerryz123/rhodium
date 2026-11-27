@@ -74,11 +74,14 @@ Preserve these invariants when extending the components:
 - Select the compact host bank only when root writes invalidate both banks
   and cancel outstanding walks. Test a root change while an old PTE response
   is in flight; the next walk of the same VA must start at the new root.
-  Bound the stored PPN using all physical regions, not just cacheable RAM.
+- In both entry formats, bound only the final physical PPN using all mapped
+  regions, not just cacheable RAM. Never derive the guest PPN from it.
   Record overflow from the normalized page base at fill; the initiating
   access's superpage offset must not poison other offsets. Recheck the actual
   offset on demand and probe; preserve permission-fault priority. Exercise
-  these paths with `riscv-host-tlb` and `rv2wide-mmu-host-fault`.
+  these paths with `riscv-host-tlb` and `riscv-root-tagged-tlb`; use
+  `rv2wide-mmu` for translated device accesses and `rv2wide-mmu-host-fault`
+  for the host-only integration.
 - Vector fallback probes use only the window's registered state and captured
   range. Do not restore admission-to-probe bypass: a live descriptor offer may
   itself depend on scalar WB/MMU acceptance. Preserve the independent MEM

@@ -82,13 +82,16 @@ The non-H RV5Stage and superscalar harts select
 fills only. It checks the full incoming VA for canonicality, but stores only
 its 27 VPN bits, not a root tag or guest translation. The caller must invalidate
 both banks on every SATP root write and prevent an older walk from filling
-after invalidation. These harts also pass `~physical_address_width`, the
+after invalidation.
+
+Both host-only and guest-capable banks accept `~physical_address_width`, the
 width covering every mapped region, including MMIO. A translation beyond
-that width still hits: denied permissions produce a page fault, otherwise
-the access faults and no prefetch is issued. For superpages this is checked
-at the requested offset. Holes within the bound still require PMA checks.
-Bare translation is unchanged. The default width preserves all 56 physical
-address bits; H-enabled banks retain their full root-tagged translations.
+that width still hits: VS and G permission faults take precedence, otherwise
+the access faults and no prefetch is issued. Superpages are checked at the
+requested offset. This bound applies only to the final physical address,
+not the VA or the guest physical page used for fault reporting. Holes within
+the bound still require PMA checks. Bare translation is unchanged. The default
+width preserves all 56 physical address bits.
 
 `walker.accepted_lookup` exposes the last request that transferred into the
 walker. It holds through completion, cancellation, and drain until another

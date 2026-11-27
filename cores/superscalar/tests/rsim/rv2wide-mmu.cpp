@@ -619,6 +619,16 @@ int main() {
           fetch_physical == UINT64_C(0x14000));
     fetch_valid = 0;
     hint(UINT64_C(0x40003f), 1, 1, UINT64_C(0x14000));
+    // A distinct executable PTE would alias that valid instruction page if
+    // the ITLB discarded its upper PPN before testing the physical bound.
+    fetch_address = 0x401038;
+    fetch_valid = 1;
+    walk_at(0x401038, (((UINT64_C(1) << 42) | 20) << 10) | 0xcb);
+    eval();
+    CHECK(fetch_resolution.pdisposition == 1 && fetch_resolution.pcause == 1 &&
+          fetch_resolution.pvalue == 0x401038 && !physical_valid);
+    fetch_valid = 0;
+    hint(0x401038, 1, false);
     // PTE physical admission failure becomes a precise original data VA fault.
     offer_wb(UINT64_C(0x501038));
     wait_request(UINT64_C(0x10000));
@@ -936,6 +946,26 @@ int main() {
     guest_state = {};
     guest_state.pvirtualized = 1;
     guest_state.phgatp = UINT64_C(0x8000000000000010);
+    // Both physical pages have the same low bits as the device above 4 GiB.
+    // Only the real device can leave WB; neither translation permits a prefetch.
+    constexpr uint64_t mmio = UINT64_C(0x100002000);
+    for (bool outside : {false, true}) {
+      fence();
+      offer_wb(0x16008);
+      reply(0x10000, (17u << 10) | 1);
+      reply(0x11000, (18u << 10) | 1);
+      const auto hpa = outside ? (mmio | (UINT64_C(1) << 54)) : mmio;
+      reply(0x120b0, ((hpa >> 12) << 10) | 0xd7);
+      for (unsigned i = 0; i < 5; ++i) tick_model();
+      wb_valid = 1; eval();
+      if (outside) {
+        CHECK(wb_fault && !physical_valid && wb_fault_bits.pcause == 5 && wb_fault_bits.pvalue == 0x16008);
+      } else {
+        CHECK(!wb_fault && physical_valid && physical_address == mmio + 8);
+      }
+      wb_valid = 0;
+      hint(0x16008, 2, false);
+    }
     fence();
     offer_wb(UINT64_C(0x16008));
     reply(UINT64_C(0x10000), (UINT64_C(17) << 10) | 1);
