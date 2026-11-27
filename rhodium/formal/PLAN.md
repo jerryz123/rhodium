@@ -66,7 +66,9 @@ treat a matching batch schema as proof that two monitors agree.
    exclusivity is a checked guarantee, not an environment assumption.
    [BufferedArbiterQueue](../../examples/formal/prove-buffered-arbiter-queue.rhm)
    reuses that seal and a one-word ShiftQueue for the 2-, 3-, and 4-word bounds.
-   Remaining consumers include the gated wrapper and the ROB.
+   [GatedArbiterQueue](../../examples/formal/prove-gated-arbiter-queue.rhm)
+   forwards the child monitor at depths 1–3 after checking exact transfer
+   equality on the wrapper RTL. The ROB's tag-order cut remains to migrate.
    Keep the ordering observer's theorem unchanged, the 2/4/6-word bounds,
    fill/drain replay, and the crossed-ready, wrong-payload, reversed-history
    and ready-when-space negatives. Retire the FIFO-specific dispatch and

@@ -390,6 +390,18 @@ check:
     input width: Bool
   ~throws "inputs come from the RTL declaration"
 
+// A forwarding declaration must not silently discard an additional proof obligation.
+check:
+  ~eval
+  import lib("rspecl/language.rhm").spec
+  import lib("examples/formal/gated-arbiter-queue.rhdl") as rtl
+  import lib("examples/formal/arbiter-queue.rspl").ArbiterQueue
+  spec for rtl.GatedArbiterQueue:
+    refinement:
+      forward queue: ArbiterQueue
+      check impossible = #false
+  ~throws "exact forwarding must be the only refinement clause"
+
 check:
   ~eval
   import lib("rspecl/language.rhm").spec

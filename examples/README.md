@@ -313,7 +313,7 @@ hardware-preservation contracts.
 | QueuePairSeries | [QueuePair(1) feeding QueuePair(2)](formal/queue-pair-series.rhdl) | [Six-word FIFO from two public child histories](formal/queue-pair-series.rspl); [run the proof](formal/prove-queue-pair-series.rhm) |
 | TwoTagROB | [Two-tag reorder buffer](formal/two-tag-rob.rhdl) | [Cycle behavior, event monitor, and checked FIFO/register refinement](formal/two-tag-rob.rspl) |
 | LoggedTwoTagROB | [Last-commit recorder](formal/logged-two-tag-rob.rhdl) | [RSPECL spec](formal/logged-two-tag-rob.rspl) combines ordered retirement with readback on its own ports; [grant-to-record proof](../rhodium/formal/tests/logged-ordinal.rkt) uses only the recorder seal |
-| GatedArbiterQueue | [Registered admission wrapper](formal/gated-arbiter-queue.rhdl) | [Admission and ordered drain](formal/gated-arbiter-queue.rspl) |
+| GatedArbiterQueue | [Registered admission wrapper](formal/gated-arbiter-queue.rhdl) | [Admission and ordered drain](formal/gated-arbiter-queue.rspl); [prove transfer preservation at depths 1–3](formal/prove-gated-arbiter-queue.rhm) |
 | ArbiterQueue | [Parent wiring](formal/arbiter-queue.rhdl) connecting the Flow leaves | [Cycle model and transaction refinement](formal/arbiter-queue.rspl); [prove accepted-winner ordering at depths 1–3](formal/prove-arbiter-queue.rhm) |
 
 The leaf specs import the Flow declarations directly. ArbiterQueue is example-owned,

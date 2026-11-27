@@ -1,8 +1,10 @@
 #lang rspecl
-/* Tracks externally accepted winners and the prior edge’s admission enable. */
+/* Models registered admission and proves that the gate forwards the queue's complete transfer batch. */
 // SPDX-License-Identifier: Apache-2.0
 
 import "gated-arbiter-queue.rhdl" as rtl
+import "arbiter-queue.rspl".ArbiterQueue
+import lib("rspecl/fifo.rspl").fifo_monitor
 
 /* Record accepted external words, oldest first. A full queue cannot accept on its retirement edge. */
 spec for rtl.GatedArbiterQueue:
@@ -23,8 +25,12 @@ spec for rtl.GatedArbiterQueue:
   observe ingress[1].ready = grant1 when !reset
   observe egress.valid = valid when !reset
   observe egress.bits = front(pending) when !reset && valid
-  events ready_valid_events(reset, ingress, egress)
+  events transfers = ready_valid_events(reset, ingress, egress)
+  transactions fifo_monitor(depth, first.bits.type.width, transfers)
 
   let retained = select(pop, tail(pending), pending)
   next admitting = !reset && enable
   next pending = select(reset, cleared, select(push, append(retained, winner), retained))
+
+  refinement:
+    forward queue: ArbiterQueue

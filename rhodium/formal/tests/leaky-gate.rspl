@@ -2,6 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import "arbiter-queue-fixture.rhdl" as rtl
+import lib("examples/formal/arbiter-queue.rspl").ArbiterQueue
+import lib("rspecl/fifo.rspl").fifo_monitor
 
 spec for rtl.LeakyGate:
-  events ready_valid_events(reset, ingress, egress)
+  events transfers = ready_valid_events(reset, ingress, egress)
+  transactions fifo_monitor(depth, ingress[0].bits.type.width, transfers)
+  refinement:
+    forward queue: ArbiterQueue

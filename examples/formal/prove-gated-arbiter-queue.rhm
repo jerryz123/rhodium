@@ -1,0 +1,15 @@
+#lang rhombus
+/* Proves that registered admission preserves the child FIFO's public transfers at three depths. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("rspecl/runner.rkt").prove_design
+  "gated-arbiter-queue.rhdl" as rtl
+  "gated-arbiter-queue.rspl" as spec
+
+module main:
+  for (depth in [1, 2, 3]):
+    def top = elaborate(rtl.GatedArbiterQueue(2, ~depth: depth)).top
+    def seal = prove_design(top, spec.GatedArbiterQueue)
+    println("Proved GatedArbiterQueue transfer preservation and FIFO ordering, depth " ++ to_string(depth))

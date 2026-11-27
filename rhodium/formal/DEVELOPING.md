@@ -561,15 +561,14 @@ independent admission and history spec. Check reset and preservation at depths
 1–3. The leaky fixture fails preservation; a separate full-RTL replay shows
 an unacknowledged word retiring. That replay is not an input to certification.
 
-The independent [gated transaction proof](tests/gated-arbiter-queue-transactions.rkt)
-uses `prove-fifo-wrapper` instead of a cycle cut. It matches one certified child,
-checks its direct clock/reset, and turns its visible outputs into unconstrained
-graph inputs and its driven inputs into observed sinks. Only the wrapper's local
-RTL executes. For arbitrary register state and enable, prove the public sampler
-domain and equality of reset, transfer presence, and active payloads against the
-child sampler. The same child history then satisfies the public monitor.
-The leaky gate fails **accepted** on a non-reset edge, before evidence is issued.
-This is a safety rule for a transfer-preserving wrapper, not a cycle or progress guarantee.
+The [standalone transaction proof](../../examples/formal/prove-gated-arbiter-queue.rhm)
+uses exact forwarding rather than a cycle cut. The runner resolves the direct
+occurrence and delegates to `prove-forwarded-transaction`: the checked child
+monitor is opaque, while the wrapper's local RTL drives the pins sampled on
+each side. Equal dense batches include reset, transfer presence, active
+payloads and the two-lane exclusivity check. Identical monitors therefore
+produce identical histories. The [regression](tests/gated-arbiter-queue-transactions.rkt)
+keeps `prove-fifo-wrapper` as an independent oracle; both paths reject LeakyGate.
 
 The [two-tag ROB proof](tests/two-tag-rob-proof.rkt) relates four parent
 busy/done bits, two per-tag generation bits, two unreset payload banks, and the queue's live tag words to

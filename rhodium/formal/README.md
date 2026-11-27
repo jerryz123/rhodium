@@ -50,7 +50,7 @@ does not guarantee admission. [GatedArbiterQueue](../../examples/formal/gated-ar
 demonstrates the next boundary: the proof executes the wrapper's own admission
 register but substitutes the verified queue spec. Reset closes admission;
 otherwise the previous edge's enable controls new transfers. Closing the gate
-does not block already accepted words from draining. Its [transaction proof](tests/gated-arbiter-queue-transactions.rkt)
+does not block already accepted words from draining. Its [standalone transaction proof](../../examples/formal/prove-gated-arbiter-queue.rhm)
 uses only the child's FIFO contract: each public acceptance or retirement
 matches the child's transfer and payload on that edge. Ordering and capacity
 (1, 2, or 3 words) follow without knowing when the child is ready.
@@ -298,7 +298,22 @@ not event batches. Inspect them with `transaction-input-premises`; until they
 are discharged, `transaction-for?` does not authorize unconditional use, and
 sampling, stepping or opening an event-only cut directly is rejected.
 
-For a wrapper forwarding one monitor, use:
+For a wrapper that preserves one child's entire transaction monitor, declare
+the parent sampler and monitor on its own ports, then name the direct child:
+
+```rhombus
+refinement:
+  forward queue: ArbiterQueue
+```
+
+`prove_design` proves that occurrence's contract and compares the parent
+and child batches on the same RTL edge for arbitrary local register values.
+Their pins may differ (a closed gate masks valid and ready); the sampled
+fields must agree, and the monitor's initial state, guarantees and updates
+must be identical. This proves forwarding, not the parent's cycle timing.
+Use `child` and a history relation instead when the parent changes the monitor.
+
+For a wrapper with additional combinational evidence, use the lower-level API:
 
 ```racket
 (prove-forwarded-transaction top parent-view "gate" gate-proof gate-view

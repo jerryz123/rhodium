@@ -60,6 +60,10 @@
         (match (spec definition #:proof_plan #t)
           [(list "leaf" root cycle view projection hints)
            (prove-rtl-leaf definition root cycle view projection hints)]
+          [(list "forward" view site child-spec)
+           (define child (child_definition definition site))
+           (prove-forwarded-transaction definition view site (visit child child-spec)
+                                        (child-spec child #:transaction_view #t))]
           [(list "parent" view children)
            (prove-transaction definition view
              (for/hash ([(site binding) children])
