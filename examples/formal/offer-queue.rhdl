@@ -1,0 +1,20 @@
+#lang rhodium
+/* Buffers the latest update in a replaceable offer until a one-word FIFO accepts it. */
+// SPDX-License-Identifier: Apache-2.0
+
+import lib("flow/main.rhdl") open
+
+/* Expose admission readiness so observers can distinguish a replacement from a committed handoff. */
+sync_circuit OfferQueue():
+  interface update(Valid(Bits(2)), ~role: consumer)
+  interface egress(Irrevocable(Bits(2)), ~role: producer)
+  output handoff_ready: Bool
+
+  inst offer(OfferRegister(Bits(2)))
+  inst fifo(ShiftQueue(Bits(2), 1))
+  update |> offer.update
+  offer.egress |> fifo.ingress
+  fifo.egress |> egress
+  handoff_ready <== fifo.ingress.ready
+
+export OfferQueue

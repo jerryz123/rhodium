@@ -93,9 +93,12 @@ treat a matching batch schema as proof that two monitors agree.
    replaced *during a stall*. Its [two-bit leaf proof](../../examples/formal/prove-offer-register.rhm)
    certifies old-word delivery and new-word retention on a simultaneous update;
    the [regression](tests/offer-register.rkt) rejects the stable-offer claim and
-   replays stalled replacement in RTL and rspecsim. Next, reuse the seal at
-   a parent occurrence without reopening the register. Keep this adoption
-   free of block-specific engine changes.
+   replays stalled replacement in RTL and rspecsim. The
+   [OfferQueue parent](../../examples/formal/prove-offer-queue.rhm) reuses
+   that seal and ShiftQueue's FIFO seal to prove order after handoff, without
+   reopening either child or changing the engine. Its [regression](tests/offer-queue.rkt)
+   distinguishes allowed replacement from a bypass that commits the incoming
+   update instead of the old offer.
    A missing general capability is a separate proposal with two clients and
    a failing negative test, not an exception for OfferRegister.
 

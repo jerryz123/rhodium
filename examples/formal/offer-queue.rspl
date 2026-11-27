@@ -1,0 +1,54 @@
+#lang rspecl
+/* Separates replaceable updates from committed FIFO words at an observable admission boundary. */
+// SPDX-License-Identifier: Apache-2.0
+
+import "offer-queue.rhdl" as rtl
+import "offer-register.rspl".OfferRegister
+import "shift-queue.rspl".ShiftQueue
+import lib("rhodium/formal/spec.rhm").Observed
+
+/* Read only parent pins. The transferred word is checked at retirement, not copied from the handoff. */
+fun samples(read :: Function, output :: Function):
+  def rst = read("reset", Bool)
+  def flag = const(Bool, #true)
+  {"reset": Observed(flag, rst),
+   "install": Observed(read("update.bits", Bits(2)), !rst && read("update.valid", Bool)),
+   "ready": Observed(flag, !rst && output("handoff_ready", Bool)),
+   "retire": Observed(output("egress.bits", Bits(2)), !rst && output("egress.valid", Bool) && read("egress.ready", Bool))}
+
+spec for rtl.OfferQueue:
+  monitor:
+    sample samples
+    publish []
+    batch rst = present(reset)
+    batch install = present(install)
+    batch incoming: Bits(2) = payload(install) when install
+    batch ready = present(ready)
+    batch retire = present(retire)
+    batch outgoing: Bits(2) = payload(retire) when retire
+    state pending: Seq(Bits(2), 1) initially [] as vacant
+    state committed: Seq(Bits(2), 1) initially []
+
+    let handoff = ready && !empty(pending)
+    guarantee "reset-quiets-events" = !rst || !(install || ready || retire)
+    guarantee "retire-committed-head" = !retire || (!empty(committed) && bits_equal(outgoing, front(committed)))
+    guarantee "space-for-handoff" = !handoff || !full(committed) || retire
+    let rest = select(retire, tail(committed), committed)
+    next committed = select(rst, vacant, select(handoff, append(rest, front(pending)), rest))
+    next pending = select(rst, vacant, select(install, append(vacant, incoming), select(handoff, vacant, pending)))
+
+  refinement:
+    child offer: OfferRegister
+    child fifo: ShiftQueue
+    direct_wires {"offer.update.valid": "update.valid", "offer.update.bits": "update.bits",
+                  "fifo.ingress.valid": "offer.egress.valid", "fifo.ingress.bits": "offer.egress.bits",
+                  "offer.egress.ready": "fifo.ingress.ready", "handoff_ready": "fifo.ingress.ready",
+                  "egress.valid": "fifo.egress.valid", "egress.bits": "fifo.egress.bits", "fifo.egress.ready": "egress.ready"}
+    history latest from offer.slot: Seq(Bits(2), 1)
+    history accepted from fifo.q: Seq(Bits(2), 1)
+    relate pending = latest
+    relate committed = accepted
+    batch installing from install: Bool
+    batch replacement from incoming: Bits(2)
+    batch admitting from ready: Bool
+    cover distinct_replacement = installing && admitting && !empty(latest) && !bits_equal(replacement, front(latest))

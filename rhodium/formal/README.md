@@ -458,6 +458,15 @@ the slot. Reset starts an empty epoch; no delivery or installation is reported
 on that edge. The [spec](../../examples/formal/offer-register.rspl) does not
 promise that every installed word will be delivered.
 
+The [OfferQueue parent](../../examples/formal/offer-queue.rhdl) feeds this
+register into a one-word ShiftQueue. Its [monitor](../../examples/formal/offer-queue.rspl)
+uses the public `handoff_ready` pin to tell when a pending word commits to the
+FIFO. If A commits as B is installed, A retires first. B may still be
+overwritten before its own handoff: installing C while the FIFO is stalled
+can give retirements A, C. The [proof](../../examples/formal/prove-offer-queue.rhm)
+uses the two child contracts and checks the physical handoff; it promises
+neither eventual retirement nor delivery of every update.
+
 To share behavior independently of any circuit, an ordinary RSPECL function may
 return a `monitor:` value. Both ROB specs use the same
 [ordered-retirement helper](../../examples/formal/ordered-retirement.rspl).

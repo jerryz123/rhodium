@@ -1,0 +1,22 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+
+import lib("flow/main.rhdl") open
+import lib("examples/formal/offer-queue.rhdl").OfferQueue
+
+sync_circuit BypassOfferQueue():
+  interface update(Valid(Bits(2)), ~role: consumer)
+  interface egress(Irrevocable(Bits(2)), ~role: producer)
+  output handoff_ready: Bool
+  inst offer(OfferRegister(Bits(2)))
+  inst fifo(ShiftQueue(Bits(2), 1))
+  update |> offer.update
+  fifo.ingress.valid <== offer.egress.valid
+  fifo.ingress.bits <== update.bits
+  offer.egress.ready <== fifo.ingress.ready
+  fifo.egress |> egress
+  handoff_ready <== fifo.ingress.ready
+
+def good_top = elaborate(OfferQueue()).top
+def bypass_top = elaborate(BypassOfferQueue()).top
+export good_top bypass_top
