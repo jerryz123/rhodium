@@ -26,6 +26,6 @@ fun capture_monitor(sampler :: Function.of_arity(2)):
     batch readback: Bits(2) = payload(readback) when fire
     // For example, if the old word is 1 and this capture selects 3, readback must still be 1 on this edge.
     state previous: Bits(2) initially 0
-    guarantee "previous-on-capture" = !fire || bits_equal(readback, previous)
+    guarantee "previous-on-capture" = bits_equal(readback, previous) when fire
     // The 3 becomes the expected readback for the next capture, unless reset clears the history first.
     next previous = select(reset, const(Bits(2), 0), select(fire, winner, previous))

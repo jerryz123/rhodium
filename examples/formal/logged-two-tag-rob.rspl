@@ -33,9 +33,9 @@ fun last_record():
     state occupied: Bool initially #false
     state tag: Bool initially #false
     state data: Bits(2) initially 0
-    guarantee "reset-quiets-retirement" = !reset || !retire
-    guarantee "record-valid" = reset || same(valid, occupied)
-    guarantee "record-value" = reset || !valid || (same(last_tag, tag) && bits_equal(last_payload, data))
+    guarantee "reset-quiets-retirement" = !retire when reset
+    guarantee "record-valid" = same(valid, occupied) when !reset
+    guarantee "record-value" = same(last_tag, tag) && bits_equal(last_payload, data) when !reset && valid
     // Reset invalidates the record. An offered retirement with ready low leaves the last captured tag and data alone.
     next occupied = !reset && (occupied || retire)
     next tag = select(retire, retire_tag, tag)

@@ -33,8 +33,8 @@ fun stable_offer(sampler :: Function.of_arity(2)):
     state pending: Bool initially #false
     // After a stall, compare the next sample with this remembered word. Reset cancels the comparison.
     state last: Bits(2) initially 0
-    guarantee "stable-valid" = rst || !pending || offered
-    guarantee "stable-payload" = rst || !pending || bits_equal(last, word)
+    guarantee "stable-valid" = offered when !rst && pending
+    guarantee "stable-payload" = bits_equal(last, word) when !rst && pending
     next pending = offered && !ready
     next last = select(offered && !ready, word, const(Bits(2), 0))
 
@@ -74,7 +74,7 @@ fun receipt(sampler :: Function.of_arity(2)):
     batch fire = present(receipt)
     batch saved: Bits(2) = payload(receipt) when fire
     state pending: Bool initially #false
-    guarantee "first-stalled-word" = !pending || !fire || bits_equal(saved, word)
+    guarantee "first-stalled-word" = bits_equal(saved, word) when pending && fire
     next pending = offered && !ready
 
 spec for rtl.StallConsumer:

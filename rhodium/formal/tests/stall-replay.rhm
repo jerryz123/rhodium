@@ -2,7 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 import lib("rspecl/rtl-boundary.rhm") open
 import "../spec.rhm".step_spec
-export replay_sample
+export replay_sample sample_events
+
+fun sample_events(view, pins):
+  def values(sampler, _, _, _) = transaction_parts(view)
+  step_spec(sampler, {}, pins).events
 
 fun replay_sample(view, previous, pins):
   def values(_, monitor, _, _) = transaction_parts(view)

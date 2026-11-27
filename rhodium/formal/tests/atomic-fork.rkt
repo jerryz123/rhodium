@@ -59,6 +59,7 @@
     (define in (inputs #t 2 #t #f))
     (define wrong (simulate-mutant in))
     (check-equal? (rtl-events wrong) (hash "left" 2))
+    (check-equal? (for/hash ([(k v) (sample_events view wrong)]) (values k v)) (hash "left" 2))
     (check-equal? (rtl-events (simulate in)) (hash))
     (check-equal? (rspecsim-events in) (hash))
     ;; Replay the *mutant's* pin values through the same executable transaction monitor.

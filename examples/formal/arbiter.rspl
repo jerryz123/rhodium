@@ -59,29 +59,24 @@ spec for rtl.Arbiter:
     event out = word when offered && egress.ready
 
 /* Grants describe admission; add conservation and payload equality only on physical handshakes. */
-fun transfer_monitor(inputs :: Map):
-  def word = inputs["ingress[0].bits"]
-  /* Sample independent input/output words, not the expected winner from the cycle model. */
-  fun samples(read :: Function, output :: Function):
-    def take0 = read("ingress[0].valid", Bool) && output("ingress[0].ready", Bool)
-    def take1 = read("ingress[1].valid", Bool) && output("ingress[1].ready", Bool)
-    def send = output("egress.valid", Bool) && read("egress.ready", Bool)
-    {"lane0": Observed(read("ingress[0].bits", word), take0),
-     "lane1": Observed(read("ingress[1].bits", word), take1),
-     "sent": Observed(output("egress.bits", word), send)}
-  monitor:
-    sample samples
-    publish []
-    batch take0 = present(lane0)
-    batch take1 = present(lane1)
-    batch send = present(sent)
-    batch a_word: word = payload(lane0) when take0
-    batch b_word: word = payload(lane1) when take1
-    batch sent_word: word = payload(sent) when send
-    // A handshake on either input must coincide with one on the output, carrying that same lane's word.
-    guarantee "conserve-transfer" = select(take0 || take1, send, !send)
-    guarantee "forward-lane-zero" = !take0 || bits_equal(a_word, sent_word)
-    guarantee "forward-lane-one" = !take1 || bits_equal(b_word, sent_word)
+def transfer_contract:
+  spec for rtl.Arbiter:
+    let word = ingress[0].bits.type
+    events transfers = rv_transfers({"lane0": ingress[0], "lane1": ingress[1], "sent": egress})
+    monitor:
+      sample transfers
+      publish []
+      batch take0 = present(lane0)
+      batch take1 = present(lane1)
+      batch send = present(sent)
+      batch a_word: word = payload(lane0) when take0
+      batch b_word: word = payload(lane1) when take1
+      batch sent_word: word = payload(sent) when send
+      // A handshake on either input must coincide with one on the output, carrying that same lane's word.
+      guarantee "conserve-transfer" = bool_equal(send, take0 || take1)
+      guarantee "forward-lane-zero" = bits_equal(a_word, sent_word) when take0
+      guarantee "forward-lane-one" = bits_equal(b_word, sent_word) when take1
+  Arbiter
 
-def arbitrated_transfers = extend_leaf_transactions(Arbiter, transfer_monitor)
+def arbitrated_transfers = extend_leaf_transactions(Arbiter, transfer_contract)
 export arbitrated_transfers

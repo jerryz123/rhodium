@@ -31,9 +31,9 @@ spec for rtl.OfferQueue:
     state committed: Seq(Bits(2), 1) initially []
 
     let handoff = ready && !empty(pending)
-    guarantee "reset-quiets-events" = !rst || !(install || ready || retire)
-    guarantee "retire-committed-head" = !retire || (!empty(committed) && bits_equal(outgoing, front(committed)))
-    guarantee "space-for-handoff" = !handoff || !full(committed) || retire
+    guarantee "reset-quiets-events" = !(install || ready || retire) when rst
+    guarantee "retire-committed-head" = !empty(committed) && bits_equal(outgoing, front(committed)) when retire
+    guarantee "space-for-handoff" = !full(committed) || retire when handoff
     // On a handoff plus a new update, the old pending word enters the FIFO and the new word stays pending.
     let rest = select(retire, tail(committed), committed)
     next committed = select(rst, vacant, select(handoff, append(rest, front(pending)), rest))

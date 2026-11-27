@@ -378,7 +378,8 @@ offering at once. It then derives the existing public grant monitor, which sampl
 both grant pins independently and does not expose the transfer payloads.
 For a consumer that needs the word, the same spec exports `arbitrated_transfers`.
 `extend_leaf_transactions` conjoins the grant monitor with stateless guarantees
-specialized to the leaf's input types. The runner proves the whole conjunction:
+from a monitor-only spec bound to the same elaborated leaf (or a helper over
+its input types). The runner proves the whole conjunction:
 one output handshake per accepted input, carrying that lane's actual word.
 Exclusivity is enough to use the gate contract, but not enough to say which
 word the parent captured. The lane-priority guarantees supply that second fact.

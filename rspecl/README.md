@@ -81,10 +81,24 @@ rejects the batch, monitor history holds. For a spec with a transaction
 monitor, `Name(top, ~transaction_view: #true)` returns its description,
 **not** a proof. A monitor-only spec need not predict cycle outputs.
 
-For ready/valid interfaces, `rv_pins` identifies valid, ready, and payload;
-`ready_valid_events` samples transfers. Neither promises FIFO behavior:
-apply `fifo_monitor` from `lib("rspecl/fifo.rspl")` when ordering and a bound
-are the contract you intend to prove.
+A guarded guarantee still returns a verdict on **every** sample:
+`guarantee "left-payload" = bits_equal(incoming, left_word) when take && send_left`
+passes when the guard is false without evaluating the body. It does not assume
+that the two events coincide; that needs its own guarantee.
+
+For independent ready/valid handshakes, name the endpoints directly:
+
+```rhombus
+events transfers = rv_transfers({"accepted": ingress, "left": egress[0], "right": egress[1]})
+```
+
+Use `sample transfers` inside the monitor. Each event carries its own endpoint's
+payload exactly when its valid and ready are both high. Pin direction and payload
+type come from the elaborated ports; use `rv_pins("valid", "ready", "data")`
+for three scalar pins. There is no implicit reset or choice of winner. Even a
+one-sided transfer remains visible, so the [fork guarantee](../examples/formal/atomic-fork.rspl)
+can reject it. For FIFO-style reset, accepted and retired events use
+`ready_valid_events`; add [`fifo_monitor`](fifo.rspl) to promise ordering and a bound.
 
 ## Prove a leaf or a parent
 

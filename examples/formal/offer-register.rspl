@@ -39,10 +39,10 @@ spec for rtl.OfferRegister:
     // An empty list means no offer; a list containing zero means there really is a word to deliver.
     state slot: Seq(Bits(2), 1) initially [] as vacant
 
-    guarantee "reset-quiets-events" = !rst || !(install || offered || transfer)
-    guarantee "offer-presence" = rst || select(empty(slot), !offered, offered)
-    guarantee "offer-word" = !offered || (!empty(slot) && bits_equal(offer_word, front(slot)))
-    guarantee "deliver-old-word" = !transfer || (offered && !empty(slot) && bits_equal(old_word, front(slot)))
+    guarantee "reset-quiets-events" = !(install || offered || transfer) when rst
+    guarantee "offer-presence" = select(empty(slot), !offered, offered) when !rst
+    guarantee "offer-word" = !empty(slot) && bits_equal(offer_word, front(slot)) when offered
+    guarantee "deliver-old-word" = offered && !empty(slot) && bits_equal(old_word, front(slot)) when transfer
     // Judge delivery against the pre-edge slot; a simultaneous install wins ownership of the next slot.
     next slot = select(rst, vacant, select(install, append(vacant, new_word), select(transfer, vacant, slot)))
 

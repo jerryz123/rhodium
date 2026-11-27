@@ -18,8 +18,8 @@ fun fifo_monitor(capacity :: PosInt, width :: PosInt, sampler :: Function.of_ari
     batch out: word = payload(retired) when pop
     state q: Seq(word, capacity) initially [] as cleared
 
-    guarantee "reset-without-transfer" = !reset || !(push || pop)
-    guarantee "retire-oldest" = !pop || (!empty(q) && bits_equal(front(q), out))
-    guarantee "space-for-accept" = !push || pop || !full(q)
+    guarantee "reset-without-transfer" = !(push || pop) when reset
+    guarantee "retire-oldest" = !empty(q) && bits_equal(front(q), out) when pop
+    guarantee "space-for-accept" = pop || !full(q) when push
     let remaining = select(pop, tail(q), q)
     next q = select(reset, cleared, select(push, append(remaining, in), remaining))

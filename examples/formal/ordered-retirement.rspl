@@ -66,13 +66,13 @@ fun ordered_retirement():
     /* Membership is pre-edge: retiring a tag does not make it grantable on the same edge. */
     fun contains(tag :: SpecExpr): (live && same(tag, head)) || (two && same(tag, second))
 
-    guarantee "epoch" = !reset || !(grant || retire || complete_a || complete_b)
-    guarantee "history" = reset || !two || !same(head, second)
-    guarantee "fresh-grant" = !grant || (!contains(grant_tag) && (!two || retire))
+    guarantee "epoch" = !(grant || retire || complete_a || complete_b) when reset
+    guarantee "history" = !same(head, second) when !reset && two
+    guarantee "fresh-grant" = !contains(grant_tag) && (!two || retire) when grant
     // If B finishes before an older A, B must wait. These checks constrain a retirement if it happens, not when it happens.
-    guarantee "oldest-tag" = !retire || (live && same(retire_tag, head))
-    guarantee "completed-before-retirement" = !retire || select(head, done_b, done_a)
-    guarantee "retired-payload" = !retire || bits_equal(retire_data, select(head, saved_b, saved_a))
+    guarantee "oldest-tag" = live && same(retire_tag, head) when retire
+    guarantee "completed-before-retirement" = select(head, done_b, done_a) when retire
+    guarantee "retired-payload" = bits_equal(retire_data, select(head, saved_b, saved_a)) when retire
 
     let rest = select(retire, tail(order), order)
     next order = select(reset, cleared, select(grant, append(rest, grant_tag), rest))

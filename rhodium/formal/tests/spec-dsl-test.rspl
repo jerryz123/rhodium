@@ -18,6 +18,16 @@ import:
 
 // Check the actual pre-edge sampler independently of any particular RTL trace or queue state.
 def pair_top = elaborate(pairs.QueuePair(1)).top
+
+// A raw sampler neither hides reset cycles nor equates its input and output handshakes.
+def raw_pair = rv_transfers({"arrived": rv_pins("offer", "ready", "data"),
+                             "departed": rv_pins("valid", "consume", "head")})(pair_top)
+def one_sided = {"offer": #true, "ready": #false, "data": 3, "valid": #true, "consume": #true, "head": 0}
+check:
+  step_spec(raw_pair.sampler, {}, one_sided).events ~is {"departed": 0}
+  step_spec(raw_pair.sampler, {}, one_sided ++ {"ready": #true}).events ~is {"arrived": 3, "departed": 0}
+  rv_transfers({"wrong_direction": rv_pins("offer", "consume", "data")})(pair_top) ~throws "invalid valid/ready/payload"
+  rv_transfers({"wrong_control": rv_pins("data", "ready", "offer")})(pair_top) ~throws "invalid valid/ready/payload"
 def tx = rob_specs.TwoTagROB(~transaction_view: #true)
 def values(_, ref_monitor, _, _) = transaction_parts(tx)
 
@@ -51,6 +61,20 @@ check:
   ~throws "undeclared or mistyped spec reference: output.bad"
 
 fun one_event(_read, write): {"item": Observed(write("bad", Bool))}
+
+def guarded_head:
+  def view:
+    monitor:
+      sample one_event
+      publish []
+      batch check_head: Bool
+      state q: Seq(Bool, 1) initially []
+      guarantee "head" = front(q) when check_head
+  def values(_, model, _, _) = transaction_parts(view)
+  model
+check:
+  step_spec(guarded_head, {"q": []}, {"check_head": #false}).outputs ~is {"head": #true, "allowed": #true}
+  step_spec(guarded_head, {"q": [#false]}, {"check_head": #true}).outputs ~is {"head": #false, "allowed": #false}
 
 // A private relation captures ordinary helpers and bindings at the refinement block's lexical site.
 check:

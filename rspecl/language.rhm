@@ -20,6 +20,7 @@ export:
   rename: monitor_view as monitor
   rename: boundary.combine_transactions as combine_transactions
   rename: boundary.ready_valid_events as ready_valid_events
+  rename: boundary.rv_transfers as rv_transfers
   rename: boundary.rv_pins as rv_pins
   rename: boundary.transaction_view as transaction_view
 
@@ -31,7 +32,10 @@ fun extend_leaf_transactions(spec :: Function, extension :: Function.of_arity(1)
   fun specialize(top :~ matching(_), cycle :: ir.LeafModel, base :: boundary.TransactionView):
     unless views.has_key(top)
     | block:
-        def extra :: boundary.TransactionView = extension(cycle.inputs)
+        def extra :: boundary.TransactionView:
+          if extension is_a Function.of_arity(1, ~transaction_view)
+          | extension(top, ~transaction_view: #true)
+          | extension(cycle.inputs)
         unless extra.monitor.state.length() == 0 && extra.cycle_names.length() == 0
         | error("a transaction extension must preserve the leaf's cycle events and history")
         def outputs = for Map ((pin, field :: ir.Observed) in cycle.outputs): values(pin, field.value.type)
@@ -175,7 +179,12 @@ expr.macro 'monitor_view: $line; ...':
         def key = label.unwrap()
         unless key is_a String && key != "" | syntax_meta.error("expected a nonempty guarantee string", label)
         when key == "allowed" | syntax_meta.error("allowed is the combined monitor verdict", label)
-        record(guarantees, key, 'operand($rhs ...)', clause)
+        // A disabled guarantee passes. Its body need not be defined on that sample.
+        def predicate:
+          match '($rhs ...)':
+          | '($v ... when $c ...)': 'select(($c ...), ($v ...), #true)'
+          | ~else: 'operand($rhs ...)'
+        record(guarantees, key, predicate, clause)
     | 'sample $s ...': record(attachment, "sample", '($s ...)', clause)
     | 'publish $names ...': record(attachment, "publish", '($names ...)', clause)
     | 'assume $rest ...': syntax_meta.error("a monitor judges batches with guarantees, not assumptions", clause)
