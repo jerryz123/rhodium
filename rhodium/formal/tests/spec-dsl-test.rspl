@@ -44,10 +44,9 @@ check:
         state flag: Bool initially #true
         guarantee "ok" = #true
       refinement:
-        fifo words from queue: Seq(Bool, 1)
         output (bad): Bool
         invariant hide_bad = !bad
-        relate flag = empty(words)
+        relate flag = #true
     ParamProbe(~transaction_view: #true)
   ~throws "undeclared or mistyped spec reference: output.bad"
 

@@ -9,7 +9,6 @@ import:
   lib("rhodium/formal/spec.rhm") as ir
   lib("rhodium/formal/port-types.rhm").check_output_types
   lib("rhodium/formal/port-types.rhm").SampledPorts
-  lib("rhodium/formal/fifo-view.rhm") as fifo_view
   "rtl-boundary.rhm" as boundary
 
 export:
@@ -194,7 +193,7 @@ expr.macro 'monitor_view: $line; ...':
                                $(attachment["publish"]), $(attachment["sample"]), ~bindings: $(map_expr(bindings)))'
 
 /* Lower implementation-state hints and separate pin-dependent obligations to ordinary spec IR. */
-expr.macro 'refined_view($view, $attach, $parent): $line; ...':
+expr.macro 'refined_view($view, $parent): $line; ...':
   def values(_, _, _, record, emit, declarations) = model_body()
   def sources = MutableMap{}
   def pins = MutableMap{}
@@ -203,15 +202,9 @@ expr.macro 'refined_view($view, $attach, $parent): $line; ...':
   def checks = MutableMap{}
   def covers = MutableMap{}
   def cuts = MutableMap{}
-  def children = MutableSet{}
   def mutable forwarded = []
   def mutable direct = #false
   def mutable sites = []
-  /* Keep occurrence identity separate from lexical names and preserve declaration order for protocol checks. */
-  fun occurrence(child :: Syntax, cut :: Syntax, clause :: Syntax):
-    def site = field_name(child)
-    record(cuts, site, cut, clause)
-    sites := sites ++ [site]
   /* Namespace IR references by provenance; author expressions use ordinary lexical bindings. */
   fun source(n :: Syntax, sort :: Syntax, prefix :: String, table :: MutableMap, clause :: Syntax):
     def key = prefix ++ "." ++ field_name(n)
@@ -219,16 +212,13 @@ expr.macro 'refined_view($view, $attach, $parent): $line; ...':
     emit('def $n = ir.input_ref($key, $t)')
   for (clause in [line, ...]):
     match clause
-    | 'fifo $(n :: Identifier) from $(child :: Identifier): $t ...':
-        def prefix = "fifo." ++ field_name(child)
-        occurrence(child, '$(prefix ++ "." ++ field_name(n))', clause)
-        source(n, '($t ...)', prefix, sources, clause)
     | 'child $(child :: Identifier): $spec ...':
-        occurrence(child, 'boundary.child_transaction($parent, $(field_name(child)), ($spec ...))', clause)
-        children.add(field_name(child))
+        def site = field_name(child)
+        record(cuts, site, 'boundary.child_transaction($parent, $site, ($spec ...))', clause)
+        sites := sites ++ [site]
     | 'forward_batch $(child :: Identifier)':
         def site = field_name(child)
-        unless site in children | syntax_meta.error("forward_batch must name a declared child", child)
+        unless cuts.has_key(site) | syntax_meta.error("forward_batch must name a declared child", child)
         when site in forwarded | syntax_meta.error("duplicate forwarded batch", child)
         forwarded := forwarded ++ [site]
     | 'direct_wires $rhs ...':
@@ -286,7 +276,7 @@ expr.macro 'refined_view($view, $attach, $parent): $line; ...':
      def state_inputs = $(map_expr(sources))
      def rel = ir.make_spec(state_inputs, {}, {}, $(map_expr(relations)), $(map_expr(invariants)), {})
      def edge = ir.make_spec(state_inputs ++ $(map_expr(pins)), {}, {}, $(map_expr(checks)), $(map_expr(covers)), {})
-     $attach($view, PairList[$site, ...], $(map_expr(cuts)), rel, edge, $option, ...)'
+     boundary.attach_refinement($view, PairList[$site, ...], $(map_expr(cuts)), rel, edge, $option, ...)'
 
 /* Compile a private abstraction at the cycle declaration's lexical site, not in the public monitor. */
 expr.macro 'cycle_relation($cycle): $line; ...':
@@ -436,7 +426,7 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
           unless child_specs.has_key(sink) && child_specs.has_key(source) && sink != source
           | syntax_meta.error("supply requires two distinct declared children", clause)
         refinement := refinement.filter(~keep: fun (item): !has_head(item, {"supply"}))
-        def cut_forms = {"child", "fifo", "history", "local", "input", "output", "batch", "check", "cover", "direct_wires"}
+        def cut_forms = {"child", "history", "local", "input", "output", "batch", "check", "cover", "direct_wires"}
         when has_cycle && !forward_args && !adjacent_source && !refinement.find(fun (c): has_head(c, cut_forms))
         | block:
             projection := Syntax.make_temp_id("cycle_projection")
@@ -451,28 +441,29 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
 
   let [decl, ...] = declarations()
   def specialized = transaction && bound_events
-  def fifo_behavior = transaction && event_source && !specialized
-  when forward_args && (!transaction || fifo_behavior || rtl_hint)
+  when transaction && event_source && !bound_events
+  | syntax_meta.error("name the sampled event reader when declaring a transaction monitor", name)
+  when forward_args && (!transaction || rtl_hint)
   | syntax_meta.error("exact forwarding requires a transaction monitor and no RTL leaf refinement", name)
-  when adjacent_source && (!transaction || fifo_behavior || has_cycle || rtl_hint || requirement)
+  when adjacent_source && (!transaction || has_cycle || rtl_hint || requirement)
   | syntax_meta.error("adjacent_samples requires an unconditional monitor and a separate RTL cycle proof", name)
-  when requirement && (!transaction || fifo_behavior || !refinement || rtl_hint || projection
+  when requirement && (!transaction || !refinement || rtl_hint || projection
                         || child_specs.length() > 0)
   | syntax_meta.error("requires needs a local monitor refinement or exact forwarding", name)
-  when suppliers.length() > 0 && (!transaction || fifo_behavior || rtl_hint)
+  when suppliers.length() > 0 && (!transaction || rtl_hint)
   | syntax_meta.error("supply requires a parent transaction refinement", name)
-  when rtl_hint && !(transaction && !fifo_behavior && has_cycle && (projection || !sync.unwrap()))
+  when rtl_hint && !(transaction && has_cycle && (projection || !sync.unwrap()))
   | syntax_meta.error("expected a cycle spec and transaction view; clocked RTL also needs a transaction projection", name)
   when bound_events && !transaction
   | syntax_meta.error("a named event reader needs a transaction view", name)
   when projection && !transaction && !event_source | syntax_meta.error("cycle refinement requires a transaction view", name)
   when specialized
   | transaction := 'check_event_domains($transaction, $(bound_events) . sampler, bound.ports)'
-  when refinement && !forward_args && !adjacent_source && !projection && !fifo_behavior
+  when refinement && !forward_args && !adjacent_source && !projection
   | block:
       unless transaction | syntax_meta.error("refinement requires a transaction view", name)
       let [entry, ...] = refinement
-      transaction := 'refined_view($transaction, boundary.attach_refinement, $(if specialized | 'top' | '#false')): $entry; ...'
+      transaction := 'refined_view($transaction, $(if specialized | 'top' | '#false')): $entry; ...'
   let [skip, ...] = ignored
   def args:
     cond
@@ -510,7 +501,6 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
   def no_cycle_clauses = ignored.length() == 0
                          && ![states, outputs, events, assumptions, updates].find(fun (table): table.length() != 0)
   def passive = event_source && no_cycle_clauses
-  when fifo_behavior && !passive | syntax_meta.error("FIFO behavior with sampled events requires a passive spec", name)
   def monitor_only = transaction && no_cycle_clauses
   def finish:
     cond
@@ -531,18 +521,6 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
          | plan: $cycle_plan
          | ~else: $(result_expr('cond | tx_only: view | view_only: $bound_events | ~else: checked'))
        »'
-    | fifo_behavior:
-        def public_view = 'fifo_view.bind_fifo_behavior(boundary.bind_event_source($event_source, top), $transaction)'
-        def result:
-          cond
-          | refinement:
-              let [entry, ...] = refinement
-              'refined_view($public_view, fifo_view.attach_fifo_series, top): $entry; ...'
-          | ~else: public_view
-        '«
-           unless view_only | error("passive-only spec: request ~event_view: #true")
-           $result
-         »'
     | monitor_only: '«
          unless plan || tx_only | error("monitor-only spec: request ~transaction_view: #true")
          def view = boundary.check_transaction_ports(attached, bound.ports)
@@ -592,7 +570,7 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
          views[top]
        fun $name $args: $cycle_body
      »'
-  | transaction && !fifo_behavior:
+  | transaction:
      '«
        def attached :: boundary.TransactionView = $transaction
        fun $name $tx_args:

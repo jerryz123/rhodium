@@ -6,12 +6,12 @@
          "engine.rkt" "spec-engine.rkt" "transaction-induction.rkt" (only-in "snapshot.rhm" formal_snapshot)
          (only-in "spec.rhm" spec_snapshot monitor_projection)
          (only-in "fifo-monitor.rhm" fifo_monitor projected_fifo_capacity)
-         (only-in "fifo-view.rhm" fifo_view_parts fifo_view_layout fifo_view_bool fifo_view_behavior fifo_series_parts)
+         (only-in "fifo-view.rhm" fifo_view_parts fifo_view_layout fifo_view_bool)
          (only-in "wiring.rhm" cut_parts leaf_protocol leaf_layout check_fifo_series_wiring))
 (provide prove-leaf prove-parent prepare-proved-wiring proved-child-model symbolic-cut-state proved-edge-at view-agrees? pack-pins unpack-pins)
 (provide exn:fail:input-contract? exn:fail:input-contract-goal exn:fail:input-contract-inputs)
 (provide check-batch-total! check-cycle-monitor! (rename-out [check-phase check-refinement-phase!]))
-(provide prove-fifo-series-refinement fifo-monitor-site certified-combinational-site)
+(provide certified-combinational-site)
 (provide symbolic-wrapper-cut symbolic-fifo-cut fifo-cut-inputs fifo-cut-outputs fifo-cut-locals fifo-cut-batch fifo-cut-domain)
 (provide derive-fifo-transactions prove-fifo-transactions compose-fifo-series prove-fifo-wrapper fifo-transactions-for? fifo-transactions-capacity fifo-transactions-width
          fresh-fifo-history fifo-allows? (struct-out fifo-history) (struct-out fifo-events))
@@ -238,12 +238,12 @@
 #| Match the exact run-local definition and ordered endpoint mapping, not just width and capacity. |#
 (define (fifo-transactions-for? result view)
   (define-values (definition ingress egress width sampler) (fifo_view_parts view))
-  (define declared (fifo_view_behavior view))
   (and (fifo-transactions? result) (host-eq? definition (fifo-transactions-definition result))
        (host-equal? (fifo_view_layout view) (fifo-transactions-layout result))
        (host-equal? ingress (fifo-transactions-ingress result))
        (host-equal? egress (fifo-transactions-egress result))
-       (or (not declared) (host-equal? (spec_snapshot declared) (fifo-transactions-monitor result)))))
+       (= width (fifo-transactions-width result))
+       (host-equal? (spec_snapshot sampler) (fifo-transactions-sampler result))))
 
 #| Allocate a candidate pending sequence; only its live prefix participates in the contract. |#
 (define (fresh-fifo-history result)
@@ -258,9 +258,9 @@
   (fifo-transactions definition (fifo_view_layout view) ingress egress capacity width
                      (spec_snapshot sampler) (or monitor (spec_snapshot (fifo_monitor capacity width)))))
 
-#| A candidate may test a different capacity, but cannot be published as the declared behavior. |#
+#| Publish an oracle result only for the passive sampler and endpoints it checked. |#
 (define (checked-fifo-result view candidate)
-  (unless (fifo-transactions-for? candidate view) (error 'fifo-transactions "proof does not match declared FIFO behavior"))
+  (unless (fifo-transactions-for? candidate view) (error 'fifo-transactions "proof does not match the sampled FIFO interface"))
   candidate)
 
 #| Interpret the declared passive sampler. Its pin-domain predicates are obligations on the
@@ -522,59 +522,6 @@
   (define goals (list (cons 'external-history parent-step)))
   (check-phase 'series-reset (&& reset allowed) goals)
   (check-phase 'series-step (&& (! reset) allowed) goals)
-  (checked-fifo-result view contract))
-
-#| Encode FIFO history without truncating an invalid count or silently treating a non-tag word as false. |#
-(define (fifo-value q sort child)
-  (match-define (list "seq" capacity element) sort)
-  (define width (fifo-transactions-width child))
-  (unless (and (= capacity (fifo-transactions-capacity child))
-               (or (host-equal? element '("bool")) (host-equal? element (list "bits" width))))
-    (error 'refinement "FIFO evidence does not match the declared sequence"))
-  (define n (fifo-history-count q))
-  (define words (fifo-history-slots q))
-  (define tags? (host-equal? element '("bool")))
-  (values (sequence-value (integer->bitvector n (bitvector (integer-length capacity)))
-                          (if tags? (map (lambda (w) (bveq w (bv 1 width))) words) words))
-          (&& (<= 0 n capacity)
-              (for/fold ([ok #t]) ([w words] [i (in-naturals)])
-                (&& ok (=> (&& tags? (< i n)) (|| (bveq w (bv 0 width)) (bveq w (bv 1 width)))))))))
-
-#| Adapt a certified FIFO to an ordinary monitor cut; the mathematical count and optional
-   tag encoding are checked before and after each admitted transition. |#
-(define (fifo-monitor-site child key sort)
-  (unless (fifo-transactions? child) (error 'refinement "expected FIFO transaction evidence"))
-  #| Allocate fresh live histories for this occurrence and sample its actual directional drivers. |#
-  (define (advance ci co _inputs _outputs)
-    (define-values (batch sampled) (sample-cut-pins child ci co))
-    (define old (fresh-fifo-history child))
-    (define next (fresh-fifo-history child))
-    (define-values (pre ok) (fifo-value old sort child))
-    (define-values (post next-ok) (fifo-value next sort child))
-    (define start (hash-ref (spec-initial-state (fifo-transactions-monitor child)) "q"))
-    (define-values (empty _) (fifo-value (fifo-history 0 (sequence-value-slots start)) sort child))
-    (values (&& sampled (fifo-allows? child old batch next)) (hash key pre) ok (hash key post) next-ok (hash key empty)))
-  (monitor-site (fifo-transactions-definition child) (fifo-transactions-layout child)
-                (hash-keys (hash-ref (fifo-transactions-sampler child) "inputs")) advance))
-
-#| The FIFO protocol checks its direct handoff and adapts sparse events to its canonical
-   batch. Wiring evaluation, independent child steps, projection and induction use the shared checker. |#
-(define (prove-fifo-series-refinement view children)
-  (match-define (list (list a b) cuts relation checks) (fifo_series_parts view))
-  (unless (and (hash? children) (host-equal? (sort (hash-keys children) string<?) (sort (list a b) string<?)))
-    (error 'fifo-series "expected evidence for both declared occurrences"))
-  (define-values (top ingress egress width sampler) (fifo_view_parts view))
-  (define layout (fifo_view_layout view))
-  (check-series-wiring! top layout ingress egress a (hash-ref children a) b (hash-ref children b))
-  (define monitor (spec_snapshot (fifo_view_behavior view)))
-  (match-define (list "seq" capacity (list "bits" _)) (hash-ref (hash-ref monitor "state") "q"))
-  (define contract (candidate-fifo view capacity monitor))
-  (define sites
-    (for/hash ([(k child) children])
-      (define key (hash-ref cuts k))
-      (values k (fifo-monitor-site child key (hash-ref (hash-ref relation "inputs") key)))))
-  (check-monitor-refinement! check-phase top layout (fifo_view_bool view) sites monitor
-                             (lambda (i o) (fifo-monitor-batch contract i o)) relation checks)
   (checked-fifo-result view contract))
 
 #| Feed the canonical FIFO monitor its dense batch while retaining the sampler's domain obligation. |#

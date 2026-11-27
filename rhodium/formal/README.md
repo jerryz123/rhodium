@@ -713,6 +713,9 @@ spec for rtl.QueuePair:
 In the example, `pair_events` uses two `rv_pins(valid, ready, payload)`
 descriptors. Each names three physical scalar
 ports. Their directions and types are checked against the elaborated circuit.
+An unnamed `events` clause supplies sampled events without declaring a
+transaction contract. To use the same sampler in a monitor, bind it with
+`events transfers = …` and pass `transfers` to the monitor, as above.
 Request the passive pin sampler with `QueuePair(top, ~event_view: #true)`
 or the generic monitor with `QueuePair(top, ~transaction_view: #true)`. Without
 a view keyword the request is for a cycle model, which this declaration does not
