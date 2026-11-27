@@ -86,7 +86,10 @@ sync_circuit SuperscalarMultiply(xlen :: XLen = XLen.X64, ~vector_enabled: vecto
 
         operands: operation.operands
 
-      Array(scalar, vector) |> valid_arbiter() |> execution.request
+      /* RR owns operand and tag selection. A late EX squash cancels launch
+         without switching the product inputs to a waiting vector. */
+      valid_owner_mux(reserved, scalar, vector) |> execution.request
+
       (execution.result |> filter_valid(result => result.tag.vector) |> map_valid(result => IntegerExecutionResult(Bits(xlen.width * 2), VectorMultiplyTag(slots))):
         tag: result.tag.tag
         value: result.value

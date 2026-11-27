@@ -707,7 +707,10 @@ beside the arithmetic for the two cycles to WB; do not duplicate the instruction
 identity there. EX selects the product half in a scalar-only build. WB supplies
 PC/raw encoding, destination, and word formatting from the surviving instruction;
 it also selects the scalar half when using the vector-capable full-product unit.
-Only an authorized scalar result can complete. Vector tags accompany the arithmetic result.
+Only an authorized scalar result can complete. In a vector build, the registered
+RR reservation selects the scalar or vector operands and tag before EX launch.
+A recovery veto leaves a booked scalar slot empty; it must not select different
+operands or let a waiting vector take that slot. Vector tags accompany the result.
 RR books EX+3 (RR+4) in the shared fixed GPR calendar.
 The authorized product writes and forwards directly on that edge. A killed,
 replayed, or faulted owner drains without publishing the speculative product;
@@ -1863,6 +1866,9 @@ edge. Every accepted multiply completion must arrive exactly one cycle
 after WB authorization (three after EX), including competing variable returns.
 Sixteen independent multiplies must write on consecutive cycles, and both FP
 timing variants exercise fixed-return pairing in each age order.
+`superscalar-multiply-owner` checks that a squashed scalar booking leaves a bubble
+with a vector waiting, and that the subsequent vector and scalar launches retain
+their tags, data, and completion edges under vector-return backpressure.
 B scenarios cover every RV64 Zba/Zbb/Zbs instruction in both age slots, with
 zero/all-one/sparse/mixed operands, shift boundaries, dirty upper words, and
 independent paired work plus dependent consumers. A pending divider tests false

@@ -1,13 +1,40 @@
 #lang rhodium
-/* Defines optional-one-hot grant routing and merging with intrinsic event lineage. */
+/* Routes ready-valid grants and selects already-owned Valid events with their lineage. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open
+  lib("flow/ready-valid-support.rhdl").valid_flow_payload_type
 
 export:
   GrantDemux
   GrantMerge
+  valid_owner_mux
+
+/* Route an already-owned event. The clock only samples misuse assertions;
+   neither payload selection nor launch has storage or backpressure. */
+sync_circuit ValidOwnerMux(T :: DataType):
+  input select_first: Bool
+  interface ingress[2](Valid(T), ~role: consumer)
+  interface egress(Valid(T), ~role: producer)
+
+  egress.bits <== mux(select_first, ingress[0].bits, ingress[1].bits)
+  egress.valid <== ingress[0].valid ||| ingress[1].valid
+  assert(!ingress[0].valid ||| select_first, "valid_owner_mux_first_not_selected")
+  assert(!ingress[1].valid ||| !select_first, "valid_owner_mux_second_not_selected")
+
+  describe_interface_selection([select_first, !select_first])
+  describe_interface_contract(ingress, egress, "data", ~trace_model: interface_trace_selection(~pending: #true))
+
+/* Select two like-typed Valid sources by an external owner, including during
+   bubbles. Only the selected source may emit an event. */
+fun valid_owner_mux(select_first :: Bool, first :: Endpoint,
+                    second :: Endpoint.supports(Valid(valid_flow_payload_type(first)))) :~ Endpoint:
+  inst owner_mux(ValidOwnerMux(valid_flow_payload_type(first)))
+  owner_mux.select_first <== select_first
+  first |> owner_mux.ingress[0]
+  second |> owner_mux.ingress[1]
+  owner_mux.egress
 
 /* A zero grant blocks the input; a one-hot grant routes it to the selected
    output. At most one grant bit may be asserted. Selection may change while

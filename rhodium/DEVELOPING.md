@@ -984,7 +984,7 @@ relative to `rhodium/`. The public facade only aggregates existing bindings.
 | `flow/state.rhdl` | Fair irrevocable changed-state emission and always-ready local state replication | `std/bits.rhdl`, `std/ready-valid.rhdl`, `flow/circular-priority.rhdl` |
 | `flow/demux.rhdl` | Selected one-to-many `Demux`/`CtrlDemux` plus configured payload-selected routing | `std/ready-valid.rhdl`, `flow/ready-valid-support.rhdl` |
 | `flow/matcher.rhdl` | Fixed-priority and explicitly output-greedy transfer-rotating one-to-one request-matrix matchers | `std/bits.rhdl`, `flow/circular-priority.rhdl` |
-| `flow/grant.rhdl` | Optional-one-hot ready-valid grant routing and merging primitives | `std/ready-valid.rhdl` |
+| `flow/grant.rhdl` | Ready-valid grant routing and externally owned Valid event selection | `std/ready-valid.rhdl`, `flow/ready-valid-support.rhdl` |
 | `flow/crossbar.rhdl` | Configured grant-controlled one-to-one ready-valid crossbar stage | `std/ready-valid.rhdl`, `flow/ready-valid-support.rhdl`, `flow/grant.rhdl` |
 | `flow/join.rhdl` | Full and selection-token atomic joins plus meaningful-lane result types and control-only rendezvous | `std/ready-valid.rhdl`, `flow/ready-valid-support.rhdl`, `flow/reduction.rhdl` |
 | `flow/zip.rhdl` | Configured inline binary heterogeneous atomic `zip_flow` stage | `std/ready-valid.rhdl`, `flow/ready-valid-support.rhdl` |

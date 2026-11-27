@@ -73,6 +73,7 @@ in this library:
 | `Demux(T, n)` | `CtrlDemux(n)` | Selected one-to-many routing with invalid-selector blocking |
 | `GrantDemux(T, outputs)` | -- | Optional-one-hot grant routing to ready-valid outputs |
 | `GrantMerge(T, inputs)` | -- | Optional-one-hot grant selection from ready-valid inputs |
+| `valid_owner_mux(select_first, first, second)` | -- | Merge two `Valid(T)` events whose owner is already known |
 | `GrantCrossbar(T, inputs, outputs)` | -- | Grant-controlled one-to-one ready-valid payload traversal; configured `grant_crossbar(outputs, ~grants)` stage |
 | `Join(T, n)` | `CtrlJoin(n)` | Atomic join that never partially consumes inputs |
 | `SelectiveJoin(T, n)` | -- | Selection-token rendezvous that consumes exactly the chosen data flows and reports meaningful lanes |
@@ -615,6 +616,15 @@ the physical encoding and must satisfy the corresponding boundary contract.
 `GrantMerge` selects its payload from the grant independently of input validity.
 Consumers may inspect the selected operand to compute readiness without feeding
 a cancelled offer's validity back into that readiness decision.
+
+When ownership has **already been decided** and the inputs are events rather
+than backpressured offers, use `valid_owner_mux(select_first, first, second)`.
+The Bool selects the first payload when true and the second when false, even
+in a bubble. The output is valid if either input emits; a non-owner emitting
+is an assertion failure, even when the owner is idle. Event ancestry follows
+the same selector. This adds no storage or cycles; it uses the enclosing clock
+and reset only to check ownership. Use `valid_arbiter()` instead if simultaneous
+events are legal and priority must choose the winner.
 
 `GrantCrossbar(T, inputs, outputs)` structurally composes one `GrantDemux` per
 input with one `GrantMerge` per output around an externally generated

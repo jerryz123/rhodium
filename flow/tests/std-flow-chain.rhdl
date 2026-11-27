@@ -272,7 +272,30 @@ circuit ValidPipeMissingSyncDomain():
   interface ingress(Valid(Bits(8)), ~role: consumer)
   ingress |> valid_pipe(1)
 
+interface RefinedOwnerEvent() refines Valid(Bits(8))
+
+sync_circuit ValidOwnerFixture():
+  interface first(Valid(Bits(8)), ~role: consumer)
+  interface second(RefinedOwnerEvent(), ~role: consumer)
+  interface third(Valid(Bits(8)), ~role: consumer)
+  input(select_first, select_pair): Bool
+  interface result(Valid(Bits(8)), ~role: producer)
+  def pair = valid_owner_mux(select_first, first, second)
+  valid_owner_mux(select_pair, pair, third) |> result
+
+def owner_program = elaborate(ValidOwnerFixture())
+
+sync_circuit InvalidOwnerInputs(first_valid :: Boolean, second_valid :: Boolean, width :: PosInt):
+  def First = if first_valid | Valid(Bits(8)) | Decoupled(Bits(8))
+  def Second = if second_valid | Valid(Bits(width)) | Decoupled(Bits(width))
+  interface first(First, ~role: consumer)
+  interface second(Second, ~role: consumer)
+  input select_first: Bool
+  valid_owner_mux(select_first, first, second)
+
 export:
+  owner_program
+  InvalidOwnerInputs
   ShiftQueueChain
   PipeToQueueChain
   ValidPipeWrongProtocol

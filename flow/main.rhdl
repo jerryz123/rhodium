@@ -111,6 +111,7 @@ export:
   OutputGreedyRoundRobinMatcher
   GrantDemux
   GrantMerge
+  valid_owner_mux
   GrantCrossbar
   grant_crossbar
   SelectedValues

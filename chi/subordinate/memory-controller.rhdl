@@ -240,8 +240,7 @@ sync_circuit CHIRamOperationScheduler(p :: CHIFlitParams,
      The completion's retained write flag, not live request selection,
      determines which reservation lane receives it. */
 
-  issue.valid <== read_completions.issue.valid ||| write_completions.issue.valid
-  issue.bits <== mux(write_completions.issue.valid, write_completions.issue.bits, read_completions.issue.bits)
+  valid_owner_mux(select_write, write_completions.issue, read_completions.issue) |> issue
   def completion_is_write = completion.bits.memory_operation.write
   read_completions.completion.valid <== completion.valid & !completion_is_write
   read_completions.completion.bits <== completion.bits

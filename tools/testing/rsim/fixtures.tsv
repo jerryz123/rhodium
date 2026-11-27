@@ -16,6 +16,7 @@ flow-chain	std	examples/std/flow-control.rhdl	chain_program	flow/tests/rsim/flow
 rr-arbiter	std	examples/std/flow-topology.rhdl	rr_arbiter_program	flow/tests/rsim/rr-arbiter.cpp
 packet-rr-arbiter	std	examples/std/packet-arbitration.rhdl	program	flow/tests/rsim/packet-rr-arbiter.cpp
 retained-selection	std	flow/tests/retained-selection-fixture.rhdl	program	flow/tests/rsim/retained-selection.cpp
+valid-owner-mux	std	flow/tests/std-flow-chain.rhdl	owner_program	flow/tests/rsim/valid-owner-mux.cpp
 demux	std	examples/std/flow-topology.rhdl	demux_program	flow/tests/rsim/demux.cpp
 join	std	examples/std/flow-topology.rhdl	join_program	flow/tests/rsim/join.cpp
 selective-join	std	examples/std/selective-join.rhdl	program	flow/tests/rsim/selective-join.cpp
@@ -263,6 +264,7 @@ superscalar-read-three-rv32	cores-components	cores/superscalar/tests/read-operan
 rv2wide-issue	cores-components	cores/rv2wide/tests/issue-fixture.rhdl	program	cores/rv2wide/tests/rsim/issue.cpp
 rv3wide-issue	cores-components	cores/rv3wide/tests/issue-fixture.rhdl	program	cores/rv3wide/tests/rsim/issue.cpp
 rv3wide-issue-rv32	cores-components	cores/rv3wide/tests/issue-fixture.rhdl	rv32_program	cores/rv3wide/tests/rsim/issue.cpp
+superscalar-multiply-owner	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-core-fp-late.rhm	multiply_program	cores/superscalar/tests/rsim/multiply-owner.cpp	multiply_target
 rv2wide-core-vector	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-core-vector.rhm	program	cores/superscalar/tests/rsim/rv2wide-core-vector.cpp	target	rheg/runtime/rheg.cc
 rv2wide-core-vector-rv32	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-core-vector.rhm	rv32_program	cores/superscalar/tests/rsim/rv2wide-core-vector.cpp	target	rheg/runtime/rheg.cc
 superscalar-memory-ports	cores-components	cores/superscalar/tests/rsim/emit-memory-ports.rhm	program	cores/superscalar/tests/rsim/memory-ports.cpp
