@@ -1,0 +1,11 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("rhodium/std/interconnect.rhdl").AddressSet
+  lib("riscv/rtl/pma.rhdl") open
+  "../../vector-window.rhdl".VectorWindow
+
+def ram = RiscvPhysicalMemoryAttributes(#true, #true, #false, #true, #false, #false, #true)
+def program = elaborate(VectorWindow(RiscvPhysicalMemoryMap(44, [RiscvPhysicalMemoryRegion(AddressSet(0, 0xfffff), ram)])))
+export program

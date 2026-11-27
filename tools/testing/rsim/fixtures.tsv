@@ -93,6 +93,7 @@ fp-register-file	cores-components	cores/common/fp/tests/rsim/emit-fp-register-fi
 riscv-svpbmt	cores-components	cores/common/mmu/tests/rsim/emit-riscv-svpbmt.rhm	program	cores/common/mmu/tests/rsim/riscv-svpbmt.cpp
 riscv-svnapot	cores-components	cores/common/mmu/tests/rsim/emit-riscv-svnapot.rhm	program	cores/common/mmu/tests/rsim/riscv-svnapot.cpp
 riscv-host-tlb	cores-components	cores/common/mmu/tests/rsim/emit-host-tlb.rhm	program	cores/common/mmu/tests/rsim/host-tlb.cpp
+riscv-vector-window	cores-components	cores/common/mmu/tests/rsim/emit-vector-window.rhm	program	cores/common/mmu/tests/rsim/vector-window.cpp
 riscv-nested-walker	cores-components	cores/common/mmu/tests/rsim/emit-riscv-nested-walker.rhm	program	cores/common/mmu/tests/rsim/riscv-nested-walker.cpp
 riscv-guest-translation	cores-components	cores/common/mmu/tests/rsim/emit-riscv-guest-translation.rhm	program	cores/common/mmu/tests/rsim/riscv-guest-translation.cpp
 noc-crossbar	protocols	examples/noc/noc-crossbar.rhdl	program	noc/rtl/tests/rsim/noc-crossbar.cpp

@@ -149,7 +149,8 @@ timing are unchanged; no truncated physical address may alias mapped memory.
 at most two adjacent 4 KiB pages and retains its mappings until release. Its
 first page probe is offered in the cycle after accepting the range, using only
 captured state; service backpressure may delay transfer, and later changes to
-the request cannot affect it. The page-probe service
+the request cannot affect it. A reversed, wrapping, or more-than-two-page range
+returns a false decision without issuing a probe. The page-probe service
 may use TLB hits or walks, including a response on a probe's transfer cycle.
 A Bare probe checks the original address before narrowing it to 56 bits. An
 overflowing endpoint makes the precheck return false. This fallback runs

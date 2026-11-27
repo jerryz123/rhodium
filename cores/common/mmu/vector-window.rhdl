@@ -30,6 +30,12 @@ fun vector_page_permitted(physical_map :: RiscvPhysicalMemoryMap, address :: Bit
   def fits = if physical_map.address_width >= 64 | Bool(#true) | !address[physical_map.address_width..64].any()
   vec(permitted_regions).any() & fits
 
+/* Tests candidate == base + 1 without wrapping or putting a VPN-wide incrementer
+   before the live hit comparator. A 1-to-0 transition carries into the next bit;
+   every changed bit must correspond to its carry-in, with no carry out of the MSB. */
+fun following_page(base :: Bits, candidate :: Bits(base.type.packed_width())) :~ Bool:
+  (Bits(1)(0) ++ (base ^ candidate)) === ((base & !candidate) ++ Bits(1)(1))
+
 /* Retains up to two endpoint-page mappings for one nonspeculative vector macro.
    A failed check selects exact element execution; it does not raise an architectural fault. */
 sync_circuit VectorWindow(physical_map :: RiscvPhysicalMemoryMap):
@@ -47,7 +53,10 @@ sync_circuit VectorWindow(physical_map :: RiscvPhysicalMemoryMap):
   def cacheable_width = physical_map.address_width_for(fun (attributes): attributes.cacheable)
   def ppn_width = math.max(1, math.min(VectorPageNumber.packed_width(), cacheable_width - VectorPageOffsetBits))
   reg state(~init: VectorWindowState.Idle)
-  reg span(VectorRange())
+  reg first(Bits(64))
+  reg last_offset(Bits(VectorPageOffsetBits))
+  reg split(Bool)
+  reg store(Bool)
   reg second(~init: Bool(#false))
   reg first_ppn(Bits(ppn_width))
   reg last_ppn(Bits(ppn_width))
@@ -60,23 +69,28 @@ sync_circuit VectorWindow(physical_map :: RiscvPhysicalMemoryMap):
      a live check offer whose admission may depend on MMU readiness. */
 
   def admitting = state === VectorWindowState.Idle
-  def first_page = span.first[VectorPageOffsetBits..64]
-  def last_page = span.last[VectorPageOffsetBits..64]
-  def split = first_page =/= last_page
+  def first_page = first[VectorPageOffsetBits..64]
+  def first_offset = first[0..VectorPageOffsetBits]
+  // Only a split can issue a second probe or consult the covering superpage.
+  def next_page_va = (first_page + Bits(first_page.type.packed_width())(1)) ++ last_offset
   check.request.ready <== admitting
   check.response.valid <== state === VectorWindowState.Complete
   check.response.bits <== safe
   translation.request.valid <== state === VectorWindowState.Request
   translation.request.bits <== RiscvPageProbeRequest():
-    address: mux(second, span.last, span.first)
-    store: span.store
+    address: mux(second, next_page_va, first)
+    store: store
 
   owned <== (state === VectorWindowState.Owned) & safe
   for (index in 0..2):
     def address = addresses[index]
     def page = address[VectorPageOffsetBits..64]
-    hits[index] <== owned & (address >= span.first) & (address <= span.last) & ((page === first_page) ||| (page === last_page))
-    physical_addresses[index] <== (mux(page === first_page, first_ppn, last_ppn) ++ address[0..VectorPageOffsetBits]).zext(64)
+    def offset = address[0..VectorPageOffsetBits]
+    def on_first = page === first_page
+    def first_hit = on_first & (offset >= first_offset) & (split ||| (offset <= last_offset))
+    def second_hit = split & following_page(first_page, page) & (offset <= last_offset)
+    hits[index] <== owned & (first_hit ||| second_hit)
+    physical_addresses[index] <== (mux(on_first, first_ppn, last_ppn) ++ offset).zext(64)
 
 
   /* Translation proof and endpoint-page permissions.
@@ -84,20 +98,26 @@ sync_circuit VectorWindow(physical_map :: RiscvPhysicalMemoryMap):
      translation, but both physical pages still require permitted PMAs. */
 
   def result = translation.response.bits
-  def same_leaf = sv39_same_page(span.first, span.last, result.page_size)
+  def same_leaf = sv39_same_page(first, next_page_va, result.page_size)
   def result_ppn = vector_page_number(result.physical_address.zext(64))
   def result_page = (result_ppn ++ Bits(VectorPageOffsetBits)(0)).zext(64)
   def next_page = result_page + Bits(64)(VectorPageBytes)
   def translation_permitted = !result.fault & !result.access_fault & (result.pbmt === PageMemoryType.PMA)
-  def first_page_permitted = vector_page_permitted(physical_map, result_page, span.store)
+  def first_page_permitted = vector_page_permitted(physical_map, result_page, store)
   def success = translation_permitted & first_page_permitted
   def needs_second = success & !second & split & !same_leaf
-  def shared_leaf_permitted = same_leaf & vector_page_permitted(physical_map, next_page, span.store)
+  def shared_leaf_permitted = same_leaf & vector_page_permitted(physical_map, next_page, store)
 
 
   /* Range lifetime: release, response, admission, probe transfer, decision.
      Release wins. Translation may respond on its own request-transfer edge;
      the range was already captured on an earlier check-admission edge. */
+
+  def offered = check.request.bits
+  def start_page = offered.first[VectorPageOffsetBits..64]
+  def end_page = offered.last[VectorPageOffsetBits..64]
+  def crosses = start_page =/= end_page
+  def representable = mux(crosses, following_page(start_page, end_page), offered.first[0..VectorPageOffsetBits] <= offered.last[0..VectorPageOffsetBits])
 
   when (check.release.valid):
     state <== VectorWindowState.Idle
@@ -114,10 +134,13 @@ sync_circuit VectorWindow(physical_map :: RiscvPhysicalMemoryMap):
 
     second <== needs_second
   elsewhen (check.request.fire()):
-    span <== check.request.bits
+    first <== offered.first
+    last_offset <== offered.last[0..VectorPageOffsetBits]
+    split <== crosses
+    store <== offered.store
     second <== Bool(#false)
     safe <== Bool(#false)
-    state <== VectorWindowState.Request
+    state <== mux(representable, VectorWindowState.Request, VectorWindowState.Complete)
   elsewhen (translation.request.fire()):
     state <== VectorWindowState.Response
   elsewhen (check.response.fire()):

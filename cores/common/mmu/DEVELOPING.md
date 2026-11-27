@@ -79,7 +79,10 @@ Preserve these invariants when extending the components:
 - Vector fallback probes use only the window's registered state and captured
   range. Do not restore admission-to-probe bypass: a live descriptor offer may
   itself depend on scalar WB/MMU acceptance. Preserve the independent MEM
-  certificate path and allow an immediate response to a registered probe.
+  certificate path and allow an immediate response to a registered probe. Keep
+  the last byte offset and page-crossing bit with the full first VA; validate
+  adjacency before discarding the offered end VPN. Lookup must check the
+  complete VPN and both inclusive byte bounds, not just page parity.
 - `VectorCertificate` owns only the epoch register and combinational proof.
   Its Bare specialization uses the full 64-bit identity address for PMA checks
   before extracting PPN, emits zero/nonvirtual context, and compares only
@@ -125,7 +128,8 @@ vector certificates. Use RV5Stage's [MMU guide](../../rv5stage/mmu/DEVELOPING.md
 for broader pipeline/guest-fault changes. Test migration does not expand CI's
 software matrix or publish another core's ISA profile.
 
-For window timing changes, also run `rv2wide-mmu`. Its real-MMU fixture qualifies
+For window changes, run `riscv-vector-window` for exact lookup bounds, rejected
+ranges, and stalled probes across VPN carries. Also run `rv2wide-mmu`. Its real-MMU fixture qualifies
 page-check admission with older scalar request readiness, preserving the feedback
 topology used by ordered WB admission. It checks rejection before capture,
 registered warm-hit probing, demand contention, immutable ranges, and held
