@@ -1,4 +1,4 @@
-<!-- Documents spec authoring, rspecsim concrete execution, and the optional Rosette formal engine. -->
+<!-- Documents concrete spec execution, refinement checks, and the optional Rosette RTL equivalence engine. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Rhodium formal engine
@@ -7,7 +7,9 @@ The formal engine is an optional, solver-backed consumer of verified public
 Rhodium IR. It checks deterministic combinational behavior with Rosette
 fixed-width bitvectors; it does not participate in elaboration, change Rhodium
 semantics, or get imported by `#lang rhodium`.
-Author executable specifications in `.rspl` files using `#lang rspecl`.
+For the author-facing language and proof-driver API, start with the
+[RSPECL guide](../../rspecl/README.md). This guide covers solver setup,
+the detailed checking rules, RTL equivalence, and backend limits.
 **rspecsim** is the [specification library](spec.rhm)'s concrete execution mode:
 it runs a reference model on known inputs and state, without RTL or a solver.
 By contrast, [rsim](../backend/README.md) runs the RTL implementation, and
@@ -216,34 +218,12 @@ moon run rhodium:formal-differential-test
 
 ## Author an executable spec
 
-Start a `.rspl` file with `#lang rspecl`. For an existing circuit, import its
-module as `rtl` and write `spec for rtl.ShiftQueue:`. At module scope this
-automatically exports `ShiftQueue`; ordinary helpers stay private unless explicitly
-exported. A spec inside a function or block stays local. The resulting
-`ShiftQueue(top)` takes one completed specialization; constructing it checks
-the declaration identity, but does not prove refinement or advance an edge.
-This is the only RSPECL declaration form. A clockless circuit uses the same
-syntax as a synchronous one. For example, this contract specifies only the
-carry output of the [full adder](../../examples/rtl/full-adder.rhdl):
-
-```rhombus
-#lang rspecl
-import lib("examples/rtl/full-adder.rhdl") as rtl
-
-spec for rtl.FullAdder:
-  observe cout = (a && b) || (cin && (a || b))
-  ignore sum
-```
-
-RTL inputs and spec state introduce lexical bindings. Helpers can live
-in the block, outside it, or in an imported library. Their ordinary Rhombus
-bodies build expressions once per model construction; the interpreters never
-call them on an edge. `def`, `fun`, and `let` retain their Rhombus scope.
-Outputs and events do not introduce bindings. An interface input such as
-`ingress.valid` has the public key `"ingress.valid"`.
-`observe` describes
-what is visible; `event` describes what happened. On either, `when` controls
-presence, not the payload value. Omit it for an always-present field.
+For declaration syntax, lexical bindings, output care, and a runnable leaf,
+see [Write and run a leaf](../../rspecl/README.md#write-and-run-a-leaf).
+The checking rules below describe how those declarations become evidence.
+When supplying concrete samples, an interface input such as `ingress.valid`
+has the public key `"ingress.valid"`. Outputs and events are observation
+targets, not lexical input bindings.
 
 A `monitor:` block inside `spec for` describes which joint event batches are
 legal and how each legal batch changes transaction history. For example, this

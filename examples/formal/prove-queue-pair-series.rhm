@@ -4,8 +4,7 @@
 
 import:
   lib("rhodium/frontend/foundation.rhm").elaborate
-  lib("rspecl/runner.rkt").prove_design
-  lib("rspecl/rtl-boundary.rhm").child_definition
+  lib("rspecl/runner.rkt") as proof
   "queue-pair.rspl".QueuePair
   "queue-pair-series.rhdl" as rtl
   "queue-pair-series.rspl" as spec
@@ -13,6 +12,6 @@ import:
 module main:
   def top = elaborate(rtl.QueuePairSeries()).top
   def children = for Map (site in ["front", "back"]):
-    values(site, prove_design(child_definition(top, site), QueuePair))
-  def seal = prove_design(top, spec.QueuePairSeries, ~children: children)
+    values(site, proof.prove_design(proof.child_definition(top, site), QueuePair))
+  def seal = proof.prove_design(top, spec.QueuePairSeries, ~children: children)
   println("Proved QueuePairSeries from QueuePair(1) and QueuePair(2): ordered FIFO contract, capacity 6")

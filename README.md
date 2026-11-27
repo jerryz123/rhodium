@@ -289,6 +289,7 @@ SystemVerilog.
   profiles, and extension boundaries
 - [`rhodium/frontend/layers/README.md`](rhodium/frontend/layers/README.md) —
   frontend feature and syntax guide
+- [RSPECL](rspecl/README.md) — write executable `.rspl` specs, simulate one edge, and prove parents from child contracts
 - [`rhodium/std/README.md`](rhodium/std/README.md) — host utilities, protocols,
   and reusable circuit generators
 - [`rhodium/compile/README.md`](rhodium/compile/README.md) — target selection,
@@ -313,7 +314,7 @@ SystemVerilog.
   standalone Perfetto export
 - [`rhodium/backend/README.md`](rhodium/backend/README.md) — CIRCT lowering,
   direct SystemVerilog emission, and Rsim C++ simulation
-- [`rhodium/formal/README.md`](rhodium/formal/README.md) — author `.rspl` specifications with `#lang rspecl`, run them with rspecsim, and verify RTL with Rosette
+- [Formal engine](rhodium/formal/README.md) — install Rosette, check RTL equivalence, and understand solver results and limits
 - [`tools/testing/README.md`](tools/testing/README.md) and
   [`tools/testing/DEVELOPING.md`](tools/testing/DEVELOPING.md) — running validation and
   maintaining the test architecture

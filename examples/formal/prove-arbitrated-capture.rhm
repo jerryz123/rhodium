@@ -4,21 +4,20 @@
 
 import:
   lib("rhodium/frontend/foundation.rhm").elaborate
-  lib("rspecl/runner.rkt").prove_design
-  lib("rspecl/rtl-boundary.rhm").child_definition
+  lib("rspecl/runner.rkt") as proof
   "arbiter.rspl".Arbiter
   "gated-capture.rhdl" as rtl
   "gated-capture.rspl" as spec
 
 module main:
   def top = elaborate(rtl.ArbitratedCapture()).top
-  def arb = prove_design(child_definition(top, "arb"), Arbiter)
-  def gate = child_definition(top, "gate")
-  def full_children = {"arb": arb, "gate": prove_design(gate, spec.GatedCapture)}
-  def seal = prove_design(top, spec.ArbitratedCapture, ~children: full_children)
+  def arb = proof.prove_design(proof.child_definition(top, "arb"), Arbiter)
+  def gate = proof.child_definition(top, "gate")
+  def full_children = {"arb": arb, "gate": proof.prove_design(gate, spec.GatedCapture)}
+  def seal = proof.prove_design(top, spec.ArbitratedCapture, ~children: full_children)
   println("Proved ArbitratedCapture: unrestricted requests, lane A wins ties, capture reads the previous word")
-  def zero_seal = prove_design(top, spec.arbitrated_capture_zero, ~children: full_children)
+  def zero_seal = proof.prove_design(top, spec.arbitrated_capture_zero, ~children: full_children)
   println("Proved previous_was_zero: on capture, readback is zero exactly when the previous word was zero")
-  def bit_children = {"arb": arb, "gate": prove_design(gate, spec.zero_gate)}
-  def bit_child_seal = prove_design(top, spec.arbitrated_capture_from_bit, ~children: bit_children)
+  def bit_children = {"arb": arb, "gate": proof.prove_design(gate, spec.zero_gate)}
+  def bit_child_seal = proof.prove_design(top, spec.arbitrated_capture_from_bit, ~children: bit_children)
   println("Proved unconditional zero/nonzero readback from only Arbiter grants and GatedCapture's bit")

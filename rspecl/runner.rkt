@@ -7,7 +7,7 @@
          (only-in "../rhodium/formal/transaction-induction.rkt" projection-related?)
          (only-in "../rhodium/formal/spec.rhm" spec_snapshot)
          "../rhodium/formal/spec-engine.rkt")
-(provide prove-design (rename-out [prove-design prove_design]))
+(provide prove-design (rename-out [prove-design prove_design]) child_definition)
 
 #| Logical Booleans may arrive as one physical bit; never truncate a wider pin or register. |#
 (define (typed sort v)
