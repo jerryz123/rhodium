@@ -123,8 +123,10 @@ The RV5Stage cache fixtures specialize L1D with architectural context and
 exercise tags, byte masks, LR/SC, atomics, snoops, backpressure, and refill.
 The RV2Wide fixture exercises the real shared L1D from two-wide instruction
 issue through retirement, delayed completion, replay, and physical faults.
-For CHI engine changes also run `cache-compack` and `cache-copyback`;
-for store-buffer changes run `cache-store-buffer`.
+For CHI engine changes also run `cache-compack` and `cache-copyback`.
+Use `cache-dat-trace` to check per-beat lineage and backpressure on line reads,
+copybacks, and dirty snoops, including the retained victim command on copyback DAT.
+For store-buffer changes run `cache-store-buffer`.
 For row-width changes run `cache-wide-l1d` (coherent service, speculation,
 masked stores, and dirty snoops) and `load-store-wide` (scalar lane placement).
 Run `cache-banked-l1d` for the same ordered service and coherence contract plus

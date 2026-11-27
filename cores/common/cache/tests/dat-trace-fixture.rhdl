@@ -1,0 +1,86 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "params.rhdl" open
+  "../geometry.rhdl".CacheLineChunk
+  "../chi/line-read.rhdl" open
+  "../chi/writeback.rhdl" open
+  "../chi/snoop.rhdl" open
+  lib("chi/protocol/coherence.rhdl").CHICacheState
+  lib("chi/protocol/flits.rhdl") open
+  lib("flow/main.rhdl") open
+  lib("rhodium/event/tests/rsim/trace-sites.rhm").traced_target
+  lib("rhodium/event/main.rhm").EventInstrumentationConfig
+
+sync_circuit CacheDatTrace():
+  def p = test_cache_flit
+  inst read(CacheLineRead(Bits(8), 32, test_cache_chi_config))
+  inst writeback(CacheLineWriteback(Bits(8), 32, test_cache_chi_config, 1))
+  inst snoop(CacheDataSnoop(32, test_cache_chi_config))
+  input start: Bool
+  input grant_valid: Bool
+  input dbid: Bits(12)
+  output can_start: Bool
+  output can_grant: Bool
+  output read_request: Bool
+  output write_request: Bool
+  output read_done: Bool
+  output write_done: Bool
+  output snoop_done: Bool
+  interface read_dat(Decoupled(CHIDatFlit(p)), ~role: consumer)
+  interface read_packet(Decoupled(CacheLineChunk(p.data_bytes)), ~role: producer)
+  interface victim_packet(Decoupled(Bits(p.data_width)), ~role: consumer)
+  interface copyback_dat(Decoupled(CHIDatFlit(p)), ~role: producer)
+  interface dirty_packet(Decoupled(CacheLineChunk(p.data_bytes)), ~role: consumer)
+  interface snoop_dat(Decoupled(CHIDatFlit(p)), ~role: producer)
+
+  for (engine in [read, writeback, snoop]): engine.node_id <== Bits(p.node_id_width)(2)
+  for (engine in [read, writeback]):
+    engine.command.valid <== start
+    engine.command.bits.context <== Bits(8)(0)
+    engine.requests.ready <== Bool(#true)
+    engine.completion.ready <== Bool(#true)
+  can_start <== read.command.ready & writeback.command.ready & snoop.snoops.ready
+  read_request <== read.requests.fire()
+  write_request <== writeback.requests.fire()
+  read_done <== read.completion.fire()
+  write_done <== writeback.completion.fire()
+  snoop_done <== snoop.completed
+  read.command.bits.line_address <== Bits(32)(0x1000)
+  read.acknowledgements.ready <== Bool(#true)
+  read.responses.valid <== Bool(#false)
+  read.responses.bits <== literal(CHIRspFlit(p), 0)
+  read_dat |> trace_event("read_dat") |> read.response_data
+  read.packet |> trace_event("read_packet") |> read_packet
+
+  writeback.line_address <== Bits(32)(0x2000)
+  writeback.victim_state <== CHICacheState.UniqueDirty
+  writeback.snoop_pending <== Bool(#false)
+  can_grant <== writeback.responses.ready
+  writeback.responses.valid <== grant_valid
+  def rsp :: CHIRspFlit(p) = literal(CHIRspFlit(p), 0)
+  writeback.responses.bits <== rsp.updated(~opcode: CHIRspOpcode.CompDBIDResp, ~txn_id: Bits(12)(1),
+                                           ~src_id: Bits(p.node_id_width)(1), ~tgt_id: Bits(p.node_id_width)(2),
+                                           ~dbid_or_group_id: dbid)
+  victim_packet |> trace_event("victim_packet") |> writeback.packet
+  writeback.data |> trace_event("copyback_dat") |> copyback_dat
+
+  snoop.cache_ready <== Bool(#true)
+  snoop.snoops.valid <== start
+  def snp :: CHISnpFlit(p) = literal(CHISnpFlit(p), 0)
+  snoop.snoops.bits <== snp.updated(~opcode: CHISnpOpcode.SnpUnique, ~src_id: Bits(p.node_id_width)(1), ~txn_id: Bits(12)(9))
+  snoop.lookup_result.valid <== grant_valid
+  snoop.lookup_result.bits <== CacheDataSnoopLookupResult():
+    hit: Bool(#true)
+    state: CHICacheState.UniqueDirty
+  snoop.responses.ready <== Bool(#true)
+  dirty_packet |> trace_event("dirty_packet") |> snoop.packet
+  snoop.data |> trace_event("snoop_dat") |> snoop_dat
+
+def program = elaborate(CacheDatTrace())
+fun site_header(manifest):
+  def names = for List (site in manifest.sites, index in 0..manifest.sites.length()):
+    "constexpr unsigned site_" ++ site.label.replace("/", "_") ++ " = " ++ to_string(index) ++ ";\n"
+  String.join(names, "")
+def target = traced_target(site_header, EventInstrumentationConfig(~partial: #true))
+export program target

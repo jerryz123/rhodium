@@ -403,6 +403,7 @@ event-home	protocols	rhodium/event/tests/rsim/emit-event-home.rhm	program	rhodiu
 event-subordinate	protocols	rhodium/event/tests/rsim/emit-event-subordinate.rhm	program	rhodium/event/tests/rsim/event-subordinate.cpp	target	rhodium/event/tests/rsim/event-subordinate-oracle.cpp rheg/runtime/rheg.cc
 event-fesvr	protocols	rhodium/event/tests/rsim/emit-event-fesvr.rhm	program	rhodium/event/tests/rsim/event-fesvr.cpp	target	rhodium/event/tests/rsim/event-fesvr-oracle.cpp rheg/runtime/rheg.cc
 event-vector	cores-vector-functional-1	rhodium/event/tests/rsim/emit-event-vector.rhm	program	rhodium/event/tests/rsim/event-vector.cpp	target	rhodium/event/tests/rsim/event-vector-oracle.cpp rheg/runtime/rheg.cc
+cache-dat-trace	cores-cache	cores/common/cache/tests/dat-trace-fixture.rhdl	program	cores/common/cache/tests/rsim/cache-dat-trace.cpp	target	rheg/runtime/rheg.cc
 cache-compack	cores-cache	cores/common/cache/tests/rsim/emit-cache-compack.rhm	program	cores/common/cache/tests/rsim/cache-compack.cpp	target	cores/common/cache/tests/rsim/cache-compack-oracle.cpp rheg/runtime/rheg.cc
 cache-wide-l1d	cores-cache	cores/common/cache/tests/rsim/emit-wide-l1d.rhm	program	cores/common/cache/tests/rsim/wide-l1d.cpp
 cache-banked-l1d	cores-cache	cores/common/cache/tests/rsim/emit-banked-l1d.rhm	program	cores/common/cache/tests/rsim/banked-l1d.cpp	target	rheg/runtime/rheg.cc

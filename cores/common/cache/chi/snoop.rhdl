@@ -6,7 +6,7 @@ import:
   "../geometry.rhdl" open
   "flits.rhdl" open
   lib("rhodium/std/bits.rhdl") open
-  lib("rhodium/std/ready-valid.rhdl") open
+  lib("flow/main.rhdl") open
   lib("chi/protocol/flits.rhdl") open
   lib("chi/protocol/protocol.rhdl").chi_transfer_data_id
   lib("chi/protocol/coherence.rhdl") open
@@ -107,38 +107,34 @@ sync_circuit CacheDataSnoop(address_width :: PosInt, config :: RiscvHartCHIConfi
   /* Dirty packet stream and final cache update.
      Hand off every dirty packet before invalidation; clean state changes also wait for transfer. */
 
-  def packet_index = packet.bits.index
-  def packet_beat = packet_index.zext(2)
-  def packet_data_id = chi_transfer_data_id(packet_beat, p)
   def dirty_response:
     CHICoherentResponse():
       pass_dirty: Bool(#true)
       state: CHIResponseState.Invalid
 
   def inactive_data :: CHIDatFlit(p) = literal(CHIDatFlit(p), 0)
-  def snoop_data = inactive_data.updated(
-    ~data: packet.bits.data,
-    ~byte_enable: !Bits(p.byte_enable_width)(0),
-    ~trace_tag: request.trace_tag,
-    ~tag_op: CHITagOp.Invalid,
-    ~data_id: packet_data_id,
-    ~ccid: packet_data_id,
-    ~resp: dirty_response.as_bits(),
-    ~resp_err: CHIRespErr.OK,
-    ~opcode: CHIDatOpcode.SnpRespData,
-    ~home_nid_or_pbha_or_mismatched_mecid: request.src_id,
-    ~txn_id: request.txn_id,
-    ~src_id: node_id,
-    ~tgt_id: request.src_id,
-    ~qos: request.qos
-  )
-
   def sending = active_state & lookup_complete & dirty_hit
-  data.valid <== sending & packet.valid
-  packet.ready <== sending & data.ready
-  data.bits <== snoop_data
+  (packet |> gate_flow(sending) |> map_flow(chunk):
+     def packet_data_id = chi_transfer_data_id(chunk.index.zext(2), p)
+     inactive_data.updated(
+       ~data: chunk.data,
+       ~byte_enable: !Bits(p.byte_enable_width)(0),
+       ~trace_tag: request.trace_tag,
+       ~tag_op: CHITagOp.Invalid,
+       ~data_id: packet_data_id,
+       ~ccid: packet_data_id,
+       ~resp: dirty_response.as_bits(),
+       ~resp_err: CHIRespErr.OK,
+       ~opcode: CHIDatOpcode.SnpRespData,
+       ~home_nid_or_pbha_or_mismatched_mecid: request.src_id,
+       ~txn_id: request.txn_id,
+       ~src_id: node_id,
+       ~tgt_id: request.src_id,
+       ~qos: request.qos
+     )
+  ) |> data
   def data_fire = data.fire()
-  def final_packet = packet_index === Bits(packet_index_width)(packet_count - 1)
+  def final_packet = packet.bits.index === Bits(packet_index_width)(packet_count - 1)
   def snoop_complete = response_fire ||| (data_fire & final_packet)
   completed <== snoop_complete
 

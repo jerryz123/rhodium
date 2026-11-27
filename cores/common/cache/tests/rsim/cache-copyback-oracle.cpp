@@ -64,7 +64,9 @@ extern "C" void copyback_check() {
     if(node.cycle==cycle && !residency) {
       if(!children || (children & (children-1))) fail("unexpected or ambiguous child transfer");
       unsigned lane=0; while(!(children & (1u<<lane))) ++lane;
-      if(!owners[lane] || !graph.edges.count({*owners[lane],ref}) || node.ancestry_unknown) fail("lost request/data residency parent");
+      if(!owners[lane] || !graph.edges.count({*owners[lane],ref})) fail("lost request/data residency parent");
+      // This fixture supplies packet bits directly. Only DAT has that additional untraced input.
+      if(node.ancestry_unknown != bool(packet_mask & (1u<<lane))) fail("incorrect partial packet ancestry");
       unsigned parents=0;
       for(const auto& edge:graph.edges) if(!(edge.second<ref) && !(ref<edge.second)) ++parents;
       if(parents!=1) fail("ambiguous child ancestry");
