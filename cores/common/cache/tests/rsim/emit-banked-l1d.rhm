@@ -4,6 +4,7 @@ import:
   lib("riscv/isa/xlen.rhm").XLen
   "../../geometry.rhdl".CacheConfig
   "../../banked-l1d/cache.rhdl".BankedL1DCache
+  "../../banked-l1d/arrays.rhdl".BankedL1DArrays
   "../params.rhdl" open
   "../../../chi-hart.rhdl" open
   lib("riscv/rtl/pma.rhdl") open
@@ -58,7 +59,9 @@ fun site_header(manifest):
   String.join(constants, "")
 def target = traced_target(site_header, EventInstrumentationConfig(~partial: #true))
 def rv32 = elaborate(BankedL1DCache(XLen.X32, CacheConfig(2, 1), ~chi: config, ~context: Bits(8), ~beat_bytes: 8))
+def state_arrays = elaborate(BankedL1DArrays(XLen.X64, CacheConfig(16, 4), 24, 16))
 export:
+  state_arrays
   program
   target
   rv32

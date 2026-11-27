@@ -1,10 +1,23 @@
-<!-- Routes maintenance of RV3Wide's miss slots and ordered request window. -->
+<!-- Guides changes to RV3Wide's banked arrays, miss slots, and ordered request window. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing the banked L1D
 
 Read the [banked cache contract](README.md) and [shared cache guide](../DEVELOPING.md)
 for the bank geometry, shared CHI engines, and fixture commands.
+
+## Dirty-state forwarding
+
+Compare each service and demand read address with the S4 store set before
+selecting a bank address. Qualify each match with that port's actual read
+grant. A match on an idle or squashed port must not bypass a different read.
+Only the marked bank and ways forward; their dirty SRAM read is suppressed
+on the same edge. A full state replacement owns the bank port and cannot
+collide with a read in that bank.
+
+Run `cache-banked-l1d-states` for same-edge collisions, denied candidates,
+and replacement clearing. The integrated `cache-banked-l1d` fixture also
+checks that a store hit squashed before WB leaves both data and snoop state clean.
 
 ## Miss ownership and ordered replay
 

@@ -529,6 +529,31 @@ void check_two_dirty_misses(const Line &a, const Line &b, bool probe_waiting_vic
   request(base+576, load); response(a[1]);
 }
 
+static void check_squashed_store_stays_clean(const Line &line) {
+  request(base, lr, {}, 0xff, false);
+  refill(base, 7, line);
+  response(Row{{line[0].words[0], line[0].words[1], 0, 0}});
+  Row wrong = line[0];
+  wrong.words[0] ^= 0xffffffff;
+  hit(base, store, wrong, 0xffff, true, false); // S3 hit, no WB commit
+  tick_model();
+  hit(base, load, line[0]);
+
+  auto &snp = chi_in.psnoops;
+  snp.pbits = {}; snp.pbits.paddress = base >> 3;
+  snp.pbits.popcode = 9; snp.pbits.psrc_uid = 1; snp.pbits.ptxn_uid = 0x49;
+  snp.pvalid = 1;
+  until([] { return chi_out.psnoops.pready; });
+  tick_model(); snp.pvalid = 0;
+  until([] {
+    CHECK(!chi_out.prequest_udata.pvalid);
+    return chi_out.prequester_uresponses.pvalid;
+  });
+  CHECK(chi_out.prequester_uresponses.pbits.ptxn_uid == 0x49);
+  CHECK(chi_out.prequester_uresponses.pbits.popcode == 1); // SnpResp, no dirty data
+  tick_model();
+}
+
 static void check_bank_overlap(const Line& a, const Line& b) {
   reset = 1; tick_model(); reset = 0;
   request(base, load); refill(base, 2, a); response(a[0]);
@@ -637,6 +662,8 @@ int main() {
     check_shared_upgrade_barrier(a, b);
     reset = 1; tick_model(); reset = 0;
     check_bank_overlap(a, b);
+    reset = 1; tick_model(); reset = 0;
+    check_squashed_store_stays_clean(a);
     for (int first : {-1, 1, 2}) check_victim_refill(a, b, first);
   });
 }

@@ -34,17 +34,18 @@ sync_circuit CacheWayDataRam(depth :: PosInt, beat_bytes :: Pow2Int, ways :: Pos
 /* Stores one way's dirty bits. Only a mark-dirty store can coincide with a
    lookup; forward that set bit without relying on SRAM collision behavior. */
 sync_circuit BankDirtyWay(depth :: PosInt):
-  input(read_valid, write_valid, value): Bool
+  input(read_valid, write_valid, value, bypass): Bool
   input(read_set, write_set): Bits(index_width(depth))
   output modified: Bool
   sync_mem dirty(depth, Bits(1)):
     read
     write
-  def collision = write_valid & (read_set === write_set)
   reg forward(~init: Bool(#false))
-  forward <== read_valid & collision
-  when (read_valid & collision): assert(value, "l1d_concurrent_dirty_write_sets_bit")
-  dirty.read.enable <== (read_valid & !collision).as_bits()
+  forward <== bypass
+  assert(bypass === (read_valid & write_valid & (read_set === write_set)), "l1d_dirty_bypass_matches_granted_read")
+  when bypass: assert(value, "l1d_concurrent_dirty_write_sets_bit")
+
+  dirty.read.enable <== (read_valid & !bypass).as_bits()
   dirty.read.address <== read_set
   dirty.write.enable <== write_valid.as_bits()
   dirty.write.address <== write_set
@@ -57,6 +58,7 @@ sync_circuit BankResidentStates(depth :: PosInt, ways :: PosInt):
   interface port(ReadWritePort(index_width(depth), CHICacheState, ways), ~role: responder)
   input dirty_set: Bits(index_width(depth))
   input dirty_ways: Mask(ways)
+  input read_marked_set: Bool
   inst permissions(SyncRam1RW(depth, Bool, ways))
   def req = port.request.bits
   permissions.port.request.valid <== port.request.valid
@@ -77,6 +79,7 @@ sync_circuit BankResidentStates(depth :: PosInt, ways :: PosInt):
     when replace_way:
       assert(state.is_one_of(CHICacheState.SharedClean, CHICacheState.SharedDirty, CHICacheState.UniqueClean, CHICacheState.UniqueDirty), "l1d_full_resident_state")
     dirty.read_valid <== read
+    dirty.bypass <== mark & read_marked_set
     dirty.read_set <== req.address
     dirty.write_valid <== mark ||| replace_way
     dirty.write_set <== mux(mark, dirty_set, req.address)
@@ -136,8 +139,17 @@ sync_circuit BankedL1DArrays(xlen :: XLen, cache :: CacheConfig, tag_width :: Po
   def tag_ports = for List (_bank in 0..tag_banks):
     inst tag_bank(SyncRam1RW(sets_per_bank, Bits(tag_width), cache.ways))
     tag_bank.port
+  /* Compare the full set of each read candidate before routing its address.
+     These ports carry pre-granted operations: a denied read's address may
+     still match, but only its valid bit authorizes forwarding. */
+  def read_aliases = for List (port :: Endpoint in [states, demand_states]):
+    def read_alias = !port.request.bits.write & (port.request.bits.address === dirty_set)
+    read_alias & port.request.valid
+
+  def read_marked_set = vec(read_aliases).any()
   def state_ports = for List (b in 0..tag_banks):
     inst state_bank(BankResidentStates(sets_per_bank, cache.ways))
+    state_bank.read_marked_set <== read_marked_set
     state_bank.dirty_set <== (dirty_set >> index_width(tag_banks))[0..index_width(sets_per_bank)]
     state_bank.dirty_ways <== mux(dirty_set[0..index_width(tag_banks)] === Bits(index_width(tag_banks))(b), dirty_ways, Mask(cache.ways)(0))
     state_bank.port

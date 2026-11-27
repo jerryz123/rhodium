@@ -403,6 +403,7 @@ cache-compack	cores-cache	cores/common/cache/tests/rsim/emit-cache-compack.rhm	p
 cache-wide-l1d	cores-cache	cores/common/cache/tests/rsim/emit-wide-l1d.rhm	program	cores/common/cache/tests/rsim/wide-l1d.cpp
 cache-banked-l1d	cores-cache	cores/common/cache/tests/rsim/emit-banked-l1d.rhm	program	cores/common/cache/tests/rsim/banked-l1d.cpp	target	rheg/runtime/rheg.cc
 cache-banked-l1d-rv32	cores-cache	cores/common/cache/tests/rsim/emit-banked-l1d.rhm	rv32	cores/common/cache/tests/rsim/banked-l1d-rv32.cpp
+cache-banked-l1d-states	cores-cache	cores/common/cache/tests/rsim/emit-banked-l1d.rhm	state_arrays	cores/common/cache/tests/rsim/banked-l1d-states.cpp
 cache-copyback	cores-cache	cores/common/cache/tests/rsim/emit-cache-copyback.rhm	program	cores/common/cache/tests/rsim/cache-copyback.cpp	target	cores/common/cache/tests/rsim/cache-copyback-oracle.cpp rheg/runtime/rheg.cc
 riscv-walk-trace	cores-components	cores/common/mmu/tests/rsim/emit-riscv-walk-trace.rhm	program	cores/common/mmu/tests/rsim/riscv-walk-trace.cpp	target	cores/common/mmu/tests/rsim/riscv-walk-trace-oracle.cpp rheg/runtime/rheg.cc
 rv5stage-fetch-source	cores-execution-frontend	cores/rv5stage/tests/rsim/emit-rv5stage-fetch-source.rhm	program	cores/rv5stage/tests/rsim/rv5stage-fetch-source.cpp	target	cores/rv5stage/tests/rsim/rv5stage-fetch-source-oracle.cpp rheg/runtime/rheg.cc
