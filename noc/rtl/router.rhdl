@@ -44,12 +44,11 @@ interface SimpleRouterTarget(T :: DataType):
   downstream -> router:
     available: Bool
 
-/* Freezes the validated decoder, local input/target meanings, and per-origin queue depth. */
+/* Freezes the validated decoder, local input and target meanings. */
 class SimpleRouterConfig(router_plan :: RouterPlan,
                          route_decoder :: RouteDecoder,
                          input_count :: PosInt,
-                         target_count :: PosInt,
-                         input_buffer_depth :: PosInt):
+                         target_count :: PosInt):
   implements StableCircuitParam
   opaque
   internal _SimpleRouterConfig
@@ -61,8 +60,7 @@ class SimpleRouterConfig(router_plan :: RouterPlan,
 class SimpleRouterFamilyConfig(router_family_plan :: RouterFamilyPlan,
                                route_decoder :: RouterFamilyRouteDecoder,
                                input_count :: PosInt,
-                               target_count :: PosInt,
-                               input_buffer_depth :: PosInt):
+                               target_count :: PosInt):
   implements StableCircuitParam
   opaque
   internal _SimpleRouterFamilyConfig
@@ -71,9 +69,7 @@ class SimpleRouterFamilyConfig(router_family_plan :: RouterFamilyPlan,
 
 /* Compiles certified local decoding and queue shape, requiring at least one forwarding or ejection
    target. */
-fun compile_simple_router(
-      router_plan :: RouterPlan,
-      ~input_buffer_depth: input_buffer_depth :: PosInt = 1) :: SimpleRouterConfig:
+fun compile_simple_router(router_plan :: RouterPlan) :: SimpleRouterConfig:
   def route_decoder = compile_route_decoder(router_plan)
   def input_count = router_plan.origins.length()
   def target_count = router_plan.targets.length()
@@ -84,13 +80,11 @@ fun compile_simple_router(
   _SimpleRouterConfig(router_plan,
                       route_decoder,
                       input_count,
-                      target_count,
-                      input_buffer_depth)
+                      target_count)
 
 /* Compiles a shared certified decoder and uniform port/queue shape with nonempty targets. */
 fun compile_simple_router_family(
-      router_family_plan :: RouterFamilyPlan,
-      ~input_buffer_depth: input_buffer_depth :: PosInt = 1) :: SimpleRouterFamilyConfig:
+      router_family_plan :: RouterFamilyPlan) :: SimpleRouterFamilyConfig:
   def route_decoder = compile_router_family_route_decoder(router_family_plan)
   unless router_family_plan.target_count > 0
   | error(~who: #'compile_simple_router_family,
@@ -99,8 +93,7 @@ fun compile_simple_router_family(
   _SimpleRouterFamilyConfig(router_family_plan,
                             route_decoder,
                             router_family_plan.input_count,
-                            router_family_plan.target_count,
-                            input_buffer_depth)
+                            router_family_plan.target_count)
 
 /* Ties the occurrence's constant site key and closes only family padding, not real endpoints or
    links. */
@@ -212,7 +205,7 @@ sync_circuit SimpleRouter(T :: DataType, config :: SimpleRouterConfig):
      One queue per origin has neither flow nor pipe bypass. */
 
   def input_buffers :: Array.later_of(Endpoint) = ingress |> parallel_handles(
-    for Array (_ in 0..config.input_count): Beat |> queue(config.input_buffer_depth)
+    for Array (_ in 0..config.input_count): Beat |> queue(2)
   )
 
   def route_decisions = vec(
@@ -279,7 +272,7 @@ sync_circuit SimpleRouterFamily(T :: DataType,
      The uniform family shape does not change per-origin queue timing. */
 
   def input_buffers :: Array.later_of(Endpoint) = ingress |> parallel_handles(
-    for Array (_ in 0..config.input_count): Beat |> queue(config.input_buffer_depth)
+    for Array (_ in 0..config.input_count): Beat |> queue(2)
   )
 
   def route_decisions = vec(

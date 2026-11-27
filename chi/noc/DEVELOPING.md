@@ -36,14 +36,16 @@ channel circuits and fixed versus family-site factories explicit: REQ/RSP/DAT
 select `tgt_id`, while SNP selects `CHISnoopDispatch.target_id` and carries only
 its flit. Ejection checks stay channel-owned because SNP lacks a target field.
 These helpers add no route policy or buffering beyond generic injector/ejector
-behavior and the CHI one-entry ejection queue.
+behavior and the CHI ejection queue.
 
 `CHINoCPlane` owns endpoint attachment policy. Fixed helpers and `CHIRouter`
 family attachments use its injection and queued-ejection methods; keep RN/HN/SN
 field mappings and fixed/family choices explicit at the callers. The queue
 precedes the ejection adapter, and router availability tracks its input
-readiness, not final sink readiness. `CHINoCPorts` groups existing plane
-endpoints without introducing circuit parameters, ports, or hierarchy.
+readiness, not final sink readiness. Every plane uses two slots at each boundary
+so a queue holding one beat can accept the next while its head transfers,
+without a combinational ready path through the allocator. `CHINoCPorts` groups
+existing plane endpoints without introducing circuit parameters, ports, or hierarchy.
 
 ## Focused validation
 

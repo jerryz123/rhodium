@@ -408,9 +408,10 @@ connect_chi_rnf_node(requester, ~node: requester_site,
 Omit `~snp` for non-coherent fabrics. These are host-side views of endpoints
 in the current module, not extra interfaces or hardware wrappers. Fixed and
 family attachments share `CHINoCPlane.inject(source, index, adapter)` and
-`.eject(sink, index, adapter)`. Injection adds no queue; ejection places one
-`queue(1)` before the adapter and advertises that queue's input readiness to
-the router. The compiled plan selects the slot and the typed adapter determines
+`.eject(sink, index, adapter)`. Injection adds no queue; ejection advertises its
+queue's input readiness to the router. On every plane, router ingress and CHI
+ejection each have two registered slots and can sustain one beat per cycle.
+The compiled plan selects the slot and the typed adapter determines
 channel routing and identity checks.
 
 [`noc/noc-router.rhdl`](noc/noc-router.rhdl) composes three independent generic router

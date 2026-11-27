@@ -23,8 +23,10 @@ convenience facade.
 channel family independently and retain route-key and terminal provenance.
 Fixed and family attachments share the same typed plane wiring. REQ, RSP, and
 DAT use their target NodeID; SNP uses its separate dispatch target and carries
-no target field in the flit. Ejection supplies one queue before the adapter;
-injection adds no queue.
+no target field in the flit. On every plane, router ingress and endpoint
+ejection each have two registered slots. With one source and a ready sink,
+a plane can transfer one beat per cycle after startup. Injection adds no queue
+ahead of router ingress.
 
 [`noc-router.rhdl`](noc-router.rhdl) composes three planes for non-coherent
 traffic or four when SNP is required. HN requester and subordinate sides may
@@ -45,7 +47,7 @@ flowchart LR
   subgraph RTL["hardware"]
     Source["CHI source"] --> Inject["typed injection"]
     Inject --> Routers["REQ / RSP / DAT<br/>optional SNP routers"]
-    Routers --> Queue["one-entry ejection queue"]
+    Routers --> Queue["registered ejection queue"]
     Queue --> Eject["typed ejection"]
     Eject --> Sink["CHI sink"]
   end

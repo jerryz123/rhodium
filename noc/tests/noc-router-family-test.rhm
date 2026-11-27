@@ -16,7 +16,6 @@ def rtl_fixture_design = compile_program(rtl_fixture.program, rtl_target).report
 
 def family = model_fixture.router_family_plan
 def decoder = rtl_fixture.config.route_decoder
-def buffered_config = compile_simple_router_family(family, ~input_buffer_depth: 4)
 def top = rtl_fixture_design.modules.find(
   fun (module_def): module_def.name == "RouterFamilyFixture"
 )
@@ -66,8 +65,6 @@ check:
   rtl_fixture.config.router_family_plan === family ~is #true
   rtl_fixture.config.input_count ~is 3
   rtl_fixture.config.target_count ~is 2
-  rtl_fixture.config.input_buffer_depth ~is 1
-  buffered_config.input_buffer_depth ~is 4
   top != #false ~is #true
   router != #false ~is #true
   router_instances.length() ~is 2
@@ -87,4 +84,3 @@ check:
 check:
   compile_router_family_route_decoder("not a family") ~throws "RouterFamilyPlan"
   compile_simple_router_family("not a family") ~throws "RouterFamilyPlan"
-  compile_simple_router_family(family, ~input_buffer_depth: 0) ~throws "PosInt"

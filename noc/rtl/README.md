@@ -84,9 +84,8 @@ ready signal. This separation avoids a valid-to-ready arbitration loop.
 `router.rhdl` defines `RoutedBeat`, opaque `SimpleRouterConfig`,
 `compile_simple_router`, and `SimpleRouter`. Compilation checks the supported
 proof regime, compiles the route decoder, and freezes the hardware port and
-target shape. `compile_simple_router` also accepts a uniform positive
-`input_buffer_depth`, defaulting to one. One beat is one complete packet. Each
-local origin has one standard `Queue` of that depth; bypass (`flow`) and
+target shape. One beat is one complete packet. Each local origin has a
+registered two-entry queue; bypass (`flow`) and
 same-cycle replacement (`pipe`) remain disabled so the registered timing is
 preserved. Route decisions form the NoC-specific request matrix. A parallel
 flow handle connects the ingress array through those queues, and the
@@ -106,8 +105,7 @@ an ordinary many-input, many-output crossbar instance.
 ### Uniform router families
 
 `compile_simple_router_family` and `SimpleRouterFamily` provide the uniform
-counterpart. It accepts the same uniform `input_buffer_depth`; every occurrence
-in one family necessarily shares that physical queue implementation. All
+counterpart. Each ingress uses the same two-entry queue. All
 occurrences have the family maxima for their ingress and target arrays and
 differ only in the constant `site_key` connection. Defining the generated
 module once and passing that module value to several `inst` forms produces one
@@ -149,8 +147,8 @@ application payload. A head fragment is the only fragment whose route key is dec
 After the head transfers, the selected output VC or local ejection target is
 owned by that input until its tail transfers. Body and tail fragments therefore
 cannot be rerouted or interleaved with a different packet on the reserved VC.
-`compile_wormhole_router` accepts the same uniform positive
-`input_buffer_depth`, also defaulting to one.
+`compile_wormhole_router` accepts a uniform positive
+`input_buffer_depth`, defaulting to one.
 
 ## Physical links and virtual channels
 

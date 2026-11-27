@@ -194,6 +194,45 @@ void send_response_data(bool source_lane, std::uint16_t txn_id,
   }
 }
 
+// Stream four cache lines through both registered boundaries. Stop mid-line
+// until the source sees backpressure, then require bubbleless ordered drain.
+void stream_data(auto& source, const auto& source_status, auto& sink,
+                 const auto& sink_status, bool response) {
+  constexpr unsigned beats=16;
+  unsigned sent=0, received=0;
+  bool blocked=false;
+  auto flit=[&](unsigned i) {
+    CHIDatFlit f{};
+    f.popcode=response ? 4 : 3;
+    f.psrc_uid=response ? FIRST_ID : HOME_ID;
+    f.ptgt_uid=response ? HOME_ID : FIRST_ID;
+    f.ptxn_uid=0x180+i/4;
+    f.pdata_uid=i%4;
+    f.pdata=wide((uint128(i+1)<<96) | (0x12340000u+i));
+    return f;
+  };
+  for (unsigned cycle=0; cycle<48 && received<beats; ++cycle) {
+    source.pvalid=sent<beats;
+    source.pbits=flit(sent);
+    sink.pready=cycle<8 || cycle>=16;
+    eval();
+    if (cycle<8) CHECK(source_status.pready);
+    if (cycle>=8 && cycle<16 && source.pvalid && !source_status.pready) blocked=true;
+    // No empty bypass; first transfer at cycle 2, one beat/cycle thereafter.
+    CHECK(bool(sink_status.pvalid)==(cycle>=2));
+    if (sink_status.pvalid) {
+      CHECK(received<sent && same_data(sink_status.pbits, flit(received)));
+      received+=sink.pready;
+    }
+    sent+=source.pvalid && source_status.pready;
+    tick_model();
+  }
+  CHECK(blocked && sent==beats && received==beats);
+  source={};
+  eval();
+  CHECK(!sink_status.pvalid);
+}
+
 void run_case() {
   reset = UINT64_C(1);
   home_in = {};
@@ -218,6 +257,10 @@ void run_case() {
   send_response_data(UINT64_C(1), UINT64_C(1026),
                      ((uint128(UINT64_C(18364758544493064720)) << 64) |
                       UINT64_C(18364758544493064720)));
+  stream_data(home_in.pdat.prequest, home_out.pdat.prequest,
+              first_in.pdat.prequest, first_out.pdat.prequest, false);
+  stream_data(first_in.pdat.presponse, first_out.pdat.presponse,
+              home_in.pdat.presponse, home_out.pdat.presponse, true);
 }
 
 int main() { return run_test(run_case); }

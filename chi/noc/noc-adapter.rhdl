@@ -371,21 +371,19 @@ fun compile_chi_channel_adapter_plans(
     compile_chi_channel_adapter_plan(compilations.dat, p)
   )
 
-/*
- * References one existing router plane and preserves CHI's one-entry ejection queue policy.
- */
+/* Attaches endpoints to a router plane with registered ejection capacity. */
 class CHINoCPlane(ingress :: Array, targets :: Array):
   /* Connect a source through its route adapter to the selected router ingress. */
   method inject(source :: Endpoint, index :: Nat, adapter :: Function.of_arity(1)):
     (source |> adapter) <=> ingress[index]
 
   /*
-   * Queue one ejected beat, adapt it to the sink, and return target availability from queue
+   * Queue ejected beats, adapt them to the sink, and return target availability from queue
    * readiness.
    */
   method eject(sink :: Endpoint, index :: Nat, adapter :: Function.of_arity(1)):
     def target :: Endpoint = targets[index]
-    (target.egress |> queue(1) |> adapter) <=> sink
+    (target.egress |> queue(2) |> adapter) <=> sink
     target.available <== target.egress.ready
 
 /*

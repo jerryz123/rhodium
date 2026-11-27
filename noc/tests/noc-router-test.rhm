@@ -17,7 +17,6 @@ def fixture_design = compile_program(fixture.program, rtl_target).report.design
 
 def middle = fixture.middle_config
 def destination = fixture.destination_config
-def buffered_middle = compile_simple_router(fixture.middle_plan, ~input_buffer_depth: 3)
 def top = fixture_design.modules.find(
   fun (module_def): module_def.name == "SimpleRouterFixture"
 )
@@ -79,19 +78,15 @@ check:
   middle.route_decoder.router_plan === fixture.middle_plan ~is #true
   middle.input_count ~is 2
   middle.target_count ~is 2
-  middle.input_buffer_depth ~is 1
-  buffered_middle.input_buffer_depth ~is 3
   middle.router_plan.target_bit(VCId(fixture.second.id, 1)) ~is 1
 
 check:
   destination.router_plan === fixture.destination_plan ~is #true
   destination.input_count ~is 2
   destination.target_count ~is 1
-  destination.input_buffer_depth ~is 1
 
 check:
   compile_simple_router("not a plan") ~throws "RouterPlan"
-  compile_simple_router(fixture.middle_plan, ~input_buffer_depth: 0) ~throws "PosInt"
   escape_config.router_plan === escape_plan ~is #true
   escape_wormhole_config.router_plan === escape_plan ~is #true
   escape_plan.rows.find(
