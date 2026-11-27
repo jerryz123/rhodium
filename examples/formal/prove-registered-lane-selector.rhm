@@ -1,0 +1,13 @@
+#lang rhombus
+/* Proves the registered selector's capture contract under its declared enable-exclusivity premise. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("rspecl/runner.rkt").prove_design
+  "granted-selector.rhdl" as rtl
+  "granted-selector.rspl" as spec
+
+module main:
+  def seal = prove_design(elaborate(rtl.RegisteredLaneSelector()).top, spec.RegisteredLaneSelector)
+  println("Proved RegisteredLaneSelector: capture reads the previous word, provided enables are exclusive off reset")

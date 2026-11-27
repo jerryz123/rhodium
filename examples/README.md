@@ -305,7 +305,7 @@ hardware-preservation contracts.
 | Example | RTL | Executable spec |
 |---|---|---|
 | Arbiter | [Flow arbiter](../flow/arbiter.rhdl) | [Fixed-priority selection and transfers](formal/arbiter.rspl); [prove the clockless grant contract](formal/prove-arbiter.rhm) |
-| GrantedSelector / RoutedSelector / RegisteredRoutedSelector | [Direct or routed grants with same-cycle or registered selection](formal/granted-selector.rhdl) | [Ordered input contracts, reset, capture, and hold](formal/granted-selector.rspl) |
+| GrantedSelector / RoutedSelector / RegisteredRoutedSelector | [Direct or routed grants with same-cycle or registered selection](formal/granted-selector.rhdl) | [Ordered input contracts, reset, capture, and hold](formal/granted-selector.rspl); [prove the conditional RegisteredLaneSelector leaf](formal/prove-registered-lane-selector.rhm) |
 | GatedCapture / ArbitratedCapture | [Gated capture behind an arbiter](formal/gated-capture.rhdl) | [A gate assumption discharged by the arbiter](formal/gated-capture.rspl), using the selector's [shared capture monitor](formal/capture-history.rspl) |
 | BufferedStallConsumer | [A one-word queue feeding a wrapped recorder](formal/stalled-offer.rhdl) | [The spec declares the queue as the stable-offer supplier](formal/stalled-offer.rspl); [prove first-stalled-word readback](formal/prove-stalled-offer.rhm) |
 | OfferRegister | [Rewritable one-word Flow offer](../flow/offer-register.rhdl) | [Cycle and transaction spec](formal/offer-register.rspl); [prove old-word delivery with simultaneous replacement](formal/prove-offer-register.rhm) |

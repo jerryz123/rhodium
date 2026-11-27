@@ -553,7 +553,10 @@ not use its own or a mutually dependent same-edge guarantee.
 or both enables and clears the word on the sampled edge. The pre-edge word
 is not observed during reset. On other edges the output shows the previously
 captured word; one enable captures its lane for the next sample, and neither
-enable leaves the word unchanged. The parent has no input restriction.
+enable leaves the word unchanged. The [standalone leaf proof](../../examples/formal/prove-registered-lane-selector.rhm)
+returns a conditional transaction contract: a capture reports the word held
+before that edge. A parent must establish exclusivity on the selector's actual
+enable pins before using that contract. The routed parent has no input restriction.
 For a clocked contract, assumptions must admit both a reset and a non-reset
 sample; they may not refer to history.
 

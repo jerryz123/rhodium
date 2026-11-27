@@ -78,8 +78,12 @@ treat a matching batch schema as proof that two monitors agree.
 3. **Make proof setup declarative.** ShiftQueue and QueuePair now have a
    [standalone proof](../../examples/formal/prove-queue-pair.rhm). The same entry point
    now proves the [combinational Arbiter](../../examples/formal/prove-arbiter.rhm);
-   its grant monitor is reusable by ArbitratedCapture. Keep the handwritten
-   harnesses as differential oracles. For parents, drive the
+   its grant monitor is reusable by ArbitratedCapture. The
+   [registered selector leaf](../../examples/formal/prove-registered-lane-selector.rhm)
+   retains its off-reset enable-exclusivity premise. Next, prove GatedCapture
+   from that conditional contract, then discharge the gate's premise on
+   ArbitratedCapture's grant wires. Keep the handwritten harnesses as
+   differential oracles. For parents, drive the
    existing generic obligations from the spec's declared child views and
    supplier roles. [LoggedTwoTagROB](../../examples/formal/prove-logged-two-tag-rob.rhm)
    now proves its forwarded batch and recorder state using just the sealed ROB.

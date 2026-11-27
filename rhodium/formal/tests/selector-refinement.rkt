@@ -1,7 +1,7 @@
 #lang rosette
 ;; SPDX-License-Identifier: Apache-2.0
 
-(require rackunit "selector-binding.rhm" "arbiter-refinement.rkt" "../refinement.rkt" "../spec-engine.rkt"
+(require rackunit racket/match "selector-binding.rhm" "arbiter-refinement.rkt" "../refinement.rkt" "../spec-engine.rkt"
          "../../../rspecl/proof.rkt"
          (only-in "../../../rspecl/runner.rkt" prove-design)
          (only-in "../../../rspecl/rtl-boundary.rhm" transaction_parts)
@@ -180,6 +180,27 @@
 (define gate-events (GatedCapture #:transaction_view #t))
 (define selector-events (RegisteredLaneSelector #:transaction_view #t))
 (define selector-contract (derive-transaction verified-register registered_lane RegisteredLaneSelector))
+(test-case "the standalone selector proof retains exactly off-reset exclusivity"
+  (define result (prove-design registered_lane RegisteredLaneSelector))
+  (define premises (transaction-input-premises result selector-events))
+  (check-equal? premises (transaction-input-premises selector-contract selector-events))
+  (check-equal? (hash-keys premises) '("exclusive"))
+  (for* ([rst '(#f #t)] [a '(#f #t)] [b '(#f #t)])
+    (define pins (hash "reset" rst "enable_a" a "enable_b" b))
+    (check-equal? (hash-ref (spec-input-assumptions (hash "assumptions" premises) pins) "exclusive")
+                  (or rst (not (and a b)))))
+  (check-false (transaction-for? result registered_lane selector-events))
+  (check-exn #rx"requires discharge on RTL input pins"
+             (lambda () (transaction-step result selector-events (hash) (hash)))))
+
+(test-case "removing only exclusivity breaks the runner's RTL successor proof"
+  (define (unrestricted top #:proof_plan plan?)
+    (define plan (RegisteredLaneSelector top #:proof_plan plan?))
+    (match-define (list "leaf" root _cycle view projection hints) plan)
+    (list "leaf" root (registered_variant "unrestricted") view projection hints))
+  (check-exn #rx"preservation/successor not proved"
+             (lambda () (prove-design registered_lane unrestricted))))
+
 (define (prove-gate declaration)
   (prove-forwarded-transaction capture_gate declaration "lanes" selector-contract selector-events))
 (define gate-contract (prove-gate GatedCapture))
