@@ -4,6 +4,7 @@
 
 (require "aggregate-test.rhm"
          (submod "arbiter-refinement.rkt" test)
+         (submod "atomic-fork.rkt" test)
          "selector-refinement.rkt"
          "stalled-offer.rkt"
          (submod "offer-register.rkt" test)

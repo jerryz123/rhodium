@@ -1,0 +1,50 @@
+#lang rspecl
+/* Specifies same-edge delivery of one two-bit word to both branches of an atomic fork. */
+// SPDX-License-Identifier: Apache-2.0
+
+import lib("flow/atomic-fork.rhdl") as rtl
+import lib("rhodium/formal/spec.rhm").Observed
+
+/* Observe each interface's own valid, ready and payload; do not infer one transfer from another. */
+fun transfers(read :: Function, output :: Function):
+  fun sent(branch :: String):
+    Observed(output(branch ++ ".bits", Bits(2)),
+             output(branch ++ ".valid", Bool) && read(branch ++ ".ready", Bool))
+  {"accepted": Observed(read("ingress.bits", Bits(2)), read("ingress.valid", Bool) && output("ingress.ready", Bool)),
+   "left": sent("egress[0]"), "right": sent("egress[1]")}
+
+spec for rtl.AtomicFork:
+  unless n == 2 && ingress.bits.type.width == 2 | error("AtomicFork contract requires two outputs and two-bit words")
+  let left_ready = egress[0].ready
+  let right_ready = egress[1].ready
+  // A branch may see an offer while it stalls. Its peer must not transfer without it.
+  let left_valid = ingress.valid && right_ready
+  let right_valid = ingress.valid && left_ready
+  observe ingress.ready = left_ready && right_ready
+  observe egress[0].valid = left_valid
+  observe egress[1].valid = right_valid
+  observe egress[0].bits = ingress.bits when left_valid
+  observe egress[1].bits = ingress.bits when right_valid
+
+  monitor:
+    sample transfers
+    publish ["accepted", "left", "right"]
+    batch take = present(accepted)
+    batch send_left = present(left)
+    batch send_right = present(right)
+    batch incoming: Bits(2) = payload(accepted) when take
+    batch left_word: Bits(2) = payload(left) when send_left
+    batch right_word: Bits(2) = payload(right) when send_right
+    // Each edge is either idle or a single three-way transfer of the same word.
+    guarantee "atomic-transfer" = bool_equal(take, send_left) && bool_equal(take, send_right)
+    guarantee "left-payload" = !(take && send_left) || bits_equal(incoming, left_word)
+    guarantee "right-payload" = !(take && send_right) || bits_equal(incoming, right_word)
+
+  rtl_refinement:
+    pin left_offered from egress[0].valid
+    pin right_offered from egress[1].valid
+    care ingress.ready = #true
+    care egress[0].valid = #true
+    care egress[1].valid = #true
+    care egress[0].bits = left_offered
+    care egress[1].bits = right_offered

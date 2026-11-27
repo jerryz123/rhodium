@@ -1,0 +1,26 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+
+import lib("rhodium/std/ready-valid.rhdl") open
+import lib("flow/atomic-fork.rhdl").AtomicFork
+import lib("examples/formal/atomic-fork.rspl") as spec
+import lib("rhodium/formal/spec.rhm").step_spec
+
+circuit OneSidedFork():
+  interface ingress(Decoupled(Bits(2)), ~role: consumer)
+  interface egress[2](Decoupled(Bits(2)), ~role: producer)
+
+  ingress.ready <== egress[0].ready & egress[1].ready
+  // Branch zero mistakenly ignores branch one's backpressure.
+  egress[0].valid <== ingress.valid
+  egress[1].valid <== ingress.valid & egress[0].ready
+  egress[0].bits <== ingress.bits
+  egress[1].bits <== ingress.bits
+
+def good_program = elaborate(AtomicFork(Bits(2), 2))
+def bad_program = elaborate(OneSidedFork())
+def good_top = good_program.top
+def bad_top = bad_program.top
+def cycle = spec.AtomicFork(good_top)
+fun spec_events(inputs): step_spec(cycle, {}, inputs).events
+export good_program bad_program good_top bad_top spec_events

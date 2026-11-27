@@ -305,6 +305,7 @@ hardware-preservation contracts.
 | Example | RTL | Executable spec |
 |---|---|---|
 | Arbiter | [Flow arbiter](../flow/arbiter.rhdl) | [Fixed-priority selection and transfers](formal/arbiter.rspl); [prove the clockless grant contract](formal/prove-arbiter.rhm) |
+| AtomicFork | [Flow fork](../flow/atomic-fork.rhdl) | [Two-output transfer spec](formal/atomic-fork.rspl); [prove that both branches take the input word on the same edge](formal/prove-atomic-fork.rhm) |
 | GrantedSelector / RoutedSelector / RegisteredRoutedSelector | [Direct or routed grants with same-cycle or registered selection](formal/granted-selector.rhdl) | [Ordered input contracts, reset, capture, and hold](formal/granted-selector.rspl); [prove the conditional RegisteredLaneSelector leaf](formal/prove-registered-lane-selector.rhm) |
 | GatedCapture / ArbitratedCapture | [Gated capture behind an arbiter](formal/gated-capture.rhdl) | [Capture specs](formal/gated-capture.rspl); [prove conditional forwarding](formal/prove-gated-capture.rhm), then [prove exact-word and one-bit readback with arbiter grants](formal/prove-arbitrated-capture.rhm) |
 | BufferedStallConsumer | [A one-word queue feeding a wrapped recorder](formal/stalled-offer.rhdl) | [The spec declares the queue as the stable-offer supplier](formal/stalled-offer.rspl); [prove first-stalled-word readback](formal/prove-stalled-offer.rhm) |

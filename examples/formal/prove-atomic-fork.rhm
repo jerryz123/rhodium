@@ -1,0 +1,14 @@
+#lang rhombus
+/* Certifies both branches of the two-bit library AtomicFork from its RTL and public spec. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("rhodium/frontend/foundation.rhm").Bits
+  lib("flow/atomic-fork.rhdl") as rtl
+  lib("rspecl/runner.rkt").prove_design
+  "atomic-fork.rspl" as spec
+
+module main:
+  def seal = prove_design(elaborate(rtl.AtomicFork(Bits(2), 2)).top, spec.AtomicFork)
+  println("Proved AtomicFork: the input and both outputs transfer together with equal two-bit payloads")

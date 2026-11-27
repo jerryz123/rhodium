@@ -111,6 +111,10 @@ treat a matching batch schema as proof that two monitors agree.
    reopening either child or changing the engine. Its [regression](tests/offer-queue.rkt)
    distinguishes allowed replacement from a bypass that commits the incoming
    update instead of the old offer.
+   The [two-output AtomicFork proof](../../examples/formal/prove-atomic-fork.rhm)
+   uses the same runner for a stateless contract: all three handshakes agree
+   and both outputs transfer the input word. Its [two-bit regression](tests/atomic-fork.rkt)
+   replays a one-sided transfer that the shared-edge guarantee rejects.
    A missing general capability is a separate proposal with two clients and
    a failing negative test, not an exception for OfferRegister.
 
