@@ -19,8 +19,10 @@ their banks and ordering constraints permit. A speculative conflict replays;
 an authorized request stays queued. Dirty victim reads and refill writes
 use the row banks directly. A held outgoing CHI data beat does not reserve
 the SRAM bank, but its victim stays protected until copyback finishes.
-Two misses to distinct sets can fill out of order; authorized responses
-remain ordered even if the core stops accepting them.
+Two misses to distinct sets can request dirty copybacks independently. The first
+granted victim can drain even if the older miss is still waiting for its grant.
+The two engines share one victim reader and one outgoing CHI data port;
+refills can finish out of order, but authorized responses stay ordered.
 
 Same-line loads can share an acquisition. A younger store may acquire a
 distinct line early, but its byte mask, data, and acknowledgement stay in

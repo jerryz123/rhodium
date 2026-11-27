@@ -236,9 +236,15 @@ sync_circuit CacheLineRefill(Context :: DataType,
   elsewhen acknowledgement_fire:
     acknowledgement_sent <== Bool(#true)
 
+/* Slot zero retains the simple cache's writeback ID. Additional copybacks
+   follow all refill IDs; ID 2 belongs to maintenance. */
+fun cache_copyback_txn_id(slot :: Nat, slots :: PosInt) :: Nat:
+  if slot == 0 | 1 | slots + 1 + slot
+
 /* Routes tagged RetryAck to its acquisition. Credits have no transaction ID:
    retain up to one per outstanding attempt until a matching home/type is known. */
-sync_circuit CacheRefillRetryRouter(p :: CHIFlitParams, count :: PosInt, ~copyback: copyback :: Boolean = #false):
+sync_circuit CacheRefillRetryRouter(p :: CHIFlitParams, slots :: PosInt):
+  def count = 2 * slots
   def id_width = index_width(count)
   input node_id: Bits(p.node_id_width)
   interface incoming(Decoupled(CHIRspFlit(p)), ~role: consumer)
@@ -252,7 +258,7 @@ sync_circuit CacheRefillRetryRouter(p :: CHIFlitParams, count :: PosInt, ~copyba
   def key = rsp.src_id ++ rsp.pcrd_type
   def is_credit = rsp.opcode === CHIRspOpcode.PCrdGrant
   def direct = incoming.valid & !is_credit
-  def owner = priority_encoder(vec(for List (i in 0..count): rsp.txn_id === Bits(12)(if copyback && i == count - 1 | 1 | cache_mshr_txn_id(i))))
+  def owner = priority_encoder(vec(for List (i in 0..count): rsp.txn_id === Bits(12)(if i < slots | cache_mshr_txn_id(i) | cache_copyback_txn_id(i - slots, slots))))
   /* Selects an escrowed grant only after the named retry identifies its class. */
   fun matching(slot :: Nat):
     vec(for List (i in 0..count): waiting[slot] & occupied[i] & (needs[slot] === credits[i]))
@@ -287,6 +293,7 @@ sync_circuit CacheRefillRetryRouter(p :: CHIFlitParams, count :: PosInt, ~copyba
 
 export:
   cache_mshr_txn_id
+  cache_copyback_txn_id
   CacheRefillRetryRouter
   CacheLineRefillCommand
   CacheLineRefillResult

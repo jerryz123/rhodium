@@ -328,20 +328,20 @@ void check_shared_upgrade_barrier(const Line &a, const Line &b) {
   request(addr_b, load); response(a[0]);
 }
 
-void prepare_dirty_pair(const Line &a, const Line &b, unsigned mask = 0xffff) {
+unsigned prepare_dirty_pair(const Line &a, const Line &b, unsigned mask = 0xffff) {
   reset = 1; tick_model(); reset = 0;
   for (auto off : {0u, 64u, 256u, 320u}) {
     const Line &line = off % 256 == 0 ? a : b;
     request(base+off, store, line[0]); refill(base+off, 7, line); response({});
   }
   request(base+512, store, b[1], mask, true, 1);
-  CHECK(accept_request(base, 0x1b) == 1);
+  return accept_request(base, 0x1b);
 }
 
-void grant_copyback(unsigned dbid) {
+void grant_copyback(unsigned txn, unsigned dbid) {
   auto &rsp = chi_in.presponses;
   rsp.pbits = {}; rsp.pbits.popcode = 5; rsp.pbits.psrc_uid = 1;
-  rsp.pbits.ptgt_uid = 3; rsp.pbits.ptxn_uid = 1; rsp.pbits.pdbid_uor_ugroup_uid = dbid;
+  rsp.pbits.ptgt_uid = 3; rsp.pbits.ptxn_uid = txn; rsp.pbits.pdbid_uor_ugroup_uid = dbid;
   rsp.pvalid = 1; until([] { return chi_out.presponses.pready; }); tick_model(); rsp.pvalid = 0;
 }
 
@@ -356,11 +356,26 @@ void drain_copyback(unsigned dbid, const Line &line, bool valid, unsigned first 
   }
 }
 
+std::pair<unsigned, unsigned> accept_buffered_pair() {
+  bool saw_read = false, saw_write = false;
+  unsigned refill_id = 0, wb_id = 0;
+  for (int i = 0; i < 2; ++i) {
+    until([] { return chi_out.prequests.pvalid; });
+    if (chi_out.prequests.pbits.popcode == 2) {
+      refill_id = accept_request(base+576, 2); saw_read = true;
+    } else {
+      wb_id = accept_request(base+64, 0x1b); saw_write = true;
+    }
+  }
+  CHECK(saw_read && saw_write && refill_id != wb_id);
+  return {refill_id, wb_id};
+}
+
 void check_buffered_replacement(const Line &a, const Line &b, bool invalidate_replacement) {
-  prepare_dirty_pair(a, b);
+  const auto wa = prepare_dirty_pair(a, b);
   request(base+576+32, load, {}, 0xffff, true, 2);
   request(base+576+48, load, {}, 0xffff, true, 3);
-  const auto tb = accept_request(base+576, 2);
+  const auto [tb, wb] = accept_buffered_pair();
   // No copyback grant for either victim. All DATs and CompAck must pass.
   for (unsigned i : {3u, 1u, 0u, 2u}) refill_packet(tb, i, 1, a[i]);
   until([] { return chi_out.prequester_uresponses.pvalid; });
@@ -376,11 +391,10 @@ void check_buffered_replacement(const Line &a, const Line &b, bool invalidate_re
   } else {
     snoop_dirty_line(base+64, b, 0x53);
   }
-  grant_copyback(0x51);
+  grant_copyback(wa, 0x51);
   const auto ta = accept_request(base+512, 7);
   drain_copyback(0x51, a, true);
-  CHECK(accept_request(base+64, 0x1b) == 1);
-  grant_copyback(0x52); drain_copyback(0x52, b, invalidate_replacement);
+  grant_copyback(wb, 0x52); drain_copyback(0x52, b, invalidate_replacement);
   for (unsigned i = 0; i < 16; ++i) { eval(); CHECK(!core_out.presponse.pvalid); tick_model(); }
   for (unsigned i = 0; i < 4; ++i) refill_packet(ta, i, 2, a[i]);
   response({}, 1);
@@ -391,35 +405,35 @@ void check_buffered_replacement(const Line &a, const Line &b, bool invalidate_re
 }
 
 void check_two_dirty_misses(const Line &a, const Line &b, bool probe_waiting_victim) {
-  prepare_dirty_pair(a, b);
-  if (!probe_waiting_victim) grant_copyback(0x51);
+  const auto wa = prepare_dirty_pair(a, b);
   request(base+576, store, a[1], 0xffff, true, 2);
-  for (int i = 0; i < 8; ++i) tick_model();
-  if (probe_waiting_victim) {
-    // B must already own this victim. An unallocated B would subsequently see
-    // an invalid way and issue no WriteBackFull at all.
-    snoop_dirty_line(base+64, b, 0x53);
-    grant_copyback(0x51);
-  }
-  const auto ta = accept_request(base+512, 7);
-  drain_copyback(0x51, a, true);
-  CHECK(accept_request(base+64, 0x1b) == 1); // A's replacement still has no data.
-  // Home can return A's data or retry B's eviction before granting B.
-  refill_packet(ta, 2, 2, a[2]);
+  const auto wb = accept_request(base+64, 0x1b);
+  CHECK(wb != wa);
   if (probe_waiting_victim) {
     retry_response(7, 0, 5);
-    retry_response(3, 1, 5);
+    retry_response(3, wb, 5);
     until([] { return chi_out.prequests.pvalid; });
     CHECK(!chi_out.prequests.pbits.pallow_uretry && chi_out.prequests.pbits.ppcrd_utype == 5);
-    CHECK(accept_request(base+64, 0x1b) == 1);
+    CHECK(accept_request(base+64, 0x1b) == wb);
   }
-  grant_copyback(0x52);
+  grant_copyback(wb, 0x52);
   const auto tb = accept_request(base+576, 7);
-  CHECK(tb != ta);
-  drain_copyback(0x52, b, !probe_waiting_victim);
+  // A's grant must not change the owner of B's stalled victim packet.
+  if (!probe_waiting_victim) {
+    until([] { return chi_out.prequest_udata.pvalid; });
+    grant_copyback(wa, 0x51);
+  }
+  drain_copyback(0x52, b, true);
   for (unsigned i = 0; i < 4; ++i) refill_packet(tb, i, 2, b[i]);
   for (int i = 0; i < 8; ++i) { eval(); CHECK(!core_out.presponse.pvalid); tick_model(); }
-  for (unsigned i : {0u, 1u, 3u}) refill_packet(ta, i, 2, a[i]);
+  if (probe_waiting_victim) {
+    snoop_dirty_line(base, a, 0x53);
+    grant_copyback(wa, 0x51);
+  }
+  const auto ta = accept_request(base+512, 7);
+  CHECK(ta != tb);
+  drain_copyback(0x51, a, !probe_waiting_victim);
+  for (unsigned i : {2u, 0u, 1u, 3u}) refill_packet(ta, i, 2, a[i]);
   response({}, 1); response({}, 2);
   request(base+512, load); response(b[1]);
   request(base+576, load); response(a[1]);
@@ -453,14 +467,13 @@ static void check_bank_overlap(const Line& a, const Line& b) {
 static void check_victim_refill(const Line& a, const Line& b, int first_row) {
   // In the held case, accept the entire refill behind a stalled victim DAT.
   // A writes only four bytes; its unmasked bytes and all victim bytes survive.
-  prepare_dirty_pair(a, b, 0xf);
+  const auto wa = prepare_dirty_pair(a, b, 0xf);
   request(base+576, load, {}, 0xffff, true, 2);
-  const auto tb = accept_request(base+576, 2);
-  grant_copyback(0x51);
+  const auto [tb, wb] = accept_buffered_pair();
+  grant_copyback(wa, 0x51);
   const auto ta = accept_request(base+512, 7);
   drain_copyback(0x51, a, true);
-  CHECK(accept_request(base+64, 0x1b) == 1);
-  grant_copyback(0x52);
+  grant_copyback(wb, 0x52);
   until([] { return chi_out.prequest_udata.pvalid; });
   unsigned sent = 0;
   if (first_row >= 0) {

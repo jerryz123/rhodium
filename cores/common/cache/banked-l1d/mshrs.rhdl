@@ -5,6 +5,7 @@
 import:
   "../chi/flits.rhdl" open
   "../chi/refill.rhdl" open
+  "../chi/writeback.rhdl" open
   "../geometry.rhdl" open
   lib("chi/protocol/flits.rhdl") open
   lib("chi/protocol/coherence.rhdl") open
@@ -22,7 +23,7 @@ bundle L1DMissTarget(width :: PosInt, ways :: PosInt):
 
 /* Each allocated entry owns its destination until all rows install and its
    completion transfers. The request window, not this file, owns response order. */
-sync_circuit L1DMSHRs(count :: Int.in(2 ..= 4094), width :: PosInt, ways :: PosInt, config :: RiscvHartCHIConfig):
+sync_circuit L1DMSHRs(count :: Int.in(2 ..= 2047), width :: PosInt, ways :: PosInt, config :: RiscvHartCHIConfig):
   def p = config.flit
   def Target = L1DMissTarget(width, ways)
   def Command = CacheLineRefillCommand(Target)
@@ -35,21 +36,23 @@ sync_circuit L1DMSHRs(count :: Int.in(2 ..= 4094), width :: PosInt, ways :: PosI
   input snoop_update: Bool
   input snoop_line: Bits(width)
   input snoop_state: CHICacheState
-  interface evict(Decoupled(Bits(index_width(count))), ~role: producer)
-  input evict_active: Bool
-  input evict_done: Bool
+  input snoop_pending: Bool
+  input probe_address: Bits(width)
+  output victim_protected: Bool
   input packet_ready: Bool
   interface probe(Valid(Bits(width)), ~role: consumer)
-  interface grant(Valid(Bits(index_width(count))), ~role: consumer)
-  input granted: Bool
   output evict_address: Bits(width)
   output evict_way: Bits(index_width(ways))
-  output evict_state: CHICacheState
-  interface copy_responses(Decoupled(CHIRspFlit(p)), ~role: producer)
+  output evict_done: Bool
+  output packet_needed: Bool
+  output packet_index: Bits(index_width(cache_line_rows(p.data_bytes)))
+  interface victim_packet(Decoupled(Bits(p.data_width)), ~role: consumer)
+  interface copy_data(Decoupled(CHIDatFlit(p)), ~role: producer)
   interface allocate(Decoupled(Command), ~role: consumer)
   interface complete(Decoupled(Result), ~role: producer)
   interface packet(Valid(CacheLineChunk(p.data_bytes)), ~role: producer)
   output packet_target: Target
+  output pinned: Vec(count, Bool)
   output occupied: Vec(count, Bool)
   output targets: Vec(count, Target)
   output acquiring_unique: Vec(count, Bool)
@@ -62,11 +65,9 @@ sync_circuit L1DMSHRs(count :: Int.in(2 ..= 4094), width :: PosInt, ways :: PosI
 
   wire free: Vec(count, Bool)
   reg pending(~init: Bits(count)(0).as_vec(Bool))
-  reg queued(~init: Bits(count)(0).as_vec(Bool))
   reg saved(Vec(count, Command))
   reg victims(Vec(count, Bits(width)))
   reg states(Vec(count, CHICacheState))
-  reg owner(Bits(index_width(count)))
   occupied <== (!free.as_bits()).as_vec(Bool)
   reg next_slot(~init: Bits(index_width(count))(0))
   def chosen :: CircularPriorityChoice(count, index_width(count)) = circular_priority_onehot(free, next_slot)
@@ -74,28 +75,41 @@ sync_circuit L1DMSHRs(count :: Int.in(2 ..= 4094), width :: PosInt, ways :: PosI
   when (allocate.fire()):
     next_slot <== wrap_increment(chosen.index, count)
   def returns = data |> demux_flow(count, dat => priority_encoder(vec(for List (i in 0..count): dat.txn_id === Bits(12)(cache_mshr_txn_id(i)))))
-  // Unissued victims stay snoop-visible. The active engine pins its selected
-  // slot until final DAT, independently of any other slot's read or retry.
-  def waiting = priority_encoder_oh(queued)
-  def selected = mux(waiting.valid, waiting.index, chosen.index)
-  inst victims_out(GrantMerge(Bits(index_width(count)), count))
-  victims_out.grants <== vec(for List (i in 0..count): selected === Bits(index_width(count))(i)).into(MaybeOneHot(count))
-  victims_out.egress |> evict
-  def slot = mux(evict_active, owner, selected)
-  def bypass = !evict_active & !waiting.valid
-  evict_address <== mux(bypass, victim_address, victims[slot])
-  evict_way <== mux(bypass, allocate.bits.context.way, saved[slot].context.way)
-  evict_state <== mux(bypass, victim_state, states[slot])
-  when (evict.fire()): owner <== selected
-  inst credits(CacheRefillRetryRouter(p, count + 1, ~copyback: #true))
+  // Only the SRAM reader is serialized. Once selected, its slot owns
+  // the row cursor, including stalled DAT, through victim invalidation.
+  wire needed: Vec(count, Bool)
+  wire done: Vec(count, Bool)
+  wire protected_victims: Vec(count, Bool)
+  wire cursors: Vec(count, Bits(index_width(cache_line_rows(p.data_bytes))))
+  reg reading(~init: Bool(#false))
+  reg reader(Bits(index_width(count)))
+  reg next_reader(~init: Bits(index_width(count))(0))
+  def choice :: CircularPriorityChoice(count, index_width(count)) = circular_priority_onehot(needed, next_reader)
+  def owner = mux(reading, reader, choice.index)
+  def complete_copy = done.any()
+  when complete_copy:
+    reading <== Bool(#false)
+    next_reader <== wrap_increment(owner, count)
+  elsewhen (!reading & choice.valid):
+    reading <== Bool(#true)
+    reader <== choice.index
+  evict_address <== victims[owner]
+  evict_way <== saved[owner].context.way
+  evict_done <== complete_copy
+  packet_needed <== needed[owner] & (reading ||| choice.valid)
+  packet_index <== cursors[owner]
+  victim_protected <== protected_victims.any()
+  def victim_packets = victim_packet |> demux_flow(count, _packet => owner)
+  inst credits(CacheRefillRetryRouter(p, count))
   credits.node_id <== node_id
   responses |> credits.incoming
-  credits.outgoing[count] |> copy_responses
-
+  inst copies(Arbiter(CHIReqFlit(p), count))
+  inst outgoing(Arbiter(CHIDatFlit(p), count))
+  outgoing.egress |> copy_data
   inst reads(Arbiter(CHIReqFlit(p), count))
   inst acks(Arbiter(CHIRspFlit(p), count))
   inst results(Arbiter(Result, count))
-  reads.egress |> requests
+  Array(reads.egress, copies.egress) |> arbiter() |> requests
   acks.egress |> acknowledgements
   results.egress |> complete
 
@@ -103,7 +117,6 @@ sync_circuit L1DMSHRs(count :: Int.in(2 ..= 4094), width :: PosInt, ways :: PosI
   wire installing: Vec(count, Bool)
   wire writes: Vec(count, Bool)
   wire chunks: Vec(count, CacheLineChunk(p.data_bytes))
-  wire selected_ready: Vec(count, Bool)
   wire resume_ready: Vec(count, Bool)
   wire early_ready: Vec(count, Bool)
   // Only unordered ReadClean acquisitions can silently drop an uninstalled
@@ -130,34 +143,49 @@ sync_circuit L1DMSHRs(count :: Int.in(2 ..= 4094), width :: PosInt, ways :: PosI
     discarded <== Bool(#false)
   elsewhen staging:
     when (finished.any()): buffered <== Bool(#false)
-    when (evict_done & (owner === buffer_slot)): released <== Bool(#true)
+    when (done[buffer_slot]): released <== Bool(#true)
     when drop: discarded <== Bool(#true)
 
-  def grants = grant |> fork_valid(count)
   for (i in 0..count):
     inst engine(CacheLineRefill(Target, width, config, ~slot: i))
     engine.node_id <== node_id
-    free[i] <== engine.command.ready & !pending[i]
+    inst wb(CacheLineWriteback(Bits(index_width(count)), width, config, cache_copyback_txn_id(i, count), ~slot: i))
+    def active = !wb.command.ready
+    pinned[i] <== active
+    free[i] <== engine.command.ready & !pending[i] & !active
     targets[i] <== mux(pending[i], saved[i].context, engine.active_context)
     acquiring_unique[i] <== mux(pending[i], saved[i].opcode === CHIReqOpcode.ReadUnique, engine.acquiring_unique)
     def id = Bits(index_width(count))(i)
     def Array(clean, eviction) = commands[i] |> demux_flow(2, _command => dirty.as_bits())
     def Array(victim, acquisition) = eviction |> atomic_fork(2)
     acquisition.ready <== Bool(#true)
-    victim.ready <== free[i]
-    def reservation = inject_interface(Decoupled(Bits(index_width(count))), ~valid: queued[i] ||| victim.fire(), ~bits: id, ~ready: selected_ready[i])
-    reservation |> victims_out.ingress[i]
-    def victim_name = "victim-" ++ to_string(i)
-    describe_interface_window_storage(1, victim.fire() & !reservation.fire(), queued[i] & reservation.fire(), queued[i], Bool(#false), [queued[i]], ~live: !queued[i], ~name: victim_name)
-    describe_interface_contract(victim, reservation, victim_name, ~trace_model: interface_trace_window(~name: victim_name))
+    def copyback = victim |> map_flow(_request):
+      CacheLineWritebackCommand(Bits(index_width(count))):
+        context: id
+    copyback |> wb.command
+    wb.node_id <== node_id
+    wb.line_address <== mux(active, victims[i], victim_address)
+    wb.victim_state <== states[i]
+    wb.snoop_pending <== snoop_pending
+    credits.outgoing[count + i] |> wb.responses
+    wb.requests |> copies.ingress[i]
+    wb.data |> outgoing.ingress[i]
+    victim_packets[i] |> wb.packet
+    wb.completion.ready <== Bool(#true)
+    done[i] <== wb.completion.fire()
+    when (wb.completion.fire()):
+      assert(reading & (owner === id), "copyback_completes_with_reader_ownership")
+    needed[i] <== wb.packet_needed
+    cursors[i] <== wb.packet_index
+    protected_victims[i] <== wb.granted & (victims[i] === probe_address)
     def staged = staging & (buffer_slot === id)
     def early = inject_interface(Decoupled(Command), ~valid: pending[i] & staged, ~bits: saved[i], ~ready: early_ready[i])
     def early_name = "buffered-replacement-" ++ to_string(i)
     describe_interface_retained_storage(victim.fire() & reserve, early.fire(), pending[i] & staged, ~name: early_name)
     describe_interface_contract(acquisition, early, early_name, ~trace_model: interface_trace_retained(~name: early_name))
-    def launch = pending[i] & !staged & granted & (owner === id)
+    def launch = pending[i] & !staged & wb.granted
     def resumed = inject_interface(Decoupled(Command), ~valid: launch, ~bits: saved[i], ~ready: resume_ready[i])
-    def granted_slot = grants[i] |> filter_valid(slot => (slot === id) & !staged)
+    def granted_slot = wb.grant |> filter_valid(_slot => !staged)
     def name = "replacement-" ++ to_string(i)
     describe_interface_retained_storage(granted_slot.valid, resumed.fire(), launch, ~name: name)
     describe_interface_contract(granted_slot, resumed, name, ~trace_model: interface_trace_retained(~name: name))
@@ -169,19 +197,15 @@ sync_circuit L1DMSHRs(count :: Int.in(2 ..= 4094), width :: PosInt, ways :: PosI
       victims[i] <== victim_address
     elsewhen (resumed.fire() ||| early.fire()):
       pending[i] <== Bool(#false)
-    when (evict.fire() & (selected === id)):
-      queued[i] <== Bool(#false)
-    elsewhen (victim.fire()):
-      queued[i] <== Bool(#true)
     when (victim.fire()):
       states[i] <== victim_state
-    elsewhen (snoop_update & (pending[i] ||| staged) & (victims[i] === snoop_line)):
+    elsewhen (snoop_update & active & (victims[i] === snoop_line)):
       states[i] <== snoop_state
-    returns[i] |> gate_flow(staged ||| packet_ready) |> engine.response_data
+    returns[i] |> gate_flow(staged ||| (!active & packet_ready)) |> engine.response_data
     credits.outgoing[i] |> engine.responses
     engine.requests |> reads.ingress[i]
     engine.acknowledgements |> acks.ingress[i]
-    def publishable = !staged ||| (released & (discarded ||| !present.any()))
+    def publishable = !active & (!staged ||| (released & (discarded ||| !present.any())))
     def result = engine.completion |> gate_flow(publishable & (!engine.active_context.ordered ||| ordered_ready))
     (result |> map_flow(r => r.updated(~context: r.context.updated(~install: r.context.install & !(staged & discarded))))) |> results.ingress[i]
     finished[i] <== staged & result.fire()
