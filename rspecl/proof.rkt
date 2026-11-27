@@ -3,9 +3,10 @@
 ;; SPDX-License-Identifier: Apache-2.0
 
 (require racket/match (only-in racket/base [eq? same?] [equal? same-schema?])
-         "rtl-boundary.rhm" "../rhodium/formal/refinement.rkt" "../rhodium/formal/spec-engine.rkt"
+         "rtl-boundary.rhm" "../rhodium/formal/spec-engine.rkt"
+         (only-in "../rhodium/formal/refinement.rkt" check-cycle-monitor! check-refinement-phase!
+                  check-batch-total! symbolic-wrapper-cut certified-combinational-site)
          "../rhodium/formal/transaction-induction.rkt"
-         (only-in "../rhodium/formal/fifo-view.rhm" fifo_behavior_view fifo_view_parts)
          (only-in "../rhodium/formal/spec.rhm" spec_snapshot input_premise_snapshot)
          (only-in "../rhodium/formal/port-types.rhm" leaf_layout)
          (only-in "../rhodium/frontend/layers/bool.rhm" Bool))
@@ -114,28 +115,13 @@
   (define premises (prove! model monitor layout ins outs (lambda (i o) (values (sample sampler ins outs i o) #t))))
   (seal top layout view sampler monitor ins outs premises req))
 
-#| Weaken cycle evidence without opening RTL; a general monitor seal retains all input premises.
-   A FIFO event view infers its monitor's capacity from the designated cycle sequence. |#
+#| Derive a monitor from certified cycle behavior without opening RTL or dropping input premises. |#
 (define derive-transaction
   (case-lambda
     [(cycle top spec)
      (define-values (view projection) (spec top #:cycle_derivation #t))
-     (derive-view cycle top view projection)]
-    [(cycle top view projection) (derive-view cycle top view projection)]))
-
-#| Both authored and low-level projections enter the same induction before any evidence is issued. |#
-(define (derive-view cycle top view projection)
-  (cond
-    [(fifo_behavior_view view)
-     (define-values (expected _i _o _w _s) (fifo_view_parts view))
-     (unless (same? top expected) (error 'cycle-view "expected the bound FIFO top"))
-     (define relation
-       (cond [(hash? projection)
-              (unless (same-schema? (hash-keys projection) '("q")) (error 'cycle-view "expected a projection for q"))
-              (hash-ref projection "q")]
-             [else projection]))
-     (derive-fifo-transactions cycle view relation)]
-    [else
+     (derive-transaction cycle top view projection)]
+    [(cycle top view projection)
      (certify-view top view
        (lambda (model _monitor layout ins outs sample)
          (check-cycle-monitor! cycle top layout model projection ins outs sample #:retain-premises? #t)))]))
@@ -224,45 +210,34 @@
         (batch-goals (sample-required r ci)
                      (sample (seal-sampler p) (seal-ins p) (seal-outs p) pi po))))))
 
-#| Bind existing transaction evidence to exact RTL sites, then dispatch only the public
-   protocol adapter. All parent obligations run through the same monitor-cut induction. |#
+#| Bind each sealed child monitor at its exact RTL occurrence and prove the parent projection
+   by induction over independent child histories and the actual wiring. |#
 (define (prove-transaction top view children #:child-site [implementation-site #f] #:combinational [drivers (hash)]
                            #:under [parent-spec #f] #:requires [required-view #f] #:suppliers [links (hash)])
-  (cond
-    [(fifo_behavior_view view)
-     (when (or parent-spec required-view (positive? (hash-count links))) (error 'refinement "FIFO series requires an unconditional contract"))
-     (unless (zero? (hash-count drivers)) (error 'refinement "FIFO series requires a direct handoff"))
-     (define-values (expected _i _o _w _s) (fifo_view_parts view))
-     (unless (and (same? top expected) (not implementation-site)) (error 'refinement "wrong FIFO parent or site"))
-     (prove-fifo-series-refinement view children)]
-    [else
-     (define premises (declared-premises top parent-spec))
-     (match-define (list sites cuts relation checks direct forwarded) (refinement_parts view top implementation-site))
-     (define single? (= 1 (length sites)))
-     (when (and implementation-site (not single?)) (error 'refinement "site override requires one child"))
-     ;; The original single-seal calling convention asks for a forwarded batch proof.
-     ;; With an occurrence map, forwarding is an explicit obligation on the named site.
-     (define single-evidence? (and single? (not (hash? children))))
-     (define evidence (if single-evidence? (hash (car sites) children) children))
-     (unless (and (hash? evidence) (same-schema? (sort sites string<?) (sort (hash-keys evidence) string<?)))
-       (error 'refinement "expected evidence for each declared occurrence"))
-     (when (and required-view (or (pair? sites) (positive? (hash-count drivers)) parent-spec))
-       (error 'transaction "expected an input-only history requirement on a leaf"))
-     (define req (and required-view (input-history-requirement required-view)))
-     (when (and implementation-site (positive? (hash-count links))) (error 'transaction "history links require named occurrences"))
-     (define check-links (temporal-link-checker links evidence))
-     (define bindings
-       (for/hash ([site sites])
-         (define cut (hash-ref cuts site))
-         (define child (hash-ref evidence site))
-         (values (or implementation-site site)
-                 (if (string? cut) (fifo-monitor-site child cut (hash-ref (hash-ref relation "inputs") cut))
-                     (sealed-site site cut child (or single-evidence? (member site forwarded)) (hash-has-key? links site))))))
-     (certify-view top view
-       (lambda (_model monitor layout _ins _outs sample-parent)
-         (check-monitor-refinement! check-refinement-phase! top layout Bool bindings monitor sample-parent relation checks
-                                    #:combinational (combinational-sites drivers) #:parent-premises premises
-                                    #:check-links check-links #:direct-wires direct
-                                    #:input-history (and req (input-history-at req)))
-         premises)
-       #:requirement req)]))
+  (define premises (declared-premises top parent-spec))
+  (match-define (list sites cuts relation checks direct forwarded) (refinement_parts view top implementation-site))
+  (define single? (= 1 (length sites)))
+  (when (and implementation-site (not single?)) (error 'refinement "site override requires one child"))
+  ;; The single-seal shorthand requests forwarding; maps use the declared forwarded occurrences.
+  (define single-evidence? (and single? (not (hash? children))))
+  (define evidence (if single-evidence? (hash (car sites) children) children))
+  (unless (and (hash? evidence) (same-schema? (sort (hash-keys evidence) string<?) (sort sites string<?)))
+    (error 'refinement "expected evidence for each declared occurrence"))
+  (when (and required-view (or (pair? sites) (positive? (hash-count drivers)) parent-spec))
+    (error 'transaction "expected an input-only history requirement on a leaf"))
+  (define req (and required-view (input-history-requirement required-view)))
+  (when (and implementation-site (positive? (hash-count links))) (error 'transaction "history links require named occurrences"))
+  (define check-links (temporal-link-checker links evidence))
+  (define bindings
+    (for/hash ([site sites])
+      (values (or implementation-site site)
+              (sealed-site site (hash-ref cuts site) (hash-ref evidence site)
+                           (or single-evidence? (member site forwarded)) (hash-has-key? links site)))))
+  (certify-view top view
+    (lambda (_model monitor layout _ins _outs sample-parent)
+      (check-monitor-refinement! check-refinement-phase! top layout Bool bindings monitor sample-parent relation checks
+                                #:combinational (combinational-sites drivers) #:parent-premises premises
+                                #:check-links check-links #:direct-wires direct
+                                #:input-history (and req (input-history-at req)))
+      premises)
+    #:requirement req))

@@ -263,8 +263,9 @@ monitor driven directly by the caller. With bound fields, the outputs of
 An optional sibling `refinement:` block describes a candidate relation to the
 implementation. Use one `child` declaration per RTL occurrence on the parent's
 clock and reset; `history pending from rob.order: Seq(Bool, 2)` reads only
-that occurrence's public monitor state. A `fifo` declaration reads the
-certified ordered history instead. Pass `prove-transaction` a map from
+that occurrence's public monitor state. Read a queue's ordered history the
+same way, e.g. `history upstream from a.q: Seq(data.type, depth)`.
+Pass `prove-transaction` a map from
 occurrence names to seals (empty for a register-only leaf). Each child samples
 its own driven pins and has independent history, even if two entries use the
 same seal. The parent sampler defines its own events: they need not be
@@ -296,8 +297,8 @@ the projected sequence determines capacity, and its element width must match the
 Projection expressions, optional care conditions and auxiliary invariants may
 use lexical helpers over cycle state, but not current pins. Invariants are
 proved, not assumed. Stateful derivation uses a single-clock reset proof; outside its
-care condition a sampled output may have any value. FIFO evidence still requires
-an unconditional cycle proof. General monitors retain any named input premises
+care condition a sampled output may have any value. The generic issuer uses the
+declared monitor and projection for queues as for other blocks. Its seals retain any named input premises
 from the certified cycle proof. These predicates concern **physical input pins**,
 not event batches. Inspect them with `transaction-input-premises`; until they
 are discharged, `transaction-for?` does not authorize unconditional use, and

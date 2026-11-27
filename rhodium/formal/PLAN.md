@@ -33,7 +33,7 @@ procedure, evidence type, or knowledge of a grandchild to obtain a proof.
 | Finding in the current implementation | Destination |
 |---|---|
 | [FIFO behavior](fifo-monitor.rhm) builds a bounded sequence monitor by hand. The [view binder](fifo-view.rhm) recognizes that exact monitor; the [language](../../rspecl/language.rhm) treats the combination of events and transactions as FIFO-specific. | A parameterized, importable `.rspl` monitor and pin-sampling helpers. The owning spec chooses them explicitly. No FIFO opcode, reserved history name, or second spec for the same module. |
-| [Series and wrapper issuers](refinement.rkt) know about FIFO evidence, upstream/downstream order, and transfer transport. [QueuePair](../../examples/formal/queue-pair.rspl) and [QueuePairSeries](../../examples/formal/queue-pair-series.rspl) express these facts in RSPECL; other consumers still use specialized issuers. | The parent's private `refinement:` names child occurrences, projects their public histories, and declares the handoff to check. Ordinary monitor induction or exact forwarding issues the result. Keep physical wiring checks; do not replace them with an assumed internal event. |
+| [QueuePair](../../examples/formal/queue-pair.rspl) and [QueuePairSeries](../../examples/formal/queue-pair-series.rspl) express ordering and transfer transport in RSPECL. The handwritten oracles call [FIFO-specific issuers](refinement.rkt) directly, outside generic certification. | The parent's private `refinement:` names child occurrences, projects their public histories, and declares the handoff to check. Ordinary monitor induction or exact forwarding issues the result. Keep physical wiring checks; do not replace them with an assumed internal event. |
 | [ShiftQueue](../../examples/formal/shift-queue.rspl) owns both its RTL-to-cycle and cycle-to-monitor relations. Its [handwritten oracle](tests/shift-queue-induction.rkt) is independent. | Use this split when porting other leaves: register encodings and physical observation rules belong in checked spec hints, not the runner. Keep coverage, fault injection and replay in tests. |
 | [TwoTagROB](../../examples/formal/two-tag-rob.rspl) derives its tag order from typed child history; the [logged parent](../../examples/formal/logged-two-tag-rob.rspl) consumes public retirement history. The [stall spec](../../examples/formal/stalled-offer.rspl) declares its supplier and forwarding occurrence. | Keep implementation invariants and wiring roles in RSPECL. Use proofs on actual pins to discharge requirements; neither declaring a supplier nor matching a port shape is evidence. |
 
@@ -54,9 +54,8 @@ treat a matching batch schema as proof that two monitors agree.
    compares arbitrary batches for two-bit words at capacities 2, 4 and 6:
    the verdicts agree, accepted batches produce equal live contents, and
    rejected batches hold each monitor's own history.
-2. **Remove the privileged FIFO composition path one consumer at a time.**
-   ShiftQueue's ordering observer now reads its generic seal at depths 1–3;
-   unmigrated parents still obtain independently proved legacy evidence.
+2. **Remove FIFO dispatch from generic proof issuance (complete).**
+   ShiftQueue's ordering observer reads its generic seal at depths 1–3.
    QueuePair(1) and QueuePair(2) now prove their two- and four-word bounds
    from generic ShiftQueue seals using `child`, `history`, and `relate`. Their
    `direct_wires` obligation also checks a non-FIFO parallel cut. QueuePairSeries
@@ -73,9 +72,9 @@ treat a matching batch schema as proof that two monitors agree.
    word history and its own registers, without a FIFO-specific cut.
    Keep the ordering observer's theorem unchanged, the 2/4/6-word bounds,
    fill/drain replay, and the crossed-ready, wrong-payload, reversed-history
-   and ready-when-space negatives. Retire the FIFO-specific dispatch and
-   issuer only once no production consumer needs them; a compatibility
-   observer may read generic evidence but must not mint it.
+   and ready-when-space negatives. The [generic issuer](../../rspecl/proof.rkt)
+   derives leaves and binds child seals without inspecting the protocol.
+   An observer may read generic evidence but must not mint it.
 3. **Make proof setup declarative.** ShiftQueue and QueuePair now have a
    [standalone proof](../../examples/formal/prove-queue-pair.rhm). The same entry point
    now proves the [combinational Arbiter](../../examples/formal/prove-arbiter.rhm);

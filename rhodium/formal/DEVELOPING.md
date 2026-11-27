@@ -176,9 +176,9 @@ The spec constructor returns the same public view plus a private state-only
 IR model when the issuer requests `~cycle_derivation`. Lower `relate` and
 `invariant` in the cycle's lexical scope; rebind state references, reject pins
 even in care predicates, and match source sorts to the **certified** cycle model.
-Never use a freshly constructed cycle model as proof evidence. The FIFO adapter
-infers capacity from the projected sequence and checks the endpoint width;
-other monitors use the bound dense sampler from their RSPECL declaration.
+Never use a freshly constructed cycle model as proof evidence. Every monitor
+uses its bound dense sampler and typed projection, including ShiftQueue.
+Capacity and word width are parameters of its RSPECL monitor, not interpreted by the issuer.
 The four-argument low-level derivation still accepts explicit checked projections.
 When a general monitor is derived under input assumptions, retain the exact
 named predicate IR from the certified snapshot in the seal. Never evaluate a
@@ -255,8 +255,9 @@ one and SAT at depths two and three. Neither answer restricts the theorem.
 ShiftQueue derives a generic seal for its specialized RSPECL monitor. The
 [observer reader](tests/fifo-observer-input.rkt) checks the exact top, view
 and absence of premises, then calls `transaction-step`; it supplies no FIFO
-transition of its own. The direct series checker still expects the legacy
-evidence type, independently derived on demand from the same cycle proof.
+transition of its own. The handwritten series oracle uses its own FIFO evidence,
+independently derived on demand from the cycle proof. Keep its explicit issuers
+separate: the generic parent accepts only a seal for the declared child monitor.
 
 Run `moon run rhodium:formal-test` to reproduce the proof. A failed induction
 query alone is not a trace from reset. For the faulty leaf, the test obtains a
