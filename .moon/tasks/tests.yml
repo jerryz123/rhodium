@@ -567,6 +567,7 @@ tasks:
       env PLTCOLLECTS="$PWD": tools/run-racket.sh examples/formal/prove-two-tag-rob.rhm
       env PLTCOLLECTS="$PWD": tools/run-racket.sh examples/formal/prove-logged-two-tag-rob.rhm
       env PLTCOLLECTS="$PWD": tools/run-racket.sh examples/formal/prove-stalled-offer.rhm
+      env PLTCOLLECTS="$PWD": tools/run-racket.sh examples/formal/prove-offer-register.rhm
       env PLTCOLLECTS="$PWD": tools/run-racket.sh examples/formal/prove-queue-pair-series.rhm
     inputs: []
     deps: ["check-boundaries", "racket-cache"]

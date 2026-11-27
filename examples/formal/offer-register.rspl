@@ -1,0 +1,59 @@
+#lang rspecl
+/* Specifies the two-bit OfferRegister's pre-edge deliveries and replaceable one-word history. */
+// SPDX-License-Identifier: Apache-2.0
+
+import lib("flow/offer-register.rhdl") as rtl
+import lib("rhodium/formal/spec.rhm").Observed
+
+/* Observe a Valid update independently of the Decoupled offer and its handshake. */
+fun samples(read :: Function, output :: Function):
+  def rst = read("reset", Bool)
+  def offered = !rst && output("egress.valid", Bool)
+  def word = output("egress.bits", Bits(2))
+  {"reset": Observed(const(Bool, #true), rst),
+   "installed": Observed(read("update.bits", Bits(2)), !rst && read("update.valid", Bool)),
+   "offered": Observed(word, offered),
+   "delivered": Observed(word, offered && read("egress.ready", Bool))}
+
+spec for rtl.OfferRegister:
+  state live: Bool initially #false
+  state stored: Bits(2) initially 0 as unused
+  observe egress.valid = live when !reset
+  observe egress.bits = stored when !reset && live
+
+  let keep = live && !egress.ready
+  next live = !reset && (update.valid || keep)
+  next stored = select(reset, unused, select(update.valid, update.bits, select(keep, stored, unused)))
+
+  monitor:
+    sample samples
+    publish ["installed", "delivered"]
+    batch rst = present(reset)
+    batch install = present(installed)
+    batch new_word: Bits(2) = payload(installed) when install
+    batch offered = present(offered)
+    batch offer_word: Bits(2) = payload(offered) when offered
+    batch transfer = present(delivered)
+    batch old_word: Bits(2) = payload(delivered) when transfer
+    state slot: Seq(Bits(2), 1) initially [] as vacant
+
+    guarantee "reset-quiets-events" = !rst || !(install || offered || transfer)
+    guarantee "offer-presence" = rst || select(empty(slot), !offered, offered)
+    guarantee "offer-word" = !offered || (!empty(slot) && bits_equal(offer_word, front(slot)))
+    guarantee "deliver-old-word" = !transfer || (offered && !empty(slot) && bits_equal(old_word, front(slot)))
+    // Judge delivery against the pre-edge slot; a simultaneous install wins ownership of the next slot.
+    next slot = select(rst, vacant, select(install, append(vacant, new_word), select(transfer, vacant, slot)))
+
+  refinement:
+    let vacant = const(Seq(Bits(2), 1), [])
+    relate slot = select(live, append(vacant, stored), vacant)
+
+  rtl_refinement:
+    register occupied: Bool
+    register payload: Bits(2)
+    relate live = occupied
+    relate stored = select(occupied, payload, const(Bits(2), 0))
+    pin rst from reset
+    pin valid from egress.valid
+    care egress.valid = !rst
+    care egress.bits = !rst && valid

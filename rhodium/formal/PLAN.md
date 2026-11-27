@@ -90,11 +90,12 @@ treat a matching batch schema as proof that two monitors agree.
    for stability, swapped bank and valid-only capture must still fail.
 4. **Prove reuse on an independent design.** Use the library
    [OfferRegister](../../flow/offer-register.rhdl), whose occupied word may be
-   replaced *during a stall*. Prove that a simultaneous transfer and update
-   delivers the old word and retains the new one. Reuse the seal in a parent;
-   reject an irrevocable/stable-offer claim and replay reset, install A,
-   replace with B while stalled, then consume B. The deliverable is a spec,
-   a thin invocation and tests, with **no block-specific engine change**.
+   replaced *during a stall*. Its [two-bit leaf proof](../../examples/formal/prove-offer-register.rhm)
+   certifies old-word delivery and new-word retention on a simultaneous update;
+   the [regression](tests/offer-register.rkt) rejects the stable-offer claim and
+   replays stalled replacement in RTL and rspecsim. Next, reuse the seal at
+   a parent occurrence without reopening the register. Keep this adoption
+   free of block-specific engine changes.
    A missing general capability is a separate proposal with two clients and
    a failing negative test, not an exception for OfferRegister.
 

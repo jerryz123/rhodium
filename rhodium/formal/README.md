@@ -449,6 +449,15 @@ ShiftQueue's sealed stability guarantee, is unconditional. It proves that a
 handshake following a stall reads back the **first** stalled word without
 knowing the recorder's occurrence name or inspecting its registers.
 
+The [two-bit OfferRegister proof](../../examples/formal/prove-offer-register.rhm)
+demonstrates the opposite stall policy. A Valid update installs a new word even
+while the old offer is stalled. When an update and an egress handshake coincide,
+`delivered` contains the old word, `installed` contains the new word, and the
+next non-reset sample offers the new word. Without an update a transfer empties
+the slot. Reset starts an empty epoch; no delivery or installation is reported
+on that edge. The [spec](../../examples/formal/offer-register.rspl) does not
+promise that every installed word will be delivered.
+
 To share behavior independently of any circuit, an ordinary RSPECL function may
 return a `monitor:` value. Both ROB specs use the same
 [ordered-retirement helper](../../examples/formal/ordered-retirement.rspl).

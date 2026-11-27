@@ -6,6 +6,7 @@
          (submod "arbiter-refinement.rkt" test)
          "selector-refinement.rkt"
          "stalled-offer.rkt"
+         (submod "offer-register.rkt" test)
          "arbiter-queue-order.rkt"
          (submod "arbiter-queue-transactions.rkt" test)
          "buffered-arbiter-queue-order.rkt"

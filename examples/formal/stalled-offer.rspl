@@ -12,8 +12,8 @@ fun offer_events(rst :: SpecExpr, valid :: SpecExpr, ready :: SpecExpr, word :: 
   def one = const(Bool, #true)
   {"reset": Observed(one, rst), "offer": Observed(word, !rst && valid), "ready": Observed(one, !rst && ready)}
 
-/* Read the real producer-side members of the grouped egress interface. */
-fun queue_sample(read :: Function, output :: Function):
+/* Read a two-bit producer's grouped egress pins, including samples before any transfer. */
+fun egress_sample(read :: Function, output :: Function):
   offer_events(read("reset", Bool), output("egress.valid", Bool), read("egress.ready", Bool), output("egress.bits", Bits(2)))
 
 /* The consumer assumption samples only inputs, never its remembered output. */
@@ -37,8 +37,10 @@ fun stable_offer(sampler :: Function.of_arity(2)):
     next pending = offered && !ready
     next last = select(offered && !ready, word, const(Bits(2), 0))
 
+export stable_offer egress_sample
+
 spec for queues.ShiftQueue:
-  transactions stable_offer(queue_sample)
+  transactions stable_offer(egress_sample)
   refinement:
     adjacent_samples from cycle.ShiftQueue
 
