@@ -1,81 +1,97 @@
 #lang rspecl
-/* Models two Decoupled offers with combinational priority for lane zero. */
+/* Models fixed-priority arbitration over all elaborated Decoupled inputs. */
 // SPDX-License-Identifier: Apache-2.0
 
+import lib("rhodium/frontend/layers/memory.rhm").index_width
 import lib("flow/arbiter.rhdl") as rtl
 import lib("rhodium/formal/spec.rhm").Observed
 
-/* Sample the two grant pins independently; neither requests nor a decoded winner imply a grant. */
-fun grant_events(read :: Function.of_arity(2), output :: Function.of_arity(2)):
-  /* Encode a sampled Boolean pin as event presence, including when its peer is asserted. */
+/* Keep the original public grant names for the two-lane interface. */
+fun request_name(i :: Nat): cond | i == 0: "a" | i == 1: "b" | ~else: "request" ++ to_string(i)
+
+/* Distinguish actual grant pins from corresponding requests in the public event batch. */
+fun grant_name(i :: Nat): cond | i == 0: "ga" | i == 1: "gb" | ~else: "grant" ++ to_string(i)
+
+/* Sample requests and physical grants separately: the monitor must detect a duplicate grant. */
+fun grant_events(read :: Function, output :: Function, count :: PosInt = 2):
   fun flag(pin :: SpecExpr): Observed(const(Bool, #true), pin)
-  {"a": flag(read("ingress[0].valid", Bool)), "b": flag(read("ingress[1].valid", Bool)),
-   "ready": flag(read("egress.ready", Bool)),
-   "ga": flag(output("ingress[0].ready", Bool)), "gb": flag(output("ingress[1].ready", Bool))}
+  def events = MutableMap{"ready": flag(read("egress.ready", Bool))}
+  for (i in 0..count):
+    def path = "ingress[" ++ to_string(i) ++ "]."
+    events[request_name(i)] := flag(read(path ++ "valid", Bool))
+    events[grant_name(i)] := flag(output(path ++ "ready", Bool))
+  events.snapshot()
 export grant_events
 
-/* Select the lowest valid lane anew each sample; no request locks a stalled grant. */
 spec for rtl.Arbiter:
-  unless n == 2 | error("Arbiter contract requires two lanes")
-  let first = ingress[0]
-  let second = ingress[1]
-  let valid = first.valid || second.valid
-  let data = select(first.valid, first.bits, second.bits)
-  let r0 = egress.ready && first.valid
-  let r1 = egress.ready && (!first.valid && second.valid)
-  observe ingress[0].ready = r0
-  observe ingress[1].ready = r1
+  specialize count = ingress.length() ~default: 2
+  def mutable valid = const(Bool, #false)
+  def mutable data = ingress[0].bits
+  def index = Bits(index_width(count))
+  def mutable winner = const(index, 0)
+  for (i in 0..count):
+    def lane = ingress[i]
+    def first = !valid && lane.valid
+    def take = egress.ready && first
+    observe ingress[i].ready = take
+    event ("in" ++ to_string(i)) = lane.bits when take
+    data := select(first, lane.bits, data)
+    winner := select(first, const(index, i), winner)
+    valid := valid || lane.valid
   observe egress.valid = valid
   observe egress.bits = data when valid
-  observe chosen = select(first.valid, const(Bits(1), 0), const(Bits(1), 1)) when valid
-  event in0 = first.bits when r0
-  event in1 = second.bits when r1
+  observe chosen = winner when valid
   event out = data when egress.ready && valid
+
   monitor:
-    sample grant_events
+    sample fun (read, output): grant_events(read, output, count)
     publish []
-    // A request and a grant are different observations: both requests may be high, but both grants must never be high.
-    batch a = present(a)
-    batch b = present(b)
     batch ready = present(ready)
-    batch ga = present(ga)
-    batch gb = present(gb)
-    guarantee "exclusive" = !(ga && gb)
-    guarantee "first-grant" = bool_equal(ga, ready && a)
-    guarantee "second-grant" = bool_equal(gb, ready && !a && b)
+    def mutable requested = const(Bool, #false)
+    def mutable granted = const(Bool, #false)
+    def mutable exclusive = const(Bool, #true)
+    for (i in 0..count):
+      batch req(request_name(i)) = present(request_name(i))
+      batch grant(grant_name(i)) = present(grant_name(i))
+      def label = cond | i == 0: "first-grant" | i == 1: "second-grant" | ~else: "grant-" ++ to_string(i)
+      guarantee (label) = bool_equal(grant, ready && !requested && req)
+      exclusive := exclusive && !(granted && grant)
+      granted := granted || grant
+      requested := requested || req
+    guarantee "exclusive" = exclusive
 
   rtl_refinement:
-    pin g0 from ingress[0].ready
-    pin g1 from ingress[1].ready
     pin offered from egress.valid
     pin word from egress.bits
-    care ingress[0].ready = #true
-    care ingress[1].ready = #true
+    for (i in 0..count):
+      pin grant from ingress[i].ready
+      care ingress[i].ready = #true
+      event ("in" ++ to_string(i)) = ingress[i].bits when ingress[i].valid && grant
     care egress.valid = #true
     care egress.bits = offered
     care chosen = offered
-    event in0 = first.bits when first.valid && g0
-    event in1 = second.bits when second.valid && g1
     event out = word when offered && egress.ready
 
-/* Grants describe admission; add conservation and payload equality only on physical handshakes. */
+/* The output carries precisely the input word transferred on the winning lane. */
 def transfer_contract:
   spec for rtl.Arbiter:
     let word = ingress[0].bits.type
-    events transfers = rv_transfers(~lane0: ingress[0], ~lane1: ingress[1], ~sent: egress)
+    def names = for List (i in 0..n): "lane" ++ to_string(i)
+    def lanes = for Map (name in names, port in ingress): values(name, port)
+    events transfers = rv_transfers(lanes ++ {"sent": egress})
     monitor:
       sample transfers
       publish []
-      batch take0 = present(lane0)
-      batch take1 = present(lane1)
       batch send = present(sent)
-      batch a_word: word = payload(lane0) when take0
-      batch b_word: word = payload(lane1) when take1
       batch sent_word: word = payload(sent) when send
-      // A handshake on either input must coincide with one on the output, carrying that same lane's word.
-      guarantee "conserve-transfer" = bool_equal(send, take0 || take1)
-      guarantee "forward-lane-zero" = bits_equal(a_word, sent_word) when take0
-      guarantee "forward-lane-one" = bits_equal(b_word, sent_word) when take1
+      def mutable admitted = const(Bool, #false)
+      for (name in names, i in 0..n):
+        batch take("take" ++ to_string(i)) = present(name)
+        batch incoming(request_name(i) ++ "_word"): word = payload(name) when take
+        def label = cond | i == 0: "forward-lane-zero" | i == 1: "forward-lane-one" | ~else: "forward-" ++ name
+        guarantee (label) = bits_equal(incoming, sent_word) when take
+        admitted := admitted || take
+      guarantee "conserve-transfer" = bool_equal(send, admitted)
   Arbiter
 
 def arbitrated_transfers = extend_leaf_transactions(Arbiter, transfer_contract)

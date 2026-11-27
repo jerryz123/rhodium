@@ -166,7 +166,6 @@ fun ready_valid_events(reset :: SpecExpr, incoming :: ReadyValidEndpoint || List
                        outgoing :: ReadyValidEndpoint):
   unless reset.op == "input" | error("expected a sampled reset input")
   def lanes = if incoming is_a List | incoming | [incoming]
-  when incoming is_a List && lanes.length() != 2 | error("expected two FIFO ingress lanes")
   fun (top :: Module):
     make_fifo_view(top, reset.datum, lanes.map(fun (lane): endpoint_members(top, lane)),
                    endpoint_members(top, outgoing), Bool, interface_prefixes(top))
@@ -327,20 +326,26 @@ fun checked_leaf_hints(cycle :: LeafModel, relation :: LeafModel, physical :: Le
   PairList[synchronous && spec_snapshot(relation), spec_snapshot(physical)]
 
 /* Specialize each child at its occurrence; a detached view can already check fixed child schemas. */
-fun child_transaction(top :: maybe(Module), site :: String, spec :: Function):
+fun child_transaction(top :: maybe(Module), site :: String, spec :: Function, ~defer: defer :: Boolean = #false):
   cond
   | top:
       spec(child_definition(top, site), ~transaction_view: #true)
-  | spec is_a Function.of_arity(0): spec(~transaction_view: #true)
+  | !defer && spec is_a Function.of_arity(0): spec(~transaction_view: #true)
   | ~else: OccurrenceSpec(spec)
 
 /* Resolve any deferred signatures on this RTL and type-check the relation before exposing proof data. */
 fun refinement_parts(view :: TransactionView, top :: Module, site_override :: maybe(String)):
   let PairList[sites, cuts, relation, checks, forwarded] = view.hints || error("transaction view has no refinement block")
   def bound = for Map ((site, cut) in cuts):
-    values(site, if cut is_a OccurrenceSpec
-                 | (cut.build)(child_definition(top, site_override || site), ~transaction_view: #true) :: (TransactionView || SharedExpectation)
-                 | cut)
+    def contract:
+      cond
+      | cut is_a OccurrenceSpec:
+          def occurrence = site_override || site
+          def instance = top.find_instance(occurrence)
+          unless instance | error("transaction evidence does not match the RTL occurrence: " ++ occurrence)
+          (cut.build)(instance.attribute("module"), ~transaction_view: #true) :: (TransactionView || SharedExpectation)
+      | ~else: cut
+    values(site, contract)
   check_histories(relation.inputs, bound)
   PairList[sites, bound, spec_snapshot(relation), checks, forwarded]
 

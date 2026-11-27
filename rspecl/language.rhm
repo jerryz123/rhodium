@@ -100,6 +100,79 @@ meta:
     | '$v ... when $c ...': 'ir.Observed(operand($v ...), operand($c ...))'
     | ~else: 'ir.Observed(operand($rhs))'
 
+  /* Inside an elaboration loop, only the array index is an expression; member names remain lexical. */
+  fun iterated_path(path :: Syntax):
+    match path
+    | '$(a :: Identifier)[$i ...] . $(b :: Identifier)':
+        'indexed_pin($(field_name(a)), ($i ...), $(field_name(b)))'
+    | ~else: '$(field_name(path))'
+
+  /* Collect repeated declarations alongside static ones without allowing a later lane to overwrite a field. */
+  fun iterated_fields(label :: String, emit :: Function):
+    def table = Syntax.make_temp_id(label)
+    def mutable used = #false
+    /* Allocate the collector only when this loop actually declares this kind of field. */
+    fun put(key :: Syntax, value :: Syntax):
+      unless used
+      | block:
+          emit('def $table = MutableMap{}')
+          used := #true
+      'add_field($table, $key, $value)'
+    /* Keep the existing static expansion for declarations that generate no fields. */
+    fun finish(fixed :: ReadableMap):
+      if used | 'merge_fields($(map_expr(fixed)), $table)' | map_expr(fixed)
+    values(put, finish)
+
+  /* Preserve Rhombus iteration, local bindings and evaluation order; rewrite only declaration lines. */
+  fun elaboration_loop(loop :: Syntax, translate :: Function):
+    match loop
+    | 'for ($(args :: Group), ...): $line; ...':
+        let [lowered, ...] = for List (entry in [line, ...]):
+          match entry
+          | 'for ($(inner :: Group), ...): $body; ...': elaboration_loop(entry, translate)
+          | ~else: translate(entry)
+        'for ($args, ...): $lowered; ...'
+
+  /* A family is an elaboration-time list of ordinary named state references, not a new IR sort. */
+  fun state_families(emit :: Function):
+    def values(add_state, states) = iterated_fields("states", emit)
+    def values(add_initial, initial) = iterated_fields("initial", emit)
+    def values(add_update, updates) = iterated_fields("updates", emit)
+    /* Capture the sort and initial value once before allocating the named cells. */
+    fun declare(id :: Syntax, names :: Syntax, sort :: Syntax, start :: Syntax):
+      'def $id:
+         def type = $sort
+         def seed = $start
+         for List (key in ($names :: List.of(String))):
+           $(add_state('key', 'type'))
+           $(add_initial('key', 'seed'))
+           ir.state_ref(key, type)'
+    /* Use the selected cell's checked state key, not a new generated input. */
+    fun update(ref :: Syntax, rhs :: Syntax):
+      add_update('state_key($ref)', 'operand($rhs)')
+    values(declare, update, states, initial, updates)
+
+/* Only references to declared state can name a simultaneous next-state assignment. */
+fun state_key(ref :: SpecExpr):
+  unless ref.op == "state" | error("next requires a declared state field")
+  ref.datum
+
+/* Construct an indexed port key for subsequent checking against the actual RTL signature. */
+fun indexed_pin(group :: String, index :: Nat, member :: String):
+  group ++ "[" ++ to_string(index) ++ "]." ++ member
+
+/* Install one generated field under a unique name, including across loop iterations. */
+fun add_field(table :: MutableMap, key :: String, value :~ matching(_)):
+  when key == "" || table.has_key(key) | error("empty or duplicate spec declaration: " ++ key)
+  table[key] := value
+
+/* Static and iterated declarations share the same checked namespace. */
+fun merge_fields(fixed :: Map, generated :: MutableMap):
+  for (key in generated.keys()):
+    when fixed.has_key(key) | error("duplicate spec declaration: " ++ key)
+  fixed ++ generated.snapshot()
+
+meta:
   /* Share lexical state, initial constants and simultaneous next clauses between cycle and monitor bodies. */
   fun model_body():
     def states = MutableMap{}
@@ -136,6 +209,10 @@ meta:
 
 /* A monitor verdict is observable, not an assumption. Reject the entire batch before any update is evaluated. */
 fun monitor_model(inputs :: Map, states :: Map, initial :: Map, guarantees :: Map, updates :: Map):
+  when guarantees.length() == 0 || guarantees.has_key("allowed")
+  | error("expected nonempty guarantees; allowed is reserved for the combined verdict")
+  for (key in inputs.keys()):
+    when states.has_key(key) | error("batch and state share a name: " ++ key)
   def mutable allowed = operand(#true)
   for (name in guarantees.keys().sort()):
     allowed := ir.bool_and(allowed, guarantees[name])
@@ -168,6 +245,39 @@ expr.macro 'monitor_view: $line; ...':
   def bindings = MutableMap{}
   def guarantees = MutableMap{}
   def attachment = MutableMap{}
+  def values(add_input, all_inputs) = iterated_fields("batch", model_clause)
+  def values(add_binding, all_bindings) = iterated_fields("bindings", model_clause)
+  def values(add_goal, all_goals) = iterated_fields("guarantees", model_clause)
+  def values(declare_family, update, all_states, all_initial, all_updates) = state_families(model_clause)
+  def mutable loop_goals = #false
+  /* Give generated batch fields stable external names while keeping their expression bindings lexical. */
+  fun monitor_line(line :: Syntax):
+    match line
+    | 'next $(id :: Identifier)[$i ...] = $rhs ...': update('$id[$i ...]', '($rhs ...)')
+    | 'batch $(id :: Identifier)($key ...) = present($event ...)':
+        def k = Syntax.make_temp_id("batch_key")
+        'def $id:
+           def $k = ($key ...)
+           $(add_input(k, 'Bool'))
+           $(add_binding(k, 'boundary.Presence($event ...)'))
+           ir.input_ref($k, Bool)'
+    | 'batch $(id :: Identifier)($key ...): $sort ... = payload($event ...) when $(gate :: Identifier)':
+        def k = Syntax.make_temp_id("batch_key")
+        def t = Syntax.make_temp_id("batch_sort")
+        'def $id:
+           def $k = ($key ...)
+           def $t = ($sort ...)
+           $(add_input(k, t))
+           $(add_binding(k, 'boundary.Payload(($event ...), $(gate) . datum)'))
+           ir.input_ref($k, $t)'
+    | 'guarantee ($label ...) = $rhs ...':
+        loop_goals := #true
+        def predicate:
+          match '($rhs ...)':
+          | '($v ... when $c ...)': 'select(($c ...), ($v ...), #true)'
+          | ~else: 'operand($rhs ...)'
+        add_goal('($label ...)', predicate)
+    | ~else: line
   /* A batch field is one pre-edge input to the monitor, not a pin read or a history update. */
   fun batch(n :: Syntax, type :: Syntax, site :: Syntax):
     def key = field_name(n)
@@ -175,6 +285,9 @@ expr.macro 'monitor_view: $line; ...':
     model_clause('def $n = ir.input_ref($key, $sort)')
   for (clause in [line, ...]):
     match clause
+    | 'state $(id :: Identifier)[$names ...]: $t ... initially $v ...':
+        model_clause(declare_family(id, '($names ...)', '($t ...)', '($v ...)'))
+    | 'for ($(args :: Group), ...): $items; ...': model_clause(elaboration_loop(clause, monitor_line))
     | 'batch $(n :: Identifier) = present($(e :: Identifier))':
         batch(n, 'Bool', clause)
         bindings[field_name(n)] := 'boundary.Presence($(field_name(e)))'
@@ -201,7 +314,7 @@ expr.macro 'monitor_view: $line; ...':
     | 'publish $names ...': record(attachment, "publish", '($names ...)', clause)
     | 'assume $rest ...': syntax_meta.error("a monitor judges batches with guarantees, not assumptions", clause)
     | ~else: model_clause(clause)
-  unless attachment.has_key("sample") && attachment.has_key("publish") && guarantees.length() > 0
+  unless attachment.has_key("sample") && attachment.has_key("publish") && (guarantees.length() > 0 || loop_goals)
   | syntax_meta.error("monitor requires sample, publish, and at least one guarantee", [line, ...][0])
   for (key in inputs.keys()):
     when states.has_key(key) | syntax_meta.error("batch and state share a name: " ++ key, [line, ...][0])
@@ -209,12 +322,12 @@ expr.macro 'monitor_view: $line; ...':
   'block:
      $decl
      ...
-     boundary.transaction_view(monitor_model($(map_expr(inputs)), $(map_expr(states)), $(map_expr(initial)),
-                                             $(map_expr(guarantees)), $(map_expr(updates))),
-                               $(attachment["publish"]), $(attachment["sample"]), ~bindings: $(map_expr(bindings)))'
+     boundary.transaction_view(monitor_model($(all_inputs(inputs)), $(all_states(states)), $(all_initial(initial)),
+                                             $(all_goals(guarantees)), $(all_updates(updates))),
+                               $(attachment["publish"]), $(attachment["sample"]), ~bindings: $(all_bindings(bindings)))'
 
 /* Lower implementation-state hints and separate pin-dependent obligations to ordinary spec IR. */
-expr.macro 'refined_view($view, $parent): $line; ...':
+expr.macro 'refined_view($view, $parent, $defer): $line; ...':
   def values(_, _, _, record, emit, declarations) = model_body()
   def sources = MutableMap{}
   def pins = MutableMap{}
@@ -224,7 +337,30 @@ expr.macro 'refined_view($view, $parent): $line; ...':
   def covers = MutableMap{}
   def cuts = MutableMap{}
   def mutable forwarded = []
-  def mutable sites = []
+  def mutable static_sites = []
+  def mutable family_sites = #false
+  def values(add_source, all_sources) = iterated_fields("sources", emit)
+  def values(add_relation, all_relations) = iterated_fields("relations", emit)
+  def values(add_invariant, all_invariants) = iterated_fields("invariants", emit)
+  def values(add_cut, all_cuts) = iterated_fields("children", emit)
+  /* Read named histories and local registers at the checked cut, not from a child's RTL. */
+  fun projected(line :: Syntax):
+    match line
+    | 'history $(id :: Identifier) from ($site ..., $field ...): $t ...':
+        'def $id:
+           def key = "history." ++ ($site ...) ++ "." ++ ($field ...)
+           def sort = ($t ...)
+           $(add_source('key', 'sort'))
+           ir.input_ref(key, sort)'
+    | 'local $(id :: Identifier)($key ...): $t ...':
+        'def $id:
+           def field = "local." ++ ($key ...)
+           def sort = ($t ...)
+           $(add_source('field', 'sort'))
+           ir.input_ref(field, sort)'
+    | 'relate ($key ...) = $rhs ...': add_relation('($key ...)', observation('$rhs ...'))
+    | 'invariant ($key ...) = $rhs ...': add_invariant('($key ...)', 'ir.Observed(operand($rhs ...))')
+    | ~else: line
   /* Namespace IR references by provenance; author expressions use ordinary lexical bindings. */
   fun source(n :: Syntax, sort :: Syntax, prefix :: String, table :: MutableMap, clause :: Syntax):
     def key = prefix ++ "." ++ field_name(n)
@@ -232,10 +368,15 @@ expr.macro 'refined_view($view, $parent): $line; ...':
     emit('def $n = ir.input_ref($key, $t)')
   for (clause in [line, ...]):
     match clause
+    | 'for ($(args :: Group), ...): $items; ...': emit(elaboration_loop(clause, projected))
+    | 'children ($keys ...): $s ...':
+        family_sites := #true
+        def site = Syntax.make_temp_id("site")
+        emit('for ($site in ($keys ...)): $(add_cut(site, 'boundary.child_transaction($parent, $site, ($s ...), ~defer: $defer)'))')
     | 'child $(child :: Identifier): $spec ...':
         def site = field_name(child)
-        record(cuts, site, 'boundary.child_transaction($parent, $site, ($spec ...))', clause)
-        sites := sites ++ [site]
+        record(cuts, site, 'boundary.child_transaction($parent, $site, ($spec ...), ~defer: $defer)', clause)
+        static_sites := static_sites ++ [site]
     | 'forward_batch $(child :: Identifier)':
         def site = field_name(child)
         unless cuts.has_key(site) | syntax_meta.error("forward_batch must name a declared child", child)
@@ -278,24 +419,32 @@ expr.macro 'refined_view($view, $parent): $line; ...':
     | 'next $rest ...': syntax_meta.error("refinement has no state updates", clause)
     | 'assume $rest ...': syntax_meta.error("refinement predicates must be proved", clause)
     | ~else: emit(clause)
-  let [site, ...] = sites
+  let [site, ...] = static_sites
   let [forward_site, ...] = forwarded
   let [decl, ...] = declarations()
   'block:
      $decl
      ...
-     def state_inputs = $(map_expr(sources))
-     def rel = ir.make_spec(state_inputs, {}, {}, $(map_expr(relations)), $(map_expr(invariants)), {})
+     def state_inputs = $(all_sources(sources))
+     def rel = ir.make_spec(state_inputs, {}, {}, $(all_relations(relations)), $(all_invariants(invariants)), {})
      def edge = ir.make_spec(state_inputs ++ $(map_expr(pins)), {}, {}, $(map_expr(checks)), $(map_expr(covers)), {})
-     boundary.attach_refinement($view, PairList[$site, ...], $(map_expr(cuts)), rel, edge, PairList[$forward_site, ...])'
+     def bindings = $(all_cuts(cuts))
+     boundary.attach_refinement($view, $(if family_sites | 'PairList[& bindings.keys().sort()]' | 'PairList[$site, ...]'), bindings, rel, edge, PairList[$forward_site, ...])'
 
 /* Compile a private abstraction at the cycle declaration's lexical site, not in the public monitor. */
 expr.macro 'cycle_relation($cycle): $line; ...':
   def values(_, _, _, record, emit, declarations) = model_body()
   def relations = MutableMap{}
   def invariants = MutableMap{}
+  def values(add_relation, all_relations) = iterated_fields("relations", emit)
+  /* Project each named public field using the old cycle history. */
+  fun project(line :: Syntax):
+    match line
+    | 'relate ($key ...) = $rhs ...': add_relation('($key ...)', observation('$rhs ...'))
+    | ~else: line
   for (clause in [line, ...]):
     match clause
+    | 'for ($(args :: Group), ...): $items; ...': emit(elaboration_loop(clause, project))
     | 'relate $(n :: Identifier) = $rhs ...': record(relations, field_name(n), observation('$rhs ...'), clause)
     | 'invariant $(n :: Identifier) = $rhs ...':
         record(invariants, field_name(n), 'ir.Observed(operand($rhs ...))', clause)
@@ -307,7 +456,7 @@ expr.macro 'cycle_relation($cycle): $line; ...':
   'block:
      $decl
      ...
-     ir.cycle_state_projection($cycle, $(map_expr(relations)), $(map_expr(invariants)))'
+     ir.cycle_state_projection($cycle, $(all_relations(relations)), $(map_expr(invariants)))'
 
 /* Read a parameter at its lexical use site so unused non-scalar arguments need no model value. */
 defn.macro 'bind_parameter $id($bound, $key)':
@@ -324,8 +473,29 @@ expr.macro 'rtl_relation($cycle, $ports, $sync): $line; ...':
   def checks = MutableMap{}
   def cares = MutableMap{}
   def transfers = MutableMap{}
+  def values(add_transfer, all_transfers) = iterated_fields("events", emit)
+  def values(add_care, all_cares) = iterated_fields("cares", emit)
+  def values(add_relation, all_relations) = iterated_fields("relations", emit)
+  def pin_reads = Syntax.make_temp_id("pin_reads")
+  def mutable reads = #false
+  /* Repeated reads of the same physical pin are harmless; each read must resolve on this boundary. */
+  fun physical_line(line :: Syntax):
+    match line
+    | 'event ($key ...) = $rhs ...': add_transfer('($key ...)', observation('$rhs ...'))
+    | 'relate ($key ...) = $rhs ...': add_relation('($key ...)', 'ir.Observed(operand($rhs ...))')
+    | 'pin $(id :: Identifier) from $path ...':
+        unless reads
+        | block:
+            emit('def $pin_reads = MutableMap{}')
+            reads := #true
+        def key = iterated_path('$path ...')
+        'def $id = read_physical($pin_reads, $ports, $key)'
+    | 'care $path ... = $rhs ...':
+        add_care(iterated_path('$path ...'), 'ir.Observed(operand($rhs ...))')
+    | ~else: line
   for (line in [line, ...]):
     match line
+    | 'for ($(args :: Group), ...): $items; ...': emit(elaboration_loop(line, physical_line))
     | 'register $(n :: Identifier): $t ...':
         def key = field_name(n)
         def sort = record(regs, key, '($t ...)', line)
@@ -347,10 +517,16 @@ expr.macro 'rtl_relation($cycle, $ports, $sync): $line; ...':
   'block:
      $decl
      ...
-     def rel = ir.make_spec($(map_expr(regs)), {}, {}, $(map_expr(states)), $(map_expr(checks)), {})
-     def physical = ir.make_spec($(ports) . inputs ++ $(map_expr(pins)), {}, {},
-                                 $(map_expr(cares)), $(map_expr(transfers)), {})
+     def rel = ir.make_spec($(map_expr(regs)), {}, {}, $(all_relations(states)), $(map_expr(checks)), {})
+     def physical = ir.make_spec($(ports) . inputs ++ $(map_expr(pins)) ++ $(if reads | '$(pin_reads) . snapshot()' | 'Map{}'), {}, {},
+                                 $(all_cares(cares)), $(all_transfers(transfers)), {})
      boundary.checked_leaf_hints($cycle, rel, physical, $sync)'
+
+/* A care predicate reads actual pin values, never the cycle spec's predicted outputs. */
+fun read_physical(reads :: MutableMap, ports :: SampledPorts, key :: String):
+  def sort = if ports.inputs.has_key(key) | ports.inputs[key] | ports.outputs[key]
+  reads[key] := sort
+  ir.input_ref(key, sort)
 
 /* Compile a circuit-bound body to typed IR; evaluate each clause at its original lexical site. */
 defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ...) ($arr, ...): $line; ...':
@@ -364,6 +540,8 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
   def mutable ignored = []
   def mutable event_source = #false
   def mutable bound_events = #false
+  def mutable dimension = #false
+  def mutable detached_default = #false
   def mutable transaction = #false
   def mutable refinement = #false
   def mutable forward_args = #false
@@ -375,15 +553,48 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
   def mutable rtl_hint = #false
   def child_specs = MutableMap{}
   def values(states, initial, updates, record, model_clause, declarations) = model_body()
+  def values(add_event, all_events) = iterated_fields("events", model_clause)
+  def values(add_child, all_children) = iterated_fields("proof children", model_clause)
+  def mutable child_family = #false
+  def values(add_output, all_outputs) = iterated_fields("observations", model_clause)
+  def values(declare_family, update, all_states, all_initial, all_updates) = state_families(model_clause)
+  def mutable has_family = #false
+  def mutable iterates_observations = #false
+  /* Ordinary expressions stay local; either emitted events or outputs require full cycle checking. */
+  fun cycle_line(line :: Syntax):
+    match line
+    | 'event ($key ...) = $rhs ...':
+        iterates_observations := #true
+        add_event('($key ...)', observation('$rhs ...'))
+    | 'next $(id :: Identifier)[$i ...] = $rhs ...': update('$id[$i ...]', '($rhs ...)')
+    | 'observe $path ... = $rhs ...':
+        iterates_observations := #true
+        add_output(iterated_path('$path ...'), observation('$rhs ...'))
+    | ~else: line
   def clauses = [line, ...]
   /* Distinguish a cycle spec from a monitor-only cut, independent of clause order. */
   fun has_head(entry :: Syntax, names :: Set):
     match entry
     | '$(head :: Identifier) $rest ...': field_name(head) in names
     | ~else: #false
-  def has_cycle = clauses.find(fun (c): has_head(c, {"state", "observe", "output"}))
+  /* An observation inside a loop makes this a cycle model even without a static output clause. */
+  fun cycle_clause(entry :: Syntax):
+    match entry
+    | 'for ($(args :: Group), ...): $items; ...': [items, ...].find(cycle_clause)
+    | ~else: has_head(entry, {"state", "observe", "output"})
+  def has_cycle = clauses.find(cycle_clause)
   for (clause in clauses):
     match clause
+    | 'state $(id :: Identifier)[$names ...]: $t ... initially $v ...':
+        has_family := #true
+        model_clause(declare_family(id, '($names ...)', '($t ...)', '($v ...)'))
+    | 'for ($(args :: Group), ...): $items; ...': model_clause(elaboration_loop(clause, cycle_line))
+    | 'specialize $(id :: Identifier) = $rhs ... ~default: $v ...':
+        when dimension | syntax_meta.error("duplicate monitor specialization", clause)
+        dimension := id
+        detached_default := '($v ...)'
+        model_clause('def $id :: PosInt = ($rhs ...)')
+        model_clause('def attached = dimension_view($id)')
     | 'input $n ...: $t': syntax_meta.error("inputs come from the RTL declaration", clause)
     | 'ignore $n ...': ignored := ignored ++ [field_name('$n ...')]
     | 'observe $n ... = $v ...': record(outputs, field_name('$n ...'), observation('$v ...'), clause)
@@ -436,12 +647,17 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
           | 'child $(n :: Identifier): $s ...':
               def site = field_name(n)
               child_specs[site] := 'PairList[boundary.child_definition(top, $site), ($s ...)]'
+          | 'children ($keys ...): $s ...':
+              child_family := #true
+              def site = Syntax.make_temp_id("site")
+              model_clause('for ($site in ($keys ...)):
+                              $(add_child(site, 'PairList[boundary.child_definition(top, $site), ($s ...)]'))')
           | ~else: #void
         for ((sink, source) in suppliers):
           unless child_specs.has_key(sink) && child_specs.has_key(source) && sink != source
           | syntax_meta.error("supply requires two distinct declared children", clause)
         refinement := refinement.filter(~keep: fun (item): !has_head(item, {"supply", "under"}))
-        def cut_forms = {"child", "history", "local", "input", "output", "batch", "check", "cover"}
+        def cut_forms = {"child", "children", "history", "local", "input", "output", "batch", "check", "cover"}
         when has_cycle && !forward_args && !adjacent_source && !refinement.find(fun (c): has_head(c, cut_forms))
         | block:
             projection := Syntax.make_temp_id("cycle_projection")
@@ -456,6 +672,8 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
 
   let [decl, ...] = declarations()
   def specialized = transaction && bound_events
+  when dimension && (!transaction || event_source)
+  | syntax_meta.error("specialize needs a monitor without a bound event reader", name)
   when transaction && event_source && !bound_events
   | syntax_meta.error("name the sampled event reader when declaring a transaction monitor", name)
   when forward_args && (!transaction || rtl_hint)
@@ -463,7 +681,7 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
   when adjacent_source && (!transaction || has_cycle || rtl_hint || requirement)
   | syntax_meta.error("adjacent_samples requires an unconditional monitor and a separate RTL cycle proof", name)
   when requirement && (!transaction || !refinement || rtl_hint || projection
-                        || child_specs.length() > 0)
+                        || child_specs.length() > 0 || child_family)
   | syntax_meta.error("requires needs a local monitor refinement or exact forwarding", name)
   when suppliers.length() > 0 && (!transaction || rtl_hint)
   | syntax_meta.error("supply requires a parent transaction refinement", name)
@@ -478,7 +696,9 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
   | block:
       unless transaction | syntax_meta.error("refinement requires a transaction view", name)
       let [entry, ...] = refinement
-      transaction := 'refined_view($transaction, $(if specialized | 'top' | '#false')): $entry; ...'
+      // A dimension-keyed monitor can be shared by different parents; bind its child
+      // occurrences against the actual parent's RTL when the refinement is checked.
+      transaction := 'refined_view($transaction, $(if specialized | 'top' | '#false'), $(if dimension | '#true' | '#false')): $entry; ...'
   let [skip, ...] = ignored
   def args:
     cond
@@ -504,24 +724,24 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
         def contract = if assumptions.length() > 0 | name | 'view'
         'PairList["forward", $contract, $site, $spec, $need]'
     | adjacent_source: 'PairList["adjacent", view, $adjacent_source]'
-    | ~else: 'PairList["parent", view, $(map_expr(child_specs)), $need, $(map_expr(suppliers)), $domain]'
+    | ~else: 'PairList["parent", view, $(all_children(child_specs)), $need, $(map_expr(suppliers)), $domain]'
   def leaf_plan:
     if rtl_hint
     | 'PairList["leaf", top.name, checked, view, $(if projection | '$projection(checked)' | 'Map{}'), $rtl_hint(checked)]'
     | 'error("cycle spec has no RTL refinement")'
-  def cycle_plan = if forward_args || requirement || child_specs.length() > 0 | parent_plan | leaf_plan
+  def cycle_plan = if forward_args || requirement || child_specs.length() > 0 || child_family | parent_plan | leaf_plan
   /* Return the same public view for consumers. Only a proof request also builds the private relation. */
   fun result_expr(normal :: Syntax):
     if projection | 'if derive | values(view, $projection(checked)) | $normal' | normal
-  def build = 'ir.make_spec(bound.ports.inputs, $(map_expr(states)), $(map_expr(initial)),
-                            cycle_outputs, cycle_events, $(map_expr(updates)), ~assumptions: $(map_expr(assumptions)))'
+  def build = 'ir.make_spec(bound.ports.inputs, $(all_states(states)), $(all_initial(initial)),
+                            cycle_outputs, cycle_events, $(all_updates(updates)), ~assumptions: $(map_expr(assumptions)))'
   // A passive declaration has no cycle clauses to validate. Even one such clause keeps
   // the full-model path, so requesting a view cannot hide an incomplete cycle spec.
-  def no_cycle_clauses = ignored.length() == 0
+  def no_cycle_clauses = !has_family && !iterates_observations && ignored.length() == 0
                          && ![states, outputs, events, assumptions, updates].find(fun (table): table.length() != 0)
   def passive = event_source && no_cycle_clauses
   def monitor_only = transaction && no_cycle_clauses
-  when premise_source && !(monitor_only && child_specs.length() > 0 && !event_source && !rtl_hint)
+  when premise_source && !(monitor_only && (child_specs.length() > 0 || child_family) && !event_source && !rtl_hint)
   | syntax_meta.error("under requires a monitor-only child refinement with no local cycle clauses or assumptions", name)
   def finish:
     cond
@@ -536,7 +756,7 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
     | specialized: '«
          def view = specialized_view(top, fun (): boundary.check_transaction_ports($transaction, bound.ports))
          def cycle_sampler = view.sampler with (assumptions = $(bound_events) . sampler . assumptions)
-         def cycle_events = ir.include_sampled_events(cycle_sampler, cycle_outputs, $(map_expr(events)), ~only: view.cycle_names)
+         def cycle_events = ir.include_sampled_events(cycle_sampler, cycle_outputs, $(all_events(events)), ~only: view.cycle_names)
          def checked = check_output_types($build, bound.ports.outputs, [$skip, ...])
          cond
          | plan: $cycle_plan
@@ -549,7 +769,7 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
        »'
     | transaction: '«
          def view = boundary.check_transaction_ports(attached, bound.ports)
-         def cycle_events = ir.include_sampled_events(view.sampler, cycle_outputs, $(map_expr(events)), ~only: view.cycle_names)
+         def cycle_events = ir.include_sampled_events(view.sampler, cycle_outputs, $(all_events(events)), ~only: view.cycle_names)
          def checked = check_output_types($build, bound.ports.outputs, [$skip, ...])
          if plan | $cycle_plan | $(result_expr('if tx_only | view | checked'))
        »'
@@ -560,12 +780,12 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
          »'
     | event_source: '«
          def view = boundary.bind_event_source($event_source, top)
-         def cycle_events = ir.include_sampled_events(view.sampler, cycle_outputs, $(map_expr(events)))
+         def cycle_events = ir.include_sampled_events(view.sampler, cycle_outputs, $(all_events(events)))
          def checked = check_output_types($build, bound.ports.outputs, [$skip, ...])
          $(result_expr('if view_only | view | checked'))
        »'
     | ~else: '«
-         def cycle_events = $(map_expr(events))
+         def cycle_events = $(all_events(events))
          check_output_types($build, bound.ports.outputs, [$skip, ...])
        »'
   def cycle_body = '«
@@ -580,7 +800,7 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
      ...
      $decl
      ...
-     def cycle_outputs = $(map_expr(outputs))
+     def cycle_outputs = $(all_outputs(outputs))
      $finish
    »'
   cond
@@ -590,6 +810,20 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
          unless views.has_key(top) | views[top] := build()
          views[top]
        fun $name $args: $cycle_body
+     »'
+  | dimension: '«
+       def views = MutableMap{}
+       fun dimension_view($dimension :: PosInt):
+         unless views.has_key($dimension)
+         | block:
+             def view :: boundary.TransactionView = $transaction
+             views[$dimension] := view
+         views[$dimension]
+       fun $name $tx_args:
+         cond
+         | top: $cycle_body
+         | tx_only: dimension_view($detached_default)
+         | ~else: error("cycle execution requires an elaborated RTL specialization")
      »'
   | transaction:
      '«

@@ -66,6 +66,55 @@ check:
 
 fun one_event(_read, write): {"item": Observed(write("bad", Bool))}
 
+// A generated cycle event cannot turn an incomplete cycle spec into a passive monitor.
+check:
+  block:
+    spec for rtl.ParamProbe:
+      for (name in ["seen"]):
+        event (name) = #true
+      monitor:
+        sample fun (_read, _write): {"item": Observed(const(Bool, #true))}
+        publish []
+        guarantee "ok" = #true
+    ParamProbe(elaborate(rtl.ParamProbe(0)).top, ~transaction_view: #true)
+  ~throws "missing output observation: bad"
+
+// Iteration must not turn an empty family or a name collision into a passing monitor.
+fun repeated_goals(labels):
+  monitor:
+    sample one_event
+    publish []
+    for (label in labels):
+      guarantee (label) = #true
+
+// Indexed updates read the same old state, including when another lane is updated first.
+fun shifted_flags(keys):
+  monitor:
+    sample one_event
+    publish []
+    state flags[keys]: Bool initially #false
+    for (i in 0..keys.length()):
+      next flags[i] = if i == 0 | #true | flags[i - 1]
+    guarantee "ok" = #true
+def values(_, shift, _, _) = transaction_parts(shifted_flags(["a", "b"]))
+check:
+  shifted_flags(["same", "same"]) ~throws "duplicate spec declaration: same"
+  step_spec(shift, shift.initial, {}).next_state ~is {"a": #true, "b": #false}
+check:
+  repeated_goals([]) ~throws "expected nonempty guarantees"
+  repeated_goals(["allowed"]) ~throws "allowed is reserved"
+  repeated_goals(["same", "same"]) ~throws "duplicate spec declaration: same"
+check:
+  block:
+    monitor:
+      sample one_event
+      publish []
+      batch found = present(item)
+      for (key in ["found"]):
+        batch again(key) = present("item")
+      guarantee "ok" = #true
+  ~throws "duplicate spec declaration: found"
+
 check:
   block:
     // This identifier names a sampler event even if a same-spelled local would produce a valid key.

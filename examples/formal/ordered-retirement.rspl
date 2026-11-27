@@ -6,17 +6,17 @@ import lib("rhodium/formal/spec.rhm") as ir
 export ordered_retirement retirement_events
 
 /* A retirement is a non-reset handshake; its tag and payload are one observation. */
-fun retirement_events(input :: Function.of_arity(2), output :: Function.of_arity(2)):
+fun retirement_events(input :: Function.of_arity(2), output :: Function.of_arity(2), w :: PosInt = 2):
   def rst = input("reset", Bool)
   def take = !rst && output("retire.valid", Bool) && input("retire.ready", Bool)
   {"reset": ir.Observed(const(Bool, #true), rst),
    "retired": ir.Observed(output("retire.bits", Bool), take),
-   "retired_value": ir.Observed(output("retire_result", Bits(2)), take)}
+   "retired_value": ir.Observed(output("retire_result", Bits(w)), take)}
 
 /* Decode one joint pre-edge sample. Only the four issued/retired fields belong to the
    cycle API; the monitor also needs reset and the two independent completion pulses. */
-fun ordered_events(input :: Function.of_arity(2), output :: Function.of_arity(2)):
-  def word = Bits(2)
+fun ordered_events(input :: Function.of_arity(2), output :: Function.of_arity(2), w :: PosInt = 2):
+  def word = Bits(w)
   def rst = input("reset", Bool)
   def grant_b = output("grant_b", Bool)
   def grant = !rst && (output("grant_a", Bool) || grant_b)
@@ -26,13 +26,13 @@ fun ordered_events(input :: Function.of_arity(2), output :: Function.of_arity(2)
     def present = !rst && input("complete_" ++ suffix, Bool)
     {"echo_" ++ suffix: ir.Observed(input("complete_gen_" ++ suffix, Bool), present),
      "data_" ++ suffix: ir.Observed(input("result_" ++ suffix, word), present)}
-  retirement_events(input, output) ++ issued ++ lane("a") ++ lane("b")
+  retirement_events(input, output, w) ++ issued ++ lane("a") ++ lane("b")
 
 /* False denotes A; true denotes B. Membership comes from the live issue history,
    not a copy of the implementation's busy bits. */
-fun ordered_retirement():
+fun ordered_retirement(w :: PosInt = 2):
   monitor:
-    sample ordered_events
+    sample fun (read, output): ordered_events(read, output, w)
     publish ["issued", "issued_gen", "retired", "retired_value"]
     batch reset = present(reset)
     batch grant = present(issued)
@@ -40,22 +40,22 @@ fun ordered_retirement():
     batch grant_gen: Bool = payload(issued_gen) when grant
     batch complete_a = present(echo_a)
     batch echo_a: Bool = payload(echo_a) when complete_a
-    batch data_a: Bits(2) = payload(data_a) when complete_a
+    batch data_a: Bits(w) = payload(data_a) when complete_a
     batch complete_b = present(echo_b)
     batch echo_b: Bool = payload(echo_b) when complete_b
-    batch data_b: Bits(2) = payload(data_b) when complete_b
+    batch data_b: Bits(w) = payload(data_b) when complete_b
     batch retire = present(retired)
     batch retire_tag: Bool = payload(retired) when retire
-    batch retire_data: Bits(2) = payload(retired_value) when retire
+    batch retire_data: Bits(w) = payload(retired_value) when retire
 
     // Think of this list as a scoreboard: append each newly issued tag and remove only the oldest on retirement.
     state order: Seq(Bool, 2) initially [] as cleared
     state gen_a: Bool initially #false
     state done_a: Bool initially #false
-    state saved_a: Bits(2) initially 0
+    state saved_a: Bits(w) initially 0
     state gen_b: Bool initially #false
     state done_b: Bool initially #false
-    state saved_b: Bits(2) initially 0
+    state saved_b: Bits(w) initially 0
 
     /* Compare logical tags or generations without casting them to packed words. */
     fun same(x :: SpecExpr, y :: SpecExpr): select(x, y, !y)

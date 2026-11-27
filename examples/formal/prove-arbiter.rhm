@@ -1,5 +1,5 @@
 #lang rhombus
-/* Proves the clockless two-lane Arbiter and derives its public grant contract from RTL. */
+/* Proves the clockless fixed-priority Arbiter and derives its public grant contract from RTL. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -10,6 +10,7 @@ import:
   "arbiter.rspl" as spec
 
 module main:
-  def top = elaborate(rtl.Arbiter(Bits(2), 2)).top
-  def grants = prove_design(top, spec.Arbiter)
-  println("Proved combinational Arbiter: lane-zero priority, transfer payloads, and exclusive grants")
+  for ([lanes, width] in [[1, 1], [2, 2], [3, 8]]):
+    def top = elaborate(rtl.Arbiter(Bits(width), lanes)).top
+    def grants = prove_design(top, spec.arbitrated_transfers)
+    println("Proved priority, exclusive grants and payload at " ++ to_string([lanes, width]))

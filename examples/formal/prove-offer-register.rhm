@@ -1,5 +1,5 @@
 #lang rhombus
-/* Proves the two-bit library OfferRegister delivers its old word and retains a simultaneous replacement. */
+/* Proves the library OfferRegister delivers its old word and retains a simultaneous replacement. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -10,5 +10,6 @@ import:
   lib("rspecl/runner.rkt").prove_design
 
 module main:
-  def seal = prove_design(elaborate(rtl.OfferRegister(Bits(2))).top, spec.OfferRegister)
-  println("Proved OfferRegister(Bits(2)): a transfer delivers the old word and a simultaneous update retains the new word")
+  for (width in [1, 2, 8]):
+    def seal = prove_design(elaborate(rtl.OfferRegister(Bits(width))).top, spec.OfferRegister)
+    println("Proved OfferRegister: a transfer delivers the old word and a simultaneous update retains the new word" ++ " (width " ++ to_string(width) ++ ")")

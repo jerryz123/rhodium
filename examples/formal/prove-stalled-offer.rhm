@@ -9,5 +9,6 @@ import:
   "stalled-offer.rspl" as spec
 
 module main:
-  def seal = prove_design(elaborate(rtl.BufferedStallConsumer()).top, spec.BufferedStallConsumer)
-  println("Proved BufferedStallConsumer: a transfer after a stall remembers the first stalled word")
+  for (width in [1, 2, 8]):
+    def seal = prove_design(elaborate(rtl.BufferedStallConsumer(width)).top, spec.BufferedStallConsumer)
+    println("Proved BufferedStallConsumer: a transfer after a stall remembers the first stalled word" ++ " (width " ++ to_string(width) ++ ")")

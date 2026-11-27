@@ -20,9 +20,9 @@ class FifoView(top :: Module, ingress :: List, egress :: List, width :: PosInt, 
    in the sample without treating them as transfers or imposing conditions on them. */
 fun make_fifo_view(top :: Module, rst :: String, lanes :: List.of(List), egress :: List.of(String),
                    bool :: hw.HardwareType, prefixes :: Map = {}):
-  unless lanes.length() == 1 || lanes.length() == 2 | error("expected one or two FIFO ingress lanes")
+  when lanes.length() == 0 | error("expected at least one FIFO ingress lane")
   let [ov, or_pin, ow] = egress
-  def names = [rst] ++ lanes[0] ++ (if lanes.length() == 2 | lanes[1] | []) ++ egress
+  def names = [rst] ++ List.append(& lanes) ++ egress
   def distinct = for Set (name in names): name
   def clock = top.find_input("clock")
   def epoch = top.find_input(rst)
@@ -61,14 +61,15 @@ fun make_fifo_view(top :: Module, rst :: String, lanes :: List.of(List), egress 
     [bool_and(pin(inputs, v), pin(outputs, r)), word]
   def active = bool_not(reset)
   let [fire, first_word] = transfers[0]
-  def values(push, word, domain):
-    cond
-    | transfers.length() == 1: values(fire, first_word, {})
-    | ~else:
-        let [other, second_word] = transfers[1]
-        // Selection is unambiguous on the sampler domain; this is not an arbitration policy.
-        values(bool_not(bool_and(bool_not(fire), bool_not(other))), choose_if(fire, first_word, second_word),
-               {"exclusive-ingress": bool_not(bool_and(active, bool_and(fire, other)))})
+  def mutable push = fire
+  def mutable word = first_word
+  def mutable unique = literal(SpecBool(), #true)
+  for ([other, other_word] in transfers.drop(1)):
+    unique := bool_and(unique, bool_not(bool_and(push, other)))
+    word := choose_if(push, word, other_word)
+    push := bool_not(bool_and(bool_not(push), bool_not(other)))
+  // The parent proves this domain at the physical pins; sampling never silently arbitrates two fires.
+  def domain = if lanes.length() == 1 | {} | {"exclusive-ingress": choose_if(active, unique, literal(SpecBool(), #true))}
   def events = {"reset": Observed(literal(SpecBool(), #true), reset),
                 "accepted": Observed(word, bool_and(active, push)),
                 "retired": Observed(outgoing, bool_and(active, bool_and(valid, consume)))}

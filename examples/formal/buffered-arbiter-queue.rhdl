@@ -6,13 +6,13 @@ import:
   lib("flow/main.rhdl") open
   "arbiter-queue.rhdl".ArbiterQueue
 
-/* Preserve both input lanes and pass accepted winners through two independent stages. */
-sync_circuit BufferedArbiterQueue(width :: PosInt, ~depth: depth :: PosInt = 2):
-  interface ingress[2](Decoupled(Bits(width)), ~role: consumer)
+/* Preserve all input lanes and pass accepted winners through two independent stages. */
+sync_circuit BufferedArbiterQueue(width :: PosInt, ~depth: depth :: PosInt = 2, ~lanes: lanes :: PosInt = 2):
+  interface ingress[lanes](Decoupled(Bits(width)), ~role: consumer)
   interface egress(Irrevocable(Bits(width)), ~role: producer)
-  inst front(ArbiterQueue(width, ~depth: depth))
+  inst front(ArbiterQueue(width, ~depth: depth, ~lanes: lanes))
   inst tail_fifo(ShiftQueue(Bits(width), 1))
-  for (i in 0..2):
+  for (i in 0..lanes):
     ingress[i] |> front.ingress[i]
   front.egress |> tail_fifo.ingress
   tail_fifo.egress |> egress

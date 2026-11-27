@@ -17,10 +17,20 @@ circuit OneSidedFork():
   egress[0].bits <== ingress.bits
   egress[1].bits <== ingress.bits
 
+circuit HighBitFork():
+  interface ingress(Decoupled(Bits(8)), ~role: consumer)
+  interface egress[3](Decoupled(Bits(8)), ~role: producer)
+  ingress.ready <== egress[0].ready & egress[1].ready & egress[2].ready
+  for (i in 0..3):
+    egress[i].valid <== ingress.valid & egress[(i + 1) mod 3].ready & egress[(i + 2) mod 3].ready
+    egress[i].bits <== (if i == 2 | ingress.bits ^ Bits(8)(0x80) | ingress.bits)
+
 def good_program = elaborate(AtomicFork(Bits(2), 2))
 def bad_program = elaborate(OneSidedFork())
 def good_top = good_program.top
 def bad_top = bad_program.top
+fun fork_top(count :: PosInt, width :: PosInt): elaborate(AtomicFork(Bits(width), count)).top
+def high_bit_top = elaborate(HighBitFork()).top
 def cycle = spec.AtomicFork(good_top)
 fun spec_events(inputs): step_spec(cycle, {}, inputs).events
-export good_program bad_program good_top bad_top spec_events
+export good_program bad_program good_top bad_top spec_events fork_top high_bit_top

@@ -1,20 +1,20 @@
 #lang rhodium
-/* Connects a two-word QueuePair to a four-word QueuePair through a single handoff. */
+/* Connects two independently sized QueuePairs through a single ready/valid handoff. */
 // SPDX-License-Identifier: Apache-2.0
 
 import "queue-pair.rhdl".QueuePair
 
 /* Front accepts external offers; back supplies retirements and controls the internal handoff. */
-sync_circuit QueuePairSeries():
+sync_circuit QueuePairSeries(front_depth :: PosInt = 1, back_depth :: PosInt = 2, width :: PosInt = 2):
   input offer: Bool
-  input data: Bits(2)
+  input data: Bits(width)
   input consume: Bool
   output ready: Bool
   output valid: Bool
-  output head: Bits(2)
+  output head: Bits(width)
 
-  inst front(QueuePair(1))
-  inst back(QueuePair(2))
+  inst front(QueuePair(front_depth, width))
+  inst back(QueuePair(back_depth, width))
   front.offer <== offer
   front.data <== data
   ready <== front.ready

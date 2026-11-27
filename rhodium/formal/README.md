@@ -28,10 +28,11 @@ words. This suffices to prove that the kth retirement matches the kth
 acceptance since reset. The contract supplies no cycle pins: it guarantees
 neither immediate admission nor eventual delivery. Pass `(grouped-pair-at depth)`
 to the [ordering observer](tests/queue-pair-transaction-order.rkt), which checks
-event batches with `fifo-allows?`. [QueuePairSeries](../../examples/formal/queue-pair-series.rhdl) connects
-`QueuePair(1)` to `QueuePair(2)`. Their transaction contracts suffice to prove
-FIFO retirement and at most six pending words. The chain can refuse the next
-offer with just one word pending; its six-word bound is not a readiness guarantee.
+event batches with `fifo-allows?`. [QueuePairSeries](../../examples/formal/queue-pair-series.rhdl)
+connects `QueuePair(front_depth)` to `QueuePair(back_depth)`. The spec bounds
+pending words by `2 * (front_depth + back_depth)`. With the default depths
+`(1, 2)`, the chain can refuse the next offer with just one word pending;
+its six-word bound is not a readiness guarantee.
 A separate [arbiter proof](DEVELOPING.md#two-input-fixed-priority-arbiter)
 covers a two-input, two-bit Decoupled arbiter: lane 0 wins ties and each
 output transfer consumes exactly the winning input. A stalled grant is not
@@ -65,7 +66,7 @@ Each tag's grants alternate generation 0, 1, 0, … independently. A completion
 pulse must echo its issue bit on `complete_gen_a` or `complete_gen_b` and
 its tag must already be live **before** the edge. An idle, issue-edge, or
 wrong-generation completion has no effect on that allocation.
-The first matching pulse captures the tag's two-bit `result_a` or `result_b`;
+The first matching pulse captures the tag's payload-width `result_a` or `result_b`;
 later pulses for that issue cannot overwrite it. Retirement offers the completed
 head's tag on `retire.bits` and its word on `retire_result`. Both share the
 same valid/ready handshake and remain stable while stalled (unless reset).
@@ -176,14 +177,14 @@ checks the RTL handoff, and relates their independent public histories to a FIFO
 of capacity four. The result is reusable transaction evidence, not a promise
 about when `ready` will rise. No test harness or precomputed evidence is needed.
 
-To use two proved parents as children, run the [six-word example](../../examples/formal/prove-queue-pair-series.rhm):
+To use two proved parents as children, run the [series example](../../examples/formal/prove-queue-pair-series.rhm):
 
 ```sh
 PLTCOLLECTS="$PWD": tools/run-racket.sh examples/formal/prove-queue-pair-series.rhm
 ```
 
 Prove `front` and `back` for this elaboration, then pass their seals by RTL
-occurrence name. The series spec requires two- and four-word FIFO contracts;
+occurrence name. The series spec requires a FIFO contract of twice each site's depth;
 only the caller needs to know which implementation to prove.
 
 ```rhombus
@@ -443,7 +444,7 @@ ShiftQueue's sealed stability guarantee, is unconditional. It proves that a
 handshake following a stall reads back the **first** stalled word without
 knowing the recorder's occurrence name or inspecting its registers.
 
-The [two-bit OfferRegister proof](../../examples/formal/prove-offer-register.rhm)
+The [width-parameterized OfferRegister proof](../../examples/formal/prove-offer-register.rhm)
 demonstrates the opposite stall policy. A Valid update installs a new word even
 while the old offer is stalled. When an update and an egress handshake coincide,
 `delivered` contains the old word, `installed` contains the new word, and the
@@ -727,7 +728,7 @@ zero payload. The view reads the actual ready and valid pins. It does not
 drive them, certify the FIFO, or replace a cycle model.
 
 Here `fifo_monitor` (from [rspecl/fifo.rspl](../../rspecl/fifo.rspl)) is the public
-promise: ordered two-bit words with at most twice the child depth outstanding
+promise: ordered words of the elaborated width with at most twice the child depth outstanding
 in each reset epoch. Only the private refinement names occurrences. The runner
 follows the elaborated RTL connections and checks shared clock and reset;
 the spec does not repeat the handoff. `seq_concat` joins the independent child

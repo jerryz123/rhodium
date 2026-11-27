@@ -5,28 +5,28 @@
 import lib("flow/arbiter.rhdl").Arbiter
 
 /* Combine enabled words in parallel; with at most one enable this returns the selected word. */
-circuit LaneSelector():
+circuit LaneSelector(width :: PosInt = 2):
   input (enable_a, enable_b): Bool
-  input (word_a, word_b): Bits(2)
-  output selected: Bits(2)
-  def a = mux(enable_a, word_a, Bits(2)(0))
-  def b = mux(enable_b, word_b, Bits(2)(0))
+  input (word_a, word_b): Bits(width)
+  output selected: Bits(width)
+  def a = mux(enable_a, word_a, Bits(width)(0))
+  def b = mux(enable_b, word_b, Bits(width)(0))
   selected <== a ||| b
 
 /* Present unrestricted requests to the arbiter and select only from the lanes it grants. */
-sync_circuit GrantedSelector():
+sync_circuit GrantedSelector(width :: PosInt = 2):
   input (request_a, request_b, accept): Bool
-  input (word_a, word_b): Bits(2)
-  output selected: Bits(2)
+  input (word_a, word_b): Bits(width)
+  output selected: Bits(width)
 
-  inst arb(Arbiter(Bits(2), 2))
+  inst arb(Arbiter(Bits(width), 2))
   arb.ingress[0].valid <== request_a
   arb.ingress[1].valid <== request_b
   arb.ingress[0].bits <== word_a
   arb.ingress[1].bits <== word_b
   arb.egress.ready <== accept
 
-  inst lanes(LaneSelector())
+  inst lanes(LaneSelector(width))
   lanes.enable_a <== arb.ingress[0].ready
   lanes.enable_b <== arb.ingress[1].ready
   lanes.word_a <== word_a
@@ -43,9 +43,9 @@ circuit LaneRouter():
   route_b <== valid & destination_b
 
 /* Build the shared arbitration and routing stages; return the two destination enables. */
-fun routed_grants(request_a :: Bool, request_b :: Bool, accept :: Bool, swap :: Bool,
-                  word_a :: Bits(2), word_b :: Bits(2)):
-  inst arb(Arbiter(Bits(2), 2))
+fun routed_grants(width :: PosInt, request_a :: Bool, request_b :: Bool, accept :: Bool, swap :: Bool,
+                  word_a :: Bits(width), word_b :: Bits(width)):
+  inst arb(Arbiter(Bits(width), 2))
   arb.ingress[0].valid <== request_a
   arb.ingress[1].valid <== request_b
   arb.ingress[0].bits <== word_a
@@ -59,12 +59,12 @@ fun routed_grants(request_a :: Bool, request_b :: Bool, accept :: Bool, swap :: 
   [router.route_a, router.route_b]
 
 /* Select the destination lane's word after optionally exchanging the two arbiter grants. */
-sync_circuit RoutedSelector():
+sync_circuit RoutedSelector(width :: PosInt = 2):
   input (request_a, request_b, accept, swap): Bool
-  input (word_a, word_b): Bits(2)
-  output selected: Bits(2)
-  def [a, b] = routed_grants(request_a, request_b, accept, swap, word_a, word_b)
-  inst lanes(LaneSelector())
+  input (word_a, word_b): Bits(width)
+  output selected: Bits(width)
+  def [a, b] = routed_grants(width, request_a, request_b, accept, swap, word_a, word_b)
+  inst lanes(LaneSelector(width))
   lanes.enable_a <== a
   lanes.enable_b <== b
   lanes.word_a <== word_a
@@ -72,13 +72,13 @@ sync_circuit RoutedSelector():
   selected <== lanes.selected
 
 /* Reset clears the captured word. An active edge captures the masked data; idle holds. */
-sync_circuit RegisteredLaneSelector():
+sync_circuit RegisteredLaneSelector(width :: PosInt = 2):
   input (enable_a, enable_b): Bool
-  input (word_a, word_b): Bits(2)
-  output selected: Bits(2)
-  reg captured(~init: Bits(2)(0))
-  def a = mux(enable_a, word_a, Bits(2)(0))
-  def b = mux(enable_b, word_b, Bits(2)(0))
+  input (word_a, word_b): Bits(width)
+  output selected: Bits(width)
+  reg captured(~init: Bits(width)(0))
+  def a = mux(enable_a, word_a, Bits(width)(0))
+  def b = mux(enable_b, word_b, Bits(width)(0))
   def capture = enable_a ||| enable_b
   when capture:
     captured <== a ||| b
@@ -86,12 +86,12 @@ sync_circuit RegisteredLaneSelector():
   selected <== captured
 
 /* Capture the routed destination word on a grant and retain it through subsequent idle edges. */
-sync_circuit RegisteredRoutedSelector():
+sync_circuit RegisteredRoutedSelector(width :: PosInt = 2):
   input (request_a, request_b, accept, swap): Bool
-  input (word_a, word_b): Bits(2)
-  output selected: Bits(2)
-  def [a, b] = routed_grants(request_a, request_b, accept, swap, word_a, word_b)
-  inst lanes(RegisteredLaneSelector())
+  input (word_a, word_b): Bits(width)
+  output selected: Bits(width)
+  def [a, b] = routed_grants(width, request_a, request_b, accept, swap, word_a, word_b)
+  inst lanes(RegisteredLaneSelector(width))
   lanes.enable_a <== a
   lanes.enable_b <== b
   lanes.word_a <== word_a

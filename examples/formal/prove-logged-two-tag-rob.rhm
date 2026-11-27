@@ -9,5 +9,6 @@ import:
   "logged-two-tag-rob.rspl" as spec
 
 module main:
-  def seal = prove_design(elaborate(rtl.LoggedTwoTagROB()).top, spec.LoggedTwoTagROB)
-  println("Proved LoggedTwoTagROB: reset clears has_commit, retirement captures tag and payload, stalls hold the record")
+  for (width in [1, 2, 8]):
+    def seal = prove_design(elaborate(rtl.LoggedTwoTagROB(width)).top, spec.LoggedTwoTagROB)
+    println("Proved LoggedTwoTagROB: reset clears has_commit, retirement captures tag and payload, stalls hold the record" ++ " (width " ++ to_string(width) ++ ")")

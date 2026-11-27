@@ -57,7 +57,7 @@ def fifo = ShiftQueue(rtl.fifo_definition)
 check:
   fifo.outputs.keys().sort() ~is ["egress.bits", "egress.valid", "ingress.ready"]
   Arbiter(rtl.arbiter_definition).inputs.has_key("reset") ~is #false
-  Arbiter(elaborate(arb_rtl.Arbiter(payload, 3)).top) ~throws "requires two lanes"
+  Arbiter(elaborate(arb_rtl.Arbiter(payload, 3)).top).outputs["chosen"].value.type.width ~is 2
   ShiftQueue(elaborate(fifo_rtl.ShiftQueue(payload, 2, ~pipe: #true)).top) ~throws "requires pipe, flow, and flushable disabled"
   ShiftQueue(elaborate(fifo_rtl.ShiftQueue(payload, 2, ~flow: #true)).top) ~throws "requires pipe, flow, and flushable disabled"
   ShiftQueue(elaborate(fifo_rtl.ShiftQueue(payload, 2, ~flushable: #true)).top) ~throws "requires pipe, flow, and flushable disabled"
@@ -248,6 +248,15 @@ check:
 // values only for pins outside cycle-spec care; they must not affect the transaction batch.
 def physical_defaults = {"ingress[0].ready": #true, "ingress[1].ready": #true,
                          "egress.valid": #true, "egress.bits": 0}
+def three_inputs = ArbiterQueue(elaborate(design.ArbiterQueue(8, ~lanes: 3)).top, ~event_view: #true)
+def last_lane = contest ++ physical_defaults ++ {"ingress[0].ready": #false, "ingress[1].ready": #false,
+                                                 "ingress[2].ready": #true, "ingress[2].valid": #true,
+                                                 "ingress[2].bits": 129}
+check:
+  sample_fifo_events(three_inputs, last_lane) ~is {"accepted": 129}
+  sample_fifo_events(three_inputs, last_lane ++ {"ingress[1].ready": #true}) ~throws "exclusive-ingress"
+  sample_fifo_events(three_inputs, last_lane ++ {"ingress[1].ready": #true, "reset": #true}) ~is {"reset": #true}
+
 for (depth in [1, 2, 3]):
   def top = rtl.parent_at(depth)
   def model = ArbiterQueue(top)

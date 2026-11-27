@@ -378,11 +378,12 @@ It ranges over all successors allowed by both child relations, without using
 any cycle timing guarantee. It proves the joint external FIFO rule on the downstream
 pending words followed by the upstream words; only the internal transfer is hidden.
 The [QueuePairSeries spec](../../examples/formal/queue-pair-series.rspl) uses the
-generic runner: it requires shared FIFO contracts of capacities two and four,
+generic runner: it derives the two shared FIFO capacities from the RTL depth parameters,
 without importing either child's spec. The [standalone proof](../../examples/formal/prove-queue-pair-series.rhm)
 supplies seals for the actual QueuePair specializations and
 does not import the handwritten issuer's test harness. The [series regression](tests/queue-pair-series.rkt)
-keeps that oracle and feeds both six-word results to the same ordinal observer.
+feeds each of the three depth pairs to the same ordinal observer and keeps
+the handwritten six-word oracle for the default configuration.
 Run the observer with both seals supplied via `#:children`. Check that missing
 or extra sites, exchanged seals, and mismatched capacities fail at the contract
 boundary. The wrong ready driver and upstream-first relation must fail induction

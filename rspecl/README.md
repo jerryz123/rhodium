@@ -25,7 +25,7 @@ import:
   lib("rhodium/formal/spec.rhm").step_spec
 
 spec for rtl.RegisteredLaneSelector:
-  state saved: Bits(2) initially 0 as cleared
+  state saved: word_a.type initially 0 as cleared
   assume exclusive = reset || !(enable_a && enable_b)
   observe selected = saved when !reset
   event captured = select(enable_a, word_a, word_b) when !reset && (enable_a || enable_b)
@@ -57,6 +57,29 @@ the matching elaborated specialization to get its cycle model. Port names,
 interface members and supported integer and Boolean parameters are lexical
 bindings. Use ordinary Rhombus functions to build expressions; the solver does
 not invoke those functions on each hardware edge.
+
+For an interface array, a Rhombus `for (i in 0..n):` can generate
+`observe egress[i].bits = ...` in a cycle model and `pin`/`care` declarations
+in its RTL refinement. Within a monitor loop, `batch sent(key) = present(name)`
+binds the lexical variable `sent` to a batch field named by the string `key`;
+`batch word(data_key): T = payload(name) when sent` binds its guarded payload.
+`guarantee (label) = ...` names a verdict for that iteration. These expressions
+run at specialization time; generated names must be unique within their schema.
+A loop can also declare a named cycle or physical transfer with `event (name) = value when guard`.
+See the [AtomicFork spec](../examples/formal/atomic-fork.rspl) for a complete example.
+
+A monitor that also needs to run without an RTL instance can write
+`specialize w = word_a.type.width ~default: 2`. With an elaborated top,
+the RTL expression always sets `w`; the default applies only to a detached
+`~transaction_view: #true` request. This describes a monitor, not proof
+evidence. A monitor with a bound `events` reader already specializes to
+the actual top and needs no default.
+
+`state slots[names]: T initially value` declares one ordinary state field per
+name and binds `slots` to their references in list order. Use `next slots[i] = ...`
+in a loop; all updates still read the old state. In a cycle or RTL projection,
+`relate (name) = ...` names the target field for that iteration. The proof must
+still cover each field with the correct type.
 
 | Inside a spec | Meaning |
 |---|---|
@@ -106,14 +129,16 @@ for three scalar pins. There is no implicit reset or choice of winner. Even a
 one-sided transfer remains visible, so the [fork guarantee](../examples/formal/atomic-fork.rspl)
 can reject it. For FIFO-style reset, accepted and retired events use
 `ready_valid_events`; add [`fifo_monitor`](fifo.rspl) to promise ordering and a bound.
-For a buffered two-recipient broadcast, pass the three-endpoint `transfers`
-above to [`broadcast_monitor(width, transfers)`](broadcast.rspl). It samples
+For a buffered broadcast, `broadcast_transfers(ingress, egress)` samples the
+input and every output. Pass its bound event reader to
+[`broadcast_monitor(count, width, transfers)`](broadcast.rspl). It samples
 the `reset` input and tracks which recipients still need the old word.
+Two outputs retain the event names `left` and `right`; other counts use `lane0`, `lane1`, and so on.
 The last recipient may take that word on the edge accepting its replacement;
 the monitor promises neither when a recipient is ready nor that it ever retires.
 Compare [Broadcast](../examples/formal/broadcast.rspl), which can accept on that
 edge, with [QueuedFork](../examples/formal/queued-fork.rspl), which waits for
-both queues to have space. Both use the same monitor.
+every branch queue to have space. Both use the same monitor.
 An observer can reuse `broadcast_events(transfers)` to sample the same
 reset-qualified transfers alongside its own pins, as in
 [BroadcastReceipt](../examples/formal/broadcast-receipt.rspl).
@@ -131,6 +156,10 @@ Proof hints say **how to check** the contract; they cannot grant it:
   follows the elaborated RTL wiring and checks the relation at reset and across
   steps, as in [QueuePair](../examples/formal/queue-pair.rspl). Use `forward`
   when the obligation is that a wrapper preserves a child's event batch.
+  For a repeated child, `children (sites): ChildSpec` declares one checked
+  occurrence per name. Inside a refinement loop, `history h from (site, field): T`
+  reads that occurrence's public history; `local bit(name): Bool` reads a parent
+  register. Neither construct grants access to a child's registers.
 - An alternate monitor can use `under` to retain a declaration's input
   **assumptions**, not its guarantees. See [GatedCapture](../examples/formal/gated-capture.rspl).
   For an assumption spanning samples, see [stalled-offer requirements and suppliers](../examples/formal/stalled-offer.rspl).
@@ -177,11 +206,11 @@ sampling, initial history, verdicts and updates. Matching event names is not
 enough. It does not search for an implementation or prove monitor implication.
 
 The [series spec](../examples/formal/queue-pair-series.rspl) uses
-[`fifo_contract(capacity, width, source)`](fifo.rspl) to require a two-word FIFO
-at `front` and a four-word FIFO at `back`. It passes the ready/valid event
+[`fifo_contract(capacity, width, source)`](fifo.rspl) to require capacities
+`2 * front_depth` and `2 * back_depth` (two and four words by default). It passes the ready/valid event
 *source*, not the parent's sampled events: the same pin names are read separately
 on each child. The parent joins the downstream history followed by the upstream
-history to describe its six-word FIFO. The runner checks
+history to describe a FIFO bounded by their sum. The runner checks
 this relation on the actual RTL handoff. A successful proof returns an opaque seal for that
 specialization and contract. It does **not** promise that `ready` is high
 whenever space remains, or that every word eventually retires.

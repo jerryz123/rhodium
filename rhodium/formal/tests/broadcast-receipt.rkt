@@ -63,9 +63,10 @@
     (match-define (list ins outs) (leaf_layout top (interface_prefixes top)))
     (define initial (for/hash ([reg (transition_registers rtl)]) (values (hash-ref reg "name") 0)))
     (for/fold ([regs initial] [history #f] [log '()] #:result (reverse log)) ([row rows])
-      (match-define (list rst put data l r) row)
-      (define inputs (hash "reset" rst "ingress.valid" put "ingress.bits" data
-                           "egress[0].ready" l "egress[1].ready" r))
+      (match-define (list* rst put data ready) row)
+      (define inputs (for/fold ([pins (hash "reset" rst "ingress.valid" put "ingress.bits" data)])
+                               ([r ready] [i (in-naturals)])
+                       (hash-set pins (format "egress[~a].ready" i) r)))
       (define edge (step_transition rtl regs (pack-pins ins inputs)))
       (check-true (transition_step_validity edge))
       (define pins (for/fold ([pins inputs]) ([(k v) (unpack-pins outs (transition_step_outputs edge))])
@@ -95,6 +96,18 @@
         (define bad (replay bad_top (view direct) (take rows 5)))
         (check-equal? (take bad 4) (map (lambda (e) (list e #t)) (take events 4)))
         (check-equal? (last bad) (list (hash-remove (list-ref events 4) "pulse") #f)))))
+
+  (for ([top (list wide_direct wide_queued)] [queued? '(#f #t)])
+    (test-case "three independent deliveries pulse only on the last; wide replacement survives"
+      (define rows '((#t #f 0 #f #f #f) (#f #t 129 #f #f #f)
+                     (#f #f 0 #f #f #t) (#f #f 0 #t #f #f)
+                     (#f #t 254 #f #t #f) (#f #t 254 #f #f #f) (#f #f 0 #t #t #t)))
+      (define final-copy (hash "lane1" 129 "pulse" #t))
+      (define events (list (hash "reset" #t) (hash "accepted" 129) (hash "lane2" 129) (hash "lane0" 129)
+                           (if queued? final-copy (hash-set final-copy "accepted" 254))
+                           (if queued? (hash "accepted" 254) (hash))
+                           (hash "lane0" 254 "lane1" 254 "lane2" 254 "pulse" #t)))
+      (check-equal? (replay top (view top) rows) (map (lambda (e) (list e #t)) events))))
 
   (for ([top (list direct queued)])
     (test-case "reset cancels a split word even if its final recipient is ready"

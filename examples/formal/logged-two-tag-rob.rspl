@@ -8,31 +8,31 @@ import "ordered-retirement.rspl" open
 import lib("rhodium/formal/spec.rhm").Observed
 
 /* Sample a retirement on handshake, and the pre-edge record whenever it is valid. */
-fun recorder_events(input :: Function.of_arity(2), output :: Function.of_arity(2)):
+fun recorder_events(input :: Function.of_arity(2), output :: Function.of_arity(2), w :: PosInt):
   def recorded = output("has_commit", Bool)
   def readback = {"record": Observed(output("last_tag", Bool), recorded),
-                  "record_data": Observed(output("last_payload", Bits(2)), recorded)}
-  retirement_events(input, output) ++ readback
+                  "record_data": Observed(output("last_payload", Bits(w)), recorded)}
+  retirement_events(input, output, w) ++ readback
 
 /* Logical bits may be tag A (false); event presence, not payload truth, signals capture. */
 fun same(x :: SpecExpr, y :: SpecExpr): select(x, y, !y)
 
 /* Add last-record readback to the same retirement handshake as the ordering behavior. */
-fun last_record():
+fun last_record(w :: PosInt):
   monitor:
-    sample recorder_events
+    sample fun (read, output): recorder_events(read, output, w)
     publish []
     batch reset = present(reset)
     batch retire = present(retired)
     batch retire_tag: Bool = payload(retired) when retire
-    batch retire_data: Bits(2) = payload(retired_value) when retire
+    batch retire_data: Bits(w) = payload(retired_value) when retire
     batch valid = present(record)
     batch last_tag: Bool = payload(record) when valid
-    batch last_payload: Bits(2) = payload(record_data) when valid
+    batch last_payload: Bits(w) = payload(record_data) when valid
 
     state occupied: Bool initially #false
     state tag: Bool initially #false
-    state data: Bits(2) initially 0
+    state data: Bits(w) initially 0
     guarantee "reset-quiets-retirement" = !retire when reset
     guarantee "record-valid" = same(valid, occupied) when !reset
     guarantee "record-value" = same(last_tag, tag) && bits_equal(last_payload, data) when !reset && valid
@@ -42,7 +42,8 @@ fun last_record():
     next data = select(retire, retire_data, data)
 
 spec for rtl.LoggedTwoTagROB:
-  transactions combine_transactions(ordered_retirement(), last_record())
+  specialize w = result_a.type.width ~default: 2
+  transactions combine_transactions(ordered_retirement(w), last_record(w))
 
   refinement:
     child rob: specs.TwoTagROB
@@ -50,7 +51,7 @@ spec for rtl.LoggedTwoTagROB:
     forward_batch rob
     local (occupied): Bool
     local (tag): Bits(1)
-    local (payload): Bits(2)
+    local (payload): Bits(w)
     relate occupied = occupied
     relate tag = bits_equal(tag, const(Bits(1), 1)) when occupied
     relate data = payload when occupied
@@ -59,8 +60,8 @@ spec for rtl.LoggedTwoTagROB:
     history pending from rob.order: Seq(Bool, 2)
     history a_done from rob.done_a: Bool
     history b_done from rob.done_b: Bool
-    history a_data from rob.saved_a: Bits(2)
-    history b_data from rob.saved_b: Bits(2)
+    history a_data from rob.saved_a: Bits(w)
+    history b_data from rob.saved_b: Bits(w)
     history a_gen from rob.gen_a: Bool
     history b_gen from rob.gen_b: Bool
     let live = !empty(pending)

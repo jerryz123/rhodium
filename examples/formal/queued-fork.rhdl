@@ -1,21 +1,22 @@
 #lang rhodium
-/* Builds a two-recipient broadcast from an atomic fork and independent one-word queues. */
+/* Builds a broadcast from an atomic fork and independent one-word queues. */
 // SPDX-License-Identifier: Apache-2.0
 
 import lib("flow/main.rhdl") open
 
-/* Both queues must accept an ingress word together, but either output may drain first. */
-sync_circuit QueuedFork():
-  interface ingress(Decoupled(Bits(2)), ~role: consumer)
-  interface egress[2](Irrevocable(Bits(2)), ~role: producer)
+/* RHDL gives repeated queue instances these occurrence names in elaboration order. */
+fun queue_site(i :: NonnegInt):
+  if i == 0 | "queue" | "queue_" ++ to_string(i)
 
-  inst fork(AtomicFork(Bits(2), 2))
-  inst left(ShiftQueue(Bits(2), 1))
-  inst right(ShiftQueue(Bits(2), 1))
+/* Admission is atomic; each recipient drains its one-word queue independently. */
+sync_circuit QueuedFork(n :: PosInt = 2, width :: PosInt = 2):
+  interface ingress(Decoupled(Bits(width)), ~role: consumer)
+  interface egress[n](Irrevocable(Bits(width)), ~role: producer)
+  inst fork(AtomicFork(Bits(width), n))
   ingress |> fork.ingress
-  fork.egress[0] |> left.ingress
-  fork.egress[1] |> right.ingress
-  left.egress |> egress[0]
-  right.egress |> egress[1]
+  for (i in 0..n):
+    inst queue(ShiftQueue(Bits(width), 1))
+    fork.egress[i] |> queue.ingress
+    queue.egress |> egress[i]
 
-export QueuedFork
+export QueuedFork queue_site

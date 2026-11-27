@@ -8,11 +8,11 @@ import "capture-history.rspl" open
 spec for rtl.LaneSelector:
   // This selector promises a result only for legal enables. A caller must establish that the two cannot overlap.
   assume exclusive = !(enable_a && enable_b)
-  observe selected = select(enable_a, word_a, select(enable_b, word_b, const(Bits(2), 0)))
+  observe selected = select(enable_a, word_a, select(enable_b, word_b, const(word_a.type, 0)))
 
 spec for rtl.GrantedSelector:
   observe selected = select(accept && request_a, word_a,
-                            select(accept && request_b, word_b, const(Bits(2), 0)))
+                            select(accept && request_b, word_b, const(word_a.type, 0)))
 
 spec for rtl.LaneRouter:
   assume exclusive = !(grant_a && grant_b)
@@ -22,30 +22,32 @@ spec for rtl.LaneRouter:
 spec for rtl.RoutedSelector:
   let active = accept && (request_a || request_b)
   let select_a = select(swap, !request_a, request_a)
-  observe selected = select(active, select(select_a, word_a, word_b), const(Bits(2), 0))
+  observe selected = select(active, select(select_a, word_a, word_b), const(word_a.type, 0))
 
 /* The selector captures whenever either enable is high; reset suppresses capture. */
-fun selector_events(read :: Function.of_arity(2), output :: Function.of_arity(2)):
-  capture_sample(read, output, const(Bool, #true), "enable_a", "enable_b")
+fun selector_events(read :: Function.of_arity(2), output :: Function.of_arity(2), w :: PosInt = 2):
+  capture_sample(read, output, const(Bool, #true), "enable_a", "enable_b", w)
 
 spec for rtl.RegisteredLaneSelector:
-  state last_word: Bits(2) initially 0 as cleared
+  specialize w = word_a.type.width ~default: 2
+  state last_word: Bits(w) initially 0 as cleared
   assume exclusive = reset || !(enable_a && enable_b)
   // Unlike the combinational selector above, this output shows the previous capture, not the word now being selected.
   observe selected = last_word when !reset
   next last_word = select(reset, cleared, select(enable_a, word_a, select(enable_b, word_b, last_word)))
-  transactions capture_monitor(selector_events)
+  transactions capture_monitor(fun (read, output): selector_events(read, output, w),
+                               w)
   refinement:
     // Connect the transaction history to the cycle model; below, connect that model to the actual captured register.
     relate previous = last_word
   rtl_refinement:
-    register captured: Bits(2)
+    register captured: Bits(w)
     relate last_word = captured
     pin rst from reset
     care selected = !rst
 
 spec for rtl.RegisteredRoutedSelector:
-  state retained: Bits(2) initially 0 as cleared
+  state retained: word_a.type initially 0 as cleared
   let active = accept && (request_a || request_b)
   let select_a = select(swap, !request_a, request_a)
   observe selected = retained when !reset

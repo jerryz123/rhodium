@@ -8,27 +8,28 @@ import "shift-queue.rspl".ShiftQueue
 import lib("rhodium/formal/spec.rhm").Observed
 
 /* Read only parent pins. The transferred word is checked at retirement, not copied from the handoff. */
-fun samples(read :: Function, output :: Function):
+fun samples(read :: Function, output :: Function, w :: PosInt):
   def rst = read("reset", Bool)
   def flag = const(Bool, #true)
   {"reset": Observed(flag, rst),
-   "install": Observed(read("update.bits", Bits(2)), !rst && read("update.valid", Bool)),
+   "install": Observed(read("update.bits", Bits(w)), !rst && read("update.valid", Bool)),
    "ready": Observed(flag, !rst && output("handoff_ready", Bool)),
-   "retire": Observed(output("egress.bits", Bits(2)), !rst && output("egress.valid", Bool) && read("egress.ready", Bool))}
+   "retire": Observed(output("egress.bits", Bits(w)), !rst && output("egress.valid", Bool) && read("egress.ready", Bool))}
 
 spec for rtl.OfferQueue:
+  specialize w = update.bits.type.width ~default: 2
   monitor:
-    sample samples
+    sample fun (read, output): samples(read, output, w)
     publish []
     batch rst = present(reset)
     batch install = present(install)
-    batch incoming: Bits(2) = payload(install) when install
+    batch incoming: Bits(w) = payload(install) when install
     batch ready = present(ready)
     batch retire = present(retire)
-    batch outgoing: Bits(2) = payload(retire) when retire
+    batch outgoing: Bits(w) = payload(retire) when retire
     // An update is still replaceable in pending. Only after the FIFO accepts it is that word owed to the output.
-    state pending: Seq(Bits(2), 1) initially [] as vacant
-    state committed: Seq(Bits(2), 1) initially []
+    state pending: Seq(Bits(w), 1) initially [] as vacant
+    state committed: Seq(Bits(w), 1) initially []
 
     let handoff = ready && !empty(pending)
     guarantee "reset-quiets-events" = !(install || ready || retire) when rst
@@ -42,12 +43,12 @@ spec for rtl.OfferQueue:
   refinement:
     child offer: OfferRegister
     child fifo: ShiftQueue
-    history latest from offer.slot: Seq(Bits(2), 1)
-    history accepted from fifo.q: Seq(Bits(2), 1)
+    history latest from offer.slot: Seq(Bits(w), 1)
+    history accepted from fifo.q: Seq(Bits(w), 1)
     relate pending = latest
     relate committed = accepted
     batch installing from install: Bool
-    batch replacement from incoming: Bits(2)
+    batch replacement from incoming: Bits(w)
     batch admitting from ready: Bool
     // Ask for a reachable edge with different old and new words, so a mix-up between them would be observable.
     cover distinct_replacement = installing && admitting && !empty(latest) && !bits_equal(replacement, front(latest))

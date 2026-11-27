@@ -7,7 +7,8 @@ import "arbiter-queue.rspl".ArbiterQueue
 import "ordered-retirement.rspl".ordered_retirement
 
 spec for rtl.TwoTagROB:
-  transactions ordered_retirement()
+  specialize w = result_a.type.width ~default: 2
+  transactions ordered_retirement(w)
 
   // Private induction hints, not statements that a consumer may assume about this RTL.
   refinement:
@@ -15,7 +16,7 @@ spec for rtl.TwoTagROB:
     // Read the order queue's proved list of words; its internal registers are not part of this proof.
     history words from order.q: Seq(Bits(2), 2)
     local (busy_a, busy_b, gen_a, gen_b, done_a, done_b): Bool
-    local (saved_a, saved_b): Bits(2)
+    local (saved_a, saved_b): Bits(w)
     let live = !empty(words)
     let two = full(words)
     let zero = const(Bits(2), 0)
@@ -64,8 +65,8 @@ spec for rtl.TwoTagROB:
   // The spec counts issues modulo two. While a tag is live its issued bit is the opposite of its next bit.
   state next_gen_a: Bool initially #false
   state next_gen_b: Bool initially #false
-  state value_a: Bits(2) initially 0 as unused
-  state value_b: Bits(2) initially 0
+  state value_a: Bits(w) initially 0 as unused
+  state value_b: Bits(w) initially 0
 
   let live = !empty(history)
   let two = full(history)

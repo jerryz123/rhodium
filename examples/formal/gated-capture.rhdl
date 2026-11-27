@@ -7,11 +7,11 @@ import:
   lib("flow/arbiter.rhdl").Arbiter
 
 /* Forward grants only on capture edges; the selector owns the stored word and reset. */
-sync_circuit GatedCapture():
+sync_circuit GatedCapture(width :: PosInt = 2):
   input (grant_a, grant_b, capture): Bool
-  input (word_a, word_b): Bits(2)
-  output selected: Bits(2)
-  inst lanes(RegisteredLaneSelector())
+  input (word_a, word_b): Bits(width)
+  output selected: Bits(width)
+  inst lanes(RegisteredLaneSelector(width))
   lanes.enable_a <== capture & grant_a
   lanes.enable_b <== capture & grant_b
   lanes.word_a <== word_a
@@ -19,18 +19,18 @@ sync_circuit GatedCapture():
   selected <== lanes.selected
 
 /* Capture the highest-priority request's word, allowing both lanes to request together. */
-sync_circuit ArbitratedCapture():
+sync_circuit ArbitratedCapture(width :: PosInt = 2):
   input (request_a, request_b, capture): Bool
-  input (word_a, word_b): Bits(2)
-  output selected: Bits(2)
-  inst arb(Arbiter(Bits(2), 2))
+  input (word_a, word_b): Bits(width)
+  output selected: Bits(width)
+  inst arb(Arbiter(Bits(width), 2))
   arb.ingress[0].valid <== request_a
   arb.ingress[1].valid <== request_b
   arb.ingress[0].bits <== word_a
   arb.ingress[1].bits <== word_b
   arb.egress.ready <== capture
 
-  inst gate(GatedCapture())
+  inst gate(GatedCapture(width))
   gate.grant_a <== arb.ingress[0].ready
   gate.grant_b <== arb.ingress[1].ready
   gate.capture <== capture

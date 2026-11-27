@@ -7,25 +7,25 @@ export capture_sample capture_monitor
 
 /* Read pre-edge data only on a non-reset capture with an enabled lane. */
 fun capture_sample(read :: Function.of_arity(2), output :: Function.of_arity(2),
-                   enabled :: SpecExpr, lane_a :: String, lane_b :: String):
+                   enabled :: SpecExpr, lane_a :: String, lane_b :: String, w :: PosInt = 2):
   def rst = read("reset", Bool)
   def a = read(lane_a, Bool)
   def fire = !rst && enabled && (a || read(lane_b, Bool))
-  def winner = select(a, read("word_a", Bits(2)), read("word_b", Bits(2)))
+  def winner = select(a, read("word_a", Bits(w)), read("word_b", Bits(w)))
   {"reset": Observed(const(Bool, #true), rst),
-   "captured": Observed(winner, fire), "readback": Observed(output("selected", Bits(2)), fire)}
+   "captured": Observed(winner, fire), "readback": Observed(output("selected", Bits(w)), fire)}
 
 /* Reset forgets the old word; a capture reports it before committing the new winner. */
-fun capture_monitor(sampler :: Function.of_arity(2)):
+fun capture_monitor(sampler :: Function.of_arity(2), w :: PosInt = 2):
   monitor:
     sample sampler
     publish []
     batch reset = present(reset)
     batch fire = present(captured)
-    batch winner: Bits(2) = payload(captured) when fire
-    batch readback: Bits(2) = payload(readback) when fire
+    batch winner: Bits(w) = payload(captured) when fire
+    batch readback: Bits(w) = payload(readback) when fire
     // For example, if the old word is 1 and this capture selects 3, readback must still be 1 on this edge.
-    state previous: Bits(2) initially 0
+    state previous: Bits(w) initially 0
     guarantee "previous-on-capture" = bits_equal(readback, previous) when fire
     // The 3 becomes the expected readback for the next capture, unless reset clears the history first.
-    next previous = select(reset, const(Bits(2), 0), select(fire, winner, previous))
+    next previous = select(reset, const(Bits(w), 0), select(fire, winner, previous))

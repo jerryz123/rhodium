@@ -11,23 +11,21 @@ spec for rtl.GatedArbiterQueue:
   state admitting: Bool initially #false
   state pending: Seq(ingress[0].bits.type, depth) initially [] as cleared
 
-  let first = ingress[0]
-  let second = ingress[1]
-  // The gate controls admission, not retirement: a queued word can leave even when new inputs are blocked.
   let room = admitting && !full(pending)
-  let grant0 = room && first.valid
-  let grant1 = room && !first.valid && second.valid
-  let push = grant0 || grant1
-  let winner = select(grant0, first.bits, second.bits)
+  def mutable push = const(Bool, #false)
+  def mutable winner = ingress[0].bits
+  for (i in 0..ingress.length()):
+    def grant = room && !push && ingress[i].valid
+    observe ingress[i].ready = grant when !reset
+    winner := select(grant, ingress[i].bits, winner)
+    push := push || grant
   let valid = !empty(pending)
   let pop = valid && egress.ready
 
-  observe ingress[0].ready = grant0 when !reset
-  observe ingress[1].ready = grant1 when !reset
   observe egress.valid = valid when !reset
   observe egress.bits = front(pending) when !reset && valid
   events transfers = ready_valid_events(reset, ingress, egress)
-  transactions fifo_monitor(depth, first.bits.type.width, transfers)
+  transactions fifo_monitor(depth, ingress[0].bits.type.width, transfers)
 
   let retained = select(pop, tail(pending), pending)
   // This edge samples enable for the next cycle; it does not open the gate for the current offers.

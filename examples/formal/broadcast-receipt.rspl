@@ -13,29 +13,28 @@ fun receipt_samples(transfers :: Function.of_arity(2)):
     deliveries(read, output) ++ {"pulse": Observed(const(Bool, #true), output("receipt", Bool))}
 
 spec for rtl.BroadcastReceipt:
-  events transfers = rv_transfers(~accepted: ingress, ~left: egress[0], ~right: egress[1])
+  events transfers = broadcast_transfers(ingress, egress)
+  let lanes = broadcast_lanes(egress.length())
   monitor:
     sample receipt_samples(transfers)
-    publish [reset, accepted, left, right, pulse]
+    publish ["reset", "accepted", "pulse"] ++ lanes.map(fun (lane): lane.event)
     batch rst = present(reset)
     batch take = present(accepted)
-    batch l = present(left)
-    batch r = present(right)
     batch pulse = present(pulse)
-    state left_due: Bool initially #false
-    state right_due: Bool initially #false
-    // Finish the old word on this edge iff it was live and every remaining copy transfers.
-    let last = (left_due || right_due) && (!left_due || l) && (!right_due || r)
-    guarantee "last-delivery" = bool_equal(pulse, !rst && last)
-    // A simultaneous acceptance creates fresh obligations for the next edge.
-    next left_due = !rst && (take || (left_due && !l))
-    next right_due = !rst && (take || (right_due && !r))
+    state owed[lanes.map(fun (lane): lane.event ++ "_due")]: Bool initially #false
+    def mutable live = const(Bool, #false)
+    def mutable finished = const(Bool, #true)
+    for (lane in lanes, i in 0..lanes.length()):
+      batch pop("pop_" ++ lane.suffix) = present(lane.event)
+      live := live || owed[i]
+      finished := finished && (!owed[i] || pop)
+      next owed[i] = !rst && (take || (owed[i] && !pop))
+    guarantee "last-delivery" = bool_equal(pulse, !rst && live && finished)
   refinement:
-    // The occurrence must have proved this public contract, regardless of its implementation.
     child fanout: broadcast_contract
-    history left from fanout.owed_l: Seq(ingress.bits.type, 1)
-    history right from fanout.owed_r: Seq(ingress.bits.type, 1)
-    relate left_due = !empty(left)
-    relate right_due = !empty(right)
-    local (split): Bool
-    invariant unmatched = bool_equal(split, !bool_equal(empty(left), empty(right)))
+    // Each physical bookkeeping bit describes one public child history.
+    for (lane in lanes, i in 0..lanes.length()):
+      history pending from ("fanout", lane.history): Seq(ingress.bits.type, 1)
+      local bit("due_" ++ to_string(i)): Bool
+      relate (lane.event ++ "_due") = !empty(pending)
+      invariant (lane.event ++ "_matches") = bool_equal(bit, !empty(pending))

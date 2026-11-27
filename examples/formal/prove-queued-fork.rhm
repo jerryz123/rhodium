@@ -11,8 +11,11 @@ import:
   "shift-queue.rspl".ShiftQueue
 
 module main:
-  def top = elaborate(rtl.QueuedFork()).top
-  def fork = proof.prove_design(proof.child_definition(top, "fork"), AtomicFork)
-  def queue = proof.prove_design(proof.child_definition(top, "left"), ShiftQueue)
-  def seal = proof.prove_design(top, spec.QueuedFork, ~children: {"fork": fork, "left": queue, "right": queue})
-  println("Proved QueuedFork: both recipients get their own ordered copy, independent of ready timing")
+  for (shape in [[1, 1], [2, 2], [3, 8]]):
+    def [n, width] = shape
+    def top = elaborate(rtl.QueuedFork(n, width)).top
+    def fork = proof.prove_design(proof.child_definition(top, "fork"), AtomicFork)
+    def queue = proof.prove_design(proof.child_definition(top, rtl.queue_site(0)), ShiftQueue)
+    def queues = for Map (i in 0..n): values(rtl.queue_site(i), queue)
+    def seal = proof.prove_design(top, spec.QueuedFork, ~children: queues ++ {"fork": fork})
+    println("Proved independent QueuedFork deliveries at " ++ to_string(shape))

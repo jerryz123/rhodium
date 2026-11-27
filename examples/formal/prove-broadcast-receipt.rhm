@@ -11,9 +11,11 @@ import:
   "queued-fork.rspl".QueuedFork
 
 module main:
-  for (queued in [#false, #true]):
-    def top = elaborate(rtl.BroadcastReceipt(~queued: queued)).top
-    def child = proof.child_definition(top, "fanout")
-    def seal = proof.prove_design(child, if queued | QueuedFork | Broadcast)
-    def parent = proof.prove_design(top, spec.BroadcastReceipt, ~children: {"fanout": seal})
-    println("Proved last-delivery receipts from " ++ (if queued | "QueuedFork" | "Broadcast"))
+  for (shape in [[1, 1], [2, 2], [3, 8]]):
+    def [n, width] = shape
+    for (queued in [#false, #true]):
+      def top = elaborate(rtl.BroadcastReceipt(n, width, ~queued: queued)).top
+      def child = proof.child_definition(top, "fanout")
+      def seal = proof.prove_design(child, if queued | QueuedFork | Broadcast)
+      def parent = proof.prove_design(top, spec.BroadcastReceipt, ~children: {"fanout": seal})
+      println("Proved last-delivery receipts from " ++ (if queued | "QueuedFork" | "Broadcast") ++ " at " ++ to_string(shape))

@@ -302,12 +302,14 @@ hardware-preservation contracts.
 
 ### Formal verification
 
+Payload-bearing specs specialize to the elaborated bit width. Arbiter and its queue wrappers also vary the number of inputs; the fork, broadcast, and receipt examples vary the number of recipients. The two-tag and A/B selector examples keep their named protocol roles. Each proof checks one concrete specialization, not all parameter values at once.
+
 | Example | RTL | Executable spec |
 |---|---|---|
 | Arbiter | [Flow arbiter](../flow/arbiter.rhdl) | [Fixed-priority selection and transfers](formal/arbiter.rspl); [prove the clockless grant contract](formal/prove-arbiter.rhm) |
-| AtomicFork | [Flow fork](../flow/atomic-fork.rhdl) | [Two-output transfer spec](formal/atomic-fork.rspl); [prove that both branches take the input word on the same edge](formal/prove-atomic-fork.rhm) |
-| Broadcast | [Flow broadcast buffer](../flow/broadcast.rhdl) | [Two independently stalled recipients](formal/broadcast.rspl); [prove delivery order across same-edge replacement](formal/prove-broadcast.rhm) |
-| QueuedFork | [AtomicFork feeding two one-word ShiftQueues](formal/queued-fork.rhdl) | [Same broadcast monitor, different ready timing](formal/queued-fork.rspl); [prove from supplied child contracts](formal/prove-queued-fork.rhm) |
+| AtomicFork | [Flow fork](../flow/atomic-fork.rhdl) | [Parameterized transfer spec](formal/atomic-fork.rspl); [prove every output takes the full input word on the same edge](formal/prove-atomic-fork.rhm) |
+| Broadcast | [Flow broadcast buffer](../flow/broadcast.rhdl) | [One outstanding copy per recipient](formal/broadcast.rspl); [prove independent delivery and same-edge replacement at three sizes](formal/prove-broadcast.rhm) |
+| QueuedFork | [AtomicFork feeding one ShiftQueue per output](formal/queued-fork.rhdl) | [Same broadcast monitor, different ready timing](formal/queued-fork.rspl); [prove from supplied child contracts](formal/prove-queued-fork.rhm) |
 | BroadcastReceipt | [Last-delivery pulse on either broadcast implementation](formal/broadcast-receipt.rhdl) | [One receipt spec](formal/broadcast-receipt.rspl); [prove against either child's seal](formal/prove-broadcast-receipt.rhm) |
 | GrantedSelector / RoutedSelector / RegisteredRoutedSelector | [Direct or routed grants with same-cycle or registered selection](formal/granted-selector.rhdl) | [Ordered input contracts, reset, capture, and hold](formal/granted-selector.rspl); [prove the conditional RegisteredLaneSelector leaf](formal/prove-registered-lane-selector.rhm) |
 | GatedCapture / ArbitratedCapture | [Gated capture behind an arbiter](formal/gated-capture.rhdl) | [Capture specs](formal/gated-capture.rspl); [prove conditional forwarding](formal/prove-gated-capture.rhm), then [prove exact-word and one-bit readback with arbiter grants](formal/prove-arbitrated-capture.rhm) |
@@ -316,7 +318,7 @@ hardware-preservation contracts.
 | OfferQueue | [Replaceable offer feeding a one-word FIFO](formal/offer-queue.rhdl) | [Handoff and retirement spec](formal/offer-queue.rspl); [prove order of handed-off words from the two child contracts](formal/prove-offer-queue.rhm) |
 | ShiftQueue | [Flow queue](../flow/shift-queue.rhdl) | [Cycle model, RTL register relation, and ordered transfer contract](formal/shift-queue.rspl) |
 | QueuePair | [Two ShiftQueues in series](formal/queue-pair.rhdl) | [Direct handoff and ordered public history](formal/queue-pair.rspl); [run the four-word proof](formal/prove-queue-pair.rhm) |
-| QueuePairSeries | [QueuePair(1) feeding QueuePair(2)](formal/queue-pair-series.rhdl) | [Six-word FIFO from two public child histories](formal/queue-pair-series.rspl); [run the proof](formal/prove-queue-pair-series.rhm) |
+| QueuePairSeries | [Two independently sized QueuePairs in series](formal/queue-pair-series.rhdl) | [FIFO bound and order from the two public child histories](formal/queue-pair-series.rspl); [prove depths (1,1), (1,2), and (2,1)](formal/prove-queue-pair-series.rhm) |
 | TwoTagROB | [Two-tag reorder buffer](formal/two-tag-rob.rhdl) | [Cycle behavior and retirement contract](formal/two-tag-rob.rspl); [prove retirement order and payload from ArbiterQueue’s public history](formal/prove-two-tag-rob.rhm) |
 | LoggedTwoTagROB | [Last-commit recorder](formal/logged-two-tag-rob.rhdl) | [Prove the recorder spec from the sealed ROB](formal/prove-logged-two-tag-rob.rhm); the [ordinal observer](../rhodium/formal/tests/logged-ordinal.rkt) then uses only the recorder seal |
 | GatedArbiterQueue | [Registered admission wrapper](formal/gated-arbiter-queue.rhdl) | [Admission and ordered drain](formal/gated-arbiter-queue.rspl); [prove transfer preservation at depths 1–3](formal/prove-gated-arbiter-queue.rhm) |

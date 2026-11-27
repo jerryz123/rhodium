@@ -1,5 +1,5 @@
 #lang rhombus
-/* Proves QueuePairSeries implements a six-word FIFO from the two QueuePair contracts. */
+/* Proves the same ordered FIFO spec for equal depths and both orientations of unequal depths. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -10,8 +10,10 @@ import:
   "queue-pair-series.rspl" as spec
 
 module main:
-  def top = elaborate(rtl.QueuePairSeries()).top
-  def children = for Map (site in ["front", "back"]):
-    values(site, proof.prove_design(proof.child_definition(top, site), QueuePair))
-  def seal = proof.prove_design(top, spec.QueuePairSeries, ~children: children)
-  println("Proved QueuePairSeries from QueuePair(1) and QueuePair(2): ordered FIFO contract, capacity 6")
+  for ([front, back, width] in [[1, 1, 1], [1, 2, 2], [2, 1, 8]]):
+    def top = elaborate(rtl.QueuePairSeries(front, back, width)).top
+    def children = for Map (site in ["front", "back"]):
+      values(site, proof.prove_design(proof.child_definition(top, site), QueuePair))
+    def seal = proof.prove_design(top, spec.QueuePairSeries, ~children: children)
+    println("Proved QueuePairSeries(" ++ to_string(front) ++ ", " ++ to_string(back)
+              ++ "): ordered FIFO contract, capacity " ++ to_string(2 * (front + back)))

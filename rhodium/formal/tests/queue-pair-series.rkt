@@ -1,10 +1,10 @@
 #lang rosette
-;; Compares the spec-authored six-word proof with the handwritten series oracle and replays real transfers.
+;; Checks parameterized series ordering and compares the default specialization with an oracle and replay.
 ;; SPDX-License-Identifier: Apache-2.0
 
 (require rackunit
          (only-in "../refinement.rkt" compose-fifo-series fifo-transactions-for? fifo-transactions-capacity)
-         (only-in "composition-binding.rhm" pair_series wrong_ready_series)
+         (only-in "composition-binding.rhm" pair_series series_at wrong_ready_series)
          (only-in "../../../examples/formal/queue-pair-series.rspl" QueuePairSeries)
          (only-in "queue-pair.rspl" WrongReadySeries reversed_series wrong_capacity_series)
          (only-in "queue-pair-grouped.rkt" grouped-pair-at)
@@ -26,28 +26,34 @@
            (only-in "../fifo-view.rhm" sample_fifo_events)
            (only-in "../fifo-monitor.rhm" fifo_monitor step_fifo_monitor))
 
-  (define public (QueuePairSeries pair_series #:transaction_view #t))
   (define cut (without-child-proofs QueuePairSeries pair_series))
-  (define children (hash "front" (queue-pair-seal-at 1) "back" (queue-pair-seal-at 2)))
-  (test-case "the generic six-word seal proves the same ordinal theorem and does not promise ready"
-    (define seal (prove-design pair_series QueuePairSeries #:children children))
-    (check-true (transaction-for? seal pair_series public))
-    (define reader (observer:observe-fifo-seal seal pair_series public))
-    (check-equal? (observer:fifo-transactions-capacity reader) 6)
-    (require-feasible (check-retirement-order reader))
-    (check-ready-not-entailed reader))
+  (define (series-children f b)
+    (hash "front" (queue-pair-seal-at f) "back" (queue-pair-seal-at b)))
+  (define children (series-children 1 2))
+  (for ([f '(1 1 2)] [b '(1 2 1)] [capacity '(4 6 6)])
+    (test-case (format "QueuePairSeries(~a, ~a) proves ordering and the ~a-word bound" f b capacity)
+      (define top (series_at f b))
+      (define evidence (series-children f b))
+      (define seal (prove-design top QueuePairSeries #:children evidence))
+      (define public (QueuePairSeries top #:transaction_view #t))
+      (check-true (transaction-for? seal top public))
+      (define reader (observer:observe-fifo-seal seal top public))
+      (check-equal? (observer:fifo-transactions-capacity reader) capacity)
+      (require-feasible (check-retirement-order reader))
+      (check-ready-not-entailed reader)
+      ;; Correct seals at their actual sites, but the expected capacities are exchanged.
+      (unless (= f b)
+        (check-exn #rx"expected certified evidence for the exact public contract"
+                   (lambda () (prove-design top wrong_capacity_series #:children evidence))))))
 
-  (test-case "shared contracts require the declared sites, actual occurrences, and exact capacities"
+  (test-case "shared contracts require the declared sites and actual occurrences"
     (define small (queue-pair-seal-at 1))
     (define large (queue-pair-seal-at 2))
     (check-exn #rx"shared child contract requires supplied evidence" (lambda () (prove-design pair_series QueuePairSeries)))
     (for ([invalid (list (hash) (hash-remove children "back") (hash-set children "extra" small))])
       (check-exn #rx"#:children expected occurrences" (lambda () (prove-design pair_series QueuePairSeries #:children invalid))))
     (check-exn #rx"expected certified evidence for the actual RTL occurrence"
-               (lambda () (prove-design pair_series QueuePairSeries #:children (hash "front" large "back" small))))
-    ;; Correct seals at their actual sites, but the requested capacities are wrong.
-    (check-exn #rx"expected certified evidence for the exact public contract"
-               (lambda () (prove-design pair_series wrong_capacity_series #:children children))))
+               (lambda () (prove-design pair_series QueuePairSeries #:children (hash "front" large "back" small)))))
 
   (test-case "with the right contracts, induction still rejects broken wiring and upstream-first history"
     ;; The broken handoff must violate the FIFO proof, not just a prescribed topology.

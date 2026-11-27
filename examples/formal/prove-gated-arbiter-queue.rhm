@@ -9,7 +9,7 @@ import:
   "gated-arbiter-queue.rspl" as spec
 
 module main:
-  for (depth in [1, 2, 3]):
-    def top = elaborate(rtl.GatedArbiterQueue(2, ~depth: depth)).top
+  for ([depth, lanes, width] in [[1, 2, 2], [2, 2, 2], [3, 2, 2], [1, 1, 1], [2, 3, 8]]):
+    def top = elaborate(rtl.GatedArbiterQueue(width, ~depth: depth, ~lanes: lanes)).top
     def seal = prove_design(top, spec.GatedArbiterQueue)
-    println("Proved GatedArbiterQueue transfer preservation and FIFO ordering, depth " ++ to_string(depth))
+    println("Proved GatedArbiterQueue transfer preservation and FIFO ordering, depth " ++ to_string(depth) ++ " at " ++ to_string([lanes, width]))

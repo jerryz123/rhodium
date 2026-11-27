@@ -17,13 +17,14 @@ spec for rtl.FaultyQueuePair:
 spec for rtl.WrongReadySeries:
   events pair_events(reset)
 
-// Keep the total bound six, so both mutants type-check before evidence or induction rejects them.
-fun candidate_series(front_capacity :: PosInt, reverse :: Boolean):
-  def back_capacity = 6 - front_capacity
+// Exchange capacities or reverse history order without changing the total history sort.
+fun candidate_series(~swap: swap :: Boolean = #false, ~reverse: reverse :: Boolean = #false):
   spec for series.QueuePairSeries:
+    def front_capacity = 2 * (if swap | back_depth | front_depth)
+    def back_capacity = 2 * (if swap | front_depth | back_depth)
     def handshakes = pair_events(reset)
     events transfers = handshakes
-    transactions fifo_monitor(6, data.type.width, transfers)
+    transactions fifo_monitor(front_capacity + back_capacity, data.type.width, transfers)
     refinement:
       child front: fifo_contract(front_capacity, data.type.width, handshakes)
       child back: fifo_contract(back_capacity, data.type.width, handshakes)
@@ -31,8 +32,8 @@ fun candidate_series(front_capacity :: PosInt, reverse :: Boolean):
       history downstream from back.q: Seq(data.type, back_capacity)
       relate q = if reverse | seq_concat(upstream, downstream) | seq_concat(downstream, upstream)
   QueuePairSeries
-def reversed_series = candidate_series(2, #true)
-def wrong_capacity_series = candidate_series(4, #false)
+def reversed_series = candidate_series(~reverse: #true)
+def wrong_capacity_series = candidate_series(~swap: #true)
 export reversed_series wrong_capacity_series
 
 // A well-typed but false claim: the environment's consume is not an ingress offer.

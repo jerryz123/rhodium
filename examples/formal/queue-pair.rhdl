@@ -5,15 +5,15 @@
 import lib("flow/shift-queue.rhdl").ShiftQueue
 
 /* The upstream queue accepts offers; the downstream queue supplies the oldest word. */
-sync_circuit QueuePair(depth :: PosInt = 2):
+sync_circuit QueuePair(depth :: PosInt = 2, width :: PosInt = 2):
   input offer: Bool
-  input data: Bits(2)
+  input data: Bits(width)
   input consume: Bool
   output ready: Bool
   output valid: Bool
-  output head: Bits(2)
-  inst a(ShiftQueue(Bits(2), depth))
-  inst b(ShiftQueue(Bits(2), depth))
+  output head: Bits(width)
+  inst a(ShiftQueue(Bits(width), depth))
+  inst b(ShiftQueue(Bits(width), depth))
   a.ingress.valid <== offer
   a.ingress.bits <== data
   ready <== a.ingress.ready

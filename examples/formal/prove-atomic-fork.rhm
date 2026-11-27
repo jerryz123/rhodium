@@ -1,5 +1,5 @@
 #lang rhombus
-/* Certifies both branches of the two-bit library AtomicFork from its RTL and public spec. */
+/* Certifies the same AtomicFork spec at three concrete fanout and payload configurations. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -10,5 +10,6 @@ import:
   "atomic-fork.rspl" as spec
 
 module main:
-  def seal = prove_design(elaborate(rtl.AtomicFork(Bits(2), 2)).top, spec.AtomicFork)
-  println("Proved AtomicFork: the input and both outputs transfer together with equal two-bit payloads")
+  for ([count, width] in [[1, 1], [2, 2], [3, 8]]):
+    def seal = prove_design(elaborate(rtl.AtomicFork(Bits(width), count)).top, spec.AtomicFork)
+    println("Proved AtomicFork: " ++ to_string(count) ++ " output(s), " ++ to_string(width) ++ "-bit words")

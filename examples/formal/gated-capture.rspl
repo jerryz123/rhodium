@@ -9,51 +9,55 @@ import "capture-history.rspl" open
 export capture_events
 
 /* Sample the public requests at the unrestricted parent boundary. */
-fun capture_events(read :: Function.of_arity(2), output :: Function.of_arity(2)):
-  capture_sample(read, output, read("capture", Bool), "request_a", "request_b")
+fun capture_events(read :: Function.of_arity(2), output :: Function.of_arity(2), w :: PosInt = 2):
+  capture_sample(read, output, read("capture", Bool), "request_a", "request_b", w)
 
 /* At the gate only the grant pins are visible; exclusivity is a pin premise, not a batch verdict. */
-fun grant_events(read :: Function.of_arity(2), output :: Function.of_arity(2)):
-  capture_sample(read, output, read("capture", Bool), "grant_a", "grant_b")
+fun grant_events(read :: Function.of_arity(2), output :: Function.of_arity(2), w :: PosInt = 2):
+  capture_sample(read, output, read("capture", Bool), "grant_a", "grant_b", w)
 
 spec for rtl.GatedCapture:
+  specialize w = word_a.type.width ~default: 2
   // A user of this gate must rule out two simultaneous grants on a non-reset capture edge.
   assume capture_exclusive = reset || !capture || !(grant_a && grant_b)
-  state held: Bits(2) initially 0 as cleared
+  state held: Bits(w) initially 0 as cleared
   observe selected = held when !reset
   let grant_word = select(grant_b, word_b, select(grant_a, word_a, held))
   next held = select(reset, cleared, select(capture, grant_word, held))
 
-  transactions capture_monitor(grant_events)
+  transactions capture_monitor(fun (read, output): grant_events(read, output, w),
+                               w)
   refinement:
     forward lanes: selectors.RegisteredLaneSelector
 
 spec for rtl.ArbitratedCapture:
-  state saved: Bits(2) initially 0 as cleared
+  specialize w = word_a.type.width ~default: 2
+  state saved: Bits(w) initially 0 as cleared
   observe selected = saved when !reset
   let take = capture && (request_a || request_b)
   next saved = select(reset, cleared, select(take, select(request_a, word_a, word_b), saved))
 
-  transactions capture_monitor(capture_events)
+  transactions capture_monitor(fun (read, output): capture_events(read, output, w),
+                               w)
 
   refinement:
     child arb: grants.Arbiter
     child gate: GatedCapture
     // Both external requests are allowed. It is the arbiter's grants at the gate pins that must be exclusive.
-    history held_word from gate.previous: Bits(2)
+    history held_word from gate.previous: Bits(w)
     relate previous = held_word
 
 /* A weaker observer: all nonzero winners are indistinguishable, including on readback. */
-fun zero_monitor(sampler :: Function.of_arity(2)):
+fun zero_monitor(sampler :: Function.of_arity(2), w :: PosInt = 2):
   monitor:
     sample sampler
     publish []
     batch reset = present(reset)
     batch fire = present(captured)
-    batch winner: Bits(2) = payload(captured) when fire
-    batch readback: Bits(2) = payload(readback) when fire
+    batch winner: Bits(w) = payload(captured) when fire
+    batch readback: Bits(w) = payload(readback) when fire
     state previous_was_zero: Bool initially #true
-    let zero = const(Bits(2), 0)
+    let zero = const(Bits(w), 0)
     let read_zero = bits_equal(readback, zero)
     // If the previous winner was 3, this promise rules out reading 0, but cannot distinguish a read of 1 from 3.
     guarantee "previous-was-zero" = bool_equal(read_zero, previous_was_zero) when fire
@@ -66,12 +70,14 @@ export previous_zero_monitor gate_zero_monitor
 /* Project the selector's public word to one bit under the gate's declared pin assumptions. */
 fun gate_zero_spec(input_contract :: Function):
   spec for rtl.GatedCapture:
-    transactions gate_zero_monitor
+    specialize w = word_a.type.width ~default: 2
+    transactions zero_monitor(fun (read, output): grant_events(read, output, w),
+                              w)
     refinement:
       under input_contract
       child lanes: selectors.RegisteredLaneSelector
-      history word from lanes.previous: Bits(2)
-      relate previous_was_zero = bits_equal(word, const(Bits(2), 0))
+      history word from lanes.previous: Bits(w)
+      relate previous_was_zero = bits_equal(word, const(Bits(w), 0))
   GatedCapture
 def zero_gate = gate_zero_spec(GatedCapture)
 export zero_gate
@@ -79,19 +85,23 @@ export zero_gate
 /* Use Arbiter grants and the gate's public word to prove zero/nonzero readback. */
 def arbitrated_capture_zero:
   spec for rtl.ArbitratedCapture:
-    transactions previous_zero_monitor
+    specialize w = word_a.type.width ~default: 2
+    transactions zero_monitor(fun (read, output): capture_events(read, output, w),
+                              w)
     refinement:
       child arb: grants.Arbiter
       child gate: GatedCapture
-      history word from gate.previous: Bits(2)
-      relate previous_was_zero = bits_equal(word, const(Bits(2), 0))
+      history word from gate.previous: Bits(w)
+      relate previous_was_zero = bits_equal(word, const(Bits(w), 0))
   ArbitratedCapture
 export arbitrated_capture_zero
 
 /* At the outer boundary the gate's zero bit is sufficient; no full-word history is available. */
 def arbitrated_capture_from_bit:
   spec for rtl.ArbitratedCapture:
-    transactions previous_zero_monitor
+    specialize w = word_a.type.width ~default: 2
+    transactions zero_monitor(fun (read, output): capture_events(read, output, w),
+                              w)
     refinement:
       child arb: grants.Arbiter
       child gate: zero_gate

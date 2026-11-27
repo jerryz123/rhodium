@@ -48,6 +48,40 @@
   (define (rspecsim-events input)
     (for/hash ([(k v) (spec_events input)]) (values k v)))
 
+  (for ([n '(1 3)] [w '(1 8)])
+    (test-case (format "AtomicFork(~a outputs, ~a bits): each lane transfers exactly the ingress word" n w)
+      (define top (fork_top n w))
+      (define v (AtomicFork top #:transaction_view #t))
+      (define seal (prove-design top AtomicFork))
+      (define-symbolic* take boolean?)
+      (define-symbolic* incoming (bitvector w))
+      (define-values (batch expected)
+        (for/fold ([batch (hash "take" take "incoming" incoming)] [expected #t]) ([i (in-range n)])
+          (define-symbolic* sent boolean?)
+          (define-symbolic* word (bitvector w))
+          (define send-key (string->immutable-string (format "send_lane~a" i)))
+          (define word-key (string->immutable-string (format "lane~a_word" i)))
+          (values (hash-set (hash-set batch send-key sent) word-key word)
+                  (&& expected (equal? take sent) (=> take (bveq incoming word))))))
+      (define-values (allowed _) (transaction-step seal v (hash) batch))
+      (discharge 'all-lanes #t (equal? allowed expected))))
+
+  (test-case "only lane 2 corrupts bit 7: handshakes agree, but its payload guarantee fails"
+    (define top (fork_top 3 8))
+    (define plan (AtomicFork top #:proof_plan #t))
+    (check-exn #rx"combinational/outputs not proved"
+               (lambda () (prove-design high_bit_top (lambda (_ #:proof_plan _plan?) plan))))
+    (define pins ((rtl-simulator high_bit_top)
+                  (hash "ingress.valid" #t "ingress.bits" #x01
+                        "egress[0].ready" #t "egress[1].ready" #t "egress[2].ready" #t)))
+    (define v (AtomicFork top #:transaction_view #t))
+    (check-equal? (for/hash ([(k x) (sample_events v pins)]) (values k x))
+                  (hash "accepted" #x01 "lane0" #x01 "lane1" #x01 "lane2" #x81))
+    (define-values (_ verdict) (replay_sample v #f pins))
+    (check-equal? (for/hash ([(k x) verdict]) (values k x))
+                  (hash "atomic-transfer" #t "lane0-payload" #t "lane1-payload" #t
+                        "lane2-payload" #f "allowed" #f)))
+
   (test-case "all 32 concrete inputs match rspecsim, including transfer of zero"
     (for* ([valid '(#f #t)] [left '(#f #t)] [right '(#f #t)] [word (in-range 4)])
       (define in (inputs valid word left right))

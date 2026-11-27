@@ -9,7 +9,7 @@ import:
   "buffered-arbiter-queue.rspl" as spec
 
 module main:
-  for (depth in [1, 2, 3]):
-    def top = elaborate(rtl.BufferedArbiterQueue(2, ~depth: depth)).top
+  for ([depth, lanes, width] in [[1, 2, 2], [2, 2, 2], [3, 2, 2], [1, 1, 1], [2, 3, 8]]):
+    def top = elaborate(rtl.BufferedArbiterQueue(width, ~depth: depth, ~lanes: lanes)).top
     def seal = prove_design(top, spec.BufferedArbiterQueue)
-    println("Proved BufferedArbiterQueue accepted-winner FIFO ordering, capacity " ++ to_string(depth + 1))
+    println("Proved BufferedArbiterQueue accepted-winner FIFO ordering, capacity " ++ to_string(depth + 1) ++ " at " ++ to_string([lanes, width]))

@@ -5,12 +5,12 @@
 import lib("flow/shift-queue.rhdl").ShiftQueue
 
 /* Remember the first word seen under backpressure, not the last word before transfer. */
-sync_circuit StallConsumer():
+sync_circuit StallConsumer(width :: PosInt = 2):
   input (valid, ready): Bool
-  input word: Bits(2)
-  output remembered: Bits(2)
+  input word: Bits(width)
+  output remembered: Bits(width)
   reg tracking(~init: Bool(#false))
-  reg saved(Bits(2))
+  reg saved(Bits(width))
   def stall = valid & !ready
   tracking <== stall
   def first_stall = stall & !tracking
@@ -19,27 +19,27 @@ sync_circuit StallConsumer():
   remembered <== saved
 
 /* Forward every offered payload to the recorder, including samples before acceptance. */
-sync_circuit StallConsumerWrapper():
+sync_circuit StallConsumerWrapper(width :: PosInt = 2):
   input (valid, ready): Bool
-  input payload: Bits(2)
-  output remembered: Bits(2)
-  inst recorder(StallConsumer())
+  input payload: Bits(width)
+  output remembered: Bits(width)
+  inst recorder(StallConsumer(width))
   recorder.valid <== valid
   recorder.ready <== ready
   recorder.word <== payload
   remembered <== recorder.remembered
 
 /* The queue supplies a stable offer to the wrapper; the inner recorder is not a direct child. */
-sync_circuit BufferedStallConsumer():
+sync_circuit BufferedStallConsumer(width :: PosInt = 2):
   input (offer, consume): Bool
-  input data: Bits(2)
+  input data: Bits(width)
   output valid: Bool
-  output (word, remembered): Bits(2)
-  inst fifo(ShiftQueue(Bits(2), 1))
+  output (word, remembered): Bits(width)
+  inst fifo(ShiftQueue(Bits(width), 1))
   fifo.ingress.valid <== offer
   fifo.ingress.bits <== data
   fifo.egress.ready <== consume
-  inst sink(StallConsumerWrapper())
+  inst sink(StallConsumerWrapper(width))
   sink.valid <== fifo.egress.valid
   sink.ready <== consume
   sink.payload <== fifo.egress.bits

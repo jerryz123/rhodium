@@ -8,12 +8,12 @@ import:
 
 /* Lane A has issue priority. On grant, issue_gen names this allocation. Retirement releases the tag
    with the opposite generation; reset restarts both tags at zero. */
-sync_circuit TwoTagROB():
+sync_circuit TwoTagROB(width :: PosInt = 2):
   input (issue_a, issue_b, complete_a, complete_b): Bool
   input (complete_gen_a, complete_gen_b): Bool
-  input (result_a, result_b): Bits(2)
+  input (result_a, result_b): Bits(width)
   output (grant_a, grant_b, issue_gen): Bool
-  output retire_result: Bits(2)
+  output retire_result: Bits(width)
   interface retire(Irrevocable(Bool), ~role: producer)
 
   reg busy_a(~init: Bool(#false))
@@ -30,8 +30,8 @@ sync_circuit TwoTagROB():
   def capture_b = busy_b & !done_b & complete_b & matches_b
 
   // No reset on data: only a live, completed tag owns an observable result.
-  reg saved_a(Bits(2))
-  reg saved_b(Bits(2))
+  reg saved_a(Bits(width))
+  reg saved_b(Bits(width))
   when capture_a:
     saved_a <== result_a
   when capture_b:

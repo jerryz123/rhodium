@@ -1,26 +1,27 @@
 #lang rhodium
-/* Adds a same-edge last-delivery receipt to either two-recipient broadcast implementation. */
+/* Adds a same-edge last-delivery receipt to either broadcast implementation. */
 // SPDX-License-Identifier: Apache-2.0
 
+import lib("rhodium/frontend/support/clocking.rhm").ambient_reset_register
 import lib("flow/main.rhdl") open
 import "queued-fork.rhdl".QueuedFork
 
-/* A single unmatched delivery flips split on; its peer's later delivery flips it off.
-   The ingress may accept a replacement on that second edge without delaying the receipt. */
-sync_circuit BroadcastReceipt(~queued: queued :: Boolean = #false):
-  interface ingress(Decoupled(Bits(2)), ~role: consumer)
-  interface egress[2](Irrevocable(Bits(2)), ~role: producer)
+/* Pulse when every outstanding copy of the old word transfers, even on a replacement edge. */
+sync_circuit BroadcastReceipt(n :: PosInt = 2, width :: PosInt = 2, ~queued: queued :: Boolean = #false):
+  interface ingress(Decoupled(Bits(width)), ~role: consumer)
+  interface egress[n](Irrevocable(Bits(width)), ~role: producer)
   output receipt: Bool
-  inst fanout(if queued | QueuedFork() | Broadcast(Bits(2), 2))
+  inst fanout(if queued | QueuedFork(n, width) | Broadcast(Bits(width), n))
   ingress |> fanout.ingress
-  for (i in 0..2): fanout.egress[i] |> egress[i]
-
-  reg split(~init: Bool(#false))
-  def l = egress[0].fire()
-  def r = egress[1].fire()
-  def delivering = l ||| r
-  def complete = split ||| (l & r)
-  when delivering: split <== !complete
-  receipt <== !reset_active().into(Bool) & delivering & complete
+  def mutable any_due = Bool(#false)
+  def mutable all_done = Bool(#true)
+  for (i in 0..n):
+    fanout.egress[i] |> egress[i]
+    def due = ambient_reset_register("due_" ++ to_string(i), Bool, Bool(#false))
+    def delivered = egress[i].fire()
+    due <== ingress.fire() ||| (due & !delivered)
+    any_due := any_due ||| due
+    all_done := all_done & (!due ||| delivered)
+  receipt <== !reset_active().into(Bool) & any_due & all_done
 
 export BroadcastReceipt

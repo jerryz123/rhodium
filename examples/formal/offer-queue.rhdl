@@ -5,13 +5,13 @@
 import lib("flow/main.rhdl") open
 
 /* Expose admission readiness so observers can distinguish a replacement from a committed handoff. */
-sync_circuit OfferQueue():
-  interface update(Valid(Bits(2)), ~role: consumer)
-  interface egress(Irrevocable(Bits(2)), ~role: producer)
+sync_circuit OfferQueue(width :: PosInt = 2):
+  interface update(Valid(Bits(width)), ~role: consumer)
+  interface egress(Irrevocable(Bits(width)), ~role: producer)
   output handoff_ready: Bool
 
-  inst offer(OfferRegister(Bits(2)))
-  inst fifo(ShiftQueue(Bits(2), 1))
+  inst offer(OfferRegister(Bits(width)))
+  inst fifo(ShiftQueue(Bits(width), 1))
   update |> offer.update
   offer.egress |> fifo.ingress
   fifo.egress |> egress

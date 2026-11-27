@@ -1,22 +1,21 @@
 #lang rspecl
-/* Proves broadcast deliveries using only the fork's joint transfer and the two queue histories. */
+/* Proves broadcast deliveries using only the fork's joint transfer and independent queue histories. */
 // SPDX-License-Identifier: Apache-2.0
 
 import "queued-fork.rhdl" as rtl
 import "atomic-fork.rspl".AtomicFork
 import "shift-queue.rspl".ShiftQueue
-import lib("rspecl/broadcast.rspl").broadcast_monitor
+import lib("rspecl/broadcast.rspl") open
 
 spec for rtl.QueuedFork:
-  events transfers = rv_transfers(~accepted: ingress, ~left: egress[0], ~right: egress[1])
-  transactions broadcast_monitor(ingress.bits.type.width, transfers)
+  events transfers = broadcast_transfers(ingress, egress)
+  let lanes = broadcast_lanes(n)
+  let sites = for List (i in 0..n): rtl.queue_site(i)
+  transactions broadcast_monitor(n, width, transfers)
   refinement:
-    // The stateless fork contract rules out partial admission or a different payload on either branch.
     child fork: AtomicFork
-    child left: ShiftQueue
-    child right: ShiftQueue
-    // Queue histories are per occurrence. A left departure does not discharge the right delivery.
-    history l from left.q: Seq(ingress.bits.type, 1)
-    history r from right.q: Seq(ingress.bits.type, 1)
-    relate owed_l = l
-    relate owed_r = r
+    children (sites): ShiftQueue
+    // A recipient owns the outstanding copy in its own queue, not a sibling's copy.
+    for (site in sites, lane in lanes):
+      history copy from (site, "q"): Seq(ingress.bits.type, 1)
+      relate (lane.history) = copy

@@ -9,5 +9,6 @@ import:
   "offer-queue.rspl" as spec
 
 module main:
-  def seal = prove_design(elaborate(rtl.OfferQueue()).top, spec.OfferQueue)
-  println("Proved OfferQueue: handoffs commit the old offer in FIFO order; simultaneous updates remain replaceable")
+  for (width in [1, 2, 8]):
+    def seal = prove_design(elaborate(rtl.OfferQueue(width)).top, spec.OfferQueue)
+    println("Proved OfferQueue: handoffs commit the old offer in FIFO order; simultaneous updates remain replaceable" ++ " (width " ++ to_string(width) ++ ")")

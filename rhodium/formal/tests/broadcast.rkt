@@ -3,12 +3,14 @@
 
 (require rackunit racket/match "composition-checks.rkt" "stall-replay.rhm" "clear-both-broadcast.rhdl"
          (only-in "../../../examples/formal/broadcast.rspl" Broadcast)
+         (only-in "../../../rspecl/broadcast.rspl" broadcast_contract)
          (only-in "../../../examples/formal/queued-fork.rspl" QueuedFork)
          (only-in "../../../examples/formal/atomic-fork.rspl" AtomicFork)
          (only-in "../../../examples/formal/shift-queue.rspl" ShiftQueue)
          (only-in "../../../rspecl/runner.rkt" prove-design child_definition)
          (only-in "../../../rspecl/proof.rkt" transaction-step transaction-for?)
-         (only-in "../../../rspecl/rtl-boundary.rhm" transaction_parts interface_prefixes)
+         (only-in "../../../rspecl/rtl-boundary.rhm" transaction_parts interface_prefixes
+                  check_shared_contract transaction_batch_model)
          (only-in "../spec.rhm" spec_snapshot)
          (only-in "../spec-engine.rkt" spec-initial-state)
          (only-in "../snapshot.rhm" formal_snapshot)
@@ -52,14 +54,17 @@
 
   ;; Read the uncut RTL's actual output pins before each tick. Only those public samples
   ;; drive the monitor; a matching transaction history need not have matching input-ready cycles.
+  (define (row-pins row)
+    (match-define (list* rst offered data ready) row)
+    (for/fold ([pins (hash "reset" rst "ingress.valid" offered "ingress.bits" data)])
+              ([r ready] [i (in-naturals)])
+      (hash-set pins (string->immutable-string (format "egress[~a].ready" i)) r)))
   (define (replay top public rows)
     (define plan (prepare_transition_snapshot (formal_snapshot top) "clock"))
     (match-define (list ins outs) (leaf_layout top (interface_prefixes top)))
     (define start (for/hash ([r (transition_registers plan)]) (values (hash-ref r "name") 0)))
     (for/fold ([regs start] [history #f] [log '()] #:result (reverse log)) ([row rows])
-      (match-define (list rst offered data l r) row)
-      (define pins (hash "reset" rst "ingress.valid" offered "ingress.bits" data
-                         "egress[0].ready" l "egress[1].ready" r))
+      (define pins (row-pins row))
       (define e (step_transition plan regs (pack-pins ins pins)))
       (check-true (transition_step_validity e))
       (define all
@@ -72,31 +77,73 @@
       (check-equal? (hash-ref verdict "allowed") (null? failed))
       (values (transition_step_state e) h (cons (list events failed) log))))
 
+  (define (check-replay top public trace expected)
+    ;; Drive rspecsim only from inputs, independently of the pin samples obtained from RTL.
+    (define model (Broadcast top))
+    (for/fold ([state #f]) ([row trace] [events expected])
+      (define-values (next observed) (cycle_row model state (row-pins row)))
+      (check-equal? (for/hash ([(k v) observed]) (values k v)) events)
+      next)
+    (check-equal? (replay top public trace) (for/list ([events expected]) (list events '()))))
+
+  (for ([n '(1 3)] [w '(1 8)])
+    (test-case (format "Broadcast(~a, ~a): reusable contract and same-edge replacement" n w)
+      (define top (broadcast_top n w))
+      (define v (Broadcast top #:transaction_view #t))
+      (define s (prove-design top Broadcast))
+      (check-true (transaction-for? s top v))
+      (define-values (_ m _i _o) (transaction_parts v))
+      (check_shared_contract (broadcast_contract top #:transaction_view #t) top v
+                             (spec_snapshot (transaction_batch_model v)) (spec_snapshot m))
+      ;; Check the monitor in the opposite direction as well: an arbitrary retirement must
+      ;; match the old word, and replacement must wait for the last outstanding copy.
+      (define-symbolic* a b out (bitvector w))
+      (define (step history take in recipients word)
+        (define batch
+          (for/fold ([batch (hash "rst" #f "take" take "incoming" in)]) ([i (in-range n)])
+            (hash-set (hash-set batch (string->immutable-string (format "pop_~a" i)) (and (member i recipients) #t))
+                      (string->immutable-string (format "out_~a" i)) word)))
+        (transaction-step s v history batch))
+      (define-values (installed full) (step (spec-initial-state (spec_snapshot m)) #t a '() a))
+      (for ([last-lane (in-range n)])
+        (define peers (remove last-lane (range n)))
+        (define-values (split pending) (step full #f b peers a))
+        (define-values (early _) (step pending #t b '() a))
+        (define-values (replace fresh) (step pending #t b (list last-lane) out))
+        (define-values (drain drained) (step fresh #f a (range n) b))
+        (define-values (duplicate _end) (step drained #f a (list last-lane) b))
+        (discharge 'last-copy #t
+                   (&& installed split (! early) (equal? replace (bveq out a))
+                       (=> replace (&& drain (! duplicate))))))
+      (if (= n 1)
+          (check-replay top v '((#t #f 0 #f) (#f #t 0 #f) (#f #t 1 #f) (#f #t 1 #t) (#f #f 0 #t))
+                        (list (hash "reset" #t) (hash "accepted" 0) (hash)
+                              (hash "accepted" 1 "lane0" 0) (hash "lane0" 1)))
+          ;; Lane 2 drains first, then 0. Only 1 still owns A when B replaces it.
+          (check-replay top v '((#t #f 0 #t #t #t) (#f #t 1 #f #f #f)
+                                (#f #t 129 #f #f #t) (#f #t 129 #t #f #t) (#f #t 129 #t #t #t)
+                                (#f #f 0 #f #t #t) (#f #f 0 #t #t #t) (#f #f 0 #t #t #t))
+                        (list (hash "reset" #t) (hash "accepted" 1) (hash "lane2" 1) (hash "lane0" 1)
+                              (hash "lane1" 1 "accepted" 129) (hash "lane1" 129 "lane2" 129)
+                              (hash "lane0" 129) (hash))))))
+
   (test-case "replay: stalled right retires A as B arrives; clear-both instead loses A"
     (define prefix '((#t #t 3 #t #t) (#f #t 1 #f #f) (#f #t 2 #f #f)
                      (#f #t 2 #t #f) (#f #t 2 #f #t)))
     (define trace (append prefix '((#f #f 0 #f #f) (#f #f 0 #f #t) (#f #f 0 #t #f))))
     (define expected (list (hash "reset" #t) (hash "accepted" 1) (hash) (hash "left" 1)
                            (hash "accepted" 2 "right" 1) (hash) (hash "right" 2) (hash "left" 2)))
-    ;; The monolithic Broadcast also has a cycle spec: check it from inputs alone.
-    (for/fold ([state #f]) ([row trace] [events expected])
-      (match-define (list rst offered data l r) row)
-      (define-values (next observed) (cycle_row state (hash "reset" rst "ingress.valid" offered "ingress.bits" data
-                                                            "egress[0].ready" l "egress[1].ready" r)))
-      (check-equal? (for/hash ([(k v) observed]) (values k v)) events)
-      next)
-    (define good (replay good_top view trace))
-    (check-equal? good (for/list ([events expected]) (list events '())))
+    (check-replay good_top view trace expected)
     (define bad (replay bad_top view prefix))
-    (check-equal? (drop-right bad 1) (take good 4))
+    (check-equal? (drop-right bad 1) (for/list ([events (take expected 4)]) (list events '())))
     (check-equal? (last bad) (list (hash "accepted" 2) '("right-space"))))
 
   (define queued-view (QueuedFork queued_top #:transaction_view #t))
   (test-case "compose from supplied seals only, with independent histories for the identical queue occurrences"
     (define fork (prove-design (child_definition queued_top "fork") AtomicFork))
-    (define fifo (prove-design (child_definition queued_top "left") ShiftQueue))
+    (define fifo (prove-design (child_definition queued_top "queue") ShiftQueue))
     (define parent (without-child-proofs QueuedFork queued_top))
-    (define queues (hash "left" fifo "right" fifo))
+    (define queues (hash "queue" fifo "queue_1" fifo))
     (check-exn #rx"expected occurrences" (lambda () (prove-design queued_top parent #:children queues)))
     (check-true (transaction-for? (prove-design queued_top parent #:children (hash-set queues "fork" fork))
                                   queued_top queued-view)))

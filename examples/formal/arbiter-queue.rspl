@@ -1,5 +1,5 @@
 #lang rspecl
-/* Specifies the public priority, admission, and retirement behavior of a buffered two-lane interface. */
+/* Specifies the public priority, admission, and retirement behavior of a buffered fixed-priority interface. */
 // SPDX-License-Identifier: Apache-2.0
 
 import "arbiter-queue.rhdl" as rtl
@@ -11,24 +11,22 @@ import lib("rspecl/fifo.rspl").fifo_monitor
 spec for rtl.ArbiterQueue:
   state pending: Seq(ingress[0].bits.type, depth) initially [] as cleared
 
-  let first = ingress[0]
-  let second = ingress[1]
   let room = !full(pending)
-  let grant0 = room && first.valid
-  // If both lanes offer a word and there is room, lane 0 gets in; lane 1 must try again.
-  let grant1 = room && !first.valid && second.valid
-  let push = grant0 || grant1
-  let winner = select(grant0, first.bits, second.bits)
+  def mutable push = const(Bool, #false)
+  def mutable winner = ingress[0].bits
+  for (i in 0..ingress.length()):
+    def grant = room && !push && ingress[i].valid
+    observe ingress[i].ready = grant when !reset
+    winner := select(grant, ingress[i].bits, winner)
+    push := push || grant
   let valid = !empty(pending)
   let pop = valid && egress.ready
 
-  observe ingress[0].ready = grant0 when !reset
-  observe ingress[1].ready = grant1 when !reset
   observe egress.valid = valid when !reset
   observe egress.bits = front(pending) when !reset && valid
   // The cycle model predicts the pins above. The FIFO monitor tracks only words that actually cross them.
   events transfers = ready_valid_events(reset, ingress, egress)
-  transactions fifo_monitor(depth, first.bits.type.width, transfers)
+  transactions fifo_monitor(depth, ingress[0].bits.type.width, transfers)
 
   let retained = select(pop, tail(pending), pending)
   next pending = select(reset, cleared, select(push, append(retained, winner), retained))
@@ -37,5 +35,5 @@ spec for rtl.ArbiterQueue:
     child arbiter_stage: arbitrated_transfers
     child shift_queue_stage: ShiftQueue
     // The arbiter stores nothing: every accepted word still owed at the output must be in the child's queue.
-    history buffered from shift_queue_stage.q: Seq(first.bits.type, depth)
+    history buffered from shift_queue_stage.q: Seq(ingress[0].bits.type, depth)
     relate q = buffered

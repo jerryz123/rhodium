@@ -12,42 +12,50 @@ fun offer_events(rst :: SpecExpr, valid :: SpecExpr, ready :: SpecExpr, word :: 
   def one = const(Bool, #true)
   {"reset": Observed(one, rst), "offer": Observed(word, !rst && valid), "ready": Observed(one, !rst && ready)}
 
-/* Read a two-bit producer's grouped egress pins, including samples before any transfer. */
-fun egress_sample(read :: Function, output :: Function):
-  offer_events(read("reset", Bool), output("egress.valid", Bool), read("egress.ready", Bool), output("egress.bits", Bits(2)))
+/* Read a producer's grouped egress pins, including samples before any transfer. */
+fun egress_sample(read :: Function, output :: Function, w :: PosInt = 2):
+  offer_events(read("reset", Bool), output("egress.valid", Bool), read("egress.ready", Bool), output("egress.bits", Bits(w)))
 
 /* The consumer assumption samples only inputs, never its remembered output. */
-fun input_sample(word_pin :: String):
+fun input_sample(word_pin :: String, w :: PosInt = 2):
   fun (read :: Function, output :: Function):
-    offer_events(read("reset", Bool), read("valid", Bool), read("ready", Bool), read(word_pin, Bits(2)))
+    offer_events(read("reset", Bool), read("valid", Bool), read("ready", Bool), read(word_pin, Bits(w)))
 
 /* A stalled offer remains visible and unchanged on the very next non-reset edge, even if accepted. */
-fun stable_offer(sampler :: Function.of_arity(2)):
+fun stable_offer(sampler :: Function.of_arity(2), w :: PosInt = 2):
   monitor:
     sample sampler
     publish []
     batch rst = present(reset)
     batch offered = present(offer)
     batch ready = present(ready)
-    batch word: Bits(2) = payload(offer) when offered
+    batch word: Bits(w) = payload(offer) when offered
     state pending: Bool initially #false
     // After a stall, compare the next sample with this remembered word. Reset cancels the comparison.
-    state last: Bits(2) initially 0
+    state last: Bits(w) initially 0
     guarantee "stable-valid" = offered when !rst && pending
     guarantee "stable-payload" = bits_equal(last, word) when !rst && pending
     next pending = offered && !ready
-    next last = select(offered && !ready, word, const(Bits(2), 0))
+    next last = select(offered && !ready, word, const(Bits(w), 0))
 
 export stable_offer egress_sample
 
 spec for queues.ShiftQueue:
-  transactions stable_offer(egress_sample)
+  specialize w = ingress.bits.type.width ~default: 2
+  transactions stable_offer(fun (read, output): egress_sample(read, output, w),
+                            w)
   refinement:
     // Transfers alone skip stalled cycles; use consecutive samples of the queue's cycle spec to prove stability.
     adjacent_samples from cycle.ShiftQueue
 
-def required_offer = stable_offer(input_sample("word"))
-def wrapper_offer = stable_offer(input_sample("payload"))
+/* Reuse the same public requirement at matching widths, including detached oracle calls. */
+def offers = MutableMap{}
+fun input_requirement(pin :: String, width :: PosInt):
+  def key = [pin, width]
+  unless offers.has_key(key) | offers[key] := stable_offer(input_sample(pin, width), width)
+  offers[key]
+def required_offer = input_requirement("word", 2)
+def wrapper_offer = input_requirement("payload", 2)
 export required_offer wrapper_offer
 
 /* The recorder output is meaningful for this theorem only when the sink actually transfers. */
@@ -55,49 +63,53 @@ fun receipt_events(rst :: SpecExpr, valid :: SpecExpr, ready :: SpecExpr, word :
   offer_events(rst, valid, ready, word) ++ {"receipt": Observed(saved, !rst && valid && ready)}
 
 /* Bind the same receipt to the word input exposed by either recorder boundary. */
-fun sink_receipt(word_pin :: String):
+fun sink_receipt(word_pin :: String, w :: PosInt = 2):
   fun (read :: Function, output :: Function):
-    receipt_events(read("reset", Bool), read("valid", Bool), read("ready", Bool), read(word_pin, Bits(2)), output("remembered", Bits(2)))
+    receipt_events(read("reset", Bool), read("valid", Bool), read("ready", Bool), read(word_pin, Bits(w)), output("remembered", Bits(w)))
 
 /* Bind that same receipt to the public wrapper; valid and word now come from outputs. */
-fun wrapper_receipt(read :: Function, output :: Function):
-  receipt_events(read("reset", Bool), output("valid", Bool), read("consume", Bool), output("word", Bits(2)), output("remembered", Bits(2)))
+fun wrapper_receipt(read :: Function, output :: Function, w :: PosInt = 2):
+  receipt_events(read("reset", Bool), output("valid", Bool), read("consume", Bool), output("word", Bits(w)), output("remembered", Bits(w)))
 
 /* Check pre-edge readback on a handshake following a stall; do not require a handshake to occur. */
-fun receipt(sampler :: Function.of_arity(2)):
+fun receipt(sampler :: Function.of_arity(2), w :: PosInt = 2):
   monitor:
     sample sampler
     publish []
     batch offered = present(offer)
     batch ready = present(ready)
-    batch word: Bits(2) = payload(offer) when offered
+    batch word: Bits(w) = payload(offer) when offered
     batch fire = present(receipt)
-    batch saved: Bits(2) = payload(receipt) when fire
+    batch saved: Bits(w) = payload(receipt) when fire
     state pending: Bool initially #false
     guarantee "first-stalled-word" = bits_equal(saved, word) when pending && fire
     next pending = offered && !ready
 
 spec for rtl.StallConsumer:
-  requires required_offer
-  transactions receipt(sink_receipt("word"))
+  specialize w = word.type.width ~default: 2
+  requires input_requirement("word", w)
+  transactions receipt(sink_receipt("word", w), w)
   refinement:
     local (tracking): Bool
-    local (saved): Bits(2)
+    local (saved): Bits(w)
     required (pending): Bool
     // This word belongs to the input assumption. The receipt itself remembers only whether a stall is pending.
-    required (last): Bits(2)
+    required (last): Bits(w)
     invariant same_stall = select(tracking, pending, !pending)
     invariant first_word = !tracking || bits_equal(saved, last)
     relate pending = tracking
 
 spec for rtl.StallConsumerWrapper:
-  requires wrapper_offer
-  transactions receipt(sink_receipt("payload"))
+  specialize w = payload.type.width ~default: 2
+  requires input_requirement("payload", w)
+  transactions receipt(sink_receipt("payload", w), w)
   refinement:
     forward recorder: StallConsumer
 
 spec for rtl.BufferedStallConsumer:
-  transactions receipt(wrapper_receipt)
+  specialize w = data.type.width ~default: 2
+  transactions receipt(fun (read, output): wrapper_receipt(read, output, w),
+                       w)
   refinement:
     child fifo: ShiftQueue
     child sink: StallConsumerWrapper

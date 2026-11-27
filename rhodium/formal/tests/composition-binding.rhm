@@ -39,7 +39,7 @@ export registered_lane registered_routed registered_duplicate
 export capture_gate arbitrated_capture raw_capture duplicate_capture
 export gated_at leaky_at outer_at faulty_buffered
 export pair_at fifo_definition arbiter_definition mixed wrong_lane undersized
-export pair_series wrong_ready_series
+export pair_series series_at wrong_ready_series
 export faulty_pair
 export interface_prefixes pin_layout leaf_sites
 export proof_depths parent_at wrong_lane_at fifo_at
@@ -48,6 +48,7 @@ export proof_depths parent_at wrong_lane_at fifo_at
 def pairs = MutableMap{}
 def faulty_pairs = MutableMap{}
 def mutable pair_series = #false
+def series_tops = MutableMap{}
 def mutable wrong_ready_series = #false
 def mutable arbiter_definition = #false
 def fifos = MutableMap{}
@@ -125,6 +126,8 @@ fun inventory():
     for (fault in (if d == 1 | ["ready", "payload"] | ["ready", "payload", "mask", "valid-gated"])):
       faulty_pairs[[fault, d]] := materialize_circuit(FaultyQueuePair(d, fault))
   pair_series := materialize_circuit(QueuePairSeries())
+  for ([front, back] in [[1, 1], [1, 2], [2, 1]]):
+    series_tops[[front, back]] := materialize_circuit(QueuePairSeries(front, back))
   wrong_ready_series := materialize_circuit(WrongReadySeries())
   for (cross_payload in [#true, #false]):
     faulty_buffered_tops[cross_payload] := materialize_circuit(FaultyBuffered(~cross_payload: cross_payload))
@@ -147,6 +150,7 @@ fun inventory():
   undersized := materialize_circuit(Undersized(2))
   ArbiterQueue(2)
 def mixed = elaborate(inventory()).top
+fun series_at(front :: PosInt, back :: PosInt): series_tops[[front, back]]
 fun gated_at(depth): gated[depth]
 fun leaky_at(depth): leaky[depth]
 fun outer_at(depth): outer[depth]

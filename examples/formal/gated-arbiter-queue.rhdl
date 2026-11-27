@@ -7,15 +7,15 @@ import:
   "arbiter-queue.rhdl".ArbiterQueue
 
 /* Reset closes the gate; otherwise enable selects admission on the following cycle. */
-sync_circuit GatedArbiterQueue(width :: PosInt, ~depth: depth :: PosInt = 2):
+sync_circuit GatedArbiterQueue(width :: PosInt, ~depth: depth :: PosInt = 2, ~lanes: lanes :: PosInt = 2):
   input enable: Bool
-  interface ingress[2](Decoupled(Bits(width)), ~role: consumer)
+  interface ingress[lanes](Decoupled(Bits(width)), ~role: consumer)
   interface egress(Irrevocable(Bits(width)), ~role: producer)
 
   reg gate_open(~init: Bool(#false))
   gate_open <== enable
-  inst queue(ArbiterQueue(width, ~depth: depth))
-  for (i in 0..2):
+  inst queue(ArbiterQueue(width, ~depth: depth, ~lanes: lanes))
+  for (i in 0..lanes):
     queue.ingress[i].valid <== gate_open & ingress[i].valid
     queue.ingress[i].bits <== ingress[i].bits
     ingress[i].ready <== gate_open & queue.ingress[i].ready

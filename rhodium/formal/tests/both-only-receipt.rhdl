@@ -1,6 +1,7 @@
 #lang rhodium
 // SPDX-License-Identifier: Apache-2.0
 
+import lib("rhodium/frontend/support/clocking.rhm").ambient_reset_register
 import lib("flow/main.rhdl") open
 import lib("examples/formal/broadcast-receipt.rhdl").BroadcastReceipt
 import lib("rhodium/frontend/kernel.rhm").materialize_circuit
@@ -12,10 +13,11 @@ sync_circuit BothOnlyReceipt():
   inst fanout(Broadcast(Bits(2), 2))
   ingress |> fanout.ingress
   for (i in 0..2): fanout.egress[i] |> egress[i]
-  reg split(~init: Bool(#false))
+  for (i in 0..2):
+    def due = ambient_reset_register("due_" ++ to_string(i), Bool, Bool(#false))
+    due <== ingress.fire() ||| (due & !egress[i].fire())
   def l = egress[0].fire()
   def r = egress[1].fire()
-  when (l ||| r): split <== !(split ||| (l & r))
   // Same state and wiring: only the pulse logic forgets the earlier recipient.
   receipt <== !reset_active().into(Bool) & l & r
 
@@ -26,4 +28,6 @@ fun inventory():
   BothOnlyReceipt()
 def bad_top = elaborate(inventory()).top
 def queued = elaborate(BroadcastReceipt(~queued: #true)).top
-export direct queued bad_top
+def wide_direct = elaborate(BroadcastReceipt(3, 8)).top
+def wide_queued = elaborate(BroadcastReceipt(3, 8, ~queued: #true)).top
+export direct queued bad_top wide_direct wide_queued

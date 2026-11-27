@@ -9,5 +9,6 @@ import:
   "two-tag-rob.rspl" as spec
 
 module main:
-  def seal = prove_design(elaborate(rtl.TwoTagROB()).top, spec.TwoTagROB)
-  println("Proved TwoTagROB retirement order and first matching-generation payload (two live tags)")
+  for (width in [1, 2, 8]):
+    def seal = prove_design(elaborate(rtl.TwoTagROB(width)).top, spec.TwoTagROB)
+    println("Proved TwoTagROB retirement order and first matching-generation payload (two live tags)" ++ " (width " ++ to_string(width) ++ ")")

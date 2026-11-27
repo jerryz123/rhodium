@@ -10,14 +10,15 @@ import:
   "gated-capture.rspl" as spec
 
 module main:
-  def top = elaborate(rtl.ArbitratedCapture()).top
-  def arb = proof.prove_design(proof.child_definition(top, "arb"), Arbiter)
-  def gate = proof.child_definition(top, "gate")
-  def full_children = {"arb": arb, "gate": proof.prove_design(gate, spec.GatedCapture)}
-  def seal = proof.prove_design(top, spec.ArbitratedCapture, ~children: full_children)
-  println("Proved ArbitratedCapture: unrestricted requests, lane A wins ties, capture reads the previous word")
-  def zero_seal = proof.prove_design(top, spec.arbitrated_capture_zero, ~children: full_children)
-  println("Proved previous_was_zero: on capture, readback is zero exactly when the previous word was zero")
-  def bit_children = {"arb": arb, "gate": proof.prove_design(gate, spec.zero_gate)}
-  def bit_child_seal = proof.prove_design(top, spec.arbitrated_capture_from_bit, ~children: bit_children)
-  println("Proved unconditional zero/nonzero readback from only Arbiter grants and GatedCapture's bit")
+  for (width in [1, 2, 8]):
+    def top = elaborate(rtl.ArbitratedCapture(width)).top
+    def arb = proof.prove_design(proof.child_definition(top, "arb"), Arbiter)
+    def gate = proof.child_definition(top, "gate")
+    def full_children = {"arb": arb, "gate": proof.prove_design(gate, spec.GatedCapture)}
+    def seal = proof.prove_design(top, spec.ArbitratedCapture, ~children: full_children)
+    println("Proved ArbitratedCapture: unrestricted requests, lane A wins ties, capture reads the previous word" ++ " (width " ++ to_string(width) ++ ")")
+    def zero_seal = proof.prove_design(top, spec.arbitrated_capture_zero, ~children: full_children)
+    println("Proved previous_was_zero: on capture, readback is zero exactly when the previous word was zero" ++ " (width " ++ to_string(width) ++ ")")
+    def bit_children = {"arb": arb, "gate": proof.prove_design(gate, spec.zero_gate)}
+    def bit_child_seal = proof.prove_design(top, spec.arbitrated_capture_from_bit, ~children: bit_children)
+    println("Proved unconditional zero/nonzero readback from only Arbiter grants and GatedCapture's bit" ++ " (width " ++ to_string(width) ++ ")")

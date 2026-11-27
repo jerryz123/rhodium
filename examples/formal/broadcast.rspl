@@ -1,47 +1,42 @@
 #lang rspecl
-/* Specifies Flow Broadcast's independent offers and relates its shared storage to two public delivery histories. */
+/* Relates Broadcast's shared payload and pending mask to one delivery history per output. */
 // SPDX-License-Identifier: Apache-2.0
 
 import lib("flow/broadcast.rhdl") as rtl
-import lib("rspecl/broadcast.rspl").broadcast_monitor
+import lib("rspecl/broadcast.rspl") open
 
 spec for rtl.Broadcast:
-  unless n == 2 && ingress.bits.type.width == 2 | error("Broadcast contract requires two outputs and two-bit words")
-  state left_slot: Seq(ingress.bits.type, 1) initially [] as vacant
-  state right_slot: Seq(ingress.bits.type, 1) initially []
-  let left_live = !empty(left_slot)
-  let right_live = !empty(right_slot)
-  // This implementation can replace the word exactly when all remaining recipients will drain.
-  let room = (!left_live || egress[0].ready) && (!right_live || egress[1].ready)
+  def word = ingress.bits.type
+  def lanes = broadcast_lanes(n)
+  def slot_names = lanes.map(fun (lane): lane.event ++ "_slot")
+  state slot[slot_names]: Seq(word, 1) initially []
+  def vacant = const(Seq(word, 1), [])
+  // This RTL can replace a word exactly when all remaining recipients can take it.
+  def mutable room = const(Bool, #true)
+  for (i in 0..n): room := room && (empty(slot[i]) || egress[i].ready)
   let accept = room && ingress.valid
   observe ingress.ready = room when !reset
-  observe egress[0].valid = left_live when !reset
-  observe egress[1].valid = right_live when !reset
-  observe egress[0].bits = front(left_slot) when !reset && left_live
-  observe egress[1].bits = front(right_slot) when !reset && right_live
   let arrival = append(vacant, ingress.bits)
-  next left_slot = select(reset, vacant, select(accept, arrival, select(egress[0].ready, vacant, left_slot)))
-  next right_slot = select(reset, vacant, select(accept, arrival, select(egress[1].ready, vacant, right_slot)))
+  for (i in 0..n):
+    let live = !empty(slot[i])
+    observe egress[i].valid = live when !reset
+    observe egress[i].bits = front(slot[i]) when !reset && live
+    next slot[i] = select(reset, vacant, select(accept, arrival, select(egress[i].ready, vacant, slot[i])))
 
-  events transfers = rv_transfers(~accepted: ingress, ~left: egress[0], ~right: egress[1])
-  transactions broadcast_monitor(ingress.bits.type.width, transfers)
+  events transfers = broadcast_transfers(ingress, egress)
+  transactions broadcast_monitor(n, word.width, transfers)
   refinement:
-    relate owed_l = left_slot
-    relate owed_r = right_slot
+    for (lane in lanes, i in 0..n): relate (lane.history) = slot[i]
 
   rtl_refinement:
-    register pending: Bits(2)
-    register payload: Bits(2)
+    register pending: Bits(n)
+    register payload: word
     // A pending bit owns a copy of the shared payload; a cleared bit owes nothing, regardless of stale data.
-    def vacant = const(Seq(Bits(2), 1), [])
     def copy = append(vacant, payload)
-    relate left_slot = select(bits_equal(bits_slice(pending, 0, 1), const(Bits(1), 1)), copy, vacant)
-    relate right_slot = select(bits_equal(bits_slice(pending, 1, 1), const(Bits(1), 1)), copy, vacant)
     pin rst from reset
-    pin l from egress[0].valid
-    pin r from egress[1].valid
     care ingress.ready = !rst
-    care egress[0].valid = !rst
-    care egress[1].valid = !rst
-    care egress[0].bits = !rst && l
-    care egress[1].bits = !rst && r
+    for (i in 0..n):
+      relate (slot_names[i]) = select(bits_equal(bits_slice(pending, i, 1), const(Bits(1), 1)), copy, vacant)
+      pin offered from egress[i].valid
+      care egress[i].valid = !rst
+      care egress[i].bits = !rst && offered

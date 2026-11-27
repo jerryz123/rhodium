@@ -58,8 +58,8 @@ treat a matching batch schema as proof that two monitors agree.
    ShiftQueue's ordering observer reads its generic seal at depths 1–3.
    QueuePair(1) and QueuePair(2) now prove their two- and four-word bounds
    from generic ShiftQueue seals using `child`, `history`, and `relate` on
-   the elaborated wiring. QueuePairSeries requires shared FIFO contracts of
-   capacities two and four for the six-word proof; only its caller names QueuePair.
+   the elaborated wiring. QueuePairSeries derives both shared FIFO capacities
+   from its depths; the same spec proves (1,1), (1,2), and (2,1). Only its caller names QueuePair.
    [ArbiterQueue](../../examples/formal/prove-arbiter-queue.rhm) now proves
    depths 1–3 from the Arbiter transfer and ShiftQueue FIFO contracts; two-lane
    exclusivity is a checked guarantee, not an environment assumption.
@@ -111,18 +111,18 @@ treat a matching batch schema as proof that two monitors agree.
    reopening either child or changing the engine. Its [regression](tests/offer-queue.rkt)
    distinguishes allowed replacement from a bypass that commits the incoming
    update instead of the old offer.
-   The [two-output AtomicFork proof](../../examples/formal/prove-atomic-fork.rhm)
-   uses the same runner for a stateless contract: all three handshakes agree
-   and both outputs transfer the input word. Its [two-bit regression](tests/atomic-fork.rkt)
-   replays a one-sided transfer that the shared-edge guarantee rejects.
+   The [AtomicFork proof](../../examples/formal/prove-atomic-fork.rhm) checks
+   (outputs, word width) = (1,1), (2,2), and (3,8) with the same spec and runner.
+   Its [regression](tests/atomic-fork.rkt) distinguishes a one-sided transfer
+   from a simultaneous transfer with only the third output's high bit corrupted.
    The [Broadcast proof](../../examples/formal/prove-broadcast.rhm) uses a
-   [two-recipient monitor](../../rspecl/broadcast.rspl) that tracks copies owed
-   independently of the implementation. Only the leaf refinement reads the
+   [parameterized monitor](../../rspecl/broadcast.rspl) that tracks one owed copy per
+   recipient, checked at (1,1), (2,2), and (3,8). Only the leaf refinement reads the
    pending mask and payload. [QueuedFork](../../examples/formal/prove-queued-fork.rhm)
-   proves the same monitor from AtomicFork and two one-entry queue contracts. The two
+   proves the same monitor from AtomicFork and one queue contract per recipient. The two
    implementations need not agree on ingress readiness when the last recipient drains.
    [BroadcastReceipt](../../examples/formal/prove-broadcast-receipt.rhm) uses either
-   seal at the same occurrence to prove one pulse exactly on the last delivery.
+   seal at the same occurrence to prove one pulse exactly on the last delivery at all three sizes.
    Its [split-delivery regression](tests/broadcast-receipt.rkt) distinguishes a
    completed old word from its simultaneous replacement and rejects a both-fire-only recorder.
    Its `fanout` binding now names the public broadcast contract, not either
