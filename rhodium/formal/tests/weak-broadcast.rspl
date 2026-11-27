@@ -1,0 +1,23 @@
+#lang rspecl
+// SPDX-License-Identifier: Apache-2.0
+
+import lib("examples/formal/broadcast.rspl").Broadcast
+import lib("rhodium/formal/spec.rhm") as ir
+
+// Keep the sampler, history schema and even the label. Erase just the left-delivery
+// predicate wherever the monitor uses it, including its combined verdict and update guards.
+fun weaker_view(view):
+  def model = view.monitor
+  def checked = model.outputs["left-delivery"].value
+  fun weaken(expr):
+    if expr === checked | const(Bool, #true) | expr with (args = expr.args.map(weaken))
+  def outputs = for Map ((key, field) in model.outputs):
+    values(key, ir.Observed(weaken(field.value), field.care))
+  def updates = for Map ((key, expr) in model.updates): values(key, weaken(expr))
+  view with (monitor = ir.make_spec(model.inputs, model.state, model.initial, outputs, {}, updates))
+
+// A genuine second proof on the same physical Broadcast, using the real RTL and cycle relations.
+fun weak_leaf(top, ~proof_plan: plan :: Boolean):
+  let PairList["leaf", name, cycle, view, relation, hints] = Broadcast(top, ~proof_plan: plan)
+  PairList["leaf", name, cycle, weaker_view(view), relation, hints]
+export weak_leaf

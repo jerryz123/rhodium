@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import lib("rhodium/formal/spec.rhm").Observed
-export broadcast_monitor broadcast_events
+export broadcast_monitor broadcast_events broadcast_contract
 
 /* Turn the caller's accepted/left/right handshakes into reset epochs. Do not read
    transfer pins on reset, when even valid and ready can be outside the cycle contract. */
@@ -39,3 +39,14 @@ fun broadcast_monitor(width :: PosInt, transfers :: Function.of_arity(2)):
     let replacement = append(vacant, incoming)
     next owed_l = select(rst, vacant, select(take, replacement, select(pop_l, vacant, owed_l)))
     next owed_r = select(rst, vacant, select(take, replacement, select(pop_r, vacant, owed_r)))
+
+/* Bind the same two-recipient contract to either implementation's actual ready/valid groups.
+   The proof driver chooses the implementation; consumers need only this declaration. */
+fun bind_broadcast(ports :: Map, sample :: Function.of_arity(1)):
+  def ingress :: Endpoint = ports["ingress"]
+  def lanes = ports["egress"]
+  unless lanes.length() == 2 | error("broadcast contract requires exactly two recipients")
+  def transfers = sample(rv_transfers(~accepted: ingress, ~left: lanes[0], ~right: lanes[1]))
+  broadcast_monitor(ingress.bits.type.width, transfers)
+
+def broadcast_contract = shared_contract(bind_broadcast)

@@ -2,12 +2,15 @@
 ;; SPDX-License-Identifier: Apache-2.0
 
 (require rackunit racket/match "both-only-receipt.rhdl" "composition-checks.rkt" "stall-replay.rhm"
+         "weak-broadcast.rspl"
          (only-in "../../../examples/formal/broadcast-receipt.rspl" BroadcastReceipt)
          (only-in "../../../examples/formal/broadcast.rspl" Broadcast)
          (only-in "../../../examples/formal/queued-fork.rspl" QueuedFork)
          (only-in "../../../rspecl/runner.rkt" child_definition prove-design)
-         (only-in "../../../rspecl/proof.rkt" transaction-for?)
-         (only-in "../../../rspecl/rtl-boundary.rhm" interface_prefixes)
+         (only-in "../../../rspecl/proof.rkt" transaction-for? transaction-step)
+         (only-in "../../../rspecl/rtl-boundary.rhm" interface_prefixes transaction_batch_model transaction_parts)
+         (only-in "../spec.rhm" spec_snapshot)
+         (only-in "../spec-engine.rkt" spec-initial-state)
          (only-in "../wiring.rhm" leaf_layout)
          (only-in "../refinement.rkt" pack-pins unpack-pins)
          (only-in "../snapshot.rhm" formal_snapshot)
@@ -19,16 +22,36 @@
   (define direct-seal (child-seal direct Broadcast))
   (define queued-seal (child-seal queued QueuedFork))
   (define (view top) (BroadcastReceipt top #:transaction_view #t))
+  (test-case "a shared contract specifies behavior; it cannot discover or prove its implementation"
+    (check-exn #rx"shared child contract requires supplied evidence" (lambda () (prove-design direct BroadcastReceipt))))
   (for ([top (list direct queued)] [seal (list direct-seal queued-seal)] [wrong (list queued-seal direct-seal)])
     (test-case "only the seal for the actual occurrence can prove the unchanged parent"
       (define parent (without-child-proofs BroadcastReceipt top))
       (check-true (transaction-for? (prove-design top parent #:children (hash "fanout" seal)) top (view top)))
-      (check-exn #rx"expected certified evidence" (lambda () (prove-design top parent #:children (hash "fanout" wrong))))))
+      (check-exn #rx"actual RTL occurrence" (lambda () (prove-design top parent #:children (hash "fanout" wrong))))))
+
+  (test-case "same physical fanout and pin-to-batch mapping, but weaker delivery promise"
+    (define child (child_definition direct "fanout"))
+    (define plan (weak_leaf child #:proof_plan #t))
+    (define weak (fourth plan))
+    (define strong (Broadcast child #:transaction_view #t))
+    (define evidence (prove-design child (lambda (_ #:proof_plan _plan) plan)))
+    (check-true (transaction-for? evidence child weak))
+    (check-equal? (spec_snapshot (transaction_batch_model weak)) (spec_snapshot (transaction_batch_model strong)))
+    ;; This edge retires left without ever admitting a word: only the weakened seal permits it.
+    (define-values (_sampler monitor _ins _outs) (transaction_parts weak))
+    (define empty-history (spec-initial-state (spec_snapshot monitor)))
+    (define batch (hash "rst" #f "take" #f "incoming" (bv 0 2)
+                        "pop_l" #t "out_l" (bv 1 2) "pop_r" #f "out_r" (bv 0 2)))
+    (define-values (weak-ok _) (transaction-step evidence weak empty-history batch))
+    (define-values (strong-ok _next) (transaction-step direct-seal strong empty-history batch))
+    (check-true weak-ok)
+    (check-false strong-ok)
+    (check-exn #rx"exact public contract"
+               (lambda () (prove-design direct BroadcastReceipt #:children (hash "fanout" evidence)))))
 
   (test-case "both-only recorder fails the named last-delivery obligation"
-    (match-define (list "parent" public _ req suppliers domain) (BroadcastReceipt direct #:proof_plan #t))
-    (define (plan top #:proof_plan _)
-      (list "parent" public (hash "fanout" (list (child_definition top "fanout") Broadcast)) req suppliers domain))
+    (define plan (without-child-proofs BroadcastReceipt direct))
     (check-eq? (child_definition direct "fanout") (child_definition bad_top "fanout"))
     (check-exn #rx"step/last-delivery not proved"
                (lambda () (prove-design bad_top plan #:children (hash "fanout" direct-seal)))))

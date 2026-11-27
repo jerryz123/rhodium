@@ -163,6 +163,19 @@ instance name. `prove_design(top, spec)` takes the **constructor**, not
 child and no others. There is no fallback to recursive proof. Swapping the
 two QueuePair seals fails: their specializations and public views differ.
 
+A parent can also name an implementation-independent contract, as in
+`child fanout: broadcast_contract` in [BroadcastReceipt](../examples/formal/broadcast-receipt.rspl).
+The caller supplies the seal for the RTL at `fanout`; the parent does not
+import the implementation's spec. [`shared_contract(build)`](broadcast.rspl)
+calls `build(groups, sample)` with the occurrence's ready/valid groups
+(including indexed arrays) and a function that binds an event source to its
+directional pins. The builder returns a public monitor, not a proof recipe.
+The default is a clocked boundary; use `~synchronous: #false` for a clockless one.
+This cut requires unconditional evidence, the actual child definition, and
+identical executable public IR: published events, pin directions, batch
+sampling, initial history, verdicts and updates. Matching event names is not
+enough. It does not search for an implementation or prove monitor implication.
+
 The [series spec](../examples/formal/queue-pair-series.rspl) relates the downstream
 history followed by the upstream history to its six-word FIFO. The runner checks
 this relation on the actual RTL handoff. A successful proof returns an opaque seal for that

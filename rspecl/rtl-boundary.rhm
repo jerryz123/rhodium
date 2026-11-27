@@ -18,7 +18,7 @@ export declared_ports interface_prefixes Endpoint
 export rv_transfers ready_valid_events bind_event_source event_reader
 export transaction_view check_transaction_ports transaction_parts transaction_batch_model Presence Payload
 export attach_refinement refinement_parts child_transaction child_definition checked_leaf_hints
-export combine_transactions
+export combine_transactions shared_contract shared_expectation check_shared_contract
 export:
   only_space annot: TransactionView
   rename: ScalarPins as rv_pins
@@ -64,7 +64,10 @@ fun interface_prefixes(top :: Module):
 
 /* Split directional records using their real group bindings, not a physical-port naming convention. */
 fun declared_ports(top :: Module, family :: CircuitIdentity, synchronous :: Boolean):
-  def parameters = checked_circuit_parameters(top, family)
+  sampled_boundary(top, synchronous, checked_circuit_parameters(top, family))
+
+/* Bind physical port groups independently of a family name; only a nominal declaration supplies parameters. */
+fun sampled_boundary(top :: Module, synchronous :: Boolean, parameters :: Map):
   def ins = MutableMap{}
   def outs = MutableMap{}
   def endpoints = MutableMap{}
@@ -232,6 +235,41 @@ class TransactionView(sampler :: LeafModel, monitor :: LeafModel, cycle_names ::
                       outputs :: Map, bindings :: Map, hints :: maybe(PairList) = #false):
   field batch = if bindings.length() > 0 | project_batch(sampler, monitor.inputs, bindings) | #false
 
+/* A requested public behavior on one elaboration, not a proof or a recipe for proving the RTL. */
+class SharedExpectation(top :: Module, view :: TransactionView)
+
+/* Recognize an explicit public-contract request at a proof cut; normal spec cuts remain nominal. */
+fun shared_expectation(v :~ matching(_)): v is_a SharedExpectation
+
+/* Bind an ordinary monitor builder to the occurrence's checked endpoint groups and directional sampler.
+   A public declaration has no implementation relation; its caller must supply a separately proved seal. */
+fun shared_contract(build :: Function.of_arity(2), ~synchronous: synchronous :: Boolean = #true):
+  fun (top :: Module, ~transaction_view: view :: Boolean = #false, ~proof_plan: plan :: Boolean = #false):
+    when plan | error("a shared child contract requires supplied evidence via #:children")
+    unless view | error("request a transaction view for a shared child contract")
+    def bound = sampled_boundary(top, synchronous, {})
+    when synchronous && !(top.find_input("clock") && hw.clock_type(top.find_input("clock").type))
+    | error("shared synchronous contract requires a clock input")
+    /* Preserve checked pin directions and sampler domains when building public batches. */
+    fun sample(source :: Function.of_arity(1)):
+      event_reader(bind_event_source(source, top).sampler, bound.ports)
+    def public = check_transaction_ports(build(bound.endpoints ++ bound.arrays, sample), bound.ports)
+    unless public.batch && !public.hints | error("expected a bound public monitor without refinement hints")
+    SharedExpectation(top, public)
+
+/* Compare all executable public IR, never private hints, solver terms, or just field names.
+   The batch snapshot includes event care/payloads, pin sorts and the total pin-to-batch projection. */
+fun check_shared_contract(request :: SharedExpectation, top :: Module, certified :: TransactionView,
+                          batch :: Map, monitor :: Map):
+  def expected = request.view
+  unless request.top === top | error("expected certified evidence for the actual RTL occurrence")
+  unless expected.inputs.keys().sort() == certified.inputs.keys().sort()
+         && expected.outputs.keys().sort() == certified.outputs.keys().sort()
+         && expected.cycle_names == certified.cycle_names
+         && spec_snapshot(transaction_batch_model(expected)) == batch
+         && spec_snapshot(expected.monitor) == monitor
+  | error("expected certified evidence for the exact public contract")
+
 /* A detached public monitor has no occurrence from which to read a parameterized child's signature. */
 class OccurrenceSpec(build :: Function)
 
@@ -241,7 +279,8 @@ fun check_histories(inputs :: Map, cuts :: Map):
     when k.starts_with("history.")
     | block:
         let [_, site, field] = k.split(".")
-        def cut = cuts[site]
+        def binding = cuts[site]
+        def cut = if binding is_a SharedExpectation | binding.view | binding
         unless cut is_a OccurrenceSpec
                || (cut is_a TransactionView && cut.monitor.state.has_key(field) && spec_type_equal(t, cut.monitor.state[field]))
         | error("unknown or mistyped child monitor state: " ++ field)
@@ -300,7 +339,7 @@ fun refinement_parts(view :: TransactionView, top :: Module, site_override :: ma
   let PairList[sites, cuts, relation, checks, forwarded] = view.hints || error("transaction view has no refinement block")
   def bound = for Map ((site, cut) in cuts):
     values(site, if cut is_a OccurrenceSpec
-                 | (cut.build)(child_definition(top, site_override || site), ~transaction_view: #true) :: TransactionView
+                 | (cut.build)(child_definition(top, site_override || site), ~transaction_view: #true) :: (TransactionView || SharedExpectation)
                  | cut)
   check_histories(relation.inputs, bound)
   PairList[sites, bound, spec_snapshot(relation), checks, forwarded]

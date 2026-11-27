@@ -19,6 +19,9 @@ export:
   extend_leaf_transactions
   rename: monitor_view as monitor
   rename: boundary.combine_transactions as combine_transactions
+  rename: boundary.shared_contract as shared_contract
+  only_space annot:
+    rename: boundary.Endpoint as Endpoint
   rename: boundary.ready_valid_events as ready_valid_events
   rename: boundary.rv_transfers as rv_transfers
   rename: boundary.rv_pins as rv_pins

@@ -76,6 +76,15 @@ Keep this in the language profile: both rspecsim and Rosette already implement
 guarded evaluation. The sampler, the translation from sparse sampled events to
 typed batch fields, and the decision to issue proof evidence remain separate.
 
+At a shared-contract cut, the boundary binder constructs an expected view
+from the actual child's public ports. The issuer compares it with the
+unconditional seal for that definition: compare the complete sampled batch
+and monitor snapshots, pin directions, and published events,
+excluding private refinement hints. Keep the ordinary spec-identity path
+separate. The [receipt regression](tests/broadcast-receipt.rkt) exchanges
+physical seals and also proves a weaker monitor on the **correct** physical
+child; those are distinct admission failures.
+
 ### Symbolic specification step
 
 `spec_snapshot(model)` copies the checked input/state schemas, typed expressions,

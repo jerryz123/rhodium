@@ -84,7 +84,12 @@
 #| Sample and advance the sealed monitor on its actual pins. For a forwarded batch,
    verify its equality on arbitrary connected pins before assuming any child verdict. |#
 (define (sealed-site site expected child forward? [linked? #f])
-  (check-view child expected #:at-cut? #t)
+  (cond [(shared_expectation expected)
+         (unless (and (seal? child) (unrestricted? child))
+           (error 'transaction "shared child contract requires unconditional evidence: ~a" site))
+         (check_shared_contract expected (seal-top child) (seal-view child)
+                                (seal-sampler child) (seal-monitor child))]
+        [else (check-view child expected #:at-cut? #t)])
   (when (and (seal-requirement child) (not linked?))
     (error 'transaction "missing temporal supplier for ~a" site))
   #| Sample one independent edge; no cycle-level ready/valid or private RTL enters the cut. |#

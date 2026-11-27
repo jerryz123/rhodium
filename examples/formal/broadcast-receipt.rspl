@@ -3,9 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import "broadcast-receipt.rhdl" as rtl
-import "broadcast.rspl".Broadcast
-import "queued-fork.rspl".QueuedFork
-import lib("rspecl/broadcast.rspl").broadcast_events
+import lib("rspecl/broadcast.rspl") open
 import lib("rhodium/formal/spec.rhm").Observed
 
 /* Sample the real receipt even during reset: masking it would hide a spurious pulse. */
@@ -33,8 +31,8 @@ spec for rtl.BroadcastReceipt:
     next left_due = !rst && (take || (left_due && !l))
     next right_due = !rst && (take || (right_due && !r))
   refinement:
-    // Only the binding selects a specialization. Both seals promise the same public histories.
-    child fanout: if queued | QueuedFork | Broadcast
+    // The occurrence must have proved this public contract, regardless of its implementation.
+    child fanout: broadcast_contract
     history left from fanout.owed_l: Seq(ingress.bits.type, 1)
     history right from fanout.owed_r: Seq(ingress.bits.type, 1)
     relate left_due = !empty(left)

@@ -125,6 +125,9 @@ treat a matching batch schema as proof that two monitors agree.
    seal at the same occurrence to prove one pulse exactly on the last delivery.
    Its [split-delivery regression](tests/broadcast-receipt.rkt) distinguishes a
    completed old word from its simultaneous replacement and rejects a both-fire-only recorder.
+   Its `fanout` binding now names the public broadcast contract, not either
+   implementation. Supplied evidence must certify the exact pin sampler and
+   monitor on the actual child; a weaker guarantee on identical events fails.
    A missing general capability is a separate proposal with two clients and
    a failing negative test, not an exception for OfferRegister.
 
