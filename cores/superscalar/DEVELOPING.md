@@ -812,8 +812,11 @@ The frontend also instantiates shared `Ras` and independently disableable
 selects the next S0 request directly and travels with its original lookup into S2.
 Byte-six continuations retain their prefix prediction instead of looking up a
 new branch. Replay retains that continuation context; the assembler also retains
-the prefix prediction across straddles. A saved cursor holds an unaccepted
-successor when array admission or block credits prevent a request.
+the prefix prediction across straddles. Store the selected byte PC unchanged
+and mark it for an aligned eight-byte advance only when S0 transfers. Apply
+that advance when reading the saved fallback, in parallel with live candidates.
+A blocked restart or replay replaces the saved cursor without advancing; a
+restart that transfers on its first offer advances like any other request.
 Instruction metadata survives issue-window compaction and every pipeline stage.
 Do not infer prediction ownership from a lane or an aligned block PC.
 

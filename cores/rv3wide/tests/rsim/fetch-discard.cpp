@@ -81,20 +81,27 @@ static void collision(bool invalid, bool stall_restart, bool retry_on_edge) {
     CHECK(!pte_out.prequest.pvalid);
   }
   tick_model();
-  array_lookup_in.pready = 1; physical_replay = 0;
+  physical_replay = 0;
   eval();
   CHECK(!pte_out.prequest.pvalid); // a walker admitted on the collision edge would be issuing now
   CHECK(retired_0_out.pvalid && retired_0_out.pbits.prd == 17 && retired_0_out.pbits.pdata == branch_pc + 4);
   if (invalid) {
     CHECK(!s1_live && !array_lookup_out.pvalid);
+    array_lookup_in.pready = 1;
     tick_model(); eval();
     CHECK(redirect_out.pvalid && redirect_out.pbits.ptarget == 0); // precise target fault to mtvec
   } else {
     if (stall_restart) {
-      CHECK(!s1_live && array_lookup_out.pvalid && array_lookup_out.pbits == branch_pc + 64);
+      for (unsigned hold = 0; hold < 3; ++hold) {
+        CHECK(!s1_live && array_lookup_out.pvalid && array_lookup_out.pbits == branch_pc + 64);
+        CHECK(!pte_out.prequest.pvalid);
+        tick_model(); eval();
+      }
+      array_lookup_in.pready = 1;
       tick_model(); eval();
     }
     CHECK(s1_live && s1_address == branch_pc + 64 && s1_miss && !s1_discard);
+    CHECK(array_lookup_out.pvalid && array_lookup_out.pbits == ((branch_pc + 64) & ~UINT64_C(7)) + 8);
     tick_model(); eval();
     CHECK(pte_out.prequest.pvalid && pte_out.prequest.pbits.paddress == 0x3008);
   }

@@ -119,8 +119,30 @@ void run_prefix(std::uint64_t pc, std::uint64_t target, bool replay, bool fault,
   cycle();
 }
 
+void consecutive_advances(std::uint64_t first) {
+  initialize(0x106, 0x800, false, false);
+  redirect_in = {1, {prefix_pc, first, {0, 0, 0, {}}}};
+  instructions_in.pready = 1;
+  virtual_lookup_in.pready = 1;
+  auto pc = first;
+  for (unsigned block = 0; block < 8; ++block) {
+    settle();
+    CHECK(virtual_lookup_out.pvalid && virtual_lookup_out.pbits == (pc & ~UINT64_C(7)));
+    cycle();
+    redirect_in = {};
+    settle();
+    CHECK(translation_out.prequest.pvalid && translation_out.prequest.pbits == pc);
+    pc = (pc & ~UINT64_C(7)) + 8;
+  }
+}
+
 int main() {
   return run_test([] {
+    // Carry across a positive page, a negative page, and XLEN wrap. S0 is
+    // block-aligned, but S1 must receive the exact first byte PC each time.
+    for (auto first : {UINT64_C(0x1ffc), UINT64_C(0xffffffc000001ffc), UINT64_MAX - 11})
+      consecutive_advances(first);
+
     for (auto pc : {UINT64_C(0x1ffe), UINT64_C(0xffffffc000000ffe), UINT64_MAX - 1})
       for (auto target : {UINT64_C(0x0000003ffffff800), UINT64_C(0xffffffc000000800)})
         for (bool replay : {false, true}) run_prefix(pc, target, replay, false);

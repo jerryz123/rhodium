@@ -358,6 +358,15 @@ int main() {
     falling();
     redirect_in = {};
     restart(18);
+    // Hold the first noncanonical block across the S1-to-saved-cursor
+    // handoff. The eight-byte carry must neither disappear nor apply twice.
+    virtual_lookup_in.pready = 0;
+    for (unsigned stall = 0; stall < 3; ++stall) {
+      settle();
+      CHECK(virtual_lookup_out.pvalid && virtual_lookup_out.pbits == sv39_boundary);
+      falling();
+    }
+    virtual_lookup_in.pready = 1;
     // A sequential crossing must fault even if guest translation returns low PA.
     until([&] { return instructions_out.pvalid && instructions_out.pbits.pentries[0].pfault.pvalid != 0; });
     CHECK(saw_boundary_lookup && saw_boundary_translation);

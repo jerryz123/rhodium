@@ -99,6 +99,7 @@ sync_circuit SuperscalarFrontend(config :: RiscvHartCHIConfig, profile :: Supers
 
   reg active(~init: Bool(#false))
   reg cursor(~init: literal(SuperscalarFetchCursor(xlen), 0))
+  reg advance_block(~init: Bool(#false))
   inst btb(Btb(xlen, profile.btb_entries, ~fetch_bytes: 8, ~external_direction: profile.bht, ~pc_width: pc_width, ~target_width: pc_width))
   inst ras(if profile.ras_entries == 0 | DisabledRas(xlen) | Ras(xlen, profile.ras_entries, ~target_width: pc_width))
   inst bht(if profile.bht | TournamentBht() | DisabledTournamentBht())
@@ -248,7 +249,13 @@ sync_circuit SuperscalarFrontend(config :: RiscvHartCHIConfig, profile :: Supers
     hashed: Bool(#false)
     base_taken: literal(Vec(4, Bool), 0)
 
-  def local_cursor :: SuperscalarFetchCursor(xlen) = priority_mux(~default: cursor):
+  /* Only the saved fallback advances on read. Live restart, repair, replay,
+     and S1 candidates do not pass through the eight-byte increment. */
+  def retained :: SuperscalarFetchCursor(xlen) = cursor
+  def ahead = retained.address().align_down(8) + Bits(xlen.width)(8)
+  def ahead_pc = retain_pc(ahead, advance_block, "superscalar_fetch_lookahead_pc_fits")
+  def saved_cursor = cursor.updated(~pc: mux(advance_block, ahead_pc, cursor.pc))
+  def local_cursor :: SuperscalarFetchCursor(xlen) = priority_mux(~default: saved_cursor):
     repair: cursor.updated(~pc: retain_pc(repair_pc, repair & !command, "superscalar_fetch_repair_pc_fits"), ~continuation: Bool(#false), ~hashed: Bool(#false))
     replay: s2.egress.bits.cursor
     s1.egress.valid: next_cursor
@@ -288,12 +295,13 @@ sync_circuit SuperscalarFrontend(config :: RiscvHartCHIConfig, profile :: Supers
   elsewhen fault:
     active <== Bool(#false)
 
-  def ahead = selected.address().align_down(8) + Bits(xlen.width)(8)
-  def ahead_pc = retain_pc(ahead, attempt.fire(), "superscalar_fetch_lookahead_pc_fits")
-  when (attempt.fire()):
-    cursor <== selected.updated(~pc: ahead_pc, ~continuation: Bool(#false), ~hashed: Bool(#false))
-  elsewhen (replace ||| (continue_fetch & s1.egress.valid)):
-    cursor <== selected
+  /* Store the selected byte PC unchanged. A transfer consumes that block;
+     an unaccepted replacement must retry the exact PC and prediction context. */
+  def accepted = attempt.fire()
+  when (accepted ||| replace ||| (continue_fetch & s1.egress.valid)):
+    cursor <== selected.updated(~continuation: !accepted & selected.continuation,
+                                ~hashed: !accepted & selected.hashed)
+    advance_block <== accepted
 
 
   /* S1 translation and physical permission resolution.
