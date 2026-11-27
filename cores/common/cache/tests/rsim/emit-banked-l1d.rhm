@@ -53,6 +53,7 @@ fun site_header(manifest):
     | "test/reply": "constexpr unsigned ReplySite = " ++ to_string(i) ++ ";\n"
     | "dcache/refill.data": "constexpr unsigned FillSite = " ++ to_string(i) ++ ";\n"
     | "dcache/s4.resolve": "constexpr unsigned ResolveSite = " ++ to_string(i) ++ ";\n"
+    | "dcache/s3.lookup": "constexpr unsigned LookupSite = " ++ to_string(i) ++ ";\n"
     | ~else: ""
   String.join(constants, "")
 def target = traced_target(site_header, EventInstrumentationConfig(~partial: #true))

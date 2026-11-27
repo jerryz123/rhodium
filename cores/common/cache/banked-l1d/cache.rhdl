@@ -607,7 +607,7 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   def packet_capacity = !refill_packet_live ||| (refill_install_word & refill_packet_last)
   def refill_can_complete = !snoop_pending & !snoop_reading & !refill_packet_live & !pending_mutation_valid
   misses.ordered_ready <== miss_prefetch ||| miss_replied ||| service_responses.ingress.ready
-  misses.complete.ready <== refill_can_complete & !writeback_complete
+  def completed_paths = misses.complete |> gate_flow(refill_can_complete & !writeback_complete) |> to_valid() |> fork_valid(2)
   def completed = misses.complete.bits
   def complete_refill = misses.complete.fire() & completed.context.ordered
   install_line <== misses.complete.fire() & completed.context.install
@@ -769,7 +769,9 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   )
   // Gating retains blocked requests; only admitted reads enter the elastic S4
   // result register. A stalled request is reread when S4 has capacity.
-  def s3_observed = s3_lookup.egress |> trace_event("dcache/s3.lookup", ~stalls: #true, ~fields: lookup):
+  def lookup = inject_interface(Decoupled(L1DLookup(xlen, Context, beat_bytes, retained_width)),
+                                ~valid: s3_lookup.egress.valid, ~bits: s3_lookup.egress.bits, ~ready: s3_lookup.egress.ready)
+  def s3_observed = lookup |> trace_event("dcache/s3.lookup", ~stalls: #true, ~fields: lookup):
     address: lookup.request.address.zext(width)
     prefetch: lookup.prefetch
     access(~format: "enum"): lookup.request.access
@@ -798,7 +800,8 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   // older S4 hit will take the last slot. Snoop progress cannot depend on WB.
   def last_slot_claimed = replay_head & s4_valid & service_responses.count.any()
   def wait_for_response = parked.any() & s3_request.access.into(CacheOperation).is_load_or_store() & (!service_responses.ingress.ready ||| last_slot_claimed)
-  def replay_hit = replay_head & s3_hit_way.valid & mux(s3_plain_store, s3_state.is_unique(), s3_state.is_valid())
+  def permitted_hit = s3_hit_way.valid & mux(s3_plain_store, s3_state.is_unique(), s3_state.is_valid())
+  def replay_hit = replay_head & permitted_hit
   def replay_result = (
     primary
       |> gate_flow(s3_can_advance & s3_lookup_usable & !wait_for_response & (!miss_busy ||| replay_hit))
@@ -844,6 +847,9 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   def capture_first = first_offer.fire()
   def capture_s4 = s4_result.ingress.fire()
   retire_head <== capture_first ||| (replay_result.fire() & !s3_lookup.egress.bits.prefetch) ||| forward_waiter
+  describe_replay_waits(s3_lookup.egress, lookup, completed_paths[1], install_set, completed.context.install,
+                        classified, covered ||| !can_park, s3_set, remove_parked,
+                        replay_result.fire() & parked.any() & standard & permitted_hit)
   when capture_s4:
     assert(!pending_mutation_valid & !miss_active & !maintenance_active & !maintenance.command.fire(), "l1d_s4_request_not_owned_by_slow_service")
     retained_request <== mux(capture_first, ordinary_requests.bits, s3_request)
@@ -1155,7 +1161,7 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   describe_interface_retained_storage(local_mutation_capture, local_mutation_complete, pending_mutation_valid, ~name: "mutation")
   describe_interface_contract(mutation_start, mutation_done, "mutation", ~trace_model: interface_trace_retained(~name: "mutation"))
   describe_interface_selection([maintenance_complete, immediate_response, local_mutation_complete, forward_row, refill_response], ~name: "service-reply")
-  describe_interface_contract(Array(maintenance_done, immediate, mutation_done, forwarded, misses.complete), reply,
+  describe_interface_contract(Array(maintenance_done, immediate, mutation_done, forwarded, completed_paths[0]), reply,
                               "service-reply", ~trace_model: interface_trace_selection(~name: "service-reply"))
 
   assert(!(store_drain & (array_data_read ||| cache_write ||| gather_issue)), "l1d_store_drain_data_port_exclusive")

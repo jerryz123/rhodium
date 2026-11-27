@@ -230,6 +230,29 @@ void check_mshr_reuse(const Line &a, const Line &b, bool b_first) {
   response(a[1], 0xa1); response(b[2], 0xb2);
   response(b[1], 0xb1); response(a[0], 0xc3);
   eval(); CHECK(core_out.pdrained && !chi_out.prequests.pvalid);
+  if (b_first) {
+    // B led an acquisition, B+16 joined it, and C reused B's physical MSHR
+    // before either B demand could retire. A warm repeat did not wait on B.
+    request(addr_b + 32, load); response(b[2]);
+    const auto &graph = rheg::graph();
+    std::set<rheg::Ref> acquisitions;
+    for (const auto &[parent, child] : graph.edges)
+      if (child.site == FillSite) acquisitions.insert(parent);
+    std::multiset<unsigned> waited;
+    for (const auto &[parent, lookup] : graph.edges) {
+      if (!acquisitions.count(parent) || lookup.site != LookupSite) continue;
+      const auto addr = graph.field(lookup, "address").unsigned_value();
+      CHECK(graph.field(parent, "address").unsigned_value() == (addr & ~63ULL));
+      bool resolved = false;
+      for (const auto &[src, dst] : graph.edges)
+        if (src.site == lookup.site && src.sequence == lookup.sequence && dst.site == ResolveSite)
+          resolved |= graph.field(dst, "hit").unsigned_value() != 0;
+      CHECK(resolved);
+      waited.insert(addr);
+    }
+    const std::multiset<unsigned> expected{addr_b + 16, addr_b + 32, addr_c + 48};
+    CHECK(waited == expected);
+  }
 }
 
 void check_miss_barrier(const Line &a, const Line &b, bool reservation_barrier) {

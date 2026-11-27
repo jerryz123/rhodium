@@ -121,4 +121,61 @@ sync_circuit L1DDemandWindow(xlen :: XLen, Context :: DataType, beat_bytes :: Po
   describe_interface_queue_storage(DemandEntries, enqueue, dequeue, head, tail, occupancy.any(), Bool(#false))
   describe_interface_contract(ingress, egress, "demand-head", ~kind: "queue", ~trace_model: interface_trace_queue())
 
-export DemandEntries L1DDemandWindow
+/* Add the completed acquisition as a second parent of the successful S3 replay.
+   This companion ring follows the *classified prefix*: only an allocation or
+   a covered demand waits for an owner. At most one live MSHR owns a set. Take
+   its reference on completion, before the slot can be reused. None of these
+   controls drive functional valid, ready or payload. */
+fun describe_replay_waits(source :: Endpoint, observed :: Endpoint, completion :: Endpoint,
+                          completed_set :: Bits, installed :: Bool, classified :: Bool,
+                          waits :: Bool, request_set :: Bits, retire :: Bool, hit :: Bool):
+  reg head(~init: DemandIndex(0))
+  reg tail(~init: DemandIndex(0))
+  when retire: head <== head + DemandIndex(1)
+  when classified: tail <== tail + DemandIndex(1)
+
+  def arrivals = completion |> fork_valid(DemandEntries)
+  wire grants: Vec(DemandEntries, Bool)
+  reg waiting(~init: vec(for List (_i in 0..DemandEntries): Bool(#false)))
+  reg waiting_set(Vec(DemandEntries, request_set.type))
+  reg saved(~init: vec(for List (_i in 0..DemandEntries): Bool(#false)))
+  /* Observe a control occurrence without adding a functional interface port. */
+  fun pulse(valid :: Bool):
+    inject_interface(Valid(Bool), ~valid: valid, ~bits: Bool(#true))
+  def parents :: Array.later_of(Endpoint) = for Array (i in 0..DemandEntries):
+    def push = classified & (tail === DemandIndex(i))
+    def pop = retire & (head === DemandIndex(i))
+    def completed = arrivals[i].valid
+    def old_match = waiting[i] & !pop & (waiting_set[i] === completed_set)
+    def new_match = push & waits & (request_set === completed_set)
+    def capture = completed & installed & (old_match ||| new_match)
+    when push:
+      waiting[i] <== waits & !(completed & new_match)
+      waiting_set[i] <== request_set
+    elsewhen (pop ||| (completed & old_match)):
+      waiting[i] <== Bool(#false)
+    when capture: saved[i] <== Bool(#true)
+    elsewhen pop: saved[i] <== Bool(#false)
+    grants[i] <== hit & (head === DemandIndex(i)) & saved[i]
+    def parent = pulse(grants[i])
+    def name = "parked-wait-" ++ to_string(i)
+    describe_interface_retained_storage(capture, pop & saved[i], saved[i], ~name: name)
+    describe_interface_contract(arrivals[i], parent, name, ~trace_model: interface_trace_retained(~name: name))
+    parent
+
+  // Describe the existing S3 handshake: only a successful waited replay
+  // joins two causes. Stalls, classification and other lookups pass through.
+  def linked = grants.any()
+  def ordinary = pulse(source.fire() & !linked)
+  def replay = pulse(linked)
+  def dependency = pulse(linked)
+  def joined = pulse(linked)
+  describe_interface_contract(source, Array(ordinary, replay), "lookup-kind",
+                              ~trace_model: interface_trace_routing([!linked, linked]))
+  describe_interface_selection(for List (i in 0..DemandEntries): grants[i], ~name: "replay-owner")
+  describe_interface_contract(parents, dependency, "replay-owner", ~trace_model: interface_trace_selection(~name: "replay-owner"))
+  describe_interface_contract(Array(replay, dependency), joined, "waited-hit", ~trace_model: interface_trace_atomic_join(2))
+  describe_interface_selection([!linked, linked], ~name: "lookup-parents")
+  describe_interface_contract(Array(ordinary, joined), observed, "lookup-parents", ~trace_model: interface_trace_selection(~name: "lookup-parents"))
+
+export DemandEntries L1DDemandWindow describe_replay_waits

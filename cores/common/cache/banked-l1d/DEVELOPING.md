@@ -66,6 +66,11 @@ a replay that reads SRAM inherits `dcache/s4.resolve` instead. Keep that
 reference with the response FIFO entry during backpressure. The VLSU separately
 joins its ordered request metadata, so a merged waiter retains its own AGEN
 event even when its bytes come from another request's line acquisition.
+On a successful SRAM replay, `dcache/s3.lookup` also cites the acquisition
+that the demand allocated or joined during classification. The trace keeps
+the completed acquisition with the parked descriptor until it retires; it
+does not look up the current MSHR slot or the last fill to an address. A
+discarded fill or a hit parked behind an unrelated miss creates no such edge.
 After the ordered miss releases its context, replay ordinary loads and stores
 at the head of the classified prefix only in unreserved sets. Recheck the hit
 in S3; a store needs unique permission. In S4, installation has priority over
