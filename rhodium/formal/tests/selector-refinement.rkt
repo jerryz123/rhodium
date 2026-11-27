@@ -10,7 +10,8 @@
          (only-in "../../../examples/formal/arbiter.rspl" Arbiter)
          (only-in "../../../examples/formal/granted-selector.rspl" RegisteredLaneSelector)
          (only-in "../../../examples/formal/gated-capture.rspl" GatedCapture ArbitratedCapture previous_zero_view
-                  arbitrated_capture_zero transaction_zero_view zero_from_grants zero_gate zero_from_bit_view)
+                  arbitrated_capture_zero transaction_zero_view zero_from_grants zero_gate
+                  arbitrated_capture_from_bit zero_from_bit_view)
          (prefix-in faulty: "capture-derivation.rspl"))
 
 (define (view pins _) (values (hash "selected" (observation #t (hash-ref pins "selected"))) (hash)))
@@ -321,20 +322,30 @@
   (prove-transaction top view (hash "gate" gate-bit-contract "arb" strong-grants)))
 
 (test-case "general induction seals only the declared gate premise and the outer proof discharges it"
-  (check-equal? (transaction-input-premises gate-bit-contract gate-bit-view)
-                (transaction-input-premises gate-contract gate-events))
-  (check-false (transaction-for? gate-bit-contract capture_gate gate-bit-view))
-  (check-exn #rx"requires discharge on RTL input pins"
-             (lambda () (transaction-step gate-bit-contract gate-bit-view (hash) (hash))))
+  (for ([gate (list (prove-design capture_gate zero_gate) gate-bit-contract)])
+    (define premises (transaction-input-premises gate gate-bit-view))
+    (check-equal? (hash-keys premises) '("capture_exclusive"))
+    (check-equal? premises (transaction-input-premises gate-contract gate-events))
+    (check-false (transaction-for? gate capture_gate gate-bit-view))
+    (check-exn #rx"requires discharge on RTL input pins"
+               (lambda () (transaction-step gate gate-bit-view (hash) (hash)))))
+  (check-zero-contract (prove-design arbitrated_capture arbitrated_capture_from_bit) zero_from_bit_view)
   (check-zero-contract (prove-from-bit arbitrated_capture zero_from_bit_view) zero_from_bit_view))
 
 (test-case "conditional induction separates missing admission, false relation and infeasible coverage"
   (check-exn #rx"lanes/exclusive not proved" (lambda () (prove-gate-bit gate-bit-view #f)))
-  (check-exn #rx"reset/initial not proved" (lambda () (prove-gate-bit (faulty:bad_gate_view #t) GatedCapture)))
-  (check-exn #rx"double_capture: infeasible" (lambda () (prove-gate-bit (faulty:bad_gate_view #f) GatedCapture))))
+  (for ([invert? '(#t #f)] [failure (list #rx"reset/initial not proved" #rx"double_capture: infeasible")])
+    (define candidate (faulty:bad_gate_spec invert? GatedCapture))
+    (check-exn failure (lambda () (prove-design capture_gate candidate)))
+    (check-exn failure (lambda () (prove-gate-bit (candidate #:transaction_view #t) GatedCapture))))
+  (check-exn #rx"expected a completed specialization of RegisteredLaneSelector"
+             (lambda () (prove-design capture_gate (faulty:bad_gate_spec #f RegisteredLaneSelector)))))
 
 (test-case "the one-bit child contract cannot establish exact nonzero readback"
-  (check-exn #rx"step/previous-on-capture not proved" (lambda () (prove-from-bit arbitrated_capture faulty:exact_from_bit))))
+  (check-exn #rx"step/previous-on-capture not proved"
+             (lambda () (prove-design arbitrated_capture faulty:exact_from_bit)))
+  (check-exn #rx"step/previous-on-capture not proved"
+             (lambda () (prove-from-bit arbitrated_capture (faulty:exact_from_bit #:transaction_view #t)))))
 
 (define (prove-from-grants top view grants)
   (prove-transaction top view (hash "gate" gate-contract "arb" grants)))
@@ -369,9 +380,10 @@
 (test-case "duplicating an actual arbiter grant fails before either gate contract can restrict the edge"
   ;; Same two children as the correct design: even proved arbiter exclusivity does not
   ;; establish gate exclusivity if the same winning pin drives both grants.
-  (define plan (ArbitratedCapture arbitrated_capture #:proof_plan #t))
-  (define (candidate _ #:proof_plan _requested) plan)
-  (check-duplicated-grant (lambda () (prove-design duplicate_capture candidate)))
+  (for ([spec (list ArbitratedCapture arbitrated_capture_from_bit)])
+    (define plan (spec arbitrated_capture #:proof_plan #t))
+    (define (candidate _ #:proof_plan _requested) plan)
+    (check-duplicated-grant (lambda () (prove-design duplicate_capture candidate))))
   (check-duplicated-grant (lambda () (prove-from-grants duplicate_capture transaction_zero_view strong-grants)))
   (check-duplicated-grant (lambda () (prove-from-bit duplicate_capture zero_from_bit_view))))
 

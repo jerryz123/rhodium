@@ -14,3 +14,5 @@ module main:
   println("Proved ArbitratedCapture: unrestricted requests, lane A wins ties, capture reads the previous word")
   def zero_seal = prove_design(top, spec.arbitrated_capture_zero)
   println("Proved previous_was_zero: on capture, readback is zero exactly when the previous word was zero")
+  def bit_child_seal = prove_design(top, spec.arbitrated_capture_from_bit)
+  println("Proved unconditional zero/nonzero readback from only Arbiter grants and GatedCapture's bit")

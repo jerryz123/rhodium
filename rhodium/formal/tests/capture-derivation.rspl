@@ -73,18 +73,19 @@ def inverted_capture_zero:
 export inverted_capture_zero
 
 // In one case reset cannot establish the projection; in the other, the cover is outside the parent contract.
-fun bad_gate_view(invert :: Boolean):
+fun bad_gate_spec(invert :: Boolean, domain :: Function):
   spec for rtl.GatedCapture:
     transactions public.gate_zero_monitor
     refinement:
+      under domain
       child lanes: selectors.RegisteredLaneSelector
       history word from lanes.previous: Bits(2)
       let zero = bits_equal(word, const(Bits(2), 0))
       relate previous_was_zero = (if invert | !zero | zero)
       input (grant_a, grant_b, capture): Bool
       cover double_capture = capture && grant_a && grant_b
-  GatedCapture(~transaction_view: #true)
-export bad_gate_view
+  GatedCapture
+export bad_gate_spec
 
 // Guessing a representative for nonzero cannot justify the original exact-word guarantee.
 def exact_from_bit:
@@ -95,7 +96,7 @@ def exact_from_bit:
       child gate: public.zero_gate
       history was_zero from gate.previous_was_zero: Bool
       relate previous = select(was_zero, const(Bits(2), 0), const(Bits(2), 1))
-  ArbitratedCapture(~transaction_view: #true)
+  ArbitratedCapture
 export exact_from_bit
 
 // This real, weaker theorem permits either lane or no grant regardless of requests.

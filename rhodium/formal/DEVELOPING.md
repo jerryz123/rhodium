@@ -238,8 +238,10 @@ unconditional proof. The [gate regression](tests/selector-refinement.rkt) checks
 the runner's retained predicate against an independent whole-gate cycle proof
 and replays the selector admission failure when the assumption is omitted.
 
-For general monitor induction, `#:under` supplies the same input-only snapshot
-independently of the selected view. Seed the joint child-step domain with the
+For general monitor induction, the runner passes the parent's own assumption-bearing
+declaration, or the monitor-only refinement's explicit `under` source, to
+`prove-transaction` via `#:under`. Bind it to the actual top and extract only
+its checked input predicates. Seed the joint child-step domain with the
 allowed parent inputs returned by the pin check; reset, preservation, side checks
 and coverage must all use it. Seal the snapshot only after induction succeeds.
 The one-bit gate regression rejects a double-capture cover outside this domain;
@@ -397,9 +399,10 @@ proof goals. Without such a map the runner samples the existing view as before.
 Only after this succeeds may the clockless cycle certificate establish the
 stateless public monitor. The [handwritten oracle and replay](tests/arbiter-refinement.rkt)
 remain independent. The [ArbitratedCapture proof](../../examples/formal/prove-arbitrated-capture.rhm)
-uses the arbiter and gate transaction seals for two independent proofs: one
-retains the gate's public word, the other retains only whether it was zero.
-The [regression](tests/selector-refinement.rkt) checks both against handwritten
+uses the arbiter and gate transaction seals for exact-word and one-bit readback.
+It also proves one-bit readback from a gate that exports only that bit.
+The [regression](tests/selector-refinement.rkt) rejects exact readback from this weaker
+child contract. It checks the successful cases against handwritten
 proofs, replays the raw-request witness at the gate pins, and inverts only the
 one-bit relation to check that reset cannot establish it.
 `combinational_sample(snapshot, pins)` accepts exact-name, exact-width

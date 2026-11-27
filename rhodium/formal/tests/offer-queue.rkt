@@ -35,11 +35,11 @@
 
   (test-case "bypass cannot obtain the parent seal"
     ;; Apply the same nominal declaration to the alternate top, resolving its own occurrences.
-    (match-define (list "parent" public children req suppliers) (OfferQueue good_top #:proof_plan #t))
+    (match-define (list "parent" public children req suppliers domain) (OfferQueue good_top #:proof_plan #t))
     (define (candidate top #:proof_plan _)
       (list "parent" public (for/hash ([(site binding) children])
                               (values site (list (child_definition top site) (second binding))))
-            req suppliers))
+            req suppliers domain))
     (check-exn #rx"expected fifo[.]ingress[.]bits driven by offer[.]egress[.]bits, got update[.]bits"
                (lambda () (prove-design bypass_top candidate))))
 

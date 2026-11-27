@@ -1,5 +1,5 @@
 #lang rhombus
-/* Proves capture-event forwarding from the registered selector under the gate's input premise. */
+/* Proves full-word and one-bit capture contracts under the same gate input premise. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -9,5 +9,8 @@ import:
   "gated-capture.rspl" as spec
 
 module main:
-  def seal = prove_design(elaborate(rtl.GatedCapture()).top, spec.GatedCapture)
+  def top = elaborate(rtl.GatedCapture()).top
+  def seal = prove_design(top, spec.GatedCapture)
   println("Proved GatedCapture from the selector contract: off-reset captures require exclusive grants")
+  def bit_seal = prove_design(top, spec.zero_gate)
+  println("Proved one-bit GatedCapture readback under capture_exclusive")

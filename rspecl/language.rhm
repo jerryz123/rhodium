@@ -357,6 +357,7 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
   def mutable refinement = #false
   def mutable forward_args = #false
   def mutable adjacent_source = #false
+  def mutable premise_source = #false
   def mutable requirement = #false
   def suppliers = MutableMap{}
   def mutable projection = #false
@@ -418,6 +419,9 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
               when suppliers.has_key(sink_name) | syntax_meta.error("duplicate supplier for " ++ sink_name, item)
               suppliers[sink_name] := field_name(source)
           | 'supply $rest ...': syntax_meta.error("expected supply <consumer> from <supplier>", item)
+          | 'under $s ...':
+              when premise_source | syntax_meta.error("duplicate input contract source", item)
+              premise_source := '(($s ...) :: Function)'
           | 'child $(n :: Identifier): $s ...':
               def site = field_name(n)
               child_specs[site] := 'PairList[boundary.child_definition(top, $site), ($s ...)]'
@@ -425,7 +429,7 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
         for ((sink, source) in suppliers):
           unless child_specs.has_key(sink) && child_specs.has_key(source) && sink != source
           | syntax_meta.error("supply requires two distinct declared children", clause)
-        refinement := refinement.filter(~keep: fun (item): !has_head(item, {"supply"}))
+        refinement := refinement.filter(~keep: fun (item): !has_head(item, {"supply", "under"}))
         def cut_forms = {"child", "history", "local", "input", "output", "batch", "check", "cover", "direct_wires"}
         when has_cycle && !forward_args && !adjacent_source && !refinement.find(fun (c): has_head(c, cut_forms))
         | block:
@@ -479,6 +483,7 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
     | '(top = #false, ~transaction_view: tx_only :: Boolean = #false, ~cycle_derivation: derive :: Boolean = #false, ~proof_plan: plan :: Boolean = #false)'
     | '(top = #false, ~transaction_view: tx_only :: Boolean = #false, ~proof_plan: plan :: Boolean = #false)'
   def need = requirement || '#false'
+  def domain = premise_source || (if assumptions.length() > 0 | name | '#false')
   def parent_plan:
     cond
     | forward_args:
@@ -488,7 +493,7 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
         def contract = if assumptions.length() > 0 | name | 'view'
         'PairList["forward", $contract, $site, $spec, $need]'
     | adjacent_source: 'PairList["adjacent", view, $adjacent_source]'
-    | ~else: 'PairList["parent", view, $(map_expr(child_specs)), $need, $(map_expr(suppliers))]'
+    | ~else: 'PairList["parent", view, $(map_expr(child_specs)), $need, $(map_expr(suppliers)), $domain]'
   def leaf_plan:
     if rtl_hint
     | 'PairList["leaf", top.name, checked, view, $(if projection | '$projection(checked)' | 'Map{}'), $rtl_hint(checked)]'
@@ -505,6 +510,8 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
                          && ![states, outputs, events, assumptions, updates].find(fun (table): table.length() != 0)
   def passive = event_source && no_cycle_clauses
   def monitor_only = transaction && no_cycle_clauses
+  when premise_source && !(monitor_only && child_specs.length() > 0 && !event_source && !rtl_hint)
+  | syntax_meta.error("under requires a monitor-only child refinement with no local cycle clauses or assumptions", name)
   def finish:
     cond
     | specialized && passive: '«

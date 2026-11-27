@@ -68,9 +68,9 @@
            (define child (child_definition definition site))
            (prove-forwarded-transaction definition contract site (visit child child-spec)
                                         (child-spec child #:transaction_view #t) #:requires requirement)]
-          [(list "parent" view children requirement suppliers)
+          [(list "parent" view children requirement suppliers domain)
            (prove-transaction definition view
              (for/hash ([(site binding) children])
                (match-define (list child child-spec) binding)
-               (values site (visit child child-spec))) #:requires requirement #:suppliers suppliers)]))))
+               (values site (visit child child-spec))) #:requires requirement #:suppliers suppliers #:under domain)]))))
   (visit top specification))

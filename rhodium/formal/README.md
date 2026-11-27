@@ -398,18 +398,18 @@ word the parent captured. The lane-priority guarantees supply that second fact.
 Only already-admitted source contracts may justify another child's pin premise;
 circular same-edge justifications are rejected.
 
-To export **only the zero bit** from the gate itself, prove its alternate view
-under the pin assumptions of its existing declaration:
+To export **only the zero bit** from the gate itself, its monitor-only
+`refinement:` uses `under input_contract`, where `input_contract` is the
+original GatedCapture spec. The standalone proofs use:
 
 ```racket
-(define gate-bit-proof
-  (prove-transaction gate-top (zero_gate gate-top #:transaction_view #t)
-                     (hash "lanes" selector-proof) #:under GatedCapture))
-(prove-transaction top zero_from_bit_view (hash "arb" grant-proof "gate" gate-bit-proof))
+(prove-design gate-top zero_gate)
+(prove-design top arbitrated_capture_from_bit)
 ```
 
-`#:under` contributes only the declaration's named input predicates, not its
-cycle behavior. Omitting it requests an unconditional proof. The gate result
+`under` imports only the declaration's named input predicates on the same RTL
+specialization, not its cycle behavior, history or proof. Omitting it on a
+monitor-only refinement requests an unconditional proof. The gate result
 retains `capture_exclusive`; the outer arbiter discharges it and exports an
 unconditional result. On a capture following a winner of 1, a readback of 3
 satisfies this contract just as 1 does. This is a limit of the one-bit

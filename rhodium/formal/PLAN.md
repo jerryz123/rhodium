@@ -87,6 +87,8 @@ treat a matching batch schema as proof that two monitors agree.
    discharges that premise on the gate's RTL pins with the Arbiter grant contract;
    the outer capture contract has no input premise. The same runner separately
    proves the one-bit zero/nonzero readback monitor from those two child contracts.
+   GatedCapture can export just the bit under the same input premise; with that
+   child contract, ArbitratedCapture can prove zero/nonzero but not exact readback.
    Keep the handwritten harnesses as
    differential oracles. For parents, drive the
    existing generic obligations from the spec's declared child views and

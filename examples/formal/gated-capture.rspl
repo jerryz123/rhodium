@@ -59,15 +59,17 @@ fun zero_monitor(sampler :: Function.of_arity(2)):
 def previous_zero_monitor = zero_monitor(capture_events)
 def gate_zero_monitor = zero_monitor(grant_events)
 
-/* Project the selector's public word to one bit, using only gate events at this boundary. */
-def zero_gate:
+/* Project the selector's public word to one bit under the gate's declared pin assumptions. */
+fun gate_zero_spec(input_contract :: Function):
   spec for rtl.GatedCapture:
     transactions gate_zero_monitor
     refinement:
+      under input_contract
       child lanes: selectors.RegisteredLaneSelector
       history word from lanes.previous: Bits(2)
       relate previous_was_zero = bits_equal(word, const(Bits(2), 0))
   GatedCapture
+def zero_gate = gate_zero_spec(GatedCapture)
 export zero_gate gate_zero_monitor
 
 /* Check this alternate view against the gate's public history, independent of the parent's cycle spec. */
@@ -99,7 +101,7 @@ fun zero_from_grants(producer :: Function):
 export arbitrated_capture_zero transaction_zero_view zero_from_grants
 
 /* At the outer boundary the gate's zero bit is sufficient; no full-word history is available. */
-def zero_from_bit_view:
+def arbitrated_capture_from_bit:
   spec for rtl.ArbitratedCapture:
     transactions previous_zero_monitor
     refinement:
@@ -107,5 +109,6 @@ def zero_from_bit_view:
       child gate: zero_gate
       history was_zero from gate.previous_was_zero: Bool
       relate previous_was_zero = was_zero
-  ArbitratedCapture(~transaction_view: #true)
-export zero_from_bit_view
+  ArbitratedCapture
+def zero_from_bit_view = arbitrated_capture_from_bit(~transaction_view: #true)
+export arbitrated_capture_from_bit zero_from_bit_view
