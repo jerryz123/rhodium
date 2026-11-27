@@ -161,6 +161,7 @@ Run the focused host contract check with:
 tools/run-racket-tests.sh cores/spike/tests/profile-test.rhm
 tools/run-racket-tests.sh cores/spike/tests/udb-test.rhm
 tools/run-racket-tests.sh cores/spike/tests/elaboration-test.rhm
+python3 tools/testing/rsim/run.py --fixture spike-coherent-port
 moon run rhodium:native-check--spike-core-test
 FIXTURE=spike-attributes python3 tools/testing/rsim/run.py
 VERILATOR_ROOT=/path/to/verilator/share moon run rhodium:native-check--spike-dpi-test

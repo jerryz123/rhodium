@@ -281,6 +281,11 @@ Use an explicit `Arbiter`, `RRArbiter`, or `PacketRRArbiter` instance when its
 predicate. Inputs must be a nonempty array of mutually compatible `Decoupled`
 or `Irrevocable` endpoints.
 
+With `arbiter(~eager_ready: #true)`, each input sees downstream ready whenever
+all higher-priority inputs are idle. This also applies before the input raises
+valid. The lowest-index valid input wins. When all inputs are idle, the output
+is invalid and presents the last input's bits.
+
 ## Protocol normalization
 
 Ready-valid flow helpers classify protocols through the same nominal

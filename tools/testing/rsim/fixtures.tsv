@@ -73,6 +73,7 @@ hardfloat-divide-sqrt	hardfloat	hardfloat/tests/divide-sqrt-fixture.rhdl	program
 hardfloat-divide-sqrt-f64	hardfloat	hardfloat/tests/divide-sqrt-f64-fixture.rhdl	program	hardfloat/tests/rsim/divide-sqrt-f64.cpp
 standard-counter	std	examples/std/standard-counter.rhdl	program	rhodium/backend/tests/rsim/standard-counter.cpp
 riscv-cmo	cores-components	riscv/rtl/tests/rsim/emit-riscv-cmo.rhm	program	riscv/rtl/tests/rsim/riscv-cmo.cpp
+spike-coherent-port	cores-components	cores/spike/tests/coherent-port-trace.rhdl	program	cores/spike/tests/rsim/coherent-port.cpp	target	rheg/runtime/rheg.cc
 spike-attributes	cores-components	cores/spike/tests/rsim/emit-spike-attributes.rhm	program	cores/spike/tests/rsim/spike-attributes.cpp
 riscv-pointer-masking	cores-components	riscv/rtl/tests/rsim/emit-riscv-pointer-masking.rhm	program	riscv/rtl/tests/rsim/riscv-pointer-masking.cpp
 riscv-counters-rv32	cores-components	riscv/rtl/tests/rsim/emit-riscv-counters-rv32.rhm	program	riscv/rtl/tests/rsim/riscv-counters-rv32.cpp

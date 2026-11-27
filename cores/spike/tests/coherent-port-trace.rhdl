@@ -1,0 +1,45 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../chi/coherent-port.rhdl".SpikeCoherentPort
+  lib("chi/protocol/channels.rhdl").CHIRNChannels
+  lib("chi/protocol/params.rhdl").CHIFlitParams
+  lib("chi/protocol/flits.rhdl") open
+  lib("flow/main.rhdl") open
+  lib("rhodium/event/tests/rsim/trace-sites.rhm") open
+
+sync_circuit CoherentPortTrace():
+  def p = CHIFlitParams()
+  inst router(SpikeCoherentPort(p))
+  interface chi(CHIRNChannels(p), ~role: node)
+  interface release_req(Decoupled(CHIReqFlit(p)), ~role: consumer)
+  interface acquire_req(Decoupled(CHIReqFlit(p)), ~role: consumer)
+  interface snoop_rsp(Decoupled(CHIRspFlit(p)), ~role: consumer)
+  interface acquire_ack(Decoupled(CHIRspFlit(p)), ~role: consumer)
+  interface snoop_dat(Decoupled(CHIDatFlit(p)), ~role: consumer)
+  interface release_dat(Decoupled(CHIDatFlit(p)), ~role: consumer)
+  interface acquire_rsp(Decoupled(CHIRspFlit(p)), ~role: producer)
+  interface release_rsp(Decoupled(CHIRspFlit(p)), ~role: producer)
+  interface acquire_dat(Decoupled(CHIDatFlit(p)), ~role: producer)
+  interface snoops(Decoupled(CHISnpFlit(p)), ~role: producer)
+
+  release_req |> trace_event("release_req") |> router.release_request
+  acquire_req |> trace_event("acquire_req") |> router.acquire_request
+  snoop_rsp |> trace_event("snoop_rsp") |> router.snoop_response
+  acquire_ack |> trace_event("acquire_ack") |> router.acquire_ack
+  snoop_dat |> trace_event("snoop_dat") |> router.snoop_data
+  release_dat |> trace_event("release_dat") |> router.release_data
+  router.chi.requests |> trace_event("req") |> chi.requests
+  router.chi.requester_responses |> trace_event("rsp") |> chi.requester_responses
+  router.chi.request_data |> trace_event("dat") |> chi.request_data
+  chi.responses |> trace_event("rxrsp") |> router.chi.responses
+  router.acquire_response |> trace_event("acquire_rsp") |> acquire_rsp
+  router.release_response |> trace_event("release_rsp") |> release_rsp
+  chi.response_data |> router.chi.response_data
+  router.acquire_data |> acquire_dat
+  chi.snoops |> router.chi.snoops
+  router.snoops |> snoops
+
+def program = elaborate(CoherentPortTrace())
+def target = traced_target(named_site_header)
+export program target

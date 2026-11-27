@@ -28,8 +28,9 @@ circuit ValidArbiter(T :: DataType, n :: PosInt):
   describe_interface_contract(ingress, egress, "data", ~kind: "valid-arbiter", ~trace_model: interface_trace_selection(~pending: #true))
 
 /* Lower indices have higher priority. The output uses Decoupled because a new
-   higher-priority arrival may change the selected payload while stalled. */
-circuit Arbiter(T :: DataType, n :: PosInt):
+   higher-priority arrival may change the selected payload while stalled. Eager
+   ready advertises capacity to each input with no higher-priority offer. */
+circuit Arbiter(T :: DataType, n :: PosInt, ~eager_ready: eager_ready :: Boolean = #false):
 
   interface ingress[n](Decoupled(T), ~role: consumer)
   interface egress(Decoupled(T), ~role: producer)
@@ -38,12 +39,16 @@ circuit Arbiter(T :: DataType, n :: PosInt):
   def requests = vec(for List (index in 0..n): ingress[index].valid).into(Mask(n))
   def grant = priority_encoder_oh(requests)
   for (index in 0..n):
-    ingress[index].ready <== egress.ready & grant[index]
+    def eligible = cond
+    | !eager_ready: grant[index]
+    | index == 0: Bool(#true)
+    | ~else: !any(requests.as_bits()[0..index])
+    ingress[index].ready <== egress.ready & eligible
 
   egress.valid <== grant.valid
   egress.bits <== grant.mux(
     for List (index in 0..n): ingress[index].bits,
-    ~default: ingress[0].bits
+    ~default: ingress[if eager_ready | n - 1 | 0].bits
   )
 
   chosen <== grant.index
@@ -67,7 +72,7 @@ circuit CtrlArbiter(n :: PosInt):
 
 /* A connected endpoint array supplies its input count. A disconnected
    topology starts from a payload type and states the count in arbiter. */
-fun arbiter(n :: maybe(PosInt) = #false)
+fun arbiter(n :: maybe(PosInt) = #false, ~eager_ready: eager_ready :: Boolean = #false)
   :: ((source :: FlowSource || Array) -> InterfaceTransformResult(source, Endpoint)):
   fun (source :: FlowSource || Array) :~ InterfaceTransformResult(source, Endpoint):
     def inputs:
@@ -98,7 +103,7 @@ fun arbiter(n :: maybe(PosInt) = #false)
     def T:
       if typed | source | flow_payload_type(inputs[0])
 
-    inst arbiter_stage(Arbiter(T, input_count))
+    inst arbiter_stage(Arbiter(T, input_count, ~eager_ready: eager_ready))
     finish_interface_transform(
       source,
       describe_interface_transform(

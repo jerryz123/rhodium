@@ -1,0 +1,36 @@
+#lang rhodium
+/* Routes the Spike acquire, release, and snoop channels onto the shared coherent requester port. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("chi/protocol/channels.rhdl").CHIRNChannels
+  lib("chi/protocol/params.rhdl").CHIFlitParams
+  lib("chi/protocol/flits.rhdl") open
+  lib("flow/main.rhdl") open
+
+/* Release wins REQ and snoop wins outbound RSP/DAT. Idle engines can see
+   available capacity. Inbound RSP TxnID 1 belongs to the release engine. */
+circuit SpikeCoherentPort(p :: CHIFlitParams):
+  interface chi(CHIRNChannels(p), ~role: node)
+  interface release_request(Decoupled(CHIReqFlit(p)), ~role: consumer)
+  interface acquire_request(Decoupled(CHIReqFlit(p)), ~role: consumer)
+  interface snoop_response(Decoupled(CHIRspFlit(p)), ~role: consumer)
+  interface acquire_ack(Decoupled(CHIRspFlit(p)), ~role: consumer)
+  interface snoop_data(Decoupled(CHIDatFlit(p)), ~role: consumer)
+  interface release_data(Decoupled(CHIDatFlit(p)), ~role: consumer)
+  interface release_response(Decoupled(CHIRspFlit(p)), ~role: producer)
+  interface acquire_response(Decoupled(CHIRspFlit(p)), ~role: producer)
+  interface acquire_data(Decoupled(CHIDatFlit(p)), ~role: producer)
+  interface snoops(Decoupled(CHISnpFlit(p)), ~role: producer)
+
+  Array(release_request, acquire_request) |> arbiter(~eager_ready: #true) |> chi.requests
+  Array(snoop_response, acquire_ack) |> arbiter(~eager_ready: #true) |> chi.requester_responses
+  Array(snoop_data, release_data) |> arbiter(~eager_ready: #true) |> chi.request_data
+
+  def Array(to_acquire, to_release) = chi.responses |> demux_flow(2, rsp => rsp.txn_id === Bits(12)(1))
+  to_acquire |> acquire_response
+  to_release |> release_response
+  chi.response_data |> acquire_data
+  chi.snoops |> snoops
+
+export SpikeCoherentPort
