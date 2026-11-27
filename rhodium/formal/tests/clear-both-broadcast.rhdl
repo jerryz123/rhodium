@@ -1,0 +1,33 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+
+import lib("rhodium/std/ready-valid.rhdl") open
+import lib("flow/broadcast.rhdl").Broadcast
+import lib("examples/formal/broadcast.rspl") as spec
+import lib("rhodium/formal/spec.rhm").step_spec
+
+sync_circuit ClearBothBroadcast():
+  interface ingress(Decoupled(Bits(2)), ~role: consumer)
+  interface egress[2](Irrevocable(Bits(2)), ~role: producer)
+  reg pending(~init: vec([Bool(#false), Bool(#false)]))
+  reg payload(Bits(2))
+  ingress.ready <== (!pending[0] ||| egress[0].ready) & (!pending[1] ||| egress[1].ready)
+  for (i in 0..2):
+    egress[i].valid <== pending[i]
+    egress[i].bits <== payload
+
+  when (ingress.fire()):
+    payload <== ingress.bits
+    pending <== vec([Bool(#true), Bool(#true)])
+  elsewhen (egress[0].fire() ||| egress[1].fire()):
+    // Bug: the stalled peer still owns its copy.
+    pending <== vec([Bool(#false), Bool(#false)])
+
+def good_top = elaborate(Broadcast(Bits(2), 2)).top
+def bad_top = elaborate(ClearBothBroadcast()).top
+def bad_root = bad_top.name
+def model = spec.Broadcast(good_top)
+fun cycle_row(old, inputs):
+  def edge = step_spec(model, old || model.initial, inputs)
+  values(edge.next_state, edge.events)
+export good_top bad_top bad_root cycle_row

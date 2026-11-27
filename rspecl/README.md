@@ -106,6 +106,11 @@ for three scalar pins. There is no implicit reset or choice of winner. Even a
 one-sided transfer remains visible, so the [fork guarantee](../examples/formal/atomic-fork.rspl)
 can reject it. For FIFO-style reset, accepted and retired events use
 `ready_valid_events`; add [`fifo_monitor`](fifo.rspl) to promise ordering and a bound.
+For a buffered two-recipient broadcast, pass the three-endpoint `transfers`
+above to [`broadcast_monitor(width, transfers)`](broadcast.rspl). It samples
+the `reset` input and tracks which recipients still need the old word.
+The last recipient may take that word on the edge accepting its replacement;
+the monitor promises neither when a recipient is ready nor that it ever retires.
 
 ## Prove a leaf or a parent
 

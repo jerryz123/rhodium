@@ -1,0 +1,41 @@
+#lang rspecl
+/* Checks two independently retired copies of each accepted word, without prescribing ready timing. */
+// SPDX-License-Identifier: Apache-2.0
+
+import lib("rhodium/formal/spec.rhm").Observed
+export broadcast_monitor
+
+/* Turn the caller's accepted/left/right handshakes into reset epochs. Do not read
+   transfer pins on reset, when even valid and ready can be outside the cycle contract. */
+fun epoch_samples(transfers :: Function.of_arity(2)):
+  fun (read :: Function, output :: Function):
+    def rst = read("reset", Bool)
+    def active = for Map ((name, event) in transfers(read, output)):
+      values(name, Observed(event.value, !rst && event.care))
+    active ++ {"reset": Observed(const(Bool, #true), rst)}
+
+/* Each branch has room for one outstanding word. Check retirements against the
+   old copies before installing a simultaneous replacement in both branches. */
+fun broadcast_monitor(width :: PosInt, transfers :: Function.of_arity(2)):
+  def word = Bits(width)
+  monitor:
+    sample epoch_samples(transfers)
+    publish [reset, accepted, left, right]
+    batch rst = present(reset)
+    batch take = present(accepted)
+    batch incoming: word = payload(accepted) when take
+    batch pop_l = present(left)
+    batch out_l: word = payload(left) when pop_l
+    batch pop_r = present(right)
+    batch out_r: word = payload(right) when pop_r
+    state owed_l: Seq(word, 1) initially [] as vacant
+    state owed_r: Seq(word, 1) initially []
+
+    guarantee "quiet-reset" = !(take || pop_l || pop_r) when rst
+    guarantee "left-delivery" = !empty(owed_l) && bits_equal(out_l, front(owed_l)) when pop_l
+    guarantee "right-delivery" = !empty(owed_r) && bits_equal(out_r, front(owed_r)) when pop_r
+    guarantee "left-space" = empty(owed_l) || pop_l when take
+    guarantee "right-space" = empty(owed_r) || pop_r when take
+    let replacement = append(vacant, incoming)
+    next owed_l = select(rst, vacant, select(take, replacement, select(pop_l, vacant, owed_l)))
+    next owed_r = select(rst, vacant, select(take, replacement, select(pop_r, vacant, owed_r)))

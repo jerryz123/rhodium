@@ -1,0 +1,14 @@
+#lang rhombus
+/* Proves the two-output Flow Broadcast's independent delivery contract from RTL and RSPECL. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("rhodium/frontend/foundation.rhm").Bits
+  lib("flow/broadcast.rhdl") as rtl
+  lib("rspecl/runner.rkt").prove_design
+  "broadcast.rspl" as spec
+
+module main:
+  def seal = prove_design(elaborate(rtl.Broadcast(Bits(2), 2)).top, spec.Broadcast)
+  println("Proved Broadcast(Bits(2), 2): each accepted word is owed independently to both recipients")

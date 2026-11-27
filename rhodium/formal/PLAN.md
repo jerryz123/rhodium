@@ -115,6 +115,11 @@ treat a matching batch schema as proof that two monitors agree.
    uses the same runner for a stateless contract: all three handshakes agree
    and both outputs transfer the input word. Its [two-bit regression](tests/atomic-fork.rkt)
    replays a one-sided transfer that the shared-edge guarantee rejects.
+   The [Broadcast proof](../../examples/formal/prove-broadcast.rhm) uses a
+   [two-recipient monitor](../../rspecl/broadcast.rspl) that tracks copies owed
+   independently of the implementation. Only the leaf refinement reads the
+   pending mask and payload. The next reuse check is to apply the same monitor
+   to an AtomicFork feeding two one-entry queues, without requiring the same ready timing.
    A missing general capability is a separate proposal with two clients and
    a failing negative test, not an exception for OfferRegister.
 
