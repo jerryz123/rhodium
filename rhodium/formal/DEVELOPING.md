@@ -512,8 +512,9 @@ such an edge. Prove reset from unrelated legal states, then check cared
 output pins, externally decoded transfer events, and successor agreement.
 
 The [standalone transaction proof](../../examples/formal/prove-arbiter-queue.rhm)
-instead checks the two child occurrences and direct drivers declared in the
-parent spec. Its only state source is the FIFO child's public history. Keep
+instead uses the two declared child contracts on the elaborated parent wiring.
+The spec relates its pending words to the FIFO child's public history; feeding
+the FIFO a losing lane's payload must fail that relation on the next edge. Keep
 the transfer extension in the Arbiter spec: grant evidence alone does not
 constrain the outgoing word. Run the [consumer regression](tests/arbiter-queue-transactions.rkt)
 against both this seal and the independent derivation from the handwritten

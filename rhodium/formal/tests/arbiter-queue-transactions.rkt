@@ -27,6 +27,7 @@
            (only-in "../spec-engine.rkt" sequence-value)
            (only-in "arbiter-queue-variants.rspl" candidate)
            (only-in "arbiter-queue-binding.rhm" crossed_sampler))
+  (define arb (prove-design arbiter_definition arbitrated_transfers))
   (for ([depth proof_depths])
     (test-case (format "generic child contracts order the accepted winners, depth ~a" depth)
       (define top (parent_at depth))
@@ -37,11 +38,11 @@
       (define behind-head (solve (assert (check-retirement-order result))))
       (check-true (if (= depth 1) (unsat? behind-head) (sat? behind-head)))
       (check-ready-not-entailed result)
+      (define children (hash "arbiter_stage" arb "shift_queue_stage" (prove-design (fifo_at depth) ShiftQueue)))
+      ;; The FIFO stores lane one's bits even when lane zero wins, so its next history can be wrong.
+      (check-exn #rx"step/successor not proved"
+                 (lambda () (prove-transaction (wrong_lane_at depth) view children)))
       (when (= depth 2)
-        (define arb (prove-design arbiter_definition arbitrated_transfers))
-        (define children (hash "arbiter_stage" arb "shift_queue_stage" (prove-design (fifo_at depth) ShiftQueue)))
-        (check-exn #rx"expected shift_queue_stage[.]ingress[.]bits driven by arbiter_stage[.]egress[.]bits, got ingress\\[1\\][.]bits"
-                   (lambda () (prove-transaction (wrong_lane_at depth) view children)))
         (check-exn #rx"expected certified evidence for this transaction view"
                    (lambda () (prove-transaction top view (hash-set children "arbiter_stage" (prove-design arbiter_definition Arbiter)))))
         (check-exn #rx"does not match the RTL occurrence|expected certified evidence for this transaction view"

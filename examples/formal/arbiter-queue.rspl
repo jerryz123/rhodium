@@ -36,13 +36,6 @@ spec for rtl.ArbiterQueue:
   refinement:
     child arbiter_stage: arbitrated_transfers
     child shift_queue_stage: ShiftQueue
-    direct_wires {"arbiter_stage.ingress[0].valid": "ingress[0].valid", "arbiter_stage.ingress[0].bits": "ingress[0].bits",
-                  "ingress[0].ready": "arbiter_stage.ingress[0].ready",
-                  "arbiter_stage.ingress[1].valid": "ingress[1].valid", "arbiter_stage.ingress[1].bits": "ingress[1].bits",
-                  "ingress[1].ready": "arbiter_stage.ingress[1].ready",
-                  "shift_queue_stage.ingress.valid": "arbiter_stage.egress.valid", "shift_queue_stage.ingress.bits": "arbiter_stage.egress.bits",
-                  "arbiter_stage.egress.ready": "shift_queue_stage.ingress.ready", "shift_queue_stage.egress.ready": "egress.ready",
-                  "egress.valid": "shift_queue_stage.egress.valid", "egress.bits": "shift_queue_stage.egress.bits"}
     // The arbiter stores nothing: every accepted word still owed at the output must be in the child's queue.
     history buffered from shift_queue_stage.q: Seq(first.bits.type, depth)
     relate q = buffered

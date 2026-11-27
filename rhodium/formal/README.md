@@ -761,9 +761,9 @@ non-reset edge are not**. Concrete sampling rejects such a sample, and
 certification must prove it impossible. The accepted word comes from the
 lane that actually fired. [Run the hierarchical proof](../../examples/formal/prove-arbiter-queue.rhm)
 with `PLTCOLLECTS="$PWD": tools/run-racket.sh examples/formal/prove-arbiter-queue.rhm`.
-At two-bit width and depths 1–3 the runner checks the direct RTL wiring, including
-backpressure and the FIFO reset, then uses only the Arbiter transfer contract
-and ShiftQueue FIFO contract. Reset starts an empty history, retirements follow
+At two-bit width and depths 1–3 the runner follows the elaborated RTL handoff
+and checks the FIFO's clock and reset. The proof uses only the Arbiter transfer
+contract and the ShiftQueue FIFO contract. Reset starts an empty history, retirements follow
 acceptance order, and at most `depth` words are pending. The parent transaction
 proof does not certify the cycle model's ready timing or promise eventual service.
 
