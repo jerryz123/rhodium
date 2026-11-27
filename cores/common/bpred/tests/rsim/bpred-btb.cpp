@@ -87,6 +87,39 @@ void check_write_edge() {
   check(0x8100, false);
   check(0x4104, true, 0x4108);
 }
+
+void check_invalidate_collisions() {
+  for (bool training : {false, true}) {
+    for (auto invalidate_pc : {0x100u, 0x104u, 0x108u}) { // Neighbor, miss, writer's row.
+      invalidate_all_in.pvalid = 1;
+      tick_model();
+      invalidate_all_in = {};
+      train(0x100, 0x4200, false, true, true, true, 1);
+      train(0x108, 0x4208, false, true, false, true, 2);
+
+      // Both candidates hit a live row. Changing its target page would evict
+      // live state, so a veto must suppress page writes as well as row writes.
+      discover_in = {1, {1, 0x108, 0x8408, 1, 3}};
+      update_in = {training, {0x108, 0xc408, 1, 0, 1, 1, 3, 3, 0x10a}};
+      invalidate_in = {1, invalidate_pc};
+      tick_model();
+      invalidate_in = {};
+      check(0x100, invalidate_pc != 0x100, 0x4200, 1);
+      if (invalidate_pc != 0x100) CHECK(prediction.pcompressed);
+      check(0x108, invalidate_pc != 0x108, 0x4208, 2);
+      if (invalidate_pc != 0x108) CHECK(!prediction.pcompressed);
+
+      // The still-offered winner may replace the target page on the next
+      // edge. The installed row survives; its neighbor must no longer hit.
+      tick_model();
+      discover_in = {};
+      update_in = {};
+      check(0x108, true, training ? 0xc408 : 0x8408, 3);
+      CHECK(prediction.pcompressed);
+      check(0x100, false);
+    }
+  }
+}
 int main() {
   return run_test([] {
     reset = 1;
@@ -186,6 +219,7 @@ int main() {
     check(UINT64_C(0x8100), 0);
     check(UINT64_C(0xc100), 1, UINT64_C(0x8100));
     check_write_edge();
+    check_invalidate_collisions();
     // Destinations may alias, but source tags and invalidation stay exact.
     for (auto target : {UINT64_C(0x8000000000000202), UINT64_C(0x0000100000000300),
                         UINT64_C(0xffffffc012345000), UINT64_C(0xfffffffffffffffE)}) {

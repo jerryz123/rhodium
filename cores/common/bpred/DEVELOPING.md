@@ -31,6 +31,10 @@ priority even on an out-of-range invalidation. Prepare training and discovery
 from the same pre-edge entries and pages, including their dependent-entry
 invalidations. Select the winning plan only at the register writes: a late
 training strobe must not feed the associative search or page allocator.
+Keep the exact invalidation match off the row payload write path. A targeted
+invalidation vetoes both writers whether it hits or misses; only row validity
+needs the match. Page replacement likewise clears dependent valid bits, with
+the newly written row taking priority over its own eviction.
 Never narrow architectural branch-update payloads. Default XLEN keeps
 standalone predictors lossless.
 Named frontends select widths covering their successful Sv39/Bare PCs and

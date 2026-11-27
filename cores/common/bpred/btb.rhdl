@@ -251,22 +251,24 @@ sync_circuit Btb(xlen :: XLen, entry_count :: PosInt = 32, match_bits :: PosInt 
         tag: plan.target_tag
 
 
-  /* A newly installed entry survives its own page replacement. Other entries
-     referencing either overwritten page are invalidated at the same edge. */
+  /* Targeted invalidation owns the write port even on a miss. Its address
+     match changes only validity, never the payload write enable. An installed
+     row survives its own page replacement; other page dependents lose validity. */
 
   def invalidate_pages = page_matches(invalidate.bits)
   def invalidate_fits = source_fits(invalidate.bits)
+  def write_payload = mux(invalidate_all.valid, literal(Entry, 0), plan.entry)
   for (i in 0..entry_count):
     def old = entries[i]
-    def invalidate_match = invalidate_fits & old.valid & invalidate_pages[old.pc_page] & (old.pc_low === invalidate.bits[0..match_bits])
-    when (invalidate_all.valid):
-      entries[i] <== literal(Entry, 0)
-    elsewhen (invalidate.valid & invalidate_match):
-      entries[i] <== old.updated(~valid: Bool(#false))
-    elsewhen (commit & plan.write_entries[i]):
-      entries[i] <== plan.entry
-    elsewhen (commit & plan.clear_entries[i]):
-      entries[i] <== old.updated(~valid: Bool(#false))
+    def write_row = commit & plan.write_entries[i]
+    def payload = mux(invalidate_all.valid ||| write_row, write_payload, old)
+    def invalidate_match = invalidate_fits & invalidate_pages[old.pc_page] & (old.pc_low === invalidate.bits[0..match_bits])
+    def next_valid = priority_mux(~default: old.valid):
+      invalidate_all.valid ||| (invalidate.valid & invalidate_match): Bool(#false)
+      write_row: plan.entry.valid
+      commit & plan.clear_entries[i]: Bool(#false)
+
+    entries[i] <== payload.updated(~valid: next_valid)
 
 export:
   BtbPage
