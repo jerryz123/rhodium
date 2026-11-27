@@ -135,7 +135,7 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p "$RUNNER_TEMP/act"
-          ACT_FAST=1 moon run "rhodium:act-elf--${{ fromJSON(inputs.config).configuration }}" --upstream deep 2>&1 | tee "$RUNNER_TEMP/act/generation.log"
+          moon run "rhodium:act-elf--${{ fromJSON(inputs.config).configuration }}" --upstream deep 2>&1 | tee "$RUNNER_TEMP/act/generation.log"
           python3 sims/arch-test/payload.py package --bundle "$RUNNER_TEMP/act" \
             --elf-dir /tmp/rhodium-arch-test/work/${{ fromJSON(inputs.config).configuration }}/${{ fromJSON(inputs.config).configuration }}/elfs \
             --configuration /tmp/rhodium-arch-test/configs/${{ fromJSON(inputs.config).configuration }}/configuration.json \

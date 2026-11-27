@@ -1,7 +1,7 @@
 {
   "dhrystone.riscv": {
-    "cycles": 444703,
-    "rtl/soc/hart/core/issue_1": 187621,
+    "cycles": 445042,
+    "rtl/soc/hart/core/issue_1": 187606,
     "rtl/soc/hart/core/mispredict_direct_target": 0,
     "rtl/soc/hart/core/mispredict_direction": 3684,
     "rtl/soc/hart/core/mispredict_indirect_target": 11,
@@ -13,7 +13,7 @@
     "rtl/soc/hart/l1i/icache_miss": 70
   },
   "median.riscv": {
-    "cycles": 29244,
+    "cycles": 29166,
     "rtl/soc/hart/core/issue_1": 15086,
     "rtl/soc/hart/core/mispredict_direct_target": 1,
     "rtl/soc/hart/core/mispredict_direction": 371,
@@ -26,8 +26,8 @@
     "rtl/soc/hart/l1i/icache_miss": 34
   },
   "memcpy.riscv": {
-    "cycles": 80544,
-    "rtl/soc/hart/core/issue_1": 45174,
+    "cycles": 80081,
+    "rtl/soc/hart/core/issue_1": 45945,
     "rtl/soc/hart/core/mispredict_direct_target": 1,
     "rtl/soc/hart/core/mispredict_direction": 61,
     "rtl/soc/hart/core/mispredict_indirect_target": 7,
@@ -39,20 +39,20 @@
     "rtl/soc/hart/l1i/icache_miss": 30
   },
   "mm.riscv": {
-    "cycles": 384489,
-    "rtl/soc/hart/core/issue_1": 284422,
+    "cycles": 382053,
+    "rtl/soc/hart/core/issue_1": 283575,
     "rtl/soc/hart/core/mispredict_direct_target": 0,
     "rtl/soc/hart/core/mispredict_direction": 571,
     "rtl/soc/hart/core/mispredict_indirect_target": 2,
     "rtl/soc/hart/core/mispredict_nonbranch": 0,
     "rtl/soc/hart/core/mispredict_ras_action": 0,
     "rtl/soc/hart/core/mispredict_return_target": 1,
-    "rtl/soc/hart/core/retired_slot0": 267568,
+    "rtl/soc/hart/core/retired_slot0": 267561,
     "rtl/soc/hart/l1d/dcache_miss": 1236,
     "rtl/soc/hart/l1i/icache_miss": 73
   },
   "multiply.riscv": {
-    "cycles": 34081,
+    "cycles": 33998,
     "rtl/soc/hart/core/issue_1": 17309,
     "rtl/soc/hart/core/mispredict_direct_target": 0,
     "rtl/soc/hart/core/mispredict_direction": 61,
@@ -65,8 +65,8 @@
     "rtl/soc/hart/l1i/icache_miss": 36
   },
   "qsort.riscv": {
-    "cycles": 215078,
-    "rtl/soc/hart/core/issue_1": 155225,
+    "cycles": 214926,
+    "rtl/soc/hart/core/issue_1": 155209,
     "rtl/soc/hart/core/mispredict_direct_target": 1,
     "rtl/soc/hart/core/mispredict_direction": 9992,
     "rtl/soc/hart/core/mispredict_indirect_target": 7,
@@ -78,8 +78,8 @@
     "rtl/soc/hart/l1i/icache_miss": 38
   },
   "rsort.riscv": {
-    "cycles": 210046,
-    "rtl/soc/hart/core/issue_1": 175905,
+    "cycles": 206983,
+    "rtl/soc/hart/core/issue_1": 174892,
     "rtl/soc/hart/core/mispredict_direct_target": 0,
     "rtl/soc/hart/core/mispredict_direction": 84,
     "rtl/soc/hart/core/mispredict_indirect_target": 7,
@@ -91,8 +91,8 @@
     "rtl/soc/hart/l1i/icache_miss": 36
   },
   "spmv.riscv": {
-    "cycles": 107946,
-    "rtl/soc/hart/core/issue_1": 49926,
+    "cycles": 109901,
+    "rtl/soc/hart/core/issue_1": 55040,
     "rtl/soc/hart/core/mispredict_direct_target": 0,
     "rtl/soc/hart/core/mispredict_direction": 661,
     "rtl/soc/hart/core/mispredict_indirect_target": 7,
@@ -104,8 +104,8 @@
     "rtl/soc/hart/l1i/icache_miss": 36
   },
   "towers.riscv": {
-    "cycles": 23878,
-    "rtl/soc/hart/core/issue_1": 11609,
+    "cycles": 23753,
+    "rtl/soc/hart/core/issue_1": 11593,
     "rtl/soc/hart/core/mispredict_direct_target": 1,
     "rtl/soc/hart/core/mispredict_direction": 112,
     "rtl/soc/hart/core/mispredict_indirect_target": 7,
@@ -117,8 +117,8 @@
     "rtl/soc/hart/l1i/icache_miss": 46
   },
   "vec-daxpy.riscv": {
-    "cycles": 52189,
-    "rtl/soc/hart/core/issue_1": 16639,
+    "cycles": 50921,
+    "rtl/soc/hart/core/issue_1": 16629,
     "rtl/soc/hart/core/mispredict_direct_target": 0,
     "rtl/soc/hart/core/mispredict_direction": 60,
     "rtl/soc/hart/core/mispredict_indirect_target": 7,
@@ -130,8 +130,8 @@
     "rtl/soc/hart/l1i/icache_miss": 30
   },
   "vec-memcpy.riscv": {
-    "cycles": 78098,
-    "rtl/soc/hart/core/issue_1": 31868,
+    "cycles": 74968,
+    "rtl/soc/hart/core/issue_1": 31672,
     "rtl/soc/hart/core/mispredict_direct_target": 0,
     "rtl/soc/hart/core/mispredict_direction": 60,
     "rtl/soc/hart/core/mispredict_indirect_target": 7,
@@ -143,8 +143,8 @@
     "rtl/soc/hart/l1i/icache_miss": 32
   },
   "vec-sgemm.riscv": {
-    "cycles": 78074,
-    "rtl/soc/hart/core/issue_1": 53431,
+    "cycles": 77231,
+    "rtl/soc/hart/core/issue_1": 53179,
     "rtl/soc/hart/core/mispredict_direct_target": 0,
     "rtl/soc/hart/core/mispredict_direction": 136,
     "rtl/soc/hart/core/mispredict_indirect_target": 7,
@@ -156,8 +156,8 @@
     "rtl/soc/hart/l1i/icache_miss": 41
   },
   "vec-strcmp.riscv": {
-    "cycles": 19344,
-    "rtl/soc/hart/core/issue_1": 7409,
+    "cycles": 19263,
+    "rtl/soc/hart/core/issue_1": 7407,
     "rtl/soc/hart/core/mispredict_direct_target": 0,
     "rtl/soc/hart/core/mispredict_direction": 58,
     "rtl/soc/hart/core/mispredict_indirect_target": 7,
@@ -169,8 +169,8 @@
     "rtl/soc/hart/l1i/icache_miss": 30
   },
   "vvadd.riscv": {
-    "cycles": 23435,
-    "rtl/soc/hart/core/issue_1": 10297,
+    "cycles": 23388,
+    "rtl/soc/hart/core/issue_1": 10672,
     "rtl/soc/hart/core/mispredict_direct_target": 1,
     "rtl/soc/hart/core/mispredict_direction": 59,
     "rtl/soc/hart/core/mispredict_indirect_target": 7,

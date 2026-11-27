@@ -15,17 +15,19 @@ unsigned cycle = 0, completions = 0, checks = 0, releases = 0, stores = 0;
 unsigned outcomes = 0, scalar_returns = 0, replay_budget = 0, response_delay = 5;
 std::uint64_t scalar_value = 0;
 bool slow_memory = false;
-std::deque<Response> row_replies;
+struct RowResponse { std::uint64_t data; unsigned due; bool store; };
+std::deque<RowResponse> row_replies;
 
 template<class M> void row_port(M& m, bool sample) {
   if constexpr (requires { m.inputs.prow_umemory_uin; }) {
     auto& in = m.inputs.prow_umemory_uin;
     const auto& out = m.outputs().prow_umemory_uout;
-    static_assert(sizeof(in.presponse.pbits)==8);
+    static_assert(sizeof(in.presponse.pbits.pdata)==8);
     if (!sample) {
       in.prequest.pready=1;
       in.presponse.pvalid=!row_replies.empty() && row_replies.front().due<=cycle;
-      in.presponse.pbits=row_replies.empty() ? 0 : row_replies.front().data;
+      in.presponse.pbits.pdata=row_replies.empty() ? 0 : row_replies.front().data;
+      in.presponse.pbits.pstore=!row_replies.empty() && row_replies.front().store;
     } else {
       if (in.presponse.pvalid && out.presponse.pready) row_replies.pop_front();
       if (!out.prequest.pvalid) return;
@@ -38,7 +40,7 @@ template<class M> void row_port(M& m, bool sample) {
         }
         ++stores;
       }
-      row_replies.push_back({value,cycle+response_delay});
+      row_replies.push_back({value,cycle+response_delay,bool(r.pstore)});
     }
   }
 }

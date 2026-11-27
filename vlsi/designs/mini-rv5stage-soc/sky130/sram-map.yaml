@@ -6,7 +6,8 @@ default: infer
 sites:
   ram/storage/storage: sky130_sram_2kbyte_1rw1r_32x512_8
   hart/l1d/arrays/data_storage/storage: sky130_sram_2kbyte_1rw1r_32x512_8
-  hart/l1d/arrays/state_storage/storage: infer
+  hart/l1d/arrays/state_storage/permissions/storage: infer
+  hart/l1d/arrays/state_storage/dirty/dirty: infer
   hart/l1d/arrays/tag_storage/storage: infer
   hart/l1i/lines/storage: sky130_sram_2kbyte_1rw1r_32x512_8
   hart/l1i/tags/storage: infer

@@ -38,14 +38,12 @@ tasks:
     script: |
       source sims/arch-test/build-env.sh
       repo="$PWD"
-      extra=()
-      if [[ ${ACT_FAST:-0} == 1 ]]; then extra=(--fast); fi
       if [[ -d "$act_work/$act_configuration/elfs" ]]; then find "$act_work/$act_configuration/elfs" -type f -name '*.elf' -delete; fi
       cd "$act_source"
       XDG_CACHE_HOME="$repo/.tools/act-cache" XDG_DATA_HOME="$repo/.tools/act-data" \
         BUNDLE_PATH="${ACT_BUNDLE_PATH:-$repo/.tools/act-bundle}" "$act_python" "$repo/sims/arch-test/build.py" \
         "$act_config/test_config.yaml" --workdir "$act_work" --test-dir "$act_tests" --extensions all --keep-going \
-        --jobs "${ACT_BUILD_JOBS:-2}" "${extra[@]}"
+        --jobs "${ACT_BUILD_JOBS:-2}"
       cp "$act_config/configuration.json" "$act_work/$act_configuration/configuration.json"
     inputs: ["sims/arch-test/build-env.sh", "sims/arch-test/build.py", "@group(act-source)"]
     options: { cache: false }

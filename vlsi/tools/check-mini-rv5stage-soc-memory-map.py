@@ -34,9 +34,13 @@ EXPECTED_SITES = {
         "instances": 2,
         "bit_utilization": 0.5,
     },
-    "hart/l1d/arrays/state_storage/storage": {
+    "hart/l1d/arrays/state_storage/permissions/storage": {
         "decision": "infer",
-        "source_suffix": "_32x3",
+        "source_suffix": "_32x1",
+    },
+    "hart/l1d/arrays/state_storage/dirty/dirty": {
+        "decision": "infer",
+        "source_suffix": "_32x1",
     },
     "hart/l1d/arrays/tag_storage/storage": {
         "decision": "infer",
@@ -59,9 +63,9 @@ EXPECTED_SITES = {
     },
 }
 EXPECTED_TOTALS = {
-    "memory_sites": 6,
+    "memory_sites": 7,
     "mapped_sites": 3,
-    "inferred_sites": 3,
+    "inferred_sites": 4,
     "macro_instances": 36,
 }
 
@@ -211,7 +215,7 @@ def main() -> None:
 
     print(
         "validated RV64 MiniRV5StageSoC mapping: "
-        "3 of 6 sites use 36 Sky130 SRAM macros; each 2 KiB L1 uses half-depth"
+        "3 of 7 sites use 36 Sky130 SRAM macros; each 2 KiB L1 uses half-depth"
     )
 
 

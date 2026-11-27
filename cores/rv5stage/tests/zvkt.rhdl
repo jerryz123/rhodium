@@ -42,6 +42,7 @@ sync_circuit RV5StageZvkt(vlen :: VectorLength = 128):
   left.request_valid <== request_valid
   left.issue_ready <== issue_ready
   left.cancel <== cancel
+  left.block_v0_row <== Bool(#false)
   left.retry_enable <== Bool(#false)
   left.retry_first <== Bits(index_width(vlen + 1))(0)
   right.instruction <== instruction
@@ -54,6 +55,7 @@ sync_circuit RV5StageZvkt(vlen :: VectorLength = 128):
   right.request_valid <== request_valid
   right.issue_ready <== issue_ready
   right.cancel <== cancel
+  right.block_v0_row <== Bool(#false)
   right.retry_enable <== Bool(#false)
   right.retry_first <== Bits(index_width(vlen + 1))(0)
   left.initialize <=> left_initialize

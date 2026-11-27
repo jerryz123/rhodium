@@ -421,7 +421,7 @@ void native_row(unsigned xlen, bool store, bool execute = false, Word low_mask =
   for (const auto& [id, effect] : records.front().effects) {
     if (const auto* w = std::get_if<RegisterWrite>(&effect)) {
       const bool upper = writes != 0 || !low_mask;
-      require(w->index == 8 && w->bit_offset == 128 + 64*upper && w->mask == (upper ? high_mask : low_mask));
+      require(w->index == 8 && w->bit_offset == 128u + 64u*upper && w->mask == (upper ? high_mask : low_mask));
       require(w->value == (upper ? hi : lo));
       ++writes;
     } else if (const auto* csr = std::get_if<CsrUpdate>(&effect)) {
