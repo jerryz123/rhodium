@@ -114,6 +114,14 @@ sync_circuit VectorRowExecute(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
   fold.launch.valid <== launch.fire() & folding
   fold.launch.bits <== command
   permutation |> sequencer.permutation
+  // The normal and fold cursors share the launch turn. A tail read on a
+  // replacement edge belongs to the old launch, before the grant merge.
+  reg reading(~init: Bool(#false))
+  def done_reading = sequencer.issued.valid ||| fold.issued.valid
+  when (launch.fire() ||| done_reading): reading <== launch.fire()
+  describe_interface_retained_storage(launch.fire(), done_reading, reading, ~name: "reader")
+  describe_interface_contract(launch, Array(sequencer.read, fold.read), "cursor-reads",
+                              ~trace_model: interface_trace_retained(~outputs: 2, ~name: "reader"))
   select_execute_read(fold.busy, sequencer.read, fold.read) |> read
   vxu.fold_read <== fold.read.fire()
   Array(sequencer.issued, fold.issued) |> valid_arbiter() |> issued
