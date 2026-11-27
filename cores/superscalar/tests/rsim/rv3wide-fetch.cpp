@@ -1237,8 +1237,8 @@ int main() {
       falling();
     CHECK(registers[11] == UINT64_C(0x8002) &&
           registers[13] == UINT64_C(0x412) && registers[12] == 0);
-    // A straddling instruction belongs to its first PC, but a continuation-page
-    // fault reports the second page. Then install that page and execute it.
+    // A straddling JAL cannot redirect or write its link on a continuation-page
+    // fault. With the page installed it must do both, skipping the C.LI.
     for (int scenario = 16; scenario <= 17; scenario++) {
       falling();
       reset = 1;
@@ -1251,7 +1251,7 @@ int main() {
         std::uint64_t pte;
         std::uint32_t crossing;
         pte = scenario == 17 ? (UINT64_C(22) << 10) | UINT64_C(0xcb) : 0;
-        crossing = addi(12, 0, 77);
+        crossing = jal(12, 6);
         for (int b = 0; b < 8; b++)
           backing[UINT64_C(0x12008) + b] = sv_slice(pte, b * 8, 8);
         insn(UINT64_C(0x14000), jal(0, UINT64_C(0xffe)));
@@ -1277,9 +1277,9 @@ int main() {
         falling();
       if (scenario == 16)
         CHECK(registers[11] == UINT64_C(0x401000) &&
-              registers[13] == UINT64_C(0x400ffe) && registers[12] == 0);
+              registers[13] == UINT64_C(0x400ffe) && registers[12] == 0 && registers[14] == 0);
       else
-        CHECK(registers[12] == 77 && registers[14] == 14 &&
+        CHECK(registers[12] == UINT64_C(0x401002) && registers[14] == 0 &&
               reference_pc == UINT64_C(0x401008));
     }
     // The same suffix rule applies to a physical-map access fault.

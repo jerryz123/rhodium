@@ -30,7 +30,7 @@ sync_circuit SuperscalarDirection(profile :: SuperscalarPipelineConfig):
   output prefix_direction: TournamentPrediction(10)
   output corrected: BranchPrediction(xlen, prediction_width)
   output history_after: Bits(10)
-  output next_pc: Bits(xlen.width)
+  output candidate_next_pc: Bits(xlen.width)
   output invalidate: Bool
 
 
@@ -65,7 +65,8 @@ sync_circuit SuperscalarDirection(profile :: SuperscalarPipelineConfig):
 
   /* Ordered parcel prediction and history scan.
      The retained prefix is inspected first, then ordinary instruction boundaries.
-     Each candidate consumes the preceding history; a taken branch cuts the suffix. */
+     Each candidate consumes the preceding history; a taken branch cuts the suffix.
+     Scan the bytes independently of the S2 fault. Qualify published metadata below. */
 
   def mutable checkpoint = history
   def mutable cut = Bool(#false)
@@ -82,7 +83,7 @@ sync_circuit SuperscalarDirection(profile :: SuperscalarPipelineConfig):
     decoded.raw <== raw
     def at_boundary = if slot == 0 | prefix | boundary === Bits(3)(parcel)
     def complete = if slot == 0 | Bool(#true) | decoded.compressed ||| Bool(parcel < 3)
-    def live = at_boundary & !cut & !fault
+    def live = at_boundary & !cut
     def candidate :: BranchPrediction(xlen, prediction_width) = if slot == 0 | partial_prediction | prediction
     def known = live & complete & decoded.control_flow & candidate.valid & (candidate.address() === address) & (candidate.compressed === decoded.compressed)
     def base = if slot == 0 | partial_base_taken | base_taken[parcel]
@@ -99,9 +100,14 @@ sync_circuit SuperscalarDirection(profile :: SuperscalarPipelineConfig):
       base_taken: base
       gshare_taken: history_direction
 
+    // Recovery uses the starting history even when a fault invalidates the
+    // checkpoint. Keep this publication veto out of the parcel recurrence.
+    def published = metadata.updated(~valid: !fault & metadata.valid,
+                                     ~history: mux(fault, history, checkpoint),
+                                     ~taken: mux(decoded.conditional, conditional_taken, !fault & known))
     if slot == 0
-    | prefix_direction <== metadata
-    | directions[parcel] <== metadata
+    | prefix_direction <== published
+    | directions[parcel] <== published
 
     def immediate_target = prediction_target(xlen, target_width, address + decoded.offset)
     def selected = BranchPrediction(xlen, prediction_width):
@@ -124,12 +130,13 @@ sync_circuit SuperscalarDirection(profile :: SuperscalarPipelineConfig):
 
   /* Correction and invalidation.
      An incomplete byte-six prediction remains provisional. Complete conditional
-     branches update history; the selected taken control flow changes next_pc. */
+     branches update history. The frontend compares the candidate successor in
+     parallel with fault/replay classification and authorizes repair separately. */
 
   def provisional_prefix = pending & prediction.valid & !prediction.compressed & (prediction.address() === (pc.align_down(8) + Bits(xlen.width)(6)))
-  corrected <== mux(provisional_prefix, prediction, effective)
-  next_pc <== mux(effective.valid, effective.destination(), pc.align_down(8) + Bits(xlen.width)(8))
-  history_after <== checkpoint
+  corrected <== mux(fault, literal(BranchPrediction(xlen, prediction_width), 0), mux(provisional_prefix, prediction, effective))
+  candidate_next_pc <== mux(effective.valid, effective.destination(), pc.align_down(8) + Bits(xlen.width)(8))
+  history_after <== mux(fault, history, checkpoint)
   invalidate <== !fault & ((prediction.valid & !matched & !prefix) ||| stale_target)
 
 
@@ -139,8 +146,9 @@ sync_circuit SuperscalarDirection(profile :: SuperscalarPipelineConfig):
   when clear:
     partial_valid <== Bool(#false)
   elsewhen valid:
-    partial_valid <== pending
-    when pending:
+    def capture = pending & !fault
+    partial_valid <== capture
+    when capture:
       def pc_fits = CompactPc.fits(xlen, pc)
       assert(pc_fits, "rv2wide_direction_prefix_pc_fits")
       assert(!provisional_prefix ||| CompactPc.fits(xlen, prediction.destination()), "rv2wide_direction_prefix_target_fits")
@@ -169,7 +177,7 @@ sync_circuit DisabledSuperscalarDirection(profile :: SuperscalarPipelineConfig):
   output prefix_direction: TournamentPrediction(10)
   output corrected: BranchPrediction(xlen, prediction_width)
   output history_after: Bits(10)
-  output next_pc: Bits(xlen.width)
+  output candidate_next_pc: Bits(xlen.width)
   output invalidate: Bool
   prefix_row <== row
   prefix_choice_row <== pc[3..13]
@@ -177,7 +185,7 @@ sync_circuit DisabledSuperscalarDirection(profile :: SuperscalarPipelineConfig):
   prefix_direction <== literal(TournamentPrediction(10), 0)
   corrected <== prediction
   history_after <== history
-  next_pc <== pc.align_down(8) + Bits(xlen.width)(8)
+  candidate_next_pc <== pc.align_down(8) + Bits(xlen.width)(8)
   invalidate <== Bool(#false)
 
 export:

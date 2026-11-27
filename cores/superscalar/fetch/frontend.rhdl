@@ -195,7 +195,7 @@ sync_circuit SuperscalarFrontend(config :: RiscvHartCHIConfig, profile :: Supers
   def provisional_successor = mux(s2.egress.bits.cursor.continuation ||| (s2_prediction.valid & !s2_straddle), s2_prediction.destination(), s2_pc.align_down(8) + Bits(xlen.width)(8))
   def direction_candidate = Bool(profile.bht) & s2.egress.valid & !replay & !result_fault
   def direction_updates_history = direction_candidate & !command
-  direction_repair <== direction_candidate & (direction.next_pc =/= provisional_successor)
+  direction_repair <== direction_candidate & (direction.candidate_next_pc =/= provisional_successor)
 
 
   /* History recovery.
@@ -237,7 +237,7 @@ sync_circuit SuperscalarFrontend(config :: RiscvHartCHIConfig, profile :: Supers
   def restart = start.valid ||| redirect.valid
   def replace = restart ||| (!command & (repair ||| replay))
   def restart_pc = mux(start.valid, start.bits[0..xlen.width], redirect.bits.target)
-  def repair_pc = mux(assembler.repair.valid, assembler.repair.bits.target, direction.next_pc)
+  def repair_pc = mux(assembler.repair.valid, assembler.repair.bits.target, direction.candidate_next_pc)
   def straddle = prediction.valid & (source_offset === Bits(3)(6)) & !prediction.compressed & !s1.egress.bits.continuation
   def successor = mux(s1.egress.bits.continuation ||| (prediction.valid & !straddle), prediction.target.expanded(), s1_pc.align_down(8) + Bits(xlen.width)(8))
   def next_cursor = SuperscalarFetchCursor(xlen):

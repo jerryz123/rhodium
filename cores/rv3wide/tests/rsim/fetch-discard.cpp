@@ -65,6 +65,7 @@ static void collision(bool invalid, bool stall_restart, bool retry_on_edge) {
   const auto branch_pc = invalid ? boundary_pc : legal_pc;
   issue_at(branch_pc, 0x040008ef); // jal x17,+64
   start_old_fetch();
+  cache_word = jump_block; // a live copy of the discarded bytes would redirect to old_pc - 16
   array_lookup_in.pready = !stall_restart;
   // Toggle the physical outcome without advancing either token. Both the
   // hit and replay must lose to discard; neither may launch the old walk.

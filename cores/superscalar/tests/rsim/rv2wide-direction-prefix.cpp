@@ -57,7 +57,7 @@ void check_indirect(Address address, Address target, bool predicted = true) {
   if (predicted) {
     CHECK(normalized(corrected.ppc) == address && normalized(corrected.ptarget) == target &&
           !corrected.pcompressed && corrected.pras_uaction == 0);
-    CHECK(next_pc == target);
+    CHECK(candidate_next_pc == target);
   }
 }
 
@@ -122,6 +122,31 @@ int main() {
             !prefix_direction.pgshare_utaken && prefix_direction.ptaken);
       CHECK(prefix_direction.pindex == 0x557 && prefix_direction.phistory == 0x123 &&
             history_after == 0x247);
+
+      // The candidate sees a taken branch; a fault vetoes all publication.
+      fault = true;
+      eval();
+      CHECK(candidate_next_pc == actual && !corrected.pvalid && !invalidate);
+      CHECK(!prefix_direction.pvalid && prefix_direction.phistory == history && history_after == history);
+      for (unsigned parcel = 0; parcel < 4; ++parcel)
+        CHECK(!directions[parcel].pvalid && directions[parcel].phistory == history);
+      tick_model(); // valid is false: replay retains the prefix and its lookup
+      fault = false;
+      eval();
+      CHECK(prefix_row == 0x155 && corrected.pvalid && prefix_direction.pvalid && invalidate);
+      fault = valid = true;
+      tick_model(); // an accepted fault consumes that same prefix
+      fault = valid = false;
+      eval();
+      CHECK(!prefix_direction.pvalid && !corrected.pvalid && !invalidate);
+
+      // A fault on the first half cannot install a new prefix either.
+      offer_prefix(address, indirect, target);
+      fault = true;
+      tick_model();
+      fault = false;
+      continuation(address, indirect);
+      CHECK(!corrected.pvalid);
 
       // Clear beats a simultaneous new prefix capture.
       offer_prefix(address, indirect, target);

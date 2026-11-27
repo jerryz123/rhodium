@@ -750,6 +750,12 @@ reuses its saved row and bimodal bits. A byte-six prefix retains its own bimodal
 bit across continuation lookup and table training.
 Rows are block-based; intra-block checkpoints still append outcomes in order.
 
+S2 scans returned bytes before fault classification. Its candidate successor is
+speculative: only a delivered, nonfaulting, nonreplayed block may use it for
+direction repair. A fault suppresses prediction and invalidation and publishes
+the incoming history unchanged; only an accepted block consumes the saved prefix.
+An older redirect still discards the lookup immediately.
+
 The direction walk retains a byte-six prefix as its first halfword, saved row,
 bimodal bit, and compact block address. The fixed compact width defines its
 successful-PC bound; restore the fixed `110` byte offset and sign extension
