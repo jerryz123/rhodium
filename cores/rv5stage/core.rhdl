@@ -367,10 +367,8 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
       elsewhen id_multiply_admitted:
         id_multiply_vector_turn <== Bool(#true)
 
-      inst ex_multiply_selection(GrantMerge(IntegerExecutionRequest(MultiplierRequest(width), MultiplyOwner()), 2))
-      ex_multiply_selection.grants <== vec([ex_multiply_reserved, !ex_multiply_reserved]).into(MaybeOneHot(2))
-      Array(wb_scalar_multiply_request, wb_vector_multiply_request) <=> ex_multiply_selection.ingress
-      ex_multiply_selection.egress |> wb_multiply_execution.request
+      def multiply_grants = vec([ex_multiply_reserved, !ex_multiply_reserved]).into(MaybeOneHot(2))
+      grant_merge(multiply_grants, Array(wb_scalar_multiply_request, wb_vector_multiply_request)) |> wb_multiply_execution.request
       when (wb_scalar_multiply_request.valid):
         assert(ex_multiply_reserved, "scalar_multiply_has_ex_reservation")
   | block:
@@ -438,7 +436,6 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def mem_cache_replay = mem_cache_outcome === CachePipelineOutcome.Replay
   def RetainedWB = RetainedScalarWriteback(xlen, vector_completion_slots, hypervisor)
   inst wb_scalar_retirement(OfferRegister(RetainedWB))
-  inst wb_selection(GrantMerge(RV5StageRetirementCommand(xlen, vector_completion_slots, hypervisor), 3))
   def wb_scalar_pending = wb_scalar_retirement.egress.valid
   def wb_scalar_owner = wb_scalar_retirement.egress.bits
   def wb_wait_owner = wb_scalar_owner.system.wait =/= ReservationWaitMode.None
@@ -518,10 +515,12 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
 
   // Select a resident even before completion; the grant never falls through
   // to a younger instruction. Only the completed transfer releases its owner.
-  wb_selection.grants <== vec([!wb_scalar_pending & !wb_vector_retirement_link.right.valid, wb_scalar_pending, !wb_scalar_pending & wb_vector_retirement_link.right.valid]).into(MaybeOneHot(3))
+  def wb_grants = vec([!wb_scalar_pending & !wb_vector_retirement_link.right.valid,
+                       wb_scalar_pending,
+                       !wb_scalar_pending & wb_vector_retirement_link.right.valid]).into(MaybeOneHot(3))
   def wb_pipeline_bits :: MemoryWriteback(xlen, vector_completion_slots, hypervisor) = wb_input.bits
-  wb_live_path |> filter_valid(_instruction => !wb_reservation_wait_accept) |> map_valid(_operation => wb_pipeline_bits.retirement()) |> offer_decoupled() |> wb_selection.ingress[0]
-  (wb_scalar_retirement.egress |> map_flow(owner):
+  def wb_live_offer = wb_live_path |> filter_valid(_instruction => !wb_reservation_wait_accept) |> map_valid(_operation => wb_pipeline_bits.retirement()) |> offer_decoupled()
+  def wb_scalar_offer = wb_scalar_retirement.egress |> map_flow(owner):
     // A retained scalar cannot issue arithmetic, launch a vector, replay, or
     // carry an earlier exception. Its completion can still report a new fault.
     wire inactive: RV5StageRetirementCommand(xlen, vector_completion_slots, hypervisor)
@@ -536,9 +535,8 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
       ~system: owner.system, ~fence: owner.fence, ~hint: owner.hint
     )
     if hypervisor | retired.updated(~guest: owner.guest, ~guest_access: owner.guest_access) | retired
-  ) |> wb_selection.ingress[1]
 
-  wb_vector_retirement_link.right |> offer_decoupled() |> wb_selection.ingress[2]
+  def wb_vector_offer = wb_vector_retirement_link.right |> offer_decoupled()
   when (wb_vector_retirement_link.right.valid):
     assert(!wb_input.valid & !wb_scalar_pending, "vector_outcome_has_retirement_port")
 
@@ -551,7 +549,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def wb_load_hit = mux(wb_scalar_pending,
                         wb_split_pending & wb_scalar_owner.data_request.access.into(CacheOperation).is_load(),
                         !wb_vector_retirement_link.right.valid & (memory_response.captured.bits.outcome === CachePipelineOutcome.LoadHit))
-  def wb = wb_selection.egress |> gate_flow(wb_owner_complete) |> to_valid()
+  def wb = grant_merge(wb_grants, Array(wb_live_offer, wb_scalar_offer, wb_vector_offer)) |> gate_flow(wb_owner_complete) |> to_valid()
   def Array(wb_commit_path, wb_vector_launch_path, wb_vector_replay_path, wb_vector_slow_path, wb_fp_reservation_path, wb_fp_hit_path) = wb |> fork_valid(6)
   def wb_offer_bits :: RV5StageRetirementCommand(xlen, vector_completion_slots, hypervisor) = wb.bits
   vector_fast.candidate <== if vector_enabled | wb_input.bits.vector_fast | literal(VectorFastCertificate(xlen), 0)

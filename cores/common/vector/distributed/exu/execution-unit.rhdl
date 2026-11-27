@@ -261,12 +261,10 @@ sync_circuit VectorExecutionUnit(xlen :: XLen, vlen :: VectorLength, slots :: Po
       shared_fp.rounding <== control.rounding
       if xlen == XLen.X64
       | block:
-          def fold_req = interface_link(Decoupled(fp_request.bits.type))
           def blank :: FloatingPointControl() = dont_care(FloatingPointControl())
           def exec = fold.fp_control.updated(~source_precision: FloatPrecision.Double, ~destination_precision: FloatPrecision.Double)
           def src = fold.fp_step.bits[0..64]
-          fold_req.left.valid <== fold.fp_step.valid & fold.fp_double
-          fold_req.left.bits <== FpExecutionRequest(xlen, profile, Owner):
+          def fold_operands = FpExecutionRequest(xlen, profile, Owner):
             tag: fold.owner
             control: blank.updated(~registers: blank.registers.updated(~uses_frs1: Bool(#true), ~destination: FloatDestination.FloatingPoint), ~execution: exec)
             left: fold.accumulator[0..64]
@@ -277,8 +275,9 @@ sync_circuit VectorExecutionUnit(xlen :: XLen, vlen :: VectorLength, slots :: Po
             third: dont_care(Bits(64))
             immediate_index: dont_care(Bits(5))
             rounding_mode: fold.fp_rounding
-          Array(shared_fp.request, fold_req.right) |> arbiter() |> fp_request
-          double_step_ready <== fold_req.left.ready
+          def fold_request = inject_interface(fp_request.type, ~valid: fold.fp_step.valid & fold.fp_double,
+                                              ~bits: fold_operands, ~ready: double_step_ready)
+          Array(shared_fp.request, fold_request) |> arbiter() |> fp_request
           reg pending_fold(~init: Bool(#false))
           def Array(elements, feedback) = fp_result |> demux_flow(2, r => pending_fold & (r.tag === fold.owner))
           elements |> shared_fp.response
@@ -286,7 +285,7 @@ sync_circuit VectorExecutionUnit(xlen :: XLen, vlen :: VectorLength, slots :: Po
           double_feedback <== feedback.fire()
           double_value <== feedback.bits.value.zext(dlen)
           double_flags <== mux(feedback.bits.exception_flags_valid, feedback.bits.exception_flags, Bits(5)(0))
-          when (fold_req.right.fire()): pending_fold <== Bool(#true)
+          when (fold_request.fire()): pending_fold <== Bool(#true)
           elsewhen (feedback.fire()): pending_fold <== Bool(#false)
       | block:
           shared_fp.request |> fp_request

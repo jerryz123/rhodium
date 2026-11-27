@@ -46,13 +46,13 @@ sync_circuit RV5StageFpService(xlen :: XLen, profile :: FloatingPointProfile, Sc
   def vector_waiting = tagged_vector_request.valid & !tagged_vector_request.ready
   launch_calendar.vector_waiting <== vector_waiting
   id_available <== launch_calendar.available
-  inst ex_fp_selection(GrantMerge(FpExecutionRequest(xlen, profile, FpOwner()), 2))
   // The registered EX grant cannot be displaced by WB or vector traffic.
   // Otherwise give an already-authorized vector offer the next turn.
-  ex_fp_selection.grants <== vec([launch_calendar.reserved ||| !tagged_vector_request.valid, !launch_calendar.reserved & tagged_vector_request.valid]).into(MaybeOneHot(2))
-  Array(tagged_scalar_request, tagged_vector_request) <=> ex_fp_selection.ingress
+  def select_vector = !launch_calendar.reserved & tagged_vector_request.valid
+  def grants = vec([!select_vector, select_vector]).into(MaybeOneHot(2))
+  def selected = grant_merge(grants, Array(tagged_scalar_request, tagged_vector_request))
   launch_calendar.vector_accepted <== tagged_vector_request.fire()
-  def Array(fp_launch, fp_reservation) = ex_fp_selection.egress |> atomic_fork(2)
+  def Array(fp_launch, fp_reservation) = selected |> atomic_fork(2)
   fp_launch |> wb_fp_execution.request
   fp_reservation |> filter_flow(operation => operation.tag.is(FpOwner().Vector) & (operation.control.execution.unit =/= FloatUnit.DivideSquareRoot)) |> map_flow(operation => operation.control.execution) |> launch_calendar.vector_book
   (

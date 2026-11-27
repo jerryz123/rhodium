@@ -36,11 +36,8 @@ sync_circuit RV5StageDivideOwnership(Request :: DataType):
   reg scalar_turn(~init: Bool(#false))
   scalar_available <== !busy & !reserved & (scalar_turn ||| !vector.valid)
 
-  inst selection(GrantMerge(Request, 2))
-  selection.grants <== vec([reserved, !reserved]).into(MaybeOneHot(2))
-  scalar |> selection.ingress[0]
-  vector |> gate_flow(!scalar_turn) |> selection.ingress[1]
-  selection.egress |> request
+  def grants = vec([reserved, !reserved]).into(MaybeOneHot(2))
+  grant_merge(grants, Array(scalar, vector |> gate_flow(!scalar_turn))) |> request
 
   when (vector.fire()):
     scalar_turn <== scalar_waiting

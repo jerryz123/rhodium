@@ -9,7 +9,7 @@
 #include <vector>
 
 using Word = std::uint64_t;
-constexpr unsigned metadata_entries = 8;
+constexpr unsigned metadata_entries = 16; // VLSU load-metadata slots (MemoryRequestEntries).
 unsigned cycle_limit=16000; // Aggregate watchdog; row cadence is checked at the grants.
 unsigned cycles, finishes, releases, narrow, scalar_returns;
 Word scalar_value;

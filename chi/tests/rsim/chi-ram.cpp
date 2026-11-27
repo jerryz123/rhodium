@@ -28,27 +28,31 @@ constexpr std::uint8_t COMP_DATA = UINT64_C(4);
 constexpr std::uint8_t REQUESTER_ID = UINT64_C(3);
 constexpr std::uint8_t RAM_ID = UINT64_C(9);
 
+void offer_request(std::uint8_t opcode, std::uint16_t txn_id,
+                   std::uint64_t address, std::uint8_t size,
+                   std::uint16_t return_txn_id) {
+  requests_in.pbits = {};
+  requests_in.pbits.popcode = opcode;
+  requests_in.pbits.psrc_uid = REQUESTER_ID;
+  requests_in.pbits.ptgt_uid = RAM_ID;
+  requests_in.pbits.ptxn_uid = txn_id;
+  requests_in.pbits.paddress = address;
+  requests_in.pbits.psize_uor_unum_ureq = size;
+  requests_in.pbits.preturn_unid_uor_ustash_unid_uor_udata_utarget =
+      REQUESTER_ID;
+  requests_in.pbits.preturn_utxn_uid_uor_ustash_ulpid = return_txn_id;
+  requests_in.pvalid = UINT64_C(1);
+  eval();
+}
+
 void issue_request(std::uint8_t opcode, std::uint16_t txn_id,
                    std::uint64_t address, std::uint8_t size,
                    std::uint16_t return_txn_id) {
-  {
-    requests_in.pbits = {};
-    requests_in.pbits.popcode = opcode;
-    requests_in.pbits.psrc_uid = REQUESTER_ID;
-    requests_in.pbits.ptgt_uid = RAM_ID;
-    requests_in.pbits.ptxn_uid = txn_id;
-    requests_in.pbits.paddress = address;
-    requests_in.pbits.psize_uor_unum_ureq = size;
-    requests_in.pbits.preturn_unid_uor_ustash_unid_uor_udata_utarget =
-        REQUESTER_ID;
-    requests_in.pbits.preturn_utxn_uid_uor_ustash_ulpid = return_txn_id;
-    requests_in.pvalid = UINT64_C(1);
-    while (!requests_out.pready)
-      tick_model();
+  offer_request(opcode, txn_id, address, size, return_txn_id);
+  while (!requests_out.pready)
     tick_model();
-    requests_in.pvalid = UINT64_C(0);
-    requests_in.pbits = {};
-  }
+  tick_model();
+  requests_in = {};
 }
 
 void issue_write_data(std::uint16_t dbid, std::uint8_t data_id,
@@ -140,6 +144,59 @@ void accept_read(std::uint16_t return_txn_id, std::uint8_t data_id,
   }
 }
 
+// Occupy both slots with multibeat operations. Probe admission across each
+// final output handshake, including the edge before the slot becomes free.
+void check_slot_release() {
+  constexpr std::uint64_t base = 0x80000000;
+  issue_request(READ_NO_SNP, 1, base, 5, 11);
+  issue_request(WRITE_NO_SNP_FULL, 2, base, 6, 0);
+  std::uint16_t dbid;
+  accept_dbid(2, dbid);
+
+  // The intermediate writes must drain even while RSP is blocked.
+  for (unsigned beat = 0; beat < 4; ++beat)
+    issue_write_data(dbid, beat, 0xffff, 0);
+  wait_rsp();
+  wait_dat();
+
+  offer_request(READ_NO_SNP, 3, base, 4, 13);
+  CHECK(!requests_out.pready);
+  accept_read(11, 0, 0xffff, 0);
+  wait_dat();
+  for (unsigned cycle = 0; cycle < 4; ++cycle) {
+    CHECK(!requests_out.pready);
+    CHECK(response_data_out.pvalid && response_data_out.pbits.pdata_uid == 1);
+    CHECK(responses_out.pvalid && responses_out.pbits.popcode == COMP);
+    tick_model();
+  }
+  response_data_in.pready = 1;
+  eval();
+  CHECK(!requests_out.pready);
+  accept_read(11, 1, 0xffff, 0);
+  eval();
+  CHECK(requests_out.pready);
+  tick_model(); // The third request takes the released read slot.
+
+  offer_request(READ_NO_SNP, 4, base, 4, 14);
+  wait_dat();
+  for (unsigned cycle = 0; cycle < 4; ++cycle) {
+    CHECK(!requests_out.pready);
+    CHECK(response_data_out.pvalid && response_data_out.pbits.ptxn_uid == 13);
+    CHECK(responses_out.pvalid && responses_out.pbits.ptxn_uid == 2);
+    tick_model();
+  }
+  responses_in.pready = 1;
+  eval();
+  CHECK(!requests_out.pready);
+  accept_comp(2, dbid);
+  eval();
+  CHECK(requests_out.pready);
+  tick_model(); // The fourth request takes the released write slot.
+  requests_in = {};
+  accept_read(13, 0, 0xffff, 0);
+  accept_read(14, 0, 0xffff, 0);
+}
+
 std::uint16_t dbid_a;
 std::uint16_t dbid_b;
 bool saw_concurrent_allocation_data = 0;
@@ -153,6 +210,8 @@ void run_case() {
   tick_model();
   CHECK(!responses_out.pvalid && !response_data_out.pvalid);
   reset = UINT64_C(0);
+
+  check_slot_release();
 
   issue_request(READ_NO_SNP, UINT64_C(257), UINT64_C(2147483648), UINT64_C(4),
                 UINT64_C(1281));

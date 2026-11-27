@@ -111,15 +111,12 @@ sync_circuit DistributedVectorBackend(xlen :: XLen, vlen :: VectorLength, Fault 
   claims.allocation_native <== no_work ||| !allocating.descriptor.control.memory ||| row_memory_eligible
   def Array(ordered, operands) = tagged |> atomic_fork(2)
   ordered |> paths.ingress
-  def Issue = MemoryIssue(xlen, vlen, slots)
   /* Direct preparation and later address launch resolve the same immutable descriptor. */
   fun direct(entry :: VectorDispatchEntry(xlen, slots)) :~ MemoryIssue(xlen, vlen, slots):
     direct_memory_issue(xlen, vlen, slots, entry)
-  inst prepare_port(GrantMerge(Issue, 2))
   def grants = vec([checker.busy, !checker.busy]).into(MaybeOneHot(2))
-  prepare_port.grants <== grants
-  Array(checker.prepare, operands |> filter_flow(_entry => row_memory_eligible) |> map_flow(entry => direct(entry))) <=> prepare_port.ingress
-  prepare_port.egress |> rows.prepare
+  def direct_prepare = operands |> filter_flow(_entry => row_memory_eligible) |> map_flow(entry => direct(entry))
+  grant_merge(grants, Array(checker.prepare, direct_prepare)) |> rows.prepare
   checker.checked_element |> rows.checked_element
   rows.stream_live <== checker.stream_live
   rows.stream_store <== checker.store
@@ -147,10 +144,8 @@ sync_circuit DistributedVectorBackend(xlen :: XLen, vlen :: VectorLength, Fault 
     // A follower must still pass the VLSU physical-span check.
     def follow_peer = rows.outstanding_store.valid & (rows.outstanding_store.bits === Bool(i == LoadPath))
     def allowed = claims.head_allowed[i] & (memory_drained ||| follow_peer)
-    inst launch_port(GrantMerge(MemoryLaunch(xlen, vlen, slots), 2))
-    launch_port.grants <== grants
-    Array(exact_heads[i], native |> gate_flow(allowed) |> map_flow(entry => direct_launch(entry))) <=> launch_port.ingress
-    launch_port.egress |> rows.launch[i]
+    def native_launch = native |> gate_flow(allowed) |> map_flow(entry => direct_launch(entry))
+    grant_merge(grants, Array(exact_heads[i], native_launch)) |> rows.launch[i]
     ordinary |> gate_flow(claims.head_allowed[i])
   claims.head_issued <== vec(for List (i in DispatchPaths): if i == ExecutePath | Bool(#false) | paths.heads[i].fire())
   rows.stream_owner <== checker.owner

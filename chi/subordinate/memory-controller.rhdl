@@ -272,8 +272,6 @@ circuit CHIRamCompletionRouter(p :: CHIFlitParams,
   read_completion.ready <== read_response.ready
   read_response.valid <== read_completion.valid
   read_response.bits <== chi_sn_read_completion(p, node_id, read_operation.request, read_operation.data_id, read.data)
-  read_completed.valid <== read_completion.fire() & read_operation.last
-  read_completed.bits <== read_operation.slot
 
 
   /* Write RSP completion: intermediate backend packets drain without RSP;
@@ -284,8 +282,11 @@ circuit CHIRamCompletionRouter(p :: CHIFlitParams,
   write_completion.ready <== !write_operation.last ||| write_response.ready
   write_response.valid <== write_completion.valid & write_operation.last
   write_response.bits <== chi_sn_write_completion(p, node_id, write_operation.request, write_operation.slot)
-  write_completed.valid <== write_completion.fire() & write_operation.last
-  write_completed.bits <== write_operation.slot
+  for (completion in [read_completion, write_completion], released in [read_completed, write_completed]):
+    observe_transfer(completion)
+      |> filter_valid(beat => beat.memory_operation.last)
+      |> map_valid(beat => beat.memory_operation.slot)
+      |> released
 
 /*
  * Builds transaction machinery in the caller's module. The backend factory

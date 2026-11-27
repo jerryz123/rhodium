@@ -59,7 +59,6 @@ sync_circuit SuperscalarFp(xlen :: XLen, timing :: FpExecutionTiming, ~half_prec
     Scalar(SuperscalarFpOwner(xlen))
     Vector(VectorTag)
 
-  def SharedRequest = FpExecutionRequest(xlen, fp_transport_profile(xlen), Owner())
   def SharedResult = FpExecutionResult(xlen, fp_transport_profile(xlen), Owner())
   inst launch_calendar(FpLaunchCalendar(timing, span))
   launch_calendar.probe <== probe.execution
@@ -110,16 +109,15 @@ sync_circuit SuperscalarFp(xlen :: XLen, timing :: FpExecutionTiming, ~half_prec
     request.with_tag(Owner(), Owner().Vector(request.tag))
 
   def unreserved = Array(scalar_variable, vector) |> rr_arbiter()
-  inst selection(GrantMerge(SharedRequest, 2))
-  selection.grants <== vec([launch_calendar.reserved, !launch_calendar.reserved]).into(MaybeOneHot(2))
-  Array(scalar_fixed, unreserved) <=> selection.ingress
+  def grants = vec([launch_calendar.reserved, !launch_calendar.reserved]).into(MaybeOneHot(2))
+  def selected = grant_merge(grants, Array(scalar_fixed, unreserved))
 
 
   /* Atomic launch and fixed return booking.
      Tagged replies write directly on their reserved edge; variable results
      remain backpressurable at the execution lane, without a response queue. */
 
-  def Array(launch, booking) = selection.egress |> atomic_fork(2)
+  def Array(launch, booking) = selected |> atomic_fork(2)
   launch |> execution.request
   booking
     |> filter_flow(request => request.tag.is(Owner().Vector) & (request.control.execution.unit =/= FloatUnit.DivideSquareRoot))
@@ -138,7 +136,7 @@ sync_circuit SuperscalarFp(xlen :: XLen, timing :: FpExecutionTiming, ~half_prec
     result.with_tag(SuperscalarFpOwner(xlen), owner)
 
   when (fixed_issue.valid):
-    assert(launch_calendar.reserved & selection.ingress[0].ready, "superscalar_fp_ex_launch_reserved")
+    assert(launch_calendar.reserved & scalar_fixed.ready, "superscalar_fp_ex_launch_reserved")
 
 
   /* WB authorization and scheduled return qualification.

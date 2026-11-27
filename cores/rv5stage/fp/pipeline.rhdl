@@ -220,10 +220,8 @@ sync_circuit RV5StageFpScalar(
      The booked slot, not squash-sensitive EX valid, selects operands and readiness;
      WB replay therefore remains independent of the launch it cancels. */
 
-  inst request_selection(GrantMerge(Issue, 2))
-  request_selection.grants <== vec([fixed_reserved, !fixed_reserved]).into(MaybeOneHot(2))
-  Array(fixed_issue |> to_decoupled(), issue) <=> request_selection.ingress
-  def offered = request_selection.egress
+  def grants = vec([fixed_reserved, !fixed_reserved]).into(MaybeOneHot(2))
+  def offered = grant_merge(grants, Array(fixed_issue |> to_decoupled(), issue))
   def control = offered.bits.control
   def source_hazard = (
     control.registers.uses_frs1 & register_busy(offered.bits.frs1)
