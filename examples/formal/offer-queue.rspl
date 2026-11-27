@@ -42,10 +42,6 @@ spec for rtl.OfferQueue:
   refinement:
     child offer: OfferRegister
     child fifo: ShiftQueue
-    direct_wires {"offer.update.valid": "update.valid", "offer.update.bits": "update.bits",
-                  "fifo.ingress.valid": "offer.egress.valid", "fifo.ingress.bits": "offer.egress.bits",
-                  "offer.egress.ready": "fifo.ingress.ready", "handoff_ready": "fifo.ingress.ready",
-                  "egress.valid": "fifo.egress.valid", "egress.bits": "fifo.egress.bits", "fifo.egress.ready": "egress.ready"}
     history latest from offer.slot: Seq(Bits(2), 1)
     history accepted from fifo.q: Seq(Bits(2), 1)
     relate pending = latest

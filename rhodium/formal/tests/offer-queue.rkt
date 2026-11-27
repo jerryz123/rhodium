@@ -33,14 +33,14 @@
     (discharge 'old-then-replacement #t
                (equal? (&& i h r h2 r2) (&& (bveq first a) (bveq second b)))))
 
-  (test-case "bypass cannot obtain the parent seal"
+  (test-case "bypassing the pending offer breaks the committed history on handoff"
     ;; Apply the same nominal declaration to the alternate top, resolving its own occurrences.
     (match-define (list "parent" public children req suppliers domain) (OfferQueue good_top #:proof_plan #t))
     (define (candidate top #:proof_plan _)
       (list "parent" public (for/hash ([(site binding) children])
                               (values site (list (child_definition top site) (second binding))))
             req suppliers domain))
-    (check-exn #rx"expected fifo[.]ingress[.]bits driven by offer[.]egress[.]bits, got update[.]bits"
+    (check-exn #rx"step/successor not proved"
                (lambda () (prove-design bypass_top candidate))))
 
   ;; Replay the uncut RTL, then feed only its parent pins to the executable public monitor.
