@@ -127,6 +127,22 @@ void cancel_now() {
   eval();
 }
 
+void stall_host_fault(std::uint64_t va, std::uint8_t kind,
+                      std::uint64_t waiting_va, std::uint8_t waiting_kind) {
+  launch(va, kind);
+  address = waiting_va;
+  access = waiting_kind;
+  command_valid = 1;
+  for (int cycle = 0; cycle < 4; ++cycle) {
+    eval();
+    CHECK(completed && !command_ready && !memory_valid && fault == PAGE);
+    CHECK(accepted_virtual == va && result_virtual == va && result_access == kind);
+    CHECK(!result_address && !result_guest && !vs_leaf && !g_leaf &&
+          !fault_guest && !implicit_read && !gva);
+    tick_model();
+  }
+}
+
 void check_host_walk_owner() {
   constexpr auto first = UINT64_C(0x40001234);
   constexpr auto next = UINT64_C(0xffffffff81234567);
@@ -153,6 +169,11 @@ void check_host_walk_owner() {
   eval();
   CHECK(command_ready && !completed && accepted_virtual == first);
 
+  // First idle edge after draining a canceled PTE. The orphan leaf and the
+  // waiting load must not replace the immediate fault or its access kind.
+  const auto bad = next ^ (UINT64_C(1) << 53);
+  stall_host_fault(bad, STORE, next, LOAD);
+  finish(PAGE, bad, STORE, 0);
   launch(next, LOAD);
   address = first;
   access = FETCH;
@@ -640,23 +661,18 @@ int main() {
     if (!command_ready || completed)
       fail(1, "cancel on response edge leaked completion");
 
-    // A noncanonical host VA faults on admission, without issuing a PTE read.
+    // Consume a mapping with a nonzero leaf and address, then use the very
+    // first idle edge to admit a fault with a different access kind.
     constexpr auto original = UINT64_C(0xa5a5800000004321);
     constexpr auto replacement = UINT64_C(0x4321);
     defaults();
     virtualized = 0;
     vs_mode = 1;
-    launch(original, FETCH);
-    address = replacement;
-    access = LOAD;
-    command_valid = 1;
-    for (int cycle = 0; cycle < 4; ++cycle) {
-      eval();
-      if (!completed || command_ready || memory_valid || fault != PAGE ||
-          result_virtual != original || result_access != FETCH)
-        fail(1, "stalled fault lost its original request");
-      tick_model();
-    }
+    launch(replacement, LOAD);
+    reply(0x1000, entry(0x40000, VR));
+    CHECK(completed && vs_leaf == entry(0x40000, VR));
+    finish(NONE, replacement, LOAD, 0x40004321);
+    stall_host_fault(original, FETCH, replacement, LOAD);
 
     // Cancel wins over both completion acceptance and the waiting replacement.
     completion_ready = 1;
