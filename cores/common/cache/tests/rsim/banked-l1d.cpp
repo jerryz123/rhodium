@@ -283,10 +283,25 @@ void check_mshr_reuse(const Line &a, const Line &b, bool b_first) {
   CHECK(ta != tb);
   request(addr_b + 16, load, {}, 0xffff, true, 0xb1);
   request(addr_c + 48, load, {}, 0xffff, true, 0xc3);
+  const auto c_tag_reads = [&] {
+    unsigned reads = 0;
+    const auto &graph = rheg::graph();
+    for (const auto &[ref, node] : graph.nodes)
+      if (ref.site == TagSite && graph.field(ref, "index").unsigned_value() == (addr_c / 64) % 4)
+        ++reads;
+    return reads;
+  };
+  until([&] { return c_tag_reads() == 1; });
+  for (unsigned i = 0; i < 20; ++i) {
+    eval(); CHECK(!chi_out.prequests.pvalid && !core_out.presponse.pvalid);
+    tick_model();
+    CHECK(c_tag_reads() == 1);
+  }
   for (unsigned i : {1u, 0u, 3u, 2u})
     refill_packet(b_first ? tb : ta, i, 1, (b_first ? b : a)[i]);
   const auto tc = accept_request(addr_c, 2);
   CHECK(tc == (b_first ? tb : ta));
+  CHECK(c_tag_reads() == 2);
   for (unsigned i : {2u, 3u, 0u, 1u})
     refill_packet(tc, i, 1, a[3-i]);
   for (unsigned i = 0; i < 8; ++i) {

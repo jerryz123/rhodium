@@ -30,19 +30,24 @@ not hold request payloads or coherence permissions.
 
 Snoop gather and victim read can issue together on different row banks;
 the snoop wins a collision. Refill writes can also use a third bank that
-cycle. An older service retry wins the shared lookup lane over a fresh issue;
-speculative demand can use disjoint banks alongside either. A masked store
-write takes its dirty-mark resource on the same edge. Run
+cycle. The window issues both new lookups and retries through the same
+service port; speculative demand can use disjoint banks alongside it. A
+masked store write takes its dirty-mark resource on the same edge. Run
 `cache-banked-l1d-scheduler` for grants, collisions and returned bytes.
 
-In [the controller](cache.rhdl), the lookup slot owns a request that has
-issued a synchronous read. Remember whether it was issued from the classified
-prefix: if an older replay needs another acquisition, discard the younger
-replay's read rather than classifying that descriptor twice. An ordinary
-ordered load hit can return directly from that read. The resolution slot
-owns remaining transactions and can also accept a fresh demand hit. A blocked replay rereads current
-permissions; an issued miss can retain its context after vacating the slot.
-Neither slot is a global indication that the cache is busy.
+[The controller](cache.rhdl) pairs the one-cycle SRAM result with its
+physical window entry ID, or the address of a prefetch. Never hold a bank
+return for a downstream client. Only act on a demand result if its ID still
+matches the classification or retirement cursor. A load hit can go straight
+to the ordered response FIFO; transactions needing a retained decision
+enter the resolution slot.
+
+A distinct miss with no free MSHR leaves the cursor unadvanced. The window
+remembers that descriptor's ID and suppresses its reads while all slots
+are occupied. Older classified head entries can still replay. When capacity
+returns, read the tags again: a wakeup is not a coherence permission or an
+MSHR reservation. This capacity wait is separate from waiting on an
+acquisition that has already accepted a request.
 
 Book an ordinary head load's read against space in the two-entry reply FIFO
 **after this edge's actual enqueue and dequeue**. Never assume that the sink
@@ -133,7 +138,7 @@ priority over the store's masked write. The write and ACK are one transfer.
 If no response credit remains for the hit, leave the lookup replayable rather
 than blocking probes behind the resolution slot. Atomics and ownership upgrades cannot retire this way.
 Held packets retain their own install set/way.
-The `cache-banked-l1d` fixture fills B before A, reuses B’s CHI ID for C, and checks
+The `cache-banked-l1d` fixture holds A and B outstanding while counting C's tag reads, then frees either slot and checks one fresh read and correct slot reuse. It checks
 ordered data and contexts under backpressure. For stores it also snoops B
 before mutation, invalidates it, and checks masked writes after reacquisition.
 The two-dirty-victim case retries B, grants it first, and checks

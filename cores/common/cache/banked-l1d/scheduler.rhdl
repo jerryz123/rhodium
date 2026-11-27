@@ -54,7 +54,6 @@ sync_circuit L1DResourceScheduler(xlen :: XLen, cache :: CacheConfig, tag_width 
   def Write = CacheStoreBufferEntry(row_bits, way_bits, beat_bytes)
   interface demand(Decoupled(Read), ~role: consumer)
   interface issue(Decoupled(Read), ~role: consumer)
-  interface retry(Decoupled(Read), ~role: consumer)
   interface spec_result(Valid(Return), ~role: producer)
   interface service_result(Valid(Return), ~role: producer)
   interface probe_result(Valid(Return), ~role: producer)
@@ -121,10 +120,9 @@ sync_circuit L1DResourceScheduler(xlen :: XLen, cache :: CacheConfig, tag_width 
     def row_busy = line_traffic(row) ||| (writing & same_row_bank(write.row_number, row))
     !meta_busy & !(command.with_data & row_busy)
 
-  retry.ready <== lookup_fits(retry.bits)
-  issue.ready <== !retry.fire() & lookup_fits(issue.bits)
-  def servicing = retry.fire() ||| issue.fire()
-  def service = mux(retry.fire(), retry.bits, issue.bits)
+  issue.ready <== lookup_fits(issue.bits)
+  def servicing = issue.fire()
+  def service = issue.bits
   def meta_collision = same_meta(service.row[row_offset..row_bits], demand.bits.row[row_offset..row_bits])
   def row_collision = service.with_data & demand.bits.with_data & same_row_bank(service.row, demand.bits.row)
   demand.ready <== lookup_fits(demand.bits) & !(servicing & (meta_collision ||| row_collision))
@@ -159,7 +157,7 @@ sync_circuit L1DResourceScheduler(xlen :: XLen, cache :: CacheConfig, tag_width 
       rows: data.response.bits.as_bits().as_vec(Bits(beat_bytes * 8))
       with_data: data.response.valid
 
-  lookup(retry.fire() ||| issue.fire(), service, banks.tags, banks.states, banks.data, service_result, "dcache/arrays.tags", "dcache/arrays.data")
+  lookup(servicing, service, banks.tags, banks.states, banks.data, service_result, "dcache/arrays.tags", "dcache/arrays.data")
   lookup(demand.fire(), demand.bits, banks.demand_tags, banks.demand_states, banks.demand_data, spec_result, "dcache/demand.tags", "dcache/demand.data")
   (inject_interface(Valid(Tag), ~valid: probe.fire(), ~bits: tag_read.updated(~address: probe.bits))
     |> trace_valid_event("dcache/snoop.tags", ~fields: r):

@@ -43,7 +43,13 @@ sync_circuit L1DDemandWindow(xlen :: XLen, Context :: DataType, beat_bytes :: Po
   def Descriptor = DemandDescriptor(address_width, Context)
   interface ingress(Decoupled(Request), ~role: consumer)
   interface egress(Irrevocable(Request), ~role: producer)
-  input (classifying, classified, lookup_in_flight, lookup_off_head): Bool
+  input (classifying, classified, lookup_in_flight): Bool
+  input lookup_id: DemandIndex
+  output issue_id: DemandIndex
+  output lookup_request: Request
+  output lookup_current: Bool
+  input (no_mshr, defer_miss): Bool
+  output issue_asleep: Bool
   output issue_request: Request
   input probe_set: Bits(set_width)
   output independent: Bool
@@ -83,7 +89,10 @@ sync_circuit L1DDemandWindow(xlen :: XLen, Context :: DataType, beat_bytes :: Po
   def removing = dequeue & prefix.any()
   when (classified ^ removing):
     prefix <== mux(classified, prefix + Count(1), prefix - Count(1))
-  def cursor = mux(classifying, prefix, Count(0)) + (lookup_in_flight & (classifying ||| !lookup_off_head)).as_bits().zext(Count.width)
+  def next_class = head + prefix[0..index_width(DemandEntries)]
+  def current = lookup_id === mux(classifying, next_class, head)
+  lookup_current <== current
+  def cursor = mux(classifying, prefix, Count(0)) + (lookup_in_flight & current).as_bits().zext(Count.width)
   classified_count <== prefix
   retired_classified <== removing
   issue_offset <== cursor
@@ -92,8 +101,18 @@ sync_circuit L1DDemandWindow(xlen :: XLen, Context :: DataType, beat_bytes :: Po
   // acquisitions reserve distinct sets, so completion wakes by set even on
   // discard. A woken descriptor still rechecks tag and permission at replay.
   reg waiting(~init: Bits(DemandEntries)(0).as_vec(Bool))
-  def next_class = head + prefix[0..index_width(DemandEntries)]
   def issue_slot = head + cursor[0..index_width(DemandEntries)]
+  issue_id <== issue_slot
+  // Classification stops at the first unallocated distinct miss. Older
+  // prefix replays can still issue; a freed slot only authorizes a fresh read.
+  reg sleeping(~init: Bool(#false))
+  reg sleeper(DemandIndex)
+  when defer_miss:
+    sleeping <== Bool(#true)
+    sleeper <== lookup_id
+  elsewhen (!no_mshr ||| (dequeue & (head === sleeper))):
+    sleeping <== Bool(#false)
+  issue_asleep <== sleeping & no_mshr & (sleeper === issue_slot)
   head_waiting <== waiting[head]
   issue_waiting <== waiting[issue_slot]
   def first :: DemandDescriptor(address_width, Context) = entries[head]
@@ -133,6 +152,7 @@ sync_circuit L1DDemandWindow(xlen :: XLen, Context :: DataType, beat_bytes :: Po
 
   egress.bits <== expand(first)
   issue_request <== expand(entries[issue_slot])
+  lookup_request <== expand(entries[lookup_id])
   for (i in 0..DemandEntries):
     when (enqueue & (tail === DemandIndex(i))): live[i] <== Bool(#true)
     elsewhen (dequeue & (head === DemandIndex(i))): live[i] <== Bool(#false)
@@ -195,7 +215,7 @@ fun describe_replay_waits(source :: Endpoint, observed :: Endpoint, completion :
   // Describe the lookup transfer: only a successful waited replay
   // joins two causes. Stalls, classification and other lookups pass through.
   def linked = grants.any()
-  def ordinary = pulse(source.fire() & !linked)
+  def ordinary = pulse(source.valid & !linked)
   def replay = pulse(linked)
   def dependency = pulse(linked)
   def joined = pulse(linked)

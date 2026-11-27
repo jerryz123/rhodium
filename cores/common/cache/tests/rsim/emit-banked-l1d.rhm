@@ -57,6 +57,7 @@ fun site_header(manifest):
     | "dcache/replay.hit": "constexpr unsigned ReplaySite = " ++ to_string(i) ++ ";\n"
     | "dcache/service.resolve": "constexpr unsigned ResolveSite = " ++ to_string(i) ++ ";\n"
     | "dcache/service.lookup": "constexpr unsigned LookupSite = " ++ to_string(i) ++ ";\n"
+    | "dcache/arrays.tags": "constexpr unsigned TagSite = " ++ to_string(i) ++ ";\n"
     | "dcache/arrays.data": "constexpr unsigned ReadSite = " ++ to_string(i) ++ ";\n"
     | ~else: ""
   String.join(constants, "")

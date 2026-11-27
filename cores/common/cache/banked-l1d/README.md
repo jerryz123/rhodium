@@ -25,6 +25,8 @@ The two engines share one victim reader and one outgoing CHI data port;
 refills can finish out of order, but authorized responses stay ordered.
 
 The two miss slots share one ordered window of 16 request descriptors.
+A distinct miss that finds both slots occupied waits in that window, not
+in the SRAM lookup path. It rechecks the tags once a slot becomes available.
 Stores, store-conditionals and AMOs also reserve one of eight write-operand
 slots. Loads need no operand slot, so a full write pool alone does not block
 a load. Neither limit changes the one-request-per-cycle demand port.

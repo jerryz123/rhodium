@@ -34,6 +34,13 @@ bundle L1DLookup(xlen :: XLen, Context :: DataType, beat_bytes :: Pow2Int, addre
   prefetch: Bool
   prefetch_write: Bool
 
+/* Identifies the descriptor for a synchronous bank return. A best-effort
+   prefetch has no window entry and uses the key for its address instead. */
+bundle L1DReadTag(address_width :: PosInt):
+  key: Bits(address_width)
+  prefetch: Bool
+  prefetch_write: Bool
+
 /* Captures hit, coherence, and victim metadata for the ordered resolution slot. */
 bundle L1DResolved(way_width :: PosInt):
   prefetch: Bool
@@ -168,9 +175,7 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   // Registered capacity owns acceptance even when a paired virtual lookup can
   // bypass this buffer. Busy arrays retain permitted physical requests here.
   inst service_requests(L1DDemandWindow(xlen, Context, beat_bytes, retained_width, offset_width, set_width))
-  // The lookup slot retains the request if older work takes the arrays. Its returned
-  // data is discarded and reread before retry, including across snoop service.
-  inst lookup_slot(Pipe(L1DLookup(xlen, Context, beat_bytes, retained_width), 1))
+  inst read_tag(ValidPipe(L1DReadTag(retained_width), 1))
   inst resolution_slot(Pipe(L1DResolved(way_width), 1))
   def lookup_data_valid = scheduler.service_result.bits.with_data
   def lookup_metadata_valid = scheduler.service_result.valid
@@ -407,8 +412,6 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   wire dequeue_demand: Bool
   wire retire_head: Bool
   wire classified: Bool
-  reg lookup_off_head(~init: Bool(#false))
-  reg lookup_was_classified(~init: Bool(#false))
   def Index = Bits(index_width(DemandEntries + 1))
   def parked = service_requests.classified_count
   /* A parked ordinary demand may retry outside reserved sets. Replay rechecks
@@ -420,13 +423,11 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   def leader_released = !miss_active ||| (miss_replied & head_load)
   def replay_head = miss_busy & leader_released & parked.any() & !service_requests.head_waiting & replayable_demand(service_requests.egress.bits)
   def classifying = miss_busy & !miss_prefetch & miss_install & retained_request.access.is_load_or_store() & !replay_head
-  def demand_in_lookup = lookup_slot.egress.valid & !lookup_slot.egress.bits.prefetch
+  def demand_in_lookup = read_tag.egress.valid & !read_tag.egress.bits.prefetch
   service_requests.classifying <== classifying
-  // If replay eligibility changes under an outstanding array read, discard
-  // that replay. It is not a new classification and consumes no issue position.
-  def discard_replay = classifying & lookup_was_classified
-  service_requests.lookup_in_flight <== demand_in_lookup & !discard_replay
-  service_requests.lookup_off_head <== lookup_off_head
+  service_requests.lookup_id <== read_tag.egress.bits.key[0..index_width(DemandEntries)]
+  service_requests.lookup_in_flight <== demand_in_lookup
+  def current_read = read_tag.egress.valid & (read_tag.egress.bits.prefetch ||| service_requests.lookup_current)
   def issue_index = service_requests.issue_offset
   def Array(enqueue, issue_parent) = authorized |> atomic_fork(2)
   (enqueue |> map_flow(payload):
@@ -440,7 +441,7 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   wire issue_ready: Bool
   // Pipeline the next head only if it too belongs to the replayable prefix.
   def may_issue = !replay_head ||| ((issue_index < parked) & !service_requests.issue_waiting & replayable_demand(next_request))
-  def ordinary_endpoint = inject_interface(Decoupled(Request), ~valid: may_issue & (issue_index < service_requests.count) & !next_request.access.into(CacheOperation).is_cache_management(), ~bits: next_request, ~ready: issue_ready)
+  def ordinary_endpoint = inject_interface(Decoupled(Request), ~valid: !service_requests.issue_asleep & may_issue & (issue_index < service_requests.count) & !next_request.access.into(CacheOperation).is_cache_management(), ~bits: next_request, ~ready: issue_ready)
   def selected = for List (i in 0..DemandEntries): issue_index === Index(i)
   describe_interface_window_storage(DemandEntries, service_requests.ingress.fire(), dequeue_demand.as_bits().zext(Index.width), service_requests.count, Bool(#false), selected, ~name: "demand")
   describe_interface_contract(issue_parent, ordinary_endpoint, "demand-issue", ~trace_model: interface_trace_window(~name: "demand"))
@@ -453,7 +454,7 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   def management_address = management_requests.bits.address.align_down(CacheLineBytes).zext(p.request_address_width)
   def management_home = config.home_map.lookup(management_address)
   def maintenance_engines_drained = !miss_busy & !pending_mutation_valid & !snoop_reading
-  def maintenance_lookups_drained = !store_candidate.egress.valid & !lookup_slot.egress.valid & !resolution_slot.egress.valid & !service_responses.egress.valid
+  def maintenance_lookups_drained = !store_candidate.egress.valid & !read_tag.egress.valid & !resolution_slot.egress.valid & !service_responses.egress.valid
   (
     management_requests |> gate_flow(stores.empty & maintenance_engines_drained & maintenance_lookups_drained)
       |> map_flow(request => CHICacheMaintenanceCommand(p, Bool)):
@@ -480,11 +481,15 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   def hint_eligible = prefetch_valid & !miss_busy & !virtual_lookup.valid & !window_nonempty & !reservation_count.any() & !pipeline_lookup.valid & !pipeline.request.valid & !store_candidate.egress.valid & stores.empty
 
 
-  /* Retained authorized lookup.
-     Pairs the retained request with its current synchronous SRAM response;
-     blocked work must reread after older mutation or coherence service. */
+  /* Reconstruct a best-effort prefetch, which has no demand-window descriptor. */
+  fun hint_request(address :: Bits(retained_width)) :~ AddressedPhysicalMemoryBeatReq(xlen, Context, beat_bytes, retained_width):
+    def empty :: AddressedPhysicalMemoryBeatReq(xlen, Context, beat_bytes, retained_width) = literal(Request, 0)
+    empty.updated(~address: address, ~access: CacheOperation.Load, ~atomic: RiscvAtomicOperation.Swap,
+                  ~width: MemoryWidth.Byte, ~unsigned: Bool(#true), ~byte_mask: Bits(beat_bytes)(1) << address[0..row_offset_width],
+                  ~context: dont_care(Context), ~locality: RiscvMemoryLocality.Default)
 
-  def lookup_request = lookup_slot.egress.bits.request
+  // Select the returning ID, never the next issue cursor.
+  def lookup_request :: AddressedPhysicalMemoryBeatReq(xlen, Context, beat_bytes, retained_width) = mux(read_tag.egress.bits.prefetch, hint_request(read_tag.egress.bits.key), service_requests.lookup_request)
   def lookup_address = lookup_request.address.zext(physical_width)
   def lookup_set = lookup_address[offset_width..(offset_width + set_width)]
   def lookup_tag = lookup_address[(offset_width + set_width)..physical_width]
@@ -734,9 +739,8 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   def snoop_gather_start = snoop.gather_required
 
 
-  /* Lookup scheduling and retained advancement.
-     The resolution owner reserves the backing engines; a blocked lookup retains its request,
-     then rereads instead of consuming stale array data. */
+  /* Classify this cycle's bank result or send an ordered hit to its sink.
+     Failure to advance leaves ownership in the demand window. */
 
   def retained_array_work_idle = !maintenance_active & !snoop_reading & !pending_mutation_valid
   def backing_engines_ready = !miss_busy
@@ -744,35 +748,40 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   def resolve_available = resolution_slot.ingress.ready & arrays_available & (backing_engines_ready ||| replay_head) & !snoop_pending
   def head_read_turn = resolve_available
   def classify_turn = classifying & !misses.protect & !snoop_pending & !snoop_reading & !snoop_lookup_start & !writeback_complete & !reservation_valid
-  def standard = !lookup_slot.egress.bits.prefetch & lookup_request.access.into(CacheOperation).is_load_or_store() & (lookup_request.locality === RiscvMemoryLocality.Default)
+  def standard = !read_tag.egress.bits.prefetch & lookup_request.access.into(CacheOperation).is_load_or_store() & (lookup_request.locality === RiscvMemoryLocality.Default)
   def covering = for List (i in 0..mshr_count):
     misses.occupied[i] & (misses.targets[i].address === lookup_address.align_down(CacheLineBytes).zext(width)) & (!lookup_request.access.is_store() ||| misses.acquiring_unique[i])
   def covered = vec(covering).any()
   def independent = !reserved_set(lookup_set)
   def can_park = covered ||| (independent & lookup_hit_way.valid & (!lookup_request.access.is_store() ||| lookup_state.is_unique()))
   def classify = classify_turn & standard & lookup_metadata_valid
-  def retry_head = discard_replay ||| (lookup_off_head & (!miss_busy ||| replay_head))
-  def lookup_plain_store = !lookup_slot.egress.bits.prefetch & lookup_request.access.is_store()
+  def lookup_plain_store = !read_tag.egress.bits.prefetch & lookup_request.access.is_store()
   // A classifying store can invalidate an old data read or change a victim's
   // dirty status. Only another proved owned store is independent of both.
   def lookup_read_usable = lookup_metadata_valid & mux(
     store_hit_write & (lookup_set === retained_set), lookup_plain_store & lookup_hit_way.valid & lookup_state.is_unique(),
     lookup_plain_store ||| lookup_data_valid
   )
-  // Gating retains blocked requests; only admitted reads enter the resolution slot.
-  // A stalled request is reread when the slot has capacity.
+  // One result opportunity. A failed disposition never stretches this
+  // return; the window still owns the descriptor and retries it at issue.
+  wire consumed: Bool
+  def result = L1DLookup(xlen, Context, beat_bytes, retained_width):
+    request: lookup_request
+    prefetch: read_tag.egress.bits.prefetch
+    prefetch_write: read_tag.egress.bits.prefetch_write
   def lookup = inject_interface(Decoupled(L1DLookup(xlen, Context, beat_bytes, retained_width)),
-                                ~valid: lookup_slot.egress.valid, ~bits: lookup_slot.egress.bits, ~ready: lookup_slot.egress.ready)
-  def lookup_observed = lookup |> trace_event("dcache/service.lookup", ~stalls: #true, ~fields: lookup):
+                                ~valid: current_read, ~bits: result, ~ready: consumed)
+  def lookup_observed = lookup |> trace_event("dcache/service.lookup", ~fields: lookup):
     address: lookup.request.address.zext(width)
     prefetch: lookup.prefetch
     access(~format: "enum"): lookup.request.access
 
-  def Array(primary, secondary) = lookup_observed |> demux_flow(2, _lookup => (classifying ||| lookup_off_head).as_bits())
-  def Array(held, restart) = secondary |> demux_flow(2, _lookup => retry_head.as_bits())
-  restart.ready <== Bool(#true)
+  def Array(primary, held) = lookup_observed |> demux_flow(2, _lookup => classifying.as_bits())
   def Array(attached, new_miss) = held |> gate_flow(classify) |> demux_flow(2, _lookup => (!can_park).as_bits())
   attached.ready <== Bool(#true)
+  def no_mshr = misses.occupied.as_bits().all()
+  service_requests.no_mshr <== no_mshr
+  service_requests.defer_miss <== new_miss.valid & independent & !lookup_hit_way.valid & no_mshr
   def younger_state = scheduler.service_result.bits.states[lookup_allocation_way].into(CHICacheState)
   def younger_dirty = lookup_valids[lookup_allocation_way] & younger_state.is_dirty()
   def next_miss = new_miss |> gate_flow(independent & !lookup_hit_way.valid) |> map_flow(_lookup => L1DMissAllocation(width, ways)):
@@ -790,7 +799,7 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   classified <== held.fire()
   service_requests.wait_for_acquisition <== covered ||| !can_park
   def permitted_hit = lookup_hit_way.valid & mux(lookup_plain_store, lookup_state.is_unique(), lookup_state.is_valid())
-  def plain_load = !lookup_slot.egress.bits.prefetch & (lookup_request.access === CacheOperation.Load)
+  def plain_load = !read_tag.egress.bits.prefetch & (lookup_request.access === CacheOperation.Load)
   // An ordinary hit claims next-cycle capacity; a miss books no reply.
   // Stores retain their existing write/ACK admission at the ordered head.
   def store_slot_claimed = replay_head & resolved_valid & service_responses.count.any()
@@ -832,7 +841,7 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   def first_state = first_way.mux(for List (w in 0..ways): scheduler.spec_result.bits.states[w], ~default: CHICacheState.Invalid).into(CHICacheState)
   def first_store = first_req.access === CacheOperation.Store
   def first_hit = first_read & first_way.valid & (!first_store ||| first_state.is_unique()) & (first_store ||| scheduler.spec_result.bits.with_data)
-  def first_safe = !lookup_slot.egress.valid & !snoop_pending & !snoop_metadata_pending & !snoop.update.valid & !reserved_set(first_set) & !miss_active & !maintenance_active & !pending_mutation_valid & !resolved_needs_refill & !local_mutation & stores.empty & !store_candidate.egress.valid & !(resolved_store & (retained_set === first_set) & !first_store)
+  def first_safe = !read_tag.egress.valid & !snoop_pending & !snoop_metadata_pending & !snoop.update.valid & !reserved_set(first_set) & !miss_active & !maintenance_active & !pending_mutation_valid & !resolved_needs_refill & !local_mutation & stores.empty & !store_candidate.egress.valid & !(resolved_store & (retained_set === first_set) & !first_store)
   def first_result = L1DResolved(way_width):
     prefetch: Bool(#false)
     prefetch_write: Bool(#false)
@@ -849,8 +858,8 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   Array(replay_result, direct_hit) |> arbiter() |> resolution_slot.ingress
   def capture_first = first_offer.fire()
   def accept_resolution = resolution_slot.ingress.fire()
-  retire_head <== replay_reply ||| capture_first ||| (replay_result.fire() & !lookup_slot.egress.bits.prefetch) ||| forward_waiter
-  describe_replay_waits(lookup_slot.egress, lookup, completed_paths[1], install_set, completed.context.install,
+  retire_head <== replay_reply ||| capture_first ||| (replay_result.fire() & !read_tag.egress.bits.prefetch) ||| forward_waiter
+  describe_replay_waits(read_tag.egress, lookup, completed_paths[1], install_set, completed.context.install,
                         classified, covered ||| !can_park, lookup_set, remove_parked,
                         (replay_reply ||| replay_result.fire()) & parked.any() & standard & permitted_hit)
   when accept_resolution:
@@ -863,16 +872,8 @@ sync_circuit BankedL1DCache(xlen :: XLen,
 
   for (left in 0..ways):
     for (right in (left + 1)..ways):
-      when (lookup_slot.egress.fire()):
+      when (lookup.fire()):
         assert(!(lookup_matches[left] & lookup_matches[right]), "l1d_core_hit_unique")
-
-  // Once a blocked read has expired, don't poll the arrays with no reply
-  // credit. On release reread current bytes and permissions exactly as usual.
-  def reread_turn = head_read_turn & (!plain_load ||| next_reply_free)
-  def reread = reread_turn & !lookup_off_head & !lookup_read_usable & (!store_hit_write ||| lookup_plain_store)
-  scheduler.retry.valid <== lookup_slot.egress.valid & (reread ||| (classify_turn & !lookup_metadata_valid))
-  scheduler.retry.bits <== read_command(lookup_address, !classifying & !lookup_plain_store)
-  def retry_grant = scheduler.retry.fire()
 
   /* Shared read admission and store draining.
      Speculative reads cannot take an SRAM port from older work or establish
@@ -881,7 +882,7 @@ sync_circuit BankedL1DCache(xlen :: XLen,
 
   def engines_idle = arrays_available & !miss_active & backing_engines_ready
   def parked_same_line_waiter = service_requests.egress.valid & miss_active & waiter.access.is_load_or_store() & (waiter_address.align_down(CacheLineBytes) === retained_line_address)
-  def service_order_clear = (!service_requests.egress.valid ||| parked_same_line_waiter) & !lookup_slot.egress.valid & !resolution_slot.egress.valid & !virtual_lookup.valid
+  def service_order_clear = (!service_requests.egress.valid ||| parked_same_line_waiter) & !read_tag.egress.valid & !resolution_slot.egress.valid & !virtual_lookup.valid
   hit_path_available <== engines_idle & service_order_clear
   hit_under_miss <== miss_active & miss_allows_hits & arrays_available & service_order_clear & !snoop_pending & !misses.install_pending
   def drain_urgent = stores.urgent ||| service_requests.egress.valid ||| management_waiting ||| (snoop_pending & stores.queued_line_hazard) ||| (pipeline.request.valid & !spec_store & stores.queued_word_hazard)
@@ -899,28 +900,24 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   stat_count("dcache_miss", misses.allocate.fire() & !(misses.allocate.bits.target.ordered & resolved_prefetch))
 
   def older_stores_clear = stores.empty ||| ((stores.count === Bits(index_width(5))(1)) & stores.drain.fire())
-  def issue_turn = !capture_first & !management_waiting & (head_read_turn ||| classify_turn) & older_stores_clear & !store_candidate.egress.valid
+  // Do not look past a result that failed to advance the window this edge.
+  // The tag pulse expires regardless, leaving the same cursor to retry.
+  def can_issue_next = !current_read ||| consumed
+  def issue_turn = can_issue_next & !capture_first & !management_waiting & (head_read_turn ||| classify_turn) & older_stores_clear & !store_candidate.egress.valid
   def demand_lookup = ordinary_requests |> map_flow(request => L1DLookup(xlen, Context, beat_bytes, retained_width)):
     request: request
     prefetch: Bool(#false)
     prefetch_write: Bool(#false)
 
   // Drop a best-effort hint before the checked conversion unless it can win
-  // and take the lookup slot now. Never retain it or let its ready path reach core admission.
+  // issue a bank read now. Never retain it or feed its ready path into core admission.
   def hint_lookup = (
     prefetch
-      |> filter_valid(_hint => hint_eligible & issue_turn & lookup_slot.ingress.ready & !ordinary_requests.valid)
+      |> filter_valid(_hint => hint_eligible & issue_turn & !ordinary_requests.valid)
       |> map_valid(payload):
         def hint = payload.into(CachePrefetchReq(width))
-        def empty :: AddressedPhysicalMemoryBeatReq(xlen, Context, beat_bytes, retained_width) = literal(AddressedPhysicalMemoryBeatReq(xlen, Context, beat_bytes, retained_width), 0)
-        def request = empty.updated(
-          ~address: hint.address[0..retained_width], ~access: CacheOperation.Load, ~atomic: RiscvAtomicOperation.Swap,
-          ~width: MemoryWidth.Byte, ~unsigned: Bool(#true), ~byte_mask: Bits(beat_bytes)(1) << hint.address[0..row_offset_width],
-          ~context: dont_care(Context), ~locality: RiscvMemoryLocality.Default
-        )
-
         L1DLookup(xlen, Context, beat_bytes, retained_width):
-          request: request
+          request: hint_request(hint.address[0..retained_width])
           prefetch: Bool(#true)
           prefetch_write: hint.operation === CachePrefetchOperation.Write
   ) |> to_decoupled() |> trace_event("dcache/prefetch")
@@ -929,23 +926,18 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   def issue_access :: CacheOperation = candidate_lookup.bits.request.access
   def fits_reply = classifying ||| (issue_access =/= CacheOperation.Load) ||| next_reply_free
   scheduler.issue.bits <== read_command(candidate_lookup.bits.request.address.zext(width), !classifying & !issue_access.is_store())
-  scheduler.issue.valid <== candidate_lookup.valid & lookup_slot.ingress.ready & fits_reply
-  candidate_lookup |> gate_flow(scheduler.issue.ready & fits_reply) |> lookup_slot.ingress
+  scheduler.issue.valid <== candidate_lookup.valid & fits_reply
+  (candidate_lookup |> gate_flow(scheduler.issue.ready & fits_reply) |> map_flow(command => L1DReadTag(retained_width)):
+     key: mux(command.prefetch, command.request.address, service_requests.issue_id.zext(retained_width))
+     prefetch: command.prefetch
+     prefetch_write: command.prefetch_write
+  ) |> to_valid() |> read_tag.ingress
   def service_request_accept = core.request.fire()
-  def new_lookup = lookup_slot.ingress.fire()
-  def array_lookup_issue = retry_grant ||| new_lookup
-  when new_lookup:
-    lookup_off_head <== classifying & issue_index.any()
-    lookup_was_classified <== issue_index < parked
-  when (lookup_slot.egress.fire() & !retry_head):
-    assert(scheduler.service_result.valid & (classifying ||| lookup_plain_store ||| scheduler.service_result.bits.with_data), "l1d_lookup_array_response_valid")
+  assert(read_tag.egress.valid === scheduler.service_result.valid, "l1d_one_cycle_lookup_result")
 
   when service_request_accept:
     assert(virtual_lookup.valid, "l1d_physical_request_has_virtual_lookup")
     assert(virtual_lookup.bits[0..12] === core.request.bits.address[0..12], "l1d_vipt_page_offset_matches")
-
-  when new_lookup:
-    assert(array_lookup_issue, "l1d_resolution_has_array_read")
 
 
   /* Slow completions and drain accounting.
@@ -980,7 +972,7 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   // and the backing store buffer. Same-cycle acceptance is included so no
   // request can cross the reported quiescent boundary.
   def store_buffer_quiet = stores.empty & !stores.enqueue.fire()
-  def service_drained = !service_requests.egress.valid & !lookup_slot.egress.valid & !resolution_slot.egress.valid & !service_responses.egress.valid
+  def service_drained = !service_requests.egress.valid & !read_tag.egress.valid & !resolution_slot.egress.valid & !service_responses.egress.valid
   def backing_work_drained = retained_array_work_idle & !miss_active & backing_engines_ready
   core.drained <== store_buffer_quiet & !service_request_accept & service_drained & backing_work_drained
 
@@ -1040,7 +1032,7 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   // sets. Committed store bytes are checked again at physical resolution.
   service_requests.probe_set <== spec_index_set
   def incoming_clear = !core.request.valid ||| (live.access.is_load_or_store() & (live.address[offset_width..(offset_width + set_width)] =/= spec_index_set))
-  independent_demand <== incoming_clear & spec_load_offer & !reserved_set(spec_index_set) & !snoop_pending & !maintenance_active & !pending_mutation_valid & (!miss_active ||| miss_allows_hits) & (!resolved_valid ||| (resolved_access.is_load_or_store() & (spec_index_set =/= retained_set))) & (!lookup_slot.egress.valid ||| (lookup_request.access.into(CacheOperation).is_load_or_store() & (spec_index_set =/= lookup_set))) & service_requests.independent
+  independent_demand <== incoming_clear & spec_load_offer & !reserved_set(spec_index_set) & !snoop_pending & !maintenance_active & !pending_mutation_valid & (!miss_active ||| miss_allows_hits) & (!resolved_valid ||| (resolved_access.is_load_or_store() & (spec_index_set =/= retained_set))) & (!read_tag.egress.valid ||| (lookup_request.access.into(CacheOperation).is_load_or_store() & (spec_index_set =/= lookup_set))) & service_requests.independent
   victim_gather.read |> map_flow(row => copyback_request.bits.address[offset_width..(offset_width + set_width)] ++ row) |> scheduler.victim
   scheduler.victim_data |> victim_gather.returned
 
@@ -1218,7 +1210,7 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   // A completed probe also gives a waiting local lookup a bounded turn.
   // Otherwise an endless stream of unrelated probes could prevent even the
   // first LR from resolving. Active CHI engines remain independently live.
-  def waiting_lookup = service_requests.egress.valid ||| lookup_slot.egress.valid ||| virtual_lookup.valid
+  def waiting_lookup = service_requests.egress.valid ||| read_tag.egress.valid ||| virtual_lookup.valid
   when (install_refill ||| (snoop.completed & waiting_lookup)):
     core_service_count <== Bits(4)(8)
   elsewhen (core_service_count.any()):

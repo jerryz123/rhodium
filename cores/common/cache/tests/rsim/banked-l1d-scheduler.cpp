@@ -32,20 +32,19 @@ int main() {
     // Collide on row bank only. The denied lookup must not consume its
     // metadata bank: a younger metadata-only command to the same set fits.
     gather_in.pbits = 0; victim_in.pvalid = fill_in.pvalid = 0;
-    lookup(retry_in, 4); lookup(demand_in, 5, false);
-    eval(); CHECK(!retry_out.pready && demand_out.pready);
+    lookup(issue_in, 4); lookup(demand_in, 5, false);
+    eval(); CHECK(!issue_out.pready && demand_out.pready);
     tick_model(); eval();
     CHECK(!service_result_out.pvalid && spec_result_out.pvalid && !spec_result_out.pbits.pwith_udata);
-    // Retry and younger issue share a return lane. Speculation can still use
-    // a different metadata and row bank. Check actual data, not just grants.
-    gather_in.pvalid = 0; lookup(issue_in, 6); lookup(demand_in, 2);
-    eval(); CHECK(retry_out.pready && !issue_out.pready && demand_out.pready);
+    // Window and speculative lookups can use disjoint banks in one cycle.
+    gather_in.pvalid = 0; lookup(demand_in, 2);
+    eval(); CHECK(issue_out.pready && demand_out.pready);
     tick_model(); eval();
     CHECK(service_result_out.pbits.prows[0].words[0] == 0x104);
     CHECK(spec_result_out.pbits.prows[0].words[0] == 0x202);
     // Publication needs both metadata writes. A probe excludes the entire
     // action; on release the tag and permission appear together.
-    demand_in.pvalid = issue_in.pvalid = retry_in.pvalid = 0;
+    demand_in.pvalid = issue_in.pvalid = 0;
     probe_in.pvalid = publish_in.pvalid = 1;
     probe_in.pbits = publish_in.pbits.pset = 1;
     publish_in.pbits.ptag = 0x123; publish_in.pbits.pstate = 2;
