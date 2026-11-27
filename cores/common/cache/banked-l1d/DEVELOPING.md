@@ -8,21 +8,30 @@ for the bank geometry, shared CHI engines, and fixture commands.
 
 ## Miss ownership and ordered replay
 
-[`mshrs.rhdl`](mshrs.rhdl) instantiates one retryable refill and one writeback engine per entry.
-Allocation rotates among free entries. The two-slot configuration uses CHI IDs
+In [`mshrs.rhdl`](mshrs.rhdl), each slot owns one retryable refill and one
+writeback. S3 and S4 each offer a single allocation containing the acquisition
+and its victim; an invalid victim state means no copyback. The bank arbitrates
+whole allocations and rotates among free entries. The two-slot configuration uses CHI IDs
 0 and 3 for refills, 1 and 4 for copybacks, and 2 for maintenance. DAT and
 tagged responses identify their transaction; untagged PCrdGrant matches one
 waiting home/type pair. A grant freezes only its own victim's snoop state.
 Round-robin arbitration among granted victims assigns the one SRAM reader to a
-whole line, through the final DAT handoff and victim invalidation. Never switch
-its address or way while a read or backpressured data packet is outstanding.
-Under the enclosing hart, each slot has `dcache/mshr[i]/refill` and
+whole line. The reader request names the address, way, and packet index;
+after the last DAT handoff, a release request names the victim to invalidate
+without reading another row. Never switch owners while a read or
+backpressured data packet is outstanding.
+The slot declares the trace scope once; both engines inherit it. Under the
+enclosing hart, each slot has `dcache/mshr[i]/refill` and
 `dcache/mshr[i]/writeback` tracks with the shared event identities
-`dcache/refill` and `dcache/writeback`.
+`dcache/refill` and `dcache/writeback`. The [trace hierarchy regression](../tests/mshr-trace-test.rhm)
+checks both sites under each slot, not just their display names.
 
-Multi-slot L1D shares one line of staging among concurrent dirty-victim
-`ReadClean` allocations. The MSHR reserves the buffer and the victim
-together. Route that slot's DAT by transaction ID even while copyback owns
+The bank owns one shared line of staging for unordered dirty-victim
+`ReadClean` allocations. It reserves the buffer on allocation and permits the
+slot to start acquiring before copyback grant. The slot offers refill packets
+and a completion; the bank chooses the packet destination, holds completion
+until publication is safe, and suppresses installation on discard. Route
+that slot's DAT by transaction ID even while copyback owns
 the SRAM; send CompAck independently of victim release. Track arrived packets
 by DataID and drain them through the existing installation port only after
 the owning victim completes. Keep the MSHR until every buffered row installs

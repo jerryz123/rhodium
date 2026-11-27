@@ -1,0 +1,22 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/rtl.rhm").rtl_target
+  lib("rhodium/event/main.rhm").infer_event_manifest
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  "../banked-l1d/mshrs.rhdl".L1DMSHRs
+  "params.rhdl".test_cache_chi_config
+
+def program = elaborate(L1DMSHRs(2, 64, 2, test_cache_chi_config))
+def manifest = infer_event_manifest(compile_program(program, rtl_target).report.elaboration)
+
+check:
+  manifest.instances.map(fun (scope): [scope.group, scope.label]) ~is [["dcache", "mshr"], ["dcache", "mshr"]]
+
+for (scope in manifest.instances):
+  def children = manifest.sites.filter(~keep: fun (site): site.instance_path.take(scope.path.length()) == scope.path)
+  def labels = children.map(fun (site): site.label)
+  check:
+    labels.filter(~keep: fun (label): label == "dcache/refill" || label == "dcache/writeback").sort() ~is ["dcache/refill", "dcache/writeback"]

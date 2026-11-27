@@ -36,9 +36,11 @@ fun cache_mshr_txn_id(slot :: Nat) :: Nat:
 sync_circuit CacheLineRefill(Context :: DataType,
                              address_width :: PosInt,
                              config :: RiscvHartCHIConfig,
-                             ~slot: slot :: Nat = 0):
-  def txn_id = cache_mshr_txn_id(slot)
-  trace_instance("mshr", Bits(12)(slot), ~under: "dcache")
+                             ~slot: slot :: maybe(Nat) = #false):
+  // A standalone refill is the simple cache's sole MSHR. A banked slot owns
+  // its own scope because both refill and copyback belong to that slot.
+  def txn_id = cache_mshr_txn_id(if slot is_a Nat | slot | 0)
+  unless slot is_a Nat | trace_instance("mshr", Bits(12)(0), ~under: "dcache")
   def p = config.flit
   unless CacheLineBytes >= p.data_bytes
   | error(~who: #'CacheLineRefill,

@@ -24,8 +24,7 @@ bundle CacheLineWritebackResult(Context :: DataType):
 /* Retries WriteBackFull while the victim remains snoop-visible; freezes its latest state at
    grant.
    After CompDBIDResp, sends every line packet and retains completion until accepted. */
-sync_circuit CacheLineWriteback(Context :: DataType, address_width :: PosInt, config :: RiscvHartCHIConfig, txn_id :: Nat, ~slot: slot = #false):
-  if slot is_a Nat | trace_instance("mshr", Bits(12)(slot), ~under: "dcache") | #void
+sync_circuit CacheLineWriteback(Context :: DataType, address_width :: PosInt, config :: RiscvHartCHIConfig, txn_id :: Nat):
   def p = config.flit
   def packets = CacheLineBytes / p.data_bytes
   def packet_width = index_width(packets)

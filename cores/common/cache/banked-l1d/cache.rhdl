@@ -12,7 +12,6 @@ import:
   "../operation.rhdl" open
   "../geometry.rhdl" open
   "../chi/flits.rhdl" open
-  "../chi/refill.rhdl" open
   "../chi/snoop.rhdl" open
   "../../load-store.rhdl" open
   "../../../../riscv/isa/xlen.rhm" open
@@ -158,7 +157,6 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   inst refill_load_gen(LoadGen(xlen, beat_bytes))
   inst refill_store_gen(StoreGen(xlen, beat_bytes))
   inst refill_atomic_alu(RiscvAtomicALU(xlen))
-  def Target = L1DMissTarget(width, ways)
   inst misses(L1DMSHRs(mshr_count, width, ways, config))
   misses.node_id <== node_id
   def miss_busy = misses.occupied.any()
@@ -573,9 +571,13 @@ sync_circuit BankedL1DCache(xlen :: XLen,
      Direct acquisition uses live S4 data. A granted copyback launches the
      retained replacement while the victim still owns the data array. */
 
-  def head_acquisition = s4_transaction_path |> map_flow(result => CacheLineRefillCommand(Target)):
+  def head_acquisition = s4_transaction_path |> map_flow(result => L1DMissAllocation(width, ways)):
+    victim:
+      L1DLineState(width):
+        address: victim_line_address
+        state: mux(s4_dirty_victim, s4_victim_state, CHICacheState.Invalid)
     opcode: mux(result.prefetch_write ||| retained_request.access.needs_unique() ||| (retained_request.access === CacheOperation.LoadReserved), CHIReqOpcode.ReadUnique, CHIReqOpcode.ReadClean)
-    context:
+    target:
       L1DMissTarget(width, ways):
         address: retained_line_address
         way: mux(result.hit, result.hit_way, result.allocation_way)
@@ -583,10 +585,13 @@ sync_circuit BankedL1DCache(xlen :: XLen,
         install: !s4_bypass_refill
 
   misses.snoop_pending <== snoop_pending
-  misses.snoop_update <== snoop.update.valid & (snoop.update.bits.address === snoop.update.bits.address[0..width].zext(snoop_width))
-  misses.snoop_line <== snoop.update.bits.address.align_down(CacheLineBytes)[0..width]
-  misses.snoop_state <== mux(snoop.update.bits.invalidate, CHICacheState.Invalid, snoop.update.bits.state)
-  def writeback_complete = misses.evict_done
+  misses.snoop_update.valid <== snoop.update.valid & (snoop.update.bits.address === snoop.update.bits.address[0..width].zext(snoop_width))
+  misses.snoop_update.bits <== L1DLineState(width):
+    address: snoop.update.bits.address.align_down(CacheLineBytes)[0..width]
+    state: mux(snoop.update.bits.invalidate, CHICacheState.Invalid, snoop.update.bits.state)
+
+  def copyback_request = misses.reader.request
+  def writeback_complete = copyback_request.valid & copyback_request.bits.release
   misses.probe.valid <== snoop.lookup.valid & (snoop.lookup.bits === snoop.lookup.bits[0..width].zext(snoop_width))
   misses.probe.bits <== snoop.lookup.bits[0..width]
 
@@ -771,9 +776,15 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   restart.ready <== Bool(#true)
   def Array(attached, new_miss) = held |> gate_flow(classify) |> demux_flow(2, _lookup => (!can_park).as_bits())
   attached.ready <== Bool(#true)
-  def next_miss = new_miss |> gate_flow(independent & !s3_hit_way.valid) |> map_flow(_lookup => CacheLineRefillCommand(Target)):
+  def younger_state = arrays.states.response.bits[s3_allocation_way].into(CHICacheState)
+  def younger_dirty = s3_valids[s3_allocation_way] & younger_state.is_dirty()
+  def next_miss = new_miss |> gate_flow(independent & !s3_hit_way.valid) |> map_flow(_lookup => L1DMissAllocation(width, ways)):
+    victim:
+      L1DLineState(width):
+        address: concat(arrays.tags.response.bits[s3_allocation_way], s3_set, Bits(offset_width)(0)).zext(width)
+        state: mux(younger_dirty, younger_state, CHICacheState.Invalid)
     opcode: mux(s3_request.access.is_store(), CHIReqOpcode.ReadUnique, CHIReqOpcode.ReadClean)
-    context:
+    target:
       L1DMissTarget(width, ways):
         address: s3_address.align_down(CacheLineBytes).zext(width)
         way: s3_allocation_way
@@ -871,12 +882,7 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   s4_refill_accepted <== head_acquisition.fire() & !s4_dirty_victim
   s4_refill_opcode <== head_acquisition.bits.opcode
   def younger = next_miss.fire()
-  def younger_dirty = s3_valids[s3_allocation_way] & arrays.states.response.bits[s3_allocation_way].into(CHICacheState).is_dirty()
-  def younger_victim = concat(arrays.tags.response.bits[s3_allocation_way], s3_set, Bits(offset_width)(0)).zext(width)
-  misses.dirty <== mux(head_acquisition.valid, s4_dirty_victim, younger_dirty)
-  misses.victim_address <== mux(head_acquisition.valid, victim_line_address, younger_victim)
-  misses.victim_state <== mux(head_acquisition.valid, s4_victim_state, arrays.states.response.bits[s3_allocation_way].into(CHICacheState))
-  stat_count("dcache_miss", misses.allocate.fire() & !(misses.allocate.bits.context.ordered & s4_prefetch))
+  stat_count("dcache_miss", misses.allocate.fire() & !(misses.allocate.bits.target.ordered & s4_prefetch))
 
   def array_read_data_address = array_read_address[row_offset_width..(offset_width + set_width)]
   def s2_admit = !capture_first & !management_waiting & (head_read_turn ||| issue_turn) & !s2_retry & stores.empty & !s2_store_candidate.egress.valid
@@ -1059,9 +1065,9 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   // An unrelated snoop takes priority over new victim reads. Its storage
   // is independent, including when a complete victim packet is stalled.
   def copy_last_return = copy_response_pending & (copy_response_offset === Bits(index_width(rows_per_packet))(rows_per_packet - 1))
-  misses.victim_packet.valid <== copy_last_return ||| copy_packet_held
-  def copy_more = misses.packet_index =/= Bits(index_width(cache_line_rows(p.data_bytes)))(cache_line_rows(p.data_bytes) - 1)
-  def copy_read = misses.packet_needed & !snoop_reading & (!(copy_packet_held ||| copy_last_return) ||| (misses.victim_packet.fire() & copy_more))
+  misses.reader.packet.valid <== copy_last_return ||| copy_packet_held
+  def copy_more = copyback_request.bits.index =/= Bits(index_width(cache_line_rows(p.data_bytes)))(cache_line_rows(p.data_bytes) - 1)
+  def copy_read = copyback_request.valid & !copyback_request.bits.release & !snoop_reading & (!(copy_packet_held ||| copy_last_return) ||| (misses.reader.packet.fire() & copy_more))
   fill_write <== refill_install_word
   victim_read <== copy_read
   def array_data_read = !store_hit_write & array_lookup_issue & !concurrent
@@ -1139,7 +1145,7 @@ sync_circuit BankedL1DCache(xlen :: XLen,
     |> trace_valid_event("dcache/demand.data", ~fields: request):
          index: request.address
   ) |> arrays.demand_data.request
-  def victim_address = misses.evict_address[offset_width..(offset_width + set_width)] ++ copy_row
+  def victim_address = copyback_request.bits.address[offset_width..(offset_width + set_width)] ++ copy_row
   (inject_interface(Valid(DataRequest), ~valid: copy_read, ~bits: empty_data.updated(~address: victim_address))
     |> trace_valid_event("dcache/victim.data", ~fields: request):
          index: request.address
@@ -1235,14 +1241,14 @@ sync_circuit BankedL1DCache(xlen :: XLen,
     copy_response_offset <== (if rows_per_packet == 1 | Bits(1)(0) | copy_row[0..packet_offset_bits])
     copy_row <== wrap_increment(copy_row, words_per_line)
 
-  def victim_word = arrays.victim.response.bits.as_bits().as_vec(Bits(beat_width))[misses.evict_way]
+  def victim_word = arrays.victim.response.bits.as_bits().as_vec(Bits(beat_width))[copyback_request.bits.way]
   def victim_packet = for List (row in 0..rows_per_packet):
     if row == last_row | mux(copy_last_return, victim_word, victim_rows[row]) | victim_rows[row]
 
-  misses.victim_packet.bits <== vec(victim_packet).as_bits()
+  misses.reader.packet.bits <== vec(victim_packet).as_bits()
 
-  when (misses.victim_packet.valid):
-    copy_packet_held <== !misses.victim_packet.ready
+  when (misses.reader.packet.valid):
+    copy_packet_held <== !misses.reader.packet.ready
 
   /* Capture the requested old row even for bypass or an AMO. Only allocating
      fills take the packet slot; DataID selects the SRAM rows, not arrival order. */
@@ -1347,8 +1353,8 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   def direct_install = head_acquisition.fire() & !s4_dirty_victim & !s4_bypass_refill
   def direct_way = mux(s4_hit, s4_result.egress.bits.hit_way, s4_result.egress.bits.allocation_way)
   when writeback_complete:
-    def set = misses.evict_address[offset_width..(offset_width + set_width)]
-    valid_lines <== snooped_valid_lines.updated(set, snooped_valid_lines[set].updated(misses.evict_way, Bool(#false)))
+    def set = copyback_request.bits.address[offset_width..(offset_width + set_width)]
+    valid_lines <== snooped_valid_lines.updated(set, snooped_valid_lines[set].updated(copyback_request.bits.way, Bool(#false)))
   elsewhen direct_install:
     valid_lines <== snooped_valid_lines.updated(retained_set, snooped_valid_lines[retained_set].updated(direct_way, Bool(#false)))
   elsewhen (younger & !younger_dirty):
