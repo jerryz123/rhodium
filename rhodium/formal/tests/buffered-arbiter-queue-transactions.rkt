@@ -51,15 +51,17 @@
     (check-equal? (sample #f #t #f) (hashalw "accepted" 3))
     (check-equal? (sample #t #t #t) (hashalw "reset" #t))
     (check-exn #rx"exclusive-ingress" (lambda () (sample #t #t #f))))
-  (test-case "width-correct crossed lane and independent handoff ready fail structural admission"
+  (test-case "crossed payload and miswired ready violate the parent FIFO contract"
     ;; Bind the intended contract on the correct declaration, then check the mutant RTL with
     ;; the same two real child seals. Neither a nominal mismatch nor a fresh child is the fault.
     (define view (BufferedArbiterQueue (outer_at 2) #:transaction_view #t))
     (define children (hash "front" (prove-design (parent_at 2) ArbiterQueue)
                            "tail_fifo" (prove-design (fifo_at 1) ShiftQueue)))
-    (for ([cross? '(#t #f)]
-          [diagnostic '(#rx"expected front[.]ingress\\[0\\][.]bits driven by ingress\\[0\\][.]bits, got ingress\\[1\\][.]bits"
-                        #rx"expected front[.]egress[.]ready driven by tail_fifo[.]ingress[.]ready, got egress[.]ready")])
+    (define (reject cross? obligation driver)
       (define top (faulty_buffered cross?))
-      (check-exn diagnostic (lambda () (prove-transaction top view children)))
-      (check-exn diagnostic (lambda () (series-oracle (FaultyBuffered top #:event_view #t) 2))))))
+      (check-exn obligation (lambda () (prove-transaction top view children)))
+      (check-exn driver (lambda () (series-oracle (FaultyBuffered top #:event_view #t) 2))))
+    (reject #t #rx"step/successor not proved"
+            #rx"expected front[.]ingress\\[0\\][.]bits driven by ingress\\[0\\][.]bits, got ingress\\[1\\][.]bits")
+    (reject #f #rx"step/space-for-accept not proved"
+            #rx"expected front[.]egress[.]ready driven by tail_fifo[.]ingress[.]ready, got egress[.]ready")))

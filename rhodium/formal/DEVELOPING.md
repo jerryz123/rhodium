@@ -555,12 +555,14 @@ conservation, and exercises a reachable fill/stall/drain trace for each front
 depth.
 
 The [BufferedArbiterQueue spec](../../examples/formal/buffered-arbiter-queue.rspl)
-declares the handoff and projects the two child transaction histories, tail
-before front. Run the [generic proof](../../examples/formal/prove-buffered-arbiter-queue.rhm)
+projects the two child transaction histories, tail before front. The runner
+reads the handoff from the elaborated RTL. Run the [generic proof](../../examples/formal/prove-buffered-arbiter-queue.rhm)
 without test fixtures. The [regression](tests/buffered-arbiter-queue-transactions.rkt)
 checks the same ordering observer and capacities (2, 3, 4) against its seal and
-the independent series oracle. Both reject crossed lane data and handoff ready
-driven by the outer consumer at the actual wiring check.
+the independent series oracle. Keep the failure modes distinct: on the generic
+path, crossing the lane payload breaks the next-history relation, and driving
+handoff ready from the outer consumer breaks the capacity check. The oracle
+rejects the same mutants by checking their drivers.
 
 ### Parent-local RTL with an opaque child
 

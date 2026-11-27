@@ -190,9 +190,9 @@ The [next level](tests/buffered-arbiter-queue-order.rkt)
 proves ordered retirement with an additional one-slot FIFO using only the
 ArbiterQueue and FIFO specs. The same parent now has a
 [transaction-only proof](tests/buffered-arbiter-queue-transactions.rkt) at
-capacities 2, 3, and 4: the checker verifies both ingress lanes and the
-internal handoff, then composes only the exported child contracts. A crossed
-lane payload or miswired handoff ready fails wiring admission.
+capacities 2, 3, and 4: the checker composes only the exported child contracts
+on the elaborated RTL wiring. A crossed lane payload or miswired handoff ready
+violates the parent FIFO contract.
 These proofs do not inspect child RTL state and are not
 quantified over depth. The [gated wrapper](tests/gated-arbiter-queue-order.rkt)
 adds one parent-local admission register while the child remains opaque; this
