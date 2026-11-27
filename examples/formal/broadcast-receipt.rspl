@@ -1,0 +1,43 @@
+#lang rspecl
+/* Checks the receipt pulse against the deliveries still owed before each edge. */
+// SPDX-License-Identifier: Apache-2.0
+
+import "broadcast-receipt.rhdl" as rtl
+import "broadcast.rspl".Broadcast
+import "queued-fork.rspl".QueuedFork
+import lib("rspecl/broadcast.rspl").broadcast_events
+import lib("rhodium/formal/spec.rhm").Observed
+
+/* Sample the real receipt even during reset: masking it would hide a spurious pulse. */
+fun receipt_samples(transfers :: Function.of_arity(2)):
+  def deliveries = broadcast_events(transfers)
+  fun (read :: Function, output :: Function):
+    deliveries(read, output) ++ {"pulse": Observed(const(Bool, #true), output("receipt", Bool))}
+
+spec for rtl.BroadcastReceipt:
+  events transfers = rv_transfers(~accepted: ingress, ~left: egress[0], ~right: egress[1])
+  monitor:
+    sample receipt_samples(transfers)
+    publish [reset, accepted, left, right, pulse]
+    batch rst = present(reset)
+    batch take = present(accepted)
+    batch l = present(left)
+    batch r = present(right)
+    batch pulse = present(pulse)
+    state left_due: Bool initially #false
+    state right_due: Bool initially #false
+    // Finish the old word on this edge iff it was live and every remaining copy transfers.
+    let last = (left_due || right_due) && (!left_due || l) && (!right_due || r)
+    guarantee "last-delivery" = bool_equal(pulse, !rst && last)
+    // A simultaneous acceptance creates fresh obligations for the next edge.
+    next left_due = !rst && (take || (left_due && !l))
+    next right_due = !rst && (take || (right_due && !r))
+  refinement:
+    // Only the binding selects a specialization. Both seals promise the same public histories.
+    child fanout: if queued | QueuedFork | Broadcast
+    history left from fanout.owed_l: Seq(ingress.bits.type, 1)
+    history right from fanout.owed_r: Seq(ingress.bits.type, 1)
+    relate left_due = !empty(left)
+    relate right_due = !empty(right)
+    local (split): Bool
+    invariant unmatched = bool_equal(split, !bool_equal(empty(left), empty(right)))

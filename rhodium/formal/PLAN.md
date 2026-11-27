@@ -121,6 +121,10 @@ treat a matching batch schema as proof that two monitors agree.
    pending mask and payload. [QueuedFork](../../examples/formal/prove-queued-fork.rhm)
    proves the same monitor from AtomicFork and two one-entry queue contracts. The two
    implementations need not agree on ingress readiness when the last recipient drains.
+   [BroadcastReceipt](../../examples/formal/prove-broadcast-receipt.rhm) uses either
+   seal at the same occurrence to prove one pulse exactly on the last delivery.
+   Its [split-delivery regression](tests/broadcast-receipt.rkt) distinguishes a
+   completed old word from its simultaneous replacement and rejects a both-fire-only recorder.
    A missing general capability is a separate proposal with two clients and
    a failing negative test, not an exception for OfferRegister.
 

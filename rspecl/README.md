@@ -114,6 +114,9 @@ the monitor promises neither when a recipient is ready nor that it ever retires.
 Compare [Broadcast](../examples/formal/broadcast.rspl), which can accept on that
 edge, with [QueuedFork](../examples/formal/queued-fork.rspl), which waits for
 both queues to have space. Both use the same monitor.
+An observer can reuse `broadcast_events(transfers)` to sample the same
+reset-qualified transfers alongside its own pins, as in
+[BroadcastReceipt](../examples/formal/broadcast-receipt.rspl).
 
 ## Prove a leaf or a parent
 

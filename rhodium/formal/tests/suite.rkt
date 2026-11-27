@@ -6,6 +6,7 @@
          (submod "arbiter-refinement.rkt" test)
          (submod "atomic-fork.rkt" test)
          (submod "broadcast.rkt" test)
+         (submod "broadcast-receipt.rkt" test)
          "selector-refinement.rkt"
          "stalled-offer.rkt"
          (submod "offer-register.rkt" test)

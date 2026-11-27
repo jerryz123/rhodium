@@ -3,11 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import lib("rhodium/formal/spec.rhm").Observed
-export broadcast_monitor
+export broadcast_monitor broadcast_events
 
 /* Turn the caller's accepted/left/right handshakes into reset epochs. Do not read
    transfer pins on reset, when even valid and ready can be outside the cycle contract. */
-fun epoch_samples(transfers :: Function.of_arity(2)):
+fun broadcast_events(transfers :: Function.of_arity(2)):
   fun (read :: Function, output :: Function):
     def rst = read("reset", Bool)
     def active = for Map ((name, event) in transfers(read, output)):
@@ -19,7 +19,7 @@ fun epoch_samples(transfers :: Function.of_arity(2)):
 fun broadcast_monitor(width :: PosInt, transfers :: Function.of_arity(2)):
   def word = Bits(width)
   monitor:
-    sample epoch_samples(transfers)
+    sample broadcast_events(transfers)
     publish [reset, accepted, left, right]
     batch rst = present(reset)
     batch take = present(accepted)

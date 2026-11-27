@@ -1,0 +1,19 @@
+#lang rhombus
+/* Checks the same receipt declaration twice, supplying only the selected broadcast child's seal. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("rspecl/runner.rkt") as proof
+  "broadcast-receipt.rhdl" as rtl
+  "broadcast-receipt.rspl" as spec
+  "broadcast.rspl".Broadcast
+  "queued-fork.rspl".QueuedFork
+
+module main:
+  for (queued in [#false, #true]):
+    def top = elaborate(rtl.BroadcastReceipt(~queued: queued)).top
+    def child = proof.child_definition(top, "fanout")
+    def seal = proof.prove_design(child, if queued | QueuedFork | Broadcast)
+    def parent = proof.prove_design(top, spec.BroadcastReceipt, ~children: {"fanout": seal})
+    println("Proved last-delivery receipts from " ++ (if queued | "QueuedFork" | "Broadcast"))
