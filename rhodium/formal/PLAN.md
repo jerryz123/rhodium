@@ -64,7 +64,9 @@ treat a matching batch schema as proof that two monitors agree.
    [ArbiterQueue](../../examples/formal/prove-arbiter-queue.rhm) now proves
    depths 1–3 from the Arbiter transfer and ShiftQueue FIFO contracts; two-lane
    exclusivity is a checked guarantee, not an environment assumption.
-   Next migrate BufferedArbiterQueue to those generic seals before the ROB.
+   [BufferedArbiterQueue](../../examples/formal/prove-buffered-arbiter-queue.rhm)
+   reuses that seal and a one-word ShiftQueue for the 2-, 3-, and 4-word bounds.
+   Remaining consumers include the gated wrapper and the ROB.
    Keep the ordering observer's theorem unchanged, the 2/4/6-word bounds,
    fill/drain replay, and the crossed-ready, wrong-payload, reversed-history
    and ready-when-space negatives. Retire the FIFO-specific dispatch and

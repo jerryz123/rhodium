@@ -42,7 +42,7 @@ the proof promises neither eventual delivery nor fairness between lanes.
 The [nested example](../../examples/formal/buffered-arbiter-queue.rhdl) adds
 a one-entry ShiftQueue after that proved ArbiterQueue. Its [event spec](../../examples/formal/buffered-arbiter-queue.rspl)
 observes just the external handshakes. Once the RTL wiring is checked, the
-[ordering proof](tests/buffered-arbiter-queue-transactions.rkt) uses only the
+[standalone ordering proof](../../examples/formal/prove-buffered-arbiter-queue.rhm) uses only the
 two child transaction contracts: every retirement returns the oldest accepted
 word, and at most 2, 3, or 4 words are pending for front depths 1, 2, or 3.
 It does not need to know which lane wins a tie. Available space alone

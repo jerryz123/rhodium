@@ -1,0 +1,15 @@
+#lang rhombus
+/* Proves accepted-winner ordering through an ArbiterQueue and a one-word output buffer. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("rspecl/runner.rkt").prove_design
+  "buffered-arbiter-queue.rhdl" as rtl
+  "buffered-arbiter-queue.rspl" as spec
+
+module main:
+  for (depth in [1, 2, 3]):
+    def top = elaborate(rtl.BufferedArbiterQueue(2, ~depth: depth)).top
+    def seal = prove_design(top, spec.BufferedArbiterQueue)
+    println("Proved BufferedArbiterQueue accepted-winner FIFO ordering, capacity " ++ to_string(depth + 1))

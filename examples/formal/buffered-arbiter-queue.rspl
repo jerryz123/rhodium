@@ -1,8 +1,27 @@
 #lang rspecl
-/* Observes external accepted winners and retirements without specifying either stage's timing. */
+/* Relates external FIFO transfers to the ordered histories of an ArbiterQueue and its output buffer. */
 // SPDX-License-Identifier: Apache-2.0
 
 import "buffered-arbiter-queue.rhdl" as rtl
+import "arbiter-queue.rspl".ArbiterQueue
+import "shift-queue.rspl".ShiftQueue
+import lib("rspecl/fifo.rspl").fifo_monitor
 
 spec for rtl.BufferedArbiterQueue:
-  events ready_valid_events(reset, ingress, egress)
+  let word = ingress[0].bits.type
+  events transfers = ready_valid_events(reset, ingress, egress)
+  transactions fifo_monitor(depth + 1, word.width, transfers)
+  refinement:
+    child front: ArbiterQueue
+    child tail_fifo: ShiftQueue
+    direct_wires {"front.ingress[0].valid": "ingress[0].valid", "front.ingress[0].bits": "ingress[0].bits",
+                  "ingress[0].ready": "front.ingress[0].ready",
+                  "front.ingress[1].valid": "ingress[1].valid", "front.ingress[1].bits": "ingress[1].bits",
+                  "ingress[1].ready": "front.ingress[1].ready",
+                  "tail_fifo.ingress.valid": "front.egress.valid", "tail_fifo.ingress.bits": "front.egress.bits",
+                  "front.egress.ready": "tail_fifo.ingress.ready",
+                  "egress.valid": "tail_fifo.egress.valid", "egress.bits": "tail_fifo.egress.bits",
+                  "tail_fifo.egress.ready": "egress.ready"}
+    history waiting from front.q: Seq(word, depth)
+    history oldest from tail_fifo.q: Seq(word, 1)
+    relate q = seq_concat(oldest, waiting)

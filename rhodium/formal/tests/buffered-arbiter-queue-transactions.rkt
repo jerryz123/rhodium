@@ -1,5 +1,5 @@
 #lang rosette
-;; Compose sealed child transaction results across the actual buffered arbiter wiring.
+;; Check the spec-authored buffered arbiter proof against its independent series oracle and wiring mutants.
 ;; SPDX-License-Identifier: Apache-2.0
 
 (require (only-in "../refinement.rkt" compose-fifo-series)
@@ -7,28 +7,35 @@
          (only-in "composition-binding.rhm" outer_at proof_depths)
          (only-in "arbiter-queue-transactions.rkt" verified-arbiter-queue-transactions-at)
          (only-in "shift-queue-transactions.rkt" verified-shift-queue-transactions-at))
-(provide verified-buffered-transactions-at)
-
-(define (certify view depth)
+(define (series-oracle view depth)
   (compose-fifo-series view "front" (verified-arbiter-queue-transactions-at depth)
                        "tail_fifo" (verified-shift-queue-transactions-at 1)))
 (define (parent-view depth) (BufferedArbiterQueue (outer_at depth) #:event_view #t))
-(define verified
-  (for/hash ([depth proof_depths]) (values depth (certify (parent-view depth) depth))))
-(define (verified-buffered-transactions-at depth) (hash-ref verified depth))
 
 (module+ test
   (require rackunit
            (only-in racket/base hashalw)
            (only-in "../refinement.rkt" fifo-transactions-for? fifo-transactions-capacity)
            (only-in "../fifo-view.rhm" sample_fifo_events)
-           (only-in "composition-binding.rhm" faulty_buffered)
+           (only-in "composition-binding.rhm" faulty_buffered parent_at fifo_at)
+           (only-in "../../../rspecl/runner.rkt" prove-design)
+           (only-in "../../../rspecl/proof.rkt" prove-transaction)
+           (only-in "../../../examples/formal/arbiter-queue.rspl" ArbiterQueue)
+           (only-in "../../../examples/formal/shift-queue.rspl" ShiftQueue)
+           (prefix-in observer: "fifo-observer-input.rkt")
            (only-in "faulty-buffered.rspl" FaultyBuffered)
            (only-in "queue-pair-transaction-order.rkt" check-retirement-order check-ready-not-entailed)
            (only-in "composition-checks.rkt" require-feasible))
   (for ([depth proof_depths])
-    (test-case (format "buffered accepted winners retire in order, capacity ~a" (add1 depth))
-      (define contract (verified-buffered-transactions-at depth))
+    (test-case (format "generic buffered seal: kth retirement matches kth acceptance, capacity ~a" (add1 depth))
+      (define top (outer_at depth))
+      (define view (BufferedArbiterQueue top #:transaction_view #t))
+      (define contract (observer:observe-fifo-seal (prove-design top BufferedArbiterQueue) top view))
+      (check-equal? (observer:fifo-transactions-capacity contract) (add1 depth))
+      (require-feasible (check-retirement-order contract))
+      (check-ready-not-entailed contract))
+    (test-case (format "independent series oracle, capacity ~a" (add1 depth))
+      (define contract (series-oracle (parent-view depth) depth))
       (check-true (fifo-transactions-for? contract (parent-view depth)))
       (check-equal? (fifo-transactions-capacity contract) (add1 depth))
       (require-feasible (check-retirement-order contract))
@@ -45,6 +52,14 @@
     (check-equal? (sample #t #t #t) (hashalw "reset" #t))
     (check-exn #rx"exclusive-ingress" (lambda () (sample #t #t #f))))
   (test-case "width-correct crossed lane and independent handoff ready fail structural admission"
-    (define (bad cross?) (lambda () (certify (FaultyBuffered (faulty_buffered cross?) #:event_view #t) 2)))
-    (check-exn #rx"expected front.ingress\\[0\\].bits driven by ingress\\[0\\].bits, got ingress\\[1\\].bits" (bad #t))
-    (check-exn #rx"expected front.egress.ready driven by tail_fifo.ingress.ready, got egress.ready" (bad #f))))
+    ;; Bind the intended contract on the correct declaration, then check the mutant RTL with
+    ;; the same two real child seals. Neither a nominal mismatch nor a fresh child is the fault.
+    (define view (BufferedArbiterQueue (outer_at 2) #:transaction_view #t))
+    (define children (hash "front" (prove-design (parent_at 2) ArbiterQueue)
+                           "tail_fifo" (prove-design (fifo_at 1) ShiftQueue)))
+    (for ([cross? '(#t #f)]
+          [diagnostic '(#rx"expected front[.]ingress\\[0\\][.]bits driven by ingress\\[0\\][.]bits, got ingress\\[1\\][.]bits"
+                        #rx"expected front[.]egress[.]ready driven by tail_fifo[.]ingress[.]ready, got egress[.]ready")])
+      (define top (faulty_buffered cross?))
+      (check-exn diagnostic (lambda () (prove-transaction top view children)))
+      (check-exn diagnostic (lambda () (series-oracle (FaultyBuffered top #:event_view #t) 2))))))

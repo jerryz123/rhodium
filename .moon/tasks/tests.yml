@@ -562,6 +562,7 @@ tasks:
       env PLTCOLLECTS="$PWD": tools/run-racket.sh examples/formal/prove-queue-pair.rhm
       env PLTCOLLECTS="$PWD": tools/run-racket.sh examples/formal/prove-arbiter.rhm
       env PLTCOLLECTS="$PWD": tools/run-racket.sh examples/formal/prove-arbiter-queue.rhm
+      env PLTCOLLECTS="$PWD": tools/run-racket.sh examples/formal/prove-buffered-arbiter-queue.rhm
       env PLTCOLLECTS="$PWD": tools/run-racket.sh examples/formal/prove-queue-pair-series.rhm
     inputs: []
     deps: ["check-boundaries", "racket-cache"]

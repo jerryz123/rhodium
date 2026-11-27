@@ -535,11 +535,13 @@ It proves head retirement, suffix retention, winner append, and occupancy
 conservation, and exercises a reachable fill/stall/drain trace for each front
 depth.
 
-The [transaction-only proof](tests/buffered-arbiter-queue-transactions.rkt)
-establishes the same order and occupancy bounds (2, 3, 4) from the two
-child transaction results alone. The parent declares only its external
-events. Crossed lane data and handoff ready driven by the outer consumer
-are rejected by the structural check, before any FIFO reasoning.
+The [BufferedArbiterQueue spec](../../examples/formal/buffered-arbiter-queue.rspl)
+declares the handoff and projects the two child transaction histories, tail
+before front. Run the [generic proof](../../examples/formal/prove-buffered-arbiter-queue.rhm)
+without test fixtures. The [regression](tests/buffered-arbiter-queue-transactions.rkt)
+checks the same ordering observer and capacities (2, 3, 4) against its seal and
+the independent series oracle. Both reject crossed lane data and handoff ready
+driven by the outer consumer at the actual wiring check.
 
 ### Parent-local RTL with an opaque child
 
