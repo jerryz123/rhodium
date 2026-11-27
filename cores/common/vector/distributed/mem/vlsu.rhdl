@@ -88,7 +88,8 @@ sync_circuit VectorVLSU(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~t
   reg eews(Vec(MemoryPaths.length(), Bits(2)))
   def streaming = vec(for List (i in MemoryPaths): kinds[i] === MemoryIssueKind.ResolvedStream)
   reg suffix(~init: Bits(MemoryPaths.length())(0).as_vec(Bool))
-  reg first_pages(Vec(MemoryPaths.length(), Bits(xlen.width - VectorPageOffsetBits)))
+  // Admitted fragments touch at most two adjacent virtual pages; VPN bit 0 distinguishes them.
+  reg first_page_parity(Vec(MemoryPaths.length(), Bits(1)))
   reg spans(Vec(MemoryPaths.length(), RowFootprint()))
   reg older_store(Bool)
   def RequestCount = Bits(index_width(MemoryRequestEntries + 1))
@@ -119,7 +120,7 @@ sync_circuit VectorVLSU(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~t
       eews[i] <== command.layout.eew
       steps[i] <== mux_lookup(kind, ~default: Bits(xlen.width)(0), [[MemoryIssueKind.Stride, command.stride], [MemoryIssueKind.Contiguous, Bits(xlen.width)(row_bytes)]])
       owners[i] <== launch.bits.issue.owner
-      first_pages[i] <== command.address[VectorPageOffsetBits..xlen.width]
+      first_page_parity[i] <== command.address[VectorPageOffsetBits]
       spans[i] <== footprint
     mux(by_element, command.address, command.address.align_down(row_bytes))
   when (start[LoadPath].fire() ||| start[StorePath].fire()): older_store <== start[LoadPath].fire()
@@ -214,7 +215,7 @@ sync_circuit VectorVLSU(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~t
   def enabled = mux(second, spill, prepared.bits.enabled << first_lane)
   def payload = mux(second, prepared.bits.data >> (cut ++ Bits(3)(0)), prepared.bits.data << (first_lane ++ Bits(3)(0)))
   def span = spans[selected]
-  def ppn = mux(address[VectorPageOffsetBits..xlen.width] === first_pages[selected], span.pages[0], span.pages[1])
+  def ppn = mux(address[VectorPageOffsetBits] === first_page_parity[selected], span.pages[0], span.pages[1])
   def physical = (ppn ++ address[0..VectorPageOffsetBits]).zext(64)
   // Each physical fragment has a separate grant and credit. Keep the logical
   // element at the packer until its final fragment (or mask skip) transfers.

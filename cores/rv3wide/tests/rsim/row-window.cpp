@@ -439,14 +439,16 @@ void writeback_window(Window scenario) {
   CHECK(grants==rows && finishes==1);
 }
 
-// An older cursor crosses from PPN 0x60 to PPN 0x90. A different VA mapped
-// onto PPN 0x90 must wait at byte 0, but not at byte 1 of the very same row.
-void physical_ranges(bool older_store, bool alias) {
+// Cross either virtual page parity onto nonadjacent PPNs. A peer mapped onto
+// PPN 0x90 waits at byte 0, but not at byte 1 of the same physical row.
+void physical_ranges(bool older_store, bool alias, bool odd_start) {
   auto& launch_in = older_store ? launch_1_in : launch_0_in;
   auto& launch_out = older_store ? launch_1_out : launch_0_out;
   launch_in={}; prepare_in={}; memory_in={}; write_in={}; chain_in={};
   read_result_in={}; read_in.pready=1;
-  launch_in.pbits.pissue.pdescriptor.pscalar=0x3ff0; launch_in.pbits.pissue.pdescriptor.pstate.pvl=17;
+  const unsigned base=odd_start ? 0x3ff0 : 0x2ff0;
+  launch_in.pbits.pissue.pdescriptor.pscalar=base;
+  launch_in.pbits.pissue.pdescriptor.pstate.pvl=17;
   launch_in.pbits.pissue.pdescriptor.pcontrol.pstore=older_store; launch_in.pbits.pissue.pdescriptor.pinstruction=8<<7;
   launch_in.pbits.pissue.powner=3; launch_in.pbits.ppages[0]=0x60; launch_in.pbits.ppages[1]=0x90;
   launch_in.pvalid=1;
@@ -463,19 +465,29 @@ void physical_ranges(bool older_store, bool alias) {
   peer_in.pbits.pissue.pdescriptor.pprecertified=1; peer_in.pbits.pissue.pdescriptor.pcertificate.pppn=0x90;
   peer_in.pbits.ppages[0]=peer_in.pbits.ppages[1]=0x90;
   launch_in.pbits.ppages[0]=0xab; launch_in.pbits.ppages[1]=0xcd;
+  launch_in.pbits.pissue.pdescriptor.pscalar ^= 0x1000;
+  const auto agen=older_store ? row_sites::vector_store_agen : row_sites::vector_load_agen;
+  const auto first_agen=next_event(agen);
   unsigned requests=0,responses=0,grants=0;
+  unsigned stalled=0;
+  Row held_data{};
   bool delivered=false;
   for (unsigned n=0;n<60;++n) {
-    memory_in.prequest.pready=n>=6;
+    memory_in.prequest.pready=stalled==3;
     memory_in.presponse.pvalid=n>=20 && responses<requests;
     memory_in.presponse.pbits.pstore=older_store;
     write_in.pready=n>=30;
     eval();
     CHECK(bool(peer_out.pready)==(!alias || delivered));
-    if (memory_out.prequest.pvalid && memory_in.prequest.pready) {
-      CHECK(requests<2 && memory_out.prequest.pbits.paddress==(requests ? 0x90000u : 0x60ff0u));
-      CHECK(memory_out.prequest.pbits.pbyte_umask==(requests ? 1u : 0xffffu));
-      ++requests;
+    if (stalled) CHECK(memory_out.prequest.pvalid);
+    if (memory_out.prequest.pvalid) {
+      const auto& beat=memory_out.prequest.pbits;
+      CHECK(requests<2 && beat.paddress==(requests ? 0x90000u : 0x60ff0u));
+      CHECK(beat.pbyte_umask==(requests ? 1u : 0xffffu) && bool(beat.pstore)==older_store);
+      if (!stalled) held_data=beat.pdata.words;
+      else if (older_store) CHECK(beat.pdata.words==held_data);
+      if (memory_in.prequest.pready) { ++requests; stalled=0; }
+      else ++stalled;
     }
     responses+=memory_in.presponse.pvalid && memory_out.presponse.pready;
     grants+=write_out.pvalid && write_in.pready;
@@ -488,6 +500,12 @@ void physical_ranges(bool older_store, bool alias) {
   }
   eval(); CHECK(requests==2 && responses==2 && grants==(older_store ? 0u : 2u));
   CHECK(!busy && peer_out.pready);
+  CHECK(next_event(agen)==first_agen+2);
+  for (unsigned i=0;i<2;++i) {
+    const rheg::Ref beat{agen,first_agen+i};
+    CHECK(rheg::graph().field(beat,"va").unsigned_value()==base+16*i);
+    CHECK(rheg::graph().field(beat,"pa").unsigned_value()==(i ? 0x90000u : 0x60ff0u));
+  }
 }
 
 // Stall L1D with either kind offered first. That grant is irrevocable;
@@ -670,7 +688,8 @@ int main() {
     displaced_lineage(32,true);
     for (auto scenario : {Window::hit_stream, Window::cold_oldest, Window::younger, Window::promote, Window::masked_oldest})
       writeback_window(scenario);
-    for (bool store : {false,true}) for (bool alias : {false,true}) physical_ranges(store,alias);
+    for (bool store : {false,true}) for (bool alias : {false,true})
+      for (bool odd_start : {false,true}) physical_ranges(store,alias,odd_start);
     for (bool hold_store : {false,true}) oldest_eligible(hold_store);
     independent_row_credits();
     for (bool store : {false,true}) independent_starts(store);

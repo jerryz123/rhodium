@@ -206,6 +206,11 @@ the scalar ordering signal: reclamation and physical drain can occur separately.
 Inside `distributed/`, `frontend/` owns precise checks and admission,
 `backend/` owns the scheduler, scoreboard, register-file grants and sequencers,
 `mem/` owns physical requests and response alignment, and `exu/` owns arithmetic.
+After admission, a VLSU cursor can issue within one virtual page or across two
+adjacent virtual pages. Keep the first VPN's parity with each load/store cursor
+to select its captured PPNs, which need not be adjacent. The fault checker's
+full VPN comparison still determines whether a checked element can reuse a proof.
+
 The VLSU has sixteen load metadata entries and buffers five returned load beats.
 Store acknowledgements use a separate five-entry FIFO of element-boundary bits;
 the resident store cursor owns them until drain. Both cached and uncached replies
