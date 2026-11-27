@@ -83,6 +83,7 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   def physical_width = math.min(width, p.request_address_width)
   def data_width = config.physical_map.address_width_for(fun (attributes): attributes.cacheable)
   def retained_width = math.min(physical_width, data_width)
+  def Request = AddressedPhysicalMemoryBeatReq(xlen, Context, beat_bytes, retained_width)
   def snoop_width = math.max(width, p.request_address_width)
   check_l1d_geometry(physical_width, cache)
   def sets = cache.sets
@@ -108,7 +109,7 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   def data_address_width = index_width(data_depth)
 
   /* Selects an explicitly row-oriented transfer; scalar specializations have no mode bit. */
-  fun is_raw_beat(request :: CachePipelineBeatReq(xlen, beat_bytes) || PhysicalMemoryBeatReq(xlen, Context, beat_bytes)) :~ Bool:
+  fun is_raw_beat(request :: CachePipelineBeatReq(xlen, beat_bytes) || PhysicalMemoryBeatReq(xlen, Context, beat_bytes) || AddressedPhysicalMemoryBeatReq(xlen, Context, beat_bytes, retained_width)) :~ Bool:
     if beat_bytes == width / 8 | Bool(#false) | request.raw_beat
 
   /* Returns scalar results in the low XLEN bits, including sign-extended subword loads. */
@@ -167,7 +168,6 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   snoop.node_id <== node_id
   // Registered capacity owns acceptance even when a paired virtual lookup can
   // bypass this buffer. Busy arrays retain permitted physical requests here.
-  def Request = PhysicalMemoryBeatReq(xlen, Context, beat_bytes)
   inst service_requests(L1DDemandWindow(xlen, Context, beat_bytes, retained_width, offset_width, set_width))
   // S3 retains its request if older S4 work takes the arrays. Its returned
   // data is discarded and reread before retry, including across snoop service.
@@ -206,7 +206,7 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   /* S4 admission captures the request, hit row, and replacement tag together.
      A miss pins the request set and victim tag after its S4 token leaves. */
 
-  reg retained_request(AddressedPhysicalMemoryBeatReq(xlen, Context, beat_bytes, retained_width))
+  reg retained_request(Request)
   def retained_address = retained_request.address.zext(width)
   def retained_raw_beat = if beat_width > width | retained_request.raw_beat | Bool(#false)
   reg retained_victim_tag(Bits(tag_width))
@@ -281,7 +281,6 @@ sync_circuit BankedL1DCache(xlen :: XLen,
 
   def s0_set = pipeline_lookup.bits.address[offset_width..(offset_width + set_width)]
   def s0_miss_set_clear = s0_load & (s0_set =/= retained_set) & !reserved_set(s0_set)
-  wire first_admitted: AddressedPhysicalMemoryBeatReq(xlen, Context, beat_bytes, retained_width)
   reg first_read(~init: Bool(#false))
   wire demand_conflict: Bool
   wire independent_demand: Bool
@@ -425,15 +424,18 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   reg parked(~init: Index(0))
   /* A parked ordinary demand may retry outside reserved sets. S3 rechecks
      read permission for a load or exclusive ownership for a store. */
-  fun replayable_demand(request :: PhysicalMemoryBeatReq(xlen, Context, beat_bytes)) :~ Bool:
-    request.access.is_load_or_store() & (request.locality === RiscvMemoryLocality.Default) & !reserved_set(request.address[offset_width..(offset_width + set_width)])
+  fun replayable_demand(request :: AddressedPhysicalMemoryBeatReq(xlen, Context, beat_bytes, retained_width)) :~ Bool:
+    request.access.is_load_or_store() & (request.locality === RiscvMemoryLocality.Default) & !reserved_set(request.address.zext(store_address_width)[offset_width..(offset_width + set_width)])
 
   def replay_head = miss_busy & !miss_active & parked.any() & replayable_demand(service_requests.egress.bits)
   def concurrent = miss_busy & !miss_prefetch & miss_install & retained_request.access.is_load_or_store() & !replay_head
   def s3_demand_live = s3_lookup.egress.valid & !s3_lookup.egress.bits.prefetch
   def issue_index = mux(concurrent, parked, Index(0)) + (s3_demand_live & (concurrent ||| !s3_behind)).as_bits().zext(Index.width)
   def Array(enqueue, issue_parent) = authorized |> atomic_fork(2)
-  enqueue |> service_requests.ingress
+  (enqueue |> map_flow(payload):
+    def request :: PhysicalMemoryBeatReq(xlen, Context, beat_bytes) = payload
+    request.with_address_context(request.address[0..retained_width], request.context)
+  ) |> service_requests.ingress
   issue_parent.ready <== Bool(#true)
   def Array(head, management_endpoint) = service_requests.egress |> demux_flow(2, request => request.access.into(CacheOperation).is_cache_management().as_bits())
   head.ready <== retire_head
@@ -455,7 +457,7 @@ sync_circuit BankedL1DCache(xlen :: XLen,
     parked <== parked - Index(1)
   def management_waiting = management_requests.valid
   // Admission checked the full address; the CHI retry record needs only mapped line bits.
-  def management_address = management_requests.bits.address[0..retained_width].align_down(CacheLineBytes).zext(p.request_address_width)
+  def management_address = management_requests.bits.address.align_down(CacheLineBytes).zext(p.request_address_width)
   def management_home = config.home_map.lookup(management_address)
   def maintenance_engines_drained = !miss_busy & !pending_mutation_valid & !snoop_reading
   def maintenance_lookups_drained = !s2_store_candidate.egress.valid & !s3_lookup.egress.valid & !s4_result.egress.valid & !service_responses.egress.valid
@@ -486,7 +488,7 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   // Buffered requests and hints are already physical; their page offsets are
   // the same index as the original VA. A fresh demand indexes directly by VA.
   def s2_index_address = priority_mux(~default: virtual_lookup.bits):
-    s2_queued: ordinary_requests.bits.address
+    s2_queued: ordinary_requests.bits.address.zext(width)
     s2_prefetch: prefetch_request.address
 
 
@@ -671,18 +673,19 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   /* Forward the live installation row only to the next ordered ordinary load.
      A missed opportunity (reordered DAT, backpressure, or probe) falls back to
      normal completion/replay. No response holds a packet or exposes a partial tag. */
-  def waiter :: PhysicalMemoryBeatReq(xlen, Context, beat_bytes) = service_requests.egress.bits
+  def waiter :: AddressedPhysicalMemoryBeatReq(xlen, Context, beat_bytes, retained_width) = service_requests.egress.bits
+  def waiter_address = waiter.address.zext(width)
   def matching_probe = snoop.address.align_down(CacheLineBytes) === retained_line_address.zext(snoop_width)
   def ordered_load_row = refill_install_word & packet_ordered & miss_active & !miss_prefetch & (refill_access === CacheOperation.Load)
   def probe_clear = !miss_probed & !snoop_pending & !chi.snoops.valid
   def forward_turn = ordered_load_row & probe_clear & service_responses.ingress.ready
   def forward_leader = forward_turn & !miss_replied & (refill_row === refill_word_index)
   def waiting_load = parked.any() & service_requests.egress.valid & (waiter.access === CacheOperation.Load) & (waiter.locality === RiscvMemoryLocality.Default)
-  def waiter_row_matches = (waiter.address.align_down(CacheLineBytes) === retained_line_address) & (refill_row === waiter.address[row_offset_width..offset_width])
+  def waiter_row_matches = (waiter_address.align_down(CacheLineBytes) === retained_line_address) & (refill_row === waiter_address[row_offset_width..offset_width])
   def forward_waiter = forward_turn & miss_replied & waiting_load & waiter_row_matches
   def forward_row = forward_leader ||| forward_waiter
   def load_row = mux(forward_row, refill_install_bytes.as_bits(), service_row)
-  service_load_gen.address <== mux(forward_waiter, waiter.address, retained_address)
+  service_load_gen.address <== mux(forward_waiter, waiter_address, retained_address)
   service_load_gen.data <== load_row
   service_load_gen.width <== mux(forward_waiter, waiter.width, retained_request.width)
   service_load_gen.unsigned_load <== mux(forward_waiter, waiter.unsigned, service_load_unsigned)
@@ -813,9 +816,10 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   /* The demand banks may already have read the just-admitted head. Resolve
      an ordinary hit directly into S4; a miss, stale read or busy sink leaves
      the original FIFO entry intact for the normal service pipeline. */
-  def first_req :: PhysicalMemoryBeatReq(xlen, Context, beat_bytes) = service_requests.egress.bits
-  def first_set = first_req.address[offset_width..(offset_width + set_width)]
-  def first_tag = first_req.address[(offset_width + set_width)..physical_width]
+  def first_req :: AddressedPhysicalMemoryBeatReq(xlen, Context, beat_bytes, retained_width) = service_requests.egress.bits
+  def first_address = first_req.address.zext(physical_width)
+  def first_set = first_address[offset_width..(offset_width + set_width)]
+  def first_tag = first_address[(offset_width + set_width)..physical_width]
   def first_matches = for List (w in 0..ways):
     valid_lines[first_set][w] & (arrays.demand_tags.response.bits[w] === first_tag)
   def first_way = priority_encoder_oh(vec(first_matches))
@@ -835,14 +839,14 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   wire first_ready: Bool
   def first_offer = inject_interface(Decoupled(L1DResolved(way_width)), ~valid: first_hit & first_safe, ~bits: first_result, ~ready: first_ready)
   def direct_hit = first_offer |> trace_event("dcache/demand.hit", ~fields: _hit):
-    address: first_req.address
+    address: first_req.address.zext(width)
   Array(replay_result, direct_hit) |> arbiter() |> s4_result.ingress
   def capture_first = first_offer.fire()
   def capture_s4 = s4_result.ingress.fire()
   retire_head <== capture_first ||| (replay_result.fire() & !s3_lookup.egress.bits.prefetch) ||| forward_waiter
   when capture_s4:
     assert(!pending_mutation_valid & !miss_active & !maintenance_active & !maintenance.command.fire(), "l1d_s4_request_not_owned_by_slow_service")
-    retained_request <== mux(capture_first, first_admitted, s3_request)
+    retained_request <== mux(capture_first, ordinary_requests.bits, s3_request)
     retained_victim_tag <== arrays.tags.response.bits[s3_allocation_way]
   elsewhen (maintenance.command.fire()):
     // Maintenance bypasses S4 and owns only the caller context until completion.
@@ -861,9 +865,7 @@ sync_circuit BankedL1DCache(xlen :: XLen,
      miss owns no array port and need not block independent load hits. */
 
   def engines_idle = arrays_available & !miss_active & backing_engines_ready
-  def demand :: PhysicalMemoryBeatReq(xlen, Context, beat_bytes) = ordinary_requests.bits
-  def head_demand :: PhysicalMemoryBeatReq(xlen, Context, beat_bytes) = service_requests.egress.bits
-  def parked_same_line_waiter = service_requests.egress.valid & miss_active & head_demand.access.is_load_or_store() & (head_demand.address.align_down(CacheLineBytes) === retained_line_address)
+  def parked_same_line_waiter = service_requests.egress.valid & miss_active & waiter.access.is_load_or_store() & (waiter_address.align_down(CacheLineBytes) === retained_line_address)
   def service_order_clear = (!service_requests.egress.valid ||| parked_same_line_waiter) & !s3_lookup.egress.valid & !s4_result.egress.valid & !virtual_lookup.valid
   hit_path_available <== engines_idle & service_order_clear
   hit_under_miss <== miss_active & miss_allows_hits & arrays_available & service_order_clear & !snoop_pending & !misses.install_pending
@@ -886,25 +888,8 @@ sync_circuit BankedL1DCache(xlen :: XLen,
 
   def array_read_data_address = array_read_address[row_offset_width..(offset_width + set_width)]
   def s2_admit = !capture_first & !management_waiting & (head_read_turn ||| issue_turn) & !s2_retry & stores.empty & !s2_store_candidate.egress.valid
-  // Admission checked the full address before queueing. Preserve the byte offset
-  // and every payload field, including the optional raw-row transfer mode.
-  wire admitted: AddressedPhysicalMemoryBeatReq(xlen, Context, beat_bytes, retained_width)
-  admitted.address <== demand.address[0..retained_width]
-  admitted.byte_mask <== demand.byte_mask
-  admitted.access <== demand.access
-  admitted.atomic <== demand.atomic
-  admitted.width <== demand.width
-  admitted.unsigned <== demand.unsigned
-  admitted.data <== demand.data
-  admitted.context <== demand.context
-  admitted.locality <== demand.locality
-  if beat_width > width
-  | admitted.raw_beat <== demand.raw_beat
-  | #void
-
-  first_admitted <== admitted
-  def s2_demand = ordinary_requests |> map_flow(_request => L1DLookup(xlen, Context, beat_bytes, retained_width)):
-    request: admitted
+  def s2_demand = ordinary_requests |> map_flow(request => L1DLookup(xlen, Context, beat_bytes, retained_width)):
+    request: request
     prefetch: Bool(#false)
     prefetch_write: Bool(#false)
 

@@ -38,7 +38,7 @@ bundle WriteOperand(beat_bytes :: Pow2Int):
    either ring. Only removal of the ordered head releases its operand slot. */
 sync_circuit L1DDemandWindow(xlen :: XLen, Context :: DataType, beat_bytes :: Pow2Int,
                              address_width :: PosInt, offset_width :: PosInt, set_width :: PosInt):
-  def Request = PhysicalMemoryBeatReq(xlen, Context, beat_bytes)
+  def Request = AddressedPhysicalMemoryBeatReq(xlen, Context, beat_bytes, address_width)
   def raw = beat_bytes > xlen.width / 8
   def Descriptor = DemandDescriptor(address_width, Context)
   interface ingress(Decoupled(Request), ~role: consumer)
@@ -65,7 +65,7 @@ sync_circuit L1DDemandWindow(xlen :: XLen, Context :: DataType, beat_bytes :: Po
   fun has_operand(op :: CacheOperation) :~ Bool:
     op.is_one_of(CacheOperation.Store, CacheOperation.StoreConditional, CacheOperation.Atomic)
 
-  def request :: PhysicalMemoryBeatReq(xlen, Context, beat_bytes) = ingress.bits
+  def request :: AddressedPhysicalMemoryBeatReq(xlen, Context, beat_bytes, address_width) = ingress.bits
   def writing = has_operand(request.access)
   ingress.ready <== (occupancy < Count(DemandEntries)) & (!writing ||| (write_count < WriteCount(WriteEntries)))
   egress.valid <== occupancy.any()
@@ -79,7 +79,7 @@ sync_circuit L1DDemandWindow(xlen :: XLen, Context :: DataType, beat_bytes :: Po
   when enqueue:
     tail <== wrap_increment(tail, DemandEntries)
     entries[tail] <== DemandDescriptor(address_width, Context):
-      address: request.address[0..address_width]
+      address: request.address
       access: request.access
       width: request.width
       unsigned: request.unsigned
@@ -99,10 +99,10 @@ sync_circuit L1DDemandWindow(xlen :: XLen, Context :: DataType, beat_bytes :: Po
 
   /* Recover a service request only at its read port. Write bytes and controls
      are unobservable on loads and locally generated block operations. */
-  fun expand(d :: DemandDescriptor(address_width, Context)) :~ PhysicalMemoryBeatReq(xlen, Context, beat_bytes):
+  fun expand(d :: DemandDescriptor(address_width, Context)) :~ AddressedPhysicalMemoryBeatReq(xlen, Context, beat_bytes, address_width):
     def w :: WriteOperand(beat_bytes) = mux(has_operand(d.access), operands[d.write_slot], literal(Operand, 0))
-    def empty :: PhysicalMemoryBeatReq(xlen, Context, beat_bytes) = literal(Request, 0)
-    def restored = empty.updated(~address: d.address.zext(xlen.width), ~access: d.access,
+    def empty :: AddressedPhysicalMemoryBeatReq(xlen, Context, beat_bytes, address_width) = literal(Request, 0)
+    def restored = empty.updated(~address: d.address, ~access: d.access,
                                  ~width: d.width, ~unsigned: d.unsigned, ~context: d.context,
                                  ~locality: d.locality, ~data: w.data, ~byte_mask: w.byte_mask, ~atomic: w.atomic)
     if raw | restored.updated(~raw_beat: d.raw_beat) | restored
@@ -114,7 +114,8 @@ sync_circuit L1DDemandWindow(xlen :: XLen, Context :: DataType, beat_bytes :: Po
     elsewhen (dequeue & (head === DemandIndex(i))): live[i] <== Bool(#false)
   def compatible = for List (i in 0..DemandEntries):
     def entry :: DemandDescriptor(address_width, Context) = entries[i]
-    !live[i] ||| (entry.access.is_load_or_store() & (entry.address[offset_width..(offset_width + set_width)] =/= probe_set))
+    def set = entry.address.zext(math.max(address_width, offset_width + set_width))[offset_width..(offset_width + set_width)]
+    !live[i] ||| (entry.access.is_load_or_store() & (set =/= probe_set))
   independent <== vec(compatible).as_bits().all()
 
   describe_interface_queue_storage(DemandEntries, enqueue, dequeue, head, tail, occupancy.any(), Bool(#false))

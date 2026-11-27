@@ -83,6 +83,7 @@ sync_circuit L1DCache(xlen :: XLen,
   def physical_width = math.min(width, p.request_address_width)
   def data_width = config.physical_map.address_width_for(fun (attributes): attributes.cacheable)
   def retained_width = math.min(physical_width, data_width)
+  def Request = AddressedPhysicalMemoryBeatReq(xlen, Context, beat_bytes, retained_width)
   def snoop_width = math.max(width, p.request_address_width)
   check_l1d_geometry(physical_width, cache)
   def sets = cache.sets
@@ -168,7 +169,7 @@ sync_circuit L1DCache(xlen :: XLen,
   writeback.node_id <== node_id
   // Registered capacity owns acceptance even when a paired virtual lookup can
   // bypass this buffer. Busy arrays retain permitted physical requests here.
-  inst service_requests(Queue(PhysicalMemoryBeatReq(xlen, Context, beat_bytes), service_queue_depth, ~flow: #true))
+  inst service_requests(Queue(Request, service_queue_depth, ~flow: #true))
   // S3 retains its request if older S4 work takes the arrays. Its returned
   // data is discarded and reread before retry, including across snoop service.
   inst s3_lookup(Pipe(L1DLookup(xlen, Context, beat_bytes, retained_width), 1))
@@ -205,7 +206,7 @@ sync_circuit L1DCache(xlen :: XLen,
   /* S4 admission captures the request, hit row, and replacement tag together.
      A miss pins the request set and victim tag after its S4 token leaves. */
 
-  reg retained_request(AddressedPhysicalMemoryBeatReq(xlen, Context, beat_bytes, retained_width))
+  reg retained_request(Request)
   def retained_address = retained_request.address.zext(width)
   def retained_raw_beat = if beat_width > width | retained_request.raw_beat | Bool(#false)
   reg retained_victim_tag(Bits(tag_width))
@@ -392,7 +393,7 @@ sync_circuit L1DCache(xlen :: XLen,
   def Array(ordinary_requests, management_requests) = service_requests.egress |> demux_flow(2, request => request.access.into(CacheOperation).is_cache_management().as_bits())
   def management_waiting = management_requests.valid
   // Admission checked the full address; the CHI retry record needs only mapped line bits.
-  def management_address = management_requests.bits.address[0..retained_width].align_down(CacheLineBytes).zext(p.request_address_width)
+  def management_address = management_requests.bits.address.align_down(CacheLineBytes).zext(p.request_address_width)
   def management_home = config.home_map.lookup(management_address)
   def maintenance_engines_drained = refill.command.ready & writeback.command.ready & !pending_mutation_valid & !snoop_reading
   def maintenance_lookups_drained = !s2_store_candidate.egress.valid & !s3_lookup.egress.valid & !s4_result.egress.valid & !service_responses.egress.valid
@@ -422,7 +423,7 @@ sync_circuit L1DCache(xlen :: XLen,
   // Buffered requests and hints are already physical; their page offsets are
   // the same index as the original VA. A fresh demand indexes directly by VA.
   def s2_index_address = priority_mux(~default: virtual_lookup.bits):
-    s2_queued: service_requests.egress.bits.address
+    s2_queued: service_requests.egress.bits.address.zext(width)
     s2_prefetch: prefetch_request.address
 
 
@@ -718,8 +719,8 @@ sync_circuit L1DCache(xlen :: XLen,
      miss owns no array port and need not block independent load hits. */
 
   def engines_idle = arrays_available & !miss_active & backing_engines_ready
-  def demand :: PhysicalMemoryBeatReq(xlen, Context, beat_bytes) = ordinary_requests.bits
-  def parked_same_line_waiter = ordinary_requests.valid & miss_active & demand.access.is_load_or_store() & (demand.address.align_down(CacheLineBytes) === retained_line_address)
+  def demand :: AddressedPhysicalMemoryBeatReq(xlen, Context, beat_bytes, retained_width) = ordinary_requests.bits
+  def parked_same_line_waiter = ordinary_requests.valid & miss_active & demand.access.is_load_or_store() & (demand.address.zext(width).align_down(CacheLineBytes) === retained_line_address)
   def service_order_clear = (!service_requests.egress.valid ||| parked_same_line_waiter) & !s3_lookup.egress.valid & !s4_result.egress.valid & !virtual_lookup.valid
   hit_path_available <== engines_idle & service_order_clear
   hit_under_miss <== miss_active & miss_allows_hits & arrays_available & service_order_clear & !snoop_pending & !(refill.completion.valid & miss_install)
@@ -736,25 +737,13 @@ sync_circuit L1DCache(xlen :: XLen,
   def array_read_set = array_read_address[offset_width..(offset_width + set_width)]
   def array_read_data_address = array_read_address[row_offset_width..(offset_width + set_width)]
   def s2_admit = !management_waiting & s3_can_advance & !s2_retry & stores.empty & !s2_store_candidate.egress.valid
-  core.request |> gate_flow(!core.request.valid ||| demand_fits) |> service_requests.ingress
-  // Admission checked the full address before queueing. Preserve the byte offset
-  // and every payload field, including the optional raw-row transfer mode.
-  wire admitted: AddressedPhysicalMemoryBeatReq(xlen, Context, beat_bytes, retained_width)
-  admitted.address <== demand.address[0..retained_width]
-  admitted.byte_mask <== demand.byte_mask
-  admitted.access <== demand.access
-  admitted.atomic <== demand.atomic
-  admitted.width <== demand.width
-  admitted.unsigned <== demand.unsigned
-  admitted.data <== demand.data
-  admitted.context <== demand.context
-  admitted.locality <== demand.locality
-  if beat_width > width
-  | admitted.raw_beat <== demand.raw_beat
-  | #void
-
-  def s2_demand = ordinary_requests |> map_flow(_request => L1DLookup(xlen, Context, beat_bytes, retained_width)):
-    request: admitted
+  def authorized = core.request |> gate_flow(!core.request.valid ||| demand_fits)
+  (authorized |> map_flow(payload):
+    def request :: PhysicalMemoryBeatReq(xlen, Context, beat_bytes) = payload
+    request.with_address_context(request.address[0..retained_width], request.context)
+  ) |> service_requests.ingress
+  def s2_demand = ordinary_requests |> map_flow(request => L1DLookup(xlen, Context, beat_bytes, retained_width)):
+    request: request
     prefetch: Bool(#false)
     prefetch_write: Bool(#false)
 

@@ -407,13 +407,22 @@ void check_retained_address(const Line &low, const Line &high) {
     response(Row{{low[0].words[0], low[0].words[1], 0, 0}});
     CHECK(core_out.preservation_uvalid);
 
+    // Neither a non-cacheable high bit within CHI nor a bit beyond CHI may
+    // alias the reserved line. The empty queue must stay empty on every edge.
+    until([] { return core_out.pdrained; });
     auto &req = core_in.prequest;
-    req.pbits.paddress = alias;
     req.pbits.paccess = sc;
     req.pvalid = 1;
-    eval();
-    CHECK(core_out.prequest_uaccess_ufault && !core_out.prequest.pready);
-    tick_model(); req.pvalid = 0;
+    for (const auto invalid : {alias, (UINT64_C(1) << 63) | base}) {
+      req.pbits.paddress = invalid;
+      for (unsigned cycle = 0; cycle < 6; ++cycle) {
+        eval();
+        CHECK(core_out.prequest_uaccess_ufault && !core_out.prequest.pready && core_out.pdrained);
+        CHECK(!chi_out.prequests.pvalid && !core_out.presponse.pvalid && core_out.preservation_uvalid);
+        tick_model();
+      }
+    }
+    req.pvalid = 0;
     for (unsigned cycle = 0; cycle < 140; ++cycle) {
       eval(); CHECK(!chi_out.prequests.pvalid && !core_out.presponse.pvalid && core_out.preservation_uvalid);
       tick_model();

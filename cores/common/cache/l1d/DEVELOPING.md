@@ -139,8 +139,8 @@ the response-only path for both make-invalid opcodes.
    a paired virtual read and physical resolution. Queued physical requests win
    the lookup port; unresolved virtual reads cannot produce a lookup token.
    Geometry rejection belongs to `../config.rhm`.
-   Check demand and hint addresses at full width before narrowing. S3, the
-   retained S4 request, and the LR reservation keep the complete byte address
+   Check demand and hint addresses at full width before narrowing. The demand
+   queue, S3, the retained S4 request, and the LR reservation keep the complete byte address
    through the highest byte in any data-cacheable region, capped by XLEN and
    the CHI request width. Instruction-only ROM and devices do not widen it.
    Preserve the existing SRAM tag, virtual index, and snoop widths. Zero-extend the stored

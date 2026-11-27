@@ -45,7 +45,9 @@ set checks examine the live physical slots without rotating the array. Write
 operands occupy a second ring: allocate on accepted Store/SC/AMO, release
 only when that descriptor leaves the head. Classification alone releases
 neither resource. Both use registered capacity; a full ring cannot borrow
-space from a simultaneous retirement.
+space from a simultaneous retirement. Check the full physical byte address
+before admitting a demand. Window ports and descriptors carry only the width
+required by cacheable data regions; zero-extend for wider tag comparisons.
 
 For multi-slot service, S2 issues the next unclassified entry in FIFO order to
 the same S3 tag lookup used by the head. The classified prefix stays in the
