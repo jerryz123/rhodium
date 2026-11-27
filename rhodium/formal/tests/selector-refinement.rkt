@@ -4,6 +4,7 @@
 (require rackunit racket/match "selector-binding.rhm" "arbiter-refinement.rkt" "../refinement.rkt" "../spec-engine.rkt"
          "../../../rspecl/proof.rkt"
          (only-in "../../../rspecl/runner.rkt" prove-design)
+         (only-in "composition-checks.rkt" without-child-proofs)
          (only-in "../../../rspecl/rtl-boundary.rhm" transaction_parts)
          (only-in "../spec.rhm" spec_snapshot step_spec)
          (only-in "composition-binding.rhm" arbitrated_capture capture_gate raw_capture duplicate_capture arbiter_definition circular_grants)
@@ -186,7 +187,9 @@
 (define selector-events (RegisteredLaneSelector #:transaction_view #t))
 (define selector-contract (derive-transaction verified-register registered_lane RegisteredLaneSelector))
 (test-case "the standalone selector proof retains exactly off-reset exclusivity"
-  (define result (prove-design registered_lane RegisteredLaneSelector))
+  (define result (prove-design registered_lane RegisteredLaneSelector #:children (hash)))
+  (check-exn #rx"#:children expected occurrences"
+             (lambda () (prove-design registered_lane RegisteredLaneSelector #:children (hash "extra" selector-contract))))
   (define premises (transaction-input-premises result selector-events))
   (check-equal? premises (transaction-input-premises selector-contract selector-events))
   (check-equal? (hash-keys premises) '("exclusive"))
@@ -216,6 +219,10 @@
   ;; Independent route: the handwritten cycle proof owns this projection, not the forwarding plan.
   (define cycle-gate (derive-transaction verified-gate capture_gate gate-events (hash "previous" "held")))
   (define premises (transaction-input-premises gate-contract gate-events))
+  (define cut (without-child-proofs GatedCapture capture_gate))
+  (check-equal? premises (transaction-input-premises
+                          (prove-design capture_gate cut #:children (hash "lanes" selector-contract)) gate-events))
+  (check-exn #rx"#:children expected occurrences" (lambda () (prove-design capture_gate cut #:children (hash))))
   (check-equal? premises (transaction-input-premises cycle-gate gate-events))
   (check-equal? premises (transaction-input-premises (prove-gate GatedCapture) gate-events))
   (define (allows? rst capture a b)
@@ -318,6 +325,7 @@
 (define (prove-gate-bit view under)
   (prove-transaction capture_gate view (hash "lanes" selector-contract) #:under under))
 (define gate-bit-contract (prove-gate-bit gate-bit-view GatedCapture))
+(define bit-children (hash "gate" gate-bit-contract "arb" strong-grants))
 (define (prove-from-bit top view)
   (prove-transaction top view (hash "gate" gate-bit-contract "arb" strong-grants)))
 
@@ -329,7 +337,10 @@
     (check-false (transaction-for? gate capture_gate gate-bit-view))
     (check-exn #rx"requires discharge on RTL input pins"
                (lambda () (transaction-step gate gate-bit-view (hash) (hash)))))
-  (check-zero-contract (prove-design arbitrated_capture arbitrated_capture_from_bit) zero_from_bit_view)
+  (define cut (without-child-proofs arbitrated_capture_from_bit arbitrated_capture))
+  (check-zero-contract (prove-design arbitrated_capture cut #:children bit-children) zero_from_bit_view)
+  (check-exn #rx"expected certified evidence for this transaction view"
+             (lambda () (prove-design arbitrated_capture cut #:children (hash "gate" strong-grants "arb" gate-bit-contract))))
   (check-zero-contract (prove-from-bit arbitrated_capture zero_from_bit_view) zero_from_bit_view))
 
 (test-case "conditional induction separates missing admission, false relation and infeasible coverage"
@@ -343,7 +354,7 @@
 
 (test-case "the one-bit child contract cannot establish exact nonzero readback"
   (check-exn #rx"step/previous-on-capture not proved"
-             (lambda () (prove-design arbitrated_capture faulty:exact_from_bit)))
+             (lambda () (prove-design arbitrated_capture faulty:exact_from_bit #:children bit-children)))
   (check-exn #rx"step/previous-on-capture not proved"
              (lambda () (prove-from-bit arbitrated_capture (faulty:exact_from_bit #:transaction_view #t)))))
 
@@ -384,6 +395,9 @@
     (define plan (spec arbitrated_capture #:proof_plan #t))
     (define (candidate _ #:proof_plan _requested) plan)
     (check-duplicated-grant (lambda () (prove-design duplicate_capture candidate))))
+  (check-duplicated-grant
+   (lambda () (prove-design duplicate_capture (without-child-proofs arbitrated_capture_from_bit arbitrated_capture)
+                            #:children bit-children)))
   (check-duplicated-grant (lambda () (prove-from-grants duplicate_capture transaction_zero_view strong-grants)))
   (check-duplicated-grant (lambda () (prove-from-bit duplicate_capture zero_from_bit_view))))
 

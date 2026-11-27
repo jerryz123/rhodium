@@ -21,14 +21,16 @@
            (only-in "../../../rspecl/proof.rkt" prove-transaction transaction-for?)
            (prefix-in observer: "fifo-observer-input.rkt")
            (only-in "queue-pair-refinement.rkt" queue-pair-seal-at)
-           (only-in "composition-checks.rkt" discharge require-feasible)
+           (only-in "composition-checks.rkt" discharge require-feasible without-child-proofs)
            (only-in racket/treelist treelist treelist->list)
            (only-in "../fifo-view.rhm" sample_fifo_events)
            (only-in "../fifo-monitor.rhm" fifo_monitor step_fifo_monitor))
 
   (define public (QueuePairSeries pair_series #:transaction_view #t))
+  (define cut (without-child-proofs QueuePairSeries pair_series))
+  (define children (hash "front" (queue-pair-seal-at 1) "back" (queue-pair-seal-at 2)))
   (test-case "the generic six-word seal proves the same ordinal theorem and does not promise ready"
-    (define seal (prove-design pair_series QueuePairSeries))
+    (define seal (prove-design pair_series cut #:children children))
     (check-true (transaction-for? seal pair_series public))
     (define reader (observer:observe-fifo-seal seal pair_series public))
     (check-equal? (observer:fifo-transactions-capacity reader) 6)
@@ -38,11 +40,13 @@
   (test-case "generic induction rejects the miswire, exchanged seals, and upstream-first history"
     (define small (queue-pair-seal-at 1))
     (define large (queue-pair-seal-at 2))
-    (define children (hash "front" small "back" large))
+    (check-exn #rx"attempted to reprove a child" (lambda () (prove-design pair_series cut)))
+    (for ([invalid (list (hash) (hash-remove children "back") (hash-set children "extra" small))])
+      (check-exn #rx"#:children expected occurrences" (lambda () (prove-design pair_series cut #:children invalid))))
     (check-exn #rx"expected front[.]consume driven by back[.]ready, got consume"
-               (lambda () (prove-transaction wrong_ready_series public children)))
+               (lambda () (prove-design wrong_ready_series cut #:children children)))
     (check-exn #rx"expected certified evidence for this transaction view"
-               (lambda () (prove-transaction pair_series public (hash "front" large "back" small))))
+               (lambda () (prove-design pair_series cut #:children (hash "front" large "back" small))))
     (check-exn #rx"step/(allowed|retire-oldest|successor) not proved"
                (lambda () (prove-transaction pair_series (reversed_series pair_series) children))))
 

@@ -48,29 +48,46 @@
             (&& (edge-defined actual) (edge-defined transfers))))
   (prove-leaf top cycle interface_prefixes observe #:relation (and relation related)))
 
-#| Resolve declared specs on actual RTL definitions. Share successful proofs by identity
-   only within this call; the induction still allocates independent histories per occurrence. |#
-(define (prove-design top specification)
+(define automatic-children (gensym 'automatic-children))
+
+#| Prove the top using either an exact map of immediate child seals or recursive certification.
+   Each cut still checks its RTL occurrences and allocates independent histories. |#
+(define (prove-design top specification #:children [supplied automatic-children])
+  (unless (or (eq? supplied automatic-children) (hash? supplied))
+    (raise-argument-error 'prove-design "occurrence-to-contract hash for #:children" supplied))
   (define proved (make-hasheq))
   #| Dispatch on checked proof data, never the circuit name, depth, or endpoint protocol. |#
-  (define (visit definition spec)
+  (define (visit definition spec [children automatic-children])
+    #| In supplied mode even an empty map is authoritative: no missing site is proved on demand. |#
+    (define (check-sites sites)
+      (unless (or (eq? children automatic-children)
+                  (and (= (length sites) (hash-count children))
+                       (andmap (lambda (site) (hash-has-key? children site)) sites)))
+        (error 'prove-design "#:children expected occurrences ~a; received ~a" sites (hash-keys children))))
+    #| Issuers below validate the seal's view, physical specialization and premises in both modes. |#
+    (define (child-seal site child child-spec)
+      (if (eq? children automatic-children) (visit child child-spec) (hash-ref children site)))
     (hash-ref! (hash-ref! proved definition make-hasheq) spec
       (lambda ()
         (match (spec definition #:proof_plan #t)
           [(list "leaf" root cycle view projection hints)
+           (check-sites '())
            (derive-transaction (prove-rtl-cycle definition root cycle view hints) definition view projection)]
           [(list "adjacent" view cycle-spec)
+           (check-sites '())
            (match (cycle-spec definition #:proof_plan #t)
              [(list "leaf" root cycle base _ hints)
               (derive-transaction (prove-rtl-cycle definition root cycle base hints) definition view 'adjacent-samples)]
              [_ (error 'prove-design "adjacent samples require a proved RTL cycle leaf")])]
           [(list "forward" contract site child-spec requirement)
+           (check-sites (list site))
            (define child (child_definition definition site))
-           (prove-forwarded-transaction definition contract site (visit child child-spec)
+           (prove-forwarded-transaction definition contract site (child-seal site child child-spec)
                                         (child-spec child #:transaction_view #t) #:requires requirement)]
-          [(list "parent" view children requirement suppliers domain)
+          [(list "parent" view bindings requirement suppliers domain)
+           (check-sites (hash-keys bindings))
            (prove-transaction definition view
-             (for/hash ([(site binding) children])
+             (for/hash ([(site binding) bindings])
                (match-define (list child child-spec) binding)
-               (values site (visit child child-spec))) #:requires requirement #:suppliers suppliers #:under domain)]))))
-  (visit top specification))
+               (values site (child-seal site child child-spec))) #:requires requirement #:suppliers suppliers #:under domain)]))))
+  (visit top specification supplied))

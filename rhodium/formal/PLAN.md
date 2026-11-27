@@ -89,6 +89,8 @@ treat a matching batch schema as proof that two monitors agree.
    proves the one-bit zero/nonzero readback monitor from those two child contracts.
    GatedCapture can export just the bit under the same input premise; with that
    child contract, ArbitratedCapture can prove zero/nonzero but not exact readback.
+   ArbitratedCapture and QueuePairSeries also run from a supplied map of
+   immediate-child seals. The parent checks its cut without invoking any child proof.
    Keep the handwritten harnesses as
    differential oracles. For parents, drive the
    existing generic obligations from the spec's declared child views and

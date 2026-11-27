@@ -372,7 +372,9 @@ generic runner: its only child evidence is from the two actual QueuePair
 specializations. The [standalone proof](../../examples/formal/prove-queue-pair-series.rhm)
 does not import the handwritten issuer's test harness. The [series regression](tests/queue-pair-series.rkt)
 keeps that oracle and feeds both six-word results to the same ordinal observer.
-It checks exchanged seals, the wrong ready driver, and an upstream-first relation.
+For `#:children`, disable child proof-plan requests in the test, supply both
+seals, and check the same observer. Keep missing, extra and exchanged seals,
+the wrong ready driver, and the upstream-first relation as separate failures.
 Its separate full-RTL replay runs the same declared parent sampler in
 rspecsim and sends the resulting
 batches to the concrete monitor, including refusal on

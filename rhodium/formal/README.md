@@ -180,7 +180,20 @@ To use two proved parents as children, run the [six-word example](../../examples
 PLTCOLLECTS="$PWD": tools/run-racket.sh examples/formal/prove-queue-pair-series.rhm
 ```
 
-Its [series spec](../../examples/formal/queue-pair-series.rspl) checks the middle
+If `front` and `back` are already proved for this elaboration, pass their
+seals by RTL occurrence name:
+
+```rhombus
+prove_design(top, spec.QueuePairSeries, ~children: {"front": front, "back": back})
+```
+
+In Racket the keyword is `#:children`. Omitting it selects recursive proof.
+Supplying it disables child proof for this call: missing and extra names are
+errors, and each seal must match the actual RTL definition and declared public
+view. The parent still proves its wiring, discharges child premises at the pins,
+and checks its own contract. No grandchildren or persistent cache are needed.
+
+The [series spec](../../examples/formal/queue-pair-series.rspl) checks the middle
 valid, data, and reverse-ready wires. It puts the downstream pair's pending words
 before the upstream pair's: an internal transfer moves a word between them
 without changing the combined sequence. The series proof does not inspect
@@ -312,8 +325,9 @@ refinement:
   forward queue: ArbiterQueue
 ```
 
-`prove_design` proves that occurrence's contract and compares the parent
-and child batches on the same RTL edge for arbitrary local register values.
+`prove_design` obtains that occurrence's contract recursively or from the
+supplied map. It compares the parent and child batches on the same RTL edge
+for arbitrary local register values.
 Their pins may differ (a closed gate masks valid and ready); the sampled
 fields must agree, and the monitor's initial state, guarantees and updates
 must be identical. This proves forwarding, not the parent's cycle timing.
@@ -403,8 +417,9 @@ To export **only the zero bit** from the gate itself, its monitor-only
 original GatedCapture spec. The standalone proofs use:
 
 ```racket
-(prove-design gate-top zero_gate)
-(prove-design top arbitrated_capture_from_bit)
+(define gate-bit (prove-design gate-top zero_gate))
+(define grant-proof (prove-design arbiter-top Arbiter))
+(prove-design top arbitrated_capture_from_bit #:children (hash "arb" grant-proof "gate" gate-bit))
 ```
 
 `under` imports only the declaration's named input predicates on the same RTL
