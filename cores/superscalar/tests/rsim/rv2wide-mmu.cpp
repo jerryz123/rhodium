@@ -173,8 +173,11 @@ void crossing_probe(std::uint64_t va, bool store, unsigned ppn, unsigned last_pp
   CHECK(vector_fast_out.presponse.pvalid && vector_fast_out.pneeds_ulast);
   auto first = vector_fast_out.presponse.pbits;
   CHECK(first.pppn == ppn && !physical_valid);
+  CHECK(first.prange.plast == ((va | 4095) + 8) && first.prange.pstore == store);
   tick_model();
   vector_fast_in.pcandidate = first;
+  // A partial proof has no second PPN. WB must probe the saved last VA.
+  vector_fast_in.pcandidate.plast_uppn = 0xdead;
   vector_fast_in.pfinish = 1;
   vector_fast_in.prequest = {1, {va, va, !store}};
   eval();
@@ -1114,6 +1117,11 @@ int main() {
       if (bad_second)
         walk_at(0x501007, (alias_ppn << 10) | 0xcf);
       accept_window(false);
+      if (bad_second) {
+        // First translation is high cacheable RAM; the second PA aliases
+        // low RAM only if the checker narrows it before checking PMA.
+        crossing_probe(0x500ff8, false, high_ram_ppn, 0, false);
+      }
       release_window();
     }
     // A single 2 MiB leaf proves both translations, not both PMAs.
@@ -1133,15 +1141,17 @@ int main() {
       release_window();
     }
     // The last page of a 64 KiB NAPOT leaf cannot certify the next VA.
-    // It maps through a separate PTE to 4 GiB, not to adjacent PA 0x20000.
+    // WB needs the original upper-half VA for the separate PTE mapping to 4 GiB.
     fence();
-    start_window(0x50fff8, 0x510007);
-    walk_at(0x50fff8, (UINT64_C(1) << 63) | (UINT64_C(0x18) << 10) | 0xcf);
-    walk_at(0x510007, (high_ram_ppn << 10) | 0xcf);
+    constexpr auto upper = UINT64_C(0xffffffc000000000);
+    start_window(upper + 0x50fff8, upper + 0x510007);
+    walk_at(upper + 0x50fff8, (UINT64_C(1) << 63) | (UINT64_C(0x18) << 10) | 0xcf);
+    walk_at(upper + 0x510007, (high_ram_ppn << 10) | 0xcf);
     accept_window(true);
+    crossing_probe(upper + 0x50fff8, false, 0x1f, high_ram_ppn, true);
     vector_access = 1;
-    data_hit(0x50fff8, 0x1fff8);
-    data_hit(0x510000, high_ram_ppn << 12);
+    data_hit(upper + 0x50fff8, 0x1fff8);
+    data_hit(upper + 0x510000, high_ram_ppn << 12);
     vector_access = 0;
     release_window();
 
@@ -1152,6 +1162,11 @@ int main() {
     accept_window(true);
     crossing_probe(0x500ff8, false, 22, high_ram_ppn, true);
     crossing_probe(0x500ff8, true, 22, high_ram_ppn, true);
+    vector_fast_in.prequest = {1, {0x501001, 0x501fff, false}};
+    eval(); CHECK(vector_fast_out.presponse.pvalid && !vector_fast_out.pneeds_ulast);
+    CHECK(vector_fast_out.presponse.pbits.pppn == high_ram_ppn &&
+          vector_fast_out.presponse.pbits.plast_uppn == high_ram_ppn);
+    vector_fast_in.prequest.pvalid = 0;
     // Replace all eight DTLB entries while the vector window owns both pages.
     for (unsigned page = 0; page < 8; ++page) {
       const unsigned va = 0x700000 + page * 4096;

@@ -51,7 +51,7 @@ sync_circuit VectorWindow(physical_map :: RiscvPhysicalMemoryMap):
      not the translated addresses used for both endpoint permission checks. */
 
   def cacheable_width = physical_map.address_width_for(fun (attributes): attributes.cacheable)
-  def ppn_width = math.max(1, math.min(VectorPageNumber.packed_width(), cacheable_width - VectorPageOffsetBits))
+  def ppn_width = vector_ppn_width(cacheable_width)
   reg state(~init: VectorWindowState.Idle)
   reg first(Bits(64))
   reg last_offset(Bits(VectorPageOffsetBits))

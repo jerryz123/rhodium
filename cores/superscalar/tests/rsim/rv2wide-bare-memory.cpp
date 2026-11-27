@@ -264,7 +264,14 @@ int main() {
     }
     for (bool store : {false, true}) {
       vector_fast_in.prequest = {1, {0x10ff8, 0x11007, store}};
-      eval(); CHECK(vector_fast_out.presponse.pvalid && vector_fast_out.presponse.pbits.pppn == 0x10);
+      eval(); CHECK(vector_fast_out.presponse.pvalid && !vector_fast_out.pneeds_ulast);
+      CHECK(vector_fast_out.presponse.pbits.pppn == 0x10 && vector_fast_out.presponse.pbits.plast_uppn == 0x11);
+      // Both low pages are cacheable. Neither a bit just above the map nor
+      // one above the architectural PA width may disappear before admission.
+      for (auto tag : {UINT64_C(1) << 17, UINT64_C(1) << 56}) {
+        vector_fast_in.prequest = {1, {tag | 0x10ff8, tag | 0x11007, store}};
+        eval(); CHECK(!vector_fast_out.presponse.pvalid && !physical_valid);
+      }
       vector_fast_in.prequest = {1, {0x1fff8, 0x20007, store}};
       eval(); CHECK(!vector_fast_out.presponse.pvalid && !physical_valid);
       vector_fast_in.prequest = {1, {0x10008, 0x100ff, store}};

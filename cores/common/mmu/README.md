@@ -129,7 +129,8 @@ map to adjacent physical pages.
 [`VectorCertificate`](vector-certificate.rhdl) implements that fast proof check.
 It selects the MEM or WB probe address and access kind. The caller supplies the
 demand-permission-checked translation and normal data context. A MEM response
-with `needs_last` is only a first-page proof.
+with `needs_last` is only a first-page proof: its `last_ppn` is not a
+translation. The continuation uses the original `range.last` virtual address.
 Its surviving owner presents it as `candidate` with `finish` in WB. Both
 pages must pass the original access's permission, PBMT and full-page PMA
 checks; a failed continuation grants no access and does not allocate a walk.

@@ -49,14 +49,19 @@ sync_circuit VectorCertificate(xlen :: XLen, physical_map :: RiscvPhysicalMemory
   def identity = if bare | Bool(#true) | (current.context.vs_mode === RiscvVSMode.Bare) & (!current.virtualized ||| (current.context.g_mode === RiscvGMode.Bare))
   def range_permitted = same_page ||| !identity ||| (riscv_bare_address_fits(span.last) & vector_page_permitted(physical_map, span.last.align_down(VectorPageBytes), span.store))
   def checked_page = translation_permitted & page_permitted
+
+  // The permission checks use full addresses. Only cacheable pages can leave this proof.
+  def ppn_width = vector_ppn_width(physical_map.address_width_for(fun (attributes): attributes.cacheable))
+  def ppn = vector_page_number(address)[0..ppn_width]
   check.last_page.valid <== finishing & current_epoch & checked_page
-  check.last_page.bits <== vector_page_number(address)
+  check.last_page.bits <== ppn.zext(VectorPageNumber.packed_width())
   check.needs_last <== !same_page & !identity
   def proof = check.request |> filter_valid(_range => !finishing & !invalidate & checked_page & range_permitted)
   (proof |> map_valid(range => VectorFastCertificate(xlen)):
     range: range
-    ppn: vector_page_number(address)
-    last_ppn: mux(same_page, vector_page_number(address), vector_page_number(range.last))
+    ppn: ppn.zext(VectorPageNumber.packed_width())
+    // A translated crossing carries only the checked first PPN until WB probes range.last.
+    last_ppn: mux(identity & !same_page, vector_page_number(range.last)[0..ppn_width], ppn).zext(VectorPageNumber.packed_width())
     virtualized: if bare | Bool(#false) | current.virtualized
     context: if bare | literal(RiscvGuestTranslationContext(), 0) | current.context
     invalidation_epoch: epoch

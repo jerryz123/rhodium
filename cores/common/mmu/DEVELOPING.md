@@ -91,6 +91,9 @@ Preserve these invariants when extending the components:
   all mapped regions, including devices. Only successful mappings consume
   the page; fault and guest provenance do not come from this compact PPN.
 - `VectorCertificate` owns only the epoch register and combinational proof.
+  Bound its PPN payloads by the cacheable map only after checking the full
+  addresses. A translated crossing keeps the full last VA until WB supplies
+  the independently checked second PPN; never treat its VPN as a physical page.
   Its Bare specialization uses the full 64-bit identity address for PMA checks
   before extracting PPN, emits zero/nonvirtual context, and compares only
   candidate epochs. Do not strengthen Bare validation with unused context bits.
