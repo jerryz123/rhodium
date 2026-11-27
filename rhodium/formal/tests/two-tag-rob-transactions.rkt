@@ -3,19 +3,17 @@
 ;; SPDX-License-Identifier: Apache-2.0
 
 (require rackunit "composition-checks.rkt"
+         (only-in "../../../rspecl/runner.rkt" prove-design)
          "../../../rspecl/proof.rkt" (only-in "../../../examples/formal/two-tag-rob.rspl" TwoTagROB)
-         (only-in "refinement-hints.rspl" bad_hint)
-         (only-in "arbiter-queue-transactions.rkt" verified-arbiter-queue-transactions-at)
          (only-in "../refinement.rkt" symbolic-fifo-cut fifo-cut-inputs fifo-cut-outputs fifo-cut-locals
                   fifo-cut-batch fifo-cut-domain fresh-fifo-history fifo-allows?)
          (only-in "../spec-engine.rkt" edge-state edge-next)
          (only-in "../../frontend/layers/bool.rhm" Bool)
-         (only-in "composition-binding.rhm" rob faulty_rob unchecked_rob swapped_rob pin_layout))
+         (only-in "composition-binding.rhm" rob faulty_rob unchecked_rob swapped_rob noncanonical_rob parent_at pin_layout))
 (provide verified-rob-transactions)
 
-(define child (verified-arbiter-queue-transactions-at 2))
 (define view (TwoTagROB rob #:transaction_view #t))
-(define verified-rob-transactions (prove-transaction rob view child))
+(define verified-rob-transactions (prove-design rob TwoTagROB))
 
 ;; Chain actual local edges and allowed FIFO successors, starting with arbitrary state
 ;; and a sampled reset. Request specific grants as coverage, never as induction premises.
@@ -80,11 +78,20 @@
                  (bveq (output 7 "retire_result") (bv (if swapped? 1 3) 2)))))
 
 (module+ test
+  (require (only-in "../../../examples/formal/arbiter-queue.rspl" ArbiterQueue)
+           (only-in "refinement-hints.rspl" bad_hint)
+           (only-in "arbiter-queue-transactions.rkt" verified-arbiter-queue-transactions-at))
+  (define cuts (hash "order" (prove-design (parent_at 2) ArbiterQueue)))
+  ;; Only the independent trace oracle uses the old FIFO transition.
+  (define child (verified-arbiter-queue-transactions-at 2))
   (test-case "the same real RTL cannot certify an incorrect reset or successor relation"
     (define other (bad_hint #f))
-    (check-exn #rx"reset/initial not proved" (lambda () (prove-transaction rob (bad_hint #t) child)))
-    (check-exn #rx"step/successor not proved" (lambda () (prove-transaction rob other child)))
+    (check-exn #rx"reset/initial not proved" (lambda () (prove-transaction rob (bad_hint #t) cuts)))
+    (check-exn #rx"step/successor not proved" (lambda () (prove-transaction rob other cuts)))
     (check-exn #rx"expected certified evidence" (lambda () (transaction-step verified-rob-transactions other (hash) (hash)))))
+  (test-case "the actual child specialization determines the type of its public history"
+    (check-exn #rx"unknown or mistyped child monitor state: q"
+               (lambda () (prove-transaction rob (bad_hint #f 1) cuts))))
   (test-case "TwoTagROB retirement safety without child cycle state or offers"
     (check-true (transaction-for? verified-rob-transactions rob view))
     (check-false (transaction-for? verified-rob-transactions swapped_rob view))
@@ -93,14 +100,16 @@
                (lambda () (transaction-step child view (hash) (hash)))))
   ;; This mutant preserves FIFO order: it can retire the oldest A merely because B completed.
   (test-case "any-done fails the head's own prior completion, not oldest-first order"
-    (check-exn #rx"step/completed-before-retirement not proved" (lambda () (prove-transaction faulty_rob view child))))
+    (check-exn #rx"step/completed-before-retirement not proved" (lambda () (prove-transaction faulty_rob view cuts))))
   (test-case "reset, issue A, issue B, complete only B, then try to retire A"
     (younger-only-trace rob child #f)
     (younger-only-trace faulty_rob child #t))
   (test-case "a wrong-generation pulse cannot be recorded as completion"
-    (check-exn #rx"step/successor not proved" (lambda () (prove-transaction unchecked_rob view child))))
+    (check-exn #rx"step/successor not proved" (lambda () (prove-transaction unchecked_rob view cuts))))
   (test-case "swapped banks preserve tag safety but return the other allocation's payload"
-    (check-exn #rx"step/retired-payload not proved" (lambda () (prove-transaction swapped_rob view child))))
+    (check-exn #rx"step/retired-payload not proved" (lambda () (prove-transaction swapped_rob view cuts))))
+  (test-case "a noncanonical A word decodes as A but fails the tag representation invariant"
+    (check-exn #rx"step/successor not proved" (lambda () (prove-transaction noncanonical_rob view cuts))))
   (test-case "reverse completions survive matching duplicates during a stall"
     (reverse-payload-trace rob child #f)
     (reverse-payload-trace swapped_rob child #t)))

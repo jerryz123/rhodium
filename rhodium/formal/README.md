@@ -72,8 +72,8 @@ Completing B while an unfinished A is ahead of it cannot retire either tag.
 A retired tag becomes eligible for reissue on the next edge; synchronous reset
 discards outstanding work and restarts both generation sequences at zero.
 
-The [transaction-only retirement proof](tests/two-tag-rob-transactions.rkt)
-establishes a narrower guarantee using only the child FIFO contract: at most
+The [standalone retirement proof](../../examples/formal/prove-two-tag-rob.rhm)
+establishes a narrower guarantee using only ArbiterQueue’s public contract: at most
 two granted tags are outstanding. Each retirement is the oldest outstanding
 grant, and its `retire_result` equals the payload of **that allocation's first
 matching-generation completion** on an earlier edge. Later pulses cannot
@@ -81,12 +81,13 @@ replace it, even while retirement is stalled. This proof checks data on
 transfer only; grant priority and stability of a stalled offer remain cycle claims.
 
 The [ROB spec](../../examples/formal/two-tag-rob.rspl) describes the implementation
-relation alongside the monitor. With the elaborated RTL `top` and the existing
-FIFO evidence for its child, use the [shared proof API](../../rspecl/proof.rkt):
+relation alongside the monitor. It proves that every live word in the child's
+queue history encodes A or B. Starting with the elaborated RTL `top`, the
+[generic runner](../../rspecl/runner.rkt) proves the child and then the ROB:
 
 ```racket
 (define view (TwoTagROB top #:transaction_view #t))
-(define evidence (prove-transaction top view child-evidence))
+(define evidence (prove-design top TwoTagROB))
 (define-values (permitted next) (transaction-step evidence view old-state batch))
 ```
 

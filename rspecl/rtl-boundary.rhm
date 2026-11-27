@@ -189,6 +189,20 @@ class TransactionView(sampler :: LeafModel, monitor :: LeafModel, cycle_names ::
                       outputs :: Map, bindings :: Map, hints :: maybe(PairList) = #false):
   field batch = if bindings.length() > 0 | project_batch(sampler, monitor.inputs, bindings) | #false
 
+/* A detached public monitor has no occurrence from which to read a parameterized child's signature. */
+class OccurrenceSpec(build :: Function)
+
+/* Check history declarations against public monitor state, once the child has a concrete signature. */
+fun check_histories(inputs :: Map, cuts :: Map):
+  for ((k, t) in inputs):
+    when k.starts_with("history.")
+    | block:
+        let [_, site, field] = k.split(".")
+        def cut = cuts[site]
+        unless cut is_a OccurrenceSpec
+               || (cut is_a TransactionView && cut.monitor.state.has_key(field) && spec_type_equal(t, cut.monitor.state[field]))
+        | error("unknown or mistyped child monitor state: " ++ field)
+
 /* Attach data, never a proof callback. The relation model can mention only child and register state;
    pin-dependent checks and coverage live in a different model that cannot constrain induction. */
 fun attach_refinement(view :: TransactionView, sites :: PairList, cuts :: Map, relation :: LeafModel, checks :: LeafModel,
@@ -199,18 +213,12 @@ fun attach_refinement(view :: TransactionView, sites :: PairList, cuts :: Map, r
   | error("relate every monitor state field exactly once")
   for ((k, f) in relation.outputs):
     unless spec_type_equal(f.value.type, view.monitor.state[k]) | error("relation type mismatch: " ++ k)
-  for ((k, t) in relation.inputs):
-    when k.starts_with("history.")
-    | block:
-        let [_, site, field] = k.split(".")
-        def cut = cuts[site]
-        unless cut is_a TransactionView && cut.monitor.state.has_key(field) && spec_type_equal(t, cut.monitor.state[field])
-        | error("unknown or mistyped child monitor state: " ++ field)
+  check_histories(relation.inputs, cuts)
   for (table in [view.monitor.outputs, relation.events, checks.outputs, checks.events]):
     for ((name, f) in table):
       unless f.value.type is_a SpecBool | error("expected Boolean refinement predicate: " ++ name)
   TransactionView(view.sampler, view.monitor, view.cycle_names, view.inputs, view.outputs, view.bindings,
-                  PairList[sites, cuts, spec_snapshot(relation), spec_snapshot(checks), direct])
+                  PairList[sites, cuts, relation, spec_snapshot(checks), direct])
 
 /* Return only the direct instance definition from the elaborated parent. */
 fun child_definition(top :: Module, site :: String):
@@ -236,17 +244,23 @@ fun checked_leaf_hints(cycle :: LeafModel, relation :: LeafModel, physical :: Le
       unless field.value.type is_a SpecBool | error("expected a Boolean RTL predicate: " ++ name)
   PairList[synchronous && spec_snapshot(relation), spec_snapshot(physical)]
 
-/* Specialize against the actual occurrence's definition. Detached declarations may use only
-   a child contract that is itself available without an elaborated top. */
+/* Specialize each child at its occurrence; a detached view can already check fixed child schemas. */
 fun child_transaction(top :: maybe(Module), site :: String, spec :: Function):
   cond
   | top:
       spec(child_definition(top, site), ~transaction_view: #true)
-  | ~else: spec(~transaction_view: #true)
+  | spec is_a Function.of_arity(0): spec(~transaction_view: #true)
+  | ~else: OccurrenceSpec(spec)
 
-/* Read only the checked hint schemas and expressions; this is not reusable evidence. */
-fun refinement_parts(view :: TransactionView):
-  view.hints || error("transaction view has no refinement block")
+/* Resolve any deferred signatures on this RTL and type-check the relation before exposing proof data. */
+fun refinement_parts(view :: TransactionView, top :: Module, site_override :: maybe(String)):
+  let PairList[sites, cuts, relation, checks, direct] = view.hints || error("transaction view has no refinement block")
+  def bound = for Map ((site, cut) in cuts):
+    values(site, if cut is_a OccurrenceSpec
+                 | (cut.build)(child_definition(top, site_override || site), ~transaction_view: #true) :: TransactionView
+                 | cut)
+  check_histories(relation.inputs, bound)
+  PairList[sites, bound, spec_snapshot(relation), checks, direct]
 
 /* Conjoin public behaviors on one flat event vocabulary, without carrying either one's implementation
    hints. Shared pin and event definitions must agree; histories and named guarantees have one owner. */

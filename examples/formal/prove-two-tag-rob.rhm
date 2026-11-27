@@ -1,0 +1,13 @@
+#lang rhombus
+/* Proves TwoTagROB's ordered retirement and first matching payload from RTL and public child contracts. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("rspecl/runner.rkt").prove_design
+  "two-tag-rob.rhdl" as rtl
+  "two-tag-rob.rspl" as spec
+
+module main:
+  def seal = prove_design(elaborate(rtl.TwoTagROB()).top, spec.TwoTagROB)
+  println("Proved TwoTagROB retirement order and first matching-generation payload (two live tags)")

@@ -589,10 +589,15 @@ has the same effect as no pulse, leaving the other lane's traffic unrestricted.
 The ignore-generation mutant must fail preservation and retire stale A0 data
 during A1. A second reuse shows why the alternating bit cannot protect A2 from A0.
 
-The [ROB transaction regression](tests/two-tag-rob-transactions.rkt) shares
-`symbolic-fifo-cut` with the gated proof. Only the parent RTL has an executable
-edge; the child supplies a sampler domain and FIFO relation on arbitrary
-history successors. The [issuer](../../rspecl/proof.rkt) evaluates the two
+The [standalone ROB proof](../../examples/formal/prove-two-tag-rob.rhm) uses
+`prove-design` to seal the actual `order` occurrence. In the ROB induction,
+only the parent's RTL executes: its relation reads the child's public `q`,
+checks that each live word is 0 or 1, and maps those words to ordered tags.
+A detached monitor keeps its public identity; when a child needs RTL parameters,
+its history schema is checked against the concrete occurrence before induction.
+The [regression](tests/two-tag-rob-transactions.rkt) keeps a separate FIFO-cut
+trace oracle for the younger-only and reverse-completion replays.
+The [issuer](../../rspecl/proof.rkt) evaluates the two
 hint models generated from `refinement:`: a state-only projection and a
 separate model for pin checks and coverage. Start with arbitrary physical state;
 reset must relate the physical successor both to the monitor's declared initial

@@ -237,7 +237,7 @@
      (prove-fifo-series-refinement view children)]
     [else
      (define premises (declared-premises top parent-spec))
-     (match-define (list sites cuts relation checks direct) (refinement_parts view))
+     (match-define (list sites cuts relation checks direct) (refinement_parts view top implementation-site))
      (define single? (= 1 (length sites)))
      (when (and implementation-site (not single?)) (error 'refinement "site override requires one child"))
      ;; The original single-seal calling convention asks for a forwarded batch proof.

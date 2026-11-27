@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import "two-tag-rob.rhdl" as rtl
+import "arbiter-queue.rspl".ArbiterQueue
 import "ordered-retirement.rspl".ordered_retirement
 
 spec for rtl.TwoTagROB:
@@ -10,13 +11,23 @@ spec for rtl.TwoTagROB:
 
   // Private induction hints, not statements that a consumer may assume about this RTL.
   refinement:
-    fifo tags from order: Seq(Bool, 2)
+    child order: ArbiterQueue
+    history words from order.q: Seq(Bits(2), 2)
     local (busy_a, busy_b, gen_a, gen_b, done_a, done_b): Bool
     local (saved_a, saved_b): Bits(2)
-    let live = !empty(tags)
-    let two = full(tags)
-    let head = select(live, front(tags), #false)
-    let last = select(two, front(tail(tags)), #false)
+    let live = !empty(words)
+    let two = full(words)
+    let zero = const(Bits(2), 0)
+    let one = const(Bits(2), 1)
+    let first_word = select(live, front(words), zero)
+    let last_word = select(two, front(tail(words)), zero)
+    let head = bits_equal(first_word, one)
+    let last = bits_equal(last_word, one)
+    // Only 0 (A) and 1 (B) may enter the order queue. Prove this before interpreting words as tags.
+    invariant tag_encoding = (bits_equal(first_word, zero) || head) && (bits_equal(last_word, zero) || last)
+    let vacant = const(Seq(Bool, 2), [])
+    let prefix = select(live, append(vacant, head), vacant)
+    let tags = select(two, append(prefix, last), prefix)
     invariant unique = !two || select(head, !last, last)
     let has_a = (live && !head) || (two && !last)
     let has_b = (live && head) || (two && last)

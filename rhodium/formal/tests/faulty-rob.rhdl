@@ -7,7 +7,7 @@ import:
 
 // Select exactly one broken behavior while preserving the public completion protocol.
 sync_circuit FaultyROB(fault :: String):
-  unless fault in {"any-done", "swapped", "ignore-generation"} | error("unknown ROB fault")
+  unless fault in {"any-done", "swapped", "ignore-generation", "noncanonical"} | error("unknown ROB fault")
   input (issue_a, issue_b, complete_a, complete_b): Bool
   input (complete_gen_a, complete_gen_b): Bool
   input (result_a, result_b): Bits(2)
@@ -38,7 +38,7 @@ sync_circuit FaultyROB(fault :: String):
 
   inst order(ArbiterQueue(2, ~depth: 2))
   order.ingress[0].valid <== issue_a & !busy_a
-  order.ingress[0].bits <== Bits(2)(0)
+  order.ingress[0].bits <== Bits(2)(if fault == "noncanonical" | 2 | 0)
   order.ingress[1].valid <== issue_b & !busy_b
   order.ingress[1].bits <== Bits(2)(1)
   def issued_a = order.ingress[0].fire()

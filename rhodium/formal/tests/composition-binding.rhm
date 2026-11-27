@@ -31,7 +31,7 @@ import:
 
 export mark_leaf toggle_leaf mark_pair crossed_marks
 export stall_sink stall_wrapper stall_parent changing_offer transfer_only_wrapper
-export rob faulty_rob swapped_rob unchecked_rob
+export rob faulty_rob swapped_rob unchecked_rob noncanonical_rob
 export renamed_logged_rob logged_rob valid_only_logged_rob miswired_logged_rob
 export selector granted_selector raw_selector
 export router routed_selector duplicate_grant high_grant circular_grants
@@ -64,6 +64,7 @@ def mutable logged_rob = #false
 def mutable valid_only_logged_rob = #false
 def mutable miswired_logged_rob = #false
 def mutable unchecked_rob = #false
+def mutable noncanonical_rob = #false
 def mutable swapped_rob = #false
 def mutable faulty_rob = #false
 def mutable undersized = #false
@@ -142,6 +143,7 @@ fun inventory():
   faulty_rob := materialize_circuit(FaultyROB("any-done"))
   swapped_rob := materialize_circuit(FaultyROB("swapped"))
   unchecked_rob := materialize_circuit(FaultyROB("ignore-generation"))
+  noncanonical_rob := materialize_circuit(FaultyROB("noncanonical"))
   undersized := materialize_circuit(Undersized(2))
   ArbiterQueue(2)
 def mixed = elaborate(inventory()).top

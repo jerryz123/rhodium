@@ -35,7 +35,7 @@ procedure, evidence type, or knowledge of a grandchild to obtain a proof.
 | [FIFO behavior](fifo-monitor.rhm) builds a bounded sequence monitor by hand. The [view binder](fifo-view.rhm) recognizes that exact monitor; the [language](../../rspecl/language.rhm) treats the combination of events and transactions as FIFO-specific. | A parameterized, importable `.rspl` monitor and pin-sampling helpers. The owning spec chooses them explicitly. No FIFO opcode, reserved history name, or second spec for the same module. |
 | [Series and wrapper issuers](refinement.rkt) know about FIFO evidence, upstream/downstream order, and transfer transport. [QueuePair](../../examples/formal/queue-pair.rspl) and [QueuePairSeries](../../examples/formal/queue-pair-series.rspl) express these facts in RSPECL; other consumers still use specialized issuers. | The parent's private `refinement:` names child occurrences, projects their public histories, and declares the handoff to check. Ordinary monitor induction or exact forwarding issues the result. Keep physical wiring checks; do not replace them with an assumed internal event. |
 | [ShiftQueue](../../examples/formal/shift-queue.rspl) owns both its RTL-to-cycle and cycle-to-monitor relations. Its [handwritten oracle](tests/shift-queue-induction.rkt) is independent. | Use this split when porting other leaves: register encodings and physical observation rules belong in checked spec hints, not the runner. Keep coverage, fault injection and replay in tests. |
-| [TwoTagROB](../../examples/formal/two-tag-rob.rspl) already owns its generation, ownership and payload invariants; the [logged parent](../../examples/formal/logged-two-tag-rob.rspl) consumes public history. The ROB still imports its tag order via the privileged FIFO cut. The [stall harness](tests/stalled-offer.rkt) still selects the supplier and forwarding strategy. | Keep the existing ROB semantics in RSPECL. Replace the FIFO cut with an ordinary typed child history, proving any tag conversion on live entries. Move wiring roles and required/provided view choices into private spec declarations; the caller supplies seals, not a proof script. |
+| [TwoTagROB](../../examples/formal/two-tag-rob.rspl) derives its tag order from typed child history; the [logged parent](../../examples/formal/logged-two-tag-rob.rspl) consumes public retirement history. The [stall harness](tests/stalled-offer.rkt) still selects the supplier and forwarding strategy. | Keep tag conversion and generation, ownership and payload invariants in RSPECL. Move wiring roles and required/provided view choices into private spec declarations; the caller supplies seals, not a proof script. |
 
 **Trust boundary:** ordinary Rhombus helpers may construct typed spec IR.
 A relation, invariant, or pin mapping in `.rspl` is a *candidate to check*,
@@ -68,7 +68,9 @@ treat a matching batch schema as proof that two monitors agree.
    reuses that seal and a one-word ShiftQueue for the 2-, 3-, and 4-word bounds.
    [GatedArbiterQueue](../../examples/formal/prove-gated-arbiter-queue.rhm)
    forwards the child monitor at depths 1–3 after checking exact transfer
-   equality on the wrapper RTL. The ROB's tag-order cut remains to migrate.
+   equality on the wrapper RTL. [TwoTagROB](../../examples/formal/prove-two-tag-rob.rhm)
+   proves retirement order and payload from the depth-two ArbiterQueue's public
+   word history and its own registers, without a FIFO-specific cut.
    Keep the ordering observer's theorem unchanged, the 2/4/6-word bounds,
    fill/drain replay, and the crossed-ready, wrong-payload, reversed-history
    and ready-when-space negatives. Retire the FIFO-specific dispatch and

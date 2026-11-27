@@ -2,12 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import "../../../examples/formal/two-tag-rob.rhdl" as rtl
+import "../../../examples/formal/arbiter-queue.rspl".ArbiterQueue
 import "../spec.rhm".Observed
 export bad_hint
 
 // The monitor claims a flag that always stays true. Inverting the projected
 // emptiness breaks reset; without inversion it breaks on the first grant.
-fun bad_hint(invert :: Boolean):
+fun bad_hint(invert :: Boolean, capacity :: PosInt = 2):
   spec for rtl.TwoTagROB:
     monitor:
       sample fun (read, _write): {"rst": Observed(const(Bool, #true), read("reset", Bool))}
@@ -17,6 +18,7 @@ fun bad_hint(invert :: Boolean):
       next flag = #true
       guarantee "ok" = #true
     refinement:
-      fifo tags from order: Seq(Bool, 2)
+      child order: ArbiterQueue
+      history tags from order.q: Seq(Bits(2), capacity)
       relate flag = (if invert | !empty(tags) | empty(tags))
   TwoTagROB(~transaction_view: #true)
