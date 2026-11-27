@@ -35,7 +35,7 @@ check:
   fabric.home_map.entry(0x10000000).home === fabric.device_home ~is #true
   params.llc_config.sets ~is 512
   params.llc_config.ways ~is 8
-  params.llc_config.transaction_slots ~is 2
+  params.llc_config.transaction_slots ~is 4
   params.llc_config.capacity_bytes ~is 262144
   description.boot.rom.address_set ~is fabric.platform.bootrom.rom_params.service.address_sets[0]
   fabric.platform.bootrom.rom_config(description).image.bytes.drop(fabric.boot.device_tree_offset) ~is (

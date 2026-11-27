@@ -8,7 +8,6 @@ import:
   "../configs/resolve.rhm".resolve_soc_config
   "../tiled-soc/compile.rhdl".compile_tiled_soc
   "../mini-soc/main.rhdl" as mini
-  "../single-core-soc/main.rhdl" as single
   "../tiled-soc/main.rhdl" as tiled
 
 for (core in ["rv5stage", "rv2wide", "rv3wide", "spike"]):
@@ -17,7 +16,7 @@ for (core in ["rv5stage", "rv2wide", "rv3wide", "spike"]):
   def tiled_hart = soc_hart("tiled8core", core, ~isa: IsaPreset.RVA23)
   def mini_config = mini.mini_soc_config(mini_hart)
   def mini_fabric = mini_config.fabric
-  def single_config = single.single_core_soc_config(single_hart)
+  def single_config = resolve_soc_config(SoCSelection(SoCShape.Simple, parse_core_kind(core), IsaPreset.RVA23)).configuration()
   def single_params = single_config.params
   def tiled_config = tiled.tiled_soc_config(tiled_hart)
   def four_config = resolve_soc_config(SoCSelection(SoCShape.Tiled4Core, parse_core_kind(core), IsaPreset.RVA23)).configuration()
@@ -45,6 +44,8 @@ for (core in ["rv5stage", "rv2wide", "rv3wide", "spike"]):
     tiled_config.boot.image_for(tiled_config.description).size_bytes <= tiled_config.boot.window_bytes ~is #true
     mini_fabric.hart_config.cache_line_bytes ~is mini_hart.cache_line_bytes
     single_params.fabric.hart_config.cache_line_bytes ~is single_hart.cache_line_bytes
+    single_params.llc_config.transaction_slots ~is 4
+    single_params.fabric.home.max_outstanding ~is single_params.llc_config.transaction_slots
     tiled_config.hart === tiled_hart ~is #true
     four_config.hart.description ~is tiled_hart.description
     four_config.description.harts ~is [0, 1, 2, 3]

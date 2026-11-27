@@ -51,8 +51,8 @@ accepted cycles with distinct transaction IDs and may complete out of order;
 the owning Home transaction advances only after every targeted RN-F completes.
 Final fill installation reserves the line-data port; directory commits can
 proceed independently.
-The transaction-slot parameter defaults to one for compatibility; the complete
-single-core and tiled SoCs select two.
+The transaction-slot parameter defaults to one for compatibility. The
+[SoC presets](../../socs/README.md) select the capacity for each inclusive Home.
 
 ## Inclusive Home resources
 
