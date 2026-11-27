@@ -270,8 +270,12 @@ def payload_tasks(add, soc, backend, test, env):
         inputs = ['sims/tests/programs/' + source + '.*', 'sims/tests/programs/smoke.ld']
         if name == 'cosim-smoke':
             inputs.append('sims/cosim/tests/runtime/scalar.S')
+        deps = []
+        if name == 'smoke':
+            deps.append('target:' + soc)
+            inputs.append(f'.rhodium-cache/program-targets/{soc}.json')
         result.append(add(f'payload:{soc}:{backend}:{variant}:{name}', extends='compile-payload',
-                          env={**env, 'RHODIUM_PAYLOAD': name}, inputs=inputs,
+                          env={**env, 'RHODIUM_PAYLOAD': name}, inputs=inputs, deps=deps,
                           outputs=[f'.rhodium-cache/moon/payloads/{soc}/{variant}/{name}.elf']))
     return result
 

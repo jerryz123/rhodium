@@ -30,17 +30,17 @@
     "rtl/soc/hart/core/instruction/icache_miss": 7
   },
   "depthconv": {
-    "cycles": 2574,
-    "rtl/soc/hart/core/core/issue_1": 648,
-    "rtl/soc/hart/core/core/issue_2": 574,
+    "cycles": 2733,
+    "rtl/soc/hart/core/core/issue_1": 685,
+    "rtl/soc/hart/core/core/issue_2": 613,
     "rtl/soc/hart/core/core/mispredict_direct_target": 0,
     "rtl/soc/hart/core/core/mispredict_direction": 4,
     "rtl/soc/hart/core/core/mispredict_indirect_target": 1,
     "rtl/soc/hart/core/core/mispredict_nonbranch": 0,
     "rtl/soc/hart/core/core/mispredict_ras_action": 0,
     "rtl/soc/hart/core/core/mispredict_return_target": 0,
-    "rtl/soc/hart/core/core/retired_slot0": 841,
-    "rtl/soc/hart/core/core/retired_slot1": 413,
+    "rtl/soc/hart/core/core/retired_slot0": 839,
+    "rtl/soc/hart/core/core/retired_slot1": 415,
     "rtl/soc/hart/core/data/storage/dcache_miss": 13,
     "rtl/soc/hart/core/instruction/icache_miss": 14
   },
@@ -75,17 +75,17 @@
     "rtl/soc/hart/core/instruction/icache_miss": 62
   },
   "matmult-int": {
-    "cycles": 80678,
-    "rtl/soc/hart/core/core/issue_1": 33537,
-    "rtl/soc/hart/core/core/issue_2": 20049,
+    "cycles": 83953,
+    "rtl/soc/hart/core/core/issue_1": 35571,
+    "rtl/soc/hart/core/core/issue_2": 19651,
     "rtl/soc/hart/core/core/mispredict_direct_target": 0,
     "rtl/soc/hart/core/core/mispredict_direction": 84,
     "rtl/soc/hart/core/core/mispredict_indirect_target": 1,
     "rtl/soc/hart/core/core/mispredict_nonbranch": 0,
     "rtl/soc/hart/core/core/mispredict_ras_action": 0,
     "rtl/soc/hart/core/core/mispredict_return_target": 0,
-    "rtl/soc/hart/core/core/retired_slot0": 36473,
-    "rtl/soc/hart/core/core/retired_slot1": 12306,
+    "rtl/soc/hart/core/core/retired_slot0": 36493,
+    "rtl/soc/hart/core/core/retired_slot1": 12286,
     "rtl/soc/hart/core/data/storage/dcache_miss": 397,
     "rtl/soc/hart/core/instruction/icache_miss": 23
   },
@@ -105,7 +105,7 @@
     "rtl/soc/hart/core/instruction/icache_miss": 38
   },
   "nettle-aes": {
-    "cycles": 38847,
+    "cycles": 38870,
     "rtl/soc/hart/core/core/issue_1": 7866,
     "rtl/soc/hart/core/core/issue_2": 23153,
     "rtl/soc/hart/core/core/mispredict_direct_target": 0,
@@ -120,7 +120,7 @@
     "rtl/soc/hart/core/instruction/icache_miss": 68
   },
   "nettle-sha256": {
-    "cycles": 7193,
+    "cycles": 7194,
     "rtl/soc/hart/core/core/issue_1": 1513,
     "rtl/soc/hart/core/core/issue_2": 2303,
     "rtl/soc/hart/core/core/mispredict_direct_target": 0,
@@ -150,17 +150,17 @@
     "rtl/soc/hart/core/instruction/icache_miss": 288
   },
   "picojpeg": {
-    "cycles": 320504,
-    "rtl/soc/hart/core/core/issue_1": 131014,
-    "rtl/soc/hart/core/core/issue_2": 134337,
+    "cycles": 330731,
+    "rtl/soc/hart/core/core/issue_1": 134910,
+    "rtl/soc/hart/core/core/issue_2": 134776,
     "rtl/soc/hart/core/core/mispredict_direct_target": 0,
     "rtl/soc/hart/core/core/mispredict_direction": 2155,
     "rtl/soc/hart/core/core/mispredict_indirect_target": 66,
     "rtl/soc/hart/core/core/mispredict_nonbranch": 0,
     "rtl/soc/hart/core/core/mispredict_ras_action": 0,
     "rtl/soc/hart/core/core/mispredict_return_target": 3,
-    "rtl/soc/hart/core/core/retired_slot0": 234370,
-    "rtl/soc/hart/core/core/retired_slot1": 119428,
+    "rtl/soc/hart/core/core/retired_slot0": 234425,
+    "rtl/soc/hart/core/core/retired_slot1": 119373,
     "rtl/soc/hart/core/data/storage/dcache_miss": 68,
     "rtl/soc/hart/core/instruction/icache_miss": 179
   },

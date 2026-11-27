@@ -184,6 +184,12 @@ and platform-test inventories. Validate changes by rebuilding and running the
 selected smoke through the prebuilt-artifact path. Linux CI remains
 the owner of runner-specific compiler, memory, and timeout validation.
 
+The smoke payload depends on its target descriptor. `build-payload.sh` passes
+the descriptor's exact `vlenb` projection to its CSR check; the bounded arithmetic
+workload uses an explicit AVL rather than assuming VLMAX from XLEN. Keep that
+descriptor dependency and input in `tools/ci/catalog.py` when changing payload
+compilation so cached ELFs cannot retain another vector geometry.
+
 ## Implementation map
 
 | Concern | Owner |

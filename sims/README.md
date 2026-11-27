@@ -113,7 +113,10 @@ Mini supports `rv32int` and `rv32max` on both Spike and RV5Stage.
 Mini and Simple also support both RV32 presets on RV2Wide and RV3Wide.
 The `smoke`, `boot-test`, `host-mmio-test`, and `uart-pty-test` payloads select
 ELF32/ILP32 for both ISAs. Both smoke variants exercise integer vectors and
-Zvbb with VLEN64. RV32Max additionally exercises scalar F and Zve32f;
+Zvbb with the selected core's vector geometry (VLEN128 on RV3Wide, VLEN64 on
+the other RV32 implementations). The smoke checks the exact `vlenb` value
+projected by the target descriptor and uses a bounded AVL for arithmetic.
+RV32Max additionally exercises scalar F and Zve32f;
 RV32Int has no floating point. For example:
 
 ```sh

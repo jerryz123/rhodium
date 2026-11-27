@@ -3,6 +3,8 @@
 
 using Word = decltype(prepare_results_1_in.pbits);
 constexpr unsigned vlen = 128, row_bytes = sizeof(Word), rows = vlen / (8 * row_bytes);
+// VectorPermutationKind encodings from decode.rhdl.
+enum Permutation { GatherVector = 6, GatherVectorEI16 = 7 };
 
 void gather(bool ei16, unsigned sew, unsigned lmul, Word index, bool stall, Word type_flags = 0) {
   constexpr unsigned start = 1, vs1 = 16, vs2 = 8;
@@ -13,8 +15,7 @@ void gather(bool ei16, unsigned sew, unsigned lmul, Word index, bool stall, Word
   auto &d = request_in.pbits.pdescriptor;
   d.pinstruction = (vs2 << 20) | (vs1 << 15);
   d.pcontrol.pinteger = 1;
-  d.pcontrol.pgather = 1;
-  d.pcontrol.pgather_uindex16 = ei16;
+  d.pcontrol.ppermutation = ei16 ? GatherVectorEI16 : GatherVector;
   d.pstate.pvtype = type_flags | (sew << 3) | lmul;
   d.pstate.pvstart = start;
   d.pstate.pvl = start + 1;

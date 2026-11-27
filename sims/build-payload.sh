@@ -17,7 +17,9 @@ case "$name" in
       rva23) march=rv64gcv_zvbb_zvfh; flags+=(-DRHODIUM_SMOKE_VECTOR=1);;
       rv32max) march=rv32imafcb_zicsr_zve32f_zvl64b_zvbb; flags+=(-DRHODIUM_SMOKE_VECTOR=1);;
       rv32int) march=rv32imacb_zicsr_zve32x_zvl64b_zvbb; flags+=(-DRHODIUM_SMOKE_VECTOR=1);;
-    esac ;;
+    esac
+    vlenb=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["vlenb"])' "$descriptor")
+    flags+=(-DRHODIUM_SMOKE_VLENB="$vlenb") ;;
   boot_2000|boot_3000)
     source=sims/tests/programs/smoke.S; linker=sims/tests/programs/smoke.ld
     flags+=(-Wl,--defsym,payload_entry=0x8000${name#boot_}) ;;

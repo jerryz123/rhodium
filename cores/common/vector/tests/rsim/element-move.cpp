@@ -6,6 +6,9 @@ using Word = decltype(request_in.pbits.pdescriptor.pstate.pvstart);
 constexpr Word high = Word(1) << (std::numeric_limits<Word>::digits - 1);
 
 enum class Move { FromGpr, FromFpr, ToGpr, ToFpr };
+// VectorSequence and VectorResultKind encodings from decode.rhdl.
+enum Sequence { Extract = 3, Insert = 4 };
+enum ResultKind { Elements = 0, Gpr = 2, Fpr = 3 };
 struct Case { Move move; Word vstart, vl; bool empty; };
 constexpr Case cases[] = {
     {Move::FromGpr, 1, 2, false},
@@ -26,11 +29,11 @@ static void offer(unsigned i) {
   d.ppc = 4 * i;
   d.pstate.pvstart = c.vstart;
   d.pstate.pvl = c.vl;
-  d.pcontrol.pelement_umove = 1;
+  const bool extract = c.move == Move::ToGpr || c.move == Move::ToFpr;
+  d.pcontrol.psequence = extract ? Extract : Insert;
   d.pcontrol.pfloating_upoint = c.move == Move::FromFpr || c.move == Move::ToFpr;
   d.pcontrol.pinteger = !d.pcontrol.pfloating_upoint;
-  d.pcontrol.pscalar_udestination = c.move == Move::ToGpr;
-  d.pcontrol.pfloating_uscalar_udestination = c.move == Move::ToFpr;
+  d.pcontrol.presult_ukind = c.move == Move::ToGpr ? Gpr : c.move == Move::ToFpr ? Fpr : Elements;
 }
 
 int main() {

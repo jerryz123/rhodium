@@ -114,10 +114,10 @@ plic_claim_supervisor:
   li t0, 0x600                 // Enable vector architectural state.
   csrs mstatus, t0
   csrr t0, vlenb
-  li t1, (__riscv_xlen / 4)    // Both RV32 presets have VLEN64; RVA23 has VLEN128.
+  li t1, RHODIUM_SMOKE_VLENB   // Exact geometry from the resolved target descriptor.
   bne t0, t1, fail
   li s5, 8
-  vsetvli t0, zero, e32, m1, ta, ma
+  vsetivli t0, (__riscv_xlen / 16), e32, m1, ta, ma
   li t1, (__riscv_xlen / 16)
   bne t0, t1, fail
   vid.v v1
