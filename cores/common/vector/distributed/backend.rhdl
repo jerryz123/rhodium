@@ -32,6 +32,14 @@ import:
   "../bundles.rhdl" open
   "../backend-kind.rhm".vector_dlen
 
+/* Return the MMU decision to the requester that owns the precheck window.
+   The checker retains ownership while its Irrevocable response is stalled. */
+fun route_precheck_response(exact_owner :: Bool, response :: Endpoint.of(Irrevocable(Bool)),
+                            admission :: Endpoint.of(Irrevocable(Bool)), checker :: Endpoint.of(Irrevocable(Bool))):
+  def Array(normal, exact) = response |> demux_flow(2, ~stable: #true, _decision => exact_owner)
+  normal |> admission
+  exact |> checker
+
 /* Allocates owners in order; memory and execute sequencers release them after their final effect. */
 sync_circuit DistributedVectorBackend(xlen :: XLen, vlen :: VectorLength, Fault :: DataType,
                                       ~fp32: fp32 :: Boolean = #true, ~fp16: fp16 :: Boolean = #true,
@@ -278,12 +286,7 @@ sync_circuit DistributedVectorBackend(xlen :: XLen, vlen :: VectorLength, Fault 
   def normal = admission.precheck
   def exact = checker.check
   Array(normal.request |> gate_flow(!own), exact.request |> gate_flow(own)) |> arbiter() |> precheck.request
-  // The owner is retained across the Irrevocable response stall.
-  normal.response.valid <== precheck.response.valid & !own
-  exact.response.valid <== precheck.response.valid & own
-  normal.response.bits <== precheck.response.bits
-  exact.response.bits <== precheck.response.bits
-  precheck.response.ready <== mux(own, exact.response.ready, normal.response.ready)
+  route_precheck_response(own, precheck.response, normal.response, exact.response)
   precheck.release.valid <== normal.release.valid ||| exact.release.valid
   def empty :: VectorCommit(xlen, slots) = literal(VectorCommit(xlen, slots), 0)
   def success = inject_interface(Valid(VectorCommit(xlen, slots)), ~valid: checker.authorized & !checker.certified, ~bits: empty.updated(~pc: checker.pc, ~disposition: VectorDisposition.Authorized))
@@ -315,4 +318,4 @@ sync_circuit DistributedVectorBackend(xlen :: XLen, vlen :: VectorLength, Fault 
   service.certification_pending <== admission.certification_pending
   describe_cosim_signals({}, ~components: {"instructions": instructions, "rows": rows, "row_alu": row_alu})
 
-export DistributedVectorBackend
+export DistributedVectorBackend route_precheck_response

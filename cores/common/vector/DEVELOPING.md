@@ -262,6 +262,8 @@ write in `backend/row-memory.rhdl` using the load chain's write owner. Owner cap
 describe the transferring cursor, including fold selection and same-edge
 replacement, rather than the next dispatch offer. The `vector-read-selection`
 rsim fixture checks which read supplied each event under backpressure in both modes.
+For precheck routing changes, run `vector-precheck-response`. It stalls admission
+and the exact checker independently and checks the response parent at each handoff.
 The backend captures only `VectorTraceInstruction` at owner allocation and indexes
 that bank using each cursor's current owner. Memory sequencers receive the same observation bank;
 they must not resample a live descriptor during a checked slice or retry.

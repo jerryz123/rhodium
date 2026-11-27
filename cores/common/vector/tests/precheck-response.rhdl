@@ -1,0 +1,22 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../distributed/backend.rhdl".route_precheck_response
+  lib("flow/main.rhdl") open
+  lib("rhodium/event/tests/rsim/trace-sites.rhm") open
+
+sync_circuit PrecheckResponse():
+  input exact_owner: Bool
+  interface response(Irrevocable(Bool), ~role: consumer)
+  interface admission(Irrevocable(Bool), ~role: producer)
+  interface checker(Irrevocable(Bool), ~role: producer)
+
+  def normal = Irrevocable(Bool) |> trace_event("admission")
+  def exact = Irrevocable(Bool) |> trace_event("checker")
+  route_precheck_response(exact_owner, response |> trace_event("response"), normal.left, exact.left)
+  normal.right |> admission
+  exact.right |> checker
+
+def program = elaborate(PrecheckResponse())
+def target = traced_target(named_site_header)
+export program target

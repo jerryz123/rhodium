@@ -237,6 +237,7 @@ rv3wide-row-memory-rv32	cores-components	cores/rv3wide/tests/rsim/emit-row-memor
 rv3wide-row-memory-rv64	cores-components	cores/rv3wide/tests/rsim/emit-row-memory.rhm	rv64	cores/rv3wide/tests/rsim/row-memory.cpp	target
 rv3wide-index-gather-rv32	cores-components	cores/rv3wide/tests/index-gather-fixture.rhdl	rv32	cores/rv3wide/tests/rsim/index-gather.cpp
 rv3wide-index-gather-rv64	cores-components	cores/rv3wide/tests/index-gather-fixture.rhdl	rv64	cores/rv3wide/tests/rsim/index-gather.cpp
+vector-precheck-response	cores-components	cores/common/vector/tests/precheck-response.rhdl	program	cores/common/vector/tests/rsim/precheck-response.cpp	target	rheg/runtime/rheg.cc
 vector-read-selection	cores-components	cores/common/vector/tests/read-selection.rhdl	program	cores/common/vector/tests/rsim/read-selection.cpp	target	rheg/runtime/rheg.cc
 rv3wide-row-execute-rv32	cores-components	cores/rv3wide/tests/rsim/emit-row-execute.rhm	rv32	cores/rv3wide/tests/rsim/row-execute.cpp
 rv3wide-permute-rv32	cores-components	cores/rv3wide/tests/index-gather-fixture.rhdl	permute32	cores/rv3wide/tests/rsim/permute.cpp
