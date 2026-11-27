@@ -186,8 +186,8 @@ for their one precheck response when eligible; false selects elementwise fallbac
 Empty memory retires at dispatch without acquiring a page window. The scalar
 certification barrier starts at enqueue, including for a tail entry, and clears
 on an early certificate or final successful elementwise authorization. A
-WB-precertified single-page descriptor skips that barrier because its MMU
-translation travels with the accepted descriptor. Each MEM-certified request
+WB-precertified descriptor skips that barrier because its endpoint PPNs
+travel with the accepted descriptor. Each certified request
 uses its captured physical page without acquiring the shared fallback window
 or emitting another retirement outcome. The scalar certification barrier is separate from the vector-admission
 barrier, which remains until the registered

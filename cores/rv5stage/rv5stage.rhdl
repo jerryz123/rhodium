@@ -139,7 +139,7 @@ sync_circuit RV5Stage(profile :: RV5StageConfig,
   inst frontend(RV5StageFrontend(
     profile, ~btb_entries: btb_entries, ~ras_entries: ras_entries
   ))
-  inst mmu(RV5StageMmu(xlen, profile.mmu_mode, config.physical_map, ~svnapot: profile.extensions.svnapot, ~vector_completion_slots: vector_completion_slots, ~hypervisor: hypervisor))
+  inst mmu(RV5StageMmu(xlen, profile.mmu_mode, config.physical_map, ~svnapot: profile.extensions.svnapot, ~vector_completion_slots: vector_completion_slots, ~hypervisor: hypervisor, ~retirement_owned: #true))
   describe_cosim_context(core, {"mmu": mmu})
   if hypervisor
   | block:

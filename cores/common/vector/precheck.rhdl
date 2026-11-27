@@ -44,20 +44,27 @@ fun vector_fast_start(xlen :: XLen, base :: Bits(xlen.width), geometry :: Vector
     address: apply_pointer_mask(xlen, raw, masking)
     no_wrap: !geometry.start_offset[xlen.width..68].any() & mux(geometry.reverse, base >= offset, raw >= base) & (!geometry.requires_unmasked_pointer ||| (masking.mode === PointerMaskMode.Disabled))
 
-/* Checks a prepared start for aligned one-page certification and expands it to whole memory beats.
-   Callers may register the start and geometry independently before this combinational step. */
-fun vector_fast_range(xlen :: XLen, start :: VectorFastStart(xlen), geometry :: VectorFootprintGeometry(), store :: Bool) :~ VectorFootprint():
+/* Only ordinary, unmasked, single-field contiguous transfers may span two pages. */
+fun vector_contiguous_crossing(control :: VectorControl(), masked :: Bool, masking :: PointerMaskControl()) :~ Bool:
+  (control.memory_addressing === VectorMemoryAddressing.UnitStride) & (control.memory_mode === VectorMemoryMode.Ordinary) & !control.memory_nf.any() & !masked & (masking.mode === PointerMaskMode.Disabled)
+
+/* Bound an aligned footprint and round out to whole memory beats. Only a caller with a
+   two-page consumer may propose an adjacent page; translation still decides the proof. */
+fun vector_fast_range(xlen :: XLen, start :: VectorFastStart(xlen), geometry :: VectorFootprintGeometry(), store :: Bool, ~adjacent: adjacent :: Bool = Bool(#false)) :~ VectorFootprint():
   def first = start.address.zext(64)
-  def last_offset = first[0..12].zext(14) + geometry.span_bytes[0..13].zext(14) - Bits(14)(1)
+  def last_offset = first[0..12].zext(14) + geometry.span_bytes[0..14] - Bits(14)(1)
   def one_page = (geometry.span_bytes <= Bits(68)(4096)) & (last_offset < Bits(14)(4096))
+  def vpn = start.address[12..xlen.width]
+  def crossing = adjacent & (geometry.span_bytes <= Bits(68)(8192)) & (last_offset[12..14] === Bits(2)(1)) & !vpn.all()
+  def last_page = vpn + crossing.as_bits().zext(xlen.width - 12)
   def aligned = !(first & ((Bits(64)(1) << geometry.eew) - Bits(64)(1))).any()
   VectorFootprint():
-    eligible: geometry.eligible & start.no_wrap & one_page & aligned
+    eligible: geometry.eligible & start.no_wrap & (one_page ||| crossing) & aligned
     empty: geometry.empty
     range:
       VectorRange():
         first: first.align_down(xlen.width / 8)
-        last: (first[12..64] ++ last_offset[0..12]) ||| Bits(64)(xlen.width / 8 - 1)
+        last: (last_page ++ last_offset[0..12]).zext(64) ||| Bits(64)(xlen.width / 8 - 1)
         store: store
 
 /* Multiplies by the constant-selected field count using shifts and additions. */
@@ -161,6 +168,7 @@ export:
   VectorFastStart
   vector_fast_start
   vector_fast_range
+  vector_contiguous_crossing
   VectorFootprintGeometry
   vector_footprint_geometry
   vector_fast_footprint_geometry

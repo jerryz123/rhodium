@@ -237,7 +237,7 @@ sync_circuit NativeIndexMemoryFixture(xlen :: XLen, vlen):
   for (i in 0..2):
     (launch[i] |> map_flow(issue => MemoryLaunch(xlen, vlen, 4)):
        issue: fixture_issue(xlen, vlen, issue)
-       pages: mux(issue.descriptor.precertified, vec([issue.descriptor.certificate.ppn, issue.descriptor.certificate.ppn]), window_pages)
+       pages: mux(issue.descriptor.precertified, issue.descriptor.certificate.pages(), window_pages)
        service: VectorMemoryService.Cached
     ) |> rows.launch[i]
     rows.mask[i] <=> mask[i]

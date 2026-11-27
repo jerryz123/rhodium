@@ -23,7 +23,7 @@ SOFTWARE_TESTS = {
     ("mini", "rva23"): PLATFORM_TESTS + ("isa-smoke",),
     ("mini", "rv64imacb"): ("isa-smoke",),
     ("mini", "rv64imafdcb"): ("isa-smoke",),
-    ("simple", "rva23"): PLATFORM_TESTS + ("zihintntl-test", "lrsc-test", "zicboz-test"),
+    ("simple", "rva23"): PLATFORM_TESTS + ("zihintntl-test", "lrsc-test", "zicboz-test", "vector-cross-page-test"),
     ("simple", "rv32int"): PLATFORM_TESTS,
     ("simple", "rv32max"): PLATFORM_TESTS,
     ("simple", "rv64max"): ("isa-smoke",),

@@ -138,6 +138,33 @@ void data_hit(std::uint64_t va, std::uint64_t pa, int operation = 1) {
   // No acceptance: inspect the authorization path without allocating a reply.
   wb_valid = 0;
 }
+// The MEM hit is partial, not permission to dispatch. On the next edge WB
+// must select its captured VA/access even when a different MEM request is live.
+void crossing_probe(std::uint64_t va, bool store, unsigned ppn, unsigned last_ppn,
+                    bool allowed, bool check_revoke = false) {
+  vector_fast_in.prequest = {1, {va, (va | 4095) + 8, store}};
+  eval();
+  CHECK(vector_fast_out.presponse.pvalid && vector_fast_out.pneeds_ulast);
+  auto first = vector_fast_out.presponse.pbits;
+  CHECK(first.pppn == ppn && !physical_valid);
+  tick_model();
+  vector_fast_in.pcandidate = first;
+  vector_fast_in.pfinish = 1;
+  vector_fast_in.prequest = {1, {va, va, !store}};
+  eval();
+  CHECK(!vector_fast_out.presponse.pvalid && !physical_valid && !wb_fault);
+  CHECK(vector_fast_out.pcandidate_ucurrent && bool(vector_fast_out.plast_upage.pvalid) == allowed);
+  if (allowed) CHECK(vector_fast_out.plast_upage.pbits == last_ppn);
+  if (check_revoke) {
+    invalidate = 1;
+    eval(); CHECK(!vector_fast_out.pcandidate_ucurrent);
+    tick_model(); invalidate = 0;
+    eval(); CHECK(!vector_fast_out.pcandidate_ucurrent && !vector_fast_out.plast_upage.pvalid);
+  }
+  vector_fast_in.pfinish = vector_fast_in.prequest.pvalid = 0;
+  eval();
+}
+
 void data_page_fault(std::uint64_t va, int operation = 1) {
   address = va;
   access = ((operation)&low_mask(4));
@@ -882,6 +909,7 @@ int main() {
     CHECK(physical_valid && physical_address == UINT64_C(0x17008) && !wb_fault);
     wb_valid = 0;
     // MEM certification captures the composed G-stage result without owning the window.
+    crossing_probe(0x16ff8, false, 23, 0, false); // VS Bare, second G-stage entry cold
     vector_fast_in.prequest = {1, {0x16000, 0x1600f, 0}};
     eval();
     CHECK(vector_fast_out.presponse.pvalid);
@@ -1054,6 +1082,8 @@ int main() {
     vector_precheck_in.presponse.pready = 1;
     tick_model();
     vector_precheck_in.presponse.pready = 0;
+    crossing_probe(0x500ff8, false, 22, 20, true);
+    crossing_probe(0x500ff8, true, 22, 20, true);
     // Replace all eight DTLB entries while the vector window owns both pages.
     for (unsigned page = 0; page < 8; ++page) {
       const unsigned va = 0x700000 + page * 4096;
@@ -1101,6 +1131,8 @@ int main() {
     offer_wb(0x500008);
     walk_at(0x500008, (UINT64_C(22) << 10) | 0xcf);
     vector_fast_in.prequest.pvalid = 1;
+    crossing_probe(0x500ff8, false, 22, 0, false);
+    vector_fast_in.prequest = {1, {0x500008, 0x50000f, 0}};
     eval();
     CHECK(vector_fast_out.presponse.pvalid && vector_fast_out.presponse.pbits.pppn == 22);
     // Data hints share only the optional probe and must drop, not use its PPN.
@@ -1231,6 +1263,12 @@ int main() {
     fence();
 
     // Current permissions and memory attributes decide certification, not a cached hit alone.
+    offer_wb(0x500008);
+    walk_at(0x500008, (UINT64_C(22) << 10) | 0xcf);
+    offer_wb(0x501008);
+    walk_at(0x501008, (UINT64_C(20) << 10) | 0x43); // only page two is read-only
+    crossing_probe(0x500ff8, true, 22, 20, false);
+    crossing_probe(0x500ff8, false, 22, 20, true, true);
     offer_wb(0x500008);
     walk_at(0x500008, (UINT64_C(22) << 10) | 0x43); // read-only
     vector_fast_in.prequest = {1, {0x500008, 0x50000f, 1}};

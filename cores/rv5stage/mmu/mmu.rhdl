@@ -45,6 +45,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
                          physical_map :: RiscvPhysicalMemoryMap,
                          tlb_entries :: Pow2Int = 8,
                          ~svnapot: svnapot :: Boolean = #false,
+                         ~retirement_owned: retirement_owned :: Boolean = #false,
                          ~hypervisor: hypervisor :: Boolean = #false,
                          ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8):
   def width = xlen.width
@@ -124,7 +125,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
 
   // WB validates the MEM snapshot independently of the fallback page window.
   // Certified vector requests carry their own physical address thereafter.
-  inst certificate(VectorCertificate(xlen, physical_map))
+  inst certificate(VectorCertificate(xlen, physical_map, ~retirement_owned: retirement_owned))
   vector_fast <=> certificate.check
   certificate.invalidate <== invalidate_all
   certificate.current <== tlb.data_lookup(Bits(64)(0), Sv39Access.Load)
@@ -165,7 +166,8 @@ sync_circuit RV5StageMmu(xlen :: XLen,
 
 
   /* Translation-port arbitration
-     Authorized WB demand precedes page probes, MEM lookup, and vector fast certification. */
+     Authorized WB demand precedes fallback page probes and MEM lookup. Fast
+     certification uses the independent data probe instead. */
 
   itlb.lookup <== tlb.lookup(instruction_virtual_address, Sv39Access.Fetch, privilege, instruction_guest)
   itlb.invalidate_all <== invalidate_all
@@ -177,16 +179,12 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def load_window = vector_window.owned & pipeline_owner.bits & !physical_owner.bits
   def load_pinned = load_window ||| physical_owner.bits
   def probe_selected = page_probe.request.valid & !data.request.valid & !split_busy
-  def fast_selected = vector_fast.request.valid & !data.request.valid & !split_busy & !page_probe.request.valid & !load_request.egress.valid
-  def demand_address = priority_mux(~default: vector_fast.request.bits.first):
+  def demand_address = priority_mux(~default: load_virtual_address):
     data_demand: data_virtual_address
     probe_selected: page_probe.request.bits.address
-    load_request.egress.valid: load_virtual_address
 
   def pipeline_is_store = lookup.access === CacheOperation.Store
-  def speculative_store = priority_mux(~default: vector_fast.request.bits.store):
-    probe_selected: page_probe.request.bits.store
-    load_request.egress.valid: pipeline_is_store
+  def speculative_store = mux(probe_selected, page_probe.request.bits.store, pipeline_is_store)
 
   def demand_access = mux(data_demand, data_access_kind, mux(speculative_store, Sv39Access.Store, Sv39Access.Load))
   def demand_lookup = tlb.data_lookup(demand_address, demand_access, demand_mode)
@@ -194,8 +192,8 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def data_translation_enabled = tlb.enabled(demand_lookup.context.privilege, demand_lookup.virtualized)
   dtlb.lookup <== demand_lookup
   dtlb.invalidate_all <== invalidate_all
-  certificate.translation.valid <== fast_selected & dtlb.hit
-  certificate.translation.bits <== dtlb_result
+  certificate.translation.valid <== dtlb.probe_raw_hit
+  certificate.translation.bits <== riscv_host_result(dtlb.probe_translation)
 
 
   /* Prefetch translation
@@ -222,7 +220,8 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def normal_data_translation_enabled = tlb.enabled(normal.privilege, normal.virtualized)
   def probe = tlb.data_lookup(prefetch_virtual_address, Sv39Access.Load)
   itlb.probe <== probe
-  dtlb.probe <== probe
+  def fast_lookup = tlb.data_lookup(certificate.probe.bits.address, mux(certificate.probe.bits.store, Sv39Access.Store, Sv39Access.Load))
+  dtlb.probe <== mux(certificate.probe.valid, fast_lookup, probe)
 
   def instruction_prefetch = prefetch_request.operation === CachePrefetchOperation.Instruction
   def hint_probe = mux(instruction_prefetch, itlb.prefetch_probe, dtlb.prefetch_probe)
@@ -235,7 +234,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def prefetch_physical = cache_prefetch_physical(width, physical_map, prefetch_translated_address, prefetch_request.operation, hint_probe.pbmt)
 
   virtual_prefetch_pipe.egress
-    |> filter_valid(_request => prefetch_physical.allows_translated_hint(~hit: hint_probe.hit, ~fault: hint_probe.fault))
+    |> filter_valid(_request => (instruction_prefetch ||| !certificate.probe.valid) & prefetch_physical.allows_translated_hint(~hit: hint_probe.hit, ~fault: hint_probe.fault))
     |> map_valid(request => request.updated(~address: prefetch_physical.address))
     |> physical_prefetch_pipe.ingress
 

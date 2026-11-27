@@ -146,7 +146,7 @@ sync_circuit VectorFaultCheck(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
     when (!checking_io): first_io_field <== field
   def mapped = mux(exact_slice, exact_pages, pages)
   def pinned = vec([io_pages[first[VectorPageOffsetBits]], io_pages[end[VectorPageOffsetBits]]])
-  def slice_pages = mux(issuing_io, pinned, mux(certified & d.precertified, vec([d.certificate.ppn, d.certificate.ppn]), mapped))
+  def slice_pages = mux(issuing_io, pinned, mux(certified & d.precertified, d.certificate.pages(), mapped))
   def slice_service = mux(issuing_io, io_services[field], mux(exact_slice, mapping.service, VectorMemoryService.Cached))
   // Only a resolved fault can stop the scan. A later FOF fault retires at
   // the segment index, independent of its field, mask holes, and vstart.

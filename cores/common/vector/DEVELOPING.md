@@ -365,7 +365,7 @@ superscalar calendar. Wrapper-wide `active` still includes each adapter's own
 retained work; it is not merely a backend summary. Disabled variants terminate
 the same interface without allocating execution state.
 
-Keep `precheck.rhdl`'s fast start preparation separate from one-page range
+Keep `precheck.rhdl`'s fast start preparation separate from fast range
 qualification. RV5Stage registers the start/wrap proof and geometry at EX/MEM;
 RV2Wide computes both helpers in EX. Neither helper owns validity, registers,
 certificate context, or retirement. Validate changes through

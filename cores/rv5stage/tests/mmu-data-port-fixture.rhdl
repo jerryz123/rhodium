@@ -81,6 +81,7 @@ sync_circuit RV5StageMmuDataPortFixture():
   mmu.vector_fast.request.valid <== Bool(#false)
   mmu.vector_fast.request.bits <== dont_care(VectorRange())
   mmu.vector_fast.candidate <== dont_care(VectorFastCertificate(xlen))
+  mmu.vector_fast.finish <== Bool(#false)
   mmu.vector_fast.pipeline_physical <== pipeline_physical
   mmu.vector_fast.request_physical <== Bool(#false)
   mmu.pipeline_vector <== pipeline_vector

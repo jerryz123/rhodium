@@ -168,10 +168,11 @@ Naturally aligned, non-segmented dynamic-stride `vlse`/`vsse` with `vstart=0`
 may instead certify in MEM when a conservative power-of-two stride envelope
 fits entirely within one page. This includes negative and zero runtime strides;
 failure to prove the bound leaves the existing elementwise fallback unchanged.
-The one-page fast path computes the first address in EX, including
-the `vstart` byte offset for contiguous operations, and the normal DTLB in MEM.
-WB carries the captured
-translation in the admitted descriptor and retires the macro without waiting
+EX computes the first address, including the `vstart` byte offset for contiguous
+operations. MEM probes the first page; for ordinary unmasked, single-field
+unit-stride accesses with pointer masking disabled, WB can probe a second
+translated page. A Bare crossing checks both physical pages in MEM. WB carries
+the completed proof in the admitted descriptor and retires the macro without waiting
 for the previous page-window owner. Each issued request uses that captured
 translation independently of the shared fallback window. Certified ordinary
 memory hands off the sequencer after its final scheduled beat; downstream

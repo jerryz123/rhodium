@@ -395,7 +395,7 @@ def local_execution_tasks(add):
     sim = add('local-simulator', ['bash', 'tools/build/local.sh', 'simulator'], inputs=['tools/build/local.sh'])
     add('sim-run', extends='simulator-run', deps=[sim])
     for test in ('smoke', 'boot-test', 'uart-pty-test', 'host-mmio-test', 'zicboz-test',
-                 'zihintntl-test', 'lrsc-test', 'cosim-smoke'):
+                 'zihintntl-test', 'lrsc-test', 'vector-cross-page-test', 'cosim-smoke'):
         flags = {'COSIM': '1'} if test == 'cosim-smoke' else {'TRACE': '0'} if test == 'lrsc-test' else {}
         names = {'boot-test': ['boot_2000', 'boot_3000'], 'lrsc-test': ['lrsc_0', 'lrsc_1'],
                  'cosim-smoke': ['cosim-smoke']}.get(test, [test.removesuffix('-test').replace('-', '_')])

@@ -74,6 +74,12 @@ tasks:
       awk '{ if ($0 != "123456789abcdef0") exit 1 } END { if (NR != 1) exit 1 }' "$sim_dir/host_mmio.signature"
     inputs: ["sims/run-env.sh"]
     options: *execution-options
+  harness-vector-cross-page-test:
+    script: |
+      source sims/run-env.sh
+      "$simulator" "${trace_args[@]}" "${uart_args[@]}" +permissive +max-cycles=50000 +permissive-off "$payload_dir/vector_cross_page.elf"
+    inputs: ["sims/run-env.sh"]
+    options: *execution-options
   harness-zicboz-test:
     script: |
       source sims/run-env.sh

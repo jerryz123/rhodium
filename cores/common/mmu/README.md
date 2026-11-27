@@ -122,15 +122,20 @@ PBMT applies the G override followed by a non-PMA stage-one override.
 
 `vector.rhdl` defines `VectorRange`, `VectorFastCertificate`, `VectorFastCheck`,
 `VectorPrecheck`, and `RiscvPageProbe`. These contracts do not depend on a named
-core. A fast certificate carries one page mapping and its context/epoch identity;
-the caller must revalidate it before nonspeculative use.
+core. A complete proof carries both endpoint PPNs and their context/epoch.
+A one-page access uses the same PPN twice. Adjacent virtual pages need not
+map to adjacent physical pages.
 
 [`VectorCertificate`](vector-certificate.rhdl) implements that fast proof check.
-It consumes a caller-selected, demand-permission-checked translation and normal
-data context, emits a same-cycle certificate for a cacheable, idempotent PMA page,
-and compares a candidate's context and invalidation epoch at WB. It adds no
-lookup stage or walk. Invalidation suppresses new proofs immediately and advances
-the two-bit epoch at the edge; candidate comparison observes the pre-edge epoch.
+It selects the MEM or WB probe address and access kind. The caller supplies the
+demand-permission-checked translation and normal data context. A MEM response
+with `needs_last` is only a first-page proof.
+Its surviving owner presents it as `candidate` with `finish` in WB. Both
+pages must pass the original access's permission, PBMT and full-page PMA
+checks; a failed continuation grants no access and does not allocate a walk.
+Invalidation suppresses new MEM proofs immediately and advances the epoch at
+the edge. For an external WB continuation, consume `last_page` only when
+`candidate_current` is also true: same-edge invalidation vetoes it.
 The caller owns TLB arbitration, same-cycle WB/invalidation exclusion, and
 certificate lifetime so a candidate cannot survive an epoch wrap.
 

@@ -1,5 +1,5 @@
 #lang rhodium
-/* Validates translated or Bare single-page vector proofs against PMA and admission epochs. */
+/* Validates vector page proofs against translation, physical permissions, and admission epochs. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -10,20 +10,18 @@ import:
   "protocol.rhdl".RiscvTranslationResult
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/rtl/pma.rhdl").RiscvPhysicalMemoryMap
-  lib("riscv/rtl/hypervisor.rhdl").RiscvGuestTranslationContext
+  lib("riscv/rtl/hypervisor.rhdl") open
   lib("riscv/rtl/svpbmt.rhdl").PageMemoryType
   lib("flow/main.rhdl") open
   lib("rhodium/std/bits.rhdl") open
 
-/* Issues a combinational certificate only for a caller-selected, permission-checked hit.
-   The caller owns TLB arbitration and supplies the normal data context independently of
-   concurrent explicit-guest requests. Invalidation advances the epoch at the edge;
-   it suppresses new proofs immediately but does not change candidate timing.
-   Bare specialization checks the full identity address and only candidate epochs;
-   translation/current inputs are unused and may be tied off. */
-sync_circuit VectorCertificate(xlen :: XLen, physical_map :: RiscvPhysicalMemoryMap, ~bare: bare :: Boolean = #false):
+/* Checks the selected MEM or WB page using the caller's probe and effective data context.
+   A translated crossing needs a second hit; its MEM response alone never grants dispatch.
+   Bare specialization checks full identity addresses without translation inputs. */
+sync_circuit VectorCertificate(xlen :: XLen, physical_map :: RiscvPhysicalMemoryMap, ~bare: bare :: Boolean = #false, ~retirement_owned: retirement_owned :: Boolean = #false):
   interface check(VectorFastCheck(xlen), ~role: responder)
   interface translation(Valid(RiscvTranslationResult()), ~role: consumer)
+  interface probe(Valid(RiscvPageProbeRequest()), ~role: producer)
   input current: RiscvTlbLookup()
   input invalidate: Bool
 
@@ -32,23 +30,39 @@ sync_circuit VectorCertificate(xlen :: XLen, physical_map :: RiscvPhysicalMemory
     epoch <== epoch + Bits(2)(1)
 
   def context_current = if bare | Bool(#true) | (check.candidate.virtualized === current.virtualized) & (check.candidate.context.as_bits() === current.context.as_bits())
-  check.candidate_current <== (check.candidate.invalidation_epoch === epoch) & context_current
+  def current_epoch = (check.candidate.invalidation_epoch === epoch) & context_current
+  // A detached client can revoke the continuation even on its WB edge. Integrated
+  // retirement excludes simultaneous invalidation without feeding it back into WB admission.
+  check.candidate_current <== if retirement_owned | current_epoch | current_epoch & !(check.finish & invalidate)
   def address :: Bits(64) = if bare | check.request.bits.first | translation.bits.physical_address.zext(64)
   def page = address.align_down(VectorPageBytes)
-  def page_permitted = vector_page_permitted(physical_map, page, check.request.bits.store)
+  def finishing = if bare | Bool(#false) | check.finish
+  probe.valid <== Bool(!bare) & (finishing ||| check.request.valid)
+  probe.bits.address <== mux(finishing, check.candidate.range.last, check.request.bits.first)
+  probe.bits.store <== mux(finishing, check.candidate.range.store, check.request.bits.store)
+  def page_permitted = vector_page_permitted(physical_map, page, probe.bits.store)
   def translation_permitted = if bare
   | riscv_bare_address_fits(address)
   | translation.valid & !translation.bits.fault & !translation.bits.access_fault & (translation.bits.pbmt === PageMemoryType.PMA)
-  def proof = check.request |> filter_valid(_range => !invalidate & translation_permitted & page_permitted)
+  def span = check.request.bits
+  def same_page = span.first[VectorPageOffsetBits..64] === span.last[VectorPageOffsetBits..64]
+  def identity = if bare | Bool(#true) | (current.context.vs_mode === RiscvVSMode.Bare) & (!current.virtualized ||| (current.context.g_mode === RiscvGMode.Bare))
+  def range_permitted = same_page ||| !identity ||| (riscv_bare_address_fits(span.last) & vector_page_permitted(physical_map, span.last.align_down(VectorPageBytes), span.store))
+  def checked_page = translation_permitted & page_permitted
+  check.last_page.valid <== finishing & current_epoch & checked_page
+  check.last_page.bits <== vector_page_number(address)
+  check.needs_last <== !same_page & !identity
+  def proof = check.request |> filter_valid(_range => !finishing & !invalidate & checked_page & range_permitted)
   (proof |> map_valid(range => VectorFastCertificate(xlen)):
     range: range
     ppn: vector_page_number(address)
+    last_ppn: mux(same_page, vector_page_number(address), vector_page_number(range.last))
     virtualized: if bare | Bool(#false) | current.virtualized
     context: if bare | literal(RiscvGuestTranslationContext(), 0) | current.context
     invalidation_epoch: epoch
   ) |> check.response
 
-  when (check.request.valid):
-    assert(check.request.bits.first[VectorPageOffsetBits..64] === check.request.bits.last[VectorPageOffsetBits..64], "vector_fast_range_is_one_page")
+  when (check.request.valid & !same_page):
+    assert((span.first < span.last) & (span.last[12..64] === (span.first[12..64] + Bits(52)(1))), "vector_fast_range_is_adjacent")
 
 export VectorCertificate

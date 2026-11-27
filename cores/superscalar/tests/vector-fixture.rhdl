@@ -124,7 +124,7 @@ sync_circuit SuperscalarVectorFixture(~xlen: xlen :: XLen = XLen.X64, ~vlen: vle
   vector.request.bits <== VectorDescriptor(xlen):
     pc: pc
     precertified: certificate_valid
-    certificate: empty_certificate.updated(~ppn: vector_page_number(scalar.zext(64)), ~range: certified_range)
+    certificate: empty_certificate.updated(~ppn: vector_page_number(certified_range.first), ~last_ppn: vector_page_number(certified_range.last), ~range: certified_range)
     instruction: instruction
     state:
       RiscvVectorState(xlen):

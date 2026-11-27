@@ -52,6 +52,9 @@ sync_circuit RV5StageRetirementTrace():
   core.vector_fast.response.valid <== Bool(#false)
   core.vector_fast.response.bits <== dont_care(VectorFastCertificate(XLen.X64))
   core.vector_fast.candidate_current <== Bool(#false)
+  core.vector_fast.needs_last <== Bool(#false)
+  core.vector_fast.last_page.valid <== Bool(#false)
+  core.vector_fast.last_page.bits <== dont_care(VectorPageNumber)
   core.data_access.request.ready <== data_ready
   core.data_access.request_fault <== Bool(#false)
   core.split_completion.valid <== Bool(#false)

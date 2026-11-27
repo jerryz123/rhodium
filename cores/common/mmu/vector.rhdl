@@ -42,17 +42,21 @@ bundle VectorRange():
   last: Bits(64)
   store: Bool
 
-/* Carries a speculative single-page mapping and exact context/epoch identity from MEM
-   for WB validation, independently of the retained fallback page window. */
+/* Carries both independently checked mappings and the context/epoch of their owner. */
 bundle VectorFastCertificate(xlen :: XLen):
   range: VectorRange()
   ppn: VectorPageNumber
+  last_ppn: VectorPageNumber
   virtualized: Bool
   context: RiscvGuestTranslationContext()
   invalidation_epoch: Bits(2)
 
-/* Checks and revalidates single-page vector certificates separately from the retained page
-   window. */
+  /* Present the endpoint PPNs in the order expected by the physical row cursor. */
+  method pages(proof) :: Vec(2, Bits(sv39.Sv39PpnBits)):
+    vec([proof.ppn, proof.last_ppn])
+
+/* A MEM response checks the first page. With needs_last it is partial: present that
+   candidate with finish in WB and validate last_page before dispatch. No probe owns a walk. */
 interface VectorFastCheck(xlen :: XLen):
   role requester
   role responder
@@ -60,11 +64,14 @@ interface VectorFastCheck(xlen :: XLen):
   requester -> responder:
     request: Valid(VectorRange())
     candidate: VectorFastCertificate(xlen)
+    finish: Bool
     pipeline_physical: Bool
     request_physical: Bool
 
   responder -> requester:
     response: Valid(VectorFastCertificate(xlen))
+    needs_last: Bool
+    last_page: Valid(VectorPageNumber)
     candidate_current: Bool
 
 /* Exact checks cover only the active bytes on one virtual page. They are

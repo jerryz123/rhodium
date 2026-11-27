@@ -113,8 +113,10 @@ that has already become nonspeculative.
 support certification. The caller owns the DTLB/PTW arbitration and WB context
 revalidation. A failed certificate selects precise execution, not an exception.
 `vector_fast_start` prepares a pointer-normalized start and wrap proof from the
-fast geometry. `vector_fast_range` checks that start for alignment and one-page
-eligibility and rounds the range outward to whole XLEN memory beats. Both are
+fast geometry. `vector_fast_range` checks alignment and rounds the range outward
+to whole XLEN memory beats. The range is single-page unless the caller explicitly
+enables a nonwrapping adjacent-page candidate using `vector_contiguous_crossing`.
+All three vector cores use that predicate; it does not grant issue priority. Both helpers are
 combinational, so callers can place a stage boundary between them. Empty ranges
 are reported separately and must not issue a fast check.
 

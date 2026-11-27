@@ -251,6 +251,11 @@ void settle() {
       !translation_flush && (!local_epoch || fast_current);
   vector_fast_in.presponse.pbits.prange = vector_fast_out.prequest.pbits;
   vector_fast_in.presponse.pbits.pppn = (vector_fast_out.prequest.pbits.pfirst >> 12) + 1;
+  vector_fast_in.presponse.pbits.plast_uppn = vector_fast_in.presponse.pbits.pppn;
+  vector_fast_in.pneeds_ulast = (vector_fast_out.prequest.pbits.pfirst >> 12) !=
+                                (vector_fast_out.prequest.pbits.plast >> 12);
+  vector_fast_in.plast_upage.pvalid = vector_fast_out.pfinish && fast_current;
+  vector_fast_in.plast_upage.pbits = (vector_fast_out.pcandidate.prange.plast >> 12) + 2;
   vector_fast_in.presponse.pbits.pinvalidation_uepoch = proof_epoch;
   for (unsigned lane = 0; lane < 2; ++lane) {
     auto &resolution = lane ? resolution_1_in : resolution_0_in;
@@ -708,13 +713,17 @@ void vector_memory_fast_path() {
     CHECK(vector_trace::admissions == admissions + 2 && store_writes[0x1400].size() == writes + 2);
   }
 
-  // Crossing a page is deliberately not a fast candidate, even if both pages are safe.
+  // The translated crossing retires without a window and writes the two disjoint PPNs.
   send(0x000010b7); // lui x1,1
   send(addi(1, 1, -4));
-  const auto checks_before = fast_checks;
+  const auto checks_before = fast_checks, windows_before = proof_count;
+  const auto crossing_pc = next_pc;
   send(store);
   run(60);
-  CHECK(fast_checks == checks_before && proof_count == proofs_before + 2);
+  CHECK(fast_checks == checks_before + 1 && proof_count == windows_before);
+  CHECK(retirement_cycles.at(crossing_pc) == memory_cycles.at(crossing_pc) + 1);
+  CHECK(words[0x3000] == 0x01230123 && words[0x2000] == 0);
+  CHECK((words[0x2000 - bytes] >> ((bytes - 4) * 8)) == 0x01230123);
   fast_enabled = false;
 }
 void paired_vector_configurations() {

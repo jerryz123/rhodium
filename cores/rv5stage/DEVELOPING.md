@@ -149,8 +149,9 @@ from a DPI-result register in the observed design.
    store to drain.
    Independent younger work may pass ID behind a vector memory launch.
    EX adds the snapshot `vstart` byte offset with the scalar ALU; MEM uses
-   the ordinary DTLB read for a speculative one-page certificate. WB validates
-   and enqueues the captured mapping with the descriptor, retiring the macro
+   the independent DTLB probe for the first page. For an eligible translated
+   crossing, WB probes the second page ahead of younger MEM checks and data hints.
+   WB validates and enqueues both mappings with the descriptor, retiring the macro
    independently of the older vector window. Issued requests carry the physical
    mapping into a downstream retry owner, without acquiring that window.
    If no certificate was captured, WB restarts

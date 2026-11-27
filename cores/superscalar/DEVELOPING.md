@@ -1483,17 +1483,24 @@ transfer. Packed hit data returns two cycles after issue, one cycle earlier than
 ordinary memory; the shared engine reserves the corresponding VRF write edge
 before sequencing.
 
-EX forms a conservative single-page range from the forwarded vector state,
+EX forms a conservative byte range from the forwarded vector state,
 scalar base/stride, and vstart using shared vector footprint geometry. Its
 `vector_fast_eligible` flag qualifies only that proposed range; the descriptor's
-`precertified` remains false until MEM captures a successful `VectorFastCheck`.
+`precertified` remains false until the full range has been checked.
 Only `certificate.range` is meaningful before that capture. MEM uses the DTLB's
 independent probe with demand-accurate permissions/A/D/PBMT. WB demand, fallback
 page proof, and ordinary lookups keep the demand port; certification replaces
 only an optional data-prefetch probe. Suppress that hint rather than forwarding
 metadata from the vector lookup. Failure never allocates a walk or produces a
 speculative fault.
-Bare memory supplies the same contract using identity mappings and page PMAs.
+Both backends can propose two adjacent pages for ordinary unmasked,
+single-field unit-stride accesses with pointer masking off. Effective Bare
+checks both physical pages in MEM. Otherwise the surviving MEM descriptor
+carries a partial proof to WB. Its second-page probe takes priority over
+younger MEM requests and data hints, never over scalar demand. A successful
+WB lookup supplies the last PPN directly to dispatch; a miss or denied
+permission takes the ordinary uncertified admission/replay path. Neither
+case needs a new hold stage.
 
 MEM checks that the descriptor's pointer mask still matches and registers the
 proof with the surviving descriptor. In the integrated hart WB uses that bit:

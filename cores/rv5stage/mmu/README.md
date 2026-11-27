@@ -42,12 +42,11 @@ request unaccepted; the core retains its hint across replay.
 `vector_precheck` certifies a nonspeculative macro's contiguous one- or two-page
 range without accessing its data. A successful response retains its physical
 page mappings and checked permissions separately from the DTLB until `release`.
-A speculative, single-page `vector_fast` request shares the normal MEM DTLB
-lookup and permission logic after higher-priority demand, precheck, and
-pipeline requests. It starts no walk or data-cache lookup. MEM snapshots the
-translated page, full-page PMA proof, and translation context with the scalar
-pipeline token. WB validates the snapshot against the current context and
-carries it in the accepted vector descriptor. Each certified vector request
+A speculative `vector_fast` request uses the independent DTLB probe, with
+demand access permissions. It starts no walk or data-cache lookup. MEM snapshots
+the first mapping and its context. An eligible translated crossing also probes
+the second page in WB, ahead of MEM and optional data hints. Only the completed,
+current proof can travel in an accepted descriptor. Each certified vector request
 carries its physical address with an owner-gated physical sideband; no
 shared-window installation is required. An occupied fallback window does not
 delay its WB retirement or sequencing. A replaced DTLB entry cannot affect the captured or pinned page.

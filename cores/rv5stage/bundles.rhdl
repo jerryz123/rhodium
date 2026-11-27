@@ -194,6 +194,7 @@ bundle MemoryWriteback(xlen :: XLen, vector_completion_slots :: Pow2Int, hypervi
   vector_launch: Bool
   vector_context: RV5StageVectorLaunchContext(xlen)
   vector_fast_valid: Bool
+  vector_fast_needs_last: Bool
   vector_fast: VectorFastCertificate(xlen)
   pc: Bits(xlen.width)
   resume_pc: Bits(xlen.width)

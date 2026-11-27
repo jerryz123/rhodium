@@ -96,8 +96,11 @@ sync_circuit RV5StageCosimFixture(xlen :: XLen, multiplier :: RV5StageMultiplier
 
     core.pipeline_access.commit_ready <== pipeline_mode === Bits(2)(2)
     core.vector_precheck.request |> map_flow(_request => certified) |> pipe(1) |> core.vector_precheck.response
-    core.vector_fast.request |> filter_valid(_range => certified) |> map_valid(range => empty_certificate.updated(~range: range, ~ppn: range.first[12..56])) |> core.vector_fast.response
+    core.vector_fast.request |> filter_valid(_range => certified) |> map_valid(range => empty_certificate.updated(~range: range, ~ppn: range.first[12..56], ~last_ppn: range.last[12..56])) |> core.vector_fast.response
     core.vector_fast.candidate_current <== certified
+    core.vector_fast.needs_last <== Bool(#false)
+    core.vector_fast.last_page.valid <== Bool(#false)
+    core.vector_fast.last_page.bits <== dont_care(VectorPageNumber)
     core.data_access.request.ready <== data_ready
     core.data_access.request_fault <== page_fault
     core.split_completion.valid <== Bool(#false)

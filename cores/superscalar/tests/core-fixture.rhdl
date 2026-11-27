@@ -213,6 +213,7 @@ sync_circuit CoreFixture(profile :: SuperscalarPipelineConfig = SuperscalarPipel
       resolve.vector_fast.request.valid <== Bool(#false)
       resolve.vector_fast.request.bits <== literal(VectorRange(), 0)
       resolve.vector_fast.candidate <== literal(VectorFastCertificate(xlen), 0)
+      resolve.vector_fast.finish <== Bool(#false)
       resolve.vector_fast.pipeline_physical <== Bool(#false)
       resolve.vector_fast.request_physical <== Bool(#false)
       resolve.vector_precheck.request.valid <== Bool(#false)

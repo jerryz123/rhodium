@@ -942,7 +942,8 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     // Only the proposed range is meaningful before MEM supplies a certificate.
     def ex_vector_geometry = vector_fast_footprint_geometry(xlen, profile.vector_length, ex.control.vector, ex.fetched.instruction, ex_vector_state, ex.operands.rs2, ~indexed: distributed_rows)
     def ex_vector_start = vector_fast_start(xlen, ex.operands.rs1, ex_vector_geometry, ex_mask)
-    def ex_vector_footprint = vector_fast_range(xlen, ex_vector_start, ex_vector_geometry, ex.control.vector.store)
+    def ex_adjacent_page = vector_contiguous_crossing(ex.control.vector, ex.vector.masked, ex_mask)
+    def ex_vector_footprint = vector_fast_range(xlen, ex_vector_start, ex_vector_geometry, ex.control.vector.store, ~adjacent: ex_adjacent_page)
     def ex_data_guest:
       if profile.hypervisor
       | block:
@@ -1307,10 +1308,16 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   def mem_masking_current = mem_descriptor.pointer_masking.as_bits() === wb_csrs.pointer_masking.as_bits()
   def mem_certified = (mem_descriptor_lane === mem_vector_lane) & vector_fast.response.valid & mem_masking_current
   def mem_vector_handoff = any(mem_vector_claims)
+  def wb_needs_last = if vector_enabled
+  | block:
+      reg partial(~init: Bool(#false))
+      partial <== mem_vector_handoff & mem_certified & vector_fast.needs_last
+      partial
+  | Bool(#false)
   when mem_vector_handoff:
     assert(mem_descriptor_lane === superscalar_service_lane(mem_vector_claims), "superscalar_mem_vector_handoff")
     wb_descriptor_lane <== mem_descriptor_lane
-    wb_descriptor <== mem_descriptor.updated(~precertified: mem_certified, ~certificate: vector_fast.response.bits)
+    wb_descriptor <== mem_descriptor.updated(~precertified: mem_certified & !vector_fast.needs_last, ~certificate: vector_fast.response.bits)
 
   /* MEM classifies the descriptor assuming a valid physical proof. Capture
      the shape bit with its owner; it cannot authorize anything by itself. */
@@ -1497,13 +1504,15 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   def wb_vector_offer = wb_dispatch[service_index(wb_vector_lane)] & (if vector_enabled | wb_vector.vector.operation | Bool(#false))
   def wb_vector_pc = wb_live_pcs[service_index(wb_vector_lane)]
   vector_fast.candidate <== wb_descriptor.certificate
+  vector_fast.finish <== wb_vector_offer & wb_needs_last
+  def wb_finished = wb_needs_last & vector_fast.last_page.valid
   // The hart owns every context change and invalidation of its attached MMU.
   // An independently managed translation service can still revoke a proof at WB.
   def wb_vector_certified = if owns_translation_epoch
-  | wb_descriptor.precertified
-  | wb_descriptor.precertified & vector_fast.candidate_current
+  | wb_descriptor.precertified ||| wb_finished
+  | (wb_descriptor.precertified ||| wb_finished) & vector_fast.candidate_current
 
-  when (wb_vector_offer & wb_descriptor.precertified):
+  when (wb_vector_offer & (wb_descriptor.precertified ||| wb_finished)):
     assert(wb_descriptor.pointer_masking.as_bits() === wb_csrs.pointer_masking.as_bits(), "superscalar_mem_proof_mask_survives_to_wb")
     if owns_translation_epoch
     | assert(vector_fast.candidate_current, "superscalar_mem_proof_context_survives_to_wb")
@@ -1534,7 +1543,10 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   def wb_scalar_prefix = !any(for List (lane in 0..issue_width): wb_live_valid[lane] & wb_vectors[lane] & (Bits(2)(lane) < wb_scalar_service_lane)) ||| (wb_vector_eligible & vector.service.available & (!wb_vector.vector.memory ||| wb_vector_certified))
   def wb_vector_prefix = !wb_scalar_stop
   vector.request.valid <== wb_vector_offer & wb_vector_eligible & wb_vector_prefix
-  vector.request.bits <== wb_descriptor.updated(~precertified: wb_vector_certified)
+  def wb_certificate = if vector_enabled
+  | wb_descriptor.certificate.updated(~last_ppn: mux(wb_needs_last, vector_fast.last_page.bits, wb_descriptor.certificate.last_ppn))
+  | wb_descriptor.certificate
+  vector.request.bits <== wb_descriptor.updated(~precertified: wb_vector_certified, ~certificate: wb_certificate)
   when (vector.request.valid):
     assert(wb_descriptor_lane === wb_vector_lane, "superscalar_wb_vector_descriptor_owner")
   // Admission retains the live lane's owner even when vector memory retires later.

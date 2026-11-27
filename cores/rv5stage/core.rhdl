@@ -555,6 +555,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def Array(wb_commit_path, wb_vector_launch_path, wb_vector_replay_path, wb_vector_slow_path, wb_fp_reservation_path, wb_fp_hit_path) = wb |> fork_valid(6)
   def wb_offer_bits :: RV5StageRetirementCommand(xlen, vector_completion_slots, hypervisor) = wb.bits
   vector_fast.candidate <== if vector_enabled | wb_input.bits.vector_fast | literal(VectorFastCertificate(xlen), 0)
+  vector_fast.finish <== Bool(vector_enabled) & wb_input.valid & wb_input.bits.vector_fast_needs_last & wb_input.bits.vector_launch & !wb_input.bits.replay & !wb_input.bits.exception_valid & !wb_scalar_pending & !wb_vector_retirement_link.right.valid
   wire wb_commit_result: RV5StageRetirementCommand(xlen, vector_completion_slots, hypervisor)
   wire wb_vector_fast: Bool
   wire wb_vector_slow_admission: Bool
@@ -1067,12 +1068,12 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   wb_vector.memory <=> memory_ports.vector
   wb_vector.pipeline <=> memory_ports.vector_pipeline
   def wb_vector_masking_unchanged = (wb_vector_context.pointer_masking.mode === wb_csrs.pointer_masking.mode) & (wb_vector_context.pointer_masking.virtual_address === wb_csrs.pointer_masking.virtual_address)
-  def wb_vector_fast_candidate = wb_input.bits.vector_fast_valid & vector_fast.candidate_current & wb_vector_masking_unchanged
+  def wb_vector_fast_candidate = wb_input.bits.vector_fast_valid & vector_fast.candidate_current & wb_vector_masking_unchanged & (!wb_input.bits.vector_fast_needs_last ||| vector_fast.last_page.valid)
   def wb_vector_launch = wb_vector_launch_path |> filter_valid(operation => Bool(vector_enabled) & operation.vector_launch & !operation.replay & !operation.exception_valid)
     |> map_valid(operation => VectorDescriptor(xlen)):
          pc: operation.pc
          precertified: wb_vector_fast_candidate
-         certificate: wb_input.bits.vector_fast
+         certificate: wb_input.bits.vector_fast.updated(~last_ppn: mux(wb_input.bits.vector_fast_needs_last, vector_fast.last_page.bits, wb_input.bits.vector_fast.last_ppn))
          instruction: wb_vector_context.instruction
          state: wb_vector_context.state
          control: wb_vector_context.control
@@ -1453,8 +1454,10 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
         address: mem_input.bits.vector_fast_first
         no_wrap: mem_input.bits.vector_fast_no_wrap
 
-      def footprint = vector_fast_range(xlen, start, mem_input.bits.vector_fast_geometry, mem_input.bits.vector_context.control.store)
-      vector_fast.request.valid <== mem_stage_valid & mem_input.bits.vector_launch & footprint.eligible & !footprint.empty & !mem_input.bits.replay & !mem_input.bits.exception_valid
+      def context = mem_input.bits.vector_context
+      def adjacent = vector_contiguous_crossing(context.control, !context.instruction[25].into(Bool), context.pointer_masking)
+      def footprint = vector_fast_range(xlen, start, mem_input.bits.vector_fast_geometry, context.control.store, ~adjacent: adjacent)
+      vector_fast.request.valid <== mem_input.valid & mem_input.bits.vector_launch & footprint.eligible & !footprint.empty & !mem_input.bits.replay & !mem_input.bits.exception_valid
       vector_fast.request.bits <== footprint.range
   | block:
       vector_fast.request.valid <== Bool(#false)
@@ -1485,6 +1488,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     result.vector_launch <== operation.vector_launch
     result.vector_context <== operation.vector_context
     result.vector_fast_valid <== if vector_enabled | vector_fast.response.valid | Bool(#false)
+    result.vector_fast_needs_last <== if vector_enabled | vector_fast.response.valid & vector_fast.needs_last | Bool(#false)
     result.vector_fast <== if vector_enabled | vector_fast.response.bits | literal(VectorFastCertificate(xlen), 0)
     result.pc <== operation.pc
     result.resume_pc <== operation.resume_pc

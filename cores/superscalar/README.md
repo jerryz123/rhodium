@@ -1308,8 +1308,14 @@ scheduling claim remains separate. `SuperscalarCore` supplies the architectural 
   WB validates the captured translation context;
   accepted certified instructions retire without flushing younger work or
   waiting for older sequencing to drain. The descriptor carries its mapping
-  through later TLB replacement. Cross-page, uncertain, or rejected checks keep
-  the retained precise path; a speculative check never starts a page walk.
+  through later TLB replacement. Both backends also certify ordinary unmasked,
+  single-field unit-stride loads and stores crossing into an adjacent page
+  when pointer masking is disabled and both pages pass their checks.
+  Bare identity mappings need no second lookup. Under Sv39, two DTLB hits
+  can certify even nonadjacent physical pages. On RV3Wide this permits a disjoint load to issue
+  before an older vector store drains; an overlap on either page still waits.
+  Other cross-page or rejected checks keep the retained precise path.
+  A speculative check never starts a page walk.
 - A faultable vector-memory descriptor may replace the older sequencer on its
   final read edge. Its first memory read waits until the LSU can accept the
   fixed-latency issue next cycle, crediting successful final certified release

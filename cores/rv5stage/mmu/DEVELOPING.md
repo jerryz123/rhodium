@@ -163,11 +163,11 @@ invalidate translations or cancel accepted page-table response ownership.
    requests identify vector ownership through their existing writeback union.
    Never apply a window to a scalar request or recheck its pages through the
    replaceable DTLB. Assert that every authorized vector request is inside it.
-   The speculative one-page MEM check shares the demand DTLB read and its
-   normal access-permission evaluation, but cannot displace a committed demand,
-   existing precheck, or ordinary pipeline lookup. It never walks or touches
-   L1D. Capture its physical page and context in MEM/WB; WB validates and carries
-   them with an accepted descriptor without requiring an idle vector window.
+   Fast certification uses the independent DTLB probe with demand permissions:
+   a WB continuation takes priority over MEM and optional data hints. It never
+   walks or touches L1D. Capture the first PPN and context in MEM/WB; if a
+   continuation is needed, both checks must succeed before the descriptor can
+   use either mapping. Certification does not require an idle fallback window.
    Each certified request carries its physical address, derived from the
    captured page, and bypasses both the DTLB and the fallback page window.
    The vector-physical sidebands are gated by the selected lookup/request

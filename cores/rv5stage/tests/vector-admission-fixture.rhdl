@@ -57,6 +57,7 @@ sync_circuit RV5StageVectorAdmission():
             store: decode.control.vector.store
 
         ppn: scalar[12..56] + Bits(44)(16)
+        last_ppn: scalar[12..56] + Bits(44)(16)
         virtualized: Bool(#false)
         context:
           RiscvGuestTranslationContext():

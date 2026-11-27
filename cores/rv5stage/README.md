@@ -30,12 +30,13 @@ local feed-forward execution and memory stages; scalar stages do not carry its
 micro-ops. Compute, including owner-scoped reductions, hands the sole sequencer
 to its successor when its tail beat issues, while completion slots retain older
 issued work. Replayable memory and explicitly checkpointed cross-beat operations
-remain serialized. A one-page vector memory range can use the scalar EX adder
-and the existing MEM DTLB lookup to obtain a speculative certificate. WB carries
-that translated page with the admitted vector descriptor and retires the macro;
-the vector head pins it when the previous window owner releases. Later vector
-accesses do not depend on the replaceable TLB entry. Independent scalar instructions may follow
-speculatively; if MEM cannot certify the page, WB restarts them while the ordinary
+remain serialized. MEM can certify a one-page vector range using the DTLB probe.
+An unmasked, single-field unit-stride load or store with pointer masking off can
+also cross into a second page. Bare checks both pages in MEM; translated accesses
+need a second permission-checked DTLB hit in WB. Each beat uses its captured PPN,
+even if the pages are not physically adjacent or a TLB entry is later replaced.
+Independent scalar instructions may follow speculatively; if the proof is
+incomplete, WB restarts them while the ordinary
 precheck or element-wise path proceeds. The established one- or two-page
 precheck also retains translations; other memory forms keep precise
 element-wise execution. See the [vector ownership contract](vector/README.md#execution-ownership)

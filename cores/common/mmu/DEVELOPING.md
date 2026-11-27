@@ -85,10 +85,12 @@ Preserve these invariants when extending the components:
   before extracting PPN, emits zero/nonvirtual context, and compares only
   candidate epochs. Do not strengthen Bare validation with unused context bits.
   Preserve demand-accurate A/D permission results, not relaxed prefetch permission.
-  RV5Stage selects an idle demand lookup; RV2Wide uses its independent probe.
-  Keep those arbitration policies and normal-versus-explicit-guest context
-  selection in the callers. Do not add buffering or gate candidate comparison
-  with invalidation before the epoch edge.
+  All three cores use the independent data probe. The certificate selects a
+  surviving WB continuation ahead of MEM; the MMU gives that request priority
+  over optional data hints, without stealing the scalar demand port. Keep
+  normal-versus-explicit-guest context selection in the callers. Use pre-edge TLB state at WB:
+  integrated retirement excludes a simultaneous invalidation, while an
+  external WB continuation must also pass the live invalidation veto.
 - Keep the `mmu/walk` trace label and retained ownership contract stable.
   Residency excludes Idle and Drain; cancellation ends the architectural walk
   occurrence but does not erase physical response ownership.

@@ -137,7 +137,7 @@ sync_circuit DistributedVectorBackend(xlen :: XLen, vlen :: VectorLength, Fault 
     def d = entry.checked.descriptor
     MemoryLaunch(xlen, vlen, slots):
       issue: direct(entry)
-      pages: mux(d.precertified, vec([d.certificate.ppn, d.certificate.ppn]), window_pages)
+      pages: mux(d.precertified, d.certificate.pages(), window_pages)
       service: VectorMemoryService.Cached
 
   def exact_heads = checker.launch |> demux_flow(2, launch => launch.issue.command.store)

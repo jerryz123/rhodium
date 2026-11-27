@@ -252,6 +252,10 @@ int main() {
     probe(0x2203,0x2203,false,2); probe(0x2203,0x2203,true,3); probe(0x2203,0x2204,false,3);
     probe(0x10008,0x1000b,false,0); probe(0x100000000010008,0x10000000001000b,false,3);
     for (bool store : {false, true}) {
+      vector_fast_in.prequest = {1, {0x10ff8, 0x11007, store}};
+      eval(); CHECK(vector_fast_out.presponse.pvalid && vector_fast_out.presponse.pbits.pppn == 0x10);
+      vector_fast_in.prequest = {1, {0x1fff8, 0x20007, store}};
+      eval(); CHECK(!vector_fast_out.presponse.pvalid && !physical_valid);
       vector_fast_in.prequest = {1, {0x10008, 0x100ff, store}};
       eval();
       CHECK(vector_fast_out.presponse.pvalid);

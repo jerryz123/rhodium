@@ -275,6 +275,14 @@ Validate both ordinary and `+load-through-chi` execution when changing loading.
 
 Mini/Simple/Tiled RV2Wide use the same event target; Mini/Simple additionally
 support composition with cosim. RV5Stage exposes the same shape selection.
+The Simple RVA23 `sim-vector-cross-page-test` harness runs the same Sv39 ELF
+on RV5Stage, RV2Wide, and RV3Wide. It checks a crossing VLE/VSE against
+nonadjacent physical pages, a store through a page-two alias, and a read-only
+second page after SFENCE.VMA. The trap handler verifies EPC, cause, fault
+address, `vstart`, the committed prefix, and the untouched suffix. Run it with
+`SOC=simple-rv5stage-rva23 moon run rhodium:sim-vector-cross-page-test`
+(substitute the other core names to compare backends).
+
 `trace-smoke` reuses the scalar cosim payload and `check-rv2wide-events.sql` checks
 fetch/packet-to-issue ownership, dual-slot issue, PC/instruction preservation,
 fixed EX/MEM timing, successful WB, and RR stall explanations. Direct core

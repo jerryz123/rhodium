@@ -65,7 +65,8 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
     owner: InstructionId
     pc: Bits(xlen.width)
     precertified: Bool
-    ppn: Bits(44)
+    pages: Vec(2, Bits(44))
+    first_vpn_bit: Bits(1)
     pointer_masking: PointerMaskControl()
 
   /* Carries a resolved operand beat and its separate instruction owner/completion slot through
@@ -226,7 +227,8 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
           owner: next_owner
           pc: operation.descriptor.pc
           precertified: operation.descriptor.precertified
-          ppn: operation.descriptor.certificate.ppn
+          pages: vec([operation.descriptor.certificate.ppn, operation.descriptor.certificate.last_ppn])
+          first_vpn_bit: operation.descriptor.certificate.range.first[12]
           pointer_masking: operation.descriptor.pointer_masking
   ) |> sequencer.request
 
@@ -407,7 +409,7 @@ sync_circuit VectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: Data
     token |> map_flow(operation => VectorToken(xlen, Context, vector_completion_slots)):
       precertified: operation.context.precertified
       packed: operation.packed
-      physical_address: ((operation.context.ppn ++ apply_pointer_mask(xlen, operation.beat.address, operation.context.pointer_masking)[0..12]).zext(64))[0..xlen.width]
+      physical_address: ((operation.context.pages[operation.beat.address[12] ^ operation.context.first_vpn_bit] ++ operation.beat.address[0..12]).zext(64))[0..xlen.width]
       store: operation.beat.control.store
       byte_mask: mux(operation.packed, operation.byte_mask, memory_byte_mask(xlen, operation.beat.address, operation.beat.element_width.as_bits().into(MemoryWidth)))
       context: operation.context.value

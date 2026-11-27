@@ -31,6 +31,9 @@ case "$name" in
     page=0x80010000; limit=0xc0000000
     if [[ $shape == mini ]]; then page=0x8000b000; limit=0x80010000; fi
     flags+=(-DLRSC_HARTS=$harts -DLRSC_TRANSLATED=${name#lrsc_} -DLRSC_IALIGN=2 -DLRSC_PAGE_TABLE_BASE=$page -Wl,--defsym,lrsc_page_tables=$page,--defsym,lrsc_memory_limit=$limit) ;;
+  vector_cross_page)
+    march=rv64gcv; linker=sims/tests/programs/smoke.ld
+    flags+=(-Wl,--section-start=.pt=0x80002000) ;;
   zicboz) march=rv64im_zicsr ;;
   zihintntl|zihintntl-policy)
     source=sims/tests/programs/zihintntl.S; linker=sims/tests/programs/zihintntl.ld; march=rv64im_zicsr_zicntr

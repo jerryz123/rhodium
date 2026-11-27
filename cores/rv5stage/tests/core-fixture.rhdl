@@ -143,6 +143,9 @@ sync_circuit RV5StageCoreFixture(profile :: RV5StageConfig, ~reset_address: rese
       core.vector_fast.response.valid <== Bool(#false)
       core.vector_fast.response.bits <== dont_care(VectorFastCertificate(xlen))
       core.vector_fast.candidate_current <== Bool(#false)
+      core.vector_fast.needs_last <== Bool(#false)
+      core.vector_fast.last_page.valid <== Bool(#false)
+      core.vector_fast.last_page.bits <== dont_care(VectorPageNumber)
 
   core.prefetch |> prefetch
   core.interrupts <== interrupts

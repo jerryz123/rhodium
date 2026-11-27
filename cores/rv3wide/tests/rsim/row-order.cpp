@@ -14,6 +14,9 @@ unsigned fast_proofs;
 bool mixed, stride_order, indexed_order, indexed_scatter, index_proof, whole_load;
 unsigned first_load, index_base=0x400, checked_address, checked_bytes;
 bool checked_gather;
+bool crossing_load, second_page_alias;
+bool translated_crossing, crossing_store;
+unsigned continuations;
 bool wide_scatter;
 bool iterative_scatter, proof_response, unordered_slices;
 std::deque<unsigned> scatter_bytes;
@@ -66,7 +69,19 @@ void step() {
   }
   vector_fast_in.presponse.pvalid = vector_fast_out.prequest.pvalid;
   vector_fast_in.presponse.pbits.prange = vector_fast_out.prequest.pbits;
-  vector_fast_in.presponse.pbits.pppn = 0;
+  const auto& span=vector_fast_out.prequest.pbits;
+  const unsigned vpn=span.pfirst>>12;
+  // VPN 3 is a distinct virtual alias of the crossing macro's second page (VPN 1).
+  vector_fast_in.presponse.pbits.pppn = translated_crossing ? (vpn==0 ? 22 : 20) : crossing_load ? vpn : 0;
+  vector_fast_in.presponse.pbits.plast_uppn = translated_crossing ? 0 : span.plast>>12;
+  vector_fast_in.pneeds_ulast = translated_crossing && vpn!=(span.plast>>12);
+  vector_fast_in.plast_upage = {vector_fast_out.pfinish,20};
+  if (vector_fast_out.pfinish) {
+    const auto& first=vector_fast_out.pcandidate;
+    CHECK(translated_crossing && first.pppn==22 && (first.prange.pfirst>>12)==0 &&
+          (first.prange.plast>>12)==1 && bool(first.prange.pstore)==crossing_store);
+    ++continuations;
+  }
   eval();
   if (!reset) {
     if (vector_fast_in.presponse.pvalid) ++fast_proofs;
@@ -79,7 +94,18 @@ void step() {
     if (row_memory_out.prequest.pvalid && row_memory_in.prequest.pready) {
       const auto& req = row_memory_out.prequest.pbits;
       const unsigned row_bytes=sizeof(req.pdata);
-      if (whole_load) {
+      if (crossing_load) {
+        const unsigned page0=translated_crossing ? 22*4096 : 0;
+        const unsigned page1=translated_crossing ? 20*4096 : 4096;
+        if (req.pstore && !crossing_store) CHECK(req.paddress == (second_page_alias ? page1 : page0+0x400));
+        else {
+          CHECK(bool(req.pstore)==crossing_store);
+          const unsigned beat=crossing_store ? requests-first_store : loads-first_load;
+          CHECK(beat<2 && req.paddress==(beat ? page1 : page0+4096-row_bytes));
+          CHECK(req.pbyte_umask==(beat ? low_mask(row_bytes-4) : 15u << (row_bytes-4)));
+          if (!crossing_store) CHECK(acknowledgements == first_store + unsigned(second_page_alias));
+        }
+      } else if (whole_load) {
         CHECK(!req.pstore && req.paddress==0x440u+(loads-first_load)*row_bytes);
         CHECK(req.pbyte_umask==low_mask(row_bytes));
       } else if (iterative_scatter) {
@@ -421,6 +447,36 @@ int main() {
       CHECK(ordered.empty() && retire_cycle > last_reply);
       CHECK(replies == old_loads+1 && acknowledgements == old_stores+1);
     }
+    // Two pieces of one VLE at 0xffc. Withhold the older store's ACK:
+    // a disjoint store permits both requests; a second-page alias blocks both.
+    send(0x000011b7); send(0xffc18193); // x3 = 0xffc
+    crossing_load=true;
+    for (bool translated : {false,true}) for (bool alias : {false,true}) {
+      translated_crossing=translated;
+      second_page_alias=alias;
+      send(alias ? (translated ? 0x000030b7 : 0x000010b7) : 0x40000093);
+      first_store=acknowledgements; first_load=loads; release_at=cycle+120;
+      send(0x02008427); while (ordered.empty()) step();
+      send(0x02018607);
+      CHECK(acknowledgements==first_store); // WB admitted the VLE before store drain.
+      if (alias) {
+        for (unsigned n=0;n<12;++n) step();
+        CHECK(loads==first_load && ordered.size()==1);
+      } else {
+        while (loads!=first_load+2) { CHECK(cycle+1<release_at); step(); }
+        CHECK(ordered.size()==3 && acknowledgements==first_store);
+      }
+      release_at=cycle+1; send(0x0ff0000f);
+      CHECK(ordered.empty() && replies==first_load+2 && acknowledgements==first_store+1);
+    }
+    CHECK(continuations==2);
+    crossing_store=true; first_store=requests; release_at=cycle+120;
+    send(0x02018427); // vse8.v v8,(x3): both fragments must use the returned PPNs.
+    while (ordered.size()!=2) { CHECK(cycle+1<release_at); step(); }
+    CHECK(continuations==3 && acknowledgements==first_store);
+    release_at=cycle+1; send(0x0ff0000f);
+    crossing_load=translated_crossing=crossing_store=false;
+    send(0x40000093); send(0x44000193);
     // A certified two-field unit-stride load can retire behind a disjoint
     // unacknowledged store. With the same descriptor but a revoked proof it cannot.
     send(0xc00072d7 | (1u<<15)); // VL=1, e8,m1
