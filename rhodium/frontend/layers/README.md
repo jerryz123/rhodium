@@ -1443,6 +1443,12 @@ so independent storage/selection regions can coexist. Omit the model builder's
 instance argument for local controls; pass an immediate child instance only
 when an adapter owns the contract for an otherwise undescribed implementation.
 
+`describe_interface_observation(channel, events)` describes a passive side
+output that copies each transfer on a flat channel. Supply the produced event
+endpoint after wiring its valid and payload. The original receiver still owns
+readiness. Topology extraction models the copy as a synchronous fork with one
+functional continuation and one observer, so each can be traced independently.
+
 A transform with an implementation and no model delegates through that child's
 actual topology, including internal checkpoints. It must expose the child's
 interface endpoints. Direct instances use the same contracts automatically.

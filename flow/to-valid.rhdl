@@ -1,5 +1,5 @@
 #lang rhodium
-/* Converts an always-accepted ready-valid flow into same-cycle Valid events. */
+/* Converts ready-valid offers or observes accepted transfers as same-cycle events. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -31,5 +31,20 @@ fun to_valid()
       )
     )
 
+/* Taps the actual handshake, preserving the receiver's exclusive control of
+   ready. Payload channels yield Valid(T) and control channels yield Pulse. */
+fun observe_transfer(source :: Endpoint.supports(DecoupledCtrl())) :~ Endpoint:
+  def payload = decoupled_protocol_type(source.type)
+  unless payload | ctrl_endpoint(source)
+  def events = interface_link(if payload | Valid(decoupled_payload_type(source)) | Pulse(),
+                              "observed_transfer")
+  events.left.valid <== fire(source)
+  if payload
+  | events.left.bits <== source.field("bits")
+  | #void
+  describe_interface_observation(source, events.right)
+  events.right
+
 export:
   to_valid
+  observe_transfer

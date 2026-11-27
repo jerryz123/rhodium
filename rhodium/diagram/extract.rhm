@@ -479,7 +479,7 @@ fun transform_has_combo_input(kind :: String):
   kind in ["map", "map-valid", "filter", "filter-valid", "gate", "demux"]
 
 /* Expands composite connections and local links into matching protocol-channel pairs, preserving provider direction. */
-fun interface_channel_wiring(module_def :: Module):
+fun interface_channel_wiring(module_def :: Module, ~observations: observations :: Boolean = #false):
   // Whole composite interfaces connect their nested protocol channels too.
   // Project both ends together and preserve reverse-channel provider direction;
   // do not reinterpret scalar data dependencies as transaction connections.
@@ -517,6 +517,24 @@ fun interface_channel_wiring(module_def :: Module):
     for (pair in channel_pairs(link.left, link.right)):
       def forward = pair[1].represented_role == pair[1].type.provider_role
       links := links ++ [InterfaceLinkGroup(module_def, link.name, if forward | pair[0] | pair[1], if forward | pair[1] | pair[0])]
+
+  // Insert each observer's logical fork at its point on the existing channel.
+  // All functional consumers share the continuation. Each tap alone certifies
+  // one simultaneous copy, regardless of the number or order of consumers.
+  when observations
+  | for (tap in module_interface_observations(module_def)):
+      def provider = tap.channel.represented_role == tap.channel.type.provider_role
+      def terminal = endpoint_ports("", "", tap.channel)[1][0]
+      connections := for List (wire in connections):
+        cond
+        | provider && terminal_contains_endpoint(terminal, wire.source):
+            wire with (source = tap.continuation)
+        | !provider && terminal_contains_endpoint(terminal, wire.destination):
+            wire with (destination = tap.input)
+        | ~else: wire
+      connections := connections ++ [if provider
+                                     | InterfaceConnectionGroup(module_def, tap.channel, tap.input)
+                                     | InterfaceConnectionGroup(module_def, tap.continuation, tap.channel)]
 
   [connections, links]
 
@@ -614,7 +632,7 @@ fun diagram_module(module_def :: Module,
   def transforms = module_interface_transforms(module_def)
   def events = module_interface_events(module_def)
   contract_frontiers(module_def, contract_cache)
-  let [connections, links] = interface_channel_wiring(module_def)
+  let [connections, links] = interface_channel_wiring(module_def, ~observations: #true)
   def grouped_names = grouped_port_names(groups)
   def mutable blocks = []
   def mutable terminals = []

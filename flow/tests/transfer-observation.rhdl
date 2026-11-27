@@ -1,0 +1,36 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("flow/main.rhdl") open
+  lib("rhodium/event/tests/rsim/trace-sites.rhm").traced_target
+
+sync_circuit TransferObservation():
+  interface a(Decoupled(Bits(8)), ~role: consumer)
+  interface b(Irrevocable(Bits(8)), ~role: consumer)
+  interface result(Decoupled(Bits(8)), ~role: producer)
+  interface accepted[2](Valid(Bits(8)), ~role: producer)
+  interface b_transfer(Valid(Bits(8)), ~role: producer)
+  input choose: Bits(2)
+  def merged = grant_merge(choose.into(MaybeOneHot(2)),
+                           Array(a |> trace_event("first"), b |> trace_event("second")))
+  merged |> trace_event("forwarded") |> result
+  observe_transfer(b) |> b_transfer
+  observe_transfer(merged) |> trace_valid_event("at_source") |> accepted[0]
+  observe_transfer(result) |> trace_valid_event("at_sink") |> accepted[1]
+
+  interface control(DecoupledCtrl(), ~role: consumer)
+  interface persistent(IrrevocableCtrl(), ~role: consumer)
+  interface pulses[2](Pulse(), ~role: producer)
+  input allow: Bool
+  for (port in [control, persistent], pulse in pulses):
+    port.field("ready") <== allow
+    observe_transfer(port) |> pulse
+
+def program = elaborate(TransferObservation())
+fun site_header(manifest):
+  String.join(for List (site in manifest.sites, index in 0..manifest.sites.length()):
+                "constexpr unsigned site_" ++ site.label ++ " = " ++ to_string(index) ++ ";\n",
+              "")
+def target = traced_target(site_header)
+export program target

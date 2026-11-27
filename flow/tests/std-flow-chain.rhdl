@@ -293,7 +293,17 @@ sync_circuit InvalidOwnerInputs(first_valid :: Boolean, second_valid :: Boolean,
   input select_first: Bool
   valid_owner_mux(select_first, first, second)
 
+circuit EmptyGrantMerge():
+  input grant: MaybeOneHot(1)
+  grant_merge(grant, Array())
+
+circuit ObserveValid():
+  interface already_valid(Valid(Bits(8)), ~role: consumer)
+  observe_transfer(already_valid)
+
 export:
+  EmptyGrantMerge
+  ObserveValid
   owner_program
   InvalidOwnerInputs
   ShiftQueueChain

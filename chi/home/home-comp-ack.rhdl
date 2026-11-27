@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("flow/map-valid.rhdl").map_valid
   lib("rhodium/std/bits.rhdl") open
   lib("rhodium/std/ready-valid.rhdl") open
   lib("rhodium/std/scoreboard.rhdl") open
@@ -35,10 +36,8 @@ sync_circuit CHIHomeCompAckTable(p :: CHIFlitParams,
 
   available <== free_entries.any()
   allocation_slot <== next_slot
-  occupancy.set.valid <== reserve.valid
-  occupancy.set.bits <== next_slot
-  published.set.valid <== publish.valid
-  published.set.bits <== publish.bits
+  reserve |> map_valid(_requester => next_slot) |> occupancy.set
+  publish |> published.set
 
   when (reserve.valid):
     assert(free_entries.any(), "chi_home_comp_ack_table_available")

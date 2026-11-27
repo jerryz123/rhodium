@@ -1,6 +1,7 @@
 #lang rhombus
 // SPDX-License-Identifier: Apache-2.0
 import:
+  lib("rhodium/event/tests/rsim/trace-sites.rhm").traced_target
   lib("rhodium/frontend/foundation.rhm").elaborate
   lib("riscv/isa/xlen.rhm").XLen
   "../issue-window-fixture.rhdl".IssueWindowFixture
@@ -10,4 +11,9 @@ def guest_program = elaborate(IssueWindowFixture(~hypervisor: #true))
 def rv32_program = elaborate(IssueWindowFixture(XLen.X32))
 def three_program = elaborate(IssueWindowFixture(~group_width: 3))
 def three_guest_program = elaborate(IssueWindowFixture(~group_width: 3, ~hypervisor: #true))
-export program guest_program rv32_program three_program three_guest_program
+fun site_header(manifest):
+  String.join(for List (site in manifest.sites, index in 0..manifest.sites.length()):
+                "constexpr unsigned site_" ++ site.label ++ " = " ++ to_string(index) ++ ";\n",
+              "")
+def target = traced_target(site_header)
+export target program guest_program rv32_program three_program three_guest_program

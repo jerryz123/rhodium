@@ -189,7 +189,9 @@ types. The compatibility facade is not a production dependency boundary; the
 developer implementation map identify the owners.
 CHI's `protocol/`, `transactions/`, `home/`, `subordinate/`, `adapters/`, and
 `noc/` directories refine that source ownership without changing package
-dependency direction. The CHI boundary checker audits nested production files;
+dependency direction. The inclusive Home uses Flow gates for queue admission and
+the Home CompAck table uses a Valid map for DBID reservation.
+The CHI boundary checker audits nested production files;
 the pure `chi/noc/noc-authoring.rhm` bridge still imports only host NoC/support
 modules, not Rhodium or CIRCT.
 

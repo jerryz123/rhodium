@@ -5,6 +5,7 @@ import:
   lib("cores/superscalar/tests/vector-fixture.rhdl").SuperscalarVectorFixture
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/isa/vector-profile.rhm").VectorExtension
+  "../load-selector-fixture.rhdl" as selector
   "../index-gather-fixture.rhdl".RowMemoryFixture
   "../index-gather-fixture.rhdl".NativeIndexMemoryFixture
   lib("rhodium/frontend/foundation.rhm").elaborate
@@ -44,7 +45,7 @@ def unit32 = elaborate(RowMemoryFixture(XLen.X32, 256))
 def unit64 = elaborate(RowMemoryFixture(XLen.X64, 256))
 fun site_header(manifest):
   def constants = for List (site in manifest.sites, index in 0..manifest.sites.length()):
-    keep_when (site.label.starts_with("vector/load.") || site.label.starts_with("vector/store.")) && !site.label.ends_with(".stall")
+    keep_when (site.label.starts_with("test/") || site.label.starts_with("vector/load.") || site.label.starts_with("vector/store.")) && !site.label.ends_with(".stall")
     def label = if site.label == "vector/store.sequence" && !site.fields.find(fun (field): field.name == "offset") | "scatter_capture" | site.label
     "constexpr unsigned " ++ label.replace("/", "_").replace(".", "_") ++ " = " ++ to_string(index) ++ ";\n"
   "namespace row_sites {\n" ++ String.join(constants, "") ++ "}\n"
@@ -58,3 +59,8 @@ def merge32 = elaborate(RowMemoryFixture(XLen.X32, 128))
 def indexed32 = elaborate(NativeIndexMemoryFixture(XLen.X32, 128))
 def indexed64 = elaborate(NativeIndexMemoryFixture(XLen.X64, 256))
 export rv32 rv64 target unit32 unit64 window_target merge32 indexed32 indexed64
+
+def selector32 = selector.rv32
+def selector64 = selector.rv64
+def selector_target = traced_target(site_header, EventInstrumentationConfig(~partial: #true))
+export selector32 selector64 selector_target

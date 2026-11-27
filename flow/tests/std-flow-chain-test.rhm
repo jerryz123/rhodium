@@ -177,6 +177,8 @@ check:
   elaborate(fixture.InvalidOwnerInputs(#false, #true, 8)) ~throws "Valid-flow chaining requires a Valid endpoint"
   elaborate(fixture.InvalidOwnerInputs(#true, #false, 8)) ~throws "Endpoint.supports"
   elaborate(fixture.InvalidOwnerInputs(#true, #true, 16)) ~throws "Endpoint.supports"
+  elaborate(fixture.EmptyGrantMerge()) ~throws "requires at least one input"
+  elaborate(fixture.ObserveValid()) ~throws "Endpoint.supports"
   elaborate(fixture.EmptyGrantCrossbarChain()) ~throws "requires at least one input endpoint"
   elaborate(fixture.GrantCrossbarWrongProtocol()) ~throws "flow-control chaining requires a Decoupled or Irrevocable endpoint"
   elaborate(fixture.MissingSyncDomain()) ~throws "active sync_circuit"

@@ -111,6 +111,7 @@ export:
   OutputGreedyRoundRobinMatcher
   GrantDemux
   GrantMerge
+  grant_merge
   valid_owner_mux
   GrantCrossbar
   grant_crossbar
@@ -142,6 +143,7 @@ export:
   fork_valid
   filter_valid
   to_valid
+  observe_transfer
   to_decoupled
   offer_decoupled
   filter_flow

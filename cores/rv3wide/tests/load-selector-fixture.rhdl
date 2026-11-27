@@ -1,0 +1,39 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("flow/main.rhdl") open
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("cores/common/vector/bundles.rhdl").VectorRowMemory
+  lib("cores/common/vector/distributed/common/row-types.rhdl") open
+  lib("cores/common/vector/distributed/common/memory-route.rhdl") open
+  lib("cores/common/vector/distributed/mem/vlsu.rhdl").VectorVLSU
+
+sync_circuit LoadSelectorFixture(xlen :: XLen):
+  def vlen = 256
+  def Owner = Bits(2)
+  inst vlsu(VectorVLSU(xlen, vlen, 4))
+  def Launch = MemoryLaunch(xlen, vlen, 4)
+  interface start(Decoupled(Launch), ~role: consumer)
+  interface normal(Decoupled(OwnedRow(PreparedBeat(vlen), Owner)), ~role: consumer)
+  interface element(Decoupled(CheckedIndexElement(xlen, vlen)), ~role: consumer)
+  interface memory(VectorRowMemory(vlen div 2), ~role: requester)
+  output normal_accepted: Bool
+  start |> vlsu.start[0]
+  normal |> trace_event("test/normal") |> pipe(1) |> vlsu.masks
+  element |> trace_event("test/element") |> vlsu.checked_element
+  normal_accepted <== vlsu.masks.fire()
+  vlsu.memory <=> memory
+
+  vlsu.stream_live <== Bool(#true)
+  vlsu.stream_store <== Bool(#false)
+  vlsu.oldest_owner <== Owner(0)
+  vlsu.trace_instructions <== literal(Vec(4, VectorTraceInstruction(xlen)), 0)
+  for (port in [vlsu.start[1], vlsu.store_data, vlsu.indices, vlsu.splat, vlsu.load_setup, vlsu.scatter.operand]):
+    port.field("valid") <== Bool(#false)
+    port.field("bits") <== dont_care(port.field("bits").type)
+  vlsu.load_result.ready <== Bool(#true)
+
+def rv32 = elaborate(LoadSelectorFixture(XLen.X32))
+def rv64 = elaborate(LoadSelectorFixture(XLen.X64))
+export rv32 rv64

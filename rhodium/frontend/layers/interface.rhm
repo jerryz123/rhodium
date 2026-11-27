@@ -61,6 +61,8 @@ export:
   module_interface_transforms
   module_interface_events
   module_interface_connections
+  module_interface_observations
+  describe_interface_observation
   module_interface_links
   interface_boundary_endpoint
   interface_trace_passthrough
@@ -907,6 +909,16 @@ class InterfaceConnectionGroup(module_def :: Module,
   override method remap_ir(remap :: Function.of_arity(1)):
     InterfaceConnectionGroup(remap(module_def), remap(source), remap(destination))
 
+/* Identifies the logical cut where a passive observer shares a transfer with
+   the original receiver. Neither side of this cut introduces RTL wiring. */
+class InterfaceObservationBranch(channel :: InterfaceEndpoint,
+                                 input :: InterfaceEndpoint,
+                                 continuation :: InterfaceEndpoint):
+  implements ModuleMetadataPayload
+  /* Rebinds the observed channel and both logical terminals in copied IR. */
+  override method remap_ir(remap :: Function.of_arity(1)):
+    InterfaceObservationBranch(remap(channel), remap(input), remap(continuation))
+
 /* Records the complementary views of one named local interface link. */
 class InterfaceLinkGroup(module_def :: Module,
                          name :: String,
@@ -922,6 +934,7 @@ def interface_array_group_namespace = "rhodium.interface.array-group"
 def interface_transform_group_namespace = "rhodium.interface.transform"
 def interface_event_group_namespace = "rhodium.interface.event"
 def interface_connection_group_namespace = "rhodium.interface.connection"
+def interface_observation_namespace = "rhodium.interface.observation"
 def interface_link_group_namespace = "rhodium.interface.link"
 def interface_elastic_stages_namespace = "rhodium.interface.elastic-stages"
 def interface_retained_storage_namespace = "rhodium.interface.retained-storage"
@@ -976,6 +989,35 @@ fun module_interface_events(module_def :: Module):
 /* Returns the module's recorded endpoint connections. */
 fun module_interface_connections(module_def :: Module):
   module_def.metadata_for(interface_connection_group_namespace)
+
+/* Returns passive branches from observed endpoints to their event streams. */
+fun module_interface_observations(module_def :: Module):
+  module_def.metadata_for(interface_observation_namespace)
+
+/* Describes a simultaneous copy of each transfer onto an independent event
+   output. Only this branch is certified; functional consumers retain their
+   existing ownership. Both endpoints must be local flat channels. */
+fun describe_interface_observation(source :: InterfaceEndpoint, events :: InterfaceEndpoint):
+  def module_def = kernel.active_module()
+  unless events.represented_role == events.type.provider_role && (
+    for all (port in [source, events]):
+      !port.type.members.find(fun (member): member.type is_a InterfaceType) && (
+        for all (binding in port.bindings): binding.entity.module_def === module_def
+      )
+  )
+  | error(~who: #'describe_interface_observation, "expected a local flat channel and a local event output")
+  /* Gives the fork's functional terminals independent topology identities
+     while borrowing the original hardware signals. */
+  fun terminal(role :: String):
+    def bindings = for List (binding in source.bindings):
+      InterfaceBinding(binding.direction, kernel.fresh_name("observe_" ++ binding.port_name), binding.entity)
+    InterfaceEndpoint(source.type, source.role, role, bindings, "observation")
+
+  def continuation = terminal(source.type.provider_role)
+  def input = terminal(source.type.complementary_role(source.type.provider_role))
+  describe_interface_transform(InterfaceHandle(input, Array(continuation, events)), "observe-transfer",
+                               ~trace_model: interface_trace_atomic_fork(2))
+  module_def.add_metadata(interface_observation_namespace, InterfaceObservationBranch(source, input, continuation))
 
 /* Returns the module's local link-view metadata. */
 fun module_interface_links(module_def :: Module):

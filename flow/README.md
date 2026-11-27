@@ -424,6 +424,12 @@ source |> to_valid()
   |> eject_interface(~valid: sink_valid, ~bits: sink_bits)
 ```
 
+Use `observe_transfer(channel)` after wiring the channel's functional handshake. The
+side output emits once for each cycle where `valid & ready` holds and follows
+the accepted transfer's trace ancestry. On `Decoupled(T)` and
+`Irrevocable(T)` it returns `Valid(T)` carrying the accepted payload. On
+`DecoupledCtrl` and `IrrevocableCtrl` it returns `Pulse()`.
+
 `to_decoupled()` performs the checked inverse for a nonbackpressured `Valid(T)`
 source. It adds a readiness path and asserts that every valid event is accepted
 in the same cycle, making the otherwise unsafe boundary explicit:
@@ -614,6 +620,9 @@ both scalar grant ports use `MaybeOneHot`, so ordinary Rhodium construction keep
 the zero-or-one invariant explicit. An external environment can still violate
 the physical encoding and must satisfy the corresponding boundary contract.
 `GrantMerge` selects its payload from the grant independently of input validity.
+Use `grant_merge(grants, sources)` to connect a nonempty array of compatible
+payload channels to one `GrantMerge`. It returns the merged `Decoupled(T)`
+endpoint. Grant bit `i` selects `sources[i]` for readiness and trace ancestry.
 Consumers may inspect the selected operand to compute readiness without feeding
 a cancelled offer's validity back into that readiness decision.
 

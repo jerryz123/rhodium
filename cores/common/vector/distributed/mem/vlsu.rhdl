@@ -179,26 +179,21 @@ sync_circuit VectorVLSU(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~t
     data: mux(stream_store, scatter.operand.bits >> (operand_offset[0..index_width(row_bytes)] ++ Bits(3)(0)), Bits(dlen)(0))
     continues: Bool(#false)
     last: Bool(#true)
-  def load_port = interface_link(Decoupled(PreparedBeat(vlen)))
-  load_port.left.valid <== gathering ||| normal_load.valid
-  load_port.left.bits <== mux(gathering, element_beat, normal_load.bits)
-  normal_load.ready <== !gathering & load_port.left.ready
-  def admitted_load = load_port.right
+  def gather_offer = inject_interface(Valid(PreparedBeat(vlen)), ~valid: gathering, ~bits: element_beat)
+  def admitted_load = grant_merge(vec([!gathering, gathering]).into(MaybeOneHot(2)),
+                                  Array(normal_load, gather_offer |> offer_decoupled()))
   def load_rows = admitted_load |> gate_flow(load_room ||| !admitted_load.bits.enabled.any())
   def scatter_beat = scatter.operand |> map_valid(_data => element_beat) |> offer_decoupled()
-  inst store_port(GrantMerge(PreparedBeat(vlen), 2))
-  store_port.grants <== vec([!scattering, scattering]).into(MaybeOneHot(2))
-  Array(store_merger.beat, scatter_beat) <=> store_port.ingress
-  def store_rows = store_port.egress |> gate_flow(store_acks.ingress.ready ||| !store_port.egress.bits.enabled.any())
+  def admitted_store = grant_merge(vec([!scattering, scattering]).into(MaybeOneHot(2)),
+                                   Array(store_merger.beat, scatter_beat))
+  def store_rows = admitted_store |> gate_flow(store_acks.ingress.ready ||| !admitted_store.bits.enabled.any())
   // Prefer the older eligible cursor. Never replace a stalled offer.
   reg locked(~init: Bool(#false))
   reg locked_store(Bool)
   def store = mux(locked, locked_store, store_rows.valid & (older_store ||| !load_rows.valid))
   def selected = store.as_bits()
-  inst port(GrantMerge(PreparedBeat(vlen), 2))
-  port.grants <== vec([!store, store]).into(MaybeOneHot(2))
-  Array(load_rows, store_rows) <=> port.ingress
-  def prepared = port.egress
+  def grants = vec([!store, store]).into(MaybeOneHot(2))
+  def prepared = grant_merge(grants, Array(load_rows, store_rows))
   // VS2 advances one byte per element; the data cursor advances by SEW.
   def lane = (prepared.bits.offset >> eews[selected])[0..index_width(row_bytes)]
   def byte_index = indices.bits.as_vec(Bits(8))[lane]
@@ -241,23 +236,20 @@ sync_circuit VectorVLSU(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~t
   // The VLSU has already chosen and locked the issuing cursor. Split the
   // observation by that grant, then rejoin without arbitration or storage.
   def offers = physical_request |> demux_flow(2, req => req.store)
-  inst agen(GrantMerge(VectorRowRequest(dlen), 2))
-  agen.grants <== port.grants
-  for (i in MemoryPaths):
+  def traced_offers = for Array (i in MemoryPaths):
     def identity = trace_instructions[owners[i]]
     def label = if i == LoadPath | "vector/load.agen" | "vector/store.agen"
-    (offers[i] |> trace_event(label, ~stalls: #true, ~fields: req):
-       pc: identity.pc
-       instruction(~format: "riscv", ~isa: isa, ~pc: "pc"): identity.instruction
-       owner(~format: "unsigned"): owners[i]
-       row(~format: "unsigned"): prepared.bits.row
-       cursor: cursor
-       va: address
-       pa: req.address
-       byte_mask: req.byte_mask
-       split_suffix: second
-    ) |> agen.ingress[i]
-  def Array(request, metadata) = agen.egress |> atomic_fork(2)
+    offers[i] |> trace_event(label, ~stalls: #true, ~fields: req):
+      pc: identity.pc
+      instruction(~format: "riscv", ~isa: isa, ~pc: "pc"): identity.instruction
+      owner(~format: "unsigned"): owners[i]
+      row(~format: "unsigned"): prepared.bits.row
+      cursor: cursor
+      va: address
+      pa: req.address
+      byte_mask: req.byte_mask
+      split_suffix: second
+  def Array(request, metadata) = grant_merge(grants, traced_offers) |> atomic_fork(2)
   request |> memory.request
 
   def issue_context = RowCredit(xlen, vlen, Owner):
@@ -301,7 +293,13 @@ sync_circuit VectorVLSU(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~t
   indices.ready <== prepared.fire() & inline_index & ((lane === !StoreLane(0)) ||| prepared.bits.last)
   def tail = prepared.fire() & prepared.bits.last
   checked_element.ready <== occupied[path] & streaming[path] & (!sequencing[path] ||| (tail & (store === stream_store)))
-  when (checked_element.fire() ||| start[LoadPath].fire()): gathered <== checked_element.fire() & !stream_store
+  def replace_element = checked_element.fire() ||| start[LoadPath].fire()
+  def capture_gather = checked_element.fire() & !stream_store
+  when replace_element: gathered <== capture_gather
+  // A split or stalled gather keeps the checked element that installed it.
+  // Same-edge replacement takes effect after the outgoing fragment transfers.
+  describe_interface_retained_storage(capture_gather, gathered & replace_element, gathered, ~name: "gather")
+  describe_interface_contract(checked_element, gather_offer, "gather", ~trace_model: interface_trace_retained(~name: "gather"))
   def store_start = start[StorePath]
   def command = store_start.bits.issue.command
   def initial_offset = command.data.begin

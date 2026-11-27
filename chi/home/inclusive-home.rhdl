@@ -10,6 +10,7 @@ import:
   lib("rhodium/std/sync-ram.rhdl").SyncRam1RW
   lib("flow/circular-priority.rhdl") open
   lib("flow/retained-selection.rhdl").RetainedSelection
+  lib("flow/gate.rhdl").gate_flow
   lib("flow/queue.rhdl").Queue
   lib("flow/event.rhdl") open
   lib("chi/protocol/params.rhdl") open
@@ -207,15 +208,9 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   inst requester_response_buffer(Queue(CHIRspFlit(p), 2))
   inst subordinate_response_buffer(Queue(CHIRspFlit(p), 2))
   inst fill_buffer(Queue(CHIDatFlit(p), 2))
-  requester_response_buffer.ingress.valid <== home_active & requester.requester_responses.valid
-  requester_response_buffer.ingress.bits <== requester.requester_responses.bits
-  requester.requester_responses.ready <== home_active & requester_response_buffer.ingress.ready
-  subordinate_response_buffer.ingress.valid <== home_active & subordinate.rsp.valid
-  subordinate_response_buffer.ingress.bits <== subordinate.rsp.bits
-  subordinate.rsp.ready <== home_active & subordinate_response_buffer.ingress.ready
-  fill_buffer.ingress.valid <== home_active & subordinate.dat.response.valid
-  fill_buffer.ingress.bits <== subordinate.dat.response.bits
-  subordinate.dat.response.ready <== home_active & fill_buffer.ingress.ready
+  requester.requester_responses |> gate_flow(home_active) |> requester_response_buffer.ingress
+  subordinate.rsp |> gate_flow(home_active) |> subordinate_response_buffer.ingress
+  subordinate.dat.response |> gate_flow(home_active) |> fill_buffer.ingress
   def requester_data = requester_data_buffer.egress
   def requester_response = requester_response_buffer.egress
   def subordinate_response = subordinate_response_buffer.egress
@@ -355,9 +350,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   )
   def incoming_requester_data_phase_valid = phases[incoming_requester_data_slot].is_one_of(CHIInclusiveHNFPhase.ReceiveRequesterData, CHIInclusiveHNFPhase.SendSnoop, CHIInclusiveHNFPhase.AwaitSnoop)
   def incoming_requester_data_eligible = incoming_requester_data_slot_valid & (occupied[incoming_requester_data_slot]) & incoming_requester_data_phase_valid
-  requester_data_buffer.ingress.valid <== home_active & requester.request_data.valid & incoming_requester_data_eligible
-  requester_data_buffer.ingress.bits <== requester.request_data.bits
-  requester.request_data.ready <== home_active & requester_data_buffer.ingress.ready & incoming_requester_data_eligible
+  requester.request_data |> gate_flow(home_active & incoming_requester_data_eligible) |> requester_data_buffer.ingress
   when (home_active & requester.request_data.valid):
     assert(incoming_requester_data_slot_valid, "chi_inclusive_hnf_requester_data_slot_in_range")
     assert(occupied[incoming_requester_data_slot], "chi_inclusive_hnf_requester_data_slot_occupied")

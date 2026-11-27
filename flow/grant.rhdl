@@ -9,6 +9,7 @@ import:
 export:
   GrantDemux
   GrantMerge
+  grant_merge
   valid_owner_mux
 
 /* Route an already-owned event. The clock only samples misuse assertions;
@@ -84,3 +85,13 @@ circuit GrantMerge(T :: DataType, input_count :: PosInt):
 
   describe_interface_selection(for List (index in 0..input_count): grants[index])
   describe_interface_contract(ingress, egress, "data", ~kind: "grant-merge", ~trace_model: interface_trace_selection())
+
+/* Connects an externally granted array of payload offers to one Decoupled
+   output. GrantMerge owns the handshake and selected-parent trace contract. */
+fun grant_merge(grants :~ Hardware.packable, sources :: Array) :~ Endpoint:
+  unless sources.length() > 0
+  | error(~who: #'grant_merge, "requires at least one input")
+  inst merge(GrantMerge(decoupled_payload_type(sources[0]), sources.length()))
+  merge.grants <== grants
+  sources <=> merge.ingress
+  merge.egress

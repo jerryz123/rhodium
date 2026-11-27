@@ -19,13 +19,14 @@ sync_circuit IssueWindowFixture(xlen :: XLen = XLen.X64, ~group_width: group_wid
 
   inst window(SuperscalarIssueWindow(xlen, ~group_width: group_width, ~hypervisor: hypervisor))
   def packet :: PacketObservation(xlen, hypervisor, group_width) = ingress.bits
-  (ingress |> map_flow(_packet => packet.captured(ingress.valid & window.ingress.ready))) |> window.ingress
+  (ingress |> trace_event("packet") |> map_flow(_packet => packet.captured(ingress.valid & window.ingress.ready))) |> window.ingress
   clear |> window.clear
   head <== observe_packet(xlen, hypervisor, group_width, window.head)
   head_steps <== window.head_steps
   available <== window.available
   window.consume <== consume
   for (lane in 0..group_width):
-    (window.candidates[lane] |> map_valid(token => observe_instruction(xlen, hypervisor, token))) |> candidates[lane]
+    def issued = window.candidates[lane] |> trace_valid_event("lane" ++ to_string(lane), ~when: consume > Bits(2)(lane))
+    (issued |> map_valid(token => observe_instruction(xlen, hypervisor, token))) |> candidates[lane]
 
 export IssueWindowFixture

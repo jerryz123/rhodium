@@ -29,12 +29,7 @@ sync_circuit SuperscalarIssueWindow(xlen :: XLen = XLen.X64, ~group_width: group
   head.entries <== visible
   head_steps <== vec(for List (lane in 0..group_width): entries[lane].step)
   def added = mux(ingress.fire(), ingress.bits.count.zext(4), Bits(4)(0))
-  // Observe accepted packets without changing their independent ingress readiness.
-  def accepted = interface_link(Valid(SuperscalarPacket(xlen, hypervisor, group_width)))
-  accepted.left.valid <== ingress.fire()
-  accepted.left.bits <== ingress.bits
-  describe_interface_contract(ingress, accepted.left, "packet-acceptance", ~trace_model: interface_trace_combinational())
-  def parents = accepted.right |> fork_valid(group_width)
+  def parents = observe_transfer(ingress) |> fork_valid(group_width)
   for (lane in 0..group_width):
     candidates[lane].valid <== (count > Bits(4)(lane)) & !clear.valid
     candidates[lane].bits <== visible[lane]

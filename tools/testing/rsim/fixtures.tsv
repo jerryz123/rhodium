@@ -238,6 +238,8 @@ rv3wide-row-execute-rv32	cores-components	cores/rv3wide/tests/rsim/emit-row-exec
 rv3wide-permute-rv32	cores-components	cores/rv3wide/tests/index-gather-fixture.rhdl	permute32	cores/rv3wide/tests/rsim/permute.cpp
 rv3wide-permute-rv64	cores-components	cores/rv3wide/tests/index-gather-fixture.rhdl	permute64	cores/rv3wide/tests/rsim/permute.cpp
 rv3wide-row-execute-rv64	cores-components	cores/rv3wide/tests/rsim/emit-row-execute.rhm	rv64	cores/rv3wide/tests/rsim/row-execute.cpp
+rv3wide-load-selector-rv32	cores-components	cores/rv3wide/tests/rsim/emit-row-memory.rhm	selector32	cores/rv3wide/tests/rsim/load-selector.cpp	selector_target	rheg/runtime/rheg.cc
+rv3wide-load-selector-rv64	cores-components	cores/rv3wide/tests/rsim/emit-row-memory.rhm	selector64	cores/rv3wide/tests/rsim/load-selector.cpp	selector_target	rheg/runtime/rheg.cc
 rv3wide-row-window-rv32	cores-components	cores/rv3wide/tests/rsim/emit-row-memory.rhm	unit32	cores/rv3wide/tests/rsim/row-window.cpp	window_target	rheg/runtime/rheg.cc
 rv3wide-row-window-rv64	cores-components	cores/rv3wide/tests/rsim/emit-row-memory.rhm	unit64	cores/rv3wide/tests/rsim/row-window.cpp	window_target	rheg/runtime/rheg.cc
 rv3wide-load-merge-rv32	cores-components	cores/rv3wide/tests/rsim/emit-row-memory.rhm	indexed32	cores/rv3wide/tests/rsim/load-merge.cpp
@@ -254,6 +256,7 @@ rv3wide-row-read-grant-rv64	cores-components	cores/rv3wide/tests/rsim/emit-vecto
 rv3wide-vrf-rv64	cores-components	cores/rv3wide/tests/rsim/emit-vector-register-file.rhm	rv64	cores/rv3wide/tests/rsim/vector-register-file.cpp
 rv3wide-services	cores-components	cores/rv3wide/tests/rsim/emit-services.rhm	program	cores/rv3wide/tests/rsim/services.cpp
 rv2wide-issue-window	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-issue-window.rhm	program	cores/superscalar/tests/rsim/rv2wide-issue-window.cpp
+rv2wide-issue-window-trace	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-issue-window.rhm	program	cores/superscalar/tests/rsim/issue-window-trace.cpp	target	rheg/runtime/rheg.cc
 rv2wide-issue-window-h	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-issue-window.rhm	guest_program	cores/superscalar/tests/rsim/rv2wide-issue-window.cpp
 rv2wide-issue-window-rv32	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-issue-window.rhm	rv32_program	cores/superscalar/tests/rsim/rv2wide-issue-window.cpp
 superscalar-issue-window-three	cores-components	cores/superscalar/tests/rsim/emit-rv2wide-issue-window.rhm	three_program	cores/superscalar/tests/rsim/three-issue-window.cpp
@@ -372,6 +375,7 @@ rv5stage-lrsc-core-progress	cores-cache	cores/rv5stage/tests/rsim/emit-rv5stage-
 rv5stage-lrsc-core-progress-rv32	cores-cache	cores/rv5stage/tests/rsim/emit-rv5stage-lrsc-core-progress-rv32.rhm	program	cores/rv5stage/tests/rsim/rv5stage-lrsc-core-progress-rv32.cpp
 event-queue	language	rhodium/event/tests/rsim/emit-event-queue.rhm	program	rhodium/event/tests/rsim/event-queue.cpp	target	rhodium/event/tests/rsim/event-queue-oracle.cpp rheg/runtime/rheg.cc
 event-pipeline	language	rhodium/event/tests/rsim/emit-event-pipeline.rhm	program	rhodium/event/tests/rsim/event-pipeline.cpp	target	rhodium/event/tests/rsim/event-pipeline-oracle.cpp rheg/runtime/rheg.cc
+transfer-observation	std	flow/tests/transfer-observation.rhdl	program	flow/tests/rsim/transfer-observation.cpp	target	rheg/runtime/rheg.cc
 completion-queue-trace	std	flow/tests/rsim/emit-completion-queue-trace.rhm	program	flow/tests/rsim/completion-queue-trace.cpp	target	rheg/runtime/rheg.cc
 event-arbiter	language	rhodium/event/tests/rsim/emit-event-arbiter.rhm	program	rhodium/event/tests/rsim/event-arbiter.cpp	target	rhodium/event/tests/rsim/event-arbiter-oracle.cpp rheg/runtime/rheg.cc
 event-demux	language	rhodium/event/tests/rsim/emit-event-demux.rhm	program	rhodium/event/tests/rsim/event-demux.cpp	target	rhodium/event/tests/rsim/event-demux-oracle.cpp rheg/runtime/rheg.cc
