@@ -348,6 +348,7 @@ sync_circuit L1DMSHRs(count :: Int.in(2 ..= 2047), width :: PosInt, ways :: PosI
   describe_interface_contract(Array(direct, staged_output), packet, "install-source", ~trace_model: interface_trace_selection(~name: "install-source"))
 
 export:
+  L1DVictimReader
   L1DLineState
   L1DMissAllocation
   L1DMissTarget

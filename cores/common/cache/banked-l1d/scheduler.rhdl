@@ -1,0 +1,226 @@
+#lang rhodium
+/* Atomically grants cache actions and drives all banked L1D SRAM commands. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "arrays.rhdl".BankedL1DArrays
+  "../config.rhm" open
+  "../geometry.rhdl" open
+  "../l1d/store-buffer.rhdl".CacheStoreBufferEntry
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("chi/protocol/coherence.rhdl").CHICacheState
+  lib("rhodium/std/bits.rhdl") open
+  lib("rhodium/std/read-write.rhdl") open
+  lib("flow/main.rhdl") open
+
+/* Classification needs metadata only; ordinary reads atomically acquire the
+   corresponding row too. Row numbers are cache indices, not physical tags. */
+bundle L1DRead(row_bits :: PosInt):
+  row: Bits(row_bits)
+  with_data: Bool
+
+/* A synchronous return belongs only to the client whose lookup transferred. */
+bundle L1DReadResult(ways :: PosInt, tag_bits :: PosInt, row_bytes :: Pow2Int):
+  tags: Vec(ways, Bits(tag_bits))
+  states: Vec(ways, CHICacheState)
+  rows: Vec(ways, Bits(row_bytes * 8))
+  with_data: Bool
+
+/* Publishes the tag and permission of an installed way in one grant. */
+bundle L1DPublish(set_bits :: PosInt, way_bits :: PosInt, tag_bits :: PosInt):
+  set: Bits(set_bits)
+  way: Bits(way_bits)
+  tag: Bits(tag_bits)
+  state: CHICacheState
+
+/* Snoop permission changes do not rewrite the tag. */
+bundle L1DPermission(set_bits :: PosInt, way_bits :: PosInt):
+  set: Bits(set_bits)
+  way: Bits(way_bits)
+  state: CHICacheState
+
+/* Grant whole actions in resource order. Metadata, dirty writes and row
+   banks have independent conflicts; writers and service reads share their
+   respective lanes. Each synchronous return has a registered client route. */
+sync_circuit L1DResourceScheduler(xlen :: XLen, cache :: CacheConfig, tag_width :: PosInt, beat_bytes :: Pow2Int):
+  def ways = cache.ways
+  def set_bits = cache.set_width
+  def way_bits = cache.way_width
+  def row_offset = alignment_bits(CacheLineBytes / beat_bytes)
+  def row_bits = set_bits + row_offset
+  def n = math.min(4, cache.sets)
+  def Read = L1DRead(row_bits)
+  def Return = L1DReadResult(ways, tag_width, beat_bytes)
+  def Write = CacheStoreBufferEntry(row_bits, way_bits, beat_bytes)
+  interface demand(Decoupled(Read), ~role: consumer)
+  interface issue(Decoupled(Read), ~role: consumer)
+  interface retry(Decoupled(Read), ~role: consumer)
+  interface spec_result(Valid(Return), ~role: producer)
+  interface service_result(Valid(Return), ~role: producer)
+  interface probe_result(Valid(Return), ~role: producer)
+  interface probe(Decoupled(Bits(set_bits)), ~role: consumer)
+  interface update(Decoupled(L1DPermission(set_bits, way_bits)), ~role: consumer)
+  interface publish(Decoupled(L1DPublish(set_bits, way_bits, tag_width)), ~role: consumer)
+  interface gather(Decoupled(Bits(row_bits)), ~role: consumer)
+  interface victim(Decoupled(Bits(row_bits)), ~role: consumer)
+  interface snoop_data(Valid(Vec(ways, Bits(beat_bytes * 8))), ~role: producer)
+  interface victim_data(Valid(Vec(ways, Bits(beat_bytes * 8))), ~role: producer)
+  interface fill(Decoupled(Write), ~role: consumer)
+  interface mutation(Decoupled(Write), ~role: consumer)
+  interface store(Decoupled(Write), ~role: consumer)
+  interface drain(Decoupled(Write), ~role: consumer)
+  inst banks(BankedL1DArrays(xlen, cache, tag_width, beat_bytes))
+
+  /* Compare only addresses on the same physical resource. In particular the
+     row grant for incoming DAT is independent of the MSHR publication port. */
+  fun same_meta(a :: Bits, b :: Bits) :~ Bool:
+    a[0..index_width(n)] === b[0..index_width(n)]
+
+  /* Low row bits, not set or way, select a data SRAM. */
+  fun same_row_bank(a :: Bits, b :: Bits) :~ Bool:
+    a[0..2] === b[0..2]
+
+  probe.ready <== Bool(#true)
+  update.ready <== !(probe.valid & same_meta(probe.bits, update.bits.set))
+  publish.ready <== !update.valid & !(probe.valid & same_meta(probe.bits, publish.bits.set))
+
+  gather.ready <== Bool(#true)
+  victim.ready <== !(gather.valid & same_row_bank(gather.bits, victim.bits))
+  /* A denied read occupies nothing: a lower-priority write in a different
+     bank may proceed even while the reader waits. */
+  fun reader_busy(row :: Bits) :~ Bool:
+    (gather.fire() & same_row_bank(gather.bits, row)) ||| (victim.fire() & same_row_bank(victim.bits, row))
+
+  fill.ready <== !reader_busy(fill.bits.row_number)
+  /* Only accepted refill and gather actions reserve a bank. */
+  fun line_traffic(row :: Bits) :~ Bool:
+    reader_busy(row) ||| (fill.fire() & same_row_bank(fill.bits.row_number, row))
+
+  /* A dirty mark uses a separate write port and bypasses same-set reads,
+     but not a full state replacement in its bank. */
+  fun replacing(set :: Bits) :~ Bool:
+    (update.fire() & same_meta(update.bits.set, set)) ||| (publish.fire() & same_meta(publish.bits.set, set))
+
+  /* Reserve the masked data write together with any necessary dirty mark. */
+  fun write_fits(command :: CacheStoreBufferEntry(row_bits, way_bits, beat_bytes)) :~ Bool:
+    !line_traffic(command.row_number) & !(command.mark_dirty & replacing(command.row_number[row_offset..row_bits]))
+
+  mutation.ready <== write_fits(mutation.bits)
+  store.ready <== !mutation.fire() & write_fits(store.bits)
+  drain.ready <== !mutation.fire() & !store.fire() & write_fits(drain.bits)
+  def writing = mutation.fire() ||| store.fire() ||| drain.fire()
+  def write = priority_mux(~default: drain.bits):
+    mutation.fire(): mutation.bits
+    store.fire(): store.bits
+
+  /* A compound lookup either acquires all its banks or does not launch. */
+  fun lookup_fits(command :: L1DRead(row_bits)) :~ Bool:
+    def row = command.row
+    def set = row[row_offset..row_bits]
+    def meta_busy = replacing(set) ||| (probe.fire() & same_meta(probe.bits, set))
+    def row_busy = line_traffic(row) ||| (writing & same_row_bank(write.row_number, row))
+    !meta_busy & !(command.with_data & row_busy)
+
+  retry.ready <== lookup_fits(retry.bits)
+  issue.ready <== !retry.fire() & lookup_fits(issue.bits)
+  def servicing = retry.fire() ||| issue.fire()
+  def service = mux(retry.fire(), retry.bits, issue.bits)
+  def meta_collision = same_meta(service.row[row_offset..row_bits], demand.bits.row[row_offset..row_bits])
+  def row_collision = service.with_data & demand.bits.with_data & same_row_bank(service.row, demand.bits.row)
+  demand.ready <== lookup_fits(demand.bits) & !(servicing & (meta_collision ||| row_collision))
+
+  def Tag = ReadWriteRequest(set_bits, Bits(tag_width), ways)
+  def State = ReadWriteRequest(set_bits, CHICacheState, ways)
+  def Data = ReadWriteRequest(row_bits, Bits(8), ways * beat_bytes)
+  def tag_read :: ReadWriteRequest(set_bits, Bits(tag_width), ways) = literal(Tag, 0)
+  def state_read :: ReadWriteRequest(set_bits, CHICacheState, ways) = literal(State, 0)
+  def row_read :: ReadWriteRequest(row_bits, Bits(8), ways * beat_bytes) = literal(Data, 0)
+
+  /* Translate one granted lookup to its synchronous ports, with a distinct
+     registered result route for each client regardless of next-cycle grants. */
+  fun lookup(grant :: Bool, command :: L1DRead(row_bits), tag :: Endpoint, state :: Endpoint, data :: Endpoint, result :: Endpoint, tag_label :: String, data_label :: String):
+    def set = command.row[row_offset..row_bits]
+    (inject_interface(Valid(Tag), ~valid: grant, ~bits: tag_read.updated(~address: set))
+       |> trace_valid_event(tag_label, ~fields: r):
+            index: r.address
+            write: r.write
+    ) |> tag.request
+    state.request.valid <== grant
+    state.request.bits <== state_read.updated(~address: set)
+    (inject_interface(Valid(Data), ~valid: grant & command.with_data, ~bits: row_read.updated(~address: command.row))
+       |> trace_valid_event(data_label, ~fields: r):
+            index: r.address
+            write: r.write
+    ) |> data.request
+    result.valid <== tag.response.valid
+    result.bits <== L1DReadResult(ways, tag_width, beat_bytes):
+      tags: tag.response.bits
+      states: state.response.bits
+      rows: data.response.bits.as_bits().as_vec(Bits(beat_bytes * 8))
+      with_data: data.response.valid
+
+  lookup(retry.fire() ||| issue.fire(), service, banks.tags, banks.states, banks.data, service_result, "dcache/arrays.tags", "dcache/arrays.data")
+  lookup(demand.fire(), demand.bits, banks.demand_tags, banks.demand_states, banks.demand_data, spec_result, "dcache/demand.tags", "dcache/demand.data")
+  (inject_interface(Valid(Tag), ~valid: probe.fire(), ~bits: tag_read.updated(~address: probe.bits))
+    |> trace_valid_event("dcache/snoop.tags", ~fields: r):
+         index: r.address
+  ) |> banks.probe_tags.request
+  banks.probe_states.request.valid <== probe.fire()
+  banks.probe_states.request.bits <== state_read.updated(~address: probe.bits)
+  probe_result.valid <== banks.probe_tags.response.valid
+  probe_result.bits <== L1DReadResult(ways, tag_width, beat_bytes):
+    tags: banks.probe_tags.response.bits
+    states: banks.probe_states.response.bits
+    rows: dont_care(Vec(ways, Bits(beat_bytes * 8)))
+    with_data: Bool(#false)
+
+  def tag_write = ReadWriteRequest(set_bits, Bits(tag_width), ways):
+    address: publish.bits.set
+    write: Bool(#true)
+    data: vec(for List (_w in 0..ways): publish.bits.tag)
+    mask: cache_way_mask(cache, publish.bits.way)
+  (inject_interface(Valid(Tag), ~valid: publish.fire(), ~bits: tag_write)
+    |> trace_valid_event("dcache/install.tags", ~fields: r):
+         index: r.address
+  ) |> banks.publish_tags.request
+  banks.change_state.request.valid <== publish.fire() ||| update.fire()
+  banks.change_state.request.bits <== ReadWriteRequest(set_bits, CHICacheState, ways):
+    address: mux(update.fire(), update.bits.set, publish.bits.set)
+    write: Bool(#true)
+    data: vec(for List (_w in 0..ways): mux(update.fire(), update.bits.state, publish.bits.state))
+    mask: cache_way_mask(cache, mux(update.fire(), update.bits.way, publish.bits.way))
+
+  /* A held CHI packet does not hold a row bank. Only a read handshake
+     starts a return; the gatherer has already reserved packet space. */
+  fun read_row(source :: Endpoint, port :: Endpoint, sink :: Endpoint, label :: String):
+    (inject_interface(Valid(Data), ~valid: source.fire(), ~bits: row_read.updated(~address: source.bits))
+      |> trace_valid_event(label, ~fields: r):
+           index: r.address
+    ) |> port.request
+    sink.valid <== port.response.valid
+    sink.bits <== port.response.bits.as_bits().as_vec(Bits(beat_bytes * 8))
+
+  read_row(gather, banks.gather, snoop_data, "dcache/snoop.data")
+  read_row(victim, banks.victim, victim_data, "dcache/victim.data")
+
+  /* Expand the selected way and byte mask only at the SRAM boundary. */
+  fun row_write(command :: CacheStoreBufferEntry(row_bits, way_bits, beat_bytes)):
+    def bytes = command.data.as_vec(Bits(8))
+    ReadWriteRequest(row_bits, Bits(8), ways * beat_bytes):
+      address: command.row_number
+      write: Bool(#true)
+      data: vec(for List (i in 0..(ways * beat_bytes)): bytes[i % beat_bytes])
+      mask: cache_lane_mask(cache, command.way, beat_bytes, command.mask.into(Mask(beat_bytes)))
+
+  (inject_interface(Valid(Data), ~valid: writing, ~bits: row_write(write))
+    |> trace_valid_event("dcache/store.data", ~fields: r):
+         index: r.address
+         drain: drain.fire()
+         mutation: mutation.fire()
+  ) |> banks.writer.request
+  banks.fill.request.valid <== fill.fire()
+  banks.fill.request.bits <== row_write(fill.bits)
+  banks.dirty_set <== write.row_number[row_offset..row_bits]
+  banks.dirty_ways <== mux(writing & write.mark_dirty, cache_way_mask(cache, write.way), Mask(ways)(0))
+
+export L1DResourceScheduler L1DRead L1DReadResult L1DPublish L1DPermission

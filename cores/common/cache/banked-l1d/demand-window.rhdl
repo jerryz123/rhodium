@@ -43,12 +43,17 @@ sync_circuit L1DDemandWindow(xlen :: XLen, Context :: DataType, beat_bytes :: Po
   def Descriptor = DemandDescriptor(address_width, Context)
   interface ingress(Decoupled(Request), ~role: consumer)
   interface egress(Irrevocable(Request), ~role: producer)
-  input issue_offset: DemandIndex
+  input (classifying, classified, lookup_in_flight, lookup_off_head): Bool
   output issue_request: Request
   input probe_set: Bits(set_width)
   output independent: Bool
   def Count = Bits(index_width(DemandEntries + 1))
   output count: Count
+  output (classified_count, issue_offset): Count
+  output retired_classified: Bool
+  input wait_for_acquisition: Bool
+  interface wake(Valid(Bits(set_width)), ~role: consumer)
+  output (head_waiting, issue_waiting): Bool
 
   reg head(~init: DemandIndex(0))
   reg tail(~init: DemandIndex(0))
@@ -72,6 +77,25 @@ sync_circuit L1DDemandWindow(xlen :: XLen, Context :: DataType, beat_bytes :: Po
   count <== occupancy
   def enqueue = ingress.fire()
   def dequeue = egress.fire()
+  // Classification advances issue without retiring an entry or its operand.
+  // Replay starts at the head; an in-flight lookup accounts for one position.
+  reg prefix(~init: Count(0))
+  def removing = dequeue & prefix.any()
+  when (classified ^ removing):
+    prefix <== mux(classified, prefix + Count(1), prefix - Count(1))
+  def cursor = mux(classifying, prefix, Count(0)) + (lookup_in_flight & (classifying ||| !lookup_off_head)).as_bits().zext(Count.width)
+  classified_count <== prefix
+  retired_classified <== removing
+  issue_offset <== cursor
+  assert(prefix <= occupancy, "l1d_classified_prefix_within_window")
+  // The queue, not a reusable MSHR number, owns each waiter. Distinct live
+  // acquisitions reserve distinct sets, so completion wakes by set even on
+  // discard. A woken descriptor still rechecks tag and permission at replay.
+  reg waiting(~init: Bits(DemandEntries)(0).as_vec(Bool))
+  def next_class = head + prefix[0..index_width(DemandEntries)]
+  def issue_slot = head + cursor[0..index_width(DemandEntries)]
+  head_waiting <== waiting[head]
+  issue_waiting <== waiting[issue_slot]
   def first :: DemandDescriptor(address_width, Context) = entries[head]
   def allocate = enqueue & writing
   def release = dequeue & has_operand(first.access)
@@ -108,20 +132,25 @@ sync_circuit L1DDemandWindow(xlen :: XLen, Context :: DataType, beat_bytes :: Po
     if raw | restored.updated(~raw_beat: d.raw_beat) | restored
 
   egress.bits <== expand(first)
-  issue_request <== expand(entries[head + issue_offset])
+  issue_request <== expand(entries[issue_slot])
   for (i in 0..DemandEntries):
     when (enqueue & (tail === DemandIndex(i))): live[i] <== Bool(#true)
     elsewhen (dequeue & (head === DemandIndex(i))): live[i] <== Bool(#false)
   def compatible = for List (i in 0..DemandEntries):
     def entry :: DemandDescriptor(address_width, Context) = entries[i]
     def set = entry.address.zext(math.max(address_width, offset_width + set_width))[offset_width..(offset_width + set_width)]
+    def woke = wake.valid & (wake.bits === set)
+    when (classified & (next_class === DemandIndex(i))):
+      waiting[i] <== wait_for_acquisition & !woke
+    elsewhen (woke ||| (dequeue & (head === DemandIndex(i)))):
+      waiting[i] <== Bool(#false)
     !live[i] ||| (entry.access.is_load_or_store() & (set =/= probe_set))
   independent <== vec(compatible).as_bits().all()
 
   describe_interface_queue_storage(DemandEntries, enqueue, dequeue, head, tail, occupancy.any(), Bool(#false))
   describe_interface_contract(ingress, egress, "demand-head", ~kind: "queue", ~trace_model: interface_trace_queue())
 
-/* Add the completed acquisition as a second parent of the successful S3 replay.
+/* Add the completed acquisition as a second parent of the successful SRAM replay.
    This companion ring follows the *classified prefix*: only an allocation or
    a covered demand waits for an owner. At most one live MSHR owns a set. Take
    its reference on completion, before the slot can be reused. None of these
@@ -163,7 +192,7 @@ fun describe_replay_waits(source :: Endpoint, observed :: Endpoint, completion :
     describe_interface_contract(arrivals[i], parent, name, ~trace_model: interface_trace_retained(~name: name))
     parent
 
-  // Describe the existing S3 handshake: only a successful waited replay
+  // Describe the lookup transfer: only a successful waited replay
   // joins two causes. Stalls, classification and other lookups pass through.
   def linked = grants.any()
   def ordinary = pulse(source.fire() & !linked)

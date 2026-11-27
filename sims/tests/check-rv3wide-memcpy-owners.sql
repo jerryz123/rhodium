@@ -33,7 +33,7 @@ SELECT
         SELECT 1 FROM parents p WHERE p.child=e.id AND p.name='vector/store.sequence' AND p.owner=e.owner
       )) OR (e.name='vector/load.return' AND (
         NOT EXISTS (SELECT 1 FROM parents p WHERE p.child=e.id AND p.name='vector/load.agen' AND p.owner=e.owner) OR
-        NOT EXISTS (SELECT 1 FROM parents p WHERE p.child=e.id AND p.name IN ('dcache/s4.resolve','dcache/refill.data'))
+        NOT EXISTS (SELECT 1 FROM parents p WHERE p.child=e.id AND p.name IN ('dcache/service.resolve','dcache/replay.hit','dcache/refill.data'))
       )) OR (e.name='vector/load.sequence' AND NOT EXISTS (
         SELECT 1 FROM parents p WHERE p.child=e.id AND p.name='vector/load.return' AND p.owner=e.owner
       ))

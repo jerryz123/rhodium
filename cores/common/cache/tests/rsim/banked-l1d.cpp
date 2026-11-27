@@ -172,13 +172,82 @@ void check_refill_forwarding(Line a, bool probe) {
     for (const auto &[parent, child] : graph.edges) {
       if (child.site != ref.site || child.sequence != ref.sequence) continue;
       ++parents;
-      CHECK(parent.site == (forwarded ? FillSite : ResolveSite));
+      CHECK(forwarded ? parent.site == FillSite : (parent.site == ResolveSite || parent.site == ReplaySite));
       if (forwarded) CHECK(graph.field(parent, "index").unsigned_value() == ctx - 1);
       else CHECK(graph.field(parent, "address").unsigned_value() == base + (ctx == 2 ? 20 : 32));
     }
     CHECK(parents == 1);
   }
   CHECK(replies == 3);
+}
+
+void check_replay_load_credits(const Line &a, const Line &b, bool block) {
+  constexpr unsigned cached = base+64, other = base+128;
+  request(cached, load); refill(cached, 2, b); response(b[0]);
+  request(base+48, load, {}, 0xffff, true, 3);
+  const auto leader = accept_request(base, 2);
+  // Park four hits behind the ordered miss; keep a second MSHR busy
+  // throughout replay, exactly as for rows 4..7 in vec-memcpy.
+  for (unsigned i = 0; i < 4; ++i)
+    request(cached+16*i, load, {}, 0xffff, true, 4+i);
+  request(other, load, {}, 0xffff, true, 8);
+  const auto outstanding = accept_request(other, 2);
+  for (unsigned i = 0; i < 4; ++i) refill_packet(leader, i, 1, a[i]);
+  core_in.presponse.pready = 1;
+  until([] { return core_out.presponse.pvalid; });
+  CHECK(core_out.presponse.pbits.pcontext == 3 && core_out.presponse.pbits.pdata == a[3]);
+  tick_model();
+  until([] { return core_out.presponse.pvalid; });
+  const auto row6_reads = [] {
+    const auto &graph = rheg::graph();
+    unsigned reads = 0;
+    for (const auto &[ref, node] : graph.nodes)
+      if (ref.site == ReadSite && !graph.field(ref, "write").unsigned_value()
+          && graph.field(ref, "index").unsigned_value() == 6) ++reads;
+    return reads;
+  };
+  for (unsigned i = 0; i < 4; ++i) {
+    if (block && i == 0) {
+      core_in.presponse.pready = 0;
+      const auto first_read = row6_reads();
+      for (unsigned n = 0; n < 8; ++n) {
+        eval();
+        CHECK(core_out.presponse.pvalid && core_out.presponse.pbits.pcontext == 4);
+        CHECK(core_out.presponse.pbits.pdata == b[0]);
+        tick_model();
+      }
+      // With the older reply stalled, row 6 must not poll SRAM.
+      CHECK(row6_reads() == first_read);
+      core_in.presponse.pready = 1;
+    }
+    if (block) until([] { return core_out.presponse.pvalid; });
+    eval();
+    // Without backpressure there must not be a bubble before row 6.
+    CHECK(core_out.presponse.pvalid && core_out.presponse.pbits.pcontext == 4+i);
+    CHECK(!core_out.presponse.pbits.paccess_ufault && core_out.presponse.pbits.pdata == b[i]);
+    tick_model();
+  }
+  core_in.presponse.pready = 0;
+  eval(); CHECK(!core_out.presponse.pvalid && !core_out.pdrained);
+  CHECK(row6_reads() == 1);
+  for (unsigned i = 0; i < 4; ++i) refill_packet(outstanding, i, 1, a[i]);
+  response(a[0], 8);
+  until([] { return core_out.pdrained; });
+}
+
+void check_hit_after_forwarded_leader(const Line &a, const Line &b) {
+  constexpr unsigned cached = base + 64;
+  request(cached, load); refill(cached, 2, b); response(b[0]);
+  request(base, load, {}, 0xffff, true, 1);
+  const auto acquiring = accept_request(base, 2);
+  request(cached + 16, load, {}, 0xffff, true, 2);
+  for (unsigned i = 0; i < 8; ++i) tick_model();
+  refill_packet(acquiring, 0, 1, a[0]);
+  response(a[0], 1);
+  response(b[1], 2);
+  eval(); CHECK(!core_out.pdrained);
+  for (unsigned i = 1; i < 4; ++i) refill_packet(acquiring, i, 1, a[i]);
+  until([] { return core_out.pdrained; });
 }
 
 void check_full_forward_responses(const Line &a, const Line &b) {
@@ -245,7 +314,7 @@ void check_mshr_reuse(const Line &a, const Line &b, bool b_first) {
       CHECK(graph.field(parent, "address").unsigned_value() == (addr & ~63ULL));
       bool resolved = false;
       for (const auto &[src, dst] : graph.edges)
-        if (src.site == lookup.site && src.sequence == lookup.sequence && dst.site == ResolveSite)
+        if (src.site == lookup.site && src.sequence == lookup.sequence && (dst.site == ResolveSite || dst.site == ReplaySite))
           resolved |= graph.field(dst, "hit").unsigned_value() != 0;
       CHECK(resolved);
       waited.insert(addr);
@@ -535,7 +604,7 @@ static void check_squashed_store_stays_clean(const Line &line) {
   response(Row{{line[0].words[0], line[0].words[1], 0, 0}});
   Row wrong = line[0];
   wrong.words[0] ^= 0xffffffff;
-  hit(base, store, wrong, 0xffff, true, false); // S3 hit, no WB commit
+  hit(base, store, wrong, 0xffff, true, false); // Speculative hit, no WB commit
   tick_model();
   hit(base, load, line[0]);
 
@@ -566,7 +635,7 @@ static void check_bank_overlap(const Line& a, const Line& b) {
     probe.pbits.pwidth = doubleword; probe.pbits.praw_ubeat = 1;
     probe.pbits.pbyte_umask = 0xffff; probe.pvalid = 1;
     // Occupy the fresh lookup lane as A arrives. A must now use replay
-    // alongside the next S0 lookup of B, not the fresh-head shortcut.
+    // alongside the next speculative lookup of B, not the fresh-head shortcut.
     request(base, load);
     tick_model(); probe.pvalid = 0;
     pipeline_in.prequest = probe; pipeline_in.prequest.pvalid = 1;
@@ -632,6 +701,8 @@ int main() {
   return run_wide_l1d([](const Line& a, const Line& b) {
     reset = 1; tick_model(); reset = 0;
     for (bool reverse : {true, false}) {
+      check_replay_load_credits(a, b, reverse);
+      reset = 1; tick_model(); reset = 0;
       check_store_replay_permission(a, b, reverse);
       reset = 1; tick_model(); reset = 0;
       check_refill_forwarding(a, reverse);
@@ -653,6 +724,8 @@ int main() {
       check_store_head_under_refill(a, b, delay);
       reset = 1; tick_model(); reset = 0;
     }
+    check_hit_after_forwarded_leader(a, b);
+    reset = 1; tick_model(); reset = 0;
     check_full_forward_responses(a, b);
     reset = 1; tick_model(); reset = 0;
     check_demand_window(a, b);

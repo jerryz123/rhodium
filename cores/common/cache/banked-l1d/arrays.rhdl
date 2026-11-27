@@ -132,6 +132,12 @@ sync_circuit BankedL1DArrays(xlen :: XLen, cache :: CacheConfig, tag_width :: Po
   interface demand_tags(tags_type, ~role: responder)
   interface demand_states(states_type, ~role: responder)
   interface demand_data(data_type, ~role: responder)
+  interface probe_tags(tags_type, ~role: responder)
+  interface probe_states(states_type, ~role: responder)
+  interface publish_tags(tags_type, ~role: responder)
+  interface change_state(states_type, ~role: responder)
+  interface gather(data_type, ~role: responder)
+  interface writer(data_type, ~role: responder)
   interface victim(data_type, ~role: responder)
   interface fill(data_type, ~role: responder)
   input dirty_set: Bits(cache.set_width)
@@ -142,7 +148,7 @@ sync_circuit BankedL1DArrays(xlen :: XLen, cache :: CacheConfig, tag_width :: Po
   /* Compare the full set of each read candidate before routing its address.
      These ports carry pre-granted operations: a denied read's address may
      still match, but only its valid bit authorizes forwarding. */
-  def read_aliases = for List (port :: Endpoint in [states, demand_states]):
+  def read_aliases = for List (port :: Endpoint in [states, demand_states, probe_states]):
     def read_alias = !port.request.bits.write & (port.request.bits.address === dirty_set)
     read_alias & port.request.valid
 
@@ -156,9 +162,9 @@ sync_circuit BankedL1DArrays(xlen :: XLen, cache :: CacheConfig, tag_width :: Po
   def data_ports = for List (_bank in 0..4):
     inst row_bank(CacheWayDataRam(depth div 4, word_bytes, cache.ways))
     row_bank.port
-  route_banks([tags, demand_tags], tag_ports, cache.sets, Bits(tag_width), cache.ways)
-  route_banks([states, demand_states], state_ports, cache.sets, CHICacheState, cache.ways)
-  route_banks([data, demand_data, victim, fill], data_ports, depth, Bits(8), cache.ways * word_bytes)
+  route_banks([tags, demand_tags, probe_tags, publish_tags], tag_ports, cache.sets, Bits(tag_width), cache.ways)
+  route_banks([states, demand_states, probe_states, change_state], state_ports, cache.sets, CHICacheState, cache.ways)
+  route_banks([data, demand_data, victim, fill, gather, writer], data_ports, depth, Bits(8), cache.ways * word_bytes)
 
 export:
   BankedL1DArrays

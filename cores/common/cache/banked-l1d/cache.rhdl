@@ -6,9 +6,10 @@ import:
   lib("rhodium/frontend/layers/statistics.rhm").stat_count
   "../../cache-prefetch.rhdl" open
   "../protocol.rhdl" open
-  "arrays.rhdl" open
   "demand-window.rhdl" open
   "mshrs.rhdl" open
+  "scheduler.rhdl" open
+  "victim-reader.rhdl".L1DVictimGather
   "../l1d/store-buffer.rhdl" open
   "../operation.rhdl" open
   "../geometry.rhdl" open
@@ -27,23 +28,13 @@ import:
   lib("chi/transactions/cache-maintenance.rhdl") open
   lib("chi/protocol/channels.rhdl").CHIRNChannels
 
-/* Labels the winning physical SRAM user independently of scalar instruction ownership. */
-hardware_enum L1DArrayOwner:
-  Pipeline
-  Service
-  Snoop
-  Refill
-  Mutation
-  Gather
-  StoreDrain
-
 /* Pairs an authorized physical request with demand or best-effort prefetch intent. */
 bundle L1DLookup(xlen :: XLen, Context :: DataType, beat_bytes :: Pow2Int, address_width :: PosInt):
   request: AddressedPhysicalMemoryBeatReq(xlen, Context, beat_bytes, address_width)
   prefetch: Bool
   prefetch_write: Bool
 
-/* Captures hit, coherence, and victim metadata for elastic S4 service. */
+/* Captures hit, coherence, and victim metadata for the ordered resolution slot. */
 bundle L1DResolved(way_width :: PosInt):
   prefetch: Bool
   prefetch_write: Bool
@@ -61,7 +52,7 @@ fun check_l1d_geometry(width :: PosInt, cache :: CacheConfig):
           "address width must include line offset, set, and tag bits")
 
 
-/* Combines a fixed-cycle speculative hit path, explicitly authorized stores, and queued S3/S4 slow service.
+/* Combines a fixed-cycle speculative hit path, explicitly authorized stores, and ordered demand service.
    The ordered service window can overlap distinct-set line acquisitions without reordering
    completions. Coherent snoops, LR/SC, and refill installation own explicit SRAM turns. */
 sync_circuit BankedL1DCache(xlen :: XLen,
@@ -96,7 +87,6 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   def rows_per_packet = p.data_bytes / beat_bytes
   def packet_offset_bits = alignment_bits(rows_per_packet)
   def data_depth = sets * words_per_line
-  def data_lanes = ways * beat_bytes
   def offset_width = alignment_bits(CacheLineBytes)
   def row_offset_width = alignment_bits(beat_bytes)
   def set_width = cache.set_width
@@ -144,21 +134,30 @@ sync_circuit BankedL1DCache(xlen :: XLen,
      Independent synchronous ports serve tags, state, and byte-masked data;
      refill, snoop, and writeback engines retain their own CHI lifetimes. */
 
-  inst arrays(BankedL1DArrays(xlen, cache, tag_width, beat_bytes))
+  inst scheduler(L1DResourceScheduler(xlen, cache, tag_width, beat_bytes))
+  /* Narrow an aligned physical address at the array boundary, after the
+     client has checked ownership and the complete physical tag. */
+  fun read_command(address :: Bits, with_data :: Bool) :~ L1DRead(data_address_width):
+    L1DRead(data_address_width):
+      row: address[row_offset_width..(offset_width + set_width)]
+      with_data: with_data
+
   inst stores(CacheStoreBuffer(store_address_width, way_width, ~beat_bytes: beat_bytes, ~query_width: snoop_width))
   def StoreBufferEntry = CacheStoreBufferEntry(row_number_width, way_width, beat_bytes)
-  inst s2_store_candidate(ValidPipeAlwaysCapture(StoreBufferEntry, 1))
-  inst s1_store_gen(StoreGen(xlen, beat_bytes))
+  inst store_candidate(ValidPipeAlwaysCapture(StoreBufferEntry, 1))
+  inst spec_store_gen(StoreGen(xlen, beat_bytes))
   inst service_load_gen(LoadGen(xlen, beat_bytes))
-  inst s1_load_gen(LoadGen(xlen, beat_bytes))
-  reg s1_read_valid(~init: Bool(#false))
-  reg s1_read_address(Bits(width))
+  inst spec_load_gen(LoadGen(xlen, beat_bytes))
+  reg spec_read_valid(~init: Bool(#false))
+  reg spec_read_address(Bits(width))
   inst local_store_gen(StoreGen(xlen, beat_bytes))
   inst local_atomic_alu(RiscvAtomicALU(xlen))
   inst refill_load_gen(LoadGen(xlen, beat_bytes))
   inst refill_store_gen(StoreGen(xlen, beat_bytes))
   inst refill_atomic_alu(RiscvAtomicALU(xlen))
+  inst victim_gather(L1DVictimGather(width, ways, beat_bytes, p.data_bytes))
   inst misses(L1DMSHRs(mshr_count, width, ways, config))
+  misses.reader <=> victim_gather.owner
   misses.node_id <== node_id
   def miss_busy = misses.occupied.any()
   inst snoop(CacheDataSnoop(snoop_width, config))
@@ -169,12 +168,12 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   // Registered capacity owns acceptance even when a paired virtual lookup can
   // bypass this buffer. Busy arrays retain permitted physical requests here.
   inst service_requests(L1DDemandWindow(xlen, Context, beat_bytes, retained_width, offset_width, set_width))
-  // S3 retains its request if older S4 work takes the arrays. Its returned
+  // The lookup slot retains the request if older work takes the arrays. Its returned
   // data is discarded and reread before retry, including across snoop service.
-  inst s3_lookup(Pipe(L1DLookup(xlen, Context, beat_bytes, retained_width), 1))
-  inst s4_result(Pipe(L1DResolved(way_width), 1))
-  reg s3_data_read_valid(~init: Bool(#false))
-  reg s3_read_valid(~init: Bool(#false))
+  inst lookup_slot(Pipe(L1DLookup(xlen, Context, beat_bytes, retained_width), 1))
+  inst resolution_slot(Pipe(L1DResolved(way_width), 1))
+  def lookup_data_valid = scheduler.service_result.bits.with_data
+  def lookup_metadata_valid = scheduler.service_result.valid
   // Retain a slow completion until its downstream writeback path accepts it.
   // Registered-only input capacity keeps response backpressure out of request
   // admission and the core's translation-flush ready path.
@@ -203,8 +202,8 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   reg reservation_width(~init: MemoryWidth.Word)
 
 
-  /* S4 admission captures the request, hit row, and replacement tag together.
-     A miss pins the request set and victim tag after its S4 token leaves. */
+  /* Resolution admission captures the request, hit row, and replacement tag together.
+     A miss pins the request set and victim tag after the resolution transfers. */
 
   reg retained_request(Request)
   def retained_address = retained_request.address.zext(width)
@@ -227,14 +226,8 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   reg miss_prefetch(Bool)
   reg miss_replied(~init: Bool(#false))
   reg miss_probed(~init: Bool(#false))
-  // Copyback must retain outgoing DAT across stalls independently of incoming refill DAT.
   reg service_row(Bits(beat_width))
-  reg victim_rows(Vec(rows_per_packet, Bits(beat_width)))
   reg refill_rows(Vec(rows_per_packet, Bits(beat_width)))
-  reg copy_row(~init: Bits(word_index_width)(0))
-  reg copy_response_offset(Bits(index_width(rows_per_packet)))
-  reg copy_response_pending(~init: Bool(#false))
-  reg copy_packet_held(~init: Bool(#false))
   def retained_set = retained_address[offset_width..(offset_width + set_width)]
   def retained_line_address = retained_address.align_down(CacheLineBytes)
   def victim_line_address = concat(retained_victim_tag, retained_set, Bits(offset_width)(0)).zext(width)
@@ -250,153 +243,148 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   reg snoop_metadata_pending(~init: Bool(#false))
 
 
-  /* Speculative hit-path grants.
-     Registers are named for their consuming stage. Scheduler grants below
-     are combinational and add no buffering to the fixed-cycle hit path. */
+  /* Speculative hit-path eligibility. The bank grant adds no buffering. */
 
   wire hit_path_available: Bool
   wire hit_under_miss: Bool
-  wire victim_read: Bool
-  wire fill_write: Bool
-  /* A held DAT flit owns no SRAM port; compare only actual row grants. */
-  fun backing_row_busy(row :: Bits(data_address_width)) :~ Bool:
-    (victim_read & (copy_row[0..2] === row[0..2])) ||| (fill_write & (refill_row[0..2] === row[0..2]))
-  wire store_drain: Bool
+  // The ordered reply port books next-edge capacity against real transfers.
+  // No SRAM reader assumes its downstream will still be ready next cycle.
+  wire next_reply_free: Bool
+  wire replay_reply: Bool
   def draining_store :: CacheStoreBufferEntry(row_number_width, way_width, beat_bytes) = stores.drain.bits
-  def store_state_write = store_drain & draining_store.mark_dirty
   def snoop_pending = snoop.pending
   def snoop_lookup_start = snoop.lookup.valid
 
 
-  /* S0: Speculative array-read admission.
+  /* Speculative array-read admission.
      Indexes by virtual page offset without reserving a transaction;
      older authorized work and coherence retain SRAM priority. */
 
-  def s0_load = pipeline_lookup.valid & (pipeline_lookup.bits.access === CacheOperation.Load)
+  def spec_load_offer = pipeline_lookup.valid & (pipeline_lookup.bits.access === CacheOperation.Load)
   /* An acquisition reserves its entire set until its SRAM installation completes. */
   fun reserved_set(set :: Bits(set_width)) :~ Bool:
     def reserved = for List (i in 0..mshr_count):
       misses.occupied[i] & (misses.targets[i].address[offset_width..(offset_width + set_width)] === set)
     vec(reserved).any()
 
-  def s0_set = pipeline_lookup.bits.address[offset_width..(offset_width + set_width)]
-  def s0_miss_set_clear = s0_load & (s0_set =/= retained_set) & !reserved_set(s0_set)
+  def spec_index_set = pipeline_lookup.bits.address[offset_width..(offset_width + set_width)]
+  def spec_index_clear = spec_load_offer & (spec_index_set =/= retained_set) & !reserved_set(spec_index_set)
   reg first_read(~init: Bool(#false))
-  wire demand_conflict: Bool
   wire independent_demand: Bool
-  def s0_read_issue = pipeline_lookup.valid & !demand_conflict & (hit_path_available ||| (hit_under_miss & s0_miss_set_clear) ||| independent_demand)
-  reg s1_independent(~init: Bool(#false))
-  s1_independent <== s0_read_issue & independent_demand
-  s1_read_valid <== s0_read_issue
-  when s0_read_issue:
-    s1_read_address <== pipeline_lookup.bits.address
+  def spec_offer = pipeline_lookup.valid & (hit_path_available ||| (hit_under_miss & spec_index_clear) ||| independent_demand)
+  def spec_read_grant = spec_offer & scheduler.demand.ready
+  reg spec_read_independent(~init: Bool(#false))
+  spec_read_independent <== spec_read_grant & independent_demand
+  spec_read_valid <== spec_read_grant
+  when spec_read_grant:
+    spec_read_address <== pipeline_lookup.bits.address
 
 
-  /* S1: Physical resolution and hit response.
+  /* Physical resolution and hit response.
      Pairs SRAM outputs with the translated tag. Hit data is combinational
      for the caller's capture register, not a second cache response stage. */
 
-  def s1_array_words = arrays.demand_data.response.bits.as_bits().as_vec(Bits(beat_width))
-  def s1_access :: CacheOperation = pipeline.request.bits.access
-  def s1_store = s1_access.is_store()
-  def s1_set = pipeline.request.bits.address[offset_width..(offset_width + set_width)]
-  def s1_tag = pipeline.request.bits.address[(offset_width + set_width)..physical_width]
-  def s1_address_fits = cache_chi_address_fits(pipeline.request.bits.address, p)
-  def s1_tag_matches = vec(for List (way in 0..ways): s1_address_fits & valid_lines[s1_set][way] & (arrays.demand_tags.response.bits[way] === s1_tag))
-  def s1_hit_way = priority_encoder_oh(s1_tag_matches)
-  def s1_row = s1_hit_way.mux(for List (way in 0..ways): s1_array_words[way], ~default: Bits(beat_width)(0))
-  s1_load_gen.data <== s1_row
-  s1_load_gen.address <== pipeline.request.bits.address
-  s1_load_gen.width <== pipeline.request.bits.width
-  s1_load_gen.unsigned_load <== pipeline.request.bits.unsigned
-  def s1_state = s1_hit_way.mux(for List (way in 0..ways): arrays.demand_states.response.bits[way], ~default: CHICacheState.Invalid).into(CHICacheState)
-  s1_store_gen.address <== pipeline.request.bits.address
-  s1_store_gen.width <== pipeline.request.bits.width
-  s1_store_gen.value <== pipeline.request.bits.data[0..width]
+  def spec_array_words = scheduler.spec_result.bits.rows
+  def spec_access :: CacheOperation = pipeline.request.bits.access
+  def spec_store = spec_access.is_store()
+  def spec_phys_set = pipeline.request.bits.address[offset_width..(offset_width + set_width)]
+  def spec_tag = pipeline.request.bits.address[(offset_width + set_width)..physical_width]
+  def spec_address_fits = cache_chi_address_fits(pipeline.request.bits.address, p)
+  def spec_tag_matches = vec(for List (way in 0..ways): spec_address_fits & valid_lines[spec_phys_set][way] & (scheduler.spec_result.bits.tags[way] === spec_tag))
+  def spec_hit_way = priority_encoder_oh(spec_tag_matches)
+  def spec_row = spec_hit_way.mux(for List (way in 0..ways): spec_array_words[way], ~default: Bits(beat_width)(0))
+  spec_load_gen.data <== spec_row
+  spec_load_gen.address <== pipeline.request.bits.address
+  spec_load_gen.width <== pipeline.request.bits.width
+  spec_load_gen.unsigned_load <== pipeline.request.bits.unsigned
+  def spec_state = spec_hit_way.mux(for List (way in 0..ways): scheduler.spec_result.bits.states[way], ~default: CHICacheState.Invalid).into(CHICacheState)
+  spec_store_gen.address <== pipeline.request.bits.address
+  spec_store_gen.width <== pipeline.request.bits.width
+  spec_store_gen.value <== pipeline.request.bits.data[0..width]
   stores.query_address <== pipeline.request.bits.address.zext(snoop_width)
-  stores.query_mask <== mux(is_raw_beat(pipeline.request.bits) & !s1_store, !Bits(beat_bytes)(0), pipeline.request.bits.byte_mask)
-  def s1_probe_conflict = snoop_pending & (snoop.address[6..snoop_width] === pipeline.request.bits.address.zext(snoop_width)[6..snoop_width])
-  def s1_read_matches = s1_read_valid & arrays.demand_tags.response.valid & arrays.demand_states.response.valid & (s1_store ||| arrays.demand_data.response.valid) & (s1_read_address[0..12] === pipeline.request.bits.address[0..12])
-  wire s1_outcome: CachePipelineOutcome
-  wire s1_reason: CachePipelineReason
-  def s1_miss_set_clear = (s1_access === CacheOperation.Load) & (s1_set =/= retained_set) & !reserved_set(s1_set)
+  stores.query_mask <== mux(is_raw_beat(pipeline.request.bits) & !spec_store, !Bits(beat_bytes)(0), pipeline.request.bits.byte_mask)
+  def spec_probe_conflict = snoop_pending & (snoop.address[6..snoop_width] === pipeline.request.bits.address.zext(snoop_width)[6..snoop_width])
+  def spec_read_matches = spec_read_valid & scheduler.spec_result.valid & (spec_store ||| scheduler.spec_result.bits.with_data) & (spec_read_address[0..12] === pipeline.request.bits.address[0..12])
+  wire spec_outcome: CachePipelineOutcome
+  wire spec_reason: CachePipelineReason
+  def spec_miss_set_clear = (spec_access === CacheOperation.Load) & (spec_phys_set =/= retained_set) & !reserved_set(spec_phys_set)
   // Ordinary accesses to the one outstanding line become authorized waiters.
   // They do not consume a partial refill: authorization queues them, and the transaction
   // path performs a fresh authoritative lookup after installation completes.
-  def s1_same_line_waiter = miss_active & s1_access.is_load_or_store() & (pipeline.request.bits.address.align_down(CacheLineBytes) === retained_line_address)
-  def s1_banked_hit_allowed = s1_independent & !reserved_set(s1_set) & (!miss_active ||| (miss_allows_hits & s1_miss_set_clear)) & (s1_set === s1_read_address[offset_width..(offset_width + set_width)])
-  when (!s1_address_fits):
-    s1_outcome <== CachePipelineOutcome.AccessFault
-    s1_reason <== CachePipelineReason.Translation
-  elsewhen s1_same_line_waiter:
-    s1_outcome <== CachePipelineOutcome.Slow
-    s1_reason <== CachePipelineReason.Miss
-  elsewhen (!(hit_path_available ||| (hit_under_miss & s1_miss_set_clear) ||| s1_banked_hit_allowed)):
-    s1_outcome <== CachePipelineOutcome.Replay
-    s1_reason <== mux(snoop_pending, CachePipelineReason.Probe, CachePipelineReason.Miss)
-  elsewhen s1_probe_conflict:
-    s1_outcome <== CachePipelineOutcome.Replay
-    s1_reason <== CachePipelineReason.Probe
-  elsewhen (!s1_read_matches):
-    s1_outcome <== CachePipelineOutcome.Replay
-    s1_reason <== CachePipelineReason.ArrayPort
-  elsewhen (!s1_hit_way.valid ||| (s1_store & !s1_state.is_unique())):
+  def spec_same_line_waiter = miss_active & spec_access.is_load_or_store() & (pipeline.request.bits.address.align_down(CacheLineBytes) === retained_line_address)
+  def spec_banked_hit_allowed = spec_read_independent & !reserved_set(spec_phys_set) & (!miss_active ||| (miss_allows_hits & spec_miss_set_clear)) & (spec_phys_set === spec_read_address[offset_width..(offset_width + set_width)])
+  when (!spec_address_fits):
+    spec_outcome <== CachePipelineOutcome.AccessFault
+    spec_reason <== CachePipelineReason.Translation
+  elsewhen spec_same_line_waiter:
+    spec_outcome <== CachePipelineOutcome.Slow
+    spec_reason <== CachePipelineReason.Miss
+  elsewhen (!(hit_path_available ||| (hit_under_miss & spec_miss_set_clear) ||| spec_banked_hit_allowed)):
+    spec_outcome <== CachePipelineOutcome.Replay
+    spec_reason <== mux(snoop_pending, CachePipelineReason.Probe, CachePipelineReason.Miss)
+  elsewhen spec_probe_conflict:
+    spec_outcome <== CachePipelineOutcome.Replay
+    spec_reason <== CachePipelineReason.Probe
+  elsewhen (!spec_read_matches):
+    spec_outcome <== CachePipelineOutcome.Replay
+    spec_reason <== CachePipelineReason.ArrayPort
+  elsewhen (!spec_hit_way.valid ||| (spec_store & !spec_state.is_unique())):
     // A second miss cannot allocate or enter the authorized request queue.
-    s1_outcome <== mux(miss_active, CachePipelineOutcome.Replay, CachePipelineOutcome.Slow)
-    s1_reason <== CachePipelineReason.Miss
-  elsewhen (!s1_store & stores.word_hazard):
-    s1_outcome <== CachePipelineOutcome.Replay
-    s1_reason <== CachePipelineReason.StoreDependency
-  elsewhen (s1_store & !stores.enqueue.ready):
-    s1_outcome <== CachePipelineOutcome.Replay
-    s1_reason <== CachePipelineReason.StoreCapacity
+    spec_outcome <== mux(miss_active, CachePipelineOutcome.Replay, CachePipelineOutcome.Slow)
+    spec_reason <== CachePipelineReason.Miss
+  elsewhen (!spec_store & stores.word_hazard):
+    spec_outcome <== CachePipelineOutcome.Replay
+    spec_reason <== CachePipelineReason.StoreDependency
+  elsewhen (spec_store & !stores.enqueue.ready):
+    spec_outcome <== CachePipelineOutcome.Replay
+    spec_reason <== CachePipelineReason.StoreCapacity
   otherwise:
-    s1_outcome <== mux(s1_store, CachePipelineOutcome.StoreHit, CachePipelineOutcome.LoadHit)
-    s1_reason <== CachePipelineReason.None
+    spec_outcome <== mux(spec_store, CachePipelineOutcome.StoreHit, CachePipelineOutcome.LoadHit)
+    spec_reason <== CachePipelineReason.None
 
-  def resolved_access = pipeline.request |> trace_valid_event("dcache/s1.access", ~fields: request):
+  def spec_result = pipeline.request |> trace_valid_event("dcache/demand.access", ~fields: request):
     address: request.address
     access(~format: "enum"): request.access
     width(~format: "enum"): request.width
     byte_mask: request.byte_mask
-    outcome(~format: "enum"): s1_outcome
-    reason(~format: "enum"): s1_reason
+    outcome(~format: "enum"): spec_outcome
+    reason(~format: "enum"): spec_reason
 
-  def Array(response_path, store_candidate_path) = resolved_access |> fork_valid(2)
+  def Array(response_path, store_candidate_path) = spec_result |> fork_valid(2)
   (
     response_path |> map_valid(_request => CachePipelineBeatResult(xlen, beat_bytes)):
-      outcome: s1_outcome
-      reason: s1_reason
-      data: mux(is_raw_beat(pipeline.request.bits), s1_row, scalar_response(s1_load_gen.value))
+      outcome: spec_outcome
+      reason: spec_reason
+      data: mux(is_raw_beat(pipeline.request.bits), spec_row, scalar_response(spec_load_gen.value))
   ) |> pipeline.response
 
-  when (pipeline.request.valid & miss_active & (s1_outcome === CachePipelineOutcome.LoadHit)):
-    assert(miss_allows_hits & s1_miss_set_clear & s1_read_matches, "l1d_hit_under_miss_isolated")
+  when (pipeline.request.valid & miss_active & (spec_outcome === CachePipelineOutcome.LoadHit)):
+    assert(miss_allows_hits & spec_miss_set_clear & spec_read_matches, "l1d_hit_under_miss_isolated")
 
   // A full-tag hit identifies a resident line installed from admitted RAM.
-  when (pipeline.request.valid & (s1_outcome === CachePipelineOutcome.StoreHit)):
+  when (pipeline.request.valid & (spec_outcome === CachePipelineOutcome.StoreHit)):
     assert(service_address_fits(pipeline.request.bits.address), "l1d_store_hit_fits_data_map")
 
   (
     store_candidate_path
-      |> filter_valid(_request => s1_outcome === CachePipelineOutcome.StoreHit)
+      |> filter_valid(_request => spec_outcome === CachePipelineOutcome.StoreHit)
       |> map_valid(request => CacheStoreBufferEntry(row_number_width, way_width, beat_bytes)):
         row_number: request.address[row_offset_width..retained_width].zext(row_number_width)
-        way: s1_hit_way.index
-        data: mux(is_raw_beat(request), request.data, s1_store_gen.data)
+        way: spec_hit_way.index
+        data: mux(is_raw_beat(request), request.data, spec_store_gen.data)
         mask: pipeline.request.bits.byte_mask
-        mark_dirty: !s1_state.is_dirty()
-  ) |> s2_store_candidate.ingress
+        mark_dirty: !spec_state.is_dirty()
+  ) |> store_candidate.ingress
 
 
-  /* S2: Store authorization.
+  /* Store authorization.
      Enqueues only the matching retained store candidate. A same-line probe
      revokes the ownership proof; unrelated probes do not reject this store. */
 
-  def candidate :: CacheStoreBufferEntry(row_number_width, way_width, beat_bytes) = s2_store_candidate.egress.bits
+  def candidate :: CacheStoreBufferEntry(row_number_width, way_width, beat_bytes) = store_candidate.egress.bits
   def candidate_line = candidate.line_number()
-  def s2_probe_conflict = snoop_pending & (snoop.address[offset_width..snoop_width] === candidate_line.zext(snoop_width - offset_width))
-  pipeline.commit_ready <== s2_store_candidate.egress.valid & stores.enqueue.ready & hit_path_available & !s2_probe_conflict
+  def candidate_probe_conflict = snoop_pending & (snoop.address[offset_width..snoop_width] === candidate_line.zext(snoop_width - offset_width))
+  pipeline.commit_ready <== store_candidate.egress.valid & stores.enqueue.ready & hit_path_available & !candidate_probe_conflict
   stores.enqueue.valid <== pipeline.commit & pipeline.commit_ready
   stores.enqueue.bits <== candidate
 
@@ -414,23 +402,32 @@ sync_circuit BankedL1DCache(xlen :: XLen,
 
   def maintenance_active = !maintenance.command.ready
   // Multi-MSHR service has independent issue and retirement positions. Entries
-  // retain the store operand slot through replay. S3 examines the next demand,
+  // retain the store operand slot through replay. The classifier examines the next demand,
   // never searches younger queue entries for a convenient miss.
   wire dequeue_demand: Bool
   wire retire_head: Bool
   wire classified: Bool
-  reg s3_behind(~init: Bool(#false))
+  reg lookup_off_head(~init: Bool(#false))
+  reg lookup_was_classified(~init: Bool(#false))
   def Index = Bits(index_width(DemandEntries + 1))
-  reg parked(~init: Index(0))
-  /* A parked ordinary demand may retry outside reserved sets. S3 rechecks
+  def parked = service_requests.classified_count
+  /* A parked ordinary demand may retry outside reserved sets. Replay rechecks
      read permission for a load or exclusive ownership for a store. */
   fun replayable_demand(request :: AddressedPhysicalMemoryBeatReq(xlen, Context, beat_bytes, retained_width)) :~ Bool:
     request.access.is_load_or_store() & (request.locality === RiscvMemoryLocality.Default) & !reserved_set(request.address.zext(store_address_width)[offset_width..(offset_width + set_width)])
 
-  def replay_head = miss_busy & !miss_active & parked.any() & replayable_demand(service_requests.egress.bits)
-  def concurrent = miss_busy & !miss_prefetch & miss_install & retained_request.access.is_load_or_store() & !replay_head
-  def s3_demand_live = s3_lookup.egress.valid & !s3_lookup.egress.bits.prefetch
-  def issue_index = mux(concurrent, parked, Index(0)) + (s3_demand_live & (concurrent ||| !s3_behind)).as_bits().zext(Index.width)
+  def head_load = service_requests.egress.bits.access === CacheOperation.Load
+  def leader_released = !miss_active ||| (miss_replied & head_load)
+  def replay_head = miss_busy & leader_released & parked.any() & !service_requests.head_waiting & replayable_demand(service_requests.egress.bits)
+  def classifying = miss_busy & !miss_prefetch & miss_install & retained_request.access.is_load_or_store() & !replay_head
+  def demand_in_lookup = lookup_slot.egress.valid & !lookup_slot.egress.bits.prefetch
+  service_requests.classifying <== classifying
+  // If replay eligibility changes under an outstanding array read, discard
+  // that replay. It is not a new classification and consumes no issue position.
+  def discard_replay = classifying & lookup_was_classified
+  service_requests.lookup_in_flight <== demand_in_lookup & !discard_replay
+  service_requests.lookup_off_head <== lookup_off_head
+  def issue_index = service_requests.issue_offset
   def Array(enqueue, issue_parent) = authorized |> atomic_fork(2)
   (enqueue |> map_flow(payload):
     def request :: PhysicalMemoryBeatReq(xlen, Context, beat_bytes) = payload
@@ -439,28 +436,24 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   issue_parent.ready <== Bool(#true)
   def Array(head, management_endpoint) = service_requests.egress |> demux_flow(2, request => request.access.into(CacheOperation).is_cache_management().as_bits())
   head.ready <== retire_head
-  service_requests.issue_offset <== issue_index[0..index_width(DemandEntries)]
   def next_request = service_requests.issue_request
   wire issue_ready: Bool
   // Pipeline the next head only if it too belongs to the replayable prefix.
-  def may_issue = !replay_head ||| ((issue_index < parked) & replayable_demand(next_request))
+  def may_issue = !replay_head ||| ((issue_index < parked) & !service_requests.issue_waiting & replayable_demand(next_request))
   def ordinary_endpoint = inject_interface(Decoupled(Request), ~valid: may_issue & (issue_index < service_requests.count) & !next_request.access.into(CacheOperation).is_cache_management(), ~bits: next_request, ~ready: issue_ready)
   def selected = for List (i in 0..DemandEntries): issue_index === Index(i)
   describe_interface_window_storage(DemandEntries, service_requests.ingress.fire(), dequeue_demand.as_bits().zext(Index.width), service_requests.count, Bool(#false), selected, ~name: "demand")
   describe_interface_contract(issue_parent, ordinary_endpoint, "demand-issue", ~trace_model: interface_trace_window(~name: "demand"))
   def ordinary_requests :: Endpoint = ordinary_endpoint
   def management_requests :: Endpoint = management_endpoint
-  def remove_parked = retire_head & parked.any()
-  when (classified & !remove_parked):
-    parked <== parked + Index(1)
-  elsewhen (remove_parked & !classified):
-    parked <== parked - Index(1)
+  service_requests.classified <== classified
+  def remove_parked = service_requests.retired_classified
   def management_waiting = management_requests.valid
   // Admission checked the full address; the CHI retry record needs only mapped line bits.
   def management_address = management_requests.bits.address.align_down(CacheLineBytes).zext(p.request_address_width)
   def management_home = config.home_map.lookup(management_address)
   def maintenance_engines_drained = !miss_busy & !pending_mutation_valid & !snoop_reading
-  def maintenance_lookups_drained = !s2_store_candidate.egress.valid & !s3_lookup.egress.valid & !s4_result.egress.valid & !service_responses.egress.valid
+  def maintenance_lookups_drained = !store_candidate.egress.valid & !lookup_slot.egress.valid & !resolution_slot.egress.valid & !service_responses.egress.valid
   (
     management_requests |> gate_flow(stores.empty & maintenance_engines_drained & maintenance_lookups_drained)
       |> map_flow(request => CHICacheMaintenanceCommand(p, Bool)):
@@ -479,112 +472,110 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   def prefetch_valid = prefetch.valid & service_address_fits(prefetch_request.address) & prefetch_request.operation.is_one_of(CachePrefetchOperation.Read, CachePrefetchOperation.Write)
 
 
-  /* S2 service indexing and hint selection.
+  /* Service indexing and hint selection.
      Queued physical demands precede best-effort prefetches. Retry and
-     retained service stages below may stall independently of core cycles. */
+     service actions may stall independently of core cycles. */
 
-  def s2_queued = service_requests.count.any()
-  def s2_prefetch = prefetch_valid & !miss_busy & !virtual_lookup.valid & !s2_queued & !reservation_count.any() & !pipeline_lookup.valid & !pipeline.request.valid & !s2_store_candidate.egress.valid & stores.empty
-  // Buffered requests and hints are already physical; their page offsets are
-  // the same index as the original VA. A fresh demand indexes directly by VA.
-  def s2_index_address = priority_mux(~default: virtual_lookup.bits):
-    s2_queued: ordinary_requests.bits.address.zext(width)
-    s2_prefetch: prefetch_request.address
+  def window_nonempty = service_requests.count.any()
+  def hint_eligible = prefetch_valid & !miss_busy & !virtual_lookup.valid & !window_nonempty & !reservation_count.any() & !pipeline_lookup.valid & !pipeline.request.valid & !store_candidate.egress.valid & stores.empty
 
 
-  /* S3: Retained authorized lookup.
+  /* Retained authorized lookup.
      Pairs the retained request with its current synchronous SRAM response;
      blocked work must reread after older mutation or coherence service. */
 
-  def s3_request = s3_lookup.egress.bits.request
-  def s3_address = s3_request.address.zext(physical_width)
-  def s3_set = s3_address[offset_width..(offset_width + set_width)]
-  def s3_tag = s3_address[(offset_width + set_width)..physical_width]
-  def s3_valids = valid_lines[s3_set]
-  def s3_matches = vec(for List (way in 0..ways): s3_valids[way] & (arrays.tags.response.bits[way] === s3_tag))
-  def s3_hit_way = priority_encoder_oh(s3_matches)
-  def s3_state = s3_hit_way.mux(for List (way in 0..ways): arrays.states.response.bits[way], ~default: CHICacheState.Invalid).into(CHICacheState)
-  def s3_allocation_way = plru_replacement_way(ways, s3_valids, replacement_state[s3_set])
-  def service_words = arrays.data.response.bits.as_bits().as_vec(Bits(beat_width))
-  def s3_word = s3_hit_way.mux(for List (way in 0..ways): service_words[way], ~default: Bits(beat_width)(0))
+  def lookup_request = lookup_slot.egress.bits.request
+  def lookup_address = lookup_request.address.zext(physical_width)
+  def lookup_set = lookup_address[offset_width..(offset_width + set_width)]
+  def lookup_tag = lookup_address[(offset_width + set_width)..physical_width]
+  def lookup_valids = valid_lines[lookup_set]
+  def lookup_matches = vec(for List (way in 0..ways): lookup_valids[way] & (scheduler.service_result.bits.tags[way] === lookup_tag))
+  def lookup_hit_way = priority_encoder_oh(lookup_matches)
+  def lookup_state = lookup_hit_way.mux(for List (way in 0..ways): scheduler.service_result.bits.states[way], ~default: CHICacheState.Invalid).into(CHICacheState)
+  def lookup_allocation_way = plru_replacement_way(ways, lookup_valids, replacement_state[lookup_set])
+  def service_words = scheduler.service_result.bits.rows
+  def lookup_word = lookup_hit_way.mux(for List (way in 0..ways): service_words[way], ~default: Bits(beat_width)(0))
 
 
-  /* S4: Retained permission and transaction resolution.
+  /* Retained permission and transaction resolution.
      Uses captured lookup results to choose a local hit, refill, or eviction.
-     This elastic service stage is not a fixed requester-cycle boundary. */
+     The resolution slot owns its decision until the selected client accepts it. */
 
-  wire s4_refill_accepted: Bool
-  wire s4_refill_opcode: CHIReqOpcode
-  def s4_observed = s4_result.egress |> trace_event("dcache/s4.resolve", ~fields: result):
+  wire resolved_refill_accepted: Bool
+  wire resolved_refill_opcode: CHIReqOpcode
+  def resolution = resolution_slot.egress |> trace_event("dcache/service.resolve", ~fields: result):
     address: retained_address
     prefetch: result.prefetch
     hit: result.hit
-    refill_accepted: s4_refill_accepted
-    refill_opcode(~format: "enum"): s4_refill_opcode
+    refill_accepted: resolved_refill_accepted
+    refill_opcode(~format: "enum"): resolved_refill_opcode
     refill_address: retained_line_address
 
-  def s4_path = s4_observed
-  def s4_prefetch = s4_result.egress.bits.prefetch
-  def s4_prefetch_write = s4_result.egress.bits.prefetch_write
-  def s4_hit = s4_result.egress.bits.hit
-  def s4_state = s4_result.egress.bits.state.into(CHICacheState)
-  def s4_victim_valid = s4_result.egress.bits.victim_valid
-  def s4_victim_state = s4_result.egress.bits.victim_state.into(CHICacheState)
-  def s4_access = retained_request.access
-  def s4_valid = s4_result.egress.valid
-  def s4_load = s4_valid & !s4_prefetch & s4_access.is_load()
-  def s4_store = s4_valid & !s4_prefetch & s4_access.is_store()
-  def s4_zero = s4_valid & !s4_prefetch & s4_access.is_cache_block_zero()
-  def s4_atomic = s4_valid & !s4_prefetch & s4_access.is_atomic()
-  def s4_sc = s4_valid & !s4_prefetch & s4_access.is_store_conditional()
-  def s4_lr = s4_load & (s4_access === CacheOperation.LoadReserved)
-  def s4_reservation_matches = reservation_valid & (reservation_address === retained_request.address) & (reservation_width === retained_request.width)
-  def s4_sc_authorized = s4_reservation_matches & s4_hit & s4_state.is_unique()
-  def s4_mutation = s4_store ||| s4_zero ||| s4_atomic ||| (s4_sc & s4_sc_authorized)
-  def s4_owned_mutation = s4_mutation & s4_hit & s4_state.is_unique()
-  def s4_prefetch_needs_refill = s4_valid & s4_prefetch & !reservation_count.any() & (!s4_hit ||| (s4_prefetch_write & !s4_state.is_unique()))
-  def s4_prefetch_dirty_victim = s4_prefetch_needs_refill & !s4_hit & s4_victim_valid & s4_victim_state.is_dirty()
-  def s4_needs_refill = s4_load & (!s4_hit ||| (s4_lr & !s4_state.is_unique())) ||| s4_mutation & !s4_owned_mutation ||| (s4_prefetch_needs_refill & !s4_prefetch_dirty_victim)
+  def resolved_prefetch = resolution_slot.egress.bits.prefetch
+  def resolved_prefetch_write = resolution_slot.egress.bits.prefetch_write
+  def resolved_hit = resolution_slot.egress.bits.hit
+  def resolved_state = resolution_slot.egress.bits.state.into(CHICacheState)
+  def resolved_victim_valid = resolution_slot.egress.bits.victim_valid
+  def resolved_victim_state = resolution_slot.egress.bits.victim_state.into(CHICacheState)
+  def resolved_access = retained_request.access
+  def resolved_valid = resolution_slot.egress.valid
+  def resolved_load = resolved_valid & !resolved_prefetch & resolved_access.is_load()
+  def resolved_store = resolved_valid & !resolved_prefetch & resolved_access.is_store()
+  def resolved_zero = resolved_valid & !resolved_prefetch & resolved_access.is_cache_block_zero()
+  def resolved_atomic = resolved_valid & !resolved_prefetch & resolved_access.is_atomic()
+  def resolved_sc = resolved_valid & !resolved_prefetch & resolved_access.is_store_conditional()
+  def resolved_lr = resolved_load & (resolved_access === CacheOperation.LoadReserved)
+  def resolved_reservation_matches = reservation_valid & (reservation_address === retained_request.address) & (reservation_width === retained_request.width)
+  def resolved_sc_authorized = resolved_reservation_matches & resolved_hit & resolved_state.is_unique()
+  def resolved_mutation = resolved_store ||| resolved_zero ||| resolved_atomic ||| (resolved_sc & resolved_sc_authorized)
+  def resolved_owned_mutation = resolved_mutation & resolved_hit & resolved_state.is_unique()
+  def resolved_prefetch_needs_refill = resolved_valid & resolved_prefetch & !reservation_count.any() & (!resolved_hit ||| (resolved_prefetch_write & !resolved_state.is_unique()))
+  def resolved_prefetch_dirty_victim = resolved_prefetch_needs_refill & !resolved_hit & resolved_victim_valid & resolved_victim_state.is_dirty()
+  def resolved_needs_refill = resolved_load & (!resolved_hit ||| (resolved_lr & !resolved_state.is_unique())) ||| resolved_mutation & !resolved_owned_mutation ||| (resolved_prefetch_needs_refill & !resolved_prefetch_dirty_victim)
 
   /* Makes nondefault-locality ordinary load misses consume the clean refill buffer without
      installing. LR, mutations, and prefetches retain their independent allocation policy. */
-  def s4_bypass_refill = !s4_prefetch & !s4_hit & (s4_access === CacheOperation.Load) & (retained_request.locality =/= RiscvMemoryLocality.Default)
-  def s4_dirty_victim = s4_needs_refill & !s4_bypass_refill & !s4_prefetch & !s4_hit & s4_victim_valid & s4_victim_state.is_dirty()
+  def resolved_bypass_refill = !resolved_prefetch & !resolved_hit & (resolved_access === CacheOperation.Load) & (retained_request.locality =/= RiscvMemoryLocality.Default)
+  def resolved_dirty_victim = resolved_needs_refill & !resolved_bypass_refill & !resolved_prefetch & !resolved_hit & resolved_victim_valid & resolved_victim_state.is_dirty()
   // A read cannot be recalled. Issue beyond a packet boundary only on its
   // transfer, so next cycle's SRAM result always has a free destination.
   def snoop_row_valid = snoop_reading & gather_response_pending
   def packet_last_row = if rows_per_packet == 1 | Bool(#true) | gather_response_index[0..packet_offset_bits].all()
   def snoop_packet_arriving = snoop_row_valid & packet_last_row
   def snoop_packet_valid = snoop_packet_arriving ||| snoop_packet_held
-  def gather_issue = snoop_reading & !gather_last_issued & (!snoop_packet_valid ||| snoop.packet.ready)
+  scheduler.gather.valid <== snoop_reading & !gather_last_issued & (!snoop_packet_valid ||| snoop.packet.ready)
+  scheduler.gather.bits <== gather_set ++ gather_issue_index
+  def gather_issue = scheduler.gather.fire()
   def gather_issue_final = gather_issue_index === Bits(word_index_width)(words_per_line - 1)
   def gather_response_final = gather_response_index === Bits(word_index_width)(words_per_line - 1)
 
   // Each branch uses the resolved metadata and its matching retained request
   // until the consumer accepts the event.
-  def Array(s4_hit_path, s4_transaction_path) = s4_path |> demux_flow(2, _result => s4_needs_refill.as_bits())
+  def Array(resolved_hit_path, resolved_transaction_path) = resolution |> demux_flow(2, _result => resolved_needs_refill.as_bits())
   // Installation owns replacement state. A store also needs the data port
   // on the actual write/ACK cycle, not merely on its earlier tag lookup.
   wire install_line: Bool
-  def store_port_busy = s4_store & (backing_row_busy(retained_address[row_offset_width..(offset_width + set_width)]) ||| gather_issue)
-  def s4_local = s4_hit_path |> gate_flow(service_responses.ingress.ready & !install_line & !store_port_busy) |> to_valid()
+  def can_resolve = service_responses.ingress.ready & !install_line
+  def needs_store_write = resolved_store & resolved_owned_mutation
+  scheduler.store.valid <== resolved_hit_path.valid & can_resolve & needs_store_write
+  def resolved_local = resolved_hit_path |> gate_flow(can_resolve & (!needs_store_write ||| scheduler.store.ready)) |> to_valid()
 
   /* Refill and victim-writeback commands.
-     Direct acquisition uses live S4 data. A granted copyback launches the
+     Direct acquisition uses the resolved victim. A granted copyback launches the
      retained replacement while the victim still owns the data array. */
 
-  def head_acquisition = s4_transaction_path |> map_flow(result => L1DMissAllocation(width, ways)):
+  def head_acquisition = resolved_transaction_path |> map_flow(result => L1DMissAllocation(width, ways)):
     victim:
       L1DLineState(width):
         address: victim_line_address
-        state: mux(s4_dirty_victim, s4_victim_state, CHICacheState.Invalid)
+        state: mux(resolved_dirty_victim, resolved_victim_state, CHICacheState.Invalid)
     opcode: mux(result.prefetch_write ||| retained_request.access.needs_unique() ||| (retained_request.access === CacheOperation.LoadReserved), CHIReqOpcode.ReadUnique, CHIReqOpcode.ReadClean)
     target:
       L1DMissTarget(width, ways):
         address: retained_line_address
         way: mux(result.hit, result.hit_way, result.allocation_way)
         ordered: Bool(#true)
-        install: !s4_bypass_refill
+        install: !resolved_bypass_refill
 
   misses.snoop_pending <== snoop_pending
   misses.snoop_update.valid <== snoop.update.valid & (snoop.update.bits.address === snoop.update.bits.address[0..width].zext(snoop_width))
@@ -601,19 +592,23 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   /* Stream refill packets to the reserved way. An accepted snoop has first
      claim on row reads, but a stalled snoop DAT need not hold the SRAM port. */
 
-  def victim_bank_conflict = victim_read & (copy_row[0..2] === refill_row[0..2])
-  def refill_install_word = refill_packet_live & !victim_bank_conflict & !(gather_issue & (gather_issue_index[0..2] === refill_row[0..2]))
+  scheduler.fill.valid <== refill_packet_live
+  def refill_install_word = scheduler.fill.fire()
   def refill_packet_last = if rows_per_packet == 1 | Bool(#true) | refill_row[0..packet_offset_bits].all()
   def packet_capacity = !refill_packet_live ||| (refill_install_word & refill_packet_last)
   def refill_can_complete = !snoop_pending & !snoop_reading & !refill_packet_live & !pending_mutation_valid
   misses.ordered_ready <== miss_prefetch ||| miss_replied ||| service_responses.ingress.ready
-  def completed_paths = misses.complete |> gate_flow(refill_can_complete & !writeback_complete) |> to_valid() |> fork_valid(2)
   def completed = misses.complete.bits
+  def completion_turn = refill_can_complete & !writeback_complete
+  scheduler.publish.valid <== misses.complete.valid & completion_turn & completed.context.install
+  def completed_paths = misses.complete |> gate_flow(completion_turn & (!completed.context.install ||| scheduler.publish.ready)) |> to_valid() |> fork_valid(2)
   def complete_refill = misses.complete.fire() & completed.context.ordered
   install_line <== misses.complete.fire() & completed.context.install
   def install_refill = install_line & completed.context.ordered
-  def install_set = completed.line_address[offset_width..(offset_width + set_width)]
+  def install_set = completed.context.address[offset_width..(offset_width + set_width)]
   def install_way = completed.context.way
+  service_requests.wake.valid <== misses.complete.fire()
+  service_requests.wake.bits <== install_set
 
   when complete_refill:
     assert(!completed.pass_dirty, "l1d_refill_not_dirty")
@@ -623,7 +618,6 @@ sync_circuit BankedL1DCache(xlen :: XLen,
 
   def refill_access = retained_request.access
   def refill_word_index = retained_address[row_offset_width..offset_width]
-  def service_load_unsigned = (retained_request.access === CacheOperation.Load) & retained_request.unsigned
   def refill_mutation = !miss_prefetch & refill_access.needs_unique()
 
   /* Local mutation datapath.
@@ -631,15 +625,16 @@ sync_circuit BankedL1DCache(xlen :: XLen,
      The SRAM write does not change the retained row. */
 
   // An authorized ordinary store needs no old row. Write its enabled bytes
-  // and produce its ordered completion on the same S4 transfer.
-  def store_hit_write = s4_local.valid & s4_store & s4_owned_mutation
-  def local_mutation = !s4_store & s4_owned_mutation
-  def local_mutation_capture = local_mutation & s4_local.valid
+  // and produce its ordered completion on the same resolution transfer.
+  def store_hit_write = scheduler.store.fire()
+  def local_mutation = !resolved_store & resolved_owned_mutation
+  def local_mutation_capture = local_mutation & resolved_local.valid
   def pending_mutation_access = retained_request.access
   // Owned hits keep the SRAM until the complete block is zero. No new CHI
   // transaction is held up by this bounded interval; snoops resume afterward.
   def pending_zero = pending_mutation_access.is_cache_block_zero()
-  def local_mutation_commit = pending_mutation_valid & (!pending_zero ||| (pending_zero_index =/= Bits(word_index_width)(words_per_line - 1)) ||| service_responses.ingress.ready)
+  scheduler.mutation.valid <== pending_mutation_valid & (!pending_zero ||| (pending_zero_index =/= Bits(word_index_width)(words_per_line - 1)) ||| service_responses.ingress.ready)
+  def local_mutation_commit = scheduler.mutation.fire()
   def local_mutation_complete = local_mutation_commit & (!pending_zero ||| (pending_zero_index === Bits(word_index_width)(words_per_line - 1)))
   local_atomic_alu.old_value <== service_load_gen.value
   local_atomic_alu.operand <== retained_request.data[0..width]
@@ -685,10 +680,11 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   def forward_waiter = forward_turn & miss_replied & waiting_load & waiter_row_matches
   def forward_row = forward_leader ||| forward_waiter
   def load_row = mux(forward_row, refill_install_bytes.as_bits(), service_row)
-  service_load_gen.address <== mux(forward_waiter, waiter_address, retained_address)
-  service_load_gen.data <== load_row
-  service_load_gen.width <== mux(forward_waiter, waiter.width, retained_request.width)
-  service_load_gen.unsigned_load <== mux(forward_waiter, waiter.unsigned, service_load_unsigned)
+  def load_source = mux(replay_reply, lookup_request, mux(forward_waiter, waiter, retained_request))
+  service_load_gen.address <== load_source.address.zext(width)
+  service_load_gen.data <== mux(replay_reply, lookup_word, load_row)
+  service_load_gen.width <== load_source.width
+  service_load_gen.unsigned_load <== (load_source.access === CacheOperation.Load) & load_source.unsigned
   def mutate_refill_word = refill_mutation & (refill_row === refill_word_index)
   def merged_refill_word = vec(
     for List (byte_index in 0..beat_bytes):
@@ -699,7 +695,6 @@ sync_circuit BankedL1DCache(xlen :: XLen,
     refill_access.is_cache_block_zero(): Bits(beat_width)(0).as_vec(Bits(8))
     mutate_refill_word: merged_refill_word
 
-  def cache_write = local_mutation_commit ||| store_hit_write
   for (i in 0..mshr_count):
     def target = misses.targets[i]
     when (refill_install_word & misses.pinned[i]):
@@ -712,17 +707,17 @@ sync_circuit BankedL1DCache(xlen :: XLen,
      wait cycle. Only snoops that must preserve dirty data claim the row reader. */
 
   stores.probe_address <== snoop.address
-  snoop.cache_ready <== !s3_read_valid & !s4_result.egress.valid & !pending_mutation_valid & !snoop_reading & !stores.queued_line_hazard
+  snoop.cache_ready <== !lookup_metadata_valid & !resolution_slot.egress.valid & !pending_mutation_valid & !snoop_reading & !stores.queued_line_hazard
   def snoop_address = snoop.address
   def snoop_set = snoop_address[offset_width..(offset_width + set_width)]
   // Compare the full CHI tag: an RV32 hart must miss snoops above its address space.
   def snoop_tag = snoop_address[(offset_width + set_width)..snoop_width]
   def snoop_valids = valid_lines[snoop_set]
-  def snoop_matches = vec(for List (way in 0..ways): snoop_valids[way] & (arrays.tags.response.bits[way].zext(snoop_width - offset_width - set_width) === snoop_tag))
+  def snoop_matches = vec(for List (way in 0..ways): snoop_valids[way] & (scheduler.probe_result.bits.tags[way].zext(snoop_width - offset_width - set_width) === snoop_tag))
   def snoop_selection = priority_encoder_oh(snoop_matches)
   def snoop_line_hit = snoop_selection.valid
-  def snoop_lookup_state = snoop_selection.mux(for List (way in 0..ways): arrays.states.response.bits[way], ~default: CHICacheState.Invalid).into(CHICacheState)
-  def snoop_metadata_valid = snoop_metadata_pending & arrays.tags.response.valid & arrays.states.response.valid
+  def snoop_lookup_state = snoop_selection.mux(for List (way in 0..ways): scheduler.probe_result.bits.states[way], ~default: CHICacheState.Invalid).into(CHICacheState)
+  def snoop_metadata_valid = scheduler.probe_result.valid
   when (snoop_metadata_valid & snoop_line_hit):
     snoop_way <== snoop_selection.index
 
@@ -740,96 +735,104 @@ sync_circuit BankedL1DCache(xlen :: XLen,
 
 
   /* Lookup scheduling and retained advancement.
-     S4 reserves the backing engines; blocked S3 work retains its request,
+     The resolution owner reserves the backing engines; a blocked lookup retains its request,
      then rereads instead of consuming stale array data. */
 
   def retained_array_work_idle = !maintenance_active & !snoop_reading & !pending_mutation_valid
   def backing_engines_ready = !miss_busy
-  def arrays_available = retained_array_work_idle & !s4_needs_refill & !local_mutation
-  def s3_can_advance = s4_result.ingress.ready & arrays_available & (backing_engines_ready ||| replay_head) & !snoop_pending
-  def issue_bank_busy = backing_row_busy(s2_index_address[row_offset_width..(offset_width + set_width)])
-  def retry_bank_busy = s3_lookup.egress.valid & backing_row_busy(s3_request.address[row_offset_width..(offset_width + set_width)])
-  def head_read_turn = s3_can_advance & (!replay_head ||| (!issue_bank_busy & !retry_bank_busy & !install_line & !snoop_lookup_start & !snoop_metadata_pending & !snoop.update.valid & !store_state_write))
-  def classify_turn = concurrent & !misses.protect & !snoop_pending & !snoop_reading & !snoop_lookup_start & !store_state_write & !writeback_complete & !reservation_valid
-  def issue_turn = classify_turn
-  def standard = !s3_lookup.egress.bits.prefetch & s3_request.access.into(CacheOperation).is_load_or_store() & (s3_request.locality === RiscvMemoryLocality.Default)
+  def arrays_available = retained_array_work_idle & !resolved_needs_refill & !local_mutation
+  def resolve_available = resolution_slot.ingress.ready & arrays_available & (backing_engines_ready ||| replay_head) & !snoop_pending
+  def head_read_turn = resolve_available
+  def classify_turn = classifying & !misses.protect & !snoop_pending & !snoop_reading & !snoop_lookup_start & !writeback_complete & !reservation_valid
+  def standard = !lookup_slot.egress.bits.prefetch & lookup_request.access.into(CacheOperation).is_load_or_store() & (lookup_request.locality === RiscvMemoryLocality.Default)
   def covering = for List (i in 0..mshr_count):
-    misses.occupied[i] & (misses.targets[i].address === s3_address.align_down(CacheLineBytes).zext(width)) & (!s3_request.access.is_store() ||| misses.acquiring_unique[i])
+    misses.occupied[i] & (misses.targets[i].address === lookup_address.align_down(CacheLineBytes).zext(width)) & (!lookup_request.access.is_store() ||| misses.acquiring_unique[i])
   def covered = vec(covering).any()
-  def independent = !reserved_set(s3_set)
-  def can_park = covered ||| (independent & s3_hit_way.valid & (!s3_request.access.is_store() ||| s3_state.is_unique()))
-  def classify = classify_turn & standard & s3_read_valid & arrays.tags.response.valid & arrays.states.response.valid
-  def retry_head = s3_behind & (!miss_busy ||| replay_head)
-  def s3_plain_store = !s3_lookup.egress.bits.prefetch & s3_request.access.is_store()
-  // A concurrent store can invalidate an old data read or change a victim's
+  def independent = !reserved_set(lookup_set)
+  def can_park = covered ||| (independent & lookup_hit_way.valid & (!lookup_request.access.is_store() ||| lookup_state.is_unique()))
+  def classify = classify_turn & standard & lookup_metadata_valid
+  def retry_head = discard_replay ||| (lookup_off_head & (!miss_busy ||| replay_head))
+  def lookup_plain_store = !lookup_slot.egress.bits.prefetch & lookup_request.access.is_store()
+  // A classifying store can invalidate an old data read or change a victim's
   // dirty status. Only another proved owned store is independent of both.
-  def s3_lookup_usable = s3_read_valid & mux(
-    store_hit_write, s3_plain_store & s3_hit_way.valid & s3_state.is_unique(),
-    s3_plain_store ||| (s3_data_read_valid & arrays.data.response.valid)
+  def lookup_read_usable = lookup_metadata_valid & mux(
+    store_hit_write & (lookup_set === retained_set), lookup_plain_store & lookup_hit_way.valid & lookup_state.is_unique(),
+    lookup_plain_store ||| lookup_data_valid
   )
-  // Gating retains blocked requests; only admitted reads enter the elastic S4
-  // result register. A stalled request is reread when S4 has capacity.
+  // Gating retains blocked requests; only admitted reads enter the resolution slot.
+  // A stalled request is reread when the slot has capacity.
   def lookup = inject_interface(Decoupled(L1DLookup(xlen, Context, beat_bytes, retained_width)),
-                                ~valid: s3_lookup.egress.valid, ~bits: s3_lookup.egress.bits, ~ready: s3_lookup.egress.ready)
-  def s3_observed = lookup |> trace_event("dcache/s3.lookup", ~stalls: #true, ~fields: lookup):
+                                ~valid: lookup_slot.egress.valid, ~bits: lookup_slot.egress.bits, ~ready: lookup_slot.egress.ready)
+  def lookup_observed = lookup |> trace_event("dcache/service.lookup", ~stalls: #true, ~fields: lookup):
     address: lookup.request.address.zext(width)
     prefetch: lookup.prefetch
     access(~format: "enum"): lookup.request.access
 
-  def Array(primary, secondary) = s3_observed |> demux_flow(2, _lookup => (concurrent ||| s3_behind).as_bits())
+  def Array(primary, secondary) = lookup_observed |> demux_flow(2, _lookup => (classifying ||| lookup_off_head).as_bits())
   def Array(held, restart) = secondary |> demux_flow(2, _lookup => retry_head.as_bits())
   restart.ready <== Bool(#true)
   def Array(attached, new_miss) = held |> gate_flow(classify) |> demux_flow(2, _lookup => (!can_park).as_bits())
   attached.ready <== Bool(#true)
-  def younger_state = arrays.states.response.bits[s3_allocation_way].into(CHICacheState)
-  def younger_dirty = s3_valids[s3_allocation_way] & younger_state.is_dirty()
-  def next_miss = new_miss |> gate_flow(independent & !s3_hit_way.valid) |> map_flow(_lookup => L1DMissAllocation(width, ways)):
+  def younger_state = scheduler.service_result.bits.states[lookup_allocation_way].into(CHICacheState)
+  def younger_dirty = lookup_valids[lookup_allocation_way] & younger_state.is_dirty()
+  def next_miss = new_miss |> gate_flow(independent & !lookup_hit_way.valid) |> map_flow(_lookup => L1DMissAllocation(width, ways)):
     victim:
       L1DLineState(width):
-        address: concat(arrays.tags.response.bits[s3_allocation_way], s3_set, Bits(offset_width)(0)).zext(width)
+        address: concat(scheduler.service_result.bits.tags[lookup_allocation_way], lookup_set, Bits(offset_width)(0)).zext(width)
         state: mux(younger_dirty, younger_state, CHICacheState.Invalid)
-    opcode: mux(s3_request.access.is_store(), CHIReqOpcode.ReadUnique, CHIReqOpcode.ReadClean)
+    opcode: mux(lookup_request.access.is_store(), CHIReqOpcode.ReadUnique, CHIReqOpcode.ReadClean)
     target:
       L1DMissTarget(width, ways):
-        address: s3_address.align_down(CacheLineBytes).zext(width)
-        way: s3_allocation_way
+        address: lookup_address.align_down(CacheLineBytes).zext(width)
+        way: lookup_allocation_way
         ordered: Bool(#false)
         install: Bool(#true)
   classified <== held.fire()
-  // Keep a parked hit in S3 if its response slot is unavailable or an
-  // older S4 hit will take the last slot. Snoop progress cannot depend on WB.
-  def last_slot_claimed = replay_head & s4_valid & service_responses.count.any()
-  def wait_for_response = parked.any() & s3_request.access.into(CacheOperation).is_load_or_store() & (!service_responses.ingress.ready ||| last_slot_claimed)
-  def permitted_hit = s3_hit_way.valid & mux(s3_plain_store, s3_state.is_unique(), s3_state.is_valid())
+  service_requests.wait_for_acquisition <== covered ||| !can_park
+  def permitted_hit = lookup_hit_way.valid & mux(lookup_plain_store, lookup_state.is_unique(), lookup_state.is_valid())
+  def plain_load = !lookup_slot.egress.bits.prefetch & (lookup_request.access === CacheOperation.Load)
+  // An ordinary hit claims next-cycle capacity; a miss books no reply.
+  // Stores retain their existing write/ACK admission at the ordered head.
+  def store_slot_claimed = replay_head & resolved_valid & service_responses.count.any()
+  def store_wait = parked.any() & lookup_plain_store & (!service_responses.ingress.ready ||| store_slot_claimed)
+  def load_wait = plain_load & permitted_hit & !next_reply_free
   def replay_hit = replay_head & permitted_hit
+  // An ordinary ordered hit already has its bytes and permission. Return
+  // them here instead of occupying the slow transaction's context register.
+  def direct_load = plain_load & permitted_hit & lookup_read_usable & !resolved_valid & !snoop_pending & !maintenance_active & !pending_mutation_valid & !reserved_set(lookup_set) & (!miss_active ||| miss_replied)
+  def Array(transaction, load_hit) = primary |> demux_flow(2, _request => direct_load.as_bits())
+  def returning = load_hit |> gate_flow(service_responses.ingress.ready) |> to_valid() |> trace_valid_event("dcache/replay.hit", ~fields: req):
+    address: req.request.address.zext(width)
+    hit: Bool(#true)
+  replay_reply <== returning.valid
   def replay_result = (
-    primary
-      |> gate_flow(s3_can_advance & s3_lookup_usable & !wait_for_response & (!miss_busy ||| replay_hit))
+    transaction
+      |> gate_flow(!miss_active & resolve_available & lookup_read_usable & !load_wait & !store_wait & (!miss_busy ||| replay_hit))
       |> map_flow(lookup => L1DResolved(way_width)):
         prefetch: lookup.prefetch
         prefetch_write: lookup.prefetch_write
-        hit: s3_hit_way.valid
-        hit_way: s3_hit_way.index
-        state: s3_state
-        allocation_way: s3_allocation_way
-        victim_valid: s3_valids[s3_allocation_way]
-        victim_state: arrays.states.response.bits[s3_allocation_way]
+        hit: lookup_hit_way.valid
+        hit_way: lookup_hit_way.index
+        state: lookup_state
+        allocation_way: lookup_allocation_way
+        victim_valid: lookup_valids[lookup_allocation_way]
+        victim_state: scheduler.service_result.bits.states[lookup_allocation_way]
   )
 
   /* The demand banks may already have read the just-admitted head. Resolve
-     an ordinary hit directly into S4; a miss, stale read or busy sink leaves
+     an ordinary hit directly into the resolution slot; a miss, stale read or busy sink leaves
      the original FIFO entry intact for the normal service pipeline. */
   def first_req :: AddressedPhysicalMemoryBeatReq(xlen, Context, beat_bytes, retained_width) = service_requests.egress.bits
   def first_address = first_req.address.zext(physical_width)
   def first_set = first_address[offset_width..(offset_width + set_width)]
   def first_tag = first_address[(offset_width + set_width)..physical_width]
   def first_matches = for List (w in 0..ways):
-    valid_lines[first_set][w] & (arrays.demand_tags.response.bits[w] === first_tag)
+    valid_lines[first_set][w] & (scheduler.spec_result.bits.tags[w] === first_tag)
   def first_way = priority_encoder_oh(vec(first_matches))
-  def first_state = first_way.mux(for List (w in 0..ways): arrays.demand_states.response.bits[w], ~default: CHICacheState.Invalid).into(CHICacheState)
+  def first_state = first_way.mux(for List (w in 0..ways): scheduler.spec_result.bits.states[w], ~default: CHICacheState.Invalid).into(CHICacheState)
   def first_store = first_req.access === CacheOperation.Store
-  def first_hit = first_read & first_way.valid & (!first_store ||| first_state.is_unique()) & (first_store ||| arrays.demand_data.response.valid)
-  def first_safe = !s3_lookup.egress.valid & !snoop_pending & !snoop_metadata_pending & !snoop.update.valid & !reserved_set(first_set) & !miss_active & !maintenance_active & !pending_mutation_valid & !s4_needs_refill & !local_mutation & stores.empty & !s2_store_candidate.egress.valid & !(s4_store & (retained_set === first_set) & !first_store)
+  def first_hit = first_read & first_way.valid & (!first_store ||| first_state.is_unique()) & (first_store ||| scheduler.spec_result.bits.with_data)
+  def first_safe = !lookup_slot.egress.valid & !snoop_pending & !snoop_metadata_pending & !snoop.update.valid & !reserved_set(first_set) & !miss_active & !maintenance_active & !pending_mutation_valid & !resolved_needs_refill & !local_mutation & stores.empty & !store_candidate.egress.valid & !(resolved_store & (retained_set === first_set) & !first_store)
   def first_result = L1DResolved(way_width):
     prefetch: Bool(#false)
     prefetch_write: Bool(#false)
@@ -840,30 +843,36 @@ sync_circuit BankedL1DCache(xlen :: XLen,
     victim_valid: Bool(#false)
     victim_state: CHICacheState.Invalid
   wire first_ready: Bool
-  def first_offer = inject_interface(Decoupled(L1DResolved(way_width)), ~valid: first_hit & first_safe, ~bits: first_result, ~ready: first_ready)
+  def first_offer = inject_interface(Decoupled(L1DResolved(way_width)), ~valid: first_hit & first_safe & (first_store ||| next_reply_free), ~bits: first_result, ~ready: first_ready)
   def direct_hit = first_offer |> trace_event("dcache/demand.hit", ~fields: _hit):
     address: first_req.address.zext(width)
-  Array(replay_result, direct_hit) |> arbiter() |> s4_result.ingress
+  Array(replay_result, direct_hit) |> arbiter() |> resolution_slot.ingress
   def capture_first = first_offer.fire()
-  def capture_s4 = s4_result.ingress.fire()
-  retire_head <== capture_first ||| (replay_result.fire() & !s3_lookup.egress.bits.prefetch) ||| forward_waiter
-  describe_replay_waits(s3_lookup.egress, lookup, completed_paths[1], install_set, completed.context.install,
-                        classified, covered ||| !can_park, s3_set, remove_parked,
-                        replay_result.fire() & parked.any() & standard & permitted_hit)
-  when capture_s4:
-    assert(!pending_mutation_valid & !miss_active & !maintenance_active & !maintenance.command.fire(), "l1d_s4_request_not_owned_by_slow_service")
-    retained_request <== mux(capture_first, ordinary_requests.bits, s3_request)
-    retained_victim_tag <== arrays.tags.response.bits[s3_allocation_way]
+  def accept_resolution = resolution_slot.ingress.fire()
+  retire_head <== replay_reply ||| capture_first ||| (replay_result.fire() & !lookup_slot.egress.bits.prefetch) ||| forward_waiter
+  describe_replay_waits(lookup_slot.egress, lookup, completed_paths[1], install_set, completed.context.install,
+                        classified, covered ||| !can_park, lookup_set, remove_parked,
+                        (replay_reply ||| replay_result.fire()) & parked.any() & standard & permitted_hit)
+  when accept_resolution:
+    assert(!pending_mutation_valid & !miss_active & !maintenance_active & !maintenance.command.fire(), "l1d_resolution_request_not_owned_by_slow_service")
+    retained_request <== mux(capture_first, ordinary_requests.bits, lookup_request)
+    retained_victim_tag <== scheduler.service_result.bits.tags[lookup_allocation_way]
   elsewhen (maintenance.command.fire()):
-    // Maintenance bypasses S4 and owns only the caller context until completion.
+    // Maintenance bypasses the resolution slot and owns only the caller context until completion.
     retained_request <== retained_request.updated(~context: management_requests.bits.context)
 
   for (left in 0..ways):
     for (right in (left + 1)..ways):
-      when (s3_lookup.egress.fire()):
-        assert(!(s3_matches[left] & s3_matches[right]), "l1d_core_hit_unique")
+      when (lookup_slot.egress.fire()):
+        assert(!(lookup_matches[left] & lookup_matches[right]), "l1d_core_hit_unique")
 
-  def s2_retry = s3_lookup.egress.valid & ((head_read_turn & !s3_behind & !s3_lookup_usable & (!store_hit_write ||| s3_plain_store)) ||| (issue_turn & !s3_read_valid))
+  // Once a blocked read has expired, don't poll the arrays with no reply
+  // credit. On release reread current bytes and permissions exactly as usual.
+  def reread_turn = head_read_turn & (!plain_load ||| next_reply_free)
+  def reread = reread_turn & !lookup_off_head & !lookup_read_usable & (!store_hit_write ||| lookup_plain_store)
+  scheduler.retry.valid <== lookup_slot.egress.valid & (reread ||| (classify_turn & !lookup_metadata_valid))
+  scheduler.retry.bits <== read_command(lookup_address, !classifying & !lookup_plain_store)
+  def retry_grant = scheduler.retry.fire()
 
   /* Shared read admission and store draining.
      Speculative reads cannot take an SRAM port from older work or establish
@@ -872,38 +881,35 @@ sync_circuit BankedL1DCache(xlen :: XLen,
 
   def engines_idle = arrays_available & !miss_active & backing_engines_ready
   def parked_same_line_waiter = service_requests.egress.valid & miss_active & waiter.access.is_load_or_store() & (waiter_address.align_down(CacheLineBytes) === retained_line_address)
-  def service_order_clear = (!service_requests.egress.valid ||| parked_same_line_waiter) & !s3_lookup.egress.valid & !s4_result.egress.valid & !virtual_lookup.valid
+  def service_order_clear = (!service_requests.egress.valid ||| parked_same_line_waiter) & !lookup_slot.egress.valid & !resolution_slot.egress.valid & !virtual_lookup.valid
   hit_path_available <== engines_idle & service_order_clear
   hit_under_miss <== miss_active & miss_allows_hits & arrays_available & service_order_clear & !snoop_pending & !misses.install_pending
-  def store_drain_available = engines_idle & !s3_read_valid & !s4_result.egress.valid & !snoop_metadata_pending & !snoop_lookup_start & !snoop.update.valid
-  def full_store_drain = stores.full & store_drain_available
-  def force_store_drain = stores.urgent ||| service_requests.egress.valid ||| management_waiting ||| (snoop_pending & stores.queued_line_hazard) ||| (pipeline.request.valid & !s1_store & stores.queued_word_hazard)
-  stores.full_drain <== full_store_drain
-  stores.drain.ready <== full_store_drain ||| (store_drain_available & (force_store_drain ||| !s0_load))
-  store_drain <== stores.drain.fire()
-  def array_read_address = priority_mux(~default: s2_index_address):
-    s2_retry: s3_lookup.egress.bits.request.address.zext(width)
-
-  def array_read_set = array_read_address[offset_width..(offset_width + set_width)]
+  def drain_urgent = stores.urgent ||| service_requests.egress.valid ||| management_waiting ||| (snoop_pending & stores.queued_line_hazard) ||| (pipeline.request.valid & !spec_store & stores.queued_word_hazard)
+  def drain_turn = stores.full ||| drain_urgent ||| !spec_load_offer
+  scheduler.drain.valid <== stores.drain.valid & drain_turn
+  stores.drain.ready <== drain_turn & scheduler.drain.ready
+  // A full buffer always offers its head. Use the physical grant, not the
+  // optional drain policy: speculative lookup cannot feed WB store credit.
+  stores.full_drain <== stores.full & scheduler.drain.ready
 
   Array(head_acquisition, next_miss) |> arbiter() |> misses.allocate
-  s4_refill_accepted <== head_acquisition.fire() & !s4_dirty_victim
-  s4_refill_opcode <== head_acquisition.bits.opcode
+  resolved_refill_accepted <== head_acquisition.fire() & !resolved_dirty_victim
+  resolved_refill_opcode <== head_acquisition.bits.opcode
   def younger = next_miss.fire()
-  stat_count("dcache_miss", misses.allocate.fire() & !(misses.allocate.bits.target.ordered & s4_prefetch))
+  stat_count("dcache_miss", misses.allocate.fire() & !(misses.allocate.bits.target.ordered & resolved_prefetch))
 
-  def array_read_data_address = array_read_address[row_offset_width..(offset_width + set_width)]
-  def s2_admit = !capture_first & !management_waiting & (head_read_turn ||| issue_turn) & !s2_retry & stores.empty & !s2_store_candidate.egress.valid
-  def s2_demand = ordinary_requests |> map_flow(request => L1DLookup(xlen, Context, beat_bytes, retained_width)):
+  def older_stores_clear = stores.empty ||| ((stores.count === Bits(index_width(5))(1)) & stores.drain.fire())
+  def issue_turn = !capture_first & !management_waiting & (head_read_turn ||| classify_turn) & older_stores_clear & !store_candidate.egress.valid
+  def demand_lookup = ordinary_requests |> map_flow(request => L1DLookup(xlen, Context, beat_bytes, retained_width)):
     request: request
     prefetch: Bool(#false)
     prefetch_write: Bool(#false)
 
   // Drop a best-effort hint before the checked conversion unless it can win
-  // and enter S3 now. Never retain it or let its ready path reach core admission.
-  def s2_hint = (
+  // and take the lookup slot now. Never retain it or let its ready path reach core admission.
+  def hint_lookup = (
     prefetch
-      |> filter_valid(_hint => s2_prefetch & s2_admit & s3_lookup.ingress.ready & !ordinary_requests.valid)
+      |> filter_valid(_hint => hint_eligible & issue_turn & lookup_slot.ingress.ready & !ordinary_requests.valid)
       |> map_valid(payload):
         def hint = payload.into(CachePrefetchReq(width))
         def empty :: AddressedPhysicalMemoryBeatReq(xlen, Context, beat_bytes, retained_width) = literal(AddressedPhysicalMemoryBeatReq(xlen, Context, beat_bytes, retained_width), 0)
@@ -919,23 +925,26 @@ sync_circuit BankedL1DCache(xlen :: XLen,
           prefetch_write: hint.operation === CachePrefetchOperation.Write
   ) |> to_decoupled() |> trace_event("dcache/prefetch")
 
-  Array(s2_demand, s2_hint) |> arbiter() |> gate_flow(s2_admit) |> s3_lookup.ingress
+  def candidate_lookup = Array(demand_lookup, hint_lookup) |> arbiter() |> gate_flow(issue_turn)
+  def issue_access :: CacheOperation = candidate_lookup.bits.request.access
+  def fits_reply = classifying ||| (issue_access =/= CacheOperation.Load) ||| next_reply_free
+  scheduler.issue.bits <== read_command(candidate_lookup.bits.request.address.zext(width), !classifying & !issue_access.is_store())
+  scheduler.issue.valid <== candidate_lookup.valid & lookup_slot.ingress.ready & fits_reply
+  candidate_lookup |> gate_flow(scheduler.issue.ready & fits_reply) |> lookup_slot.ingress
   def service_request_accept = core.request.fire()
-  def s2_issue = s3_lookup.ingress.fire()
-  def service_lookup_issue = s2_issue
-  def array_lookup_issue = s2_retry ||| service_lookup_issue
-  s3_read_valid <== s2_issue ||| s2_retry
-  s3_data_read_valid <== (s2_issue ||| s2_retry) & !concurrent & !store_hit_write
-  when s2_issue:
-    s3_behind <== concurrent & issue_index.any()
-  when (s3_lookup.egress.fire() & !retry_head):
-    assert(arrays.tags.response.valid & arrays.states.response.valid & (concurrent ||| s3_plain_store ||| arrays.data.response.valid), "l1d_s3_array_response_valid")
+  def new_lookup = lookup_slot.ingress.fire()
+  def array_lookup_issue = retry_grant ||| new_lookup
+  when new_lookup:
+    lookup_off_head <== classifying & issue_index.any()
+    lookup_was_classified <== issue_index < parked
+  when (lookup_slot.egress.fire() & !retry_head):
+    assert(scheduler.service_result.valid & (classifying ||| lookup_plain_store ||| scheduler.service_result.bits.with_data), "l1d_lookup_array_response_valid")
 
   when service_request_accept:
     assert(virtual_lookup.valid, "l1d_physical_request_has_virtual_lookup")
     assert(virtual_lookup.bits[0..12] === core.request.bits.address[0..12], "l1d_vipt_page_offset_matches")
 
-  when s2_issue:
+  when new_lookup:
     assert(array_lookup_issue, "l1d_resolution_has_array_read")
 
 
@@ -943,24 +952,27 @@ sync_circuit BankedL1DCache(xlen :: XLen,
      Pairs each completion with its request context and retains the response
      under backpressure; same-cycle admission prevents a false drained result. */
 
-  def s4_load_hit = s4_local.valid & s4_load & s4_hit & (!s4_lr ||| s4_state.is_unique())
-  def s4_failed_sc = s4_local.valid & s4_sc & !s4_sc_authorized
-  def immediate_response = s4_load_hit ||| store_hit_write ||| s4_failed_sc
+  def resolved_load_hit = resolved_local.valid & resolved_load & resolved_hit & (!resolved_lr ||| resolved_state.is_unique())
+  def resolved_failed_sc = resolved_local.valid & resolved_sc & !resolved_sc_authorized
+  def immediate_response = resolved_load_hit ||| store_hit_write ||| resolved_failed_sc
   def refill_response = complete_refill & !miss_prefetch & !miss_replied
-  def produces_response = maintenance_complete ||| immediate_response ||| local_mutation_complete ||| forward_row ||| refill_response
+  def produces_response = replay_reply ||| maintenance_complete ||| immediate_response ||| local_mutation_complete ||| forward_row ||| refill_response
   def response_data = priority_mux(~default: Bits(beat_width)(0)):
+    replay_reply: mux(is_raw_beat(lookup_request), lookup_word, scalar_response(service_load_gen.value))
     maintenance_complete: Bits(beat_width)(0)
-    mux(forward_waiter, is_raw_beat(waiter), retained_raw_beat) & (s4_access === CacheOperation.Load): load_row
-    s4_access.returns_old_value(): scalar_response(service_load_gen.value)
-    s4_failed_sc: Bits(beat_width)(1)
+    mux(forward_waiter, is_raw_beat(waiter), retained_raw_beat) & (resolved_access === CacheOperation.Load): load_row
+    resolved_access.returns_old_value(): scalar_response(service_load_gen.value)
+    resolved_failed_sc: Bits(beat_width)(1)
 
   def response = PhysicalMemoryBeatResp(xlen, Context, beat_bytes):
     access_fault: maintenance_complete & (maintenance_done.bits.error =/= CHIRespErr.OK)
     data: response_data
-    context: mux(forward_waiter, waiter.context, retained_request.context)
+    context: load_source.context
 
   def reply = inject_interface(Valid(PhysicalMemoryBeatResp(xlen, Context, beat_bytes)), ~valid: produces_response, ~bits: response)
   reply |> to_decoupled() |> service_responses.ingress
+  def reply_count = service_responses.count
+  next_reply_free <== service_responses.egress.fire() ||| ((reply_count < Bits(2)(2)) & (!service_responses.ingress.fire() ||| !reply_count.any()))
   when produces_response:
     assert(service_responses.ingress.ready, "l1d_slow_response_capacity")
 
@@ -968,207 +980,92 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   // and the backing store buffer. Same-cycle acceptance is included so no
   // request can cross the reported quiescent boundary.
   def store_buffer_quiet = stores.empty & !stores.enqueue.fire()
-  def service_pipeline_empty = !service_requests.egress.valid & !s3_lookup.egress.valid & !s4_result.egress.valid & !service_responses.egress.valid
+  def service_drained = !service_requests.egress.valid & !lookup_slot.egress.valid & !resolution_slot.egress.valid & !service_responses.egress.valid
   def backing_work_drained = retained_array_work_idle & !miss_active & backing_engines_ready
-  core.drained <== store_buffer_quiet & !service_request_accept & service_pipeline_empty & backing_work_drained
+  core.drained <== store_buffer_quiet & !service_request_accept & service_drained & backing_work_drained
 
 
-  /* Shared SRAM port scheduling.
-     Selects physical address, data, and lane masks for each port while
-     preserving the existing priority among independent engine owners. */
-
-  def retained_way_mask = cache_way_mask(cache, retained_way)
-  def store_hit_way = s4_result.egress.bits.hit_way
-  arrays.dirty_set <== retained_set
-  arrays.dirty_ways <== mux(store_hit_write & !s4_state.is_dirty(), cache_way_mask(cache, store_hit_way), Mask(cache.ways)(0))
-  def snoop_update_way_mask = cache_way_mask(cache, snoop_way)
-  def full_byte_mask = !Mask(beat_bytes)(0)
-  def refill_lane_mask = cache_lane_mask(cache, packet_way, beat_bytes, full_byte_mask)
-  def local_mutation_lane_mask = cache_lane_mask(cache, retained_way, beat_bytes, mux(pending_zero, full_byte_mask, retained_request.byte_mask.into(Mask(beat_bytes))))
-  def line_write_bytes = mux(store_drain, draining_store.data.as_vec(Bits(8)), local_store_word_data)
-
-  def store_way_mask = cache_way_mask(cache, draining_store.way)
-  def store_lane_mask = cache_lane_mask(cache, draining_store.way, beat_bytes, draining_store.mask.into(Mask(beat_bytes)))
-  def repeated_line_write_bytes = for List (lane in 0..data_lanes): line_write_bytes[lane % beat_bytes]
-
-  def tag_port_owner = priority_mux(~default: L1DArrayOwner.Service):
-    install_line: L1DArrayOwner.Refill
-    snoop_lookup_start: L1DArrayOwner.Snoop
-
-  def tag_port_request = ReadWriteRequest(set_width, Bits(tag_width), ways):
-    address: (
-      priority_mux(~default: array_read_set):
-        install_line: install_set
-        snoop_lookup_start: snoop_set
-    )
-
-    write: install_line
-    data: vec(for List (_way in 0..ways): completed.line_address[(offset_width + set_width)..physical_width])
-    mask: cache_way_mask(cache, install_way)
-
-  def traced_tag_port = (
-    inject_interface(Valid(ReadWriteRequest(set_width, Bits(tag_width), ways)), ~valid: array_lookup_issue ||| install_line ||| snoop_lookup_start, ~bits: tag_port_request)
-      |> trace_valid_event("dcache/arrays.tags", ~fields: request):
-        index: request.address
-        write: request.write
-        owner(~format: "enum"): tag_port_owner
-  )
-
-  traced_tag_port |> arrays.tags.request
-
-  /* Coherence-state writes.
-     Selects store drain, refill mutation, local mutation, or snoop updates
-     with the same owner priority as the corresponding address and way mask. */
-
-  def update_snoop_state = snoop.update.valid & !snoop.update.bits.invalidate
-  arrays.states.request.valid <== array_lookup_issue ||| install_line ||| local_mutation_commit ||| snoop_lookup_start ||| update_snoop_state ||| store_state_write
-  def granted_state = completed.state
-  def refill_cache_state = mux(granted_state === CHIResponseState.Unique, CHICacheState.UniqueClean, CHICacheState.SharedClean)
-  def state_write_data = priority_mux(~default: refill_cache_state):
-    store_state_write: CHICacheState.UniqueDirty
-    install_refill & refill_access.needs_unique(): CHICacheState.UniqueDirty
-    local_mutation_commit: CHICacheState.UniqueDirty
-    update_snoop_state: snoop.update.bits.state
-
-  def state_write_mask = priority_mux(~default: snoop_update_way_mask):
-    store_state_write: store_way_mask
-    install_line: cache_way_mask(cache, install_way)
-    local_mutation_commit: retained_way_mask
-
-  arrays.states.request.bits <== ReadWriteRequest(set_width, CHICacheState, ways):
-    address: (
-      priority_mux(~default: array_read_set):
-        store_state_write: draining_store.line_number()[0..set_width]
-        install_line: install_set
-        local_mutation_commit: retained_set
-        snoop_lookup_start: snoop_set
-        update_snoop_state: snoop.update.bits.address[offset_width..(offset_width + set_width)]
-    )
-
-    write: install_line ||| local_mutation_commit ||| update_snoop_state ||| store_state_write
-    data: vec(for List (_way in 0..ways): state_write_data)
-    mask: state_write_mask
-
-  /* Byte-masked data port.
-     Routes gather reads and store/refill/mutation writes; tracing observes
-     the actual SRAM use rather than merely the logical request. */
+  /* Transaction clients provide commands, never raw SRAM controls. Granted
+     writes and their acknowledgements refer to the same row and byte mask. */
 
   def local_mutation_address = mux(pending_zero, retained_set ++ pending_zero_index, retained_address[row_offset_width..(offset_width + set_width)])
-  def refill_install_address = packet_set ++ refill_row
-  def gather_address = gather_set ++ gather_issue_index
-  // An unrelated snoop takes priority over new victim reads. Its storage
-  // is independent, including when a complete victim packet is stalled.
-  def copy_last_return = copy_response_pending & (copy_response_offset === Bits(index_width(rows_per_packet))(rows_per_packet - 1))
-  misses.reader.packet.valid <== copy_last_return ||| copy_packet_held
-  def copy_more = copyback_request.bits.index =/= Bits(index_width(cache_line_rows(p.data_bytes)))(cache_line_rows(p.data_bytes) - 1)
-  def copy_read = copyback_request.valid & !copyback_request.bits.release & !snoop_reading & (!(copy_packet_held ||| copy_last_return) ||| (misses.reader.packet.fire() & copy_more))
-  fill_write <== refill_install_word
-  victim_read <== copy_read
-  def array_data_read = !store_hit_write & array_lookup_issue & !concurrent
-  def data_port_owner = priority_mux(~default: L1DArrayOwner.Service):
-    gather_issue: L1DArrayOwner.Gather
-    local_mutation_commit ||| store_hit_write: L1DArrayOwner.Mutation
-    store_drain: L1DArrayOwner.StoreDrain
+  scheduler.mutation.bits <== CacheStoreBufferEntry(data_address_width, way_width, beat_bytes):
+    row_number: local_mutation_address
+    way: retained_way
+    data: local_store_word_data.as_bits()
+    mask: mux(pending_zero, !Bits(beat_bytes)(0), retained_request.byte_mask)
+    mark_dirty: Bool(#true)
+  scheduler.store.bits <== CacheStoreBufferEntry(data_address_width, way_width, beat_bytes):
+    row_number: retained_address[row_offset_width..(offset_width + set_width)]
+    way: resolution_slot.egress.bits.hit_way
+    data: local_store_word_data.as_bits()
+    mask: retained_request.byte_mask
+    mark_dirty: !resolved_state.is_dirty()
+  scheduler.drain.bits <== CacheStoreBufferEntry(data_address_width, way_width, beat_bytes):
+    row_number: draining_store.row_number[0..data_address_width]
+    way: draining_store.way
+    data: draining_store.data
+    mask: draining_store.mask
+    mark_dirty: draining_store.mark_dirty
 
-  def data_port_request = ReadWriteRequest(data_address_width, Bits(8), data_lanes):
-    address: (
-      priority_mux(~default: array_read_data_address):
-        store_drain: draining_store.row_number[0..data_address_width]
-        store_hit_write: retained_address[row_offset_width..(offset_width + set_width)]
-        local_mutation_commit: local_mutation_address
-        gather_issue: gather_address
-    )
+  scheduler.probe.valid <== snoop_lookup_start
+  scheduler.probe.bits <== snoop_set
+  def update_snoop_state = snoop.update.valid & !snoop.update.bits.invalidate
+  scheduler.update.valid <== update_snoop_state
+  scheduler.update.bits <== L1DPermission(set_width, way_width):
+    set: snoop.update.bits.address[offset_width..(offset_width + set_width)]
+    way: snoop_way
+    state: snoop.update.bits.state
+  // Lookup and final permission change belong to successive phases of the
+  // one probe FSM. Both have unconditional priority over ordinary clients.
+  assert(!snoop_lookup_start ||| scheduler.probe.ready, "l1d_probe_consumed")
+  assert(!update_snoop_state ||| scheduler.update.ready, "l1d_probe_state_consumed")
+  def installed_state = mux(completed.state === CHIResponseState.Unique, CHICacheState.UniqueClean, CHICacheState.SharedClean)
+  scheduler.publish.bits <== L1DPublish(set_width, way_width, tag_width):
+    set: install_set
+    way: install_way
+    tag: completed.context.address[(offset_width + set_width)..physical_width]
+    state: mux(completed.context.ordered & refill_access.needs_unique(), CHICacheState.UniqueDirty, installed_state)
 
-    write: cache_write ||| store_drain
-    data: vec(repeated_line_write_bytes)
-    mask: (
-      priority_mux(~default: refill_lane_mask):
-        store_drain: store_lane_mask
-        store_hit_write: cache_lane_mask(cache, store_hit_way, beat_bytes, retained_request.byte_mask.into(Mask(beat_bytes)))
-        local_mutation_commit: local_mutation_lane_mask
-    )
-
-  def traced_data_port = (
-    inject_interface(Valid(ReadWriteRequest(data_address_width, Bits(8), data_lanes)), ~valid: array_data_read ||| cache_write ||| gather_issue ||| store_drain, ~bits: data_port_request)
-      |> trace_valid_event("dcache/arrays.data", ~fields: request):
-        index: request.address
-        write: request.write
-        owner(~format: "enum"): data_port_owner
-  )
-
-  traced_data_port |> arrays.data.request
-
-  /* The speculative lookup only acquires banks not already granted to
-     authorized work. A held CHI packet is not a grant on any SRAM bank. */
-  def tag_bits = index_width(math.min(4, sets))
   def live = core.request.bits.into(PhysicalMemoryBeatReq(xlen, Context, beat_bytes))
   def first_turn = !pipeline_lookup.valid & core.request.fire() & live.access.is_load_or_store() & (live.locality === RiscvMemoryLocality.Default) & (!service_requests.egress.valid ||| ((service_requests.count === Index(1)) & retire_head))
   def demand_address = mux(first_turn, live.address, pipeline_lookup.bits.address)
   def demand_set = demand_address[offset_width..(offset_width + set_width)]
-  def demand_row = demand_address[row_offset_width..(offset_width + set_width)]
-  def demand_load = mux(first_turn, live.access === CacheOperation.Load, s0_load)
-  def tag_busy = arrays.tags.request.valid & (tag_port_request.address[0..tag_bits] === demand_set[0..tag_bits])
-  def state_busy = arrays.states.request.valid & (arrays.states.request.bits.address[0..tag_bits] === demand_set[0..tag_bits])
-  def row_busy = (traced_data_port.valid & (data_port_request.address[0..2] === demand_row[0..2])) ||| backing_row_busy(demand_row)
-  demand_conflict <== tag_busy ||| state_busy ||| (demand_load & row_busy)
-  def first_issue = first_turn & !demand_conflict & stores.empty & !snoop_pending & !reserved_set(demand_set) & !miss_active & !pending_mutation_valid
-  first_read <== first_issue
-  def demand_issue = s0_read_issue ||| first_issue
+  def demand_load = mux(first_turn, live.access === CacheOperation.Load, spec_load_offer)
+  def fresh_offer = first_turn & stores.empty & !snoop_pending & !reserved_set(demand_set) & !miss_active & !pending_mutation_valid
+  scheduler.demand.valid <== fresh_offer ||| spec_offer
+  scheduler.demand.bits <== read_command(demand_address, demand_load)
+  first_read <== fresh_offer & scheduler.demand.ready
   // A speculative load may pass ordinary ordered requests only in other
   // sets. Committed store bytes are checked again at physical resolution.
-  service_requests.probe_set <== s0_set
-  def incoming_clear = !core.request.valid ||| (live.access.is_load_or_store() & (live.address[offset_width..(offset_width + set_width)] =/= s0_set))
-  independent_demand <== incoming_clear & s0_load & !reserved_set(s0_set) & !snoop_pending & !maintenance_active & !pending_mutation_valid & (!miss_active ||| miss_allows_hits) & (!s4_valid ||| (s4_access.is_load_or_store() & (s0_set =/= retained_set))) & (!s3_lookup.egress.valid ||| (s3_request.access.into(CacheOperation).is_load_or_store() & (s0_set =/= s3_set))) & service_requests.independent
-  def DemandTags = ReadWriteRequest(set_width, Bits(tag_width), ways)
-  def DemandStates = ReadWriteRequest(set_width, CHICacheState, ways)
-  def DataRequest = ReadWriteRequest(data_address_width, Bits(8), data_lanes)
-  def empty_tag :: ReadWriteRequest(set_width, Bits(tag_width), ways) = literal(DemandTags, 0)
-  def empty_state :: ReadWriteRequest(set_width, CHICacheState, ways) = literal(DemandStates, 0)
-  def empty_data :: ReadWriteRequest(data_address_width, Bits(8), data_lanes) = literal(DataRequest, 0)
-  def metadata_read = empty_tag.updated(~address: demand_set)
-  (inject_interface(Valid(DemandTags), ~valid: demand_issue, ~bits: metadata_read)
-    |> trace_valid_event("dcache/demand.tags", ~fields: request):
-         index: request.address
-  ) |> arrays.demand_tags.request
-  arrays.demand_states.request.valid <== demand_issue
-  arrays.demand_states.request.bits <== empty_state.updated(~address: demand_set)
-  def demand_read = empty_data.updated(~address: demand_row)
-  (inject_interface(Valid(DataRequest), ~valid: demand_issue & demand_load, ~bits: demand_read)
-    |> trace_valid_event("dcache/demand.data", ~fields: request):
-         index: request.address
-  ) |> arrays.demand_data.request
-  def victim_address = copyback_request.bits.address[offset_width..(offset_width + set_width)] ++ copy_row
-  (inject_interface(Valid(DataRequest), ~valid: copy_read, ~bits: empty_data.updated(~address: victim_address))
-    |> trace_valid_event("dcache/victim.data", ~fields: request):
-         index: request.address
-  ) |> arrays.victim.request
-  def fill_bytes = mux(packet_ordered, refill_install_data, refill_install_bytes)
-  def refill_write = ReadWriteRequest(data_address_width, Bits(8), data_lanes):
-    address: refill_install_address
-    write: Bool(#true)
-    data: vec(for List (lane in 0..data_lanes): fill_bytes[lane % beat_bytes])
-    mask: refill_lane_mask
-  def fill = inject_interface(Valid(DataRequest), ~valid: refill_install_word, ~bits: refill_write)
-  def installed = fill |> trace_valid_event("dcache/refill.data", ~fields: request):
-    index: request.address
-  def Array(array_write, forwarded) = installed |> fork_valid(2)
-  array_write |> arrays.fill.request
+  service_requests.probe_set <== spec_index_set
+  def incoming_clear = !core.request.valid ||| (live.access.is_load_or_store() & (live.address[offset_width..(offset_width + set_width)] =/= spec_index_set))
+  independent_demand <== incoming_clear & spec_load_offer & !reserved_set(spec_index_set) & !snoop_pending & !maintenance_active & !pending_mutation_valid & (!miss_active ||| miss_allows_hits) & (!resolved_valid ||| (resolved_access.is_load_or_store() & (spec_index_set =/= retained_set))) & (!lookup_slot.egress.valid ||| (lookup_request.access.into(CacheOperation).is_load_or_store() & (spec_index_set =/= lookup_set))) & service_requests.independent
+  scheduler.victim.valid <== victim_gather.read.valid
+  scheduler.victim.bits <== copyback_request.bits.address[offset_width..(offset_width + set_width)] ++ victim_gather.read.bits
+  victim_gather.read.ready <== scheduler.victim.ready
+  scheduler.victim_data |> victim_gather.returned
+
+  def refill_install_address = packet_set ++ refill_row
+  scheduler.fill.bits <== CacheStoreBufferEntry(data_address_width, way_width, beat_bytes):
+    row_number: refill_install_address
+    way: packet_way
+    data: mux(packet_ordered, refill_install_data, refill_install_bytes).as_bits()
+    mask: !Bits(beat_bytes)(0)
+    mark_dirty: Bool(#false)
+  def fill = inject_interface(Valid(Bits(data_address_width)), ~valid: refill_install_word, ~bits: refill_install_address)
+  def forwarded = fill |> trace_valid_event("dcache/refill.data", ~fields: index):
+    index: index
 
   // The install port can write an unrelated row on any reply cycle. Select
   // it as a parent only when its bytes actually bypass to the leader or waiter.
-  def Array(immediate, mutation_start) = s4_local |> fork_valid(2)
+  def Array(immediate, mutation_start) = resolved_local |> fork_valid(2)
   def mutation_done = inject_interface(Valid(Bool), ~valid: local_mutation_complete, ~bits: pending_zero)
   describe_interface_retained_storage(local_mutation_capture, local_mutation_complete, pending_mutation_valid, ~name: "mutation")
   describe_interface_contract(mutation_start, mutation_done, "mutation", ~trace_model: interface_trace_retained(~name: "mutation"))
-  describe_interface_selection([maintenance_complete, immediate_response, local_mutation_complete, forward_row, refill_response], ~name: "service-reply")
-  describe_interface_contract(Array(maintenance_done, immediate, mutation_done, forwarded, completed_paths[0]), reply,
+  describe_interface_selection([replay_reply, maintenance_complete, immediate_response, local_mutation_complete, forward_row, refill_response], ~name: "service-reply")
+  describe_interface_contract(Array(returning, maintenance_done, immediate, mutation_done, forwarded, completed_paths[0]), reply,
                               "service-reply", ~trace_model: interface_trace_selection(~name: "service-reply"))
-
-  assert(!(store_drain & (array_data_read ||| cache_write ||| gather_issue)), "l1d_store_drain_data_port_exclusive")
-  assert(!(store_state_write & (array_lookup_issue ||| install_refill ||| local_mutation_commit ||| snoop_lookup_start ||| update_snoop_state)), "l1d_store_drain_state_port_exclusive")
-
-  assert(!(local_mutation_commit & (array_lookup_issue ||| install_refill ||| snoop_lookup_start ||| update_snoop_state ||| gather_issue)), "l1d_local_mutation_port_exclusive")
-
 
   /* Persistent mutation, miss, and gather updates.
      Event-oriented state transitions preserve same-edge priorities;
@@ -1181,8 +1078,8 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   when (local_mutation_capture ||| miss_capture):
     assert(!(local_mutation_capture & miss_capture), "l1d_one_retained_capture")
     assert(!pending_mutation_valid & !miss_active, "l1d_retained_capture_when_idle")
-    assert(!s4_result.ingress.fire(), "l1d_s4_request_held_on_slow_launch")
-    retained_way <== mux(s4_hit, s4_result.egress.bits.hit_way, s4_result.egress.bits.allocation_way)
+    assert(!resolution_slot.ingress.fire(), "l1d_resolution_request_held_on_slow_launch")
+    retained_way <== mux(resolved_hit, resolution_slot.egress.bits.hit_way, resolution_slot.egress.bits.allocation_way)
 
   when local_mutation_capture:
     pending_mutation_valid <== Bool(#true)
@@ -1195,10 +1092,10 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   when miss_capture:
     miss_replied <== Bool(#false)
     miss_active <== Bool(#true)
-    miss_allows_hits <== !s4_prefetch & s4_access.is_load_or_store()
-    miss_allocation <== !s4_hit & !s4_bypass_refill
-    miss_install <== !s4_bypass_refill
-    miss_prefetch <== s4_prefetch
+    miss_allows_hits <== !resolved_prefetch & resolved_access.is_load_or_store()
+    miss_allocation <== !resolved_hit & !resolved_bypass_refill
+    miss_install <== !resolved_bypass_refill
+    miss_prefetch <== resolved_prefetch
   elsewhen complete_refill:
     miss_active <== Bool(#false)
     miss_allows_hits <== Bool(#false)
@@ -1213,7 +1110,7 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   /* Word-at-a-time snoop gathering. The retained read owner selects its
      way from the synchronous response independently of subsequent requests. */
 
-  def gathered_response_words = arrays.data.response.bits.as_bits().as_vec(Bits(beat_width))
+  def gathered_response_words = scheduler.snoop_data.bits
   def word = CacheLineChunk(beat_bytes):
     index: gather_response_index
     data: gathered_response_words[gather_way]
@@ -1236,23 +1133,6 @@ sync_circuit BankedL1DCache(xlen :: XLen,
     snoop_packet_held <== !snoop.packet.ready
 
 
-  /* Copyback gathers one granted packet. Its final SRAM return bypasses the
-     register for the first offer; stalls retain every byte without rereads. */
-
-  copy_response_pending <== copy_read
-  when copy_read:
-    copy_response_offset <== (if rows_per_packet == 1 | Bits(1)(0) | copy_row[0..packet_offset_bits])
-    copy_row <== wrap_increment(copy_row, words_per_line)
-
-  def victim_word = arrays.victim.response.bits.as_bits().as_vec(Bits(beat_width))[copyback_request.bits.way]
-  def victim_packet = for List (row in 0..rows_per_packet):
-    if row == last_row | mux(copy_last_return, victim_word, victim_rows[row]) | victim_rows[row]
-
-  misses.reader.packet.bits <== vec(victim_packet).as_bits()
-
-  when (misses.reader.packet.valid):
-    copy_packet_held <== !misses.reader.packet.ready
-
   /* Capture the requested old row even for bypass or an AMO. Only allocating
      fills take the packet slot; DataID selects the SRAM rows, not arrival order. */
 
@@ -1264,16 +1144,14 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   describe_interface_contract(packet, fill, "install-packet", ~trace_model: interface_trace_retained(~name: "install-packet"))
   def packet_rows = packet.bits.data.as_vec(Bits(beat_width))
   def target_offset = if rows_per_packet == 1 | Bits(1)(0) | refill_word_index[0..packet_offset_bits]
-  when capture_s4:
-    service_row <== mux(capture_first, first_way.mux(for List (w in 0..ways): s1_array_words[w], ~default: Bits(beat_width)(0)), s3_word)
+  when accept_resolution:
+    service_row <== mux(capture_first, first_way.mux(for List (w in 0..ways): spec_array_words[w], ~default: Bits(beat_width)(0)), lookup_word)
   elsewhen (packet.valid & misses.packet_target.ordered & ((refill_word_index >> packet_offset_bits) === packet.bits.index.zext(word_index_width))):
     service_row <== packet_rows[target_offset]
 
   for (row in 0..rows_per_packet):
     when install_packet:
       refill_rows[row] <== packet.bits.data.as_vec(Bits(beat_width))[row]
-    when (copy_response_pending & (copy_response_offset === Bits(index_width(rows_per_packet))(row))):
-      victim_rows[row] <== victim_word
 
   when install_packet:
     packet_ordered <== misses.packet_target.ordered
@@ -1303,7 +1181,7 @@ sync_circuit BankedL1DCache(xlen :: XLen,
       gather_last_issued <== gather_issue_final
 
     when gather_response_pending:
-      assert(arrays.data.response.valid, "l1d_gather_read_response_valid")
+      assert(scheduler.snoop_data.valid, "l1d_gather_read_response_valid")
 
     when (snoop.packet.fire() & gather_response_final):
       snoop_reading <== Bool(#false)
@@ -1314,14 +1192,14 @@ sync_circuit BankedL1DCache(xlen :: XLen,
      bounds probe deferral separately and cannot be renewed by repeated LR. */
 
   def reservation_line_address = reservation_address.align_down(CacheLineBytes).zext(width)
-  def completing_lr = (s4_load_hit & (s4_access === CacheOperation.LoadReserved)) ||| (install_refill & (refill_access === CacheOperation.LoadReserved))
-  def s4_reservation_clear = s4_path.fire() & !local_mutation_capture & (s4_sc ||| ((s4_store ||| s4_zero ||| s4_atomic) & (retained_line_address === reservation_line_address)))
+  def completing_lr = (resolved_load_hit & (resolved_access === CacheOperation.LoadReserved)) ||| (install_refill & (refill_access === CacheOperation.LoadReserved))
+  def resolved_reservation_clear = resolution.fire() & !local_mutation_capture & (resolved_sc ||| ((resolved_store ||| resolved_zero ||| resolved_atomic) & (retained_line_address === reservation_line_address)))
   def mutation_touches_reservation = (pending_mutation_access.is_store() ||| pending_zero ||| pending_mutation_access.is_atomic()) & (retained_line_address === reservation_line_address)
   def mutation_reservation_clear = local_mutation_commit & (pending_mutation_access.is_store_conditional() ||| mutation_touches_reservation)
   def snoop_reservation_clear = snoop.update.valid & (snoop.update.bits.address.align_down(CacheLineBytes) === reservation_line_address.zext(snoop_width))
-  def replacement_reservation_clear = s4_path.fire() & s4_needs_refill & !s4_bypass_refill & !s4_hit & s4_victim_valid & (victim_line_address === reservation_line_address)
+  def replacement_reservation_clear = resolution.fire() & resolved_needs_refill & !resolved_bypass_refill & !resolved_hit & resolved_victim_valid & (victim_line_address === reservation_line_address)
   def buffered_store_reservation_clear = stores.enqueue.fire() & (candidate_line === reservation_line_address[offset_width..store_address_width])
-  def reservation_clear = s4_reservation_clear ||| mutation_reservation_clear ||| snoop_reservation_clear ||| replacement_reservation_clear ||| buffered_store_reservation_clear
+  def reservation_clear = resolved_reservation_clear ||| mutation_reservation_clear ||| snoop_reservation_clear ||| replacement_reservation_clear ||| buffered_store_reservation_clear
   // Reservation lifetime follows accesses and coherence, not the fairness timer.
   // A slow SC may still succeed after probes have been allowed to proceed.
   when completing_lr:
@@ -1341,8 +1219,8 @@ sync_circuit BankedL1DCache(xlen :: XLen,
 
   // A completed probe also gives a waiting local lookup a bounded turn.
   // Otherwise an endless stream of unrelated probes could prevent even the
-  // first LR from reaching S4. Active CHI engines remain independently live.
-  def waiting_lookup = service_requests.egress.valid ||| s3_lookup.egress.valid ||| virtual_lookup.valid
+  // first LR from resolving. Active CHI engines remain independently live.
+  def waiting_lookup = service_requests.egress.valid ||| lookup_slot.egress.valid ||| virtual_lookup.valid
   when (install_refill ||| (snoop.completed & waiting_lookup)):
     core_service_count <== Bits(4)(8)
   elsewhen (core_service_count.any()):
@@ -1357,34 +1235,36 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   def snoop_update_set = snoop.update.bits.address[offset_width..(offset_width + set_width)]
   def snooped_set_valids = valid_lines[snoop_update_set].updated(snoop_way, Bool(#false))
   def snooped_valid_lines = mux(snoop_invalidates, valid_lines.updated(snoop_update_set, snooped_set_valids), valid_lines)
-  def direct_install = head_acquisition.fire() & !s4_dirty_victim & !s4_bypass_refill
-  def direct_way = mux(s4_hit, s4_result.egress.bits.hit_way, s4_result.egress.bits.allocation_way)
+  def direct_install = head_acquisition.fire() & !resolved_dirty_victim & !resolved_bypass_refill
+  def direct_way = mux(resolved_hit, resolution_slot.egress.bits.hit_way, resolution_slot.egress.bits.allocation_way)
   when writeback_complete:
     def set = copyback_request.bits.address[offset_width..(offset_width + set_width)]
     valid_lines <== snooped_valid_lines.updated(set, snooped_valid_lines[set].updated(copyback_request.bits.way, Bool(#false)))
   elsewhen direct_install:
     valid_lines <== snooped_valid_lines.updated(retained_set, snooped_valid_lines[retained_set].updated(direct_way, Bool(#false)))
   elsewhen (younger & !younger_dirty):
-    valid_lines <== snooped_valid_lines.updated(s3_set, snooped_valid_lines[s3_set].updated(s3_allocation_way, Bool(#false)))
+    valid_lines <== snooped_valid_lines.updated(lookup_set, snooped_valid_lines[lookup_set].updated(lookup_allocation_way, Bool(#false)))
   elsewhen snoop_invalidates:
     valid_lines <== snooped_valid_lines
   elsewhen install_line:
     valid_lines <== valid_lines.updated(install_set, valid_lines[install_set].updated(install_way, Bool(#true)))
 
-  def pipeline_replacement_touch = pipeline.request.valid & s1_outcome.is_one_of(CachePipelineOutcome.LoadHit, CachePipelineOutcome.StoreHit)
-  def transaction_replacement_touch = s4_path.fire() & s4_hit
+  def pipeline_replacement_touch = pipeline.request.valid & spec_outcome.is_one_of(CachePipelineOutcome.LoadHit, CachePipelineOutcome.StoreHit)
+  def transaction_replacement_touch = replay_reply ||| (resolution.fire() & resolved_hit)
+  def service_touch_set = mux(replay_reply, lookup_set, retained_set)
+  def service_touch_way = mux(replay_reply, lookup_hit_way.index, resolution_slot.egress.bits.hit_way)
   // Independent grants can finish together. Apply the older install/service
   // first, then the speculative touch; don't lose an update to another set.
   for (s in 0..sets):
     def index = Bits(set_width)(s)
     def installed = install_line & (!completed.context.ordered ||| miss_allocation) & (install_set === index)
-    def serviced = transaction_replacement_touch & (retained_set === index)
-    def touched = pipeline_replacement_touch & (s1_set === index)
+    def serviced = transaction_replacement_touch & (service_touch_set === index)
+    def touched = pipeline_replacement_touch & (spec_phys_set === index)
     def original = replacement_state[s]
     def after_install = mux(installed, plru_touch(ways, original, install_way), original)
-    def after_service = mux(serviced, plru_touch(ways, after_install, s4_result.egress.bits.hit_way), after_install)
+    def after_service = mux(serviced, plru_touch(ways, after_install, service_touch_way), after_install)
     when (installed ||| serviced ||| touched):
-      replacement_state[s] <== mux(touched, plru_touch(ways, after_service, s1_hit_way.index), after_service)
+      replacement_state[s] <== mux(touched, plru_touch(ways, after_service, spec_hit_way.index), after_service)
 
   /* CHI transport and probe admission.
      Arbiter input order defines fixed priority. New probes may be deferred,

@@ -4,6 +4,7 @@ import:
   lib("riscv/isa/xlen.rhm").XLen
   "../../geometry.rhdl".CacheConfig
   "../../banked-l1d/cache.rhdl".BankedL1DCache
+  "../../banked-l1d/scheduler.rhdl".L1DResourceScheduler
   "../../banked-l1d/arrays.rhdl".BankedL1DArrays
   "../params.rhdl" open
   "../../../chi-hart.rhdl" open
@@ -53,14 +54,18 @@ fun site_header(manifest):
     match site.label
     | "test/reply": "constexpr unsigned ReplySite = " ++ to_string(i) ++ ";\n"
     | "dcache/refill.data": "constexpr unsigned FillSite = " ++ to_string(i) ++ ";\n"
-    | "dcache/s4.resolve": "constexpr unsigned ResolveSite = " ++ to_string(i) ++ ";\n"
-    | "dcache/s3.lookup": "constexpr unsigned LookupSite = " ++ to_string(i) ++ ";\n"
+    | "dcache/replay.hit": "constexpr unsigned ReplaySite = " ++ to_string(i) ++ ";\n"
+    | "dcache/service.resolve": "constexpr unsigned ResolveSite = " ++ to_string(i) ++ ";\n"
+    | "dcache/service.lookup": "constexpr unsigned LookupSite = " ++ to_string(i) ++ ";\n"
+    | "dcache/arrays.data": "constexpr unsigned ReadSite = " ++ to_string(i) ++ ";\n"
     | ~else: ""
   String.join(constants, "")
 def target = traced_target(site_header, EventInstrumentationConfig(~partial: #true))
 def rv32 = elaborate(BankedL1DCache(XLen.X32, CacheConfig(2, 1), ~chi: config, ~context: Bits(8), ~beat_bytes: 8))
+def resources = elaborate(L1DResourceScheduler(XLen.X64, CacheConfig(4, 2), 24, 16))
 def state_arrays = elaborate(BankedL1DArrays(XLen.X64, CacheConfig(16, 4), 24, 16))
 export:
+  resources
   state_arrays
   program
   target

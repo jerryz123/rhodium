@@ -35,4 +35,12 @@ request order. A probe that revokes its ownership forces a fresh lookup.
 These are properties of the banked cache, not configuration options on the
 [simple L1D](../l1d/README.md).
 
+Trace names describe actions. `dcache/demand.access` is the speculative hit
+decision. `dcache/service.lookup` is an authorized lookup (or prefetch), and
+an ordinary ordered load hit can return its SRAM data at `dcache/replay.hit`.
+Transactions needing a retained decision go through `dcache/service.resolve`.
+A fresh authorized hit can resolve without a second lookup; an ordered load
+forwarded from the installing row cites `dcache/refill.data` instead. These are not
+consecutive stages that every access traverses.
+
 See the [contributor guide](DEVELOPING.md) for miss ownership and focused fixtures.

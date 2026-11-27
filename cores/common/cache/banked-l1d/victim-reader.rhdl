@@ -1,0 +1,48 @@
+#lang rhodium
+/* Gathers granted victim rows into stable CHI copyback packets for the selected MSHR. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "mshrs.rhdl".L1DVictimReader
+  "../geometry.rhdl".cache_line_rows
+  lib("rhodium/std/bits.rhdl") open
+  lib("flow/main.rhdl") open
+
+/* The MSHR keeps the line and way stable through release. Advance the cursor
+   only on a physical read grant; a stalled packet holds bytes, not a bank. */
+sync_circuit L1DVictimGather(width :: PosInt, ways :: PosInt, row_bytes :: Pow2Int, packet_bytes :: Pow2Int):
+  def rows = cache_line_rows(row_bytes)
+  def packets = cache_line_rows(packet_bytes)
+  def per_packet = packet_bytes / row_bytes
+  def offset_bits = alignment_bits(per_packet)
+  def Word = Bits(row_bytes * 8)
+  interface owner(L1DVictimReader(width, ways, packet_bytes), ~role: reader)
+  interface read(Decoupled(Bits(index_width(rows))), ~role: producer)
+  interface returned(Valid(Vec(ways, Word)), ~role: consumer)
+
+  reg cursor(~init: Bits(index_width(rows))(0))
+  reg pending(~init: Bool(#false))
+  reg offset(Bits(index_width(per_packet)))
+  reg held(~init: Bool(#false))
+  reg words(Vec(per_packet, Word))
+  def last = per_packet - 1
+  def arriving = pending & (offset === Bits(index_width(per_packet))(last))
+  def word = returned.bits[owner.request.bits.way]
+  def remaining = owner.request.bits.index =/= Bits(index_width(packets))(packets - 1)
+  owner.packet.valid <== held ||| arriving
+  owner.packet.bits <== vec(for List (i in 0..per_packet): if i == last | mux(arriving, word, words[i]) | words[i]).as_bits()
+
+  read.valid <== owner.request.valid & !owner.request.bits.release & (!(held ||| arriving) ||| (owner.packet.fire() & remaining))
+  read.bits <== cursor
+  def granted = read.fire()
+  pending <== granted
+  when granted:
+    offset <== (if per_packet == 1 | Bits(1)(0) | cursor[0..offset_bits])
+    cursor <== wrap_increment(cursor, rows)
+  when pending:
+    assert(returned.valid, "l1d_copyback_read_has_return")
+    words[offset] <== word
+  when (owner.packet.valid):
+    held <== !owner.packet.ready
+
+export L1DVictimGather

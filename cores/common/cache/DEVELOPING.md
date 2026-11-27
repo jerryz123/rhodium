@@ -25,7 +25,7 @@ vector slots, trap causes, or core/PTW routing decisions into cache state.
 | `prefetch.rhdl` | Aligned whole-line PMA/PBMT classification and the one-cycle register for admitted physical hints |
 | `operation.rhdl`, `protocol.rhdl` | Physical operations, fixed-cycle lookup, authorization, completion |
 | `l1d/cache.rhdl` | SRAM scheduling, set-isolated hit-under-miss, retained service, coherence, LR/SC |
-| `banked-l1d/cache.rhdl`, `banked-l1d/arrays.rhdl` | RV3Wide demand and service scheduling, row-bank arbitration and return routing; see the [banked L1D](banked-l1d/README.md) |
+| [Banked L1D](banked-l1d/DEVELOPING.md) | RV3Wide transaction owners, bank/resource scheduling, and SRAM return routing |
 | `l1i/cache.rhdl`, `l1i/protocol.rhdl` | Width-selected instruction-block lookup, snapshot residency, replay, invalidation |
 | `chi/line-read.rhdl` | Ownership-free coherent RAM and immutable ROM snapshots with opaque context |
 | `l1d/arrays.rhdl`, `l1d/store-buffer.rhdl` | Synchronous storage and committed byte hazards |
