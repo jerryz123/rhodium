@@ -10,6 +10,7 @@ import:
   lib("rhodium/std/bits.rhdl") open
   lib("rhodium/std/interconnect.rhdl").transfer_in_range
   lib("flow/main.rhdl") open
+  "trace.rhdl" open
   lib("chi/protocol/params.rhdl") open
   lib("chi/protocol/flits.rhdl") open
   lib("chi/protocol/protocol.rhdl") open
@@ -270,11 +271,12 @@ circuit CHIRamCompletionRouter(p :: CHIFlitParams,
   /* Write RSP completion: intermediate backend packets drain without RSP;
      the last packet retains its slot until the final response transfers. */
 
-  def write = write_completion.bits
-  def write_operation = write.memory_operation
-  write_completion.ready <== !write_operation.last ||| write_response.ready
-  write_response.valid <== write_completion.valid & write_operation.last
-  write_response.bits <== chi_sn_write_completion(p, node_id, write_operation.request, write_operation.slot)
+  def Array(intermediate, final) = write_completion |> demux_flow(2, ~stable: #true, beat => beat.memory_operation.last)
+  intermediate.ready <== Bool(#true)
+  (final |> map_flow(~stable: #true, beat):
+     def operation = beat.memory_operation
+     chi_sn_write_completion(p, node_id, operation.request, operation.slot)
+  ) |> write_response
   for (completion in [read_completion, write_completion], released in [read_completed, write_completed]):
     observe_transfer(completion)
       |> filter_valid(beat => beat.memory_operation.last)
@@ -290,7 +292,8 @@ circuit CHIRamCompletionRouter(p :: CHIFlitParams,
 fun build_chi_ram_controller(config :: CHIRamConfig,
                              identity :: CHIRamIdentity(config.flit),
                              port :: Endpoint.of(CHISNChannels(config.flit)),
-                             backend :: Function.of_arity(0)):
+                             backend :: Function.of_arity(0),
+                             ~trace: trace :: maybe(String) = #false):
   def p = config.flit
   def limit = config.max_outstanding
   def slot_width = index_width(limit)
@@ -309,14 +312,15 @@ fun build_chi_ram_controller(config :: CHIRamConfig,
   inst completion_router(CHIRamCompletionRouter(p, slot_width))
   completion_router.node_id <== identity.node_id
   inst response_arbiter(RRArbiter(CHIRspFlit(p), 2))
-  inst transaction_slots(CHISNTransactionSlots(p, limit))
+  inst transaction_slots(CHISNTransactionSlots(p, limit, ~trace: trace))
 
 
   /* Supported REQ admission and slot allocation.
      Reads retain a packet-expansion owner; writes retain their request in
      transaction_slots until associated DAT and final RSP complete. */
 
-  def supported_requests = port.req |> filter_flow(request):
+  def requests = if trace | port.req |> ram_request_event(p, trace ++ ".req") | port.req
+  def supported_requests = requests |> filter_flow(request):
     def request_opcode :: CHIReqOpcode = request.opcode
     request_opcode.supports_initial_transaction()
 
@@ -408,16 +412,20 @@ fun build_chi_ram_controller(config :: CHIRamConfig,
      DBID and final write Comp share RSP; reads use DAT independently.
      Transaction retirement follows the corresponding final output transfer. */
 
-  def dbid_response_paths = dbid_responses.egress |> atomic_fork(2)
-  dbid_response_paths[0] <=> response_arbiter.ingress[0]
-  transaction_slots.dbid_sent <=> (
-    dbid_response_paths[1] |> to_valid() |> map_valid(response):
-      response.dbid_or_group_id[0..slot_width]
-  )
+  dbid_responses.egress |> response_arbiter.ingress[0]
+  completion_router.write_response |> response_arbiter.ingress[1]
+  def responses = if trace | response_arbiter.egress |> ram_response_event(p, trace ++ ".rsp") | response_arbiter.egress
+  responses |> port.rsp
+  // Both endpoints transfer on the same DBID handshake. Without an RSP
+  // checkpoint, retain the DBID queue's ancestry before Comp joins the channel.
+  def dbid_source = if trace | responses | dbid_responses.egress
+  observe_transfer(dbid_source)
+    |> filter_valid(response => response.opcode === CHIRspOpcode.DBIDResp)
+    |> map_valid(response => response.dbid_or_group_id[0..slot_width])
+    |> transaction_slots.dbid_sent
 
-  completion_router.write_response <=> response_arbiter.ingress[1]
-  response_arbiter.egress <=> port.rsp
-  completion_router.read_response <=> port.dat.response
+  def read_data = if trace | completion_router.read_response |> ram_data_event(p, trace ++ ".txdat") | completion_router.read_response
+  read_data |> port.dat.response
   completion_router.read_completed <=> transaction_slots.read_completed
   completion_router.write_completed <=> transaction_slots.write_completed
 

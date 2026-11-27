@@ -9,8 +9,8 @@ import:
   lib("socs/one-hart/system.rhdl").SingleCoreSoCParams
   lib("devices/uart/uart-dpi.rhdl").UartDPI
   "fesvr/direct-memory-htif.rhdl".FesvrRequester
-  lib("flow/event.rhdl") open
 
+/* Connect the configured SoC to its host services and traced external memory. */
 sync_circuit SoCHarness(params :: SingleCoreSoCParams,
                         soc_module :: CircuitDefinition,
                         uart_oversample_divisor :: Int.in(1 ..= 0xffff) = 1):
@@ -20,43 +20,12 @@ sync_circuit SoCHarness(params :: SingleCoreSoCParams,
   inst requester(FesvrRequester(params.hart_description.xlen, fabric.flit, fabric.host_node, fabric.home_map, fabric.hart_config.physical_map, fabric.host_services, fabric.boot.boot_address_register))
   inst soc(soc_module)
   inst uart(UartDPI(0, uart_oversample_divisor))
-  inst memory(CHIDPIMemory(CHIRamConfig(fabric.flit, fabric.memory_bytes, ~max_outstanding: fabric.memory_port.max_outstanding, ~max_transfer_bytes: 64), 0))
+  inst memory(CHIDPIMemory(CHIRamConfig(fabric.flit, fabric.memory_bytes, ~max_outstanding: fabric.memory_port.max_outstanding, ~max_transfer_bytes: 64), 0, ~trace: "memory/chi"))
 
   requester.port <=> soc.host.memory
   uart.uart_tx <== soc.uart.tx
   soc.uart.rx <== uart.uart_rx
-  def requests = soc.memory.req |> trace_event("memory/chi.req", ~fields: flit):
-    address: flit.address
-    opcode(~format: "enum", ~label: #true): flit.opcode
-    txn_id(~format: "unsigned"): flit.txn_id
-    src_id(~format: "unsigned"): flit.src_id
-    tgt_id(~format: "unsigned"): flit.tgt_id
-    size_or_num_req(~format: "unsigned"): flit.size_or_num_req
-
-  requests |> memory.port.req
-  def responses = memory.port.rsp |> trace_event("memory/chi.rsp", ~fields: flit):
-    opcode(~format: "enum", ~label: #true): flit.opcode
-    txn_id(~format: "unsigned"): flit.txn_id
-    src_id(~format: "unsigned"): flit.src_id
-    tgt_id(~format: "unsigned"): flit.tgt_id
-    dbid_or_group_id(~format: "unsigned"): flit.dbid_or_group_id
-    resp(~format: "unsigned"): flit.resp
-    resp_err(~format: "unsigned"): flit.resp_err
-
-  responses |> soc.memory.rsp
-  for (source in [soc.memory.dat.request, memory.port.dat.response], sink in [memory.port.dat.request, soc.memory.dat.response], label in ["memory/chi.rxdat", "memory/chi.txdat"]):
-    def data = source |> trace_event(label, ~fields: flit):
-      opcode(~format: "enum", ~label: #true): flit.opcode
-      txn_id(~format: "unsigned"): flit.txn_id
-      src_id(~format: "unsigned"): flit.src_id
-      tgt_id(~format: "unsigned"): flit.tgt_id
-      dbid_or_mecid(~format: "unsigned"): flit.dbid_or_mecid
-      data_id(~format: "unsigned"): flit.data_id
-      resp(~format: "unsigned"): flit.resp
-      resp_err(~format: "unsigned"): flit.resp_err
-      byte_enable: flit.byte_enable
-
-    data |> sink
+  soc.memory <=> memory.port
 
   memory.identity <== CHIRamIdentity(fabric.flit):
     node_id: Bits(fabric.flit.node_id_width)(fabric.memory_port.node_id)

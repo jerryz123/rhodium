@@ -12,7 +12,7 @@ import:
   lib("chi/protocol/channels.rhdl").CHISNChannels
 
 /* Back the shared CHI memory controller with a lane-masked synchronous single-port SRAM. */
-sync_circuit CHIRam(config :: CHIRamConfig):
+sync_circuit CHIRam(config :: CHIRamConfig, ~trace: trace :: maybe(String) = #false):
   def p = config.flit
   def limit = config.max_outstanding
   def slot_width = index_width(limit)
@@ -54,7 +54,7 @@ sync_circuit CHIRam(config :: CHIRamConfig):
 
     connect
 
-  build_chi_ram_controller(config, identity, port, backend)
+  build_chi_ram_controller(config, identity, port, backend, ~trace: trace)
 
 export:
   CHIRam

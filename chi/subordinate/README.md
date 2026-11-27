@@ -27,6 +27,16 @@ different storage backends. Their configuration supports native transfers
 from one physical DAT beat through 64 bytes; a narrower service can use the
 [transfer fragmenter](../adapters/README.md).
 
+### Memory transfer tracing
+
+Pass `~trace: "memory/chi"` to `CHIRam` or `CHIDPIMemory` to observe the
+accepted REQ, RSP, incoming DAT and outgoing DAT on `.req`, `.rsp`, `.rxdat`
+and `.txdat`. The DBID response inherits the write request. Each write DAT joins
+its sender's lineage with the DBID response accepted for that slot. A DAT
+credit return keeps only its sender's lineage. Comp
+inherits every DAT occurrence for that write, including when packets from
+several transactions interleave. A stalled response emits on transfer.
+
 ## Single-beat device contract
 
 `CHISingleBeatSubordinate(p, label)` supplies one-outstanding, single-beat

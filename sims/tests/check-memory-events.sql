@@ -20,7 +20,7 @@ SELECT
   (SELECT count(*) BETWEEN 2 AND 4 AND count(*)=count(DISTINCT name) FROM channels) AND
   (SELECT count(*)=(SELECT count(*) FROM channels) FROM channels c JOIN expected e USING(name)
     WHERE json_extract(c.schema,'$.kind')='transfer'
-      AND json_extract(c.schema,'$.site_id') GLOB 'SoCHarness/event:*'
+      AND json_extract(c.schema,'$.site_id') GLOB 'SoCHarness/memory/*event:*'
       AND (SELECT group_concat(json_extract(f.value,'$.name')) FROM json_each(c.schema,'$.fields') f)=e.fields) AND
   (SELECT count(*)>0 FROM events WHERE channel='memory/chi.req') AND
   (SELECT count(*)>0 FROM events WHERE channel='memory/chi.txdat') AND
@@ -49,9 +49,27 @@ SELECT
   -- Every Home-originated transfer retains its causing transaction, including
   -- host-originated transactions whose own earlier ancestry can be unknown.
   (SELECT count(*)=0 FROM events e WHERE channel IN ('memory/chi.req','memory/chi.rxdat') AND
-    ((SELECT count(*) FROM flow WHERE slice_in=e.id)!=1 OR
+    ((SELECT count(*) FROM flow WHERE slice_in=e.id)!=CASE e.channel WHEN 'memory/chi.rxdat' THEN 2 ELSE 1 END OR
      COALESCE(EXTRACT_ARG(e.arg_set_id,'debug.ancestry_unknown'),'false')!='false' OR
      NOT EXISTS (SELECT 1 FROM flow f JOIN slice p ON p.id=f.slice_out JOIN rheg_tracks t ON t.id=p.track_id
        WHERE f.slice_in=e.id AND t.name GLOB 'home/transaction*' AND p.ts<=e.ts))) AND
+  -- Each DBID grant belongs to the accepted request from the original source.
+  (SELECT count(*)=0 FROM events r WHERE r.channel='memory/chi.rsp' AND r.name='DBIDResp' AND
+    ((SELECT count(*) FROM flow WHERE slice_in=r.id)!=1 OR NOT EXISTS (
+      SELECT 1 FROM flow f JOIN events q ON q.id=f.slice_out
+      WHERE f.slice_in=r.id AND q.channel='memory/chi.req' AND q.ts<r.ts
+        AND EXTRACT_ARG(q.arg_set_id,'debug.src_id')=EXTRACT_ARG(r.arg_set_id,'debug.tgt_id')
+        AND EXTRACT_ARG(q.arg_set_id,'debug.txn_id')=EXTRACT_ARG(r.arg_set_id,'debug.txn_id')))) AND
+  -- The other write-DAT parent is the transferred DBID grant for its slot.
+  (SELECT count(*)=0 FROM events d WHERE d.channel='memory/chi.rxdat' AND NOT EXISTS (
+    SELECT 1 FROM flow f JOIN events r ON r.id=f.slice_out
+    WHERE f.slice_in=d.id AND r.channel='memory/chi.rsp' AND r.name='DBIDResp' AND r.ts<d.ts
+      AND EXTRACT_ARG(r.arg_set_id,'debug.dbid_or_group_id')=EXTRACT_ARG(d.arg_set_id,'debug.txn_id'))) AND
+  -- A Comp inherits only packets matched to its DBID, including the final DAT.
+  (SELECT count(*)=0 FROM events c WHERE c.channel='memory/chi.rsp' AND c.name='Comp' AND
+    ((SELECT count(*) FROM flow WHERE slice_in=c.id) NOT BETWEEN 1 AND 4 OR
+     EXISTS (SELECT 1 FROM flow f LEFT JOIN events d ON d.id=f.slice_out
+       WHERE f.slice_in=c.id AND (d.channel IS NOT 'memory/chi.rxdat' OR d.ts>=c.ts OR
+         EXTRACT_ARG(c.arg_set_id,'debug.dbid_or_group_id')!=EXTRACT_ARG(d.arg_set_id,'debug.txn_id'))))) AND
   (SELECT count(*)=0 FROM events e WHERE NOT EXISTS (SELECT 1 FROM flow WHERE slice_in=e.id)
     AND COALESCE(EXTRACT_ARG(e.arg_set_id,'debug.ancestry_unknown'),'false')!='true') AS ok

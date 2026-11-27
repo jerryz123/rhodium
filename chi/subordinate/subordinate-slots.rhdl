@@ -5,6 +5,7 @@
 import:
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
+  "trace.rhdl".ram_data_event
   lib("rhodium/std/scoreboard.rhdl").Scoreboard
   lib("chi/protocol/params.rhdl").CHIFlitParams
   lib("chi/protocol/flits.rhdl") open
@@ -32,7 +33,7 @@ bundle CHISNMatchedWrite(p :: CHIFlitParams, slot_width :: PosInt):
  * Track outstanding requests, match write packets by DBID, and release read and write slots
  * independently.
  */
-sync_circuit CHISNTransactionSlots(p :: CHIFlitParams, limit :: PosInt):
+sync_circuit CHISNTransactionSlots(p :: CHIFlitParams, limit :: PosInt, ~trace: trace :: maybe(String) = #false):
   def slot_width = index_width(limit)
 
   // Allocation and matched DAT can wait for acceptance. The DBID and two
@@ -79,15 +80,59 @@ sync_circuit CHISNTransactionSlots(p :: CHIFlitParams, limit :: PosInt):
     awaiting_write_data_slots[data_slot]
   ) & (incoming_data.src_id === selected_request.src_id) & receipt.pending(incoming_data.data_id)
 
-  (
-    write_data
-      |> filter_flow(_data => ordinary_data & data_match)
-      |> map_flow(data => CHISNMatchedWrite(p, slot_width)):
-          slot: data_slot
-          request: selected_request
-          data: data
-          last: final_data
-  ) |> matched_write
+  // The lookup and the incoming flit form one offer. A DBID owns the saved
+  // request from its RSP handshake until its last matched DAT transfers.
+  wire lookup_ready: Bool
+  def lookup = inject_interface(Decoupled(CHIReqFlit(p)), ~valid: Bool(#true), ~bits: selected_request, ~ready: lookup_ready)
+  def slots = 0..limit
+  def selected = for List (i in slots): data_slot === Bits(slot_width)(i)
+  def owns_data = ordinary_data & data_match
+  def Array(unowned, owned) = write_data |> demux_flow(2, _flit => owns_data)
+  /* Carry the matched context through the checkpoint to backend admission. */
+  fun packet(data :: CHIDatFlit(p), request :: CHIReqFlit(p)) :~ CHISNMatchedWrite(p, slot_width):
+    CHISNMatchedWrite(p, slot_width):
+      slot: data_slot
+      request: request
+      data: data
+      last: final_data
+  def matched = Array(owned, lookup) |> zip_flow(data, request): packet(data, request)
+  def bypass = unowned |> map_flow(data => packet(data, selected_request))
+  def grants = vec([!owns_data, owns_data]).into(MaybeOneHot(2))
+  def associated = grant_merge(grants, Array(bypass, matched))
+  def observed = if trace
+  | associated |> ram_data_event(p, trace ++ ".rxdat", fun (beat :: CHISNMatchedWrite(p, slot_width)): beat.data)
+  | associated
+  def packets = observed |> filter_flow(_packet => owns_data)
+  packets |> eject_interface(~valid: matched_write.valid, ~bits: matched_write.bits, ~ready: matched_write.ready)
+
+  describe_interface_retained_bank(
+    for List (i in slots): dbid_sent.valid & (dbid_sent.bits === Bits(slot_width)(i)),
+    for List (i in slots): matched_write.fire() & matched_write.bits.last & selected[i],
+    for List (i in slots): awaiting_write_data_slots[i],
+    ~grants: [for List (i in slots): ordinary_data & data_match & selected[i]],
+    ~name: "dbid"
+  )
+  describe_interface_contract(dbid_sent, lookup, "dbid-lookup", ~trace_model: interface_trace_retained_bank(~name: "dbid"))
+
+  // Each receipt mask describes one independent window. Earlier DATs enter
+  // on acceptance; only the final packet uses all saved receipts and itself.
+  // These views describe the slot-indexed receipt lookup without a payload mux.
+  def arrivals = observe_transfer(packets) |> fork_valid(limit)
+  def histories = for Array (i in slots):
+    def name = "write-receipts-" ++ to_string(i)
+    def live = awaiting_write_data_slots[i]
+    def count = mux(live, popcount(received_write_data_ids[i].as_bits()), Bits(3)(0))
+    def fire = arrivals[i].valid & selected[i]
+    def history = inject_interface(Valid(Bool), ~valid: fire, ~bits: final_data)
+    describe_interface_window_storage(
+      4, fire & !final_data, mux(fire & final_data, count, Bits(3)(0)), count, Bool(#false),
+      for List (j in 0..4): final_data & (Bits(3)(j) < count),
+      ~live: Bool(#true), ~name: name
+    )
+    describe_interface_contract(arrivals[i], history, name, ~trace_model: interface_trace_window(~name: name))
+    history
+  describe_interface_selection(selected, ~name: "write-slot")
+  describe_interface_contract(histories, matched_write, "write-slot", ~trace_model: interface_trace_selection(~name: "write-slot"))
 
   when (write_data.valid & ordinary_data):
     assert(data_match,

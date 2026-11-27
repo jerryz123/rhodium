@@ -527,10 +527,11 @@ to memory, not the core. Slice names are decoded CHI opcodes; named captures
 retain transaction/routing metadata without dumping complete data payloads.
 These are transfer observations, not additional pipeline stages or transaction
 residencies. Requests and incoming write data inherit the Home transaction that
-caused them, including buffered victim writebacks. The memory controller's DBID
-response path preserves request ancestry, but unmodeled completion paths still
-report unknown ancestry. Incoming memory data is not yet a parent of the Home's
-requester response; those responses inherit retained request ownership instead.
+caused them, including buffered victim writebacks. Each DBID response inherits
+its write request. Each write DAT also inherits its slot's DBID response, and
+the final Comp inherits every accepted DAT beat of that write. Each returned
+read DAT inherits its read request. Home requester responses inherit the
+retained Home transaction.
 
 The host access engine retains each accepted FESVR command as the owner of all
 generated CHI request fragments and write-data transfers until the final host

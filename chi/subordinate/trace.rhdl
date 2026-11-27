@@ -1,0 +1,50 @@
+#lang rhodium
+/* Defines the transfer capture schemas shared by the CHI memory backends. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("flow/event.rhdl") open
+  lib("chi/protocol/params.rhdl").CHIFlitParams
+  lib("chi/protocol/flits.rhdl") open
+
+/* Capture the address and routing identity of a transferred memory request. */
+fun ram_request_event(p :: CHIFlitParams, label :: String):
+  def capture = fun (_type, bits):
+    def flit :: CHIReqFlit(p) = bits
+    [event_field("address", flit.address),
+     event_field("opcode", flit.opcode, ~format: "enum", ~label: #true),
+     event_field("txn_id", flit.txn_id, ~format: "unsigned"),
+     event_field("src_id", flit.src_id, ~format: "unsigned"),
+     event_field("tgt_id", flit.tgt_id, ~format: "unsigned"),
+     event_field("size_or_num_req", flit.size_or_num_req, ~format: "unsigned")]
+  trace_event(label, ~capture: capture)
+
+/* Identify both the CHI transaction and its DBID on the shared RSP channel. */
+fun ram_response_event(p :: CHIFlitParams, label :: String):
+  def capture = fun (_type, bits):
+    def flit :: CHIRspFlit(p) = bits
+    [event_field("opcode", flit.opcode, ~format: "enum", ~label: #true),
+     event_field("txn_id", flit.txn_id, ~format: "unsigned"),
+     event_field("src_id", flit.src_id, ~format: "unsigned"),
+     event_field("tgt_id", flit.tgt_id, ~format: "unsigned"),
+     event_field("dbid_or_group_id", flit.dbid_or_group_id, ~format: "unsigned"),
+     event_field("resp", flit.resp, ~format: "unsigned"),
+     event_field("resp_err", flit.resp_err, ~format: "unsigned")]
+  trace_event(label, ~capture: capture)
+
+/* Apply the same DAT schema to a flit on the wire or in a matched write packet. */
+fun ram_data_event(p :: CHIFlitParams, label :: String, flit_of :: Function = values):
+  def capture = fun (_type, bits):
+    def flit :: CHIDatFlit(p) = flit_of(bits)
+    [event_field("opcode", flit.opcode, ~format: "enum", ~label: #true),
+     event_field("txn_id", flit.txn_id, ~format: "unsigned"),
+     event_field("src_id", flit.src_id, ~format: "unsigned"),
+     event_field("tgt_id", flit.tgt_id, ~format: "unsigned"),
+     event_field("dbid_or_mecid", flit.dbid_or_mecid, ~format: "unsigned"),
+     event_field("data_id", flit.data_id, ~format: "unsigned"),
+     event_field("resp", flit.resp, ~format: "unsigned"),
+     event_field("resp_err", flit.resp_err, ~format: "unsigned"),
+     event_field("byte_enable", flit.byte_enable)]
+  trace_event(label, ~capture: capture)
+
+export ram_request_event ram_response_event ram_data_event

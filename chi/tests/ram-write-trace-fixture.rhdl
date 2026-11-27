@@ -1,0 +1,29 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("flow/main.rhdl") open
+  lib("chi/protocol/params.rhdl").CHIFlitParams
+  lib("chi/protocol/channels.rhdl").CHISNChannels
+  "../subordinate/memory-controller.rhdl" open
+  "../subordinate/ram.rhdl".CHIRam
+  lib("rhodium/event/tests/rsim/trace-sites.rhm") open
+
+sync_circuit RamWriteTrace():
+  def p = CHIFlitParams()
+  inst ram(CHIRam(CHIRamConfig(p, 128, ~max_outstanding: 2, ~max_transfer_bytes: 64), ~trace: "memory/chi"))
+  interface port(CHISNChannels(p), ~role: node)
+  ram.identity <== CHIRamIdentity(p):
+    node_id: Bits(p.node_id_width)(9)
+    base_address: Bits(p.request_address_width)(0)
+  port.req |> ram.port.req
+  port.dat.request |> trace_event("sender") |> ram.port.dat.request
+  ram.port.dat.response |> port.dat.response
+  ram.port.rsp |> port.rsp
+
+def program = elaborate(RamWriteTrace())
+fun site_header(manifest):
+  def constants = for List (site in manifest.sites, index in 0..manifest.sites.length()):
+    "constexpr unsigned site_" ++ site.label.replace("memory/chi.", "") ++ " = " ++ to_string(index) ++ ";\n"
+  String.join(constants, "")
+def target = traced_target(site_header)
+export program target

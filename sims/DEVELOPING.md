@@ -405,12 +405,10 @@ disassembly separately from the mnemonic. Generic display/schema rules belong
 to [RHEG](../rheg/DEVELOPING.md#perfetto-encoding), not this adapter.
 `tests/check-memory-events.sql` checks one transfer site per external-memory
 channel, named metadata captures, opcode slice names, and memory-relative DAT
-direction. Idle RSP/RXDAT channels need not appear. The harness emits no duplicate
-wire-end checkpoints and no raw data payloads. Missing ancestry remains explicit;
-do not match reused CHI IDs in the exporter to synthesize request/response edges.
-Every memory REQ and incoming write DAT must have one Home-transaction parent,
-including traffic from a host-originated Home transaction. The Home checkpoint
-is known even when its own earlier ancestry is unknown.
+direction. The harness enables the shared RAM controller's checkpoints with
+`~trace: "memory/chi"`. A memory REQ retains its Home-transaction parent.
+An incoming write DAT also inherits the accepted DBID response for its slot.
+The final Comp inherits the individual DAT occurrences that filled the slot.
 The D-cache stage checks in `tests/check-demand-events.sql` follow scalar EX
 into shared S1 resolution one cycle later, then the returned cache occurrence
 into WB alongside its independent MEM parent. The caller-owned

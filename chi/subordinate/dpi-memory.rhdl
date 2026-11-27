@@ -33,7 +33,7 @@ dpi_import function rhodium_chi_memory_access(
  * Back the shared CHI memory controller with a sparse host memory model through the
  * fixed-width DPI ABI.
  */
-sync_circuit CHIDPIMemory(config :: CHIRamConfig, model_id :: Nat):
+sync_circuit CHIDPIMemory(config :: CHIRamConfig, model_id :: Nat, ~trace: trace :: maybe(String) = #false):
   unless model_id < (1 << 32) && config.size_bytes < (1 << 64)
   | error(~who: #'CHIDPIMemory, "model identity and capacity must fit the DPI ABI")
 
@@ -90,7 +90,7 @@ sync_circuit CHIDPIMemory(config :: CHIRamConfig, model_id :: Nat):
 
     connect
 
-  build_chi_ram_controller(config, identity, port, backend)
+  build_chi_ram_controller(config, identity, port, backend, ~trace: trace)
 
 export:
   CHIDPIMemory

@@ -21,6 +21,7 @@ hierarchy or per-directory facade.
 | [`subordinate-slots.rhdl`](subordinate-slots.rhdl) | Transaction occupancy, DBID association, and packet receipt |
 | [`memory-controller.rhdl`](memory-controller.rhdl) | Shared configuration, native multibeat scheduling, and request checks |
 | [`ram.rhdl`](ram.rhdl) | `SyncRam1RW` backend |
+| [`trace.rhdl`](trace.rhdl) | Shared memory REQ, RSP, and DAT capture schemas |
 | [`dpi-memory.rhdl`](dpi-memory.rhdl), [`dpi/chi_memory.cc`](dpi/chi_memory.cc) | DPI bridge and bounded sparse native byte store |
 | [`single-beat-subordinate.rhdl`](single-beat-subordinate.rhdl) | Common one-outstanding MMIO phases and responses |
 
@@ -67,6 +68,10 @@ simultaneous read and write retirements. Storage and DPI policy remain
 backend-owned. The read expander captures lineage when it accepts an allocation
 and releases it when the final DataID enters the operation queue. Each queued
 beat then carries its own copy through backend issue, completion, and DAT stalls.
+For writes, sample the arbitrated RSP transfer to mark the DBID visible. The
+slot's awaiting-DAT bit defines that grant's lifetime. Its receipt mask counts
+earlier packets until acceptance of the last expected DataID. The operation
+queue then owns the complete parent set through backend issue and RSP stalls.
 Static configuration checks run in the shared constructors; request alignment,
 range, mask, and poison assertions remain runtime controller checks. Do not
 repeat constructor invariants in either concrete memory circuit.
@@ -108,7 +113,8 @@ behavioral benches in [`../tests/circt/`](../tests/circt/).
   `chi-ram` including simultaneous allocation/DAT, incomplete reset, and the
   expected invalid-request assertion, native DPI memory, and Mini/Single SoC smoke.
   Run `chi-ram-read-trace` for per-beat request ancestry across stalled DAT and
-  two outstanding reads.
+  two outstanding reads. Run `chi-ram-write-trace` for interleaved DAT, stalled
+  DBID and Comp responses, and slot reuse.
   Test public behavior, not incidental hierarchy or instance counts.
 - Range handling: RAM and BootROM top-of-address-space windows, plus the
   standard-library `transfer-range` arithmetic fixture.
