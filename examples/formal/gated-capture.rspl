@@ -81,8 +81,8 @@ def previous_zero_view:
   ArbitratedCapture(~transaction_view: #true)
 export previous_zero_monitor previous_zero_view
 
-/* Use the same one-bit monitor and history projection with two public transaction contracts. */
-fun zero_from_grants(producer :: Function):
+/* Bind the one-bit projection to the producer's grant contract and the gate's public word. */
+fun zero_capture_spec(producer :: Function):
   spec for rtl.ArbitratedCapture:
     transactions previous_zero_monitor
     refinement:
@@ -90,9 +90,13 @@ fun zero_from_grants(producer :: Function):
       child gate: GatedCapture
       history word from gate.previous: Bits(2)
       relate previous_was_zero = bits_equal(word, const(Bits(2), 0))
-  ArbitratedCapture(~transaction_view: #true)
-def transaction_zero_view = zero_from_grants(grants.Arbiter)
-export transaction_zero_view zero_from_grants
+  ArbitratedCapture
+def arbitrated_capture_zero = zero_capture_spec(grants.Arbiter)
+def transaction_zero_view = arbitrated_capture_zero(~transaction_view: #true)
+/* Select the same view for low-level induction with an explicitly supplied producer contract. */
+fun zero_from_grants(producer :: Function):
+  zero_capture_spec(producer)(~transaction_view: #true)
+export arbitrated_capture_zero transaction_zero_view zero_from_grants
 
 /* At the outer boundary the gate's zero bit is sufficient; no full-word history is available. */
 def zero_from_bit_view:

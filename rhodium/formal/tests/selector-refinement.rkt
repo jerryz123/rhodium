@@ -10,7 +10,7 @@
          (only-in "../../../examples/formal/arbiter.rspl" Arbiter)
          (only-in "../../../examples/formal/granted-selector.rspl" RegisteredLaneSelector)
          (only-in "../../../examples/formal/gated-capture.rspl" GatedCapture ArbitratedCapture previous_zero_view
-                  transaction_zero_view zero_from_grants zero_gate zero_from_bit_view)
+                  arbitrated_capture_zero transaction_zero_view zero_from_grants zero_gate zero_from_bit_view)
          (prefix-in faulty: "capture-derivation.rspl"))
 
 (define (view pins _) (values (hash "selected" (observation #t (hash-ref pins "selected"))) (hash)))
@@ -340,6 +340,7 @@
   (prove-transaction top view (hash "gate" gate-contract "arb" grants)))
 
 (test-case "two transaction contracts alone prove the unchanged one-bit observer"
+  (check-zero-contract (prove-design arbitrated_capture arbitrated_capture_zero) transaction_zero_view)
   (check-zero-contract (prove-from-grants arbitrated_capture transaction_zero_view strong-grants) transaction_zero_view))
 
 (test-case "an exclusive but otherwise unconstrained producer admits the gate but cannot prove winner readback"
@@ -384,7 +385,10 @@
 
 (test-case "inverting the one-bit relation fails reset after the gate premise has been discharged"
   (check-exn #rx"reset/initial not proved"
-             (lambda () (prove-zero arbitrated_capture faulty:inverted_zero_view (hash "arb" verified-arbiter)))))
+             (lambda () (prove-design arbitrated_capture faulty:inverted_capture_zero)))
+  (check-exn #rx"reset/initial not proved"
+             (lambda () (prove-from-grants arbitrated_capture
+                          (faulty:inverted_capture_zero #:transaction_view #t) strong-grants))))
 
 (define (check-raw-discharge prove!)
   (define failure (with-handlers ([exn:fail:input-contract? values]) (prove!)))

@@ -85,7 +85,9 @@ treat a matching batch schema as proof that two monitors agree.
    that premise on the gated enables and retains the wrapper's own
    `capture_exclusive`. The [ArbitratedCapture proof](../../examples/formal/prove-arbitrated-capture.rhm)
    discharges that premise on the gate's RTL pins with the Arbiter grant contract;
-   the outer capture contract has no input premise. Keep the handwritten harnesses as
+   the outer capture contract has no input premise. The same runner separately
+   proves the one-bit zero/nonzero readback monitor from those two child contracts.
+   Keep the handwritten harnesses as
    differential oracles. For parents, drive the
    existing generic obligations from the spec's declared child views and
    supplier roles. [LoggedTwoTagROB](../../examples/formal/prove-logged-two-tag-rob.rhm)

@@ -60,16 +60,17 @@ fun faulty_projection(kind :: String):
   ArbitratedCapture
 export faulty_projection
 
-// Same public monitor, wiring and child; only the candidate projection is inverted.
-def inverted_zero_view:
+// Same public monitor, RTL and two child contracts; only the relation is inverted.
+def inverted_capture_zero:
   spec for rtl.ArbitratedCapture:
     transactions public.previous_zero_monitor
     refinement:
+      child arb: grants.Arbiter
       child gate: public.GatedCapture
       history word from gate.previous: Bits(2)
       relate previous_was_zero = !bits_equal(word, const(Bits(2), 0))
-  ArbitratedCapture(~transaction_view: #true)
-export inverted_zero_view
+  ArbitratedCapture
+export inverted_capture_zero
 
 // In one case reset cannot establish the projection; in the other, the cover is outside the parent contract.
 fun bad_gate_view(invert :: Boolean):

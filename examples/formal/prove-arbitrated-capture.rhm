@@ -1,5 +1,5 @@
 #lang rhombus
-/* Proves priority capture and pre-edge readback from the public arbiter and gate contracts. */
+/* Proves exact-word and zero/nonzero capture readback independently from the arbiter and gate contracts. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -9,5 +9,8 @@ import:
   "gated-capture.rspl" as spec
 
 module main:
-  def seal = prove_design(elaborate(rtl.ArbitratedCapture()).top, spec.ArbitratedCapture)
+  def top = elaborate(rtl.ArbitratedCapture()).top
+  def seal = prove_design(top, spec.ArbitratedCapture)
   println("Proved ArbitratedCapture: unrestricted requests, lane A wins ties, capture reads the previous word")
+  def zero_seal = prove_design(top, spec.arbitrated_capture_zero)
+  println("Proved previous_was_zero: on capture, readback is zero exactly when the previous word was zero")

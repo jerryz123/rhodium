@@ -368,17 +368,19 @@ on capture, readback is zero exactly when the previous winner was zero
 The checker proves the same pin premises first, then proves the relation
 at reset and across active edges. It does not require identical monitors.
 
-The same parent can use **two transaction contracts** and no executable child:
+The same parent can use **two transaction contracts** and no executable child.
+Pass the one-bit spec to the generic runner:
 
 ```racket
-(define grant-proof (prove-design arbiter-top Arbiter))
-(prove-transaction top transaction_zero_view (hash "arb" grant-proof "gate" gate-proof))
+(prove-design top arbitrated_capture_zero)
 ```
 
-Run the standalone proof from the repository root:
+Its relation is `previous_was_zero = (gate.previous == 0)`. The runner proves
+this directly from the Arbiter and GatedCapture contracts, without using the
+parent's exact-word proof. Run both parent proofs from the repository root:
 
 ```sh
-PLTCOLLECTS="$PWD": tools/run-racket.sh examples/formal/prove-arbiter.rhm
+PLTCOLLECTS="$PWD": tools/run-racket.sh examples/formal/prove-arbitrated-capture.rhm
 ```
 
 The [clockless Arbiter](../../examples/formal/arbiter.rspl) has no register relation
