@@ -46,6 +46,14 @@
     (prove-leaf arbiter_definition arbiter_spec interface_prefixes views)))
 
 (module+ test
+  (require (only-in "../../../rspecl/runner.rkt" prove-design)
+           (only-in "../../../examples/formal/arbiter.rspl" Arbiter))
+  (test-case "the generic runner rejects the reversed RTL, not just its different declaration name"
+    ;; Bind the genuine spec once. The two DUTs have the same physical signature;
+    ;; the runner must still sample the implementation it was asked to prove.
+    (define candidate (Arbiter arbiter_definition #:proof_plan #t))
+    (check-exn #rx"combinational/outputs not proved"
+               (lambda () (prove-design bad_definition (lambda (_top #:proof_plan _request) candidate)))))
   (check-exn #rx"combinational/outputs not proved"
              (lambda () (prove-leaf bad_definition arbiter_spec interface_prefixes views)))
   ;; An observer that reports the spec's answer cannot hide the faulty RTL's actual pin values.

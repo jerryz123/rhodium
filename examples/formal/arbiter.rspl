@@ -42,3 +42,17 @@ spec for rtl.Arbiter:
     guarantee "exclusive" = !(ga && gb)
     guarantee "first-grant" = select(ready && a, ga, !ga)
     guarantee "second-grant" = select(ready && !a && b, gb, !gb)
+
+  rtl_refinement:
+    pin g0 from ingress[0].ready
+    pin g1 from ingress[1].ready
+    pin offered from egress.valid
+    pin word from egress.bits
+    care ingress[0].ready = #true
+    care ingress[1].ready = #true
+    care egress.valid = #true
+    care egress.bits = offered
+    care chosen = offered
+    event in0 = first.bits when first.valid && g0
+    event in1 = second.bits when second.valid && g1
+    event out = word when offered && egress.ready

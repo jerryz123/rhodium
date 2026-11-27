@@ -219,16 +219,22 @@ fun child_definition(top :: Module, site :: String):
   instance.attribute("module")
 
 /* Reject incomplete abstractions, mistyped predicates or missing physical observation care. */
-fun checked_leaf_hints(cycle :: LeafModel, relation :: LeafModel, masks :: LeafModel):
+fun checked_leaf_hints(cycle :: LeafModel, relation :: LeafModel, physical :: LeafModel, synchronous :: Boolean):
+  unless synchronous || (relation.inputs.length() == 0 && relation.events.length() == 0 && cycle.state.length() == 0)
+  | error("a combinational RTL refinement cannot have registers, state, or state invariants")
   unless relation.outputs.keys().sort() == cycle.state.keys().sort()
-         && masks.outputs.keys().sort() == cycle.outputs.keys().sort()
+         && physical.outputs.keys().sort() == cycle.outputs.keys().sort()
   | error("RTL refinement must project every cycle field and specify care for every observed pin")
   for ((name, field) in relation.outputs):
     unless spec_type_equal(field.value.type, cycle.state[name]) | error("RTL projection type mismatch: " ++ name)
-  for (fields in [relation.events, masks.outputs]):
+  unless physical.events.length() == 0 || physical.events.keys().sort() == cycle.events.keys().sort()
+  | error("explicit RTL events must cover every cycle event")
+  for ((name, field) in physical.events):
+    unless spec_type_equal(field.value.type, cycle.events[name].value.type) | error("RTL event type mismatch: " ++ name)
+  for (fields in [relation.events, physical.outputs]):
     for ((name, field) in fields):
       unless field.value.type is_a SpecBool | error("expected a Boolean RTL predicate: " ++ name)
-  PairList[spec_snapshot(relation), spec_snapshot(masks)]
+  PairList[synchronous && spec_snapshot(relation), spec_snapshot(physical)]
 
 /* Specialize against the actual occurrence's definition. Detached declarations may use only
    a child contract that is itself available without an elaborated top. */

@@ -88,6 +88,27 @@ spec for flow.Arbiter:
     batch gb = present(gb)
     guarantee "exclusive" = !(ga && gb)
 
+// Isolate transfer decoding from grant correctness: both variants observe the same physical outputs.
+fun grant_with_transfer(cross_payload :: Boolean):
+  spec for flow.Arbiter:
+    ignore egress.valid
+    ignore egress.bits
+    ignore chosen
+    let a = ingress[0]
+    let b = ingress[1]
+    let ga = a.valid && egress.ready
+    observe ingress[0].ready = ga
+    observe ingress[1].ready = !a.valid && b.valid && egress.ready
+    event accepted_a = a.bits when ga
+    transactions grants.Arbiter(~transaction_view: #true)
+    rtl_refinement:
+      pin grant from ingress[0].ready
+      care ingress[0].ready = #true
+      care ingress[1].ready = #true
+      event accepted_a = (if cross_payload | b.bits | a.bits) when a.valid && grant
+  Arbiter
+export grant_with_transfer
+
 // A grant cannot be promised merely because lane B requests during a contest.
 def bad_priority:
   spec for flow.Arbiter:

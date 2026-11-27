@@ -69,9 +69,10 @@ treat a matching batch schema as proof that two monitors agree.
    issuer only once no production consumer needs them; a compatibility
    observer may read generic evidence but must not mint it.
 3. **Make proof setup declarative.** ShiftQueue and QueuePair now have a
-   [standalone proof](../../examples/formal/prove-queue-pair.rhm). Extend the
-   same entry point to the combinational Arbiter. Move only the facts the proof needs; retain the
-   handwritten harnesses as differential oracles. For parents, drive the
+   [standalone proof](../../examples/formal/prove-queue-pair.rhm). The same entry point
+   now proves the [combinational Arbiter](../../examples/formal/prove-arbiter.rhm);
+   its grant monitor is reusable by ArbitratedCapture. Keep the handwritten
+   harnesses as differential oracles. For parents, drive the
    existing generic obligations from the spec's declared child views and
    supplier roles. Reprove the wrapped stalled receipt and logged ROB without
    a per-module issuer. Wrong occurrence, missing supplier, FIFO-only evidence

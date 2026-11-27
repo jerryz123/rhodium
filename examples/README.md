@@ -304,7 +304,7 @@ hardware-preservation contracts.
 
 | Example | RTL | Executable spec |
 |---|---|---|
-| Arbiter | [Flow arbiter](../flow/arbiter.rhdl) | [Fixed-priority selection and transfers](formal/arbiter.rspl) |
+| Arbiter | [Flow arbiter](../flow/arbiter.rhdl) | [Fixed-priority selection and transfers](formal/arbiter.rspl); [prove the clockless grant contract](formal/prove-arbiter.rhm) |
 | GrantedSelector / RoutedSelector / RegisteredRoutedSelector | [Direct or routed grants with same-cycle or registered selection](formal/granted-selector.rhdl) | [Ordered input contracts, reset, capture, and hold](formal/granted-selector.rspl) |
 | GatedCapture / ArbitratedCapture | [Gated capture behind an arbiter](formal/gated-capture.rhdl) | [A gate assumption discharged by the arbiter](formal/gated-capture.rspl), using the selector's [shared capture monitor](formal/capture-history.rspl) |
 | BufferedStallConsumer | [A one-word queue feeding a wrapped recorder](formal/stalled-offer.rhdl) | [A stable-offer requirement forwarded by the wrapper and discharged by the queue](formal/stalled-offer.rspl) |

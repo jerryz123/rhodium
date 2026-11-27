@@ -22,9 +22,9 @@
     (for/hash ([(k sort) (hash-ref model "inputs")])
       (values k (typed sort (lookup k))))))
 
-#| Prove the authored RTL-to-cycle relation, then weaken only the resulting cycle certificate. |#
-(define (prove-clocked top root cycle view projection hints)
-  (match-define (list relation masks) hints)
+#| Check physical observations, using a state relation only for clocked RTL, then derive the monitor. |#
+(define (prove-rtl-leaf top root cycle view projection hints)
+  (match-define (list relation physical) hints)
   (define model (spec_snapshot cycle))
   (define-values (sampler _monitor _ins _outs) (transaction_parts view))
   (define events (spec_snapshot sampler))
@@ -36,16 +36,17 @@
   (define (observe ports inputs)
     #| Both maps describe the same edge; pin names are disjoint across directions. |#
     (define (pin k) (hash-ref inputs k (lambda () (hash-ref ports k))))
-    (define care (sample masks pin))
-    (define transfers (sample events pin))
+    (define actual (sample physical pin))
+    ;; An explicit physical event map is complete. Otherwise reuse the contract's pin sampler.
+    (define transfers (if (zero? (hash-count (edge-events actual))) (sample events pin) actual))
     (define outs
       (for/hash ([(k field) (hash-ref model "outputs")])
-        (define mask (hash-ref (edge-outputs care) k))
+        (define mask (hash-ref (edge-outputs actual) k))
         (values k (observation (observation-value mask) (typed (second (second field)) (hash-ref ports k))))))
     (values outs (for/hash ([k (hash-keys (hash-ref model "events"))])
                    (values k (hash-ref (edge-events transfers) k)))
-            (&& (edge-defined care) (edge-defined transfers))))
-  (define certificate (prove-leaf top cycle interface_prefixes observe #:relation related))
+            (&& (edge-defined actual) (edge-defined transfers))))
+  (define certificate (prove-leaf top cycle interface_prefixes observe #:relation (and relation related)))
   (derive-transaction certificate top view projection))
 
 #| Resolve declared specs on actual RTL definitions. Share successful proofs by identity
@@ -58,7 +59,7 @@
       (lambda ()
         (match (spec definition #:proof_plan #t)
           [(list "leaf" root cycle view projection hints)
-           (prove-clocked definition root cycle view projection hints)]
+           (prove-rtl-leaf definition root cycle view projection hints)]
           [(list "parent" view children)
            (prove-transaction definition view
              (for/hash ([(site binding) children])

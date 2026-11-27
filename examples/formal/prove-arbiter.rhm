@@ -1,0 +1,15 @@
+#lang rhombus
+/* Proves the clockless two-lane Arbiter and derives its public grant contract from RTL. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("rhodium/frontend/foundation.rhm").Bits
+  lib("flow/arbiter.rhdl") as rtl
+  lib("rspecl/runner.rkt").prove_design
+  "arbiter.rspl" as spec
+
+module main:
+  def top = elaborate(rtl.Arbiter(Bits(2), 2)).top
+  def grants = prove_design(top, spec.Arbiter)
+  println("Proved combinational Arbiter: lane-zero priority, transfer payloads, and exclusive grants")

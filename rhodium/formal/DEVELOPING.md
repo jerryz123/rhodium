@@ -381,8 +381,17 @@ an internal handoff, successful retry, and ordered drain. This replay runs in
 
 ### Two-input fixed-priority arbiter
 
-[The arbiter proof](tests/arbiter-refinement.rkt) compares the clockless Flow circuit
+The [standalone Arbiter proof](../../examples/formal/prove-arbiter.rhm) compares the clockless Flow circuit
 `Arbiter(Bits(2), 2)` with its [stateless spec](../../examples/formal/arbiter.rspl).
+Use the same physical-pin observer as a clocked leaf, but call the combinational
+checker without a state relation. In `rtl_refinement:`, inputs are available
+lexically and `pin` binds an actual output. An explicit `event` map must
+match every cycle event's name and payload sort; its values and presence are
+proof goals. Without such a map the runner samples the existing view as before.
+Only after this succeeds may the clockless cycle certificate establish the
+stateless public monitor. The [handwritten oracle and replay](tests/arbiter-refinement.rkt)
+remain independent; [ArbitratedCapture](tests/selector-refinement.rkt) consumes
+the generic grant seal.
 `combinational_sample(snapshot, pins)` accepts exact-name, exact-width
 bitvectors or fitting naturals and returns outputs and partial-operation
 obligations, including those in child instances. Combinational preflight

@@ -560,6 +560,7 @@ tasks:
       if ! env PLTCOLLECTS="$PWD": tools/run-racket.sh -e '(require rosette) (unless (sat? (solve (assert #t))) (error '\''examples-formal "Rosette solver probe failed"))'; then echo 'examples-formal requires Rosette 4.0 and its Z3 4.8.8 solver; see rhodium/formal/README.md' >&2; exit 1; fi
       tools/run-racket-tests.sh @files(examples-formal)
       env PLTCOLLECTS="$PWD": tools/run-racket.sh examples/formal/prove-queue-pair.rhm
+      env PLTCOLLECTS="$PWD": tools/run-racket.sh examples/formal/prove-arbiter.rhm
       env PLTCOLLECTS="$PWD": tools/run-racket.sh examples/formal/prove-queue-pair-series.rhm
     inputs: []
     deps: ["check-boundaries", "racket-cache"]

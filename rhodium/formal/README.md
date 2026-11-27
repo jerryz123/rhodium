@@ -350,13 +350,22 @@ at reset and across active edges. It does not require identical monitors.
 The same parent can use **two transaction contracts** and no executable child:
 
 ```racket
-(define grant-proof
-  (derive-transaction arbiter-cycle-proof arbiter-top (Arbiter #:transaction_view #t) (hash)))
+(define grant-proof (prove-design arbiter-top Arbiter))
 (prove-transaction top transaction_zero_view (hash "arb" grant-proof "gate" gate-proof))
 ```
 
-The [clockless grant monitor](../../examples/formal/arbiter.rspl) has no history
-to project. It samples the two physical grant pins independently on every sample.
+Run the standalone proof from the repository root:
+
+```sh
+PLTCOLLECTS="$PWD": tools/run-racket.sh examples/formal/prove-arbiter.rhm
+```
+
+The [clockless Arbiter](../../examples/formal/arbiter.rspl) has no register relation
+or reset. Its private `rtl_refinement:` declares when each output matters and
+which physical handshakes carry the three cycle-event payloads. The runner
+checks these against the cycle spec for arbitrary inputs, including both lanes
+offering at once. It then derives the existing public grant monitor, which samples
+both grant pins independently and does not expose the transfer payloads.
 Exclusivity is enough to use the gate contract, but not enough to say which
 word the parent captured. The lane-priority guarantees supply that second fact.
 Only already-admitted source contracts may justify another child's pin premise;
