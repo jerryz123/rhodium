@@ -16,13 +16,9 @@ bundle FloatingPointRegisterWrite(profile :: FloatingPointProfile):
 sync_circuit FloatingPointRegisterFile(profile :: FloatingPointProfile):
   def width = floating_point_register_width(profile)
 
-  input read_address_1: Bits(5)
-  input read_address_2: Bits(5)
-  input read_address_3: Bits(5)
+  input read_addresses: Vec(3, Bits(5))
   interface writes[2](Valid(FloatingPointRegisterWrite(profile)), ~role: consumer)
-  output read_data_1: Bits(width)
-  output read_data_2: Bits(width)
-  output read_data_3: Bits(width)
+  output read_data: Vec(3, Bits(width))
 
   // Architectural floating-point registers have no reset value.
   reg registers(Vec(32, Bits(width)))
@@ -47,9 +43,7 @@ sync_circuit FloatingPointRegisterFile(profile :: FloatingPointProfile):
       )
     )
 
-  read_data_1 <== read_value(read_address_1)
-  read_data_2 <== read_value(read_address_2)
-  read_data_3 <== read_value(read_address_3)
+  for (port in 0..3): read_data[port] <== read_value(read_addresses[port])
 
 export:
   FloatingPointRegisterWrite

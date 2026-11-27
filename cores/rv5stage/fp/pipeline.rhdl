@@ -247,11 +247,11 @@ sync_circuit RV5StageFpScalar(
             speculative: Bool(speculative_fixed) & fixed_reserved
 
         control: issued.control
-        left: mux(issued.control.registers.uses_frs1, registers.read_data_1, issued.integer_operand)
+        left: mux(issued.control.registers.uses_frs1, registers.read_data[0], issued.integer_operand)
         left_precision: issued.control.execution.source_precision
-        right: registers.read_data_2
+        right: registers.read_data[1]
         right_precision: issued.control.execution.source_precision
-        third: registers.read_data_3
+        third: registers.read_data[2]
         third_precision: issued.control.execution.source_precision
         immediate_index: issued.frs1
         rounding_mode: issued.rounding_mode
@@ -276,15 +276,15 @@ sync_circuit RV5StageFpScalar(
     store_request |> filter_valid(_request => store_request_safe) |> map_valid(request):
       RV5StageFpStoreResponse(Context):
         context: request.context
-        data: fp_store_value(profile, request.precision, registers.read_data_3)
+        data: fp_store_value(profile, request.precision, registers.read_data[2])
   ) |> stores.ingress
 
   // A booked EX owns port 1 even if squashed. Otherwise WB's rs1 serves both
   // divide/sqrt and the vector snapshot; neither launch nor replay selects the address.
-  registers.read_address_1 <== mux(fixed_reserved, fixed_issue.bits.frs1, wb_read_address)
-  registers.read_address_2 <== offered.bits.frs2
-  registers.read_address_3 <== mux(offered.valid, offered.bits.frs3, store_request.bits.rs)
-  snapshot_read_data <== registers.read_data_1.zext(64)
+  registers.read_addresses[0] <== mux(fixed_reserved, fixed_issue.bits.frs1, wb_read_address)
+  registers.read_addresses[1] <== offered.bits.frs2
+  registers.read_addresses[2] <== mux(offered.valid, offered.bits.frs3, store_request.bits.rs)
+  snapshot_read_data <== registers.read_data[0].zext(64)
   when (store_request.valid & store_request_safe):
     assert((store_request.bits.precision =/= FloatPrecision.Double) ||| Bool(profile == FloatingPointProfile.D), "rv5stage_fp_store_precision_supported")
     assert((store_request.bits.precision =/= FloatPrecision.Half) ||| Bool(half_precision_supports_zfhmin(half_precision)), "rv5stage_fp_half_store_supported")

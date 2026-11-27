@@ -1,0 +1,12 @@
+#lang rhodium
+/* Defines the parallel RGB sample shared by scanout and video encoders. */
+// SPDX-License-Identifier: Apache-2.0
+
+/* Blanking is a valid sample with data_enable clear; sync stays meaningful. */
+bundle HDMIVideo():
+  rgb: Bits(24)
+  hsync: Bool
+  vsync: Bool
+  data_enable: Bool
+
+export HDMIVideo

@@ -9,13 +9,7 @@ import:
   lib("chi/protocol/flits.rhdl").CHIRespErr
   lib("chi/protocol/channels.rhdl").CHIRNIChannels
   "hdmi.rhdl" open
-
-/* Carries RGB888 and raster sync/data-enable signals aligned with pixel_valid. */
-bundle HDMIVideo():
-  rgb: Bits(24)
-  hsync: Bool
-  vsync: Bool
-  data_enable: Bool
+  "video.rhdl".HDMIVideo
 
 /* Buffers complete rows in rotating single-port SRAM banks and aligns pixels with read latency.
    Timing advances only on pixel_enable. A missing row or bad line blacks the rest of
@@ -30,8 +24,7 @@ sync_circuit HDMIPixelScanout(mode :: HDMIFixedFramebufferMode, ~rows: rows :: I
   input pixel_enable: Bool
   interface line(Irrevocable(HDMIFrameReaderLine()), ~role: consumer)
   output restart: Bool
-  output pixel_valid: Bool
-  output video: HDMIVideo()
+  interface pixel(Valid(HDMIVideo()), ~role: producer)
   output underflow: Bool
   output fetch_failed: Bool
 
@@ -180,14 +173,14 @@ sync_circuit HDMIPixelScanout(mode :: HDMIFixedFramebufferMode, ~rows: rows :: I
     sample_vs <== vertical_sync_active === Bool(t.vertical_sync_positive)
 
   def returned = mux_lookup(sample_bank, ~default: Bits(512)(0), for List (bank in 0..rows): [bank, bank_words[bank]])
-  def pixel = returned.as_vec(Bits(32))[sample_lane]
-  video <== HDMIVideo():
-    rgb: mux(sample_show, pixel[0..24], Bits(24)(0))
+  def pixel_word = returned.as_vec(Bits(32))[sample_lane]
+  pixel.bits <== HDMIVideo():
+    rgb: mux(sample_show, pixel_word[0..24], Bits(24)(0))
     hsync: sample_hs
     vsync: sample_vs
     data_enable: sample_de
 
-  pixel_valid <== sample_valid
+  pixel.valid <== sample_valid
   underflow <== starvation
   fetch_failed <== failure
 
@@ -200,8 +193,7 @@ sync_circuit HDMIScanout(config :: HDMIFrameReaderConfig, ~rows: rows :: Int.in(
   input enable: Bool
   input pixel_enable: Bool
   interface chi(CHIRNIChannels(config.flit), ~role: node)
-  output pixel_valid: Bool
-  output video: HDMIVideo()
+  interface pixel(Valid(HDMIVideo()), ~role: producer)
   output underflow: Bool
   output fetch_failed: Bool
   inst reader(HDMIFrameReader(config))
@@ -213,8 +205,7 @@ sync_circuit HDMIScanout(config :: HDMIFrameReaderConfig, ~rows: rows :: Int.in(
   reader.line <=> scanout.line
   scanout.enable <== enable
   scanout.pixel_enable <== pixel_enable
-  pixel_valid <== scanout.pixel_valid
-  video <== scanout.video
+  scanout.pixel |> pixel
   underflow <== scanout.underflow
   fetch_failed <== scanout.fetch_failed
 

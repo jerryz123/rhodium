@@ -25,7 +25,7 @@ sync_circuit VectorLoadSequencer(xlen :: XLen, vlen :: VectorLength, slots :: Po
   interface rows(Decoupled(OwnedRow(PreparedBeat(vlen), Owner)), ~role: producer)
   interface result(Decoupled(VectorRegisterWrite(dlen, vlen)), ~role: consumer)
   interface return_setup(Valid(LoadReturnSetup(dlen)), ~role: producer)
-  interface visit(Valid(LoadFieldVisit()), ~role: consumer)
+  interface visit(Valid(SegmentFieldVisit()), ~role: consumer)
   interface write(Decoupled(VectorRegisterWrite(dlen, vlen)), ~role: producer)
   interface mask(VectorPredicateTap(dlen), ~role: reader)
   interface chain(VectorLoadChain(Owner), ~role: engine)
@@ -90,11 +90,9 @@ sync_circuit VectorLoadSequencer(xlen :: XLen, vlen :: VectorLength, slots :: Po
   inst segments(VectorSegmentClaims(xlen, vlen))
   segments.install.valid <== prepare.fire()
   segments.install.bits <== command
-  segments.consumed <== visit.valid
-  segments.field <== visit.bits.field
-  segments.stream <== visit.bits.stream
-  segments.skip <== row.fire() & !row.bits.enabled.any()
-  segments.skipped_stream <== row.bits.row
+  visit |> segments.visit
+  segments.skip.valid <== row.fire() & !row.bits.enabled.any()
+  segments.skip.bits <== row.bits.row
   def outstanding = mux(segmented, segments.claims, unwritten_vd)
   chain.unwritten_vd <== mux(active, outstanding, RowSet(0))
   when (prepare.fire()):

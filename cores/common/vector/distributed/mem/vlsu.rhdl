@@ -60,7 +60,7 @@ sync_circuit VectorVLSU(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~t
   interface store_data(Decoupled(OwnedRow(PreparedRow(vlen), Owner)), ~role: consumer)
   interface load_result(Decoupled(VectorRegisterWrite(dlen, vlen)), ~role: producer)
   interface load_setup(Valid(LoadReturnSetup(dlen)), ~role: consumer)
-  interface load_visit(Valid(LoadFieldVisit()), ~role: producer)
+  interface load_visit(Valid(SegmentFieldVisit()), ~role: producer)
   interface element_loaded(Valid(Owner), ~role: producer)
   interface splat(Decoupled(SplatPosition(dlen)), ~role: consumer)
   interface loaded(Valid(ReturnedRow(xlen, vlen, Owner)), ~role: producer)

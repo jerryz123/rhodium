@@ -73,13 +73,13 @@ constexpr std::uint64_t MSTATUS_TSR = UINT64_C(4194304);
 void clear_commit() {
   commit_in = {};
   fp_update_in = {};
-  interrupt_boundary = UINT64_C(0);
+  interrupt_boundary_in.pvalid = UINT64_C(0);
 }
 
 void reset_dut() {
   reset = UINT64_C(1);
   interrupts = {};
-  interrupt_pc = {};
+  interrupt_boundary_in.pbits = {};
   clear_commit();
   for (unsigned repeat_index = 0; repeat_index < (2); ++repeat_index)
     tick_csr();
@@ -102,8 +102,8 @@ void take_interrupt(std::uint64_t pc, std::uint64_t expected_target,
                     std::uint8_t expected_privilege) {
   eval_csr();
   clear_commit();
-  interrupt_pc = pc;
-  interrupt_boundary = UINT64_C(1);
+  interrupt_boundary_in.pbits = pc;
+  interrupt_boundary_in.pvalid = UINT64_C(1);
   eval_csr();
   CHECK(interrupt_request && redirect_out.pvalid &&
         redirect_out.pbits == expected_target);
@@ -128,7 +128,7 @@ void csr_access(std::uint8_t operation, std::uint16_t address,
         (commit_in.pbits.pinstruction & ~(low_mask(5) << 15)) |
         ((UINT64_C(1)) << 15);
   eval_csr();
-  CHECK(command_success && writeback_valid && writeback_value == expected_old);
+  CHECK(command_success && writeback_out.pvalid && writeback_out.pbits == expected_old);
   CHECK(!redirect_out.pvalid && translation_flush == expect_flush);
   if (address == UINT64_C(266)) {
     std::uint64_t replacement;
@@ -153,7 +153,7 @@ void csr_read_legal(std::uint16_t address) {
   commit_in.pbits.pcsr_uoperation = CSR_SET;
   commit_in.pbits.pcsr_uaddress = address;
   eval_csr();
-  CHECK(command_success && writeback_valid && !redirect_out.pvalid &&
+  CHECK(command_success && writeback_out.pvalid && !redirect_out.pvalid &&
         !translation_flush);
   tick_csr();
   clear_commit();
@@ -171,7 +171,7 @@ void csr_write_intent_traps(std::uint8_t operation, std::uint16_t address,
       (commit_in.pbits.pinstruction & ~(low_mask(5) << 15)) |
       ((source_specifier) << 15);
   eval_csr();
-  CHECK(!command_success && !writeback_valid && redirect_out.pvalid);
+  CHECK(!command_success && !writeback_out.pvalid && redirect_out.pvalid);
   CHECK(!pointer_masking_changed);
   tick_csr();
   clear_commit();
@@ -264,7 +264,7 @@ void illegal_csr_read(std::uint16_t address, std::uint64_t pc,
   commit_in.pbits.pcsr_uoperation = CSR_SET;
   commit_in.pbits.pcsr_uaddress = address;
   eval_csr();
-  CHECK(!writeback_valid && redirect_out.pvalid &&
+  CHECK(!writeback_out.pvalid && redirect_out.pvalid &&
         redirect_out.pbits == UINT64_C(256));
   CHECK(!translation_flush);
   tick_csr();
@@ -645,7 +645,7 @@ int main() {
       eval_csr();
       CHECK(command_fault.pvalid && command_fault.pcause == 2 &&
             command_fault.pvalue == 0x7ff02073 && !trap_event.pvalid &&
-            !redirect_out.pvalid && !command_success && !writeback_valid);
+            !redirect_out.pvalid && !command_success && !writeback_out.pvalid);
       tick_csr();
     }
     csr_access(CSR_SET, CSR_MEPC, 0, 0);

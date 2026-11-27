@@ -137,7 +137,7 @@ sync_circuit Plic(config :: PlicConfig):
   inst transaction(CHISingleBeatSubordinate(p, "plic"))
   port <=> transaction.port
   transaction.node_id <== identity.node_id
-  def request = transaction.request
+  def request = transaction.device.write.request
   reg priorities(Vec(source_count, Bits(priority_width)), ~init: initial_priorities)
   reg pending(Mask(source_count), ~init: Mask(source_count)(0))
   reg gateway_busy(Mask(source_count), ~init: Mask(source_count)(0))
@@ -148,7 +148,7 @@ sync_circuit Plic(config :: PlicConfig):
   /* Request validation and register-region decode.
      Reads select the incoming REQ; writes retain that address until DAT acceptance. */
 
-  def incoming = port.req.bits
+  def incoming = transaction.device.decode.candidate
   def incoming_opcode :: CHIReqOpcode = incoming.opcode
   def incoming_write = incoming_opcode.is_initial_write()
   def incoming_relative_full :: Bits(p.request_address_width) = incoming.address - identity.base_address
@@ -157,8 +157,8 @@ sync_circuit Plic(config :: PlicConfig):
   def incoming_word_access = (incoming.size_or_num_req === Bits(6)(2)) & incoming.address.is_aligned(4)
   def incoming_targets_device = incoming.tgt_id === identity.node_id
   def incoming_supported = incoming_opcode_supported & incoming_in_window & incoming_word_access & incoming_targets_device
-  transaction.request_supported <== incoming_supported
-  def request_fire = transaction.request_fire
+  transaction.device.decode.supported <== incoming_supported
+  def request_fire = transaction.device.decode.accepted
   def accepted_read = request_fire & !incoming_write
   def incoming_relative :: Bits(PlicAddressWidth) = incoming_relative_full[0..PlicAddressWidth]
   def request_relative_full :: Bits(p.request_address_width) = request.address - identity.base_address
@@ -249,17 +249,15 @@ sync_circuit Plic(config :: PlicConfig):
     claim_access: claim_value
 
   def register_beat = RegisterBeatView(data_bytes, active_address[0..lane_width])
-  def register_mask = register_beat.extract_enables(port.dat.request.bits.byte_enable)
-  def write_value = register_beat.extract_data(port.dat.request.bits.data, 32)
+  def register_mask = register_beat.extract_enables(transaction.device.write.offer.bits.byte_enable)
+  def write_value = register_beat.extract_data(transaction.device.write.offer.bits.data, 32)
   def register_read_data = register_beat.place(selected_value)
 
-  def incoming_data = port.dat.request.bits
-  def ordinary_data = incoming_data.opcode =/= CHIDatOpcode.DataLCrdReturn
   def write_mask_supported = register_mask === Bits(data_bytes)(0xf)
   // The full-register mask rule is assertion-only, not a write-admission gate.
-  transaction.write_supported <== Bool(#true)
-  transaction.write_ready <== Bool(#true)
-  def write_data_fire = transaction.write_data_fire
+  transaction.device.write.supported <== Bool(#true)
+  transaction.device.write.ready <== Bool(#true)
+  def write_data_fire = transaction.device.write.accepted
 
 
   /* Claim and completion events.
@@ -312,7 +310,7 @@ sync_circuit Plic(config :: PlicConfig):
 
   /* Architectural state commit and assertion-only byte-mask checks. */
 
-  transaction.read_data <== register_read_data
+  transaction.device.decode.read_data <== register_read_data
 
   pending <== next_pending
   gateway_busy <== next_gateway_busy
@@ -325,7 +323,7 @@ sync_circuit Plic(config :: PlicConfig):
   when (write_data_fire & threshold_access):
     thresholds[active_context] <== write_value[0..priority_width]
 
-  when (port.dat.request.valid & ordinary_data):
+  when (transaction.device.write.offer.valid):
     assert(write_mask_supported, "plic_write_mask_supported")
 
 export:

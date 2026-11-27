@@ -5,6 +5,7 @@
 import:
   lib("rhodium/std/credited.rhdl").check_credited
   lib("rhodium/std/ready-valid.rhdl").fire
+  lib("rhodium/std/ready-valid.rhdl").Valid
   lib("chi/protocol/params.rhdl").CHIFlitParams
   lib("chi/protocol/flits.rhdl") open
   lib("chi/protocol/protocol.rhdl") open
@@ -312,50 +313,37 @@ fun check_chi_channel_contract(p :: CHIFlitParams, node :: CHINodeParams, peer :
   unless endpoint_pair_legal(node, peer, p, kinds)
   | error(~who: #'check_chi_channel_contract, "incompatible CHI monitor endpoint contracts")
 
+/* Project a passive channel sample into a one-way event. Ready/valid
+   attachments supply fire; credited links use the sampled flit valid. */
+fun flit_event(channel :: Observation, accepted :: Bool = channel.valid) :: Endpoint:
+  inject_interface(Valid(channel.bits.type), ~valid: accepted, ~bits: channel.bits)
+
 /* Isolate coherent requester checker registers for one monitored endpoint's accepted events. */
 sync_circuit CHIRNTransactionChecks(p :: CHIFlitParams, endpoint :: CHIEndpointParams, label_prefix :: String):
-  input tx_req_event: Bool
-  input tx_req: CHIReqFlit(p)
-  input tx_rsp_event: Bool
-  input tx_rsp: CHIRspFlit(p)
-  input tx_dat_event: Bool
-  input tx_dat: CHIDatFlit(p)
-  input rx_dat_event: Bool
-  input rx_dat: CHIDatFlit(p)
-  input rx_snp_event: Bool
-  input rx_snp: CHISnpFlit(p)
-  input rx_rsp_event: Bool
-  input rx_rsp: CHIRspFlit(p)
+  interface tx_req(Valid(CHIReqFlit(p)), ~role: consumer)
+  interface tx_rsp(Valid(CHIRspFlit(p)), ~role: consumer)
+  interface tx_dat(Valid(CHIDatFlit(p)), ~role: consumer)
+  interface rx_dat(Valid(CHIDatFlit(p)), ~role: consumer)
+  interface rx_snp(Valid(CHISnpFlit(p)), ~role: consumer)
+  interface rx_rsp(Valid(CHIRspFlit(p)), ~role: consumer)
   check_chi_transaction_coverage(endpoint)
-  coherent_requester_transaction_monitor(p, endpoint.max_outstanding, label_prefix ++ "_coherent", tx_req_event, tx_req, tx_rsp_event, tx_rsp, tx_dat_event, tx_dat, rx_dat_event, rx_dat, rx_snp_event, rx_snp, ~rx_rsp_valid: rx_rsp_event, ~rx_rsp: rx_rsp)
+  coherent_requester_transaction_monitor(p, endpoint.max_outstanding, label_prefix ++ "_coherent", tx_req.valid, tx_req.bits, tx_rsp.valid, tx_rsp.bits, tx_dat.valid, tx_dat.bits, rx_dat.valid, rx_dat.bits, rx_snp.valid, rx_snp.bits, ~rx_rsp_valid: rx_rsp.valid, ~rx_rsp: rx_rsp.bits)
 
 /* Wire an accepted-event stream into its own coherent requester checker instance. */
 fun monitor_chi_rn_transactions(p :: CHIFlitParams, endpoint :: CHIEndpointParams, label_prefix :: String,
-                                tx_req_event :: Bool,
-                                tx_req :: CHIReqFlit(p),
-                                tx_rsp_event :: Bool,
-                                tx_rsp :: CHIRspFlit(p),
-                                tx_dat_event :: Bool,
-                                tx_dat :: CHIDatFlit(p),
-                                rx_dat_event :: Bool,
-                                rx_dat :: CHIDatFlit(p),
-                                rx_snp_event :: Bool,
-                                rx_snp :: CHISnpFlit(p),
-                                rx_rsp_event :: Bool,
-                                rx_rsp :: CHIRspFlit(p)):
+                                tx_req :: Endpoint.of(Valid(CHIReqFlit(p))),
+                                tx_rsp :: Endpoint.of(Valid(CHIRspFlit(p))),
+                                tx_dat :: Endpoint.of(Valid(CHIDatFlit(p))),
+                                rx_dat :: Endpoint.of(Valid(CHIDatFlit(p))),
+                                rx_snp :: Endpoint.of(Valid(CHISnpFlit(p))),
+                                rx_rsp :: Endpoint.of(Valid(CHIRspFlit(p)))):
   inst checker(CHIRNTransactionChecks(p, endpoint, label_prefix))
-  checker.tx_req_event <== tx_req_event
-  checker.tx_req <== tx_req
-  checker.tx_rsp_event <== tx_rsp_event
-  checker.tx_rsp <== tx_rsp
-  checker.tx_dat_event <== tx_dat_event
-  checker.tx_dat <== tx_dat
-  checker.rx_dat_event <== rx_dat_event
-  checker.rx_dat <== rx_dat
-  checker.rx_snp_event <== rx_snp_event
-  checker.rx_snp <== rx_snp
-  checker.rx_rsp_event <== rx_rsp_event
-  checker.rx_rsp <== rx_rsp
+  tx_req |> checker.tx_req
+  tx_rsp |> checker.tx_rsp
+  tx_dat |> checker.tx_dat
+  rx_dat |> checker.rx_dat
+  rx_snp |> checker.rx_snp
+  rx_rsp |> checker.rx_rsp
 
 /*
  * Observe accepted RN-F/RN-D channel transfers and attach field checks plus optional
@@ -397,12 +385,12 @@ fun monitor_chi_rn_channels(p :: CHIFlitParams, node :: CHINodeParams,
                          node.node_id, "_tgt_id", label_prefix ++ "_rx_rsp")
   if transaction_checks
   | monitor_chi_rn_transactions(p, node, label_prefix,
-                                tx_req_event, observed.requests.bits,
-                                tx_rsp_event, observed.requester_responses.bits,
-                                tx_dat_event, observed.request_data.bits,
-                                rx_dat_event, observed.response_data.bits,
-                                rx_snp_event, observed.snoops.bits,
-                                rx_rsp_event, observed.responses.bits)
+                                flit_event(observed.requests, tx_req_event),
+                                flit_event(observed.requester_responses, tx_rsp_event),
+                                flit_event(observed.request_data, tx_dat_event),
+                                flit_event(observed.response_data, rx_dat_event),
+                                flit_event(observed.snoops, rx_snp_event),
+                                flit_event(observed.responses, rx_rsp_event))
   | #void
 
 /*
@@ -410,36 +398,24 @@ fun monitor_chi_rn_channels(p :: CHIFlitParams, node :: CHINodeParams,
  * events.
  */
 sync_circuit CHIRNITransactionChecks(p :: CHIFlitParams, endpoint :: CHIEndpointParams, label_prefix :: String):
-  input tx_req_event: Bool
-  input tx_req: CHIReqFlit(p)
-  input rx_rsp_event: Bool
-  input rx_rsp: CHIRspFlit(p)
-  input tx_dat_event: Bool
-  input tx_dat: CHIDatFlit(p)
-  input rx_dat_event: Bool
-  input rx_dat: CHIDatFlit(p)
+  interface tx_req(Valid(CHIReqFlit(p)), ~role: consumer)
+  interface rx_rsp(Valid(CHIRspFlit(p)), ~role: consumer)
+  interface tx_dat(Valid(CHIDatFlit(p)), ~role: consumer)
+  interface rx_dat(Valid(CHIDatFlit(p)), ~role: consumer)
   check_chi_transaction_coverage(endpoint)
-  requester_transaction_monitor(p, endpoint.max_outstanding, label_prefix ++ "_transaction", tx_req_event, tx_req, rx_rsp_event, rx_rsp, tx_dat_event, tx_dat, rx_dat_event, rx_dat)
+  requester_transaction_monitor(p, endpoint.max_outstanding, label_prefix ++ "_transaction", tx_req.valid, tx_req.bits, rx_rsp.valid, rx_rsp.bits, tx_dat.valid, tx_dat.bits, rx_dat.valid, rx_dat.bits)
 
 /* Wire an accepted-event stream into its own non-coherent requester checker instance. */
 fun monitor_chi_rni_transactions(p :: CHIFlitParams, endpoint :: CHIEndpointParams, label_prefix :: String,
-                                 tx_req_event :: Bool,
-                                 tx_req :: CHIReqFlit(p),
-                                 rx_rsp_event :: Bool,
-                                 rx_rsp :: CHIRspFlit(p),
-                                 tx_dat_event :: Bool,
-                                 tx_dat :: CHIDatFlit(p),
-                                 rx_dat_event :: Bool,
-                                 rx_dat :: CHIDatFlit(p)):
+                                 tx_req :: Endpoint.of(Valid(CHIReqFlit(p))),
+                                 rx_rsp :: Endpoint.of(Valid(CHIRspFlit(p))),
+                                 tx_dat :: Endpoint.of(Valid(CHIDatFlit(p))),
+                                 rx_dat :: Endpoint.of(Valid(CHIDatFlit(p)))):
   inst checker(CHIRNITransactionChecks(p, endpoint, label_prefix))
-  checker.tx_req_event <== tx_req_event
-  checker.tx_req <== tx_req
-  checker.rx_rsp_event <== rx_rsp_event
-  checker.rx_rsp <== rx_rsp
-  checker.tx_dat_event <== tx_dat_event
-  checker.tx_dat <== tx_dat
-  checker.rx_dat_event <== rx_dat_event
-  checker.rx_dat <== rx_dat
+  tx_req |> checker.tx_req
+  rx_rsp |> checker.rx_rsp
+  tx_dat |> checker.tx_dat
+  rx_dat |> checker.rx_dat
 
 /*
  * Observe accepted RN-I channel transfers and attach field checks plus optional transaction
@@ -479,44 +455,32 @@ fun monitor_chi_rni_channels(p :: CHIFlitParams, node :: CHINodeParams,
                          node.emits.rsp, node.node_id, "_src_id", label_prefix ++ "_tx_rsp")
   if transaction_checks
   | monitor_chi_rni_transactions(p, node, label_prefix,
-                                 tx_req_event, observed.req.bits,
-                                 rx_rsp_event, observed.rsp.response.bits,
-                                 tx_dat_event, observed.dat.request.bits,
-                                 rx_dat_event, observed.dat.response.bits)
+                                 flit_event(observed.req, tx_req_event),
+                                 flit_event(observed.rsp.response, rx_rsp_event),
+                                 flit_event(observed.dat.request, tx_dat_event),
+                                 flit_event(observed.dat.response, rx_dat_event))
   | #void
 
 /* Isolate subordinate checker registers for one monitored endpoint's accepted events. */
 sync_circuit CHISNTransactionChecks(p :: CHIFlitParams, endpoint :: CHIEndpointParams, label_prefix :: String):
-  input rx_req_event: Bool
-  input rx_req: CHIReqFlit(p)
-  input tx_rsp_event: Bool
-  input tx_rsp: CHIRspFlit(p)
-  input rx_dat_event: Bool
-  input rx_dat: CHIDatFlit(p)
-  input tx_dat_event: Bool
-  input tx_dat: CHIDatFlit(p)
+  interface rx_req(Valid(CHIReqFlit(p)), ~role: consumer)
+  interface tx_rsp(Valid(CHIRspFlit(p)), ~role: consumer)
+  interface rx_dat(Valid(CHIDatFlit(p)), ~role: consumer)
+  interface tx_dat(Valid(CHIDatFlit(p)), ~role: consumer)
   check_chi_transaction_coverage(endpoint)
-  subordinate_transaction_monitor(p, endpoint.max_outstanding, label_prefix ++ "_transaction", rx_req_event, rx_req, tx_rsp_event, tx_rsp, rx_dat_event, rx_dat, tx_dat_event, tx_dat)
+  subordinate_transaction_monitor(p, endpoint.max_outstanding, label_prefix ++ "_transaction", rx_req.valid, rx_req.bits, tx_rsp.valid, tx_rsp.bits, rx_dat.valid, rx_dat.bits, tx_dat.valid, tx_dat.bits)
 
 /* Wire an accepted-event stream into its own non-coherent subordinate checker instance. */
 fun monitor_chi_sn_transactions(p :: CHIFlitParams, endpoint :: CHIEndpointParams, label_prefix :: String,
-                                rx_req_event :: Bool,
-                                rx_req :: CHIReqFlit(p),
-                                tx_rsp_event :: Bool,
-                                tx_rsp :: CHIRspFlit(p),
-                                rx_dat_event :: Bool,
-                                rx_dat :: CHIDatFlit(p),
-                                tx_dat_event :: Bool,
-                                tx_dat :: CHIDatFlit(p)):
+                                rx_req :: Endpoint.of(Valid(CHIReqFlit(p))),
+                                tx_rsp :: Endpoint.of(Valid(CHIRspFlit(p))),
+                                rx_dat :: Endpoint.of(Valid(CHIDatFlit(p))),
+                                tx_dat :: Endpoint.of(Valid(CHIDatFlit(p)))):
   inst checker(CHISNTransactionChecks(p, endpoint, label_prefix))
-  checker.rx_req_event <== rx_req_event
-  checker.rx_req <== rx_req
-  checker.tx_rsp_event <== tx_rsp_event
-  checker.tx_rsp <== tx_rsp
-  checker.rx_dat_event <== rx_dat_event
-  checker.rx_dat <== rx_dat
-  checker.tx_dat_event <== tx_dat_event
-  checker.tx_dat <== tx_dat
+  rx_req |> checker.rx_req
+  tx_rsp |> checker.tx_rsp
+  rx_dat |> checker.rx_dat
+  tx_dat |> checker.tx_dat
 
 /*
  * Observe accepted subordinate channel transfers and attach field checks plus optional
@@ -552,10 +516,10 @@ fun monitor_chi_sn_channels(p :: CHIFlitParams, node :: CHINodeParams,
                          node.emits.dat, node.node_id, "_src_id", label_prefix ++ "_tx_dat")
   if transaction_checks
   | monitor_chi_sn_transactions(p, node, label_prefix,
-                                rx_req_event, observed.req.bits,
-                                tx_rsp_event, observed.rsp.bits,
-                                rx_dat_event, observed.dat.request.bits,
-                                tx_dat_event, observed.dat.response.bits)
+                                flit_event(observed.req, rx_req_event),
+                                flit_event(observed.rsp, tx_rsp_event),
+                                flit_event(observed.dat.request, rx_dat_event),
+                                flit_event(observed.dat.response, tx_dat_event))
   | #void
 
 /*
@@ -608,7 +572,13 @@ fun monitor_chi_rn(link :: CHIRNLinkParams,
   monitor_chi_snp(link.flit, link.rx_snp_credits, observed.rx_snp.valid, observed.rx_snp.bits, observed.rx_snp.credit, rn_rx_snp_credit_balance,
                   observed.rx_link_active_request, observed.rx_link_active_ack, rn_rx_previous_request, received.snp, label_prefix ++ "_rx_snp")
   if transaction_checks
-  | monitor_chi_rn_transactions(link.flit, endpoint, label_prefix, observed.tx_req.valid, observed.tx_req.bits, observed.tx_rsp.valid, observed.tx_rsp.bits, observed.tx_dat.valid, observed.tx_dat.bits, observed.rx_dat.valid, observed.rx_dat.bits, observed.rx_snp.valid, observed.rx_snp.bits, observed.rx_rsp.valid, observed.rx_rsp.bits)
+  | monitor_chi_rn_transactions(link.flit, endpoint, label_prefix,
+                                flit_event(observed.tx_req),
+                                flit_event(observed.tx_rsp),
+                                flit_event(observed.tx_dat),
+                                flit_event(observed.rx_dat),
+                                flit_event(observed.rx_snp),
+                                flit_event(observed.rx_rsp))
   | #void
 
   rn_tx_previous_request <== observed.tx_link_active_request
@@ -664,7 +634,11 @@ fun monitor_chi_rni(link :: CHIRNILinkParams,
                   rni_rx_dat_credit_balance, observed.rx_link_active_request, observed.rx_link_active_ack, rni_rx_previous_request, received.dat,
                   endpoint.node_id, "_target_id", label_prefix ++ "_rx_dat")
   if transaction_checks
-  | monitor_chi_rni_transactions(link.flit, endpoint, label_prefix, observed.tx_req.valid, observed.tx_req.bits, observed.rx_rsp.valid, observed.rx_rsp.bits, observed.tx_dat.valid, observed.tx_dat.bits, observed.rx_dat.valid, observed.rx_dat.bits)
+  | monitor_chi_rni_transactions(link.flit, endpoint, label_prefix,
+                                 flit_event(observed.tx_req),
+                                 flit_event(observed.rx_rsp),
+                                 flit_event(observed.tx_dat),
+                                 flit_event(observed.rx_dat))
   | #void
 
   rni_tx_previous_request <== observed.tx_link_active_request
@@ -715,7 +689,11 @@ fun monitor_chi_sn(link :: CHISNLinkParams,
                   sn_rx_dat_credit_balance, observed.rx_link_active_request, observed.rx_link_active_ack, sn_rx_previous_request, received.dat,
                   endpoint.node_id, "_target_id", label_prefix ++ "_rx_dat")
   if transaction_checks
-  | monitor_chi_sn_transactions(link.flit, endpoint, label_prefix, observed.rx_req.valid, observed.rx_req.bits, observed.tx_rsp.valid, observed.tx_rsp.bits, observed.rx_dat.valid, observed.rx_dat.bits, observed.tx_dat.valid, observed.tx_dat.bits)
+  | monitor_chi_sn_transactions(link.flit, endpoint, label_prefix,
+                                flit_event(observed.rx_req),
+                                flit_event(observed.tx_rsp),
+                                flit_event(observed.rx_dat),
+                                flit_event(observed.tx_dat))
   | #void
 
   sn_tx_previous_request <== observed.tx_link_active_request

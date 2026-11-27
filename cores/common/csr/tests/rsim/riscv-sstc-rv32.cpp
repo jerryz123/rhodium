@@ -24,9 +24,9 @@ void csr(bool write, std::uint16_t address, std::uint32_t value,
   commit_in.pbits.pcsr_uaddress = address;
   commit_in.pbits.pcsr_usource = value;
   eval_csr();
-  CHECK(command_success && writeback_valid && !redirect_out.pvalid);
+  CHECK(command_success && writeback_out.pvalid && !redirect_out.pvalid);
   if (!write)
-    CHECK(writeback_value == expected);
+    CHECK(writeback_out.pbits == expected);
   tick_csr();
   commit_in = {};
 }
@@ -53,7 +53,7 @@ void denied(std::uint16_t address) {
   commit_in.pbits.pcsr_uaddress = address;
   commit_in.pbits.pcsr_usource = UINT64_MAX;
   eval_csr();
-  CHECK(!command_success && !writeback_valid && redirect_out.pvalid &&
+  CHECK(!command_success && !writeback_out.pvalid && redirect_out.pvalid &&
         redirect_out.pbits == UINT64_C(0x1000));
   tick_csr();
   commit_in = {};
@@ -67,8 +67,8 @@ int main() {
     interrupts = {};
     time_counter = UINT64_C(1311768469162688511);
     hart_id = 0;
-    interrupt_pc = UINT64_C(0x888);
-    interrupt_boundary = 0;
+    interrupt_boundary_in.pbits = UINT64_C(0x888);
+    interrupt_boundary_in.pvalid = 0;
     commit_in = {};
     for (unsigned repeat_index = 0; repeat_index < (2); ++repeat_index)
       tick_csr();
@@ -155,11 +155,11 @@ int main() {
     eval_csr();
     CHECK(interrupt_request && wfi_wake);
     eval_csr();
-    interrupt_boundary = 1;
+    interrupt_boundary_in.pvalid = 1;
     eval_csr();
     CHECK(redirect_out.pvalid && redirect_out.pbits == UINT64_C(0x2000));
     tick_csr();
-    interrupt_boundary = 0;
+    interrupt_boundary_in.pvalid = 0;
     csr(0, UINT64_C(0x142), 0, UINT64_C(0x80000005));
     csr(0, UINT64_C(0x141), 0, UINT64_C(0x888));
     csr(1, UINT64_C(0x14d), 3);

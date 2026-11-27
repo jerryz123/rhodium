@@ -31,7 +31,7 @@ core's interrupt boundary + next PC ------------> interrupt entry
   action, resolved operands, raw instruction, destination, and precise fault
   context. Raw instruction bits preserve write intent and trap values.
 - `command_success` reports a valid command without a synchronous exception.
-  `writeback_valid/value` report legal CSR/configuration results for nonzero
+  `writeback: Valid(Bits(XLEN))` reports legal CSR/configuration results for nonzero
   `rd`. `wfi` reports an authorized, legal WFI; sleeping remains caller policy.
   `wfi_wake` exposes locally enabled pending interrupts.
 - `command_fault` evaluates `commit.bits` combinationally, independently of
@@ -44,7 +44,7 @@ core's interrupt boundary + next PC ------------> interrupt entry
   retirements in `minstret` and the optional retirement HPM event. Ordinary instructions need not send
   commands. Command success does not itself increment counters. Counter CSR
   writes retain priority over increments.
-- The caller asserts `interrupt_boundary` with precise `interrupt_pc` only
+- The caller offers the precise interrupt PC on `interrupt_boundary: Valid(Bits(XLEN))` only
   when entry is safe. Synchronous exceptions outrank interrupts. Do not
   authorize a successful state-changing command on an interrupt-taking
   boundary: the core must order completion and boundary interrupt entry.

@@ -2,6 +2,16 @@
 /* Encodes DVI-compatible video into parallel TMDS symbols with per-channel disparity. */
 // SPDX-License-Identifier: Apache-2.0
 
+import:
+  lib("rhodium/std/ready-valid.rhdl").Valid
+  "video.rhdl".HDMIVideo
+
+/* Inputs for one TMDS lane on one valid pixel clock. */
+bundle TMDSLaneSample():
+  data: Bits(8)
+  data_enable: Bool
+  control: Bits(2)
+
 /* Carries parallel ten-bit blue, green, and red TMDS lane symbols for external serialization. */
 bundle TMDSSymbols():
   blue: Bits(10)
@@ -12,12 +22,8 @@ bundle TMDSSymbols():
    Valid advances registered symbols; blanking emits control and resets disparity, while
    invalid cycles hold both. Symbol bit zero is serialized first (section 3.2.3). */
 sync_circuit TMDSChannelEncoder():
-  input valid: Bool
-  input data: Bits(8)
-  input data_enable: Bool
-  input control: Bits(2)
-  output symbol_valid: Bool
-  output symbol: Bits(10)
+  interface sample(Valid(TMDSLaneSample()), ~role: consumer)
+  interface symbol(Valid(Bits(10)), ~role: producer)
 
   reg disparity(~init: SInt(6)(0))
   reg encoded(~init: Bits(10)(0b1101010100))
@@ -27,8 +33,8 @@ sync_circuit TMDSChannelEncoder():
   /* Transition minimization.
      The ordered XOR/XNOR recurrence determines each bit from its predecessor. */
 
-  def ones = popcount(data)
-  def input_bits = data.as_vec(Bool)
+  def ones = popcount(sample.bits.data)
+  def input_bits = sample.bits.data.as_vec(Bool)
   def use_xnor = (ones > Bits(4)(4)) ||| ((ones === Bits(4)(4)) & !input_bits[0])
   def mutable previous :: Bool = input_bits[0]
   def mutable transitions = [previous]
@@ -63,7 +69,7 @@ sync_circuit TMDSChannelEncoder():
   /* Blanking control symbols.
      HS/VS select a fixed symbol instead of the active pixel's minimized payload. */
 
-  def control_symbol = mux_lookup(control, ~default: Bits(10)(0b1101010100)):
+  def control_symbol = mux_lookup(sample.bits.control, ~default: Bits(10)(0b1101010100)):
     0: Bits(10)(0b1101010100)
     1: Bits(10)(0b0010101011)
     2: Bits(10)(0b0101010100)
@@ -73,48 +79,38 @@ sync_circuit TMDSChannelEncoder():
   /* Registered output and running disparity.
      Invalid cycles hold both; accepted blanking resets disparity for the next active byte. */
 
-  encoded_valid <== valid
-  when valid:
-    encoded <== mux(data_enable, active_symbol, control_symbol)
-    disparity <== mux(data_enable, next_disparity, SInt(6)(0))
+  encoded_valid <== sample.valid
+  when (sample.valid):
+    encoded <== mux(sample.bits.data_enable, active_symbol, control_symbol)
+    disparity <== mux(sample.bits.data_enable, next_disparity, SInt(6)(0))
 
-  symbol_valid <== encoded_valid
-  symbol <== encoded
+  symbol.valid <== encoded_valid
+  symbol.bits <== encoded
 
 /* Registers three independently balanced TMDS lanes from one RGB888 video sample.
    Blanking places HS/VS on blue and control 00 on green/red; adds one clock of latency. */
 sync_circuit TMDSVideoEncoder():
-  input pixel_valid: Bool
-  input rgb: Bits(24)
-  input hsync: Bool
-  input vsync: Bool
-  input data_enable: Bool
-  output symbol_valid: Bool
-  output symbols: TMDSSymbols()
+  interface pixel(Valid(HDMIVideo()), ~role: consumer)
+  interface symbols(Valid(TMDSSymbols()), ~role: producer)
 
   inst blue(TMDSChannelEncoder())
   inst green(TMDSChannelEncoder())
   inst red(TMDSChannelEncoder())
-  blue.valid <== pixel_valid
-  green.valid <== pixel_valid
-  red.valid <== pixel_valid
-  blue.data <== rgb[0..8]
-  green.data <== rgb[8..16]
-  red.data <== rgb[16..24]
-  blue.data_enable <== data_enable
-  green.data_enable <== data_enable
-  red.data_enable <== data_enable
-  blue.control <== vsync ++ hsync
-  green.control <== Bits(2)(0)
-  red.control <== Bits(2)(0)
-  symbols <== TMDSSymbols():
-    blue: blue.symbol
-    green: green.symbol
-    red: red.symbol
+  for (lane :: Endpoint.of(Valid(TMDSLaneSample())) in Array(blue.sample, green.sample, red.sample), index in 0..3):
+    lane.valid <== pixel.valid
+    lane.bits <== TMDSLaneSample():
+      data: pixel.bits.rgb[(8*index)..(8*index + 8)]
+      data_enable: pixel.bits.data_enable
+      control: if index == 0 | pixel.bits.vsync ++ pixel.bits.hsync | Bits(2)(0)
 
-  symbol_valid <== blue.symbol_valid
+  symbols.valid <== blue.symbol.valid
+  symbols.bits <== TMDSSymbols():
+    blue: blue.symbol.bits
+    green: green.symbol.bits
+    red: red.symbol.bits
 
 export:
+  TMDSLaneSample
   TMDSSymbols
   TMDSChannelEncoder
   TMDSVideoEncoder

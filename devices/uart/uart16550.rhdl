@@ -126,7 +126,7 @@ sync_circuit Uart16550(config :: Uart16550Config):
   inst transaction(CHISingleBeatSubordinate(p, "uart16550"))
   port <=> transaction.port
   transaction.node_id <== identity.node_id
-  def request = transaction.request
+  def request = transaction.device.write.request
 
   reg divisor_latch_low(~init: Bits(8)(1))
   reg divisor_latch_high(~init: Bits(8)(0))
@@ -182,7 +182,7 @@ sync_circuit Uart16550(config :: Uart16550Config):
   /* Request validation and byte-lane selection.
      Reads use the incoming REQ; writes use the retained request through DAT acceptance. */
 
-  def incoming = port.req.bits
+  def incoming = transaction.device.decode.candidate
   def incoming_opcode = incoming.opcode
   def incoming_write = incoming_opcode.is_one_of(CHIReqOpcode.WriteNoSnpFull, CHIReqOpcode.WriteNoSnpPtl)
   def incoming_read = incoming_opcode === CHIReqOpcode.ReadNoSnp
@@ -191,8 +191,8 @@ sync_circuit Uart16550(config :: Uart16550Config):
   def incoming_byte_access = incoming.size_or_num_req[0..3] === Bits(3)(0)
   def incoming_targets_device = incoming.tgt_id === identity.node_id
   def incoming_supported = (incoming_read ||| incoming_write) & incoming_in_window & incoming_byte_access & incoming_targets_device
-  transaction.request_supported <== incoming_supported
-  def request_fire = transaction.request_fire
+  transaction.device.decode.supported <== incoming_supported
+  def request_fire = transaction.device.decode.accepted
   def accepted_read = request_fire & !incoming_write
 
   def incoming_relative :: Bits(Uart16550AddressWidth) = incoming_relative_full[0..Uart16550AddressWidth]
@@ -257,18 +257,17 @@ sync_circuit Uart16550(config :: Uart16550Config):
   /* DAT-time writes and FIFO clear control.
      THR waits for space; byte enables qualify effects without changing mask-validation policy. */
 
-  def incoming_data = port.dat.request.bits
-  def ordinary_data = incoming_data.opcode =/= CHIDatOpcode.DataLCrdReturn
-  def write_data_expected = transaction.write_data_expected
+  def incoming_data = transaction.device.write.offer.bits
+  def write_data_expected = transaction.device.write.expected
   def write_byte = register_beat.extract_data(incoming_data.data, 8)
   def write_enabled = register_beat.extract_enables(incoming_data.byte_enable, 1).into(Bool)
   def write_thr_target = write_data_expected & !dlab & (
     request_relative === Bits(Uart16550AddressWidth)(Uart16550RbrThrDllOffset)
   ) & write_enabled
   def tx_has_space = (tx_count < tx_full_limit) ||| transmitter.bytes.ready
-  transaction.write_supported <== Bool(#true)
-  transaction.write_ready <== !write_thr_target ||| tx_has_space
-  def write_data_fire = transaction.write_data_fire
+  transaction.device.write.supported <== Bool(#true)
+  transaction.device.write.ready <== !write_thr_target ||| tx_has_space
+  def write_data_fire = transaction.device.write.accepted
 
   def write_thr = write_data_fire & write_thr_target
   def register_write = write_data_fire & write_enabled
@@ -360,9 +359,9 @@ sync_circuit Uart16550(config :: Uart16550Config):
   when write_fcr:
     fifo_enabled <== next_fifo_enabled
 
-  transaction.read_data <== register_read_data
+  transaction.device.decode.read_data <== register_read_data
 
-  when (port.dat.request.valid & ordinary_data):
+  when (transaction.device.write.offer.valid):
     assert(write_mask_supported, "uart16550_write_mask_supported")
 
 export:

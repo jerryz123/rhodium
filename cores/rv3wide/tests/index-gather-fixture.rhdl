@@ -281,8 +281,10 @@ sync_circuit PermuteFixture(xlen :: XLen):
   interface start(Decoupled(VectorDispatchEntry(xlen, 4)), ~role: consumer)
   def control = start.bits.checked.descriptor.control
   def needs_vps = control.vps =/= VectorVpsUse.None
-  (start |> gate_flow(!needs_vps ||| vps.install_ready) |> map_flow(e => e.checked.descriptor)) |> vx.launch
-  vx.launch_owner <== start.bits.owner
+  (start |> gate_flow(!needs_vps ||| vps.install_ready) |> map_flow(e => VectorInstruction(xlen, Bits(2))):
+     context: e.owner
+     descriptor: e.checked.descriptor
+  ) |> vx.launch
   output vps_busy: Bool
   vps_busy <== vps.busy
   vps.install.valid <== start.fire() & needs_vps

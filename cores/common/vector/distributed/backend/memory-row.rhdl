@@ -36,8 +36,7 @@ sync_circuit VectorMemoryRowSequencer(xlen :: XLen, vlen :: VectorLength, ~store
   interface launch(Valid(MemoryCommand(xlen, vlen)), ~role: consumer)
   input older_writes: RowSet
   input(capacity, room_after_capture, singleton): Bool
-  output captured: Bool
-  output captured_field: Bits(3)
+  interface visit(Valid(SegmentFieldVisit()), ~role: producer)
   output read_done: RowSet
   output predicate_done: PredicateSet
   interface read(Decoupled(RowAddress), ~role: producer)
@@ -91,8 +90,8 @@ sync_circuit VectorMemoryRowSequencer(xlen :: XLen, vlen :: VectorLength, ~store
   def issue_field = mux(at_boundary, next_pos.first_field, field)
   def issue_group = mux(at_boundary, next_pos.group, pos.group)
   def physical = segment_base(layout, issue_field) + issue_group.zext(RowAddress.packed_width())
-  def visit = store & layout.nf.any() & capacity & (phase === RowPhase.ReadSource) & (!field_pending ||| field_return)
-  def field_offer = visit ||| handoff
+  def can_visit = store & layout.nf.any() & capacity & (phase === RowPhase.ReadSource) & (!field_pending ||| field_return)
+  def field_offer = can_visit ||| handoff
   def skip_field = field_offer & !live_visit
   /* Issue one row decision into a reserved VLSU slot. A skip uses the same
      return stage as a synchronous read: it cannot overtake a live row or
@@ -184,8 +183,10 @@ sync_circuit VectorMemoryRowSequencer(xlen :: XLen, vlen :: VectorLength, ~store
   def after_next = next_start + (Bits(mask_bits+1)(row_bytes) >> eew)
   def final_mask_use = mux(lookahead, next_last ||| (next_pos.ends_group & (after_next[mask_bits..mask_bits+1] =/= sample_row)), last ||| (next_start[mask_bits..mask_bits+1] =/= sample_row))
   predicate_done <== (sampled & final_mask_use).as_bits().zext(PredicateSet.packed_width()) << sample_row
-  captured <== field_return
-  captured_field <== issued_field
+  visit.valid <== field_return
+  visit.bits <== SegmentFieldVisit():
+    field: issued_field
+    stream: row
   // A captured empty predicate proves VS3 is unused even before its ordered skip enters the VLSU.
   def unused_source = row_event(plain_store & fill_mask & !predicate.any(), mux(lookahead, row + RowAddress(1), row))
   read_done <== row_event(plain_store & read_result.valid, issued_row) ||| unused_source

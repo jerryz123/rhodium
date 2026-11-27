@@ -160,7 +160,6 @@ sync_circuit DistributedVectorBackend(xlen :: XLen, vlen :: VectorLength, Fault 
   rows.outstanding_store |> native_outstanding_store
   rows.chain <=> claims.mem_chain
   row_alu.chain <=> claims.alu_chain
-  row_alu.launch_owner <== paths.native_execute.bits.owner
   // WB can count the tail grant only when no other VRF client can take a
   // required port. Under contention the current read still arbitrates normally.
   def contested = claims.checked_live ||| (row_alu.read.bits.sources.uses_third() & (rows.unavailable[StorePath] ||| special.busy))
@@ -169,7 +168,10 @@ sync_circuit DistributedVectorBackend(xlen :: XLen, vlen :: VectorLength, Fault 
   calendar.pause <== registers.load_turn
   row_alu.read_credit <== claims.head_allowed[ExecutePath] & !contested
   row_alu.fixed_write_credit <== calendar.registered_free[0] & !registers.load_turn
-  paths.native_execute |> map_flow(entry => entry.checked.descriptor) |> row_alu.launch
+  (paths.native_execute |> map_flow(entry => VectorInstruction(xlen, InstructionId)):
+     context: entry.owner
+     descriptor: entry.checked.descriptor
+  ) |> row_alu.launch
   when (special.install.valid & special.busy):
     assert(row_alu.launch.fire() & row_alu.issued.valid & (row_alu.issued.bits === special.chain.owner), "paired_permutation_turnover_has_one_retiring_cursor")
   (row_alu.read |> trace_event("vector/execute.sequence", ~stalls: #true, ~fields: row):

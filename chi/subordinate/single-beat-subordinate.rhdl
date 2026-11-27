@@ -25,6 +25,43 @@ hardware_enum CHISingleBeatPhase:
   WriteData
   WriteResponse
 
+/* Device decoding inspects the live REQ before admission. A read snapshots
+   read_data and performs any read side effect only on accepted. */
+interface CHIDeviceDecode(p :: CHIFlitParams):
+  role engine
+  role device
+  provider engine
+  engine -> device:
+    candidate: CHIReqFlit(p)
+    accepted: Bool
+  device -> engine:
+    supported: Bool
+    read_data: Bits(p.data_width)
+
+/* DAT is checked against the request retained at REQ acceptance. offered
+   excludes credit returns but, unlike accepted, does not imply legality or space. */
+interface CHIDeviceWrite(p :: CHIFlitParams):
+  role engine
+  role device
+  provider engine
+  engine -> device:
+    request: CHIReqFlit(p)
+    offer: Valid(CHIDatFlit(p))
+    expected: Bool
+    accepted: Bool
+  device -> engine:
+    supported: Bool
+    ready: Bool
+
+/* Separates the request-time snapshot from the later device write effect. */
+interface CHISingleBeatDevice(p :: CHIFlitParams):
+  role engine
+  role device
+  provider engine
+  engine -> device:
+    decode: CHIDeviceDecode(p)
+    write: CHIDeviceWrite(p)
+
 /*
  * Serialize one device transaction, retain request and read snapshots under backpressure, and
  * expose acceptance events.
@@ -32,33 +69,29 @@ hardware_enum CHISingleBeatPhase:
 sync_circuit CHISingleBeatSubordinate(p :: CHIFlitParams, label :: NonemptyString):
   interface port(CHISNChannels(p), ~role: node)
   input node_id: Bits(p.node_id_width)
-  input request_supported: Bool
-  input read_data: Bits(p.data_width)
-  input write_supported: Bool
-  input write_ready: Bool
-  output request: CHIReqFlit(p)
-  output request_fire: Bool
-  output write_data_expected: Bool
-  output write_data_fire: Bool
+  interface device(CHISingleBeatDevice(p), ~role: engine)
 
   reg phase(~init: CHISingleBeatPhase.Idle)
   reg saved_request(CHIReqFlit(p))
   reg saved_read_data(Bits(p.data_width))
-  request <== saved_request
+  device.write.request <== saved_request
 
   def incoming = port.req.bits
+  device.decode.candidate <== incoming
   def incoming_opcode :: CHIReqOpcode = incoming.opcode
   def ordinary_request = incoming_opcode =/= CHIReqOpcode.ReqLCrdReturn
-  port.req.ready <== !ordinary_request ||| ((phase === CHISingleBeatPhase.Idle) & request_supported)
-  request_fire <== port.req.fire() & ordinary_request
+  port.req.ready <== !ordinary_request ||| ((phase === CHISingleBeatPhase.Idle) & device.decode.supported)
+  device.decode.accepted <== port.req.fire() & ordinary_request
   def incoming_write = incoming_opcode.is_initial_write()
 
   def data = port.dat.request.bits
   def ordinary_data = data.opcode =/= CHIDatOpcode.DataLCrdReturn
-  write_data_expected <== phase === CHISingleBeatPhase.WriteData
-  def supported = (data.opcode === CHIDatOpcode.NonCopyBackWriteData) & (data.txn_id === Bits(12)(0)) & (data.src_id === saved_request.src_id) & (data.tgt_id === node_id) & write_supported
-  port.dat.request.ready <== !ordinary_data ||| (write_data_expected & supported & write_ready)
-  write_data_fire <== port.dat.request.fire() & ordinary_data
+  device.write.offer.valid <== port.dat.request.valid & ordinary_data
+  device.write.offer.bits <== data
+  device.write.expected <== phase === CHISingleBeatPhase.WriteData
+  def supported = (data.opcode === CHIDatOpcode.NonCopyBackWriteData) & (data.txn_id === Bits(12)(0)) & (data.src_id === saved_request.src_id) & (data.tgt_id === node_id) & device.write.supported
+  port.dat.request.ready <== !ordinary_data ||| (device.write.expected & supported & device.write.ready)
+  device.write.accepted <== port.dat.request.fire() & ordinary_data
 
   def dbid = phase === CHISingleBeatPhase.WriteDBID
   port.rsp.valid <== dbid ||| (phase === CHISingleBeatPhase.WriteResponse)
@@ -68,27 +101,28 @@ sync_circuit CHISingleBeatSubordinate(p :: CHIFlitParams, label :: NonemptyStrin
 
   // DBID and write-data acceptance keep the request alive until final completion.
   def release_request = (port.rsp.fire() & !dbid) ||| port.dat.response.fire()
-  describe_interface_retained_storage(request_fire, release_request, phase =/= CHISingleBeatPhase.Idle, ~name: "request")
+  describe_interface_retained_storage(device.decode.accepted, release_request, phase =/= CHISingleBeatPhase.Idle, ~name: "request")
   describe_interface_contract(port.req, Array(port.rsp, port.dat.response), "responses", ~trace_model: interface_trace_retained(~name: "request", ~outputs: 2))
 
-  when request_fire:
+  when (device.decode.accepted):
     saved_request <== incoming
     phase <== mux(incoming_write, CHISingleBeatPhase.WriteDBID, CHISingleBeatPhase.ReadResponse)
     when (!incoming_write):
-      saved_read_data <== read_data
+      saved_read_data <== device.decode.read_data
   elsewhen (port.rsp.fire() & dbid):
     phase <== CHISingleBeatPhase.WriteData
-  elsewhen write_data_fire:
+  elsewhen (device.write.accepted):
     phase <== CHISingleBeatPhase.WriteResponse
   elsewhen (port.rsp.fire() ||| port.dat.response.fire()):
     phase <== CHISingleBeatPhase.Idle
 
   when (port.req.valid & ordinary_request):
-    assert(request_supported, label ++ "_request_supported")
+    assert(device.decode.supported, label ++ "_request_supported")
 
   when (port.dat.request.valid & ordinary_data):
-    assert(write_data_expected, label ++ "_write_data_expected")
+    assert(device.write.expected, label ++ "_write_data_expected")
     assert(supported, label ++ "_write_data_supported")
 
 export:
+  CHISingleBeatDevice
   CHISingleBeatSubordinate

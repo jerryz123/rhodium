@@ -16,12 +16,13 @@ import:
   lib("riscv/isa/vector.rhm").VectorLength
   "../../backend-kind.rhm".vector_dlen
   "../common/row-types.rhdl" open
+  "../../bundles.rhdl".VectorInstruction
   "../../bundles.rhdl".VectorDescriptor
   "../../register-file.rhdl" open
   "../common/row-claims.rhdl" open
   "execute-sequencer.rhdl".VectorExecuteSequencer
   "execute-sequencer.rhdl".resolve_row_unit
-  "../exu/issue.rhdl".RowUnit
+  "../exu/issue.rhdl".ExecuteCommand
   "../exu/fold.rhdl".VectorFoldCursor
   "../../../register-write.rhdl".RegisterFileWrite
   "../../../cosim-source.rhm".describe_cosim_signals
@@ -34,8 +35,7 @@ import:
 sync_circuit VectorRowExecute(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~fp32: fp32 :: Boolean = #true, ~fp16: fp16 :: Boolean = #true):
   def dlen = vector_dlen(vlen)
   def Owner = Bits(index_width(slots))
-  interface launch(Decoupled(VectorDescriptor(xlen)), ~role: consumer)
-  input launch_owner: Owner
+  interface launch(Decoupled(VectorInstruction(xlen, Owner)), ~role: consumer)
   interface chain(VectorExecuteChain(Owner), ~role: engine)
   interface read(Decoupled(VectorRowRead()), ~role: producer)
   interface operands(Valid(VectorRowOperands(dlen)), ~role: consumer)
@@ -97,18 +97,18 @@ sync_circuit VectorRowExecute(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
   chain.destinations <== vxu.destinations
   sequencer.read_credit <== read_credit
   vxu.fixed_write_credit <== fixed_write_credit
-  def folding = launch.bits.control.cursor === VectorComputeCursor.Fold
-  def unit = resolve_row_unit(xlen, vlen, launch.bits, fp32, fp16)
-  sequencer.launch_unit <== unit
-  fold.launch_floating <== unit.is_one_of(RowUnit.LocalFp, RowUnit.SharedFpPipelined)
+  def folding = launch.bits.descriptor.control.cursor === VectorComputeCursor.Fold
+  def unit = resolve_row_unit(xlen, vlen, launch.bits.descriptor, fp32, fp16)
+  def command = ExecuteCommand(VectorDescriptor(xlen), Owner):
+    descriptor: launch.bits.descriptor
+    owner: launch.bits.context
+    unit: unit
   launch.ready <== !fold.busy & sequencer.launch.ready
   sequencer.launch.valid <== launch.valid & !fold.busy & !folding
-  sequencer.launch.bits <== launch.bits
+  sequencer.launch.bits <== command
   fold.launch.valid <== launch.fire() & folding
-  fold.launch.bits <== launch.bits
-  fold.launch_owner <== launch_owner
+  fold.launch.bits <== command
   permutation |> sequencer.permutation
-  sequencer.launch_owner <== launch_owner
   read.valid <== mux(fold.busy, fold.read.valid, sequencer.read.valid)
   read.bits <== mux(fold.busy, fold.read.bits, sequencer.read.bits)
   fold.read.ready <== fold.busy & read.ready

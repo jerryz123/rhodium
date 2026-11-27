@@ -48,16 +48,16 @@ for (design in [rv32, rv64]):
   check:
     design.find_input("commit_in").type.field("bits").type.field("exception_cause").type.type_equal(ExceptionCause) ~is #true
     design.find_output("command_fault").type.field("cause").type.type_equal(ExceptionCause) ~is #true
-    design.find_output("trap_event").type.field("cause").type.width ~is design.find_output("writeback_value").type.width
+    design.find_output("trap_event").type.field("cause").type.width ~is design.find_output("writeback_out").type.field("bits").type.width
 
 check:
   rv64.inputs.map(fun (port): port.name) ~is [
-    "clock", "reset", "interrupts", "hart_id", "time_counter", "interrupt_boundary", "interrupt_pc", "retire_count", "commit_in", "fp_update_in", "vector_retire_in", "vector_saturate_in", "vector_fault_start_in", "vector_truncate_in", "cbo_operation"
+    "clock", "reset", "interrupts", "hart_id", "time_counter", "interrupt_boundary_in", "retire_count", "commit_in", "fp_update_in", "vector_retire_in", "vector_saturate_in", "vector_fault_start_in", "vector_truncate_in", "cbo_operation"
   ]
 
   rv64.outputs.map(fun (port): port.name) ~is [
     "redirect_out", "trap_event", "command_fault", "interrupt_request", "command_success", "wfi", "wfi_wake",
-    "writeback_valid", "writeback_value", "privilege", "mstatus", "satp",
+    "writeback_out", "privilege", "mstatus", "satp",
     "frm", "fp_enabled", "vector_enabled", "vector_state", "cbo_zero_access", "cbo_permission", "translation_flush", "pbmte",
     "pointer_masking", "pointer_masking_changed"
   ]
@@ -69,7 +69,7 @@ check:
   rv32.find_input("vector_fault_start_in").type.field("bits").type.width ~is 32
   rv64.find_input("vector_truncate_in").type.field("bits").type.width ~is 64
   rv32.find_input("vector_truncate_in").type.field("bits").type.width ~is 32
-  rv64.find_output("writeback_value").type.width ~is 64
+  rv64.find_output("writeback_out").type.field("bits").type.width ~is 64
   rv32.find_output("satp").type.width ~is 32
   rv64.find_output("pbmte").type.type_equal(Bool) ~is #true
   rv32.find_output("pbmte").type.type_equal(Bool) ~is #true

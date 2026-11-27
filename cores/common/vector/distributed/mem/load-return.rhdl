@@ -23,7 +23,7 @@ sync_circuit VectorLoadReturn(xlen :: XLen, vlen :: VectorLength, Owner :: DataT
   interface returned(Decoupled(ReturnedRow(xlen, vlen, Owner)), ~role: consumer)
   interface splat(Decoupled(SplatPosition(dlen)), ~role: consumer)
   interface result(Decoupled(VectorRegisterWrite(dlen, vlen)), ~role: producer)
-  interface visit(Valid(LoadFieldVisit()), ~role: producer)
+  interface visit(Valid(SegmentFieldVisit()), ~role: producer)
   interface element_drained(Valid(Owner), ~role: producer)
   input reserve: Bool
   output credits: MemoryPendingCount
@@ -92,7 +92,7 @@ sync_circuit VectorLoadReturn(xlen :: XLen, vlen :: VectorLength, Owner :: DataT
   when consumed: ordinal <== mux(final_field, Bits(3)(0), ordinal + Bits(3)(1))
   // Empty fields advance the segment cursor but never appear on the write port.
   visit.valid <== consumed
-  visit.bits <== LoadFieldVisit():
+  visit.bits <== SegmentFieldVisit():
     field: field
     stream: stream
 

@@ -33,17 +33,13 @@ sync_circuit HDMIScanoutFixture():
   scanout.enable <== enable
   scanout.pixel_enable <== pixel_enable
   scanout.chi <=> chi
-  pixel_valid <== scanout.pixel_valid
-  video <== scanout.video
+  pixel_valid <== scanout.pixel.valid
+  video <== scanout.pixel.bits
   underflow <== scanout.underflow
   fetch_failed <== scanout.fetch_failed
-  encoder.pixel_valid <== scanout.pixel_valid
-  encoder.rgb <== scanout.video.rgb
-  encoder.hsync <== scanout.video.hsync
-  encoder.vsync <== scanout.video.vsync
-  encoder.data_enable <== scanout.video.data_enable
-  symbol_valid <== encoder.symbol_valid
-  symbols <== encoder.symbols
+  scanout.pixel |> encoder.pixel
+  symbol_valid <== encoder.symbols.valid
+  symbols <== encoder.symbols.bits
 
 def program = elaborate(HDMIScanoutFixture())
 

@@ -38,9 +38,9 @@ void access_csr(std::uint16_t address, std::uint8_t operation, word_t source,
   eval_csr();
   CHECK(redirect_out.pvalid == expect_trap && !translation_flush);
   if (expect_trap) {
-    CHECK(!writeback_valid && redirect_out.pbits == 0);
+    CHECK(!writeback_out.pvalid && redirect_out.pbits == 0);
   } else {
-    CHECK(writeback_valid && (!check_old || writeback_value == expected_old));
+    CHECK(writeback_out.pvalid && (!check_old || writeback_out.pbits == expected_old));
   }
   tick_csr();
   commit_in = {};
@@ -107,7 +107,7 @@ int main() {
     reset = 1;
     interrupts = {};
     time_counter = 0;
-    interrupt_boundary = 0;
+    interrupt_boundary_in.pvalid = 0;
     fp_update_in = {};
     cbo_operation = 0;
     commit_in = {};

@@ -32,7 +32,7 @@ sync_circuit CHIDirectoryFixture(slots :: PosInt, sets :: Pow2Int = 4):
   initialized <== directory.initialized
   lookup_accepted <== directory.lookup_accepted
   commit_accepted <== directory.commit_accepted.as_bits()
-  response_valid <== directory.response_valid
-  response <== directory.response.as_bits()
+  response_valid <== directory.response.valid
+  response <== directory.response.bits.as_bits()
 
 export CHIDirectoryFixture

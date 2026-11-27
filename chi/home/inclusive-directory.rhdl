@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/std/ready-valid.rhdl").Valid
   lib("rhodium/std/bits.rhdl") open
   lib("rhodium/std/read-write.rhdl").ReadWriteRequest
   lib("rhodium/std/sync-ram.rhdl").SyncRam1RW
@@ -38,8 +39,7 @@ sync_circuit CHIInclusiveDirectory(sets :: Pow2Int, ways :: PosInt, line_width :
   output initialized: Bool
   output lookup_accepted: Bool
   output commit_accepted: Mask(slots)
-  output response_valid: Bool
-  output response: Vec(ways, Entry)
+  interface response(Valid(Vec(ways, Entry)), ~role: producer)
 
 
   /* Reset sweep and arbitration state.
@@ -83,8 +83,8 @@ sync_circuit CHIInclusiveDirectory(sets :: Pow2Int, ways :: PosInt, line_width :
   initialized <== ready
   lookup_accepted <== read
   commit_accepted <== vec(for List (slot in 0..slots): write & choice.grant[slot]).into(Mask(slots))
-  response_valid <== ready & storage.port.response.valid
-  response <== storage.port.response.bits
+  response.valid <== ready & storage.port.response.valid
+  response.bits <== storage.port.response.bits
 
 
   /* Sweep completion and fairness updates.

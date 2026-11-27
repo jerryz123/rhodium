@@ -102,8 +102,8 @@ sync_circuit RV5StageVectorControlFixture(vlen :: VectorLength):
   csrs.vector_fault_start.bits <== Bits(xlen.width)(0)
   csrs.vector_truncate.valid <== Bool(#false)
   csrs.vector_truncate.bits <== Bits(xlen.width)(0)
-  csrs.interrupt_boundary <== Bool(#false)
-  csrs.interrupt_pc <== Bits(xlen.width)(0)
+  csrs.interrupt_boundary.valid <== Bool(#false)
+  csrs.interrupt_boundary.bits <== Bits(xlen.width)(0)
   csrs.fp_update.valid <== Bool(#false)
   csrs.fp_update.bits <== Bits(5)(0)
   csrs.cbo_operation <== CboManagementOperation.Invalidate
@@ -122,8 +122,8 @@ sync_circuit RV5StageVectorControlFixture(vlen :: VectorLength):
     exception_cause: ExceptionCause.IllegalInstruction
     exception_value: instruction.zext(xlen.width)
 
-  writeback_valid <== csrs.writeback_valid
-  writeback_value <== csrs.writeback_value
+  writeback_valid <== csrs.writeback.valid
+  writeback_value <== csrs.writeback.bits
   redirect_valid <== csrs.redirect.valid
   mstatus <== csrs.mstatus
   state <== csrs.vector_state

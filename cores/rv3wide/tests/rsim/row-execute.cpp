@@ -26,14 +26,14 @@ static std::uint64_t held(unsigned owner) {
 static void mask_claims(unsigned sew,unsigned lmul,unsigned first,unsigned end) {
   constexpr unsigned dlen=8*bytes, owner=2;
   reset=1; launch_in.pvalid=operands_in.pvalid=0; tick_model(); reset=0;
-  auto &d=launch_in.pbits; d={};
+  auto &d=launch_in.pbits.pdescriptor; d={};
   d.pinstruction=(0u<<20)|(9u<<15)|(0u<<7); // vmxor.mm v0,v0,v9
   d.pstate.pvtype=sew*8+lmul; d.pstate.pvl=end; d.pstate.pvstart=first;
   d.pcontrol.preads.pvs1=d.pcontrol.preads.pvs2=d.pcontrol.pinteger=d.pcontrol.presult_ukind=1;
   d.pcontrol.prow_ulayout=PackedMaskRows;
   d.pcontrol.pinteger_urow.palu.presult_uselect=1; d.pcontrol.pinteger_urow.palu.plogic_uselect=2;
   read_credit=read_in.pready=fixed_write_credit=reserve_in.pready=1;
-  launch_owner=owner; launch_in.pvalid=1; eval(); CHECK(launch_out.pready);
+  launch_in.pbits.pcontext=owner; launch_in.pvalid=1; eval(); CHECK(launch_out.pready);
   tick_model(); launch_in.pvalid=0;
   const unsigned stop=(end-1)/dlen+1;
   unsigned next=first/dlen,written=next;
@@ -90,7 +90,7 @@ static void mask_fragments(unsigned sew,unsigned first,unsigned end,bool empty_f
   if(empty_final) for(unsigned i=(stop-1)*lanes;i<end;++i) v0[i/8]&=~(1u<<(i%8));
   original=v0;
   reset=1; launch_in.pvalid=operands_in.pvalid=0; tick_model(); reset=0;
-  auto &d=launch_in.pbits; d={};
+  auto &d=launch_in.pbits.pdescriptor; d={};
   d.pinstruction=8u<<20 | 16u<<15 | vd<<7;
   d.pmasked=reads_v0;
   d.pcontrol.preads.pvs1=d.pcontrol.preads.pvs2=d.pcontrol.pinteger=d.pcontrol.presult_ukind=1;
@@ -107,7 +107,7 @@ static void mask_fragments(unsigned sew,unsigned first,unsigned end,bool empty_f
   d.pcontrol.pinteger_urow.palu.psubtract=borrow;
   d.pcontrol.pinteger_urow.palu.presult_uselect=arithmetic ? 0 : 3; d.pstate.pvtype=8*sew+3;
   d.pstate.pvstart=first; d.pstate.pvl=end;
-  read_credit=fixed_write_credit=reserve_in.pready=read_in.pready=1; launch_owner=owner;
+  read_credit=fixed_write_credit=reserve_in.pready=read_in.pready=1; launch_in.pbits.pcontext=owner;
   chain_in.polder_uaccesses=chain_in.polder_uwrites=reads_v0 ? 0 : 3;
   launch_in.pvalid=1; tick_model(); launch_in.pvalid=0;
   unsigned next=first/lanes,written=next,gap_cycles=0;
@@ -188,13 +188,13 @@ static void mac_stream(bool stall) {
   std::vector<unsigned> reads,writes;
   reset=1; launch_in.pvalid=operands_in.pvalid=0; tick_model(); reset=0;
   read_credit=read_in.pready=1;
-  auto &d=launch_in.pbits; d={};
+  auto &d=launch_in.pbits.pdescriptor; d={};
   d.pstate.pvtype=3; d.pstate.pvl=rows*bytes; // e8,m8
   d.pinstruction=(8u<<20)|(16u<<7); d.pscalar=3; d.pmasked=1;
   d.pcontrol.preads.pvs2=d.pcontrol.preads.pold_uvd=1;
   d.pcontrol.pcompute_ufamily=IntProduct;
   d.pcontrol.poperand=1; d.pcontrol.pmultiply_udivide=1; d.pcontrol.pproduct.pvd_urole=VdAddend;
-  launch_owner=owner; launch_in.pvalid=1; eval(); CHECK(launch_out.pready);
+  launch_in.pbits.pcontext=owner; launch_in.pvalid=1; eval(); CHECK(launch_out.pready);
   tick_model(); launch_in.pvalid=0;
   bool returning=false;
   for (unsigned t=0;t<100 && writes.size()<rows;++t) {
@@ -258,7 +258,7 @@ static void widening_last_use(unsigned start, bool overlapping_mac=false, bool w
   const unsigned first=start/elems, last=(vl-1)/elems;
   reset=1; launch_in.pvalid=operands_in.pvalid=0; tick_model(); reset=0;
   read_credit=read_in.pready=fixed_write_credit=reserve_in.pready=1;
-  auto &d=launch_in.pbits; d={};
+  auto &d=launch_in.pbits.pdescriptor; d={};
   d.pstate.pvl=vl; d.pstate.pvstart=start; d.pstate.pvtype=1; // e8,m2
   d.pinstruction=((lhs/2)<<20)|(12u<<15)|(16u<<7); d.pmasked=1;
   d.pcontrol.pcompute_ufamily=wide_add ? IntegerData : IntProduct;
@@ -268,7 +268,7 @@ static void widening_last_use(unsigned start, bool overlapping_mac=false, bool w
   d.pcontrol.pmultiply_udivide=!wide_add;
   d.pcontrol.preads.pvs1=d.pcontrol.preads.pvs2=1;
   d.pcontrol.preads.pold_uvd=overlapping_mac; d.pcontrol.pproduct.pvd_urole=overlapping_mac ? VdAddend : VdUnused;
-  launch_owner=owner; launch_in.pvalid=1; tick_model(); launch_in.pvalid=0;
+  launch_in.pbits.pcontext=owner; launch_in.pvalid=1; tick_model(); launch_in.pvalid=0;
   unsigned next=first, written=first, returned_row=0, stalls=0;
   bool returning=false;
   for (unsigned t=0;t<40 && written<=last;++t) {
@@ -339,14 +339,14 @@ static void widening_last_use(unsigned start, bool overlapping_mac=false, bool w
 
 static void saturating_reservations(bool active_overflow) {
   reset=1; launch_in.pvalid=operands_in.pvalid=0; tick_model(); reset=0;
-  auto &d=launch_in.pbits; d={};
+  auto &d=launch_in.pbits.pdescriptor; d={};
   d.pinstruction=8u<<20 | 12u<<15 | 16u<<7;
   d.pcontrol.pinteger=d.pcontrol.preads.pvs1=d.pcontrol.preads.pvs2=1;
   d.pcontrol.pinteger_urow.pcan_usaturate=1;
   d.pcontrol.pinteger_urow.palu.parithmetic_umode=2; // vsadd.vv, signed
   d.pstate.pvstart=1; d.pstate.pvl=2*bytes-1; d.pmasked=1;
   chain_in.polder_uaccesses=chain_in.polder_uwrites=0;
-  launch_owner=1; launch_in.pvalid=1; tick_model(); launch_in.pvalid=0;
+  launch_in.pbits.pcontext=1; launch_in.pvalid=1; tick_model(); launch_in.pvalid=0;
   // Replace the older instruction at its last grant. Poison the younger XOR's
   // unused adder mode: even a genuine slice overflow must not raise vxsat.
   d.pinstruction=8u<<20 | 12u<<15 | 20u<<7;
@@ -355,7 +355,7 @@ static void saturating_reservations(bool active_overflow) {
   d.pcontrol.pinteger_urow.palu.plogic_uselect=2; // XOR
   d.pmasked=d.pstate.pvstart=0; d.pstate.pvl=bytes;
   for(unsigned t=0;t<14;++t) {
-    launch_in.pvalid=t==9; launch_owner=2;
+    launch_in.pvalid=t==9; launch_in.pbits.pcontext=2;
     read_credit=fixed_write_credit=reserve_in.pready=t>=8; read_in.pready=1;
     operands_in.pvalid=t>=9 && t<=11;
     auto &r=operands_in.pbits;
@@ -392,7 +392,7 @@ static void saturating_reservations(bool active_overflow) {
 // still unread. Direct fixture geometry is DLEN=2*XLEN on both configurations.
 static void narrowing_claims(bool clip) {
   reset=1; launch_in.pvalid=operands_in.pvalid=0; tick_model(); reset=0;
-  auto &d=launch_in.pbits; d={};
+  auto &d=launch_in.pbits.pdescriptor; d={};
   d.pinstruction=(8u<<20)|(12u<<15)|(16u<<7);
   d.pcontrol.pinteger=d.pcontrol.preads.pvs1=d.pcontrol.preads.pvs2=1;
   d.pcontrol.pwidth_ushape=Narrow;
@@ -402,7 +402,7 @@ static void narrowing_claims(bool clip) {
   row.pclip=row.pround_ushift=row.pcan_usaturate=clip;
   d.pstate.pvstart=1; d.pstate.pvl=2*bytes-1;
   chain_in.polder_uwrites=chain_in.polder_uaccesses=0;
-  launch_owner=1; launch_in.pvalid=1; tick_model(); launch_in.pvalid=0;
+  launch_in.pbits.pcontext=1; launch_in.pvalid=1; tick_model(); launch_in.pvalid=0;
   unsigned grants=0,writes=0; bool returning=false;
   for(unsigned t=0;t<20;++t) {
     read_credit=fixed_write_credit=reserve_in.pready=t==0 || t>=8; read_in.pready=1;
@@ -443,14 +443,14 @@ static void narrowing_claims(bool clip) {
 
 static void fractional_reservations() {
   reset=1; launch_in.pvalid=operands_in.pvalid=0; tick_model(); reset=0;
-  auto &d=launch_in.pbits; d={};
+  auto &d=launch_in.pbits.pdescriptor; d={};
   d.pstate.pvl=2*bytes-1; d.pstate.pvstart=1; d.pmasked=1;
   d.pinstruction=(8u<<20)|(12u<<15)|(16u<<7);
   d.pcontrol.preads.pvs1=d.pcontrol.preads.pvs2=1;
   d.pcontrol.pcompute_ufamily=IntProduct;
   d.pcontrol.pmultiply_udivide=d.pcontrol.pproduct.pmode.pleft_usigned=d.pcontrol.pproduct.pmode.pright_usigned=1;
   d.pcontrol.pproduct.pselect=ProductFractional;
-  launch_owner=0; launch_in.pvalid=1; tick_model(); launch_in.pvalid=0;
+  launch_in.pbits.pcontext=0; launch_in.pvalid=1; tick_model(); launch_in.pvalid=0;
   for (unsigned t=0;t<20;++t) {
     // Deny bookings long enough that an incorrectly launched row would return.
     read_credit=fixed_write_credit=reserve_in.pready=t>=8; read_in.pready=1;
@@ -471,7 +471,7 @@ static void fractional_reservations() {
 
 static void scalar_integer_claim(bool empty, bool fractional, bool divide=false) {
   reset=1; launch_in.pvalid=operands_in.pvalid=multiply_result_in.pvalid=divide_result_in.pvalid=0; tick_model(); reset=0;
-  auto &d=launch_in.pbits; d={};
+  auto &d=launch_in.pbits.pdescriptor; d={};
   d.pinstruction=8u<<20 | 12u<<15 | 16u<<7;
   d.pcontrol.pmultiply_udivide=d.pcontrol.preads.pvs1=d.pcontrol.preads.pvs2=d.pmasked=1;
   d.pcontrol.pproduct.pselect=fractional ? ProductFractional : ProductLow;
@@ -482,7 +482,7 @@ static void scalar_integer_claim(bool empty, bool fractional, bool divide=false)
   d.pcontrol.pproduct.pvd_urole=divide ? VdFactor : VdUnused; d.pcontrol.pproduct.psubtract=divide;
   d.pstate.pvtype=divide ? 0 : 8*(bytes==8 ? 2 : 3);
   d.pstate.pvl=divide ? bytes : 2; d.pstate.pvstart=d.pstate.pvl-1;
-  launch_owner=2; launch_in.pvalid=1;
+  launch_in.pbits.pcontext=2; launch_in.pvalid=1;
   read_in.pready=read_credit=fixed_write_credit=reserve_in.pready=shared_write_in.pready=0;
   chain_in.polder_uwrites=chain_in.polder_uaccesses=0;
   divide_request_in.pready=multiply_request_in.pready=0; tick_model(); launch_in.pvalid=0;
@@ -544,7 +544,7 @@ static void scalar_integer_claim(bool empty, bool fractional, bool divide=false)
 static void delayed_mac(ProductVdRole role, bool scalar, bool subtract) {
   using Word=decltype(multiply_request_out.pbits.poperands.pleft);
   reset=1; launch_in={}; operands_in={}; multiply_result_in={}; tick_model(); reset=0;
-  auto &d=launch_in.pbits;
+  auto &d=launch_in.pbits.pdescriptor;
   d.pinstruction=(8u<<20)|(12u<<15)|(16u<<7);
   d.pstate.pvl=1; d.pstate.pvtype=8*(sizeof(Word)==4 ? 2 : 3); d.pscalar=5;
   d.pcontrol.pcompute_ufamily=IntProduct; d.pcontrol.pmultiply_udivide=1;
@@ -554,7 +554,7 @@ static void delayed_mac(ProductVdRole role, bool scalar, bool subtract) {
   chain_in.polder_uwrites=chain_in.polder_uaccesses=0;
   read_credit=read_in.pready=shared_write_in.pready=0;
   fixed_write_credit=reserve_in.pready=multiply_request_in.pready=1;
-  launch_owner=2; launch_in.pvalid=1; eval(); CHECK(launch_out.pready);
+  launch_in.pbits.pcontext=2; launch_in.pvalid=1; eval(); CHECK(launch_out.pready);
   tick_model(); launch_in.pvalid=0;
   for(unsigned t=0;t<3;++t) {
     eval(); const auto &r=read_out.pbits;
@@ -576,7 +576,7 @@ static void delayed_mac(ProductVdRole role, bool scalar, bool subtract) {
   // Issue and finish an independent add before returning the product.
   d={}; d.pstate.pvl=1; d.pinstruction=(2u<<20)|(4u<<15)|(6u<<7);
   d.pcontrol.preads.pvs1=d.pcontrol.preads.pvs2=1;
-  launch_owner=1; launch_in.pvalid=1; eval(); CHECK(launch_out.pready);
+  launch_in.pbits.pcontext=1; launch_in.pvalid=1; eval(); CHECK(launch_out.pready);
   tick_model(); launch_in.pvalid=0; eval(); CHECK(read_out.pvalid);
   tick_model(); operands_in.pvalid=1; tick_model(); operands_in.pvalid=0;
   eval(); CHECK(write_out.pvalid && finished_out.pvalid && finished_out.pbits==1);
@@ -614,7 +614,7 @@ static void fp_family(unsigned sew) {
   auto run=[&](unsigned unit,unsigned mode,bool scalar,bool old_factor,bool swap,
                bool from_int,bool int_result,std::uint64_t expected,bool rtz=false,bool active_snan=false) {
     reset=1; operands_in={}; fp_result_in={}; launch_in={}; tick_model(); reset=0;
-    auto &d=launch_in.pbits; auto &c=d.pcontrol; auto &f=c.pfp.pexecution;
+    auto &d=launch_in.pbits.pdescriptor; auto &c=d.pcontrol; auto &f=c.pfp.pexecution;
     d.pstate.pvtype=sew*8; d.pstate.pvl=lanes; d.pmasked=1;
     d.pinstruction=(8u<<20)|(16u<<15)|(24u<<7);
     auto rhs=encode(3);
@@ -631,7 +631,7 @@ static void fp_family(unsigned sew) {
     f.punit=unit; f.pfused_uoperation=mode; f.padd_uoperation=mode;
     f.pminmax_uoperation=mode; f.psign_uoperation=mode; f.pcomparison=mode;
     f.pinteger_uunsigned=mode; f.pestimate_uoperation=mode;
-    launch_owner=2; launch_in.pvalid=1; fixed_write_credit=reserve_in.pready=0; read_credit=0;
+    launch_in.pbits.pcontext=2; launch_in.pvalid=1; fixed_write_credit=reserve_in.pready=0; read_credit=0;
     read_in.pready=1; shared_write_in.pready=0; fp_request_in.pready=0;
     tick_model(); launch_in.pvalid=0;
     bool returning=false,received=false,issued=false; unsigned reads=0,writes=0,booked_edge=0;
@@ -709,7 +709,7 @@ static void fp_family(unsigned sew) {
   }
   // Neither an empty range nor a vstart beyond vl consumes VRF or FP credits.
   for(unsigned first:{0u,5u}) {
-    auto &d=launch_in.pbits; d.pstate.pvl=0; d.pstate.pvstart=first;
+    auto &d=launch_in.pbits.pdescriptor; d.pstate.pvl=0; d.pstate.pvstart=first;
     launch_in.pvalid=1; tick_model(); launch_in.pvalid=0; eval();
     CHECK(!read_out.pvalid && !fp_request_out.pvalid && !write_out.pvalid && !reserve_out.pvalid);
     CHECK(issued_out.pvalid && finished_out.pvalid && !fp_update_out.pvalid); tick_model();
@@ -722,7 +722,7 @@ static void fp_family(unsigned sew) {
 static void mixed_rows(bool narrow) {
   constexpr unsigned lanes=bytes/4, stop=3, first=1, end=stop*lanes-1;
   reset=1; operands_in={}; launch_in={}; chain_in={}; tick_model(); reset=0;
-  auto &d=launch_in.pbits; auto &c=d.pcontrol;
+  auto &d=launch_in.pbits.pdescriptor; auto &c=d.pcontrol;
   d.pinstruction=(8u<<20)|(16u<<15)|(24u<<7);
   d.pstate.pvtype=9; d.pstate.pvstart=first; d.pstate.pvl=end; d.pmasked=1;
   c.pcompute_ufamily=FpArithmetic;
@@ -731,7 +731,7 @@ static void mixed_rows(bool narrow) {
   c.preads.pvs2=1; c.preads.pold_uvd=c.preads.pvs1=!narrow;
   c.pfp.pexecution.punit=narrow?8:1; c.pfp.prounding=narrow?2:0;
   c.pfp.plocal_uresult=narrow?DirectWithFlags:RawThenRound;
-  launch_owner=2; launch_in.pvalid=1; read_in.pready=1;
+  launch_in.pbits.pcontext=2; launch_in.pvalid=1; read_in.pready=1;
   tick_model(); launch_in.pvalid=0;
   unsigned reads=0,writes=0; bool returning=false;
   const auto active=[](unsigned i){ return i>=first && i<end && i%4!=2; };
@@ -796,7 +796,7 @@ static void fp_fold(unsigned mode, bool empty=false) {
   constexpr unsigned n=bytes/4, rows=2;
   const bool all_masked=mode==1, invalid=mode==2, wide=mode==3, minmax=mode>=4;
   reset=1; launch_in={}; operands_in={}; chain_in={}; reduction_in={}; fp_result_in={}; tick_model(); reset=0;
-  auto &d=launch_in.pbits; auto &c=d.pcontrol;
+  auto &d=launch_in.pbits.pdescriptor; auto &c=d.pcontrol;
   d.pinstruction=(8u<<20)|(12u<<15)|(16u<<7); d.pstate.pvtype=wide?8:16;
   const unsigned per=wide?bytes/2:n, end=2*per;
   d.pstate.pvl=empty?0:end; d.pmasked=1;
@@ -810,7 +810,7 @@ static void fp_fold(unsigned mode, bool empty=false) {
   auto &acc=reduction_in.pvalue; acc.pvalid=!empty;
   std::memcpy(&acc.pbits,&seed,4);
   read_credit=0; read_in.pready=1; fixed_write_credit=reserve_in.pready=0;
-  launch_owner=3; launch_in.pvalid=1; eval(); CHECK(launch_out.pready); tick_model(); launch_in.pvalid=0;
+  launch_in.pbits.pcontext=3; launch_in.pvalid=1; eval(); CHECK(launch_out.pready); tick_model(); launch_in.pvalid=0;
   c.pfp.plocal_uresult=minmax?RawThenRound:DirectNoFlags; // feedback belongs to the accepted fold
   unsigned reads=0,writes=0,steps=0,bookings=0; bool returning=false,done=false;
   for(unsigned t=0;t<150 && !done;++t) {
@@ -861,13 +861,13 @@ static void fp_fold(unsigned mode, bool empty=false) {
 // Delay both ends of the scalar service and the final VRF reservation.
 static void double_fold() {
   reset=1; launch_in={}; operands_in={}; fp_result_in={}; reduction_in={}; chain_in={}; tick_model(); reset=0;
-  auto &d=launch_in.pbits; auto &c=d.pcontrol;
+  auto &d=launch_in.pbits.pdescriptor; auto &c=d.pcontrol;
   d.pinstruction=(8u<<20)|(12u<<15)|(16u<<7); d.pstate.pvtype=16; d.pstate.pvl=3; d.pmasked=1;
   c.pcursor=1; c.pvps=2; c.psequence=1; // Fold cursor, VPS seed, reduction.
   c.preads.pvs1=c.preads.pvs2=1;
   c.pfloating_upoint=c.pfp_uservice=1; c.pfp.pexecution.punit=2;
   c.pcompute_ufamily=FpArithmetic; c.pwidth_ushape=Widen;
-  launch_owner=2; launch_in.pvalid=1; read_in.pready=1; read_credit=fixed_write_credit=reserve_in.pready=0;
+  launch_in.pbits.pcontext=2; launch_in.pvalid=1; read_in.pready=1; read_credit=fixed_write_credit=reserve_in.pready=0;
   tick_model(); launch_in.pvalid=0;
   auto &acc=reduction_in.pvalue; acc.pvalid=1;
   unsigned reads=0,sent=0,due=0,replies=0,updates=0,stalls=0; bool returned=false,done=false;
@@ -912,13 +912,13 @@ static void double_fold() {
 static void iterative_fp_row(unsigned sew, bool empty, bool sqrt) {
   const unsigned size=1u<<sew, lanes=bytes/size;
   reset=1; launch_in={}; operands_in={}; fp_result_in={}; chain_in={}; tick_model(); reset=0;
-  auto &d=launch_in.pbits; auto &c=d.pcontrol;
+  auto &d=launch_in.pbits.pdescriptor; auto &c=d.pcontrol;
   d.pinstruction=(8u<<20)|(12u<<15)|(16u<<7); d.pstate.pvtype=sew*8;
   d.pstate.pvstart=lanes>2; d.pstate.pvl=lanes-(lanes>3); d.pmasked=1;
   c.pcompute_ufamily=FpDivSqrt;
   c.pfp_uservice=c.pfloating_upoint=c.preads.pvs2=1; c.preads.pvs1=!sqrt;
   c.pfp.pexecution.pdivide_uoperation=sqrt;
-  c.pfp.pexecution.punit=4; launch_owner=2; launch_in.pvalid=1;
+  c.pfp.pexecution.punit=4; launch_in.pbits.pcontext=2; launch_in.pvalid=1;
   read_in.pready=1; fixed_write_credit=reserve_in.pready=read_credit=shared_write_in.pready=0;
   tick_model(); launch_in.pvalid=0;
   unsigned live=0;
@@ -978,13 +978,13 @@ static void shared_tail_credit(bool fp) {
   divide_request_in.pready=fp_request_in.pready=shared_write_in.pready=0;
   fixed_write_credit=reserve_in.pready=0; read_credit=read_in.pready=0;
   auto offer=[&](unsigned owner, bool divide) {
-    auto &d=launch_in.pbits; d={}; d.pinstruction=(8u<<20)|(12u<<15)|((12+2*owner)<<7);
+    auto &d=launch_in.pbits.pdescriptor; d={}; d.pinstruction=(8u<<20)|(12u<<15)|((12+2*owner)<<7);
     d.pstate.pvtype=16; d.pstate.pvl=1;
     auto &c=d.pcontrol; c.preads.pvs1=c.preads.pvs2=1;
     c.pcompute_ufamily=divide ? (fp ? FpDivSqrt : IntDivide) : IntegerData;
     if(divide && fp) { c.pfloating_upoint=c.pfp_uservice=c.preads.pvs1=1; c.pfp.pexecution.punit=4; }
     else { c.pinteger=1; c.pmultiply_udivide=divide; }
-    launch_owner=owner; launch_in.pvalid=1;
+    launch_in.pbits.pcontext=owner; launch_in.pvalid=1;
   };
   offer(1,true); eval(); CHECK(launch_out.pready); tick_model();
   offer(2,true); eval(); CHECK(read_out.pvalid && !launch_out.pready && !issued_out.pvalid); tick_model();
@@ -1024,7 +1024,7 @@ static void overlap_divides(bool both_ready) {
   read_in.pready=fixed_write_credit=reserve_in.pready=divide_request_in.pready=fp_request_in.pready=1;
   read_credit=shared_write_in.pready=0;
   auto launch=[&](unsigned owner, unsigned vd) {
-    auto &d=launch_in.pbits; d={};
+    auto &d=launch_in.pbits.pdescriptor; d={};
     d.pinstruction=8u<<20 | 12u<<15 | vd<<7;
     d.pstate.pvtype=2*8; d.pstate.pvl=1;
     auto &c=d.pcontrol; c.preads.pvs1=c.preads.pvs2=1;
@@ -1032,7 +1032,7 @@ static void overlap_divides(bool both_ready) {
     if(owner==1) { c.pmultiply_udivide=c.pinteger=1; }
     else if(owner==2) { c.pfloating_upoint=c.pfp_uservice=c.preads.pvs1=1; c.pfp.pexecution.punit=4; }
     else c.pinteger=1;
-    launch_owner=owner; launch_in.pvalid=1; eval(); CHECK(launch_out.pready);
+    launch_in.pbits.pcontext=owner; launch_in.pvalid=1; eval(); CHECK(launch_out.pready);
     tick_model(); launch_in.pvalid=0;
     eval(); CHECK(read_out.pvalid && bool(reserve_out.pvalid)==(owner==3));
     CHECK(issued_out.pvalid && issued_out.pbits==owner);
@@ -1090,7 +1090,7 @@ static void scan_completion_contest(bool divide, bool port_ready) {
   read_credit=read_in.pready=fixed_write_credit=reserve_in.pready=divide_request_in.pready=1;
   shared_write_in.pready=0;
   auto offer=[&](unsigned owner) {
-    auto &d=launch_in.pbits; d={}; d.pinstruction=(8u<<20)|(12u<<15)|((12u+2*owner)<<7);
+    auto &d=launch_in.pbits.pdescriptor; d={}; d.pinstruction=(8u<<20)|(12u<<15)|((12u+2*owner)<<7);
     d.pstate.pvtype=16; d.pstate.pvl=1;
     auto &c=d.pcontrol; c.pinteger=1;
     c.pvps=owner==2; c.ppermutation=owner==2 ? 8 : 0; // Compress or None.
@@ -1098,7 +1098,7 @@ static void scan_completion_contest(bool divide, bool port_ready) {
     c.preads.pvs1=c.preads.pvs2=owner!=2;
     c.pcompute_ufamily=divide && owner==1 ? IntDivide : IntegerData;
     c.pmultiply_udivide=divide && owner==1;
-    launch_owner=owner; launch_in.pvalid=1;
+    launch_in.pbits.pcontext=owner; launch_in.pvalid=1;
   };
   offer(1); eval(); CHECK(launch_out.pready); tick_model();
   offer(2); eval(); CHECK(launch_out.pready && issued_out.pvalid && issued_out.pbits==1); tick_model();
@@ -1137,14 +1137,14 @@ static void scan_completion_contest(bool divide, bool port_ready) {
 template<class Request, class Reply>
 static void pipelined_double_row(const Request &request, Reply &reply, bool widen) {
   reset=1; launch_in={}; operands_in={}; reply={}; chain_in={}; tick_model(); reset=0;
-  auto &d=launch_in.pbits; auto &c=d.pcontrol;
+  auto &d=launch_in.pbits.pdescriptor; auto &c=d.pcontrol;
   c.pwidth_ushape=widen?Widen:Same; c.pcompute_ufamily=FpArithmetic; c.pfloating_upoint=c.pfp_uservice=1;
   c.pfp.pexecution.punit=2; c.preads.pvs1=c.preads.pvs2=1;
   d.pstate.pvtype=widen?16:24; d.pstate.pvl=2; d.pinstruction=8u<<20 | 12u<<15 | 16u<<7;
   fixed_write_credit=reserve_in.pready=shared_write_in.pready=0; read_credit=read_in.pready=1;
-  fp_request_in.pready=0; launch_owner=2; launch_in.pvalid=1; tick_model();
+  fp_request_in.pready=0; launch_in.pbits.pcontext=2; launch_in.pvalid=1; tick_model();
   c.pcompute_ufamily=FpDivSqrt; c.pwidth_ushape=Same; c.pfp.pexecution.punit=4;
-  d.pinstruction=8u<<20 | 12u<<15 | 24u<<7; launch_owner=1;
+  d.pinstruction=8u<<20 | 12u<<15 | 24u<<7; launch_in.pbits.pcontext=1;
   eval(); CHECK(read_out.pvalid && issued_out.pvalid && launch_out.pready && !reserve_out.pvalid);
   tick_model(); launch_in.pvalid=0;
   operands_in.pvalid=1;
@@ -1189,12 +1189,12 @@ static void pipelined_double_row(const Request &request, Reply &reply, bool wide
 static void held_mask_fragment() {
   reset=1; launch_in={}; operands_in={}; fp_result_in={}; chain_in={}; tick_model(); reset=0;
   shared_write_in.pready=0; fp_request_in.pready=read_credit=read_in.pready=fixed_write_credit=reserve_in.pready=1;
-  auto &d=launch_in.pbits; auto &c=d.pcontrol;
+  auto &d=launch_in.pbits.pdescriptor; auto &c=d.pcontrol;
   d.pinstruction=8u<<20 | 12u<<15; d.pstate.pvtype=24; d.pstate.pvl=4; d.pstate.pvstart=2; d.pmasked=1;
   c.pfloating_upoint=c.pfp_uservice=c.preads.pvs1=c.preads.pvs2=1;
   c.pcompute_ufamily=FpArithmetic; c.prow_ulayout=ElementsToMask; c.presult_ukind=1;
   c.pfp.presult=2; c.pfp.pexecution.punit=7;
-  launch_owner=1; launch_in.pvalid=1; eval(); CHECK(launch_out.pready); tick_model(); launch_in.pvalid=0;
+  launch_in.pbits.pcontext=1; launch_in.pvalid=1; eval(); CHECK(launch_out.pready); tick_model(); launch_in.pvalid=0;
   eval(); CHECK(read_out.pvalid && issued_out.pvalid && !reserve_out.pvalid); tick_model();
   operands_in.pvalid=1;
   const std::uint64_t src[]={UINT64_C(0x7ff0000000000001),UINT64_C(0x3ff0000000000000)};
@@ -1209,7 +1209,7 @@ static void held_mask_fragment() {
   c.pfloating_upoint=c.pfp_uservice=c.preads.pvs2=1; c.pcompute_ufamily=FpArithmetic;
   c.prow_ulayout=ElementRows; c.pfp.pexecution.punit=10; c.pfp.presult=1;
   c.pfp.plocal_uresult=DirectNoFlags;
-  launch_owner=2; launch_in.pvalid=1;
+  launch_in.pbits.pcontext=2; launch_in.pvalid=1;
   for(unsigned t=0;t<7;++t) {
     shared_write_in.pready=t==6; operands_in.pvalid=t==2;
     operands_in.pbits.pdata[0]={}; // +0 classifies as bit 4, not a mask bit.
@@ -1322,8 +1322,8 @@ int main() {
       tick_model();
     };
     auto launch = [&](bool second) {
-      auto& d = launch_in.pbits; d = {};
-      launch_owner = second ? 0 : 3;
+      auto& d = launch_in.pbits.pdescriptor; d = {};
+      launch_in.pbits.pcontext = second ? 0 : 3;
       d.pstate.pvl = 2*bytes - !second; d.pstate.pvstart = !second;
       d.pmasked = !second; d.pscalar = 0x7a;
       d.pcontrol.preads.pvs2=1; d.pcontrol.preads.pvs1=!second;
@@ -1353,7 +1353,7 @@ int main() {
 
     // FP flags and masked data mature together on the promised write edge.
     constexpr unsigned lanes = bytes / sizeof(std::uint32_t);
-    auto &d = launch_in.pbits;
+    auto &d = launch_in.pbits.pdescriptor;
     constexpr unsigned fp_rows=16;
     d = {}; d.pstate.pvl = fp_rows*lanes; d.pstate.pvtype = 19; // e32,m8
     d.pcontrol.pcompute_ufamily=FpArithmetic;
@@ -1394,9 +1394,9 @@ int main() {
     };
     for (unsigned unit : {2u,1u}) { // add and fused multiply-accumulate, RUP
       d.pcontrol.preads.pold_uvd=unit==1; d.pcontrol.pfp.pexecution.punit=unit; d.prounding_umode=3;
-      launch_owner=2; fixed_write_credit=reserve_in.pready=0; launch_in.pvalid=1;
+      launch_in.pbits.pcontext=2; fixed_write_credit=reserve_in.pready=0; launch_in.pvalid=1;
       eval(); CHECK(launch_out.pready); tick_model(); launch_in.pvalid=0;
-      d.prounding_umode=0; launch_owner=1; // input no longer owns these rows
+      d.prounding_umode=0; launch_in.pbits.pcontext=1; // input no longer owns these rows
       reads=writes=0; returning=false;
       for (unsigned i=0;i<12;++i) fp_step();
       CHECK(!reads && !writes);
@@ -1415,14 +1415,14 @@ int main() {
       d.pcontrol.preads.pold_uvd=mac; d.pcontrol.pproduct.pvd_urole=mac ? VdAddend : VdUnused;
       d.pcontrol.pproduct.pselect=ProductLow;
       d.pinstruction=(4u<<20)|(6u<<15)|(12u<<7);
-      launch_owner=1; fixed_write_credit=reserve_in.pready=1; launch_in.pvalid=1;
+      launch_in.pbits.pcontext=1; fixed_write_credit=reserve_in.pready=1; launch_in.pvalid=1;
       eval(); CHECK(launch_out.pready); tick_model(); launch_in.pvalid=0;
       std::array<bool,16> promised{};
       unsigned count=0;
       for (unsigned t=0;t<10;++t) {
         if (t==1) {
           d={}; d.pcontrol.preads.pvs1=d.pcontrol.preads.pvs2=1; d.pstate.pvl=2*bytes; d.pinstruction=(8u<<20)|(10u<<15)|(16u<<7);
-          launch_owner=2; launch_in.pvalid=1;
+          launch_in.pbits.pcontext=2; launch_in.pvalid=1;
         } else launch_in.pvalid=0;
         read_credit=read_in.pready=t!=2;
         // Like the calendar, answer the *requested* future edge from older

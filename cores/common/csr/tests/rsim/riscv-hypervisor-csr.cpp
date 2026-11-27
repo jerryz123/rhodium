@@ -20,7 +20,7 @@ constexpr std::uint64_t GVA = UINT64_C(274877906944);
 void clear_commit() {
   commit_in = {};
   guest_fault_in = {};
-  interrupt_boundary = 0;
+  interrupt_boundary_in.pvalid = 0;
 }
 
 void check_context(std::uint8_t mode, bool virtualized) {
@@ -43,9 +43,9 @@ void csr(bool write, std::uint16_t address, std::uint64_t value,
     CHECK(translation_flush == ((expected_flush)&low_mask(1)));
   if (expected_mask_change >= 0)
     CHECK(pointer_masking_changed == ((expected_mask_change)&low_mask(1)));
-  CHECK(command_success && writeback_valid && !redirect_out.pvalid);
+  CHECK(command_success && writeback_out.pvalid && !redirect_out.pvalid);
   if (!write)
-    CHECK(writeback_value == expected);
+    CHECK(writeback_out.pbits == expected);
   tick_csr();
   clear_commit();
 }
@@ -137,7 +137,7 @@ void denied_csr(std::uint16_t address, std::uint64_t cause, bool write = 0) {
   commit_in.pbits.pcsr_usource = UINT64_C(0xffff);
   commit_in.pbits.pinstruction = ((std::uint32_t(address) << 20) | 8435);
   eval_csr();
-  CHECK(!command_success && !writeback_valid && !translation_flush &&
+  CHECK(!command_success && !writeback_out.pvalid && !translation_flush &&
         redirect_out.pvalid && redirect_out.pbits == UINT64_C(0x2000));
   tick_csr();
   clear_commit();
@@ -167,8 +167,8 @@ void take_interrupt(std::uint64_t target, std::uint8_t mode, bool guest,
                     std::uint64_t cause) {
   eval_csr();
   clear_commit();
-  interrupt_pc = UINT64_C(0xabc);
-  interrupt_boundary = 1;
+  interrupt_boundary_in.pbits = UINT64_C(0xabc);
+  interrupt_boundary_in.pvalid = 1;
   eval_csr();
   CHECK(interrupt_request && redirect_out.pvalid &&
         redirect_out.pbits == target);
@@ -329,8 +329,8 @@ void virtual_interrupts() {
   enter_guest();
   eval_csr();
   clear_commit();
-  interrupt_boundary = 1;
-  interrupt_pc = UINT64_C(0xccc);
+  interrupt_boundary_in.pvalid = 1;
+  interrupt_boundary_in.pbits = UINT64_C(0xccc);
   commit_in.pvalid = 1;
   commit_in.pbits.ppc = UINT64_C(0x888);
   commit_in.pbits.pexception_uvalid = 1;
@@ -863,7 +863,7 @@ void invalidation_permissions() {
         commit_in.pbits.pinstruction = instruction;
         commit_in.pbits.paction = ((action + 4) & low_mask(4));
         eval_csr();
-        CHECK(command_success == !denied && !writeback_valid &&
+        CHECK(command_success == !denied && !writeback_out.pvalid &&
               redirect_out.pvalid == denied &&
               translation_flush == (!denied && action != 6));
         tick_csr();
@@ -982,8 +982,8 @@ int main() {
     interrupts = {};
     time_counter = 100;
     hart_id = 0;
-    interrupt_boundary = 0;
-    interrupt_pc = 0;
+    interrupt_boundary_in.pvalid = 0;
+    interrupt_boundary_in.pbits = 0;
     fp_update_in = {};
     cbo_operation = 0;
 
@@ -1084,7 +1084,7 @@ int main() {
     commit_in.pbits.pcsr_uaddress = UINT64_C(0x180);
     commit_in.pbits.pinstruction = UINT64_C(0x180020f3);
     eval_csr();
-    CHECK(!command_success && !writeback_valid && !translation_flush &&
+    CHECK(!command_success && !writeback_out.pvalid && !translation_flush &&
           redirect_out.pbits == UINT64_C(0x2000));
     tick_csr();
     clear_commit();
@@ -1161,8 +1161,8 @@ int main() {
     eval_csr();
     clear_commit();
     interrupts = {0, 0, 1, 0, 0, 0};
-    interrupt_boundary = 1;
-    interrupt_pc = UINT64_C(0xabc);
+    interrupt_boundary_in.pvalid = 1;
+    interrupt_boundary_in.pbits = UINT64_C(0xabc);
     eval_csr();
     CHECK(interrupt_request && redirect_out.pvalid &&
           redirect_out.pbits == UINT64_C(0x2000));

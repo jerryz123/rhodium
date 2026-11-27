@@ -30,8 +30,8 @@ bundle LoadReturnSetup(dlen :: PosInt):
   seed: Bool
   seed_lane: Bits(index_width(vector_row_bytes(dlen)))
 
-/* An assembled segment field was written or skipped; both advance its claim. */
-bundle LoadFieldVisit():
+/* A field visit releases one beat's obligation on a segmented load or store. */
+bundle SegmentFieldVisit():
   field: Bits(3)
   stream: RowAddress
 
@@ -123,4 +123,4 @@ fun memory_command_span(xlen :: XLen, vlen :: VectorLength, c :: MemoryCommand(x
     begin: vector_field_extent(c.data.begin.zext(68), c.layout.nf)[0..vector_span_width(vlen)]
     end: vector_field_extent(c.data.end.zext(68), c.layout.nf)[0..vector_span_width(vlen)]
 
-export LoadReturnSetup LoadFieldVisit SegmentLayout MemoryCommand direct_memory_command checked_memory_command memory_command_rows memory_command_span
+export LoadReturnSetup SegmentFieldVisit SegmentLayout MemoryCommand direct_memory_command checked_memory_command memory_command_rows memory_command_span

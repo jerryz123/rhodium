@@ -40,9 +40,9 @@ void access_csr(std::uint16_t address, std::uint8_t operation, word_t source,
   eval_csr();
   CHECK(redirect_out.pvalid == expect_trap && !translation_flush);
   if (expect_trap) {
-    CHECK(!writeback_valid && redirect_out.pbits == 0);
+    CHECK(!writeback_out.pvalid && redirect_out.pbits == 0);
   } else {
-    CHECK(writeback_valid && (!check_old || writeback_value == expected_old));
+    CHECK(writeback_out.pvalid && (!check_old || writeback_out.pbits == expected_old));
   }
   tick_csr();
   commit_in = {};
@@ -95,7 +95,7 @@ void freeze() { wr(UINT64_C(0x320), 8); }
 void reset_state() {
   eval_csr();
   commit_in = {};
-  interrupt_boundary = 0;
+  interrupt_boundary_in.pvalid = 0;
   interrupts = {};
   reset = 1;
   for (unsigned repeat_index = 0; repeat_index < (2); ++repeat_index)
@@ -129,7 +129,7 @@ int main() {
     reset = 1;
     interrupts = {};
     time_counter = 0;
-    interrupt_boundary = 0;
+    interrupt_boundary_in.pvalid = 0;
     fp_update_in = {};
     cbo_operation = 0;
     reset_state();
@@ -288,7 +288,7 @@ int main() {
     commit_in.pbits.pcsr_uaddress = UINT64_C(0xb03);
     commit_in.pbits.prd = 1;
     eval_csr();
-    CHECK(writeback_valid && writeback_value >= 5);
+    CHECK(writeback_out.pvalid && writeback_out.pbits >= 5);
     tick_csr();
     commit_in = {};
 
@@ -319,12 +319,12 @@ int main() {
     wr(UINT64_C(0x300), 8);
     CHECK(interrupt_request);
     eval_csr();
-    interrupt_pc = UINT64_C(0x444);
-    interrupt_boundary = 1;
+    interrupt_boundary_in.pbits = UINT64_C(0x444);
+    interrupt_boundary_in.pvalid = 1;
     eval_csr();
     CHECK(redirect_out.pvalid);
     tick_csr();
-    interrupt_boundary = 0;
+    interrupt_boundary_in.pvalid = 0;
     rd(UINT64_C(0x342), (word_t(1) << (XLEN - 1)) | 13);
     rd(UINT64_C(0x341), UINT64_C(0x444));
     rd(UINT64_C(0x344), UINT64_C(0x2000));
@@ -334,10 +334,10 @@ int main() {
     wr(UINT64_C(0x344), UINT64_C(0x2000));
     enter_mode(0);
     eval_csr();
-    interrupt_pc = UINT64_C(0x448);
-    interrupt_boundary = 1;
+    interrupt_boundary_in.pbits = UINT64_C(0x448);
+    interrupt_boundary_in.pvalid = 1;
     tick_csr();
-    interrupt_boundary = 0;
+    interrupt_boundary_in.pvalid = 0;
     CHECK(privilege == 1);
     rd(UINT64_C(0x142), (word_t(1) << (XLEN - 1)) | 13);
     rd(UINT64_C(0x141), UINT64_C(0x448));
@@ -368,10 +368,10 @@ int main() {
       wr(UINT64_C(0x344), UINT64_C(0x2000));
       enter_guest(1);
       eval_csr();
-      interrupt_pc = UINT64_C(0x450);
-      interrupt_boundary = 1;
+      interrupt_boundary_in.pbits = UINT64_C(0x450);
+      interrupt_boundary_in.pvalid = 1;
       tick_csr();
-      interrupt_boundary = 0;
+      interrupt_boundary_in.pvalid = 0;
       CHECK(!virtualized_value() && privilege == 1);
       rd(UINT64_C(0x142), (word_t(1) << 63) | 13);
 
@@ -382,10 +382,10 @@ int main() {
       wr(UINT64_C(0x645), UINT64_C(0x40));
       enter_guest(1);
       eval_csr();
-      interrupt_pc = UINT64_C(0x454);
-      interrupt_boundary = 1;
+      interrupt_boundary_in.pbits = UINT64_C(0x454);
+      interrupt_boundary_in.pvalid = 1;
       tick_csr();
-      interrupt_boundary = 0;
+      interrupt_boundary_in.pvalid = 0;
       CHECK(!virtualized_value() && privilege == 1);
       rd(UINT64_C(0x142), (word_t(1) << 63) | 6);
 
@@ -398,10 +398,10 @@ int main() {
       wr(UINT64_C(0x645), UINT64_C(0x40));
       enter_guest(1);
       eval_csr();
-      interrupt_pc = UINT64_C(0x458);
-      interrupt_boundary = 1;
+      interrupt_boundary_in.pbits = UINT64_C(0x458);
+      interrupt_boundary_in.pvalid = 1;
       tick_csr();
-      interrupt_boundary = 0;
+      interrupt_boundary_in.pvalid = 0;
       CHECK(!virtualized_value() && privilege == 1);
       rd(UINT64_C(0x142), (word_t(1) << 63) | 13);
     }

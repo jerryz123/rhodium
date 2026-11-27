@@ -109,18 +109,15 @@ sync_circuit VectorSegmentClaims(xlen :: XLen, vlen :: VectorLength):
   def dlen = vector_dlen(vlen)
   def Beats = Bits(MaxBeats)
   interface install(Valid(MemoryCommand(xlen, vlen)), ~role: consumer)
-  input consumed: Bool
-  input field: Bits(3)
-  input stream: RowAddress
-  input skip: Bool
-  input skipped_stream: RowAddress
+  interface visit(Valid(SegmentFieldVisit()), ~role: consumer)
+  interface skip(Valid(RowAddress), ~role: consumer)
   output claims: RowSet
   def incoming = install.bits.layout
   reg layout(SegmentLayout())
   when (install.valid): layout <== incoming
   def stream_span = memory_command_span(xlen, vlen, install.bits)
   def range = vector_span_cover(vlen, stream_span, dlen div 8, MaxBeats, Bits(index_width(MaxBeats))(0))
-  def skipped = mux(skip, Beats(1) << skipped_stream, Beats(0))
+  def skipped = mux(skip.valid, Beats(1) << skip.bits, Beats(0))
   reg pending(~init: literal(Vec(MaxFields, Beats), 0))
   def rows = for List (f in 0..MaxFields):
     /* Only beats containing this field can create a row obligation. */
@@ -128,7 +125,7 @@ sync_circuit VectorSegmentClaims(xlen :: XLen, vlen :: VectorLength):
       def lanes = dlen div (8*bytes)
       vec(for List (i in 0..MaxBeats): Bool(f < n && ((f - i*lanes) mod n) < lanes)).as_bits()
     def present = by_shape(dlen, incoming, presence)
-    def accepted = mux(consumed & (field === Bits(3)(f)), Beats(1) << stream, Beats(0))
+    def accepted = mux(visit.valid & (visit.bits.field === Bits(3)(f)), Beats(1) << visit.bits.stream, Beats(0))
     pending[f] <== mux(install.valid, present & range, pending[f] & !(skipped ||| accepted))
     def counts = for List (n in 2..(MaxFields+1)):
       [n-1, vec(for List (i in 0..((MaxBeats+n-1) div n)): pending[f][i*n..math.min((i+1)*n,MaxBeats)].any()).as_bits().zext(MaxBeats)]

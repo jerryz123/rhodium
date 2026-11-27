@@ -343,9 +343,9 @@ each little-endian X8R8G8B8 word emits bits 23:0 as RGB888.
 
 `HDMIScanout(config, ~rows: 2)` takes `enable`, `pixel_enable`, a physical
 `framebuffer` command, and CHI `identity`. All ports use one clock. Each
-asserted `pixel_enable` launches one video sample; `pixel_valid` and its
-RGB/HS/VS/data-enable result appear after that rising edge, aligned with the
-one-cycle SRAM read. Video is meaningful only when `pixel_valid` is true.
+asserted `pixel_enable` launches one video sample; `pixel.valid` and its
+`HDMIVideo` payload appear after that rising edge, aligned with the
+one-cycle SRAM read. Video is meaningful only when `pixel.valid` is true.
 Timing advances solely on pixel enables, including while disabled or starved;
 RGB is black during blanking and while disabled. Reset begins at the start of
 vertical blanking. The platform supplies the pixel cadence and keeps node
@@ -369,19 +369,18 @@ MMIO control remains a later component.
 
 [`display/tmds.rhdl`](display/tmds.rhdl) supplies the portable TMDS encoding stage, following
 [DVI 1.0 sections 3.2.1--3.2.3](https://glenwing.github.io/docs/DVI-1.0.pdf).
-`TMDSChannelEncoder()` accepts `valid`, an eight-bit `data` value,
+`TMDSChannelEncoder()` accepts `sample: Valid(TMDSLaneSample())` with eight-bit `data`,
 `data_enable`, and two-bit `control` (C1 in bit 1, C0 in bit 0). Each valid
-sample produces a registered ten-bit `symbol` and `symbol_valid` after the
+sample produces a registered `symbol: Valid(Bits(10))` after the
 sampling edge. It accepts one sample per cycle without backpressure.
 Active samples update running disparity; accepted blanking samples emit a
 control symbol and reset disparity. Invalid cycles hold the previous symbol
-and disparity and deassert `symbol_valid`. Synchronous reset clears valid and
+and disparity and deassert `symbol.valid`. Synchronous reset clears valid and
 disparity and initializes the held symbol to control 00.
 
-`TMDSVideoEncoder()` accepts `pixel_valid`, RGB888, `hsync`, `vsync`, and
-`data_enable`. Connect these directly to `HDMIScanout.pixel_valid` and its
-`video` fields. The encoder adds one system-clock cycle to the scanout output.
-`symbols.blue`, `.green`, and `.red` are the three independently balanced
+`TMDSVideoEncoder()` accepts the same `Valid(HDMIVideo())` samples as scanout produces:
+connect `scanout.pixel |> encoder.pixel`. The encoder adds one system-clock cycle to the scanout output.
+`symbols.bits.blue`, `.green`, and `.red` are the three independently balanced
 TMDS lanes (physical channels 0, 1, and 2). During blanking, blue carries
 C0=HS and C1=VS; green and red carry control 00. The encoder must receive the
 blanking samples as well as active pixels. Each symbol is serialized bit 0

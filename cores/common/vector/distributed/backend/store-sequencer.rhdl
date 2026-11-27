@@ -73,11 +73,9 @@ sync_circuit VectorStoreSequencer(xlen :: XLen, vlen :: VectorLength, slots :: P
   ) |> rows
   segments.install.valid <== prepare.fire()
   segments.install.bits <== prepare.bits.command
-  segments.consumed <== capture.captured
-  segments.field <== capture.captured_field
-  segments.stream <== capture.prepared.bits.row
-  segments.skip <== capture.prepared.fire() & !capture.prepared.bits.enabled.any()
-  segments.skipped_stream <== capture.prepared.bits.row
+  capture.visit |> segments.visit
+  segments.skip.valid <== capture.prepared.fire() & !capture.prepared.bits.enabled.any()
+  segments.skip.bits <== capture.prepared.bits.row
   when (prepare.fire()):
     capture_owner <== prepare.bits.owner
     capturing <== Bool(#true)

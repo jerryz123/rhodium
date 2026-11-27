@@ -46,6 +46,12 @@ hardware_enum RowUnit:
       [RowUnit.SharedFpPipelined, RowWriteback.FpAdapter], [RowUnit.SharedFpIterative, RowWriteback.FpAdapter]
     ])
 
+/* Captures the owner and resolved execution route on the descriptor launch edge. */
+bundle ExecuteCommand(Descriptor :: DataType, Owner :: DataType):
+  descriptor: Descriptor
+  owner: Owner
+  unit: RowUnit
+
 /* Per-instruction controls used to select and execute captured row operands. */
 bundle ExecuteOperandControl():
   data_result: VectorDataResult
@@ -119,4 +125,4 @@ interface FoldDatapath(dlen :: PosInt, Owner :: DataType):
     fp_feedback: Valid(Bits(dlen))
     feedback_flags: Bits(5)
 
-export ExecuteOperandControl ExecuteRowContext RowUnit RowWriteback VectorRowIssue FoldDatapath
+export ExecuteCommand ExecuteOperandControl ExecuteRowContext RowUnit RowWriteback VectorRowIssue FoldDatapath

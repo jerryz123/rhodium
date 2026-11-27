@@ -7,6 +7,8 @@ import:
   "../../decode.rhdl".VectorLocalFpResult
   "../../decode.rhdl".VectorResultKind
   "issue.rhdl".FoldDatapath
+  "issue.rhdl".ExecuteCommand
+  "issue.rhdl".RowUnit
   "../../bundles.rhdl".VectorDescriptor
   "../../geometry.rhdl".vector_element_span
   "../../geometry.rhdl".compute_extent
@@ -49,9 +51,7 @@ sync_circuit VectorFoldCursor(xlen :: XLen, vlen :: VectorLength, Owner :: DataT
   def bytes = dlen div 8
   def mb = index_width(dlen)
   def Count = Bits(index_width(vlen+1))
-  interface launch(Valid(VectorDescriptor(xlen)), ~role: consumer)
-  input launch_owner: Owner
-  input launch_floating: Bool
+  interface launch(Valid(ExecuteCommand(VectorDescriptor(xlen), Owner)), ~role: consumer)
   output busy: Bool
   output source_owner: Owner
   output unissued: NativeRowClaims()
@@ -226,7 +226,7 @@ sync_circuit VectorFoldCursor(xlen :: XLen, vlen :: VectorLength, Owner :: DataT
      Keep the private state through its final return; booked writes retain
      the owner independently once the cursor releases the descriptor. */
 
-  def d :: VectorDescriptor(xlen) = launch.bits
+  def d :: VectorDescriptor(xlen) = launch.bits.descriptor
   def c = d.control
   def moving = c.sequence === VectorSequence.Extract
   def reduce = c.sequence === VectorSequence.Reduction
@@ -249,13 +249,13 @@ sync_circuit VectorFoldCursor(xlen :: XLen, vlen :: VectorLength, Owner :: DataT
   when (launch.valid):
     assert(!busy, "fold_allocates_idle_cursor")
     phase <== mux(has_body, FoldPhase.Source, mux(extent.scalar_result, FoldPhase.Scalar, FoldPhase.Empty))
-    owner <== launch_owner
+    owner <== launch.bits.owner
     extract <== moving
     reads_vs2 <== c.reads.vs2
     dense <== packed
     result_kind <== c.result_kind
     is_reduce <== reduce
-    floating <== launch_floating
+    floating <== launch.bits.unit.is_one_of(RowUnit.LocalFp, RowUnit.SharedFpPipelined)
     accrued <== Bits(5)(0)
     contributed <== Bool(#false)
     execution <== c.fp.execution

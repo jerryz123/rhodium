@@ -63,6 +63,7 @@ model stays beside its Rhodium adapter under `uart/dpi/`.
 | 8-N-1 serial engines | [`uart/uart.rhdl`](uart/uart.rhdl) |
 | 16550-style registers, FIFOs, and CHI endpoint | [`uart/uart16550.rhdl`](uart/uart16550.rhdl) |
 | Fixed HDMI timing, framebuffer contract, and CHI frame reader | [`display/hdmi.rhdl`](display/hdmi.rhdl) |
+| Parallel pixel contract shared by scanout and TMDS | [`display/video.rhdl`](display/video.rhdl) |
 | Synchronous row SRAM, pixel unpacking, video timing, and CHI scanout composition | [`display/hdmi-scanout.rhdl`](display/hdmi-scanout.rhdl) |
 | Independent TMDS channel disparity and three-channel video encoding | [`display/tmds.rhdl`](display/tmds.rhdl) |
 | Rhodium PTY adapter | [`uart/uart-dpi.rhdl`](uart/uart-dpi.rhdl) |

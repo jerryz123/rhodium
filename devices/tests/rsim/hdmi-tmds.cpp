@@ -16,45 +16,45 @@ void sample(bool present, bool active, std::uint8_t value,
             std::uint8_t controls) {
   std::uint8_t recovered, minimized;
   eval();
-  valid = present;
-  data_enable = active;
-  data = value;
-  control = controls;
+  sample_in.pvalid = present;
+  sample_in.pbits.pdata_uenable = active;
+  sample_in.pbits.pdata = value;
+  sample_in.pbits.pcontrol = controls;
   if (present)
     expected = tmds_reference(value, controls, active, running);
   tick_model();
-  CHECK(symbol_valid == present && symbol == expected);
+  CHECK(symbol_out.pvalid == present && symbol_out.pbits == expected);
   if (present && active) {
-    active_codes[symbol] = 1;
-    minimized = (symbol & 512) ? ~slice(symbol, 7, 0) : slice(symbol, 7, 0);
+    active_codes[symbol_out.pbits] = 1;
+    minimized = (symbol_out.pbits & 512) ? ~slice(symbol_out.pbits, 7, 0) : slice(symbol_out.pbits, 7, 0);
     recovered = minimized & 1;
     for (int i = 1; i < 8; i++)
       recovered |=
-          (((minimized >> i) ^ (minimized >> (i - 1)) ^ !(symbol & 256)) & 1)
+          (((minimized >> i) ^ (minimized >> (i - 1)) ^ !(symbol_out.pbits & 256)) & 1)
           << i;
     CHECK(recovered == value);
-    CHECK(!(symbol == 852 || symbol == 171 || symbol == 340 || symbol == 683));
+    CHECK(!(symbol_out.pbits == 852 || symbol_out.pbits == 171 || symbol_out.pbits == 340 || symbol_out.pbits == 683));
   }
 }
 
 void restart_encoder() {
   eval();
   reset = 1;
-  valid = 1;
-  data_enable = 1;
+  sample_in.pvalid = 1;
+  sample_in.pbits.pdata_uenable = 1;
   tick_model();
-  CHECK(!symbol_valid && symbol == UINT64_C(852));
+  CHECK(!symbol_out.pvalid && symbol_out.pbits == UINT64_C(852));
   running = 0;
   expected = UINT64_C(852);
   eval();
   reset = 0;
-  valid = 0;
+  sample_in.pvalid = 0;
 }
 
 int main() {
   return run_test([] {
-    valid = 0;
-    data_enable = 0;
+    sample_in.pvalid = 0;
+    sample_in.pbits.pdata_uenable = 0;
 
     states.push_back(0);
     reached[16] = 1;

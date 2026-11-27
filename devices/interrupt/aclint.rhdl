@@ -106,14 +106,14 @@ sync_circuit Aclint(config :: AclintConfig):
   inst transaction(CHISingleBeatSubordinate(p, "aclint"))
   port <=> transaction.port
   transaction.node_id <== identity.node_id
-  def request = transaction.request
+  def request = transaction.device.write.request
   reg mtime(~init: Bits(64)(0))
   reg mtimecmp(Vec(hart_count, Bits(64)), ~init: initial_mtimecmp)
   reg msip(Vec(hart_count, Bool), ~init: vec(
     for List (_index in 0..hart_count): Bool(#false)
   ))
 
-  def incoming = port.req.bits
+  def incoming = transaction.device.decode.candidate
   def incoming_opcode :: CHIReqOpcode = incoming.opcode
   def incoming_write = incoming_opcode.is_initial_write()
   def base_address = Bits(p.request_address_width)(AclintBase)
@@ -124,8 +124,8 @@ sync_circuit Aclint(config :: AclintConfig):
   ) & (
     incoming.tgt_id === identity.node_id
   )
-  transaction.request_supported <== incoming_supported
-  def request_fire = transaction.request_fire
+  transaction.device.decode.supported <== incoming_supported
+  def request_fire = transaction.device.decode.accepted
   def incoming_relative :: Bits(AclintAddressWidth) = incoming_relative_full[0..AclintAddressWidth]
   def request_relative_full :: Bits(p.request_address_width) = request.address - base_address
   def request_relative :: Bits(AclintAddressWidth) = request_relative_full[0..AclintAddressWidth]
@@ -154,8 +154,8 @@ sync_circuit Aclint(config :: AclintConfig):
                             timer_register_offset)
   def register_lane = bus_lane - register_offset
   def register_beat = RegisterBeatView(data_bytes, register_lane)
-  def register_mask = register_beat.extract_enables(port.dat.request.bits.byte_enable)
-  def write_value = register_beat.extract_data(port.dat.request.bits.data, 64)
+  def register_mask = register_beat.extract_enables(transaction.device.write.offer.bits.byte_enable)
+  def write_value = register_beat.extract_data(transaction.device.write.offer.bits.data, 64)
   def write_mask = register_mask[0..8].expand_mask(8)
   def selected_value = priority_mux(~default: Bits(64)(0)):
     mswi_access: msip[mswi_index].as_bits().zext(64)
@@ -164,16 +164,16 @@ sync_circuit Aclint(config :: AclintConfig):
 
   def register_read_data = register_beat.place(selected_value)
 
-  transaction.write_supported <== Bool(#true)
-  transaction.write_ready <== Bool(#true)
-  def write_data_fire = transaction.write_data_fire
+  transaction.device.write.supported <== Bool(#true)
+  transaction.device.write.ready <== Bool(#true)
+  def write_data_fire = transaction.device.write.accepted
   // The update stream carries the state that becomes visible after this edge,
   // allowing sparse consumers to capture the new timer value without polling.
   def mtime_write = write_data_fire & mtime_access
   def written_mtime = mtime.masked_merge(write_value, write_mask)
   def incremented_mtime = mtime + Bits(64)(1)
 
-  transaction.read_data <== register_read_data
+  transaction.device.decode.read_data <== register_read_data
 
   when mtime_write:
     mtime <== written_mtime

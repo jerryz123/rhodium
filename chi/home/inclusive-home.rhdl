@@ -386,7 +386,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
     assert(chi_hnf_request_supported(p, home_config, incoming_request), "chi_inclusive_hnf_request_opcode_supported")
     assert(chi_hnf_service_supported(p, incoming_request, home_config, identity.service_base), "chi_inclusive_hnf_request_service_supported")
 
-  def lookup_response_valid = directory.response_valid
+  def lookup_response_valid = directory.response.valid
   when lookup_response_valid:
     assert(lines.port.response.valid, "chi_inclusive_hnf_lookup_storage_ready")
 
@@ -956,18 +956,18 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def lookup_request = requests[lookup_owner]
   def lookup_set = cache_set(lookup_request.address)
   def lookup_line_address = line_address(lookup_request.address)
-  def lookup_valids :: Mask(ways) = vec(for List (way in 0..ways): directory.response[way].valid).into(Mask(ways))
+  def lookup_valids :: Mask(ways) = vec(for List (way in 0..ways): directory.response.bits[way].valid).into(Mask(ways))
   def lookup_matches = vec(
     for List (way in 0..ways):
-      lookup_valids[way] & (directory.response[way].line_address === lookup_line_address)
+      lookup_valids[way] & (directory.response.bits[way].line_address === lookup_line_address)
   )
 
   def lookup_selection = priority_encoder_oh(lookup_matches)
   def allocation_way = plru_replacement_way(ways, lookup_valids.as_vec(Bool), replacement_state[lookup_set])
   def lookup_way = mux(lookup_selection.valid, lookup_selection.index, allocation_way)
-  def lookup_entry :: CHIInclusiveDirectoryEntry(line_address_width, resident_count) = directory.response[lookup_way]
-  def lookup_victim_valid = directory.response[allocation_way].valid
-  def lookup_victim_address = concat(directory.response[allocation_way].line_address, Bits(offset_width)(0))
+  def lookup_entry :: CHIInclusiveDirectoryEntry(line_address_width, resident_count) = directory.response.bits[lookup_way]
+  def lookup_victim_valid = directory.response.bits[allocation_way].valid
+  def lookup_victim_address = concat(directory.response.bits[allocation_way].line_address, Bits(offset_width)(0))
   def lookup_copyback = lookup_request.opcode === CHIReqOpcode.WriteBackFull
   def lookup_maintenance = chi_cache_maintenance(lookup_request.opcode)
   def lookup_maintenance_discard = lookup_request.opcode === CHIReqOpcode.MakeInvalid
@@ -1163,7 +1163,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
       victim_addresses[index] <== lookup_victim_address
       snoop_victims[index] <== lookup_snoop_victim
       maintenance_hits[index] <== lookup_selection.valid
-      maintenance_dirty[index] <== lookup_selection.valid & directory.response[lookup_way].dirty
+      maintenance_dirty[index] <== lookup_selection.valid & directory.response.bits[lookup_way].dirty
       pending_snoop_targets[index] <== mux(lookup_copyback,
                                            vec(for List (_resident in 0..resident_count): Bool(#false)),
                                            lookup_snoop_targets)
@@ -1191,9 +1191,9 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
         victim_data_beats[index] <== Bits(2)(0)
         remaining_response_data_ids[index] <== chi_transfer_data_ids(lookup_request.address, lookup_request.size(), p)
         when lookup_maintenance:
-          phases[index] <== mux(directory.response[lookup_way].dirty & !lookup_maintenance_discard, CHIInclusiveHNFPhase.SendVictimWriteRequest, CHIInclusiveHNFPhase.FinishMaintenance)
+          phases[index] <== mux(directory.response.bits[lookup_way].dirty & !lookup_maintenance_discard, CHIInclusiveHNFPhase.SendVictimWriteRequest, CHIInclusiveHNFPhase.FinishMaintenance)
         elsewhen lookup_snoop_victim:
-          phases[index] <== mux(directory.response[lookup_way].dirty, CHIInclusiveHNFPhase.EnqueueVictimWriteback, CHIInclusiveHNFPhase.SendFillRequest)
+          phases[index] <== mux(directory.response.bits[lookup_way].dirty, CHIInclusiveHNFPhase.EnqueueVictimWriteback, CHIInclusiveHNFPhase.SendFillRequest)
         otherwise:
           phases[index] <== mux(lookup_request_write, CHIInclusiveHNFPhase.MergeRequesterData, CHIInclusiveHNFPhase.SendCachedData)
     elsewhen response_data_index:

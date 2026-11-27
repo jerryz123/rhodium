@@ -266,8 +266,7 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig, ~sampled_interrupts: sampled
   input interrupts: RiscvInterrupts()
   input hart_id: Bits(width)
   input time_counter: Bits(64)
-  input interrupt_boundary: Bool
-  input interrupt_pc: Bits(width)
+  interface interrupt_boundary(Valid(Bits(width)), ~role: consumer)
   input retire_count: Bits(2)
   interface commit(Valid(RiscvCsrCommand(xlen)), ~role: consumer)
   interface fp_update(Valid(Bits(5)), ~role: consumer)
@@ -278,8 +277,7 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig, ~sampled_interrupts: sampled
   output command_success: Bool
   output wfi: Bool
   output wfi_wake: Bool
-  output writeback_valid: Bool
-  output writeback_value: Bits(width)
+  interface writeback(Valid(Bits(width)), ~role: producer)
   output privilege: PrivilegeMode
   output mstatus: Bits(width)
   output satp: Bits(width)
@@ -865,7 +863,7 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig, ~sampled_interrupts: sampled
         accepted_interrupt
     | live_interrupt
 
-  def interrupt_take = interrupt_boundary & !synchronous_trap.valid & interrupt.valid
+  def interrupt_take = interrupt_boundary.valid & !synchronous_trap.valid & interrupt.valid
   def synchronous_target :: RiscvTrapTarget:
     if hypervisor
     | hypervisor_trap_target(context, synchronous_trap.cause, state.medeleg, state.hedeleg)
@@ -877,7 +875,7 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig, ~sampled_interrupts: sampled
     value: mux(synchronous_trap.valid, synchronous_trap.value, zero)
     target: mux(synchronous_trap.valid, synchronous_target, interrupt.target)
 
-  def trap_pc = mux(interrupt_take, interrupt_pc, commit.bits.pc)
+  def trap_pc = mux(interrupt_take, interrupt_boundary.bits, commit.bits.pc)
   trap_event <== trap
   def trap_to_guest = trap.target === RiscvTrapTarget.VirtualSupervisor
   def trap_to_supervisor = trap.target === RiscvTrapTarget.Supervisor
@@ -1015,8 +1013,8 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig, ~sampled_interrupts: sampled
 
   /* Architectural results and redirect selection */
 
-  writeback_valid <== !trap.valid & ((csr_commit & csr_access_legal) ||| vector_config_commit) & commit.bits.rd.any()
-  writeback_value <== mux(vector_config_commit, vector_csrs.configuration_vl, csr_read_value)
+  writeback.valid <== !trap.valid & ((csr_commit & csr_access_legal) ||| vector_config_commit) & commit.bits.rd.any()
+  writeback.bits <== mux(vector_config_commit, vector_csrs.configuration_vl, csr_read_value)
   interrupt_request <== live_interrupt.valid
   wfi <== command_success & (commit.bits.action === RiscvCsrAction.Wfi)
   wfi_wake <== any(interrupt_pending & state.mie)
@@ -1154,7 +1152,7 @@ sync_circuit RiscvCsrFile(config :: RiscvCsrConfig, ~sampled_interrupts: sampled
     "hpm_overflow": hpm.overflow.valid,
     "interrupt_inputs": interrupts,
     "time_input": time_counter,
-    "interrupt_boundary": interrupt_boundary & !synchronous_trap.valid,
+    "interrupt_boundary": interrupt_boundary.valid & !synchronous_trap.valid,
     "interrupt_take": interrupt_take,
     "synchronous_trap": synchronous_trap.valid,
     "commit": commit.valid,

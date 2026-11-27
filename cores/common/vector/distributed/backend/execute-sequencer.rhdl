@@ -49,9 +49,7 @@ sync_circuit VectorExecuteSequencer(xlen :: XLen, vlen :: VectorLength, slots ::
   def mask_bits = index_width(dlen)
   def offset_bits = index_width(vlen + 1)
   def Owner = Bits(index_width(slots))
-  interface launch(Decoupled(VectorDescriptor(xlen)), ~role: consumer)
-  input launch_owner: Owner
-  input launch_unit: RowUnit
+  interface launch(Decoupled(ExecuteCommand(VectorDescriptor(xlen), Owner)), ~role: consumer)
   input read_credit: Bool
   interface permutation(Decoupled(PermutedRow(dlen)), ~role: consumer)
   input scan_can_finish: Bool
@@ -113,7 +111,7 @@ sync_circuit VectorExecuteSequencer(xlen :: XLen, vlen :: VectorLength, slots ::
   def data_handoff = last & eligible & operands_available & !compress & read_credit & issue.handoff_credit
   launch.ready <== !active ||| data_handoff ||| (terminal_offer & scan_can_finish)
   when (active & launch.fire()): assert(read.fire() ||| (permutation.fire() & end_token), "execute_replacement_requires_tail_transfer")
-  def d :: VectorDescriptor(xlen) = launch.bits
+  def d :: VectorDescriptor(xlen) = launch.bits.descriptor
   def insert = d.control.sequence === VectorSequence.Insert
   def extent = compute_extent(xlen, vlen, d)
   def begin = extent.begin
@@ -168,7 +166,7 @@ sync_circuit VectorExecuteSequencer(xlen :: XLen, vlen :: VectorLength, slots ::
     empty <== !extent.has_body()
     claims <== initial
     active <== Bool(#true)
-    owner <== launch_owner
+    owner <== launch.bits.owner
     permuting <== special
     compress <== d.control.permutation === VectorPermutationKind.Compress
     control <== ExecuteOperandControl():
@@ -176,7 +174,7 @@ sync_circuit VectorExecuteSequencer(xlen :: XLen, vlen :: VectorLength, slots ::
       mask_fragment: mask_fragment
       integer: d.control.integer_row
       sew: sew.into(SimdElementWidth)
-      route: launch_unit
+      route: launch.bits.unit
       division: d.control.division
       widths: widths
       destination_eew: destination_eew

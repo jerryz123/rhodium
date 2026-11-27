@@ -470,7 +470,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     def returned = wb_fp_gpr.valid & wb_fp_gpr.bits.tag.direct & (wb_fp_gpr.bits.tag.lane === Bits(2)(lane))
     def csr_returned = wb_csr_return[lane]
     wb_pipe[lane].egress |> map_valid(token => token.updated(
-      ~resolution: token.resolution.updated(~value: mux(csr_returned, wb_csrs.writeback_value, mux(returned, wb_fp_gpr.bits.value, token.resolution.value))),
+      ~resolution: token.resolution.updated(~value: mux(csr_returned, wb_csrs.writeback.bits, mux(returned, wb_fp_gpr.bits.value, token.resolution.value))),
       ~result_ready: token.result_ready ||| returned ||| csr_returned
     ))
 
@@ -1857,7 +1857,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   def wb_vector_config = wb_system_control.action === RiscvCsrAction.VectorConfig
   def wb_system_prefix = !any(for List (lane in 0..issue_width): wb_stop[lane] & (!wb_vector_config ||| (Bits(2)(lane) <= wb_system_lane))) & !(wb_retained_capture & (wb_retained_lane <= wb_system_lane))
   def wb_system = wb_valid[service_index(wb_system_lane)] & wb_system_control.uses_command() & !wb_wait_capture & !wb_fault_pending & wb_system_prefix
-  wb_csr_return <== vec(for List (lane in 0..issue_width): wb_system & (wb_system_lane === Bits(2)(lane)) & wb_csrs.writeback_valid)
+  wb_csr_return <== vec(for List (lane in 0..issue_width): wb_system & (wb_system_lane === Bits(2)(lane)) & wb_csrs.writeback.valid)
   // The CSR port commits an older configuration before taking its younger peer's trap.
   // Existing fault retention carries that trap across the single-command boundary.
   def wb_defer_fault = wb_system & wb_vector_config & wb_explicit_fault
@@ -1915,8 +1915,8 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
 
   def wb_interrupt_boundary = wb_interrupt & wb_drained & !wb_fault_pending
   interrupt_delivered <== wb_interrupt_boundary
-  wb_csrs.interrupt_boundary <== wb_interrupt_boundary
-  wb_csrs.interrupt_pc <== mux(interrupt_from_idle, wb_resume_pc, rr_operand_pcs[0])
+  wb_csrs.interrupt_boundary.valid <== wb_interrupt_boundary
+  wb_csrs.interrupt_boundary.bits <== mux(interrupt_from_idle, wb_resume_pc, rr_operand_pcs[0])
   def wb_replay = (wb_stop_valid & (wb_selected.resolution.disposition === SuperscalarDisposition.Replay)) ||| wb_vector_scalar_replay
   def wb_replay_owner = mux(wb_vector_scalar_replay, wb_vector_replay_owner.retirement(), wb_selected)
   def wb_replay_owner_pc = mux(wb_vector_scalar_replay, wb_vector_replay_owner_pc, wb_selected_pc)
@@ -1935,7 +1935,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   def wb_redirect_bits = SuperscalarRedirect(xlen):
     pc:
       priority_mux(~default: wb_boundary_instruction.pc):
-        wb_interrupt_boundary: wb_csrs.interrupt_pc
+        wb_interrupt_boundary: wb_csrs.interrupt_boundary.bits
         wb_wake: wb_resume_pc
         wb_replay: wb_replay_owner_pc
 
@@ -2023,7 +2023,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     def wb_deferred = ((wb_accepted & (wb_memory_lane === Bits(2)(lane))) ||| (wb_long_accepted & (wb_long_lane === Bits(2)(lane))) ||| (wb_fp_compute & !wb_fp_direct) ||| (wb_vector_accepted & (wb_vector_lane === Bits(2)(lane))))
     def wb_lane_system = wb_system & (wb_system_lane === Bits(2)(lane))
     def wb_data = priority_mux(~default: wb.resolution.value):
-      wb_lane_system: wb_csrs.writeback_value
+      wb_lane_system: wb_csrs.writeback.bits
       wb_fp_direct & wb.write: fp.completion.bits.value
 
     def retirement = wb_retirement_links[lane].left
@@ -2040,7 +2040,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
 
     describe_interface_contract(if lane == 0 | wb_owners.right | (if lane == 1 | wb_second_owner.right | wb_paths[lane][0]), retirement, "retirement-" ++ to_string(lane), ~trace_model: interface_trace_combinational())
     wb_retirement_paths[lane][0] |> retired[lane]
-    wb_writes[lane] <== wb_eligible & wb.write & !wb_deferred & (!wb_lane_system ||| wb_csrs.writeback_valid)
+    wb_writes[lane] <== wb_eligible & wb.write & !wb_deferred & (!wb_lane_system ||| wb_csrs.writeback.valid)
     wb_train[lane] <== wb_eligible & wb.branch.update.branch
     wb_recover_ras[lane] <== wb_eligible & wb.branch.mispredicted
 

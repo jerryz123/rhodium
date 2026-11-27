@@ -1673,8 +1673,8 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
 
   def wb_current_exception_wait = wb_commit_valid & wb_csrs.command_fault.valid & (wb_deferred_results_pending ||| wb_vector_active ||| !scalar_data.drained)
   def wb_pending_exception_ready = wb_pending_exception_valid & !wb_deferred_results_pending & !wb_vector_active & scalar_data.drained
-  wb_csrs.interrupt_boundary <== !wb_vector_active & !wb_scalar_pending & !wb_reservation_wait_accept & !wb_pending_exception_valid & !wb_redirect_pending & !ex_input.valid & !mem_input.valid & !wb.valid & !wb_deferred_results_pending & scalar_data.drained
-  wb_csrs.interrupt_pc <== priority_mux(~default: if_architectural_pc):
+  wb_csrs.interrupt_boundary.valid <== !wb_vector_active & !wb_scalar_pending & !wb_reservation_wait_accept & !wb_pending_exception_valid & !wb_redirect_pending & !ex_input.valid & !mem_input.valid & !wb.valid & !wb_deferred_results_pending & scalar_data.drained
+  wb_csrs.interrupt_boundary.bits <== priority_mux(~default: if_architectural_pc):
     wb_commit_replay: wb_commit_bits.pc
     wb_commit_valid: wb_commit_bits.resume_pc
 
@@ -1761,10 +1761,10 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
 
   def wb_normal_write = (
     wb_register_path
-      |> filter_valid(committed => !committed.replay & (committed.writeback_source =/= RV5StageWritebackSelect.Vector) & !core_deferred_writeback(committed.writeback_source) & committed.write_enable & ((committed.writeback_source =/= RV5StageWritebackSelect.Csr) ||| wb_csrs.writeback_valid))
+      |> filter_valid(committed => !committed.replay & (committed.writeback_source =/= RV5StageWritebackSelect.Vector) & !core_deferred_writeback(committed.writeback_source) & committed.write_enable & ((committed.writeback_source =/= RV5StageWritebackSelect.Csr) ||| wb_csrs.writeback.valid))
       |> map_valid(committed => RegisterFileWrite(xlen)):
           address: committed.rd
-          data: mux(committed.writeback_source === RV5StageWritebackSelect.Csr, wb_csrs.writeback_value, committed.value)
+          data: mux(committed.writeback_source === RV5StageWritebackSelect.Csr, wb_csrs.writeback.bits, committed.value)
   )
 
   def wb_fp_integer_write = wb_fp_direct_completion |> filter_flow(result => result.rd.any()) |> map_flow(result => RegisterFileWrite(xlen)):
