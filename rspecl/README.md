@@ -118,9 +118,8 @@ Proof hints say **how to check** the contract; they cannot grant it:
   their public `history`, and proposes a `relate` expression. Each occurrence
   has independent history even when two instances reuse one proof. The runner
   follows the elaborated RTL wiring and checks the relation at reset and across
-  steps. [QueuePair](../examples/formal/queue-pair.rspl) needs no wiring map.
-  Use `direct_wires` only to require an exact direct-wiring topology;
-  `forward` checks that a wrapper preserves a child's event batch.
+  steps, as in [QueuePair](../examples/formal/queue-pair.rspl). Use `forward`
+  when the obligation is that a wrapper preserves a child's event batch.
 - An alternate monitor can use `under` to retain a declaration's input
   **assumptions**, not its guarantees. See [GatedCapture](../examples/formal/gated-capture.rspl).
   For an assumption spanning samples, see [stalled-offer requirements and suppliers](../examples/formal/stalled-offer.rspl).

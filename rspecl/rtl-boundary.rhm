@@ -249,7 +249,7 @@ fun check_histories(inputs :: Map, cuts :: Map):
 /* Attach data, never a proof callback. The relation model can mention only child and register state;
    pin-dependent checks and coverage live in a different model that cannot constrain induction. */
 fun attach_refinement(view :: TransactionView, sites :: PairList, cuts :: Map, relation :: LeafModel, checks :: LeafModel,
-                      direct :: maybe(Map.of(String, String)) = #false, forwarded :: PairList = PairList[]):
+                      forwarded :: PairList = PairList[]):
   unless view.batch && !view.hints | error("refinement requires one bound transaction monitor")
   unless view.monitor.outputs.has_key("allowed") | error("monitor requires an allowed verdict")
   unless relation.outputs.keys().sort() == view.monitor.state.keys().sort()
@@ -261,7 +261,7 @@ fun attach_refinement(view :: TransactionView, sites :: PairList, cuts :: Map, r
     for ((name, f) in table):
       unless f.value.type is_a SpecBool | error("expected Boolean refinement predicate: " ++ name)
   TransactionView(view.sampler, view.monitor, view.cycle_names, view.inputs, view.outputs, view.bindings,
-                  PairList[sites, cuts, relation, spec_snapshot(checks), direct, forwarded])
+                  PairList[sites, cuts, relation, spec_snapshot(checks), forwarded])
 
 /* Return only the direct instance definition from the elaborated parent. */
 fun child_definition(top :: Module, site :: String):
@@ -297,13 +297,13 @@ fun child_transaction(top :: maybe(Module), site :: String, spec :: Function):
 
 /* Resolve any deferred signatures on this RTL and type-check the relation before exposing proof data. */
 fun refinement_parts(view :: TransactionView, top :: Module, site_override :: maybe(String)):
-  let PairList[sites, cuts, relation, checks, direct, forwarded] = view.hints || error("transaction view has no refinement block")
+  let PairList[sites, cuts, relation, checks, forwarded] = view.hints || error("transaction view has no refinement block")
   def bound = for Map ((site, cut) in cuts):
     values(site, if cut is_a OccurrenceSpec
                  | (cut.build)(child_definition(top, site_override || site), ~transaction_view: #true) :: TransactionView
                  | cut)
   check_histories(relation.inputs, bound)
-  PairList[sites, bound, spec_snapshot(relation), checks, direct, forwarded]
+  PairList[sites, bound, spec_snapshot(relation), checks, forwarded]
 
 /* Conjoin public behaviors on one flat event vocabulary, without carrying either one's implementation
    hints. Shared pin and event definitions must agree; histories and named guarantees have one owner. */

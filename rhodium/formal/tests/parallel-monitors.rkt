@@ -30,8 +30,8 @@
       (define-values (again? twice) (transaction-step result view held (batch #f a b a b)))
       (check-true again?)
       (check-equal? twice (hash "left_seen" a "right_seen" #f))))
-  (test-case "a same-width cross-lane driver fails the direct-wire obligation before preservation"
-    (check-exn #rx"expected b.mark driven by mark_b, got mark_a"
+  (test-case "wiring the right toggle to mark_a breaks its next-history relation"
+    (check-exn #rx"step/successor not proved"
                (lambda () (prove-transaction crossed_marks (ParallelMarks crossed_marks #:transaction_view #t) children))))
   (test-case "a seal for the other monitor is not interchangeable despite identical pins"
     (check-exn #rx"expected certified evidence" (lambda () (prove-transaction mark_pair view (hash "a" toggle "b" leaf)))))

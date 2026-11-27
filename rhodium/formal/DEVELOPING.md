@@ -328,15 +328,13 @@ and payload mutants as failed induction obligations, and the valid-gated ready
 variant as a passing transfer-preserving change. At depth two, the mask is the
 same width as the payload: driving `head` from `b.mask` must fail because the
 child contract does not expose that output, not because of a width mismatch.
-For an authored `direct_wires` map, the wiring extractor must reject local
-logic, compare every sink to its actual driver, and check shared clock/reset
-before using the child evidence in parent induction. Recheck on the proof's top even if
-the caller supplies a view previously bound to good RTL. The
+Extract the wiring and check the clock/reset of each clocked child on the
+top being proved, even if the caller supplies a view previously bound to good RTL. The
 [transaction induction](transaction-induction.rkt) opens all declared occurrences
 on one actual wire graph, interprets only parent-local RTL, and checks the same
 reset and preservation obligations for QueuePair and [two parallel monitors](tests/parallel-monitors.rkt).
-The generic path samples the public batch and steps each child's sealed monitor;
-the wiring declaration supplies neither a theorem nor evidence. Only the RSPECL path reads the
+The generic path samples the public batch and steps each child's sealed monitor.
+Only the RSPECL path reads the
 declared monitor and evaluates the authored relation on the child histories;
 it must establish an empty projected successor on reset and a defined, bounded
 projection and legal public transition on every admitted non-reset edge. Reversing

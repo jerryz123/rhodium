@@ -221,7 +221,6 @@ expr.macro 'refined_view($view, $parent): $line; ...':
   def covers = MutableMap{}
   def cuts = MutableMap{}
   def mutable forwarded = []
-  def mutable direct = #false
   def mutable sites = []
   /* Namespace IR references by provenance; author expressions use ordinary lexical bindings. */
   fun source(n :: Syntax, sort :: Syntax, prefix :: String, table :: MutableMap, clause :: Syntax):
@@ -239,10 +238,6 @@ expr.macro 'refined_view($view, $parent): $line; ...':
         unless cuts.has_key(site) | syntax_meta.error("forward_batch must name a declared child", child)
         when site in forwarded | syntax_meta.error("duplicate forwarded batch", child)
         forwarded := forwarded ++ [site]
-    | 'direct_wires $rhs ...':
-        when direct | syntax_meta.error("duplicate direct wiring contract", clause)
-        direct := Syntax.make_temp_id("direct_wires")
-        emit('def $direct :: Map.of(String, String) = $rhs ...')
     | 'history $(n :: Identifier) from $(child :: Identifier) . $(field :: Identifier): $t ...':
         unless cuts.has_key(field_name(child)) | syntax_meta.error("history must name the declared child", child)
         def k = "history." ++ field_name(child) ++ "." ++ field_name(field)
@@ -282,11 +277,6 @@ expr.macro 'refined_view($view, $parent): $line; ...':
     | ~else: emit(clause)
   let [site, ...] = sites
   let [forward_site, ...] = forwarded
-  let [option, ...]:
-    cond
-    | forwarded.length() > 0: [direct || '#false', 'PairList[$forward_site, ...]']
-    | direct: [direct]
-    | ~else: []
   let [decl, ...] = declarations()
   'block:
      $decl
@@ -294,7 +284,7 @@ expr.macro 'refined_view($view, $parent): $line; ...':
      def state_inputs = $(map_expr(sources))
      def rel = ir.make_spec(state_inputs, {}, {}, $(map_expr(relations)), $(map_expr(invariants)), {})
      def edge = ir.make_spec(state_inputs ++ $(map_expr(pins)), {}, {}, $(map_expr(checks)), $(map_expr(covers)), {})
-     boundary.attach_refinement($view, PairList[$site, ...], $(map_expr(cuts)), rel, edge, $option, ...)'
+     boundary.attach_refinement($view, PairList[$site, ...], $(map_expr(cuts)), rel, edge, PairList[$forward_site, ...])'
 
 /* Compile a private abstraction at the cycle declaration's lexical site, not in the public monitor. */
 expr.macro 'cycle_relation($cycle): $line; ...':
@@ -448,7 +438,7 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
           unless child_specs.has_key(sink) && child_specs.has_key(source) && sink != source
           | syntax_meta.error("supply requires two distinct declared children", clause)
         refinement := refinement.filter(~keep: fun (item): !has_head(item, {"supply", "under"}))
-        def cut_forms = {"child", "history", "local", "input", "output", "batch", "check", "cover", "direct_wires"}
+        def cut_forms = {"child", "history", "local", "input", "output", "batch", "check", "cover"}
         when has_cycle && !forward_args && !adjacent_source && !refinement.find(fun (c): has_head(c, cut_forms))
         | block:
             projection := Syntax.make_temp_id("cycle_projection")

@@ -120,8 +120,7 @@ fun check_driver(wires :: Map, sink :: String, source :: String):
 /* Open the declared transaction occurrences: child outputs are independent graph inputs and child inputs
    are observed sinks. Only actual parent-local RTL is executed, never a child transition. */
 fun wrapper_wiring(top :: Module, top_layout :: PairList, visible :: Map, child_layout :: Function.of_arity(2),
-                   bool :: HardwareType, comb :: Map = {}, clockless_monitors :: Map = {},
-                   direct :: maybe(Map.of(String, String)) = #false):
+                   bool :: HardwareType, comb :: Map = {}, clockless_monitors :: Map = {}):
   // Both profiles are clockless, but only cycle evidence supplies an executable graph actor.
   def read = layout_reader(top, top_layout, child_layout, comb ++ clockless_monitors)
   def inputs = MutableMap{}
@@ -143,27 +142,15 @@ fun wrapper_wiring(top :: Module, top_layout :: PairList, visible :: Map, child_
           | (if source | inputs | outputs)[pin] := sampled_type(type, bool)
       visit(name, type)
     read(at, m, p, member)
-  def values(children, wires, locals) = extract_cut(top, boundary, if direct | #false | bool)
+  def values(children, wires, locals) = extract_cut(top, boundary, bool)
   unless children.keys().sort() == sites.sort() | error("transaction evidence does not match the RTL occurrences")
   def mutable data_wires = wires
-  def mutable signals = wires
   for (site in visible.keys()):
     unless clockless_monitors.has_key(site)
     | block:
         unless wires[site ++ ".clock"] == "clock" && wires[site ++ ".reset"] == "reset"
         | error("expected direct parent clock/reset at " ++ site)
         data_wires := data_wires.remove(site ++ ".clock")
-        when direct | signals := signals.remove(site ++ ".clock").remove(site ++ ".reset")
-  when direct
-  | block:
-      // Compare physical driver identities before interpreting the graph or assuming any verdict.
-      for ((sink, driver) in direct): check_driver(signals, sink, driver)
-      unless direct.length() == signals.length() | error("direct wiring contract omits a driven sink")
-      let PairList[parent_inputs, _] = top_layout
-      def used = for Set (source in wires.values()): source
-      for ((_, members) in parent_inputs):
-        for (member in members):
-          unless member[0] in used | error("unused input on direct wiring boundary: " ++ member[0])
   composition_snapshot(make_composition(inputs.snapshot(), outputs.snapshot(), locals ++ comb, data_wires))
 
 /* For proof cuts, retain supported parent operations as one derived local actor. Never visit child bodies. */

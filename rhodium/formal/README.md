@@ -729,9 +729,7 @@ promise: ordered two-bit words with at most twice the child depth outstanding
 in each reset epoch. Only the private refinement names occurrences. The runner
 follows the elaborated RTL connections and checks shared clock and reset;
 the spec does not repeat the handoff. `seq_concat` joins the independent child
-histories downstream-first, ignoring unused slots. If exact topology is itself
-a requirement, an optional `direct_wires` map additionally checks every
-data/control sink against its named driver and rules out intervening logic.
+histories downstream-first, ignoring unused slots.
 The generic proof certifies a two-word bound at depth one and a four-word
 bound at depth two. Neither contract promises ready whenever space remains.
 

@@ -215,7 +215,7 @@
 (define (prove-transaction top view children #:child-site [implementation-site #f] #:combinational [drivers (hash)]
                            #:under [parent-spec #f] #:requires [required-view #f] #:suppliers [links (hash)])
   (define premises (declared-premises top parent-spec))
-  (match-define (list sites cuts relation checks direct forwarded) (refinement_parts view top implementation-site))
+  (match-define (list sites cuts relation checks forwarded) (refinement_parts view top implementation-site))
   (define single? (= 1 (length sites)))
   (when (and implementation-site (not single?)) (error 'refinement "site override requires one child"))
   ;; The single-seal shorthand requests forwarding; maps use the declared forwarded occurrences.
@@ -237,7 +237,7 @@
     (lambda (_model monitor layout _ins _outs sample-parent)
       (check-monitor-refinement! check-refinement-phase! top layout Bool bindings monitor sample-parent relation checks
                                 #:combinational (combinational-sites drivers) #:parent-premises premises
-                                #:check-links check-links #:direct-wires direct
+                                #:check-links check-links
                                 #:input-history (and req (input-history-at req)))
       premises)
     #:requirement req))

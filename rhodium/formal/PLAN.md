@@ -33,7 +33,7 @@ procedure, evidence type, or knowledge of a grandchild to obtain a proof.
 | Finding in the current implementation | Destination |
 |---|---|
 | FIFO specs explicitly apply the [RSPECL monitor](../../rspecl/fifo.rspl) to a named event reader. The [passive view](fifo-view.rhm) samples pins for replay and the independent handwritten proofs; it contains no behavior or refinement relation. | Keep protocol semantics in ordinary helpers and relate child histories by name. The language does not infer a FIFO contract from a handshake. |
-| [QueuePair](../../examples/formal/queue-pair.rspl) and [QueuePairSeries](../../examples/formal/queue-pair-series.rspl) express ordering and transfer transport in RSPECL. The handwritten oracles call [FIFO-specific issuers](refinement.rkt) directly, outside generic certification. | The parent's private `refinement:` names child occurrences and projects their public histories. Use the actual RTL handoff in induction, not an assumed internal event. Declare a topology only when it is a separate obligation. |
+| [QueuePair](../../examples/formal/queue-pair.rspl) and [QueuePairSeries](../../examples/formal/queue-pair-series.rspl) express ordering and transfer transport in RSPECL. The handwritten oracles call [FIFO-specific issuers](refinement.rkt) directly, outside generic certification. | The parent's private `refinement:` names child occurrences and projects their public histories. Use the actual RTL handoff in induction, not an assumed internal event. Keep exact-driver checks in independent structural tests. |
 | [ShiftQueue](../../examples/formal/shift-queue.rspl) owns both its RTL-to-cycle and cycle-to-monitor relations. Its [handwritten oracle](tests/shift-queue-induction.rkt) is independent. | Use this split when porting other leaves: register encodings and physical observation rules belong in checked spec hints, not the runner. Keep coverage, fault injection and replay in tests. |
 | [TwoTagROB](../../examples/formal/two-tag-rob.rspl) derives its tag order from typed child history; the [logged parent](../../examples/formal/logged-two-tag-rob.rspl) consumes public retirement history. The [stall spec](../../examples/formal/stalled-offer.rspl) declares its supplier and forwarding occurrence. | Keep implementation invariants and wiring roles in RSPECL. Use proofs on actual pins to discharge requirements; neither declaring a supplier nor matching a port shape is evidence. |
 
@@ -58,7 +58,7 @@ treat a matching batch schema as proof that two monitors agree.
    ShiftQueue's ordering observer reads its generic seal at depths 1–3.
    QueuePair(1) and QueuePair(2) now prove their two- and four-word bounds
    from generic ShiftQueue seals using `child`, `history`, and `relate` on
-   the elaborated wiring. A non-FIFO parallel cut also tests `direct_wires`. QueuePairSeries
+   the elaborated wiring. QueuePairSeries
    reuses the two generic parent seals for the six-word contract.
    [ArbiterQueue](../../examples/formal/prove-arbiter-queue.rhm) now proves
    depths 1–3 from the Arbiter transfer and ShiftQueue FIFO contracts; two-lane
@@ -166,8 +166,8 @@ certifies the declared FIFO monitor using two verified ShiftQueue occurrences
 and a private downstream-first history relation. Each parent seal feeds
 the existing ordering observer; a crossed handoff or reversed relation earns
 no evidence. The same occurrence-based transaction induction also proves
-[two non-FIFO monitors in parallel](tests/parallel-monitors.rspl); that example
-additionally checks an explicit direct-wiring map.
+[two non-FIFO monitors in parallel](tests/parallel-monitors.rspl); crossing
+the inputs breaks the toggle child's history relation.
 The parent fixtures share an admission check: each
 occurrence needs run-local evidence for its actual implementation and full
 contract. No persistent evidence cache or general parent-logic checker is
