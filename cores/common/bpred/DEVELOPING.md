@@ -25,12 +25,14 @@ both RAS copies physically store target bits at the selected width. BTB `pc_widt
 bounds source admission without aliasing: qualify lookup, write commit, and
 invalidation with exact sign-extendability. Shared tags span the larger source
 and target width, so target-only compaction cannot discard source bits.
-Use `CompactPc.fits` for source admission and `.expanded()` after joining BTB
-page tags and low bits; retain the shared-page representation itself.
 Out-of-range writes must not advance either replacement cursor or evict pages;
 they retain update-over-discovery priority. Preserve invalidation-over-write
-priority even on an out-of-range invalidation. Never narrow architectural
-branch-update payloads. Default XLEN keeps standalone predictors lossless.
+priority even on an out-of-range invalidation. Prepare training and discovery
+from the same pre-edge entries and pages, including their dependent-entry
+invalidations. Select the winning plan only at the register writes: a late
+training strobe must not feed the associative search or page allocator.
+Never narrow architectural branch-update payloads. Default XLEN keeps
+standalone predictors lossless.
 Named frontends select widths covering their successful Sv39/Bare PCs and
 normalize every fallback before steering and recording it.
 

@@ -33,6 +33,60 @@ void discover(std::uint64_t pc, std::uint64_t target, bool compressed,
   tick_model();
   discover_in = {};
 }
+void check_write_edge() {
+  invalidate_all_in.pvalid = 1;
+  tick_model();
+  invalidate_all_in = {};
+
+  // Fill the two pages and all three entries. A losing allocation on a
+  // third page would destroy either a source or a target we can still look up.
+  train(0x100, 0x4100, false, true);
+  train(0x4104, 0x4108, false, true);
+  train(0x410c, 0x100, false, true);
+  discover_in = {1, {1, 0x8100, 0xc100, 0, 0}};
+  update_in = {1, {0x100, 0x4110, 1, 0, 1, 1, 2, 2, 0x102}};
+  tick_model();
+  check(0x100, true, 0x4110, 2);
+  CHECK(prediction.pcompressed);
+  check(0x8100, false);
+
+  // A missed not-taken update owns the edge but writes nothing. Next, an
+  // unmatched explicit invalidation vetoes even an otherwise winning update.
+  update_in = {1, {0x8110, 0xc110, 1, 1, 0, 0, 0, 0, 0x8114}};
+  tick_model();
+  update_in.pbits.ptaken = 1;
+  invalidate_in = {1, 0xc120};
+  tick_model();
+  invalidate_in = {};
+  check(0x8110, false);
+  check(0x8100, false);
+  check(0x100, true, 0x4110, 2);
+  check(0x4104, true, 0x4108);
+  check(0x410c, true, 0x100);
+
+  // Keep the training payload live but withdraw its strobe. Only discovery
+  // commits. Its existing target page survives; both references to the
+  // replaced page disappear. The selected row survives its own eviction.
+  update_in.pvalid = 0;
+  discover_in = {1, {1, 0x8100, 0x4120, 0, 1}};
+  tick_model();
+  discover_in = {};
+  check(0x8100, true, 0x4120, 1);
+  check(0x8110, false);
+  check(0x100, false);
+  check(0x4104, true, 0x4108);
+  check(0x410c, false);
+
+  // Discovery and training now hit the very same entry. A resolved
+  // nonbranch removes it without installing either offered destination.
+  discover_in = {1, {1, 0x8100, 0xc100, 0, 0}};
+  update_in = {1, {0x8100, 0x10100, 0, 0, 0, 0, 0, 0, 0x8104}};
+  tick_model();
+  update_in = {};
+  discover_in = {};
+  check(0x8100, false);
+  check(0x4104, true, 0x4108);
+}
 int main() {
   return run_test([] {
     reset = 1;
@@ -131,6 +185,7 @@ int main() {
     check(UINT64_C(0x104), 0);
     check(UINT64_C(0x8100), 0);
     check(UINT64_C(0xc100), 1, UINT64_C(0x8100));
+    check_write_edge();
     // Destinations may alias, but source tags and invalidation stay exact.
     for (auto target : {UINT64_C(0x8000000000000202), UINT64_C(0x0000100000000300),
                         UINT64_C(0xffffffc012345000), UINT64_C(0xfffffffffffffffE)}) {

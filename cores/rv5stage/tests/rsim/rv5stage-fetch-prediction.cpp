@@ -660,6 +660,12 @@ void stimulus() {
     output_ready = 1;
     expect_pc(high_target, high_target + 4);
     CHECK(local_flushes == 0);
+    // The saved occurrence kept the old target, but the write during replay
+    // must have reached the BTB: a fresh lookup follows the new one in S1.
+    expected_requests = {768, 772, 1024};
+    start(770);
+    expect_pc(770, 1024);
+    CHECK(expected_requests.empty() && local_flushes == 0);
 
     initialize(3);
     train(UINT64_C(1282), UINT64_C(1536),
